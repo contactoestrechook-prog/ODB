@@ -3,6 +3,7 @@ import Link from 'next/link';
 const tabs = [
   { href: '/productos', label: 'Productos' },
   { href: '/stock', label: 'Stock' },
+  { href: '/promociones', label: 'Promociones' },
 ];
 
 export function Header({ activo }: { activo: string }) {

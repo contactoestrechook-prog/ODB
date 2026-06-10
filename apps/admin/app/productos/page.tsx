@@ -8,6 +8,8 @@ type Producto = {
   marca: string | null;
   categoria: string | null;
   precio: number | null;
+  precioLista: number | null;
+  descuento: string | null;
   stockTotal: number;
   stockPorSucursal: { sucursal_id: string; cantidad: number; stock_minimo: number }[];
   esAlcohol: boolean;
@@ -83,7 +85,18 @@ export default async function Productos({
                         </p>
                       </td>
                       <td className="px-4 py-3 text-black/70">{p.categoria ?? '—'}</td>
-                      <td className="px-4 py-3 text-right font-medium">{pesos(p.precio)}</td>
+                      <td className="px-4 py-3 text-right">
+                        {p.descuento ? (
+                          <>
+                            <p className="text-xs text-black/40 line-through">{pesos(p.precioLista)}</p>
+                            <p className="font-medium text-[#B82D25]" title={p.descuento}>
+                              {pesos(p.precio)}
+                            </p>
+                          </>
+                        ) : (
+                          <p className="font-medium">{pesos(p.precio)}</p>
+                        )}
+                      </td>
                       {[s1, s2].map((s, i) => (
                         <td key={i} className="px-4 py-3 text-right">
                           <span

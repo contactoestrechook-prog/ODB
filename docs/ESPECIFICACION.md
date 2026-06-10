@@ -122,7 +122,27 @@ Toda acción sensible (ajuste de stock, anulación, cambio de precio, aprobació
 - Catálogo y carrito nativo de WhatsApp o flujo conversacional; el pedido entra al mismo pipeline que pick-up.
 - Notificaciones transaccionales: pedido listo, OC enviada a proveedor, promos segmentadas por tipo de cliente (con opt-in).
 
-## 7. Estadísticas y reportes
+## 7. Módulo financiero y motor de promociones
+
+### 7.1 Motor de descuentos (nivel supermercado)
+- **Alcances**: toda la tienda, una categoría, una marca o un producto puntual.
+- **Tipos**: porcentaje, monto fijo o precio fijo ("a $1.990").
+- **Vigencia obligatoria**: fecha/hora de inicio y de cierre; los descuentos se programan con anticipación y se apagan solos. Estados: programado → vigente → vencido.
+- **Condiciones opcionales**: solo para un segmento de cliente (vip, mayorista…), solo con un medio de pago (estilo "15 % pagando con Mercado Pago los miércoles"), combinable o no con otros descuentos.
+- **Regla de aplicación**: si hay varios descuentos no combinables sobre el mismo producto, gana el de mayor beneficio para el cliente (regla estándar de retail).
+- El precio final **siempre se recalcula en el momento de la venta** (caja, app, web): nunca se confía en un precio calculado antes.
+- Cupones de descuento de un solo uso y campañas por segmento (se apoyan en la clasificación RFM).
+
+### 7.2 Finanzas
+- **Tesorería**: cajas por sucursal, arqueos, retiros y depósitos bancarios.
+- **Cuentas a pagar**: facturas de proveedor, vencimientos, órdenes de pago (ya en módulo compras).
+- **Cuentas a cobrar**: cuenta corriente de clientes mayoristas, límites, antigüedad de saldos.
+- **Conciliación de tarjetas y Mercado Pago**: liquidaciones, comisiones, retenciones; control de que lo cobrado por MP/tarjetas coincida con lo acreditado.
+- **Impuestos**: IVA compras/ventas (libro IVA), IIBB, percepciones y retenciones; exportación para el contador.
+- **Rentabilidad**: margen real por producto/categoría/sucursal considerando descuentos aplicados y costos actualizados (category management, como Jumbo/Carrefour).
+- **Flujo de caja proyectado**: vencimientos a pagar vs. cobros esperados.
+
+## 8. Estadísticas y reportes
 
 - Ranking de mejores/peores productos por unidades, facturación y **margen** (por sucursal y consolidado).
 - Rotación de inventario, días de stock, productos muertos (sin ventas en N días) → candidatos a liquidación.
@@ -131,7 +151,7 @@ Toda acción sensible (ajuste de stock, anulación, cambio de precio, aprobació
 - Estacionalidad: curvas por categoría (verano, fiestas) alimentan las sugerencias de compra.
 - Dashboard de ventas en vivo por sucursal para el dueño.
 
-## 8. Requisitos no funcionales
+## 9. Requisitos no funcionales
 
 - **Disponibilidad de caja**: el POS nunca depende de internet para vender.
 - **Auditoría total**: toda mutación sensible registrada (quién, qué, cuándo, antes/después).
@@ -139,7 +159,7 @@ Toda acción sensible (ajuste de stock, anulación, cambio de precio, aprobació
 - **Datos personales**: consentimiento explícito, biometría delegada al proveedor, derecho de acceso/supresión (Ley 25.326).
 - **Rendimiento**: búsqueda de productos < 200 ms con 13.000+ artículos (índices + búsqueda por trigramas).
 
-## 9. Fuera de alcance (por ahora)
+## 10. Fuera de alcance (por ahora)
 
 - Envíos a domicilio con logística propia (Tienda Nube lo cubre con sus integraciones de envío).
 - Multi-empresa / franquicias.

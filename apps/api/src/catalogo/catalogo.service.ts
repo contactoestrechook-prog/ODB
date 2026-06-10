@@ -40,7 +40,8 @@ export class CatalogoService {
 
     const { data, error } = await query;
     if (error) throw new Error(error.message);
-    return (data ?? []).map((p) => this.formatear(p));
+    const precios = await this.preciosVigentes((data ?? []).map((p: any) => p.id));
+    return (data ?? []).map((p) => this.formatear(p, precios.get(p.id)));
   }
 
   async obtenerPorSku(sku: string) {
@@ -51,7 +52,8 @@ export class CatalogoService {
       .maybeSingle();
     if (error) throw new Error(error.message);
     if (!data) throw new NotFoundException(`No existe el producto ${sku}`);
-    return this.formatear(data);
+    const precios = await this.preciosVigentes([data.id]);
+    return this.formatear(data, precios.get(data.id));
   }
 
   async sucursales() {
@@ -64,10 +66,17 @@ export class CatalogoService {
     return data;
   }
 
-  private formatear(p: any) {
-    // Precio vigente: el más reciente de la lista minorista
-    const precioVigente = (p.precios ?? [])
-      .sort((a: any, b: any) => b.vigente_desde.localeCompare(a.vigente_desde))[0]?.precio ?? null;
+  // Precios con descuentos aplicados, calculados por la función canónica de la base
+  private async preciosVigentes(ids: string[]) {
+    const mapa = new Map<string, any>();
+    if (ids.length === 0) return mapa;
+    const { data, error } = await this.db.rpc('catalogo_precios', { p_ids: ids });
+    if (error) throw new Error(error.message);
+    for (const r of data ?? []) mapa.set(r.producto_id, r);
+    return mapa;
+  }
+
+  private formatear(p: any, precioVigente?: any) {
     const stockTotal = (p.stock ?? []).reduce((s: number, r: any) => s + Number(r.cantidad), 0);
     return {
       sku: p.sku,
@@ -77,7 +86,9 @@ export class CatalogoService {
       volumenMl: p.volumen_ml,
       unidadesPack: p.unidades_pack,
       esAlcohol: p.es_alcohol,
-      precio: precioVigente,
+      precioLista: precioVigente?.precio_lista ?? null,
+      precio: precioVigente?.precio_final ?? precioVigente?.precio_lista ?? null,
+      descuento: precioVigente?.descuento_nombre ?? null,
       stockTotal,
       stockPorSucursal: p.stock ?? [],
       codigosBarras: (p.codigos_barras ?? []).map((c: any) => c.codigo),
