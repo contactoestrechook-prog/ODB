@@ -4,6 +4,7 @@ const tabs = [
   { href: '/productos', label: 'Productos' },
   { href: '/stock', label: 'Stock' },
   { href: '/promociones', label: 'Promociones' },
+  { href: '/compras', label: 'Compras' },
 ];
 
 export function Header({ activo }: { activo: string }) {
