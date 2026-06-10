@@ -83,6 +83,31 @@ export class VentasService {
     };
   }
 
+  // Lo que ve el cajero al pedir el DNI: categoría e historial resumido
+  async clientePorDni(dni: string) {
+    const { data: cliente, error } = await this.db
+      .from('clientes')
+      .select('id, dni, nombre, tipo, puntos, verificado')
+      .eq('dni', dni.trim())
+      .maybeSingle();
+    if (error) throw new BadRequestException(error.message);
+    if (!cliente) return { existe: false, dni: dni.trim() };
+
+    const { data: ventas } = await this.db
+      .from('ventas')
+      .select('total')
+      .eq('cliente_id', cliente.id)
+      .eq('estado', 'completada');
+    const compras = ventas?.length ?? 0;
+    const gastado = (ventas ?? []).reduce((s, v) => s + Number(v.total), 0);
+    return {
+      existe: true,
+      ...cliente,
+      compras,
+      ticketPromedio: compras ? Math.round(gastado / compras) : 0,
+    };
+  }
+
   private async productoIdPorSku(sku: string): Promise<string> {
     const { data, error } = await this.db
       .from('productos')

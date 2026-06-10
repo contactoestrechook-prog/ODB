@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { VentasService } from './ventas.service';
 import type { CrearVentaDto } from './ventas.service';
 import { Roles } from '../auth/decorators';
@@ -21,5 +21,10 @@ export class VentasController {
   @Get('resumen')
   resumen() {
     return this.ventas.resumenHoy();
+  }
+
+  @Get('cliente/:dni')
+  cliente(@Param('dni') dni: string) {
+    return this.ventas.clientePorDni(dni);
   }
 }
