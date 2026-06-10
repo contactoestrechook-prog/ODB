@@ -6,7 +6,8 @@ export const supabaseProvider = {
   provide: SUPABASE,
   useFactory: (): SupabaseClient => {
     const url = process.env.SUPABASE_URL;
-    const key = process.env.SUPABASE_KEY;
+    // service key (escrituras) si está configurada; si no, la pública (solo lectura)
+    const key = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_KEY;
     if (!url || !key) {
       throw new Error('Faltan SUPABASE_URL / SUPABASE_KEY en el .env');
     }

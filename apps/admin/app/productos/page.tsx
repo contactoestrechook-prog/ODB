@@ -1,3 +1,5 @@
+import { Header } from '../ui/Header';
+
 const API = process.env.API_URL ?? 'http://localhost:3001';
 
 type Producto = {
@@ -33,12 +35,7 @@ export default async function Productos({
 
   return (
     <main className="min-h-screen bg-[#F0EBE2]">
-      <header className="bg-black px-6 py-3 flex items-center justify-between">
-        <h1 className="text-white tracking-widest font-medium">
-          O.D.B <span className="text-[#F0EBE2]/70 text-sm tracking-normal font-normal">· Panel administrativo</span>
-        </h1>
-        <span className="text-[#F0EBE2]/70 text-sm">Productos</span>
-      </header>
+      <Header activo="/productos" />
 
       <div className="max-w-5xl mx-auto p-6">
         <form className="mb-4 flex gap-2">
