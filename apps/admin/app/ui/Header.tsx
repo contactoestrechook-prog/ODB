@@ -6,6 +6,7 @@ const tabs = [
   { href: '/stock', label: 'Stock' },
   { href: '/promociones', label: 'Promociones' },
   { href: '/compras', label: 'Compras' },
+  { href: '/listas', label: 'Listas' },
 ];
 
 export function Header({ activo }: { activo: string }) {
@@ -31,6 +32,9 @@ export function Header({ activo }: { activo: string }) {
             {t.label}
           </Link>
         ))}
+        <a href="/api/salir" className="text-[#F0EBE2]/50 hover:text-white" title="Cerrar sesión">
+          Salir
+        </a>
       </nav>
     </header>
   );

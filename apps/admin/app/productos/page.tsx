@@ -1,6 +1,5 @@
 import { Header } from '../ui/Header';
-
-const API = process.env.API_URL ?? 'http://localhost:3001';
+import { apiFetch, API } from '../../lib/api';
 
 type Producto = {
   sku: string;
@@ -24,11 +23,11 @@ export default async function Productos({
   searchParams: Promise<{ buscar?: string }>;
 }) {
   const { buscar } = await searchParams;
-  const url = `${API}/productos${buscar ? `?buscar=${encodeURIComponent(buscar)}` : ''}`;
+  const url = `/productos${buscar ? `?buscar=${encodeURIComponent(buscar)}` : ''}`;
   let productos: Producto[] = [];
   let error: string | null = null;
   try {
-    const res = await fetch(url, { cache: 'no-store' });
+    const res = await apiFetch(url);
     if (!res.ok) throw new Error(`API respondió ${res.status}`);
     productos = await res.json();
   } catch (e) {

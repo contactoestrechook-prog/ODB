@@ -1,6 +1,9 @@
 import { Controller, Get, Param, Query } from '@nestjs/common';
 import { CatalogoService } from './catalogo.service';
+import { Publico } from '../auth/decorators';
 
+// El catálogo es público: es lo que muestra la tienda
+@Publico()
 @Controller()
 export class CatalogoController {
   constructor(private readonly catalogo: CatalogoService) {}

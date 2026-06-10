@@ -1,6 +1,5 @@
 import { Header } from '../ui/Header';
-
-const API = process.env.API_URL ?? 'http://localhost:3001';
+import { apiFetch, API } from '../../lib/api';
 
 type Critico = {
   sku: string;
@@ -41,8 +40,8 @@ export default async function Stock() {
   let error: string | null = null;
   try {
     const [rc, rm] = await Promise.all([
-      fetch(`${API}/stock/bajo-minimo`, { cache: 'no-store' }),
-      fetch(`${API}/stock/movimientos?limite=20`, { cache: 'no-store' }),
+      apiFetch('/stock/bajo-minimo'),
+      apiFetch('/stock/movimientos?limite=20'),
     ]);
     if (!rc.ok || !rm.ok) throw new Error('La API respondió con error');
     criticos = await rc.json();

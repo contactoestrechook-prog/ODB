@@ -1,6 +1,5 @@
 import { Header } from '../ui/Header';
-
-const API = process.env.API_URL ?? 'http://localhost:3001';
+import { apiFetch, API } from '../../lib/api';
 
 type Descuento = {
   id: string;
@@ -50,7 +49,7 @@ export default async function Promociones() {
   let descuentos: Descuento[] = [];
   let error: string | null = null;
   try {
-    const res = await fetch(`${API}/descuentos`, { cache: 'no-store' });
+    const res = await apiFetch('/descuentos');
     if (!res.ok) throw new Error(`API respondió ${res.status}`);
     descuentos = await res.json();
   } catch (e) {
