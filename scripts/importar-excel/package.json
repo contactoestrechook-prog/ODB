@@ -1,0 +1,12 @@
+{
+  "name": "odb-importar-excel",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "importar": "node importar.mjs"
+  },
+  "dependencies": {
+    "pg": "^8.13.0",
+    "xlsx": "^0.18.5"
+  }
+}

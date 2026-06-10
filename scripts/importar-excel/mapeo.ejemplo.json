@@ -1,0 +1,20 @@
+{
+  "_comentario": "Copiar a mapeo.json y ajustar: a la izquierda el campo del sistema, a la derecha el encabezado EXACTO de la columna en el Excel. Dejar en null las columnas que el Excel no tiene.",
+  "archivo": "articulos.xlsx",
+  "hoja": null,
+  "fila_encabezados": 1,
+  "columnas": {
+    "sku": "Código",
+    "codigo_barras": "Cód. Barras",
+    "nombre": "Descripción",
+    "marca": "Marca",
+    "categoria": "Rubro",
+    "costo": "Costo",
+    "precio_minorista": "Precio Venta",
+    "precio_mayorista": null,
+    "stock_sucursal_1": "Stock",
+    "stock_sucursal_2": null,
+    "volumen_ml": null,
+    "unidades_pack": null
+  }
+}
