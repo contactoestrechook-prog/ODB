@@ -1,6 +1,7 @@
 import Link from 'next/link';
 
 const tabs = [
+  { href: '/ventas', label: 'Ventas' },
   { href: '/productos', label: 'Productos' },
   { href: '/stock', label: 'Stock' },
   { href: '/promociones', label: 'Promociones' },
