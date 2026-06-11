@@ -23,7 +23,14 @@ export type Producto = {
   categoria: string | null;
 };
 
-type Cliente = { dni: string; tipo: string; nombre?: string | null; puntos?: number };
+type Cliente = {
+  dni: string;
+  tipo: string;
+  nombre?: string | null;
+  puntos?: number;
+  token?: string;
+  verificado?: boolean;
+};
 type Renglon = Producto & { cantidad: number };
 
 type Estado = {

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import {
-  FlatList, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
+  FlatList, Image, Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
 } from 'react-native';
 import { API, COLORES, pesos, useEstado, type Producto } from '../../lib/estado';
 
@@ -49,17 +49,59 @@ function Tarjeta({ p }: { p: Producto }) {
 
 export default function Inicio() {
   const { cliente, setCliente } = useEstado();
+  const [modo, setModo] = useState<'login' | 'registro'>('login');
   const [dni, setDni] = useState('');
+  const [nombre, setNombre] = useState('');
+  const [clave, setClave] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [aviso, setAviso] = useState<string | null>(null);
+  const [cargando, setCargando] = useState(false);
   const [promos, setPromos] = useState<Producto[]>([]);
   const [paraVos, setParaVos] = useState<Producto[]>([]);
   const [cargado, setCargado] = useState(false);
 
-  async function identificar() {
-    if (!dni.trim()) return;
-    const res = await fetch(`${API}/app/perfil/${encodeURIComponent(dni.trim())}`);
-    const perfil = res.ok ? await res.json() : { tipo: 'nuevo' };
-    setCliente({ dni: dni.trim(), tipo: perfil.tipo, nombre: perfil.nombre, puntos: perfil.puntos });
-    cargarSecciones(perfil.tipo);
+  async function autenticar() {
+    if (cargando) return;
+    setCargando(true);
+    setError(null);
+    try {
+      const ruta = modo === 'login' ? '/app/login' : '/app/registro';
+      const res = await fetch(`${API}${ruta}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(modo === 'login' ? { dni, clave } : { dni, nombre, clave }),
+      });
+      const datos = await res.json();
+      if (!res.ok) throw new Error(datos.message ?? 'No se pudo entrar');
+      setCliente({
+        dni: datos.cliente.dni,
+        tipo: datos.cliente.tipo,
+        nombre: datos.cliente.nombre,
+        puntos: datos.cliente.puntos,
+        verificado: datos.cliente.verificado,
+        token: datos.token,
+      });
+      cargarSecciones(datos.cliente.tipo);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error');
+    }
+    setCargando(false);
+  }
+
+  async function verificarIdentidad() {
+    if (!cliente?.token) return;
+    setAviso(null);
+    const res = await fetch(`${API}/app/verificacion`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${cliente.token}` },
+    });
+    const datos = await res.json();
+    if (res.ok && datos.url) {
+      Linking.openURL(datos.url);
+      setAviso('Completá la verificación en la pantalla que se abrió. Al terminar, tu cuenta queda verificada sola.');
+    } else {
+      setAviso(datos.message ?? 'No se pudo iniciar la verificación');
+    }
   }
 
   async function cargarSecciones(tipo: string) {
@@ -75,30 +117,63 @@ export default function Inicio() {
 
   if (!cliente) {
     return (
-      <View style={est.pantallaCrema}>
+      <ScrollView style={est.pantallaCrema}>
         <View style={est.cajaLogin}>
           <Text style={est.logo}>O.D.B</Text>
           <Text style={est.subtitulo}>Premium Market</Text>
-          <Text style={est.texto}>
-            Ingresá tu DNI para ver precios y ofertas pensadas para vos. La verificación de
-            identidad (DNI + rostro) llega con el registro completo.
-          </Text>
+
+          <View style={est.pestanas}>
+            {(['login', 'registro'] as const).map((m) => (
+              <Pressable
+                key={m}
+                onPress={() => { setModo(m); setError(null); }}
+                style={[est.pestana, modo === m && est.pestanaActiva]}
+              >
+                <Text style={[est.pestanaTexto, modo === m && { color: COLORES.blanco }]}>
+                  {m === 'login' ? 'Entrar' : 'Crear cuenta'}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+
+          {modo === 'registro' && (
+            <TextInput
+              value={nombre}
+              onChangeText={setNombre}
+              placeholder="Tu nombre"
+              style={est.input}
+              placeholderTextColor="#999"
+            />
+          )}
           <TextInput
             value={dni}
             onChangeText={setDni}
-            placeholder="Tu DNI"
+            placeholder="DNI"
             keyboardType="number-pad"
             style={est.input}
             placeholderTextColor="#999"
           />
-          <Pressable onPress={identificar} style={est.botonPrimario}>
-            <Text style={est.botonPrimarioTexto}>Entrar</Text>
+          <TextInput
+            value={clave}
+            onChangeText={setClave}
+            placeholder="Clave (mínimo 6 caracteres)"
+            secureTextEntry
+            style={est.input}
+            placeholderTextColor="#999"
+          />
+
+          {error && <Text style={est.error}>{error}</Text>}
+
+          <Pressable onPress={autenticar} disabled={cargando} style={est.botonPrimario}>
+            <Text style={est.botonPrimarioTexto}>
+              {cargando ? 'Un momento…' : modo === 'login' ? 'Entrar' : 'Crear mi cuenta'}
+            </Text>
           </Pressable>
           <Pressable onPress={() => { setCliente({ dni: '', tipo: 'nuevo' }); cargarSecciones('nuevo'); }}>
-            <Text style={est.link}>Seguir sin identificarme</Text>
+            <Text style={est.link}>Seguir sin cuenta (solo mirar)</Text>
           </Pressable>
         </View>
-      </View>
+      </ScrollView>
     );
   }
 
@@ -114,6 +189,20 @@ export default function Inicio() {
           <Text style={est.chipNegroTexto}>{ETIQUETA_TIPO[cliente.tipo] ?? cliente.tipo}</Text>
         </View>
       </View>
+
+      {cliente.token && !cliente.verificado && (
+        <Pressable onPress={verificarIdentidad} style={est.bannerVerificar}>
+          <Text style={est.bannerVerificarTexto}>
+            🛡 Verificá tu identidad (DNI + rostro) para comprar bebidas y usar el self-checkout →
+          </Text>
+        </Pressable>
+      )}
+      {cliente.verificado && (
+        <View style={est.bannerVerificado}>
+          <Text style={est.bannerVerificadoTexto}>✓ Identidad verificada · mayor de 18 confirmado</Text>
+        </View>
+      )}
+      {aviso && <Text style={est.aviso}>{aviso}</Text>}
 
       <Text style={est.tituloSeccion}>Ofertas de la semana</Text>
       <FlatList
@@ -140,21 +229,30 @@ export default function Inicio() {
 
 const est = StyleSheet.create({
   pantallaCrema: { flex: 1, backgroundColor: COLORES.crema },
-  cajaLogin: { margin: 24, marginTop: 64, backgroundColor: COLORES.blanco, borderRadius: 20, padding: 24 },
+  cajaLogin: { margin: 24, marginTop: 48, backgroundColor: COLORES.blanco, borderRadius: 20, padding: 24 },
   logo: { fontSize: 32, fontWeight: '700', letterSpacing: 4, textAlign: 'center', color: COLORES.negro },
   subtitulo: { textAlign: 'center', color: COLORES.rojo, fontWeight: '600', marginBottom: 16 },
-  texto: { color: '#555', fontSize: 13, lineHeight: 19, marginBottom: 16, textAlign: 'center' },
+  pestanas: { flexDirection: 'row', backgroundColor: COLORES.crema, borderRadius: 22, padding: 4, marginBottom: 16 },
+  pestana: { flex: 1, paddingVertical: 9, borderRadius: 18, alignItems: 'center' },
+  pestanaActiva: { backgroundColor: COLORES.negro },
+  pestanaTexto: { fontSize: 13, fontWeight: '600', color: COLORES.negro },
   input: {
-    borderWidth: 1, borderColor: '#ddd', borderRadius: 12, padding: 12, fontSize: 16,
-    marginBottom: 12, color: COLORES.negro, backgroundColor: COLORES.blanco,
+    borderWidth: 1, borderColor: '#ddd', borderRadius: 12, padding: 12, fontSize: 15,
+    marginBottom: 10, color: COLORES.negro, backgroundColor: COLORES.blanco,
   },
-  botonPrimario: { backgroundColor: COLORES.rojo, borderRadius: 24, padding: 14, alignItems: 'center' },
+  error: { color: COLORES.rojoOscuro, fontSize: 12, marginBottom: 10 },
+  botonPrimario: { backgroundColor: COLORES.rojo, borderRadius: 24, padding: 14, alignItems: 'center', marginTop: 4 },
   botonPrimarioTexto: { color: COLORES.blanco, fontWeight: '600' },
   link: { textAlign: 'center', color: '#888', fontSize: 12, marginTop: 14, textDecorationLine: 'underline' },
   bannerRojo: { backgroundColor: COLORES.rojo, padding: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  bannerHola: { color: COLORES.blanco, fontSize: 16, fontWeight: '600' },
+  bannerHola: { color: COLORES.blanco, fontSize: 16, fontWeight: '600', flex: 1, marginRight: 8 },
   chipNegro: { backgroundColor: COLORES.negro, borderRadius: 12, paddingHorizontal: 10, paddingVertical: 4 },
   chipNegroTexto: { color: COLORES.blanco, fontSize: 11, fontWeight: '600' },
+  bannerVerificar: { backgroundColor: COLORES.negro, padding: 12, paddingHorizontal: 16 },
+  bannerVerificarTexto: { color: COLORES.crema, fontSize: 12, lineHeight: 17 },
+  bannerVerificado: { backgroundColor: '#2F5233', padding: 8, paddingHorizontal: 16 },
+  bannerVerificadoTexto: { color: COLORES.blanco, fontSize: 12, fontWeight: '600' },
+  aviso: { margin: 12, marginBottom: 0, fontSize: 12, color: COLORES.rojoOscuro, paddingHorizontal: 4 },
   tituloSeccion: { fontSize: 16, fontWeight: '600', color: COLORES.negro, margin: 16, marginBottom: 8 },
   tarjeta: { backgroundColor: COLORES.blanco, borderRadius: 14, padding: 12, width: 150, marginHorizontal: 4 },
   foto: { width: '100%', height: 90, borderRadius: 10, marginBottom: 8 },
