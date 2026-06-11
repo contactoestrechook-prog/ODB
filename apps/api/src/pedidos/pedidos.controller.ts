@@ -52,6 +52,26 @@ export class PedidosController {
     return this.pedidos.cola();
   }
 
+  // --- Endpoints públicos para la app del cliente ---
+  // TODO(produccion): rate limit + auth de cliente (hoy el id del pedido es la credencial)
+  @Publico()
+  @Post('app/pedidos')
+  crearDesdeApp(@Body() body: { sucursalId: string; items: { sku: string; cantidad: number }[]; dni?: string }) {
+    return this.pedidos.crearDesdeApp(body);
+  }
+
+  @Publico()
+  @Get('app/pedidos/:id')
+  obtener(@Param('id') id: string) {
+    return this.pedidos.obtener(id);
+  }
+
+  @Publico()
+  @Get('app/perfil/:dni')
+  perfil(@Param('dni') dni: string) {
+    return this.pedidos.perfil(dni);
+  }
+
   @Roles('deposito', 'cajero', 'gerente', 'dueno')
   @Post('pedidos/:id/avanzar')
   avanzar(@Param('id') id: string, @Body() body: { estado: string }, @Req() req: any) {

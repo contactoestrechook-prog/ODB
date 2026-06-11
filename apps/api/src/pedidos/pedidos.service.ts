@@ -160,6 +160,51 @@ export class PedidosService {
     return pedido.id;
   }
 
+  // --- Pedidos desde la app del cliente (pick-up) ---
+  async crearDesdeApp(p: { sucursalId: string; items: { sku: string; cantidad: number }[]; dni?: string }) {
+    if (!p.items?.length) throw new BadRequestException('El pedido está vacío');
+    const items: { producto_id: string; cantidad: number }[] = [];
+    for (const i of p.items) {
+      const { data } = await this.db.from('productos').select('id').eq('sku', i.sku).maybeSingle();
+      if (!data) throw new BadRequestException(`No existe el producto ${i.sku}`);
+      items.push({ producto_id: data.id, cantidad: Number(i.cantidad) });
+    }
+    const referencia = `PICKUP-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+    const pedidoId = await this.crear({
+      canal: 'pickup',
+      sucursalId: p.sucursalId,
+      items,
+      clienteDni: p.dni,
+      referencia,
+    });
+    return this.obtener(pedidoId);
+  }
+
+  // Perfil mínimo para personalizar la home de la app (solo el segmento)
+  async perfil(dni: string) {
+    const { data } = await this.db
+      .from('clientes')
+      .select('nombre, tipo, puntos')
+      .eq('dni', dni.trim())
+      .maybeSingle();
+    if (!data) return { existe: false, tipo: 'nuevo' };
+    return { existe: true, nombre: data.nombre, tipo: data.tipo, puntos: data.puntos };
+  }
+
+  async obtener(pedidoId: string) {
+    const { data, error } = await this.db
+      .from('pedidos')
+      .select(
+        `id, canal, estado, total, qr_retiro, creado_en, listo_en,
+         sucursal:sucursales(nombre, direccion),
+         items:pedidos_items(cantidad, precio_unitario, producto:productos(sku, nombre))`,
+      )
+      .eq('id', pedidoId)
+      .single();
+    if (error || !data) throw new BadRequestException('No existe el pedido');
+    return data;
+  }
+
   // --- Cola del depósito ---
   async cola() {
     const { data, error } = await this.db
