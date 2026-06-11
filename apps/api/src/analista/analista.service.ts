@@ -245,6 +245,131 @@ export class AnalistaService {
     return { respuesta: datos.respuesta, ordenes };
   }
 
+  // Propone boxes/armados combinando bebidas y fiambrería, con contexto comercial
+  async armados(contexto?: string) {
+    if (!process.env.ANTHROPIC_API_KEY) {
+      throw new BadRequestException('Falta la ANTHROPIC_API_KEY en apps/api/.env');
+    }
+    const { data: prods } = await this.db
+      .from('productos')
+      .select('id, sku, nombre, costo, categoria:categorias!inner(nombre), stock(cantidad)')
+      .eq('activo', true);
+    const conStock = (prods ?? []).filter(
+      (p: any) => (p.stock ?? []).reduce((s: number, r: any) => s + Number(r.cantidad), 0) > 0,
+    );
+    const { data: precios } = await this.db.rpc('catalogo_precios', {
+      p_ids: conStock.map((p: any) => p.id),
+    });
+    const precioPor = new Map((precios ?? []).map((r: any) => [r.producto_id, Number(r.precio_final)]));
+
+    const catalogo = conStock
+      .map((p: any) => `${p.sku} · ${p.nombre} · ${p.categoria.nombre} · $${Math.round(precioPor.get(p.id) ?? 0)}`)
+      .join('\n');
+
+    const hoy = new Date().toLocaleDateString('es-AR', { day: 'numeric', month: 'long', year: 'numeric' });
+    const esquema = {
+      type: 'object',
+      properties: {
+        armados: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              nombre: { type: 'string', description: 'Nombre marketinero del box' },
+              ocasion: { type: 'string', description: 'Para qué momento/fecha se vende' },
+              descripcion: { type: 'string', description: 'Una o dos líneas vendedoras, texto plano' },
+              items: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: { sku: { type: 'string' }, cantidad: { type: 'number' } },
+                  required: ['sku', 'cantidad'],
+                  additionalProperties: false,
+                },
+              },
+              precioSugerido: { type: 'number', description: 'Precio del box (menor a la suma de los componentes)' },
+            },
+            required: ['nombre', 'ocasion', 'descripcion', 'items', 'precioSugerido'],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ['armados'],
+      additionalProperties: false,
+    };
+
+    const claude = new Anthropic();
+    const respuesta = await claude.messages.create({
+      model: 'claude-opus-4-8',
+      max_tokens: 4000,
+      system: [
+        {
+          type: 'text',
+          text: `Sos el armador de combos de O.D.B Premium Market (outlet de bebidas con fiambrería, Argentina). Hoy es ${hoy} — tené en cuenta el calendario comercial argentino (Día del Padre tercer domingo de junio, invierno, mundial si aplica, fiestas, etc.).
+
+Armá 3 o 4 boxes vendibles combinando SOLO productos del catálogo de abajo (SKU exactos). Reglas:
+- Mezclá categorías con criterio (vino tinto + fiambres y quesos = picada; espumante + dulce; cerveza + snacks; whisky solo premium).
+- Precio sugerido del box: entre 10 % y 15 % menos que la suma de los componentes (el ahorro tiene que ser real pero rentable).
+- Nombres cortos y argentinos, sin cursilería. Descripción de texto plano.
+- Apuntá a tickets distintos: uno económico, uno medio, uno premium.`,
+          cache_control: { type: 'ephemeral' },
+        },
+        { type: 'text', text: `Catálogo con stock:\n${catalogo}` },
+      ],
+      output_config: { format: { type: 'json_schema', schema: esquema as any } },
+      messages: [
+        {
+          role: 'user',
+          content: contexto?.trim()
+            ? `Armá boxes para este contexto: ${contexto.trim()}`
+            : 'Armá los boxes de esta semana.',
+        },
+      ],
+    });
+
+    const texto = respuesta.content.find((b) => b.type === 'text');
+    const datos = JSON.parse(texto && 'text' in texto ? texto.text : '{"armados":[]}');
+
+    // Recalculo los números reales (la IA propone, los precios los valida el sistema)
+    const skuPor = new Map(conStock.map((p: any) => [p.sku, p]));
+    const armados = (datos.armados ?? [])
+      .map((a: any) => {
+        const detalle = (a.items ?? [])
+          .map((i: any) => {
+            const p = skuPor.get(i.sku);
+            if (!p) return null;
+            return {
+              sku: i.sku,
+              nombre: p.nombre,
+              cantidad: Number(i.cantidad),
+              precioUnitario: Math.round(precioPor.get(p.id) ?? 0),
+              costoUnitario: Number(p.costo ?? 0),
+            };
+          })
+          .filter(Boolean);
+        if (!detalle.length) return null;
+        const sumaLista = detalle.reduce((s: number, i: any) => s + i.precioUnitario * i.cantidad, 0);
+        const costoTotal = detalle.reduce((s: number, i: any) => s + i.costoUnitario * i.cantidad, 0);
+        // el precio del box queda acotado a la banda 85-92% de la suma
+        const precio = Math.round(
+          Math.min(Math.max(Number(a.precioSugerido), sumaLista * 0.85), sumaLista * 0.92) / 10,
+        ) * 10;
+        return {
+          nombre: a.nombre,
+          ocasion: a.ocasion,
+          descripcion: a.descripcion,
+          items: detalle,
+          sumaLista: Math.round(sumaLista),
+          precioBox: precio,
+          ahorro: Math.round(sumaLista - precio),
+          margenPct: costoTotal > 0 ? Math.round(((precio - costoTotal) / costoTotal) * 100) : null,
+        };
+      })
+      .filter(Boolean);
+
+    return { armados };
+  }
+
   private async aumentosRecientes(): Promise<string> {
     const hace45 = new Date(Date.now() - 45 * 86400_000).toISOString();
     const { data } = await this.db

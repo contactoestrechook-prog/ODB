@@ -17,4 +17,9 @@ export class AnalistaController {
   charlar(@Body() body: { mensajes: MensajeChat[] }) {
     return this.analista.charlar(body.mensajes);
   }
+
+  @Post('armados')
+  armados(@Body() body: { contexto?: string }) {
+    return this.analista.armados(body?.contexto);
+  }
 }

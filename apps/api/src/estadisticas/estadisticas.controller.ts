@@ -1,10 +1,14 @@
 import { BadRequestException, Controller, Get, Inject } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
+import { AnalistaService } from '../analista/analista.service';
 
 @Controller('estadisticas')
 export class EstadisticasController {
-  constructor(@Inject(SUPABASE) private readonly db: SupabaseClient) {}
+  constructor(
+    @Inject(SUPABASE) private readonly db: SupabaseClient,
+    private readonly analista: AnalistaService,
+  ) {}
 
   @Get()
   async resumen() {
@@ -51,7 +55,8 @@ export class EstadisticasController {
       }
     }
 
-    // ranking por producto
+    // ranking por producto (con ventana 7 días para detectar momentum)
+    const hace7 = new Date(Date.now() - 7 * 86400_000).toISOString();
     const porProducto = new Map<string, any>();
     for (const i of items) {
       const sku = i.producto?.sku ?? '?';
@@ -59,11 +64,13 @@ export class EstadisticasController {
         sku,
         nombre: i.producto?.nombre ?? '?',
         unidades: 0,
+        unidades7: 0,
         facturado: 0,
         margen: 0,
       };
       const cantidad = Number(i.cantidad);
       acc.unidades += cantidad;
+      if (i.venta.vendida_en >= hace7) acc.unidades7 += cantidad;
       acc.facturado += cantidad * Number(i.precio_unitario);
       acc.margen += cantidad * (Number(i.precio_unitario) - Number(i.costo_unitario ?? 0));
       porProducto.set(sku, acc);
@@ -71,9 +78,21 @@ export class EstadisticasController {
     const ranking = [...porProducto.values()].map((r) => ({
       ...r,
       unidades: Math.round(r.unidades),
+      unidades7: Math.round(r.unidades7),
       facturado: Math.round(r.facturado),
       margen: Math.round(r.margen),
     }));
+
+    // ganadores: aceleran su ritmo (última semana vs promedio del mes) con volumen real
+    const ganadores = ranking
+      .map((r) => {
+        const vd30 = r.unidades / 30;
+        const vd7 = r.unidades7 / 7;
+        return { ...r, crecimientoPct: vd30 > 0 ? Math.round((vd7 / vd30 - 1) * 100) : 0 };
+      })
+      .filter((r) => r.unidades7 >= 10 && r.crecimientoPct >= 10)
+      .sort((a, b) => b.crecimientoPct - a.crecimientoPct)
+      .slice(0, 8);
 
     // medios de pago y canales
     const porMedio = new Map<string, number>();
@@ -99,8 +118,65 @@ export class EstadisticasController {
       topFacturacion: [...ranking].sort((a, b) => b.facturado - a.facturado).slice(0, 10),
       topMargen: [...ranking].sort((a, b) => b.margen - a.margen).slice(0, 10),
       peores: [...ranking].sort((a, b) => a.unidades - b.unidades).slice(0, 10),
+      ganadores,
+      promocionables: await this.promocionables(),
       porMedio: [...porMedio.entries()].map(([medio, total]) => ({ medio, total: Math.round(total) })),
       porCanal: [...porCanal.entries()].map(([canal, total]) => ({ canal, total: Math.round(total) })),
     };
+  }
+
+  // Candidatos ideales para promocionar: hay que mover stock (sobrestock, sin
+  // rotación o vencimiento cercano) y el margen banca el descuento
+  private async promocionables() {
+    const [filas, lotesR] = await Promise.all([
+      this.analista.metricas(),
+      this.db
+        .from('lotes')
+        .select('vencimiento, cantidad, producto:productos(sku)')
+        .gt('cantidad', 0),
+    ]);
+
+    const porVencer = new Map<string, number>();
+    const hoy = new Date().setHours(0, 0, 0, 0);
+    for (const l of (lotesR.data ?? []) as any[]) {
+      const dias = Math.round((new Date(l.vencimiento).getTime() - hoy) / 86400_000);
+      const sku = l.producto?.sku;
+      if (sku && dias >= 0 && dias <= 20) {
+        porVencer.set(sku, Math.min(porVencer.get(sku) ?? 999, dias));
+      }
+    }
+
+    const porSku = new Map<string, any>();
+    for (const f of filas) {
+      const previo = porSku.get(f.sku);
+      const motivos: string[] = previo?.motivos ?? [];
+      if (f.estado === 'sobrestock' && !motivos.includes('sobrestock'))
+        motivos.push('sobrestock');
+      if (f.estado === 'muerto' && !motivos.includes('sin rotación'))
+        motivos.push('sin rotación');
+      porSku.set(f.sku, {
+        sku: f.sku,
+        nombre: f.producto,
+        margenPct: Math.max(previo?.margenPct ?? 0, f.margenPct ?? 0),
+        stockTotal: (previo?.stockTotal ?? 0) + f.stock,
+        capital: (previo?.capital ?? 0) + Math.round(f.stock * Number(f.costo ?? 0)),
+        motivos,
+      });
+    }
+    for (const [sku, dias] of porVencer) {
+      const r = porSku.get(sku);
+      if (r) r.motivos.push(`vence en ${dias} días`);
+    }
+
+    return [...porSku.values()]
+      .filter((r) => r.motivos.length > 0 && r.margenPct >= 25)
+      .map((r) => ({
+        ...r,
+        descuentoSugerido: r.motivos.some((m: string) => m.startsWith('vence'))
+          ? 30
+          : Math.min(Math.round(r.margenPct / 2), 25),
+      }))
+      .sort((a, b) => b.capital - a.capital)
+      .slice(0, 12);
   }
 }

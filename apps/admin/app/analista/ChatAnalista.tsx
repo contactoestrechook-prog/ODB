@@ -11,14 +11,27 @@ type Orden = {
   proveedorId: string;
   sucursalId: string;
 };
-type Mensaje = { rol: 'usuario' | 'analista'; texto: string; ordenes?: Orden[] };
+type Armado = {
+  nombre: string;
+  ocasion: string;
+  descripcion: string;
+  items: { sku: string; nombre: string; cantidad: number; precioUnitario: number }[];
+  sumaLista: number;
+  precioBox: number;
+  ahorro: number;
+  margenPct: number | null;
+};
+
+type Mensaje = { rol: 'usuario' | 'analista'; texto: string; ordenes?: Orden[]; armados?: Armado[] };
 
 const SUGERENCIAS = [
   '¿Qué compro esta semana?',
-  '¿Qué productos están muertos?',
+  'Armame boxes para vender 🎁',
   '¿Dónde tengo plata inmovilizada?',
   '¿Qué costos aumentaron?',
 ];
+
+const pesos = (n: number) => '$' + Math.round(n).toLocaleString('es-AR');
 
 export function ChatAnalista() {
   const [mensajes, setMensajes] = useState<Mensaje[]>([
@@ -38,9 +51,36 @@ export function ChatAnalista() {
     finRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [mensajes, pensando]);
 
+  async function pedirArmados() {
+    setMensajes((m) => [...m, { rol: 'usuario', texto: 'Armame boxes para vender' }]);
+    setPensando(true);
+    try {
+      const res = await fetch('/api/armados', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const datos = await res.json();
+      setMensajes((m) => [
+        ...m,
+        res.ok
+          ? {
+              rol: 'analista',
+              texto: 'Te propongo estos armados con lo que hay en stock (precios y márgenes ya verificados):',
+              armados: datos.armados,
+            }
+          : { rol: 'analista', texto: `(${datos.message ?? 'No pude armar los boxes'})` },
+      ]);
+    } catch {
+      setMensajes((m) => [...m, { rol: 'analista', texto: '(Sin conexión con la API)' }]);
+    }
+    setPensando(false);
+  }
+
   async function enviar(textoMensaje: string) {
     const limpio = textoMensaje.trim();
     if (!limpio || pensando) return;
+    if (limpio.includes('Armame boxes')) return pedirArmados();
     const nuevos: Mensaje[] = [...mensajes, { rol: 'usuario', texto: limpio }];
     setMensajes(nuevos);
     setTexto('');
@@ -114,6 +154,34 @@ export function ChatAnalista() {
             >
               {m.texto}
             </div>
+            {m.armados && (
+              <div className="mt-2 grid sm:grid-cols-2 gap-2 max-w-[95%]">
+                {m.armados.map((a, j) => (
+                  <div key={j} className="rounded-xl border border-black/10 bg-white p-3 flex flex-col">
+                    <p className="text-sm font-medium text-black">🎁 {a.nombre}</p>
+                    <p className="text-xs text-[#932A1F] font-medium">{a.ocasion}</p>
+                    <p className="text-xs text-black/60 mt-1">{a.descripcion}</p>
+                    <ul className="mt-2 text-xs text-black/70 space-y-0.5">
+                      {a.items.map((it) => (
+                        <li key={it.sku}>
+                          {it.cantidad}× {it.nombre}
+                        </li>
+                      ))}
+                    </ul>
+                    <div className="mt-auto pt-2 flex items-baseline justify-between">
+                      <div>
+                        <p className="text-xs text-black/40 line-through">{pesos(a.sumaLista)}</p>
+                        <p className="text-lg font-medium text-black">{pesos(a.precioBox)}</p>
+                      </div>
+                      <div className="text-right text-xs">
+                        <p className="text-[#932A1F] font-medium">ahorra {pesos(a.ahorro)}</p>
+                        {a.margenPct != null && <p className="text-black/40">margen {a.margenPct} %</p>}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
             {m.ordenes?.map((o, j) => {
               const clave = `${i}-${j}`;
               return (

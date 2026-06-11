@@ -117,12 +117,84 @@ export default async function Estadisticas() {
           </div>
         </section>
 
+        {d.ganadores.length > 0 && (
+          <section className="rounded-xl bg-white overflow-hidden">
+            <h2 className="px-4 py-3 border-b border-black/10 font-medium text-black text-sm">
+              Ganadores del momento (aceleran su ritmo esta semana)
+            </h2>
+            <table className="w-full text-sm text-black">
+              <tbody>
+                {d.ganadores.map((g: any) => (
+                  <tr key={g.sku} className="border-b border-black/5 last:border-0">
+                    <td className="px-4 py-2.5">
+                      <p className="text-sm">{g.nombre}</p>
+                      <p className="text-xs text-black/40">{g.sku} · {g.unidades7} u. esta semana</p>
+                    </td>
+                    <td className="px-4 py-2.5 text-right">
+                      <span className="rounded-full bg-black px-2.5 py-0.5 text-xs font-medium text-white">
+                        ▲ +{g.crecimientoPct} %
+                      </span>
+                    </td>
+                    <td className="px-4 py-2.5 text-right text-xs text-black/50 w-28">
+                      margen {pesos(g.margen)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </section>
+        )}
+
         <div className="grid md:grid-cols-2 gap-4">
           <TablaRanking titulo="Más vendidos (unidades)" filas={d.topUnidades} valor="unidades" formato="unidades" />
           <TablaRanking titulo="Más facturación" filas={d.topFacturacion} valor="facturado" formato="pesos" />
           <TablaRanking titulo="Más margen (la plata de verdad)" filas={d.topMargen} valor="margen" formato="pesos" />
           <TablaRanking titulo="Peores (candidatos a liquidar)" filas={d.peores} valor="unidades" formato="unidades" />
         </div>
+
+        {d.promocionables.length > 0 && (
+          <section className="rounded-xl bg-white overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-black/10">
+              <h2 className="font-medium text-black text-sm">Ideales para promocionar</h2>
+              <span className="text-xs text-black/40">
+                hay que moverlos y el margen banca el descuento
+              </span>
+            </div>
+            <table className="w-full text-sm text-black">
+              <tbody>
+                {d.promocionables.map((p: any) => (
+                  <tr key={p.sku} className="border-b border-black/5 last:border-0">
+                    <td className="px-4 py-2.5">
+                      <p className="text-sm">{p.nombre}</p>
+                      <p className="text-xs text-black/40">
+                        {p.sku} · {p.stockTotal} u. · ${Math.round(p.capital).toLocaleString('es-AR')} inmovilizados
+                      </p>
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <div className="flex flex-wrap gap-1 justify-end">
+                        {p.motivos.map((m: string) => (
+                          <span
+                            key={m}
+                            className={
+                              'rounded-full px-2.5 py-0.5 text-xs font-medium ' +
+                              (m.startsWith('vence') ? 'bg-[#B82D25] text-white' : 'bg-[#F0EBE2] text-black')
+                            }
+                          >
+                            {m}
+                          </span>
+                        ))}
+                      </div>
+                    </td>
+                    <td className="px-4 py-2.5 text-right text-xs w-32">
+                      <span className="font-medium text-[#932A1F]">sugerido −{p.descuentoSugerido} %</span>
+                      <p className="text-black/40">margen {Math.round(p.margenPct)} %</p>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </section>
+        )}
 
         <section className="rounded-xl bg-white p-4">
           <h2 className="font-medium text-black text-sm mb-3">Medios de pago (30 días)</h2>

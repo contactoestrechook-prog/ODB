@@ -37,15 +37,32 @@ export const dynamic = 'force-dynamic';
 export default async function Stock() {
   let criticos: Critico[] = [];
   let movimientos: Movimiento[] = [];
+  let vencimientos: {
+    total: number;
+    capitalEnRiesgo: number;
+    lotes: {
+      sku: string;
+      producto: string;
+      sucursal: string;
+      lote: string;
+      dias: number;
+      cantidad: number;
+      capitalEnRiesgo: number;
+      estado: string;
+      descuentoSugerido: number | null;
+    }[];
+  } | null = null;
   let error: string | null = null;
   try {
-    const [rc, rm] = await Promise.all([
+    const [rc, rm, rv] = await Promise.all([
       apiFetch('/stock/bajo-minimo'),
       apiFetch('/stock/movimientos?limite=20'),
+      apiFetch('/vencimientos'),
     ]);
     if (!rc.ok || !rm.ok) throw new Error('La API respondió con error');
     criticos = await rc.json();
     movimientos = await rm.json();
+    if (rv.ok) vencimientos = await rv.json();
   } catch (e) {
     error = e instanceof Error ? e.message : 'Error desconocido';
   }
@@ -103,6 +120,63 @@ export default async function Stock() {
             </table>
           )}
         </section>
+
+        {vencimientos && vencimientos.lotes.length > 0 && (
+          <section className="rounded-xl bg-white overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-black/10">
+              <h2 className="font-medium text-black">Vencimientos próximos (45 días)</h2>
+              <span className="text-xs text-[#932A1F] font-medium">
+                ${Math.round(vencimientos.capitalEnRiesgo).toLocaleString('es-AR')} en riesgo crítico
+              </span>
+            </div>
+            <table className="w-full text-sm text-black">
+              <thead>
+                <tr className="text-left text-xs text-black/50 border-b border-black/5">
+                  <th className="px-4 py-2 font-medium">Producto</th>
+                  <th className="px-4 py-2 font-medium">Sucursal</th>
+                  <th className="px-4 py-2 font-medium text-right">Vence</th>
+                  <th className="px-4 py-2 font-medium text-right">Unidades</th>
+                  <th className="px-4 py-2 font-medium text-right">Acción sugerida</th>
+                </tr>
+              </thead>
+              <tbody>
+                {vencimientos.lotes.slice(0, 12).map((l, i) => (
+                  <tr key={i} className="border-b border-black/5 last:border-0">
+                    <td className="px-4 py-2.5">
+                      <p className="font-medium">{l.producto}</p>
+                      <p className="text-xs text-black/40">{l.sku} · lote {l.lote}</p>
+                    </td>
+                    <td className="px-4 py-2.5 text-black/70">{l.sucursal}</td>
+                    <td className="px-4 py-2.5 text-right">
+                      <span
+                        className={
+                          'rounded-full px-2.5 py-0.5 text-xs font-medium ' +
+                          (l.estado === 'vencido' || l.estado === 'critico'
+                            ? 'bg-[#B82D25] text-white'
+                            : l.estado === 'pronto'
+                              ? 'bg-black text-white'
+                              : 'bg-[#F0EBE2] text-black')
+                        }
+                      >
+                        {l.estado === 'vencido' ? 'VENCIDO' : `${l.dias} días`}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2.5 text-right text-black/70">{l.cantidad}</td>
+                    <td className="px-4 py-2.5 text-right text-xs">
+                      {l.estado === 'vencido' ? (
+                        <span className="text-[#932A1F] font-medium">retirar y registrar merma</span>
+                      ) : l.descuentoSugerido ? (
+                        <span className="text-[#932A1F] font-medium">liquidar al −{l.descuentoSugerido} %</span>
+                      ) : (
+                        <span className="text-black/40">vigilar</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </section>
+        )}
 
         <section className="rounded-xl bg-white overflow-hidden">
           <h2 className="px-4 py-3 border-b border-black/10 font-medium text-black">
