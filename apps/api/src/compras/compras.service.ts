@@ -5,7 +5,8 @@ import { SUPABASE } from '../supabase.provider';
 export type CrearOcDto = {
   proveedorId: string;
   sucursalId: string;
-  items: { sku: string; cantidad: number; costoUnitario: number }[];
+  // costoUnitario opcional: si falta, se toma el último costo del proveedor
+  items: { sku: string; cantidad: number; costoUnitario?: number }[];
   usuarioId?: string;
 };
 
@@ -67,11 +68,28 @@ export class ComprasService {
 
   async crear(dto: CrearOcDto) {
     const items = await Promise.all(
-      (dto.items ?? []).map(async (i) => ({
-        producto_id: await this.productoIdPorSku(i.sku),
-        cantidad: Number(i.cantidad),
-        costo_unitario: Number(i.costoUnitario),
-      })),
+      (dto.items ?? []).map(async (i) => {
+        const productoId = await this.productoIdPorSku(i.sku);
+        let costo = i.costoUnitario != null ? Number(i.costoUnitario) : null;
+        if (costo == null) {
+          const { data: pp } = await this.db
+            .from('proveedor_productos')
+            .select('ultimo_costo')
+            .eq('proveedor_id', dto.proveedorId)
+            .eq('producto_id', productoId)
+            .maybeSingle();
+          costo = pp?.ultimo_costo != null ? Number(pp.ultimo_costo) : null;
+          if (costo == null) {
+            const { data: prod } = await this.db
+              .from('productos')
+              .select('costo')
+              .eq('id', productoId)
+              .single();
+            costo = Number(prod?.costo ?? 0);
+          }
+        }
+        return { producto_id: productoId, cantidad: Number(i.cantidad), costo_unitario: costo };
+      }),
     );
     const { data, error } = await this.db.rpc('crear_orden_compra', {
       p_proveedor: dto.proveedorId,

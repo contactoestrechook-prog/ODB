@@ -10,6 +10,7 @@ const tabs = [
   { href: '/cierres', label: 'Cierres' },
   { href: '/caja', label: 'Caja' },
   { href: '/sommelier', label: 'Somelier' },
+  { href: '/analista', label: 'Analista' },
 ];
 
 export function Header({ activo }: { activo: string }) {
