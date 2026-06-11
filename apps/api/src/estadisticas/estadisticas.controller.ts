@@ -10,8 +10,18 @@ export class EstadisticasController {
     private readonly analista: AnalistaService,
   ) {}
 
+  // El cálculo recorre ~20k filas: caché de 60 s (es un tablero, no un ticker)
+  private cache: { data: any; ts: number } | null = null;
+
   @Get()
   async resumen() {
+    if (this.cache && Date.now() - this.cache.ts < 60_000) return this.cache.data;
+    const data = await this.calcular();
+    this.cache = { data, ts: Date.now() };
+    return data;
+  }
+
+  private async calcular() {
     const hace30 = new Date(Date.now() - 30 * 86400_000).toISOString();
 
     const [ventasR, itemsR, pagosR] = await Promise.all([

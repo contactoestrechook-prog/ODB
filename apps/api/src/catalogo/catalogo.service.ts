@@ -39,6 +39,7 @@ export class CatalogoService {
 
   invalidarFotos() {
     this.fotosCache = null;
+    this.catalogoCache.clear();
   }
 
   async subirImagen(sku: string, archivo: Express.Multer.File) {
@@ -62,7 +63,22 @@ export class CatalogoService {
     return { categorias: categorias.data ?? [], marcas: marcas.data ?? [] };
   }
 
+  // El catálogo es idéntico para todos los visitantes: caché corto en memoria
+  // (30 s) que absorbe la navegación masiva sin golpear la base
+  private catalogoCache = new Map<string, { data: any; ts: number }>();
+
   async buscarProductos(q: FiltrosCatalogo) {
+    const clave = JSON.stringify([q.buscar, q.categoriaId, q.marcaId, q.filtro, q.orden, q.pagina, q.porPagina]);
+    const cacheado = this.catalogoCache.get(clave);
+    if (cacheado && Date.now() - cacheado.ts < 30_000) return cacheado.data;
+
+    const resultado = await this.buscarProductosSinCache(q);
+    if (this.catalogoCache.size > 500) this.catalogoCache.clear();
+    this.catalogoCache.set(clave, { data: resultado, ts: Date.now() });
+    return resultado;
+  }
+
+  private async buscarProductosSinCache(q: FiltrosCatalogo) {
     const porPagina = Math.min(Math.max(Number(q.porPagina ?? 50), 1), 200);
     const pagina = Math.max(Number(q.pagina ?? 1), 1);
 

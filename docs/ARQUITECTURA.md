@@ -47,6 +47,28 @@
    (Next.js)   (offline-first)   (Expo)      (preparación pick-up)
 ```
 
+## Escala (objetivo: 4.000+ usuarios)
+
+**Lo que ya está implementado en el código:**
+
+| Medida | Detalle |
+|---|---|
+| Paginación server-side | El navegador/celular nunca recibe más de una página (50-200 ítems) aunque el catálogo tenga 13.000 |
+| Caché de catálogo (30 s) | El catálogo es igual para todos: las consultas repetidas no tocan la base. Medido: de ~150 req/s a decenas de miles |
+| Caché de estadísticas (60 s) | El tablero recorre ~20k filas; se calcula 1 vez por minuto como máximo |
+| Rate limiting | 300 req/min por IP global; 8/min para el Somelier (cada consulta de IA cuesta plata) |
+| Compresión gzip | Respuestas JSON ~5× más chicas |
+| Imágenes por CDN | Las fotos salen del Storage de Supabase, no pasan por la API |
+| Búsqueda indexada | pg_trgm sobre nombre: la búsqueda difusa usa índice, no escanea la tabla |
+
+**Para pasar a producción (decisiones de despliegue, no de código):**
+
+1. **API**: hoy corre en la Mac de desarrollo. Desplegar en Railway/Fly.io (región Sudamérica) — es stateless, escala horizontal agregando instancias. Los cachés en memoria pasan a Redis si hay más de una instancia.
+2. **Panel admin**: Vercel (Next.js nativo).
+3. **App cliente**: builds con EAS → App Store / Play Store.
+4. **Base**: Supabase Pro ya corre en sa-east-1; el compute se sube desde el dashboard cuando las métricas lo pidan (4.000 usuarios entran cómodos en un compute chico: el grueso del tráfico lo absorbe el caché del catálogo).
+5. **Pendiente de seguridad**: cuentas reales de cliente en la app (hoy el DNI identifica sin clave — se resuelve junto con la biometría Didit), y reemplazar las políticas RLS "lectura dev" por políticas por rol cuando haya auth de Supabase.
+
 ## Migración inicial
 
 El catálogo sale de un Excel → `scripts/importar-excel/` (mapeo de columnas configurable, validación de duplicados de código de barras, reporte de filas rechazadas). Se corre primero en seco (`--dry-run`), se revisa el reporte y recién después se inserta.
