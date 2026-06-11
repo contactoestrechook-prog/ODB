@@ -1,9 +1,11 @@
 import { Header } from '../ui/Header';
+import { BotonAnular } from '../ui/BotonAnular';
 import { apiFetch, API } from '../../lib/api';
 
 type Venta = {
   id: string;
   canal: string;
+  estado: string;
   subtotal: number;
   descuento: number;
   total: number;
@@ -130,7 +132,20 @@ export default async function Ventas() {
                     )}
                   </td>
                   <td className="px-4 py-3 text-right font-medium whitespace-nowrap">
-                    {pesos(v.total)}
+                    {v.estado === 'anulada' ? (
+                      <span className="line-through text-black/40">{pesos(v.total)}</span>
+                    ) : (
+                      pesos(v.total)
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    {v.estado === 'anulada' ? (
+                      <span className="rounded-full bg-[#F0EBE2] px-2.5 py-0.5 text-xs text-black/50">
+                        anulada · NC emitida
+                      </span>
+                    ) : (
+                      <BotonAnular ventaId={v.id} total={v.total} />
+                    )}
                   </td>
                 </tr>
               ))}

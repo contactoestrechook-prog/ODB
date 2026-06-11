@@ -83,6 +83,42 @@ export class VentasService {
     };
   }
 
+  // Anulación con devolución de stock y nota de crédito en cola ARCA
+  async anular(ventaId: string, usuarioId?: string) {
+    const { data: venta, error } = await this.db
+      .from('ventas')
+      .select('id, estado, total, sucursal_id, items:ventas_items(producto_id, cantidad), sucursal:sucursales(punto_venta_arca)')
+      .eq('id', ventaId)
+      .single();
+    if (error || !venta) throw new BadRequestException('No existe la venta');
+    if (venta.estado !== 'completada') {
+      throw new BadRequestException(`La venta ya está ${venta.estado}`);
+    }
+
+    for (const item of (venta.items ?? []) as any[]) {
+      const { error: errMov } = await this.db.rpc('registrar_movimiento', {
+        p_producto_id: item.producto_id,
+        p_sucursal_id: venta.sucursal_id,
+        p_tipo: 'devolucion',
+        p_cantidad: Number(item.cantidad),
+        p_motivo: null,
+        p_referencia_tipo: 'venta_anulada',
+        p_referencia_id: ventaId,
+        p_usuario_id: usuarioId ?? null,
+      });
+      if (errMov) throw new BadRequestException(errMov.message);
+    }
+
+    await this.db.from('ventas').update({ estado: 'anulada' }).eq('id', ventaId);
+    await this.db.from('comprobantes_arca').insert({
+      venta_id: ventaId,
+      tipo: 'NCB',
+      punto_venta: (venta as any).sucursal?.punto_venta_arca ?? 1,
+      estado: 'pendiente',
+    });
+    return { anulada: true, total: Number(venta.total) };
+  }
+
   // Lo que ve el cajero al pedir el DNI: categoría e historial resumido
   async clientePorDni(dni: string) {
     const { data: cliente, error } = await this.db

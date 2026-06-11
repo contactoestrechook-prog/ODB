@@ -1,4 +1,5 @@
 import { Header } from '../ui/Header';
+import { BotonPromo } from '../ui/BotonPromo';
 import { apiFetch } from '../../lib/api';
 
 const pesos = (n: number) => '$' + Math.round(n).toLocaleString('es-AR');
@@ -185,9 +186,9 @@ export default async function Estadisticas() {
                         ))}
                       </div>
                     </td>
-                    <td className="px-4 py-2.5 text-right text-xs w-32">
-                      <span className="font-medium text-[#932A1F]">sugerido −{p.descuentoSugerido} %</span>
-                      <p className="text-black/40">margen {Math.round(p.margenPct)} %</p>
+                    <td className="px-4 py-2.5 text-right text-xs w-36">
+                      <BotonPromo sku={p.sku} nombre={p.nombre} porcentaje={p.descuentoSugerido} />
+                      <p className="text-black/40 mt-1">margen {Math.round(p.margenPct)} %</p>
                     </td>
                   </tr>
                 ))}

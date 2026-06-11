@@ -1,4 +1,5 @@
 import { Header } from '../ui/Header';
+import { BotonPromo } from '../ui/BotonPromo';
 import { apiFetch, API } from '../../lib/api';
 
 type Critico = {
@@ -166,7 +167,7 @@ export default async function Stock() {
                       {l.estado === 'vencido' ? (
                         <span className="text-[#932A1F] font-medium">retirar y registrar merma</span>
                       ) : l.descuentoSugerido ? (
-                        <span className="text-[#932A1F] font-medium">liquidar al −{l.descuentoSugerido} %</span>
+                        <BotonPromo sku={l.sku} nombre={l.producto} porcentaje={l.descuentoSugerido} />
                       ) : (
                         <span className="text-black/40">vigilar</span>
                       )}
