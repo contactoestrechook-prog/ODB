@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { FlatList, Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { API, COLORES, pesos, useEstado, type Producto } from '../../lib/estado';
 
 export default function Catalogo() {
@@ -32,6 +32,13 @@ export default function Catalogo() {
         contentContainerStyle={{ padding: 12 }}
         renderItem={({ item: p }) => (
           <View style={est.fila}>
+            {p.imagenUrl ? (
+              <Image source={{ uri: p.imagenUrl }} style={est.miniatura} />
+            ) : (
+              <View style={[est.miniatura, est.miniaturaVacia]}>
+                <Text style={est.miniaturaInicial}>{p.nombre[0]}</Text>
+              </View>
+            )}
             <View style={{ flex: 1 }}>
               <Text style={est.nombre}>
                 {p.nombre} {p.esAlcohol ? <Text style={est.mas18}> +18</Text> : null}
@@ -68,6 +75,9 @@ const est = StyleSheet.create({
     flexDirection: 'row', backgroundColor: COLORES.blanco, borderRadius: 14,
     padding: 12, marginBottom: 8, gap: 10,
   },
+  miniatura: { width: 52, height: 52, borderRadius: 10 },
+  miniaturaVacia: { backgroundColor: COLORES.crema, alignItems: 'center', justifyContent: 'center' },
+  miniaturaInicial: { fontSize: 20, fontWeight: '700', color: '#bbb' },
   nombre: { fontSize: 14, color: COLORES.negro, fontWeight: '500' },
   mas18: { fontSize: 10, color: COLORES.blanco, backgroundColor: COLORES.negro },
   categoria: { fontSize: 12, color: '#888', marginTop: 2 },

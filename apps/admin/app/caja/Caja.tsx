@@ -6,6 +6,7 @@ import Link from 'next/link';
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
 type Producto = {
+  imagenUrl: string | null;
   sku: string;
   nombre: string;
   precio: number | null;
@@ -173,9 +174,12 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string 
                   <button
                     key={p.sku}
                     onClick={() => agregar(p)}
-                    className="w-full px-4 py-2.5 text-left text-sm text-black hover:bg-[#F0EBE2] flex justify-between"
+                    className="w-full px-4 py-2.5 text-left text-sm text-black hover:bg-[#F0EBE2] flex items-center justify-between gap-3"
                   >
-                    <span>
+                    <span className="flex items-center gap-3">
+                      {p.imagenUrl && (
+                        <img src={p.imagenUrl} alt="" className="h-9 w-9 rounded-lg object-cover" />
+                      )}
                       {p.nombre}
                       {p.esAlcohol && (
                         <span className="ml-2 rounded-full bg-black px-1.5 py-0.5 text-[10px] text-white">

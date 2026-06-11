@@ -3,6 +3,7 @@ import { Header } from '../ui/Header';
 import { apiFetch } from '../../lib/api';
 
 type Producto = {
+  imagenUrl: string | null;
   sku: string;
   nombre: string;
   marca: string | null;
@@ -144,7 +145,15 @@ export default async function Productos({
                     return (
                       <tr key={p.sku} className="border-b border-black/5 last:border-0 hover:bg-[#F0EBE2]/40">
                         <td className="px-4 py-3">
-                          <Link href={`/productos/${p.sku}`} className="block">
+                          <Link href={`/productos/${p.sku}`} className="flex items-center gap-3">
+                            {p.imagenUrl ? (
+                              <img src={p.imagenUrl} alt="" className="h-10 w-10 rounded-lg object-cover shrink-0" />
+                            ) : (
+                              <span className="h-10 w-10 rounded-lg bg-[#F0EBE2] shrink-0 flex items-center justify-center text-black/30 text-xs">
+                                foto
+                              </span>
+                            )}
+                            <span>
                             <p className="font-medium hover:text-[#932A1F]">{p.nombre}</p>
                             <p className="text-xs text-black/50">
                               {p.sku} {p.marca ? `· ${p.marca}` : ''}
@@ -152,6 +161,7 @@ export default async function Productos({
                                 <span className="ml-2 rounded-full bg-black px-2 py-0.5 text-[10px] text-white">+18</span>
                               )}
                             </p>
+                            </span>
                           </Link>
                         </td>
                         <td className="px-4 py-3 text-black/70">{p.categoria ?? '—'}</td>

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import {
-  FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
+  FlatList, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
 } from 'react-native';
 import { API, COLORES, pesos, useEstado, type Producto } from '../../lib/estado';
 
@@ -24,6 +24,13 @@ function Tarjeta({ p }: { p: Producto }) {
   const { agregar } = useEstado();
   return (
     <View style={est.tarjeta}>
+      {p.imagenUrl ? (
+        <Image source={{ uri: p.imagenUrl }} style={est.foto} />
+      ) : (
+        <View style={[est.foto, est.fotoVacia]}>
+          <Text style={est.fotoInicial}>{p.nombre[0]}</Text>
+        </View>
+      )}
       <Text numberOfLines={2} style={est.tarjetaNombre}>{p.nombre}</Text>
       {p.descuento ? (
         <View>
@@ -150,6 +157,9 @@ const est = StyleSheet.create({
   chipNegroTexto: { color: COLORES.blanco, fontSize: 11, fontWeight: '600' },
   tituloSeccion: { fontSize: 16, fontWeight: '600', color: COLORES.negro, margin: 16, marginBottom: 8 },
   tarjeta: { backgroundColor: COLORES.blanco, borderRadius: 14, padding: 12, width: 150, marginHorizontal: 4 },
+  foto: { width: '100%', height: 90, borderRadius: 10, marginBottom: 8 },
+  fotoVacia: { backgroundColor: COLORES.crema, alignItems: 'center', justifyContent: 'center' },
+  fotoInicial: { fontSize: 32, fontWeight: '700', color: '#bbb' },
   tarjetaNombre: { fontSize: 12, color: COLORES.negro, minHeight: 32 },
   precio: { fontSize: 15, fontWeight: '700', color: COLORES.negro, marginTop: 6 },
   precioTachado: { fontSize: 11, color: '#999', textDecorationLine: 'line-through', marginTop: 4 },

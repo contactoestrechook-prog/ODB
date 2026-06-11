@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { Header } from '../../ui/Header';
+import { SubirFoto } from '../../ui/SubirFoto';
 import { apiFetch } from '../../../lib/api';
 
 const pesos = (n: number | null | undefined) =>
@@ -56,7 +57,17 @@ export default async function FichaProducto({
         </Link>
 
         <section className="rounded-xl bg-white p-5 flex flex-wrap items-start justify-between gap-4">
-          <div>
+          <div className="flex flex-col items-center gap-2">
+            {p.imagenUrl ? (
+              <img src={p.imagenUrl} alt={p.nombre} className="h-32 w-32 rounded-xl object-cover" />
+            ) : (
+              <div className="h-32 w-32 rounded-xl bg-[#F0EBE2] flex items-center justify-center text-black/30 text-sm">
+                sin foto
+              </div>
+            )}
+            <SubirFoto sku={p.sku} />
+          </div>
+          <div className="flex-1 min-w-48">
             <h1 className="text-xl font-medium text-black">{p.nombre}</h1>
             <p className="text-sm text-black/50 mt-1">
               {p.sku} · {p.marca ?? 'sin marca'} · {p.categoria ?? 'sin categoría'}

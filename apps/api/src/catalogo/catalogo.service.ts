@@ -24,6 +24,36 @@ export type FiltrosCatalogo = {
 export class CatalogoService {
   constructor(@Inject(SUPABASE) private readonly db: SupabaseClient) {}
 
+  // Fotos: viven en Storage como productos/{sku}.jpg; el set se cachea 5 minutos
+  private fotosCache: { set: Set<string>; ts: number } | null = null;
+
+  private async fotos(): Promise<Set<string>> {
+    if (this.fotosCache && Date.now() - this.fotosCache.ts < 300_000) {
+      return this.fotosCache.set;
+    }
+    const { data } = await this.db.storage.from('productos').list('', { limit: 20000 });
+    const set = new Set((data ?? []).map((f) => f.name));
+    this.fotosCache = { set, ts: Date.now() };
+    return set;
+  }
+
+  invalidarFotos() {
+    this.fotosCache = null;
+  }
+
+  async subirImagen(sku: string, archivo: Express.Multer.File) {
+    const { error } = await this.db.storage
+      .from('productos')
+      .upload(`${sku}.jpg`, archivo.buffer, { contentType: 'image/jpeg', upsert: true });
+    if (error) throw new Error(error.message);
+    this.invalidarFotos();
+    return { imagenUrl: this.urlImagen(sku) };
+  }
+
+  private urlImagen(sku: string) {
+    return `${process.env.SUPABASE_URL}/storage/v1/object/public/productos/${encodeURIComponent(sku)}.jpg`;
+  }
+
   async filtros() {
     const [categorias, marcas] = await Promise.all([
       this.db.from('categorias').select('id, nombre').order('nombre'),
@@ -86,13 +116,16 @@ export class CatalogoService {
       );
     }
 
-    const precios = await this.preciosVigentes(items.map((p: any) => p.id));
+    const [precios, fotos] = await Promise.all([
+      this.preciosVigentes(items.map((p: any) => p.id)),
+      this.fotos(),
+    ]);
     return {
       total: count ?? items.length,
       pagina,
       porPagina,
       paginas: Math.max(Math.ceil((count ?? 0) / porPagina), 1),
-      items: items.map((p) => this.formatear(p, precios.get(p.id))),
+      items: items.map((p) => this.formatear(p, precios.get(p.id), fotos)),
     };
   }
 
@@ -104,8 +137,8 @@ export class CatalogoService {
       .maybeSingle();
     if (error) throw new Error(error.message);
     if (!data) throw new NotFoundException(`No existe el producto ${sku}`);
-    const precios = await this.preciosVigentes([data.id]);
-    return this.formatear(data, precios.get(data.id));
+    const [precios, fotos] = await Promise.all([this.preciosVigentes([data.id]), this.fotos()]);
+    return this.formatear(data, precios.get(data.id), fotos);
   }
 
   async detalle(sku: string) {
@@ -224,9 +257,10 @@ export class CatalogoService {
     return mapa;
   }
 
-  private formatear(p: any, precioVigente?: any) {
+  private formatear(p: any, precioVigente?: any, fotos?: Set<string>) {
     const stockTotal = (p.stock ?? []).reduce((s: number, r: any) => s + Number(r.cantidad), 0);
     return {
+      imagenUrl: fotos?.has(`${p.sku}.jpg`) ? this.urlImagen(p.sku) : null,
       sku: p.sku,
       nombre: p.nombre,
       marca: p.marca?.nombre ?? null,

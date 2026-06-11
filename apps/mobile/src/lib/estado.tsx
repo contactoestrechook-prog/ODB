@@ -13,6 +13,7 @@ export const COLORES = {
 };
 
 export type Producto = {
+  imagenUrl: string | null;
   sku: string;
   nombre: string;
   precio: number | null;
