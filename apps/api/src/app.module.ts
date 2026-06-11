@@ -11,6 +11,7 @@ import { CajaModule } from './caja/caja.module';
 import { SommelierModule } from './sommelier/sommelier.module';
 import { AnalistaModule } from './analista/analista.module';
 import { ExtrasModule } from './estadisticas/extras.module';
+import { PedidosModule } from './pedidos/pedidos.module';
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { ExtrasModule } from './estadisticas/extras.module';
     SommelierModule,
     AnalistaModule,
     ExtrasModule,
+    PedidosModule,
   ],
 })
 export class AppModule {}

@@ -9,6 +9,7 @@ const tabs = [
   { href: '/compras', label: 'Compras' },
   { href: '/listas', label: 'Listas' },
   { href: '/clientes', label: 'Clientes' },
+  { href: '/deposito', label: 'Depósito' },
   { href: '/cierres', label: 'Cierres' },
   { href: '/caja', label: 'Caja' },
   { href: '/sommelier', label: 'Somelier' },
