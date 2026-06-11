@@ -3,29 +3,46 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
 
 const SELECT_PRODUCTO = `
-  id, sku, nombre, volumen_ml, unidades_pack, graduacion, es_alcohol, costo, activo,
-  marca:marcas ( nombre ),
-  categoria:categorias ( nombre ),
+  id, sku, nombre, volumen_ml, unidades_pack, graduacion, es_alcohol, costo, activo, creado_en,
+  marca:marcas ( id, nombre ),
+  categoria:categorias ( id, nombre ),
   stock ( sucursal_id, cantidad, stock_minimo ),
-  precios ( precio, vigente_desde, lista_id ),
   codigos_barras ( codigo )
 `;
+
+export type FiltrosCatalogo = {
+  buscar?: string;
+  categoriaId?: string;
+  marcaId?: string;
+  filtro?: 'bajo_minimo' | 'promo' | 'sin_stock' | '';
+  orden?: 'nombre_asc' | 'nombre_desc' | 'recientes' | '';
+  pagina?: string | number;
+  porPagina?: string | number;
+};
 
 @Injectable()
 export class CatalogoService {
   constructor(@Inject(SUPABASE) private readonly db: SupabaseClient) {}
 
-  async buscarProductos(buscar?: string, limite = 50) {
+  async filtros() {
+    const [categorias, marcas] = await Promise.all([
+      this.db.from('categorias').select('id, nombre').order('nombre'),
+      this.db.from('marcas').select('id, nombre').order('nombre'),
+    ]);
+    return { categorias: categorias.data ?? [], marcas: marcas.data ?? [] };
+  }
+
+  async buscarProductos(q: FiltrosCatalogo) {
+    const porPagina = Math.min(Math.max(Number(q.porPagina ?? 50), 1), 200);
+    const pagina = Math.max(Number(q.pagina ?? 1), 1);
+
     let query = this.db
       .from('productos')
-      .select(SELECT_PRODUCTO)
-      .eq('activo', true)
-      .order('nombre')
-      .limit(Math.min(limite, 200));
+      .select(SELECT_PRODUCTO, { count: 'exact' })
+      .eq('activo', true);
 
-    if (buscar?.trim()) {
-      const termino = buscar.trim();
-      // Si es numérico largo, asumimos código de barras
+    const termino = q.buscar?.trim();
+    if (termino) {
       if (/^\d{8,14}$/.test(termino)) {
         const { data: cb } = await this.db
           .from('codigos_barras')
@@ -34,14 +51,49 @@ export class CatalogoService {
           .maybeSingle();
         query = query.eq('id', cb?.producto_id ?? '00000000-0000-0000-0000-000000000000');
       } else {
-        query = query.ilike('nombre', `%${termino}%`);
+        // busca en nombre y SKU
+        query = query.or(`nombre.ilike.%${termino}%,sku.ilike.%${termino}%`);
+      }
+    }
+    if (q.categoriaId) query = query.eq('categoria_id', q.categoriaId);
+    if (q.marcaId) query = query.eq('marca_id', q.marcaId);
+
+    if (q.filtro === 'bajo_minimo') {
+      const { data } = await this.db.from('stock_critico').select('sku');
+      const skus = [...new Set((data ?? []).map((r: any) => r.sku))];
+      query = query.in('sku', skus.length ? skus : ['__ninguno__']);
+    } else if (q.filtro === 'promo') {
+      const ids = await this.productosEnPromo();
+      if (ids !== 'todos') {
+        query = query.in('id', ids.length ? ids : ['00000000-0000-0000-0000-000000000000']);
       }
     }
 
-    const { data, error } = await query;
+    if (q.orden === 'nombre_desc') query = query.order('nombre', { ascending: false });
+    else if (q.orden === 'recientes') query = query.order('creado_en', { ascending: false });
+    else query = query.order('nombre');
+
+    query = query.range((pagina - 1) * porPagina, pagina * porPagina - 1);
+
+    const { data, count, error } = await query;
     if (error) throw new Error(error.message);
-    const precios = await this.preciosVigentes((data ?? []).map((p: any) => p.id));
-    return (data ?? []).map((p) => this.formatear(p, precios.get(p.id)));
+
+    let items = (data ?? []) as any[];
+    if (q.filtro === 'sin_stock') {
+      // filtro liviano sobre la página (caso de uso: control rápido)
+      items = items.filter(
+        (p) => (p.stock ?? []).reduce((s: number, r: any) => s + Number(r.cantidad), 0) <= 0,
+      );
+    }
+
+    const precios = await this.preciosVigentes(items.map((p: any) => p.id));
+    return {
+      total: count ?? items.length,
+      pagina,
+      porPagina,
+      paginas: Math.max(Math.ceil((count ?? 0) / porPagina), 1),
+      items: items.map((p) => this.formatear(p, precios.get(p.id))),
+    };
   }
 
   async obtenerPorSku(sku: string) {
@@ -56,6 +108,77 @@ export class CatalogoService {
     return this.formatear(data, precios.get(data.id));
   }
 
+  async detalle(sku: string) {
+    const base = await this.obtenerPorSku(sku);
+    const { data: prod } = await this.db
+      .from('productos')
+      .select('id')
+      .eq('sku', sku)
+      .single();
+    const id = prod!.id;
+    const hace30 = new Date(Date.now() - 30 * 86400_000).toISOString();
+
+    const [movimientos, costos, precios, proveedores, ventas30, sucursales] = await Promise.all([
+      this.db
+        .from('movimientos_stock')
+        .select('tipo, cantidad, motivo, creado_en, sucursal:sucursales(nombre)')
+        .eq('producto_id', id)
+        .order('id', { ascending: false })
+        .limit(15),
+      this.db
+        .from('costos_historial')
+        .select('costo, origen, creado_en, proveedor:proveedores(razon_social)')
+        .eq('producto_id', id)
+        .order('creado_en', { ascending: false })
+        .limit(10),
+      this.db
+        .from('precios')
+        .select('precio, vigente_desde')
+        .eq('producto_id', id)
+        .order('vigente_desde', { ascending: false })
+        .limit(10),
+      this.db
+        .from('proveedor_productos')
+        .select('codigo_proveedor, ultimo_costo, actualizado_en, proveedor:proveedores(razon_social, lead_time_dias)')
+        .eq('producto_id', id),
+      this.db
+        .from('ventas_items')
+        .select('cantidad, precio_unitario, costo_unitario, venta:ventas!inner(vendida_en, estado, sucursal_id)')
+        .eq('producto_id', id)
+        .gte('venta.vendida_en', hace30)
+        .eq('venta.estado', 'completada')
+        .limit(5000),
+      this.db.from('sucursales').select('id, nombre'),
+    ]);
+
+    const sucPor = new Map((sucursales.data ?? []).map((s: any) => [s.id, s.nombre]));
+    const items30 = (ventas30.data ?? []) as any[];
+    const unidades30 = items30.reduce((s, r) => s + Number(r.cantidad), 0);
+    const facturado30 = items30.reduce((s, r) => s + Number(r.cantidad) * Number(r.precio_unitario), 0);
+    const margen30 = items30.reduce(
+      (s, r) => s + Number(r.cantidad) * (Number(r.precio_unitario) - Number(r.costo_unitario ?? 0)),
+      0,
+    );
+
+    return {
+      ...base,
+      stockPorSucursal: (base as any).stockPorSucursal.map((s: any) => ({
+        ...s,
+        sucursal: sucPor.get(s.sucursal_id) ?? '—',
+      })),
+      movimientos: movimientos.data ?? [],
+      historialCostos: costos.data ?? [],
+      historialPrecios: precios.data ?? [],
+      proveedores: proveedores.data ?? [],
+      ventas30dias: {
+        unidades: Math.round(unidades30),
+        facturado: Math.round(facturado30),
+        margen: Math.round(margen30),
+        porDia: Math.round((unidades30 / 30) * 100) / 100,
+      },
+    };
+  }
+
   async sucursales() {
     const { data, error } = await this.db
       .from('sucursales')
@@ -64,6 +187,31 @@ export class CatalogoService {
       .order('nombre');
     if (error) throw new Error(error.message);
     return data;
+  }
+
+  private async productosEnPromo(): Promise<string[] | 'todos'> {
+    const ahora = new Date().toISOString();
+    const { data } = await this.db
+      .from('descuentos')
+      .select('alcance, categoria_id, marca_id, producto_id')
+      .eq('activo', true)
+      .lte('desde', ahora)
+      .gte('hasta', ahora);
+    const activos = (data ?? []) as any[];
+    if (activos.some((d) => d.alcance === 'global')) return 'todos';
+
+    const ids = new Set<string>(activos.filter((d) => d.producto_id).map((d) => d.producto_id));
+    const categorias = activos.filter((d) => d.categoria_id).map((d) => d.categoria_id);
+    const marcas = activos.filter((d) => d.marca_id).map((d) => d.marca_id);
+    if (categorias.length) {
+      const { data: porCat } = await this.db.from('productos').select('id').in('categoria_id', categorias);
+      for (const p of porCat ?? []) ids.add(p.id);
+    }
+    if (marcas.length) {
+      const { data: porMarca } = await this.db.from('productos').select('id').in('marca_id', marcas);
+      for (const p of porMarca ?? []) ids.add(p.id);
+    }
+    return [...ids];
   }
 
   // Precios con descuentos aplicados, calculados por la función canónica de la base
@@ -89,6 +237,7 @@ export class CatalogoService {
       precioLista: precioVigente?.precio_lista ?? null,
       precio: precioVigente?.precio_final ?? precioVigente?.precio_lista ?? null,
       descuento: precioVigente?.descuento_nombre ?? null,
+      costo: p.costo != null ? Number(p.costo) : null,
       stockTotal,
       stockPorSucursal: p.stock ?? [],
       codigosBarras: (p.codigos_barras ?? []).map((c: any) => c.codigo),

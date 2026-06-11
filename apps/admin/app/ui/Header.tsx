@@ -2,11 +2,13 @@ import Link from 'next/link';
 
 const tabs = [
   { href: '/ventas', label: 'Ventas' },
+  { href: '/estadisticas', label: 'Estadísticas' },
   { href: '/productos', label: 'Productos' },
   { href: '/stock', label: 'Stock' },
   { href: '/promociones', label: 'Promociones' },
   { href: '/compras', label: 'Compras' },
   { href: '/listas', label: 'Listas' },
+  { href: '/clientes', label: 'Clientes' },
   { href: '/cierres', label: 'Cierres' },
   { href: '/caja', label: 'Caja' },
   { href: '/sommelier', label: 'Somelier' },
@@ -15,14 +17,11 @@ const tabs = [
 
 export function Header({ activo }: { activo: string }) {
   return (
-    <header className="bg-black px-6 py-3 flex items-center justify-between">
-      <h1 className="text-white tracking-widest font-medium">
-        O.D.B{' '}
-        <span className="text-[#F0EBE2]/70 text-sm tracking-normal font-normal">
-          · Panel administrativo
-        </span>
+    <header className="bg-black px-6 py-3 flex items-center justify-between gap-4">
+      <h1 className="text-white tracking-widest font-medium whitespace-nowrap">
+        O.D.B
       </h1>
-      <nav className="flex gap-4 text-sm">
+      <nav className="flex gap-4 text-sm overflow-x-auto whitespace-nowrap py-1">
         {tabs.map((t) => (
           <Link
             key={t.href}

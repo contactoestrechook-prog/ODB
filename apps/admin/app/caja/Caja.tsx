@@ -77,9 +77,9 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string 
       setResultados([]);
       return;
     }
-    const res = await fetch(`${API}/productos?buscar=${encodeURIComponent(termino)}&limite=6`);
+    const res = await fetch(`${API}/productos?buscar=${encodeURIComponent(termino)}&porPagina=6`);
     if (res.ok) {
-      const datos: Producto[] = await res.json();
+      const datos: Producto[] = (await res.json()).items;
       // Código de barras escaneado: un único resultado exacto se agrega solo
       if (/^\d{8,14}$/.test(termino.trim()) && datos.length === 1) {
         agregar(datos[0]);
