@@ -16,6 +16,9 @@ export type ItemPropuesta = ItemExtraido & {
   } | null;
 };
 
+const INSTRUCCION_EXTRACCION =
+  'Esta es una lista de precios de un proveedor/mayorista. Extraé TODOS los renglones de productos con su código (el número junto a "COD." si existe), descripción y precio unitario en pesos. La descripción debe EMPEZAR por la marca cuando esté visible (ej: "Gallo Arroz Parboil 1kg"). Ignorá combos, encabezados, totales, condiciones comerciales, texto legal y decorativo.';
+
 const ESQUEMA_EXTRACCION = {
   type: 'object',
   properties: {
@@ -50,6 +53,10 @@ export class ListasService {
     if (nombre.endsWith('.pdf')) {
       items = await this.extraerConIA(archivo, 'pdf');
       metodo = 'ia_pdf';
+    } else if (nombre.endsWith('.txt')) {
+      // texto extraído de catálogos grandes: se procesa en tandas
+      items = await this.extraerTextoConIA(archivo.buffer.toString('utf8'));
+      metodo = 'ia_texto';
     } else if (/\.(xlsx|xls|csv)$/.test(nombre)) {
       try {
         items = this.extraerExcelHeuristico(archivo.buffer);
@@ -160,10 +167,7 @@ export class ListasService {
       const csv = XLSX.utils.sheet_to_csv(wb.Sheets[wb.SheetNames[0]]);
       contenido.push({ type: 'text', text: `Contenido de la planilla:\n\n${csv.slice(0, 150_000)}` });
     }
-    contenido.push({
-      type: 'text',
-      text: 'Esta es una lista de precios de un proveedor de bebidas. Extraé todos los renglones de productos con su código (si existe), descripción y precio unitario. Ignorá encabezados, totales, condiciones comerciales y texto decorativo.',
-    });
+    contenido.push({ type: 'text', text: INSTRUCCION_EXTRACCION });
 
     // streaming: los catálogos largos generan salidas grandes
     const respuesta = await claude.messages
@@ -178,6 +182,49 @@ export class ListasService {
     const texto = respuesta.content.find((b) => b.type === 'text');
     const datos = JSON.parse(texto && 'text' in texto ? texto.text : '{"items":[]}');
     return datos.items as ItemExtraido[];
+  }
+
+  // --- Catálogos grandes en texto: tandas de ~55k caracteres por página ---
+  private async extraerTextoConIA(texto: string): Promise<ItemExtraido[]> {
+    if (!process.env.ANTHROPIC_API_KEY) {
+      throw new BadRequestException('Falta la ANTHROPIC_API_KEY en apps/api/.env');
+    }
+    const claude = new Anthropic();
+    const paginas = texto.split(/(?==== PÁGINA )/);
+    const tandas: string[] = [];
+    let actual = '';
+    for (const p of paginas) {
+      if (actual.length + p.length > 55_000 && actual) {
+        tandas.push(actual);
+        actual = '';
+      }
+      actual += p;
+    }
+    if (actual.trim()) tandas.push(actual);
+
+    const items: ItemExtraido[] = [];
+    for (const [i, tanda] of tandas.entries()) {
+      const respuesta = await claude.messages
+        .stream({
+          model: 'claude-opus-4-8',
+          max_tokens: 64000,
+          output_config: { format: { type: 'json_schema', schema: ESQUEMA_EXTRACCION as any } },
+          messages: [
+            {
+              role: 'user',
+              content: [
+                { type: 'text', text: `Texto extraído del catálogo (parte ${i + 1} de ${tandas.length}):\n\n${tanda}` },
+                { type: 'text', text: INSTRUCCION_EXTRACCION },
+              ],
+            },
+          ],
+        })
+        .finalMessage();
+      const bloque = respuesta.content.find((b) => b.type === 'text');
+      const datos = JSON.parse(bloque && 'text' in bloque ? bloque.text : '{"items":[]}');
+      items.push(...(datos.items as ItemExtraido[]));
+    }
+    return items;
   }
 
   // --- Matching contra el catálogo ---
