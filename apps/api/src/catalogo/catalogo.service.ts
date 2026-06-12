@@ -97,8 +97,12 @@ export class CatalogoService {
           .maybeSingle();
         query = query.eq('id', cb?.producto_id ?? '00000000-0000-0000-0000-000000000000');
       } else {
-        // busca en nombre y SKU
-        query = query.or(`nombre.ilike.%${termino}%,sku.ilike.%${termino}%`);
+        // busca en nombre (sin importar tildes ni mayúsculas) y SKU
+        const normalizado = termino
+          .normalize('NFD')
+          .replace(/[̀-ͯ]/g, '')
+          .toLowerCase();
+        query = query.or(`nombre_normalizado.ilike.%${normalizado}%,sku.ilike.%${termino}%`);
       }
     }
     if (q.categoriaId) query = query.eq('categoria_id', q.categoriaId);
