@@ -165,12 +165,15 @@ export class ListasService {
       text: 'Esta es una lista de precios de un proveedor de bebidas. Extraé todos los renglones de productos con su código (si existe), descripción y precio unitario. Ignorá encabezados, totales, condiciones comerciales y texto decorativo.',
     });
 
-    const respuesta = await claude.messages.create({
-      model: 'claude-opus-4-8',
-      max_tokens: 32000,
-      output_config: { format: { type: 'json_schema', schema: ESQUEMA_EXTRACCION as any } },
-      messages: [{ role: 'user', content: contenido }],
-    });
+    // streaming: los catálogos largos generan salidas grandes
+    const respuesta = await claude.messages
+      .stream({
+        model: 'claude-opus-4-8',
+        max_tokens: 64000,
+        output_config: { format: { type: 'json_schema', schema: ESQUEMA_EXTRACCION as any } },
+        messages: [{ role: 'user', content: contenido }],
+      })
+      .finalMessage();
 
     const texto = respuesta.content.find((b) => b.type === 'text');
     const datos = JSON.parse(texto && 'text' in texto ? texto.text : '{"items":[]}');
@@ -215,13 +218,26 @@ export class ListasService {
             .select('sku, nombre, costo')
             .eq('sku', (similar as any).sku)
             .single();
-          if (prod) match = this.armarMatch(prod, prod.costo, item.precio, 'similitud');
+          // guardián de marca: la primera palabra significativa del renglón
+          // del proveedor (la marca) tiene que aparecer en el producto matcheado.
+          // Evita cruzar "Knorr Risotto" con "Arroz Gallo Risotto".
+          if (prod && this.mismaMarca(item.descripcion, prod.nombre)) {
+            match = this.armarMatch(prod, prod.costo, item.precio, 'similitud');
+          }
         }
       }
 
       resultado.push({ ...item, match });
     }
     return resultado;
+  }
+
+  private mismaMarca(descripcionProveedor: string, nombreProducto: string): boolean {
+    const normalizar = (s: string) =>
+      s.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9 ]/gi, '').toLowerCase();
+    const palabras = normalizar(descripcionProveedor).split(/\s+/).filter((p) => p.length >= 3);
+    if (!palabras.length) return true;
+    return normalizar(nombreProducto).includes(palabras[0]);
   }
 
   private armarMatch(
