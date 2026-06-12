@@ -16,6 +16,8 @@ import { ExtrasModule } from './estadisticas/extras.module';
 import { PedidosModule } from './pedidos/pedidos.module';
 import { ClientesAuthModule } from './clientes-auth/clientes-auth.module';
 import { CompraFacilModule } from './comprafacil/comprafacil.module';
+import { InformesModule } from './informes/informes.module';
+import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
@@ -38,6 +40,9 @@ import { CompraFacilModule } from './comprafacil/comprafacil.module';
     PedidosModule,
     ClientesAuthModule,
     CompraFacilModule,
+    // cron interno (informe diario a las 7:00 ART)
+    ScheduleModule.forRoot(),
+    InformesModule,
   ],
 })
 export class AppModule {}

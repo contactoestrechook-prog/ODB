@@ -117,7 +117,7 @@ export class PedidosService {
     const { data: precios } = await this.db.rpc('catalogo_precios', {
       p_ids: p.items.map((i) => i.producto_id),
     });
-    const precioPor = new Map((precios ?? []).map((r: any) => [r.producto_id, Number(r.precio_final)]));
+    const precioPor = new Map<string, number>((precios ?? []).map((r: any) => [r.producto_id, Number(r.precio_final)]));
 
     const { data: pedido, error } = await this.db
       .from('pedidos')

@@ -79,7 +79,7 @@ export class SommelierService {
     const { data: precios } = await this.db.rpc('catalogo_precios', {
       p_ids: conStock.map((p: any) => p.id),
     });
-    const precioPor = new Map((precios ?? []).map((r: any) => [r.producto_id, r]));
+    const precioPor = new Map<string, any>((precios ?? []).map((r: any) => [r.producto_id, r]));
 
     return conStock
       .map((p: any) => {

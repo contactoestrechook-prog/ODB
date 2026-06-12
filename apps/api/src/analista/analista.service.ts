@@ -308,7 +308,7 @@ export class AnalistaService {
     const { data: precios } = await this.db.rpc('catalogo_precios', {
       p_ids: conStock.map((p: any) => p.id),
     });
-    const precioPor = new Map((precios ?? []).map((r: any) => [r.producto_id, Number(r.precio_final)]));
+    const precioPor = new Map<string, number>((precios ?? []).map((r: any) => [r.producto_id, Number(r.precio_final)]));
 
     const catalogo = conStock
       .map((p: any) => `${p.sku} · ${p.nombre} · ${p.categoria.nombre} · $${Math.round(precioPor.get(p.id) ?? 0)}`)
