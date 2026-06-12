@@ -33,14 +33,27 @@ export class CompraFacilService {
         .eq('sku', item.sku)
         .maybeSingle();
       if (!prod) throw new BadRequestException(`No existe el producto ${item.sku}`);
-      const { data: pv } = await this.db
+      // el cliente de Comprá Fácil siempre es de la Comunidad (verificado):
+      // se intenta con el parámetro nuevo y se cae al viejo si la migración no corrió
+      let { data: pv, error: errPv } = await this.db
         .rpc('precio_vigente', {
           p_producto_id: prod.id,
           p_fecha: new Date().toISOString(),
           p_segmento: cliente.tipo,
           p_medio_pago: 'mercadopago',
+          p_verificado: true,
         })
         .maybeSingle();
+      if (errPv) {
+        ({ data: pv } = await this.db
+          .rpc('precio_vigente', {
+            p_producto_id: prod.id,
+            p_fecha: new Date().toISOString(),
+            p_segmento: cliente.tipo,
+            p_medio_pago: 'mercadopago',
+          })
+          .maybeSingle());
+      }
       renglones.push({ producto_id: prod.id, cantidad: Number(item.cantidad) });
       total += Math.round(Number(item.cantidad) * Number((pv as any)?.precio_final ?? 0) * 100) / 100;
     }

@@ -14,6 +14,7 @@ export const COLORES = {
 
 export type Producto = {
   imagenUrl: string | null;
+  descuentoComunidad?: boolean;
   sku: string;
   nombre: string;
   precio: number | null;

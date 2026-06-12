@@ -85,6 +85,7 @@ export class ClientesAuthService {
       dni: cliente!.dni,
       nombre: cliente!.nombre,
       rol: 'cliente',
+      verificado: cliente!.verificado === true,
     });
     return { token, cliente };
   }

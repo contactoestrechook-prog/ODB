@@ -93,6 +93,7 @@ export default async function Promociones() {
                       <p className="font-medium">{d.nombre}</p>
                       <p className="text-xs text-black/50">
                         {[
+                          (d as any).solo_comunidad && '🔒 solo Comunidad ODB',
                           d.segmento && `solo clientes ${d.segmento}`,
                           d.medio_pago && `pagando con ${d.medio_pago}`,
                         ]

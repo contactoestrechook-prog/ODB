@@ -32,6 +32,9 @@ function Tarjeta({ p }: { p: Producto }) {
         </View>
       )}
       <Text numberOfLines={2} style={est.tarjetaNombre}>{p.nombre}</Text>
+      {p.descuentoComunidad && (
+        <Text style={est.chipComunidad}>🔒 Comunidad ODB</Text>
+      )}
       {p.descuento ? (
         <View>
           <Text style={est.precioTachado}>{pesos(p.precioLista)}</Text>
@@ -81,7 +84,7 @@ export default function Inicio() {
         verificado: datos.cliente.verificado,
         token: datos.token,
       });
-      cargarSecciones(datos.cliente.tipo);
+      cargarSecciones(datos.cliente.tipo, datos.token);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error');
     }
@@ -104,11 +107,13 @@ export default function Inicio() {
     }
   }
 
-  async function cargarSecciones(tipo: string) {
+  async function cargarSecciones(tipo: string, token?: string) {
     const seccion = SECCION_POR_TIPO[tipo] ?? SECCION_POR_TIPO.nuevo;
+    // con token de cliente verificado, el catálogo incluye precios Comunidad ODB
+    const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
     const [rp, rv] = await Promise.all([
-      fetch(`${API}/productos?filtro=promo&porPagina=10`),
-      fetch(`${API}/productos?${seccion.query}`),
+      fetch(`${API}/productos?filtro=promo&porPagina=10`, { headers }),
+      fetch(`${API}/productos?${seccion.query}`, { headers }),
     ]);
     if (rp.ok) setPromos((await rp.json()).items);
     if (rv.ok) setParaVos((await rv.json()).items);
@@ -177,7 +182,7 @@ export default function Inicio() {
     );
   }
 
-  if (!cargado) cargarSecciones(cliente.tipo);
+  if (!cargado) cargarSecciones(cliente.tipo, cliente.token);
 
   return (
     <ScrollView style={est.pantallaCrema}>
@@ -193,13 +198,16 @@ export default function Inicio() {
       {cliente.token && !cliente.verificado && (
         <Pressable onPress={verificarIdentidad} style={est.bannerVerificar}>
           <Text style={est.bannerVerificarTexto}>
-            🛡 Verificá tu identidad (DNI + rostro) para comprar bebidas y usar el self-checkout →
+            🛡 Verificá tu identidad (DNI + rostro) y sumate a la Comunidad ODB: promos
+            exclusivas, Comprá Fácil y retiro sin caja →
           </Text>
         </Pressable>
       )}
       {cliente.verificado && (
         <View style={est.bannerVerificado}>
-          <Text style={est.bannerVerificadoTexto}>✓ Identidad verificada · mayor de 18 confirmado</Text>
+          <Text style={est.bannerVerificadoTexto}>
+            ✓ Sos de la Comunidad ODB · precios exclusivos activos
+          </Text>
         </View>
       )}
       {aviso && <Text style={est.aviso}>{aviso}</Text>}
@@ -259,6 +267,10 @@ const est = StyleSheet.create({
   fotoVacia: { backgroundColor: COLORES.crema, alignItems: 'center', justifyContent: 'center' },
   fotoInicial: { fontSize: 32, fontWeight: '700', color: '#bbb' },
   tarjetaNombre: { fontSize: 12, color: COLORES.negro, minHeight: 32 },
+  chipComunidad: {
+    fontSize: 10, color: COLORES.blanco, backgroundColor: COLORES.negro,
+    alignSelf: 'flex-start', borderRadius: 8, paddingHorizontal: 6, paddingVertical: 2, marginTop: 4,
+  },
   precio: { fontSize: 15, fontWeight: '700', color: COLORES.negro, marginTop: 6 },
   precioTachado: { fontSize: 11, color: '#999', textDecorationLine: 'line-through', marginTop: 4 },
   precioPromo: { fontSize: 15, fontWeight: '700', color: COLORES.rojo },

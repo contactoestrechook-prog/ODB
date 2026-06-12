@@ -1,13 +1,30 @@
-import { Controller, Get, Param, Query } from '@nestjs/common';
+import { Controller, Get, Headers, Param, Query } from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
 import { CatalogoService } from './catalogo.service';
 import type { FiltrosCatalogo } from './catalogo.service';
 import { Publico } from '../auth/decorators';
 
-// El catálogo es público: es lo que muestra la tienda
+// El catálogo es público: es lo que muestra la tienda.
+// Si llega un token de cliente verificado, se aplican además
+// las promociones exclusivas de la Comunidad ODB.
 @Publico()
 @Controller()
 export class CatalogoController {
-  constructor(private readonly catalogo: CatalogoService) {}
+  constructor(
+    private readonly catalogo: CatalogoService,
+    private readonly jwt: JwtService,
+  ) {}
+
+  private async esComunidad(authorization?: string): Promise<boolean> {
+    const token = (authorization ?? '').replace(/^Bearer /, '');
+    if (!token) return false;
+    try {
+      const payload = await this.jwt.verifyAsync(token);
+      return payload.rol === 'cliente' && payload.verificado === true;
+    } catch {
+      return false;
+    }
+  }
 
   @Get('catalogo/filtros')
   filtros() {
@@ -15,10 +32,12 @@ export class CatalogoController {
   }
 
   @Get('productos')
-  buscar(@Query() q: FiltrosCatalogo & { limite?: string }) {
-    // compat: ?limite=N (usado por la caja) equivale a porPagina
+  async buscar(
+    @Query() q: FiltrosCatalogo & { limite?: string },
+    @Headers('authorization') auth?: string,
+  ) {
     if (q.limite && !q.porPagina) q.porPagina = q.limite;
-    return this.catalogo.buscarProductos(q);
+    return this.catalogo.buscarProductos(q, await this.esComunidad(auth));
   }
 
   @Get('productos/:sku')

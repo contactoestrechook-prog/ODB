@@ -67,18 +67,18 @@ export class CatalogoService {
   // (30 s) que absorbe la navegación masiva sin golpear la base
   private catalogoCache = new Map<string, { data: any; ts: number }>();
 
-  async buscarProductos(q: FiltrosCatalogo) {
-    const clave = JSON.stringify([q.buscar, q.categoriaId, q.marcaId, q.filtro, q.orden, q.pagina, q.porPagina]);
+  async buscarProductos(q: FiltrosCatalogo, verificado = false) {
+    const clave = JSON.stringify([verificado, q.buscar, q.categoriaId, q.marcaId, q.filtro, q.orden, q.pagina, q.porPagina]);
     const cacheado = this.catalogoCache.get(clave);
     if (cacheado && Date.now() - cacheado.ts < 30_000) return cacheado.data;
 
-    const resultado = await this.buscarProductosSinCache(q);
+    const resultado = await this.buscarProductosSinCache(q, verificado);
     if (this.catalogoCache.size > 500) this.catalogoCache.clear();
     this.catalogoCache.set(clave, { data: resultado, ts: Date.now() });
     return resultado;
   }
 
-  private async buscarProductosSinCache(q: FiltrosCatalogo) {
+  private async buscarProductosSinCache(q: FiltrosCatalogo, verificado = false) {
     const porPagina = Math.min(Math.max(Number(q.porPagina ?? 50), 1), 200);
     const pagina = Math.max(Number(q.pagina ?? 1), 1);
 
@@ -133,7 +133,7 @@ export class CatalogoService {
     }
 
     const [precios, fotos] = await Promise.all([
-      this.preciosVigentes(items.map((p: any) => p.id)),
+      this.preciosVigentes(items.map((p: any) => p.id), verificado),
       this.fotos(),
     ]);
     return {
@@ -263,11 +263,23 @@ export class CatalogoService {
     return [...ids];
   }
 
+  // ¿Está aplicada la migración de Comunidad ODB? (se detecta una sola vez)
+  private soportaComunidad: boolean | null = null;
+
+  private async comunidadActiva(): Promise<boolean> {
+    if (this.soportaComunidad !== null) return this.soportaComunidad;
+    const { error } = await this.db.from('descuentos').select('solo_comunidad').limit(1);
+    this.soportaComunidad = !error;
+    return this.soportaComunidad;
+  }
+
   // Precios con descuentos aplicados, calculados por la función canónica de la base
-  private async preciosVigentes(ids: string[]) {
+  private async preciosVigentes(ids: string[], verificado = false) {
     const mapa = new Map<string, any>();
     if (ids.length === 0) return mapa;
-    const { data, error } = await this.db.rpc('catalogo_precios', { p_ids: ids });
+    const params: any = { p_ids: ids };
+    if (verificado && (await this.comunidadActiva())) params.p_verificado = true;
+    const { data, error } = await this.db.rpc('catalogo_precios', params);
     if (error) throw new Error(error.message);
     for (const r of data ?? []) mapa.set(r.producto_id, r);
     return mapa;
@@ -277,6 +289,7 @@ export class CatalogoService {
     const stockTotal = (p.stock ?? []).reduce((s: number, r: any) => s + Number(r.cantidad), 0);
     return {
       imagenUrl: fotos?.has(`${p.sku}.jpg`) ? this.urlImagen(p.sku) : null,
+      descuentoComunidad: precioVigente?.descuento_comunidad === true,
       sku: p.sku,
       nombre: p.nombre,
       marca: p.marca?.nombre ?? null,

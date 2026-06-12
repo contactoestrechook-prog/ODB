@@ -7,15 +7,18 @@ export default function Catalogo() {
   const [buscar, setBuscar] = useState('');
   const [productos, setProductos] = useState<Producto[]>([]);
 
+  const { cliente } = useEstado();
+
   useEffect(() => {
     const timer = setTimeout(async () => {
       const res = await fetch(
         `${API}/productos?buscar=${encodeURIComponent(buscar)}&porPagina=30`,
+        { headers: cliente?.token ? { Authorization: `Bearer ${cliente.token}` } : {} },
       );
       if (res.ok) setProductos((await res.json()).items);
     }, 250);
     return () => clearTimeout(timer);
-  }, [buscar]);
+  }, [buscar, cliente?.token]);
 
   return (
     <View style={est.pantalla}>
@@ -44,7 +47,9 @@ export default function Catalogo() {
                 {p.nombre} {p.esAlcohol ? <Text style={est.mas18}> +18</Text> : null}
               </Text>
               {p.descuento ? (
-                <Text style={est.promo}>{p.descuento}</Text>
+                <Text style={est.promo}>
+                  {p.descuentoComunidad ? '🔒 ' : ''}{p.descuento}
+                </Text>
               ) : (
                 <Text style={est.categoria}>{p.categoria}</Text>
               )}

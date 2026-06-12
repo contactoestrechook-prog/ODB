@@ -15,6 +15,7 @@ export type CrearDescuentoDto = {
   segmento?: string;
   medioPago?: string;
   combinable?: boolean;
+  soloComunidad?: boolean;
 };
 
 @Injectable()
@@ -68,6 +69,8 @@ export class DescuentosService {
         segmento: dto.segmento ?? null,
         medio_pago: dto.medioPago ?? null,
         combinable: dto.combinable ?? false,
+        // solo se manda si es true: así no rompe antes de aplicar la migración
+        ...(dto.soloComunidad ? { solo_comunidad: true } : {}),
       })
       .select('id')
       .single();

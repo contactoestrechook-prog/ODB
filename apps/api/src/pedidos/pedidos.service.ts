@@ -233,7 +233,7 @@ export class PedidosService {
   async avanzar(pedidoId: string, estado: string, usuarioId?: string) {
     const { data: pedido, error } = await this.db
       .from('pedidos')
-      .select('*, items:pedidos_items(producto_id, cantidad), cliente:clientes(dni, tipo)')
+      .select('*, items:pedidos_items(producto_id, cantidad), cliente:clientes(dni, tipo, verificado)')
       .eq('id', pedidoId)
       .single();
     if (error || !pedido) throw new BadRequestException('No existe el pedido');
@@ -263,14 +263,19 @@ export class PedidosService {
       // mismo cálculo que hará registrar_venta (segmento + medio) para que el pago cierre exacto
       let monto = 0;
       for (const item of pedido.items as any[]) {
-        const { data: pv } = await this.db
-          .rpc('precio_vigente', {
-            p_producto_id: item.producto_id,
-            p_fecha: new Date().toISOString(),
-            p_segmento: pedido.cliente?.tipo ?? null,
-            p_medio_pago: medio,
-          })
+        const base = {
+          p_producto_id: item.producto_id,
+          p_fecha: new Date().toISOString(),
+          p_segmento: pedido.cliente?.tipo ?? null,
+          p_medio_pago: medio,
+        };
+        // intenta con la dimensión Comunidad; si la migración no corrió, cae al formato viejo
+        let { data: pv, error: errPv } = await this.db
+          .rpc('precio_vigente', { ...base, p_verificado: pedido.cliente?.verificado === true })
           .maybeSingle();
+        if (errPv) {
+          ({ data: pv } = await this.db.rpc('precio_vigente', base).maybeSingle());
+        }
         monto += Math.round(Number(item.cantidad) * Number((pv as any)?.precio_final ?? 0) * 100) / 100;
       }
       const { data, error: errVenta } = await this.db.rpc('registrar_venta', {
