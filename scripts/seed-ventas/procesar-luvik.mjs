@@ -58,7 +58,8 @@ const resultados = await Promise.all(
   tandas.map(async (tanda, i) => {
     const r = await claude.messages
       .stream({
-        model: 'claude-opus-4-8',
+        // extracción mecánica de renglones: Haiku (decisión del dueño, 12/6)
+        model: 'claude-haiku-4-5',
         max_tokens: 64000,
         output_config: { format: { type: 'json_schema', schema: ESQUEMA } },
         messages: [

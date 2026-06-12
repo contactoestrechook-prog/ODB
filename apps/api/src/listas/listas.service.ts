@@ -206,7 +206,8 @@ export class ListasService {
     for (const [i, tanda] of tandas.entries()) {
       const respuesta = await claude.messages
         .stream({
-          model: 'claude-opus-4-8',
+          // catálogos masivos: extracción mecánica → Haiku (~10× más barato)
+          model: 'claude-haiku-4-5',
           max_tokens: 64000,
           output_config: { format: { type: 'json_schema', schema: ESQUEMA_EXTRACCION as any } },
           messages: [
