@@ -3,15 +3,25 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 
-const ROLES: Record<string, string> = {
-  dueno: 'Dueño',
-  gerente: 'Gerente',
-  comprador: 'Comprador',
-  cajero: 'Cajero',
-  deposito: 'Depósito',
+const ROLES: Record<string, { etiqueta: string; chip: string; descripcion: string }> = {
+  dueno: { etiqueta: 'Dueño', chip: 'bg-black text-white', descripcion: 'Acceso total, administra usuarios y firma sin límite' },
+  gerente: { etiqueta: 'Gerente', chip: 'bg-[#B82D25]/10 text-[#932A1F]', descripcion: 'Opera todo, administra el equipo, firma hasta su límite' },
+  comprador: { etiqueta: 'Comprador', chip: 'bg-amber-100 text-amber-900', descripcion: 'Compras, proveedores y Analista ODB' },
+  cajero: { etiqueta: 'Cajero', chip: 'bg-sky-100 text-sky-900', descripcion: 'Ventas, caja y control de salida' },
+  deposito: { etiqueta: 'Depósito', chip: 'bg-emerald-100 text-emerald-900', descripcion: 'Stock, recepción y pedidos' },
 };
 
 const pesos = (n: number) => '$' + Math.round(n).toLocaleString('es-AR');
+
+const iniciales = (nombre: string) =>
+  nombre
+    .replace(/\(.*\)/, '')
+    .trim()
+    .split(/\s+/)
+    .map((p) => p[0])
+    .slice(0, 2)
+    .join('')
+    .toUpperCase();
 
 type Sucursal = { id: string; nombre: string };
 
@@ -95,101 +105,156 @@ export function GestionUsuarios({ usuarios, sucursales }: { usuarios: any[]; suc
     router.refresh();
   };
 
+  const activos = usuarios.filter((u) => u.activo).length;
+
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-4">
-        <p className="text-sm text-black/60">
-          {usuarios.length} usuarios · los inactivos no pueden iniciar sesión
-        </p>
+    <div className="space-y-5">
+      {/* resumen + acción principal */}
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="flex gap-6">
+          <div>
+            <p className="text-2xl font-semibold text-black leading-none">{usuarios.length}</p>
+            <p className="text-xs text-black/45 mt-1">en el equipo</p>
+          </div>
+          <div>
+            <p className="text-2xl font-semibold text-black leading-none">{activos}</p>
+            <p className="text-xs text-black/45 mt-1">activos</p>
+          </div>
+          <div>
+            <p className="text-2xl font-semibold text-black leading-none">
+              {usuarios.filter((u) => u.tienePin).length}
+            </p>
+            <p className="text-xs text-black/45 mt-1">con firma</p>
+          </div>
+        </div>
         <button
           onClick={abrirNuevo}
-          className="rounded-full bg-[#B82D25] text-white text-sm px-5 py-2 hover:bg-[#932A1F]"
+          className="rounded-full bg-[#B82D25] text-white text-sm font-medium px-5 py-2.5 hover:bg-[#932A1F] shadow-sm"
         >
-          + Nuevo usuario
+          + Sumar al equipo
         </button>
       </div>
 
-      <section className="rounded-xl bg-white overflow-hidden">
-        <table className="w-full text-sm text-black">
-          <thead>
-            <tr className="text-left text-xs text-black/50 border-b border-black/10">
-              <th className="px-4 py-3 font-medium">Usuario</th>
-              <th className="px-4 py-3 font-medium">Rol</th>
-              <th className="px-4 py-3 font-medium">Sucursal</th>
-              <th className="px-4 py-3 font-medium text-right">Límite de firma</th>
-              <th className="px-4 py-3 font-medium text-center">PIN</th>
-              <th className="px-4 py-3 font-medium text-center">Estado</th>
-              <th className="px-4 py-3" />
-            </tr>
-          </thead>
-          <tbody>
-            {usuarios.map((u) => (
-              <tr key={u.id} className={`border-b border-black/5 last:border-0 ${u.activo ? '' : 'opacity-50'}`}>
-                <td className="px-4 py-3">
-                  <p className="font-medium">{u.nombre}</p>
-                  <p className="text-xs text-black/50">{u.email}</p>
-                </td>
-                <td className="px-4 py-3">{ROLES[u.rol] ?? u.rol}</td>
-                <td className="px-4 py-3">{u.sucursal?.nombre ?? 'Todas'}</td>
-                <td className="px-4 py-3 text-right">
-                  {u.limiteAprobacion > 0 ? pesos(u.limiteAprobacion) : '—'}
-                </td>
-                <td className="px-4 py-3 text-center">{u.tienePin ? '●' : '—'}</td>
-                <td className="px-4 py-3 text-center">
-                  <button
-                    onClick={() => alternarActivo(u)}
-                    className={`text-xs rounded-full px-3 py-1 ${
-                      u.activo ? 'bg-green-100 text-green-800' : 'bg-black/10 text-black/60'
-                    }`}
-                  >
-                    {u.activo ? 'Activo' : 'Inactivo'}
-                  </button>
-                </td>
-                <td className="px-4 py-3 text-right">
-                  <button onClick={() => abrirEdicion(u)} className="text-xs text-[#B82D25] hover:underline">
-                    Editar
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </section>
+      {/* tarjetas de usuario */}
+      <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-4">
+        {usuarios.map((u) => {
+          const rol = ROLES[u.rol] ?? { etiqueta: u.rol, chip: 'bg-black/10 text-black', descripcion: '' };
+          return (
+            <article
+              key={u.id}
+              className={`rounded-2xl bg-white p-5 shadow-[0_1px_3px_rgba(0,0,0,0.06)] border border-black/[0.04] flex flex-col gap-4 ${
+                u.activo ? '' : 'opacity-55'
+              }`}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-11 h-11 rounded-full bg-[#121212] text-white flex items-center justify-center text-sm font-semibold tracking-wide">
+                    {iniciales(u.nombre)}
+                  </div>
+                  <div>
+                    <p className="font-medium text-black leading-tight">{u.nombre}</p>
+                    <p className="text-xs text-black/45">{u.email}</p>
+                  </div>
+                </div>
+                <span className={`text-[11px] font-medium rounded-full px-2.5 py-1 whitespace-nowrap ${rol.chip}`}>
+                  {rol.etiqueta}
+                </span>
+              </div>
 
+              <p className="text-xs text-black/50 leading-relaxed">{rol.descripcion}</p>
+
+              <div className="grid grid-cols-2 gap-3 text-xs">
+                <div className="rounded-lg bg-[#F0EBE2]/70 px-3 py-2">
+                  <p className="text-black/45">Sucursal</p>
+                  <p className="font-medium text-black mt-0.5">{u.sucursal?.nombre ?? 'Todas'}</p>
+                </div>
+                <div className="rounded-lg bg-[#F0EBE2]/70 px-3 py-2">
+                  <p className="text-black/45">Firma de compras</p>
+                  <p className="font-medium text-black mt-0.5">
+                    {u.tienePin && u.limiteAprobacion > 0
+                      ? u.limiteAprobacion >= 999_999_999
+                        ? 'Sin límite'
+                        : `hasta ${pesos(u.limiteAprobacion)}`
+                      : 'No firma'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between border-t border-black/5 pt-3 mt-auto">
+                <button
+                  onClick={() => alternarActivo(u)}
+                  className={`text-xs rounded-full px-3 py-1.5 font-medium ${
+                    u.activo
+                      ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                      : 'bg-black/5 text-black/50 hover:bg-black/10'
+                  }`}
+                >
+                  {u.activo ? '● Activo' : '○ Inactivo'}
+                </button>
+                <button
+                  onClick={() => abrirEdicion(u)}
+                  className="text-xs font-medium text-[#B82D25] hover:underline"
+                >
+                  Editar →
+                </button>
+              </div>
+            </article>
+          );
+        })}
+
+        {/* invitación a sumar */}
+        <button
+          onClick={abrirNuevo}
+          className="rounded-2xl border-2 border-dashed border-black/15 text-black/40 hover:text-[#B82D25] hover:border-[#B82D25]/40 transition-colors flex flex-col items-center justify-center gap-2 p-8 min-h-[180px]"
+        >
+          <span className="text-3xl leading-none">+</span>
+          <span className="text-sm font-medium">Sumar a alguien del equipo</span>
+          <span className="text-xs text-black/35">cajeros, depósito, compradores…</span>
+        </button>
+      </div>
+
+      {/* modal alta/edición */}
       {abierto && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl w-full max-w-md p-6 space-y-3">
-            <h2 className="font-medium text-black">{editando ? 'Editar usuario' : 'Nuevo usuario'}</h2>
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-[2px] flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl w-full max-w-md p-6 space-y-3 shadow-2xl">
+            <div>
+              <h2 className="font-semibold text-black text-lg">
+                {editando ? 'Editar usuario' : 'Nuevo usuario'}
+              </h2>
+              <p className="text-xs text-black/45 mt-0.5">
+                {editando ? 'Los campos de clave y PIN solo se cambian si escribís uno nuevo.' : 'Va a poder entrar al panel con su email y clave.'}
+              </p>
+            </div>
 
             <input
               value={form.nombre}
               onChange={(e) => campo('nombre', e.target.value)}
               placeholder="Nombre y apellido"
-              className="w-full rounded-lg border border-black/15 px-3 py-2 text-sm text-black"
+              className="w-full rounded-lg border border-black/15 px-3 py-2.5 text-sm text-black focus:border-[#B82D25] focus:outline-none"
             />
             <input
               value={form.email}
               onChange={(e) => campo('email', e.target.value)}
               placeholder="Email"
               type="email"
-              className="w-full rounded-lg border border-black/15 px-3 py-2 text-sm text-black"
+              className="w-full rounded-lg border border-black/15 px-3 py-2.5 text-sm text-black focus:border-[#B82D25] focus:outline-none"
             />
             <div className="grid grid-cols-2 gap-3">
               <select
                 value={form.rol}
                 onChange={(e) => campo('rol', e.target.value)}
-                className="rounded-lg border border-black/15 px-3 py-2 text-sm text-black bg-white"
+                className="rounded-lg border border-black/15 px-3 py-2.5 text-sm text-black bg-white focus:border-[#B82D25] focus:outline-none"
               >
-                {Object.entries(ROLES).map(([valor, etiqueta]) => (
+                {Object.entries(ROLES).map(([valor, r]) => (
                   <option key={valor} value={valor}>
-                    {etiqueta}
+                    {r.etiqueta}
                   </option>
                 ))}
               </select>
               <select
                 value={form.sucursalId}
                 onChange={(e) => campo('sucursalId', e.target.value)}
-                className="rounded-lg border border-black/15 px-3 py-2 text-sm text-black bg-white"
+                className="rounded-lg border border-black/15 px-3 py-2.5 text-sm text-black bg-white focus:border-[#B82D25] focus:outline-none"
               >
                 <option value="">Todas las sucursales</option>
                 {sucursales.map((s) => (
@@ -204,7 +269,7 @@ export function GestionUsuarios({ usuarios, sucursales }: { usuarios: any[]; suc
               onChange={(e) => campo('clave', e.target.value)}
               placeholder={editando ? 'Nueva clave (vacío = no cambiar)' : 'Clave (mín. 6 caracteres)'}
               type="password"
-              className="w-full rounded-lg border border-black/15 px-3 py-2 text-sm text-black"
+              className="w-full rounded-lg border border-black/15 px-3 py-2.5 text-sm text-black focus:border-[#B82D25] focus:outline-none"
             />
             <div className="grid grid-cols-2 gap-3">
               <input
@@ -213,30 +278,30 @@ export function GestionUsuarios({ usuarios, sucursales }: { usuarios: any[]; suc
                 placeholder={editando ? 'Nuevo PIN de firma' : 'PIN de firma (opcional)'}
                 type="password"
                 inputMode="numeric"
-                className="rounded-lg border border-black/15 px-3 py-2 text-sm text-black"
+                className="rounded-lg border border-black/15 px-3 py-2.5 text-sm text-black focus:border-[#B82D25] focus:outline-none"
               />
               <input
                 value={form.limiteAprobacion}
                 onChange={(e) => campo('limiteAprobacion', e.target.value)}
                 placeholder="Límite de aprobación $"
                 type="number"
-                className="rounded-lg border border-black/15 px-3 py-2 text-sm text-black"
+                className="rounded-lg border border-black/15 px-3 py-2.5 text-sm text-black focus:border-[#B82D25] focus:outline-none"
               />
             </div>
             <p className="text-xs text-black/40">
               El PIN y el límite habilitan a firmar órdenes de compra hasta ese monto.
             </p>
 
-            {error && <p className="text-xs text-[#B82D25]">{error}</p>}
+            {error && <p className="text-xs text-[#B82D25] font-medium">{error}</p>}
 
             <div className="flex justify-end gap-3 pt-1">
-              <button onClick={() => setAbierto(false)} className="text-sm text-black/60 px-4 py-2">
+              <button onClick={() => setAbierto(false)} className="text-sm text-black/60 px-4 py-2 hover:text-black">
                 Cancelar
               </button>
               <button
                 onClick={guardar}
                 disabled={cargando}
-                className="rounded-full bg-[#B82D25] text-white text-sm px-5 py-2 hover:bg-[#932A1F] disabled:opacity-50"
+                className="rounded-full bg-[#B82D25] text-white text-sm font-medium px-6 py-2.5 hover:bg-[#932A1F] disabled:opacity-50"
               >
                 {cargando ? 'Guardando…' : 'Guardar'}
               </button>

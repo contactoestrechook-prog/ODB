@@ -26,7 +26,7 @@ export default async function Informes() {
   const informes: any[] = res.ok ? await res.json() : [];
 
   return (
-    <div className="min-h-screen bg-[#F0EBE2]">
+    <div className="min-h-screen bg-[#F0EBE2] lg:pl-64">
       <Header activo="/informes" />
       <main className="max-w-5xl mx-auto p-6 space-y-6">
         <div className="flex items-center justify-between gap-4">

@@ -13,7 +13,7 @@ export default async function Usuarios() {
   const sucursales = resSucursales.ok ? await resSucursales.json() : [];
 
   return (
-    <div className="min-h-screen bg-[#F0EBE2]">
+    <div className="min-h-screen bg-[#F0EBE2] lg:pl-64">
       <Header activo="/usuarios" />
       <main className="max-w-5xl mx-auto p-6">
         {!resUsuarios.ok ? (

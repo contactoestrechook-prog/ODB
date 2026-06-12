@@ -60,7 +60,7 @@ export default async function Ventas() {
   }
 
   return (
-    <main className="min-h-screen bg-[#F0EBE2]">
+    <main className="min-h-screen bg-[#F0EBE2] lg:pl-64">
       <Header activo="/ventas" />
       <div className="max-w-5xl mx-auto p-6 space-y-6">
         {error && (
