@@ -3,7 +3,7 @@ import { cookies } from 'next/headers';
 
 const API = process.env.API_URL ?? 'http://localhost:3001';
 
-async function conToken() {
+async function conToken(): Promise<Record<string, string>> {
   const token = (await cookies()).get('odb_token')?.value;
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
