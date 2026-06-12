@@ -78,35 +78,60 @@ Reglas estrictas:
 export class AnalistaService {
   constructor(@Inject(SUPABASE) private readonly db: SupabaseClient) {}
 
+  // PostgREST devuelve máx. 1000 filas por consulta: con el catálogo real
+  // (9.000+ artículos) los análisis se leen paginando
+  private async todas<T = any>(
+    crear: (desde: number, hasta: number) => PromiseLike<{ data: any; error: any }>,
+  ): Promise<T[]> {
+    const filas: T[] = [];
+    for (let desde = 0; ; desde += 1000) {
+      const { data, error } = await crear(desde, desde + 999);
+      if (error) throw new BadRequestException(error.message ?? String(error));
+      filas.push(...(data ?? []));
+      if (!data || data.length < 1000) break;
+    }
+    return filas;
+  }
+
   async metricas(): Promise<FilaAnalisis[]> {
     const hace30 = new Date(Date.now() - 30 * 86400_000).toISOString();
     const hace7 = new Date(Date.now() - 7 * 86400_000).toISOString();
 
-    const [productosR, stockR, ventasR, transitoR] = await Promise.all([
-      this.db
-        .from('productos')
-        .select('id, sku, nombre, costo, activo')
-        .eq('activo', true),
-      this.db
-        .from('stock')
-        .select('producto_id, sucursal_id, cantidad, punto_reposicion, sucursal:sucursales(nombre)'),
-      this.db
-        .from('ventas_items')
-        .select('producto_id, cantidad, venta:ventas!inner(sucursal_id, vendida_en, estado)')
-        .gte('venta.vendida_en', hace30)
-        .eq('venta.estado', 'completada')
-        .limit(10000),
+    const [productosD, stockD, ventasD, transitoR] = await Promise.all([
+      this.todas((d, h) =>
+        this.db.from('productos').select('id, sku, nombre, costo, activo').eq('activo', true).range(d, h),
+      ),
+      this.todas((d, h) =>
+        this.db
+          .from('stock')
+          .select('producto_id, sucursal_id, cantidad, punto_reposicion, sucursal:sucursales(nombre)')
+          .range(d, h),
+      ),
+      this.todas((d, h) =>
+        this.db
+          .from('ventas_items')
+          .select('producto_id, cantidad, venta:ventas!inner(sucursal_id, vendida_en, estado)')
+          .gte('venta.vendida_en', hace30)
+          .eq('venta.estado', 'completada')
+          .range(d, h),
+      ),
       this.db
         .from('ordenes_compra_items')
         .select('producto_id, cantidad, cantidad_recibida, oc:ordenes_compra!inner(sucursal_id, estado)')
         .in('oc.estado', ['aprobada', 'enviada', 'recibida_parcial']),
     ]);
-    if (productosR.error) throw new BadRequestException(productosR.error.message);
+    const productosR = { data: productosD, error: null };
+    const stockR = { data: stockD };
+    const ventasR = { data: ventasD };
 
     const productos = productosR.data ?? [];
+    // precios en tandas de 500 ids (la URL del RPC tiene límite)
+    const precioPor = new Map<string, any>();
     const ids = productos.map((p: any) => p.id);
-    const { data: precios } = await this.db.rpc('catalogo_precios', { p_ids: ids });
-    const precioPor = new Map((precios ?? []).map((r: any) => [r.producto_id, r]));
+    for (let i = 0; i < ids.length; i += 500) {
+      const { data: precios } = await this.db.rpc('catalogo_precios', { p_ids: ids.slice(i, i + 500) });
+      for (const r of precios ?? []) precioPor.set(r.producto_id, r);
+    }
 
     // mejor proveedor (menor costo) por producto
     const { data: provs } = await this.db
@@ -157,7 +182,9 @@ export class AnalistaService {
           : null;
 
       let estado: FilaAnalisis['estado'] = 'ok';
-      if (vd30 === 0) estado = 'muerto';
+      // 'muerto' solo si hay capital parado; sin ventas y sin stock no es alerta
+      if (vd30 === 0 && stock > 0) estado = 'muerto';
+      else if (vd30 === 0) estado = 'ok';
       else if (lead != null && diasDeStock != null && diasDeStock <= lead) estado = 'quiebre_inminente';
       else if (stock + enTransito <= Number(st.punto_reposicion)) estado = 'reponer';
       else if (diasDeStock != null && diasDeStock > 60) estado = 'sobrestock';
@@ -200,8 +227,23 @@ export class AnalistaService {
       throw new BadRequestException('El último mensaje debe ser del usuario');
     }
 
-    const [filas, aumentos] = await Promise.all([this.metricas(), this.aumentosRecientes()]);
-    const tabla = filas
+    const [todasFilas, aumentos] = await Promise.all([this.metricas(), this.aumentosRecientes()]);
+    // con 9.000+ artículos solo van al modelo las alertas accionables:
+    // todo lo urgente + los muertos con más capital parado + un resumen global
+    const urgentes = todasFilas.filter((f) =>
+      ['quiebre_inminente', 'reponer', 'sobrestock'].includes(f.estado),
+    );
+    const muertos = todasFilas
+      .filter((f) => f.estado === 'muerto')
+      .sort((a, b) => b.stock * Number(b.costo ?? 0) - a.stock * Number(a.costo ?? 0))
+      .slice(0, 25);
+    const conteo = todasFilas.reduce(
+      (acc: Record<string, number>, f) => ((acc[f.estado] = (acc[f.estado] ?? 0) + 1), acc),
+      {},
+    );
+    const filas = [...urgentes, ...muertos].slice(0, 180);
+    const resumen = `RESUMEN GLOBAL (${todasFilas.length} renglones producto×sucursal): quiebres inminentes ${conteo.quiebre_inminente ?? 0} · a reponer ${conteo.reponer ?? 0} · sobrestock ${conteo.sobrestock ?? 0} · sin rotación con stock ${conteo.muerto ?? 0} (se listan los 25 con más capital) · ok ${conteo.ok ?? 0}`;
+    const tabla = resumen + '\n' + filas
       .map(
         (f) =>
           `${f.sku} · ${f.producto} · ${f.sucursal} · stock ${f.stock}${f.enTransito ? ` (+${f.enTransito} en tránsito)` : ''} · vende ${f.ventasDia30}/día (últ.7d: ${f.ventasDia7}/día) · cobertura ${f.diasDeStock ?? '∞'} días · prov: ${f.proveedor ?? 'sin asignar'} (entrega ${f.leadTimeDias ?? '?'}d, costo $${f.costo ?? '?'}) · margen ${f.margenPct ?? '?'}% · estado: ${f.estado.toUpperCase()}${f.sugerido ? ` · sugerido comprar ${f.sugerido}u` : ''}`,

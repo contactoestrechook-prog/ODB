@@ -21,34 +21,47 @@ export class EstadisticasController {
     return data;
   }
 
+  // PostgREST corta en 1000 filas por request: se pagina todo
+  private async todas(crear: (d: number, h: number) => PromiseLike<{ data: any; error: any }>) {
+    const filas: any[] = [];
+    for (let desde = 0; ; desde += 1000) {
+      const { data, error } = await crear(desde, desde + 999);
+      if (error) throw new BadRequestException(error.message ?? String(error));
+      filas.push(...(data ?? []));
+      if (!data || data.length < 1000) break;
+    }
+    return filas;
+  }
+
   private async calcular() {
     const hace30 = new Date(Date.now() - 30 * 86400_000).toISOString();
 
-    const [ventasR, itemsR, pagosR] = await Promise.all([
-      this.db
-        .from('ventas')
-        .select('total, descuento, canal, vendida_en')
-        .eq('estado', 'completada')
-        .gte('vendida_en', hace30)
-        .limit(20000),
-      this.db
-        .from('ventas_items')
-        .select('cantidad, precio_unitario, costo_unitario, producto:productos(sku, nombre), venta:ventas!inner(vendida_en, estado)')
-        .gte('venta.vendida_en', hace30)
-        .eq('venta.estado', 'completada')
-        .limit(20000),
-      this.db
-        .from('pagos')
-        .select('medio, monto, venta:ventas!inner(vendida_en, estado)')
-        .gte('venta.vendida_en', hace30)
-        .eq('venta.estado', 'completada')
-        .limit(20000),
+    const [ventas, items, pagos] = await Promise.all([
+      this.todas((d, h) =>
+        this.db
+          .from('ventas')
+          .select('total, descuento, canal, vendida_en')
+          .eq('estado', 'completada')
+          .gte('vendida_en', hace30)
+          .range(d, h),
+      ),
+      this.todas((d, h) =>
+        this.db
+          .from('ventas_items')
+          .select('cantidad, precio_unitario, costo_unitario, producto:productos(sku, nombre), venta:ventas!inner(vendida_en, estado)')
+          .gte('venta.vendida_en', hace30)
+          .eq('venta.estado', 'completada')
+          .range(d, h),
+      ),
+      this.todas((d, h) =>
+        this.db
+          .from('pagos')
+          .select('medio, monto, venta:ventas!inner(vendida_en, estado)')
+          .gte('venta.vendida_en', hace30)
+          .eq('venta.estado', 'completada')
+          .range(d, h),
+      ),
     ]);
-    if (ventasR.error) throw new BadRequestException(ventasR.error.message);
-
-    const ventas = (ventasR.data ?? []) as any[];
-    const items = (itemsR.data ?? []) as any[];
-    const pagos = (pagosR.data ?? []) as any[];
 
     // serie diaria (30 días)
     const porDia = new Map<string, { total: number; tickets: number }>();

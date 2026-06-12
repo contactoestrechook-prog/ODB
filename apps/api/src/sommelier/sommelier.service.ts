@@ -57,16 +57,25 @@ export class SommelierService {
   }
 
   private async cava(): Promise<string> {
+    // el catálogo real divide los vinos en muchos rubros: matchea por prefijo
     const { data, error } = await this.db
       .from('productos')
       .select('id, sku, nombre, categoria:categorias!inner(nombre), stock(cantidad)')
       .eq('activo', true)
-      .in('categoria.nombre', ['Vinos', 'Espumantes']);
+      .or('nombre.ilike.vino%,nombre.ilike.espumante%,nombre.ilike.champagne%', {
+        referencedTable: 'categoria',
+      });
     if (error) throw new BadRequestException(error.message);
 
-    const conStock = (data ?? []).filter(
-      (p: any) => (p.stock ?? []).reduce((s: number, r: any) => s + Number(r.cantidad), 0) > 0,
-    );
+    const conStock = (data ?? [])
+      .map((p: any) => ({
+        ...p,
+        stockTotal: (p.stock ?? []).reduce((s: number, r: any) => s + Number(r.cantidad), 0),
+      }))
+      .filter((p: any) => p.stockTotal > 0)
+      // la cava que ve el somelier: los 80 con más stock (los que conviene mover)
+      .sort((a: any, b: any) => b.stockTotal - a.stockTotal)
+      .slice(0, 80);
     const { data: precios } = await this.db.rpc('catalogo_precios', {
       p_ids: conStock.map((p: any) => p.id),
     });

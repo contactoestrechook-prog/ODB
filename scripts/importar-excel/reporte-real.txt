@@ -1,0 +1,212 @@
+fila 25: 3430 "1/2 docena1 Huevos" con stock NEGATIVO (-30) — se importa en 0, revisar en el sistema viejo
+fila 56: 10594 "Abadejo Berardi en Filet x peso" con stock NEGATIVO (-3.36) — se importa en 0, revisar en el sistema viejo
+fila 119: 3104 "Aceite de Oliva El Cortijo Bag in Box x3L (Las Perdices)" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 164: 3609 "Aceite de Oliva Zuelo Clasico x500ml" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 178: 5292 "Aceitunas Cristo de los Cerros Griegas x 200grs" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 183: 5416 "Aceitunas Finca Ulapes rellenas con jamon crudo x 200 gr" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 189: 5389 "Aceitunas Laur verdes descarozadas x 160gr" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 193: 5388 "Aceitunas Laur verdes Rellenas con Morron x330gr" con stock NEGATIVO (-3) — se importa en 0, revisar en el sistema viejo
+fila 202: 9204 "Aceitunas Verdes Familia Gullo c/ almendra" con stock NEGATIVO (-4) — se importa en 0, revisar en el sistema viejo
+fila 260: 4940 "Acondicionador Pantene Pro-v Rizos definidos x 400ml" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 263: 7710 "Acondionador Johnsons Origial x400ml" con stock NEGATIVO (-3) — se importa en 0, revisar en el sistema viejo
+fila 382: 4462 "Aji Molido LC x 48gr" con stock NEGATIVO (-0.075) — se importa en 0, revisar en el sistema viejo
+fila 562: 10453 "Algodon Black Label Malbec x750cc" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 568: 10449 "Algodon Estate Malbec x750cc" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 584: 237 "Alma Mora Cabernet 750cc" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 638: 1032 "Alta Vista Terroir Selection Malbec 750cc" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 705: 1874 "Animal Estuche 750cc" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 710: 8454 "Anko flor de cardon malbec x750cc" con stock NEGATIVO (-4) — se importa en 0, revisar en el sistema viejo
+fila 750: 2642 "Antitranspirante Rexona masculino Xtracool x 90 gr" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 757: 9599 "Antonieta Estuche Rose + Brut Nature" con stock NEGATIVO (-6) — se importa en 0, revisar en el sistema viejo
+fila 841: 7200 "Apresto Robin DP x 450ml" con stock NEGATIVO (-8) — se importa en 0, revisar en el sistema viejo
+fila 965: 2794 "Arvejas LC remojadas x 320 gr" con stock NEGATIVO (-8) — se importa en 0, revisar en el sistema viejo
+fila 1006: 3561 "Azucar impalpable Dos Anclas x 300 gr" con stock NEGATIVO (-3) — se importa en 0, revisar en el sistema viejo
+fila 1055: 4463 "Bananas Chips" con stock NEGATIVO (-0.445) — se importa en 0, revisar en el sistema viejo
+fila 1066: 6633 "Barbacoa LC x250gr" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 1094: 7888 "Barra de cereal Integra de Avena y Banana" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 1096: 7887 "Barra de cereal Integra de Girasol y Arandanos" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 1130: 10622 "Baston Colorado Cagnoli x Fraccion" con stock NEGATIVO (-0.305) — se importa en 0, revisar en el sistema viejo
+fila 1182: código 8139 duplicado ("BERNARD LONCLAS BRUT" vs "Arraviata Bocconino x fraccion") — se conserva el primero
+fila 1239: 10988 "Bocadito Cabsha xUN" con stock NEGATIVO (-2) — se importa en 0, revisar en el sistema viejo
+fila 1277: 10077 "Bolsa Knorr saborizada de Romero y Tomillo" con stock NEGATIVO (-2) — se importa en 0, revisar en el sistema viejo
+fila 1318: 10700 "Bolsita de Caramelos Arcor Menta y Chocolatex 140g" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 1325: 10996 "Bombilla para mate Stanley negro" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 1368: 1174 "Bramare Valle de Uco Malbec 750cc" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 1372: 10083 "Bresaola feteada Las Dinas x peso" con stock NEGATIVO (-0.025) — se importa en 0, revisar en el sistema viejo
+fila 1442: 9452 "Cabaña Piedras Blancas Chevrotin en cuña" con stock NEGATIVO (-0.32) — se importa en 0, revisar en el sistema viejo
+fila 1453: 6642 "Cabo de Madera Plastificado" con stock NEGATIVO (-2) — se importa en 0, revisar en el sistema viejo
+fila 1538: 7232 "Cafe Juan Valdez liofilizado Clasico x 95g" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 1572: 5827 "Cafe Nescafe Gold Tostado y Molido INTENSO x 250grs" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 1623: 12360 "Caldo Maggi de Gallina x 12u" con stock NEGATIVO (-2) — se importa en 0, revisar en el sistema viejo
+fila 1656: 7130 "Cantimpalo Recreo" con stock NEGATIVO (-0.43) — se importa en 0, revisar en el sistema viejo
+fila 1664: 9384 "Capsula de Cafe Nescafe Espresso Intenso Dolce Gusto" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 1744: 12187 "Caramelos Docile de Frutilla Acida colorida bolsa x 500 grs" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 1762: 3841 "Carilina Elite x6un" con stock NEGATIVO (-9) — se importa en 0, revisar en el sistema viejo
+fila 1853: 12073 "Cereal Nesquik Duo x 210g" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 1911: 6454 "Cerveza Baum California x473cc" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 2021: 9947 "Cerveza Ludus Ipa Argenta x473cc" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 2126: 3918 "Chandon Cuvee Reserve Blanc de Blancs x750cc" con stock NEGATIVO (-2) — se importa en 0, revisar en el sistema viejo
+fila 2211: 10561 "Chicles Topline Ultra Green Mint" con stock NEGATIVO (-6) — se importa en 0, revisar en el sistema viejo
+fila 2238: 3654 "Chips Humos 140 gr Barricas de Whisky" con stock NEGATIVO (-3) — se importa en 0, revisar en el sistema viejo
+fila 2354: 3881 "Chorizo Candelario Bermejo" con stock NEGATIVO (-0.4045) — se importa en 0, revisar en el sistema viejo
+fila 2355: 3373 "Chorizo Colorado Cantimpalo Bermejo x fraccion" con stock NEGATIVO (-1.77) — se importa en 0, revisar en el sistema viejo
+fila 2399: 5907 "Claroscuro Rose 750cc" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 2403: 6780 "Clos de Chacras Cavas de Crianza Blend 750cc" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 2436: 5921 "Coco Rallado Chango x 50grs" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 2439: 1173 "Cocodrilo 750cc" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 2485: 11383 "Colome Single Vineyard Tannat El Camino x750cc" con stock NEGATIVO (-6) — se importa en 0, revisar en el sistema viejo
+fila 2491: 1113 "Colosso Vicentin 750cc" con stock NEGATIVO (-6) — se importa en 0, revisar en el sistema viejo
+fila 2499: 3652 "Combo Picada Box" con stock NEGATIVO (-22) — se importa en 0, revisar en el sistema viejo
+fila 2556: 829 "Coquena Torrontes 750cc" con stock NEGATIVO (-3) — se importa en 0, revisar en el sistema viejo
+fila 2611: 11279 "Cremoso Tarantela x Fraccion" con stock NEGATIVO (-1.5050000000000001) — se importa en 0, revisar en el sistema viejo
+fila 2713: 6983 "Cuvelier Grand Vin 2009 x750cc" con stock NEGATIVO (-6) — se importa en 0, revisar en el sistema viejo
+fila 2723: 1460 "D.V. Catena Adrianna Vineyard - Malbec 750cc" con stock NEGATIVO (-2) — se importa en 0, revisar en el sistema viejo
+fila 2737: 1348 "D.V. Catena Nicasia Vineyard - Malbec 750cc" con stock NEGATIVO (-12) — se importa en 0, revisar en el sistema viejo
+fila 2802: 4680 "Delaviuda Torta Imperial sup x 200 gr" con stock NEGATIVO (-3) — se importa en 0, revisar en el sistema viejo
+fila 2820: 10000 "Desinfectante en aerosol Lysoform Montana x 380cc" con stock NEGATIVO (-7) — se importa en 0, revisar en el sistema viejo
+fila 2838: 6455 "Desodorante para piesRexona Efficient Talco x 100g" con stock NEGATIVO (-2) — se importa en 0, revisar en el sistema viejo
+fila 2844: 12858 "Detergente Cif Activgel Original x 500ml" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 2888: 9496 "Domain Bousquet Reserva Malbec x750cc" con stock NEGATIVO (-4) — se importa en 0, revisar en el sistema viejo
+fila 2903: 754 "Don David Tannat 750cc" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 2943: 9332 "Dulce de Batata Esnaola Lata x 700gr" con stock NEGATIVO (-3) — se importa en 0, revisar en el sistema viejo
+fila 2968: 9333 "Dulce de Membrillo Esnaola Lata x 700gr" con stock NEGATIVO (-2) — se importa en 0, revisar en el sistema viejo
+fila 2970: 8030 "Dulce de membrillo Esnaola x fraccion" con stock NEGATIVO (-1.155) — se importa en 0, revisar en el sistema viejo
+fila 2982: 9932 "Dulce Le Sucrerie de Cayote envasado" con stock NEGATIVO (-2) — se importa en 0, revisar en el sistema viejo
+fila 3031: 989 "El Enemigo Cabernet Franc 750cc" con stock NEGATIVO (-5) — se importa en 0, revisar en el sistema viejo
+fila 3127: 12008 "Enrique Tomas Jamon Serrano Reserva sobre 80gr" con stock NEGATIVO (-3) — se importa en 0, revisar en el sistema viejo
+fila 3138: 1917 "Envio a Domicilio" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 3214: 9772 "Estancia Los Cardones Tigerstone Garnacha 750cc" con stock NEGATIVO (-3) — se importa en 0, revisar en el sistema viejo
+fila 3230: 2349 "Estuche caja de madera" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 3284: 10957 "Fanta Pineapple (Piña)" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 3301: 10237 "Fausto Malbec Cabernet Franc x750cc" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 3423: 8623 "Figuritas Mundial FIFA 2026" con stock NEGATIVO (-10) — se importa en 0, revisar en el sistema viejo
+fila 3483: 9590 "Fosforos Tres estrellas x 400" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 3501: 4701 "Francisco de Miranda Petit Corona Azul" con stock NEGATIVO (-5) — se importa en 0, revisar en el sistema viejo
+fila 3525: 11702 "Freixenet Brut Royal x750cc" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 3529: 5646 "Freixenet Ice 750cc" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 3630: 8226 "Galletitas Chocolinas NEGRO x 258 gr" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 3683: 11303 "Galletitas Granolitas Chocolates y Naranjas x 150g" con stock NEGATIVO (-5) — se importa en 0, revisar en el sistema viejo
+fila 3783: 7028 "Garbanzos Cristo de los Cerros x 300g" con stock NEGATIVO (-2) — se importa en 0, revisar en el sistema viejo
+fila 3801: 12793 "Garrafa de Gas x10KG" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 3865: 12233 "Gelatina Royal Frutilla 25gr" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 4043: 12322 "Gomitas Pokemon Jigglypuff (Durazno y Frutilla) 95gr" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 4061: 12325 "Gouda Provenzal Migue" con stock NEGATIVO (-0.005) — se importa en 0, revisar en el sistema viejo
+fila 4102: 11782 "Granix Naturitos cereales Frutos Rojos x 90g" con stock NEGATIVO (-5) — se importa en 0, revisar en el sistema viejo
+fila 4177: 11609 "Halloween Rocklets pesadillas de chocolate x 140g" con stock NEGATIVO (-7) — se importa en 0, revisar en el sistema viejo
+fila 4256: 2858 "Helado Bombon Grido Escoces en caja" con stock NEGATIVO (-2) — se importa en 0, revisar en el sistema viejo
+fila 4356: 6592 "Higienol Papel Higenico x 4 x 100m" con stock NEGATIVO (-7) — se importa en 0, revisar en el sistema viejo
+fila 4365: 11998 "Hisopos Rino x 100 unidades" con stock NEGATIVO (-2) — se importa en 0, revisar en el sistema viejo
+fila 4414: 8533 "Hummus Kyros aceite de oliva 230gr" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 4416: 12203 "Hummus Kyros Babaganush Berenjena ahumada x 230gr" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 4420: 8577 "Hummus Kyros picante x 230 gr" con stock NEGATIVO (-2) — se importa en 0, revisar en el sistema viejo
+fila 4427: 2907 "Humos - Espinillo 140 gr" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 4438: 2908 "Humos Sal especiada para carne vacuna" con stock NEGATIVO (-2) — se importa en 0, revisar en el sistema viejo
+fila 4511: 12180 "Jabon con glicerina Lux Lirio Azul 120gr" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 4528: 7802 "Jabon Dove Exfoliacion Suave x 90gr" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 4554: 11572 "Jabon Liquido concentrado SKIP Colores vibrantes 800ml (Cuidado Activo)" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 4560: 5425 "Jabon Liquido Espuma Manzana DP manzana" con stock NEGATIVO (-11) — se importa en 0, revisar en el sistema viejo
+fila 4563: 11873 "Jabón líquido Estilo Spa maracuyá dp x 320" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 4577: 2887 "Jabon Liquido Skip Evolucion Fibercare DP x 800ml" con stock NEGATIVO (-2) — se importa en 0, revisar en el sistema viejo
+fila 4581: 2671 "Jabon Liquido Woolite bebe DP 450 ml" con stock NEGATIVO (-2) — se importa en 0, revisar en el sistema viejo
+fila 4587: 8398 "Jabon tocador Rexona sensible x3" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 4618: 12530 "Jamon Cocido Ahumado Las Dinas" con stock NEGATIVO (-1.4000000000000001) — se importa en 0, revisar en el sistema viejo
+fila 4641: 3683 "Jardinera LC x 300 gr" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 4690: 11453 "Jorge Falasco Malbec Estuche x 1" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 4699: 7577 "Judas Malbec x750cc" con stock NEGATIVO (-2) — se importa en 0, revisar en el sistema viejo
+fila 4812: 12613 "Ketchup Heinz Organic en Pomo x 397grs" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 4863: 8888 "la cayetana malbec 750 cc x 1" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 4876: 620 "La Flor Pulenta Sauvignon Blanc 750cc" con stock NEGATIVO (-2) — se importa en 0, revisar en el sistema viejo
+fila 4900: 10865 "La Serafina Langostinos en escabeche" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 4929: 736 "Lamadrid Clasico Malbec 750cc" con stock NEGATIVO (-2) — se importa en 0, revisar en el sistema viejo
+fila 5052: 10019 "Leberwurst Schreiber x fraccion" con stock NEGATIVO (-1.87) — se importa en 0, revisar en el sistema viejo
+fila 5080: 12043 "Leche en Polvo Nido Forti Grow x 200g" con stock NEGATIVO (-3) — se importa en 0, revisar en el sistema viejo
+fila 5216: 10609 "limpiador liquido arom. Poett Flores de primavera X 900ML" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 5242: código 10610 duplicado ("Limpiador liquido Aromatizante Procenex Original x 1800ml" vs "Domain Bousquet Reserva Cabernet Franc x750cc") — se conserva el primero
+fila 5285: 9999 "limpiador Mr Musculos Vidrios x 360ml" con stock NEGATIVO (-2) — se importa en 0, revisar en el sistema viejo
+fila 5294: 11087 "LimpiaVidrios Make N 30" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 5337: 11919 "Lomo x peso" con stock NEGATIVO (-0.05) — se importa en 0, revisar en el sistema viejo
+fila 5348: 2403 "Los Intocables Malbec 750cc" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 5349: 5946 "Los Intocables Red Blend 750cc" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 5418: 4500 "Lui Gran Reserva SV Cabernet Franc 750cc" con stock NEGATIVO (-2) — se importa en 0, revisar en el sistema viejo
+fila 5431: 4507 "Lui Reserva SV Malbec 750cc" con stock NEGATIVO (-2) — se importa en 0, revisar en el sistema viejo
+fila 5432: 4504 "Lui Reserva SV Merlot 750cc" con stock NEGATIVO (-4) — se importa en 0, revisar en el sistema viejo
+fila 5433: 4502 "Lui Reserva SV Sauvignon Blanc 750cc" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 5494: 2574 "Magdalena Toso Barrel Selection 750cc" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 5504: 10687 "Maiz Pisado Blanco Don Elio x 400g" con stock NEGATIVO (-8) — se importa en 0, revisar en el sistema viejo
+fila 5527: 11156 "Malvavisco Buffys Tradicional x200gr" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 5556: 5664 "Mangini pan de Hamburguesa Parmesano x 6 UN" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 5559: 5896 "Mangini Pan Dulce Dorado x 500g CHICO" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 5564: 8913 "Mani con cascara al peso" con stock NEGATIVO (-1.06) — se importa en 0, revisar en el sistema viejo
+fila 5592: 11862 "Manos Negras Pinot Noir x750cc" con stock NEGATIVO (-7) — se importa en 0, revisar en el sistema viejo
+fila 5723: 10409 "Mayonesa con ajo TAU x 300g" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 5736: 11634 "Mayonesa Hellmans Liviana 475 gr" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 5761: 9583 "Medialuna de Jamon y queso x 3UN" con stock NEGATIVO (-2) — se importa en 0, revisar en el sistema viejo
+fila 5773: 12925 "Mentho plus mix berries x 25gr" con stock NEGATIVO (-2) — se importa en 0, revisar en el sistema viejo
+fila 5944: 4005 "Mix Energia" con stock NEGATIVO (-0.375) — se importa en 0, revisar en el sistema viejo
+fila 5971: código 11347 duplicado ("Mogul Bañados en Chocolates x 80gr" vs "Aperitivo La Fuerza Primavera x750cc") — se conserva el primero
+fila 6074: 3590 "Mostaza Aritza Dijon 360g" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 6113: 3822 "Mutti Extracto Doppio Concentrado tubo x 130g" con stock NEGATIVO (-3) — se importa en 0, revisar en el sistema viejo
+fila 6145: 6139 "Naranja Deshidratas x bolsa" con stock NEGATIVO (-3) — se importa en 0, revisar en el sistema viejo
+fila 6203: 50 "Nieto Senetiner Malbec DOC x750cc" con stock NEGATIVO (-2) — se importa en 0, revisar en el sistema viejo
+fila 6273: 11920 "Ojo De bife x peso" con stock NEGATIVO (-0.095) — se importa en 0, revisar en el sistema viejo
+fila 6351: 12137 "Palmitos Entero Cumana x 800gr" con stock NEGATIVO (-2) — se importa en 0, revisar en el sistema viejo
+fila 6376: 9977 "PAN CONGELADO X 1K" con stock NEGATIVO (-2) — se importa en 0, revisar en el sistema viejo
+fila 6466: 9353 "Paño para pisos Make envasado x1" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 6565: 12980 "Papas Mc cain Smiles x 400GR" con stock NEGATIVO (-2) — se importa en 0, revisar en el sistema viejo
+fila 6623: 1398 "Pasacana 750cc" con stock NEGATIVO (-5) — se importa en 0, revisar en el sistema viejo
+fila 6668: 10381 "Pasta de mani con cacao Entrenust x 370g" con stock NEGATIVO (-2) — se importa en 0, revisar en el sistema viejo
+fila 6675: 11994 "Pasta DELLISOLA Ajo x 190g" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 6712: 12385 "Pasta dental Marvis Aquatic Mint x 85ml" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 6726: 12338 "Pastilla p/Inodoros VIM Ocean 100gr" con stock NEGATIVO (-3) — se importa en 0, revisar en el sistema viejo
+fila 6855: 4418 "Picada ODB XL" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 6872: 11562 "Pila Duracell de Litio 2032 x1Un" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 6879: 9184 "Pilas energizer AA x Unid." con stock NEGATIVO (-2) — se importa en 0, revisar en el sistema viejo
+fila 6893: 3207 "Pimienta de Jamaica 1854 Molinillo" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 6973: 12257 "Poreotos Cumana x 300g" con stock NEGATIVO (-3) — se importa en 0, revisar en el sistema viejo
+fila 7032: 8589 "Prepizzas Bacoli Napolitanas x2" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 7037: 7997 "Prestobarba Ultragrip Women x 1un" con stock NEGATIVO (-10) — se importa en 0, revisar en el sistema viejo
+fila 7099: 7846 "Proyecto X Cabernet Franc CAJA MADERA x3" con stock NEGATIVO (-2) — se importa en 0, revisar en el sistema viejo
+fila 7257: 6360 "Queso Cremoso La Paulina fraccionado" con stock NEGATIVO (-2.032) — se importa en 0, revisar en el sistema viejo
+fila 7258: 3263 "Queso Cremoso Punta del Agua x fraccion" con stock NEGATIVO (-4.406) — se importa en 0, revisar en el sistema viejo
+fila 7323: 6351 "Queso Port Salud Light La Paulina x fraccion" con stock NEGATIVO (-5.88) — se importa en 0, revisar en el sistema viejo
+fila 7391: código 12252 duplicado ("Raid Repuesto para Aparato 32.9ml (Rosa)" vs "Gin Bombay SUNSET x 750cc") — se conserva el primero
+fila 7449: 11454 "Reggianito Migue" con stock NEGATIVO (-0.01) — se importa en 0, revisar en el sistema viejo
+fila 7506: 12440 "Ribs Frigorifico Lamberti envasadas x peso" con stock NEGATIVO (-0.38) — se importa en 0, revisar en el sistema viejo
+fila 7603: 7216 "Royal Polvo para Hornear x50gr" con stock NEGATIVO (-2) — se importa en 0, revisar en el sistema viejo
+fila 7608: 4345 "Rutini Cabernet - Franc Malbec 750cc" con stock NEGATIVO (-3) — se importa en 0, revisar en el sistema viejo
+fila 7651: 7670 "Saint Felicien Malbec Magnum x1.5Lt" con stock NEGATIVO (-4) — se importa en 0, revisar en el sistema viejo
+fila 7656: 1307 "Saint Felicien Rose 750cc" con stock NEGATIVO (-15) — se importa en 0, revisar en el sistema viejo
+fila 7710: 12822 "Salame con pistacho Chacin. David" con stock NEGATIVO (-0.9500000000000001) — se importa en 0, revisar en el sistema viejo
+fila 7720: 5935 "Salamin 214 Picado Fino" con stock NEGATIVO (-0.06) — se importa en 0, revisar en el sistema viejo
+fila 7722: 9298 "Salamin Cagnoli Picado fino" con stock NEGATIVO (-2.615) — se importa en 0, revisar en el sistema viejo
+fila 7740: 12382 "Salchichas Union Ganadera x 12" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 7827: 3423 "Salsa Dececco Arrabbiata x 200 gr" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 7880: 7718 "Salsa TAU Coleslaw x310cc" con stock NEGATIVO (-8) — se importa en 0, revisar en el sistema viejo
+fila 7900: 6731 "Santa Elena Kani Kama x 250g" con stock NEGATIVO (-5) — se importa en 0, revisar en el sistema viejo
+fila 7923: 9461 "Sardo Migue Pintado x Fraccion" con stock NEGATIVO (-2.455) — se importa en 0, revisar en el sistema viejo
+fila 7965: 12269 "Secador de piso N 40 Make" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 8033: 6574 "Shampoo Johnsons Baby Original x 200ml" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 8042: 10182 "Shampoo Pantene Pro-v Equilibrio x 700ml" con stock NEGATIVO (-2) — se importa en 0, revisar en el sistema viejo
+fila 8067: 6426 "Sidra Pulku Cassis x750cc" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 8074: 12117 "Sidra Zedryc Juicy Cider x750cc" con stock NEGATIVO (-7) — se importa en 0, revisar en el sistema viejo
+fila 8081: 4823 "Siempre libre especial con alas x 8 unidades" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 8090: 7745 "Sikuri Syrah 2018 x750cc" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 8094: 7747 "Sikuri Syrah 2020 x750cc" con stock NEGATIVO (-5) — se importa en 0, revisar en el sistema viejo
+fila 8104: 10104 "Skittles Gummies x164.4g" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 8105: 9364 "Skittles Original 61gr" con stock NEGATIVO (-5) — se importa en 0, revisar en el sistema viejo
+fila 8123: 11709 "Snack Cereal Mix Con cavcao ( sin harina) x 100g" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 8154: 10589 "Sodaextream Cilidro Celeste RECARGA" con stock NEGATIVO (-7) — se importa en 0, revisar en el sistema viejo
+fila 8155: 10591 "Sodaextream Cilidro Rosa" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 8156: 10590 "Sodaextream Cilidro Rosa RECARGA" con stock NEGATIVO (-40) — se importa en 0, revisar en el sistema viejo
+fila 8168: 9756 "Soñando T Malbec x750cc" con stock NEGATIVO (-2) — se importa en 0, revisar en el sistema viejo
+fila 8399: 7487 "Tableta de Chocolate Milka Oreo Chocolate Blanco x155gr" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 8482: 9419 "Tapa de pascualina Delicias Doradas Sin Tacc x 380g" con stock NEGATIVO (-7) — se importa en 0, revisar en el sistema viejo
+fila 8485: 9546 "Tapas para Empanadas C/ Semillas Delicias Doradas x 330g" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 8511: 3868 "Te Green Hills Manzanilla x 20 Un" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 8628: 9674 "Toallas Humedas Antibacteriales Mas Plus" con stock NEGATIVO (-6) — se importa en 0, revisar en el sistema viejo
+fila 8793: 12286 "Trumpeter Malbec x375cc" con stock NEGATIVO (-2) — se importa en 0, revisar en el sistema viejo
+fila 8800: 2282 "Trumpeter Reserve Cabernet Sauvignon 750cc" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 8844: 7471 "Vacuvin bomba de vacio Blanco en caja c/ 2 tapones" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 8885: 12144 "Vanish Oxi Gel Gatillo x 500ml" con stock NEGATIVO (-1) — se importa en 0, revisar en el sistema viejo
+fila 8958: 6608 "Vasos Previa Americano x 1UN" con stock NEGATIVO (-2) — se importa en 0, revisar en el sistema viejo
+fila 9052: 1818 "Viña Alicia Malbec 750cc" con stock NEGATIVO (-3) — se importa en 0, revisar en el sistema viejo
