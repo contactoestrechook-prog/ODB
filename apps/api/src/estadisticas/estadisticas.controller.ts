@@ -21,14 +21,20 @@ export class EstadisticasController {
     return data;
   }
 
-  // PostgREST corta en 1000 filas por request: se pagina todo
+  // PostgREST corta en 1000 filas por request: se pagina en tandas paralelas de 8
   private async todas(crear: (d: number, h: number) => PromiseLike<{ data: any; error: any }>) {
     const filas: any[] = [];
-    for (let desde = 0; ; desde += 1000) {
-      const { data, error } = await crear(desde, desde + 999);
-      if (error) throw new BadRequestException(error.message ?? String(error));
-      filas.push(...(data ?? []));
-      if (!data || data.length < 1000) break;
+    for (let tanda = 0; ; tanda++) {
+      const paginas = await Promise.all(
+        Array.from({ length: 8 }, (_, i) => crear((tanda * 8 + i) * 1000, (tanda * 8 + i) * 1000 + 999)),
+      );
+      let corta = false;
+      for (const { data, error } of paginas) {
+        if (error) throw new BadRequestException(error.message ?? String(error));
+        filas.push(...(data ?? []));
+        if (!data || data.length < 1000) corta = true;
+      }
+      if (corta) break;
     }
     return filas;
   }
