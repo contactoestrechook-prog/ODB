@@ -16,6 +16,7 @@ const tabs = [
   { href: '/salida', label: 'Salida' },
   { href: '/sommelier', label: 'Somelier' },
   { href: '/analista', label: 'Analista' },
+  { href: '/usuarios', label: 'Usuarios' },
 ];
 
 export function Header({ activo }: { activo: string }) {

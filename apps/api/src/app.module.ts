@@ -17,6 +17,7 @@ import { PedidosModule } from './pedidos/pedidos.module';
 import { ClientesAuthModule } from './clientes-auth/clientes-auth.module';
 import { CompraFacilModule } from './comprafacil/comprafacil.module';
 import { InformesModule } from './informes/informes.module';
+import { UsuariosModule } from './usuarios/usuarios.module';
 import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
@@ -43,6 +44,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     // cron interno (informe diario a las 7:00 ART)
     ScheduleModule.forRoot(),
     InformesModule,
+    UsuariosModule,
   ],
 })
 export class AppModule {}
