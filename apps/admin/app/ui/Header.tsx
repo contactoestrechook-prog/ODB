@@ -12,6 +12,7 @@ const tabs = [
   { href: '/deposito', label: 'Depósito' },
   { href: '/cierres', label: 'Cierres' },
   { href: '/caja', label: 'Caja' },
+  { href: '/salida', label: 'Salida' },
   { href: '/sommelier', label: 'Somelier' },
   { href: '/analista', label: 'Analista' },
 ];

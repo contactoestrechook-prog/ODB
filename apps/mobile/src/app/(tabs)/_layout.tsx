@@ -33,6 +33,13 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
+        name="comprafacil"
+        options={{
+          title: 'Comprá Fácil',
+          tabBarIcon: ({ color, size }) => <Ionicons name="scan-outline" size={size} color={color} />,
+        }}
+      />
+      <Tabs.Screen
         name="somelier"
         options={{
           title: 'Somelier ODB',

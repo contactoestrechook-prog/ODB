@@ -15,6 +15,7 @@ import { AnalistaModule } from './analista/analista.module';
 import { ExtrasModule } from './estadisticas/extras.module';
 import { PedidosModule } from './pedidos/pedidos.module';
 import { ClientesAuthModule } from './clientes-auth/clientes-auth.module';
+import { CompraFacilModule } from './comprafacil/comprafacil.module';
 
 @Module({
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
@@ -36,6 +37,7 @@ import { ClientesAuthModule } from './clientes-auth/clientes-auth.module';
     ExtrasModule,
     PedidosModule,
     ClientesAuthModule,
+    CompraFacilModule,
   ],
 })
 export class AppModule {}
