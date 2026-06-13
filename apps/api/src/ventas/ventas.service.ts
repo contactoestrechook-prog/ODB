@@ -38,20 +38,36 @@ export class VentasService {
     return data;
   }
 
-  async listar(limite = 30) {
-    const { data, error } = await this.db
+  async listar(f: { limite?: number; estado?: string; sucursalId?: string; medioPago?: string; dias?: number; buscar?: string } = {}) {
+    let query = this.db
       .from('ventas')
       .select(
         `id, canal, estado, subtotal, descuento, total, vendida_en,
          sucursal:sucursales(nombre),
-         cliente:clientes(dni, tipo),
+         cliente:clientes(dni, nombre, tipo),
          items:ventas_items(cantidad, precio_unitario, producto:productos(sku, nombre)),
          pagos(medio, monto)`,
       )
       .order('vendida_en', { ascending: false })
-      .limit(Math.min(limite, 100));
+      .limit(Math.min((f.medioPago || f.buscar) ? 300 : (f.limite ?? 30), 300));
+    if (f.estado) query = query.eq('estado', f.estado);
+    if (f.sucursalId) query = query.eq('sucursal_id', f.sucursalId);
+    if (f.dias) query = query.gte('vendida_en', new Date(Date.now() - f.dias * 86400_000).toISOString());
+    const { data, error } = await query;
     if (error) throw new BadRequestException(error.message);
-    return data;
+
+    let filas = (data ?? []) as any[];
+    // medio de pago y búsqueda libre se filtran sobre la página (display intacto)
+    if (f.medioPago) filas = filas.filter((v) => (v.pagos ?? []).some((p: any) => p.medio === f.medioPago));
+    if (f.buscar?.trim()) {
+      const t = f.buscar.trim().toLowerCase();
+      filas = filas.filter((v) =>
+        v.id.toLowerCase().includes(t) ||
+        (v.cliente?.dni ?? '').includes(t) ||
+        (v.cliente?.nombre ?? '').toLowerCase().includes(t),
+      );
+    }
+    return filas.slice(0, f.limite ?? 50);
   }
 
   async resumenHoy() {
@@ -68,18 +84,32 @@ export class VentasService {
     const facturado = ventas.reduce((s, v) => s + Number(v.total), 0);
     const descuentos = ventas.reduce((s, v) => s + Number(v.descuento), 0);
     const porSucursal: Record<string, { facturado: number; tickets: number }> = {};
+    const porCanal: Record<string, number> = {};
     for (const v of ventas) {
       const suc = v.sucursal?.nombre ?? '—';
       porSucursal[suc] ??= { facturado: 0, tickets: 0 };
       porSucursal[suc].facturado += Number(v.total);
       porSucursal[suc].tickets += 1;
+      porCanal[v.canal] = (porCanal[v.canal] ?? 0) + Number(v.total);
     }
+
+    // medios de pago del día
+    const { data: pagos } = await this.db
+      .from('pagos')
+      .select('medio, monto, venta:ventas!inner(vendida_en, estado)')
+      .gte('venta.vendida_en', desde.toISOString())
+      .eq('venta.estado', 'completada');
+    const porMedio: Record<string, number> = {};
+    for (const p of (pagos ?? []) as any[]) porMedio[p.medio] = (porMedio[p.medio] ?? 0) + Number(p.monto);
+
     return {
       tickets: ventas.length,
       facturado,
       descuentos,
       ticketPromedio: ventas.length ? facturado / ventas.length : 0,
       porSucursal,
+      porMedio,
+      porCanal,
     };
   }
 

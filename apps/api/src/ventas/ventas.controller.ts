@@ -14,8 +14,22 @@ export class VentasController {
   }
 
   @Get()
-  listar(@Query('limite') limite?: string) {
-    return this.ventas.listar(limite ? Number(limite) : undefined);
+  listar(
+    @Query('limite') limite?: string,
+    @Query('estado') estado?: string,
+    @Query('sucursalId') sucursalId?: string,
+    @Query('medioPago') medioPago?: string,
+    @Query('dias') dias?: string,
+    @Query('buscar') buscar?: string,
+  ) {
+    return this.ventas.listar({
+      limite: limite ? Number(limite) : undefined,
+      estado: estado || undefined,
+      sucursalId: sucursalId || undefined,
+      medioPago: medioPago || undefined,
+      dias: dias ? Number(dias) : undefined,
+      buscar: buscar || undefined,
+    });
   }
 
   @Get('resumen')
