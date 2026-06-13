@@ -295,7 +295,7 @@ Devolvé: un titular de hasta 8 palabras, un cuerpo de 2 a 3 líneas, un llamado
       (p: any) => (p.stock ?? []).reduce((s: number, r: any) => s + Number(r.cantidad), 0) > 0,
     );
     const { data: precios } = await this.db.rpc('catalogo_precios', { p_ids: conStock.map((p: any) => p.id) });
-    const precioPor = new Map((precios ?? []).map((r: any) => [r.producto_id, Number(r.precio_final)]));
+    const precioPor = new Map<string, number>((precios ?? []).map((r: any) => [r.producto_id, Number(r.precio_final)]));
     return conStock
       .filter((p: any) => precioPor.get(p.id))
       .slice(0, limite)
