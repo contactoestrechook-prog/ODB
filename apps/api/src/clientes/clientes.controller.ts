@@ -1,10 +1,64 @@
-import { BadRequestException, Controller, Get, Inject, Query } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Inject, Param, Patch, Query } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
+import { Roles } from '../auth/decorators';
 
 @Controller('clientes')
 export class ClientesController {
   constructor(@Inject(SUPABASE) private readonly db: SupabaseClient) {}
+
+  // Edición de datos del cliente: fiscales (para facturar A) y cuenta corriente
+  @Roles('dueno', 'gerente')
+  @Patch(':id')
+  async editar(
+    @Param('id') id: string,
+    @Body()
+    dto: {
+      nombre?: string;
+      razonSocial?: string;
+      cuit?: string;
+      condicionIva?: string;
+      domicilio?: string;
+      telefono?: string;
+      email?: string;
+      ctaCteHabilitada?: boolean;
+      limiteCredito?: number;
+    },
+  ) {
+    const cambios: Record<string, any> = {};
+    if (dto.nombre !== undefined) cambios.nombre = dto.nombre;
+    if (dto.razonSocial !== undefined) cambios.razon_social = dto.razonSocial;
+    if (dto.cuit !== undefined) cambios.cuit = dto.cuit || null;
+    if (dto.condicionIva !== undefined) cambios.condicion_iva = dto.condicionIva;
+    if (dto.domicilio !== undefined) cambios.domicilio = dto.domicilio;
+    if (dto.telefono !== undefined) cambios.telefono = dto.telefono;
+    if (dto.email !== undefined) cambios.email = dto.email;
+    if (dto.ctaCteHabilitada !== undefined) cambios.cta_cte_habilitada = dto.ctaCteHabilitada;
+    if (dto.limiteCredito !== undefined) cambios.limite_credito = dto.limiteCredito;
+    if (!Object.keys(cambios).length) return { ok: true };
+
+    // habilitar cta cte para facturar A exige CUIT + condición RI
+    if (cambios.cta_cte_habilitada === true || cambios.condicion_iva === 'responsable_inscripto') {
+      const { data: actual } = await this.db
+        .from('clientes')
+        .select('cuit, condicion_iva')
+        .eq('id', id)
+        .single();
+      const cuit = cambios.cuit ?? actual?.cuit;
+      const cond = cambios.condicion_iva ?? actual?.condicion_iva;
+      if (cond === 'responsable_inscripto' && !cuit) {
+        throw new BadRequestException('Un responsable inscripto necesita CUIT cargado');
+      }
+    }
+
+    const { error } = await this.db.from('clientes').update(cambios).eq('id', id);
+    if (error) {
+      throw new BadRequestException(
+        error.code === '23505' ? 'Ese CUIT ya está en otro cliente' : error.message,
+      );
+    }
+    return { ok: true };
+  }
 
   @Get()
   async listar(
@@ -17,7 +71,7 @@ export class ClientesController {
 
     let query = this.db
       .from('clientes')
-      .select('id, dni, cuit, nombre, razon_social, condicion_iva, email, telefono, tipo, verificado, puntos, creado_en', {
+      .select('id, dni, cuit, nombre, razon_social, condicion_iva, domicilio, email, telefono, tipo, verificado, puntos, cta_cte_habilitada, limite_credito, creado_en', {
         count: 'exact',
       });
     if (tipo) query = query.eq('tipo', tipo);

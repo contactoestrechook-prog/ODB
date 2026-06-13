@@ -3,7 +3,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { COLORES, useEstado } from '../../lib/estado';
 
 export default function TabsLayout() {
-  const { carrito } = useEstado();
+  const { carrito, notif } = useEstado();
   const unidades = carrito.reduce((s, r) => s + r.cantidad, 0);
 
   return (
@@ -44,6 +44,15 @@ export default function TabsLayout() {
         options={{
           title: 'Somelier ODB',
           tabBarIcon: ({ color, size }) => <Ionicons name="wine-outline" size={size} color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="cuenta"
+        options={{
+          title: 'Mi cuenta',
+          tabBarBadge: notif.noLeidas || undefined,
+          tabBarBadgeStyle: { backgroundColor: COLORES.rojo, color: COLORES.blanco },
+          tabBarIcon: ({ color, size }) => <Ionicons name="card-outline" size={size} color={color} />,
         }}
       />
       <Tabs.Screen

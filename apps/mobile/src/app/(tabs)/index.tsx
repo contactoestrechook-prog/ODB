@@ -2,6 +2,7 @@ import { useState } from 'react';
 import {
   FlatList, Image, Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
 } from 'react-native';
+import { useRouter } from 'expo-router';
 import { API, COLORES, pesos, useEstado, type Producto } from '../../lib/estado';
 
 const SECCION_POR_TIPO: Record<string, { titulo: string; query: string }> = {
@@ -51,7 +52,8 @@ function Tarjeta({ p }: { p: Producto }) {
 }
 
 export default function Inicio() {
-  const { cliente, setCliente } = useEstado();
+  const { cliente, setCliente, cuenta, notif } = useEstado();
+  const router = useRouter();
   const [modo, setModo] = useState<'login' | 'registro'>('login');
   const [dni, setDni] = useState('');
   const [nombre, setNombre] = useState('');
@@ -212,6 +214,22 @@ export default function Inicio() {
       )}
       {aviso && <Text style={est.aviso}>{aviso}</Text>}
 
+      {/* alerta de cuenta corriente / novedades */}
+      {notif.noLeidas > 0 && (
+        <Pressable onPress={() => router.push('/cuenta' as any)} style={est.bannerNotif}>
+          <Text style={est.bannerNotifTexto}>
+            🔔 {notif.lista.find((n) => !n.leida)?.titulo ?? `Tenés ${notif.noLeidas} novedades`} →
+          </Text>
+        </Pressable>
+      )}
+      {cuenta?.habilitada && cuenta.saldo > 0 && notif.noLeidas === 0 && (
+        <Pressable onPress={() => router.push('/cuenta' as any)} style={est.bannerCuenta}>
+          <Text style={est.bannerCuentaTexto}>
+            💳 Tu saldo en cuenta corriente: {pesos(cuenta.saldo)} →
+          </Text>
+        </Pressable>
+      )}
+
       <Text style={est.tituloSeccion}>Ofertas de la semana</Text>
       <FlatList
         horizontal
@@ -261,6 +279,10 @@ const est = StyleSheet.create({
   bannerVerificado: { backgroundColor: '#2F5233', padding: 8, paddingHorizontal: 16 },
   bannerVerificadoTexto: { color: COLORES.blanco, fontSize: 12, fontWeight: '600' },
   aviso: { margin: 12, marginBottom: 0, fontSize: 12, color: COLORES.rojoOscuro, paddingHorizontal: 4 },
+  bannerNotif: { backgroundColor: COLORES.rojo, padding: 12, paddingHorizontal: 16, marginTop: 1 },
+  bannerNotifTexto: { color: COLORES.blanco, fontSize: 13, fontWeight: '600' },
+  bannerCuenta: { backgroundColor: COLORES.negro, padding: 12, paddingHorizontal: 16, marginTop: 1 },
+  bannerCuentaTexto: { color: COLORES.crema, fontSize: 13, fontWeight: '600' },
   tituloSeccion: { fontSize: 16, fontWeight: '600', color: COLORES.negro, margin: 16, marginBottom: 8 },
   tarjeta: { backgroundColor: COLORES.blanco, borderRadius: 14, padding: 12, width: 150, marginHorizontal: 4 },
   foto: { width: '100%', height: 90, borderRadius: 10, marginBottom: 8 },

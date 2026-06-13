@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { Header } from '../ui/Header';
 import { apiFetch } from '../../lib/api';
+import { ConfigCliente } from '../ui/ConfigCliente';
 
 const pesos = (n: number) => '$' + Math.round(n).toLocaleString('es-AR');
 
@@ -90,6 +91,7 @@ export default async function Clientes({
                   <th className="px-4 py-3 font-medium text-right">Total gastado</th>
                   <th className="px-4 py-3 font-medium text-right">Ticket prom.</th>
                   <th className="px-4 py-3 font-medium text-right">Última compra</th>
+                  <th className="px-4 py-3 font-medium text-right">Cuenta cte.</th>
                 </tr>
               </thead>
               <tbody>
@@ -119,11 +121,24 @@ export default async function Clientes({
                         ? new Date(c.ultimaCompra).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' })
                         : '—'}
                     </td>
+                    <td className="px-4 py-3 text-right">
+                      <div className="flex items-center justify-end gap-3">
+                        {c.cta_cte_habilitada && (
+                          <Link
+                            href={`/facturacion/cuentas/${c.id}`}
+                            className="text-xs text-black/50 hover:text-[#B82D25] whitespace-nowrap"
+                          >
+                            ver saldo
+                          </Link>
+                        )}
+                        <ConfigCliente cliente={c} />
+                      </div>
+                    </td>
                   </tr>
                 ))}
                 {datos.items.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="px-4 py-8 text-center text-black/50">
+                    <td colSpan={7} className="px-4 py-8 text-center text-black/50">
                       Sin clientes con este filtro. Los clientes se crean solos al dar el DNI en caja o registrarse en la app.
                     </td>
                   </tr>
