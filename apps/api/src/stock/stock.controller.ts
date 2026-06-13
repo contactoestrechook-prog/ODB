@@ -13,8 +13,45 @@ export class StockController {
   }
 
   @Get('movimientos')
-  movimientos(@Query('limite') limite?: string) {
-    return this.stock.movimientos(limite ? Number(limite) : undefined);
+  movimientos(
+    @Query('limite') limite?: string,
+    @Query('tipo') tipo?: string,
+    @Query('sucursalId') sucursalId?: string,
+    @Query('sku') sku?: string,
+    @Query('dias') dias?: string,
+  ) {
+    return this.stock.movimientos({
+      limite: limite ? Number(limite) : undefined,
+      tipo: tipo || undefined,
+      sucursalId: sucursalId || undefined,
+      sku: sku || undefined,
+      dias: dias ? Number(dias) : undefined,
+    });
+  }
+
+  @Get('resumen')
+  resumen() {
+    return this.stock.resumen();
+  }
+
+  @Get('valorizacion')
+  valorizacion() {
+    return this.stock.valorizacion();
+  }
+
+  @Get('negativos')
+  negativos() {
+    return this.stock.negativos();
+  }
+
+  @Get('abc')
+  abc() {
+    return this.stock.abc();
+  }
+
+  @Get('sin-rotacion')
+  sinRotacion(@Query('dias') dias?: string) {
+    return this.stock.sinRotacion(dias ? Number(dias) : undefined);
   }
 
   @Roles('deposito', 'gerente', 'dueno')

@@ -25,16 +25,55 @@ export class StockService {
     return data;
   }
 
-  async movimientos(limite = 50) {
-    const { data, error } = await this.db
+  async movimientos(filtros: { limite?: number; tipo?: string; sucursalId?: string; sku?: string; dias?: number } = {}) {
+    let query = this.db
       .from('movimientos_stock')
       .select(
-        'id, tipo, cantidad, motivo, referencia_tipo, creado_en, producto:productos(sku, nombre), sucursal:sucursales(nombre)',
+        'id, tipo, cantidad, motivo, referencia_tipo, creado_en, producto:productos!inner(sku, nombre), sucursal:sucursales(nombre)',
       )
       .order('id', { ascending: false })
-      .limit(Math.min(limite, 200));
+      .limit(Math.min(filtros.limite ?? 50, 300));
+    if (filtros.tipo) query = query.eq('tipo', filtros.tipo);
+    if (filtros.sucursalId) query = query.eq('sucursal_id', filtros.sucursalId);
+    if (filtros.sku) query = query.eq('producto.sku', filtros.sku);
+    if (filtros.dias) query = query.gte('creado_en', new Date(Date.now() - filtros.dias * 86400_000).toISOString());
+    const { data, error } = await query;
     if (error) throw new BadRequestException(error.message);
     return data;
+  }
+
+  // ---------- estadísticas (SQL) ----------
+  async resumen() {
+    const { data, error } = await this.db.rpc('stock_resumen').single();
+    if (error) throw new BadRequestException(error.message);
+    return data;
+  }
+
+  async valorizacion() {
+    const [rubros, sucursales] = await Promise.all([
+      this.db.rpc('stock_por_rubro'),
+      this.db.rpc('stock_por_sucursal'),
+    ]);
+    if (rubros.error) throw new BadRequestException(rubros.error.message);
+    return { rubros: rubros.data ?? [], sucursales: sucursales.data ?? [] };
+  }
+
+  async negativos() {
+    const { data, error } = await this.db.rpc('stock_negativo');
+    if (error) throw new BadRequestException(error.message);
+    return data ?? [];
+  }
+
+  async abc() {
+    const { data, error } = await this.db.rpc('stock_abc');
+    if (error) throw new BadRequestException(error.message);
+    return data ?? [];
+  }
+
+  async sinRotacion(dias = 30) {
+    const { data, error } = await this.db.rpc('stock_sin_rotacion', { p_dias: dias });
+    if (error) throw new BadRequestException(error.message);
+    return data ?? [];
   }
 
   async registrarAjuste(dto: AjusteDto, tipo: 'ajuste' | 'merma' = 'ajuste') {
