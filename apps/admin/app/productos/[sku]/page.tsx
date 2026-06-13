@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { Header } from '../../ui/Header';
 import { SubirFoto } from '../../ui/SubirFoto';
 import { apiFetch } from '../../../lib/api';
+import { EditarProducto } from '../../ui/EditarProducto';
 
 const pesos = (n: number | null | undefined) =>
   n == null ? '—' : '$' + Math.round(Number(n)).toLocaleString('es-AR');
@@ -28,9 +29,14 @@ export default async function FichaProducto({
 }) {
   const { sku } = await params;
   let p: any = null;
+  let filtros: any = { categorias: [], marcas: [] };
   try {
-    const res = await apiFetch(`/productos/${encodeURIComponent(sku)}/detalle`);
+    const [res, rf] = await Promise.all([
+      apiFetch(`/productos/${encodeURIComponent(sku)}/detalle`),
+      apiFetch('/catalogo/filtros'),
+    ]);
     if (res.ok) p = await res.json();
+    if (rf.ok) filtros = await rf.json();
   } catch {}
 
   if (!p) {
@@ -84,12 +90,18 @@ export default async function FichaProducto({
               </p>
             )}
           </div>
-          <div className="text-right">
-            {p.descuento && <p className="text-sm text-black/40 line-through">{pesos(p.precioLista)}</p>}
-            <p className="text-3xl font-medium text-black">{pesos(p.precio)}</p>
-            <p className="text-xs text-black/50 mt-1">
-              costo {pesos(p.costo)} {margenPct != null && `· margen ${margenPct} %`}
-            </p>
+          <div className="text-right flex flex-col items-end gap-3">
+            <div>
+              {p.descuento && <p className="text-sm text-black/40 line-through">{pesos(p.precioLista)}</p>}
+              <p className="text-3xl font-medium text-black">{pesos(p.precio)}</p>
+              <p className="text-xs text-black/50 mt-1">
+                costo {pesos(p.costo)} {margenPct != null && `· margen ${margenPct} %`}
+              </p>
+              {!p.activo && (
+                <p className="text-xs font-medium text-[#B82D25] mt-1">Pausado: no se vende</p>
+              )}
+            </div>
+            <EditarProducto producto={p} rubros={filtros.categorias} marcas={filtros.marcas} />
           </div>
         </section>
 

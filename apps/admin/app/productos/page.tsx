@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { Header } from '../ui/Header';
 import { apiFetch } from '../../lib/api';
+import { NuevoProducto } from '../ui/NuevoProducto';
 
 type Producto = {
   imagenUrl: string | null;
@@ -58,15 +59,18 @@ export default async function Productos({
   const params = await searchParams;
   let datos: Respuesta = { total: 0, pagina: 1, paginas: 1, items: [] };
   let filtros: Filtros = { categorias: [], marcas: [] };
+  let sucursales: { id: string; nombre: string }[] = [];
   let error: string | null = null;
   try {
-    const [rp, rf] = await Promise.all([
+    const [rp, rf, rs] = await Promise.all([
       apiFetch(`/productos${qs(params, {})}`),
       apiFetch('/catalogo/filtros'),
+      apiFetch('/sucursales'),
     ]);
     if (!rp.ok) throw new Error(`API respondió ${rp.status}`);
     datos = await rp.json();
     if (rf.ok) filtros = await rf.json();
+    if (rs.ok) sucursales = await rs.json();
   } catch (e) {
     error = e instanceof Error ? e.message : 'Error desconocido';
   }
@@ -121,6 +125,10 @@ export default async function Productos({
             </Link>
           )}
         </form>
+
+        <div className="mb-4 -mt-1 flex justify-end">
+          <NuevoProducto rubros={filtros.categorias} marcas={filtros.marcas} sucursales={sucursales} />
+        </div>
 
         {error ? (
           <p className="rounded-lg bg-white p-4 text-sm text-[#932A1F]">

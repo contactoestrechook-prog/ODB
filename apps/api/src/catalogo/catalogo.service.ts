@@ -292,6 +292,8 @@ export class CatalogoService {
   private formatear(p: any, precioVigente?: any, fotos?: Set<string>) {
     const stockTotal = (p.stock ?? []).reduce((s: number, r: any) => s + Number(r.cantidad), 0);
     return {
+      id: p.id,
+      activo: p.activo,
       imagenUrl: fotos?.has(`${p.sku}.jpg`) ? this.urlImagen(p.sku) : null,
       descuentoComunidad: precioVigente?.descuento_comunidad === true,
       sku: p.sku,
