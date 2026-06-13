@@ -9,18 +9,21 @@ export default async function Cierres() {
   let cajas: any[] = [];
   let sesiones: any[] = [];
   let arca: any = { total: 0, configurado: false };
+  let empleados: any[] = [];
   let error: string | null = null;
   try {
-    const [rr, rc, rs, ra] = await Promise.all([
+    const [rr, rc, rs, ra, re] = await Promise.all([
       apiFetch('/caja/resumen'),
       apiFetch('/caja/cajas'),
       apiFetch('/caja/sesiones'),
       apiFetch('/arca/pendientes'),
+      apiFetch('/usuarios'),
     ]);
     if (rr.ok) resumen = await rr.json();
     if (rc.ok) cajas = await rc.json();
     if (rs.ok) sesiones = await rs.json();
     if (ra.ok) arca = await ra.json();
+    if (re.ok) empleados = await re.json();
     if (!rc.ok && !rs.ok) throw new Error('La API respondió con error');
   } catch (e) {
     error = e instanceof Error ? e.message : 'Error desconocido';
@@ -33,7 +36,7 @@ export default async function Cierres() {
         {error ? (
           <p className="rounded-lg bg-white p-4 text-sm text-[#932A1F]">No pude consultar la API ({error}).</p>
         ) : (
-          <CierresWorkspace resumen={resumen} cajas={cajas} sesiones={sesiones} arca={arca} />
+          <CierresWorkspace resumen={resumen} cajas={cajas} sesiones={sesiones} arca={arca} empleados={empleados} />
         )}
       </div>
     </main>

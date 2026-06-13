@@ -6,15 +6,20 @@ import { useRouter } from 'next/navigation';
 const pesos = (n: any) => (n == null ? '—' : '$' + Math.round(Number(n)).toLocaleString('es-AR'));
 const fechaHora = (iso: string) => (iso ? new Date(iso).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—');
 
-const TABS = [['cajas', 'Cajas'], ['diferencias', 'Diferencias'], ['historico', 'Histórico'], ['arca', 'Facturación ARCA']] as const;
+const TABS = [['cajas', 'Cajas'], ['porcajero', 'Por cajero'], ['diferencias', 'Diferencias'], ['historico', 'Histórico'], ['arca', 'Facturación ARCA']] as const;
 const input = 'w-full rounded-lg border border-black/15 px-3 py-2.5 text-sm text-black focus:border-[#B82D25] focus:outline-none';
 
-export function CierresWorkspace({ resumen, cajas, sesiones, arca }: { resumen: any; cajas: any[]; sesiones: any[]; arca: any }) {
+export function CierresWorkspace({ resumen, cajas, sesiones, arca, empleados = [] }: { resumen: any; cajas: any[]; sesiones: any[]; arca: any; empleados?: any[] }) {
   const router = useRouter();
   const [tab, setTab] = useState('cajas');
   const [modal, setModal] = useState<any>(null);
   const [aviso, setAviso] = useState('');
   const [resultado, setResultado] = useState<any>(null);
+  const [porCajero, setPorCajero] = useState<any[] | null>(null);
+
+  if (tab === 'porcajero' && porCajero === null) {
+    fetch('/api/caja?recurso=por-cajero').then((r) => r.json()).then((d) => setPorCajero(Array.isArray(d) ? d : []));
+  }
 
   const post = async (body: any) => {
     setAviso('');
@@ -75,6 +80,22 @@ export function CierresWorkspace({ resumen, cajas, sesiones, arca }: { resumen: 
         </div>
       )}
 
+      {/* POR CAJERO (control de diferencias por persona) */}
+      {tab === 'porcajero' && (
+        porCajero === null ? <p className="rounded-xl bg-white p-8 text-center text-black/40 text-sm">Cargando…</p> :
+        <Tabla titulo="Arqueos por cajero" vacio="Sin cierres registrados todavía."
+          filas={porCajero} cols={['Cajero', 'Cierres', 'Total cerrado', 'Con dif.', 'Diferencia acum.']}
+          render={(c: any, i: number) => (
+            <tr key={i} className="border-b border-black/5 last:border-0">
+              <td className="px-4 py-3"><p className="font-medium">{c.usuario}</p><p className="text-xs text-black/45">{c.rol}</p></td>
+              <td className="px-4 py-3 text-right">{c.cierres}</td>
+              <td className="px-4 py-3 text-right text-black/70">{pesos(c.totalCerrado)}</td>
+              <td className="px-4 py-3 text-right">{c.conDiferencia}</td>
+              <td className={`px-4 py-3 text-right font-semibold ${Number(c.diferenciaNeta) !== 0 ? 'text-[#B82D25]' : 'text-emerald-700'}`}>{Number(c.diferenciaNeta) !== 0 ? pesos(c.diferenciaNeta) : 'justo'}</td>
+            </tr>
+          )} />
+      )}
+
       {/* DIFERENCIAS */}
       {tab === 'diferencias' && (
         <Tabla titulo={`Cierres con diferencia (${conDif.length})`} vacio="Sin diferencias de caja. Todos los arqueos cerraron justos."
@@ -129,9 +150,14 @@ export function CierresWorkspace({ resumen, cajas, sesiones, arca }: { resumen: 
         <Modal cerrar={() => setModal(null)}>
           <h2 className="font-semibold text-black text-lg">Abrir {modal.caja.nombre}</h2>
           <p className="text-xs text-black/45">{modal.caja.sucursal?.nombre}</p>
+          <label className="text-xs text-black/50">Cajero que toma la caja</label>
+          <select id="empleadoId" className={input + ' bg-white'} defaultValue="">
+            <option value="">— elegir empleado —</option>
+            {empleados.filter((e: any) => e.activo !== false).map((e: any) => <option key={e.id} value={e.id}>{e.nombre} ({e.rol})</option>)}
+          </select>
           <label className="text-xs text-black/50">Base inicial (efectivo en caja al abrir)</label>
-          <input id="montoInicial" type="number" placeholder="0" className={input} autoFocus />
-          <Acciones cerrar={() => setModal(null)} okLabel="Abrir caja" onOk={() => post({ accion: 'abrir', cajaId: modal.caja.id, montoInicial: Number((document.getElementById('montoInicial') as HTMLInputElement)?.value || 0) })} />
+          <input id="montoInicial" type="number" placeholder="0" className={input} />
+          <Acciones cerrar={() => setModal(null)} okLabel="Abrir caja" onOk={() => post({ accion: 'abrir', cajaId: modal.caja.id, montoInicial: Number((document.getElementById('montoInicial') as HTMLInputElement)?.value || 0), empleadoId: (document.getElementById('empleadoId') as HTMLSelectElement)?.value || undefined })} />
         </Modal>
       )}
 

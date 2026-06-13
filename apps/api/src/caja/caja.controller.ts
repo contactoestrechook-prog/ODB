@@ -20,10 +20,16 @@ export class CajaController {
     return this.caja.cajas();
   }
 
+  @Get('caja/por-cajero')
+  porCajero() {
+    return this.caja.porCajero();
+  }
+
   @Roles('cajero', 'gerente', 'dueno')
   @Post('caja/abrir')
-  abrir(@Body() body: { cajaId: string; montoInicial: number }, @Req() req: any) {
-    return this.caja.abrir(body.cajaId, Number(body.montoInicial), req.usuario.sub);
+  abrir(@Body() body: { cajaId: string; montoInicial: number; empleadoId?: string }, @Req() req: any) {
+    // la caja se abre a nombre del empleado que la toma (o el usuario logueado)
+    return this.caja.abrir(body.cajaId, Number(body.montoInicial), body.empleadoId || req.usuario.sub);
   }
 
   @Roles('cajero', 'gerente', 'dueno')

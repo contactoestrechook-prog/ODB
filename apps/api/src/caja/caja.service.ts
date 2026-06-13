@@ -15,7 +15,7 @@ export class CajaService {
 
     const { data: abiertas } = await this.db
       .from('sesiones_caja')
-      .select('id, caja_id, monto_inicial, abierta_en, usuario:usuarios(nombre)')
+      .select('id, caja_id, monto_inicial, abierta_en, usuario:usuarios!sesiones_caja_usuario_id_fkey(nombre)')
       .is('cerrada_en', null);
     const porCaja = new Map((abiertas ?? []).map((s: any) => [s.caja_id, s]));
     return (data ?? []).map((c: any) => ({ ...c, sesionAbierta: porCaja.get(c.id) ?? null }));
@@ -46,7 +46,7 @@ export class CajaService {
       .select(
         `id, monto_inicial, monto_cierre, diferencia, abierta_en, cerrada_en,
          caja:cajas(nombre, sucursal:sucursales(nombre)),
-         usuario:usuarios(nombre)`,
+         usuario:usuarios!sesiones_caja_usuario_id_fkey(nombre)`,
       )
       .order('abierta_en', { ascending: false })
       .limit(Math.min(limite, 100));
@@ -58,7 +58,7 @@ export class CajaService {
   async porCajero() {
     const { data, error } = await this.db
       .from('sesiones_caja')
-      .select('monto_cierre, diferencia, cerrada_en, abierta_en, usuario:usuarios(id, nombre, rol)')
+      .select('monto_cierre, diferencia, cerrada_en, abierta_en, usuario:usuarios!sesiones_caja_usuario_id_fkey(id, nombre, rol)')
       .not('cerrada_en', 'is', null)
       .order('cerrada_en', { ascending: false });
     if (error) throw new BadRequestException(error.message);
