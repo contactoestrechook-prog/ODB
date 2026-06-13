@@ -1,4 +1,4 @@
-import { BadRequestException, Controller, Get, Inject, Post, Req } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Inject, Post, Req } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
 import { Roles } from '../auth/decorators';
@@ -60,6 +60,15 @@ export class MiCuentaController {
       .update({ leida: true })
       .eq('cliente_id', req.usuario.sub)
       .eq('leida', false);
+    return { ok: true };
+  }
+
+  // El dispositivo registra su token de push de Expo
+  @Post('push-token')
+  async guardarPushToken(@Req() req: any, @Body() body: { token?: string }) {
+    const token = body?.token?.trim();
+    if (!token) throw new BadRequestException('Falta el token');
+    await this.db.from('clientes').update({ expo_push_token: token }).eq('id', req.usuario.sub);
     return { ok: true };
   }
 }

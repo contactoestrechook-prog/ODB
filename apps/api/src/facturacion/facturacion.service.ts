@@ -1,6 +1,7 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
+import { enviarPush } from './push';
 
 // Tipos de comprobante estilo Tango. Las letras siguen la condición fiscal:
 // A discrimina IVA (responsable inscripto), B consumidor final, C monotributo.
@@ -409,6 +410,15 @@ export class FacturacionService {
 
   async notificar(clienteId: string, titulo: string, cuerpo: string) {
     await this.db.from('notificaciones').insert({ cliente_id: clienteId, titulo, cuerpo });
+    // push al celular (si el cliente registró su dispositivo)
+    const { data: cli } = await this.db
+      .from('clientes')
+      .select('expo_push_token')
+      .eq('id', clienteId)
+      .maybeSingle();
+    if (cli?.expo_push_token) {
+      await enviarPush(cli.expo_push_token, titulo, cuerpo).catch(() => {});
+    }
   }
 
   private async descontarStockRemito(items: ItemComprobante[], sucursalId: string, comprobante: any, usuarioId?: string) {

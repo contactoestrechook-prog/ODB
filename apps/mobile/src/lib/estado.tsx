@@ -1,8 +1,8 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { Platform } from 'react-native';
+import { API } from './config';
+import { registrarPush } from './push';
 
-// En el celular real, reemplazar localhost por la IP de la máquina que corre la API
-export const API = Platform.OS === 'web' ? 'http://localhost:3001' : 'http://192.168.0.10:3001';
+export { API };
 
 export const COLORES = {
   rojo: '#B82D25',
@@ -103,10 +103,12 @@ export function EstadoProvider({ children }: { children: React.ReactNode }) {
     } catch {}
   }
 
-  // al loguearse (o cambiar de token) carga la cuenta y arranca un poll suave
+  // al loguearse (o cambiar de token) carga la cuenta, registra el push
+  // del dispositivo y arranca un poll suave
   useEffect(() => {
     refrescarCuenta();
     if (!cliente?.token) return;
+    registrarPush(cliente.token);
     const id = setInterval(refrescarCuenta, 45000);
     return () => clearInterval(id);
   }, [cliente?.token]);
