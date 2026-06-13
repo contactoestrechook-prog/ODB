@@ -127,6 +127,141 @@ export class ComprasService {
     return { estado: data };
   }
 
+  // ---------- resumen (KPIs) ----------
+  async resumen() {
+    const inicioMes = new Date();
+    inicioMes.setDate(1);
+    inicioMes.setHours(0, 0, 0, 0);
+    const [ocs, sug, facturas] = await Promise.all([
+      this.db.from('ordenes_compra').select('estado, total, creado_en'),
+      this.db.from('sugerencias_compra').select('sku'),
+      this.db.from('facturas_proveedor').select('monto, estado'),
+    ]);
+    const o = (ocs.data ?? []) as any[];
+    const compradoMes = o
+      .filter((x) => !['borrador', 'cancelada'].includes(x.estado) && new Date(x.creado_en) >= inicioMes)
+      .reduce((s, x) => s + Number(x.total), 0);
+    const deuda = ((facturas.data ?? []) as any[])
+      .filter((f) => f.estado !== 'pagada')
+      .reduce((s, f) => s + Number(f.monto), 0);
+    return {
+      compradoMes: Math.round(compradoMes),
+      pendientesAprobacion: o.filter((x) => x.estado === 'pendiente_aprobacion').length,
+      porRecibir: o.filter((x) => ['aprobada', 'enviada', 'recibida_parcial'].includes(x.estado)).length,
+      sugerencias: (sug.data ?? []).length,
+      deudaProveedores: Math.round(deuda),
+    };
+  }
+
+  // ---------- proveedores CRUD ----------
+  async crearProveedor(dto: any) {
+    if (!dto.razonSocial?.trim()) throw new BadRequestException('La razón social es obligatoria');
+    const { data, error } = await this.db
+      .from('proveedores')
+      .insert({
+        razon_social: dto.razonSocial.trim(),
+        cuit: dto.cuit || null,
+        condicion_pago: dto.condicionPago || null,
+        lead_time_dias: Number(dto.leadTimeDias) || 7,
+        email: dto.email || null,
+        telefono: dto.telefono || null,
+      })
+      .select('id')
+      .single();
+    if (error) {
+      throw new BadRequestException(error.code === '23505' ? 'Ya existe un proveedor con ese CUIT' : error.message);
+    }
+    return { id: data.id };
+  }
+
+  async editarProveedor(id: string, dto: any) {
+    const cambios: Record<string, any> = {};
+    if (dto.razonSocial !== undefined) cambios.razon_social = dto.razonSocial;
+    if (dto.cuit !== undefined) cambios.cuit = dto.cuit || null;
+    if (dto.condicionPago !== undefined) cambios.condicion_pago = dto.condicionPago;
+    if (dto.leadTimeDias !== undefined) cambios.lead_time_dias = Number(dto.leadTimeDias) || 7;
+    if (dto.email !== undefined) cambios.email = dto.email;
+    if (dto.telefono !== undefined) cambios.telefono = dto.telefono;
+    if (dto.activo !== undefined) cambios.activo = dto.activo;
+    if (!Object.keys(cambios).length) return { ok: true };
+    const { error } = await this.db.from('proveedores').update(cambios).eq('id', id);
+    if (error) throw new BadRequestException(error.message);
+    return { ok: true };
+  }
+
+  // ---------- órdenes de pago (cuentas a pagar) ----------
+  async deudaProveedores() {
+    const { data, error } = await this.db
+      .from('facturas_proveedor')
+      .select('id, numero, monto, vencimiento, estado, creado_en, proveedor:proveedores(id, razon_social)')
+      .neq('estado', 'pagada')
+      .order('vencimiento', { ascending: true });
+    if (error) throw new BadRequestException(error.message);
+    const porProv = new Map<string, any>();
+    for (const f of (data ?? []) as any[]) {
+      const id = f.proveedor?.id ?? 'sin';
+      const acc = porProv.get(id) ?? { proveedor: f.proveedor, total: 0, facturas: [] };
+      acc.total += Number(f.monto);
+      acc.facturas.push({ id: f.id, numero: f.numero, monto: Number(f.monto), vencimiento: f.vencimiento, estado: f.estado });
+      porProv.set(id, acc);
+    }
+    return [...porProv.values()].map((p) => ({ ...p, total: Math.round(p.total) })).sort((a, b) => b.total - a.total);
+  }
+
+  async registrarFactura(dto: any) {
+    if (!dto.proveedorId || !dto.numero || !(Number(dto.monto) > 0)) {
+      throw new BadRequestException('Proveedor, número y monto son obligatorios');
+    }
+    const { error } = await this.db.from('facturas_proveedor').insert({
+      proveedor_id: dto.proveedorId,
+      numero: String(dto.numero),
+      monto: Number(dto.monto),
+      vencimiento: dto.vencimiento || null,
+    });
+    if (error) throw new BadRequestException(error.message);
+    return { ok: true };
+  }
+
+  async pagar(dto: { facturaIds: string[]; medioPago?: string; usuarioId?: string }) {
+    if (!dto.facturaIds?.length) throw new BadRequestException('Elegí al menos una factura');
+    const { data: facturas, error: e1 } = await this.db
+      .from('facturas_proveedor')
+      .select('id, proveedor_id, monto, estado')
+      .in('id', dto.facturaIds);
+    if (e1) throw new BadRequestException(e1.message);
+    const pend = (facturas ?? []).filter((f) => f.estado !== 'pagada');
+    if (!pend.length) throw new BadRequestException('Esas facturas ya están pagadas');
+    const total = pend.reduce((s, f) => s + Number(f.monto), 0);
+    const { data: op, error: e2 } = await this.db
+      .from('ordenes_pago')
+      .insert({
+        proveedor_id: pend[0].proveedor_id,
+        total,
+        medio_pago: dto.medioPago || 'transferencia',
+        estado: 'pagada',
+        pagada_en: new Date().toISOString(),
+        creada_por: dto.usuarioId ?? null,
+      })
+      .select('id')
+      .single();
+    if (e2) throw new BadRequestException(e2.message);
+    await this.db.from('ordenes_pago_items').insert(
+      pend.map((f) => ({ orden_pago_id: op.id, factura_id: f.id, monto: Number(f.monto) })),
+    );
+    await this.db.from('facturas_proveedor').update({ estado: 'pagada' }).in('id', pend.map((f) => f.id));
+    return { ordenPagoId: op.id, total: Math.round(total) };
+  }
+
+  async ordenesPago() {
+    const { data, error } = await this.db
+      .from('ordenes_pago')
+      .select('numero, total, medio_pago, estado, pagada_en, creado_en, proveedor:proveedores(razon_social)')
+      .order('numero', { ascending: false })
+      .limit(50);
+    if (error) throw new BadRequestException(error.message);
+    return data ?? [];
+  }
+
   private async productoIdPorSku(sku: string): Promise<string> {
     const { data, error } = await this.db
       .from('productos')
