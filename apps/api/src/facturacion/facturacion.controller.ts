@@ -35,6 +35,11 @@ export class FacturacionController {
     return this.servicio.anular(id, req.usuario?.sub);
   }
 
+  @Get('resumen')
+  resumen() {
+    return this.servicio.resumen();
+  }
+
   @Get('cuentas')
   cuentas() {
     return this.servicio.cuentas();

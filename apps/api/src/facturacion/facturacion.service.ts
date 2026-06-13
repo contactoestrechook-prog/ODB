@@ -283,6 +283,63 @@ export class FacturacionService {
     return { cliente, saldo: Number(saldo ?? 0), movimientos: movimientos ?? [] };
   }
 
+  // Totales del mes por grupo de comprobante + indicadores (para el resumen)
+  async resumen() {
+    const inicioMes = new Date();
+    inicioMes.setDate(1);
+    inicioMes.setHours(0, 0, 0, 0);
+    const desde = inicioMes.toISOString();
+    const hoy = new Date().toISOString().slice(0, 10);
+
+    const filas: any[] = [];
+    for (let d = 0; ; d += 1000) {
+      const { data, error } = await this.db
+        .from('comprobantes')
+        .select('tipo, total, neto, iva, estado, emitido_en')
+        .gte('emitido_en', desde)
+        .range(d, d + 999);
+      if (error) throw new BadRequestException(error.message);
+      filas.push(...(data ?? []));
+      if (!data || data.length < 1000) break;
+    }
+
+    const GRUPO: Record<string, string> = {
+      FA: 'facturas', FB: 'facturas', FC: 'facturas',
+      NCA: 'notasCredito', NCB: 'notasCredito', NCC: 'notasCredito',
+      NDA: 'notasDebito', NDB: 'notasDebito', NDC: 'notasDebito',
+      REM: 'remitos', REC: 'recibos', ANT: 'recibos', SIN: 'internos',
+    };
+    const grupos: Record<string, { cantidad: number; total: number; iva: number }> = {};
+    let facturadoHoy = 0;
+    let ivaMes = 0;
+    for (const c of filas) {
+      if (c.estado === 'anulado') continue;
+      const g = GRUPO[c.tipo] ?? 'internos';
+      const acc = (grupos[g] ??= { cantidad: 0, total: 0, iva: 0 });
+      acc.cantidad += 1;
+      acc.total += Number(c.total);
+      acc.iva += Number(c.iva ?? 0);
+      if (g === 'facturas') {
+        ivaMes += Number(c.iva ?? 0);
+        if (c.emitido_en.slice(0, 10) === hoy) facturadoHoy += Number(c.total);
+      }
+    }
+
+    const cuentas = await this.cuentas();
+    const porCobrar = cuentas.reduce((s, c) => s + Math.max(c.saldo, 0), 0);
+
+    const r = (n: number) => Math.round(n);
+    return {
+      facturadoHoy: r(facturadoHoy),
+      ivaMes: r(ivaMes),
+      porCobrar: r(porCobrar),
+      cuentasActivas: cuentas.filter((c) => c.saldo > 0).length,
+      grupos: Object.fromEntries(
+        Object.entries(grupos).map(([k, v]) => [k, { cantidad: v.cantidad, total: r(v.total), iva: r(v.iva) }]),
+      ),
+    };
+  }
+
   async cuentas() {
     // clientes con movimientos: saldo de cada uno (para el tablero de cobranzas)
     const { data, error } = await this.db
