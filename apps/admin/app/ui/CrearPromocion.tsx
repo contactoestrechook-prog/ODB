@@ -83,7 +83,39 @@ export function CrearPromocion({
   const [error, setError] = useState('');
   const [cargando, setCargando] = useState(false);
 
+  // difusión / pauta publicitaria
+  const [conPauta, setConPauta] = useState(false);
+  const [red, setRed] = useState('Instagram/Facebook (Meta)');
+  const [anuncio, setAnuncio] = useState<any>(null);
+  const [generando, setGenerando] = useState(false);
+
   const campo = (k: string, v: any) => setForm((f: any) => ({ ...f, [k]: v }));
+
+  const generarAnuncio = async () => {
+    setGenerando(true);
+    try {
+      const res = await fetch('/api/promos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          accion: 'anuncio',
+          nombre: form.nombre || `Promo ${segSel?.etiqueta ?? 'general'}`,
+          descripcion: `${form.tipo === 'porcentaje' ? form.valor + '% off' : form.tipo === 'monto_fijo' ? '$' + form.valor + ' menos' : 'a $' + form.valor}`,
+          segmento: segSel?.etiqueta,
+          red,
+        }),
+      });
+      if (res.ok) setAnuncio(await res.json());
+    } finally {
+      setGenerando(false);
+    }
+  };
+
+  const copiarAviso = () => {
+    if (!anuncio) return;
+    const txt = `${anuncio.titular}\n\n${anuncio.cuerpo}\n\n${anuncio.cta}\n\n${(anuncio.hashtags ?? []).join(' ')}`;
+    navigator.clipboard?.writeText(txt);
+  };
 
   const segSel = segmentos.find((s) => s.segmento === form.segmento);
   const sug = sugerencia(form.segmento ? segSel : undefined, ticketGeneral);
@@ -267,6 +299,61 @@ export function CrearPromocion({
                   <option value="mercadopago">Mercado Pago</option>
                 </select>
               </div>
+            </div>
+
+            {/* difusión */}
+            <div className="rounded-xl border border-black/10 p-3 space-y-2">
+              <div className="flex gap-4 text-xs">
+                <label className="flex items-center gap-1.5 text-black">
+                  <input type="radio" checked={!conPauta} onChange={() => setConPauta(false)} className="accent-[#B82D25]" />
+                  Sin pauta (solo en la app/local)
+                </label>
+                <label className="flex items-center gap-1.5 text-black">
+                  <input type="radio" checked={conPauta} onChange={() => setConPauta(true)} className="accent-[#B82D25]" />
+                  📣 Con pauta publicitaria
+                </label>
+              </div>
+
+              {conPauta && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 text-xs text-black">
+                    <span>Red:</span>
+                    <select value={red} onChange={(e) => setRed(e.target.value)} className="rounded-lg border border-black/15 px-2 py-1 text-xs bg-white">
+                      <option>Instagram/Facebook (Meta)</option>
+                      <option>WhatsApp</option>
+                      <option>Cartelería en el local</option>
+                    </select>
+                    <button onClick={generarAnuncio} disabled={generando} className="ml-auto rounded-full bg-black text-white text-xs font-medium px-3 py-1.5 hover:bg-black/80 disabled:opacity-50">
+                      {generando ? 'Redactando…' : '✨ Generar aviso'}
+                    </button>
+                  </div>
+
+                  {anuncio && (
+                    <div className="rounded-lg bg-[#F0EBE2]/70 p-3 space-y-1.5">
+                      <p className="font-semibold text-black text-sm">{anuncio.titular}</p>
+                      <p className="text-xs text-black/70 whitespace-pre-line">{anuncio.cuerpo}</p>
+                      <p className="text-xs text-[#932A1F] font-medium">{anuncio.cta}</p>
+                      <p className="text-[11px] text-sky-700">{(anuncio.hashtags ?? []).join(' ')}</p>
+                      {anuncio.publicoMeta && (
+                        <p className="text-[11px] text-black/50 border-t border-black/10 pt-1.5">
+                          <strong>Público sugerido (Meta):</strong> {anuncio.publicoMeta}
+                        </p>
+                      )}
+                      <div className="flex gap-2 pt-1">
+                        <button onClick={copiarAviso} className="text-xs font-medium text-black/60 hover:text-black">Copiar texto</button>
+                        {red.includes('Meta') && (
+                          <a href="https://business.facebook.com/adsmanager/" target="_blank" rel="noreferrer" className="text-xs font-medium text-[#B82D25] hover:underline">
+                            Abrir Meta Ads Manager →
+                          </a>
+                        )}
+                      </div>
+                      <p className="text-[10px] text-black/35">
+                        La publicación automática en Meta requiere conectar la cuenta de Meta Business (trámite pendiente). Por ahora: copiá el aviso y subilo desde el administrador de anuncios.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {error && <p className="text-xs text-[#B82D25] font-medium">{error}</p>}
