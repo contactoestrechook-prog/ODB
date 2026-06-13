@@ -20,6 +20,7 @@ import { InformesModule } from './informes/informes.module';
 import { UsuariosModule } from './usuarios/usuarios.module';
 import { FacturacionModule } from './facturacion/facturacion.module';
 import { PromosModule } from './promos/promos.module';
+import { DifusionesModule } from './difusiones/difusiones.module';
 import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
@@ -49,6 +50,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     UsuariosModule,
     FacturacionModule,
     PromosModule,
+    DifusionesModule,
   ],
 })
 export class AppModule {}
