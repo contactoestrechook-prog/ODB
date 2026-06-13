@@ -10,6 +10,11 @@ export class CajaController {
     private readonly arca: ArcaService,
   ) {}
 
+  @Get('caja/resumen')
+  resumen() {
+    return this.caja.resumen();
+  }
+
   @Get('caja/cajas')
   cajas() {
     return this.caja.cajas();

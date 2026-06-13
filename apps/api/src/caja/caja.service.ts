@@ -54,6 +54,27 @@ export class CajaService {
     return data;
   }
 
+  // Resumen de cajas y arqueos (KPIs del workspace)
+  async resumen() {
+    const inicioMes = new Date();
+    inicioMes.setDate(1);
+    inicioMes.setHours(0, 0, 0, 0);
+    const [cajasR, abiertasR, mesR] = await Promise.all([
+      this.db.from('cajas').select('id'),
+      this.db.from('sesiones_caja').select('id, monto_inicial').is('cerrada_en', null),
+      this.db.from('sesiones_caja').select('diferencia').gte('abierta_en', inicioMes.toISOString()).not('cerrada_en', 'is', null),
+    ]);
+    const cerradasMes = (mesR.data ?? []) as any[];
+    return {
+      cajasTotal: (cajasR.data ?? []).length,
+      cajasAbiertas: (abiertasR.data ?? []).length,
+      baseEnCajas: (abiertasR.data ?? []).reduce((s: number, x: any) => s + Number(x.monto_inicial), 0),
+      sesionesMes: cerradasMes.length,
+      conDiferenciaMes: cerradasMes.filter((s) => Number(s.diferencia) !== 0).length,
+      diferenciaNetaMes: Math.round(cerradasMes.reduce((s, x) => s + Number(x.diferencia ?? 0), 0)),
+    };
+  }
+
   private traducirError(mensaje: string): string {
     if (mensaje.includes('permission denied')) {
       return 'El backend no tiene permisos de escritura: falta la SUPABASE_SERVICE_KEY en apps/api/.env';
