@@ -29,6 +29,11 @@ export class StockController {
     return this.stock.registrarAjuste(dto, 'merma');
   }
 
+  @Get('transferencias')
+  transferencias() {
+    return this.stock.transferenciasPendientes();
+  }
+
   @Roles('deposito', 'gerente', 'dueno')
   @Post('transferencias')
   transferencia(@Body() dto: TransferenciaDto) {

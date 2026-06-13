@@ -1,6 +1,7 @@
 import { Header } from '../ui/Header';
 import { BotonPromo } from '../ui/BotonPromo';
 import { apiFetch, API } from '../../lib/api';
+import { AccionesStock } from '../ui/AccionesStock';
 
 type Critico = {
   sku: string;
@@ -53,17 +54,23 @@ export default async function Stock() {
       descuentoSugerido: number | null;
     }[];
   } | null = null;
+  let transferencias: any[] = [];
+  let sucursales: { id: string; nombre: string }[] = [];
   let error: string | null = null;
   try {
-    const [rc, rm, rv] = await Promise.all([
+    const [rc, rm, rv, rt, rs] = await Promise.all([
       apiFetch('/stock/bajo-minimo'),
       apiFetch('/stock/movimientos?limite=20'),
       apiFetch('/vencimientos'),
+      apiFetch('/stock/transferencias'),
+      apiFetch('/sucursales'),
     ]);
     if (!rc.ok || !rm.ok) throw new Error('La API respondió con error');
     criticos = await rc.json();
     movimientos = await rm.json();
     if (rv.ok) vencimientos = await rv.json();
+    if (rt.ok) transferencias = await rt.json();
+    if (rs.ok) sucursales = await rs.json();
   } catch (e) {
     error = e instanceof Error ? e.message : 'Error desconocido';
   }
@@ -77,6 +84,8 @@ export default async function Stock() {
             No pude consultar la API ({error}). ¿Está corriendo en {API}?
           </p>
         )}
+
+        <AccionesStock sucursales={sucursales} transferencias={transferencias} />
 
         <section className="rounded-xl bg-white overflow-hidden">
           <div className="flex items-center justify-between px-4 py-3 border-b border-black/10">

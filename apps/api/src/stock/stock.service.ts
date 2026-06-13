@@ -52,6 +52,20 @@ export class StockService {
     return { movimientoId: data };
   }
 
+  async transferenciasPendientes() {
+    const { data, error } = await this.db
+      .from('transferencias')
+      .select(`id, estado, creado_en,
+        origen:sucursales!transferencias_sucursal_origen_id_fkey(nombre),
+        destino:sucursales!transferencias_sucursal_destino_id_fkey(nombre),
+        items:transferencias_items(cantidad, producto:productos(sku, nombre))`)
+      .in('estado', ['pendiente', 'en_transito'])
+      .order('creado_en', { ascending: false })
+      .limit(30);
+    if (error) throw new BadRequestException(error.message);
+    return data ?? [];
+  }
+
   async crearTransferencia(dto: TransferenciaDto) {
     const items = await Promise.all(
       (dto.items ?? []).map(async (i) => ({
