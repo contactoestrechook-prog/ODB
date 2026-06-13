@@ -18,6 +18,7 @@ import { ClientesAuthModule } from './clientes-auth/clientes-auth.module';
 import { CompraFacilModule } from './comprafacil/comprafacil.module';
 import { InformesModule } from './informes/informes.module';
 import { UsuariosModule } from './usuarios/usuarios.module';
+import { FacturacionModule } from './facturacion/facturacion.module';
 import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
@@ -45,6 +46,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     ScheduleModule.forRoot(),
     InformesModule,
     UsuariosModule,
+    FacturacionModule,
   ],
 })
 export class AppModule {}

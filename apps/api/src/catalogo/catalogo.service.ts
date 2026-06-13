@@ -3,7 +3,7 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
 
 const SELECT_PRODUCTO = `
-  id, sku, nombre, volumen_ml, unidades_pack, graduacion, es_alcohol, costo, activo, creado_en,
+  id, sku, nombre, volumen_ml, unidades_pack, graduacion, es_alcohol, costo, activo, creado_en, alicuota_iva,
   marca:marcas ( id, nombre ),
   categoria:categorias ( id, nombre ),
   stock ( sucursal_id, cantidad, stock_minimo ),
@@ -307,6 +307,7 @@ export class CatalogoService {
       precio: precioVigente?.precio_final ?? precioVigente?.precio_lista ?? null,
       descuento: precioVigente?.descuento_nombre ?? null,
       costo: p.costo != null ? Number(p.costo) : null,
+      alicuotaIva: p.alicuota_iva != null ? Number(p.alicuota_iva) : 21,
       stockTotal,
       stockPorSucursal: p.stock ?? [],
       codigosBarras: (p.codigos_barras ?? []).map((c: any) => c.codigo),

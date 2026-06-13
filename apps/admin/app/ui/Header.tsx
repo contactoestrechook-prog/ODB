@@ -7,6 +7,7 @@ type Grupo = { titulo: string; items: Item[] };
 const ICONOS: Record<string, string> = {
   ventas: 'M3 3h2l2 12h11l2-8H7M9 19a1 1 0 102 0 1 1 0 00-2 0zm7 0a1 1 0 102 0 1 1 0 00-2 0z',
   caja: 'M4 8h16v12H4zM4 8l2-4h12l2 4M9 12h6',
+  facturacion: 'M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6M9 16h3',
   deposito: 'M3 9l9-6 9 6v11H3zM9 20v-6h6v6',
   salida: 'M14 4h6v16h-6M10 8l-4 4 4 4M6 12h9',
   cierres: 'M5 4h14v16H5zM9 8h6M9 12h6M9 16h3',
@@ -29,6 +30,7 @@ const GRUPOS: Grupo[] = [
     items: [
       { href: '/ventas', label: 'Ventas', icono: 'ventas' },
       { href: '/caja', label: 'Caja', icono: 'caja' },
+      { href: '/facturacion', label: 'Facturación', icono: 'facturacion' },
       { href: '/deposito', label: 'Depósito', icono: 'deposito' },
       { href: '/salida', label: 'Salida', icono: 'salida' },
       { href: '/cierres', label: 'Cierres', icono: 'cierres' },
@@ -70,6 +72,7 @@ const GRUPOS: Grupo[] = [
 const TITULOS: Record<string, { titulo: string; bajada: string }> = {
   '/ventas': { titulo: 'Ventas', bajada: 'Tickets del día y últimas operaciones de las dos sucursales' },
   '/caja': { titulo: 'Caja', bajada: 'Sesiones de caja, arqueos y facturación ARCA' },
+  '/facturacion': { titulo: 'Facturación', bajada: 'Facturas, notas, remitos, recibos y cuentas corrientes' },
   '/deposito': { titulo: 'Depósito', bajada: 'Pedidos web y PedidosYa: armado, retiro y entrega' },
   '/salida': { titulo: 'Control de salida', bajada: 'Validación de códigos de Comprá Fácil' },
   '/cierres': { titulo: 'Cierres', bajada: 'Cierres de caja por sucursal y diferencias' },

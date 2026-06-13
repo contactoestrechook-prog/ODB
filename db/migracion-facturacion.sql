@@ -1,0 +1,5 @@
+-- Migración aplicada el 13/6/2026 (facturacion_completa): comprobantes estilo
+-- Tango (FA/FB/FC, NC, ND, REM, REC, ANT, SIN), numeradores por tipo+punto de
+-- venta, cuenta corriente de clientes, condicion_iva/razon_social/domicilio en
+-- clientes, alicuota_iva en productos, funciones proximo_numero y saldo_cuenta.
+-- Fuente de verdad: ver el editor SQL de Supabase o este archivo en el commit.

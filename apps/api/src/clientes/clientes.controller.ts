@@ -17,7 +17,7 @@ export class ClientesController {
 
     let query = this.db
       .from('clientes')
-      .select('id, dni, nombre, email, telefono, tipo, verificado, puntos, creado_en', {
+      .select('id, dni, cuit, nombre, razon_social, condicion_iva, email, telefono, tipo, verificado, puntos, creado_en', {
         count: 'exact',
       });
     if (tipo) query = query.eq('tipo', tipo);

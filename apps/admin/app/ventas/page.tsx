@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { Header } from '../ui/Header';
 import { BotonAnular } from '../ui/BotonAnular';
 import { apiFetch, API } from '../../lib/api';
@@ -144,7 +145,15 @@ export default async function Ventas() {
                         anulada · NC emitida
                       </span>
                     ) : (
-                      <BotonAnular ventaId={v.id} total={v.total} />
+                      <span className="inline-flex items-center gap-2">
+                        <Link
+                          href={`/facturacion?venta=${v.id}&total=${v.total}`}
+                          className="rounded-full border border-black/15 px-3 py-1 text-xs text-black hover:border-black/40"
+                        >
+                          Facturar
+                        </Link>
+                        <BotonAnular ventaId={v.id} total={v.total} />
+                      </span>
                     )}
                   </td>
                 </tr>
