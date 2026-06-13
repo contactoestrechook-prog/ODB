@@ -293,12 +293,17 @@ export class PedidosService {
       venta = data;
     }
 
+    const ahora = new Date().toISOString();
     await this.db
       .from('pedidos')
       .update({
         estado,
-        listo_en: estado === 'listo' ? new Date().toISOString() : pedido.listo_en,
-        entregado_en: estado === 'entregado' ? new Date().toISOString() : null,
+        // cronometraje + responsable de cada etapa (eficiencia por empleado)
+        preparacion_en: estado === 'en_preparacion' ? ahora : pedido.preparacion_en,
+        preparado_por: estado === 'en_preparacion' ? (usuarioId ?? pedido.preparado_por) : pedido.preparado_por,
+        listo_en: estado === 'listo' ? ahora : pedido.listo_en,
+        entregado_en: estado === 'entregado' ? ahora : pedido.entregado_en,
+        entregado_por: estado === 'entregado' ? (usuarioId ?? null) : pedido.entregado_por,
       })
       .eq('id', pedidoId);
 

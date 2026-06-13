@@ -54,6 +54,34 @@ export class CajaService {
     return data;
   }
 
+  // Arqueos agrupados por cajero (control de desempeño y faltantes)
+  async porCajero() {
+    const { data, error } = await this.db
+      .from('sesiones_caja')
+      .select('monto_cierre, diferencia, cerrada_en, abierta_en, usuario:usuarios(id, nombre, rol)')
+      .not('cerrada_en', 'is', null)
+      .order('cerrada_en', { ascending: false });
+    if (error) throw new BadRequestException(error.message);
+    const porUsuario = new Map<string, any>();
+    for (const s of (data ?? []) as any[]) {
+      const u = s.usuario;
+      if (!u) continue;
+      const acc = porUsuario.get(u.id) ?? {
+        usuario: u.nombre, rol: u.rol, cierres: 0, totalCerrado: 0,
+        diferenciaNeta: 0, conDiferencia: 0, ultimoCierre: null as string | null,
+      };
+      acc.cierres += 1;
+      acc.totalCerrado += Number(s.monto_cierre ?? 0);
+      acc.diferenciaNeta += Number(s.diferencia ?? 0);
+      if (Number(s.diferencia ?? 0) !== 0) acc.conDiferencia += 1;
+      if (!acc.ultimoCierre || s.cerrada_en > acc.ultimoCierre) acc.ultimoCierre = s.cerrada_en;
+      porUsuario.set(u.id, acc);
+    }
+    return [...porUsuario.values()]
+      .map((a) => ({ ...a, totalCerrado: Math.round(a.totalCerrado), diferenciaNeta: Math.round(a.diferenciaNeta) }))
+      .sort((a, b) => b.cierres - a.cierres);
+  }
+
   // Resumen de cajas y arqueos (KPIs del workspace)
   async resumen() {
     const inicioMes = new Date();

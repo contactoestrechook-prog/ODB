@@ -22,6 +22,7 @@ const ICONOS: Record<string, string> = {
   estadisticas: 'M12 3a9 9 0 109 9h-9z M14 3a9 9 0 017 7h-7z',
   informe: 'M5 3h14v18H5zM9 7h6M9 11h6M9 15h4',
   usuarios: 'M12 8a3 3 0 100-6 3 3 0 000 6zM5 21a7 7 0 0114 0M19 8h4M21 6v4',
+  eficiencia: 'M12 8v4l3 2M12 3a9 9 0 100 18 9 9 0 000-18z',
 };
 
 const GRUPOS: Grupo[] = [
@@ -64,6 +65,7 @@ const GRUPOS: Grupo[] = [
     items: [
       { href: '/estadisticas', label: 'Estadísticas', icono: 'estadisticas' },
       { href: '/informes', label: 'Informe diario', icono: 'informe' },
+      { href: '/eficiencia', label: 'Eficiencia', icono: 'eficiencia' },
       { href: '/usuarios', label: 'Usuarios', icono: 'usuarios' },
     ],
   },
@@ -86,6 +88,7 @@ const TITULOS: Record<string, { titulo: string; bajada: string }> = {
   '/sommelier': { titulo: 'Somelier ODB', bajada: 'El experto en vinos que atiende a tus clientes' },
   '/estadisticas': { titulo: 'Estadísticas', bajada: 'El negocio en números: 30 días de venta real' },
   '/informes': { titulo: 'Informe diario', bajada: 'El parte matutino del Analista, todos los días a las 7:00' },
+  '/eficiencia': { titulo: 'Eficiencia', bajada: 'Productividad por empleado: tiempos por cliente y de preparación' },
   '/usuarios': { titulo: 'Usuarios', bajada: 'Equipo, roles y permisos de firma' },
 };
 
