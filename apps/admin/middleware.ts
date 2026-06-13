@@ -7,7 +7,7 @@ export function middleware(req: NextRequest) {
     return NextResponse.redirect(new URL('/login', req.url));
   }
   if (token && pathname === '/login') {
-    return NextResponse.redirect(new URL('/ventas', req.url));
+    return NextResponse.redirect(new URL('/inicio', req.url));
   }
   return NextResponse.next();
 }

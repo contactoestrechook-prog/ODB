@@ -19,7 +19,7 @@ export default function Login() {
       body: JSON.stringify({ email: datos.get('email'), clave: datos.get('clave') }),
     });
     if (res.ok) {
-      router.push('/ventas');
+      router.push('/inicio');
       router.refresh();
     } else {
       const cuerpo = await res.json().catch(() => null);

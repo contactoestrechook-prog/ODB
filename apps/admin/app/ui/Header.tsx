@@ -5,6 +5,7 @@ type Grupo = { titulo: string; items: Item[] };
 
 // path SVG (24x24, stroke) por sección
 const ICONOS: Record<string, string> = {
+  inicio: 'M3 11l9-8 9 8M5 9v11h5v-6h4v6h5V9',
   ventas: 'M3 3h2l2 12h11l2-8H7M9 19a1 1 0 102 0 1 1 0 00-2 0zm7 0a1 1 0 102 0 1 1 0 00-2 0z',
   caja: 'M4 8h16v12H4zM4 8l2-4h12l2 4M9 12h6',
   facturacion: 'M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6M9 16h3',
@@ -29,6 +30,7 @@ const GRUPOS: Grupo[] = [
   {
     titulo: 'Operación',
     items: [
+      { href: '/inicio', label: 'Inicio', icono: 'inicio' },
       { href: '/ventas', label: 'Ventas', icono: 'ventas' },
       { href: '/caja', label: 'Caja', icono: 'caja' },
       { href: '/facturacion', label: 'Facturación', icono: 'facturacion' },
@@ -72,6 +74,7 @@ const GRUPOS: Grupo[] = [
 ];
 
 const TITULOS: Record<string, { titulo: string; bajada: string }> = {
+  '/inicio': { titulo: 'Inicio', bajada: 'El negocio de un vistazo: hoy, alertas y accesos' },
   '/ventas': { titulo: 'Ventas', bajada: 'Tickets del día y últimas operaciones de las dos sucursales' },
   '/caja': { titulo: 'Caja', bajada: 'Sesiones de caja, arqueos y facturación ARCA' },
   '/facturacion': { titulo: 'Facturación', bajada: 'Facturas, notas, remitos, recibos y cuentas corrientes' },

@@ -13,7 +13,7 @@ import { supabaseProvider } from '../supabase.provider';
       // diferido: el .env ya está cargado cuando corre la factory
       useFactory: () => ({
         secret: process.env.JWT_SECRET,
-        signOptions: { expiresIn: '12h' },
+        signOptions: { expiresIn: '24h' },
       }),
     }),
   ],
