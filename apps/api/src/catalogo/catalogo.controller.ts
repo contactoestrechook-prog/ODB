@@ -26,6 +26,21 @@ export class CatalogoController {
     }
   }
 
+  // Segmento de comportamiento del cliente logueado (para mostrarle SU precio).
+  // El token no lo trae: se busca por id en la base.
+  private async segmentoCliente(authorization?: string): Promise<string | undefined> {
+    const token = (authorization ?? '').replace(/^Bearer /, '');
+    if (!token) return undefined;
+    try {
+      const payload = await this.jwt.verifyAsync(token);
+      if (payload.rol !== 'cliente' || !payload.sub) return undefined;
+      const { data } = await this.catalogo.tipoCliente(payload.sub);
+      return data ?? undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
   @Get('catalogo/filtros')
   filtros() {
     return this.catalogo.filtros();
@@ -37,7 +52,11 @@ export class CatalogoController {
     @Headers('authorization') auth?: string,
   ) {
     if (q.limite && !q.porPagina) q.porPagina = q.limite;
-    return this.catalogo.buscarProductos(q, await this.esComunidad(auth));
+    const [comunidad, segmento] = await Promise.all([
+      this.esComunidad(auth),
+      this.segmentoCliente(auth),
+    ]);
+    return this.catalogo.buscarProductos(q, comunidad, segmento);
   }
 
   @Get('productos/:sku')

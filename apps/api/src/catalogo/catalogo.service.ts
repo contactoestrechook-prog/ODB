@@ -67,18 +67,18 @@ export class CatalogoService {
   // (30 s) que absorbe la navegación masiva sin golpear la base
   private catalogoCache = new Map<string, { data: any; ts: number }>();
 
-  async buscarProductos(q: FiltrosCatalogo, verificado = false) {
-    const clave = JSON.stringify([verificado, q.buscar, q.categoriaId, q.marcaId, q.filtro, q.orden, q.pagina, q.porPagina]);
+  async buscarProductos(q: FiltrosCatalogo, verificado = false, segmento?: string) {
+    const clave = JSON.stringify([verificado, segmento ?? '', q.buscar, q.categoriaId, q.marcaId, q.filtro, q.orden, q.pagina, q.porPagina]);
     const cacheado = this.catalogoCache.get(clave);
     if (cacheado && Date.now() - cacheado.ts < 30_000) return cacheado.data;
 
-    const resultado = await this.buscarProductosSinCache(q, verificado);
+    const resultado = await this.buscarProductosSinCache(q, verificado, segmento);
     if (this.catalogoCache.size > 500) this.catalogoCache.clear();
     this.catalogoCache.set(clave, { data: resultado, ts: Date.now() });
     return resultado;
   }
 
-  private async buscarProductosSinCache(q: FiltrosCatalogo, verificado = false) {
+  private async buscarProductosSinCache(q: FiltrosCatalogo, verificado = false, segmento?: string) {
     const porPagina = Math.min(Math.max(Number(q.porPagina ?? 50), 1), 200);
     const pagina = Math.max(Number(q.pagina ?? 1), 1);
 
@@ -137,7 +137,7 @@ export class CatalogoService {
     }
 
     const [precios, fotos] = await Promise.all([
-      this.preciosVigentes(items.map((p: any) => p.id), verificado),
+      this.preciosVigentes(items.map((p: any) => p.id), verificado, segmento),
       this.fotos(),
     ]);
     return {
@@ -278,11 +278,18 @@ export class CatalogoService {
   }
 
   // Precios con descuentos aplicados, calculados por la función canónica de la base
-  private async preciosVigentes(ids: string[], verificado = false) {
+  // tipo (segmento de comportamiento) de un cliente por id
+  async tipoCliente(clienteId: string): Promise<{ data: string | null }> {
+    const { data } = await this.db.from('clientes').select('tipo').eq('id', clienteId).maybeSingle();
+    return { data: data?.tipo ?? null };
+  }
+
+  private async preciosVigentes(ids: string[], verificado = false, segmento?: string) {
     const mapa = new Map<string, any>();
     if (ids.length === 0) return mapa;
     const params: any = { p_ids: ids };
     if (verificado && (await this.comunidadActiva())) params.p_verificado = true;
+    if (segmento) params.p_segmento = segmento;
     const { data, error } = await this.db.rpc('catalogo_precios', params);
     if (error) throw new Error(error.message);
     for (const r of data ?? []) mapa.set(r.producto_id, r);

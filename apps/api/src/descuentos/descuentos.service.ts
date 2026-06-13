@@ -18,9 +18,87 @@ export type CrearDescuentoDto = {
   soloComunidad?: boolean;
 };
 
+// Segmentos de comportamiento (no socioeconómicos): se derivan de la conducta
+// de compra del cliente. El ticket promedio de cada uno guía qué promo conviene.
+const SEGMENTOS = ['nuevo', 'ocasional', 'frecuente', 'mayorista', 'vip'] as const;
+
+const ETIQUETA_SEGMENTO: Record<string, string> = {
+  nuevo: 'Nuevos',
+  ocasional: 'Ocasionales',
+  frecuente: 'Frecuentes',
+  mayorista: 'Mayoristas',
+  vip: 'VIP',
+};
+
 @Injectable()
 export class DescuentosService {
   constructor(@Inject(SUPABASE) private readonly db: SupabaseClient) {}
+
+  // Ticket promedio y volumen por segmento, para decidir la promo de cada uno
+  async segmentos() {
+    // clientes por segmento (paginado; escala a miles)
+    const clientes: any[] = [];
+    for (let desde = 0; ; desde += 1000) {
+      const { data, error } = await this.db
+        .from('clientes')
+        .select('id, tipo')
+        .range(desde, desde + 999);
+      if (error) throw new BadRequestException(error.message);
+      clientes.push(...(data ?? []));
+      if (!data || data.length < 1000) break;
+    }
+    const idTipo = new Map(clientes.map((c) => [c.id, c.tipo]));
+    const acc = new Map(SEGMENTOS.map((s) => [s, { clientes: 0, suma: 0, n: 0 }]));
+    for (const c of clientes) {
+      const a = acc.get(c.tipo);
+      if (a) a.clientes += 1;
+    }
+
+    // ventas de clientes identificados (las anónimas no suman a ningún segmento)
+    const ventas: any[] = [];
+    for (let desde = 0; ; desde += 1000) {
+      const { data } = await this.db
+        .from('ventas')
+        .select('total, cliente_id')
+        .eq('estado', 'completada')
+        .not('cliente_id', 'is', null)
+        .range(desde, desde + 999);
+      ventas.push(...(data ?? []));
+      if (!data || data.length < 1000) break;
+    }
+    for (const v of ventas) {
+      const a = acc.get(idTipo.get(v.cliente_id));
+      if (a) {
+        a.suma += Number(v.total);
+        a.n += 1;
+      }
+    }
+
+    // referencia general: promedio de los últimos 1000 tickets
+    const { data: recientes } = await this.db
+      .from('ventas')
+      .select('total')
+      .eq('estado', 'completada')
+      .order('vendida_en', { ascending: false })
+      .limit(1000);
+    const ticketGeneral = recientes?.length
+      ? Math.round(recientes.reduce((s, v) => s + Number(v.total), 0) / recientes.length)
+      : 0;
+
+    return {
+      ticketGeneral,
+      segmentos: SEGMENTOS.map((s) => {
+        const a = acc.get(s)!;
+        return {
+          segmento: s,
+          etiqueta: ETIQUETA_SEGMENTO[s],
+          clientes: a.clientes,
+          ventasIdentificadas: a.n,
+          ticketPromedio: a.n ? Math.round(a.suma / a.n) : null,
+        };
+      }),
+    };
+  }
 
   async listar() {
     const { data, error } = await this.db
@@ -81,5 +159,11 @@ export class DescuentosService {
       throw new BadRequestException(msg);
     }
     return { descuentoId: data.id };
+  }
+
+  async cambiarEstado(id: string, activo: boolean) {
+    const { error } = await this.db.from('descuentos').update({ activo }).eq('id', id);
+    if (error) throw new BadRequestException(error.message);
+    return { ok: true };
   }
 }
