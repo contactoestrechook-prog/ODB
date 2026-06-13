@@ -101,7 +101,7 @@ export class FacturacionService {
     if (dto.clienteId) {
       const { data } = await this.db
         .from('clientes')
-        .select('id, nombre, razon_social, dni, cuit, condicion_iva, domicilio')
+        .select('id, nombre, razon_social, dni, cuit, condicion_iva, domicilio, cta_cte_habilitada, limite_credito')
         .eq('id', dto.clienteId)
         .maybeSingle();
       if (!data) throw new BadRequestException('No existe el cliente');
@@ -145,6 +145,23 @@ export class FacturacionService {
     }
 
     const { neto, iva, ivaDetalle, total } = this.calcularIva(items, tipo);
+
+    // venta a cuenta corriente: el cliente tiene que tenerla habilitada y con crédito
+    if ((dto.condicionPago ?? 'contado') === 'cta_cte' && DEBITOS.includes(tipo)) {
+      if (!cliente) throw new BadRequestException('La cuenta corriente requiere un cliente identificado');
+      if (!cliente.cta_cte_habilitada) {
+        throw new BadRequestException(`${cliente.razon_social ?? cliente.nombre ?? 'El cliente'} no tiene cuenta corriente habilitada`);
+      }
+      const limite = Number(cliente.limite_credito ?? 0);
+      if (limite > 0) {
+        const { data: saldoActual } = await this.db.rpc('saldo_cuenta', { p_cliente: cliente.id });
+        if (Number(saldoActual ?? 0) + total > limite + 0.01) {
+          throw new BadRequestException(
+            `Supera el límite de crédito: saldo $${Number(saldoActual ?? 0).toLocaleString('es-AR')} + $${total.toLocaleString('es-AR')} > límite $${limite.toLocaleString('es-AR')}`,
+          );
+        }
+      }
+    }
 
     // punto de venta: el de la sucursal si se indicó, sino 1
     let puntoVenta = 1;
@@ -377,7 +394,21 @@ export class FacturacionService {
         concepto: etiqueta,
         haber: comprobante.total,
       });
+    } else {
+      return; // sin efecto en cta cte: sin notificación
     }
+    const { data: saldo } = await this.db.rpc('saldo_cuenta', { p_cliente: clienteId });
+    const monto = '$' + Math.round(comprobante.total).toLocaleString('es-AR');
+    const esCargo = DEBITOS.includes(tipo);
+    await this.notificar(
+      clienteId,
+      esCargo ? `Nuevo cargo en tu cuenta: ${monto}` : `Pago registrado: ${monto}`,
+      `${etiqueta}. Tu saldo es $${Math.round(Number(saldo ?? 0)).toLocaleString('es-AR')}.`,
+    );
+  }
+
+  async notificar(clienteId: string, titulo: string, cuerpo: string) {
+    await this.db.from('notificaciones').insert({ cliente_id: clienteId, titulo, cuerpo });
   }
 
   private async descontarStockRemito(items: ItemComprobante[], sucursalId: string, comprobante: any, usuarioId?: string) {
