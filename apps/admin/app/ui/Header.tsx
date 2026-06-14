@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { BuscadorGlobal } from './BuscadorGlobal';
+import { MobileMenu } from './MobileMenu';
 
 type Item = { href: string; label: string; icono: string };
 type Grupo = { titulo: string; items: Item[] };
@@ -163,24 +164,8 @@ export function Header({ activo }: { activo: string }) {
         </div>
       </aside>
 
-      {/* ---- navegación móvil (pantallas chicas) ---- */}
-      <header className="lg:hidden bg-[#121212] px-4 py-3 sticky top-0 z-40">
-        <div className="flex items-center justify-between">
-          <p className="text-white tracking-[0.3em] font-semibold">O.D.B</p>
-          <a href="/api/salir" className="text-white/50 text-xs">Salir</a>
-        </div>
-        <nav className="flex gap-3 overflow-x-auto whitespace-nowrap pt-2 text-[13px]">
-          {GRUPOS.flatMap((g) => g.items).map((i) => (
-            <Link
-              key={i.href}
-              href={i.href}
-              className={i.href === activo ? 'text-white border-b-2 border-[#B82D25] pb-0.5' : 'text-white/50'}
-            >
-              {i.label}
-            </Link>
-          ))}
-        </nav>
-      </header>
+      {/* ---- navegación móvil: hamburguesa + cajón ---- */}
+      <MobileMenu grupos={GRUPOS} iconos={ICONOS} activo={activo} titulo={seccion.titulo} />
 
       {/* ---- cabecera de sección ---- */}
       <div className="bg-white border-b border-black/5">

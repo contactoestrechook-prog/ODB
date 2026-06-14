@@ -24,3 +24,14 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* En celular, las tablas anchas scrollean horizontal en vez de romper el layout */
+@media (max-width: 768px) {
+  main table {
+    display: block;
+    overflow-x: auto;
+    white-space: nowrap;
+    max-width: 100%;
+    -webkit-overflow-scrolling: touch;
+  }
+}
