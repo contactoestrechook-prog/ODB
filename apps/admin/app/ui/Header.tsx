@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { BuscadorGlobal } from './BuscadorGlobal';
 
 type Item = { href: string; label: string; icono: string };
 type Grupo = { titulo: string; items: Item[] };
@@ -183,12 +184,15 @@ export function Header({ activo }: { activo: string }) {
 
       {/* ---- cabecera de sección ---- */}
       <div className="bg-white border-b border-black/5">
-        <div className="px-6 lg:px-10 py-5 flex items-end justify-between gap-4">
-          <div>
+        <div className="px-6 lg:px-10 py-5 flex items-center justify-between gap-4">
+          <div className="shrink-0">
             <h1 className="text-xl font-semibold text-black">{seccion.titulo}</h1>
-            {seccion.bajada && <p className="text-[13px] text-black/45 mt-0.5">{seccion.bajada}</p>}
+            {seccion.bajada && <p className="text-[13px] text-black/45 mt-0.5 hidden md:block">{seccion.bajada}</p>}
           </div>
-          <p className="text-[13px] text-black/40 whitespace-nowrap hidden sm:block capitalize">
+          <div className="flex-1 flex justify-end max-w-md ml-auto">
+            <BuscadorGlobal />
+          </div>
+          <p className="text-[13px] text-black/40 whitespace-nowrap hidden xl:block capitalize">
             {new Date().toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' })}
           </p>
         </div>
