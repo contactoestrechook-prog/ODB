@@ -1,30 +1,83 @@
 @import "tailwindcss";
 
-:root {
-  --crema: #f4eee4;
-  --tinta: #2a201c;
+@theme inline {
+  --color-ink: #17120f;
+  --color-vino: #5a1a16;
+  --color-rojo: #b82d25;
+  --color-rojo-osc: #8f2018;
+  --color-dorado: #b8985a;
+  --color-dorado-claro: #cbae78;
+  --color-papel: #f3ede3;
+  --color-crema: #fbf7f0;
+  --color-humo: #8c7f73;
+  --color-tinta: #29211c;
+  --color-linea: #e7ddcd;
+  --font-display: var(--font-fraunces);
+  --font-sans: var(--font-manrope);
 }
 
-@theme inline {
-  --color-rojo: #b82d25;
-  --color-rojo-oscuro: #932a1f;
-  --color-vino: #5a1a16;
-  --color-negro: #1a1412;
-  --color-tinta: #2a201c;
-  --color-crema: #f4eee4;
-  --color-crema-prof: #ebe3d6;
-  --color-humo: #9b9088;
-  --color-dorado: #c9a96e;
-  --font-sans: var(--font-geist-sans);
+:root {
+  --papel: #f3ede3;
+  --tinta: #29211c;
 }
 
 html { scroll-behavior: smooth; }
+
 body {
-  background: var(--crema);
+  background: var(--papel);
   color: var(--tinta);
+  font-family: var(--font-manrope), system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
-/* ocultar scrollbar en carruseles horizontales */
+::selection { background: #cbae78; color: #17120f; }
+
+/* ---- Tipografía editorial ---- */
+.display { font-family: var(--font-fraunces), Georgia, serif; font-optical-sizing: auto; }
+
+/* kicker: etiqueta chica en mayúsculas con tracking, acento dorado */
+.kicker {
+  font-size: 0.6875rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+/* filete dorado fino */
+.rule {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, #c9a96e80, transparent);
+}
+
+/* aparición suave al cargar */
+@keyframes subir { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+.subir { animation: subir 0.6s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+
+/* carruseles sin scrollbar */
 .sin-scroll::-webkit-scrollbar { display: none; }
 .sin-scroll { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* línea inferior animada en links editoriales */
+.subraya { background-image: linear-gradient(#b8985a, #b8985a); background-size: 0% 1px; background-position: 0 100%; background-repeat: no-repeat; transition: background-size 0.3s ease; }
+.subraya:hover { background-size: 100% 1px; }
+
+/* ---- Movimiento del hero ---- */
+/* resplandor cálido que deriva lento, como luz de cava */
+@keyframes derivaGlow {
+  0%, 100% { transform: translate(-2%, -1%) scale(1.05); }
+  50% { transform: translate(2%, 2%) scale(1.14); }
+}
+.deriva-glow { animation: derivaGlow 18s ease-in-out infinite; will-change: transform; }
+
+/* indicador de scroll que respira */
+@keyframes flotar { 0%, 100% { transform: translateY(0); opacity: 0.45; } 50% { transform: translateY(7px); opacity: 0.9; } }
+.flotar { animation: flotar 2.2s ease-in-out infinite; }
+
+/* entrada escalonada (hero) */
+@keyframes entrar { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
+.entrar { opacity: 0; animation: entrar 0.8s cubic-bezier(0.16, 0.84, 0.3, 1) forwards; }
+
+@media (prefers-reduced-motion: reduce) {
+  .subir, .entrar, .deriva-glow, .flotar { animation: none !important; opacity: 1 !important; transform: none !important; }
+}

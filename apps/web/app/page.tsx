@@ -2,103 +2,136 @@ import Link from "next/link";
 import { apiJson } from "../lib/api";
 import { sesion } from "../lib/sesion";
 import { Producto } from "./ui/Producto";
+import { Hero } from "./ui/Hero";
+import { IcoUva, IcoMoto, IcoMedalla, IcoFlecha, IcoLocal, IcoTarjeta } from "./ui/Iconos";
 import type { Producto as P } from "../lib/tipos";
 
 export const dynamic = "force-dynamic";
 
-const EMOJI: Record<string, string> = {
-  vinos: "🍷", vino: "🍷", cervezas: "🍺", cerveza: "🍺", bebidas: "🥤", aguas: "💧",
-  fiambres: "🧀", fiambre: "🧀", quesos: "🧀", almacen: "🛒", almacén: "🛒",
-  aceites: "🫒", tabaco: "🚬", pescaderia: "🐟", pescadería: "🐟", limpieza: "🧼",
-  golosinas: "🍫", snacks: "🥨", lacteos: "🥛", lácteos: "🥛",
-};
-const emojiCat = (n: string) => EMOJI[(n ?? "").toLowerCase().trim()] ?? "🛍️";
+function Encabezado({ kicker, titulo, href }: { kicker: string; titulo: string; href?: string }) {
+  return (
+    <div className="flex items-end justify-between gap-4 mb-7">
+      <div>
+        <p className="kicker text-dorado">{kicker}</p>
+        <h2 className="display text-3xl sm:text-[34px] font-semibold text-ink mt-1.5 tracking-tight">{titulo}</h2>
+      </div>
+      {href && (
+        <Link href={href} className="shrink-0 inline-flex items-center gap-1.5 text-sm text-tinta/70 hover:text-rojo transition-colors group">
+          Ver todo <IcoFlecha size={16} className="group-hover:translate-x-0.5 transition-transform" />
+        </Link>
+      )}
+    </div>
+  );
+}
 
 export default async function Home() {
   const cliente = await sesion();
   const [filtros, promo, destacados] = await Promise.all([
     apiJson<{ categorias: any[] }>("/catalogo/filtros", { categorias: [] }),
-    apiJson<{ items: P[] }>("/productos?filtro=promo&porPagina=12", { items: [] }),
-    apiJson<{ items: P[] }>("/productos?porPagina=12&orden=recientes", { items: [] }),
+    apiJson<{ items: P[] }>("/productos?filtro=promo&porPagina=10", { items: [] }),
+    apiJson<{ items: P[] }>("/productos?porPagina=10&orden=recientes", { items: [] }),
   ]);
-  const categorias = (filtros.categorias ?? []).slice(0, 12);
+  const categorias = (filtros.categorias ?? []).slice(0, 8);
 
   return (
     <div>
-      {/* HERO */}
-      <section className="bg-gradient-to-br from-[#1A1412] via-[#5A1A16] to-[#B82D25] text-white">
-        <div className="max-w-6xl mx-auto px-4 py-16 sm:py-24">
-          <p className="text-[#C9A96E] text-xs tracking-[0.3em] font-semibold">O.D.B PREMIUM MARKET</p>
-          <h1 className="mt-3 text-3xl sm:text-5xl font-bold leading-tight max-w-2xl">
-            Bebidas, fiambrería y almacén.<br />Tu pedido, a un toque.
-          </h1>
-          <p className="mt-4 text-white/70 max-w-lg">
-            {cliente
-              ? `Hola${cliente.nombre ? ", " + cliente.nombre.split(" ")[0] : ""} 👋 Estás viendo tus precios.`
-              : "Entrá con tu email y mirá tus precios personalizados. Envío a domicilio y retiro en el local."}
-          </p>
-          <div className="mt-7 flex flex-wrap gap-3">
-            <Link href="/catalogo" className="bg-white text-[#1A1412] rounded-full px-6 py-3 font-semibold hover:bg-white/90">Ver catálogo</Link>
-            <Link href="/catalogo?filtro=promo" className="bg-white/10 border border-white/20 rounded-full px-6 py-3 font-semibold hover:bg-white/20">Ofertas de hoy</Link>
-          </div>
+      {/* ───────── HERO (animado) ───────── */}
+      <Hero nombre={cliente?.nombre ? cliente.nombre.split(" ")[0] : null} />
+
+      {/* ───────── VALORES ───────── */}
+      <section className="border-b border-linea bg-crema/40">
+        <div className="max-w-7xl mx-auto px-5 lg:px-8 py-7 grid grid-cols-1 sm:grid-cols-3 gap-6 sm:gap-4 text-center">
+          {[
+            [<IcoUva key="u" size={22} />, "Curaduría", "Selección con criterio"],
+            [<IcoMoto key="m" size={22} />, "Envío a domicilio", "Y retiro en el local"],
+            [<IcoMedalla key="d" size={22} />, "Comunidad ODB", "Precios de socio y puntos"],
+          ].map(([ico, t, s], i) => (
+            <div key={i} className="flex items-center justify-center gap-3.5">
+              <span className="text-dorado">{ico}</span>
+              <div className="text-left">
+                <p className="text-sm font-semibold text-ink">{t}</p>
+                <p className="text-xs text-humo">{s}</p>
+              </div>
+            </div>
+          ))}
         </div>
       </section>
 
-      <div className="max-w-6xl mx-auto px-4">
-        {/* CATEGORÍAS */}
+      <div className="max-w-7xl mx-auto px-5 lg:px-8">
+        {/* ───────── CATEGORÍAS ───────── */}
         {categorias.length > 0 && (
-          <section className="-mt-8 relative">
-            <div className="flex gap-3 overflow-x-auto sin-scroll pb-2">
-              {categorias.map((c: any) => (
-                <Link key={c.id} href={`/catalogo?categoriaId=${c.id}`} className="shrink-0 bg-white rounded-2xl border border-black/5 px-5 py-4 text-center hover:shadow-md transition-shadow min-w-[104px]">
-                  <div className="text-3xl">{emojiCat(c.nombre)}</div>
-                  <div className="text-xs font-medium text-[#2A201C] mt-1.5">{c.nombre}</div>
+          <section className="mt-16">
+            <Encabezado kicker="Explorá la bodega" titulo="Por categoría" href="/catalogo" />
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
+              {categorias.map((c: any, i: number) => (
+                <Link
+                  key={c.id}
+                  href={`/catalogo?categoriaId=${c.id}`}
+                  className="group relative border border-linea hover:border-dorado/60 bg-crema rounded-[10px] p-5 transition-colors"
+                >
+                  <span className="display text-sm text-dorado/70">{String(i + 1).padStart(2, "0")}</span>
+                  <p className="mt-6 text-[15px] font-semibold text-ink leading-snug">{c.nombre}</p>
+                  <IcoFlecha size={16} className="mt-2 text-humo group-hover:text-rojo group-hover:translate-x-0.5 transition-all" />
                 </Link>
               ))}
             </div>
           </section>
         )}
 
-        {/* OFERTAS */}
+        {/* ───────── OFERTAS ───────── */}
         {promo.items.length > 0 && (
-          <Seccion titulo="Ofertas de la semana" href="/catalogo?filtro=promo">
-            {promo.items.map((p) => <Producto key={p.sku} p={p} />)}
-          </Seccion>
-        )}
-
-        {/* DESTACADOS / PARA VOS */}
-        {destacados.items.length > 0 && (
-          <Seccion titulo={cliente ? "Recomendados para vos" : "Recién llegados"} href="/catalogo">
-            {destacados.items.map((p) => <Producto key={p.sku} p={p} />)}
-          </Seccion>
-        )}
-
-        {/* COMUNIDAD CTA */}
-        {!cliente?.verificado && (
-          <section className="my-12 rounded-3xl bg-[#1A1412] text-white p-8 sm:p-10 flex flex-col sm:flex-row items-center gap-6">
-            <div className="text-5xl">🎖️</div>
-            <div className="flex-1 text-center sm:text-left">
-              <h3 className="text-xl font-bold">Sumate a la Comunidad ODB</h3>
-              <p className="text-white/65 mt-1 max-w-xl">Verificá tu identidad y desbloqueá precios de socio, prioridad en envíos a domicilio y puntos en cada compra.</p>
+          <section className="mt-20">
+            <Encabezado kicker="Por tiempo limitado" titulo="Ofertas de la semana" href="/catalogo?filtro=promo" />
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-x-4 gap-y-9">
+              {promo.items.map((p) => <Producto key={p.sku} p={p} />)}
             </div>
-            <Link href={cliente ? "/cuenta" : "/ingresar"} className="bg-[#C9A96E] text-[#1A1412] rounded-full px-6 py-3 font-semibold hover:bg-[#b8995d] whitespace-nowrap">
-              {cliente ? "Verificar identidad" : "Crear mi cuenta"}
-            </Link>
           </section>
         )}
       </div>
-    </div>
-  );
-}
 
-function Seccion({ titulo, href, children }: { titulo: string; href: string; children: React.ReactNode }) {
-  return (
-    <section className="mt-12">
-      <div className="flex items-end justify-between mb-4">
-        <h2 className="text-xl sm:text-2xl font-bold text-[#2A201C]">{titulo}</h2>
-        <Link href={href} className="text-sm font-medium text-[#B82D25] hover:underline">Ver todo →</Link>
-      </div>
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">{children}</div>
-    </section>
+      {/* ───────── COMUNIDAD (banda) ───────── */}
+      <section className="mt-20 bg-ink text-crema">
+        <div className="max-w-7xl mx-auto px-5 lg:px-8 py-16 lg:py-20 grid lg:grid-cols-2 gap-10 items-center">
+          <div>
+            <p className="kicker text-dorado">Club de clientes</p>
+            <h2 className="display text-3xl sm:text-5xl font-semibold mt-3 leading-[1.08] tracking-tight">
+              Sumate a la <span className="italic text-dorado-claro">Comunidad ODB</span>
+            </h2>
+            <p className="mt-5 text-crema/55 max-w-md leading-relaxed">
+              Verificá tu identidad una sola vez y desbloqueá una forma distinta de comprar.
+            </p>
+            <Link href={cliente ? "/cuenta" : "/ingresar"} className="inline-flex items-center gap-2 mt-8 bg-dorado text-ink rounded-full px-7 py-3.5 text-sm font-semibold hover:bg-dorado-claro transition-colors">
+              {cliente ? "Verificar mi identidad" : "Crear mi cuenta"} <IcoFlecha size={16} />
+            </Link>
+          </div>
+          <div className="grid sm:grid-cols-2 gap-px bg-crema/10 rounded-[10px] overflow-hidden">
+            {[
+              [<IcoTarjeta key="t" size={20} />, "Precios de socio", "Mejores precios en toda la tienda"],
+              [<IcoMoto key="m" size={20} />, "Prioridad en envíos", "Tu pedido, primero"],
+              [<IcoMedalla key="d" size={20} />, "Puntos en cada compra", "Canjealos por recompensas"],
+              [<IcoUva key="u" size={20} />, "Selección exclusiva", "Etiquetas solo para socios"],
+            ].map(([ico, t, s], i) => (
+              <div key={i} className="bg-ink p-6">
+                <span className="text-dorado">{ico}</span>
+                <p className="mt-3 text-sm font-semibold text-crema">{t}</p>
+                <p className="text-xs text-crema/45 mt-1 leading-relaxed">{s}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ───────── DESTACADOS ───────── */}
+      {destacados.items.length > 0 && (
+        <div className="max-w-7xl mx-auto px-5 lg:px-8">
+          <section className="mt-20">
+            <Encabezado kicker={cliente ? "Elegidos para vos" : "Recién llegados"} titulo={cliente ? "Recomendados" : "Novedades"} href="/catalogo" />
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-x-4 gap-y-9">
+              {destacados.items.map((p) => <Producto key={p.sku} p={p} />)}
+            </div>
+          </section>
+        </div>
+      )}
+    </div>
   );
 }

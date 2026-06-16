@@ -6,20 +6,27 @@ const pesos = (n: any) => '$' + Math.round(Number(n) || 0).toLocaleString('es-AR
 
 export const dynamic = 'force-dynamic';
 
-async function json(path: string, fallback: any) {
-  try { const r = await apiFetch(path); return r.ok ? await r.json() : fallback; } catch { return fallback; }
+async function json(path: string, fallback: any, errs: string[]) {
+  try {
+    const r = await apiFetch(path);
+    if (!r.ok) { errs.push(path); return fallback; }
+    return await r.json();
+  } catch { errs.push(path); return fallback; }
 }
 
 export default async function Inicio() {
+  const errs: string[] = [];
   const [ventas, stock, compras, fact, caja, venc, informes] = await Promise.all([
-    json('/ventas/resumen', {}),
-    json('/stock/resumen', {}),
-    json('/compras/resumen', {}),
-    json('/facturacion/resumen', {}),
-    json('/caja/resumen', {}),
-    json('/vencimientos', { lotes: [] }),
-    json('/informes', []),
+    json('/ventas/resumen', {}, errs),
+    json('/stock/resumen', {}, errs),
+    json('/compras/resumen', {}, errs),
+    json('/facturacion/resumen', {}, errs),
+    json('/caja/resumen', {}, errs),
+    json('/vencimientos', { lotes: [] }, errs),
+    json('/informes', [], errs),
   ]);
+  // si fallaron casi todas, probablemente sea sesión vencida o API caída
+  const apiCaida = errs.length >= 4;
 
   const vencProximos = (venc.lotes ?? []).filter((l: any) => ['vencido', 'critico', 'pronto'].includes(l.estado)).length;
   const relato = Array.isArray(informes) && informes[0]?.relato ? informes[0].relato : null;
@@ -57,6 +64,14 @@ export default async function Inicio() {
           <h1 className="text-xl font-semibold text-black">Buen día 👋</h1>
           <p className="text-sm text-black/45 capitalize">{hoy}</p>
         </div>
+
+        {errs.length > 0 && (
+          <div className="rounded-xl bg-[#FBE9E7] border border-[#B82D25]/20 px-4 py-3 text-sm text-[#932A1F]">
+            {apiCaida
+              ? 'No pude consultar la API: revisá tu sesión (quizás expiró, volvé a entrar) o la conexión. Los números de abajo pueden no ser reales.'
+              : 'Algunos datos no cargaron (permisos o conexión). Los números pueden estar incompletos.'}
+          </div>
+        )}
 
         {/* KPIs principales */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">

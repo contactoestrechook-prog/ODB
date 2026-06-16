@@ -1,0 +1,12 @@
+import { NextResponse } from 'next/server';
+import { cookies } from 'next/headers';
+
+const API = process.env.API_URL ?? 'http://localhost:3001';
+
+export async function POST(req: Request) {
+  const t = (await cookies()).get('odb_token')?.value;
+  const res = await fetch(`${API}/eventos/sugerir`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...(t ? { Authorization: `Bearer ${t}` } : {}) }, body: JSON.stringify(await req.json()),
+  });
+  return NextResponse.json(await res.json(), { status: res.status });
+}

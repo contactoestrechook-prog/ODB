@@ -1,9 +1,10 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
+import Anthropic from '@anthropic-ai/sdk';
 import { SUPABASE } from '../supabase.provider';
 
 const SELECT_PRODUCTO = `
-  id, sku, nombre, volumen_ml, unidades_pack, graduacion, es_alcohol, costo, activo, creado_en, alicuota_iva,
+  id, sku, nombre, descripcion, volumen_ml, unidades_pack, graduacion, es_alcohol, costo, activo, creado_en, alicuota_iva,
   marca:marcas ( id, nombre ),
   categoria:categorias ( id, nombre ),
   stock ( sucursal_id, cantidad, stock_minimo ),
@@ -81,6 +82,7 @@ export class CatalogoService {
   private async buscarProductosSinCache(q: FiltrosCatalogo, verificado = false, segmento?: string) {
     const porPagina = Math.min(Math.max(Number(q.porPagina ?? 50), 1), 200);
     const pagina = Math.max(Number(q.pagina ?? 1), 1);
+    let saltarRango = false; // true cuando el RPC ya devolvió la página exacta
 
     let query = this.db
       .from('productos')
@@ -97,12 +99,14 @@ export class CatalogoService {
           .maybeSingle();
         query = query.eq('id', cb?.producto_id ?? '00000000-0000-0000-0000-000000000000');
       } else {
-        // busca en nombre (sin importar tildes ni mayúsculas) y SKU
-        const normalizado = termino
+        // busca en nombre (sin importar tildes ni mayúsculas) y SKU.
+        // se sacan los caracteres que PostgREST usa para parsear filtros (anti-inyección)
+        const limpio = termino.replace(/[,()*:\\]/g, '');
+        const normalizado = limpio
           .normalize('NFD')
           .replace(/[̀-ͯ]/g, '')
           .toLowerCase();
-        query = query.or(`nombre_normalizado.ilike.%${normalizado}%,sku.ilike.%${termino}%`);
+        query = query.or(`nombre_normalizado.ilike.%${normalizado}%,sku.ilike.%${limpio}%`);
       }
     }
     if (q.categoriaId) query = query.eq('categoria_id', q.categoriaId);
@@ -113,8 +117,21 @@ export class CatalogoService {
       const skus = [...new Set((data ?? []).map((r: any) => r.sku))];
       query = query.in('sku', skus.length ? skus : ['__ninguno__']);
     } else if (q.filtro === 'promo') {
-      const ids = await this.productosEnPromo();
-      if (ids !== 'todos') {
+      // Feed de ofertas de la tienda: solo productos con precio cargado (para no
+      // mostrar accesorios sin precio). La paginación la resuelve la base con un
+      // RPC (evita enumerar cientos de IDs en la URL).
+      const promo = await this.productosEnPromo();
+      if (promo === 'todos') {
+        const { data: of } = await this.db.rpc('ofertas_tienda', {
+          p_limit: porPagina,
+          p_offset: (pagina - 1) * porPagina,
+        });
+        const ids = (of ?? []).map((r: any) => r.id);
+        query = query.in('id', ids.length ? ids : ['00000000-0000-0000-0000-000000000000']);
+        saltarRango = true; // el RPC ya aplicó limit/offset
+      } else {
+        const precificados = new Set(await this.productosConPrecio());
+        const ids = promo.filter((id) => precificados.has(id)).slice(0, 200);
         query = query.in('id', ids.length ? ids : ['00000000-0000-0000-0000-000000000000']);
       }
     }
@@ -123,7 +140,7 @@ export class CatalogoService {
     else if (q.orden === 'recientes') query = query.order('creado_en', { ascending: false });
     else query = query.order('nombre');
 
-    query = query.range((pagina - 1) * porPagina, pagina * porPagina - 1);
+    if (!saltarRango) query = query.range((pagina - 1) * porPagina, pagina * porPagina - 1);
 
     const { data, count, error } = await query;
     if (error) throw new Error(error.message);
@@ -147,6 +164,21 @@ export class CatalogoService {
       paginas: Math.max(Math.ceil((count ?? 0) / porPagina), 1),
       items: items.map((p) => this.formatear(p, precios.get(p.id), fotos)),
     };
+  }
+
+  // Tarjetas de producto (mismo formato que el catálogo) para una lista de ids,
+  // respetando el orden recibido. Lo usan favoritos, frecuentes y recompra.
+  async cardsPorIds(ids: string[], verificado = false, segmento?: string) {
+    if (!ids.length) return [];
+    const { data, error } = await this.db.from('productos').select(SELECT_PRODUCTO).in('id', ids);
+    if (error) throw new Error(error.message);
+    const items = (data ?? []) as any[];
+    const [precios, fotos] = await Promise.all([
+      this.preciosVigentes(items.map((p) => p.id), verificado, segmento),
+      this.fotos(),
+    ]);
+    const porId = new Map(items.map((p) => [p.id, this.formatear(p, precios.get(p.id), fotos)]));
+    return ids.map((id) => porId.get(id)).filter(Boolean);
   }
 
   async obtenerPorSku(sku: string) {
@@ -232,6 +264,50 @@ export class CatalogoService {
     };
   }
 
+  // Nota de cata + maridaje del Somelier ODB para un producto (solo bebidas con
+  // alcohol). Se genera una vez con IA (Haiku, barato) y se cachea por producto.
+  async notaCata(sku: string) {
+    const { data: prod } = await this.db
+      .from('productos')
+      .select('id, nombre, es_alcohol, graduacion, marca:marcas(nombre), categoria:categorias(nombre)')
+      .eq('sku', sku)
+      .maybeSingle();
+    if (!prod || !prod.es_alcohol) return { nota: null, maridaje: null };
+
+    const { data: cache } = await this.db
+      .from('notas_cata')
+      .select('nota, maridaje')
+      .eq('producto_id', prod.id)
+      .maybeSingle();
+    if (cache) return { nota: cache.nota, maridaje: cache.maridaje };
+
+    if (!process.env.ANTHROPIC_API_KEY) return { nota: null, maridaje: null };
+    try {
+      const marca = (prod.marca as any)?.nombre ?? '';
+      const cat = (prod.categoria as any)?.nombre ?? '';
+      const claude = new Anthropic();
+      const r = await claude.messages.create({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 400,
+        system:
+          'Sos el Somelier ODB de O.D.B Premium Market. Escribís en español rioplatense, cercano y sin esnobismo. Para el producto dado generás una nota de cata breve (2-3 oraciones, sin puntajes ni premios inventados) y una sugerencia de maridaje (1 oración con 2-3 ideas concretas). Texto plano. Si no tenés datos suficientes, hacé una nota honesta y general del estilo. Respondé SOLO un JSON válido: {"nota":"...","maridaje":"..."}.',
+        messages: [
+          { role: 'user', content: `Producto: ${prod.nombre}${marca ? ` · marca ${marca}` : ''}${cat ? ` · ${cat}` : ''}${prod.graduacion ? ` · ${prod.graduacion}°` : ''}.` },
+        ],
+      });
+      const blk = r.content.find((b) => b.type === 'text');
+      const raw = blk && 'text' in blk ? blk.text : '';
+      const m = raw.match(/\{[\s\S]*\}/);
+      const parsed = m ? JSON.parse(m[0]) : {};
+      const nota = typeof parsed.nota === 'string' ? parsed.nota : null;
+      const maridaje = typeof parsed.maridaje === 'string' ? parsed.maridaje : null;
+      if (nota) await this.db.from('notas_cata').insert({ producto_id: prod.id, nota, maridaje });
+      return { nota, maridaje };
+    } catch {
+      return { nota: null, maridaje: null };
+    }
+  }
+
   async sucursales() {
     const { data, error } = await this.db
       .from('sucursales')
@@ -265,6 +341,30 @@ export class CatalogoService {
       for (const p of porMarca ?? []) ids.add(p.id);
     }
     return [...ids];
+  }
+
+  // IDs de productos con precio minorista cargado (caché 5 min: cambia poco)
+  private precificadosCache: { ids: string[]; ts: number } | null = null;
+  private async productosConPrecio(): Promise<string[]> {
+    if (this.precificadosCache && Date.now() - this.precificadosCache.ts < 300_000) {
+      return this.precificadosCache.ids;
+    }
+    const { data: listas } = await this.db
+      .from('listas_precios')
+      .select('id')
+      .ilike('nombre', 'minorista');
+    const listaIds = (listas ?? []).map((l: any) => l.id);
+    let ids: string[] = [];
+    if (listaIds.length) {
+      const { data } = await this.db
+        .from('precios')
+        .select('producto_id')
+        .in('lista_id', listaIds)
+        .limit(50000);
+      ids = [...new Set((data ?? []).map((r: any) => r.producto_id))];
+    }
+    this.precificadosCache = { ids, ts: Date.now() };
+    return ids;
   }
 
   // ¿Está aplicada la migración de Comunidad ODB? (se detecta una sola vez)
@@ -309,6 +409,9 @@ export class CatalogoService {
       categoria: p.categoria?.nombre ?? null,
       volumenMl: p.volumen_ml,
       unidadesPack: p.unidades_pack,
+      graduacion: p.graduacion != null ? Number(p.graduacion) : null,
+      descripcion: p.descripcion ?? null,
+      categoriaId: p.categoria?.id ?? null,
       esAlcohol: p.es_alcohol,
       precioLista: precioVigente?.precio_lista ?? null,
       precio: precioVigente?.precio_final ?? precioVigente?.precio_lista ?? null,

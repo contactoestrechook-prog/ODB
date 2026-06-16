@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { apiJson } from "../../lib/api";
 import { sesion } from "../../lib/sesion";
 import { pesos } from "../../lib/tipos";
+import { IcoFlecha, IcoLocal, IcoMoto } from "../ui/Iconos";
 
 export const dynamic = "force-dynamic";
 
@@ -19,49 +20,56 @@ export default async function Cuenta() {
   ]);
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-8">
-      <div className="flex items-center justify-between mb-6">
+    <div className="max-w-3xl mx-auto px-5 lg:px-8 py-10">
+      <div className="flex items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-[#2A201C]">Hola, {cliente.nombre?.split(" ")[0] ?? "cliente"} 👋</h1>
-          <p className="text-sm text-[#9B9088]">{cliente.email}</p>
+          <p className="kicker text-dorado">Mi cuenta</p>
+          <h1 className="display text-3xl sm:text-4xl font-semibold text-ink mt-1.5 tracking-tight">Hola, {cliente.nombre?.split(" ")[0] ?? "cliente"}</h1>
+          <p className="text-sm text-humo mt-1">{cliente.email}</p>
         </div>
-        <a href="/api/salir" className="text-sm text-[#5f554d] hover:text-[#B82D25]">Cerrar sesión</a>
+        <a href="/api/salir" className="text-sm text-humo subraya whitespace-nowrap">Cerrar sesión</a>
       </div>
 
-      {/* puntos */}
-      <div className="rounded-3xl bg-gradient-to-br from-[#1A1412] to-[#5A1A16] text-white p-6 mb-6">
+      {/* Puntos */}
+      <div className="mt-8 bg-ink text-crema rounded-xl p-7 relative overflow-hidden" style={{ backgroundImage: "radial-gradient(120% 90% at 100% 0%, rgba(90,26,22,0.6), transparent 55%)" }}>
         <div className="flex items-center justify-between">
-          <span className="text-[#C9A96E] text-xs tracking-[0.2em] font-semibold">TUS PUNTOS</span>
-          <span className="bg-[#C9A96E] text-[#1A1412] text-xs font-bold rounded-full px-3 py-1">{puntos.nivel?.nombre ?? "Bronce"}</span>
+          <p className="kicker text-dorado">Tus puntos</p>
+          <span className="border border-dorado/50 text-dorado-claro text-[11px] font-semibold tracking-wide rounded-full px-3 py-1">{puntos.nivel?.nombre ?? "Bronce"}</span>
         </div>
-        <p className="text-4xl font-bold mt-2">{Number(puntos.saldo ?? 0).toLocaleString("es-AR")}</p>
-        <p className="text-white/60 text-sm mt-1">Sumás 1 punto por cada $100 de compra. Canjealos por recompensas desde la app.</p>
+        <p className="display text-5xl font-semibold mt-3">{Number(puntos.saldo ?? 0).toLocaleString("es-AR")}</p>
+        <p className="text-crema/55 text-sm mt-2">Sumás 1 punto por cada $100 de compra. Canjealos por recompensas desde la app.</p>
         {!cliente.verificado && (
-          <div className="mt-4 rounded-xl bg-white/10 p-3 text-sm">
-            🎖️ Verificá tu identidad para acceder a la <span className="font-semibold">Comunidad ODB</span> (precios de socio + prioridad en envíos).
+          <div className="mt-5 rounded-lg border border-dorado/25 bg-dorado/5 p-3.5 text-sm text-crema/75">
+            Verificá tu identidad para entrar a la <span className="text-dorado-claro font-medium">Comunidad ODB</span> — precios de socio y prioridad en envíos.
           </div>
         )}
       </div>
 
-      {/* historial */}
-      <h2 className="font-bold text-[#2A201C] mb-3">Tus compras</h2>
-      {(!compras || compras.length === 0) ? (
-        <p className="bg-white rounded-2xl border border-black/5 p-8 text-center text-[#9B9088]">Todavía no tenés compras. <Link href="/catalogo" className="text-[#B82D25] hover:underline">Empezá por el catálogo →</Link></p>
-      ) : (
-        <div className="space-y-3">
-          {compras.map((c: any) => (
-            <div key={c.tipo + c.id} className="bg-white rounded-2xl border border-black/5 p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium text-[#2A201C] text-sm">{CANAL[c.canal] ?? "Compra"} · {fecha(c.fecha)}</p>
-                  <p className="text-xs text-[#9B9088] mt-0.5 line-clamp-1">{(c.items ?? []).map((i: any) => `${i.cantidad}× ${i.nombre}`).join(" · ")}</p>
+      {/* Historial */}
+      <div className="mt-12">
+        <p className="kicker text-dorado">Tu historial</p>
+        <h2 className="display text-2xl font-semibold text-ink mt-1.5 mb-5 tracking-tight">Tus compras</h2>
+
+        {(!compras || compras.length === 0) ? (
+          <div className="border border-linea rounded-xl p-12 text-center">
+            <p className="text-humo">Todavía no tenés compras.</p>
+            <Link href="/catalogo" className="inline-flex items-center gap-1.5 mt-3 text-sm font-semibold text-ink hover:text-rojo transition-colors">Empezá por el catálogo <IcoFlecha size={15} /></Link>
+          </div>
+        ) : (
+          <div className="divide-y divide-linea border-y border-linea">
+            {compras.map((c: any) => (
+              <div key={c.tipo + c.id} className="flex items-center gap-4 py-4">
+                <span className="text-dorado">{c.canal === "domicilio" ? <IcoMoto size={20} /> : <IcoLocal size={20} />}</span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-ink">{CANAL[c.canal] ?? "Compra"} · {fecha(c.fecha)}</p>
+                  <p className="text-xs text-humo mt-0.5 truncate">{(c.items ?? []).map((i: any) => `${i.cantidad}× ${i.nombre}`).join(" · ")}</p>
                 </div>
-                <p className="font-bold text-[#2A201C]">{pesos(c.total)}</p>
+                <p className="display text-lg font-semibold text-ink">{pesos(c.total)}</p>
               </div>
-            </div>
-          ))}
-        </div>
-      )}
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

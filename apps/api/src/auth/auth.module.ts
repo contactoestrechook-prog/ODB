@@ -11,10 +11,13 @@ import { supabaseProvider } from '../supabase.provider';
     JwtModule.registerAsync({
       global: true,
       // diferido: el .env ya está cargado cuando corre la factory
-      useFactory: () => ({
-        secret: process.env.JWT_SECRET,
-        signOptions: { expiresIn: '24h' },
-      }),
+      useFactory: () => {
+        const secret = process.env.JWT_SECRET;
+        if (!secret || secret.length < 16) {
+          throw new Error('JWT_SECRET ausente o demasiado corto (mínimo 16 caracteres): abortando arranque');
+        }
+        return { secret, signOptions: { expiresIn: '24h' } };
+      },
     }),
   ],
   controllers: [AuthController],

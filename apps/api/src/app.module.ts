@@ -23,6 +23,10 @@ import { PromosModule } from './promos/promos.module';
 import { DifusionesModule } from './difusiones/difusiones.module';
 import { EficienciaModule } from './eficiencia/eficiencia.module';
 import { BuscarModule } from './buscar/buscar.module';
+import { MensajesModule } from './mensajes/mensajes.module';
+import { EventosModule } from './eventos/eventos.module';
+import { FidelizacionModule } from './fidelizacion/fidelizacion.module';
+import { ConciliacionModule } from './conciliacion/conciliacion.module';
 import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
@@ -55,6 +59,10 @@ import { ScheduleModule } from '@nestjs/schedule';
     DifusionesModule,
     EficienciaModule,
     BuscarModule,
+    MensajesModule,
+    EventosModule,
+    FidelizacionModule,
+    ConciliacionModule,
   ],
 })
 export class AppModule {}

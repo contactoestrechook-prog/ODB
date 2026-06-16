@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { apiJson } from "../../lib/api";
 import { Producto } from "../ui/Producto";
+import { IcoBuscar } from "../ui/Iconos";
 import type { Producto as P } from "../../lib/tipos";
 
 export const dynamic = "force-dynamic";
@@ -18,7 +19,7 @@ export default async function Catalogo({ searchParams }: { searchParams: Promise
   if (q) qs.set("buscar", q);
   if (categoriaId) qs.set("categoriaId", categoriaId);
   if (filtro) qs.set("filtro", filtro);
-  qs.set("porPagina", "24");
+  qs.set("porPagina", "20");
   qs.set("pagina", String(pagina));
 
   const [filtros, data] = await Promise.all([
@@ -27,7 +28,6 @@ export default async function Catalogo({ searchParams }: { searchParams: Promise
   ]);
   const categorias = filtros.categorias ?? [];
 
-  // helper para armar links de chip preservando búsqueda/filtro
   const chipHref = (cat: string) => {
     const p = new URLSearchParams();
     if (q) p.set("q", q);
@@ -44,47 +44,48 @@ export default async function Catalogo({ searchParams }: { searchParams: Promise
     return `/catalogo?${p.toString()}`;
   };
 
-  const titulo = filtro === "promo" ? "Ofertas" : q ? `Resultados para “${q}”` : "Catálogo";
+  const kicker = filtro === "promo" ? "Por tiempo limitado" : "La tienda";
+  const titulo = filtro === "promo" ? "Ofertas" : q ? "Resultados" : "Catálogo";
 
   return (
-    <div className="max-w-6xl mx-auto px-4 py-6">
-      {/* buscador */}
-      <form action="/catalogo" className="mb-5">
+    <div className="max-w-7xl mx-auto px-5 lg:px-8 py-10">
+      <header className="text-center max-w-2xl mx-auto">
+        <p className="kicker text-dorado">{kicker}</p>
+        <h1 className="display text-4xl sm:text-5xl font-semibold text-ink mt-2 tracking-tight">{titulo}</h1>
+        {q && <p className="text-humo mt-2">Buscando “{q}”</p>}
+      </header>
+
+      <form action="/catalogo" className="mt-8 max-w-xl mx-auto">
         {filtro && <input type="hidden" name="filtro" value={filtro} />}
-        <div className="flex items-center gap-2 bg-white rounded-full px-4 py-3 border border-black/10 max-w-2xl">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-[#9B9088]"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4-4" /></svg>
-          <input name="q" defaultValue={q} placeholder="Buscar vinos, fiambres, almacén…" className="flex-1 text-sm outline-none bg-transparent text-[#2A201C]" />
-          <button className="bg-[#B82D25] text-white text-sm font-medium rounded-full px-4 py-1.5 hover:bg-[#932A1F]">Buscar</button>
+        <div className="flex items-center gap-3 border-b border-tinta/25 focus-within:border-dorado transition-colors pb-2.5">
+          <IcoBuscar size={19} className="text-humo" />
+          <input name="q" defaultValue={q} placeholder="Buscar vinos, fiambres, almacén…" className="flex-1 bg-transparent outline-none text-[15px] placeholder:text-humo/70" />
+          <button className="text-sm font-semibold text-ink hover:text-rojo transition-colors">Buscar</button>
         </div>
       </form>
 
-      {/* chips de categoría */}
-      <div className="flex gap-2 overflow-x-auto sin-scroll pb-3 mb-5">
-        <Link href={chipHref("")} className={`shrink-0 rounded-full px-4 py-2 text-sm font-medium border ${!categoriaId ? "bg-[#B82D25] text-white border-[#B82D25]" : "bg-white text-[#2A201C] border-black/10 hover:border-[#B82D25]"}`}>Todo</Link>
+      <div className="mt-8 flex gap-2 overflow-x-auto sin-scroll pb-1 justify-start sm:justify-center">
+        <Link href={chipHref("")} className={`shrink-0 rounded-full px-4 py-2 text-[13px] border transition-colors ${!categoriaId ? "bg-ink text-crema border-ink" : "border-linea text-tinta/80 hover:border-dorado"}`}>Todo</Link>
         {categorias.map((c: any) => (
-          <Link key={c.id} href={chipHref(c.id)} className={`shrink-0 rounded-full px-4 py-2 text-sm font-medium border ${categoriaId === c.id ? "bg-[#B82D25] text-white border-[#B82D25]" : "bg-white text-[#2A201C] border-black/10 hover:border-[#B82D25]"}`}>{c.nombre}</Link>
+          <Link key={c.id} href={chipHref(c.id)} className={`shrink-0 rounded-full px-4 py-2 text-[13px] border transition-colors ${categoriaId === c.id ? "bg-ink text-crema border-ink" : "border-linea text-tinta/80 hover:border-dorado"}`}>{c.nombre}</Link>
         ))}
       </div>
 
-      <div className="flex items-baseline justify-between mb-4">
-        <h1 className="text-xl font-bold text-[#2A201C]">{titulo}</h1>
-        <p className="text-sm text-[#9B9088]">{data.total} productos</p>
-      </div>
+      <p className="text-center text-xs text-humo mt-6">{data.total.toLocaleString("es-AR")} productos</p>
 
       {data.items.length === 0 ? (
-        <p className="bg-white rounded-2xl p-12 text-center text-[#9B9088]">No encontramos productos. Probá con otra búsqueda.</p>
+        <p className="text-center text-humo py-24">No encontramos productos. Probá con otra búsqueda.</p>
       ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
+        <div className="mt-6 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-x-4 gap-y-9">
           {data.items.map((p) => <Producto key={p.sku} p={p} />)}
         </div>
       )}
 
-      {/* paginado */}
       {data.paginas > 1 && (
-        <div className="flex justify-center items-center gap-3 mt-8">
-          {pagina > 1 && <Link href={pageHref(pagina - 1)} className="rounded-full bg-white border border-black/10 px-4 py-2 text-sm hover:border-[#B82D25]">← Anterior</Link>}
-          <span className="text-sm text-[#9B9088]">Página {pagina} de {data.paginas}</span>
-          {pagina < data.paginas && <Link href={pageHref(pagina + 1)} className="rounded-full bg-white border border-black/10 px-4 py-2 text-sm hover:border-[#B82D25]">Siguiente →</Link>}
+        <div className="flex justify-center items-center gap-5 mt-14">
+          {pagina > 1 ? <Link href={pageHref(pagina - 1)} className="text-sm font-medium text-tinta hover:text-rojo transition-colors">← Anterior</Link> : <span />}
+          <span className="text-xs text-humo tracking-wide">{pagina} / {data.paginas}</span>
+          {pagina < data.paginas ? <Link href={pageHref(pagina + 1)} className="text-sm font-medium text-tinta hover:text-rojo transition-colors">Siguiente →</Link> : <span />}
         </div>
       )}
     </div>

@@ -13,6 +13,7 @@ export class VentasController {
     return this.ventas.registrar(dto);
   }
 
+  @Roles('cajero', 'gerente', 'dueno')
   @Get()
   listar(
     @Query('limite') limite?: string,
@@ -32,11 +33,13 @@ export class VentasController {
     });
   }
 
+  @Roles('cajero', 'gerente', 'dueno')
   @Get('resumen')
   resumen() {
     return this.ventas.resumenHoy();
   }
 
+  @Roles('cajero', 'gerente', 'dueno')
   @Get('cliente/:dni')
   cliente(@Param('dni') dni: string) {
     return this.ventas.clientePorDni(dni);

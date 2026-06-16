@@ -2,12 +2,12 @@ import { Controller, Get, Headers, Param, Query } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { CatalogoService } from './catalogo.service';
 import type { FiltrosCatalogo } from './catalogo.service';
-import { Publico } from '../auth/decorators';
+import { Publico, Roles } from '../auth/decorators';
 
 // El catálogo es público: es lo que muestra la tienda.
 // Si llega un token de cliente verificado, se aplican además
 // las promociones exclusivas de la Comunidad ODB.
-@Publico()
+// OJO: 'detalle' NO es público (expone costos, márgenes y proveedores).
 @Controller()
 export class CatalogoController {
   constructor(
@@ -41,11 +41,13 @@ export class CatalogoController {
     }
   }
 
+  @Publico()
   @Get('catalogo/filtros')
   filtros() {
     return this.catalogo.filtros();
   }
 
+  @Publico()
   @Get('productos')
   async buscar(
     @Query() q: FiltrosCatalogo & { limite?: string },
@@ -59,16 +61,27 @@ export class CatalogoController {
     return this.catalogo.buscarProductos(q, comunidad, segmento);
   }
 
+  @Publico()
   @Get('productos/:sku')
   porSku(@Param('sku') sku: string) {
     return this.catalogo.obtenerPorSku(sku);
   }
 
+  // Solo staff: trae costos, márgenes, proveedores e historial.
+  @Roles('cajero', 'gerente', 'dueno', 'comprador')
   @Get('productos/:sku/detalle')
   detalle(@Param('sku') sku: string) {
     return this.catalogo.detalle(sku);
   }
 
+  // Nota de cata del Somelier ODB (pública; se genera con IA y se cachea)
+  @Publico()
+  @Get('productos/:sku/nota')
+  nota(@Param('sku') sku: string) {
+    return this.catalogo.notaCata(sku);
+  }
+
+  @Publico()
   @Get('sucursales')
   sucursales() {
     return this.catalogo.sucursales();

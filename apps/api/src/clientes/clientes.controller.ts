@@ -65,6 +65,7 @@ export class ClientesController {
     return { ok: true };
   }
 
+  @Roles('gerente', 'dueno')
   @Get('resumen')
   async resumen() {
     const { data, error } = await this.db
@@ -86,6 +87,7 @@ export class ClientesController {
   }
 
   // Clientes a reactivar (sin compra hace >N días) y cumpleaños del mes
+  @Roles('gerente', 'dueno')
   @Get('reactivacion')
   async reactivacion(@Query('dias') diasParam?: string) {
     const dias = Number(diasParam ?? 60);
@@ -118,6 +120,7 @@ export class ClientesController {
     return { dias, reactivar, cumple };
   }
 
+  @Roles('cajero', 'gerente', 'dueno')
   @Get()
   async listar(
     @Query('tipo') tipo?: string,
@@ -137,7 +140,7 @@ export class ClientesController {
     if (filtro === 'comunidad') query = query.eq('verificado', true);
     if (filtro === 'marketing') query = query.eq('acepta_marketing', true);
     if (buscar?.trim()) {
-      const t = buscar.trim();
+      const t = buscar.trim().replace(/[,()*:\\]/g, ''); // anti-inyección PostgREST
       query = query.or(`dni.ilike.%${t}%,nombre.ilike.%${t}%`);
     }
     query = query

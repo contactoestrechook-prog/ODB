@@ -11,18 +11,21 @@ Reglas estrictas:
 - Solo recomendás vinos y espumantes de la cava de ODB que figura abajo, con stock disponible. Jamás inventes etiquetas ni menciones vinos que no estén en la lista.
 - Siempre mencioná el precio (y si tiene promo, destacala).
 - Recomendá de a 2 o 3 opciones máximo, con una línea de por qué cada una (maridaje, ocasión, estilo).
-- Si no conocés la ocasión, el gusto o el presupuesto del cliente, preguntá primero (una sola pregunta corta).
+- Para decidir si preguntar el presupuesto o recomendar directo, seguí la INSTRUCCIÓN PERSONALIZADA que aparece al final del sistema.
 - Si piden algo que no hay en la cava, decilo con honestidad y ofrecé la alternativa más parecida.
 - Si el presupuesto es ajustado, nunca hagas sentir mal al cliente: el mejor vino es el que se disfruta.
 - Respuestas cortas: máximo 120 palabras. Sin listas largas ni vocabulario rebuscado.
 - Texto plano: nada de markdown, asteriscos ni negritas. Un emoji de copa por vino está bien.
 - Venta de alcohol solo a mayores de 18. Si hay señales de minoría de edad, no recomiendes y sugerí opciones sin alcohol.`;
 
+const GUIA_SIN_HISTORIAL = `CLIENTE SIN HISTORIAL: todavía no sabés cuánto gasta.
+Si en la charla aún no te dijo su presupuesto aproximado por botella, preguntáselo en UNA sola línea (y la ocasión, si no la mencionó) ANTES de recomendar. Recién cuando tengas el presupuesto, sugerí 2-3 vinos dentro de ese rango.`;
+
 @Injectable()
 export class SommelierService {
   constructor(@Inject(SUPABASE) private readonly db: SupabaseClient) {}
 
-  async charlar(mensajes: MensajeChat[]) {
+  async charlar(mensajes: MensajeChat[], clienteId?: string) {
     if (!process.env.ANTHROPIC_API_KEY) {
       throw new BadRequestException(
         'El Somelier ODB necesita la ANTHROPIC_API_KEY en apps/api/.env para funcionar',
@@ -32,7 +35,7 @@ export class SommelierService {
       throw new BadRequestException('El último mensaje debe ser del usuario');
     }
 
-    const cava = await this.cava();
+    const [cava, guiaPerfil] = await Promise.all([this.cava(), this.perfilCliente(clienteId)]);
     const claude = new Anthropic();
 
     const respuesta = await claude.messages.create({
@@ -45,6 +48,10 @@ export class SommelierService {
           // la cava cambia poco entre mensajes de una charla: cacheable
           cache_control: { type: 'ephemeral' },
         },
+        {
+          type: 'text',
+          text: `INSTRUCCIÓN PERSONALIZADA PARA ESTA CHARLA:\n${guiaPerfil}`,
+        },
       ],
       messages: mensajes.slice(-12).map((m) => ({
         role: m.rol === 'usuario' ? ('user' as const) : ('assistant' as const),
@@ -54,6 +61,47 @@ export class SommelierService {
 
     const texto = respuesta.content.find((b) => b.type === 'text');
     return { respuesta: texto && 'text' in texto ? texto.text : '' };
+  }
+
+  // Decide la estrategia del somelier: si el cliente tiene historial, recomienda
+  // según lo que gasta; si no, instruye a preguntar el presupuesto primero.
+  private async perfilCliente(clienteId?: string): Promise<string> {
+    if (!clienteId) return GUIA_SIN_HISTORIAL;
+    try {
+      const [{ data: cli }, { data: perfil }] = await Promise.all([
+        this.db.from('clientes').select('tipo').eq('id', clienteId).maybeSingle(),
+        this.db.rpc('perfil_somelier', { p_cliente: clienteId }),
+      ]);
+      const p: any = Array.isArray(perfil) ? perfil[0] : perfil;
+      const compras = Number(p?.compras ?? 0);
+      if (compras < 1) return GUIA_SIN_HISTORIAL;
+
+      const ticket = Math.round(Number(p?.ticket_promedio ?? 0));
+      const vinoItems = Number(p?.vino_items ?? 0);
+      const vinoPrecio = Math.round(Number(p?.vino_precio_prom ?? 0));
+      const tipo = cli?.tipo ? String(cli.tipo) : null;
+
+      const lineas = [
+        'PERFIL DE ESTE CLIENTE (ya lo conocés — NO le preguntes el presupuesto):',
+        `- Hizo ${compras} compra${compras === 1 ? '' : 's'}; ticket promedio $${ticket}.`,
+      ];
+      if (tipo) lineas.push(`- Segmento: ${tipo}.`);
+      if (vinoItems > 0 && vinoPrecio >= 1000) {
+        lineas.push(`- En vinos suele pagar alrededor de $${vinoPrecio} por botella.`);
+        lineas.push(
+          'Arrancá directo con 2-3 vinos en esa franja de precio (podés sumar UNA opción algo superior "para una ocasión especial"). No le preguntes el presupuesto.',
+        );
+      } else {
+        lineas.push('- Todavía no compró vinos; usá su nivel de gasto general como referencia.');
+        lineas.push(
+          'Recomendá 2-3 vinos acordes a ese nivel de gasto. Podés preguntar la ocasión si hace falta, pero no el presupuesto.',
+        );
+      }
+      return lineas.join('\n');
+    } catch {
+      // ante cualquier problema, no bloqueamos la charla
+      return GUIA_SIN_HISTORIAL;
+    }
   }
 
   private async cava(): Promise<string> {

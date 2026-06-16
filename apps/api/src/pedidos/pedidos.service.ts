@@ -1,6 +1,19 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
+import { NotificarService } from '../mensajes/notificar.service';
+
+// Radio (m) para considerar que el cliente "está llegando" y asignarle estacionamiento.
+const GEOFENCE_M = 400;
+
+// Distancia entre dos coordenadas en metros (haversine).
+function distanciaM(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371000;
+  const t = (g: number) => (g * Math.PI) / 180;
+  const dLat = t(lat2 - lat1), dLng = t(lng2 - lng1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(t(lat1)) * Math.cos(t(lat2)) * Math.sin(dLng / 2) ** 2;
+  return Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+}
 
 // Pipeline de pedidos externos (PedidosYa, web, pick-up).
 // El canal real se codifica en el prefijo de la referencia (PY- / WEB- / PICKUP-)
@@ -23,12 +36,118 @@ const TRANSICIONES: Record<string, string[]> = {
   recibido: ['en_preparacion', 'cancelado'],
   pagado: ['en_preparacion', 'cancelado'],
   en_preparacion: ['listo', 'cancelado'],
-  listo: ['entregado', 'cancelado'],
+  listo: ['en_camino', 'entregado', 'cancelado'], // en_camino = delivery a domicilio
+  en_camino: ['entregado', 'cancelado'],
 };
+
+// Velocidad urbana promedio para estimar el ETA del repartidor (~22 km/h)
+const METROS_POR_MIN = 360;
 
 @Injectable()
 export class PedidosService {
-  constructor(@Inject(SUPABASE) private readonly db: SupabaseClient) {}
+  constructor(
+    @Inject(SUPABASE) private readonly db: SupabaseClient,
+    private readonly notificar: NotificarService,
+  ) {}
+
+  // --- Geolocalización pick-up: el cliente reporta su posición; si está cerca,
+  //     se le asigna un estacionamiento libre y se le avisa. ---
+  async reportarUbicacion(pedidoId: string, lat: number, lng: number) {
+    const la = Number(lat);
+    const ln = Number(lng);
+    if (!Number.isFinite(la) || !Number.isFinite(ln) || Math.abs(la) > 90 || Math.abs(ln) > 180) {
+      throw new BadRequestException('Ubicación inválida');
+    }
+    const { data: p } = await this.db
+      .from('pedidos')
+      .select('id, estado, canal, cliente_id, estacionamiento, sucursal:sucursales(nombre, lat, lng, direccion)')
+      .eq('id', pedidoId)
+      .single();
+    if (!p) throw new BadRequestException('No existe el pedido');
+    const suc: any = p.sucursal;
+    if (!suc?.lat || !suc?.lng) return this.estadoSeguimiento(p, null);
+
+    const dist = distanciaM(Number(lat), Number(lng), Number(suc.lat), Number(suc.lng));
+    await this.db.from('pedidos').update({ cliente_lat: lat, cliente_lng: lng, distancia_m: dist }).eq('id', pedidoId);
+
+    const activo = !['entregado', 'cancelado'].includes(p.estado);
+    let estac: number | null = p.estacionamiento ?? null;
+    // El estacionamiento es solo para pick-up (no para domicilio).
+    if (p.canal === 'pickup' && activo && estac == null && dist <= GEOFENCE_M) {
+      const { data: num } = await this.db.rpc('asignar_estacionamiento', { p_pedido: pedidoId });
+      estac = (num as number) ?? null;
+      if (estac != null && p.cliente_id) {
+        await this.notificar.aCliente(
+          p.cliente_id,
+          `Llegaste 🚗 Estacioná en el N° ${estac}`,
+          `Dejá el auto en el estacionamiento ${estac} de ${suc.nombre} y te llevamos tu pedido.`,
+          'pickup',
+        );
+      }
+    }
+    return this.estadoSeguimiento({ ...p, estacionamiento: estac }, dist);
+  }
+
+  async seguimiento(pedidoId: string) {
+    const { data: p } = await this.db
+      .from('pedidos')
+      .select(`id, estado, canal, estacionamiento, distancia_m,
+               destino_direccion, destino_lat, destino_lng,
+               repartidor_id, repartidor_lat, repartidor_lng, repartidor_en,
+               sucursal:sucursales(nombre, lat, lng, direccion)`)
+      .eq('id', pedidoId)
+      .single();
+    if (!p) throw new BadRequestException('No existe el pedido');
+    if (p.canal === 'domicilio') return this.seguimientoDomicilio(p);
+    return this.estadoSeguimiento(p, p.distancia_m ?? null);
+  }
+
+  private estadoSeguimiento(p: any, dist: number | null) {
+    const suc: any = p.sucursal;
+    return {
+      tipo: 'pickup',
+      estado: p.estado,
+      distancia_m: dist,
+      llegando: dist != null && dist <= GEOFENCE_M,
+      estacionamiento: p.estacionamiento ?? null,
+      sucursal: suc ? { nombre: suc.nombre, direccion: suc.direccion, lat: suc.lat, lng: suc.lng } : null,
+    };
+  }
+
+  private async seguimientoDomicilio(p: any) {
+    let repartidor: any = null;
+    if (p.repartidor_id) {
+      const { data: u } = await this.db.from('usuarios').select('nombre').eq('id', p.repartidor_id).maybeSingle();
+      repartidor = { nombre: u?.nombre ?? 'Repartidor', lat: p.repartidor_lat, lng: p.repartidor_lng, en: p.repartidor_en };
+    }
+    let distancia: number | null = null;
+    let etaMin: number | null = null;
+    if (p.repartidor_lat != null && p.destino_lat != null) {
+      distancia = distanciaM(Number(p.repartidor_lat), Number(p.repartidor_lng), Number(p.destino_lat), Number(p.destino_lng));
+      etaMin = Math.max(1, Math.round(distancia / METROS_POR_MIN));
+    }
+    const suc: any = p.sucursal;
+    return {
+      tipo: 'domicilio',
+      estado: p.estado,
+      destino: { direccion: p.destino_direccion, lat: p.destino_lat, lng: p.destino_lng },
+      repartidor,
+      distancia_m: distancia,
+      etaMin,
+      sucursal: suc ? { nombre: suc.nombre, lat: suc.lat, lng: suc.lng } : null,
+    };
+  }
+
+  async estacionamientos(sucursalId?: string) {
+    let q = this.db
+      .from('estacionamientos')
+      .select('numero, ocupado, asignado_en, sucursal:sucursales(nombre), pedido:pedidos(id, qr_retiro, cliente:clientes(nombre, dni))')
+      .order('numero');
+    if (sucursalId) q = q.eq('sucursal_id', sucursalId);
+    const { data, error } = await q;
+    if (error) throw new BadRequestException(error.message);
+    return data ?? [];
+  }
 
   // --- Recepción desde PedidosYa (webhook o simulador) ---
   async recibirDePedidosYa(payload: PedidoYaPayload) {
@@ -101,11 +220,12 @@ export class PedidosService {
     sucursalId: string;
     items: { producto_id: string; cantidad: number }[];
     clienteDni?: string;
+    clienteId?: string;
     referencia?: string;
     notas?: string;
   }) {
-    let clienteId: string | null = null;
-    if (p.clienteDni?.trim()) {
+    let clienteId: string | null = p.clienteId ?? null;
+    if (!clienteId && p.clienteDni?.trim()) {
       const dni = p.clienteDni.trim();
       const { data } = await this.db.from('clientes').select('id').eq('dni', dni).maybeSingle();
       clienteId =
@@ -134,6 +254,7 @@ export class PedidosService {
     if (error) throw new BadRequestException(error.message);
 
     let total = 0;
+    const reservados: { producto_id: string; cantidad: number }[] = [];
     for (const item of p.items) {
       const precio = precioPor.get(item.producto_id) ?? 0;
       await this.db.from('pedidos_items').insert({
@@ -152,32 +273,205 @@ export class PedidosService {
         p_referencia_id: pedido.id,
       });
       if (errMov) {
-        await this.db.from('pedidos').update({ estado: 'cancelado' }).eq('id', pedido.id);
+        // rollback manual (no hay transacción): libera las reservas ya hechas y
+        // borra el pedido para no dejar huérfanos ni stock fantasma.
+        for (const r of reservados) {
+          await this.db.rpc('registrar_movimiento', {
+            p_producto_id: r.producto_id,
+            p_sucursal_id: p.sucursalId,
+            p_tipo: 'liberacion_reserva',
+            p_cantidad: r.cantidad,
+            p_referencia_tipo: 'pedido',
+            p_referencia_id: pedido.id,
+          });
+        }
+        await this.db.from('pedidos_items').delete().eq('pedido_id', pedido.id);
+        await this.db.from('pedidos').delete().eq('id', pedido.id);
         throw new BadRequestException(`Sin stock disponible: ${errMov.message}`);
       }
+      reservados.push({ producto_id: item.producto_id, cantidad: item.cantidad });
     }
     await this.db.from('pedidos').update({ total }).eq('id', pedido.id);
     return pedido.id;
   }
 
   // --- Pedidos desde la app del cliente (pick-up) ---
-  async crearDesdeApp(p: { sucursalId: string; items: { sku: string; cantidad: number }[]; dni?: string }) {
+  async crearDesdeApp(p: {
+    tipo?: 'pickup' | 'domicilio';
+    items: { sku: string; cantidad: number }[];
+    dni?: string;
+    clienteId?: string;
+    destino?: { direccion?: string; lat?: number; lng?: number };
+  }) {
     if (!p.items?.length) throw new BadRequestException('El pedido está vacío');
+    const domicilio = p.tipo === 'domicilio';
+    if (domicilio && !p.destino?.direccion?.trim()) {
+      throw new BadRequestException('Falta la dirección de entrega');
+    }
     const items: { producto_id: string; cantidad: number }[] = [];
     for (const i of p.items) {
+      const cant = Number(i.cantidad);
+      if (!Number.isFinite(cant) || cant <= 0 || cant > 1000) {
+        throw new BadRequestException(`Cantidad inválida para ${i.sku}`);
+      }
       const { data } = await this.db.from('productos').select('id').eq('sku', i.sku).maybeSingle();
       if (!data) throw new BadRequestException(`No existe el producto ${i.sku}`);
-      items.push({ producto_id: data.id, cantidad: Number(i.cantidad) });
+      items.push({ producto_id: data.id, cantidad: Math.floor(cant) });
     }
-    const referencia = `PICKUP-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+    // Todos los pedidos de la app (pick-up y domicilio) salen de O.D.B Central.
+    const sucursalId = await this.sucursalPickupId();
+    const referencia = `${domicilio ? 'DOM' : 'PICKUP'}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
     const pedidoId = await this.crear({
-      canal: 'pickup',
-      sucursalId: p.sucursalId,
+      canal: domicilio ? 'domicilio' : 'pickup',
+      sucursalId,
       items,
       clienteDni: p.dni,
+      clienteId: p.clienteId,
       referencia,
     });
+    if (domicilio) {
+      await this.db.from('pedidos').update({
+        destino_direccion: p.destino!.direccion!.trim(),
+        destino_lat: p.destino?.lat ?? null,
+        destino_lng: p.destino?.lng ?? null,
+      }).eq('id', pedidoId);
+    }
     return this.obtener(pedidoId);
+  }
+
+  // --- Delivery a domicilio ---
+  async asignarRepartidor(pedidoId: string, repartidorId: string) {
+    const { error } = await this.db.from('pedidos').update({ repartidor_id: repartidorId }).eq('id', pedidoId);
+    if (error) throw new BadRequestException(error.message);
+    return { ok: true };
+  }
+
+  // El repartidor comparte su ubicación; el cliente la ve en el seguimiento.
+  async repartidorUbicacion(pedidoId: string, lat: number, lng: number) {
+    const { error } = await this.db
+      .from('pedidos')
+      .update({ repartidor_lat: lat, repartidor_lng: lng, repartidor_en: new Date().toISOString() })
+      .eq('id', pedidoId);
+    if (error) throw new BadRequestException(error.message);
+    return { ok: true };
+  }
+
+  async misEntregas(repartidorId: string) {
+    const { data } = await this.db
+      .from('pedidos')
+      .select('id, estado, total, destino_direccion, destino_lat, destino_lng, qr_retiro, creado_en, cliente:clientes(nombre, dni)')
+      .eq('canal', 'domicilio')
+      .eq('repartidor_id', repartidorId)
+      .in('estado', ['listo', 'en_camino'])
+      .order('creado_en');
+    return data ?? [];
+  }
+
+  // Despacho (panel): todos los envíos a domicilio activos + ETA si hay repartidor en ruta.
+  async enviosDomicilio() {
+    const { data } = await this.db
+      .from('pedidos')
+      .select('id, estado, total, destino_direccion, destino_lat, destino_lng, repartidor_id, repartidor_lat, repartidor_lng, repartidor_en, qr_retiro, creado_en, cliente:clientes(nombre, dni)')
+      .eq('canal', 'domicilio')
+      .in('estado', ['recibido', 'pagado', 'en_preparacion', 'listo', 'en_camino'])
+      .order('creado_en');
+    const filas = (data ?? []) as any[];
+    const ids = [...new Set(filas.filter((f) => f.repartidor_id).map((f) => f.repartidor_id))];
+    const nombres = new Map<string, string>();
+    if (ids.length) {
+      const { data: us } = await this.db.from('usuarios').select('id, nombre').in('id', ids);
+      (us ?? []).forEach((u: any) => nombres.set(u.id, u.nombre));
+    }
+    return filas.map((f) => {
+      let distancia: number | null = null;
+      let etaMin: number | null = null;
+      if (f.repartidor_lat != null && f.destino_lat != null) {
+        distancia = distanciaM(Number(f.repartidor_lat), Number(f.repartidor_lng), Number(f.destino_lat), Number(f.destino_lng));
+        etaMin = Math.max(1, Math.round(distancia / METROS_POR_MIN));
+      }
+      return { ...f, repartidor_nombre: f.repartidor_id ? nombres.get(f.repartidor_id) ?? 'Repartidor' : null, distancia_m: distancia, etaMin };
+    });
+  }
+
+  async repartidores() {
+    const { data } = await this.db.from('usuarios').select('id, nombre, email').eq('rol', 'repartidor').order('nombre');
+    return data ?? [];
+  }
+
+  // --- Mercado Pago: checkout del pedido ---
+  async crearPreferenciaMP(pedidoId: string) {
+    const token = process.env.MERCADOPAGO_ACCESS_TOKEN;
+    if (!token) {
+      throw new BadRequestException(
+        'Mercado Pago sin configurar: poné MERCADOPAGO_ACCESS_TOKEN (Access Token de tu cuenta MP) en apps/api/.env',
+      );
+    }
+    const ped: any = await this.obtener(pedidoId);
+    const items = (ped.items ?? [])
+      .map((i: any) => ({
+        title: i.producto?.nombre ?? 'Producto O.D.B',
+        quantity: Math.round(Number(i.cantidad)) || 1,
+        unit_price: Math.round(Number(i.precio_unitario)),
+        currency_id: 'ARS',
+      }))
+      .filter((i: any) => i.unit_price > 0);
+    if (!items.length) {
+      throw new BadRequestException('El pedido no tiene importes válidos para cobrar (revisá los precios).');
+    }
+    const base = process.env.API_PUBLIC_URL ?? 'https://odb-api-production.up.railway.app';
+    const res = await fetch('https://api.mercadopago.com/checkout/preferences', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        items,
+        external_reference: pedidoId,
+        back_urls: { success: `${base}/pago/ok`, pending: `${base}/pago/ok`, failure: `${base}/pago/ok` },
+        auto_return: 'approved',
+        notification_url: `${base}/mercadopago/webhook`,
+        statement_descriptor: 'O.D.B',
+      }),
+    });
+    const d: any = await res.json();
+    if (!res.ok) throw new BadRequestException(d?.message ?? 'No se pudo crear el pago en Mercado Pago');
+    return { url: d.init_point ?? d.sandbox_init_point, preferenciaId: d.id };
+  }
+
+  async webhookMP(body: any, query: any) {
+    const token = process.env.MERCADOPAGO_ACCESS_TOKEN;
+    if (!token) return { ok: true };
+    const tipo = body?.type ?? query?.type ?? query?.topic;
+    const pagoId = body?.data?.id ?? query?.['data.id'] ?? query?.id;
+    if (tipo !== 'payment' || !pagoId) return { ok: true };
+    try {
+      const r = await fetch(`https://api.mercadopago.com/v1/payments/${pagoId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const pay: any = await r.json();
+      if (pay?.status === 'approved' && pay?.external_reference) {
+        await this.db.from('pedidos').update({ estado: 'pagado' }).eq('id', pay.external_reference).eq('estado', 'recibido');
+      }
+    } catch {
+      // si MP falla, no rompemos el webhook (MP reintenta)
+    }
+    return { ok: true };
+  }
+
+  // La sucursal central (única con pick-up); de acá salen los pedidos de la app.
+  async sucursalPickup() {
+    const { data } = await this.db
+      .from('sucursales')
+      .select('id, nombre, direccion, lat, lng')
+      .eq('pickup', true)
+      .order('nombre')
+      .limit(1)
+      .maybeSingle();
+    return data;
+  }
+
+  private async sucursalPickupId(): Promise<string> {
+    const s = await this.sucursalPickup();
+    if (!s?.id) throw new BadRequestException('No hay una sucursal con pick-up configurada');
+    return s.id;
   }
 
   // Perfil mínimo para personalizar la home de la app (solo el segmento)
@@ -254,6 +548,8 @@ export class PedidosService {
         });
         if (errMov) throw new BadRequestException(errMov.message);
       }
+      // libera el estacionamiento que tuviera reservado
+      await this.db.rpc('liberar_estacionamiento', { p_pedido: pedidoId });
     }
 
     let venta: any = null;
@@ -302,6 +598,7 @@ export class PedidosService {
         preparacion_en: estado === 'en_preparacion' ? ahora : pedido.preparacion_en,
         preparado_por: estado === 'en_preparacion' ? (usuarioId ?? pedido.preparado_por) : pedido.preparado_por,
         listo_en: estado === 'listo' ? ahora : pedido.listo_en,
+        en_camino_en: estado === 'en_camino' ? ahora : pedido.en_camino_en,
         entregado_en: estado === 'entregado' ? ahora : pedido.entregado_en,
         entregado_por: estado === 'entregado' ? (usuarioId ?? null) : pedido.entregado_por,
       })

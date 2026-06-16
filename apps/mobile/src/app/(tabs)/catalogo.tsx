@@ -1,94 +1,82 @@
 import { useEffect, useState } from 'react';
-import { FlatList, Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { API, COLORES, pesos, useEstado, type Producto } from '../../lib/estado';
+import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { API, useEstado, type Producto } from '../../lib/estado';
+import { C, TarjetaProducto, Ionicons, sombra } from '../../lib/ui';
+
+type Cat = { id: string; nombre: string };
 
 export default function Catalogo() {
-  const { agregar } = useEstado();
+  const { cliente } = useEstado();
   const [buscar, setBuscar] = useState('');
   const [productos, setProductos] = useState<Producto[]>([]);
-
-  const { cliente } = useEstado();
+  const [cats, setCats] = useState<Cat[]>([]);
+  const [catSel, setCatSel] = useState<string>('');
+  const [cargando, setCargando] = useState(false);
 
   useEffect(() => {
+    fetch(`${API}/catalogo/filtros`).then((r) => r.json()).then((d) => setCats(d.categorias ?? [])).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    setCargando(true);
     const timer = setTimeout(async () => {
-      const res = await fetch(
-        `${API}/productos?buscar=${encodeURIComponent(buscar)}&porPagina=30`,
-        { headers: cliente?.token ? { Authorization: `Bearer ${cliente.token}` } : {} },
-      );
+      const qs = `buscar=${encodeURIComponent(buscar)}${catSel ? `&categoriaId=${catSel}` : ''}&porPagina=40`;
+      const res = await fetch(`${API}/productos?${qs}`, { headers: cliente?.token ? { Authorization: `Bearer ${cliente.token}` } : {} });
       if (res.ok) setProductos((await res.json()).items);
+      setCargando(false);
     }, 250);
     return () => clearTimeout(timer);
-  }, [buscar, cliente?.token]);
+  }, [buscar, catSel, cliente?.token]);
 
   return (
     <View style={est.pantalla}>
-      <TextInput
-        value={buscar}
-        onChangeText={setBuscar}
-        placeholder="Buscar entre 13.000 bebidas y fiambres…"
-        placeholderTextColor="#999"
-        style={est.buscador}
-      />
-      <FlatList
-        data={productos}
-        keyExtractor={(p) => p.sku}
-        contentContainerStyle={{ padding: 12 }}
-        renderItem={({ item: p }) => (
-          <View style={est.fila}>
-            {p.imagenUrl ? (
-              <Image source={{ uri: p.imagenUrl }} style={est.miniatura} />
-            ) : (
-              <View style={[est.miniatura, est.miniaturaVacia]}>
-                <Text style={est.miniaturaInicial}>{p.nombre[0]}</Text>
-              </View>
-            )}
-            <View style={{ flex: 1 }}>
-              <Text style={est.nombre}>
-                {p.nombre} {p.esAlcohol ? <Text style={est.mas18}> +18</Text> : null}
-              </Text>
-              {p.descuento ? (
-                <Text style={est.promo}>
-                  {p.descuentoComunidad ? '🔒 ' : ''}{p.descuento}
-                </Text>
-              ) : (
-                <Text style={est.categoria}>{p.categoria}</Text>
-              )}
-            </View>
-            <View style={{ alignItems: 'flex-end' }}>
-              {p.descuento && <Text style={est.tachado}>{pesos(p.precioLista)}</Text>}
-              <Text style={[est.precio, p.descuento ? { color: COLORES.rojo } : null]}>
-                {pesos(p.precio)}
-              </Text>
-              <Pressable onPress={() => agregar(p)} style={est.boton}>
-                <Text style={est.botonTexto}>+ Agregar</Text>
+      {/* buscador */}
+      <View style={est.barra}>
+        <View style={[est.buscador, sombra(0)]}>
+          <Ionicons name="search" size={18} color={C.humo} />
+          <TextInput value={buscar} onChangeText={setBuscar} placeholder="Buscar bebidas, fiambres, almacén…" placeholderTextColor={C.humo} style={est.input} />
+          {buscar.length > 0 && (
+            <Pressable onPress={() => setBuscar('')}><Ionicons name="close-circle" size={18} color={C.humo} /></Pressable>
+          )}
+        </View>
+      </View>
+
+      {/* filtros por categoría */}
+      <View style={{ height: 46 }}>
+        <FlatList
+          horizontal showsHorizontalScrollIndicator={false}
+          data={[{ id: '', nombre: 'Todo' }, ...cats]} keyExtractor={(c) => c.id || 'all'}
+          contentContainerStyle={{ paddingHorizontal: 16, gap: 8, alignItems: 'center' }}
+          renderItem={({ item }) => {
+            const activo = catSel === item.id;
+            return (
+              <Pressable onPress={() => setCatSel(item.id)} style={[est.pill, activo && est.pillActiva]}>
+                <Text style={[est.pillTxt, activo && { color: '#fff' }]}>{item.nombre}</Text>
               </Pressable>
-            </View>
-          </View>
-        )}
+            );
+          }}
+        />
+      </View>
+
+      {/* grilla */}
+      <FlatList
+        data={productos} key="grid-2" numColumns={2} keyExtractor={(p) => p.sku}
+        columnWrapperStyle={{ gap: 12, paddingHorizontal: 16 }}
+        contentContainerStyle={{ paddingBottom: 24, paddingTop: 6, gap: 12 }}
+        renderItem={({ item }) => <TarjetaProducto p={item} grid />}
+        ListEmptyComponent={<Text style={est.vacio}>{cargando ? 'Buscando…' : 'Sin resultados.'}</Text>}
       />
     </View>
   );
 }
 
 const est = StyleSheet.create({
-  pantalla: { flex: 1, backgroundColor: COLORES.crema },
-  buscador: {
-    margin: 12, backgroundColor: COLORES.blanco, borderRadius: 24, paddingHorizontal: 18,
-    paddingVertical: 12, fontSize: 14, borderWidth: 1.5, borderColor: COLORES.rojo, color: COLORES.negro,
-  },
-  fila: {
-    flexDirection: 'row', backgroundColor: COLORES.blanco, borderRadius: 14,
-    padding: 12, marginBottom: 8, gap: 10,
-  },
-  miniatura: { width: 52, height: 52, borderRadius: 10 },
-  miniaturaVacia: { backgroundColor: COLORES.crema, alignItems: 'center', justifyContent: 'center' },
-  miniaturaInicial: { fontSize: 20, fontWeight: '700', color: '#bbb' },
-  nombre: { fontSize: 14, color: COLORES.negro, fontWeight: '500' },
-  mas18: { fontSize: 10, color: COLORES.blanco, backgroundColor: COLORES.negro },
-  categoria: { fontSize: 12, color: '#888', marginTop: 2 },
-  promo: { fontSize: 12, color: COLORES.rojo, marginTop: 2, fontWeight: '600' },
-  tachado: { fontSize: 11, color: '#999', textDecorationLine: 'line-through' },
-  precio: { fontSize: 16, fontWeight: '700', color: COLORES.negro },
-  boton: { backgroundColor: COLORES.negro, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 5, marginTop: 6 },
-  botonTexto: { color: COLORES.blanco, fontSize: 12, fontWeight: '600' },
+  pantalla: { flex: 1, backgroundColor: C.crema },
+  barra: { paddingHorizontal: 16, paddingTop: 14, paddingBottom: 8, backgroundColor: C.crema },
+  buscador: { flexDirection: 'row', alignItems: 'center', gap: 9, backgroundColor: '#fff', borderRadius: 16, paddingHorizontal: 14, paddingVertical: 4 },
+  input: { flex: 1, paddingVertical: 11, fontSize: 14.5, color: C.tinta },
+  pill: { backgroundColor: '#fff', borderRadius: 20, paddingHorizontal: 14, paddingVertical: 8, ...sombra(0) },
+  pillActiva: { backgroundColor: C.rojo },
+  pillTxt: { fontSize: 13, fontWeight: '600', color: C.tinta },
+  vacio: { textAlign: 'center', color: C.humo, marginTop: 40, fontSize: 14 },
 });

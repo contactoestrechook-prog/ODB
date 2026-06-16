@@ -3,6 +3,15 @@
 import Link from "next/link";
 import { useCarrito } from "../../lib/carrito";
 import { pesos, descuentoPct, type Producto as P } from "../../lib/tipos";
+import { IcoMas } from "./Iconos";
+
+function Tag({ children, tono }: { children: React.ReactNode; tono: "ink" | "rojo" | "oro" }) {
+  const c =
+    tono === "rojo" ? "bg-rojo text-crema"
+    : tono === "oro" ? "bg-ink/85 text-dorado-claro border border-dorado/40"
+    : "bg-ink/85 text-crema";
+  return <span className={`text-[10px] tracking-[0.12em] uppercase font-semibold rounded px-2 py-1 ${c}`}>{children}</span>;
+}
 
 export function Producto({ p }: { p: P }) {
   const { agregar } = useCarrito();
@@ -10,44 +19,38 @@ export function Producto({ p }: { p: P }) {
   const sinStock = p.stockTotal != null && p.stockTotal <= 0;
 
   return (
-    <div className="group bg-white rounded-2xl overflow-hidden border border-black/5 hover:shadow-lg transition-shadow flex flex-col">
-      <Link href={`/producto/${p.sku}`} className="block relative aspect-square bg-[#ebe3d6]">
+    <div className="group">
+      <Link href={`/producto/${p.sku}`} className="block relative overflow-hidden rounded-[10px] bg-crema aspect-[4/5]">
         {p.imagenUrl ? (
-          <img src={p.imagenUrl} alt={p.nombre} className="w-full h-full object-cover" />
+          <img src={p.imagenUrl} alt={p.nombre} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-[1.05]" />
         ) : (
-          <div className="w-full h-full grid place-items-center text-5xl font-bold text-black/15">{(p.nombre ?? "?")[0]}</div>
+          <div className="w-full h-full flex items-center justify-center bg-[#efe7d9]">
+            <span className="display text-6xl font-semibold text-ink/12">{(p.nombre ?? "?")[0]}</span>
+          </div>
         )}
-        {sinStock ? (
-          <span className="absolute top-2 left-2 bg-black/70 text-white text-[11px] rounded-lg px-2 py-0.5">Sin stock</span>
-        ) : pct != null ? (
-          <span className="absolute top-2 left-2 bg-[#B82D25] text-white text-xs font-bold rounded-lg px-2 py-0.5">-{pct}%</span>
-        ) : null}
-        {p.descuentoComunidad && (
-          <span className="absolute top-2 right-2 bg-[#1A1412] text-[#C9A96E] text-[10px] font-semibold tracking-wide rounded-lg px-2 py-1">COMUNIDAD</span>
-        )}
+        <div className="absolute top-3 left-3 flex flex-col items-start gap-1.5">
+          {sinStock ? <Tag tono="ink">Sin stock</Tag> : pct != null ? <Tag tono="rojo">−{pct}%</Tag> : null}
+          {p.descuentoComunidad && <Tag tono="oro">Socio</Tag>}
+        </div>
       </Link>
-      <div className="p-3 flex flex-col flex-1">
-        <Link href={`/producto/${p.sku}`} className="text-sm text-[#2A201C] font-medium line-clamp-2 min-h-[2.5rem] leading-snug hover:text-[#B82D25]">
+
+      <div className="pt-3.5">
+        {p.categoria && <p className="kicker text-dorado">{p.categoria}</p>}
+        <Link href={`/producto/${p.sku}`} className="block mt-1 text-[14px] leading-snug text-tinta hover:text-rojo transition-colors line-clamp-2 min-h-[2.5rem]">
           {p.nombre}
         </Link>
-        <div className="mt-2 flex items-end justify-between gap-2">
-          <div>
-            {pct != null ? (
-              <>
-                <p className="text-lg font-bold text-[#B82D25] leading-none">{pesos(p.precio)}</p>
-                <p className="text-xs text-[#9B9088] line-through">{pesos(p.precioLista)}</p>
-              </>
-            ) : (
-              <p className="text-lg font-bold text-[#2A201C] leading-none">{pesos(p.precio)}</p>
-            )}
+        <div className="mt-2 flex items-center justify-between gap-2">
+          <div className="leading-none">
+            <span className="display text-[19px] font-semibold text-ink">{pesos(p.precio)}</span>
+            {pct != null && <span className="ml-2 text-xs text-humo line-through">{pesos(p.precioLista)}</span>}
           </div>
           {!sinStock && p.precio != null && (
             <button
               onClick={() => agregar(p)}
-              aria-label="Agregar al carrito"
-              className="shrink-0 w-9 h-9 rounded-full bg-[#B82D25] text-white grid place-items-center hover:bg-[#932A1F] active:scale-95 transition"
+              aria-label={`Agregar ${p.nombre}`}
+              className="shrink-0 w-9 h-9 grid place-items-center rounded-full border border-tinta/20 text-tinta hover:bg-ink hover:text-crema hover:border-ink active:scale-95 transition-colors"
             >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
+              <IcoMas size={17} />
             </button>
           )}
         </div>

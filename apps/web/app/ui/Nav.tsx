@@ -3,38 +3,49 @@
 import Link from "next/link";
 import { useCarrito } from "../../lib/carrito";
 import type { Cliente } from "../../lib/sesion";
+import { IcoBuscar, IcoUsuario, IcoCarrito } from "./Iconos";
 
 export function Nav({ cliente }: { cliente: Cliente | null }) {
   const { unidades } = useCarrito();
   return (
-    <header className="sticky top-0 z-40 bg-[#1A1412] text-white">
-      <div className="max-w-6xl mx-auto px-4 py-3 flex items-center gap-3 sm:gap-5">
-        <Link href="/" className="shrink-0 leading-none">
-          <span className="text-lg font-bold tracking-[0.3em]">O.D.B</span>
-          <span className="hidden sm:inline text-[10px] tracking-[0.2em] text-[#C9A96E] ml-2">PREMIUM MARKET</span>
-        </Link>
+    <header className="sticky top-0 z-50">
+      <div className="bg-ink text-crema/75 text-center text-[10.5px] tracking-[0.22em] uppercase py-2 px-4">
+        Envío a domicilio · Retiro en el local · <span className="text-dorado-claro">Comunidad&nbsp;ODB</span>
+      </div>
 
-        <form action="/catalogo" className="flex-1 max-w-xl">
-          <div className="flex items-center gap-2 bg-white/10 rounded-full px-4 py-2">
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-white/50 shrink-0"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4-4" /></svg>
-            <input name="q" placeholder="Buscar vinos, fiambres, almacén…" className="bg-transparent flex-1 text-sm outline-none placeholder:text-white/40" />
-          </div>
-        </form>
-
-        <nav className="flex items-center gap-1 sm:gap-2 shrink-0">
-          {cliente ? (
-            <Link href="/cuenta" className="flex items-center gap-2 rounded-full px-3 py-2 text-sm hover:bg-white/10">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="8" r="3.2" /><path d="M5 20a7 7 0 0114 0" /></svg>
-              <span className="hidden sm:inline">{cliente.nombre?.split(" ")[0] ?? "Mi cuenta"}</span>
+      <div className="bg-crema/95 backdrop-blur-md border-b border-linea">
+        <div className="max-w-7xl mx-auto px-5 lg:px-8">
+          <div className="flex items-center gap-6 h-[70px]">
+            <Link href="/" className="shrink-0 leading-none">
+              <div className="display text-[26px] font-semibold tracking-tight text-ink">O.D.B</div>
+              <div className="kicker text-dorado mt-0.5">Premium Market</div>
             </Link>
-          ) : (
-            <Link href="/ingresar" className="rounded-full px-3 py-2 text-sm hover:bg-white/10">Ingresar</Link>
-          )}
-          <Link href="/carrito" aria-label="Carrito" className="relative rounded-full p-2 hover:bg-white/10">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M6 7h13l-1.5 9H7.5L6 7zM6 7L5 4H3" /><circle cx="9" cy="20" r="1.3" /><circle cx="17" cy="20" r="1.3" /></svg>
-            {unidades > 0 && <span className="absolute -top-0.5 -right-0.5 bg-[#B82D25] text-white text-[10px] font-bold rounded-full min-w-[18px] h-[18px] grid place-items-center px-1">{unidades}</span>}
-          </Link>
-        </nav>
+
+            <nav className="hidden lg:flex items-center gap-8 ml-6 text-[13.5px] text-tinta/80">
+              <Link href="/catalogo" className="subraya py-1">Catálogo</Link>
+              <Link href="/catalogo?filtro=promo" className="subraya py-1">Ofertas</Link>
+              <Link href={cliente ? "/cuenta" : "/ingresar"} className="subraya py-1">Comunidad ODB</Link>
+            </nav>
+
+            <form action="/catalogo" className="hidden md:flex flex-1 max-w-xs ml-auto items-center gap-2.5 border-b border-tinta/20 focus-within:border-dorado transition-colors pb-2">
+              <IcoBuscar size={17} className="text-humo" />
+              <input name="q" placeholder="Buscar" className="bg-transparent text-sm flex-1 outline-none placeholder:text-humo/70" />
+            </form>
+
+            <div className="flex items-center gap-0.5 ml-auto md:ml-2 text-tinta">
+              <Link href={cliente ? "/cuenta" : "/ingresar"} className="p-2.5 hover:text-rojo transition-colors" aria-label="Mi cuenta"><IcoUsuario size={20} /></Link>
+              <Link href="/carrito" className="relative p-2.5 hover:text-rojo transition-colors" aria-label="Carrito">
+                <IcoCarrito size={20} />
+                {unidades > 0 && <span className="absolute top-1 right-1 bg-rojo text-crema text-[10px] font-bold rounded-full min-w-[16px] h-4 grid place-items-center px-1">{unidades}</span>}
+              </Link>
+            </div>
+          </div>
+
+          <form action="/catalogo" className="md:hidden flex items-center gap-2.5 border-t border-linea py-3">
+            <IcoBuscar size={18} className="text-humo" />
+            <input name="q" placeholder="Buscar vinos, fiambres, almacén…" className="bg-transparent text-sm flex-1 outline-none placeholder:text-humo/70" />
+          </form>
+        </div>
       </div>
     </header>
   );

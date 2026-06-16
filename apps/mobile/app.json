@@ -1,18 +1,28 @@
 {
   "expo": {
-    "name": "mobile",
-    "slug": "mobile",
+    "name": "O.D.B Premium Market",
+    "slug": "odb-app",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "mobile",
+    "scheme": "odb",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/expo.icon"
+      "bundleIdentifier": "com.odb.app",
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "O.D.B usa la cámara para escanear códigos de barras en Comprá Fácil."
+      }
     },
     "android": {
+      "package": "com.odb.app",
+      "config": {
+        "googleMaps": {
+          "apiKey": "PEGAR_TU_GOOGLE_MAPS_API_KEY"
+        }
+      },
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#1A1412",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
@@ -28,7 +38,7 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#208AEF",
+          "backgroundColor": "#1A1412",
           "android": {
             "image": "./assets/images/splash-icon.png",
             "imageWidth": 76
@@ -40,7 +50,20 @@
         {
           "color": "#B82D25"
         }
-      ]
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "O.D.B usa la cámara para escanear códigos de barras en Comprá Fácil."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "O.D.B usa tu ubicación para asignarte un estacionamiento cuando llegás a la sucursal a retirar tu pedido."
+        }
+      ],
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true,

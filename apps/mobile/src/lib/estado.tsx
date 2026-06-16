@@ -1,8 +1,24 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { Platform } from 'react-native';
+import * as SecureStore from 'expo-secure-store';
 import { API } from './config';
 import { registrarPush } from './push';
 
 export { API };
+
+// Persistencia segura de la sesión (SecureStore en el celu, localStorage en web)
+const SESION_KEY = 'odb_cliente';
+const sesionStore = {
+  async get(): Promise<string | null> {
+    try { return Platform.OS === 'web' ? (typeof localStorage !== 'undefined' ? localStorage.getItem(SESION_KEY) : null) : await SecureStore.getItemAsync(SESION_KEY); } catch { return null; }
+  },
+  async set(v: string) { try { if (Platform.OS === 'web') localStorage?.setItem(SESION_KEY, v); else await SecureStore.setItemAsync(SESION_KEY, v); } catch {} },
+  async del() { try { if (Platform.OS === 'web') localStorage?.removeItem(SESION_KEY); else await SecureStore.deleteItemAsync(SESION_KEY); } catch {} },
+};
+const tokenVigente = (token?: string) => {
+  if (!token) return false;
+  try { const p = JSON.parse(globalThis.atob(token.split('.')[1])); return !p.exp || p.exp * 1000 > Date.now(); } catch { return true; }
+};
 
 export const COLORES = {
   rojo: '#B82D25',
@@ -13,6 +29,7 @@ export const COLORES = {
 };
 
 export type Producto = {
+  id?: string;
   imagenUrl: string | null;
   descuentoComunidad?: boolean;
   sku: string;
@@ -22,6 +39,7 @@ export type Producto = {
   descuento: string | null;
   esAlcohol: boolean;
   categoria: string | null;
+  stockTotal?: number;
 };
 
 type Cliente = {
@@ -49,6 +67,7 @@ type Estado = {
   setCliente: (c: Cliente | null) => void;
   carrito: Renglon[];
   agregar: (p: Producto) => void;
+  agregarVarios: (items: { p: Producto; cantidad: number }[]) => void;
   quitar: (sku: string) => void;
   vaciar: () => void;
   total: number;
@@ -56,6 +75,9 @@ type Estado = {
   notif: { noLeidas: number; lista: Notificacion[] };
   refrescarCuenta: () => Promise<void>;
   marcarLeidas: () => Promise<void>;
+  favoritos: Set<string>;
+  esFavorito: (id?: string) => boolean;
+  alternarFavorito: (id?: string) => void;
 };
 
 const Contexto = createContext<Estado>(null as any);
@@ -65,8 +87,32 @@ export function EstadoProvider({ children }: { children: React.ReactNode }) {
   const [carrito, setCarrito] = useState<Renglon[]>([]);
   const [cuenta, setCuenta] = useState<Cuenta | null>(null);
   const [notif, setNotif] = useState<{ noLeidas: number; lista: Notificacion[] }>({ noLeidas: 0, lista: [] });
+  const [favoritos, setFavoritos] = useState<Set<string>>(new Set());
   const tokenRef = useRef<string | undefined>(undefined);
   tokenRef.current = cliente?.token;
+  const [hidratado, setHidratado] = useState(false);
+
+  // Al abrir la app: recupera la sesión guardada (si el token sigue vigente).
+  useEffect(() => {
+    (async () => {
+      const raw = await sesionStore.get();
+      if (raw) {
+        try {
+          const c = JSON.parse(raw);
+          if (c?.token && tokenVigente(c.token)) setCliente(c);
+          else await sesionStore.del();
+        } catch { await sesionStore.del(); }
+      }
+      setHidratado(true);
+    })();
+  }, []);
+
+  // Persiste (o borra) la sesión cada vez que cambia, una vez hidratado.
+  useEffect(() => {
+    if (!hidratado) return;
+    if (cliente?.token) sesionStore.set(JSON.stringify(cliente));
+    else sesionStore.del();
+  }, [cliente, hidratado]);
 
   async function refrescarCuenta() {
     const token = tokenRef.current;
@@ -91,6 +137,33 @@ export function EstadoProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
+  async function cargarFavoritos() {
+    const token = tokenRef.current;
+    if (!token) return;
+    try {
+      const r = await fetch(`${API}/mi/favoritos`, { headers: { Authorization: `Bearer ${token}` } });
+      if (r.ok) {
+        const cards = await r.json();
+        setFavoritos(new Set((cards ?? []).map((c: any) => c.id).filter(Boolean)));
+      }
+    } catch {}
+  }
+
+  function alternarFavorito(id?: string) {
+    const token = tokenRef.current;
+    if (!token || !id) return;
+    setFavoritos((s) => {
+      const n = new Set(s);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+    fetch(`${API}/mi/favoritos/${id}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+    }).catch(() => {});
+  }
+
   async function marcarLeidas() {
     const token = tokenRef.current;
     if (!token || notif.noLeidas === 0) return;
@@ -107,8 +180,12 @@ export function EstadoProvider({ children }: { children: React.ReactNode }) {
   // del dispositivo y arranca un poll suave
   useEffect(() => {
     refrescarCuenta();
-    if (!cliente?.token) return;
+    if (!cliente?.token) {
+      setFavoritos(new Set());
+      return;
+    }
     registrarPush(cliente.token);
+    cargarFavoritos();
     const id = setInterval(refrescarCuenta, 45000);
     return () => clearInterval(id);
   }, [cliente?.token]);
@@ -124,6 +201,18 @@ export function EstadoProvider({ children }: { children: React.ReactNode }) {
           if (existe) return c.map((r) => (r.sku === p.sku ? { ...r, cantidad: r.cantidad + 1 } : r));
           return [...c, { ...p, cantidad: 1 }];
         }),
+      // "Volver a comprar": suma varios productos al carrito de una (con su cantidad)
+      agregarVarios: (items) =>
+        setCarrito((c) => {
+          const mapa = new Map(c.map((r) => [r.sku, { ...r }]));
+          for (const { p, cantidad } of items) {
+            if (!p?.sku || !cantidad) continue;
+            const ex = mapa.get(p.sku);
+            if (ex) ex.cantidad += cantidad;
+            else mapa.set(p.sku, { ...p, cantidad });
+          }
+          return [...mapa.values()];
+        }),
       quitar: (sku) =>
         setCarrito((c) =>
           c
@@ -136,8 +225,11 @@ export function EstadoProvider({ children }: { children: React.ReactNode }) {
       notif,
       refrescarCuenta,
       marcarLeidas,
+      favoritos,
+      esFavorito: (id) => !!id && favoritos.has(id),
+      alternarFavorito,
     }),
-    [cliente, carrito, cuenta, notif],
+    [cliente, carrito, cuenta, notif, favoritos],
   );
 
   return <Contexto.Provider value={valor}>{children}</Contexto.Provider>;

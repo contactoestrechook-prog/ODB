@@ -20,18 +20,21 @@ export class BuscarController {
     if (t.length < 2) return { productos: [], clientes: [], comprobantes: [] };
     const norm = t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
     const esNum = /^\d+$/.test(t);
+    // saca los caracteres que PostgREST usa para parsear filtros (anti-inyección)
+    const ts = t.replace(/[,()*:\\]/g, '');
+    const norms = norm.replace(/[,()*:\\]/g, '');
 
     const [prod, cli, comp] = await Promise.all([
       this.db
         .from('productos')
         .select('sku, nombre, categoria:categorias(nombre)')
         .eq('activo', true)
-        .or(`nombre_normalizado.ilike.%${norm}%,sku.ilike.%${t}%`)
+        .or(`nombre_normalizado.ilike.%${norms}%,sku.ilike.%${ts}%`)
         .limit(6),
       this.db
         .from('clientes')
         .select('id, dni, nombre, razon_social, tipo, cta_cte_habilitada')
-        .or(`dni.ilike.%${t}%,nombre.ilike.%${t}%,razon_social.ilike.%${t}%`)
+        .or(`dni.ilike.%${ts}%,nombre.ilike.%${ts}%,razon_social.ilike.%${ts}%`)
         .limit(6),
       esNum
         ? this.db

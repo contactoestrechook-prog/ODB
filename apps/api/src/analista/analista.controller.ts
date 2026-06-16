@@ -1,7 +1,10 @@
 import { Body, Controller, Get, Post } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { AnalistaService } from './analista.service';
 import type { MensajeChat } from './analista.service';
 import { Roles } from '../auth/decorators';
+
+const IA = { default: { ttl: 60_000, limit: 8 } };
 
 @Roles('comprador', 'gerente', 'dueno')
 @Controller('analista')
@@ -13,11 +16,13 @@ export class AnalistaController {
     return this.analista.metricas();
   }
 
+  @Throttle(IA)
   @Post('charla')
   charlar(@Body() body: { mensajes: MensajeChat[] }) {
     return this.analista.charlar(body.mensajes);
   }
 
+  @Throttle(IA)
   @Post('armados')
   armados(@Body() body: { contexto?: string }) {
     return this.analista.armados(body?.contexto);

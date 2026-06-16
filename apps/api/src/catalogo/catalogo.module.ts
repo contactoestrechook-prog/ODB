@@ -9,5 +9,6 @@ import { supabaseProvider } from '../supabase.provider';
 @Module({
   controllers: [CatalogoController, ImagenesController, ProductosAdminController],
   providers: [CatalogoService, ProductosAdminService, supabaseProvider],
+  exports: [CatalogoService],
 })
 export class CatalogoModule {}

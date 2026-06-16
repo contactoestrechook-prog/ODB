@@ -1,6 +1,7 @@
-import { BadRequestException, Inject, Injectable, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Inject, Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import * as crypto from 'crypto';
 import { SUPABASE } from '../supabase.provider';
 
 // Cuentas de clientes de la app sobre Supabase Auth (GoTrue):
@@ -15,8 +16,9 @@ export class ClientesAuthService {
     private readonly jwt: JwtService,
   ) {}
 
-  async registro(dni: string, nombre: string, clave: string) {
+  async registro(dni: string, nombre: string, clave: string, fechaNacimiento?: string, codigoReferido?: string) {
     const dniLimpio = (dni ?? '').replace(/\D/g, '');
+    const nac = /^\d{4}-\d{2}-\d{2}$/.test(fechaNacimiento ?? '') ? fechaNacimiento : null;
     if (!/^\d{7,9}$/.test(dniLimpio)) throw new BadRequestException('DNI inválido');
     if ((clave ?? '').length < 6) {
       throw new BadRequestException('La clave debe tener al menos 6 caracteres');
@@ -41,12 +43,93 @@ export class ClientesAuthService {
       .eq('dni', dniLimpio)
       .maybeSingle();
     if (existente) {
-      await this.db.from('clientes').update({ nombre }).eq('id', existente.id);
+      await this.db.from('clientes').update({ nombre, ...(nac ? { fecha_nacimiento: nac } : {}) }).eq('id', existente.id);
     } else {
-      await this.db.from('clientes').insert({ dni: dniLimpio, nombre });
+      const { data: creado } = await this.db
+        .from('clientes')
+        .insert({ dni: dniLimpio, nombre, fecha_nacimiento: nac })
+        .select('id')
+        .single();
+      // El referido SOLO aplica a clientes nuevos (los que ya compraron en caja no cuentan)
+      if (creado?.id && codigoReferido) await this.aplicarReferido(creado.id, codigoReferido);
     }
 
     return this.login(dniLimpio, clave);
+  }
+
+  // --- Auth por EMAIL (tienda web). Convive con el alta por DNI de la app. ---
+  async registroEmail(email: string, nombre: string, clave: string, codigoReferido?: string) {
+    const mail = (email ?? '').trim().toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mail)) throw new BadRequestException('Email inválido');
+    if ((clave ?? '').length < 6) throw new BadRequestException('La clave debe tener al menos 6 caracteres');
+
+    const { error } = await this.db.auth.admin.createUser({
+      email: mail,
+      password: clave,
+      email_confirm: true,
+      user_metadata: { nombre, email: mail },
+    });
+    if (error) {
+      throw new BadRequestException(
+        error.message.includes('already') ? 'Ese email ya tiene cuenta: iniciá sesión' : error.message,
+      );
+    }
+
+    const { data: existente } = await this.db.from('clientes').select('id').eq('email', mail).maybeSingle();
+    if (existente) {
+      await this.db.from('clientes').update({ nombre }).eq('id', existente.id);
+    } else {
+      const { data: creado } = await this.db.from('clientes').insert({ email: mail, nombre }).select('id').single();
+      if (creado?.id && codigoReferido) await this.aplicarReferido(creado.id, codigoReferido);
+    }
+    return this.loginEmail(mail, clave);
+  }
+
+  async loginEmail(email: string, clave: string) {
+    const mail = (email ?? '').trim().toLowerCase();
+    const verificador = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_KEY!, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+    const { error } = await verificador.auth.signInWithPassword({ email: mail, password: clave });
+    if (error) throw new UnauthorizedException('Email o clave incorrectos');
+
+    let { data: cliente } = await this.db
+      .from('clientes')
+      .select('id, dni, nombre, tipo, puntos, verificado, email')
+      .eq('email', mail)
+      .maybeSingle();
+    if (!cliente) {
+      const { data: creado } = await this.db
+        .from('clientes')
+        .insert({ email: mail })
+        .select('id, dni, nombre, tipo, puntos, verificado, email')
+        .single();
+      cliente = creado;
+    }
+    const token = await this.jwt.signAsync({
+      sub: cliente!.id,
+      dni: cliente!.dni,
+      email: cliente!.email,
+      nombre: cliente!.nombre,
+      rol: 'cliente',
+      verificado: cliente!.verificado === true,
+    });
+    return { token, cliente };
+  }
+
+  // Vincula al nuevo cliente con quien lo invitó (anti auto-referido y anti duplicado).
+  private async aplicarReferido(nuevoId: string, codigo: string) {
+    const cod = (codigo ?? '').trim().toUpperCase();
+    if (!cod) return;
+    const { data: ref } = await this.db
+      .from('clientes')
+      .select('id')
+      .eq('codigo_referido', cod)
+      .maybeSingle();
+    if (!ref || ref.id === nuevoId) return;
+    await this.db.from('clientes').update({ referido_por: ref.id }).eq('id', nuevoId).is('referido_por', null);
+    // unique(referido_id) garantiza un solo referidor por invitado
+    await this.db.from('referidos').insert({ referrer_id: ref.id, referido_id: nuevoId });
   }
 
   async login(dni: string, clave: string) {
@@ -120,8 +203,30 @@ export class ClientesAuthService {
   }
 
   // Webhook de Didit: marca al cliente como verificado cuando aprueba.
-  // TODO(produccion): validar la firma X-Didit-Signature con el webhook secret.
-  async webhook(payload: any) {
+  // Se valida la firma HMAC-SHA256 del cuerpo crudo contra DIDIT_WEBHOOK_SECRET
+  // (y un timestamp reciente) para que nadie pueda falsificar una verificación.
+  async webhook(rawBody: Buffer | undefined, headers: Record<string, string>) {
+    const secret = process.env.DIDIT_WEBHOOK_SECRET;
+    if (!secret) {
+      throw new ForbiddenException('Webhook de Didit sin configurar (falta DIDIT_WEBHOOK_SECRET)');
+    }
+    const firma = headers['x-signature'] ?? headers['x-didit-signature'];
+    const ts = headers['x-timestamp'];
+    if (!rawBody || !firma) throw new ForbiddenException('Webhook sin firma');
+
+    const esperada = crypto.createHmac('sha256', secret).update(rawBody).digest('hex');
+    const a = Buffer.from(firma);
+    const b = Buffer.from(esperada);
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+      throw new ForbiddenException('Firma de webhook inválida');
+    }
+    // anti-replay: el timestamp (si viene) no puede tener más de 5 minutos
+    if (ts && Math.abs(Date.now() / 1000 - Number(ts)) > 300) {
+      throw new ForbiddenException('Webhook expirado');
+    }
+
+    let payload: any = {};
+    try { payload = JSON.parse(rawBody.toString('utf8')); } catch { return { ok: false }; }
     const estado = payload?.status ?? payload?.decision?.status;
     const dni = payload?.vendor_data;
     if (!dni) return { ok: false };

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useCarrito } from "../../lib/carrito";
 import type { Producto } from "../../lib/tipos";
+import { IcoMas, IcoMenos } from "./Iconos";
 
 export function AgregarProducto({ p }: { p: Producto }) {
   const { agregar } = useCarrito();
@@ -10,21 +11,21 @@ export function AgregarProducto({ p }: { p: Producto }) {
   const [ok, setOk] = useState(false);
 
   const sinStock = p.stockTotal != null && p.stockTotal <= 0;
-  if (sinStock) return <p className="rounded-xl bg-[#ebe3d6] px-4 py-3 text-sm text-[#5f554d]">Sin stock por ahora.</p>;
-  if (p.precio == null) return <p className="rounded-xl bg-[#ebe3d6] px-4 py-3 text-sm text-[#5f554d]">Precio a confirmar — consultanos.</p>;
+  if (sinStock) return <p className="border border-linea rounded-lg px-4 py-3.5 text-sm text-humo bg-crema">Sin stock por ahora.</p>;
+  if (p.precio == null) return <p className="border border-linea rounded-lg px-4 py-3.5 text-sm text-humo bg-crema">Precio a confirmar — escribinos y te lo pasamos.</p>;
 
   return (
     <div className="flex flex-wrap items-center gap-3">
-      <div className="flex items-center rounded-full border border-black/15 bg-white">
-        <button onClick={() => setN((v) => Math.max(1, v - 1))} className="w-10 h-11 grid place-items-center text-xl text-[#2A201C] hover:text-[#B82D25]" aria-label="Menos">–</button>
-        <span className="w-8 text-center font-semibold">{n}</span>
-        <button onClick={() => setN((v) => v + 1)} className="w-10 h-11 grid place-items-center text-xl text-[#2A201C] hover:text-[#B82D25]" aria-label="Más">+</button>
+      <div className="flex items-center border border-tinta/20 rounded-full">
+        <button onClick={() => setN((v) => Math.max(1, v - 1))} className="w-11 h-12 grid place-items-center text-tinta hover:text-rojo transition-colors" aria-label="Menos"><IcoMenos size={16} /></button>
+        <span className="w-7 text-center font-semibold">{n}</span>
+        <button onClick={() => setN((v) => v + 1)} className="w-11 h-12 grid place-items-center text-tinta hover:text-rojo transition-colors" aria-label="Más"><IcoMas size={16} /></button>
       </div>
       <button
         onClick={() => { agregar(p, n); setOk(true); setTimeout(() => setOk(false), 1500); }}
-        className="flex-1 min-w-[180px] rounded-full bg-[#B82D25] text-white font-semibold px-6 py-3 hover:bg-[#932A1F] active:scale-[0.99] transition"
+        className="flex-1 min-w-[200px] rounded-full bg-ink text-crema text-sm font-semibold px-7 py-3.5 hover:bg-vino transition-colors"
       >
-        {ok ? "Agregado ✓" : "Agregar al carrito"}
+        {ok ? "Agregado al carrito ✓" : "Agregar al carrito"}
       </button>
     </div>
   );

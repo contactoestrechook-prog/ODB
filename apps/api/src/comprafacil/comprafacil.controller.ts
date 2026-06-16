@@ -1,9 +1,9 @@
 import {
-  Body, Controller, Get, Param, Post, Req, UnauthorizedException,
+  Body, Controller, Get, Param, Post, Query, Req, UnauthorizedException,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { CompraFacilService } from './comprafacil.service';
-import { Roles } from '../auth/decorators';
+import { Publico, Roles } from '../auth/decorators';
 
 @Controller()
 export class CompraFacilController {
@@ -20,6 +20,22 @@ export class CompraFacilController {
       throw new UnauthorizedException('Requiere sesión de cliente');
     }
     return this.compraFacil.comprar(req.usuario.dni, body.sucursalId, body.items);
+  }
+
+  // El cliente consulta si el pago se acreditó y recibe el código de salida.
+  @Get('app/compra-facil/:id/estado')
+  estado(@Param('id') id: string, @Req() req: any) {
+    if (req.usuario?.rol !== 'cliente') {
+      throw new UnauthorizedException('Requiere sesión de cliente');
+    }
+    return this.compraFacil.estadoPago(id);
+  }
+
+  // Webhook de Mercado Pago (Comprá Fácil)
+  @Publico()
+  @Post('comprafacil/webhook')
+  webhook(@Req() req: any, @Query() query: any) {
+    return this.compraFacil.webhookMP(req.rawBody, query);
   }
 
   // Lado empleado: control de salida

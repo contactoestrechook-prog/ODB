@@ -8,8 +8,13 @@ export type Producto = {
   descuento: string | null;
   descuentoComunidad?: boolean;
   categoria: string | null;
+  categoriaId?: string | null;
   marca: string | null;
   esAlcohol?: boolean;
+  graduacion?: number | null;
+  volumenMl?: number | null;
+  unidadesPack?: number | null;
+  descripcion?: string | null;
   stockTotal?: number;
 };
 

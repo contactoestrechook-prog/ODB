@@ -26,6 +26,11 @@ const ICONOS: Record<string, string> = {
   informe: 'M5 3h14v18H5zM9 7h6M9 11h6M9 15h4',
   usuarios: 'M12 8a3 3 0 100-6 3 3 0 000 6zM5 21a7 7 0 0114 0M19 8h4M21 6v4',
   eficiencia: 'M12 8v4l3 2M12 3a9 9 0 100 18 9 9 0 000-18z',
+  mensajes: 'M4 5h16v11H9l-5 4zM8 9h8M8 12h5',
+  eventos: 'M4 5h16v15H4zM4 9h16M8 3v4M16 3v4M9 14h2v2H9z',
+  envios: 'M3 7h10v8H3zM13 10h4l3 3v2h-7M6 18a1.6 1.6 0 100-3.2A1.6 1.6 0 006 18zm10 0a1.6 1.6 0 100-3.2A1.6 1.6 0 0016 18z',
+  repartidor: 'M5 18a2 2 0 100-4 2 2 0 000 4zm14 0a2 2 0 100-4 2 2 0 000 4zM7 16l3-7h4l2 4h3M14 9l-1-3h-3',
+  conciliacion: 'M7 8l-4 4 4 4M3 12h12M17 16l4-4-4-4M21 12H9',
 };
 
 const GRUPOS: Grupo[] = [
@@ -37,6 +42,8 @@ const GRUPOS: Grupo[] = [
       { href: '/caja', label: 'Caja', icono: 'caja' },
       { href: '/facturacion', label: 'Facturación', icono: 'facturacion' },
       { href: '/deposito', label: 'Depósito', icono: 'deposito' },
+      { href: '/envios', label: 'Envíos', icono: 'envios' },
+      { href: '/repartidor', label: 'Repartidor', icono: 'repartidor' },
       { href: '/salida', label: 'Salida', icono: 'salida' },
       { href: '/cierres', label: 'Cierres', icono: 'cierres' },
     ],
@@ -61,6 +68,8 @@ const GRUPOS: Grupo[] = [
     titulo: 'Clientes',
     items: [
       { href: '/clientes', label: 'Clientes', icono: 'clientes' },
+      { href: '/mensajes', label: 'Mensajes', icono: 'mensajes' },
+      { href: '/eventos', label: 'Eventos', icono: 'eventos' },
       { href: '/sommelier', label: 'Somelier ODB', icono: 'somelier' },
     ],
   },
@@ -68,6 +77,7 @@ const GRUPOS: Grupo[] = [
     titulo: 'Dirección',
     items: [
       { href: '/estadisticas', label: 'Estadísticas', icono: 'estadisticas' },
+      { href: '/conciliacion', label: 'Conciliación', icono: 'conciliacion' },
       { href: '/informes', label: 'Informe diario', icono: 'informe' },
       { href: '/eficiencia', label: 'Eficiencia', icono: 'eficiencia' },
       { href: '/usuarios', label: 'Usuarios', icono: 'usuarios' },
@@ -81,6 +91,8 @@ const TITULOS: Record<string, { titulo: string; bajada: string }> = {
   '/caja': { titulo: 'Caja', bajada: 'Sesiones de caja, arqueos y facturación ARCA' },
   '/facturacion': { titulo: 'Facturación', bajada: 'Facturas, notas, remitos, recibos y cuentas corrientes' },
   '/deposito': { titulo: 'Depósito', bajada: 'Pedidos web y PedidosYa: armado, retiro y entrega' },
+  '/envios': { titulo: 'Envíos a domicilio', bajada: 'Despacho: asigná repartidores y seguí cada entrega en vivo' },
+  '/repartidor': { titulo: 'Repartidor', bajada: 'Tus entregas asignadas y compartir tu ubicación en vivo' },
   '/salida': { titulo: 'Control de salida', bajada: 'Validación de códigos de Comprá Fácil' },
   '/cierres': { titulo: 'Cierres', bajada: 'Cierres de caja por sucursal y diferencias' },
   '/productos': { titulo: 'Productos', bajada: 'Catálogo completo: precios, stock y fotos' },
@@ -90,8 +102,11 @@ const TITULOS: Record<string, { titulo: string; bajada: string }> = {
   '/compras': { titulo: 'Compras', bajada: 'Órdenes de compra, aprobaciones con PIN y recepción' },
   '/analista': { titulo: 'Analista ODB', bajada: 'El asesor de abastecimiento: quiebres, reposición y oportunidades' },
   '/clientes': { titulo: 'Clientes', bajada: 'Cuentas, clasificación RFM y Comunidad ODB' },
+  '/mensajes': { titulo: 'Mensajes', bajada: 'Solicitudes de clientes, envíos y notificaciones automáticas' },
+  '/eventos': { titulo: 'Eventos', bajada: 'Oportunidades de cumpleaños, casamientos y fiestas: armá propuestas' },
   '/sommelier': { titulo: 'Somelier ODB', bajada: 'El experto en vinos que atiende a tus clientes' },
   '/estadisticas': { titulo: 'Estadísticas', bajada: 'El negocio en números: 30 días de venta real' },
+  '/conciliacion': { titulo: 'Conciliación', bajada: 'Acreditaciones de tarjeta y Mercado Pago: lo que te deben y las comisiones' },
   '/informes': { titulo: 'Informe diario', bajada: 'El parte matutino del Analista, todos los días a las 7:00' },
   '/eficiencia': { titulo: 'Eficiencia', bajada: 'Productividad por empleado: tiempos por cliente y de preparación' },
   '/usuarios': { titulo: 'Usuarios', bajada: 'Equipo, roles y permisos de firma' },
