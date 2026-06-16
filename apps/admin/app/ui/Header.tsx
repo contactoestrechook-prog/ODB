@@ -31,6 +31,7 @@ const ICONOS: Record<string, string> = {
   envios: 'M3 7h10v8H3zM13 10h4l3 3v2h-7M6 18a1.6 1.6 0 100-3.2A1.6 1.6 0 006 18zm10 0a1.6 1.6 0 100-3.2A1.6 1.6 0 0016 18z',
   repartidor: 'M5 18a2 2 0 100-4 2 2 0 000 4zm14 0a2 2 0 100-4 2 2 0 000 4zM7 16l3-7h4l2 4h3M14 9l-1-3h-3',
   conciliacion: 'M7 8l-4 4 4 4M3 12h12M17 16l4-4-4-4M21 12H9',
+  comparador: 'M12 4v16M8 20h8M6 8h12M6 8l-2.5 5a2.5 2.5 0 005 0zm12 0l-2.5 5a2.5 2.5 0 005 0z',
 };
 
 const GRUPOS: Grupo[] = [
@@ -61,6 +62,7 @@ const GRUPOS: Grupo[] = [
     titulo: 'Abastecimiento',
     items: [
       { href: '/compras', label: 'Compras', icono: 'compras' },
+      { href: '/comparador', label: 'Comparador', icono: 'comparador' },
       { href: '/analista', label: 'Analista ODB', icono: 'analista' },
     ],
   },
@@ -100,6 +102,7 @@ const TITULOS: Record<string, { titulo: string; bajada: string }> = {
   '/promociones': { titulo: 'Promociones', bajada: 'Descuentos vigentes, programados y Comunidad ODB' },
   '/listas': { titulo: 'Listas de precios', bajada: 'Lectura con IA de listas de proveedores y aplicación de costos' },
   '/compras': { titulo: 'Compras', bajada: 'Órdenes de compra, aprobaciones con PIN y recepción' },
+  '/comparador': { titulo: 'Comparador', bajada: 'Compará precios entre proveedores: dónde conviene comprar cada producto' },
   '/analista': { titulo: 'Analista ODB', bajada: 'El asesor de abastecimiento: quiebres, reposición y oportunidades' },
   '/clientes': { titulo: 'Clientes', bajada: 'Cuentas, clasificación RFM y Comunidad ODB' },
   '/mensajes': { titulo: 'Mensajes', bajada: 'Solicitudes de clientes, envíos y notificaciones automáticas' },

@@ -27,6 +27,7 @@ import { MensajesModule } from './mensajes/mensajes.module';
 import { EventosModule } from './eventos/eventos.module';
 import { FidelizacionModule } from './fidelizacion/fidelizacion.module';
 import { ConciliacionModule } from './conciliacion/conciliacion.module';
+import { ComparadorModule } from './comparador/comparador.module';
 import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
@@ -63,6 +64,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     EventosModule,
     FidelizacionModule,
     ConciliacionModule,
+    ComparadorModule,
   ],
 })
 export class AppModule {}
