@@ -28,6 +28,12 @@ import { EventosModule } from './eventos/eventos.module';
 import { FidelizacionModule } from './fidelizacion/fidelizacion.module';
 import { ConciliacionModule } from './conciliacion/conciliacion.module';
 import { ComparadorModule } from './comparador/comparador.module';
+import { EnvasesModule } from './envases/envases.module';
+import { RepartosModule } from './repartos/repartos.module';
+import { ChequesModule } from './cheques/cheques.module';
+import { SyncModule } from './sync/sync.module';
+import { TiendanubeModule } from './tiendanube/tiendanube.module';
+import { AgenteModule } from './agente/agente.module';
 import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
@@ -65,6 +71,12 @@ import { ScheduleModule } from '@nestjs/schedule';
     FidelizacionModule,
     ConciliacionModule,
     ComparadorModule,
+    EnvasesModule,
+    RepartosModule,
+    ChequesModule,
+    SyncModule,
+    TiendanubeModule,
+    AgenteModule,
   ],
 })
 export class AppModule {}

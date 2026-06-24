@@ -30,9 +30,10 @@ export default function Login() {
 
   return (
     <main className="min-h-screen bg-[#F0EBE2] flex items-center justify-center p-6">
-      <form onSubmit={entrar} className="w-full max-w-sm rounded-2xl bg-white p-8">
-        <h1 className="text-black tracking-widest font-medium text-2xl text-center">O.D.B</h1>
-        <p className="text-center text-sm text-black/50 mb-6">Panel administrativo</p>
+      <form onSubmit={entrar} className="w-full max-w-sm rounded-2xl bg-white p-8 shadow-[0_20px_60px_-25px_rgba(0,0,0,0.35)] border border-black/5">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/odb-logo.png" alt="O.D.B Premium Market" className="h-16 w-auto mx-auto mb-3" />
+        <p className="text-center text-xs tracking-[0.25em] uppercase text-black/45 mb-7">Panel administrativo</p>
 
         <label className="block text-xs text-black/60 mb-1">Email</label>
         <input

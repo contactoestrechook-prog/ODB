@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { Header } from '../../../ui/Header';
 import { apiFetch } from '../../../../lib/api';
+import { RegistrarCobranza } from '../../../ui/RegistrarCobranza';
 
 const pesos = (n: number) => '$' + Math.round(n).toLocaleString('es-AR');
 
@@ -41,11 +42,14 @@ export default async function CuentaCliente({ params }: { params: Promise<{ clie
               {cliente.telefono && ` · ${cliente.telefono}`}
             </p>
           </div>
-          <div className="text-right">
-            <p className={`text-2xl font-semibold leading-none ${saldo > 0 ? 'text-[#B82D25]' : 'text-emerald-700'}`}>
-              {saldo > 0 ? pesos(saldo) : saldo < 0 ? `${pesos(-saldo)} a favor` : 'Al día'}
-            </p>
-            {saldo > 0 && <p className="text-xs text-black/45 mt-1">saldo deudor</p>}
+          <div className="flex items-center gap-5">
+            <div className="text-right">
+              <p className={`text-2xl font-semibold leading-none ${saldo > 0 ? 'text-[#B82D25]' : 'text-emerald-700'}`}>
+                {saldo > 0 ? pesos(saldo) : saldo < 0 ? `${pesos(-saldo)} a favor` : 'Al día'}
+              </p>
+              {saldo > 0 && <p className="text-xs text-black/45 mt-1">saldo deudor</p>}
+            </div>
+            <RegistrarCobranza clienteId={clienteId} nombre={cliente.razon_social ?? cliente.nombre} saldo={saldo} />
           </div>
         </section>
 

@@ -1,0 +1,11 @@
+import MDBReader from 'mdb-reader';
+import { readFileSync } from 'node:fs';
+const r = new (MDBReader.default ?? MDBReader)(readFileSync('./climatizacion_copia.mdb'));
+const rep = r.getTable('repuestos').getData({rowLimit:1e6});
+const lp = r.getTable('lprecios').getData({rowLimit:1e6});
+const longs = (arr,c)=>{const m={};arr.forEach(x=>{const l=String(x[c]??'').trim().length;m[l]=(m[l]||0)+1});return m;};
+console.log('repuestos.codigo longitudes:', JSON.stringify(longs(rep,'codigo')));
+console.log('repuestos.codigopro longitudes:', JSON.stringify(longs(rep,'codigopro')));
+console.log('lprecios.codigo longitudes:', JSON.stringify(longs(lp,'codigo')));
+console.log('repuestos.codigo max:', Math.max(...rep.map(x=>Number(x.codigo)||0)));
+console.log('ej codigopro:', rep.slice(0,8).map(x=>x.codigopro).join(', '));

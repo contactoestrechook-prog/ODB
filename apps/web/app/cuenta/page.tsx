@@ -31,7 +31,7 @@ export default async function Cuenta() {
       </div>
 
       {/* Puntos */}
-      <div className="mt-8 bg-ink text-crema rounded-xl p-7 relative overflow-hidden" style={{ backgroundImage: "radial-gradient(120% 90% at 100% 0%, rgba(90,26,22,0.6), transparent 55%)" }}>
+      <div className="mt-8 bg-ink text-crema rounded-xl p-7 relative overflow-hidden" style={{ backgroundImage: "radial-gradient(120% 90% at 100% 0%, rgba(147,42,31,0.65), transparent 55%)" }}>
         <div className="flex items-center justify-between">
           <p className="kicker text-dorado">Tus puntos</p>
           <span className="border border-dorado/50 text-dorado-claro text-[11px] font-semibold tracking-wide rounded-full px-3 py-1">{puntos.nivel?.nombre ?? "Bronce"}</span>

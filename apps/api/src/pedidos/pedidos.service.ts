@@ -1,7 +1,9 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
+import Anthropic from '@anthropic-ai/sdk';
 import { SUPABASE } from '../supabase.provider';
 import { NotificarService } from '../mensajes/notificar.service';
+import { transicionValida, liberaReserva } from './transiciones';
 
 // Radio (m) para considerar que el cliente "está llegando" y asignarle estacionamiento.
 const GEOFENCE_M = 400;
@@ -32,19 +34,12 @@ export type PedidoYaPayload = {
   notes?: string;
 };
 
-const TRANSICIONES: Record<string, string[]> = {
-  recibido: ['en_preparacion', 'cancelado'],
-  pagado: ['en_preparacion', 'cancelado'],
-  en_preparacion: ['listo', 'cancelado'],
-  listo: ['en_camino', 'entregado', 'cancelado'], // en_camino = delivery a domicilio
-  en_camino: ['entregado', 'cancelado'],
-};
-
 // Velocidad urbana promedio para estimar el ETA del repartidor (~22 km/h)
 const METROS_POR_MIN = 360;
 
 @Injectable()
 export class PedidosService {
+  private readonly claude = new Anthropic();
   constructor(
     @Inject(SUPABASE) private readonly db: SupabaseClient,
     private readonly notificar: NotificarService,
@@ -210,8 +205,68 @@ export class PedidosService {
       notas: [payload.customer?.name, payload.notes, sinMatch.length ? `SIN MATCHEAR: ${sinMatch.join(', ')}` : null]
         .filter(Boolean)
         .join(' · '),
+      reservar: false,
     });
     return { pedidoId, renglones: items.length, sinMatch };
+  }
+
+  // --- Pedido por WhatsApp: el cliente escribe en lenguaje natural, la IA arma el pedido ---
+  private async parsearWhatsApp(texto: string) {
+    const ESQ = {
+      type: 'object',
+      properties: {
+        items: { type: 'array', items: { type: 'object', properties: { name: { type: 'string' }, quantity: { type: 'number' } }, required: ['name', 'quantity'], additionalProperties: false } },
+        nombre: { type: ['string', 'null'] },
+        notas: { type: ['string', 'null'] },
+      },
+      required: ['items', 'nombre', 'notas'],
+      additionalProperties: false,
+    };
+    const PROMPT = `Sos quien toma pedidos por WhatsApp de un comercio de bebidas, fiambrería y almacén en Argentina. Del mensaje del cliente extraé: items (cada PRODUCTO pedido: name = lo que pidió tal cual, quantity = cantidad; si no aclara cantidad poné 1; "una docena"=12, "un cajón/caja"=1), nombre del cliente si aparece, y notas (aclaraciones de entrega, dirección, horario, forma de pago). Ignorá saludos y charla. Si pide algo sin cantidad clara igual incluilo con quantity 1.`;
+    const r = await this.claude.messages
+      .stream({ model: 'claude-haiku-4-5', max_tokens: 2048, output_config: { format: { type: 'json_schema', schema: ESQ } } as any, messages: [{ role: 'user', content: [{ type: 'text', text: `Mensaje del cliente: "${texto.trim()}"` }, { type: 'text', text: PROMPT }] }] })
+      .finalMessage();
+    return JSON.parse(((r.content as any[]).find((b) => b.type === 'text')?.text) ?? '{"items":[],"nombre":null,"notas":null}');
+  }
+
+  private async matchearRenglones(items: { sku?: string; name: string; quantity: number }[]) {
+    const matched: any[] = [];
+    const sinMatch: string[] = [];
+    for (const item of items ?? []) {
+      let prod: any = null;
+      if (item.sku) { const { data } = await this.db.from('productos').select('id, nombre, sku').eq('sku', item.sku).maybeSingle(); prod = data; }
+      if (!prod && item.name) {
+        const { data: sim } = await this.db.rpc('buscar_producto_similar', { p_texto: item.name }).maybeSingle();
+        if (sim) { const { data } = await this.db.from('productos').select('id, nombre, sku').eq('sku', (sim as any).sku).maybeSingle(); prod = data; }
+      }
+      if (prod) matched.push({ producto_id: prod.id, cantidad: Number(item.quantity) || 1, pedido: item.name, match: prod.nombre, sku: prod.sku });
+      else sinMatch.push(item.name);
+    }
+    return { matched, sinMatch };
+  }
+
+  // Preview: interpreta el mensaje y matchea (sin crear nada).
+  async analizarWhatsApp(texto: string) {
+    if (!texto?.trim()) throw new BadRequestException('Pegá o dictá el mensaje del cliente');
+    const parsed = await this.parsearWhatsApp(texto);
+    const { matched, sinMatch } = await this.matchearRenglones(parsed.items);
+    return { nombre: parsed.nombre ?? null, notas: parsed.notas ?? null, items: matched, sinMatch };
+  }
+
+  // Confirmar: crea el pedido (canal whatsapp) con los ítems ya matcheados/editados.
+  async recibirWhatsApp(p: { items: { producto_id: string; cantidad: number }[]; nombre?: string; notas?: string; dni?: string }) {
+    if (!p.items?.length) throw new BadRequestException('No hay ítems para crear el pedido');
+    const { data: suc } = await this.db.from('sucursales').select('id').order('nombre').limit(1).single();
+    const pedidoId = await this.crear({
+      canal: 'whatsapp',
+      sucursalId: suc!.id,
+      items: p.items.map((i) => ({ producto_id: i.producto_id, cantidad: Number(i.cantidad) || 1 })),
+      clienteDni: p.dni,
+      referencia: `WA-${Date.now()}`,
+      notas: [p.nombre, p.notas].filter(Boolean).join(' · ') || undefined,
+      reservar: false, // pedido "a pedido": no bloquea por stock
+    });
+    return { pedidoId, renglones: p.items.length };
   }
 
   // --- Núcleo: crear pedido con reserva de stock ---
@@ -223,6 +278,7 @@ export class PedidosService {
     clienteId?: string;
     referencia?: string;
     notas?: string;
+    reservar?: boolean; // false = pedido "a pedido" (no reserva stock, p.ej. WhatsApp)
   }) {
     let clienteId: string | null = p.clienteId ?? null;
     if (!clienteId && p.clienteDni?.trim()) {
@@ -264,32 +320,34 @@ export class PedidosService {
         precio_unitario: precio,
       });
       total += Math.round(item.cantidad * precio * 100) / 100;
-      const { error: errMov } = await this.db.rpc('registrar_movimiento', {
-        p_producto_id: item.producto_id,
-        p_sucursal_id: p.sucursalId,
-        p_tipo: 'reserva',
-        p_cantidad: -item.cantidad,
-        p_referencia_tipo: 'pedido',
-        p_referencia_id: pedido.id,
-      });
-      if (errMov) {
-        // rollback manual (no hay transacción): libera las reservas ya hechas y
-        // borra el pedido para no dejar huérfanos ni stock fantasma.
-        for (const r of reservados) {
-          await this.db.rpc('registrar_movimiento', {
-            p_producto_id: r.producto_id,
-            p_sucursal_id: p.sucursalId,
-            p_tipo: 'liberacion_reserva',
-            p_cantidad: r.cantidad,
-            p_referencia_tipo: 'pedido',
-            p_referencia_id: pedido.id,
-          });
+      if (p.reservar !== false) {
+        const { error: errMov } = await this.db.rpc('registrar_movimiento', {
+          p_producto_id: item.producto_id,
+          p_sucursal_id: p.sucursalId,
+          p_tipo: 'reserva',
+          p_cantidad: -item.cantidad,
+          p_referencia_tipo: 'pedido',
+          p_referencia_id: pedido.id,
+        });
+        if (errMov) {
+          // rollback manual (no hay transacción): libera las reservas ya hechas y
+          // borra el pedido para no dejar huérfanos ni stock fantasma.
+          for (const r of reservados) {
+            await this.db.rpc('registrar_movimiento', {
+              p_producto_id: r.producto_id,
+              p_sucursal_id: p.sucursalId,
+              p_tipo: 'liberacion_reserva',
+              p_cantidad: r.cantidad,
+              p_referencia_tipo: 'pedido',
+              p_referencia_id: pedido.id,
+            });
+          }
+          await this.db.from('pedidos_items').delete().eq('pedido_id', pedido.id);
+          await this.db.from('pedidos').delete().eq('id', pedido.id);
+          throw new BadRequestException(`Sin stock disponible: ${errMov.message}`);
         }
-        await this.db.from('pedidos_items').delete().eq('pedido_id', pedido.id);
-        await this.db.from('pedidos').delete().eq('id', pedido.id);
-        throw new BadRequestException(`Sin stock disponible: ${errMov.message}`);
+        reservados.push({ producto_id: item.producto_id, cantidad: item.cantidad });
       }
-      reservados.push({ producto_id: item.producto_id, cantidad: item.cantidad });
     }
     await this.db.from('pedidos').update({ total }).eq('id', pedido.id);
     return pedido.id;
@@ -518,7 +576,9 @@ export class PedidosService {
         ? 'pedidosya'
         : p.qr_retiro?.startsWith('WEB-')
           ? 'web'
-          : p.canal,
+          : p.qr_retiro?.startsWith('TN-')
+            ? 'tiendanube'
+            : p.canal,
       minutos: Math.round((Date.now() - new Date(p.creado_en).getTime()) / 60000),
     }));
   }
@@ -531,11 +591,11 @@ export class PedidosService {
       .eq('id', pedidoId)
       .single();
     if (error || !pedido) throw new BadRequestException('No existe el pedido');
-    if (!TRANSICIONES[pedido.estado]?.includes(estado)) {
+    if (!transicionValida(pedido.estado, estado)) {
       throw new BadRequestException(`Transición inválida: ${pedido.estado} → ${estado}`);
     }
 
-    if (estado === 'entregado' || estado === 'cancelado') {
+    if (liberaReserva(estado)) {
       for (const item of pedido.items as any[]) {
         const { error: errMov } = await this.db.rpc('registrar_movimiento', {
           p_producto_id: item.producto_id,

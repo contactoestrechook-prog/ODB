@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useCarrito } from "../../lib/carrito";
 import { pesos, descuentoPct, type Producto as P } from "../../lib/tipos";
 import { IcoMas } from "./Iconos";
+import { FotoProducto } from "./FotoProducto";
+import { fotosCandidatas } from "../../lib/fotos";
 
 function Tag({ children, tono }: { children: React.ReactNode; tono: "ink" | "rojo" | "oro" }) {
   const c =
@@ -21,13 +23,11 @@ export function Producto({ p }: { p: P }) {
   return (
     <div className="group">
       <Link href={`/producto/${p.sku}`} className="block relative overflow-hidden rounded-[10px] bg-crema aspect-[4/5]">
-        {p.imagenUrl ? (
-          <img src={p.imagenUrl} alt={p.nombre} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-[1.05]" />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center bg-[#efe7d9]">
-            <span className="display text-6xl font-semibold text-ink/12">{(p.nombre ?? "?")[0]}</span>
-          </div>
-        )}
+        <FotoProducto
+          imagenUrl={p.imagenUrl}
+          fotos={fotosCandidatas(p.nombre, p.sku)}
+          className="transition-transform duration-700 group-hover:scale-[1.05]"
+        />
         <div className="absolute top-3 left-3 flex flex-col items-start gap-1.5">
           {sinStock ? <Tag tono="ink">Sin stock</Tag> : pct != null ? <Tag tono="rojo">−{pct}%</Tag> : null}
           {p.descuentoComunidad && <Tag tono="oro">Socio</Tag>}

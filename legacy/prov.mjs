@@ -1,0 +1,11 @@
+import MDBReader from 'mdb-reader';
+import { readFileSync } from 'node:fs';
+const r = new (MDBReader.default ?? MDBReader)(readFileSync('./climatizacion_copia.mdb'));
+const set = new Map();
+const add = (v)=>{ const s=String(v??'').trim(); if(s){ const k=s.toLowerCase(); set.set(k, (set.get(k)?.n||0) >=0 ? {nombre:s, n:(set.get(k)?.n||0)+1} : {nombre:s,n:1}); } };
+for (const x of r.getTable('repuestos').getData({rowLimit:1e6})) add(x.proveedor);
+for (const x of r.getTable('lfaccompras').getData({rowLimit:1e6})) add(x.PROVEEDOR);
+for (const x of r.getTable('listcompra').getData({rowLimit:1e6})) add(x.proveedor);
+const arr=[...set.values()].sort((a,b)=>b.n-a.n);
+console.log('proveedores distintos:', arr.length);
+arr.slice(0,15).forEach(p=>console.log(String(p.n).padStart(5), p.nombre));

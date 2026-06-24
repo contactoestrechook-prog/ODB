@@ -8,5 +8,6 @@ import { supabaseProvider } from '../supabase.provider';
   imports: [MensajesModule],
   controllers: [PedidosController],
   providers: [PedidosService, supabaseProvider],
+  exports: [PedidosService],
 })
 export class PedidosModule {}

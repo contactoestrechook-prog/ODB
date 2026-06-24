@@ -6,13 +6,15 @@ export const dynamic = 'force-dynamic';
 
 export default async function Comparador() {
   let comparacion: any[] = [];
-  let proveedores: any[] = [];
+  let directorio: any[] = [];
+  let stats: any = null;
   let error: string | null = null;
   try {
-    const [rc, rp] = await Promise.all([apiFetch('/comparador'), apiFetch('/comparador/proveedores')]);
+    const [rc, rd, rs] = await Promise.all([apiFetch('/comparador'), apiFetch('/comparador/directorio'), apiFetch('/comparador/stats')]);
     if (rc.ok) comparacion = await rc.json();
-    if (rp.ok) proveedores = await rp.json();
-    if (!rc.ok && !rp.ok) throw new Error('La API respondió con error');
+    if (rd.ok) directorio = await rd.json();
+    if (rs.ok) stats = await rs.json();
+    if (!rc.ok && !rd.ok) throw new Error('La API respondió con error');
   } catch (e) {
     error = e instanceof Error ? e.message : 'Error desconocido';
   }
@@ -24,7 +26,7 @@ export default async function Comparador() {
         {error ? (
           <p className="rounded-lg bg-white p-4 text-sm text-[#932A1F]">No pude consultar la API ({error}).</p>
         ) : (
-          <ComparadorWorkspace comparacion={comparacion} proveedores={proveedores} />
+          <ComparadorWorkspace comparacion={comparacion} directorio={directorio} stats={stats} />
         )}
       </div>
     </main>

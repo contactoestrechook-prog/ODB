@@ -19,7 +19,8 @@ export function MobileMenu({ grupos, iconos, activo, titulo }: { grupos: Grupo[]
           </svg>
           <span className="text-sm font-medium">{titulo}</span>
         </button>
-        <span className="text-white tracking-[0.25em] font-semibold text-sm">O.D.B</span>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/odb-logo-blanco.png" alt="O.D.B Premium Market" className="h-7 w-auto" />
       </header>
 
       {/* cajón lateral */}
@@ -28,10 +29,8 @@ export function MobileMenu({ grupos, iconos, activo, titulo }: { grupos: Grupo[]
           <div className="absolute inset-0 bg-black/50" />
           <aside className="relative w-72 max-w-[85%] h-full bg-[#121212] text-white flex flex-col" onClick={(e) => e.stopPropagation()}>
             <div className="px-6 pt-6 pb-4 flex items-center justify-between">
-              <div>
-                <p className="text-xl font-semibold tracking-[0.3em]">O.D.B</p>
-                <p className="text-[10px] tracking-[0.22em] text-[#B82D25] font-semibold mt-1">PREMIUM MARKET</p>
-              </div>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/odb-logo-blanco.png" alt="O.D.B Premium Market" className="h-9 w-auto" />
               <button onClick={() => setAbierto(false)} aria-label="Cerrar" className="text-white/60 hover:text-white">
                 <svg viewBox="0 0 24 24" className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg>
               </button>

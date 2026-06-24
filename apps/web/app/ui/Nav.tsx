@@ -16,9 +16,8 @@ export function Nav({ cliente }: { cliente: Cliente | null }) {
       <div className="bg-crema/95 backdrop-blur-md border-b border-linea">
         <div className="max-w-7xl mx-auto px-5 lg:px-8">
           <div className="flex items-center gap-6 h-[70px]">
-            <Link href="/" className="shrink-0 leading-none">
-              <div className="display text-[26px] font-semibold tracking-tight text-ink">O.D.B</div>
-              <div className="kicker text-dorado mt-0.5">Premium Market</div>
+            <Link href="/" className="shrink-0">
+              <img src="/odb-logo.png" alt="O.D.B Premium Market" className="h-10 w-auto" />
             </Link>
 
             <nav className="hidden lg:flex items-center gap-8 ml-6 text-[13.5px] text-tinta/80">

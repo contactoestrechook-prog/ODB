@@ -13,6 +13,11 @@ const TIPOS: Record<string, string> = {
   REM: 'REMITO', REC: 'RECIBO', ANT: 'ANTICIPO', SIN: 'COMPROBANTE INTERNO',
 };
 
+const MEDIO_LABEL: Record<string, string> = {
+  efectivo: 'Efectivo', transferencia: 'Transferencia', cheque: 'Cheque',
+  tarjeta: 'Tarjeta', deposito: 'Depósito', retencion: 'Retención', nota_credito: 'Nota de crédito',
+};
+
 export const dynamic = 'force-dynamic';
 
 export default async function Comprobante({ params }: { params: Promise<{ id: string }> }) {
@@ -27,6 +32,17 @@ export default async function Comprobante({ params }: { params: Promise<{ id: st
     );
   }
   const c = await res.json();
+
+  // recibos: traer a qué facturas se imputó y con qué medios se cobró
+  let reciboDet: { imputaciones: any[]; medios: any[] } | null = null;
+  if (c.tipo === 'REC') {
+    const rd = await apiFetch(`/facturacion/recibos/${id}`);
+    if (rd.ok) {
+      const d = await rd.json();
+      reciboDet = { imputaciones: d.imputaciones ?? [], medios: d.medios ?? [] };
+    }
+  }
+
   const letra = ['FA', 'NCA', 'NDA'].includes(c.tipo) ? 'A' : ['FB', 'NCB', 'NDB'].includes(c.tipo) ? 'B' : ['FC', 'NCC', 'NDC'].includes(c.tipo) ? 'C' : 'X';
   const fiscal = letra !== 'X';
   const discrimina = letra === 'A';
@@ -144,6 +160,36 @@ export default async function Comprobante({ params }: { params: Promise<{ id: st
               </p>
             </div>
           </div>
+
+          {/* recibo: facturas canceladas + medios de pago */}
+          {reciboDet && (
+            <div className="px-5 pb-4 grid sm:grid-cols-2 gap-5 text-sm border-t border-black/10 pt-4">
+              <div>
+                <p className="text-[11px] text-black/45 font-medium mb-1.5 uppercase tracking-wide">Facturas canceladas</p>
+                {reciboDet.imputaciones.length === 0 && <p className="text-xs text-black/40">—</p>}
+                {reciboDet.imputaciones.map((im: any, i: number) => (
+                  <p key={i} className="flex justify-between border-b border-black/5 py-1">
+                    <span className="text-black/80">{im.factura?.etiqueta ?? 'Factura'}</span>
+                    <span>{pesos(im.importe)}</span>
+                  </p>
+                ))}
+              </div>
+              <div>
+                <p className="text-[11px] text-black/45 font-medium mb-1.5 uppercase tracking-wide">Medios de pago</p>
+                {reciboDet.medios.length === 0 && <p className="text-xs text-black/40">—</p>}
+                {reciboDet.medios.map((m: any, i: number) => (
+                  <p key={i} className="flex justify-between border-b border-black/5 py-1">
+                    <span className="text-black/80">
+                      {MEDIO_LABEL[m.medio] ?? m.medio}
+                      {m.cheque && <span className="text-[10px] text-black/45 ml-1">N° {m.cheque.numero}{m.cheque.banco ? ` · ${m.cheque.banco}` : ''}</span>}
+                      {m.referencia && <span className="text-[10px] text-black/45 ml-1">· {m.referencia}</span>}
+                    </span>
+                    <span>{pesos(m.importe)}</span>
+                  </p>
+                ))}
+              </div>
+            </div>
+          )}
 
           {c.observaciones && (
             <p className="px-5 pb-4 text-xs text-black/55">Obs.: {c.observaciones}</p>

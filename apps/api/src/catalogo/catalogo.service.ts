@@ -1,4 +1,4 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
 import { SUPABASE } from '../supabase.provider';
@@ -62,6 +62,42 @@ export class CatalogoService {
       this.db.from('marcas').select('id, nombre').order('nombre'),
     ]);
     return { categorias: categorias.data ?? [], marcas: marcas.data ?? [] };
+  }
+
+  // Búsqueda LIVIANA para el POS del cajero: una sola query indexada (trigram +
+  // código de barras exacto), sin pricing por segmento ni count → ultrarrápida.
+  async posBuscar(q: string) {
+    const t = (q ?? '').trim();
+    if (t.length < 2) return { items: [] };
+    const { data, error } = await this.db.rpc('pos_buscar', { p_q: t, p_limit: 8 });
+    if (error) throw new BadRequestException(error.message);
+    return {
+      items: (data ?? []).map((r: any) => ({
+        sku: r.sku, nombre: r.nombre,
+        precio: r.precio != null ? Number(r.precio) : null,
+        precioLista: null, descuento: null,
+        esAlcohol: !!r.es_alcohol, imagenUrl: null,
+        codigosBarras: r.codigos ?? [],
+        codigo: r.codigo ?? null,
+      })),
+    };
+  }
+
+  // Catálogo "rápido" del POS: solo productos CON STOCK (≈ los que se venden en
+  // mostrador). El cajero lo precarga al abrir la caja → búsqueda local instantánea.
+  async posCatalogo() {
+    const { data, error } = await this.db.rpc('pos_catalogo');
+    if (error) throw new BadRequestException(error.message);
+    return {
+      items: (data ?? []).map((r: any) => ({
+        sku: r.sku, nombre: r.nombre,
+        precio: r.precio != null ? Number(r.precio) : null,
+        precioLista: null, descuento: null,
+        esAlcohol: !!r.es_alcohol, imagenUrl: null,
+        codigosBarras: r.codigos ?? [],
+        codigo: r.codigo ?? null,
+      })),
+    };
   }
 
   // El catálogo es idéntico para todos los visitantes: caché corto en memoria

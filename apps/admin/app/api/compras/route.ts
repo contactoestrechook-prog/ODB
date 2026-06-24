@@ -40,11 +40,15 @@ export async function POST(req: Request) {
   switch (accion) {
     case 'crearOC': ruta = '/compras/ordenes'; body = { ...d, usuarioId }; break;
     case 'aprobar': ruta = `/compras/ordenes/${d.id}/aprobar`; body = { pin: d.pin, usuarioId }; break;
+    case 'rechazar': ruta = `/compras/ordenes/${d.id}/rechazar`; body = { motivo: d.motivo, usuarioId }; break;
     case 'recibir': ruta = `/compras/ordenes/${d.id}/recibir`; body = { items: d.items, usuarioId }; break;
     case 'crearProveedor': ruta = '/proveedores'; break;
     case 'editarProveedor': ruta = `/proveedores/${d.id}`; metodo = 'PATCH'; break;
     case 'factura': ruta = '/compras/facturas'; break;
-    case 'pagar': ruta = '/compras/pagar'; body = { ...d, usuarioId }; break;
+    case 'crearOP': ruta = '/compras/ordenes-pago'; body = { ...d, usuarioId }; break;
+    case 'aprobarOP': ruta = `/compras/ordenes-pago/${d.id}/aprobar`; body = { usuarioId }; break;
+    case 'rechazarOP': ruta = `/compras/ordenes-pago/${d.id}/rechazar`; body = { motivo: d.motivo, usuarioId }; break;
+    case 'pagarOP': ruta = `/compras/ordenes-pago/${d.id}/pagar`; body = { usuarioId, chequesPropios: d.chequesPropios, chequesTercerosIds: d.chequesTercerosIds }; break;
     default: return NextResponse.json({ message: 'Acción inválida' }, { status: 400 });
   }
 

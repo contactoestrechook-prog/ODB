@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Param, Post, Query, Req } from '@nestjs/common';
 import { FacturacionService, TIPOS } from './facturacion.service';
-import type { EmitirDto } from './facturacion.service';
+import type { EmitirDto, ReciboDto } from './facturacion.service';
 import { Roles } from '../auth/decorators';
 
 // Facturación y administración: cajeros emiten, gerencia anula
@@ -40,6 +40,12 @@ export class FacturacionController {
     return this.servicio.resumen();
   }
 
+  @Roles('gerente', 'dueno')
+  @Get('libro-iva')
+  libroIva(@Query('periodo') periodo?: string) {
+    return this.servicio.libroIva(periodo);
+  }
+
   @Get('cuentas')
   cuentas() {
     return this.servicio.cuentas();
@@ -48,5 +54,22 @@ export class FacturacionController {
   @Get('cuentas/:clienteId')
   cuenta(@Param('clienteId') clienteId: string) {
     return this.servicio.cuenta(clienteId);
+  }
+
+  // ---------- recibos de cobranza ----------
+
+  @Get('cuentas/:clienteId/abiertas')
+  facturasAbiertas(@Param('clienteId') clienteId: string) {
+    return this.servicio.facturasAbiertas(clienteId);
+  }
+
+  @Post('recibos')
+  emitirRecibo(@Body() dto: ReciboDto, @Req() req: any) {
+    return this.servicio.emitirRecibo(dto, req.usuario?.sub);
+  }
+
+  @Get('recibos/:id')
+  detalleRecibo(@Param('id') id: string) {
+    return this.servicio.detalleRecibo(id);
   }
 }

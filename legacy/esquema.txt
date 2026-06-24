@@ -1,0 +1,224 @@
+TOTAL TABLAS: 130
+
+=== TODAS LAS TABLAS (alfabético) ===
+      0  acobrar  (18 cols)
+      0  APAGAR  (14 cols)
+      1  auxcod  (4 cols)
+      2  auxhorario  (9 cols)
+      2  auxliquidacion  (14 cols)
+      2  auxpedidosweb  (16 cols)
+      0  auxremitos  (1 cols)
+      0  BANCOS  (1 cols)
+      0  caja  (23 cols)
+      0  cajae  (13 cols)
+      0  cajai  (11 cols)
+      4  cambios  (16 cols)
+      0  CHEQUE  (14 cols)
+      0  chequemes  (17 cols)
+      0  cierresst  (7 cols)
+   1229  cliente  (51 cols)
+      1  compras  (19 cols)
+      0  comprasc  (18 cols)
+      0  COMPRASIVA  (20 cols)
+      0  comprasp  (16 cols)
+      0  costos  (7 cols)
+      1  cta  (4 cols)
+      1  CTA2  (2 cols)
+      1  ctabancos  (1 cols)
+      0  ctacte  (24 cols)
+      0  ctactedeu  (12 cols)
+      0  CTACTEENV  (20 cols)
+      3  ctactepro  (20 cols)
+      0  ctactepro2  (21 cols)
+      0  ctacteprodeu  (12 cols)
+      0  cuotas  (9 cols)
+      0  datos  (7 cols)
+      2  depositos  (1 cols)
+      0  detallepagos  (12 cols)
+      0  detallerec  (5 cols)
+      0  detallerecp  (5 cols)
+      0  detpedidos  (11 cols)
+      1  DETSTOCK  (23 cols)
+      2  direccion  (1 cols)
+    125  eliminados  (16 cols)
+      0  eliminadosweb  (4 cols)
+      0  entradas  (15 cols)
+      0  envases  (13 cols)
+      0  equiposacum  (6 cols)
+      2  FACCOMPRAS  (18 cols)
+      0  faccomprasp  (23 cols)
+      0  facliquidacion  (9 cols)
+      0  facpedidosweb  (27 cols)
+      2  FACREPARTOS  (12 cols)
+      0  factura  (13 cols)
+      1  factura2  (14 cols)
+      0  facturacom  (15 cols)
+      0  facturaent  (13 cols)
+      2  facturaeti  (187 cols)
+      9  facturaimp  (35 cols)
+      0  FACVENTAS  (76 cols)
+      0  facventasp  (26 cols)
+      0  GARANTIA  (2 cols)
+      0  genpedidos  (13 cols)
+      0  grupo  (1 cols)
+      0  grupos  (2 cols)
+      0  horario  (8 cols)
+      2  INFORMES  (96 cols)
+      1  iniciacaja  (57 cols)
+      0  IVAIMP  (18 cols)
+      0  lbancos  (13 cols)
+   9492  lfaccompras  (18 cols)
+      7  lineas  (1 cols)
+      0  liquidacion  (15 cols)
+      4  LISTADO  (37 cols)
+      4  listado1  (65 cols)
+      0  listados  (37 cols)
+      0  listafac  (4 cols)
+      1  listapagos  (18 cols)
+      4  listarepuestos  (28 cols)
+      0  listavence  (9 cols)
+    364  listcompra  (19 cols)
+      0  listrepartos  (17 cols)
+     30  logerrores  (4 cols)
+      5  LPEDIDOS  (14 cols)
+      0  lprecios  (20 cols)
+      0  lreparto  (16 cols)
+      0  lresumenven  (28 cols)
+     22  motivos  (3 cols)
+      0  movbancos  (13 cols)
+      0  MOVCAJA  (15 cols)
+      0  movctacte  (18 cols)
+   2001  MOVSTOCK  (17 cols)
+      0  npedido  (2 cols)
+      0  npedidop  (2 cols)
+      0  pagos  (11 cols)
+      0  pagosfactura  (6 cols)
+      0  pagosfacturap  (6 cols)
+      0  pagosp  (17 cols)
+      0  pagosprov  (13 cols)
+      0  pedidos  (13 cols)
+      0  pedidoscli  (15 cols)
+      0  PEDIDOSFAC  (13 cols)
+      0  PEDIDOSFAC1  (13 cols)
+      0  pedidosweb  (19 cols)
+      0  precios  (9 cols)
+      1  PROVEEDOR  (25 cols)
+      0  remitos  (2 cols)
+      0  remitosp  (2 cols)
+      0  reparto  (12 cols)
+      0  REPARTOS  (18 cols)
+   1455  repuestos  (59 cols)
+      0  resumen  (8 cols)
+      0  RETENCIONES  (7 cols)
+     20  rubro  (3 cols)
+     55  RUBROSTOCK  (1 cols)
+      1  RUTA  (19 cols)
+   4325  salidas  (14 cols)
+      3  seguridad  (127 cols)
+  42941  stockdep  (5 cols)
+      0  TARJETAS  (1 cols)
+      0  telefono  (1 cols)
+      0  TIPO  (4 cols)
+      0  TIPOTECNICO  (2 cols)
+      0  TITULOS  (6 cols)
+      0  UBICACION  (4 cols)
+      2  USUARIO  (2 cols)
+      0  UTILIDAD  (4 cols)
+      3  vendedor  (51 cols)
+      0  VENTAS  (30 cols)
+      0  VENTASIVA  (17 cols)
+      0  ventasp  (41 cols)
+     95  zona  (1 cols)
+    127  zona1  (2 cols)
+     31  zona2  (1 cols)
+
+
+=== COLUMNAS + MUESTRA (tablas clave) ===
+
+--- auxliquidacion  (2 filas) ---
+Id:long | nrofactura:text | fecha:datetime | numero:long | empleado:text | detalle:text | sueldo:currency | valor:currency | horas:currency | totale:long | tipo:text | mes:text | total:currency | NUMID:long
+EJ: {"Id":"1","nrofactura":"","fecha":"","numero":"0","empleado":"Juan Pablo","detalle":"","sueldo":"0.0000","valor":"0.0000","horas":"0.0000","totale":"0","tipo":"","mes":"","total":"0.0000","NUMID":"0"}
+
+--- cliente  (1229 filas) ---
+ID:long | numero:long | CODIGO:text | NOMBRE:text | domicilio:text | DOMICILIONUM:text | DOMICILIOCOM:text | PISO:text | LOCALIDAD:text | provincia:text | TELEFONO:text | TELEFONO2:text | celular:text | cpostal:text | email:text | fecha:datetime | TIPO:text | cuit:text | iva:text | nota:text | porcosto:currency | costomayor:currency | porcosto2:currency | institucional:text | listap:text | saldo:currency | FANTASIA:text | CONTACTO:text | dia:text | CODDIA:long | contado:currency | deuda:currency | fiado:currency | quimes1:long | quilmes2:long | budw1:long | budw2:long | coca1:long | coca2:long | ventas:currency | quimesp:long | budwp:long | cocap:long | med1:text | med2:text | barrio:text | vendedor:text | zona:text | listaind:boolean | numweb:long | estado:text
+EJ: {"ID":"3016","numero":"25","CODIGO":"","NOMBRE":"El Rocio Lote 155","domicilio":"","DOMICILIONUM":"","DOMICILIOCOM":" ","PISO":"","LOCALIDAD":"","provincia":"Buenos Aires","TELEFONO":"","TELEFONO2":"","celular":"15","cpostal":"","email":"","fecha":"Mon Feb 03 2014 21:00:","TIPO":"REPARTO","cuit":"","iva":"CONSUMIDOR FINAL","nota":"","porcosto":"0.0000","costomayor":"0.0000","porcosto2":"0.0000","institucional":"","listap":"1","saldo":"0.0000","FANTASIA":"","CONTACTO":"","dia":"","CODDIA":"0","contado":"0.0000","deuda":"0.0000","fiado":"0.0000","quimes1":"0","quilmes2":"0","budw1":"0","budw2":"0","coca1":"0","coca2":"0","ventas":"0.0000","quimesp":"0","budwp":"0","cocap":"0","med1":"","med2":"","barrio":"","vendedor":"Juan Pablo","zona":"","listaind":"false","numweb":"","estado":""}
+
+--- compras  (1 filas) ---
+Id:long | nrofACTURA:text | FECHA:datetime | CCOMPRA:text | NUMERO:long | proveedor:text | CANTIDAD:currency | CODIGO:text | DESCRIPCION:text | PRECIO:currency | TOTAL:currency | LOTE:text | CANTSTOCK:long | SUCURSAL:text | dias:text | COMISION:currency | PRECIO2:currency | SUMCANTIDAD:currency | costoprim:text
+EJ: {"Id":"1","nrofACTURA":"FAC - R55555","FECHA":"Thu Jan 16 2014 21:00:","CCOMPRA":"CONTADO","NUMERO":"1","proveedor":"DRINK SOLUTIONS","CANTIDAD":"100.0000","CODIGO":"2","DESCRIPCION":"Gran Los Arboles Malbe","PRECIO":"26.3000","TOTAL":"2630.0000","LOTE":"CENTRAL","CANTSTOCK":"0","SUCURSAL":"","dias":"","COMISION":"0.0000","PRECIO2":"26.3000","SUMCANTIDAD":"0.0000","costoprim":""}
+
+--- ctactepro  (3 filas) ---
+Id:long | nrofactura:text | nrorecibo:text | nroreciboc:text | fecha:datetime | numero:long | cliente:text | detalle:text | total:currency | pago:currency | saldo:currency | num:long | tipo:text | vencimiento:datetime | numctacte:long | sumpago:currency | sumtotal:currency | USUARIO:text | banco:text | cuenta:text
+EJ: {"Id":"1","nrofactura":"FAC - R55555","nrorecibo":"","nroreciboc":"","fecha":"Thu Jan 16 2014 21:00:","numero":"1","cliente":"DRINK SOLUTIONS","detalle":"FAC - R55555 - Vence: ","total":"0.0000","pago":"2630.0000","saldo":"2630.0000","num":"0","tipo":"","vencimiento":"","numctacte":"0","sumpago":"0.0000","sumtotal":"0.0000","USUARIO":"","banco":"","cuenta":""}
+
+--- depositos  (2 filas) ---
+NOMBRE:text
+EJ: {"NOMBRE":"CORVALAN 2243"}
+
+--- DETSTOCK  (1 filas) ---
+Id:long | nrofACTURA:text | FECHA:datetime | TIPO:text | CCOMPRA:text | NUMERO:long | proveedor:text | CANTIDAD:currency | CODIGO:text | DESCRIPCION:text | PRECIO:currency | TOTAL:currency | LOTE:text | CANTSTOCK:currency | DEPOSITO:text | costo:currency | dias:text | ingreso:currency | salida:currency | DESDE:text | HASTA:text | ventas:currency | compras:currency
+EJ: {"Id":"221524","nrofACTURA":"18836","FECHA":"Thu Apr 16 2026 21:00:","TIPO":"Entradas","CCOMPRA":"","NUMERO":"2","proveedor":"DRINK SOLUTIONS","CANTIDAD":"0.0000","CODIGO":"","DESCRIPCION":"","PRECIO":"0.0000","TOTAL":"0.0000","LOTE":"","CANTSTOCK":"12.0000","DEPOSITO":"","costo":"0.0000","dias":"","ingreso":"12.0000","salida":"0.0000","DESDE":"","HASTA":"","ventas":"0.0000","compras":"0.0000"}
+
+--- FACCOMPRAS  (2 filas) ---
+Id:long | nrofACTURA:text | FECHA:datetime | subtotal:currency | TOTAL:currency | IVA:currency | IBRUTOS:currency | retenciones:currency | descuento:currency | NUMERO:long | PROVEEDOR:text | cventa:text | SUCURSAL:text | VENCIMIENTO:text | pventa:currency | nogravado:currency | impinternos:currency | detalle2:text
+EJ: {"Id":"1","nrofACTURA":"FAC - R55555","FECHA":"Thu Jan 16 2014 21:00:","subtotal":"2630.0000","TOTAL":"2630.0000","IVA":"0.0000","IBRUTOS":"0.0000","retenciones":"0.0000","descuento":"0.0000","NUMERO":"0","PROVEEDOR":"DRINK SOLUTIONS","cventa":"CONTADO","SUCURSAL":"","VENCIMIENTO":"","pventa":"0.0000","nogravado":"0.0000","impinternos":"0.0000","detalle2":""}
+
+--- FACREPARTOS  (2 filas) ---
+Id:long | NUMERO:long | PERIODO:text | FECHA:datetime | TOTAL:currency | CAJAS:currency | fechad:datetime | fechah:datetime | estado:text | usuariog:text | chofer:text | ruta:long
+EJ: {"Id":"1","NUMERO":"2740","PERIODO":"","FECHA":"Thu Jan 16 2014 21:00:","TOTAL":"700.0000","CAJAS":"0.0000","fechad":"","fechah":"","estado":"","usuariog":"","chofer":"","ruta":"1"}
+
+--- facturaeti  (2 filas) ---
+codigo:text | cantidad:double | descripcion:text | precio:currency | total:currency | cliente:text | domicilio:text | localidad:text | cuit:text | iva:text | remito:text | cventa:text | fecha:text | PCOSTO:currency | DESCUENTO:text | IMPORTEDES:currency | importeiva:currency | iva3:text | cventa2:text | dia:text | mes:text | ano:text | subtotal:currency | nota:text | codigo2:text | cantidad2:double | descripcion2:text | precio2:currency | total2:currency | codigo3:text | cantidad3:double | descripcion3:text | precio3:currency | total3:currency | codigo4:text | cantidad4:double | descripcion4:text | precio4:currency | total4:currency | codigo5:text | cantidad5:double | descripcion5:text | precio5:currency | total5:currency | codigo6:text | cantidad6:double | descripcion6:text | precio6:currency | total6:currency | codigo7:text | cantidad7:double | descripcion7:text | precio7:currency | total7:currency | codigo8:text | cantidad8:double | descripcion8:text | precio8:currency | total8:currency | codigo9:text | cantidad9:double | descripcion9:text | precio9:currency | total9:currency | codigo10:text | cantidad10:double | descripcion10:text | precio10:currency | total10:currency | codigo11:text | cantidad11:double | descripcion11:text | precio11:currency | total11:currency | codigo12:text | cantidad12:double | descripcion12:text | precio12:currency | total12:currency | codigo13:text | cantidad13:double | descripcion13:text | precio13:currency | total13:currency | codigo14:text | cantidad14:double | descripcion14:text | precio14:currency | total14:currency | codigo15:text | cantidad15:double | descripcion15:text | precio15:currency | total15:currency | codigo16:text | cantidad16:double | descripcion16:text | precio16:currency | total16:currency | codigo17:text | cantidad17:double | descripcion17:text | precio17:currency | total17:currency | codigo18:text | cantidad18:double | descripcion18:text | precio18:currency | total18:currency | codigo19:text | cantidad19:double | descripcion19:text | precio19:currency | total19:currency | codigo20:text | cantidad20:double | descripcion20:text | precio20:currency | total20:currency | equilmes:long | equilmes2:long | equilmes3:long | pequilmes:long | pequilmes2:long | pequilmes3:long | ecoca:long | ecoca2:long | ecoca3:long | pcoca:long | pcoca2:long | pcoca3:long | ebudw:long | ebudw2:long | ebudw3:long | pbudw:long | pbudw2:long | pbudw3:long | codigo21:text | cantidad21:double | descripcion21:text | precio21:currency | total21:currency | codigo22:text | cantidad22:double | descripcion22:text | precio22:currency | total22:currency | codigo23:text | cantidad23:double | descripcion23:text | precio23:currency | total23:currency | codigo24:text | cantidad24:double | descripcion24:text | precio24:currency | total24:currency | codigo25:text | cantidad25:double | descripcion25:text | precio25:currency | total25:currency | sincargo1:text | sincargo2:text | sincargo3:text | sincargo4:text | sincargo5:text | sincargo6:text | sincargo7:text | sincargo8:text | sincargo9:text | sincargo10:text | sincargo11:text | sincargo12:text | sincargo13:text | sincargo14:text | sincargo15:text | sincargo16:text | sincargo17:text | sincargo18:text | sincargo19:text | sincargo20:text | sincargo21:text | sincargo22:text | sincargo23:text | sincargo24:text | sincargo25:text
+EJ: {"codigo":"5769","cantidad":"6","descripcion":"Altocedro La Consulta ","precio":"28800.0000","total":"172800.0000","cliente":"2504 - Javi Volta-Kent","domicilio":" ","localidad":"","cuit":"","iva":"","remito":"1-17576","cventa":"Juan Pablo","fecha":"10/06/26","PCOSTO":"0.0000","DESCUENTO":"","IMPORTEDES":"0.0000","importeiva":"0.0000","iva3":"","cventa2":"","dia":"","mes":"","ano":"","subtotal":"0.0000","nota":"","codigo2":"NOTA DE PEDIDO","cantidad2":"6","descripcion2":"Abras Camino Real x750","precio2":"41600.0000","total2":"249600.0000","codigo3":"12910","cantidad3":"1","descripcion3":"Altocedro La Consulta ","precio3":"249900.0000","total3":"249900.0000","codigo4":"","cantidad4":"0","descripcion4":"","precio4":"0.0000","total4":"0.0000","codigo5":"","cantidad5":"0","descripcion5":"","precio5":"0.0000","total5":"0.0000","codigo6":"","cantidad6":"0","descripcion6":"","precio6":"0.0000","total6":"0.0000","codigo7":"","cantidad7":"0","descripcion7":"","precio7":"0.0000","total7":"0.0000","codigo8":"","cantidad8":"0","descripcion8":"","precio8":"0.0000","total8":"0.0000","codigo9":"","cantidad9":"0","descripcion9":"","precio9":"0.0000","total9":"0.0000","codigo10":"","cantidad10":"0","descripcion10":"","precio10":"0.0000","total10":"0.0000","codigo11":"","cantidad11":"0","descripcion11":"","precio11":"0.0000","total11":"0.0000","codigo12":"","cantidad12":"0","descripcion12":"","precio12":"0.0000","total12":"0.0000","codigo13":"","cantidad13":"0","descripcion13":"","precio13":"0.0000","total13":"0.0000","codigo14":"","cantidad14":"0","descripcion14":"","precio14":"0.0000","total14":"0.0000","codigo15":"","cantidad15":"0","descripcion15":"","precio15":"0.0000","total15":"0.0000","codigo16":"","cantidad16":"0","descripcion16":"","precio16":"0.0000","total16":"0.0000","codigo17":"","cantidad17":"0","descripcion17":"","precio17":"0.0000","total17":"0.0000","codigo18":"","cantidad18":"0","descripcion18":"","precio18":"0.0000","total18":"0.0000","codigo19":"","cantidad19":"0","descripcion19":"","precio19":"0.0000","total19":"0.0000","codigo20":"","cantidad20":"0","descripcion20":"","precio20":"0.0000","total20":"0.0000","equilmes":"0","equilmes2":"0","equilmes3":"0","pequilmes":"0","pequilmes2":"0","pequilmes3":"0","ecoca":"0","ecoca2":"0","ecoca3":"0","pcoca":"0","pcoca2":"0","pcoca3":"0","ebudw":"0","ebudw2":"0","ebudw3":"0","pbudw":"0","pbudw2":"0","pbudw3":"0","codigo21":"","cantidad21":"0","descripcion21":"","precio21":"0.0000","total21":"0.0000","codigo22":"","cantidad22":"0","descripcion22":"","precio22":"0.0000","total22":"0.0000","codigo23":"","cantidad23":"0","descripcion23":"","precio23":"0.0000","total23":"0.0000","codigo24":"","cantidad24":"0","descripcion24":"","precio24":"0.0000","total24":"0.0000","codigo25":"","cantidad25":"0","descripcion25":"","precio25":"0.0000","total25":"0.0000","sincargo1":"","sincargo2":"","sincargo3":"","sincargo4":"","sincargo5":"","sincargo6":"","sincargo7":"","sincargo8":"","sincargo9":"","sincargo10":"","sincargo11":"","sincargo12":"","sincargo13":"","sincargo14":"","sincargo15":"","sincargo16":"","sincargo17":"","sincargo18":"","sincargo19":"","sincargo20":"","sincargo21":"","sincargo22":"","sincargo23":"","sincargo24":"","sincargo25":""}
+
+--- facturaimp  (9 filas) ---
+codigo:text | cantidad:double | descripcion:text | precio:currency | total:currency | cliente:text | domicilio:text | localidad:text | cuit:text | iva:text | remito:text | cventa:text | fecha:text | DROGUERIA:text | LOTE:text | PCOSTO:currency | DESCUENTO:text | IMPORTEDES:currency | iva2:text | importeiva:currency | iva3:text | iva4:text | cventa2:text | dia:text | mes:text | ano:text | subtotal:currency | nota:text | cajas:text | comprobante:text | pventa:text | cae:text | vtocae:text | exento:currency | codbarra:text
+EJ: {"codigo":"9054","cantidad":"36","descripcion":"Cunnington Pomelo 2.25","precio":"2400.0000","total":"86400.0000","cliente":"CG Carrera S.A","domicilio":"","localidad":"","cuit":"","iva":"","remito":"1-17593","cventa":"","fecha":"","DROGUERIA":"","LOTE":"","PCOSTO":"0.0000","DESCUENTO":"","IMPORTEDES":"0.0000","iva2":"","importeiva":"0.0000","iva3":"","iva4":"","cventa2":"","dia":"","mes":"","ano":"","subtotal":"0.0000","nota":"","cajas":"","comprobante":"","pventa":"","cae":"","vtocae":"","exento":"0.0000","codbarra":""}
+
+--- lfaccompras  (9492 filas) ---
+Id:long | nrofACTURA:text | FECHA:datetime | subtotal:currency | TOTAL:currency | IVA:currency | IBRUTOS:currency | NUMERO:long | RETENCIONES:currency | DESCUENTO:currency | PROVEEDOR:text | cventa:text | desde:text | hasta:text | titcliente:text | titusuario:text | horario:text | nota:text
+EJ: {"Id":"951537","nrofACTURA":"FAC - R3-112751","FECHA":"Thu Apr 30 2026 21:00:","subtotal":"14585.0000","TOTAL":"14585.0000","IVA":"0.0000","IBRUTOS":"0.0000","NUMERO":"0","RETENCIONES":"0.0000","DESCUENTO":"0.0000","PROVEEDOR":"alexis odb","cventa":"","desde":"01/05/26","hasta":"31/05/26","titcliente":"","titusuario":"","horario":"","nota":""}
+
+--- listcompra  (364 filas) ---
+nrofactura:text | FECHA:datetime | NUMERO:long | proveedor:text | CCOMPRA:text | CANTIDAD:currency | CODIGO:text | DESCRIPCION:text | PRECIO:currency | TOTAL:currency | LOTE:text | DROGERIA:text | desde:text | hasta:text | titcliente:text | titusuario:text | USUARIO:text | PCOSTO:currency | COMISION:currency
+EJ: {"nrofactura":"","FECHA":"","NUMERO":"1510","proveedor":"","CCOMPRA":"","CANTIDAD":"2.0000","CODIGO":"11569","DESCRIPCION":"Yogur Yogurisimo Natur","PRECIO":"0.0000","TOTAL":"0.0000","LOTE":"","DROGERIA":"","desde":"","hasta":"","titcliente":"","titusuario":"","USUARIO":"","PCOSTO":"0.0000","COMISION":"0.0000"}
+
+--- LPEDIDOS  (5 filas) ---
+id:long | codigopro:text | codigo:text | descripcion:text | pcosto:currency | fecha:text | proveedor:text | CANTIDAD:long | reparacion:long | cliente:text | pedido:text | npedido:long | cajas:long | UBICAcion:text
+EJ: {"id":"54557","codigopro":"","codigo":"10820","descripcion":"Corte de Blancas Paco ","pcosto":"18.0000","fecha":"18/06/26","proveedor":"","CANTIDAD":"0","reparacion":"0","cliente":"","pedido":"","npedido":"19644","cajas":"0","UBICAcion":""}
+
+--- MOVSTOCK  (2001 filas) ---
+Id:long | nrofACTURA:text | FECHA:datetime | TIPO:text | CCOMPRA:text | NUMERO:long | proveedor:text | CANTIDAD:currency | CODIGO:text | DESCRIPCION:text | PRECIO:currency | TOTAL:currency | LOTE:text | CANTSTOCK:long | DEPOSITO:text | costo:currency | dias:text
+EJ: {"Id":"191","nrofACTURA":"","FECHA":"Wed May 30 2012 21:00:","TIPO":"Saldo Inicial","CCOMPRA":"","NUMERO":"0","proveedor":"","CANTIDAD":"0.0000","CODIGO":"11111","DESCRIPCION":"111","PRECIO":"0.0000","TOTAL":"0.0000","LOTE":"","CANTSTOCK":"0","DEPOSITO":"CENTRAL","costo":"0.0000","dias":""}
+
+--- repuestos  (1455 filas) ---
+Id:long | codigopro:text | codigo:text | tipo:text | marca:text | modelo:text | descripcion:text | descripcion2:text | nota:text | pcosto:currency | pventa:currency | pventaiva:currency | ptaller:currency | fecha:datetime | proveedor:text | CANTIDAD:long | RESERVAS:long | ubicacion:text | portaller:currency | porventa:currency | pventa2:currency | pventaiva2:currency | porventa2:currency | pventa3:currency | pventaiva3:currency | porventa3:currency | rubro:text | caja:text | stockmin:long | iva:currency | piva:currency | ibruto:currency | interno:double | envasesq:boolean | envasesc:boolean | envasesb:boolean | DESCUENTO:currency | pcostof:currency | percep:boolean | pventaiva4:currency | porventa4:currency | pcostoprom:currency | CANTIDADa:long | totala:currency | foto:text | MEDIDA:text | cargar:text | PALET:long | FACtURADO:long | REAL:long | DIFERENCIA:long | comision:currency | estado:text | numweb:long | fechayhora:datetime | sucursal:long | cambios:long | tipomov:long | creado:long
+EJ: {"Id":"1246","codigopro":"3","codigo":"3","tipo":"Articulo","marca":"","modelo":"","descripcion":"Benjamin Nieto Senetin","descripcion2":"","nota":"","pcosto":"120.0000","pventa":"195.0000","pventaiva":"195.0000","ptaller":"0.0000","fecha":"Mon Jul 27 2020 21:00:","proveedor":"DRINK SOLUTIONS","CANTIDAD":"22","RESERVAS":"0","ubicacion":"","portaller":"0.0000","porventa":"62.5000","pventa2":"175.0000","pventaiva2":"175.0000","porventa2":"45.8300","pventa3":"145.0000","pventaiva3":"145.0000","porventa3":"20.8300","rubro":"Vinos Tintos Malbec","caja":"1","stockmin":"12","iva":"0.0000","piva":"0.0000","ibruto":"0.0000","interno":"0","envasesq":"false","envasesc":"false","envasesb":"false","DESCUENTO":"0.0000","pcostof":"0.0000","percep":"false","pventaiva4":"132.0000","porventa4":"10.0000","pcostoprom":"120.0000","CANTIDADa":"0","totala":"2640.0000","foto":"","MEDIDA":"","cargar":"","PALET":"","FACtURADO":"","REAL":"","DIFERENCIA":"","comision":"","estado":"","numweb":"","fechayhora":"Sat Oct 10 2020 00:40:","sucursal":"2","cambios":"0","tipomov":"","creado":"0"}
+
+--- rubro  (20 filas) ---
+rubro:text | tipo:text | UTILIDAD:text
+EJ: {"rubro":"COMBUSTIBLE","tipo":"E","UTILIDAD":"S"}
+
+--- RUBROSTOCK  (55 filas) ---
+rubro:text
+EJ: {"rubro":"Vinos Tintos Malbec"}
+
+--- salidas  (4325 filas) ---
+Id:long | nrofACTURA:text | FECHA:datetime | comision:long | proveedor:text | CANTIDAD:currency | CODIGO:text | DESCRIPCION:text | PRECIO:currency | TOTAL:currency | PVENTA:currency | detalle:text | USUARIO:text | SUMCANTIDAD:currency
+EJ: {"Id":"2","nrofACTURA":"552","FECHA":"Tue Feb 18 2014 21:00:","comision":"0","proveedor":"DRINK SOLUTIONS","CANTIDAD":"133.0000","CODIGO":"101","DESCRIPCION":"Heineken 5Lts Barril","PRECIO":"130.0000","TOTAL":"17290.0000","PVENTA":"0.0000","detalle":"","USUARIO":"SUPERVISOR","SUMCANTIDAD":"0.0000"}
+
+--- stockdep  (42941 filas) ---
+codigo:text | codigoprov:text | deposito:text | cantidad:long | sueltas:long
+EJ: {"codigo":"","codigoprov":"","deposito":"","cantidad":"-2","sueltas":"0"}
+
+--- vendedor  (3 filas) ---
+numero:long | CODIGO:text | NOMBRE:text | domicilio:text | DOMICILIONUM:text | DOMICILIOCOM:text | PISO:text | LOCALIDAD:text | provincia:text | TELEFONO:text | TELEFONO2:text | celular:text | cpostal:text | email:text | fecha:text | TIPO:text | cuit:text | iva:text | nota:text | comision:currency | costomayor:currency | porcosto2:currency | institucional:text | listap:text | saldo:currency | FANTASIA:text | CONTACTO:text | dia:text | CODDIA:long | LISTA1:currency | LISTA2:currency | LISTA3:currency | LISTA4:currency | LISTA5:currency | LISTA6:currency | LISTA7:currency | LISTA8:currency | LISTA9:currency | LISTA10:currency | vende:boolean | EMPLE:boolean | detallepag:memo | sueldo:currency | horas:currency | valorhe:currency | comis1:currency | comis2:currency | comis3:currency | numweb:currency | estado:text | clave:text
+EJ: {"numero":"1","CODIGO":"","NOMBRE":"Fernandez Juan Pablo","domicilio":"","DOMICILIONUM":"","DOMICILIOCOM":" ","PISO":"","LOCALIDAD":"","provincia":"","TELEFONO":"","TELEFONO2":"","celular":"15","cpostal":"","email":"","fecha":"310114","TIPO":"Juan Pablo","cuit":"","iva":"","nota":"","comision":"0.0000","costomayor":"0.0000","porcosto2":"0.0000","institucional":"","listap":"","saldo":"0.0000","FANTASIA":"","CONTACTO":"","dia":"","CODDIA":"0","LISTA1":"0.0000","LISTA2":"0.0000","LISTA3":"0.0000","LISTA4":"0.0000","LISTA5":"0.0000","LISTA6":"0.0000","LISTA7":"0.0000","LISTA8":"0.0000","LISTA9":"0.0000","LISTA10":"0.0000","vende":"true","EMPLE":"true","detallepag":"","sueldo":"0.0000","horas":"0.0000","valorhe":"0.0000","comis1":"","comis2":"","comis3":"","numweb":"","estado":"","clave":""}
+
+--- zona  (95 filas) ---
+NOMBRE:text
+EJ: {"NOMBRE":"MONTSERRAT"}
+
+--- zona1  (127 filas) ---
+numero:long | nombre:text
+EJ: {"numero":"8","nombre":"RETIRO-SAN NICOLAS"}

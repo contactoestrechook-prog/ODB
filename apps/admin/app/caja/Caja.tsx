@@ -3,8 +3,6 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 
-const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
-
 type Producto = {
   imagenUrl: string | null;
   sku: string;
@@ -14,6 +12,7 @@ type Producto = {
   descuento: string | null;
   esAlcohol: boolean;
   codigosBarras: string[];
+  codigo?: string | null; // código interno de ODB (lo que se escanea / imprime en la etiqueta)
 };
 
 type Renglon = Producto & { cantidad: number };
@@ -28,6 +27,8 @@ type Cliente = {
 
 const pesos = (n: number | null | undefined) =>
   n == null ? '—' : '$' + Math.round(Number(n)).toLocaleString('es-AR');
+
+const norm = (s: string) => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 
 const MEDIOS = [
   { id: 'efectivo', label: 'Efectivo' },
@@ -46,11 +47,37 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string 
   const [medio, setMedio] = useState('efectivo');
   const [estado, setEstado] = useState<{ tipo: 'ok' | 'error'; texto: string } | null>(null);
   const [cobrando, setCobrando] = useState(false);
+  const [pagaCon, setPagaCon] = useState('');
+  const [buscando, setBuscando] = useState(false);
+  const [catalogoLocal, setCatalogoLocal] = useState<any[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
+  const debRef = useRef<any>(null);
+  const seqRef = useRef(0);
 
   useEffect(() => {
     inputRef.current?.focus();
   }, [carrito.length]);
+
+  // Precarga el catálogo con stock (≈575) para búsqueda LOCAL instantánea.
+  useEffect(() => {
+    fetch('/api/pos-catalogo')
+      .then((r) => (r.ok ? r.json() : { items: [] }))
+      .then((d) => setCatalogoLocal((d.items ?? []).map((p: any) => ({ ...p, _n: norm(p.nombre) }))))
+      .catch(() => {});
+  }, []);
+
+  function filtrarLocal(t: string): Producto[] {
+    const n = norm(t);
+    const low = t.toLowerCase();
+    return catalogoLocal
+      .filter((p) =>
+        p.codigo === t ||                                  // código interno exacto (escaneo)
+        p._n?.includes(n) ||
+        p.sku?.toLowerCase().startsWith(low) ||
+        (p.codigosBarras ?? []).some((c: string) => c.includes(t)),
+      )
+      .slice(0, 8);
+  }
 
   // El total cobrable se recalcula también en el servidor: esto es solo display
   const total = carrito.reduce((s, r) => s + (Number(r.precio) || 0) * r.cantidad, 0);
@@ -58,8 +85,15 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string 
     (s, r) => s + (Number(r.precioLista ?? r.precio) || 0) * r.cantidad,
     0,
   );
+  const pagaConN = Number(pagaCon) || 0;
+  const vuelto = medio === 'efectivo' && pagaConN > 0 ? pagaConN - total : null;
 
   function agregar(p: Producto) {
+    if (p.precio == null) {
+      setEstado({ tipo: 'error', texto: `"${p.nombre}" no tiene precio cargado — no se puede vender` });
+      setBusqueda(''); setResultados([]);
+      return;
+    }
     setCarrito((c) => {
       const existente = c.find((r) => r.sku === p.sku);
       if (existente) {
@@ -72,22 +106,58 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string 
     setEstado(null);
   }
 
-  async function buscar(termino: string) {
+  // local-first: busca instantáneo en el catálogo precargado; si no hay nada,
+  // cae al server (productos "a pedido" / fuera de stock). El escáner agrega solo.
+  function onBuscar(termino: string) {
     setBusqueda(termino);
-    if (termino.trim().length < 2) {
-      setResultados([]);
-      return;
+    setEstado(null);
+    if (debRef.current) clearTimeout(debRef.current);
+    const t = termino.trim();
+    if (t.length < 2) { setResultados([]); return; }
+    // código interno / barra exacto en el catálogo local → agrega al instante
+    if (/^\d{4,14}$/.test(t)) {
+      const ex = catalogoLocal.find((p) => p.codigo === t || p.sku === t || (p.codigosBarras ?? []).includes(t));
+      if (ex) { agregar(ex); return; }
     }
-    const res = await fetch(`${API}/productos?buscar=${encodeURIComponent(termino)}&porPagina=6`);
-    if (res.ok) {
-      const datos: Producto[] = (await res.json()).items;
-      // Código de barras escaneado: un único resultado exacto se agrega solo
-      if (/^\d{8,14}$/.test(termino.trim()) && datos.length === 1) {
-        agregar(datos[0]);
-      } else {
-        setResultados(datos);
+    const locales = filtrarLocal(t);
+    setResultados(locales);
+    // sin match local → buscar en el servidor (debounced)
+    if (locales.length === 0) debRef.current = setTimeout(() => ejecutar(t, false), 170);
+  }
+
+  async function ejecutar(t: string, esEnter: boolean) {
+    const seq = ++seqRef.current;
+    setBuscando(true);
+    try {
+      const res = await fetch(`/api/pos-buscar?q=${encodeURIComponent(t)}`);
+      const datos: Producto[] = res.ok ? ((await res.json()).items ?? []) : [];
+      if (seq !== seqRef.current) return; // descarta respuestas viejas
+      const esCodigo = /^\d{6,14}$/.test(t);
+      if (esCodigo || esEnter) {
+        const exacto = datos.find((p) => p.codigo === t || p.sku === t || (p.codigosBarras ?? []).includes(t)) ?? (datos.length === 1 ? datos[0] : null);
+        if (exacto) { agregar(exacto); return; }
+        if (esCodigo && datos.length === 0) { setEstado({ tipo: 'error', texto: `Código ${t} no encontrado` }); setResultados([]); return; }
       }
+      setResultados(datos);
+    } catch {
+      if (seq === seqRef.current) setEstado({ tipo: 'error', texto: 'No se pudo buscar (revisá la conexión)' });
+    } finally {
+      if (seq === seqRef.current) setBuscando(false);
     }
+  }
+
+  function onKeyBuscar(e: React.KeyboardEvent) {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    if (debRef.current) clearTimeout(debRef.current);
+    const t = busqueda.trim();
+    // 1) match exacto por código interno / sku / barra (escaneo)
+    const ex = catalogoLocal.find((p) => p.codigo === t || p.sku === t || (p.codigosBarras ?? []).includes(t));
+    if (ex) { agregar(ex); return; }
+    // 2) primer resultado mostrado
+    if (resultados[0]) { agregar(resultados[0]); return; }
+    // 3) server (a pedido / fuera de stock)
+    if (t.length >= 1) ejecutar(t, true);
   }
 
   function cambiarCantidad(sku: string, delta: number) {
@@ -121,13 +191,16 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string 
     });
     const datos = await res.json();
     if (res.ok) {
+      const vueltoTxt = medio === 'efectivo' && pagaConN > total ? ` · VUELTO ${pesos(pagaConN - total)}` : '';
       setEstado({
         tipo: 'ok',
-        texto: `Venta registrada: ${pesos(datos.total)}${Number(datos.descuento) > 0 ? ` (ahorró ${pesos(datos.descuento)})` : ''}${datos.tipo_cliente ? ` · cliente ${datos.tipo_cliente}` : ''}`,
+        texto: `✓ Venta ${pesos(datos.total)}${Number(datos.descuento) > 0 ? ` (ahorró ${pesos(datos.descuento)})` : ''}${datos.tipo_cliente ? ` · ${datos.tipo_cliente}` : ''}${vueltoTxt}`,
       });
       setCarrito([]);
       setCliente(null);
       setDni('');
+      setPagaCon('');
+      inputRef.current?.focus();
     } else {
       setEstado({ tipo: 'error', texto: datos.message ?? 'No se pudo registrar la venta' });
     }
@@ -164,10 +237,13 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string 
             <input
               ref={inputRef}
               value={busqueda}
-              onChange={(e) => buscar(e.target.value)}
+              onChange={(e) => onBuscar(e.target.value)}
+              onKeyDown={onKeyBuscar}
               placeholder="Escanear código de barras o buscar producto…"
+              autoFocus
               className="w-full rounded-full border-2 border-[#B82D25] px-5 py-3 text-base text-black outline-none"
             />
+            {buscando && <span className="absolute right-5 top-1/2 -translate-y-1/2 text-xs text-black/40">buscando…</span>}
             {resultados.length > 0 && (
               <div className="absolute z-10 mt-1 w-full rounded-xl bg-white border border-black/10 overflow-hidden shadow-lg">
                 {resultados.map((p) => (
@@ -314,6 +390,24 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string 
               </button>
             ))}
           </div>
+
+          {medio === 'efectivo' && total > 0 && (
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-black/60 whitespace-nowrap">Paga con</span>
+              <input
+                type="number"
+                value={pagaCon}
+                onChange={(e) => setPagaCon(e.target.value)}
+                placeholder="$"
+                className="flex-1 rounded-lg border border-black/15 px-3 py-2 text-sm text-right text-black outline-none focus:border-[#B82D25]"
+              />
+              {vuelto != null && (
+                <span className={`text-sm font-semibold whitespace-nowrap ${vuelto < 0 ? 'text-[#B82D25]' : 'text-emerald-700'}`}>
+                  {vuelto < 0 ? `Faltan ${pesos(-vuelto)}` : `Vuelto ${pesos(vuelto)}`}
+                </span>
+              )}
+            </div>
+          )}
 
           <button
             onClick={cobrar}

@@ -100,7 +100,7 @@ export default async function Home() {
             <p className="mt-5 text-crema/55 max-w-md leading-relaxed">
               Verificá tu identidad una sola vez y desbloqueá una forma distinta de comprar.
             </p>
-            <Link href={cliente ? "/cuenta" : "/ingresar"} className="inline-flex items-center gap-2 mt-8 bg-dorado text-ink rounded-full px-7 py-3.5 text-sm font-semibold hover:bg-dorado-claro transition-colors">
+            <Link href={cliente ? "/cuenta" : "/ingresar"} className="inline-flex items-center gap-2 mt-8 bg-rojo text-white rounded-full px-7 py-3.5 text-sm font-semibold hover:bg-rojo-osc transition-colors">
               {cliente ? "Verificar mi identidad" : "Crear mi cuenta"} <IcoFlecha size={16} />
             </Link>
           </div>

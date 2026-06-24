@@ -5,3 +5,8 @@ dist/
 .env.local
 reporte.csv
 .DS_Store
+# copia viva de la base legacy (28MB + datos reales de clientes): NUNCA al repo
+*.mdb
+# config local de tooling
+.claude/
+coverage/

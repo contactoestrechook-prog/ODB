@@ -50,10 +50,29 @@ export class ComprasController {
     return this.compras.registrarFactura(dto);
   }
 
+  // Órdenes de pago: crear (queda pendiente) → aprobar (dueño) → pagar
+  @Roles('comprador', 'gerente', 'dueno')
+  @Post('compras/ordenes-pago')
+  crearOP(@Body() dto: any) {
+    return this.compras.crearOrdenPago(dto);
+  }
+
+  @Roles('dueno')
+  @Post('compras/ordenes-pago/:id/aprobar')
+  aprobarOP(@Param('id') id: string, @Body() dto: any) {
+    return this.compras.aprobarOrdenPago(id, dto);
+  }
+
+  @Roles('dueno')
+  @Post('compras/ordenes-pago/:id/rechazar')
+  rechazarOP(@Param('id') id: string, @Body() dto: any) {
+    return this.compras.rechazarOrdenPago(id, dto);
+  }
+
   @Roles('gerente', 'dueno')
-  @Post('compras/pagar')
-  pagar(@Body() dto: any) {
-    return this.compras.pagar(dto);
+  @Post('compras/ordenes-pago/:id/pagar')
+  pagarOP(@Param('id') id: string, @Body() dto: any) {
+    return this.compras.pagarOrdenPago(id, dto);
   }
 
   @Get('compras/ordenes')
@@ -67,10 +86,16 @@ export class ComprasController {
     return this.compras.crear(dto);
   }
 
-  @Roles('gerente', 'dueno')
+  @Roles('dueno')
   @Post('compras/ordenes/:id/aprobar')
   aprobar(@Param('id') id: string, @Body() dto: AprobarDto) {
     return this.compras.aprobar(id, dto);
+  }
+
+  @Roles('dueno')
+  @Post('compras/ordenes/:id/rechazar')
+  rechazar(@Param('id') id: string, @Body() dto: any) {
+    return this.compras.rechazar(id, dto);
   }
 
   @Roles('deposito', 'gerente', 'dueno')

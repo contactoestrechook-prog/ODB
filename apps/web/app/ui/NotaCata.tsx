@@ -24,7 +24,7 @@ export function NotaCata({ sku, esAlcohol }: { sku: string; esAlcohol?: boolean 
   return (
     <section
       className="mt-14 bg-ink text-crema rounded-xl p-7 sm:p-10 relative overflow-hidden"
-      style={{ backgroundImage: "radial-gradient(110% 90% at 100% 0%, rgba(90,26,22,0.55), transparent 55%)" }}
+      style={{ backgroundImage: "radial-gradient(110% 90% at 100% 0%, rgba(147,42,31,0.6), transparent 55%)" }}
     >
       <div className="flex items-center gap-2.5">
         <IcoUva size={20} className="text-dorado" />

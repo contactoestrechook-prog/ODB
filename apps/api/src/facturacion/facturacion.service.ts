@@ -2,6 +2,9 @@ import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
 import { enviarPush } from './push';
+import { calcularIva, RenglonInvalidoError, type ItemComprobante } from './iva';
+import { saldosPorCliente, agruparResumen, numeroLindo } from './cuentas';
+import { libroIvaVentas, libroIvaCompras, resumenIva } from './libro-iva';
 
 // Tipos de comprobante estilo Tango. Las letras siguen la condición fiscal:
 // A discrimina IVA (responsable inscripto), B consumidor final, C monotributo.
@@ -18,13 +21,7 @@ const FISCALES: TipoComprobante[] = ['FA', 'FB', 'FC', 'NCA', 'NCB', 'NCC', 'NDA
 const CREDITOS: TipoComprobante[] = ['NCA', 'NCB', 'NCC', 'REC', 'ANT']; // generan haber en cta cte
 const DEBITOS: TipoComprobante[] = ['FA', 'FB', 'FC', 'NDA', 'NDB', 'NDC']; // generan debe (si es cta cte)
 
-export type ItemComprobante = {
-  sku?: string;
-  descripcion: string;
-  cantidad: number;
-  precioUnitario: number; // SIEMPRE final con IVA incluido; el neto se calcula acá
-  alicuota?: number; // 21 | 10.5 | 0
-};
+export type { ItemComprobante }; // re-export: el tipo vive en el motor puro ./iva
 
 export type EmitirDto = {
   tipo: TipoComprobante;
@@ -38,6 +35,31 @@ export type EmitirDto = {
   condicionPago?: 'contado' | 'cta_cte';
   sucursalId?: string; // REM: de dónde sale la mercadería
   moverStock?: boolean; // REM manual: descontar stock
+  observaciones?: string;
+};
+
+// Recibo de cobranza PRO: imputa el cobro a facturas concretas y desglosa
+// los medios de pago (efectivo, transferencia, cheque de terceros, etc.).
+export type ReciboMedioDto = {
+  medio: 'efectivo' | 'transferencia' | 'cheque' | 'tarjeta' | 'deposito' | 'retencion' | 'nota_credito';
+  importe: number;
+  referencia?: string; // nro de transferencia, banco, cupón…
+  cheque?: {
+    numero: string;
+    banco?: string;
+    titular?: string;
+    cuitLibrador?: string;
+    fechaEmision?: string;
+    fechaCobro?: string; // si es diferido
+    diferido?: boolean;
+  };
+};
+
+export type ReciboDto = {
+  clienteId: string;
+  imputaciones: { facturaId: string; importe: number }[];
+  medios: ReciboMedioDto[];
+  concepto?: string;
   observaciones?: string;
 };
 
@@ -145,7 +167,7 @@ export class FacturacionService {
       await this.validarTopeNota(dto.referenciaId, items);
     }
 
-    const { neto, iva, ivaDetalle, total } = this.calcularIva(items, tipo);
+    const { neto, iva, ivaDetalle, total } = this.calcularIvaSeguro(items, tipo);
 
     // venta a cuenta corriente: el cliente tiene que tenerla habilitada y con crédito
     if ((dto.condicionPago ?? 'contado') === 'cta_cte' && DEBITOS.includes(tipo)) {
@@ -237,7 +259,7 @@ export class FacturacionService {
           referenciaId: c.id,
           items: c.items,
           condicionPago: c.condicion_pago,
-          observaciones: `Anulación de ${TIPOS[c.tipo as TipoComprobante]} ${this.numeroLindo(c)}`,
+          observaciones: `Anulación de ${TIPOS[c.tipo as TipoComprobante]} ${numeroLindo(c)}`,
         },
         usuarioId,
       );
@@ -303,40 +325,16 @@ export class FacturacionService {
       if (!data || data.length < 1000) break;
     }
 
-    const GRUPO: Record<string, string> = {
-      FA: 'facturas', FB: 'facturas', FC: 'facturas',
-      NCA: 'notasCredito', NCB: 'notasCredito', NCC: 'notasCredito',
-      NDA: 'notasDebito', NDB: 'notasDebito', NDC: 'notasDebito',
-      REM: 'remitos', REC: 'recibos', ANT: 'recibos', SIN: 'internos',
-    };
-    const grupos: Record<string, { cantidad: number; total: number; iva: number }> = {};
-    let facturadoHoy = 0;
-    let ivaMes = 0;
-    for (const c of filas) {
-      if (c.estado === 'anulado') continue;
-      const g = GRUPO[c.tipo] ?? 'internos';
-      const acc = (grupos[g] ??= { cantidad: 0, total: 0, iva: 0 });
-      acc.cantidad += 1;
-      acc.total += Number(c.total);
-      acc.iva += Number(c.iva ?? 0);
-      if (g === 'facturas') {
-        ivaMes += Number(c.iva ?? 0);
-        if (c.emitido_en.slice(0, 10) === hoy) facturadoHoy += Number(c.total);
-      }
-    }
-
+    const { facturadoHoy, ivaMes, grupos } = agruparResumen(filas, hoy);
     const cuentas = await this.cuentas();
-    const porCobrar = cuentas.reduce((s, c) => s + Math.max(c.saldo, 0), 0);
+    const porCobrar = Math.round(cuentas.reduce((s, c) => s + Math.max(c.saldo, 0), 0));
 
-    const r = (n: number) => Math.round(n);
     return {
-      facturadoHoy: r(facturadoHoy),
-      ivaMes: r(ivaMes),
-      porCobrar: r(porCobrar),
+      facturadoHoy,
+      ivaMes,
+      porCobrar,
       cuentasActivas: cuentas.filter((c) => c.saldo > 0).length,
-      grupos: Object.fromEntries(
-        Object.entries(grupos).map(([k, v]) => [k, { cantidad: v.cantidad, total: r(v.total), iva: r(v.iva) }]),
-      ),
+      grupos,
     };
   }
 
@@ -346,15 +344,196 @@ export class FacturacionService {
       .from('cuenta_corriente')
       .select('cliente_id, debe, haber, cliente:clientes(id, nombre, razon_social, dni, telefono)');
     if (error) throw new BadRequestException(error.message);
-    const porCliente = new Map<string, any>();
-    for (const m of (data ?? []) as any[]) {
-      const acc = porCliente.get(m.cliente_id) ?? { cliente: m.cliente, saldo: 0 };
-      acc.saldo += Number(m.debe) - Number(m.haber);
-      porCliente.set(m.cliente_id, acc);
+    return saldosPorCliente((data ?? []) as any[]);
+  }
+
+  // ---------- libro IVA (ventas + compras) ----------
+
+  async libroIva(periodo?: string) {
+    const base = periodo && /^\d{4}-\d{2}$/.test(periodo) ? periodo : new Date().toISOString().slice(0, 7);
+    const [y, m] = base.split('-').map(Number);
+    const desde = `${base}-01T00:00:00`;
+    const hasta = new Date(Date.UTC(y, m, 1)).toISOString(); // 1° del mes siguiente
+
+    // ventas: comprobantes fiscales del período (paginado por las dudas)
+    const ventasRaw: any[] = [];
+    for (let off = 0; ; off += 1000) {
+      const { data, error } = await this.db
+        .from('comprobantes')
+        .select('tipo, punto_venta, numero, emitido_en, receptor, neto, iva, total, iva_detalle, estado')
+        .gte('emitido_en', desde)
+        .lt('emitido_en', hasta)
+        .in('tipo', ['FA', 'FB', 'FC', 'NCA', 'NCB', 'NCC', 'NDA', 'NDB', 'NDC'])
+        .range(off, off + 999);
+      if (error) throw new BadRequestException(error.message);
+      ventasRaw.push(...(data ?? []));
+      if (!data || data.length < 1000) break;
     }
-    return [...porCliente.values()]
-      .map((c) => ({ ...c, saldo: Math.round(c.saldo * 100) / 100 }))
-      .sort((a, b) => b.saldo - a.saldo);
+
+    // compras: facturas de proveedor del período
+    const { data: comprasRaw, error: ec } = await this.db
+      .from('facturas_proveedor')
+      .select('numero, monto, neto, iva, creado_en, proveedor:proveedores(razon_social, cuit)')
+      .gte('creado_en', desde)
+      .lt('creado_en', hasta);
+    if (ec) throw new BadRequestException(ec.message);
+
+    const ventas = libroIvaVentas(
+      ventasRaw.map((c) => ({
+        tipo: c.tipo,
+        puntoVenta: c.punto_venta,
+        numero: c.numero,
+        fecha: c.emitido_en,
+        receptor: c.receptor,
+        neto: Number(c.neto),
+        iva: Number(c.iva),
+        total: Number(c.total),
+        ivaDetalle: c.iva_detalle ?? [],
+        estado: c.estado,
+      })),
+    );
+    const compras = libroIvaCompras(
+      (comprasRaw ?? []).map((f: any) => ({
+        numero: f.numero,
+        fecha: f.creado_en,
+        proveedor: f.proveedor?.razon_social,
+        cuit: f.proveedor?.cuit,
+        monto: Number(f.monto),
+        neto: f.neto,
+        iva: f.iva,
+      })),
+    );
+    return { periodo: base, ventas, compras, resumen: resumenIva(ventas, compras) };
+  }
+
+  // ---------- recibos de cobranza (imputación + medios) ----------
+
+  // Facturas/ND en cuenta corriente del cliente con saldo pendiente.
+  async facturasAbiertas(clienteId: string) {
+    const { data, error } = await this.db.rpc('facturas_abiertas', { p_cliente: clienteId });
+    if (error) throw new BadRequestException(error.message);
+    return (data ?? []).map((f: any) => ({
+      id: f.id,
+      tipo: f.tipo,
+      etiqueta: `${TIPOS[f.tipo as TipoComprobante] ?? f.tipo} ${numeroLindo(f)}`,
+      numero: numeroLindo(f),
+      emitidoEn: f.emitido_en,
+      total: Number(f.total),
+      imputado: Number(f.imputado),
+      ncAcreditada: Number(f.nc_acreditada),
+      saldo: Number(f.saldo),
+    }));
+  }
+
+  // Emite un recibo (REC) imputándolo a facturas concretas y registrando los
+  // medios de pago. Los cheques de terceros entran a la cartera de valores.
+  async emitirRecibo(dto: ReciboDto, usuarioId?: string) {
+    if (!dto.clienteId) throw new BadRequestException('El recibo necesita un cliente');
+    const imputaciones = (dto.imputaciones ?? []).filter((i) => Number(i.importe) > 0);
+    const medios = (dto.medios ?? []).filter((m) => Number(m.importe) > 0);
+    if (!imputaciones.length) throw new BadRequestException('Imputá el recibo a al menos una factura');
+    if (!medios.length) throw new BadRequestException('Indicá al menos un medio de pago');
+
+    const r2 = (n: number) => Math.round(n * 100) / 100;
+    const totalImput = r2(imputaciones.reduce((s, i) => s + Number(i.importe), 0));
+    const totalMedios = r2(medios.reduce((s, m) => s + Number(m.importe), 0));
+    if (Math.abs(totalImput - totalMedios) > 0.01) {
+      throw new BadRequestException(
+        `Los medios de pago ($${totalMedios.toLocaleString('es-AR')}) no coinciden con lo imputado ($${totalImput.toLocaleString('es-AR')})`,
+      );
+    }
+
+    // validar que cada imputación no supere el saldo real de su factura
+    const abiertas = await this.facturasAbiertas(dto.clienteId);
+    const saldoPorId = new Map<string, number>(abiertas.map((f) => [f.id, f.saldo] as [string, number]));
+    for (const im of imputaciones) {
+      const saldo = saldoPorId.get(im.facturaId);
+      if (saldo == null) throw new BadRequestException('Una de las facturas no está abierta para este cliente');
+      if (Number(im.importe) > saldo + 0.01) {
+        throw new BadRequestException(`La imputación ($${Number(im.importe).toLocaleString('es-AR')}) supera el saldo de la factura ($${saldo.toLocaleString('es-AR')})`);
+      }
+    }
+
+    // 1) comprobante REC: numeración + haber en cta cte + notificación al cliente
+    const rec = await this.emitir(
+      {
+        tipo: 'REC',
+        clienteId: dto.clienteId,
+        importe: totalImput,
+        concepto: dto.concepto || 'Cobranza',
+        condicionPago: 'contado',
+        observaciones: dto.observaciones,
+      },
+      usuarioId,
+    );
+
+    // 2) imputaciones recibo → facturas
+    const { error: eImp } = await this.db.from('recibo_imputaciones').insert(
+      imputaciones.map((im) => ({ recibo_id: rec.id, factura_id: im.facturaId, importe: Number(im.importe) })),
+    );
+    if (eImp) throw new BadRequestException(eImp.message);
+
+    // 3) medios de pago (los cheques de terceros entran a cartera)
+    for (const m of medios) {
+      let chequeId: string | null = null;
+      if (m.medio === 'cheque') {
+        if (!m.cheque?.numero) throw new BadRequestException('El cheque necesita número');
+        const { data: chq, error: eChq } = await this.db
+          .from('cheques')
+          .insert({
+            tipo: 'terceros',
+            numero: String(m.cheque.numero),
+            banco: m.cheque.banco ?? null,
+            titular: m.cheque.titular ?? null,
+            cuit_librador: m.cheque.cuitLibrador ?? null,
+            importe: Number(m.importe),
+            fecha_emision: m.cheque.fechaEmision ?? null,
+            fecha_cobro: m.cheque.fechaCobro ?? null,
+            es_diferido: !!m.cheque.diferido || !!m.cheque.fechaCobro,
+            estado: 'cartera',
+            cliente_id: dto.clienteId,
+            recibo_id: rec.id,
+            usuario_id: usuarioId ?? null,
+          })
+          .select('id')
+          .single();
+        if (eChq) throw new BadRequestException(eChq.message);
+        chequeId = chq.id;
+      }
+      const { error: eMed } = await this.db.from('recibo_medios').insert({
+        recibo_id: rec.id,
+        medio: m.medio,
+        importe: Number(m.importe),
+        cheque_id: chequeId,
+        referencia: m.referencia ?? null,
+      });
+      if (eMed) throw new BadRequestException(eMed.message);
+    }
+
+    return { recibo: rec, total: totalImput, imputaciones: imputaciones.length, medios: medios.length };
+  }
+
+  // Detalle de un recibo: a qué facturas se imputó y con qué medios se pagó.
+  async detalleRecibo(id: string) {
+    const recibo = await this.detalle(id);
+    const [{ data: imps }, { data: meds }] = await Promise.all([
+      this.db
+        .from('recibo_imputaciones')
+        .select('importe, factura:comprobantes!recibo_imputaciones_factura_id_fkey(id, tipo, punto_venta, numero, total)')
+        .eq('recibo_id', id),
+      this.db
+        .from('recibo_medios')
+        .select('medio, importe, referencia, cheque:cheques(id, numero, banco, fecha_cobro, estado)')
+        .eq('recibo_id', id),
+    ]);
+    return {
+      recibo,
+      imputaciones: (imps ?? []).map((i: any) => ({
+        importe: Number(i.importe),
+        factura: i.factura ? { id: i.factura.id, etiqueta: `${TIPOS[i.factura.tipo as TipoComprobante] ?? i.factura.tipo} ${numeroLindo(i.factura)}`, total: Number(i.factura.total) } : null,
+      })),
+      medios: meds ?? [],
+    };
   }
 
   // ---------- internos ----------
@@ -375,41 +554,14 @@ export class FacturacionService {
     }));
   }
 
-  // los precios entran SIEMPRE con IVA incluido; acá se abre neto + IVA por alícuota
-  private calcularIva(items: ItemComprobante[], tipo: TipoComprobante) {
-    const porAlicuota = new Map<number, { base: number; monto: number }>();
-    let neto = 0, iva = 0, total = 0;
-    for (const i of items) {
-      const cantidad = Number(i.cantidad);
-      const precio = Number(i.precioUnitario);
-      if (!(cantidad > 0) || !(precio >= 0)) {
-        throw new BadRequestException(`Renglón inválido: ${i.descripcion}`);
-      }
-      const alicuota = tipo === 'REM' ? 0 : Number(i.alicuota ?? 21);
-      const renglon = precio * cantidad;
-      const base = alicuota > 0 ? renglon / (1 + alicuota / 100) : renglon;
-      const montoIva = renglon - base;
-      total += renglon;
-      neto += base;
-      iva += montoIva;
-      if (alicuota > 0) {
-        const acc = porAlicuota.get(alicuota) ?? { base: 0, monto: 0 };
-        acc.base += base;
-        acc.monto += montoIva;
-        porAlicuota.set(alicuota, acc);
-      }
+  // delega en el motor puro ./iva (testeable) y mapea su error de dominio a HTTP 400
+  private calcularIvaSeguro(items: ItemComprobante[], tipo: TipoComprobante) {
+    try {
+      return calcularIva(items, { forzarSinIva: tipo === 'REM' });
+    } catch (e) {
+      if (e instanceof RenglonInvalidoError) throw new BadRequestException(e.message);
+      throw e;
     }
-    const r = (n: number) => Math.round(n * 100) / 100;
-    return {
-      neto: r(neto),
-      iva: r(iva),
-      total: r(total),
-      ivaDetalle: [...porAlicuota.entries()].map(([alicuota, v]) => ({
-        alicuota,
-        base: r(v.base),
-        monto: r(v.monto),
-      })),
-    };
   }
 
   private async validarTopeNota(referenciaId: string, items: ItemComprobante[]) {
@@ -437,7 +589,7 @@ export class FacturacionService {
   private async asentarCtaCte(comprobante: any, clienteId: string | null, condicionPago: string, concepto?: string) {
     if (!clienteId) return;
     const tipo = comprobante.tipo as TipoComprobante;
-    const etiqueta = `${TIPOS[tipo]} ${this.numeroLindo(comprobante)}${concepto ? ` · ${concepto}` : ''}`;
+    const etiqueta = `${TIPOS[tipo]} ${numeroLindo(comprobante)}${concepto ? ` · ${concepto}` : ''}`;
     if (DEBITOS.includes(tipo) && condicionPago === 'cta_cte') {
       await this.db.from('cuenta_corriente').insert({
         cliente_id: clienteId,
@@ -488,14 +640,10 @@ export class FacturacionService {
         p_sucursal_id: sucursalId,
         p_tipo: 'ajuste',
         p_cantidad: -Math.abs(Number(i.cantidad)),
-        p_motivo: `Remito ${this.numeroLindo(comprobante)}`,
+        p_motivo: `Remito ${numeroLindo(comprobante)}`,
         p_usuario_id: usuarioId ?? null,
       });
       if (error) throw new BadRequestException(error.message);
     }
-  }
-
-  private numeroLindo(c: { punto_venta: number; numero: number | bigint }) {
-    return `${String(c.punto_venta).padStart(4, '0')}-${String(c.numero).padStart(8, '0')}`;
   }
 }

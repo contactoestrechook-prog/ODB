@@ -37,9 +37,8 @@ export default function Ingresar() {
   return (
     <div className="min-h-[78vh] grid place-items-center px-5 py-12">
       <div className="w-full max-w-md">
-        <div className="text-center mb-9">
-          <div className="display text-3xl font-semibold text-ink">O.D.B</div>
-          <p className="kicker text-dorado mt-1">Premium Market</p>
+        <div className="flex justify-center mb-9">
+          <img src="/odb-logo.png" alt="O.D.B Premium Market" className="h-20 w-auto" />
         </div>
 
         <div className="bg-crema border border-linea rounded-xl p-7 sm:p-9">

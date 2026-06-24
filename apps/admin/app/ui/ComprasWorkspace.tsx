@@ -13,6 +13,11 @@ const ESTADO_ESTILO: Record<string, string> = {
   cancelada: 'bg-[#F0EBE2] text-black/40',
 };
 const ESTADO_LABEL: Record<string, string> = { pendiente_aprobacion: 'a aprobar', recibida_parcial: 'parcial' };
+const OP_ESTILO: Record<string, string> = {
+  pendiente_aprobacion: 'bg-[#B82D25] text-white', aprobada: 'bg-black text-white',
+  pagada: 'bg-emerald-100 text-emerald-800', rechazada: 'bg-[#F0EBE2] text-black/40',
+};
+const OP_LABEL: Record<string, string> = { pendiente_aprobacion: 'a aprobar', aprobada: 'aprobada · a pagar', pagada: 'pagada', rechazada: 'rechazada' };
 
 const TABS = [['ordenes', 'Órdenes'], ['aprobar', 'Por aprobar'], ['recepcion', 'Recepción'], ['proveedores', 'Proveedores'], ['pagos', 'Órdenes de pago'], ['sugerencias', 'Sugerencias']] as const;
 
@@ -42,7 +47,14 @@ export function ComprasWorkspace({ resumen, ordenes, proveedores, sugerencias, s
     if (!res.ok) { setAviso(d.message ?? 'Error'); return null; }
     setModal(null);
     router.refresh();
-    if (tab === 'pagos') { setDeuda(null); setTab('pagos'); }
+    if (tab === 'pagos') {
+      const [dd, pp] = await Promise.all([
+        fetch('/api/compras?recurso=deuda').then((r) => r.json()),
+        fetch('/api/compras?recurso=ordenes-pago').then((r) => r.json()),
+      ]);
+      setDeuda(Array.isArray(dd) ? dd : []);
+      setPagos(Array.isArray(pp) ? pp : []);
+    }
     return d;
   };
 
@@ -82,13 +94,21 @@ export function ComprasWorkspace({ resumen, ordenes, proveedores, sugerencias, s
                   </p>
                   <p className="text-xs text-black/50 mt-0.5">
                     {o.sucursal?.nombre} · {fecha(o.creado_en)} · {(o.items ?? []).length} ítems
-                    {o.firmadaPor && ` · firmó ${o.firmadaPor}`}
+                    {o.condicion_pago && ` · ${o.condicion_pago}`}
+                    {o.vencimiento_pago && ` · vence ${fecha(o.vencimiento_pago)}`}
+                    {o.fecha_entrega && ` · entrega ${fecha(o.fecha_entrega)}`}
+                    {o.firmadaPor && ` · aprobó ${o.firmadaPor}`}
                   </p>
+                  {o.observaciones && <p className="text-xs text-black/40 mt-0.5 italic">“{o.observaciones}”</p>}
+                  {o.estado === 'cancelada' && o.rechazo_motivo && <p className="text-xs text-[#B82D25] mt-0.5">Rechazada: {o.rechazo_motivo}</p>}
                 </div>
                 <div className="text-right whitespace-nowrap">
                   <p className="font-semibold text-black">{pesos(o.total)}</p>
                   <div className="flex gap-2 justify-end mt-1">
-                    {o.estado === 'pendiente_aprobacion' && <button onClick={() => setModal({ tipo: 'aprobar', oc: o })} className="text-xs font-medium text-[#B82D25] hover:underline">Aprobar con PIN</button>}
+                    {o.estado === 'pendiente_aprobacion' && <>
+                      <button onClick={() => post({ accion: 'aprobar', id: o.id })} className="text-xs font-medium text-emerald-700 hover:underline">Aprobar</button>
+                      <button onClick={() => setModal({ tipo: 'rechazar', oc: o })} className="text-xs font-medium text-[#B82D25] hover:underline">Rechazar</button>
+                    </>}
                     {['aprobada', 'enviada', 'recibida_parcial'].includes(o.estado) && <button onClick={() => setModal({ tipo: 'recibir', oc: o, recibido: {} })} className="text-xs font-medium text-emerald-700 hover:underline">Recibir</button>}
                   </div>
                 </div>
@@ -134,24 +154,37 @@ export function ComprasWorkspace({ resumen, ordenes, proveedores, sugerencias, s
         <div className="space-y-3">
           <div className="flex justify-end"><button onClick={() => setModal({ tipo: 'factura' })} className="rounded-full bg-white border border-black/15 text-black text-sm font-medium px-4 py-2 hover:border-black/40">+ Registrar factura de proveedor</button></div>
           <section className="rounded-xl bg-white overflow-hidden">
-            <h2 className="px-4 py-3 border-b border-black/10 font-medium text-black text-sm">Deuda por proveedor</h2>
+            <h2 className="px-4 py-3 border-b border-black/10 font-medium text-black text-sm">Cuentas a pagar (por proveedor)</h2>
             {deuda === null ? <p className="px-4 py-6 text-center text-black/40 text-sm">Cargando…</p>
               : deuda.length === 0 ? <p className="px-4 py-6 text-center text-black/40 text-sm">Sin facturas pendientes de pago.</p>
               : deuda.map((d) => (
                 <div key={d.proveedor?.id} className="px-4 py-3 border-b border-black/5 last:border-0 flex items-center justify-between gap-3">
-                  <div><p className="font-medium text-black">{d.proveedor?.razon_social}</p><p className="text-xs text-black/50">{d.facturas.length} factura(s) pendiente(s)</p></div>
+                  <div><p className="font-medium text-black">{d.proveedor?.razon_social}</p><p className="text-xs text-black/50">{d.facturas.length} factura(s) · próx. vence {fecha(d.facturas[0]?.vencimiento)}</p></div>
                   <div className="text-right"><p className="font-semibold text-[#B82D25]">{pesos(d.total)}</p>
-                    <button onClick={() => setModal({ tipo: 'pagar', prov: d })} className="text-xs font-medium text-emerald-700 hover:underline">Registrar pago →</button></div>
+                    <button onClick={() => setModal({ tipo: 'pagar', prov: d })} className="text-xs font-medium text-emerald-700 hover:underline">Crear orden de pago →</button></div>
                 </div>
               ))}
           </section>
           {pagos && pagos.length > 0 && (
             <section className="rounded-xl bg-white overflow-hidden">
-              <h2 className="px-4 py-3 border-b border-black/10 font-medium text-black text-sm">Pagos realizados</h2>
+              <h2 className="px-4 py-3 border-b border-black/10 font-medium text-black text-sm">Órdenes de pago</h2>
               {pagos.map((p) => (
-                <div key={p.numero} className="px-4 py-2.5 border-b border-black/5 last:border-0 flex items-center justify-between text-sm">
-                  <span className="text-black">OP #{p.numero} · {p.proveedor?.razon_social} <span className="text-xs text-black/45">· {p.medio_pago} · {fecha(p.pagada_en ?? p.creado_en)}</span></span>
-                  <span className="font-medium">{pesos(p.total)}</span>
+                <div key={p.numero} className="px-4 py-2.5 border-b border-black/5 last:border-0 flex items-center justify-between gap-3 text-sm">
+                  <div>
+                    <span className="text-black">OP #{p.numero} · {p.proveedor?.razon_social}</span>
+                    <span className={`ml-2 text-[10px] rounded-full px-2 py-0.5 ${OP_ESTILO[p.estado] ?? 'bg-[#F0EBE2] text-black/60'}`}>{OP_LABEL[p.estado] ?? p.estado}</span>
+                    <p className="text-xs text-black/45">{p.medio_pago}{p.vencimiento ? ` · vence ${fecha(p.vencimiento)}` : ''}{p.pagada_en ? ` · pagada ${fecha(p.pagada_en)}` : ''}</p>
+                  </div>
+                  <div className="text-right whitespace-nowrap">
+                    <p className="font-medium">{pesos(p.total)}</p>
+                    <div className="flex gap-2 justify-end mt-0.5">
+                      {p.estado === 'pendiente_aprobacion' && <>
+                        <button onClick={() => post({ accion: 'aprobarOP', id: p.id })} className="text-xs font-medium text-emerald-700 hover:underline">Aprobar</button>
+                        <button onClick={() => setModal({ tipo: 'rechazarOP', op: p })} className="text-xs font-medium text-[#B82D25] hover:underline">Rechazar</button>
+                      </>}
+                      {p.estado === 'aprobada' && <button onClick={() => post({ accion: 'pagarOP', id: p.id })} className="text-xs font-medium text-black hover:underline">Marcar pagada</button>}
+                    </div>
+                  </div>
                 </div>
               ))}
             </section>
@@ -218,6 +251,11 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso }: any) {
           <select className={input + ' bg-white'} value={f.sucursalId ?? ''} onChange={(e) => set('sucursalId', e.target.value)}>
             <option value="">Sucursal destino…</option>{sucursales.map((s: any) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
           </select>
+          <div className="grid grid-cols-2 gap-3">
+            <div><label className="text-[11px] text-black/45 block mb-1">Entrega esperada</label><input type="date" value={f.fechaEntrega ?? ''} onChange={(e) => set('fechaEntrega', e.target.value)} className={input} /></div>
+            <div><label className="text-[11px] text-black/45 block mb-1">Vence el pago</label><input type="date" value={f.vencimientoPago ?? ''} onChange={(e) => set('vencimientoPago', e.target.value)} className={input} /></div>
+          </div>
+          <input value={f.condicionPago ?? ''} onChange={(e) => set('condicionPago', e.target.value)} placeholder="Condición de pago (contado / 30 días / cta cte…)" className={input} />
           <div className="relative">
             <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Agregar producto…" className={input} />
             {sug.length > 0 && <div className="absolute z-10 mt-1 w-full rounded-lg bg-white shadow-lg border border-black/10 max-h-48 overflow-y-auto">
@@ -233,15 +271,26 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso }: any) {
             </div>
           ))}
           {aviso && <p className="text-xs text-[#B82D25]">{aviso}</p>}
-          <Acciones cerrar={cerrar} onOk={() => post({ accion: 'crearOC', proveedorId: f.proveedorId, sucursalId: f.sucursalId, items })} okLabel="Crear OC" disabled={!f.proveedorId || !f.sucursalId || !items.length} />
+          <textarea value={f.observaciones ?? ''} onChange={(e) => set('observaciones', e.target.value)} placeholder="Observaciones (opcional)" rows={2} className={input} />
+          {items.length > 0 && <p className="text-right text-sm font-semibold text-black">Total OC: {pesos(items.reduce((s: number, i: any) => s + Number(i.cantidad) * Number(i.costoUnitario || 0), 0))}</p>}
+          <p className="text-[11px] text-black/40">La OC queda <b>pendiente de aprobación del dueño</b>.</p>
+          <Acciones cerrar={cerrar} onOk={() => post({ accion: 'crearOC', proveedorId: f.proveedorId, sucursalId: f.sucursalId, items, fechaEntrega: f.fechaEntrega, condicionPago: f.condicionPago, vencimientoPago: f.vencimientoPago, observaciones: f.observaciones })} okLabel="Crear OC" disabled={!f.proveedorId || !f.sucursalId || !items.length} />
         </>)}
 
-        {t === 'aprobar' && (<>
-          <h2 className="font-semibold text-black text-lg">Aprobar OC #{modal.oc.numero}</h2>
-          <p className="text-sm text-black/60">{modal.oc.proveedor?.razon_social} · {Math.round(modal.oc.total).toLocaleString('es-AR')}. Ingresá tu PIN de firma.</p>
-          <input type="password" inputMode="numeric" value={f.pin ?? ''} onChange={(e) => set('pin', e.target.value)} placeholder="PIN de firma" className={input} autoFocus />
+        {t === 'rechazar' && (<>
+          <h2 className="font-semibold text-black text-lg">Rechazar OC #{modal.oc.numero}</h2>
+          <p className="text-sm text-black/60">{modal.oc.proveedor?.razon_social} · {pesos(modal.oc.total)}. Se cancela la orden y queda registrado el motivo.</p>
+          <input value={f.motivo ?? ''} onChange={(e) => set('motivo', e.target.value)} placeholder="Motivo del rechazo (opcional)" className={input} autoFocus />
           {aviso && <p className="text-xs text-[#B82D25]">{aviso}</p>}
-          <Acciones cerrar={cerrar} onOk={() => post({ accion: 'aprobar', id: modal.oc.id, pin: f.pin })} okLabel="Firmar y aprobar" disabled={!f.pin} />
+          <Acciones cerrar={cerrar} onOk={() => post({ accion: 'rechazar', id: modal.oc.id, motivo: f.motivo })} okLabel="Rechazar orden" />
+        </>)}
+
+        {t === 'rechazarOP' && (<>
+          <h2 className="font-semibold text-black text-lg">Rechazar OP #{modal.op.numero}</h2>
+          <p className="text-sm text-black/60">{modal.op.proveedor?.razon_social} · {pesos(modal.op.total)}. Las facturas vuelven a quedar pendientes.</p>
+          <input value={f.motivo ?? ''} onChange={(e) => set('motivo', e.target.value)} placeholder="Motivo del rechazo (opcional)" className={input} autoFocus />
+          {aviso && <p className="text-xs text-[#B82D25]">{aviso}</p>}
+          <Acciones cerrar={cerrar} onOk={() => post({ accion: 'rechazarOP', id: modal.op.id, motivo: f.motivo })} okLabel="Rechazar OP" />
         </>)}
 
         {t === 'recibir' && (<>
@@ -288,8 +337,8 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso }: any) {
         </>)}
 
         {t === 'pagar' && (<>
-          <h2 className="font-semibold text-black text-lg">Pagar a {modal.prov.proveedor?.razon_social}</h2>
-          <p className="text-xs text-black/50">Elegí las facturas a cancelar.</p>
+          <h2 className="font-semibold text-black text-lg">Nueva orden de pago — {modal.prov.proveedor?.razon_social}</h2>
+          <p className="text-xs text-black/50">Elegí las facturas. La OP queda <b>pendiente de aprobación del dueño</b> antes de pagarse.</p>
           {modal.prov.facturas.map((fa: any) => (
             <label key={fa.id} className="flex items-center gap-2 text-sm text-black border-b border-black/5 py-1.5">
               <input type="checkbox" checked={facturasSel.includes(fa.id)} onChange={(e) => setFacturasSel((s) => e.target.checked ? [...s, fa.id] : s.filter((x) => x !== fa.id))} className="accent-[#B82D25]" />
@@ -297,11 +346,16 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso }: any) {
               <span className="font-medium">{pesos(fa.monto)}</span>
             </label>
           ))}
-          <select className={input + ' bg-white'} value={f.medioPago ?? 'transferencia'} onChange={(e) => set('medioPago', e.target.value)}>
-            <option value="transferencia">Transferencia</option><option value="cheque">Cheque</option><option value="efectivo">Efectivo</option>
-          </select>
+          <div className="grid grid-cols-2 gap-3">
+            <select className={input + ' bg-white'} value={f.medioPago ?? 'transferencia'} onChange={(e) => set('medioPago', e.target.value)}>
+              <option value="transferencia">Transferencia</option><option value="cheque">Cheque</option><option value="efectivo">Efectivo</option>
+            </select>
+            <div><label className="text-[11px] text-black/45 block mb-0.5">Pago programado</label><input type="date" value={f.fechaProgramada ?? ''} onChange={(e) => set('fechaProgramada', e.target.value)} className={input} /></div>
+          </div>
+          <input value={f.observaciones ?? ''} onChange={(e) => set('observaciones', e.target.value)} placeholder="Observaciones (opcional)" className={input} />
+          {facturasSel.length > 0 && <p className="text-right text-sm font-semibold">Total OP: {pesos(modal.prov.facturas.filter((x: any) => facturasSel.includes(x.id)).reduce((s: number, x: any) => s + Number(x.monto), 0))}</p>}
           {aviso && <p className="text-xs text-[#B82D25]">{aviso}</p>}
-          <Acciones cerrar={cerrar} okLabel="Registrar pago" disabled={!facturasSel.length} onOk={() => post({ accion: 'pagar', facturaIds: facturasSel, medioPago: f.medioPago ?? 'transferencia' })} />
+          <Acciones cerrar={cerrar} okLabel="Crear orden de pago" disabled={!facturasSel.length} onOk={() => post({ accion: 'crearOP', facturaIds: facturasSel, medioPago: f.medioPago ?? 'transferencia', fechaProgramada: f.fechaProgramada, observaciones: f.observaciones })} />
         </>)}
       </div>
     </div>

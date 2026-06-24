@@ -1,0 +1,16 @@
+{
+  "name": "odb-bridge",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Agente de sincronización legacy (MS Access) → Supabase para ODB",
+  "scripts": {
+    "sync": "node sync.mjs",
+    "once": "node sync.mjs --once",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.0",
+    "mdb-reader": "^3.0.0"
+  }
+}

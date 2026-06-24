@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { FlatList, Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { FlatList, Image, Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { API, pesos, useEstado, type Producto } from '../../lib/estado';
 import { C, sombra, TarjetaProducto, Seccion, CategoriaChip, LinearGradient, Ionicons } from '../../lib/ui';
@@ -93,9 +93,8 @@ export default function Inicio() {
   if (!cliente) {
     return (
       <ScrollView style={{ flex: 1, backgroundColor: C.crema }} contentContainerStyle={{ flexGrow: 1 }}>
-        <LinearGradient colors={[C.negro, C.vino, C.rojo]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={est.loginHero}>
-          <Text style={est.loginLogo}>O.D.B</Text>
-          <Text style={est.loginMarca}>PREMIUM MARKET</Text>
+        <LinearGradient colors={[C.negro, C.rojo]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={est.loginHero}>
+          <Image source={require('../../assets/odb-logo-blanco.png')} style={est.loginLogoImg} resizeMode="contain" />
           <Text style={est.loginTagline}>Bebidas, fiambrería y almacén.{'\n'}Tu pedido, a un toque.</Text>
         </LinearGradient>
 
@@ -222,8 +221,7 @@ function Campo({ icono, value, onChange, placeholder, keyboard, secure }: any) {
 
 const est = StyleSheet.create({
   loginHero: { paddingTop: 72, paddingBottom: 48, paddingHorizontal: 28, alignItems: 'center', borderBottomLeftRadius: 32, borderBottomRightRadius: 32 },
-  loginLogo: { fontSize: 40, fontWeight: '800', letterSpacing: 8, color: '#fff' },
-  loginMarca: { fontSize: 11, letterSpacing: 5, color: C.dorado, fontWeight: '700', marginTop: 2 },
+  loginLogoImg: { width: 210, height: 132 },
   loginTagline: { color: 'rgba(255,255,255,0.8)', textAlign: 'center', marginTop: 18, lineHeight: 21, fontSize: 14 },
   loginCard: { margin: 20, marginTop: -28, backgroundColor: '#fff', borderRadius: 24, padding: 22 },
   pestanas: { flexDirection: 'row', backgroundColor: C.crema, borderRadius: 24, padding: 4, marginBottom: 18 },

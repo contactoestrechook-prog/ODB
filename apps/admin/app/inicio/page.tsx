@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { Header } from '../ui/Header';
 import { apiFetch } from '../../lib/api';
+import { SyncEstado } from '../ui/SyncEstado';
 
 const pesos = (n: any) => '$' + Math.round(Number(n) || 0).toLocaleString('es-AR');
 
@@ -83,6 +84,9 @@ export default async function Inicio() {
             </Link>
           ))}
         </div>
+
+        {/* estado del bridge legacy → Supabase (módulo 2) */}
+        <SyncEstado />
 
         {/* requiere atención */}
         <section className="rounded-xl bg-white overflow-hidden">

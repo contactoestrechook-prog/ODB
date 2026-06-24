@@ -6,4 +6,7 @@ import { Platform } from 'react-native';
 const LOCAL = Platform.OS === 'web' ? 'http://localhost:3001' : 'http://192.168.0.10:3001';
 const PROD = 'https://odb-api-production.up.railway.app';
 
-export const API = __DEV__ ? LOCAL : PROD;
+// DEMO: forzado a PROD para mostrar en Expo Go contra el sistema online.
+// Para volver a desarrollo local, restaurá:  export const API = __DEV__ ? LOCAL : PROD;
+export const API = PROD;
+void LOCAL;

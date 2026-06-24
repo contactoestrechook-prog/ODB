@@ -29,6 +29,8 @@ export function RepartidorView() {
       (p) => {
         const c = { lat: p.coords.latitude, lng: p.coords.longitude };
         setPos(c);
+        // mapa de flota en vivo (a nivel repartidor, haya o no pedido activo)
+        fetch('/api/repartos', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'posicion', lat: c.lat, lng: c.lng }) }).catch(() => {});
         for (const id of enCamino.current) {
           fetch(`/api/repartidor/pedidos/${id}/ubicacion`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(c) }).catch(() => {});
         }

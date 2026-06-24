@@ -6,6 +6,8 @@ import { AgregarProducto } from "../../ui/AgregarProducto";
 import { NotaCata } from "../../ui/NotaCata";
 import { Producto } from "../../ui/Producto";
 import { IcoLocal, IcoMoto, IcoTarjeta } from "../../ui/Iconos";
+import { FotoProducto } from "../../ui/FotoProducto";
+import { fotosCandidatas } from "../../../lib/fotos";
 
 export const dynamic = "force-dynamic";
 
@@ -41,13 +43,7 @@ export default async function ProductoPage({ params }: { params: Promise<{ sku: 
         {/* imagen (sticky en desktop) */}
         <div className="md:sticky md:top-28 h-fit">
           <div className="relative overflow-hidden rounded-xl bg-crema aspect-[4/5] border border-linea">
-            {prod.imagenUrl ? (
-              <img src={prod.imagenUrl} alt={prod.nombre} className="w-full h-full object-cover" />
-            ) : (
-              <div className="w-full h-full grid place-items-center bg-[#efe7d9]">
-                <span className="display text-9xl font-semibold text-ink/12">{(prod.nombre ?? "?")[0]}</span>
-              </div>
-            )}
+            <FotoProducto imagenUrl={prod.imagenUrl} fotos={fotosCandidatas(prod.nombre, prod.sku)} logoH="h-16" />
             {pct != null && <span className="absolute top-4 left-4 bg-rojo text-crema text-xs font-semibold tracking-wide rounded px-2.5 py-1">−{pct}%</span>}
           </div>
         </div>

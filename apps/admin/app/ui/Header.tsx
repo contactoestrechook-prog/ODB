@@ -32,6 +32,13 @@ const ICONOS: Record<string, string> = {
   repartidor: 'M5 18a2 2 0 100-4 2 2 0 000 4zm14 0a2 2 0 100-4 2 2 0 000 4zM7 16l3-7h4l2 4h3M14 9l-1-3h-3',
   conciliacion: 'M7 8l-4 4 4 4M3 12h12M17 16l4-4-4-4M21 12H9',
   comparador: 'M12 4v16M8 20h8M6 8h12M6 8l-2.5 5a2.5 2.5 0 005 0zm12 0l-2.5 5a2.5 2.5 0 005 0z',
+  pedidos: 'M9 4h6a1 1 0 011 1v1h2v14H6V6h2V5a1 1 0 011-1zM9 6h6M9 11h6M9 15h4',
+  envases: 'M10 3h4v2l1 2v12a1 1 0 01-1 1h-4a1 1 0 01-1-1V7l1-2zM9 11h6',
+  reparto: 'M12 2a6 6 0 016 6c0 4-6 12-6 12S6 12 6 8a6 6 0 016-6zm0 4a2 2 0 100 4 2 2 0 000-4z',
+  cheques: 'M3 7h18v10H3zM3 11h18M7 15h4',
+  libroiva: 'M5 4h11l3 3v13H5zM9 4v16M12 9h5M12 13h5',
+  tiendanube: 'M7 18a4 4 0 010-8 5 5 0 019.6-1.3A3.5 3.5 0 0117 18z',
+  agente: 'M12 3v2M7 8h10a2 2 0 012 2v7a2 2 0 01-2 2H7a2 2 0 01-2-2v-7a2 2 0 012-2zM9 13h.01M15 13h.01',
 };
 
 const GRUPOS: Grupo[] = [
@@ -40,11 +47,14 @@ const GRUPOS: Grupo[] = [
     items: [
       { href: '/inicio', label: 'Inicio', icono: 'inicio' },
       { href: '/ventas', label: 'Ventas', icono: 'ventas' },
+      { href: '/pedidos', label: 'Pedidos', icono: 'pedidos' },
       { href: '/caja', label: 'Caja', icono: 'caja' },
       { href: '/facturacion', label: 'Facturación', icono: 'facturacion' },
       { href: '/deposito', label: 'Depósito', icono: 'deposito' },
       { href: '/envios', label: 'Envíos', icono: 'envios' },
       { href: '/repartidor', label: 'Repartidor', icono: 'repartidor' },
+      { href: '/reparto', label: 'Reparto', icono: 'reparto' },
+      { href: '/envases', label: 'Envases', icono: 'envases' },
       { href: '/salida', label: 'Salida', icono: 'salida' },
       { href: '/cierres', label: 'Cierres', icono: 'cierres' },
     ],
@@ -56,14 +66,16 @@ const GRUPOS: Grupo[] = [
       { href: '/stock', label: 'Stock', icono: 'stock' },
       { href: '/promociones', label: 'Promociones', icono: 'promociones' },
       { href: '/listas', label: 'Listas de precios', icono: 'listas' },
+      { href: '/tiendanube', label: 'Tienda Nube', icono: 'tiendanube' },
     ],
   },
   {
     titulo: 'Abastecimiento',
     items: [
       { href: '/compras', label: 'Compras', icono: 'compras' },
-      { href: '/comparador', label: 'Comparador', icono: 'comparador' },
+      { href: '/comparador', label: 'Proveedores', icono: 'comparador' },
       { href: '/analista', label: 'Analista ODB', icono: 'analista' },
+      { href: '/agente', label: 'Agente IA', icono: 'agente' },
     ],
   },
   {
@@ -80,6 +92,8 @@ const GRUPOS: Grupo[] = [
     items: [
       { href: '/estadisticas', label: 'Estadísticas', icono: 'estadisticas' },
       { href: '/conciliacion', label: 'Conciliación', icono: 'conciliacion' },
+      { href: '/cheques', label: 'Cheques', icono: 'cheques' },
+      { href: '/libro-iva', label: 'Libro IVA', icono: 'libroiva' },
       { href: '/informes', label: 'Informe diario', icono: 'informe' },
       { href: '/eficiencia', label: 'Eficiencia', icono: 'eficiencia' },
       { href: '/usuarios', label: 'Usuarios', icono: 'usuarios' },
@@ -101,15 +115,22 @@ const TITULOS: Record<string, { titulo: string; bajada: string }> = {
   '/stock': { titulo: 'Stock', bajada: 'Quiebres, reposición y vencimientos por sucursal' },
   '/promociones': { titulo: 'Promociones', bajada: 'Descuentos vigentes, programados y Comunidad ODB' },
   '/listas': { titulo: 'Listas de precios', bajada: 'Lectura con IA de listas de proveedores y aplicación de costos' },
+  '/tiendanube': { titulo: 'Tienda Nube', bajada: 'Sincronización del catálogo y de los pedidos con tu tienda de Tienda Nube' },
   '/compras': { titulo: 'Compras', bajada: 'Órdenes de compra, aprobaciones con PIN y recepción' },
-  '/comparador': { titulo: 'Comparador', bajada: 'Compará precios entre proveedores: dónde conviene comprar cada producto' },
+  '/comparador': { titulo: 'Proveedores', bajada: 'Cargá listas, compará precios y decidí dónde conviene comprar cada producto' },
+  '/pedidos': { titulo: 'Pedidos', bajada: 'Centro omnicanal: WhatsApp, app, web, PedidosYa, pick-up y domicilio en un solo lugar' },
+  '/envases': { titulo: 'Envases', bajada: 'Envases retornables: qué tiene cada cliente, valor en la calle y movimientos' },
+  '/reparto': { titulo: 'Reparto', bajada: 'Hojas de ruta por chofer/zona, flota en vivo en el mapa y rendición' },
   '/analista': { titulo: 'Analista ODB', bajada: 'El asesor de abastecimiento: quiebres, reposición y oportunidades' },
+  '/agente': { titulo: 'Agente IA Operativo', bajada: 'Carga y mantiene el catálogo solo, con autonomía supervisada: audita cada acción y escala a un humano cuando duda' },
   '/clientes': { titulo: 'Clientes', bajada: 'Cuentas, clasificación RFM y Comunidad ODB' },
   '/mensajes': { titulo: 'Mensajes', bajada: 'Solicitudes de clientes, envíos y notificaciones automáticas' },
   '/eventos': { titulo: 'Eventos', bajada: 'Oportunidades de cumpleaños, casamientos y fiestas: armá propuestas' },
   '/sommelier': { titulo: 'Somelier ODB', bajada: 'El experto en vinos que atiende a tus clientes' },
   '/estadisticas': { titulo: 'Estadísticas', bajada: 'El negocio en números: 30 días de venta real' },
   '/conciliacion': { titulo: 'Conciliación', bajada: 'Acreditaciones de tarjeta y Mercado Pago: lo que te deben y las comisiones' },
+  '/cheques': { titulo: 'Cheques', bajada: 'Cartera de valores: cheques de terceros y propios, depósitos, vencimientos y rechazos' },
+  '/libro-iva': { titulo: 'Libro IVA', bajada: 'IVA ventas y compras del mes, débito vs crédito y saldo de la posición' },
   '/informes': { titulo: 'Informe diario', bajada: 'El parte matutino del Analista, todos los días a las 7:00' },
   '/eficiencia': { titulo: 'Eficiencia', bajada: 'Productividad por empleado: tiempos por cliente y de preparación' },
   '/usuarios': { titulo: 'Usuarios', bajada: 'Equipo, roles y permisos de firma' },
@@ -138,8 +159,8 @@ export function Header({ activo }: { activo: string }) {
       {/* ---- barra lateral ---- */}
       <aside className="fixed inset-y-0 left-0 w-64 bg-[#121212] text-white flex-col z-40 hidden lg:flex">
         <div className="px-6 pt-7 pb-6">
-          <p className="text-xl font-semibold tracking-[0.3em]">O.D.B</p>
-          <p className="text-[10px] tracking-[0.22em] text-[#B82D25] font-semibold mt-1">PREMIUM MARKET</p>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/odb-logo-blanco.png" alt="O.D.B Premium Market" className="h-12 w-auto" />
         </div>
 
         <nav className="flex-1 overflow-y-auto px-3 pb-4 space-y-5">

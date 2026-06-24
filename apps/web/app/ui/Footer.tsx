@@ -6,8 +6,7 @@ export function Footer() {
       <div className="max-w-7xl mx-auto px-5 lg:px-8 py-16">
         <div className="grid gap-12 md:grid-cols-[1.3fr_1fr_1fr_1.2fr]">
           <div>
-            <div className="display text-3xl font-semibold text-crema">O.D.B</div>
-            <div className="kicker text-dorado mt-1">Premium Market</div>
+            <img src="/odb-logo-blanco.png" alt="O.D.B Premium Market" className="h-16 w-auto" />
             <p className="mt-5 text-sm leading-relaxed text-crema/45 max-w-xs">
               Vinos, destilados, fiambrería de autor y almacén selecto. Curado con criterio, entregado con cuidado.
             </p>

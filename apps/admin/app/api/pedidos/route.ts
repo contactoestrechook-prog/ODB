@@ -15,13 +15,16 @@ export async function GET() {
 
 export async function POST(req: Request) {
   const body = await req.json();
-  const url = body.simular
-    ? `${API}/pedidosya/simular`
-    : `${API}/pedidos/${body.pedidoId}/avanzar`;
+  let url: string;
+  let payload: any = {};
+  if (body.accion === 'waAnalizar') { url = `${API}/pedidos/whatsapp/analizar`; payload = { texto: body.texto }; }
+  else if (body.accion === 'waCrear') { url = `${API}/pedidos/whatsapp`; payload = { items: body.items, nombre: body.nombre, notas: body.notas, dni: body.dni }; }
+  else if (body.simular) { url = `${API}/pedidosya/simular`; payload = {}; }
+  else { url = `${API}/pedidos/${body.pedidoId}/avanzar`; payload = { estado: body.estado }; }
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(await conToken()) },
-    body: JSON.stringify(body.simular ? {} : { estado: body.estado }),
+    body: JSON.stringify(payload),
   });
   return NextResponse.json(await res.json(), { status: res.status });
 }

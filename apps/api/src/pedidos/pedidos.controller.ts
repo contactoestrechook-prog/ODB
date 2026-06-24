@@ -65,6 +65,19 @@ export class PedidosController {
     return this.pedidos.recibirDePedidosYa(ejemplos[Math.floor(Math.random() * ejemplos.length)]);
   }
 
+  // Pedido por WhatsApp: la IA interpreta el mensaje del cliente → preview → crear
+  @Roles('cajero', 'gerente', 'dueno', 'deposito')
+  @Post('pedidos/whatsapp/analizar')
+  analizarWa(@Body() b: { texto: string }) {
+    return this.pedidos.analizarWhatsApp(b.texto);
+  }
+
+  @Roles('cajero', 'gerente', 'dueno', 'deposito')
+  @Post('pedidos/whatsapp')
+  crearWa(@Body() b: { items: any[]; nombre?: string; notas?: string; dni?: string }) {
+    return this.pedidos.recibirWhatsApp(b);
+  }
+
   @Roles('deposito', 'cajero', 'gerente', 'dueno')
   @Get('pedidos')
   cola() {
