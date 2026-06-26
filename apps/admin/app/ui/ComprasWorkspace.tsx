@@ -295,7 +295,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso }: any) {
 
         {t === 'recibir' && (<>
           <h2 className="font-semibold text-black text-lg">Recibir OC #{modal.oc.numero}</h2>
-          <p className="text-xs text-black/50">Ingresá lo que llegó de cada ítem (queda como entrada de stock).</p>
+          <p className="text-xs text-black/50">Ingresá lo que llegó de cada ítem. Al recibir se fija el costo de la compra y se calcula el precio de venta con el % de remarcación.</p>
           {(modal.oc.items ?? []).map((it: any, idx: number) => {
             const pend = Number(it.cantidad) - Number(it.cantidad_recibida ?? 0);
             return (
@@ -305,8 +305,13 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso }: any) {
               </div>
             );
           })}
+          <div className="flex items-center gap-2 text-sm pt-2 mt-1 border-t border-black/10">
+            <span className="flex-1 text-black/60">% de remarcación <span className="text-xs text-black/40">(vacío = usa el del rubro)</span></span>
+            <input type="number" value={f.margenPct ?? ''} onChange={(e) => set('margenPct', e.target.value)} placeholder="rubro" className="w-20 rounded border border-black/15 px-2 py-1 text-right" />
+            <span className="text-black/40 text-xs">%</span>
+          </div>
           {aviso && <p className="text-xs text-[#B82D25]">{aviso}</p>}
-          <Acciones cerrar={cerrar} okLabel="Registrar recepción" onOk={() => post({ accion: 'recibir', id: modal.oc.id, items: (modal.oc.items ?? []).map((it: any) => ({ sku: it.producto?.sku, cantidad: Number(recibido[it.producto?.sku] ?? (Number(it.cantidad) - Number(it.cantidad_recibida ?? 0))) })).filter((x: any) => x.cantidad > 0) })} />
+          <Acciones cerrar={cerrar} okLabel="Registrar recepción" onOk={() => post({ accion: 'recibir', id: modal.oc.id, margenPct: f.margenPct ? Number(f.margenPct) : undefined, items: (modal.oc.items ?? []).map((it: any) => ({ sku: it.producto?.sku, cantidad: Number(recibido[it.producto?.sku] ?? (Number(it.cantidad) - Number(it.cantidad_recibida ?? 0))) })).filter((x: any) => x.cantidad > 0) })} />
         </>)}
 
         {t === 'proveedor' && (<>

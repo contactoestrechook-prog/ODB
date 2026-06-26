@@ -50,6 +50,8 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string 
   const [pagaCon, setPagaCon] = useState('');
   const [buscando, setBuscando] = useState(false);
   const [catalogoLocal, setCatalogoLocal] = useState<any[]>([]);
+  const [seleccion, setSeleccion] = useState<string | null>(null); // sku del renglón que edita el teclado
+  const [cantBuf, setCantBuf] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
   const debRef = useRef<any>(null);
   const seqRef = useRef(0);
@@ -71,7 +73,7 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string 
     const low = t.toLowerCase();
     return catalogoLocal
       .filter((p) =>
-        p.codigo === t ||                                  // código interno exacto (escaneo)
+        p.codigo === t ||
         p._n?.includes(n) ||
         p.sku?.toLowerCase().startsWith(low) ||
         (p.codigosBarras ?? []).some((c: string) => c.includes(t)),
@@ -81,6 +83,7 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string 
 
   // El total cobrable se recalcula también en el servidor: esto es solo display
   const total = carrito.reduce((s, r) => s + (Number(r.precio) || 0) * r.cantidad, 0);
+  const unidades = carrito.reduce((s, r) => s + r.cantidad, 0);
   const subtotalLista = carrito.reduce(
     (s, r) => s + (Number(r.precioLista ?? r.precio) || 0) * r.cantidad,
     0,
@@ -106,22 +109,18 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string 
     setEstado(null);
   }
 
-  // local-first: busca instantáneo en el catálogo precargado; si no hay nada,
-  // cae al server (productos "a pedido" / fuera de stock). El escáner agrega solo.
   function onBuscar(termino: string) {
     setBusqueda(termino);
     setEstado(null);
     if (debRef.current) clearTimeout(debRef.current);
     const t = termino.trim();
     if (t.length < 2) { setResultados([]); return; }
-    // código interno / barra exacto en el catálogo local → agrega al instante
     if (/^\d{4,14}$/.test(t)) {
       const ex = catalogoLocal.find((p) => p.codigo === t || p.sku === t || (p.codigosBarras ?? []).includes(t));
       if (ex) { agregar(ex); return; }
     }
     const locales = filtrarLocal(t);
     setResultados(locales);
-    // sin match local → buscar en el servidor (debounced)
     if (locales.length === 0) debRef.current = setTimeout(() => ejecutar(t, false), 170);
   }
 
@@ -131,7 +130,7 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string 
     try {
       const res = await fetch(`/api/pos-buscar?q=${encodeURIComponent(t)}`);
       const datos: Producto[] = res.ok ? ((await res.json()).items ?? []) : [];
-      if (seq !== seqRef.current) return; // descarta respuestas viejas
+      if (seq !== seqRef.current) return;
       const esCodigo = /^\d{6,14}$/.test(t);
       if (esCodigo || esEnter) {
         const exacto = datos.find((p) => p.codigo === t || p.sku === t || (p.codigosBarras ?? []).includes(t)) ?? (datos.length === 1 ? datos[0] : null);
@@ -151,12 +150,9 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string 
     e.preventDefault();
     if (debRef.current) clearTimeout(debRef.current);
     const t = busqueda.trim();
-    // 1) match exacto por código interno / sku / barra (escaneo)
     const ex = catalogoLocal.find((p) => p.codigo === t || p.sku === t || (p.codigosBarras ?? []).includes(t));
     if (ex) { agregar(ex); return; }
-    // 2) primer resultado mostrado
     if (resultados[0]) { agregar(resultados[0]); return; }
-    // 3) server (a pedido / fuera de stock)
     if (t.length >= 1) ejecutar(t, true);
   }
 
@@ -167,6 +163,28 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string 
         .filter((r) => r.cantidad > 0),
     );
   }
+  function quitar(sku: string) {
+    setCarrito((c) => c.filter((r) => r.sku !== sku));
+    if (seleccion === sku) setSeleccion(null);
+  }
+
+  // ---- teclado numérico en pantalla ----
+  function seleccionarLinea(sku: string) {
+    setSeleccion((s) => (s === sku ? null : sku));
+    setCantBuf('');
+  }
+  function tecla(k: string) {
+    const apply = (cur: string) => (k === 'C' ? '' : k === '⌫' ? cur.slice(0, -1) : cur === '0' ? k : cur + k);
+    if (seleccion) {
+      const nb = apply(cantBuf);
+      setCantBuf(nb);
+      const n = Number(nb);
+      setCarrito((c) => c.map((r) => (r.sku === seleccion ? { ...r, cantidad: nb === '' ? r.cantidad : Math.max(1, Math.min(999, n || 1)) } : r)));
+    } else {
+      setPagaCon((p) => apply(p));
+    }
+  }
+  function sumarCash(n: number) { setSeleccion(null); setPagaCon((p) => String((Number(p) || 0) + n)); }
 
   async function buscarCliente() {
     if (!dni.trim()) return;
@@ -200,6 +218,7 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string 
       setCliente(null);
       setDni('');
       setPagaCon('');
+      setSeleccion(null);
       inputRef.current?.focus();
     } else {
       setEstado({ tipo: 'error', texto: datos.message ?? 'No se pudo registrar la venta' });
@@ -207,225 +226,194 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string 
     setCobrando(false);
   }
 
+  const seleccionado = carrito.find((r) => r.sku === seleccion) || null;
+
   return (
-    <main className="min-h-screen bg-[#F0EBE2] flex flex-col">
-      <header className="bg-black px-4 py-2.5 flex items-center justify-between">
-        <span className="text-white tracking-widest font-medium text-sm">
+    <main className="h-screen bg-[#F0EBE2] flex flex-col overflow-hidden">
+      <header className="bg-black px-4 py-3 flex items-center justify-between shrink-0">
+        <span className="text-white tracking-widest font-medium">
           O.D.B <span className="tracking-normal font-normal text-[#F0EBE2]/70">· Caja</span>
         </span>
-        <div className="flex items-center gap-3 text-sm">
+        <div className="flex items-center gap-3">
           <select
             value={sucursalId}
             onChange={(e) => setSucursalId(e.target.value)}
-            className="rounded bg-white/10 text-[#F0EBE2] px-2 py-1 text-xs"
+            className="rounded-lg bg-white/10 text-[#F0EBE2] px-3 py-2 text-sm"
           >
             {sucursales.map((s) => (
-              <option key={s.id} value={s.id} className="text-black">
-                {s.nombre}
-              </option>
+              <option key={s.id} value={s.id} className="text-black">{s.nombre}</option>
             ))}
           </select>
-          <Link href="/ventas" className="text-[#F0EBE2]/60 hover:text-white text-xs">
-            Volver al panel
-          </Link>
+          <Link href="/ventas" className="rounded-lg bg-white/10 text-[#F0EBE2]/80 px-3 py-2 text-sm">Panel</Link>
         </div>
       </header>
 
-      <div className="flex-1 grid md:grid-cols-[1.5fr_1fr] gap-4 p-4 max-w-6xl w-full mx-auto">
-        <section className="rounded-xl bg-white p-4 flex flex-col">
-          <div className="relative">
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-[1fr_420px] gap-3 p-3 overflow-hidden">
+        {/* IZQUIERDA: búsqueda + carrito */}
+        <section className="rounded-2xl bg-white p-3 flex flex-col overflow-hidden">
+          <div className="relative shrink-0">
             <input
               ref={inputRef}
               value={busqueda}
               onChange={(e) => onBuscar(e.target.value)}
               onKeyDown={onKeyBuscar}
-              placeholder="Escanear código de barras o buscar producto…"
+              placeholder="Escaneá o buscá un producto…"
               autoFocus
-              className="w-full rounded-full border-2 border-[#B82D25] px-5 py-3 text-base text-black outline-none"
+              inputMode="search"
+              className="w-full rounded-2xl border-2 border-[#B82D25] px-5 py-4 text-lg text-black outline-none"
             />
-            {buscando && <span className="absolute right-5 top-1/2 -translate-y-1/2 text-xs text-black/40">buscando…</span>}
+            {buscando && <span className="absolute right-5 top-1/2 -translate-y-1/2 text-sm text-black/40">buscando…</span>}
             {resultados.length > 0 && (
-              <div className="absolute z-10 mt-1 w-full rounded-xl bg-white border border-black/10 overflow-hidden shadow-lg">
+              <div className="absolute z-10 mt-1 w-full rounded-2xl bg-white border border-black/10 overflow-hidden shadow-xl">
                 {resultados.map((p) => (
                   <button
                     key={p.sku}
                     onClick={() => agregar(p)}
-                    className="w-full px-4 py-2.5 text-left text-sm text-black hover:bg-[#F0EBE2] flex items-center justify-between gap-3"
+                    className="w-full px-4 py-3.5 text-left text-black active:bg-[#F0EBE2] hover:bg-[#F0EBE2] flex items-center justify-between gap-3 border-b border-black/5 last:border-0"
                   >
-                    <span className="flex items-center gap-3">
-                      {p.imagenUrl && (
-                        <img src={p.imagenUrl} alt="" className="h-9 w-9 rounded-lg object-cover" />
-                      )}
-                      {p.nombre}
-                      {p.esAlcohol && (
-                        <span className="ml-2 rounded-full bg-black px-1.5 py-0.5 text-[10px] text-white">
-                          +18
-                        </span>
-                      )}
+                    <span className="flex items-center gap-3 min-w-0">
+                      {p.imagenUrl && <img src={p.imagenUrl} alt="" className="h-11 w-11 rounded-lg object-cover shrink-0" />}
+                      <span className="truncate text-base">{p.nombre}</span>
+                      {p.esAlcohol && <span className="rounded-full bg-black px-1.5 py-0.5 text-[10px] text-white shrink-0">+18</span>}
                     </span>
-                    <span className="font-medium">{pesos(p.precio)}</span>
+                    <span className="font-semibold text-lg whitespace-nowrap">{pesos(p.precio)}</span>
                   </button>
                 ))}
               </div>
             )}
           </div>
 
-          <table className="w-full text-sm text-black mt-4">
-            <tbody>
-              {carrito.map((r) => (
-                <tr key={r.sku} className="border-b border-black/5 last:border-0">
-                  <td className="py-2.5">
-                    <p className="font-medium">{r.nombre}</p>
-                    {r.descuento && <p className="text-xs text-[#B82D25]">{r.descuento}</p>}
-                  </td>
-                  <td className="py-2.5 w-28">
-                    <div className="flex items-center gap-1.5 justify-center">
-                      <button
-                        onClick={() => cambiarCantidad(r.sku, -1)}
-                        className="h-7 w-7 rounded-full bg-[#F0EBE2] text-black font-medium"
-                        aria-label="Restar"
-                      >
-                        −
-                      </button>
-                      <span className="w-7 text-center font-medium">{r.cantidad}</span>
-                      <button
-                        onClick={() => cambiarCantidad(r.sku, 1)}
-                        className="h-7 w-7 rounded-full bg-black text-white font-medium"
-                        aria-label="Sumar"
-                      >
-                        +
-                      </button>
-                    </div>
-                  </td>
-                  <td className="py-2.5 text-right w-28">
-                    {r.precioLista != null && r.precio != null && r.precioLista > r.precio ? (
-                      <>
-                        <p className="text-xs text-black/40 line-through">
-                          {pesos(r.precioLista * r.cantidad)}
-                        </p>
-                        <p className="font-medium text-[#B82D25]">{pesos(r.precio * r.cantidad)}</p>
-                      </>
-                    ) : (
-                      <p className="font-medium">{pesos((r.precio ?? 0) * r.cantidad)}</p>
-                    )}
-                  </td>
-                </tr>
-              ))}
-              {carrito.length === 0 && (
-                <tr>
-                  <td className="py-16 text-center text-black/40 text-sm">
-                    Escaneá un producto para empezar la venta
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+          {/* carrito */}
+          <div className="flex-1 overflow-y-auto mt-3 -mx-1 px-1">
+            {carrito.length === 0 && (
+              <div className="h-full flex items-center justify-center text-black/35 text-base">
+                Escaneá un producto para empezar
+              </div>
+            )}
+            {carrito.map((r) => {
+              const sel = r.sku === seleccion;
+              return (
+                <div
+                  key={r.sku}
+                  className={`rounded-xl mb-2 px-3 py-2.5 flex items-center gap-2 border-2 ${sel ? 'border-[#B82D25] bg-[#B82D25]/5' : 'border-transparent bg-[#F0EBE2]/50'}`}
+                >
+                  <button onClick={() => seleccionarLinea(r.sku)} className="flex-1 min-w-0 text-left">
+                    <p className="font-medium text-black leading-tight">{r.nombre}</p>
+                    <p className="text-xs text-black/45">{pesos(r.precio)} c/u{r.descuento ? ` · ${r.descuento}` : ''}{sel ? ' · tocá los números para la cantidad' : ''}</p>
+                  </button>
+                  <button onClick={() => cambiarCantidad(r.sku, -1)} className="h-12 w-12 rounded-xl bg-white border border-black/10 text-2xl text-black active:scale-95 shrink-0" aria-label="Restar">−</button>
+                  <span className="w-9 text-center text-xl font-semibold tabular-nums">{r.cantidad}</span>
+                  <button onClick={() => cambiarCantidad(r.sku, 1)} className="h-12 w-12 rounded-xl bg-black text-white text-2xl active:scale-95 shrink-0" aria-label="Sumar">+</button>
+                  <span className="w-24 text-right font-semibold text-lg whitespace-nowrap shrink-0">{pesos((r.precio ?? 0) * r.cantidad)}</span>
+                  <button onClick={() => quitar(r.sku)} className="h-12 w-10 rounded-xl text-black/30 active:text-[#B82D25] text-xl shrink-0" aria-label="Quitar">✕</button>
+                </div>
+              );
+            })}
+          </div>
         </section>
 
-        <section className="rounded-xl bg-white p-4 flex flex-col gap-4 self-start sticky top-4">
-          <div>
-            <p className="text-xs text-black/50 mb-1.5">DNI del cliente (opcional)</p>
-            <div className="flex gap-2">
-              <input
-                value={dni}
-                onChange={(e) => setDni(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && buscarCliente()}
-                placeholder="28456789"
-                className="flex-1 rounded-lg border border-black/15 px-3 py-2 text-sm text-black outline-none focus:border-[#B82D25]"
-              />
-              <button
-                onClick={buscarCliente}
-                className="rounded-lg bg-black px-4 text-sm text-white"
-              >
-                Buscar
-              </button>
+        {/* DERECHA: total + medios + teclado + cobrar */}
+        <section className="rounded-2xl bg-white p-3 flex flex-col gap-3 overflow-y-auto">
+          {/* total */}
+          <div className="rounded-xl bg-black text-white px-4 py-3">
+            <div className="flex justify-between items-baseline">
+              <span className="text-sm text-white/60">{unidades} u.</span>
+              {subtotalLista > total && <span className="text-xs text-[#F0EBE2]/60 line-through">{pesos(subtotalLista)}</span>}
             </div>
-            {cliente && (
-              <div className="mt-2">
-                {cliente.existe ? (
-                  <span className="rounded-full bg-black px-3 py-1 text-xs font-medium text-white">
-                    {cliente.tipo} · {cliente.compras} compras · ticket {pesos(cliente.ticketPromedio)}
-                  </span>
-                ) : (
-                  <span className="rounded-full bg-[#F0EBE2] px-3 py-1 text-xs text-black">
-                    Cliente nuevo: se registra con esta venta
-                  </span>
-                )}
-              </div>
-            )}
-          </div>
-
-          <div className="border-t border-black/10 pt-3">
-            {subtotalLista > total && (
-              <div className="flex justify-between text-sm text-black/50">
-                <span>Precio de lista</span>
-                <span className="line-through">{pesos(subtotalLista)}</span>
-              </div>
-            )}
-            {subtotalLista > total && (
-              <div className="flex justify-between text-sm text-[#932A1F]">
-                <span>Descuentos</span>
-                <span>−{pesos(subtotalLista - total)}</span>
-              </div>
-            )}
-            <div className="flex justify-between items-baseline mt-1">
-              <span className="text-sm text-black/60">Total</span>
-              <span className="text-3xl font-medium text-black">{pesos(total)}</span>
+            <div className="flex justify-between items-baseline mt-0.5">
+              <span className="text-sm text-white/70">Total</span>
+              <span className="text-4xl font-semibold tabular-nums">{pesos(total)}</span>
             </div>
           </div>
 
+          {/* medios */}
           <div className="grid grid-cols-2 gap-2">
             {MEDIOS.map((m) => (
               <button
                 key={m.id}
                 onClick={() => setMedio(m.id)}
-                className={
-                  'rounded-lg py-2.5 text-sm font-medium border ' +
-                  (medio === m.id
-                    ? 'bg-black text-white border-black'
-                    : 'bg-white text-black border-black/15 hover:border-black/40')
-                }
+                className={'rounded-xl py-3.5 text-base font-medium border-2 active:scale-95 ' +
+                  (medio === m.id ? 'bg-black text-white border-black' : 'bg-white text-black border-black/10')}
               >
                 {m.label}
               </button>
             ))}
           </div>
 
-          {medio === 'efectivo' && total > 0 && (
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-black/60 whitespace-nowrap">Paga con</span>
-              <input
-                type="number"
-                value={pagaCon}
-                onChange={(e) => setPagaCon(e.target.value)}
-                placeholder="$"
-                className="flex-1 rounded-lg border border-black/15 px-3 py-2 text-sm text-right text-black outline-none focus:border-[#B82D25]"
-              />
-              {vuelto != null && (
-                <span className={`text-sm font-semibold whitespace-nowrap ${vuelto < 0 ? 'text-[#B82D25]' : 'text-emerald-700'}`}>
-                  {vuelto < 0 ? `Faltan ${pesos(-vuelto)}` : `Vuelto ${pesos(vuelto)}`}
-                </span>
-              )}
+          {/* display del teclado: cantidad o paga con */}
+          <div className="rounded-xl bg-[#F0EBE2]/60 px-4 py-2.5 flex items-center justify-between">
+            {seleccionado ? (
+              <>
+                <span className="text-sm text-black/60 truncate mr-2">Cantidad · {seleccionado.nombre}</span>
+                <span className="text-2xl font-semibold tabular-nums">{seleccionado.cantidad}</span>
+              </>
+            ) : (
+              <>
+                <span className="text-sm text-black/60">{medio === 'efectivo' ? 'Paga con' : 'Importe recibido'}</span>
+                <span className="text-2xl font-semibold tabular-nums">{pagaCon ? pesos(pagaConN) : '$0'}</span>
+              </>
+            )}
+          </div>
+
+          {/* atajos de efectivo */}
+          {!seleccionado && (
+            <div className="grid grid-cols-4 gap-2">
+              <button onClick={() => setPagaCon(String(total))} className="rounded-lg bg-emerald-600 text-white py-2.5 text-sm font-medium active:scale-95">Justo</button>
+              {[1000, 2000, 5000].map((n) => (
+                <button key={n} onClick={() => sumarCash(n)} className="rounded-lg bg-white border border-black/10 py-2.5 text-sm font-medium active:scale-95">+{n / 1000}k</button>
+              ))}
             </div>
           )}
 
+          {/* teclado numérico */}
+          <div className="grid grid-cols-3 gap-2">
+            {['1', '2', '3', '4', '5', '6', '7', '8', '9', 'C', '0', '⌫'].map((k) => (
+              <button
+                key={k}
+                onClick={() => tecla(k)}
+                className={'rounded-xl py-4 text-2xl font-medium active:scale-95 ' +
+                  (k === 'C' ? 'bg-[#B82D25]/10 text-[#932A1F]' : k === '⌫' ? 'bg-black/5 text-black' : 'bg-[#F0EBE2] text-black')}
+              >
+                {k}
+              </button>
+            ))}
+          </div>
+
+          {vuelto != null && (
+            <div className={`rounded-xl px-4 py-3 text-center text-lg font-semibold ${vuelto < 0 ? 'bg-[#B82D25]/10 text-[#932A1F]' : 'bg-emerald-50 text-emerald-700'}`}>
+              {vuelto < 0 ? `Faltan ${pesos(-vuelto)}` : `Vuelto ${pesos(vuelto)}`}
+            </div>
+          )}
+
+          {/* cliente (opcional, compacto) */}
+          <div className="flex gap-2">
+            <input
+              value={dni}
+              onChange={(e) => setDni(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && buscarCliente()}
+              placeholder="DNI cliente (opcional)"
+              inputMode="numeric"
+              className="flex-1 rounded-xl border border-black/15 px-3 py-3 text-base text-black outline-none focus:border-[#B82D25]"
+            />
+            <button onClick={buscarCliente} className="rounded-xl bg-black px-5 text-base text-white active:scale-95">Buscar</button>
+          </div>
+          {cliente && (
+            <p className={`rounded-xl px-3 py-2 text-sm ${cliente.existe ? 'bg-black text-white' : 'bg-[#F0EBE2] text-black'}`}>
+              {cliente.existe ? `${cliente.tipo} · ${cliente.compras} compras · ticket ${pesos(cliente.ticketPromedio)}` : 'Cliente nuevo: se registra con esta venta'}
+            </p>
+          )}
+
+          {/* cobrar */}
           <button
             onClick={cobrar}
             disabled={carrito.length === 0 || cobrando}
-            className="rounded-full bg-[#B82D25] py-3.5 text-base font-medium text-white hover:bg-[#932A1F] disabled:opacity-40"
+            className="mt-auto rounded-2xl bg-[#B82D25] py-6 text-2xl font-semibold text-white active:scale-95 disabled:opacity-40"
           >
             {cobrando ? 'Cobrando…' : `Cobrar ${pesos(total)}`}
           </button>
 
           {estado && (
-            <p
-              className={
-                'rounded-lg px-3 py-2.5 text-sm ' +
-                (estado.tipo === 'ok'
-                  ? 'bg-[#F0EBE2] text-black'
-                  : 'bg-[#B82D25]/10 text-[#932A1F]')
-              }
-            >
+            <p className={'rounded-xl px-3 py-3 text-base ' + (estado.tipo === 'ok' ? 'bg-emerald-50 text-emerald-800' : 'bg-[#B82D25]/10 text-[#932A1F]')}>
               {estado.texto}
             </p>
           )}

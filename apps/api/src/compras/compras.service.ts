@@ -1,6 +1,7 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
+import { precioDesdeCosto, margenAplicable } from './precio';
 
 export type CrearOcDto = {
   proveedorId: string;
@@ -16,8 +17,10 @@ export type CrearOcDto = {
 
 export type AprobarDto = { usuarioId?: string; pin?: string };
 export type RecibirDto = {
-  items: { sku: string; cantidad: number }[];
+  // costo opcional por renglón = costo REAL de esta entrada (si falta, usa el de la OC)
+  items: { sku: string; cantidad: number; costo?: number }[];
   usuarioId?: string;
+  margenPct?: number; // % de remarcación para esta recepción (si falta, usa el del rubro)
 };
 
 @Injectable()
@@ -149,7 +152,42 @@ export class ComprasService {
       p_usuario: dto.usuarioId ?? null,
     });
     if (error) throw new BadRequestException(this.traducirError(error.message));
-    return { estado: data };
+
+    // Regla de oro ODB: al entrar la mercadería se fija el costo real y se aplica el % → precio.
+    const repreciados = await this.aplicarPrecioRecepcion(id, dto);
+    return { estado: data, repreciados };
+  }
+
+  // Fija costo + precio de venta (margen) de los renglones recibidos. Reusa aplicar_lista_con_precio
+  // (setea productos.costo, proveedor_productos, costos_historial y el precio Minorista).
+  private async aplicarPrecioRecepcion(ocId: string, dto: RecibirDto): Promise<number> {
+    const { data: oc } = await this.db
+      .from('ordenes_compra')
+      .select('proveedor_id, items:ordenes_compra_items(costo_unitario, producto:productos(sku, categoria:categorias(margen_sugerido)))')
+      .eq('id', ocId)
+      .single();
+    if (!oc?.proveedor_id) return 0;
+
+    const info = new Map<string, { costo: number; margenRubro: number | null }>();
+    for (const it of (oc.items ?? []) as any[]) {
+      const sku = it.producto?.sku;
+      if (sku) info.set(sku, { costo: Number(it.costo_unitario) || 0, margenRubro: it.producto?.categoria?.margen_sugerido ?? null });
+    }
+
+    const items: { sku: string; costo: number; precio: number }[] = [];
+    for (const r of dto.items ?? []) {
+      const i = info.get(r.sku);
+      if (!i) continue;
+      const costo = r.costo != null && Number(r.costo) > 0 ? Number(r.costo) : i.costo;
+      if (!(costo > 0)) continue;
+      const margen = margenAplicable(dto.margenPct, i.margenRubro);
+      items.push({ sku: r.sku, costo, precio: precioDesdeCosto(costo, margen) });
+    }
+    if (!items.length) return 0;
+
+    const { data, error } = await this.db.rpc('aplicar_lista_con_precio', { p_proveedor: oc.proveedor_id, p_items: items, p_usuario: dto.usuarioId ?? null });
+    if (error) throw new BadRequestException(this.traducirError(error.message));
+    return Number(data) || 0;
   }
 
   // ---------- resumen (KPIs) ----------
