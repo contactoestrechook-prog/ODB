@@ -6,7 +6,7 @@ type Item = { href: string; label: string; icono: string };
 type Grupo = { titulo: string; items: Item[] };
 
 // path SVG (24x24, stroke) por sección
-const ICONOS: Record<string, string> = {
+export const ICONOS: Record<string, string> = {
   inicio: 'M3 11l9-8 9 8M5 9v11h5v-6h4v6h5V9',
   ventas: 'M3 3h2l2 12h11l2-8H7M9 19a1 1 0 102 0 1 1 0 00-2 0zm7 0a1 1 0 102 0 1 1 0 00-2 0z',
   caja: 'M4 8h16v12H4zM4 8l2-4h12l2 4M9 12h6',
@@ -152,7 +152,7 @@ function Icono({ d, activo }: { d: string; activo: boolean }) {
   );
 }
 
-export function Header({ activo }: { activo: string }) {
+export function Header({ activo, sinCabecera }: { activo: string; sinCabecera?: boolean }) {
   const seccion = TITULOS[activo] ?? { titulo: 'O.D.B', bajada: '' };
   return (
     <>
@@ -207,20 +207,22 @@ export function Header({ activo }: { activo: string }) {
       <MobileMenu grupos={GRUPOS} iconos={ICONOS} activo={activo} titulo={seccion.titulo} />
 
       {/* ---- cabecera de sección ---- */}
-      <div className="bg-white border-b border-black/5">
-        <div className="px-6 lg:px-10 py-5 flex items-center justify-between gap-4">
-          <div className="shrink-0">
-            <h1 className="text-xl font-semibold text-black">{seccion.titulo}</h1>
-            {seccion.bajada && <p className="text-[13px] text-black/45 mt-0.5 hidden md:block">{seccion.bajada}</p>}
+      {!sinCabecera && (
+        <div className="bg-white border-b border-black/5">
+          <div className="px-6 lg:px-10 py-5 flex items-center justify-between gap-4">
+            <div className="shrink-0">
+              <h1 className="text-xl font-semibold text-black">{seccion.titulo}</h1>
+              {seccion.bajada && <p className="text-[13px] text-black/45 mt-0.5 hidden md:block">{seccion.bajada}</p>}
+            </div>
+            <div className="flex-1 flex justify-end max-w-md ml-auto">
+              <BuscadorGlobal />
+            </div>
+            <p className="text-[13px] text-black/40 whitespace-nowrap hidden xl:block capitalize">
+              {new Date().toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' })}
+            </p>
           </div>
-          <div className="flex-1 flex justify-end max-w-md ml-auto">
-            <BuscadorGlobal />
-          </div>
-          <p className="text-[13px] text-black/40 whitespace-nowrap hidden xl:block capitalize">
-            {new Date().toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' })}
-          </p>
         </div>
-      </div>
+      )}
     </>
   );
 }
