@@ -56,7 +56,7 @@ export default async function Inicio() {
     {
       titulo: 'Operación', color: '#F0837B', card: '#1d1712',
       items: [
-        { label: 'Facturación', href: '/facturacion', icon: 'facturacion', sub: 'multi-emisor · A·B·R' },
+        { label: 'Facturación', href: '/facturacion', icon: 'facturacion', sub: 'A · B · R · cuenta corriente' },
         { label: 'Pedidos', href: '/pedidos', icon: 'pedidos', sub: 'whatsapp · web · PY', badge: pedidosActivos },
         { label: 'Reparto', href: '/reparto', icon: 'reparto', sub: 'hojas de ruta' },
         { label: 'Envíos', href: '/envios', icon: 'envios', sub: 'despacho a domicilio' },

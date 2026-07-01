@@ -37,8 +37,24 @@ const MEDIOS = [
   { id: 'cta_cte', label: 'Cta. cte.' },
 ];
 
+// Lo PRIMERO que define el cajero: qué comprobante emite (pedido del dueño).
+// 1 sola razón social por local → NO hay selector de emisor.
+const COMPROBANTES = [
+  { id: 'B', label: 'B', desc: 'Consumidor final' },
+  { id: 'A', label: 'A', desc: 'Resp. inscripto' },
+  { id: 'R', label: 'R', desc: 'Remito' },
+] as const;
+type TipoComprobante = (typeof COMPROBANTES)[number]['id'];
+
+const NOTA_MEDIO: Record<string, string> = {
+  mercadopago: 'Mostrá el QR de tu caja para que pague',
+  tarjeta: 'Cobrá en la terminal (Clover)',
+  cta_cte: 'Se carga a la cuenta corriente del cliente',
+};
+
 export function Caja({ sucursales }: { sucursales: { id: string; nombre: string }[] }) {
   const [sucursalId, setSucursalId] = useState(sucursales[0]?.id ?? '');
+  const [comprobante, setComprobante] = useState<TipoComprobante>('B');
   const [busqueda, setBusqueda] = useState('');
   const [resultados, setResultados] = useState<Producto[]>([]);
   const [carrito, setCarrito] = useState<Renglon[]>([]);
@@ -53,14 +69,17 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string 
   const [seleccion, setSeleccion] = useState<string | null>(null); // sku del renglón que edita el teclado
   const [cantBuf, setCantBuf] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
+  const dniRef = useRef<HTMLInputElement>(null);
   const debRef = useRef<any>(null);
   const seqRef = useRef(0);
+  const cobrarRef = useRef<() => void>(() => {});
 
   useEffect(() => {
     inputRef.current?.focus();
   }, [carrito.length]);
 
-  // Precarga el catálogo con stock (≈575) para búsqueda LOCAL instantánea.
+  // Precarga el catálogo con stock (≈575) para búsqueda LOCAL instantánea
+  // (las PC de caja tienen ~25 Mbps → la búsqueda no puede depender de la red).
   useEffect(() => {
     fetch('/api/pos-catalogo')
       .then((r) => (r.ok ? r.json() : { items: [] }))
@@ -89,7 +108,13 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string 
     0,
   );
   const pagaConN = Number(pagaCon) || 0;
-  const vuelto = medio === 'efectivo' && pagaConN > 0 ? pagaConN - total : null;
+  const esEfectivo = medio === 'efectivo';
+  const vuelto = esEfectivo && pagaConN > 0 ? pagaConN - total : null;
+
+  // Cuenta corriente y Factura A necesitan identificar al cliente (CUIT / cuenta).
+  const requiereCliente = comprobante === 'A' || medio === 'cta_cte';
+  const clienteIdentificado = !!cliente?.existe || dni.trim().length >= 7;
+  const faltaCliente = requiereCliente && !clienteIdentificado;
 
   function agregar(p: Producto) {
     if (p.precio == null) {
@@ -194,6 +219,11 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string 
 
   async function cobrar() {
     if (carrito.length === 0 || cobrando) return;
+    if (faltaCliente) {
+      setEstado({ tipo: 'error', texto: comprobante === 'A' ? 'Factura A: identificá al cliente (CUIT)' : 'Cuenta corriente: identificá al cliente' });
+      dniRef.current?.focus();
+      return;
+    }
     setCobrando(true);
     setEstado(null);
     const res = await fetch('/api/venta', {
@@ -202,6 +232,7 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string 
       body: JSON.stringify({
         sucursalId,
         canal: 'mostrador',
+        comprobante, // A / B / R — se persiste al cablear ARCA (hoy inerte)
         items: carrito.map((r) => ({ sku: r.sku, cantidad: r.cantidad })),
         pagos: [{ medio, monto: total }],
         clienteDni: cliente?.dni ?? (dni.trim() || undefined),
@@ -209,22 +240,61 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string 
     });
     const datos = await res.json();
     if (res.ok) {
-      const vueltoTxt = medio === 'efectivo' && pagaConN > total ? ` · VUELTO ${pesos(pagaConN - total)}` : '';
+      const comp = comprobante === 'R' ? 'Remito' : `Fac ${comprobante}`;
+      const vueltoTxt = esEfectivo && pagaConN > total ? ` · VUELTO ${pesos(pagaConN - total)}` : '';
       setEstado({
         tipo: 'ok',
-        texto: `✓ Venta ${pesos(datos.total)}${Number(datos.descuento) > 0 ? ` (ahorró ${pesos(datos.descuento)})` : ''}${datos.tipo_cliente ? ` · ${datos.tipo_cliente}` : ''}${vueltoTxt}`,
+        texto: `✓ ${comp} ${pesos(datos.total)}${Number(datos.descuento) > 0 ? ` (ahorró ${pesos(datos.descuento)})` : ''}${datos.tipo_cliente ? ` · ${datos.tipo_cliente}` : ''}${vueltoTxt}`,
       });
       setCarrito([]);
       setCliente(null);
       setDni('');
       setPagaCon('');
       setSeleccion(null);
+      setComprobante('B');
       inputRef.current?.focus();
     } else {
       setEstado({ tipo: 'error', texto: datos.message ?? 'No se pudo registrar la venta' });
     }
     setCobrando(false);
   }
+
+  // Atajos de teclado (el equipo pidió operar con mínimo mouse).
+  cobrarRef.current = cobrar;
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      switch (e.key) {
+        case 'F2': // ciclar comprobante A/B/R
+          e.preventDefault();
+          setComprobante((c) => (c === 'B' ? 'A' : c === 'A' ? 'R' : 'B'));
+          break;
+        case 'F3': // identificar cliente / cta cte
+          e.preventDefault();
+          dniRef.current?.focus();
+          break;
+        case 'F4': // ciclar medio de pago
+          e.preventDefault();
+          setMedio((m) => {
+            const i = MEDIOS.findIndex((x) => x.id === m);
+            return MEDIOS[(i + 1) % MEDIOS.length].id;
+          });
+          break;
+        case 'F12': // cobrar
+          e.preventDefault();
+          cobrarRef.current?.();
+          break;
+        case 'F10': // salir al panel
+          e.preventDefault();
+          window.location.href = '/inicio';
+          break;
+        case 'Escape':
+          setSeleccion(null);
+          break;
+      }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   const seleccionado = carrito.find((r) => r.sku === seleccion) || null;
 
@@ -244,9 +314,56 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string 
               <option key={s.id} value={s.id} className="text-black">{s.nombre}</option>
             ))}
           </select>
-          <Link href="/ventas" className="rounded-lg bg-white/10 text-[#F0EBE2]/80 px-3 py-2 text-sm">Panel</Link>
+          <Link href="/inicio" className="rounded-lg bg-white/10 text-[#F0EBE2]/80 px-3 py-2 text-sm">Panel</Link>
         </div>
       </header>
+
+      {/* PASO 1: qué comprobante + a quién (lo primero que define el cajero) */}
+      <div className="shrink-0 px-3 pt-3">
+        <div className="rounded-2xl bg-white px-3 py-2.5 flex flex-wrap items-center gap-x-4 gap-y-2">
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] uppercase tracking-wider text-black/40 hidden sm:inline">Comprobante</span>
+            <div className="flex gap-1.5">
+              {COMPROBANTES.map((c) => {
+                const on = comprobante === c.id;
+                return (
+                  <button
+                    key={c.id}
+                    onClick={() => setComprobante(c.id)}
+                    className={'rounded-xl px-3.5 py-1.5 text-left border-2 active:scale-95 transition ' +
+                      (on ? 'bg-black text-white border-black' : 'bg-[#F0EBE2] text-black border-transparent')}
+                  >
+                    <span className="text-xl font-bold leading-none">{c.label}</span>
+                    <span className={'block text-[10px] leading-tight ' + (on ? 'text-white/70' : 'text-black/45')}>{c.desc}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 ml-auto">
+            <span className={'text-[11px] uppercase tracking-wider hidden sm:inline ' + (requiereCliente ? 'text-[#B82D25]' : 'text-black/40')}>
+              Cliente{requiereCliente ? ' *' : ''}
+            </span>
+            <input
+              ref={dniRef}
+              value={dni}
+              onChange={(e) => setDni(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && buscarCliente()}
+              placeholder={requiereCliente ? 'DNI / CUIT (requerido)' : 'DNI (opcional)'}
+              inputMode="numeric"
+              className={'w-40 rounded-xl border-2 px-3 py-2 text-base text-black outline-none ' +
+                (faltaCliente ? 'border-[#B82D25] bg-[#B82D25]/5' : 'border-black/10 focus:border-[#B82D25]')}
+            />
+            <button onClick={buscarCliente} className="rounded-xl bg-black px-4 py-2 text-sm text-white active:scale-95">Buscar</button>
+          </div>
+        </div>
+        {cliente && (
+          <p className={'mt-1.5 rounded-xl px-3 py-1.5 text-sm inline-block ' + (cliente.existe ? 'bg-black text-white' : 'bg-white text-black')}>
+            {cliente.existe ? `${cliente.tipo} · ${cliente.compras} compras · ticket ${pesos(cliente.ticketPromedio)}` : 'Cliente nuevo: se registra con esta venta'}
+          </p>
+        )}
+      </div>
 
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-[1fr_420px] gap-3 p-3 overflow-hidden">
         {/* IZQUIERDA: búsqueda + carrito */}
@@ -339,24 +456,29 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string 
               </button>
             ))}
           </div>
+          {NOTA_MEDIO[medio] && (
+            <p className="-mt-1 text-center text-xs text-black/50">{NOTA_MEDIO[medio]}</p>
+          )}
 
-          {/* display del teclado: cantidad o paga con */}
-          <div className="rounded-xl bg-[#F0EBE2]/60 px-4 py-2.5 flex items-center justify-between">
-            {seleccionado ? (
-              <>
-                <span className="text-sm text-black/60 truncate mr-2">Cantidad · {seleccionado.nombre}</span>
-                <span className="text-2xl font-semibold tabular-nums">{seleccionado.cantidad}</span>
-              </>
-            ) : (
-              <>
-                <span className="text-sm text-black/60">{medio === 'efectivo' ? 'Paga con' : 'Importe recibido'}</span>
-                <span className="text-2xl font-semibold tabular-nums">{pagaCon ? pesos(pagaConN) : '$0'}</span>
-              </>
-            )}
-          </div>
+          {/* display del teclado: cantidad (siempre) o paga con (solo efectivo) */}
+          {(seleccionado || esEfectivo) && (
+            <div className="rounded-xl bg-[#F0EBE2]/60 px-4 py-2.5 flex items-center justify-between">
+              {seleccionado ? (
+                <>
+                  <span className="text-sm text-black/60 truncate mr-2">Cantidad · {seleccionado.nombre}</span>
+                  <span className="text-2xl font-semibold tabular-nums">{seleccionado.cantidad}</span>
+                </>
+              ) : (
+                <>
+                  <span className="text-sm text-black/60">Paga con</span>
+                  <span className="text-2xl font-semibold tabular-nums">{pagaCon ? pesos(pagaConN) : '$0'}</span>
+                </>
+              )}
+            </div>
+          )}
 
           {/* atajos de efectivo */}
-          {!seleccionado && (
+          {!seleccionado && esEfectivo && (
             <div className="grid grid-cols-4 gap-2">
               <button onClick={() => setPagaCon(String(total))} className="rounded-lg bg-emerald-600 text-white py-2.5 text-sm font-medium active:scale-95">Justo</button>
               {[1000, 2000, 5000].map((n) => (
@@ -365,19 +487,21 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string 
             </div>
           )}
 
-          {/* teclado numérico */}
-          <div className="grid grid-cols-3 gap-2">
-            {['1', '2', '3', '4', '5', '6', '7', '8', '9', 'C', '0', '⌫'].map((k) => (
-              <button
-                key={k}
-                onClick={() => tecla(k)}
-                className={'rounded-xl py-4 text-2xl font-medium active:scale-95 ' +
-                  (k === 'C' ? 'bg-[#B82D25]/10 text-[#932A1F]' : k === '⌫' ? 'bg-black/5 text-black' : 'bg-[#F0EBE2] text-black')}
-              >
-                {k}
-              </button>
-            ))}
-          </div>
+          {/* teclado numérico (cantidad de línea o efectivo) */}
+          {(seleccionado || esEfectivo) && (
+            <div className="grid grid-cols-3 gap-2">
+              {['1', '2', '3', '4', '5', '6', '7', '8', '9', 'C', '0', '⌫'].map((k) => (
+                <button
+                  key={k}
+                  onClick={() => tecla(k)}
+                  className={'rounded-xl py-4 text-2xl font-medium active:scale-95 ' +
+                    (k === 'C' ? 'bg-[#B82D25]/10 text-[#932A1F]' : k === '⌫' ? 'bg-black/5 text-black' : 'bg-[#F0EBE2] text-black')}
+                >
+                  {k}
+                </button>
+              ))}
+            </div>
+          )}
 
           {vuelto != null && (
             <div className={`rounded-xl px-4 py-3 text-center text-lg font-semibold ${vuelto < 0 ? 'bg-[#B82D25]/10 text-[#932A1F]' : 'bg-emerald-50 text-emerald-700'}`}>
@@ -385,32 +509,24 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string 
             </div>
           )}
 
-          {/* cliente (opcional, compacto) */}
-          <div className="flex gap-2">
-            <input
-              value={dni}
-              onChange={(e) => setDni(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && buscarCliente()}
-              placeholder="DNI cliente (opcional)"
-              inputMode="numeric"
-              className="flex-1 rounded-xl border border-black/15 px-3 py-3 text-base text-black outline-none focus:border-[#B82D25]"
-            />
-            <button onClick={buscarCliente} className="rounded-xl bg-black px-5 text-base text-white active:scale-95">Buscar</button>
-          </div>
-          {cliente && (
-            <p className={`rounded-xl px-3 py-2 text-sm ${cliente.existe ? 'bg-black text-white' : 'bg-[#F0EBE2] text-black'}`}>
-              {cliente.existe ? `${cliente.tipo} · ${cliente.compras} compras · ticket ${pesos(cliente.ticketPromedio)}` : 'Cliente nuevo: se registra con esta venta'}
+          {faltaCliente && (
+            <p className="rounded-xl bg-[#B82D25]/10 px-3 py-2 text-sm text-[#932A1F] text-center">
+              {comprobante === 'A' ? 'Factura A: identificá al cliente (F3)' : 'Cuenta corriente: identificá al cliente (F3)'}
             </p>
           )}
 
           {/* cobrar */}
           <button
             onClick={cobrar}
-            disabled={carrito.length === 0 || cobrando}
+            disabled={carrito.length === 0 || cobrando || faltaCliente}
             className="mt-auto rounded-2xl bg-[#B82D25] py-6 text-2xl font-semibold text-white active:scale-95 disabled:opacity-40"
           >
-            {cobrando ? 'Cobrando…' : `Cobrar ${pesos(total)}`}
+            {cobrando ? 'Cobrando…' : medio === 'cta_cte' ? `Cargar a cuenta ${pesos(total)}` : `Cobrar ${pesos(total)}`}
           </button>
+
+          <p className="text-center text-[11px] text-black/35 -mt-1">
+            F2 comprobante · F3 cliente · F4 medio · F12 cobrar · F10 salir
+          </p>
 
           {estado && (
             <p className={'rounded-xl px-3 py-3 text-base ' + (estado.tipo === 'ok' ? 'bg-emerald-50 text-emerald-800' : 'bg-[#B82D25]/10 text-[#932A1F]')}>
