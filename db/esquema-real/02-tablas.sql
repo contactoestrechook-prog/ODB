@@ -239,7 +239,8 @@ create table public.compra_facil_pendientes (
   estado text default 'pendiente'::text not null,
   venta_id uuid,
   codigo text,
-  creado_en timestamp with time zone default now() not null
+  creado_en timestamp with time zone default now() not null,
+  error_detalle text
 );
 alter table public.compra_facil_pendientes add constraint compra_facil_pendientes_pkey PRIMARY KEY (id);
 
@@ -665,7 +666,8 @@ create table public.pedidos (
   repartidor_lng double precision,
   repartidor_en timestamp with time zone,
   en_camino_en timestamp with time zone,
-  venta_id uuid
+  venta_id uuid,
+  reserva_stock boolean default true not null
 );
 alter table public.pedidos add constraint pedidos_pkey PRIMARY KEY (id);
 alter table public.pedidos add constraint pedidos_venta_id_fkey FOREIGN KEY (venta_id) REFERENCES ventas(id);

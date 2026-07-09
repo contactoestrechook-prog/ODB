@@ -1,9 +1,14 @@
 import { NextResponse } from 'next/server';
+import { cookies } from 'next/headers';
 
 const API = process.env.API_URL ?? 'http://localhost:3001';
 
 // Catálogo con stock para precargar en la caja (búsqueda local instantánea).
 export async function GET() {
-  const res = await fetch(`${API}/pos/catalogo`, { cache: 'no-store' });
+  const token = (await cookies()).get('odb_token')?.value;
+  const res = await fetch(`${API}/pos/catalogo`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    cache: 'no-store',
+  });
   return NextResponse.json(await res.json(), { status: res.status });
 }

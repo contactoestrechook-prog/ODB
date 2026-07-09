@@ -60,14 +60,15 @@ export class CatalogoController {
   }
 
   // Búsqueda liviana del POS del cajero (código de barras exacto + nombre, indexada)
-  @Publico()
+  // Privado: expone precio_mayorista y códigos internos, no es catálogo de tienda.
+  @Roles('cajero', 'deposito', 'gerente', 'dueno')
   @Get('pos/buscar')
   posBuscar(@Query('q') q: string) {
     return this.catalogo.posBuscar(q ?? '');
   }
 
   // Catálogo con stock para precargar en la caja (búsqueda local instantánea)
-  @Publico()
+  @Roles('cajero', 'deposito', 'gerente', 'dueno')
   @Get('pos/catalogo')
   posCatalogo() {
     return this.catalogo.posCatalogo();
