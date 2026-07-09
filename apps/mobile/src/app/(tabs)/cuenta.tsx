@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
-import { API, pesos, useEstado } from '../../lib/estado';
+import { pesos, useEstado } from '../../lib/estado';
+import { apiPost } from '../../lib/api';
+import { abrirVerificacion } from '../../lib/navegador';
 import { C, LinearGradient, Ionicons, sombra, toque } from '../../lib/ui';
 import MisSolicitudes from '../../lib/MisSolicitudes';
 
@@ -17,7 +19,7 @@ const BENEFICIOS: { icono: any; texto: string }[] = [
 
 export default function Cuenta() {
   const router = useRouter();
-  const { cliente, cuenta, notif, refrescarCuenta, marcarLeidas } = useEstado();
+  const { cliente, cuenta, notif, refrescarCuenta, marcarLeidas, cerrarSesion } = useEstado();
   const [tab, setTab] = useState<'cuenta' | 'mensajes' | 'notif'>('cuenta');
   const [aviso, setAviso] = useState<string | null>(null);
   const [verificando, setVerificando] = useState(false);
@@ -33,11 +35,12 @@ export default function Cuenta() {
     setVerificando(true);
     setAviso(null);
     try {
-      const res = await fetch(`${API}/app/verificacion`, { method: 'POST', headers: { Authorization: `Bearer ${cliente.token}` } });
-      const datos = await res.json();
-      if (res.ok && datos.url) { Linking.openURL(datos.url); setAviso('Completá la verificación en la pantalla que se abrió.'); }
-      else setAviso(datos.message ?? 'No se pudo iniciar la verificación');
-    } catch { setAviso('No se pudo iniciar la verificación'); }
+      const datos = await apiPost('/app/verificacion');
+      if (datos?.url) {
+        await abrirVerificacion(datos.url); // navegador in-app, no pierde la app
+        setAviso('Completá la verificación en la pantalla que se abrió.');
+      } else setAviso('No se pudo iniciar la verificación');
+    } catch (e) { setAviso(e instanceof Error ? e.message : 'No se pudo iniciar la verificación'); }
     setVerificando(false);
   }
 
@@ -208,6 +211,14 @@ export default function Cuenta() {
               })}
             </>
           )}
+
+          <Pressable
+            onPress={() => { toque(); cerrarSesion(); router.replace('/'); }}
+            style={est.salir}
+          >
+            <Ionicons name="log-out-outline" size={18} color={C.rojo} />
+            <Text style={est.salirTxt}>Cerrar sesión</Text>
+          </Pressable>
         </ScrollView>
       ) : tab === 'mensajes' ? (
         <MisSolicitudes />
@@ -294,6 +305,8 @@ const est = StyleSheet.create({
   menuIcono: { width: 38, height: 38, borderRadius: 12, backgroundColor: '#FBE9E7', alignItems: 'center', justifyContent: 'center' },
   menuLabel: { fontSize: 14.5, fontWeight: '700', color: C.tinta },
   menuSub: { fontSize: 12, color: C.humo, marginTop: 2 },
+  salir: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 14, marginTop: 6, marginBottom: 24, borderRadius: 14, borderWidth: 1, borderColor: C.linea, backgroundColor: '#fff' },
+  salirTxt: { fontSize: 14.5, fontWeight: '800', color: C.rojo },
 
   // saldo / cta cte
   tarjetaSaldo: { borderRadius: 22, padding: 22, marginBottom: 8 },

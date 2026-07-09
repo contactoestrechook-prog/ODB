@@ -1,0 +1,18 @@
+-- ============================================================================
+-- Admin/Stock tanda 1 — recepción sin OC, lotes, anulación de transferencias,
+-- mermas tipificadas y conteo cíclico. Aplicada en Supabase (ODB) 2026-07-02.
+--
+--   caja_movimientos (ver migracion-caja2.sql) — sin cambios
+--   recibir_compra_directa   entrada de mercadería SIN OC previa: OC retroactiva
+--                            origen 'directa' + remito + stock + lotes + regla de oro
+--   recibir_oc_con_precio    ahora crea lotes con el vencimiento informado al recibir
+--   anular_transferencia     devuelve el stock al origen (mercadería perdida/error)
+--   conteo_cargar_item       carga un renglón con snapshot del stock AL MOMENTO
+--   finalizar_conteo         aplica las diferencias como ajustes auditados (con PIN)
+--
+-- Cuerpos completos volcados en db/esquema-real/04-funciones.sql (regenerar).
+-- Además, en la capa API: stock.registrarAjuste exige motivos tipificados de
+-- merma y PIN de supervisor si el ajuste supera el tope ($/unidades).
+-- ============================================================================
+
+-- (cuerpos: ver db/esquema-real/04-funciones.sql regenerado)

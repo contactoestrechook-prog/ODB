@@ -27,6 +27,7 @@ export async function POST(req: Request) {
     : accion === 'procesar' ? '/agente/procesar'
     : accion === 'barrido' ? '/agente/barrido'
     : accion === 'enriquecer' ? '/agente/enriquecer'
+    : accion === 'fotos' ? '/agente/fotos'
     : accion === 'ejecutar' ? `/agente/tareas/${id}/ejecutar`
     : accion === 'resolver' ? `/agente/tareas/${id}/resolver`
     : null;

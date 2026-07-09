@@ -37,6 +37,7 @@ export function AgenteWorkspace({ resumenInicial, tareasIniciales }: { resumenIn
       if (body.accion === 'procesar') setAviso(`Procesadas ${r.procesadas ?? 0} tareas.`);
       if (body.accion === 'barrido') setAviso(`Barrido: ${r.encoladas ?? 0} tareas encoladas.`);
       if (body.accion === 'enriquecer') setAviso(`Enriquecidos ${r.aplicados ?? 0} productos · ${r.escalados ?? 0} a revisión (de ${r.procesados ?? 0}).`);
+      if (body.accion === 'fotos') setAviso(`Fotos: ${r.subidos ?? 0} subidas · ${r.rechazadas_calidad ?? 0} rechazadas por calidad · ${r.sin_resultado ?? 0} sin resultado (de ${r.procesados ?? 0}).`);
       if (body.accion === 'ejecutar') setAviso(`Tarea ${r.estado ?? ''}${r.escalado ? ' · ' + r.escalado : ''}.`);
       await recargar();
     } catch { setAviso('No se pudo ejecutar la acción.'); }
@@ -89,9 +90,13 @@ export function AgenteWorkspace({ resumenInicial, tareasIniciales }: { resumenIn
             className="rounded-lg bg-white border border-black/15 text-black text-sm font-medium px-4 py-2 disabled:opacity-40 hover:bg-black/5">
             {ocupado === 'enriquecer' ? 'Enriqueciendo…' : 'Enriquecer catálogo (50)'}
           </button>
+          <button onClick={() => post({ accion: 'fotos', limite: 60 }, 'fotos')} disabled={!!ocupado}
+            className="rounded-lg bg-white border border-black/15 text-black text-sm font-medium px-4 py-2 disabled:opacity-40 hover:bg-black/5">
+            {ocupado === 'fotos' ? 'Buscando fotos…' : 'Buscar fotos por código de barra (60)'}
+          </button>
           {aviso && <span className="text-sm text-black/55 self-center">{aviso}</span>}
         </div>
-        <p className="text-[11px] text-black/40">El agente actúa solo en lo de bajo riesgo y escala a un humano cuando duda. Cada acción queda auditada.</p>
+        <p className="text-[11px] text-black/40">El agente actúa solo en lo de bajo riesgo y escala a un humano cuando duda. Cada acción queda auditada. Las fotos salen de Open Food Facts (base pública, gratuita, por código de barra) y pasan un control de calidad con IA antes de subirse (rechaza fotos con gente, fondo de la calle o mala composición) — cubre ~30% del catálogo antes del filtro, más en marcas grandes. El resto necesita foto manual o pack del proveedor.</p>
       </section>
 
       {/* tareas */}

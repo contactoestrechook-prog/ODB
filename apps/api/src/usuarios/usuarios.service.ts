@@ -1,7 +1,7 @@
 import { BadRequestException, ForbiddenException, Inject, Injectable } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
-import { createHash } from 'node:crypto';
 import { SUPABASE } from '../supabase.provider';
+import { hashClave } from '../comun/passwords';
 
 export type CrearUsuarioDto = {
   nombre: string;
@@ -15,8 +15,9 @@ export type CrearUsuarioDto = {
 
 export type EditarUsuarioDto = Partial<CrearUsuarioDto> & { activo?: boolean };
 
-// mismo hash que verificar_login / aprobar_orden_compra (sha256 hex)
-const hash = (texto: string) => createHash('sha256').update(texto).digest('hex');
+// bcrypt (con salt). verificar_login / aprobar_orden_compra en la DB aceptan
+// tanto bcrypt como el sha256 legacy durante la transición.
+const hash = (texto: string) => hashClave(texto);
 
 @Injectable()
 export class UsuariosService {

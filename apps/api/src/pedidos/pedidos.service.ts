@@ -1,9 +1,11 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
+import { randomUUID } from 'node:crypto';
 import { SUPABASE } from '../supabase.provider';
 import { NotificarService } from '../mensajes/notificar.service';
 import { transicionValida, liberaReserva } from './transiciones';
+import { verificarFirmaMercadoPago } from '../comun/firmas';
 
 // Radio (m) para considerar que el cliente "está llegando" y asignarle estacionamiento.
 const GEOFENCE_M = 400;
@@ -40,6 +42,7 @@ const METROS_POR_MIN = 360;
 @Injectable()
 export class PedidosService {
   private readonly claude = new Anthropic();
+  private readonly log = new Logger(PedidosService.name);
   constructor(
     @Inject(SUPABASE) private readonly db: SupabaseClient,
     private readonly notificar: NotificarService,
@@ -270,6 +273,8 @@ export class PedidosService {
   }
 
   // --- Núcleo: crear pedido con reserva de stock ---
+  // Todo (pedido + items + reservas) corre en UNA transacción en la base
+  // (RPC crear_pedido): si un renglón no tiene stock, no queda nada persistido.
   async crear(p: {
     canal: string;
     sucursalId: string;
@@ -280,77 +285,20 @@ export class PedidosService {
     notas?: string;
     reservar?: boolean; // false = pedido "a pedido" (no reserva stock, p.ej. WhatsApp)
   }) {
-    let clienteId: string | null = p.clienteId ?? null;
-    if (!clienteId && p.clienteDni?.trim()) {
-      const dni = p.clienteDni.trim();
-      const { data } = await this.db.from('clientes').select('id').eq('dni', dni).maybeSingle();
-      clienteId =
-        data?.id ??
-        (await this.db.from('clientes').insert({ dni }).select('id').single()).data?.id ??
-        null;
-    }
-
-    const { data: precios } = await this.db.rpc('catalogo_precios', {
-      p_ids: p.items.map((i) => i.producto_id),
+    const { data, error } = await this.db.rpc('crear_pedido', {
+      p_canal: p.canal,
+      p_sucursal: p.sucursalId,
+      p_items: p.items.map((i) => ({ producto_id: i.producto_id, cantidad: i.cantidad })),
+      p_cliente_id: p.clienteId ?? null,
+      p_cliente_dni: p.clienteDni ?? null,
+      p_qr_retiro: p.referencia ?? null,
+      p_reservar: p.reservar !== false,
     });
-    const precioPor = new Map<string, number>((precios ?? []).map((r: any) => [r.producto_id, Number(r.precio_final)]));
-
-    const { data: pedido, error } = await this.db
-      .from('pedidos')
-      .insert({
-        canal: p.canal,
-        sucursal_id: p.sucursalId,
-        cliente_id: clienteId,
-        estado: 'recibido',
-        total: 0,
-        qr_retiro: p.referencia ?? null,
-      })
-      .select('id')
-      .single();
-    if (error) throw new BadRequestException(error.message);
-
-    let total = 0;
-    const reservados: { producto_id: string; cantidad: number }[] = [];
-    for (const item of p.items) {
-      const precio = precioPor.get(item.producto_id) ?? 0;
-      await this.db.from('pedidos_items').insert({
-        pedido_id: pedido.id,
-        producto_id: item.producto_id,
-        cantidad: item.cantidad,
-        precio_unitario: precio,
-      });
-      total += Math.round(item.cantidad * precio * 100) / 100;
-      if (p.reservar !== false) {
-        const { error: errMov } = await this.db.rpc('registrar_movimiento', {
-          p_producto_id: item.producto_id,
-          p_sucursal_id: p.sucursalId,
-          p_tipo: 'reserva',
-          p_cantidad: -item.cantidad,
-          p_referencia_tipo: 'pedido',
-          p_referencia_id: pedido.id,
-        });
-        if (errMov) {
-          // rollback manual (no hay transacción): libera las reservas ya hechas y
-          // borra el pedido para no dejar huérfanos ni stock fantasma.
-          for (const r of reservados) {
-            await this.db.rpc('registrar_movimiento', {
-              p_producto_id: r.producto_id,
-              p_sucursal_id: p.sucursalId,
-              p_tipo: 'liberacion_reserva',
-              p_cantidad: r.cantidad,
-              p_referencia_tipo: 'pedido',
-              p_referencia_id: pedido.id,
-            });
-          }
-          await this.db.from('pedidos_items').delete().eq('pedido_id', pedido.id);
-          await this.db.from('pedidos').delete().eq('id', pedido.id);
-          throw new BadRequestException(`Sin stock disponible: ${errMov.message}`);
-        }
-        reservados.push({ producto_id: item.producto_id, cantidad: item.cantidad });
-      }
+    if (error) {
+      const m = error.message ?? '';
+      throw new BadRequestException(m.includes('Stock insuficiente') ? `Sin stock disponible: ${m}` : m);
     }
-    await this.db.from('pedidos').update({ total }).eq('id', pedido.id);
-    return pedido.id;
+    return (data as any).pedido_id as string;
   }
 
   // --- Pedidos desde la app del cliente (pick-up) ---
@@ -376,7 +324,8 @@ export class PedidosService {
       if (!data) throw new BadRequestException(`No existe el producto ${i.sku}`);
       items.push({ producto_id: data.id, cantidad: Math.floor(cant) });
     }
-    // Todos los pedidos de la app (pick-up y domicilio) salen de O.D.B Central.
+    // Todos los pedidos de la app (pick-up y domicilio) salen de la sucursal
+    // central (Suc Sant Thomas, la única con pickup habilitado).
     const sucursalId = await this.sucursalPickupId();
     const referencia = `${domicilio ? 'DOM' : 'PICKUP'}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
     const pedidoId = await this.crear({
@@ -494,12 +443,14 @@ export class PedidosService {
     return { url: d.init_point ?? d.sandbox_init_point, preferenciaId: d.id };
   }
 
-  async webhookMP(body: any, query: any) {
+  async webhookMP(body: any, query: any, headers: Record<string, string> = {}) {
     const token = process.env.MERCADOPAGO_ACCESS_TOKEN;
     if (!token) return { ok: true };
     const tipo = body?.type ?? query?.type ?? query?.topic;
     const pagoId = body?.data?.id ?? query?.['data.id'] ?? query?.id;
     if (tipo !== 'payment' || !pagoId) return { ok: true };
+    // rechaza notificaciones falsificadas antes de tocar la base
+    verificarFirmaMercadoPago(headers, pagoId);
     try {
       const r = await fetch(`https://api.mercadopago.com/v1/payments/${pagoId}`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -587,7 +538,7 @@ export class PedidosService {
   async avanzar(pedidoId: string, estado: string, usuarioId?: string) {
     const { data: pedido, error } = await this.db
       .from('pedidos')
-      .select('*, items:pedidos_items(producto_id, cantidad), cliente:clientes(dni, tipo, verificado)')
+      .select('*, items:pedidos_items(producto_id, cantidad, producto:productos(nombre)), cliente:clientes(dni, nombre, telefono, tipo, verificado)')
       .eq('id', pedidoId)
       .single();
     if (error || !pedido) throw new BadRequestException('No existe el pedido');
@@ -613,7 +564,18 @@ export class PedidosService {
     }
 
     let venta: any = null;
+    let ventaId: string | null = pedido.venta_id ?? null;
     if (estado === 'entregado') {
+      // Id de venta estable, reservado en el pedido ANTES de llamar a
+      // registrar_venta (no después): si el proceso se corta entre el RPC y
+      // el UPDATE de estado de más abajo, un reintento de avanzar() relee
+      // este mismo venta_id y registrar_venta lo detecta como duplicado, en
+      // vez de cobrar y descontar stock dos veces.
+      if (!ventaId) {
+        ventaId = randomUUID();
+        const { error: errReserva } = await this.db.from('pedidos').update({ venta_id: ventaId }).eq('id', pedidoId);
+        if (errReserva) throw new BadRequestException(errReserva.message);
+      }
       const esPY = pedido.qr_retiro?.startsWith('PY-');
       const medio = esPY ? 'pedidosya' : 'mercadopago';
       // mismo cálculo que hará registrar_venta (segmento + medio) para que el pago cierre exacto
@@ -644,13 +606,14 @@ export class PedidosService {
         p_canal: pedido.canal,
         p_cliente_dni: pedido.cliente?.dni ?? null,
         p_usuario: usuarioId ?? null,
+        p_venta_id: ventaId,
       });
       if (errVenta) throw new BadRequestException(errVenta.message);
       venta = data;
     }
 
     const ahora = new Date().toISOString();
-    await this.db
+    const { error: errUpdate } = await this.db
       .from('pedidos')
       .update({
         estado,
@@ -663,7 +626,57 @@ export class PedidosService {
         entregado_por: estado === 'entregado' ? (usuarioId ?? null) : pedido.entregado_por,
       })
       .eq('id', pedidoId);
+    // Si esto falla habiendo ya una venta registrada, no queda oculto: el
+    // caller se entera y puede reintentar avanzar() sin riesgo de duplicar
+    // (venta_id ya quedó reservado arriba).
+    if (errUpdate) throw new BadRequestException(errUpdate.message);
+
+    // aviso al cliente por WhatsApp (lo envía n8n; acá solo se dispara el evento)
+    this.notificarWhatsApp(pedido, estado).catch((e) =>
+      this.log.warn(`No se pudo notificar el pedido ${pedidoId}: ${e?.message ?? e}`),
+    );
 
     return { estado, venta };
+  }
+
+  // Dispara un webhook a n8n para que mande el WhatsApp "pedido listo / en camino
+  // / entregado". Fire-and-forget: si n8n no responde, NO rompe el cambio de estado.
+  private async notificarWhatsApp(pedido: any, estado: string) {
+    const url = process.env.N8N_PEDIDOS_WEBHOOK_URL;
+    const telefono = pedido.cliente?.telefono;
+    // solo estados que le importan al cliente y solo si tenemos su teléfono
+    const avisables: Record<string, string> = {
+      listo: `¡Tu pedido de O.D.B está LISTO para retirar! 🎉${pedido.qr_retiro ? ` Código: ${pedido.qr_retiro}.` : ''} Te esperamos en Suc Sant Thomas.`,
+      en_camino: '🛵 ¡Tu pedido de O.D.B salió y está en camino a tu domicilio!',
+      entregado: '✅ Tu pedido de O.D.B fue entregado. ¡Gracias por tu compra! 🍷',
+    };
+    if (!url || !telefono || !avisables[estado]) return;
+
+    const payload = {
+      pedidoId: pedido.id,
+      estado,
+      telefono: String(telefono).replace(/\D/g, ''),
+      nombre: pedido.cliente?.nombre ?? null,
+      total: Number(pedido.total),
+      codigoRetiro: pedido.qr_retiro ?? null,
+      canal: pedido.canal,
+      resumen: (pedido.items ?? []).map((i: any) => `${i.cantidad}x ${i.producto?.nombre ?? ''}`.trim()).join(', '),
+      mensaje: avisables[estado],
+    };
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 8000);
+    try {
+      await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(process.env.N8N_WEBHOOK_TOKEN ? { 'x-webhook-token': process.env.N8N_WEBHOOK_TOKEN } : {}),
+        },
+        body: JSON.stringify(payload),
+        signal: ctrl.signal,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
   }
 }

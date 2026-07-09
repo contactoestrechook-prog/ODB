@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import * as Location from 'expo-location';
-import { API, COLORES, pesos } from '../../lib/estado';
+import { COLORES, pesos } from '../../lib/estado';
+import { apiGet, apiPost } from '../../lib/api';
 import { C, LinearGradient, Ionicons, sombra } from '../../lib/ui';
 import MapaEntrega from '../../lib/MapaEntrega';
 
@@ -26,22 +27,22 @@ export default function EstadoPedido() {
   const [pedido, setPedido] = useState<any>(null);
   const [track, setTrack] = useState<any>(null);
   const [sinPermiso, setSinPermiso] = useState(false);
+  const [gpsActivo, setGpsActivo] = useState(true);
 
   useEffect(() => {
     let activo = true;
     let intervalo: any = null;
     async function cargar() {
       try {
-        const [rp, rs] = await Promise.all([
-          fetch(`${API}/app/pedidos/${id}`),
-          fetch(`${API}/app/pedidos/${id}/seguimiento`),
+        const [p, s] = await Promise.all([
+          apiGet(`/app/pedidos/${id}`, { auth: false }).catch(() => null),
+          apiGet(`/app/pedidos/${id}/seguimiento`, { auth: false }).catch(() => null),
         ]);
         if (!activo) return;
-        let estado: string | undefined;
-        if (rp.ok) { const p = await rp.json(); estado = p.estado; setPedido(p); }
-        if (rs.ok) { const s = await rs.json(); setTrack((t: any) => ({ ...(t ?? {}), ...s })); }
+        if (p) setPedido(p);
+        if (s) setTrack((t: any) => ({ ...(t ?? {}), ...s }));
         // estado terminal → dejamos de pollear (el pedido ya no cambia)
-        if (estado && ['entregado', 'cancelado'].includes(estado) && intervalo) {
+        if (p?.estado && ['entregado', 'cancelado'].includes(p.estado) && intervalo) {
           clearInterval(intervalo); intervalo = null;
         }
       } catch {}
@@ -51,10 +52,13 @@ export default function EstadoPedido() {
     return () => { activo = false; if (intervalo) clearInterval(intervalo); };
   }, [id]);
 
-  // Solo pick-up activo: el cliente reporta su posición para que le asignen estacionamiento.
+  // Solo pick-up activo: el cliente reporta su posición para que le asignen
+  // estacionamiento. Se corta solo al asignarse el lugar o terminar el pedido,
+  // y el cliente puede apagarlo cuando quiera (batería).
   useEffect(() => {
-    if (pedido?.canal !== 'pickup') return;
+    if (pedido?.canal !== 'pickup' || !gpsActivo) return;
     if (['entregado', 'cancelado'].includes(pedido?.estado)) return;
+    if (track?.estacionamiento != null) return; // ya tiene lugar asignado: no hace falta seguir
     let activo = true;
     let timer: any;
     (async () => {
@@ -64,11 +68,9 @@ export default function EstadoPedido() {
         const tick = async () => {
           try {
             const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-            const r = await fetch(`${API}/app/pedidos/${id}/ubicacion`, {
-              method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ lat: loc.coords.latitude, lng: loc.coords.longitude }),
-            });
-            if (r.ok && activo) setTrack(await r.json());
+            const t = await apiPost(`/app/pedidos/${id}/ubicacion`,
+              { lat: loc.coords.latitude, lng: loc.coords.longitude }, { auth: false });
+            if (activo) setTrack(t);
           } catch {}
         };
         tick();
@@ -76,7 +78,7 @@ export default function EstadoPedido() {
       } catch { if (activo) setSinPermiso(true); }
     })();
     return () => { activo = false; if (timer) clearInterval(timer); };
-  }, [id, pedido?.canal, pedido?.estado]);
+  }, [id, pedido?.canal, pedido?.estado, gpsActivo, track?.estacionamiento]);
 
   if (!pedido) {
     return (
@@ -88,9 +90,8 @@ export default function EstadoPedido() {
 
   async function pagar() {
     try {
-      const r = await fetch(`${API}/app/pedidos/${id}/pago`, { method: 'POST' });
-      const d = await r.json();
-      if (r.ok && d.url) Linking.openURL(d.url);
+      const d = await apiPost(`/app/pedidos/${id}/pago`, undefined, { auth: false });
+      if (d?.url) Linking.openURL(d.url);
     } catch {}
   }
 
@@ -167,12 +168,22 @@ export default function EstadoPedido() {
         </View>
       ) : null}
 
+      {/* control del GPS: el cliente decide si comparte su ubicación (batería) */}
+      {!esDom && activo && !sinPermiso && track?.estacionamiento == null && (
+        <Pressable onPress={() => setGpsActivo((g) => !g)} style={est.gpsToggle}>
+          <Ionicons name={gpsActivo ? 'pause-circle-outline' : 'play-circle-outline'} size={16} color={C.humo} />
+          <Text style={est.gpsToggleTxt}>
+            {gpsActivo ? 'Dejar de compartir mi ubicación' : 'Compartir mi ubicación al llegar'}
+          </Text>
+        </Pressable>
+      )}
+
       {/* ---- QR de retiro / dirección de envío ---- */}
       {esDom ? (
         <View style={est.tarjeta}>
           <Text style={est.envioLabel}>Envío a domicilio</Text>
           <Text style={est.envioDir}>{pedido.destino_direccion ?? track?.destino?.direccion ?? 'Tu dirección'}</Text>
-          <Text style={est.envioDesde}>Sale de {track?.sucursal?.nombre ?? 'O.D.B Central'}</Text>
+          <Text style={est.envioDesde}>Sale de {track?.sucursal?.nombre ?? 'Suc Sant Thomas'}</Text>
         </View>
       ) : (
         <View style={est.tarjetaQr}>
@@ -244,6 +255,8 @@ const est = StyleSheet.create({
   llegando: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#fff', borderRadius: 16, padding: 16, marginBottom: 12 },
   llegandoT: { fontSize: 15, fontWeight: '800', color: C.tinta },
   llegandoS: { fontSize: 12.5, color: C.humo, marginTop: 2, flex: 1, lineHeight: 17 },
+  gpsToggle: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 8, marginBottom: 12 },
+  gpsToggleTxt: { fontSize: 12.5, color: C.humo, fontWeight: '600' },
   tarjetaQr: { backgroundColor: COLORES.negro, borderRadius: 18, padding: 20, alignItems: 'center', marginBottom: 12 },
   qrLabel: { color: '#aaa', fontSize: 12 },
   qr: { color: COLORES.blanco, fontSize: 22, fontWeight: '700', letterSpacing: 2, marginVertical: 8 },

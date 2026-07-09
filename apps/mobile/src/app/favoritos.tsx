@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, FlatList, StyleSheet, Text, View } from 'react-native';
-import { API, useEstado, type Producto } from '../lib/estado';
+import { useEstado, type Producto } from '../lib/estado';
+import { apiGet } from '../lib/api';
 import { C, TarjetaProducto, Ionicons } from '../lib/ui';
 
 export default function Favoritos() {
@@ -10,8 +11,7 @@ export default function Favoritos() {
 
   useEffect(() => {
     if (!cliente?.token) return;
-    fetch(`${API}/mi/favoritos`, { headers: { Authorization: `Bearer ${cliente.token}` } })
-      .then((r) => (r.ok ? r.json() : []))
+    apiGet<Producto[]>('/mi/favoritos')
       .then((d) => setProductos(d ?? []))
       .catch(() => {})
       .finally(() => setCargando(false));

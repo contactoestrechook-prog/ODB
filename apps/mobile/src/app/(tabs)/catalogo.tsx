@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { API, useEstado, type Producto } from '../../lib/estado';
+import { useEstado, type Producto } from '../../lib/estado';
+import { apiGet } from '../../lib/api';
 import { C, TarjetaProducto, Ionicons, sombra } from '../../lib/ui';
 
 type Cat = { id: string; nombre: string };
@@ -14,15 +15,20 @@ export default function Catalogo() {
   const [cargando, setCargando] = useState(false);
 
   useEffect(() => {
-    fetch(`${API}/catalogo/filtros`).then((r) => r.json()).then((d) => setCats(d.categorias ?? [])).catch(() => {});
+    apiGet('/catalogo/filtros', { auth: false }).then((d) => setCats(d.categorias ?? [])).catch(() => {});
   }, []);
 
   useEffect(() => {
     setCargando(true);
     const timer = setTimeout(async () => {
-      const qs = `buscar=${encodeURIComponent(buscar)}${catSel ? `&categoriaId=${catSel}` : ''}&porPagina=40`;
-      const res = await fetch(`${API}/productos?${qs}`, { headers: cliente?.token ? { Authorization: `Bearer ${cliente.token}` } : {} });
-      if (res.ok) setProductos((await res.json()).items);
+      try {
+        const qs = `buscar=${encodeURIComponent(buscar)}${catSel ? `&categoriaId=${catSel}` : ''}&porPagina=40`;
+        // catálogo público, pero con token el socio ve SUS precios
+        const d = await apiGet(`/productos?${qs}`);
+        setProductos(d.items);
+      } catch {
+        // sin red: se conserva la última grilla y el banner global avisa
+      }
       setCargando(false);
     }, 250);
     return () => clearTimeout(timer);

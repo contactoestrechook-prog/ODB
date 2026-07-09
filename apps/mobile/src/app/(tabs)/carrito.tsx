@@ -3,7 +3,8 @@ import { FlatList, Linking, Pressable, StyleSheet, Text, TextInput, View } from 
 import { Image } from 'expo-image';
 import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
-import { API, pesos, useEstado } from '../../lib/estado';
+import { pesos, useEstado } from '../../lib/estado';
+import { apiGet, apiPost } from '../../lib/api';
 import { C, LinearGradient, Ionicons, sombra, toque } from '../../lib/ui';
 
 export default function Carrito() {
@@ -20,9 +21,8 @@ export default function Carrito() {
   const unidades = carrito.reduce((s, r) => s + r.cantidad, 0);
 
   useEffect(() => {
-    // Pick-up y domicilio: ambos salen de O.D.B Central.
-    fetch(`${API}/sucursal-pickup`)
-      .then((r) => r.json())
+    // Pick-up y domicilio: ambos salen de la sucursal central (Suc Sant Thomas).
+    apiGet('/sucursal-pickup', { auth: false })
       .then((s) => setCentral(s && s.id ? s : null))
       .catch(() => {});
   }, []);
@@ -53,26 +53,21 @@ export default function Carrito() {
     setPidiendo(true);
     setError(null);
     try {
-      const res = await fetch(`${API}/app/pedidos`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          tipo: modo,
-          items: carrito.map((r) => ({ sku: r.sku, cantidad: r.cantidad })),
-          dni: cliente?.dni || undefined,
-          ...(modo === 'domicilio'
-            ? { destino: { direccion: direccion.trim(), lat: coords?.lat, lng: coords?.lng } }
-            : {}),
-        }),
+      // con el token del cliente (si hay sesión) el pedido queda atribuido:
+      // suma puntos e historial. El guest checkout sigue funcionando sin token.
+      const datos = await apiPost('/app/pedidos', {
+        tipo: modo,
+        items: carrito.map((r) => ({ sku: r.sku, cantidad: r.cantidad })),
+        dni: cliente?.dni || undefined,
+        ...(modo === 'domicilio'
+          ? { destino: { direccion: direccion.trim(), lat: coords?.lat, lng: coords?.lng } }
+          : {}),
       });
-      const datos = await res.json();
-      if (!res.ok) throw new Error(datos.message ?? 'No se pudo crear el pedido');
       vaciar();
       // abrir el checkout de Mercado Pago (si está configurado)
       try {
-        const pr = await fetch(`${API}/app/pedidos/${datos.id}/pago`, { method: 'POST' });
-        const pd = await pr.json();
-        if (pr.ok && pd.url) await Linking.openURL(pd.url);
+        const pd = await apiPost(`/app/pedidos/${datos.id}/pago`, undefined, { auth: false });
+        if (pd?.url) await Linking.openURL(pd.url);
       } catch {}
       router.push(`/pedido/${datos.id}`);
     } catch (e) {
@@ -146,7 +141,7 @@ export default function Carrito() {
               <View style={est.central}>
                 <Ionicons name="storefront" size={16} color={C.rojo} />
                 <View style={{ flex: 1 }}>
-                  <Text style={est.centralNombre}>{central?.nombre ?? 'O.D.B Central'}</Text>
+                  <Text style={est.centralNombre}>{central?.nombre ?? 'Suc Sant Thomas'}</Text>
                   {central?.direccion ? <Text style={est.centralDir}>{central.direccion}</Text> : null}
                 </View>
                 <Ionicons name="car-sport-outline" size={18} color={C.humo} />

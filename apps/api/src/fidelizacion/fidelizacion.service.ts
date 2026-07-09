@@ -217,7 +217,7 @@ export class FidelizacionService {
     await this.notificar.aCliente(
       clienteId,
       `Canje confirmado ${r.emoji}`,
-      `Mostrá el código ${codigo} en O.D.B Central para usar: ${r.nombre}`,
+      `Mostrá el código ${codigo} en Suc Sant Thomas para usar: ${r.nombre}`,
       'canje',
     );
 

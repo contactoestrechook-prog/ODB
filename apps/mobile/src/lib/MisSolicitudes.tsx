@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { API, useEstado } from './estado';
+import { useEstado } from './estado';
+import { apiGet, apiPost } from './api';
 import { C, Ionicons, sombra, toque } from './ui';
 
 type Solicitud = {
@@ -34,31 +35,22 @@ export default function MisSolicitudes() {
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState(false);
 
-  const auth = cliente?.token ? { Authorization: `Bearer ${cliente.token}` } : undefined;
-
   async function cargar() {
-    if (!auth) return;
+    if (!cliente?.token) return;
     try {
-      const r = await fetch(`${API}/mi/solicitudes`, { headers: auth });
-      if (r.ok) setLista(await r.json());
+      setLista(await apiGet<Solicitud[]>('/mi/solicitudes'));
     } catch {}
     setCargando(false);
   }
   useEffect(() => { cargar(); }, []);
 
   async function enviar() {
-    if (!mensaje.trim() || enviando || !auth) return;
+    if (!mensaje.trim() || enviando || !cliente?.token) return;
     toque();
     setEnviando(true);
     setError(null);
     try {
-      const r = await fetch(`${API}/mi/solicitudes`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...auth },
-        body: JSON.stringify({ tipo, asunto, mensaje }),
-      });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.message ?? 'No se pudo enviar');
+      await apiPost('/mi/solicitudes', { tipo, asunto, mensaje });
       setMensaje(''); setAsunto(''); setOk(true);
       setTimeout(() => setOk(false), 2500);
       cargar();

@@ -1,6 +1,7 @@
 import { BadRequestException, ForbiddenException, Inject, Injectable } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
+import { verificarFirmaMercadoPago } from '../comun/firmas';
 
 // Comprá Fácil: el cliente verificado escanea en el local y paga con Mercado Pago.
 // La venta queda registrada al instante y el cliente sale mostrando un código
@@ -112,7 +113,7 @@ export class CompraFacilService {
   }
 
   // Webhook de Mercado Pago para Comprá Fácil: re-consulta el pago (no confía en el POST).
-  async webhookMP(rawBody: Buffer | undefined, query: any) {
+  async webhookMP(rawBody: Buffer | undefined, query: any, headers: Record<string, string> = {}) {
     const token = process.env.MERCADOPAGO_ACCESS_TOKEN;
     if (!token) return { ok: true };
     let body: any = {};
@@ -120,6 +121,8 @@ export class CompraFacilService {
     const tipo = body?.type ?? query?.type ?? query?.topic;
     const pagoId = body?.data?.id ?? query?.['data.id'] ?? query?.id;
     if (tipo !== 'payment' || !pagoId) return { ok: true };
+    // rechaza notificaciones falsificadas antes de registrar la venta
+    verificarFirmaMercadoPago(headers, pagoId);
     try {
       const r = await fetch(`https://api.mercadopago.com/v1/payments/${pagoId}`, { headers: { Authorization: `Bearer ${token}` } });
       const pay: any = await r.json();

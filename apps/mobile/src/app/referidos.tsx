@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
-import { API, useEstado } from '../lib/estado';
+import { useEstado } from '../lib/estado';
+import { apiGet } from '../lib/api';
 import { C, LinearGradient, Ionicons, sombra, toque } from '../lib/ui';
 
 const COMO = [
@@ -16,8 +17,7 @@ export default function Referidos() {
 
   useEffect(() => {
     if (!cliente?.token) return;
-    fetch(`${API}/mi/referidos`, { headers: { Authorization: `Bearer ${cliente.token}` } })
-      .then((r) => (r.ok ? r.json() : null))
+    apiGet('/mi/referidos')
       .then(setData)
       .catch(() => {})
       .finally(() => setCargando(false));

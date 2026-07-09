@@ -42,6 +42,7 @@ export async function POST(req: Request) {
     case 'aprobar': ruta = `/compras/ordenes/${d.id}/aprobar`; body = { pin: d.pin, usuarioId }; break;
     case 'rechazar': ruta = `/compras/ordenes/${d.id}/rechazar`; body = { motivo: d.motivo, usuarioId }; break;
     case 'recibir': ruta = `/compras/ordenes/${d.id}/recibir`; body = { items: d.items, usuarioId, margenPct: d.margenPct }; break;
+    case 'entradaDirecta': ruta = '/compras/entrada-directa'; body = { ...d, usuarioId }; break;
     case 'crearProveedor': ruta = '/proveedores'; break;
     case 'editarProveedor': ruta = `/proveedores/${d.id}`; metodo = 'PATCH'; break;
     case 'factura': ruta = '/compras/facturas'; break;

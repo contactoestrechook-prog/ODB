@@ -1,7 +1,9 @@
 import { BadRequestException, Controller, Get, Inject } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
+import { Roles } from '../auth/decorators';
 
+@Roles('deposito', 'comprador', 'gerente', 'dueno')
 @Controller('vencimientos')
 export class VencimientosController {
   constructor(@Inject(SUPABASE) private readonly db: SupabaseClient) {}

@@ -2,7 +2,7 @@ import { Platform } from 'react-native';
 import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
-import { API } from './config';
+import { apiPost } from './api';
 
 // Mostrar la notificación aunque la app esté abierta
 Notifications.setNotificationHandler({
@@ -38,11 +38,9 @@ export async function registrarPush(tokenCliente?: string) {
     if (!projectId) return; // sin proyecto EAS todavía no se puede emitir token
 
     const { data: token } = await Notifications.getExpoPushTokenAsync({ projectId });
-    await fetch(`${API}/mi/push-token`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tokenCliente}` },
-      body: JSON.stringify({ token }),
-    });
+    // Header manual: puede llamarse justo tras el login con un token más fresco
+    // que el registrado en el api client.
+    await apiPost('/mi/push-token', { token }, { headers: { Authorization: `Bearer ${tokenCliente}` } });
   } catch {
     // sin red o sin permisos: se reintenta en el próximo login
   }

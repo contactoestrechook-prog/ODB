@@ -7,6 +7,7 @@ export type AjusteDto = {
   sucursalId: string;
   cantidad: number;
   motivo: string;
+  autorizadoPor?: string; // supervisor que autorizó (PIN validado en /caja/autorizar)
 };
 
 export type TransferenciaDto = {
@@ -76,19 +77,122 @@ export class StockService {
     return data ?? [];
   }
 
-  async registrarAjuste(dto: AjusteDto, tipo: 'ajuste' | 'merma' = 'ajuste') {
+  // Motivos tipificados de merma: sin "motivo libre" no hay estadística posible
+  // de POR QUÉ se pierde mercadería (rotura vs robo vs vencimiento).
+  static readonly MOTIVOS_MERMA = ['Rotura', 'Vencimiento', 'Robo/faltante', 'Error de carga', 'Consumo interno', 'Otro'];
+  // Umbral de autorización: ajustes/mermas grandes requieren PIN de supervisor.
+  private static TOPE_VALOR = Number(process.env.ODB_TOPE_AJUSTE ?? 50_000);
+  private static TOPE_UNIDADES = Number(process.env.ODB_TOPE_AJUSTE_UNIDADES ?? 50);
+
+  async registrarAjuste(dto: AjusteDto, tipo: 'ajuste' | 'merma' = 'ajuste', usuarioId?: string) {
     const productoId = await this.productoIdPorSku(dto.sku);
     const cantidad =
       tipo === 'merma' ? -Math.abs(Number(dto.cantidad)) : Number(dto.cantidad);
+
+    if (tipo === 'merma') {
+      const categoria = (dto.motivo ?? '').split(':')[0].trim();
+      if (!StockService.MOTIVOS_MERMA.includes(categoria)) {
+        throw new BadRequestException(
+          `El motivo de la merma tiene que ser uno de: ${StockService.MOTIVOS_MERMA.join(', ')} (opcionalmente "Motivo: detalle")`,
+        );
+      }
+    }
+
+    // tope: un ajuste grande (en plata o en unidades) necesita el PIN de un
+    // supervisor — un empleado solo no puede "desaparecer" mercadería cara
+    const { data: prod } = await this.db.from('productos').select('costo').eq('id', productoId).maybeSingle();
+    const valor = Math.abs(cantidad) * Number(prod?.costo ?? 0);
+    const superaTope = valor > StockService.TOPE_VALOR || Math.abs(cantidad) > StockService.TOPE_UNIDADES;
+    if (superaTope && !dto.autorizadoPor) {
+      throw new BadRequestException(
+        `Este ${tipo} supera el tope (${Math.abs(cantidad)} u. / $${Math.round(valor).toLocaleString('es-AR')}): requiere autorización de un supervisor (PIN)`,
+      );
+    }
+
     const { data, error } = await this.db.rpc('registrar_movimiento', {
       p_producto_id: productoId,
       p_sucursal_id: dto.sucursalId,
       p_tipo: tipo,
       p_cantidad: cantidad,
       p_motivo: dto.motivo,
+      p_usuario_id: usuarioId ?? null,
     });
     if (error) throw new BadRequestException(this.traducirError(error.message));
+
+    if (superaTope) {
+      await this.db.from('auditoria').insert({
+        usuario_id: dto.autorizadoPor,
+        accion: `${tipo}_autorizado`,
+        entidad: 'movimiento_stock',
+        entidad_id: String(data),
+        datos_despues: { sku: dto.sku, cantidad, valor: Math.round(valor), motivo: dto.motivo, operador: usuarioId ?? null },
+      });
+    }
     return { movimientoId: data };
+  }
+
+  // La transferencia se perdió en el camino o se cargó por error: el stock
+  // vuelve a la sucursal de origen y queda auditado (RPC atómica).
+  async anularTransferencia(id: string, motivo: string | undefined, usuarioId?: string) {
+    const { data, error } = await this.db.rpc('anular_transferencia', {
+      p_transferencia: id,
+      p_usuario: usuarioId ?? null,
+      p_motivo: motivo ?? null,
+    });
+    if (error) throw new BadRequestException(this.traducirError(error.message));
+    return data;
+  }
+
+  // ---------- conteo cíclico de inventario ----------
+
+  async crearConteo(dto: { sucursalId: string; sector?: string }, usuarioId?: string) {
+    const { data, error } = await this.db
+      .from('conteos')
+      .insert({ sucursal_id: dto.sucursalId, sector: dto.sector ?? null, usuario_id: usuarioId ?? null })
+      .select('id')
+      .single();
+    if (error) throw new BadRequestException(this.traducirError(error.message));
+    return { conteoId: data.id };
+  }
+
+  async conteosAbiertos() {
+    const { data, error } = await this.db
+      .from('conteos')
+      .select(`id, sector, estado, creado_en,
+        sucursal:sucursales(id, nombre),
+        usuario:usuarios(nombre),
+        items:conteos_items(producto_id, cantidad_contada, cantidad_sistema, producto:productos(sku, nombre))`)
+      .eq('estado', 'abierto')
+      .order('creado_en', { ascending: false });
+    if (error) throw new BadRequestException(error.message);
+    return data ?? [];
+  }
+
+  async conteoCargarItem(conteoId: string, dto: { sku: string; cantidad: number }) {
+    const productoId = await this.productoIdPorSku(dto.sku);
+    const { data, error } = await this.db.rpc('conteo_cargar_item', {
+      p_conteo: conteoId,
+      p_producto: productoId,
+      p_cantidad_contada: Number(dto.cantidad),
+    });
+    if (error) throw new BadRequestException(this.traducirError(error.message));
+    return data;
+  }
+
+  async finalizarConteo(conteoId: string, autorizadoPor: string, usuarioId?: string) {
+    const { data, error } = await this.db.rpc('finalizar_conteo', {
+      p_conteo: conteoId,
+      p_usuario: usuarioId ?? null,
+      p_autorizado_por: autorizadoPor,
+    });
+    if (error) throw new BadRequestException(this.traducirError(error.message));
+    return data;
+  }
+
+  async descartarConteo(conteoId: string) {
+    const { error } = await this.db.from('conteos').update({ estado: 'descartado' }).eq('id', conteoId).eq('estado', 'abierto');
+    if (error) throw new BadRequestException(error.message);
+    return { descartado: true };
   }
 
   async transferenciasPendientes() {

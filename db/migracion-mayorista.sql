@@ -1,0 +1,18 @@
+-- ============================================================================
+-- Lista de precios MAYORISTA (recupera la "lista 4 al 40%" del Access).
+-- Aplicada en Supabase (ODB) el 2026-07-02.
+--
+--   listas_precios: + fila 'Mayorista'
+--   clientes.mayorista            marca al cliente mayorista (fuerza la lista)
+--   categorias.margen_mayorista   % de margen mayorista por rubro (a futuro)
+--   precio_vigente(..., p_mayorista) usa la lista Mayorista; cae a Minorista si
+--                                    el producto no tiene precio mayorista
+--   registrar_venta(..., p_mayorista) toda la venta al precio mayorista; el
+--                                    cliente marcado mayorista lo fuerza igual
+--   generar_precios_mayorista(factor) carga masiva: mayorista = minorista × factor
+--   pos_buscar / pos_catalogo         ahora devuelven también precio_mayorista
+--
+-- Carga inicial aplicada: generar_precios_mayorista(0.78) → 10.984 precios
+-- (≈22% más barato que minorista, equivalente a pasar de 80% a 40% de margen).
+-- Cuerpos completos en db/esquema-real/04-funciones.sql (regenerar).
+-- ============================================================================

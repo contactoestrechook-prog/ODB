@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { SaludController } from './salud.controller';
 import { CatalogoModule } from './catalogo/catalogo.module';
 import { StockModule } from './stock/stock.module';
 import { DescuentosModule } from './descuentos/descuentos.module';
@@ -34,9 +35,11 @@ import { ChequesModule } from './cheques/cheques.module';
 import { SyncModule } from './sync/sync.module';
 import { TiendanubeModule } from './tiendanube/tiendanube.module';
 import { AgenteModule } from './agente/agente.module';
+import { BotModule } from './bot/bot.module';
 import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
+  controllers: [SaludController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
   imports: [
     // límite global de tráfico por IP (anti-abuso); los endpoints de IA
@@ -77,6 +80,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     SyncModule,
     TiendanubeModule,
     AgenteModule,
+    BotModule,
   ],
 })
 export class AppModule {}

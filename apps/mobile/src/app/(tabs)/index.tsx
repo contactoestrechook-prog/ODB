@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
-import { FlatList, Image, Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { FlatList, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useRouter } from 'expo-router';
-import { API, pesos, useEstado, type Producto } from '../../lib/estado';
+import { pesos, useEstado, type Producto } from '../../lib/estado';
+import { apiGet, apiPost } from '../../lib/api';
+import { abrirVerificacion } from '../../lib/navegador';
 import { C, sombra, TarjetaProducto, Seccion, CategoriaChip, LinearGradient, Ionicons } from '../../lib/ui';
 
 // Segundo carrusel del home. Usa el feed con precio (filtro=promo) pero la
@@ -30,7 +32,7 @@ function isoNacimiento(v: string): string | undefined {
 }
 
 export default function Inicio() {
-  const { cliente, setCliente, cuenta, notif } = useEstado();
+  const { cliente, setCliente, cuenta, notif, sesionExpirada, limpiarAvisoSesion } = useEstado();
   const router = useRouter();
   const [modo, setModo] = useState<'login' | 'registro'>('login');
   const [dni, setDni] = useState('');
@@ -54,14 +56,14 @@ export default function Inicio() {
     if (cargando) return;
     setCargando(true);
     setError(null);
+    limpiarAvisoSesion();
     try {
       const ruta = modo === 'login' ? '/app/login' : '/app/registro';
-      const res = await fetch(`${API}${ruta}`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(modo === 'login' ? { dni, clave } : { dni, nombre, clave, fechaNacimiento: isoNacimiento(nacimiento), codigoReferido: codigoReferido.trim() || undefined }),
-      });
-      const datos = await res.json();
-      if (!res.ok) throw new Error(datos.message ?? 'No se pudo entrar');
+      const datos = await apiPost(ruta,
+        modo === 'login'
+          ? { dni, clave }
+          : { dni, nombre, clave, fechaNacimiento: isoNacimiento(nacimiento), codigoReferido: codigoReferido.trim() || undefined },
+        { auth: false });
       setCliente({ dni: datos.cliente.dni, tipo: datos.cliente.tipo, nombre: datos.cliente.nombre, puntos: datos.cliente.puntos, verificado: datos.cliente.verificado, token: datos.token });
       cargarSecciones(datos.cliente.tipo, datos.token);
     } catch (e) { setError(e instanceof Error ? e.message : 'Error'); }
@@ -71,21 +73,29 @@ export default function Inicio() {
   async function verificarIdentidad() {
     if (!cliente?.token) return;
     setAviso(null);
-    const res = await fetch(`${API}/app/verificacion`, { method: 'POST', headers: { Authorization: `Bearer ${cliente.token}` } });
-    const datos = await res.json();
-    if (res.ok && datos.url) { Linking.openURL(datos.url); setAviso('Completá la verificación en la pantalla que se abrió.'); }
-    else setAviso(datos.message ?? 'No se pudo iniciar la verificación');
+    try {
+      const datos = await apiPost('/app/verificacion');
+      if (datos?.url) {
+        // navegador in-app: el cliente no pierde el contexto de la app
+        await abrirVerificacion(datos.url);
+        setAviso('Completá la verificación en la pantalla que se abrió.');
+      } else setAviso('No se pudo iniciar la verificación');
+    } catch (e) { setAviso(e instanceof Error ? e.message : 'No se pudo iniciar la verificación'); }
   }
 
   async function cargarSecciones(tipo: string, token?: string) {
     const seccion = SECCION_POR_TIPO[tipo] ?? SECCION_POR_TIPO.nuevo;
     const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
-    const [rp, rv] = await Promise.all([
-      fetch(`${API}/productos?filtro=promo&porPagina=10`, { headers }),
-      fetch(`${API}/productos?${seccion.query}`, { headers }),
-    ]);
-    if (rp.ok) setPromos((await rp.json()).items);
-    if (rv.ok) setParaVos((await rv.json()).items);
+    try {
+      const [p, v] = await Promise.all([
+        apiGet('/productos?filtro=promo&porPagina=10', { auth: false, headers }),
+        apiGet(`/productos?${seccion.query}`, { auth: false, headers }),
+      ]);
+      setPromos(p.items);
+      setParaVos(v.items);
+    } catch {
+      // sin red: los carruseles quedan vacíos y el banner global avisa
+    }
     setCargado(true);
   }
 
@@ -99,6 +109,12 @@ export default function Inicio() {
         </LinearGradient>
 
         <View style={[est.loginCard, sombra(2)]}>
+          {sesionExpirada && (
+            <View style={est.avisoSesion}>
+              <Ionicons name="time-outline" size={16} color={C.rojoOscuro} />
+              <Text style={est.avisoSesionTxt}>Tu sesión expiró. Ingresá de nuevo.</Text>
+            </View>
+          )}
           <View style={est.pestanas}>
             {(['login', 'registro'] as const).map((m) => (
               <Pressable key={m} onPress={() => { setModo(m); setError(null); }} style={[est.pestana, modo === m && est.pestanaActiva]}>
@@ -231,6 +247,8 @@ const est = StyleSheet.create({
   campo: { flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderColor: C.linea, borderRadius: 14, paddingHorizontal: 14, marginBottom: 11, backgroundColor: '#fff' },
   campoInput: { flex: 1, paddingVertical: 13, fontSize: 15, color: C.tinta },
   error: { color: C.rojoOscuro, fontSize: 13, marginBottom: 10 },
+  avisoSesion: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#FBE9E7', borderRadius: 12, paddingVertical: 10, paddingHorizontal: 12, marginBottom: 12 },
+  avisoSesionTxt: { color: C.rojoOscuro, fontSize: 13, fontWeight: '600', flex: 1 },
   botonPrimario: { backgroundColor: C.rojo, borderRadius: 16, paddingVertical: 15, alignItems: 'center', marginTop: 6, ...sombra(1) },
   botonPrimarioTexto: { color: '#fff', fontWeight: '800', fontSize: 15 },
   link: { textAlign: 'center', color: C.humo, fontSize: 13, marginTop: 16, fontWeight: '600' },

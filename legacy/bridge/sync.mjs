@@ -24,6 +24,9 @@ const MDB_PATH = process.env.MDB_PATH || '../climatizacion_copia.mdb';
 const STATE_FILE = process.env.STATE_FILE || './state.json';
 const INTERVAL_MIN = Number(process.env.SYNC_INTERVAL_MIN || 10);
 const RUN_ONCE = process.argv.includes('--once') || process.env.RUN_ONCE === '1';
+// CUTOVER: cuando la caja NUEVA empiece a vender, poner SYNC_STOCK=0 — si no,
+// cada corrida pisaría el stock con el del Access (que ya no ve esas ventas).
+const SYNC_STOCK = process.env.SYNC_STOCK !== '0';
 
 // --- env: variables del proceso o, en dev, apps/api/.env ---
 function cargarEnv() {
@@ -78,20 +81,70 @@ async function categoriaIds(rubros) {
   return byNorm;
 }
 
+// ADOPCIÓN: el import del Excel (12/6) creó productos con sku = código legacy
+// pero SIN codigo_legacy. El upsert por codigo_legacy no los veía y creaba un
+// gemelo 'L'+codigo (bug que duplicó 9.317 productos, ver db/fusion-duplicados/).
+// Antes de upsertear, cualquier producto cuyo sku sea exactamente el código y
+// no tenga codigo_legacy se ADOPTA (se le asigna el codigo_legacy) para que el
+// upsert lo ACTUALICE en vez de duplicarlo.
+async function adoptarPorSku(codigos) {
+  const conLegacy = new Set();
+  for (const c of chunk(codigos, 800)) {
+    const { data, error } = await db.from('productos').select('codigo_legacy').in('codigo_legacy', c);
+    if (error) throw new Error('adopcion select: ' + error.message);
+    (data || []).forEach((r) => conLegacy.add(r.codigo_legacy));
+  }
+  const sinLegacy = codigos.filter((c) => !conLegacy.has(c));
+  let adoptados = 0;
+  for (const c of chunk(sinLegacy, 400)) {
+    const { data, error } = await db.from('productos').select('id, sku').in('sku', c).is('codigo_legacy', null);
+    if (error) throw new Error('adopcion sku: ' + error.message);
+    for (const r of data || []) {
+      const { error: e2 } = await db.from('productos').update({ codigo_legacy: r.sku }).eq('id', r.id);
+      if (e2) throw new Error('adopcion update: ' + e2.message);
+      adoptados++;
+    }
+  }
+  if (adoptados) log(`adoptados ${adoptados} productos existentes (sku = código legacy)`);
+  return adoptados;
+}
+
 async function upsertProductos(cambiados) {
   if (!cambiados.length) return 0;
+  await adoptarPorSku(cambiados.map((p) => String(p.codigo)));
   const cats = await categoriaIds(cambiados.map((p) => p.rubro));
   const catId = (ru) => (ru ? cats.get(norm(ru)) || null : null);
 
-  for (const c of chunk(cambiados, 500)) {
+  // update (existentes por codigo_legacy, SIN tocar el sku: renombrarlo rompería
+  // etiquetas impresas y podría colisionar) + insert (solo los realmente nuevos)
+  const existentes = new Set();
+  for (const c of chunk(cambiados.map((p) => String(p.codigo)), 800)) {
+    const { data, error } = await db.from('productos').select('codigo_legacy').in('codigo_legacy', c);
+    if (error) throw new Error('productos existentes: ' + error.message);
+    (data || []).forEach((r) => existentes.add(r.codigo_legacy));
+  }
+  const aActualizar = cambiados.filter((p) => existentes.has(String(p.codigo)));
+  const aInsertar = cambiados.filter((p) => !existentes.has(String(p.codigo)));
+
+  for (const c of chunk(aActualizar, 50)) {
+    await Promise.all(c.map(async (p) => {
+      const { error } = await db.from('productos').update({
+        nombre: p.nombre, categoria_id: catId(p.rubro), costo: p.costo || 0,
+        es_alcohol: !!p.es_alcohol, unidades_pack: p.unidades_pack || 1, activo: true,
+      }).eq('codigo_legacy', String(p.codigo));
+      if (error) throw new Error('productos update: ' + error.message);
+    }));
+  }
+  for (const c of chunk(aInsertar, 500)) {
     const rows = c.map((p) => ({
-      sku: 'L' + p.codigo, codigo_legacy: p.codigo, nombre: p.nombre,
+      sku: 'L' + p.codigo, codigo_legacy: String(p.codigo), nombre: p.nombre,
       categoria_id: catId(p.rubro), costo: p.costo || 0, es_alcohol: !!p.es_alcohol,
       unidades_pack: p.unidades_pack || 1, alicuota_iva: 21, activo: true,
     }));
-    const { error } = await db.from('productos').upsert(rows, { onConflict: 'codigo_legacy' });
-    if (error) throw new Error('productos: ' + error.message);
+    const { error } = await db.from('productos').insert(rows);
+    if (error) throw new Error('productos insert: ' + error.message);
   }
+  if (aInsertar.length) log(`productos nuevos desde legacy: ${aInsertar.length}`);
 
   // map codigo_legacy → id (solo de los cambiados)
   const idByCod = new Map();
@@ -108,11 +161,14 @@ async function upsertProductos(cambiados) {
     .map((p) => ({ producto_id: idByCod.get(p.codigo), lista_id: LISTA_MINORISTA, precio: p.precioFinal }));
   for (const c of chunk(precios, 500)) { const { error } = await db.from('precios').insert(c); if (error) throw new Error('precios: ' + error.message); }
 
-  // stock (O.D.B Central): reemplazo de los cambiados (sin stock → queda sin fila = a pedido)
-  for (const c of chunk(ids, 400)) await db.from('stock').delete().eq('sucursal_id', SUC_CENTRAL).in('producto_id', c);
-  const stock = cambiados.filter((p) => p.stock > 0 && idByCod.get(p.codigo))
-    .map((p) => ({ producto_id: idByCod.get(p.codigo), sucursal_id: SUC_CENTRAL, cantidad: p.stock, stock_minimo: p.stockmin || 0 }));
-  for (const c of chunk(stock, 500)) { const { error } = await db.from('stock').insert(c); if (error) throw new Error('stock: ' + error.message); }
+  // stock (O.D.B Central): reemplazo de los cambiados (sin stock → queda sin fila = a pedido).
+  // Con SYNC_STOCK=0 (cutover a la caja nueva) el stock NO se toca.
+  if (SYNC_STOCK) {
+    for (const c of chunk(ids, 400)) await db.from('stock').delete().eq('sucursal_id', SUC_CENTRAL).in('producto_id', c);
+    const stock = cambiados.filter((p) => p.stock > 0 && idByCod.get(p.codigo))
+      .map((p) => ({ producto_id: idByCod.get(p.codigo), sucursal_id: SUC_CENTRAL, cantidad: p.stock, stock_minimo: p.stockmin || 0 }));
+    for (const c of chunk(stock, 500)) { const { error } = await db.from('stock').insert(c); if (error) throw new Error('stock: ' + error.message); }
+  }
 
   return cambiados.length;
 }

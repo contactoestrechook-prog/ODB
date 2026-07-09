@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post } from '@nestjs/common';
+import { Body, Controller, Get, Post, Req } from '@nestjs/common';
 import { TiendanubeService } from './tiendanube.service';
 import { Roles, Publico } from '../auth/decorators';
 
@@ -28,7 +28,7 @@ export class TiendanubeController {
   // el pedido a TN con nuestro token (no confía en el body).
   @Publico()
   @Post('webhook')
-  webhook(@Body() body: any) {
-    return this.servicio.recibirWebhook(body);
+  webhook(@Body() body: any, @Req() req: any) {
+    return this.servicio.recibirWebhook(body, req.rawBody, req.headers ?? {});
   }
 }

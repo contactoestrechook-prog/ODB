@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Param, Post, Query, Req } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, Req, UploadedFiles, UseInterceptors } from '@nestjs/common';
+import { FilesInterceptor } from '@nestjs/platform-express';
 import { AgenteService } from './agente.service';
 import { Roles } from '../auth/decorators';
 
@@ -45,6 +46,19 @@ export class AgenteController {
   @Post('enriquecer')
   enriquecer(@Body() dto: { limite?: number }) {
     return this.servicio.enriquecer(dto ?? {});
+  }
+
+  @Post('fotos')
+  fotos(@Body() dto: { limite?: number }) {
+    return this.servicio.buscarFotos(dto ?? {});
+  }
+
+  // Pack de fotos que manda un proveedor (varios archivos de una). Tope: 60
+  // archivos y 8MB c/u por request, para no abrir la puerta a un abuso.
+  @Post('fotos-proveedor')
+  @UseInterceptors(FilesInterceptor('archivos', 60, { limits: { fileSize: 8 * 1024 * 1024 } }))
+  fotosProveedor(@UploadedFiles() archivos: Express.Multer.File[], @Body('proveedorId') proveedorId?: string) {
+    return this.servicio.importarFotosProveedor(archivos, proveedorId);
   }
 
   @Post('tareas/:id/resolver')

@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
-import { API, pesos, useEstado, type Producto } from '../lib/estado';
+import { pesos, useEstado, type Producto } from '../lib/estado';
+import { apiGet } from '../lib/api';
 import { C, TarjetaProducto, Ionicons, sombra, toque } from '../lib/ui';
 
 const fecha = (iso: string) =>
@@ -25,10 +26,9 @@ export default function Compras() {
 
   useEffect(() => {
     if (!cliente?.token) return;
-    const headers = { Authorization: `Bearer ${cliente.token}` };
     Promise.all([
-      fetch(`${API}/mi/compras`, { headers }).then((r) => (r.ok ? r.json() : [])),
-      fetch(`${API}/mi/frecuentes`, { headers }).then((r) => (r.ok ? r.json() : [])),
+      apiGet<Compra[]>('/mi/compras').catch(() => []),
+      apiGet<Producto[]>('/mi/frecuentes').catch(() => []),
     ])
       .then(([c, f]) => { setCompras(c ?? []); setFrecuentes(f ?? []); })
       .catch(() => {})

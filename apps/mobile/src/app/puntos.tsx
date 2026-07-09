@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { API, useEstado } from '../lib/estado';
+import { useEstado } from '../lib/estado';
+import { apiGet, apiPost } from '../lib/api';
 import { C, LinearGradient, Ionicons, sombra, toque } from '../lib/ui';
 
 const fecha = (iso: string) => new Date(iso).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' });
@@ -16,8 +17,7 @@ export default function Puntos() {
   async function cargar() {
     if (!cliente?.token) return;
     try {
-      const r = await fetch(`${API}/mi/puntos`, { headers: { Authorization: `Bearer ${cliente.token}` } });
-      if (r.ok) setData(await r.json());
+      setData(await apiGet('/mi/puntos'));
     } catch {}
     setCargando(false);
   }
@@ -28,19 +28,14 @@ export default function Puntos() {
     setError(null);
     setCanjeando(rec.id);
     try {
-      const res = await fetch(`${API}/mi/puntos/canjear`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${cliente.token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ recompensaId: rec.id }),
-      });
-      const d = await res.json();
-      if (res.ok && d.codigo) {
+      const d = await apiPost('/mi/puntos/canjear', { recompensaId: rec.id });
+      if (d.codigo) {
         toque();
         setUltimo(d);
         setCliente({ ...cliente, puntos: d.saldo });
         await cargar();
-      } else setError(d.message ?? 'No se pudo canjear');
-    } catch { setError('No se pudo canjear'); }
+      } else setError('No se pudo canjear');
+    } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo canjear'); }
     setCanjeando(null);
   }
 
@@ -76,7 +71,7 @@ export default function Puntos() {
           <Text style={est.codigoTitulo}>¡Canje confirmado!</Text>
           <Text style={est.codigoSub}>{ultimo.recompensa}</Text>
           <View style={est.codigoBox}><Text style={est.codigoTxt}>{ultimo.codigo}</Text></View>
-          <Text style={est.codigoNota}>Mostrá este código en O.D.B Central</Text>
+          <Text style={est.codigoNota}>Mostrá este código en Suc Sant Thomas</Text>
         </View>
       )}
       {error && <Text style={est.error}>{error}</Text>}

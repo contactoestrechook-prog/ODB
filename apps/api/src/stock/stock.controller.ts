@@ -1,8 +1,11 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, Param, Post, Query, Req } from '@nestjs/common';
 import { StockService } from './stock.service';
 import type { AjusteDto, TransferenciaDto } from './stock.service';
 import { Roles } from '../auth/decorators';
 
+// Datos operativos de inventario (valorización, ABC, movimientos): solo staff.
+// Las escrituras redefinen roles más estrictos a nivel de método.
+@Roles('cajero', 'deposito', 'gerente', 'dueno')
 @Controller('stock')
 export class StockController {
   constructor(private readonly stock: StockService) {}
@@ -56,14 +59,58 @@ export class StockController {
 
   @Roles('deposito', 'gerente', 'dueno')
   @Post('ajustes')
-  ajuste(@Body() dto: AjusteDto) {
-    return this.stock.registrarAjuste(dto, 'ajuste');
+  ajuste(@Body() dto: AjusteDto, @Req() req: any) {
+    return this.stock.registrarAjuste(dto, 'ajuste', req.usuario?.sub);
   }
 
   @Roles('deposito', 'gerente', 'dueno')
   @Post('mermas')
-  merma(@Body() dto: AjusteDto) {
-    return this.stock.registrarAjuste(dto, 'merma');
+  merma(@Body() dto: AjusteDto, @Req() req: any) {
+    return this.stock.registrarAjuste(dto, 'merma', req.usuario?.sub);
+  }
+
+  @Get('motivos-merma')
+  motivosMerma() {
+    return StockService.MOTIVOS_MERMA;
+  }
+
+  // ---------- conteo cíclico ----------
+
+  @Roles('deposito', 'gerente', 'dueno')
+  @Post('conteos')
+  crearConteo(@Body() dto: { sucursalId: string; sector?: string }, @Req() req: any) {
+    return this.stock.crearConteo(dto, req.usuario?.sub);
+  }
+
+  @Roles('deposito', 'gerente', 'dueno')
+  @Get('conteos')
+  conteos() {
+    return this.stock.conteosAbiertos();
+  }
+
+  @Roles('deposito', 'gerente', 'dueno')
+  @Post('conteos/:id/items')
+  conteoItem(@Param('id') id: string, @Body() dto: { sku: string; cantidad: number }) {
+    return this.stock.conteoCargarItem(id, dto);
+  }
+
+  // aplicar el conteo ajusta stock masivamente: exige supervisor (PIN validado
+  // en /caja/autorizar → autorizadoPor); gerencia se autoriza sola
+  @Roles('deposito', 'gerente', 'dueno')
+  @Post('conteos/:id/finalizar')
+  finalizarConteo(@Param('id') id: string, @Body() body: { autorizadoPor?: string }, @Req() req: any) {
+    const rol = req.usuario?.rol;
+    const autorizadoPor = body.autorizadoPor ?? (rol !== 'deposito' ? req.usuario?.sub : undefined);
+    if (!autorizadoPor) {
+      throw new ForbiddenException('Aplicar el conteo requiere autorización de un supervisor (PIN)');
+    }
+    return this.stock.finalizarConteo(id, autorizadoPor, req.usuario?.sub);
+  }
+
+  @Roles('deposito', 'gerente', 'dueno')
+  @Post('conteos/:id/descartar')
+  descartarConteo(@Param('id') id: string) {
+    return this.stock.descartarConteo(id);
   }
 
   @Get('transferencias')
@@ -81,5 +128,12 @@ export class StockController {
   @Post('transferencias/:id/recibir')
   recibir(@Param('id') id: string) {
     return this.stock.recibirTransferencia(id);
+  }
+
+  // anular devuelve el stock al origen: solo gerencia (queda auditado)
+  @Roles('gerente', 'dueno')
+  @Post('transferencias/:id/anular')
+  anularTransferencia(@Param('id') id: string, @Body() body: { motivo?: string }, @Req() req: any) {
+    return this.stock.anularTransferencia(id, body.motivo, req.usuario?.sub);
   }
 }

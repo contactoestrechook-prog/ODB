@@ -7,5 +7,6 @@ import { supabaseProvider } from '../supabase.provider';
 @Module({
   controllers: [CajaController],
   providers: [CajaService, ArcaService, supabaseProvider],
+  exports: [CajaService],
 })
 export class CajaModule {}

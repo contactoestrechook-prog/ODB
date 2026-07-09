@@ -18,9 +18,32 @@ export type CrearOcDto = {
 export type AprobarDto = { usuarioId?: string; pin?: string };
 export type RecibirDto = {
   // costo opcional por renglón = costo REAL de esta entrada (si falta, usa el de la OC)
-  items: { sku: string; cantidad: number; costo?: number }[];
+  // lote/vencimiento opcionales: si vienen, la recepción crea el lote (panel de vencimientos)
+  items: { sku: string; cantidad: number; costo?: number; lote?: string; vencimiento?: string }[];
   usuarioId?: string;
   margenPct?: number; // % de remarcación para esta recepción (si falta, usa el del rubro)
+};
+
+export type EntradaDirectaDto = {
+  proveedorId: string;
+  sucursalId: string;
+  numeroRemito?: string;
+  items: { sku: string; cantidad: number; costo: number; lote?: string; vencimiento?: string }[];
+  margenPct?: number;
+  usuarioId?: string;
+  // si la mercadería vino con factura, se registra junto con la entrada,
+  // con su desglose fiscal y vinculada a la OC/remito (nada de facturas flotantes)
+  factura?: {
+    numero: string;
+    total: number;
+    neto?: number;
+    iva?: number;
+    percepcionIva?: number;
+    percepcionIibb?: number;
+    otros?: number;
+    vencimiento?: string;
+    pagada?: boolean; // contado en el momento → nace pagada
+  };
 };
 
 @Injectable()
@@ -116,15 +139,10 @@ export class ComprasService {
   }
 
   // Aprobación EXCLUSIVA del dueño (el controller la restringe a rol 'dueno').
+  // RPC atómica: la OC nunca queda aprobada sin su registro de auditoría.
   async aprobar(id: string, dto: AprobarDto) {
-    const { data: oc } = await this.db.from('ordenes_compra').select('estado').eq('id', id).maybeSingle();
-    if (!oc) throw new BadRequestException('No existe la orden de compra');
-    if (oc.estado !== 'pendiente_aprobacion') throw new BadRequestException(`La orden está "${oc.estado}", no se puede aprobar`);
-    const { error } = await this.db.from('ordenes_compra')
-      .update({ estado: 'aprobada', aprobada_por: dto.usuarioId ?? null, aprobada_en: new Date().toISOString() })
-      .eq('id', id);
+    const { error } = await this.db.rpc('aprobar_oc_panel', { p_oc: id, p_usuario: dto.usuarioId ?? null });
     if (error) throw new BadRequestException(this.traducirError(error.message));
-    await this.db.from('aprobaciones').insert({ entidad: 'orden_compra', entidad_id: id, usuario_id: dto.usuarioId ?? null, metodo: 'panel' });
     return { aprobada: true };
   }
 
@@ -139,34 +157,109 @@ export class ComprasService {
     return { rechazada: true };
   }
 
+  // Recepción + "regla de oro" (costo real → precio de venta) en UNA transacción
+  // (RPC recibir_oc_con_precio): no puede quedar stock ingresado con precios viejos.
   async recibir(id: string, dto: RecibirDto) {
     const items = await Promise.all(
       (dto.items ?? []).map(async (i) => ({
         producto_id: await this.productoIdPorSku(i.sku),
         cantidad: Number(i.cantidad),
+        lote: i.lote ?? null,
+        vencimiento: i.vencimiento ?? null,
       })),
     );
-    const { data, error } = await this.db.rpc('recibir_orden_compra', {
+    const itemsPrecio = await this.itemsPrecioRecepcion(id, dto);
+    const { data, error } = await this.db.rpc('recibir_oc_con_precio', {
       p_oc: id,
       p_items: items,
+      p_items_precio: itemsPrecio,
       p_usuario: dto.usuarioId ?? null,
     });
     if (error) throw new BadRequestException(this.traducirError(error.message));
-
-    // Regla de oro ODB: al entrar la mercadería se fija el costo real y se aplica el % → precio.
-    const repreciados = await this.aplicarPrecioRecepcion(id, dto);
-    return { estado: data, repreciados };
+    return { estado: (data as any).estado, repreciados: Number((data as any).repreciados) || 0 };
   }
 
-  // Fija costo + precio de venta (margen) de los renglones recibidos. Reusa aplicar_lista_con_precio
-  // (setea productos.costo, proveedor_productos, costos_historial y el precio Minorista).
-  private async aplicarPrecioRecepcion(ocId: string, dto: RecibirDto): Promise<number> {
+  // Entrada directa: la mercadería llegó SIN orden de compra previa (caso diario:
+  // compra de oportunidad, reparto que pasa, emergencia). La RPC crea la OC
+  // retroactiva con origen 'directa' + remito + stock + lotes + regla de oro,
+  // todo en una transacción — con trazabilidad real, sin OC "truchas" a mano.
+  async entradaDirecta(dto: EntradaDirectaDto) {
+    if (!dto.items?.length) throw new BadRequestException('La entrada no tiene renglones');
+    const items = await Promise.all(
+      dto.items.map(async (i) => ({
+        producto_id: await this.productoIdPorSku(i.sku),
+        cantidad: Number(i.cantidad),
+        costo_unitario: Number(i.costo) || 0,
+        lote: i.lote ?? null,
+        vencimiento: i.vencimiento ?? null,
+      })),
+    );
+
+    // regla de oro con el margen del rubro de cada producto (o el % indicado)
+    const skus = dto.items.map((i) => i.sku);
+    const { data: prods } = await this.db
+      .from('productos')
+      .select('sku, categoria:categorias(margen_sugerido)')
+      .in('sku', skus);
+    const margenPor = new Map<string, number | null>(
+      ((prods ?? []) as any[]).map((p) => [p.sku, p.categoria?.margen_sugerido ?? null]),
+    );
+    const itemsPrecio = dto.items
+      .filter((i) => Number(i.costo) > 0)
+      .map((i) => {
+        const margen = margenAplicable(dto.margenPct, margenPor.get(i.sku) ?? null);
+        return { sku: i.sku, costo: Number(i.costo), precio: precioDesdeCosto(Number(i.costo), margen) };
+      });
+
+    const { data, error } = await this.db.rpc('recibir_compra_directa', {
+      p_proveedor: dto.proveedorId,
+      p_sucursal: dto.sucursalId,
+      p_items: items,
+      p_numero_remito: dto.numeroRemito ?? null,
+      p_usuario: dto.usuarioId ?? null,
+      p_items_precio: itemsPrecio,
+    });
+    if (error) throw new BadRequestException(this.traducirError(error.message));
+    const resultado = data as any;
+
+    // factura del proveedor: nace vinculada a la OC y al remito de esta entrada,
+    // con el desglose de impuestos (IVA, percepciones) para el libro IVA compras
+    if (dto.factura?.numero && Number(dto.factura.total) > 0) {
+      const f = dto.factura;
+      const { error: errF } = await this.db.from('facturas_proveedor').insert({
+        proveedor_id: dto.proveedorId,
+        numero: f.numero,
+        monto: Number(f.total),
+        neto: f.neto != null ? Number(f.neto) : null,
+        iva: f.iva != null ? Number(f.iva) : null,
+        percepcion_iva: Number(f.percepcionIva ?? 0),
+        percepcion_iibb: Number(f.percepcionIibb ?? 0),
+        otros_impuestos: Number(f.otros ?? 0),
+        vencimiento: f.vencimiento ?? null,
+        estado: f.pagada ? 'pagada' : 'pendiente',
+        oc_id: resultado.oc_id,
+        remito_id: resultado.remito_id,
+      });
+      if (errF) {
+        // la entrada ya está registrada (stock movido): no se revierte por la
+        // factura — se avisa y se puede cargar desde Compras → Registrar factura
+        resultado.facturaError = errF.message;
+      } else {
+        resultado.factura = { numero: f.numero, total: Number(f.total), estado: f.pagada ? 'pagada' : 'pendiente' };
+      }
+    }
+    return resultado;
+  }
+
+  // Calcula los renglones {sku, costo, precio} para la regla de oro. Solo lee la OC
+  // (no escribe): la escritura la hace la RPC transaccional junto con la recepción.
+  private async itemsPrecioRecepcion(ocId: string, dto: RecibirDto): Promise<{ sku: string; costo: number; precio: number }[]> {
     const { data: oc } = await this.db
       .from('ordenes_compra')
       .select('proveedor_id, items:ordenes_compra_items(costo_unitario, producto:productos(sku, categoria:categorias(margen_sugerido)))')
       .eq('id', ocId)
       .single();
-    if (!oc?.proveedor_id) return 0;
+    if (!oc?.proveedor_id) return [];
 
     const info = new Map<string, { costo: number; margenRubro: number | null }>();
     for (const it of (oc.items ?? []) as any[]) {
@@ -183,11 +276,7 @@ export class ComprasService {
       const margen = margenAplicable(dto.margenPct, i.margenRubro);
       items.push({ sku: r.sku, costo, precio: precioDesdeCosto(costo, margen) });
     }
-    if (!items.length) return 0;
-
-    const { data, error } = await this.db.rpc('aplicar_lista_con_precio', { p_proveedor: oc.proveedor_id, p_items: items, p_usuario: dto.usuarioId ?? null });
-    if (error) throw new BadRequestException(this.traducirError(error.message));
-    return Number(data) || 0;
+    return items;
   }
 
   // ---------- resumen (KPIs) ----------
@@ -288,40 +377,26 @@ export class ComprasService {
   }
 
   // 1) Crear orden de pago: queda PENDIENTE de aprobación del dueño (no paga todavía).
+  // RPC atómica con lock de facturas: dos OP simultáneas no pueden tomar la misma factura.
   async crearOrdenPago(dto: { facturaIds: string[]; medioPago?: string; vencimiento?: string; fechaProgramada?: string; observaciones?: string; usuarioId?: string }) {
     if (!dto.facturaIds?.length) throw new BadRequestException('Elegí al menos una factura');
-    const { data: facturas, error: e1 } = await this.db
-      .from('facturas_proveedor')
-      .select('id, proveedor_id, monto, estado, vencimiento')
-      .in('id', dto.facturaIds);
-    if (e1) throw new BadRequestException(e1.message);
-    const pend = (facturas ?? []).filter((f) => f.estado !== 'pagada' && f.estado !== 'en_pago');
-    if (!pend.length) throw new BadRequestException('Esas facturas ya están pagadas o en una OP');
-    if (new Set(pend.map((f) => f.proveedor_id)).size > 1) throw new BadRequestException('Las facturas son de distintos proveedores: armá una OP por proveedor');
-    const total = pend.reduce((s, f) => s + Number(f.monto), 0);
-    const venc = dto.vencimiento || pend.map((f) => f.vencimiento).filter(Boolean).sort()[0] || null;
-    const { data: op, error: e2 } = await this.db
-      .from('ordenes_pago')
-      .insert({
-        proveedor_id: pend[0].proveedor_id, total, medio_pago: dto.medioPago || 'transferencia',
-        estado: 'pendiente_aprobacion', vencimiento: venc, fecha_programada: dto.fechaProgramada || null,
-        observaciones: dto.observaciones || null, creada_por: dto.usuarioId ?? null,
-      })
-      .select('id, numero')
-      .single();
-    if (e2) throw new BadRequestException(e2.message);
-    await this.db.from('ordenes_pago_items').insert(pend.map((f) => ({ orden_pago_id: op.id, factura_id: f.id, monto: Number(f.monto) })));
-    await this.db.from('facturas_proveedor').update({ estado: 'en_pago' }).in('id', pend.map((f) => f.id));
-    return { ordenPagoId: op.id, numero: op.numero, total: Math.round(total) };
+    const { data, error } = await this.db.rpc('crear_orden_pago', {
+      p_facturas: dto.facturaIds,
+      p_medio: dto.medioPago || 'transferencia',
+      p_vencimiento: dto.vencimiento || null,
+      p_programada: dto.fechaProgramada || null,
+      p_observaciones: dto.observaciones || null,
+      p_usuario: dto.usuarioId ?? null,
+    });
+    if (error) throw new BadRequestException(this.traducirError(error.message));
+    const r = data as any;
+    return { ordenPagoId: r.orden_pago_id, numero: r.numero, total: Math.round(Number(r.total)) };
   }
 
-  // 2) Aprobar OP — EXCLUSIVO del dueño.
+  // 2) Aprobar OP — EXCLUSIVO del dueño. RPC atómica (estado + auditoría juntos).
   async aprobarOrdenPago(id: string, dto: { usuarioId?: string }) {
-    const { data: op } = await this.db.from('ordenes_pago').select('estado').eq('id', id).maybeSingle();
-    if (!op) throw new BadRequestException('No existe la orden de pago');
-    if (op.estado !== 'pendiente_aprobacion') throw new BadRequestException(`La OP está "${op.estado}"`);
-    await this.db.from('ordenes_pago').update({ estado: 'aprobada', aprobada_por: dto.usuarioId ?? null, aprobada_en: new Date().toISOString() }).eq('id', id);
-    await this.db.from('aprobaciones').insert({ entidad: 'orden_pago', entidad_id: id, usuario_id: dto.usuarioId ?? null, metodo: 'panel' });
+    const { error } = await this.db.rpc('aprobar_op_panel', { p_op: id, p_usuario: dto.usuarioId ?? null });
+    if (error) throw new BadRequestException(this.traducirError(error.message));
     return { aprobada: true };
   }
 
@@ -344,35 +419,21 @@ export class ComprasService {
       chequesTercerosIds?: string[];
     },
   ) {
-    const { data: op } = await this.db.from('ordenes_pago').select('estado, proveedor_id').eq('id', id).maybeSingle();
-    if (!op) throw new BadRequestException('No existe la orden de pago');
-    if (op.estado !== 'aprobada') throw new BadRequestException('La OP tiene que estar APROBADA por el dueño antes de pagarse');
-
-    // cheques propios: se emiten y quedan a debitar del banco
-    for (const ch of dto.chequesPropios ?? []) {
-      if (!ch.numero || !(Number(ch.importe) > 0)) throw new BadRequestException('Cada cheque propio necesita número e importe');
-      const { error } = await this.db.from('cheques').insert({
-        tipo: 'propio', numero: String(ch.numero), banco: ch.banco ?? null, titular: ch.titular ?? null,
-        importe: Number(ch.importe), fecha_cobro: ch.fechaCobro ?? null, es_diferido: !!ch.fechaCobro,
-        estado: 'emitido', proveedor_id: op.proveedor_id, orden_pago_id: id, usuario_id: dto.usuarioId ?? null,
-      });
-      if (error) throw new BadRequestException(error.message);
-    }
-    // cheques de terceros: se endosan al proveedor (salen de cartera)
-    for (const chId of dto.chequesTercerosIds ?? []) {
-      const { data: chq } = await this.db.from('cheques').select('estado, tipo').eq('id', chId).maybeSingle();
-      if (!chq || chq.tipo !== 'terceros') throw new BadRequestException('Cheque de terceros inválido');
-      if (chq.estado !== 'cartera') throw new BadRequestException('El cheque de terceros no está en cartera');
-      const { error } = await this.db.from('cheques')
-        .update({ estado: 'aplicado', proveedor_id: op.proveedor_id, orden_pago_id: id })
-        .eq('id', chId);
-      if (error) throw new BadRequestException(error.message);
-    }
-
-    await this.db.from('ordenes_pago').update({ estado: 'pagada', pagada_en: new Date().toISOString() }).eq('id', id);
-    const { data: items } = await this.db.from('ordenes_pago_items').select('factura_id').eq('orden_pago_id', id);
-    const fids = (items ?? []).map((i: any) => i.factura_id);
-    if (fids.length) await this.db.from('facturas_proveedor').update({ estado: 'pagada' }).in('id', fids);
+    // RPC atómica: cheques emitidos/endosados + OP pagada + facturas pagadas,
+    // todo o nada (no más OP "pagada" con cheques a medias o deuda fantasma).
+    const { error } = await this.db.rpc('pagar_orden_pago', {
+      p_op: id,
+      p_cheques_propios: (dto.chequesPropios ?? []).map((ch) => ({
+        numero: String(ch.numero ?? ''),
+        banco: ch.banco ?? null,
+        titular: ch.titular ?? null,
+        importe: Number(ch.importe),
+        fechaCobro: ch.fechaCobro ?? null,
+      })),
+      p_cheques_terceros: dto.chequesTercerosIds ?? [],
+      p_usuario: dto.usuarioId ?? null,
+    });
+    if (error) throw new BadRequestException(this.traducirError(error.message));
     return { pagada: true };
   }
 

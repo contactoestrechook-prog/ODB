@@ -4,7 +4,8 @@ import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { API, pesos, useEstado, type Producto } from './estado';
+import { pesos, useEstado, type Producto } from './estado';
+import { apiPost } from './api';
 
 // Paleta premium ODB
 export const C = {
@@ -53,7 +54,7 @@ export function TarjetaProducto({ p, ancho = 168, grid = false }: { p: Producto;
     if (!cliente?.token || !p.id) return;
     toque(); setAvisado(true);
     try {
-      await fetch(`${API}/mi/avisos/${p.id}`, { method: 'POST', headers: { Authorization: `Bearer ${cliente.token}` } });
+      await apiPost(`/mi/avisos/${p.id}`);
     } catch {}
   };
 

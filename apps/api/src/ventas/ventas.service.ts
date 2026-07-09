@@ -1,6 +1,8 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
+import { FacturacionService } from '../facturacion/facturacion.service';
+import { CajaService } from '../caja/caja.service';
 
 export type CrearVentaDto = {
   sucursalId: string;
@@ -11,11 +13,39 @@ export type CrearVentaDto = {
   sesionCajaId?: string;
   usuarioId?: string;
   ventaId?: string; // idempotencia POS offline
+  // comprobante fiscal a emitir junto con la venta (A/B/R). Sin él, la venta
+  // queda solo en la cola ARCA como FB (comportamiento histórico).
+  comprobante?: 'A' | 'B' | 'R';
+  // para Factura A: CUIT y razón social del receptor (si el cliente no los tiene cargados)
+  receptor?: { nombre?: string; docNumero?: string; condicionIva?: string };
+  // descuento manual del ticket, autorizado con PIN de supervisor (auditado en la base)
+  descuentoExtra?: number;
+  // resuelto server-side: por el propio gerente/dueño autenticado (VentasController)
+  // o consumiendo autorizacionToken (cajero) — nunca confiar en un valor del cliente.
+  autorizadoPor?: string;
+  autorizacionToken?: string;
+  // venta a precio mayorista (lista Mayorista). El cliente marcado mayorista lo fuerza igual.
+  mayorista?: boolean;
+};
+
+export type DevolverDto = {
+  items: { sku: string; cantidad: number }[];
+  reintegro?: 'efectivo' | 'otro'; // efectivo = registra egreso en la sesión de caja
+  sesionCajaId?: string;
+  autorizadoPor?: string;
+  autorizacionToken?: string;
+  usuarioId?: string;
 };
 
 @Injectable()
 export class VentasService {
-  constructor(@Inject(SUPABASE) private readonly db: SupabaseClient) {}
+  private readonly log = new Logger(VentasService.name);
+
+  constructor(
+    @Inject(SUPABASE) private readonly db: SupabaseClient,
+    private readonly facturacion: FacturacionService,
+    private readonly caja: CajaService,
+  ) {}
 
   async registrar(dto: CrearVentaDto) {
     const items = await Promise.all(
@@ -24,6 +54,22 @@ export class VentasService {
         cantidad: Number(i.cantidad),
       })),
     );
+
+    // Cta cte: validar ANTES de registrar la venta (si el límite no alcanza,
+    // la venta no debe existir — evita ventas cobradas "a cuenta" sin asiento).
+    const montoCtaCte = (dto.pagos ?? [])
+      .filter((p) => p.medio === 'cta_cte')
+      .reduce((s, p) => s + Number(p.monto), 0);
+    if (montoCtaCte > 0) await this.validarCtaCte(dto.clienteDni, montoCtaCte);
+
+    // Descuento manual: si no vino ya autorizado por el propio gerente/dueño
+    // (VentasController), el cajero necesita un token de PIN de un solo uso.
+    let autorizadoPor = dto.autorizadoPor;
+    if (!autorizadoPor && (dto.descuentoExtra ?? 0) > 0 && dto.autorizacionToken) {
+      const auth = await this.caja.consumirAutorizacion(dto.autorizacionToken);
+      autorizadoPor = auth?.usuarioId;
+    }
+
     const { data, error } = await this.db.rpc('registrar_venta', {
       p_sucursal: dto.sucursalId,
       p_items: items,
@@ -33,9 +79,176 @@ export class VentasService {
       p_sesion_caja: dto.sesionCajaId ?? null,
       p_usuario: dto.usuarioId ?? null,
       p_venta_id: dto.ventaId ?? null,
+      p_descuento_extra: dto.descuentoExtra ?? 0,
+      p_autorizado_por: autorizadoPor ?? null,
+      p_mayorista: dto.mayorista ?? false,
     });
     if (error) throw new BadRequestException(this.traducirError(error.message));
-    return data;
+
+    const venta = data as any;
+    // reintento offline de una venta ya registrada: no volver a emitir comprobante
+    if (venta?.duplicada) return venta;
+
+    // renglones con precio final (para el ticket impreso)
+    venta.items = await this.itemsTicket(venta.venta_id);
+
+    if (dto.comprobante) {
+      try {
+        venta.comprobante = await this.emitirComprobanteVenta(dto, venta.venta_id, montoCtaCte > 0);
+      } catch (e) {
+        // la venta ya está registrada y el stock movido: no se revierte por un
+        // fallo de numeración. El comprobante puede emitirse desde Facturación.
+        venta.comprobanteError = e instanceof Error ? e.message : 'No se pudo emitir el comprobante';
+        this.log.error(`Venta ${venta.venta_id} sin comprobante: ${venta.comprobanteError}`);
+      }
+    }
+    return venta;
+  }
+
+  // Emite el comprobante fiscal de la venta (FA/FB/REM) con numeración propia,
+  // y corrige la cola ARCA que registrar_venta crea siempre como FB.
+  private async emitirComprobanteVenta(dto: CrearVentaDto, ventaId: string, esCtaCte: boolean) {
+    const tipo = dto.comprobante === 'A' ? 'FA' : dto.comprobante === 'R' ? 'REM' : 'FB';
+    const { data: v } = await this.db.from('ventas').select('cliente_id').eq('id', ventaId).single();
+
+    const receptor = dto.receptor
+      ? {
+          nombre: dto.receptor.nombre,
+          docTipo: dto.comprobante === 'A' ? 'CUIT' : undefined,
+          docNumero: dto.receptor.docNumero,
+          condicionIva: dto.receptor.condicionIva ?? (dto.comprobante === 'A' ? 'responsable_inscripto' : undefined),
+        }
+      : undefined;
+
+    const comprobante = await this.facturacion.emitir(
+      {
+        tipo,
+        clienteId: v?.cliente_id ?? undefined,
+        receptor,
+        ventaId,
+        condicionPago: esCtaCte ? 'cta_cte' : 'contado',
+        sucursalId: dto.sucursalId,
+        moverStock: false, // el stock ya lo movió registrar_venta
+      },
+      dto.usuarioId,
+    );
+
+    // cola ARCA: FA reemplaza al FB por defecto; el remito no es fiscal (sin CAE)
+    if (tipo === 'FA') {
+      await this.db.from('comprobantes_arca').update({ tipo: 'FA' }).eq('venta_id', ventaId);
+    } else if (tipo === 'REM') {
+      await this.db.from('comprobantes_arca').delete().eq('venta_id', ventaId);
+    }
+    return comprobante;
+  }
+
+  // Renglones de la venta con el precio final que cobró la base (no el del
+  // display de la caja): es lo que se imprime en el ticket.
+  private async itemsTicket(ventaId: string) {
+    const { data } = await this.db
+      .from('ventas_items')
+      .select('cantidad, precio_unitario, producto:productos(sku, nombre)')
+      .eq('venta_id', ventaId);
+    return (data ?? []).map((r: any) => ({
+      sku: r.producto?.sku,
+      nombre: r.producto?.nombre,
+      cantidad: Number(r.cantidad),
+      precioUnitario: Number(r.precio_unitario),
+      total: Math.round(Number(r.cantidad) * Number(r.precio_unitario) * 100) / 100,
+    }));
+  }
+
+  // Devolución parcial desde caja: repone stock (RPC atómica con tope por lo ya
+  // devuelto), emite la NC real si la venta tiene comprobante, y si el reintegro
+  // es en efectivo registra el egreso en la sesión (para que cierre el arqueo).
+  async devolver(ventaId: string, dto: DevolverDto) {
+    const items = await Promise.all(
+      (dto.items ?? []).map(async (i) => ({
+        producto_id: await this.productoIdPorSku(i.sku),
+        cantidad: Number(i.cantidad),
+      })),
+    );
+
+    // Igual que en registrar(): sin autorizadoPor directo (gerente/dueño self),
+    // se exige un token de PIN de un solo uso consumido acá mismo.
+    let autorizadoPor = dto.autorizadoPor;
+    if (!autorizadoPor && dto.autorizacionToken) {
+      const auth = await this.caja.consumirAutorizacion(dto.autorizacionToken);
+      autorizadoPor = auth?.usuarioId;
+    }
+    if (!autorizadoPor) throw new BadRequestException('La devolución requiere autorización de un supervisor (PIN)');
+
+    const { data, error } = await this.db.rpc('devolver_venta_parcial', {
+      p_venta: ventaId,
+      p_items: items,
+      p_usuario: dto.usuarioId ?? null,
+      p_autorizado_por: autorizadoPor,
+    });
+    if (error) throw new BadRequestException(this.traducirError(error.message));
+    const resultado = data as any;
+    const monto = Number(resultado.monto);
+
+    // NC fiscal real, referenciando la factura original de la venta (si existe)
+    let nc: any = null;
+    try {
+      const { data: original } = await this.db
+        .from('comprobantes')
+        .select('id, tipo, cliente_id')
+        .eq('venta_id', ventaId)
+        .in('tipo', ['FA', 'FB', 'FC'])
+        .maybeSingle();
+      const letra = original ? original.tipo.slice(-1) : 'B';
+      nc = await this.facturacion.emitir(
+        {
+          tipo: `NC${letra}` as any,
+          clienteId: original?.cliente_id ?? undefined,
+          referenciaId: original?.id ?? undefined,
+          importe: monto,
+          concepto: 'Devolución parcial de venta',
+          observaciones: `Devolución parcial · venta ${ventaId}`,
+        },
+        dto.usuarioId,
+      );
+    } catch (e) {
+      this.log.error(`Devolución ${ventaId} sin NC en comprobantes: ${e instanceof Error ? e.message : e}`);
+    }
+
+    // reintegro en efectivo: egreso de la sesión → el arqueo cierra
+    if (dto.reintegro === 'efectivo' && dto.sesionCajaId) {
+      await this.db.from('caja_movimientos').insert({
+        sesion_id: dto.sesionCajaId,
+        tipo: 'egreso',
+        monto,
+        motivo: `Reintegro devolución venta ${ventaId.slice(0, 8)}`,
+        usuario_id: dto.usuarioId ?? null,
+      });
+    }
+
+    return { ...resultado, nc };
+  }
+
+  // La cuenta corriente exige cliente con cuenta habilitada y crédito disponible.
+  private async validarCtaCte(clienteDni: string | undefined, monto: number) {
+    const dni = clienteDni?.trim();
+    if (!dni) throw new BadRequestException('Cuenta corriente: identificá al cliente');
+    const { data: cliente } = await this.db
+      .from('clientes')
+      .select('id, nombre, razon_social, cta_cte_habilitada, limite_credito')
+      .eq('dni', dni)
+      .maybeSingle();
+    if (!cliente) throw new BadRequestException('Cuenta corriente: el cliente no está registrado');
+    if (!cliente.cta_cte_habilitada) {
+      throw new BadRequestException(`${cliente.razon_social ?? cliente.nombre ?? 'El cliente'} no tiene cuenta corriente habilitada`);
+    }
+    const limite = Number(cliente.limite_credito ?? 0);
+    if (limite > 0) {
+      const { data: saldo } = await this.db.rpc('saldo_cuenta', { p_cliente: cliente.id });
+      if (Number(saldo ?? 0) + monto > limite + 0.01) {
+        throw new BadRequestException(
+          `Supera el límite de crédito: saldo $${Number(saldo ?? 0).toLocaleString('es-AR')} + $${monto.toLocaleString('es-AR')} > límite $${limite.toLocaleString('es-AR')}`,
+        );
+      }
+    }
   }
 
   async listar(f: { limite?: number; estado?: string; sucursalId?: string; medioPago?: string; dias?: number; buscar?: string } = {}) {
@@ -113,40 +326,15 @@ export class VentasService {
     };
   }
 
-  // Anulación con devolución de stock y nota de crédito en cola ARCA
+  // Anulación con devolución de stock y nota de crédito en cola ARCA.
+  // RPC atómica: devolución + estado + NC salen juntos o no sale nada.
   async anular(ventaId: string, usuarioId?: string) {
-    const { data: venta, error } = await this.db
-      .from('ventas')
-      .select('id, estado, total, sucursal_id, items:ventas_items(producto_id, cantidad), sucursal:sucursales(punto_venta_arca)')
-      .eq('id', ventaId)
-      .single();
-    if (error || !venta) throw new BadRequestException('No existe la venta');
-    if (venta.estado !== 'completada') {
-      throw new BadRequestException(`La venta ya está ${venta.estado}`);
-    }
-
-    for (const item of (venta.items ?? []) as any[]) {
-      const { error: errMov } = await this.db.rpc('registrar_movimiento', {
-        p_producto_id: item.producto_id,
-        p_sucursal_id: venta.sucursal_id,
-        p_tipo: 'devolucion',
-        p_cantidad: Number(item.cantidad),
-        p_motivo: null,
-        p_referencia_tipo: 'venta_anulada',
-        p_referencia_id: ventaId,
-        p_usuario_id: usuarioId ?? null,
-      });
-      if (errMov) throw new BadRequestException(errMov.message);
-    }
-
-    await this.db.from('ventas').update({ estado: 'anulada' }).eq('id', ventaId);
-    await this.db.from('comprobantes_arca').insert({
-      venta_id: ventaId,
-      tipo: 'NCB',
-      punto_venta: (venta as any).sucursal?.punto_venta_arca ?? 1,
-      estado: 'pendiente',
+    const { data, error } = await this.db.rpc('anular_venta', {
+      p_venta: ventaId,
+      p_usuario: usuarioId ?? null,
     });
-    return { anulada: true, total: Number(venta.total) };
+    if (error) throw new BadRequestException(error.message);
+    return { anulada: true, total: Number((data as any).total) };
   }
 
   // Lo que ve el cajero al pedir el DNI: categoría e historial resumido

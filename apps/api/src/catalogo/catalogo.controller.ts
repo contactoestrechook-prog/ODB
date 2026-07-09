@@ -26,6 +26,18 @@ export class CatalogoController {
     }
   }
 
+  // ¿El token es de un empleado con permiso a ver costos/márgenes?
+  private async esStaff(authorization?: string): Promise<boolean> {
+    const token = (authorization ?? '').replace(/^Bearer /, '');
+    if (!token) return false;
+    try {
+      const payload = await this.jwt.verifyAsync(token);
+      return ['cajero', 'gerente', 'dueno', 'comprador', 'deposito'].includes(payload.rol);
+    } catch {
+      return false;
+    }
+  }
+
   // Segmento de comportamiento del cliente logueado (para mostrarle SU precio).
   // El token no lo trae: se busca por id en la base.
   private async segmentoCliente(authorization?: string): Promise<string | undefined> {
@@ -61,6 +73,13 @@ export class CatalogoController {
     return this.catalogo.posCatalogo();
   }
 
+  // Consulta de stock por sucursal desde la caja (el cajero ve ambas sucursales)
+  @Roles('cajero', 'deposito', 'gerente', 'dueno')
+  @Get('pos/stock')
+  consultarStock(@Query('q') q: string) {
+    return this.catalogo.consultarStock(q ?? '');
+  }
+
   @Publico()
   @Get('productos')
   async buscar(
@@ -68,17 +87,18 @@ export class CatalogoController {
     @Headers('authorization') auth?: string,
   ) {
     if (q.limite && !q.porPagina) q.porPagina = q.limite;
-    const [comunidad, segmento] = await Promise.all([
+    const [comunidad, segmento, staff] = await Promise.all([
       this.esComunidad(auth),
       this.segmentoCliente(auth),
+      this.esStaff(auth),
     ]);
-    return this.catalogo.buscarProductos(q, comunidad, segmento);
+    return this.catalogo.buscarProductos(q, comunidad, segmento, staff);
   }
 
   @Publico()
   @Get('productos/:sku')
-  porSku(@Param('sku') sku: string) {
-    return this.catalogo.obtenerPorSku(sku);
+  async porSku(@Param('sku') sku: string, @Headers('authorization') auth?: string) {
+    return this.catalogo.obtenerPorSku(sku, await this.esStaff(auth));
   }
 
   // Solo staff: trae costos, márgenes, proveedores e historial.

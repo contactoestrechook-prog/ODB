@@ -1,6 +1,7 @@
 import { Header } from '../ui/Header';
 import { apiFetch } from '../../lib/api';
 import { AgenteWorkspace } from '../ui/AgenteWorkspace';
+import ImportarFotosProveedor from '../ui/ImportarFotosProveedor';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,7 +25,10 @@ export default async function Agente() {
         {error ? (
           <p className="rounded-lg bg-white p-4 text-sm text-[#932A1F]">No pude consultar la API ({error}).</p>
         ) : (
-          <AgenteWorkspace resumenInicial={resumen} tareasIniciales={tareas} />
+          <div className="space-y-5">
+            <AgenteWorkspace resumenInicial={resumen} tareasIniciales={tareas} />
+            <ImportarFotosProveedor />
+          </div>
         )}
       </div>
     </main>

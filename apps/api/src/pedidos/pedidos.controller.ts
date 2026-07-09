@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Header, Headers, Param, Patch, Post, Query, Req, UnauthorizedException } from '@nestjs/common';
+import { timingSafeEqual } from 'crypto';
 import { JwtService } from '@nestjs/jwt';
 import { PedidosService } from './pedidos.service';
 import type { PedidoYaPayload } from './pedidos.service';
@@ -29,9 +30,21 @@ export class PedidosController {
   // Hasta tener las credenciales, el simulador genera pedidos idénticos.
   @Publico()
   @Post('pedidosya/webhook')
-  webhook(@Body() payload: PedidoYaPayload, @Query('token') token?: string) {
+  webhook(
+    @Body() payload: PedidoYaPayload,
+    @Headers('x-webhook-token') tokenHeader?: string,
+    @Query('token') tokenQuery?: string,
+  ) {
     const esperado = process.env.PEDIDOSYA_WEBHOOK_TOKEN;
-    if (esperado && token !== esperado) {
+    if (!esperado) {
+      // fail-closed: sin token configurado no se aceptan pedidos externos
+      throw new UnauthorizedException('Webhook de PedidosYa sin configurar');
+    }
+    // preferimos el header (no queda en logs/proxies); el query se mantiene por compatibilidad
+    const recibido = tokenHeader ?? tokenQuery ?? '';
+    const a = Buffer.from(recibido);
+    const b = Buffer.from(esperado);
+    if (a.length !== b.length || !timingSafeEqual(a, b)) {
       throw new UnauthorizedException('Token de webhook inválido');
     }
     return this.pedidos.recibirDePedidosYa(payload);
@@ -131,8 +144,8 @@ export class PedidosController {
 
   @Publico()
   @Post('mercadopago/webhook')
-  webhookMP(@Body() body: any, @Query() query: any) {
-    return this.pedidos.webhookMP(body, query);
+  webhookMP(@Body() body: any, @Query() query: any, @Headers() headers: Record<string, string>) {
+    return this.pedidos.webhookMP(body, query, headers);
   }
 
   @Publico()
@@ -172,10 +185,12 @@ export class PedidosController {
     return this.pedidos.repartidorUbicacion(id, body.lat, body.lng);
   }
 
-  @Publico()
-  @Get('app/perfil/:dni')
-  perfil(@Param('dni') dni: string) {
-    return this.pedidos.perfil(dni);
+  // El DNI sale del token del cliente (no del path): así nadie puede enumerar
+  // la base de clientes probando DNIs ajenos.
+  @Roles('cliente')
+  @Get('app/perfil')
+  perfil(@Req() req: any) {
+    return this.pedidos.perfil(req.usuario.dni);
   }
 
   @Roles('deposito', 'cajero', 'gerente', 'dueno', 'repartidor')

@@ -1,6 +1,6 @@
-import { Body, Controller, Get, Param, Post, Query, Req } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, Param, Post, Query, Req } from '@nestjs/common';
 import { VentasService } from './ventas.service';
-import type { CrearVentaDto } from './ventas.service';
+import type { CrearVentaDto, DevolverDto } from './ventas.service';
 import { Roles } from '../auth/decorators';
 
 @Controller('ventas')
@@ -9,8 +9,21 @@ export class VentasController {
 
   @Roles('cajero', 'gerente', 'dueno')
   @Post()
-  registrar(@Body() dto: CrearVentaDto) {
-    return this.ventas.registrar(dto);
+  registrar(@Body() dto: CrearVentaDto, @Req() req: any) {
+    const rol = req.usuario?.rol;
+    // El descuento manual nunca confía en un "autorizadoPor" que mande el
+    // cliente: gerencia se autoriza con su propia sesión, el cajero necesita
+    // el token de PIN de un solo uso (ver /caja/autorizar).
+    let autorizadoPor: string | undefined;
+    if ((dto.descuentoExtra ?? 0) > 0) {
+      if (rol !== 'cajero') {
+        autorizadoPor = req.usuario?.sub;
+      } else if (!dto.autorizacionToken) {
+        throw new ForbiddenException('El descuento manual requiere autorización de un supervisor (PIN)');
+      }
+    }
+    // la venta queda a nombre del cajero logueado (auditoría y arqueo por cajero)
+    return this.ventas.registrar({ ...dto, autorizadoPor, usuarioId: dto.usuarioId ?? req.usuario?.sub });
   }
 
   @Roles('cajero', 'gerente', 'dueno')
@@ -50,5 +63,20 @@ export class VentasController {
   @Post(':id/anular')
   anular(@Param('id') id: string, @Req() req: any) {
     return this.ventas.anular(id, req.usuario?.sub);
+  }
+
+  // Devolución parcial: el cajero necesita la autorización de un supervisor
+  // (PIN validado en /caja/autorizar → autorizadoPor); gerencia se autoriza sola.
+  @Roles('cajero', 'gerente', 'dueno')
+  @Post(':id/devolver')
+  devolver(@Param('id') id: string, @Body() dto: DevolverDto, @Req() req: any) {
+    const rol = req.usuario?.rol;
+    let autorizadoPor: string | undefined;
+    if (rol !== 'cajero') {
+      autorizadoPor = req.usuario?.sub;
+    } else if (!dto.autorizacionToken) {
+      throw new ForbiddenException('La devolución requiere autorización de un supervisor (PIN)');
+    }
+    return this.ventas.devolver(id, { ...dto, autorizadoPor, usuarioId: req.usuario?.sub });
   }
 }

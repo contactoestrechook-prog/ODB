@@ -77,15 +77,23 @@ export function AccionesStock({
   const [sucursalId, setSucursalId] = useState(sucursales[0]?.id ?? '');
   const [destinoId, setDestinoId] = useState(sucursales[1]?.id ?? '');
   const [items, setItems] = useState<{ sku: string; nombre: string; cantidad: number }[]>([]);
+  const [motivoTipo, setMotivoTipo] = useState('Rotura'); // motivo tipificado de merma
+  const [pin, setPin] = useState('');
+  const [pidePin, setPidePin] = useState(false); // el server pidió autorización de supervisor
   const [error, setError] = useState('');
   const [cargando, setCargando] = useState(false);
+
+  const MOTIVOS_MERMA = ['Rotura', 'Vencimiento', 'Robo/faltante', 'Error de carga', 'Consumo interno', 'Otro'];
 
   const abrir = (m: Modo) => {
     setModo(m);
     setProducto(null);
     setCantidad('');
     setMotivo('');
+    setMotivoTipo('Rotura');
     setItems([]);
+    setPin('');
+    setPidePin(false);
     setError('');
   };
 
@@ -105,13 +113,24 @@ export function AccionesStock({
           setError('Elegí producto y cantidad');
           return;
         }
-        cuerpo = {
-          accion: modo,
-          sku: producto.sku,
-          sucursalId,
-          cantidad: Number(cantidad),
-          motivo: motivo || (modo === 'merma' ? 'Merma registrada desde el panel' : 'Ajuste manual desde el panel'),
-        };
+        // merma: motivo tipificado (+ detalle opcional) para poder medir POR QUÉ se pierde
+        const motivoFinal = modo === 'merma'
+          ? (motivo.trim() ? `${motivoTipo}: ${motivo.trim()}` : motivoTipo)
+          : (motivo || 'Ajuste manual desde el panel');
+        cuerpo = { accion: modo, sku: producto.sku, sucursalId, cantidad: Number(cantidad), motivo: motivoFinal };
+
+        // ajuste/merma grande: el server exige PIN de supervisor
+        if (pidePin) {
+          if (!pin.trim()) { setError('Ingresá el PIN del supervisor'); return; }
+          const ra = await fetch('/api/caja', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ accion: 'autorizar', pin }),
+          });
+          const da = await ra.json();
+          if (!ra.ok) { setError(da.message ?? 'PIN incorrecto'); return; }
+          cuerpo.autorizadoPor = da.usuarioId;
+        }
       }
       const res = await fetch('/api/stock', {
         method: 'POST',
@@ -119,7 +138,9 @@ export function AccionesStock({
         body: JSON.stringify(cuerpo),
       });
       if (!res.ok) {
-        setError((await res.json()).message ?? 'No se pudo registrar');
+        const msg = (await res.json()).message ?? 'No se pudo registrar';
+        if (/supervisor|PIN/i.test(msg) && !pidePin) setPidePin(true); // muestra el campo PIN y reintenta
+        setError(msg);
         return;
       }
       setModo(null);
@@ -135,6 +156,22 @@ export function AccionesStock({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ accion: 'recibir', transferenciaId: id }),
     });
+    router.refresh();
+  };
+
+  const anular = async (id: string) => {
+    const motivoAnu = window.prompt('¿Anular la transferencia? El stock vuelve a la sucursal de origen.\nMotivo:');
+    if (motivoAnu === null) return;
+    const res = await fetch('/api/stock', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ accion: 'anular-transferencia', transferenciaId: id, motivo: motivoAnu || undefined }),
+    });
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      window.alert(d.message ?? 'No se pudo anular (requiere gerencia)');
+      return;
+    }
     router.refresh();
   };
 
@@ -181,12 +218,21 @@ export function AccionesStock({
                   {t.items.map((i) => `${i.producto?.nombre} × ${Math.round(i.cantidad)}`).join(' · ')}
                 </p>
               </div>
-              <button
-                onClick={() => recibir(t.id)}
-                className="rounded-full bg-emerald-600 text-white text-xs font-medium px-4 py-2 hover:bg-emerald-700 whitespace-nowrap"
-              >
-                Recibir ✓
-              </button>
+              <div className="flex gap-2 items-center whitespace-nowrap">
+                <button
+                  onClick={() => anular(t.id)}
+                  className="rounded-full bg-white border border-[#B82D25]/40 text-[#932A1F] text-xs font-medium px-3 py-2 hover:bg-[#B82D25]/5"
+                  title="La mercadería no llegó: vuelve al stock de origen"
+                >
+                  Anular
+                </button>
+                <button
+                  onClick={() => recibir(t.id)}
+                  className="rounded-full bg-emerald-600 text-white text-xs font-medium px-4 py-2 hover:bg-emerald-700"
+                >
+                  Recibir ✓
+                </button>
+              </div>
             </div>
           ))}
         </section>
@@ -290,12 +336,46 @@ export function AccionesStock({
                     />
                   </div>
                 </div>
-                <input
-                  value={motivo}
-                  onChange={(e) => setMotivo(e.target.value)}
-                  placeholder={modo === 'merma' ? 'Motivo (rotura, vencido…)' : 'Motivo del ajuste (conteo, corrección…)'}
-                  className="w-full rounded-lg border border-black/15 px-3 py-2.5 text-sm text-black focus:border-[#B82D25] focus:outline-none"
-                />
+                {modo === 'merma' ? (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs text-black/50">Motivo</label>
+                      <select
+                        value={motivoTipo}
+                        onChange={(e) => setMotivoTipo(e.target.value)}
+                        className="w-full mt-1 rounded-lg border border-black/15 px-3 py-2 text-sm text-black bg-white"
+                      >
+                        {MOTIVOS_MERMA.map((m) => <option key={m} value={m}>{m}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs text-black/50">Detalle (opcional)</label>
+                      <input
+                        value={motivo}
+                        onChange={(e) => setMotivo(e.target.value)}
+                        placeholder="ej: se cayó del palet"
+                        className="w-full mt-1 rounded-lg border border-black/15 px-3 py-2 text-sm text-black focus:border-[#B82D25] focus:outline-none"
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <input
+                    value={motivo}
+                    onChange={(e) => setMotivo(e.target.value)}
+                    placeholder="Motivo del ajuste (conteo, corrección…)"
+                    className="w-full rounded-lg border border-black/15 px-3 py-2.5 text-sm text-black focus:border-[#B82D25] focus:outline-none"
+                  />
+                )}
+                {pidePin && (
+                  <input
+                    value={pin}
+                    onChange={(e) => setPin(e.target.value)}
+                    placeholder="PIN del supervisor (el monto supera el tope)"
+                    type="password"
+                    inputMode="numeric"
+                    className="w-full rounded-lg border-2 border-[#B82D25] px-3 py-2.5 text-sm text-black focus:outline-none"
+                  />
+                )}
               </>
             )}
 

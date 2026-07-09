@@ -2,7 +2,8 @@ import { useRef, useState } from 'react';
 import {
   FlatList, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
 } from 'react-native';
-import { API, useEstado } from '../../lib/estado';
+import { useEstado } from '../../lib/estado';
+import { apiPost } from '../../lib/api';
 import { C, LinearGradient, Ionicons, sombra, toque } from '../../lib/ui';
 import SomelierLottie from '../../lib/SomelierLottie';
 import SomelierAvatar from '../../lib/SomelierAvatar';
@@ -17,7 +18,7 @@ const SUGERENCIAS = [
 ];
 
 export default function Somelier() {
-  const { cliente } = useEstado();
+  useEstado(); // mantiene el contexto montado; el token lo agrega el api client
   const [mensajes, setMensajes] = useState<Mensaje[]>([
     {
       rol: 'somelier',
@@ -37,21 +38,12 @@ export default function Somelier() {
     setTexto('');
     setPensando(true);
     try {
-      const res = await fetch(`${API}/sommelier/charla`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(cliente?.token ? { Authorization: `Bearer ${cliente.token}` } : {}),
-        },
-        body: JSON.stringify({ mensajes: nuevos }),
-      });
-      const datos = await res.json();
-      setMensajes((m) => [
-        ...m,
-        { rol: 'somelier', texto: res.ok ? datos.respuesta : `(${datos.message ?? 'Probá de nuevo'})` },
-      ]);
-    } catch {
-      setMensajes((m) => [...m, { rol: 'somelier', texto: '(Sin conexión)' }]);
+      // solo los últimos 20 mensajes: una charla larga no debe crecer sin tope
+      // en cada request (costo de tokens y riesgo de exceder el límite del modelo)
+      const datos = await apiPost('/sommelier/charla', { mensajes: nuevos.slice(-20) });
+      setMensajes((m) => [...m, { rol: 'somelier', texto: datos.respuesta }]);
+    } catch (e) {
+      setMensajes((m) => [...m, { rol: 'somelier', texto: `(${e instanceof Error ? e.message : 'Probá de nuevo'})` }]);
     }
     setPensando(false);
     setTimeout(() => lista.current?.scrollToEnd({ animated: true }), 100);

@@ -64,6 +64,7 @@ const GRUPOS: Grupo[] = [
     items: [
       { href: '/productos', label: 'Productos', icono: 'productos' },
       { href: '/stock', label: 'Stock', icono: 'stock' },
+      { href: '/conteo', label: 'Conteo', icono: 'stock' },
       { href: '/promociones', label: 'Promociones', icono: 'promociones' },
       { href: '/listas', label: 'Listas de precios', icono: 'listas' },
       { href: '/tiendanube', label: 'Tienda Nube', icono: 'tiendanube' },
@@ -85,6 +86,7 @@ const GRUPOS: Grupo[] = [
       { href: '/mensajes', label: 'Mensajes', icono: 'mensajes' },
       { href: '/eventos', label: 'Eventos', icono: 'eventos' },
       { href: '/sommelier', label: 'Somelier ODB', icono: 'somelier' },
+      { href: '/bot', label: 'Bot WhatsApp', icono: 'agente' },
     ],
   },
   {
@@ -113,6 +115,7 @@ const TITULOS: Record<string, { titulo: string; bajada: string }> = {
   '/cierres': { titulo: 'Cierres', bajada: 'Cierres de caja por sucursal y diferencias' },
   '/productos': { titulo: 'Productos', bajada: 'Catálogo completo: precios, stock y fotos' },
   '/stock': { titulo: 'Stock', bajada: 'Quiebres, reposición y vencimientos por sucursal' },
+  '/conteo': { titulo: 'Conteo de inventario', bajada: 'Contá el depósito y ajustá diferencias con autorización' },
   '/promociones': { titulo: 'Promociones', bajada: 'Descuentos vigentes, programados y Comunidad ODB' },
   '/listas': { titulo: 'Listas de precios', bajada: 'Lectura con IA de listas de proveedores y aplicación de costos' },
   '/tiendanube': { titulo: 'Tienda Nube', bajada: 'Sincronización del catálogo y de los pedidos con tu tienda de Tienda Nube' },
@@ -127,6 +130,7 @@ const TITULOS: Record<string, { titulo: string; bajada: string }> = {
   '/mensajes': { titulo: 'Mensajes', bajada: 'Solicitudes de clientes, envíos y notificaciones automáticas' },
   '/eventos': { titulo: 'Eventos', bajada: 'Oportunidades de cumpleaños, casamientos y fiestas: armá propuestas' },
   '/sommelier': { titulo: 'Somelier ODB', bajada: 'El experto en vinos que atiende a tus clientes' },
+  '/bot': { titulo: 'Bot WhatsApp', bajada: 'Probá el bot que atiende por WhatsApp: mismo cerebro, catálogo y pedidos reales' },
   '/estadisticas': { titulo: 'Estadísticas', bajada: 'El negocio en números: 30 días de venta real' },
   '/conciliacion': { titulo: 'Conciliación', bajada: 'Acreditaciones de tarjeta y Mercado Pago: lo que te deben y las comisiones' },
   '/cheques': { titulo: 'Cheques', bajada: 'Cartera de valores: cheques de terceros y propios, depósitos, vencimientos y rechazos' },

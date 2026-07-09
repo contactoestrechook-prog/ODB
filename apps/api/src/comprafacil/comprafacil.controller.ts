@@ -35,7 +35,7 @@ export class CompraFacilController {
   @Publico()
   @Post('comprafacil/webhook')
   webhook(@Req() req: any, @Query() query: any) {
-    return this.compraFacil.webhookMP(req.rawBody, query);
+    return this.compraFacil.webhookMP(req.rawBody, query, req.headers ?? {});
   }
 
   // Lado empleado: control de salida

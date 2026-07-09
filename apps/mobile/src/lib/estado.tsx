@@ -2,19 +2,43 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState } from 
 import { Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import { API } from './config';
+import { configurarApi, apiGet, apiPost } from './api';
 import { registrarPush } from './push';
 
 export { API };
 
-// Persistencia segura de la sesión (SecureStore en el celu, localStorage en web)
-const SESION_KEY = 'odb_cliente';
-const sesionStore = {
-  async get(): Promise<string | null> {
-    try { return Platform.OS === 'web' ? (typeof localStorage !== 'undefined' ? localStorage.getItem(SESION_KEY) : null) : await SecureStore.getItemAsync(SESION_KEY); } catch { return null; }
-  },
-  async set(v: string) { try { if (Platform.OS === 'web') localStorage?.setItem(SESION_KEY, v); else await SecureStore.setItemAsync(SESION_KEY, v); } catch {} },
-  async del() { try { if (Platform.OS === 'web') localStorage?.removeItem(SESION_KEY); else await SecureStore.deleteItemAsync(SESION_KEY); } catch {} },
-};
+// Almacén seguro genérico (SecureStore en el celu, localStorage en web).
+function almacen(clave: string) {
+  return {
+    async get(): Promise<string | null> {
+      try {
+        return Platform.OS === 'web'
+          ? typeof localStorage !== 'undefined'
+            ? localStorage.getItem(clave)
+            : null
+          : await SecureStore.getItemAsync(clave);
+      } catch {
+        return null;
+      }
+    },
+    async set(v: string) {
+      try {
+        if (Platform.OS === 'web') localStorage?.setItem(clave, v);
+        else await SecureStore.setItemAsync(clave, v);
+      } catch {}
+    },
+    async del() {
+      try {
+        if (Platform.OS === 'web') localStorage?.removeItem(clave);
+        else await SecureStore.deleteItemAsync(clave);
+      } catch {}
+    },
+  };
+}
+
+// Persistencia de la sesión y del carrito (para que no se pierda al cerrar la app)
+const sesionStore = almacen('odb_cliente');
+const carritoStore = almacen('odb_carrito');
 const tokenVigente = (token?: string) => {
   if (!token) return false;
   try { const p = JSON.parse(globalThis.atob(token.split('.')[1])); return !p.exp || p.exp * 1000 > Date.now(); } catch { return true; }
@@ -65,6 +89,9 @@ export type Notificacion = { id: number; titulo: string; cuerpo: string; leida: 
 type Estado = {
   cliente: Cliente | null;
   setCliente: (c: Cliente | null) => void;
+  cerrarSesion: () => void;
+  sesionExpirada: boolean;
+  limpiarAvisoSesion: () => void;
   carrito: Renglon[];
   agregar: (p: Producto) => void;
   agregarVarios: (items: { p: Producto; cantidad: number }[]) => void;
@@ -88,11 +115,36 @@ export function EstadoProvider({ children }: { children: React.ReactNode }) {
   const [cuenta, setCuenta] = useState<Cuenta | null>(null);
   const [notif, setNotif] = useState<{ noLeidas: number; lista: Notificacion[] }>({ noLeidas: 0, lista: [] });
   const [favoritos, setFavoritos] = useState<Set<string>>(new Set());
+  const [sesionExpirada, setSesionExpirada] = useState(false);
   const tokenRef = useRef<string | undefined>(undefined);
-  tokenRef.current = cliente?.token;
   const [hidratado, setHidratado] = useState(false);
 
-  // Al abrir la app: recupera la sesión guardada (si el token sigue vigente).
+  // Cierra la sesión (logout manual o token expirado). `expirada` muestra el aviso.
+  function cerrarSesion(expirada = false) {
+    setCliente(null);
+    setCuenta(null);
+    setNotif({ noLeidas: 0, lista: [] });
+    setFavoritos(new Set());
+    if (expirada) setSesionExpirada(true);
+  }
+
+  // Espejo del token para closures estables (el api client lo lee por request).
+  // Declarado ANTES de los demás efectos: en un mismo commit corre primero.
+  useEffect(() => {
+    tokenRef.current = cliente?.token;
+  }, [cliente?.token]);
+
+  // Registra el cliente HTTP una sola vez: cómo leer el token (lazy, siempre
+  // el vigente vía tokenRef) y qué hacer ante un 401/403.
+  useEffect(() => {
+    configurarApi({
+      getToken: () => tokenRef.current,
+      onUnauthorized: () => cerrarSesion(true),
+    });
+  }, []);
+
+  // Al abrir la app: recupera la sesión guardada (si el token sigue vigente) y
+  // el carrito persistido.
   useEffect(() => {
     (async () => {
       const raw = await sesionStore.get();
@@ -102,6 +154,13 @@ export function EstadoProvider({ children }: { children: React.ReactNode }) {
           if (c?.token && tokenVigente(c.token)) setCliente(c);
           else await sesionStore.del();
         } catch { await sesionStore.del(); }
+      }
+      const rawCarrito = await carritoStore.get();
+      if (rawCarrito) {
+        try {
+          const items = JSON.parse(rawCarrito);
+          if (Array.isArray(items)) setCarrito(items);
+        } catch { await carritoStore.del(); }
       }
       setHidratado(true);
     })();
@@ -114,6 +173,13 @@ export function EstadoProvider({ children }: { children: React.ReactNode }) {
     else sesionStore.del();
   }, [cliente, hidratado]);
 
+  // Persiste el carrito para que sobreviva al cierre de la app.
+  useEffect(() => {
+    if (!hidratado) return;
+    if (carrito.length) carritoStore.set(JSON.stringify(carrito));
+    else carritoStore.del();
+  }, [carrito, hidratado]);
+
   async function refrescarCuenta() {
     const token = tokenRef.current;
     if (!token) {
@@ -122,30 +188,22 @@ export function EstadoProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     try {
-      const headers = { Authorization: `Bearer ${token}` };
-      const [rc, rn] = await Promise.all([
-        fetch(`${API}/mi/cuenta`, { headers }),
-        fetch(`${API}/mi/notificaciones`, { headers }),
+      const [c, n] = await Promise.all([
+        apiGet<Cuenta>('/mi/cuenta'),
+        apiGet<{ noLeidas: number; notificaciones: Notificacion[] }>('/mi/notificaciones'),
       ]);
-      if (rc.ok) setCuenta(await rc.json());
-      if (rn.ok) {
-        const d = await rn.json();
-        setNotif({ noLeidas: d.noLeidas, lista: d.notificaciones });
-      }
+      setCuenta(c);
+      setNotif({ noLeidas: n.noLeidas, lista: n.notificaciones });
     } catch {
-      // sin red: se reintenta en el próximo ciclo
+      // sin red o token expirado: el api client ya maneja el 401; se reintenta al próximo ciclo
     }
   }
 
   async function cargarFavoritos() {
-    const token = tokenRef.current;
-    if (!token) return;
+    if (!tokenRef.current) return;
     try {
-      const r = await fetch(`${API}/mi/favoritos`, { headers: { Authorization: `Bearer ${token}` } });
-      if (r.ok) {
-        const cards = await r.json();
-        setFavoritos(new Set((cards ?? []).map((c: any) => c.id).filter(Boolean)));
-      }
+      const cards = await apiGet<{ id?: string }[]>('/mi/favoritos');
+      setFavoritos(new Set((cards ?? []).map((c) => c.id).filter(Boolean) as string[]));
     } catch {}
   }
 
@@ -158,10 +216,7 @@ export function EstadoProvider({ children }: { children: React.ReactNode }) {
       else n.add(id);
       return n;
     });
-    fetch(`${API}/mi/favoritos/${id}`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}` },
-    }).catch(() => {});
+    apiPost(`/mi/favoritos/${id}`).catch(() => {});
   }
 
   async function marcarLeidas() {
@@ -169,10 +224,7 @@ export function EstadoProvider({ children }: { children: React.ReactNode }) {
     if (!token || notif.noLeidas === 0) return;
     setNotif((n) => ({ noLeidas: 0, lista: n.lista.map((x) => ({ ...x, leida: true })) }));
     try {
-      await fetch(`${API}/mi/notificaciones/leidas`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      await apiPost('/mi/notificaciones/leidas');
     } catch {}
   }
 
@@ -194,6 +246,9 @@ export function EstadoProvider({ children }: { children: React.ReactNode }) {
     () => ({
       cliente,
       setCliente,
+      cerrarSesion: () => cerrarSesion(false),
+      sesionExpirada,
+      limpiarAvisoSesion: () => setSesionExpirada(false),
       carrito,
       agregar: (p) =>
         setCarrito((c) => {
@@ -229,7 +284,7 @@ export function EstadoProvider({ children }: { children: React.ReactNode }) {
       esFavorito: (id) => !!id && favoritos.has(id),
       alternarFavorito,
     }),
-    [cliente, carrito, cuenta, notif, favoritos],
+    [cliente, carrito, cuenta, notif, favoritos, sesionExpirada],
   );
 
   return <Contexto.Provider value={valor}>{children}</Contexto.Provider>;

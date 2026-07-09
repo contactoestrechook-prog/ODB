@@ -10,16 +10,19 @@ export class CajaController {
     private readonly arca: ArcaService,
   ) {}
 
+  @Roles('gerente', 'dueno')
   @Get('caja/resumen')
   resumen() {
     return this.caja.resumen();
   }
 
+  @Roles('cajero', 'gerente', 'dueno')
   @Get('caja/cajas')
   cajas() {
     return this.caja.cajas();
   }
 
+  @Roles('gerente', 'dueno')
   @Get('caja/por-cajero')
   porCajero() {
     return this.caja.porCajero();
@@ -38,11 +41,36 @@ export class CajaController {
     return this.caja.cerrar(body.sesionId, Number(body.montoCierre));
   }
 
+  @Roles('cajero', 'gerente', 'dueno')
   @Get('caja/sesiones')
   sesiones(@Query('limite') limite?: string) {
     return this.caja.sesiones(limite ? Number(limite) : undefined);
   }
 
+  // ingreso/retiro de efectivo de la sesión (entra al arqueo)
+  @Roles('cajero', 'gerente', 'dueno')
+  @Post('caja/movimiento')
+  movimiento(
+    @Body() body: { sesionId: string; tipo: 'ingreso' | 'egreso'; monto: number; motivo: string },
+    @Req() req: any,
+  ) {
+    return this.caja.registrarMovimiento(body, req.usuario?.sub);
+  }
+
+  @Roles('cajero', 'gerente', 'dueno')
+  @Get('caja/movimientos')
+  movimientos(@Query('sesionId') sesionId: string) {
+    return this.caja.movimientos(sesionId);
+  }
+
+  // el supervisor teclea su PIN en la caja para autorizar descuentos/devoluciones
+  @Roles('cajero', 'gerente', 'dueno')
+  @Post('caja/autorizar')
+  autorizar(@Body() body: { pin: string }) {
+    return this.caja.autorizar(body.pin);
+  }
+
+  @Roles('gerente', 'dueno')
   @Get('arca/pendientes')
   pendientes() {
     return this.arca.pendientes();

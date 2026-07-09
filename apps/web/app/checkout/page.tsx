@@ -71,7 +71,7 @@ export default function Checkout() {
           <section>
             <p className="kicker text-dorado mb-4">¿Cómo lo querés recibir?</p>
             <div className="grid grid-cols-2 gap-3">
-              {([["pickup", IcoLocal, "Retiro en local", "En O.D.B Central"], ["domicilio", IcoMoto, "Envío a domicilio", "Te lo llevamos"]] as const).map(([k, Ico, t, s]) => (
+              {([["pickup", IcoLocal, "Retiro en local", "En Suc Sant Thomas"], ["domicilio", IcoMoto, "Envío a domicilio", "Te lo llevamos"]] as const).map(([k, Ico, t, s]) => (
                 <button key={k} onClick={() => setTipo(k)} className={`text-left rounded-xl border p-5 transition-colors ${tipo === k ? "border-dorado bg-dorado/5" : "border-linea hover:border-dorado/50"}`}>
                   <Ico size={22} className={tipo === k ? "text-rojo" : "text-tinta/60"} />
                   <p className="font-semibold text-ink mt-3">{t}</p>

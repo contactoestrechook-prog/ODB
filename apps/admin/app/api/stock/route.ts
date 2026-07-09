@@ -4,7 +4,7 @@ import { cookies } from 'next/headers';
 const API = process.env.API_URL ?? 'http://localhost:3001';
 
 // Estadísticas y consultas: GET ?recurso=negativos|abc|sin-rotacion|movimientos|valorizacion (+ filtros)
-const RECURSOS = ['resumen', 'valorizacion', 'negativos', 'abc', 'sin-rotacion', 'movimientos', 'bajo-minimo'];
+const RECURSOS = ['resumen', 'valorizacion', 'negativos', 'abc', 'sin-rotacion', 'movimientos', 'bajo-minimo', 'conteos', 'motivos-merma'];
 export async function GET(req: Request) {
   const token = (await cookies()).get('odb_token')?.value;
   const url = new URL(req.url);
@@ -28,6 +28,11 @@ export async function POST(req: Request) {
     : accion === 'merma' ? '/stock/mermas'
     : accion === 'transferencia' ? '/stock/transferencias'
     : accion === 'recibir' ? `/stock/transferencias/${datos.transferenciaId}/recibir`
+    : accion === 'anular-transferencia' ? `/stock/transferencias/${datos.transferenciaId}/anular`
+    : accion === 'conteo-crear' ? '/stock/conteos'
+    : accion === 'conteo-item' ? `/stock/conteos/${datos.conteoId}/items`
+    : accion === 'conteo-finalizar' ? `/stock/conteos/${datos.conteoId}/finalizar`
+    : accion === 'conteo-descartar' ? `/stock/conteos/${datos.conteoId}/descartar`
     : null;
   if (!ruta) return NextResponse.json({ message: 'Acción inválida' }, { status: 400 });
 

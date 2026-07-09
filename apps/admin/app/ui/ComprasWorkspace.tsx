@@ -70,7 +70,11 @@ export function ComprasWorkspace({ resumen, ordenes, proveedores, sugerencias, s
             <div key={l}><p className={`text-xl font-semibold leading-none ${c || 'text-black'}`}>{v}</p><p className="text-[11px] text-black/45 mt-1">{l}</p></div>
           ))}
         </div>
-        <button onClick={() => setModal({ tipo: 'nuevaOC', items: [] })} className="rounded-full bg-[#B82D25] text-white text-sm font-medium px-5 py-2.5 hover:bg-[#932A1F] shadow-sm">+ Nueva orden de compra</button>
+        <div className="flex gap-2 flex-wrap">
+          <button onClick={() => setModal({ tipo: 'entradaFoto' })} className="rounded-full bg-black text-white text-sm font-medium px-4 py-2.5 hover:bg-black/80 shadow-sm">📷 Entrada por foto</button>
+          <button onClick={() => setModal({ tipo: 'entradaDirecta' })} className="rounded-full bg-white border border-black/15 text-black text-sm font-medium px-4 py-2.5 hover:border-black/40 shadow-sm">📦 Entrada directa (sin OC)</button>
+          <button onClick={() => setModal({ tipo: 'nuevaOC', items: [] })} className="rounded-full bg-[#B82D25] text-white text-sm font-medium px-5 py-2.5 hover:bg-[#932A1F] shadow-sm">+ Nueva orden de compra</button>
+        </div>
       </div>
 
       <div className="flex gap-1.5 flex-wrap border-b border-black/10">
@@ -229,7 +233,90 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso }: any) {
   const [items, setItems] = useState<any[]>([]);
   const [busca, setBusca] = useState(''); const [sug, setSug] = useState<any[]>([]);
   const [recibido, setRecibido] = useState<Record<string, string>>({});
+  const [vencs, setVencs] = useState<Record<string, string>>({}); // vencimiento por sku al recibir → crea el lote
   const [facturasSel, setFacturasSel] = useState<string[]>(modal.prov?.facturas?.map((x: any) => x.id) ?? []);
+  const [importando, setImportando] = useState(false);
+  const [importInfo, setImportInfo] = useState<{ conMatch: number; sinMatch: string[] } | null>(null);
+
+  // --- entrada por foto: la IA lee la factura/remito y acá se revisa y confirma ---
+  const [foto, setFoto] = useState<any>(null); // resultado de /api/entrada-foto
+  const [fotoItems, setFotoItems] = useState<any[]>([]); // renglones editables
+  const [fotoImp, setFotoImp] = useState<any>({});
+  const [leyendoFoto, setLeyendoFoto] = useState(false);
+  const [sumarIva, setSumarIva] = useState(true); // factura A: costo = neto + IVA
+  const [pagada, setPagada] = useState(false);
+
+  async function leerFoto(archivo: File) {
+    setLeyendoFoto(true);
+    try {
+      const fd = new FormData();
+      fd.append('archivo', archivo);
+      const r = await fetch('/api/entrada-foto', { method: 'POST', body: fd });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.message ?? 'No se pudo leer el comprobante');
+      setFoto(d);
+      setF((x: any) => ({
+        ...x,
+        proveedorId: d.proveedor?.match?.id ?? '',
+        numeroRemito: d.comprobante?.numero ?? '',
+      }));
+      setFotoImp({ ...(d.impuestos ?? {}) });
+      setSumarIva(d.comprobante?.tipo === 'factura_a');
+      setPagada(/contado/i.test(d.comprobante?.condicionVenta ?? ''));
+      setFotoItems((d.items ?? []).map((i: any) => ({
+        descripcion: i.descripcion,
+        cantidad: Number(i.cantidad) || 1,
+        precio: Number(i.precio) || 0,
+        sku: i.match?.sku ?? '',
+        nombre: i.match?.nombre ?? null,
+        variacionPct: i.match?.variacionPct ?? null,
+        incluir: !!i.match,
+      })));
+    } catch (e) {
+      setFoto({ error: e instanceof Error ? e.message : 'Error al leer' });
+    }
+    setLeyendoFoto(false);
+  }
+
+  const factorIva = (alic: number) => (foto?.comprobante?.tipo === 'factura_a' && sumarIva ? 1 + (Number(alic) || 21) / 100 : 1);
+  const costoFinal = (i: any) => Math.round(Number(i.precio) * factorIva(fotoImp?.alicuotaIva ?? 21) * 100) / 100;
+
+  // Excel/CSV del portal del proveedor → precarga los renglones de la OC
+  async function importarPedido(archivo: File) {
+    if (!f.proveedorId) { setImportInfo({ conMatch: 0, sinMatch: ['Elegí primero el proveedor'] }); return; }
+    setImportando(true);
+    setImportInfo(null);
+    try {
+      const fd = new FormData();
+      fd.append('archivo', archivo);
+      fd.append('proveedorId', f.proveedorId);
+      const r = await fetch('/api/importar-oc', { method: 'POST', body: fd });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.message ?? 'No se pudo leer el archivo');
+      const matcheados = (d.items ?? []).filter((i: any) => i.match);
+      setItems((xs) => {
+        const mapa = new Map(xs.map((x: any) => [x.sku, { ...x }]));
+        for (const i of matcheados) {
+          const ex = mapa.get(i.match.sku);
+          if (ex) ex.cantidad += Number(i.cantidad) || 1;
+          else mapa.set(i.match.sku, {
+            sku: i.match.sku,
+            nombre: i.match.nombre,
+            cantidad: Number(i.cantidad) || 1,
+            costoUnitario: Number(i.precio) || i.match.costoActual || 0,
+          });
+        }
+        return [...mapa.values()];
+      });
+      setImportInfo({
+        conMatch: matcheados.length,
+        sinMatch: (d.items ?? []).filter((i: any) => !i.match).map((i: any) => `${i.descripcion} × ${i.cantidad}`),
+      });
+    } catch (e) {
+      setImportInfo({ conMatch: 0, sinMatch: [e instanceof Error ? e.message : 'Error al importar'] });
+    }
+    setImportando(false);
+  }
 
   useEffect(() => {
     if (busca.trim().length < 2) return setSug([]);
@@ -256,6 +343,31 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso }: any) {
             <div><label className="text-[11px] text-black/45 block mb-1">Vence el pago</label><input type="date" value={f.vencimientoPago ?? ''} onChange={(e) => set('vencimientoPago', e.target.value)} className={input} /></div>
           </div>
           <input value={f.condicionPago ?? ''} onChange={(e) => set('condicionPago', e.target.value)} placeholder="Condición de pago (contado / 30 días / cta cte…)" className={input} />
+
+          {/* pedido armado en el portal del proveedor → Excel/CSV precarga los renglones */}
+          <label className={'flex items-center justify-center gap-2 rounded-lg border border-dashed px-3 py-2.5 text-sm cursor-pointer ' + (f.proveedorId ? 'border-black/25 text-black/60 hover:border-[#B82D25] hover:text-[#B82D25]' : 'border-black/10 text-black/30')}>
+            📄 {importando ? 'Leyendo el archivo…' : 'Importar Excel del pedido (portal del proveedor)'}
+            <input
+              type="file"
+              accept=".xlsx,.xls,.csv,.pdf"
+              className="hidden"
+              disabled={!f.proveedorId || importando}
+              onChange={(e) => { const a = e.target.files?.[0]; if (a) importarPedido(a); e.target.value = ''; }}
+            />
+          </label>
+          {importInfo && (
+            <div className="rounded-lg bg-[#F0EBE2]/70 px-3 py-2 text-xs text-black/70 space-y-1">
+              {importInfo.conMatch > 0 && <p className="text-emerald-700 font-medium">✓ {importInfo.conMatch} renglón(es) importados al pedido</p>}
+              {importInfo.sinMatch.length > 0 && (
+                <>
+                  <p className="text-[#932A1F] font-medium">⚠ Sin match en el catálogo ({importInfo.sinMatch.length}) — agregalos a mano:</p>
+                  {importInfo.sinMatch.slice(0, 6).map((s, i) => <p key={i} className="truncate">· {s}</p>)}
+                  {importInfo.sinMatch.length > 6 && <p>… y {importInfo.sinMatch.length - 6} más</p>}
+                </>
+              )}
+            </div>
+          )}
+
           <div className="relative">
             <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Agregar producto…" className={input} />
             {sug.length > 0 && <div className="absolute z-10 mt-1 w-full rounded-lg bg-white shadow-lg border border-black/10 max-h-48 overflow-y-auto">
@@ -295,13 +407,14 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso }: any) {
 
         {t === 'recibir' && (<>
           <h2 className="font-semibold text-black text-lg">Recibir OC #{modal.oc.numero}</h2>
-          <p className="text-xs text-black/50">Ingresá lo que llegó de cada ítem. Al recibir se fija el costo de la compra y se calcula el precio de venta con el % de remarcación.</p>
+          <p className="text-xs text-black/50">Ingresá lo que llegó de cada ítem. Al recibir se fija el costo de la compra y se calcula el precio de venta con el % de remarcación. Si cargás vencimiento, nace el lote para la vigilancia de vencimientos.</p>
           {(modal.oc.items ?? []).map((it: any, idx: number) => {
             const pend = Number(it.cantidad) - Number(it.cantidad_recibida ?? 0);
             return (
               <div key={idx} className="flex items-center gap-2 text-sm">
                 <span className="flex-1 truncate">{it.producto?.nombre} <span className="text-xs text-black/40">(pend. {pend})</span></span>
                 <input type="number" value={recibido[it.producto?.sku] ?? ''} onChange={(e) => setRecibido((r) => ({ ...r, [it.producto?.sku]: e.target.value }))} placeholder={String(pend)} className="w-20 rounded border border-black/15 px-2 py-1 text-right" />
+                <input type="date" title="Vencimiento (opcional)" value={vencs[it.producto?.sku] ?? ''} onChange={(e) => setVencs((v) => ({ ...v, [it.producto?.sku]: e.target.value }))} className="w-36 rounded border border-black/15 px-2 py-1 text-xs" />
               </div>
             );
           })}
@@ -311,7 +424,151 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso }: any) {
             <span className="text-black/40 text-xs">%</span>
           </div>
           {aviso && <p className="text-xs text-[#B82D25]">{aviso}</p>}
-          <Acciones cerrar={cerrar} okLabel="Registrar recepción" onOk={() => post({ accion: 'recibir', id: modal.oc.id, margenPct: f.margenPct ? Number(f.margenPct) : undefined, items: (modal.oc.items ?? []).map((it: any) => ({ sku: it.producto?.sku, cantidad: Number(recibido[it.producto?.sku] ?? (Number(it.cantidad) - Number(it.cantidad_recibida ?? 0))) })).filter((x: any) => x.cantidad > 0) })} />
+          <Acciones cerrar={cerrar} okLabel="Registrar recepción" onOk={() => post({ accion: 'recibir', id: modal.oc.id, margenPct: f.margenPct ? Number(f.margenPct) : undefined, items: (modal.oc.items ?? []).map((it: any) => ({ sku: it.producto?.sku, cantidad: Number(recibido[it.producto?.sku] ?? (Number(it.cantidad) - Number(it.cantidad_recibida ?? 0))), vencimiento: vencs[it.producto?.sku] || undefined })).filter((x: any) => x.cantidad > 0) })} />
+        </>)}
+
+        {t === 'entradaDirecta' && (<>
+          <h2 className="font-semibold text-black text-lg">Entrada directa de mercadería</h2>
+          <p className="text-xs text-black/50">Llegó mercadería <b>sin orden de compra previa</b> (reparto, compra de oportunidad). Genera la OC retroactiva con su remito, suma stock, fija costo y recalcula el precio de venta — todo trazable.</p>
+          <select className={input + ' bg-white'} value={f.proveedorId ?? ''} onChange={(e) => set('proveedorId', e.target.value)}>
+            <option value="">Proveedor…</option>{proveedores.map((p: any) => <option key={p.id} value={p.id}>{p.razon_social}</option>)}
+          </select>
+          <div className="grid grid-cols-2 gap-3">
+            <select className={input + ' bg-white'} value={f.sucursalId ?? ''} onChange={(e) => set('sucursalId', e.target.value)}>
+              <option value="">Sucursal…</option>{sucursales.map((s: any) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
+            </select>
+            <input value={f.numeroRemito ?? ''} onChange={(e) => set('numeroRemito', e.target.value)} placeholder="N° de remito del proveedor" className={input} />
+          </div>
+          <div className="relative">
+            <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Agregar producto…" className={input} />
+            {sug.length > 0 && <div className="absolute z-10 mt-1 w-full rounded-lg bg-white shadow-lg border border-black/10 max-h-48 overflow-y-auto">
+              {sug.map((p: any) => <button key={p.sku} onClick={() => { setItems((xs) => [...xs, { sku: p.sku, nombre: p.nombre, cantidad: 1, costo: p.costo ?? 0, vencimiento: '' }]); setBusca(''); setSug([]); }} className="w-full text-left px-3 py-2 text-sm hover:bg-[#F0EBE2] border-b border-black/5 last:border-0">{p.nombre} <span className="text-xs text-black/40">{p.sku}</span></button>)}
+            </div>}
+          </div>
+          {items.length > 0 && (
+            <div className="flex items-center gap-2 text-[10px] uppercase tracking-wide text-black/40 pr-6">
+              <span className="flex-1">Producto</span><span className="w-16 text-right">Cant.</span><span className="w-24 text-right">Costo $</span><span className="w-36">Vencimiento</span>
+            </div>
+          )}
+          {items.map((i, idx) => (
+            <div key={idx} className="flex items-center gap-2 text-sm">
+              <span className="flex-1 truncate">{i.nombre}</span>
+              <input type="number" value={i.cantidad} onChange={(e) => setItems((xs) => xs.map((x, j) => j === idx ? { ...x, cantidad: Number(e.target.value) } : x))} className="w-16 rounded border border-black/15 px-2 py-1 text-right" />
+              <input type="number" value={i.costo} onChange={(e) => setItems((xs) => xs.map((x, j) => j === idx ? { ...x, costo: Number(e.target.value) } : x))} className="w-24 rounded border border-black/15 px-2 py-1 text-right" placeholder="costo" />
+              <input type="date" value={i.vencimiento ?? ''} onChange={(e) => setItems((xs) => xs.map((x, j) => j === idx ? { ...x, vencimiento: e.target.value } : x))} className="w-36 rounded border border-black/15 px-2 py-1 text-xs" />
+              <button onClick={() => setItems((xs) => xs.filter((_, j) => j !== idx))} className="text-black/40 hover:text-[#B82D25]">✕</button>
+            </div>
+          ))}
+          <div className="flex items-center gap-2 text-sm pt-2 mt-1 border-t border-black/10">
+            <span className="flex-1 text-black/60">% de remarcación <span className="text-xs text-black/40">(vacío = usa el del rubro)</span></span>
+            <input type="number" value={f.margenPct ?? ''} onChange={(e) => set('margenPct', e.target.value)} placeholder="rubro" className="w-20 rounded border border-black/15 px-2 py-1 text-right" />
+            <span className="text-black/40 text-xs">%</span>
+          </div>
+          {items.length > 0 && <p className="text-right text-sm font-semibold text-black">Total entrada: {pesos(items.reduce((s: number, i: any) => s + Number(i.cantidad) * Number(i.costo || 0), 0))}</p>}
+          {aviso && <p className="text-xs text-[#B82D25]">{aviso}</p>}
+          <Acciones cerrar={cerrar} okLabel="Registrar entrada" disabled={!f.proveedorId || !f.sucursalId || !items.length} onOk={() => post({ accion: 'entradaDirecta', proveedorId: f.proveedorId, sucursalId: f.sucursalId, numeroRemito: f.numeroRemito, margenPct: f.margenPct ? Number(f.margenPct) : undefined, items: items.map((i: any) => ({ sku: i.sku, cantidad: Number(i.cantidad), costo: Number(i.costo) || 0, vencimiento: i.vencimiento || undefined })) })} />
+        </>)}
+
+        {t === 'entradaFoto' && (<>
+          <h2 className="font-semibold text-black text-lg">📷 Entrada por foto</h2>
+          {!foto ? (
+            <>
+              <p className="text-xs text-black/50">Sacale una foto a la factura o remito que llegó con la mercadería (o subí el PDF). La IA lee proveedor, renglones e impuestos; vos revisás y confirmás. La entrada suma stock, fija costo/precio y registra la factura con su desglose fiscal.</p>
+              <label className="flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-black/20 px-4 py-10 text-sm text-black/60 cursor-pointer hover:border-[#B82D25] hover:text-[#B82D25]">
+                <span className="text-3xl">📷</span>
+                {leyendoFoto ? 'Leyendo el comprobante…' : 'Tocar para sacar foto o elegir archivo'}
+                <input type="file" accept="image/*,.pdf" capture="environment" className="hidden" disabled={leyendoFoto}
+                  onChange={(e) => { const a = e.target.files?.[0]; if (a) leerFoto(a); e.target.value = ''; }} />
+              </label>
+              <Acciones cerrar={cerrar} okLabel="—" disabled onOk={() => {}} />
+            </>
+          ) : foto.error ? (
+            <>
+              <p className="rounded-lg bg-[#B82D25]/10 px-3 py-2 text-sm text-[#932A1F]">{foto.error}</p>
+              <Acciones cerrar={cerrar} okLabel="Reintentar" onOk={() => setFoto(null)} />
+            </>
+          ) : (
+            <>
+              {/* encabezado detectado */}
+              <div className="rounded-lg bg-[#F0EBE2]/70 px-3 py-2 text-xs text-black/70">
+                <p><b>{foto.comprobante?.tipo?.replace('_', ' ').toUpperCase() ?? 'COMPROBANTE'}</b> {foto.comprobante?.numero ?? ''} · {foto.comprobante?.fecha ?? 's/f'} {foto.comprobante?.condicionVenta ? `· ${foto.comprobante.condicionVenta}` : ''}</p>
+                <p>{foto.proveedor?.detectado?.nombre ?? 'Proveedor no detectado'} {foto.proveedor?.detectado?.cuit ? `· CUIT ${foto.proveedor.detectado.cuit}` : ''} {foto.proveedor?.match ? '· ✓ en el sistema' : '· ⚠ no está en el sistema'}</p>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <select className={input + ' bg-white'} value={f.proveedorId ?? ''} onChange={(e) => set('proveedorId', e.target.value)}>
+                  <option value="">Proveedor…</option>{proveedores.map((p: any) => <option key={p.id} value={p.id}>{p.razon_social}</option>)}
+                </select>
+                <select className={input + ' bg-white'} value={f.sucursalId ?? ''} onChange={(e) => set('sucursalId', e.target.value)}>
+                  <option value="">Sucursal…</option>{sucursales.map((s: any) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
+                </select>
+              </div>
+
+              {/* renglones */}
+              <div className="flex items-center gap-2 text-[10px] uppercase tracking-wide text-black/40">
+                <span className="w-5" /><span className="flex-1">Renglón leído → producto</span><span className="w-14 text-right">Cant.</span><span className="w-24 text-right">Costo final</span>
+              </div>
+              {fotoItems.map((i, idx) => (
+                <div key={idx} className={'flex items-center gap-2 text-sm rounded-lg px-2 py-1.5 ' + (i.incluir ? '' : 'opacity-45 bg-[#F0EBE2]/50')}>
+                  <input type="checkbox" checked={i.incluir} onChange={(e) => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, incluir: e.target.checked } : x))} className="accent-[#B82D25]" />
+                  <span className="flex-1 min-w-0">
+                    <span className="block truncate">{i.descripcion}</span>
+                    <span className={'block text-xs truncate ' + (i.nombre ? 'text-emerald-700' : 'text-[#932A1F]')}>
+                      {i.nombre ? `→ ${i.nombre}${i.variacionPct != null ? ` (costo ${i.variacionPct > 0 ? '+' : ''}${i.variacionPct}%)` : ''}` : '→ sin match: buscalo abajo o destildalo'}
+                    </span>
+                  </span>
+                  <input type="number" value={i.cantidad} onChange={(e) => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, cantidad: Number(e.target.value) } : x))} className="w-14 rounded border border-black/15 px-1.5 py-1 text-right" />
+                  <span className="w-24 text-right tabular-nums">{pesos(costoFinal(i))}</span>
+                </div>
+              ))}
+              {fotoItems.some((i) => i.incluir && !i.sku) && (
+                <p className="text-xs text-[#932A1F]">Hay renglones tildados sin producto asignado: destildalos o cargalos por Entrada directa.</p>
+              )}
+
+              {/* impuestos */}
+              <div className="rounded-lg border border-black/10 p-2 grid grid-cols-3 gap-2 text-xs">
+                {[['neto', 'Neto'], ['iva', 'IVA $'], ['percepcionIva', 'Perc. IVA'], ['percepcionIibb', 'Perc. IIBB'], ['otros', 'Otros'], ['total', 'TOTAL']].map(([k, l]) => (
+                  <label key={k} className="flex flex-col gap-0.5">
+                    <span className="text-black/45">{l}</span>
+                    <input type="number" value={fotoImp?.[k] ?? ''} onChange={(e) => setFotoImp((x: any) => ({ ...x, [k]: e.target.value === '' ? null : Number(e.target.value) }))} className="rounded border border-black/15 px-2 py-1 text-right text-sm" />
+                  </label>
+                ))}
+              </div>
+              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-black">
+                {foto.comprobante?.tipo === 'factura_a' && (
+                  <label className="flex items-center gap-1.5"><input type="checkbox" checked={sumarIva} onChange={(e) => setSumarIva(e.target.checked)} className="accent-[#B82D25]" /> Sumar IVA al costo (precios netos)</label>
+                )}
+                <label className="flex items-center gap-1.5"><input type="checkbox" checked={pagada} onChange={(e) => setPagada(e.target.checked)} className="accent-[#B82D25]" /> Pagada (contado)</label>
+                <label className="flex items-center gap-1.5">% remarcación <input type="number" value={f.margenPct ?? ''} onChange={(e) => set('margenPct', e.target.value)} placeholder="rubro" className="w-16 rounded border border-black/15 px-1.5 py-0.5 text-right" /></label>
+              </div>
+              {foto.notasManuscritas && <p className="text-xs text-black/50 italic">✍ Nota manuscrita: {foto.notasManuscritas}</p>}
+              {aviso && <p className="text-xs text-[#B82D25]">{aviso}</p>}
+              <Acciones
+                cerrar={cerrar}
+                okLabel={`Registrar entrada${foto.comprobante?.tipo?.startsWith('factura') ? ' + factura' : ''}`}
+                disabled={!f.proveedorId || !f.sucursalId || !fotoItems.some((i) => i.incluir && i.sku) || fotoItems.some((i) => i.incluir && !i.sku)}
+                onOk={() => post({
+                  accion: 'entradaDirecta',
+                  proveedorId: f.proveedorId,
+                  sucursalId: f.sucursalId,
+                  numeroRemito: foto.comprobante?.numero || f.numeroRemito,
+                  margenPct: f.margenPct ? Number(f.margenPct) : undefined,
+                  items: fotoItems.filter((i) => i.incluir && i.sku).map((i) => ({ sku: i.sku, cantidad: Number(i.cantidad), costo: costoFinal(i) })),
+                  ...(foto.comprobante?.tipo?.startsWith('factura') && fotoImp?.total > 0 ? {
+                    factura: {
+                      numero: foto.comprobante?.numero ?? 's/n',
+                      total: Number(fotoImp.total),
+                      neto: fotoImp.neto != null ? Number(fotoImp.neto) : undefined,
+                      iva: fotoImp.iva != null ? Number(fotoImp.iva) : undefined,
+                      percepcionIva: Number(fotoImp.percepcionIva ?? 0),
+                      percepcionIibb: Number(fotoImp.percepcionIibb ?? 0),
+                      otros: Number(fotoImp.otros ?? 0),
+                      pagada,
+                    },
+                  } : {}),
+                })}
+              />
+            </>
+          )}
         </>)}
 
         {t === 'proveedor' && (<>

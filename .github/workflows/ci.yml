@@ -1,0 +1,79 @@
+# CI de ODB: corre en cada push/PR y bloquea regresiones en las 4 apps.
+# Los tests E2E del API necesitan credenciales de Supabase: se activan solo
+# si el repo tiene configurados los secrets SUPABASE_URL / SUPABASE_KEY.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  api:
+    name: API (build + tests)
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: apps/api } }
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+      JWT_SECRET: ${{ secrets.JWT_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/api/package-lock.json
+      - run: npm ci
+      - run: npx nest build
+      - run: npx jest --ci
+      - name: Tests E2E (solo si el repo tiene los secrets de Supabase)
+        if: ${{ env.SUPABASE_URL != '' }}
+        run: npx jest --ci --config ./test/jest-e2e.json
+
+  admin:
+    name: Panel (tsc + build)
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: apps/admin } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/admin/package-lock.json
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npm run build
+
+  web:
+    name: Tienda (tsc + build)
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: apps/web } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npm run build
+
+  mobile:
+    name: App móvil (tsc + lint)
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: apps/mobile } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/mobile/package-lock.json
+      - run: npm ci
+      - run: npx tsc --noEmit
+      # el lint tiene 11 errores preexistentes de reglas nuevas de React 19:
+      # no bloquea (|| true) pero queda visible en el log hasta sanearlos
+      - run: npx expo lint || true

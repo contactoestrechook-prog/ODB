@@ -75,10 +75,29 @@ export class CatalogoService {
       items: (data ?? []).map((r: any) => ({
         sku: r.sku, nombre: r.nombre,
         precio: r.precio != null ? Number(r.precio) : null,
+        precioMayorista: r.precio_mayorista != null ? Number(r.precio_mayorista) : null,
         precioLista: null, descuento: null,
         esAlcohol: !!r.es_alcohol, imagenUrl: null,
         codigosBarras: r.codigos ?? [],
         codigo: r.codigo ?? null,
+      })),
+    };
+  }
+
+  // Consulta de stock por sucursal (la usa el cajero para decirle al cliente
+  // "acá no queda pero en la otra sucursal hay X").
+  async consultarStock(q: string) {
+    const t = (q ?? '').trim();
+    if (t.length < 2) return { items: [] };
+    const { data, error } = await this.db.rpc('stock_consulta', { p_q: t, p_limit: 10 });
+    if (error) throw new BadRequestException(error.message);
+    return {
+      items: (data ?? []).map((r: any) => ({
+        sku: r.sku,
+        nombre: r.nombre,
+        codigo: r.codigo ?? null,
+        total: Number(r.total),
+        sucursales: (r.sucursales ?? []).map((s: any) => ({ sucursal: s.sucursal, cantidad: Number(s.cantidad) })),
       })),
     };
   }
@@ -92,6 +111,7 @@ export class CatalogoService {
       items: (data ?? []).map((r: any) => ({
         sku: r.sku, nombre: r.nombre,
         precio: r.precio != null ? Number(r.precio) : null,
+        precioMayorista: r.precio_mayorista != null ? Number(r.precio_mayorista) : null,
         precioLista: null, descuento: null,
         esAlcohol: !!r.es_alcohol, imagenUrl: null,
         codigosBarras: r.codigos ?? [],
@@ -104,18 +124,18 @@ export class CatalogoService {
   // (30 s) que absorbe la navegación masiva sin golpear la base
   private catalogoCache = new Map<string, { data: any; ts: number }>();
 
-  async buscarProductos(q: FiltrosCatalogo, verificado = false, segmento?: string) {
-    const clave = JSON.stringify([verificado, segmento ?? '', q.buscar, q.categoriaId, q.marcaId, q.filtro, q.orden, q.pagina, q.porPagina]);
+  async buscarProductos(q: FiltrosCatalogo, verificado = false, segmento?: string, incluirCosto = false) {
+    const clave = JSON.stringify([verificado, segmento ?? '', incluirCosto, q.buscar, q.categoriaId, q.marcaId, q.filtro, q.orden, q.pagina, q.porPagina]);
     const cacheado = this.catalogoCache.get(clave);
     if (cacheado && Date.now() - cacheado.ts < 30_000) return cacheado.data;
 
-    const resultado = await this.buscarProductosSinCache(q, verificado, segmento);
+    const resultado = await this.buscarProductosSinCache(q, verificado, segmento, incluirCosto);
     if (this.catalogoCache.size > 500) this.catalogoCache.clear();
     this.catalogoCache.set(clave, { data: resultado, ts: Date.now() });
     return resultado;
   }
 
-  private async buscarProductosSinCache(q: FiltrosCatalogo, verificado = false, segmento?: string) {
+  private async buscarProductosSinCache(q: FiltrosCatalogo, verificado = false, segmento?: string, incluirCosto = false) {
     const porPagina = Math.min(Math.max(Number(q.porPagina ?? 50), 1), 200);
     const pagina = Math.max(Number(q.pagina ?? 1), 1);
     let saltarRango = false; // true cuando el RPC ya devolvió la página exacta
@@ -198,7 +218,7 @@ export class CatalogoService {
       pagina,
       porPagina,
       paginas: Math.max(Math.ceil((count ?? 0) / porPagina), 1),
-      items: items.map((p) => this.formatear(p, precios.get(p.id), fotos)),
+      items: items.map((p) => this.formatear(p, precios.get(p.id), fotos, incluirCosto)),
     };
   }
 
@@ -217,7 +237,7 @@ export class CatalogoService {
     return ids.map((id) => porId.get(id)).filter(Boolean);
   }
 
-  async obtenerPorSku(sku: string) {
+  async obtenerPorSku(sku: string, incluirCosto = false) {
     const { data, error } = await this.db
       .from('productos')
       .select(SELECT_PRODUCTO)
@@ -226,11 +246,11 @@ export class CatalogoService {
     if (error) throw new Error(error.message);
     if (!data) throw new NotFoundException(`No existe el producto ${sku}`);
     const [precios, fotos] = await Promise.all([this.preciosVigentes([data.id]), this.fotos()]);
-    return this.formatear(data, precios.get(data.id), fotos);
+    return this.formatear(data, precios.get(data.id), fotos, incluirCosto);
   }
 
   async detalle(sku: string) {
-    const base = await this.obtenerPorSku(sku);
+    const base = await this.obtenerPorSku(sku, true);
     const { data: prod } = await this.db
       .from('productos')
       .select('id')
@@ -432,7 +452,9 @@ export class CatalogoService {
     return mapa;
   }
 
-  private formatear(p: any, precioVigente?: any, fotos?: Set<string>) {
+  // incluirCosto: solo true para peticiones de staff autenticado. El costo (y el
+  // margen que se deduce de él) jamás debe viajar a la tienda ni a la app cliente.
+  private formatear(p: any, precioVigente?: any, fotos?: Set<string>, incluirCosto = false) {
     const stockTotal = (p.stock ?? []).reduce((s: number, r: any) => s + Number(r.cantidad), 0);
     return {
       id: p.id,
@@ -452,7 +474,7 @@ export class CatalogoService {
       precioLista: precioVigente?.precio_lista ?? null,
       precio: precioVigente?.precio_final ?? precioVigente?.precio_lista ?? null,
       descuento: precioVigente?.descuento_nombre ?? null,
-      costo: p.costo != null ? Number(p.costo) : null,
+      ...(incluirCosto ? { costo: p.costo != null ? Number(p.costo) : null } : {}),
       alicuotaIva: p.alicuota_iva != null ? Number(p.alicuota_iva) : 21,
       stockTotal,
       stockPorSucursal: p.stock ?? [],

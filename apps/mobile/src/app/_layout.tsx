@@ -1,11 +1,13 @@
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { EstadoProvider, COLORES } from '../lib/estado';
+import BannerConexion from '../lib/BannerConexion';
 
 export default function RootLayout() {
   return (
     <EstadoProvider>
       <StatusBar style="light" />
+      <BannerConexion />
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="(tabs)" />
         <Stack.Screen

@@ -5,7 +5,8 @@ import { ActivityIndicator, FlatList, Linking, Platform, Pressable, StyleSheet, 
 import { Image } from 'expo-image';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useRouter } from 'expo-router';
-import { API, pesos, useEstado, type Producto } from '../../lib/estado';
+import { pesos, useEstado, type Producto } from '../../lib/estado';
+import { apiGet, apiPost } from '../../lib/api';
 import { C, LinearGradient, Ionicons, sombra, toque } from '../../lib/ui';
 
 type Renglon = Producto & { cantidad: number };
@@ -20,19 +21,21 @@ export default function CompraFacil() {
   const [pagando, setPagando] = useState(false);
   const [esperando, setEsperando] = useState(false);
   const [resultado, setResultado] = useState<{ codigoSalida: string; total: number; descuento: number } | null>(null);
+  const [pendiente, setPendiente] = useState<{ id: string; total: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const ultimoScan = useRef<{ codigo: string; ts: number }>({ codigo: '', ts: 0 });
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const esNativo = Platform.OS !== 'web';
   const total = items.reduce((s, r) => s + (Number(r.precio) || 0) * r.cantidad, 0);
   const unidades = items.reduce((s, r) => s + r.cantidad, 0);
 
   useEffect(() => {
-    fetch(`${API}/sucursales`)
-      .then((r) => r.json())
+    apiGet('/sucursales', { auth: false })
       .then((s) => s[0] && setSucursalId(s[0].id))
       .catch(() => {});
     if (esNativo && !permiso?.granted) pedirPermiso();
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, []);
 
   async function agregarPorCodigo(codigo: string) {
@@ -41,9 +44,12 @@ export default function CompraFacil() {
     if (ultimoScan.current.codigo === limpio && Date.now() - ultimoScan.current.ts < 2000) return;
     ultimoScan.current = { codigo: limpio, ts: Date.now() };
 
-    const res = await fetch(`${API}/productos?buscar=${encodeURIComponent(limpio)}&porPagina=1`);
-    if (!res.ok) return;
-    const encontrados: Producto[] = (await res.json()).items;
+    let encontrados: Producto[];
+    try {
+      encontrados = (await apiGet(`/productos?buscar=${encodeURIComponent(limpio)}&porPagina=1`, { auth: false })).items;
+    } catch {
+      return;
+    }
     if (!encontrados.length) {
       setError(`No encontramos "${limpio}" en el catálogo`);
       return;
@@ -69,18 +75,16 @@ export default function CompraFacil() {
     setPagando(true);
     setError(null);
     try {
-      const res = await fetch(`${API}/app/compra-facil`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cliente.token}` },
-        body: JSON.stringify({ sucursalId, items: items.map((r) => ({ sku: r.sku, cantidad: r.cantidad })) }),
+      const datos = await apiPost('/app/compra-facil', {
+        sucursalId,
+        items: items.map((r) => ({ sku: r.sku, cantidad: r.cantidad })),
       });
-      const datos = await res.json();
-      if (!res.ok) throw new Error(datos.message ?? 'No se pudo iniciar el pago');
       if (datos.url) await Linking.openURL(datos.url);
       const totalCompra = datos.total ?? total;
       setItems([]);
       setPagando(false);
       setEsperando(true);
+      setPendiente({ id: datos.id, total: totalCompra });
       esperarPago(datos.id, totalCompra);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error');
@@ -89,21 +93,28 @@ export default function CompraFacil() {
   }
 
   // Tras pagar en MP, espera la acreditación para emitir el código de salida.
+  // Si se agota el tiempo, la compra queda en `pendiente` y se puede seguir
+  // esperando con un toque (no se pierde la transacción).
   function esperarPago(id: string, totalCompra: number) {
     if (!cliente?.token) return;
+    if (pollRef.current) clearInterval(pollRef.current);
     let intentos = 0;
-    const timer = setInterval(async () => {
+    pollRef.current = setInterval(async () => {
       intentos++;
       try {
-        const r = await fetch(`${API}/app/compra-facil/${id}/estado`, { headers: { Authorization: `Bearer ${cliente.token}` } });
-        const d = await r.json();
-        if (r.ok && d.estado === 'pagado' && d.codigoSalida) {
-          clearInterval(timer);
+        const d = await apiGet(`/app/compra-facil/${id}/estado`);
+        if (d.estado === 'pagado' && d.codigoSalida) {
+          if (pollRef.current) clearInterval(pollRef.current);
           setEsperando(false);
+          setPendiente(null);
           setResultado({ codigoSalida: d.codigoSalida, total: d.total ?? totalCompra, descuento: 0 });
         }
       } catch {}
-      if (intentos >= 60) { clearInterval(timer); setEsperando(false); setError('No recibimos la confirmación del pago. Si pagaste, revisá Mis compras en un rato.'); }
+      if (intentos >= 60) {
+        if (pollRef.current) clearInterval(pollRef.current);
+        setEsperando(false);
+        setError('No recibimos la confirmación del pago. Si pagaste, tocá "Seguir esperando" o revisá Mis compras en un rato.');
+      }
     }, 3000);
   }
 
@@ -130,7 +141,13 @@ export default function CompraFacil() {
         <ActivityIndicator size="large" color={C.rojo} />
         <Text style={est.esperandoT}>Esperando la confirmación del pago…</Text>
         <Text style={est.esperandoS}>Completá el pago en Mercado Pago. Apenas se acredite, te mostramos tu código de salida.</Text>
-        <Pressable onPress={() => { setEsperando(false); }} style={est.botonSecundario}>
+        <Pressable
+          onPress={() => {
+            if (pollRef.current) clearInterval(pollRef.current);
+            setEsperando(false);
+          }}
+          style={est.botonSecundario}
+        >
           <Text style={est.botonSecundarioTexto}>Cancelar</Text>
         </Pressable>
       </View>
@@ -194,6 +211,20 @@ export default function CompraFacil() {
       </View>
 
       {error && <View style={est.errorBox}><Ionicons name="alert-circle" size={15} color={C.rojoOscuro} /><Text style={est.error}>{error}</Text></View>}
+      {pendiente && !esperando && (
+        <Pressable
+          onPress={() => {
+            toque();
+            setError(null);
+            setEsperando(true);
+            esperarPago(pendiente.id, pendiente.total);
+          }}
+          style={est.reintentar}
+        >
+          <Ionicons name="refresh" size={15} color="#fff" />
+          <Text style={est.reintentarTxt}>Seguir esperando la confirmación del pago</Text>
+        </Pressable>
+      )}
 
       <FlatList
         data={items} keyExtractor={(r) => r.sku} style={{ flex: 1 }}
@@ -293,5 +324,7 @@ const est = StyleSheet.create({
   codigoSalida: { color: '#fff', fontSize: 40, fontWeight: '800', letterSpacing: 4, marginVertical: 12 },
   salidaDetalle: { color: C.dorado, fontSize: 14.5, fontWeight: '600' },
   botonSecundario: { marginTop: 18, flexDirection: 'row', gap: 7, alignSelf: 'center', backgroundColor: '#fff', borderRadius: 24, paddingHorizontal: 22, paddingVertical: 12, ...sombra(0) },
+  reintentar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, backgroundColor: C.rojo, borderRadius: 14, marginHorizontal: 14, marginTop: 8, paddingVertical: 12 },
+  reintentarTxt: { color: '#fff', fontSize: 13.5, fontWeight: '700' },
   botonSecundarioTexto: { color: C.tinta, fontWeight: '700', fontSize: 13.5 },
 });

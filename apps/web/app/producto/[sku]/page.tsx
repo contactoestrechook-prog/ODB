@@ -80,7 +80,7 @@ export default async function ProductoPage({ params }: { params: Promise<{ sku: 
           )}
 
           <ul className="mt-8 space-y-3.5 text-sm text-tinta/75 max-w-md">
-            <li className="flex items-center gap-3"><IcoMoto size={19} className="text-dorado shrink-0" /> Envío a domicilio desde O.D.B Central</li>
+            <li className="flex items-center gap-3"><IcoMoto size={19} className="text-dorado shrink-0" /> Envío a domicilio desde Suc Sant Thomas</li>
             <li className="flex items-center gap-3"><IcoLocal size={19} className="text-dorado shrink-0" /> Retiro en el local (pick-up)</li>
             <li className="flex items-center gap-3"><IcoTarjeta size={19} className="text-dorado shrink-0" /> Pago seguro con Mercado Pago</li>
           </ul>

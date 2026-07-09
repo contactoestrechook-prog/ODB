@@ -4,6 +4,7 @@ import { SUPABASE } from '../supabase.provider';
 import { PedidosService } from '../pedidos/pedidos.service';
 import { mapProductoATN, mapPedidoTN } from './mapeo';
 import { tnConfig, tnConfigurado, tnGet, tnPost, tnPut } from './cliente';
+import { verificarFirmaTiendaNube } from '../comun/firmas';
 
 const SUC_CENTRAL = '229906e6-df69-48eb-b027-2b57fefb89fe';
 
@@ -91,8 +92,10 @@ export class TiendanubeService {
   }
 
   // Webhook order/created: re-consulta el pedido a TN (no confía en el body) y lo importa.
-  async recibirWebhook(body: any) {
+  async recibirWebhook(body: any, rawBody?: Buffer, headers: Record<string, string> = {}) {
     if (!tnConfigurado()) return { ok: false, motivo: 'no configurado' };
+    // rechaza POSTs falsificados: la firma HMAC del cuerpo debe coincidir
+    verificarFirmaTiendaNube(rawBody, headers);
     if (String(body?.store_id ?? '') !== String(tnConfig().storeId)) return { ok: false, motivo: 'store_id no coincide' };
     const orderId = body?.id;
     if (!orderId) return { ok: false, motivo: 'sin id' };

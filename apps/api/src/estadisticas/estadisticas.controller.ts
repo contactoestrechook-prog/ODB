@@ -2,7 +2,9 @@ import { BadRequestException, Controller, Get, Inject } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
 import { AnalistaService } from '../analista/analista.service';
+import { Roles } from '../auth/decorators';
 
+@Roles('gerente', 'dueno')
 @Controller('estadisticas')
 export class EstadisticasController {
   constructor(
