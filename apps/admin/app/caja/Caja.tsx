@@ -724,7 +724,7 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string 
       cantidad: r.cantidad,
       nombre: r.nombre,
       precioUnitario: precioDe(r),
-      total: (Number(r.precio) || 0) * r.cantidad,
+      total: precioDe(r) * r.cantidad,
     }));
 
     let res: Response;

@@ -1891,19 +1891,25 @@ CREATE OR REPLACE FUNCTION public.stock_resumen()
  STABLE SECURITY DEFINER
  SET search_path TO 'public'
 AS $function$
-  with s as (
-    select st.cantidad, st.punto_reposicion, coalesce(p.costo,0) as costo, st.producto_id
-    from stock st join productos p on p.id = st.producto_id and p.activo
+  with por_producto as (
+    select p.id,
+      coalesce(sum(st.cantidad), 0) as cantidad,
+      coalesce(max(st.punto_reposicion), 0) as punto_reposicion,
+      coalesce(p.costo, 0) as costo
+    from productos p
+    left join stock st on st.producto_id = p.id
+    where p.activo
+    group by p.id, p.costo
   )
   select
-    (select count(distinct producto_id) from s)::int,
-    count(*) filter (where cantidad > 0)::int,
-    count(*) filter (where cantidad = 0)::int,
-    count(*) filter (where cantidad < 0)::int,
-    coalesce(sum(cantidad) filter (where cantidad > 0), 0),
-    coalesce(sum(cantidad * costo) filter (where cantidad > 0), 0),
-    count(*) filter (where punto_reposicion > 0 and cantidad <= punto_reposicion)::int
-  from s;
+    count(*)::int as skus_activos,
+    count(*) filter (where cantidad > 0)::int as con_stock,
+    count(*) filter (where cantidad = 0)::int as sin_stock,
+    count(*) filter (where cantidad < 0)::int as negativos,
+    coalesce(sum(cantidad) filter (where cantidad > 0), 0) as unidades,
+    coalesce(sum(cantidad * costo) filter (where cantidad > 0), 0) as valor_inventario,
+    count(*) filter (where punto_reposicion > 0 and cantidad <= punto_reposicion)::int as bajo_reposicion
+  from por_producto;
 $function$
 ;
 

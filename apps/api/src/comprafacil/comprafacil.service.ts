@@ -1,5 +1,6 @@
-import { BadRequestException, ForbiddenException, Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Inject, Injectable, Logger } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
+import { randomUUID } from 'node:crypto';
 import { SUPABASE } from '../supabase.provider';
 import { verificarFirmaMercadoPago } from '../comun/firmas';
 
@@ -8,6 +9,8 @@ import { verificarFirmaMercadoPago } from '../comun/firmas';
 // que un empleado valida en la puerta (control anti-hurto).
 @Injectable()
 export class CompraFacilService {
+  private readonly log = new Logger(CompraFacilService.name);
+
   constructor(@Inject(SUPABASE) private readonly db: SupabaseClient) {}
 
   async comprar(dni: string, sucursalId: string, items: { sku: string; cantidad: number }[]) {
@@ -82,33 +85,69 @@ export class CompraFacilService {
   }
 
   // Confirma el pago: registra la venta y emite el código (idempotente).
+  //
+  // MP puede mandar el webhook duplicado o casi simultáneo para el mismo
+  // pago: por eso el "claim" de abajo es un UPDATE condicionado a
+  // estado='pendiente', no un SELECT-luego-decidir — así solo un caller gana
+  // la carrera y los demás vuelven sin reprocesar. El venta_id se reserva acá
+  // (antes de llamar a registrar_venta) para que un reintento tras un fallo
+  // parcial reuse el mismo id y registrar_venta lo detecte como duplicado.
   async confirmarPago(refId: string, mpPaymentId?: string) {
-    const { data: pend } = await this.db.from('compra_facil_pendientes').select('*').eq('id', refId).maybeSingle();
-    if (!pend || pend.estado === 'pagado') return { ok: true };
-    const { data: venta, error } = await this.db.rpc('registrar_venta', {
-      p_sucursal: pend.sucursal_id,
-      p_items: pend.items,
-      p_pagos: [{ medio: 'mercadopago', monto: Number(pend.total) }],
-      p_canal: 'self_checkout',
-      p_cliente_dni: pend.cliente_dni,
-    });
-    if (error) throw new BadRequestException(error.message);
-    const codigo = 'CF-' + Math.random().toString(36).slice(2, 8).toUpperCase();
-    await this.db.from('auditoria').insert({
-      accion: 'codigo_salida', entidad: 'venta', entidad_id: (venta as any).venta_id, datos_despues: { codigo },
-    });
-    await this.db.from('compra_facil_pendientes').update({ estado: 'pagado', venta_id: (venta as any).venta_id, codigo }).eq('id', refId);
-    // guarda el id del pago de MP para la conciliación automática posterior
-    if (mpPaymentId) {
-      await this.db.from('pagos').update({ mp_payment_id: String(mpPaymentId) })
-        .eq('venta_id', (venta as any).venta_id).eq('medio', 'mercadopago');
+    const { data: pend, error: errClaim } = await this.db
+      .from('compra_facil_pendientes')
+      .update({ estado: 'procesando' })
+      .eq('id', refId)
+      .eq('estado', 'pendiente')
+      .select('*')
+      .maybeSingle();
+    if (errClaim) throw new BadRequestException(errClaim.message);
+    if (!pend) return { ok: true }; // ya pagado, en proceso por otro caller, o no existe
+
+    const ventaId = pend.venta_id ?? randomUUID();
+    if (!pend.venta_id) {
+      await this.db.from('compra_facil_pendientes').update({ venta_id: ventaId }).eq('id', refId);
     }
-    return { ok: true };
+
+    try {
+      const { data: venta, error } = await this.db.rpc('registrar_venta', {
+        p_sucursal: pend.sucursal_id,
+        p_items: pend.items,
+        p_pagos: [{ medio: 'mercadopago', monto: Number(pend.total) }],
+        p_canal: 'self_checkout',
+        p_cliente_dni: pend.cliente_dni,
+        p_venta_id: ventaId,
+      });
+      if (error) throw new Error(error.message);
+      const codigo = 'CF-' + Math.random().toString(36).slice(2, 8).toUpperCase();
+      await this.db.from('auditoria').insert({
+        accion: 'codigo_salida', entidad: 'venta', entidad_id: (venta as any).venta_id, datos_despues: { codigo },
+      });
+      await this.db.from('compra_facil_pendientes').update({ estado: 'pagado', venta_id: (venta as any).venta_id, codigo }).eq('id', refId);
+      // guarda el id del pago de MP para la conciliación automática posterior
+      if (mpPaymentId) {
+        await this.db.from('pagos').update({ mp_payment_id: String(mpPaymentId) })
+          .eq('venta_id', (venta as any).venta_id).eq('medio', 'mercadopago');
+      }
+      return { ok: true };
+    } catch (e) {
+      // El cliente ya pagó en MP pero no se pudo registrar la venta (p.ej. sin
+      // stock): NO se traga. Vuelve a 'pendiente' con el motivo visible para
+      // soporte — un reintento del webhook (o uno manual) puede procesarlo si
+      // se repone stock; nunca queda atascado en 'procesando' ni se pierde el pago.
+      const motivo = e instanceof Error ? e.message : 'Error desconocido al confirmar el pago';
+      await this.db.from('compra_facil_pendientes')
+        .update({ estado: 'pendiente', error_detalle: motivo })
+        .eq('id', refId);
+      throw new BadRequestException(motivo);
+    }
   }
 
-  async estadoPago(id: string) {
-    const { data } = await this.db.from('compra_facil_pendientes').select('estado, total, codigo').eq('id', id).maybeSingle();
+  // dni: el del cliente autenticado que consulta — evita que un cliente vea
+  // el estado (y el código de salida, el control anti-hurto) de una compra ajena.
+  async estadoPago(id: string, dni: string) {
+    const { data } = await this.db.from('compra_facil_pendientes').select('estado, total, codigo, cliente_dni').eq('id', id).maybeSingle();
     if (!data) throw new BadRequestException('No existe la compra');
+    if (data.cliente_dni !== dni) throw new ForbiddenException('No tenés acceso a esta compra');
     return { estado: data.estado, total: Number(data.total), codigoSalida: data.codigo ?? null };
   }
 
@@ -129,7 +168,13 @@ export class CompraFacilService {
       if (pay?.status === 'approved' && typeof pay?.external_reference === 'string' && pay.external_reference.startsWith('CF-')) {
         await this.confirmarPago(pay.external_reference.slice(3), String(pagoId));
       }
-    } catch {}
+    } catch (e) {
+      // MP ya cobró: si confirmarPago() falló (p.ej. sin stock) el motivo ya
+      // quedó guardado en compra_facil_pendientes.error_detalle. Se le
+      // devuelve 200 a MP igual (no tiene sentido que reintente un problema
+      // de negocio), pero acá queda logueado para que no se pierda de vista.
+      this.log.warn(`webhookMP: no se pudo confirmar el pago ${pagoId}: ${e instanceof Error ? e.message : e}`);
+    }
     return { ok: true };
   }
 

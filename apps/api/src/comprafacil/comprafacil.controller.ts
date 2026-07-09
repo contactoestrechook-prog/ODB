@@ -28,7 +28,7 @@ export class CompraFacilController {
     if (req.usuario?.rol !== 'cliente') {
       throw new UnauthorizedException('Requiere sesión de cliente');
     }
-    return this.compraFacil.estadoPago(id);
+    return this.compraFacil.estadoPago(id, req.usuario.dni);
   }
 
   // Webhook de Mercado Pago (Comprá Fácil)

@@ -547,19 +547,27 @@ export class PedidosService {
     }
 
     if (liberaReserva(estado)) {
-      for (const item of pedido.items as any[]) {
-        const { error: errMov } = await this.db.rpc('registrar_movimiento', {
-          p_producto_id: item.producto_id,
-          p_sucursal_id: pedido.sucursal_id,
-          p_tipo: 'liberacion_reserva',
-          p_cantidad: Number(item.cantidad),
-          p_referencia_tipo: 'pedido',
-          p_referencia_id: pedidoId,
-          p_usuario_id: usuarioId ?? null,
-        });
-        if (errMov) throw new BadRequestException(errMov.message);
+      // Solo se libera stock si el pedido realmente lo reservó al crearse
+      // (crear_pedido con p_reservar=true). Los pedidos "a pedido" —
+      // PedidosYa, Tienda Nube, WhatsApp manual (canal web/whatsapp) — nunca
+      // descontaron stock, así que "liberar" acá sumaría stock fantasma al
+      // cancelar, o neutralizaría el descuento real al entregar (ver
+      // registrar_venta más abajo, que si descuenta de verdad).
+      if (pedido.reserva_stock) {
+        for (const item of pedido.items as any[]) {
+          const { error: errMov } = await this.db.rpc('registrar_movimiento', {
+            p_producto_id: item.producto_id,
+            p_sucursal_id: pedido.sucursal_id,
+            p_tipo: 'liberacion_reserva',
+            p_cantidad: Number(item.cantidad),
+            p_referencia_tipo: 'pedido',
+            p_referencia_id: pedidoId,
+            p_usuario_id: usuarioId ?? null,
+          });
+          if (errMov) throw new BadRequestException(errMov.message);
+        }
       }
-      // libera el estacionamiento que tuviera reservado
+      // libera el estacionamiento que tuviera reservado (no depende de si hubo reserva de stock)
       await this.db.rpc('liberar_estacionamiento', { p_pedido: pedidoId });
     }
 
