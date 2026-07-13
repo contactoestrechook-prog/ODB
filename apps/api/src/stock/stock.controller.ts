@@ -57,16 +57,21 @@ export class StockController {
     return this.stock.sinRotacion(dias ? Number(dias) : undefined);
   }
 
+  // Ajustes/mermas grandes exigen PIN de supervisor: gerencia se autoriza
+  // sola, depósito necesita el token de /caja/autorizar (nunca confiar en un
+  // autorizadoPor que mande el cliente).
   @Roles('deposito', 'gerente', 'dueno')
   @Post('ajustes')
   ajuste(@Body() dto: AjusteDto, @Req() req: any) {
-    return this.stock.registrarAjuste(dto, 'ajuste', req.usuario?.sub);
+    const autorizadoPor = req.usuario?.rol !== 'deposito' ? req.usuario?.sub : undefined;
+    return this.stock.registrarAjuste({ ...dto, autorizadoPor }, 'ajuste', req.usuario?.sub);
   }
 
   @Roles('deposito', 'gerente', 'dueno')
   @Post('mermas')
   merma(@Body() dto: AjusteDto, @Req() req: any) {
-    return this.stock.registrarAjuste(dto, 'merma', req.usuario?.sub);
+    const autorizadoPor = req.usuario?.rol !== 'deposito' ? req.usuario?.sub : undefined;
+    return this.stock.registrarAjuste({ ...dto, autorizadoPor }, 'merma', req.usuario?.sub);
   }
 
   @Get('motivos-merma')
@@ -94,17 +99,18 @@ export class StockController {
     return this.stock.conteoCargarItem(id, dto);
   }
 
-  // aplicar el conteo ajusta stock masivamente: exige supervisor (PIN validado
-  // en /caja/autorizar → autorizadoPor); gerencia se autoriza sola
+  // aplicar el conteo ajusta stock masivamente: exige supervisor. Gerencia se
+  // autoriza sola; depósito necesita el token de un solo uso de /caja/autorizar
+  // (nunca un autorizadoPor que mande el cliente directamente).
   @Roles('deposito', 'gerente', 'dueno')
   @Post('conteos/:id/finalizar')
-  finalizarConteo(@Param('id') id: string, @Body() body: { autorizadoPor?: string }, @Req() req: any) {
+  finalizarConteo(@Param('id') id: string, @Body() body: { autorizacionToken?: string }, @Req() req: any) {
     const rol = req.usuario?.rol;
-    const autorizadoPor = body.autorizadoPor ?? (rol !== 'deposito' ? req.usuario?.sub : undefined);
-    if (!autorizadoPor) {
+    const autorizadoPor = rol !== 'deposito' ? req.usuario?.sub : undefined;
+    if (!autorizadoPor && !body.autorizacionToken) {
       throw new ForbiddenException('Aplicar el conteo requiere autorización de un supervisor (PIN)');
     }
-    return this.stock.finalizarConteo(id, autorizadoPor, req.usuario?.sub);
+    return this.stock.finalizarConteo(id, autorizadoPor, body.autorizacionToken, req.usuario?.sub);
   }
 
   @Roles('deposito', 'gerente', 'dueno')

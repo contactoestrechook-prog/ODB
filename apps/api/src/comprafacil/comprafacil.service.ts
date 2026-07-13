@@ -3,6 +3,7 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import { randomUUID } from 'node:crypto';
 import { SUPABASE } from '../supabase.provider';
 import { verificarFirmaMercadoPago } from '../comun/firmas';
+import { fetchConTimeout } from '../comun/http';
 
 // Comprá Fácil: el cliente verificado escanea en el local y paga con Mercado Pago.
 // La venta queda registrada al instante y el cliente sale mostrando un código
@@ -67,7 +68,7 @@ export class CompraFacilService {
     if (e1) throw new BadRequestException(e1.message);
 
     const base = process.env.API_PUBLIC_URL ?? 'https://odb-api-production.up.railway.app';
-    const res = await fetch('https://api.mercadopago.com/checkout/preferences', {
+    const res = await fetchConTimeout("https://api.mercadopago.com/checkout/preferences", {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({
@@ -163,7 +164,7 @@ export class CompraFacilService {
     // rechaza notificaciones falsificadas antes de registrar la venta
     verificarFirmaMercadoPago(headers, pagoId);
     try {
-      const r = await fetch(`https://api.mercadopago.com/v1/payments/${pagoId}`, { headers: { Authorization: `Bearer ${token}` } });
+      const r = await fetchConTimeout(`https://api.mercadopago.com/v1/payments/${pagoId}`, { headers: { Authorization: `Bearer ${token}` } });
       const pay: any = await r.json();
       if (pay?.status === 'approved' && typeof pay?.external_reference === 'string' && pay.external_reference.startsWith('CF-')) {
         await this.confirmarPago(pay.external_reference.slice(3), String(pagoId));

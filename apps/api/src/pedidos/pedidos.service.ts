@@ -6,6 +6,7 @@ import { SUPABASE } from '../supabase.provider';
 import { NotificarService } from '../mensajes/notificar.service';
 import { transicionValida, liberaReserva } from './transiciones';
 import { verificarFirmaMercadoPago } from '../comun/firmas';
+import { fetchConTimeout } from '../comun/http';
 
 // Radio (m) para considerar que el cliente "está llegando" y asignarle estacionamiento.
 const GEOFENCE_M = 400;
@@ -426,7 +427,7 @@ export class PedidosService {
       throw new BadRequestException('El pedido no tiene importes válidos para cobrar (revisá los precios).');
     }
     const base = process.env.API_PUBLIC_URL ?? 'https://odb-api-production.up.railway.app';
-    const res = await fetch('https://api.mercadopago.com/checkout/preferences', {
+    const res = await fetchConTimeout("https://api.mercadopago.com/checkout/preferences", {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({
@@ -452,7 +453,7 @@ export class PedidosService {
     // rechaza notificaciones falsificadas antes de tocar la base
     verificarFirmaMercadoPago(headers, pagoId);
     try {
-      const r = await fetch(`https://api.mercadopago.com/v1/payments/${pagoId}`, {
+      const r = await fetchConTimeout(`https://api.mercadopago.com/v1/payments/${pagoId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const pay: any = await r.json();

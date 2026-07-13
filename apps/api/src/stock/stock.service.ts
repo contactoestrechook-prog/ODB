@@ -1,13 +1,17 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
+import { CajaService } from '../caja/caja.service';
 
 export type AjusteDto = {
   sku: string;
   sucursalId: string;
   cantidad: number;
   motivo: string;
-  autorizadoPor?: string; // supervisor que autorizó (PIN validado en /caja/autorizar)
+  // resuelto server-side: por el propio gerente/dueño autenticado (controller)
+  // o consumiendo autorizacionToken (deposito) — nunca confiar en un valor del cliente.
+  autorizadoPor?: string;
+  autorizacionToken?: string;
 };
 
 export type TransferenciaDto = {
@@ -18,7 +22,10 @@ export type TransferenciaDto = {
 
 @Injectable()
 export class StockService {
-  constructor(@Inject(SUPABASE) private readonly db: SupabaseClient) {}
+  constructor(
+    @Inject(SUPABASE) private readonly db: SupabaseClient,
+    private readonly caja: CajaService,
+  ) {}
 
   async bajoMinimo() {
     const { data, error } = await this.db.from('stock_critico').select('*');
@@ -99,11 +106,18 @@ export class StockService {
     }
 
     // tope: un ajuste grande (en plata o en unidades) necesita el PIN de un
-    // supervisor — un empleado solo no puede "desaparecer" mercadería cara
+    // supervisor — un empleado solo no puede "desaparecer" mercadería cara.
+    // Igual que en ventas/caja: si no vino ya autorizado por el propio
+    // gerente/dueño (controller), se exige un token de PIN de un solo uso.
     const { data: prod } = await this.db.from('productos').select('costo').eq('id', productoId).maybeSingle();
     const valor = Math.abs(cantidad) * Number(prod?.costo ?? 0);
     const superaTope = valor > StockService.TOPE_VALOR || Math.abs(cantidad) > StockService.TOPE_UNIDADES;
-    if (superaTope && !dto.autorizadoPor) {
+    let autorizadoPor = dto.autorizadoPor;
+    if (superaTope && !autorizadoPor && dto.autorizacionToken) {
+      const auth = await this.caja.consumirAutorizacion(dto.autorizacionToken);
+      autorizadoPor = auth?.usuarioId;
+    }
+    if (superaTope && !autorizadoPor) {
       throw new BadRequestException(
         `Este ${tipo} supera el tope (${Math.abs(cantidad)} u. / $${Math.round(valor).toLocaleString('es-AR')}): requiere autorización de un supervisor (PIN)`,
       );
@@ -121,7 +135,7 @@ export class StockService {
 
     if (superaTope) {
       await this.db.from('auditoria').insert({
-        usuario_id: dto.autorizadoPor,
+        usuario_id: autorizadoPor,
         accion: `${tipo}_autorizado`,
         entidad: 'movimiento_stock',
         entidad_id: String(data),
@@ -179,7 +193,14 @@ export class StockService {
     return data;
   }
 
-  async finalizarConteo(conteoId: string, autorizadoPor: string, usuarioId?: string) {
+  // autorizadoPor: ya resuelto por el controller (gerente/dueño self) o token
+  // de PIN consumido acá (deposito) — nunca un valor crudo del cliente.
+  async finalizarConteo(conteoId: string, autorizadoPor: string | undefined, autorizacionToken: string | undefined, usuarioId?: string) {
+    if (!autorizadoPor && autorizacionToken) {
+      const auth = await this.caja.consumirAutorizacion(autorizacionToken);
+      autorizadoPor = auth?.usuarioId;
+    }
+    if (!autorizadoPor) throw new BadRequestException('Aplicar el conteo requiere autorización de un supervisor (PIN)');
     const { data, error } = await this.db.rpc('finalizar_conteo', {
       p_conteo: conteoId,
       p_usuario: usuarioId ?? null,

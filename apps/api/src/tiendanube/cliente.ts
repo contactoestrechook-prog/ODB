@@ -3,6 +3,8 @@
 //   TIENDANUBE_STORE_ID      id de la tienda
 //   TIENDANUBE_ACCESS_TOKEN  token de acceso de la app instalada
 
+import { fetchConTimeout } from '../comun/http';
+
 const BASE = 'https://api.tiendanube.com/v1';
 
 export function tnConfig() {
@@ -19,7 +21,7 @@ export function tnConfigurado() {
 async function tnFetch(path: string, init: RequestInit = {}) {
   const { storeId, token } = tnConfig();
   if (!storeId || !token) throw new Error('Tienda Nube no está configurada (faltan TIENDANUBE_STORE_ID y TIENDANUBE_ACCESS_TOKEN)');
-  const res = await fetch(`${BASE}/${storeId}${path}`, {
+  const res = await fetchConTimeout(`${BASE}/${storeId}${path}`, {
     ...init,
     headers: {
       Authentication: `bearer ${token}`,

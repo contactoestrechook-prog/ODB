@@ -129,7 +129,7 @@ export function AccionesStock({
           });
           const da = await ra.json();
           if (!ra.ok) { setError(da.message ?? 'PIN incorrecto'); return; }
-          cuerpo.autorizadoPor = da.usuarioId;
+          cuerpo.autorizacionToken = da.token;
         }
       }
       const res = await fetch('/api/stock', {

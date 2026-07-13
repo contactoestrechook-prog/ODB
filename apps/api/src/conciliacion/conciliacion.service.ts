@@ -1,6 +1,7 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
+import { fetchConTimeout } from '../comun/http';
 
 @Injectable()
 export class ConciliacionService {
@@ -82,7 +83,7 @@ export class ConciliacionService {
     let conciliadas = 0;
     for (const a of (pend ?? []) as any[]) {
       try {
-        const r = await fetch(`https://api.mercadopago.com/v1/payments/${a.mp_payment_id}`, {
+        const r = await fetchConTimeout(`https://api.mercadopago.com/v1/payments/${a.mp_payment_id}`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (!r.ok) continue;

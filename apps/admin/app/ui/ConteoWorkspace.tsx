@@ -111,7 +111,7 @@ export function ConteoWorkspace({ sucursales, conteosIniciales }: { sucursales: 
     setError('');
     setFinalizando(true);
     try {
-      let autorizadoPor: string | undefined;
+      let autorizacionToken: string | undefined;
       if (pin.trim()) {
         const ra = await fetch('/api/caja', {
           method: 'POST',
@@ -120,9 +120,9 @@ export function ConteoWorkspace({ sucursales, conteosIniciales }: { sucursales: 
         });
         const da = await ra.json();
         if (!ra.ok) throw new Error(da.message ?? 'PIN incorrecto');
-        autorizadoPor = da.usuarioId;
+        autorizacionToken = da.token;
       }
-      const d = await post({ accion: 'conteo-finalizar', conteoId: activo.id, autorizadoPor });
+      const d = await post({ accion: 'conteo-finalizar', conteoId: activo.id, autorizacionToken });
       setResultado(d);
       setActivo(null);
       setPin('');
