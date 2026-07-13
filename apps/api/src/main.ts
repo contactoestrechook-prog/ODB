@@ -6,6 +6,10 @@ import { AppModule } from './app.module';
 async function bootstrap() {
   // rawBody: necesario para validar la firma HMAC de los webhooks (Didit, etc.)
   const app = await NestFactory.create<NestExpressApplication>(AppModule, { rawBody: true });
+  // detrás del proxy de Railway: sin esto, req.ip siempre da la IP interna
+  // del proxy (igual para todos los clientes) y cualquier rate-limit por IP
+  // terminaría limitando a todo el mundo junto en vez de a cada uno.
+  app.set('trust proxy', 1);
   app.use(compression());
   // listas de proveedor pueden subirse como archivo (PDF/imagen) en base64
   app.useBodyParser('json', { limit: '25mb' });

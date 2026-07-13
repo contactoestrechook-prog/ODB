@@ -311,6 +311,13 @@ export class PedidosService {
     destino?: { direccion?: string; lat?: number; lng?: number };
   }) {
     if (!p.items?.length) throw new BadRequestException('El pedido está vacío');
+    // tope del canal self-checkout: es venta minorista, no mayorista — un
+    // pedido "real" de un cliente no necesita cientos de renglones ni miles
+    // de unidades de un mismo producto (endpoint público, sin login).
+    const maxRenglonesApp = Number(process.env.ODB_APP_MAX_RENGLONES ?? 20);
+    if (p.items.length > maxRenglonesApp) {
+      throw new BadRequestException(`El pedido supera el máximo de renglones (${maxRenglonesApp})`);
+    }
     const domicilio = p.tipo === 'domicilio';
     if (domicilio && !p.destino?.direccion?.trim()) {
       throw new BadRequestException('Falta la dirección de entrega');
@@ -318,7 +325,7 @@ export class PedidosService {
     const items: { producto_id: string; cantidad: number }[] = [];
     for (const i of p.items) {
       const cant = Number(i.cantidad);
-      if (!Number.isFinite(cant) || cant <= 0 || cant > 1000) {
+      if (!Number.isFinite(cant) || cant <= 0 || cant > 50) {
         throw new BadRequestException(`Cantidad inválida para ${i.sku}`);
       }
       const { data } = await this.db.from('productos').select('id').eq('sku', i.sku).maybeSingle();

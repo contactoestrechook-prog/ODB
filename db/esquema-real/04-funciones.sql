@@ -666,8 +666,8 @@ begin
     end if;
   end if;
 
-  insert into pedidos (canal, sucursal_id, cliente_id, estado, total, qr_retiro)
-  values (p_canal, p_sucursal, v_cliente, 'recibido', 0, p_qr_retiro)
+  insert into pedidos (canal, sucursal_id, cliente_id, estado, total, qr_retiro, reserva_stock)
+  values (p_canal, p_sucursal, v_cliente, 'recibido', 0, p_qr_retiro, coalesce(p_reservar, true))
   returning id into v_pedido;
 
   for v_item in

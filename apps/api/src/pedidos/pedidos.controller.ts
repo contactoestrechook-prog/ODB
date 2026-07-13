@@ -1,9 +1,15 @@
-import { Body, Controller, Get, Header, Headers, Param, Patch, Post, Query, Req, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Header, Headers, Param, Patch, Post, Query, Req, UnauthorizedException } from '@nestjs/common';
 import { timingSafeEqual } from 'crypto';
 import { JwtService } from '@nestjs/jwt';
 import { PedidosService } from './pedidos.service';
 import type { PedidoYaPayload } from './pedidos.service';
 import { Publico, Roles } from '../auth/decorators';
+import { LimitadorTasa } from '../comun/limitador';
+
+// POST /app/pedidos es público (guest checkout de la app del cliente, sin
+// login) y reserva stock real: sin límite, cualquiera podría bombardearlo
+// para bloquear stock de productos ajenos. Tope bajo por IP.
+const limitadorPedidosApp = new LimitadorTasa(Number(process.env.ODB_APP_PEDIDOS_HORA ?? 6), 3_600_000);
 
 @Controller()
 export class PedidosController {
@@ -98,13 +104,18 @@ export class PedidosController {
   }
 
   // --- Endpoints públicos para la app del cliente ---
-  // TODO(produccion): rate limit + auth de cliente (hoy el id del pedido es la credencial)
+  // Guest checkout intencional (sin login obligatorio); el límite por IP es
+  // la defensa contra bombardeo automatizado que reserve stock ajeno.
   @Publico()
   @Post('app/pedidos')
   async crearDesdeApp(
     @Body() body: { tipo?: 'pickup' | 'domicilio'; items: { sku: string; cantidad: number }[]; dni?: string; destino?: any },
     @Headers('authorization') auth?: string,
+    @Req() req?: any,
   ) {
+    if (limitadorPedidosApp.superaLimite(req?.ip ?? 'sin-ip')) {
+      throw new BadRequestException('Demasiados pedidos desde esta conexión. Probá de nuevo en un rato.');
+    }
     const clienteId = await this.clienteDeToken(auth);
     return this.pedidos.crearDesdeApp({ ...body, clienteId });
   }
