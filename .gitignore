@@ -10,3 +10,5 @@ reporte.csv
 # config local de tooling
 .claude/
 coverage/
+# certificado digital de ARCA/AFIP: clave privada, nunca al repo
+arca-cert/
