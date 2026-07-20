@@ -769,6 +769,33 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string 
       });
       if (autoPrint) imprimir(t);
       limpiarVenta();
+    } else if (/debajo del costo/i.test(datos.message ?? '')) {
+      // Guardarraíl de precio: la venta quedaría por debajo del costo. Un
+      // supervisor puede autorizarla (liquidación real) tecleando su PIN; se
+      // reintenta con el MISMO ventaId, así no hay riesgo de duplicar.
+      const pin = window.prompt(`${datos.message}\n\nPIN de supervisor para autorizar la venta bajo costo (o Cancelar):`);
+      if (pin && pin.trim()) {
+        try {
+          const aut = await autorizarPin(pin.trim());
+          const res2 = await fetch('/api/venta', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...body, autorizacionToken: aut.token }),
+          });
+          const d2 = await res2.json().catch(() => ({}));
+          if (res2.ok) {
+            setEstado({ tipo: 'ok', texto: `✓ Venta autorizada por ${aut.nombre} · ${pesos(d2.total)}` });
+            if (autoPrint) imprimir(armarTicket({ items: itemsLocales, total: Number(d2.total ?? totalFinal), descuento: Number(d2.descuento ?? 0) }, {}));
+            limpiarVenta();
+          } else {
+            setEstado({ tipo: 'error', texto: d2.message ?? 'No se pudo registrar la venta' });
+          }
+        } catch (e) {
+          setEstado({ tipo: 'error', texto: e instanceof Error ? e.message : 'PIN incorrecto' });
+        }
+      } else {
+        setEstado({ tipo: 'error', texto: 'Venta cancelada (precio por debajo del costo)' });
+      }
     } else {
       setEstado({ tipo: 'error', texto: datos.message ?? 'No se pudo registrar la venta' });
     }

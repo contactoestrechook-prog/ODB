@@ -82,10 +82,12 @@ export class VentasService {
       .reduce((s, p) => s + Number(p.monto), 0);
     if (montoCtaCte > 0) await this.validarCtaCte(dto.clienteDni, montoCtaCte);
 
-    // Descuento manual: si no vino ya autorizado por el propio gerente/dueño
-    // (VentasController), el cajero necesita un token de PIN de un solo uso.
+    // Autorización de supervisor (PIN de un solo uso): habilita tanto el
+    // descuento manual como forzar una venta por debajo del costo (liquidación
+    // real). Si no vino ya autorizado por el propio gerente/dueño, se consume
+    // el token cuando esté presente.
     let autorizadoPor = dto.autorizadoPor;
-    if (!autorizadoPor && (dto.descuentoExtra ?? 0) > 0 && dto.autorizacionToken) {
+    if (!autorizadoPor && dto.autorizacionToken) {
       const auth = await this.caja.consumirAutorizacion(dto.autorizacionToken);
       autorizadoPor = auth?.usuarioId;
     }

@@ -1756,7 +1756,7 @@ declare
   v_mayorista boolean := coalesce(p_mayorista, false);
   v_medio text; v_item record; v_pv record; v_pago record;
   v_subtotal numeric := 0; v_total numeric := 0; v_suma_pagos numeric := 0;
-  v_tipo_cliente tipo_cliente; v_pto_venta int;
+  v_tipo_cliente tipo_cliente; v_pto_venta int; v_costo numeric;
 begin
   if exists (select 1 from ventas where id = v_id) then
     return jsonb_build_object('venta_id', v_id, 'duplicada', true);
@@ -1786,6 +1786,14 @@ begin
     if v_item.cantidad <= 0 then raise exception 'Cantidad invalida'; end if;
     select * into v_pv from precio_vigente(v_item.producto_id, now(), v_segmento, v_medio, v_verificado, v_mayorista);
     if v_pv.precio_lista is null then raise exception 'El producto % no tiene precio de lista', v_item.producto_id; end if;
+    -- Guardarraíl: no vender por debajo del costo salvo autorización de
+    -- supervisor (protege contra precios legacy mal cargados; una liquidación
+    -- real se autoriza con PIN). Solo aplica si el producto tiene costo cargado.
+    select costo into v_costo from productos where id = v_item.producto_id;
+    if coalesce(v_costo, 0) > 0 and v_pv.precio_final < v_costo and p_autorizado_por is null then
+      raise exception 'El producto % se estaria vendiendo por debajo del costo (precio % < costo %). Requiere autorizacion de un supervisor (PIN).',
+        v_item.producto_id, round(v_pv.precio_final, 2), v_costo;
+    end if;
     insert into ventas_items (venta_id, producto_id, cantidad, precio_unitario, costo_unitario, promocion_id)
     select v_id, v_item.producto_id, v_item.cantidad, round(v_pv.precio_final, 2), p.costo, null from productos p where p.id = v_item.producto_id;
     v_subtotal := v_subtotal + round(v_item.cantidad * v_pv.precio_lista, 2);
