@@ -26,6 +26,7 @@ function dbFalsa(pedido: any) {
       let res: any = { data: null, error: null };
       if (name === 'precio_vigente') res = { data: { precio_final: 100 }, error: null };
       if (name === 'registrar_venta') res = { data: { venta_id: 'v-1' }, error: null };
+      if (name === 'entregar_pedido') res = { data: { pedido_id: 'p-1', venta_id: 'v-1', estado: 'entregado', venta: { venta_id: 'v-1' } }, error: null };
       return Object.assign(Promise.resolve(res), { maybeSingle: () => Promise.resolve(res) });
     },
   };
@@ -67,29 +68,43 @@ describe('PedidosService.avanzar (reserva de stock: solo libera lo que realmente
     expect(mov?.args).toMatchObject({ p_tipo: 'liberacion_reserva', p_cantidad: 2 });
   });
 
-  it('reserva_stock=false + entregado: registra la venta pero NO libera reserva (nada que liberar)', async () => {
-    const { db, rpcCalls } = dbFalsa(pedidoBase({ estado: 'listo', reserva_stock: false }));
-    const svc = new PedidosService(db, { aCliente: jest.fn() } as any);
-    await svc.avanzar('p-1', 'entregado');
-    expect(rpcCalls.find((c) => c.name === 'registrar_movimiento')).toBeUndefined();
-    expect(rpcCalls.find((c) => c.name === 'registrar_venta')).toBeDefined();
-  });
-
-  it('reserva_stock=true + entregado: libera la reserva Y registra la venta (neto = -cantidad del stock original)', async () => {
+  // La entrega (liberar reserva + registrar venta + cambiar estado) es atómica:
+  // vive entera en la RPC entregar_pedido (una transacción, lock de fila,
+  // idempotente). Desde el service alcanza con verificar que delega en ella y
+  // NO hace las escrituras sueltas del diseño viejo (que podían dejar stock
+  // fantasma si el proceso se cortaba a mitad de camino).
+  it('entregar delega en la RPC atómica entregar_pedido, no en escrituras sueltas', async () => {
     const { db, rpcCalls } = dbFalsa(pedidoBase({ estado: 'listo', reserva_stock: true }));
     const svc = new PedidosService(db, { aCliente: jest.fn() } as any);
-    await svc.avanzar('p-1', 'entregado');
-    expect(rpcCalls.find((c) => c.name === 'registrar_movimiento' && c.args.p_tipo === 'liberacion_reserva')).toBeDefined();
-    expect(rpcCalls.find((c) => c.name === 'registrar_venta')).toBeDefined();
+    const r = await svc.avanzar('p-1', 'entregado', 'user-1');
+    const entregar = rpcCalls.find((c) => c.name === 'entregar_pedido');
+    expect(entregar?.args).toMatchObject({ p_pedido: 'p-1', p_usuario: 'user-1' });
+    // el service NO libera reserva ni registra la venta por su cuenta: eso ya
+    // lo hace la RPC dentro de la transacción
+    expect(rpcCalls.find((c) => c.name === 'registrar_movimiento')).toBeUndefined();
+    expect(rpcCalls.find((c) => c.name === 'registrar_venta')).toBeUndefined();
+    expect((r as any).venta).toMatchObject({ venta_id: 'v-1' });
   });
 
-  it('reintento de avanzar a entregado reusa el mismo venta_id (idempotencia)', async () => {
-    const { db, rpcCalls, updates } = dbFalsa(pedidoBase({ estado: 'listo', reserva_stock: false, venta_id: 'ya-reservado' }));
+  it('si la RPC de entrega falla, avanzar propaga el error (no deja el pedido a medias)', async () => {
+    const pedido = pedidoBase({ estado: 'listo', reserva_stock: true });
+    const rpcCalls: any[] = [];
+    const q: any = {
+      select: () => q, eq: () => q,
+      single: () => Promise.resolve({ data: pedido, error: null }),
+      update: () => ({ eq: () => Promise.resolve({ error: null }) }),
+    };
+    const db: any = {
+      from: () => q,
+      rpc: (name: string, args: any) => {
+        rpcCalls.push({ name, args });
+        const res = name === 'entregar_pedido'
+          ? { data: null, error: { message: 'Stock insuficiente' } }
+          : { data: null, error: null };
+        return Object.assign(Promise.resolve(res), { maybeSingle: () => Promise.resolve(res) });
+      },
+    };
     const svc = new PedidosService(db, { aCliente: jest.fn() } as any);
-    await svc.avanzar('p-1', 'entregado');
-    // no debe reservar un venta_id nuevo si el pedido ya tenía uno persistido
-    expect(updates.find((u) => 'venta_id' in u)).toBeUndefined();
-    const venta = rpcCalls.find((c) => c.name === 'registrar_venta');
-    expect(venta?.args.p_venta_id).toBe('ya-reservado');
+    await expect(svc.avanzar('p-1', 'entregado')).rejects.toThrow(/Stock insuficiente/);
   });
 });

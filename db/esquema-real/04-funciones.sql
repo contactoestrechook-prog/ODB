@@ -22,9 +22,14 @@ begin
   if exists (select 1 from sesiones_caja where caja_id = p_caja and cerrada_en is null) then
     raise exception 'La caja ya tiene una sesión abierta';
   end if;
-  insert into sesiones_caja (caja_id, usuario_id, monto_inicial)
-  values (p_caja, p_usuario, p_monto_inicial)
-  returning id into v_id;
+  -- el índice único ux_sesiones_caja_abierta corta la carrera concurrente
+  begin
+    insert into sesiones_caja (caja_id, usuario_id, monto_inicial)
+    values (p_caja, p_usuario, p_monto_inicial)
+    returning id into v_id;
+  exception when unique_violation then
+    raise exception 'La caja ya tiene una sesión abierta';
+  end;
   return v_id;
 end $function$
 ;
@@ -694,6 +699,73 @@ begin
 
   update pedidos set total = v_total where id = v_pedido;
   return jsonb_build_object('pedido_id', v_pedido, 'total', v_total);
+end $function$
+;
+
+-- Entrega atómica de un pedido: libera reserva + registra venta + cambia estado
+-- en UNA sola transacción, con lock de fila e idempotente por pedido (P0-04).
+CREATE OR REPLACE FUNCTION public.entregar_pedido(p_pedido uuid, p_usuario uuid DEFAULT NULL::uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+  v_pedido pedidos%rowtype;
+  v_item record;
+  v_medio text;
+  v_segmento tipo_cliente;
+  v_verificado boolean := false;
+  v_dni text;
+  v_total numeric := 0;
+  v_pv record;
+  v_venta_id uuid;
+  v_venta jsonb;
+begin
+  select * into v_pedido from pedidos where id = p_pedido for update;
+  if not found then raise exception 'No existe el pedido'; end if;
+
+  if v_pedido.estado = 'entregado' and v_pedido.venta_id is not null then
+    return jsonb_build_object('pedido_id', p_pedido, 'venta_id', v_pedido.venta_id, 'estado', 'entregado', 'duplicada', true);
+  end if;
+  if v_pedido.estado not in ('listo', 'en_camino') then
+    raise exception 'Transicion invalida: % -> entregado', v_pedido.estado;
+  end if;
+
+  if v_pedido.cliente_id is not null then
+    select tipo, verificado, dni into v_segmento, v_verificado, v_dni
+    from clientes where id = v_pedido.cliente_id;
+  end if;
+
+  v_medio := case when v_pedido.qr_retiro like 'PY-%' then 'pedidosya' else 'mercadopago' end;
+  v_venta_id := coalesce(v_pedido.venta_id, gen_random_uuid());
+
+  for v_item in
+    select producto_id, cantidad from pedidos_items where pedido_id = p_pedido
+  loop
+    if v_pedido.reserva_stock then
+      perform registrar_movimiento(
+        v_item.producto_id, v_pedido.sucursal_id, 'liberacion_reserva', v_item.cantidad,
+        null, 'pedido', p_pedido::text, p_usuario);
+    end if;
+    select * into v_pv from precio_vigente(v_item.producto_id, now(), v_segmento, v_medio, v_verificado, false);
+    v_total := v_total + round(v_item.cantidad * coalesce(v_pv.precio_final, 0), 2);
+  end loop;
+
+  perform liberar_estacionamiento(p_pedido);
+
+  v_venta := registrar_venta(
+    v_pedido.sucursal_id,
+    (select coalesce(jsonb_agg(jsonb_build_object('producto_id', producto_id, 'cantidad', cantidad)), '[]'::jsonb)
+       from pedidos_items where pedido_id = p_pedido),
+    jsonb_build_array(jsonb_build_object('medio', v_medio, 'monto', v_total)),
+    v_pedido.canal, v_dni, null, p_usuario, v_venta_id, 0, null, false);
+
+  update pedidos
+    set estado = 'entregado', venta_id = v_venta_id, entregado_en = now(), entregado_por = p_usuario
+    where id = p_pedido;
+
+  return jsonb_build_object('pedido_id', p_pedido, 'venta_id', v_venta_id, 'estado', 'entregado', 'total', v_total, 'venta', v_venta);
 end $function$
 ;
 

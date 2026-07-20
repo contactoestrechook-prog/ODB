@@ -71,3 +71,5 @@ CREATE INDEX ventas_sucursal_id_vendida_en_idx ON public.ventas USING btree (suc
 CREATE INDEX ventas_vendida_en_desc ON public.ventas USING btree (vendida_en DESC);
 CREATE INDEX ventas_items_producto ON public.ventas_items USING btree (producto_id);
 CREATE INDEX ventas_items_venta ON public.ventas_items USING btree (venta_id);
+-- Solo una sesión de caja abierta por caja (P1-04: corta apertura concurrente)
+CREATE UNIQUE INDEX ux_sesiones_caja_abierta ON public.sesiones_caja USING btree (caja_id) WHERE (cerrada_en IS NULL);

@@ -31,7 +31,19 @@ export class CajaService {
     return { sesionId: data };
   }
 
-  async cerrar(sesionId: string, montoCierre: number) {
+  // usuarioId/rol: un cajero solo puede cerrar SU sesión; gerencia cierra cualquiera.
+  async cerrar(sesionId: string, montoCierre: number, usuarioId?: string, rol?: string) {
+    if (rol === 'cajero') {
+      const { data: sesion } = await this.db
+        .from('sesiones_caja')
+        .select('usuario_id')
+        .eq('id', sesionId)
+        .maybeSingle();
+      if (!sesion) throw new BadRequestException('No existe la sesión de caja');
+      if (sesion.usuario_id !== usuarioId) {
+        throw new BadRequestException('Solo podés cerrar tu propia caja (pedile a un supervisor para cerrar la de otro)');
+      }
+    }
     const { data, error } = await this.db.rpc('cerrar_sesion_caja', {
       p_sesion: sesionId,
       p_monto_cierre: montoCierre,

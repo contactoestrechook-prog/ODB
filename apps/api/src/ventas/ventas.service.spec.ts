@@ -171,4 +171,37 @@ describe('VentasService.registrar', () => {
     expect(args.p_descuento_extra).toBe(10);
     expect(args.p_autorizado_por).toBe('sup-1');
   });
+
+  // P0-05: si la venta entra por una caja abierta, la sucursal SIEMPRE se deriva
+  // de la sesión (no del sucursalId del cliente): no se puede cobrar en la caja
+  // de una sucursal y descontar stock de la otra.
+  it('con sesión de caja: la sucursal se deriva de la sesión, no del dto', async () => {
+    const { svc, llamadas } = servicio({
+      rpc: rpcVentaOk,
+      tablas: { ...tablasBase, sesiones_caja: { cerrada_en: null, caja: { sucursal_id: 'suc-REAL' } } },
+    });
+    await svc.registrar({ ...dtoBase, sucursalId: 'suc-REAL', sesionCajaId: 'ses-1' } as any);
+    const [, args] = llamadas.rpc.find(([fn]) => fn === 'registrar_venta')!;
+    expect(args.p_sucursal).toBe('suc-REAL');
+  });
+
+  it('rechaza si la caja abierta es de otra sucursal (cobro cruzado)', async () => {
+    const { svc } = servicio({
+      rpc: rpcVentaOk,
+      tablas: { ...tablasBase, sesiones_caja: { cerrada_en: null, caja: { sucursal_id: 'suc-A' } } },
+    });
+    await expect(
+      svc.registrar({ ...dtoBase, sucursalId: 'suc-B', sesionCajaId: 'ses-1' } as any),
+    ).rejects.toThrow(/otra sucursal/);
+  });
+
+  it('rechaza si la sesión de caja está cerrada', async () => {
+    const { svc } = servicio({
+      rpc: rpcVentaOk,
+      tablas: { ...tablasBase, sesiones_caja: { cerrada_en: '2026-07-01', caja: { sucursal_id: 'suc-1' } } },
+    });
+    await expect(
+      svc.registrar({ ...dtoBase, sesionCajaId: 'ses-1' } as any),
+    ).rejects.toThrow(/cerrada/);
+  });
 });

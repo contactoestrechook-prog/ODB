@@ -48,6 +48,26 @@ export class VentasService {
   ) {}
 
   async registrar(dto: CrearVentaDto) {
+    // Si la venta entra por una caja abierta, la sucursal SIEMPRE se deriva de
+    // la sesión (no del sucursalId que manda el cliente): así no se puede
+    // cobrar en la caja de una sucursal y descontar stock de la otra. Además
+    // valida que la sesión exista y esté abierta.
+    let sucursalId = dto.sucursalId;
+    if (dto.sesionCajaId) {
+      const { data: sesion } = await this.db
+        .from('sesiones_caja')
+        .select('cerrada_en, caja:cajas(sucursal_id)')
+        .eq('id', dto.sesionCajaId)
+        .maybeSingle();
+      if (!sesion) throw new BadRequestException('No existe la sesión de caja');
+      if (sesion.cerrada_en) throw new BadRequestException('La sesión de caja está cerrada');
+      const sucursalSesion = (sesion.caja as any)?.sucursal_id;
+      if (sucursalSesion && dto.sucursalId && sucursalSesion !== dto.sucursalId) {
+        throw new BadRequestException('La caja abierta pertenece a otra sucursal');
+      }
+      sucursalId = sucursalSesion ?? dto.sucursalId;
+    }
+
     const items = await Promise.all(
       (dto.items ?? []).map(async (i) => ({
         producto_id: await this.productoIdPorSku(i.sku),
@@ -71,7 +91,7 @@ export class VentasService {
     }
 
     const { data, error } = await this.db.rpc('registrar_venta', {
-      p_sucursal: dto.sucursalId,
+      p_sucursal: sucursalId,
       p_items: items,
       p_pagos: dto.pagos,
       p_canal: dto.canal ?? 'mostrador',
@@ -94,7 +114,7 @@ export class VentasService {
 
     if (dto.comprobante) {
       try {
-        venta.comprobante = await this.emitirComprobanteVenta(dto, venta.venta_id, montoCtaCte > 0);
+        venta.comprobante = await this.emitirComprobanteVenta({ ...dto, sucursalId }, venta.venta_id, montoCtaCte > 0);
       } catch (e) {
         // la venta ya está registrada y el stock movido: no se revierte por un
         // fallo de numeración. El comprobante puede emitirse desde Facturación.

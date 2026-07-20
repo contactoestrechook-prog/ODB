@@ -1,7 +1,6 @@
 import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
-import { randomUUID } from 'node:crypto';
 import { SUPABASE } from '../supabase.provider';
 import { NotificarService } from '../mensajes/notificar.service';
 import { transicionValida, liberaReserva } from './transiciones';
@@ -554,14 +553,22 @@ export class PedidosService {
       throw new BadRequestException(`Transición inválida: ${pedido.estado} → ${estado}`);
     }
 
-    if (liberaReserva(estado)) {
-      // Solo se libera stock si el pedido realmente lo reservó al crearse
-      // (crear_pedido con p_reservar=true). Los pedidos "a pedido" —
-      // PedidosYa, Tienda Nube, WhatsApp manual (canal web/whatsapp) — nunca
-      // descontaron stock, así que "liberar" acá sumaría stock fantasma al
-      // cancelar, o neutralizaría el descuento real al entregar (ver
-      // registrar_venta más abajo, que si descuenta de verdad).
-      if (pedido.reserva_stock) {
+    // ENTREGAR es la operación crítica: liberar reserva + registrar venta +
+    // cambiar estado tienen que ser atómicos. Todo eso vive ahora en la RPC
+    // entregar_pedido (una sola transacción, con lock de fila e idempotente),
+    // así un corte a mitad de camino no deja stock fantasma ni venta doble.
+    let venta: any = null;
+    if (estado === 'entregado') {
+      const { data, error: errEntregar } = await this.db.rpc('entregar_pedido', {
+        p_pedido: pedidoId,
+        p_usuario: usuarioId ?? null,
+      });
+      if (errEntregar) throw new BadRequestException(errEntregar.message);
+      venta = (data as any)?.venta ?? data;
+    } else {
+      // Resto de los estados: cambio simple + (si es terminal) liberación de
+      // reserva. 'cancelado' no genera venta, así que no necesita la RPC.
+      if (liberaReserva(estado) && pedido.reserva_stock) {
         for (const item of pedido.items as any[]) {
           const { error: errMov } = await this.db.rpc('registrar_movimiento', {
             p_producto_id: item.producto_id,
@@ -575,77 +582,24 @@ export class PedidosService {
           if (errMov) throw new BadRequestException(errMov.message);
         }
       }
-      // libera el estacionamiento que tuviera reservado (no depende de si hubo reserva de stock)
-      await this.db.rpc('liberar_estacionamiento', { p_pedido: pedidoId });
-    }
-
-    let venta: any = null;
-    let ventaId: string | null = pedido.venta_id ?? null;
-    if (estado === 'entregado') {
-      // Id de venta estable, reservado en el pedido ANTES de llamar a
-      // registrar_venta (no después): si el proceso se corta entre el RPC y
-      // el UPDATE de estado de más abajo, un reintento de avanzar() relee
-      // este mismo venta_id y registrar_venta lo detecta como duplicado, en
-      // vez de cobrar y descontar stock dos veces.
-      if (!ventaId) {
-        ventaId = randomUUID();
-        const { error: errReserva } = await this.db.from('pedidos').update({ venta_id: ventaId }).eq('id', pedidoId);
-        if (errReserva) throw new BadRequestException(errReserva.message);
+      if (liberaReserva(estado)) {
+        await this.db.rpc('liberar_estacionamiento', { p_pedido: pedidoId });
       }
-      const esPY = pedido.qr_retiro?.startsWith('PY-');
-      const medio = esPY ? 'pedidosya' : 'mercadopago';
-      // mismo cálculo que hará registrar_venta (segmento + medio) para que el pago cierre exacto
-      let monto = 0;
-      for (const item of pedido.items as any[]) {
-        const base = {
-          p_producto_id: item.producto_id,
-          p_fecha: new Date().toISOString(),
-          p_segmento: pedido.cliente?.tipo ?? null,
-          p_medio_pago: medio,
-        };
-        // intenta con la dimensión Comunidad; si la migración no corrió, cae al formato viejo
-        let { data: pv, error: errPv } = await this.db
-          .rpc('precio_vigente', { ...base, p_verificado: pedido.cliente?.verificado === true })
-          .maybeSingle();
-        if (errPv) {
-          ({ data: pv } = await this.db.rpc('precio_vigente', base).maybeSingle());
-        }
-        monto += Math.round(Number(item.cantidad) * Number((pv as any)?.precio_final ?? 0) * 100) / 100;
-      }
-      const { data, error: errVenta } = await this.db.rpc('registrar_venta', {
-        p_sucursal: pedido.sucursal_id,
-        p_items: (pedido.items as any[]).map((i) => ({
-          producto_id: i.producto_id,
-          cantidad: Number(i.cantidad),
-        })),
-        p_pagos: [{ medio, monto: Math.round(monto * 100) / 100 }],
-        p_canal: pedido.canal,
-        p_cliente_dni: pedido.cliente?.dni ?? null,
-        p_usuario: usuarioId ?? null,
-        p_venta_id: ventaId,
-      });
-      if (errVenta) throw new BadRequestException(errVenta.message);
-      venta = data;
-    }
 
-    const ahora = new Date().toISOString();
-    const { error: errUpdate } = await this.db
-      .from('pedidos')
-      .update({
-        estado,
-        // cronometraje + responsable de cada etapa (eficiencia por empleado)
-        preparacion_en: estado === 'en_preparacion' ? ahora : pedido.preparacion_en,
-        preparado_por: estado === 'en_preparacion' ? (usuarioId ?? pedido.preparado_por) : pedido.preparado_por,
-        listo_en: estado === 'listo' ? ahora : pedido.listo_en,
-        en_camino_en: estado === 'en_camino' ? ahora : pedido.en_camino_en,
-        entregado_en: estado === 'entregado' ? ahora : pedido.entregado_en,
-        entregado_por: estado === 'entregado' ? (usuarioId ?? null) : pedido.entregado_por,
-      })
-      .eq('id', pedidoId);
-    // Si esto falla habiendo ya una venta registrada, no queda oculto: el
-    // caller se entera y puede reintentar avanzar() sin riesgo de duplicar
-    // (venta_id ya quedó reservado arriba).
-    if (errUpdate) throw new BadRequestException(errUpdate.message);
+      const ahora = new Date().toISOString();
+      const { error: errUpdate } = await this.db
+        .from('pedidos')
+        .update({
+          estado,
+          // cronometraje + responsable de cada etapa (eficiencia por empleado)
+          preparacion_en: estado === 'en_preparacion' ? ahora : pedido.preparacion_en,
+          preparado_por: estado === 'en_preparacion' ? (usuarioId ?? pedido.preparado_por) : pedido.preparado_por,
+          listo_en: estado === 'listo' ? ahora : pedido.listo_en,
+          en_camino_en: estado === 'en_camino' ? ahora : pedido.en_camino_en,
+        })
+        .eq('id', pedidoId);
+      if (errUpdate) throw new BadRequestException(errUpdate.message);
+    }
 
     // aviso al cliente por WhatsApp (lo envía n8n; acá solo se dispara el evento)
     this.notificarWhatsApp(pedido, estado).catch((e) =>

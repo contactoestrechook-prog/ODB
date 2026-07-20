@@ -22,8 +22,10 @@ export class VentasController {
         throw new ForbiddenException('El descuento manual requiere autorización de un supervisor (PIN)');
       }
     }
-    // la venta queda a nombre del cajero logueado (auditoría y arqueo por cajero)
-    return this.ventas.registrar({ ...dto, autorizadoPor, usuarioId: dto.usuarioId ?? req.usuario?.sub });
+    // la venta queda a nombre del cajero logueado, SIEMPRE tomado del JWT
+    // (nunca del usuarioId del body: si no, un cajero podría atribuir su venta
+    // a otro empleado y ensuciar el arqueo por cajero).
+    return this.ventas.registrar({ ...dto, autorizadoPor, usuarioId: req.usuario?.sub });
   }
 
   @Roles('cajero', 'gerente', 'dueno')

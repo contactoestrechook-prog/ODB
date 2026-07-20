@@ -31,14 +31,18 @@ export class CajaController {
   @Roles('cajero', 'gerente', 'dueno')
   @Post('caja/abrir')
   abrir(@Body() body: { cajaId: string; montoInicial: number; empleadoId?: string }, @Req() req: any) {
-    // la caja se abre a nombre del empleado que la toma (o el usuario logueado)
-    return this.caja.abrir(body.cajaId, Number(body.montoInicial), body.empleadoId || req.usuario.sub);
+    // La caja se abre a nombre del usuario logueado. Solo gerencia puede abrirla
+    // a nombre de otro empleado (turno que arranca alguien más); un cajero no
+    // puede endosar su caja a un tercero.
+    const rol = req.usuario?.rol;
+    const empleadoId = (rol !== 'cajero' && body.empleadoId) ? body.empleadoId : req.usuario.sub;
+    return this.caja.abrir(body.cajaId, Number(body.montoInicial), empleadoId);
   }
 
   @Roles('cajero', 'gerente', 'dueno')
   @Post('caja/cerrar')
-  cerrar(@Body() body: { sesionId: string; montoCierre: number }) {
-    return this.caja.cerrar(body.sesionId, Number(body.montoCierre));
+  cerrar(@Body() body: { sesionId: string; montoCierre: number }, @Req() req: any) {
+    return this.caja.cerrar(body.sesionId, Number(body.montoCierre), req.usuario?.sub, req.usuario?.rol);
   }
 
   @Roles('cajero', 'gerente', 'dueno')
