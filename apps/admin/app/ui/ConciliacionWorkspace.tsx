@@ -9,9 +9,9 @@ const hoy = () => new Date().toISOString().slice(0, 10);
 const MEDIO: Record<string, string> = { mercadopago: 'Mercado Pago', tarjeta: 'Tarjeta' };
 const input = 'w-full rounded-lg border border-black/15 px-3 py-2.5 text-sm text-black focus:border-[#B82D25] focus:outline-none';
 
-const TABS = [['pendientes', 'Por acreditar'], ['acreditadas', 'Acreditadas'], ['comisiones', 'Comisiones']] as const;
+const TABS = [['pendientes', 'Por acreditar'], ['acreditadas', 'Acreditadas']] as const;
 
-export function ConciliacionWorkspace({ resumen, pendientes, comisiones }: { resumen: any; pendientes: any[]; comisiones: any[] }) {
+export function ConciliacionWorkspace({ resumen, pendientes }: { resumen: any; pendientes: any[] }) {
   const router = useRouter();
   const [tab, setTab] = useState('pendientes');
   const [modal, setModal] = useState<any>(null);
@@ -43,13 +43,12 @@ export function ConciliacionWorkspace({ resumen, pendientes, comisiones }: { res
   return (
     <div className="space-y-5">
       {/* KPIs */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
           ['Por acreditar', pesos(resumen?.porAcreditar), resumen?.porAcreditar > 0 ? 'text-[#B82D25]' : ''],
           ['Pendientes', resumen?.pendientes ?? 0],
           ['Atrasadas', resumen?.atrasadas ?? 0, resumen?.atrasadas > 0 ? 'text-amber-600' : ''],
           ['Acreditado (mes)', pesos(resumen?.acreditadoMes)],
-          ['Comisión (mes)', pesos(resumen?.comisionMes), 'text-[#932A1F]'],
         ].map(([l, v, c]: any) => (
           <div key={l} className="rounded-xl bg-white p-3.5 border border-black/[0.04]">
             <p className={`text-lg font-semibold leading-none ${c || 'text-black'}`}>{v}</p>
@@ -65,7 +64,7 @@ export function ConciliacionWorkspace({ resumen, pendientes, comisiones }: { res
             <div key={m.medio} className="rounded-xl bg-white p-4 border border-black/[0.04] flex items-center justify-between">
               <div>
                 <p className="font-medium text-black">{MEDIO[m.medio] ?? m.medio}</p>
-                <p className="text-xs text-black/45 mt-0.5">{m.pendientes} por acreditar · comisión est. {pesos(m.comision_pendiente)}</p>
+                <p className="text-xs text-black/45 mt-0.5">{m.pendientes} por acreditar</p>
               </div>
               <p className="text-base font-semibold text-black">{pesos(m.por_acreditar)}</p>
             </div>
@@ -96,8 +95,8 @@ export function ConciliacionWorkspace({ resumen, pendientes, comisiones }: { res
               <table className="w-full text-sm text-black">
                 <thead><tr className="text-left text-xs text-black/50 border-b border-black/5">
                   <th className="px-4 py-2 font-medium">Medio</th><th className="px-4 py-2 font-medium">Venta</th>
-                  <th className="px-4 py-2 font-medium text-right">Bruto</th><th className="px-4 py-2 font-medium text-right">Comisión est.</th>
-                  <th className="px-4 py-2 font-medium text-right">Neto est.</th><th className="px-4 py-2 font-medium text-right">Acredita</th><th className="px-4 py-2"></th>
+                  <th className="px-4 py-2 font-medium text-right">Bruto</th>
+                  <th className="px-4 py-2 font-medium text-right">Acredita</th><th className="px-4 py-2"></th>
                 </tr></thead>
                 <tbody>
                   {pendientes.map((a) => {
@@ -106,9 +105,7 @@ export function ConciliacionWorkspace({ resumen, pendientes, comisiones }: { res
                       <tr key={a.id} className="border-b border-black/5 last:border-0">
                         <td className="px-4 py-3"><span className={`text-[11px] rounded-full px-2.5 py-0.5 ${a.medio === 'mercadopago' ? 'bg-sky-100 text-sky-800' : 'bg-violet-100 text-violet-800'}`}>{MEDIO[a.medio] ?? a.medio}</span></td>
                         <td className="px-4 py-3 text-black/55 text-xs">{fecha(a.venta?.vendida_en ?? a.creado_en)}</td>
-                        <td className="px-4 py-3 text-right text-black/70">{pesos(a.bruto)}</td>
-                        <td className="px-4 py-3 text-right text-[#932A1F]">{pesos(a.comision_estimada)}</td>
-                        <td className="px-4 py-3 text-right font-medium">{pesos(a.neto_estimado)}</td>
+                        <td className="px-4 py-3 text-right font-medium">{pesos(a.bruto)}</td>
                         <td className={`px-4 py-3 text-right text-xs ${atrasada ? 'text-amber-600 font-medium' : 'text-black/55'}`}>{fecha(a.fecha_estimada)}{atrasada ? ' ⚠' : ''}</td>
                         <td className="px-4 py-3 text-right"><button onClick={() => setModal({ tipo: 'acreditar', a })} className="rounded-full bg-[#B82D25] text-white text-xs font-medium px-3 py-1.5 hover:bg-[#932A1F]">Acreditar</button></td>
                       </tr>
@@ -118,6 +115,7 @@ export function ConciliacionWorkspace({ resumen, pendientes, comisiones }: { res
               </table>
             )}
           </section>
+          <p className="text-xs text-black/45 px-1">La comisión real de Mercado Pago y tarjetas se carga sola al conciliar el extracto o al vincular el medio por API. Acá solo seguimos el bruto por acreditar.</p>
         </>
       )}
 
@@ -153,9 +151,6 @@ export function ConciliacionWorkspace({ resumen, pendientes, comisiones }: { res
         </section>
       )}
 
-      {/* COMISIONES (config) */}
-      {tab === 'comisiones' && <Comisiones comisiones={comisiones} />}
-
       {/* MODAL acreditar */}
       {modal?.tipo === 'acreditar' && (
         <Modal cerrar={() => setModal(null)}>
@@ -185,43 +180,6 @@ export function ConciliacionWorkspace({ resumen, pendientes, comisiones }: { res
         </Modal>
       )}
     </div>
-  );
-}
-
-function Comisiones({ comisiones }: { comisiones: any[] }) {
-  const router = useRouter();
-  const [aviso, setAviso] = useState('');
-  const guardar = async (medio: string) => {
-    setAviso('');
-    const comisionPct = Number((document.getElementById(`pct-${medio}`) as HTMLInputElement)?.value || 0);
-    const diasAcreditacion = Number((document.getElementById(`dias-${medio}`) as HTMLInputElement)?.value || 0);
-    const res = await fetch('/api/conciliacion', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ medio, comisionPct, diasAcreditacion }) });
-    const d = await res.json();
-    setAviso(res.ok ? `${MEDIO[medio]} actualizado.` : d.message ?? 'Error');
-    if (res.ok) router.refresh();
-  };
-  return (
-    <section className="rounded-xl bg-white p-5 space-y-4">
-      <div>
-        <h2 className="font-medium text-black">Comisiones y plazos por medio</h2>
-        <p className="text-xs text-black/50 mt-0.5">Se usan para estimar el neto a acreditar y la fecha esperada. El neto real lo confirmás al acreditar.</p>
-      </div>
-      {comisiones.map((c) => (
-        <div key={c.medio} className="flex flex-wrap items-end gap-3 border-t border-black/5 pt-4 first:border-0 first:pt-0">
-          <p className="font-medium text-black w-28">{MEDIO[c.medio] ?? c.medio}</p>
-          <div>
-            <label className="text-xs text-black/50 block mb-1">Comisión %</label>
-            <input id={`pct-${c.medio}`} type="number" step="0.01" defaultValue={c.comision_pct} className="w-24 rounded-lg border border-black/15 px-3 py-2 text-sm" />
-          </div>
-          <div>
-            <label className="text-xs text-black/50 block mb-1">Días a acreditar</label>
-            <input id={`dias-${c.medio}`} type="number" defaultValue={c.dias_acreditacion} className="w-24 rounded-lg border border-black/15 px-3 py-2 text-sm" />
-          </div>
-          <button onClick={() => guardar(c.medio)} className="rounded-full bg-[#B82D25] text-white text-sm font-medium px-5 py-2 hover:bg-[#932A1F]">Guardar</button>
-        </div>
-      ))}
-      {aviso && <p className="text-sm text-black/70">{aviso}</p>}
-    </section>
   );
 }
 

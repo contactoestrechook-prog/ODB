@@ -53,9 +53,13 @@ const facturacionFalsa = () => ({
   emitir: jest.fn().mockResolvedValue({ id: 'comp-1', tipo: 'FB', punto_venta: 1, numero: 7, total: 100 }),
 });
 
+const cajaFalsa = () => ({
+  consumirAutorizacion: jest.fn().mockResolvedValue({ ok: true }),
+});
+
 function servicio(r: Respuestas, fact = facturacionFalsa()) {
   const { db, llamadas } = dbFalsa(r);
-  const svc = new VentasService(db, fact as any);
+  const svc = new VentasService(db, fact as any, cajaFalsa() as any);
   return { svc, llamadas, fact, db };
 }
 
