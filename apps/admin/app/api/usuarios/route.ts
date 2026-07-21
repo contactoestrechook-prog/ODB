@@ -25,3 +25,10 @@ export async function PATCH(req: Request) {
   const { id, ...cambios } = await req.json().catch(() => ({}));
   return proxy('PATCH', `/usuarios/${id}`, cambios);
 }
+
+// eliminar: ?id=
+export async function DELETE(req: Request) {
+  const id = new URL(req.url).searchParams.get('id');
+  if (!id) return NextResponse.json({ message: 'Falta id' }, { status: 400 });
+  return proxy('DELETE', `/usuarios/${id}`);
+}

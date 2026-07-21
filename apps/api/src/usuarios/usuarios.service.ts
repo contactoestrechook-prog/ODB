@@ -11,6 +11,7 @@ export type CrearUsuarioDto = {
   sucursalId?: string | null;
   pin?: string;
   limiteAprobacion?: number;
+  telefono?: string;
 };
 
 export type EditarUsuarioDto = Partial<CrearUsuarioDto> & { activo?: boolean };
@@ -26,7 +27,7 @@ export class UsuariosService {
   async listar() {
     const { data, error } = await this.db
       .from('usuarios')
-      .select('id, nombre, email, rol, activo, limite_aprobacion, creado_en, pin_firma, sucursal:sucursales(id, nombre)')
+      .select('id, nombre, email, rol, activo, telefono, limite_aprobacion, creado_en, pin_firma, sucursal:sucursales(id, nombre)')
       .order('creado_en');
     if (error) throw new BadRequestException(error.message);
     return (data ?? []).map((u: any) => ({
@@ -35,6 +36,7 @@ export class UsuariosService {
       email: u.email,
       rol: u.rol,
       activo: u.activo,
+      telefono: u.telefono ?? null,
       limiteAprobacion: Number(u.limite_aprobacion ?? 0),
       tienePin: u.pin_firma != null,
       sucursal: u.sucursal ?? null,
@@ -59,6 +61,7 @@ export class UsuariosService {
         sucursal_id: dto.sucursalId || null,
         pin_firma: dto.pin ? hash(dto.pin) : null,
         limite_aprobacion: dto.limiteAprobacion ?? 0,
+        telefono: dto.telefono?.trim() || null,
       })
       .select('id')
       .single();
@@ -86,6 +89,7 @@ export class UsuariosService {
     if (dto.rol !== undefined) cambios.rol = dto.rol;
     if (dto.sucursalId !== undefined) cambios.sucursal_id = dto.sucursalId || null;
     if (dto.limiteAprobacion !== undefined) cambios.limite_aprobacion = dto.limiteAprobacion;
+    if (dto.telefono !== undefined) cambios.telefono = dto.telefono?.trim() || null;
     if (dto.activo !== undefined) cambios.activo = dto.activo;
     if (dto.clave) {
       if (dto.clave.length < 6) throw new BadRequestException('La clave debe tener al menos 6 caracteres');
@@ -102,6 +106,31 @@ export class UsuariosService {
     }
     await this.auditar(actor.sub, 'editar_usuario', id, { campos: Object.keys(cambios) });
     return { ok: true };
+  }
+
+  // Elimina un usuario. Si ya tiene historial (ventas, cajas, movimientos), no
+  // se puede borrar sin romper la trazabilidad contable: en ese caso se
+  // desactiva y se avisa. Solo se borra de verdad a un usuario "limpio".
+  async eliminar(id: string, actor: { sub: string; rol: string }) {
+    if (id === actor.sub) throw new BadRequestException('No podés eliminar tu propio usuario');
+    const { data: objetivo } = await this.db.from('usuarios').select('rol, nombre').eq('id', id).maybeSingle();
+    if (!objetivo) throw new BadRequestException('Usuario inexistente');
+    if (actor.rol !== 'dueno' && objetivo.rol === 'dueno') {
+      throw new ForbiddenException('Solo un dueño puede eliminar usuarios con rol dueño');
+    }
+
+    const { error } = await this.db.from('usuarios').delete().eq('id', id);
+    if (error) {
+      // 23503 = foreign key: el usuario tiene historial, no se borra. Se desactiva.
+      if (error.code === '23503') {
+        await this.db.from('usuarios').update({ activo: false }).eq('id', id);
+        await this.auditar(actor.sub, 'desactivar_usuario', id, { motivo: 'tiene historial, no se puede borrar', nombre: objetivo.nombre });
+        return { eliminado: false, desactivado: true, mensaje: 'El usuario tiene historial (ventas/cajas), así que se desactivó en vez de borrarse.' };
+      }
+      throw new BadRequestException(error.message);
+    }
+    await this.auditar(actor.sub, 'eliminar_usuario', id, { nombre: objetivo.nombre });
+    return { eliminado: true };
   }
 
   // Gerentes administran al equipo, pero todo lo que toque a un dueño
