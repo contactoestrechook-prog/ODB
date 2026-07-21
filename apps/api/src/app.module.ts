@@ -32,6 +32,7 @@ import { ComparadorModule } from './comparador/comparador.module';
 import { EnvasesModule } from './envases/envases.module';
 import { RepartosModule } from './repartos/repartos.module';
 import { RepartidoresModule } from './repartidores/repartidores.module';
+import { ListasVentaModule } from './listas-venta/listas-venta.module';
 import { ChequesModule } from './cheques/cheques.module';
 import { SyncModule } from './sync/sync.module';
 import { TiendanubeModule } from './tiendanube/tiendanube.module';
@@ -78,6 +79,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     EnvasesModule,
     RepartosModule,
     RepartidoresModule,
+    ListasVentaModule,
     ChequesModule,
     SyncModule,
     TiendanubeModule,

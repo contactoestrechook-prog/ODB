@@ -458,7 +458,10 @@ alter table public.integraciones_log add constraint integraciones_log_pkey PRIMA
 create table public.listas_precios (
   id uuid default gen_random_uuid() not null,
   nombre text not null,
-  activa boolean default true not null
+  activa boolean default true not null,
+  ajuste_pct numeric not null default 0,
+  es_base boolean not null default false,
+  orden integer not null default 0
 );
 alter table public.listas_precios add constraint listas_precios_pkey PRIMARY KEY (id);
 
