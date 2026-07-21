@@ -5,9 +5,18 @@ import { createHash } from 'node:crypto';
 // respecto de un SHA256 crudo sin salt.
 const COSTO = 10;
 
-/** Hashea una clave o PIN con bcrypt (salt incluido en el resultado). */
+/**
+ * Hashea una clave o PIN con bcrypt (salt incluido en el resultado).
+ *
+ * bcryptjs genera hashes con prefijo `$2b$`, pero el login y la verificación de
+ * PIN corren en la base con `crypt()` de pgcrypto, que NO valida `$2b$` (da
+ * siempre falso). Para claves de <72 bytes —todas las nuestras— `$2a$` y `$2b$`
+ * son idénticos en verificación, así que relabelamos el prefijo a `$2a$`: así
+ * el hash generado acá es compatible con verificar_login / verificar_pin_supervisor.
+ * Sin esto, cualquier usuario creado o clave cambiada desde el panel no podría loguearse.
+ */
 export function hashClave(texto: string): string {
-  return hashSync(texto, COSTO);
+  return hashSync(texto, COSTO).replace(/^\$2b\$/, '$2a$');
 }
 
 /**

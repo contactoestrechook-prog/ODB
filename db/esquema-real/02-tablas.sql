@@ -1128,3 +1128,23 @@ alter table public.ventas add constraint ventas_sucursal_id_fkey FOREIGN KEY (su
 alter table public.ventas_items add constraint ventas_items_producto_id_fkey FOREIGN KEY (producto_id) REFERENCES productos(id);
 alter table public.ventas_items add constraint ventas_items_promocion_id_fkey FOREIGN KEY (promocion_id) REFERENCES promociones(id);
 alter table public.ventas_items add constraint ventas_items_venta_id_fkey FOREIGN KEY (venta_id) REFERENCES ventas(id);
+
+-- Vehículos de los repartidores (auto/moto) con póliza de seguro, para las
+-- autorizaciones de ingreso a barrios cerrados. Un repartidor puede tener varios.
+create table public.vehiculos (
+  id uuid default gen_random_uuid() not null,
+  repartidor_id uuid not null,
+  tipo text not null,
+  marca text,
+  modelo text,
+  patente text,
+  color text,
+  seguro_compania text,
+  seguro_poliza text,
+  seguro_vencimiento date,
+  seguro_archivo_url text,
+  activo boolean default true not null,
+  creado_en timestamp with time zone default now() not null
+);
+alter table public.vehiculos add constraint vehiculos_pkey PRIMARY KEY (id);
+alter table public.vehiculos add constraint vehiculos_repartidor_id_fkey FOREIGN KEY (repartidor_id) REFERENCES usuarios(id) ON DELETE CASCADE;
