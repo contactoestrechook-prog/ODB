@@ -66,10 +66,14 @@ export class CatalogoService {
 
   // Búsqueda LIVIANA para el POS del cajero: una sola query indexada (trigram +
   // código de barras exacto), sin pricing por segmento ni count → ultrarrápida.
-  async posBuscar(q: string) {
+  async posBuscar(q: string, sucursalId?: string) {
     const t = (q ?? '').trim();
     if (t.length < 2) return { items: [] };
-    const { data, error } = await this.db.rpc('pos_buscar', { p_q: t, p_limit: 8 });
+    const { data, error } = await this.db.rpc('pos_buscar', {
+      p_q: t,
+      p_limit: 8,
+      p_sucursal: sucursalId || null,
+    });
     if (error) throw new BadRequestException(error.message);
     return {
       items: (data ?? []).map((r: any) => ({
@@ -80,6 +84,7 @@ export class CatalogoService {
         esAlcohol: !!r.es_alcohol, imagenUrl: null,
         codigosBarras: r.codigos ?? [],
         codigo: r.codigo ?? null,
+        stock: r.stock != null ? Number(r.stock) : null,
       })),
     };
   }

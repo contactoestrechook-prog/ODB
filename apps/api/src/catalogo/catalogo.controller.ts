@@ -63,8 +63,8 @@ export class CatalogoController {
   // Privado: expone precio_mayorista y códigos internos, no es catálogo de tienda.
   @Roles('cajero', 'deposito', 'gerente', 'dueno')
   @Get('pos/buscar')
-  posBuscar(@Query('q') q: string) {
-    return this.catalogo.posBuscar(q ?? '');
+  posBuscar(@Query('q') q: string, @Query('sucursal') sucursal?: string) {
+    return this.catalogo.posBuscar(q ?? '', sucursal);
   }
 
   // Catálogo con stock para precargar en la caja (búsqueda local instantánea)

@@ -1061,13 +1061,14 @@ CREATE OR REPLACE FUNCTION public.fn_acreditacion_por_pago()
  SECURITY DEFINER
  SET search_path TO 'public'
 AS $function$
-declare v_pct numeric := 0; v_dias int := 0; v_com numeric;
+declare v_dias int := 0;
 begin
+  -- Ya no estimamos comisión con % cargados a mano; la comisión real se completa
+  -- al conciliar el extracto o al vincular MP/tarjeta por API. Acá solo seguimos el bruto.
   if new.medio not in ('tarjeta', 'mercadopago') then return new; end if;
-  select comision_pct, dias_acreditacion into v_pct, v_dias from comisiones_medios where medio = new.medio;
-  v_com := round(new.monto * coalesce(v_pct, 0) / 100, 2);
+  select dias_acreditacion into v_dias from comisiones_medios where medio = new.medio;
   insert into acreditaciones (pago_id, venta_id, medio, bruto, comision_estimada, neto_estimado, fecha_estimada, mp_payment_id)
-  values (new.id, new.venta_id, new.medio, new.monto, v_com, new.monto - v_com,
+  values (new.id, new.venta_id, new.medio, new.monto, 0, new.monto,
           (new.creado_en + (coalesce(v_dias, 0) || ' days')::interval)::date, new.mp_payment_id)
   on conflict (pago_id) do nothing;
   return new;
@@ -1366,8 +1367,8 @@ AS $function$
 $function$
 ;
 
-CREATE OR REPLACE FUNCTION public.pos_buscar(p_q text, p_limit integer DEFAULT 8)
- RETURNS TABLE(sku text, nombre text, precio numeric, precio_mayorista numeric, es_alcohol boolean, codigos text[], codigo text)
+CREATE OR REPLACE FUNCTION public.pos_buscar(p_q text, p_limit integer DEFAULT 8, p_sucursal uuid DEFAULT NULL)
+ RETURNS TABLE(sku text, nombre text, precio numeric, precio_mayorista numeric, es_alcohol boolean, codigos text[], codigo text, stock numeric)
  LANGUAGE sql
  STABLE SECURITY DEFINER
  SET search_path TO 'public'
@@ -1392,7 +1393,8 @@ AS $function$
     (select pr.precio from precios pr, lma where pr.producto_id = b.id and pr.lista_id = lma.id order by pr.vigente_desde desc limit 1),
     b.es_alcohol,
     coalesce((select array_agg(cb.codigo) from codigos_barras cb where cb.producto_id = b.id), '{}'),
-    b.codigo_legacy
+    b.codigo_legacy,
+    coalesce((select sum(s.cantidad) from stock s where s.producto_id = b.id and (p_sucursal is null or s.sucursal_id = p_sucursal)), 0)
   from base b;
 $function$
 ;

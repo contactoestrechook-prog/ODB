@@ -14,6 +14,7 @@ type Producto = {
   esAlcohol: boolean;
   codigosBarras: string[];
   codigo?: string | null; // código interno de ODB (lo que se escanea / imprime en la etiqueta)
+  stock?: number | null; // stock en la sucursal de la caja (null = desconocido, <= 0 = sin stock)
 };
 
 type Renglon = Producto & { cantidad: number };
@@ -120,6 +121,7 @@ const fmtNumero = (c: { tipo: string; punto_venta: number; numero: number }) =>
 
 export function Caja({ sucursales }: { sucursales: { id: string; nombre: string }[] }) {
   const [sucursalId, setSucursalId] = useState(sucursales[0]?.id ?? '');
+  const sucursalNombre = sucursales.find((s) => s.id === sucursalId)?.nombre ?? 'esta sucursal';
   const [comprobante, setComprobante] = useState<TipoComprobante>('B');
   const [busqueda, setBusqueda] = useState('');
   const [resultados, setResultados] = useState<Producto[]>([]);
@@ -371,14 +373,15 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string 
     }
     const locales = filtrarLocal(t);
     setResultados(locales);
-    if (locales.length === 0) debRef.current = setTimeout(() => ejecutar(t, false), 170);
+    // Siempre refinamos contra el server: trae el stock por sucursal para marcar en rojo lo agotado.
+    debRef.current = setTimeout(() => ejecutar(t, false), 170);
   }
 
   async function ejecutar(t: string, esEnter: boolean) {
     const seq = ++seqRef.current;
     setBuscando(true);
     try {
-      const res = await fetch(`/api/pos-buscar?q=${encodeURIComponent(t)}`);
+      const res = await fetch(`/api/pos-buscar?q=${encodeURIComponent(t)}&sucursal=${encodeURIComponent(sucursalId)}`);
       const datos: Producto[] = res.ok ? ((await res.json()).items ?? []) : [];
       if (seq !== seqRef.current) return;
       const esCodigo = /^\d{6,14}$/.test(t);
@@ -1064,20 +1067,28 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string 
             {buscando && <span className="absolute right-5 top-1/2 -translate-y-1/2 text-sm text-black/40">buscando…</span>}
             {resultados.length > 0 && (
               <div className="absolute z-10 mt-1 w-full rounded-2xl bg-white border border-black/10 overflow-hidden shadow-xl">
-                {resultados.map((p) => (
+                {resultados.map((p) => {
+                  const sinStock = p.stock != null && p.stock <= 0;
+                  const pocoStock = p.stock != null && p.stock > 0 && p.stock <= 3;
+                  return (
                   <button
                     key={p.sku}
                     onClick={() => agregar(p)}
-                    className="w-full px-4 py-3.5 text-left text-black active:bg-[#F0EBE2] hover:bg-[#F0EBE2] flex items-center justify-between gap-3 border-b border-black/5 last:border-0"
+                    className={`w-full px-4 py-3.5 text-left flex items-center justify-between gap-3 border-b border-black/5 last:border-0 ${sinStock ? 'bg-[#B82D25]/10 text-[#932A1F] active:bg-[#B82D25]/20 hover:bg-[#B82D25]/20' : 'text-black active:bg-[#F0EBE2] hover:bg-[#F0EBE2]'}`}
                   >
                     <span className="flex items-center gap-3 min-w-0">
                       {p.imagenUrl && <img src={p.imagenUrl} alt="" className="h-11 w-11 rounded-lg object-cover shrink-0" />}
-                      <span className="truncate text-base">{p.nombre}</span>
+                      <span className="min-w-0">
+                        <span className="truncate text-base block">{p.nombre}</span>
+                        {sinStock && <span className="text-xs font-semibold text-[#B82D25]">Sin stock en {sucursalNombre}</span>}
+                        {pocoStock && <span className="text-xs text-black/45">Quedan {Math.round(p.stock as number)} u.</span>}
+                      </span>
                       {p.esAlcohol && <span className="rounded-full bg-black px-1.5 py-0.5 text-[10px] text-white shrink-0">+18</span>}
                     </span>
                     <span className="font-semibold text-lg whitespace-nowrap">{pesos(p.precio)}</span>
                   </button>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -1097,7 +1108,10 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string 
                   className={`rounded-xl mb-2 px-3 py-2.5 flex items-center gap-2 border-2 ${sel ? 'border-[#B82D25] bg-[#B82D25]/5' : 'border-transparent bg-[#F0EBE2]/50'}`}
                 >
                   <button onClick={() => seleccionarLinea(r.sku)} className="flex-1 min-w-0 text-left">
-                    <p className="font-medium text-black leading-tight">{r.nombre}</p>
+                    <p className="font-medium text-black leading-tight">
+                      {r.nombre}
+                      {r.stock != null && r.stock <= 0 && <span className="ml-2 rounded bg-[#B82D25]/15 px-1.5 py-0.5 text-[11px] font-semibold text-[#B82D25] align-middle">sin stock</span>}
+                    </p>
                     <p className="text-xs text-black/45">{pesos(precioDe(r))} c/u{mayorista && r.precioMayorista != null ? ' · may.' : ''}{r.descuento ? ` · ${r.descuento}` : ''}{sel ? ' · tocá los números para la cantidad' : ''}</p>
                   </button>
                   <button onClick={() => cambiarCantidad(r.sku, -1)} className="h-12 w-12 rounded-xl bg-white border border-black/10 text-2xl text-black active:scale-95 shrink-0" aria-label="Restar">−</button>
