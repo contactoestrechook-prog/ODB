@@ -99,13 +99,20 @@ cargar credenciales):
 - **ODB · Aviso pedido listo (WhatsApp)** — Webhook `POST /webhook/odb-pedido-listo` → WhatsApp al cliente
   → poner en el `.env` del API: `N8N_PEDIDOS_WEBHOOK_URL=https://n8n-production-8ffb6.up.railway.app/webhook/odb-pedido-listo`
 
-Falta (manual, con credenciales de Meta):
+Estado al 2026-07-21:
+- ✅ `BOT_API_KEY` y `N8N_PEDIDOS_WEBHOOK_URL` configuradas en el env de
+  producción de Railway; `/bot/charla` verificado E2E en producción (consulta
+  stock real, arma pedido, pide domicilio, lo carga al pipeline).
+- ✅ Fix anti-duplicados: tool calls idénticos en un turno se ejecutan una vez,
+  y `crear_pedido` es idempotente (pedido igual en 5 min → devuelve el existente).
+- ✅ Decisión: el bot atiende por una **línea propia con Meta Cloud API**
+  (no por la línea de Responde/MetoGroup).
+
+Falta (manual, con credenciales de Meta — las carga el dueño):
 1. En n8n crear las credenciales **WhatsApp Trigger API** (app secret + verify token)
    y **WhatsApp API** (access token) y seleccionarlas en los nodos de cada workflow.
 2. Reemplazar `REEMPLAZAR_PHONE_NUMBER_ID_*` por el phone number id de cada línea.
 3. Activar los 3 workflows.
-4. Deploy del API con el módulo bot + `BOT_API_KEY` en el env de producción
-   (los workflows apuntan a `https://odb-api-production.up.railway.app`).
 
 ## Setup en n8n (3 nodos por línea — el cerebro ya no vive acá)
 
