@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { Header } from '../../ui/Header';
 import { apiFetch } from '../../../lib/api';
+import { BotonVolver } from '../../ui/BotonVolver';
 
 const pesos = (n: number) => '$' + Math.round(n).toLocaleString('es-AR');
 
@@ -16,7 +17,7 @@ export default async function Cuentas() {
       <Header activo="/facturacion" />
       <div className="max-w-4xl mx-auto p-6 space-y-5">
         <div className="flex items-end justify-between">
-          <Link href="/facturacion" className="text-xs text-black/50 hover:text-black">← Volver a facturación</Link>
+          <BotonVolver href="/facturacion" label="Volver a facturación" />
           <div className="text-right">
             <p className="text-2xl font-semibold text-[#B82D25] leading-none">{pesos(porCobrar)}</p>
             <p className="text-xs text-black/45 mt-1">total por cobrar</p>

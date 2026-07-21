@@ -1,5 +1,5 @@
-import Link from 'next/link';
 import { Header } from '../../ui/Header';
+import { BotonVolver } from '../../ui/BotonVolver';
 import { apiFetch } from '../../../lib/api';
 import { AccionesComprobante } from '../../ui/AccionesComprobante';
 
@@ -55,7 +55,7 @@ export default async function Comprobante({ params }: { params: Promise<{ id: st
       </div>
       <div className="max-w-3xl mx-auto p-6 space-y-4 print:p-0 print:max-w-none">
         <div className="flex items-center justify-between print:hidden">
-          <Link href="/facturacion" className="text-xs text-black/50 hover:text-black">← Volver a facturación</Link>
+          <BotonVolver href="/facturacion" label="Volver a facturación" />
           <AccionesComprobante id={c.id} estado={c.estado} esFiscalDebito={['FA', 'FB', 'FC', 'NDA', 'NDB', 'NDC'].includes(c.tipo)} />
         </div>
 

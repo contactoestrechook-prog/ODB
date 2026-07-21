@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { BotonVolver } from './BotonVolver';
 
 const pesos = (n: any) => '$' + Math.round(Number(n) || 0).toLocaleString('es-AR');
 const TIPO: [string, string][] = [['cumpleanos', 'Cumpleaños'], ['casamiento', 'Casamiento'], ['corporativo', 'Corporativo'], ['fin_de_ano', 'Fin de año'], ['otro', 'Otro']];
@@ -176,7 +177,7 @@ function Detalle({ ev, onBack }: { ev: any; onBack: () => void }) {
 
   return (
     <div className="space-y-4">
-      <button onClick={onBack} className="text-sm text-black/50 hover:text-black">← Volver</button>
+      <BotonVolver onClick={onBack} label="Volver a eventos" />
       <div className="rounded-xl bg-white p-5">
         <div className="flex items-start justify-between gap-3">
           <div>

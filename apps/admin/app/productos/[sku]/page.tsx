@@ -3,6 +3,7 @@ import { Header } from '../../ui/Header';
 import { SubirFoto } from '../../ui/SubirFoto';
 import { apiFetch } from '../../../lib/api';
 import { EditarProducto } from '../../ui/EditarProducto';
+import { BotonVolver } from '../../ui/BotonVolver';
 
 const pesos = (n: number | null | undefined) =>
   n == null ? '—' : '$' + Math.round(Number(n)).toLocaleString('es-AR');
@@ -58,9 +59,7 @@ export default async function FichaProducto({
     <main className="min-h-screen bg-[#F0EBE2]">
       <Header activo="/productos" />
       <div className="max-w-5xl mx-auto p-6 space-y-4">
-        <Link href="/productos" className="text-xs text-black/50 hover:text-black">
-          ← Volver a productos
-        </Link>
+        <BotonVolver href="/productos" label="Volver a productos" />
 
         <section className="rounded-xl bg-white p-5 flex flex-wrap items-start justify-between gap-4">
           <div className="flex flex-col items-center gap-2">

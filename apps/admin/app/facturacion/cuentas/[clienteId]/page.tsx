@@ -1,7 +1,7 @@
-import Link from 'next/link';
 import { Header } from '../../../ui/Header';
 import { apiFetch } from '../../../../lib/api';
 import { RegistrarCobranza } from '../../../ui/RegistrarCobranza';
+import { BotonVolver } from '../../../ui/BotonVolver';
 
 const pesos = (n: number) => '$' + Math.round(n).toLocaleString('es-AR');
 
@@ -32,7 +32,7 @@ export default async function CuentaCliente({ params }: { params: Promise<{ clie
     <main className="min-h-screen bg-[#F0EBE2] lg:pl-64">
       <Header activo="/facturacion" />
       <div className="max-w-4xl mx-auto p-6 space-y-5">
-        <Link href="/facturacion/cuentas" className="text-xs text-black/50 hover:text-black">← Todas las cuentas</Link>
+        <BotonVolver href="/facturacion/cuentas" label="Todas las cuentas" />
 
         <section className="rounded-xl bg-white p-5 flex flex-wrap items-center justify-between gap-4">
           <div>
