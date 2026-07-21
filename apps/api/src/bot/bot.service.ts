@@ -175,12 +175,26 @@ export class BotService {
         (r.usage?.cache_read_input_tokens ?? 0);
 
       if (r.stop_reason === 'tool_use') {
-        // ejecutar TODAS las herramientas pedidas y devolver los resultados juntos
+        // ejecutar TODAS las herramientas pedidas y devolver los resultados juntos.
+        // Si el modelo pide la MISMA herramienta con los MISMOS argumentos varias
+        // veces en un turno (tool use paralelo degenerado), se ejecuta UNA sola
+        // vez y se reusa el resultado: sin esto, un crear_pedido quintuplicado
+        // creó 5 pedidos reales idénticos (visto en producción el 2026-07-21).
         messages.push({ role: 'assistant', content: r.content });
         const resultados: Anthropic.ToolResultBlockParam[] = [];
+        const vistos = new Map<string, Anthropic.ToolResultBlockParam>();
         for (const block of r.content) {
           if (block.type !== 'tool_use') continue;
-          resultados.push(await this.ejecutarHerramienta(block, telefono));
+          const clave = `${block.name}:${JSON.stringify(block.input)}`;
+          const previo = vistos.get(clave);
+          if (previo) {
+            this.log.warn(`Herramienta ${block.name} duplicada en el mismo turno: reuso el resultado`);
+            resultados.push({ ...previo, tool_use_id: block.id });
+            continue;
+          }
+          const res = await this.ejecutarHerramienta(block, telefono);
+          vistos.set(clave, res);
+          resultados.push(res);
         }
         messages.push({ role: 'user', content: resultados });
         continue;
@@ -368,6 +382,14 @@ export class BotService {
       clienteId = data?.id ?? null;
     }
 
+    // Idempotencia: si este cliente ya tiene un pedido IGUAL de hace minutos
+    // (tool use duplicado, reintento de webhook, "no me llegó, mandalo de nuevo"),
+    // devolvemos el existente en vez de duplicar la reserva de stock.
+    if (clienteId) {
+      const existente = await this.pedidoRecienteIgual(clienteId, dto);
+      if (existente) return existente;
+    }
+
     const pedido = await this.pedidos.crearDesdeApp({
       tipo: dto.tipo ?? 'pickup',
       items: dto.items,
@@ -388,6 +410,49 @@ export class BotService {
       resumen,
       canal: p.canal,
     };
+  }
+
+  // ¿Este cliente ya creó un pedido idéntico (mismo canal, mismos renglones)
+  // en los últimos minutos y sigue activo? Devuelve el existente para no duplicar.
+  private async pedidoRecienteIgual(
+    clienteId: string,
+    dto: { tipo?: 'pickup' | 'domicilio'; items: { sku: string; cantidad: number }[] },
+  ) {
+    const hace5m = new Date(Date.now() - 5 * 60_000).toISOString();
+    const { data } = await this.db
+      .from('pedidos')
+      .select('id, canal, estado, total, qr_retiro, items:pedidos_items(cantidad, producto:productos(sku, nombre))')
+      .eq('cliente_id', clienteId)
+      .eq('canal', dto.tipo ?? 'pickup')
+      .in('estado', ['recibido', 'pagado', 'en_preparacion'])
+      .gte('creado_en', hace5m)
+      .order('creado_en', { ascending: false })
+      .limit(3);
+    const querido = dto.items
+      .map((i) => `${i.sku}x${Math.floor(Number(i.cantidad))}`)
+      .sort()
+      .join('|');
+    for (const p of (data ?? []) as any[]) {
+      const suyo = (p.items ?? [])
+        .map((i: any) => `${i.producto?.sku}x${Math.round(Number(i.cantidad))}`)
+        .sort()
+        .join('|');
+      if (suyo !== querido) continue;
+      this.log.warn(`crear_pedido idéntico reciente para cliente ${clienteId}: devuelvo el existente ${p.id}`);
+      const resumen = (p.items ?? [])
+        .map((i: any) => `${i.cantidad}x ${i.producto?.nombre ?? ''}`.trim())
+        .join(', ');
+      return {
+        pedidoId: p.id,
+        estado: p.estado,
+        total: Number(p.total),
+        codigoRetiro: p.qr_retiro ?? null,
+        resumen,
+        canal: p.canal,
+        nota: 'Este pedido ya estaba creado (era idéntico y reciente): NO se creó uno nuevo. Confirmale al cliente el existente.',
+      };
+    }
+    return null;
   }
 
   // "Nueva conversación" del simulador del panel: borra la memoria del teléfono
