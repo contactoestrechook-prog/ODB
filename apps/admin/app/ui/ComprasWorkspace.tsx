@@ -245,6 +245,10 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso }: any) {
   const [leyendoFoto, setLeyendoFoto] = useState(false);
   const [sumarIva, setSumarIva] = useState(true); // factura A: costo = neto + IVA
   const [pagada, setPagada] = useState(false);
+  // buscador por renglón para vincular un producto (índice de fila + texto + resultados)
+  const [vinculaIdx, setVinculaIdx] = useState<number | null>(null);
+  const [vinculaBusca, setVinculaBusca] = useState('');
+  const [vinculaSug, setVinculaSug] = useState<any[]>([]);
 
   async function leerFoto(archivo: File) {
     setLeyendoFoto(true);
@@ -270,6 +274,8 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso }: any) {
         sku: i.match?.sku ?? '',
         nombre: i.match?.nombre ?? null,
         variacionPct: i.match?.variacionPct ?? null,
+        // remarcación: la que quedó guardada de la última compra, o 50% por defecto
+        margenPct: i.match?.margenPct != null ? i.match.margenPct : 50,
         incluir: !!i.match,
       })));
     } catch (e) {
@@ -323,6 +329,21 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso }: any) {
     const t = setTimeout(async () => { const r = await fetch(`/api/buscar-producto?q=${encodeURIComponent(busca)}`); if (r.ok) setSug((await r.json()).items ?? []); }, 250);
     return () => clearTimeout(t);
   }, [busca]);
+
+  // buscador por renglón de la entrada por foto (vincular producto a mano)
+  useEffect(() => {
+    if (vinculaBusca.trim().length < 2) return setVinculaSug([]);
+    const t = setTimeout(async () => { const r = await fetch(`/api/buscar-producto?q=${encodeURIComponent(vinculaBusca)}`); if (r.ok) setVinculaSug((await r.json()).items ?? []); }, 250);
+    return () => clearTimeout(t);
+  }, [vinculaBusca]);
+
+  // vincula un producto a un renglón leído (y lo tilda para incluirlo)
+  const vincularProducto = (idx: number, p: any) => {
+    setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, sku: p.sku, nombre: p.nombre, incluir: true } : x));
+    setVinculaIdx(null); setVinculaBusca(''); setVinculaSug([]);
+  };
+  // precio de venta calculado = costo final × (1 + remarcación%)
+  const precioVenta = (i: any) => Math.round(costoFinal(i) * (1 + (Number(i.margenPct) || 0) / 100));
 
   const cerrar = () => setModal(null);
   const t = modal.tipo;
@@ -503,26 +524,57 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso }: any) {
                 </select>
               </div>
 
-              {/* renglones */}
-              <div className="flex items-center gap-2 text-[10px] uppercase tracking-wide text-black/40">
-                <span className="w-5" /><span className="flex-1">Renglón leído → producto</span><span className="w-14 text-right">Cant.</span><span className="w-24 text-right">Costo final</span>
+              {/* renglones: cada uno editable — vincular producto, cantidad, remarcación y precio */}
+              <div className="hidden sm:flex items-center gap-2 text-[10px] uppercase tracking-wide text-black/40 px-1">
+                <span className="w-5" /><span className="flex-1">Renglón leído → producto</span>
+                <span className="w-12 text-right">Cant.</span><span className="w-20 text-right">Costo</span>
+                <span className="w-16 text-right">Remar. %</span><span className="w-20 text-right">P. venta</span>
               </div>
               {fotoItems.map((i, idx) => (
-                <div key={idx} className={'flex items-center gap-2 text-sm rounded-lg px-2 py-1.5 ' + (i.incluir ? '' : 'opacity-45 bg-[#F0EBE2]/50')}>
-                  <input type="checkbox" checked={i.incluir} onChange={(e) => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, incluir: e.target.checked } : x))} className="accent-[#B82D25]" />
-                  <span className="flex-1 min-w-0">
-                    <span className="block truncate">{i.descripcion}</span>
-                    <span className={'block text-xs truncate ' + (i.nombre ? 'text-emerald-700' : 'text-[#932A1F]')}>
-                      {i.nombre ? `→ ${i.nombre}${i.variacionPct != null ? ` (costo ${i.variacionPct > 0 ? '+' : ''}${i.variacionPct}%)` : ''}` : '→ sin match: buscalo abajo o destildalo'}
+                <div key={idx} className={'rounded-lg px-2 py-2 ' + (i.incluir ? 'bg-white border border-black/[0.06]' : 'bg-[#F0EBE2]/40')}>
+                  <div className="flex items-center gap-2">
+                    <input type="checkbox" checked={i.incluir} onChange={(e) => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, incluir: e.target.checked } : x))} className="accent-[#B82D25] shrink-0" />
+                    <span className="flex-1 min-w-0">
+                      {/* el texto leído SIEMPRE legible, haya o no match */}
+                      <span className="block truncate text-sm text-black font-medium">{i.descripcion}</span>
+                      {i.nombre ? (
+                        <span className="block text-xs truncate text-emerald-700">
+                          → {i.nombre}{i.variacionPct != null ? ` (costo ${i.variacionPct > 0 ? '+' : ''}${i.variacionPct}%)` : ''}
+                          <button onClick={() => setVinculaIdx(idx)} className="ml-2 text-black/40 underline hover:text-[#B82D25]">cambiar</button>
+                        </span>
+                      ) : (
+                        <button onClick={() => setVinculaIdx(vinculaIdx === idx ? null : idx)} className="block text-xs text-[#932A1F] underline hover:text-[#B82D25]">
+                          → sin producto: tocá para vincularlo
+                        </button>
+                      )}
                     </span>
-                  </span>
-                  <input type="number" value={i.cantidad} onChange={(e) => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, cantidad: Number(e.target.value) } : x))} className="w-14 rounded border border-black/15 px-1.5 py-1 text-right" />
-                  <span className="w-24 text-right tabular-nums">{pesos(costoFinal(i))}</span>
+                    <input type="number" value={i.cantidad} onChange={(e) => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, cantidad: Number(e.target.value) } : x))} className="w-12 rounded border border-black/15 px-1 py-1 text-right text-sm" />
+                    <span className="w-20 text-right text-sm tabular-nums text-black/70">{pesos(costoFinal(i))}</span>
+                    <input type="number" value={i.margenPct} onChange={(e) => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, margenPct: e.target.value === '' ? '' : Number(e.target.value) } : x))} className="w-16 rounded border border-black/15 px-1 py-1 text-right text-sm" title="Remarcación %" />
+                    <span className="w-20 text-right text-sm font-semibold tabular-nums text-black">{pesos(precioVenta(i))}</span>
+                  </div>
+
+                  {/* buscador para vincular el producto a este renglón */}
+                  {vinculaIdx === idx && (
+                    <div className="relative mt-2 ml-6">
+                      <input autoFocus value={vinculaBusca} onChange={(e) => setVinculaBusca(e.target.value)} placeholder="Buscar producto del catálogo…" className={input} />
+                      {vinculaSug.length > 0 && (
+                        <div className="absolute z-20 mt-1 w-full rounded-lg bg-white shadow-lg border border-black/10 max-h-52 overflow-y-auto">
+                          {vinculaSug.map((p: any) => (
+                            <button key={p.sku} onClick={() => vincularProducto(idx, p)} className="w-full text-left px-3 py-2 text-sm hover:bg-[#F0EBE2] border-b border-black/5 last:border-0">
+                              {p.nombre} <span className="text-xs text-black/40">{p.sku}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               ))}
               {fotoItems.some((i) => i.incluir && !i.sku) && (
-                <p className="text-xs text-[#932A1F]">Hay renglones tildados sin producto asignado: destildalos o cargalos por Entrada directa.</p>
+                <p className="text-xs text-[#932A1F]">Hay renglones tildados sin producto asignado: vinculalos o destildalos.</p>
               )}
+              <p className="text-[11px] text-black/45">Al confirmar, cada vínculo y su remarcación quedan guardados: la próxima compra de este proveedor los toma solos.</p>
 
               {/* impuestos */}
               <div className="rounded-lg border border-black/10 p-2 grid grid-cols-3 gap-2 text-xs">
@@ -552,7 +604,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso }: any) {
                   sucursalId: f.sucursalId,
                   numeroRemito: foto.comprobante?.numero || f.numeroRemito,
                   margenPct: f.margenPct ? Number(f.margenPct) : undefined,
-                  items: fotoItems.filter((i) => i.incluir && i.sku).map((i) => ({ sku: i.sku, cantidad: Number(i.cantidad), costo: costoFinal(i) })),
+                  items: fotoItems.filter((i) => i.incluir && i.sku).map((i) => ({ sku: i.sku, cantidad: Number(i.cantidad), costo: costoFinal(i), margenPct: i.margenPct === '' ? undefined : Number(i.margenPct), descripcionLeida: i.descripcion })),
                   ...(foto.comprobante?.tipo?.startsWith('factura') && fotoImp?.total > 0 ? {
                     factura: {
                       numero: foto.comprobante?.numero ?? 's/n',

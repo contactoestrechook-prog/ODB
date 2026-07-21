@@ -730,6 +730,8 @@ create table public.proveedor_productos (
   producto_id uuid not null,
   codigo_proveedor text,
   ultimo_costo numeric(14,2),
+  alias_descripcion text,
+  margen_pct numeric,
   actualizado_en timestamp with time zone
 );
 alter table public.proveedor_productos add constraint proveedor_productos_pkey PRIMARY KEY (proveedor_id, producto_id);

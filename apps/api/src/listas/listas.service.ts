@@ -13,8 +13,21 @@ type Match = {
   nombre: string;
   costoActual: number | null;
   variacionPct: number | null;
-  metodo: 'codigo_proveedor' | 'codigo_barras' | 'similitud';
+  metodo: 'codigo_proveedor' | 'codigo_barras' | 'similitud' | 'alias';
+  margenPct: number | null; // remarcación guardada de la última compra (si hay)
 } | null;
+
+// Normaliza un texto de renglón para usarlo como alias estable (sin tildes,
+// sin puntuación, espacios colapsados). Mismo criterio al guardar y al matchear.
+export function normalizarAlias(s: string): string {
+  return (s || '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9 ]/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
 
 export type ItemPropuesta = ItemExtraido & { match: Match };
 export type ItemPedidoPropuesta = ItemPedidoExtraido & { match: Match };
@@ -520,13 +533,12 @@ export class ListasService {
   private async matchear<T extends ItemExtraido>(items: T[], proveedorId: string): Promise<(T & { match: Match })[]> {
     const { data: catalogoProv } = await this.db
       .from('proveedor_productos')
-      .select('codigo_proveedor, ultimo_costo, producto:productos(sku, nombre, costo)')
+      .select('codigo_proveedor, alias_descripcion, ultimo_costo, margen_pct, producto:productos(sku, nombre, costo)')
       .eq('proveedor_id', proveedorId);
-    const porCodigoProv = new Map(
-      ((catalogoProv ?? []) as any[])
-        .filter((r) => r.codigo_proveedor)
-        .map((r) => [r.codigo_proveedor.toLowerCase(), r]),
-    );
+    const filas = (catalogoProv ?? []) as any[];
+    const porCodigoProv = new Map(filas.filter((r) => r.codigo_proveedor).map((r) => [r.codigo_proveedor.toLowerCase(), r]));
+    // alias: el texto que leyó la IA en compras anteriores → producto ya vinculado
+    const porAlias = new Map(filas.filter((r) => r.alias_descripcion).map((r) => [normalizarAlias(r.alias_descripcion), r]));
 
     const resultado: (T & { match: Match })[] = [];
     for (const item of items) {
@@ -534,14 +546,20 @@ export class ListasService {
 
       const porCodigo = item.codigo ? porCodigoProv.get(item.codigo.toLowerCase()) : null;
       if (porCodigo) {
-        match = this.armarMatch(porCodigo.producto, porCodigo.ultimo_costo, item.precio, 'codigo_proveedor');
+        match = this.armarMatch(porCodigo.producto, porCodigo.ultimo_costo, item.precio, 'codigo_proveedor', porCodigo.margen_pct);
       } else if (item.codigo && /^\d{8,14}$/.test(item.codigo)) {
         const { data: cb } = await this.db
           .from('codigos_barras')
           .select('producto:productos(sku, nombre, costo)')
           .eq('codigo', item.codigo)
           .maybeSingle();
-        if (cb?.producto) match = this.armarMatch(cb.producto, (cb.producto as any).costo, item.precio, 'codigo_barras');
+        if (cb?.producto) match = this.armarMatch(cb.producto, (cb.producto as any).costo, item.precio, 'codigo_barras', null);
+      }
+
+      // vínculo aprendido en una compra anterior (mismo texto de renglón)
+      if (!match) {
+        const alias = porAlias.get(normalizarAlias(item.descripcion));
+        if (alias) match = this.armarMatch(alias.producto, alias.ultimo_costo, item.precio, 'alias', alias.margen_pct);
       }
 
       if (!match) {
@@ -558,7 +576,7 @@ export class ListasService {
           // del proveedor (la marca) tiene que aparecer en el producto matcheado.
           // Evita cruzar "Knorr Risotto" con "Arroz Gallo Risotto".
           if (prod && this.mismaMarca(item.descripcion, prod.nombre)) {
-            match = this.armarMatch(prod, prod.costo, item.precio, 'similitud');
+            match = this.armarMatch(prod, prod.costo, item.precio, 'similitud', null);
           }
         }
       }
@@ -580,7 +598,8 @@ export class ListasService {
     producto: any,
     costoActual: number | null,
     precioNuevo: number,
-    metodo: 'codigo_proveedor' | 'codigo_barras' | 'similitud',
+    metodo: 'codigo_proveedor' | 'codigo_barras' | 'similitud' | 'alias',
+    margenPct: number | null,
   ): Match {
     const costo = costoActual != null ? Number(costoActual) : null;
     return {
@@ -589,6 +608,7 @@ export class ListasService {
       costoActual: costo,
       variacionPct: costo ? Math.round(((precioNuevo - costo) / costo) * 1000) / 10 : null,
       metodo,
+      margenPct: margenPct != null ? Number(margenPct) : null,
     };
   }
 }

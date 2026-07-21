@@ -2,6 +2,7 @@ import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
 import { precioDesdeCosto, margenAplicable } from './precio';
+import { normalizarAlias } from '../listas/listas.service';
 
 export type CrearOcDto = {
   proveedorId: string;
@@ -28,7 +29,10 @@ export type EntradaDirectaDto = {
   proveedorId: string;
   sucursalId: string;
   numeroRemito?: string;
-  items: { sku: string; cantidad: number; costo: number; lote?: string; vencimiento?: string }[];
+  // margenPct por renglón = remarcación de ESE producto (editable en la pantalla,
+  // default 50%). descripcionLeida = texto que leyó la IA, para aprender el
+  // vínculo y traerlo solo la próxima compra (ver aprenderVinculos).
+  items: { sku: string; cantidad: number; costo: number; lote?: string; vencimiento?: string; margenPct?: number; descripcionLeida?: string }[];
   margenPct?: number;
   usuarioId?: string;
   // si la mercadería vino con factura, se registra junto con la entrada,
@@ -204,10 +208,12 @@ export class ComprasService {
     const margenPor = new Map<string, number | null>(
       ((prods ?? []) as any[]).map((p) => [p.sku, p.categoria?.margen_sugerido ?? null]),
     );
+    // Remarcación por renglón (lo que el usuario editó en la pantalla), con
+    // fallback al override general → margen del rubro → default.
     const itemsPrecio = dto.items
       .filter((i) => Number(i.costo) > 0)
       .map((i) => {
-        const margen = margenAplicable(dto.margenPct, margenPor.get(i.sku) ?? null);
+        const margen = margenAplicable(i.margenPct ?? dto.margenPct, margenPor.get(i.sku) ?? null);
         return { sku: i.sku, costo: Number(i.costo), precio: precioDesdeCosto(Number(i.costo), margen) };
       });
 
@@ -221,6 +227,10 @@ export class ComprasService {
     });
     if (error) throw new BadRequestException(this.traducirError(error.message));
     const resultado = data as any;
+
+    // Aprende el vínculo renglón→producto y la remarcación, para que la próxima
+    // compra del mismo proveedor matchee sola y traiga el margen anterior.
+    await this.aprenderVinculos(dto.proveedorId, dto.items);
 
     // factura del proveedor: nace vinculada a la OC y al remito de esta entrada,
     // con el desglose de impuestos (IVA, percepciones) para el libro IVA compras
@@ -456,6 +466,30 @@ export class ComprasService {
     if (error) throw new BadRequestException(error.message);
     if (!data) throw new BadRequestException(`No existe el producto ${sku}`);
     return data.id;
+  }
+
+  // Guarda, por cada renglón confirmado, el alias (texto leído), la remarcación
+  // y el último costo en proveedor_productos, para que la próxima compra del
+  // mismo proveedor matchee sola y traiga la misma remarcación (upsert por PK
+  // proveedor_id+producto_id). No frena la entrada si algo falla acá.
+  private async aprenderVinculos(proveedorId: string, items: EntradaDirectaDto['items']) {
+    try {
+      const conAlias = items.filter((i) => i.descripcionLeida || i.margenPct != null);
+      if (!conAlias.length) return;
+      const filas = await Promise.all(
+        conAlias.map(async (i) => ({
+          proveedor_id: proveedorId,
+          producto_id: await this.productoIdPorSku(i.sku),
+          alias_descripcion: i.descripcionLeida ? normalizarAlias(i.descripcionLeida) : null,
+          margen_pct: i.margenPct != null ? Number(i.margenPct) : null,
+          ultimo_costo: Number(i.costo) || null,
+          actualizado_en: new Date().toISOString(),
+        })),
+      );
+      await this.db.from('proveedor_productos').upsert(filas, { onConflict: 'proveedor_id,producto_id' });
+    } catch {
+      // aprender el vínculo es best-effort: nunca debe tirar la entrada ya registrada
+    }
   }
 
   private traducirError(mensaje: string): string {
