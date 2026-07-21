@@ -12,3 +12,7 @@ reporte.csv
 coverage/
 # certificado digital de ARCA/AFIP: clave privada, nunca al repo
 arca-cert/
+# artefactos de build y carpetas de trabajo
+*.tsbuildinfo
+output/
+tmp/
