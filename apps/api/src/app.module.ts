@@ -29,7 +29,6 @@ import { EventosModule } from './eventos/eventos.module';
 import { FidelizacionModule } from './fidelizacion/fidelizacion.module';
 import { ConciliacionModule } from './conciliacion/conciliacion.module';
 import { ComparadorModule } from './comparador/comparador.module';
-import { EnvasesModule } from './envases/envases.module';
 import { RepartosModule } from './repartos/repartos.module';
 import { RepartidoresModule } from './repartidores/repartidores.module';
 import { ListasVentaModule } from './listas-venta/listas-venta.module';
@@ -76,7 +75,6 @@ import { ScheduleModule } from '@nestjs/schedule';
     FidelizacionModule,
     ConciliacionModule,
     ComparadorModule,
-    EnvasesModule,
     RepartosModule,
     RepartidoresModule,
     ListasVentaModule,

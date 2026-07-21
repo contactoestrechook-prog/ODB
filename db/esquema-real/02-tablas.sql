@@ -209,7 +209,6 @@ create table public.clientes (
   zona_reparto text,
   vendedor_reparto text,
   barrio text,
-  envases jsonb,
   mayorista boolean not null default false
 );
 alter table public.clientes add constraint clientes_pkey PRIMARY KEY (id);
@@ -520,17 +519,6 @@ create table public.marcas (
 alter table public.marcas add constraint marcas_pkey PRIMARY KEY (id);
 alter table public.marcas add constraint marcas_nombre_key UNIQUE (nombre);
 
-create table public.movimientos_envase (
-  id uuid default gen_random_uuid() not null,
-  cliente_id uuid,
-  tipo_id uuid not null,
-  cantidad integer not null,
-  motivo text,
-  pedido_id uuid,
-  usuario_id uuid,
-  creado_en timestamp with time zone default now() not null
-);
-alter table public.movimientos_envase add constraint movimientos_envase_pkey PRIMARY KEY (id);
 
 create table public.movimientos_stock (
   id bigint generated always as identity not null,
@@ -929,14 +917,6 @@ create table public.sync_runs (
 );
 alter table public.sync_runs add constraint sync_runs_pkey PRIMARY KEY (id);
 
-create table public.tipos_envase (
-  id uuid default gen_random_uuid() not null,
-  nombre text not null,
-  valor numeric default 0 not null,
-  activo boolean default true not null,
-  creado_en timestamp with time zone default now() not null
-);
-alter table public.tipos_envase add constraint tipos_envase_pkey PRIMARY KEY (id);
 
 create table public.transferencias (
   id uuid default gen_random_uuid() not null,
@@ -1061,8 +1041,6 @@ alter table public.listas_proveedor_items add constraint listas_proveedor_items_
 alter table public.listas_proveedor_items add constraint listas_proveedor_items_producto_id_fkey FOREIGN KEY (producto_id) REFERENCES productos(id);
 alter table public.lotes add constraint lotes_producto_id_fkey FOREIGN KEY (producto_id) REFERENCES productos(id);
 alter table public.lotes add constraint lotes_sucursal_id_fkey FOREIGN KEY (sucursal_id) REFERENCES sucursales(id);
-alter table public.movimientos_envase add constraint movimientos_envase_cliente_id_fkey FOREIGN KEY (cliente_id) REFERENCES clientes(id);
-alter table public.movimientos_envase add constraint movimientos_envase_tipo_id_fkey FOREIGN KEY (tipo_id) REFERENCES tipos_envase(id);
 alter table public.movimientos_stock add constraint movimientos_stock_producto_id_fkey FOREIGN KEY (producto_id) REFERENCES productos(id);
 alter table public.movimientos_stock add constraint movimientos_stock_sucursal_id_fkey FOREIGN KEY (sucursal_id) REFERENCES sucursales(id);
 alter table public.movimientos_stock add constraint movimientos_stock_usuario_id_fkey FOREIGN KEY (usuario_id) REFERENCES usuarios(id);

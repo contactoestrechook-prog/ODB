@@ -161,7 +161,7 @@ function Detalle({ det, cerrar, post, refrescar, aviso }: any) {
   const [zona, setZona] = useState('');
   useEffect(() => {
     if (busca.trim().length < 2) return setSug([]);
-    const t = setTimeout(async () => { const r = await fetch(`/api/envases?recurso=buscarCliente&q=${encodeURIComponent(busca)}`); if (r.ok) setSug((await r.json()).slice(0, 6)); }, 250);
+    const t = setTimeout(async () => { const r = await fetch(`/api/buscar?q=${encodeURIComponent(busca)}`); if (r.ok) setSug(((await r.json()).clientes ?? []).slice(0, 6)); }, 250);
     return () => clearTimeout(t);
   }, [busca]);
   const t = det.totales ?? {};

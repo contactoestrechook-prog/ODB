@@ -978,37 +978,7 @@ AS $function$
 $function$
 ;
 
-CREATE OR REPLACE FUNCTION public.envases_resumen()
- RETURNS TABLE(tipo_id uuid, nombre text, valor numeric, en_calle bigint, clientes bigint)
- LANGUAGE sql
- STABLE SECURITY DEFINER
- SET search_path TO 'public'
-AS $function$
-  select te.id, te.nombre, te.valor,
-    coalesce(sum(me.cantidad),0)::bigint,
-    count(distinct me.cliente_id) filter (where me.cantidad is not null)
-  from tipos_envase te left join movimientos_envase me on me.tipo_id=te.id
-  where te.activo
-  group by te.id, te.nombre, te.valor order by te.nombre;
-$function$
-;
 
-CREATE OR REPLACE FUNCTION public.envases_saldos_cliente()
- RETURNS TABLE(cliente_id uuid, nombre text, total bigint, valor numeric)
- LANGUAGE sql
- STABLE SECURITY DEFINER
- SET search_path TO 'public'
-AS $function$
-  select c.id, coalesce(nullif(c.nombre,''), c.razon_social, c.dni, 'Cliente'),
-    sum(me.cantidad)::bigint, sum(me.cantidad*te.valor)
-  from movimientos_envase me
-  join clientes c on c.id=me.cliente_id
-  join tipos_envase te on te.id=me.tipo_id
-  group by c.id, coalesce(nullif(c.nombre,''), c.razon_social, c.dni, 'Cliente')
-  having sum(me.cantidad) > 0
-  order by sum(me.cantidad*te.valor) desc;
-$function$
-;
 
 CREATE OR REPLACE FUNCTION public.facturas_abiertas(p_cliente uuid)
  RETURNS TABLE(id uuid, tipo tipo_comprobante, punto_venta integer, numero bigint, emitido_en timestamp with time zone, total numeric, imputado numeric, nc_acreditada numeric, saldo numeric)

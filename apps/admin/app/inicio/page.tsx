@@ -60,7 +60,6 @@ export default async function Inicio() {
         { label: 'Pedidos', href: '/pedidos', icon: 'pedidos', sub: 'whatsapp · web · PY', badge: pedidosActivos },
         { label: 'Reparto', href: '/reparto', icon: 'reparto', sub: 'hojas de ruta' },
         { label: 'Envíos', href: '/envios', icon: 'envios', sub: 'despacho a domicilio' },
-        { label: 'Envases', href: '/envases', icon: 'envases', sub: 'retornables' },
         { label: 'Cierres', href: '/cierres', icon: 'cierres', sub: 'caja y arqueo' },
       ],
     },

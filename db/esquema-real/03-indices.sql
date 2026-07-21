@@ -45,8 +45,6 @@ CREATE INDEX idx_listas_items_ean ON public.listas_proveedor_items USING btree (
 CREATE INDEX lpi_lista ON public.listas_proveedor_items USING btree (lista_id);
 CREATE INDEX lpi_producto ON public.listas_proveedor_items USING btree (producto_id);
 CREATE INDEX lotes_vencimiento_idx ON public.lotes USING btree (vencimiento);
-CREATE INDEX mov_envase_cliente ON public.movimientos_envase USING btree (cliente_id);
-CREATE INDEX mov_envase_tipo ON public.movimientos_envase USING btree (tipo_id);
 CREATE INDEX movimientos_stock_producto_id_sucursal_id_creado_en_idx ON public.movimientos_stock USING btree (producto_id, sucursal_id, creado_en DESC);
 CREATE INDEX notificaciones_cliente_id_leida_id_idx ON public.notificaciones USING btree (cliente_id, leida, id DESC);
 CREATE INDEX pagos_venta ON public.pagos USING btree (venta_id);
