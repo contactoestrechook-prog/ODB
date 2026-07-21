@@ -23,8 +23,8 @@ const TABS = [['ordenes', 'Órdenes'], ['aprobar', 'Por aprobar'], ['recepcion',
 
 const input = 'w-full rounded-lg border border-black/15 px-3 py-2.5 text-sm text-black focus:border-[#B82D25] focus:outline-none';
 
-export function ComprasWorkspace({ resumen, ordenes, proveedores, sugerencias, sucursales }: {
-  resumen: any; ordenes: any[]; proveedores: any[]; sugerencias: any[]; sucursales: any[];
+export function ComprasWorkspace({ resumen, ordenes, proveedores, sugerencias, sucursales, categorias = [] }: {
+  resumen: any; ordenes: any[]; proveedores: any[]; sugerencias: any[]; sucursales: any[]; categorias?: { id: string; nombre: string }[];
 }) {
   const router = useRouter();
   const [tab, setTab] = useState('ordenes');
@@ -222,12 +222,12 @@ export function ComprasWorkspace({ resumen, ordenes, proveedores, sugerencias, s
         </section>
       )}
 
-      {modal && <Modal modal={modal} setModal={setModal} post={post} proveedores={proveedores} sucursales={sucursales} aviso={aviso} />}
+      {modal && <Modal modal={modal} setModal={setModal} post={post} proveedores={proveedores} sucursales={sucursales} aviso={aviso} categorias={categorias} />}
     </div>
   );
 }
 
-function Modal({ modal, setModal, post, proveedores, sucursales, aviso }: any) {
+function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categorias = [] }: any) {
   const [f, setF] = useState<any>(modal.prov ?? modal);
   const set = (k: string, v: any) => setF((x: any) => ({ ...x, [k]: v }));
   const [items, setItems] = useState<any[]>([]);
@@ -248,6 +248,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso }: any) {
   // buscador por renglón para vincular un producto (índice de fila + texto + resultados)
   const [vinculaIdx, setVinculaIdx] = useState<number | null>(null);
   const [vinculaBusca, setVinculaBusca] = useState('');
+  const [vinculaRubro, setVinculaRubro] = useState(''); // filtra el buscador por rubro
   const [vinculaSug, setVinculaSug] = useState<any[]>([]);
 
   async function leerFoto(archivo: File) {
@@ -330,17 +331,25 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso }: any) {
     return () => clearTimeout(t);
   }, [busca]);
 
-  // buscador por renglón de la entrada por foto (vincular producto a mano)
+  // buscador por renglón de la entrada por foto (vincular producto a mano).
+  // Si se elige un rubro, filtra por él — así aunque no matchee por nombre,
+  // podés ver todos los productos de esa categoría y elegir el correcto.
   useEffect(() => {
-    if (vinculaBusca.trim().length < 2) return setVinculaSug([]);
-    const t = setTimeout(async () => { const r = await fetch(`/api/buscar-producto?q=${encodeURIComponent(vinculaBusca)}`); if (r.ok) setVinculaSug((await r.json()).items ?? []); }, 250);
+    if (vinculaIdx == null) return;
+    if (vinculaBusca.trim().length < 2 && !vinculaRubro) return setVinculaSug([]);
+    const t = setTimeout(async () => {
+      const params = new URLSearchParams({ q: vinculaBusca });
+      if (vinculaRubro) params.set('categoria', vinculaRubro);
+      const r = await fetch(`/api/buscar-producto?${params.toString()}`);
+      if (r.ok) setVinculaSug((await r.json()).items ?? []);
+    }, 250);
     return () => clearTimeout(t);
-  }, [vinculaBusca]);
+  }, [vinculaBusca, vinculaRubro, vinculaIdx]);
 
   // vincula un producto a un renglón leído (y lo tilda para incluirlo)
   const vincularProducto = (idx: number, p: any) => {
     setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, sku: p.sku, nombre: p.nombre, incluir: true } : x));
-    setVinculaIdx(null); setVinculaBusca(''); setVinculaSug([]);
+    setVinculaIdx(null); setVinculaBusca(''); setVinculaRubro(''); setVinculaSug([]);
   };
   // precio de venta calculado = costo final × (1 + remarcación%)
   const precioVenta = (i: any) => Math.round(costoFinal(i) * (1 + (Number(i.margenPct) || 0) / 100));
@@ -557,12 +566,22 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso }: any) {
                   {/* buscador para vincular el producto a este renglón */}
                   {vinculaIdx === idx && (
                     <div className="relative mt-2 ml-6">
-                      <input autoFocus value={vinculaBusca} onChange={(e) => setVinculaBusca(e.target.value)} placeholder="Buscar producto del catálogo…" className={input} />
+                      <div className="flex gap-2">
+                        <input autoFocus value={vinculaBusca} onChange={(e) => setVinculaBusca(e.target.value)} placeholder="Buscar producto por nombre o código…" className={input + ' flex-1'} />
+                        <select value={vinculaRubro} onChange={(e) => setVinculaRubro(e.target.value)} className={input + ' w-40 shrink-0'} title="Filtrar por rubro">
+                          <option value="">Todos los rubros</option>
+                          {categorias.map((c: any) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                        </select>
+                      </div>
+                      {vinculaRubro && vinculaBusca.trim().length < 2 && (
+                        <p className="text-[11px] text-black/45 mt-1">Mostrando productos del rubro. Escribí para afinar.</p>
+                      )}
                       {vinculaSug.length > 0 && (
-                        <div className="absolute z-20 mt-1 w-full rounded-lg bg-white shadow-lg border border-black/10 max-h-52 overflow-y-auto">
+                        <div className="absolute z-20 mt-1 w-full rounded-lg bg-white shadow-lg border border-black/10 max-h-60 overflow-y-auto">
                           {vinculaSug.map((p: any) => (
                             <button key={p.sku} onClick={() => vincularProducto(idx, p)} className="w-full text-left px-3 py-2 text-sm hover:bg-[#F0EBE2] border-b border-black/5 last:border-0">
                               {p.nombre} <span className="text-xs text-black/40">{p.sku}</span>
+                              {p.categoria && <span className="ml-1.5 text-[10px] rounded-full bg-[#F0EBE2] text-black/50 px-1.5 py-0.5">{p.categoria}</span>}
                             </button>
                           ))}
                         </div>
