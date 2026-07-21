@@ -1,5 +1,4 @@
 import { Header } from '../ui/Header';
-import { BotonPromo } from '../ui/BotonPromo';
 import { apiFetch } from '../../lib/api';
 
 const pesos = (n: number) => '$' + Math.round(n).toLocaleString('es-AR');
@@ -161,6 +160,7 @@ export default async function Estadisticas() {
           </p>
         )}
 
+        {d.totales.tickets > 0 && (
         <section className="rounded-xl bg-white p-4">
           <h2 className="font-medium text-black text-sm mb-3">Ventas por día (30 días)</h2>
           <div className="flex items-end gap-[3px] h-36">
@@ -178,6 +178,7 @@ export default async function Estadisticas() {
             <span>hoy</span>
           </div>
         </section>
+        )}
 
         {d.ganadores.length > 0 && (
           <section className="rounded-xl bg-white overflow-hidden">
@@ -211,55 +212,18 @@ export default async function Estadisticas() {
 
         <div className="grid md:grid-cols-2 gap-4">
           <TablaRanking titulo="Más vendidos (unidades)" filas={d.topUnidades} valor="unidades" formato="unidades" />
-          <TablaRanking titulo="Más facturación" filas={d.topFacturacion} valor="facturado" formato="pesos" />
-          <TablaRanking titulo="Más margen (la plata de verdad)" filas={d.topMargen} valor="margen" formato="pesos" />
-          <TablaRanking titulo="Peores (candidatos a liquidar)" filas={d.peores} valor="unidades" formato="unidades" />
+          {d.peores.length > 0 && (
+            <TablaRanking titulo="Peores (candidatos a liquidar)" filas={d.peores} valor="unidades" formato="unidades" />
+          )}
+          {d.topFacturacion.length > 0 && (
+            <TablaRanking titulo="Más facturación" filas={d.topFacturacion} valor="facturado" formato="pesos" />
+          )}
+          {d.topMargen.length > 0 && (
+            <TablaRanking titulo="Más margen (la plata de verdad)" filas={d.topMargen} valor="margen" formato="pesos" />
+          )}
         </div>
 
-        {d.promocionables.length > 0 && (
-          <section className="rounded-xl bg-white overflow-hidden">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-black/10">
-              <h2 className="font-medium text-black text-sm">Ideales para promocionar</h2>
-              <span className="text-xs text-black/40">
-                hay que moverlos y el margen banca el descuento
-              </span>
-            </div>
-            <table className="w-full text-sm text-black">
-              <tbody>
-                {d.promocionables.map((p: any) => (
-                  <tr key={p.sku} className="border-b border-black/5 last:border-0">
-                    <td className="px-4 py-2.5">
-                      <p className="text-sm">{p.nombre}</p>
-                      <p className="text-xs text-black/40">
-                        {p.sku} · {p.stockTotal} u. · ${Math.round(p.capital).toLocaleString('es-AR')} inmovilizados
-                      </p>
-                    </td>
-                    <td className="px-4 py-2.5">
-                      <div className="flex flex-wrap gap-1 justify-end">
-                        {p.motivos.map((m: string) => (
-                          <span
-                            key={m}
-                            className={
-                              'rounded-full px-2.5 py-0.5 text-xs font-medium ' +
-                              (m.startsWith('vence') ? 'bg-[#B82D25] text-white' : 'bg-[#F0EBE2] text-black')
-                            }
-                          >
-                            {m}
-                          </span>
-                        ))}
-                      </div>
-                    </td>
-                    <td className="px-4 py-2.5 text-right text-xs w-36">
-                      <BotonPromo sku={p.sku} nombre={p.nombre} porcentaje={p.descuentoSugerido} />
-                      <p className="text-black/40 mt-1">margen {Math.round(p.margenPct)} %</p>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </section>
-        )}
-
+        {d.porMedio.length > 0 && (
         <section className="rounded-xl bg-white p-4">
           <h2 className="font-medium text-black text-sm mb-3">Medios de pago (30 días)</h2>
           <div className="flex h-7 rounded-full overflow-hidden">
@@ -281,6 +245,7 @@ export default async function Estadisticas() {
             ))}
           </div>
         </section>
+        )}
       </div>
     </main>
   );

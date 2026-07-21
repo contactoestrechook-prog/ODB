@@ -23,6 +23,12 @@ export class EstadisticasController {
     return data;
   }
 
+  // Candidatos a promocionar: vive en el módulo de Promociones, no en el tablero
+  @Get('promocionables')
+  promocionablesLista() {
+    return this.promocionables();
+  }
+
   // PostgREST corta en 1000 filas por request: se pagina en tandas paralelas de 8
   private async todas(crear: (d: number, h: number) => PromiseLike<{ data: any; error: any }>) {
     const filas: any[] = [];
@@ -191,11 +197,11 @@ export class EstadisticasController {
         tickets: v.tickets,
       })),
       topUnidades: [...ranking].sort((a, b) => b.unidades - a.unidades).slice(0, 10),
-      topFacturacion: [...ranking].sort((a, b) => b.facturado - a.facturado).slice(0, 10),
-      topMargen: [...ranking].sort((a, b) => b.margen - a.margen).slice(0, 10),
-      peores: [...ranking].sort((a, b) => a.unidades - b.unidades).slice(0, 10),
+      // facturación/margen solo cuando hay ventas del sistema nuevo (el histórico no trae importes)
+      topFacturacion: ranking.filter((r) => r.facturado > 0).sort((a, b) => b.facturado - a.facturado).slice(0, 10),
+      topMargen: ranking.filter((r) => r.margen > 0).sort((a, b) => b.margen - a.margen).slice(0, 10),
+      peores: ranking.filter((r) => r.unidades >= 1).sort((a, b) => a.unidades - b.unidades).slice(0, 10),
       ganadores,
-      promocionables: await this.promocionables(),
       porMedio: [...porMedio.entries()].map(([medio, total]) => ({ medio, total: Math.round(total) })),
       porCanal: [...porCanal.entries()].map(([canal, total]) => ({ canal, total: Math.round(total) })),
     };
