@@ -28,7 +28,9 @@ export function StockWorkspace({
   const [tab, setTab] = useState('resumen');
   const [data, setData] = useState<Record<string, any>>({});
   const [cargando, setCargando] = useState(false);
-  const [movFiltro, setMovFiltro] = useState({ tipo: '', sucursalId: '', dias: '' });
+  const [movFiltro, setMovFiltro] = useState({ tipo: '', sucursalId: '', dias: '', sku: '' });
+  // consulta puntual de stock por producto (cuando se entra con ?sku= desde Estadísticas)
+  const [consulta, setConsulta] = useState<any>(null);
 
   async function cargar(recurso: string, qs = '') {
     setCargando(true);
@@ -41,15 +43,32 @@ export function StockWorkspace({
     }
   }
 
+  async function consultarProducto(sku: string) {
+    const res = await fetch(`/api/pos-stock?q=${encodeURIComponent(sku)}`);
+    if (res.ok) { const d = await res.json(); setConsulta(Array.isArray(d) ? d.find((p: any) => p.sku === sku) ?? d[0] : null); }
+  }
+
+  // deep-link desde Estadísticas: /stock?sku=XXX → va a Movimientos filtrado por ese producto y muestra su stock
+  useEffect(() => {
+    const sku = new URLSearchParams(window.location.search).get('sku');
+    if (sku) {
+      setMovFiltro((f) => ({ ...f, sku }));
+      setTab('movimientos');
+      consultarProducto(sku);
+      cargar('movimientos', `&limite=150&sku=${encodeURIComponent(sku)}`);
+    }
+  }, []);
+
   useEffect(() => {
     if (tab === 'negativos' && !data['negativos']) cargar('negativos');
     if (tab === 'abc' && !data['abc']) cargar('abc');
     if (tab === 'rotacion' && !data['sin-rotacion']) cargar('sin-rotacion', '&dias=30');
-    if (tab === 'movimientos' && !data['movimientos']) cargar('movimientos', '&limite=100');
+    if (tab === 'movimientos' && !data['movimientos'] && !movFiltro.sku) cargar('movimientos', '&limite=100');
   }, [tab]);
 
   const aplicarMovFiltro = () => {
-    const qs = `&limite=150${movFiltro.tipo ? `&tipo=${movFiltro.tipo}` : ''}${movFiltro.sucursalId ? `&sucursalId=${movFiltro.sucursalId}` : ''}${movFiltro.dias ? `&dias=${movFiltro.dias}` : ''}`;
+    const qs = `&limite=150${movFiltro.tipo ? `&tipo=${movFiltro.tipo}` : ''}${movFiltro.sucursalId ? `&sucursalId=${movFiltro.sucursalId}` : ''}${movFiltro.dias ? `&dias=${movFiltro.dias}` : ''}${movFiltro.sku ? `&sku=${encodeURIComponent(movFiltro.sku)}` : ''}`;
+    if (movFiltro.sku) consultarProducto(movFiltro.sku); else setConsulta(null);
     cargar('movimientos', qs);
   };
 
@@ -230,7 +249,30 @@ export function StockWorkspace({
       {/* MOVIMIENTOS (kardex con filtros) */}
       {tab === 'movimientos' && (
         <div className="space-y-3">
+          {/* stock del producto consultado (deep-link desde Estadísticas) */}
+          {consulta && (
+            <div className="rounded-xl bg-white p-4 border border-black/[0.06]">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="font-semibold text-black">{consulta.nombre}</p>
+                  <p className="text-xs text-black/45">{consulta.sku}{consulta.codigo ? ` · ${consulta.codigo}` : ''}</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-2xl font-semibold text-black tabular-nums leading-none">{num(consulta.total)}</p>
+                  <p className="text-xs text-black/45">unidades en total</p>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2 mt-3">
+                {(consulta.sucursales ?? []).map((s: any) => (
+                  <span key={s.sucursal} className={`text-xs rounded-full px-3 py-1 ${Number(s.cantidad) < 0 ? 'bg-[#B82D25]/12 text-[#B82D25]' : 'bg-[#F0EBE2] text-black/70'}`}>
+                    {s.sucursal}: <b>{num(s.cantidad)}</b>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="flex flex-wrap gap-2 items-center">
+            <input value={movFiltro.sku} onChange={(e) => setMovFiltro((f) => ({ ...f, sku: e.target.value }))} placeholder="SKU / producto" className="rounded-lg border border-black/15 bg-white px-2.5 py-2 text-sm text-black w-36" />
             <select value={movFiltro.tipo} onChange={(e) => setMovFiltro((f) => ({ ...f, tipo: e.target.value }))} className="rounded-lg border border-black/15 bg-white px-2.5 py-2 text-sm text-black">
               <option value="">Todos los tipos</option>
               {Object.entries(MOV_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}

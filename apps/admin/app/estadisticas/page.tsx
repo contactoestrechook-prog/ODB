@@ -52,6 +52,53 @@ function TablaRanking({
   );
 }
 
+// Semáforo de cobertura: días que dura el stock al ritmo de venta.
+function chipCobertura(dias: number | null) {
+  if (dias == null) return <span className="text-xs text-black/40">s/d</span>;
+  const cls = dias <= 7 ? 'bg-[#B82D25]/12 text-[#B82D25]' : dias <= 15 ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800';
+  return <span className={`text-xs font-semibold rounded-full px-2 py-0.5 ${cls}`}>{dias} d{dias <= 7 ? ' ⚠' : ''}</span>;
+}
+
+function TablaCobertura({ filas }: { filas: any[] }) {
+  const urgentes = filas.filter((f) => f.coberturaDias != null && f.coberturaDias <= 7).length;
+  return (
+    <section className="rounded-xl bg-white overflow-hidden">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-black/10">
+        <h2 className="font-medium text-black text-sm">Más vendidos · cobertura de stock</h2>
+        <span className="text-xs text-black/40">
+          {urgentes > 0 ? <span className="text-[#B82D25] font-medium">{urgentes} para reponer ya</span> : 'stock cubierto'} · tocá los días para ver el stock
+        </span>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm text-black min-w-[34rem]">
+          <thead>
+            <tr className="text-[11px] uppercase tracking-wide text-black/40 border-b border-black/5">
+              <th className="px-4 py-2 text-left font-medium">Producto</th>
+              <th className="px-4 py-2 text-right font-medium">Vendidas (30d)</th>
+              <th className="px-4 py-2 text-right font-medium">Stock</th>
+              <th className="px-4 py-2 text-right font-medium">Cobertura</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filas.map((f) => (
+              <tr key={f.sku} className="border-b border-black/5 last:border-0">
+                <td className="px-4 py-2"><p className="text-xs font-medium">{f.nombre}</p><p className="text-[11px] text-black/40">{f.sku}</p></td>
+                <td className="px-4 py-2 text-right text-xs tabular-nums whitespace-nowrap">{f.unidades} u.</td>
+                <td className="px-4 py-2 text-right text-xs tabular-nums whitespace-nowrap">{f.stock} u.</td>
+                <td className="px-4 py-2 text-right">
+                  <a href={`/stock?sku=${encodeURIComponent(f.sku)}`} className="inline-block hover:opacity-80" title="Ver el stock de este producto">
+                    {chipCobertura(f.coberturaDias)}
+                  </a>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
 export default async function Estadisticas() {
   let d: any = null;
   let error: string | null = null;
@@ -145,6 +192,8 @@ export default async function Estadisticas() {
             </table>
           </section>
         )}
+
+        {d.topCobertura?.length > 0 && <TablaCobertura filas={d.topCobertura} />}
 
         <div className="grid md:grid-cols-2 gap-4">
           <TablaRanking titulo="Más vendidos (unidades)" filas={d.topUnidades} valor="unidades" formato="unidades" />

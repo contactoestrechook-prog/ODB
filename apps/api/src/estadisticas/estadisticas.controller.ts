@@ -131,9 +131,15 @@ export class EstadisticasController {
     const porCanal = new Map<string, number>();
     for (const v of ventas) porCanal.set(v.canal, (porCanal.get(v.canal) ?? 0) + Number(v.total));
 
+    // Cobertura de stock: cruza los más vendidos con el stock actual y calcula
+    // cuántos días alcanza al ritmo de venta de los últimos 30 días. Rojo = poco.
+    const topVendidos = [...ranking].sort((a, b) => b.unidades - a.unidades).slice(0, 15);
+    const topCobertura = await this.conCobertura(topVendidos);
+
     const facturado = ventas.reduce((s, v) => s + Number(v.total), 0);
     return {
       periodo: '30 días',
+      topCobertura,
       totales: {
         facturado: Math.round(facturado),
         tickets: ventas.length,
@@ -154,6 +160,29 @@ export class EstadisticasController {
       porMedio: [...porMedio.entries()].map(([medio, total]) => ({ medio, total: Math.round(total) })),
       porCanal: [...porCanal.entries()].map(([canal, total]) => ({ canal, total: Math.round(total) })),
     };
+  }
+
+  // Enriquece una lista de productos vendidos con su stock actual (sumado entre
+  // sucursales) y los días de cobertura al ritmo de venta de los últimos 30 días.
+  private async conCobertura(filas: any[]) {
+    const skus = filas.map((f) => f.sku).filter((s) => s && s !== '?');
+    if (!skus.length) return [];
+    const { data: prods } = await this.db.from('productos').select('id, sku').in('sku', skus);
+    const idPorSku = new Map((prods ?? []).map((p: any) => [p.sku, p.id]));
+    const ids = [...idPorSku.values()];
+    const stockPorId = new Map<string, number>();
+    if (ids.length) {
+      const { data: st } = await this.db.from('stock').select('producto_id, cantidad').in('producto_id', ids);
+      for (const s of (st ?? []) as any[]) {
+        stockPorId.set(s.producto_id, (stockPorId.get(s.producto_id) ?? 0) + Number(s.cantidad));
+      }
+    }
+    return filas.map((f) => {
+      const stock = Math.round((stockPorId.get(idPorSku.get(f.sku)) ?? 0) * 100) / 100;
+      const porDia = f.unidades / 30;
+      const coberturaDias = porDia > 0 ? Math.round(stock / porDia) : null;
+      return { sku: f.sku, nombre: f.nombre, unidades: f.unidades, facturado: f.facturado, stock, coberturaDias };
+    });
   }
 
   // Candidatos ideales para promocionar: hay que mover stock (sobrestock, sin
