@@ -31,7 +31,7 @@ function TablaRanking({
       <table className="w-full text-sm text-black">
         <tbody>
           {filas.map((f) => (
-            <tr key={f.sku} className="border-b border-black/5 last:border-0">
+            <tr key={f.sku ?? f.nombre} className="border-b border-black/5 last:border-0">
               <td className="px-4 py-2">
                 <p className="text-xs">{f.nombre}</p>
                 <div className="mt-1 h-1.5 rounded-full bg-[#F0EBE2]">
@@ -81,14 +81,18 @@ function TablaCobertura({ filas }: { filas: any[] }) {
           </thead>
           <tbody>
             {filas.map((f) => (
-              <tr key={f.sku} className="border-b border-black/5 last:border-0">
+              <tr key={f.sku ?? f.nombre} className="border-b border-black/5 last:border-0">
                 <td className="px-4 py-2"><p className="text-xs font-medium">{f.nombre}</p><p className="text-[11px] text-black/40">{f.sku}</p></td>
                 <td className="px-4 py-2 text-right text-xs tabular-nums whitespace-nowrap">{f.unidades} u.</td>
                 <td className="px-4 py-2 text-right text-xs tabular-nums whitespace-nowrap">{f.stock} u.</td>
                 <td className="px-4 py-2 text-right">
-                  <a href={`/stock?sku=${encodeURIComponent(f.sku)}`} className="inline-block hover:opacity-80" title="Ver el stock de este producto">
-                    {chipCobertura(f.coberturaDias)}
-                  </a>
+                  {f.sku ? (
+                    <a href={`/stock?sku=${encodeURIComponent(f.sku)}`} className="inline-block hover:opacity-80" title="Ver el stock de este producto">
+                      {chipCobertura(f.coberturaDias)}
+                    </a>
+                  ) : (
+                    chipCobertura(f.coberturaDias)
+                  )}
                 </td>
               </tr>
             ))}
@@ -146,6 +150,16 @@ export default async function Estadisticas() {
             <p className="text-xl font-medium text-white">{pesos(d.totales.descuentos)}</p>
           </div>
         </div>
+
+        {d.historico && (
+          <p className="rounded-xl bg-white px-4 py-3 text-xs text-black/55">
+            Los rankings incluyen las ventas del sistema anterior del{' '}
+            {new Date(d.historico.desde + 'T12:00:00').toLocaleDateString('es-AR', { day: 'numeric', month: 'numeric' })} al{' '}
+            {new Date(d.historico.hasta + 'T12:00:00').toLocaleDateString('es-AR', { day: 'numeric', month: 'numeric' })}{' '}
+            ({d.historico.unidades.toLocaleString('es-AR')} unidades). La facturación y los tickets arrancan con las ventas
+            cargadas en este sistema.
+          </p>
+        )}
 
         <section className="rounded-xl bg-white p-4">
           <h2 className="font-medium text-black text-sm mb-3">Ventas por día (30 días)</h2>

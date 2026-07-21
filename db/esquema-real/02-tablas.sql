@@ -977,6 +977,23 @@ create table public.ventas_items (
 );
 alter table public.ventas_items add constraint ventas_items_pkey PRIMARY KEY (venta_id, producto_id);
 
+-- Ventas agregadas por producto del sistema anterior (Access): insumo de
+-- estadísticas mientras las ventas vivas se acumulan. No toca facturación.
+create table public.ventas_historicas (
+  id uuid default gen_random_uuid() not null,
+  producto_id uuid,
+  sku text,
+  codigo_legacy text not null,
+  nombre text not null,
+  sucursal_id uuid,
+  unidades numeric(12,3) not null,
+  desde date not null,
+  hasta date not null,
+  origen text default 'access'::text not null,
+  creado_en timestamp with time zone default now() not null
+);
+alter table public.ventas_historicas add constraint ventas_historicas_pkey PRIMARY KEY (id);
+
 -- =============================================================
 -- FOREIGN KEYS (132) — al final para independizar el orden de creación
 -- =============================================================
@@ -1109,6 +1126,8 @@ alter table public.ventas add constraint ventas_cliente_id_fkey FOREIGN KEY (cli
 alter table public.ventas add constraint ventas_sesion_caja_id_fkey FOREIGN KEY (sesion_caja_id) REFERENCES sesiones_caja(id);
 alter table public.ventas add constraint ventas_sucursal_id_fkey FOREIGN KEY (sucursal_id) REFERENCES sucursales(id);
 alter table public.ventas_items add constraint ventas_items_producto_id_fkey FOREIGN KEY (producto_id) REFERENCES productos(id);
+alter table public.ventas_historicas add constraint ventas_historicas_producto_id_fkey FOREIGN KEY (producto_id) REFERENCES productos(id);
+alter table public.ventas_historicas add constraint ventas_historicas_sucursal_id_fkey FOREIGN KEY (sucursal_id) REFERENCES sucursales(id);
 alter table public.ventas_items add constraint ventas_items_promocion_id_fkey FOREIGN KEY (promocion_id) REFERENCES promociones(id);
 alter table public.ventas_items add constraint ventas_items_venta_id_fkey FOREIGN KEY (venta_id) REFERENCES ventas(id);
 

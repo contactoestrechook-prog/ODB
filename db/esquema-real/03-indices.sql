@@ -71,3 +71,5 @@ CREATE INDEX ventas_items_producto ON public.ventas_items USING btree (producto_
 CREATE INDEX ventas_items_venta ON public.ventas_items USING btree (venta_id);
 -- Solo una sesión de caja abierta por caja (P1-04: corta apertura concurrente)
 CREATE UNIQUE INDEX ux_sesiones_caja_abierta ON public.sesiones_caja USING btree (caja_id) WHERE (cerrada_en IS NULL);
+CREATE INDEX ventas_historicas_producto ON public.ventas_historicas USING btree (producto_id);
+CREATE INDEX ventas_historicas_periodo ON public.ventas_historicas USING btree (desde, hasta);

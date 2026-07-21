@@ -44,7 +44,7 @@ export class EstadisticasController {
   private async calcular() {
     const hace30 = new Date(Date.now() - 30 * 86400_000).toISOString();
 
-    const [ventas, items, pagos] = await Promise.all([
+    const [ventas, items, pagos, historicas] = await Promise.all([
       this.todas((d, h) =>
         this.db
           .from('ventas')
@@ -67,6 +67,14 @@ export class EstadisticasController {
           .select('medio, monto, venta:ventas!inner(vendida_en, estado)')
           .gte('venta.vendida_en', hace30)
           .eq('venta.estado', 'completada')
+          .range(d, h),
+      ),
+      // ventas por producto del sistema anterior (solo unidades) que tocan la ventana
+      this.todas((d, h) =>
+        this.db
+          .from('ventas_historicas')
+          .select('sku, codigo_legacy, nombre, unidades, desde, hasta')
+          .gte('hasta', hace30.slice(0, 10))
           .range(d, h),
       ),
     ]);
@@ -106,12 +114,42 @@ export class EstadisticasController {
       acc.margen += cantidad * (Number(i.precio_unitario) - Number(i.costo_unitario ?? 0));
       porProducto.set(sku, acc);
     }
+
+    // Suma el histórico del sistema anterior (solo unidades, sin importes).
+    // El ritmo diario se calcula con los días reales del período para que la
+    // cobertura de stock no se diluya contra los 30 días de la ventana.
+    let histUnidades = 0;
+    let histDesde: string | null = null;
+    let histHasta: string | null = null;
+    for (const acc of porProducto.values()) acc.unidadesVivas = acc.unidades;
+    for (const hRow of historicas) {
+      const clave = hRow.sku ?? `legacy:${hRow.codigo_legacy}`;
+      const acc = porProducto.get(clave) ?? {
+        sku: hRow.sku,
+        nombre: hRow.nombre,
+        unidades: 0,
+        unidades7: 0,
+        facturado: 0,
+        margen: 0,
+        unidadesVivas: 0,
+      };
+      const dias = Math.max(1, Math.round((new Date(hRow.hasta).getTime() - new Date(hRow.desde).getTime()) / 86400_000) + 1);
+      const u = Number(hRow.unidades);
+      acc.unidades += u;
+      acc.ritmoHist = (acc.ritmoHist ?? 0) + u / dias;
+      histUnidades += u;
+      if (!histDesde || hRow.desde < histDesde) histDesde = hRow.desde;
+      if (!histHasta || hRow.hasta > histHasta) histHasta = hRow.hasta;
+      porProducto.set(clave, acc);
+    }
+
     const ranking = [...porProducto.values()].map((r) => ({
       ...r,
       unidades: Math.round(r.unidades),
       unidades7: Math.round(r.unidades7),
       facturado: Math.round(r.facturado),
       margen: Math.round(r.margen),
+      ritmoDia: (r.unidadesVivas ?? r.unidades) / 30 + (r.ritmoHist ?? 0),
     }));
 
     // ganadores: aceleran su ritmo (última semana vs promedio del mes) con volumen real
@@ -139,6 +177,7 @@ export class EstadisticasController {
     const facturado = ventas.reduce((s, v) => s + Number(v.total), 0);
     return {
       periodo: '30 días',
+      historico: histUnidades > 0 ? { desde: histDesde, hasta: histHasta, unidades: Math.round(histUnidades) } : null,
       topCobertura,
       totales: {
         facturado: Math.round(facturado),
@@ -179,7 +218,7 @@ export class EstadisticasController {
     }
     return filas.map((f) => {
       const stock = Math.round((stockPorId.get(idPorSku.get(f.sku)) ?? 0) * 100) / 100;
-      const porDia = f.unidades / 30;
+      const porDia = f.ritmoDia ?? f.unidades / 30;
       const coberturaDias = porDia > 0 ? Math.round(stock / porDia) : null;
       return { sku: f.sku, nombre: f.nombre, unidades: f.unidades, facturado: f.facturado, stock, coberturaDias };
     });
