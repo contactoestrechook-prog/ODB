@@ -32,6 +32,7 @@ export const ICONOS: Record<string, string> = {
   repartidor: 'M5 18a2 2 0 100-4 2 2 0 000 4zm14 0a2 2 0 100-4 2 2 0 000 4zM7 16l3-7h4l2 4h3M14 9l-1-3h-3',
   conciliacion: 'M7 8l-4 4 4 4M3 12h12M17 16l4-4-4-4M21 12H9',
   arca: 'M5 3h10l4 4v14H5zM14 3v5h5M8 12h8M8 15h8M8 18h5',
+  tarjetas: 'M3 6h18v12H3zM3 10h18M6 15h5',
   mercadopago: 'M12 4C7 4 3 7 3 10.5S7 17 12 17s9-3 9-6.5S17 4 12 4zM7 17v3M17 17v3M8 10c1-1.5 2.5-1.5 3.5-.5l1 1c1 1 2.5 1 3.5-.5',
   comparador: 'M12 4v16M8 20h8M6 8h12M6 8l-2.5 5a2.5 2.5 0 005 0zm12 0l-2.5 5a2.5 2.5 0 005 0z',
   pedidos: 'M9 4h6a1 1 0 011 1v1h2v14H6V6h2V5a1 1 0 011-1zM9 6h6M9 11h6M9 15h4',
@@ -96,6 +97,7 @@ const GRUPOS: Grupo[] = [
     items: [
       { href: '/estadisticas', label: 'Estadísticas', icono: 'estadisticas' },
       { href: '/mercadopago', label: 'Mercado Pago', icono: 'mercadopago' },
+      { href: '/tarjetas', label: 'Tarjetas', icono: 'tarjetas' },
       { href: '/arca', label: 'ARCA', icono: 'arca' },
       { href: '/contable', label: 'Contable', icono: 'libroiva' },
       { href: '/conciliacion', label: 'Conciliación', icono: 'conciliacion' },
@@ -115,6 +117,7 @@ const TITULOS: Record<string, { titulo: string; bajada: string }> = {
   '/facturacion': { titulo: 'Facturación', bajada: 'Facturas, notas, remitos, recibos y cuentas corrientes' },
   '/mercadopago': { titulo: 'Mercado Pago', bajada: 'Cobros reales de tu cuenta: comisiones, neto y cuándo se libera la plata' },
   '/arca': { titulo: 'ARCA · Facturación electrónica', bajada: 'Comprobantes con CAE, pendientes de emisión y el paquete mensual para el contador' },
+  '/tarjetas': { titulo: 'Tarjetas', bajada: 'Cobros con Getnet y Clover: por acreditar, comisiones y cuándo entra cada pago' },
   '/contable': { titulo: 'Contable', bajada: 'El cierre del mes: IVA ventas y compras, percepciones, Ingresos Brutos y los libros en CSV' },
   '/deposito': { titulo: 'Depósito', bajada: 'Pedidos web y PedidosYa: armado, retiro y entrega' },
   '/envios': { titulo: 'Envíos a domicilio', bajada: 'Despacho: asigná repartidores y seguí cada entrega en vivo' },
