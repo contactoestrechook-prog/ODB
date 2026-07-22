@@ -80,6 +80,13 @@ export class CajaController {
     return this.arca.pendientes();
   }
 
+  // Prueba la conexión con ARCA (certificado + WSAA + WSFE) sin emitir nada
+  @Roles('gerente', 'dueno')
+  @Get('arca/estado')
+  estadoArca() {
+    return this.arca.estado();
+  }
+
   @Roles('gerente', 'dueno')
   @Post('arca/emitir')
   emitir() {

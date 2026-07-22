@@ -35,6 +35,17 @@ create table public.acreditaciones (
 alter table public.acreditaciones add constraint acreditaciones_pkey PRIMARY KEY (id);
 alter table public.acreditaciones add constraint acreditaciones_pago_id_key UNIQUE (pago_id);
 
+-- Ticket de acceso WSAA (dura ~12 h; ARCA rechaza pedir otro si hay uno
+-- vigente, por eso se persiste y se reusa entre reinicios del server)
+create table public.arca_tokens (
+  servicio text not null,
+  token text not null,
+  sign text not null,
+  expira timestamp with time zone not null,
+  actualizado_en timestamp with time zone default now() not null
+);
+alter table public.arca_tokens add constraint arca_tokens_pkey PRIMARY KEY (servicio);
+
 create table public.agente_auditoria (
   id bigint generated always as identity not null,
   tarea_id bigint,
@@ -279,6 +290,7 @@ create table public.comprobantes_arca (
   cae_vencimiento date,
   estado text default 'pendiente'::text not null,
   pdf_url text,
+  error_detalle text,
   creado_en timestamp with time zone default now() not null
 );
 alter table public.comprobantes_arca add constraint comprobantes_arca_pkey PRIMARY KEY (id);
