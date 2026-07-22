@@ -73,3 +73,5 @@ CREATE INDEX ventas_items_venta ON public.ventas_items USING btree (venta_id);
 CREATE UNIQUE INDEX ux_sesiones_caja_abierta ON public.sesiones_caja USING btree (caja_id) WHERE (cerrada_en IS NULL);
 CREATE INDEX ventas_historicas_producto ON public.ventas_historicas USING btree (producto_id);
 CREATE INDEX ventas_historicas_periodo ON public.ventas_historicas USING btree (desde, hasta);
+CREATE INDEX mp_pagos_aprobado ON public.mp_pagos USING btree (aprobado_en DESC);
+CREATE INDEX mp_pagos_sin_vincular ON public.mp_pagos USING btree (pago_id) WHERE (pago_id IS NULL);

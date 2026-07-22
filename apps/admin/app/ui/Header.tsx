@@ -31,6 +31,7 @@ export const ICONOS: Record<string, string> = {
   envios: 'M3 7h10v8H3zM13 10h4l3 3v2h-7M6 18a1.6 1.6 0 100-3.2A1.6 1.6 0 006 18zm10 0a1.6 1.6 0 100-3.2A1.6 1.6 0 0016 18z',
   repartidor: 'M5 18a2 2 0 100-4 2 2 0 000 4zm14 0a2 2 0 100-4 2 2 0 000 4zM7 16l3-7h4l2 4h3M14 9l-1-3h-3',
   conciliacion: 'M7 8l-4 4 4 4M3 12h12M17 16l4-4-4-4M21 12H9',
+  mercadopago: 'M12 4C7 4 3 7 3 10.5S7 17 12 17s9-3 9-6.5S17 4 12 4zM7 17v3M17 17v3M8 10c1-1.5 2.5-1.5 3.5-.5l1 1c1 1 2.5 1 3.5-.5',
   comparador: 'M12 4v16M8 20h8M6 8h12M6 8l-2.5 5a2.5 2.5 0 005 0zm12 0l-2.5 5a2.5 2.5 0 005 0z',
   pedidos: 'M9 4h6a1 1 0 011 1v1h2v14H6V6h2V5a1 1 0 011-1zM9 6h6M9 11h6M9 15h4',
   reparto: 'M12 2a6 6 0 016 6c0 4-6 12-6 12S6 12 6 8a6 6 0 016-6zm0 4a2 2 0 100 4 2 2 0 000-4z',
@@ -93,6 +94,7 @@ const GRUPOS: Grupo[] = [
     titulo: 'Dirección',
     items: [
       { href: '/estadisticas', label: 'Estadísticas', icono: 'estadisticas' },
+      { href: '/mercadopago', label: 'Mercado Pago', icono: 'mercadopago' },
       { href: '/conciliacion', label: 'Conciliación', icono: 'conciliacion' },
       { href: '/cheques', label: 'Cheques', icono: 'cheques' },
       { href: '/libro-iva', label: 'Libro IVA', icono: 'libroiva' },
@@ -108,6 +110,7 @@ const TITULOS: Record<string, { titulo: string; bajada: string }> = {
   '/ventas': { titulo: 'Ventas', bajada: 'Tickets del día y últimas operaciones de las dos sucursales' },
   '/caja': { titulo: 'Caja', bajada: 'Sesiones de caja, arqueos y facturación ARCA' },
   '/facturacion': { titulo: 'Facturación', bajada: 'Facturas, notas, remitos, recibos y cuentas corrientes' },
+  '/mercadopago': { titulo: 'Mercado Pago', bajada: 'Cobros reales de tu cuenta: comisiones, neto y cuándo se libera la plata' },
   '/deposito': { titulo: 'Depósito', bajada: 'Pedidos web y PedidosYa: armado, retiro y entrega' },
   '/envios': { titulo: 'Envíos a domicilio', bajada: 'Despacho: asigná repartidores y seguí cada entrega en vivo' },
   '/repartidor': { titulo: 'Repartidor', bajada: 'Tus entregas asignadas y compartir tu ubicación en vivo' },

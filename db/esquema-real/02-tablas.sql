@@ -627,6 +627,32 @@ create table public.pagos (
 );
 alter table public.pagos add constraint pagos_pkey PRIMARY KEY (id);
 
+-- Espejo local de los pagos de Mercado Pago (importados por API):
+-- comisión real, neto real y fecha de liberación de cada cobro.
+create table public.mp_pagos (
+  id text not null,
+  estado text not null,
+  estado_detalle text,
+  tipo text,
+  medio text,
+  origen text,
+  cuotas integer default 1,
+  bruto numeric(14,2) default 0 not null,
+  comision numeric(14,2) default 0 not null,
+  neto numeric(14,2) default 0 not null,
+  liberado boolean default false not null,
+  liberacion_en timestamp with time zone,
+  aprobado_en timestamp with time zone,
+  creado_en_mp timestamp with time zone,
+  referencia_externa text,
+  descripcion text,
+  pagador text,
+  pago_id uuid,
+  venta_id uuid,
+  actualizado_en timestamp with time zone default now() not null
+);
+alter table public.mp_pagos add constraint mp_pagos_pkey PRIMARY KEY (id);
+
 create table public.pedidos (
   id uuid default gen_random_uuid() not null,
   cliente_id uuid,
@@ -1127,6 +1153,8 @@ alter table public.ventas add constraint ventas_sesion_caja_id_fkey FOREIGN KEY 
 alter table public.ventas add constraint ventas_sucursal_id_fkey FOREIGN KEY (sucursal_id) REFERENCES sucursales(id);
 alter table public.ventas_items add constraint ventas_items_producto_id_fkey FOREIGN KEY (producto_id) REFERENCES productos(id);
 alter table public.ventas_historicas add constraint ventas_historicas_producto_id_fkey FOREIGN KEY (producto_id) REFERENCES productos(id);
+alter table public.mp_pagos add constraint mp_pagos_pago_id_fkey FOREIGN KEY (pago_id) REFERENCES pagos(id);
+alter table public.mp_pagos add constraint mp_pagos_venta_id_fkey FOREIGN KEY (venta_id) REFERENCES ventas(id);
 alter table public.ventas_historicas add constraint ventas_historicas_sucursal_id_fkey FOREIGN KEY (sucursal_id) REFERENCES sucursales(id);
 alter table public.ventas_items add constraint ventas_items_promocion_id_fkey FOREIGN KEY (promocion_id) REFERENCES promociones(id);
 alter table public.ventas_items add constraint ventas_items_venta_id_fkey FOREIGN KEY (venta_id) REFERENCES ventas(id);
