@@ -38,6 +38,14 @@ export class CompraFacilController {
     return this.compraFacil.webhookMP(req.rawBody, query, req.headers ?? {});
   }
 
+  // Chequeo de disponibilidad: el panel de Mercado Pago valida la URL con un GET
+  // antes de dejar guardar el webhook. Respondemos 200 para que pase la validación.
+  @Publico()
+  @Get('comprafacil/webhook')
+  webhookPing() {
+    return { ok: true };
+  }
+
   // Lado empleado: control de salida
   @Roles('cajero', 'deposito', 'gerente', 'dueno')
   @Get('salida/:codigo')
