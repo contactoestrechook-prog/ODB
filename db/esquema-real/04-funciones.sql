@@ -1779,10 +1779,10 @@ begin
     v_total := round(v_total - p_descuento_extra, 2);
   end if;
 
-  for v_pago in select p->>'medio' medio, (p->>'monto')::numeric monto from jsonb_array_elements(p_pagos) p
+  for v_pago in select p->>'medio' medio, (p->>'monto')::numeric monto, nullif(trim(coalesce(p->>'terminal', '')), '') terminal from jsonb_array_elements(p_pagos) p
   loop
     if v_pago.monto <= 0 then raise exception 'Monto de pago invalido'; end if;
-    insert into pagos (venta_id, medio, monto) values (v_id, v_pago.medio, v_pago.monto);
+    insert into pagos (venta_id, medio, monto, terminal) values (v_id, v_pago.medio, v_pago.monto, v_pago.terminal);
     v_suma_pagos := v_suma_pagos + v_pago.monto;
   end loop;
   if round(v_suma_pagos, 2) <> round(v_total, 2) then raise exception 'Los pagos (%) no coinciden con el total (%)', v_suma_pagos, v_total; end if;

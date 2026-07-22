@@ -635,6 +635,7 @@ create table public.pagos (
   medio text not null,
   monto numeric(14,2) not null,
   mp_payment_id text,
+  terminal text,
   creado_en timestamp with time zone default now() not null
 );
 alter table public.pagos add constraint pagos_pkey PRIMARY KEY (id);

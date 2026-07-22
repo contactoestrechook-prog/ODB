@@ -8,7 +8,8 @@ export type CrearVentaDto = {
   sucursalId: string;
   canal?: 'mostrador' | 'self_checkout' | 'web' | 'whatsapp' | 'pickup';
   items: { sku: string; cantidad: number }[];
-  pagos: { medio: string; monto: number }[];
+  // terminal: con cuál posnet se cobró la tarjeta (getnet/clover) — Sant Thomas tiene los dos
+  pagos: { medio: string; monto: number; terminal?: string }[];
   clienteDni?: string;
   sesionCajaId?: string;
   usuarioId?: string;

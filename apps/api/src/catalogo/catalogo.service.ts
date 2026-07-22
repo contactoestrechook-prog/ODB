@@ -372,7 +372,7 @@ export class CatalogoService {
   async sucursales() {
     const { data, error } = await this.db
       .from('sucursales')
-      .select('id, nombre, direccion, lat, lng')
+      .select('id, nombre, direccion, lat, lng, terminales_tarjeta')
       .eq('activa', true)
       .order('nombre');
     if (error) throw new Error(error.message);

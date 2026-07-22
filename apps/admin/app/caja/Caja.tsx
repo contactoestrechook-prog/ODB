@@ -28,7 +28,7 @@ type Cliente = {
   ticketPromedio?: number;
 };
 
-type Pago = { medio: string; monto: number };
+type Pago = { medio: string; monto: number; terminal?: string };
 
 type SesionCaja = { sesionId: string; cajaId: string; cajaNombre: string; abiertaEn?: string };
 
@@ -87,9 +87,11 @@ type TipoComprobante = (typeof COMPROBANTES)[number]['id'];
 
 const ETIQUETA_COMP: Record<TipoComprobante, string> = { A: 'Factura A', B: 'Factura B', R: 'Remito' };
 
+const TERMINAL_LABEL: Record<string, string> = { getnet: 'Getnet', clover: 'Clover' };
+
 const NOTA_MEDIO: Record<string, string> = {
   mercadopago: 'Mostrá el QR de tu caja para que pague',
-  tarjeta: 'Cobrá en la terminal (Clover)',
+  tarjeta: 'Cobrá en el posnet',
   cta_cte: 'Se carga a la cuenta corriente del cliente',
 };
 
@@ -119,9 +121,22 @@ const escribirLS = (k: string, v: unknown) => {
 const fmtNumero = (c: { tipo: string; punto_venta: number; numero: number }) =>
   `${c.tipo} ${String(c.punto_venta).padStart(4, '0')}-${String(c.numero).padStart(8, '0')}`;
 
-export function Caja({ sucursales }: { sucursales: { id: string; nombre: string }[] }) {
+export function Caja({ sucursales }: { sucursales: { id: string; nombre: string; terminales_tarjeta?: string[] }[] }) {
   const [sucursalId, setSucursalId] = useState(sucursales[0]?.id ?? '');
   const sucursalNombre = sucursales.find((s) => s.id === sucursalId)?.nombre ?? 'esta sucursal';
+  // Sant Thomas tiene DOS posnet (Getnet y Clover): la tarjeta se elige por terminal
+  const [terminal, setTerminal] = useState<string | undefined>(undefined);
+  const terminales = sucursales.find((s) => s.id === sucursalId)?.terminales_tarjeta ?? [];
+  const medios = useMemo(
+    () =>
+      MEDIOS.flatMap((m) => {
+        if (m.id !== 'tarjeta') return [{ ...m, terminal: undefined as string | undefined }];
+        if (terminales.length <= 1) return [{ ...m, terminal: terminales[0] }];
+        return terminales.map((t) => ({ id: 'tarjeta', label: `Tarjeta ${TERMINAL_LABEL[t] ?? t}`, terminal: t }));
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [sucursalId],
+  );
   const [comprobante, setComprobante] = useState<TipoComprobante>('B');
   const [busqueda, setBusqueda] = useState('');
   const [resultados, setResultados] = useState<Producto[]>([]);
@@ -327,8 +342,8 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string 
 
   // pagos efectivos a enviar: divididos, o todo con el medio activo
   const pagosVenta: Pago[] = useMemo(
-    () => (dividido ? pagos : [{ medio, monto: totalFinal }]),
-    [dividido, pagos, medio, totalFinal],
+    () => (dividido ? pagos : [{ medio, monto: totalFinal, ...(medio === 'tarjeta' && terminal ? { terminal } : {}) }]),
+    [dividido, pagos, medio, totalFinal, terminal],
   );
   const pagado = pagosVenta.reduce((s, p) => s + p.monto, 0);
   const restante = Math.round((totalFinal - pagado) * 100) / 100;
@@ -446,14 +461,14 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string 
   // ---- pagos divididos ----
   function activarDividido() {
     setDividido(true);
-    setPagos([{ medio, monto: totalFinal }]);
+    setPagos([{ medio, monto: totalFinal, ...(medio === 'tarjeta' && terminal ? { terminal } : {}) }]);
     setPagaCon('');
     setFoco(null);
   }
-  function agregarPago(m: string) {
+  function agregarPago(m: { id: string; terminal?: string }) {
     setPagos((ps) => {
       const falta = Math.max(0, Math.round((totalFinal - ps.reduce((s, p) => s + p.monto, 0)) * 100) / 100);
-      const nuevos = [...ps, { medio: m, monto: falta }];
+      const nuevos = [...ps, { medio: m.id, monto: falta, ...(m.terminal ? { terminal: m.terminal } : {}) }];
       setFoco({ tipo: 'pago', idx: nuevos.length - 1 });
       setCantBuf('');
       return nuevos;
@@ -876,10 +891,12 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string 
           break;
         case 'F4': // ciclar medio de pago
           e.preventDefault();
-          setMedio((m) => {
-            const i = MEDIOS.findIndex((x) => x.id === m);
-            return MEDIOS[(i + 1) % MEDIOS.length].id;
-          });
+          {
+            const i = medios.findIndex((x) => x.id === medio && x.terminal === terminal);
+            const prox = medios[(i + 1) % medios.length];
+            setMedio(prox.id);
+            setTerminal(prox.terminal);
+          }
           break;
         case 'F6': // estacionar ticket
           e.preventDefault();
@@ -1184,19 +1201,19 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string 
           {!dividido ? (
             <>
               <div className="grid grid-cols-2 gap-2">
-                {MEDIOS.map((m) => (
+                {medios.map((m) => (
                   <button
-                    key={m.id}
-                    onClick={() => setMedio(m.id)}
+                    key={m.id + (m.terminal ?? '')}
+                    onClick={() => { setMedio(m.id); setTerminal(m.terminal); }}
                     className={'rounded-xl py-3.5 text-base font-medium border-2 active:scale-95 ' +
-                      (medio === m.id ? 'bg-black text-white border-black' : 'bg-white text-black border-black/10')}
+                      (medio === m.id && terminal === m.terminal ? 'bg-black text-white border-black' : 'bg-white text-black border-black/10')}
                   >
                     {m.label}
                   </button>
                 ))}
               </div>
               <div className="flex items-center justify-between -mt-1">
-                {NOTA_MEDIO[medio] ? <p className="text-xs text-black/50">{NOTA_MEDIO[medio]}</p> : <span />}
+                {NOTA_MEDIO[medio] ? <p className="text-xs text-black/50">{medio === 'tarjeta' && terminal ? `Cobrá en el posnet ${TERMINAL_LABEL[terminal] ?? terminal}` : NOTA_MEDIO[medio]}</p> : <span />}
                 <button onClick={activarDividido} className="text-xs text-[#B82D25] font-semibold underline underline-offset-2">
                   ➗ Dividir pago
                 </button>
@@ -1212,7 +1229,7 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string 
                 const sel = foco?.tipo === 'pago' && foco.idx === i;
                 return (
                   <div key={i} className={'rounded-lg px-3 py-2 flex items-center gap-2 border-2 ' + (sel ? 'border-[#B82D25] bg-[#B82D25]/5' : 'border-transparent bg-[#F0EBE2]/60')}>
-                    <span className="text-sm font-medium flex-1">{MEDIO_LABEL[p.medio] ?? p.medio}</span>
+                    <span className="text-sm font-medium flex-1">{p.medio === 'tarjeta' && p.terminal ? `Tarjeta ${TERMINAL_LABEL[p.terminal] ?? p.terminal}` : MEDIO_LABEL[p.medio] ?? p.medio}</span>
                     <button onClick={() => { setFoco({ tipo: 'pago', idx: i }); setCantBuf(''); }} className="text-lg font-semibold tabular-nums">
                       {pesos(p.monto)}
                     </button>
@@ -1221,8 +1238,8 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string 
                 );
               })}
               <div className="grid grid-cols-4 gap-1.5">
-                {MEDIOS.map((m) => (
-                  <button key={m.id} onClick={() => agregarPago(m.id)} className="rounded-lg bg-white border border-black/10 py-2 text-xs font-medium active:scale-95">
+                {medios.map((m) => (
+                  <button key={m.id + (m.terminal ?? '')} onClick={() => agregarPago(m)} className="rounded-lg bg-white border border-black/10 py-2 text-xs font-medium active:scale-95">
                     + {m.label}
                   </button>
                 ))}
