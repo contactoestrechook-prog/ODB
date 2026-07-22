@@ -191,9 +191,18 @@ export class FacturacionService {
     if (dto.sucursalId) {
       const { data: suc } = await this.db
         .from('sucursales')
-        .select('punto_venta_arca')
+        .select('nombre, punto_venta_arca')
         .eq('id', dto.sucursalId)
         .maybeSingle();
+      // Blindaje multi-razón-social: los comprobantes FISCALES solo salen de
+      // sucursales con su propia facturación configurada (Santa Inés es otra
+      // razón social y todavía no cargó la suya).
+      const esFiscal = ['FA', 'FB', 'FC', 'NCA', 'NCB', 'NCC', 'NDA', 'NDB', 'NDC'].includes(tipo);
+      if (esFiscal && suc && suc.punto_venta_arca == null) {
+        throw new BadRequestException(
+          `${suc.nombre} todavía no tiene facturación electrónica configurada (es otra razón social): no se pueden emitir comprobantes fiscales de esa sucursal`,
+        );
+      }
       puntoVenta = suc?.punto_venta_arca ?? 1;
     }
 

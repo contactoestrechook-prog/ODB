@@ -17,7 +17,7 @@ export class ConciliacionService {
     let q = this.db
       .from('acreditaciones')
       .select(
-        'id, medio, bruto, comision_estimada, neto_estimado, fecha_estimada, estado, neto_real, comision_real, fecha_real, mp_payment_id, nota, conciliado_en, creado_en, venta:ventas(vendida_en, canal)',
+        'id, medio, bruto, comision_estimada, neto_estimado, fecha_estimada, estado, neto_real, comision_real, fecha_real, mp_payment_id, nota, conciliado_en, creado_en, venta:ventas(vendida_en, canal, sucursal:sucursales(nombre, procesador_tarjeta))',
       )
       .limit(300);
     if (filtros.estado) q = q.eq('estado', filtros.estado);

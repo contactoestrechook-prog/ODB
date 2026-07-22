@@ -2043,3 +2043,25 @@ begin
   end loop;
 end $function$
 ;
+
+-- Blindaje multi-razón-social: guarda TODOS los caminos de inserción a la cola
+-- ARCA. Sucursal sin punto_venta_arca (otra razón social) → no se encola;
+-- con punto → se fuerza siempre el vigente.
+CREATE OR REPLACE FUNCTION public.fn_blindaje_arca_cola()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare v_pv int;
+begin
+  select s.punto_venta_arca into v_pv
+  from ventas v join sucursales s on s.id = v.sucursal_id
+  where v.id = new.venta_id;
+  if v_pv is null then
+    return null;
+  end if;
+  new.punto_venta := v_pv;
+  return new;
+end $function$
+;

@@ -103,7 +103,12 @@ export function ConciliacionWorkspace({ resumen, pendientes }: { resumen: any; p
                     const atrasada = a.fecha_estimada && a.fecha_estimada < hoy();
                     return (
                       <tr key={a.id} className="border-b border-black/5 last:border-0">
-                        <td className="px-4 py-3"><span className={`text-[11px] rounded-full px-2.5 py-0.5 ${a.medio === 'mercadopago' ? 'bg-sky-100 text-sky-800' : 'bg-violet-100 text-violet-800'}`}>{MEDIO[a.medio] ?? a.medio}</span></td>
+                        <td className="px-4 py-3">
+                          <span className={`text-[11px] rounded-full px-2.5 py-0.5 ${a.medio === 'mercadopago' ? 'bg-sky-100 text-sky-800' : 'bg-violet-100 text-violet-800'}`}>
+                            {MEDIO[a.medio] ?? a.medio}
+                            {a.medio === 'tarjeta' && a.venta?.sucursal?.procesador_tarjeta ? ` · ${a.venta.sucursal.procesador_tarjeta === 'clover' ? 'Clover' : 'Getnet'}` : ''}
+                          </span>
+                        </td>
                         <td className="px-4 py-3 text-black/55 text-xs">{fecha(a.venta?.vendida_en ?? a.creado_en)}</td>
                         <td className="px-4 py-3 text-right font-medium">{pesos(a.bruto)}</td>
                         <td className={`px-4 py-3 text-right text-xs ${atrasada ? 'text-amber-600 font-medium' : 'text-black/55'}`}>{fecha(a.fecha_estimada)}{atrasada ? ' ⚠' : ''}</td>

@@ -21,6 +21,19 @@ export class CompraFacilService {
       throw new BadRequestException('Comprá Fácil necesita Mercado Pago configurado (MERCADOPAGO_ACCESS_TOKEN) para cobrar');
     }
 
+    // Blindaje multi-razón-social: solo cobra la sucursal cuya cuenta de MP
+    // es la vinculada (cada razón social tiene su propia cuenta).
+    const { data: suc } = await this.db
+      .from('sucursales')
+      .select('nombre, mp_habilitada')
+      .eq('id', sucursalId)
+      .maybeSingle();
+    if (!suc?.mp_habilitada) {
+      throw new BadRequestException(
+        `La sucursal ${suc?.nombre ?? ''} todavía no tiene su cuenta de Mercado Pago vinculada (es otra razón social)`,
+      );
+    }
+
     const { data: cliente } = await this.db
       .from('clientes')
       .select('id, tipo, verificado')

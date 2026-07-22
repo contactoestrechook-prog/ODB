@@ -12,3 +12,4 @@ CREATE TRIGGER trg_acreditacion_pago AFTER INSERT ON public.pagos FOR EACH ROW E
 CREATE TRIGGER trg_puntos_venta AFTER INSERT OR UPDATE ON public.ventas FOR EACH ROW EXECUTE FUNCTION fn_puntos_por_venta();
 
 CREATE TRIGGER trg_referido_venta AFTER INSERT OR UPDATE ON public.ventas FOR EACH ROW EXECUTE FUNCTION fn_referido_por_venta();
+CREATE TRIGGER trg_blindaje_arca BEFORE INSERT ON public.comprobantes_arca FOR EACH ROW EXECUTE FUNCTION fn_blindaje_arca_cola();

@@ -87,6 +87,13 @@ export class CajaController {
     return this.arca.estado();
   }
 
+  // Paquete mensual para el contador: comprobantes con CAE, neto/IVA y resumen
+  @Roles('gerente', 'dueno')
+  @Get('arca/contador')
+  contador(@Query('mes') mes?: string) {
+    return this.arca.contador(mes);
+  }
+
   @Roles('gerente', 'dueno')
   @Post('arca/emitir')
   emitir() {

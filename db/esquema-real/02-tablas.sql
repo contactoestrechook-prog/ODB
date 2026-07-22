@@ -938,6 +938,9 @@ create table public.sucursales (
   punto_venta_arca integer,
   activa boolean default true not null,
   pickup boolean default false not null
+,
+  mp_habilitada boolean default false not null,
+  procesador_tarjeta text
 );
 alter table public.sucursales add constraint sucursales_pkey PRIMARY KEY (id);
 

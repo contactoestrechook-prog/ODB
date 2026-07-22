@@ -125,16 +125,21 @@ export class MercadoPagoService {
     }
 
     // 2) candidatos para el match heurístico (QR de mostrador): pagos medio
-    //    mercadopago sin mp_payment_id dentro de la ventana de fechas importada
+    //    mercadopago sin mp_payment_id dentro de la ventana de fechas importada.
+    //    SOLO de sucursales con esta cuenta de MP vinculada (blindaje
+    //    multi-razón-social: cada empresa tiene su propia cuenta).
+    const { data: sucs } = await this.db.from('sucursales').select('id').eq('mp_habilitada', true);
+    const sucursalesMp = (sucs ?? []).map((s: any) => s.id);
     const fechas = sueltos.map((m) => (m.aprobado_en ? new Date(m.aprobado_en).getTime() : 0)).filter(Boolean);
     const margen = 36 * 3600_000;
     const desde = new Date(Math.min(...fechas) - margen).toISOString();
     const hasta = new Date(Math.max(...fechas) + margen).toISOString();
     const { data: candR } = await this.db
       .from('pagos')
-      .select('id, venta_id, monto, creado_en')
+      .select('id, venta_id, monto, creado_en, venta:ventas!inner(sucursal_id)')
       .eq('medio', 'mercadopago')
       .is('mp_payment_id', null)
+      .in('venta.sucursal_id', sucursalesMp.length ? sucursalesMp : ['00000000-0000-0000-0000-000000000000'])
       .gte('creado_en', desde)
       .lte('creado_en', hasta)
       .limit(3000);

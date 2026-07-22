@@ -112,10 +112,18 @@ export class ArcaService {
     // venta + items con la alícuota de IVA de cada producto
     const { data: venta } = await this.db
       .from('ventas')
-      .select('id, total, subtotal, descuento, vendida_en, cliente:clientes(dni, cuit, condicion_iva)')
+      .select('id, total, subtotal, descuento, vendida_en, cliente:clientes(dni, cuit, condicion_iva), sucursal:sucursales(nombre, punto_venta_arca)')
       .eq('id', c.venta_id)
       .single();
     if (!venta) throw new Error('No existe la venta');
+    // Blindaje multi-razón-social: solo se factura con el certificado de ESTA
+    // empresa si la sucursal tiene SU punto de venta configurado y coincide.
+    const pvSucursal = (venta.sucursal as any)?.punto_venta_arca ?? null;
+    if (pvSucursal == null || Number(pvSucursal) !== Number(c.punto_venta)) {
+      throw new Error(
+        `La sucursal ${(venta.sucursal as any)?.nombre ?? '?'} no factura con esta razón social (punto de venta ${pvSucursal ?? 'sin configurar'} vs comprobante ${c.punto_venta})`,
+      );
+    }
     const { data: items } = await this.db
       .from('ventas_items')
       .select('cantidad, precio_unitario, producto:productos(alicuota_iva)')
@@ -125,39 +133,7 @@ export class ArcaService {
     const total = Math.round(Number(venta.total) * 100) / 100;
     if (total <= 0) throw new Error('Total en cero: no se factura');
 
-    // desglose por alícuota, prorrateando el descuento para que cierre contra el total
-    const porAlic = new Map<string, number>();
-    let suma = 0;
-    for (const i of items as any[]) {
-      const alic = String(Number((i.producto as any)?.alicuota_iva ?? 21));
-      const imp = Number(i.cantidad) * Number(i.precio_unitario);
-      porAlic.set(alic, (porAlic.get(alic) ?? 0) + imp);
-      suma += imp;
-    }
-    const factor = suma > 0 ? total / suma : 1;
-    const buckets = [...porAlic.entries()].map(([alic, imp]) => ({
-      alic: Number(alic),
-      id: ALIC_ID[alic] ?? 5,
-      subtotal: Math.round(imp * factor * 100) / 100,
-    }));
-    // ajustar el redondeo en el bucket más grande para que sume exacto el total
-    const drift = Math.round((total - buckets.reduce((s, b) => s + b.subtotal, 0)) * 100) / 100;
-    if (drift !== 0) buckets.sort((a, b) => b.subtotal - a.subtotal)[0].subtotal += drift;
-
-    let impNeto = 0;
-    const partes: { id: number; neto: number; iva: number }[] = [];
-    for (const b of buckets) {
-      const neto = Math.round((b.subtotal / (1 + b.alic / 100)) * 100) / 100;
-      const iva = Math.round((b.subtotal - neto) * 100) / 100;
-      impNeto += neto;
-      partes.push({ id: b.id, neto, iva });
-    }
-    impNeto = Math.round(impNeto * 100) / 100;
-    const impIva = Math.round((total - impNeto) * 100) / 100;
-    // el drift de centavos del IVA se absorbe en la parte más grande
-    const sumaIva = Math.round(partes.reduce((s, p) => s + p.iva, 0) * 100) / 100;
-    const driftIva = Math.round((impIva - sumaIva) * 100) / 100;
-    if (driftIva !== 0) partes.sort((a, b) => b.iva - a.iva)[0].iva = Math.round((partes[0].iva + driftIva) * 100) / 100;
+    const { impNeto, impIva, partes } = this.desglosarIva(items as any[], total);
     const alicXml = partes
       .map((p) => `<ar:AlicIva><ar:Id>${p.id}</ar:Id><ar:BaseImp>${p.neto.toFixed(2)}</ar:BaseImp><ar:Importe>${p.iva.toFixed(2)}</ar:Importe></ar:AlicIva>`)
       .join('');
@@ -227,6 +203,144 @@ export class ArcaService {
     return {
       cae,
       vencimiento: vto ? `${vto.slice(0, 4)}-${vto.slice(4, 6)}-${vto.slice(6, 8)}` : null,
+    };
+  }
+
+  // Desglose de IVA por alícuota con el descuento prorrateado, cerrando exacto
+  // contra el total (los centavos de redondeo se absorben en la parte más grande).
+  private desglosarIva(items: any[], total: number) {
+    const porAlic = new Map<string, number>();
+    let suma = 0;
+    for (const i of items) {
+      const alic = String(Number((i.producto as any)?.alicuota_iva ?? 21));
+      const imp = Number(i.cantidad) * Number(i.precio_unitario);
+      porAlic.set(alic, (porAlic.get(alic) ?? 0) + imp);
+      suma += imp;
+    }
+    const factor = suma > 0 ? total / suma : 1;
+    const buckets = [...porAlic.entries()].map(([alic, imp]) => ({
+      alic: Number(alic),
+      id: ALIC_ID[alic] ?? 5,
+      subtotal: Math.round(imp * factor * 100) / 100,
+    }));
+    const drift = Math.round((total - buckets.reduce((s, b) => s + b.subtotal, 0)) * 100) / 100;
+    if (drift !== 0) buckets.sort((a, b) => b.subtotal - a.subtotal)[0].subtotal += drift;
+
+    let impNeto = 0;
+    const partes: { id: number; neto: number; iva: number }[] = [];
+    for (const b of buckets) {
+      const neto = Math.round((b.subtotal / (1 + b.alic / 100)) * 100) / 100;
+      const iva = Math.round((b.subtotal - neto) * 100) / 100;
+      impNeto += neto;
+      partes.push({ id: b.id, neto, iva });
+    }
+    impNeto = Math.round(impNeto * 100) / 100;
+    const impIva = Math.round((total - impNeto) * 100) / 100;
+    const sumaIva = Math.round(partes.reduce((s, p) => s + p.iva, 0) * 100) / 100;
+    const driftIva = Math.round((impIva - sumaIva) * 100) / 100;
+    if (driftIva !== 0) partes.sort((a, b) => b.iva - a.iva)[0].iva = Math.round((partes[0].iva + driftIva) * 100) / 100;
+    return { impNeto, impIva, partes };
+  }
+
+  // Todo lo que el contador necesita de un mes: comprobantes emitidos con CAE,
+  // numeración, receptor, neto/IVA/total, y el resumen por tipo. El panel lo
+  // baja como CSV. La fecha fiscal es la de la venta (misma que se mandó a ARCA).
+  async contador(mes?: string) {
+    const base = /^\d{4}-\d{2}$/.test(mes ?? '') ? mes! : new Date().toISOString().slice(0, 7);
+    const desde = `${base}-01`;
+    const d = new Date(`${desde}T00:00:00Z`);
+    d.setUTCMonth(d.getUTCMonth() + 1);
+    const hasta = d.toISOString().slice(0, 10);
+
+    const { data, error } = await this.db
+      .from('comprobantes_arca')
+      .select(
+        'id, tipo, punto_venta, numero, cae, cae_vencimiento, venta:ventas!inner(id, total, vendida_en, cliente:clientes(dni, cuit, nombre, razon_social), sucursal:sucursales(nombre))',
+      )
+      .eq('estado', 'emitido')
+      .gte('venta.vendida_en', desde)
+      .lt('venta.vendida_en', hasta)
+      .order('numero', { ascending: true })
+      .limit(10000);
+    if (error) throw new BadRequestException(error.message);
+    const filas = (data ?? []) as any[];
+
+    // IVA por comprobante: items de todas las ventas del mes en tandas
+    const ventaIds = filas.map((f) => f.venta.id);
+    const itemsPorVenta = new Map<string, any[]>();
+    for (let i = 0; i < ventaIds.length; i += 100) {
+      const { data: its } = await this.db
+        .from('ventas_items')
+        .select('venta_id, cantidad, precio_unitario, producto:productos(alicuota_iva)')
+        .in('venta_id', ventaIds.slice(i, i + 100));
+      for (const it of (its ?? []) as any[]) {
+        const arr = itemsPorVenta.get(it.venta_id) ?? [];
+        arr.push(it);
+        itemsPorVenta.set(it.venta_id, arr);
+      }
+    }
+
+    const comprobantes = filas.map((f) => {
+      const total = Math.round(Number(f.venta.total) * 100) / 100;
+      const items = itemsPorVenta.get(f.venta.id) ?? [];
+      const { impNeto, impIva } = items.length ? this.desglosarIva(items, total) : { impNeto: total, impIva: 0 };
+      const cli = f.venta.cliente ?? {};
+      const esNC = f.tipo.startsWith('NC');
+      return {
+        fecha: String(f.venta.vendida_en).slice(0, 10),
+        tipo: f.tipo,
+        numero: `${String(f.punto_venta).padStart(4, '0')}-${String(f.numero).padStart(8, '0')}`,
+        docTipo: cli.cuit ? 'CUIT' : cli.dni ? 'DNI' : 'CF',
+        docNro: cli.cuit ?? cli.dni ?? '',
+        receptor: cli.razon_social ?? cli.nombre ?? 'Consumidor final',
+        sucursal: f.venta.sucursal?.nombre ?? '',
+        neto: esNC ? -impNeto : impNeto,
+        iva: esNC ? -impIva : impIva,
+        total: esNC ? -total : total,
+        cae: f.cae,
+        caeVencimiento: f.cae_vencimiento,
+      };
+    });
+
+    const porTipo = new Map<string, { cantidad: number; neto: number; iva: number; total: number }>();
+    for (const c of comprobantes) {
+      const acc = porTipo.get(c.tipo) ?? { cantidad: 0, neto: 0, iva: 0, total: 0 };
+      acc.cantidad++;
+      acc.neto += c.neto;
+      acc.iva += c.iva;
+      acc.total += c.total;
+      porTipo.set(c.tipo, acc);
+    }
+    const r2 = (n: number) => Math.round(n * 100) / 100;
+
+    const { count: pendientes } = await this.db
+      .from('comprobantes_arca')
+      .select('*', { count: 'exact', head: true })
+      .eq('estado', 'pendiente');
+    const { count: conError } = await this.db
+      .from('comprobantes_arca')
+      .select('*', { count: 'exact', head: true })
+      .eq('estado', 'error');
+
+    return {
+      mes: base,
+      emisor: { razonSocial: 'CHINVENGUENCHA SRL', cuit: cuitArca(), puntoVenta: 15 },
+      resumen: {
+        comprobantes: comprobantes.length,
+        neto: r2(comprobantes.reduce((s, c) => s + c.neto, 0)),
+        ivaDebito: r2(comprobantes.reduce((s, c) => s + c.iva, 0)),
+        total: r2(comprobantes.reduce((s, c) => s + c.total, 0)),
+        porTipo: [...porTipo.entries()].map(([tipo, v]) => ({
+          tipo,
+          cantidad: v.cantidad,
+          neto: r2(v.neto),
+          iva: r2(v.iva),
+          total: r2(v.total),
+        })),
+      },
+      pendientes: pendientes ?? 0,
+      errores: conError ?? 0,
+      comprobantes,
     };
   }
 
