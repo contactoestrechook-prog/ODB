@@ -29,6 +29,7 @@ import { EventosModule } from './eventos/eventos.module';
 import { FidelizacionModule } from './fidelizacion/fidelizacion.module';
 import { ConciliacionModule } from './conciliacion/conciliacion.module';
 import { MercadoPagoModule } from './mercadopago/mercadopago.module';
+import { ContableModule } from './contable/contable.module';
 import { ComparadorModule } from './comparador/comparador.module';
 import { RepartosModule } from './repartos/repartos.module';
 import { RepartidoresModule } from './repartidores/repartidores.module';
@@ -76,6 +77,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     FidelizacionModule,
     ConciliacionModule,
     MercadoPagoModule,
+    ContableModule,
     ComparadorModule,
     RepartosModule,
     RepartidoresModule,
