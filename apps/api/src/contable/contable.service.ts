@@ -18,11 +18,26 @@ const ALIC: Record<number, number> = { 3: 0, 9: 2.5, 8: 5, 4: 10.5, 5: 21, 6: 27
 export class ContableService {
   constructor(@Inject(SUPABASE) private readonly db: SupabaseClient) {}
 
-  async resumen(mes?: string) {
-    const base = /^\d{4}-\d{2}$/.test(mes ?? '') ? mes! : new Date().toISOString().slice(0, 7);
-    const [y, m] = base.split('-').map(Number);
-    const desde = `${base}-01`;
-    const hasta = new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 10);
+  // Acepta mes ('YYYY-MM') o un rango libre desde/hasta ('YYYY-MM-DD', inclusive):
+  // hoy, última semana, quincena, semestre — lo que pida el panel.
+  async resumen(q: { mes?: string; desde?: string; hasta?: string } = {}) {
+    const hoy = new Date().toISOString().slice(0, 10);
+    let desde: string;
+    let hasta: string; // exclusivo
+    let periodo: string;
+    if (q.desde && /^\d{4}-\d{2}-\d{2}$/.test(q.desde)) {
+      desde = q.desde;
+      const hastaIncl = q.hasta && /^\d{4}-\d{2}-\d{2}$/.test(q.hasta) ? q.hasta : hoy;
+      hasta = new Date(new Date(`${hastaIncl}T00:00:00Z`).getTime() + 86400_000).toISOString().slice(0, 10);
+      periodo = desde === hastaIncl ? desde : `${desde} a ${hastaIncl}`;
+    } else {
+      const base = /^\d{4}-\d{2}$/.test(q.mes ?? '') ? q.mes! : hoy.slice(0, 7);
+      const [y, m] = base.split('-').map(Number);
+      desde = `${base}-01`;
+      hasta = new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 10);
+      periodo = base;
+    }
+    const base = periodo;
 
     // ---------- VENTAS: comprobantes fiscales del módulo de facturación ----------
     const ventasRaw: any[] = [];
@@ -167,6 +182,46 @@ export class ContableService {
         baseIibb,
         percepcionesIibbACuenta: percepciones.iibb,
         retenciones: 0, // sin fuente de datos todavía (SIRCREB / retenciones bancarias)
+      },
+    };
+  }
+
+  // El año mes a mes: la evolución que mira el contador (y el dueño) de un vistazo.
+  async anual(anio?: string) {
+    const hoyYM = new Date().toISOString().slice(0, 7);
+    const y = /^\d{4}$/.test(anio ?? '') ? Number(anio) : Number(hoyYM.slice(0, 4));
+    const meses: any[] = [];
+    for (let m = 1; m <= 12; m++) {
+      const mes = `${y}-${String(m).padStart(2, '0')}`;
+      if (mes > hoyYM) break;
+      const r = await this.resumen({ mes });
+      meses.push({
+        mes,
+        comprobantes: (r.ventas.facturacion.cantidad ?? 0) + (r.ventas.electronicosCaja.cantidad ?? 0),
+        ventasNeto: r.ventas.totales.neto,
+        ventasTotal: r.ventas.totales.total,
+        ivaDebito: r.posicion.ivaDebito,
+        comprasTotal: r.compras.total,
+        ivaCredito: r.posicion.ivaCredito,
+        saldoIva: r.posicion.saldoTecnico,
+        percepIva: r.percepciones.iva,
+        percepIibb: r.percepciones.iibb,
+      });
+    }
+    const suma = (k: string) => Math.round(meses.reduce((s, x) => s + Number(x[k] ?? 0), 0) * 100) / 100;
+    return {
+      anio: y,
+      meses,
+      totales: {
+        comprobantes: meses.reduce((s, x) => s + x.comprobantes, 0),
+        ventasNeto: suma('ventasNeto'),
+        ventasTotal: suma('ventasTotal'),
+        ivaDebito: suma('ivaDebito'),
+        comprasTotal: suma('comprasTotal'),
+        ivaCredito: suma('ivaCredito'),
+        saldoIva: suma('saldoIva'),
+        percepIva: suma('percepIva'),
+        percepIibb: suma('percepIibb'),
       },
     };
   }

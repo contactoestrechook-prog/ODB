@@ -6,10 +6,18 @@ import { Roles } from '../auth/decorators';
 export class ContableController {
   constructor(private readonly contable: ContableService) {}
 
-  // Todo el mes en un solo paquete: IVA ventas/compras, percepciones, posición
+  // Un período en un solo paquete: mes=YYYY-MM, o rango libre desde/hasta
+  // (YYYY-MM-DD inclusive) para hoy / semana / quincena / semestre.
   @Roles('gerente', 'dueno')
   @Get()
-  resumen(@Query('mes') mes?: string) {
-    return this.contable.resumen(mes);
+  resumen(@Query('mes') mes?: string, @Query('desde') desde?: string, @Query('hasta') hasta?: string) {
+    return this.contable.resumen({ mes, desde, hasta });
+  }
+
+  // El año mes a mes (comparativo)
+  @Roles('gerente', 'dueno')
+  @Get('anual')
+  anual(@Query('anio') anio?: string) {
+    return this.contable.anual(anio);
   }
 }
