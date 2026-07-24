@@ -13,12 +13,19 @@ export async function POST(req: Request) {
   if (!res.ok) return NextResponse.json(datos, { status: res.status });
 
   const respuesta = NextResponse.json({ usuario: datos.usuario });
+  const seguro = process.env.NODE_ENV === 'production';
   respuesta.cookies.set('odb_token', datos.token, {
     httpOnly: true,
     sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
+    secure: seguro,
     path: '/',
     maxAge: 60 * 60 * 12,
   });
+  // bandera para que el middleware obligue a cambiar la clave temporal
+  if (datos.usuario?.debeCambiarClave) {
+    respuesta.cookies.set('odb_cambiar', '1', { httpOnly: true, sameSite: 'lax', secure: seguro, path: '/', maxAge: 60 * 60 * 12 });
+  } else {
+    respuesta.cookies.set('odb_cambiar', '', { path: '/', maxAge: 0 });
+  }
   return respuesta;
 }

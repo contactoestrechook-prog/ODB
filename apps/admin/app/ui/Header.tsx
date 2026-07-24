@@ -206,7 +206,16 @@ export function Header({ activo, sinCabecera }: { activo: string; sinCabecera?: 
           ))}
         </nav>
 
-        <div className="px-3 py-4 border-t border-white/10">
+        <div className="px-3 py-4 border-t border-white/10 space-y-0.5">
+          <Link
+            href="/cambiar-clave"
+            className="flex items-center gap-3 rounded-lg px-3 py-2 text-[13px] text-white/50 hover:text-white hover:bg-white/5"
+          >
+            <svg viewBox="0 0 24 24" className="w-[18px] h-[18px]" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M7 11V7a5 5 0 0110 0v4M6 11h12v9H6zM12 15v2" />
+            </svg>
+            Cambiar mi contraseña
+          </Link>
           <a
             href="/api/salir"
             className="flex items-center gap-3 rounded-lg px-3 py-2 text-[13px] text-white/50 hover:text-white hover:bg-white/5"

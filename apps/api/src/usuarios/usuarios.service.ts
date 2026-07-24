@@ -62,6 +62,8 @@ export class UsuariosService {
         pin_firma: dto.pin ? hash(dto.pin) : null,
         limite_aprobacion: dto.limiteAprobacion ?? 0,
         telefono: dto.telefono?.trim() || null,
+        // clave temporal: lo obligamos a cambiarla la primera vez que entra
+        debe_cambiar_clave: true,
       })
       .select('id')
       .single();
@@ -94,6 +96,8 @@ export class UsuariosService {
     if (dto.clave) {
       if (dto.clave.length < 6) throw new BadRequestException('La clave debe tener al menos 6 caracteres');
       cambios.clave_hash = hash(dto.clave);
+      // reset de clave por un admin: la persona la cambia la próxima vez que entra
+      cambios.debe_cambiar_clave = true;
     }
     if (dto.pin !== undefined) cambios.pin_firma = dto.pin ? hash(dto.pin) : null;
     if (!Object.keys(cambios).length) return { ok: true };
