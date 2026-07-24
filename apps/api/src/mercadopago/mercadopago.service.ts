@@ -2,44 +2,69 @@ import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common'
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
 import { fetchConTimeout } from '../comun/http';
+import { CuentaMP, cuentaDeSucursal, cuentasMP } from './mp-cuentas';
 
 const MP = 'https://api.mercadopago.com';
 
-// Módulo Mercado Pago: importa los pagos REALES de la cuenta (con comisión,
-// neto y fecha de liberación exactos que informa MP), los vincula con nuestras
-// ventas y completa las acreditaciones sin carga manual. También genera links
-// de pago para cobrar a distancia.
+// Módulo Mercado Pago MULTI-CUENTA (una por razón social): importa los pagos
+// REALES de cada cuenta (comisión, neto y fecha de liberación exactos), los
+// vincula con las ventas de SUS sucursales y completa las acreditaciones sin
+// carga manual. También genera links de pago para cobrar a distancia.
 @Injectable()
 export class MercadoPagoService {
   private readonly log = new Logger(MercadoPagoService.name);
   constructor(@Inject(SUPABASE) private readonly db: SupabaseClient) {}
 
-  private token() {
-    const t = process.env.MERCADOPAGO_ACCESS_TOKEN;
-    if (!t || t.startsWith('PEGAR')) {
-      throw new BadRequestException('Mercado Pago no está vinculado (falta MERCADOPAGO_ACCESS_TOKEN)');
-    }
-    return t;
-  }
-
-  // ¿Está vinculado? ¿A qué cuenta?
+  // Estado de todas las cuentas configuradas (incluye las declaradas sin credenciales).
   async estado() {
-    let t: string;
-    try {
-      t = this.token();
-    } catch {
-      return { vinculado: false };
+    const cuentas = await cuentasMP(this.db);
+    const { data: declaradas } = await this.db
+      .from('sucursales')
+      .select('mp_cuenta')
+      .not('mp_cuenta', 'is', null);
+    const pendientes = [...new Set((declaradas ?? []).map((s: any) => s.mp_cuenta))].filter(
+      (slug) => !cuentas.some((c) => c.slug === slug),
+    );
+    const detalle: any[] = pendientes.map((slug) => ({
+      slug,
+      vinculado: false,
+      error: 'faltan las credenciales en Railway',
+    }));
+    if (!cuentas.length && !detalle.length) return { vinculado: false, cuentas: [] };
+    for (const c of cuentas) {
+      const r = await fetchConTimeout(`${MP}/users/me`, { headers: { Authorization: `Bearer ${c.token}` } });
+      if (!r.ok) {
+        detalle.push({ slug: c.slug, vinculado: false, error: `MP respondió ${r.status} (¿token vencido?)` });
+        continue;
+      }
+      const me: any = await r.json();
+      detalle.push({ slug: c.slug, vinculado: true, cuenta: me.nickname, pais: me.site_id, usuarioId: me.id });
+      // guardar el user_id para resolver webhooks (a qué cuenta pertenece cada aviso)
+      await this.db.from('sucursales').update({ mp_user_id: String(me.id) }).in('id', c.sucursalIds);
     }
-    const r = await fetchConTimeout(`${MP}/users/me`, { headers: { Authorization: `Bearer ${t}` } });
-    if (!r.ok) return { vinculado: false, error: `MP respondió ${r.status} (¿token vencido?)` };
-    const me: any = await r.json();
-    return { vinculado: true, cuenta: me.nickname, pais: me.site_id, usuarioId: me.id };
+    const principal = detalle.find((d) => d.vinculado);
+    return { vinculado: !!principal, cuenta: principal?.cuenta, cuentas: detalle };
   }
 
-  // Importa los pagos de los últimos `dias` desde la API de MP (paginado) y
-  // los deja en mp_pagos (upsert idempotente). Después intenta vincularlos.
+  // Importa los pagos de los últimos `dias` de TODAS las cuentas configuradas.
   async importar(dias = 30) {
-    const t = this.token();
+    const cuentas = await cuentasMP(this.db);
+    if (!cuentas.length) throw new BadRequestException('Mercado Pago no está vinculado (faltan credenciales)');
+    let importados = 0;
+    let vinculados = 0;
+    let acreditacionesActualizadas = 0;
+    const porCuenta: any[] = [];
+    for (const cuenta of cuentas) {
+      const r = await this.importarCuenta(cuenta, dias);
+      importados += r.importados;
+      vinculados += r.vinculados;
+      acreditacionesActualizadas += r.acreditacionesActualizadas;
+      porCuenta.push({ cuenta: cuenta.slug, ...r });
+    }
+    return { importados, vinculados, acreditacionesActualizadas, porCuenta };
+  }
+
+  private async importarCuenta(cuenta: CuentaMP, dias: number) {
     const desde = new Date(Date.now() - dias * 86400_000).toISOString();
     const hasta = new Date().toISOString();
 
@@ -48,10 +73,10 @@ export class MercadoPagoService {
       const url =
         `${MP}/v1/payments/search?sort=date_created&criteria=desc&range=date_created` +
         `&begin_date=${encodeURIComponent(desde)}&end_date=${encodeURIComponent(hasta)}&limit=30&offset=${offset}`;
-      const r = await fetchConTimeout(url, { headers: { Authorization: `Bearer ${t}` } });
+      const r = await fetchConTimeout(url, { headers: { Authorization: `Bearer ${cuenta.token}` } });
       if (!r.ok) {
         const e: any = await r.json().catch(() => ({}));
-        throw new BadRequestException(`MP search falló (${r.status}): ${e?.message ?? 'error'}`);
+        throw new BadRequestException(`MP search (${cuenta.slug}) falló (${r.status}): ${e?.message ?? 'error'}`);
       }
       const d: any = await r.json();
       const lote = d.results ?? [];
@@ -66,6 +91,7 @@ export class MercadoPagoService {
       const liberacion = p.money_release_date ?? null;
       return {
         id: String(p.id),
+        cuenta: cuenta.slug,
         estado: String(p.status ?? 'desconocido'),
         estado_detalle: p.status_detail ?? null,
         tipo: p.payment_type_id ?? null,
@@ -95,20 +121,20 @@ export class MercadoPagoService {
       if (error) throw new BadRequestException(`No pude guardar los pagos (${d}-${d + 500}): ${error.message}`);
     }
 
-    const vinculos = await this.vincular();
+    const vinculos = await this.vincular(cuenta);
     return { importados: unicas.length, ...vinculos };
   }
 
   // Vincula pagos de MP con nuestros pagos/ventas y completa las acreditaciones
-  // con los números REALES de MP (comisión, neto, fecha de liberación).
-  // Trabaja en memoria (una cuenta activa tiene miles de pagos): carga los
-  // candidatos una sola vez y matchea en JS.
-  private async vincular() {
+  // con los números REALES de MP. SOLO cruza contra ventas de las sucursales de
+  // ESTA cuenta (cada razón social tiene la suya).
+  private async vincular(cuenta: CuentaMP) {
     const { data: sueltosR } = await this.db
       .from('mp_pagos')
       .select('id, bruto, neto, comision, liberado, liberacion_en, aprobado_en, estado')
       .is('pago_id', null)
       .eq('estado', 'approved')
+      .eq('cuenta', cuenta.slug)
       .limit(2000);
     const sueltos = (sueltosR ?? []) as any[];
     if (!sueltos.length) return { vinculados: 0, acreditacionesActualizadas: 0 };
@@ -125,21 +151,17 @@ export class MercadoPagoService {
     }
 
     // 2) candidatos para el match heurístico (QR de mostrador): pagos medio
-    //    mercadopago sin mp_payment_id dentro de la ventana de fechas importada.
-    //    SOLO de sucursales con esta cuenta de MP vinculada (blindaje
-    //    multi-razón-social: cada empresa tiene su propia cuenta).
-    const { data: sucs } = await this.db.from('sucursales').select('id').eq('mp_habilitada', true);
-    const sucursalesMp = (sucs ?? []).map((s: any) => s.id);
+    //    mercadopago sin mp_payment_id, de las sucursales de esta cuenta
     const fechas = sueltos.map((m) => (m.aprobado_en ? new Date(m.aprobado_en).getTime() : 0)).filter(Boolean);
     const margen = 36 * 3600_000;
-    const desde = new Date(Math.min(...fechas) - margen).toISOString();
-    const hasta = new Date(Math.max(...fechas) + margen).toISOString();
+    const desde = new Date((fechas.length ? Math.min(...fechas) : Date.now()) - margen).toISOString();
+    const hasta = new Date((fechas.length ? Math.max(...fechas) : Date.now()) + margen).toISOString();
     const { data: candR } = await this.db
       .from('pagos')
       .select('id, venta_id, monto, creado_en, venta:ventas!inner(sucursal_id)')
       .eq('medio', 'mercadopago')
       .is('mp_payment_id', null)
-      .in('venta.sucursal_id', sucursalesMp.length ? sucursalesMp : ['00000000-0000-0000-0000-000000000000'])
+      .in('venta.sucursal_id', cuenta.sucursalIds.length ? cuenta.sucursalIds : ['00000000-0000-0000-0000-000000000000'])
       .gte('creado_en', desde)
       .lte('creado_en', hasta)
       .limit(3000);
@@ -197,25 +219,31 @@ export class MercadoPagoService {
     return { vinculados, acreditacionesActualizadas };
   }
 
-  // KPIs y desglose de los últimos `dias` (desde el espejo local).
+  // KPIs y desglose de los últimos `dias` (desde el espejo local, todas las cuentas).
   async resumen(dias = 30) {
     const desde = new Date(Date.now() - dias * 86400_000).toISOString();
     const { data } = await this.db
       .from('mp_pagos')
-      .select('estado, tipo, bruto, comision, neto, liberado, liberacion_en, aprobado_en')
+      .select('cuenta, estado, tipo, bruto, comision, neto, liberado, liberacion_en, aprobado_en')
       .gte('creado_en_mp', desde)
-      .limit(5000);
+      .limit(10000);
     const filas = ((data ?? []) as any[]).filter((f) => f.estado === 'approved');
 
     const suma = (sel: (f: any) => number) => Math.round(filas.reduce((s, f) => s + sel(f), 0));
     const porLiberar = filas.filter((f) => !f.liberado);
     const porTipo = new Map<string, { bruto: number; cantidad: number }>();
+    const porCuenta = new Map<string, { bruto: number; cantidad: number }>();
     for (const f of filas) {
       const k = f.tipo ?? 'otro';
       const acc = porTipo.get(k) ?? { bruto: 0, cantidad: 0 };
       acc.bruto += Number(f.bruto);
       acc.cantidad++;
       porTipo.set(k, acc);
+      const c = f.cuenta ?? 'principal';
+      const accC = porCuenta.get(c) ?? { bruto: 0, cantidad: 0 };
+      accC.bruto += Number(f.bruto);
+      accC.cantidad++;
+      porCuenta.set(c, accC);
     }
     const proximas = porLiberar
       .filter((f) => f.liberacion_en)
@@ -237,6 +265,7 @@ export class MercadoPagoService {
       liberado: suma((f) => (f.liberado ? Number(f.neto) : 0)),
       porLiberar: Math.round(porLiberar.reduce((s, f) => s + Number(f.neto), 0)),
       porTipo: [...porTipo.entries()].map(([tipo, v]) => ({ tipo, bruto: Math.round(v.bruto), cantidad: v.cantidad })),
+      porCuenta: [...porCuenta.entries()].map(([cuenta, v]) => ({ cuenta, bruto: Math.round(v.bruto), cantidad: v.cantidad })),
       proximasLiberaciones: [...proximas.entries()]
         .sort((a, b) => (a[0] < b[0] ? -1 : 1))
         .slice(0, 10)
@@ -249,24 +278,31 @@ export class MercadoPagoService {
     const desde = new Date(Date.now() - dias * 86400_000).toISOString();
     const { data } = await this.db
       .from('mp_pagos')
-      .select('id, estado, tipo, medio, cuotas, bruto, comision, neto, liberado, liberacion_en, aprobado_en, descripcion, referencia_externa, pago_id, venta_id')
+      .select('id, cuenta, estado, tipo, medio, cuotas, bruto, comision, neto, liberado, liberacion_en, aprobado_en, descripcion, referencia_externa, pago_id, venta_id')
       .gte('creado_en_mp', desde)
       .order('creado_en_mp', { ascending: false })
       .limit(300);
     return data ?? [];
   }
 
-  // Link de pago: cobra a distancia (WhatsApp, teléfono). El pago después entra
-  // por el webhook/importación como cualquier otro.
-  async crearLink(dto: { monto: number; concepto?: string }) {
-    const t = this.token();
+  // Link de pago: cobra a distancia (WhatsApp, teléfono). Con sucursalId usa la
+  // cuenta de ESA sucursal; sin él, la cuenta principal.
+  async crearLink(dto: { monto: number; concepto?: string; sucursalId?: string }) {
+    let cuenta: CuentaMP | null = null;
+    if (dto.sucursalId) {
+      cuenta = await cuentaDeSucursal(this.db, dto.sucursalId);
+      if (!cuenta) throw new BadRequestException('Esa sucursal no tiene cuenta de Mercado Pago vinculada');
+    } else {
+      cuenta = (await cuentasMP(this.db)).find((c) => c.slug === 'principal') ?? (await cuentasMP(this.db))[0] ?? null;
+      if (!cuenta) throw new BadRequestException('Mercado Pago no está vinculado (faltan credenciales)');
+    }
     const monto = Math.round(Number(dto.monto) * 100) / 100;
     if (!Number.isFinite(monto) || monto <= 0) throw new BadRequestException('Monto inválido');
     if (monto > 5_000_000) throw new BadRequestException('Monto demasiado alto para un link de pago');
     const concepto = (dto.concepto ?? '').trim() || 'Compra O.D.B Premium Market';
     const r = await fetchConTimeout(`${MP}/checkout/preferences`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${t}` },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cuenta.token}` },
       body: JSON.stringify({
         items: [{ title: concepto, quantity: 1, unit_price: monto, currency_id: 'ARS' }],
         external_reference: `LINK-${Date.now()}`,
@@ -275,7 +311,7 @@ export class MercadoPagoService {
     });
     const d: any = await r.json();
     if (!r.ok) throw new BadRequestException(d?.message ?? 'MP no pudo crear el link');
-    this.log.log(`link de pago creado: $${monto} (${concepto})`);
-    return { url: d.init_point, monto, concepto };
+    this.log.log(`link de pago creado (${cuenta.slug}): $${monto} (${concepto})`);
+    return { url: d.init_point, monto, concepto, cuenta: cuenta.slug };
   }
 }

@@ -33,7 +33,7 @@ export class MercadoPagoController {
   // El cajero también puede generar un link para cobrar a distancia
   @Roles('cajero', 'gerente', 'dueno')
   @Post('link')
-  link(@Body() b: { monto: number; concepto?: string }) {
+  link(@Body() b: { monto: number; concepto?: string; sucursalId?: string }) {
     return this.mp.crearLink(b ?? ({} as any));
   }
 

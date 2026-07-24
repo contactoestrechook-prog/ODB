@@ -16,7 +16,7 @@ export function ChatSommelier() {
     {
       rol: 'somelier',
       texto:
-        '¡Hola! Soy el Somelier ODB 🍷 Conozco cada botella de nuestra cava. Contame: ¿para qué ocasión buscás vino, o qué te gusta tomar?',
+        '¡Hola! Soy el Somelier ODB 🍷 Para dar en la tecla, contame un poco: ¿para qué ocasión o con qué comida lo buscás? ¿Y qué te gusta más, tinto, blanco o algo con burbujas?',
     },
   ]);
   const [texto, setTexto] = useState('');

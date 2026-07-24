@@ -2,6 +2,7 @@ import { BadRequestException, Inject, Injectable, NotFoundException } from '@nes
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
 import { fetchConTimeout } from '../comun/http';
+import { cuentasMP } from '../mercadopago/mp-cuentas';
 
 @Injectable()
 export class ConciliacionService {
@@ -71,11 +72,14 @@ export class ConciliacionService {
   // Conciliación automática con Mercado Pago: trae el neto real y la fecha de
   // liberación de cada pago pendiente que tenga mp_payment_id.
   async conciliarMP(usuarioId?: string) {
-    const token = process.env.MERCADOPAGO_ACCESS_TOKEN;
-    if (!token) throw new BadRequestException('Falta MERCADOPAGO_ACCESS_TOKEN para conciliar automáticamente');
+    const cuentas = await cuentasMP(this.db);
+    if (!cuentas.length) throw new BadRequestException('Faltan las credenciales de Mercado Pago para conciliar automáticamente');
+    // multi-cuenta: el token correcto es el de la sucursal de la venta
+    const tokenPorSucursal = new Map<string, string>();
+    for (const c of cuentas) for (const s of c.sucursalIds) tokenPorSucursal.set(s, c.token);
     const { data: pend } = await this.db
       .from('acreditaciones')
-      .select('id, mp_payment_id, bruto')
+      .select('id, mp_payment_id, bruto, venta:ventas(sucursal_id)')
       .eq('medio', 'mercadopago')
       .eq('estado', 'pendiente')
       .not('mp_payment_id', 'is', null)
@@ -83,6 +87,7 @@ export class ConciliacionService {
     let conciliadas = 0;
     for (const a of (pend ?? []) as any[]) {
       try {
+        const token = tokenPorSucursal.get((a.venta as any)?.sucursal_id) ?? cuentas[0].token;
         const r = await fetchConTimeout(`https://api.mercadopago.com/v1/payments/${a.mp_payment_id}`, {
           headers: { Authorization: `Bearer ${token}` },
         });

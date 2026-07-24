@@ -663,6 +663,8 @@ create table public.mp_pagos (
   pago_id uuid,
   venta_id uuid,
   actualizado_en timestamp with time zone default now() not null
+,
+  cuenta text
 );
 alter table public.mp_pagos add constraint mp_pagos_pkey PRIMARY KEY (id);
 
@@ -942,6 +944,9 @@ create table public.sucursales (
 ,
   mp_habilitada boolean default false not null,
   procesador_tarjeta text
+,
+  mp_cuenta text,
+  mp_user_id text
 );
 alter table public.sucursales add constraint sucursales_pkey PRIMARY KEY (id);
 

@@ -3,6 +3,7 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import { randomUUID } from 'node:crypto';
 import { SUPABASE } from '../supabase.provider';
 import { verificarFirmaMercadoPago } from '../comun/firmas';
+import { cuentaDeSucursal, cuentasMP } from '../mercadopago/mp-cuentas';
 import { fetchConTimeout } from '../comun/http';
 
 // Comprá Fácil: el cliente verificado escanea en el local y paga con Mercado Pago.
@@ -16,23 +17,14 @@ export class CompraFacilService {
 
   async comprar(dni: string, sucursalId: string, items: { sku: string; cantidad: number }[]) {
     if (!items?.length) throw new BadRequestException('El changuito está vacío');
-    const token = process.env.MERCADOPAGO_ACCESS_TOKEN;
-    if (!token) {
-      throw new BadRequestException('Comprá Fácil necesita Mercado Pago configurado (MERCADOPAGO_ACCESS_TOKEN) para cobrar');
-    }
-
-    // Blindaje multi-razón-social: solo cobra la sucursal cuya cuenta de MP
-    // es la vinculada (cada razón social tiene su propia cuenta).
-    const { data: suc } = await this.db
-      .from('sucursales')
-      .select('nombre, mp_habilitada')
-      .eq('id', sucursalId)
-      .maybeSingle();
-    if (!suc?.mp_habilitada) {
+    // Multi-cuenta: cada sucursal cobra con la cuenta de MP de SU razón social.
+    const cuenta = await cuentaDeSucursal(this.db, sucursalId);
+    if (!cuenta) {
       throw new BadRequestException(
-        `La sucursal ${suc?.nombre ?? ''} todavía no tiene su cuenta de Mercado Pago vinculada (es otra razón social)`,
+        'Esta sucursal todavía no tiene su cuenta de Mercado Pago vinculada (credenciales pendientes)',
       );
     }
+    const token = cuenta.token;
 
     const { data: cliente } = await this.db
       .from('clientes')
@@ -167,18 +159,36 @@ export class CompraFacilService {
 
   // Webhook de Mercado Pago para Comprá Fácil: re-consulta el pago (no confía en el POST).
   async webhookMP(rawBody: Buffer | undefined, query: any, headers: Record<string, string> = {}) {
-    const token = process.env.MERCADOPAGO_ACCESS_TOKEN;
-    if (!token) return { ok: true };
+    const cuentas = await cuentasMP(this.db);
+    if (!cuentas.length) return { ok: true };
     let body: any = {};
     try { body = rawBody ? JSON.parse(rawBody.toString('utf8')) : {}; } catch {}
     const tipo = body?.type ?? query?.type ?? query?.topic;
     const pagoId = body?.data?.id ?? query?.['data.id'] ?? query?.id;
     if (tipo !== 'payment' || !pagoId) return { ok: true };
-    // rechaza notificaciones falsificadas antes de registrar la venta
-    verificarFirmaMercadoPago(headers, pagoId);
+
+    // multi-cuenta: la firma dice de qué cuenta viene el aviso — se prueba el
+    // secret de cada una y gana la que valida (rechaza falsificaciones igual)
+    let cuenta = null as (typeof cuentas)[number] | null;
+    let ultimoError: unknown = null;
+    for (const c of cuentas) {
+      try {
+        verificarFirmaMercadoPago(headers, pagoId, c.secret);
+        cuenta = c;
+        break;
+      } catch (e) {
+        ultimoError = e;
+      }
+    }
+    if (!cuenta) throw ultimoError instanceof Error ? ultimoError : new BadRequestException('Firma de webhook MP inválida');
+
     try {
-      const r = await fetchConTimeout(`https://api.mercadopago.com/v1/payments/${pagoId}`, { headers: { Authorization: `Bearer ${token}` } });
-      const pay: any = await r.json();
+      // buscar el pago con el token de esa cuenta (si no está, probar las otras)
+      let pay: any = null;
+      for (const c of [cuenta, ...cuentas.filter((x) => x.slug !== cuenta!.slug)]) {
+        const r = await fetchConTimeout(`https://api.mercadopago.com/v1/payments/${pagoId}`, { headers: { Authorization: `Bearer ${c.token}` } });
+        if (r.ok) { pay = await r.json(); break; }
+      }
       if (pay?.status === 'approved' && typeof pay?.external_reference === 'string' && pay.external_reference.startsWith('CF-')) {
         await this.confirmarPago(pay.external_reference.slice(3), String(pagoId));
       }

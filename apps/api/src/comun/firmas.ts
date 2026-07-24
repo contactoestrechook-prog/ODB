@@ -24,8 +24,9 @@ function igualSeguro(a: string, b: string): boolean {
 export function verificarFirmaMercadoPago(
   headers: Record<string, string | string[] | undefined>,
   dataId: string | number | undefined,
+  secretOverride?: string, // multi-cuenta: el secret de la cuenta que corresponda
 ): void {
-  const secret = process.env.MERCADOPAGO_WEBHOOK_SECRET;
+  const secret = secretOverride ?? process.env.MERCADOPAGO_WEBHOOK_SECRET;
   if (!secret) {
     log.warn('MERCADOPAGO_WEBHOOK_SECRET sin configurar: webhook aceptado sin verificar firma');
     return;

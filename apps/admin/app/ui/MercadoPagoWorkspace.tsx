@@ -14,6 +14,7 @@ const TIPO: Record<string, string> = {
   prepaid_card: 'Prepaga',
 };
 const input = 'w-full rounded-lg border border-black/15 px-3 py-2.5 text-sm text-black focus:border-[#B82D25] focus:outline-none';
+const CUENTA_LABEL: Record<string, string> = { principal: 'Sant Thomas (Chinvenguencha)', santa_ines: 'Santa Inés' };
 
 export function MercadoPagoWorkspace({ estado, resumen, pagos }: { estado: any; resumen: any; pagos: any[] }) {
   const router = useRouter();
@@ -89,10 +90,18 @@ export function MercadoPagoWorkspace({ estado, resumen, pagos }: { estado: any; 
     <div className="space-y-5">
       {/* estado + acciones */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-black/60">
-          Cuenta vinculada: <span className="font-medium text-black">{estado.cuenta}</span>
-          <span className="ml-2 rounded-full bg-emerald-100 text-emerald-800 text-[11px] px-2 py-0.5 align-middle">conectada</span>
-        </p>
+        <div className="flex flex-wrap items-center gap-2 text-sm text-black/60">
+          {(estado.cuentas ?? [{ slug: 'principal', vinculado: true, cuenta: estado.cuenta }]).map((c: any) => (
+            <span key={c.slug} className="flex items-center gap-1.5">
+              <span className="font-medium text-black">{CUENTA_LABEL[c.slug] ?? c.slug}</span>
+              {c.vinculado ? (
+                <span className="rounded-full bg-emerald-100 text-emerald-800 text-[11px] px-2 py-0.5" title={c.cuenta}>conectada</span>
+              ) : (
+                <span className="rounded-full bg-amber-100 text-amber-800 text-[11px] px-2 py-0.5" title={c.error}>pendiente</span>
+              )}
+            </span>
+          ))}
+        </div>
         <div className="flex gap-2">
           <button onClick={() => { setModalLink(true); setLink(null); }} className="rounded-full bg-white border border-black/15 text-black text-sm font-medium px-4 py-2 hover:border-[#B82D25]">
             Generar link de pago
@@ -180,7 +189,12 @@ export function MercadoPagoWorkspace({ estado, resumen, pagos }: { estado: any; 
                       {TIPO[p.tipo] ?? p.tipo ?? '—'}{p.cuotas > 1 ? ` · ${p.cuotas} cuotas` : ''}
                       {p.estado !== 'approved' && <span className="ml-1 rounded bg-black/10 px-1.5 py-0.5 text-[10px]">{p.estado}</span>}
                     </td>
-                    <td className="px-4 py-2.5 text-xs text-black/55 max-w-48 truncate">{p.descripcion ?? p.referencia_externa ?? '—'}</td>
+                    <td className="px-4 py-2.5 text-xs text-black/55 max-w-48 truncate">
+                      {p.cuenta && p.cuenta !== 'principal' && (
+                        <span className="mr-1.5 rounded bg-[#F0EBE2] px-1.5 py-0.5 text-[10px] text-black/60">{CUENTA_LABEL[p.cuenta] ?? p.cuenta}</span>
+                      )}
+                      {p.descripcion ?? p.referencia_externa ?? '—'}
+                    </td>
                     <td className="px-4 py-2.5 text-right">{pesos(p.bruto)}</td>
                     <td className="px-4 py-2.5 text-right text-[#932A1F]">{pesos(p.comision)}</td>
                     <td className="px-4 py-2.5 text-right font-medium">{pesos(p.neto)}</td>
