@@ -4,6 +4,10 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 const pesos = (n: any) => (n == null ? '—' : '$' + Math.round(Number(n)).toLocaleString('es-AR'));
+const EMISOR_LABEL: Record<string, string> = {
+  principal: 'Sant Thomas · Chinvenguencha SRL',
+  santa_ines: 'Santa Inés · ODB SRL',
+};
 const TIPO_LABEL: Record<string, string> = {
   FA: 'Factura A', FB: 'Factura B', NCA: 'Nota crédito A', NCB: 'Nota crédito B', NDA: 'Nota débito A', NDB: 'Nota débito B',
 };
@@ -13,17 +17,25 @@ export function ArcaWorkspace({ estado, contador, pendientes }: { estado: any; c
   const [cargando, setCargando] = useState(false);
   const [aviso, setAviso] = useState('');
   const [mes, setMes] = useState<string>(contador?.mes ?? new Date().toISOString().slice(0, 7));
+  const [emisorSel, setEmisorSel] = useState<string>('principal');
   const [datos, setDatos] = useState<any>(contador);
 
-  const cambiarMes = async (nuevo: string) => {
-    setMes(nuevo);
+  const cargar = async (nuevoMes: string, nuevoEmisor: string) => {
     setCargando(true);
     try {
-      const res = await fetch(`/api/arca?recurso=contador&mes=${encodeURIComponent(nuevo)}`);
+      const res = await fetch(`/api/arca?recurso=contador&mes=${encodeURIComponent(nuevoMes)}&emisor=${encodeURIComponent(nuevoEmisor)}`);
       if (res.ok) setDatos(await res.json());
     } finally {
       setCargando(false);
     }
+  };
+  const cambiarMes = (nuevo: string) => {
+    setMes(nuevo);
+    void cargar(nuevo, emisorSel);
+  };
+  const cambiarEmisor = (nuevo: string) => {
+    setEmisorSel(nuevo);
+    void cargar(mes, nuevo);
   };
 
   const emitir = async () => {
@@ -76,18 +88,30 @@ export function ArcaWorkspace({ estado, contador, pendientes }: { estado: any; c
     <div className="space-y-5">
       {/* estado de la conexión */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-black/60">
-          {estado?.configurado ? (
-            <>
-              Facturación electrónica <span className="font-medium text-black">{datos?.emisor?.razonSocial}</span> · CUIT {datos?.emisor?.cuit} · Punto de venta {String(datos?.emisor?.puntoVenta ?? '').padStart(4, '0')}
-              <span className="ml-2 rounded-full bg-emerald-100 text-emerald-800 text-[11px] px-2 py-0.5 align-middle">
-                conectado a ARCA
+        <div className="space-y-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
+            {['principal', 'santa_ines'].map((e) => (
+              <button
+                key={e}
+                onClick={() => cambiarEmisor(e)}
+                className={'rounded-full px-3.5 py-1.5 text-xs font-medium border ' +
+                  (emisorSel === e ? 'bg-black text-white border-black' : 'bg-white text-black border-black/15 hover:border-[#B82D25]')}
+              >
+                {EMISOR_LABEL[e] ?? e}
+              </button>
+            ))}
+          </div>
+          <div className="flex flex-wrap items-center gap-2 text-xs text-black/55">
+            {(estado?.emisores ?? []).map((e: any) => (
+              <span key={e.emisor} className="flex items-center gap-1">
+                {EMISOR_LABEL[e.emisor]?.split(' · ')[0] ?? e.emisor}:
+                {e.configurado && !e.error
+                  ? <span className="rounded-full bg-emerald-100 text-emerald-800 px-2 py-0.5 text-[11px]">conectado{e.ultimaFacturaB != null ? ` · última FB ${e.ultimaFacturaB}` : ''}</span>
+                  : <span className="rounded-full bg-amber-100 text-amber-800 px-2 py-0.5 text-[11px]" title={e.error}>pendiente</span>}
               </span>
-            </>
-          ) : (
-            <span className="text-[#B82D25]">ARCA sin configurar (falta el certificado en el servidor)</span>
-          )}
-        </p>
+            ))}
+          </div>
+        </div>
         <div className="flex items-center gap-2">
           <input type="month" value={mes} onChange={(e) => cambiarMes(e.target.value)} className="rounded-lg border border-black/15 px-3 py-2 text-sm bg-white" />
           <button onClick={descargarCsv} disabled={!datos?.comprobantes?.length} className="rounded-full bg-white border border-black/15 text-black text-sm font-medium px-4 py-2 hover:border-[#B82D25] disabled:opacity-40">

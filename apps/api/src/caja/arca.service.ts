@@ -1,7 +1,7 @@
 import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
-import { cuitArca, decodificarXml, entornoArca, obtenerTicket, postXmlArca } from './arca-wsaa';
+import { cuitArca, decodificarXml, emisorConfigurado, entornoArca, obtenerTicket, postXmlArca } from './arca-wsaa';
 
 // Worker de facturación electrónica: toma los comprobantes pendientes de la
 // caja (cola comprobantes_arca) y les pide el CAE a ARCA vía WSFE, con el
@@ -15,6 +15,11 @@ const WSFE_URL = {
 
 // Código ARCA por tipo de comprobante interno
 const TIPO_ARCA: Record<string, number> = { FA: 1, NCA: 3, NDA: 2, FB: 6, NCB: 8, NDB: 7 };
+// Razón social de cada emisor (multi-empresa)
+const EMISOR_NOMBRE: Record<string, string> = {
+  principal: 'CHINVENGUENCHA SRL',
+  santa_ines: 'ODB SOCIEDAD DE RESPONSABILIDAD LIMITADA',
+};
 // Alícuota → Id de ARCA
 const ALIC_ID: Record<string, number> = { '0': 3, '2.5': 9, '5': 8, '10.5': 4, '21': 5, '27': 6 };
 
@@ -37,41 +42,70 @@ export class ArcaService {
     };
   }
 
-  // Chequeo de la conexión sin emitir nada: dummy de WSFE + último autorizado.
+  // Emisores declarados en sucursales: slug → { puntoVenta, nombre }
+  private async emisores(): Promise<{ slug: string; puntoVenta: number | null; nombre: string }[]> {
+    const { data } = await this.db
+      .from('sucursales')
+      .select('arca_emisor, punto_venta_arca')
+      .not('arca_emisor', 'is', null);
+    const porSlug = new Map<string, number | null>();
+    for (const s of (data ?? []) as any[]) {
+      if (!porSlug.has(s.arca_emisor) || s.punto_venta_arca != null) porSlug.set(s.arca_emisor, s.punto_venta_arca);
+    }
+    return [...porSlug.entries()].map(([slug, puntoVenta]) => ({
+      slug,
+      puntoVenta,
+      nombre: EMISOR_NOMBRE[slug] ?? slug,
+    }));
+  }
+
+  // Chequeo de la conexión sin emitir nada: dummy de WSFE + último autorizado por emisor.
   async estado() {
-    if (!this.estaConfigurado()) return { configurado: false };
-    const dummy = await this.soap('FEDummy', '');
-    const auth = await this.authXml();
-    const ultimoFB = await this.ultimoAutorizado(auth, 15, TIPO_ARCA.FB).catch((e) => ({ error: String((e as Error).message ?? e) }));
+    const emisores = await this.emisores();
+    const dummy = await this.soap('FEDummy', '').catch(() => '');
+    const detalle: any[] = [];
+    for (const e of emisores) {
+      if (!emisorConfigurado(e.slug)) {
+        detalle.push({ emisor: e.slug, nombre: e.nombre, configurado: false, error: 'falta el certificado en Railway' });
+        continue;
+      }
+      try {
+        const auth = await this.authXml(e.slug);
+        const ultimo = e.puntoVenta ? await this.ultimoAutorizado(auth, e.puntoVenta, TIPO_ARCA.FB) : null;
+        detalle.push({ emisor: e.slug, nombre: e.nombre, configurado: true, cuit: cuitArca(e.slug), puntoVenta: e.puntoVenta, ultimaFacturaB: ultimo });
+      } catch (err) {
+        detalle.push({ emisor: e.slug, nombre: e.nombre, configurado: true, error: String((err as Error).message ?? err) });
+      }
+    }
     return {
-      configurado: true,
+      configurado: detalle.some((d) => d.configurado && !d.error),
       entorno: entornoArca(),
-      cuit: cuitArca(),
       servidorArca: {
         app: dummy.match(/<AppServer>(.*?)<\/AppServer>/)?.[1] ?? '?',
         db: dummy.match(/<DbServer>(.*?)<\/DbServer>/)?.[1] ?? '?',
         auth: dummy.match(/<AuthServer>(.*?)<\/AuthServer>/)?.[1] ?? '?',
       },
-      ultimaFacturaB: ultimoFB,
+      emisores: detalle,
     };
   }
 
   async emitirPendientes() {
     if (!this.estaConfigurado()) {
       throw new BadRequestException(
-        'Facturación ARCA sin configurar: faltan ARCA_CUIT y el certificado (ARCA_CERT_PEM/ARCA_KEY_PEM) en el entorno',
+        'Facturación ARCA sin configurar: falta el certificado de al menos un emisor en el entorno',
       );
     }
     const { data: cola, error } = await this.db
       .from('comprobantes_arca')
-      .select('id, venta_id, tipo, punto_venta, estado')
+      .select('id, venta_id, tipo, punto_venta, estado, venta:ventas!inner(sucursal:sucursales(arca_emisor))')
       .in('estado', ['pendiente', 'error'])
       .order('creado_en')
       .limit(50);
     if (error) throw new BadRequestException(error.message);
     if (!cola?.length) return { emitidos: 0, errores: 0, detalle: [] };
 
-    const auth = await this.authXml();
+    // multi-emisor: un ticket WSAA por razón social, resuelto según la sucursal
+    const auths = new Map<string, string>();
     // próximo número por (punto de venta, tipo): se pide una vez y se avanza local
     const proximo = new Map<string, number>();
 
@@ -82,6 +116,12 @@ export class ArcaService {
       const tipoArca = TIPO_ARCA[c.tipo];
       try {
         if (!tipoArca) throw new Error(`Tipo ${c.tipo} sin código ARCA`);
+        const emisor = (c.venta as any)?.sucursal?.arca_emisor ?? 'principal';
+        if (!emisorConfigurado(emisor)) {
+          throw new Error(`El certificado de ${EMISOR_NOMBRE[emisor] ?? emisor} todavía no está cargado`);
+        }
+        if (!auths.has(emisor)) auths.set(emisor, await this.authXml(emisor));
+        const auth = auths.get(emisor)!;
         const clave = `${c.punto_venta}-${tipoArca}`;
         if (!proximo.has(clave)) {
           proximo.set(clave, (await this.ultimoAutorizado(auth, c.punto_venta, tipoArca)) + 1);
@@ -245,8 +285,15 @@ export class ArcaService {
   // Todo lo que el contador necesita de un mes: comprobantes emitidos con CAE,
   // numeración, receptor, neto/IVA/total, y el resumen por tipo. El panel lo
   // baja como CSV. La fecha fiscal es la de la venta (misma que se mandó a ARCA).
-  async contador(mes?: string) {
+  async contador(mes?: string, emisor = 'principal') {
     const base = /^\d{4}-\d{2}$/.test(mes ?? '') ? mes! : new Date().toISOString().slice(0, 7);
+    // los libros son POR EMPRESA: solo los puntos de venta de este emisor
+    const { data: sucsEmisor } = await this.db
+      .from('sucursales')
+      .select('punto_venta_arca')
+      .eq('arca_emisor', emisor)
+      .not('punto_venta_arca', 'is', null);
+    const pvs = [...new Set((sucsEmisor ?? []).map((s: any) => Number(s.punto_venta_arca)))];
     const desde = `${base}-01`;
     const d = new Date(`${desde}T00:00:00Z`);
     d.setUTCMonth(d.getUTCMonth() + 1);
@@ -258,6 +305,7 @@ export class ArcaService {
         'id, tipo, punto_venta, numero, cae, cae_vencimiento, venta:ventas!inner(id, total, vendida_en, cliente:clientes(dni, cuit, nombre, razon_social), sucursal:sucursales(nombre))',
       )
       .eq('estado', 'emitido')
+      .in('punto_venta', pvs.length ? pvs : [-1])
       .gte('venta.vendida_en', desde)
       .lt('venta.vendida_en', hasta)
       .order('numero', { ascending: true })
@@ -324,7 +372,12 @@ export class ArcaService {
 
     return {
       mes: base,
-      emisor: { razonSocial: 'CHINVENGUENCHA SRL', cuit: cuitArca(), puntoVenta: 15 },
+      emisor: {
+        slug: emisor,
+        razonSocial: EMISOR_NOMBRE[emisor] ?? emisor,
+        cuit: (() => { try { return cuitArca(emisor); } catch { return ''; } })(),
+        puntoVenta: pvs[0] ?? null,
+      },
       resumen: {
         comprobantes: comprobantes.length,
         neto: r2(comprobantes.reduce((s, c) => s + c.neto, 0)),
@@ -354,9 +407,9 @@ export class ArcaService {
     return Number(xml.match(/<CbteNro>(\d+)<\/CbteNro>/)?.[1] ?? 0);
   }
 
-  private async authXml(): Promise<string> {
-    const t = await obtenerTicket(this.db, 'wsfe');
-    return `<ar:Auth><ar:Token>${t.token}</ar:Token><ar:Sign>${t.sign}</ar:Sign><ar:Cuit>${cuitArca()}</ar:Cuit></ar:Auth>`;
+  private async authXml(emisor = 'principal'): Promise<string> {
+    const t = await obtenerTicket(this.db, 'wsfe', emisor);
+    return `<ar:Auth><ar:Token>${t.token}</ar:Token><ar:Sign>${t.sign}</ar:Sign><ar:Cuit>${cuitArca(emisor)}</ar:Cuit></ar:Auth>`;
   }
 
   private async soap(metodo: string, cuerpo: string): Promise<string> {
@@ -377,10 +430,6 @@ export class ArcaService {
   }
 
   private estaConfigurado(): boolean {
-    return Boolean(
-      process.env.ARCA_CUIT &&
-        ((process.env.ARCA_CERT_PEM && process.env.ARCA_KEY_PEM) ||
-          (process.env.ARCA_CERT_PATH && process.env.ARCA_KEY_PATH)),
-    );
+    return emisorConfigurado('principal') || emisorConfigurado('santa_ines');
   }
 }

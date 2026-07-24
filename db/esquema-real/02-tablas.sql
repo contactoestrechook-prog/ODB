@@ -39,12 +39,13 @@ alter table public.acreditaciones add constraint acreditaciones_pago_id_key UNIQ
 -- vigente, por eso se persiste y se reusa entre reinicios del server)
 create table public.arca_tokens (
   servicio text not null,
+  emisor text default 'principal'::text not null,
   token text not null,
   sign text not null,
   expira timestamp with time zone not null,
   actualizado_en timestamp with time zone default now() not null
 );
-alter table public.arca_tokens add constraint arca_tokens_pkey PRIMARY KEY (servicio);
+alter table public.arca_tokens add constraint arca_tokens_pkey PRIMARY KEY (servicio, emisor);
 
 create table public.agente_auditoria (
   id bigint generated always as identity not null,
@@ -947,6 +948,8 @@ create table public.sucursales (
 ,
   mp_cuenta text,
   mp_user_id text
+,
+  arca_emisor text
 );
 alter table public.sucursales add constraint sucursales_pkey PRIMARY KEY (id);
 

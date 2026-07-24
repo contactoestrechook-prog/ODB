@@ -41,27 +41,48 @@ export function entornoArca(): 'produccion' | 'homologacion' {
   return process.env.ARCA_ENTORNO === 'homologacion' ? 'homologacion' : 'produccion';
 }
 
+// Multi-emisor: cada razón social tiene su certificado. El slug de la sucursal
+// (sucursales.arca_emisor) define qué variables usar:
+//   principal → ARCA_CUIT / ARCA_CERT_PEM / ARCA_KEY_PEM (o *_PATH)
+//   <slug>    → ARCA_CUIT_<SLUG> / ARCA_CERT_PEM_<SLUG> / ARCA_KEY_PEM_<SLUG>
+function sufijoEmisor(emisor: string): string {
+  return emisor === 'principal' ? '' : `_${emisor.toUpperCase()}`;
+}
+
 // El cert y la clave pueden venir por contenido (Railway) o por archivo (local)
-function materialArca(): { cert: string; key: string } {
-  const certPem = process.env.ARCA_CERT_PEM ?? (process.env.ARCA_CERT_PATH ? readFileSync(process.env.ARCA_CERT_PATH, 'utf8') : '');
-  const keyPem = process.env.ARCA_KEY_PEM ?? (process.env.ARCA_KEY_PATH ? readFileSync(process.env.ARCA_KEY_PATH, 'utf8') : '');
-  if (!certPem || !keyPem) {
+function materialArca(emisor: string): { cert: string; key: string } {
+  const suf = sufijoEmisor(emisor);
+  const certPem =
+    process.env[`ARCA_CERT_PEM${suf}`] ??
+    (process.env[`ARCA_CERT_PATH${suf}`] ? readFileSync(process.env[`ARCA_CERT_PATH${suf}`]!, 'utf8') : '');
+  const keyPem =
+    process.env[`ARCA_KEY_PEM${suf}`] ??
+    (process.env[`ARCA_KEY_PATH${suf}`] ? readFileSync(process.env[`ARCA_KEY_PATH${suf}`]!, 'utf8') : '');
+  if (!certPem || certPem.startsWith('PEGAR') || !keyPem || keyPem.startsWith('PEGAR')) {
     throw new BadRequestException(
-      'Facturación ARCA sin configurar: faltan ARCA_CERT_PEM y ARCA_KEY_PEM (o *_PATH) además de ARCA_CUIT',
+      `Facturación ARCA del emisor ${emisor}: falta el certificado (ARCA_CERT_PEM${suf}/ARCA_KEY_PEM${suf})`,
     );
   }
   return { cert: certPem, key: keyPem };
 }
 
-export function cuitArca(): string {
-  const c = (process.env.ARCA_CUIT ?? '').replace(/\D/g, '');
-  if (!c) throw new BadRequestException('Falta ARCA_CUIT en el entorno');
+export function cuitArca(emisor = 'principal'): string {
+  const c = (process.env[`ARCA_CUIT${sufijoEmisor(emisor)}`] ?? '').replace(/\D/g, '');
+  if (!c) throw new BadRequestException(`Falta ARCA_CUIT${sufijoEmisor(emisor)} en el entorno`);
   return c;
 }
 
+export function emisorConfigurado(emisor: string): boolean {
+  const suf = sufijoEmisor(emisor);
+  const cert = process.env[`ARCA_CERT_PEM${suf}`] ?? process.env[`ARCA_CERT_PATH${suf}`] ?? '';
+  const key = process.env[`ARCA_KEY_PEM${suf}`] ?? process.env[`ARCA_KEY_PATH${suf}`] ?? '';
+  const cuit = process.env[`ARCA_CUIT${suf}`] ?? '';
+  return !!cuit && !!cert && !cert.startsWith('PEGAR') && !!key && !key.startsWith('PEGAR');
+}
+
 // Firma CMS (PKCS#7) del ticket, como exige WSAA.
-function firmarCms(xml: string): string {
-  const { cert, key } = materialArca();
+function firmarCms(xml: string, emisor: string): string {
+  const { cert, key } = materialArca(emisor);
   const p7 = forge.pkcs7.createSignedData();
   p7.content = forge.util.createBuffer(xml, 'utf8');
   const certificado = forge.pki.certificateFromPem(cert);
@@ -85,11 +106,12 @@ function firmarCms(xml: string): string {
 export type TicketArca = { token: string; sign: string; expira: string };
 
 // Devuelve un ticket vigente para el servicio (cacheado en DB) o pide uno nuevo.
-export async function obtenerTicket(db: SupabaseClient, servicio: 'wsfe'): Promise<TicketArca> {
+export async function obtenerTicket(db: SupabaseClient, servicio: 'wsfe', emisor = 'principal'): Promise<TicketArca> {
   const { data: guardado } = await db
     .from('arca_tokens')
     .select('token, sign, expira')
     .eq('servicio', servicio)
+    .eq('emisor', emisor)
     .maybeSingle();
   if (guardado && new Date(guardado.expira).getTime() - Date.now() > 10 * 60_000) {
     return guardado as TicketArca;
@@ -105,7 +127,7 @@ export async function obtenerTicket(db: SupabaseClient, servicio: 'wsfe'): Promi
     `<loginTicketRequest version="1.0"><header><uniqueId>${unique}</uniqueId>` +
     `<generationTime>${gen}</generationTime><expirationTime>${exp}</expirationTime></header>` +
     `<service>${servicio}</service></loginTicketRequest>`;
-  const cms = firmarCms(xml);
+  const cms = firmarCms(xml, emisor);
 
   const soap =
     `<?xml version="1.0" encoding="UTF-8"?>` +
@@ -130,7 +152,7 @@ export async function obtenerTicket(db: SupabaseClient, servicio: 'wsfe'): Promi
   if (!token || !sign || !expira) throw new BadRequestException('WSAA devolvió una respuesta sin token/sign');
 
   const ticket = { token, sign, expira: new Date(expira).toISOString() };
-  await db.from('arca_tokens').upsert({ servicio, ...ticket, actualizado_en: new Date().toISOString() });
+  await db.from('arca_tokens').upsert({ servicio, emisor, ...ticket, actualizado_en: new Date().toISOString() });
   return ticket;
 }
 
