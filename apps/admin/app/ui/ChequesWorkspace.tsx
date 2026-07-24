@@ -34,17 +34,22 @@ export function ChequesWorkspace({ resumen: resumenInicial, cheques: chequesInic
 
   const recargar = async () => {
     setCargando(true);
-    const qs = new URLSearchParams();
-    if (tipo) qs.set('tipo', tipo);
-    if (estado) qs.set('estado', estado);
-    if (buscar.trim()) qs.set('buscar', buscar.trim());
-    const [lst, res] = await Promise.all([
-      fetch(`/api/cheques?${qs}`).then((r) => r.json()),
-      fetch('/api/cheques?recurso=resumen').then((r) => r.json()),
-    ]);
-    setCheques(Array.isArray(lst) ? lst : []);
-    setResumen(res);
-    setCargando(false);
+    try {
+      const qs = new URLSearchParams();
+      if (tipo) qs.set('tipo', tipo);
+      if (estado) qs.set('estado', estado);
+      if (buscar.trim()) qs.set('buscar', buscar.trim());
+      const [lst, res] = await Promise.all([
+        fetch(`/api/cheques?${qs}`).then((r) => r.json()),
+        fetch('/api/cheques?recurso=resumen').then((r) => r.json()),
+      ]);
+      setCheques(Array.isArray(lst) ? lst : []);
+      setResumen(res);
+    } catch {
+      /* red caída: no dejamos la tabla colgada en "Cargando…" */
+    } finally {
+      setCargando(false);
+    }
   };
 
   useEffect(() => {
@@ -192,14 +197,19 @@ function NuevoCheque({ onClose, onSaved }: { onClose: () => void; onSaved: () =>
     setError('');
     if (!f.numero.trim() || !(Number(f.importe) > 0)) return setError('Número e importe son obligatorios');
     setGuardando(true);
-    const res = await fetch('/api/cheques', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ accion: 'crear', ...f, importe: Number(f.importe) }),
-    });
-    const d = await res.json();
-    setGuardando(false);
-    if (!res.ok) return setError(d?.message || 'No se pudo guardar');
-    onSaved();
+    try {
+      const res = await fetch('/api/cheques', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accion: 'crear', ...f, importe: Number(f.importe) }),
+      });
+      const d = await res.json();
+      if (!res.ok) return setError(d?.message || 'No se pudo guardar');
+      onSaved();
+    } catch {
+      setError('No se pudo conectar. Reintentá.');
+    } finally {
+      setGuardando(false);
+    }
   };
 
   return (
@@ -243,12 +253,15 @@ function AccionCheque({ accion, onClose, onDone }: { accion: { id: string; tipo:
   const ejecutar = async () => {
     setGuardando(true);
     const extra = accion.tipo === 'aplicar' ? { proveedorId } : accion.tipo === 'rechazar' || accion.tipo === 'anular' ? { motivo } : {};
-    await fetch('/api/cheques', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ accion: accion.tipo, id: accion.id, ...extra }),
-    });
-    setGuardando(false);
-    onDone();
+    try {
+      await fetch('/api/cheques', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accion: accion.tipo, id: accion.id, ...extra }),
+      });
+      onDone();
+    } finally {
+      setGuardando(false);
+    }
   };
 
   const TITULO: Record<string, string> = { rechazar: 'Rechazar cheque', aplicar: 'Endosar a proveedor', anular: 'Anular cheque' };

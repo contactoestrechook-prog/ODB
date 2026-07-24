@@ -20,10 +20,15 @@ export function EnviosWorkspace() {
   const [cargando, setCargando] = useState(true);
 
   const cargar = async () => {
-    const [re, rr] = await Promise.all([fetch('/api/envios'), fetch('/api/repartidores')]);
-    if (re.ok) setEnvios(await re.json());
-    if (rr.ok) setReps(await rr.json());
-    setCargando(false);
+    try {
+      const [re, rr] = await Promise.all([fetch('/api/envios'), fetch('/api/repartidores')]);
+      if (re.ok) setEnvios(await re.json());
+      if (rr.ok) setReps(await rr.json());
+    } catch {
+      /* red caída: no dejamos la pantalla colgada en "Cargando…" */
+    } finally {
+      setCargando(false);
+    }
   };
   useEffect(() => {
     cargar();

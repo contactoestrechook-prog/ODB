@@ -130,17 +130,25 @@ function ModalWhatsApp({ cerrar, post }: { cerrar: () => void; post: (b: any) =>
   const analizar = async () => {
     if (!texto.trim()) return;
     setCargando(true); setAviso('');
-    const r = await fetch('/api/pedidos', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'waAnalizar', texto: texto.trim() }) });
-    const d = await r.json();
-    if (!r.ok) setAviso(d.message ?? 'Error'); else setAnalisis(d);
-    setCargando(false);
+    try {
+      const r = await fetch('/api/pedidos', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'waAnalizar', texto: texto.trim() }) });
+      const d = await r.json();
+      if (!r.ok) setAviso(d.message ?? 'Error'); else setAnalisis(d);
+    } catch {
+      setAviso('No se pudo conectar. Reintentá.');
+    } finally {
+      setCargando(false);
+    }
   };
   const crear = async () => {
     setCargando(true);
-    const items = (analisis.items ?? []).map((i: any) => ({ producto_id: i.producto_id, cantidad: i.cantidad }));
-    const d = await post({ accion: 'waCrear', items, nombre: analisis.nombre, notas: analisis.notas });
-    setCargando(false);
-    if (d) cerrar();
+    try {
+      const items = (analisis.items ?? []).map((i: any) => ({ producto_id: i.producto_id, cantidad: i.cantidad }));
+      const d = await post({ accion: 'waCrear', items, nombre: analisis.nombre, notas: analisis.notas });
+      if (d) cerrar();
+    } finally {
+      setCargando(false);
+    }
   };
 
   return (

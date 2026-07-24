@@ -41,11 +41,16 @@ export function FormularioLista({
     setError(null);
     setResultado(null);
     const form = new FormData(e.currentTarget);
-    const res = await fetch('/api/listas', { method: 'POST', body: form });
-    const datos = await res.json();
-    if (res.ok) setResultado(datos);
-    else setError(datos.message ?? 'No se pudo analizar el archivo');
-    setCargando(false);
+    try {
+      const res = await fetch('/api/listas', { method: 'POST', body: form });
+      const datos = await res.json();
+      if (res.ok) setResultado(datos);
+      else setError(datos.message ?? 'No se pudo analizar el archivo');
+    } catch {
+      setError('No se pudo conectar. Reintentá.');
+    } finally {
+      setCargando(false);
+    }
   }
 
   return (

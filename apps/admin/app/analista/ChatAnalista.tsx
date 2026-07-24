@@ -108,23 +108,28 @@ export function ChatAnalista() {
 
   async function crearOc(orden: Orden, clave: string) {
     setCreando(clave);
-    const res = await fetch('/api/oc', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        proveedorId: orden.proveedorId,
-        sucursalId: orden.sucursalId,
-        items: orden.items,
-      }),
-    });
-    const datos = await res.json();
-    setCreadas((c) => ({
-      ...c,
-      [clave]: res.ok
-        ? 'Borrador creado: queda pendiente de firma en Compras'
-        : `Error: ${datos.message}`,
-    }));
-    setCreando(null);
+    try {
+      const res = await fetch('/api/oc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          proveedorId: orden.proveedorId,
+          sucursalId: orden.sucursalId,
+          items: orden.items,
+        }),
+      });
+      const datos = await res.json();
+      setCreadas((c) => ({
+        ...c,
+        [clave]: res.ok
+          ? 'Borrador creado: queda pendiente de firma en Compras'
+          : `Error: ${datos.message}`,
+      }));
+    } catch {
+      setCreadas((c) => ({ ...c, [clave]: 'Error: no se pudo conectar, reintentá' }));
+    } finally {
+      setCreando(null);
+    }
   }
 
   return (
