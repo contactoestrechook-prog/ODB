@@ -1,10 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 
 export default function CambiarClave() {
-  const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [cargando, setCargando] = useState(false);
 
@@ -20,17 +18,23 @@ export default function CambiarClave() {
     if (claveNueva === claveActual) return setError('La clave nueva tiene que ser distinta a la actual');
 
     setCargando(true);
-    const res = await fetch('/api/cambiar-clave', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ claveActual, claveNueva }),
-    });
-    if (res.ok) {
-      router.push('/inicio');
-      router.refresh();
-    } else {
+    try {
+      const res = await fetch('/api/cambiar-clave', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ claveActual, claveNueva }),
+      });
+      if (res.ok) {
+        // navegación DURA: recarga completa con la sesión nueva (evita que la
+        // interacción router/middleware deje el botón trabado en "Guardando…")
+        window.location.assign('/inicio');
+        return; // se deja "Guardando…" mientras recarga: está bien, funcionó
+      }
       const c = await res.json().catch(() => null);
       setError(c?.message ?? 'No se pudo cambiar la clave');
+      setCargando(false);
+    } catch {
+      setError('No se pudo conectar con el servidor. Reintentá en un momento.');
       setCargando(false);
     }
   }
