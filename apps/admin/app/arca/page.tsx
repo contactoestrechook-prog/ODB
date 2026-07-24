@@ -1,6 +1,7 @@
 import { Header } from '../ui/Header';
 import { apiFetch } from '../../lib/api';
 import { ArcaWorkspace } from '../ui/ArcaWorkspace';
+import { PinGate } from '../ui/PinGate';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,7 +31,9 @@ export default async function Arca() {
         {error ? (
           <p className="rounded-lg bg-white p-4 text-sm text-[#932A1F]">No pude consultar la API ({error}).</p>
         ) : (
-          <ArcaWorkspace estado={estado} contador={contador} pendientes={pendientes} />
+          <PinGate modulo="arca" titulo="ARCA · Facturación">
+            <ArcaWorkspace estado={estado} contador={contador} pendientes={pendientes} />
+          </PinGate>
         )}
       </div>
     </main>

@@ -1,6 +1,7 @@
 import { Header } from '../ui/Header';
 import { apiFetch } from '../../lib/api';
 import { MercadoPagoWorkspace } from '../ui/MercadoPagoWorkspace';
+import { PinGate } from '../ui/PinGate';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,7 +31,9 @@ export default async function MercadoPago() {
         {error ? (
           <p className="rounded-lg bg-white p-4 text-sm text-[#932A1F]">No pude consultar la API ({error}).</p>
         ) : (
-          <MercadoPagoWorkspace estado={estado} resumen={resumen} pagos={pagos} />
+          <PinGate modulo="mercadopago" titulo="Mercado Pago">
+            <MercadoPagoWorkspace estado={estado} resumen={resumen} pagos={pagos} />
+          </PinGate>
         )}
       </div>
     </main>

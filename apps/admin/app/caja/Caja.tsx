@@ -424,6 +424,20 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
     if (t.length >= 1) ejecutar(t, true);
   }
 
+  // Escaneo de un código venga de donde venga el foco (la pistola tipea rápido
+  // y termina en Enter; el listener global de abajo la captura aunque el
+  // buscador no esté enfocado). Agrega directo si lo tiene el catálogo local,
+  // si no lo busca en el server.
+  function escanear(codigo: string) {
+    const t = codigo.trim();
+    if (!t) return;
+    setBusqueda('');
+    const ex = catalogoLocal.find((p) => p.codigo === t || p.sku === t || (p.codigosBarras ?? []).includes(t));
+    if (ex) { agregar(ex); return; }
+    ejecutar(t, true);
+    inputRef.current?.focus();
+  }
+
   function cambiarCantidad(sku: string, delta: number) {
     setCarrito((c) =>
       c
@@ -874,6 +888,42 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
   reimprimirRef.current = () => { if (ultima) imprimir(ultima.ticket); };
   const stockRef = useRef<() => void>(() => {});
   stockRef.current = abrirStock;
+  const escanearRef = useRef<(c: string) => void>(() => {});
+  escanearRef.current = escanear;
+
+  // Captura global del lector de código de barras: la pistola manda los dígitos
+  // muy rápido y cierra con Enter. Si el foco NO está en un campo de texto (el
+  // caso en que "pita pero no impacta"), armamos el código y lo escaneamos.
+  // Si el foco está en el buscador u otro input, dejamos que lo maneje el campo.
+  useEffect(() => {
+    let buffer = '';
+    let ultima = 0;
+    let limpiar: any = null;
+    function esEditable(el: Element | null) {
+      if (!el) return false;
+      const tag = el.tagName;
+      return tag === 'INPUT' || tag === 'TEXTAREA' || (el as HTMLElement).isContentEditable;
+    }
+    function onScan(e: KeyboardEvent) {
+      if (esEditable(document.activeElement)) return; // un input activo maneja lo suyo
+      const ahora = Date.now();
+      if (e.key === 'Enter') {
+        if (buffer.length >= 3) { escanearRef.current?.(buffer); }
+        buffer = '';
+        return;
+      }
+      if (e.key.length === 1 && /[A-Za-z0-9\-]/.test(e.key)) {
+        if (ahora - ultima > 120) buffer = ''; // gap grande = arranque de un escaneo nuevo
+        ultima = ahora;
+        buffer += e.key;
+        clearTimeout(limpiar);
+        limpiar = setTimeout(() => { buffer = ''; }, 250); // sin Enter en 250ms, se descarta
+      }
+    }
+    window.addEventListener('keydown', onScan);
+    return () => window.removeEventListener('keydown', onScan);
+  }, []);
+
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       switch (e.key) {

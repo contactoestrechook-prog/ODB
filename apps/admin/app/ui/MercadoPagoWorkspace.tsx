@@ -40,20 +40,20 @@ export function MercadoPagoWorkspace({ estado, resumen: resumenInicial, pagos: p
   const [cargando, setCargando] = useState(false);
   const [aviso, setAviso] = useState('');
   const [filtro, setFiltro] = useState<string>(''); // '' = las dos
+  const [dias, setDias] = useState<number>(30);
   const [resumen, setResumen] = useState<any>(resumenInicial);
   const [pagos, setPagos] = useState<any[]>(pagosIniciales);
   const [modalLink, setModalLink] = useState(false);
   const [link, setLink] = useState<{ url: string; monto: number; concepto: string } | null>(null);
   const [copiado, setCopiado] = useState(false);
 
-  const filtrar = async (cuenta: string) => {
-    setFiltro(cuenta);
+  const recargar = async (cuenta: string, d: number) => {
     setCargando(true);
     try {
       const q = cuenta ? `&cuenta=${cuenta}` : '';
       const [rr, rp] = await Promise.all([
-        fetch(`/api/mercadopago?recurso=resumen&dias=30${q}`),
-        fetch(`/api/mercadopago?recurso=pagos&dias=30${q}`),
+        fetch(`/api/mercadopago?recurso=resumen&dias=${d}${q}`),
+        fetch(`/api/mercadopago?recurso=pagos&dias=${d}${q}`),
       ]);
       if (rr.ok) setResumen(await rr.json());
       if (rp.ok) setPagos(await rp.json());
@@ -61,6 +61,11 @@ export function MercadoPagoWorkspace({ estado, resumen: resumenInicial, pagos: p
       setCargando(false);
     }
   };
+  const filtrar = (cuenta: string) => { setFiltro(cuenta); void recargar(cuenta, dias); };
+  const cambiarPeriodo = (d: number) => { setDias(d); void recargar(filtro, d); };
+
+  const PERIODOS: [number, string][] = [[1, 'Hoy'], [7, 'Semana'], [15, 'Quincena'], [30, 'Mes']];
+  const periodoLabel = (PERIODOS.find(([d]) => d === dias)?.[1] ?? `${dias} días`).toLowerCase();
 
   const importar = async () => {
     setCargando(true);
@@ -76,7 +81,7 @@ export function MercadoPagoWorkspace({ estado, resumen: resumenInicial, pagos: p
       const detalle = (d.porCuenta ?? []).map((c: any) => `${EMPRESAS[c.cuenta]?.corto ?? c.cuenta}: ${c.importados}`).join(' · ');
       setAviso(`Importados ${d.importados} pagos (${detalle}) · ${d.vinculados} vinculados a ventas · ${d.acreditacionesActualizadas} acreditaciones al día.`);
       router.refresh();
-      await filtrar(filtro);
+      await recargar(filtro, dias);
     } catch (e) {
       setAviso(e instanceof Error ? e.message : 'No se pudo importar');
     } finally {
@@ -125,8 +130,8 @@ export function MercadoPagoWorkspace({ estado, resumen: resumenInicial, pagos: p
 
   const porCuenta: any[] = resumen?.porCuenta ?? [];
   const totalCuentas = porCuenta.reduce((s, c) => s + c.bruto, 0) || 1;
-  const dias: any[] = resumen?.porDia ?? [];
-  const maxDia = Math.max(...dias.map((d) => d.principal + d.santa_ines), 1);
+  const serie: any[] = resumen?.porDia ?? [];
+  const maxDia = Math.max(...serie.map((d) => d.principal + d.santa_ines), 1);
 
   return (
     <div className="space-y-5">
@@ -158,6 +163,21 @@ export function MercadoPagoWorkspace({ estado, resumen: resumenInicial, pagos: p
             {cargando ? 'Trayendo…' : 'Importar de Mercado Pago'}
           </button>
         </div>
+      </div>
+
+      {/* período: hoy / semana / quincena / mes */}
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="text-xs text-black/40 mr-1">Período:</span>
+        {PERIODOS.map(([d, label]) => (
+          <button
+            key={d}
+            onClick={() => cambiarPeriodo(d)}
+            className={'rounded-full px-3.5 py-1.5 text-xs font-medium border ' +
+              (dias === d ? 'bg-black text-white border-black' : 'bg-white text-black border-black/15 hover:border-black/40')}
+          >
+            {label}
+          </button>
+        ))}
       </div>
 
       {aviso && <p className="rounded-lg bg-white p-3 text-sm text-black/70">{aviso}</p>}
@@ -195,7 +215,7 @@ export function MercadoPagoWorkspace({ estado, resumen: resumenInicial, pagos: p
       {/* KPIs */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
         {[
-          ['Cobrado (30 días)', pesos(resumen?.bruto), 'border-black', 'text-black', `${resumen?.cobros ?? 0} cobros`],
+          [`Cobrado (${periodoLabel})`, pesos(resumen?.bruto), 'border-black', 'text-black', `${resumen?.cobros ?? 0} cobros`],
           ['Comisión MP', pesos(resumen?.comision), 'border-[#932A1F]', 'text-[#932A1F]', `${resumen?.comisionPromedioPct ?? 0} % promedio`],
           ['Neto', pesos(resumen?.neto), 'border-sky-600', 'text-sky-800'],
           ['Ya liberado', pesos(resumen?.liberado), 'border-emerald-600', 'text-emerald-700'],
@@ -209,17 +229,17 @@ export function MercadoPagoWorkspace({ estado, resumen: resumenInicial, pagos: p
       </div>
 
       {/* cobros por día */}
-      {dias.length > 0 && (
+      {serie.length > 0 && (
         <section className="rounded-xl bg-white p-4">
           <div className="flex items-center justify-between mb-3">
-            <h2 className="font-medium text-black text-sm">Cobros por día (30 días)</h2>
+            <h2 className="font-medium text-black text-sm">Cobros por día ({periodoLabel})</h2>
             <div className="flex items-center gap-3 text-[11px] text-black/55">
               <span className="flex items-center gap-1"><span className="inline-block h-2.5 w-2.5 rounded-sm bg-[#B82D25]" /> Sant Thomas</span>
               <span className="flex items-center gap-1"><span className="inline-block h-2.5 w-2.5 rounded-sm bg-[#0F766E]" /> Santa Inés</span>
             </div>
           </div>
           <div className="flex items-end gap-[3px] h-32">
-            {dias.map((d) => {
+            {serie.map((d) => {
               const total = d.principal + d.santa_ines;
               return (
                 <div key={d.fecha} className="flex-1 flex flex-col justify-end gap-[1px] group" title={`${fecha(d.fecha)}: ${pesosCortos(total)} (ST ${pesosCortos(d.principal)} · SI ${pesosCortos(d.santa_ines)})`}>
@@ -230,7 +250,7 @@ export function MercadoPagoWorkspace({ estado, resumen: resumenInicial, pagos: p
             })}
           </div>
           <div className="mt-1 flex justify-between text-[10px] text-black/40">
-            <span>hace 30 días</span>
+            <span>hace {dias} días</span>
             <span>hoy</span>
           </div>
         </section>
@@ -269,7 +289,7 @@ export function MercadoPagoWorkspace({ estado, resumen: resumenInicial, pagos: p
       {/* listado */}
       <section className="rounded-xl bg-white overflow-hidden shadow-sm">
         <h2 className="px-4 py-3 border-b border-black/10 font-medium text-black text-sm">
-          Pagos {filtro ? `de ${EMPRESAS[filtro]?.corto}` : 'de las dos empresas'} (últimos 30 días · {pagos.length})
+          Pagos {filtro ? `de ${EMPRESAS[filtro]?.corto}` : 'de las dos empresas'} ({periodoLabel} · {pagos.length})
         </h2>
         {pagos.length === 0 ? (
           <p className="px-4 py-10 text-center text-black/40 text-sm">Sin pagos en este período.</p>
