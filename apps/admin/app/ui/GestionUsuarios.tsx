@@ -43,8 +43,8 @@ function mensajeAccesos(nombre: string, email: string, clave: string) {
     `Hola ${nombre.replace(/\(.*\)/, '').trim()}! Te damos de alta en el sistema de O.D.B 🍷\n\n` +
     `Entrá acá: ${link}\n` +
     `Usuario: ${email}\n` +
-    `Clave: ${clave}\n\n` +
-    `Por seguridad, cambiá la clave la primera vez que entres.`
+    `Clave temporal: ${clave}\n\n` +
+    `La primera vez que entres, el sistema te va a pedir que elijas tu propia clave. ¡Bienvenida/o!`
   );
 }
 const soloDigitos = (t: string) => (t || '').replace(/\D/g, '');

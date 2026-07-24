@@ -1181,11 +1181,11 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
                     </p>
                     <p className="text-xs text-black/45">{pesos(precioDe(r))} c/u{mayorista && r.precioMayorista != null ? ' · may.' : ''}{r.descuento ? ` · ${r.descuento}` : ''}{sel ? ' · tocá los números para la cantidad' : ''}</p>
                   </button>
-                  <button onClick={() => cambiarCantidad(r.sku, -1)} className="h-12 w-12 rounded-xl bg-white border border-black/10 text-2xl text-black active:scale-95 shrink-0" aria-label="Restar">−</button>
-                  <span className="w-9 text-center text-xl font-semibold tabular-nums">{r.cantidad}</span>
+                  <button onClick={() => cambiarCantidad(r.sku, -1)} className="h-12 w-12 rounded-xl bg-white border border-black/15 text-2xl text-black active:scale-95 shrink-0" aria-label="Restar">−</button>
+                  <span className="w-10 text-center text-2xl font-bold text-black tabular-nums">{r.cantidad}</span>
                   <button onClick={() => cambiarCantidad(r.sku, 1)} className="h-12 w-12 rounded-xl bg-black text-white text-2xl active:scale-95 shrink-0" aria-label="Sumar">+</button>
-                  <span className="w-24 text-right font-semibold text-lg whitespace-nowrap shrink-0">{pesos(precioDe(r) * r.cantidad)}</span>
-                  <button onClick={() => quitar(r.sku)} className="h-12 w-10 rounded-xl text-black/30 active:text-[#B82D25] text-xl shrink-0" aria-label="Quitar">✕</button>
+                  <span className="w-28 text-right font-bold text-xl text-black whitespace-nowrap shrink-0">{pesos(precioDe(r) * r.cantidad)}</span>
+                  <button onClick={() => quitar(r.sku)} className="h-12 w-10 rounded-xl text-black/40 active:text-[#B82D25] text-2xl shrink-0" aria-label="Quitar">✕</button>
                 </div>
               );
             })}

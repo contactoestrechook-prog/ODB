@@ -18,25 +18,30 @@ export function ArcaWorkspace({ estado, contador, pendientes }: { estado: any; c
   const [aviso, setAviso] = useState('');
   const [mes, setMes] = useState<string>(contador?.mes ?? new Date().toISOString().slice(0, 7));
   const [emisorSel, setEmisorSel] = useState<string>('principal');
+  const [periodo, setPeriodo] = useState<string>('mes'); // hoy | semana | quincena | mes
   const [datos, setDatos] = useState<any>(contador);
 
-  const cargar = async (nuevoMes: string, nuevoEmisor: string) => {
+  const hoyISO = () => new Date().toISOString().slice(0, 10);
+  const hace = (d: number) => new Date(Date.now() - d * 86400_000).toISOString().slice(0, 10);
+  const rangoDe = (p: string, m: string): string => {
+    if (p === 'hoy') return `desde=${hoyISO()}&hasta=${hoyISO()}`;
+    if (p === 'semana') return `desde=${hace(6)}&hasta=${hoyISO()}`;
+    if (p === 'quincena') return `desde=${hace(14)}&hasta=${hoyISO()}`;
+    return `mes=${m}`;
+  };
+
+  const cargar = async (p: string, m: string, e: string) => {
     setCargando(true);
     try {
-      const res = await fetch(`/api/arca?recurso=contador&mes=${encodeURIComponent(nuevoMes)}&emisor=${encodeURIComponent(nuevoEmisor)}`);
+      const res = await fetch(`/api/arca?recurso=contador&${rangoDe(p, m)}&emisor=${encodeURIComponent(e)}`);
       if (res.ok) setDatos(await res.json());
     } finally {
       setCargando(false);
     }
   };
-  const cambiarMes = (nuevo: string) => {
-    setMes(nuevo);
-    void cargar(nuevo, emisorSel);
-  };
-  const cambiarEmisor = (nuevo: string) => {
-    setEmisorSel(nuevo);
-    void cargar(mes, nuevo);
-  };
+  const cambiarPeriodo = (p: string) => { setPeriodo(p); void cargar(p, mes, emisorSel); };
+  const cambiarMes = (nuevo: string) => { setMes(nuevo); setPeriodo('mes'); void cargar('mes', nuevo, emisorSel); };
+  const cambiarEmisor = (nuevo: string) => { setEmisorSel(nuevo); void cargar(periodo, mes, nuevo); };
 
   const emitir = async () => {
     setCargando(true);
@@ -113,11 +118,29 @@ export function ArcaWorkspace({ estado, contador, pendientes }: { estado: any; c
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <input type="month" value={mes} onChange={(e) => cambiarMes(e.target.value)} className="rounded-lg border border-black/15 px-3 py-2 text-sm bg-white" />
           <button onClick={descargarCsv} disabled={!datos?.comprobantes?.length} className="rounded-full bg-white border border-black/15 text-black text-sm font-medium px-4 py-2 hover:border-[#B82D25] disabled:opacity-40">
             Descargar CSV para el contador
           </button>
         </div>
+      </div>
+
+      {/* período: hoy / semana / quincena / mes */}
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="text-xs text-black/40 mr-1">Período:</span>
+        {[['hoy', 'Hoy'], ['semana', 'Semana'], ['quincena', 'Quincena'], ['mes', 'Mes']].map(([id, label]) => (
+          <button
+            key={id}
+            onClick={() => cambiarPeriodo(id)}
+            className={'rounded-full px-3.5 py-1.5 text-xs font-medium border ' +
+              (periodo === id ? 'bg-black text-white border-black' : 'bg-white text-black border-black/15 hover:border-black/40')}
+          >
+            {label}
+          </button>
+        ))}
+        {periodo === 'mes' && (
+          <input type="month" value={mes} onChange={(e) => cambiarMes(e.target.value)} className="rounded-lg border border-black/15 px-2.5 py-1.5 text-xs bg-white ml-1" />
+        )}
+        {cargando && <span className="text-xs text-black/40 ml-1">actualizando…</span>}
       </div>
 
       {aviso && <p className="rounded-lg bg-white p-3 text-sm text-black/70">{aviso}</p>}

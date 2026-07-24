@@ -285,8 +285,9 @@ export class ArcaService {
   // Todo lo que el contador necesita de un mes: comprobantes emitidos con CAE,
   // numeración, receptor, neto/IVA/total, y el resumen por tipo. El panel lo
   // baja como CSV. La fecha fiscal es la de la venta (misma que se mandó a ARCA).
-  async contador(mes?: string, emisor = 'principal') {
-    const base = /^\d{4}-\d{2}$/.test(mes ?? '') ? mes! : new Date().toISOString().slice(0, 7);
+  // Acepta mes ('YYYY-MM') o rango libre desde/hasta ('YYYY-MM-DD', inclusive)
+  // para hoy / semana / quincena, por emisor (empresa).
+  async contador(q: { mes?: string; desde?: string; hasta?: string } = {}, emisor = 'principal') {
     // los libros son POR EMPRESA: solo los puntos de venta de este emisor
     const { data: sucsEmisor } = await this.db
       .from('sucursales')
@@ -294,10 +295,25 @@ export class ArcaService {
       .eq('arca_emisor', emisor)
       .not('punto_venta_arca', 'is', null);
     const pvs = [...new Set((sucsEmisor ?? []).map((s: any) => Number(s.punto_venta_arca)))];
-    const desde = `${base}-01`;
-    const d = new Date(`${desde}T00:00:00Z`);
-    d.setUTCMonth(d.getUTCMonth() + 1);
-    const hasta = d.toISOString().slice(0, 10);
+
+    const hoy = new Date().toISOString().slice(0, 10);
+    let desde: string;
+    let hasta: string; // exclusivo
+    let periodo: string;
+    if (q.desde && /^\d{4}-\d{2}-\d{2}$/.test(q.desde)) {
+      desde = q.desde;
+      const hastaIncl = q.hasta && /^\d{4}-\d{2}-\d{2}$/.test(q.hasta) ? q.hasta : hoy;
+      hasta = new Date(new Date(`${hastaIncl}T00:00:00Z`).getTime() + 86400_000).toISOString().slice(0, 10);
+      periodo = desde === hastaIncl ? desde : `${desde} a ${hastaIncl}`;
+    } else {
+      const base = /^\d{4}-\d{2}$/.test(q.mes ?? '') ? q.mes! : hoy.slice(0, 7);
+      desde = `${base}-01`;
+      const d = new Date(`${desde}T00:00:00Z`);
+      d.setUTCMonth(d.getUTCMonth() + 1);
+      hasta = d.toISOString().slice(0, 10);
+      periodo = base;
+    }
+    const base = periodo;
 
     const { data, error } = await this.db
       .from('comprobantes_arca')

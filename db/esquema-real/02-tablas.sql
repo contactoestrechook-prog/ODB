@@ -997,6 +997,8 @@ create table public.usuarios (
   activo boolean default true not null,
   creado_en timestamp with time zone default now() not null,
   clave_hash text
+,
+  debe_cambiar_clave boolean default false not null
 );
 alter table public.usuarios add constraint usuarios_pkey PRIMARY KEY (id);
 alter table public.usuarios add constraint usuarios_email_key UNIQUE (email);

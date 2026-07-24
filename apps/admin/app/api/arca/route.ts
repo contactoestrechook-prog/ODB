@@ -13,7 +13,7 @@ export async function GET(req: Request) {
   const sp = new URL(req.url).searchParams;
   const recurso = sp.get('recurso') ?? 'contador';
   const qs = new URLSearchParams();
-  for (const k of ['mes', 'emisor']) {
+  for (const k of ['mes', 'desde', 'hasta', 'emisor']) {
     const v = sp.get(k);
     if (v) qs.set(k, v);
   }
