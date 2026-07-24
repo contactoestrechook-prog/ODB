@@ -39,7 +39,7 @@ export class SommelierService {
     const claude = new Anthropic();
 
     const respuesta = await claude.messages.create({
-      model: 'claude-opus-4-8',
+      model: 'claude-sonnet-5',
       max_tokens: 1024,
       system: [
         {

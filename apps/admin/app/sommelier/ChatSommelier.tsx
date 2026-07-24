@@ -2,8 +2,6 @@
 
 import { useEffect, useRef, useState } from 'react';
 
-const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
-
 type Mensaje = { rol: 'usuario' | 'somelier'; texto: string };
 
 const SUGERENCIAS = [
@@ -37,7 +35,7 @@ export function ChatSommelier() {
     setTexto('');
     setPensando(true);
     try {
-      const res = await fetch(`${API}/sommelier/charla`, {
+      const res = await fetch('/api/sommelier', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ mensajes: nuevos }),
