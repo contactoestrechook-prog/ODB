@@ -13,7 +13,8 @@ export async function GET(req: Request) {
   const sp = new URL(req.url).searchParams;
   const recurso = sp.get('recurso') ?? 'resumen';
   const dias = sp.get('dias') ?? '30';
-  const res = await fetch(`${API}/mercadopago/${recurso}?dias=${encodeURIComponent(dias)}`, {
+  const cuenta = sp.get('cuenta') ?? '';
+  const res = await fetch(`${API}/mercadopago/${recurso}?dias=${encodeURIComponent(dias)}${cuenta ? `&cuenta=${encodeURIComponent(cuenta)}` : ''}`, {
     headers: await auth(),
     cache: 'no-store',
   });

@@ -219,15 +219,25 @@ export class MercadoPagoService {
     return { vinculados, acreditacionesActualizadas };
   }
 
-  // KPIs y desglose de los últimos `dias` (desde el espejo local, todas las cuentas).
-  async resumen(dias = 30) {
+  // KPIs y desglose de los últimos `dias` (desde el espejo local).
+  // `cuenta` filtra por empresa ('principal' | 'santa_ines'); sin él, las dos.
+  async resumen(dias = 30, cuenta?: string) {
     const desde = new Date(Date.now() - dias * 86400_000).toISOString();
-    const { data } = await this.db
-      .from('mp_pagos')
-      .select('cuenta, estado, tipo, bruto, comision, neto, liberado, liberacion_en, aprobado_en')
-      .gte('creado_en_mp', desde)
-      .limit(10000);
-    const filas = ((data ?? []) as any[]).filter((f) => f.estado === 'approved');
+    // PostgREST corta cada consulta en 1000 filas: se pagina hasta traer todo
+    const todas: any[] = [];
+    for (let d = 0; d < 20000; d += 1000) {
+      let q = this.db
+        .from('mp_pagos')
+        .select('cuenta, estado, tipo, bruto, comision, neto, liberado, liberacion_en, aprobado_en, creado_en_mp')
+        .gte('creado_en_mp', desde)
+        .order('creado_en_mp', { ascending: false })
+        .range(d, d + 999);
+      if (cuenta) q = q.eq('cuenta', cuenta);
+      const { data } = await q;
+      todas.push(...(data ?? []));
+      if ((data ?? []).length < 1000) break;
+    }
+    const filas = todas.filter((f) => f.estado === 'approved');
 
     const suma = (sel: (f: any) => number) => Math.round(filas.reduce((s, f) => s + sel(f), 0));
     const porLiberar = filas.filter((f) => !f.liberado);
@@ -253,6 +263,19 @@ export class MercadoPagoService {
         return m;
       }, new Map<string, number>());
 
+    // cobros por día, apilados por cuenta (para el gráfico del panel)
+    const porDia = new Map<string, { principal: number; santa_ines: number }>();
+    for (let d = dias - 1; d >= 0; d--) {
+      porDia.set(new Date(Date.now() - d * 86400_000).toISOString().slice(0, 10), { principal: 0, santa_ines: 0 });
+    }
+    for (const f of filas) {
+      const dia = String(f.creado_en_mp ?? '').slice(0, 10);
+      const acc = porDia.get(dia);
+      if (!acc) continue;
+      if (f.cuenta === 'santa_ines') acc.santa_ines += Number(f.bruto);
+      else acc.principal += Number(f.bruto);
+    }
+
     return {
       periodo: `${dias} días`,
       cobros: filas.length,
@@ -265,7 +288,8 @@ export class MercadoPagoService {
       liberado: suma((f) => (f.liberado ? Number(f.neto) : 0)),
       porLiberar: Math.round(porLiberar.reduce((s, f) => s + Number(f.neto), 0)),
       porTipo: [...porTipo.entries()].map(([tipo, v]) => ({ tipo, bruto: Math.round(v.bruto), cantidad: v.cantidad })),
-      porCuenta: [...porCuenta.entries()].map(([cuenta, v]) => ({ cuenta, bruto: Math.round(v.bruto), cantidad: v.cantidad })),
+      porCuenta: [...porCuenta.entries()].map(([c, v]) => ({ cuenta: c, bruto: Math.round(v.bruto), cantidad: v.cantidad })),
+      porDia: [...porDia.entries()].map(([fecha, v]) => ({ fecha, principal: Math.round(v.principal), santa_ines: Math.round(v.santa_ines) })),
       proximasLiberaciones: [...proximas.entries()]
         .sort((a, b) => (a[0] < b[0] ? -1 : 1))
         .slice(0, 10)
@@ -274,14 +298,16 @@ export class MercadoPagoService {
   }
 
   // Listado para el panel.
-  async pagos(dias = 30) {
+  async pagos(dias = 30, cuenta?: string) {
     const desde = new Date(Date.now() - dias * 86400_000).toISOString();
-    const { data } = await this.db
+    let q = this.db
       .from('mp_pagos')
       .select('id, cuenta, estado, tipo, medio, cuotas, bruto, comision, neto, liberado, liberacion_en, aprobado_en, descripcion, referencia_externa, pago_id, venta_id')
       .gte('creado_en_mp', desde)
       .order('creado_en_mp', { ascending: false })
       .limit(300);
+    if (cuenta) q = q.eq('cuenta', cuenta);
+    const { data } = await q;
     return data ?? [];
   }
 

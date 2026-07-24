@@ -14,14 +14,14 @@ export class MercadoPagoController {
 
   @Roles('gerente', 'dueno')
   @Get('resumen')
-  resumen(@Query('dias') dias?: string) {
-    return this.mp.resumen(this.dias(dias));
+  resumen(@Query('dias') dias?: string, @Query('cuenta') cuenta?: string) {
+    return this.mp.resumen(this.dias(dias), this.cuenta(cuenta));
   }
 
   @Roles('gerente', 'dueno')
   @Get('pagos')
-  pagos(@Query('dias') dias?: string) {
-    return this.mp.pagos(this.dias(dias));
+  pagos(@Query('dias') dias?: string, @Query('cuenta') cuenta?: string) {
+    return this.mp.pagos(this.dias(dias), this.cuenta(cuenta));
   }
 
   @Roles('gerente', 'dueno')
@@ -35,6 +35,10 @@ export class MercadoPagoController {
   @Post('link')
   link(@Body() b: { monto: number; concepto?: string; sucursalId?: string }) {
     return this.mp.crearLink(b ?? ({} as any));
+  }
+
+  private cuenta(v: unknown): string | undefined {
+    return v === 'principal' || v === 'santa_ines' ? v : undefined;
   }
 
   private dias(v: unknown) {
