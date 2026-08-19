@@ -1740,11 +1740,37 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     const identidad = esLid ? desde : desde.split('@')[0].replace(/\D/g, '');
     if (!identidad) return { ignorado: 'remitente ilegible' };
 
-    const texto = String(p.body ?? '').trim();
-    if (!texto) {
-      // audio/imagen sin texto: por ahora se avisa, no se procesa en silencio
-      return { ignorado: 'mensaje sin texto' };
+    let texto = String(p.body ?? '').trim();
+    // Audio, foto o adjunto sin texto: NO se ignora en silencio. El mensaje se
+    // registra en RESPONDE (para que la persona lo vea en el monitor) y el bot
+    // le pide amablemente que lo escriba. Antes el cliente mandaba un audio y
+    // no pasaba nada: ni respuesta, ni rastro para el equipo.
+    const tipo = String(p.type ?? p._data?.type ?? '').toLowerCase();
+    const esMedia = !texto && (!!p.hasMedia || ['ptt', 'audio', 'image', 'video', 'document', 'sticker'].includes(tipo));
+    if (esMedia) {
+      const waIdM = esLid ? desde : identidad;
+      const queEs = ['ptt', 'audio'].includes(tipo) ? 'un audio' : tipo === 'image' ? 'una foto' : tipo === 'video' ? 'un video' : 'un archivo';
+      await this.respondeRegistrar(waIdM, p._data?.notifyName ?? p.notifyName ?? null, `[el cliente mandó ${queEs}]`, null, p.id ? String(p.id) : undefined).catch(() => null);
+      // si atiende una persona, se calla; si no, pide que lo escriba (una sola vez)
+      if (await this.respondeModoHumano(waIdM).catch(() => false)) return { contestado: false, motivo: 'RESPONDE: atiende una persona' };
+      const { data: conv } = await this.db.from('bot_conversaciones').select('mensajes').eq('linea', 'pedidos').eq('telefono', identidad).maybeSingle();
+      const hist: any[] = Array.isArray(conv?.mensajes) ? conv!.mensajes : [];
+      const yaPidio = hist.slice(-4).some((m) => m.role === 'assistant' && /no puedo escuchar|no puedo ver|me lo escribe/i.test(String(m.content)));
+      if (yaPidio) return { contestado: false, motivo: 'ya se le pidió que lo escriba' };
+      const aviso = ['ptt', 'audio'].includes(tipo)
+        ? 'Por este canal no puedo escuchar los audios. ¿Me lo escribe, por favor?'
+        : 'Por este canal no puedo ver las fotos ni los archivos. ¿Me lo escribe, por favor? Si es sobre un pedido, una persona del local lo ve por este mismo chat.';
+      await this.db.from('bot_conversaciones').upsert({
+        linea: 'pedidos', telefono: identidad,
+        mensajes: [...hist, { role: 'user', content: `[el cliente mandó ${queEs}]` }, { role: 'assistant', content: aviso }].slice(-40),
+        actualizado_en: new Date().toISOString(),
+      }, { onConflict: 'linea,telefono' }).then(() => null, () => null);
+      await this.simularEscritura(desde, aviso);
+      const env = await this.enviarPorWhatsapp({ to: desde, text: aviso, referencia: `waha/${identidad}` });
+      this.respondeRegistrar(waIdM, p.notifyName ?? null, `[el cliente mandó ${queEs}]`, aviso, undefined).catch(() => null);
+      return { contestado: env.enviado, motivo: `${queEs}: se pidió que lo escriba` };
     }
+    if (!texto) return { ignorado: 'mensaje sin texto' };
 
     // whatsapp_id como lo guarda RESPONDE: solo dígitos para números normales,
     // el @lid completo para contactos con número oculto
