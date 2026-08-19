@@ -178,6 +178,7 @@ export class BotService {
     // 1) armar el texto del turno del usuario. Si vino un adjunto (factura),
     //    se procesa ACÁ (nunca pasa base64 por el modelo) y se inyecta el resultado.
     let texto = (dto.mensaje ?? '').trim();
+    let imagenDelTurno: { base64: string; mime: string } | null = null;
     if (dto.archivoBase64) {
       if (linea === 'proveedores') {
         try {
@@ -186,8 +187,14 @@ export class BotService {
         } catch (e) {
           texto += `\n[El proveedor envió un archivo pero el sistema no pudo procesarlo: ${e instanceof Error ? e.message : 'error'}. Pedile que reenvíe la foto más nítida o el PDF.]`;
         }
+      } else if (/^image\//.test(dto.mimeType ?? '')) {
+        // el cliente manda una foto (un producto, una lista, una etiqueta): el
+        // modelo la MIRA. Antes le contestábamos "no puedo ver fotos", que para
+        // un negocio es vergonzoso.
+        imagenDelTurno = { base64: dto.archivoBase64, mime: (dto.mimeType ?? 'image/jpeg').split(';')[0] };
+        if (!texto) texto = '[el cliente mandó esta foto]';
       } else {
-        texto += '\n[El cliente envió una imagen; este canal no procesa imágenes de clientes: pedile que lo escriba.]';
+        texto += '\n[El cliente envió un archivo que no es una imagen. Decile que lo mira una persona del local, sin prometer plazos.]';
       }
     }
     if (!texto) throw new BadRequestException('Mensaje vacío');
@@ -315,9 +322,12 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     if (vecesPidioDireccion >= 1) estado.push(`ya pediste la dirección ${vecesPidioDireccion} vez/veces: si no la dio, no la vuelvas a pedir en este mensaje salvo que él quiera cerrar`);
     if (vecesDijoPersonaResponde >= 2) estado.push(`ya dijiste ${vecesDijoPersonaResponde} veces que "una persona del local le responde": no lo repitas`);
     if (preguntasDelCliente >= 2) estado.push(`este mensaje trae ${preguntasDelCliente} preguntas: contestá CADA una en una línea, en el orden en que las hizo; si un dato no lo tenés, decilo en su línea`);
+    const contenidoDelTurno = (t: string): any => (imagenDelTurno
+      ? [{ type: 'image', source: { type: 'base64', media_type: imagenDelTurno.mime, data: imagenDelTurno.base64 } }, { type: 'text', text: t }]
+      : t);
     const messages: Anthropic.MessageParam[] = [
       ...historial,
-      { role: 'user', content: `${texto}\n\n[metadatos: telefono del chat = ${telefono}${quien}; ahora es ${ahoraBA} (hora de Buenos Aires); si corresponde saludar, el saludo correcto es "${saludo}". Estado de la charla: ${estado.join(' · ')}]` },
+      { role: 'user', content: contenidoDelTurno(`${texto}\n\n[metadatos: telefono del chat = ${telefono}${quien}; ahora es ${ahoraBA} (hora de Buenos Aires); si corresponde saludar, el saludo correcto es "${saludo}". Estado de la charla: ${estado.join(' · ')}${imagenDelTurno ? '. El cliente mandó una FOTO: mirala y respondé sobre lo que se ve. Si es un producto, buscalo en el catálogo por lo que leas en la etiqueta; si es un comprobante de pago, derivá con derivar_pago; si no se entiende, pedí que la saque de nuevo más nítida' : ''}]`) },
     ];
 
     // 3) loop del agente: Opus razona, pide herramientas, las ejecutamos y sigue
@@ -1718,6 +1728,22 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     });
   }
 
+  // Baja el archivo que mandó el cliente desde WAHA (foto, audio, documento).
+  // WAHA lo publica en payload.media.url; hay que pedirlo con la API key.
+  private async bajarMediaWaha(p: any): Promise<{ base64: string; mime: string; nombre: string } | null> {
+    const url = p?.media?.url ?? p?._data?.media?.url;
+    if (!url) return null;
+    try {
+      const r = await fetch(String(url), { headers: { 'X-Api-Key': process.env.WAHA_API_KEY ?? '' }, signal: AbortSignal.timeout(20000) });
+      if (!r.ok) return null;
+      const buf = Buffer.from(await r.arrayBuffer());
+      if (buf.length > 4.5 * 1024 * 1024) return null; // tope del modelo
+      const mime = String(p?.media?.mimetype ?? r.headers.get('content-type') ?? 'application/octet-stream').split(';')[0];
+      const nombre = String(p?.media?.filename ?? url.split('/').pop() ?? 'archivo');
+      return { base64: buf.toString('base64'), mime, nombre };
+    } catch { return null; }
+  }
+
   // ---- Entrada desde WAHA ----
   // WAHA le pega directo acá con su formato nativo. El sistema traduce, piensa
   // y despacha la respuesta por el mismo camino. Sin escalas: un salto menos es
@@ -1749,26 +1775,70 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     const esMedia = !texto && (!!p.hasMedia || ['ptt', 'audio', 'image', 'video', 'document', 'sticker'].includes(tipo));
     if (esMedia) {
       const waIdM = esLid ? desde : identidad;
-      const queEs = ['ptt', 'audio'].includes(tipo) ? 'un audio' : tipo === 'image' ? 'una foto' : tipo === 'video' ? 'un video' : 'un archivo';
-      await this.respondeRegistrar(waIdM, p._data?.notifyName ?? p.notifyName ?? null, `[el cliente mandó ${queEs}]`, null, p.id ? String(p.id) : undefined).catch(() => null);
-      // si atiende una persona, se calla; si no, pide que lo escriba (una sola vez)
+      const media = await this.bajarMediaWaha(p);
+      const esImagen = /^image\//.test(media?.mime ?? '') || tipo === 'image';
+      const esAudio = ['ptt', 'audio'].includes(tipo) || /^audio\//.test(media?.mime ?? '');
+
+      // FOTO: el bot la mira y contesta sobre lo que ve.
+      if (esImagen && media) {
+        if (await this.respondeModoHumano(waIdM).catch(() => false)) {
+          await this.respondeRegistrar(waIdM, p._data?.notifyName ?? p.notifyName ?? null, '[el cliente mandó una foto]', null, p.id ? String(p.id) : undefined).catch(() => null);
+          return { contestado: false, motivo: 'RESPONDE: atiende una persona' };
+        }
+        const r: any = await this.charla({
+          numeroLinea, telefono: identidad,
+          mensaje: String(p.caption ?? p._data?.caption ?? '').trim(),
+          archivoBase64: media.base64, mimeType: media.mime,
+          mensajeId: p.id ? String(p.id) : undefined,
+        });
+        if (!r?.respuesta) {
+          await this.respondeRegistrar(waIdM, p.notifyName ?? null, '[el cliente mandó una foto]', null, p.id ? String(p.id) : undefined).catch(() => null);
+          return { contestado: false, motivo: 'sin respuesta' };
+        }
+        await this.simularEscritura(desde, r.respuesta);
+        const env = await this.enviarPorWhatsapp({ to: desde, text: r.respuesta, referencia: `waha/${identidad}` });
+        this.respondeRegistrar(waIdM, p.notifyName ?? null, '[el cliente mandó una foto]', r.respuesta, p.id ? String(p.id) : undefined).catch(() => null);
+        return { contestado: env.enviado, motivo: 'foto mirada por el bot' };
+      }
+
+      // AUDIO u otro archivo: el bot no escucha, pero UNA PERSONA SÍ. Se guarda
+      // el archivo, se deja el enlace en la nota del equipo y se deriva, para
+      // que alguien lo abra y responda. Al cliente no se le dice "no puedo".
+      const queEs = esAudio ? 'un audio' : tipo === 'video' ? 'un video' : 'un archivo';
+      let enlace = '';
+      if (media) {
+        try {
+          const ext = (media.nombre.match(/\.[a-z0-9]{2,4}$/i)?.[0]) || (esAudio ? '.ogg' : '');
+          const ruta = `whatsapp/${identidad}/${Date.now()}${ext}`;
+          const { error } = await this.db.storage.from('publico').upload(ruta, Buffer.from(media.base64, 'base64'), { contentType: media.mime, upsert: true });
+          if (!error) enlace = this.db.storage.from('publico').getPublicUrl(ruta).data.publicUrl;
+        } catch { /* sin enlace: igual se avisa */ }
+      }
+      await this.respondeRegistrar(waIdM, p._data?.notifyName ?? p.notifyName ?? null, `[el cliente mandó ${queEs}]${enlace ? ` ${enlace}` : ''}`, null, p.id ? String(p.id) : undefined).catch(() => null);
       if (await this.respondeModoHumano(waIdM).catch(() => false)) return { contestado: false, motivo: 'RESPONDE: atiende una persona' };
+
+      await this.db.from('bot_notas_equipo').insert({ linea: 'pedidos', telefono: identidad, nota: `El cliente mandó ${queEs} por WhatsApp. Hay que escucharlo/abrirlo y responderle.${enlace ? ` Archivo: ${enlace}` : ''}` }).then(() => null, () => null);
+      const { data: cfg } = await this.db.from('lineas_whatsapp').select('avisar_proveedores_a').eq('linea', 'pedidos').eq('activa', true).limit(1).maybeSingle();
+      await this.db.from('alertas_internas').insert({ para_usuario: cfg?.avisar_proveedores_a ?? null, tipo: 'derivacion', titulo: `Mensaje de voz de +${identidad}`, detalle: `El cliente mandó ${queEs}. Escuchalo y respondele por WhatsApp.${enlace ? ` ${enlace}` : ''}`, referencia: { linea: 'pedidos', telefono: identidad, enlace } }).then(() => null, () => null);
+
       const { data: conv } = await this.db.from('bot_conversaciones').select('mensajes').eq('linea', 'pedidos').eq('telefono', identidad).maybeSingle();
       const hist: any[] = Array.isArray(conv?.mensajes) ? conv!.mensajes : [];
-      const yaPidio = hist.slice(-4).some((m) => m.role === 'assistant' && /no puedo escuchar|no puedo ver|me lo escribe/i.test(String(m.content)));
-      if (yaPidio) return { contestado: false, motivo: 'ya se le pidió que lo escriba' };
-      const aviso = ['ptt', 'audio'].includes(tipo)
-        ? 'Por este canal no puedo escuchar los audios. ¿Me lo escribe, por favor?'
-        : 'Por este canal no puedo ver las fotos ni los archivos. ¿Me lo escribe, por favor? Si es sobre un pedido, una persona del local lo ve por este mismo chat.';
+      const yaAviso = hist.slice(-4).some((m) => m.role === 'assistant' && /lo escucha|lo revisa|del local/i.test(String(m.content)));
       await this.db.from('bot_conversaciones').upsert({
         linea: 'pedidos', telefono: identidad,
-        mensajes: [...hist, { role: 'user', content: `[el cliente mandó ${queEs}]` }, { role: 'assistant', content: aviso }].slice(-40),
-        actualizado_en: new Date().toISOString(),
+        mensajes: [...hist, { role: 'user', content: `[el cliente mandó ${queEs}]` }, ...(yaAviso ? [] : [{ role: 'assistant', content: esAudio ? 'Recibí su audio. Lo escucha una persona del local y le responde por este mismo chat. Si prefiere, también puede escribirme lo que necesita y se lo resuelvo ahora.' : 'Recibí su archivo. Lo revisa una persona del local y le responde por este mismo chat. Si prefiere, escríbame lo que necesita y se lo resuelvo ahora.' }]),
+        ].slice(-40),
+        actualizado_en: new Date().toISOString(), bot_activo: false,
+        derivada_en: new Date().toISOString(), derivada_motivo: `El cliente mandó ${queEs}: hay que escucharlo/abrirlo`, resuelta_en: null,
       }, { onConflict: 'linea,telefono' }).then(() => null, () => null);
+      if (yaAviso) return { contestado: false, motivo: `${queEs}: ya avisado, derivado` };
+      const aviso = esAudio
+        ? 'Recibí su audio. Lo escucha una persona del local y le responde por este mismo chat. Si prefiere, también puede escribirme lo que necesita y se lo resuelvo ahora.'
+        : 'Recibí su archivo. Lo revisa una persona del local y le responde por este mismo chat. Si prefiere, escríbame lo que necesita y se lo resuelvo ahora.';
       await this.simularEscritura(desde, aviso);
       const env = await this.enviarPorWhatsapp({ to: desde, text: aviso, referencia: `waha/${identidad}` });
       this.respondeRegistrar(waIdM, p.notifyName ?? null, `[el cliente mandó ${queEs}]`, aviso, undefined).catch(() => null);
-      return { contestado: env.enviado, motivo: `${queEs}: se pidió que lo escriba` };
+      return { contestado: env.enviado, motivo: `${queEs}: derivado a una persona` };
     }
     if (!texto) return { ignorado: 'mensaje sin texto' };
 
