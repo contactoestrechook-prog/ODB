@@ -1771,14 +1771,27 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
   // Baja el archivo que mandó el cliente desde WAHA (foto, audio, documento).
   // WAHA lo publica en payload.media.url; hay que pedirlo con la API key.
   private async bajarMediaWaha(p: any): Promise<{ base64: string; mime: string; nombre: string } | null> {
-    const url = p?.media?.url ?? p?._data?.media?.url;
+    let url = p?.media?.url ?? p?._data?.media?.url;
+    this.log.log(`media url de WAHA: ${String(url ?? '').slice(0, 160)} · mime=${p?.media?.mimetype ?? '?'}`);
+    // WAHA arma el enlace con SU hostname (localhost:3000 si no tiene configurada
+    // la URL pública). Ese enlace no existe fuera de su contenedor: se reemplaza
+    // por la dirección real del servicio, que es la misma que usamos para enviar.
+    if (url && process.env.WAHA_URL) {
+      try {
+        const u = new URL(String(url));
+        if (/localhost|127\.0\.0\.1|0\.0\.0\.0/.test(u.hostname)) {
+          url = `${process.env.WAHA_URL.replace(/\/$/, '')}${u.pathname}${u.search}`;
+          this.log.log(`media url reescrita a ${String(url).slice(0, 120)}`);
+        }
+      } catch { /* se usa tal cual */ }
+    }
     if (!url) {
       // sin esto no hay forma de saber por qué no llegó el archivo
       this.log.warn(`WAHA no mandó el archivo. media=${JSON.stringify(p?.media ?? null)} · claves del payload: ${Object.keys(p ?? {}).join(',')}`);
       return null;
     }
     try {
-      const r = await fetch(String(url), { headers: { 'X-Api-Key': process.env.WAHA_API_KEY ?? '' }, signal: AbortSignal.timeout(20000) });
+      const r = await fetch(String(url), { headers: { 'X-Api-Key': process.env.WAHA_API_KEY ?? '' }, signal: AbortSignal.timeout(12000) });
       if (!r.ok) { this.log.warn(`no pude bajar el archivo de WAHA (${r.status}): ${String(url).slice(0, 120)}`); return null; }
       const buf = Buffer.from(await r.arrayBuffer());
       this.log.log(`archivo bajado de WAHA: ${buf.length} bytes · ${p?.media?.mimetype ?? '?'}`);
@@ -1786,7 +1799,10 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
       const mime = String(p?.media?.mimetype ?? r.headers.get('content-type') ?? 'application/octet-stream').split(';')[0];
       const nombre = String(p?.media?.filename ?? url.split('/').pop() ?? 'archivo');
       return { base64: buf.toString('base64'), mime, nombre };
-    } catch { return null; }
+    } catch (e: any) {
+      this.log.warn(`bajada del archivo falló: ${e?.name ?? ''} ${e?.message ?? e}`);
+      return null;
+    }
   }
 
   // ---- Entrada desde WAHA ----
