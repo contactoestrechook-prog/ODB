@@ -27,7 +27,7 @@ export function middleware(req: NextRequest) {
 }
 
 export const config = {
-  // webmanifest: el navegador lo pide (a veces sin cookies) para ofrecer
-  // instalar la app; si el middleware lo redirige a /login, no se puede instalar
-  matcher: ['/((?!_next|favicon.ico|api/|.*\\.(?:png|jpg|jpeg|svg|gif|webp|ico|webmanifest)$).*)'],
+  // webmanifest y sw.js: el navegador los pide SIN cookies para decidir si el
+  // sitio es instalable; si el middleware los manda a /login, no hay app.
+  matcher: ['/((?!_next|favicon.ico|sw.js|api/|.*\\.(?:png|jpg|jpeg|svg|gif|webp|ico|webmanifest)$).*)'],
 };
