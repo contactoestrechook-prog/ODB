@@ -1729,10 +1729,16 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
   }
 
   // Deja el turno escrito en RESPONDE (best-effort: si falla, el bot igual atendió)
-  async respondeRegistrar(whatsappId: string, nombre: string | null, textoCliente: string, textoBot: string | null, waMessageId?: string) {
+  async respondeRegistrar(
+    whatsappId: string, nombre: string | null, textoCliente: string, textoBot: string | null, waMessageId?: string,
+    media?: { tipo: 'image' | 'audio' | 'video' | 'document'; url: string } | null,
+  ) {
+    // con tipo + url, la app de RESPONDE dibuja la miniatura / el reproductor,
+    // igual que hace con los archivos de Car Cash
     await this.respondeRpc('odb_registrar_turno', {
       p_whatsapp_id: whatsappId, p_nombre: nombre ?? '', p_texto_cliente: textoCliente,
       p_texto_bot: textoBot ?? '', p_wa_message_id: waMessageId ?? null,
+      p_media_tipo: media?.tipo ?? null, p_media_url: media?.url ?? null,
     });
   }
 
@@ -1857,12 +1863,15 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
           if (!error) enlacePublico = this.db.storage.from('publico').getPublicUrl(ruta).data.publicUrl;
         } catch { /* sin enlace: el mensaje igual llega */ }
       }
-      const etiqueta = (queEsTexto: string) => `${queEsTexto}${enlacePublico ? `\n${enlacePublico}` : ''}`;
+      // el texto va limpio; el archivo viaja aparte como media (tipo + url)
+      const etiqueta = (queEsTexto: string) => queEsTexto;
+      const tipoMedia: 'image' | 'audio' | 'video' | 'document' = esImagen ? 'image' : esAudio ? 'audio' : tipo === 'video' || /^video\//.test(media?.mime ?? '') ? 'video' : 'document';
+      const mediaReg = enlacePublico ? { tipo: tipoMedia, url: enlacePublico } : null;
 
       // FOTO: el bot la mira y contesta sobre lo que ve.
       if (esImagen && media) {
         if (await this.respondeModoHumano(waIdM).catch(() => false)) {
-          await this.respondeRegistrar(waIdM, p._data?.notifyName ?? p.notifyName ?? null, etiqueta('📷 Foto del cliente'), null, p.id ? String(p.id) : undefined).catch(() => null);
+          await this.respondeRegistrar(waIdM, p._data?.notifyName ?? p.notifyName ?? null, etiqueta('📷 Foto del cliente'), null, p.id ? String(p.id) : undefined, mediaReg).catch(() => null);
           return { contestado: false, motivo: 'RESPONDE: atiende una persona' };
         }
         const r: any = await this.charla({
@@ -1872,12 +1881,12 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
           mensajeId: p.id ? String(p.id) : undefined,
         });
         if (!r?.respuesta) {
-          await this.respondeRegistrar(waIdM, p.notifyName ?? null, etiqueta('📷 Foto del cliente'), null, p.id ? String(p.id) : undefined).catch(() => null);
+          await this.respondeRegistrar(waIdM, p.notifyName ?? null, etiqueta('📷 Foto del cliente'), null, p.id ? String(p.id) : undefined, mediaReg).catch(() => null);
           return { contestado: false, motivo: 'sin respuesta' };
         }
         await this.simularEscritura(desde, r.respuesta);
         const env = await this.enviarPorWhatsapp({ to: desde, text: r.respuesta, referencia: `waha/${identidad}` });
-        this.respondeRegistrar(waIdM, p.notifyName ?? null, etiqueta(`📷 Foto del cliente${epigrafe ? `: ${epigrafe}` : ''}`), r.respuesta, p.id ? String(p.id) : undefined).catch(() => null);
+        this.respondeRegistrar(waIdM, p.notifyName ?? null, etiqueta(`📷 Foto del cliente${epigrafe ? `: ${epigrafe}` : ''}`), r.respuesta, p.id ? String(p.id) : undefined, mediaReg).catch(() => null);
         return { contestado: env.enviado, motivo: 'foto mirada por el bot' };
       }
 
@@ -1888,17 +1897,17 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
         if (dicho) {
           this.log.log(`audio transcripto de ${identidad}: "${dicho.slice(0, 80)}"`);
           if (await this.respondeModoHumano(waIdM).catch(() => false)) {
-            await this.respondeRegistrar(waIdM, p._data?.notifyName ?? p.notifyName ?? null, etiqueta(`🎙️ ${dicho}`), null, p.id ? String(p.id) : undefined).catch(() => null);
+            await this.respondeRegistrar(waIdM, p._data?.notifyName ?? p.notifyName ?? null, etiqueta(`🎙️ ${dicho}`), null, p.id ? String(p.id) : undefined, mediaReg).catch(() => null);
             return { contestado: false, motivo: 'RESPONDE: atiende una persona' };
           }
           const r: any = await this.charla({ numeroLinea, telefono: identidad, mensaje: dicho, mensajeId: p.id ? String(p.id) : undefined });
           if (!r?.respuesta) {
-            await this.respondeRegistrar(waIdM, p.notifyName ?? null, etiqueta(`🎙️ ${dicho}`), null, p.id ? String(p.id) : undefined).catch(() => null);
+            await this.respondeRegistrar(waIdM, p.notifyName ?? null, etiqueta(`🎙️ ${dicho}`), null, p.id ? String(p.id) : undefined, mediaReg).catch(() => null);
             return { contestado: false, motivo: r?.derivada ? 'derivada a una persona' : 'sin respuesta' };
           }
           await this.simularEscritura(desde, r.respuesta);
           const env = await this.enviarPorWhatsapp({ to: desde, text: r.respuesta, referencia: `waha/${identidad}` });
-          this.respondeRegistrar(waIdM, p.notifyName ?? null, etiqueta(`🎙️ ${dicho}`), r.respuesta, p.id ? String(p.id) : undefined).catch(() => null);
+          this.respondeRegistrar(waIdM, p.notifyName ?? null, etiqueta(`🎙️ ${dicho}`), r.respuesta, p.id ? String(p.id) : undefined, mediaReg).catch(() => null);
           return { contestado: env.enviado, motivo: 'audio escuchado y contestado' };
         }
       }
@@ -1910,7 +1919,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
       const queEs = esAudio ? 'un audio' : tipo === 'video' ? 'un video' : 'un archivo';
       const enlace = enlacePublico;
       const icono = esAudio ? '🎙️ Audio del cliente' : tipo === 'video' ? '🎬 Video del cliente' : `📄 ${media?.nombre || 'Archivo'} del cliente`;
-      await this.respondeRegistrar(waIdM, p._data?.notifyName ?? p.notifyName ?? null, etiqueta(icono), null, p.id ? String(p.id) : undefined).catch(() => null);
+      await this.respondeRegistrar(waIdM, p._data?.notifyName ?? p.notifyName ?? null, etiqueta(icono), null, p.id ? String(p.id) : undefined, mediaReg).catch(() => null);
       if (await this.respondeModoHumano(waIdM).catch(() => false)) return { contestado: false, motivo: 'RESPONDE: atiende una persona' };
 
       await this.db.from('bot_notas_equipo').insert({ linea: 'pedidos', telefono: identidad, nota: `El cliente mandó ${queEs} por WhatsApp. Hay que escucharlo/abrirlo y responderle.${enlace ? ` Archivo: ${enlace}` : ''}` }).then(() => null, () => null);
@@ -1936,7 +1945,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
         : 'Recibí su archivo. Tomo lo que mandó y doy aviso al sector correspondiente. Si prefiere, escríbame lo que necesita y se lo resuelvo ahora.';
       await this.simularEscritura(desde, aviso);
       const env = await this.enviarPorWhatsapp({ to: desde, text: aviso, referencia: `waha/${identidad}` });
-      this.respondeRegistrar(waIdM, p.notifyName ?? null, etiqueta(icono), aviso, undefined).catch(() => null);
+      this.respondeRegistrar(waIdM, p.notifyName ?? null, etiqueta(icono), aviso, undefined, mediaReg).catch(() => null);
       return { contestado: env.enviado, motivo: `${queEs}: derivado a una persona` };
     }
     if (!texto) return { ignorado: 'mensaje sin texto' };
