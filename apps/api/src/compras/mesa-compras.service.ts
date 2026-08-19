@@ -21,11 +21,27 @@ const IMAGENES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp'])
 // Una planilla del proveedor se convierte a texto tabulado: el modelo la lee
 // como una tabla y trabaja sobre las columnas que el comprador le indique.
 // Se recorta para no reventar el contexto con listas de miles de renglones.
+type PlanillaCargada = { nombre: string; hojas: { hoja: string; filas: any[][] }[] };
+
+// Deja la planilla parseada a mano para que el CÓDIGO la recorra. El modelo no
+// tiene que reescribir 400 renglones como JSON — eso era lento por diseño y
+// terminaba en "el analista tardó más de lo permitido".
+function planillaCargar(base64: string, nombre = 'planilla'): PlanillaCargada {
+  const libro = XLSX.read(Buffer.from(base64, 'base64'), { type: 'buffer' });
+  const hojas = libro.SheetNames.map((hoja) => ({
+    hoja,
+    filas: XLSX.utils.sheet_to_json(libro.Sheets[hoja], { header: 1, blankrows: false, defval: '' }) as any[][],
+  })).filter((h) => h.filas.length);
+  return { nombre, hojas };
+}
+
 function planillaATexto(base64: string, nombre = 'planilla'): string {
   const libro = XLSX.read(Buffer.from(base64, 'base64'), { type: 'buffer' });
   const partes: string[] = [];
   let filasTotales = 0;
-  const TOPE_FILAS = 400;
+  // muestra: alcanza para que entienda las columnas y las líneas de producto.
+  // El costeo de TODAS las filas lo hace costear_planilla, en código.
+  const TOPE_FILAS = 60;
   for (const hoja of libro.SheetNames) {
     const filas: any[][] = XLSX.utils.sheet_to_json(libro.Sheets[hoja], { header: 1, blankrows: false, defval: '' });
     if (!filas.length) continue;
@@ -37,7 +53,12 @@ function planillaATexto(base64: string, nombre = 'planilla'): string {
     );
   }
   if (!partes.length) return `[La planilla "${nombre}" no tiene datos legibles]`;
-  return `[Contenido de la planilla "${nombre}" · ${filasTotales} filas en total]\n` + partes.join('\n\n');
+  return (
+    `[Planilla "${nombre}" · ${filasTotales} filas en total. Abajo va una MUESTRA para que reconozcas las columnas y las líneas de producto.\n` +
+    `Para costearla NO copies los renglones: usá costear_planilla diciendo qué columna es la descripción, cuál el precio, y las reglas de descuento por línea. ` +
+    `El sistema recorre las ${filasTotales} filas solo.]\n` +
+    partes.join('\n\n')
+  );
 }
 
 const SYSTEM = `Sos el analista de compras de O.D.B Premium Market, un outlet de bebidas y almacén en Canning. Trabajás con el comprador de la casa mientras negocia con proveedores.
@@ -111,6 +132,41 @@ const HERRAMIENTAS: Anthropic.Tool[] = [
         },
       },
       required: ['ofertas'],
+    },
+  },
+  {
+    name: 'costear_planilla',
+    description:
+      'Costea TODOS los renglones de la planilla que adjuntó el comprador, de una sola vez. Es LA herramienta para planillas: vos NO copiás los renglones, solo decís qué columna es cuál y qué reglas de descuento aplican por línea de producto; el sistema recorre todas las filas y devuelve el resumen. Usala siempre que haya una planilla adjunta, aunque tenga cientos de filas.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        columnaDescripcion: { type: 'string', description: 'Nombre o letra de la columna con el nombre del producto (ej: "Descripcion", "B"). Si no sabés, poné el título tal como aparece en la planilla.' },
+        columnaPrecio: { type: 'string', description: 'Nombre o letra de la columna con el precio a usar como base (ej: "base unitario", "C").' },
+        columnaUnidades: { type: 'string', description: 'Columna con las unidades por bulto, si existe. Vacío si la planilla es por unidad.' },
+        hoja: { type: 'string', description: 'Nombre de la hoja. Vacío = la primera.' },
+        filaEncabezado: { type: 'number', description: 'Número de fila (1 = la primera) donde están los títulos de las columnas. Si no lo decís, se busca solo.' },
+        reglas: {
+          type: 'array',
+          description: 'Descuentos por línea de producto. Cada regla se aplica a los renglones cuya descripción contenga alguno de los textos de "lineas". Se evalúan en orden: la primera que coincide manda.',
+          items: {
+            type: 'object',
+            properties: {
+              lineas: { type: 'array', items: { type: 'string' }, description: 'Textos que identifican la línea (ej: ["portillo","killka","salentein reserve","espumante"]).' },
+              excluye: { type: 'array', items: { type: 'string' }, description: 'Textos que EXCLUYEN un renglón de esta regla (ej: ["cofermentado"]).' },
+              descuentosPct: { type: 'array', items: { type: 'number' }, description: 'Descuentos en cascada para esa línea (ej: [45]).' },
+            },
+            required: ['lineas', 'descuentosPct'],
+          },
+        },
+        descuentoPorDefectoPct: { type: 'array', items: { type: 'number' }, description: 'Descuentos para los renglones que no caen en ninguna regla (ej: [50]).' },
+        ajusteListaPct: { type: 'number', description: 'Aumento o baja de lista ANTES de los descuentos (+29 = subió 29%). 0 si no hay.' },
+        impuestosPct: { type: 'number', description: 'Impuestos que se SUMAN al final, sobre el neto (ej: 29).' },
+        plazoDias: { type: 'number', description: 'Plazo de pago en días. 0 = contado.' },
+        tasaMensualPct: { type: 'number', description: 'Tasa mensual para valuar el plazo. 5 si el comprador no la dice.' },
+        flete: { type: 'number', description: 'Flete TOTAL de la compra, si lo hay.' },
+      },
+      required: ['columnaPrecio', 'reglas'],
     },
   },
   {
@@ -323,8 +379,130 @@ export class MesaComprasService {
     };
   }
 
-  private async ejecutar(nombre: string, input: any, usuarioId?: string): Promise<unknown> {
+  // Costea TODA la planilla en código. El modelo solo dijo qué columna es cuál y
+  // qué descuento va por línea; acá se recorren las filas, se aplica la regla que
+  // coincide y se llama al mismo cálculo de siempre. 400 filas tardan milisegundos.
+  private costearPlanilla(input: any, planilla: PlanillaCargada | null) {
+    if (!planilla?.hojas?.length) {
+      return { error: 'No hay ninguna planilla adjunta en esta conversación. Pedile al comprador que la vuelva a adjuntar.' };
+    }
+    const hoja = input.hoja
+      ? planilla.hojas.find((h) => h.hoja.toLowerCase().includes(String(input.hoja).toLowerCase())) ?? planilla.hojas[0]
+      : planilla.hojas[0];
+    const filas = hoja.filas;
+    const norm = (v: any) => String(v ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+
+    // fila de títulos: la que dijo el modelo, o la primera que tenga la columna de precio
+    const buscaCol = (titulos: any[], quien: string): number => {
+      const q = norm(quien);
+      if (!q) return -1;
+      // por letra de Excel (A, B, C…)
+      if (/^[a-z]{1,2}$/.test(q)) {
+        let n = 0;
+        for (const c of q) n = n * 26 + (c.charCodeAt(0) - 96);
+        return n - 1;
+      }
+      let i = titulos.findIndex((t) => norm(t) === q);
+      if (i < 0) i = titulos.findIndex((t) => norm(t).includes(q) || q.includes(norm(t)) && norm(t).length > 3);
+      return i;
+    };
+    let iEnc = Number(input.filaEncabezado) > 0 ? Number(input.filaEncabezado) - 1 : -1;
+    if (iEnc < 0) {
+      for (let i = 0; i < Math.min(filas.length, 25); i++) {
+        if (buscaCol(filas[i], String(input.columnaPrecio ?? '')) >= 0) { iEnc = i; break; }
+      }
+    }
+    if (iEnc < 0 || !filas[iEnc]) {
+      return { error: `No encontré la columna "${input.columnaPrecio}" en la hoja "${hoja.hoja}". Decile al comprador cómo se llama exactamente, o pasá la letra de la columna.` };
+    }
+    const titulos = filas[iEnc];
+    const cPrecio = buscaCol(titulos, String(input.columnaPrecio ?? ''));
+    const cDesc = buscaCol(titulos, String(input.columnaDescripcion ?? ''));
+    const cUnid = buscaCol(titulos, String(input.columnaUnidades ?? ''));
+    if (cPrecio < 0) return { error: `No encontré la columna de precio "${input.columnaPrecio}". Columnas disponibles: ${titulos.map((t: any) => String(t)).filter(Boolean).join(' | ')}` };
+
+    const reglas: any[] = Array.isArray(input.reglas) ? input.reglas : [];
+    const porDefecto: number[] = Array.isArray(input.descuentoPorDefectoPct) ? input.descuentoPorDefectoPct.map(Number) : [];
+    const impuestosPct = Number(input.impuestosPct) || 0;
+
+    const renglones: any[] = [];
+    const saltados: string[] = [];
+    for (let i = iEnc + 1; i < filas.length; i++) {
+      const f = filas[i];
+      if (!f) continue;
+      const desc = String(cDesc >= 0 ? f[cDesc] ?? '' : f.find((c: any) => String(c ?? '').trim().length > 3) ?? '').trim();
+      const bruto = String(f[cPrecio] ?? '').replace(/\$/g, '').replace(/\s/g, '');
+      // "1.234,56" (es-AR) y "1234.56" (plano)
+      const precio = Number(/,/.test(bruto) ? bruto.replace(/\./g, '').replace(',', '.') : bruto);
+      if (!desc && !(precio > 0)) continue;
+      if (!(precio > 0)) { if (desc) saltados.push(desc); continue; }
+      const nd = norm(desc);
+      const regla = reglas.find((r) => {
+        const pega = (r.lineas ?? []).some((l: string) => nd.includes(norm(l)));
+        const excluido = (r.excluye ?? []).some((x: string) => nd.includes(norm(x)));
+        return pega && !excluido;
+      });
+      const descuentos = regla ? (regla.descuentosPct ?? []).map(Number) : porDefecto;
+      try {
+        const c = calcularCosto({
+          descripcion: desc || `fila ${i + 1}`,
+          unidadesPorBulto: cUnid >= 0 ? Number(f[cUnid]) || 1 : 1,
+          bultos: 1,
+          precioBulto: precio,
+          ajusteListaPct: Number(input.ajusteListaPct) || 0,
+          descuentosPct: descuentos,
+          impuestosInternosPct: impuestosPct,
+          plazoDias: Number(input.plazoDias) || 0,
+          tasaMensualPct: Number(input.tasaMensualPct) || 0,
+          flete: 0,
+        });
+        renglones.push({
+          descripcion: desc || `fila ${i + 1}`,
+          precioLista: precio,
+          descuentoAplicado: descuentos.length ? descuentos.join('% + ') + '%' : 'sin descuento',
+          linea: regla ? (regla.lineas ?? [])[0] : 'resto',
+          costoUnitario: c.costoUnitarioReal,
+          costoContado: c.costoUnitarioContado,
+        });
+      } catch (e) {
+        saltados.push(`${desc || 'fila ' + (i + 1)}: ${e instanceof Error ? e.message : 'no se pudo costear'}`);
+      }
+    }
+    const flete = Number(input.flete) || 0;
+    if (flete > 0 && renglones.length) {
+      const porRenglon = flete / renglones.length;
+      for (const r of renglones) if (r.costoUnitario != null) {
+        r.costoUnitario = Math.round((r.costoUnitario + porRenglon) * 100) / 100;
+        r.costoContado = Math.round((r.costoContado + porRenglon) * 100) / 100;
+      }
+    }
+    // resumen por línea: es lo que el comprador quiere ver, y evita que el modelo
+    // tenga que recorrer los 400 renglones para sacar conclusiones
+    const porLinea: Record<string, { renglones: number; costoMin: number; costoMax: number; descuento: string }> = {};
+    for (const r of renglones) {
+      const k = r.linea || 'resto';
+      const p = (porLinea[k] ??= { renglones: 0, costoMin: Infinity, costoMax: 0, descuento: r.descuentoAplicado });
+      p.renglones++;
+      if (r.costoUnitario != null) { p.costoMin = Math.min(p.costoMin, r.costoUnitario); p.costoMax = Math.max(p.costoMax, r.costoUnitario); }
+    }
+    for (const k of Object.keys(porLinea)) if (!isFinite(porLinea[k].costoMin)) porLinea[k].costoMin = 0;
+
+    return {
+      hoja: hoja.hoja,
+      resumenPorLinea: porLinea,
+      columnas: { descripcion: cDesc >= 0 ? titulos[cDesc] : '(la primera con texto)', precio: titulos[cPrecio], unidades: cUnid >= 0 ? titulos[cUnid] : '(por unidad)' },
+      costeados: renglones.length,
+      saltados: saltados.length,
+      detalleSaltados: saltados.slice(0, 10),
+      renglones,
+      aclaracion: `Se costearon ${renglones.length} renglones con las reglas dadas. Estos números los calculó el sistema: informalos tal cual. Mostrale al comprador un resumen por línea (cuántos renglones y el rango de costo), no la lista entera, salvo que la pida.`,
+    };
+  }
+
+  private async ejecutar(nombre: string, input: any, usuarioId?: string, planilla?: PlanillaCargada | null): Promise<unknown> {
     switch (nombre) {
+      case 'costear_planilla':
+        return this.costearPlanilla(input, planilla ?? null);
       case 'calcular_costo':
         return calcularCosto(this.ofertaDesdeInput(input));
       case 'calcular_costos_en_tanda': {
@@ -364,6 +542,15 @@ export class MesaComprasService {
     }
 
     const claude = new Anthropic();
+    // la última planilla adjunta queda parseada para costear_planilla
+    let planilla: PlanillaCargada | null = null;
+    for (const m of mensajes) {
+      const nom = m.nombreArchivo ?? '';
+      const mim = (m.mimeType ?? '').toLowerCase();
+      if (m.imagenBase64 && (/spreadsheet|excel|csv|ms-excel/.test(mim) || /\.(xlsx?|xlsm|csv)$/i.test(nom))) {
+        try { planilla = planillaCargar(m.imagenBase64, nom || 'planilla'); } catch { /* el texto igual va al modelo */ }
+      }
+    }
     const historial: Anthropic.MessageParam[] = mensajes.slice(-16).map((m) => {
       const bloques: Anthropic.ContentBlockParam[] = [];
       if (m.imagenBase64) {
@@ -446,7 +633,7 @@ export class MesaComprasService {
         usados.push(p.name);
         this.log.log(`herramienta ${p.name}`);
         try {
-          const out = await this.ejecutar(p.name, p.input as any, usuarioId);
+          const out = await this.ejecutar(p.name, p.input as any, usuarioId, planilla);
           resultados.push({ type: 'tool_result', tool_use_id: p.id, content: JSON.stringify(out) });
         } catch (e) {
           resultados.push({
