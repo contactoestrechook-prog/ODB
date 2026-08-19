@@ -36,7 +36,15 @@ export function landingDe(rol?: string | null): string {
   return (rol && LANDING_POR_ROL[rol]) || '/inicio';
 }
 
+// Rutas reservadas a un rol puntual, se tenga o no menú restringido.
+// RESPONDE (el monitor del bot de WhatsApp) es de los dueños: ahí están las
+// conversaciones completas de los clientes.
+const RUTAS_SOLO_DUENO = ['/whatsapp', '/responde'];
+
 export function puedeVer(rol: string | null | undefined, pathname: string): boolean {
+  if (RUTAS_SOLO_DUENO.some((r) => pathname === r || pathname.startsWith(r + '/'))) {
+    return rol === 'dueno';
+  }
   const permitidas = rutasPermitidas(rol);
   if (!permitidas) return true;
   return permitidas.some((r) => pathname === r || pathname.startsWith(r + '/'));

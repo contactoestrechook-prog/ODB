@@ -21,7 +21,7 @@ import { BotService } from './bot.service';
 
 const LINEA = 'pedidos';
 
-@Roles('cajero', 'gerente', 'dueno')
+@Roles('dueno')
 @Controller('responde-app')
 export class RespondeAppController {
   constructor(
@@ -100,7 +100,11 @@ export class RespondeAppController {
   @Post()
   async accion(@Body() b: any, @Req() req: any) {
     const usuarioId = req.usuario?.sub;
-    const tel = String(b?.contact_id ?? '').replace(/\D/g, '');
+    // La app embebida manda el whatsapp_id del contacto (los @lid van ENTEROS:
+    // triturarlos a dígitos rompe el envío). Si no viene, se cae al contrato
+    // viejo, donde contact_id era el teléfono.
+    const crudo = String(b?.whatsapp_id ?? b?.contact_id ?? '');
+    const tel = crudo.includes('@') ? crudo : crudo.replace(/\D/g, '');
     switch (b?.accion) {
       case 'enviar': {
         if (!tel) throw new BadRequestException('Falta el contacto');

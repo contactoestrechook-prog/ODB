@@ -3,7 +3,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
-<title>RESPONDE · O.D.B</title>
+<title>RESPONDE · MetoGroup</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&family=Inter+Tight:ital,wght@0,300..800;1,300..800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -285,6 +285,10 @@
   .ana-falta:before { content: '·'; position: absolute; left: 2px; }
   .ana-fecha { font-size: 10.5px; color: var(--gray3); margin-top: 8px; }
   #anaBtn { margin-top: 8px; }
+/* MODO EMBEBIDO (dentro de la app de VERKO): se oculta el chrome propio del panel
+   —header con marca/selector de tenant/salir, y las stats— para que se vea integrado. */
+body.embed > header, body.embed > #stats, body.embed #ovLogin { display: none !important; }
+body.embed > main { height: 100vh; }
 </style></head>
 <body>
 
@@ -406,16 +410,23 @@
 </div>
 
 <script>
-const API = '/api/responde-panel';
-// --- auth: token de sesión (login) o key legacy por URL ---
-const KEY = new URLSearchParams(location.search).get('key') || '';
-let TOKEN = localStorage.getItem('panelToken') || '';
+const API = 'https://smcghyecpzzimadtuern.supabase.co/functions/v1/panel-responde';
+// --- auth: token de sesión (login), key legacy por URL, o EMBED por token de URL ---
+const _qs = new URLSearchParams(location.search);
+const KEY = _qs.get('key') || '';
+// EMBED: el panel se muestra dentro de otra app (p. ej. VERKO) con un token de tenant
+// pasado por URL. Se oculta el chrome propio y no se muestra el login.
+const EMBED = _qs.get('embed') === '1';
+const URL_TOKEN = _qs.get('token') || '';
+let TOKEN = URL_TOKEN || localStorage.getItem('panelToken') || '';
+if (URL_TOKEN && !EMBED) localStorage.setItem('panelToken', URL_TOKEN);
+if (EMBED) document.body.classList.add('embed');
 let TENANT_SEL = localStorage.getItem('tenantSel') || 'all';
 let tenantsPintados = false;
 function authQS() { return KEY ? ('key=' + encodeURIComponent(KEY)) : ('token=' + encodeURIComponent(TOKEN)); }
-function mostrarLogin() { document.getElementById('ovLogin').classList.add('on'); }
+function mostrarLogin() { if (EMBED) return; document.getElementById('ovLogin').classList.add('on'); }
 function ocultarLogin() { document.getElementById('ovLogin').classList.remove('on'); }
-if (!KEY && !TOKEN) { TOKEN = 'odb'; localStorage.setItem('panelToken', TOKEN); }
+if (!KEY && !TOKEN) mostrarLogin();
 async function hacerLogin() {
   const email = document.getElementById('loginEmail').value.trim();
   const pass = document.getElementById('loginPass').value;
@@ -441,11 +452,10 @@ async function hacerLogin() {
 }
 document.getElementById('loginBtn').onclick = hacerLogin;
 document.getElementById('loginPass').addEventListener('keydown', e => { if (e.key === 'Enter') hacerLogin(); });
-if (KEY) document.getElementById('btnSalir').style.display = 'none';
 document.getElementById('btnSalir').onclick = async () => {
   if (TOKEN) { try { await fetch(API + '?' + authQS(), {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify({accion: 'logout', token: TOKEN})}); } catch(e) {} }
   localStorage.removeItem('panelToken'); TOKEN = '';
-  location.href = '/api/salir';
+  if (!KEY) { sel = null; datos = {contacts: [], messages: []}; mostrarLogin(); }
 };
 document.getElementById('selTenant').addEventListener('change', e => {
   TENANT_SEL = e.target.value;
@@ -718,6 +728,21 @@ for (const ch of document.querySelectorAll('.chip')) {
 }
 document.getElementById('inputBuscar').addEventListener('input', e => { busca = e.target.value; render(); });
 
+// —— Envío para O.D.B: sale por el WhatsApp propio (WAHA vía el panel de ODB),
+// no por Meta. El resto de la app queda intacto: lee y opera contra RESPONDE.
+function _contactoSel() { try { return (datos.contacts || []).find(x => x.id === sel) || null; } catch (e) { return null; } }
+async function _enviarPorODB(body) {
+  const c = _contactoSel();
+  const r = await fetch('/api/responde-panel', { method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ ...body, whatsapp_id: (c && c.whatsapp_id) || '' }) });
+  const j = await r.json().catch(() => ({ ok: false, error: 'respuesta inválida' }));
+  if (j && j.ok) {
+    // igual que el envío nativo: la charla pasa a "atendés vos"
+    try { await fetch(API + '?' + authQS(), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ accion: 'bot', contact_id: sel, activar: false }) }); } catch (e) {}
+  }
+  return j;
+}
+
 async function enviar() {
   const inp = document.getElementById('inputMsg');
   const texto = inp.value.trim();
@@ -727,11 +752,7 @@ async function enviar() {
   const btn = document.getElementById('btnEnviar');
   btn.disabled = true;
   try {
-    const r = await fetch(API + '?' + authQS(), {
-      method: 'POST', headers: {'content-type': 'application/json'},
-      body: JSON.stringify({accion: 'enviar', contact_id: sel, texto})
-    });
-    const j = await r.json();
+    const j = await _enviarPorODB({ accion: 'enviar', contact_id: sel, texto });
     if (j.ok) { inp.value = ''; await refrescar(); const m = document.getElementById('msgs'); m.scrollTop = m.scrollHeight; }
     else alert('No se pudo enviar: ' + (j.error || 'error'));
   } catch(e) { alert('Error de conexión'); }
@@ -779,9 +800,7 @@ async function enviarAdjunto(caption) {
       fr.onerror = rej;
       fr.readAsDataURL(adjFile);
     });
-    const r = await fetch(API + '?' + authQS(), { method: 'POST', headers: {'content-type': 'application/json'},
-      body: JSON.stringify({ accion: 'enviar_media', contact_id: sel, filename: adjFile.name, mime: adjFile.type || 'application/octet-stream', data_b64: b64, caption }) });
-    const j = await r.json();
+    const j = await _enviarPorODB({ accion: 'enviar_media', contact_id: sel, filename: adjFile.name, mime: adjFile.type || 'application/octet-stream', data_b64: b64, caption });
     if (j.ok) { document.getElementById('inputMsg').value = ''; quitarAdj(); await refrescar(); const mm = document.getElementById('msgs'); mm.scrollTop = mm.scrollHeight; }
     else { alert('No se pudo enviar: ' + (j.error || 'error')); info.textContent = nombreOrig; }
   } catch (e) { alert('Error de conexión'); info.textContent = nombreOrig; }
@@ -803,7 +822,7 @@ async function refrescar() {
   try {
     const tq = (TENANT_SEL && TENANT_SEL !== 'all') ? ('&tenant_id=' + encodeURIComponent(TENANT_SEL)) : '';
     const r = await fetch(API + '?' + authQS() + '&data=1' + tq, {cache: 'no-store'});
-    if (r.status === 401) { document.getElementById('estadoTxt').textContent = 'sesión vencida'; location.href = '/login'; return; }
+    if (r.status === 401) { localStorage.removeItem('panelToken'); TOKEN = ''; document.getElementById('estadoTxt').textContent = 'sesión vencida'; if (!KEY) mostrarLogin(); return; }
     if (!r.ok) throw new Error(r.status);
     datos = await r.json();
     if (datos.rol === 'admin' && Array.isArray(datos.tenants) && !tenantsPintados) {

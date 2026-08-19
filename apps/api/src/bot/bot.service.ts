@@ -2183,6 +2183,9 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     );
 
     const envio = await this.enviarPorWhatsapp({ to: telefono, text: mensaje, referencia: `${linea}/${telefono}` });
+    // el mensaje de la persona queda también en el hilo de RESPONDE, así la
+    // burbuja aparece en la app apenas refresca
+    this.respondeRegistrar(telefono, null, '', mensaje).catch(() => null);
     return { ok: true, ...envio };
   }
 

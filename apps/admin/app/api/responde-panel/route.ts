@@ -7,9 +7,14 @@ import { cookies } from 'next/headers';
 // contrato GET ?data=1 / POST {accion}; el adaptador del API se lo da.
 const API = process.env.API_URL ?? 'http://localhost:3001';
 
+import { datosDesdeToken } from '../../lib/permisos';
+
 async function auth(): Promise<Record<string, string> | null> {
   const token = (await cookies()).get('odb_token')?.value;
-  return token ? { Authorization: `Bearer ${token}` } : null;
+  if (!token) return null;
+  // RESPONDE es de los dueños. El API verifica la firma; esto corta antes.
+  if (datosDesdeToken(token).rol !== 'dueno') return null;
+  return { Authorization: `Bearer ${token}` };
 }
 
 export async function GET(req: Request) {
