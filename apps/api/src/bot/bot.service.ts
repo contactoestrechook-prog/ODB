@@ -1728,6 +1728,38 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     });
   }
 
+  // Transcribe una nota de voz. Usa la API de transcripción estándar (la misma
+  // forma en OpenAI y en Groq), así el dueño elige proveedor sin tocar código:
+  //   TRANSCRIPCION_KEY   — la clave (lo único obligatorio)
+  //   TRANSCRIPCION_URL   — por defecto OpenAI; para Groq:
+  //                         https://api.groq.com/openai/v1/audio/transcriptions
+  //   TRANSCRIPCION_MODELO— por defecto whisper-1 (Groq: whisper-large-v3-turbo)
+  // Si no hay clave, devuelve null y el audio se deriva a una persona como antes.
+  async transcribirAudio(base64: string, mime: string): Promise<string | null> {
+    const key = process.env.TRANSCRIPCION_KEY;
+    if (!key) return null;
+    const url = process.env.TRANSCRIPCION_URL || 'https://api.openai.com/v1/audio/transcriptions';
+    const modelo = process.env.TRANSCRIPCION_MODELO || 'whisper-1';
+    try {
+      const bin = Buffer.from(base64, 'base64');
+      const ext = /ogg/.test(mime) ? 'ogg' : /mpeg|mp3/.test(mime) ? 'mp3' : /wav/.test(mime) ? 'wav' : /mp4|m4a/.test(mime) ? 'm4a' : 'ogg';
+      const fd = new FormData();
+      fd.append('file', new Blob([new Uint8Array(bin)], { type: mime || 'audio/ogg' }), `audio.${ext}`);
+      fd.append('model', modelo);
+      fd.append('language', 'es');
+      // el vocabulario del negocio ayuda mucho con marcas y medidas
+      fd.append('prompt', 'Pedido de bebidas en Argentina: fernet, Branca, Quilmes, Coca Cola, Sprite, Aquarius, Malbec, espumante, cajón, botella, litro, docena, Canning, Sant Thomas, Santa Inés.');
+      const r = await fetch(url, { method: 'POST', headers: { Authorization: `Bearer ${key}` }, body: fd, signal: AbortSignal.timeout(45000) });
+      if (!r.ok) { this.log.warn(`transcripción falló (${r.status}): ${(await r.text().catch(() => '')).slice(0, 160)}`); return null; }
+      const j: any = await r.json();
+      const texto = String(j?.text ?? '').trim();
+      return texto || null;
+    } catch (e: any) {
+      this.log.warn(`transcripción falló: ${e?.message ?? e}`);
+      return null;
+    }
+  }
+
   // Baja el archivo que mandó el cliente desde WAHA (foto, audio, documento).
   // WAHA lo publica en payload.media.url; hay que pedirlo con la API key.
   private async bajarMediaWaha(p: any): Promise<{ base64: string; mime: string; nombre: string } | null> {
@@ -1801,7 +1833,30 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
         return { contestado: env.enviado, motivo: 'foto mirada por el bot' };
       }
 
-      // AUDIO u otro archivo: el bot no escucha, pero UNA PERSONA SÍ. Se guarda
+      // AUDIO: si hay transcripción configurada, se escucha y se atiende como
+      // cualquier mensaje. El cliente ni se entera de que era un audio.
+      if (esAudio && media) {
+        const dicho = await this.transcribirAudio(media.base64, media.mime);
+        if (dicho) {
+          this.log.log(`audio transcripto de ${identidad}: "${dicho.slice(0, 80)}"`);
+          if (await this.respondeModoHumano(waIdM).catch(() => false)) {
+            await this.respondeRegistrar(waIdM, p._data?.notifyName ?? p.notifyName ?? null, `🎙️ ${dicho}`, null, p.id ? String(p.id) : undefined).catch(() => null);
+            return { contestado: false, motivo: 'RESPONDE: atiende una persona' };
+          }
+          const r: any = await this.charla({ numeroLinea, telefono: identidad, mensaje: dicho, mensajeId: p.id ? String(p.id) : undefined });
+          if (!r?.respuesta) {
+            await this.respondeRegistrar(waIdM, p.notifyName ?? null, `🎙️ ${dicho}`, null, p.id ? String(p.id) : undefined).catch(() => null);
+            return { contestado: false, motivo: r?.derivada ? 'derivada a una persona' : 'sin respuesta' };
+          }
+          await this.simularEscritura(desde, r.respuesta);
+          const env = await this.enviarPorWhatsapp({ to: desde, text: r.respuesta, referencia: `waha/${identidad}` });
+          this.respondeRegistrar(waIdM, p.notifyName ?? null, `🎙️ ${dicho}`, r.respuesta, p.id ? String(p.id) : undefined).catch(() => null);
+          return { contestado: env.enviado, motivo: 'audio escuchado y contestado' };
+        }
+      }
+
+      // AUDIO sin transcripción, o cualquier otro archivo: el bot no lo abre,
+      // pero UNA PERSONA SÍ. Se guarda
       // el archivo, se deja el enlace en la nota del equipo y se deriva, para
       // que alguien lo abra y responda. Al cliente no se le dice "no puedo".
       const queEs = esAudio ? 'un audio' : tipo === 'video' ? 'un video' : 'un archivo';
