@@ -86,7 +86,7 @@ export class BotService {
     if (this.superaLimite(telefono)) {
       return {
         respuesta:
-          'Recibimos muchos mensajes suyos en la última hora; para atenderlo bien, sigue una persona del local por este mismo chat. Gracias por la paciencia.',
+          'Recibimos muchos mensajes suyos en la última hora. Tomo su consulta y doy aviso al sector correspondiente. Gracias por la paciencia.',
       };
     }
 
@@ -127,7 +127,7 @@ export class BotService {
         const { data: conv } = await this.db.from('bot_conversaciones').select('mensajes, acuse_caida_en').eq('linea', linea).eq('telefono', telefono).maybeSingle();
         const hist: any[] = Array.isArray(conv?.mensajes) ? conv!.mensajes : [];
         const acusoHace = conv?.acuse_caida_en ? Date.now() - new Date(conv.acuse_caida_en).getTime() : Infinity;
-        if (acusoHace > 30 * 60_000) respuesta = 'Recibí su mensaje. En este momento no lo puedo procesar automáticamente; una persona del local lo ve y le responde por este mismo chat.';
+        if (acusoHace > 30 * 60_000) respuesta = 'Recibí su mensaje. En este momento no lo puedo procesar automáticamente: tomo su consulta y doy aviso al sector correspondiente.';
         await this.db.from('bot_conversaciones').upsert({
           linea, telefono,
           mensajes: [...hist, ...(texto ? [{ role: 'user', content: texto }] : []), ...(respuesta ? [{ role: 'assistant', content: respuesta }] : [])].slice(-40),
@@ -194,7 +194,7 @@ export class BotService {
         imagenDelTurno = { base64: dto.archivoBase64, mime: (dto.mimeType ?? 'image/jpeg').split(';')[0] };
         if (!texto) texto = '[el cliente mandó esta foto]';
       } else {
-        texto += '\n[El cliente envió un archivo que no es una imagen. Decile que lo mira una persona del local, sin prometer plazos.]';
+        texto += '\n[El cliente envió un archivo que no es una imagen. Decile que tomás lo que mandó y que das aviso al sector correspondiente, sin prometer plazos ni quién responde.]';
       }
     }
     if (!texto) throw new BadRequestException('Mensaje vacío');
@@ -265,7 +265,7 @@ export class BotService {
             const prev = hist.slice(-8).map((m) => `${m.role === 'user' ? 'CLIENTE' : 'BOT'}: ${m.content}`).join('\n');
             const r = await this.claude.messages.create({
               model: MODELO_BOT, max_tokens: 450,
-              system: `Sos el asistente automático de O.D.B Premium Market (Canning). Esta conversación está EN MANOS DE UNA PERSONA DEL LOCAL, que responde por este mismo chat${conv?.derivada_motivo ? ` (motivo de la derivación: ${conv.derivada_motivo})` : ''}; vos solo acusás recibo y contestás datos duros. Tratás de usted, sobrio, respetuoso, sin emojis, sin apodos, sin exclamaciones.
+              system: `Sos el asistente automático de O.D.B Premium Market (Canning). Esta conversación YA está avisada al sector correspondiente${conv?.derivada_motivo ? ` (motivo de la derivación: ${conv.derivada_motivo})` : ''}; vos solo acusás recibo y contestás datos duros. Tratás de usted, sobrio, respetuoso, sin emojis, sin apodos, sin exclamaciones.
 DATOS DUROS que sí podés afirmar: ${datosHoy || 'horarios no disponibles ahora: no los inventes'}. Pagos, transferencias, devoluciones y facturas: los atiende el 11 2521-3601 por WhatsApp (si el cliente ya dice que escribió ahí y no le contestaron, NO repitas el número como si fuera nuevo: decí que se lo trasladás a la persona del local y que no podés darle un plazo).
 ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver a "trasladarlo"; podés decirle al cliente que eso ya está asentado, reformulándolo): ${yaRegistrado}\n` : ''}REGLAS: máximo 3 líneas. (1) Primera línea = respuesta concreta a LO ÚLTIMO que escribió: si pregunta si sos un bot/persona → "Soy el asistente automático de O.D.B."; si propone algo (reposición, descuento, horario de entrega) → reformulá su propuesta con sus palabras ("su propuesta queda clara: las dos botellas hoy sin cargo") y decí que la evalúa la persona del local, sin confirmarla vos; si pregunta horario/dirección → contestá con los datos duros (si pregunta por MAÑANA, dá el horario habitual, no "abierto ahora"); si es un reclamo → una disculpa breve y sobria ("lamento el inconveniente") la primera vez, y contenelo sin prometer plazos, reintegros ni reposiciones. (2) "Una persona del local le responde por acá" se dice UNA sola vez en toda la derivación (mirá el historial): si ya lo dijiste, no lo repitas; decí algo nuevo o más corto. NO repitas textualmente ninguna oración que ya hayas dicho. NO digas "queda anotado", "en breve", "ya lo estamos viendo", "se lo traslado" (si ya está registrado, está registrado). Si el tema es de plata y el cliente ya escribió al 11 2521-3601 sin respuesta, no le repitas el número: decile que eso quedó registrado para el local y que no podés darle plazo. No inventes nombres de personas ni datos que no estén acá.`,
               messages: [{ role: 'user', content: `HISTORIAL RECIENTE:\n${prev}\n\nÚLTIMO MENSAJE DEL CLIENTE: ${texto}` }],
@@ -275,7 +275,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
             const ultimoBot = [...hist].reverse().find((m) => m.role === 'assistant')?.content ?? '';
             if (respuesta && ultimoBot && respuesta.toLowerCase().replace(/\s+/g, ' ') === ultimoBot.toLowerCase().replace(/\s+/g, ' ')) respuesta = null;
           } catch {
-            respuesta = yaAcuso ? null : 'Su mensaje quedó registrado y lo está viendo una persona del local, que le responde por este mismo chat.';
+            respuesta = yaAcuso ? null : 'Tomo su mensaje y doy aviso al sector correspondiente.';
           }
           // TODO lo que dice el cliente en derivación queda como nota para quien atiende
           await this.db.from('bot_notas_equipo').insert({ linea, telefono, nota: `[en derivación] ${texto.slice(0, 300)}` }).then(() => null, () => null);
@@ -314,13 +314,13 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     const yaSaludo = dichoPorElBot.length > 0;
     const vecesOfrecioArmar = cuenta(/(le armo|armo el pedido|armamos el pedido|le dejo armado|dejemos cargado|dejo cargado|avanzamos|avanzo con|arme el pedido|le cotizo|lo cotizo|cerramos el pedido|¿.*pedido\?|¿lo confirmo\?)/i);
     const vecesPidioDireccion = cuenta(/(direcci[oó]n|calle y n[uú]mero)/i);
-    const vecesDijoPersonaResponde = cuenta(/(una persona del local|persona del equipo) (le|lo|la) (responde|contesta|atiende|confirma)/i);
+    const vecesDijoPersonaResponde = cuenta(/doy aviso al sector|aviso al sector correspondiente/i);
     const preguntasDelCliente = (texto.match(/\?/g) ?? []).length + (/\b(cu[aá]nto|cu[aá]ndo|d[oó]nde|qu[eé] tal|hasta qu[eé] hora|tienen|ten[eé]s|hay|se puede|me pod[eé]s|a qu[eé] hora)\b/i.test(texto) && !/\?/.test(texto) ? 1 : 0);
     const estado: string[] = [];
     estado.push(yaSaludo ? 'ya saludaste en esta charla: NO vuelvas a saludar ni a presentarte' : 'primer mensaje de la charla: corresponde saludar una vez');
     if (vecesOfrecioArmar >= 1) estado.push(`ya ofreciste armar/cotizar el pedido ${vecesOfrecioArmar} vez/veces: no lo vuelvas a ofrecer; contestá y esperá`);
     if (vecesPidioDireccion >= 1) estado.push(`ya pediste la dirección ${vecesPidioDireccion} vez/veces: si no la dio, no la vuelvas a pedir en este mensaje salvo que él quiera cerrar`);
-    if (vecesDijoPersonaResponde >= 2) estado.push(`ya dijiste ${vecesDijoPersonaResponde} veces que "una persona del local le responde": no lo repitas`);
+    if (vecesDijoPersonaResponde >= 2) estado.push(`ya dijiste ${vecesDijoPersonaResponde} veces que das aviso al sector: no lo repitas`);
     if (preguntasDelCliente >= 2) estado.push(`este mensaje trae ${preguntasDelCliente} preguntas: contestá CADA una en una línea, en el orden en que las hizo; si un dato no lo tenés, decilo en su línea`);
     const contenidoDelTurno = (t: string): any => (imagenDelTurno
       ? [{ type: 'image', source: { type: 'base64', media_type: imagenDelTurno.mime, data: imagenDelTurno.base64 } }, { type: 'text', text: t }]
@@ -373,8 +373,16 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
       const atascado = [...fallosDelTurno.values()].some((n) => n >= 3);
       const r = await this.claude.messages.create({
         model: MODELO_BOT,
-        max_tokens: 4096,
+        // el pensamiento consume el mismo presupuesto que la respuesta: con
+        // effort alto y 4096 la contestación salía vacía (probado). Con 8192
+        // le sobra lugar para razonar Y escribir.
+        max_tokens: 8192,
         thinking: { type: 'adaptive' },
+        // Que piense antes de contestar: 'xhigh' es el escalón por encima del
+        // default para trabajo con herramientas. Atender a un cliente con plata
+        // y stock de por medio merece que razone, no que dispare la primera
+        // respuesta. Se paga en tokens de salida, no en tiempo de nadie.
+        output_config: { effort: 'xhigh' },
         system,
         tools: tools.length && !atascado ? tools : undefined,
         messages: this.conCache(messages),
@@ -535,7 +543,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     if (PLAZO.test(sinFormulaReparto(respuesta)) && vueltasReintento === 0) {
       this.log.warn(`promesa de plazo/iniciativa para ${telefono}: regenero sin eso`);
       messages.push({ role: 'assistant', content: respuesta });
-      messages.push({ role: 'user', content: '[nota interna: escribiste una promesa de plazo o de iniciativa propia ("en breve", "apenas lo tenga le aviso", "¿prefiere que le avise?"). Vos no escribís por tu cuenta ni sabés cuándo responde el equipo. Reescribí la respuesta sin esa promesa: decí lo que es cierto ahora (el dato, o que no lo tenés y que una persona del local responde por este chat), y cerrá con una sola pregunta útil o sin pregunta.]' });
+      messages.push({ role: 'user', content: '[nota interna: escribiste una promesa de plazo o de iniciativa propia ("en breve", "apenas lo tenga le aviso", "¿prefiere que le avise?"). Vos no escribís por tu cuenta ni sabés cuándo responde el equipo. Reescribí la respuesta sin esa promesa: decí lo que es cierto ahora (el dato, o que no lo tenés y que tomás la consulta y das aviso al sector correspondiente), y cerrá con una sola pregunta útil o sin pregunta.]' });
       try {
         const t7 = await this.regenerar(system, messages, 2048, sumarUso);
         if (t7) respuesta = t7;
@@ -582,7 +590,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     if (diceCargado.test(respuesta) && !pedidoCreadoEnTurno && vueltasReintento < 2) {
       this.log.warn(`dice pedido cargado sin crear_pedido exitoso para ${telefono}: regenero`);
       messages.push({ role: 'assistant', content: respuesta });
-      messages.push({ role: 'user', content: '[nota interna: dijiste que el pedido está confirmado/cargado/registrado, pero en este turno crear_pedido NO devolvió ningún código: el pedido NO existe. Reescribí la respuesta diciendo la verdad: si faltó un dato, pedilo; si la herramienta falló y ya quedó la nota para el local, decí que una persona del local lo deja confirmado y le escribe por acá. Nunca digas "confirmado" ni "cargado" sin código DOM-/RET-.]' });
+      messages.push({ role: 'user', content: '[nota interna: dijiste que el pedido está confirmado/cargado/registrado, pero en este turno crear_pedido NO devolvió ningún código: el pedido NO existe. Reescribí la respuesta diciendo la verdad: si faltó un dato, pedilo; si la herramienta falló y ya quedó la nota, decí que tomás el pedido y que das aviso al sector correspondiente para que lo dejen confirmado. Nunca digas "confirmado" ni "cargado" sin código DOM-/RET-.]' });
       const t10 = await this.regenerar(system, messages, 2048, sumarUso);
       if (t10) respuesta = t10;
       else respuesta = respuesta.replace(diceCargado, 'el pedido todavía no quedó cargado');
@@ -623,7 +631,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     const MULETILLAS: [RegExp, number][] = [
       [/coordina el reparto/i, 1],
       [/por este mismo chat/i, 1],
-      [/una persona del local/i, 2],
+      [/doy aviso al sector|aviso al sector correspondiente/i, 2],
       [/se retiran? [uú]nicamente en|de ah[ií] salen los pedidos/i, 1],
       [/qued[oó]\s+(anotad|registrad|asentad)/i, 2],
       [/si prefiere no depender|puede retirar(lo)? sin costo|retirar en sant thomas \(castex/i, 1],
@@ -722,7 +730,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
           const r = await this.derivarPago(linea, telefono, motivo);
           const numero = (r as any)?.numero;
           if (numero && !new RegExp(String(numero).replace(/\D/g, '').slice(-8)).test(respuesta.replace(/\D/g, ''))) {
-            respuesta = `${respuesta}\n\nLos temas de dinero los atiende directamente el ${numero} por WhatsApp; su reclamo ya quedó registrado para el local.`;
+            respuesta = `${respuesta}\n\nTomo su reclamo y doy aviso al sector de pagos. Si quiere adelantarlo, ese sector atiende en el ${numero} por WhatsApp.`;
           }
         } else {
           await this.derivarAHumano(linea, telefono, motivo, false);
@@ -730,9 +738,9 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
           // ("por este canal lo atiendo yo" + "ya lo paso con una persona").
           // Se regenera sabiendo que la derivación YA está hecha.
           messages.push({ role: 'assistant', content: respuesta });
-          messages.push({ role: 'user', content: '[nota interna: el cliente pidió hablar con una persona y la derivación YA quedó hecha. Reescribí el mensaje completo, coherente con eso: primero decí que sos el asistente automático si te lo preguntó, y después que una persona del local le responde por este mismo chat. No ofrezcas seguir atendiéndolo vos ni preguntes "¿en qué puedo ayudarlo?".]' });
+          messages.push({ role: 'user', content: '[nota interna: el cliente pidió hablar con una persona y la derivación YA quedó hecha. Reescribí el mensaje completo, coherente con eso: primero decí que sos el asistente automático si te lo preguntó, y después que tomás su consulta y das aviso al sector correspondiente. No ofrezcas seguir atendiéndolo vos ni preguntes "¿en qué puedo ayudarlo?".]' });
           const tD = await this.regenerar(system, messages, 1024, sumarUso);
-          respuesta = tD ?? 'Soy el asistente automático de O.D.B. Una persona del local le responde por este mismo chat.';
+          respuesta = tD ?? 'Soy el asistente automático de O.D.B. Tomo su consulta y doy aviso al sector correspondiente.';
         }
         this.log.log(`derivación automática para ${telefono}: ${PIDE_HUMANO.test(texto) ? 'pidió humano' : 'reclamo de plata'}`);
       } catch (e: any) { this.log.warn(`derivación automática falló: ${e?.message ?? e}`); }
@@ -1079,7 +1087,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
             const { data: cfg } = await this.db.from('lineas_whatsapp').select('avisar_proveedores_a').eq('linea', linea).eq('activa', true).limit(1).maybeSingle();
             await this.db.from('alertas_internas').insert({ para_usuario: cfg?.avisar_proveedores_a ?? null, tipo: 'derivacion', titulo: `Pedido confirmado SIN cargar de +${telefono}`, detalle: nota, referencia: { linea, telefono } });
           }
-          freno += ' Ya quedó una nota para el local con todos los datos del pedido (ítems, modalidad, dirección, quien recibe). Decile al cliente, con estas palabras o parecidas: "Tuve un inconveniente para cargar el pedido; lo paso a una persona del local con todos los datos para que lo deje confirmado y le escriba por acá." NO digas que el pedido está confirmado ni cargado, y no le vuelvas a pedir confirmación.';
+          freno += ' Ya quedó una nota para el local con todos los datos del pedido (ítems, modalidad, dirección, quien recibe). Decile al cliente, con estas palabras o parecidas: "Tuve un inconveniente para cargar el pedido; tomo su pedido con todos los datos y doy aviso al sector correspondiente para que lo dejen confirmado." NO digas que el pedido está confirmado ni cargado, y no le vuelvas a pedir confirmación.';
         } catch (e2: any) { this.log.warn(`no pude dejar la nota del pedido no cargado: ${e2?.message ?? e2}`); }
       }
       return { type: 'tool_result', tool_use_id: block.id, content: `Error: ${msg}${freno}`, is_error: true };
@@ -1413,7 +1421,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
       hayFaltantes,
       sucursalDeSalida: sucPickNombre,
       ...(renglones.some((r: any) => r.reemplazo_no_confirmado) ? { reemplazoSinConfirmar: 'HAY UN RENGLÓN QUE NO ES LO QUE EL CLIENTE PIDIÓ: no des ningún total ni pases a retiro/domicilio hasta que acepte el reemplazo.' } : {}),
-      aclaracion: `Este total lo calculó el sistema. Informalo tal cual, sin rehacer la cuenta. Cada renglón viene formateado en "renglon": usalo tal cual (2 × $20.500 c/u = $41.000). El stock que cuenta es el de ${sucPickNombre} (de ahí salen retiros y envíos).${hayFaltantes ? ' HAY RENGLONES SIN STOCK SUFICIENTE: avisale al cliente la cantidad real antes de seguir.' : ''} Si el cliente quiere envío, el total se informa como "total de la mercadería; el envío va aparte y lo confirma quien coordina el reparto".`,
+      aclaracion: `Este total lo calculó el sistema. Informalo tal cual, sin rehacer la cuenta. Cada renglón viene formateado en "renglon": usalo tal cual (2 × $20.500 c/u = $41.000). El stock que cuenta es el de ${sucPickNombre} (de ahí salen retiros y envíos).${hayFaltantes ? ' HAY RENGLONES SIN STOCK SUFICIENTE: avisale al cliente la cantidad real antes de seguir.' : ''} Si el cliente quiere envío, el total se informa como "total de la mercadería; el envío va aparte y lo define el sector de reparto".`,
     };
   }
 
@@ -1432,7 +1440,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     if (!ped) return { error: `No hay ningún pedido ${ref} de este cliente. Si el código no coincide, pedile al cliente que lo revise o derivá.` };
     if (ped.estado === 'cancelado') return { ok: true, yaEstaba: true, codigo: ped.qr_retiro, mensaje: 'Ese pedido ya estaba cancelado.' };
     if (ped.estado !== 'recibido') {
-      return { error: `El pedido ${ped.qr_retiro} ya está "${ped.estado}": no lo puedo cancelar desde acá. Decile al cliente que la baja la tiene que resolver una persona del local y usá derivar_a_humano con el código.` };
+      return { error: `El pedido ${ped.qr_retiro} ya está "${ped.estado}": no lo puedo cancelar desde acá. Decile al cliente que tomás la baja y que das aviso al sector correspondiente, y usá derivar_a_humano con el código.` };
     }
     const { error } = await this.db.rpc('cancelar_pedido', { p_pedido: ped.id, p_usuario: null });
     if (error) return { error: `No pude cancelar el pedido: ${error.message}. Derivá a un humano con el código ${ped.qr_retiro}.` };
@@ -1524,7 +1532,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
       // "total 69.200" sin aclarar que el envío no está incluido ni cómo se paga)
       decirleAlCliente: [
         `El total ${Number(p.total).toLocaleString('es-AR')} es de la mercadería.`,
-        esEnvio ? 'El costo del envío no está incluido: se lo confirma la persona que coordina el reparto, por este mismo chat.' : `Se retira en la sucursal Sant Thomas (Castex 3601) con el código ${p.qr_retiro ?? ''}.`,
+        esEnvio ? 'El costo del envío no está incluido: lo define el sector de reparto, al que ya le di aviso.' : `Se retira en la sucursal Sant Thomas (Castex 3601) con el código ${p.qr_retiro ?? ''}.`,
         esEnvio ? 'Se abona al recibir, en efectivo o con tarjeta; si prefiere, le paso un link de Mercado Pago. Las transferencias las coordina el 11 2521-3601.' : 'Se abona al retirar, en efectivo o con tarjeta; si prefiere, le paso un link de Mercado Pago.',
       ],
     };
@@ -1878,18 +1886,18 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
 
       const { data: conv } = await this.db.from('bot_conversaciones').select('mensajes').eq('linea', 'pedidos').eq('telefono', identidad).maybeSingle();
       const hist: any[] = Array.isArray(conv?.mensajes) ? conv!.mensajes : [];
-      const yaAviso = hist.slice(-4).some((m) => m.role === 'assistant' && /lo escucha|lo revisa|del local/i.test(String(m.content)));
+      const yaAviso = hist.slice(-4).some((m) => m.role === 'assistant' && /tomo su mensaje|tomo lo que mand|aviso al sector/i.test(String(m.content)));
       await this.db.from('bot_conversaciones').upsert({
         linea: 'pedidos', telefono: identidad,
-        mensajes: [...hist, { role: 'user', content: `[el cliente mandó ${queEs}]` }, ...(yaAviso ? [] : [{ role: 'assistant', content: esAudio ? 'Recibí su audio. Lo escucha una persona del local y le responde por este mismo chat. Si prefiere, también puede escribirme lo que necesita y se lo resuelvo ahora.' : 'Recibí su archivo. Lo revisa una persona del local y le responde por este mismo chat. Si prefiere, escríbame lo que necesita y se lo resuelvo ahora.' }]),
+        mensajes: [...hist, { role: 'user', content: `[el cliente mandó ${queEs}]` }, ...(yaAviso ? [] : [{ role: 'assistant', content: esAudio ? 'Recibí su audio. Tomo su mensaje y doy aviso al sector correspondiente para que lo escuchen. Si prefiere, escríbame lo que necesita y se lo resuelvo ahora.' : 'Recibí su archivo. Tomo lo que mandó y doy aviso al sector correspondiente. Si prefiere, escríbame lo que necesita y se lo resuelvo ahora.' }]),
         ].slice(-40),
         actualizado_en: new Date().toISOString(), bot_activo: false,
         derivada_en: new Date().toISOString(), derivada_motivo: `El cliente mandó ${queEs}: hay que escucharlo/abrirlo`, resuelta_en: null,
       }, { onConflict: 'linea,telefono' }).then(() => null, () => null);
       if (yaAviso) return { contestado: false, motivo: `${queEs}: ya avisado, derivado` };
       const aviso = esAudio
-        ? 'Recibí su audio. Lo escucha una persona del local y le responde por este mismo chat. Si prefiere, también puede escribirme lo que necesita y se lo resuelvo ahora.'
-        : 'Recibí su archivo. Lo revisa una persona del local y le responde por este mismo chat. Si prefiere, escríbame lo que necesita y se lo resuelvo ahora.';
+        ? 'Recibí su audio. Tomo su mensaje y doy aviso al sector correspondiente para que lo escuchen. Si prefiere, escríbame lo que necesita y se lo resuelvo ahora.'
+        : 'Recibí su archivo. Tomo lo que mandó y doy aviso al sector correspondiente. Si prefiere, escríbame lo que necesita y se lo resuelvo ahora.';
       await this.simularEscritura(desde, aviso);
       const env = await this.enviarPorWhatsapp({ to: desde, text: aviso, referencia: `waha/${identidad}` });
       this.respondeRegistrar(waIdM, p.notifyName ?? null, `[el cliente mandó ${queEs}]`, aviso, undefined).catch(() => null);

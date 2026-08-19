@@ -68,6 +68,10 @@ describe('BotService.charla (robustez del agente)', () => {
     process.env.ANTHROPIC_API_KEY = 'test';
   });
 
+  // el tope por hora es una variable de entorno: si una prueba falla antes de
+  // limpiarla, la siguiente arranca con el límite puesto y falla sin motivo
+  afterEach(() => { delete process.env.ODB_BOT_MENSAJES_HORA; });
+
   it('corta por límite de mensajes por hora SIN llamar a Opus', async () => {
     process.env.ODB_BOT_MENSAJES_HORA = '2';
     const { s } = servicio();
@@ -76,9 +80,8 @@ describe('BotService.charla (robustez del agente)', () => {
     await s.charla({ linea: 'pedidos', telefono: '111', mensaje: 'a' });
     await s.charla({ linea: 'pedidos', telefono: '111', mensaje: 'b' });
     const r3 = await s.charla({ linea: 'pedidos', telefono: '111', mensaje: 'c' });
-    expect(r3.respuesta).toContain('una persona');
+    expect(r3.respuesta).toContain('doy aviso al sector');
     expect(crear).toHaveBeenCalledTimes(2); // el 3ro no gastó tokens
-    delete process.env.ODB_BOT_MENSAJES_HORA;
   });
 
   it('mismo mensajeId reintentado devuelve la respuesta guardada sin reprocesar', async () => {
