@@ -614,8 +614,16 @@ function render() {
           (p.estado === 'pendiente' ? '<span class="cancelar" data-cancel="' + p.id + '">✕ cancelar</span>' : '') + '<br>' +
           esc(p.texto) + '<time>' + (p.estado === 'error' ? esc((p.error_detalle||'').slice(0,80)) : ('sale ' + new Date(p.enviar_at).toLocaleString('es-AR', {...TZ, day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'}))) + '</time></div>';
       }
-      msgsEl.innerHTML = htmlM || '<div id="vacio">Sin mensajes todavía</div>';
-      for (const x of msgsEl.querySelectorAll('[data-cancel]')) { x.onclick = () => cancelarProg(x.getAttribute('data-cancel')); }
+      // Parche O.D.B: el refresco de cada 4 s reescribía el chat entero y mataba
+      // el reproductor con el audio sonando (se "cortaba a los 2 segundos").
+      // Solo se redibuja si hay contenido nuevo Y nada reproduciéndose.
+      const htmlFinal = htmlM || '<div id="vacio">Sin mensajes todavía</div>';
+      const reproduciendo = Array.prototype.some.call(msgsEl.querySelectorAll('audio,video'), (x) => !x.paused && !x.ended);
+      if (htmlFinal !== msgsEl.__odbHtml && !reproduciendo) {
+        msgsEl.innerHTML = htmlFinal;
+        msgsEl.__odbHtml = htmlFinal;
+        for (const x of msgsEl.querySelectorAll('[data-cancel]')) { x.onclick = () => cancelarProg(x.getAttribute('data-cancel')); }
+      }
       if (alFinal) msgsEl.scrollTop = msgsEl.scrollHeight;
       if (ms.length) { vistos[sel] = ms[ms.length-1].created_at; localStorage.setItem('vistos', JSON.stringify(vistos)); }
       if (fichaVisible) pintarFicha(c);
