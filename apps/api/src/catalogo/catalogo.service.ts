@@ -91,10 +91,10 @@ export class CatalogoService {
 
   // Consulta de stock por sucursal (la usa el cajero para decirle al cliente
   // "acá no queda pero en la otra sucursal hay X").
-  async consultarStock(q: string) {
+  async consultarStock(q: string, limite = 10) {
     const t = (q ?? '').trim();
     if (t.length < 2) return { items: [] };
-    const { data, error } = await this.db.rpc('stock_consulta', { p_q: t, p_limit: 10 });
+    const { data, error } = await this.db.rpc('stock_consulta', { p_q: t, p_limit: limite });
     if (error) throw new BadRequestException(error.message);
     return {
       items: (data ?? []).map((r: any) => ({
@@ -351,7 +351,7 @@ export class CatalogoService {
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 400,
         system:
-          'Sos el Somelier ODB de O.D.B Premium Market. Escribís en español rioplatense, cercano y sin esnobismo. Para el producto dado generás una nota de cata breve (2-3 oraciones, sin puntajes ni premios inventados) y una sugerencia de maridaje (1 oración con 2-3 ideas concretas). Texto plano. Si no tenés datos suficientes, hacé una nota honesta y general del estilo. Respondé SOLO un JSON válido: {"nota":"...","maridaje":"..."}.',
+          'Sos el Somelier ODB de O.D.B Premium Market. Escribís en español rioplatense, claro, respetuoso y sin esnobismo; sin emojis ni exclamaciones. Para el producto dado generás una nota de cata breve (2-3 oraciones, sin puntajes ni premios inventados) y una sugerencia de maridaje (1 oración con 2-3 ideas concretas). Texto plano. Si no tenés datos suficientes, hacé una nota honesta y general del estilo. Respondé SOLO un JSON válido: {"nota":"...","maridaje":"..."}.',
         messages: [
           { role: 'user', content: `Producto: ${prod.nombre}${marca ? ` · marca ${marca}` : ''}${cat ? ` · ${cat}` : ''}${prod.graduacion ? ` · ${prod.graduacion}°` : ''}.` },
         ],

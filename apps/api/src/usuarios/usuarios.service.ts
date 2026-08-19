@@ -6,7 +6,7 @@ import { hashClave } from '../comun/passwords';
 export type CrearUsuarioDto = {
   nombre: string;
   email: string;
-  rol: 'dueno' | 'gerente' | 'comprador' | 'cajero' | 'deposito';
+  rol: 'dueno' | 'gerente' | 'comprador' | 'cajero' | 'deposito' | 'administrativo' | 'repartidor';
   clave: string;
   sucursalId?: string | null;
   pin?: string;

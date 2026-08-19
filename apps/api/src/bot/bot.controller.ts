@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { BotService } from './bot.service';
 import { BotGuard } from './bot.guard';
 import { Publico, Roles } from '../auth/decorators';
@@ -15,7 +15,8 @@ export class BotController {
   // Cerebro server-side: Opus + razonamiento adaptativo + herramientas + memoria.
   @Post('charla')
   charla(@Body() body: {
-    linea: 'pedidos' | 'proveedores';
+    linea?: 'pedidos' | 'proveedores';
+    numeroLinea?: string; // número del negocio al que llegó el mensaje
     telefono: string;
     mensaje?: string;
     mensajeId?: string; // id del mensaje de WhatsApp (idempotencia ante reintentos)
@@ -23,6 +24,13 @@ export class BotController {
     mimeType?: string;
   }) {
     return this.bot.charla(body);
+  }
+
+  // WAHA postea acá cada mensaje entrante (webhook de la sesión). Se protege con
+  // la misma API key en un header propio, configurado en la sesión de WAHA.
+  @Post('waha')
+  waha(@Body() evento: any, @Query('linea') numeroLinea?: string) {
+    return this.bot.webhookWaha(evento, numeroLinea);
   }
 
   // ---- Línea PEDIDOS ----
@@ -61,12 +69,120 @@ export class BotController {
   }
 }
 
-// Simulador del panel: el staff prueba el bot con su sesión normal (sin la
-// API key de n8n). Mismo cerebro y mismas herramientas que WhatsApp.
-@Roles('gerente', 'dueno')
+// Bandeja + simulador del panel: el staff usa su sesión normal (sin la API key
+// del puente). La bandeja la atiende quien está en el mostrador, así que entra
+// cajero; el interruptor general queda para gerencia.
+@Roles('cajero', 'gerente', 'dueno')
 @Controller('bot')
 export class BotPruebaController {
   constructor(private readonly bot: BotService) {}
+
+  // RESPONDE: bandeja de conversaciones en vivo del empleado virtual
+  @Get('conversaciones')
+  conversaciones() {
+    return this.bot.conversaciones();
+  }
+
+  @Get('conversaciones/detalle')
+  conversacionDetalle(@Query('linea') linea: string, @Query('telefono') telefono: string) {
+    return this.bot.conversacionDetalle(linea, telefono);
+  }
+
+  // La persona contesta desde la bandeja: el mensaje sale por el puente (n8n)
+  // con el número del local, y el bot queda callado en esa conversación.
+  @Post('conversaciones/responder')
+  responder(@Body() b: { linea?: string; telefono: string; texto: string }, @Req() req: any) {
+    return this.bot.responderComoHumano(
+      b.linea === 'proveedores' ? 'proveedores' : 'pedidos',
+      String(b.telefono ?? '').replace(/\D/g, ''),
+      b.texto,
+      req.usuario?.sub,
+    );
+  }
+
+  // Tema resuelto: la conversación vuelve al bot
+  @Post('conversaciones/devolver')
+  devolver(@Body() b: { linea?: string; telefono: string }, @Req() req: any) {
+    return this.bot.devolverAlBot(
+      b.linea === 'proveedores' ? 'proveedores' : 'pedidos',
+      String(b.telefono ?? '').replace(/\D/g, ''),
+      req.usuario?.sub,
+    );
+  }
+
+  // Pausar el bot en una charla sin escribir (la persona atiende por el teléfono)
+  @Post('conversaciones/pausar')
+  pausar(@Body() b: { linea?: string; telefono: string }, @Req() req: any) {
+    return this.bot.pausarBot(b.linea === 'proveedores' ? 'proveedores' : 'pedidos', String(b.telefono ?? '').replace(/\D/g, ''), req.usuario?.sub);
+  }
+
+  // El equipo abrió la charla: deja de figurar como sin leer
+  @Post('conversaciones/leida')
+  leida(@Body() b: { linea?: string; telefono: string }, @Req() req: any) {
+    return this.bot.marcarLeida(b.linea === 'proveedores' ? 'proveedores' : 'pedidos', String(b.telefono ?? '').replace(/\D/g, ''), req.usuario?.sub);
+  }
+
+  // Interruptor general de la línea: apagar/encender el bot en TODAS las charlas
+  @Get('linea/estado')
+  estadoLinea(@Query('linea') linea?: string) {
+    return this.bot.estadoLinea(linea === 'proveedores' ? 'proveedores' : 'pedidos');
+  }
+
+  @Roles('gerente', 'dueno')
+  @Post('linea/bot')
+  setBotLinea(@Body() b: { linea?: string; activo: boolean }, @Req() req: any) {
+    return this.bot.setBotLinea(b.linea === 'proveedores' ? 'proveedores' : 'pedidos', b.activo !== false, req.usuario?.sub);
+  }
+
+  // ---- RESPONDE · gestión ----
+  @Get('contactos/ficha')
+  ficha(@Query('telefono') telefono: string) {
+    return this.bot.fichaContacto(String(telefono ?? '').replace(/\D/g, ''));
+  }
+
+  @Post('contactos/nota')
+  nota(@Body() b: { telefono: string; nota: string; etiquetas?: string[] }) {
+    return this.bot.guardarNota(String(b.telefono ?? '').replace(/\D/g, ''), b.nota ?? '', b.etiquetas);
+  }
+
+  @Post('programados')
+  programar(@Body() b: { linea?: string; telefono: string; texto: string; enviarEn: string }, @Req() req: any) {
+    return this.bot.programarMensaje({ ...b, telefono: String(b.telefono ?? '').replace(/\D/g, ''), usuarioId: req.usuario?.sub });
+  }
+
+  @Get('programados')
+  programados(@Query('telefono') telefono?: string) {
+    return this.bot.programados(telefono ? String(telefono).replace(/\D/g, '') : undefined);
+  }
+
+  @Post('programados/:id/cancelar')
+  cancelarProgramado(@Param('id') id: string) {
+    return this.bot.cancelarProgramado(id);
+  }
+
+  // Difusiones: solo gerencia (es la reputación del número)
+  @Roles('gerente', 'dueno')
+  @Post('difusiones')
+  crearDifusion(@Body() b: { linea?: string; titulo?: string; texto: string; imagenUrl?: string; telefonos: string[] }, @Req() req: any) {
+    return this.bot.crearDifusion({ ...b, usuarioId: req.usuario?.sub });
+  }
+
+  @Roles('gerente', 'dueno')
+  @Get('difusiones')
+  difusiones() {
+    return this.bot.difusiones();
+  }
+
+  @Roles('gerente', 'dueno')
+  @Get('difusiones/base')
+  baseDifundible() {
+    return this.bot.baseDifundible();
+  }
+
+  @Get('responde/resumen')
+  resumenResponde() {
+    return this.bot.resumenResponde();
+  }
 
   @Post('probar')
   probar(@Body() body: {

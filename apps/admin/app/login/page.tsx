@@ -2,11 +2,14 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { landingDe } from '../lib/permisos';
 
 export default function Login() {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [cargando, setCargando] = useState(false);
+  const [ver, setVer] = useState(false);
+  const [fallos, setFallos] = useState(0);
 
   async function entrar(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -19,11 +22,13 @@ export default function Login() {
       body: JSON.stringify({ email: datos.get('email'), clave: datos.get('clave') }),
     });
     if (res.ok) {
-      router.push('/inicio');
+      const cuerpo = await res.json().catch(() => null);
+      router.push(landingDe(cuerpo?.usuario?.rol));
       router.refresh();
     } else {
       const cuerpo = await res.json().catch(() => null);
       setError(cuerpo?.message ?? 'No se pudo iniciar sesión');
+      setFallos((n) => n + 1);
       setCargando(false);
     }
   }
@@ -46,13 +51,23 @@ export default function Login() {
         <label className="block text-xs text-black/60 mb-1">Clave</label>
         <input
           name="clave"
-          type="password"
+          type={ver ? 'text' : 'password'}
           required
           autoComplete="current-password"
-          className="w-full rounded-lg border border-black/15 px-3 py-2 text-sm text-black mb-6 outline-none focus:border-[#B82D25]"
+          className="w-full rounded-lg border border-black/15 px-3 py-2 text-sm text-black mb-3 outline-none focus:border-[#B82D25]"
         />
+        <label className="flex items-center gap-2 text-xs text-black/60 mb-6 cursor-pointer">
+          <input type="checkbox" checked={ver} onChange={(e) => setVer(e.target.checked)} className="accent-[#B82D25]" />
+          Mostrar la clave
+        </label>
 
-        {error && <p className="mb-4 text-sm text-[#932A1F]">{error}</p>}
+        {error && <p className="mb-2 text-sm text-[#932A1F]">{error}</p>}
+        {fallos >= 2 && (
+          <p className="mb-4 rounded-lg bg-[#F0EBE2] px-3 py-2 text-xs text-black/70">
+            💡 Si el navegador te completa la clave solo (puntitos que aparecen sin escribir),
+            puede tener guardada una clave vieja. Borrala, tildá “Mostrar la clave” y escribila a mano.
+          </p>
+        )}
 
         <button
           type="submit"

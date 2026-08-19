@@ -67,6 +67,7 @@ export function RepartidorView() {
             <div className="min-w-0">
               <p className="text-sm font-semibold text-black">{e.cliente?.nombre ?? 'Cliente'} <span className="text-black/40 font-normal">· {pesos(e.total)}</span></p>
               <p className="text-xs text-black/55 mt-0.5">{e.destino_direccion ?? 'Sin dirección'}</p>
+              {e.notas && <p className="text-xs text-amber-800 mt-0.5">Indicaciones: {e.notas}</p>}
             </div>
             <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold ${e.estado === 'en_camino' ? 'bg-green-100 text-green-800' : 'bg-purple-100 text-purple-800'}`}>{e.estado === 'en_camino' ? 'En camino' : 'Listo'}</span>
           </div>

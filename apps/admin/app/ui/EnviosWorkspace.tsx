@@ -70,6 +70,7 @@ export function EnviosWorkspace() {
               <div className="min-w-0">
                 <p className="text-sm font-semibold text-black">{e.cliente?.nombre ?? 'Cliente'} <span className="text-black/40 font-normal">· {pesos(e.total)}</span></p>
                 <p className="text-xs text-black/55 mt-0.5">{e.destino_direccion ?? 'Sin dirección'} · {e.qr_retiro}</p>
+                {e.notas && <p className="text-xs text-amber-800 mt-0.5">Indicaciones: {e.notas}</p>}
                 {e.estado === 'en_camino' && e.etaMin != null && (
                   <p className="text-xs text-green-700 mt-0.5">🛵 {e.repartidor_nombre} · a {distTexto(e.distancia_m)} · ~{e.etaMin} min</p>
                 )}

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { prepararComprobante } from './comprimirImagen';
 
 const pesos = (n: any) => '$' + Math.round(Number(n) || 0).toLocaleString('es-AR');
 const fecha = (iso: string) => (iso ? new Date(iso).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: '2-digit' }) : '—');
@@ -22,6 +23,17 @@ const OP_LABEL: Record<string, string> = { pendiente_aprobacion: 'a aprobar', ap
 const TABS = [['ordenes', 'Órdenes'], ['aprobar', 'Por aprobar'], ['recepcion', 'Recepción'], ['proveedores', 'Proveedores'], ['pagos', 'Órdenes de pago'], ['sugerencias', 'Sugerencias']] as const;
 
 const input = 'w-full rounded-lg border border-black/15 px-3 py-2.5 text-sm text-black focus:border-[#B82D25] focus:outline-none';
+
+// La IA a veces devuelve la fecha como DD/MM/AAAA: la base solo acepta ISO.
+// Si no se puede normalizar con certeza, mejor no mandar nada.
+function normFechaIso(f?: string | null): string | undefined {
+  if (!f) return undefined;
+  const s = String(f).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+  return undefined;
+}
 
 export function ComprasWorkspace({ resumen, ordenes, proveedores, sugerencias, sucursales, categorias = [] }: {
   resumen: any; ordenes: any[]; proveedores: any[]; sugerencias: any[]; sucursales: any[]; categorias?: { id: string; nombre: string }[];
@@ -162,10 +174,21 @@ export function ComprasWorkspace({ resumen, ordenes, proveedores, sugerencias, s
             {deuda === null ? <p className="px-4 py-6 text-center text-black/40 text-sm">Cargando…</p>
               : deuda.length === 0 ? <p className="px-4 py-6 text-center text-black/40 text-sm">Sin facturas pendientes de pago.</p>
               : deuda.map((d) => (
-                <div key={d.proveedor?.id} className="px-4 py-3 border-b border-black/5 last:border-0 flex items-center justify-between gap-3">
-                  <div><p className="font-medium text-black">{d.proveedor?.razon_social}</p><p className="text-xs text-black/50">{d.facturas.length} factura(s) · próx. vence {fecha(d.facturas[0]?.vencimiento)}</p></div>
-                  <div className="text-right"><p className="font-semibold text-[#B82D25]">{pesos(d.total)}</p>
-                    <button onClick={() => setModal({ tipo: 'pagar', prov: d })} className="text-xs font-medium text-emerald-700 hover:underline">Crear orden de pago →</button></div>
+                <div key={d.proveedor?.id} className="px-4 py-3 border-b border-black/5 last:border-0">
+                  <div className="flex items-center justify-between gap-3">
+                    <div><p className="font-medium text-black">{d.proveedor?.razon_social}</p><p className="text-xs text-black/50">{d.facturas.length} factura(s) · próx. vence {fecha(d.facturas[0]?.vencimiento)}</p></div>
+                    <div className="text-right"><p className="font-semibold text-[#B82D25]">{pesos(d.total)}</p>
+                      <button onClick={() => setModal({ tipo: 'pagar', prov: d })} className="text-xs font-medium text-emerald-700 hover:underline">Crear orden de pago →</button></div>
+                  </div>
+                  {/* cada factura es clickeable para ver su detalle */}
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {d.facturas.map((fc: any) => (
+                      <button key={fc.id} onClick={() => setModal({ tipo: 'facturaDetalle', facturaId: fc.id })}
+                        className="rounded-full border border-black/15 px-2.5 py-1 text-xs text-black/70 hover:border-[#B82D25] hover:text-[#B82D25]">
+                        #{fc.numero} · {pesos(fc.monto)} ↗
+                      </button>
+                    ))}
+                  </div>
                 </div>
               ))}
           </section>
@@ -240,22 +263,48 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
 
   // --- entrada por foto: la IA lee la factura/remito y acá se revisa y confirma ---
   const [foto, setFoto] = useState<any>(null); // resultado de /api/entrada-foto
+  const [fotoArchivo, setFotoArchivo] = useState<File | null>(null); // imagen ya comprimida (para re-leer)
+  const [verOriginal, setVerOriginal] = useState(true); // mostrar el documento original al lado de lo leído
+  const [fotoUrl, setFotoUrl] = useState<string | null>(null); // URL local del archivo, para el visor
+  const [fotoRot, setFotoRot] = useState(0); // rotación del visor: 0/90/180/270
+  const [fotoZoom, setFotoZoom] = useState(1); // zoom del visor
+  const [aclaraciones, setAclaraciones] = useState(''); // respuestas del operador a las dudas de la IA
   const [fotoItems, setFotoItems] = useState<any[]>([]); // renglones editables
   const [fotoImp, setFotoImp] = useState<any>({});
   const [leyendoFoto, setLeyendoFoto] = useState(false);
   const [sumarIva, setSumarIva] = useState(true); // factura A: costo = neto + IVA
   const [pagada, setPagada] = useState(false);
+  // true = la mercadería ya ingresó por Recepción (pistola): solo se registra la
+  // factura con sus renglones y va a la bandeja de conciliación, SIN mover stock
+  const [soloFactura, setSoloFactura] = useState(false);
   // buscador por renglón para vincular un producto (índice de fila + texto + resultados)
   const [vinculaIdx, setVinculaIdx] = useState<number | null>(null);
   const [vinculaBusca, setVinculaBusca] = useState('');
   const [vinculaRubro, setVinculaRubro] = useState(''); // filtra el buscador por rubro
   const [vinculaSug, setVinculaSug] = useState<any[]>([]);
 
+  // Primera lectura: comprime la foto en el navegador (las de celular pesan
+  // 10-20 MB) y la guarda por si hay que volver a leerla con aclaraciones. El PDF
+  // va tal cual.
   async function leerFoto(archivo: File) {
+    setAclaraciones('');
+    const listo = await prepararComprobante(archivo);
+    setFotoArchivo(listo);
+    await enviarComprobante(listo, '');
+  }
+
+  // Segunda pasada: la misma imagen + lo que el operador aclaró sobre las dudas.
+  async function reLeerConAclaraciones() {
+    if (!fotoArchivo || !aclaraciones.trim()) return;
+    await enviarComprobante(fotoArchivo, aclaraciones);
+  }
+
+  async function enviarComprobante(listo: File, aclara: string) {
     setLeyendoFoto(true);
     try {
       const fd = new FormData();
-      fd.append('archivo', archivo);
+      fd.append('archivo', listo);
+      if (aclara.trim()) fd.append('aclaraciones', aclara.trim());
       const r = await fetch('/api/entrada-foto', { method: 'POST', body: fd });
       const d = await r.json();
       if (!r.ok) throw new Error(d.message ?? 'No se pudo leer el comprobante');
@@ -266,27 +315,76 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
         numeroRemito: d.comprobante?.numero ?? '',
       }));
       setFotoImp({ ...(d.impuestos ?? {}) });
-      setSumarIva(d.comprobante?.tipo === 'factura_a');
+      // "Sumar IVA" (solo relevante como fallback cuando no hay pie): arranca en ON
+      // únicamente si los renglones parecen NETOS (su suma ≈ el neto gravado), el IVA
+      // no es sospechoso y no es régimen especial. En cigarrillos → OFF.
+      const sumaLineas = (d.items ?? []).reduce((s: number, i: any) => s + (Number(i.cantidad) || 1) * (Number(i.precio) || 0), 0);
+      const netoLeido = d.impuestos?.neto != null ? Number(d.impuestos.neto) : null;
+      const ivaLeido = d.impuestos?.iva != null ? Number(d.impuestos.iva) : null;
+      const alicEf = netoLeido && netoLeido > 0 && ivaLeido != null ? ivaLeido / netoLeido : null;
+      const escala = netoLeido && netoLeido > 0 ? netoLeido : (sumaLineas || 1);
+      const dNeto = netoLeido != null ? Math.abs(sumaLineas - netoLeido) / escala : Infinity;
+      const ivaSospechoso = alicEf != null && (alicEf < 0.18 || alicEf > 0.23) && !(alicEf >= 0.095 && alicEf <= 0.115);
+      setSumarIva(d.comprobante?.tipo === 'factura_a' && dNeto <= 0.01 && !ivaSospechoso && !d.regimenEspecial);
       setPagada(/contado/i.test(d.comprobante?.condicionVenta ?? ''));
-      setFotoItems((d.items ?? []).map((i: any) => ({
-        descripcion: i.descripcion,
-        cantidad: Number(i.cantidad) || 1,
-        precio: Number(i.precio) || 0,
-        sku: i.match?.sku ?? '',
-        nombre: i.match?.nombre ?? null,
-        variacionPct: i.match?.variacionPct ?? null,
-        // remarcación: la que quedó guardada de la última compra, o 50% por defecto
-        margenPct: i.match?.margenPct != null ? i.match.margenPct : 50,
-        incluir: !!i.match,
-      })));
+      setFotoItems((d.items ?? []).map((i: any) => {
+        const sugerido = i.match?.sugerido === true;
+        return {
+          descripcion: i.descripcion,
+          cantidad: Number(i.cantidad) || 1,
+          precio: Number(i.precio) || 0,
+          sku: i.match?.sku ?? '',
+          nombre: i.match?.nombre ?? null,
+          variacionPct: i.match?.variacionPct ?? null,
+          sugerido, // la IA lo propuso: hay que confirmar antes de incluir
+          motivoIa: i.match?.motivo ?? null,
+          // remarcación: la guardada de la última compra; vacío ('') = hereda del rubro
+          margenPct: i.match?.margenPct != null ? i.match.margenPct : '',
+          // las sugerencias de IA NO se incluyen hasta que el operador confirme "¿es este?"
+          incluir: !!i.match && !sugerido,
+        };
+      }));
     } catch (e) {
       setFoto({ error: e instanceof Error ? e.message : 'Error al leer' });
     }
     setLeyendoFoto(false);
   }
 
-  const factorIva = (alic: number) => (foto?.comprobante?.tipo === 'factura_a' && sumarIva ? 1 + (Number(alic) || 21) / 100 : 1);
-  const costoFinal = (i: any) => Math.round(Number(i.precio) * factorIva(fotoImp?.alicuotaIva ?? 21) * 100) / 100;
+  // --- Costeo por PRORRATEO re-anclado a la mercadería (spec contable) ---
+  // El costo unitario reparte el valor de la mercadería (neto + IVA + internos, SIN
+  // percepciones) entre los renglones en proporción a su PRE.UNIT. Así se limpia la
+  // percepción IIBB embebida (cigarrillos) y desaparece el ×1,21 a ciegas. En una
+  // factura A normal con precios netos el factor da 1,21 (suma IVA), y sin pie
+  // (remito) cae al fallback del checkbox "Sumar IVA".
+  const numImp = (v: any) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
+  const discriminaIva = foto?.comprobante?.tipo === 'factura_a';
+  const sumaRenglones = fotoItems.reduce((s, i) => s + numImp(i.cantidad) * numImp(i.precio), 0);
+  const netoDoc = fotoImp?.neto != null && fotoImp.neto !== '' ? numImp(fotoImp.neto) : null;
+  const ivaDoc = fotoImp?.iva != null && fotoImp.iva !== '' ? numImp(fotoImp.iva) : null;
+  const percIvaDoc = numImp(fotoImp?.percepcionIva);
+  const percIibbDoc = numImp(fotoImp?.percepcionIibb);
+  const impIntDoc = numImp(fotoImp?.impuestosInternos);
+  const otrosDoc = numImp(fotoImp?.otros);
+  const totalDoc = fotoImp?.total != null && fotoImp.total !== '' ? numImp(fotoImp.total) : null;
+  const alicEfectiva = netoDoc && netoDoc > 0 && ivaDoc != null ? ivaDoc / netoDoc : null;
+  // mercadería con IVA, sin percepciones (techo natural del costo)
+  const valorConIva = (netoDoc != null && ivaDoc != null) ? netoDoc + ivaDoc + impIntDoc
+    : (totalDoc != null) ? totalDoc - percIvaDoc - percIibbDoc - otrosDoc : null;
+  const baseCosto = valorConIva; // política del comercio: costea con IVA incluido
+  const factorRecon = (baseCosto != null && sumaRenglones > 0) ? baseCosto / sumaRenglones
+    : (discriminaIva && sumarIva && alicEfectiva != null ? 1 + alicEfectiva : discriminaIva && sumarIva ? 1.21 : 1);
+  const costoFinal = (i: any) => Math.round(numImp(i.precio) * factorRecon * 100) / 100;
+  const hayDatosFiscales = baseCosto != null;
+  // Reconciliación: el costo a stock nunca puede superar el valor de la mercadería
+  // con IVA (ni el total). Si lo hace, hay un error y se bloquea Registrar.
+  const inclItems = fotoItems.filter((i) => i.incluir);
+  const sumaCostos = inclItems.reduce((s, i) => s + numImp(i.cantidad) * costoFinal(i), 0);
+  const baseIncluidos = inclItems.reduce((s, i) => s + numImp(i.cantidad) * numImp(i.precio), 0) * factorRecon;
+  const techoMerc = valorConIva != null ? valorConIva : (totalDoc != null ? totalDoc : Infinity);
+  const excedeMerc = sumaCostos > techoMerc * 1.005;
+  const excedeTotal = totalDoc != null && sumaCostos > totalDoc * 1.005;
+  const subCosteo = baseIncluidos > 0 && sumaCostos < baseIncluidos * 0.98;
+  const costoBloquea = excedeMerc || excedeTotal;
 
   // Excel/CSV del portal del proveedor → precarga los renglones de la OC
   async function importarPedido(archivo: File) {
@@ -331,6 +429,17 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
     return () => clearTimeout(t);
   }, [busca]);
 
+  // URL local del documento subido, para el visor lado a lado. Se revoca al
+  // cambiar de archivo o desmontar, para no dejar memoria colgada.
+  useEffect(() => {
+    if (!fotoArchivo) { setFotoUrl(null); return; }
+    const url = URL.createObjectURL(fotoArchivo);
+    setFotoUrl(url);
+    setFotoRot(0);
+    setFotoZoom(1);
+    return () => URL.revokeObjectURL(url);
+  }, [fotoArchivo]);
+
   // buscador por renglón de la entrada por foto (vincular producto a mano).
   // Si se elige un rubro, filtra por él — así aunque no matchee por nombre,
   // podés ver todos los productos de esa categoría y elegir el correcto.
@@ -348,18 +457,71 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
 
   // vincula un producto a un renglón leído (y lo tilda para incluirlo)
   const vincularProducto = (idx: number, p: any) => {
-    setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, sku: p.sku, nombre: p.nombre, incluir: true } : x));
+    setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, sku: p.sku, nombre: p.nombre, variacionPct: null, sugerido: false, motivoIa: null, incluir: true } : x));
     setVinculaIdx(null); setVinculaBusca(''); setVinculaRubro(''); setVinculaSug([]);
   };
+
+  // el operador confirma la sugerencia de la IA ("sí, es este") → queda vinculado
+  // e incluido; al registrar la entrada se aprende y la próxima vez matchea solo.
+  const confirmarSugerencia = (idx: number) =>
+    setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, sugerido: false, incluir: true } : x));
+
+  // "no, no es ese" → descarta la sugerencia y abre la búsqueda manual
+  const rechazarSugerencia = (idx: number) => {
+    setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, sku: '', nombre: null, variacionPct: null, sugerido: false, motivoIa: null, incluir: false } : x));
+    setVinculaIdx(idx); setVinculaBusca(''); setVinculaRubro('');
+  };
+
+  // alta de proveedor en el momento: si la IA detectó un proveedor que no está en
+  // el sistema, lo damos de alta acá mismo (sin salir de la entrada por foto) con
+  // la razón social y el CUIT leídos, y lo dejamos seleccionado.
+  const [extraProv, setExtraProv] = useState<any[]>([]);
+  const [creandoProv, setCreandoProv] = useState(false);
+  const [provAviso, setProvAviso] = useState('');
+  const provList = [...proveedores, ...extraProv];
+  async function crearProveedorDetectado() {
+    const det = foto?.proveedor?.detectado;
+    if (!det?.nombre || creandoProv) return;
+    setCreandoProv(true);
+    setProvAviso('');
+    try {
+      const r = await fetch('/api/compras', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accion: 'crearProveedor', razonSocial: det.nombre, cuit: (det.cuit ?? '').toString().replace(/\D/g, '') || undefined }),
+      });
+      const d = await r.json();
+      if (r.ok && d?.id) {
+        setExtraProv((xs) => [...xs, { id: d.id, razon_social: d.razon_social ?? det.nombre, cuit: d.cuit ?? det.cuit }]);
+        setF((x: any) => ({ ...x, proveedorId: d.id }));
+      } else {
+        setProvAviso(d?.message ?? 'No se pudo dar de alta el proveedor');
+      }
+    } catch {
+      setProvAviso('No se pudo dar de alta el proveedor');
+    } finally {
+      setCreandoProv(false);
+    }
+  }
+
   // precio de venta calculado = costo final × (1 + remarcación%)
   const precioVenta = (i: any) => Math.round(costoFinal(i) * (1 + (Number(i.margenPct) || 0) / 100));
+
+  // % de remarcación GENERAL de la factura: al ponerlo, cascada a TODOS los
+  // renglones (pisa el 50% por defecto). Vacío = cada renglón queda como esté.
+  const aplicarRemarcacionGeneral = (v: string) => {
+    set('margenPct', v);
+    if (v !== '') setFotoItems((xs) => xs.map((x) => ({ ...x, margenPct: Number(v) })));
+  };
 
   const cerrar = () => setModal(null);
   const t = modal.tipo;
 
+  // con el documento a la vista, el modal se ensancha para el layout de dos columnas
+  const modalAncho = t === 'entradaFoto' && foto && !foto.error && verOriginal && fotoUrl ? 'max-w-6xl' : 'max-w-lg';
+
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-[2px] flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-2xl w-full max-w-lg p-6 space-y-3 shadow-2xl max-h-[92vh] overflow-y-auto">
+      <div className={`bg-white rounded-2xl w-full ${modalAncho} p-6 space-y-3 shadow-2xl max-h-[92vh] overflow-y-auto`}>
         {t === 'nuevaOC' && (<>
           <h2 className="font-semibold text-black text-lg">Nueva orden de compra</h2>
           <select className={input + ' bg-white'} value={f.proveedorId ?? ''} onChange={(e) => set('proveedorId', e.target.value)}>
@@ -503,7 +665,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
           <h2 className="font-semibold text-black text-lg">📷 Entrada por foto</h2>
           {!foto ? (
             <>
-              <p className="text-xs text-black/50">Sacale una foto a la factura o remito que llegó con la mercadería (o subí el PDF). La IA lee proveedor, renglones e impuestos; vos revisás y confirmás. La entrada suma stock, fija costo/precio y registra la factura con su desglose fiscal.</p>
+              <p className="text-xs text-black/50">Sacale una foto a la factura o remito que llegó con la mercadería (o subí el PDF, hasta 32MB). La IA (Sonnet 5) lee proveedor, renglones e impuestos y, si algo no se entiende, te lo pregunta para que se lo aclares. Vos revisás y confirmás: la entrada suma stock, fija costo/precio y registra la factura con su desglose fiscal.</p>
               <label className="flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-black/20 px-4 py-10 text-sm text-black/60 cursor-pointer hover:border-[#B82D25] hover:text-[#B82D25]">
                 <span className="text-3xl">📷</span>
                 {leyendoFoto ? 'Leyendo el comprobante…' : 'Tocar para sacar foto o elegir archivo'}
@@ -518,20 +680,94 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
               <Acciones cerrar={cerrar} okLabel="Reintentar" onOk={() => setFoto(null)} />
             </>
           ) : (
-            <>
+            <div className={verOriginal && fotoUrl ? 'grid md:grid-cols-[minmax(0,380px)_1fr] gap-4 items-start' : ''}>
+              {/* documento original, para comparar contra lo que leyó la IA */}
+              {verOriginal && fotoUrl && (
+                <div className="md:sticky md:top-0 rounded-xl border border-black/10 bg-[#F0EBE2]/30 overflow-hidden">
+                  <div className="flex items-center justify-between gap-1 px-2 py-1.5 border-b border-black/10 bg-white/70">
+                    <span className="text-[11px] font-medium text-black/60">Documento original</span>
+                    <div className="flex items-center gap-1">
+                      {fotoArchivo?.type !== 'application/pdf' && (<>
+                        <button type="button" onClick={() => setFotoZoom((z) => Math.max(1, Math.round((z - 0.25) * 100) / 100))} title="Alejar" className="h-6 w-6 rounded text-black/60 hover:bg-black/5 text-sm">−</button>
+                        <button type="button" onClick={() => setFotoZoom((z) => Math.min(4, Math.round((z + 0.25) * 100) / 100))} title="Acercar" className="h-6 w-6 rounded text-black/60 hover:bg-black/5 text-sm">+</button>
+                        <button type="button" onClick={() => setFotoRot((r) => (r + 90) % 360)} title="Rotar" className="h-6 w-6 rounded text-black/60 hover:bg-black/5 text-sm">⟳</button>
+                        {(fotoZoom !== 1 || fotoRot !== 0) && (
+                          <button type="button" onClick={() => { setFotoZoom(1); setFotoRot(0); }} title="Restablecer" className="h-6 px-1.5 rounded text-black/60 hover:bg-black/5 text-[10px]">reset</button>
+                        )}
+                      </>)}
+                      <button type="button" onClick={() => setVerOriginal(false)} title="Ocultar" className="h-6 w-6 rounded text-black/60 hover:bg-black/5 text-sm">✕</button>
+                    </div>
+                  </div>
+                  {fotoArchivo?.type === 'application/pdf' ? (
+                    <iframe src={fotoUrl} title="Documento original" className="w-full h-[70vh] bg-white" />
+                  ) : (
+                    <div className="h-[70vh] overflow-auto bg-[#111] flex items-center justify-center">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={fotoUrl}
+                        alt="Documento original"
+                        className="max-w-none transition-transform"
+                        style={{ transform: `rotate(${fotoRot}deg) scale(${fotoZoom})` }}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+              {!verOriginal && fotoUrl && (
+                <button type="button" onClick={() => setVerOriginal(true)} className="text-xs text-black/50 underline hover:text-[#B82D25]">
+                  📄 Mostrar el documento original para comparar
+                </button>
+              )}
+              <div className="space-y-3">
               {/* encabezado detectado */}
               <div className="rounded-lg bg-[#F0EBE2]/70 px-3 py-2 text-xs text-black/70">
                 <p><b>{foto.comprobante?.tipo?.replace('_', ' ').toUpperCase() ?? 'COMPROBANTE'}</b> {foto.comprobante?.numero ?? ''} · {foto.comprobante?.fecha ?? 's/f'} {foto.comprobante?.condicionVenta ? `· ${foto.comprobante.condicionVenta}` : ''}</p>
                 <p>{foto.proveedor?.detectado?.nombre ?? 'Proveedor no detectado'} {foto.proveedor?.detectado?.cuit ? `· CUIT ${foto.proveedor.detectado.cuit}` : ''} {foto.proveedor?.match ? '· ✓ en el sistema' : '· ⚠ no está en el sistema'}</p>
               </div>
+
+              {/* La IA pregunta lo que no entendió; aclarás y vuelve a leer teniéndolo en cuenta */}
+              <div className={'rounded-lg px-3 py-2.5 space-y-2 border ' + (foto.dudas?.length ? 'border-amber-300 bg-amber-50' : 'border-black/10 bg-[#F0EBE2]/40')}>
+                {foto.dudas?.length ? (
+                  <>
+                    <p className="text-xs font-semibold text-amber-900">🤔 La IA tiene {foto.dudas.length === 1 ? 'una duda' : `${foto.dudas.length} dudas`} — mirá el papel y aclarale:</p>
+                    <ul className="list-disc pl-4 space-y-1 text-xs text-amber-900">
+                      {foto.dudas.map((d: any, i: number) => (
+                        <li key={i}>{d.referencia ? <b>{d.referencia}: </b> : null}{d.pregunta}</li>
+                      ))}
+                    </ul>
+                  </>
+                ) : (
+                  <p className="text-xs text-black/55">✓ La IA no tuvo dudas. Si ves algo mal, aclarale y volvé a leer.</p>
+                )}
+                <textarea value={aclaraciones} onChange={(e) => setAclaraciones(e.target.value)} rows={2}
+                  placeholder="Aclaraciones para la IA (ej: el renglón 3 dice 72, no 12; la percepción de IIBB es 4.850)…"
+                  className="w-full rounded border border-black/15 bg-white px-2 py-1.5 text-sm text-black outline-none focus:border-[#B82D25]" />
+                <button onClick={reLeerConAclaraciones} disabled={leyendoFoto || !aclaraciones.trim()}
+                  className="rounded-full bg-black px-4 py-1.5 text-xs font-semibold text-white hover:bg-[#B82D25] disabled:opacity-40">
+                  {leyendoFoto ? 'Releyendo…' : '↺ Volver a leer con mis aclaraciones'}
+                </button>
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <select className={input + ' bg-white'} value={f.proveedorId ?? ''} onChange={(e) => set('proveedorId', e.target.value)}>
-                  <option value="">Proveedor…</option>{proveedores.map((p: any) => <option key={p.id} value={p.id}>{p.razon_social}</option>)}
+                  <option value="">Proveedor…</option>{provList.map((p: any) => <option key={p.id} value={p.id}>{p.razon_social}</option>)}
                 </select>
                 <select className={input + ' bg-white'} value={f.sucursalId ?? ''} onChange={(e) => set('sucursalId', e.target.value)}>
                   <option value="">Sucursal…</option>{sucursales.map((s: any) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
                 </select>
               </div>
+
+              {/* proveedor detectado pero no está en el sistema: alta en el momento */}
+              {!f.proveedorId && foto.proveedor?.detectado?.nombre && !foto.proveedor?.match && (
+                <button
+                  onClick={crearProveedorDetectado}
+                  disabled={creandoProv}
+                  className="self-start rounded-full border border-[#B82D25] bg-[#B82D25]/5 px-4 py-1.5 text-xs font-semibold text-[#932A1F] hover:bg-[#B82D25]/10 disabled:opacity-50"
+                >
+                  {creandoProv ? 'Dando de alta…' : `+ Dar de alta "${foto.proveedor.detectado.nombre}"${foto.proveedor.detectado.cuit ? ` · CUIT ${foto.proveedor.detectado.cuit}` : ''}`}
+                </button>
+              )}
+              {provAviso && <p className="text-xs text-[#B82D25]">{provAviso}</p>}
 
               {/* renglones: cada uno editable — vincular producto, cantidad, remarcación y precio */}
               <div className="hidden sm:flex items-center gap-2 text-[10px] uppercase tracking-wide text-black/40 px-1">
@@ -540,13 +776,21 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                 <span className="w-16 text-right">Remar. %</span><span className="w-20 text-right">P. venta</span>
               </div>
               {fotoItems.map((i, idx) => (
-                <div key={idx} className={'rounded-lg px-2 py-2 ' + (i.incluir ? 'bg-white border border-black/[0.06]' : 'bg-[#F0EBE2]/40')}>
+                <div key={idx} className={'rounded-lg px-2 py-2 ' + (i.sugerido ? 'bg-amber-50 border border-amber-300' : i.incluir ? 'bg-white border border-black/[0.06]' : 'bg-[#F0EBE2]/40')}>
                   <div className="flex items-center gap-2">
-                    <input type="checkbox" checked={i.incluir} onChange={(e) => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, incluir: e.target.checked } : x))} className="accent-[#B82D25] shrink-0" />
+                    <input type="checkbox" checked={i.incluir} disabled={i.sugerido} onChange={(e) => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, incluir: e.target.checked } : x))} className="accent-[#B82D25] shrink-0 disabled:opacity-40" />
                     <span className="flex-1 min-w-0">
                       {/* el texto leído SIEMPRE legible, haya o no match */}
                       <span className="block truncate text-sm text-black font-medium">{i.descripcion}</span>
-                      {i.nombre ? (
+                      {i.sugerido && i.nombre ? (
+                        <span className="block text-xs text-amber-900">
+                          💡 La IA cree que es <b>{i.nombre}</b>{i.motivoIa ? ` — ${i.motivoIa}` : ''}. ¿Es este?
+                          <span className="mt-1 flex gap-2">
+                            <button onClick={() => confirmarSugerencia(idx)} className="rounded-full bg-emerald-600 px-3 py-0.5 text-[11px] font-semibold text-white hover:bg-emerald-700">Sí, es este</button>
+                            <button onClick={() => rechazarSugerencia(idx)} className="rounded-full border border-black/20 px-3 py-0.5 text-[11px] text-black/70 hover:border-[#B82D25] hover:text-[#B82D25]">No, buscar otro</button>
+                          </span>
+                        </span>
+                      ) : i.nombre ? (
                         <span className="block text-xs truncate text-emerald-700">
                           → {i.nombre}{i.variacionPct != null ? ` (costo ${i.variacionPct > 0 ? '+' : ''}${i.variacionPct}%)` : ''}
                           <button onClick={() => setVinculaIdx(idx)} className="ml-2 text-black/40 underline hover:text-[#B82D25]">cambiar</button>
@@ -557,10 +801,13 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                         </button>
                       )}
                     </span>
-                    <input type="number" value={i.cantidad} onChange={(e) => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, cantidad: Number(e.target.value) } : x))} className="w-12 rounded border border-black/15 px-1 py-1 text-right text-sm" />
-                    <span className="w-20 text-right text-sm tabular-nums text-black/70">{pesos(costoFinal(i))}</span>
-                    <input type="number" value={i.margenPct} onChange={(e) => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, margenPct: e.target.value === '' ? '' : Number(e.target.value) } : x))} className="w-16 rounded border border-black/15 px-1 py-1 text-right text-sm" title="Remarcación %" />
-                    <span className="w-20 text-right text-sm font-semibold tabular-nums text-black">{pesos(precioVenta(i))}</span>
+                    <input type="number" value={i.cantidad} onChange={(e) => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, cantidad: Number(e.target.value) } : x))} className="w-12 rounded border border-black/15 px-1 py-1 text-right text-sm text-black" />
+                    <span className="w-20 text-right text-sm tabular-nums text-black/70">
+                      {pesos(costoFinal(i))}
+                      {Math.abs(costoFinal(i) - numImp(i.precio)) > 0.5 && <span className="block text-[9px] leading-tight text-black/35">leído {pesos(i.precio)}</span>}
+                    </span>
+                    <input type="number" value={i.margenPct} placeholder="rubro" onChange={(e) => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, margenPct: e.target.value === '' ? '' : Number(e.target.value) } : x))} className="w-16 rounded border border-black/15 px-1 py-1 text-right text-sm text-black" title="Remarcación % (vacío = usa la del rubro)" />
+                    <span className="w-20 text-right text-sm font-semibold tabular-nums text-black">{i.margenPct === '' || i.margenPct == null ? <span className="text-black/40 font-normal text-xs">s/ rubro</span> : pesos(precioVenta(i))}</span>
                   </div>
 
                   {/* buscador para vincular el producto a este renglón */}
@@ -574,14 +821,21 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                         </select>
                       </div>
                       {vinculaRubro && vinculaBusca.trim().length < 2 && (
-                        <p className="text-[11px] text-black/45 mt-1">Mostrando productos del rubro. Escribí para afinar.</p>
+                        <p className="text-[11px] text-black/45 mt-1">
+                          {vinculaSug.length >= 200
+                            ? 'Este rubro tiene muchos productos: mostrando los primeros 200. Escribí parte del nombre para afinar.'
+                            : 'Mostrando productos del rubro. Escribí para afinar.'}
+                        </p>
                       )}
                       {vinculaSug.length > 0 && (
                         <div className="absolute z-20 mt-1 w-full rounded-lg bg-white shadow-lg border border-black/10 max-h-60 overflow-y-auto">
                           {vinculaSug.map((p: any) => (
-                            <button key={p.sku} onClick={() => vincularProducto(idx, p)} className="w-full text-left px-3 py-2 text-sm hover:bg-[#F0EBE2] border-b border-black/5 last:border-0">
-                              {p.nombre} <span className="text-xs text-black/40">{p.sku}</span>
-                              {p.categoria && <span className="ml-1.5 text-[10px] rounded-full bg-[#F0EBE2] text-black/50 px-1.5 py-0.5">{p.categoria}</span>}
+                            <button key={p.sku} onClick={() => vincularProducto(idx, p)} className="w-full text-left px-3 py-2 hover:bg-[#F0EBE2] border-b border-black/5 last:border-0">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-sm text-black truncate">{p.nombre}{p.marca ? <span className="text-black/40"> · {p.marca}</span> : null}</span>
+                                {p.precio != null && <span className="shrink-0 text-xs font-medium text-emerald-700">{pesos(p.precio)}</span>}
+                              </div>
+                              <div className="text-[10px] text-black/40">{p.sku}{p.categoria ? ` · ${p.categoria}` : ''}</div>
                             </button>
                           ))}
                         </div>
@@ -593,37 +847,95 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
               {fotoItems.some((i) => i.incluir && !i.sku) && (
                 <p className="text-xs text-[#932A1F]">Hay renglones tildados sin producto asignado: vinculalos o destildalos.</p>
               )}
+              {fotoItems.some((i) => i.sugerido) && (
+                <p className="text-xs text-amber-800">💡 La IA sugirió {fotoItems.filter((i) => i.sugerido).length} vínculo(s): confirmá “¿es este?” en los renglones amarillos para incluirlos.</p>
+              )}
               <p className="text-[11px] text-black/45">Al confirmar, cada vínculo y su remarcación quedan guardados: la próxima compra de este proveedor los toma solos.</p>
 
-              {/* impuestos */}
-              <div className="rounded-lg border border-black/10 p-2 grid grid-cols-3 gap-2 text-xs">
-                {[['neto', 'Neto'], ['iva', 'IVA $'], ['percepcionIva', 'Perc. IVA'], ['percepcionIibb', 'Perc. IIBB'], ['otros', 'Otros'], ['total', 'TOTAL']].map(([k, l]) => (
+              {/* impuestos del pie (editables). Percepciones = pago a cuenta, NO costo. */}
+              <div className="rounded-lg border border-black/10 p-2 grid grid-cols-4 gap-2 text-xs">
+                {[['neto', 'Neto'], ['iva', 'IVA $'], ['percepcionIva', 'Perc. IVA'], ['percepcionIibb', 'Perc. IIBB'], ['impuestosInternos', 'Imp. internos'], ['otros', 'Otros'], ['total', 'TOTAL']].map(([k, l]) => (
                   <label key={k} className="flex flex-col gap-0.5">
-                    <span className="text-black/45">{l}</span>
-                    <input type="number" value={fotoImp?.[k] ?? ''} onChange={(e) => setFotoImp((x: any) => ({ ...x, [k]: e.target.value === '' ? null : Number(e.target.value) }))} className="rounded border border-black/15 px-2 py-1 text-right text-sm" />
+                    <span className="text-black/60 font-medium">{l}{k === 'iva' && alicEfectiva != null ? ` (${(alicEfectiva * 100).toFixed(1).replace('.', ',')}%)` : ''}</span>
+                    <input type="number" value={fotoImp?.[k] ?? ''} onChange={(e) => setFotoImp((x: any) => ({ ...x, [k]: e.target.value === '' ? null : Number(e.target.value) }))} className="rounded border border-black/15 bg-white px-2 py-1 text-right text-sm text-black" />
                   </label>
                 ))}
               </div>
-              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-black">
-                {foto.comprobante?.tipo === 'factura_a' && (
+              <p className="text-[10px] text-black/45">Las percepciones (IVA e IIBB) son pago a cuenta de impuestos, <b>no son costo</b>. Los impuestos internos <b>sí</b> son costo. El costo a stock ya prorratea la factura sin las percepciones.</p>
+              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-black items-center">
+                {/* Con datos fiscales el costo se reconcilia solo (prorrateo); el checkbox
+                    "Sumar IVA" queda solo para remitos sin pie. */}
+                {!hayDatosFiscales && foto.comprobante?.tipo === 'factura_a' && (
                   <label className="flex items-center gap-1.5"><input type="checkbox" checked={sumarIva} onChange={(e) => setSumarIva(e.target.checked)} className="accent-[#B82D25]" /> Sumar IVA al costo (precios netos)</label>
                 )}
+                {hayDatosFiscales && <span className="text-emerald-700">✓ Costo reconciliado con el pie (IVA prorrateado, sin percepciones)</span>}
                 <label className="flex items-center gap-1.5"><input type="checkbox" checked={pagada} onChange={(e) => setPagada(e.target.checked)} className="accent-[#B82D25]" /> Pagada (contado)</label>
-                <label className="flex items-center gap-1.5">% remarcación <input type="number" value={f.margenPct ?? ''} onChange={(e) => set('margenPct', e.target.value)} placeholder="rubro" className="w-16 rounded border border-black/15 px-1.5 py-0.5 text-right" /></label>
+                <label className="flex items-center gap-1.5" title="Se aplica a todos los renglones de la factura">% remarcación general <input type="number" value={f.margenPct ?? ''} onChange={(e) => aplicarRemarcacionGeneral(e.target.value)} placeholder="a todos" className="w-16 rounded border border-black/15 px-1.5 py-0.5 text-right text-black" /></label>
               </div>
+
+              {/* Reconciliación del costo vs la mercadería de la factura */}
+              <div className={'rounded-lg px-3 py-2 text-xs ' + (excedeMerc || excedeTotal ? 'bg-[#B82D25]/10 border border-[#B82D25] text-[#932A1F]' : subCosteo ? 'bg-amber-50 border border-amber-300 text-amber-900' : 'bg-[#F0EBE2]/50 text-black/70')}>
+                <p>Costo a stock (renglones tildados): <b>{pesos(sumaCostos)}</b>{valorConIva != null && <> · Mercadería c/IVA: <b>{pesos(valorConIva)}</b></>}{totalDoc != null && <> · Total factura: <b>{pesos(totalDoc)}</b></>}</p>
+                {(excedeMerc || excedeTotal) && (
+                  <p className="mt-1 font-semibold">⚠ El costo a stock supera el valor de la mercadería con IVA de la factura. Los precios ya incluyen impuestos: revisá el neto/IVA del pie. (No se puede registrar hasta corregirlo.)</p>
+                )}
+                {subCosteo && !excedeMerc && !excedeTotal && (
+                  <p className="mt-1">El costo quedó por debajo de lo esperado para los renglones tildados; revisá que no falte ninguno.</p>
+                )}
+                {!hayDatosFiscales && (
+                  <p className="mt-1 text-black/50">Sin datos fiscales para verificar el costo: se toma el precio leído {sumarIva ? '+ IVA' : 'tal cual'}.</p>
+                )}
+              </div>
+
               {foto.notasManuscritas && <p className="text-xs text-black/50 italic">✍ Nota manuscrita: {foto.notasManuscritas}</p>}
+
+              {/* la mercadería ya entró por Recepción → solo factura + conciliación */}
+              {foto.comprobante?.tipo?.startsWith('factura') && (
+                <label className="flex items-center gap-1.5 text-xs text-black">
+                  <input type="checkbox" checked={soloFactura} onChange={(e) => setSoloFactura(e.target.checked)} className="accent-[#B82D25]" />
+                  La mercadería ya fue recibida con la pistola — solo cargar la factura (va a Conciliación, no mueve stock)
+                </label>
+              )}
+
               {aviso && <p className="text-xs text-[#B82D25]">{aviso}</p>}
+              {soloFactura ? (
+                <Acciones
+                  cerrar={cerrar}
+                  okLabel="Registrar factura para conciliar"
+                  disabled={!f.proveedorId || !(fotoImp?.total > 0)}
+                  onOk={() => post({
+                    accion: 'factura',
+                    proveedorId: f.proveedorId,
+                    sucursalId: f.sucursalId || undefined,
+                    tipo: 'factura',
+                    letra: foto.comprobante?.tipo?.split('_')[1]?.toUpperCase() || undefined,
+                    numero: foto.comprobante?.numero ?? 's/n',
+                    monto: Number(fotoImp.total),
+                    neto: fotoImp.neto, iva: fotoImp.iva,
+                    percepcionIva: Number(fotoImp.percepcionIva ?? 0),
+                    percepcionIibb: Number(fotoImp.percepcionIibb ?? 0),
+                    impuestosInternos: Number(fotoImp.impuestosInternos ?? 0),
+                    otros: Number(fotoImp.otros ?? 0),
+                    fechaEmision: normFechaIso(foto.comprobante?.fecha),
+                    condicionVenta: foto.comprobante?.condicionVenta || undefined,
+                    archivoUrl: foto.archivoUrl || undefined,
+                    pagada,
+                    // TODOS los renglones leídos (con o sin producto): son la base del cruce
+                    items: fotoItems.map((i) => ({ sku: i.sku || undefined, descripcion: i.descripcion, cantidad: Number(i.cantidad), precio: numImp(i.precio) })),
+                  })}
+                />
+              ) : (
               <Acciones
                 cerrar={cerrar}
                 okLabel={`Registrar entrada${foto.comprobante?.tipo?.startsWith('factura') ? ' + factura' : ''}`}
-                disabled={!f.proveedorId || !f.sucursalId || !fotoItems.some((i) => i.incluir && i.sku) || fotoItems.some((i) => i.incluir && !i.sku)}
+                disabled={!f.proveedorId || !f.sucursalId || !fotoItems.some((i) => i.incluir && i.sku) || fotoItems.some((i) => i.incluir && !i.sku) || costoBloquea}
                 onOk={() => post({
                   accion: 'entradaDirecta',
                   proveedorId: f.proveedorId,
                   sucursalId: f.sucursalId,
                   numeroRemito: foto.comprobante?.numero || f.numeroRemito,
                   margenPct: f.margenPct ? Number(f.margenPct) : undefined,
-                  items: fotoItems.filter((i) => i.incluir && i.sku).map((i) => ({ sku: i.sku, cantidad: Number(i.cantidad), costo: costoFinal(i), margenPct: i.margenPct === '' ? undefined : Number(i.margenPct), descripcionLeida: i.descripcion })),
+                  items: fotoItems.filter((i) => i.incluir && i.sku).map((i) => ({ sku: i.sku, cantidad: Number(i.cantidad), costo: costoFinal(i), precioLeido: numImp(i.precio), margenPct: i.margenPct === '' ? undefined : Number(i.margenPct), descripcionLeida: i.descripcion })),
                   ...(foto.comprobante?.tipo?.startsWith('factura') && fotoImp?.total > 0 ? {
                     factura: {
                       numero: foto.comprobante?.numero ?? 's/n',
@@ -632,15 +944,24 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                       iva: fotoImp.iva != null ? Number(fotoImp.iva) : undefined,
                       percepcionIva: Number(fotoImp.percepcionIva ?? 0),
                       percepcionIibb: Number(fotoImp.percepcionIibb ?? 0),
+                      impuestosInternos: Number(fotoImp.impuestosInternos ?? 0),
                       otros: Number(fotoImp.otros ?? 0),
+                      letra: foto.comprobante?.tipo?.split('_')[1]?.toUpperCase() || undefined,
+                      fechaEmision: normFechaIso(foto.comprobante?.fecha),
+                      condicionVenta: foto.comprobante?.condicionVenta || undefined,
+                      archivoUrl: foto.archivoUrl || undefined,
                       pagada,
                     },
                   } : {}),
                 })}
               />
-            </>
+              )}
+              </div>
+            </div>
           )}
         </>)}
+
+        {t === 'facturaDetalle' && <FacturaDetalle id={modal.facturaId} cerrar={cerrar} />}
 
         {t === 'proveedor' && (<>
           <h2 className="font-semibold text-black text-lg">{modal.prov?.id ? 'Editar proveedor' : 'Nuevo proveedor'}</h2>
@@ -692,6 +1013,55 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
         </>)}
       </div>
     </div>
+  );
+}
+
+// Detalle de una factura de proveedor ya registrada: desglose fiscal + renglones.
+function FacturaDetalle({ id, cerrar }: { id: string; cerrar: () => void }) {
+  const [d, setD] = useState<any>(null);
+  const [err, setErr] = useState('');
+  useEffect(() => {
+    fetch(`/api/compras?recurso=factura&id=${id}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(r)))
+      .then(setD)
+      .catch(() => setErr('No se pudo cargar el detalle de la factura'));
+  }, [id]);
+  const ESTADO: Record<string, string> = { pendiente: 'Pendiente de pago', pagada: 'Pagada', en_pago: 'En pago' };
+  return (
+    <>
+      <h2 className="font-semibold text-black text-lg">Factura {d?.numero ?? ''}</h2>
+      {!d && !err && <p className="text-sm text-black/50">Cargando…</p>}
+      {err && <p className="text-sm text-[#B82D25]">{err}</p>}
+      {d && (
+        <div className="space-y-3">
+          <div className="rounded-lg bg-[#F0EBE2]/60 px-3 py-2 text-sm text-black/80">
+            <p><b>{d.proveedor?.razon_social}</b>{d.proveedor?.cuit ? ` · CUIT ${d.proveedor.cuit}` : ''}</p>
+            <p className="text-xs text-black/55">{fecha(d.creado_en)} · {ESTADO[d.estado] ?? d.estado}{d.vencimiento ? ` · vence ${fecha(d.vencimiento)}` : ''}</p>
+          </div>
+          <div className="rounded-lg border border-black/10 p-2.5 space-y-1 text-sm">
+            {[['Neto gravado', d.neto], ['IVA', d.iva], ['Percepción IVA', d.percepcion_iva], ['Percepción IIBB', d.percepcion_iibb], ['Impuestos internos', d.impuestos_internos], ['Otros impuestos', d.otros_impuestos]]
+              .filter(([, v]: any) => v != null && Number(v) !== 0)
+              .map(([l, v]: any) => (
+                <div key={l} className="flex justify-between"><span className="text-black/55">{l}</span><span className="text-black tabular-nums">{pesos(v)}</span></div>
+              ))}
+            <div className="flex justify-between border-t border-black/10 pt-1 mt-1"><span className="font-semibold text-black">TOTAL</span><span className="font-semibold text-black tabular-nums">{pesos(d.monto)}</span></div>
+          </div>
+          {d.items?.length > 0 ? (
+            <div className="rounded-lg border border-black/10 divide-y divide-black/5 max-h-56 overflow-y-auto">
+              {d.items.map((it: any, i: number) => (
+                <div key={i} className="flex items-center justify-between gap-2 px-3 py-1.5 text-sm">
+                  <span className="text-black truncate">{it.cantidad}× {it.nombre}</span>
+                  {it.costo != null && <span className="shrink-0 text-black/45 text-xs tabular-nums">costo {pesos(it.costo)}</span>}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-black/45">Sin renglones asociados (factura cargada a mano).</p>
+          )}
+        </div>
+      )}
+      <div className="flex justify-end pt-1"><button onClick={cerrar} className="rounded-full bg-black text-white text-sm font-medium px-5 py-2 hover:bg-black/80">Cerrar</button></div>
+    </>
   );
 }
 

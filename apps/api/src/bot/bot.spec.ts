@@ -52,7 +52,7 @@ function dbFalsa(porTabla: Record<string, any> = {}) {
 }
 
 function servicio(db = dbFalsa()) {
-  const s = new BotService(db, {} as any, {} as any, {} as any);
+  const s = new BotService(db, {} as any, {} as any, {} as any, {} as any);
   return { s, db };
 }
 
@@ -167,18 +167,73 @@ describe('BotService.ejecutarHerramienta (seguridad: no confía en el teléfono 
     expect(identificar).not.toHaveBeenCalledWith(expect.stringContaining('ajeno'));
   });
 
+  // Para que crear_pedido pase las guardas de cierre (doble confirmación): el
+  // sku tiene que haber salido de una búsqueda de la charla, el último mensaje
+  // del bot tiene que tener el total y "¿Lo confirmo?", y el cliente decir que sí.
+  const CIERRE_OK = {
+    input: { telefono: '1122334455-ajeno', tipo: 'pickup', items: [{ sku: 'X', cantidad: 1 }], confirmacion_del_cliente: 'sí, confirmo' },
+    ctx: { ultimoBot: '1 Fernet — 20.500\nTotal: 20.500\nRetiro en Sant Thomas. ¿Lo confirmo?', textoCliente: 'sí, confirmo' },
+  };
+
   it('crear_pedido usa el teléfono real del request, no el del input del modelo', async () => {
     const { s } = servicio();
     const crear = jest.spyOn(s, 'crearPedido').mockResolvedValue({ pedidoId: 'x' } as any);
+    (s as any).skusDe('5491199990000').add('X');
     await (s as any).ejecutarHerramienta(
-      {
-        type: 'tool_use',
-        id: 't2',
-        name: 'crear_pedido',
-        input: { telefono: '1122334455-ajeno', tipo: 'pickup', items: [{ sku: 'X', cantidad: 1 }] },
-      },
+      { type: 'tool_use', id: 't2', name: 'crear_pedido', input: CIERRE_OK.input },
       '5491199990000',
+      'pedidos',
+      CIERRE_OK.ctx,
     );
     expect(crear).toHaveBeenCalledWith(expect.objectContaining({ telefono: '5491199990000' }));
+  });
+});
+
+describe('BotService.ejecutarHerramienta · cierre de pedido (doble confirmación, ronda 5 de la auditoría)', () => {
+  const tel = '5491199990001';
+  const base = { type: 'tool_use', id: 't3', name: 'crear_pedido' };
+  const input = { tipo: 'domicilio', direccion: 'Juana de Arco 7450', items: [{ sku: 'X', cantidad: 1 }], confirmacion_del_cliente: 'mandamelo tipo 12' };
+
+  it('la dirección + "mandámelo" NO crea el pedido: pide resumen con "¿Lo confirmo?"', async () => {
+    const { s } = servicio();
+    const crear = jest.spyOn(s, 'crearPedido').mockResolvedValue({ pedidoId: 'x' } as any);
+    (s as any).skusDe(tel).add('X');
+    const r = await (s as any).ejecutarHerramienta({ ...base, input }, tel, 'pedidos', { ultimoBot: 'Total: 48.700. ¿Me pasa la dirección con calle y número?', textoCliente: 'juana de arco 7450, mandamelo tipo 12 asi estoy' });
+    expect(crear).not.toHaveBeenCalled();
+    expect(String(r.content)).toMatch(/NO se creó el pedido/);
+    expect(String(r.content)).toMatch(/confirm/i);
+  });
+
+  it('"sí" con acento cuenta como afirmación (antes el \\b no lo tomaba)', async () => {
+    const { s } = servicio();
+    const crear = jest.spyOn(s, 'crearPedido').mockResolvedValue({ pedidoId: 'x' } as any);
+    (s as any).skusDe(tel).add('X');
+    await (s as any).ejecutarHerramienta({ ...base, input: { ...input, confirmacion_del_cliente: 'sí' } }, tel, 'pedidos', { ultimoBot: 'Total: 20.500. ¿Lo confirmo?', textoCliente: 'sí' });
+    expect(crear).toHaveBeenCalledTimes(1);
+  });
+
+  it('con resumen + "¿Lo confirmo?" y un "sí" del cliente, SÍ crea', async () => {
+    const { s } = servicio();
+    const crear = jest.spyOn(s, 'crearPedido').mockResolvedValue({ pedidoId: 'x' } as any);
+    (s as any).skusDe(tel).add('X');
+    await (s as any).ejecutarHerramienta({ ...base, input: { ...input, confirmacion_del_cliente: 'si dale confirmalo' } }, tel, 'pedidos', { ultimoBot: 'Resumen: 1 Fernet 20.500. Total: 20.500. Envío a Juana de Arco 7450. ¿Lo confirmo?', textoCliente: 'si dale confirmalo' });
+    expect(crear).toHaveBeenCalledTimes(1);
+  });
+
+  it('si el cliente dice "pará / todavía no", no crea aunque el bot haya preguntado', async () => {
+    const { s } = servicio();
+    const crear = jest.spyOn(s, 'crearPedido').mockResolvedValue({ pedidoId: 'x' } as any);
+    (s as any).skusDe(tel).add('X');
+    const r = await (s as any).ejecutarHerramienta({ ...base, input: { ...input, confirmacion_del_cliente: 'dale' } }, tel, 'pedidos', { ultimoBot: 'Total: 20.500. ¿Lo confirmo?', textoCliente: 'pará, todavía no, lo consulto con mi señora' });
+    expect(crear).not.toHaveBeenCalled();
+    expect(String(r.content)).toMatch(/NO se creó el pedido/);
+  });
+
+  it('un sku que no salió de ninguna búsqueda de la charla se rechaza', async () => {
+    const { s } = servicio();
+    const crear = jest.spyOn(s, 'crearPedido').mockResolvedValue({ pedidoId: 'x' } as any);
+    const r = await (s as any).ejecutarHerramienta({ ...base, input: { ...input, items: [{ sku: 'INVENTADO', cantidad: 1 }], confirmacion_del_cliente: 'sí' } }, tel, 'pedidos', { ultimoBot: 'Total: 20.500. ¿Lo confirmo?', textoCliente: 'sí' });
+    expect(crear).not.toHaveBeenCalled();
+    expect(String(r.content)).toMatch(/no salieron de ninguna búsqueda/);
   });
 });

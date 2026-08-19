@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { BotonMicrofono } from '../ui/BotonMicrofono';
 
 type Mensaje = { rol: 'usuario' | 'somelier'; texto: string };
 
@@ -117,9 +118,10 @@ export function ChatSommelier() {
         <input
           value={texto}
           onChange={(e) => setTexto(e.target.value)}
-          placeholder="Preguntale al somelier…"
+          placeholder="Preguntale al somelier… o hablá 🎤"
           className="flex-1 rounded-full border border-black/15 px-4 py-2.5 text-sm text-black outline-none focus:border-[#B82D25]"
         />
+        <BotonMicrofono onTexto={setTexto} titulo="Hablarle al somelier" />
         <button
           type="submit"
           disabled={pensando || !texto.trim()}

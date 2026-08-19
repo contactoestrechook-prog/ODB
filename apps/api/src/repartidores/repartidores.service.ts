@@ -165,7 +165,7 @@ export class RepartidoresService {
   async autorizacion(pedidoId: string) {
     const { data: pedido, error } = await this.db
       .from('pedidos')
-      .select('id, destino_direccion, repartidor:usuarios!pedidos_repartidor_id_fkey(nombre, dni, telefono), vehiculo:vehiculos(*)')
+      .select('id, destino_direccion, notas, repartidor:usuarios!pedidos_repartidor_id_fkey(nombre, dni, telefono), vehiculo:vehiculos(*)')
       .eq('id', pedidoId)
       .maybeSingle();
     if (error) throw new BadRequestException(error.message);
@@ -193,6 +193,7 @@ export class RepartidoresService {
       partes.push('Vehículo: (sin asignar)');
     }
     if ((pedido as any).destino_direccion) partes.push('', `Destino: ${(pedido as any).destino_direccion}`);
+    if ((pedido as any).notas) partes.push(`Indicaciones: ${(pedido as any).notas}`);
 
     return {
       texto: partes.join('\n'),

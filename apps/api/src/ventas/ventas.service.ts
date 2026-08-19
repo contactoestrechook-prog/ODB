@@ -364,7 +364,7 @@ export class VentasService {
   async clientePorDni(dni: string) {
     const { data: cliente, error } = await this.db
       .from('clientes')
-      .select('id, dni, nombre, tipo, puntos, verificado')
+      .select('id, dni, nombre, tipo, puntos, verificado, telefono, acepta_marketing')
       .eq('dni', dni.trim())
       .maybeSingle();
     if (error) throw new BadRequestException(error.message);
@@ -380,9 +380,46 @@ export class VentasService {
     return {
       existe: true,
       ...cliente,
+      aceptaMarketing: cliente.acepta_marketing === true,
       compras,
       ticketPromedio: compras ? Math.round(gastado / compras) : 0,
     };
+  }
+
+  // Alta del contacto de WhatsApp desde la caja. Es lo único que el cajero puede
+  // tocar del cliente: teléfono y consentimiento, nada fiscal ni de crédito.
+  // Sin este dato no hay a quién difundir: la lista se construye acá, cliente
+  // por cliente, en el momento en que la persona está enfrente.
+  async sumarContactoWhatsapp(dni: string, dto: { telefono?: string; acepta: boolean }, usuarioId?: string) {
+    const doc = String(dni ?? '').trim();
+    if (!doc) throw new BadRequestException('Falta el DNI del cliente');
+
+    const telefono = String(dto.telefono ?? '').replace(/\D/g, '');
+    if (telefono && telefono.length < 10) {
+      throw new BadRequestException('El teléfono tiene que tener al menos 10 dígitos (con característica, sin 0 ni 15)');
+    }
+
+    const { data: cliente } = await this.db.from('clientes').select('id').eq('dni', doc).maybeSingle();
+    if (!cliente) throw new BadRequestException('Primero registrá al cliente en la venta');
+
+    const cambios: Record<string, any> = { acepta_marketing: dto.acepta };
+    if (telefono) cambios.telefono = telefono;
+    // el opt-out queda fechado: es la prueba de que se respetó la baja
+    cambios.marketing_optout_en = dto.acepta ? null : new Date().toISOString();
+    if (dto.acepta) cambios.consentimiento_datos = new Date().toISOString();
+
+    const { error } = await this.db.from('clientes').update(cambios).eq('id', cliente.id);
+    if (error) throw new BadRequestException(error.message);
+
+    await this.db.from('auditoria').insert({
+      usuario_id: usuarioId ?? null,
+      accion: dto.acepta ? 'alta_contacto_whatsapp' : 'baja_contacto_whatsapp',
+      entidad: 'clientes',
+      entidad_id: cliente.id,
+      datos_despues: { telefono: telefono || undefined, acepta: dto.acepta },
+    });
+
+    return { ok: true, telefono: telefono || undefined, aceptaMarketing: dto.acepta };
   }
 
   private async productoIdPorSku(sku: string): Promise<string> {

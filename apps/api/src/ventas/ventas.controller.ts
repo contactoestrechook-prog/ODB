@@ -60,6 +60,14 @@ export class VentasController {
     return this.ventas.clientePorDni(dni);
   }
 
+  // El cajero suma el WhatsApp del cliente y su consentimiento en el momento de
+  // cobrar. Es el único camino para construir la lista de difusión con permiso.
+  @Roles('cajero', 'gerente', 'dueno')
+  @Post('cliente/:dni/whatsapp')
+  sumarWhatsapp(@Param('dni') dni: string, @Body() dto: { telefono?: string; acepta: boolean }, @Req() req: any) {
+    return this.ventas.sumarContactoWhatsapp(dni, dto, req.usuario?.sub);
+  }
+
   // Anular es sensible: solo gerencia, queda auditado y emite nota de crédito
   @Roles('gerente', 'dueno')
   @Post(':id/anular')

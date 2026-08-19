@@ -1,0 +1,15 @@
+# Lo que NO tiene sentido subir en cada deploy (el tarball pasaba de 100 MB
+# por los videos de los reels y el upload moría por timeout).
+docs/
+brand/
+*.mp4
+*.mov
+*.xls
+*.xlsx
+*.psd
+*.ai
+apps/mobile/
+# otro producto: no va en el deploy de ODB
+apps/gastro-admin/
+apps/gastro-api/
+apps/gastro-web/

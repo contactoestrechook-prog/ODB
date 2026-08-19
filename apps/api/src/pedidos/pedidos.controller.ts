@@ -11,6 +11,12 @@ import { LimitadorTasa } from '../comun/limitador';
 // para bloquear stock de productos ajenos. Tope bajo por IP.
 const limitadorPedidosApp = new LimitadorTasa(Number(process.env.ODB_APP_PEDIDOS_HORA ?? 6), 3_600_000);
 
+// Medios aceptados al entregar un pedido. Cuenta corriente queda afuera a
+// propósito: exige validar el límite del cliente y generar la deuda, y eso vive
+// en el circuito de ventas. Si entrara por acá, la mercadería saldría del local
+// sin plata y sin deuda registrada.
+const MEDIOS_ENTREGA = ['efectivo', 'tarjeta', 'transferencia'];
+
 @Controller()
 export class PedidosController {
   constructor(
@@ -206,8 +212,12 @@ export class PedidosController {
 
   @Roles('deposito', 'cajero', 'gerente', 'dueno', 'repartidor')
   @Post('pedidos/:id/avanzar')
-  avanzar(@Param('id') id: string, @Body() body: { estado: string }, @Req() req: any) {
-    return this.pedidos.avanzar(id, body.estado, req.usuario?.sub);
+  avanzar(@Param('id') id: string, @Body() body: { estado: string; medioPago?: string }, @Req() req: any) {
+    const medio = body.medioPago?.trim();
+    if (medio && !MEDIOS_ENTREGA.includes(medio)) {
+      throw new BadRequestException(`Medio de pago inválido: usá ${MEDIOS_ENTREGA.join(', ')}`);
+    }
+    return this.pedidos.avanzar(id, body.estado, req.usuario?.sub, medio);
   }
 
   @Roles('deposito', 'cajero', 'gerente', 'dueno')

@@ -4,6 +4,7 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
 import { SUPABASE } from '../supabase.provider';
 import { AnalistaService } from '../analista/analista.service';
+import { TONO_ODB } from '../comun/tono-odb';
 
 const TZ = 'America/Argentina/Buenos_Aires';
 
@@ -188,7 +189,7 @@ export class InformesService {
     const respuesta = await claude.messages.create({
       model: 'claude-opus-4-8',
       max_tokens: 1000,
-      system: `Sos el Analista ODB y escribís el parte matutino para el dueño de O.D.B Premium Market (outlet de bebidas, 2 sucursales, Argentina). Español rioplatense, texto plano sin markdown, máximo 150 palabras. Estructura: 1) cómo vino la venta de ayer (comparada con el promedio), 2) lo más urgente de hoy (quiebres, vencimientos), 3) una recomendación concreta. Trabajás SOLO con los números del JSON: no inventes nada. Montos en pesos argentinos redondeados (ej: $12,4M).`,
+      system: `Sos el Analista ODB y escribís el parte matutino para el dueño de O.D.B Premium Market (outlet de bebidas, 2 sucursales, Argentina). Español rioplatense, texto plano sin markdown, máximo 150 palabras. Estructura: 1) cómo vino la venta de ayer (comparada con el promedio), 2) lo más urgente de hoy (quiebres, vencimientos), 3) una recomendación concreta. Trabajás SOLO con los números del JSON: no inventes nada. Montos en pesos argentinos redondeados (ej: $12,4M). ${TONO_ODB}`,
       messages: [
         {
           role: 'user',

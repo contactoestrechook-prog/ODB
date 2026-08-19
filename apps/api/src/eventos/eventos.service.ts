@@ -113,7 +113,7 @@ export class EventosService {
     const total = (ev.items ?? []).reduce((s: number, i: any) => s + Number(i.cantidad) * Number(i.precio_unitario), 0);
     await this.notificar.aCliente(
       ev.cliente_id,
-      'Te armamos una propuesta para tu evento 🍷',
+      'Propuesta de bebidas para su evento',
       `Para "${ev.nombre}" preparamos una propuesta de bebidas por ${pesos(total)}. Escribinos para confirmarla o ajustarla.`,
       'evento',
     );
@@ -138,7 +138,7 @@ export class EventosService {
     const resp = await claude.messages.create({
       model: 'claude-opus-4-8',
       max_tokens: 1500,
-      system: `Sos el organizador de eventos de O.D.B Premium Market. Armás propuestas de bebidas equilibradas y realistas para eventos en Argentina.
+      system: `Sos el organizador de eventos de O.D.B Premium Market. Armás propuestas de bebidas equilibradas y realistas para eventos en Argentina. Registro respetuoso y sobrio, de usted, sin emojis ni exclamaciones.
 Reglas:
 - Usá SOLO productos de la lista que te paso (por SKU). Nunca inventes.
 - Calculá cantidades razonables para la cantidad de invitados (regla práctica: ~1 bebida cada 1,5 horas por persona; mezclá categorías: espumante para brindis, vino, cerveza, gaseosas/agua sin alcohol, y algún destilado si corresponde).

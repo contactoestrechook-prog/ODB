@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { BotonMicrofono } from './BotonMicrofono';
 
 type Turno = { de: 'cliente' | 'bot'; texto: string; hora: string };
 
@@ -145,10 +146,11 @@ export default function BotSimulador() {
             value={texto}
             onChange={(e) => setTexto(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && enviar()}
-            placeholder="Escribí un mensaje"
+            placeholder="Escribí un mensaje o hablá 🎤"
             autoFocus
             className="flex-1 rounded-full border border-black/10 bg-white px-4 py-2.5 text-[15px] outline-none"
           />
+          <BotonMicrofono onTexto={setTexto} titulo="Hablar" />
           <button
             onClick={enviar}
             disabled={pensando || !texto.trim()}

@@ -2,25 +2,29 @@ import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
 import { SUPABASE } from '../supabase.provider';
+import { TONO_ODB } from '../comun/tono-odb';
 
 export type MensajeChat = { rol: 'usuario' | 'somelier'; texto: string };
 
-const PERSONALIDAD = `Sos el Somelier ODB, el sommelier virtual de O.D.B Premium Market, un outlet de bebidas argentino. Hablás en español rioplatense, cercano y sin esnobismo: explicás el vino como un amigo que sabe, no como una cata académica.
+const PERSONALIDAD = `Sos el Somelier ODB, el sommelier virtual de O.D.B Premium Market, un outlet de bebidas argentino. Hablás en español rioplatense, claro y sin esnobismo: explicás el vino con precisión y respeto, sin cata académica y sin familiaridad.
 
 Cómo conversás (IMPORTANTE):
 - NO recomiendes vino de entrada. Primero entendé qué necesita la persona. Un buen sommelier pregunta antes de sugerir.
-- Al arrancar, o cuando el pedido es vago ("quiero un vino", "algo rico", "hola"), hacé 1 o 2 preguntas cortas y cálidas para orientarte: ¿para qué ocasión / con qué comida?, ¿qué estilo te gusta (tinto/blanco/espumante, más suave o con cuerpo)?, ¿en qué presupuesto por botella pensás? Preguntá lo que falte, no lo que ya te dijeron.
+- Al arrancar, o cuando el pedido es vago ("quiero un vino", "algo rico", "hola"), hacé 1 o 2 preguntas cortas y corteses para orientarte: ¿para qué ocasión / con qué comida?, ¿qué estilo te gusta (tinto/blanco/espumante, más suave o con cuerpo)?, ¿en qué presupuesto por botella pensás? Preguntá lo que falte, no lo que ya te dijeron.
 - Recién recomendá cuando tengas al menos la ocasión o el gusto Y una idea del presupuesto. Si la persona ya te dio todo eso en su mensaje, no la hagas repetir: recomendá directo.
 - Si la persona pide explícitamente que le recomendes ya o dice "lo que sea / me da igual", ahí sí sugerí sin más vueltas (guiándote por lo poco que tengas).
 
 Reglas estrictas:
 - Solo recomendás vinos y espumantes de la cava de ODB que figura abajo, con stock disponible. Jamás inventes etiquetas ni menciones vinos que no estén en la lista.
+- CRÍTICO — el tipo de cada botella es el que figura ENTRE PARÉNTESIS en la cava (su categoría real), nunca lo que te sugiera el nombre de fantasía. Jamás llames "champagne" o "espumante" a algo cuya categoría diga "Vino Tinto"/"Vino Blanco"/"Vino Rosado", ni al revés. Si vas a decir tinto/blanco/rosado/espumante/champagne, verificá la categoría entre paréntesis antes de escribirlo. Confundir esto es el peor error que podés cometer: arruina la confianza del cliente.
 - Cuando recomendás: mencioná siempre el precio (y si tiene promo, destacala), de a 2 o 3 opciones máximo, con una línea de por qué cada una (maridaje, ocasión, estilo).
 - Si piden algo que no hay en la cava, decilo con honestidad y ofrecé la alternativa más parecida.
 - Si el presupuesto es ajustado, nunca hagas sentir mal al cliente: el mejor vino es el que se disfruta.
 - Respuestas cortas: máximo 100 palabras. Cuando preguntás, todavía más breve (1-2 líneas). Sin vocabulario rebuscado.
-- Texto plano: nada de markdown, asteriscos ni negritas. Un emoji de copa por vino está bien.
-- Venta de alcohol solo a mayores de 18. Si hay señales de minoría de edad, no recomiendes y sugerí opciones sin alcohol.`;
+- Texto plano: nada de markdown, asteriscos ni negritas. Sin emojis.
+- Venta de alcohol solo a mayores de 18. Si hay señales de minoría de edad, no recomiendes y sugerí opciones sin alcohol.
+
+${TONO_ODB}`;
 
 const GUIA_SIN_HISTORIAL = `CLIENTE SIN HISTORIAL: todavía no sabés qué le gusta ni cuánto gasta. Con más razón: preguntá antes de recomendar (ocasión/comida, estilo y presupuesto por botella), salvo que ya te lo haya dicho o te pida que recomendes directo.`;
 
@@ -47,7 +51,7 @@ export class SommelierService {
       system: [
         {
           type: 'text',
-          text: `${PERSONALIDAD}\n\nCava de ODB disponible ahora (sku · etiqueta · precio final · stock):\n${cava}`,
+          text: `${PERSONALIDAD}\n\nCava de ODB disponible ahora (sku · etiqueta (TIPO REAL entre paréntesis) · precio final · stock · descripción si hay):\n${cava}`,
           // la cava cambia poco entre mensajes de una charla: cacheable
           cache_control: { type: 'ephemeral' },
         },
@@ -111,7 +115,7 @@ export class SommelierService {
     // el catálogo real divide los vinos en muchos rubros: matchea por prefijo
     const { data, error } = await this.db
       .from('productos')
-      .select('id, sku, nombre, categoria:categorias!inner(nombre), stock(cantidad)')
+      .select('id, sku, nombre, descripcion, categoria:categorias!inner(nombre), stock(cantidad)')
       .eq('activo', true)
       .or('nombre.ilike.vino%,nombre.ilike.espumante%,nombre.ilike.champagne%', {
         referencedTable: 'categoria',
@@ -139,7 +143,12 @@ export class SommelierService {
         const promo = pr?.descuento_nombre
           ? ` · PROMO "${pr.descuento_nombre}" (antes $${Math.round(pr.precio_lista)})`
           : '';
-        return `${p.sku} · ${p.nombre} · $${Math.round(pr?.precio_final ?? 0)}${promo} · stock ${Math.round(stockTotal)}`;
+        // la categoría entre paréntesis es la ÚNICA fuente de verdad del tipo de
+        // bebida (tinto/blanco/rosado/espumante/champagne) — el nombre de fantasía
+        // no alcanza para saberlo con certeza. La descripción (si hay) suma matiz.
+        const cat = p.categoria?.nombre ? ` (${p.categoria.nombre})` : '';
+        const desc = p.descripcion ? ` — ${p.descripcion}` : '';
+        return `${p.sku} · ${p.nombre}${cat} · $${Math.round(pr?.precio_final ?? 0)}${promo} · stock ${Math.round(stockTotal)}${desc}`;
       })
       .join('\n');
   }

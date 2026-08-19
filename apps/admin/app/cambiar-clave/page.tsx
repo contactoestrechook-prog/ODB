@@ -1,10 +1,21 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 export default function CambiarClave() {
   const [error, setError] = useState<string | null>(null);
   const [cargando, setCargando] = useState(false);
+  const [ver, setVer] = useState(false);
+  const [email, setEmail] = useState('');
+
+  // email del login (cookie legible): va como campo username del formulario.
+  // Sin él, el gestor de contraseñas del navegador no sabe qué credencial
+  // actualizar, se queda con la clave vieja guardada y la autocompleta en el
+  // próximo login → "clave incorrecta" sin que el usuario entienda por qué.
+  useEffect(() => {
+    const m = document.cookie.match(/(?:^|;\s*)odb_usuario=([^;]*)/);
+    if (m) setEmail(decodeURIComponent(m[1]));
+  }, []);
 
   async function enviar(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -51,14 +62,24 @@ export default function CambiarClave() {
           Por seguridad, elegí una clave nueva que solo vos sepas.
         </p>
 
+        {/* username oculto: imprescindible para que el navegador asocie la clave
+            nueva a esta cuenta y actualice la guardada (si falta, autocompleta
+            la vieja en el próximo login) */}
+        <input name="email" type="email" value={email} readOnly autoComplete="username" className="hidden" tabIndex={-1} aria-hidden="true" />
+
         <label className="block text-xs text-black/60 mb-1">Clave actual</label>
-        <input name="actual" type="password" required autoComplete="current-password" className={`${inputCls} mb-4`} />
+        <input name="actual" type={ver ? 'text' : 'password'} required autoComplete="current-password" className={`${inputCls} mb-4`} />
 
         <label className="block text-xs text-black/60 mb-1">Clave nueva</label>
-        <input name="nueva" type="password" required minLength={6} autoComplete="new-password" className={`${inputCls} mb-4`} placeholder="Mínimo 6 caracteres" />
+        <input name="nueva" type={ver ? 'text' : 'password'} required minLength={6} autoComplete="new-password" className={`${inputCls} mb-4`} placeholder="Mínimo 6 caracteres" />
 
         <label className="block text-xs text-black/60 mb-1">Repetir clave nueva</label>
-        <input name="repetir" type="password" required autoComplete="new-password" className={`${inputCls} mb-6`} />
+        <input name="repetir" type={ver ? 'text' : 'password'} required autoComplete="new-password" className={`${inputCls} mb-3`} />
+
+        <label className="flex items-center gap-2 text-xs text-black/60 mb-6 cursor-pointer">
+          <input type="checkbox" checked={ver} onChange={(e) => setVer(e.target.checked)} className="accent-[#B82D25]" />
+          Mostrar las claves mientras escribo
+        </label>
 
         {error && <p className="mb-4 text-sm text-[#932A1F]">{error}</p>}
 

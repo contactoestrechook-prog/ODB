@@ -328,7 +328,7 @@ export function MercadoPagoWorkspace({ estado, resumen: resumenInicial, pagos: p
                           ? <span className="rounded-full bg-emerald-100 text-emerald-800 px-2 py-0.5 text-[11px]">liberado</span>
                           : <span className="rounded-full bg-amber-100 text-amber-800 px-2 py-0.5 text-[11px]">{fecha(p.liberacion_en)}</span>}
                       </td>
-                      <td className="px-4 py-2.5 text-center text-xs">{p.venta_id ? <span className="text-emerald-600">✓</span> : <span className="text-black/20">—</span>}</td>
+                      <td className="px-4 py-2.5 text-center text-xs">{p.venta_id ? <span className="text-emerald-600">✓</span> : <span className="text-black/40">—</span>}</td>
                     </tr>
                   );
                 })}

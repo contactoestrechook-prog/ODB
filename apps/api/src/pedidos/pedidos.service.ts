@@ -3,7 +3,7 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
 import { SUPABASE } from '../supabase.provider';
 import { NotificarService } from '../mensajes/notificar.service';
-import { transicionValida, liberaReserva } from './transiciones';
+import { transicionValida } from './transiciones';
 import { verificarFirmaMercadoPago } from '../comun/firmas';
 import { fetchConTimeout } from '../comun/http';
 
@@ -373,7 +373,7 @@ export class PedidosService {
   async misEntregas(repartidorId: string) {
     const { data } = await this.db
       .from('pedidos')
-      .select('id, estado, total, destino_direccion, destino_lat, destino_lng, qr_retiro, creado_en, cliente:clientes(nombre, dni)')
+      .select('id, estado, total, destino_direccion, destino_lat, destino_lng, notas, qr_retiro, creado_en, cliente:clientes(nombre, dni)')
       .eq('canal', 'domicilio')
       .eq('repartidor_id', repartidorId)
       .in('estado', ['listo', 'en_camino'])
@@ -385,7 +385,7 @@ export class PedidosService {
   async enviosDomicilio() {
     const { data } = await this.db
       .from('pedidos')
-      .select('id, estado, total, destino_direccion, destino_lat, destino_lng, repartidor_id, repartidor_lat, repartidor_lng, repartidor_en, qr_retiro, creado_en, cliente:clientes(nombre, dni)')
+      .select('id, estado, total, destino_direccion, destino_lat, destino_lng, notas, repartidor_id, repartidor_lat, repartidor_lng, repartidor_en, qr_retiro, creado_en, cliente:clientes(nombre, dni)')
       .eq('canal', 'domicilio')
       .in('estado', ['recibido', 'pagado', 'en_preparacion', 'listo', 'en_camino'])
       .order('creado_en');
@@ -464,6 +464,9 @@ export class PedidosService {
       });
       const pay: any = await r.json();
       if (pay?.status === 'approved' && pay?.external_reference) {
+        // marca durable del pago: aunque el pedido ya haya avanzado de estado,
+        // pagado_en le dice a entregar_pedido que el cobro real fue por MP
+        await this.db.from('pedidos').update({ pagado_en: new Date().toISOString() }).eq('id', pay.external_reference);
         await this.db.from('pedidos').update({ estado: 'pagado' }).eq('id', pay.external_reference).eq('estado', 'recibido');
       }
     } catch {
@@ -542,7 +545,7 @@ export class PedidosService {
   }
 
   // --- Avance de estados (al entregar: libera reserva y registra la venta) ---
-  async avanzar(pedidoId: string, estado: string, usuarioId?: string) {
+  async avanzar(pedidoId: string, estado: string, usuarioId?: string, medioPago?: string) {
     const { data: pedido, error } = await this.db
       .from('pedidos')
       .select('*, items:pedidos_items(producto_id, cantidad, producto:productos(nombre)), cliente:clientes(dni, nombre, telefono, tipo, verificado)')
@@ -562,32 +565,26 @@ export class PedidosService {
       const { data, error: errEntregar } = await this.db.rpc('entregar_pedido', {
         p_pedido: pedidoId,
         p_usuario: usuarioId ?? null,
+        // medio REAL del cobro (efectivo/tarjeta al retirar); la RPC lo pisa con
+        // 'mercadopago'/'pedidosya' cuando el pago vino por esos canales
+        p_medio: medioPago ?? null,
       });
       if (errEntregar) throw new BadRequestException(errEntregar.message);
       venta = (data as any)?.venta ?? data;
+    } else if (estado === 'cancelado') {
+      // CANCELAR también toca stock (libera la reserva): misma receta que la
+      // entrega — RPC con lock de fila e idempotente, así dos cancelaciones
+      // concurrentes no liberan la reserva dos veces.
+      const { error: errCancelar } = await this.db.rpc('cancelar_pedido', {
+        p_pedido: pedidoId,
+        p_usuario: usuarioId ?? null,
+      });
+      if (errCancelar) throw new BadRequestException(errCancelar.message);
     } else {
-      // Resto de los estados: cambio simple + (si es terminal) liberación de
-      // reserva. 'cancelado' no genera venta, así que no necesita la RPC.
-      if (liberaReserva(estado) && pedido.reserva_stock) {
-        for (const item of pedido.items as any[]) {
-          const { error: errMov } = await this.db.rpc('registrar_movimiento', {
-            p_producto_id: item.producto_id,
-            p_sucursal_id: pedido.sucursal_id,
-            p_tipo: 'liberacion_reserva',
-            p_cantidad: Number(item.cantidad),
-            p_referencia_tipo: 'pedido',
-            p_referencia_id: pedidoId,
-            p_usuario_id: usuarioId ?? null,
-          });
-          if (errMov) throw new BadRequestException(errMov.message);
-        }
-      }
-      if (liberaReserva(estado)) {
-        await this.db.rpc('liberar_estacionamiento', { p_pedido: pedidoId });
-      }
-
+      // Estados intermedios (no tocan stock): update condicionado al estado leído,
+      // así dos avances concurrentes no pisan la máquina de estados.
       const ahora = new Date().toISOString();
-      const { error: errUpdate } = await this.db
+      const { data: filas, error: errUpdate } = await this.db
         .from('pedidos')
         .update({
           estado,
@@ -597,8 +594,11 @@ export class PedidosService {
           listo_en: estado === 'listo' ? ahora : pedido.listo_en,
           en_camino_en: estado === 'en_camino' ? ahora : pedido.en_camino_en,
         })
-        .eq('id', pedidoId);
+        .eq('id', pedidoId)
+        .eq('estado', pedido.estado)
+        .select('id');
       if (errUpdate) throw new BadRequestException(errUpdate.message);
+      if (!filas?.length) throw new BadRequestException('El pedido cambió de estado mientras tanto: actualizá la pantalla');
     }
 
     // aviso al cliente por WhatsApp (lo envía n8n; acá solo se dispara el evento)
@@ -616,9 +616,9 @@ export class PedidosService {
     const telefono = pedido.cliente?.telefono;
     // solo estados que le importan al cliente y solo si tenemos su teléfono
     const avisables: Record<string, string> = {
-      listo: `¡Tu pedido de O.D.B está LISTO para retirar! 🎉${pedido.qr_retiro ? ` Código: ${pedido.qr_retiro}.` : ''} Te esperamos en Suc Sant Thomas.`,
-      en_camino: '🛵 ¡Tu pedido de O.D.B salió y está en camino a tu domicilio!',
-      entregado: '✅ Tu pedido de O.D.B fue entregado. ¡Gracias por tu compra! 🍷',
+      listo: `Su pedido de O.D.B está listo para retirar.${pedido.qr_retiro ? ` Código: ${pedido.qr_retiro}.` : ''} Lo esperamos en Suc Sant Thomas.`,
+      en_camino: 'Su pedido de O.D.B salió y está en camino a su domicilio.',
+      entregado: 'Su pedido de O.D.B fue entregado. Gracias por su compra.',
     };
     if (!url || !telefono || !avisables[estado]) return;
 

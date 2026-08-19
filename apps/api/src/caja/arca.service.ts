@@ -97,7 +97,7 @@ export class ArcaService {
     }
     const { data: cola, error } = await this.db
       .from('comprobantes_arca')
-      .select('id, venta_id, tipo, punto_venta, estado, venta:ventas!inner(sucursal:sucursales(arca_emisor))')
+      .select('id, venta_id, tipo, punto_venta, estado, monto, venta:ventas!inner(sucursal:sucursales(arca_emisor))')
       .in('estado', ['pendiente', 'error'])
       .order('creado_en')
       .limit(50);
@@ -170,7 +170,11 @@ export class ArcaService {
       .eq('venta_id', c.venta_id);
     if (!items?.length) throw new Error('La venta no tiene renglones');
 
-    const total = Math.round(Number(venta.total) * 100) / 100;
+    // NC/ND parciales llevan su propio monto en la cola; sin monto (facturas y
+    // comprobantes viejos) se emite por el total de la venta, como siempre.
+    const esNota = ['NCA', 'NCB', 'NDA', 'NDB'].includes(c.tipo);
+    const base = esNota && c.monto != null ? Number(c.monto) : Number(venta.total);
+    const total = Math.round(base * 100) / 100;
     if (total <= 0) throw new Error('Total en cero: no se factura');
 
     const { impNeto, impIva, partes } = this.desglosarIva(items as any[], total);

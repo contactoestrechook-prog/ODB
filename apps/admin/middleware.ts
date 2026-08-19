@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { landingDe, puedeVer, rolDesdeToken } from './app/lib/permisos';
 
 export function middleware(req: NextRequest) {
   const token = req.cookies.get('odb_token');
@@ -15,9 +16,18 @@ export function middleware(req: NextRequest) {
   if (token && debeCambiar && pathname !== '/cambiar-clave') {
     return NextResponse.redirect(new URL('/cambiar-clave', req.url));
   }
+  // roles restringidos (backoffice): fuera de sus pantallas, a su inicio
+  if (token) {
+    const rol = rolDesdeToken(token.value);
+    if (!puedeVer(rol, pathname)) {
+      return NextResponse.redirect(new URL(landingDe(rol), req.url));
+    }
+  }
   return NextResponse.next();
 }
 
 export const config = {
-  matcher: ['/((?!_next|favicon.ico|api/|.*\\.(?:png|jpg|jpeg|svg|gif|webp|ico)$).*)'],
+  // webmanifest: el navegador lo pide (a veces sin cookies) para ofrecer
+  // instalar la app; si el middleware lo redirige a /login, no se puede instalar
+  matcher: ['/((?!_next|favicon.ico|api/|.*\\.(?:png|jpg|jpeg|svg|gif|webp|ico|webmanifest)$).*)'],
 };

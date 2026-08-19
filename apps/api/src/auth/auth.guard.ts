@@ -9,6 +9,11 @@ import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
 import { ES_PUBLICO, ROLES } from './decorators';
 
+// qué roles "hereda" cada rol compuesto (además de sí mismo)
+export const ROLES_IMPLICADOS: Record<string, string[]> = {
+  administrativo: ['administrativo', 'comprador', 'deposito'],
+};
+
 @Injectable()
 export class AuthGuard implements CanActivate {
   constructor(
@@ -37,7 +42,12 @@ export class AuthGuard implements CanActivate {
       ctx.getHandler(),
       ctx.getClass(),
     ]);
-    if (roles?.length && !roles.includes(req.usuario.rol)) {
+    // Roles compuestos: "administrativo" (backoffice) puede todo lo que pueden
+    // comprador Y depósito — cargar facturas y remitos, recibir mercadería,
+    // órdenes de compra, proveedores — y nada más (ni caja, ni ventas, ni
+    // dirección). Así no hace falta tocar cada @Roles del sistema.
+    const rolesEfectivos = ROLES_IMPLICADOS[req.usuario.rol] ?? [req.usuario.rol];
+    if (roles?.length && !roles.some((r) => rolesEfectivos.includes(r))) {
       throw new ForbiddenException(
         `Esta acción requiere rol ${roles.join(' o ')} (tu rol: ${req.usuario.rol})`,
       );

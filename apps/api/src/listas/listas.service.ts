@@ -13,8 +13,10 @@ type Match = {
   nombre: string;
   costoActual: number | null;
   variacionPct: number | null;
-  metodo: 'codigo_proveedor' | 'codigo_barras' | 'similitud' | 'alias';
+  metodo: 'codigo_proveedor' | 'codigo_barras' | 'similitud' | 'alias' | 'ia';
   margenPct: number | null; // remarcación guardada de la última compra (si hay)
+  sugerido?: boolean; // propuesto por la IA: el operador tiene que confirmar ("¿es este?")
+  motivo?: string; // por qué la IA cree que es ese producto
 } | null;
 
 // Normaliza un texto de renglón para usarlo como alias estable (sin tildes,
@@ -68,29 +70,99 @@ const ESQUEMA_COMPROBANTE = {
           codigo: { type: ['string', 'null'], description: 'Código del artículo del proveedor' },
           descripcion: { type: 'string' },
           cantidad: { type: 'number' },
-          precio: { type: 'number', description: 'Precio unitario tal como figura (neto si la factura discrimina IVA)' },
+          precio: { type: 'number', description: 'Importe unitario de la columna PRE.UNIT tal cual impreso. NO uses PRE.VTA.PUBLICO (PVP) ni la columna IMPORTE. La relación con neto/IVA/total se resuelve en el pie; NO asumas que es neto+21% (en cigarrillos el precio ya trae impuestos internos y percepción IIBB embebidos).' },
         },
         required: ['codigo', 'descripcion', 'cantidad', 'precio'],
+        additionalProperties: false,
+      },
+    },
+    // Transcripción CRUDA del pie, antes de mapear (defensa contra permutación).
+    pieLiteral: {
+      type: 'array',
+      description: 'Transcripción CRUDA del pie, etiqueta por etiqueta, en el orden del papel, SIN interpretar. Marcá eco=true si una etiqueta repite el MISMO valor que otra ya listada (ej IMPUESTOS = SUB TOTAL).',
+      items: {
+        type: 'object',
+        properties: {
+          etiqueta: { type: 'string' },
+          valor: { type: 'number' },
+          eco: { type: 'boolean' },
+        },
+        required: ['etiqueta', 'valor', 'eco'],
         additionalProperties: false,
       },
     },
     impuestos: {
       type: 'object',
       properties: {
-        neto: { type: ['number', 'null'], description: 'Neto gravado' },
-        iva: { type: ['number', 'null'], description: 'IVA total en pesos' },
-        alicuotaIva: { type: ['number', 'null'], description: 'Alícuota principal (21, 10.5...)' },
-        percepcionIva: { type: ['number', 'null'], description: 'Percepción de IVA (ej RG 5329/3337) en pesos' },
-        percepcionIibb: { type: ['number', 'null'], description: 'Percepción de Ingresos Brutos en pesos' },
-        otros: { type: ['number', 'null'], description: 'Otros impuestos/tasas en pesos' },
-        total: { type: ['number', 'null'], description: 'Total final del comprobante' },
+        neto: { type: ['number', 'null'], description: 'Renglón rotulado SUB TOTAL / NETO / NETO GRAVADO / GRAVADO / IMPORTE NETO. Base del IVA. NO incluye IVA ni percepciones. En cigarrillos/bebidas puede NO coincidir con la suma de renglones (los internos van embebidos en el precio).' },
+        iva: { type: ['number', 'null'], description: 'Renglón IVA discriminado en pesos (I.V.A / IVA INSC. / IVA 21% / IVA 10,5%). Es el crédito fiscal. Tomá el número IMPRESO, NO lo recalcules como 21% del neto. NUNCA una línea PER./PERCEPCIÓN.' },
+        alicuotaIva: { type: 'number', description: 'Solo el % que acompaña a la línea de IVA (21 / 10.5 / 27), o 0 si no figura. Informativo; el costo NO depende de este número.' },
+        percepcionIva: { type: ['number', 'null'], description: 'Renglón PER. DE IVA / PERCEP IVA / RG 5329 / RG 3337. Pago a cuenta de IVA (crédito, no costo).' },
+        percepcionIibb: { type: ['number', 'null'], description: 'Renglón PER. DE IIBB / PERCEP ING BRUTOS / IIBB / ARBA / AGIP / DGR / SIRCREB. Pago a cuenta de IIBB (crédito, no costo). En cigarrillos suele ser el renglón MÁS GRANDE del pie después del total.' },
+        impuestosInternos: { type: ['number', 'null'], description: 'Renglón propio IMP. INTERNOS / IMPUESTO INTERNO / IMPUESTO ADICIONAL DE EMERGENCIA (tabaco). Es COSTO no recuperable. Solo cuando aparece como línea rotulada; si está embebido en el precio (sin línea) va DENTRO de neto y este campo = 0/null.' },
+        otros: { type: ['number', 'null'], description: 'Otros tributos con etiqueta e importe propios que no sean ninguno de los anteriores (sellos, tasas municipales) + el redondeo/DESCUENTO si hace falta para cerrar. NUNCA meter acá el SUB TOTAL, el IVA ni las percepciones.' },
+        total: { type: ['number', 'null'], description: 'Renglón TOTAL / TOTAL CBTE / TOTAL A PAGAR / IMPORTE TOTAL. Ancla de la autoverificación (suele venir también en letras).' },
       },
-      required: ['neto', 'iva', 'alicuotaIva', 'percepcionIva', 'percepcionIibb', 'otros', 'total'],
+      required: ['neto', 'iva', 'alicuotaIva', 'percepcionIva', 'percepcionIibb', 'impuestosInternos', 'otros', 'total'],
+      additionalProperties: false,
+    },
+    // La etiqueta LITERAL que se usó para cada campo del pie (verificación por texto).
+    // Strings no-nullables (usá '' si no hay etiqueta) para no pasar el límite de
+    // campos con unión del structured output.
+    etiquetas: {
+      type: 'object',
+      properties: {
+        neto: { type: 'string', description: 'Etiqueta literal del neto, o "" si no hay' },
+        iva: { type: 'string', description: 'Etiqueta literal del IVA, o ""' },
+        percepcionIva: { type: 'string', description: 'Etiqueta literal de la percepción de IVA, o ""' },
+        percepcionIibb: { type: 'string', description: 'Etiqueta literal de la percepción de IIBB, o ""' },
+        impuestosInternos: { type: 'string', description: 'Etiqueta literal de impuestos internos, o ""' },
+        otros: { type: 'string', description: 'Etiqueta literal de otros, o ""' },
+        total: { type: 'string', description: 'Etiqueta literal del total, o ""' },
+      },
+      required: ['neto', 'iva', 'percepcionIva', 'percepcionIibb', 'impuestosInternos', 'otros', 'total'],
       additionalProperties: false,
     },
     notasManuscritas: { type: ['string', 'null'], description: 'Anotaciones a mano relevantes (ej desglose de sabores/cantidades)' },
+    dudas: {
+      type: 'array',
+      description:
+        'Preguntas para el operador sobre TODO lo que no puedas leer con total seguridad: un número borroso, una cantidad ambigua, letra manuscrita, un código cortado, un total que no cierra con los renglones. NO adivines esos datos: preguntá. Si está todo claro, devolvé un arreglo vacío.',
+      items: {
+        type: 'object',
+        properties: {
+          pregunta: { type: 'string', description: 'La pregunta concreta en español para que la persona la responda mirando el papel (ej "¿La cantidad del renglón 3 dice 12 o 72?")' },
+          referencia: { type: ['string', 'null'], description: 'A qué se refiere: renglón y producto, o el dato del pie (ej "renglón 3: Fernet 750" / "percepción IIBB")' },
+        },
+        required: ['pregunta', 'referencia'],
+        additionalProperties: false,
+      },
+    },
   },
-  required: ['proveedor', 'comprobante', 'items', 'impuestos', 'notasManuscritas'],
+  required: ['proveedor', 'comprobante', 'items', 'pieLiteral', 'impuestos', 'etiquetas', 'notasManuscritas', 'dudas'],
+  additionalProperties: false,
+} as const;
+
+// La IA elige, para cada renglón sin match, cuál de los candidatos del catálogo
+// es el mismo producto (o null si ninguno lo es claramente).
+const ESQUEMA_SUGERENCIAS = {
+  type: 'object',
+  properties: {
+    elecciones: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          indice: { type: 'number', description: 'Índice del renglón tal como se lo pasé' },
+          sku: { type: ['string', 'null'], description: 'SKU del candidato que es el MISMO producto, o null si ninguno lo es con seguridad' },
+          motivo: { type: 'string', description: 'En pocas palabras por qué, para que la persona confirme' },
+        },
+        required: ['indice', 'sku', 'motivo'],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ['elecciones'],
   additionalProperties: false,
 } as const;
 
@@ -213,7 +285,7 @@ export class ListasService {
   // renglones e impuestos; acá se matchea el proveedor (por CUIT) y los productos.
   // Devuelve la propuesta completa para la pantalla de revisión (no escribe nada).
   // acepta un archivo subido (multipart) o un buffer directo (bot de WhatsApp)
-  async analizarComprobanteFoto(archivo: { buffer: Buffer; mimetype: string; originalname?: string }) {
+  async analizarComprobanteFoto(archivo: { buffer: Buffer; mimetype: string; originalname?: string }, aclaraciones?: string) {
     if (!archivo?.buffer) throw new BadRequestException('Falta el archivo');
     if (!process.env.ANTHROPIC_API_KEY) {
       throw new BadRequestException('La lectura por foto necesita ANTHROPIC_API_KEY en apps/api/.env');
@@ -224,6 +296,24 @@ export class ListasService {
     if (!esPdf && !/^image\/(jpeg|png|webp|gif)$/.test(archivo.mimetype)) {
       throw new BadRequestException('Formato no soportado: foto (JPG/PNG) o PDF');
     }
+    // Límite de la IA: 32 MB por PDF. Si se pasa, avisamos claro en vez de un 500.
+    if (esPdf && archivo.buffer.length > 32 * 1024 * 1024) {
+      throw new BadRequestException('El PDF es muy pesado (máx. 32MB). Mandalo comprimido o sacale una foto.');
+    }
+
+    // Guardamos el comprobante original en el bucket privado: cuando se registre
+    // la factura queda vinculado y se puede volver a ver siempre. Best-effort.
+    let archivoUrl: string | null = null;
+    try {
+      const ext = esPdf ? 'pdf' : (archivo.mimetype.split('/')[1] || 'jpg').replace('jpeg', 'jpg');
+      const ruta = `facturas/${new Date().toISOString().slice(0, 7)}/${crypto.randomUUID()}.${ext}`;
+      const { error: errSubida } = await this.db.storage
+        .from('comprobantes')
+        .upload(ruta, archivo.buffer, { contentType: esPdf ? 'application/pdf' : archivo.mimetype });
+      if (!errSubida) archivoUrl = ruta;
+    } catch {
+      /* sin adjunto no se frena la lectura */
+    }
 
     const claude = new Anthropic();
     const contenido: Anthropic.ContentBlockParam[] = [
@@ -233,23 +323,51 @@ export class ListasService {
       {
         type: 'text',
         text:
-          'Este es un comprobante de COMPRA de un almacén (factura de proveedor, remito o ticket, puede ser una foto tomada con el celular). ' +
-          'Extraé todos los datos: emisor con CUIT, tipo y número de comprobante, TODOS los renglones (código, descripción, cantidad, precio unitario tal como figura), ' +
-          'y el desglose de impuestos del pie (neto gravado, IVA y su alícuota, percepciones de IVA tipo RG 5329/3337, percepciones de IIBB, otros, total final). ' +
-          'Si hay anotaciones manuscritas relevantes (desgloses de cantidades, sabores), transcribilas en notasManuscritas. Ignorá el fondo de la foto.',
+          'Este es un comprobante de COMPRA argentino de un almacén (factura A/B/C, remito o ticket; puede ser una foto de celular). El pie de impuestos puede estar denso o desalineado (típico en cigarrillos, bebidas y otros regímenes especiales). Seguí estos pasos EN ORDEN.\n\n' +
+          'PASO 1 — Encabezado y renglones. Extraé emisor + CUIT, tipo/número/fecha/condición de venta y TODOS los renglones: código, descripción (que EMPIECE por la marca cuando se vea), cantidad y precio unitario de la columna PRE.UNIT tal cual figura. NO uses PRE.VTA.PUBLICO ni la columna IMPORTE.\n\n' +
+          'PASO 2 — Transcribí el PIE literal en pieLiteral, ANTES de mapear nada. Leé el pie y listá CADA etiqueta con el número que tiene al lado, exactamente como aparece, sin reordenar y sin interpretar. Ej: "SUB TOTAL = 758055.34", "I.V.A INSC. = 48158.83", "PER. DE IVA = 43075.45", "PER. DE IIBB = 205121.18", "DESCUENTO = -0.58", "TOTAL = 1054410.80". Si una etiqueta repite el MISMO valor que otra ya listada (ej "IMPUESTOS" con el mismo número que "SUB TOTAL"), transcribila igual y marcala eco=true.\n\n' +
+          'PASO 3 — Mapeá cada etiqueta a su campo por el SIGNIFICADO del texto en español, NUNCA por su posición ni por el orden. Guardá en "etiquetas" la etiqueta literal que usaste para cada campo.\n' +
+          '  neto ← SUB TOTAL / NETO / NETO GRAVADO / GRAVADO\n' +
+          '  iva ← I.V.A / IVA INSC. / IVA 21% (el IVA discriminado, crédito fiscal)\n' +
+          '  alicuotaIva ← el % que acompaña al IVA (21 / 10.5 / 27)\n' +
+          '  percepcionIva ← PER. DE IVA / PERCEP IVA / RG 5329 / RG 3337\n' +
+          '  percepcionIibb ← PER. DE IIBB / PERCEP ING BRUTOS / IIBB / ARBA / AGIP / SIRCREB\n' +
+          '  impuestosInternos ← IMP. INTERNOS / IMPUESTO INTERNO / IMPUESTO ADICIONAL DE EMERGENCIA, SOLO si es una línea propia rotulada\n' +
+          '  otros ← cualquier OTRO tributo con etiqueta e importe propios (sellos, tasas) + redondeo/DESCUENTO si hace falta para cerrar\n' +
+          '  total ← TOTAL / TOTAL CBTE / TOTAL A PAGAR\n' +
+          'REGLAS DURAS: "PER."/"PERCEPCIÓN" es SIEMPRE percepción, JAMÁS el IVA discriminado. Una etiqueta = un solo campo. Una etiqueta con eco=true (mismo valor que otra ya mapeada) NO se vuelve a sumar en ningún campo.\n\n' +
+          'PASO 4 — AUTOVERIFICACIÓN OBLIGATORIA. Calculá S = neto + iva + percepcionIva + percepcionIibb + impuestosInternos + otros y compará con total. Si |S − total| ≤ max(1, 0,5% de total): cierra, OK. Si NO cierra: NO inventes. Reasigná los valores de pieLiteral hasta encontrar el mapeo que hace cerrar la identidad (el error más común es cruzar PER. DE IVA con el IVA discriminado, o meter el SUB TOTAL en otros). El TOTAL es tu ancla; leelo con cuidado (viene también en letras). Si tras reintentar sigue sin cerrar, dejá tu mejor lectura y AGREGÁ una duda indicando qué etiqueta del pie no pudiste asignar con seguridad.\n\n' +
+          'PASO 5 — Renglones vs neto (régimen especial). En cigarrillos, bebidas con impuestos internos y similares, la suma de (cantidad × PRE.UNIT) NO tiene por qué coincidir con el neto, y el IVA NO es el 21% del neto (puede ser mucho menor): el precio unitario ya trae impuestos internos y percepción IIBB embebidos. Para estos comprobantes NO fuerces suma(renglones) = neto y NO uses ese descuadre para "corregir" el pie ni para dudar. Preguntá por el descuadre de renglones SOLO si el comprobante claramente NO es de régimen especial (verdulería, limpieza) y la diferencia es grande.\n\n' +
+          'PASO 6 — Dudas. Preguntá por cualquier número borroso, tapado o ambiguo, y por letra manuscrita. Si la identidad del PASO 4 no cerró, es OBLIGATORIO dejar una duda. Si hay anotaciones manuscritas relevantes, transcribilas en notasManuscritas. Es mejor preguntar que cargar un número equivocado.' +
+          (aclaraciones && aclaraciones.trim()
+            ? '\n\nEl operador ya revisó una primera lectura y te aclara lo siguiente (tenelo en cuenta y NO vuelvas a preguntar por esto): ' + aclaraciones.trim()
+            : ''),
       },
     ];
 
-    const respuesta = await claude.messages
-      .stream({
-        model: 'claude-opus-4-8',
-        max_tokens: 16000,
-        output_config: { format: { type: 'json_schema', schema: ESQUEMA_COMPROBANTE as any } },
-        messages: [{ role: 'user', content: contenido }],
-      })
-      .finalMessage();
-    const bloque = respuesta.content.find((b) => b.type === 'text');
-    const datos = JSON.parse(bloque && 'text' in bloque ? bloque.text : '{}');
+    let datos: any;
+    try {
+      const respuesta = await claude.messages
+        .stream({
+          model: 'claude-sonnet-5',
+          max_tokens: 16000,
+          output_config: { format: { type: 'json_schema', schema: ESQUEMA_COMPROBANTE as any } },
+          messages: [{ role: 'user', content: contenido }],
+        })
+        .finalMessage();
+      const bloque = respuesta.content.find((b) => b.type === 'text');
+      datos = JSON.parse(bloque && 'text' in bloque ? bloque.text : '{}');
+    } catch (e: any) {
+      const msg = String(e?.message ?? e);
+      if (/image|too large|dimensions|media_type|invalid.*base64/i.test(msg)) {
+        throw new BadRequestException('No pude leer la imagen: probá con una foto más nítida o el PDF de la factura.');
+      }
+      throw new BadRequestException('La IA no pudo leer el comprobante, probá de nuevo en un momento.');
+    }
+
+    // Validación del pie: anti-permutación (por etiqueta), identidad y régimen
+    // especial. Agrega dudas si algo no cierra; nunca rechaza el comprobante.
+    const regimenEspecial = this.validarPie(datos);
 
     // proveedor: por CUIT exacto (solo dígitos), sino por similitud de nombre
     const cuit = (datos.proveedor?.cuit ?? '').replace(/\D/g, '');
@@ -259,13 +377,22 @@ export class ListasService {
       proveedor = (data ?? []).find((p: any) => (p.cuit ?? '').replace(/\D/g, '') === cuit) ?? null;
     }
     if (!proveedor && datos.proveedor?.nombre) {
-      const { data } = await this.db
-        .from('proveedores')
-        .select('id, razon_social, cuit')
-        .ilike('razon_social', `%${datos.proveedor.nombre.split(/\s+/)[0]}%`)
-        .limit(1)
-        .maybeSingle();
-      proveedor = data ?? null;
+      // Buscamos por la primera palabra DISTINTIVA (no "Distribuidora", "Comercial",
+      // "SRL"…): usar la genérica matcheaba proveedores equivocados.
+      const GENERICAS = new Set(['distribuidora', 'distribuidor', 'comercial', 'mayorista', 'sociedad', 'srl', 'sa', 'sas', 'saci', 'saci', 'industrias', 'industria', 'import', 'export', 'importadora', 'grupo', 'the']);
+      const token = datos.proveedor.nombre
+        .split(/\s+/)
+        .map((w: string) => w.toLowerCase().replace(/[^a-z0-9]/gi, ''))
+        .find((w: string) => w.length >= 4 && !GENERICAS.has(w));
+      if (token) {
+        const { data } = await this.db
+          .from('proveedores')
+          .select('id, razon_social, cuit')
+          .ilike('razon_social', `%${token}%`)
+          .limit(1)
+          .maybeSingle();
+        proveedor = data ?? null;
+      }
     }
 
     // productos: mismo matching que listas/pedidos (código prov → EAN → similitud)
@@ -277,6 +404,29 @@ export class ListasService {
     }));
     const propuesta = proveedor ? await this.matchear(items, proveedor.id) : items.map((i) => ({ ...i, match: null as Match }));
 
+    // Los que no matchearon en firme: la IA razona sobre candidatos del catálogo y
+    // sugiere el más probable para que el operador confirme ("¿es este?").
+    const sinMatch = propuesta.filter((i) => !i.match);
+    if (sinMatch.length) {
+      const sugeridos = await this.sugerirMatchConIA(sinMatch.map((i) => ({ descripcion: i.descripcion, precio: i.precio })));
+      for (const i of propuesta) {
+        if (i.match) continue;
+        const s = sugeridos.get(i.descripcion);
+        if (s) {
+          i.match = {
+            sku: s.sku,
+            nombre: s.nombre,
+            costoActual: s.costo,
+            variacionPct: s.costo ? Math.round(((i.precio - s.costo) / s.costo) * 1000) / 10 : null,
+            metodo: 'ia',
+            margenPct: null,
+            sugerido: true,
+            motivo: s.motivo,
+          };
+        }
+      }
+    }
+
     return {
       proveedor: {
         detectado: datos.proveedor ?? null,
@@ -284,9 +434,13 @@ export class ListasService {
       },
       comprobante: datos.comprobante ?? null,
       impuestos: datos.impuestos ?? null,
+      archivoUrl, // ruta del original en el bucket: viaja con la factura al registrarla
+      regimenEspecial, // true = IVA efectivo fuera de banda (cigarrillos/bebidas): el front no auto-suma IVA
       notasManuscritas: datos.notasManuscritas ?? null,
+      dudas: Array.isArray(datos.dudas) ? datos.dudas : [],
       total: propuesta.length,
-      conMatch: propuesta.filter((i) => i.match).length,
+      conMatch: propuesta.filter((i) => i.match && !i.match.sugerido).length,
+      sugeridos: propuesta.filter((i) => i.match?.sugerido).length,
       items: propuesta,
     };
   }
@@ -584,6 +738,110 @@ export class ListasService {
       resultado.push({ ...item, match });
     }
     return resultado;
+  }
+
+  // Valida el pie de impuestos: mapeo por ETIQUETA (defensa real contra permutación),
+  // identidad neto+iva+percepciones+internos+otros = total, regla de eco, y detección
+  // de régimen especial por alícuota efectiva. Muta datos.impuestos/datos.dudas.
+  // Devuelve true si el comprobante es de régimen especial (IVA fuera de banda).
+  private validarPie(datos: any): boolean {
+    const imp = datos?.impuestos;
+    if (!imp) return false;
+    const etq = datos?.etiquetas ?? {};
+    const dudas: any[] = Array.isArray(datos.dudas) ? datos.dudas : (datos.dudas = []);
+    const norm = (s: any) => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+    const num = (v: any) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
+    const dudar = (pregunta: string) => { if (!dudas.some((d) => d.pregunta === pregunta)) dudas.push({ pregunta, referencia: 'pie de impuestos' }); };
+
+    // regla eco: una etiqueta que repite el valor de otra ya listada no se suma dos
+    // veces; si su valor quedó en "otros", se descuenta.
+    for (const it of (Array.isArray(datos.pieLiteral) ? datos.pieLiteral : [])) {
+      if (it?.eco && imp.otros != null && Math.abs(num(imp.otros) - num(it.valor)) < 0.5) imp.otros = 0;
+    }
+
+    // anti-permutación por etiqueta (chequeo primario)
+    const etIva = norm(etq.iva);
+    const etNeto = norm(etq.neto);
+    const etPIva = norm(etq.percepcionIva);
+    const etPIibb = norm(etq.percepcionIibb);
+    if (imp.iva != null && /per|percep/.test(etIva)) dudar('El IVA quedó tomado de una línea de percepción; verificá el IVA discriminado del pie.');
+    if (imp.neto != null && etNeto && /(per|percep|total)/.test(etNeto) && !/(sub|neto|gravado)/.test(etNeto)) dudar('El neto gravado quedó tomado de una línea que no dice SUB TOTAL / NETO; verificalo.');
+    if (num(imp.percepcionIva) !== 0 && etPIva && !/(per|percep|rg)/.test(etPIva)) dudar('Revisá la percepción de IVA: la etiqueta leída no parece de percepción.');
+    if (num(imp.percepcionIibb) !== 0 && etPIibb && !/(per|percep|iibb|ing|brut|arba|agip|sircreb|dgr)/.test(etPIibb)) dudar('Revisá la percepción de IIBB: la etiqueta leída no parece de percepción.');
+
+    // identidad (chequeo secundario): componentes = total
+    const total = imp.total != null ? num(imp.total) : null;
+    if (total && total > 0) {
+      const S = num(imp.neto) + num(imp.iva) + num(imp.percepcionIva) + num(imp.percepcionIibb) + num(imp.impuestosInternos) + num(imp.otros);
+      if (Math.abs(S - total) > Math.max(1, total * 0.005)) {
+        dudar('La suma del pie (neto + IVA + percepciones + internos + otros) no cierra con el total; revisá los importes.');
+      }
+    }
+
+    // régimen especial: alícuota efectiva de IVA fuera de las bandas usuales
+    const neto = num(imp.neto);
+    const alicEf = neto > 0 && imp.iva != null ? num(imp.iva) / neto : null;
+    const enBanda = alicEf != null && ((alicEf >= 0.095 && alicEf <= 0.115) || (alicEf >= 0.18 && alicEf <= 0.23) || (alicEf >= 0.26 && alicEf <= 0.28));
+    return alicEf != null && !enBanda;
+  }
+
+  // Para los renglones que NO matchearon por código/alias/similitud: la IA razona
+  // sobre una lista de candidatos del catálogo (traídos por similitud de texto) y
+  // sugiere el más probable, para que el operador confirme ("¿es este?"). Devuelve
+  // un mapa descripción→sugerencia. Best-effort: si algo falla, no sugiere nada.
+  private async sugerirMatchConIA(
+    descripciones: { descripcion: string; precio: number }[],
+  ): Promise<Map<string, { sku: string; nombre: string; costo: number | null; motivo: string }>> {
+    const salida = new Map<string, { sku: string; nombre: string; costo: number | null; motivo: string }>();
+    if (!descripciones.length || !process.env.ANTHROPIC_API_KEY) return salida;
+    try {
+      // renglones con el mismo texto piden lo mismo: deduplicamos para no gastar
+      // llamadas al RPC/IA de más (el mapa de salida se llavea por descripción).
+      const unicas = [...new Set(descripciones.map((d) => d.descripcion))];
+      // candidatos por renglón (trigram, hasta 12 cada uno)
+      const conCandidatos = await Promise.all(
+        unicas.map(async (descripcion) => {
+          const { data } = await this.db.rpc('buscar_productos_similares', { p_texto: descripcion, p_limite: 12 });
+          return { descripcion, candidatos: (data ?? []) as any[] };
+        }),
+      );
+      const utiles = conCandidatos.filter((c) => c.candidatos.length > 0);
+      if (!utiles.length) return salida;
+
+      const payload = utiles.map((c, i) => ({
+        indice: i,
+        renglon: c.descripcion,
+        candidatos: c.candidatos.map((p) => ({ sku: p.sku, nombre: p.nombre })),
+      }));
+
+      const claude = new Anthropic();
+      const respuesta = await claude.messages
+        .stream({
+          model: 'claude-sonnet-5',
+          max_tokens: 12000, // comprobante largo con muchos renglones sin match: que no se trunque el JSON
+          output_config: { format: { type: 'json_schema', schema: ESQUEMA_SUGERENCIAS as any } },
+          messages: [{ role: 'user', content: [{ type: 'text', text:
+            'Sos el encargado de compras de un almacén argentino. Para cada renglón de una factura de proveedor te doy una lista de productos CANDIDATOS del catálogo. ' +
+            'Elegí el sku del candidato que sea EXACTAMENTE el mismo producto del renglón (misma marca, variedad y tamaño/gramaje). ' +
+            'Si ninguno es claramente el mismo, devolvé sku null: es peor vincular mal que dejarlo sin vincular, no fuerces. ' +
+            'En "motivo" explicá en pocas palabras por qué, para que la persona lo confirme.\n\nRenglones y candidatos:\n' +
+            JSON.stringify(payload) }] }],
+        })
+        .finalMessage();
+      const bloque = respuesta.content.find((b) => b.type === 'text');
+      const elecciones = JSON.parse(bloque && 'text' in bloque ? bloque.text : '{"elecciones":[]}').elecciones ?? [];
+
+      for (const e of elecciones) {
+        const grupo = utiles[e?.indice];
+        if (e?.sku && grupo) {
+          const cand = grupo.candidatos.find((p) => p.sku === e.sku);
+          if (cand) salida.set(grupo.descripcion, { sku: cand.sku, nombre: cand.nombre, costo: cand.costo != null ? Number(cand.costo) : null, motivo: e.motivo ?? '' });
+        }
+      }
+    } catch {
+      /* best-effort: sin sugerencias de IA, el operador vincula a mano */
+    }
+    return salida;
   }
 
   private mismaMarca(descripcionProveedor: string, nombreProducto: string): boolean {

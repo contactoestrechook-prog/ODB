@@ -3,6 +3,9 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  /* Los controles nativos (select, spinners, date) también en claro, sin importar
+     el tema del SO. Sin esto, en modo oscuro salían con fondo oscuro y texto oscuro. */
+  color-scheme: light;
 }
 
 @theme inline {
@@ -12,16 +15,13 @@
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
+/* El panel es 100% claro (tarjetas blancas, texto negro). NO seguimos el modo
+   oscuro del celular: si lo hacíamos, cualquier texto/input que no fijaba color
+   propio heredaba un gris casi blanco y quedaba invisible sobre fondo blanco
+   (ej. los renglones de IVA de la entrada por foto). Fondo y texto fijos. */
 body {
-  background: var(--background);
-  color: var(--foreground);
+  background: #ffffff;
+  color: #171717;
   font-family: Arial, Helvetica, sans-serif;
 }
 

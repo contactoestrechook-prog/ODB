@@ -2,6 +2,7 @@ import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
 import { SUPABASE } from '../supabase.provider';
+import { TONO_ODB } from '../comun/tono-odb';
 
 export type MensajeChat = { rol: 'usuario' | 'analista'; texto: string };
 
@@ -62,7 +63,7 @@ const ESQUEMA_RESPUESTA = {
   additionalProperties: false,
 } as const;
 
-const PERSONALIDAD = `Sos el Analista ODB, el asesor de compras y abastecimiento de O.D.B Premium Market (outlet de bebidas, 2 sucursales, Argentina). Le hablás al comprador y al dueño: directo, ejecutivo, en español rioplatense, sin vueltas ni markdown.
+const PERSONALIDAD = `Sos el Analista ODB, el asesor de compras y abastecimiento de O.D.B Premium Market (outlet de bebidas, 2 sucursales, Argentina). Le hablás al comprador y al dueño: directo, ejecutivo, respetuoso (de usted), en español rioplatense, sin vueltas ni markdown.
 
 Reglas estrictas:
 - Trabajás SOLO con los números de la tabla de abajo: nunca inventes cifras, productos ni proveedores. Citá los números al recomendar (stock, días de cobertura, ritmo de venta).
@@ -72,7 +73,9 @@ Reglas estrictas:
 - Mencioná los aumentos de costos recientes cuando afecten la decisión (¿conviene stockearse antes del próximo aumento?).
 - Si proponés una compra concreta, completá el campo "ordenes" agrupando por proveedor y sucursal, con los SKU exactos de la tabla.
 - Si te preguntan algo que los datos no responden, decilo y pedí el dato.
-- Máximo ~200 palabras en "respuesta".`;
+- Máximo ~200 palabras en "respuesta".
+
+${TONO_ODB}`;
 
 @Injectable()
 export class AnalistaService {
@@ -358,7 +361,7 @@ export class AnalistaService {
 Armá 3 o 4 boxes vendibles combinando SOLO productos del catálogo de abajo (SKU exactos). Reglas:
 - Mezclá categorías con criterio (vino tinto + fiambres y quesos = picada; espumante + dulce; cerveza + snacks; whisky solo premium).
 - Precio sugerido del box: entre 10 % y 15 % menos que la suma de los componentes (el ahorro tiene que ser real pero rentable).
-- Nombres cortos y argentinos, sin cursilería. Descripción de texto plano.
+- Nombres cortos y argentinos, sin cursilería ni familiaridad. Descripción de texto plano, sin emojis ni exclamaciones.
 - Apuntá a tickets distintos: uno económico, uno medio, uno premium.`,
           cache_control: { type: 'ephemeral' },
         },

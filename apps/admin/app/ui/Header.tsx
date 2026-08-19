@@ -1,6 +1,9 @@
 import Link from 'next/link';
+import { cookies } from 'next/headers';
+import { puedeVer, rolDesdeToken } from '../lib/permisos';
 import { BuscadorGlobal } from './BuscadorGlobal';
 import { MobileMenu } from './MobileMenu';
+import { CampanaAlertas } from './CampanaAlertas';
 
 type Item = { href: string; label: string; icono: string };
 type Grupo = { titulo: string; items: Item[] };
@@ -53,6 +56,7 @@ const GRUPOS: Grupo[] = [
       { href: '/caja', label: 'Caja', icono: 'caja' },
       { href: '/facturacion', label: 'Facturación', icono: 'facturacion' },
       { href: '/deposito', label: 'Depósito', icono: 'deposito' },
+      { href: '/recepcion', label: 'Recepción', icono: 'compras' },
       { href: '/envios', label: 'Envíos', icono: 'envios' },
       { href: '/repartidor', label: 'Repartidor', icono: 'repartidor' },
       { href: '/repartidores', label: 'Repartidores', icono: 'repartidor' },
@@ -77,6 +81,8 @@ const GRUPOS: Grupo[] = [
     titulo: 'Abastecimiento',
     items: [
       { href: '/compras', label: 'Compras', icono: 'compras' },
+      { href: '/facturas-compra', label: 'Facturas de compra', icono: 'listas' },
+      { href: '/mesa-compras', label: 'Mesa de compras', icono: 'comparador' },
       { href: '/comparador', label: 'Proveedores', icono: 'comparador' },
       { href: '/analista', label: 'Analista ODB', icono: 'analista' },
       { href: '/agente', label: 'Agente IA', icono: 'agente' },
@@ -89,6 +95,8 @@ const GRUPOS: Grupo[] = [
       { href: '/mensajes', label: 'Mensajes', icono: 'mensajes' },
       { href: '/eventos', label: 'Eventos', icono: 'eventos' },
       { href: '/sommelier', label: 'Somelier ODB', icono: 'somelier' },
+      { href: '/whatsapp', label: 'RESPONDE (app)', icono: 'agente' },
+      { href: '/responde', label: 'RESPONDE', icono: 'agente' },
       { href: '/bot', label: 'Bot WhatsApp', icono: 'agente' },
     ],
   },
@@ -120,6 +128,7 @@ const TITULOS: Record<string, { titulo: string; bajada: string }> = {
   '/tarjetas': { titulo: 'Tarjetas', bajada: 'Cobros con Getnet y Clover: por acreditar, comisiones y cuándo entra cada pago' },
   '/contable': { titulo: 'Contable', bajada: 'El cierre del mes: IVA ventas y compras, percepciones, Ingresos Brutos y los libros en CSV' },
   '/deposito': { titulo: 'Depósito', bajada: 'Pedidos web y PedidosYa: armado, retiro y entrega' },
+  '/recepcion': { titulo: 'Recepción', bajada: 'Escaneá lo que baja del camión: el remito se arma con lo que realmente entró' },
   '/envios': { titulo: 'Envíos a domicilio', bajada: 'Despacho: asigná repartidores y seguí cada entrega en vivo' },
   '/repartidor': { titulo: 'Repartidor', bajada: 'Tus entregas asignadas y compartir tu ubicación en vivo' },
   '/salida': { titulo: 'Control de salida', bajada: 'Validación de códigos de Comprá Fácil' },
@@ -132,6 +141,8 @@ const TITULOS: Record<string, { titulo: string; bajada: string }> = {
   '/listas': { titulo: 'Listas de proveedor', bajada: 'Lectura con IA de listas de proveedores y aplicación de costos' },
   '/tiendanube': { titulo: 'Tienda Nube', bajada: 'Sincronización del catálogo y de los pedidos con tu tienda de Tienda Nube' },
   '/compras': { titulo: 'Compras', bajada: 'Órdenes de compra, aprobaciones con PIN y recepción' },
+  '/facturas-compra': { titulo: 'Facturas de compra', bajada: 'Todas las facturas de proveedores: vencimientos, pagos, gastos y comprobantes' },
+  '/mesa-compras': { titulo: 'Mesa de compras', bajada: 'El costo real de cada compra, con las cuentas hechas por el sistema. El dueño aprueba antes de que se toque un precio.' },
   '/comparador': { titulo: 'Proveedores', bajada: 'Cargá listas, compará precios y decidí dónde conviene comprar cada producto' },
   '/pedidos': { titulo: 'Pedidos', bajada: 'Centro omnicanal: WhatsApp, app, web, PedidosYa, pick-up y domicilio en un solo lugar' },
   '/repartidores': { titulo: 'Repartidores', bajada: 'Alta de repartidores, vehículos y seguros para las autorizaciones de barrio' },
@@ -143,6 +154,7 @@ const TITULOS: Record<string, { titulo: string; bajada: string }> = {
   '/eventos': { titulo: 'Eventos', bajada: 'Oportunidades de cumpleaños, casamientos y fiestas: armá propuestas' },
   '/sommelier': { titulo: 'Somelier ODB', bajada: 'El experto en vinos que atiende a tus clientes' },
   '/bot': { titulo: 'Bot WhatsApp', bajada: 'Probá el bot que atiende por WhatsApp: mismo cerebro, catálogo y pedidos reales' },
+  '/responde': { titulo: 'RESPONDE', bajada: 'Tu empleado virtual: bandeja de conversaciones en vivo, métricas y prueba directa' },
   '/estadisticas': { titulo: 'Estadísticas', bajada: 'El negocio en números: 30 días de venta real' },
   '/conciliacion': { titulo: 'Conciliación', bajada: 'Acreditaciones de tarjeta y Mercado Pago: lo que te deben y las comisiones' },
   '/cheques': { titulo: 'Cheques', bajada: 'Cartera de valores: cheques de terceros y propios, depósitos, vencimientos y rechazos' },
@@ -168,19 +180,25 @@ function Icono({ d, activo }: { d: string; activo: boolean }) {
   );
 }
 
-export function Header({ activo, sinCabecera }: { activo: string; sinCabecera?: boolean }) {
+export async function Header({ activo, sinCabecera }: { activo: string; sinCabecera?: boolean }) {
   const seccion = TITULOS[activo] ?? { titulo: 'O.D.B', bajada: '' };
+  // el menú muestra solo lo que el rol puede abrir (backoffice ve Abastecimiento);
+  // los roles sin restricción ven todo, como siempre
+  const rol = rolDesdeToken((await cookies()).get('odb_token')?.value);
+  const grupos = GRUPOS.map((g) => ({ ...g, items: g.items.filter((i) => puedeVer(rol, i.href)) })).filter((g) => g.items.length > 0);
   return (
     <>
       {/* ---- barra lateral ---- */}
       <aside className="fixed inset-y-0 left-0 w-64 bg-[#121212] text-white flex-col z-40 hidden lg:flex">
-        <div className="px-6 pt-7 pb-6">
+        <div className="px-6 pt-7 pb-6 flex items-start justify-between">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/odb-logo-blanco.png" alt="O.D.B Premium Market" className="h-12 w-auto" />
+          {/* avisos internos: proveedores que escribieron, pagos, derivaciones */}
+          <CampanaAlertas />
         </div>
 
         <nav className="flex-1 overflow-y-auto px-3 pb-4 space-y-5">
-          {GRUPOS.map((g) => (
+          {grupos.map((g) => (
             <div key={g.titulo}>
               <p className="px-3 mb-1.5 text-[10px] font-semibold tracking-[0.18em] text-white/30 uppercase">
                 {g.titulo}
@@ -229,7 +247,7 @@ export function Header({ activo, sinCabecera }: { activo: string; sinCabecera?: 
       </aside>
 
       {/* ---- navegación móvil: hamburguesa + cajón ---- */}
-      <MobileMenu grupos={GRUPOS} iconos={ICONOS} activo={activo} titulo={seccion.titulo} />
+      <MobileMenu grupos={grupos} iconos={ICONOS} activo={activo} titulo={seccion.titulo} />
 
       {/* ---- cabecera de sección ---- */}
       {!sinCabecera && (

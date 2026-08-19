@@ -1,4 +1,5 @@
 import { Body, Controller, Post, Req } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { Publico } from './decorators';
 
@@ -6,7 +7,10 @@ import { Publico } from './decorators';
 export class AuthController {
   constructor(private readonly auth: AuthService) {}
 
+  // El login del staff es la puerta a roles dueño/gerente: límite propio, mucho
+  // más chico que el global de 300/min, para frenar fuerza bruta de claves.
   @Publico()
+  @Throttle({ default: { ttl: 60_000, limit: 10 } })
   @Post('login')
   login(@Body() body: { email: string; clave: string }) {
     return this.auth.login(body.email, body.clave);

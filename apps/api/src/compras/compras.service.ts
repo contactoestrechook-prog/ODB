@@ -44,8 +44,13 @@ export type EntradaDirectaDto = {
     iva?: number;
     percepcionIva?: number;
     percepcionIibb?: number;
+    impuestosInternos?: number;
     otros?: number;
+    letra?: string; // A | B | C
+    fechaEmision?: string;
     vencimiento?: string;
+    condicionVenta?: string;
+    archivoUrl?: string; // comprobante original en el bucket
     pagada?: boolean; // contado en el momento → nace pagada
   };
 };
@@ -236,20 +241,45 @@ export class ComprasService {
     // con el desglose de impuestos (IVA, percepciones) para el libro IVA compras
     if (dto.factura?.numero && Number(dto.factura.total) > 0) {
       const f = dto.factura;
-      const { error: errF } = await this.db.from('facturas_proveedor').insert({
+      // empresa fiscal: la de la sucursal que recibió (para el libro IVA correcto)
+      let empresa: string | null = null;
+      const { data: suc } = await this.db.from('sucursales').select('arca_emisor').eq('id', dto.sucursalId).maybeSingle();
+      empresa = (suc as any)?.arca_emisor ?? null;
+      const { data: dataF, error: errF } = await this.db.from('facturas_proveedor').insert({
         proveedor_id: dto.proveedorId,
         numero: f.numero,
+        tipo: 'factura',
+        letra: f.letra ?? null,
         monto: Number(f.total),
         neto: f.neto != null ? Number(f.neto) : null,
         iva: f.iva != null ? Number(f.iva) : null,
         percepcion_iva: Number(f.percepcionIva ?? 0),
         percepcion_iibb: Number(f.percepcionIibb ?? 0),
+        impuestos_internos: Number(f.impuestosInternos ?? 0),
         otros_impuestos: Number(f.otros ?? 0),
+        fecha_emision: f.fechaEmision ?? null,
         vencimiento: f.vencimiento ?? null,
+        condicion_venta: f.condicionVenta ?? null,
+        empresa,
+        archivo_url: f.archivoUrl ?? null,
         estado: f.pagada ? 'pagada' : 'pendiente',
+        monto_pagado: f.pagada ? Number(f.total) : 0,
         oc_id: resultado.oc_id,
         remito_id: resultado.remito_id,
-      });
+        cargada_por: dto.usuarioId ?? null,
+      })
+        .select('id')
+        .single();
+      if (!errF && dataF?.id) {
+        // renglones de la factura con el precio LEÍDO del papel (no el costo
+        // prorrateado): son la base del cruce contra remitos
+        await this.guardarItemsFactura(dataF.id, dto.items.map((i) => ({
+          sku: i.sku,
+          descripcion: i.descripcionLeida ?? i.sku,
+          cantidad: i.cantidad,
+          precio: (i as any).precioLeido ?? i.costo,
+        }))).catch(() => {});
+      }
       if (errF) {
         // la entrada ya está registrada (stock movido): no se revierte por la
         // factura — se avisa y se puede cargar desde Compras → Registrar factura
@@ -355,35 +385,566 @@ export class ComprasService {
   async deudaProveedores() {
     const { data, error } = await this.db
       .from('facturas_proveedor')
-      .select('id, numero, monto, vencimiento, estado, creado_en, proveedor:proveedores(id, razon_social)')
-      .not('estado', 'in', '("pagada","en_pago")')
+      .select('id, numero, tipo, monto, monto_pagado, vencimiento, estado, creado_en, proveedor:proveedores(id, razon_social)')
+      .not('estado', 'in', '("pagada","en_pago","anulada")')
       .order('vencimiento', { ascending: true });
     if (error) throw new BadRequestException(error.message);
     const porProv = new Map<string, any>();
     for (const f of (data ?? []) as any[]) {
       const id = f.proveedor?.id ?? 'sin';
       const acc = porProv.get(id) ?? { proveedor: f.proveedor, total: 0, facturas: [] };
-      acc.total += Number(f.monto);
-      acc.facturas.push({ id: f.id, numero: f.numero, monto: Number(f.monto), vencimiento: f.vencimiento, estado: f.estado });
+      // deuda real: saldo pendiente (monto - pagos parciales); las NC restan
+      const saldo = Math.max(Number(f.monto) - Number(f.monto_pagado || 0), 0) * (f.tipo === 'nota_credito' ? -1 : 1);
+      acc.total += saldo;
+      acc.facturas.push({ id: f.id, numero: f.numero, tipo: f.tipo, monto: Math.abs(saldo), vencimiento: f.vencimiento, estado: f.estado });
       porProv.set(id, acc);
     }
     return [...porProv.values()].map((p) => ({ ...p, total: Math.round(p.total) })).sort((a, b) => b.total - a.total);
   }
 
-  async registrarFactura(dto: any) {
+  // Detalle completo de una factura de proveedor: encabezado + desglose fiscal +
+  // los renglones del remito de esa entrada. Para poder abrirla y revisarla.
+  async facturaDetalle(id: string) {
+    const { data: f, error } = await this.db
+      .from('facturas_proveedor')
+      .select('id, numero, tipo, letra, monto, monto_pagado, neto, iva, percepcion_iva, percepcion_iibb, impuestos_internos, otros_impuestos, fecha_emision, vencimiento, estado, empresa, categoria_gasto, condicion_venta, archivo_url, notas, creado_en, remito_id, oc_id, cargada_por, cargador:usuarios!facturas_proveedor_cargada_por_fkey(nombre), proveedor:proveedores(razon_social, cuit)')
+      .eq('id', id)
+      .single();
+    if (error) throw new BadRequestException(error.message);
+
+    // pagos parciales registrados sobre esta factura
+    const { data: pagos } = await this.db
+      .from('facturas_proveedor_pagos')
+      .select('monto, medio, nota, creado_en')
+      .eq('factura_id', id)
+      .order('creado_en', { ascending: true });
+
+    // comprobante original: URL firmada temporal (el bucket es privado)
+    let comprobanteUrl: string | null = null;
+    if (f.archivo_url) {
+      const { data: firma } = await this.db.storage.from('comprobantes').createSignedUrl(f.archivo_url, 3600);
+      comprobanteUrl = firma?.signedUrl ?? null;
+    }
+    (f as any).pagos = pagos ?? [];
+    (f as any).comprobanteUrl = comprobanteUrl;
+    (f as any).saldo = Math.max(Number(f.monto) - Number((f as any).monto_pagado || 0), 0);
+    let items: any[] = [];
+    if (f.remito_id) {
+      const { data: ri } = await this.db
+        .from('remitos_items')
+        .select('cantidad, lote, vencimiento, producto:productos(sku, nombre, costo)')
+        .eq('remito_id', f.remito_id);
+      items = ((ri ?? []) as any[]).map((x) => ({
+        sku: x.producto?.sku ?? null,
+        nombre: x.producto?.nombre ?? '(producto eliminado)',
+        cantidad: Number(x.cantidad),
+        costo: x.producto?.costo != null ? Number(x.producto.costo) : null,
+        lote: x.lote ?? null,
+        vencimiento: x.vencimiento ?? null,
+      }));
+    }
+    return { ...f, items };
+  }
+
+  // Carga manual completa: facturas de mercadería, GASTOS (sin stock, con
+  // categoría) y notas de crédito/débito, con desglose fiscal y multi-empresa.
+  async registrarFactura(dto: any, usuarioId?: string) {
     if (!dto.proveedorId || !dto.numero || !(Number(dto.monto) > 0)) {
       throw new BadRequestException('Proveedor, número y monto son obligatorios');
     }
-    const { error } = await this.db.from('facturas_proveedor').insert({
-      proveedor_id: dto.proveedorId,
-      numero: String(dto.numero),
-      monto: Number(dto.monto),
-      neto: dto.neto != null && dto.neto !== '' ? Number(dto.neto) : null,
-      iva: dto.iva != null && dto.iva !== '' ? Number(dto.iva) : null,
-      vencimiento: dto.vencimiento || null,
+    const tipo = ['factura', 'nota_credito', 'nota_debito'].includes(dto.tipo) ? dto.tipo : 'factura';
+    // aviso de duplicado: mismo proveedor + mismo número (no bloquea NC sobre la misma numeración)
+    const { data: dup } = await this.db
+      .from('facturas_proveedor')
+      .select('id')
+      .eq('proveedor_id', dto.proveedorId)
+      .eq('numero', String(dto.numero))
+      .eq('tipo', tipo)
+      .neq('estado', 'anulada')
+      .limit(1);
+    if (dup?.length && !dto.permitirDuplicado) {
+      throw new BadRequestException('Ya existe un comprobante con ese número para este proveedor. Si es correcto, marcá "cargar igual".');
+    }
+    const n = (v: any) => (v != null && v !== '' ? Number(v) : null);
+    // sin empresa explícita pero con sucursal: la empresa fiscal sale de ahí
+    let empresa = dto.empresa || null;
+    if (!empresa && dto.sucursalId) {
+      const { data: suc } = await this.db.from('sucursales').select('arca_emisor').eq('id', dto.sucursalId).maybeSingle();
+      empresa = (suc as any)?.arca_emisor ?? null;
+    }
+    const { data, error } = await this.db
+      .from('facturas_proveedor')
+      .insert({
+        proveedor_id: dto.proveedorId,
+        numero: String(dto.numero),
+        tipo,
+        letra: dto.letra || null,
+        monto: Number(dto.monto),
+        neto: n(dto.neto),
+        iva: n(dto.iva),
+        percepcion_iva: Number(dto.percepcionIva ?? 0),
+        percepcion_iibb: Number(dto.percepcionIibb ?? 0),
+        impuestos_internos: Number(dto.impuestosInternos ?? 0),
+        otros_impuestos: Number(dto.otros ?? 0),
+        fecha_emision: dto.fechaEmision || null,
+        vencimiento: dto.vencimiento || null,
+        empresa,
+        categoria_gasto: dto.categoriaGasto || null,
+        condicion_venta: dto.condicionVenta || null,
+        notas: dto.notas || null,
+        archivo_url: dto.archivoUrl || null,
+        estado: dto.pagada ? 'pagada' : 'pendiente',
+        monto_pagado: dto.pagada ? Number(dto.monto) : 0,
+        cargada_por: usuarioId ?? null,
+      })
+      .select('id')
+      .single();
+    if (error) throw new BadRequestException(error.message);
+    // renglones de la factura: alimentan el cruce contra remitos y el detalle
+    if (Array.isArray(dto.items) && dto.items.length) {
+      await this.guardarItemsFactura(data.id, dto.items);
+    }
+    return { ok: true, id: data.id };
+  }
+
+  // Listado completo con filtros para el back office
+  async listarFacturas(q: any) {
+    const pagina = Math.max(Number(q.pagina) || 1, 1);
+    const porPagina = Math.min(Math.max(Number(q.porPagina) || 50, 1), 200);
+    let query = this.db
+      .from('facturas_proveedor')
+      .select(
+        'id, numero, tipo, letra, monto, monto_pagado, neto, iva, percepcion_iva, percepcion_iibb, impuestos_internos, otros_impuestos, fecha_emision, vencimiento, estado, empresa, categoria_gasto, condicion_venta, archivo_url, notas, creado_en, cargada_por, cargador:usuarios!facturas_proveedor_cargada_por_fkey(nombre), proveedor:proveedores(id, razon_social)',
+        { count: 'exact' },
+      );
+    if (q.estado === 'vencidas') {
+      query = query.not('estado', 'in', '("pagada","anulada")').lt('vencimiento', new Date().toISOString().slice(0, 10));
+    } else if (q.estado && q.estado !== 'todas') {
+      query = query.eq('estado', q.estado);
+    }
+    if (q.proveedorId) query = query.eq('proveedor_id', q.proveedorId);
+    if (q.empresa) query = query.eq('empresa', q.empresa);
+    if (q.tipo) query = query.eq('tipo', q.tipo);
+    if (q.categoria === 'mercaderia') query = query.is('categoria_gasto', null);
+    else if (q.categoria === 'gastos') query = query.not('categoria_gasto', 'is', null);
+    else if (q.categoria) query = query.eq('categoria_gasto', q.categoria);
+    if (q.desde) query = query.gte('creado_en', q.desde);
+    if (q.hasta) query = query.lte('creado_en', q.hasta + 'T23:59:59');
+    if (q.buscar) query = query.ilike('numero', `%${String(q.buscar).trim()}%`);
+    if (q.cargadaPor) query = query.eq('cargada_por', String(q.cargadaPor)); // "Mis facturas"
+    const orden = ['vencimiento', 'monto', 'creado_en', 'fecha_emision'].includes(q.orden) ? q.orden : 'creado_en';
+    query = query.order(orden, { ascending: q.dir === 'asc', nullsFirst: false });
+    query = query.range((pagina - 1) * porPagina, pagina * porPagina - 1);
+
+    const { data, count, error } = await query;
+    if (error) throw new BadRequestException(error.message);
+    const hoy = new Date().toISOString().slice(0, 10);
+    const items = ((data ?? []) as any[]).map((f) => ({
+      ...f,
+      saldo: Math.max(Number(f.monto) - Number(f.monto_pagado || 0), 0),
+      vencida: !!f.vencimiento && f.vencimiento < hoy && !['pagada', 'anulada'].includes(f.estado),
+    }));
+    return { items, total: count ?? items.length, pagina, porPagina };
+  }
+
+  // Tablero: cuánto se debe, qué está vencido y qué vence pronto (por empresa)
+  async resumenFacturas() {
+    const { data, error } = await this.db
+      .from('facturas_proveedor')
+      .select('tipo, monto, monto_pagado, vencimiento, estado, empresa')
+      .not('estado', 'in', '("pagada","anulada")');
+    if (error) throw new BadRequestException(error.message);
+    const hoy = new Date();
+    const d = (dias: number) => new Date(hoy.getTime() + dias * 86400000).toISOString().slice(0, 10);
+    const hoyS = hoy.toISOString().slice(0, 10);
+    let total = 0, vencido = 0, sem = 0, mes = 0;
+    const porEmpresa: Record<string, number> = {};
+    for (const f of (data ?? []) as any[]) {
+      const saldo = Math.max(Number(f.monto) - Number(f.monto_pagado || 0), 0) * (f.tipo === 'nota_credito' ? -1 : 1);
+      total += saldo;
+      const emp = f.empresa || 'sin_asignar';
+      porEmpresa[emp] = (porEmpresa[emp] || 0) + saldo;
+      if (f.vencimiento) {
+        if (f.vencimiento < hoyS) vencido += saldo;
+        else if (f.vencimiento <= d(7)) sem += saldo;
+        else if (f.vencimiento <= d(30)) mes += saldo;
+      }
+    }
+    const r = (x: number) => Math.round(x);
+    return { total: r(total), vencido: r(vencido), venceSemana: r(sem), venceMes: r(mes), porEmpresa: Object.fromEntries(Object.entries(porEmpresa).map(([k, v]) => [k, r(v)])) };
+  }
+
+  // Edición del encabezado y el desglose fiscal (con auditoría)
+  async editarFactura(id: string, dto: any, usuarioId?: string) {
+    const { data: f } = await this.db.from('facturas_proveedor').select('estado').eq('id', id).maybeSingle();
+    if (!f) throw new BadRequestException('Factura inexistente');
+    if (f.estado === 'anulada') throw new BadRequestException('La factura está anulada: no se puede editar');
+    const n = (v: any) => (v != null && v !== '' ? Number(v) : null);
+    const cambios: Record<string, any> = {};
+    if (dto.numero !== undefined) cambios.numero = String(dto.numero);
+    if (dto.letra !== undefined) cambios.letra = dto.letra || null;
+    if (dto.monto !== undefined && Number(dto.monto) > 0) cambios.monto = Number(dto.monto);
+    for (const [k, col] of [['neto', 'neto'], ['iva', 'iva']] as const) {
+      if (dto[k] !== undefined) cambios[col] = n(dto[k]);
+    }
+    for (const [k, col] of [['percepcionIva', 'percepcion_iva'], ['percepcionIibb', 'percepcion_iibb'], ['impuestosInternos', 'impuestos_internos'], ['otros', 'otros_impuestos']] as const) {
+      if (dto[k] !== undefined) cambios[col] = Number(dto[k] ?? 0);
+    }
+    if (dto.fechaEmision !== undefined) cambios.fecha_emision = dto.fechaEmision || null;
+    if (dto.vencimiento !== undefined) cambios.vencimiento = dto.vencimiento || null;
+    if (dto.empresa !== undefined) cambios.empresa = dto.empresa || null;
+    if (dto.categoriaGasto !== undefined) cambios.categoria_gasto = dto.categoriaGasto || null;
+    if (dto.condicionVenta !== undefined) cambios.condicion_venta = dto.condicionVenta || null;
+    if (dto.notas !== undefined) cambios.notas = dto.notas || null;
+    if (!Object.keys(cambios).length) return { ok: true };
+    const { error } = await this.db.from('facturas_proveedor').update(cambios).eq('id', id);
+    if (error) throw new BadRequestException(error.message);
+    await this.db.from('auditoria').insert({ usuario_id: usuarioId ?? null, accion: 'editar_factura_proveedor', entidad: 'facturas_proveedor', entidad_id: id, datos_despues: { campos: Object.keys(cambios) } });
+    return { ok: true };
+  }
+
+  // ---- Solicitudes de cambio sobre facturas (backoffice → dueño) ----
+  // Quien carga no edita ni anula: pide el cambio con motivo, queda pendiente, y un
+  // dueño (Juan Pablo) lo aprueba o rechaza por sistema. Al aprobar se aplica con
+  // la misma lógica que la edición directa. Todo queda trazado: quién pidió,
+  // quién resolvió, cuándo, y la auditoría de la edición resultante.
+  async solicitarCambioFactura(facturaId: string, dto: { cambios?: Record<string, any>; motivo?: string; tipo?: 'editar' | 'anular' }, usuarioId?: string) {
+    const { data: f } = await this.db.from('facturas_proveedor').select('id, numero, estado, proveedor:proveedores(razon_social)').eq('id', facturaId).maybeSingle();
+    if (!f) throw new BadRequestException('Factura inexistente');
+    if (f.estado === 'anulada') throw new BadRequestException('La factura está anulada');
+    const tipo = dto.tipo === 'anular' ? 'anular' : 'editar';
+    const cambios = tipo === 'anular' ? {} : Object.fromEntries(Object.entries(dto.cambios ?? {}).filter(([, v]) => v !== undefined));
+    if (tipo === 'editar' && !Object.keys(cambios).length) throw new BadRequestException('No hay ningún cambio pedido');
+    const motivo = String(dto.motivo ?? '').trim();
+    if (!motivo) throw new BadRequestException('Indique el motivo del cambio');
+    // una sola pendiente por factura y tipo: si ya hay, se actualiza
+    const { data: prev } = await this.db.from('facturas_proveedor_cambios').select('id').eq('factura_id', facturaId).eq('tipo', tipo).eq('estado', 'pendiente').maybeSingle();
+    let id: string;
+    if (prev?.id) {
+      await this.db.from('facturas_proveedor_cambios').update({ cambios, motivo, solicitado_por: usuarioId ?? null, creado_en: new Date().toISOString() }).eq('id', prev.id);
+      id = prev.id;
+    } else {
+      const { data, error } = await this.db.from('facturas_proveedor_cambios').insert({ factura_id: facturaId, solicitado_por: usuarioId ?? null, cambios, motivo, tipo }).select('id').single();
+      if (error) throw new BadRequestException(error.message);
+      id = data.id;
+    }
+    // aviso a los dueños (campanita): Juan Pablo aprueba
+    const { data: duenos } = await this.db.from('usuarios').select('id').eq('rol', 'dueno').eq('activo', true);
+    const { data: quien } = usuarioId ? await this.db.from('usuarios').select('nombre').eq('id', usuarioId).maybeSingle() : { data: null as any };
+    const prov = (f as any).proveedor?.razon_social ?? '';
+    const titulo = tipo === 'anular' ? `Pide anular la factura ${f.numero} (${prov})` : `Pide cambiar la factura ${f.numero} (${prov})`;
+    const detalle = `${quien?.nombre ?? 'Un usuario'}: ${motivo}${tipo === 'editar' ? ` · campos: ${Object.keys(cambios).join(', ')}` : ''}. Se aprueba desde Facturas de compra → Cambios pendientes.`;
+    for (const d of (duenos ?? []) as any[]) {
+      await this.db.from('alertas_internas').insert({ para_usuario: d.id, tipo: 'cambio_factura', titulo, detalle, referencia: { facturaId, solicitudId: id } }).then(() => null, () => null);
+    }
+    return { ok: true, id, estado: 'pendiente' };
+  }
+
+  async listarCambiosFactura(q: { estado?: string; facturaId?: string } = {}) {
+    let query = this.db
+      .from('facturas_proveedor_cambios')
+      .select('id, factura_id, tipo, cambios, motivo, estado, respuesta, creado_en, resuelto_en, solicitante:usuarios!facturas_proveedor_cambios_solicitado_por_fkey(nombre), resolutor:usuarios!facturas_proveedor_cambios_resuelto_por_fkey(nombre), factura:facturas_proveedor(numero, letra, tipo, monto, estado, proveedor:proveedores(razon_social))')
+      .order('creado_en', { ascending: false })
+      .limit(200);
+    if (q.estado) query = query.eq('estado', q.estado);
+    if (q.facturaId) query = query.eq('factura_id', q.facturaId);
+    const { data, error } = await query;
+    if (error) throw new BadRequestException(error.message);
+    return data ?? [];
+  }
+
+  async resolverCambioFactura(id: string, decision: 'aprobar' | 'rechazar', respuesta: string | undefined, usuarioId?: string) {
+    const { data: c } = await this.db.from('facturas_proveedor_cambios').select('id, factura_id, tipo, cambios, estado, solicitado_por, factura:facturas_proveedor(numero)').eq('id', id).maybeSingle();
+    if (!c) throw new BadRequestException('Solicitud inexistente');
+    if (c.estado !== 'pendiente') throw new BadRequestException(`La solicitud ya está ${c.estado}`);
+    if (decision === 'aprobar') {
+      if (c.tipo === 'anular') await this.anularFactura(c.factura_id, `Solicitud aprobada: ${respuesta ?? ''}`.trim(), usuarioId);
+      else await this.editarFactura(c.factura_id, c.cambios ?? {}, usuarioId);
+    }
+    const estado = decision === 'aprobar' ? 'aprobada' : 'rechazada';
+    const { error } = await this.db.from('facturas_proveedor_cambios').update({ estado, resuelto_por: usuarioId ?? null, resuelto_en: new Date().toISOString(), respuesta: respuesta || null }).eq('id', id).eq('estado', 'pendiente');
+    if (error) throw new BadRequestException(error.message);
+    // aviso al que lo pidió
+    if (c.solicitado_por) {
+      const numero = (c as any).factura?.numero ?? '';
+      await this.db.from('alertas_internas').insert({
+        para_usuario: c.solicitado_por,
+        tipo: 'cambio_factura',
+        titulo: `${estado === 'aprobada' ? 'Aprobado' : 'Rechazado'}: ${c.tipo === 'anular' ? 'anulación' : 'cambio'} de la factura ${numero}`,
+        detalle: respuesta || (estado === 'aprobada' ? 'El cambio ya está aplicado.' : 'Sin detalle.'),
+        referencia: { facturaId: c.factura_id, solicitudId: id },
+      }).then(() => null, () => null);
+    }
+    return { ok: true, estado };
+  }
+
+  // Anulación lógica: nunca se borra, queda trazable. Pagadas/en pago no se anulan.
+  async anularFactura(id: string, motivo: string, usuarioId?: string) {
+    const { data: f } = await this.db.from('facturas_proveedor').select('estado').eq('id', id).maybeSingle();
+    if (!f) throw new BadRequestException('Factura inexistente');
+    if (f.estado === 'pagada' || f.estado === 'en_pago') {
+      throw new BadRequestException('No se puede anular una factura pagada o en una orden de pago. Primero anulá el pago.');
+    }
+    if (f.estado === 'anulada') return { ok: true };
+    const { error } = await this.db.from('facturas_proveedor').update({ estado: 'anulada' }).eq('id', id);
+    if (error) throw new BadRequestException(error.message);
+    await this.db.from('auditoria').insert({ usuario_id: usuarioId ?? null, accion: 'anular_factura_proveedor', entidad: 'facturas_proveedor', entidad_id: id, datos_despues: { motivo: motivo || null } });
+    return { ok: true };
+  }
+
+  // Pago parcial directo (transferencia/efectivo/etc). Cuando completa el monto,
+  // la factura pasa a pagada. Convive con el circuito de órdenes de pago.
+  async pagoFactura(id: string, dto: { monto: number; medio?: string; nota?: string }, usuarioId?: string) {
+    const monto = Number(dto.monto);
+    if (!(monto > 0)) throw new BadRequestException('El monto del pago debe ser mayor a cero');
+    // Todo el pago vive en una RPC con lock de fila: dos pagos concurrentes por
+    // el mismo saldo se serializan y el segundo rebota contra el saldo real.
+    const { data, error } = await this.db.rpc('registrar_pago_factura', {
+      p_factura: id,
+      p_monto: monto,
+      p_medio: dto.medio || 'transferencia',
+      p_nota: dto.nota || null,
+      p_usuario: usuarioId ?? null,
     });
     if (error) throw new BadRequestException(error.message);
-    return { ok: true };
+    return data;
+  }
+
+  // ---------- recepción con pistola + cruce remito↔factura ----------
+
+  // El depósito escanea lo que baja del camión: el remito digital nace con lo
+  // REALMENTE ingresado (mueve stock, sin tocar precios) y queda en la bandeja
+  // de administración esperando la factura para el cruce.
+  async recepcionPistola(dto: { proveedorId: string; sucursalId: string; numeroRemito?: string; items: { sku: string; cantidad: number; lote?: string; vencimiento?: string }[]; usuarioId?: string }) {
+    if (!dto.proveedorId || !dto.sucursalId) throw new BadRequestException('Faltan proveedor o sucursal');
+    const resultado: any = await this.entradaDirecta({
+      proveedorId: dto.proveedorId,
+      sucursalId: dto.sucursalId,
+      numeroRemito: dto.numeroRemito,
+      // costo 0: la recepción física no define precios; eso llega con la factura
+      items: dto.items.map((i) => ({ sku: i.sku, cantidad: Number(i.cantidad), costo: 0, lote: i.lote, vencimiento: i.vencimiento })),
+      usuarioId: dto.usuarioId,
+    });
+    if (resultado?.remito_id) {
+      await this.db.from('remitos').update({ estado: 'pendiente_conciliar' }).eq('id', resultado.remito_id);
+    }
+    return { ok: true, remitoId: resultado?.remito_id, ocId: resultado?.oc_id };
+  }
+
+  // Lookup del escáner: código de barras → producto
+  async productoPorCodigo(codigo: string) {
+    const limpio = String(codigo ?? '').trim();
+    if (!limpio) throw new BadRequestException('Código vacío');
+    const { data } = await this.db
+      .from('codigos_barras')
+      .select('producto:productos(id, sku, nombre, activo)')
+      .eq('codigo', limpio)
+      .maybeSingle();
+    const p: any = (data as any)?.producto;
+    if (!p) return { encontrado: false };
+    // el código existe pero su producto está dado de baja: se avisa cuál es, si
+    // no el operario ve "no existe" y después el alta le rebota sin explicación
+    if (p.activo === false) return { encontrado: false, deBaja: true, sku: p.sku, nombre: p.nombre };
+    return { encontrado: true, sku: p.sku, nombre: p.nombre };
+  }
+
+  // El código que no está en el sistema se aprende acá mismo: el depósito escanea,
+  // dice a qué producto pertenece y queda vinculado para siempre. Así cada camión
+  // deja el catálogo mejor que como lo encontró, sin pasar por Productos.
+  async vincularCodigo(dto: { codigo: string; sku: string; usuarioId?: string }) {
+    if (dto.codigo != null && typeof dto.codigo !== 'string' && typeof dto.codigo !== 'number') {
+      throw new BadRequestException('Código de barras inválido');
+    }
+    const codigo = String(dto.codigo ?? '').trim().toUpperCase();
+    const sku = String(dto.sku ?? '').trim();
+    if (!codigo) throw new BadRequestException('Falta el código de barras');
+    if (!sku) throw new BadRequestException('Elegí a qué producto pertenece');
+
+    const { data: producto } = await this.db
+      .from('productos')
+      .select('id, sku, nombre, activo')
+      .eq('sku', sku)
+      .maybeSingle();
+    if (!producto) throw new BadRequestException(`No existe el producto ${sku}`);
+    if (producto.activo === false) throw new BadRequestException(`El producto ${sku} está dado de baja`);
+
+    // Un código tiene que apuntar a un solo producto: si ya está tomado, se avisa
+    // de quién es en vez de dejar que la pistola traiga cualquier cosa en la caja.
+    const { data: tomado } = await this.db
+      .from('codigos_barras')
+      .select('producto:productos(id, sku, nombre, activo)')
+      .eq('codigo', codigo)
+      .maybeSingle();
+    const duenoActual: any = (tomado as any)?.producto;
+    if (duenoActual) {
+      if (duenoActual.id === producto.id) {
+        return { ok: true, yaEstaba: true, sku: producto.sku, nombre: producto.nombre };
+      }
+      // si el dueño del código está dado de baja, el código se muda al vigente
+      // (es el caso normal: el producto se reemplazó o se cargó de nuevo)
+      if (duenoActual.activo === false) {
+        const { error: errMudanza } = await this.db
+          .from('codigos_barras')
+          .update({ producto_id: producto.id })
+          .eq('codigo', codigo);
+        if (errMudanza) throw new BadRequestException(errMudanza.message);
+        await this.db.from('auditoria').insert({
+          usuario_id: dto.usuarioId ?? null,
+          accion: 'mudar_codigo_barras',
+          entidad: 'productos',
+          entidad_id: producto.id,
+          datos_despues: { codigo, desde: duenoActual.sku, hacia: producto.sku },
+        });
+        return { ok: true, mudado: true, desde: duenoActual.nombre, sku: producto.sku, nombre: producto.nombre };
+      }
+      throw new BadRequestException(
+        `Ese código ya es de ${duenoActual.nombre} (${duenoActual.sku}). Si está mal, corregilo desde Productos.`,
+      );
+    }
+
+    const { error } = await this.db.from('codigos_barras').insert({ codigo, producto_id: producto.id });
+    if (error) throw new BadRequestException(error.message);
+
+    await this.db.from('auditoria').insert({
+      usuario_id: dto.usuarioId ?? null,
+      accion: 'vincular_codigo_barras',
+      entidad: 'productos',
+      entidad_id: producto.id,
+      datos_despues: { codigo, sku: producto.sku },
+    });
+
+    return { ok: true, sku: producto.sku, nombre: producto.nombre };
+  }
+
+  // Bandeja de administración: remitos escaneados sin factura + facturas sin remito
+  async bandejaConciliacion() {
+    const [{ data: remitos }, { data: conciliados }] = await Promise.all([
+      this.db
+        .from('remitos')
+        .select('id, numero, estado, creado_en, oc_id, proveedor:proveedores(id, razon_social), sucursal:sucursales(nombre)')
+        .eq('estado', 'pendiente_conciliar')
+        .order('creado_en', { ascending: false }),
+      this.db.from('remitos').select('factura_id').not('factura_id', 'is', null),
+    ]);
+    const facturasVinculadas = new Set(((conciliados ?? []) as any[]).map((r) => r.factura_id));
+    const { data: facturas } = await this.db
+      .from('facturas_proveedor')
+      .select('id, numero, letra, monto, creado_en, remito_id, proveedor:proveedores(id, razon_social)')
+      .eq('tipo', 'factura')
+      .not('estado', 'in', '("anulada")')
+      .is('remito_id', null) // las de entrada-por-foto ya nacieron atadas a su remito
+      .order('creado_en', { ascending: false })
+      .limit(100);
+    // cantidad de renglones por remito (viven en la OC retroactiva)
+    const ocIds = ((remitos ?? []) as any[]).map((r) => r.oc_id).filter(Boolean);
+    const porOc = new Map<string, number>();
+    if (ocIds.length) {
+      const { data: itemsOc } = await this.db.from('ordenes_compra_items').select('oc_id').in('oc_id', ocIds);
+      for (const it of (itemsOc ?? []) as any[]) porOc.set(it.oc_id, (porOc.get(it.oc_id) ?? 0) + 1);
+    }
+    return {
+      remitos: ((remitos ?? []) as any[]).map((r) => ({ ...r, renglones: porOc.get(r.oc_id) ?? 0 })),
+      facturas: ((facturas ?? []) as any[]).filter((f) => !facturasVinculadas.has(f.id)),
+    };
+  }
+
+  // Renglones físicos de un remito (recepción directa: viven en la OC retroactiva)
+  private async itemsDeRemitos(remitoIds: string[]) {
+    const { data: remitos } = await this.db.from('remitos').select('id, oc_id').in('id', remitoIds);
+    const porProducto = new Map<string, number>();
+    for (const r of (remitos ?? []) as any[]) {
+      const { data: ri } = await this.db.from('remitos_items').select('producto_id, cantidad').eq('remito_id', r.id);
+      let filas = (ri ?? []) as any[];
+      if (!filas.length && r.oc_id) {
+        const { data: oi } = await this.db.from('ordenes_compra_items').select('producto_id, cantidad_recibida').eq('oc_id', r.oc_id);
+        filas = ((oi ?? []) as any[]).map((x) => ({ producto_id: x.producto_id, cantidad: x.cantidad_recibida }));
+      }
+      for (const f of filas) porProducto.set(f.producto_id, (porProducto.get(f.producto_id) ?? 0) + Number(f.cantidad || 0));
+    }
+    return porProducto;
+  }
+
+  // El cruce: facturado vs recibido, producto por producto
+  async cruceRemitosFactura(facturaId: string, remitoIds: string[]) {
+    if (!facturaId || !remitoIds?.length) throw new BadRequestException('Elegí la factura y al menos un remito');
+    const [{ data: itemsFac }, recibido] = await Promise.all([
+      this.db.from('facturas_proveedor_items').select('producto_id, descripcion, cantidad, precio').eq('factura_id', facturaId),
+      this.itemsDeRemitos(remitoIds),
+    ]);
+    const facturado = new Map<string, { cantidad: number; descripcion: string; precio: number }>();
+    const sinMatch: any[] = [];
+    for (const it of (itemsFac ?? []) as any[]) {
+      if (!it.producto_id) { sinMatch.push({ descripcion: it.descripcion, cantidad: Number(it.cantidad), precio: Number(it.precio) }); continue; }
+      const prev = facturado.get(it.producto_id);
+      facturado.set(it.producto_id, { cantidad: (prev?.cantidad ?? 0) + Number(it.cantidad), descripcion: it.descripcion, precio: Number(it.precio) });
+    }
+    const ids = [...new Set([...facturado.keys(), ...recibido.keys()])];
+    const nombres = new Map<string, any>();
+    if (ids.length) {
+      const { data: prods } = await this.db.from('productos').select('id, sku, nombre').in('id', ids);
+      for (const p of (prods ?? []) as any[]) nombres.set(p.id, p);
+    }
+    const filas = ids.map((id) => {
+      const f = facturado.get(id)?.cantidad ?? 0;
+      const r = recibido.get(id) ?? 0;
+      const p = nombres.get(id);
+      return {
+        productoId: id,
+        sku: p?.sku ?? null,
+        nombre: p?.nombre ?? facturado.get(id)?.descripcion ?? '(producto)',
+        facturado: f,
+        recibido: r,
+        diferencia: r - f, // negativo = te facturaron más de lo que entró
+        precio: facturado.get(id)?.precio ?? null,
+      };
+    }).sort((a, b) => Math.abs(b.diferencia) - Math.abs(a.diferencia));
+    const conDiferencia = filas.filter((x) => x.diferencia !== 0);
+    return {
+      filas,
+      sinMatch, // renglones de factura sin producto identificado: revisar a mano
+      coincide: conDiferencia.length === 0 && sinMatch.length === 0,
+      resumen: {
+        renglones: filas.length,
+        conDiferencia: conDiferencia.length,
+        faltanteFacturado: conDiferencia.filter((x) => x.diferencia < 0).length,
+        recibidoNoFacturado: filas.filter((x) => x.facturado === 0 && x.recibido > 0).length,
+      },
+    };
+  }
+
+  // Administración confirma el cruce: el remito queda atado a la factura, con
+  // las diferencias registradas (si las hay) para el reclamo al proveedor.
+  async confirmarConciliacion(facturaId: string, remitoIds: string[], usuarioId?: string) {
+    const cruce = await this.cruceRemitosFactura(facturaId, remitoIds);
+    const diferencias = cruce.coincide ? null : { filas: cruce.filas.filter((x) => x.diferencia !== 0), sinMatch: cruce.sinMatch };
+    const estado = cruce.coincide ? 'conciliado' : 'con_diferencias';
+    const { error } = await this.db
+      .from('remitos')
+      .update({ factura_id: facturaId, estado, conciliado_en: new Date().toISOString(), conciliado_por: usuarioId ?? null, diferencias })
+      .in('id', remitoIds)
+      .eq('estado', 'pendiente_conciliar');
+    if (error) throw new BadRequestException(error.message);
+    await this.db.from('auditoria').insert({
+      usuario_id: usuarioId ?? null,
+      accion: 'conciliar_remito_factura',
+      entidad: 'facturas_proveedor',
+      entidad_id: facturaId,
+      datos_despues: { remitos: remitoIds, estado, diferencias: cruce.resumen },
+    });
+    return { ok: true, estado, resumen: cruce.resumen };
+  }
+
+  // Guarda los renglones de la factura (para el cruce y el detalle)
+  private async guardarItemsFactura(facturaId: string, items: { sku?: string; descripcion?: string; cantidad: number; precio?: number }[]) {
+    if (!items?.length) return;
+    const filas = await Promise.all(items.map(async (i) => ({
+      factura_id: facturaId,
+      producto_id: i.sku ? await this.productoIdPorSku(i.sku).catch(() => null) : null,
+      descripcion: i.descripcion || i.sku || '(renglón)',
+      cantidad: Number(i.cantidad) || 1,
+      precio: Number(i.precio) || 0,
+    })));
+    await this.db.from('facturas_proveedor_items').insert(filas);
   }
 
   // 1) Crear orden de pago: queda PENDIENTE de aprobación del dueño (no paga todavía).
@@ -415,7 +976,11 @@ export class ComprasService {
     const { data: items } = await this.db.from('ordenes_pago_items').select('factura_id').eq('orden_pago_id', id);
     await this.db.from('ordenes_pago').update({ estado: 'rechazada', rechazo_motivo: dto.motivo || 'Rechazada por dirección', aprobada_por: dto.usuarioId ?? null, aprobada_en: new Date().toISOString() }).eq('id', id);
     const fids = (items ?? []).map((i: any) => i.factura_id);
-    if (fids.length) await this.db.from('facturas_proveedor').update({ estado: 'pendiente' }).in('id', fids);
+    if (fids.length) {
+      // vuelven a su estado real: 'parcial' si ya tenían pagos, si no 'pendiente'
+      await this.db.from('facturas_proveedor').update({ estado: 'pendiente' }).in('id', fids).eq('monto_pagado', 0);
+      await this.db.from('facturas_proveedor').update({ estado: 'parcial' }).in('id', fids).gt('monto_pagado', 0);
+    }
     return { rechazada: true };
   }
 

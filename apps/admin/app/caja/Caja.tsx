@@ -142,6 +142,11 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
   const [resultados, setResultados] = useState<Producto[]>([]);
   const [carrito, setCarrito] = useState<Renglon[]>([]);
   const [dni, setDni] = useState('');
+  // alta del WhatsApp del cliente: sin teléfono y sin permiso no hay a quién
+  // difundir, y este es el único momento en que la persona está enfrente
+  const [waTel, setWaTel] = useState('');
+  const [waGuardando, setWaGuardando] = useState(false);
+  const [waHecho, setWaHecho] = useState<'alta' | 'baja' | null>(null);
   const [clientes, setClientes] = useState<{ dni: string; nombre: string }[]>([]); // autocompletar por nombre
   const [cliente, setCliente] = useState<Cliente | null>(null);
   const [receptorCuit, setReceptorCuit] = useState('');
@@ -550,8 +555,35 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
     if (dniElegido) setDni(dniElegido);
     try {
       const res = await fetch(`/api/cliente?dni=${encodeURIComponent(d)}`);
-      if (res.ok) setCliente(await res.json());
+      if (res.ok) {
+        const c = await res.json();
+        setCliente(c);
+        setWaTel(c?.telefono ?? '');
+        setWaHecho(c?.aceptaMarketing ? 'alta' : null);
+      }
     } catch {}
+  }
+
+  // Guarda teléfono + permiso. Un toque, sin sacar al cajero de la venta.
+  async function guardarWhatsapp(acepta: boolean) {
+    const d = (cliente?.dni ?? dni).trim();
+    if (!d || waGuardando) return;
+    setWaGuardando(true);
+    try {
+      const res = await fetch('/api/cliente', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dni: d, telefono: acepta ? waTel : undefined, acepta }),
+      });
+      const j = await res.json();
+      if (!res.ok) { setEstado({ tipo: 'error', texto: j?.message ?? 'No pude guardar el contacto' }); return; }
+      setWaHecho(acepta ? 'alta' : 'baja');
+      setCliente((c: any) => (c ? { ...c, telefono: j.telefono ?? c.telefono, aceptaMarketing: acepta } : c));
+    } catch {
+      setEstado({ tipo: 'error', texto: 'No pude guardar el contacto' });
+    } finally {
+      setWaGuardando(false);
+    }
   }
 
   // ---- estacionar / retomar tickets (multi-cliente en la misma línea de caja) ----
@@ -1089,6 +1121,43 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
             )}
           </div>
         </div>
+
+        {/* Alta de WhatsApp: aparece solo cuando el cliente está identificado y
+            todavía no dio el permiso. La lista de difusión se construye acá, de
+            a un cliente por vez, con su consentimiento fechado. */}
+        {cliente?.existe && waHecho !== 'alta' && (
+          <div className="mt-1.5 rounded-2xl bg-white px-3 py-2 flex flex-wrap items-center gap-2">
+            <span className="text-[11px] uppercase tracking-wider text-[#8A6D3B]">WhatsApp</span>
+            {waHecho === 'baja' ? (
+              <span className="text-sm text-black/50">Listo, no le mandamos nada.</span>
+            ) : (
+              <>
+                <input
+                  value={waTel}
+                  onChange={(e) => setWaTel(e.target.value.replace(/[^\d]/g, ''))}
+                  placeholder="11 2345 6789"
+                  inputMode="numeric"
+                  className="w-40 rounded-xl border-2 border-black/10 px-3 py-2 text-base text-black outline-none focus:border-[#B82D25]"
+                />
+                <span className="text-sm text-black/55">¿Le mandamos ofertas y novedades?</span>
+                <button
+                  onClick={() => guardarWhatsapp(true)}
+                  disabled={waGuardando || waTel.replace(/\D/g, '').length < 10}
+                  className="rounded-xl bg-[#B82D25] px-4 py-2 text-sm font-medium text-white active:scale-95 disabled:opacity-40"
+                >
+                  {waGuardando ? 'Guardando…' : 'Sí, sumar'}
+                </button>
+                <button
+                  onClick={() => guardarWhatsapp(false)}
+                  disabled={waGuardando}
+                  className="text-sm text-black/40 underline disabled:opacity-40"
+                >
+                  No quiere
+                </button>
+              </>
+            )}
+          </div>
+        )}
 
         {/* Factura A: datos del receptor (CUIT obligatorio) */}
         {comprobante === 'A' && (

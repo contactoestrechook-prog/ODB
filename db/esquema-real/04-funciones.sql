@@ -704,71 +704,6 @@ end $function$
 
 -- Entrega atómica de un pedido: libera reserva + registra venta + cambia estado
 -- en UNA sola transacción, con lock de fila e idempotente por pedido (P0-04).
-CREATE OR REPLACE FUNCTION public.entregar_pedido(p_pedido uuid, p_usuario uuid DEFAULT NULL::uuid)
- RETURNS jsonb
- LANGUAGE plpgsql
- SECURITY DEFINER
- SET search_path TO 'public'
-AS $function$
-declare
-  v_pedido pedidos%rowtype;
-  v_item record;
-  v_medio text;
-  v_segmento tipo_cliente;
-  v_verificado boolean := false;
-  v_dni text;
-  v_total numeric := 0;
-  v_pv record;
-  v_venta_id uuid;
-  v_venta jsonb;
-begin
-  select * into v_pedido from pedidos where id = p_pedido for update;
-  if not found then raise exception 'No existe el pedido'; end if;
-
-  if v_pedido.estado = 'entregado' and v_pedido.venta_id is not null then
-    return jsonb_build_object('pedido_id', p_pedido, 'venta_id', v_pedido.venta_id, 'estado', 'entregado', 'duplicada', true);
-  end if;
-  if v_pedido.estado not in ('listo', 'en_camino') then
-    raise exception 'Transicion invalida: % -> entregado', v_pedido.estado;
-  end if;
-
-  if v_pedido.cliente_id is not null then
-    select tipo, verificado, dni into v_segmento, v_verificado, v_dni
-    from clientes where id = v_pedido.cliente_id;
-  end if;
-
-  v_medio := case when v_pedido.qr_retiro like 'PY-%' then 'pedidosya' else 'mercadopago' end;
-  v_venta_id := coalesce(v_pedido.venta_id, gen_random_uuid());
-
-  for v_item in
-    select producto_id, cantidad from pedidos_items where pedido_id = p_pedido
-  loop
-    if v_pedido.reserva_stock then
-      perform registrar_movimiento(
-        v_item.producto_id, v_pedido.sucursal_id, 'liberacion_reserva', v_item.cantidad,
-        null, 'pedido', p_pedido::text, p_usuario);
-    end if;
-    select * into v_pv from precio_vigente(v_item.producto_id, now(), v_segmento, v_medio, v_verificado, false);
-    v_total := v_total + round(v_item.cantidad * coalesce(v_pv.precio_final, 0), 2);
-  end loop;
-
-  perform liberar_estacionamiento(p_pedido);
-
-  v_venta := registrar_venta(
-    v_pedido.sucursal_id,
-    (select coalesce(jsonb_agg(jsonb_build_object('producto_id', producto_id, 'cantidad', cantidad)), '[]'::jsonb)
-       from pedidos_items where pedido_id = p_pedido),
-    jsonb_build_array(jsonb_build_object('medio', v_medio, 'monto', v_total)),
-    v_pedido.canal, v_dni, null, p_usuario, v_venta_id, 0, null, false);
-
-  update pedidos
-    set estado = 'entregado', venta_id = v_venta_id, entregado_en = now(), entregado_por = p_usuario
-    where id = p_pedido;
-
-  return jsonb_build_object('pedido_id', p_pedido, 'venta_id', v_venta_id, 'estado', 'entregado', 'total', v_total, 'venta', v_venta);
-end $function$
-;
-
 CREATE OR REPLACE FUNCTION public.crear_transferencia(p_origen uuid, p_destino uuid, p_items jsonb, p_usuario_id uuid DEFAULT NULL::uuid)
  RETURNS uuid
  LANGUAGE plpgsql
@@ -2065,3 +2000,44 @@ begin
   return new;
 end $function$
 ;
+
+-- ============================================================================
+-- Correcciones de la auditoría previa al arranque (agosto 2026).
+-- Estas definiciones son las que están vivas en la base: si el esquema se
+-- reconstruye desde este archivo, los arreglos viajan con él. No editar acá sin
+-- aplicar el mismo cambio en la base (y al revés).
+--
+--  · registrar_venta ......... el descuento manual se prorratea en el renglón
+--                              (si no, cada devolución acredita de más) y acepta
+--                              precio_unitario congelado por ítem.
+--  · devolver_venta_parcial .. la nota de crédito lleva su monto y no puede
+--                              superar, sumada, el total de la venta.
+--  · anular_venta ............ repone solo lo que no se devolvió antes y
+--                              acredita únicamente el saldo sin acreditar.
+--  · entregar_pedido ......... precio congelado del pedido, medio de pago real
+--                              (nunca inventa Mercado Pago), exige caja abierta
+--                              para cobrar en efectivo. Una sola versión: la de
+--                              dos argumentos fue eliminada.
+--  · cancelar_pedido ......... liberación de reserva con lock e idempotente.
+--  · registrar_pago_factura .. pago de factura de proveedor con lock de fila.
+--  · verificar_login ......... bloqueo de la cuenta tras 5 claves erradas.
+-- ============================================================================
+--
+-- La fuente de verdad de estas funciones es la BASE, no este archivo (misma
+-- regla que el resto del esquema). Para traerlas actualizadas:
+--
+--   select pg_get_functiondef(p.oid)
+--   from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+--   where n.nspname = 'public'
+--     and p.proname in ('registrar_venta','anular_venta','devolver_venta_parcial',
+--                       'entregar_pedido','cancelar_pedido','registrar_pago_factura',
+--                       'verificar_login','limpiar_bloqueo_al_cambiar_clave');
+--
+-- Migraciones que las dejaron así (en orden):
+--   fix_b1_ncb_con_monto_y_anulacion_neta
+--   fix_b2_b3_precio_congelado_y_medio_real
+--   fix_b4_b5_cancelacion_y_pago_atomicos
+--   login_con_bloqueo_por_usuario
+--   reset_de_clave_desbloquea_cuenta
+--   p0_descuento_prorrateado_medio_valido_y_caja_en_pedidos
+-- ============================================================================

@@ -3,6 +3,8 @@ import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { SaludController } from './salud.controller';
+import { NovedadesController } from './novedades/novedades.controller';
+import { supabaseProvider } from './supabase.provider';
 import { CatalogoModule } from './catalogo/catalogo.module';
 import { StockModule } from './stock/stock.module';
 import { DescuentosModule } from './descuentos/descuentos.module';
@@ -43,8 +45,8 @@ import { BotModule } from './bot/bot.module';
 import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
-  controllers: [SaludController],
-  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
+  controllers: [SaludController, NovedadesController],
+  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }, supabaseProvider],
   imports: [
     // límite global de tráfico por IP (anti-abuso); los endpoints de IA
     // tienen límites más estrictos en sus controllers

@@ -16,3 +16,6 @@ arca-cert/
 *.tsbuildinfo
 output/
 tmp/
+
+# Local Netlify folder
+.netlify

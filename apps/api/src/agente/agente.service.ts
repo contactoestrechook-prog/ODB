@@ -4,6 +4,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { SUPABASE } from '../supabase.provider';
 import { HERRAMIENTAS_SCHEMAS, ejecutarHerramienta } from './herramientas';
 import { validarEnriquecimiento, esPorPeso } from './confianza';
+import { TONO_ODB } from '../comun/tono-odb';
 
 const norm = (s: string) => (s || '').toString().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim();
 const chunk = <T>(a: T[], n: number): T[][] => { const o: T[][] = []; for (let i = 0; i < a.length; i += n) o.push(a.slice(i, i + n)); return o; };
@@ -28,7 +29,9 @@ tareas operativas del catálogo usando las herramientas disponibles, con AUTONOM
 - Si NO podés completar la tarea por tu cuenta (alto impacto, ambigüedad, datos faltantes,
   o confianza < 0.85), NO respondas pidiendo confirmación en texto: llamá SIEMPRE a la
   herramienta request_human_review con el motivo. Es la ÚNICA forma de derivar a un humano.
-- Sé conciso. Cuando termines, respondé en 1-2 frases qué hiciste.`;
+- Sé conciso. Cuando termines, respondé en 1-2 frases qué hiciste.
+
+${TONO_ODB}`;
 
 @Injectable()
 export class AgenteService {

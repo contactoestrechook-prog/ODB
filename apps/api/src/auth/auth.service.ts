@@ -15,7 +15,13 @@ export class AuthService {
     const { data, error } = await this.db
       .rpc('verificar_login', { p_email: email, p_clave: clave })
       .maybeSingle();
-    if (error) throw new UnauthorizedException(error.message);
+    // La cuenta se enfría sola tras 5 claves erradas: el mensaje del bloqueo se
+    // muestra tal cual para que el empleado sepa cuánto esperar en vez de seguir
+    // probando (el límite por IP no alcanza: vive en memoria de cada réplica).
+    if (error) {
+      const bloqueada = /bloqueada/i.test(error.message ?? '');
+      throw new UnauthorizedException(bloqueada ? error.message : 'Email o clave incorrectos');
+    }
     if (!data) throw new UnauthorizedException('Email o clave incorrectos');
 
     const usuario = data as any;

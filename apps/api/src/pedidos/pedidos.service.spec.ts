@@ -53,19 +53,27 @@ describe('PedidosService.avanzar (reserva de stock: solo libera lo que realmente
     process.env.ANTHROPIC_API_KEY = 'test';
   });
 
-  it('reserva_stock=false + cancelado: NO libera stock (nunca se reservó — no sumar stock fantasma)', async () => {
-    const { db, rpcCalls } = dbFalsa(pedidoBase({ estado: 'listo', reserva_stock: false }));
+  // Cancelar también toca stock, así que sigue el mismo camino que entregar:
+  // toda la liberación vive en la RPC cancelar_pedido (lock de fila e
+  // idempotente). Antes esto se hacía suelto desde el service y dos
+  // cancelaciones simultáneas liberaban la reserva DOS veces.
+  it('cancelar delega en la RPC atómica cancelar_pedido, no en escrituras sueltas', async () => {
+    const { db, rpcCalls } = dbFalsa(pedidoBase({ estado: 'listo', reserva_stock: true }));
     const svc = new PedidosService(db, { aCliente: jest.fn() } as any);
-    await svc.avanzar('p-1', 'cancelado');
+    await svc.avanzar('p-1', 'cancelado', 'user-1');
+    const cancelar = rpcCalls.find((c) => c.name === 'cancelar_pedido');
+    expect(cancelar?.args).toMatchObject({ p_pedido: 'p-1', p_usuario: 'user-1' });
+    // la decisión de liberar o no (según reserva_stock) es de la RPC: el service
+    // no puede duplicarla sin volver a abrir la carrera
     expect(rpcCalls.find((c) => c.name === 'registrar_movimiento')).toBeUndefined();
   });
 
-  it('reserva_stock=true + cancelado: SÍ libera stock reservado', async () => {
-    const { db, rpcCalls } = dbFalsa(pedidoBase({ estado: 'listo', reserva_stock: true }));
+  it('cancelar un pedido sin reserva también pasa por la RPC (una sola puerta)', async () => {
+    const { db, rpcCalls } = dbFalsa(pedidoBase({ estado: 'listo', reserva_stock: false }));
     const svc = new PedidosService(db, { aCliente: jest.fn() } as any);
     await svc.avanzar('p-1', 'cancelado');
-    const mov = rpcCalls.find((c) => c.name === 'registrar_movimiento');
-    expect(mov?.args).toMatchObject({ p_tipo: 'liberacion_reserva', p_cantidad: 2 });
+    expect(rpcCalls.find((c) => c.name === 'cancelar_pedido')).toBeDefined();
+    expect(rpcCalls.find((c) => c.name === 'registrar_movimiento')).toBeUndefined();
   });
 
   // La entrega (liberar reserva + registrar venta + cambiar estado) es atómica:

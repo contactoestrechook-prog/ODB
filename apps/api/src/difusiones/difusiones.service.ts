@@ -51,8 +51,8 @@ export class DifusionesService {
       max_tokens: 600,
       messages: [{
         role: 'user',
-        content: `Escribí un mensaje de difusión de WhatsApp para los clientes de O.D.B Premium Market (outlet de bebidas y almacén, Argentina, tono cercano rioplatense). Contexto: "${contexto || 'novedades y ofertas de la semana'}".
-Reglas: breve (máx 4 líneas), 1 emoji como mucho, con un llamado a la acción claro. NO inventar precios. Terminá SIEMPRE con la línea de baja: "Respondé BAJA para no recibir más mensajes." Devolvé solo el texto del mensaje, sin comillas.`,
+        content: `Escribí un mensaje de difusión de WhatsApp para los clientes de O.D.B Premium Market (outlet de bebidas y almacén, Argentina; registro respetuoso, de usted, sobrio: nada amistoso ni confianzudo). Contexto: "${contexto || 'novedades y ofertas de la semana'}".
+Reglas: breve (máx 4 líneas), sin emojis ni signos de exclamación, con un llamado a la acción claro y cortés. NO inventar precios. Terminá SIEMPRE con la línea de baja: "Responda BAJA para no recibir más mensajes." Devolvé solo el texto del mensaje, sin comillas.`,
       }],
     });
     const t = r.content.find((b) => b.type === 'text');

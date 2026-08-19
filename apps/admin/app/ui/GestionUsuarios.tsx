@@ -9,6 +9,8 @@ const ROLES: Record<string, { etiqueta: string; chip: string; descripcion: strin
   comprador: { etiqueta: 'Comprador', chip: 'bg-amber-100 text-amber-900', descripcion: 'Compras, proveedores y Analista ODB' },
   cajero: { etiqueta: 'Cajero', chip: 'bg-sky-100 text-sky-900', descripcion: 'Ventas, caja y control de salida' },
   deposito: { etiqueta: 'Depósito', chip: 'bg-emerald-100 text-emerald-900', descripcion: 'Stock, recepción y pedidos' },
+  administrativo: { etiqueta: 'Administrativo', chip: 'bg-violet-100 text-violet-900', descripcion: 'Backoffice: facturas de compra, remitos y recepción de mercadería, compras y proveedores. No ve caja, ventas ni dirección; los cambios sobre facturas los aprueba un dueño' },
+  repartidor: { etiqueta: 'Repartidor', chip: 'bg-orange-100 text-orange-900', descripcion: 'Solo la pantalla de reparto: sus entregas del día' },
 };
 
 const pesos = (n: number) => '$' + Math.round(n).toLocaleString('es-AR');
