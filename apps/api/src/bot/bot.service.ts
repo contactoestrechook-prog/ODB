@@ -1812,12 +1812,18 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     if (!identidad) return { ignorado: 'remitente ilegible' };
 
     let texto = String(p.body ?? '').trim();
-    // Audio, foto o adjunto sin texto: NO se ignora en silencio. El mensaje se
-    // registra en RESPONDE (para que la persona lo vea en el monitor) y el bot
-    // le pide amablemente que lo escriba. Antes el cliente mandaba un audio y
-    // no pasaba nada: ni respuesta, ni rastro para el equipo.
     const tipo = String(p.type ?? p._data?.type ?? '').toLowerCase();
-    const esMedia = !texto && (!!p.hasMedia || ['ptt', 'audio', 'image', 'video', 'document', 'sticker'].includes(tipo));
+    // Una línea por mensaje entrante: es lo único que permite arreglar el tema de
+    // los adjuntos con datos y no a ciegas.
+    this.log.log(
+      `waha entrante · type=${tipo || '?'} · hasMedia=${p.hasMedia ?? '?'} · media=${p.media ? Object.keys(p.media).join('/') : 'no'} · body=${JSON.stringify(texto.slice(0, 60))} · claves=${Object.keys(p).join(',')}`,
+    );
+    // Un adjunto es un adjunto AUNQUE traiga texto: WhatsApp manda el nombre del
+    // archivo (o el epígrafe de la foto) en el cuerpo, y con la condición vieja
+    // (!texto) el mensaje se trataba como si el cliente hubiera escrito "lista.pdf".
+    const esMedia = !!p.hasMedia || !!p.media || ['ptt', 'audio', 'image', 'video', 'document', 'sticker'].includes(tipo);
+    // lo que el cliente escribió junto al archivo (si el body es el nombre del archivo, no cuenta)
+    const epigrafe = String(p.caption ?? p._data?.caption ?? (esMedia && !/\.[a-z0-9]{2,5}$/i.test(texto) ? texto : '')).trim();
     if (esMedia) {
       const waIdM = esLid ? desde : identidad;
       const media = await this.bajarMediaWaha(p);
@@ -1845,7 +1851,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
         }
         const r: any = await this.charla({
           numeroLinea, telefono: identidad,
-          mensaje: String(p.caption ?? p._data?.caption ?? '').trim(),
+          mensaje: epigrafe,
           archivoBase64: media.base64, mimeType: media.mime,
           mensajeId: p.id ? String(p.id) : undefined,
         });
@@ -1855,7 +1861,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
         }
         await this.simularEscritura(desde, r.respuesta);
         const env = await this.enviarPorWhatsapp({ to: desde, text: r.respuesta, referencia: `waha/${identidad}` });
-        this.respondeRegistrar(waIdM, p.notifyName ?? null, etiqueta('📷 Foto del cliente'), r.respuesta, p.id ? String(p.id) : undefined).catch(() => null);
+        this.respondeRegistrar(waIdM, p.notifyName ?? null, etiqueta(`📷 Foto del cliente${epigrafe ? `: ${epigrafe}` : ''}`), r.respuesta, p.id ? String(p.id) : undefined).catch(() => null);
         return { contestado: env.enviado, motivo: 'foto mirada por el bot' };
       }
 
@@ -1897,10 +1903,13 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
 
       const { data: conv } = await this.db.from('bot_conversaciones').select('mensajes').eq('linea', 'pedidos').eq('telefono', identidad).maybeSingle();
       const hist: any[] = Array.isArray(conv?.mensajes) ? conv!.mensajes : [];
-      const yaAviso = hist.slice(-4).some((m) => m.role === 'assistant' && /tomo su mensaje|tomo lo que mand|aviso al sector/i.test(String(m.content)));
+      // marca fija en el historial: chequear por palabras fallaba y el cliente
+      // recibía el mismo acuse por cada archivo que mandaba
+      const MARCA = '[acuse-archivo] ';
+      const yaAviso = hist.slice(-8).some((m: any) => m.role === 'assistant' && String(m.content).startsWith(MARCA));
       await this.db.from('bot_conversaciones').upsert({
         linea: 'pedidos', telefono: identidad,
-        mensajes: [...hist, { role: 'user', content: `[el cliente mandó ${queEs}]` }, ...(yaAviso ? [] : [{ role: 'assistant', content: esAudio ? 'Recibí su audio. Tomo su mensaje y doy aviso al sector correspondiente para que lo escuchen. Si prefiere, escríbame lo que necesita y se lo resuelvo ahora.' : 'Recibí su archivo. Tomo lo que mandó y doy aviso al sector correspondiente. Si prefiere, escríbame lo que necesita y se lo resuelvo ahora.' }]),
+        mensajes: [...hist, { role: 'user', content: `[el cliente mandó ${queEs}]` }, ...(yaAviso ? [] : [{ role: 'assistant', content: MARCA + (esAudio ? 'Recibí su audio: lo escucha alguien de la casa.' : 'Recibí su archivo: lo revisa alguien de la casa.') }]),
         ].slice(-40),
         actualizado_en: new Date().toISOString(), bot_activo: false,
         derivada_en: new Date().toISOString(), derivada_motivo: `El cliente mandó ${queEs}: hay que escucharlo/abrirlo`, resuelta_en: null,
