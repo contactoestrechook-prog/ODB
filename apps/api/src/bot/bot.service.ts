@@ -1772,12 +1772,17 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
   // WAHA lo publica en payload.media.url; hay que pedirlo con la API key.
   private async bajarMediaWaha(p: any): Promise<{ base64: string; mime: string; nombre: string } | null> {
     const url = p?.media?.url ?? p?._data?.media?.url;
-    if (!url) return null;
+    if (!url) {
+      // sin esto no hay forma de saber por qué no llegó el archivo
+      this.log.warn(`WAHA no mandó el archivo. media=${JSON.stringify(p?.media ?? null)} · claves del payload: ${Object.keys(p ?? {}).join(',')}`);
+      return null;
+    }
     try {
       const r = await fetch(String(url), { headers: { 'X-Api-Key': process.env.WAHA_API_KEY ?? '' }, signal: AbortSignal.timeout(20000) });
-      if (!r.ok) return null;
+      if (!r.ok) { this.log.warn(`no pude bajar el archivo de WAHA (${r.status}): ${String(url).slice(0, 120)}`); return null; }
       const buf = Buffer.from(await r.arrayBuffer());
-      if (buf.length > 4.5 * 1024 * 1024) return null; // tope del modelo
+      this.log.log(`archivo bajado de WAHA: ${buf.length} bytes · ${p?.media?.mimetype ?? '?'}`);
+      if (buf.length > 4.5 * 1024 * 1024) { this.log.warn(`archivo demasiado grande (${buf.length} bytes): no va al modelo`); return null; }
       const mime = String(p?.media?.mimetype ?? r.headers.get('content-type') ?? 'application/octet-stream').split(';')[0];
       const nombre = String(p?.media?.filename ?? url.split('/').pop() ?? 'archivo');
       return { base64: buf.toString('base64'), mime, nombre };
