@@ -4,6 +4,7 @@ import { puedeVer, rolDesdeToken } from '../lib/permisos';
 import { BuscadorGlobal } from './BuscadorGlobal';
 import { MobileMenu } from './MobileMenu';
 import { CampanaAlertas } from './CampanaAlertas';
+import { InstalarApp } from './InstalarApp';
 
 type Item = { href: string; label: string; icono: string };
 type Grupo = { titulo: string; items: Item[] };
@@ -234,6 +235,7 @@ export async function Header({ activo, sinCabecera }: { activo: string; sinCabec
             </svg>
             Cambiar mi contraseña
           </Link>
+          <InstalarApp />
           <a
             href="/api/salir"
             className="flex items-center gap-3 rounded-lg px-3 py-2 text-[13px] text-white/50 hover:text-white hover:bg-white/5"

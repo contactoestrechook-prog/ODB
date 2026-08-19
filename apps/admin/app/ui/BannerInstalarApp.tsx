@@ -21,6 +21,10 @@ export function BannerInstalarApp() {
   const [pasosIos, setPasosIos] = useState(false);
 
   useEffect(() => {
+    // el navegador solo considera instalable un sitio con service worker: se
+    // registra siempre, aunque el cartel no se muestre (así el ítem "Instalar
+    // la app" del menú también funciona)
+    if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => null);
     // ya corre como app instalada → nada que ofrecer
     const standalone =
       window.matchMedia('(display-mode: standalone)').matches ||
@@ -41,11 +45,13 @@ export function BannerInstalarApp() {
 
     const alPoderInstalar = (e: Event) => {
       e.preventDefault(); // suprimimos el mini-aviso del navegador: mostramos el nuestro
+      (window as any).__odbInstalar = e; // lo usa el ítem "Instalar la app" del menú
+      window.dispatchEvent(new Event('odb-instalable'));
       setInstalable(e);
       setVisible(true);
     };
     window.addEventListener('beforeinstallprompt', alPoderInstalar);
-    const alInstalar = () => setVisible(false);
+    const alInstalar = () => { (window as any).__odbInstalar = null; setVisible(false); };
     window.addEventListener('appinstalled', alInstalar);
     return () => {
       window.removeEventListener('beforeinstallprompt', alPoderInstalar);

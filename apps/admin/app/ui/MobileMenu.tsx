@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { InstalarApp } from './InstalarApp';
 
 type Item = { href: string; label: string; icono: string };
 type Grupo = { titulo: string; items: Item[] };
@@ -52,6 +53,7 @@ export function MobileMenu({ grupos, iconos, activo, titulo }: { grupos: Grupo[]
                 </div>
               ))}
             </nav>
+            <div className="border-t border-white/10 px-3 py-2"><InstalarApp /></div>
             <a href="/api/salir" className="px-6 py-4 border-t border-white/10 text-[13px] text-white/50 hover:text-white">Cerrar sesión</a>
           </aside>
         </div>
