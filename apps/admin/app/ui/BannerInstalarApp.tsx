@@ -13,6 +13,43 @@ import { usePathname } from 'next/navigation';
 const SNOOZE_DIAS = 14;
 const CLAVE_SNOOZE = 'odb_instalar_snooze';
 
+// Versión del service worker que tiene que estar corriendo. Si el navegador
+// quedó con uno viejo (el que hacía respondWith(fetch()) y rompía páginas
+// enteras con "network error"), no alcanza con publicar el nuevo: el viejo
+// puede seguir controlando la pestaña. Acá se lo detecta y se lo echa.
+const VERSION_SW = 'odb-2';
+
+async function asegurarServiceWorker() {
+  if (!('serviceWorker' in navigator)) return;
+  try {
+    // updateViaCache 'none': el archivo del service worker nunca sale del caché
+    // del navegador, siempre se pregunta al servidor si hay uno nuevo
+    const reg = await navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' });
+    reg.update().catch(() => null);
+
+    const control = navigator.serviceWorker.controller;
+    if (!control) return; // primera visita: todavía no controla nada, nada que reparar
+
+    const version = await new Promise<string | null>((resolve) => {
+      const canal = new MessageChannel();
+      const reloj = setTimeout(() => resolve(null), 2000); // el viejo no contesta
+      canal.port1.onmessage = (e) => { clearTimeout(reloj); resolve(e.data?.odbVersion ?? null); };
+      control.postMessage('odb-version', [canal.port2]);
+    });
+    if (version === VERSION_SW) return;
+
+    const regs = await navigator.serviceWorker.getRegistrations();
+    await Promise.all(regs.map((r) => r.unregister().catch(() => false)));
+    // una sola recarga por pestaña, para no entrar en un ciclo si algo falla
+    if (!sessionStorage.getItem('odb_sw_reparado')) {
+      sessionStorage.setItem('odb_sw_reparado', '1');
+      location.reload();
+    }
+  } catch {
+    // sin service worker se trabaja igual: solo se pierde "Instalar la app"
+  }
+}
+
 export function BannerInstalarApp() {
   const pathname = usePathname();
   const [instalable, setInstalable] = useState<any>(null); // evento beforeinstallprompt
@@ -24,7 +61,7 @@ export function BannerInstalarApp() {
     // el navegador solo considera instalable un sitio con service worker: se
     // registra siempre, aunque el cartel no se muestre (así el ítem "Instalar
     // la app" del menú también funciona)
-    if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => null);
+    asegurarServiceWorker();
     // ya corre como app instalada → nada que ofrecer
     const standalone =
       window.matchMedia('(display-mode: standalone)').matches ||

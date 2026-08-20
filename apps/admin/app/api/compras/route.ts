@@ -54,8 +54,14 @@ export async function GET(req: Request) {
   } else {
     ruta = GET_RECURSOS[recurso];
   }
-  if (!ruta) return NextResponse.json({ message: 'Recurso inválido' }, { status: 400 });
+  // los 400 de esta ruta no se ven desde afuera (el navegador solo muestra
+  // "api/compras 400"): se registran acá para poder rastrearlos en los logs
+  if (!ruta) {
+    console.warn('[api/compras] recurso inválido:', url.search, '· usuario', usuarioId ?? 'sin token');
+    return NextResponse.json({ message: 'Recurso inválido' }, { status: 400 });
+  }
   const res = await fetch(`${API}${ruta}`, { headers: token ? { Authorization: `Bearer ${token}` } : {}, cache: 'no-store' });
+  if (!res.ok) console.warn('[api/compras]', ruta, '→', res.status, '· usuario', usuarioId ?? 'sin token');
   return NextResponse.json(await res.json(), { status: res.status });
 }
 
@@ -91,7 +97,9 @@ export async function POST(req: Request) {
     case 'aprobarOP': ruta = `/compras/ordenes-pago/${d.id}/aprobar`; body = { usuarioId }; break;
     case 'rechazarOP': ruta = `/compras/ordenes-pago/${d.id}/rechazar`; body = { motivo: d.motivo, usuarioId }; break;
     case 'pagarOP': ruta = `/compras/ordenes-pago/${d.id}/pagar`; body = { usuarioId, chequesPropios: d.chequesPropios, chequesTercerosIds: d.chequesTercerosIds }; break;
-    default: return NextResponse.json({ message: 'Acción inválida' }, { status: 400 });
+    default:
+      console.warn('[api/compras] acción inválida:', accion, '· usuario', usuarioId ?? 'sin token');
+      return NextResponse.json({ message: 'Acción inválida' }, { status: 400 });
   }
 
   const res = await fetch(`${API}${ruta}`, {
@@ -99,5 +107,6 @@ export async function POST(req: Request) {
     headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
     body: JSON.stringify(body),
   });
+  if (!res.ok) console.warn('[api/compras]', metodo, ruta, '→', res.status, '· usuario', usuarioId ?? 'sin token');
   return NextResponse.json(await res.json(), { status: res.status });
 }
