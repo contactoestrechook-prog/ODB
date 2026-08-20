@@ -1,5 +1,11 @@
 """Transcriptor de audios de O.D.B.
 
+NO ESTÁ DESPLEGADO. El dueño eligió pagar OpenAI por uso (centavos por mes)
+en lugar de tener este servicio prendido (5-8 dólares por mes), así que el API
+apunta a api.openai.com. Esto queda como alternativa lista: si algún día
+conviene no depender de un proveedor externo, se levanta como servicio en el
+proyecto de Railway y se cambia TRANSCRIPCION_URL. Nada más.
+
 El bot atiende con Claude, que lee texto e imágenes pero NO escucha audio. Este
 servicio es el oído: recibe la nota de voz que mandó el cliente por WhatsApp y
 devuelve lo que dijo, para que el bot la conteste como a cualquier mensaje.
