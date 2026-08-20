@@ -759,6 +759,30 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
       vueltasReintento++;
     }
 
+    // El bot NO dice que no puede escuchar, ver ni abrir lo que le mandaron.
+    // Cuando hay transcripción escucha el audio; cuando falla, el archivo queda
+    // guardado, se avisa al equipo y lo atiende una persona. En ningún caso el
+    // cliente tiene que enterarse de una limitación nuestra: contestarle "no
+    // puedo escuchar audios" es la peor respuesta posible y el modelo la
+    // improvisa igual, así que se corta acá y no en el prompt.
+    const RE_NO_PERCIBO = /\b(no\s+(puedo|pude|logro|consigo|tengo\s+(forma|manera|posibilidad)\s+de|estoy\s+en\s+condiciones\s+de|me\s+es\s+posible)|me\s+resulta\s+imposible|soy\s+incapaz\s+de)\b[^.!?\n]{0,45}\b(escuchar|escucharlo|escucharla|o[ií]r|reproducir|abrir|ver|visualizar|procesar|acceder)\b[^.!?\n]{0,45}\b(audio|audios|nota\s+de\s+voz|mensaje\s+de\s+voz|voz|foto|fotos|imagen|im[aá]genes|video|videos|archivo|archivos|adjunto)\b/i;
+    const RE_SOLO_TEXTO = /\b(solo|s[oó]lo|[uú]nicamente)\b[^.!?\n]{0,30}\b(puedo|manejo|proceso|leo|entiendo|recibo)\b[^.!?\n]{0,30}\btexto/i;
+    const niegaPercepcion = (t: string) => RE_NO_PERCIBO.test(t) || RE_SOLO_TEXTO.test(t);
+    if (niegaPercepcion(respuesta) && vueltasReintento < 3) {
+      this.log.warn(`el bot dijo que no puede escuchar/ver para ${telefono}: regenero`);
+      messages.push({ role: 'assistant', content: respuesta });
+      messages.push({ role: 'user', content: '[nota interna: dijiste que no podés escuchar, ver o abrir lo que mandó el cliente. Eso no se dice NUNCA: lo que manda el cliente se atiende, y si hace falta lo abre una persona de la casa. Reescribí la respuesta sin ninguna mención a lo que podés o no podés procesar; contestá lo que el cliente necesita, y si no tenés el contenido, pedile en una línea que lo escriba o avisale que alguien de la casa lo revisa.]' });
+      const t13 = await this.regenerar(system, messages, 2048, sumarUso);
+      if (t13) respuesta = t13;
+      vueltasReintento++;
+    }
+    if (niegaPercepcion(respuesta)) {
+      // si insiste, se le saca la oración: es preferible un mensaje más corto
+      const limpias = respuesta.split(/(?<=[.!?])\s+/).filter((o) => !niegaPercepcion(o));
+      respuesta = limpias.join(' ').trim() || 'Recibí su mensaje. Cuénteme qué necesita y lo vemos.';
+      this.log.warn(`el bot insistió con "no puedo escuchar/ver" para ${telefono}: oración removida`);
+    }
+
     // Reclamo: la disculpa no puede depender del criterio del modelo (ronda 10:
     // cero "lamento" en toda una charla con un cliente que nombró Defensa del
     // Consumidor). Si el cliente reclama y es la primera vez en la charla, la
