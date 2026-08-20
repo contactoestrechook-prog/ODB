@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
 import * as XLSX from 'xlsx';
@@ -211,6 +211,8 @@ const ESQUEMA_EXTRACCION = {
 
 @Injectable()
 export class ListasService {
+  private readonly log = new Logger(ListasService.name);
+
   constructor(@Inject(SUPABASE) private readonly db: SupabaseClient) {}
 
   async analizar(archivo: Express.Multer.File, proveedorId: string) {
@@ -345,22 +347,49 @@ export class ListasService {
       },
     ];
 
+    // Un tropiezo del lector (saturación, un corte) NO puede costarle a nadie
+    // volver a sacar la foto: se reintenta una vez sola antes de darse por
+    // vencido. Y el error REAL queda en el log: hasta ahora se lo tragaba el
+    // catch, así que cuando alguien avisaba "no me lee el remito" no había con
+    // qué diagnosticarlo.
     let datos: any;
-    try {
-      const respuesta = await claude.messages
-        .stream({
-          model: 'claude-sonnet-5',
-          max_tokens: 16000,
-          output_config: { format: { type: 'json_schema', schema: ESQUEMA_COMPROBANTE as any } },
-          messages: [{ role: 'user', content: contenido }],
-        })
-        .finalMessage();
-      const bloque = respuesta.content.find((b) => b.type === 'text');
-      datos = JSON.parse(bloque && 'text' in bloque ? bloque.text : '{}');
-    } catch (e: any) {
-      const msg = String(e?.message ?? e);
+    let ultimoError: any = null;
+    for (let intento = 1; intento <= 2; intento++) {
+      try {
+        const respuesta = await claude.messages
+          .stream({
+            model: 'claude-sonnet-5',
+            max_tokens: 16000,
+            output_config: { format: { type: 'json_schema', schema: ESQUEMA_COMPROBANTE as any } },
+            messages: [{ role: 'user', content: contenido }],
+          })
+          .finalMessage();
+        const bloque = respuesta.content.find((b) => b.type === 'text');
+        datos = JSON.parse(bloque && 'text' in bloque ? bloque.text : '{}');
+        ultimoError = null;
+        break;
+      } catch (e: any) {
+        ultimoError = e;
+        const estado = e?.status ?? e?.statusCode;
+        this.log.error(
+          `lectura de comprobante falló (intento ${intento}/2) · estado=${estado ?? '?'} · tipo=${e?.error?.error?.type ?? e?.name ?? '?'} · ${String(e?.message ?? e).slice(0, 300)}`,
+        );
+        // 429/5xx y cortes de red son pasajeros: vale la pena insistir. Un
+        // archivo que la API rechaza (imagen inválida, formato) no mejora
+        // reintentando.
+        const pasajero = estado === 429 || (typeof estado === 'number' && estado >= 500) || /timeout|socket|network|ECONNRESET|overloaded/i.test(String(e?.message ?? ''));
+        if (!pasajero || intento === 2) break;
+        await new Promise((r) => setTimeout(r, 1500));
+      }
+    }
+    if (ultimoError) {
+      const msg = String(ultimoError?.message ?? ultimoError);
+      const estado = ultimoError?.status ?? ultimoError?.statusCode;
       if (/image|too large|dimensions|media_type|invalid.*base64/i.test(msg)) {
         throw new BadRequestException('No pude leer la imagen: probá con una foto más nítida o el PDF de la factura.');
+      }
+      if (estado === 429 || /overloaded/i.test(msg)) {
+        throw new BadRequestException('El lector está saturado en este momento. Esperá un minuto y volvé a subir la misma foto.');
       }
       throw new BadRequestException('La IA no pudo leer el comprobante, probá de nuevo en un momento.');
     }
