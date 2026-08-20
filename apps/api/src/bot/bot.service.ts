@@ -759,6 +759,22 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
       vueltasReintento++;
     }
 
+    // "¿Qué te mando para mañana?" lo dice el que ENTREGA: es un proveedor
+    // ofreciendo mercadería. Preguntarle "¿es un pedido o nos ofrece?" es tirar
+    // una moneda y quemar un turno con alguien que ya dijo lo que hace. La
+    // dirección del verbo es un dato duro, así que se verifica acá y no queda
+    // librado a que el modelo lea bien.
+    const RE_EL_ENTREGA = /\b(qu[eé]|cu[aá]nto|cuant[oa]s)\s+te\s+(mando|llevo|dejo|acerco|mand[aá]bamos)\b|\bte\s+(mando|llevo|dejo|acerco)\b|\bles?\s+(mando|llevo|dejo|paso|env[ií]o)\s+(la\s+lista|el\s+listado|mercader|los?\s+precios)|\bpaso\s+a\s+dejar(les|te)?\b|\bsalgo\s+con\s+el\s+reparto\b|\b(manejo|trabajo\s+con|represento)\s+(la\s+)?(marca|l[ií]nea)\b/i;
+    const RE_MONEDA_AL_AIRE = /¿[^?]{0,90}\b(pedido|comprar|comprarnos)\b[^?]{0,60}\b(ofreci|ofrece|vender|vendernos|mercader[ií]a|proveedor)\b[^?]{0,40}\?|¿[^?]{0,60}\b(cliente\s+o\s+proveedor|proveedor\s+o\s+cliente)\b[^?]{0,20}\?/i;
+    if (RE_EL_ENTREGA.test(texto) && RE_MONEDA_AL_AIRE.test(respuesta) && vueltasReintento < 3) {
+      this.log.warn(`preguntó cliente-o-proveedor a alguien que ofrece mercadería (${telefono}): regenero`);
+      messages.push({ role: 'assistant', content: respuesta });
+      messages.push({ role: 'user', content: '[nota interna: quien escribe dijo que ÉL nos manda/lleva mercadería, así que es un PROVEEDOR: ya está claro y preguntarle si es cliente o proveedor sobra. Reescribí la respuesta saludando y preguntando lo único que falta saber: de qué empresa escribe (y si ya dijo la empresa, qué trae y para cuándo). No le des precios nuestros ni le cotices nada.]' });
+      const t14 = await this.regenerar(system, messages, 2048, sumarUso);
+      if (t14) respuesta = t14;
+      vueltasReintento++;
+    }
+
     // El bot NO dice que no puede escuchar, ver ni abrir lo que le mandaron.
     // Cuando hay transcripción escucha el audio; cuando falla, el archivo queda
     // guardado, se avisa al equipo y lo atiende una persona. En ningún caso el
