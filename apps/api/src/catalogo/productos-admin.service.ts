@@ -13,7 +13,17 @@ export type CrearProductoDto = {
   volumenMl?: number | null;
   costo?: number | null;
   precio?: number | null;
-  stockInicial?: { sucursalId: string; cantidad: number }[];
+  stockInicial?: { sucursalId: string; cantidad: number; minimo?: number; reposicion?: number }[];
+  // ficha completa
+  descripcion?: string;
+  unidadesPack?: number | null;
+  graduacion?: number | null;
+  controlaVencimiento?: boolean;
+  alicuotaIva?: number | null;
+  aliasBusqueda?: string; // cómo lo pide el cliente: lo usa el buscador y el bot
+  // precios de las otras listas (la base es Minorista)
+  precioCaja?: number | null;
+  precioMayorista?: number | null;
 };
 
 export type EditarProductoDto = {
@@ -35,8 +45,63 @@ export class ProductosAdminService {
     private readonly catalogo: CatalogoService,
   ) {}
 
+  // Antes de crear: ¿ese código de barras ya es de alguien? ¿hay un producto que
+  // se llama casi igual? Un catálogo con el mismo producto cargado dos veces
+  // rompe el stock, los pedidos y lo que contesta el bot, y arreglarlo después
+  // es a mano. Se avisa mientras escriben, no cuando ya está hecho.
+  async revisar(dto: { codigo?: string; nombre?: string }) {
+    const salida: {
+      codigoDe: { sku: string; nombre: string; activo: boolean } | null;
+      parecidos: { sku: string; nombre: string; marca: string | null; activo: boolean }[];
+    } = { codigoDe: null, parecidos: [] };
+
+    const codigo = dto.codigo?.trim();
+    if (codigo) {
+      const { data } = await this.db
+        .from('codigos_barras')
+        .select('productos(sku, nombre, activo)')
+        .eq('codigo', codigo)
+        .maybeSingle();
+      const p: any = (data as any)?.productos;
+      if (p) salida.codigoDe = { sku: p.sku, nombre: p.nombre, activo: p.activo };
+    }
+
+    const nombre = dto.nombre?.trim();
+    if (nombre && nombre.length >= 3) {
+      // las palabras cortas ("de", "x2") no distinguen nada: se buscan las
+      // significativas y TODAS tienen que aparecer, si no trae medio catálogo
+      const palabras = nombre.toLowerCase().split(/[\s,.]+/).filter((p) => p.length >= 3).slice(0, 3);
+      if (palabras.length) {
+        let q = this.db.from('productos').select('sku, nombre, activo, marcas(nombre)').limit(6);
+        for (const p of palabras) q = q.ilike('nombre', `%${p}%`);
+        const { data } = await q;
+        salida.parecidos = (data ?? []).map((x: any) => ({
+          sku: x.sku, nombre: x.nombre, activo: x.activo, marca: x.marcas?.nombre ?? null,
+        }));
+      }
+    }
+    return salida;
+  }
+
   async crear(dto: CrearProductoDto, usuarioId?: string) {
     if (!dto.nombre?.trim()) throw new BadRequestException('El nombre es obligatorio');
+
+    // el código se valida ANTES de insertar: si el producto queda creado y el
+    // código falla, quedan dos altas del mismo artículo
+    const codigo = dto.codigoBarras?.trim();
+    if (codigo) {
+      const { data: dueno } = await this.db
+        .from('codigos_barras')
+        .select('productos(sku, nombre)')
+        .eq('codigo', codigo)
+        .maybeSingle();
+      const p: any = (dueno as any)?.productos;
+      if (p) {
+        throw new BadRequestException(
+          `El código ${codigo} ya es de "${p.nombre}" (SKU ${p.sku}). Si es el mismo artículo, cargá el stock ahí en lugar de crearlo de nuevo.`,
+        );
+      }
+    }
 
     const sku = dto.sku?.trim() || (await this.siguienteSku());
     const [categoriaId, marcaId] = await Promise.all([
@@ -49,10 +114,16 @@ export class ProductosAdminService {
       .insert({
         sku,
         nombre: dto.nombre.trim(),
+        descripcion: dto.descripcion?.trim() || null,
         categoria_id: categoriaId,
         marca_id: marcaId,
         es_alcohol: dto.esAlcohol ?? false,
         volumen_ml: dto.volumenMl ?? null,
+        unidades_pack: dto.unidadesPack && dto.unidadesPack > 0 ? Math.round(dto.unidadesPack) : 1,
+        graduacion: dto.graduacion ?? null,
+        controla_vencimiento: dto.controlaVencimiento ?? false,
+        alicuota_iva: dto.alicuotaIva ?? 21,
+        alias_busqueda: dto.aliasBusqueda?.trim() || null,
         costo: dto.costo ?? null,
         activo: true,
       })
@@ -64,20 +135,27 @@ export class ProductosAdminService {
       );
     }
 
-    // renglones de stock en cero para ambas sucursales (el stock real entra por movimientos)
+    // renglones de stock para ambas sucursales (el stock real entra por
+    // movimientos; acá se fijan los mínimos con los que trabaja reposición)
     const { data: sucursales } = await this.db.from('sucursales').select('id');
-    await this.db
-      .from('stock')
-      .insert((sucursales ?? []).map((s) => ({ producto_id: producto.id, sucursal_id: s.id })));
+    const pedido = new Map((dto.stockInicial ?? []).map((s) => [s.sucursalId, s]));
+    await this.db.from('stock').insert(
+      (sucursales ?? []).map((s) => ({
+        producto_id: producto.id,
+        sucursal_id: s.id,
+        stock_minimo: Number(pedido.get(s.id)?.minimo) || 0,
+        punto_reposicion: Number(pedido.get(s.id)?.reposicion) || 0,
+      })),
+    );
 
-    if (dto.codigoBarras?.trim()) {
-      await this.db
-        .from('codigos_barras')
-        .insert({ codigo: dto.codigoBarras.trim(), producto_id: producto.id });
+    if (codigo) {
+      await this.db.from('codigos_barras').insert({ codigo, producto_id: producto.id });
     }
-    if (dto.precio != null && dto.precio > 0) {
-      await this.fijarPrecio(producto.id, dto.precio, usuarioId);
-    }
+    // el precio de venta va a la lista base; caja y mayorista son opcionales
+    if (dto.precio != null && dto.precio > 0) await this.fijarPrecio(producto.id, dto.precio, usuarioId);
+    if (dto.precioCaja != null && dto.precioCaja > 0) await this.fijarPrecio(producto.id, dto.precioCaja, usuarioId, 'Por caja');
+    if (dto.precioMayorista != null && dto.precioMayorista > 0) await this.fijarPrecio(producto.id, dto.precioMayorista, usuarioId, 'Mayorista');
+
     for (const s of dto.stockInicial ?? []) {
       if (Number(s.cantidad) > 0) {
         const { error: errMov } = await this.db.rpc('registrar_movimiento', {
@@ -127,13 +205,13 @@ export class ProductosAdminService {
   }
 
   // el precio canónico vive en la tabla precios: cada cambio es una vigencia nueva
-  private async fijarPrecio(productoId: string, precio: number, usuarioId?: string) {
+  private async fijarPrecio(productoId: string, precio: number, usuarioId?: string, listaNombre = 'Minorista') {
     const { data: lista } = await this.db
       .from('listas_precios')
       .select('id')
-      .eq('nombre', 'Minorista')
-      .single();
-    if (!lista) throw new BadRequestException('No existe la lista de precios Minorista');
+      .eq('nombre', listaNombre)
+      .maybeSingle();
+    if (!lista) throw new BadRequestException(`No existe la lista de precios ${listaNombre}`);
     const { error } = await this.db.from('precios').insert({
       lista_id: lista.id,
       producto_id: productoId,

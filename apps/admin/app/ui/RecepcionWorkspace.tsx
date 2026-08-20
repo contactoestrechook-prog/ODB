@@ -230,6 +230,18 @@ export function RecepcionWorkspace({ proveedores, sucursales }: { proveedores: a
               </div>
             )}
           </div>
+          {/* el producto puede no existir todavía: antes no había salida y había
+              que abandonar el remito a la mitad */}
+          <p className="mt-3 border-t border-black/10 pt-3 text-sm text-black/60">
+            ¿No está en el sistema?{' '}
+            <a
+              href={`/productos/nuevo?codigo=${encodeURIComponent(huerfano)}&volver=/recepcion`}
+              className="font-medium text-[#B82D25] underline"
+            >
+              Dalo de alta con este código
+            </a>{' '}
+            y volvés acá a seguir escaneando.
+          </p>
           <button onClick={() => setHuerfano(null)} className="mt-3 text-xs text-black/45 underline">
             Ahora no, sigo escaneando
           </button>

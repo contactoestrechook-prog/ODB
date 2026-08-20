@@ -17,6 +17,7 @@ const RUTAS_POR_ROL: Record<string, string[]> = {
     '/comparador', // proveedores y sus listas
     '/listas', // listas de precios de proveedor
     '/stock', // stock completo: existencias, ajustes, mermas, transferencias
+    '/productos', // catálogo: alta de productos que llegan sin estar cargados
     '/conteo', // conteos de inventario
     '/cambiar-clave',
   ],

@@ -1,7 +1,6 @@
 import Link from 'next/link';
 import { Header } from '../ui/Header';
 import { apiFetch } from '../../lib/api';
-import { NuevoProducto } from '../ui/NuevoProducto';
 
 type Producto = {
   imagenUrl: string | null;
@@ -127,7 +126,12 @@ export default async function Productos({
         </form>
 
         <div className="mb-4 -mt-1 flex justify-end">
-          <NuevoProducto rubros={filtros.categorias} marcas={filtros.marcas} sucursales={sucursales} />
+          <Link
+            href="/productos/nuevo"
+            className="rounded-full bg-[#B82D25] text-white text-sm font-medium px-5 py-2.5 hover:bg-[#932A1F] shadow-sm whitespace-nowrap"
+          >
+            + Nuevo producto
+          </Link>
         </div>
 
         {error ? (

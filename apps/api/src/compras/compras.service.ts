@@ -194,6 +194,30 @@ export class ComprasService {
   // todo en una transacción — con trazabilidad real, sin OC "truchas" a mano.
   async entradaDirecta(dto: EntradaDirectaDto) {
     if (!dto.items?.length) throw new BadRequestException('La entrada no tiene renglones');
+
+    // Los renglones se revisan ACÁ, uno por uno y nombrándolos. Antes bajaban
+    // crudos a la RPC: una cantidad que no era número (el lector de facturas
+    // devuelve "2 x 6", o alguien borra el casillero) reventaba contra la base y
+    // el panel mostraba un error de Postgres que no le dice nada a nadie. La
+    // guardia de la RPC tampoco lo agarra: comparar NULL contra cero no da ni
+    // verdadero ni falso, así que pasaba de largo.
+    const malos: string[] = [];
+    dto.items.forEach((i, n) => {
+      const cual = i.descripcionLeida?.trim() || i.sku || `renglón ${n + 1}`;
+      const cantidad = Number(i.cantidad);
+      const costo = Number(i.costo);
+      if (!Number.isFinite(cantidad) || cantidad <= 0) malos.push(`${cual}: la cantidad tiene que ser un número mayor a cero`);
+      else if (i.costo != null && (!Number.isFinite(costo) || costo < 0)) malos.push(`${cual}: el costo no es un número válido`);
+      else if (!i.sku) malos.push(`${cual}: falta elegir a qué producto corresponde`);
+    });
+    if (malos.length) {
+      throw new BadRequestException(
+        malos.length === 1
+          ? `No pude registrar la entrada — ${malos[0]}.`
+          : `No pude registrar la entrada. Revisá estos renglones: ${malos.join(' · ')}.`,
+      );
+    }
+
     const items = await Promise.all(
       dto.items.map(async (i) => ({
         producto_id: await this.productoIdPorSku(i.sku),

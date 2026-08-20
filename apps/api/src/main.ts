@@ -2,6 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import compression from 'compression';
 import { AppModule } from './app.module';
+import { ErroresFilter } from './comun/errores.filter';
 
 async function bootstrap() {
   // rawBody: necesario para validar la firma HMAC de los webhooks (Didit, etc.)
@@ -11,6 +12,8 @@ async function bootstrap() {
   // terminaría limitando a todo el mundo junto en vez de a cada uno.
   app.set('trust proxy', 1);
   app.use(compression());
+  // cada error que sale por la API queda en el log, con ruta y usuario
+  app.useGlobalFilters(new ErroresFilter());
   // listas de proveedor pueden subirse como archivo (PDF/imagen) en base64
   app.useBodyParser('json', { limit: '25mb' });
   app.useBodyParser('urlencoded', { limit: '25mb', extended: true });

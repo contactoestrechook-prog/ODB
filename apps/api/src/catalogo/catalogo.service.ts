@@ -57,8 +57,10 @@ export class CatalogoService {
   }
 
   async filtros() {
+    // el margen sugerido viaja con la categoría: el alta de producto propone el
+    // precio de venta con el margen del rubro en lugar de dejarlo al ojo
     const [categorias, marcas] = await Promise.all([
-      this.db.from('categorias').select('id, nombre').order('nombre'),
+      this.db.from('categorias').select('id, nombre, margen_sugerido').order('nombre'),
       this.db.from('marcas').select('id, nombre').order('nombre'),
     ]);
     return { categorias: categorias.data ?? [], marcas: marcas.data ?? [] };
