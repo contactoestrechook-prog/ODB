@@ -1,11 +1,9 @@
-// Service worker mínimo de O.D.B. Existe por una sola razón: Chrome y Edge no
-// ofrecen "Instalar app" si el sitio no tiene uno con manejador de fetch.
-// A propósito NO cachea nada: deja pasar todo a la red tal cual. Un cache mal
-// hecho sirve pantallas viejas (precios, stock) y eso es peor que no tener app.
+// Service worker mínimo de O.D.B. Existe por una sola razón: que el navegador
+// ofrezca "Instalar app". NO intercepta ninguna petición: el manejador de fetch
+// está vacío A PROPÓSITO, así el navegador resuelve todo por su cuenta.
+// (La versión anterior hacía respondWith(fetch(...)) y cuando ese fetch fallaba
+// —un corte breve, un redirect— tiraba abajo la página entera con
+// "network error response": visto en producción en /compras.)
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
-self.addEventListener('fetch', (e) => {
-  // passthrough explícito: el navegador necesita ver el handler para considerar
-  // instalable el sitio, pero la respuesta es exactamente la de la red.
-  e.respondWith(fetch(e.request));
-});
+self.addEventListener('fetch', () => { /* vacío a propósito: cero intercepción */ });
