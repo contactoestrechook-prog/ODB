@@ -70,6 +70,7 @@ const GRUPOS: Grupo[] = [
     titulo: 'Catálogo',
     items: [
       { href: '/productos', label: 'Productos', icono: 'productos' },
+      { href: '/precios', label: 'Precios', icono: 'productos' },
       { href: '/stock', label: 'Stock', icono: 'stock' },
       { href: '/conteo', label: 'Conteo', icono: 'stock' },
       { href: '/promociones', label: 'Promociones', icono: 'promociones' },
@@ -135,6 +136,7 @@ const TITULOS: Record<string, { titulo: string; bajada: string }> = {
   '/salida': { titulo: 'Control de salida', bajada: 'Validación de códigos de Comprá Fácil' },
   '/cierres': { titulo: 'Cierres', bajada: 'Cierres de caja por sucursal y diferencias' },
   '/productos': { titulo: 'Productos', bajada: 'Catálogo completo: precios, stock y fotos' },
+  '/precios': { titulo: 'Precios', bajada: 'Escaneá y mirá el precio de góndola · imprimí la etiqueta' },
   '/stock': { titulo: 'Stock', bajada: 'Quiebres, reposición y vencimientos por sucursal' },
   '/conteo': { titulo: 'Conteo de inventario', bajada: 'Contá el depósito y ajustá diferencias con autorización' },
   '/promociones': { titulo: 'Promociones', bajada: 'Descuentos vigentes, programados y Comunidad ODB' },
