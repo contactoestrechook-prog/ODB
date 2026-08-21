@@ -64,6 +64,13 @@ export class ComprasController {
     return this.compras.editarProveedor(id, dto);
   }
 
+  // remarcación aprendida por producto (y la sugerida del rubro como respaldo)
+  @Roles('comprador', 'deposito', 'gerente', 'dueno')
+  @Get('compras/remarcacion')
+  remarcacion(@Query('proveedorId') proveedorId: string, @Query('skus') skus: string) {
+    return this.compras.remarcacionDe(proveedorId, String(skus ?? '').split(',').filter(Boolean));
+  }
+
   // detalle de UNA orden, con sus remitos y sus facturas (backoffice entra por
   // 'comprador', que su rol implica)
   @Roles('comprador', 'deposito', 'gerente', 'dueno')

@@ -20,9 +20,11 @@ export type AprobarDto = { usuarioId?: string; pin?: string };
 export type RecibirDto = {
   // costo opcional por renglón = costo REAL de esta entrada (si falta, usa el de la OC)
   // lote/vencimiento opcionales: si vienen, la recepción crea el lote (panel de vencimientos)
-  items: { sku: string; cantidad: number; costo?: number; lote?: string; vencimiento?: string }[];
+  // margenPct por renglón = remarcación de ESE producto. Se guarda al recibir y
+  // vuelve sola la próxima vez que entra el mismo producto del mismo proveedor.
+  items: { sku: string; cantidad: number; costo?: number; lote?: string; vencimiento?: string; margenPct?: number }[];
   usuarioId?: string;
-  margenPct?: number; // % de remarcación para esta recepción (si falta, usa el del rubro)
+  margenPct?: number; // % general de esta recepción (si falta, el del renglón; si no, el del rubro)
 };
 
 export type EntradaDirectaDto = {
@@ -81,7 +83,7 @@ export class ComprasService {
     const { data, error } = await this.db
       .from('ordenes_compra')
       .select(
-        `numero, id, estado, total, origen, creado_en, fecha_entrega, condicion_pago, vencimiento_pago, observaciones, descuento, aprobada_en, rechazo_motivo,
+        `numero, id, estado, total, origen, creado_en, fecha_entrega, condicion_pago, vencimiento_pago, observaciones, descuento, aprobada_en, rechazo_motivo, proveedor_id,
          proveedor:proveedores(razon_social),
          sucursal:sucursales(nombre),
          items:ordenes_compra_items(cantidad, cantidad_recibida, costo_unitario, producto:productos(sku, nombre)),
@@ -220,6 +222,19 @@ export class ComprasService {
       p_usuario: dto.usuarioId ?? null,
     });
     if (error) throw new BadRequestException(this.traducirError(error.message));
+
+    // recibir por OC también deja aprendida la remarcación de cada producto:
+    // antes solo la aprendía la entrada directa, así que la misma mercadería
+    // pedía el porcentaje de nuevo según por dónde hubiera entrado
+    const { data: oc } = await this.db.from('ordenes_compra').select('proveedor_id').eq('id', id).maybeSingle();
+    if (oc?.proveedor_id) {
+      await this.aprenderVinculos(
+        oc.proveedor_id,
+        (dto.items ?? [])
+          .filter((i) => i.margenPct != null)
+          .map((i) => ({ sku: i.sku, cantidad: Number(i.cantidad), costo: Number(i.costo) || 0, margenPct: i.margenPct })),
+      );
+    }
     return { estado: (data as any).estado, repreciados: Number((data as any).repreciados) || 0 };
   }
 
@@ -372,10 +387,47 @@ export class ComprasService {
       if (!i) continue;
       const costo = r.costo != null && Number(r.costo) > 0 ? Number(r.costo) : i.costo;
       if (!(costo > 0)) continue;
-      const margen = margenAplicable(dto.margenPct, i.margenRubro);
+      const margen = margenAplicable(r.margenPct ?? dto.margenPct, i.margenRubro);
       items.push({ sku: r.sku, costo, precio: precioDesdeCosto(costo, margen) });
     }
     return items;
+  }
+
+  // Qué remarcación usar para estos productos con este proveedor. Devuelve la
+  // aprendida en la última entrada (la que se editó a mano) y, como respaldo, la
+  // sugerida del rubro. Con esto la pantalla propone el porcentaje en lugar de
+  // pedirlo de nuevo cada vez que entra la misma mercadería.
+  async remarcacionDe(proveedorId: string, skus: string[]) {
+    const limpios = (skus ?? []).map((s) => String(s ?? '').trim()).filter(Boolean).slice(0, 200);
+    if (!limpios.length) return {};
+
+    const { data: prods } = await this.db
+      .from('productos')
+      .select('id, sku, categoria:categorias(margen_sugerido)')
+      .in('sku', limpios);
+
+    const porId = new Map<string, any>(((prods ?? []) as any[]).map((p) => [p.id, p]));
+    let aprendidas: any[] = [];
+    if (proveedorId && porId.size) {
+      const { data } = await this.db
+        .from('proveedor_productos')
+        .select('producto_id, margen_pct, ultimo_costo')
+        .eq('proveedor_id', proveedorId)
+        .in('producto_id', [...porId.keys()]);
+      aprendidas = data ?? [];
+    }
+    const porProducto = new Map<string, any>(aprendidas.map((a) => [a.producto_id, a]));
+
+    const salida: Record<string, { margenPct: number | null; margenRubro: number | null; ultimoCosto: number | null }> = {};
+    for (const p of (prods ?? []) as any[]) {
+      const a = porProducto.get(p.id);
+      salida[p.sku] = {
+        margenPct: a?.margen_pct != null ? Number(a.margen_pct) : null,
+        margenRubro: p.categoria?.margen_sugerido != null ? Number(p.categoria.margen_sugerido) : null,
+        ultimoCosto: a?.ultimo_costo != null ? Number(a.ultimo_costo) : null,
+      };
+    }
+    return salida;
   }
 
   // ---------- resumen (KPIs) ----------

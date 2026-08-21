@@ -27,6 +27,9 @@ export async function GET(req: Request) {
   if (recurso === 'factura' && url.searchParams.get('id')) {
     // detalle de una factura de proveedor: ?recurso=factura&id=UUID
     ruta = `/compras/facturas/${encodeURIComponent(url.searchParams.get('id')!)}`;
+  } else if (recurso === 'remarcacion') {
+    // qué % de remarcación usar para estos productos con este proveedor
+    ruta = `/compras/remarcacion?proveedorId=${encodeURIComponent(url.searchParams.get('proveedorId') ?? '')}&skus=${encodeURIComponent(url.searchParams.get('skus') ?? '')}`;
   } else if (recurso === 'orden' && url.searchParams.get('id')) {
     // detalle de una orden de compra: renglones, remitos y facturas
     ruta = `/compras/ordenes/${encodeURIComponent(url.searchParams.get('id')!)}`;

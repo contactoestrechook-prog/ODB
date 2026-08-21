@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { prepararComprobante } from './comprimirImagen';
 
@@ -262,6 +262,55 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   const [busca, setBusca] = useState(''); const [sug, setSug] = useState<any[]>([]);
   const [recibido, setRecibido] = useState<Record<string, string>>({});
   const [vencs, setVencs] = useState<Record<string, string>>({}); // vencimiento por sku al recibir → crea el lote
+  // Remarcación por producto: la que quedó aprendida de la última entrada de ese
+  // proveedor (y la del rubro como respaldo). Se propone en cada renglón para no
+  // volver a pedirla cada vez que entra la misma mercadería; se puede editar, y
+  // lo que se edite queda aprendido para la próxima.
+  const [remarca, setRemarca] = useState<Record<string, { margenPct: number | null; margenRubro: number | null; ultimoCosto: number | null }>>({});
+  const [margenPorSku, setMargenPorSku] = useState<Record<string, string>>({});
+
+  const traerRemarcacion = useCallback(async (proveedorId: string, skus: string[]) => {
+    const faltan = skus.filter((sku) => sku && !(sku in remarca));
+    if (!faltan.length) return;
+    try {
+      const r = await fetch(`/api/compras?recurso=remarcacion&proveedorId=${encodeURIComponent(proveedorId ?? '')}&skus=${encodeURIComponent(faltan.join(','))}`);
+      if (!r.ok) return;
+      const d = await r.json();
+      setRemarca((x) => ({ ...x, ...d }));
+      // se propone la aprendida; si no hay, el casillero queda vacío y manda el rubro
+      setMargenPorSku((m) => {
+        const nuevo = { ...m };
+        for (const [sku, v] of Object.entries(d as Record<string, any>)) {
+          if (nuevo[sku] === undefined && v?.margenPct != null) nuevo[sku] = String(v.margenPct);
+        }
+        return nuevo;
+      });
+    } catch { /* si no se puede consultar, se usa el del rubro como siempre */ }
+  }, [remarca]);
+
+  // Al abrir "recibir" o "entrada directa", se consulta qué remarcación quedó
+  // aprendida para esos productos con ese proveedor y se propone en cada
+  // renglón. Es lo que evita tener que acordarse del porcentaje de memoria cada
+  // vez que entra la misma mercadería.
+  useEffect(() => {
+    if (modal?.tipo === 'recibir') {
+      const skus = (modal.oc?.items ?? []).map((it: any) => it.producto?.sku).filter(Boolean);
+      traerRemarcacion(modal.oc?.proveedor_id ?? '', skus);
+    }
+  }, [modal, traerRemarcacion]);
+
+  useEffect(() => {
+    if (modal?.tipo !== 'entradaDirecta' || !items.length) return;
+    traerRemarcacion(f.proveedorId ?? '', items.map((i: any) => i.sku).filter(Boolean));
+  }, [modal, items, f.proveedorId, traerRemarcacion]);
+
+  // lo aprendido es POR proveedor: si cambian de proveedor, se olvida lo propuesto
+  useEffect(() => {
+    if (modal?.tipo !== 'entradaDirecta') return;
+    setRemarca({});
+    setMargenPorSku({});
+  }, [modal?.tipo, f.proveedorId]);
+
   const [facturasSel, setFacturasSel] = useState<string[]>(modal.prov?.facturas?.map((x: any) => x.id) ?? []);
   const [importando, setImportando] = useState(false);
   const [importInfo, setImportInfo] = useState<{ conMatch: number; sinMatch: string[] } | null>(null);
@@ -605,13 +654,26 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
         {t === 'recibir' && (<>
           <h2 className="font-semibold text-black text-lg">Recibir OC #{modal.oc.numero}</h2>
           <p className="text-xs text-black/50">Ingresá lo que llegó de cada ítem. Al recibir se fija el costo de la compra y se calcula el precio de venta con el % de remarcación. Si cargás vencimiento, nace el lote para la vigilancia de vencimientos.</p>
+          <div className="flex items-center gap-2 text-[10px] uppercase tracking-wide text-black/40">
+            <span className="flex-1">Producto</span><span className="w-20 text-right">Llegó</span><span className="w-20 text-right">Remarc. %</span><span className="w-36">Vencimiento</span>
+          </div>
           {(modal.oc.items ?? []).map((it: any, idx: number) => {
             const pend = Number(it.cantidad) - Number(it.cantidad_recibida ?? 0);
+            const sku = it.producto?.sku;
+            const info = remarca[sku];
             return (
               <div key={idx} className="flex items-center gap-2 text-sm">
                 <span className="flex-1 truncate">{it.producto?.nombre} <span className="text-xs text-black/40">(pend. {pend})</span></span>
-                <input type="number" value={recibido[it.producto?.sku] ?? ''} onChange={(e) => setRecibido((r) => ({ ...r, [it.producto?.sku]: e.target.value }))} placeholder={String(pend)} className="w-20 rounded border border-black/15 px-2 py-1 text-right" />
-                <input type="date" title="Vencimiento (opcional)" value={vencs[it.producto?.sku] ?? ''} onChange={(e) => setVencs((v) => ({ ...v, [it.producto?.sku]: e.target.value }))} className="w-36 rounded border border-black/15 px-2 py-1 text-xs" />
+                <input type="number" value={recibido[sku] ?? ''} onChange={(e) => setRecibido((r) => ({ ...r, [sku]: e.target.value }))} placeholder={String(pend)} className="w-20 rounded border border-black/15 px-2 py-1 text-right" />
+                <input
+                  type="number"
+                  value={margenPorSku[sku] ?? ''}
+                  onChange={(e) => setMargenPorSku((m) => ({ ...m, [sku]: e.target.value }))}
+                  placeholder={info?.margenRubro != null ? String(info.margenRubro) : 'rubro'}
+                  title={info?.margenPct != null ? `La última vez se remarcó ${info.margenPct}%` : 'Sin remarcación previa: se usa la del rubro'}
+                  className={`w-20 rounded border px-2 py-1 text-right ${info?.margenPct != null ? 'border-[#B82D25]/40 bg-[#B82D25]/5' : 'border-black/15'}`}
+                />
+                <input type="date" title="Vencimiento (opcional)" value={vencs[sku] ?? ''} onChange={(e) => setVencs((v) => ({ ...v, [sku]: e.target.value }))} className="w-36 rounded border border-black/15 px-2 py-1 text-xs" />
               </div>
             );
           })}
@@ -621,7 +683,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
             <span className="text-black/40 text-xs">%</span>
           </div>
           {aviso && <p className="text-xs text-[#B82D25]">{aviso}</p>}
-          <Acciones cerrar={cerrar} okLabel="Registrar recepción" onOk={() => post({ accion: 'recibir', id: modal.oc.id, margenPct: f.margenPct ? Number(f.margenPct) : undefined, items: (modal.oc.items ?? []).map((it: any) => ({ sku: it.producto?.sku, cantidad: Number(recibido[it.producto?.sku] ?? (Number(it.cantidad) - Number(it.cantidad_recibida ?? 0))), vencimiento: vencs[it.producto?.sku] || undefined })).filter((x: any) => x.cantidad > 0) })} />
+          <Acciones cerrar={cerrar} okLabel="Registrar recepción" onOk={() => post({ accion: 'recibir', id: modal.oc.id, margenPct: f.margenPct ? Number(f.margenPct) : undefined, items: (modal.oc.items ?? []).map((it: any) => ({ sku: it.producto?.sku, cantidad: Number(recibido[it.producto?.sku] ?? (Number(it.cantidad) - Number(it.cantidad_recibida ?? 0))), vencimiento: vencs[it.producto?.sku] || undefined, margenPct: margenPorSku[it.producto?.sku] ? Number(margenPorSku[it.producto?.sku]) : undefined })).filter((x: any) => x.cantidad > 0) })} />
         </>)}
 
         {t === 'entradaDirecta' && (<>
@@ -644,18 +706,34 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
           </div>
           {items.length > 0 && (
             <div className="flex items-center gap-2 text-[10px] uppercase tracking-wide text-black/40 pr-6">
-              <span className="flex-1">Producto</span><span className="w-16 text-right">Cant.</span><span className="w-24 text-right">Costo $</span><span className="w-36">Vencimiento</span>
+              <span className="flex-1">Producto</span><span className="w-16 text-right">Cant.</span><span className="w-24 text-right">Costo $</span><span className="w-20 text-right">Remarc. %</span><span className="w-36">Vencimiento</span>
             </div>
           )}
-          {items.map((i, idx) => (
-            <div key={idx} className="flex items-center gap-2 text-sm">
-              <span className="flex-1 truncate">{i.nombre}</span>
-              <input type="number" value={i.cantidad} onChange={(e) => setItems((xs) => xs.map((x, j) => j === idx ? { ...x, cantidad: Number(e.target.value) } : x))} className="w-16 rounded border border-black/15 px-2 py-1 text-right" />
-              <input type="number" value={i.costo} onChange={(e) => setItems((xs) => xs.map((x, j) => j === idx ? { ...x, costo: Number(e.target.value) } : x))} className="w-24 rounded border border-black/15 px-2 py-1 text-right" placeholder="costo" />
-              <input type="date" value={i.vencimiento ?? ''} onChange={(e) => setItems((xs) => xs.map((x, j) => j === idx ? { ...x, vencimiento: e.target.value } : x))} className="w-36 rounded border border-black/15 px-2 py-1 text-xs" />
-              <button onClick={() => setItems((xs) => xs.filter((_, j) => j !== idx))} className="text-black/40 hover:text-[#B82D25]">✕</button>
-            </div>
-          ))}
+          {items.map((i, idx) => {
+            const info = remarca[i.sku];
+            const margen = margenPorSku[i.sku] !== undefined ? margenPorSku[i.sku] : '';
+            const venta = Number(i.costo) > 0 && margen !== '' ? Math.round(Number(i.costo) * (1 + Number(margen) / 100)) : null;
+            return (
+              <div key={idx} className="flex items-center gap-2 text-sm">
+                <span className="flex-1 truncate">
+                  {i.nombre}
+                  {venta != null && <span className="ml-2 text-xs text-black/40">vende {pesos(venta)}</span>}
+                </span>
+                <input type="number" value={i.cantidad} onChange={(e) => setItems((xs) => xs.map((x, j) => j === idx ? { ...x, cantidad: Number(e.target.value) } : x))} className="w-16 rounded border border-black/15 px-2 py-1 text-right" />
+                <input type="number" value={i.costo} onChange={(e) => setItems((xs) => xs.map((x, j) => j === idx ? { ...x, costo: Number(e.target.value) } : x))} className="w-24 rounded border border-black/15 px-2 py-1 text-right" placeholder="costo" />
+                <input
+                  type="number"
+                  value={margen}
+                  onChange={(e) => setMargenPorSku((m) => ({ ...m, [i.sku]: e.target.value }))}
+                  placeholder={info?.margenRubro != null ? String(info.margenRubro) : 'rubro'}
+                  title={info?.margenPct != null ? `La última vez se remarcó ${info.margenPct}%` : 'Sin remarcación previa: se usa la del rubro'}
+                  className={`w-20 rounded border px-2 py-1 text-right ${info?.margenPct != null ? 'border-[#B82D25]/40 bg-[#B82D25]/5' : 'border-black/15'}`}
+                />
+                <input type="date" value={i.vencimiento ?? ''} onChange={(e) => setItems((xs) => xs.map((x, j) => j === idx ? { ...x, vencimiento: e.target.value } : x))} className="w-36 rounded border border-black/15 px-2 py-1 text-xs" />
+                <button onClick={() => setItems((xs) => xs.filter((_, j) => j !== idx))} className="text-black/40 hover:text-[#B82D25]">✕</button>
+              </div>
+            );
+          })}
           <div className="flex items-center gap-2 text-sm pt-2 mt-1 border-t border-black/10">
             <span className="flex-1 text-black/60">% de remarcación <span className="text-xs text-black/40">(vacío = usa el del rubro)</span></span>
             <input type="number" value={f.margenPct ?? ''} onChange={(e) => set('margenPct', e.target.value)} placeholder="rubro" className="w-20 rounded border border-black/15 px-2 py-1 text-right" />
@@ -663,7 +741,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
           </div>
           {items.length > 0 && <p className="text-right text-sm font-semibold text-black">Total entrada: {pesos(items.reduce((s: number, i: any) => s + Number(i.cantidad) * Number(i.costo || 0), 0))}</p>}
           {aviso && <p className="text-xs text-[#B82D25]">{aviso}</p>}
-          <Acciones cerrar={cerrar} okLabel="Registrar entrada" disabled={!f.proveedorId || !f.sucursalId || !items.length} onOk={() => post({ accion: 'entradaDirecta', proveedorId: f.proveedorId, sucursalId: f.sucursalId, numeroRemito: f.numeroRemito, margenPct: f.margenPct ? Number(f.margenPct) : undefined, items: items.map((i: any) => ({ sku: i.sku, cantidad: Number(i.cantidad), costo: Number(i.costo) || 0, vencimiento: i.vencimiento || undefined })) })} />
+          <Acciones cerrar={cerrar} okLabel="Registrar entrada" disabled={!f.proveedorId || !f.sucursalId || !items.length} onOk={() => post({ accion: 'entradaDirecta', proveedorId: f.proveedorId, sucursalId: f.sucursalId, numeroRemito: f.numeroRemito, margenPct: f.margenPct ? Number(f.margenPct) : undefined, items: items.map((i: any) => ({ sku: i.sku, cantidad: Number(i.cantidad), costo: Number(i.costo) || 0, vencimiento: i.vencimiento || undefined, margenPct: margenPorSku[i.sku] ? Number(margenPorSku[i.sku]) : undefined })) })} />
         </>)}
 
         {t === 'entradaFoto' && (<>
