@@ -148,7 +148,7 @@ export class BotService {
   private equipoCache: { hasta: number; tels: Set<string> } | null = null;
   private async esNumeroDelEquipo(telefono: string): Promise<boolean> {
     if (!this.equipoCache || this.equipoCache.hasta < Date.now()) {
-      const { data } = await this.db.from('usuarios').select('telefono').eq('activo', true).not('telefono', 'is', null);
+      const { data } = await this.db.from('usuarios').select('telefono').eq('activo', true);
       const tels = new Set<string>();
       for (const u of (data ?? []) as any[]) {
         const d = String(u.telefono ?? '').replace(/\D/g, '');
