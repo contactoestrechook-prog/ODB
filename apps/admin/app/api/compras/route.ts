@@ -27,6 +27,9 @@ export async function GET(req: Request) {
   if (recurso === 'factura' && url.searchParams.get('id')) {
     // detalle de una factura de proveedor: ?recurso=factura&id=UUID
     ruta = `/compras/facturas/${encodeURIComponent(url.searchParams.get('id')!)}`;
+  } else if (recurso === 'orden' && url.searchParams.get('id')) {
+    // detalle de una orden de compra: renglones, remitos y facturas
+    ruta = `/compras/ordenes/${encodeURIComponent(url.searchParams.get('id')!)}`;
   } else if (recurso === 'facturas') {
     // listado con filtros: se reenvían todos los query params tal cual
     const params = new URLSearchParams(url.searchParams);

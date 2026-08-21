@@ -105,6 +105,41 @@ export class ComprasService {
     return (data ?? []).map((o: any) => ({ ...o, firmadaPor: firmas.get(o.id) ?? null }));
   }
 
+  // Detalle de una orden: qué se pidió, qué llegó y con qué papeles. Antes la
+  // pantalla de Compras mostraba la orden como un renglón muerto — para ver la
+  // factura de esa compra había que buscarla a mano en otra pantalla, así que
+  // ante una duda nadie la miraba.
+  async ordenDetalle(id: string) {
+    const { data: oc, error } = await this.db
+      .from('ordenes_compra')
+      .select(
+        `numero, id, estado, total, origen, creado_en, fecha_entrega, condicion_pago, vencimiento_pago, observaciones, descuento, rechazo_motivo,
+         proveedor:proveedores(razon_social, cuit),
+         sucursal:sucursales(nombre),
+         items:ordenes_compra_items(cantidad, cantidad_recibida, costo_unitario, producto:productos(sku, nombre)),
+         creador:usuarios!ordenes_compra_creada_por_fkey(nombre)`,
+      )
+      .eq('id', id)
+      .single();
+    if (error) throw new BadRequestException(error.message);
+
+    const [{ data: remitos }, { data: facturas }] = await Promise.all([
+      this.db.from('remitos').select('id, numero, estado, creado_en').eq('oc_id', id).order('creado_en'),
+      this.db
+        .from('facturas_proveedor')
+        .select('id, numero, letra, tipo, monto, monto_pagado, estado, fecha_emision, creado_en, archivo_url, cargador:usuarios!facturas_proveedor_cargada_por_fkey(nombre)')
+        .eq('oc_id', id)
+        .order('creado_en'),
+    ]);
+
+    return {
+      ...oc,
+      remitos: remitos ?? [],
+      // tieneComprobante: si hay imagen o PDF escaneado para mirar
+      facturas: ((facturas ?? []) as any[]).map(({ archivo_url, ...f }) => ({ ...f, tieneComprobante: !!archivo_url })),
+    };
+  }
+
   async crear(dto: CrearOcDto) {
     const items = await Promise.all(
       (dto.items ?? []).map(async (i) => {

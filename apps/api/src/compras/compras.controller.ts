@@ -64,6 +64,14 @@ export class ComprasController {
     return this.compras.editarProveedor(id, dto);
   }
 
+  // detalle de UNA orden, con sus remitos y sus facturas (backoffice entra por
+  // 'comprador', que su rol implica)
+  @Roles('comprador', 'deposito', 'gerente', 'dueno')
+  @Get('compras/ordenes/:id')
+  ordenDetalle(@Param('id') id: string) {
+    return this.compras.ordenDetalle(id);
+  }
+
   @Roles('comprador', 'gerente', 'dueno')
   @Get('compras/resumen')
   resumen() {

@@ -102,7 +102,12 @@ export function ComprasWorkspace({ resumen, ordenes, proveedores, sugerencias, s
       {(tab === 'ordenes' || tab === 'aprobar' || tab === 'recepcion') && (
         <div className="space-y-2">
           {(tab === 'ordenes' ? ordenes : tab === 'aprobar' ? porAprobar : porRecibir).map((o) => (
-            <div key={o.numero} className="rounded-xl bg-white p-4">
+            <div
+              key={o.numero}
+              onClick={() => setModal({ tipo: 'ocDetalle', ocId: o.id, numero: o.numero })}
+              className="rounded-xl bg-white p-4 cursor-pointer hover:bg-[#F0EBE2]/40 transition-colors"
+              title="Ver el detalle, los remitos y las facturas de esta compra"
+            >
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="font-medium text-black">OC #{o.numero} · {o.proveedor?.razon_social ?? '—'}
@@ -120,7 +125,7 @@ export function ComprasWorkspace({ resumen, ordenes, proveedores, sugerencias, s
                 </div>
                 <div className="text-right whitespace-nowrap">
                   <p className="font-semibold text-black">{pesos(o.total)}</p>
-                  <div className="flex gap-2 justify-end mt-1">
+                  <div className="flex gap-2 justify-end mt-1" onClick={(e) => e.stopPropagation()}>
                     {o.estado === 'pendiente_aprobacion' && <>
                       <button onClick={() => post({ accion: 'aprobar', id: o.id })} className="text-xs font-medium text-emerald-700 hover:underline">Aprobar</button>
                       <button onClick={() => setModal({ tipo: 'rechazar', oc: o })} className="text-xs font-medium text-[#B82D25] hover:underline">Rechazar</button>
@@ -961,7 +966,18 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
           )}
         </>)}
 
-        {t === 'facturaDetalle' && <FacturaDetalle id={modal.facturaId} cerrar={cerrar} />}
+        {t === 'ocDetalle' && (
+          <OrdenDetalle
+            id={modal.ocId}
+            numero={modal.numero}
+            cerrar={cerrar}
+            verFactura={(facturaId: string) => setModal({ tipo: 'facturaDetalle', facturaId, volverA: { tipo: 'ocDetalle', ocId: modal.ocId, numero: modal.numero } })}
+          />
+        )}
+
+        {t === 'facturaDetalle' && (
+          <FacturaDetalle id={modal.facturaId} cerrar={modal.volverA ? () => setModal(modal.volverA) : cerrar} volviendo={!!modal.volverA} />
+        )}
 
         {t === 'proveedor' && (<>
           <h2 className="font-semibold text-black text-lg">{modal.prov?.id ? 'Editar proveedor' : 'Nuevo proveedor'}</h2>
@@ -1017,7 +1033,106 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
 }
 
 // Detalle de una factura de proveedor ya registrada: desglose fiscal + renglones.
-function FacturaDetalle({ id, cerrar }: { id: string; cerrar: () => void }) {
+// Detalle de una orden de compra: qué se pidió, qué llegó y con qué papeles.
+// La factura se abre desde acá — que es donde uno tiene la duda — en lugar de
+// mandar a nadie a buscarla a otra pantalla.
+function OrdenDetalle({ id, numero, cerrar, verFactura }: { id: string; numero: number; cerrar: () => void; verFactura: (facturaId: string) => void }) {
+  const [d, setD] = useState<any>(null);
+  const [err, setErr] = useState('');
+  useEffect(() => {
+    fetch(`/api/compras?recurso=orden&id=${id}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(r)))
+      .then(setD)
+      .catch(() => setErr('No se pudo cargar el detalle de la compra'));
+  }, [id]);
+
+  const ESTADO_FACT: Record<string, string> = { pendiente: 'pendiente de pago', pagada: 'pagada', en_pago: 'en pago', anulada: 'anulada' };
+
+  return (
+    <>
+      <h2 className="font-semibold text-black text-lg">OC #{numero}{d?.proveedor?.razon_social ? ` · ${d.proveedor.razon_social}` : ''}</h2>
+      {!d && !err && <p className="text-sm text-black/50">Cargando…</p>}
+      {err && <p className="text-sm text-[#B82D25]">{err}</p>}
+      {d && (
+        <div className="space-y-3">
+          <div className="rounded-lg bg-[#F0EBE2]/60 px-3 py-2 text-sm text-black/80">
+            <p className="text-xs text-black/55">
+              {d.sucursal?.nombre} · {fecha(d.creado_en)}
+              {d.creador?.nombre ? ` · cargó ${d.creador.nombre}` : ''}
+              {d.condicion_pago ? ` · ${d.condicion_pago}` : ''}
+              {d.origen === 'directa' ? ' · entrada directa (sin OC previa)' : ''}
+            </p>
+            {d.observaciones && <p className="text-xs text-black/50 italic mt-0.5">“{d.observaciones}”</p>}
+          </div>
+
+          <div className="rounded-lg border border-black/10 divide-y divide-black/5 max-h-64 overflow-y-auto">
+            <div className="flex items-center gap-2 px-3 py-1.5 text-[10px] uppercase tracking-wide text-black/40">
+              <span className="flex-1">Producto</span><span className="w-20 text-right">Pedido</span><span className="w-20 text-right">Recibido</span><span className="w-24 text-right">Costo</span>
+            </div>
+            {(d.items ?? []).map((it: any, i: number) => {
+              const falta = Number(it.cantidad_recibida ?? 0) < Number(it.cantidad);
+              return (
+                <div key={i} className="flex items-center gap-2 px-3 py-1.5 text-sm">
+                  <span className="flex-1 truncate text-black">{it.producto?.nombre ?? '—'} <span className="text-xs text-black/35">{it.producto?.sku}</span></span>
+                  <span className="w-20 text-right tabular-nums text-black/70">{it.cantidad}</span>
+                  <span className={`w-20 text-right tabular-nums ${falta ? 'text-[#B82D25] font-medium' : 'text-black/70'}`}>{it.cantidad_recibida ?? 0}</span>
+                  <span className="w-24 text-right tabular-nums text-black/70">{pesos(it.costo_unitario)}</span>
+                </div>
+              );
+            })}
+            <div className="flex justify-between px-3 py-1.5"><span className="font-semibold text-black text-sm">TOTAL</span><span className="font-semibold text-black tabular-nums">{pesos(d.total)}</span></div>
+          </div>
+
+          {/* FACTURAS de esta compra: el motivo por el que esto es clickeable */}
+          <div>
+            <p className="text-xs uppercase tracking-wide text-black/40 mb-1">Facturas de esta compra</p>
+            {d.facturas?.length > 0 ? (
+              <div className="rounded-lg border border-black/10 divide-y divide-black/5">
+                {d.facturas.map((f: any) => (
+                  <button
+                    key={f.id}
+                    onClick={() => verFactura(f.id)}
+                    className="w-full text-left px-3 py-2 hover:bg-[#F0EBE2]/50 flex items-center justify-between gap-2"
+                  >
+                    <span className="min-w-0">
+                      <span className="text-sm text-black block truncate">
+                        {f.letra ? `${String(f.tipo ?? 'factura').replace('_', ' ')} ${f.letra}` : 'Factura'} {f.numero}
+                        {f.tieneComprobante && <span className="ml-2 text-[10px] rounded-full bg-black/5 px-2 py-0.5 text-black/50">con comprobante</span>}
+                      </span>
+                      <span className="text-xs text-black/45">
+                        {f.fecha_emision ? fecha(f.fecha_emision) : fecha(f.creado_en)} · {ESTADO_FACT[f.estado] ?? f.estado}
+                        {f.cargador?.nombre ? ` · cargó ${f.cargador.nombre}` : ''}
+                      </span>
+                    </span>
+                    <span className="shrink-0 text-sm font-medium text-black tabular-nums">{pesos(f.monto)}</span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-black/45">Todavía no hay factura cargada para esta compra.</p>
+            )}
+          </div>
+
+          {d.remitos?.length > 0 && (
+            <div>
+              <p className="text-xs uppercase tracking-wide text-black/40 mb-1">Remitos</p>
+              <div className="rounded-lg border border-black/10 divide-y divide-black/5">
+                {d.remitos.map((r: any) => (
+                  <div key={r.id} className="px-3 py-1.5 text-sm text-black/75">
+                    {r.numero || 'sin número'} <span className="text-xs text-black/45">· {fecha(r.creado_en)} · {String(r.estado ?? '').replace(/_/g, ' ')}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+      <div className="flex justify-end pt-1"><button onClick={cerrar} className="rounded-full bg-black text-white text-sm font-medium px-5 py-2 hover:bg-black/80">Cerrar</button></div>
+    </>
+  );
+}
+
+function FacturaDetalle({ id, cerrar, volviendo }: { id: string; cerrar: () => void; volviendo?: boolean }) {
   const [d, setD] = useState<any>(null);
   const [err, setErr] = useState('');
   useEffect(() => {
@@ -1058,9 +1173,31 @@ function FacturaDetalle({ id, cerrar }: { id: string; cerrar: () => void }) {
           ) : (
             <p className="text-xs text-black/45">Sin renglones asociados (factura cargada a mano).</p>
           )}
+
+          {/* El papel original. Es lo que se mira cuando hay una duda: el enlace
+              es temporal (lo firma el API, el archivo no es público). */}
+          {d.comprobanteUrl ? (
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <p className="text-xs uppercase tracking-wide text-black/40">Comprobante</p>
+                <a href={d.comprobanteUrl} target="_blank" rel="noreferrer" className="text-xs font-medium text-[#B82D25] hover:underline">Abrir en grande</a>
+              </div>
+              {/pdf(\?|$)/i.test(d.archivo_url ?? d.comprobanteUrl) ? (
+                <a href={d.comprobanteUrl} target="_blank" rel="noreferrer" className="block rounded-lg border border-black/10 bg-[#F0EBE2]/50 px-3 py-4 text-center text-sm text-black/70 hover:border-black/30">
+                  Abrir el comprobante (PDF)
+                </a>
+              ) : (
+                <a href={d.comprobanteUrl} target="_blank" rel="noreferrer">
+                  <img src={d.comprobanteUrl} alt="Comprobante" className="w-full rounded-lg border border-black/10 max-h-96 object-contain bg-white" />
+                </a>
+              )}
+            </div>
+          ) : (
+            <p className="text-xs text-black/45">Esta factura se cargó a mano: no hay foto ni PDF del comprobante.</p>
+          )}
         </div>
       )}
-      <div className="flex justify-end pt-1"><button onClick={cerrar} className="rounded-full bg-black text-white text-sm font-medium px-5 py-2 hover:bg-black/80">Cerrar</button></div>
+      <div className="flex justify-end pt-1"><button onClick={cerrar} className="rounded-full bg-black text-white text-sm font-medium px-5 py-2 hover:bg-black/80">{volviendo ? 'Volver a la compra' : 'Cerrar'}</button></div>
     </>
   );
 }
