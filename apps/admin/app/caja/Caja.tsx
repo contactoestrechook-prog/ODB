@@ -150,6 +150,9 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
   // difundir, y este es el único momento en que la persona está enfrente
   const [waTel, setWaTel] = useState('');
   const [waGuardando, setWaGuardando] = useState(false);
+  // pago a cuenta: el cajero lo TOMA pero no lo aplica; queda pendiente de que
+  // el dueño lo apruebe en "Cobros a ingresar"
+  const [cobro, setCobro] = useState<null | { monto: string; medio: string; nota: string; mandando: boolean; listo: boolean; error: string }>(null);
   const [waHecho, setWaHecho] = useState<'alta' | 'baja' | null>(null);
   const [clientes, setClientes] = useState<{ dni: string; nombre: string }[]>([]); // autocompletar por nombre
   const [cliente, setCliente] = useState<Cliente | null>(null);
@@ -566,6 +569,26 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
         setWaHecho(c?.aceptaMarketing ? 'alta' : null);
       }
     } catch {}
+  }
+
+  // Toma un pago a cuenta. NO baja la deuda: crea el cobro pendiente y le avisa
+  // al dueño. El cajero solo necesita saber que quedó registrado.
+  async function tomarCobro() {
+    if (!cobro || cobro.mandando || !cliente?.existe) return;
+    const monto = Number(cobro.monto);
+    if (!Number.isFinite(monto) || monto <= 0) { setCobro({ ...cobro, error: 'Poné el monto que dejó el cliente' }); return; }
+    setCobro({ ...cobro, mandando: true, error: '' });
+    try {
+      const r = await fetch('/api/cobranzas', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clienteId: (cliente as any).id, monto, medio: cobro.medio, nota: cobro.nota.trim() || undefined }),
+      });
+      const d = await r.json();
+      if (!r.ok) { setCobro({ ...cobro, mandando: false, error: d?.message ?? 'No se pudo registrar' }); return; }
+      setCobro({ ...cobro, mandando: false, listo: true, error: '' });
+    } catch {
+      setCobro({ ...cobro, mandando: false, error: 'Sin conexión: probá de nuevo' });
+    }
   }
 
   // Guarda teléfono + permiso. Un toque, sin sacar al cajero de la venta.
@@ -1208,6 +1231,55 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
               <span className="text-xs text-white/75">
                 disponible {pesos(cliente.ctaCte.disponible)} de {pesos(cliente.ctaCte.limite)}
               </span>
+            )}
+            <button
+              onClick={() => setCobro(cobro ? null : { monto: '', medio: 'efectivo', nota: '', mandando: false, listo: false, error: '' })}
+              className="rounded-full bg-white/15 px-3 py-1 text-xs font-medium hover:bg-white/25"
+            >
+              Dejó un pago
+            </button>
+          </div>
+        )}
+
+        {/* Pago a cuenta: queda PENDIENTE hasta que lo apruebe el dueño. El
+            cajero nunca toca la cuenta corriente — toma el pago, avisa, sigue. */}
+        {cobro && cliente?.existe && (
+          <div className="mt-1.5 rounded-xl bg-white border-2 border-[#B82D25]/30 p-3 max-w-xl">
+            {cobro.listo ? (
+              <p className="text-sm text-emerald-700">
+                ✓ Registrado. Le avisamos a Juan Pablo: cuando lo apruebe, se descuenta de la cuenta.
+                <button onClick={() => setCobro(null)} className="ml-3 text-xs text-black/50 underline">cerrar</button>
+              </p>
+            ) : (
+              <>
+                <p className="text-xs text-black/55 mb-2">
+                  El pago <b>no</b> baja la deuda todavía: queda para que lo apruebe Juan Pablo.
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    value={cobro.monto}
+                    onChange={(e) => setCobro({ ...cobro, monto: e.target.value })}
+                    type="number" placeholder="$ monto" autoFocus
+                    className="w-32 rounded-lg border border-black/15 px-3 py-2 text-base text-black outline-none focus:border-[#B82D25]"
+                  />
+                  <select value={cobro.medio} onChange={(e) => setCobro({ ...cobro, medio: e.target.value })} className="rounded-lg border border-black/15 px-2 py-2 text-sm text-black bg-white">
+                    <option value="efectivo">Efectivo</option>
+                    <option value="transferencia">Transferencia</option>
+                    <option value="tarjeta">Tarjeta / posnet</option>
+                    <option value="cheque">Cheque</option>
+                  </select>
+                  <input
+                    value={cobro.nota}
+                    onChange={(e) => setCobro({ ...cobro, nota: e.target.value })}
+                    placeholder="Nota (opcional)"
+                    className="flex-1 min-w-32 rounded-lg border border-black/15 px-3 py-2 text-sm text-black outline-none focus:border-[#B82D25]"
+                  />
+                  <button onClick={tomarCobro} disabled={cobro.mandando} className="rounded-full bg-[#B82D25] px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
+                    {cobro.mandando ? '…' : 'Registrar'}
+                  </button>
+                </div>
+                {cobro.error && <p className="mt-1.5 text-xs text-[#B82D25]">{cobro.error}</p>}
+              </>
             )}
           </div>
         )}

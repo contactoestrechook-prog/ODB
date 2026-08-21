@@ -1,10 +1,14 @@
+import { cookies } from 'next/headers';
 import { Header } from '../ui/Header';
 import { apiFetch } from '../../lib/api';
 import { ClientesWorkspace } from '../ui/ClientesWorkspace';
+import { CobrosAIngresar } from '../ui/CobrosAIngresar';
+import { datosDesdeToken } from '../lib/permisos';
 
 export const dynamic = 'force-dynamic';
 
 export default async function Clientes() {
+  const rol = datosDesdeToken((await cookies()).get('odb_token')?.value).rol;
   let resumen: any = {};
   let segmentosData: any = { ticketGeneral: 0, segmentos: [] };
   let cuentas: any[] = [];
@@ -26,7 +30,8 @@ export default async function Clientes() {
   return (
     <main className="min-h-screen bg-[#F0EBE2] lg:pl-64">
       <Header activo="/clientes" />
-      <div className="max-w-5xl mx-auto p-6">
+      <div className="max-w-5xl mx-auto p-6 space-y-5">
+        <CobrosAIngresar esDueno={rol === 'dueno'} />
         {error ? (
           <p className="rounded-lg bg-white p-4 text-sm text-[#932A1F]">No pude consultar la API ({error}).</p>
         ) : (
