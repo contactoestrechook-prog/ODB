@@ -29,6 +29,15 @@ const FORM = {
 
 const pesos = (n: number) => '$' + Math.round(n).toLocaleString('es-AR');
 
+// Mismo redondeo de góndola que el servidor (apps/api/src/compras/precio.ts):
+// a la centena, de 50 para arriba sube.
+const redondearPrecio = (p: number) => {
+  const n = Number(p) || 0;
+  if (n <= 0) return 0;
+  if (n < 100) return Math.round(n);
+  return Math.round(n / 100) * 100;
+};
+
 export function AltaProducto({ rubros, marcas, sucursales }: { rubros: Opcion[]; marcas: Opcion[]; sucursales: Sucursal[] }) {
   const router = useRouter();
   const params = useSearchParams();
@@ -57,7 +66,7 @@ export function AltaProducto({ rubros, marcas, sucursales }: { rubros: Opcion[];
   const costo = Number(form.costo) || 0;
   const precio = Number(form.precio) || 0;
   const margen = costo > 0 && precio > 0 ? Math.round(((precio - costo) / costo) * 100) : null;
-  const precioSugerido = costo > 0 && margenRubro != null ? Math.round(costo * (1 + margenRubro / 100)) : null;
+  const precioSugerido = costo > 0 && margenRubro != null ? redondearPrecio(costo * (1 + margenRubro / 100)) : null;
 
   // ¿ese código ya es de alguien? Se pregunta al catálogo, no a la memoria de nadie
   useEffect(() => {

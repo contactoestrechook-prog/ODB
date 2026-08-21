@@ -1,3 +1,4 @@
+import { redondearPrecio } from './precio';
 // Costeo de una compra — LÓGICA PURA, sin DB ni red, testeable aislada.
 //
 // El precio de lista de un proveedor casi nunca es el costo real. Entre medio hay
@@ -218,7 +219,9 @@ export function impactoEnPrecio(params: {
   const precioVigente = Number(params.precioVigente) || 0;
   const margen = Number(params.margenPct) || 0;
 
-  const precioSugerido = Math.round(costoNuevo * (1 + margen / 100));
+  // mismo redondeo de góndola que usa la recepción: lo que se simula acá es
+  // exactamente el precio que después se va a cargar
+  const precioSugerido = redondearPrecio(costoNuevo * (1 + margen / 100));
   const variacionCostoPct = costoAnterior > 0 ? ((costoNuevo - costoAnterior) / costoAnterior) * 100 : null;
   const variacionPrecioPct = precioVigente > 0 ? ((precioSugerido - precioVigente) / precioVigente) * 100 : null;
   // margen que quedaría si NO se tocara el precio de venta

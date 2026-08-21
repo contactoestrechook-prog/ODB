@@ -4,6 +4,16 @@ import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { prepararComprobante } from './comprimirImagen';
 
+// Mismo redondeo de góndola que aplica el servidor al guardar el precio
+// (apps/api/src/compras/precio.ts): a la centena, de 50 para arriba sube. Se
+// repite acá para que lo que se ve al cargar sea exactamente lo que queda.
+function redondearPrecio(p: number): number {
+  const n = Number(p) || 0;
+  if (n <= 0) return 0;
+  if (n < 100) return Math.round(n);
+  return Math.round(n / 100) * 100;
+}
+
 const pesos = (n: any) => '$' + Math.round(Number(n) || 0).toLocaleString('es-AR');
 const fecha = (iso: string) => (iso ? new Date(iso).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: '2-digit' }) : '—');
 
@@ -268,6 +278,9 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   // lo que se edite queda aprendido para la próxima.
   const [remarca, setRemarca] = useState<Record<string, { margenPct: number | null; margenRubro: number | null; ultimoCosto: number | null }>>({});
   const [margenPorSku, setMargenPorSku] = useState<Record<string, string>>({});
+  // renglones donde el % editado pasa a ser el HABITUAL. Por defecto no: un %
+  // distinto al de siempre es una promoción y vale solo para esta entrada.
+  const [fijarSku, setFijarSku] = useState<Record<string, boolean>>({});
 
   const traerRemarcacion = useCallback(async (proveedorId: string, skus: string[]) => {
     const faltan = skus.filter((sku) => sku && !(sku in remarca));
@@ -310,6 +323,30 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
     setRemarca({});
     setMargenPorSku({});
   }, [modal?.tipo, f.proveedorId]);
+
+  // Debajo del casillero de %: dice cuál es el habitual, deja volver a él de un
+  // toque, y ofrece fijar el nuevo si el cambio vino para quedarse.
+  const AvisoMargen = ({ sku, habitualExterno, valor, poner }: { sku: string; habitualExterno?: number | null; valor?: any; poner?: (v: string) => void }) => {
+    const info = remarca[sku];
+    const habitual = habitualExterno !== undefined ? habitualExterno : info?.margenPct;
+    if (habitual == null) return null;
+    const puesto = valor !== undefined ? (valor === '' || valor == null ? '' : String(valor)) : (margenPorSku[sku] ?? '');
+    const setear = poner ?? ((v: string) => setMargenPorSku((m) => ({ ...m, [sku]: v })));
+    if (puesto === '' || Number(puesto) === Number(habitual)) {
+      return <p className="text-[10px] text-black/35 text-right">habitual {habitual}%</p>;
+    }
+    return (
+      <p className="text-[10px] text-right">
+        <button onClick={() => setear(String(habitual))} className="text-black/45 underline">
+          volver al {habitual}%
+        </button>
+        <label className="ml-2 inline-flex items-center gap-1 text-[#B82D25]" title="Si no lo tildás, este % vale solo para esta entrada">
+          <input type="checkbox" checked={!!fijarSku[sku]} onChange={(e) => setFijarSku((x) => ({ ...x, [sku]: e.target.checked }))} className="accent-[#B82D25]" />
+          dejarlo fijo
+        </label>
+      </p>
+    );
+  };
 
   const [facturasSel, setFacturasSel] = useState<string[]>(modal.prov?.facturas?.map((x: any) => x.id) ?? []);
   const [importando, setImportando] = useState(false);
@@ -558,7 +595,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   }
 
   // precio de venta calculado = costo final × (1 + remarcación%)
-  const precioVenta = (i: any) => Math.round(costoFinal(i) * (1 + (Number(i.margenPct) || 0) / 100));
+  const precioVenta = (i: any) => redondearPrecio(costoFinal(i) * (1 + (Number(i.margenPct) || 0) / 100));
 
   // % de remarcación GENERAL de la factura: al ponerlo, cascada a TODOS los
   // renglones (pisa el 50% por defecto). Vacío = cada renglón queda como esté.
@@ -655,7 +692,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
           <h2 className="font-semibold text-black text-lg">Recibir OC #{modal.oc.numero}</h2>
           <p className="text-xs text-black/50">Ingresá lo que llegó de cada ítem. Al recibir se fija el costo de la compra y se calcula el precio de venta con el % de remarcación. Si cargás vencimiento, nace el lote para la vigilancia de vencimientos.</p>
           <div className="flex items-center gap-2 text-[10px] uppercase tracking-wide text-black/40">
-            <span className="flex-1">Producto</span><span className="w-20 text-right">Llegó</span><span className="w-20 text-right">Remarc. %</span><span className="w-36">Vencimiento</span>
+            <span className="flex-1">Producto</span><span className="w-20 text-right">Llegó</span><span className="w-24 text-right">Remarc. %</span><span className="w-36">Vencimiento</span>
           </div>
           {(modal.oc.items ?? []).map((it: any, idx: number) => {
             const pend = Number(it.cantidad) - Number(it.cantidad_recibida ?? 0);
@@ -665,14 +702,17 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
               <div key={idx} className="flex items-center gap-2 text-sm">
                 <span className="flex-1 truncate">{it.producto?.nombre} <span className="text-xs text-black/40">(pend. {pend})</span></span>
                 <input type="number" value={recibido[sku] ?? ''} onChange={(e) => setRecibido((r) => ({ ...r, [sku]: e.target.value }))} placeholder={String(pend)} className="w-20 rounded border border-black/15 px-2 py-1 text-right" />
-                <input
-                  type="number"
-                  value={margenPorSku[sku] ?? ''}
-                  onChange={(e) => setMargenPorSku((m) => ({ ...m, [sku]: e.target.value }))}
-                  placeholder={info?.margenRubro != null ? String(info.margenRubro) : 'rubro'}
-                  title={info?.margenPct != null ? `La última vez se remarcó ${info.margenPct}%` : 'Sin remarcación previa: se usa la del rubro'}
-                  className={`w-20 rounded border px-2 py-1 text-right ${info?.margenPct != null ? 'border-[#B82D25]/40 bg-[#B82D25]/5' : 'border-black/15'}`}
-                />
+                <span className="w-24">
+                  <input
+                    type="number"
+                    value={margenPorSku[sku] ?? ''}
+                    onChange={(e) => setMargenPorSku((m) => ({ ...m, [sku]: e.target.value }))}
+                    placeholder={info?.margenRubro != null ? String(info.margenRubro) : 'rubro'}
+                    title={info?.margenPct != null ? `La última vez se remarcó ${info.margenPct}%` : 'Sin remarcación previa: se usa la del rubro'}
+                    className={`w-full rounded border px-2 py-1 text-right ${info?.margenPct != null ? 'border-[#B82D25]/40 bg-[#B82D25]/5' : 'border-black/15'}`}
+                  />
+                  <AvisoMargen sku={sku} />
+                </span>
                 <input type="date" title="Vencimiento (opcional)" value={vencs[sku] ?? ''} onChange={(e) => setVencs((v) => ({ ...v, [sku]: e.target.value }))} className="w-36 rounded border border-black/15 px-2 py-1 text-xs" />
               </div>
             );
@@ -683,7 +723,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
             <span className="text-black/40 text-xs">%</span>
           </div>
           {aviso && <p className="text-xs text-[#B82D25]">{aviso}</p>}
-          <Acciones cerrar={cerrar} okLabel="Registrar recepción" onOk={() => post({ accion: 'recibir', id: modal.oc.id, margenPct: f.margenPct ? Number(f.margenPct) : undefined, items: (modal.oc.items ?? []).map((it: any) => ({ sku: it.producto?.sku, cantidad: Number(recibido[it.producto?.sku] ?? (Number(it.cantidad) - Number(it.cantidad_recibida ?? 0))), vencimiento: vencs[it.producto?.sku] || undefined, margenPct: margenPorSku[it.producto?.sku] ? Number(margenPorSku[it.producto?.sku]) : undefined })).filter((x: any) => x.cantidad > 0) })} />
+          <Acciones cerrar={cerrar} okLabel="Registrar recepción" onOk={() => post({ accion: 'recibir', id: modal.oc.id, margenPct: f.margenPct ? Number(f.margenPct) : undefined, items: (modal.oc.items ?? []).map((it: any) => ({ sku: it.producto?.sku, cantidad: Number(recibido[it.producto?.sku] ?? (Number(it.cantidad) - Number(it.cantidad_recibida ?? 0))), vencimiento: vencs[it.producto?.sku] || undefined, margenPct: margenPorSku[it.producto?.sku] ? Number(margenPorSku[it.producto?.sku]) : undefined, fijarMargen: !!fijarSku[it.producto?.sku] })).filter((x: any) => x.cantidad > 0) })} />
         </>)}
 
         {t === 'entradaDirecta' && (<>
@@ -706,13 +746,13 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
           </div>
           {items.length > 0 && (
             <div className="flex items-center gap-2 text-[10px] uppercase tracking-wide text-black/40 pr-6">
-              <span className="flex-1">Producto</span><span className="w-16 text-right">Cant.</span><span className="w-24 text-right">Costo $</span><span className="w-20 text-right">Remarc. %</span><span className="w-36">Vencimiento</span>
+              <span className="flex-1">Producto</span><span className="w-16 text-right">Cant.</span><span className="w-24 text-right">Costo $</span><span className="w-24 text-right">Remarc. %</span><span className="w-36">Vencimiento</span>
             </div>
           )}
           {items.map((i, idx) => {
             const info = remarca[i.sku];
             const margen = margenPorSku[i.sku] !== undefined ? margenPorSku[i.sku] : '';
-            const venta = Number(i.costo) > 0 && margen !== '' ? Math.round(Number(i.costo) * (1 + Number(margen) / 100)) : null;
+            const venta = Number(i.costo) > 0 && margen !== '' ? redondearPrecio(Number(i.costo) * (1 + Number(margen) / 100)) : null;
             return (
               <div key={idx} className="flex items-center gap-2 text-sm">
                 <span className="flex-1 truncate">
@@ -721,14 +761,17 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                 </span>
                 <input type="number" value={i.cantidad} onChange={(e) => setItems((xs) => xs.map((x, j) => j === idx ? { ...x, cantidad: Number(e.target.value) } : x))} className="w-16 rounded border border-black/15 px-2 py-1 text-right" />
                 <input type="number" value={i.costo} onChange={(e) => setItems((xs) => xs.map((x, j) => j === idx ? { ...x, costo: Number(e.target.value) } : x))} className="w-24 rounded border border-black/15 px-2 py-1 text-right" placeholder="costo" />
-                <input
-                  type="number"
-                  value={margen}
-                  onChange={(e) => setMargenPorSku((m) => ({ ...m, [i.sku]: e.target.value }))}
-                  placeholder={info?.margenRubro != null ? String(info.margenRubro) : 'rubro'}
-                  title={info?.margenPct != null ? `La última vez se remarcó ${info.margenPct}%` : 'Sin remarcación previa: se usa la del rubro'}
-                  className={`w-20 rounded border px-2 py-1 text-right ${info?.margenPct != null ? 'border-[#B82D25]/40 bg-[#B82D25]/5' : 'border-black/15'}`}
-                />
+                <span className="w-24">
+                  <input
+                    type="number"
+                    value={margen}
+                    onChange={(e) => setMargenPorSku((m) => ({ ...m, [i.sku]: e.target.value }))}
+                    placeholder={info?.margenRubro != null ? String(info.margenRubro) : 'rubro'}
+                    title={info?.margenPct != null ? `La última vez se remarcó ${info.margenPct}%` : 'Sin remarcación previa: se usa la del rubro'}
+                    className={`w-full rounded border px-2 py-1 text-right ${info?.margenPct != null ? 'border-[#B82D25]/40 bg-[#B82D25]/5' : 'border-black/15'}`}
+                  />
+                  <AvisoMargen sku={i.sku} />
+                </span>
                 <input type="date" value={i.vencimiento ?? ''} onChange={(e) => setItems((xs) => xs.map((x, j) => j === idx ? { ...x, vencimiento: e.target.value } : x))} className="w-36 rounded border border-black/15 px-2 py-1 text-xs" />
                 <button onClick={() => setItems((xs) => xs.filter((_, j) => j !== idx))} className="text-black/40 hover:text-[#B82D25]">✕</button>
               </div>
@@ -741,7 +784,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
           </div>
           {items.length > 0 && <p className="text-right text-sm font-semibold text-black">Total entrada: {pesos(items.reduce((s: number, i: any) => s + Number(i.cantidad) * Number(i.costo || 0), 0))}</p>}
           {aviso && <p className="text-xs text-[#B82D25]">{aviso}</p>}
-          <Acciones cerrar={cerrar} okLabel="Registrar entrada" disabled={!f.proveedorId || !f.sucursalId || !items.length} onOk={() => post({ accion: 'entradaDirecta', proveedorId: f.proveedorId, sucursalId: f.sucursalId, numeroRemito: f.numeroRemito, margenPct: f.margenPct ? Number(f.margenPct) : undefined, items: items.map((i: any) => ({ sku: i.sku, cantidad: Number(i.cantidad), costo: Number(i.costo) || 0, vencimiento: i.vencimiento || undefined, margenPct: margenPorSku[i.sku] ? Number(margenPorSku[i.sku]) : undefined })) })} />
+          <Acciones cerrar={cerrar} okLabel="Registrar entrada" disabled={!f.proveedorId || !f.sucursalId || !items.length} onOk={() => post({ accion: 'entradaDirecta', proveedorId: f.proveedorId, sucursalId: f.sucursalId, numeroRemito: f.numeroRemito, margenPct: f.margenPct ? Number(f.margenPct) : undefined, items: items.map((i: any) => ({ sku: i.sku, cantidad: Number(i.cantidad), costo: Number(i.costo) || 0, vencimiento: i.vencimiento || undefined, margenPct: margenPorSku[i.sku] ? Number(margenPorSku[i.sku]) : undefined, fijarMargen: !!fijarSku[i.sku] })) })} />
         </>)}
 
         {t === 'entradaFoto' && (<>
@@ -889,7 +932,15 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                       {pesos(costoFinal(i))}
                       {Math.abs(costoFinal(i) - numImp(i.precio)) > 0.5 && <span className="block text-[9px] leading-tight text-black/35">leído {pesos(i.precio)}</span>}
                     </span>
-                    <input type="number" value={i.margenPct} placeholder="rubro" onChange={(e) => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, margenPct: e.target.value === '' ? '' : Number(e.target.value) } : x))} className="w-16 rounded border border-black/15 px-1 py-1 text-right text-sm text-black" title="Remarcación % (vacío = usa la del rubro)" />
+                    <span className="w-16">
+                      <input type="number" value={i.margenPct} placeholder="rubro" onChange={(e) => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, margenPct: e.target.value === '' ? '' : Number(e.target.value) } : x))} className="w-full rounded border border-black/15 px-1 py-1 text-right text-sm text-black" title="Remarcación % (vacío = usa la del rubro)" />
+                      <AvisoMargen
+                        sku={i.sku}
+                        habitualExterno={i.match?.margenPct ?? null}
+                        valor={i.margenPct}
+                        poner={(v) => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, margenPct: v === '' ? '' : Number(v) } : x))}
+                      />
+                    </span>
                     <span className="w-20 text-right text-sm font-semibold tabular-nums text-black">{i.margenPct === '' || i.margenPct == null ? <span className="text-black/40 font-normal text-xs">s/ rubro</span> : pesos(precioVenta(i))}</span>
                   </div>
 
@@ -1018,7 +1069,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                   sucursalId: f.sucursalId,
                   numeroRemito: foto.comprobante?.numero || f.numeroRemito,
                   margenPct: f.margenPct ? Number(f.margenPct) : undefined,
-                  items: fotoItems.filter((i) => i.incluir && i.sku).map((i) => ({ sku: i.sku, cantidad: Number(i.cantidad), costo: costoFinal(i), precioLeido: numImp(i.precio), margenPct: i.margenPct === '' ? undefined : Number(i.margenPct), descripcionLeida: i.descripcion })),
+                  items: fotoItems.filter((i) => i.incluir && i.sku).map((i) => ({ sku: i.sku, cantidad: Number(i.cantidad), costo: costoFinal(i), precioLeido: numImp(i.precio), margenPct: i.margenPct === '' ? undefined : Number(i.margenPct), fijarMargen: !!fijarSku[i.sku], descripcionLeida: i.descripcion })),
                   ...(foto.comprobante?.tipo?.startsWith('factura') && fotoImp?.total > 0 ? {
                     factura: {
                       numero: foto.comprobante?.numero ?? 's/n',

@@ -22,7 +22,9 @@ export type RecibirDto = {
   // lote/vencimiento opcionales: si vienen, la recepción crea el lote (panel de vencimientos)
   // margenPct por renglón = remarcación de ESE producto. Se guarda al recibir y
   // vuelve sola la próxima vez que entra el mismo producto del mismo proveedor.
-  items: { sku: string; cantidad: number; costo?: number; lote?: string; vencimiento?: string; margenPct?: number }[];
+  // fijarMargen = "este % pasa a ser el habitual". Sin eso, un % distinto al
+  // aprendido vale SOLO para esta entrada (promoción, oferta puntual).
+  items: { sku: string; cantidad: number; costo?: number; lote?: string; vencimiento?: string; margenPct?: number; fijarMargen?: boolean }[];
   usuarioId?: string;
   margenPct?: number; // % general de esta recepción (si falta, el del renglón; si no, el del rubro)
 };
@@ -34,7 +36,7 @@ export type EntradaDirectaDto = {
   // margenPct por renglón = remarcación de ESE producto (editable en la pantalla,
   // default 50%). descripcionLeida = texto que leyó la IA, para aprender el
   // vínculo y traerlo solo la próxima compra (ver aprenderVinculos).
-  items: { sku: string; cantidad: number; costo: number; lote?: string; vencimiento?: string; margenPct?: number; descripcionLeida?: string }[];
+  items: { sku: string; cantidad: number; costo: number; lote?: string; vencimiento?: string; margenPct?: number; fijarMargen?: boolean; descripcionLeida?: string }[];
   margenPct?: number;
   usuarioId?: string;
   // si la mercadería vino con factura, se registra junto con la entrada,
@@ -232,7 +234,7 @@ export class ComprasService {
         oc.proveedor_id,
         (dto.items ?? [])
           .filter((i) => i.margenPct != null)
-          .map((i) => ({ sku: i.sku, cantidad: Number(i.cantidad), costo: Number(i.costo) || 0, margenPct: i.margenPct })),
+          .map((i) => ({ sku: i.sku, cantidad: Number(i.cantidad), costo: Number(i.costo) || 0, margenPct: i.margenPct, fijarMargen: i.fijarMargen })),
       );
     }
     return { estado: (data as any).estado, repreciados: Number((data as any).repreciados) || 0 };
@@ -1152,16 +1154,38 @@ export class ComprasService {
     try {
       const conAlias = items.filter((i) => i.descripcionLeida || i.margenPct != null);
       if (!conAlias.length) return;
-      const filas = await Promise.all(
-        conAlias.map(async (i) => ({
+
+      const productoIds = await Promise.all(conAlias.map((i) => this.productoIdPorSku(i.sku)));
+      // Qué remarcación había aprendida antes de esta entrada. Hace falta para
+      // no pisarla: si La Serenísima saca una promoción y se remarca al 40% por
+      // única vez, el 61% de siempre tiene que seguir estando la próxima.
+      const { data: previas } = await this.db
+        .from('proveedor_productos')
+        .select('producto_id, margen_pct')
+        .eq('proveedor_id', proveedorId)
+        .in('producto_id', productoIds);
+      const previoDe = new Map<string, number | null>(
+        ((previas ?? []) as any[]).map((p) => [p.producto_id, p.margen_pct != null ? Number(p.margen_pct) : null]),
+      );
+
+      const filas = conAlias.map((i, n) => {
+        const productoId = productoIds[n];
+        const previo = previoDe.get(productoId) ?? null;
+        const puesto = i.margenPct != null ? Number(i.margenPct) : null;
+        // 1) nunca se había fijado → lo que se puso ahora pasa a ser el habitual
+        // 2) lo marcaron como fijo → reemplaza al habitual
+        // 3) cualquier otro caso → se conserva el habitual (el % de hoy solo
+        //    afecta el precio de esta entrada, que ya se calculó aparte)
+        const margen = previo == null ? puesto : i.fijarMargen && puesto != null ? puesto : previo;
+        return {
           proveedor_id: proveedorId,
-          producto_id: await this.productoIdPorSku(i.sku),
+          producto_id: productoId,
           alias_descripcion: i.descripcionLeida ? normalizarAlias(i.descripcionLeida) : null,
-          margen_pct: i.margenPct != null ? Number(i.margenPct) : null,
+          margen_pct: margen,
           ultimo_costo: Number(i.costo) || null,
           actualizado_en: new Date().toISOString(),
-        })),
-      );
+        };
+      });
       await this.db.from('proveedor_productos').upsert(filas, { onConflict: 'proveedor_id,producto_id' });
     } catch {
       // aprender el vínculo es best-effort: nunca debe tirar la entrada ya registrada
