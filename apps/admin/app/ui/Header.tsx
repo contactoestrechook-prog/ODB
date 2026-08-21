@@ -94,6 +94,7 @@ const GRUPOS: Grupo[] = [
     titulo: 'Clientes',
     items: [
       { href: '/clientes', label: 'Clientes', icono: 'clientes' },
+      { href: '/cuentas-corrientes', label: 'Cuentas corrientes', icono: 'clientes' },
       { href: '/mensajes', label: 'Mensajes', icono: 'mensajes' },
       { href: '/eventos', label: 'Eventos', icono: 'eventos' },
       { href: '/sommelier', label: 'Somelier ODB', icono: 'somelier' },
@@ -152,6 +153,7 @@ const TITULOS: Record<string, { titulo: string; bajada: string }> = {
   '/reparto': { titulo: 'Reparto', bajada: 'Hojas de ruta por chofer/zona, flota en vivo en el mapa y rendición' },
   '/analista': { titulo: 'Analista ODB', bajada: 'El asesor de abastecimiento: quiebres, reposición y oportunidades' },
   '/agente': { titulo: 'Agente IA Operativo', bajada: 'Carga y mantiene el catálogo solo, con autonomía supervisada: audita cada acción y escala a un humano cuando duda' },
+  '/cuentas-corrientes': { titulo: 'Cuentas corrientes', bajada: 'La plata en la calle: riesgo, topes y mejores pagadores' },
   '/clientes': { titulo: 'Clientes', bajada: 'Cuentas, clasificación RFM y Comunidad ODB' },
   '/mensajes': { titulo: 'Mensajes', bajada: 'Solicitudes de clientes, envíos y notificaciones automáticas' },
   '/eventos': { titulo: 'Eventos', bajada: 'Oportunidades de cumpleaños, casamientos y fiestas: armá propuestas' },
