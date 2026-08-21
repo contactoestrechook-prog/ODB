@@ -740,9 +740,14 @@ export class ListasService {
       }
 
       // vínculo aprendido en una compra anterior (mismo texto de renglón)
+      let avisoMedida: string | undefined;
       if (!match) {
         const alias = porAlias.get(normalizarAlias(item.descripcion));
-        if (alias) match = this.armarMatch(alias.producto, alias.ultimo_costo, item.precio, 'alias', alias.margen_pct);
+        if (alias) {
+          const medida = this.mismaMedida(item.descripcion, alias.producto?.nombre ?? '');
+          if (medida.igual) match = this.armarMatch(alias.producto, alias.ultimo_costo, item.precio, 'alias', alias.margen_pct);
+          else avisoMedida = medida.aviso;
+        }
       }
 
       if (!match) {
@@ -759,12 +764,14 @@ export class ListasService {
           // del proveedor (la marca) tiene que aparecer en el producto matcheado.
           // Evita cruzar "Knorr Risotto" con "Arroz Gallo Risotto".
           if (prod && this.mismaMarca(item.descripcion, prod.nombre)) {
-            match = this.armarMatch(prod, prod.costo, item.precio, 'similitud', null);
+            const medida = this.mismaMedida(item.descripcion, prod.nombre);
+            if (medida.igual) match = this.armarMatch(prod, prod.costo, item.precio, 'similitud', null);
+            else avisoMedida = medida.aviso;
           }
         }
       }
 
-      resultado.push({ ...item, match });
+      resultado.push({ ...item, match, avisoMedida });
     }
     return resultado;
   }
@@ -871,6 +878,45 @@ export class ListasService {
       /* best-effort: sin sugerencias de IA, el operador vincula a mano */
     }
     return salida;
+  }
+
+  // Medida del renglón: "200 GRS", "x185gr", "1,5 lt", "750cc". Se normaliza a
+  // gramos o a mililitros para poder comparar.
+  private medidaDe(texto: string): { valor: number; tipo: 'peso' | 'volumen' } | null {
+    const t = String(texto ?? '').toLowerCase().replace(/,(\d)/g, '.$1');
+    const re = /(\d+(?:\.\d+)?)\s*(kgs?|kilos?|grs?|gr|g|mls?|ml|cm3|cc|lts?|lt|litros?|l)(?![a-z0-9])/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(t))) {
+      const valor = Number(m[1]);
+      const unidad = m[2];
+      if (!Number.isFinite(valor) || valor <= 0) continue;
+      if (/^(kgs?|kilos?)$/.test(unidad)) return { valor: valor * 1000, tipo: 'peso' };
+      if (/^(grs?|gr|g)$/.test(unidad)) return { valor, tipo: 'peso' };
+      if (/^(lts?|lt|litros?|l)$/.test(unidad)) return { valor: valor * 1000, tipo: 'volumen' };
+      return { valor, tipo: 'volumen' }; // ml, cc, cm3
+    }
+    return null;
+  }
+
+  // Guardián de MEDIDA. "MORRON LA BANDA 200 GRS" NO es "Morrones La Banda lata
+  // x185gr": es otro artículo, con otro costo y otro precio. Vincularlos le carga
+  // la mercadería y le recalcula el precio al producto equivocado, y el stock
+  // real del que entró queda en cero. La medida es un dato duro, así que se
+  // compara en código y no queda librado al parecido de los textos.
+  //
+  // Si alguno de los dos no declara medida, no se rechaza: no hay con qué
+  // comparar y frenar todo sería peor.
+  private mismaMedida(descripcionProveedor: string, nombreProducto: string): { igual: boolean; aviso?: string } {
+    const a = this.medidaDe(descripcionProveedor);
+    const b = this.medidaDe(nombreProducto);
+    if (!a || !b || a.tipo !== b.tipo) return { igual: true };
+    const dif = Math.abs(a.valor - b.valor) / Math.max(a.valor, b.valor);
+    if (dif <= 0.02) return { igual: true }; // 2%: redondeos de etiqueta
+    const unidad = a.tipo === 'peso' ? 'g' : 'ml';
+    return {
+      igual: false,
+      aviso: `el papel dice ${a.valor}${unidad} y el producto del sistema es de ${b.valor}${unidad}`,
+    };
   }
 
   private mismaMarca(descripcionProveedor: string, nombreProducto: string): boolean {

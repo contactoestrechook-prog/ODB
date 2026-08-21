@@ -429,6 +429,8 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
           variacionPct: i.match?.variacionPct ?? null,
           sugerido, // la IA lo propuso: hay que confirmar antes de incluir
           motivoIa: i.match?.motivo ?? null,
+          // por qué NO se vinculó: medida distinta a la del producto parecido
+          avisoMedida: i.avisoMedida ?? null,
           // remarcación: la guardada de la última compra; vacío ('') = hereda del rubro
           margenPct: i.match?.margenPct != null ? i.match.margenPct : '',
           // las sugerencias de IA NO se incluyen hasta que el operador confirme "¿es este?"
@@ -974,12 +976,28 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                         </span>
                       ) : (
                         <span className="block text-xs">
-                          <button onClick={() => setVinculaIdx(vinculaIdx === idx ? null : idx)} className="text-[#932A1F] underline hover:text-[#B82D25]">
-                            → sin producto: tocá para vincularlo
-                          </button>
-                          <button onClick={() => abrirAlta(idx, i)} className="ml-2 text-[#B82D25] underline hover:text-[#932A1F]">
-                            o darlo de alta
-                          </button>
+                          {i.avisoMedida ? (
+                            <>
+                              <span className="block text-[#932A1F]">
+                                → medida distinta: {i.avisoMedida}. Es otro producto.
+                              </span>
+                              <button onClick={() => abrirAlta(idx, i)} className="font-medium text-[#B82D25] underline hover:text-[#932A1F]">
+                                Darlo de alta como producto nuevo
+                              </button>
+                              <button onClick={() => setVinculaIdx(vinculaIdx === idx ? null : idx)} className="ml-2 text-black/45 underline">
+                                o buscarlo a mano
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <button onClick={() => setVinculaIdx(vinculaIdx === idx ? null : idx)} className="text-[#932A1F] underline hover:text-[#B82D25]">
+                                → sin producto: tocá para vincularlo
+                              </button>
+                              <button onClick={() => abrirAlta(idx, i)} className="ml-2 text-[#B82D25] underline hover:text-[#932A1F]">
+                                o darlo de alta
+                              </button>
+                            </>
+                          )}
                         </span>
                       )}
                     </span>
