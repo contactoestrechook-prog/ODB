@@ -143,6 +143,22 @@ export class BotService {
     }
   }
 
+  // Los teléfonos del equipo (dueños, backoffice) no se atienden: si alguien de
+  // la casa escribe por la línea, es para Jaqueline, no para el bot.
+  private equipoCache: { hasta: number; tels: Set<string> } | null = null;
+  private async esNumeroDelEquipo(telefono: string): Promise<boolean> {
+    if (!this.equipoCache || this.equipoCache.hasta < Date.now()) {
+      const { data } = await this.db.from('usuarios').select('telefono').eq('activo', true).not('telefono', 'is', null);
+      const tels = new Set<string>();
+      for (const u of (data ?? []) as any[]) {
+        const d = String(u.telefono ?? '').replace(/\D/g, '');
+        if (d.length >= 8) tels.add(d.slice(-10));
+      }
+      this.equipoCache = { hasta: Date.now() + 10 * 60_000, tels };
+    }
+    return this.equipoCache.tels.has(telefono.replace(/\D/g, '').slice(-10));
+  }
+
   private superaLimite(telefono: string): boolean {
     const ahora = Date.now();
     const ventana = (this.llegadas.get(telefono) ?? []).filter((t) => ahora - t < 3_600_000);
@@ -295,12 +311,58 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     }
     const historial: { role: 'user' | 'assistant'; content: string }[] = Array.isArray(conv?.mensajes) ? conv!.mensajes : [];
 
+    // ---- LO QUE NO SE CONTESTA ----
+    // Hoy (2026-08-21) el bot respondió "Perfecto." a "Perfecto", "Bien." a
+    // "Bárbaro", "¿En qué puedo ayudarlo?" a un "Hola!!!" en medio de una charla,
+    // y le explicó a alguien del equipo que "no cuenta con la función de
+    // desactivarse". Un cierre no pide respuesta; un número del equipo no se
+    // atiende. El mensaje queda igual en el hilo y en RESPONDE, solo que nadie
+    // contesta.
+    const callar = async (motivo: string) => {
+      this.log.log(`silencio (${motivo}) para ${telefono}: "${texto.slice(0, 60)}"`);
+      await this.db.from('bot_conversaciones').upsert({
+        linea, telefono,
+        mensajes: [...historial, { role: 'user', content: texto }].slice(-MAX_HISTORIAL),
+        actualizado_en: new Date().toISOString(),
+      }, { onConflict: 'linea,telefono' }).then(() => null, () => null);
+      return { respuesta: null, silencio: true, motivo } as any;
+    };
+
+    if (await this.esNumeroDelEquipo(telefono)) return callar('número del equipo');
+
+    const ultimoMsgBot = [...historial].reverse().find((m) => m.role === 'assistant')?.content ?? '';
+    const botDejoPregunta = /\?\s*$/.test(String(ultimoMsgBot).trim()) || /¿[^?]*\?/.test(String(ultimoMsgBot).slice(-160));
+    const RE_CIERRE = /^(?:(?:dale|ok+|okey|oka|okis|listo|perfecto|b[aá]rbaro|genial|joya|buen[ií]simo|bueno|gracias+|muchas gracias|mil gracias|de nada|a vos|saludos|hablamos|nos vemos|un abrazo|abrazo|chau|ciao|hablamos despu[eé]s|despu[eé]s|(?:ja|je|ji){2,}|holis|bien)\b[\s!.,]*)+$|^[\s👍🙏🫶👌🏻🏼❤️🙂😊😂🤣✨🔥]+$/i;
+    const RE_SI_NO = /^(s[ií]+|sisi|si si|no|nop|dale|ok|listo|bueno)\b[\s!.]*$/i;
+    if (RE_CIERRE.test(texto.trim())) {
+      // "sí" / "dale" / "ok" CONTESTAN una pregunta del bot: esos pasan. Los demás
+      // cierres, y cualquier cierre sin pregunta pendiente, no se responden.
+      if (!(botDejoPregunta && RE_SI_NO.test(texto.trim()))) return callar('cierre de la charla');
+    }
+    // "hola" suelto en una charla que ya venía: están por escribir lo que quieren
+    if (/^(hola+|buenas+|buen d[ií]a|buenas tardes|buenas noches)[\s!.,]*$/i.test(texto.trim()) && historial.length > 0) {
+      return callar('saludo en charla ya abierta');
+    }
+
     // si este número ya se identificó antes (proveedor conocido), el bot lo sabe
     // desde el primer mensaje y no arranca tratándolo como cliente
     const { data: contacto } = await this.db.from('bot_contactos').select('tipo, nombre').eq('telefono', telefono).maybeSingle();
     const quien = contacto?.tipo === 'proveedor'
       ? `; este número ya está registrado como PROVEEDOR${contacto.nombre ? ` (${contacto.nombre})` : ''}: tratalo como tal`
       : '';
+    const esProveedor = contacto?.tipo === 'proveedor';
+
+    // Proveedor que manda flyers en ráfaga (hoy: 11 fotos seguidas, 11 "quedó
+    // anotado" seguidos). Se acusa recibo UNA vez; el resto de la ráfaga queda
+    // en el hilo y en RESPONDE sin respuesta. Compras lo mira en un solo lugar.
+    if (imagenDelTurno && esProveedor) {
+      const ultimoAck = /^(recib|quedó? (anotad|registrad)|tomamos nota|muchas gracias por la informaci)/i.test(String(ultimoMsgBot).trim());
+      if (ultimoAck) {
+        const { data: c2 } = await this.db.from('bot_conversaciones').select('actualizado_en').eq('linea', linea).eq('telefono', telefono).maybeSingle();
+        const hace = c2?.actualizado_en ? Date.now() - new Date(c2.actualizado_en).getTime() : Infinity;
+        if (hace < 30 * 60_000) return callar('ráfaga de flyers de proveedor (ya se acusó recibo)');
+      }
+    }
 
     // la hora y el saludo correcto van en cada turno: el modelo no tiene reloj
     const ahoraBA = new Date().toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', weekday: 'long', hour: '2-digit', minute: '2-digit' });
@@ -321,6 +383,12 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     if (vecesOfrecioArmar >= 1) estado.push(`ya ofreciste armar/cotizar el pedido ${vecesOfrecioArmar} vez/veces: no lo vuelvas a ofrecer; contestá y esperá`);
     if (vecesPidioDireccion >= 1) estado.push(`ya pediste la dirección ${vecesPidioDireccion} vez/veces: si no la dio, no la vuelvas a pedir en este mensaje salvo que él quiera cerrar`);
     if (vecesDijoPersonaResponde >= 2) estado.push(`ya dijiste ${vecesDijoPersonaResponde} veces que das aviso al sector: no lo repitas`);
+    // El cliente que contesta con una palabra, manda la dirección o dice
+    // "mandame esto" después de que el bot hizo varias preguntas NO quiere más
+    // preguntas (hoy: cinco preguntas con opciones → "MALÍSIMA, cancelo").
+    const preguntasDelBotAntes = (String(ultimoMsgBot).match(/¿/g) ?? []).length;
+    const impaciente = preguntasDelBotAntes >= 1 && (texto.trim().length <= 25 || /\b(mand[aá]me|mandalo|env[ií]ame|dale|listo|eh+\??|ya est[aá]|as[ií] nom[aá]s|lo que tengas)\b|[😬🙄😤]/i.test(texto));
+    if (impaciente && esProveedor === false) estado.push('el cliente ya no quiere más preguntas: NO preguntes nada más; asumí la opción más común de cada ítem que falte, mostrá el resumen con el total y cerrá con un único "¿Lo confirmo?"');
     if (preguntasDelCliente >= 2) estado.push(`este mensaje trae ${preguntasDelCliente} preguntas: contestá CADA una en una línea, en el orden en que las hizo; si un dato no lo tenés, decilo en su línea`);
     const contenidoDelTurno = (t: string): any => (imagenDelTurno
       ? [{ type: 'image', source: { type: 'base64', media_type: imagenDelTurno.mime, data: imagenDelTurno.base64 } }, { type: 'text', text: t }]
@@ -714,7 +782,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
       }
     }
 
-    const RE_RECLAMO = /\b(falta(ron|ba|n)?|faltante|incompleto|verg[üu]enza|verguenza|reclamo|me cobraron|cobro doble|doble d[eé]bito|devol|reintegro|quiero la plata|estafa|denuncia|defensa del consumidor|mal servicio|no me lleg[oó]|nunca lleg[oó]|roto|vencid[oa])\b/i;
+    const RE_RECLAMO = /(?<!\bsin\s)\b(falta(ron|ba|n)?|faltante|incompleto|verg[üu]enza|verguenza|reclamo|me cobraron|cobro doble|doble d[eé]bito|devol|reintegro|quiero la plata|estafa|denuncia|defensa del consumidor|mal servicio|no me lleg[oó]|nunca lleg[oó]|roto|vencid[oa])\b/i;
     // C (ronda 11): la derivación no puede depender del criterio del modelo — en
     // 5 de 8 charlas no derivó cuando correspondía. Si el cliente pide hablar con
     // alguien o reclama plata/faltante/factura y el turno no derivó, se deriva acá.
@@ -781,8 +849,15 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     // cliente tiene que enterarse de una limitación nuestra: contestarle "no
     // puedo escuchar audios" es la peor respuesta posible y el modelo la
     // improvisa igual, así que se corta acá y no en el prompt.
-    const RE_NO_PERCIBO = /\b(no\s+(puedo|pude|logro|consigo|tengo\s+(forma|manera|posibilidad)\s+de|estoy\s+en\s+condiciones\s+de|me\s+es\s+posible)|me\s+resulta\s+imposible|soy\s+incapaz\s+de)\b[^.!?\n]{0,45}\b(escuchar|escucharlo|escucharla|o[ií]r|reproducir|abrir|ver|visualizar|procesar|acceder)\b[^.!?\n]{0,45}\b(audio|audios|nota\s+de\s+voz|mensaje\s+de\s+voz|voz|foto|fotos|imagen|im[aá]genes|video|videos|archivo|archivos|adjunto)\b/i;
-    const RE_SOLO_TEXTO = /\b(solo|s[oó]lo|[uú]nicamente)\b[^.!?\n]{0,30}\b(puedo|manejo|proceso|leo|entiendo|recibo)\b[^.!?\n]{0,30}\btexto/i;
+    // Hoy se escaparon: "las imágenes que envió no las puedo visualizar de este
+    // lado", "no cuento con la función de interpretar mensajes de audio", "no
+    // dispongo de la posibilidad de reenviar archivos". Se cubre la negación en
+    // cualquier orden (verbo antes o después del sustantivo) y con clíticos.
+    const NEG = String.raw`(?:no\s+(?:l[oa]s?\s+|me\s+|le\s+)?(?:puedo|pude|logro|consigo|cuento\s+con|dispongo|tengo\s+(?:la\s+)?(?:forma|manera|posibilidad|funci[oó]n|capacidad|opci[oó]n)(?:\s+de)?|estoy\s+en\s+condiciones\s+de|me\s+es\s+posible)|me\s+resulta\s+imposible|soy\s+incapaz\s+de|no\s+es\s+posible)`;
+    const VERBO = String.raw`(?:escuchar|escucharl[oa]s?|o[ií]r|reproducir|abrir|ver|verl[oa]s?|visualizar|procesar|acceder|interpretar|leer|mirar|transcribir|reenviar|recibir|descargar)`;
+    const COSA = String.raw`(?:audios?|notas?\s+de\s+voz|mensajes?\s+de\s+voz|voz|fotos?|im[aá]gen(?:es)?|videos?|archivos?|adjuntos?|flyers?|comprobantes?|documentos?|pdf)`;
+    const RE_NO_PERCIBO = new RegExp(String.raw`\b${NEG}\b[^.!?\n]{0,45}\b${VERBO}\b[^.!?\n]{0,45}\b${COSA}\b|\b${COSA}\b[^.!?\n]{0,70}\b${NEG}\b[^.!?\n]{0,30}\b${VERBO}\b`, 'i');
+    const RE_SOLO_TEXTO = /\b(solo|s[oó]lo|[uú]nicamente)\b[^.!?\n]{0,30}\b(puedo|manejo|proceso|leo|entiendo|recibo|trabajo)\b[^.!?\n]{0,30}\btexto|\bde\s+este\s+lado\b[^.!?\n]{0,40}\b(no|sin)\b/i;
     const niegaPercepcion = (t: string) => RE_NO_PERCIBO.test(t) || RE_SOLO_TEXTO.test(t);
     if (niegaPercepcion(respuesta) && vueltasReintento < 3) {
       this.log.warn(`el bot dijo que no puede escuchar/ver para ${telefono}: regenero`);
@@ -797,6 +872,38 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
       const limpias = respuesta.split(/(?<=[.!?])\s+/).filter((o) => !niegaPercepcion(o));
       respuesta = limpias.join(' ').trim() || 'Recibí su mensaje. Cuénteme qué necesita y lo vemos.';
       this.log.warn(`el bot insistió con "no puedo escuchar/ver" para ${telefono}: oración removida`);
+    }
+
+    // "No soy Jaqueline" se dice UNA vez por conversación. Hoy se repitió hasta
+    // tres veces en una misma charla ("Gracias Jacky!" → "No soy Jacky, soy el
+    // asistente automático…"). Si ya se aclaró, la frase se saca y queda el resto.
+    const RE_NO_SOY = /[^.!?\n]*\b(no soy (jaqueline|jacqueline|jackie|jacky|jaqui|jaque|jac)\b|soy el asistente autom[aá]tico|le atiende el asistente|le responde el asistente|asistente autom[aá]tico de o\.?\s?d\.?\s?b)[^.!?\n]*[.!?]?\s*/i;
+    if (RE_NO_SOY.test(respuesta) && dichoPorElBot.some((t) => RE_NO_SOY.test(t))) {
+      const sinAclaracion = respuesta.replace(RE_NO_SOY, '').trim();
+      if (sinAclaracion.length >= 8) {
+        this.log.log(`"no soy Jaqueline" repetido para ${telefono}: se saca`);
+        respuesta = sinAclaracion;
+      }
+    }
+
+    // A un PROVEEDOR nunca se le pide "el código del pedido (DOM-XXXXXX)": él
+    // nos entrega a nosotros. Hoy pasó con Maltesi, que avisaba tostadas rotas.
+    if (esProveedor && /c[oó]digo del pedido|\bDOM-X|\bRET-X/i.test(respuesta)) {
+      const limpio = respuesta.split(/(?<=[.!?])\s+/).filter((o) => !/c[oó]digo del pedido|\bDOM-X|\bRET-X/i.test(o)).join(' ').trim();
+      if (limpio.length >= 8) {
+        this.log.log(`pidió código de pedido a un proveedor (${telefono}): se saca`);
+        respuesta = limpio;
+      }
+    }
+
+    // Más de dos preguntas en un mensaje es un formulario, no una atención.
+    if ((respuesta.match(/¿/g) ?? []).length >= 3 && vueltasReintento < 3) {
+      this.log.warn(`${(respuesta.match(/¿/g) ?? []).length} preguntas en un mensaje para ${telefono}: regenero`);
+      messages.push({ role: 'assistant', content: respuesta });
+      messages.push({ role: 'user', content: '[nota interna: hiciste tres o más preguntas en un solo mensaje. Reescribilo con UNA sola pregunta, la más importante; para lo demás asumí la opción más común y decilo ("le puse azúcar Ledesma 1 kg, que es la común"). Si el cliente ya dio todo lo necesario, no preguntes nada: mostrá el resumen con el total y "¿Lo confirmo?".]' });
+      const t15 = await this.regenerar(system, messages, 2048, sumarUso);
+      if (t15) respuesta = t15;
+      vueltasReintento++;
     }
 
     // Reclamo: la disculpa no puede depender del criterio del modelo (ronda 10:
@@ -896,7 +1003,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
   // promesa: Perfecto, …"). Regla: al cliente le llega SOLO el mensaje final.
   // Si un texto trae marcas de cocina interna, se descarta y se usa el anterior.
   private tieneMeta(t: string): boolean {
-    return /(nota interna|reformul|reescrib|\btextual\s*:|mi (último|ultimo) mensaje|no corresponde (nota|derivar|anotar)|promesa (de plazo|pendiente|vac[ií]a)|el cliente (pregunt|dijo|pidi)|la herramienta|herramienta (nota_interna|derivar|cotizar|crear_pedido|buscar_productos)|\[nota|^\s*\[)/i.test(t);
+    return /(nota interna|reformul|reescrib|no hay nada nuevo para sumar|retom[aá]s vos|sin prometer plazos|lo anterior;|\btextual\s*:|mi (último|ultimo) mensaje|no corresponde (nota|derivar|anotar)|promesa (de plazo|pendiente|vac[ií]a)|el cliente (pregunt|dijo|pidi)|la herramienta|herramienta (nota_interna|derivar|cotizar|crear_pedido|buscar_productos)|\[nota|^\s*\[)/i.test(t);
   }
   // Antes de descartar todo el mensaje: los paréntesis/corchetes con cocina
   // interna se recortan ((textual: "…"), [nota interna: …]) y el resto se salva.
