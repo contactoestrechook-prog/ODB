@@ -23,9 +23,13 @@ type Cliente = {
   existe: boolean;
   dni: string;
   nombre?: string;
+  razonSocial?: string | null;
+  cuit?: string | null;
   tipo?: string;
   compras?: number;
   ticketPromedio?: number;
+  // cuenta corriente: saldo > 0 = el cliente DEBE
+  ctaCte?: { habilitada: boolean; saldo: number; limite: number; disponible: number | null };
 };
 
 type Pago = { medio: string; monto: number; terminal?: string };
@@ -1183,6 +1187,29 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
           <p className={'mt-1.5 rounded-xl px-3 py-1.5 text-sm inline-block ' + (cliente.existe ? 'bg-black text-white' : 'bg-white text-black')}>
             {cliente.existe ? `${cliente.nombre ? cliente.nombre + ' · ' : ''}${cliente.tipo} · ${cliente.compras} compras · ticket ${pesos(cliente.ticketPromedio)}` : 'Cliente nuevo: se registra con esta venta'}
           </p>
+        )}
+
+        {/* CUENTA CORRIENTE. El cajero tiene que poder decirle al cliente, sin
+            salir de la venta: "debías tanto, con lo de hoy es tanto". Antes ese
+            dato no aparecía en ningún lado de la caja y había que ir a buscarlo
+            a otra pantalla — o sea, no se lo decía nadie. */}
+        {cliente?.existe && cliente.ctaCte?.habilitada && (
+          <div className="mt-1.5 inline-flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xl bg-[#B82D25] px-3 py-2 text-white">
+            <span className="text-[11px] uppercase tracking-wide text-white/70">Cuenta corriente</span>
+            <span className="text-sm">
+              Saldo anterior <b className="text-base tabular-nums">{pesos(cliente.ctaCte.saldo)}</b>
+            </span>
+            {total > 0 && (
+              <span className="text-sm">
+                Con esta venta <b className="text-base tabular-nums">{pesos(cliente.ctaCte.saldo + totalFinal)}</b>
+              </span>
+            )}
+            {cliente.ctaCte.disponible != null && (
+              <span className="text-xs text-white/75">
+                disponible {pesos(cliente.ctaCte.disponible)} de {pesos(cliente.ctaCte.limite)}
+              </span>
+            )}
+          </div>
         )}
       </div>
 

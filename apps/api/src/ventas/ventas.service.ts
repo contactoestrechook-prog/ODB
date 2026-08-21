@@ -361,14 +361,32 @@ export class VentasService {
   }
 
   // Lo que ve el cajero al pedir el DNI: categoría e historial resumido
+  // Busca por DNI o por CUIT: en el mostrador tanto da lo que tenga a mano el
+  // cliente, y los de cuenta corriente casi siempre dan el CUIT.
   async clientePorDni(dni: string) {
-    const { data: cliente, error } = await this.db
+    const doc = String(dni ?? '').trim();
+    const soloDigitos = doc.replace(/\D/g, '');
+    const COLUMNAS = 'id, dni, cuit, nombre, razon_social, tipo, puntos, verificado, telefono, acepta_marketing, cta_cte_habilitada, saldo_cta_cte, limite_credito';
+
+    let { data: cliente, error } = await this.db
       .from('clientes')
-      .select('id, dni, nombre, tipo, puntos, verificado, telefono, acepta_marketing')
-      .eq('dni', dni.trim())
+      .select(COLUMNAS)
+      .eq('dni', doc)
       .maybeSingle();
     if (error) throw new BadRequestException(error.message);
-    if (!cliente) return { existe: false, dni: dni.trim() };
+
+    // por CUIT, con y sin guiones (se guarda de las dos formas según de dónde vino)
+    if (!cliente && soloDigitos.length === 11) {
+      const conGuiones = `${soloDigitos.slice(0, 2)}-${soloDigitos.slice(2, 10)}-${soloDigitos.slice(10)}`;
+      const { data } = await this.db
+        .from('clientes')
+        .select(COLUMNAS)
+        .or(`cuit.eq.${soloDigitos},cuit.eq.${conGuiones}`)
+        .limit(1)
+        .maybeSingle();
+      cliente = data ?? null;
+    }
+    if (!cliente) return { existe: false, dni: doc };
 
     const { data: ventas } = await this.db
       .from('ventas')
@@ -377,10 +395,21 @@ export class VentasService {
       .eq('estado', 'completada');
     const compras = ventas?.length ?? 0;
     const gastado = (ventas ?? []).reduce((s, v) => s + Number(v.total), 0);
+    // Cuenta corriente: el cajero tiene que poder decirle al cliente cuánto
+    // debía ANTES de esta venta. Saldo positivo = debe.
+    const saldo = Number((cliente as any).saldo_cta_cte ?? 0);
+    const limite = Number((cliente as any).limite_credito ?? 0);
     return {
       existe: true,
       ...cliente,
+      razonSocial: (cliente as any).razon_social ?? null,
       aceptaMarketing: cliente.acepta_marketing === true,
+      ctaCte: {
+        habilitada: (cliente as any).cta_cte_habilitada === true,
+        saldo, // > 0 = el cliente debe
+        limite,
+        disponible: limite > 0 ? Math.max(limite - saldo, 0) : null,
+      },
       compras,
       ticketPromedio: compras ? Math.round(gastado / compras) : 0,
     };
