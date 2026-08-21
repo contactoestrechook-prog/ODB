@@ -12,15 +12,17 @@ export default async function NuevoProducto() {
   let rubros: { id: string; nombre: string; margenSugerido?: number | null }[] = [];
   let marcas: { id: string; nombre: string }[] = [];
   let sucursales: { id: string; nombre: string }[] = [];
+  let proveedores: { id: string; razon_social: string }[] = [];
   let error: string | null = null;
   try {
-    const [rf, rs] = await Promise.all([apiFetch('/catalogo/filtros'), apiFetch('/sucursales')]);
+    const [rf, rs, rp] = await Promise.all([apiFetch('/catalogo/filtros'), apiFetch('/sucursales'), apiFetch('/proveedores')]);
     if (rf.ok) {
       const f = await rf.json();
       rubros = (f.categorias ?? []).map((c: any) => ({ id: c.id, nombre: c.nombre, margenSugerido: c.margen_sugerido }));
       marcas = f.marcas ?? [];
     }
     if (rs.ok) sucursales = await rs.json();
+    if (rp.ok) proveedores = await rp.json();
   } catch (e) {
     error = e instanceof Error ? e.message : 'Error desconocido';
   }
@@ -34,7 +36,7 @@ export default async function NuevoProducto() {
         </p>
       ) : (
         <Suspense fallback={<p className="max-w-3xl mx-auto p-6 text-sm text-black/40">Cargando…</p>}>
-          <AltaProducto rubros={rubros} marcas={marcas} sucursales={sucursales} />
+          <AltaProducto rubros={rubros} marcas={marcas} sucursales={sucursales} proveedores={proveedores} />
         </Suspense>
       )}
     </main>

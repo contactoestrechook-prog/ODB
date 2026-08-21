@@ -16,6 +16,7 @@ import Link from 'next/link';
 
 type Opcion = { id: string; nombre: string; margenSugerido?: number | null };
 type Sucursal = { id: string; nombre: string };
+type Proveedor = { id: string; razon_social: string };
 type Parecido = { sku: string; nombre: string; marca: string | null; activo: boolean };
 
 const IVA = [21, 10.5, 27, 0];
@@ -38,7 +39,7 @@ const redondearPrecio = (p: number) => {
   return Math.round(n / 100) * 100;
 };
 
-export function AltaProducto({ rubros, marcas, sucursales }: { rubros: Opcion[]; marcas: Opcion[]; sucursales: Sucursal[] }) {
+export function AltaProducto({ rubros, marcas, sucursales, proveedores = [] }: { rubros: Opcion[]; marcas: Opcion[]; sucursales: Sucursal[]; proveedores?: Proveedor[] }) {
   const router = useRouter();
   const params = useSearchParams();
   const volverA = params.get('volver');
@@ -47,6 +48,13 @@ export function AltaProducto({ rubros, marcas, sucursales }: { rubros: Opcion[];
   const [stock, setStock] = useState<Record<string, { cantidad: string; minimo: string; reposicion: string }>>(
     Object.fromEntries(sucursales.map((s) => [s.id, { cantidad: '', minimo: '', reposicion: '' }])),
   );
+  // el código del bulto es distinto al de la unidad: se cargan los que haga falta
+  const [codigosExtra, setCodigosExtra] = useState<string[]>([]);
+  // foto: se sube DESPUÉS de crear (la API la guarda contra el SKU)
+  const [foto, setFoto] = useState<File | null>(null);
+  const [fotoUrl, setFotoUrl] = useState<string | null>(null);
+  // proveedores que lo traen, con el código con el que ellos lo facturan
+  const [provs, setProvs] = useState<{ proveedorId: string; codigoProveedor: string; costo: string }[]>([]);
   const [codigoDe, setCodigoDe] = useState<{ sku: string; nombre: string } | null>(null);
   const [parecidos, setParecidos] = useState<Parecido[]>([]);
   const [ignorarParecidos, setIgnorarParecidos] = useState(false);
@@ -124,6 +132,10 @@ export function AltaProducto({ rubros, marcas, sucursales }: { rubros: Opcion[];
           marca: form.marca.trim() || undefined,
           sku: form.sku.trim() || undefined,
           codigoBarras: form.codigoBarras.trim() || undefined,
+          codigosBarras: codigosExtra.map((c) => c.trim()).filter(Boolean),
+          proveedores: provs
+            .filter((p) => p.proveedorId)
+            .map((p) => ({ proveedorId: p.proveedorId, codigoProveedor: p.codigoProveedor.trim() || undefined, costo: Number(p.costo) > 0 ? Number(p.costo) : undefined })),
           descripcion: form.descripcion.trim() || undefined,
           aliasBusqueda: form.aliasBusqueda.trim() || undefined,
           esAlcohol: form.esAlcohol,
@@ -142,6 +154,20 @@ export function AltaProducto({ rubros, marcas, sucursales }: { rubros: Opcion[];
       const d = await res.json();
       if (!res.ok) { setError(d?.message ?? 'No se pudo crear el producto'); return; }
 
+      // la foto va después: la API la guarda contra el SKU recién asignado. Si
+      // falla, el producto ya está creado — se avisa y se sigue.
+      if (foto && d?.sku) {
+        try {
+          const fd = new FormData();
+          fd.append('sku', d.sku);
+          fd.append('imagen', foto);
+          const rf = await fetch('/api/imagen', { method: 'POST', body: fd });
+          if (!rf.ok) setError('El producto quedó creado, pero la foto no se pudo subir. Cargala desde su ficha.');
+        } catch {
+          setError('El producto quedó creado, pero la foto no se pudo subir. Cargala desde su ficha.');
+        }
+      }
+
       if (volverA) { router.push(volverA); return; }
       if (!seguirCargando) { router.push(`/productos/${d.sku}`); return; }
 
@@ -151,6 +177,10 @@ export function AltaProducto({ rubros, marcas, sucursales }: { rubros: Opcion[];
       setStock(Object.fromEntries(sucursales.map((s) => [s.id, { cantidad: '', minimo: '', reposicion: '' }])));
       setParecidos([]);
       setCodigoDe(null);
+      setCodigosExtra([]);
+      setFoto(null);
+      setFotoUrl(null);
+      setProvs([]);
       refNombre.current?.focus();
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch {
@@ -204,6 +234,22 @@ export function AltaProducto({ rubros, marcas, sucursales }: { rubros: Opcion[];
           ) : (
             <p className="mt-1 text-[11px] text-black/40">Sin código igual se puede cargar, pero después no escanea en caja ni en recepción.</p>
           )}
+
+          {codigosExtra.map((c, i) => (
+            <div key={i} className="mt-2 flex items-center gap-2">
+              <input
+                value={c}
+                onChange={(e) => setCodigosExtra((xs) => xs.map((x, j) => (j === i ? e.target.value : x)))}
+                placeholder="Otro código (el del bulto, el del pack)"
+                inputMode="numeric"
+                className={`${input} font-mono`}
+              />
+              <button onClick={() => setCodigosExtra((xs) => xs.filter((_, j) => j !== i))} className="text-black/40 hover:text-[#B82D25] px-1">✕</button>
+            </div>
+          ))}
+          <button onClick={() => setCodigosExtra((xs) => [...xs, ''])} className="mt-1.5 text-xs text-[#B82D25] hover:underline">
+            + Agregar otro código de barras
+          </button>
         </div>
 
         <div>
@@ -311,6 +357,77 @@ export function AltaProducto({ rubros, marcas, sucursales }: { rubros: Opcion[];
           <label className={etiqueta}>Descripción (opcional)</label>
           <textarea value={form.descripcion} onChange={(e) => campo('descripcion', e.target.value)} rows={2} className={input} />
         </div>
+      </section>
+
+      {/* FOTO */}
+      <section className="mt-4 rounded-2xl bg-white p-5 space-y-3 shadow-sm">
+        <h2 className="text-sm font-semibold text-black">Foto</h2>
+        <div className="flex items-center gap-4">
+          {fotoUrl ? (
+            <img src={fotoUrl} alt="" className="h-24 w-24 rounded-lg object-cover border border-black/10" />
+          ) : (
+            <span className="h-24 w-24 rounded-lg bg-[#F0EBE2] flex items-center justify-center text-xs text-black/35">sin foto</span>
+          )}
+          <div className="text-sm">
+            <input
+              type="file"
+              accept="image/*"
+              onChange={(e) => {
+                const f = e.target.files?.[0] ?? null;
+                setFoto(f);
+                setFotoUrl(f ? URL.createObjectURL(f) : null);
+              }}
+              className="text-sm text-black/70 file:mr-3 file:rounded-full file:border-0 file:bg-[#B82D25] file:px-4 file:py-2 file:text-white file:text-sm"
+            />
+            <p className="mt-1 text-[11px] text-black/40">
+              La ve el vendedor en la caja y el cliente en el catálogo. Sacala derecha y con la etiqueta a la vista.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      {/* PROVEEDORES QUE LO TRAEN */}
+      <section className="mt-4 rounded-2xl bg-white p-5 space-y-3 shadow-sm">
+        <h2 className="text-sm font-semibold text-black">Proveedores que lo traen</h2>
+        <p className="text-[11px] text-black/40 -mt-1">
+          Con el código que usa cada proveedor en su factura, la próxima entrada de ese proveedor lo reconoce sola y no hay que vincularlo a mano.
+        </p>
+        {provs.map((pv, i) => (
+          <div key={i} className="grid sm:grid-cols-[1fr_auto_auto_auto] gap-2 items-end">
+            <div>
+              <label className={etiqueta}>Proveedor</label>
+              <select
+                value={pv.proveedorId}
+                onChange={(e) => setProvs((xs) => xs.map((x, j) => (j === i ? { ...x, proveedorId: e.target.value } : x)))}
+                className={input}
+              >
+                <option value="">Elegí…</option>
+                {proveedores.map((p) => <option key={p.id} value={p.id}>{p.razon_social}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className={etiqueta}>Su código</label>
+              <input
+                value={pv.codigoProveedor}
+                onChange={(e) => setProvs((xs) => xs.map((x, j) => (j === i ? { ...x, codigoProveedor: e.target.value } : x)))}
+                placeholder="opcional"
+                className={`${input} sm:w-36 font-mono`}
+              />
+            </div>
+            <div>
+              <label className={etiqueta}>Costo</label>
+              <input
+                value={pv.costo}
+                onChange={(e) => setProvs((xs) => xs.map((x, j) => (j === i ? { ...x, costo: e.target.value } : x)))}
+                type="number" placeholder="$" className={`${input} sm:w-28`}
+              />
+            </div>
+            <button onClick={() => setProvs((xs) => xs.filter((_, j) => j !== i))} className="pb-2.5 text-black/40 hover:text-[#B82D25]">✕</button>
+          </div>
+        ))}
+        <button onClick={() => setProvs((xs) => [...xs, { proveedorId: '', codigoProveedor: '', costo: '' }])} className="text-xs text-[#B82D25] hover:underline">
+          + Agregar proveedor
+        </button>
       </section>
 
       {/* 3 · PLATA */}

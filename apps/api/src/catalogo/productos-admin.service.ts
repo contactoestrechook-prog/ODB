@@ -9,6 +9,8 @@ export type CrearProductoDto = {
   marca?: string; // ídem
   sku?: string; // vacío = se asigna el siguiente número libre
   codigoBarras?: string;
+  // varios códigos: el de la unidad y el del bulto suelen ser distintos
+  codigosBarras?: string[];
   esAlcohol?: boolean;
   volumenMl?: number | null;
   costo?: number | null;
@@ -24,6 +26,8 @@ export type CrearProductoDto = {
   // precios de las otras listas (la base es Minorista)
   precioCaja?: number | null;
   precioMayorista?: number | null;
+  // qué proveedores lo traen, con su código y su último costo
+  proveedores?: { proveedorId: string; codigoProveedor?: string; costo?: number | null; margenPct?: number | null }[];
 };
 
 export type EditarProductoDto = {
@@ -88,8 +92,8 @@ export class ProductosAdminService {
 
     // el código se valida ANTES de insertar: si el producto queda creado y el
     // código falla, quedan dos altas del mismo artículo
-    const codigo = dto.codigoBarras?.trim();
-    if (codigo) {
+    const codigos = [...new Set([dto.codigoBarras, ...(dto.codigosBarras ?? [])].map((c) => String(c ?? '').trim()).filter(Boolean))];
+    for (const codigo of codigos) {
       const { data: dueno } = await this.db
         .from('codigos_barras')
         .select('productos(sku, nombre)')
@@ -148,8 +152,25 @@ export class ProductosAdminService {
       })),
     );
 
-    if (codigo) {
-      await this.db.from('codigos_barras').insert({ codigo, producto_id: producto.id });
+    if (codigos.length) {
+      await this.db.from('codigos_barras').insert(codigos.map((codigo) => ({ codigo, producto_id: producto.id })));
+    }
+
+    // proveedores que lo traen: queda listo para que la próxima factura de ese
+    // proveedor lo reconozca sola por su código
+    const provs = (dto.proveedores ?? []).filter((p) => p?.proveedorId);
+    if (provs.length) {
+      await this.db.from('proveedor_productos').upsert(
+        provs.map((p) => ({
+          proveedor_id: p.proveedorId,
+          producto_id: producto.id,
+          codigo_proveedor: p.codigoProveedor?.trim() || null,
+          ultimo_costo: p.costo != null ? Number(p.costo) : (dto.costo ?? null),
+          margen_pct: p.margenPct != null ? Number(p.margenPct) : null,
+          actualizado_en: new Date().toISOString(),
+        })),
+        { onConflict: 'proveedor_id,producto_id' },
+      );
     }
     // el precio de venta va a la lista base; caja y mayorista son opcionales
     if (dto.precio != null && dto.precio > 0) await this.fijarPrecio(producto.id, dto.precio, usuarioId);

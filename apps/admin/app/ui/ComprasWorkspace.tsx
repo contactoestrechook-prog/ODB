@@ -552,6 +552,57 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
     setVinculaIdx(null); setVinculaBusca(''); setVinculaRubro(''); setVinculaSug([]);
   };
 
+  // Alta desde la factura. El renglón que el sistema no reconoce no tiene por
+  // qué frenar la carga: se da de alta ahí mismo, con la descripción y el costo
+  // que ya se leyeron del papel, y el renglón queda vinculado al producto nuevo.
+  // Mandarlos a otra pantalla significaba perder la factura a medio cargar.
+  const [altaIdx, setAltaIdx] = useState<number | null>(null);
+  const [altaForm, setAltaForm] = useState<any>({ nombre: '', rubro: '', marca: '', codigoBarras: '' });
+  const [altaError, setAltaError] = useState('');
+  const [creandoProd, setCreandoProd] = useState(false);
+
+  const abrirAlta = (idx: number, i: any) => {
+    setAltaIdx(altaIdx === idx ? null : idx);
+    setAltaError('');
+    setAltaForm({
+      nombre: (i.descripcion ?? '').trim(),
+      rubro: '',
+      marca: '',
+      codigoBarras: (i.codigo ?? '').toString().trim(),
+    });
+    setVinculaIdx(null);
+  };
+
+  const crearDesdeFactura = async (idx: number, i: any) => {
+    if (creandoProd || !altaForm.nombre.trim()) return;
+    setCreandoProd(true);
+    setAltaError('');
+    try {
+      const costo = costoFinal(i);
+      const r = await fetch('/api/producto', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          nombre: altaForm.nombre.trim(),
+          rubro: altaForm.rubro.trim() || undefined,
+          marca: altaForm.marca.trim() || undefined,
+          codigoBarras: altaForm.codigoBarras.trim() || undefined,
+          costo: costo > 0 ? costo : undefined,
+          // queda atado al proveedor de ESTA factura, con el texto que trae el
+          // papel: la próxima factura suya lo reconoce sola
+          proveedores: f.proveedorId ? [{ proveedorId: f.proveedorId, codigoProveedor: (i.codigo ?? '') || undefined, costo: costo > 0 ? costo : undefined }] : undefined,
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok) { setAltaError(d?.message ?? 'No se pudo crear el producto'); return; }
+      setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, sku: d.sku, nombre: altaForm.nombre.trim(), variacionPct: null, sugerido: false, motivoIa: null, incluir: true } : x));
+      setAltaIdx(null);
+    } catch {
+      setAltaError('No se pudo crear el producto. Probá de nuevo.');
+    } finally {
+      setCreandoProd(false);
+    }
+  };
+
   // el operador confirma la sugerencia de la IA ("sí, es este") → queda vinculado
   // e incluido; al registrar la entrada se aprende y la próxima vez matchea solo.
   const confirmarSugerencia = (idx: number) =>
@@ -922,9 +973,14 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                           <button onClick={() => setVinculaIdx(idx)} className="ml-2 text-black/40 underline hover:text-[#B82D25]">cambiar</button>
                         </span>
                       ) : (
-                        <button onClick={() => setVinculaIdx(vinculaIdx === idx ? null : idx)} className="block text-xs text-[#932A1F] underline hover:text-[#B82D25]">
-                          → sin producto: tocá para vincularlo
-                        </button>
+                        <span className="block text-xs">
+                          <button onClick={() => setVinculaIdx(vinculaIdx === idx ? null : idx)} className="text-[#932A1F] underline hover:text-[#B82D25]">
+                            → sin producto: tocá para vincularlo
+                          </button>
+                          <button onClick={() => abrirAlta(idx, i)} className="ml-2 text-[#B82D25] underline hover:text-[#932A1F]">
+                            o darlo de alta
+                          </button>
+                        </span>
                       )}
                     </span>
                     <input type="number" value={i.cantidad} onChange={(e) => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, cantidad: Number(e.target.value) } : x))} className="w-12 rounded border border-black/15 px-1 py-1 text-right text-sm text-black" />
@@ -974,6 +1030,39 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                           ))}
                         </div>
                       )}
+                    </div>
+                  )}
+
+                  {/* alta ahí mismo: el producto no existe todavía en el catálogo */}
+                  {altaIdx === idx && (
+                    <div className="mt-2 ml-6 rounded-lg border border-[#B82D25]/30 bg-[#B82D25]/5 p-3 space-y-2">
+                      <p className="text-xs font-semibold text-black">Dar de alta este producto</p>
+                      <p className="text-[11px] text-black/50 -mt-1">
+                        Queda creado y vinculado a este renglón. El costo sale de la factura ({pesos(costoFinal(i))}) y se guarda contra este proveedor, así la próxima factura lo reconoce sola.
+                      </p>
+                      <input autoFocus value={altaForm.nombre} onChange={(e) => setAltaForm((x: any) => ({ ...x, nombre: e.target.value }))} placeholder="Nombre del producto" className={input} />
+                      <div className="grid grid-cols-3 gap-2">
+                        <input value={altaForm.rubro} onChange={(e) => setAltaForm((x: any) => ({ ...x, rubro: e.target.value }))} placeholder="Rubro" list="rubros-alta" className={input} />
+                        <datalist id="rubros-alta">{categorias.map((c: any) => <option key={c.id} value={c.nombre} />)}</datalist>
+                        <input value={altaForm.marca} onChange={(e) => setAltaForm((x: any) => ({ ...x, marca: e.target.value }))} placeholder="Marca" className={input} />
+                        <input value={altaForm.codigoBarras} onChange={(e) => setAltaForm((x: any) => ({ ...x, codigoBarras: e.target.value }))} placeholder="Código de barras" className={input + ' font-mono'} />
+                      </div>
+                      {altaError && <p className="text-xs text-[#B82D25]">{altaError}</p>}
+                      <div className="flex items-center justify-between">
+                        <a href="/productos/nuevo" target="_blank" rel="noreferrer" className="text-[11px] text-black/45 underline">
+                          Cargar la ficha completa (se abre aparte)
+                        </a>
+                        <span className="flex gap-2">
+                          <button onClick={() => setAltaIdx(null)} className="text-xs text-black/50 px-2">Cancelar</button>
+                          <button
+                            onClick={() => crearDesdeFactura(idx, i)}
+                            disabled={creandoProd || !altaForm.nombre.trim()}
+                            className="rounded-full bg-[#B82D25] text-white text-xs font-medium px-4 py-1.5 disabled:opacity-50"
+                          >
+                            {creandoProd ? 'Creando…' : 'Crear y vincular'}
+                          </button>
+                        </span>
+                      </div>
                     </div>
                   )}
                 </div>
