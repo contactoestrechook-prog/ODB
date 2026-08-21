@@ -523,7 +523,7 @@ export class PedidosService {
     const { data, error } = await this.db
       .from('pedidos')
       .select(
-        `id, canal, estado, total, qr_retiro, creado_en, listo_en,
+        `id, canal, estado, total, qr_retiro, creado_en, listo_en, notas, entrega_fecha, entrega_franja,
          sucursal:sucursales(nombre),
          cliente:clientes(dni, tipo),
          items:pedidos_items(cantidad, precio_unitario, producto:productos(sku, nombre))`,
@@ -531,8 +531,15 @@ export class PedidosService {
       .in('estado', ['recibido', 'pagado', 'en_preparacion', 'listo'])
       .order('creado_en');
     if (error) throw new BadRequestException(error.message);
+    const hoy = new Date().toISOString().slice(0, 10);
     return (data ?? []).map((p: any) => ({
       ...p,
+      // programado = tiene fecha y NO es para hoy: depósito lo ve aparte y no
+      // lo prepara antes de tiempo ("reparto no es delivery")
+      programado: !!(p.entrega_fecha && p.entrega_fecha > hoy),
+      entregaEtiqueta: p.entrega_fecha
+        ? `${p.entrega_fecha === hoy ? 'HOY' : new Date(`${p.entrega_fecha}T00:00:00`).toLocaleDateString('es-AR', { weekday: 'long', day: '2-digit', month: '2-digit' })}${p.entrega_franja ? ` · ${p.entrega_franja}` : ''}`
+        : null,
       origen: p.qr_retiro?.startsWith('PY-')
         ? 'pedidosya'
         : p.qr_retiro?.startsWith('WEB-')

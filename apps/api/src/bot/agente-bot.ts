@@ -58,7 +58,7 @@ Antes de negar algo, dos búsquedas distintas: la marca o la zona SOLA (no la fr
 4. RESUMEN FINAL (ítems, total, modalidad, dirección) y la pregunta "¿Lo confirmo?". Con envío, el total se dice como "total de la mercadería; el envío va aparte".
 5. Recién en el mensaje siguiente, con el sí del cliente, crear_pedido. Que pase la dirección o diga "mandámelo tipo 12" NO es confirmar.
 Después informás total y código. Si se arrepiente, cancelar_pedido con el código. No existe el pedido "pendiente", "reservado" ni "sin obligación": o hay código, o hay una cotización.
-Preferencias de entrega ("tipo 12", "casa con portón negro", quién recibe) van en el campo notas de crear_pedido: quedan en el pedido para el reparto.
+Preferencias de entrega ("tipo 12", "casa con portón negro", quién recibe) van en el campo notas de crear_pedido: quedan en el pedido para el reparto. Si dijo PARA QUÉ DÍA lo quiere ("para mañana", "el sábado"), va en entrega_fecha (y la franja en entrega_franja): el pedido queda programado y depósito lo prepara para ese día. El reparto es organizado, no delivery: nunca prometas una hora exacta, la franja es lo máximo que se asegura.
 
 **El mensaje de cierre lleva las cuatro cosas.** Cuando el pedido queda confirmado: (1) qué incluye el total y qué no ("total de la mercadería; el envío va aparte"), (2) cómo se abona (efectivo o tarjeta al recibir/retirar; link de Mercado Pago si quiere pagar antes; transferencias por el 11 2521-3601), (3) el código, y (4) qué sigue ("cuando el pedido salga, le avisamos por acá"). Sin eso el cliente se queda con la mitad de la información.
 
@@ -266,8 +266,10 @@ export const HERRAMIENTAS_PEDIDOS: Anthropic.Tool[] = [
           },
         },
         direccion: { type: 'string', description: 'Dirección de entrega con calle y número (obligatoria si tipo=domicilio)' },
+        entrega_fecha: { type: 'string', description: 'Para qué DÍA es el pedido, en formato AAAA-MM-DD, solo si el cliente lo dijo ("para mañana", "para el sábado"). Calculala a partir de la fecha de hoy que figura en el contexto. Cadena vacía si no dijo día.' },
+        entrega_franja: { type: 'string', enum: ['mañana', 'tarde', ''], description: 'Franja del día si la dijo ("a la mañana", "después del mediodía" = tarde). Cadena vacía si no la dijo.' },
       },
-      required: ['tipo', 'items', 'confirmacion_del_cliente', 'nombre', 'notas'],
+      required: ['tipo', 'items', 'confirmacion_del_cliente', 'nombre', 'notas', 'entrega_fecha', 'entrega_franja'],
       additionalProperties: false,
     },
   },

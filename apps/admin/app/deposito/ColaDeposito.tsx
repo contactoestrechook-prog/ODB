@@ -6,6 +6,9 @@ type Pedido = {
   id: string;
   estado: string;
   origen: string;
+  programado?: boolean;
+  entregaEtiqueta?: string | null;
+  notas?: string | null;
   total: number;
   qr_retiro: string | null;
   minutos: number;
@@ -103,9 +106,11 @@ export function ColaDeposito() {
 
       <div className="grid md:grid-cols-3 gap-4">
         {COLUMNAS.map((col) => {
-          const enColumna = pedidos.filter(
-            (p) => p.estado === col.estado || (col.estado === 'recibido' && p.estado === 'pagado'),
-          );
+          const enColumna = pedidos
+            .filter((p) => p.estado === col.estado || (col.estado === 'recibido' && p.estado === 'pagado'))
+            // lo de HOY primero; lo programado para otro día al final, que no
+            // apure a nadie ni se prepare antes de tiempo
+            .sort((a, b) => Number(!!a.programado) - Number(!!b.programado));
           return (
             <div key={col.estado} className="rounded-xl bg-white/60 p-3">
               <div className="flex items-center justify-between mb-2 px-1">
@@ -132,9 +137,15 @@ export function ColaDeposito() {
                           hace {p.minutos} min
                         </span>
                       </div>
+                      {p.entregaEtiqueta && (
+                        <p className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold ${p.programado ? 'bg-black/5 text-black/60' : 'bg-[#B82D25]/10 text-[#B82D25]'}`}>
+                          📅 {p.entregaEtiqueta}
+                        </p>
+                      )}
                       {p.qr_retiro && (
                         <p className="mt-1 text-xs text-black/40 font-mono">{p.qr_retiro}</p>
                       )}
+                      {p.notas && <p className="mt-1 text-[11px] text-black/50 italic">{p.notas}</p>}
                       <ul className="mt-2 text-sm text-black space-y-0.5">
                         {p.items.map((i, j) => (
                           <li key={j}>

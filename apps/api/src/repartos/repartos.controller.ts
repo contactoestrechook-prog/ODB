@@ -70,7 +70,7 @@ export class RepartosController {
 
   @Roles('gerente', 'dueno', 'repartidor')
   @Post(':id/estado')
-  estado(@Param('id') id: string, @Body() b: { estado: string }) {
-    return this.serv.cambiarEstado(id, b.estado);
+  estado(@Param('id') id: string, @Body() b: { estado: string }, @Req() req: any) {
+    return this.serv.cambiarEstado(id, b.estado, req.usuario?.sub);
   }
 }

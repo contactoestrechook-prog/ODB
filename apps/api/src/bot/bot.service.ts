@@ -1025,6 +1025,8 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
             items: (input.items ?? []).map((i: any) => ({ sku: String(i.sku), cantidad: Number(i.cantidad) })),
             direccion: dir || undefined,
             notas: input.notas ? String(input.notas).slice(0, 300) : undefined,
+            entregaFecha: input.entrega_fecha ? String(input.entrega_fecha) : undefined,
+            entregaFranja: input.entrega_franja === 'mañana' || input.entrega_franja === 'tarde' ? input.entrega_franja : undefined,
           });
           ctx.fallos?.set('__pedido_creado__', 1);
           break;
@@ -1496,6 +1498,8 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     items: { sku: string; cantidad: number }[];
     direccion?: string;
     notas?: string;
+    entregaFecha?: string; // AAAA-MM-DD: pedido programado para ese día
+    entregaFranja?: 'mañana' | 'tarde';
   }) {
     if (!dto.telefono) throw new BadRequestException('Falta el teléfono del cliente');
     if (!dto.items?.length) throw new BadRequestException('El pedido está vacío');
@@ -1550,9 +1554,22 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     });
     // preferencias del cliente ("tipo 12", "portón negro", "tocar timbre"): quedan
     // en el pedido para el reparto; antes se decían "anotadas" y no iban a ningún lado
-    if (dto.notas?.trim() && (pedido as any)?.id) {
-      const { error: eNotas } = await this.db.from('pedidos').update({ notas: `WhatsApp: ${dto.notas.trim()}` }).eq('id', (pedido as any).id);
-      if (eNotas) this.log.error(`no pude guardar las notas del pedido ${(pedido as any).qr_retiro ?? (pedido as any).id}: ${eNotas.message}`);
+    // fecha programada: "para mañana" tiene que quedar como dato, no como nota.
+    // Fecha inválida o pasada se ignora (mejor pedido de hoy que pedido roto).
+    let entregaFecha: string | null = null;
+    if (dto.entregaFecha && /^\d{4}-\d{2}-\d{2}$/.test(dto.entregaFecha)) {
+      const hoy = new Date().toISOString().slice(0, 10);
+      if (dto.entregaFecha >= hoy) entregaFecha = dto.entregaFecha;
+    }
+    const cambios: Record<string, unknown> = {};
+    if (dto.notas?.trim()) cambios.notas = `WhatsApp: ${dto.notas.trim()}`;
+    if (entregaFecha) {
+      cambios.entrega_fecha = entregaFecha;
+      if (dto.entregaFranja === 'mañana' || dto.entregaFranja === 'tarde') cambios.entrega_franja = dto.entregaFranja;
+    }
+    if (Object.keys(cambios).length && (pedido as any)?.id) {
+      const { error: eNotas } = await this.db.from('pedidos').update(cambios).eq('id', (pedido as any).id);
+      if (eNotas) this.log.error(`no pude guardar notas/fecha del pedido ${(pedido as any).qr_retiro ?? (pedido as any).id}: ${eNotas.message}`);
     }
 
     // resumen legible para que el bot lo repita por WhatsApp
