@@ -417,6 +417,9 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     const fallosDelTurno = new Map<string, number>();
     // una herramienta puede fijar la respuesta del turno ("Recibido." ante un comprobante)
     const respuestaFija: { texto?: string } = {};
+    // todo lo que devolvieron las herramientas en este turno: los únicos
+    // números que el bot tiene permitido decir
+    const salidasDelTurno: string[] = [];
     let respuesta = '';
     let tokens = 0; // costo del mensaje (entrada+salida, todas las vueltas)
     // desglose para saber en qué se va la plata: entrada fresca ($), caché leída
@@ -481,7 +484,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
             resultados.push({ ...previo, tool_use_id: block.id });
             continue;
           }
-          const res = await this.ejecutarHerramienta(block, telefono, linea, { ultimoBot: ultimoDelBot, ultimosBot: ultimosDelBot, ultimosCliente: ultimosDelCliente, textoCliente: texto, fallos: fallosDelTurno, archivoUrl: dto.archivoUrl, fija: respuestaFija });
+          const res = await this.ejecutarHerramienta(block, telefono, linea, { ultimoBot: ultimoDelBot, ultimosBot: ultimosDelBot, ultimosCliente: ultimosDelCliente, textoCliente: texto, fallos: fallosDelTurno, archivoUrl: dto.archivoUrl, fija: respuestaFija, salidas: salidasDelTurno });
           vistos.set(clave, res);
           resultados.push(res);
         }
@@ -553,7 +556,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
       if (r3.stop_reason === 'tool_use') {
         messages.push({ role: 'assistant', content: r3.content });
         const res3: Anthropic.ToolResultBlockParam[] = [];
-        for (const b of r3.content) if (b.type === 'tool_use') { herramientasDelTurno.add(b.name); res3.push(await this.ejecutarHerramienta(b, telefono, linea, { ultimoBot: ultimoDelBot, ultimosBot: ultimosDelBot, ultimosCliente: ultimosDelCliente, textoCliente: texto, fallos: fallosDelTurno, archivoUrl: dto.archivoUrl, fija: respuestaFija })); }
+        for (const b of r3.content) if (b.type === 'tool_use') { herramientasDelTurno.add(b.name); res3.push(await this.ejecutarHerramienta(b, telefono, linea, { ultimoBot: ultimoDelBot, ultimosBot: ultimosDelBot, ultimosCliente: ultimosDelCliente, textoCliente: texto, fallos: fallosDelTurno, archivoUrl: dto.archivoUrl, fija: respuestaFija, salidas: salidasDelTurno })); }
         messages.push({ role: 'user', content: res3 });
         const t4 = await this.regenerar(system, messages, 2048, sumarUso).catch(() => null);
         if (t4) respuesta = t4;
@@ -632,7 +635,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
         if (r5.stop_reason === 'tool_use') {
           messages.push({ role: 'assistant', content: r5.content });
           const res5: Anthropic.ToolResultBlockParam[] = [];
-          for (const b of r5.content) if (b.type === 'tool_use') { herramientasDelTurno.add(b.name); res5.push(await this.ejecutarHerramienta(b, telefono, linea, { ultimoBot: ultimoDelBot, ultimosBot: ultimosDelBot, ultimosCliente: ultimosDelCliente, textoCliente: texto, fallos: fallosDelTurno, archivoUrl: dto.archivoUrl, fija: respuestaFija })); }
+          for (const b of r5.content) if (b.type === 'tool_use') { herramientasDelTurno.add(b.name); res5.push(await this.ejecutarHerramienta(b, telefono, linea, { ultimoBot: ultimoDelBot, ultimosBot: ultimosDelBot, ultimosCliente: ultimosDelCliente, textoCliente: texto, fallos: fallosDelTurno, archivoUrl: dto.archivoUrl, fija: respuestaFija, salidas: salidasDelTurno })); }
           messages.push({ role: 'user', content: res5 });
           const t6 = await this.regenerar(system, messages, 2048, sumarUso);
           if (t6) respuesta = t6;
@@ -951,6 +954,27 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
       vueltasReintento++;
     }
 
+    // NINGÚN IMPORTE INVENTADO. Cada "$N" de la respuesta tiene que existir en lo
+    // que devolvieron las herramientas en este turno, en lo que ya dijo el bot
+    // (que salió de herramientas anteriores) o en lo que escribió el cliente.
+    // Si el modelo hace una cuenta por su cuenta, el número no está en ningún
+    // lado y la respuesta se regenera. Así "no puede calcular mal": no calcula.
+    const normImporte = (t: string) => [...t.matchAll(/\$\s?(\d{1,3}(?:[.\s]\d{3})+|\d+)(?:,\d{1,2})?/g)].map((m) => m[1].replace(/[.\s]/g, ''));
+    const permitidos = new Set<string>();
+    for (const salida of salidasDelTurno) for (const m of salida.matchAll(/\d{2,}/g)) permitidos.add(m[0]);
+    for (const t of dichoPorElBot) for (const n of normImporte(String(t))) permitidos.add(n);
+    for (const n of normImporte(texto)) permitidos.add(n);
+    const importes = normImporte(respuesta);
+    const inventados = importes.filter((n) => !permitidos.has(n));
+    if (inventados.length && salidasDelTurno.length && vueltasReintento < 3) {
+      this.log.warn(`importes sin origen para ${telefono}: ${inventados.join(', ')} → regenero`);
+      messages.push({ role: 'assistant', content: respuesta });
+      messages.push({ role: 'user', content: `[nota interna: escribiste importes que el sistema no produjo (${inventados.map((n) => '$' + n).join(', ')}). No hagas cuentas: usá exactamente los precios, subtotales y totales que devolvieron buscar_productos / cotizar_pedido, y si necesitás un total nuevo, llamá a cotizar_pedido otra vez.]` });
+      const t19 = await this.regenerar(system, messages, 2048, sumarUso);
+      if (t19) respuesta = t19;
+      vueltasReintento++;
+    }
+
     // Ningún otro número de teléfono se le da al cliente: los temas internos se
     // resuelven adentro. Si el modelo igual lo escribe, la oración se reemplaza.
     const RE_OTRO_TEL = /\b(?:11|15)\s?\d{4}[\s-]?\d{4}\b/;
@@ -1094,7 +1118,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     block: Anthropic.ToolUseBlock,
     telefono: string,
     linea: 'pedidos' | 'proveedores' = 'pedidos',
-    ctx: { ultimoBot?: string; ultimosBot?: string[]; ultimosCliente?: string[]; textoCliente?: string; fallos?: Map<string, number>; archivoUrl?: string; fija?: { texto?: string } } = {},
+    ctx: { ultimoBot?: string; ultimosBot?: string[]; ultimosCliente?: string[]; textoCliente?: string; fallos?: Map<string, number>; archivoUrl?: string; fija?: { texto?: string }; salidas?: string[] } = {},
   ): Promise<Anthropic.ToolResultBlockParam> {
     const input: any = block.input;
     const skusVistosEnTurno = this.skusDe(telefono);
@@ -1204,7 +1228,21 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
           out = { ...est, aclaracion: 'La franja de reparto es cuándo SALEN los envíos; NO es una hora límite para hacer pedidos: se puede pedir en cualquier momento (lo que entra después de la franja sale al día siguiente hábil de reparto). Nunca digas "puede pedir hasta las X".' };
           break;
         }
-        case 'cotizar_pedido':
+        case 'cotizar_pedido': {
+          // La cantidad que va a cotizar tiene que ser la que DIJO el cliente.
+          // Ayer "18 botellas" se convirtió en 3 packs por cuenta del modelo.
+          // Si el cliente nombró un número con unidad (18 botellas, 6 latas) y
+          // el renglón trae un divisor exacto de ese número (3, 6, 9), se
+          // rechaza la llamada y se le ordena usar el número del cliente.
+          const dichoCliente = String((ctx.ultimosCliente ?? []).slice(-1)[0] ?? ctx.textoCliente ?? '');
+          const cantidadesDichas = [...dichoCliente.matchAll(/\b(\d{1,3})\s*(?:botellas?|unidades?|latas?|paquetes?|bolsas?|cajas?|u\b|un\b)/gi)].map((m) => Number(m[1])).filter((n) => n > 1);
+          const sospechoso = (input.items ?? []).find((i: any) => cantidadesDichas.some((n) => Number(i.cantidad) > 0 && Number(i.cantidad) < n && n % Number(i.cantidad) === 0));
+          if (sospechoso) {
+            const n = cantidadesDichas.find((x) => x % Number(sospechoso.cantidad) === 0);
+            out = { error: `El cliente dijo ${n} unidades y vos pasaste cantidad ${sospechoso.cantidad}. Los precios son por UNIDAD suelta: el "x6un" del nombre no es un pack. Volvé a llamar a cotizar_pedido con cantidad ${n}.` };
+            this.log.warn(`cantidad convertida a packs para ${telefono}: cliente dijo ${n}, modelo pasó ${sospechoso.cantidad} → rechazada`);
+            break;
+          }
           out = await this.cotizarPedido(
             (input.items ?? []).map((i: any) => ({ sku: String(i.sku), cantidad: Number(i.cantidad) })),
             telefono,
@@ -1215,6 +1253,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
           );
           for (const it of ((out as any)?.renglones ?? [])) if (it?.sku && !it.error) skusVistosEnTurno.add(String(it.sku));
           break;
+        }
         case 'registrar_proveedor':
           out = await this.registrarProveedor(linea, telefono, {
             nombre: input.nombre ? String(input.nombre) : undefined,
@@ -1285,7 +1324,9 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
         default:
           throw new Error(`Herramienta desconocida: ${block.name}`);
       }
-      return { type: 'tool_result', tool_use_id: block.id, content: JSON.stringify(out) };
+      const contenido = JSON.stringify(out);
+      ctx.salidas?.push(contenido);
+      return { type: 'tool_result', tool_use_id: block.id, content: contenido };
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'error';
       this.log.warn(`Herramienta ${block.name} falló: ${msg}`);
