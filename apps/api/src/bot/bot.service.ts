@@ -1858,7 +1858,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     extra: { monto?: number; tipo?: string; comprobanteUrl?: string } = {},
   ) {
     const { data: cfg } = await this.db
-      .from('lineas_whatsapp').select('derivar_pagos_a, avisar_proveedores_a, alias_pago, titular_pago, banco_pago').eq('linea', linea).eq('activa', true).limit(1).maybeSingle();
+      .from('lineas_whatsapp').select('derivar_pagos_a, avisar_proveedores_a, alias_pago, titular_pago, banco_pago, cbu_pago').eq('linea', linea).eq('activa', true).limit(1).maybeSingle();
     const adminWsp = String(cfg?.derivar_pagos_a ?? '').replace(/\D/g, '');
     const monto = Number(extra.monto) || 0;
     const tipo = extra.tipo ?? 'consulta';
@@ -1869,7 +1869,8 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     if (tipo === 'quiere_pagar' && alias) {
       const titular = String((cfg as any)?.titular_pago ?? '').trim();
       const banco = String((cfg as any)?.banco_pago ?? '').trim();
-      const datos = `Alias: ${alias}${titular ? ` · Titular: ${titular}` : ''}${banco ? ` · ${banco}` : ''}`;
+      const cbu = String((cfg as any)?.cbu_pago ?? '').trim();
+      const datos = `Alias: ${alias}${cbu ? ` · CBU: ${cbu}` : ''}${titular ? ` · Titular: ${titular}` : ''}${banco ? ` (${banco})` : ''}`;
       return {
         derivado: false,
         datosDePago: datos,
