@@ -1220,6 +1220,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
           out = await this.derivarPago(linea, telefono, motivo, { monto, tipo: tipoPago, comprobanteUrl: ctx.archivoUrl });
           // un comprobante se contesta con una palabra, y la pone el código
           if (tipoPago === 'comprobante_enviado' && ctx.fija) ctx.fija.texto = 'Recibido.';
+          if ((out as any)?.respuestaFija && ctx.fija) ctx.fija.texto = String((out as any).respuestaFija);
           break;
         }
         case 'consultar_interno': {
@@ -1857,10 +1858,25 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     extra: { monto?: number; tipo?: string; comprobanteUrl?: string } = {},
   ) {
     const { data: cfg } = await this.db
-      .from('lineas_whatsapp').select('derivar_pagos_a, avisar_proveedores_a').eq('linea', linea).eq('activa', true).limit(1).maybeSingle();
+      .from('lineas_whatsapp').select('derivar_pagos_a, avisar_proveedores_a, alias_pago, titular_pago, banco_pago').eq('linea', linea).eq('activa', true).limit(1).maybeSingle();
     const adminWsp = String(cfg?.derivar_pagos_a ?? '').replace(/\D/g, '');
     const monto = Number(extra.monto) || 0;
     const tipo = extra.tipo ?? 'consulta';
+
+    // El alias es un dato de la casa: se da directo, sin pasar por nadie. El
+    // comprobante que venga después entra por el circuito de aprobación.
+    const alias = String((cfg as any)?.alias_pago ?? '').trim();
+    if (tipo === 'quiere_pagar' && alias) {
+      const titular = String((cfg as any)?.titular_pago ?? '').trim();
+      const banco = String((cfg as any)?.banco_pago ?? '').trim();
+      const datos = `Alias: ${alias}${titular ? ` · Titular: ${titular}` : ''}${banco ? ` · ${banco}` : ''}`;
+      return {
+        derivado: false,
+        datosDePago: datos,
+        respuestaFija: `${datos}. Cuando transfiera, mándeme el comprobante por acá.`,
+        aviso: 'Ya está: el código le manda los datos al cliente. No agregues nada.',
+      };
+    }
     const esComprobante = tipo === 'comprobante_enviado' && monto > 0;
 
     const ident = await this.identificarCliente(telefono).catch(() => null as any);
