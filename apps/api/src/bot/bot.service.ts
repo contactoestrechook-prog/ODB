@@ -415,6 +415,8 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     const ultimosDelBot = [...historial].reverse().filter((m) => m.role === 'assistant').slice(0, 3).map((m) => String(m.content));
     const ultimosDelCliente = [...[...historial].reverse().filter((m) => m.role === 'user').slice(0, 6).map((m) => String(m.content)).reverse(), texto];
     const fallosDelTurno = new Map<string, number>();
+    // una herramienta puede fijar la respuesta del turno ("Recibido." ante un comprobante)
+    const respuestaFija: { texto?: string } = {};
     let respuesta = '';
     let tokens = 0; // costo del mensaje (entrada+salida, todas las vueltas)
     // desglose para saber en qué se va la plata: entrada fresca ($), caché leída
@@ -479,7 +481,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
             resultados.push({ ...previo, tool_use_id: block.id });
             continue;
           }
-          const res = await this.ejecutarHerramienta(block, telefono, linea, { ultimoBot: ultimoDelBot, ultimosBot: ultimosDelBot, ultimosCliente: ultimosDelCliente, textoCliente: texto, fallos: fallosDelTurno, archivoUrl: dto.archivoUrl });
+          const res = await this.ejecutarHerramienta(block, telefono, linea, { ultimoBot: ultimoDelBot, ultimosBot: ultimosDelBot, ultimosCliente: ultimosDelCliente, textoCliente: texto, fallos: fallosDelTurno, archivoUrl: dto.archivoUrl, fija: respuestaFija });
           vistos.set(clave, res);
           resultados.push(res);
         }
@@ -551,7 +553,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
       if (r3.stop_reason === 'tool_use') {
         messages.push({ role: 'assistant', content: r3.content });
         const res3: Anthropic.ToolResultBlockParam[] = [];
-        for (const b of r3.content) if (b.type === 'tool_use') { herramientasDelTurno.add(b.name); res3.push(await this.ejecutarHerramienta(b, telefono, linea, { ultimoBot: ultimoDelBot, ultimosBot: ultimosDelBot, ultimosCliente: ultimosDelCliente, textoCliente: texto, fallos: fallosDelTurno, archivoUrl: dto.archivoUrl })); }
+        for (const b of r3.content) if (b.type === 'tool_use') { herramientasDelTurno.add(b.name); res3.push(await this.ejecutarHerramienta(b, telefono, linea, { ultimoBot: ultimoDelBot, ultimosBot: ultimosDelBot, ultimosCliente: ultimosDelCliente, textoCliente: texto, fallos: fallosDelTurno, archivoUrl: dto.archivoUrl, fija: respuestaFija })); }
         messages.push({ role: 'user', content: res3 });
         const t4 = await this.regenerar(system, messages, 2048, sumarUso).catch(() => null);
         if (t4) respuesta = t4;
@@ -630,7 +632,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
         if (r5.stop_reason === 'tool_use') {
           messages.push({ role: 'assistant', content: r5.content });
           const res5: Anthropic.ToolResultBlockParam[] = [];
-          for (const b of r5.content) if (b.type === 'tool_use') { herramientasDelTurno.add(b.name); res5.push(await this.ejecutarHerramienta(b, telefono, linea, { ultimoBot: ultimoDelBot, ultimosBot: ultimosDelBot, ultimosCliente: ultimosDelCliente, textoCliente: texto, fallos: fallosDelTurno, archivoUrl: dto.archivoUrl })); }
+          for (const b of r5.content) if (b.type === 'tool_use') { herramientasDelTurno.add(b.name); res5.push(await this.ejecutarHerramienta(b, telefono, linea, { ultimoBot: ultimoDelBot, ultimosBot: ultimosDelBot, ultimosCliente: ultimosDelCliente, textoCliente: texto, fallos: fallosDelTurno, archivoUrl: dto.archivoUrl, fija: respuestaFija })); }
           messages.push({ role: 'user', content: res5 });
           const t6 = await this.regenerar(system, messages, 2048, sumarUso);
           if (t6) respuesta = t6;
@@ -949,6 +951,8 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
       respuesta = `Lamento el inconveniente. ${respuesta}`;
     }
 
+    if (respuestaFija.texto) respuesta = respuestaFija.texto;
+
     // 4) persistir memoria (solo los turnos de texto, recortada) + tokens acumulados
     const nuevoHistorial = [
       ...historial,
@@ -1072,7 +1076,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     block: Anthropic.ToolUseBlock,
     telefono: string,
     linea: 'pedidos' | 'proveedores' = 'pedidos',
-    ctx: { ultimoBot?: string; ultimosBot?: string[]; ultimosCliente?: string[]; textoCliente?: string; fallos?: Map<string, number>; archivoUrl?: string } = {},
+    ctx: { ultimoBot?: string; ultimosBot?: string[]; ultimosCliente?: string[]; textoCliente?: string; fallos?: Map<string, number>; archivoUrl?: string; fija?: { texto?: string } } = {},
   ): Promise<Anthropic.ToolResultBlockParam> {
     const input: any = block.input;
     const skusVistosEnTurno = this.skusDe(telefono);
@@ -1214,6 +1218,8 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
             break;
           }
           out = await this.derivarPago(linea, telefono, motivo, { monto, tipo: tipoPago, comprobanteUrl: ctx.archivoUrl });
+          // un comprobante se contesta con una palabra, y la pone el código
+          if (tipoPago === 'comprobante_enviado' && ctx.fija) ctx.fija.texto = 'Recibido.';
           break;
         }
         case 'consultar_interno': {
@@ -1904,10 +1910,10 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     }
 
     const queDecir = esComprobante
-      ? `Decile al cliente UNA cosa, en una línea: que recibiste su comprobante por $${Math.round(monto).toLocaleString('es-AR')}, que administración lo registra y le confirma por acá. Nada más.`
+      ? 'Respondé exactamente "Recibido." y nada más.'
       : tipo === 'quiere_pagar'
-        ? 'Decile al cliente que administración le pasa los datos para transferir por este mismo chat en un rato. NO inventes alias ni CBU.'
-        : 'Decile al cliente que administración ya tiene su consulta y le responde por acá.';
+        ? 'Respondé en una línea corta: "Le paso los datos por acá en un rato." NO inventes alias ni CBU.'
+        : 'Respondé corto: "Recibido, le confirmo por acá."';
     return {
       derivado: true,
       cobranzaRegistrada: !!cobranzaId,
