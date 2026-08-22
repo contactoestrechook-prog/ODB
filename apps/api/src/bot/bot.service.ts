@@ -909,7 +909,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
 
     // "No puedo confirmar si llega a su zona" / "no estoy seguro" NO se dice:
     // se pide la dirección (si falta) y se consulta por adentro.
-    const RE_NO_SE_ENVIO = /\b(no\s+(?:le\s+)?(?:puedo|podr[ií]a|pude)\s+(?:confirmar|asegurar|garantizar)|no\s+estoy\s+segur[oa]|no\s+tengo\s+(?:cargad[oa]|forma\s+de\s+saber|el\s+dato)|no\s+s[eé]\s+si)\b[^.!?\n]{0,70}\b(lleg|zona|reparto|env[ií]o|cobertura|demora|costo\s+del\s+env)/i;
+    const RE_NO_SE_ENVIO = /\b(no\s+(?:le\s+)?(?:puedo|podr[ií]a|pude)\s+(?:confirmar|asegurar|garantizar)(?:le|les|lo|la)?|no\s+estoy\s+segur[oa]|no\s+tengo\s+(?:cargad[oa]|forma\s+de\s+saber|el\s+dato)|no\s+s[eé]\s+si)\b[^.!?\n]{0,70}\b(lleg|zona|reparto|env[ií]o|cobertura|demora|costo\s+del\s+env)/i;
     if (RE_NO_SE_ENVIO.test(respuesta) && vueltasReintento < 3) {
       this.log.warn(`confesó no saber sobre el envío (${telefono}): regenero`);
       messages.push({ role: 'assistant', content: respuesta });
