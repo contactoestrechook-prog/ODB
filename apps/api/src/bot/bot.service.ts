@@ -933,6 +933,24 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
       vueltasReintento++;
     }
 
+    // Disputa de precio o cantidad ("son 18 botellas de $1.950 c/u", "está mal
+    // la cuenta"): el bot no discute. La primera vez recotiza asumiendo que el
+    // cliente tiene razón (precio por unidad, cantidad en unidades); si ya
+    // discutió una vez, lo consulta adentro y dice que lo verifica.
+    const RE_DISPUTA = /\b(mal la cuenta|la cuenta est[aá] mal|est[aá] mal|te cargaron mal|sacando mal|mal las cuentas|c\/u|cada una|cada uno|por unidad|no es (?:el|por) pack|son \d+ (?:botellas|unidades|latas|paquetes))\b/i;
+    const RE_REAFIRMA = /\b(verificado|est[aá] correcto|es correcto|corresponde al pack|no est[aá] mal|no est[aá] mal cargado|ya verificado|el total .{0,30} est[aá] (?:bien|correcto))\b/i;
+    if (RE_DISPUTA.test(texto) && RE_REAFIRMA.test(respuesta) && vueltasReintento < 3) {
+      const yaDiscutio = dichoPorElBot.some((t) => RE_REAFIRMA.test(t));
+      this.log.warn(`disputa de precio/cantidad para ${telefono} (${yaDiscutio ? 'segunda' : 'primera'} vez): no se discute`);
+      messages.push({ role: 'assistant', content: respuesta });
+      messages.push({ role: 'user', content: yaDiscutio
+        ? '[nota interna: el cliente ya discutió el precio o la cantidad más de una vez. No vuelvas a decirle que está correcto. Llamá a consultar_interno (area "local") con el detalle de lo que dice el cliente y respondé en una línea: "Lo verifico con el local y le confirmo por acá."]'
+        : '[nota interna: el cliente discute el precio o la cantidad. Por defecto tiene razón: los precios del catálogo son por UNIDAD suelta y el "x6un" del nombre es el bulto del proveedor, no un pack. Volvé a cotizar con cotizar_pedido usando la cantidad de UNIDADES que dijo el cliente (si dijo 18 botellas, son 18) y mostrale el total nuevo en dos líneas, sin justificar el anterior.]' });
+      const t18 = await this.regenerar(system, messages, 2048, sumarUso);
+      if (t18) respuesta = t18;
+      vueltasReintento++;
+    }
+
     // Ningún otro número de teléfono se le da al cliente: los temas internos se
     // resuelven adentro. Si el modelo igual lo escribe, la oración se reemplaza.
     const RE_OTRO_TEL = /\b(?:11|15)\s?\d{4}[\s-]?\d{4}\b/;
@@ -1327,6 +1345,21 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
   // stock por sucursal. Es lo que hace que el bot no invente ni venda sin stock.
   // Los resultados de herramienta se reenvían en CADA vuelta del loop del modelo:
   // cuanto más compactos, menos tokens. Sucursales como texto corto y sin nulos.
+  // 1.063 productos activos llevan "x6un", "x12", "pack" o "caja" en el nombre
+  // y TODOS tienen unidades_pack = 1: ese "xN" es el bulto del proveedor, no
+  // lo que se lleva el cliente. Ayer (2026-08-21) el bot leyó "Villavicencio
+  // 1.5L x6un" a $1.950 y le juró a un cliente que $1.950 era el pack de 6:
+  // le cotizó 18 botellas a $5.850. El precio y el stock son por unidad suelta
+  // salvo que unidades_pack diga otra cosa, y eso se le dice al modelo en cada
+  // producto, no se deja a su interpretación.
+  private notaUnidad(nombre: string, unidadesPack?: number | null): string | null {
+    if (Number(unidadesPack) > 1) return `pack de ${Number(unidadesPack)}: el precio es por el pack`;
+    if (/\bx\s?\d{1,3}\s?(?:un|u|unid|unidades)?\b|\bpack\b|\bcaja\b|\bbulto\b/i.test(nombre)) {
+      return 'precio y stock por UNIDAD suelta; el "xN" del nombre es el bulto del proveedor, NO un pack para el cliente';
+    }
+    return null;
+  }
+
   private sucCompacta(xs: any[] | string | undefined): string {
     // consultar_cava ya trae las sucursales como texto; buscar_productos como array.
     // (Ronda 6: pasarle el texto a .map() rompió la cava entera: 38 llamadas fallidas.)
@@ -1415,6 +1448,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
         precioMayorista: pr?.precio_mayorista != null && Number(pr.precio_mayorista) !== Number(pr.precio_final) ? Math.round(Number(pr.precio_mayorista)) : null,
         promo: pr?.descuento_nombre ? `${pr.descuento_nombre} (antes $${Math.round(pr.precio_lista)})` : null,
         alcohol: !!prod?.es_alcohol,
+        unidad: this.notaUnidad(String(p.nombre ?? ''), prod?.unidades_pack),
         stock: this.sucCompacta(p.sucursales) || String(Math.round(Number(p.total))),
       });
     });
@@ -1609,6 +1643,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
         cantidad,
         precioUnitario: unitario,
         renglon: `${cantidad} × $${Math.round(unitario).toLocaleString('es-AR')} c/u = $${Math.round(subtotal).toLocaleString('es-AR')}`,
+        unidad: this.notaUnidad(String(p.nombre ?? ''), (prod as any)?.unidades_pack),
         subtotal,
         stockDisponible: disponible,
         stockEnOtraSucursal: Math.max(0, Number(p.stockTotal ?? 0) - disponible),
@@ -1625,7 +1660,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
       hayFaltantes,
       sucursalDeSalida: sucPickNombre,
       ...(renglones.some((r: any) => r.reemplazo_no_confirmado) ? { reemplazoSinConfirmar: 'HAY UN RENGLÓN QUE NO ES LO QUE EL CLIENTE PIDIÓ: no des ningún total ni pases a retiro/domicilio hasta que acepte el reemplazo.' } : {}),
-      aclaracion: `Este total lo calculó el sistema. Informalo tal cual, sin rehacer la cuenta. Cada renglón viene formateado en "renglon": usalo tal cual (2 × $20.500 c/u = $41.000). El stock que cuenta es el de ${sucPickNombre} (de ahí salen retiros y envíos).${hayFaltantes ? ' HAY RENGLONES SIN STOCK SUFICIENTE: avisale al cliente la cantidad real antes de seguir.' : ''} Si el cliente quiere envío, el total se informa como "total de la mercadería; el envío va aparte y lo define el sector de reparto".`,
+      aclaracion: `Este total lo calculó el sistema. Informalo tal cual, sin rehacer la cuenta. Cada precio es POR UNIDAD SUELTA (una botella, un paquete) salvo que el renglón diga "pack de N": el "x6un" de un nombre es el bulto del proveedor, no un pack; si el cliente pidió 18 botellas, la cantidad es 18, no 3. Cada renglón viene formateado en "renglon": usalo tal cual (2 × $20.500 c/u = $41.000). El stock que cuenta es el de ${sucPickNombre} (de ahí salen retiros y envíos).${hayFaltantes ? ' HAY RENGLONES SIN STOCK SUFICIENTE: avisale al cliente la cantidad real antes de seguir.' : ''} Si el cliente quiere envío, el total se informa como "total de la mercadería; el envío va aparte y lo define el sector de reparto".`,
     };
   }
 
