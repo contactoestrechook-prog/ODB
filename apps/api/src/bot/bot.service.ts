@@ -961,7 +961,9 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     // lado y la respuesta se regenera. Así "no puede calcular mal": no calcula.
     const normImporte = (t: string) => [...t.matchAll(/\$\s?(\d{1,3}(?:[.\s]\d{3})+|\d+)(?:,\d{1,2})?/g)].map((m) => m[1].replace(/[.\s]/g, ''));
     const permitidos = new Set<string>();
-    for (const salida of salidasDelTurno) for (const m of salida.matchAll(/\d{2,}/g)) permitidos.add(m[0]);
+    // las herramientas devuelven importes formateados ("$35.100") y crudos
+    // (35100): se aceptan las dos formas, sin puntos de miles
+    for (const salida of salidasDelTurno) for (const m of salida.matchAll(/\d{1,3}(?:\.\d{3})+|\d{2,}/g)) permitidos.add(m[0].replace(/\./g, ''));
     for (const t of dichoPorElBot) for (const n of normImporte(String(t))) permitidos.add(n);
     for (const n of normImporte(texto)) permitidos.add(n);
     const importes = normImporte(respuesta);
