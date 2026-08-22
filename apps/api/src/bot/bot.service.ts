@@ -66,6 +66,7 @@ export class BotService {
     mensajeId?: string;
     archivoBase64?: string;
     mimeType?: string;
+    archivoUrl?: string; // copia pública del archivo (comprobantes): va al aviso interno
   }) {
     // Patrón MetoGroup: el puente manda el número al que LLEGÓ el mensaje y el
     // sistema resuelve la línea. Así un mismo flujo de n8n sirve para cualquier
@@ -176,7 +177,7 @@ export class BotService {
   private async charlaInterna(
     linea: 'pedidos' | 'proveedores',
     telefono: string,
-    dto: { mensaje?: string; mensajeId?: string; archivoBase64?: string; mimeType?: string },
+    dto: { mensaje?: string; mensajeId?: string; archivoBase64?: string; mimeType?: string; archivoUrl?: string },
   ) {
     // idempotencia: si Meta/n8n reintentan el mismo mensaje, devolver la misma
     // respuesta sin volver a procesar (clave = id del mensaje de WhatsApp)
@@ -282,8 +283,8 @@ export class BotService {
             const r = await this.claude.messages.create({
               model: MODELO_BOT, max_tokens: 450,
               system: `Sos el asistente automático de O.D.B Premium Market (Canning). Esta conversación YA está avisada al sector correspondiente${conv?.derivada_motivo ? ` (motivo de la derivación: ${conv.derivada_motivo})` : ''}; vos solo acusás recibo y contestás datos duros. Tratás de usted, sobrio, respetuoso, sin emojis, sin apodos, sin exclamaciones.
-DATOS DUROS que sí podés afirmar: ${datosHoy || 'horarios no disponibles ahora: no los inventes'}. Pagos, transferencias, devoluciones y facturas: los atiende el 11 2521-3601 por WhatsApp (si el cliente ya dice que escribió ahí y no le contestaron, NO repitas el número como si fuera nuevo: decí que se lo trasladás a la persona del local y que no podés darle un plazo).
-${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver a "trasladarlo"; podés decirle al cliente que eso ya está asentado, reformulándolo): ${yaRegistrado}\n` : ''}REGLAS: máximo 3 líneas. (1) Primera línea = respuesta concreta a LO ÚLTIMO que escribió: si pregunta si sos un bot/persona → "Soy el asistente automático de O.D.B."; si propone algo (reposición, descuento, horario de entrega) → reformulá su propuesta con sus palabras ("su propuesta queda clara: las dos botellas hoy sin cargo") y decí que la evalúa la persona del local, sin confirmarla vos; si pregunta horario/dirección → contestá con los datos duros (si pregunta por MAÑANA, dá el horario habitual, no "abierto ahora"); si es un reclamo → una disculpa breve y sobria ("lamento el inconveniente") la primera vez, y contenelo sin prometer plazos, reintegros ni reposiciones. (2) "Una persona del local le responde por acá" se dice UNA sola vez en toda la derivación (mirá el historial): si ya lo dijiste, no lo repitas; decí algo nuevo o más corto. NO repitas textualmente ninguna oración que ya hayas dicho. NO digas "queda anotado", "en breve", "ya lo estamos viendo", "se lo traslado" (si ya está registrado, está registrado). Si el tema es de plata y el cliente ya escribió al 11 2521-3601 sin respuesta, no le repitas el número: decile que eso quedó registrado para el local y que no podés darle plazo. No inventes nombres de personas ni datos que no estén acá.`,
+DATOS DUROS que sí podés afirmar: ${datosHoy || 'horarios no disponibles ahora: no los inventes'}. Pagos, transferencias, devoluciones y facturas: administración ya fue avisada por adentro y le responde por este mismo chat. NUNCA le des otro número de teléfono ni le digas que escriba a otro lado.
+${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver a "trasladarlo"; podés decirle al cliente que eso ya está asentado, reformulándolo): ${yaRegistrado}\n` : ''}REGLAS: máximo 3 líneas. (1) Primera línea = respuesta concreta a LO ÚLTIMO que escribió: si pregunta si sos un bot/persona → "Soy el asistente automático de O.D.B."; si propone algo (reposición, descuento, horario de entrega) → reformulá su propuesta con sus palabras ("su propuesta queda clara: las dos botellas hoy sin cargo") y decí que la evalúa la persona del local, sin confirmarla vos; si pregunta horario/dirección → contestá con los datos duros (si pregunta por MAÑANA, dá el horario habitual, no "abierto ahora"); si es un reclamo → una disculpa breve y sobria ("lamento el inconveniente") la primera vez, y contenelo sin prometer plazos, reintegros ni reposiciones. (2) "Una persona del local le responde por acá" se dice UNA sola vez en toda la derivación (mirá el historial): si ya lo dijiste, no lo repitas; decí algo nuevo o más corto. NO repitas textualmente ninguna oración que ya hayas dicho. NO digas "queda anotado", "en breve", "ya lo estamos viendo", "se lo traslado" (si ya está registrado, está registrado). Si el tema es de plata, administración ya fue avisada: decí que le confirman por acá y no des plazos ni números. No inventes nombres de personas ni datos que no estén acá.`,
               messages: [{ role: 'user', content: `HISTORIAL RECIENTE:\n${prev}\n\nÚLTIMO MENSAJE DEL CLIENTE: ${texto}` }],
             });
             respuesta = r.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map((b) => b.text).join('\n').trim() || null;
@@ -395,7 +396,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
       : t);
     const messages: Anthropic.MessageParam[] = [
       ...historial,
-      { role: 'user', content: contenidoDelTurno(`${texto}\n\n[metadatos: telefono del chat = ${telefono}${quien}; ahora es ${ahoraBA} (hora de Buenos Aires); si corresponde saludar, el saludo correcto es "${saludo}". Estado de la charla: ${estado.join(' · ')}${imagenDelTurno ? '. El cliente mandó una FOTO: mirala y respondé sobre lo que se ve. Si es un producto, buscalo en el catálogo por lo que leas en la etiqueta; si es un comprobante de pago, derivá con derivar_pago; si no se entiende, pedí que la saque de nuevo más nítida' : ''}]`) },
+      { role: 'user', content: contenidoDelTurno(`${texto}\n\n[metadatos: telefono del chat = ${telefono}${quien}; ahora es ${ahoraBA} (hora de Buenos Aires); si corresponde saludar, el saludo correcto es "${saludo}". Estado de la charla: ${estado.join(' · ')}${imagenDelTurno ? '. El cliente mandó una FOTO: mirala y respondé sobre lo que se ve. Si es un producto, buscalo en el catálogo por lo que leas en la etiqueta; si es un comprobante de pago, leé el MONTO y llamá derivar_pago con tipo "comprobante_enviado" y ese monto; si no se entiende, pedí que la saque de nuevo más nítida' : ''}]`) },
     ];
 
     // 3) loop del agente: Opus razona, pide herramientas, las ejecutamos y sigue
@@ -478,7 +479,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
             resultados.push({ ...previo, tool_use_id: block.id });
             continue;
           }
-          const res = await this.ejecutarHerramienta(block, telefono, linea, { ultimoBot: ultimoDelBot, ultimosBot: ultimosDelBot, ultimosCliente: ultimosDelCliente, textoCliente: texto, fallos: fallosDelTurno });
+          const res = await this.ejecutarHerramienta(block, telefono, linea, { ultimoBot: ultimoDelBot, ultimosBot: ultimosDelBot, ultimosCliente: ultimosDelCliente, textoCliente: texto, fallos: fallosDelTurno, archivoUrl: dto.archivoUrl });
           vistos.set(clave, res);
           resultados.push(res);
         }
@@ -550,7 +551,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
       if (r3.stop_reason === 'tool_use') {
         messages.push({ role: 'assistant', content: r3.content });
         const res3: Anthropic.ToolResultBlockParam[] = [];
-        for (const b of r3.content) if (b.type === 'tool_use') { herramientasDelTurno.add(b.name); res3.push(await this.ejecutarHerramienta(b, telefono, linea, { ultimoBot: ultimoDelBot, ultimosBot: ultimosDelBot, ultimosCliente: ultimosDelCliente, textoCliente: texto, fallos: fallosDelTurno })); }
+        for (const b of r3.content) if (b.type === 'tool_use') { herramientasDelTurno.add(b.name); res3.push(await this.ejecutarHerramienta(b, telefono, linea, { ultimoBot: ultimoDelBot, ultimosBot: ultimosDelBot, ultimosCliente: ultimosDelCliente, textoCliente: texto, fallos: fallosDelTurno, archivoUrl: dto.archivoUrl })); }
         messages.push({ role: 'user', content: res3 });
         const t4 = await this.regenerar(system, messages, 2048, sumarUso).catch(() => null);
         if (t4) respuesta = t4;
@@ -629,7 +630,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
         if (r5.stop_reason === 'tool_use') {
           messages.push({ role: 'assistant', content: r5.content });
           const res5: Anthropic.ToolResultBlockParam[] = [];
-          for (const b of r5.content) if (b.type === 'tool_use') { herramientasDelTurno.add(b.name); res5.push(await this.ejecutarHerramienta(b, telefono, linea, { ultimoBot: ultimoDelBot, ultimosBot: ultimosDelBot, ultimosCliente: ultimosDelCliente, textoCliente: texto, fallos: fallosDelTurno })); }
+          for (const b of r5.content) if (b.type === 'tool_use') { herramientasDelTurno.add(b.name); res5.push(await this.ejecutarHerramienta(b, telefono, linea, { ultimoBot: ultimoDelBot, ultimosBot: ultimosDelBot, ultimosCliente: ultimosDelCliente, textoCliente: texto, fallos: fallosDelTurno, archivoUrl: dto.archivoUrl })); }
           messages.push({ role: 'user', content: res5 });
           const t6 = await this.regenerar(system, messages, 2048, sumarUso);
           if (t6) respuesta = t6;
@@ -906,6 +907,38 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
       vueltasReintento++;
     }
 
+    // "No puedo confirmar si llega a su zona" / "no estoy seguro" NO se dice:
+    // se pide la dirección (si falta) y se consulta por adentro.
+    const RE_NO_SE_ENVIO = /\b(no\s+(?:le\s+)?(?:puedo|podr[ií]a|pude)\s+(?:confirmar|asegurar|garantizar)|no\s+estoy\s+segur[oa]|no\s+tengo\s+(?:cargad[oa]|forma\s+de\s+saber|el\s+dato)|no\s+s[eé]\s+si)\b[^.!?\n]{0,70}\b(lleg|zona|reparto|env[ií]o|cobertura|demora|costo\s+del\s+env)/i;
+    if (RE_NO_SE_ENVIO.test(respuesta) && vueltasReintento < 3) {
+      this.log.warn(`confesó no saber sobre el envío (${telefono}): regenero`);
+      messages.push({ role: 'assistant', content: respuesta });
+      messages.push({ role: 'user', content: '[nota interna: dijiste que no podés confirmar / no sabés si el reparto llega. Eso no se le dice al cliente. Si todavía no tenés la dirección exacta (calle y número), pedísela en una línea. Si ya la tenés, llamá a consultar_interno con area "reparto", la dirección y la consulta, y decile en una línea que lo consultás con reparto y le confirmás por acá. Sin "no sé", sin "no puedo confirmar", sin plazos.]' });
+      const t16 = await this.regenerar(system, messages, 2048, sumarUso);
+      if (t16) respuesta = t16;
+      vueltasReintento++;
+    }
+
+    // Respuestas acotadas: más de cuatro oraciones sin un total ($) es un
+    // discurso, no una atención. Se regenera en dos o tres líneas.
+    const oraciones = respuesta.split(/(?<=[.!?])\s+/).filter((o) => o.trim().length > 0).length;
+    if (oraciones > 4 && !/\$\s?\d/.test(respuesta) && vueltasReintento < 3) {
+      this.log.warn(`${oraciones} oraciones sin cotización (${telefono}): regenero más corto`);
+      messages.push({ role: 'assistant', content: respuesta });
+      messages.push({ role: 'user', content: '[nota interna: demasiado largo. Reescribilo en dos o tres líneas como máximo: el dato o la respuesta concreta, y a lo sumo una pregunta. Sin explicaciones de lo que podés o no podés hacer.]' });
+      const t17 = await this.regenerar(system, messages, 1024, sumarUso);
+      if (t17) respuesta = t17;
+      vueltasReintento++;
+    }
+
+    // Ningún otro número de teléfono se le da al cliente: los temas internos se
+    // resuelven adentro. Si el modelo igual lo escribe, la oración se reemplaza.
+    const RE_OTRO_TEL = /\b(?:11|15)\s?\d{4}[\s-]?\d{4}\b/;
+    if (RE_OTRO_TEL.test(respuesta)) {
+      respuesta = respuesta.split(/(?<=[.!?])\s+/).map((o) => (RE_OTRO_TEL.test(o) ? 'Administración lo atiende por este mismo chat.' : o)).join(' ');
+      this.log.warn(`el bot dio un teléfono al cliente (${telefono}): reemplazado`);
+    }
+
     // Reclamo: la disculpa no puede depender del criterio del modelo (ronda 10:
     // cero "lamento" en toda una charla con un cliente que nombró Defensa del
     // Consumidor). Si el cliente reclama y es la primera vez en la charla, la
@@ -1039,7 +1072,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     block: Anthropic.ToolUseBlock,
     telefono: string,
     linea: 'pedidos' | 'proveedores' = 'pedidos',
-    ctx: { ultimoBot?: string; ultimosBot?: string[]; ultimosCliente?: string[]; textoCliente?: string; fallos?: Map<string, number> } = {},
+    ctx: { ultimoBot?: string; ultimosBot?: string[]; ultimosCliente?: string[]; textoCliente?: string; fallos?: Map<string, number>; archivoUrl?: string } = {},
   ): Promise<Anthropic.ToolResultBlockParam> {
     const input: any = block.input;
     const skusVistosEnTurno = this.skusDe(telefono);
@@ -1171,9 +1204,24 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
           const motivo = String(input.motivo ?? '').trim();
           if (!motivo) { out = { error: 'derivar_pago necesita el motivo: de qué pago se trata. Si el cliente NO habló de plata, no la llames.' }; break; }
           // un tema de pago ya derivado en esta conversación no se vuelve a derivar: se repite el número
+          const monto = Number(input.monto) || 0;
+          const tipoPago = String(input.tipo ?? 'consulta');
           const { data: yaDeriv } = await this.db.from('alertas_internas').select('id').eq('tipo', 'pago').filter('referencia->>telefono', 'eq', telefono).gte('creada_en', new Date(Date.now() - 10 * 60_000).toISOString()).limit(1).maybeSingle();
-          if (yaDeriv) { out = { derivado: true, numero: '11 2521-3601', aviso: 'Ya estaba derivado. Repetile el número en una línea, sin volver a explicar.' }; break; }
-          out = await this.derivarPago(linea, telefono, motivo);
+          // un comprobante nuevo siempre se registra aunque el tema ya esté avisado;
+          // una consulta repetida no se vuelve a anunciar
+          if (yaDeriv && !(tipoPago === 'comprobante_enviado' && monto > 0)) {
+            out = { derivado: true, aviso: 'Administración ya fue avisada hace un momento de este mismo tema. No lo anuncies de nuevo ni des ningún número: contestá lo nuevo, y si pregunta, decile que administración ya lo tiene y le confirma por acá.' };
+            break;
+          }
+          out = await this.derivarPago(linea, telefono, motivo, { monto, tipo: tipoPago, comprobanteUrl: ctx.archivoUrl });
+          break;
+        }
+        case 'consultar_interno': {
+          const area = String(input.area ?? 'local');
+          const consulta = String(input.consulta ?? '').trim();
+          const direccion = String(input.direccion ?? '').trim();
+          if (!consulta) { out = { error: 'consultar_interno necesita la consulta concreta.' }; break; }
+          out = await this.consultarInterno(linea, telefono, area, consulta, direccion);
           break;
         }
         case 'nota_interna': {
@@ -1697,7 +1745,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
       decirleAlCliente: [
         `El total ${Number(p.total).toLocaleString('es-AR')} es de la mercadería.`,
         esEnvio ? 'El costo del envío no está incluido: lo define el sector de reparto, al que ya le di aviso.' : `Se retira en la sucursal Sant Thomas (Castex 3601) con el código ${p.qr_retiro ?? ''}.`,
-        esEnvio ? 'Se abona al recibir, en efectivo o con tarjeta; si prefiere, le paso un link de Mercado Pago. Las transferencias las coordina el 11 2521-3601.' : 'Se abona al retirar, en efectivo o con tarjeta; si prefiere, le paso un link de Mercado Pago.',
+        esEnvio ? 'Se abona al recibir, en efectivo o con tarjeta; si prefiere, le paso un link de Mercado Pago, o administración le pasa los datos para transferir por acá.' : 'Se abona al retirar, en efectivo o con tarjeta; si prefiere, le paso un link de Mercado Pago.',
       ],
     };
   }
@@ -1790,26 +1838,132 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
   }
 
   // Temas de plata no los toca el bot: se derivan al número que maneja pagos.
-  async derivarPago(linea: 'pedidos' | 'proveedores', telefono: string, motivo: string) {
+  // Un pago por WhatsApp se resuelve ADENTRO: el comprobante queda en "Cobros a
+  // ingresar" para que el dueño lo apruebe (el mismo circuito que la caja), y
+  // administración recibe el aviso por su propio WhatsApp con el comprobante
+  // adjunto. Al cliente no se le da ningún otro número: hoy (2026-08-21) uno
+  // que transfirió $631.717 pidió el alias dos veces y dos veces lo mandamos a
+  // otro teléfono.
+  async derivarPago(
+    linea: 'pedidos' | 'proveedores',
+    telefono: string,
+    motivo: string,
+    extra: { monto?: number; tipo?: string; comprobanteUrl?: string } = {},
+  ) {
     const { data: cfg } = await this.db
       .from('lineas_whatsapp').select('derivar_pagos_a, avisar_proveedores_a').eq('linea', linea).eq('activa', true).limit(1).maybeSingle();
-    const numero = cfg?.derivar_pagos_a ? bonitoTelefono(String(cfg.derivar_pagos_a)) : null;
+    const adminWsp = String(cfg?.derivar_pagos_a ?? '').replace(/\D/g, '');
+    const monto = Number(extra.monto) || 0;
+    const tipo = extra.tipo ?? 'consulta';
+    const esComprobante = tipo === 'comprobante_enviado' && monto > 0;
 
-    // queda alerta también, para que no dependa de que la persona vaya al otro número
+    const ident = await this.identificarCliente(telefono).catch(() => null as any);
+    const nombre = ident?.nombre ?? null;
+
+    // 1) el comprobante entra al circuito de aprobación del dueño
+    let cobranzaId: string | null = null;
+    if (esComprobante && ident?.existe && ident.clienteId) {
+      const { data: cob } = await this.db.from('cobranzas_pendientes').insert({
+        cliente_id: ident.clienteId, monto, medio: 'transferencia',
+        nota: `WhatsApp +${telefono}: ${motivo}${extra.comprobanteUrl ? ` · comprobante: ${extra.comprobanteUrl}` : ''}`,
+        cargada_por: null,
+      }).select('id').single();
+      cobranzaId = cob?.id ?? null;
+    }
+
+    // 2) alerta en el panel
     await this.db.from('alertas_internas').insert({
       para_usuario: cfg?.avisar_proveedores_a ?? null,
       tipo: 'pago',
-      titulo: `Consulta de pago desde ${bonitoTelefono(telefono)}`,
-      detalle: motivo || 'Escribió por un tema de pago',
-      referencia: { linea, telefono },
+      titulo: esComprobante ? `Comprobante de $${Math.round(monto).toLocaleString('es-AR')} de ${nombre ?? bonitoTelefono(telefono)}` : `Consulta de pago de ${nombre ?? bonitoTelefono(telefono)}`,
+      detalle: `${motivo}${extra.comprobanteUrl ? ` · ${extra.comprobanteUrl}` : ''}${cobranzaId ? ' · quedó en Cobros a ingresar' : ''}`,
+      referencia: { linea, telefono, monto: monto || null, cobranzaId, comprobanteUrl: extra.comprobanteUrl ?? null },
     });
 
-    if (!numero) {
-      // sin número configurado, se deriva a una persona como cualquier reclamo
-      await this.derivarAHumano(linea, telefono, `Tema de pago: ${motivo}`, true);
-      return { derivado: true, numero: null, aviso: 'No hay número de pagos configurado: se derivó al equipo. Decile a la persona que lo van a contactar.' };
+    // 3) WhatsApp interno a administración, desde la línea del bot
+    let avisado = false;
+    if (adminWsp.length >= 10) {
+      const lineas = [
+        esComprobante ? `💳 Comprobante recibido por WhatsApp` : tipo === 'quiere_pagar' ? `💳 Cliente quiere transferir: pasale los datos` : tipo === 'proveedor_factura' ? `🧾 Proveedor por una factura` : `💳 Consulta de pago`,
+        `${nombre ? nombre + ' · ' : ''}+${telefono}`,
+        monto > 0 ? `Monto: $${Math.round(monto).toLocaleString('es-AR')}` : null,
+        motivo,
+        extra.comprobanteUrl ? `Comprobante: ${extra.comprobanteUrl}` : null,
+        cobranzaId ? `Quedó en Clientes → Cobros a ingresar para aprobar.` : null,
+        `Respondele al cliente por RESPONDE (la charla está en la línea ${bonitoTelefono(telefono) ? 'de pedidos' : ''}).`,
+      ].filter(Boolean).join('\n');
+      try {
+        const env = await this.enviarPorWhatsapp({ to: adminWsp, text: lineas, kind: 'aviso-interno' } as any);
+        avisado = !!(env as any)?.enviado;
+      } catch (e: any) {
+        this.log.warn(`no pude avisar a administración por WhatsApp: ${e?.message ?? e}`);
+      }
     }
-    return { derivado: true, numero, aviso: `Ya quedó registrado el aviso interno para pagos con este reclamo (alerta creada). Decile a la persona DOS cosas: que su reclamo ya quedó asentado para el área de pagos, y que ese tema lo atiende directamente el ${numero} por WhatsApp. Si ya dijo que escribió ahí y no le contestan, no le repitas el número: decile que el aviso interno ya está hecho y que no podés darle plazo.` };
+    if (!avisado && adminWsp.length < 10) {
+      await this.derivarAHumano(linea, telefono, `Tema de pago: ${motivo}`, true);
+    }
+
+    const queDecir = esComprobante
+      ? `Decile al cliente UNA cosa, en una línea: que recibiste su comprobante por $${Math.round(monto).toLocaleString('es-AR')}, que administración lo registra y le confirma por acá. Nada más.`
+      : tipo === 'quiere_pagar'
+        ? 'Decile al cliente que administración le pasa los datos para transferir por este mismo chat en un rato. NO inventes alias ni CBU.'
+        : 'Decile al cliente que administración ya tiene su consulta y le responde por acá.';
+    return {
+      derivado: true,
+      cobranzaRegistrada: !!cobranzaId,
+      aviso: `${queDecir} PROHIBIDO darle otro número de teléfono o decirle que escriba a otro lado: administración ya fue avisada por adentro${avisado ? ' (WhatsApp interno enviado)' : ''}.`,
+    };
+  }
+
+  // Lo que el bot no sabe lo pregunta ADENTRO, no se lo confiesa al cliente.
+  // "¿Llegan a Terra 812?" → el bot toma la dirección, le manda la consulta a
+  // reparto por WhatsApp interno (con alerta en el panel) y le dice al cliente
+  // "lo consulto con reparto y le confirmo por acá". Hoy (2026-08-21) dijo "no
+  // puedo confirmar si llega a su zona" y el cliente canceló.
+  async consultarInterno(linea: 'pedidos' | 'proveedores', telefono: string, area: string, consulta: string, direccion = '') {
+    const { data: cfg } = await this.db
+      .from('lineas_whatsapp').select('derivar_pagos_a, avisar_proveedores_a, whatsapp_reparto, whatsapp_compras').eq('linea', linea).eq('activa', true).limit(1).maybeSingle();
+    const numeroDe: Record<string, string> = {
+      reparto: String((cfg as any)?.whatsapp_reparto ?? cfg?.derivar_pagos_a ?? ''),
+      compras: String((cfg as any)?.whatsapp_compras ?? cfg?.derivar_pagos_a ?? ''),
+      administracion: String(cfg?.derivar_pagos_a ?? ''),
+      local: String(cfg?.derivar_pagos_a ?? ''),
+    };
+    const destino = (numeroDe[area] ?? numeroDe.local).replace(/\D/g, '');
+    const ident = await this.identificarCliente(telefono).catch(() => null as any);
+    const nombre = ident?.nombre ?? null;
+    const etiqueta = area === 'reparto' ? '🚚 Reparto' : area === 'compras' ? '🛒 Compras' : area === 'administracion' ? '💳 Administración' : '🏪 Local';
+
+    await this.db.from('alertas_internas').insert({
+      para_usuario: cfg?.avisar_proveedores_a ?? null,
+      tipo: 'consulta',
+      titulo: `${etiqueta}: ${nombre ?? bonitoTelefono(telefono)}`,
+      detalle: `${consulta}${direccion ? ` · dirección: ${direccion}` : ''}`,
+      referencia: { linea, telefono, area, direccion: direccion || null },
+    }).then(() => null, () => null);
+    await this.db.from('bot_notas_equipo').insert({ linea, telefono, nota: `[${area}] ${consulta}${direccion ? ` · ${direccion}` : ''}` }).then(() => null, () => null);
+
+    let avisado = false;
+    if (destino.length >= 10) {
+      const texto = [
+        `${etiqueta} · consulta desde WhatsApp`,
+        `${nombre ? nombre + ' · ' : ''}+${telefono}`,
+        direccion ? `Dirección: ${direccion}` : null,
+        consulta,
+        `Respondele por RESPONDE; el bot le dijo que le confirman por acá.`,
+      ].filter(Boolean).join('\n');
+      try {
+        const env = await this.enviarPorWhatsapp({ to: destino, text: texto, kind: 'aviso-interno' } as any);
+        avisado = !!(env as any)?.enviado;
+      } catch (e: any) {
+        this.log.warn(`no pude avisar a ${area} por WhatsApp: ${e?.message ?? e}`);
+      }
+    }
+    return {
+      consultado: true,
+      area,
+      aviso: `Consulta enviada a ${area} por adentro${avisado ? ' (WhatsApp interno enviado)' : ''}. Decile al cliente en UNA línea que lo consultás con ${area === 'reparto' ? 'reparto' : area} y que le confirmás por acá. No digas "no sé", "no puedo confirmar" ni "no estoy seguro", y no des plazos.`,
+    };
   }
 
   // ---- Derivación a una persona (mismo circuito que el CRM de Car Cash) ----
@@ -2042,6 +2196,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
           numeroLinea, telefono: identidad,
           mensaje: epigrafe,
           archivoBase64: media.base64, mimeType: media.mime,
+          archivoUrl: enlacePublico || undefined,
           mensajeId: p.id ? String(p.id) : undefined,
         });
         if (!r?.respuesta) {
