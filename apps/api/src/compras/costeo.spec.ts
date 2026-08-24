@@ -90,7 +90,7 @@ describe('costeo de compras — los errores que se hacen a mano', () => {
   it('avisa cuando el costo nuevo deja el precio vigente por debajo del costo', () => {
     const r = impactoEnPrecio({ costoNuevo: 1200, costoAnterior: 800, precioVigente: 1100, margenPct: 35 });
     expect(r.vendeBajoCosto).toBe(true);
-    expect(r.precioSugerido).toBe(1620); // 1200 * 1.35
+    expect(r.precioSugerido).toBe(1600); // 1200 × 1,35 = 1.620 → redondeo de góndola 1.600
     expect(r.variacionCostoPct).toBe(50);
     expect(r.margenSiNoSeTocaPct).toBeLessThan(0);
   });

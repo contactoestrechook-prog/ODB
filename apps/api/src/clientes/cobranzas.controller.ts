@@ -71,14 +71,20 @@ export class CobranzasController {
     return { id: data.id, estado: 'pendiente' };
   }
 
-  // bandeja del dueño (y visible para quien cargó, para saber si ya se aplicó)
+  // Bandeja del dueño. Quien carga un cobro ve SOLO los suyos, para saber si
+  // ya se aplicaron: la cola completa de cobros pendientes de todo el local es
+  // información de la casa, no de una caja.
   @Roles('cajero', 'administrativo', 'gerente', 'dueno')
   @Get()
-  async listar(@Query('estado') estado?: string) {
-    const { data, error } = await this.db
+  async listar(@Query('estado') estado: string | undefined, @Req() req: any) {
+    const rol = req.usuario?.rol;
+    const soloLosMios = rol !== 'dueno' && rol !== 'gerente';
+    let q = this.db
       .from('cobranzas_pendientes')
       .select('id, monto, medio, nota, estado, cargada_en, resuelta_en, respuesta, comprobante_url, cliente:clientes(id, nombre, razon_social, saldo_cta_cte), cargador:usuarios!cobranzas_pendientes_cargada_por_fkey(nombre), aprobador:usuarios!cobranzas_pendientes_resuelta_por_fkey(nombre)')
-      .eq('estado', estado || 'pendiente')
+      .eq('estado', estado || 'pendiente');
+    if (soloLosMios) q = q.eq('cargada_por', req.usuario?.sub ?? '00000000-0000-0000-0000-000000000000');
+    const { data, error } = await q
       .order('cargada_en', { ascending: false })
       .limit(100);
     if (error) throw new BadRequestException(error.message);
