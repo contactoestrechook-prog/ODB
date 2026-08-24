@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { conectarImpresora, hayBluetooth, imprimirEtiqueta, impresoraConectada } from '../lib/impresora-bt';
 
 // Verificador de precios para el salón. Pensado para un equipo de mano con
 // lector: se escanea y el precio aparece en letra grande, legible a un brazo de
@@ -37,6 +38,11 @@ export function VerificadorPrecios({ sucursales }: { sucursales: { id: string; n
   const [buscando, setBuscando] = useState(false);
   const buffer = useRef('');
   const reloj = useRef<any>(null);
+  // impresora de etiquetas por Bluetooth (Urovo K419 y compatibles)
+  const [impresora, setImpresora] = useState<string | null>(null);
+  const [imprimiendo, setImprimiendo] = useState(false);
+  const [copias, setCopias] = useState(1);
+  const [errorImp, setErrorImp] = useState('');
 
   const buscar = useCallback(async (q: string) => {
     const t = q.trim();
@@ -85,7 +91,38 @@ export function VerificadorPrecios({ sucursales }: { sucursales: { id: string; n
     return () => { window.removeEventListener('keydown', alTeclear); clearTimeout(reloj.current); };
   }, [buscar]);
 
-  const limpiar = () => { setProducto(null); setOpciones([]); setTexto(''); setAviso(''); };
+  const limpiar = () => { setProducto(null); setOpciones([]); setTexto(''); setAviso(''); setErrorImp(''); };
+
+  const vincularImpresora = async () => {
+    setErrorImp('');
+    try { setImpresora(await conectarImpresora()); }
+    catch (e: any) { setErrorImp(e?.message ?? 'No pude conectar la impresora'); }
+  };
+
+  // Imprime en la térmica si hay uso de Bluetooth; si no (PC), usa la
+  // impresión del navegador, que es la que ya funcionaba.
+  const imprimir = async () => {
+    if (!producto) return;
+    if (!hayBluetooth()) { window.print(); return; }
+    setImprimiendo(true);
+    setErrorImp('');
+    try {
+      await imprimirEtiqueta({
+        nombre: producto.nombre,
+        marca: producto.marca,
+        precio: producto.precio,
+        promo: producto.descuento,
+        codigo: producto.codigosBarras?.[0] ?? null,
+        sku: producto.sku,
+        copias,
+      });
+      setImpresora(impresoraConectada());
+    } catch (e: any) {
+      setErrorImp(e?.message ?? 'No pude imprimir');
+    } finally {
+      setImprimiendo(false);
+    }
+  };
   const hoy = new Date().toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
 
   return (
@@ -115,6 +152,17 @@ export function VerificadorPrecios({ sucursales }: { sucursales: { id: string; n
           {buscando ? '…' : 'Buscar'}
         </button>
       </form>
+
+      {hayBluetooth() && (
+        <div className="mt-2 flex items-center justify-between text-xs print:hidden">
+          <span className={impresora ? 'text-emerald-700' : 'text-black/40'}>
+            {impresora ? `Impresora: ${impresora}` : 'Impresora de etiquetas sin conectar'}
+          </span>
+          <button onClick={vincularImpresora} className="text-[#B82D25] underline">
+            {impresora ? 'cambiar' : 'conectar impresora'}
+          </button>
+        </div>
+      )}
 
       {aviso && <p className="mt-4 rounded-xl bg-white p-4 text-sm text-[#B82D25] print:hidden">{aviso}</p>}
 
@@ -176,14 +224,25 @@ export function VerificadorPrecios({ sucursales }: { sucursales: { id: string; n
               <p className="mt-2 text-[11px] font-mono text-black/35">{producto.codigosBarras.join(' · ')}</p>
             )}
 
-            <div className="mt-4 flex gap-2">
-              <button onClick={() => window.print()} className="flex-1 rounded-full bg-[#B82D25] px-5 py-3 text-sm font-medium text-white">
-                Imprimir etiqueta
+            <div className="mt-4 flex items-center gap-2">
+              <button
+                onClick={imprimir}
+                disabled={imprimiendo}
+                className="flex-1 rounded-full bg-[#B82D25] px-5 py-3 text-sm font-medium text-white disabled:opacity-50"
+              >
+                {imprimiendo ? 'Imprimiendo…' : 'Imprimir etiqueta'}
               </button>
+              {/* cuántas etiquetas: reponer una góndola son varias del mismo */}
+              <div className="flex items-center rounded-full border border-black/15">
+                <button onClick={() => setCopias((c) => Math.max(1, c - 1))} className="px-3 py-3 text-black/50">−</button>
+                <span className="w-6 text-center text-sm tabular-nums text-black">{copias}</span>
+                <button onClick={() => setCopias((c) => Math.min(20, c + 1))} className="px-3 py-3 text-black/50">+</button>
+              </div>
               <button onClick={limpiar} className="rounded-full border border-black/15 px-5 py-3 text-sm text-black/70">
                 Otro
               </button>
             </div>
+            {errorImp && <p className="mt-2 text-xs text-[#B82D25]">{errorImp}</p>}
           </div>
 
           {/* Etiqueta: lo único que se ve al imprimir */}
