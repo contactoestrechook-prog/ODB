@@ -1,5 +1,6 @@
 import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
+import { Cron } from '@nestjs/schedule';
 import { SUPABASE } from '../supabase.provider';
 import { cuitArca, decodificarXml, emisorConfigurado, entornoArca, obtenerTicket, postXmlArca } from './arca-wsaa';
 
@@ -27,6 +28,28 @@ const ALIC_ID: Record<string, number> = { '0': 3, '2.5': 9, '5': 8, '10.5': 4, '
 export class ArcaService {
   private readonly log = new Logger(ArcaService.name);
   constructor(@Inject(SUPABASE) private readonly db: SupabaseClient) {}
+
+  // Emisión automática de los comprobantes que dejó la caja. La cola se llena
+  // sola con cada venta, pero emitir era MANUAL: si nadie entra a ARCA y
+  // aprieta "emitir", las ventas quedan sin comprobante fiscal. Esto lo hace
+  // solo cada 10 minutos.
+  //
+  // Viene APAGADO a propósito: emitir ante ARCA es un acto fiscal que no se
+  // automatiza sin que el dueño lo decida. Se prende con
+  // ARCA_EMISION_AUTOMATICA=1 en las variables del servicio.
+  @Cron('0 */10 * * * *')
+  async emitirAutomatico() {
+    if (process.env.ARCA_EMISION_AUTOMATICA !== '1') return;
+    if (!this.estaConfigurado()) return;
+    try {
+      const { data } = await this.db.from('comprobantes_arca').select('id').eq('estado', 'pendiente').limit(1);
+      if (!data?.length) return;
+      const r: any = await this.emitirPendientes();
+      this.log.log(`emisión automática: ${JSON.stringify(r).slice(0, 200)}`);
+    } catch (e: any) {
+      this.log.error(`emisión automática falló: ${e?.message ?? e}`);
+    }
+  }
 
   async pendientes() {
     const { data, error } = await this.db
