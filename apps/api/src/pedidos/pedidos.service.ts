@@ -494,14 +494,63 @@ export class PedidosService {
   }
 
   // Perfil mínimo para personalizar la home de la app (solo el segmento)
+  // Perfil del cliente para la app: además de nombre y puntos, LO QUE CONSUME.
+  // Con eso la app puede mostrarle destacado lo que lleva siempre, en vez de
+  // una portada igual para todos. El perfil recién aparece con 3 compras: con
+  // una sola visita, "lo que consume habitualmente" es una invención.
   async perfil(dni: string) {
     const { data } = await this.db
       .from('clientes')
-      .select('nombre, tipo, puntos')
+      .select('id, nombre, tipo, puntos')
       .eq('dni', dni.trim())
       .maybeSingle();
     if (!data) return { existe: false, tipo: 'nuevo' };
-    return { existe: true, nombre: data.nombre, tipo: data.tipo, puntos: data.puntos };
+
+    const { data: perfil } = await this.db.rpc('perfil_compra', { p_cliente: data.id });
+    const p: any = perfil ?? {};
+    const listo = p?.listo === true;
+
+    // los habituales se devuelven con precio y stock actual: la app los muestra
+    // como "lo de siempre" y se pueden agregar al carrito de una
+    let habituales: any[] = [];
+    if (listo && Array.isArray(p.habituales) && p.habituales.length) {
+      const skus = p.habituales.map((h: any) => h.sku);
+      const { data: prods } = await this.db
+        .from('productos')
+        .select('id, sku, nombre, activo')
+        .in('sku', skus)
+        .eq('activo', true);
+      const ids = (prods ?? []).map((x: any) => x.id);
+      const { data: precios } = ids.length ? await this.db.rpc('catalogo_precios', { p_ids: ids }) : { data: [] as any[] };
+      const precioDe = new Map((precios ?? []).map((r: any) => [r.producto_id ?? r.id, r]));
+      habituales = (prods ?? []).map((x: any) => {
+        const h = p.habituales.find((y: any) => y.sku === x.sku);
+        const pr: any = precioDe.get(x.id);
+        return {
+          sku: x.sku,
+          nombre: x.nombre,
+          veces: h?.veces ?? 0,
+          precio: pr?.precio_final != null ? Math.round(Number(pr.precio_final)) : null,
+        };
+      }).sort((a, b) => b.veces - a.veces);
+    }
+
+    return {
+      existe: true,
+      nombre: data.nombre,
+      tipo: data.tipo,
+      puntos: data.puntos,
+      // el perfil solo viaja cuando tiene sustento
+      perfil: listo
+        ? {
+            compras: p.compras,
+            ticketPromedio: p.ticketPromedio,
+            cadaCuantosDias: p.cadaCuantosDias,
+            rubros: p.rubros ?? [],
+          }
+        : null,
+      habituales,
+    };
   }
 
   async obtener(pedidoId: string) {

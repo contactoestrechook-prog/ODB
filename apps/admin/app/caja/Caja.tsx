@@ -30,6 +30,14 @@ type Cliente = {
   ticketPromedio?: number;
   // cuenta corriente: saldo > 0 = el cliente DEBE
   ctaCte?: { habilitada: boolean; saldo: number; limite: number; disponible: number | null };
+  // perfil de compra: aparece recién con 3 compras
+  perfil?: {
+    compras: number; gastado: number; ticketPromedio: number;
+    cadaCuantosDias: number | null; diasDesdeUltima: number | null;
+    rubros: { rubro: string; pct: number }[];
+    habituales: { sku: string; nombre: string; veces: number }[];
+  } | null;
+  faltanParaPerfil?: number;
 };
 
 type Pago = { medio: string; monto: number; terminal?: string };
@@ -146,6 +154,7 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
   const [resultados, setResultados] = useState<Producto[]>([]);
   const [carrito, setCarrito] = useState<Renglon[]>([]);
   const [dni, setDni] = useState('');
+  const [sinDni, setSinDni] = useState(false); // el cliente no quiso darlo: no se vuelve a preguntar en esta venta
   // alta del WhatsApp del cliente: sin teléfono y sin permiso no hay a quién
   // difundir, y este es el único momento en que la persona está enfrente
   const [waTel, setWaTel] = useState('');
@@ -369,6 +378,22 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
     ? receptorCuit.trim().length >= 8
     : (!!cliente?.existe || dni.trim().length >= 7);
   const faltaCliente = requiereCliente && !clienteIdentificado;
+
+  // Suma un habitual del perfil con un toque. Se busca el producto por su SKU
+  // para llevarlo con el precio y el stock del momento: el perfil dice QUÉ
+  // lleva, nunca a qué precio lo llevó la vez pasada.
+  async function agregarPorSku(sku: string) {
+    try {
+      const res = await fetch(`/api/pos-buscar?q=${encodeURIComponent(sku)}&sucursal=${encodeURIComponent(sucursalId)}`);
+      if (!res.ok) return;
+      const items = (await res.json()).items ?? [];
+      const p = items.find((x: any) => x.sku === sku) ?? items[0];
+      if (p) agregar(p);
+      else setEstado({ tipo: 'error', texto: 'Ese producto ya no está disponible' });
+    } catch {
+      setEstado({ tipo: 'error', texto: 'No pude agregarlo, buscalo a mano' });
+    }
+  }
 
   function agregar(p: Producto) {
     if (p.precio == null) {
@@ -647,6 +672,7 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
     setCliente(null);
     setClientes([]);
     setDni('');
+    setSinDni(false); // al cliente siguiente se le pregunta de nuevo
     setReceptorCuit('');
     setReceptorNombre('');
     setPagaCon('');
@@ -1212,6 +1238,45 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
           </p>
         )}
 
+        {/* PERFIL DE COMPRA. Con 3 compras el sistema ya sabe qué lleva este
+            cliente y cada cuánto viene: el cajero lo usa para atenderlo por su
+            nombre ("¿le pongo el de siempre?"). Antes de la tercera, se avisa
+            cuántas faltan en vez de inventar un perfil con una sola visita. */}
+        {cliente?.existe && cliente.perfil && (
+          <div className="mt-1.5 max-w-2xl rounded-xl bg-white/95 border border-black/10 px-3 py-2">
+            <p className="text-[11px] uppercase tracking-wide text-black/40">
+              Suele llevar
+              {cliente.perfil.cadaCuantosDias ? ` · viene cada ${cliente.perfil.cadaCuantosDias} días` : ''}
+              {cliente.perfil.diasDesdeUltima != null ? ` · última hace ${cliente.perfil.diasDesdeUltima}` : ''}
+            </p>
+            <div className="mt-1 flex flex-wrap gap-1.5">
+              {cliente.perfil.habituales.slice(0, 5).map((h) => (
+                <button
+                  key={h.sku}
+                  onClick={() => agregarPorSku(h.sku)}
+                  title={`Lo llevó en ${h.veces} compras · tocá para agregarlo`}
+                  className="rounded-full bg-[#F0EBE2] px-2.5 py-1 text-xs text-black hover:bg-[#B82D25] hover:text-white"
+                >
+                  {h.nombre}
+                </button>
+              ))}
+              {!cliente.perfil.habituales.length && <span className="text-xs text-black/40">todavía sin un producto que repita</span>}
+            </div>
+            {cliente.perfil.rubros?.length > 0 && (
+              <p className="mt-1 text-[11px] text-black/45">
+                {cliente.perfil.rubros.slice(0, 3).map((r) => `${r.rubro} ${r.pct}%`).join(' · ')}
+              </p>
+            )}
+          </div>
+        )}
+        {cliente?.existe && !cliente.perfil && (cliente.faltanParaPerfil ?? 0) > 0 && (
+          <p className="mt-1.5 text-xs text-black/45">
+            {cliente.faltanParaPerfil === 1
+              ? 'Con una compra más, el sistema arma su perfil.'
+              : `Faltan ${cliente.faltanParaPerfil} compras para armar su perfil.`}
+          </p>
+        )}
+
         {/* CUENTA CORRIENTE. El cajero tiene que poder decirle al cliente, sin
             salir de la venta: "debías tanto, con lo de hoy es tanto". Antes ese
             dato no aparecía en ningún lado de la caja y había que ir a buscarlo
@@ -1526,6 +1591,31 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
             <p className="rounded-xl bg-[#B82D25]/10 px-3 py-2 text-sm text-[#932A1F] text-center">
               {comprobante === 'A' ? 'Factura A: cargá el CUIT del receptor' : 'Cuenta corriente: identificá al cliente (F3)'}
             </p>
+          )}
+
+          {/* Pedir el DNI ANTES de cobrar. Sin DNI la venta no queda asociada a
+              nadie y el cliente nunca junta las 3 compras que arman su perfil:
+              es lo que convierte la caja en historia del cliente. No es
+              obligatorio —hay quien no lo quiere dar— pero hay que preguntarlo,
+              así que el pedido está a la vista y se salta con un toque. */}
+          {!faltaCliente && carrito.length > 0 && !cliente && dni.trim().length < 7 && !sinDni && (
+            <div className="rounded-xl bg-black px-3 py-2.5 text-center text-white">
+              <p className="text-sm font-medium">¿Me decís tu DNI?</p>
+              <p className="text-[11px] text-white/60 mt-0.5">
+                Con 3 compras el sistema le arma su perfil y le recomienda lo que lleva siempre.
+              </p>
+              <div className="mt-2 flex gap-2 justify-center">
+                <button
+                  onClick={() => dniRef.current?.focus()}
+                  className="rounded-full bg-white px-4 py-1.5 text-xs font-medium text-black"
+                >
+                  Cargar DNI (F3)
+                </button>
+                <button onClick={() => setSinDni(true)} className="text-xs text-white/60 underline">
+                  No quiere darlo
+                </button>
+              </div>
+            </div>
           )}
 
           {/* cobrar */}

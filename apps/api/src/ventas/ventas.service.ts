@@ -395,6 +395,12 @@ export class VentasService {
       .eq('estado', 'completada');
     const compras = ventas?.length ?? 0;
     const gastado = (ventas ?? []).reduce((s, v) => s + Number(v.total), 0);
+    // Perfil de compra: con 3 compras o más, el cajero ve qué suele llevar y
+    // cada cuánto viene. Sirve para atender ("¿le pongo el Speed de siempre?")
+    // y para que el sistema catalogue solo al cliente por lo que consume.
+    const { data: perfilRaw } = await this.db.rpc('perfil_compra', { p_cliente: cliente.id });
+    const perfil: any = perfilRaw ?? {};
+
     // Cuenta corriente: el cajero tiene que poder decirle al cliente cuánto
     // debía ANTES de esta venta. Saldo positivo = debe.
     const saldo = Number((cliente as any).saldo_cta_cte ?? 0);
@@ -412,6 +418,19 @@ export class VentasService {
       },
       compras,
       ticketPromedio: compras ? Math.round(gastado / compras) : 0,
+      perfil: perfil?.listo === true
+        ? {
+            compras: perfil.compras,
+            gastado: perfil.gastado,
+            ticketPromedio: perfil.ticketPromedio,
+            cadaCuantosDias: perfil.cadaCuantosDias,
+            diasDesdeUltima: perfil.diasDesdeUltima,
+            rubros: perfil.rubros ?? [],
+            habituales: perfil.habituales ?? [],
+          }
+        : null,
+      // cuántas compras faltan para que el perfil aparezca
+      faltanParaPerfil: perfil?.listo === true ? 0 : Math.max(0, 3 - Number(perfil?.compras ?? 0)),
     };
   }
 
