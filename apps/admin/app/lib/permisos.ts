@@ -23,12 +23,40 @@ const RUTAS_POR_ROL: Record<string, string[]> = {
     '/cambiar-clave',
   ],
   repartidor: ['/repartidor', '/cambiar-clave'],
+  // El menú tiene que ofrecer solo lo que el rol puede ABRIR de verdad. Antes,
+  // un cajero veía Contable, Libro IVA, Estadísticas y Mercado Pago en el menú
+  // y al entrar recibía "No pude consultar la API": el API ya lo bloqueaba
+  // (403), así que la única consecuencia era una pantalla rota. Esto alinea el
+  // menú con lo que el API permite; no quita ningún permiso que hoy tuvieran.
+  cajero: [
+    '/caja', // punto de venta
+    '/ventas', // ventas del día
+    '/pedidos', // pedidos para preparar y entregar
+    '/deposito', // cola de preparación
+    '/salida', // control de salida de Comprá Fácil
+    '/precios', // verificador de precios
+    '/productos', // catálogo (consulta)
+    '/cheques', // cheques que recibe en el mostrador
+    '/cambiar-clave',
+  ],
+  deposito: [
+    '/deposito', // cola de preparación
+    '/pedidos',
+    '/recepcion', // recepción de mercadería con lector
+    '/stock',
+    '/conteo',
+    '/precios',
+    '/productos',
+    '/cambiar-clave',
+  ],
 };
 
 // A dónde entra cada rol al loguearse (el resto va a /inicio)
 const LANDING_POR_ROL: Record<string, string> = {
   administrativo: '/facturas-compra',
   repartidor: '/repartidor',
+  cajero: '/caja',
+  deposito: '/deposito',
 };
 
 export function rutasPermitidas(rol?: string | null): string[] | null {
