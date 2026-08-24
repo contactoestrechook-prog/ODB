@@ -757,8 +757,12 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     const hablaDeEnvio = /\b(env[ií]o|domicilio|se lo mando|se lo llevamos|reparto)\b/i.test(respuesta) || /\b(env[ií]o|domicilio)\b/i.test(texto);
     const dioTotal = /total[^.\n]{0,40}\$?\s?\d{1,3}[.\s]?\d{3}/i.test(respuesta);
     if (dioTotal && hablaDeEnvio && !/(envío|envio)[^.\n]{0,40}(aparte|no est[aá] incluid|no incluye)|mercader[ií]a/i.test(respuesta)) {
-      respuesta = respuesta.replace(/(total[^.\n]{0,40}\$?\s?\d{1,3}[.\s]?\d{3}[^.\n]{0,20})/i, '$1 (es el total de la mercadería; el envío va aparte)');
-      this.log.log(`aclaración de envío agregada al total para ${telefono}`);
+      // La aclaración va al FINAL, no intercalada: el "[^.\n]{0,20}" del final
+      // cortaba en cualquier lado y salió publicado "Necesito que me def (es el
+      // total de la mercadería; el envío va aparte)ina estos puntos". Un
+      // paréntesis en medio de una palabra es lo más feo que puede mandar.
+      respuesta = `${respuesta.trimEnd()}\n\nEs el total de la mercadería; el envío va aparte.`;
+      this.log.log(`aclaración de envío agregada al final para ${telefono}`);
     }
 
     // No empujar la compra cuando acabás de decir que no sabés algo (ronda 10:
@@ -996,6 +1000,42 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     }
 
     if (respuestaFija.texto) respuesta = respuestaFija.texto;
+
+    // ---- PROLIJIDAD DEL LISTADO ----
+    // En WhatsApp un listado escrito de corrido es ilegible: "Ya cotizado: - 4 ×
+    // Agua 2L: 4 × $2.300 c/u = $9.200 - 1/2 kg Queso..." es un bloque de texto.
+    // Cada renglón tiene que ir en SU línea, con viñeta uniforme y el total en
+    // negrita. Esto no se le pide al modelo: se normaliza acá, siempre igual.
+    const prolijo = (t: string): string => {
+      let r = t;
+      // 1. cada guion/viñeta de listado arranca renglón propio
+      r = r.replace(/[ \t]+[-–—•]\s+(?=[A-ZÁÉÍÓÚÑ0-9¿])/g, '\n• ');
+      r = r.replace(/^[ \t]*[-–—]\s+/gm, '• ');
+      // 2. "Ya cotizado:" / "Le confirmo lo que quedó:" cortan antes del listado
+      r = r.replace(/([:：])[ \t]*(?=•)/g, '$1\n');
+      // 3. una línea en blanco antes del listado, ninguna adentro
+      r = r.replace(/\n{3,}/g, '\n\n');
+      r = r.replace(/(•[^\n]*)\n\n(?=•)/g, '$1\n');
+      // 4. lo que sigue a un importe y arranca en mayúscula o pregunta NO es
+      // parte del renglón: "$20.900 Subtotal…" y "$4.700 ¿Busca…" quedaban
+      // pegados al último ítem del listado
+      r = r.replace(/(\$[\d.]+)[ \t]+(?=[¿A-ZÁÉÍÓÚÑ])/g, '$1\n\n');
+      // 5. el TOTAL en negrita de WhatsApp y en su propia línea
+      r = r.replace(/(?:^|\n)[ \t]*(?:•\s*)?(total[^:\n]{0,30}:?)[ \t]*(\$\s?[\d.]+)/gi,
+        (_m, etiqueta: string, monto: string) => `\n\n*${etiqueta.trim().replace(/:$/, '')}: ${monto.replace(/\s/g, '')}*`);
+      // 6. separadores de miles uniformes ($9200 → $9.200) y sin espacio tras $
+      r = r.replace(/\$\s+(\d)/g, '$$$1');
+      r = r.replace(/\$(\d{4,})\b/g, (_m, n: string) => '$' + Number(n).toLocaleString('es-AR'));
+      // 7. el signo × uniforme (x, X, * entre números)
+      r = r.replace(/(\d)\s*[xX*]\s*(?=\$|\d)/g, '$1 × ');
+      return r.replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n').trim();
+    };
+    // solo cuando hay listado o importes: no toca una respuesta corta
+    if (/•|^\s*[-–—]\s/m.test(respuesta) || (respuesta.match(/\$/g) ?? []).length >= 2) {
+      const antes = respuesta;
+      respuesta = prolijo(respuesta);
+      if (antes !== respuesta) this.log.log(`listado formateado para ${telefono}`);
+    }
 
     // 4) persistir memoria (solo los turnos de texto, recortada) + tokens acumulados
     const nuevoHistorial = [
