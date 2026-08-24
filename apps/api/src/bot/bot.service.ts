@@ -34,6 +34,7 @@ function bonitoTelefono(t: string): string {
   if (d.length === 13 && d.startsWith('549')) return `${d.slice(3, 5)} ${d.slice(5, 9)}-${d.slice(9)}`;
   return d ? `+${d}` : '';
 }
+import { cartelPrecios } from '../comun/cartel-precios';
 
 @Injectable()
 export class BotService {
@@ -2439,7 +2440,15 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     // (entre 2 y 8 segundos) antes de despachar. Un bot instantáneo se siente
     // como bot; uno que "escribe" se siente atendido.
     await this.simularEscritura(desde, r.respuesta);
-    const envio = await this.enviarPorWhatsapp({ to: desde, text: r.respuesta, referencia: `waha/${identidad}` });
+    // listado largo → cartel con pie de foto; si algo falla, va el texto igual
+    const cartel = await this.cartelDeListado(r.respuesta);
+    let envio = cartel
+      ? await this.enviarPorWhatsapp({ to: desde, imagenUrl: cartel.imagenUrl, text: cartel.pie, referencia: `waha/${identidad}` })
+      : { enviado: false, motivo: 'sin cartel' } as any;
+    if (!envio.enviado) {
+      if (cartel) this.log.warn(`el cartel no se pudo enviar (${envio.motivo}): va como texto`);
+      envio = await this.enviarPorWhatsapp({ to: desde, text: r.respuesta, referencia: `waha/${identidad}` });
+    }
     // el turno completo queda en RESPONDE (best-effort, no bloquea la respuesta)
     this.respondeRegistrar(waId, p.notifyName ?? null, texto, r.respuesta, p.id ? String(p.id) : undefined).catch(() => null);
     return { contestado: envio.enviado, ...envio };
@@ -2447,6 +2456,59 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
 
   // "escribiendo…" en WhatsApp + pausa proporcional al texto (2 a 8 s). Si WAHA
   // no está configurado (local), solo espera. Nunca falla: es cosmético.
+  // Un listado de precios se manda como CARTEL, no como párrafo: los
+  // proveedores les mandan flyers y así es como la gente mira precios en
+  // WhatsApp. El texto del listado se saca del pie de foto (ya está en la
+  // imagen) y quedan la introducción, el total y la pregunta.
+  //
+  // Se arma a partir del texto YA formateado por prolijo(), que garantiza una
+  // línea por producto: por eso volver a leerlo es confiable y no adivina nada.
+  private async cartelDeListado(respuesta: string): Promise<{ imagenUrl: string; pie: string } | null> {
+    const lineas = respuesta.split('\n');
+    const items = lineas
+      .map((l, i) => ({ l: l.trim(), i }))
+      .filter((x) => x.l.startsWith('•') && /\$\s?[\d.]+/.test(x.l));
+    if (items.length < 4) return null; // con pocos, el texto se lee mejor
+
+    const renglones = items.map((x) => {
+      const sinVineta = x.l.replace(/^•\s*/, '');
+      const m = sinVineta.match(/^(.*?)[\s—:-]*(\$\s?[\d.]+(?:\s*c\/u)?(?:\s*=\s*\$[\d.]+)?)\s*$/);
+      if (!m) return { nombre: sinVineta, precio: '' };
+      return { nombre: m[1].replace(/[—:-]\s*$/, '').trim(), precio: m[2].replace(/\s+/g, ' ').trim() };
+    }).filter((r) => r.precio);
+    if (renglones.length < 4) return null;
+
+    // título: la línea con ":" justo antes del listado ("Tenemos, por ejemplo:")
+    const antes = lineas.slice(0, items[0].i).map((l) => l.trim()).filter(Boolean);
+    const conDosPuntos = [...antes].reverse().find((l) => l.endsWith(':'));
+    let titulo = (conDosPuntos ?? 'Precios').replace(/:$/, '').trim();
+    if (titulo.length > 44 || titulo.length < 3) titulo = 'Precios';
+
+    const mTotal = respuesta.match(/\*?total[^:\n]{0,20}:\s*(\$\s?[\d.]+)\*?/i);
+    const hoy = new Date().toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', timeZone: 'America/Argentina/Buenos_Aires' });
+
+    try {
+      const png = await cartelPrecios({
+        titulo,
+        renglones,
+        total: mTotal ? mTotal[1].replace(/\s/g, '') : null,
+        pie: `Precios al ${hoy} · Sant Thomas, Castex 3601`,
+      });
+      const ruta = `carteles/${new Date().toISOString().slice(0, 7)}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.png`;
+      const { error } = await this.db.storage.from('publico').upload(ruta, png, { contentType: 'image/png', upsert: true });
+      if (error) { this.log.warn(`no pude subir el cartel: ${error.message}`); return null; }
+      const imagenUrl = this.db.storage.from('publico').getPublicUrl(ruta).data.publicUrl;
+
+      // el pie de foto se queda con todo MENOS los renglones del listado
+      const descartar = new Set(items.map((x) => x.i));
+      const pie = lineas.filter((_l, i) => !descartar.has(i)).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+      return { imagenUrl, pie: pie || 'Le dejo los precios.' };
+    } catch (e: any) {
+      this.log.warn(`no pude armar el cartel: ${e?.message ?? e}`);
+      return null;
+    }
+  }
+
   private async simularEscritura(to: string, texto: string) {
     const wahaUrl = process.env.WAHA_URL, wahaKey = process.env.WAHA_API_KEY;
     const sesion = process.env.WAHA_SESSION || 'default';
