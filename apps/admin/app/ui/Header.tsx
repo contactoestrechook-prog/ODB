@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { cookies } from 'next/headers';
 import { puedeVer, rolDesdeToken } from '../lib/permisos';
+import { apiFetch } from '../../lib/api';
 import { BuscadorGlobal } from './BuscadorGlobal';
 import { MobileMenu } from './MobileMenu';
 import { CampanaAlertas } from './CampanaAlertas';
@@ -191,6 +192,18 @@ export async function Header({ activo, sinCabecera }: { activo: string; sinCabec
   // los roles sin restricción ven todo, como siempre
   const rol = rolDesdeToken((await cookies()).get('odb_token')?.value);
   const grupos = GRUPOS.map((g) => ({ ...g, items: g.items.filter((i) => puedeVer(rol, i.href)) })).filter((g) => g.items.length > 0);
+
+  // Cobros esperando aprobación: van con NÚMERO en el menú, no como alerta.
+  // Hay 124 alertas sin leer en el panel: un aviso que nadie mira no protege
+  // nada, y de esto depende que la plata que trae el repartidor se aplique.
+  let cobrosPendientes = 0;
+  if (rol === 'dueno' || rol === 'gerente') {
+    try {
+      const r = await apiFetch('/cobranzas?estado=pendiente');
+      if (r.ok) cobrosPendientes = ((await r.json()) as any[]).length;
+    } catch { /* el menú nunca se cae por el contador */ }
+  }
+  const pendientesDe = (href: string) => (href === '/clientes' ? cobrosPendientes : 0);
   return (
     <>
       {/* ---- barra lateral ---- */}
@@ -221,7 +234,15 @@ export async function Header({ activo, sinCabecera }: { activo: string; sinCabec
                     }`}
                   >
                     <Icono d={ICONOS[i.icono]} activo={esActivo} />
-                    {i.label}
+                    <span className="flex-1">{i.label}</span>
+                    {pendientesDe(i.href) > 0 && (
+                      <span
+                        className="rounded-full bg-[#B82D25] px-2 py-0.5 text-[11px] font-semibold text-white"
+                        title={`${pendientesDe(i.href)} cobro(s) esperando tu aprobación`}
+                      >
+                        {pendientesDe(i.href)}
+                      </span>
+                    )}
                   </Link>
                 );
               })}
