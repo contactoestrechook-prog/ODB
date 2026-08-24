@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
 import { SUPABASE } from '../supabase.provider';
@@ -30,9 +30,39 @@ const GUIA_SIN_HISTORIAL = `CLIENTE SIN HISTORIAL: todavía no sabés qué le gu
 
 @Injectable()
 export class SommelierService {
+  private readonly log = new Logger(SommelierService.name);
+
   constructor(@Inject(SUPABASE) private readonly db: SupabaseClient) {}
 
+  // Techo diario de consultas. El sommelier es el ÚNICO endpoint de IA abierto
+  // a internet (lo usa la app de clientes sin sesión de la casa): con 8
+  // consultas por minuto y por IP, un abuso sostenido gasta crédito de
+  // Anthropic sin que nadie lo note hasta la factura. Al llegar al tope
+  // contesta amablemente sin llamar al modelo. Es un freno de gasto, no una
+  // contabilidad: si el proceso reinicia, vuelve a cero.
+  private usoDelDia = { dia: '', consultas: 0 };
+
+  private superaTechoDiario(): boolean {
+    const hoy = new Date().toISOString().slice(0, 10);
+    if (this.usoDelDia.dia !== hoy) this.usoDelDia = { dia: hoy, consultas: 0 };
+    const tope = Number(process.env.SOMMELIER_MAX_DIA ?? 300);
+    this.usoDelDia.consultas++;
+    if (this.usoDelDia.consultas > tope) {
+      if (this.usoDelDia.consultas === tope + 1) {
+        this.log.warn(`sommelier: llegó al tope de ${tope} consultas del día; se corta hasta mañana`);
+      }
+      return true;
+    }
+    return false;
+  }
+
   async charlar(mensajes: MensajeChat[], clienteId?: string) {
+    if (this.superaTechoDiario()) {
+      return {
+        respuesta: 'Por hoy el somelier ya atendió muchas consultas. Escribinos por WhatsApp al 11 2281-2200 y te ayudamos, o volvé a probar mañana.',
+        recomendaciones: [],
+      };
+    }
     if (!process.env.ANTHROPIC_API_KEY) {
       throw new BadRequestException(
         'El Somelier ODB necesita la ANTHROPIC_API_KEY en apps/api/.env para funcionar',
