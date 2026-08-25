@@ -13,7 +13,7 @@ const pesos = (n: any) => '$' + Math.round(Number(n) || 0).toLocaleString('es-AR
 type Item = {
   sku: string; nombre: string; unidadesPack: number; codigoProveedor: string | null;
   costo: number | null; stock: number; minimo: number; reposicion: number;
-  sugerido: number; urgente: boolean;
+  sugerido: number; urgente: boolean; porDia: number; diasDeStock: number | null;
 };
 
 export function PedidoProveedor({ sucursales }: { sucursales: { id: string; nombre: string }[] }) {
@@ -175,6 +175,7 @@ export function PedidoProveedor({ sucursales }: { sucursales: { id: string; nomb
       <p className="text-[11px] text-black/45">
         {verTodo || busca ? 'Toda su lista' : 'Solo lo que hace falta reponer'} · {meta.total} producto{meta.total === 1 ? '' : 's'}
         {meta.recortado && ' (se muestran los primeros 300)'}
+        <br />El sugerido cubre 14 días según lo que se vendió en los últimos 30.
       </p>
 
       {aviso && <p className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{aviso}</p>}
@@ -242,7 +243,9 @@ export function PedidoProveedor({ sucursales }: { sucursales: { id: string; nomb
                     {it.costo != null ? ` · ${pesos(it.costo)}` : ' · sin costo cargado'}
                   </p>
                   <p className={`text-[11px] ${it.urgente ? 'font-medium text-[#B82D25]' : 'text-black/45'}`}>
-                    stock {it.stock}{it.minimo > 0 ? ` · mínimo ${it.minimo}` : ''}
+                    stock {it.stock}
+                    {it.diasDeStock != null && ` · aguanta ${it.diasDeStock} día${it.diasDeStock === 1 ? '' : 's'}`}
+                    {it.minimo > 0 && ` · mínimo ${it.minimo}`}
                     {it.sugerido > 0 && ` · sugerido ${it.sugerido}`}
                   </p>
                 </div>

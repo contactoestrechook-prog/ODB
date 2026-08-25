@@ -2,6 +2,13 @@ import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
 import { ordenDeCompraPDF, remitoRecepcionPDF, ordenDePagoPDF } from '../comun/documentos';
+
+// Cómo se propone cuánto pedir: se mira la venta de los últimos 30 días y se
+// propone cubrir 14. Menos de 5 días de stock es urgente (con el lead time de
+// un proveedor de bebidas, ahí ya se corre riesgo de quedarse sin).
+const DIAS_VENTA = 30;
+const DIAS_COBERTURA = 14;
+const DIAS_URGENTE = 5;
 import { precioDesdeCosto, margenAplicable } from './precio';
 import { normalizarAlias } from '../listas/listas.service';
 
@@ -978,6 +985,19 @@ export class ComprasService {
     const prodDe = new Map(productos.map((p: any) => [p.id, p]));
     const stockDe = new Map(stocks.map((s: any) => [s.producto_id, s]));
 
+    // Cuánto pedir sale de lo que se VENDE, no de un mínimo cargado a mano:
+    // hoy no hay un solo producto con mínimo entre 7.571 renglones de stock, y
+    // nadie los va a cargar de a uno. Con la venta de los últimos 30 días se
+    // propone cubrir dos semanas. Si además alguien cargó el mínimo, manda el
+    // que pida más.
+    const ventaDe = new Map<string, number>();
+    for (let i = 0; i < ids.length; i += 500) {
+      const { data: vd } = await this.db.rpc('venta_diaria', {
+        p_sucursal: sucursalId ?? null, p_productos: ids.slice(i, i + 500), p_dias: DIAS_VENTA,
+      });
+      for (const f of ((vd ?? []) as any[])) ventaDe.set(f.producto_id, Number(f.unidades_dia) || 0);
+    }
+
     const q = (opciones.q ?? '').trim().toLowerCase();
     let items = vinculos
       .map((v) => {
@@ -987,16 +1007,23 @@ export class ComprasService {
         const cantidad = Number(st.cantidad ?? 0);
         const minimo = Number(st.stock_minimo ?? 0);
         const reposicion = Number(st.punto_reposicion ?? 0);
-        // cuánto pedir: hasta el punto de reposición; si nadie lo cargó, hasta
-        // el doble del mínimo, que es lo que se pide a ojo igual
-        const objetivo = reposicion > 0 ? reposicion : minimo * 2;
+        const porDia = ventaDe.get(v.producto_id) ?? 0;
+        // objetivo = lo que se vende en DIAS_COBERTURA días, o el punto de
+        // reposición / el doble del mínimo si alguien los cargó. Gana el mayor.
+        const porVenta = porDia * DIAS_COBERTURA;
+        const porMinimo = reposicion > 0 ? reposicion : minimo * 2;
+        const objetivo = Math.max(porVenta, porMinimo);
         const sugerido = Math.max(0, Math.ceil(objetivo - cantidad));
+        // días que aguanta con lo que tiene: es lo que decide si va o no va
+        const diasDeStock = porDia > 0 ? Math.floor(cantidad / porDia) : null;
         return {
           sku: p.sku, nombre: p.nombre, unidadesPack: p.unidades_pack ?? 1,
           codigoProveedor: v.codigo_proveedor ?? null,
           costo: v.ultimo_costo != null ? Number(v.ultimo_costo) : null,
           stock: cantidad, minimo, reposicion, sugerido,
-          urgente: minimo > 0 && cantidad <= minimo,
+          porDia: porDia > 0 ? Number(porDia.toFixed(2)) : 0,
+          diasDeStock,
+          urgente: (minimo > 0 && cantidad <= minimo) || (diasDeStock != null && diasDeStock <= DIAS_URGENTE),
         };
       })
       .filter(Boolean) as any[];
