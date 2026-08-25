@@ -191,6 +191,21 @@ function Charla({ conv, onVolver, onCambio }: { conv: Conv; onVolver: () => void
     finally { setEnviando(false); }
   }
 
+  // "Es de la casa": WhatsApp dejó de mandar el teléfono y ahora manda un
+  // identificador, así que el bot no puede reconocer solo a la gente del local.
+  // Se marca una vez desde acá y no le contesta nunca más.
+  async function marcarEquipo(esEquipo: boolean) {
+    if (ocupado) return;
+    setOcupado(true); setAviso('');
+    try {
+      const r = await post({ accion: 'equipo', telefono: c.telefono, esEquipo });
+      setAviso(r.ok
+        ? (esEquipo ? 'Marcado como gente de la casa: el bot no le contesta más.' : 'Vuelve a tratarse como cliente.')
+        : 'No se pudo marcar');
+      if (r.ok) setFicha((f: any) => (f ? { ...f, contacto: { ...(f.contacto ?? {}), es_equipo: esEquipo } } : f));
+    } finally { setOcupado(false); }
+  }
+
   async function guardarNota() {
     const r = await post({ accion: 'nota', telefono: c.telefono, nota });
     setAviso(r.ok ? 'Nota guardada' : 'No se pudo guardar la nota');
@@ -236,7 +251,24 @@ function Charla({ conv, onVolver, onCambio }: { conv: Conv; onVolver: () => void
               </div>
               <textarea value={nota} onChange={(e) => setNota(e.target.value)} rows={2} placeholder="Notas del equipo sobre este contacto…"
                 className="mt-2 w-full resize-none rounded-lg border border-black/15 px-3 py-2 text-sm outline-none focus:border-[#B82D25]" />
-              <button onClick={guardarNota} className="mt-1 rounded-lg bg-black px-3 py-1.5 text-xs font-medium text-white">Guardar nota</button>
+              <div className="mt-1 flex flex-wrap items-center gap-2">
+                <button onClick={guardarNota} className="rounded-lg bg-black px-3 py-1.5 text-xs font-medium text-white">Guardar nota</button>
+                {ficha.contacto?.es_equipo ? (
+                  <button onClick={() => marcarEquipo(false)} disabled={ocupado}
+                    className="rounded-lg border border-black/20 px-3 py-1.5 text-xs font-medium text-black/70 disabled:opacity-50">
+                    Es de la casa · tratarlo como cliente
+                  </button>
+                ) : (
+                  <button onClick={() => marcarEquipo(true)} disabled={ocupado}
+                    className="rounded-lg border border-black/20 px-3 py-1.5 text-xs font-medium text-black/70 disabled:opacity-50">
+                    Marcar como gente de la casa
+                  </button>
+                )}
+              </div>
+              <p className="mt-1 text-[11px] leading-relaxed text-black/45">
+                El bot no le contesta a la gente de la casa. Hay que marcarlo a mano: WhatsApp dejó de mandar el teléfono y
+                manda un identificador, así que no puede reconocerlos solo.
+              </p>
             </>
           )}
         </div>

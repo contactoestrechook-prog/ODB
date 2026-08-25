@@ -116,6 +116,13 @@ export class BotPruebaController {
     return this.bot.pausarBot(b.linea === 'proveedores' ? 'proveedores' : 'pedidos', String(b.telefono ?? '').replace(/\D/g, ''), req.usuario?.sub);
   }
 
+  // "Este número es de la casa": el bot deja de contestarle. Hace falta a mano
+  // porque WhatsApp ya no manda el teléfono, manda un identificador.
+  @Post('conversaciones/equipo')
+  equipo(@Body() b: { telefono: string; esEquipo?: boolean }, @Req() req: any) {
+    return this.bot.marcarEquipo(String(b.telefono ?? ''), b.esEquipo !== false, req.usuario?.sub);
+  }
+
   // El equipo abrió la charla: deja de figurar como sin leer
   @Post('conversaciones/leida')
   leida(@Body() b: { linea?: string; telefono: string }, @Req() req: any) {

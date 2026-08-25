@@ -151,7 +151,21 @@ export class BotService {
   // Los teléfonos del equipo (dueños, backoffice) no se atienden: si alguien de
   // la casa escribe por la línea, es para Jaqueline, no para el bot.
   private equipoCache: { hasta: number; tels: Set<string> } | null = null;
-  private async esNumeroDelEquipo(telefono: string): Promise<boolean> {
+  // ¿Es alguien de la casa? El bot no les contesta: en su momento le explicó a
+  // un empleado que "no cuenta con la función de desactivarse".
+  //
+  // Esto se resolvía comparando el número contra los teléfonos de usuarios,
+  // pero WhatsApp dejó de mandar el número: ahora llega un @lid, que no es un
+  // teléfono. De 222 charlas de los últimos diez días, 217 llegaron así. O sea
+  // que el filtro dejó de reconocer a nadie. Tres formas de saberlo, en orden:
+  //   1. la marca manual `es_equipo` (la que nunca falla),
+  //   2. el teléfono real que ya se aprendió para ese @lid,
+  //   3. el identificador, por si todavía llega como número.
+  private async esNumeroDelEquipo(identidad: string, telefonoReal?: string): Promise<boolean> {
+    const { data: contacto } = await this.db
+      .from('bot_contactos').select('es_equipo, telefono_real').eq('telefono', identidad).maybeSingle();
+    if ((contacto as any)?.es_equipo) return true;
+
     if (!this.equipoCache || this.equipoCache.hasta < Date.now()) {
       const { data } = await this.db.from('usuarios').select('telefono').eq('activo', true);
       const tels = new Set<string>();
@@ -161,7 +175,57 @@ export class BotService {
       }
       this.equipoCache = { hasta: Date.now() + 10 * 60_000, tels };
     }
-    return this.equipoCache.tels.has(telefono.replace(/\D/g, '').slice(-10));
+    // Un móvil argentino en E.164 tiene 13 dígitos (54 9 11 XXXX XXXX); un @lid
+    // tiene más. Sin ese tope, los últimos 10 dígitos de un @lid podrían
+    // coincidir con el teléfono de alguien de la casa y callar a un cliente.
+    const candidatos = [telefonoReal, (contacto as any)?.telefono_real, identidad]
+      .map((t) => String(t ?? '').replace(/\D/g, ''))
+      .filter((d) => d.length >= 10 && d.length <= 13)
+      .map((d) => d.slice(-10));
+    return candidatos.some((d) => this.equipoCache!.tels.has(d));
+  }
+
+  // El teléfono marcable, cuando la carga del mensaje lo trae. Según la versión
+  // del motor viaja en un campo u otro, así que se prueban todos y se registra
+  // cuál sirvió: es el dato que permite volver a reconocer a la gente de la casa.
+  private telefonoDeLaCarga(p: any): { numero: string; campo: string } | null {
+    const candidatos: [string, any][] = [
+      ['_data.key.remoteJidAlt', p?._data?.key?.remoteJidAlt],
+      ['_data.key.participantAlt', p?._data?.key?.participantAlt],
+      ['_data.senderPn', p?._data?.senderPn],
+      ['_data.participantPn', p?._data?.participantPn],
+      ['_data.remoteJidAlt', p?._data?.remoteJidAlt],
+      ['participant', p?.participant],
+      ['author', p?.author],
+    ];
+    for (const [campo, valor] of candidatos) {
+      const d = String(valor ?? '').split('@')[0].replace(/\D/g, '');
+      // un teléfono argentino con característica entra en 10-13 dígitos; un @lid
+      // es mucho más largo y no debe confundirse con un número
+      if (d.length >= 10 && d.length <= 13) return { numero: d, campo };
+    }
+    return null;
+  }
+
+  // Marcar (o desmarcar) una charla como "es alguien de la casa". Con el @lid
+  // no siempre se puede deducir del número, así que tiene que poder decirse a
+  // mano desde el panel, una vez, y quedar para siempre.
+  async marcarEquipo(telefono: string, esEquipo: boolean, usuarioId?: string) {
+    const clave = String(telefono ?? '').replace(/\D/g, '');
+    if (!clave) throw new BadRequestException('Falta el teléfono');
+    const { error } = await this.db.from('bot_contactos').upsert(
+      { telefono: clave, es_equipo: esEquipo, actualizado_en: new Date().toISOString() },
+      { onConflict: 'telefono' },
+    );
+    if (error) throw new BadRequestException(error.message);
+    await this.db.from('auditoria').insert({
+      usuario_id: usuarioId ?? null,
+      accion: esEquipo ? 'contacto_marcado_equipo' : 'contacto_desmarcado_equipo',
+      entidad: 'bot_contactos',
+      entidad_id: clave,
+    }).then(() => null, () => null);
+    this.log.log(`${clave} ${esEquipo ? 'marcado' : 'desmarcado'} como gente de la casa`);
+    return { ok: true, telefono: clave, esEquipo };
   }
 
   private superaLimite(telefono: string): boolean {
@@ -2328,6 +2392,30 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     const esLid = desde.endsWith('@lid');
     const identidad = esLid ? desde : desde.split('@')[0].replace(/\D/g, '');
     if (!identidad) return { ignorado: 'remitente ilegible' };
+
+    // Si la carga trae el teléfono marcable, se guarda pegado al @lid. Es lo
+    // único que después permite reconocer a la gente de la casa, porque el @lid
+    // por sí solo no dice nada. Se hace una vez por contacto y no frena nada.
+    const real = this.telefonoDeLaCarga(p);
+    // La clave es la misma que usa el resto del sistema: charla() le saca todo
+    // lo que no sea dígito, así que el contacto se guarda igual o no se
+    // encuentra nunca.
+    const claveContacto = identidad.replace(/\D/g, '');
+    if (real && esLid && claveContacto) {
+      const { data: yaEsta } = await this.db
+        .from('bot_contactos').select('telefono_real').eq('telefono', claveContacto).maybeSingle();
+      if ((yaEsta as any)?.telefono_real !== real.numero) {
+        this.log.log(`teléfono real aprendido para ${claveContacto} desde ${real.campo}`);
+        await this.db.from('bot_contactos').upsert(
+          { telefono: claveContacto, telefono_real: real.numero, actualizado_en: new Date().toISOString() },
+          { onConflict: 'telefono' },
+        ).then(() => null, () => null);
+      }
+    } else if (esLid) {
+      // Sin el número no se puede reconocer a nadie: queda constancia de qué
+      // trae el mensaje, para no diagnosticar a ciegas la próxima vez.
+      this.log.log(`@lid sin teléfono en la carga · _data=${Object.keys(p?._data ?? {}).join(',')} · key=${Object.keys(p?._data?.key ?? {}).join(',')}`);
+    }
 
     let texto = String(p.body ?? '').trim();
     const tipo = String(p.type ?? p._data?.type ?? '').toLowerCase();

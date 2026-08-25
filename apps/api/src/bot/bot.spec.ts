@@ -192,6 +192,21 @@ describe('BotService.charla (robustez del agente)', () => {
     expect(r.respuesta).toMatch(/todavía no quedó cargado/);
   });
 
+  // WhatsApp dejó de mandar el teléfono (llega un @lid), así que comparar contra
+  // los teléfonos del equipo ya no reconoce a nadie. La marca manual sí.
+  it('no le contesta a un contacto marcado como gente de la casa', async () => {
+    const db = dbFalsa({
+      bot_contactos: { data: { es_equipo: true, telefono_real: null }, error: null },
+      bot_conversaciones: { data: { mensajes: [] }, error: null },
+    });
+    const { s } = servicio(db);
+    const crear = jest.fn();
+    (s as any).claude = { messages: { create: crear } };
+    const r: any = await s.charla({ linea: 'pedidos', telefono: '49375296409753', mensaje: 'quiero un fernet' });
+    expect(crear).not.toHaveBeenCalled();
+    expect(r.respuesta ?? '').toBe('');
+  });
+
   it('acumula tokens del mensaje en la conversación', async () => {
     const db = dbFalsa({ bot_conversaciones: { data: { mensajes: [], tokens: 1000 }, error: null } });
     const { s } = servicio(db);

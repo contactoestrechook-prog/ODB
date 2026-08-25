@@ -32,6 +32,7 @@ export async function POST(req: Request) {
     : accion === 'pausar' ? '/bot/conversaciones/pausar'
     : accion === 'leida' ? '/bot/conversaciones/leida'
     : accion === 'botLinea' ? '/bot/linea/bot'
+    : accion === 'equipo' ? '/bot/conversaciones/equipo'
     : accion === 'nota' ? '/bot/contactos/nota'
     : accion === 'programar' ? '/bot/programados'
     : accion === 'cancelarProgramado' ? `/bot/programados/${d.id}/cancelar`
