@@ -157,6 +157,24 @@ describe('BotService.charla (robustez del agente)', () => {
     expect(crear).toHaveBeenCalled();
   });
 
+  it('contesta el segundo "hola" seguido: ya nos callamos una vez', async () => {
+    const db = dbFalsa({
+      bot_conversaciones: {
+        data: {
+          // el turno anterior fue un saludo del cliente que quedó sin respuesta
+          mensajes: [{ role: 'assistant', content: 'Buenas tardes.' }, { role: 'user', content: 'Hola' }],
+          actualizado_en: new Date(Date.now() - 60_000).toISOString(),
+        },
+        error: null,
+      },
+    });
+    const { s } = servicio(db);
+    const crear = jest.fn().mockResolvedValue(respuestaClaude('Buenas tardes. ¿En qué lo puedo ayudar?'));
+    (s as any).claude = { messages: { create: crear } };
+    await s.charla({ linea: 'pedidos', telefono: '999', mensaje: 'Hola' });
+    expect(crear).toHaveBeenCalled();
+  });
+
   it('acumula tokens del mensaje en la conversación', async () => {
     const db = dbFalsa({ bot_conversaciones: { data: { mensajes: [], tokens: 1000 }, error: null } });
     const { s } = servicio(db);

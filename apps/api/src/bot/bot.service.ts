@@ -356,7 +356,15 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
       ? Date.now() - new Date(conv.actualizado_en as string).getTime()
       : Infinity;
     const charlaViva = desdeElUltimoMensaje < VENTANA_CHARLA_VIVA;
-    if (/^(hola+|buenas+|buen d[ií]a|buenas tardes|buenas noches)[\s!.,]*$/i.test(texto.trim()) && historial.length > 0 && charlaViva) {
+    const RE_SALUDO_SUELTO = /^(hola+|buenas+|buen d[ií]a|buenas tardes|buenas noches)[\s!.,]*$/i;
+    // Si el último que habló fue el cliente y también fue un saludo suelto, es
+    // que ya nos callamos una vez y él sigue esperando. Saludar dos veces sin
+    // recibir nada no es "estar por escribir lo que quiere": es que del otro
+    // lado no contesta nadie.
+    const ultimoDelHistorial = historial[historial.length - 1];
+    const saludoSinRespuesta =
+      ultimoDelHistorial?.role === 'user' && RE_SALUDO_SUELTO.test(String(ultimoDelHistorial.content).trim());
+    if (RE_SALUDO_SUELTO.test(texto.trim()) && historial.length > 0 && charlaViva && !saludoSinRespuesta) {
       return callar('saludo en charla ya abierta');
     }
 
