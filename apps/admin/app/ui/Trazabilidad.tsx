@@ -17,7 +17,7 @@ const TIPOS: Record<string, string> = {
 };
 
 type Huecos = {
-  sinRecepcion: any[]; sinFactura: any[]; sinRespaldo: any[]; vencidas: any[];
+  sinRecepcion: any[]; sinFactura: any[]; sinConciliar: any[]; sinRespaldo: any[]; vencidas: any[];
 };
 
 export function Trazabilidad() {
@@ -62,6 +62,11 @@ export function Trazabilidad() {
     {
       clave: 'sinFactura', titulo: 'Mercadería recibida sin factura',
       porque: 'Entró stock y la deuda con el proveedor todavía no está cargada.',
+      linea: (x) => `Remito ${x.numero || 's/n'} · ${x.proveedor ?? '—'} · hace ${x.dias} días`,
+    },
+    {
+      clave: 'sinConciliar', titulo: 'Facturas sin cruzar contra el remito',
+      porque: 'Llegó la mercadería y llegó la factura, pero nadie verificó que digan lo mismo.',
       linea: (x) => `Remito ${x.numero || 's/n'} · ${x.proveedor ?? '—'} · hace ${x.dias} días`,
     },
     {

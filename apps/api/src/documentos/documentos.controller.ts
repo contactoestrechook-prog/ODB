@@ -145,21 +145,32 @@ export class DocumentosController {
 
     const [{ data: ocs }, { data: remitos }, { data: facturas }] = await Promise.all([
       this.db.from('ordenes_compra').select('id, numero, estado, total, creado_en, proveedor:proveedores(razon_social)').gte('creado_en', desde).order('creado_en', { ascending: false }).limit(300),
-      this.db.from('remitos').select('id, numero, oc_id, factura_id, estado, creado_en, proveedor:proveedores(razon_social)').gte('creado_en', desde).order('creado_en', { ascending: false }).limit(300),
+      this.db.from('remitos').select('id, numero, oc_id, factura_id, estado, creado_en, conciliado_en, proveedor:proveedores(razon_social)').gte('creado_en', desde).order('creado_en', { ascending: false }).limit(300),
       this.db.from('facturas_proveedor').select('id, numero, monto, monto_pagado, estado, oc_id, remito_id, creado_en, vencimiento, proveedor:proveedores(razon_social)').gte('creado_en', desde).order('creado_en', { ascending: false }).limit(300),
     ]);
 
     const ocConRemito = new Set(((remitos ?? []) as any[]).map((r) => r.oc_id).filter(Boolean));
+    // El vínculo remito↔factura se guarda de los dos lados según por dónde
+    // entró: la entrada directa lo escribe en facturas_proveedor.remito_id y la
+    // conciliación en remitos.factura_id. Mirar uno solo daba nueve falsos
+    // "recibido sin factura" con la factura cargada al lado.
+    const remitoConFactura = new Set(((facturas ?? []) as any[]).map((f) => f.remito_id).filter(Boolean));
+    const tieneFactura = (r: any) => !!r.factura_id || remitoConFactura.has(r.id);
     const dias = (s: string) => Math.floor((Date.now() - new Date(s).getTime()) / 86400000);
 
     return {
       // pedimos y nunca llegó (o llegó y nadie lo cargó)
       sinRecepcion: ((ocs ?? []) as any[])
-        .filter((o) => ['aprobada', 'enviada', 'parcial'].includes(o.estado) && !ocConRemito.has(o.id))
+        .filter((o) => ['aprobada', 'enviada'].includes(o.estado) && !ocConRemito.has(o.id))
         .map((o) => ({ id: o.id, numero: o.numero, proveedor: o.proveedor?.razon_social ?? null, total: o.total, dias: dias(o.creado_en) })),
       // entró mercadería y no hay factura: deuda que no está registrada
       sinFactura: ((remitos ?? []) as any[])
-        .filter((r) => !r.factura_id)
+        .filter((r) => !tieneFactura(r))
+        .map((r) => ({ id: r.id, numero: r.numero, proveedor: r.proveedor?.razon_social ?? null, dias: dias(r.creado_en) })),
+      // hay remito y hay factura, pero nadie cruzó una contra la otra: se paga
+      // lo que dice el proveedor sin haberlo contrastado con lo que se contó
+      sinConciliar: ((remitos ?? []) as any[])
+        .filter((r) => tieneFactura(r) && !r.conciliado_en)
         .map((r) => ({ id: r.id, numero: r.numero, proveedor: r.proveedor?.razon_social ?? null, dias: dias(r.creado_en) })),
       // factura cargada sin respaldo de recepción: se paga algo que nadie contó
       sinRespaldo: ((facturas ?? []) as any[])
