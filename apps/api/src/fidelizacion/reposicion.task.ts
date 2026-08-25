@@ -3,6 +3,7 @@ import { Cron } from '@nestjs/schedule';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
 import { NotificarService } from '../mensajes/notificar.service';
+import { enLotes } from '../comun/lotes';
 
 // Cada 15 minutos: avisa a los clientes cuyos productos en espera ya tienen stock.
 // Decoupla el aviso de cómo volvió el stock (compra, transferencia, ajuste).
@@ -25,9 +26,12 @@ export class ReposicionTask {
     if (!pendientes?.length) return;
 
     const ids = [...new Set(pendientes.map((p: any) => p.producto_id))];
-    const { data: stock } = await this.db.from('stock').select('producto_id, cantidad').in('producto_id', ids);
+    // de a lotes: hasta 500 ids en un solo `in` hacen fallar la llamada, y
+    // entonces no se avisaría a nadie sin que se notara
+    const stock = await enLotes<any>(ids, (lote) =>
+      this.db.from('stock').select('producto_id, cantidad').in('producto_id', lote));
     const disponible = new Map<string, number>();
-    for (const s of (stock ?? []) as any[]) {
+    for (const s of stock) {
       disponible.set(s.producto_id, (disponible.get(s.producto_id) ?? 0) + Number(s.cantidad));
     }
 

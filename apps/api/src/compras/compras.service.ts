@@ -2,6 +2,7 @@ import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
 import { ordenDeCompraPDF, remitoRecepcionPDF, ordenDePagoPDF } from '../comun/documentos';
+import { enLotes } from '../comun/lotes';
 
 // Cómo se propone cuánto pedir: se mira la venta de los últimos 30 días y se
 // propone cubrir 14. Menos de 5 días de stock es urgente (con el lead time de
@@ -954,92 +955,44 @@ export class ComprasService {
       sucursalId = (s as any)?.id;
     }
 
-    // la lista del proveedor puede tener miles de renglones: se pagina
-    const vinculos: any[] = [];
-    for (let desde = 0; ; desde += 1000) {
-      const { data, error } = await this.db
-        .from('proveedor_productos')
-        .select('producto_id, codigo_proveedor, ultimo_costo, margen_pct')
-        .eq('proveedor_id', proveedorId)
-        .range(desde, desde + 999);
-      if (error) throw new BadRequestException(error.message);
-      vinculos.push(...(data ?? []));
-      if ((data ?? []).length < 1000) break;
-    }
-    if (!vinculos.length) {
-      return { proveedor: prov, sucursalId, items: [], total: 0, sinLista: true };
-    }
+    // Todo el cálculo lo hace la base en una sola llamada. Antes se traían los
+    // productos y el stock en lotes con `in(...)`: con 500 ids la URL se pasa
+    // de largo y la consulta falla, y como el error se tragaba, la lista del
+    // proveedor más grande (1.423 productos) se veía VACÍA. Una pantalla vacía
+    // por un error silencioso es peor que un error a la vista.
+    const { data, error } = await this.db.rpc('catalogo_proveedor', {
+      p_proveedor: proveedorId,
+      p_sucursal: sucursalId ?? null,
+      p_q: opciones.q?.trim() || null,
+      p_dias_venta: DIAS_VENTA,
+      p_dias_cobertura: DIAS_COBERTURA,
+      p_dias_urgente: DIAS_URGENTE,
+    });
+    if (error) throw new BadRequestException(error.message);
 
-    const ids = vinculos.map((v) => v.producto_id);
-    const productos: any[] = [];
-    const stocks: any[] = [];
-    for (let i = 0; i < ids.length; i += 500) {
-      const lote = ids.slice(i, i + 500);
-      const [{ data: ps }, { data: st }] = await Promise.all([
-        this.db.from('productos').select('id, sku, nombre, activo, unidades_pack').in('id', lote),
-        this.db.from('stock').select('producto_id, cantidad, stock_minimo, punto_reposicion').in('producto_id', lote).eq('sucursal_id', sucursalId),
-      ]);
-      productos.push(...(ps ?? []));
-      stocks.push(...(st ?? []));
-    }
-    const prodDe = new Map(productos.map((p: any) => [p.id, p]));
-    const stockDe = new Map(stocks.map((s: any) => [s.producto_id, s]));
+    let items = ((data ?? []) as any[]).map((r) => ({
+      sku: r.sku,
+      nombre: r.nombre,
+      unidadesPack: Number(r.unidades_pack ?? 1),
+      codigoProveedor: r.codigo_proveedor ?? null,
+      costo: r.costo != null ? Number(r.costo) : null,
+      stock: Number(r.stock ?? 0),
+      minimo: Number(r.minimo ?? 0),
+      reposicion: Number(r.reposicion ?? 0),
+      porDia: Number(r.por_dia ?? 0),
+      diasDeStock: r.dias_de_stock != null ? Number(r.dias_de_stock) : null,
+      sugerido: Number(r.sugerido ?? 0),
+      urgente: !!r.urgente,
+    }));
 
-    // Cuánto pedir sale de lo que se VENDE, no de un mínimo cargado a mano:
-    // hoy no hay un solo producto con mínimo entre 7.571 renglones de stock, y
-    // nadie los va a cargar de a uno. Con la venta de los últimos 30 días se
-    // propone cubrir dos semanas. Si además alguien cargó el mínimo, manda el
-    // que pida más.
-    const ventaDe = new Map<string, number>();
-    for (let i = 0; i < ids.length; i += 500) {
-      const { data: vd } = await this.db.rpc('venta_diaria', {
-        p_sucursal: sucursalId ?? null, p_productos: ids.slice(i, i + 500), p_dias: DIAS_VENTA,
-      });
-      for (const f of ((vd ?? []) as any[])) ventaDe.set(f.producto_id, Number(f.unidades_dia) || 0);
-    }
+    if (!items.length) return { proveedor: prov, sucursalId, items: [], total: 0, sinLista: !opciones.q };
 
-    const q = (opciones.q ?? '').trim().toLowerCase();
-    let items = vinculos
-      .map((v) => {
-        const p: any = prodDe.get(v.producto_id);
-        if (!p || !p.activo) return null;
-        const st: any = stockDe.get(v.producto_id) ?? {};
-        const cantidad = Number(st.cantidad ?? 0);
-        const minimo = Number(st.stock_minimo ?? 0);
-        const reposicion = Number(st.punto_reposicion ?? 0);
-        const porDia = ventaDe.get(v.producto_id) ?? 0;
-        // objetivo = lo que se vende en DIAS_COBERTURA días, o el punto de
-        // reposición / el doble del mínimo si alguien los cargó. Gana el mayor.
-        const porVenta = porDia * DIAS_COBERTURA;
-        const porMinimo = reposicion > 0 ? reposicion : minimo * 2;
-        const objetivo = Math.max(porVenta, porMinimo);
-        const sugerido = Math.max(0, Math.ceil(objetivo - cantidad));
-        // días que aguanta con lo que tiene: es lo que decide si va o no va
-        const diasDeStock = porDia > 0 ? Math.floor(cantidad / porDia) : null;
-        return {
-          sku: p.sku, nombre: p.nombre, unidadesPack: p.unidades_pack ?? 1,
-          codigoProveedor: v.codigo_proveedor ?? null,
-          costo: v.ultimo_costo != null ? Number(v.ultimo_costo) : null,
-          stock: cantidad, minimo, reposicion, sugerido,
-          porDia: porDia > 0 ? Number(porDia.toFixed(2)) : 0,
-          diasDeStock,
-          urgente: (minimo > 0 && cantidad <= minimo) || (diasDeStock != null && diasDeStock <= DIAS_URGENTE),
-        };
-      })
-      .filter(Boolean) as any[];
-
-    if (q) {
-      items = items.filter((i) =>
-        i.nombre.toLowerCase().includes(q) || String(i.sku).toLowerCase().includes(q) ||
-        String(i.codigoProveedor ?? '').toLowerCase().includes(q));
-    } else if (!opciones.todo) {
+    if (!opciones.q && !opciones.todo) {
       const hacenFalta = items.filter((i) => i.urgente || i.sugerido > 0);
-      // si nadie cargó mínimos, filtrar por "hace falta" deja la pantalla vacía
+      // si todavía no hay ventas ni mínimos cargados, filtrar por "hace falta"
+      // dejaría la pantalla vacía: en ese caso se muestra la lista entera
       if (hacenFalta.length) items = hacenFalta;
     }
-
-    items.sort((a, b) =>
-      Number(b.urgente) - Number(a.urgente) || b.sugerido - a.sugerido || a.nombre.localeCompare(b.nombre));
 
     return {
       proveedor: prov,
@@ -1249,8 +1202,9 @@ export class ComprasService {
     const ids = [...new Set([...facturado.keys(), ...recibido.keys()])];
     const nombres = new Map<string, any>();
     if (ids.length) {
-      const { data: prods } = await this.db.from('productos').select('id, sku, nombre').in('id', ids);
-      for (const p of (prods ?? []) as any[]) nombres.set(p.id, p);
+      const prods = await enLotes<any>(ids, (lote) =>
+        this.db.from('productos').select('id, sku, nombre').in('id', lote));
+      for (const p of prods) nombres.set(p.id, p);
     }
     const filas = ids.map((id) => {
       const f = facturado.get(id)?.cantidad ?? 0;
@@ -1468,13 +1422,11 @@ export class ComprasService {
       // Qué remarcación había aprendida antes de esta entrada. Hace falta para
       // no pisarla: si La Serenísima saca una promoción y se remarca al 40% por
       // única vez, el 61% de siempre tiene que seguir estando la próxima.
-      const { data: previas } = await this.db
-        .from('proveedor_productos')
-        .select('producto_id, margen_pct')
-        .eq('proveedor_id', proveedorId)
-        .in('producto_id', productoIds);
+      const previas = await enLotes<any>(productoIds, (lote) =>
+        this.db.from('proveedor_productos').select('producto_id, margen_pct')
+          .eq('proveedor_id', proveedorId).in('producto_id', lote));
       const previoDe = new Map<string, number | null>(
-        ((previas ?? []) as any[]).map((p) => [p.producto_id, p.margen_pct != null ? Number(p.margen_pct) : null]),
+        previas.map((p) => [p.producto_id, p.margen_pct != null ? Number(p.margen_pct) : null]),
       );
 
       const filas = conAlias.map((i, n) => {
