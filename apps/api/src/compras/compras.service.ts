@@ -10,6 +10,8 @@ import { enLotes } from '../comun/lotes';
 const DIAS_VENTA = 30;
 const DIAS_COBERTURA = 14;
 const DIAS_URGENTE = 5;
+// cuántos renglones se mandan al teléfono de una: más que esto no se mira
+const TOPE_CATALOGO = 300;
 import { precioDesdeCosto, margenAplicable } from './precio';
 import { normalizarAlias } from '../listas/listas.service';
 
@@ -960,15 +962,30 @@ export class ComprasService {
     // de largo y la consulta falla, y como el error se tragaba, la lista del
     // proveedor más grande (1.423 productos) se veía VACÍA. Una pantalla vacía
     // por un error silencioso es peor que un error a la vista.
-    const { data, error } = await this.db.rpc('catalogo_proveedor', {
-      p_proveedor: proveedorId,
-      p_sucursal: sucursalId ?? null,
-      p_q: opciones.q?.trim() || null,
-      p_dias_venta: DIAS_VENTA,
-      p_dias_cobertura: DIAS_COBERTURA,
-      p_dias_urgente: DIAS_URGENTE,
-    });
+    // El filtro y el recorte los hace la base: PostgREST corta cualquier
+    // respuesta en 1.000 filas, así que traer la lista entera y filtrar acá
+    // dejaba afuera 423 productos sin decir nada.
+    const soloFaltantes = !opciones.q && !opciones.todo;
+    const pedir = async (soloFalta: boolean) =>
+      this.db.rpc('catalogo_proveedor', {
+        p_proveedor: proveedorId,
+        p_sucursal: sucursalId ?? null,
+        p_q: opciones.q?.trim() || null,
+        p_dias_venta: DIAS_VENTA,
+        p_dias_cobertura: DIAS_COBERTURA,
+        p_dias_urgente: DIAS_URGENTE,
+        p_solo_faltantes: soloFalta,
+        p_limite: TOPE_CATALOGO,
+      });
+
+    let { data, error } = await pedir(soloFaltantes);
     if (error) throw new BadRequestException(error.message);
+    // sin ventas ni mínimos cargados no "falta" nada y la pantalla quedaría
+    // vacía: en ese caso se muestra la lista completa
+    if (soloFaltantes && !(data ?? []).length) {
+      ({ data, error } = await pedir(false));
+      if (error) throw new BadRequestException(error.message);
+    }
 
     let items = ((data ?? []) as any[]).map((r) => ({
       sku: r.sku,
@@ -987,19 +1004,13 @@ export class ComprasService {
 
     if (!items.length) return { proveedor: prov, sucursalId, items: [], total: 0, sinLista: !opciones.q };
 
-    if (!opciones.q && !opciones.todo) {
-      const hacenFalta = items.filter((i) => i.urgente || i.sugerido > 0);
-      // si todavía no hay ventas ni mínimos cargados, filtrar por "hace falta"
-      // dejaría la pantalla vacía: en ese caso se muestra la lista entera
-      if (hacenFalta.length) items = hacenFalta;
-    }
-
+    const total = Number(((data ?? []) as any[])[0]?.total ?? items.length);
     return {
       proveedor: prov,
       sucursalId,
-      total: items.length,
-      items: items.slice(0, 300),
-      recortado: items.length > 300,
+      total,
+      items,
+      recortado: total > items.length,
     };
   }
 
