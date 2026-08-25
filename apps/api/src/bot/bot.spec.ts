@@ -175,6 +175,23 @@ describe('BotService.charla (robustez del agente)', () => {
     expect(crear).toHaveBeenCalled();
   });
 
+  // Cuando el bot dice que el pedido quedó cargado sin haberlo creado, la
+  // corrección de emergencia tiraba la frase EN MEDIO de la oración y salía
+  // "Le el pedido todavía no quedó cargado para retiro...". Se tira la oración
+  // entera y se dice la verdad aparte.
+  it('corrige "pedido cargado" sin partir la oración al medio', async () => {
+    const db = dbFalsa({ bot_conversaciones: { data: { mensajes: [] }, error: null } });
+    const { s } = servicio(db);
+    // el modelo miente y además falla al regenerar: se usa la corrección local
+    (s as any).claude = {
+      messages: { create: jest.fn().mockResolvedValue(respuestaClaude('Le confirmo el pedido para retiro en Sant Thomas: 1 Fernet. Lo esperamos.')) },
+    };
+    (s as any).regenerar = jest.fn().mockResolvedValue(null);
+    const r: any = await s.charla({ linea: 'pedidos', telefono: '1010', mensaje: 'dale confirmalo' });
+    expect(r.respuesta).not.toMatch(/Le el pedido/);
+    expect(r.respuesta).toMatch(/todavía no quedó cargado/);
+  });
+
   it('acumula tokens del mensaje en la conversación', async () => {
     const db = dbFalsa({ bot_conversaciones: { data: { mensajes: [], tokens: 1000 }, error: null } });
     const { s } = servicio(db);

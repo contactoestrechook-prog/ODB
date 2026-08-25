@@ -690,7 +690,21 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
       messages.push({ role: 'user', content: '[nota interna: dijiste que el pedido está confirmado/cargado/registrado, pero en este turno crear_pedido NO devolvió ningún código: el pedido NO existe. Reescribí la respuesta diciendo la verdad: si faltó un dato, pedilo; si la herramienta falló y ya quedó la nota, decí que tomás el pedido y que das aviso al sector correspondiente para que lo dejen confirmado. Nunca digas "confirmado" ni "cargado" sin código DOM-/RET-.]' });
       const t10 = await this.regenerar(system, messages, 2048, sumarUso);
       if (t10) respuesta = t10;
-      else respuesta = respuesta.replace(diceCargado, 'el pedido todavía no quedó cargado');
+      else {
+        // OJO: no reemplazar la frase EN MEDIO de la oración. Hacerlo dejaba
+        // engendros como "Le el pedido todavía no quedó cargado para retiro en
+        // Sant Thomas:" — el cliente lee eso y el bot queda peor que si hubiera
+        // mentido. Se tira la oración entera y se dice la verdad aparte.
+        const sinMentira = respuesta
+          .split(/(?<=[.!?])\s+|\n/)
+          .filter((o) => !diceCargado.test(o))
+          .join(' ')
+          .replace(/\s{2,}/g, ' ')
+          .trim();
+        respuesta = [sinMentira, 'El pedido todavía no quedó cargado: doy aviso al sector correspondiente para dejarlo confirmado.']
+          .filter(Boolean)
+          .join(' ');
+      }
       vueltasReintento++;
     }
 
