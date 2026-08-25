@@ -87,6 +87,7 @@ const GRUPOS: Grupo[] = [
       { href: '/facturas-compra', label: 'Facturas de compra', icono: 'listas' },
       { href: '/mesa-compras', label: 'Mesa de compras', icono: 'comparador' },
       { href: '/comparador', label: 'Proveedores', icono: 'comparador' },
+      { href: '/trazabilidad', label: 'Trazabilidad', icono: 'listas' },
       { href: '/analista', label: 'Analista ODB', icono: 'analista' },
       { href: '/agente', label: 'Agente IA', icono: 'agente' },
     ],

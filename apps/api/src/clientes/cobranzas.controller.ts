@@ -1,7 +1,8 @@
-import { BadRequestException, Body, Controller, Get, Inject, Param, Post, Query, Req } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Inject, Param, Post, Query, Req, Res } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
 import { Roles } from '../auth/decorators';
+import { reciboCobranzaPDF } from '../comun/documentos';
 
 // Pagos a cuenta con autorización del dueño. El circuito que pidió Juan Pablo:
 // el cliente de cuenta corriente deja un pago en la caja, el cajero lo TOMA
@@ -107,7 +108,62 @@ export class CobranzasController {
       p_id: id, p_usuario: req.usuario?.sub ?? null, p_respuesta: dto?.respuesta ?? null,
     });
     if (error) throw new BadRequestException(error.message);
+
+    // El recibo se emite ACÁ, en el momento en que el pago realmente entra a la
+    // cuenta. Los saldos quedan guardados en el documento: si mañana el cliente
+    // pide el papel de nuevo, sale idéntico al del día que pagó, aunque desde
+    // entonces haya comprado diez veces más.
+    const saldoNuevo = Number((data as any)?.saldoNuevo ?? 0);
+    const monto = Number((data as any)?.monto ?? 0);
+    await this.db.rpc('emitir_documento', {
+      p_tipo: 'recibo_cobranza',
+      p_entidad: 'cobranzas_pendientes',
+      p_entidad_id: id,
+      p_usuario: req.usuario?.sub ?? null,
+      p_datos: { monto, saldo_anterior: saldoNuevo + monto, saldo_nuevo: saldoNuevo },
+    }).then(() => null, () => null);
+
     return data;
+  }
+
+  // El recibo en papel: lo descarga el dueño para dárselo al cliente, o el
+  // repartidor para llevárselo. Folio propio, sin renumerar.
+  @Roles('cajero', 'administrativo', 'gerente', 'dueno')
+  @Get(':id/recibo')
+  async recibo(@Param('id') id: string, @Req() req: any, @Res() res: any) {
+    const { data: c } = await this.db
+      .from('cobranzas_pendientes')
+      .select('monto, medio, nota, estado, cliente:clientes(nombre, razon_social, dni, cuit), cargador:usuarios!cobranzas_pendientes_cargada_por_fkey(nombre), aprobador:usuarios!cobranzas_pendientes_resuelta_por_fkey(nombre)')
+      .eq('id', id)
+      .maybeSingle();
+    if (!c) throw new BadRequestException('No existe esa cobranza');
+    if (c.estado !== 'aprobada') throw new BadRequestException('El recibo se emite cuando el pago está aprobado');
+
+    // se emite (o se recupera) el folio, y se leen los saldos del propio documento
+    const { data: doc, error } = await this.db.rpc('emitir_documento', {
+      p_tipo: 'recibo_cobranza', p_entidad: 'cobranzas_pendientes', p_entidad_id: id,
+      p_usuario: req.usuario?.sub ?? null, p_datos: { monto: Number(c.monto) },
+    });
+    if (error) throw new BadRequestException(error.message);
+    const { data: fila } = await this.db
+      .from('documentos').select('datos').eq('tipo', 'recibo_cobranza').eq('entidad_id', id).maybeSingle();
+
+    const cli: any = (c as any).cliente ?? {};
+    const pdf = await reciboCobranzaPDF({
+      folio: (doc as any).folio,
+      emitidoEn: (doc as any).emitido_en,
+      cliente: { nombre: cli.razon_social || cli.nombre, dni: cli.dni, cuit: cli.cuit },
+      monto: Number(c.monto),
+      medio: c.medio ?? 'efectivo',
+      concepto: c.nota || 'Pago a cuenta',
+      saldoAnterior: (fila as any)?.datos?.saldo_anterior ?? null,
+      saldoNuevo: (fila as any)?.datos?.saldo_nuevo ?? null,
+      recibidoPor: (c as any).cargador?.nombre ?? null,
+      aprobadoPor: (c as any).aprobador?.nombre ?? null,
+    });
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="recibo-${id.slice(0, 8)}.pdf"`);
+    res.send(pdf);
   }
 
   @Roles('dueno')

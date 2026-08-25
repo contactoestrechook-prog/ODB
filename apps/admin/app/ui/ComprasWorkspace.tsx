@@ -1354,8 +1354,11 @@ function OrdenDetalle({ id, numero, cerrar, verFactura }: { id: string; numero: 
               <p className="text-xs uppercase tracking-wide text-black/40 mb-1">Remitos</p>
               <div className="rounded-lg border border-black/10 divide-y divide-black/5">
                 {d.remitos.map((r: any) => (
-                  <div key={r.id} className="px-3 py-1.5 text-sm text-black/75">
-                    {r.numero || 'sin número'} <span className="text-xs text-black/45">· {fecha(r.creado_en)} · {String(r.estado ?? '').replace(/_/g, ' ')}</span>
+                  <div key={r.id} className="flex items-center justify-between gap-2 px-3 py-1.5 text-sm text-black/75">
+                    <span className="min-w-0 truncate">
+                      {r.numero || 'sin número'} <span className="text-xs text-black/45">· {fecha(r.creado_en)} · {String(r.estado ?? '').replace(/_/g, ' ')}</span>
+                    </span>
+                    <a href={`/api/documento?tipo=remito&id=${r.id}`} target="_blank" rel="noreferrer" className="shrink-0 text-xs text-[#B82D25] underline">acta de recepción</a>
                   </div>
                 ))}
               </div>
@@ -1363,7 +1366,19 @@ function OrdenDetalle({ id, numero, cerrar, verFactura }: { id: string; numero: 
           )}
         </div>
       )}
-      <div className="flex justify-end pt-1"><button onClick={cerrar} className="rounded-full bg-black text-white text-sm font-medium px-5 py-2 hover:bg-black/80">Cerrar</button></div>
+      <div className="flex justify-end gap-2 pt-1">
+        {/* El papel con folio: es el que se le manda al proveedor y el que
+            después respalda el reclamo si lo que llega no coincide. */}
+        <a
+          href={`/api/documento?tipo=oc&id=${id}`}
+          target="_blank"
+          rel="noreferrer"
+          className="rounded-full border border-black/15 px-4 py-2 text-sm font-medium text-black/75 hover:bg-black/5"
+        >
+          Orden en PDF
+        </a>
+        <button onClick={cerrar} className="rounded-full bg-black text-white text-sm font-medium px-5 py-2 hover:bg-black/80">Cerrar</button>
+      </div>
     </>
   );
 }

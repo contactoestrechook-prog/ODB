@@ -20,6 +20,7 @@ const RUTAS_POR_ROL: Record<string, string[]> = {
     '/productos', // catálogo: alta de productos que llegan sin estar cargados
     '/precios', // verificador de precios del salón (equipo de mano con lector)
     '/conteo', // conteos de inventario
+    '/trazabilidad', // cadena orden → recepción → factura → pago y sus documentos
     '/cambiar-clave',
   ],
   repartidor: ['/repartidor', '/cambiar-clave'],

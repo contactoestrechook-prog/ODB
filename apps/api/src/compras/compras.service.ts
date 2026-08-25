@@ -1,6 +1,7 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
+import { ordenDeCompraPDF, remitoRecepcionPDF } from '../comun/documentos';
 import { precioDesdeCosto, margenAplicable } from './precio';
 import { normalizarAlias } from '../listas/listas.service';
 
@@ -107,6 +108,46 @@ export class ComprasService {
       }
     }
     return (data ?? []).map((o: any) => ({ ...o, firmadaPor: firmas.get(o.id) ?? null }));
+  }
+
+  // Documento formal de la orden de compra, con folio de la casa. El folio lo
+  // asigna la base y NO se renumera al reimprimir: si se emitió una vez, la
+  // segunda descarga trae el mismo papel. Eso es lo que lo hace trazable.
+  async documentoOrdenCompra(id: string, usuarioId?: string) {
+    const oc = await this.ordenDetalle(id);
+    const { data: doc, error } = await this.db.rpc('emitir_documento', {
+      p_tipo: 'orden_compra',
+      p_entidad: 'ordenes_compra',
+      p_entidad_id: id,
+      p_usuario: usuarioId ?? null,
+      p_datos: { numero: (oc as any).numero, total: (oc as any).total, proveedor: (oc as any).proveedor?.razon_social ?? null },
+    });
+    if (error) throw new BadRequestException(error.message);
+
+    const { data: emisor } = usuarioId
+      ? await this.db.from('usuarios').select('nombre').eq('id', usuarioId).maybeSingle()
+      : { data: null as any };
+
+    return ordenDeCompraPDF({
+      folio: (doc as any).folio,
+      emitidoEn: (doc as any).emitido_en,
+      numeroInterno: (oc as any).numero,
+      fecha: (oc as any).creado_en,
+      proveedor: (oc as any).proveedor ?? null,
+      sucursal: (oc as any).sucursal?.nombre ?? null,
+      condicionPago: (oc as any).condicion_pago ?? null,
+      fechaEntrega: (oc as any).fecha_entrega ?? null,
+      observaciones: (oc as any).observaciones ?? null,
+      items: ((oc as any).items ?? []).map((i: any) => ({
+        nombre: i.producto?.nombre ?? '—',
+        sku: i.producto?.sku ?? null,
+        cantidad: Number(i.cantidad),
+        costo_unitario: Number(i.costo_unitario),
+      })),
+      total: Number((oc as any).total ?? 0),
+      emitidaPor: emisor?.nombre ?? (oc as any).creador?.nombre ?? null,
+      aprobadaPor: (oc as any).firmadaPor ?? null,
+    });
   }
 
   // Detalle de una orden: qué se pidió, qué llegó y con qué papeles. Antes la
@@ -821,6 +862,68 @@ export class ComprasService {
     });
     if (error) throw new BadRequestException(error.message);
     return data;
+  }
+
+  // Acta de recepción con folio: el papel que firma el depósito contra lo que
+  // bajó del camión. Compara contra lo pedido en la OC cuando la recepción
+  // venía de una orden; si fue entrada directa, la columna "pedido" va vacía.
+  async documentoRecepcion(remitoId: string, usuarioId?: string) {
+    const { data: r } = await this.db
+      .from('remitos')
+      .select('id, numero, creado_en, oc_id, confirmado_por, proveedor:proveedores(razon_social, cuit), sucursal:sucursales(nombre)')
+      .eq('id', remitoId)
+      .maybeSingle();
+    if (!r) throw new BadRequestException('No existe ese remito');
+
+    const { data: items } = await this.db
+      .from('remitos_items')
+      .select('cantidad, producto:productos(sku, nombre)')
+      .eq('remito_id', remitoId);
+
+    // lo pedido, para poner las dos columnas al lado
+    const pedidoPorSku = new Map<string, number>();
+    if ((r as any).oc_id) {
+      const { data: oci } = await this.db
+        .from('ordenes_compra_items')
+        .select('cantidad, producto:productos(sku)')
+        .eq('oc_id', (r as any).oc_id);
+      for (const i of (oci ?? []) as any[]) {
+        if (i.producto?.sku) pedidoPorSku.set(i.producto.sku, Number(i.cantidad));
+      }
+    }
+
+    const { data: doc, error } = await this.db.rpc('emitir_documento', {
+      p_tipo: 'recepcion', p_entidad: 'remitos', p_entidad_id: remitoId,
+      p_usuario: usuarioId ?? null, p_datos: { remito: (r as any).numero, oc_id: (r as any).oc_id },
+    });
+    if (error) throw new BadRequestException(error.message);
+
+    const { data: quien } = (r as any).confirmado_por
+      ? await this.db.from('usuarios').select('nombre').eq('id', (r as any).confirmado_por).maybeSingle()
+      : { data: null as any };
+
+    let numeroOc: number | null = null;
+    if ((r as any).oc_id) {
+      const { data: oc } = await this.db.from('ordenes_compra').select('numero').eq('id', (r as any).oc_id).maybeSingle();
+      numeroOc = (oc as any)?.numero ?? null;
+    }
+
+    return remitoRecepcionPDF({
+      folio: (doc as any).folio,
+      emitidoEn: (doc as any).emitido_en,
+      numeroRemito: (r as any).numero,
+      fecha: (r as any).creado_en,
+      proveedor: (r as any).proveedor ?? null,
+      sucursal: (r as any).sucursal?.nombre ?? null,
+      ordenCompra: numeroOc,
+      items: ((items ?? []) as any[]).map((i) => ({
+        nombre: i.producto?.nombre ?? '—',
+        sku: i.producto?.sku ?? null,
+        pedido: i.producto?.sku ? (pedidoPorSku.get(i.producto.sku) ?? null) : null,
+        recibido: Number(i.cantidad),
+      })),
+      recibidoPor: quien?.nombre ?? null,
+    });
   }
 
   // ---------- recepción con pistola + cruce remito↔factura ----------

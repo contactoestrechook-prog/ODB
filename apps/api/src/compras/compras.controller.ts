@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Param, Patch, Post, Query, Req, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, Patch, Post, Query, Req, UploadedFile, UseInterceptors, Res } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { MesaComprasService } from './mesa-compras.service';
 import { ComprasService } from './compras.service';
@@ -69,6 +69,26 @@ export class ComprasController {
   @Get('compras/remarcacion')
   remarcacion(@Query('proveedorId') proveedorId: string, @Query('skus') skus: string) {
     return this.compras.remarcacionDe(proveedorId, String(skus ?? '').split(',').filter(Boolean));
+  }
+
+  // Acta de recepción en PDF: lo que realmente bajó del camión
+  @Roles('deposito', 'comprador', 'gerente', 'dueno')
+  @Get('compras/recepciones/:id/documento')
+  async documentoRecepcion(@Param('id') id: string, @Req() req: any, @Res() res: any) {
+    const pdf = await this.compras.documentoRecepcion(id, req.usuario?.sub);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="recepcion-${id.slice(0, 8)}.pdf"`);
+    res.send(pdf);
+  }
+
+  // Orden de compra en PDF, con folio, para mandarle al proveedor
+  @Roles('comprador', 'gerente', 'dueno')
+  @Get('compras/ordenes/:id/documento')
+  async documentoOc(@Param('id') id: string, @Req() req: any, @Res() res: any) {
+    const pdf = await this.compras.documentoOrdenCompra(id, req.usuario?.sub);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="orden-compra-${id.slice(0, 8)}.pdf"`);
+    res.send(pdf);
   }
 
   // detalle de UNA orden, con sus remitos y sus facturas (backoffice entra por

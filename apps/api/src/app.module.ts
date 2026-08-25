@@ -42,6 +42,7 @@ import { SyncModule } from './sync/sync.module';
 import { TiendanubeModule } from './tiendanube/tiendanube.module';
 import { AgenteModule } from './agente/agente.module';
 import { BotModule } from './bot/bot.module';
+import { DocumentosModule } from './documentos/documentos.module';
 import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
@@ -91,6 +92,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     TiendanubeModule,
     AgenteModule,
     BotModule,
+    DocumentosModule,
   ],
 })
 export class AppModule {}

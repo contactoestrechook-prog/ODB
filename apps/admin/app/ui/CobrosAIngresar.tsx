@@ -99,6 +99,14 @@ export function CobrosAIngresar({ esDueno }: { esDueno: boolean }) {
               {vista === 'pendiente' && !esDueno && (
                 <span className="shrink-0 text-[11px] text-black/40">espera aprobación</span>
               )}
+              {/* Aplicado el pago, el cliente tiene derecho a su papel: recibo
+                  con folio propio, que se puede volver a imprimir sin renumerar. */}
+              {vista === 'aprobada' && (
+                <a href={`/api/documento?tipo=recibo&id=${c.id}`} target="_blank" rel="noreferrer"
+                  className="shrink-0 rounded-full border border-black/15 px-3 py-1.5 text-xs font-medium text-black/70 hover:bg-black/5">
+                  Recibo
+                </a>
+              )}
             </div>
           ))}
         </div>
