@@ -51,6 +51,16 @@ export async function GET(req: Request) {
     params.delete('recurso');
     if (usuarioId) params.set('cargadaPor', usuarioId);
     ruta = `/compras/facturas?${params.toString()}`;
+  } else if (recurso === 'proveedores-lista') {
+    // proveedores con cuántos productos tiene cargados cada uno
+    ruta = '/compras/proveedores-lista';
+  } else if (recurso === 'catalogo-proveedor' && url.searchParams.get('proveedorId')) {
+    // lo que trae ese proveedor, con stock y sugerido de pedido
+    const params = new URLSearchParams(url.searchParams);
+    params.delete('recurso');
+    const pid = params.get('proveedorId')!;
+    params.delete('proveedorId');
+    ruta = `/compras/proveedores/${encodeURIComponent(pid)}/catalogo?${params.toString()}`;
   } else if (recurso === 'conciliacion') {
     ruta = '/compras/conciliacion';
   } else if (recurso === 'cruce') {
@@ -87,6 +97,7 @@ export async function POST(req: Request) {
     case 'rechazar': ruta = `/compras/ordenes/${d.id}/rechazar`; body = { motivo: d.motivo, usuarioId }; break;
     case 'recibir': ruta = `/compras/ordenes/${d.id}/recibir`; body = { items: d.items, usuarioId, margenPct: d.margenPct }; break;
     case 'entradaDirecta': ruta = '/compras/entrada-directa'; body = { ...d, usuarioId }; break;
+    case 'agregarALista': ruta = `/compras/proveedores/${d.proveedorId}/catalogo`; body = { sku: d.sku, codigoProveedor: d.codigoProveedor }; break;
     case 'crearProveedor': ruta = '/proveedores'; break;
     case 'editarProveedor': ruta = `/proveedores/${d.id}`; metodo = 'PATCH'; break;
     case 'factura': ruta = '/compras/facturas'; break;

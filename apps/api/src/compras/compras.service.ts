@@ -926,6 +926,131 @@ export class ComprasService {
     });
   }
 
+  // ---------- pedido a proveedor desde el celular ----------
+
+  // Lo que trae ESTE proveedor, con el stock al lado y cuánto conviene pedir.
+  // Backoffice arma el pedido caminando el depósito con el teléfono, así que
+  // por defecto solo se muestra lo que hace falta reponer: una lista de 1.400
+  // productos en un celular no la mira nadie. Con `todo` o con una búsqueda se
+  // ve el resto.
+  async catalogoProveedor(
+    proveedorId: string,
+    opciones: { sucursalId?: string; q?: string; todo?: boolean } = {},
+  ) {
+    const { data: prov } = await this.db
+      .from('proveedores').select('id, razon_social, cuit').eq('id', proveedorId).maybeSingle();
+    if (!prov) throw new BadRequestException('No existe ese proveedor');
+
+    let sucursalId = opciones.sucursalId;
+    if (!sucursalId) {
+      const { data: s } = await this.db.from('sucursales').select('id').order('nombre').limit(1).maybeSingle();
+      sucursalId = (s as any)?.id;
+    }
+
+    // la lista del proveedor puede tener miles de renglones: se pagina
+    const vinculos: any[] = [];
+    for (let desde = 0; ; desde += 1000) {
+      const { data, error } = await this.db
+        .from('proveedor_productos')
+        .select('producto_id, codigo_proveedor, ultimo_costo, margen_pct')
+        .eq('proveedor_id', proveedorId)
+        .range(desde, desde + 999);
+      if (error) throw new BadRequestException(error.message);
+      vinculos.push(...(data ?? []));
+      if ((data ?? []).length < 1000) break;
+    }
+    if (!vinculos.length) {
+      return { proveedor: prov, sucursalId, items: [], total: 0, sinLista: true };
+    }
+
+    const ids = vinculos.map((v) => v.producto_id);
+    const productos: any[] = [];
+    const stocks: any[] = [];
+    for (let i = 0; i < ids.length; i += 500) {
+      const lote = ids.slice(i, i + 500);
+      const [{ data: ps }, { data: st }] = await Promise.all([
+        this.db.from('productos').select('id, sku, nombre, activo, unidades_pack').in('id', lote),
+        this.db.from('stock').select('producto_id, cantidad, stock_minimo, punto_reposicion').in('producto_id', lote).eq('sucursal_id', sucursalId),
+      ]);
+      productos.push(...(ps ?? []));
+      stocks.push(...(st ?? []));
+    }
+    const prodDe = new Map(productos.map((p: any) => [p.id, p]));
+    const stockDe = new Map(stocks.map((s: any) => [s.producto_id, s]));
+
+    const q = (opciones.q ?? '').trim().toLowerCase();
+    let items = vinculos
+      .map((v) => {
+        const p: any = prodDe.get(v.producto_id);
+        if (!p || !p.activo) return null;
+        const st: any = stockDe.get(v.producto_id) ?? {};
+        const cantidad = Number(st.cantidad ?? 0);
+        const minimo = Number(st.stock_minimo ?? 0);
+        const reposicion = Number(st.punto_reposicion ?? 0);
+        // cuánto pedir: hasta el punto de reposición; si nadie lo cargó, hasta
+        // el doble del mínimo, que es lo que se pide a ojo igual
+        const objetivo = reposicion > 0 ? reposicion : minimo * 2;
+        const sugerido = Math.max(0, Math.ceil(objetivo - cantidad));
+        return {
+          sku: p.sku, nombre: p.nombre, unidadesPack: p.unidades_pack ?? 1,
+          codigoProveedor: v.codigo_proveedor ?? null,
+          costo: v.ultimo_costo != null ? Number(v.ultimo_costo) : null,
+          stock: cantidad, minimo, reposicion, sugerido,
+          urgente: minimo > 0 && cantidad <= minimo,
+        };
+      })
+      .filter(Boolean) as any[];
+
+    if (q) {
+      items = items.filter((i) =>
+        i.nombre.toLowerCase().includes(q) || String(i.sku).toLowerCase().includes(q) ||
+        String(i.codigoProveedor ?? '').toLowerCase().includes(q));
+    } else if (!opciones.todo) {
+      const hacenFalta = items.filter((i) => i.urgente || i.sugerido > 0);
+      // si nadie cargó mínimos, filtrar por "hace falta" deja la pantalla vacía
+      if (hacenFalta.length) items = hacenFalta;
+    }
+
+    items.sort((a, b) =>
+      Number(b.urgente) - Number(a.urgente) || b.sugerido - a.sugerido || a.nombre.localeCompare(b.nombre));
+
+    return {
+      proveedor: prov,
+      sucursalId,
+      total: items.length,
+      items: items.slice(0, 300),
+      recortado: items.length > 300,
+    };
+  }
+
+  // Sumar un producto a la lista de un proveedor: la lista nunca va a estar
+  // completa sola, y el momento en que alguien se da cuenta de que falta es
+  // justo cuando está armando el pedido.
+  async agregarAListaProveedor(proveedorId: string, sku: string, codigoProveedor?: string) {
+    const productoId = await this.productoIdPorSku(sku);
+    const { error } = await this.db.from('proveedor_productos').upsert(
+      { proveedor_id: proveedorId, producto_id: productoId, codigo_proveedor: codigoProveedor?.trim() || null, actualizado_en: new Date().toISOString() },
+      { onConflict: 'proveedor_id,producto_id' },
+    );
+    if (error) throw new BadRequestException(error.message);
+    return { ok: true };
+  }
+
+  // Proveedores con el tamaño de su lista: la pantalla del celular arranca acá.
+  async proveedoresConLista() {
+    const { data: provs, error } = await this.db
+      .from('proveedores').select('id, razon_social, cuit, activo').eq('activo', true).order('razon_social');
+    if (error) throw new BadRequestException(error.message);
+
+    const cuenta = new Map<string, number>();
+    for (let desde = 0; ; desde += 1000) {
+      const { data } = await this.db.from('proveedor_productos').select('proveedor_id').range(desde, desde + 999);
+      for (const f of (data ?? []) as any[]) cuenta.set(f.proveedor_id, (cuenta.get(f.proveedor_id) ?? 0) + 1);
+      if ((data ?? []).length < 1000) break;
+    }
+    return (provs ?? []).map((p: any) => ({ ...p, productos: cuenta.get(p.id) ?? 0 }));
+  }
+
   // ---------- recepción con pistola + cruce remito↔factura ----------
 
   // El depósito escanea lo que baja del camión: el remito digital nace con lo
@@ -1304,7 +1429,12 @@ export class ComprasService {
   // proveedor_id+producto_id). No frena la entrada si algo falla acá.
   private async aprenderVinculos(proveedorId: string, items: EntradaDirectaDto['items']) {
     try {
-      const conAlias = items.filter((i) => i.descripcionLeida || i.margenPct != null);
+      // Se aprende de TODOS los renglones, no solo de los que traen alias o
+      // remarcación. Antes, una recepción con la pistola (que no lee
+      // descripción) no dejaba rastro, y por eso la lista de productos de cada
+      // proveedor quedaba casi vacía: seis proveedores activos sin un solo
+      // producto, con mercadería suya entrando todas las semanas.
+      const conAlias = items.filter((i) => i.sku);
       if (!conAlias.length) return;
 
       const productoIds = await Promise.all(conAlias.map((i) => this.productoIdPorSku(i.sku)));

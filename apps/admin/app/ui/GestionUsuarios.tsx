@@ -4,8 +4,8 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 const ROLES: Record<string, { etiqueta: string; chip: string; descripcion: string }> = {
-  dueno: { etiqueta: 'Dueño', chip: 'bg-black text-white', descripcion: 'Acceso total, administra usuarios y firma sin límite' },
-  gerente: { etiqueta: 'Gerente', chip: 'bg-[#B82D25]/10 text-[#932A1F]', descripcion: 'Opera todo, administra el equipo, firma hasta su límite' },
+  dueno: { etiqueta: 'Dueño', chip: 'bg-black text-white', descripcion: 'Acceso total. Es el único que firma aprobaciones: órdenes de compra y de pago, cobros a cuenta, cambios de factura y de costos' },
+  gerente: { etiqueta: 'Gerente', chip: 'bg-[#B82D25]/10 text-[#932A1F]', descripcion: 'Opera todo y administra el equipo. Ve la cola de aprobaciones, pero firmar es del dueño' },
   comprador: { etiqueta: 'Comprador', chip: 'bg-amber-100 text-amber-900', descripcion: 'Compras, proveedores y Analista ODB' },
   cajero: { etiqueta: 'Cajero', chip: 'bg-sky-100 text-sky-900', descripcion: 'Ventas, caja y control de salida' },
   deposito: { etiqueta: 'Depósito', chip: 'bg-emerald-100 text-emerald-900', descripcion: 'Stock, recepción y pedidos' },

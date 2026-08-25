@@ -14,6 +14,7 @@ const RUTAS_POR_ROL: Record<string, string[]> = {
     '/facturas-compra', // carga y consulta de facturas de proveedor
     '/recepcion', // remitos y recepción de mercadería
     '/compras', // órdenes de compra, deuda con proveedores
+    '/pedido-proveedor', // armar el pedido desde el celular, con la lista de cada proveedor
     '/comparador', // proveedores y sus listas
     '/listas', // listas de precios de proveedor
     '/stock', // stock completo: existencias, ajustes, mermas, transferencias

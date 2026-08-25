@@ -84,6 +84,7 @@ const GRUPOS: Grupo[] = [
     titulo: 'Abastecimiento',
     items: [
       { href: '/compras', label: 'Compras', icono: 'compras' },
+      { href: '/pedido-proveedor', label: 'Pedido a proveedor', icono: 'compras' },
       { href: '/facturas-compra', label: 'Facturas de compra', icono: 'listas' },
       { href: '/mesa-compras', label: 'Mesa de compras', icono: 'comparador' },
       { href: '/comparador', label: 'Proveedores', icono: 'comparador' },

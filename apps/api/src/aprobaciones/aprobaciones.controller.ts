@@ -68,6 +68,13 @@ export class AprobacionesController {
         .eq('estado', 'pendiente').order('creada_en'),
     ]);
 
+    // Una consulta rota NO puede leerse como "no hay nada que firmar": esta
+    // pantalla se mira para confiar en que está todo al día. Si una falla,
+    // falla la pantalla entera y se ve el error.
+    for (const r of [ocs, ops, cobros, cambios, propuestas]) {
+      if (r.error) throw new BadRequestException(`No pude leer la cola de aprobaciones: ${r.error.message}`);
+    }
+
     const items: Pendiente[] = [];
 
     for (const o of ((ocs.data ?? []) as any[])) {

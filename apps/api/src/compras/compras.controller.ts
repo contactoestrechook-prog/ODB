@@ -71,6 +71,31 @@ export class ComprasController {
     return this.compras.remarcacionDe(proveedorId, String(skus ?? '').split(',').filter(Boolean));
   }
 
+  // ---------- pedido a proveedor (pantalla de celular de backoffice) ----------
+
+  @Roles('comprador', 'gerente', 'dueno')
+  @Get('compras/proveedores-lista')
+  proveedoresConLista() {
+    return this.compras.proveedoresConLista();
+  }
+
+  @Roles('comprador', 'gerente', 'dueno')
+  @Get('compras/proveedores/:id/catalogo')
+  catalogoProveedor(
+    @Param('id') id: string,
+    @Query('sucursalId') sucursalId?: string,
+    @Query('q') q?: string,
+    @Query('todo') todo?: string,
+  ) {
+    return this.compras.catalogoProveedor(id, { sucursalId, q, todo: todo === '1' });
+  }
+
+  @Roles('comprador', 'gerente', 'dueno')
+  @Post('compras/proveedores/:id/catalogo')
+  agregarAListaProveedor(@Param('id') id: string, @Body() b: { sku: string; codigoProveedor?: string }) {
+    return this.compras.agregarAListaProveedor(id, b?.sku, b?.codigoProveedor);
+  }
+
   // Orden de pago en PDF: la autorización escrita para que salga la plata
   @Roles('comprador', 'gerente', 'dueno')
   @Get('compras/ordenes-pago/:id/documento')
