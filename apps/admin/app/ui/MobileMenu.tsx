@@ -53,6 +53,7 @@ export function MobileMenu({ grupos, iconos, activo, titulo }: { grupos: Grupo[]
                 </div>
               ))}
             </nav>
+            <a href="/manual" className="block border-t border-white/10 px-6 py-4 text-[13px] text-white/50 hover:text-white">Manual del sistema</a>
             <div className="border-t border-white/10 px-3 py-2"><InstalarApp /></div>
             <a href="/api/salir" className="px-6 py-4 border-t border-white/10 text-[13px] text-white/50 hover:text-white">Cerrar sesión</a>
           </aside>

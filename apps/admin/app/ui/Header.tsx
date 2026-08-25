@@ -261,6 +261,17 @@ export async function Header({ activo, sinCabecera }: { activo: string; sinCabec
         </nav>
 
         <div className="px-3 py-4 border-t border-white/10 space-y-0.5">
+          {/* El manual va en el pie y no en un grupo: lo puede abrir cualquiera
+              que entre, sin importar el rol, y siempre está en el mismo lugar. */}
+          <Link
+            href="/manual"
+            className="flex items-center gap-3 rounded-lg px-3 py-2 text-[13px] text-white/50 hover:text-white hover:bg-white/5"
+          >
+            <svg viewBox="0 0 24 24" className="w-[18px] h-[18px]" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M4 5.5A1.5 1.5 0 015.5 4H10a2 2 0 012 2v13a2 2 0 00-2-2H5.5A1.5 1.5 0 014 15.5zM20 5.5A1.5 1.5 0 0018.5 4H14a2 2 0 00-2 2v13a2 2 0 012-2h4.5a1.5 1.5 0 001.5-1.5z" />
+            </svg>
+            Manual del sistema
+          </Link>
           <Link
             href="/cambiar-clave"
             className="flex items-center gap-3 rounded-lg px-3 py-2 text-[13px] text-white/50 hover:text-white hover:bg-white/5"

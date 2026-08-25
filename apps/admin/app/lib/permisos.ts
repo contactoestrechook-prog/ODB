@@ -22,9 +22,10 @@ const RUTAS_POR_ROL: Record<string, string[]> = {
     '/precios', // verificador de precios del salón (equipo de mano con lector)
     '/conteo', // conteos de inventario
     '/trazabilidad', // cadena orden → recepción → factura → pago y sus documentos
+    '/manual', // el manual lo abre cualquiera
     '/cambiar-clave',
   ],
-  repartidor: ['/repartidor', '/cambiar-clave'],
+  repartidor: ['/repartidor', '/manual', '/cambiar-clave'],
   // El menú tiene que ofrecer solo lo que el rol puede ABRIR de verdad. Antes,
   // un cajero veía Contable, Libro IVA, Estadísticas y Mercado Pago en el menú
   // y al entrar recibía "No pude consultar la API": el API ya lo bloqueaba
@@ -39,6 +40,7 @@ const RUTAS_POR_ROL: Record<string, string[]> = {
     '/precios', // verificador de precios
     '/productos', // catálogo (consulta)
     '/cheques', // cheques que recibe en el mostrador
+    '/manual', // el manual lo abre cualquiera
     '/cambiar-clave',
   ],
   deposito: [
@@ -49,6 +51,7 @@ const RUTAS_POR_ROL: Record<string, string[]> = {
     '/conteo',
     '/precios',
     '/productos',
+    '/manual', // el manual lo abre cualquiera
     '/cambiar-clave',
   ],
 };
