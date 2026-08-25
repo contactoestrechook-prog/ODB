@@ -82,6 +82,20 @@ export function RespondeWorkspace({ resumenInicial, conversacionesInicial, sinCl
     setAvisoEnvio('El bot vuelve a atender esta conversación.');
   }
 
+  // "Es de la casa": el bot no le contesta más a ese número. Hace falta a mano
+  // porque WhatsApp dejó de mandar el teléfono del remitente y manda un
+  // identificador, con el que no se puede reconocer al equipo solo.
+  async function marcarEquipo() {
+    if (!sel) return;
+    if (!confirm(`El bot va a dejar de contestarle a ${sel.telefono}. ¿Es alguien del local?`)) return;
+    const r = await fetch('/api/responde', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ accion: 'equipo', telefono: sel.telefono, esEquipo: true }),
+    });
+    setAvisoEnvio(r.ok ? 'Marcado como gente de la casa: el bot no le contesta más.' : 'No se pudo marcar.');
+  }
+
   return (
     <div className="space-y-4">
       {/* identidad RESPONDE */}
@@ -213,9 +227,14 @@ export function RespondeWorkspace({ resumenInicial, conversacionesInicial, sinCl
                       {enviando ? 'Enviando…' : 'Enviar'}
                     </button>
                   </div>
-                  <button onClick={devolverAlBot} className="text-xs text-black/45 underline">
-                    Listo, que siga el bot
-                  </button>
+                  <div className="flex flex-wrap items-center gap-4">
+                    <button onClick={devolverAlBot} className="text-xs text-black/45 underline">
+                      Listo, que siga el bot
+                    </button>
+                    <button onClick={marcarEquipo} className="text-xs text-black/45 underline">
+                      Es alguien del local: que el bot no le conteste
+                    </button>
+                  </div>
                 </div>
               </>
             )}
