@@ -25,6 +25,9 @@ const cola10 = (t: string) => soloDigitos(t).slice(-10);
 // - mensajes por teléfono por hora: control de abuso y de costo de Opus
 // - topes del pedido por WhatsApp: evita "reservas" de stock maliciosas
 const mensajesHora = () => Number(process.env.ODB_BOT_MENSAJES_HORA ?? 30);
+// Cuánto dura "la charla en curso". Pasado esto, un saludo abre una charla
+// nueva y se contesta como corresponde.
+const VENTANA_CHARLA_VIVA = 40 * 60_000;
 const maxRenglonesBot = () => Number(process.env.ODB_BOT_MAX_RENGLONES ?? 15);
 const maxUnidadesBot = () => Number(process.env.ODB_BOT_MAX_UNIDADES ?? 60);
 
@@ -220,7 +223,7 @@ export class BotService {
     // 2) memoria de conversación (solo texto plano user/assistant, sin bloques internos)
     const { data: conv } = await this.db
       .from('bot_conversaciones')
-      .select('mensajes, bot_activo, derivada_motivo, derivacion_vence_en, atendida_por, acuse_derivacion_en')
+      .select('mensajes, bot_activo, derivada_motivo, derivacion_vence_en, atendida_por, acuse_derivacion_en, actualizado_en')
       .eq('linea', linea)
       .eq('telefono', telefono)
       .maybeSingle();
@@ -341,8 +344,19 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
       // cierres, y cualquier cierre sin pregunta pendiente, no se responden.
       if (!(botDejoPregunta && RE_SI_NO.test(texto.trim()))) return callar('cierre de la charla');
     }
-    // "hola" suelto en una charla que ya venía: están por escribir lo que quieren
-    if (/^(hola+|buenas+|buen d[ií]a|buenas tardes|buenas noches)[\s!.,]*$/i.test(texto.trim()) && historial.length > 0) {
+    // "hola" suelto MIENTRAS la charla sigue viva: están por escribir lo que
+    // quieren, y contestarles "¿en qué puedo ayudarlo?" es pisarlos.
+    //
+    // Pero la charla tiene que estar VIVA de verdad. Antes alcanzaba con que el
+    // número hubiera escrito alguna vez, y como el historial no vence, cualquiera
+    // que ya hubiera hablado con el bot —aunque fuera hace una semana— se quedaba
+    // sin respuesta al saludar. Un "Hola" después de un rato largo no es alguien
+    // que sigue una charla: es alguien que la empieza.
+    const desdeElUltimoMensaje = conv?.actualizado_en
+      ? Date.now() - new Date(conv.actualizado_en as string).getTime()
+      : Infinity;
+    const charlaViva = desdeElUltimoMensaje < VENTANA_CHARLA_VIVA;
+    if (/^(hola+|buenas+|buen d[ií]a|buenas tardes|buenas noches)[\s!.,]*$/i.test(texto.trim()) && historial.length > 0 && charlaViva) {
       return callar('saludo en charla ya abierta');
     }
 

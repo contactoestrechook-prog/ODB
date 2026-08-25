@@ -118,6 +118,45 @@ describe('BotService.charla (robustez del agente)', () => {
     expect(orden).toHaveLength(3);
   });
 
+  // El "hola" suelto se calla solo mientras la charla sigue viva. Antes bastaba
+  // con que el número hubiera escrito alguna vez —y el historial no vence—, así
+  // que cualquiera que ya hubiera hablado con el bot se quedaba sin respuesta al
+  // saludar, para siempre.
+  it('no contesta un "hola" suelto si la charla sigue viva', async () => {
+    const db = dbFalsa({
+      bot_conversaciones: {
+        data: {
+          mensajes: [{ role: 'user', content: 'hola' }, { role: 'assistant', content: 'Buenas tardes.' }],
+          actualizado_en: new Date(Date.now() - 5 * 60_000).toISOString(),
+        },
+        error: null,
+      },
+    });
+    const { s } = servicio(db);
+    const crear = jest.fn();
+    (s as any).claude = { messages: { create: crear } };
+    const r: any = await s.charla({ linea: 'pedidos', telefono: '777', mensaje: 'Hola' });
+    expect(crear).not.toHaveBeenCalled();
+    expect(r.respuesta ?? '').toBe('');
+  });
+
+  it('SÍ contesta un "hola" cuando la última charla quedó vieja', async () => {
+    const db = dbFalsa({
+      bot_conversaciones: {
+        data: {
+          mensajes: [{ role: 'user', content: 'hola' }, { role: 'assistant', content: 'Buenas tardes.' }],
+          actualizado_en: new Date(Date.now() - 6 * 60 * 60_000).toISOString(),
+        },
+        error: null,
+      },
+    });
+    const { s } = servicio(db);
+    const crear = jest.fn().mockResolvedValue(respuestaClaude('Buenas tardes. ¿En qué lo puedo ayudar?'));
+    (s as any).claude = { messages: { create: crear } };
+    await s.charla({ linea: 'pedidos', telefono: '888', mensaje: 'Hola' });
+    expect(crear).toHaveBeenCalled();
+  });
+
   it('acumula tokens del mensaje en la conversación', async () => {
     const db = dbFalsa({ bot_conversaciones: { data: { mensajes: [], tokens: 1000 }, error: null } });
     const { s } = servicio(db);
