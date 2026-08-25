@@ -8,7 +8,7 @@ import BotSimulador from './BotSimulador';
 // en vivo. El cerebro es el mismo bot que atiende pedidos y proveedores.
 const fechaHora = (v?: string | null) => (v ? new Date(v).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—');
 
-export function RespondeWorkspace({ resumenInicial, conversacionesInicial, sinClave }: { resumenInicial: any; conversacionesInicial: any[]; sinClave?: boolean }) {
+export function RespondeWorkspace({ resumenInicial, conversacionesInicial, tokenResponde }: { resumenInicial: any; conversacionesInicial: any[]; tokenResponde?: string | null }) {
   const [tab, setTab] = useState<'app' | 'bandeja' | 'probar'>('app');
   const [resumen, setResumen] = useState<any>(resumenInicial ?? {});
   const [convs, setConvs] = useState<any[]>(conversacionesInicial ?? []);
@@ -131,10 +131,10 @@ export function RespondeWorkspace({ resumenInicial, conversacionesInicial, sinCl
           {/* La app RESPONDE tal cual está desplegada (misma versión, mismo backend
               de MetoGroup y mismo login): servida desde este panel para poder
               empotrarla. WhatsApp real: chats, difusiones, programados, contactos. */}
-          {/* con la key configurada en el servidor entra derecho: el que ya está
-              logueado en ODB no tiene por qué ver otro cartel de contraseña */}
+          {/* embed + token del tenant: entra derecho, sin pedir clave. Es el
+              mismo camino que usa /whatsapp. */}
           <iframe
-            src={sinClave ? '/responde-app.html?key=odb' : '/responde-app.html'}
+            src={tokenResponde ? `/responde-app.html?embed=1&token=${encodeURIComponent(tokenResponde)}` : '/responde-app.html'}
             title="RESPONDE · MetoGroup"
             className="w-full border-0"
             style={{ height: 'calc(100vh - 290px)', minHeight: 480 }}
