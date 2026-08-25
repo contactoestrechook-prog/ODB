@@ -22,6 +22,11 @@ const L = 50;
 const R = W - 50;
 
 const pesos = (n: any) => '$ ' + Math.round(Number(n) || 0).toLocaleString('es-AR');
+// En un papel formal el CUIT va con guiones; en la base viene como venga
+const cuitFmt = (c?: string | null) => {
+  const d = String(c ?? '').replace(/\D/g, '');
+  return d.length === 11 ? `${d.slice(0, 2)}-${d.slice(2, 10)}-${d.slice(10)}` : (c || '');
+};
 const fecha = (d?: string | Date | null) =>
   d ? new Date(d).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '—';
 
@@ -73,7 +78,7 @@ export function ordenDeCompraPDF(d: DatosOrdenCompra): Promise<Buffer> {
     let y = 126;
     doc.fillColor(HUMO).font('Helvetica-Bold').fontSize(8).text('PROVEEDOR', L, y, { characterSpacing: 1.5 });
     doc.fillColor(TINTA).font('Helvetica-Bold').fontSize(13).text(d.proveedor?.razon_social ?? '—', L, y + 13);
-    const datosProv = [d.proveedor?.cuit ? `CUIT ${d.proveedor.cuit}` : null, d.proveedor?.telefono, d.proveedor?.email]
+    const datosProv = [d.proveedor?.cuit ? `CUIT ${cuitFmt(d.proveedor.cuit)}` : null, d.proveedor?.telefono, d.proveedor?.email]
       .filter(Boolean).join(' · ');
     if (datosProv) doc.fillColor(HUMO).font('Helvetica').fontSize(9).text(datosProv, L, y + 31);
 
@@ -165,7 +170,7 @@ export function reciboCobranzaPDF(d: DatosRecibo): Promise<Buffer> {
     let y = 132;
     doc.fillColor(HUMO).font('Helvetica-Bold').fontSize(8).text('RECIBIMOS DE', L, y, { characterSpacing: 1.5 });
     doc.fillColor(TINTA).font('Helvetica-Bold').fontSize(15).text(d.cliente?.nombre ?? '—', L, y + 14);
-    const doc2 = [d.cliente?.cuit ? `CUIT ${d.cliente.cuit}` : null, d.cliente?.dni ? `DNI ${d.cliente.dni}` : null]
+    const doc2 = [d.cliente?.cuit ? `CUIT ${cuitFmt(d.cliente.cuit)}` : null, d.cliente?.dni ? `DNI ${d.cliente.dni}` : null]
       .filter(Boolean).join(' · ');
     if (doc2) doc.fillColor(HUMO).font('Helvetica').fontSize(9).text(doc2, L, y + 34);
 
@@ -241,7 +246,7 @@ export function remitoRecepcionPDF(d: DatosRemito): Promise<Buffer> {
     let y = 126;
     doc.fillColor(HUMO).font('Helvetica-Bold').fontSize(8).text('RECIBIDO DE', L, y, { characterSpacing: 1.5 });
     doc.fillColor(TINTA).font('Helvetica-Bold').fontSize(13).text(d.proveedor?.razon_social ?? '—', L, y + 13);
-    if (d.proveedor?.cuit) doc.fillColor(HUMO).font('Helvetica').fontSize(9).text(`CUIT ${d.proveedor.cuit}`, L, y + 31);
+    if (d.proveedor?.cuit) doc.fillColor(HUMO).font('Helvetica').fontSize(9).text(`CUIT ${cuitFmt(d.proveedor.cuit)}`, L, y + 31);
 
     const dchaX = 340;
     const cond: [string, string][] = [
