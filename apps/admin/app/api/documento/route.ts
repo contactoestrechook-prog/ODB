@@ -2,13 +2,15 @@ import { cookies } from 'next/headers';
 
 const API = process.env.API_URL ?? 'http://localhost:3001';
 
-// Papeles con folio de la casa (orden de compra, recibo, remito de recepción).
+// Papeles con folio de la casa (orden de compra, orden de pago, recibo, acta
+// de recepción).
 // Salen en PDF desde la API y pasan derecho al navegador: se abren en una
 // pestaña, se imprimen o se mandan por mail sin descargar nada raro.
 const RUTAS: Record<string, (id: string) => string> = {
   oc: (id) => `/compras/ordenes/${encodeURIComponent(id)}/documento`,
   recibo: (id) => `/cobranzas/${encodeURIComponent(id)}/recibo`,
   remito: (id) => `/compras/recepciones/${encodeURIComponent(id)}/documento`,
+  op: (id) => `/compras/ordenes-pago/${encodeURIComponent(id)}/documento`,
 };
 
 export async function GET(req: Request) {

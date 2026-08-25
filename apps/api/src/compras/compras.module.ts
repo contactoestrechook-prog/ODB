@@ -9,5 +9,7 @@ import { ListasModule } from '../listas/listas.module';
   imports: [ListasModule],
   controllers: [ComprasController],
   providers: [MesaComprasService, ComprasService, supabaseProvider],
+  // la bandeja única de aprobaciones despacha a estos mismos circuitos
+  exports: [ComprasService, MesaComprasService],
 })
 export class ComprasModule {}

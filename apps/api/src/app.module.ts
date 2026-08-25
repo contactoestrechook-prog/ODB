@@ -43,6 +43,7 @@ import { TiendanubeModule } from './tiendanube/tiendanube.module';
 import { AgenteModule } from './agente/agente.module';
 import { BotModule } from './bot/bot.module';
 import { DocumentosModule } from './documentos/documentos.module';
+import { AprobacionesModule } from './aprobaciones/aprobaciones.module';
 import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
@@ -93,6 +94,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     AgenteModule,
     BotModule,
     DocumentosModule,
+    AprobacionesModule,
   ],
 })
 export class AppModule {}

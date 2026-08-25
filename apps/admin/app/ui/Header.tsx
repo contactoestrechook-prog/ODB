@@ -108,6 +108,8 @@ const GRUPOS: Grupo[] = [
   {
     titulo: 'Dirección',
     items: [
+      // Primero de la lista a propósito: es la cola que frena a todo el resto.
+      { href: '/aprobaciones', label: 'Aprobaciones', icono: 'conciliacion' },
       { href: '/estadisticas', label: 'Estadísticas', icono: 'estadisticas' },
       { href: '/mercadopago', label: 'Mercado Pago', icono: 'mercadopago' },
       { href: '/tarjetas', label: 'Tarjetas', icono: 'tarjetas' },
@@ -194,17 +196,23 @@ export async function Header({ activo, sinCabecera }: { activo: string; sinCabec
   const rol = rolDesdeToken((await cookies()).get('odb_token')?.value);
   const grupos = GRUPOS.map((g) => ({ ...g, items: g.items.filter((i) => puedeVer(rol, i.href)) })).filter((g) => g.items.length > 0);
 
-  // Cobros esperando aprobación: van con NÚMERO en el menú, no como alerta.
-  // Hay 124 alertas sin leer en el panel: un aviso que nadie mira no protege
-  // nada, y de esto depende que la plata que trae el repartidor se aplique.
+  // Lo que espera firma va con NÚMERO en el menú, no como alerta. Hay 124
+  // alertas sin leer en el panel: un aviso que nadie mira no protege nada, y de
+  // esto dependen la plata que trae el repartidor y los pedidos a proveedores.
+  let porFirmar = 0;
   let cobrosPendientes = 0;
   if (rol === 'dueno' || rol === 'gerente') {
     try {
-      const r = await apiFetch('/cobranzas?estado=pendiente');
-      if (r.ok) cobrosPendientes = ((await r.json()) as any[]).length;
+      const r = await apiFetch('/aprobaciones');
+      if (r.ok) {
+        const d = await r.json();
+        porFirmar = Number(d?.total ?? 0);
+        cobrosPendientes = Number(d?.porTipo?.cobranza ?? 0);
+      }
     } catch { /* el menú nunca se cae por el contador */ }
   }
-  const pendientesDe = (href: string) => (href === '/clientes' ? cobrosPendientes : 0);
+  const pendientesDe = (href: string) =>
+    href === '/aprobaciones' ? porFirmar : href === '/clientes' ? cobrosPendientes : 0;
   return (
     <>
       {/* ---- barra lateral ---- */}
@@ -239,7 +247,7 @@ export async function Header({ activo, sinCabecera }: { activo: string; sinCabec
                     {pendientesDe(i.href) > 0 && (
                       <span
                         className="rounded-full bg-[#B82D25] px-2 py-0.5 text-[11px] font-semibold text-white"
-                        title={`${pendientesDe(i.href)} cobro(s) esperando tu aprobación`}
+                        title={`${pendientesDe(i.href)} esperando tu aprobación`}
                       >
                         {pendientesDe(i.href)}
                       </span>

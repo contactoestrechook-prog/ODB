@@ -12,8 +12,12 @@ const cuando = (s?: string | null) =>
 
 const TIPOS: Record<string, string> = {
   orden_compra: 'Orden de compra',
+  orden_pago: 'Orden de pago',
   recibo_cobranza: 'Recibo',
   recepcion: 'Acta de recepción',
+};
+const RUTA_PDF: Record<string, string> = {
+  orden_compra: 'oc', orden_pago: 'op', recibo_cobranza: 'recibo', recepcion: 'remito',
 };
 
 type Huecos = {
@@ -66,7 +70,7 @@ export function Trazabilidad() {
     },
     {
       clave: 'sinConciliar', titulo: 'Facturas sin cruzar contra el remito',
-      porque: 'Llegó la mercadería y llegó la factura, pero nadie verificó que digan lo mismo.',
+      porque: 'Llegó la mercadería y llegó la factura, pero nadie verificó que digan lo mismo. Se resuelve en Conciliación.',
       linea: (x) => `Remito ${x.numero || 's/n'} · ${x.proveedor ?? '—'} · hace ${x.dias} días`,
     },
     {
@@ -158,7 +162,7 @@ export function Trazabilidad() {
                     <p className="text-[11px] text-black/45">{cuando(d.emitido_en)} · {d.emitidoPor ?? '—'}</p>
                   </div>
                   <a
-                    href={`/api/documento?tipo=${d.tipo === 'orden_compra' ? 'oc' : d.tipo === 'recibo_cobranza' ? 'recibo' : 'remito'}&id=${d.entidad_id}`}
+                    href={`/api/documento?tipo=${RUTA_PDF[d.tipo] ?? 'oc'}&id=${d.entidad_id}`}
                     target="_blank" rel="noreferrer"
                     className="shrink-0 rounded-full border border-black/15 px-3 py-1 text-xs text-black/70 hover:bg-black/5">
                     Ver PDF

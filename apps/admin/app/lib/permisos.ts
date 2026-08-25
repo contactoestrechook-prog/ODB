@@ -74,9 +74,17 @@ export function landingDe(rol?: string | null): string {
 // conversaciones completas de los clientes.
 const RUTAS_SOLO_DUENO = ['/whatsapp', '/responde'];
 
+// La cola de firmas la mira dirección. Un comprador que la viera solo se
+// llevaría un 403 del API al entrar: el menú tiene que ofrecer lo que se puede
+// abrir de verdad.
+const RUTAS_DIRECCION = ['/aprobaciones'];
+
 export function puedeVer(rol: string | null | undefined, pathname: string): boolean {
   if (RUTAS_SOLO_DUENO.some((r) => pathname === r || pathname.startsWith(r + '/'))) {
     return rol === 'dueno';
+  }
+  if (RUTAS_DIRECCION.some((r) => pathname === r || pathname.startsWith(r + '/'))) {
+    return rol === 'dueno' || rol === 'gerente';
   }
   const permitidas = rutasPermitidas(rol);
   if (!permitidas) return true;

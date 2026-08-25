@@ -71,6 +71,16 @@ export class ComprasController {
     return this.compras.remarcacionDe(proveedorId, String(skus ?? '').split(',').filter(Boolean));
   }
 
+  // Orden de pago en PDF: la autorización escrita para que salga la plata
+  @Roles('comprador', 'gerente', 'dueno')
+  @Get('compras/ordenes-pago/:id/documento')
+  async documentoOp(@Param('id') id: string, @Req() req: any, @Res() res: any) {
+    const pdf = await this.compras.documentoOrdenPago(id, req.usuario?.sub);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="orden-pago-${id.slice(0, 8)}.pdf"`);
+    res.send(pdf);
+  }
+
   // Acta de recepción en PDF: lo que realmente bajó del camión
   @Roles('deposito', 'comprador', 'gerente', 'dueno')
   @Get('compras/recepciones/:id/documento')
@@ -271,20 +281,20 @@ export class ComprasController {
 
   @Roles('dueno')
   @Post('compras/ordenes-pago/:id/aprobar')
-  aprobarOP(@Param('id') id: string, @Body() dto: any) {
-    return this.compras.aprobarOrdenPago(id, dto);
+  aprobarOP(@Param('id') id: string, @Body() dto: any, @Req() req: any) {
+    return this.compras.aprobarOrdenPago(id, { ...dto, usuarioId: req.usuario?.sub });
   }
 
   @Roles('dueno')
   @Post('compras/ordenes-pago/:id/rechazar')
-  rechazarOP(@Param('id') id: string, @Body() dto: any) {
-    return this.compras.rechazarOrdenPago(id, dto);
+  rechazarOP(@Param('id') id: string, @Body() dto: any, @Req() req: any) {
+    return this.compras.rechazarOrdenPago(id, { ...dto, usuarioId: req.usuario?.sub });
   }
 
   @Roles('gerente', 'dueno')
   @Post('compras/ordenes-pago/:id/pagar')
-  pagarOP(@Param('id') id: string, @Body() dto: any) {
-    return this.compras.pagarOrdenPago(id, dto);
+  pagarOP(@Param('id') id: string, @Body() dto: any, @Req() req: any) {
+    return this.compras.pagarOrdenPago(id, { ...dto, usuarioId: req.usuario?.sub });
   }
 
   @Roles('deposito', 'comprador', 'gerente', 'dueno')
@@ -299,16 +309,19 @@ export class ComprasController {
     return this.compras.crear(dto);
   }
 
+  // Quién aprueba sale del TOKEN, nunca del cuerpo del pedido. Una firma que
+  // el cliente puede elegir no es una firma: el papel diría "aprobada por Juan
+  // Pablo" porque alguien escribió su id, no porque él haya entrado.
   @Roles('dueno')
   @Post('compras/ordenes/:id/aprobar')
-  aprobar(@Param('id') id: string, @Body() dto: AprobarDto) {
-    return this.compras.aprobar(id, dto);
+  aprobar(@Param('id') id: string, @Body() dto: AprobarDto, @Req() req: any) {
+    return this.compras.aprobar(id, { ...dto, usuarioId: req.usuario?.sub });
   }
 
   @Roles('dueno')
   @Post('compras/ordenes/:id/rechazar')
-  rechazar(@Param('id') id: string, @Body() dto: any) {
-    return this.compras.rechazar(id, dto);
+  rechazar(@Param('id') id: string, @Body() dto: any, @Req() req: any) {
+    return this.compras.rechazar(id, { ...dto, usuarioId: req.usuario?.sub });
   }
 
   @Roles('deposito', 'gerente', 'dueno')

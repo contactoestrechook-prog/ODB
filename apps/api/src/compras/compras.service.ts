@@ -1,7 +1,7 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
-import { ordenDeCompraPDF, remitoRecepcionPDF } from '../comun/documentos';
+import { ordenDeCompraPDF, remitoRecepcionPDF, ordenDePagoPDF } from '../comun/documentos';
 import { precioDesdeCosto, margenAplicable } from './precio';
 import { normalizarAlias } from '../listas/listas.service';
 
@@ -1185,6 +1185,55 @@ export class ComprasService {
     const { error } = await this.db.rpc('aprobar_op_panel', { p_op: id, p_usuario: dto.usuarioId ?? null });
     if (error) throw new BadRequestException(this.traducirError(error.message));
     return { aprobada: true };
+  }
+
+  // Documento de la orden de pago, con folio. Se puede sacar antes de pagar
+  // (para que el dueño firme el papel) y después (como constancia de lo pagado);
+  // el folio es el mismo las dos veces.
+  async documentoOrdenPago(id: string, usuarioId?: string) {
+    const { data: op } = await this.db
+      .from('ordenes_pago')
+      .select('id, numero, total, medio_pago, vencimiento, observaciones, pagada_en, creada_por, aprobada_por, proveedor:proveedores(razon_social)')
+      .eq('id', id)
+      .maybeSingle();
+    if (!op) throw new BadRequestException('No existe esa orden de pago');
+
+    const { data: items } = await this.db
+      .from('ordenes_pago_items')
+      .select('monto, factura:facturas_proveedor(numero, monto, fecha_emision, creado_en)')
+      .eq('orden_pago_id', id);
+
+    const { data: doc, error } = await this.db.rpc('emitir_documento', {
+      p_tipo: 'orden_pago', p_entidad: 'ordenes_pago', p_entidad_id: id,
+      p_usuario: usuarioId ?? null, p_datos: { numero: (op as any).numero, total: (op as any).total },
+    });
+    if (error) throw new BadRequestException(error.message);
+
+    const ids = [(op as any).creada_por, (op as any).aprobada_por].filter(Boolean);
+    const { data: gente } = ids.length
+      ? await this.db.from('usuarios').select('id, nombre').in('id', ids)
+      : { data: [] as any[] };
+    const nombre = (uid?: string | null) => ((gente ?? []) as any[]).find((u) => u.id === uid)?.nombre ?? null;
+
+    return ordenDePagoPDF({
+      folio: (doc as any).folio,
+      emitidoEn: (doc as any).emitido_en,
+      numeroInterno: (op as any).numero,
+      proveedor: (op as any).proveedor?.razon_social ?? null,
+      medioPago: (op as any).medio_pago ?? null,
+      vencimiento: (op as any).vencimiento ?? null,
+      observaciones: (op as any).observaciones ?? null,
+      pagadaEn: (op as any).pagada_en ?? null,
+      facturas: ((items ?? []) as any[]).map((i) => ({
+        numero: i.factura?.numero ?? '—',
+        fecha: i.factura?.fecha_emision ?? i.factura?.creado_en ?? null,
+        total: Number(i.factura?.monto ?? 0),
+        imputado: Number(i.monto ?? 0),
+      })),
+      total: Number((op as any).total ?? 0),
+      pedidaPor: nombre((op as any).creada_por),
+      aprobadaPor: nombre((op as any).aprobada_por),
+    });
   }
 
   // 3) Rechazar OP — devuelve las facturas a pendiente.

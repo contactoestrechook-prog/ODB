@@ -308,3 +308,93 @@ export function remitoRecepcionPDF(d: DatosRemito): Promise<Buffer> {
     doc.end();
   });
 }
+
+export type DatosOrdenPago = {
+  folio: string;
+  emitidoEn?: string;
+  numeroInterno: number | string;
+  proveedor?: string | null;
+  medioPago?: string | null;
+  vencimiento?: string | null;
+  observaciones?: string | null;
+  facturas: { numero: string; fecha?: string | null; total: number; imputado: number }[];
+  total: number;
+  pedidaPor?: string | null;
+  aprobadaPor?: string | null;
+  pagadaEn?: string | null;
+};
+
+// Orden de pago: la autorización escrita para que salga plata de la casa.
+// Es el documento que más importa de los cuatro, porque es el único que mueve
+// dinero hacia afuera. Dice qué facturas se cancelan, por cuánto, con qué
+// medio, quién lo pidió y quién lo firmó.
+export function ordenDePagoPDF(d: DatosOrdenPago): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ size: 'A4', margin: 0 });
+    const trozos: Buffer[] = [];
+    doc.on('data', (c) => trozos.push(c as Buffer));
+    doc.on('end', () => resolve(Buffer.concat(trozos)));
+    doc.on('error', reject);
+
+    encabezado(doc, 'ORDEN DE PAGO', d.folio, d.emitidoEn);
+
+    let y = 126;
+    doc.fillColor(HUMO).font('Helvetica-Bold').fontSize(8).text('PAGAR A', L, y, { characterSpacing: 1.5 });
+    doc.fillColor(TINTA).font('Helvetica-Bold').fontSize(13).text(d.proveedor ?? 'Varios proveedores', L, y + 13);
+
+    const dchaX = 340;
+    const cond: [string, string][] = [
+      ['Orden interna', `#${d.numeroInterno}`],
+      ['Medio de pago', d.medioPago ?? 'transferencia'],
+      ['Vencimiento', d.vencimiento ? fecha(d.vencimiento) : '—'],
+      ['Estado', d.pagadaEn ? `pagada ${fecha(d.pagadaEn)}` : 'autorizada, sin pagar'],
+    ];
+    let yc = y;
+    for (const [k, v] of cond) {
+      doc.fillColor(HUMO).font('Helvetica').fontSize(8).text(k, dchaX, yc, { width: 110 });
+      doc.fillColor(TINTA).font('Helvetica-Bold').fontSize(9).text(v, dchaX + 100, yc - 1, { width: R - dchaX - 100, align: 'right' });
+      yc += 15;
+    }
+
+    y = Math.max(y + 46, yc + 10);
+    doc.rect(L, y, R - L, 22).fill('#F3EFE7');
+    doc.fillColor(HUMO).font('Helvetica-Bold').fontSize(8);
+    doc.text('FACTURA', L + 10, y + 7);
+    doc.text('FECHA', L + 260, y + 7, { width: 70, align: 'right' });
+    doc.text('TOTAL', L + 340, y + 7, { width: 75, align: 'right' });
+    doc.text('SE PAGA', L + 425, y + 7, { width: R - L - 435, align: 'right' });
+    y += 22;
+
+    for (const f of d.facturas) {
+      if (y > 690) { doc.addPage({ size: 'A4', margin: 0 }); y = 60; }
+      const parcial = Number(f.imputado) < Number(f.total);
+      doc.fillColor(TINTA).font('Helvetica').fontSize(9.5).text(f.numero, L + 10, y + 6, { width: 245, ellipsis: true });
+      doc.text(f.fecha ? fecha(f.fecha) : '—', L + 260, y + 6, { width: 70, align: 'right' });
+      doc.text(pesos(f.total), L + 340, y + 6, { width: 75, align: 'right' });
+      doc.fillColor(parcial ? ROJO : TINTA).font('Helvetica-Bold')
+        .text(pesos(f.imputado), L + 425, y + 6, { width: R - L - 435, align: 'right' });
+      y += 22;
+      doc.moveTo(L, y).lineTo(R, y).lineWidth(0.5).strokeColor(LINEA).stroke();
+    }
+
+    y += 12;
+    doc.rect(L + 300, y, R - L - 300, 34).fill(NEGRO);
+    doc.fillColor('#FFFFFF').font('Helvetica-Bold').fontSize(10).text('TOTAL A PAGAR', L + 312, y + 12);
+    doc.fontSize(14).text(pesos(d.total), L + 300, y + 9, { width: R - L - 312, align: 'right' });
+    y += 46;
+
+    if (d.observaciones) {
+      doc.fillColor(HUMO).font('Helvetica-Bold').fontSize(8).text('OBSERVACIONES', L, y, { characterSpacing: 1.2 });
+      doc.fillColor(TINTA).font('Helvetica').fontSize(9).text(d.observaciones, L, y + 12, { width: R - L });
+      y += 40;
+    }
+
+    y += 10;
+    doc.fillColor(HUMO).font('Helvetica').fontSize(8.5)
+      .text(`Solicitada por: ${d.pedidaPor ?? '—'}`, L, y, { width: 240 });
+    doc.text(`Autorizada por: ${d.aprobadaPor ?? 'SIN AUTORIZAR'}`, L + 250, y, { width: R - L - 250, align: 'right' });
+
+    pie(doc, 760, 'Sin la firma de autorización esta orden no habilita ningún pago.');
+    doc.end();
+  });
+}
