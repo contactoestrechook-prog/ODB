@@ -395,7 +395,10 @@ export class ListasService {
         const bloque = respuesta.content.find((b) => b.type === 'text');
         datos = JSON.parse(bloque && 'text' in bloque ? bloque.text : '{}');
         msLectura = Date.now() - t0;
-        this.log.log(`lectura del comprobante: ${(msLectura / 1000).toFixed(1)}s · ${(datos.items ?? []).length} renglones`);
+        const u: any = (respuesta as any).usage ?? {};
+        this.log.log(
+          `lectura del comprobante: ${(msLectura / 1000).toFixed(1)}s · ${(datos.items ?? []).length} renglones · entrada ${u.input_tokens ?? '?'} · salida ${u.output_tokens ?? '?'} · ${Math.round((u.output_tokens ?? 0) / Math.max(1, msLectura / 1000))} tok/s`,
+        );
         ultimoError = null;
         break;
       } catch (e: any) {
