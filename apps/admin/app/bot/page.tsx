@@ -5,7 +5,7 @@ export const metadata = { title: 'Probar el bot · ODB' };
 
 export default function BotPage() {
   return (
-    <main className="min-h-screen bg-[#F0EBE2]">
+    <main className="min-h-screen bg-[#F0EBE2] lg:pl-64">
       <Header activo="/bot" />
       <BotSimulador />
     </main>
