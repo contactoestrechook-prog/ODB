@@ -374,7 +374,6 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   // buscador por renglón para vincular un producto (índice de fila + texto + resultados)
   const [vinculaIdx, setVinculaIdx] = useState<number | null>(null);
   const [vinculaBusca, setVinculaBusca] = useState('');
-  const [vinculaRubro, setVinculaRubro] = useState(''); // filtra el buscador por rubro
   const [vinculaSug, setVinculaSug] = useState<any[]>([]);
 
   // Primera lectura: comprime la foto en el navegador (las de celular pesan
@@ -808,25 +807,23 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
     return () => URL.revokeObjectURL(url);
   }, [fotoArchivo]);
 
-  // buscador por renglón de la entrada por foto (vincular producto a mano).
-  // Si se elige un rubro, filtra por él — así aunque no matchee por nombre,
-  // podés ver todos los productos de esa categoría y elegir el correcto.
+  // buscador por renglón de la entrada por foto (vincular producto a mano):
+  // por nombre, código o PLU. El backend resuelve código de barras exacto y
+  // nombre/SKU por texto.
   useEffect(() => {
     if (vinculaIdx == null) return;
-    if (vinculaBusca.trim().length < 2 && !vinculaRubro) return setVinculaSug([]);
+    if (vinculaBusca.trim().length < 2) return setVinculaSug([]);
     const t = setTimeout(async () => {
-      const params = new URLSearchParams({ q: vinculaBusca });
-      if (vinculaRubro) params.set('categoria', vinculaRubro);
-      const r = await fetch(`/api/buscar-producto?${params.toString()}`);
+      const r = await fetch(`/api/buscar-producto?q=${encodeURIComponent(vinculaBusca)}`);
       if (r.ok) setVinculaSug((await r.json()).items ?? []);
     }, 250);
     return () => clearTimeout(t);
-  }, [vinculaBusca, vinculaRubro, vinculaIdx]);
+  }, [vinculaBusca, vinculaIdx]);
 
   // vincula un producto a un renglón leído (y lo tilda para incluirlo)
   const vincularProducto = (idx: number, p: any) => {
     setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, sku: p.sku, nombre: p.nombre, variacionPct: null, sugerido: false, motivoIa: null, incluir: true } : x));
-    setVinculaIdx(null); setVinculaBusca(''); setVinculaRubro(''); setVinculaSug([]);
+    setVinculaIdx(null); setVinculaBusca(''); setVinculaSug([]);
   };
 
   // Alta desde la factura. El renglón que el sistema no reconoce no tiene por
@@ -888,7 +885,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   // "no, no es ese" → descarta la sugerencia y abre la búsqueda manual
   const rechazarSugerencia = (idx: number) => {
     setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, sku: '', nombre: null, variacionPct: null, sugerido: false, motivoIa: null, incluir: false } : x));
-    setVinculaIdx(idx); setVinculaBusca(''); setVinculaRubro('');
+    setVinculaIdx(idx); setVinculaBusca('');
   };
 
   // alta de proveedor en el momento: si la IA detectó un proveedor que no está en
@@ -1374,20 +1371,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                   {/* buscador para vincular el producto a este renglón */}
                   {!i._esDescuento && vinculaIdx === idx && (
                     <div className="relative mt-2 ml-6">
-                      <div className="flex gap-2">
-                        <input autoFocus value={vinculaBusca} onChange={(e) => setVinculaBusca(e.target.value)} placeholder="Buscar producto por nombre o código…" className={input + ' flex-1'} />
-                        <select value={vinculaRubro} onChange={(e) => setVinculaRubro(e.target.value)} className={input + ' w-40 shrink-0'} title="Filtrar por rubro">
-                          <option value="">Todos los rubros</option>
-                          {categorias.map((c: any) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                        </select>
-                      </div>
-                      {vinculaRubro && vinculaBusca.trim().length < 2 && (
-                        <p className="text-[11px] text-black/45 mt-1">
-                          {vinculaSug.length >= 200
-                            ? 'Este rubro tiene muchos productos: mostrando los primeros 200. Escribí parte del nombre para afinar.'
-                            : 'Mostrando productos del rubro. Escribí para afinar.'}
-                        </p>
-                      )}
+                      <input autoFocus value={vinculaBusca} onChange={(e) => setVinculaBusca(e.target.value)} placeholder="Buscar por nombre, código o PLU…" className={input + ' w-full'} />
                       {vinculaSug.length > 0 && (
                         <div className="absolute z-20 mt-1 w-full rounded-lg bg-white shadow-lg border border-black/10 max-h-60 overflow-y-auto">
                           {vinculaSug.map((p: any) => (
