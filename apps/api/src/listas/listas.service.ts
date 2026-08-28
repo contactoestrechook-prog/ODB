@@ -375,6 +375,11 @@ export class ListasService {
     // vencido. Y el error REAL queda en el log: hasta ahora se lo tragaba el
     // catch, así que cuando alguien avisaba "no me lee el remito" no había con
     // qué diagnosticarlo.
+    // Cuánto tarda cada parte, siempre. "Va lento" sin un número no se puede
+    // arreglar: hay DOS llamadas a la IA en fila (leer el comprobante y
+    // matchear los renglones) y hasta ahora no había forma de saber cuál pesa.
+    const t0 = Date.now();
+    let msLectura = 0;
     let datos: any;
     let ultimoError: any = null;
     for (let intento = 1; intento <= 2; intento++) {
@@ -389,6 +394,8 @@ export class ListasService {
           .finalMessage();
         const bloque = respuesta.content.find((b) => b.type === 'text');
         datos = JSON.parse(bloque && 'text' in bloque ? bloque.text : '{}');
+        msLectura = Date.now() - t0;
+        this.log.log(`lectura del comprobante: ${(msLectura / 1000).toFixed(1)}s · ${(datos.items ?? []).length} renglones`);
         ultimoError = null;
         break;
       } catch (e: any) {
@@ -476,6 +483,7 @@ export class ListasService {
 
     // Los que no matchearon en firme: la IA razona sobre candidatos del catálogo y
     // sugiere el más probable para que el operador confirme ("¿es este?").
+    const tMatch = Date.now();
     const sinMatch = propuesta.filter((i) => !i.match);
     if (sinMatch.length) {
       const sugeridos = await this.sugerirMatchConIA(sinMatch.map((i) => ({ descripcion: i.descripcion, precio: i.precio })));
@@ -497,7 +505,15 @@ export class ListasService {
       }
     }
 
+    const msMatch = Date.now() - tMatch;
+    const msTotal = Date.now() - t0;
+    this.log.log(
+      `comprobante listo en ${(msTotal / 1000).toFixed(1)}s · lectura ${(msLectura / 1000).toFixed(1)}s · matching ${(msMatch / 1000).toFixed(1)}s · ${propuesta.length} renglones`,
+    );
+
     return {
+      // cuánto tardó cada parte: se muestra en la pantalla y queda en el log
+      demora: { total: Math.round(msTotal / 100) / 10, lectura: Math.round(msLectura / 100) / 10, matching: Math.round(msMatch / 100) / 10 },
       proveedor: {
         detectado: datos.proveedor ?? null,
         match: proveedor, // null = hay que darlo de alta o elegirlo a mano
