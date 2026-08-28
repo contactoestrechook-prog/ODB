@@ -73,20 +73,20 @@ const ESQUEMA_COMPROBANTE = {
           cantidad: { type: 'number', description: 'La cantidad tal cual figura en la columna CANT. Si el renglón se factura por bulto/caja/pack, esta es la cantidad de BULTOS, no de unidades sueltas.' },
           precio: { type: 'number', description: 'Importe unitario de la columna PRE.UNIT tal cual impreso. NO uses PRE.VTA.PUBLICO (PVP) ni la columna IMPORTE. La relación con neto/IVA/total se resuelve en el pie; NO asumas que es neto+21% (en cigarrillos el precio ya trae impuestos internos y percepción IIBB embebidos). Si el renglón se factura por bulto, este es el precio DEL BULTO.' },
           importe: {
-            type: ['number', 'null'],
-            description: 'El IMPORTE del renglón tal cual impreso en la última columna (Importe / Subtotal / Total del renglón). Es la VERDAD de lo que cuesta ese renglón: ya trae aplicado cualquier descuento o bonificación de la fila. Un renglón sin cargo tiene importe 0,00 aunque su precio unitario figure lleno. Copialo siempre que la columna exista, con su signo.',
+            type: 'number',
+            description: 'El IMPORTE del renglón tal cual impreso en la última columna (Importe / Subtotal / Total del renglón), con su signo. Es la VERDAD de lo que cuesta ese renglón: ya trae aplicado cualquier descuento o bonificación de la fila. Un renglón SIN CARGO tiene importe 0 aunque su precio unitario figure lleno. Si el comprobante no tiene columna de importe, poné cantidad × precio unitario. SIEMPRE un número.',
           },
           esDescuento: {
             type: 'boolean',
             description: 'true si el renglón NO es mercadería sino una REBAJA sobre otro renglón: descripción tipo "Desc. 42.86% - MANOS NEGRAS Malbec CJ x6", "Descuento", "Bonificación s/ item 4", y casi siempre con importe NEGATIVO. Estos renglones no entran al stock: son plata que se resta del renglón que nombran. Un renglón de mercadería con precio 0 NO es descuento, es mercadería sin cargo.',
           },
           bonificacionPct: {
-            type: ['number', 'null'],
-            description: 'Porcentaje de la columna BONIF / BONIFICACIÓN / % BON / DTO de ESE renglón, si existe. 100 = renglón sin cargo (mercadería bonificada). Poné null si el comprobante no tiene esa columna o el renglón no tiene bonificación. NO confundas con el descuento general del pie.',
+            type: 'number',
+            description: 'Porcentaje de la columna BONIF / BONIFICACIÓN / % BON / DTO de ESE renglón, si existe. 100 = renglón sin cargo (mercadería bonificada). Poné 0 si el comprobante no tiene esa columna o el renglón no tiene bonificación. NO confundas con el descuento general del pie.',
           },
           unidadesPorBulto: {
-            type: ['number', 'null'],
-            description: 'Cuántas unidades sueltas trae cada bulto de ESTE renglón, si la descripción o la columna de unidad lo dicen: "CORONA 355 X 24B" → 24; "PACK X 6" → 6; "CAJA X 12" → 12; "CJ x 6" → 6; "x24u" → 24. Si el renglón se vende por unidad suelta, o no hay forma de saberlo, poné null. NO lo deduzcas del tamaño del envase (355cc no es 355 unidades) ni lo inventes.',
+            type: 'number',
+            description: 'Cuántas unidades sueltas trae cada bulto de ESTE renglón, si la descripción o la columna de unidad lo dicen: "CORONA 355 X 24B" → 24; "PACK X 6" → 6; "CAJA X 12" → 12; "CJ x 6" → 6; "x24u" → 24. Si el renglón se vende por unidad suelta, o no hay forma de saberlo, poné 0. NO lo deduzcas del tamaño del envase (355cc no es 355 unidades) ni lo inventes.',
           },
         },
         required: ['codigo', 'descripcion', 'cantidad', 'precio', 'unidadesPorBulto'],
@@ -118,7 +118,7 @@ const ESQUEMA_COMPROBANTE = {
         percepcionIibb: { type: ['number', 'null'], description: 'Renglón PER. DE IIBB / PERCEP ING BRUTOS / IIBB / ARBA / AGIP / DGR / SIRCREB. Pago a cuenta de IIBB (crédito, no costo). En cigarrillos suele ser el renglón MÁS GRANDE del pie después del total.' },
         impuestosInternos: { type: ['number', 'null'], description: 'Renglón propio IMP. INTERNOS / IMPUESTO INTERNO / IMPUESTO ADICIONAL DE EMERGENCIA (tabaco). Es COSTO no recuperable. Solo cuando aparece como línea rotulada; si está embebido en el precio (sin línea) va DENTRO de neto y este campo = 0/null.' },
         otros: { type: ['number', 'null'], description: 'Otros tributos con etiqueta e importe propios que no sean ninguno de los anteriores (sellos, tasas municipales) + el redondeo/DESCUENTO si hace falta para cerrar. NUNCA meter acá el SUB TOTAL, el IVA ni las percepciones.' },
-        descuentoGlobal: { type: ['number', 'null'], description: 'Descuento del PIE que se aplica a toda la factura (renglón "Desc. 50%", "DESCUENTO GENERAL", "BONIFICACIÓN s/ subtotal"). En POSITIVO: cuánta plata se descuenta. Es lo que explica que la suma de los renglones sea mayor que el neto. NO confundir con el descuento de un renglón puntual.' },
+        descuentoGlobal: { type: 'number', description: '0 si no hay. Descuento del PIE que se aplica a toda la factura (renglón "Desc. 50%", "DESCUENTO GENERAL", "BONIFICACIÓN s/ subtotal"). En POSITIVO: cuánta plata se descuenta. Es lo que explica que la suma de los renglones sea mayor que el neto. NO confundir con el descuento de un renglón puntual.' },
         total: { type: ['number', 'null'], description: 'Renglón TOTAL / TOTAL CBTE / TOTAL A PAGAR / IMPORTE TOTAL. Ancla de la autoverificación (suele venir también en letras).' },
       },
       required: ['neto', 'iva', 'alicuotaIva', 'percepcionIva', 'percepcionIibb', 'impuestosInternos', 'otros', 'descuentoGlobal', 'total'],
@@ -465,7 +465,7 @@ export class ListasService {
         cantidad: Number(i.cantidad) || 1,
         precio: Number(i.precio) || 0,
         unidadesPorBulto: delTexto ?? delModelo ?? null,
-        importe: i.importe != null && i.importe !== '' ? Number(i.importe) : null,
+        importe: Number.isFinite(Number(i.importe)) ? Number(i.importe) : null,
         // el signo del porcentaje lo escribe cada proveedor como quiere: "-100"
         // y "100" significan lo mismo, un renglón sin cargo
         bonificacionPct: Math.abs(Number(i.bonificacionPct)) > 0 ? Math.min(100, Math.abs(Number(i.bonificacionPct))) : null,
