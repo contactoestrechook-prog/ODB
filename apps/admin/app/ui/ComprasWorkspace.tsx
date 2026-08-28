@@ -445,6 +445,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
           bonificacionPct: i.bonificacionPct ?? null,
           importe: i.importe ?? null,
           esDescuento: !!i.esDescuento,
+          descuentoPct: i.descuentoPct ?? null,
           bultoAplicado: null,
           // las sugerencias de IA NO se incluyen hasta que el operador confirme "¿es este?"
           // y una rebaja no se incluye NUNCA: no es mercadería
@@ -552,6 +553,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   // Reparte cada renglón de descuento sobre el renglón de mercadería que nombra
   // (el más cercano hacia arriba). Si no se puede identificar, cae en el
   // anterior de mercadería, que es como están impresas estas facturas.
+  const sinAtribuir: { descripcion: string; importe: number }[] = [];
   const descuentoPorIdx = (() => {
     const m = new Map<number, number>();
     fotoItems.forEach((d: any, j: number) => {
@@ -559,16 +561,40 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
       const importe = numImp(d.cantidad) * numImp(d.precio);
       if (!importe) return;
       const textoDesc = soloTexto(d.descripcion);
+      const pct = d.descuentoPct != null ? numImp(d.descuentoPct) : null;
+      // Total del renglón candidato, para poder verificar el porcentaje.
+      const totalDe = (x: any) => {
+        const cant = numImp(x.cantidad) || 1;
+        return x.importe != null && x.importe !== '' ? Math.abs(numImp(x.importe)) : Math.abs(numImp(x.precio) * cant);
+      };
+      const cierra = (x: any) => {
+        const linea = totalDe(x);
+        if (!linea) return false;
+        if (pct != null) return Math.abs((Math.abs(importe) / linea) * 100 - pct) <= 1;
+        return Math.abs(importe) <= linea;
+      };
+      // Solo se aplica al renglón que la rebaja NOMBRA y con el que la cuenta
+      // cierra. Antes, si no se podía identificar, caía en el renglón anterior:
+      // así una promoción de toda la factura ("Px mágico = 17,2%", $52.963) se
+      // le adjudicaba entera a un renglón de $45.055 y lo dejaba con el costo
+      // por el piso. Si no se puede atribuir con certeza, NO se aplica.
       let destino = -1;
       for (let k = j - 1; k >= 0; k--) {
         if (esRenglonDescuento(fotoItems[k])) continue;
         const nombre = soloTexto(fotoItems[k].descripcion);
-        if (nombre && textoDesc.includes(nombre)) { destino = k; break; }
+        if (nombre && textoDesc.includes(nombre) && cierra(fotoItems[k])) { destino = k; break; }
       }
       if (destino < 0) {
-        for (let k = j - 1; k >= 0; k--) { if (!esRenglonDescuento(fotoItems[k])) { destino = k; break; } }
+        // sin nombre que la identifique, solo se acepta si la cuenta cierra con
+        // el renglón inmediatamente anterior
+        for (let k = j - 1; k >= 0; k--) {
+          if (esRenglonDescuento(fotoItems[k])) continue;
+          if (cierra(fotoItems[k])) destino = k;
+          break;
+        }
       }
       if (destino >= 0) m.set(destino, (m.get(destino) ?? 0) + importe);
+      else sinAtribuir.push({ descripcion: d.descripcion, importe: Math.abs(importe) });
     });
     return m;
   })();
@@ -1153,8 +1179,13 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                       <span className="min-w-0 flex-1">
                         <span className="block text-sm text-black/70">{i.descripcion}</span>
                         <span className="block text-[11px] text-black/50">
-                          No es mercadería: es una rebaja de <b>{pesos(Math.abs(numImp(i.cantidad) * numImp(i.precio)))}</b> que se descuenta
-                          del renglón de arriba. No suma stock ni se vincula a ningún producto.
+                          No es mercadería: es una rebaja de <b>{pesos(Math.abs(numImp(i.cantidad) * numImp(i.precio)))}</b>. No suma stock ni se vincula a ningún producto.
+                          {sinAtribuir.some((x) => x.descripcion === i.descripcion)
+                            ? <span className="mt-0.5 block font-medium text-[#932A1F]">
+                                ⚠ No se pudo saber a qué renglón corresponde{numImp(i.descuentoPct) > 0 ? ` (dice ${numImp(i.descuentoPct)}%, y no cierra con ningún renglón)` : ''},
+                                así que NO se descontó de ningún costo. Si es una promoción de toda la factura, cargala en “Desc. del pie”.
+                              </span>
+                            : ' Se descuenta del renglón que nombra.'}
                         </span>
                       </span>
                     </div>
@@ -1399,6 +1430,13 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                       </p>
                     ))}
                   </div>
+                )}
+                {sinAtribuir.length > 0 && (
+                  <p className="mt-1 rounded bg-[#B82D25]/10 px-2 py-1.5 font-medium text-[#932A1F]">
+                    ⚠ Hay <b>{sinAtribuir.length}</b> rebaja(s) por <b>{pesos(sinAtribuir.reduce((a, x) => a + x.importe, 0))}</b> que no se pudo saber
+                    a qué renglón corresponden, así que no se aplicaron a ningún costo. Si son promociones de toda la factura, cargalas en
+                    “Desc. del pie” y se reparten entre todos los renglones.
+                  </p>
                 )}
                 {descuentosDesmedidos > 0 && (
                   <p className="mt-1 rounded bg-[#B82D25]/10 px-2 py-1.5 font-medium text-[#932A1F]">

@@ -3,7 +3,7 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
 import * as XLSX from 'xlsx';
 import { SUPABASE } from '../supabase.provider';
-import { unidadesPorBulto, esRenglonDeDescuento } from '../compras/bultos';
+import { unidadesPorBulto, esRenglonDeDescuento, porcentajeDeDescuento } from '../compras/bultos';
 
 export type ItemExtraido = { codigo: string | null; descripcion: string; precio: number };
 // pedido exportado del portal del proveedor: igual que la lista pero con cantidad
@@ -491,6 +491,8 @@ export class ListasService {
         // y "100" significan lo mismo, un renglón sin cargo
         bonificacionPct: Math.abs(Number(i.bonificacionPct)) > 0 ? Math.min(100, Math.abs(Number(i.bonificacionPct))) : null,
         esDescuento: esRenglonDeDescuento({ descripcion: i.descripcion, precio: Number(i.precio) || 0 }) || !!i.esDescuento,
+        // el porcentaje que declara la rebaja: es la prueba de a qué renglón pertenece
+        descuentoPct: porcentajeDeDescuento(String(i.descripcion ?? '')),
       } as any;
     });
     const propuesta = proveedor ? await this.matchear(items, proveedor.id) : items.map((i) => ({ ...i, match: null as Match }));

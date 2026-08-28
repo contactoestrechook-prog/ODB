@@ -1,4 +1,4 @@
-import { unidadesPorBulto, esRenglonDeDescuento, fusionarRenglonesPorSku } from './bultos';
+import { unidadesPorBulto, esRenglonDeDescuento, fusionarRenglonesPorSku, porcentajeDeDescuento, descuentoEsDelRenglon } from './bultos';
 
 describe('unidadesPorBulto — la forma, no la lista de proveedores', () => {
   it.each([
@@ -106,5 +106,29 @@ describe('fusionarRenglonesPorSku — lo regalado abarata lo pagado', () => {
     ]);
     expect(salida).toHaveLength(2);
     expect(salida.map((x) => x.costo)).toEqual([200, 300]);
+  });
+});
+
+describe('a qué renglón corresponde una rebaja', () => {
+  it('lee el porcentaje que declara el papel', () => {
+    expect(porcentajeDeDescuento('Desc. 42.86% - MANOS NEGRAS Malbec CJ x6')).toBeCloseTo(42.86, 2);
+    expect(porcentajeDeDescuento('Px mágico $12.000 MP = 17,2%')).toBeCloseTo(17.2, 2);
+    expect(porcentajeDeDescuento('Descuento general')).toBeNull();
+  });
+
+  // Aldo's: el descuento es de ese renglón y el porcentaje lo confirma.
+  it('acepta la rebaja cuando el porcentaje cierra con el renglón', () => {
+    expect(descuentoEsDelRenglon(130917.82, 305454.55, 42.86)).toBe(true);
+  });
+
+  // Sprite: "Px mágico = 17,2%" pero sobre ese renglón daría 117%. Es una
+  // promoción de varios renglones, no de este.
+  it('rechaza la rebaja cuando el porcentaje no cierra', () => {
+    expect(descuentoEsDelRenglon(52963, 45055, 17.2)).toBe(false);
+  });
+
+  it('sin porcentaje declarado, una rebaja no puede superar al renglón', () => {
+    expect(descuentoEsDelRenglon(5000, 45055, null)).toBe(true);
+    expect(descuentoEsDelRenglon(52963, 45055, null)).toBe(false);
   });
 });

@@ -129,3 +129,46 @@ export function fusionarRenglonesPorSku<T extends RenglonEntrada>(items: T[]): T
     costo: unidades > 0 ? Math.round((pagado / unidades) * 100) / 100 : 0,
   }));
 }
+
+/**
+ * El porcentaje que declara un renglón de descuento, si lo dice.
+ * "Desc. 42.86% - MANOS NEGRAS Malbec" → 42.86 · "Px mágico $12.000 MP = 17,2%" → 17.2
+ */
+export function porcentajeDeDescuento(descripcion: string): number | null {
+  const t = String(descripcion ?? '').replace(/\s+/g, ' ');
+  const m = t.match(/(\d{1,3}(?:[.,]\d{1,2})?)\s*%/);
+  if (!m) return null;
+  const n = Number(m[1].replace(',', '.'));
+  return Number.isFinite(n) && n > 0 && n <= 100 ? n : null;
+}
+
+/**
+ * ¿Esta rebaja es realmente de ESE renglón?
+ *
+ * La pregunta importa porque una factura puede traer descuentos de un renglón
+ * puntual y promociones que cubren varios renglones o la factura entera, y se
+ * imprimen igual. Adjudicarle a un solo producto una rebaja que era de todos
+ * le deja el costo por el piso, y de ahí sale el precio de venta.
+ *
+ * Cuando el papel declara el porcentaje, ese porcentaje es la prueba: si la
+ * rebaja fuera de este renglón, tiene que dar ese porcentaje del renglón.
+ * "Desc. 42,86%" sobre 305.454 da 130.917 y cierra. "Px mágico = 17,2%" de
+ * 52.963 sobre un renglón de 45.055 daría 117%: no es de ese renglón.
+ */
+export function descuentoEsDelRenglon(
+  importeDescuento: number,
+  totalDelRenglon: number,
+  pctDeclarado: number | null,
+): boolean {
+  const d = Math.abs(Number(importeDescuento) || 0);
+  const linea = Math.abs(Number(totalDelRenglon) || 0);
+  if (d === 0) return true;
+  if (linea === 0) return false;
+  if (pctDeclarado != null) {
+    const real = (d / linea) * 100;
+    return Math.abs(real - pctDeclarado) <= 1; // un punto de tolerancia por redondeos
+  }
+  // sin porcentaje declarado, lo único que se puede afirmar es que una rebaja
+  // no puede superar a lo que rebaja
+  return d <= linea;
+}
