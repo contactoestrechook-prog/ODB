@@ -3,6 +3,7 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
 import * as XLSX from 'xlsx';
 import { SUPABASE } from '../supabase.provider';
+import { unidadesPorBulto, esRenglonDeDescuento } from '../compras/bultos';
 
 export type ItemExtraido = { codigo: string | null; descripcion: string; precio: number };
 // pedido exportado del portal del proveedor: igual que la lista pero con cantidad
@@ -440,12 +441,27 @@ export class ListasService {
     }
 
     // productos: mismo matching que listas/pedidos (código prov → EAN → similitud)
-    const items: ItemPedidoExtraido[] = (datos.items ?? []).map((i: any) => ({
-      codigo: i.codigo ?? null,
-      descripcion: i.descripcion,
-      cantidad: Number(i.cantidad) || 1,
-      precio: Number(i.precio) || 0,
-    }));
+    // El bulto y el descuento se resuelven en CÓDIGO, sobre la descripción, no
+    // por lo que haya visto el modelo. Cada proveedor escribe la caja a su
+    // manera y una lista de casos en el prompt se rompe con el próximo que
+    // aparezca; acá se reconoce la FORMA y queda cubierto con tests. Lo que
+    // haya leído el modelo se conserva solo cuando el parser no encuentra nada.
+    const items: ItemPedidoExtraido[] = (datos.items ?? []).map((i: any) => {
+      const delTexto = unidadesPorBulto(String(i.descripcion ?? ''));
+      const delModelo = Number(i.unidadesPorBulto) > 1 ? Math.round(Number(i.unidadesPorBulto)) : null;
+      if (delTexto && delModelo && delTexto !== delModelo) {
+        this.log.warn(`bulto discordante en "${String(i.descripcion ?? '').slice(0, 60)}": texto=${delTexto} modelo=${delModelo} · gana el texto`);
+      }
+      return {
+        codigo: i.codigo ?? null,
+        descripcion: i.descripcion,
+        cantidad: Number(i.cantidad) || 1,
+        precio: Number(i.precio) || 0,
+        unidadesPorBulto: delTexto ?? delModelo ?? null,
+        bonificacionPct: Number(i.bonificacionPct) > 0 ? Number(i.bonificacionPct) : null,
+        esDescuento: esRenglonDeDescuento({ descripcion: i.descripcion, precio: Number(i.precio) || 0 }) || !!i.esDescuento,
+      } as any;
+    });
     const propuesta = proveedor ? await this.matchear(items, proveedor.id) : items.map((i) => ({ ...i, match: null as Match }));
 
     // Los que no matchearon en firme: la IA razona sobre candidatos del catálogo y

@@ -436,8 +436,18 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
           avisoMedida: i.avisoMedida ?? null,
           // remarcación: la guardada de la última compra; vacío ('') = hereda del rubro
           margenPct: i.match?.margenPct != null ? i.match.margenPct : '',
+          codigo: i.codigo ?? null,
+          // Lo que resuelve el lector en código: unidades por bulto, bonificación
+          // y si el renglón es una rebaja en vez de mercadería. Este mapeo arma un
+          // objeto nuevo, así que un campo que no se copie acá no existe para la
+          // pantalla por más que la API lo mande.
+          unidadesPorBulto: i.unidadesPorBulto ?? null,
+          bonificacionPct: i.bonificacionPct ?? null,
+          esDescuento: !!i.esDescuento,
+          bultoAplicado: null,
           // las sugerencias de IA NO se incluyen hasta que el operador confirme "¿es este?"
-          incluir: !!i.match && !sugerido,
+          // y una rebaja no se incluye NUNCA: no es mercadería
+          incluir: !i.esDescuento && !!i.match && !sugerido,
         };
       }));
     } catch (e) {
