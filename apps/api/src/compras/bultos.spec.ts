@@ -12,6 +12,12 @@ describe('unidadesPorBulto — la forma, no la lista de proveedores', () => {
     ['Vino BOX 6', 6],
     ['Lata x12u', 12],
     ['Display 24 unidades', 24],
+    // Bodega Vistalba: mete su abreviatura antes de la x y el año después.
+    // Enumerar abreviaturas es justo lo que se rompe con el proveedor nuevo.
+    ['V. Corte A cc x 4 2019', 4],
+    ['Gran Tomero Pinot Noir cc x 6 IG-VU 2025', 6],
+    ['Gran Tomero Merlot SV x 6 cc IG-VDU 2023', 6],
+    ['Tomero Malbec cc x 6 2024', 6],
   ])('%s → %s', (texto, esperado) => {
     expect(unidadesPorBulto(texto)).toBe(esperado);
   });
@@ -31,6 +37,20 @@ describe('unidadesPorBulto — la forma, no la lista de proveedores', () => {
   it('ignora números fuera de lo que puede ser un bulto', () => {
     expect(unidadesPorBulto('Pack x 900')).toBeNull();
     expect(unidadesPorBulto('caja x 1')).toBeNull();
+    expect(unidadesPorBulto('Vino cosecha x 2019')).toBeNull();
+  });
+
+  it('una medida después de la x no es un bulto', () => {
+    expect(unidadesPorBulto('Gaseosa x 750cc')).toBeNull();
+    expect(unidadesPorBulto('Vino x 1000 ml')).toBeNull();
+    expect(unidadesPorBulto('Gaseosa x 2 L')).toBeNull();
+    expect(unidadesPorBulto('Vino x 1,5 lt')).toBeNull();
+  });
+
+  // Ninguna bebida se vende en seis centímetros cúbicos: ahí "cc" es la
+  // abreviatura de la bodega, no una medida.
+  it('un número chico con cc al lado sigue siendo un bulto', () => {
+    expect(unidadesPorBulto('Gran Tomero Merlot SV x 6 cc IG-VDU 2023')).toBe(6);
   });
 });
 

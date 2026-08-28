@@ -54,9 +54,27 @@ export function unidadesPorBulto(descripcion: string): number | null {
     return Number(porEnvase[1]);
   }
 
-  // 3) "x" + número + marca de unidad: "X 24B", "x12u", "x 6 un".
-  const porUnidades = t.match(/\bx\s*(\d{1,3})\s*(b|u|un|uni|unid|unidades?|bot|botellas?|latas?)\b/);
-  if (porUnidades && plausible(Number(porUnidades[1]))) return Number(porUnidades[1]);
+  // 3) "x" + número, sin más. Es la forma más común y la que no se puede
+  //    enumerar: cada bodega mete su abreviatura antes ("cc x 6", "SV x 6",
+  //    "CJ x6", "x 24B"). En vez de listar las abreviaturas —que es lo que se
+  //    rompe con el proveedor nuevo— se acepta cualquier cosa antes de la "x",
+  //    y se filtra por lo que sigue: si el número es un tamaño de envase
+  //    ("x 750", "x 1000cc") no es un bulto, y si no entra en 2..60 tampoco.
+  for (const m of t.matchAll(/\bx\s*(\d{1,4})\s*([a-z]*)/g)) {
+    const n = Number(m[1]);
+    const sufijo = m[2] ?? '';
+    if (!plausible(n)) continue; // 750, 1000, 2019… no son bultos
+    // Una unidad de medida después del número descarta el bulto SOLO si ese
+    // número podría ser esa medida de verdad. "x 2 L" es un envase de dos
+    // litros; "SV x 6 cc" no es un envase de seis centímetros cúbicos —
+    // ninguna bebida se vende así— es una caja de seis con la abreviatura de
+    // la bodega al lado.
+    if (/^(cc|ml|cm3)$/.test(sufijo) && n >= 50) continue;
+    if (/^(l|lt|lts|litros?)$/.test(sufijo) && n <= 10) continue;
+    if (/^(g|gr|gramos?)$/.test(sufijo) && n >= 50) continue;
+    if (/^(kg|k|kilos?)$/.test(sufijo) && n <= 25) continue;
+    return n;
+  }
 
   return null;
 }

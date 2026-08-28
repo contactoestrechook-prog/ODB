@@ -559,6 +559,11 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   const percIibbDoc = numImp(fotoImp?.percepcionIibb);
   const impIntDoc = numImp(fotoImp?.impuestosInternos);
   const otrosDoc = numImp(fotoImp?.otros);
+  // Descuento del pie sobre TODA la factura ("Desc. 50%"). Es lo que explica
+  // que los renglones sumen más que el neto. Sin tenerlo en cuenta, el control
+  // de "los renglones no cierran con el pie" gritaba en falso en cualquier
+  // factura con descuento general — y un aviso que grita en falso se ignora.
+  const descuentoGlobalDoc = Math.abs(numImp(fotoImp?.descuentoGlobal));
   const totalDoc = fotoImp?.total != null && fotoImp.total !== '' ? numImp(fotoImp.total) : null;
   const alicEfectiva = netoDoc && netoDoc > 0 && ivaDoc != null ? ivaDoc / netoDoc : null;
   // mercadería con IVA, sin percepciones
@@ -590,8 +595,11 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   // de dividir el pie por esa suma, así que un renglón mal leído ensucia el
   // costo de TODOS sin que se note: el total cierra igual. Es la causa más
   // común de "el costo no me da".
-  const desvioRenglones = netoDoc != null && netoDoc > 0 && sumaRenglones > 0
-    ? sumaRenglones / netoDoc - 1
+  // Lo que los renglones TENDRÍAN que sumar: el neto más lo que se descontó en
+  // el pie (el descuento se aplica después de sumar los renglones).
+  const netoEsperado = netoDoc != null ? netoDoc + descuentoGlobalDoc : null;
+  const desvioRenglones = netoEsperado != null && netoEsperado > 0 && sumaRenglones > 0
+    ? sumaRenglones / netoEsperado - 1
     : null;
   const columnaSospechosa = desvioRenglones != null && Math.abs(desvioRenglones) > 0.02;
   // Renglones que la IA leyó como bulto y siguen sin convertir. No bloquea
@@ -1287,7 +1295,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
 
               {/* impuestos del pie (editables). Percepciones = pago a cuenta, NO costo. */}
               <div className="rounded-lg border border-black/10 p-2 grid grid-cols-4 gap-2 text-xs">
-                {[['neto', 'Neto'], ['iva', 'IVA $'], ['percepcionIva', 'Perc. IVA'], ['percepcionIibb', 'Perc. IIBB'], ['impuestosInternos', 'Imp. internos'], ['otros', 'Otros'], ['total', 'TOTAL']].map(([k, l]) => (
+                {[['neto', 'Neto'], ['iva', 'IVA $'], ['percepcionIva', 'Perc. IVA'], ['percepcionIibb', 'Perc. IIBB'], ['impuestosInternos', 'Imp. internos'], ['descuentoGlobal', 'Desc. del pie'], ['otros', 'Otros'], ['total', 'TOTAL']].map(([k, l]) => (
                   <label key={k} className="flex flex-col gap-0.5">
                     <span className="text-black/60 font-medium">{l}{k === 'iva' && alicEfectiva != null ? ` (${(alicEfectiva * 100).toFixed(1).replace('.', ',')}%)` : ''}</span>
                     <input type="number" value={fotoImp?.[k] ?? ''} onChange={(e) => setFotoImp((x: any) => ({ ...x, [k]: e.target.value === '' ? null : Number(e.target.value) }))} className="rounded border border-black/15 bg-white px-2 py-1 text-right text-sm text-black" />
@@ -1326,6 +1334,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                     Cada renglón leído <b>× {factorRecon.toFixed(4).replace('.', ',')}</b> — de{' '}
                     {pesos(sumaRenglones)} leídos a {pesos(baseCosto!)}: neto {pesos(netoDoc ?? 0)} + IVA {pesos(ivaDoc ?? 0)}
                     {impIntDoc > 0 ? ` + internos ${pesos(impIntDoc)}` : ''}
+                    {descuentoGlobalDoc > 0 ? ` − descuento del pie ${pesos(descuentoGlobalDoc)}` : ''}
                     {percepcionesAlCosto && percepciones > 0 ? ` + percepciones ${pesos(percepciones)}` : ''}
                     {!percepcionesAlCosto && percepciones > 0 ? ` (quedan afuera ${pesos(percepciones)} de percepciones)` : ''}.
                   </p>
@@ -1352,7 +1361,8 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                 )}
                 {columnaSospechosa && (
                   <p className="mt-1 rounded bg-amber-50 px-2 py-1.5 text-amber-900">
-                    ⚠ Los renglones leídos suman <b>{pesos(sumaRenglones)}</b> y el neto del pie es <b>{pesos(netoDoc ?? 0)}</b>
+                    ⚠ Los renglones leídos suman <b>{pesos(sumaRenglones)}</b> y el pie espera <b>{pesos(netoEsperado ?? 0)}</b>
+                    {descuentoGlobalDoc > 0 ? ` (neto ${pesos(netoDoc ?? 0)} + descuento del pie ${pesos(descuentoGlobalDoc)})` : ''}
                     {' '}({desvioRenglones! > 0 ? '+' : ''}{(desvioRenglones! * 100).toFixed(1).replace('.', ',')}%).
                     Si tendrían que coincidir, la IA leyó la columna equivocada (la de con IVA, o el total del renglón en vez del precio unitario).
                     Corregilo antes de registrar: el costo de todos los renglones sale de esa proporción.
