@@ -423,9 +423,26 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
       setPagada(/contado/i.test(d.comprobante?.condicionVenta ?? ''));
       setFotoItems((d.items ?? []).map((i: any) => {
         const sugerido = i.match?.sugerido === true;
+        // Producto por PESO: la IA transcribió la columna KG. Lo aplicamos solo
+        // si el peso cierra con el importe (peso × precio ≈ importe), para no
+        // cargar un peso mal leído; si no cierra, queda el botón «Pasar a kilos».
+        const kgLeido = Number(i.kg) || 0;
+        const cantLeida = Number(i.cantidad) || 1;
+        const precioNum = Number(i.precio) || 0;
+        const importeNum = i.importe != null && i.importe !== '' ? Number(i.importe) : null;
+        let cantidad = cantLeida;
+        let porPeso = false;
+        if (kgLeido > 0 && Math.abs(kgLeido - cantLeida) > 0.01) {
+          const esperado = kgLeido * precioNum;
+          const cierra = importeNum == null || esperado <= 0
+            || Math.abs(Math.abs(importeNum) - esperado) / esperado < 0.05;
+          if (cierra) { cantidad = kgLeido; porPeso = true; }
+        }
         return {
           descripcion: i.descripcion,
-          cantidad: Number(i.cantidad) || 1,
+          cantidad,
+          porPeso,
+          kg: i.kg ?? null,
           precio: Number(i.precio) || 0,
           sku: i.match?.sku ?? '',
           nombre: i.match?.nombre ?? null,
