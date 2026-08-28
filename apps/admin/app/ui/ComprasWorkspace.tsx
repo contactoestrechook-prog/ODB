@@ -512,11 +512,31 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   // Si no hay columna de importe, se cae al precio unitario menos la
   // bonificación. Y en cualquier caso se le suma el descuento que venga en un
   // renglón aparte.
-  const precioEfectivo = (i: any) => {
+  // Lo que factura el renglón, por unidad, ANTES de los descuentos de otros
+  // renglones. Manda el importe impreso; si no hay columna, el unitario menos
+  // la bonificación de la fila.
+  const baseUnitaria = (i: any) => {
     const cant = numImp(i.cantidad) || 1;
-    const base = i.importe != null && i.importe !== ''
+    return i.importe != null && i.importe !== ''
       ? numImp(i.importe) / cant
       : numImp(i.precio) * (1 - Math.min(100, Math.abs(numImp(i.bonificacionPct))) / 100);
+  };
+
+  // Un descuento NO puede ser más grande que el renglón al que se aplica. Si lo
+  // es, la rebaja no era de ese renglón solo —suele ser una promoción que cubre
+  // varios, o toda la factura— y adjudicársela entera deja el costo por el
+  // piso o en negativo. En ese caso no se aplica y se avisa: es preferible que
+  // alguien decida a que el sistema invente un costo.
+  const descuentoDesmedido = (i: any) => {
+    const d = Math.abs(numImp(i._descuento));
+    const linea = Math.abs(baseUnitaria(i) * (numImp(i.cantidad) || 1));
+    return d > 0 && linea > 0 && d > linea;
+  };
+
+  const precioEfectivo = (i: any) => {
+    const cant = numImp(i.cantidad) || 1;
+    const base = baseUnitaria(i);
+    if (descuentoDesmedido(i)) return base; // sin aplicar: hay que revisarlo a mano
     return base + numImp(i._descuento) / cant;
   };
   // ¿Este renglón vino sin cargo? Es lo que después se prorratea.
@@ -618,6 +638,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   // —puede que el producto vinculado sea el bulto— pero tiene que estar a la
   // vista antes de apretar Registrar.
   const bultosSinResolver = inclItems.filter((i) => numImp(i.unidadesPorBulto) > 1).length;
+  const descuentosDesmedidos = inclItems.filter((i: any) => descuentoDesmedido(i)).length;
 
   // El mismo producto puede venir en DOS renglones: el que se paga y el
   // bonificado. Si se mandan sueltos, la entrada fija el costo dos veces para
@@ -1148,7 +1169,13 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                           en el precio de venta a la vez. */}
                       {numImp(i._descuento) < 0 && (
                         <span className="mt-0.5 block rounded bg-emerald-50 px-2 py-1 text-[11px] text-emerald-900">
-                          🏷️ Con el descuento del renglón siguiente: {pesos(numImp(i.precio))} de lista − {pesos(Math.abs(numImp(i._descuento)) / (numImp(i.cantidad) || 1))} = <b>{pesos(precioEfectivo(i))}</b> por {numImp(i.unidadesPorBulto) > 1 ? 'bulto' : 'unidad'}.
+                          {descuentoDesmedido(i) ? (
+                            <>⚠️ El descuento del renglón siguiente ({pesos(Math.abs(numImp(i._descuento)))}) es más grande que este renglón
+                            ({pesos(Math.abs(baseUnitaria(i) * (numImp(i.cantidad) || 1)))}). No se aplicó: esa rebaja debe corresponder a varios
+                            renglones o a toda la factura. Revisalo antes de registrar.</>
+                          ) : (
+                            <>🏷️ Con el descuento del renglón siguiente: {pesos(baseUnitaria(i))} − {pesos(Math.abs(numImp(i._descuento)) / (numImp(i.cantidad) || 1))} = <b>{pesos(precioEfectivo(i))}</b> por {numImp(i.unidadesPorBulto) > 1 ? 'bulto' : 'unidad'}.</>
+                          )}
                         </span>
                       )}
                       {esSinCargo(i) ? (
@@ -1372,6 +1399,13 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                       </p>
                     ))}
                   </div>
+                )}
+                {descuentosDesmedidos > 0 && (
+                  <p className="mt-1 rounded bg-[#B82D25]/10 px-2 py-1.5 font-medium text-[#932A1F]">
+                    ⚠ <b>{descuentosDesmedidos}</b> renglón/es tienen un descuento más grande que el renglón mismo, así que no se aplicó.
+                    Suele pasar cuando la rebaja cubre varios renglones o toda la factura y no uno solo. Revisá a qué corresponde antes de registrar:
+                    si se aplicara entero a un renglón, ese producto entraría con el costo por el piso.
+                  </p>
                 )}
                 {bultosSinResolver > 0 && (
                   <p className="mt-1 rounded bg-sky-50 px-2 py-1.5 text-sky-900">
