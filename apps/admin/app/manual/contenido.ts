@@ -283,6 +283,15 @@ export const SECCIONES: Seccion[] = [
           'Si un renglón no matchea con ningún producto, se puede dar de alta el producto ahí mismo. No lo dejes sin vincular: ese costo no llega al precio de venta.',
         ],
       },
+      {
+        tipo: 'campos',
+        titulo: 'Tres cosas que hay que mirar en cada renglón',
+        filas: [
+          ['Viene por bulto', 'Si el renglón dice "X 24B", "PACK X 6" o similar, el sistema muestra la cuenta hecha (84 bultos = 2.016 unidades) y un botón "Pasar a unidad". Tocalo si el producto vinculado es la botella suelta. Dejalo como está solo si vinculaste el cajón entero.'],
+          ['Bonificado', 'Los renglones sin cargo aparecen marcados. Si el mismo producto viene dos veces —con cargo y bonificado— entran como uno solo, con el costo repartido entre todas las unidades: 18 cajas al costo de 15.'],
+          ['El costo no coincide', 'Abajo está la cuenta escrita: de cuánto se leyó a cuánto quedó, y con qué impuestos. Si aparece un aviso amarillo, los renglones no suman el neto del pie y hay que revisarlo ANTES de registrar.'],
+        ],
+      },
     ],
   },
   {
@@ -303,6 +312,7 @@ export const SECCIONES: Seccion[] = [
           ['Remarcación habitual', 'La que el sistema recuerda y aplica sola.'],
           ['Remarcación ocasional', 'Para una compra puntual (el proveedor sacó un precio excepcional). Afecta solo esa entrada; la próxima vuelve la habitual.'],
           ['Fijar la remarcación', 'Marcala como fija cuando querés que ese porcentaje pase a ser el nuevo habitual.'],
+          ['Percepciones', 'Las percepciones de IVA e IIBB entran al costo. Son pago a cuenta de impuestos propios, así que en los libros no serían costo, pero solo dejan de serlo si después se usan contra ese impuesto: acumuladas sin consumir son plata que salió y no vuelve. Se pueden sacar en una factura puntual con el tilde "Percepciones al costo".'],
         ],
       },
       {
