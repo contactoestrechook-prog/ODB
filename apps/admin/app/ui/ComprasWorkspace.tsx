@@ -488,7 +488,13 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
       };
     }));
   const discriminaIva = foto?.comprobante?.tipo === 'factura_a';
-  const sumaRenglones = fotoItems.reduce((s, i) => s + numImp(i.cantidad) * numImp(i.precio), 0);
+  // Lo que de verdad se paga por el renglón. Una bonificación del 100% deja el
+  // renglón en cero: la mercadería llega igual, pero no se paga. Sin esto, los
+  // renglones bonificados inflaban la suma de renglones y, como el costo sale
+  // de prorratear el pie sobre esa suma, ABARATABAN también a los productos que
+  // sí se pagaron.
+  const precioEfectivo = (i: any) => numImp(i.precio) * (1 - Math.min(100, Math.max(0, numImp(i.bonificacionPct))) / 100);
+  const sumaRenglones = fotoItems.reduce((s, i) => s + numImp(i.cantidad) * precioEfectivo(i), 0);
   const netoDoc = fotoImp?.neto != null && fotoImp.neto !== '' ? numImp(fotoImp.neto) : null;
   const ivaDoc = fotoImp?.iva != null && fotoImp.iva !== '' ? numImp(fotoImp.iva) : null;
   const percIvaDoc = numImp(fotoImp?.percepcionIva);
@@ -510,13 +516,13 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   const baseCosto = valorConIva != null ? valorConIva + (percepcionesAlCosto ? percepciones : 0) : null;
   const factorRecon = (baseCosto != null && sumaRenglones > 0) ? baseCosto / sumaRenglones
     : (discriminaIva && sumarIva && alicEfectiva != null ? 1 + alicEfectiva : discriminaIva && sumarIva ? 1.21 : 1);
-  const costoFinal = (i: any) => Math.round(numImp(i.precio) * factorRecon * 100) / 100;
+  const costoFinal = (i: any) => Math.round(precioEfectivo(i) * factorRecon * 100) / 100;
   const hayDatosFiscales = baseCosto != null;
   // Reconciliación: el costo a stock nunca puede superar el valor de la mercadería
   // con IVA (ni el total). Si lo hace, hay un error y se bloquea Registrar.
   const inclItems = fotoItems.filter((i) => i.incluir);
   const sumaCostos = inclItems.reduce((s, i) => s + numImp(i.cantidad) * costoFinal(i), 0);
-  const baseIncluidos = inclItems.reduce((s, i) => s + numImp(i.cantidad) * numImp(i.precio), 0) * factorRecon;
+  const baseIncluidos = inclItems.reduce((s, i) => s + numImp(i.cantidad) * precioEfectivo(i), 0) * factorRecon;
   const techoMerc = baseCosto != null ? baseCosto : (totalDoc != null ? totalDoc : Infinity);
   const excedeMerc = sumaCostos > techoMerc * 1.005;
   const excedeTotal = totalDoc != null && sumaCostos > totalDoc * 1.005;
@@ -534,6 +540,33 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   // —puede que el producto vinculado sea el bulto— pero tiene que estar a la
   // vista antes de apretar Registrar.
   const bultosSinResolver = inclItems.filter((i) => numImp(i.unidadesPorBulto) > 1).length;
+
+  // El mismo producto puede venir en DOS renglones: el que se paga y el
+  // bonificado. Si se mandan sueltos, la entrada fija el costo dos veces para
+  // el mismo SKU y gana el último — que suele ser el de cero. Se fusionan: la
+  // cantidad se suma y el costo es el promedio ponderado, que es exactamente
+  // "prorratear las cajas sin cargo para bajar el costo".
+  const fusionarPorSku = (xs: any[]) => {
+    const porSku = new Map<string, any>();
+    for (const i of xs) {
+      const cant = numImp(i.cantidad);
+      const costo = costoFinal(i);
+      const prev = porSku.get(i.sku);
+      if (!prev) {
+        porSku.set(i.sku, { ...i, cantidad: cant, _costoTotal: cant * costo, _renglones: 1 });
+      } else {
+        prev.cantidad += cant;
+        prev._costoTotal += cant * costo;
+        prev._renglones += 1;
+      }
+    }
+    return [...porSku.values()].map((i) => ({
+      ...i,
+      costoUnitario: i.cantidad > 0 ? Math.round((i._costoTotal / i.cantidad) * 100) / 100 : 0,
+    }));
+  };
+  const itemsFusionados = fusionarPorSku(inclItems.filter((i) => i.sku));
+  const skusFusionados = itemsFusionados.filter((i) => i._renglones > 1);
   const costoBloquea = excedeMerc || excedeTotal;
 
   // Excel/CSV del portal del proveedor → precarga los renglones de la OC
@@ -1021,6 +1054,12 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                       {/* Bulto detectado en el renglón: se avisa SIEMPRE, esté
                           vinculado o no, porque el error se paga en el stock y
                           en el precio de venta a la vez. */}
+                      {numImp(i.bonificacionPct) > 0 && (
+                        <span className="mt-0.5 block text-[11px] text-emerald-800">
+                          🎁 Bonificado {numImp(i.bonificacionPct)}%{numImp(i.bonificacionPct) >= 100 ? ' — sin cargo' : ''}:
+                          {' '}se paga {pesos(precioEfectivo(i))} de los {pesos(numImp(i.precio))} de lista. La mercadería entra igual y abarata el costo del resto.
+                        </span>
+                      )}
                       {numImp(i.unidadesPorBulto) > 1 && (
                         <span className="mt-0.5 block rounded bg-sky-50 px-2 py-1 text-[11px] text-sky-900">
                           📦 Viene por bulto de <b>{Math.round(numImp(i.unidadesPorBulto))}</b>: {numImp(i.cantidad)} bulto(s) a {pesos(numImp(i.precio))}
@@ -1218,6 +1257,17 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                 {(excedeMerc || excedeTotal) && (
                   <p className="mt-1 font-semibold">⚠ El costo a stock supera el valor de la mercadería con IVA de la factura. Los precios ya incluyen impuestos: revisá el neto/IVA del pie. (No se puede registrar hasta corregirlo.)</p>
                 )}
+                {skusFusionados.length > 0 && (
+                  <div className="mt-1 rounded bg-emerald-50 px-2 py-1.5 text-emerald-900">
+                    <p>🎁 <b>{skusFusionados.length}</b> producto(s) vienen en más de un renglón (con cargo y bonificado). Entran una sola vez, con el costo prorrateado:</p>
+                    {skusFusionados.map((i) => (
+                      <p key={i.sku} className="mt-0.5">
+                        · {i.nombre ?? i.descripcion}: <b>{i.cantidad}</b> en total a <b>{pesos(i.costoUnitario)}</b> c/u
+                        <span className="text-emerald-800/70"> ({i._renglones} renglones)</span>
+                      </p>
+                    ))}
+                  </div>
+                )}
                 {bultosSinResolver > 0 && (
                   <p className="mt-1 rounded bg-sky-50 px-2 py-1.5 text-sky-900">
                     📦 <b>{bultosSinResolver}</b> renglón/es vienen por bulto y todavía entran como bulto. Si el producto vinculado es la unidad suelta,
@@ -1288,7 +1338,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                   sucursalId: f.sucursalId,
                   numeroRemito: foto.comprobante?.numero || f.numeroRemito,
                   margenPct: f.margenPct ? Number(f.margenPct) : undefined,
-                  items: fotoItems.filter((i) => i.incluir && i.sku).map((i) => ({ sku: i.sku, cantidad: Number(i.cantidad), costo: costoFinal(i), precioLeido: numImp(i.precio), margenPct: i.margenPct === '' ? undefined : Number(i.margenPct), fijarMargen: !!fijarSku[i.sku], descripcionLeida: i.descripcion })),
+                  items: itemsFusionados.map((i) => ({ sku: i.sku, cantidad: Number(i.cantidad), costo: i.costoUnitario, precioLeido: numImp(i.precio), margenPct: i.margenPct === '' ? undefined : Number(i.margenPct), fijarMargen: !!fijarSku[i.sku], descripcionLeida: i.descripcion })),
                   ...(foto.comprobante?.tipo?.startsWith('factura') && fotoImp?.total > 0 ? {
                     factura: {
                       numero: foto.comprobante?.numero ?? 's/n',
