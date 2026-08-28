@@ -540,6 +540,37 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
     if (descuentoDesmedido(i)) return base; // sin aplicar: hay que revisarlo a mano
     return base + numImp(i._descuento) / cant;
   };
+  // Producto por PESO (fiambres, quesos fraccionados): la factura trae CANT=1
+  // (una horma), pero el precio es POR KILO y el importe del renglón = peso ×
+  // precio. Si se deja cantidad=1, ese precio/kilo se reconcilia contra el pie
+  // hasta el TOTAL de la horma y el costo entra inflado. El peso real sale de
+  // dividir el importe del renglón por el precio unitario.
+  const pesoDelImporte = (i: any) => {
+    const imp = Math.abs(numImp(i.importe));
+    const p = Math.abs(numImp(i.precio));
+    return imp > 0 && p > 0 ? imp / p : 0;
+  };
+  const medidaVariable = (i: any) => {
+    if (i._esDescuento || numImp(i._descuento) !== 0) return false;
+    if (numImp(i.unidadesPorBulto) > 1 || numImp(i.bultoAplicado) > 1) return false; // eso es bulto, no peso
+    const imp = Math.abs(numImp(i.importe));
+    const cant = numImp(i.cantidad);
+    const p = Math.abs(numImp(i.precio));
+    if (!(imp > 0 && p > 0 && cant > 0)) return false;
+    const esperado = cant * p;
+    if (esperado <= 0) return false;
+    // el importe representa bastante más (o menos) que cantidad × precio, y el
+    // peso que implica no coincide con la cantidad leída → el precio es por kilo
+    return Math.abs(imp - esperado) / esperado > 0.02 && Math.abs(pesoDelImporte(i) - cant) > 0.01;
+  };
+  const pasarAPeso = (idx: number) => setFotoItems((xs) => xs.map((x, j) => {
+    if (j !== idx) return x;
+    const p = Math.abs(numImp(x.precio));
+    const imp = Math.abs(numImp(x.importe));
+    const kilos = p > 0 ? Math.round((imp / p) * 1000) / 1000 : numImp(x.cantidad);
+    return { ...x, cantidad: kilos, porPeso: true };
+  }));
+
   // ¿Este renglón vino sin cargo? Es lo que después se prorratea.
   const esSinCargo = (i: any) => !i._esDescuento && numImp(i.cantidad) > 0 && Math.abs(precioEfectivo(i)) < 0.01;
 
@@ -1252,6 +1283,19 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                           <button onClick={() => volverABulto(idx)} className="ml-2 text-black/45 underline hover:text-[#B82D25]">deshacer</button>
                         </span>
                       )}
+                      {medidaVariable(i) && (
+                        <span className="mt-0.5 block rounded bg-sky-50 px-2 py-1 text-[11px] text-sky-900">
+                          ⚖️ Se factura por <b>peso</b>: el importe del renglón ({pesos(Math.abs(numImp(i.importe)))}) a {pesos(numImp(i.precio))} por kilo da <b>{pesoDelImporte(i).toFixed(3).replace('.', ',')} kg</b>, pero está entrando como {numImp(i.cantidad)} unidad(es) — por eso el costo sale {pesos(costoFinal(i))} en vez de ~{pesos(numImp(i.precio))} el kilo.
+                          <button onClick={() => pasarAPeso(idx)} className="ml-2 rounded-full bg-sky-700 px-2.5 py-0.5 text-[11px] font-semibold text-white hover:bg-sky-800">Pasar a kilos</button>
+                          <span className="mt-0.5 block text-sky-800/70">Dejalo como está solo si el producto en stock es la horma entera, no el kilo.</span>
+                        </span>
+                      )}
+                      {i.porPeso && numImp(i.cantidad) > 0 && !medidaVariable(i) && (
+                        <span className="mt-0.5 block text-[11px] text-sky-800">
+                          ⚖️ Por peso: {numImp(i.cantidad).toLocaleString('es-AR')} kg a {pesos(numImp(i.precio))} el kilo.
+                          <button onClick={() => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, cantidad: 1, porPeso: false } : x))} className="ml-2 text-black/45 underline hover:text-[#B82D25]">deshacer</button>
+                        </span>
+                      )}
                       {i.sugerido && i.nombre ? (
                         <span className="block text-xs text-amber-900">
                           💡 La IA cree que es <b>{i.nombre}</b>{i.motivoIa ? ` — ${i.motivoIa}` : ''}. ¿Es este?
@@ -1292,7 +1336,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                         </span>
                       )}
                     </span>
-                    <input type="number" value={i.cantidad} onChange={(e) => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, cantidad: Number(e.target.value) } : x))} className="w-12 rounded border border-black/15 px-1 py-1 text-right text-sm text-black" />
+                    <input type="number" step="any" min="0" value={i.cantidad} onChange={(e) => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, cantidad: Number(e.target.value) } : x))} className="w-14 rounded border border-black/15 px-1 py-1 text-right text-sm text-black" />
                     <span className="w-20 text-right text-sm tabular-nums text-black/70">
                       {pesos(costoFinal(i))}
                       {Math.abs(costoFinal(i) - numImp(i.precio)) > 0.5 && <span className="block text-[9px] leading-tight text-black/35">leído {pesos(i.precio)}</span>}
