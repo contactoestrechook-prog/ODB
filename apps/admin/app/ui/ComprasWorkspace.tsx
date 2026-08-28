@@ -597,55 +597,68 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   // un 43% más caro de lo que se pagó, y ese costo va al precio de venta.
   const esRenglonDescuento = (i: any) => !!i.esDescuento || numImp(i.precio) < 0;
   const soloTexto = (t: any) => String(t ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
-  // Reparte cada renglón de descuento sobre el renglón de mercadería que nombra
-  // (el más cercano hacia arriba). Si no se puede identificar, cae en el
-  // anterior de mercadería, que es como están impresas estas facturas.
+  // Reparte cada renglón de descuento sobre la mercadería que le corresponde.
+  // Tres formas, en orden: (1) el descuento NOMBRA un renglón y la cuenta cierra
+  // con él; (2) es un descuento de GRUPO (típico de Coca/distribuidores: "Px
+  // mágico = 17,2%", "AQ 1.5L = 24,3%") que aplica a TODOS los renglones desde
+  // el descuento anterior hasta este, y se reparte proporcional al importe de
+  // cada uno; (3) no se puede atribuir → no se aplica y se avisa. El reparto por
+  // grupo nunca deja un costo en negativo (cada renglón recibe una fracción de
+  // lo suyo) y cierra con el pie por construcción.
   const sinAtribuir: { descripcion: string; importe: number }[] = [];
+  const grupoDeDescuento = new Map<number, { n: number; pct: number | null; importe: number }>();
+  const base = (x: any) => {
+    const cant = numImp(x.cantidad) || 1;
+    return x.importe != null && x.importe !== '' ? Math.abs(numImp(x.importe)) : Math.abs(numImp(x.precio) * cant);
+  };
   const descuentoPorIdx = (() => {
     const m = new Map<number, number>();
+    let ventanaInicio = 0; // primer índice de mercadería de la ventana en curso
     fotoItems.forEach((d: any, j: number) => {
       if (!esRenglonDescuento(d)) return;
-      // El operador decidió no aplicar esta rebaja: la mercadería queda a
-      // precio de lista y la plata pagada de menos se reparte sola en el
-      // factor de reconciliación (como un descuento general).
-      if (d.noAplicar) return;
-      const importe = numImp(d.cantidad) * numImp(d.precio);
-      if (!importe) return;
+      const cerrarVentana = () => { ventanaInicio = j + 1; };
+      // El operador decidió no aplicar esta rebaja: la mercadería queda a precio
+      // de lista y lo pagado de menos se reparte solo en la reconciliación.
+      if (d.noAplicar) return cerrarVentana();
+      const importe = d.importe != null && d.importe !== '' && numImp(d.importe) !== 0
+        ? numImp(d.importe) : numImp(d.cantidad) * numImp(d.precio);
+      if (!importe) return cerrarVentana();
+      const abs = Math.abs(importe);
       const textoDesc = soloTexto(d.descripcion);
       const pct = d.descuentoPct != null ? numImp(d.descuentoPct) : null;
-      // Total del renglón candidato, para poder verificar el porcentaje.
-      const totalDe = (x: any) => {
-        const cant = numImp(x.cantidad) || 1;
-        return x.importe != null && x.importe !== '' ? Math.abs(numImp(x.importe)) : Math.abs(numImp(x.precio) * cant);
-      };
-      const cierra = (x: any) => {
-        const linea = totalDe(x);
-        if (!linea) return false;
-        if (pct != null) return Math.abs((Math.abs(importe) / linea) * 100 - pct) <= 1;
-        return Math.abs(importe) <= linea;
-      };
-      // Solo se aplica al renglón que la rebaja NOMBRA y con el que la cuenta
-      // cierra. Antes, si no se podía identificar, caía en el renglón anterior:
-      // así una promoción de toda la factura ("Px mágico = 17,2%", $52.963) se
-      // le adjudicaba entera a un renglón de $45.055 y lo dejaba con el costo
-      // por el piso. Si no se puede atribuir con certeza, NO se aplica.
+
+      // 1) NOMBRA un renglón puntual (dentro de la ventana) y cierra con él
       let destino = -1;
-      for (let k = j - 1; k >= 0; k--) {
+      for (let k = j - 1; k >= ventanaInicio; k--) {
         if (esRenglonDescuento(fotoItems[k])) continue;
         const nombre = soloTexto(fotoItems[k].descripcion);
-        if (nombre && textoDesc.includes(nombre) && cierra(fotoItems[k])) { destino = k; break; }
+        const linea = base(fotoItems[k]);
+        const cierraUno = linea > 0 && (pct != null ? Math.abs((abs / linea) * 100 - pct) <= 1.5 : abs <= linea);
+        if (nombre && textoDesc.includes(nombre) && cierraUno) { destino = k; break; }
       }
-      if (destino < 0) {
-        // sin nombre que la identifique, solo se acepta si la cuenta cierra con
-        // el renglón inmediatamente anterior
-        for (let k = j - 1; k >= 0; k--) {
-          if (esRenglonDescuento(fotoItems[k])) continue;
-          if (cierra(fotoItems[k])) destino = k;
-          break;
-        }
+      if (destino >= 0) { m.set(destino, (m.get(destino) ?? 0) + importe); return cerrarVentana(); }
+
+      // 2) descuento de GRUPO: los renglones de mercadería de la ventana
+      const grupo: number[] = [];
+      let sumaG = 0;
+      for (let k = ventanaInicio; k < j; k++) {
+        if (esRenglonDescuento(fotoItems[k])) continue;
+        const b = base(fotoItems[k]);
+        if (b > 0) { grupo.push(k); sumaG += b; }
       }
-      if (destino >= 0) m.set(destino, (m.get(destino) ?? 0) + importe);
-      else sinAtribuir.push({ descripcion: d.descripcion, importe: Math.abs(importe) });
+      // Se acepta si el descuento es una fracción del grupo y —cuando el papel
+      // trae el %— ese % cierra con la suma del grupo (tolerancia amplia para no
+      // depender de si la IA leyó la columna con o sin IVA).
+      const pctCierra = pct == null || Math.abs(sumaG * (pct / 100) - abs) / abs < 0.06;
+      if (grupo.length > 0 && sumaG > 0 && abs < sumaG * 0.999 && pctCierra) {
+        for (const k of grupo) m.set(k, (m.get(k) ?? 0) + importe * (base(fotoItems[k]) / sumaG));
+        grupoDeDescuento.set(j, { n: grupo.length, pct, importe: abs });
+        return cerrarVentana();
+      }
+
+      // 3) no se pudo atribuir con certeza
+      sinAtribuir.push({ descripcion: d.descripcion, importe: abs });
+      cerrarVentana();
     });
     return m;
   })();
@@ -1245,6 +1258,11 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                                 ⚠ No se pudo saber a qué renglón corresponde{numImp(i.descuentoPct) > 0 ? ` (dice ${numImp(i.descuentoPct)}%, y no cierra con ningún renglón)` : ''},
                                 así que NO se descontó de ningún costo. Si es una promoción de toda la factura, cargala en “Desc. del pie”.
                               </span>
+                            : grupoDeDescuento.has(idx)
+                            ? <span className="mt-0.5 block font-medium text-emerald-800">
+                                ✓ Repartido entre los {grupoDeDescuento.get(idx)!.n} renglones de arriba{grupoDeDescuento.get(idx)!.pct ? ` (${grupoDeDescuento.get(idx)!.pct}%)` : ''}, proporcional a cada uno. Baja el costo de todos ellos.
+                                <button onClick={() => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, noAplicar: true } : x))} className="ml-2 rounded-full border border-black/20 px-2.5 py-0.5 text-[11px] text-black/70 hover:border-[#B82D25] hover:text-[#B82D25]">No aplicar</button>
+                              </span>
                             : <> Se descuenta del renglón que nombra.
                                 <button onClick={() => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, noAplicar: true } : x))} className="ml-2 rounded-full border border-black/20 px-2.5 py-0.5 text-[11px] text-black/70 hover:border-[#B82D25] hover:text-[#B82D25]">No aplicar — dejar a precio de lista</button>
                               </>}
@@ -1263,11 +1281,11 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                       {numImp(i._descuento) < 0 && (
                         <span className="mt-0.5 block rounded bg-emerald-50 px-2 py-1 text-[11px] text-emerald-900">
                           {descuentoDesmedido(i) ? (
-                            <>⚠️ El descuento del renglón siguiente ({pesos(Math.abs(numImp(i._descuento)))}) es más grande que este renglón
+                            <>⚠️ El descuento aplicado ({pesos(Math.abs(numImp(i._descuento)))}) es más grande que este renglón
                             ({pesos(Math.abs(baseUnitaria(i) * (numImp(i.cantidad) || 1)))}). No se aplicó: esa rebaja debe corresponder a varios
                             renglones o a toda la factura. Revisalo antes de registrar.</>
                           ) : (
-                            <>🏷️ Con el descuento del renglón siguiente: {pesos(baseUnitaria(i))} − {pesos(Math.abs(numImp(i._descuento)) / (numImp(i.cantidad) || 1))} = <b>{pesos(precioEfectivo(i))}</b> por {numImp(i.unidadesPorBulto) > 1 ? 'bulto' : 'unidad'}.</>
+                            <>🏷️ Con el descuento aplicado: {pesos(baseUnitaria(i))} − {pesos(Math.abs(numImp(i._descuento)) / (numImp(i.cantidad) || 1))} = <b>{pesos(precioEfectivo(i))}</b> por {numImp(i.unidadesPorBulto) > 1 ? 'bulto' : 'unidad'}.</>
                           )}
                         </span>
                       )}
