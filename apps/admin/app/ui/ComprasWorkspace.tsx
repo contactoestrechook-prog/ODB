@@ -493,8 +493,56 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   // renglones bonificados inflaban la suma de renglones y, como el costo sale
   // de prorratear el pie sobre esa suma, ABARATABAN también a los productos que
   // sí se pagaron.
-  const precioEfectivo = (i: any) => numImp(i.precio) * (1 - Math.min(100, Math.max(0, numImp(i.bonificacionPct))) / 100);
-  const sumaRenglones = fotoItems.reduce((s, i) => s + numImp(i.cantidad) * precioEfectivo(i), 0);
+  const precioEfectivo = (i: any) => {
+    const cant = numImp(i.cantidad) || 1;
+    const bruto = numImp(i.precio) * (1 - Math.min(100, Math.max(0, numImp(i.bonificacionPct))) / 100);
+    // el descuento del renglón siguiente ya viene repartido en _descuento
+    return bruto + numImp(i._descuento) / cant;
+  };
+
+  // Un renglón "Desc. 42,86% - MANOS NEGRAS Malbec" NO es mercadería: es una
+  // rebaja sobre el renglón de arriba. Antes se ofrecía vincularlo a un
+  // producto, y aceptar esa sugerencia habría cargado 7 unidades a -$22.630.
+  // Peor: como la rebaja no se aplicaba, el Malbec entraba a precio de lista,
+  // un 43% más caro de lo que se pagó, y ese costo va al precio de venta.
+  const esRenglonDescuento = (i: any) => !!i.esDescuento || numImp(i.precio) < 0;
+  const soloTexto = (t: any) => String(t ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+  // Reparte cada renglón de descuento sobre el renglón de mercadería que nombra
+  // (el más cercano hacia arriba). Si no se puede identificar, cae en el
+  // anterior de mercadería, que es como están impresas estas facturas.
+  const descuentoPorIdx = (() => {
+    const m = new Map<number, number>();
+    fotoItems.forEach((d: any, j: number) => {
+      if (!esRenglonDescuento(d)) return;
+      const importe = numImp(d.cantidad) * numImp(d.precio);
+      if (!importe) return;
+      const textoDesc = soloTexto(d.descripcion);
+      let destino = -1;
+      for (let k = j - 1; k >= 0; k--) {
+        if (esRenglonDescuento(fotoItems[k])) continue;
+        const nombre = soloTexto(fotoItems[k].descripcion);
+        if (nombre && textoDesc.includes(nombre)) { destino = k; break; }
+      }
+      if (destino < 0) {
+        for (let k = j - 1; k >= 0; k--) { if (!esRenglonDescuento(fotoItems[k])) { destino = k; break; } }
+      }
+      if (destino >= 0) m.set(destino, (m.get(destino) ?? 0) + importe);
+    });
+    return m;
+  })();
+  // La lista con la que se calcula y se dibuja: cada renglón ya sabe qué
+  // descuento le corresponde.
+  const itemsCalc = fotoItems.map((i: any, idx: number) => ({
+    ...i,
+    _descuento: descuentoPorIdx.get(idx) ?? 0,
+    _esDescuento: esRenglonDescuento(i),
+  }));
+  // OJO: el descuento ya está adentro de precioEfectivo del renglón que rebaja.
+  // Sumar además el renglón de descuento lo restaría DOS veces.
+  const sumaRenglones = itemsCalc.reduce(
+    (s: number, i: any) => (i._esDescuento ? s : s + numImp(i.cantidad) * precioEfectivo(i)),
+    0,
+  );
   const netoDoc = fotoImp?.neto != null && fotoImp.neto !== '' ? numImp(fotoImp.neto) : null;
   const ivaDoc = fotoImp?.iva != null && fotoImp.iva !== '' ? numImp(fotoImp.iva) : null;
   const percIvaDoc = numImp(fotoImp?.percepcionIva);
@@ -520,7 +568,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   const hayDatosFiscales = baseCosto != null;
   // Reconciliación: el costo a stock nunca puede superar el valor de la mercadería
   // con IVA (ni el total). Si lo hace, hay un error y se bloquea Registrar.
-  const inclItems = fotoItems.filter((i) => i.incluir);
+  const inclItems = itemsCalc.filter((i: any) => i.incluir && !i._esDescuento);
   const sumaCostos = inclItems.reduce((s, i) => s + numImp(i.cantidad) * costoFinal(i), 0);
   const baseIncluidos = inclItems.reduce((s, i) => s + numImp(i.cantidad) * precioEfectivo(i), 0) * factorRecon;
   const techoMerc = baseCosto != null ? baseCosto : (totalDoc != null ? totalDoc : Infinity);
@@ -1044,8 +1092,20 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                 <span className="w-12 text-right">Cant.</span><span className="w-20 text-right">Costo</span>
                 <span className="w-16 text-right">Remar. %</span><span className="w-20 text-right">P. venta</span>
               </div>
-              {fotoItems.map((i, idx) => (
+              {itemsCalc.map((i: any, idx: number) => (
                 <div key={idx} className={'rounded-lg px-2 py-2 ' + (i.sugerido ? 'bg-amber-50 border border-amber-300' : i.incluir ? 'bg-white border border-black/[0.06]' : 'bg-[#F0EBE2]/40')}>
+                  {i._esDescuento ? (
+                    <div className="flex items-start gap-2">
+                      <span className="shrink-0 text-sm">🏷️</span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm text-black/70">{i.descripcion}</span>
+                        <span className="block text-[11px] text-black/50">
+                          No es mercadería: es una rebaja de <b>{pesos(Math.abs(numImp(i.cantidad) * numImp(i.precio)))}</b> que se descuenta
+                          del renglón de arriba. No suma stock ni se vincula a ningún producto.
+                        </span>
+                      </span>
+                    </div>
+                  ) : (
                   <div className="flex items-center gap-2">
                     <input type="checkbox" checked={i.incluir} disabled={i.sugerido} onChange={(e) => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, incluir: e.target.checked } : x))} className="accent-[#B82D25] shrink-0 disabled:opacity-40" />
                     <span className="flex-1 min-w-0">
@@ -1054,6 +1114,11 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                       {/* Bulto detectado en el renglón: se avisa SIEMPRE, esté
                           vinculado o no, porque el error se paga en el stock y
                           en el precio de venta a la vez. */}
+                      {numImp(i._descuento) < 0 && (
+                        <span className="mt-0.5 block rounded bg-emerald-50 px-2 py-1 text-[11px] text-emerald-900">
+                          🏷️ Con el descuento del renglón siguiente: {pesos(numImp(i.precio))} de lista − {pesos(Math.abs(numImp(i._descuento)) / (numImp(i.cantidad) || 1))} = <b>{pesos(precioEfectivo(i))}</b> por {numImp(i.unidadesPorBulto) > 1 ? 'bulto' : 'unidad'}.
+                        </span>
+                      )}
                       {numImp(i.bonificacionPct) > 0 && (
                         <span className="mt-0.5 block text-[11px] text-emerald-800">
                           🎁 Bonificado {numImp(i.bonificacionPct)}%{numImp(i.bonificacionPct) >= 100 ? ' — sin cargo' : ''}:
@@ -1133,9 +1198,10 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                     </span>
                     <span className="w-20 text-right text-sm font-semibold tabular-nums text-black">{i.margenPct === '' || i.margenPct == null ? <span className="text-black/40 font-normal text-xs">s/ rubro</span> : pesos(precioVenta(i))}</span>
                   </div>
+                  )}
 
                   {/* buscador para vincular el producto a este renglón */}
-                  {vinculaIdx === idx && (
+                  {!i._esDescuento && vinculaIdx === idx && (
                     <div className="relative mt-2 ml-6">
                       <div className="flex gap-2">
                         <input autoFocus value={vinculaBusca} onChange={(e) => setVinculaBusca(e.target.value)} placeholder="Buscar producto por nombre o código…" className={input + ' flex-1'} />
