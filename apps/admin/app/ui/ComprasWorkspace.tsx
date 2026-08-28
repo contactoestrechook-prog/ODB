@@ -443,6 +443,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
           // pantalla por más que la API lo mande.
           unidadesPorBulto: i.unidadesPorBulto ?? null,
           bonificacionPct: i.bonificacionPct ?? null,
+          importe: i.importe ?? null,
           esDescuento: !!i.esDescuento,
           bultoAplicado: null,
           // las sugerencias de IA NO se incluyen hasta que el operador confirme "¿es este?"
@@ -503,12 +504,23 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   // renglones bonificados inflaban la suma de renglones y, como el costo sale
   // de prorratear el pie sobre esa suma, ABARATABAN también a los productos que
   // sí se pagaron.
+  // Lo que REALMENTE cuesta una unidad de este renglón.
+  //
+  // El orden importa. Manda el importe impreso del renglón, porque ya trae
+  // aplicado todo lo de esa fila: es común que el proveedor mande mercadería
+  // sin cargo con el precio unitario lleno (el de lista) y el importe en cero.
+  // Si no hay columna de importe, se cae al precio unitario menos la
+  // bonificación. Y en cualquier caso se le suma el descuento que venga en un
+  // renglón aparte.
   const precioEfectivo = (i: any) => {
     const cant = numImp(i.cantidad) || 1;
-    const bruto = numImp(i.precio) * (1 - Math.min(100, Math.max(0, numImp(i.bonificacionPct))) / 100);
-    // el descuento del renglón siguiente ya viene repartido en _descuento
-    return bruto + numImp(i._descuento) / cant;
+    const base = i.importe != null && i.importe !== ''
+      ? numImp(i.importe) / cant
+      : numImp(i.precio) * (1 - Math.min(100, Math.abs(numImp(i.bonificacionPct))) / 100);
+    return base + numImp(i._descuento) / cant;
   };
+  // ¿Este renglón vino sin cargo? Es lo que después se prorratea.
+  const esSinCargo = (i: any) => !i._esDescuento && numImp(i.cantidad) > 0 && Math.abs(precioEfectivo(i)) < 0.01;
 
   // Un renglón "Desc. 42,86% - MANOS NEGRAS Malbec" NO es mercadería: es una
   // rebaja sobre el renglón de arriba. Antes se ofrecía vincularlo a un
@@ -618,12 +630,14 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
       const cant = numImp(i.cantidad);
       const costo = costoFinal(i);
       const prev = porSku.get(i.sku);
+      const gratis = esSinCargo(i) ? cant : 0;
       if (!prev) {
-        porSku.set(i.sku, { ...i, cantidad: cant, _costoTotal: cant * costo, _renglones: 1 });
+        porSku.set(i.sku, { ...i, cantidad: cant, _costoTotal: cant * costo, _renglones: 1, _gratis: gratis });
       } else {
         prev.cantidad += cant;
         prev._costoTotal += cant * costo;
         prev._renglones += 1;
+        prev._gratis += gratis;
       }
     }
     return [...porSku.values()].map((i) => ({
@@ -1137,12 +1151,15 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                           🏷️ Con el descuento del renglón siguiente: {pesos(numImp(i.precio))} de lista − {pesos(Math.abs(numImp(i._descuento)) / (numImp(i.cantidad) || 1))} = <b>{pesos(precioEfectivo(i))}</b> por {numImp(i.unidadesPorBulto) > 1 ? 'bulto' : 'unidad'}.
                         </span>
                       )}
-                      {numImp(i.bonificacionPct) > 0 && (
+                      {esSinCargo(i) ? (
                         <span className="mt-0.5 block text-[11px] text-emerald-800">
-                          🎁 Bonificado {numImp(i.bonificacionPct)}%{numImp(i.bonificacionPct) >= 100 ? ' — sin cargo' : ''}:
-                          {' '}se paga {pesos(precioEfectivo(i))} de los {pesos(numImp(i.precio))} de lista. La mercadería entra igual y abarata el costo del resto.
+                          🎁 <b>Sin cargo</b>: entran {numImp(i.cantidad)} que no se pagan. Se reparten entre las que sí se pagaron, y baja el costo de todas.
                         </span>
-                      )}
+                      ) : numImp(i.bonificacionPct) > 0 ? (
+                        <span className="mt-0.5 block text-[11px] text-emerald-800">
+                          🎁 Bonificado {numImp(i.bonificacionPct)}%: se paga {pesos(precioEfectivo(i))} de los {pesos(numImp(i.precio))} de lista.
+                        </span>
+                      ) : null}
                       {numImp(i.unidadesPorBulto) > 1 && (
                         <span className="mt-0.5 block rounded bg-sky-50 px-2 py-1 text-[11px] text-sky-900">
                           📦 Viene por bulto de <b>{Math.round(numImp(i.unidadesPorBulto))}</b>: {numImp(i.cantidad)} bulto(s) a {pesos(numImp(i.precio))}
@@ -1344,10 +1361,13 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                 )}
                 {skusFusionados.length > 0 && (
                   <div className="mt-1 rounded bg-emerald-50 px-2 py-1.5 text-emerald-900">
-                    <p>🎁 <b>{skusFusionados.length}</b> producto(s) vienen en más de un renglón (con cargo y bonificado). Entran una sola vez, con el costo prorrateado:</p>
+                    <p>🎁 <b>{skusFusionados.length}</b> producto(s) vienen en más de un renglón. Entran una sola vez y lo que no se paga se reparte entre todo lo que llegó:</p>
                     {skusFusionados.map((i) => (
                       <p key={i.sku} className="mt-0.5">
-                        · {i.nombre ?? i.descripcion}: <b>{i.cantidad}</b> en total a <b>{pesos(i.costoUnitario)}</b> c/u
+                        · {i.nombre ?? i.descripcion}:{' '}
+                        {i._gratis > 0
+                          ? <><b>{i.cantidad - i._gratis}</b> pagadas + <b>{i._gratis}</b> sin cargo = <b>{i.cantidad}</b> a <b>{pesos(i.costoUnitario)}</b> c/u</>
+                          : <><b>{i.cantidad}</b> en total a <b>{pesos(i.costoUnitario)}</b> c/u</>}
                         <span className="text-emerald-800/70"> ({i._renglones} renglones)</span>
                       </p>
                     ))}

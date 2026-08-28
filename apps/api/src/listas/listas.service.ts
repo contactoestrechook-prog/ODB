@@ -72,6 +72,10 @@ const ESQUEMA_COMPROBANTE = {
           descripcion: { type: 'string' },
           cantidad: { type: 'number', description: 'La cantidad tal cual figura en la columna CANT. Si el renglón se factura por bulto/caja/pack, esta es la cantidad de BULTOS, no de unidades sueltas.' },
           precio: { type: 'number', description: 'Importe unitario de la columna PRE.UNIT tal cual impreso. NO uses PRE.VTA.PUBLICO (PVP) ni la columna IMPORTE. La relación con neto/IVA/total se resuelve en el pie; NO asumas que es neto+21% (en cigarrillos el precio ya trae impuestos internos y percepción IIBB embebidos). Si el renglón se factura por bulto, este es el precio DEL BULTO.' },
+          importe: {
+            type: ['number', 'null'],
+            description: 'El IMPORTE del renglón tal cual impreso en la última columna (Importe / Subtotal / Total del renglón). Es la VERDAD de lo que cuesta ese renglón: ya trae aplicado cualquier descuento o bonificación de la fila. Un renglón sin cargo tiene importe 0,00 aunque su precio unitario figure lleno. Copialo siempre que la columna exista, con su signo.',
+          },
           esDescuento: {
             type: 'boolean',
             description: 'true si el renglón NO es mercadería sino una REBAJA sobre otro renglón: descripción tipo "Desc. 42.86% - MANOS NEGRAS Malbec CJ x6", "Descuento", "Bonificación s/ item 4", y casi siempre con importe NEGATIVO. Estos renglones no entran al stock: son plata que se resta del renglón que nombran. Un renglón de mercadería con precio 0 NO es descuento, es mercadería sin cargo.',
@@ -341,6 +345,7 @@ export class ListasService {
         text:
           'Este es un comprobante de COMPRA argentino de un almacén (factura A/B/C, remito o ticket; puede ser una foto de celular). El pie de impuestos puede estar denso o desalineado (típico en cigarrillos, bebidas y otros regímenes especiales). Seguí estos pasos EN ORDEN.\n\n' +
           'PASO 1 — Encabezado y renglones. Extraé emisor + CUIT, tipo/número/fecha/condición de venta y TODOS los renglones: código, descripción (que EMPIECE por la marca cuando se vea), cantidad y precio unitario de la columna PRE.UNIT tal cual figura. NO uses PRE.VTA.PUBLICO ni la columna IMPORTE.\n\n' +
+          'PASO 1 QUINQUIES — El importe del renglón manda. Copiá SIEMPRE la columna Importe/Subtotal de cada renglón en "importe". Es común que el proveedor mande mercadería sin cargo: el precio unitario aparece lleno (porque es el de lista) pero el importe del renglón es 0,00, a veces con un "-100" en la columna de descuento. Ese renglón ES mercadería y entra al stock; lo que no se paga es su importe. No lo confundas con un renglón de descuento.\n\n' +
           'PASO 1 QUATER — Renglones de descuento. Muchas facturas traen, JUSTO DEBAJO del renglón de mercadería, otro renglón que es una rebaja sobre ese: "Desc. 42.86% - MANOS NEGRAS Malbec CJ x6", con importe NEGATIVO. Marcá esos con esDescuento=true y copiá el importe como viene, en negativo. NO son mercadería y NO entran al stock. Repetí la descripción completa tal cual, incluyendo el nombre del producto que descuentan, porque es lo único que permite saber a qué renglón se aplica. Un renglón de mercadería con precio 0,00 NO es un descuento: es mercadería sin cargo (bonificada).\n\n' +
           'PASO 1 TER — Bonificaciones. Es MUY común que el mismo producto aparezca DOS veces: un renglón con cargo y otro sin cargo (bonificado). Si hay columna BONIF / % BON / DTO, copiá su valor en bonificacionPct del renglón; 100 significa que ese renglón no se paga. El precio de lista suele estar impreso igual en los dos renglones, así que sin la bonificación es imposible distinguirlos: no la omitas.\n\n' +
           'PASO 1 BIS — Bultos. Muchos renglones se facturan POR BULTO (caja, pack, display) y no por unidad suelta. Es la diferencia entre cargar 84 cajones y cargar 2.016 botellas. Si la descripción o alguna columna dice cuántas unidades trae el bulto —"CORONA 355 X 24B" son 24, "PACK X 6" son 6, "CAJA X 12" son 12, "CJ x 6" son 6, "CJx12" son 12, "BOX X 6" son 6— ponelo en unidadesPorBulto de ESE renglón. Si el renglón es por unidad suelta, o no se puede saber, poné null y NO lo adivines: el tamaño del envase (355cc, 750cc, 1,5L) NUNCA es la cantidad de unidades del bulto.\n\n' +
@@ -460,7 +465,10 @@ export class ListasService {
         cantidad: Number(i.cantidad) || 1,
         precio: Number(i.precio) || 0,
         unidadesPorBulto: delTexto ?? delModelo ?? null,
-        bonificacionPct: Number(i.bonificacionPct) > 0 ? Number(i.bonificacionPct) : null,
+        importe: i.importe != null && i.importe !== '' ? Number(i.importe) : null,
+        // el signo del porcentaje lo escribe cada proveedor como quiere: "-100"
+        // y "100" significan lo mismo, un renglón sin cargo
+        bonificacionPct: Math.abs(Number(i.bonificacionPct)) > 0 ? Math.min(100, Math.abs(Number(i.bonificacionPct))) : null,
         esDescuento: esRenglonDeDescuento({ descripcion: i.descripcion, precio: Number(i.precio) || 0 }) || !!i.esDescuento,
       } as any;
     });

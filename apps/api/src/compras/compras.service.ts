@@ -3,6 +3,7 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
 import { ordenDeCompraPDF, remitoRecepcionPDF, ordenDePagoPDF } from '../comun/documentos';
 import { enLotes } from '../comun/lotes';
+import { fusionarRenglonesPorSku } from './bultos';
 
 // Cómo se propone cuánto pedir: se mira la venta de los últimos 30 días y se
 // propone cubrir 14. Menos de 5 días de stock es urgente (con el lead time de
@@ -321,8 +322,17 @@ export class ComprasService {
       );
     }
 
+    // Dos renglones del mismo producto —el pagado y el que vino sin cargo— se
+    // juntan ANTES de tocar la base: la entrada fija el costo por SKU, así que
+    // si entran sueltos el costo se escribe dos veces y gana el último. Cuando
+    // el último es el regalado, el producto queda en CERO. Además es lo que el
+    // negocio pide: lo regalado abarata lo pagado.
+    const renglones = fusionarRenglonesPorSku(
+      dto.items.map((i) => ({ ...i, sku: String(i.sku), cantidad: Number(i.cantidad), costo: Number(i.costo) || 0 })),
+    );
+
     const items = await Promise.all(
-      dto.items.map(async (i) => ({
+      renglones.map(async (i) => ({
         producto_id: await this.productoIdPorSku(i.sku),
         cantidad: Number(i.cantidad),
         costo_unitario: Number(i.costo) || 0,

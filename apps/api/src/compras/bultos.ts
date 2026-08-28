@@ -92,3 +92,40 @@ export function esRenglonDeDescuento(renglon: { descripcion?: string; precio?: n
   const t = normalizar(renglon?.descripcion ?? '');
   return /^(desc|dto|descuento|bonif|bonificacion|rebaja|nota de credito)\b/.test(t);
 }
+
+export type RenglonEntrada = { sku: string; cantidad: number; costo: number; [k: string]: any };
+
+/**
+ * Junta los renglones repetidos del mismo producto y reparte lo que no se pagó
+ * entre todo lo que llegó.
+ *
+ * Es el arreglo comercial de siempre: "comprás 20 cajas, te regalo 3". Las 3
+ * que no se pagan bajan el costo de las 23, no entran como un producto de
+ * costo cero al lado del de costo lleno. La cuenta es plata pagada dividida
+ * unidades recibidas.
+ *
+ * Hace falta acá, en el servidor, y no solo en la pantalla: la entrada fija el
+ * costo del producto por SKU, así que dos renglones del mismo producto lo
+ * escribían dos veces y ganaba el último. Cuando el último es el regalado, el
+ * producto quedaba con costo CERO y el precio de venta se calculaba sobre cero.
+ */
+export function fusionarRenglonesPorSku<T extends RenglonEntrada>(items: T[]): T[] {
+  const porSku = new Map<string, { base: T; unidades: number; pagado: number }>();
+  for (const i of items) {
+    const cantidad = Number(i.cantidad) || 0;
+    const costo = Number(i.costo) || 0;
+    const previo = porSku.get(i.sku);
+    if (!previo) porSku.set(i.sku, { base: i, unidades: cantidad, pagado: cantidad * costo });
+    else {
+      previo.unidades += cantidad;
+      previo.pagado += cantidad * costo;
+      // el margen puesto a mano en cualquiera de los renglones vale para todos
+      if ((previo.base as any).margenPct == null && (i as any).margenPct != null) (previo.base as any).margenPct = (i as any).margenPct;
+    }
+  }
+  return [...porSku.values()].map(({ base, unidades, pagado }) => ({
+    ...base,
+    cantidad: unidades,
+    costo: unidades > 0 ? Math.round((pagado / unidades) * 100) / 100 : 0,
+  }));
+}

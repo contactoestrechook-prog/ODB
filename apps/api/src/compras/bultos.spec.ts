@@ -1,4 +1,4 @@
-import { unidadesPorBulto, esRenglonDeDescuento } from './bultos';
+import { unidadesPorBulto, esRenglonDeDescuento, fusionarRenglonesPorSku } from './bultos';
 
 describe('unidadesPorBulto — la forma, no la lista de proveedores', () => {
   it.each([
@@ -66,5 +66,45 @@ describe('esRenglonDeDescuento — el signo manda', () => {
 
   it('la mercadería sin cargo NO es un descuento: entra al stock', () => {
     expect(esRenglonDeDescuento({ descripcion: 'ZAHA Chardonnay CJ x 6', precio: 0 })).toBe(false);
+  });
+});
+
+describe('fusionarRenglonesPorSku — lo regalado abarata lo pagado', () => {
+  it('20 pagas + 3 de regalo = 23 al costo de 20', () => {
+    const [r] = fusionarRenglonesPorSku([
+      { sku: 'A', cantidad: 20, costo: 1000 },
+      { sku: 'A', cantidad: 3, costo: 0 },
+    ]);
+    expect(r.cantidad).toBe(23);
+    expect(r.costo).toBeCloseTo(869.57, 2); // 20.000 / 23
+  });
+
+  it('12 pagas + 5 de regalo', () => {
+    const [r] = fusionarRenglonesPorSku([
+      { sku: 'B', cantidad: 12, costo: 100 },
+      { sku: 'B', cantidad: 5, costo: 0 },
+    ]);
+    expect(r.cantidad).toBe(17);
+    expect(r.costo).toBeCloseTo(70.59, 2); // 1.200 / 17
+  });
+
+  // El caso que rompía de verdad: la entrada fija el costo por SKU, así que el
+  // renglón regalado (costo 0) pisaba al pagado y el producto quedaba en cero.
+  it('nunca deja el producto con costo cero por el renglón regalado', () => {
+    const [r] = fusionarRenglonesPorSku([
+      { sku: 'C', cantidad: 3, costo: 380000 },
+      { sku: 'C', cantidad: 1, costo: 0 },
+    ]);
+    expect(r.costo).toBeGreaterThan(0);
+    expect(r.costo).toBeCloseTo(285000, 2); // 1.140.000 / 4
+  });
+
+  it('deja intactos los productos que vienen en un solo renglón', () => {
+    const salida = fusionarRenglonesPorSku([
+      { sku: 'D', cantidad: 5, costo: 200 },
+      { sku: 'E', cantidad: 2, costo: 300 },
+    ]);
+    expect(salida).toHaveLength(2);
+    expect(salida.map((x) => x.costo)).toEqual([200, 300]);
   });
 });
