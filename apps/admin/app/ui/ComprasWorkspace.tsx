@@ -437,6 +437,23 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
             || Math.abs(Math.abs(importeNum) - esperado) / esperado < 0.05;
           if (cierra) { cantidad = kgLeido; porPeso = true; }
         }
+        // Producto por PESO sin columna KG (fiambres, quesos por horma): la CANT
+        // es 1 pero el importe del renglón = peso × precio, con el precio POR
+        // KILO. Si el importe no cierra con cantidad × precio y el peso que
+        // implica es decimal (un entero sería un bulto, no un peso), lo cargamos
+        // en kilos solo. El costo pasa a ser el precio por kilo.
+        if (!porPeso && importeNum != null && precioNum > 0 && cantLeida > 0
+            && Number(i.unidadesPorBulto ?? 0) <= 1 && !i.esDescuento) {
+          const esperado = cantLeida * precioNum;
+          const pesoImp = Math.abs(importeNum) / precioNum;
+          const noCierra = esperado > 0 && Math.abs(Math.abs(importeNum) - esperado) / esperado > 0.02;
+          const distintoDeCant = Math.abs(pesoImp - cantLeida) > 0.01;
+          const noEsEntero = Math.abs(pesoImp - Math.round(pesoImp)) > 0.02; // un entero sería bulto
+          if (noCierra && distintoDeCant && noEsEntero) {
+            cantidad = Math.round(pesoImp * 1000) / 1000;
+            porPeso = true;
+          }
+        }
         return {
           descripcion: i.descripcion,
           cantidad,
