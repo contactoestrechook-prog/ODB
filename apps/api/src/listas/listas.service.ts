@@ -388,7 +388,18 @@ export class ListasService {
           .stream({
             model: 'claude-sonnet-5',
             max_tokens: 16000,
-            output_config: { format: { type: 'json_schema', schema: ESQUEMA_COMPROBANTE as any } },
+            // El razonamiento viene adaptativo con esfuerzo ALTO por defecto, y
+            // para esta tarea es de más: medido sobre una factura de 14
+            // renglones, escribía 800 tokens de respuesta después de 9.200 de
+            // razonamiento, y eso son 79 segundos de espera con la persona
+            // mirando la pantalla. Extraer números de un papel es trabajo
+            // prolijo, no difícil: los seis pasos del instructivo ya ordenan el
+            // trabajo. Se puede subir con ODB_ESFUERZO_LECTURA si alguna
+            // factura se lee mal.
+            output_config: {
+              format: { type: 'json_schema', schema: ESQUEMA_COMPROBANTE as any },
+              effort: (process.env.ODB_ESFUERZO_LECTURA ?? 'low') as any,
+            },
             messages: [{ role: 'user', content: contenido }],
           })
           .finalMessage();
@@ -915,7 +926,12 @@ export class ListasService {
         .stream({
           model: 'claude-sonnet-5',
           max_tokens: 12000, // comprobante largo con muchos renglones sin match: que no se trunque el JSON
-          output_config: { format: { type: 'json_schema', schema: ESQUEMA_SUGERENCIAS as any } },
+          // elegir el candidato correcto de una lista corta tampoco necesita
+          // razonamiento profundo
+          output_config: {
+            format: { type: 'json_schema', schema: ESQUEMA_SUGERENCIAS as any },
+            effort: (process.env.ODB_ESFUERZO_LECTURA ?? 'low') as any,
+          },
           messages: [{ role: 'user', content: [{ type: 'text', text:
             'Sos el encargado de compras de un almacén argentino. Para cada renglón de una factura de proveedor te doy una lista de productos CANDIDATOS del catálogo. ' +
             'Elegí el sku del candidato que sea EXACTAMENTE el mismo producto del renglón (misma marca, variedad y tamaño/gramaje). ' +
