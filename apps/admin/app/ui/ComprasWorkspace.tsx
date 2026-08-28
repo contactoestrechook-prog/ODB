@@ -558,6 +558,10 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
     const m = new Map<number, number>();
     fotoItems.forEach((d: any, j: number) => {
       if (!esRenglonDescuento(d)) return;
+      // El operador decidió no aplicar esta rebaja: la mercadería queda a
+      // precio de lista y la plata pagada de menos se reparte sola en el
+      // factor de reconciliación (como un descuento general).
+      if (d.noAplicar) return;
       const importe = numImp(d.cantidad) * numImp(d.precio);
       if (!importe) return;
       const textoDesc = soloTexto(d.descripcion);
@@ -655,7 +659,13 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   // común de "el costo no me da".
   // Lo que los renglones TENDRÍAN que sumar: el neto más lo que se descontó en
   // el pie (el descuento se aplica después de sumar los renglones).
-  const netoEsperado = netoDoc != null ? netoDoc + descuentoGlobalDoc : null;
+  // Rebajas que el operador eligió no aplicar: para el control del pie cuentan
+  // igual que el descuento global (los renglones van a sumar de más por eso).
+  const descuentosNoAplicados = fotoItems.reduce(
+    (s: number, d: any) => (esRenglonDescuento(d) && d.noAplicar ? s + Math.abs(numImp(d.cantidad) * numImp(d.precio)) : s),
+    0,
+  );
+  const netoEsperado = netoDoc != null ? netoDoc + descuentoGlobalDoc + descuentosNoAplicados : null;
   const desvioRenglones = netoEsperado != null && netoEsperado > 0 && sumaRenglones > 0
     ? sumaRenglones / netoEsperado - 1
     : null;
@@ -1174,18 +1184,25 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
               {itemsCalc.map((i: any, idx: number) => (
                 <div key={idx} className={'rounded-lg px-2 py-2 ' + (i.sugerido ? 'bg-amber-50 border border-amber-300' : i.incluir ? 'bg-white border border-black/[0.06]' : 'bg-[#F0EBE2]/40')}>
                   {i._esDescuento ? (
-                    <div className="flex items-start gap-2">
+                    <div className={'flex items-start gap-2' + (i.noAplicar ? ' opacity-70' : '')}>
                       <span className="shrink-0 text-sm">🏷️</span>
                       <span className="min-w-0 flex-1">
                         <span className="block text-sm text-black/70">{i.descripcion}</span>
                         <span className="block text-[11px] text-black/50">
                           No es mercadería: es una rebaja de <b>{pesos(Math.abs(numImp(i.cantidad) * numImp(i.precio)))}</b>. No suma stock ni se vincula a ningún producto.
-                          {sinAtribuir.some((x) => x.descripcion === i.descripcion)
+                          {i.noAplicar
+                            ? <span className="mt-0.5 block font-medium text-sky-900">
+                                ✋ No se aplica: la mercadería queda a <b>precio de lista</b>. La plata igual está pagada, así que se reparte en el costo general de la factura.
+                                <button onClick={() => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, noAplicar: false } : x))} className="ml-2 text-black/45 underline hover:text-[#B82D25]">aplicar de nuevo</button>
+                              </span>
+                            : sinAtribuir.some((x) => x.descripcion === i.descripcion)
                             ? <span className="mt-0.5 block font-medium text-[#932A1F]">
                                 ⚠ No se pudo saber a qué renglón corresponde{numImp(i.descuentoPct) > 0 ? ` (dice ${numImp(i.descuentoPct)}%, y no cierra con ningún renglón)` : ''},
                                 así que NO se descontó de ningún costo. Si es una promoción de toda la factura, cargala en “Desc. del pie”.
                               </span>
-                            : ' Se descuenta del renglón que nombra.'}
+                            : <> Se descuenta del renglón que nombra.
+                                <button onClick={() => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, noAplicar: true } : x))} className="ml-2 rounded-full border border-black/20 px-2.5 py-0.5 text-[11px] text-black/70 hover:border-[#B82D25] hover:text-[#B82D25]">No aplicar — dejar a precio de lista</button>
+                              </>}
                         </span>
                       </span>
                     </div>
