@@ -364,6 +364,9 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   const [fotoImp, setFotoImp] = useState<any>({});
   const [leyendoFoto, setLeyendoFoto] = useState(false);
   const [sumarIva, setSumarIva] = useState(true); // factura A: costo = neto + IVA
+  // Percepciones adentro del costo: es la política de la casa. Se puede sacar
+  // para una factura puntual (por ejemplo si esa percepción se va a usar).
+  const [percepcionesAlCosto, setPercepcionesAlCosto] = useState(true);
   const [pagada, setPagada] = useState(false);
   // true = la mercadería ya ingresó por Recepción (pistola): solo se registra la
   // factura con sus renglones y va a la bandeja de conciliación, SIN mover stock
@@ -460,10 +463,17 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   const otrosDoc = numImp(fotoImp?.otros);
   const totalDoc = fotoImp?.total != null && fotoImp.total !== '' ? numImp(fotoImp.total) : null;
   const alicEfectiva = netoDoc && netoDoc > 0 && ivaDoc != null ? ivaDoc / netoDoc : null;
-  // mercadería con IVA, sin percepciones (techo natural del costo)
+  // mercadería con IVA, sin percepciones
   const valorConIva = (netoDoc != null && ivaDoc != null) ? netoDoc + ivaDoc + impIntDoc
     : (totalDoc != null) ? totalDoc - percIvaDoc - percIibbDoc - otrosDoc : null;
-  const baseCosto = valorConIva; // política del comercio: costea con IVA incluido
+  // Las percepciones (IIBB, IVA) son pago a cuenta de impuestos propios: en los
+  // libros no son costo. Pero solo dejan de serlo si después se USAN contra el
+  // impuesto que corresponde; si se acumulan sin consumir, es plata que salió y
+  // no vuelve. La casa decidió costear con las percepciones adentro, que es la
+  // política prudente: mejor un costo apenas alto que un precio de venta que no
+  // cubre lo que de verdad se pagó.
+  const percepciones = percIvaDoc + percIibbDoc;
+  const baseCosto = valorConIva != null ? valorConIva + (percepcionesAlCosto ? percepciones : 0) : null;
   const factorRecon = (baseCosto != null && sumaRenglones > 0) ? baseCosto / sumaRenglones
     : (discriminaIva && sumarIva && alicEfectiva != null ? 1 + alicEfectiva : discriminaIva && sumarIva ? 1.21 : 1);
   const costoFinal = (i: any) => Math.round(numImp(i.precio) * factorRecon * 100) / 100;
@@ -473,10 +483,19 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   const inclItems = fotoItems.filter((i) => i.incluir);
   const sumaCostos = inclItems.reduce((s, i) => s + numImp(i.cantidad) * costoFinal(i), 0);
   const baseIncluidos = inclItems.reduce((s, i) => s + numImp(i.cantidad) * numImp(i.precio), 0) * factorRecon;
-  const techoMerc = valorConIva != null ? valorConIva : (totalDoc != null ? totalDoc : Infinity);
+  const techoMerc = baseCosto != null ? baseCosto : (totalDoc != null ? totalDoc : Infinity);
   const excedeMerc = sumaCostos > techoMerc * 1.005;
   const excedeTotal = totalDoc != null && sumaCostos > totalDoc * 1.005;
   const subCosteo = baseIncluidos > 0 && sumaCostos < baseIncluidos * 0.98;
+  // Si los renglones leídos no suman el neto del pie, la IA leyó otra columna
+  // (la de con IVA, o el total del renglón en vez del unitario). El factor sale
+  // de dividir el pie por esa suma, así que un renglón mal leído ensucia el
+  // costo de TODOS sin que se note: el total cierra igual. Es la causa más
+  // común de "el costo no me da".
+  const desvioRenglones = netoDoc != null && netoDoc > 0 && sumaRenglones > 0
+    ? sumaRenglones / netoDoc - 1
+    : null;
+  const columnaSospechosa = desvioRenglones != null && Math.abs(desvioRenglones) > 0.02;
   const costoBloquea = excedeMerc || excedeTotal;
 
   // Excel/CSV del portal del proveedor → precarga los renglones de la OC
@@ -1102,14 +1121,23 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                   </label>
                 ))}
               </div>
-              <p className="text-[10px] text-black/45">Las percepciones (IVA e IIBB) son pago a cuenta de impuestos, <b>no son costo</b>. Los impuestos internos <b>sí</b> son costo. El costo a stock ya prorratea la factura sin las percepciones.</p>
+              <p className="text-[10px] text-black/45">
+                El costo a stock prorratea el pie de la factura sobre los renglones leídos. Los impuestos internos <b>siempre</b> son costo.
+                Las percepciones (IVA e IIBB) son pago a cuenta de impuestos propios: solo dejan de ser costo si después se usan contra
+                ese impuesto. Si se acumulan sin consumir, es plata que salió y no vuelve.
+              </p>
               <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-black items-center">
                 {/* Con datos fiscales el costo se reconcilia solo (prorrateo); el checkbox
                     "Sumar IVA" queda solo para remitos sin pie. */}
                 {!hayDatosFiscales && foto.comprobante?.tipo === 'factura_a' && (
                   <label className="flex items-center gap-1.5"><input type="checkbox" checked={sumarIva} onChange={(e) => setSumarIva(e.target.checked)} className="accent-[#B82D25]" /> Sumar IVA al costo (precios netos)</label>
                 )}
-                {hayDatosFiscales && <span className="text-emerald-700">✓ Costo reconciliado con el pie (IVA prorrateado, sin percepciones)</span>}
+                {hayDatosFiscales && (
+                  <label className="flex items-center gap-1.5" title="Percepciones de IVA e IIBB adentro del costo">
+                    <input type="checkbox" checked={percepcionesAlCosto} onChange={(e) => setPercepcionesAlCosto(e.target.checked)} className="accent-[#B82D25]" />
+                    Percepciones al costo{percepciones > 0 ? ` (${pesos(percepciones)})` : ''}
+                  </label>
+                )}
                 <label className="flex items-center gap-1.5"><input type="checkbox" checked={pagada} onChange={(e) => setPagada(e.target.checked)} className="accent-[#B82D25]" /> Pagada (contado)</label>
                 <label className="flex items-center gap-1.5" title="Se aplica a todos los renglones de la factura">% remarcación general <input type="number" value={f.margenPct ?? ''} onChange={(e) => aplicarRemarcacionGeneral(e.target.value)} placeholder="a todos" className="w-16 rounded border border-black/15 px-1.5 py-0.5 text-right text-black" /></label>
               </div>
@@ -1117,8 +1145,28 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
               {/* Reconciliación del costo vs la mercadería de la factura */}
               <div className={'rounded-lg px-3 py-2 text-xs ' + (excedeMerc || excedeTotal ? 'bg-[#B82D25]/10 border border-[#B82D25] text-[#932A1F]' : subCosteo ? 'bg-amber-50 border border-amber-300 text-amber-900' : 'bg-[#F0EBE2]/50 text-black/70')}>
                 <p>Costo a stock (renglones tildados): <b>{pesos(sumaCostos)}</b>{valorConIva != null && <> · Mercadería c/IVA: <b>{pesos(valorConIva)}</b></>}{totalDoc != null && <> · Total factura: <b>{pesos(totalDoc)}</b></>}</p>
+                {/* De dónde sale el costo de cada renglón, escrito. Sin esto, la
+                    única forma de saber si falta un impuesto es sacar la cuenta
+                    a mano y desconfiar del sistema. */}
+                {hayDatosFiscales && sumaRenglones > 0 && (
+                  <p className="mt-1 text-black/60">
+                    Cada renglón leído <b>× {factorRecon.toFixed(4).replace('.', ',')}</b> — de{' '}
+                    {pesos(sumaRenglones)} leídos a {pesos(baseCosto!)}: neto {pesos(netoDoc ?? 0)} + IVA {pesos(ivaDoc ?? 0)}
+                    {impIntDoc > 0 ? ` + internos ${pesos(impIntDoc)}` : ''}
+                    {percepcionesAlCosto && percepciones > 0 ? ` + percepciones ${pesos(percepciones)}` : ''}
+                    {!percepcionesAlCosto && percepciones > 0 ? ` (quedan afuera ${pesos(percepciones)} de percepciones)` : ''}.
+                  </p>
+                )}
                 {(excedeMerc || excedeTotal) && (
                   <p className="mt-1 font-semibold">⚠ El costo a stock supera el valor de la mercadería con IVA de la factura. Los precios ya incluyen impuestos: revisá el neto/IVA del pie. (No se puede registrar hasta corregirlo.)</p>
+                )}
+                {columnaSospechosa && (
+                  <p className="mt-1 rounded bg-amber-50 px-2 py-1.5 text-amber-900">
+                    ⚠ Los renglones leídos suman <b>{pesos(sumaRenglones)}</b> y el neto del pie es <b>{pesos(netoDoc ?? 0)}</b>
+                    {' '}({desvioRenglones! > 0 ? '+' : ''}{(desvioRenglones! * 100).toFixed(1).replace('.', ',')}%).
+                    Si tendrían que coincidir, la IA leyó la columna equivocada (la de con IVA, o el total del renglón en vez del precio unitario).
+                    Corregilo antes de registrar: el costo de todos los renglones sale de esa proporción.
+                  </p>
                 )}
                 {subCosteo && !excedeMerc && !excedeTotal && (
                   <p className="mt-1">El costo quedó por debajo de lo esperado para los renglones tildados; revisá que no falte ninguno.</p>
