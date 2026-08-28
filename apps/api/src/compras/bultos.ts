@@ -172,3 +172,34 @@ export function descuentoEsDelRenglon(
   // no puede superar a lo que rebaja
   return d <= linea;
 }
+
+/**
+ * ¿Cierra la aritmética del renglón? cantidad × precio unitario tiene que dar
+ * el importe impreso.
+ *
+ * Sirve para lo que ningún ojo agarra a tiempo: cuando el lector toma un número
+ * de la fila de al lado. Las facturas vienen con las columnas apretadas y una
+ * anotación a mano corre el renglón, así que el precio de un producto termina
+ * siendo el del de abajo. El papel trae la prueba encima —el importe del
+ * renglón— y basta con multiplicar para descubrirlo.
+ *
+ * Devuelve null si cierra o si no hay con qué comparar; si no cierra, devuelve
+ * el precio unitario que SÍ daría ese importe, para poder mostrárselo a quien
+ * carga la factura.
+ */
+export function precioQueImplicaElImporte(renglon: {
+  cantidad?: number;
+  precio?: number;
+  importe?: number | null;
+}): number | null {
+  const cantidad = Number(renglon?.cantidad) || 0;
+  const precio = Number(renglon?.precio) || 0;
+  const importe = renglon?.importe == null ? null : Math.abs(Number(renglon.importe));
+  if (!cantidad || !precio || importe == null || importe === 0) return null;
+
+  const esperado = cantidad * precio;
+  // 2% de tolerancia: los proveedores redondean el importe del renglón
+  if (Math.abs(importe - esperado) / esperado <= 0.02) return null;
+
+  return Math.round((importe / cantidad) * 100) / 100;
+}

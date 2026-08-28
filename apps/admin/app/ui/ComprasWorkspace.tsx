@@ -605,6 +605,23 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   }));
 
   // ¿Este renglón vino sin cargo? Es lo que después se prorratea.
+  // La factura trae su propia prueba: cantidad × precio unitario tiene que dar
+  // el importe del renglón. Cuando el lector toma un número de la fila de al
+  // lado —pasa con las columnas apretadas y con las anotaciones a mano que
+  // corren el renglón— esa cuenta deja de cerrar. Es lo único que agarra ese
+  // error a tiempo, porque el número leído es plausible: es el precio de otro
+  // producto de la misma factura.
+  const precioSegunImporte = (i: any): number | null => {
+    const cantidad = numImp(i.cantidad);
+    const precio = numImp(i.precio);
+    const importe = i.importe == null || i.importe === '' ? null : Math.abs(numImp(i.importe));
+    if (!cantidad || !precio || !importe) return null;
+    if (i._esDescuento || numImp(i.kg) > 0 || i.porPeso) return null; // por peso tiene su propia regla
+    const esperado = cantidad * precio;
+    if (Math.abs(importe - esperado) / esperado <= 0.02) return null;
+    return Math.round((importe / cantidad) * 100) / 100;
+  };
+
   const esSinCargo = (i: any) => !i._esDescuento && numImp(i.cantidad) > 0 && Math.abs(precioEfectivo(i)) < 0.01;
 
   // Un renglón "Desc. 42,86% - MANOS NEGRAS Malbec" NO es mercadería: es una
@@ -1304,6 +1321,18 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                           ) : (
                             <>🏷️ Con el descuento aplicado: {pesos(baseUnitaria(i))} − {pesos(Math.abs(numImp(i._descuento)) / (numImp(i.cantidad) || 1))} = <b>{pesos(precioEfectivo(i))}</b> por {numImp(i.unidadesPorBulto) > 1 ? 'bulto' : 'unidad'}.</>
                           )}
+                        </span>
+                      )}
+                      {precioSegunImporte(i) != null && (
+                        <span className="mt-0.5 block rounded bg-amber-50 px-2 py-1 text-[11px] text-amber-900">
+                          🔎 <b>La cuenta de este renglón no cierra.</b> {numImp(i.cantidad)} × {pesos(numImp(i.precio))} = {pesos(numImp(i.cantidad) * numImp(i.precio))},
+                          pero el importe impreso es {pesos(Math.abs(numImp(i.importe)))}. Según ese importe el unitario sería <b>{pesos(precioSegunImporte(i)!)}</b>.
+                          {' '}Suele pasar cuando se leyó un número de la fila de al lado: mirá el papel y corregí el que corresponda.
+                          <button
+                            onClick={() => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, precio: precioSegunImporte(i)! } : x))}
+                            className="ml-2 rounded-full bg-amber-700 px-2.5 py-0.5 text-[11px] font-semibold text-white hover:bg-amber-800">
+                            Usar {pesos(precioSegunImporte(i)!)}
+                          </button>
                         </span>
                       )}
                       {esSinCargo(i) ? (
