@@ -453,6 +453,40 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   // factura A normal con precios netos el factor da 1,21 (suma IVA), y sin pie
   // (remito) cae al fallback del checkbox "Sumar IVA".
   const numImp = (v: any) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
+
+  // Muchos renglones vienen POR BULTO: "CORONA 355 X 24B", cantidad 84, precio
+  // $55.000. Si eso entra tal cual contra el producto suelto, quedan 84
+  // unidades a $55.000 en vez de 2.016 a $2.292 — y ese costo pasa derecho al
+  // precio de venta. La conversión NO se hace sola: el renglón podría estar
+  // vinculado al bulto y ahí multiplicar sería el error al revés.
+  const pasarAUnidad = (idx: number) =>
+    setFotoItems((xs) => xs.map((x, j) => {
+      if (j !== idx) return x;
+      const n = Math.round(numImp(x.unidadesPorBulto));
+      if (!(n > 1)) return x;
+      return {
+        ...x,
+        cantidad: numImp(x.cantidad) * n,
+        precio: Math.round((numImp(x.precio) / n) * 100) / 100,
+        // se guarda para poder volver atrás y para dejar dicho qué se hizo
+        bultoAplicado: n,
+        unidadesPorBulto: null,
+      };
+    }));
+
+  const volverABulto = (idx: number) =>
+    setFotoItems((xs) => xs.map((x, j) => {
+      if (j !== idx) return x;
+      const n = Math.round(numImp(x.bultoAplicado));
+      if (!(n > 1)) return x;
+      return {
+        ...x,
+        cantidad: numImp(x.cantidad) / n,
+        precio: Math.round(numImp(x.precio) * n * 100) / 100,
+        bultoAplicado: null,
+        unidadesPorBulto: n,
+      };
+    }));
   const discriminaIva = foto?.comprobante?.tipo === 'factura_a';
   const sumaRenglones = fotoItems.reduce((s, i) => s + numImp(i.cantidad) * numImp(i.precio), 0);
   const netoDoc = fotoImp?.neto != null && fotoImp.neto !== '' ? numImp(fotoImp.neto) : null;
@@ -496,6 +530,10 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
     ? sumaRenglones / netoDoc - 1
     : null;
   const columnaSospechosa = desvioRenglones != null && Math.abs(desvioRenglones) > 0.02;
+  // Renglones que la IA leyó como bulto y siguen sin convertir. No bloquea
+  // —puede que el producto vinculado sea el bulto— pero tiene que estar a la
+  // vista antes de apretar Registrar.
+  const bultosSinResolver = inclItems.filter((i) => numImp(i.unidadesPorBulto) > 1).length;
   const costoBloquea = excedeMerc || excedeTotal;
 
   // Excel/CSV del portal del proveedor → precarga los renglones de la OC
@@ -980,6 +1018,26 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                     <span className="flex-1 min-w-0">
                       {/* el texto leído SIEMPRE legible, haya o no match */}
                       <span className="block truncate text-sm text-black font-medium">{i.descripcion}</span>
+                      {/* Bulto detectado en el renglón: se avisa SIEMPRE, esté
+                          vinculado o no, porque el error se paga en el stock y
+                          en el precio de venta a la vez. */}
+                      {numImp(i.unidadesPorBulto) > 1 && (
+                        <span className="mt-0.5 block rounded bg-sky-50 px-2 py-1 text-[11px] text-sky-900">
+                          📦 Viene por bulto de <b>{Math.round(numImp(i.unidadesPorBulto))}</b>: {numImp(i.cantidad)} bulto(s) a {pesos(numImp(i.precio))}
+                          {' '}= <b>{numImp(i.cantidad) * Math.round(numImp(i.unidadesPorBulto))}</b> unidades a{' '}
+                          <b>{pesos(numImp(i.precio) / Math.round(numImp(i.unidadesPorBulto)))}</b> c/u.
+                          <button onClick={() => pasarAUnidad(idx)} className="ml-2 rounded-full bg-sky-700 px-2.5 py-0.5 text-[11px] font-semibold text-white hover:bg-sky-800">
+                            Pasar a unidad
+                          </button>
+                          <span className="mt-0.5 block text-sky-800/70">Dejalo como está solo si el producto vinculado es el bulto entero.</span>
+                        </span>
+                      )}
+                      {numImp(i.bultoAplicado) > 1 && (
+                        <span className="mt-0.5 block text-[11px] text-sky-800">
+                          📦 Convertido: bulto de {Math.round(numImp(i.bultoAplicado))} → unidades.
+                          <button onClick={() => volverABulto(idx)} className="ml-2 text-black/45 underline hover:text-[#B82D25]">deshacer</button>
+                        </span>
+                      )}
                       {i.sugerido && i.nombre ? (
                         <span className="block text-xs text-amber-900">
                           💡 La IA cree que es <b>{i.nombre}</b>{i.motivoIa ? ` — ${i.motivoIa}` : ''}. ¿Es este?
@@ -1159,6 +1217,12 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                 )}
                 {(excedeMerc || excedeTotal) && (
                   <p className="mt-1 font-semibold">⚠ El costo a stock supera el valor de la mercadería con IVA de la factura. Los precios ya incluyen impuestos: revisá el neto/IVA del pie. (No se puede registrar hasta corregirlo.)</p>
+                )}
+                {bultosSinResolver > 0 && (
+                  <p className="mt-1 rounded bg-sky-50 px-2 py-1.5 text-sky-900">
+                    📦 <b>{bultosSinResolver}</b> renglón/es vienen por bulto y todavía entran como bulto. Si el producto vinculado es la unidad suelta,
+                    tocá “Pasar a unidad” en cada uno: si no, el stock y el costo unitario quedan mal por el factor del pack.
+                  </p>
                 )}
                 {columnaSospechosa && (
                   <p className="mt-1 rounded bg-amber-50 px-2 py-1.5 text-amber-900">

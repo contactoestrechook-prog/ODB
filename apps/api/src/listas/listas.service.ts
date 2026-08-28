@@ -69,10 +69,14 @@ const ESQUEMA_COMPROBANTE = {
         properties: {
           codigo: { type: ['string', 'null'], description: 'Código del artículo del proveedor' },
           descripcion: { type: 'string' },
-          cantidad: { type: 'number' },
-          precio: { type: 'number', description: 'Importe unitario de la columna PRE.UNIT tal cual impreso. NO uses PRE.VTA.PUBLICO (PVP) ni la columna IMPORTE. La relación con neto/IVA/total se resuelve en el pie; NO asumas que es neto+21% (en cigarrillos el precio ya trae impuestos internos y percepción IIBB embebidos).' },
+          cantidad: { type: 'number', description: 'La cantidad tal cual figura en la columna CANT. Si el renglón se factura por bulto/caja/pack, esta es la cantidad de BULTOS, no de unidades sueltas.' },
+          precio: { type: 'number', description: 'Importe unitario de la columna PRE.UNIT tal cual impreso. NO uses PRE.VTA.PUBLICO (PVP) ni la columna IMPORTE. La relación con neto/IVA/total se resuelve en el pie; NO asumas que es neto+21% (en cigarrillos el precio ya trae impuestos internos y percepción IIBB embebidos). Si el renglón se factura por bulto, este es el precio DEL BULTO.' },
+          unidadesPorBulto: {
+            type: ['number', 'null'],
+            description: 'Cuántas unidades sueltas trae cada bulto de ESTE renglón, si la descripción o la columna de unidad lo dicen: "CORONA 355 X 24B" → 24; "PACK X 6" → 6; "CAJA X 12" → 12; "x24u" → 24. Si el renglón se vende por unidad suelta, o no hay forma de saberlo, poné null. NO lo deduzcas del tamaño del envase (355cc no es 355 unidades) ni lo inventes.',
+          },
         },
-        required: ['codigo', 'descripcion', 'cantidad', 'precio'],
+        required: ['codigo', 'descripcion', 'cantidad', 'precio', 'unidadesPorBulto'],
         additionalProperties: false,
       },
     },
@@ -327,6 +331,7 @@ export class ListasService {
         text:
           'Este es un comprobante de COMPRA argentino de un almacén (factura A/B/C, remito o ticket; puede ser una foto de celular). El pie de impuestos puede estar denso o desalineado (típico en cigarrillos, bebidas y otros regímenes especiales). Seguí estos pasos EN ORDEN.\n\n' +
           'PASO 1 — Encabezado y renglones. Extraé emisor + CUIT, tipo/número/fecha/condición de venta y TODOS los renglones: código, descripción (que EMPIECE por la marca cuando se vea), cantidad y precio unitario de la columna PRE.UNIT tal cual figura. NO uses PRE.VTA.PUBLICO ni la columna IMPORTE.\n\n' +
+          'PASO 1 BIS — Bultos. Muchos renglones se facturan POR BULTO (caja, pack, display) y no por unidad suelta. Es la diferencia entre cargar 84 cajones y cargar 2.016 botellas. Si la descripción o alguna columna dice cuántas unidades trae el bulto —"CORONA 355 X 24B" son 24, "PACK X 6" son 6, "CAJA X 12" son 12— ponelo en unidadesPorBulto de ESE renglón. Si el renglón es por unidad suelta, o no se puede saber, poné null y NO lo adivines: el tamaño del envase (355cc, 750cc, 1,5L) NUNCA es la cantidad de unidades del bulto.\n\n' +
           'PASO 2 — Transcribí el PIE literal en pieLiteral, ANTES de mapear nada. Leé el pie y listá CADA etiqueta con el número que tiene al lado, exactamente como aparece, sin reordenar y sin interpretar. Ej: "SUB TOTAL = 758055.34", "I.V.A INSC. = 48158.83", "PER. DE IVA = 43075.45", "PER. DE IIBB = 205121.18", "DESCUENTO = -0.58", "TOTAL = 1054410.80". Si una etiqueta repite el MISMO valor que otra ya listada (ej "IMPUESTOS" con el mismo número que "SUB TOTAL"), transcribila igual y marcala eco=true.\n\n' +
           'PASO 3 — Mapeá cada etiqueta a su campo por el SIGNIFICADO del texto en español, NUNCA por su posición ni por el orden. Guardá en "etiquetas" la etiqueta literal que usaste para cada campo.\n' +
           '  neto ← SUB TOTAL / NETO / NETO GRAVADO / GRAVADO\n' +
