@@ -431,7 +431,9 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
         const importeNum = i.importe != null && i.importe !== '' ? Number(i.importe) : null;
         let cantidad = cantLeida;
         let porPeso = false;
-        const puedePeso = !!i.puedePorPeso;
+        // el peso solo se considera si el producto puede venderse así y si no
+        // hay una bonificación de la fila que ya explique la diferencia
+        const puedePeso = !!i.puedePorPeso && !(Math.abs(Number(i.bonificacionPct) || 0) > 0);
         if (puedePeso && kgLeido > 0 && Math.abs(kgLeido - cantLeida) > 0.01) {
           const esperado = kgLeido * precioNum;
           const cierra = importeNum == null || esperado <= 0
@@ -591,6 +593,10 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
     // cargar como 24 kg.
     if (!i.puedePorPeso) return false;
     if (i._esDescuento || numImp(i._descuento) !== 0) return false;
+    // Una bonificación en el propio renglón ya explica por qué el importe no da
+    // cantidad × precio, y lo explica MEJOR que el peso. Un vino bonificado al
+    // 50% deja importe ÷ precio = 0,5, que leído como peso es "medio kilo".
+    if (numImp(i.bonificacionPct) > 0) return false;
     if (numImp(i.unidadesPorBulto) > 1 || numImp(i.bultoAplicado) > 1) return false; // eso es bulto, no peso
     const imp = Math.abs(numImp(i.importe));
     const cant = numImp(i.cantidad);

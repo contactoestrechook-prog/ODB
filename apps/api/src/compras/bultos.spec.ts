@@ -192,3 +192,10 @@ describe('puedeVendersePorPeso — la bebida nunca', () => {
     expect(puedeVendersePorPeso('')).toBe(false);
   });
 });
+
+describe('vinos sin volumen en la descripción', () => {
+  it.each(['Gran Revancha Blend de', 'Primera Revancha Chenin', 'Vistalba Bonarda Reserva'])(
+    'tampoco es por peso: %s',
+    (t) => { expect(puedeVendersePorPeso(t)).toBe(false); },
+  );
+});

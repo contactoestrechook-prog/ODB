@@ -219,7 +219,7 @@ export function precioQueImplicaElImporte(renglon: {
  * unidades multiplica el costo por cualquier cosa, y el error al revés lo
  * corrige una persona con un botón.
  */
-const RE_BEBIDA = /\b(\d+\s*)?(ml|cc|cm3|lts?|litros?)\b|\b\d+\s*l\b|\b(cerveza|birra|lata|latas|botella|botellas|vino|tinto|blanco|malbec|cabernet|chardonnay|torrontes|syrah|merlot|espumante|champagne|champ[aá]n|sidra|gaseosa|agua|soda|jugo|whisky|whiskey|vodka|gin|ron|fernet|aperitivo|licor|amargo|vermouth|tequila|pack)\b/i;
+const RE_BEBIDA = /\b(\d+\s*)?(ml|cc|cm3|lts?|litros?)\b|\b\d+\s*l\b|\b(cerveza|birra|lata|latas|botella|botellas|vino|tinto|blanco|malbec|cabernet|chardonnay|torrontes|syrah|merlot|espumante|champagne|champ[aá]n|sidra|blend|reserva|varietal|bonarda|chenin|pinot|rosado|tannat|semillon|semill[oó]n|gaseosa|agua|soda|jugo|whisky|whiskey|vodka|gin|ron|fernet|aperitivo|licor|amargo|vermouth|tequila|pack)\b/i;
 
 const RE_POR_PESO = /\b(kgs?|kilos?|kilogramos?|gramos?|grs?)\b|\b(fiambre|jam[oó]n|queso|quesos|salame|salam[ií]n|mortadela|bondiola|panceta|lomito|matambre|milanesa|carne|pollo|pechuga|molida|muzzarella|mozzarella|provolone|roquefort|cheddar|feta|fraccionad[oa]|horma|granel|suelto)\b/i;
 
