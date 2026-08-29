@@ -1,4 +1,4 @@
-import { unidadesPorBulto, esRenglonDeDescuento, fusionarRenglonesPorSku, porcentajeDeDescuento, descuentoEsDelRenglon, precioQueImplicaElImporte } from './bultos';
+import { unidadesPorBulto, esRenglonDeDescuento, fusionarRenglonesPorSku, porcentajeDeDescuento, descuentoEsDelRenglon, precioQueImplicaElImporte, puedeVendersePorPeso } from './bultos';
 
 describe('unidadesPorBulto — la forma, no la lista de proveedores', () => {
   it.each([
@@ -156,5 +156,39 @@ describe('precioQueImplicaElImporte — el renglón se controla solo', () => {
   // Un renglón sin cargo tiene importe 0 a propósito: no es un error de lectura.
   it('no marca la mercadería sin cargo', () => {
     expect(precioQueImplicaElImporte({ cantidad: 3, precio: 165000, importe: 0 })).toBeNull();
+  });
+});
+
+describe('puedeVendersePorPeso — la bebida nunca', () => {
+  // Los casos reales que entraron como kilos: latas de cerveza.
+  it.each([
+    'KAISERDOM HEFE - WEISSBIER NATURTRÜB LATA 1000ML',
+    'ESTRELLA DAMM LATA 500ML',
+    'SCHOFFERHOFER LATA 24X500ML (TRIGO)',
+    'V. Corte A cc x 4 2019',
+    'Tomero Malbec cc x 6 2024',
+    'Coca Cola 2,25L',
+    'Fernet Branca 750cc',
+    'PACK 3 SCHOFFERHOFER BOTELLA 500ML + VASO',
+  ])('no es por peso: %s', (t) => {
+    expect(puedeVendersePorPeso(t)).toBe(false);
+  });
+
+  it.each([
+    'JAMON COCIDO FRACCIONADO',
+    'QUESO CREMOSO HORMA',
+    'Salame Milan x kg',
+    'Mortadela con pistacho',
+    'MUZZARELLA BARRA 5 KG',
+    'Bondiola braseada al peso',
+  ])('sí puede ser por peso: %s', (t) => {
+    expect(puedeVendersePorPeso(t)).toBe(true);
+  });
+
+  // Sin evidencia, la respuesta es NO: cargar kilos donde van unidades es el
+  // error caro; el error al revés lo arregla una persona con un botón.
+  it('sin evidencia, no', () => {
+    expect(puedeVendersePorPeso('ARTICULO VARIOS 123')).toBe(false);
+    expect(puedeVendersePorPeso('')).toBe(false);
   });
 });

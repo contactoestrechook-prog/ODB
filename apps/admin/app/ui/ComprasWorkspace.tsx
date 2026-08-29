@@ -431,7 +431,8 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
         const importeNum = i.importe != null && i.importe !== '' ? Number(i.importe) : null;
         let cantidad = cantLeida;
         let porPeso = false;
-        if (kgLeido > 0 && Math.abs(kgLeido - cantLeida) > 0.01) {
+        const puedePeso = !!i.puedePorPeso;
+        if (puedePeso && kgLeido > 0 && Math.abs(kgLeido - cantLeida) > 0.01) {
           const esperado = kgLeido * precioNum;
           const cierra = importeNum == null || esperado <= 0
             || Math.abs(Math.abs(importeNum) - esperado) / esperado < 0.05;
@@ -442,7 +443,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
         // KILO. Si el importe no cierra con cantidad × precio y el peso que
         // implica es decimal (un entero sería un bulto, no un peso), lo cargamos
         // en kilos solo. El costo pasa a ser el precio por kilo.
-        if (!porPeso && importeNum != null && precioNum > 0 && cantLeida > 0
+        if (puedePeso && !porPeso && importeNum != null && precioNum > 0 && cantLeida > 0
             && Number(i.unidadesPorBulto ?? 0) <= 1 && !i.esDescuento) {
           const esperado = cantLeida * precioNum;
           const pesoImp = Math.abs(importeNum) / precioNum;
@@ -479,6 +480,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
           importe: i.importe ?? null,
           esDescuento: !!i.esDescuento,
           descuentoPct: i.descuentoPct ?? null,
+          puedePorPeso: !!i.puedePorPeso,
           bultoAplicado: null,
           // las sugerencias de IA NO se incluyen hasta que el operador confirme "¿es este?"
           // y una rebaja no se incluye NUNCA: no es mercadería
@@ -584,6 +586,10 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
     return imp > 0 && p > 0 ? imp / p : 0;
   };
   const medidaVariable = (i: any) => {
+    // Que la cuenta no cierre tiene varias explicaciones; el peso es solo una,
+    // y para una bebida es imposible. Sin esto, una lata de 1000ml se ofrecía
+    // cargar como 24 kg.
+    if (!i.puedePorPeso) return false;
     if (i._esDescuento || numImp(i._descuento) !== 0) return false;
     if (numImp(i.unidadesPorBulto) > 1 || numImp(i.bultoAplicado) > 1) return false; // eso es bulto, no peso
     const imp = Math.abs(numImp(i.importe));

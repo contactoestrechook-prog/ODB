@@ -203,3 +203,29 @@ export function precioQueImplicaElImporte(renglon: {
 
   return Math.round((importe / cantidad) * 100) / 100;
 }
+
+/**
+ * ¿ESTE producto puede venderse por peso?
+ *
+ * Hace falta porque "la cuenta del renglón no cierra" tiene varias
+ * explicaciones —se leyó mal la cantidad, se leyó mal el precio, hay un
+ * descuento, o el producto se factura por kilo— y el sistema estaba eligiendo
+ * siempre la última. Así una lata de cerveza terminaba entrando como 24 kg.
+ *
+ * La bebida es el caso claro: una botella o una lata tienen peso, pero NUNCA se
+ * venden por kilo. Ese veto va primero y no admite excepción. Después se pide
+ * evidencia positiva: una unidad de peso escrita, o un producto de los que se
+ * fraccionan. Sin evidencia, la respuesta es NO — cargar kilos donde van
+ * unidades multiplica el costo por cualquier cosa, y el error al revés lo
+ * corrige una persona con un botón.
+ */
+const RE_BEBIDA = /\b(\d+\s*)?(ml|cc|cm3|lts?|litros?)\b|\b\d+\s*l\b|\b(cerveza|birra|lata|latas|botella|botellas|vino|tinto|blanco|malbec|cabernet|chardonnay|torrontes|syrah|merlot|espumante|champagne|champ[aá]n|sidra|gaseosa|agua|soda|jugo|whisky|whiskey|vodka|gin|ron|fernet|aperitivo|licor|amargo|vermouth|tequila|pack)\b/i;
+
+const RE_POR_PESO = /\b(kgs?|kilos?|kilogramos?|gramos?|grs?)\b|\b(fiambre|jam[oó]n|queso|quesos|salame|salam[ií]n|mortadela|bondiola|panceta|lomito|matambre|milanesa|carne|pollo|pechuga|molida|muzzarella|mozzarella|provolone|roquefort|cheddar|feta|fraccionad[oa]|horma|granel|suelto)\b/i;
+
+export function puedeVendersePorPeso(descripcion: string): boolean {
+  const t = String(descripcion ?? '');
+  if (!t.trim()) return false;
+  if (RE_BEBIDA.test(t)) return false; // veto: la bebida nunca se vende por kilo
+  return RE_POR_PESO.test(t);
+}

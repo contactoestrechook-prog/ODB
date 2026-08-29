@@ -3,7 +3,7 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
 import * as XLSX from 'xlsx';
 import { SUPABASE } from '../supabase.provider';
-import { unidadesPorBulto, esRenglonDeDescuento, porcentajeDeDescuento } from '../compras/bultos';
+import { unidadesPorBulto, esRenglonDeDescuento, porcentajeDeDescuento, puedeVendersePorPeso } from '../compras/bultos';
 
 export type ItemExtraido = { codigo: string | null; descripcion: string; precio: number };
 // pedido exportado del portal del proveedor: igual que la lista pero con cantidad
@@ -505,6 +505,10 @@ export class ListasService {
         esDescuento: esRenglonDeDescuento({ descripcion: i.descripcion, precio: Number(i.precio) || 0 }) || !!i.esDescuento,
         // el porcentaje que declara la rebaja: es la prueba de a qué renglón pertenece
         descuentoPct: porcentajeDeDescuento(String(i.descripcion ?? '')),
+        // Si el producto puede o no venderse por kilo. Sin esto, "la cuenta del
+        // renglón no cierra" se interpretaba SIEMPRE como peso, y una lata de
+        // cerveza entraba como 24 kg.
+        puedePorPeso: puedeVendersePorPeso(String(i.descripcion ?? '')),
       } as any;
     });
     const propuesta = proveedor ? await this.matchear(items, proveedor.id) : items.map((i) => ({ ...i, match: null as Match }));
