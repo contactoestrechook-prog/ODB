@@ -503,6 +503,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
           esDescuento: !!i.esDescuento,
           descuentoPct: i.descuentoPct ?? null,
           puedePorPeso: !!i.puedePorPeso,
+          alicuotaIva: i.alicuotaIva ?? null,
           bultoAplicado: null,
           // las sugerencias de IA NO se incluyen hasta que el operador confirme "¿es este?"
           // y una rebaja no se incluye NUNCA: no es mercadería
@@ -784,7 +785,41 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   const baseCosto = valorConIva != null ? valorConIva + (percepcionesAlCosto ? percepciones : 0) : null;
   const factorRecon = (baseCosto != null && sumaRenglones > 0) ? baseCosto / sumaRenglones
     : (discriminaIva && sumarIva && alicEfectiva != null ? 1 + alicEfectiva : discriminaIva && sumarIva ? 1.21 : 1);
-  const costoFinal = (i: any) => Math.round(precioEfectivo(i) * factorRecon * 100) / 100;
+  // IVA por renglón. Una misma factura mezcla productos al 21% con alimentos al
+  // 10,5% (Tufaro: brócoli al 10,5 junto a almacén al 21). Un factor único
+  // reparte el IVA promedio y le cobra a la verdura parte del IVA de los otros
+  // —al brócoli le salía 21,5% en vez de 10,5 + percepción.
+  //
+  // Se activa SOLO cuando el papel lo prueba: todos los renglones de mercadería
+  // declaran su alícuota y, aplicadas sobre el neto de cada uno, reconstruyen
+  // el IVA del pie (±2%). Si no, se queda con el factor único de siempre.
+  const alicLinea = (i: any): number | null => {
+    const a = numImp(i.alicuotaIva);
+    return a > 0 && a <= 27 ? a : null;
+  };
+  // percepciones e internos no son IVA: se reparten proporcional al neto,
+  // que es como los calcula la propia factura
+  const cargaComunPct = netoDoc != null && netoDoc > 0
+    ? (impIntDoc + (percepcionesAlCosto ? percepciones : 0)) / netoDoc
+    : 0;
+  const usarAlicPorLinea = (() => {
+    if (netoDoc == null || netoDoc <= 0 || sumaRenglones <= 0 || ivaDoc == null) return false;
+    const aNeto = netoDoc / sumaRenglones;
+    let iva = 0;
+    for (const i of itemsCalc) {
+      if (i._esDescuento) continue;
+      const cant = numImp(i.cantidad);
+      if (cant <= 0) continue;
+      const a = alicLinea(i);
+      if (a == null) return false; // sin la alícuota de TODOS, no hay prueba
+      iva += cant * precioEfectivo(i) * aNeto * (a / 100);
+    }
+    return ivaDoc > 0 ? Math.abs(iva - ivaDoc) / ivaDoc <= 0.02 : iva < 1;
+  })();
+  const factorDe = (i: any) => usarAlicPorLinea
+    ? (netoDoc! / sumaRenglones) * (1 + alicLinea(i)! / 100 + cargaComunPct)
+    : factorRecon;
+  const costoFinal = (i: any) => Math.round(precioEfectivo(i) * factorDe(i) * 100) / 100;
   const hayDatosFiscales = baseCosto != null;
   // Reconciliación: el costo a stock nunca puede superar el valor de la mercadería
   // con IVA (ni el total). Si lo hace, hay un error y se bloquea Registrar.
@@ -1587,7 +1622,13 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                 {/* De dónde sale el costo de cada renglón, escrito. Sin esto, la
                     única forma de saber si falta un impuesto es sacar la cuenta
                     a mano y desconfiar del sistema. */}
-                {hayDatosFiscales && sumaRenglones > 0 && (
+                {usarAlicPorLinea && (
+                  <p className="mt-1 text-black/60">
+                    ✓ Esta factura mezcla alícuotas y el IVA se aplica <b>por renglón</b> (el % que imprime cada fila), verificado contra
+                    el IVA del pie. Percepciones{impIntDoc > 0 ? ' e internos' : ''}: +{(cargaComunPct * 100).toFixed(2).replace('.', ',')}% repartido según el neto de cada renglón.
+                  </p>
+                )}
+                {!usarAlicPorLinea && hayDatosFiscales && sumaRenglones > 0 && (
                   <p className="mt-1 text-black/60">
                     Cada renglón leído <b>× {factorRecon.toFixed(4).replace('.', ',')}</b> — de{' '}
                     {pesos(sumaRenglones)} leídos a {pesos(baseCosto!)}: neto {pesos(netoDoc ?? 0)} + IVA {pesos(ivaDoc ?? 0)}
