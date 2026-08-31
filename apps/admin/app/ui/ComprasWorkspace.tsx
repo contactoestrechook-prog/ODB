@@ -1501,9 +1501,23 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                       )}
                     </span>
                     <input type="number" step="any" min="0" value={i.cantidad} onChange={(e) => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, cantidad: Number(e.target.value) } : x))} className="w-14 rounded border border-black/15 px-1 py-1 text-right text-sm text-black" />
-                    <span className="w-20 text-right text-sm tabular-nums text-black/70">
+                    <span className="w-24 text-right text-sm tabular-nums text-black/70">
                       {pesos(costoFinal(i))}
-                      {Math.abs(costoFinal(i) - numImp(i.precio)) > 0.5 && <span className="block text-[9px] leading-tight text-black/35">leído {pesos(i.precio)}</span>}
+                      {/* El precio leído SE PUEDE CORREGIR a mano: es lo único
+                          que salva un renglón nuevo mal leído sin volver a
+                          sacar la foto. Al editarlo, el importe del renglón se
+                          reescribe como cantidad × precio: la afirmación del
+                          operador pasa a ser el ancla y los avisos se recalculan. */}
+                      <input
+                        type="number" step="any" min="0" value={i.precio}
+                        onChange={(e) => setFotoItems((xs) => xs.map((x, j) => {
+                          if (j !== idx) return x;
+                          const p = Number(e.target.value) || 0;
+                          return { ...x, precio: p, importe: numImp(x.cantidad) * p, cantidadCorregida: null, bultoConsumido: null };
+                        }))}
+                        title="Precio unitario leído del papel: corregilo si la lectura falló"
+                        className="mt-0.5 block w-full rounded border border-black/10 px-1 py-0.5 text-right text-[11px] text-black/60 focus:border-black/40"
+                      />
                     </span>
                     <span className="w-16">
                       <input type="number" value={i.margenPct} placeholder="rubro" onChange={(e) => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, margenPct: e.target.value === '' ? '' : Number(e.target.value) } : x))} className="w-full rounded border border-black/15 px-1 py-1 text-right text-sm text-black" title="Remarcación % (vacío = usa la del rubro)" />

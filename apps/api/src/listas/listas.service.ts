@@ -892,6 +892,23 @@ export class ListasService {
         }
       }
 
+      // Un vínculo por nombre (alias/similitud) con el costo en otra galaxia no
+      // es el mismo producto: +1.165.998% fue un Rye de 700cc contra una
+      // miniatura de 50ml. Se degrada a sugerencia: que lo confirme una
+      // persona. Los vínculos por código (proveedor o barras) quedan firmes,
+      // porque ahí la evidencia es dura y la variación puede ser inflación real.
+      if (
+        match &&
+        (match.metodo === 'similitud' || match.metodo === 'alias') &&
+        match.variacionPct != null &&
+        Math.abs(match.variacionPct) > 300
+      ) {
+        match = {
+          ...match,
+          sugerido: true,
+          motivo: `El nombre coincide pero el costo difiere ${match.variacionPct > 0 ? '+' : ''}${match.variacionPct}%: puede ser otro producto (otro tamaño u otra presentación)`,
+        };
+      }
       resultado.push({ ...item, match, avisoMedida });
     }
     return resultado;
@@ -1019,7 +1036,22 @@ export class ListasService {
       if (/^(kgs?|kilos?)$/.test(unidad)) return { valor: valor * 1000, tipo: 'peso' };
       if (/^(grs?|gr|g)$/.test(unidad)) return { valor, tipo: 'peso' };
       if (/^(lts?|lt|litros?|l)$/.test(unidad)) return { valor: valor * 1000, tipo: 'volumen' };
+      // Ninguna bebida tiene 6cc: "Merlot SV x 6 cc" es una caja de seis con la
+      // abreviatura de la bodega al lado, no un envase. Por debajo de 40ml no
+      // es un volumen real (la miniatura más chica es de 50) y se sigue buscando.
+      if (valor < 40) continue;
       return { valor, tipo: 'volumen' }; // ml, cc, cm3
+    }
+    // Sin unidad escrita, la bebida suele declarar el envase en la forma
+    // "6x700" (seis botellas de 700): el segundo número es el tamaño en cc.
+    // Sin esto, "Jack Daniel's Rye 6x700" no tenía medida y el guardián dejaba
+    // pasar un vínculo contra la miniatura de 50ml. Se excluyen los años
+    // (1900–2099, las cosechas de vino) y lo que no es un envase plausible.
+    const pack = t.match(/\b\d{1,2}\s*x\s*(\d{3,4})\b/);
+    if (pack) {
+      const valor = Number(pack[1]);
+      const esAnio = valor >= 1900 && valor <= 2099;
+      if (!esAnio && valor >= 100 && valor <= 5000) return { valor, tipo: 'volumen' };
     }
     return null;
   }
