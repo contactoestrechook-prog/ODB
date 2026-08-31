@@ -40,6 +40,28 @@ export class NovedadesController {
     return data ?? [];
   }
 
+  // Avisarle a UNA persona que se arregló algo. La novedad del panel la ve todo
+  // el equipo una vez y responde "qué cambió en esta versión"; esto le queda en
+  // la campanita a quien corresponda hasta que la lee. Juan Pablo pidió que
+  // cada arreglo le llegue así, porque no está mirando el panel todo el día.
+  @Roles('dueno')
+  @Post('alertas')
+  async crearAlerta(
+    @Body() b: { paraUsuario?: string; tipo?: string; titulo: string; detalle?: string; referencia?: any },
+    @Req() req: any,
+  ) {
+    if (!b?.titulo?.trim()) throw new BadRequestException('Falta el título del aviso');
+    const { error } = await this.db.from('alertas_internas').insert({
+      para_usuario: b.paraUsuario ?? null,
+      tipo: b.tipo?.trim() || 'arreglo',
+      titulo: b.titulo.trim(),
+      detalle: b.detalle?.trim() || null,
+      referencia: b.referencia ?? { origen: 'deploy', por: req.usuario?.sub ?? null },
+    });
+    if (error) throw new BadRequestException(error.message);
+    return { ok: true };
+  }
+
   @Post('alertas/:id/leida')
   async alertaLeida(@Param('id') id: string, @Req() req: any) {
     const { error } = await this.db.from('alertas_internas')
