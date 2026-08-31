@@ -393,7 +393,12 @@ export class ListasService {
         const respuesta = await claude.messages
           .stream({
             model: 'claude-sonnet-5',
-            max_tokens: 16000,
+            // 64k: una factura de dos hojas con 60 renglones, más el
+            // razonamiento —que cuenta contra este mismo tope—, no entra en
+            // 16k. Con 16k, La Serenísima moría justo en el límite y salía
+            // una pantalla vacía "sin dudas". Ya streameamos, así que un tope
+            // alto no arriesga timeouts.
+            max_tokens: 64000,
             // Esfuerzo ALTO, a propósito y con costo conocido: son unos 90
             // segundos por comprobante contra 40 en esfuerzo bajo.
             //
@@ -415,8 +420,22 @@ export class ListasService {
             messages: [{ role: 'user', content: contenido }],
           })
           .finalMessage();
+        // Quedarse sin espacio es un ERROR, no un resultado. Antes, si el tope
+        // se agotaba durante el razonamiento, no había bloque de texto, el
+        // JSON quedaba en '{}' y la pantalla mostraba un comprobante vacío con
+        // "la IA no tuvo dudas" — el peor modo de fallar, porque parece que la
+        // factura no tiene nada.
+        if (respuesta.stop_reason === 'max_tokens') {
+          throw new Error('max_tokens: el comprobante no entró en el espacio de salida');
+        }
         const bloque = respuesta.content.find((b) => b.type === 'text');
-        datos = JSON.parse(bloque && 'text' in bloque ? bloque.text : '{}');
+        if (!bloque || !('text' in bloque) || !bloque.text.trim()) {
+          throw new Error('sin_texto: la respuesta no trajo el JSON del comprobante');
+        }
+        datos = JSON.parse(bloque.text);
+        if (!(datos.items ?? []).length && !datos.impuestos?.total && !datos.proveedor?.nombre) {
+          throw new Error('vacio: la lectura no trajo renglones ni pie ni proveedor');
+        }
         msLectura = Date.now() - t0;
         const u: any = (respuesta as any).usage ?? {};
         this.log.log(
@@ -441,6 +460,9 @@ export class ListasService {
     if (ultimoError) {
       const msg = String(ultimoError?.message ?? ultimoError);
       const estado = ultimoError?.status ?? ultimoError?.statusCode;
+      if (/max_tokens|sin_texto|vacio/.test(msg)) {
+        throw new BadRequestException('No pude terminar de leer el comprobante completo. Volvé a intentar; si vuelve a pasar, subí las hojas de a una.');
+      }
       if (/image|too large|dimensions|media_type|invalid.*base64/i.test(msg)) {
         throw new BadRequestException('No pude leer la imagen: probá con una foto más nítida o el PDF de la factura.');
       }
@@ -943,7 +965,7 @@ export class ListasService {
       const respuesta = await claude.messages
         .stream({
           model: 'claude-sonnet-5',
-          max_tokens: 12000, // comprobante largo con muchos renglones sin match: que no se trunque el JSON
+          max_tokens: 32000, // comprobante largo con muchos renglones sin match: que no se trunque el JSON
           // elegir el candidato correcto de una lista corta tampoco necesita
           // razonamiento profundo
           output_config: {
