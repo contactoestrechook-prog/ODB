@@ -816,20 +816,46 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   // el mismo SKU y gana el último — que suele ser el de cero. Se fusionan: la
   // cantidad se suma y el costo es el promedio ponderado, que es exactamente
   // "prorratear las cajas sin cargo para bajar el costo".
+  // El 10+1 abarata a TODO el grupo que lo ganó, no solo a su varietal.
+  //
+  // El arreglo real del proveedor es "comprá 10 cajas de la línea, llevate 1
+  // gratis". Esa caja la ganaron todos los varietales, y el costo se reparte
+  // entre las 11. ¿Cuál es el grupo? Está impreso: los renglones con el MISMO
+  // precio de lista. En Wiwo, la Monteagrelo gratis comparte precio con
+  // Malbec, Cabernet y Franc — ese es su grupo; la Cupra Rose gratis solo con
+  // la Rose paga, y el Pinot (otro precio) queda afuera. Espejo probado de
+  // costearConGruposPromo en el servidor (bultos.spec.ts).
   const fusionarPorSku = (xs: any[]) => {
+    const claveP = (i: any) => String(Math.round(numImp(i.precio) * 100));
+    const grupos = new Map<string, { pagado: number; unidades: number; tieneGratis: boolean }>();
+    for (const i of xs) {
+      const k = claveP(i);
+      const g = grupos.get(k) ?? { pagado: 0, unidades: 0, tieneGratis: false };
+      const cant = numImp(i.cantidad);
+      g.pagado += cant * costoFinal(i);
+      g.unidades += cant;
+      if (esSinCargo(i)) g.tieneGratis = true;
+      grupos.set(k, g);
+    }
+    const costoDeLinea = (i: any) => {
+      const g = grupos.get(claveP(i))!;
+      return g.tieneGratis && g.unidades > 0 ? g.pagado / g.unidades : costoFinal(i);
+    };
     const porSku = new Map<string, any>();
     for (const i of xs) {
       const cant = numImp(i.cantidad);
-      const costo = costoFinal(i);
+      const costo = costoDeLinea(i);
+      const enPromo = grupos.get(claveP(i))!.tieneGratis;
       const prev = porSku.get(i.sku);
       const gratis = esSinCargo(i) ? cant : 0;
       if (!prev) {
-        porSku.set(i.sku, { ...i, cantidad: cant, _costoTotal: cant * costo, _renglones: 1, _gratis: gratis });
+        porSku.set(i.sku, { ...i, cantidad: cant, _costoTotal: cant * costo, _renglones: 1, _gratis: gratis, _enPromo: enPromo });
       } else {
         prev.cantidad += cant;
         prev._costoTotal += cant * costo;
         prev._renglones += 1;
         prev._gratis += gratis;
+        prev._enPromo = prev._enPromo || enPromo;
       }
     }
     return [...porSku.values()].map((i) => ({
@@ -838,7 +864,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
     }));
   };
   const itemsFusionados = fusionarPorSku(inclItems.filter((i) => i.sku));
-  const skusFusionados = itemsFusionados.filter((i) => i._renglones > 1);
+  const skusFusionados = itemsFusionados.filter((i) => i._renglones > 1 || i._enPromo);
   const costoBloquea = excedeMerc || excedeTotal;
 
   // Excel/CSV del portal del proveedor → precarga los renglones de la OC
@@ -1387,7 +1413,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                       )}
                       {esSinCargo(i) ? (
                         <span className="mt-0.5 block text-[11px] text-emerald-800">
-                          🎁 <b>Sin cargo</b>: entran {numImp(i.cantidad)} que no se pagan. Se reparten entre las que sí se pagaron, y baja el costo de todas.
+                          🎁 <b>Sin cargo</b>: entran {numImp(i.cantidad)} que no se pagan. Se reparten entre todo lo del mismo precio de lista — el 10+1 abarata a todos los varietales del grupo, no solo a este.
                         </span>
                       ) : numImp(i.bonificacionPct) > 0 ? (
                         <span className="mt-0.5 block text-[11px] text-emerald-800">
@@ -1601,7 +1627,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                 )}
                 {skusFusionados.length > 0 && (
                   <div className="mt-1 rounded bg-emerald-50 px-2 py-1.5 text-emerald-900">
-                    <p>🎁 <b>{skusFusionados.length}</b> producto(s) vienen en más de un renglón. Entran una sola vez y lo que no se paga se reparte entre todo lo que llegó:</p>
+                    <p>🎁 <b>{skusFusionados.length}</b> producto(s) con mercadería sin cargo o repetidos. Lo regalado se reparte entre TODO el grupo del mismo precio de lista (el 10+1 abarata a todos los varietales):</p>
                     {skusFusionados.map((i) => (
                       <p key={i.sku} className="mt-0.5">
                         · {i.nombre ?? i.descripcion}:{' '}

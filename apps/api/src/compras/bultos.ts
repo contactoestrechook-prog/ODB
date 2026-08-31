@@ -430,3 +430,65 @@ export function interpretarRenglon(l: LecturaRenglon): RenglonInterpretado {
     precioPropuesto: Math.round((importe / cantidad) * 100) / 100,
   };
 }
+
+export type LineaDeCosteo = {
+  sku: string;
+  cantidad: number;
+  /** precio de lista impreso del renglón: define el grupo de la promo */
+  precioLista: number;
+  /** lo que efectivamente se paga por el renglón completo (0 si es sin cargo) */
+  pagado: number;
+};
+
+/**
+ * Reparte la mercadería sin cargo entre el GRUPO que la ganó, no solo entre su
+ * propio producto.
+ *
+ * El arreglo comercial real es "comprá 10 cajas de la línea, llevate 1 gratis":
+ * la caja regalada la ganaron TODOS los varietales del grupo, y el cliente
+ * quiere el costo repartido así. ¿Cómo sabe el sistema cuál es el grupo? Está
+ * impreso: son los renglones con el MISMO precio de lista. En la factura de
+ * Wiwo, la Monteagrelo gratis comparte precio con Malbec, Cabernet y Franc
+ * (todos $173.553,72) — ese es su grupo; la Cupra Rose gratis solo comparte
+ * precio con la Rose paga, y el Pinot ($357.024,79) queda afuera solo.
+ *
+ * La cuenta: costo por unidad del grupo = todo lo pagado por el grupo ÷ todas
+ * las unidades recibidas (pagas + gratis). La suma de costos da lo pagado al
+ * centavo. Solo se activa si el grupo tiene mercadería sin cargo; si no, cada
+ * renglón conserva su propio costo.
+ */
+export function costearConGruposPromo(
+  lineas: LineaDeCosteo[],
+): Map<string, { cantidad: number; costo: number; grupoPromo: boolean }> {
+  const clavePrecio = (p: number) => String(Math.round(Number(p) * 100));
+
+  // qué grupos de precio tienen mercadería sin cargo
+  const grupos = new Map<string, { pagado: number; unidades: number; tieneGratis: boolean }>();
+  for (const l of lineas) {
+    const k = clavePrecio(l.precioLista);
+    const g = grupos.get(k) ?? { pagado: 0, unidades: 0, tieneGratis: false };
+    g.pagado += Number(l.pagado) || 0;
+    g.unidades += Number(l.cantidad) || 0;
+    if ((Number(l.pagado) || 0) < 0.01 && (Number(l.cantidad) || 0) > 0) g.tieneGratis = true;
+    grupos.set(k, g);
+  }
+
+  const salida = new Map<string, { cantidad: number; costo: number; grupoPromo: boolean }>();
+  for (const l of lineas) {
+    const cantidad = Number(l.cantidad) || 0;
+    if (cantidad <= 0) continue;
+    const g = grupos.get(clavePrecio(l.precioLista))!;
+    const enPromo = g.tieneGratis && g.unidades > 0;
+    const costo = enPromo ? g.pagado / g.unidades : (Number(l.pagado) || 0) / cantidad;
+    const prev = salida.get(l.sku);
+    if (!prev) salida.set(l.sku, { cantidad, costo: 0, grupoPromo: enPromo });
+    else { prev.cantidad += cantidad; prev.grupoPromo = prev.grupoPromo || enPromo; }
+    // el costo del SKU es el promedio ponderado de sus líneas (puede estar en
+    // dos grupos distintos, o tener líneas con y sin promo)
+    const acumulado = salida.get(l.sku)!;
+    (acumulado as any)._total = ((acumulado as any)._total ?? 0) + cantidad * costo;
+    acumulado.costo = Math.round(((acumulado as any)._total / acumulado.cantidad) * 100) / 100;
+  }
+  for (const v of salida.values()) delete (v as any)._total;
+  return salida;
+}

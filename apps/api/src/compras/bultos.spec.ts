@@ -1,4 +1,4 @@
-import { unidadesPorBulto, esRenglonDeDescuento, fusionarRenglonesPorSku, porcentajeDeDescuento, descuentoEsDelRenglon, puedeVendersePorPeso, corregirRenglonQueNoCierra, resolverCantidadYBulto, interpretarRenglon } from './bultos';
+import { unidadesPorBulto, esRenglonDeDescuento, fusionarRenglonesPorSku, porcentajeDeDescuento, descuentoEsDelRenglon, puedeVendersePorPeso, corregirRenglonQueNoCierra, resolverCantidadYBulto, interpretarRenglon, costearConGruposPromo } from './bultos';
 
 describe('unidadesPorBulto — la forma, no la lista de proveedores', () => {
   it.each([
@@ -340,5 +340,61 @@ describe('interpretarRenglon — la tabla de precedencia completa', () => {
     const r = leer({ descripcion: 'CUALQUIERA', cantidad: 5, precio: 100, importe: null, unidadesPorBulto: 6 });
     expect(r.decision).toBe('bulto_pendiente');
     expect(r.cantidad).toBe(5);
+  });
+});
+
+describe('costearConGruposPromo — el 10+1 abarata a todo el grupo', () => {
+  // Wiwo · Bressia Monteagrelo: 5+2+3 pagas al 50% + 1 Malbec sin cargo,
+  // todas al mismo precio de lista. Las 11 cajas al mismo costo.
+  it('la caja gratis se reparte entre los tres varietales', () => {
+    const P = 173553.72;
+    const r = costearConGruposPromo([
+      { sku: 'MALBEC', cantidad: 1, precioLista: P, pagado: 0 },
+      { sku: 'MALBEC', cantidad: 5, precioLista: P, pagado: 5 * P * 0.5 },
+      { sku: 'CABSAUV', cantidad: 2, precioLista: P, pagado: 2 * P * 0.5 },
+      { sku: 'CABFRANC', cantidad: 3, precioLista: P, pagado: 3 * P * 0.5 },
+    ]);
+    expect(r.get('MALBEC')!.cantidad).toBe(6);
+    expect(r.get('MALBEC')!.costo).toBeCloseTo(78888.05, 1);
+    expect(r.get('CABSAUV')!.costo).toBeCloseTo(78888.05, 1);
+    expect(r.get('CABFRANC')!.costo).toBeCloseTo(78888.05, 1);
+    // la suma de costos devuelve lo pagado, al centavo
+    const total = [...r.values()].reduce((a, x) => a + x.cantidad * x.costo, 0);
+    expect(total).toBeCloseTo(10 * P * 0.5, 0);
+  });
+
+  // Cupra: la Rose gratis solo comparte precio con la Rose paga. El Pinot, a
+  // otro precio, no recibe nada del regalo.
+  it('el precio de lista define el grupo: el Pinot queda afuera', () => {
+    const r = costearConGruposPromo([
+      { sku: 'ROSE', cantidad: 1, precioLista: 327272.73, pagado: 0 },
+      { sku: 'ROSE', cantidad: 2, precioLista: 327272.73, pagado: 2 * 327272.73 * 0.5 },
+      { sku: 'PINOT', cantidad: 3, precioLista: 357024.79, pagado: 3 * 357024.79 * 0.5 },
+    ]);
+    expect(r.get('ROSE')!.costo).toBeCloseTo((2 * 327272.73 * 0.5) / 3, 1);
+    expect(r.get('PINOT')!.costo).toBeCloseTo(357024.79 * 0.5, 1); // intacto
+    expect(r.get('PINOT')!.grupoPromo).toBe(false);
+  });
+
+  // Sin mercadería gratis no hay promo: cada renglón conserva su costo aunque
+  // compartan precio de lista.
+  it('sin regalo no se mezclan costos entre productos', () => {
+    const r = costearConGruposPromo([
+      { sku: 'A', cantidad: 2, precioLista: 1000, pagado: 2000 },
+      { sku: 'B', cantidad: 3, precioLista: 1000, pagado: 1500 }, // B con descuento propio
+    ]);
+    expect(r.get('A')!.costo).toBe(1000);
+    expect(r.get('B')!.costo).toBe(500);
+  });
+
+  // El caso de siempre (Vistalba): el regalo es del mismo producto — el grupo
+  // de precio lo incluye y el resultado coincide con la fusión por SKU.
+  it('cuando el regalo es del mismo producto, da lo mismo que antes', () => {
+    const r = costearConGruposPromo([
+      { sku: 'CORTE_A', cantidad: 3, precioLista: 380000, pagado: 1140000 },
+      { sku: 'CORTE_A', cantidad: 1, precioLista: 380000, pagado: 0 },
+    ]);
+    expect(r.get('CORTE_A')!.cantidad).toBe(4);
+    expect(r.get('CORTE_A')!.costo).toBeCloseTo(285000, 1);
   });
 });
