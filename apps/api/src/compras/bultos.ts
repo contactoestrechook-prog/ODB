@@ -286,3 +286,147 @@ export function resolverCantidadYBulto(renglon: {
   }
   return sinCambio;
 }
+
+// ---------------------------------------------------------------------------
+// EL INTÉRPRETE ÚNICO DEL RENGLÓN
+// ---------------------------------------------------------------------------
+//
+// Todo lo que puede "explicar" un renglón de factura gira alrededor de una
+// sola pregunta: ¿por qué cantidad × precio no da el importe impreso? Las
+// respuestas posibles se pisan entre sí (una bonificación parece medio kilo,
+// un bulto parece una cantidad corregida), así que la precedencia tiene que
+// estar en UN lugar, explícita, y no repartida en cinco reglas sueltas:
+//
+//   1. DESCUENTO ......... no es mercadería; es una rebaja sobre otro renglón.
+//   2. BONIFICADO ........ la bonificación de la fila ya explica la diferencia.
+//   3. PESO con columna .. la factura trae los kilos escritos y cierran.
+//   4. CIERRA ............ cantidad × precio ≈ importe: no hay nada que
+//                          interpretar; si hay bulto, queda PENDIENTE del
+//                          operador ("Pasar a unidad").
+//   5. CANTIDAD .......... importe ÷ precio da un ENTERO ≠ cantidad: esa es la
+//                          cantidad real, en la unidad del precio, y consume
+//                          cualquier bulto (la corrección ES la conversión).
+//   6. PESO implícito .... importe ÷ precio da DECIMAL y el producto puede
+//                          venderse por peso: son kilos.
+//   7. NO CIERRA ......... no se pudo deducir; se propone el precio que daría
+//                          el importe y decide una persona.
+//
+// El importe es el ancla en todo: es el número que suma al neto del pie.
+
+export type LecturaRenglon = {
+  descripcion: string;
+  cantidad: number;
+  precio: number;
+  importe: number | null;
+  unidadesPorBulto: number | null;
+  bonificacionPct: number | null;
+  esDescuento: boolean;
+  kg: number | null;
+  puedePorPeso: boolean;
+};
+
+export type RenglonInterpretado = {
+  decision:
+    | 'descuento'
+    | 'bonificado'
+    | 'peso_columna'
+    | 'cierra'
+    | 'bulto_pendiente'
+    | 'cantidad_corregida'
+    | 'peso_implicito'
+    | 'no_cierra';
+  /** en la unidad final: unidades sueltas, bultos (si quedó pendiente) o kg */
+  cantidad: number;
+  porPeso: boolean;
+  /** solo cuando la decisión quedó en manos del operador */
+  unidadesPorBulto: number | null;
+  cantidadOriginal: number | null;
+  bultoConsumido: number | null;
+  /** cuando no cierra: el unitario que SÍ daría el importe */
+  precioPropuesto: number | null;
+};
+
+const TOLERANCIA_CIERRE = 0.02; // el proveedor redondea el importe
+const TOLERANCIA_ENTERO = 0.005;
+
+export function interpretarRenglon(l: LecturaRenglon): RenglonInterpretado {
+  const cantidad = Number(l.cantidad) || 1;
+  const precio = Number(l.precio) || 0;
+  const importe = l.importe == null ? null : Math.abs(Number(l.importe));
+  const bulto = Number(l.unidadesPorBulto) > 1 ? Math.round(Number(l.unidadesPorBulto)) : null;
+  const bonif = Math.min(100, Math.abs(Number(l.bonificacionPct) || 0));
+  const kg = Number(l.kg) || 0;
+
+  const base: RenglonInterpretado = {
+    decision: 'cierra',
+    cantidad,
+    porPeso: false,
+    unidadesPorBulto: bulto,
+    cantidadOriginal: null,
+    bultoConsumido: null,
+    precioPropuesto: null,
+  };
+
+  // 1 — rebaja, no mercadería
+  if (l.esDescuento || esRenglonDeDescuento({ descripcion: l.descripcion, precio: l.precio })) {
+    return { ...base, decision: 'descuento', unidadesPorBulto: null };
+  }
+
+  // 2 — la bonificación de la fila ya explica el descuadre; el bulto (si hay)
+  //     sigue siendo decisión del operador: una caja regalada sigue siendo caja
+  if (bonif > 0) {
+    return { ...base, decision: 'bonificado' };
+  }
+
+  // 3 — peso con columna: evidencia escrita, y tiene que cerrar con el importe
+  if (l.puedePorPeso && kg > 0 && Math.abs(kg - cantidad) > 0.01 && precio > 0) {
+    const esperado = kg * precio;
+    const cierra = importe == null || esperado <= 0 || Math.abs(importe - esperado) / esperado < 0.05;
+    if (cierra) {
+      return { ...base, decision: 'peso_columna', cantidad: kg, porPeso: true, unidadesPorBulto: null };
+    }
+  }
+
+  // sin importe o sin precio no hay más nada que deducir
+  if (importe == null || importe === 0 || precio <= 0 || cantidad <= 0) {
+    return bulto ? { ...base, decision: 'bulto_pendiente' } : base;
+  }
+
+  // 4 — cierra tal cual
+  const esperado = cantidad * precio;
+  if (Math.abs(importe - esperado) / esperado <= TOLERANCIA_CIERRE) {
+    return bulto ? { ...base, decision: 'bulto_pendiente' } : base;
+  }
+
+  // 5 — la cantidad real sale del importe; consume el bulto
+  const q = importe / precio;
+  const entero = Math.round(q);
+  if (entero >= 1 && Math.abs(q - entero) <= TOLERANCIA_ENTERO && entero !== cantidad) {
+    return {
+      ...base,
+      decision: 'cantidad_corregida',
+      cantidad: entero,
+      unidadesPorBulto: null,
+      cantidadOriginal: cantidad,
+      bultoConsumido: bulto,
+    };
+  }
+
+  // 6 — decimal + producto fraccionable = kilos
+  if (l.puedePorPeso && !bulto && Math.abs(q - cantidad) > 0.01) {
+    return {
+      ...base,
+      decision: 'peso_implicito',
+      cantidad: Math.round(q * 1000) / 1000,
+      porPeso: true,
+      unidadesPorBulto: null,
+    };
+  }
+
+  // 7 — no se pudo deducir: que decida una persona, con el dato servido
+  return {
+    ...base,
+    decision: 'no_cierra',
+    precioPropuesto: Math.round((importe / cantidad) * 100) / 100,
+  };
+}

@@ -3,7 +3,7 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
 import * as XLSX from 'xlsx';
 import { SUPABASE } from '../supabase.provider';
-import { unidadesPorBulto, esRenglonDeDescuento, porcentajeDeDescuento, puedeVendersePorPeso } from '../compras/bultos';
+import { unidadesPorBulto, esRenglonDeDescuento, porcentajeDeDescuento, puedeVendersePorPeso, interpretarRenglon } from '../compras/bultos';
 
 export type ItemExtraido = { codigo: string | null; descripcion: string; precio: number };
 // pedido exportado del portal del proveedor: igual que la lista pero con cantidad
@@ -518,24 +518,29 @@ export class ListasService {
       if (delTexto && delModelo && delTexto !== delModelo) {
         this.log.warn(`bulto discordante en "${String(i.descripcion ?? '').slice(0, 60)}": texto=${delTexto} modelo=${delModelo} · gana el texto`);
       }
-      return {
-        codigo: i.codigo ?? null,
-        descripcion: i.descripcion,
+      // Toda la interpretación del renglón (bulto, bonificación, peso,
+      // corrección de cantidad, descuento) sale de UNA función con la
+      // precedencia explícita, probada con los casos reales: interpretarRenglon.
+      // El panel ya no decide nada de esto: dibuja lo que se decidió acá.
+      const lectura = {
+        descripcion: String(i.descripcion ?? ''),
         cantidad: Number(i.cantidad) || 1,
         precio: Number(i.precio) || 0,
-        unidadesPorBulto: delTexto ?? delModelo ?? null,
         importe: Number.isFinite(Number(i.importe)) ? Number(i.importe) : null,
-        alicuotaIva: Number(i.alicuotaIva) > 0 ? Number(i.alicuotaIva) : null,
-        // el signo del porcentaje lo escribe cada proveedor como quiere: "-100"
-        // y "100" significan lo mismo, un renglón sin cargo
+        unidadesPorBulto: delTexto ?? delModelo ?? null,
         bonificacionPct: Math.abs(Number(i.bonificacionPct)) > 0 ? Math.min(100, Math.abs(Number(i.bonificacionPct))) : null,
         esDescuento: esRenglonDeDescuento({ descripcion: i.descripcion, precio: Number(i.precio) || 0 }) || !!i.esDescuento,
-        // el porcentaje que declara la rebaja: es la prueba de a qué renglón pertenece
-        descuentoPct: porcentajeDeDescuento(String(i.descripcion ?? '')),
-        // Si el producto puede o no venderse por kilo. Sin esto, "la cuenta del
-        // renglón no cierra" se interpretaba SIEMPRE como peso, y una lata de
-        // cerveza entraba como 24 kg.
+        // OJO: la columna KG estaba en el esquema pero este mapeo no la
+        // reenviaba — el renglón por peso con columna nunca llegaba al panel
+        kg: Number(i.kg) > 0 ? Number(i.kg) : null,
         puedePorPeso: puedeVendersePorPeso(String(i.descripcion ?? '')),
+      };
+      return {
+        codigo: i.codigo ?? null,
+        ...lectura,
+        alicuotaIva: Number(i.alicuotaIva) > 0 ? Number(i.alicuotaIva) : null,
+        descuentoPct: porcentajeDeDescuento(String(i.descripcion ?? '')),
+        interpretado: interpretarRenglon(lectura),
       } as any;
     });
     const propuesta = proveedor ? await this.matchear(items, proveedor.id) : items.map((i) => ({ ...i, match: null as Match }));

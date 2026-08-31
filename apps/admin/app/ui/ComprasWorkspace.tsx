@@ -422,70 +422,16 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
       setPagada(/contado/i.test(d.comprobante?.condicionVenta ?? ''));
       setFotoItems((d.items ?? []).map((i: any) => {
         const sugerido = i.match?.sugerido === true;
-        // Producto por PESO: la IA transcribió la columna KG. Lo aplicamos solo
-        // si el peso cierra con el importe (peso × precio ≈ importe), para no
-        // cargar un peso mal leído; si no cierra, queda el botón «Pasar a kilos».
-        const kgLeido = Number(i.kg) || 0;
-        const cantLeida = Number(i.cantidad) || 1;
-        const precioNum = Number(i.precio) || 0;
-        const importeNum = i.importe != null && i.importe !== '' ? Number(i.importe) : null;
-        let cantidad = cantLeida;
-        let porPeso = false;
-        // el peso solo se considera si el producto puede venderse así y si no
-        // hay una bonificación de la fila que ya explique la diferencia
-        const puedePeso = !!i.puedePorPeso && !(Math.abs(Number(i.bonificacionPct) || 0) > 0);
-        if (puedePeso && kgLeido > 0 && Math.abs(kgLeido - cantLeida) > 0.01) {
-          const esperado = kgLeido * precioNum;
-          const cierra = importeNum == null || esperado <= 0
-            || Math.abs(Math.abs(importeNum) - esperado) / esperado < 0.05;
-          if (cierra) { cantidad = kgLeido; porPeso = true; }
-        }
-        // Producto por PESO sin columna KG (fiambres, quesos por horma): la CANT
-        // es 1 pero el importe del renglón = peso × precio, con el precio POR
-        // KILO. Si el importe no cierra con cantidad × precio y el peso que
-        // implica es decimal (un entero sería un bulto, no un peso), lo cargamos
-        // en kilos solo. El costo pasa a ser el precio por kilo.
-        if (puedePeso && !porPeso && importeNum != null && precioNum > 0 && cantLeida > 0
-            && Number(i.unidadesPorBulto ?? 0) <= 1 && !i.esDescuento) {
-          const esperado = cantLeida * precioNum;
-          const pesoImp = Math.abs(importeNum) / precioNum;
-          const noCierra = esperado > 0 && Math.abs(Math.abs(importeNum) - esperado) / esperado > 0.02;
-          const distintoDeCant = Math.abs(pesoImp - cantLeida) > 0.01;
-          const noEsEntero = Math.abs(pesoImp - Math.round(pesoImp)) > 0.02; // un entero sería bulto
-          if (noCierra && distintoDeCant && noEsEntero) {
-            cantidad = Math.round(pesoImp * 1000) / 1000;
-            porPeso = true;
-          }
-        }
-        // Corrección automática de la cantidad cuando el importe la revela sin
-        // ambigüedad. Antes se le mostraba el problema al operador y se le
-        // ofrecía cambiar el PRECIO — que era justo el número que estaba bien.
-        let cantidadCorregida: number | null = null;
-        let bultoConsumido: number | null = null;
-        {
-          const imp = importeNum == null ? null : Math.abs(importeNum);
-          const bonif = Math.abs(Number(i.bonificacionPct) || 0);
-          if (!porPeso && imp && precioNum > 0 && cantidad > 0 && !i.esDescuento && bonif === 0) {
-            const esperado = cantidad * precioNum;
-            if (Math.abs(imp - esperado) / esperado > 0.02) {
-              const q = imp / precioNum;
-              const ent = Math.round(q);
-              if (ent >= 1 && Math.abs(q - ent) <= 0.005 && ent !== cantidad) {
-                cantidadCorregida = cantidad;
-                cantidad = ent;
-                // La cantidad que sale de importe ÷ precio está en la unidad
-                // del PRECIO y ya cuenta todo lo facturado. El formato más
-                // común de mayorista es "1 bulto de 24 con el precio por
-                // unidad": esta corrección ES la conversión a unidades, así
-                // que el bulto queda consumido. Dejarlo vivo ofrecía
-                // multiplicar OTRA vez: 24 × 24 = 576 pomos a $74.
-                if (Math.round(Number(i.unidadesPorBulto)) > 1) {
-                  bultoConsumido = Math.round(Number(i.unidadesPorBulto));
-                }
-              }
-            }
-          }
-        }
+        // La interpretación del renglón —bulto, bonificación, peso, corrección
+        // de cantidad, descuento— la decide el servidor en UNA función con la
+        // precedencia explícita y probada (interpretarRenglon). Acá solo se
+        // dibuja. Recalcular en el panel fue la fuente de los últimos bugs:
+        // cinco reglas sueltas que se pisaban entre sí.
+        const r = i.interpretado ?? {};
+        const cantidad = Number(r.cantidad) || Number(i.cantidad) || 1;
+        const porPeso = !!r.porPeso;
+        const cantidadCorregida = r.cantidadOriginal ?? null;
+        const bultoConsumido = r.bultoConsumido ?? null;
         return {
           descripcion: i.descripcion,
           cantidad,
@@ -508,7 +454,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
           // y si el renglón es una rebaja en vez de mercadería. Este mapeo arma un
           // objeto nuevo, así que un campo que no se copie acá no existe para la
           // pantalla por más que la API lo mande.
-          unidadesPorBulto: bultoConsumido != null ? null : (i.unidadesPorBulto ?? null),
+          unidadesPorBulto: r.unidadesPorBulto ?? null,
           bonificacionPct: i.bonificacionPct ?? null,
           importe: i.importe ?? null,
           esDescuento: !!i.esDescuento,

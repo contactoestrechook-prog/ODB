@@ -1,4 +1,4 @@
-import { unidadesPorBulto, esRenglonDeDescuento, fusionarRenglonesPorSku, porcentajeDeDescuento, descuentoEsDelRenglon, puedeVendersePorPeso, corregirRenglonQueNoCierra, resolverCantidadYBulto } from './bultos';
+import { unidadesPorBulto, esRenglonDeDescuento, fusionarRenglonesPorSku, porcentajeDeDescuento, descuentoEsDelRenglon, puedeVendersePorPeso, corregirRenglonQueNoCierra, resolverCantidadYBulto, interpretarRenglon } from './bultos';
 
 describe('unidadesPorBulto — la forma, no la lista de proveedores', () => {
   it.each([
@@ -232,5 +232,113 @@ describe('resolverCantidadYBulto — la corrección ES la conversión', () => {
     const r = resolverCantidadYBulto({ cantidad: 1, precio: 1766, importe: null, unidadesPorBulto: 24 });
     expect(r.cantidad).toBe(1);
     expect(r.unidadesPorBulto).toBe(24);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// El intérprete único, contra TODOS los casos reales que pasaron por el local.
+// Cada uno de estos renglones rompió algo alguna vez: son la memoria del bug.
+// ---------------------------------------------------------------------------
+describe('interpretarRenglon — la tabla de precedencia completa', () => {
+  const leer = (x: Partial<import('./bultos').LecturaRenglon>) =>
+    interpretarRenglon({
+      descripcion: '', cantidad: 1, precio: 0, importe: null,
+      unidadesPorBulto: null, bonificacionPct: null, esDescuento: false,
+      kg: null, puedePorPeso: false, ...x,
+    });
+
+  // ---- 1. descuento ----
+  it('Aldo\'s: "Desc. 42.86%" es rebaja, no mercadería, aunque nombre al vino', () => {
+    const r = leer({ descripcion: 'Desc. 42.86% - MANOS NEGRAS Malbec CJ x6', cantidad: 7, precio: -18702.55, importe: -130917.82 });
+    expect(r.decision).toBe('descuento');
+  });
+
+  // ---- 2. bonificado ----
+  it('Vistalba: la caja sin cargo NO es medio kilo ni cantidad corregida', () => {
+    const r = leer({ descripcion: 'Gran Tomero Semillón cc x 6 IG-VDU 2024', cantidad: 3, precio: 165000, importe: 0, bonificacionPct: 100, unidadesPorBulto: 6 });
+    expect(r.decision).toBe('bonificado');
+    expect(r.cantidad).toBe(3);
+    expect(r.unidadesPorBulto).toBe(6); // la caja regalada sigue siendo caja
+  });
+
+  it('vino bonificado 50%: la mitad del importe no se lee como peso', () => {
+    const r = leer({ descripcion: 'Gran Revancha Blend de', cantidad: 1, precio: 246000, importe: 123000, bonificacionPct: 50 });
+    expect(r.decision).toBe('bonificado');
+    expect(r.porPeso).toBe(false);
+  });
+
+  // ---- 3. peso con columna ----
+  it('fiambre con columna KG que cierra: entra en kilos', () => {
+    const r = leer({ descripcion: 'JAMON COCIDO FRACCIONADO', cantidad: 1, precio: 8000, importe: 43520, kg: 5.44, puedePorPeso: true });
+    expect(r.decision).toBe('peso_columna');
+    expect(r.cantidad).toBeCloseTo(5.44, 2);
+    expect(r.porPeso).toBe(true);
+  });
+
+  it('columna KG que NO cierra con el importe: no se usa a ciegas', () => {
+    const r = leer({ descripcion: 'QUESO CREMOSO HORMA', cantidad: 1, precio: 8000, importe: 43520, kg: 9.9, puedePorPeso: true });
+    expect(r.decision).not.toBe('peso_columna');
+  });
+
+  // ---- 4. cierra / bulto pendiente ----
+  it('Corona: 84 bultos con precio POR bulto cierran; el bulto queda pendiente del operador', () => {
+    const r = leer({ descripcion: 'CORONA 355 X 24B', cantidad: 84, precio: 55000, importe: 4620000, unidadesPorBulto: 24 });
+    expect(r.decision).toBe('bulto_pendiente');
+    expect(r.cantidad).toBe(84);
+    expect(r.unidadesPorBulto).toBe(24);
+  });
+
+  it('renglón simple que cierra: no se toca nada', () => {
+    const r = leer({ descripcion: 'DAB LATA 500ML', cantidad: 12, precio: 4297.52, importe: 51570.24 });
+    expect(r.decision).toBe('cierra');
+    expect(r.cantidad).toBe(12);
+  });
+
+  // ---- 5. cantidad corregida (consume el bulto) ----
+  it('Savora: 1 bulto de 24 con precio por unidad → 24 unidades, sin doble conversión', () => {
+    const r = leer({ descripcion: 'SAVORA SQZ X200GRS', cantidad: 1, precio: 1766, importe: 42388, unidadesPorBulto: 24 });
+    expect(r.decision).toBe('cantidad_corregida');
+    expect(r.cantidad).toBe(24);
+    expect(r.unidadesPorBulto).toBeNull();
+    expect(r.bultoConsumido).toBe(24);
+  });
+
+  it('Borravino: cantidades cruzadas entre filas se corrigen a lo que dice el importe', () => {
+    expect(leer({ descripcion: 'KAISERDOM HEFE - WEISSBIER NATURTRÜB LATA 1000ML', cantidad: 12, precio: 3677.69, importe: 88264.56 }).cantidad).toBe(24);
+    expect(leer({ descripcion: 'ESTRELLA DAMM LATA 500ML', cantidad: 24, precio: 4008.26, importe: 48099.12 }).cantidad).toBe(12);
+  });
+
+  it('la cerveza con importe entero JAMÁS se interpreta como kilos', () => {
+    const r = leer({ descripcion: 'KAISERDOM HEFE - WEISSBIER NATURTRÜB LATA 1000ML', cantidad: 12, precio: 3677.69, importe: 88264.56, puedePorPeso: false });
+    expect(r.porPeso).toBe(false);
+    expect(r.decision).toBe('cantidad_corregida');
+  });
+
+  // ---- 6. peso implícito ----
+  it('queso sin columna KG pero con importe decimal: son kilos', () => {
+    const r = leer({ descripcion: 'MUZZARELLA BARRA', cantidad: 1, precio: 6500, importe: 35392.5, puedePorPeso: true });
+    expect(r.decision).toBe('peso_implicito');
+    expect(r.cantidad).toBeCloseTo(5.445, 3);
+    expect(r.porPeso).toBe(true);
+  });
+
+  it('el mismo descuadre decimal en una CERVEZA no es peso: queda para revisar', () => {
+    const r = leer({ descripcion: 'ESTRELLA DAMM LATA 500ML', cantidad: 1, precio: 6500, importe: 35392.5, puedePorPeso: false });
+    expect(r.decision).toBe('no_cierra');
+    expect(r.porPeso).toBe(false);
+  });
+
+  // ---- 7. no cierra ----
+  it('cuando no hay deducción posible, propone el unitario y no toca nada', () => {
+    const r = leer({ descripcion: 'ARTICULO X', cantidad: 7, precio: 1000, importe: 8500 });
+    expect(r.decision).toBe('no_cierra');
+    expect(r.cantidad).toBe(7);
+    expect(r.precioPropuesto).toBeCloseTo(1214.29, 2);
+  });
+
+  it('sin importe no hay ancla: se respeta lo leído', () => {
+    const r = leer({ descripcion: 'CUALQUIERA', cantidad: 5, precio: 100, importe: null, unidadesPorBulto: 6 });
+    expect(r.decision).toBe('bulto_pendiente');
+    expect(r.cantidad).toBe(5);
   });
 });
