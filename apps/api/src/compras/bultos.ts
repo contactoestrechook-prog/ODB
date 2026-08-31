@@ -173,36 +173,7 @@ export function descuentoEsDelRenglon(
   return d <= linea;
 }
 
-/**
- * ¿Cierra la aritmética del renglón? cantidad × precio unitario tiene que dar
- * el importe impreso.
- *
- * Sirve para lo que ningún ojo agarra a tiempo: cuando el lector toma un número
- * de la fila de al lado. Las facturas vienen con las columnas apretadas y una
- * anotación a mano corre el renglón, así que el precio de un producto termina
- * siendo el del de abajo. El papel trae la prueba encima —el importe del
- * renglón— y basta con multiplicar para descubrirlo.
- *
- * Devuelve null si cierra o si no hay con qué comparar; si no cierra, devuelve
- * el precio unitario que SÍ daría ese importe, para poder mostrárselo a quien
- * carga la factura.
- */
-export function precioQueImplicaElImporte(renglon: {
-  cantidad?: number;
-  precio?: number;
-  importe?: number | null;
-}): number | null {
-  const cantidad = Number(renglon?.cantidad) || 0;
-  const precio = Number(renglon?.precio) || 0;
-  const importe = renglon?.importe == null ? null : Math.abs(Number(renglon.importe));
-  if (!cantidad || !precio || importe == null || importe === 0) return null;
 
-  const esperado = cantidad * precio;
-  // 2% de tolerancia: los proveedores redondean el importe del renglón
-  if (Math.abs(importe - esperado) / esperado <= 0.02) return null;
-
-  return Math.round((importe / cantidad) * 100) / 100;
-}
 
 /**
  * ¿ESTE producto puede venderse por peso?
@@ -228,4 +199,44 @@ export function puedeVendersePorPeso(descripcion: string): boolean {
   if (!t.trim()) return false;
   if (RE_BEBIDA.test(t)) return false; // veto: la bebida nunca se vende por kilo
   return RE_POR_PESO.test(t);
+}
+
+export type CorreccionRenglon = { campo: 'cantidad' | 'precio'; valor: number; seguro: boolean };
+
+/**
+ * Un renglón de una factura SIEMPRE cierra: cantidad × precio unitario da el
+ * importe impreso. Es un documento fiscal, no una estimación. Si en nuestra
+ * lectura no cierra, el que leyó mal es el sistema — y el importe es el número
+ * más confiable de los tres, porque es el que suma al neto del pie.
+ *
+ * Falta saber CUÁL de los otros dos está mal, y el papel lo dice:
+ *
+ *  · Si importe ÷ precio da un ENTERO exacto, ese entero es la cantidad y el
+ *    precio está bien. Nadie compra 24,000 unidades por casualidad: pasa cuando
+ *    el lector tomó la cantidad de la fila de al lado. Es evidencia dura, así
+ *    que se corrige solo.
+ *  · Si no da entero, el sospechoso es el precio, y se propone importe ÷
+ *    cantidad — pero sin aplicarlo, porque ahí no hay certeza.
+ */
+export function corregirRenglonQueNoCierra(renglon: {
+  cantidad?: number;
+  precio?: number;
+  importe?: number | null;
+}): CorreccionRenglon | null {
+  const cantidad = Number(renglon?.cantidad) || 0;
+  const precio = Number(renglon?.precio) || 0;
+  const importe = renglon?.importe == null ? null : Math.abs(Number(renglon.importe));
+  if (!cantidad || !precio || importe == null || importe === 0) return null;
+
+  const esperado = cantidad * precio;
+  if (Math.abs(importe - esperado) / esperado <= 0.02) return null; // cierra
+
+  const cantidadQueDaria = importe / precio;
+  const entero = Math.round(cantidadQueDaria);
+  const esEnteroLimpio = entero >= 1 && Math.abs(cantidadQueDaria - entero) <= 0.005;
+  if (esEnteroLimpio && entero !== cantidad) {
+    return { campo: 'cantidad', valor: entero, seguro: true };
+  }
+
+  return { campo: 'precio', valor: Math.round((importe / cantidad) * 100) / 100, seguro: false };
 }

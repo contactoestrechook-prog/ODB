@@ -457,9 +457,29 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
             porPeso = true;
           }
         }
+        // Corrección automática de la cantidad cuando el importe la revela sin
+        // ambigüedad. Antes se le mostraba el problema al operador y se le
+        // ofrecía cambiar el PRECIO — que era justo el número que estaba bien.
+        let cantidadCorregida: number | null = null;
+        {
+          const imp = importeNum == null ? null : Math.abs(importeNum);
+          const bonif = Math.abs(Number(i.bonificacionPct) || 0);
+          if (!porPeso && imp && precioNum > 0 && cantidad > 0 && !i.esDescuento && bonif === 0) {
+            const esperado = cantidad * precioNum;
+            if (Math.abs(imp - esperado) / esperado > 0.02) {
+              const q = imp / precioNum;
+              const ent = Math.round(q);
+              if (ent >= 1 && Math.abs(q - ent) <= 0.005 && ent !== cantidad) {
+                cantidadCorregida = cantidad;
+                cantidad = ent;
+              }
+            }
+          }
+        }
         return {
           descripcion: i.descripcion,
           cantidad,
+          cantidadCorregida,
           porPeso,
           kg: i.kg ?? null,
           precio: Number(i.precio) || 0,
@@ -623,15 +643,32 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   // corren el renglón— esa cuenta deja de cerrar. Es lo único que agarra ese
   // error a tiempo, porque el número leído es plausible: es el precio de otro
   // producto de la misma factura.
-  const precioSegunImporte = (i: any): number | null => {
+  // Un renglón de factura SIEMPRE cierra: cantidad × precio da el importe. Si
+  // en nuestra lectura no cierra, el que leyó mal es el sistema, no el papel.
+  // El importe es el número más confiable —es el que suma al neto del pie—, así
+  // que con él se deduce cuál de los otros dos está mal.
+  const correccionRenglon = (i: any): { campo: 'cantidad' | 'precio'; valor: number; seguro: boolean } | null => {
     const cantidad = numImp(i.cantidad);
     const precio = numImp(i.precio);
     const importe = i.importe == null || i.importe === '' ? null : Math.abs(numImp(i.importe));
     if (!cantidad || !precio || !importe) return null;
-    if (i._esDescuento || numImp(i.kg) > 0 || i.porPeso) return null; // por peso tiene su propia regla
+    // estos renglones no cierran por motivos legítimos, no por mala lectura
+    if (i._esDescuento || numImp(i._descuento) !== 0) return null;
+    if (numImp(i.bonificacionPct) > 0) return null;
+    if (i.porPeso || numImp(i.kg) > 0) return null;
+
     const esperado = cantidad * precio;
     if (Math.abs(importe - esperado) / esperado <= 0.02) return null;
-    return Math.round((importe / cantidad) * 100) / 100;
+
+    // Si importe ÷ precio da un entero exacto, ese entero ES la cantidad: nadie
+    // compra 24,000 unidades por casualidad. Pasa cuando el lector tomó la
+    // cantidad de la fila de al lado. Evidencia dura → se corrige solo.
+    const cantidadQueDaria = importe / precio;
+    const entero = Math.round(cantidadQueDaria);
+    if (entero >= 1 && Math.abs(cantidadQueDaria - entero) <= 0.005 && entero !== cantidad) {
+      return { campo: 'cantidad', valor: entero, seguro: true };
+    }
+    return { campo: 'precio', valor: Math.round((importe / cantidad) * 100) / 100, seguro: false };
   };
 
   const esSinCargo = (i: any) => !i._esDescuento && numImp(i.cantidad) > 0 && Math.abs(precioEfectivo(i)) < 0.01;
@@ -1335,15 +1372,23 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                           )}
                         </span>
                       )}
-                      {precioSegunImporte(i) != null && (
-                        <span className="mt-0.5 block rounded bg-amber-50 px-2 py-1 text-[11px] text-amber-900">
-                          🔎 <b>La cuenta de este renglón no cierra.</b> {numImp(i.cantidad)} × {pesos(numImp(i.precio))} = {pesos(numImp(i.cantidad) * numImp(i.precio))},
-                          pero el importe impreso es {pesos(Math.abs(numImp(i.importe)))}. Según ese importe el unitario sería <b>{pesos(precioSegunImporte(i)!)}</b>.
-                          {' '}Suele pasar cuando se leyó un número de la fila de al lado: mirá el papel y corregí el que corresponda.
+                      {numImp(i.cantidadCorregida) > 0 && (
+                        <span className="mt-0.5 block rounded bg-emerald-50 px-2 py-1 text-[11px] text-emerald-900">
+                          ✔️ <b>Cantidad corregida</b>: se había leído {numImp(i.cantidadCorregida)}, pero el importe del renglón
+                          ({pesos(Math.abs(numImp(i.importe)))}) dividido el precio da exactamente <b>{numImp(i.cantidad)}</b>. Se tomó la que dice la factura.
                           <button
-                            onClick={() => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, precio: precioSegunImporte(i)! } : x))}
+                            onClick={() => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, cantidad: numImp(x.cantidadCorregida), cantidadCorregida: null } : x))}
+                            className="ml-2 text-black/45 underline hover:text-[#B82D25]">deshacer</button>
+                        </span>
+                      )}
+                      {correccionRenglon(i)?.seguro === false && (
+                        <span className="mt-0.5 block rounded bg-amber-50 px-2 py-1 text-[11px] text-amber-900">
+                          🔎 <b>Leímos mal alguno de estos números.</b> {numImp(i.cantidad)} × {pesos(numImp(i.precio))} tendría que dar
+                          el importe del renglón, que es {pesos(Math.abs(numImp(i.importe)))}. Con esa cantidad, el precio sería <b>{pesos(correccionRenglon(i)!.valor)}</b>.
+                          <button
+                            onClick={() => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, precio: correccionRenglon(i)!.valor } : x))}
                             className="ml-2 rounded-full bg-amber-700 px-2.5 py-0.5 text-[11px] font-semibold text-white hover:bg-amber-800">
-                            Usar {pesos(precioSegunImporte(i)!)}
+                            Usar {pesos(correccionRenglon(i)!.valor)}
                           </button>
                         </span>
                       )}

@@ -1,4 +1,4 @@
-import { unidadesPorBulto, esRenglonDeDescuento, fusionarRenglonesPorSku, porcentajeDeDescuento, descuentoEsDelRenglon, precioQueImplicaElImporte, puedeVendersePorPeso } from './bultos';
+import { unidadesPorBulto, esRenglonDeDescuento, fusionarRenglonesPorSku, porcentajeDeDescuento, descuentoEsDelRenglon, puedeVendersePorPeso, corregirRenglonQueNoCierra } from './bultos';
 
 describe('unidadesPorBulto — la forma, no la lista de proveedores', () => {
   it.each([
@@ -133,32 +133,6 @@ describe('a qué renglón corresponde una rebaja', () => {
   });
 });
 
-describe('precioQueImplicaElImporte — el renglón se controla solo', () => {
-  it('no dice nada cuando la cuenta cierra', () => {
-    expect(precioQueImplicaElImporte({ cantidad: 12, precio: 4297.52, importe: 51570.24 })).toBeNull();
-  });
-
-  it('tolera el redondeo del proveedor', () => {
-    expect(precioQueImplicaElImporte({ cantidad: 12, precio: 4297.52, importe: 51570 })).toBeNull();
-  });
-
-  // El caso real: el lector tomó el precio de la fila de al lado. 12 × 3.677,69
-  // da 44.132,28, pero el renglón dice 110.082,60.
-  it('avisa el precio correcto cuando tomó el número de otra fila', () => {
-    expect(precioQueImplicaElImporte({ cantidad: 12, precio: 3677.69, importe: 110082.6 })).toBeCloseTo(9173.55, 2);
-  });
-
-  it('no opina si falta alguno de los tres números', () => {
-    expect(precioQueImplicaElImporte({ cantidad: 12, precio: 4297.52, importe: null })).toBeNull();
-    expect(precioQueImplicaElImporte({ cantidad: 0, precio: 4297.52, importe: 51570.24 })).toBeNull();
-  });
-
-  // Un renglón sin cargo tiene importe 0 a propósito: no es un error de lectura.
-  it('no marca la mercadería sin cargo', () => {
-    expect(precioQueImplicaElImporte({ cantidad: 3, precio: 165000, importe: 0 })).toBeNull();
-  });
-});
-
 describe('puedeVendersePorPeso — la bebida nunca', () => {
   // Los casos reales que entraron como kilos: latas de cerveza.
   it.each([
@@ -198,4 +172,33 @@ describe('vinos sin volumen en la descripción', () => {
     'tampoco es por peso: %s',
     (t) => { expect(puedeVendersePorPeso(t)).toBe(false); },
   );
+});
+
+describe('corregirRenglonQueNoCierra — la factura siempre cierra, el que lee no', () => {
+  it('no dice nada cuando el renglón cierra', () => {
+    expect(corregirRenglonQueNoCierra({ cantidad: 24, precio: 3636.36, importe: 87272.64 })).toBeNull();
+  });
+
+  // Los dos renglones reales de Borravino: el lector cruzó las cantidades entre
+  // filas. importe ÷ precio da entero exacto, así que la cantidad es esa.
+  it('corrige la CANTIDAD cuando el importe da un entero exacto', () => {
+    expect(corregirRenglonQueNoCierra({ cantidad: 12, precio: 3677.69, importe: 88264.56 }))
+      .toEqual({ campo: 'cantidad', valor: 24, seguro: true });
+    expect(corregirRenglonQueNoCierra({ cantidad: 24, precio: 4008.26, importe: 48099.12 }))
+      .toEqual({ campo: 'cantidad', valor: 12, seguro: true });
+  });
+
+  it('propone el PRECIO, sin certeza, cuando no da entero', () => {
+    const r = corregirRenglonQueNoCierra({ cantidad: 7, precio: 1000, importe: 8500 });
+    expect(r).toEqual({ campo: 'precio', valor: 1214.29, seguro: false });
+  });
+
+  it('tolera el redondeo del proveedor', () => {
+    expect(corregirRenglonQueNoCierra({ cantidad: 12, precio: 4297.52, importe: 51570 })).toBeNull();
+  });
+
+  it('no opina sin los tres números', () => {
+    expect(corregirRenglonQueNoCierra({ cantidad: 12, precio: 4297.52, importe: null })).toBeNull();
+    expect(corregirRenglonQueNoCierra({ cantidad: 3, precio: 165000, importe: 0 })).toBeNull();
+  });
 });
