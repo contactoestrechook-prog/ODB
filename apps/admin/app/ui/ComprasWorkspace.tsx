@@ -367,6 +367,11 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   // Percepciones adentro del costo: es la política de la casa. Se puede sacar
   // para una factura puntual (por ejemplo si esa percepción se va a usar).
   const [percepcionesAlCosto, setPercepcionesAlCosto] = useState(true);
+  // Prorrateo de regalos entre el grupo de la promo: decisión del DUEÑO, con
+  // su PIN, por factura. Sin autorizar, el regalo solo abarata a su producto.
+  const [prorrateoAut, setProrrateoAut] = useState<{ nombre: string } | null>(null);
+  const [pinProrrateo, setPinProrrateo] = useState('');
+  const [errorProrrateo, setErrorProrrateo] = useState('');
   const [pagada, setPagada] = useState(false);
   // true = la mercadería ya ingresó por Recepción (pistola): solo se registra la
   // factura con sus renglones y va a la bandeja de conciliación, SIN mover stock
@@ -394,6 +399,10 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
 
   async function enviarComprobante(listo: File, aclara: string) {
     setLeyendoFoto(true);
+    // la autorización del dueño es POR FACTURA: no puede arrastrarse a la próxima
+    setProrrateoAut(null);
+    setPinProrrateo('');
+    setErrorProrrateo('');
     try {
       const fd = new FormData();
       fd.append('archivo', listo);
@@ -839,13 +848,13 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
     }
     const costoDeLinea = (i: any) => {
       const g = grupos.get(claveP(i))!;
-      return g.tieneGratis && g.unidades > 0 ? g.pagado / g.unidades : costoFinal(i);
+      return g.tieneGratis && g.unidades > 0 && prorrateoAut ? g.pagado / g.unidades : costoFinal(i);
     };
     const porSku = new Map<string, any>();
     for (const i of xs) {
       const cant = numImp(i.cantidad);
       const costo = costoDeLinea(i);
-      const enPromo = grupos.get(claveP(i))!.tieneGratis;
+      const enPromo = grupos.get(claveP(i))!.tieneGratis && !!prorrateoAut;
       const prev = porSku.get(i.sku);
       const gratis = esSinCargo(i) ? cant : 0;
       if (!prev) {
@@ -863,6 +872,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
       costoUnitario: i.cantidad > 0 ? Math.round((i._costoTotal / i.cantidad) * 100) / 100 : 0,
     }));
   };
+  const hayRegalos = inclItems.some((i: any) => esSinCargo(i));
   const itemsFusionados = fusionarPorSku(inclItems.filter((i) => i.sku));
   const skusFusionados = itemsFusionados.filter((i) => i._renglones > 1 || i._enPromo);
   const costoBloquea = excedeMerc || excedeTotal;
@@ -1413,7 +1423,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                       )}
                       {esSinCargo(i) ? (
                         <span className="mt-0.5 block text-[11px] text-emerald-800">
-                          🎁 <b>Sin cargo</b>: entran {numImp(i.cantidad)} que no se pagan. Se reparten entre todo lo del mismo precio de lista — el 10+1 abarata a todos los varietales del grupo, no solo a este.
+                          🎁 <b>Sin cargo</b>: entran {numImp(i.cantidad)} que no se pagan. Con la autorización del dueño se reparten entre todo el grupo del mismo precio (el 10+1); sin ella, solo abaratan este producto.
                         </span>
                       ) : numImp(i.bonificacionPct) > 0 ? (
                         <span className="mt-0.5 block text-[11px] text-emerald-800">
@@ -1625,9 +1635,49 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                 {(excedeMerc || excedeTotal) && (
                   <p className="mt-1 font-semibold">⚠ El costo a stock supera el valor de la mercadería con IVA de la factura. Los precios ya incluyen impuestos: revisá el neto/IVA del pie. (No se puede registrar hasta corregirlo.)</p>
                 )}
+                {hayRegalos && !prorrateoAut && (
+                  <div className="mt-1 rounded bg-amber-50 px-2 py-1.5 text-amber-900">
+                    <p>🎁 <b>Esta factura trae mercadería regalada.</b> Por ahora el regalo solo abarata a su propio producto.
+                    Para repartirlo entre <b>todo el grupo del mismo precio de lista</b> (el 10+1 baja el costo de todos los varietales),
+                    lo autoriza el dueño con su PIN:</p>
+                    <span className="mt-1.5 flex flex-wrap items-center gap-2">
+                      <input
+                        type="password" inputMode="numeric" value={pinProrrateo} placeholder="PIN del dueño"
+                        onChange={(e) => setPinProrrateo(e.target.value)}
+                        className="w-32 rounded border border-black/15 px-2 py-1 text-sm text-black"
+                      />
+                      <button
+                        onClick={async () => {
+                          // fetch directo: el helper post() cierra el modal al
+                          // terminar, y esto ocurre A MITAD de la carga
+                          setErrorProrrateo('');
+                          try {
+                            const res = await fetch('/api/compras', {
+                              method: 'POST', headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ accion: 'autorizarProrrateo', pin: pinProrrateo }),
+                            });
+                            const r = await res.json();
+                            if (res.ok && r?.ok) { setProrrateoAut({ nombre: r.nombre }); setPinProrrateo(''); }
+                            else setErrorProrrateo(r?.message ?? 'PIN incorrecto');
+                          } catch { setErrorProrrateo('No se pudo verificar el PIN'); }
+                        }}
+                        disabled={!pinProrrateo.trim()}
+                        className="rounded-full bg-amber-700 px-3 py-1 text-[11px] font-semibold text-white disabled:opacity-40 hover:bg-amber-800">
+                        Autorizar prorrateo
+                      </button>
+                      {errorProrrateo && <span className="text-[11px] font-medium text-[#932A1F]">{errorProrrateo}</span>}
+                    </span>
+                  </div>
+                )}
+                {hayRegalos && prorrateoAut && (
+                  <p className="mt-1 rounded bg-emerald-50 px-2 py-1.5 text-emerald-900">
+                    🎁 Prorrateo autorizado por <b>{prorrateoAut.nombre}</b>: el regalo se reparte entre todo el grupo del mismo precio.
+                    <button onClick={() => setProrrateoAut(null)} className="ml-2 text-black/45 underline hover:text-[#B82D25]">deshacer</button>
+                  </p>
+                )}
                 {skusFusionados.length > 0 && (
                   <div className="mt-1 rounded bg-emerald-50 px-2 py-1.5 text-emerald-900">
-                    <p>🎁 <b>{skusFusionados.length}</b> producto(s) con mercadería sin cargo o repetidos. Lo regalado se reparte entre TODO el grupo del mismo precio de lista (el 10+1 abarata a todos los varietales):</p>
+                    <p>🎁 <b>{skusFusionados.length}</b> producto(s) con mercadería sin cargo o repetidos. {prorrateoAut ? 'El regalo se reparte entre todo el grupo del mismo precio:' : 'El regalo abarata solo a su propio producto (sin autorización de prorrateo):'}</p>
                     {skusFusionados.map((i) => (
                       <p key={i.sku} className="mt-0.5">
                         · {i.nombre ?? i.descripcion}:{' '}

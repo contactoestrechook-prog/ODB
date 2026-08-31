@@ -946,6 +946,27 @@ export class ComprasService {
     });
   }
 
+  // Autorización del DUEÑO para prorratear mercadería regalada entre todo el
+  // grupo de la promo (el 10+1). No es automático a propósito: a veces el dueño
+  // acepta repartir el regalo entre todos los varietales y a veces no, así que
+  // la decisión es suya, con su PIN, y queda auditada. El PIN de un gerente no
+  // alcanza: es una decisión de costos, como la cuenta corriente.
+  async autorizarProrrateo(pin: string, solicitanteId?: string) {
+    const { data, error } = await this.db.rpc('verificar_pin_supervisor', { p_pin: pin ?? '' }).maybeSingle();
+    if (error) throw new BadRequestException(error.message);
+    const s = data as any;
+    if (!s) throw new BadRequestException('PIN incorrecto');
+    if (s.rol !== 'dueno') throw new BadRequestException('El prorrateo de regalos lo autoriza un dueño con su PIN');
+    await this.db.from('auditoria').insert({
+      usuario_id: s.id,
+      accion: 'prorrateo_regalos_autorizado',
+      entidad: 'entrada_compra',
+      entidad_id: null,
+      datos_despues: { solicitadoPor: solicitanteId ?? null },
+    }).then(() => null, () => null);
+    return { ok: true, nombre: s.nombre };
+  }
+
   // ---------- pedido a proveedor desde el celular ----------
 
   // Lo que trae ESTE proveedor, con el stock al lado y cuánto conviene pedir.

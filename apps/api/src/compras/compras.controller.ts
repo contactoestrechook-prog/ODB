@@ -71,6 +71,13 @@ export class ComprasController {
     return this.compras.remarcacionDe(proveedorId, String(skus ?? '').split(',').filter(Boolean));
   }
 
+  // El dueño teclea su PIN para autorizar el prorrateo de cajas regaladas
+  @Roles('comprador', 'gerente', 'dueno')
+  @Post('compras/autorizar-prorrateo')
+  autorizarProrrateo(@Body() b: { pin: string }, @Req() req: any) {
+    return this.compras.autorizarProrrateo(String(b?.pin ?? ''), req.usuario?.sub);
+  }
+
   // ---------- pedido a proveedor (pantalla de celular de backoffice) ----------
 
   @Roles('comprador', 'gerente', 'dueno')

@@ -97,6 +97,7 @@ export async function POST(req: Request) {
     case 'rechazar': ruta = `/compras/ordenes/${d.id}/rechazar`; body = { motivo: d.motivo, usuarioId }; break;
     case 'recibir': ruta = `/compras/ordenes/${d.id}/recibir`; body = { items: d.items, usuarioId, margenPct: d.margenPct }; break;
     case 'entradaDirecta': ruta = '/compras/entrada-directa'; body = { ...d, usuarioId }; break;
+    case 'autorizarProrrateo': ruta = '/compras/autorizar-prorrateo'; break;
     case 'agregarALista': ruta = `/compras/proveedores/${d.proveedorId}/catalogo`; body = { sku: d.sku, codigoProveedor: d.codigoProveedor }; break;
     case 'crearProveedor': ruta = '/proveedores'; break;
     case 'editarProveedor': ruta = `/proveedores/${d.id}`; metodo = 'PATCH'; break;
