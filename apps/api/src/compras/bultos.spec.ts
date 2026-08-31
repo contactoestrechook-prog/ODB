@@ -1,4 +1,4 @@
-import { unidadesPorBulto, esRenglonDeDescuento, fusionarRenglonesPorSku, porcentajeDeDescuento, descuentoEsDelRenglon, puedeVendersePorPeso, corregirRenglonQueNoCierra } from './bultos';
+import { unidadesPorBulto, esRenglonDeDescuento, fusionarRenglonesPorSku, porcentajeDeDescuento, descuentoEsDelRenglon, puedeVendersePorPeso, corregirRenglonQueNoCierra, resolverCantidadYBulto } from './bultos';
 
 describe('unidadesPorBulto — la forma, no la lista de proveedores', () => {
   it.each([
@@ -200,5 +200,37 @@ describe('corregirRenglonQueNoCierra — la factura siempre cierra, el que lee n
   it('no opina sin los tres números', () => {
     expect(corregirRenglonQueNoCierra({ cantidad: 12, precio: 4297.52, importe: null })).toBeNull();
     expect(corregirRenglonQueNoCierra({ cantidad: 3, precio: 165000, importe: 0 })).toBeNull();
+  });
+});
+
+describe('resolverCantidadYBulto — la corrección ES la conversión', () => {
+  // Savora: 1 bulto de 24, precio por unidad. El importe resuelve todo junto.
+  it('1 bulto de 24 con precio por unidad → 24 unidades, bulto consumido', () => {
+    const r = resolverCantidadYBulto({ cantidad: 1, precio: 1766, importe: 42388, unidadesPorBulto: 24 });
+    expect(r.cantidad).toBe(24);
+    expect(r.unidadesPorBulto).toBeNull(); // NO queda nada más que convertir
+    expect(r.bultoConsumido).toBe(24);
+  });
+
+  // Borravino: cantidades cruzadas entre filas, sin bulto de por medio.
+  it('corrige la cantidad cruzada aunque no haya bulto', () => {
+    const r = resolverCantidadYBulto({ cantidad: 12, precio: 3677.69, importe: 88264.56, unidadesPorBulto: null });
+    expect(r.cantidad).toBe(24);
+    expect(r.cantidadOriginal).toBe(12);
+  });
+
+  // Corona: 84 bultos con precio POR BULTO. La cuenta cierra tal cual, así que
+  // el bulto sigue vivo y el botón "Pasar a unidad" corresponde.
+  it('si el renglón cierra, el bulto queda para que decida el operador', () => {
+    const r = resolverCantidadYBulto({ cantidad: 84, precio: 55000, importe: 4620000, unidadesPorBulto: 24 });
+    expect(r.cantidad).toBe(84);
+    expect(r.unidadesPorBulto).toBe(24);
+    expect(r.cantidadOriginal).toBeNull();
+  });
+
+  it('sin importe no se toca nada', () => {
+    const r = resolverCantidadYBulto({ cantidad: 1, precio: 1766, importe: null, unidadesPorBulto: 24 });
+    expect(r.cantidad).toBe(1);
+    expect(r.unidadesPorBulto).toBe(24);
   });
 });

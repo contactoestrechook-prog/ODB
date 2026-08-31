@@ -240,3 +240,49 @@ export function corregirRenglonQueNoCierra(renglon: {
 
   return { campo: 'precio', valor: Math.round((importe / cantidad) * 100) / 100, seguro: false };
 }
+
+export type RenglonResuelto = {
+  cantidad: number;
+  unidadesPorBulto: number | null;
+  /** la cantidad que decía el papel, si se corrigió */
+  cantidadOriginal: number | null;
+  /** el bulto que la corrección dejó consumido, para poder deshacer */
+  bultoConsumido: number | null;
+};
+
+/**
+ * Resuelve cantidad y bulto de un renglón, juntos, porque son la MISMA cuenta.
+ *
+ * El formato más común de factura mayorista es "cantidad en bultos, precio por
+ * unidad": CANT 1, precio $1.766, importe $42.388 — un bulto de 24 con el
+ * precio de cada pomo. El importe es el ancla: importe ÷ precio da las
+ * unidades totales, en la unidad del precio, contando TODO lo facturado.
+ *
+ * Por eso, cuando la cantidad se corrige desde el importe, cualquier bulto del
+ * renglón queda CONSUMIDO por esa corrección: 1 bulto × 24 → 24 unidades, y no
+ * queda nada más que convertir. Tratarlos por separado ofrecía multiplicar de
+ * nuevo (24 × 24 = 576 unidades a $74), que fue exactamente el bug.
+ */
+export function resolverCantidadYBulto(renglon: {
+  cantidad?: number;
+  precio?: number;
+  importe?: number | null;
+  unidadesPorBulto?: number | null;
+}): RenglonResuelto {
+  const cantidad = Number(renglon?.cantidad) || 0;
+  const precio = Number(renglon?.precio) || 0;
+  const importe = renglon?.importe == null ? null : Math.abs(Number(renglon.importe));
+  const bulto = Number(renglon?.unidadesPorBulto) > 1 ? Math.round(Number(renglon!.unidadesPorBulto)) : null;
+  const sinCambio: RenglonResuelto = { cantidad, unidadesPorBulto: bulto, cantidadOriginal: null, bultoConsumido: null };
+  if (!cantidad || !precio || importe == null || importe === 0) return sinCambio;
+
+  const esperado = cantidad * precio;
+  if (Math.abs(importe - esperado) / esperado <= 0.02) return sinCambio; // cierra tal cual
+
+  const q = importe / precio;
+  const entero = Math.round(q);
+  if (entero >= 1 && Math.abs(q - entero) <= 0.005 && entero !== cantidad) {
+    return { cantidad: entero, unidadesPorBulto: null, cantidadOriginal: cantidad, bultoConsumido: bulto };
+  }
+  return sinCambio;
+}

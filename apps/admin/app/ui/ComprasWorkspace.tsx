@@ -461,6 +461,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
         // ambigüedad. Antes se le mostraba el problema al operador y se le
         // ofrecía cambiar el PRECIO — que era justo el número que estaba bien.
         let cantidadCorregida: number | null = null;
+        let bultoConsumido: number | null = null;
         {
           const imp = importeNum == null ? null : Math.abs(importeNum);
           const bonif = Math.abs(Number(i.bonificacionPct) || 0);
@@ -472,6 +473,15 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
               if (ent >= 1 && Math.abs(q - ent) <= 0.005 && ent !== cantidad) {
                 cantidadCorregida = cantidad;
                 cantidad = ent;
+                // La cantidad que sale de importe ÷ precio está en la unidad
+                // del PRECIO y ya cuenta todo lo facturado. El formato más
+                // común de mayorista es "1 bulto de 24 con el precio por
+                // unidad": esta corrección ES la conversión a unidades, así
+                // que el bulto queda consumido. Dejarlo vivo ofrecía
+                // multiplicar OTRA vez: 24 × 24 = 576 pomos a $74.
+                if (Math.round(Number(i.unidadesPorBulto)) > 1) {
+                  bultoConsumido = Math.round(Number(i.unidadesPorBulto));
+                }
               }
             }
           }
@@ -480,6 +490,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
           descripcion: i.descripcion,
           cantidad,
           cantidadCorregida,
+          bultoConsumido,
           porPeso,
           kg: i.kg ?? null,
           precio: Number(i.precio) || 0,
@@ -497,7 +508,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
           // y si el renglón es una rebaja en vez de mercadería. Este mapeo arma un
           // objeto nuevo, así que un campo que no se copie acá no existe para la
           // pantalla por más que la API lo mande.
-          unidadesPorBulto: i.unidadesPorBulto ?? null,
+          unidadesPorBulto: bultoConsumido != null ? null : (i.unidadesPorBulto ?? null),
           bonificacionPct: i.bonificacionPct ?? null,
           importe: i.importe ?? null,
           esDescuento: !!i.esDescuento,
@@ -1409,10 +1420,11 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                       )}
                       {numImp(i.cantidadCorregida) > 0 && (
                         <span className="mt-0.5 block rounded bg-emerald-50 px-2 py-1 text-[11px] text-emerald-900">
-                          ✔️ <b>Cantidad corregida</b>: se había leído {numImp(i.cantidadCorregida)}, pero el importe del renglón
-                          ({pesos(Math.abs(numImp(i.importe)))}) dividido el precio da exactamente <b>{numImp(i.cantidad)}</b>. Se tomó la que dice la factura.
+                          ✔️ <b>Cantidad corregida</b>: {numImp(i.bultoConsumido) > 1
+                            ? <>el papel decía <b>{numImp(i.cantidadCorregida)} bulto(s) de {numImp(i.bultoConsumido)}</b> con el precio por unidad. El importe ({pesos(Math.abs(numImp(i.importe)))}) dividido el precio da <b>{numImp(i.cantidad)} unidades</b>: el renglón queda resuelto y no hay nada más que convertir.</>
+                            : <>se había leído {numImp(i.cantidadCorregida)}, pero el importe del renglón ({pesos(Math.abs(numImp(i.importe)))}) dividido el precio da exactamente <b>{numImp(i.cantidad)}</b>. Se tomó la que dice la factura.</>}
                           <button
-                            onClick={() => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, cantidad: numImp(x.cantidadCorregida), cantidadCorregida: null } : x))}
+                            onClick={() => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, cantidad: numImp(x.cantidadCorregida), cantidadCorregida: null, unidadesPorBulto: numImp(x.bultoConsumido) > 1 ? numImp(x.bultoConsumido) : x.unidadesPorBulto, bultoConsumido: null } : x))}
                             className="ml-2 text-black/45 underline hover:text-[#B82D25]">deshacer</button>
                         </span>
                       )}
