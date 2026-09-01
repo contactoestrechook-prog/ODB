@@ -580,7 +580,7 @@ export const SECCIONES: Seccion[] = [
       {
         tipo: 'texto',
         texto:
-          'La asistente se llama Emilia. Atiende la línea del local: responde precios, arma pedidos, escucha audios, lee PDFs, mira fotos y la vista previa de los videos, y contesta corto, sin explicaciones de más. Saluda según la hora (buen día / buenas tardes / buenas noches) y da la bienvenida en el primer mensaje. Cuando la consulta es de administración (un pago, un comprobante), la registra y avisa internamente en lugar de mandar al cliente a otro teléfono.',
+          'La asistente se llama Emilia. Atiende la línea del local: responde precios, arma pedidos, escucha audios, lee PDFs, mira fotos y la vista previa de los videos, y contesta corto, sin explicaciones de más. Saluda según la hora (buen día / buenas tardes / buenas noches) y da la bienvenida en el primer mensaje. Cuando la consulta es de administración (un pago, un comprobante, una factura), le reenvía al WhatsApp de administración el comprobante tal como llegó (la foto o el PDF) junto con lo que escribió el cliente, además de registrarlo en el panel — al cliente nunca lo manda a otro teléfono.',
       },
       {
         tipo: 'texto',
