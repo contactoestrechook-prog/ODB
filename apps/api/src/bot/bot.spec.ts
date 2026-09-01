@@ -623,6 +623,7 @@ describe('derivarPago reenvía el comprobante REAL a administración', () => {
       monto: 85000, tipo: 'comprobante_enviado',
       comprobanteUrl: 'https://x.supabase.co/publico/whatsapp/549/171.jpg',
       dichoPorElCliente: 'les mando el comprobante de los 85 mil',
+      deQuien: 'Distribuidora Norte SRL',
     });
     expect(envios).toHaveLength(1);
     expect(envios[0].to).toBe('5491125213601');
@@ -637,6 +638,7 @@ describe('derivarPago reenvía el comprobante REAL a administración', () => {
     await s.derivarPago('pedidos', '5491133344455', 'Factura del proveedor', {
       monto: 120000, tipo: 'comprobante_enviado',
       comprobanteUrl: 'https://x.supabase.co/publico/whatsapp/549/172.pdf',
+      deQuien: 'Teide S.R.L.',
     });
     expect(envios[0].documentoUrl).toContain('172.pdf');
     expect(envios[0].imagenUrl).toBeUndefined();
@@ -645,7 +647,7 @@ describe('derivarPago reenvía el comprobante REAL a administración', () => {
   it('una consulta sin comprobante va como texto, sin adjuntos', async () => {
     const { s, envios } = armar();
     await s.derivarPago('pedidos', '5491133344455', 'Pregunta si le llegó la transferencia', {
-      tipo: 'consulta', dichoPorElCliente: '¿les llegó la plata?',
+      tipo: 'consulta', dichoPorElCliente: '¿les llegó la plata?', deQuien: 'Laura Blanco',
     });
     expect(envios[0].imagenUrl).toBeUndefined();
     expect(envios[0].documentoUrl).toBeUndefined();
@@ -839,5 +841,53 @@ describe('regla del dueño: los pedidos viven adentro; el WhatsApp interno es so
     expect(r.aviso).toContain('adentro del sistema');
     expect(db.llamadas.insert.some((i: any) => i.tabla === 'alertas_internas')).toBe(true);
     expect(db.llamadas.insert.some((i: any) => i.tabla === 'bot_notas_equipo')).toBe(true);
+  });
+});
+
+describe('identidad primero: sin saber de quién es la plata, no se molesta a administración', () => {
+  const cfg = { data: { derivar_pagos_a: '5491125213601', avisar_proveedores_a: null }, error: null };
+  const armar = () => {
+    const { s } = servicio(dbFalsa({ lineas_whatsapp: cfg }));
+    const envios: any[] = [];
+    (s as any).enviarPorWhatsapp = jest.fn(async (p: any) => (envios.push(p), { enviado: true }));
+    (s as any).identificarCliente = jest.fn(async () => ({ existe: false }));
+    return { s, envios };
+  };
+
+  it('teléfono desconocido sin nombre: NO manda WhatsApp y pide preguntar de quién es', async () => {
+    const { s, envios } = armar();
+    const r: any = await s.derivarPago('pedidos', '5491100000027', 'Avisa que transfirió $85.000 por la factura de la semana pasada', {
+      monto: 85000, tipo: 'comprobante_enviado',
+    });
+    expect(envios).toHaveLength(0);
+    expect(r.faltaIdentidad).toBe(true);
+    expect(r.aviso).toContain('de_quien');
+    expect(r.aviso).toContain('NO le digas al cliente que ya está avisado');
+  });
+
+  it('con la identidad construida, el nombre encabeza el mensaje a administración', async () => {
+    const { s, envios } = armar();
+    await s.derivarPago('pedidos', '5491100000027', 'Transfirió $85.000 por la factura de la semana pasada; la factura era de $125.000: faltan $40.000', {
+      monto: 85000, tipo: 'comprobante_enviado', deQuien: 'Distribuidora Norte SRL',
+      comprobanteUrl: 'https://x.supabase.co/publico/whatsapp/549/173.jpg',
+    });
+    expect(envios).toHaveLength(1);
+    expect(envios[0].text).toContain('De: Distribuidora Norte SRL');
+    expect(envios[0].text).toContain('faltan $40.000');
+  });
+
+  it('el cliente YA conocido del sistema pasa sin preguntar nada', async () => {
+    const { s, envios } = armar();
+    (s as any).identificarCliente = jest.fn(async () => ({ existe: true, clienteId: 'c1', nombre: 'Laura Blanco' }));
+    await s.derivarPago('pedidos', '5491133344455', 'Pregunta si llegó su transferencia', { tipo: 'consulta' });
+    expect(envios).toHaveLength(1);
+    expect(envios[0].text).toContain('De: Laura Blanco');
+  });
+
+  it('pedir el alias (quiere_pagar) no exige identidad: los datos se dan directo', async () => {
+    const { s } = servicio(dbFalsa({ lineas_whatsapp: { data: { ...cfg.data, alias_pago: 'outlet.de.bebidas' }, error: null } }));
+    (s as any).identificarCliente = jest.fn(async () => ({ existe: false }));
+    const r: any = await s.derivarPago('pedidos', '5491100000027', 'Quiere transferir', { tipo: 'quiere_pagar' });
+    expect(r.respuestaFija).toContain('outlet.de.bebidas');
   });
 });

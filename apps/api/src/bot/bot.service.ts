@@ -545,7 +545,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
       : t);
     const messages: Anthropic.MessageParam[] = [
       ...historial,
-      { role: 'user', content: contenidoDelTurno(`${texto}\n\n[metadatos: telefono del chat = ${telefono}${quien}; ahora es ${ahoraBA} (hora de Buenos Aires); si corresponde saludar, el saludo correcto es "${saludo}". Estado de la charla: ${estado.join(' · ')}${bloquesPendientes.length ? `. OJO: el cliente mandó ${bloquesPendientes.length} archivo(s) ANTES (cuando no se podían abrir) y ahora los tenés adjuntos en este turno: leelos y usalos para responder; NO preguntes nada que esos archivos ya respondan` : ''}${imagenDelTurno ? (dto.vistaPreviaDeVideo ? '. El cliente mandó un VIDEO y lo que ves es su vista previa (el primer cuadro). Respondé sobre lo que se ve; si con eso no alcanza para responder con seguridad, acusá recibo en una línea y dejá nota_interna para que lo mire alguien de la casa. Jamás digas que no podés ver videos' : '. El cliente mandó una FOTO: mirala y respondé sobre lo que se ve. Si es un producto, buscalo en el catálogo por lo que leas en la etiqueta; si es un comprobante de pago, leé el MONTO y llamá derivar_pago con tipo "comprobante_enviado" y ese monto; si no se entiende, pedí que la saque de nuevo más nítida') : documentoDelTurno ? '. El cliente mandó un PDF: leelo y respondé sobre lo que dice. Si pregunta por productos de una lista, contestá con los del catálogo nuestro; si es un comprobante de pago, leé el MONTO y llamá derivar_pago con tipo "comprobante_enviado" y ese monto; si no se puede leer, pedí que lo reenvíe' : ''}]`) },
+      { role: 'user', content: contenidoDelTurno(`${texto}\n\n[metadatos: telefono del chat = ${telefono}${quien}; ahora es ${ahoraBA} (hora de Buenos Aires); si corresponde saludar, el saludo correcto es "${saludo}". Estado de la charla: ${estado.join(' · ')}${bloquesPendientes.length ? `. OJO: el cliente mandó ${bloquesPendientes.length} archivo(s) ANTES (cuando no se podían abrir) y ahora los tenés adjuntos en este turno: leelos y usalos para responder; NO preguntes nada que esos archivos ya respondan` : ''}${imagenDelTurno ? (dto.vistaPreviaDeVideo ? '. El cliente mandó un VIDEO y lo que ves es su vista previa (el primer cuadro). Respondé sobre lo que se ve; si con eso no alcanza para responder con seguridad, acusá recibo en una línea y dejá nota_interna para que lo mire alguien de la casa. Jamás digas que no podés ver videos' : '. El cliente mandó una FOTO: mirala y respondé sobre lo que se ve. Si es un producto, buscalo en el catálogo por lo que leas en la etiqueta; si es un comprobante de pago, leé el MONTO y el NOMBRE o razón social del titular que transfirió, y llamá derivar_pago con tipo "comprobante_enviado", ese monto y de_quien; si no se entiende, pedí que la saque de nuevo más nítida') : documentoDelTurno ? '. El cliente mandó un PDF: leelo y respondé sobre lo que dice. Si pregunta por productos de una lista, contestá con los del catálogo nuestro; si es un comprobante de pago, leé el MONTO y el NOMBRE o razón social del titular que transfirió, y llamá derivar_pago con tipo "comprobante_enviado", ese monto y de_quien; si no se puede leer, pedí que lo reenvíe' : ''}]`) },
     ];
 
     // 3) loop del agente: Opus razona, pide herramientas, las ejecutamos y sigue
@@ -1494,7 +1494,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
             out = { derivado: true, aviso: 'Administración ya fue avisada hace un momento de este mismo tema. No lo anuncies de nuevo ni des ningún número: contestá lo nuevo, y si pregunta, decile que administración ya lo tiene y le confirma por acá.' };
             break;
           }
-          out = await this.derivarPago(linea, telefono, motivo, { monto, tipo: tipoPago, comprobanteUrl: ctx.archivoUrl, dichoPorElCliente: ctx.textoCliente });
+          out = await this.derivarPago(linea, telefono, motivo, { monto, tipo: tipoPago, comprobanteUrl: ctx.archivoUrl, dichoPorElCliente: ctx.textoCliente, deQuien: input.de_quien ? String(input.de_quien).slice(0, 120) : undefined });
           // un comprobante se contesta con una palabra, y la pone el código
           if (tipoPago === 'comprobante_enviado' && ctx.fija) ctx.fija.texto = 'Recibido.';
           if ((out as any)?.respuestaFija && ctx.fija) ctx.fija.texto = String((out as any).respuestaFija);
@@ -2152,7 +2152,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     linea: 'pedidos' | 'proveedores',
     telefono: string,
     motivo: string,
-    extra: { monto?: number; tipo?: string; comprobanteUrl?: string; dichoPorElCliente?: string } = {},
+    extra: { monto?: number; tipo?: string; comprobanteUrl?: string; dichoPorElCliente?: string; deQuien?: string } = {},
   ) {
     const { data: cfg } = await this.db
       .from('lineas_whatsapp').select('derivar_pagos_a, avisar_proveedores_a, alias_pago, titular_pago, banco_pago, cbu_pago').eq('linea', linea).eq('activa', true).limit(1).maybeSingle();
@@ -2178,7 +2178,20 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     const esComprobante = tipo === 'comprobante_enviado' && monto > 0;
 
     const ident = await this.identificarCliente(telefono).catch(() => null as any);
-    const nombre = ident?.nombre ?? null;
+    const nombre = ident?.nombre ?? (extra.deQuien ? String(extra.deQuien).trim() : null);
+
+    // REGLA DEL DUEÑO (2026-09-01): a administración no le llega un teléfono
+    // pelado con un monto — no sabe quién es ni de quién es la plata. Antes de
+    // avisar, el bot CONSTRUYE la identidad: la lee del comprobante, la saca
+    // del sistema si el cliente ya existe, o la pregunta. Sin identidad, no se
+    // manda nada: se le pide el nombre al cliente y se deriva en el próximo turno.
+    if (!nombre && tipo !== 'quiere_pagar') {
+      return {
+        derivado: false,
+        faltaIdentidad: true,
+        aviso: 'NO avisaste a administración todavía y NO le digas al cliente que ya está avisado: falta saber DE PARTE DE QUIÉN es el pago. Si hay comprobante, leé el nombre o razón social del titular que transfirió y volvé a llamar derivar_pago con ese dato en de_quien. Si no hay comprobante ni nombre en la charla, preguntale en UNA línea ("¿A nombre de quién figura la transferencia?" o "¿De qué empresa me escribís?") y cuando lo diga, llamá derivar_pago de nuevo con de_quien.',
+      };
+    }
 
     // 1) el comprobante entra al circuito de aprobación del dueño
     let cobranzaId: string | null = null;
@@ -2205,7 +2218,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     if (adminWsp.length >= 10) {
       const lineas = [
         esComprobante ? `💳 Comprobante recibido por WhatsApp` : tipo === 'quiere_pagar' ? `💳 Cliente quiere transferir: pasale los datos` : tipo === 'proveedor_factura' ? `🧾 Proveedor por una factura` : `💳 Consulta de pago`,
-        `${nombre ? nombre + ' · ' : ''}+${telefono}`,
+        `De: ${nombre ?? 'sin identificar'} · +${telefono}`,
         monto > 0 ? `Monto: $${Math.round(monto).toLocaleString('es-AR')}` : null,
         motivo,
         extra.dichoPorElCliente && extra.dichoPorElCliente.trim() && extra.dichoPorElCliente.trim() !== motivo ? `El cliente escribió: "${extra.dichoPorElCliente.trim().slice(0, 300)}"` : null,
