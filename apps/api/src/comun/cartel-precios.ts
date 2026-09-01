@@ -1,5 +1,6 @@
 import { Resvg } from '@resvg/resvg-js';
 import { decompress } from 'wawoff2';
+import { LOGO_ODB_BLANCO } from './logo-odb';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -93,8 +94,8 @@ export async function cartelPrecios(opciones: {
   <rect width="${ANCHO}" height="${alto}" fill="${CREMA}"/>
   <rect x="0" y="0" width="${ANCHO}" height="106" fill="${NEGRO}"/>
   <rect x="0" y="106" width="${ANCHO}" height="4" fill="${ORO}"/>
-  <text x="${MARGEN}" y="48" font-family="Inter" font-size="21" font-weight="700" fill="${CREMA}" letter-spacing="3">O.D.B PREMIUM MARKET</text>
-  <text x="${MARGEN}" y="84" font-family="Inter" font-size="30" font-weight="700" fill="${ORO}">${esc(recortar(titulo, 44))}</text>
+  <image x="${MARGEN}" y="16" width="121" height="74" href="data:image/png;base64,${LOGO_ODB_BLANCO}"/>
+  <text x="${MARGEN + 121 + 28}" y="64" font-family="Inter" font-size="30" font-weight="700" fill="${ORO}">${esc(recortar(titulo, 36))}</text>
   ${filas}
   ${total}
   ${pie}

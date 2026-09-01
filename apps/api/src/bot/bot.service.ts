@@ -2596,7 +2596,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     // como bot; uno que "escribe" se siente atendido.
     await this.simularEscritura(desde, r.respuesta);
     // listado largo → cartel con pie de foto; si algo falla, va el texto igual
-    const cartel = await this.cartelDeListado(r.respuesta);
+    const cartel = (await this.cartelDePedido(r.respuesta)) ?? (await this.cartelDeListado(r.respuesta));
     let envio = cartel
       ? await this.enviarPorWhatsapp({ to: desde, imagenUrl: cartel.imagenUrl, text: cartel.pie, referencia: `waha/${identidad}` })
       : { enviado: false, motivo: 'sin cartel' } as any;
@@ -2618,6 +2618,51 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
   //
   // Se arma a partir del texto YA formateado por prolijo(), que garantiza una
   // línea por producto: por eso volver a leerlo es confiable y no adivina nada.
+  // El pedido confirmado sale como TARJETA, no como texto suelto: renglón por
+  // renglón, el total y el código de retiro bien grandes. Es lo que el cliente
+  // guarda y muestra en el mostrador. Se dispara cuando la respuesta trae un
+  // código de pedido y al menos un renglón con precio — a diferencia del
+  // listado, acá UNA sola línea ya amerita la tarjeta.
+  private async cartelDePedido(respuesta: string): Promise<{ imagenUrl: string; pie: string } | null> {
+    const codigo = respuesta.match(/\b(?:DOM|RET|PICKUP)-[A-Z0-9]{4,10}\b/)?.[0];
+    if (!codigo) return null;
+
+    const lineas = respuesta.split('\n');
+    const renglones = lineas
+      .map((l) => l.trim())
+      .filter((l) => l.startsWith('•'))
+      .map((l) => {
+        const sinVineta = l.replace(/^•\s*/, '');
+        // "2 × Fernet Branca 750 cc — $20.500 c/u = $41.000" → nombre + importe final
+        const m = sinVineta.match(/^(.*?)[\s—:-]*\$\s?([\d.]+)(?:\s*c\/u)?(?:\s*=\s*\$\s?([\d.]+))?\s*$/);
+        if (!m) return null;
+        return { nombre: m[1].replace(/[—:-]\s*$/, '').trim(), precio: `$${m[3] ?? m[2]}` };
+      })
+      .filter((x): x is { nombre: string; precio: string } => !!x && !!x.precio);
+    if (!renglones.length) return null;
+
+    const total = respuesta.match(/\*?\s*total[^:\n]{0,20}:\s*(\$\s?[\d.]+)\s*\*?/i)?.[1]?.replace(/\s+/g, ' ') ?? null;
+
+    try {
+      const png = await cartelPrecios({
+        titulo: `Pedido ${codigo}`,
+        renglones,
+        total,
+        pie: 'Presentá este código al retirar o al recibir tu pedido.',
+      });
+      const ruta = `carteles/${new Date().toISOString().slice(0, 7)}/pedido-${codigo}-${Date.now()}.png`;
+      const { error } = await this.db.storage.from('publico').upload(ruta, png, { contentType: 'image/png' });
+      if (error) return null;
+      const imagenUrl = this.db.storage.from('publico').getPublicUrl(ruta).data.publicUrl;
+      // el texto viaja como epígrafe de la tarjeta: lo que no son renglones
+      const pie = lineas.map((l) => l.trim()).filter((l) => l && !l.startsWith('•')).join(' ').replace(/\s{2,}/g, ' ').slice(0, 400);
+      return { imagenUrl, pie: pie || `Pedido confirmado: ${codigo}.` };
+    } catch (e) {
+      this.log.warn(`cartel de pedido falló (${codigo}): ${e instanceof Error ? e.message : e}`);
+      return null;
+    }
+  }
+
   private async cartelDeListado(respuesta: string): Promise<{ imagenUrl: string; pie: string } | null> {
     const lineas = respuesta.split('\n');
     const items = lineas
