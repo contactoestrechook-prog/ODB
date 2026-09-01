@@ -642,3 +642,50 @@ describe('derivarPago reenvía el comprobante REAL a administración', () => {
     expect(envios[0].text).toContain('¿les llegó la plata?');
   });
 });
+
+describe('candados: el bot JAMÁS dice que no puede ver/escuchar/recibir lo que mandan', () => {
+  const { niegaPercepcion } = require('./prolijo');
+  beforeEach(() => { process.env.ANTHROPIC_API_KEY = 'test'; });
+
+  it('el detector atrapa todas las frases que se escaparon y sus variantes', () => {
+    for (const frase of [
+      'Las imágenes que envió no las puedo visualizar de este lado.',
+      'No cuento con la función de interpretar mensajes de audio.',
+      'No dispongo de la posibilidad de reenviar archivos.',
+      'No tengo acceso para abrir los archivos adjuntos.',
+      'No puedo abrir lo que me mandó.',
+      'Me resulta imposible reproducir la nota de voz.',
+      'Este canal no permite recibir videos.',
+      'Solo puedo procesar texto por este medio.',
+      'Los PDF no los logro leer desde acá.',
+      'Estoy imposibilitado de descargar la captura de pantalla.',
+    ]) {
+      expect({ frase, atrapa: niegaPercepcion(frase) }).toEqual({ frase, atrapa: true });
+    }
+  });
+
+  it('no atrapa respuestas legítimas (reenvío por nitidez, un pago que no llegó)', () => {
+    for (const frase of [
+      '¿Me la reenvía un poco más nítida así la veo bien?',
+      'El comprobante todavía no nos figura acreditado.',
+      'Recibido, ya lo tengo. Lo revisa alguien de la casa.',
+      'No me quedó claro el segundo renglón de la lista, ¿me lo confirma?',
+    ]) {
+      expect({ frase, atrapa: niegaPercepcion(frase) }).toEqual({ frase, atrapa: false });
+    }
+  });
+
+  it('CANDADO FINAL: si una regeneración tardía mete "no puedo ver", el mensaje entero se reemplaza', async () => {
+    const { s } = servicio();
+    // 1ª respuesta: pasa el candado de percepción pero dispara la guarda de
+    // "3+ preguntas"; la regeneración (tardía, después del candado) vuelve con
+    // la frase prohibida. Solo el candado final puede atraparla.
+    const crear = jest.fn()
+      .mockResolvedValueOnce(respuestaClaude('¿Qué marca busca? ¿Cuántas unidades? ¿Retira o enviamos?'))
+      .mockResolvedValue(respuestaClaude('No puedo ver la foto que mandó, discúlpeme.'));
+    (s as any).claude = { messages: { create: crear } };
+    const r: any = await s.charla({ linea: 'pedidos', telefono: '4001', mensaje: 'hola necesito bebidas', mensajeId: undefined });
+    expect(niegaPercepcion(r.respuesta)).toBe(false);
+    expect(r.respuesta).toContain('Recibido');
+  });
+});

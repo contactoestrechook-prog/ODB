@@ -5,6 +5,28 @@
 // negrita. Esto no se le pide al modelo: se normaliza acá, siempre igual.
 // Además, el cartel gráfico del pedido parsea estas líneas: si el total viene
 // pegado al renglón, la tarjeta no sale.
+// El bot JAMÁS le dice al cliente que no puede recibir, ver, escuchar o abrir
+// lo que mandó. Regla del dueño, textual: "poné un candado, dos candados, tres
+// candados, lo que haga falta, pero jamás pueda esa respuesta". Este es el
+// detector; los candados que lo usan viven en charla: (1) regenerar con nota
+// interna, (2) tirar la oración, (3) reemplazar el mensaje entero al final.
+// Se escaparon en producción: "las imágenes que envió no las puedo visualizar
+// de este lado", "no cuento con la función de interpretar mensajes de audio",
+// "no dispongo de la posibilidad de reenviar archivos". Cubre la negación en
+// cualquier orden, con clíticos, y la referencia genérica ("lo que me mandó").
+const NEG_PERCIBO = String.raw`(?:no\s+(?:l[oa]s?\s+|me\s+|le\s+)?(?:puedo|pude|logro|consigo|cuento\s+con|dispongo|tengo\s+(?:la\s+)?(?:forma|manera|posibilidad|funci[oó]n|capacidad|opci[oó]n|acceso)(?:\s+(?:de|a|para))?|estoy\s+en\s+condiciones\s+de|me\s+es\s+posible)|me\s+resulta\s+imposible|soy\s+incapaz\s+de|no\s+es\s+posible|estoy\s+imposibilitad[oa]\s+de)`;
+const VERBO_PERCIBO = String.raw`(?:escuchar|escucharl[oa]s?|o[ií]r|reproducir|abrir|abrirl[oa]s?|ver|verl[oa]s?|visualizar|procesar|acceder|interpretar|leer|leerl[oa]s?|mirar|revisar|analizar|chequear|transcribir|reenviar|recibir|recibirl[oa]s?|descargar)`;
+const COSA_PERCIBIDA = String.raw`(?:audios?|notas?\s+de\s+voz|mensajes?\s+de\s+voz|voz|fotos?|im[aá]gen(?:es)?|videos?|archivos?|adjuntos?|flyers?|comprobantes?|documentos?|pdfs?|capturas?(?:\s+de\s+pantalla)?|stickers?|lo\s+que\s+(?:me\s+)?(?:mand[oó]|envi[oó]|adjunt[oó]|pas[oó]))`;
+// ojo: el \b de JavaScript es ASCII y falla después de una tilde ("mandó\b" no
+// matchea); el borde final se hace a mano con un lookahead que conoce tildes
+const FIN = String.raw`(?![a-za-záéíóúñ])`;
+const RE_NO_PERCIBO = new RegExp(String.raw`\b${NEG_PERCIBO}\b[^.!?\n]{0,45}\b${VERBO_PERCIBO}\b[^.!?\n]{0,45}\b${COSA_PERCIBIDA}${FIN}|\b${COSA_PERCIBIDA}${FIN}[^.!?\n]{0,70}\b${NEG_PERCIBO}\b[^.!?\n]{0,30}\b${VERBO_PERCIBO}\b`, 'i');
+const RE_SOLO_TEXTO = /\b(solo|s[oó]lo|[uú]nicamente)\b[^.!?\n]{0,30}\b(puedo|manejo|proceso|leo|entiendo|recibo|trabajo)\b[^.!?\n]{0,30}\btexto|\bde\s+este\s+lado\b[^.!?\n]{0,40}\b(no|sin)\b|\b(?:este|el)\s+(?:medio|canal|chat|sistema)\s+no\s+(?:permite|admite|soporta|acepta)\b/i;
+
+export function niegaPercepcion(t: string): boolean {
+  return RE_NO_PERCIBO.test(t) || RE_SOLO_TEXTO.test(t);
+}
+
 // El saludo acompaña el reloj de Buenos Aires: buen día hasta las 13, buenas
 // tardes hasta las 20, buenas noches después. El modelo no tiene reloj, así
 // que esto se decide acá y no por su buena voluntad.

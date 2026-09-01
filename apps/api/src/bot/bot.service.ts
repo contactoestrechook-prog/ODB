@@ -1,5 +1,5 @@
 import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
-import { emprolijarListado, nombreLimpio, saludoSegunHora, saludarConBienvenida } from './prolijo';
+import { emprolijarListado, nombreLimpio, saludoSegunHora, saludarConBienvenida, niegaPercepcion } from './prolijo';
 import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
 import { Cron } from '@nestjs/schedule';
@@ -975,16 +975,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     // cliente tiene que enterarse de una limitación nuestra: contestarle "no
     // puedo escuchar audios" es la peor respuesta posible y el modelo la
     // improvisa igual, así que se corta acá y no en el prompt.
-    // Hoy se escaparon: "las imágenes que envió no las puedo visualizar de este
-    // lado", "no cuento con la función de interpretar mensajes de audio", "no
-    // dispongo de la posibilidad de reenviar archivos". Se cubre la negación en
-    // cualquier orden (verbo antes o después del sustantivo) y con clíticos.
-    const NEG = String.raw`(?:no\s+(?:l[oa]s?\s+|me\s+|le\s+)?(?:puedo|pude|logro|consigo|cuento\s+con|dispongo|tengo\s+(?:la\s+)?(?:forma|manera|posibilidad|funci[oó]n|capacidad|opci[oó]n)(?:\s+de)?|estoy\s+en\s+condiciones\s+de|me\s+es\s+posible)|me\s+resulta\s+imposible|soy\s+incapaz\s+de|no\s+es\s+posible)`;
-    const VERBO = String.raw`(?:escuchar|escucharl[oa]s?|o[ií]r|reproducir|abrir|ver|verl[oa]s?|visualizar|procesar|acceder|interpretar|leer|mirar|transcribir|reenviar|recibir|descargar)`;
-    const COSA = String.raw`(?:audios?|notas?\s+de\s+voz|mensajes?\s+de\s+voz|voz|fotos?|im[aá]gen(?:es)?|videos?|archivos?|adjuntos?|flyers?|comprobantes?|documentos?|pdf)`;
-    const RE_NO_PERCIBO = new RegExp(String.raw`\b${NEG}\b[^.!?\n]{0,45}\b${VERBO}\b[^.!?\n]{0,45}\b${COSA}\b|\b${COSA}\b[^.!?\n]{0,70}\b${NEG}\b[^.!?\n]{0,30}\b${VERBO}\b`, 'i');
-    const RE_SOLO_TEXTO = /\b(solo|s[oó]lo|[uú]nicamente)\b[^.!?\n]{0,30}\b(puedo|manejo|proceso|leo|entiendo|recibo|trabajo)\b[^.!?\n]{0,30}\btexto|\bde\s+este\s+lado\b[^.!?\n]{0,40}\b(no|sin)\b/i;
-    const niegaPercepcion = (t: string) => RE_NO_PERCIBO.test(t) || RE_SOLO_TEXTO.test(t);
+    // El detector (NEG/VERBO/COSA en cualquier orden) vive en prolijo.ts.
     if (niegaPercepcion(respuesta) && vueltasReintento < 3) {
       this.log.warn(`el bot dijo que no puede escuchar/ver para ${telefono}: regenero`);
       messages.push({ role: 'assistant', content: respuesta });
@@ -1156,6 +1147,17 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
       const antes = respuesta;
       respuesta = emprolijarListado(respuesta);
       if (antes !== respuesta) this.log.log(`listado formateado para ${telefono}`);
+    }
+
+    // CANDADO FINAL (regla del dueño: "jamás pueda esa respuesta"). Las guardas
+    // de más arriba regeneran mensajes, y una regeneración tardía puede volver
+    // a meter "no puedo ver/escuchar/abrir". Acá ya no se negocia: si la frase
+    // sobrevivió a todo, el mensaje entero se reemplaza por uno seguro.
+    if (niegaPercepcion(respuesta)) {
+      this.log.error(`CANDADO FINAL: "no puedo ver/escuchar" sobrevivió a todas las guardas para ${telefono}; mensaje reemplazado`);
+      respuesta = dto.archivoBase64
+        ? 'Recibido, ya lo tengo. Lo revisa alguien de la casa y le confirmamos por acá.'
+        : 'Recibido. Cuénteme qué necesita y lo vemos.';
     }
 
     // 4) persistir memoria (solo los turnos de texto, recortada) + tokens acumulados
