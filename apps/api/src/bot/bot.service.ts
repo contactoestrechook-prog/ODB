@@ -301,7 +301,12 @@ export class BotService {
       .eq('activa', true)
       .limit(1)
       .maybeSingle();
-    const botApagadoGlobal = lineaCfg?.bot_activo === false;
+    // Banco de pruebas: los números 549110000000x están reservados para
+    // auditar el cerebro con la línea APAGADA. Nunca son clientes reales, esta
+    // ruta no envía WhatsApp, y sin esto la única forma de auditar era prender
+    // el bot para todo el mundo.
+    const esBancoDePruebas = /^549110000000\d{1,2}$/.test(telefono);
+    const botApagadoGlobal = lineaCfg?.bot_activo === false && !esBancoDePruebas;
 
     // La conversación está derivada a una persona: el mensaje se guarda en el
     // hilo (para que el que atiende lo vea) pero el bot NO contesta, así no le
