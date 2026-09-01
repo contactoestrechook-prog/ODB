@@ -219,7 +219,7 @@ export const HERRAMIENTAS_PEDIDOS: Anthropic.Tool[] = [
     input_schema: {
       type: 'object' as const,
       properties: {
-        motivo: { type: 'string', description: 'De qué pago se trata, en una línea.' },
+        motivo: { type: 'string', description: 'El RESUMEN de lo que pasó en la charla, para que administración entienda sin leerla: qué pagó o quiere pagar el cliente, con qué monto; si hay una DIFERENCIA, decila con el número exacto ("transfirió $85.000 y la factura era de $125.000: faltan $40.000"); y qué espera el cliente. Dos o tres líneas como máximo.' },
         monto: { type: 'number', description: 'Monto en pesos si se conoce (el que se lee en el comprobante o el que dice el cliente). 0 si no hay monto.' },
         tipo: { type: 'string', enum: ['comprobante_enviado', 'quiere_pagar', 'consulta', 'reclamo_pago', 'proveedor_factura'], description: 'comprobante_enviado = mandó foto/PDF de una transferencia; quiere_pagar = pide alias/CBU o cómo transferir; consulta = pregunta por un pago; reclamo_pago = cobro de más, devolución; proveedor_factura = un proveedor por su factura/cobro.' },
       },

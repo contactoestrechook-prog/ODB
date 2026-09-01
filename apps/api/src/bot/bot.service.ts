@@ -2276,26 +2276,14 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     }).then(() => null, () => null);
     await this.db.from('bot_notas_equipo').insert({ linea, telefono, nota: `[${area}] ${consulta}${direccion ? ` · ${direccion}` : ''}` }).then(() => null, () => null);
 
-    let avisado = false;
-    if (destino.length >= 10) {
-      const texto = [
-        `${etiqueta} · consulta desde WhatsApp`,
-        `${nombre ? nombre + ' · ' : ''}+${telefono}`,
-        direccion ? `Dirección: ${direccion}` : null,
-        consulta,
-        `Respondele por RESPONDE; el bot le dijo que le confirman por acá.`,
-      ].filter(Boolean).join('\n');
-      try {
-        const env = await this.enviarPorWhatsapp({ to: destino, text: texto, kind: 'aviso-interno' } as any);
-        avisado = !!(env as any)?.enviado;
-      } catch (e: any) {
-        this.log.warn(`no pude avisar a ${area} por WhatsApp: ${e?.message ?? e}`);
-      }
-    }
+    // REGLA DEL DUEÑO (2026-09-01): los pedidos y las consultas de la operación
+    // viven ADENTRO del sistema (campanita + notas), no salen por WhatsApp.
+    // El WhatsApp interno queda reservado para pagos (derivarPago): comprobantes
+    // y diferencias de plata, nada más.
     return {
       consultado: true,
       area,
-      aviso: `Consulta enviada a ${area} por adentro${avisado ? ' (WhatsApp interno enviado)' : ''}. Decile al cliente en UNA línea que lo consultás con ${area === 'reparto' ? 'reparto' : area} y que le confirmás por acá. No digas "no sé", "no puedo confirmar" ni "no estoy seguro", y no des plazos.`,
+      aviso: `Consulta registrada para ${area} adentro del sistema. Decile al cliente en UNA línea que lo consultás con ${area === 'reparto' ? 'reparto' : area} y que le confirmás por acá. No digas "no sé", "no puedo confirmar" ni "no estoy seguro", y no des plazos.`,
     };
   }
 
@@ -2331,14 +2319,20 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
       if (errAlta) this.log.warn(`No pude crear la conversación derivada de ${telefono}: ${errAlta.message}`);
     }
 
-    const aviso =
-      `${urgente ? '🔴' : '🟡'} *Conversación derivada* · línea ${linea}\n\n` +
-      `De: +${telefono}\n` +
-      `Motivo: ${motivo || 'pidió hablar con una persona'}\n\n` +
-      `Contestale desde el panel de ODB (Clientes → RESPONDE → Bandeja).`;
-    await this.avisarAlEquipo(aviso);
+    // REGLA DEL DUEÑO (2026-09-01): las derivaciones (que muchas veces llevan el
+    // detalle de un pedido) NO salen por WhatsApp: quedan en la campanita del
+    // panel. El WhatsApp interno es solo para pagos.
+    const { data: cfgAviso } = await this.db
+      .from('lineas_whatsapp').select('avisar_proveedores_a').eq('linea', linea).eq('activa', true).limit(1).maybeSingle();
+    await this.db.from('alertas_internas').insert({
+      para_usuario: cfgAviso?.avisar_proveedores_a ?? null,
+      tipo: 'derivacion',
+      titulo: `${urgente ? '🔴' : '🟡'} Conversación derivada: ${bonitoTelefono(telefono)}`,
+      detalle: `${motivo || 'El cliente pidió hablar con una persona'} · Contestarle desde RESPONDE.`,
+      referencia: { linea, telefono, urgente },
+    }).then(() => null, () => null);
 
-    return { derivada: true, aviso: 'El equipo ya fue notificado' };
+    return { derivada: true, aviso: 'El equipo ya fue notificado por el sistema' };
   }
 
   // ---- Puente con RESPONDE (la app de MetoGroup en Netlify) ----

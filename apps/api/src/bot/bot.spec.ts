@@ -44,6 +44,8 @@ function dbFalsa(porTabla: Record<string, any> = {}) {
         upsert: async (fila: any) => (llamadas.upsert.push({ tabla, fila }), { data: null, error: null }),
         insert: (fila: any) => (llamadas.insert.push({ tabla, fila }), b),
         update: () => b,
+        // el builder real de Supabase es "thenable": await db.from(...).insert(...) resuelve
+        then: (fnOk: any, fnErr: any) => Promise.resolve(res).then(fnOk, fnErr),
       };
       return b;
     },
@@ -809,4 +811,33 @@ describe('audios cortados: la bajada verifica el cierre del OGG y reintenta', ()
     expect(Buffer.from(r.base64, 'base64').length).toBe(completo.length);
     expect(r.mime).toBe('audio/ogg');
   }, 20000);
+});
+
+describe('regla del dueño: los pedidos viven adentro; el WhatsApp interno es solo para plata', () => {
+  it('derivarAHumano avisa por la campanita del sistema y NO manda WhatsApp', async () => {
+    const db = dbFalsa({ lineas_whatsapp: { data: { avisar_proveedores_a: 'jp-id' }, error: null } });
+    const { s } = servicio(db);
+    const wsp = jest.fn();
+    (s as any).enviarPorWhatsapp = wsp;
+    const r = await s.derivarAHumano('pedidos', '5491133344455', 'Pedido confirmado de 23 productos por $445.266: cargarlo desde el local', true);
+    expect(r.derivada).toBe(true);
+    expect(wsp).not.toHaveBeenCalled();
+    const alerta = db.llamadas.insert.find((i: any) => i.tabla === 'alertas_internas');
+    expect(alerta.fila.tipo).toBe('derivacion');
+    expect(alerta.fila.detalle).toContain('$445.266');
+  });
+
+  it('consultarInterno registra adentro y NO manda WhatsApp (antes caía al teléfono de administración)', async () => {
+    const db = dbFalsa({ lineas_whatsapp: { data: { derivar_pagos_a: '5491125213601', avisar_proveedores_a: 'jp-id' }, error: null } });
+    const { s } = servicio(db);
+    const wsp = jest.fn();
+    (s as any).enviarPorWhatsapp = wsp;
+    (s as any).identificarCliente = jest.fn(async () => ({ existe: false }));
+    const r: any = await (s as any).consultarInterno('pedidos', '5491133344455', 'reparto', '¿Llegamos hoy a La Providencia con el pedido?', 'Ruta 52 10001');
+    expect(wsp).not.toHaveBeenCalled();
+    expect(r.consultado).toBe(true);
+    expect(r.aviso).toContain('adentro del sistema');
+    expect(db.llamadas.insert.some((i: any) => i.tabla === 'alertas_internas')).toBe(true);
+    expect(db.llamadas.insert.some((i: any) => i.tabla === 'bot_notas_equipo')).toBe(true);
+  });
 });
