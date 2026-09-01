@@ -17,7 +17,7 @@ const CLAVE_SNOOZE = 'odb_instalar_snooze';
 // quedó con uno viejo (el que hacía respondWith(fetch()) y rompía páginas
 // enteras con "network error"), no alcanza con publicar el nuevo: el viejo
 // puede seguir controlando la pestaña. Acá se lo detecta y se lo echa.
-const VERSION_SW = 'odb-2';
+const VERSION_SW = 'odb-3';
 
 async function asegurarServiceWorker() {
   if (!('serviceWorker' in navigator)) return;

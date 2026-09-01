@@ -120,6 +120,17 @@ export const SECCIONES: Seccion[] = [
         ],
       },
       {
+        tipo: 'pasos',
+        titulo: 'Si se corta el internet',
+        pasos: [
+          'La caja sigue vendiendo, SOLO en efectivo. Arriba aparece "SIN RED" con la cantidad de ventas en cola.',
+          'Cada venta queda guardada en esa máquina y se envía sola cuando vuelve la conexión: no hay que hacer nada.',
+          'Tarjeta, QR y cuenta corriente quedan bloqueados: el posnet está muerto igual, y la cuenta corriente no puede verificar el saldo sin conexión.',
+          'No cierres la caja mientras haya ventas "por enviar": el arqueo del sistema no las incluye hasta que suban.',
+          'Si el corte es largo, la salida rápida es compartir internet desde un celular: el sistema anda igual por cualquier conexión.',
+        ],
+      },
+      {
         tipo: 'ojo',
         titulo: 'Cosas que no se hacen a mano',
         puntos: [

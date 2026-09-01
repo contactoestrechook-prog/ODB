@@ -323,12 +323,42 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
     setCerrando(false);
   }
 
-  // ---- catálogo local para búsqueda instantánea (las PC de caja tienen ~25 Mbps) ----
+  // ---- catálogo local para búsqueda instantánea, con copia en DISCO ----
+  // La copia en localStorage es lo que permite que la caja siga vendiendo con
+  // el internet cortado: si la página se recarga durante el corte, el service
+  // worker sirve la pantalla y el catálogo (productos, códigos y precios) sale
+  // de acá. Cuando hay red, se pisa con la versión fresca del servidor.
   useEffect(() => {
+    try {
+      const guardado = localStorage.getItem('odb_caja_catalogo');
+      if (guardado) {
+        const { items } = JSON.parse(guardado);
+        if (Array.isArray(items) && items.length) {
+          setCatalogoLocal(items.map((p: any) => ({ ...p, _n: norm(p.nombre) })));
+        }
+      }
+    } catch { /* copia rota o inexistente: se sigue con la de red */ }
     fetch('/api/pos-catalogo')
       .then((r) => (r.ok ? r.json() : { items: [] }))
-      .then((d) => setCatalogoLocal((d.items ?? []).map((p: any) => ({ ...p, _n: norm(p.nombre) }))))
+      .then((d) => {
+        const items = d.items ?? [];
+        if (!items.length) return;
+        setCatalogoLocal(items.map((p: any) => ({ ...p, _n: norm(p.nombre) })));
+        try {
+          localStorage.setItem('odb_caja_catalogo', JSON.stringify({ ts: Date.now(), items }));
+        } catch { /* catálogo muy grande para el disco de este navegador: sin copia, todo sigue igual */ }
+      })
       .catch(() => {});
+  }, []);
+
+  // La bandera de "sin red" también escucha al navegador, que se entera antes
+  // que nosotros: así el cartel y el candado de medios aparecen al instante.
+  useEffect(() => {
+    const off = () => setSinRed(true);
+    const on = () => setSinRed(false);
+    window.addEventListener('offline', off);
+    window.addEventListener('online', on);
+    return () => { window.removeEventListener('offline', off); window.removeEventListener('online', on); };
   }, []);
 
   function filtrarLocal(t: string): Producto[] {
@@ -808,6 +838,12 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
   // ---- cobro (con cola offline idempotente) ----
   async function cobrar() {
     if (carrito.length === 0 || cobrando) return;
+    // La restricción del candado también acá: el botón puede haber quedado
+    // elegido de ANTES del corte (o el pago dividido esquiva los botones).
+    if (sinRed && (medio !== 'efectivo' || (dividido && pagos.some((p: any) => p.medio !== 'efectivo')))) {
+      setEstado({ tipo: 'error', texto: 'Sin conexión: solo se puede cobrar en efectivo. La venta queda guardada y se envía sola al volver la red.' });
+      return;
+    }
     if (faltaCliente) {
       setEstado({ tipo: 'error', texto: comprobante === 'A' ? 'Factura A: cargá el CUIT del receptor' : 'Cuenta corriente: identificá al cliente' });
       dniRef.current?.focus();
@@ -1483,17 +1519,31 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
           {/* medios: camino rápido (1 toque) o dividido (chips) */}
           {!dividido ? (
             <>
+              {/* Sin red, solo EFECTIVO. El posnet y el QR están muertos igual
+                  (necesitan internet propio), y la cuenta corriente sería vender
+                  a ciegas: el saldo y el tope no se pueden verificar hasta que
+                  vuelva la conexión, y el rechazo llegaría con el cliente ya ido. */}
+              {sinRed && (
+                <p className="rounded-lg bg-[#B82D25]/10 px-3 py-2 text-xs font-medium text-[#932A1F]">
+                  Sin conexión: solo efectivo. La venta queda guardada en esta máquina y se envía sola al volver la red.
+                </p>
+              )}
               <div className="grid grid-cols-2 gap-2">
-                {medios.map((m) => (
+                {medios.map((m) => {
+                  const bloqueado = sinRed && m.id !== 'efectivo';
+                  return (
                   <button
                     key={m.id + (m.terminal ?? '')}
+                    disabled={bloqueado}
+                    title={bloqueado ? 'Sin conexión: solo efectivo' : undefined}
                     onClick={() => { setMedio(m.id); setTerminal(m.terminal); }}
-                    className={'rounded-xl py-3.5 text-base font-medium border-2 active:scale-95 ' +
+                    className={'rounded-xl py-3.5 text-base font-medium border-2 active:scale-95 disabled:opacity-30 ' +
                       (medio === m.id && terminal === m.terminal ? 'bg-black text-white border-black' : 'bg-white text-black border-black/10')}
                   >
                     {m.label}
                   </button>
-                ))}
+                  );
+                })}
               </div>
               <div className="flex items-center justify-between -mt-1">
                 {NOTA_MEDIO[medio] ? <p className="text-xs text-black/50">{medio === 'tarjeta' && terminal ? `Cobrá en el posnet ${TERMINAL_LABEL[terminal] ?? terminal}` : NOTA_MEDIO[medio]}</p> : <span />}
