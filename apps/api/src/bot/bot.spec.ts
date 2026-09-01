@@ -32,7 +32,7 @@ describe('BotGuard (API key de los bots)', () => {
 
 // builder de Supabase encadenable: cada tabla resuelve lo que le configures
 function dbFalsa(porTabla: Record<string, any> = {}) {
-  const llamadas: Record<string, any[]> = { upsert: [], insert: [] };
+  const llamadas: Record<string, any[]> = { upsert: [], insert: [], update: [] };
   const db = {
     llamadas,
     from(tabla: string) {
@@ -43,7 +43,8 @@ function dbFalsa(porTabla: Record<string, any> = {}) {
         single: async () => res,
         upsert: async (fila: any) => (llamadas.upsert.push({ tabla, fila }), { data: null, error: null }),
         insert: (fila: any) => (llamadas.insert.push({ tabla, fila }), b),
-        update: () => b,
+        update: (fila: any) => (llamadas.update.push({ tabla, fila }), b),
+        is: () => b, gte: () => b, lte: () => b, order: () => b,
         // el builder real de Supabase es "thenable": await db.from(...).insert(...) resuelve
         then: (fnOk: any, fnErr: any) => Promise.resolve(res).then(fnOk, fnErr),
       };
@@ -889,5 +890,60 @@ describe('identidad primero: sin saber de quién es la plata, no se molesta a ad
     (s as any).identificarCliente = jest.fn(async () => ({ existe: false }));
     const r: any = await s.derivarPago('pedidos', '5491100000027', 'Quiere transferir', { tipo: 'quiere_pagar' });
     expect(r.respuestaFija).toContain('outlet.de.bebidas');
+  });
+});
+
+describe('el circuito del pago lo cierra el bot: administración contesta y el cliente recibe la confirmación', () => {
+  const fila = { id: 'pc1', linea: 'pedidos', telefono_cliente: '5491133344455', nombre: 'Distribuidora Norte SRL', monto: 85000, waha_msg_id: 'MSG1' };
+  const armar = (extra: Record<string, any> = {}) => {
+    const db = dbFalsa({
+      lineas_whatsapp: { data: { bot_activo: true, derivar_pagos_a: '5491125213601' }, error: null },
+      bot_pagos_en_confirmacion: { data: [fila], error: null },
+      bot_conversaciones: { data: { mensajes: [] }, error: null },
+      ...extra,
+    });
+    const { s } = servicio(db);
+    const envios: any[] = [];
+    (s as any).enviarPorWhatsapp = jest.fn(async (p: any) => (envios.push(p), { enviado: true, id: 'X' }));
+    (s as any).respondeRegistrar = jest.fn(async () => null);
+    return { s, db, envios };
+  };
+
+  it('al mandar el aviso, el pago queda esperando confirmación (con el id del mensaje)', async () => {
+    const { s, db } = armar();
+    (s as any).identificarCliente = jest.fn(async () => ({ existe: false }));
+    await s.derivarPago('pedidos', '5491133344455', 'Transfirió $85.000; faltan $40.000', {
+      monto: 85000, tipo: 'comprobante_enviado', deQuien: 'Distribuidora Norte SRL',
+    });
+    const pendiente = db.llamadas.insert.find((i: any) => i.tabla === 'bot_pagos_en_confirmacion');
+    expect(pendiente.fila.nombre).toBe('Distribuidora Norte SRL');
+    expect(pendiente.fila.monto).toBe(85000);
+  });
+
+  it('administración dice "recibido ok" → el cliente recibe "recibimos tu pago… muchas gracias"', async () => {
+    const { s, db, envios } = armar();
+    const r: any = await (s as any).respuestaDeAdministracion('5491125213601', { body: 'recibido ok' });
+    expect(r.contestado).toBe(true);
+    const alCliente = envios.find((e) => e.to === '5491133344455');
+    expect(alCliente.text).toBe('Te confirmamos que recibimos tu pago de $85.000. Muchas gracias.');
+    const ackAdmin = envios.find((e) => e.to === '5491125213601');
+    expect(ackAdmin.text).toContain('le confirmé a Distribuidora Norte SRL');
+    expect(db.llamadas.update.some((u: any) => u.tabla === 'bot_pagos_en_confirmacion' && u.fila.confirmado_en)).toBe(true);
+  });
+
+  it('administración dice "no figura" → al cliente se le pide el comprobante de nuevo, sin acusarlo', async () => {
+    const { s, envios } = armar();
+    const r: any = await (s as any).respuestaDeAdministracion('5491125213601', { body: 'no figura esa transferencia' });
+    expect(r.contestado).toBe(true);
+    const alCliente = envios.find((e) => e.to === '5491133344455');
+    expect(alCliente.text).toContain('todavía no la encontramos acreditada');
+    expect(alCliente.text).toContain('reenviás el comprobante');
+  });
+
+  it('un número que NO es administración sigue su camino normal (devuelve null)', async () => {
+    const { s, envios } = armar();
+    const r = await (s as any).respuestaDeAdministracion('5491199887766', { body: 'recibido' });
+    expect(r).toBeNull();
+    expect(envios).toHaveLength(0);
   });
 });

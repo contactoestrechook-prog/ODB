@@ -1496,7 +1496,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
           }
           out = await this.derivarPago(linea, telefono, motivo, { monto, tipo: tipoPago, comprobanteUrl: ctx.archivoUrl, dichoPorElCliente: ctx.textoCliente, deQuien: input.de_quien ? String(input.de_quien).slice(0, 120) : undefined });
           // un comprobante se contesta con una palabra, y la pone el código
-          if (tipoPago === 'comprobante_enviado' && ctx.fija) ctx.fija.texto = 'Recibido.';
+          if (tipoPago === 'comprobante_enviado' && ctx.fija) ctx.fija.texto = 'Recibido, lo reviso y te confirmo.';
           if ((out as any)?.respuestaFija && ctx.fija) ctx.fija.texto = String((out as any).respuestaFija);
           break;
         }
@@ -2241,6 +2241,15 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
           kind: 'aviso-interno',
         } as any);
         avisado = !!(env as any)?.enviado;
+        // el circuito queda abierto: cuando administración conteste "recibido"
+        // en su chat, el bot le confirma al cliente y lo cierra
+        if (avisado) {
+          await this.db.from('bot_pagos_en_confirmacion').insert({
+            linea, telefono_cliente: telefono, nombre, monto: monto || null,
+            resumen: motivo.slice(0, 400),
+            waha_msg_id: (env as any)?.id ? String((env as any).id) : null,
+          }).then(() => null, () => null);
+        }
       } catch (e: any) {
         this.log.warn(`no pude avisar a administración por WhatsApp: ${e?.message ?? e}`);
       }
@@ -2250,7 +2259,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     }
 
     const queDecir = esComprobante
-      ? 'Respondé exactamente "Recibido." y nada más.'
+      ? 'Respondé exactamente "Recibido, lo reviso y te confirmo." y nada más.'
       : tipo === 'quiere_pagar'
         ? 'Respondé en una línea corta: "Le paso los datos por acá en un rato." NO inventes alias ni CBU.'
         : 'Respondé corto: "Recibido, le confirmo por acá."';
@@ -2434,6 +2443,75 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
 
   // Baja el archivo que mandó el cliente desde WAHA (foto, audio, documento).
   // WAHA lo publica en payload.media.url; hay que pedirlo con la API key.
+  // Administración contesta en SU chat el aviso de pago; el bot escucha esa
+  // respuesta y se la lleva al cliente: "recibimos tu pago, muchas gracias".
+  // Si contesta citando el aviso, se matchea ese pago puntual; si no, el
+  // pendiente más reciente (48 h). Devuelve null si el mensaje no es de
+  // administración: sigue el camino normal.
+  private async respuestaDeAdministracion(identidad: string, p: any) {
+    const { data: cfg } = await this.db
+      .from('lineas_whatsapp').select('bot_activo, derivar_pagos_a').eq('linea', 'pedidos').eq('activa', true).limit(1).maybeSingle();
+    const admin = String(cfg?.derivar_pagos_a ?? '').replace(/\D/g, '');
+    if (!admin) return null;
+    let quien = String(identidad).replace(/\D/g, '');
+    if (!/^\d{8,}$/.test(String(identidad))) {
+      const { data: c } = await this.db.from('bot_contactos').select('telefono_real').eq('telefono', quien).maybeSingle();
+      quien = String((c as any)?.telefono_real ?? '').replace(/\D/g, '');
+    }
+    if (!quien || quien.slice(-10) !== admin.slice(-10)) return null;
+
+    const texto = String(p.body ?? '').trim();
+    if (!texto) return { contestado: false, motivo: 'administración: sin texto' };
+    const { data: pend } = await this.db
+      .from('bot_pagos_en_confirmacion').select('*')
+      .is('confirmado_en', null)
+      .gte('creado_en', new Date(Date.now() - 48 * 3_600_000).toISOString())
+      .order('creado_en', { ascending: false })
+      .limit(5);
+    const lista = (pend ?? []) as any[];
+    if (!lista.length) return { contestado: false, motivo: 'administración escribió y no hay pagos esperando confirmación' };
+
+    const citado = String(p.replyTo?.id ?? p.replyTo ?? '');
+    const fila = (citado && lista.find((x) => x.waha_msg_id && citado.includes(String(x.waha_msg_id)))) || lista[0];
+    const montoTexto = fila.monto ? ` de $${Math.round(Number(fila.monto)).toLocaleString('es-AR')}` : '';
+    const destinoCliente = String(fila.telefono_cliente).length >= 14 ? `${fila.telefono_cliente}@lid` : String(fila.telefono_cliente);
+
+    const NO = /\bno\s+(lleg[oó]|figura|est[aá]|aparece|entr[oó]|acredit[oó]|lo veo|la veo|lo encuentro|la encuentro)\b/i;
+    const SI = /\b(recibido|recib[ií]|ok|okey|oka|confirmado|confirmo|lleg[oó]|acreditad[oa]|est[aá] bien|correcto|perfecto|listo|dale|s[ií])\b/i;
+
+    const avisarCliente = async (msj: string) => {
+      if (cfg?.bot_activo === false) return false;
+      const env = await this.enviarPorWhatsapp({ to: destinoCliente, text: msj, referencia: `pago-confirmado/${fila.id}` });
+      const { data: conv } = await this.db.from('bot_conversaciones').select('mensajes').eq('linea', fila.linea).eq('telefono', String(fila.telefono_cliente)).maybeSingle();
+      const hist: any[] = Array.isArray(conv?.mensajes) ? conv!.mensajes : [];
+      await this.db.from('bot_conversaciones').upsert({
+        linea: fila.linea, telefono: String(fila.telefono_cliente),
+        mensajes: [...hist, { role: 'assistant', content: msj }].slice(-MAX_HISTORIAL),
+        actualizado_en: new Date().toISOString(),
+      }, { onConflict: 'linea,telefono' }).then(() => null, () => null);
+      this.respondeRegistrar(destinoCliente.includes('@') ? destinoCliente : String(fila.telefono_cliente), fila.nombre ?? null, '', msj).catch(() => null);
+      return !!(env as any)?.enviado;
+    };
+
+    if (NO.test(texto)) {
+      await this.db.from('bot_pagos_en_confirmacion').update({ respuesta_admin: texto.slice(0, 300) }).eq('id', fila.id).then(() => null, () => null);
+      const ok = await avisarCliente(`Estuvimos revisando tu transferencia${montoTexto} y todavía no la encontramos acreditada. ¿Me reenviás el comprobante así lo chequean de nuevo?`);
+      await this.enviarPorWhatsapp({ to: admin, text: ok ? `Listo, le avisé a ${fila.nombre ?? '+' + fila.telefono_cliente} que todavía no figura y le pedí el comprobante de nuevo.` : `Tomé tu respuesta; el bot está apagado, así que al cliente no le escribí.`, kind: 'aviso-interno' } as any).catch(() => null);
+      this.log.log(`administración respondió "no figura" para ${fila.telefono_cliente}: relayado=${ok}`);
+      return { contestado: true, motivo: 'administración: no figura, cliente avisado' };
+    }
+    if (!SI.test(texto)) {
+      await this.db.from('bot_pagos_en_confirmacion').update({ respuesta_admin: texto.slice(0, 300) }).eq('id', fila.id).then(() => null, () => null);
+      return { contestado: false, motivo: 'administración: respuesta no concluyente, quedó registrada' };
+    }
+
+    await this.db.from('bot_pagos_en_confirmacion').update({ confirmado_en: new Date().toISOString(), respuesta_admin: texto.slice(0, 300) }).eq('id', fila.id).then(() => null, () => null);
+    const ok = await avisarCliente(`Te confirmamos que recibimos tu pago${montoTexto}. Muchas gracias.`);
+    await this.enviarPorWhatsapp({ to: admin, text: ok ? `Listo: le confirmé a ${fila.nombre ?? '+' + fila.telefono_cliente} que su pago${montoTexto} quedó recibido.` : `Tomé la confirmación; el bot está apagado, así que al cliente no le escribí todavía.`, kind: 'aviso-interno' } as any).catch(() => null);
+    this.log.log(`pago${montoTexto} de ${fila.telefono_cliente} confirmado por administración: cliente avisado=${ok}`);
+    return { contestado: true, motivo: 'pago confirmado por administración, cliente avisado' };
+  }
+
   private async bajarMediaWaha(p: any): Promise<{ base64: string; mime: string; nombre: string } | null> {
     let url = p?.media?.url ?? p?._data?.media?.url;
     this.log.log(`media url de WAHA: ${String(url ?? '').slice(0, 160)} · mime=${p?.media?.mimetype ?? '?'}`);
@@ -2535,6 +2613,15 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
       // trae el mensaje, para no diagnosticar a ciegas la próxima vez.
       this.log.log(`@lid sin teléfono en la carga · _data=${Object.keys(p?._data ?? {}).join(',')} · key=${Object.keys(p?._data?.key ?? {}).join(',')}`);
     }
+
+    // ¿Es ADMINISTRACIÓN contestando un aviso de pago? El circuito lo cierra
+    // el bot (regla del dueño, 2026-09-01): administración dice "recibido" en
+    // su chat y el bot le confirma al cliente. Todo pasa por el bot.
+    const rAdmin = await this.respuestaDeAdministracion(identidad, p).catch((e) => {
+      this.log.warn(`respuesta de administración: ${e?.message ?? e}`);
+      return null;
+    });
+    if (rAdmin) return rAdmin;
 
     let texto = String(p.body ?? '').trim();
     const tipo = String(p.type ?? p._data?.type ?? '').toLowerCase();
@@ -2902,7 +2989,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
             caption: payload.text || '',
           });
           if (!r.ok) return { enviado: false, motivo: `WAHA sendFile ${r.estado}` };
-          return { enviado: true, via: 'waha', id: r.cuerpo?.id ?? null };
+          return { enviado: true, via: 'waha', id: r.cuerpo?.id ?? r.cuerpo?.key?.id ?? null };
         }
 
         if (payload.imagenUrl) {
@@ -2915,7 +3002,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
             caption: payload.text || '',
           });
           if (!r.ok) return { enviado: false, motivo: `WAHA sendImage ${r.estado}` };
-          return { enviado: true, via: 'waha', id: r.cuerpo?.id ?? null };
+          return { enviado: true, via: 'waha', id: r.cuerpo?.id ?? r.cuerpo?.key?.id ?? null };
         }
 
         const esAudio = !!payload.audioUrl;
