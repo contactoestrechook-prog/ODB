@@ -8,7 +8,14 @@ import Anthropic from '@anthropic-ai/sdk';
 // y cuesta ~40–60% menos. Car Cash atiende con Sonnet 5 desde el día uno.
 import { TONO_ODB } from '../comun/tono-odb';
 
-export const MODELO_BOT = 'claude-sonnet-5';
+// Opus: el modelo de más criterio de la familia. El razonamiento ya estaba al
+// máximo con Sonnet (adaptativo + xhigh) y aun así aplicó las reglas como un
+// abogado ante un caso imprevisto — un audio saludando a Jackie terminó en un
+// discurso de robot. Las reglas se replantearon, y el salto a Opus suma juicio
+// justamente en lo que las reglas no cubren. Cuesta ~70% más por turno (de
+// ~USD 0,01–0,03 a ~0,02–0,05): en atención al público, ese margen es barato.
+// Se puede volver a Sonnet con ODB_BOT_MODELO en Railway, sin deploy.
+export const MODELO_BOT = process.env.ODB_BOT_MODELO ?? 'claude-opus-5';
 export const MAX_VUELTAS = 8; // tope de iteraciones herramienta→respuesta por mensaje
 export const MAX_HISTORIAL = 24; // turnos de memoria por conversación
 
