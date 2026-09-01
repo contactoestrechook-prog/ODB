@@ -440,3 +440,67 @@ describe('BotService.cartelDePedido (tarjeta del pedido confirmado)', () => {
     expect(r).toBeNull();
   });
 });
+
+describe('emprolijarListado (el total nunca queda pegado al renglón)', () => {
+  const { emprolijarListado } = require('./prolijo');
+
+  it('caso ronda 2: total YA en negrita, pegado al renglón y con texto detrás', () => {
+    const r = emprolijarListado(
+      'Tomo el pedido:\n• 6 × Cerveza Quilmes IPA 473 cc — $2.500 c/u = $15.000 *Total: $15.000* Es el total de la mercadería; el envío va aparte.',
+    );
+    const lineas = r.split('\n');
+    expect(lineas).toContain('• 6 × Cerveza Quilmes IPA 473 cc — $2.500 c/u = $15.000');
+    expect(lineas).toContain('*Total: $15.000*');
+    expect(r).toMatch(/\*Total: \$15\.000\*\n\nEs el total/);
+  });
+
+  it('no duplica la negrita cuando el total ya viene bien escrito en su línea', () => {
+    const r = emprolijarListado('• Coca 1,75 L — $4.700\n\n*Total: $4.700*\n\n¿Lo confirmo?');
+    expect(r).toContain('*Total: $4.700*');
+    expect(r).not.toContain('**');
+  });
+
+  it('listado de corrido con guiones queda con viñetas, total y pregunta en sus líneas', () => {
+    const r = emprolijarListado(
+      'Ya cotizado: - 4 × Agua Glaciar 2 L — $2.300 c/u = $9200 - 2 × Coca Zero — $2.300 c/u = $4.600 Total: $13.800 ¿Lo confirmo?',
+    );
+    expect(r).toContain('• 4 × Agua Glaciar 2 L — $2.300 c/u = $9.200');
+    expect(r).toContain('\n*Total: $13.800*');
+    expect(r).toMatch(/\n¿Lo confirmo\?$/);
+  });
+
+  it('las líneas del pedido normalizadas las entiende la tarjeta gráfica', async () => {
+    const respuesta = emprolijarListado(
+      'Confirmado, RET-AB12CD.\n• 2 × Fernet Branca 750 cc — $20.500 c/u = $41.000 *Total: $41.000* Se abona al retirar.',
+    );
+    const espia = jest
+      .spyOn(require('../comun/cartel-precios'), 'cartelPrecios')
+      .mockResolvedValue(Buffer.from('png'));
+    const falso = {
+      db: { storage: { from: () => ({ upload: async () => ({ error: null }), getPublicUrl: () => ({ data: { publicUrl: 'https://publico/x.png' } }) }) } },
+      log: { warn: () => undefined },
+    };
+    const r = await (BotService.prototype as any).cartelDePedido.call(falso, respuesta);
+    expect(r).not.toBeNull();
+    expect((espia.mock.calls[0][0] as any).renglones).toEqual([
+      { nombre: '2 × Fernet Branca 750 cc', precio: '$41.000' },
+    ]);
+    expect((espia.mock.calls[0][0] as any).total).toBe('$41.000');
+    espia.mockRestore();
+  });
+});
+
+describe('nombreLimpio (un nombre es un nombre o no es nada)', () => {
+  const { nombreLimpio } = require('./prolijo');
+  it('acepta nombres reales con tildes, apóstrofos y compuestos', () => {
+    expect(nombreLimpio('Martín')).toBe('Martín');
+    expect(nombreLimpio("  María  del Carmen O'Brien ")).toBe("María del Carmen O'Brien");
+  });
+  it('descarta la basura de markup que llegó a producción', () => {
+    expect(nombreLimpio('</parameter>\n<parameter name="tipo">pickup')).toBeNull();
+    expect(nombreLimpio('nombre=Juan; DROP TABLE')).toBeNull();
+    expect(nombreLimpio('4 fernet')).toBeNull();
+    expect(nombreLimpio('')).toBeNull();
+    expect(nombreLimpio(undefined)).toBeNull();
+  });
+});

@@ -1,4 +1,5 @@
 import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
+import { emprolijarListado, nombreLimpio } from './prolijo';
 import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
 import { Cron } from '@nestjs/schedule';
@@ -1133,39 +1134,10 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
 
     if (respuestaFija.texto) respuesta = respuestaFija.texto;
 
-    // ---- PROLIJIDAD DEL LISTADO ----
-    // En WhatsApp un listado escrito de corrido es ilegible: "Ya cotizado: - 4 ×
-    // Agua 2L: 4 × $2.300 c/u = $9.200 - 1/2 kg Queso..." es un bloque de texto.
-    // Cada renglón tiene que ir en SU línea, con viñeta uniforme y el total en
-    // negrita. Esto no se le pide al modelo: se normaliza acá, siempre igual.
-    const prolijo = (t: string): string => {
-      let r = t;
-      // 1. cada guion/viñeta de listado arranca renglón propio
-      r = r.replace(/[ \t]+[-–—•]\s+(?=[A-ZÁÉÍÓÚÑ0-9¿])/g, '\n• ');
-      r = r.replace(/^[ \t]*[-–—]\s+/gm, '• ');
-      // 2. "Ya cotizado:" / "Le confirmo lo que quedó:" cortan antes del listado
-      r = r.replace(/([:：])[ \t]*(?=•)/g, '$1\n');
-      // 3. una línea en blanco antes del listado, ninguna adentro
-      r = r.replace(/\n{3,}/g, '\n\n');
-      r = r.replace(/(•[^\n]*)\n\n(?=•)/g, '$1\n');
-      // 4. lo que sigue a un importe y arranca en mayúscula o pregunta NO es
-      // parte del renglón: "$20.900 Subtotal…" y "$4.700 ¿Busca…" quedaban
-      // pegados al último ítem del listado
-      r = r.replace(/(\$[\d.]+)[ \t]+(?=[¿A-ZÁÉÍÓÚÑ])/g, '$1\n\n');
-      // 5. el TOTAL en negrita de WhatsApp y en su propia línea
-      r = r.replace(/(?:^|\n)[ \t]*(?:•\s*)?(total[^:\n]{0,30}:?)[ \t]*(\$\s?[\d.]+)/gi,
-        (_m, etiqueta: string, monto: string) => `\n\n*${etiqueta.trim().replace(/:$/, '')}: ${monto.replace(/\s/g, '')}*`);
-      // 6. separadores de miles uniformes ($9200 → $9.200) y sin espacio tras $
-      r = r.replace(/\$\s+(\d)/g, '$$$1');
-      r = r.replace(/\$(\d{4,})\b/g, (_m, n: string) => '$' + Number(n).toLocaleString('es-AR'));
-      // 7. el signo × uniforme (x, X, * entre números)
-      r = r.replace(/(\d)\s*[xX*]\s*(?=\$|\d)/g, '$1 × ');
-      return r.replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n').trim();
-    };
     // solo cuando hay listado o importes: no toca una respuesta corta
     if (/•|^\s*[-–—]\s/m.test(respuesta) || (respuesta.match(/\$/g) ?? []).length >= 2) {
       const antes = respuesta;
-      respuesta = prolijo(respuesta);
+      respuesta = emprolijarListado(respuesta);
       if (antes !== respuesta) this.log.log(`listado formateado para ${telefono}`);
     }
 
@@ -1929,6 +1901,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     const ident = await this.identificarCliente(dto.telefono);
     // un envío sin nombre de quien recibe no se puede entregar (ronda 7). Si el
     // modelo lo puso en las notas ("recibe Martín") se toma de ahí.
+    dto.nombre = nombreLimpio(dto.nombre) ?? undefined;
     if (dto.tipo === 'domicilio' && !dto.nombre?.trim()) {
       const enNotas = String(dto.notas ?? '').match(/\b(?:recibe|retira|a nombre de|para)\s+([A-ZÁÉÍÓÚÑ][\wáéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][\wáéíóúñ]+)?)/);
       if (enNotas?.[1]) dto.nombre = enNotas[1];
