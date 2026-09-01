@@ -716,3 +716,58 @@ describe('registro: voseo respetuoso, jamás usted ni confianzudo', () => {
     expect(respetuosoSinConfianza(t)).toBe(t);
   });
 });
+
+describe('memoria de adjuntos: lo que llega con el bot apagado no se pierde', () => {
+  beforeEach(() => { process.env.ANTHROPIC_API_KEY = 'test'; });
+
+  it('con el bot apagado, el PDF deja su rastro con link en el historial (caso del catálogo del 1/9)', async () => {
+    const db = dbFalsa({
+      lineas_whatsapp: { data: { bot_activo: false }, error: null },
+      bot_conversaciones: { data: { mensajes: [] }, error: null },
+    });
+    const { s } = servicio(db);
+    (s as any).claude = { messages: { create: jest.fn() } };
+    const r: any = await s.charla({
+      linea: 'pedidos', telefono: '5491155556666', mensaje: 'Les sumamos unos doypacks',
+      archivoBase64: 'JVBERi0xLjQ=', mimeType: 'application/pdf',
+      archivoUrl: 'https://x.supabase.co/publico/whatsapp/549/cat.pdf',
+    });
+    expect(r.respuesta ?? null).toBeNull();
+    const up = db.llamadas.upsert.find((u: any) => u.tabla === 'bot_conversaciones');
+    const ultimo = up.fila.mensajes.at(-1);
+    expect(ultimo.role).toBe('user');
+    expect(ultimo.content).toContain('Les sumamos unos doypacks');
+    expect(ultimo.content).toContain('[adjunto sin leer: https://x.supabase.co/publico/whatsapp/549/cat.pdf]');
+  });
+
+  it('al retomar la charla, el adjunto pendiente se baja, viaja al modelo y queda como leído', async () => {
+    const db = dbFalsa({
+      bot_conversaciones: {
+        data: { mensajes: [
+          { role: 'user', content: 'Les sumamos unos doypacks [adjunto sin leer: https://x.supabase.co/publico/whatsapp/549/cat.pdf]' },
+        ], tokens: 0 },
+        error: null,
+      },
+    });
+    const { s } = servicio(db);
+    const fetchViejo = global.fetch;
+    global.fetch = jest.fn(async () => ({ ok: true, arrayBuffer: async () => Buffer.from('%PDF-1.4 catalogo').buffer })) as any;
+    const crear = jest.fn().mockResolvedValue(respuestaClaude('Perfecto, veo el catálogo de Almendras del Sur. Quedamos a la espera del jueves.'));
+    (s as any).claude = { messages: { create: crear } };
+    const r: any = await s.charla({ linea: 'pedidos', telefono: '5491155556666', mensaje: 'pudieron ver lo que les mandé?' });
+    global.fetch = fetchViejo;
+
+    expect(r.respuesta).toContain('catálogo');
+    // el turno que vio el modelo lleva el documento y la advertencia
+    const msgs = crear.mock.calls[0][0].messages;
+    const turno = msgs.at(-1).content;
+    expect(Array.isArray(turno)).toBe(true);
+    expect(turno[0]).toMatchObject({ type: 'document', source: { media_type: 'application/pdf' } });
+    expect(turno.at(-1).text).toContain('NO preguntes nada que esos archivos ya respondan');
+    // y en la memoria guardada el adjunto quedó como leído
+    const up = db.llamadas.upsert.filter((u: any) => u.tabla === 'bot_conversaciones').at(-1);
+    const historialGuardado = JSON.stringify(up.fila.mensajes);
+    expect(historialGuardado).toContain('[adjunto ya leído]');
+    expect(historialGuardado).not.toContain('adjunto sin leer');
+  });
+});

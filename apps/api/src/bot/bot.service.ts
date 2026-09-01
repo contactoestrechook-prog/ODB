@@ -292,6 +292,16 @@ export class BotService {
     }
     if (!texto) throw new BadRequestException('Mensaje vacío');
 
+    // Si este turno trae un archivo, su rastro queda en la memoria PASE LO QUE
+    // PASE: con el bot apagado o la charla derivada, el link viaja en el
+    // historial y un turno futuro lo baja y lo lee. Sin esto pasó lo del
+    // 2026-09-01: un proveedor mandó su catálogo en PDF con el bot apagado y,
+    // al retomar, el bot le preguntó "¿de qué empresa me escribís?" con la
+    // respuesta guardada en un documento que ya nadie miró.
+    const marcaAdjunto = dto.archivoUrl && (imagenDelTurno || documentoDelTurno)
+      ? ` [adjunto sin leer: ${dto.archivoUrl}]`
+      : '';
+
     // 2) memoria de conversación (solo texto plano user/assistant, sin bloques internos)
     const { data: conv } = await this.db
       .from('bot_conversaciones')
@@ -382,7 +392,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
           {
             linea,
             telefono,
-            mensajes: [...hist, { role: 'user', content: texto }, ...(respuesta ? [{ role: 'assistant', content: respuesta }] : [])].slice(-40),
+            mensajes: [...hist, { role: 'user', content: texto + marcaAdjunto }, ...(respuesta ? [{ role: 'assistant', content: respuesta }] : [])].slice(-40),
             actualizado_en: ahora.toISOString(),
             ...(respuesta && !yaAcuso && !preguntaIdentidad ? { acuse_derivacion_en: ahora.toISOString() } : {}),
           },
@@ -404,7 +414,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
       this.log.log(`silencio (${motivo}) para ${telefono}: "${texto.slice(0, 60)}"`);
       await this.db.from('bot_conversaciones').upsert({
         linea, telefono,
-        mensajes: [...historial, { role: 'user', content: texto }].slice(-MAX_HISTORIAL),
+        mensajes: [...historial, { role: 'user', content: texto + marcaAdjunto }].slice(-MAX_HISTORIAL),
         actualizado_en: new Date().toISOString(),
       }, { onConflict: 'linea,telefono' }).then(() => null, () => null);
       return { respuesta: null, silencio: true, motivo } as any;
@@ -465,6 +475,35 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
       }
     }
 
+    // Archivos que llegaron con el bot apagado o derivado y nadie leyó: se
+    // bajan del bucket y se adjuntan a ESTE turno; en la memoria quedan como
+    // leídos para no bajarlos de nuevo. Los 2 más recientes alcanzan.
+    const bloquesPendientes: any[] = [];
+    {
+      const RE_SIN_LEER = /\[adjunto sin leer: (https?:\/\/[^\]\s]+)\]/g;
+      const pendientes: { url: string; idx: number }[] = [];
+      historial.forEach((m, i) => {
+        if (m.role !== 'user') return;
+        for (const x of String(m.content).matchAll(RE_SIN_LEER)) pendientes.push({ url: x[1], idx: i });
+      });
+      for (const pen of pendientes.slice(-2)) {
+        try {
+          const r = await fetch(pen.url, { signal: AbortSignal.timeout(12000) });
+          if (!r.ok) continue;
+          const buf = Buffer.from(await r.arrayBuffer());
+          if (buf.length > 15_000_000) continue;
+          if (/\.pdf(\?|$)/i.test(pen.url)) {
+            bloquesPendientes.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: buf.toString('base64') } });
+          } else if (/\.(jpe?g|png|webp)(\?|$)/i.test(pen.url)) {
+            const mimeImg = /\.png(\?|$)/i.test(pen.url) ? 'image/png' : /\.webp(\?|$)/i.test(pen.url) ? 'image/webp' : 'image/jpeg';
+            bloquesPendientes.push({ type: 'image', source: { type: 'base64', media_type: mimeImg, data: buf.toString('base64') } });
+          } else continue;
+          historial[pen.idx] = { ...historial[pen.idx], content: String(historial[pen.idx].content).replace(`[adjunto sin leer: ${pen.url}]`, '[adjunto ya leído]') };
+          this.log.log(`adjunto pendiente leído para ${telefono}: ${pen.url.slice(-60)}`);
+        } catch { /* si no se pudo bajar, queda marcado para el próximo turno */ }
+      }
+    }
+
     // la hora y el saludo correcto van en cada turno: el modelo no tiene reloj
     const ahoraBA = new Date().toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', weekday: 'long', hour: '2-digit', minute: '2-digit' });
     const horaBA = Number(new Date().toLocaleString('en-US', { timeZone: 'America/Argentina/Buenos_Aires', hour: '2-digit', hour12: false }));
@@ -491,14 +530,21 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     const impaciente = preguntasDelBotAntes >= 1 && (texto.trim().length <= 25 || /\b(mand[aá]me|mandalo|env[ií]ame|dale|listo|eh+\??|ya est[aá]|as[ií] nom[aá]s|lo que tengas)\b|[😬🙄😤]/i.test(texto));
     if (impaciente && esProveedor === false) estado.push('el cliente ya no quiere más preguntas: NO preguntes nada más; asumí la opción más común de cada ítem que falte, mostrá el resumen con el total y cerrá con un único "¿Lo confirmo?"');
     if (preguntasDelCliente >= 2) estado.push(`este mensaje trae ${preguntasDelCliente} preguntas: contestá CADA una en una línea, en el orden en que las hizo; si un dato no lo tenés, decilo en su línea`);
-    const contenidoDelTurno = (t: string): any => (imagenDelTurno
+    const contenidoDelTurno = (t: string): any => (bloquesPendientes.length
+      ? [
+          ...bloquesPendientes,
+          ...(imagenDelTurno ? [{ type: 'image', source: { type: 'base64', media_type: imagenDelTurno.mime, data: imagenDelTurno.base64 } }] : []),
+          ...(documentoDelTurno ? [{ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: documentoDelTurno.base64 } }] : []),
+          { type: 'text', text: t },
+        ]
+      : imagenDelTurno
       ? [{ type: 'image', source: { type: 'base64', media_type: imagenDelTurno.mime, data: imagenDelTurno.base64 } }, { type: 'text', text: t }]
       : documentoDelTurno
       ? [{ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: documentoDelTurno.base64 } }, { type: 'text', text: t }]
       : t);
     const messages: Anthropic.MessageParam[] = [
       ...historial,
-      { role: 'user', content: contenidoDelTurno(`${texto}\n\n[metadatos: telefono del chat = ${telefono}${quien}; ahora es ${ahoraBA} (hora de Buenos Aires); si corresponde saludar, el saludo correcto es "${saludo}". Estado de la charla: ${estado.join(' · ')}${imagenDelTurno ? (dto.vistaPreviaDeVideo ? '. El cliente mandó un VIDEO y lo que ves es su vista previa (el primer cuadro). Respondé sobre lo que se ve; si con eso no alcanza para responder con seguridad, acusá recibo en una línea y dejá nota_interna para que lo mire alguien de la casa. Jamás digas que no podés ver videos' : '. El cliente mandó una FOTO: mirala y respondé sobre lo que se ve. Si es un producto, buscalo en el catálogo por lo que leas en la etiqueta; si es un comprobante de pago, leé el MONTO y llamá derivar_pago con tipo "comprobante_enviado" y ese monto; si no se entiende, pedí que la saque de nuevo más nítida') : documentoDelTurno ? '. El cliente mandó un PDF: leelo y respondé sobre lo que dice. Si pregunta por productos de una lista, contestá con los del catálogo nuestro; si es un comprobante de pago, leé el MONTO y llamá derivar_pago con tipo "comprobante_enviado" y ese monto; si no se puede leer, pedí que lo reenvíe' : ''}]`) },
+      { role: 'user', content: contenidoDelTurno(`${texto}\n\n[metadatos: telefono del chat = ${telefono}${quien}; ahora es ${ahoraBA} (hora de Buenos Aires); si corresponde saludar, el saludo correcto es "${saludo}". Estado de la charla: ${estado.join(' · ')}${bloquesPendientes.length ? `. OJO: el cliente mandó ${bloquesPendientes.length} archivo(s) ANTES (cuando no se podían abrir) y ahora los tenés adjuntos en este turno: leelos y usalos para responder; NO preguntes nada que esos archivos ya respondan` : ''}${imagenDelTurno ? (dto.vistaPreviaDeVideo ? '. El cliente mandó un VIDEO y lo que ves es su vista previa (el primer cuadro). Respondé sobre lo que se ve; si con eso no alcanza para responder con seguridad, acusá recibo en una línea y dejá nota_interna para que lo mire alguien de la casa. Jamás digas que no podés ver videos' : '. El cliente mandó una FOTO: mirala y respondé sobre lo que se ve. Si es un producto, buscalo en el catálogo por lo que leas en la etiqueta; si es un comprobante de pago, leé el MONTO y llamá derivar_pago con tipo "comprobante_enviado" y ese monto; si no se entiende, pedí que la saque de nuevo más nítida') : documentoDelTurno ? '. El cliente mandó un PDF: leelo y respondé sobre lo que dice. Si pregunta por productos de una lista, contestá con los del catálogo nuestro; si es un comprobante de pago, leé el MONTO y llamá derivar_pago con tipo "comprobante_enviado" y ese monto; si no se puede leer, pedí que lo reenvíe' : ''}]`) },
     ];
 
     // 3) loop del agente: Opus razona, pide herramientas, las ejecutamos y sigue
