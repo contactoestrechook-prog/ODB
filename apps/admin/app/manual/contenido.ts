@@ -583,6 +583,11 @@ export const SECCIONES: Seccion[] = [
           'El bot atiende la línea del local: responde precios, arma pedidos, escucha audios y los contesta. Cuando la consulta es de administración (un pago, un comprobante), la registra y avisa internamente en lugar de mandar al cliente a otro teléfono.',
       },
       {
+        tipo: 'texto',
+        texto:
+          'Las respuestas largas van con imagen de la marca: si pasa una lista de 4 productos o más, o confirma un pedido, además del texto manda un cartel con el isologo de O.D.B — los renglones, el total en la banda negra y, en los pedidos, el código de retiro bien grande para mostrar en el mostrador.',
+      },
+      {
         tipo: 'ojo',
         puntos: [
           'Todo lo que el bot cotiza sale de la lista de precios del sistema. Si un precio está mal en el sistema, el bot lo va a repetir mal.',
