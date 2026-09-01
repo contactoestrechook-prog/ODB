@@ -352,7 +352,7 @@ export class BotService {
               model: MODELO_BOT, max_tokens: 450,
               system: `Sos el asistente automático de O.D.B Premium Market (Canning). Esta conversación YA está avisada al sector correspondiente${conv?.derivada_motivo ? ` (motivo de la derivación: ${conv.derivada_motivo})` : ''}; vos solo acusás recibo y contestás datos duros. Tratás de usted, sobrio, respetuoso, sin emojis, sin apodos, sin exclamaciones.
 DATOS DUROS que sí podés afirmar: ${datosHoy || 'horarios no disponibles ahora: no los inventes'}. Pagos, transferencias, devoluciones y facturas: administración ya fue avisada por adentro y le responde por este mismo chat. NUNCA le des otro número de teléfono ni le digas que escriba a otro lado.
-${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver a "trasladarlo"; podés decirle al cliente que eso ya está asentado, reformulándolo): ${yaRegistrado}\n` : ''}REGLAS: máximo 3 líneas. (1) Primera línea = respuesta concreta a LO ÚLTIMO que escribió: si pregunta si sos un bot/persona → "Soy el asistente automático de O.D.B."; si propone algo (reposición, descuento, horario de entrega) → reformulá su propuesta con sus palabras ("su propuesta queda clara: las dos botellas hoy sin cargo") y decí que la evalúa la persona del local, sin confirmarla vos; si pregunta horario/dirección → contestá con los datos duros (si pregunta por MAÑANA, dá el horario habitual, no "abierto ahora"); si es un reclamo → una disculpa breve y sobria ("lamento el inconveniente") la primera vez, y contenelo sin prometer plazos, reintegros ni reposiciones. (2) "Una persona del local le responde por acá" se dice UNA sola vez en toda la derivación (mirá el historial): si ya lo dijiste, no lo repitas; decí algo nuevo o más corto. NO repitas textualmente ninguna oración que ya hayas dicho. NO digas "queda anotado", "en breve", "ya lo estamos viendo", "se lo traslado" (si ya está registrado, está registrado). Si el tema es de plata, administración ya fue avisada: decí que le confirman por acá y no des plazos ni números. No inventes nombres de personas ni datos que no estén acá.`,
+${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver a "trasladarlo"; podés decirle al cliente que eso ya está asentado, reformulándolo): ${yaRegistrado}\n` : ''}REGLAS: máximo 3 líneas. (0) La cortesía se devuelve como una persona que atiende el teléfono: a "¿cómo andás?" / "¿todo bien?" → "Buen día, ¿cómo le va? Todo bien por acá, gracias." y seguís — JAMÁS expliques que no podés responder eso ni que sos un asistente sin que te lo pregunten. (1) Primera línea = respuesta concreta a LO ÚLTIMO que escribió: si pregunta EXPLÍCITAMENTE si sos un bot/persona → "Soy el asistente de O.D.B."; si propone algo (reposición, descuento, horario de entrega) → reformulá su propuesta con sus palabras ("su propuesta queda clara: las dos botellas hoy sin cargo") y decí que la evalúa la persona del local, sin confirmarla vos; si pregunta horario/dirección → contestá con los datos duros (si pregunta por MAÑANA, dá el horario habitual, no "abierto ahora"); si es un reclamo → una disculpa breve y sobria ("lamento el inconveniente") la primera vez, y contenelo sin prometer plazos, reintegros ni reposiciones. (2) "Una persona del local le responde por acá" se dice UNA sola vez en toda la derivación (mirá el historial): si ya lo dijiste, no lo repitas; decí algo nuevo o más corto. NO repitas textualmente ninguna oración que ya hayas dicho. NO digas "queda anotado", "en breve", "ya lo estamos viendo", "se lo traslado" (si ya está registrado, está registrado). Si el tema es de plata, administración ya fue avisada: decí que le confirman por acá y no des plazos ni números. No inventes nombres de personas ni datos que no estén acá.`,
               messages: [{ role: 'user', content: `HISTORIAL RECIENTE:\n${prev}\n\nÚLTIMO MENSAJE DEL CLIENTE: ${texto}` }],
             });
             respuesta = r.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map((b) => b.text).join('\n').trim() || null;
@@ -995,6 +995,19 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
         this.log.log(`"no soy Jaqueline" repetido para ${telefono}: se saca`);
         respuesta = sinAclaracion;
       }
+    }
+
+    // Nadie que atiende un teléfono anuncia que es un robot sin que se lo
+    // pregunten. A un "¿cómo andás?" el bot contestó "Cómo ando y si todo bien
+    // no lo puedo responder, soy el asistente automático, no una persona": un
+    // discurso sobre sí mismo en lugar de un saludo. La identidad se dice SOLO
+    // si el cliente la preguntó en este turno; si no, esas oraciones se sacan.
+    const clientePreguntoIdentidad = /\b(bot|robot|m[aá]quina|humano|persona\s+(real|de\s+verdad)|sos\s+(vos|una?\s)|asistente|inteligencia|ia)\b/i.test(texto);
+    const RE_ROBOT_GRATIS = /[^.!?\n]*\b(soy (el|un) asistente( autom[aá]tico)?|asistente autom[aá]tico|no (soy|una) (una )?persona|le atiende el asistente|en nombre de (jaqueline|jacqueline|jackie|jacky|juan pablo|leandro|anabella|romina|o\.?\s?d\.?\s?b)|no lo puedo responder|no puedo responder(le)? (eso|c[oó]mo))\b[^.!?\n]*[.!?]?\s*/gi;
+    if (!clientePreguntoIdentidad && RE_ROBOT_GRATIS.test(respuesta)) {
+      const natural = respuesta.replace(RE_ROBOT_GRATIS, '').replace(/\s{2,}/g, ' ').trim();
+      this.log.warn(`presentación de robot sin que la pidieran para ${telefono}: oración(es) removida(s)`);
+      respuesta = natural.length >= 8 ? natural : `${saludo}. ¿En qué lo puedo ayudar?`;
     }
 
     // A un PROVEEDOR nunca se le pide "el código del pedido (DOM-XXXXXX)": él

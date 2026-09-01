@@ -207,6 +207,30 @@ describe('BotService.charla (robustez del agente)', () => {
     expect(r.respuesta ?? '').toBe('');
   });
 
+  // A un "¿cómo andás?" el bot contestó "Cómo ando y si todo bien no lo puedo
+  // responder, soy el asistente automático, no una persona". Nadie que atiende
+  // un teléfono anuncia que es un robot sin que se lo pregunten.
+  it('saca el discurso de robot cuando nadie preguntó la identidad', async () => {
+    const db = dbFalsa({ bot_conversaciones: { data: { mensajes: [] }, error: null } });
+    const { s } = servicio(db);
+    (s as any).claude = { messages: { create: jest.fn().mockResolvedValue(respuestaClaude(
+      'Buen día. Cómo ando no lo puedo responder, soy el asistente automático, no una persona. ¿En qué lo puedo ayudar?',
+    )) } };
+    const r: any = await s.charla({ linea: 'pedidos', telefono: '2020', mensaje: 'Jackie, buen día, ¿cómo andás? ¿Todo bien?' });
+    expect(r.respuesta).not.toMatch(/asistente|no una persona|no lo puedo responder/i);
+    expect(r.respuesta.length).toBeGreaterThan(5);
+  });
+
+  it('la identidad SÍ se dice cuando el cliente la pregunta', async () => {
+    const db = dbFalsa({ bot_conversaciones: { data: { mensajes: [] }, error: null } });
+    const { s } = servicio(db);
+    (s as any).claude = { messages: { create: jest.fn().mockResolvedValue(respuestaClaude(
+      'Soy el asistente de O.D.B. ¿En qué lo puedo ayudar?',
+    )) } };
+    const r: any = await s.charla({ linea: 'pedidos', telefono: '2021', mensaje: '¿sos un bot o una persona?' });
+    expect(r.respuesta).toMatch(/asistente/i);
+  });
+
   it('acumula tokens del mensaje en la conversación', async () => {
     const db = dbFalsa({ bot_conversaciones: { data: { mensajes: [], tokens: 1000 }, error: null } });
     const { s } = servicio(db);
