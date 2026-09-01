@@ -1007,7 +1007,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     // por adentro. Y "O.D.B" lleva puntos, así que cualquier corte por puntos
     // la parte al medio ("gracias.D.B y le tomo…"): la sigla se protege antes
     // de dividir y se restaura después.
-    const RE_ROBOT = /\b(soy (el|un) asistente( autom[aá]tico)?|asistente autom[aá]tico|no (soy|una) (una )?persona|le atiende el asistente|en nombre de (jaqueline|jacqueline|jackie|jacky|juan pablo|leandro|anabella|romina|§odb§)|no lo puedo responder|no puedo responder(le)? (eso|c[oó]mo))\b/i;
+    const RE_ROBOT = /\b(soy (el|un) asistente( autom[aá]tico)?|asistente autom[aá]tico|no (soy|una) (una )?persona|le (atiende|responde) el asistente|en nombre de (jaqueline|jacqueline|jackie|jacky|juan pablo|leandro|anabella|romina|§odb§)|no lo puedo responder|no puedo responder(le)? (eso|c[oó]mo))\b/i;
     if (!clientePreguntoIdentidad) {
       const protegida = respuesta.replace(/O\.?\s?D\.?\s?B/gi, '§odb§');
       if (RE_ROBOT.test(protegida)) {
