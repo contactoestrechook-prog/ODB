@@ -554,3 +554,45 @@ describe('saludo universal con bienvenida (según la hora de Buenos Aires)', () 
     );
   });
 });
+
+describe('Emilia: presentación breve y adjuntos que el bot abre solo', () => {
+  beforeEach(() => { process.env.ANTHROPIC_API_KEY = 'test'; });
+
+  it('la presentación "soy Emilia, la asistente de O.D.B" NO la borra el guard anti-robot', async () => {
+    const { s } = servicio();
+    (s as any).claude = { messages: { create: jest.fn().mockResolvedValue(respuestaClaude(
+      'Buen día. Jaqueline no está disponible en este momento; soy Emilia, la asistente de O.D.B. Dígame en qué lo puedo ayudar y con gusto lo hago.',
+    )) } };
+    const r: any = await s.charla({ linea: 'pedidos', telefono: '3011', mensaje: 'hola, está Jacqueline?' });
+    expect(r.respuesta).toContain('soy Emilia, la asistente de O.D.B');
+    expect(r.respuesta).toContain('no está disponible');
+  });
+
+  it('un PDF del cliente viaja al modelo como documento (el bot lo LEE, no lo deriva)', async () => {
+    const { s } = servicio();
+    const crear = jest.fn().mockResolvedValue(respuestaClaude('De esa lista tenemos el Malbec a $16.600.'));
+    (s as any).claude = { messages: { create: crear } };
+    const r: any = await s.charla({
+      linea: 'pedidos', telefono: '3012', mensaje: '¿tienen algo de esta lista?',
+      archivoBase64: 'JVBERi0xLjQKJcTl', mimeType: 'application/pdf',
+    });
+    expect(r.respuesta).toContain('Malbec');
+    const contenido = crear.mock.calls[0][0].messages.at(-1).content;
+    expect(Array.isArray(contenido)).toBe(true);
+    expect(contenido[0]).toMatchObject({ type: 'document', source: { type: 'base64', media_type: 'application/pdf' } });
+  });
+
+  it('la vista previa de un video entra como imagen y el modelo sabe que es un video', async () => {
+    const { s } = servicio();
+    const crear = jest.fn().mockResolvedValue(respuestaClaude('Recibido. Lo veo y le confirmo por acá.'));
+    (s as any).claude = { messages: { create: crear } };
+    await s.charla({
+      linea: 'pedidos', telefono: '3013', mensaje: '',
+      archivoBase64: '/9j/4AAQSkZJRg', mimeType: 'image/jpeg', vistaPreviaDeVideo: true,
+    });
+    const contenido = crear.mock.calls[0][0].messages.at(-1).content;
+    expect(contenido[0]).toMatchObject({ type: 'image' });
+    expect(contenido[1].text).toContain('VIDEO');
+    expect(contenido[1].text).toContain('vista previa');
+  });
+});

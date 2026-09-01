@@ -72,6 +72,7 @@ export class BotService {
     archivoBase64?: string;
     mimeType?: string;
     archivoUrl?: string; // copia pública del archivo (comprobantes): va al aviso interno
+    vistaPreviaDeVideo?: boolean; // el adjunto es el primer cuadro de un video, no una foto
   }) {
     // Patrón MetoGroup: el puente manda el número al que LLEGÓ el mensaje y el
     // sistema resuelve la línea. Así un mismo flujo de n8n sirve para cualquier
@@ -246,7 +247,7 @@ export class BotService {
   private async charlaInterna(
     linea: 'pedidos' | 'proveedores',
     telefono: string,
-    dto: { mensaje?: string; mensajeId?: string; archivoBase64?: string; mimeType?: string; archivoUrl?: string },
+    dto: { mensaje?: string; mensajeId?: string; archivoBase64?: string; mimeType?: string; archivoUrl?: string; vistaPreviaDeVideo?: boolean },
   ) {
     // idempotencia: si Meta/n8n reintentan el mismo mensaje, devolver la misma
     // respuesta sin volver a procesar (clave = id del mensaje de WhatsApp)
@@ -265,6 +266,7 @@ export class BotService {
     //    se procesa ACÁ (nunca pasa base64 por el modelo) y se inyecta el resultado.
     let texto = (dto.mensaje ?? '').trim();
     let imagenDelTurno: { base64: string; mime: string } | null = null;
+    let documentoDelTurno: { base64: string } | null = null;
     if (dto.archivoBase64) {
       if (linea === 'proveedores') {
         try {
@@ -278,7 +280,12 @@ export class BotService {
         // modelo la MIRA. Antes le contestábamos "no puedo ver fotos", que para
         // un negocio es vergonzoso.
         imagenDelTurno = { base64: dto.archivoBase64, mime: (dto.mimeType ?? 'image/jpeg').split(';')[0] };
-        if (!texto) texto = '[el cliente mandó esta foto]';
+        if (!texto) texto = dto.vistaPreviaDeVideo ? '[el cliente mandó un video]' : '[el cliente mandó esta foto]';
+      } else if (/^application\/pdf/.test(dto.mimeType ?? '') && dto.archivoBase64.length < 20_000_000) {
+        // un PDF (lista, catálogo, comprobante) el modelo lo LEE como documento;
+        // el tope evita mandar al modelo un archivo gigante que no va a entrar
+        documentoDelTurno = { base64: dto.archivoBase64 };
+        if (!texto) texto = '[el cliente mandó este PDF]';
       } else {
         texto += '\n[El cliente envió un archivo que no es una imagen. Decile que tomás lo que mandó y que das aviso al sector correspondiente, sin prometer plazos ni quién responde.]';
       }
@@ -358,7 +365,7 @@ export class BotService {
               model: MODELO_BOT, max_tokens: 450,
               system: `Sos el asistente automático de O.D.B Premium Market (Canning). Esta conversación YA está avisada al sector correspondiente${conv?.derivada_motivo ? ` (motivo de la derivación: ${conv.derivada_motivo})` : ''}; vos solo acusás recibo y contestás datos duros. Tratás de usted, sobrio, respetuoso, sin emojis, sin apodos, sin exclamaciones.
 DATOS DUROS que sí podés afirmar: ${datosHoy || 'horarios no disponibles ahora: no los inventes'}. Pagos, transferencias, devoluciones y facturas: administración ya fue avisada por adentro y le responde por este mismo chat. NUNCA le des otro número de teléfono ni le digas que escriba a otro lado.
-${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver a "trasladarlo"; podés decirle al cliente que eso ya está asentado, reformulándolo): ${yaRegistrado}\n` : ''}REGLAS: máximo 3 líneas. (0) La cortesía se devuelve como una persona que atiende el teléfono: a "¿cómo andás?" / "¿todo bien?" → "Buen día, ¿cómo le va? Todo bien por acá, gracias." y seguís — JAMÁS expliques que no podés responder eso ni que sos un asistente sin que te lo pregunten. (1) Primera línea = respuesta concreta a LO ÚLTIMO que escribió: si pregunta EXPLÍCITAMENTE si sos un bot/persona → "Soy el asistente de O.D.B."; si propone algo (reposición, descuento, horario de entrega) → reformulá su propuesta con sus palabras ("su propuesta queda clara: las dos botellas hoy sin cargo") y decí que la evalúa la persona del local, sin confirmarla vos; si pregunta horario/dirección → contestá con los datos duros (si pregunta por MAÑANA, dá el horario habitual, no "abierto ahora"); si es un reclamo → una disculpa breve y sobria ("lamento el inconveniente") la primera vez, y contenelo sin prometer plazos, reintegros ni reposiciones. (2) "Una persona del local le responde por acá" se dice UNA sola vez en toda la derivación (mirá el historial): si ya lo dijiste, no lo repitas; decí algo nuevo o más corto. NO repitas textualmente ninguna oración que ya hayas dicho. NO digas "queda anotado", "en breve", "ya lo estamos viendo", "se lo traslado" (si ya está registrado, está registrado). Si el tema es de plata, administración ya fue avisada: decí que le confirman por acá y no des plazos ni números. No inventes nombres de personas ni datos que no estén acá.`,
+${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver a "trasladarlo"; podés decirle al cliente que eso ya está asentado, reformulándolo): ${yaRegistrado}\n` : ''}REGLAS: máximo 3 líneas. (0) La cortesía se devuelve como una persona que atiende el teléfono: a "¿cómo andás?" / "¿todo bien?" → "Buen día, ¿cómo le va? Todo bien por acá, gracias." y seguís — JAMÁS expliques que no podés responder eso ni que sos un asistente sin que te lo pregunten. (1) Primera línea = respuesta concreta a LO ÚLTIMO que escribió: si pregunta EXPLÍCITAMENTE si sos un bot/persona → "Soy Emilia, la asistente de O.D.B."; si propone algo (reposición, descuento, horario de entrega) → reformulá su propuesta con sus palabras ("su propuesta queda clara: las dos botellas hoy sin cargo") y decí que la evalúa la persona del local, sin confirmarla vos; si pregunta horario/dirección → contestá con los datos duros (si pregunta por MAÑANA, dá el horario habitual, no "abierto ahora"); si es un reclamo → una disculpa breve y sobria ("lamento el inconveniente") la primera vez, y contenelo sin prometer plazos, reintegros ni reposiciones. (2) "Una persona del local le responde por acá" se dice UNA sola vez en toda la derivación (mirá el historial): si ya lo dijiste, no lo repitas; decí algo nuevo o más corto. NO repitas textualmente ninguna oración que ya hayas dicho. NO digas "queda anotado", "en breve", "ya lo estamos viendo", "se lo traslado" (si ya está registrado, está registrado). Si el tema es de plata, administración ya fue avisada: decí que le confirman por acá y no des plazos ni números. No inventes nombres de personas ni datos que no estén acá.`,
               messages: [{ role: 'user', content: `HISTORIAL RECIENTE:\n${prev}\n\nÚLTIMO MENSAJE DEL CLIENTE: ${texto}` }],
             });
             respuesta = r.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map((b) => b.text).join('\n').trim() || null;
@@ -486,10 +493,12 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     if (preguntasDelCliente >= 2) estado.push(`este mensaje trae ${preguntasDelCliente} preguntas: contestá CADA una en una línea, en el orden en que las hizo; si un dato no lo tenés, decilo en su línea`);
     const contenidoDelTurno = (t: string): any => (imagenDelTurno
       ? [{ type: 'image', source: { type: 'base64', media_type: imagenDelTurno.mime, data: imagenDelTurno.base64 } }, { type: 'text', text: t }]
+      : documentoDelTurno
+      ? [{ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: documentoDelTurno.base64 } }, { type: 'text', text: t }]
       : t);
     const messages: Anthropic.MessageParam[] = [
       ...historial,
-      { role: 'user', content: contenidoDelTurno(`${texto}\n\n[metadatos: telefono del chat = ${telefono}${quien}; ahora es ${ahoraBA} (hora de Buenos Aires); si corresponde saludar, el saludo correcto es "${saludo}". Estado de la charla: ${estado.join(' · ')}${imagenDelTurno ? '. El cliente mandó una FOTO: mirala y respondé sobre lo que se ve. Si es un producto, buscalo en el catálogo por lo que leas en la etiqueta; si es un comprobante de pago, leé el MONTO y llamá derivar_pago con tipo "comprobante_enviado" y ese monto; si no se entiende, pedí que la saque de nuevo más nítida' : ''}]`) },
+      { role: 'user', content: contenidoDelTurno(`${texto}\n\n[metadatos: telefono del chat = ${telefono}${quien}; ahora es ${ahoraBA} (hora de Buenos Aires); si corresponde saludar, el saludo correcto es "${saludo}". Estado de la charla: ${estado.join(' · ')}${imagenDelTurno ? (dto.vistaPreviaDeVideo ? '. El cliente mandó un VIDEO y lo que ves es su vista previa (el primer cuadro). Respondé sobre lo que se ve; si con eso no alcanza para responder con seguridad, acusá recibo en una línea y dejá nota_interna para que lo mire alguien de la casa. Jamás digas que no podés ver videos' : '. El cliente mandó una FOTO: mirala y respondé sobre lo que se ve. Si es un producto, buscalo en el catálogo por lo que leas en la etiqueta; si es un comprobante de pago, leé el MONTO y llamá derivar_pago con tipo "comprobante_enviado" y ese monto; si no se entiende, pedí que la saque de nuevo más nítida') : documentoDelTurno ? '. El cliente mandó un PDF: leelo y respondé sobre lo que dice. Si pregunta por productos de una lista, contestá con los del catálogo nuestro; si es un comprobante de pago, leé el MONTO y llamá derivar_pago con tipo "comprobante_enviado" y ese monto; si no se puede leer, pedí que lo reenvíe' : ''}]`) },
     ];
 
     // 3) loop del agente: Opus razona, pide herramientas, las ejecutamos y sigue
@@ -2464,27 +2473,53 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
       const tipoMedia: 'image' | 'audio' | 'video' | 'document' = esImagen ? 'image' : esAudio ? 'audio' : tipo === 'video' || /^video\//.test(media?.mime ?? '') ? 'video' : 'document';
       const mediaReg = enlacePublico ? { tipo: tipoMedia, url: enlacePublico } : null;
 
-      // FOTO: el bot la mira y contesta sobre lo que ve.
-      if (esImagen && media) {
+      // FOTO o PDF: el bot lo mira/lee y contesta sobre lo que dice.
+      const esPdf = (media?.mime === 'application/pdf' || /\.pdf$/i.test(media?.nombre ?? '')) && (media?.base64.length ?? Infinity) < 20_000_000;
+      if ((esImagen || esPdf) && media) {
+        const rotulo = esImagen ? '📷 Foto del cliente' : '📄 PDF del cliente';
         if (await this.respondeModoHumano(waIdM).catch(() => false)) {
-          await this.respondeRegistrar(waIdM, p._data?.notifyName ?? p.notifyName ?? null, etiqueta('📷 Foto del cliente'), null, p.id ? String(p.id) : undefined, mediaReg).catch(() => null);
+          await this.respondeRegistrar(waIdM, p._data?.notifyName ?? p.notifyName ?? null, etiqueta(rotulo), null, p.id ? String(p.id) : undefined, mediaReg).catch(() => null);
           return { contestado: false, motivo: 'RESPONDE: atiende una persona' };
         }
         const r: any = await this.charla({
           numeroLinea, telefono: identidad,
           mensaje: epigrafe,
-          archivoBase64: media.base64, mimeType: media.mime,
+          archivoBase64: media.base64, mimeType: esPdf && !esImagen ? 'application/pdf' : media.mime,
           archivoUrl: enlacePublico || undefined,
           mensajeId: p.id ? String(p.id) : undefined,
         });
         if (!r?.respuesta) {
-          await this.respondeRegistrar(waIdM, p.notifyName ?? null, etiqueta('📷 Foto del cliente'), null, p.id ? String(p.id) : undefined, mediaReg).catch(() => null);
+          await this.respondeRegistrar(waIdM, p.notifyName ?? null, etiqueta(rotulo), null, p.id ? String(p.id) : undefined, mediaReg).catch(() => null);
           return { contestado: false, motivo: 'sin respuesta' };
         }
         await this.simularEscritura(desde, r.respuesta);
         const env = await this.enviarPorWhatsapp({ to: desde, text: r.respuesta, referencia: `waha/${identidad}` });
-        this.respondeRegistrar(waIdM, p.notifyName ?? null, etiqueta(`📷 Foto del cliente${epigrafe ? `: ${epigrafe}` : ''}`), r.respuesta, p.id ? String(p.id) : undefined, mediaReg).catch(() => null);
-        return { contestado: env.enviado, motivo: 'foto mirada por el bot' };
+        this.respondeRegistrar(waIdM, p.notifyName ?? null, etiqueta(`${rotulo}${epigrafe ? `: ${epigrafe}` : ''}`), r.respuesta, p.id ? String(p.id) : undefined, mediaReg).catch(() => null);
+        return { contestado: env.enviado, motivo: esImagen ? 'foto mirada por el bot' : 'pdf leído por el bot' };
+      }
+
+      // VIDEO: WhatsApp casi siempre manda la vista previa (el primer cuadro).
+      // Con eso el bot puede responder de qué se trata; si no la trae, sigue el
+      // camino de siempre (lo abre una persona). Jamás "no puedo ver videos".
+      const esVideo = tipo === 'video' || /^video\//.test(media?.mime ?? '');
+      if (esVideo) {
+        const miniatura = [p._data?.jpegThumbnail, p._data?.message?.videoMessage?.jpegThumbnail, p.media?.preview]
+          .find((x: any) => typeof x === 'string' && x.length > 100);
+        if (miniatura && !(await this.respondeModoHumano(waIdM).catch(() => false))) {
+          const r: any = await this.charla({
+            numeroLinea, telefono: identidad,
+            mensaje: epigrafe,
+            archivoBase64: miniatura, mimeType: 'image/jpeg', vistaPreviaDeVideo: true,
+            archivoUrl: enlacePublico || undefined,
+            mensajeId: p.id ? String(p.id) : undefined,
+          }).catch(() => null);
+          if (r?.respuesta) {
+            await this.simularEscritura(desde, r.respuesta);
+            const env = await this.enviarPorWhatsapp({ to: desde, text: r.respuesta, referencia: `waha/${identidad}` });
+            this.respondeRegistrar(waIdM, p.notifyName ?? null, etiqueta(`🎬 Video del cliente${epigrafe ? `: ${epigrafe}` : ''}`), r.respuesta, p.id ? String(p.id) : undefined, mediaReg).catch(() => null);
+            return { contestado: env.enviado, motivo: 'video interpretado por su vista previa' };
+          }
+        }
       }
 
       // AUDIO: si hay transcripción configurada, se escucha y se atiende como
