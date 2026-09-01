@@ -305,7 +305,7 @@ export class BotService {
     // auditar el cerebro con la línea APAGADA. Nunca son clientes reales, esta
     // ruta no envía WhatsApp, y sin esto la única forma de auditar era prender
     // el bot para todo el mundo.
-    const esBancoDePruebas = /^549110000000\d{1,2}$/.test(telefono);
+    const esBancoDePruebas = /^54911000000\d{1,3}$/.test(telefono);
     const botApagadoGlobal = lineaCfg?.bot_activo === false && !esBancoDePruebas;
 
     // La conversación está derivada a una persona: el mensaje se guarda en el
