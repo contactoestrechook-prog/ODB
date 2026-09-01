@@ -27,6 +27,38 @@ export function niegaPercepcion(t: string): boolean {
   return RE_NO_PERCIBO.test(t) || RE_SOLO_TEXTO.test(t);
 }
 
+// El registro del bot (decisión del dueño, 2026-09-01): trato de VOS, nunca de
+// usted, pero sumamente respetuoso — la cercanía es del trato, no de la
+// confianza. El prompt (TONO_BOT) lo ordena; esto es el candado determinístico:
+// convierte los restos de usted que son inequívocos (no se puede invertir
+// "tiene"→"tenés" porque se confunde con la tercera persona legítima), y
+// mantiene la sobriedad: sin emojis, sin exclamaciones, sin muletillas de
+// amigo ("che", "dale", "joya").
+const DE_USTED: Array<[RegExp, string]> = ([
+  ['dígame', 'decime'], ['cuénteme', 'contame'], ['mándeme', 'mandame'],
+  ['páseme', 'pasame'], ['avíseme', 'avisame'], ['escríbame', 'escribime'],
+  ['fíjese', 'fijate'], ['disculpe', 'disculpá'],
+  ['usted', 'vos'], ['dale', 'de acuerdo'],
+] as Array<[string, string]>).map(([de, a]) => [
+  // bordes de palabra hechos a mano: el \b de JS no ve fin de palabra tras tilde
+  new RegExp(String.raw`(?<![a-za-záéíóúñ])${de}(?![a-za-záéíóúñ])`, 'gi'),
+  a,
+]);
+const CONFIANZUDO = /,?\s*\b(che|tranqui|querid[oa]|amigo|jefe|genio|capo)\b/gi;
+
+export function respetuosoSinConfianza(t: string): string {
+  let r = t;
+  for (const [re, a] of DE_USTED) {
+    r = r.replace(re, (m) => (m[0] === m[0].toUpperCase() ? a[0].toUpperCase() + a.slice(1) : a));
+  }
+  r = r.replace(CONFIANZUDO, '');
+  // sin exclamaciones: se bajan a punto (o se quitan, si ya hay puntuación)
+  r = r.replace(/¡/g, '').replace(/!+(?=\s*[.?!])/g, '').replace(/!+/g, '.');
+  // sin emojis (la viñeta •, el × y el $ no son emojis y quedan)
+  r = r.replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE0F}\u{200D}]/gu, '');
+  return r.replace(/[ \t]{2,}/g, ' ').replace(/[ \t]+$/gm, '');
+}
+
 // El saludo acompaña el reloj de Buenos Aires: buen día hasta las 13, buenas
 // tardes hasta las 20, buenas noches después. El modelo no tiene reloj, así
 // que esto se decide acá y no por su buena voluntad.
@@ -46,8 +78,8 @@ export function saludarConBienvenida(respuesta: string, saludo: string): string 
   r = r.replace(/^¡?(buen d[ií]a|buen[oa]s d[ií]as|buenas tardes|buenas noches|hola)[!.,]?\s*/i, '');
   const yaDaBienvenida = /bienvenid/i.test(r);
   if (r) r = r[0].toUpperCase() + r.slice(1);
-  const arranque = yaDaBienvenida ? `${saludo}. ` : `${saludo}, le damos la bienvenida a O.D.B. `;
-  return (arranque + (r || '¿En qué lo puedo ayudar?')).trim();
+  const arranque = yaDaBienvenida ? `${saludo}. ` : `${saludo}, te damos la bienvenida a O.D.B. `;
+  return (arranque + (r || '¿En qué te puedo ayudar?')).trim();
 }
 
 // Un nombre de cliente es un nombre o no es nada: en producción llegó a

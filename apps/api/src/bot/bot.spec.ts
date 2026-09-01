@@ -151,7 +151,7 @@ describe('BotService.charla (robustez del agente)', () => {
       },
     });
     const { s } = servicio(db);
-    const crear = jest.fn().mockResolvedValue(respuestaClaude('Buenas tardes. ¿En qué lo puedo ayudar?'));
+    const crear = jest.fn().mockResolvedValue(respuestaClaude('Buenas tardes. ¿En qué te puedo ayudar?'));
     (s as any).claude = { messages: { create: crear } };
     await s.charla({ linea: 'pedidos', telefono: '888', mensaje: 'Hola' });
     expect(crear).toHaveBeenCalled();
@@ -169,7 +169,7 @@ describe('BotService.charla (robustez del agente)', () => {
       },
     });
     const { s } = servicio(db);
-    const crear = jest.fn().mockResolvedValue(respuestaClaude('Buenas tardes. ¿En qué lo puedo ayudar?'));
+    const crear = jest.fn().mockResolvedValue(respuestaClaude('Buenas tardes. ¿En qué te puedo ayudar?'));
     (s as any).claude = { messages: { create: crear } };
     await s.charla({ linea: 'pedidos', telefono: '999', mensaje: 'Hola' });
     expect(crear).toHaveBeenCalled();
@@ -214,7 +214,7 @@ describe('BotService.charla (robustez del agente)', () => {
     const db = dbFalsa({ bot_conversaciones: { data: { mensajes: [] }, error: null } });
     const { s } = servicio(db);
     (s as any).claude = { messages: { create: jest.fn().mockResolvedValue(respuestaClaude(
-      'Buen día. Cómo ando no lo puedo responder, soy el asistente automático, no una persona. ¿En qué lo puedo ayudar?',
+      'Buen día. Cómo ando no lo puedo responder, soy el asistente automático, no una persona. ¿En qué te puedo ayudar?',
     )) } };
     const r: any = await s.charla({ linea: 'pedidos', telefono: '2020', mensaje: 'Jackie, buen día, ¿cómo andás? ¿Todo bien?' });
     expect(r.respuesta).not.toMatch(/asistente|no una persona|no lo puedo responder/i);
@@ -241,7 +241,7 @@ describe('BotService.charla (robustez del agente)', () => {
     const db = dbFalsa({ bot_conversaciones: { data: { mensajes: [] }, error: null } });
     const { s } = servicio(db);
     (s as any).claude = { messages: { create: jest.fn().mockResolvedValue(respuestaClaude(
-      'Soy el asistente de O.D.B. ¿En qué lo puedo ayudar?',
+      'Soy el asistente de O.D.B. ¿En qué te puedo ayudar?',
     )) } };
     const r: any = await s.charla({ linea: 'pedidos', telefono: '2021', mensaje: '¿sos un bot o una persona?' });
     expect(r.respuesta).toMatch(/asistente/i);
@@ -529,12 +529,12 @@ describe('saludo universal con bienvenida (según la hora de Buenos Aires)', () 
 
   it('corrige el saludo del modelo cuando imaginó otra hora y suma la bienvenida', () => {
     const r = saludarConBienvenida('Buen día. El Fernet Branca de 750 cc está $20.500. ¿Cuántas botellas necesita?', 'Buenas noches');
-    expect(r).toBe('Buenas noches, le damos la bienvenida a O.D.B. El Fernet Branca de 750 cc está $20.500. ¿Cuántas botellas necesita?');
+    expect(r).toBe('Buenas noches, te damos la bienvenida a O.D.B. El Fernet Branca de 750 cc está $20.500. ¿Cuántas botellas necesita?');
   });
 
   it('si el modelo no saludó, el saludo y la bienvenida se anteponen', () => {
     const r = saludarConBienvenida('El local abre a las 9.', 'Buenas tardes');
-    expect(r).toBe('Buenas tardes, le damos la bienvenida a O.D.B. El local abre a las 9.');
+    expect(r).toBe('Buenas tardes, te damos la bienvenida a O.D.B. El local abre a las 9.');
   });
 
   it('no duplica la bienvenida si el modelo ya la dio', () => {
@@ -545,12 +545,12 @@ describe('saludo universal con bienvenida (según la hora de Buenos Aires)', () 
 
   it('"Hola, buen día" no queda duplicado ni suelto', () => {
     const r = saludarConBienvenida('Hola, buen día, ¿cómo le va? Todo bien por acá.', 'Buen día');
-    expect(r).toBe('Buen día, le damos la bienvenida a O.D.B. ¿cómo le va? Todo bien por acá.');
+    expect(r).toBe('Buen día, te damos la bienvenida a O.D.B. ¿cómo le va? Todo bien por acá.');
   });
 
   it('un saludo solo se completa con el ofrecimiento de ayuda', () => {
     expect(saludarConBienvenida('Buenas tardes.', 'Buenas noches')).toBe(
-      'Buenas noches, le damos la bienvenida a O.D.B. ¿En qué lo puedo ayudar?',
+      'Buenas noches, te damos la bienvenida a O.D.B. ¿En qué te puedo ayudar?',
     );
   });
 });
@@ -687,5 +687,24 @@ describe('candados: el bot JAMÁS dice que no puede ver/escuchar/recibir lo que 
     const r: any = await s.charla({ linea: 'pedidos', telefono: '4001', mensaje: 'hola necesito bebidas', mensajeId: undefined });
     expect(niegaPercepcion(r.respuesta)).toBe(false);
     expect(r.respuesta).toContain('Recibido');
+  });
+});
+
+describe('registro: voseo respetuoso, jamás usted ni confianzudo', () => {
+  const { respetuosoSinConfianza } = require('./prolijo');
+
+  it('convierte los restos de usted inequívocos a voseo', () => {
+    expect(respetuosoSinConfianza('Dígame en qué lo puedo ayudar. Cuando transfiera, mándeme el comprobante, y si tiene dudas, escríbame por acá, usted primero.'))
+      .toBe('Decime en qué lo puedo ayudar. Cuando transfiera, mandame el comprobante, y si tiene dudas, escribime por acá, vos primero.');
+  });
+
+  it('saca lo confianzudo: che, dale, apodos, exclamaciones y emojis', () => {
+    expect(respetuosoSinConfianza('¡Dale, che! Te lo mando ya 🍷😀')).toBe('De acuerdo. Te lo mando ya');
+    expect(respetuosoSinConfianza('Gracias, capo! Quedó joya el pedido.')).toBe('Gracias. Quedó joya el pedido.');
+  });
+
+  it('no rompe la tercera persona legítima ni las palabras del negocio', () => {
+    const t = 'El local tiene stock y la caja tiene cambio. Jaqueline dice que mañana llega. • 2 × Fernet — $41.000';
+    expect(respetuosoSinConfianza(t)).toBe(t);
   });
 });
