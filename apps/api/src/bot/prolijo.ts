@@ -107,6 +107,11 @@ export function emprolijarListado(t: string): string {
   // parte del renglón: "$20.900 Subtotal…" y "$4.700 ¿Busca…" quedaban
   // pegados al último ítem del listado
   r = r.replace(/(\$[\d.]+)[ \t]+(?=[¿A-ZÁÉÍÓÚÑ])/g, '$1\n\n');
+  // 4c. renglón completo (ya tiene precio) que cierra paréntesis y sigue con
+  // una oración nueva: "…$9.900 (Sant Thomas) La bolsa de 5 kg…" — la oración
+  // baja a su línea. Solo si el renglón ya tiene $: un paréntesis en medio del
+  // nombre de un producto no se toca.
+  r = r.replace(/^(•[^\n]*\$[\d.]+[^\n]*?\))[ \t]+(?=[A-ZÁÉÍÓÚÑ])/gm, '$1\n\n');
   // 4a. la pregunta pegada al final de un renglón baja a su propia línea:
   // "…(se compra en el mostrador) ¿Cuántas necesita?" — la regla del importe
   // no la ve porque el renglón termina en paréntesis, no en precio
