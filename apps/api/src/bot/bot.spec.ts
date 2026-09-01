@@ -771,3 +771,42 @@ describe('memoria de adjuntos: lo que llega con el bot apagado no se pierde', ()
     expect(historialGuardado).not.toContain('adjunto sin leer');
   });
 });
+
+describe('audios cortados: la bajada verifica el cierre del OGG y reintenta', () => {
+  const { oggCompleto } = require('./ogg');
+  // páginas OGG mínimas: 'OggS' + versión + header_type + granule(8) + serial(4) + seq(4) + crc(4) + nsegs(0)
+  const pagina = (headerType: number) => Buffer.concat([Buffer.from('OggS'), Buffer.from([0, headerType]), Buffer.alloc(21)]);
+
+  it('detecta el fin de stream (bit 0x04 de la última página)', () => {
+    expect(oggCompleto(Buffer.concat([pagina(0x02), pagina(0x00), pagina(0x04)]))).toBe(true);
+    expect(oggCompleto(Buffer.concat([pagina(0x02), pagina(0x00), pagina(0x00)]))).toBe(false);
+    expect(oggCompleto(Buffer.from('no soy un ogg'))).toBe(false);
+  });
+
+  it('los tres audios reales truncados del 1/9 dan incompleto', () => {
+    const fs = require('fs');
+    for (const f of ['1788282041183', '1788284657605', '1788285291423']) {
+      const ruta = `/var/folders/jz/dxyzv5zn2pl6n7cwchpw51840000gn/T/audio-${f}.oga`;
+      if (!fs.existsSync(ruta)) continue; // solo corre en la máquina donde se bajaron
+      expect(oggCompleto(fs.readFileSync(ruta))).toBe(false);
+    }
+  });
+
+  it('bajarMediaWaha reintenta hasta que el OGG cierra y devuelve la versión completa', async () => {
+    const cortado = Buffer.concat([pagina(0x02), pagina(0x00)]);
+    const completo = Buffer.concat([pagina(0x02), pagina(0x00), pagina(0x00), pagina(0x04)]);
+    const fetchViejo = global.fetch;
+    let llamadas = 0;
+    const ab = (b: Buffer) => b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength);
+    global.fetch = jest.fn(async () => ({ ok: true, arrayBuffer: async () => ab(++llamadas === 1 ? cortado : completo) })) as any;
+    process.env.WAHA_URL = 'https://waha';
+    const falso = { log: { log: () => undefined, warn: () => undefined } };
+    const r = await (BotService.prototype as any).bajarMediaWaha.call(falso, {
+      media: { url: 'https://waha/api/files/x.oga', mimetype: 'audio/ogg; codecs=opus' },
+    });
+    global.fetch = fetchViejo;
+    expect(llamadas).toBe(2);
+    expect(Buffer.from(r.base64, 'base64').length).toBe(completo.length);
+    expect(r.mime).toBe('audio/ogg');
+  }, 20000);
+});

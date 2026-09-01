@@ -1,5 +1,6 @@
 import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import { emprolijarListado, nombreLimpio, saludoSegunHora, saludarConBienvenida, niegaPercepcion, respetuosoSinConfianza } from './prolijo';
+import { oggCompleto } from './ogg';
 import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
 import { Cron } from '@nestjs/schedule';
@@ -2447,12 +2448,33 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
       return null;
     }
     try {
-      const r = await fetch(String(url), { headers: { 'X-Api-Key': process.env.WAHA_API_KEY ?? '' }, signal: AbortSignal.timeout(12000) });
-      if (!r.ok) { this.log.warn(`no pude bajar el archivo de WAHA (${r.status}): ${String(url).slice(0, 120)}`); return null; }
-      const buf = Buffer.from(await r.arrayBuffer());
+      const mimeCrudo = String(p?.media?.mimetype ?? '');
+      const esAudioOgg = /audio\/(ogg|oga)|opus/.test(mimeCrudo) || /\.oga?$|\.ogg$/i.test(String(url));
+      let buf: Buffer | null = null;
+      // WAHA convierte el audio EN EL MOMENTO: si se baja apenas llega el
+      // webhook, el archivo suele estar a medio escribir y queda cortado
+      // (2026-09-01: todos los audios guardados estaban truncados, se
+      // escuchaban por la mitad y la transcripción leía solo el principio).
+      // Se baja, se verifica el cierre del OGG y se reintenta hasta tenerlo
+      // completo; si nunca cierra, va la mejor versión que se consiguió.
+      for (let intento = 1; intento <= 5; intento++) {
+        const r = await fetch(String(url), { headers: { 'X-Api-Key': process.env.WAHA_API_KEY ?? '' }, signal: AbortSignal.timeout(12000) });
+        if (!r.ok) {
+          if (buf) break; // ya tenemos una versión: se usa esa
+          this.log.warn(`no pude bajar el archivo de WAHA (${r.status}): ${String(url).slice(0, 120)}`);
+          return null;
+        }
+        const intentoBuf = Buffer.from(await r.arrayBuffer());
+        if (!buf || intentoBuf.length >= buf.length) buf = intentoBuf;
+        if (!esAudioOgg || oggCompleto(intentoBuf)) break;
+        this.log.warn(`audio todavía a medio escribir en WAHA (${intentoBuf.length} bytes, intento ${intento}): espero y reintento`);
+        await new Promise((res) => setTimeout(res, 1500));
+      }
+      if (!buf) return null;
+      if (esAudioOgg && !oggCompleto(buf)) this.log.warn(`audio quedó SIN cierre tras los reintentos (${buf.length} bytes): va igual, puede estar cortado`);
       this.log.log(`archivo bajado de WAHA: ${buf.length} bytes · ${p?.media?.mimetype ?? '?'}`);
       if (buf.length > 4.5 * 1024 * 1024) { this.log.warn(`archivo demasiado grande (${buf.length} bytes): no va al modelo`); return null; }
-      const mime = String(p?.media?.mimetype ?? r.headers.get('content-type') ?? 'application/octet-stream').split(';')[0];
+      const mime = String(p?.media?.mimetype ?? 'application/octet-stream').split(';')[0];
       const nombre = String(p?.media?.filename ?? url.split('/').pop() ?? 'archivo');
       return { base64: buf.toString('base64'), mime, nombre };
     } catch (e: any) {
