@@ -460,6 +460,14 @@ describe('emprolijarListado (el total nunca queda pegado al renglón)', () => {
     expect(r).not.toContain('**');
   });
 
+  it('caso ronda 3: la pregunta pegada a un renglón que termina en paréntesis baja a su línea', () => {
+    const r = emprolijarListado(
+      'Sí, tenemos hielo:\n• Hielo Bolsa 15 kg — $9.900 (Sant Thomas)\n• Hielo Bolsa 5 kg — $5.800 (solo en Santa Inés, se compra en el mostrador) ¿Cuántas bolsas necesita?',
+    );
+    expect(r.split('\n')).toContain('• Hielo Bolsa 5 kg — $5.800 (solo en Santa Inés, se compra en el mostrador)');
+    expect(r).toMatch(/\n\n¿Cuántas bolsas necesita\?$/);
+  });
+
   it('listado de corrido con guiones queda con viñetas, total y pregunta en sus líneas', () => {
     const r = emprolijarListado(
       'Ya cotizado: - 4 × Agua Glaciar 2 L — $2.300 c/u = $9200 - 2 × Coca Zero — $2.300 c/u = $4.600 Total: $13.800 ¿Lo confirmo?',

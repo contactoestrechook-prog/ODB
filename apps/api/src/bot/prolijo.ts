@@ -30,6 +30,10 @@ export function emprolijarListado(t: string): string {
   // parte del renglón: "$20.900 Subtotal…" y "$4.700 ¿Busca…" quedaban
   // pegados al último ítem del listado
   r = r.replace(/(\$[\d.]+)[ \t]+(?=[¿A-ZÁÉÍÓÚÑ])/g, '$1\n\n');
+  // 4a. la pregunta pegada al final de un renglón baja a su propia línea:
+  // "…(se compra en el mostrador) ¿Cuántas necesita?" — la regla del importe
+  // no la ve porque el renglón termina en paréntesis, no en precio
+  r = r.replace(/^(•[^\n¿]*?)[ \t]+(¿[^\n]*\?)[ \t]*$/gm, '$1\n\n$2');
   // 4b. si el modelo YA escribió el total en negrita y pegado al renglón
   // ("= $15.000 *Total: $15.000* Es el total…"), se le saca la negrita y se
   // corta a renglón propio; la regla 5 lo vuelve a armar siempre igual
