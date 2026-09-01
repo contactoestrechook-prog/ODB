@@ -596,3 +596,49 @@ describe('Emilia: presentación breve y adjuntos que el bot abre solo', () => {
     expect(contenido[1].text).toContain('vista previa');
   });
 });
+
+describe('derivarPago reenvía el comprobante REAL a administración', () => {
+  const cfg = { data: { derivar_pagos_a: '5491125213601', avisar_proveedores_a: null, alias_pago: 'outlet.de.bebidas' }, error: null };
+  const armar = () => {
+    const { s } = servicio(dbFalsa({ lineas_whatsapp: cfg }));
+    const envios: any[] = [];
+    (s as any).enviarPorWhatsapp = jest.fn(async (p: any) => (envios.push(p), { enviado: true }));
+    (s as any).identificarCliente = jest.fn(async () => ({ existe: false }));
+    return { s, envios };
+  };
+
+  it('una foto de comprobante llega como IMAGEN al WhatsApp de administración, con el texto del cliente', async () => {
+    const { s, envios } = armar();
+    await s.derivarPago('pedidos', '5491133344455', 'Transferencia por la factura de la semana pasada', {
+      monto: 85000, tipo: 'comprobante_enviado',
+      comprobanteUrl: 'https://x.supabase.co/publico/whatsapp/549/171.jpg',
+      dichoPorElCliente: 'les mando el comprobante de los 85 mil',
+    });
+    expect(envios).toHaveLength(1);
+    expect(envios[0].to).toBe('5491125213601');
+    expect(envios[0].imagenUrl).toContain('171.jpg');
+    expect(envios[0].text).toContain('85.000');
+    expect(envios[0].text).toContain('les mando el comprobante de los 85 mil');
+    expect(envios[0].text).not.toContain('https://'); // la foto va adjunta, no como link
+  });
+
+  it('un PDF de comprobante llega como DOCUMENTO adjunto', async () => {
+    const { s, envios } = armar();
+    await s.derivarPago('pedidos', '5491133344455', 'Factura del proveedor', {
+      monto: 120000, tipo: 'comprobante_enviado',
+      comprobanteUrl: 'https://x.supabase.co/publico/whatsapp/549/172.pdf',
+    });
+    expect(envios[0].documentoUrl).toContain('172.pdf');
+    expect(envios[0].imagenUrl).toBeUndefined();
+  });
+
+  it('una consulta sin comprobante va como texto, sin adjuntos', async () => {
+    const { s, envios } = armar();
+    await s.derivarPago('pedidos', '5491133344455', 'Pregunta si le llegó la transferencia', {
+      tipo: 'consulta', dichoPorElCliente: '¿les llegó la plata?',
+    });
+    expect(envios[0].imagenUrl).toBeUndefined();
+    expect(envios[0].documentoUrl).toBeUndefined();
+    expect(envios[0].text).toContain('¿les llegó la plata?');
+  });
+});

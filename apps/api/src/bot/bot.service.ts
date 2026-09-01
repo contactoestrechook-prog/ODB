@@ -1437,7 +1437,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
             out = { derivado: true, aviso: 'Administración ya fue avisada hace un momento de este mismo tema. No lo anuncies de nuevo ni des ningún número: contestá lo nuevo, y si pregunta, decile que administración ya lo tiene y le confirma por acá.' };
             break;
           }
-          out = await this.derivarPago(linea, telefono, motivo, { monto, tipo: tipoPago, comprobanteUrl: ctx.archivoUrl });
+          out = await this.derivarPago(linea, telefono, motivo, { monto, tipo: tipoPago, comprobanteUrl: ctx.archivoUrl, dichoPorElCliente: ctx.textoCliente });
           // un comprobante se contesta con una palabra, y la pone el código
           if (tipoPago === 'comprobante_enviado' && ctx.fija) ctx.fija.texto = 'Recibido.';
           if ((out as any)?.respuestaFija && ctx.fija) ctx.fija.texto = String((out as any).respuestaFija);
@@ -2095,7 +2095,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     linea: 'pedidos' | 'proveedores',
     telefono: string,
     motivo: string,
-    extra: { monto?: number; tipo?: string; comprobanteUrl?: string } = {},
+    extra: { monto?: number; tipo?: string; comprobanteUrl?: string; dichoPorElCliente?: string } = {},
   ) {
     const { data: cfg } = await this.db
       .from('lineas_whatsapp').select('derivar_pagos_a, avisar_proveedores_a, alias_pago, titular_pago, banco_pago, cbu_pago').eq('linea', linea).eq('activa', true).limit(1).maybeSingle();
@@ -2151,12 +2151,25 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
         `${nombre ? nombre + ' · ' : ''}+${telefono}`,
         monto > 0 ? `Monto: $${Math.round(monto).toLocaleString('es-AR')}` : null,
         motivo,
-        extra.comprobanteUrl ? `Comprobante: ${extra.comprobanteUrl}` : null,
+        extra.dichoPorElCliente && extra.dichoPorElCliente.trim() && extra.dichoPorElCliente.trim() !== motivo ? `El cliente escribió: "${extra.dichoPorElCliente.trim().slice(0, 300)}"` : null,
         cobranzaId ? `Quedó en Clientes → Cobros a ingresar para aprobar.` : null,
         `Respondele al cliente por RESPONDE (la charla está en la línea ${bonitoTelefono(telefono) ? 'de pedidos' : ''}).`,
       ].filter(Boolean).join('\n');
+      // el comprobante viaja como lo mandó el cliente (la foto o el PDF), no
+      // como un link: administración lo abre directo en el chat
+      const url = String(extra.comprobanteUrl ?? '');
+      const adjunto = /\.(jpe?g|png|webp)(\?|$)/i.test(url)
+        ? { imagenUrl: url }
+        : /\.pdf(\?|$)/i.test(url)
+          ? { documentoUrl: url }
+          : url ? null : undefined; // null = hay url pero sin formato conocido → va como link en el texto
       try {
-        const env = await this.enviarPorWhatsapp({ to: adminWsp, text: lineas, kind: 'aviso-interno' } as any);
+        const env = await this.enviarPorWhatsapp({
+          to: adminWsp,
+          text: adjunto === null ? `${lineas}\nComprobante: ${url}` : lineas,
+          ...(adjunto || {}),
+          kind: 'aviso-interno',
+        } as any);
         avisado = !!(env as any)?.enviado;
       } catch (e: any) {
         this.log.warn(`no pude avisar a administración por WhatsApp: ${e?.message ?? e}`);
@@ -2760,6 +2773,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     text?: string | null;
     audioUrl?: string | null;
     imagenUrl?: string | null;
+    documentoUrl?: string | null; // un PDF u otro archivo: viaja como documento adjunto
     kind?: string;
     referencia?: string | null;
   }) {
@@ -2793,6 +2807,19 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
       };
 
       try {
+        if (payload.documentoUrl) {
+          const nombre = String(payload.documentoUrl).split('/').pop()!.split('?')[0] || 'archivo.pdf';
+          const esPdf = /\.pdf$/i.test(nombre);
+          const r = await postear('/api/sendFile', {
+            session: sesion,
+            chatId,
+            file: { url: payload.documentoUrl, mimetype: esPdf ? 'application/pdf' : 'application/octet-stream', filename: nombre },
+            caption: payload.text || '',
+          });
+          if (!r.ok) return { enviado: false, motivo: `WAHA sendFile ${r.estado}` };
+          return { enviado: true, via: 'waha', id: r.cuerpo?.id ?? null };
+        }
+
         if (payload.imagenUrl) {
           const ext = String(payload.imagenUrl).split('.').pop()!.toLowerCase().split('?')[0];
           const mime = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
