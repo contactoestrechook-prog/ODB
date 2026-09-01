@@ -5,6 +5,29 @@
 // negrita. Esto no se le pide al modelo: se normaliza acá, siempre igual.
 // Además, el cartel gráfico del pedido parsea estas líneas: si el total viene
 // pegado al renglón, la tarjeta no sale.
+// El saludo acompaña el reloj de Buenos Aires: buen día hasta las 13, buenas
+// tardes hasta las 20, buenas noches después. El modelo no tiene reloj, así
+// que esto se decide acá y no por su buena voluntad.
+export function saludoSegunHora(hora: number): string {
+  return hora < 13 ? 'Buen día' : hora < 20 ? 'Buenas tardes' : 'Buenas noches';
+}
+
+// Primer mensaje de una charla: arranca SIEMPRE con el saludo correcto para la
+// hora y la bienvenida a la casa, diga lo que diga el modelo. Si el modelo ya
+// saludó con otra hora, se corrige; si no saludó, se antepone; la bienvenida
+// no se duplica si ya la puso él.
+export function saludarConBienvenida(respuesta: string, saludo: string): string {
+  let r = respuesta.trim();
+  // "Hola, buen día" → el hola sobra si ya viene el saludo horario
+  r = r.replace(/^¡?hola[.,!]?\s+(?=¡?buen)/i, '');
+  // se quita el saludo que haya puesto el modelo (con la hora que imaginó)
+  r = r.replace(/^¡?(buen d[ií]a|buen[oa]s d[ií]as|buenas tardes|buenas noches|hola)[!.,]?\s*/i, '');
+  const yaDaBienvenida = /bienvenid/i.test(r);
+  if (r) r = r[0].toUpperCase() + r.slice(1);
+  const arranque = yaDaBienvenida ? `${saludo}. ` : `${saludo}, le damos la bienvenida a O.D.B. `;
+  return (arranque + (r || '¿En qué lo puedo ayudar?')).trim();
+}
+
 // Un nombre de cliente es un nombre o no es nada: en producción llegó a
 // guardarse un fragmento de llamada de herramienta ('</parameter>…"tipo">pickup')
 // como nombre de un cliente real. Solo letras, espacios y puntuación de

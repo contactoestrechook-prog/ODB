@@ -1,5 +1,5 @@
 import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
-import { emprolijarListado, nombreLimpio } from './prolijo';
+import { emprolijarListado, nombreLimpio, saludoSegunHora, saludarConBienvenida } from './prolijo';
 import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
 import { Cron } from '@nestjs/schedule';
@@ -461,7 +461,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     // la hora y el saludo correcto van en cada turno: el modelo no tiene reloj
     const ahoraBA = new Date().toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', weekday: 'long', hour: '2-digit', minute: '2-digit' });
     const horaBA = Number(new Date().toLocaleString('en-US', { timeZone: 'America/Argentina/Buenos_Aires', hour: '2-digit', hour12: false }));
-    const saludo = horaBA < 13 ? 'Buen día' : horaBA < 20 ? 'Buenas tardes' : 'Buenas noches';
+    const saludo = saludoSegunHora(horaBA);
     // mini-estado de la charla, calculado: el modelo no lleva bien la cuenta de lo
     // que ya dijo (ronda 5: "¿le armo el pedido?" en 8 de 10 respuestas, la
     // dirección pedida 3 veces, saludo reiniciado a mitad de charla)
@@ -473,7 +473,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     const vecesDijoPersonaResponde = cuenta(/doy aviso al sector|aviso al sector correspondiente/i);
     const preguntasDelCliente = (texto.match(/\?/g) ?? []).length + (/\b(cu[aá]nto|cu[aá]ndo|d[oó]nde|qu[eé] tal|hasta qu[eé] hora|tienen|ten[eé]s|hay|se puede|me pod[eé]s|a qu[eé] hora)\b/i.test(texto) && !/\?/.test(texto) ? 1 : 0);
     const estado: string[] = [];
-    estado.push(yaSaludo ? 'ya saludaste en esta charla: NO vuelvas a saludar ni a presentarte' : 'primer mensaje de la charla: corresponde saludar una vez');
+    estado.push(yaSaludo ? 'ya saludaste en esta charla: NO vuelvas a saludar ni a presentarte' : `primer mensaje de la charla: corresponde saludar una vez, con bienvenida: "${saludo}, le damos la bienvenida a O.D.B."`);
     if (vecesOfrecioArmar >= 1) estado.push(`ya ofreciste armar/cotizar el pedido ${vecesOfrecioArmar} vez/veces: no lo vuelvas a ofrecer; contestá y esperá`);
     if (vecesPidioDireccion >= 1) estado.push(`ya pediste la dirección ${vecesPidioDireccion} vez/veces: si no la dio, no la vuelvas a pedir en este mensaje salvo que él quiera cerrar`);
     if (vecesDijoPersonaResponde >= 2) estado.push(`ya dijiste ${vecesDijoPersonaResponde} veces que das aviso al sector: no lo repitas`);
@@ -1133,6 +1133,14 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     }
 
     if (respuestaFija.texto) respuesta = respuestaFija.texto;
+
+    // Primer mensaje de la charla (y no a un proveedor): arranca con el saludo
+    // correcto para la hora y la bienvenida a O.D.B, garantizado en código.
+    if (!yaSaludo && !esProveedor && respuesta.trim()) {
+      const antes = respuesta;
+      respuesta = saludarConBienvenida(respuesta, saludo);
+      if (antes !== respuesta) this.log.log(`saludo y bienvenida ajustados para ${telefono}`);
+    }
 
     // solo cuando hay listado o importes: no toca una respuesta corta
     if (/•|^\s*[-–—]\s/m.test(respuesta) || (respuesta.match(/\$/g) ?? []).length >= 2) {
