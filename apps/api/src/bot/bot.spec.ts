@@ -221,6 +221,20 @@ describe('BotService.charla (robustez del agente)', () => {
     expect(r.respuesta.length).toBeGreaterThan(5);
   });
 
+  // La sigla O.D.B lleva puntos: un corte ingenuo por puntos dejó
+  // "gracias.D.B y le tomo la consulta" en producción.
+  it('tira la oración de robot ENTERA aunque contenga O.D.B', async () => {
+    const db = dbFalsa({ bot_conversaciones: { data: { mensajes: [] }, error: null } });
+    const { s } = servicio(db);
+    (s as any).claude = { messages: { create: jest.fn().mockResolvedValue(respuestaClaude(
+      'Buen día, ¿cómo le va? Todo bien por acá, gracias. Le atiende el asistente de O.D.B y le tomo la consulta. De Coca 2,25 L no tenemos stock.',
+    )) } };
+    const r: any = await s.charla({ linea: 'pedidos', telefono: '2022', mensaje: 'buen día, ¿cómo andás? ¿tenés coca de 2,25?' });
+    expect(r.respuesta).not.toMatch(/asistente|\bD\.B\b/);
+    expect(r.respuesta).toMatch(/Todo bien por acá/);
+    expect(r.respuesta).toMatch(/no tenemos stock/);
+  });
+
   it('la identidad SÍ se dice cuando el cliente la pregunta', async () => {
     const db = dbFalsa({ bot_conversaciones: { data: { mensajes: [] }, error: null } });
     const { s } = servicio(db);

@@ -1003,11 +1003,24 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     // discurso sobre sí mismo en lugar de un saludo. La identidad se dice SOLO
     // si el cliente la preguntó en este turno; si no, esas oraciones se sacan.
     const clientePreguntoIdentidad = /\b(bot|robot|m[aá]quina|humano|persona\s+(real|de\s+verdad)|sos\s+(vos|una?\s)|asistente|inteligencia|ia)\b/i.test(texto);
-    const RE_ROBOT_GRATIS = /[^.!?\n]*\b(soy (el|un) asistente( autom[aá]tico)?|asistente autom[aá]tico|no (soy|una) (una )?persona|le atiende el asistente|en nombre de (jaqueline|jacqueline|jackie|jacky|juan pablo|leandro|anabella|romina|o\.?\s?d\.?\s?b)|no lo puedo responder|no puedo responder(le)? (eso|c[oó]mo))\b[^.!?\n]*[.!?]?\s*/gi;
-    if (!clientePreguntoIdentidad && RE_ROBOT_GRATIS.test(respuesta)) {
-      const natural = respuesta.replace(RE_ROBOT_GRATIS, '').replace(/\s{2,}/g, ' ').trim();
-      this.log.warn(`presentación de robot sin que la pidieran para ${telefono}: oración(es) removida(s)`);
-      respuesta = natural.length >= 8 ? natural : `${saludo}. ¿En qué lo puedo ayudar?`;
+    // REGLA APRENDIDA TRES VECES: la oración se tira ENTERA, jamás se recorta
+    // por adentro. Y "O.D.B" lleva puntos, así que cualquier corte por puntos
+    // la parte al medio ("gracias.D.B y le tomo…"): la sigla se protege antes
+    // de dividir y se restaura después.
+    const RE_ROBOT = /\b(soy (el|un) asistente( autom[aá]tico)?|asistente autom[aá]tico|no (soy|una) (una )?persona|le atiende el asistente|en nombre de (jaqueline|jacqueline|jackie|jacky|juan pablo|leandro|anabella|romina|§odb§)|no lo puedo responder|no puedo responder(le)? (eso|c[oó]mo))\b/i;
+    if (!clientePreguntoIdentidad) {
+      const protegida = respuesta.replace(/O\.?\s?D\.?\s?B/gi, '§odb§');
+      if (RE_ROBOT.test(protegida)) {
+        const limpias = protegida
+          .split(/(?<=[.!?])\s+|\n+/)
+          .filter((o) => !RE_ROBOT.test(o))
+          .join(' ')
+          .replace(/§odb§/g, 'O.D.B')
+          .replace(/\s{2,}/g, ' ')
+          .trim();
+        this.log.warn(`presentación de robot sin que la pidieran para ${telefono}: oración(es) removida(s)`);
+        respuesta = limpias.length >= 8 ? limpias : `${saludo}. ¿En qué lo puedo ayudar?`;
+      }
     }
 
     // A un PROVEEDOR nunca se le pide "el código del pedido (DOM-XXXXXX)": él
