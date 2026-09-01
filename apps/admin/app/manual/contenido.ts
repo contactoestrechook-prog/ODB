@@ -580,7 +580,7 @@ export const SECCIONES: Seccion[] = [
       {
         tipo: 'texto',
         texto:
-          'El bot atiende la línea del local: responde precios, arma pedidos, escucha audios y los contesta. Cuando la consulta es de administración (un pago, un comprobante), la registra y avisa internamente en lugar de mandar al cliente a otro teléfono.',
+          'La asistente se llama Emilia. Atiende la línea del local: responde precios, arma pedidos, escucha audios, lee PDFs, mira fotos y la vista previa de los videos, y contesta corto, sin explicaciones de más. Saluda según la hora (buen día / buenas tardes / buenas noches) y da la bienvenida en el primer mensaje. Cuando la consulta es de administración (un pago, un comprobante), la registra y avisa internamente en lugar de mandar al cliente a otro teléfono.',
       },
       {
         tipo: 'texto',
