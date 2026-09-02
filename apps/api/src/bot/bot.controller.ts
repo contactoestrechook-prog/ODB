@@ -170,8 +170,14 @@ export class BotPruebaController {
   // Difusiones: solo gerencia (es la reputación del número)
   @Roles('gerente', 'dueno')
   @Post('difusiones')
-  crearDifusion(@Body() b: { linea?: string; titulo?: string; texto: string; imagenUrl?: string; telefonos: string[] }, @Req() req: any) {
+  crearDifusion(@Body() b: { linea?: string; titulo?: string; texto: string; imagenUrl?: string; telefonos: string[]; programadaPara?: string }, @Req() req: any) {
     return this.bot.crearDifusion({ ...b, usuarioId: req.usuario?.sub });
+  }
+
+  @Roles('gerente', 'dueno')
+  @Post('difusiones/:id/cancelar')
+  cancelarDifusion(@Param('id') id: string) {
+    return this.bot.cancelarDifusion(id);
   }
 
   @Roles('gerente', 'dueno')

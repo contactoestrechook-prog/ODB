@@ -39,6 +39,7 @@ export async function POST(req: Request) {
     : accion === 'programar' ? '/bot/programados'
     : accion === 'cancelarProgramado' ? `/bot/programados/${d.id}/cancelar`
     : accion === 'difusion' ? '/bot/difusiones'
+    : accion === 'cancelarDifusion' ? `/bot/difusiones/${d.id}/cancelar`
     : '/bot/conversaciones/responder';
   const res = await fetch(`${API}${ruta}`, {
     method: 'POST',

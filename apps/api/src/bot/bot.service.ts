@@ -3260,6 +3260,20 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
   // Cada minuto: despacha los mensajes programados que ya vencieron
   @Cron('0 * * * * *')
   async despacharProgramados() {
+    // difusiones programadas que llegaron a su hora: se reclaman de a una
+    // (update condicional) para no despachar dos veces
+    const { data: dueDif } = await this.db.from('responde_difusiones')
+      .select('id').is('despachada_en', null).not('programada_para', 'is', null)
+      .lte('programada_para', new Date().toISOString()).limit(5);
+    for (const d of (dueDif ?? []) as any[]) {
+      const { data: mia } = await this.db.from('responde_difusiones')
+        .update({ despachada_en: new Date().toISOString() })
+        .eq('id', d.id).is('despachada_en', null).select('id');
+      if (mia?.length) {
+        this.log.log(`difusión programada ${d.id}: hora cumplida, despachando`);
+        this.despacharDifusion(d.id).catch((e) => this.log.warn(`difusión ${d.id}: ${e?.message ?? e}`));
+      }
+    }
     const { data: pend } = await this.db.from('mensajes_programados').select('*')
       .is('enviado_en', null).is('cancelado_en', null).lte('enviar_en', new Date().toISOString()).limit(50);
     let ok = 0, mal = 0;
@@ -3274,7 +3288,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
   // Difusión: mismo mensaje a muchos. Se despacha con pausa entre envíos
   // (WhatsApp corta números que disparan en ráfaga) y queda registro por
   // destinatario. Solo a quien dio permiso, salvo que se pida explícitamente.
-  async crearDifusion(dto: { linea?: string; titulo?: string; texto: string; imagenUrl?: string; telefonos: string[]; usuarioId?: string }) {
+  async crearDifusion(dto: { linea?: string; titulo?: string; texto: string; imagenUrl?: string; telefonos: string[]; usuarioId?: string; programadaPara?: string }) {
     const tels = Array.from(new Set((dto.telefonos ?? []).map((t) => String(t).replace(/\D/g, '')).filter((t) => t.length >= 10)));
     if (!tels.length) throw new BadRequestException('No hay destinatarios');
     // Tope de tanda: WhatsApp corta números que disparan masivo. Las campañas
@@ -3286,12 +3300,20 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
       );
     }
     if (!dto.texto?.trim() && !dto.imagenUrl) throw new BadRequestException('La difusión está vacía');
+    // programada: queda visible en la pantalla y el cron la despacha a su hora
+    const programada = dto.programadaPara ? new Date(dto.programadaPara) : null;
+    if (programada && isNaN(programada.getTime())) throw new BadRequestException('La fecha programada no se entiende');
+    const esFutura = !!programada && programada.getTime() > Date.now() + 60_000;
+
     const { data: d, error } = await this.db.from('responde_difusiones').insert({
       linea: dto.linea === 'proveedores' ? 'proveedores' : 'pedidos', titulo: dto.titulo ?? null,
       texto: dto.texto ?? '', imagen_url: dto.imagenUrl ?? null, creado_por: dto.usuarioId ?? null, total: tels.length,
+      programada_para: esFutura ? programada!.toISOString() : null,
+      despachada_en: esFutura ? null : new Date().toISOString(),
     }).select('id').single();
     if (error) throw new BadRequestException(error.message);
     await this.db.from('responde_difusiones_destinatarios').insert(tels.map((t) => ({ difusion_id: d.id, telefono: t })));
+    if (esFutura) return { difusionId: d.id, total: tels.length, programadaPara: programada!.toISOString() };
     // se despacha en segundo plano; la pantalla consulta el avance
     this.despacharDifusion(d.id).catch((e) => this.log.warn(`difusión ${d.id}: ${e?.message ?? e}`));
     return { difusionId: d.id, total: tels.length };
@@ -3341,6 +3363,15 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
       if (!data || data.length < 1000) break;
     }
     return { telefonos: tels };
+  }
+
+  // Una programada se puede cancelar mientras no haya salido
+  async cancelarDifusion(id: string) {
+    const { data, error } = await this.db.from('responde_difusiones')
+      .delete().eq('id', id).is('despachada_en', null).select('id');
+    if (error) throw new BadRequestException(error.message);
+    if (!data?.length) throw new BadRequestException('Esa difusión ya salió o no existe: no se puede cancelar');
+    return { cancelada: true };
   }
 
   async difusiones() {

@@ -354,6 +354,7 @@ function Difusiones({ puede }: { puede: boolean }) {
   const [listas, setListas] = useState<any[]>([]);
   const [listaId, setListaId] = useState<string>('');
   const [telsLista, setTelsLista] = useState<Set<string> | null>(null);
+  const [programarPara, setProgramarPara] = useState<string>('');
   const [aviso, setAviso] = useState('');
   const [enviando, setEnviando] = useState(false);
 
@@ -390,8 +391,8 @@ function Difusiones({ puede }: { puede: boolean }) {
     if (!texto.trim() || !destinatarios.length || enviando) return;
     if (!window.confirm(`¿Enviar a ${destinatarios.length} contacto(s)? Sale con pausa entre mensajes.`)) return;
     setEnviando(true); setAviso('');
-    const r = await post({ accion: 'difusion', linea: 'pedidos', titulo, texto, telefonos: destinatarios.map((d) => d.telefono_wa) });
-    if (r.ok) { setAviso(`Difusión en marcha: ${r.total} destinatarios.`); setTexto(''); setTitulo(''); setArmando(false); cargar(); }
+    const r = await post({ accion: 'difusion', linea: 'pedidos', titulo, texto, telefonos: destinatarios.map((d) => d.telefono_wa), ...(programarPara ? { programadaPara: new Date(programarPara).toISOString() } : {}) });
+    if (r.ok) { setAviso(r.programadaPara ? `Difusión programada: ${r.total} destinatarios.` : `Difusión en marcha: ${r.total} destinatarios.`); setTexto(''); setTitulo(''); setProgramarPara(''); setArmando(false); cargar(); }
     else setAviso(r?.message ?? 'No se pudo crear la difusión');
     setEnviando(false);
   }
@@ -442,6 +443,18 @@ function Difusiones({ puede }: { puede: boolean }) {
                 {destinatarios.length} destinatario(s){recortada ? ` · tanda de 300 (quedan ${filtrados.length - 300} para la próxima)` : ''}
               </span>
             </div>
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="text-black/50">Enviar:</span>
+              <label className="flex items-center gap-1.5 text-black/70">
+                <input type="radio" name="cuando" checked={!programarPara} onChange={() => setProgramarPara('')} /> ahora
+              </label>
+              <label className="flex items-center gap-1.5 text-black/70">
+                <input type="radio" name="cuando" checked={!!programarPara} onChange={() => { const d = new Date(Date.now() + 3600_000); d.setMinutes(0, 0, 0); setProgramarPara(new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16)); }} /> programar:
+              </label>
+              {programarPara !== '' && (
+                <input type="datetime-local" value={programarPara} onChange={(e) => setProgramarPara(e.target.value)} className="rounded-lg border border-black/15 px-2 py-1" />
+              )}
+            </div>
             <p className="text-[11px] text-black/45">Solo a quien dio permiso. Sale de a uno con pausa para cuidar el número; el tope es 300 por tanda — mañana el filtro trae a los que faltan.</p>
             <div className="flex gap-2">
               <button onClick={enviar} disabled={enviando || !texto.trim() || !destinatarios.length} className="flex-1 rounded-lg bg-[#B82D25] py-2 text-sm font-medium text-white disabled:opacity-40">{enviando ? 'Enviando…' : 'Enviar'}</button>
@@ -451,7 +464,23 @@ function Difusiones({ puede }: { puede: boolean }) {
         )}
         {aviso && <p className="mt-2 text-xs text-black/60">{aviso}</p>}
       </div>
-      {hist.map((d) => (
+      {hist.map((d: any) => d.programada_para && !d.despachada_en ? (
+        <div key={d.id} className="border-b border-black/5 px-4 py-3 bg-amber-50/60">
+          <div className="flex items-baseline justify-between gap-2">
+            <p className="text-sm font-semibold">🕒 {d.titulo || 'Difusión programada'}</p>
+            <span className="text-xs font-medium text-amber-800">
+              programada · {new Date(d.programada_para).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })} hs
+            </span>
+          </div>
+          <p className="mt-1 line-clamp-2 text-xs text-black/55">{d.texto}</p>
+          <div className="mt-1 flex items-center justify-between">
+            <span className="text-xs text-black/45">{d.total} destinatario(s)</span>
+            <button
+              onClick={async () => { if (window.confirm('¿Cancelar esta difusión programada?')) { await post({ accion: 'cancelarDifusion', id: d.id }); cargar(); } }}
+              className="text-xs text-red-700 underline">Cancelar</button>
+          </div>
+        </div>
+      ) : (
         <div key={d.id} className="border-b border-black/5 bg-white px-4 py-3">
           <div className="flex items-baseline justify-between gap-2">
             <p className="text-sm font-medium">{d.titulo || '(sin título)'}</p>
