@@ -588,7 +588,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     if (infoVigente) {
       system.push({
         type: 'text',
-        text: `INFORMACIÓN VIGENTE DE LA CASA (cargada por la dirección; usala para responder, con el mismo registro de siempre):\n${infoVigente.slice(0, 4000)}`,
+        text: `INFORMACIÓN VIGENTE DE LA CASA (cargada por la dirección). Es OFICIAL: afirmá estos datos tal cual están, incluidos precios de entradas, fechas y promociones del evento — la regla de no inventar precios aplica a los productos del catálogo, no a esto. No digas "lo vas a ver en el link": el dato lo tenés acá.\n${infoVigente.slice(0, 4000)}`,
       });
     }
 
