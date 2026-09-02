@@ -102,6 +102,7 @@ const GRUPOS: Grupo[] = [
       { href: '/mensajes', label: 'Mensajes', icono: 'mensajes' },
       { href: '/eventos', label: 'Eventos', icono: 'eventos' },
       { href: '/sommelier', label: 'Somelier ODB', icono: 'somelier' },
+      { href: '/bandeja', label: 'WhatsApp y difusiones', icono: 'agente' },
       { href: '/whatsapp', label: 'RESPONDE (app)', icono: 'agente' },
       { href: '/responde', label: 'RESPONDE', icono: 'agente' },
       { href: '/bot', label: 'Bot WhatsApp', icono: 'agente' },

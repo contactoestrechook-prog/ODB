@@ -32,11 +32,25 @@ export default async function RespondeApp() {
     );
   }
   return (
-    <iframe
-      src={`/responde-app.html?embed=1&token=${encodeURIComponent(token)}`}
-      title="RESPONDE · O.D.B"
-      style={{ position: 'fixed', inset: 0, width: '100%', height: '100%', border: 0, background: '#0A0A0B' }}
-      allow="microphone; camera"
-    />
+    <>
+      <iframe
+        src={`/responde-app.html?embed=1&token=${encodeURIComponent(token)}`}
+        title="RESPONDE · O.D.B"
+        style={{ position: 'fixed', inset: 0, width: '100%', height: '100%', border: 0, background: '#0A0A0B' }}
+        allow="microphone; camera"
+      />
+      {/* la app es pantalla completa: sin esto no hay forma de volver al panel */}
+      <a
+        href="/inicio"
+        style={{
+          position: 'fixed', top: 'calc(env(safe-area-inset-top, 0px) + 10px)', left: 12, zIndex: 10,
+          background: '#F0EBE2', color: '#141414', textDecoration: 'none',
+          fontFamily: 'system-ui', fontSize: 13, fontWeight: 600,
+          padding: '7px 14px', borderRadius: 999, boxShadow: '0 2px 10px rgba(0,0,0,.35)', opacity: 0.92,
+        }}
+      >
+        ← Panel
+      </a>
+    </>
   );
 }
