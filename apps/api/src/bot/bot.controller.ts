@@ -181,6 +181,18 @@ export class BotPruebaController {
   }
 
   @Roles('gerente', 'dueno')
+  @Get('listas')
+  listasDifusion() {
+    return this.bot.listasDifusion();
+  }
+
+  @Roles('gerente', 'dueno')
+  @Get('listas/:id/telefonos')
+  listaTelefonos(@Param('id') id: string) {
+    return this.bot.listaTelefonos(id);
+  }
+
+  @Roles('gerente', 'dueno')
   @Get('difusiones/base')
   baseDifundible() {
     return this.bot.baseDifundible();

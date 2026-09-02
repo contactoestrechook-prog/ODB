@@ -18,6 +18,8 @@ export async function GET(req: Request) {
   else if (recurso === 'programados') ruta = `/bot/programados${url.searchParams.get('telefono') ? `?telefono=${encodeURIComponent(url.searchParams.get('telefono')!)}` : ''}`;
   else if (recurso === 'difusiones') ruta = '/bot/difusiones';
   else if (recurso === 'base') ruta = '/bot/difusiones/base';
+  else if (recurso === 'listas') ruta = '/bot/listas';
+  else if (recurso === 'listaTelefonos') ruta = `/bot/listas/${encodeURIComponent(url.searchParams.get('id') ?? '')}/telefonos`;
   if (!ruta) return NextResponse.json({ message: 'Recurso inválido' }, { status: 400 });
   const res = await fetch(`${API}${ruta}`, { headers: token ? { Authorization: `Bearer ${token}` } : {}, cache: 'no-store' });
   return NextResponse.json(await res.json(), { status: res.status });

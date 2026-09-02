@@ -351,6 +351,9 @@ function Difusiones({ puede }: { puede: boolean }) {
   const [origen, setOrigen] = useState<'todos' | 'cliente' | 'agenda'>('todos');
   const [barrio, setBarrio] = useState<string>('todos');
   const [soloNuevos, setSoloNuevos] = useState(true);
+  const [listas, setListas] = useState<any[]>([]);
+  const [listaId, setListaId] = useState<string>('');
+  const [telsLista, setTelsLista] = useState<Set<string> | null>(null);
   const [aviso, setAviso] = useState('');
   const [enviando, setEnviando] = useState(false);
 
@@ -360,6 +363,13 @@ function Difusiones({ puede }: { puede: boolean }) {
   }, []);
   useEffect(() => { cargar(); const t = setInterval(cargar, 10000); return () => clearInterval(t); }, [cargar]);
   useEffect(() => { if (armando && !base.length) fetch('/api/responde?recurso=base').then((r) => r.ok ? r.json() : []).then(setBase); }, [armando, base.length]);
+  useEffect(() => { if (armando && !listas.length) fetch('/api/responde?recurso=listas').then((r) => r.ok ? r.json() : []).then(setListas); }, [armando, listas.length]);
+  useEffect(() => {
+    if (!listaId) { setTelsLista(null); return; }
+    fetch(`/api/responde?recurso=listaTelefonos&id=${listaId}`)
+      .then((r) => r.ok ? r.json() : { telefonos: [] })
+      .then((d) => setTelsLista(new Set(d.telefonos ?? [])));
+  }, [listaId]);
 
   // La lista se ARMA con filtros: estado de relación, origen (cliente real vs
   // agenda), barrio, y "sin difusiones previas" — que es lo que hace que las
@@ -367,6 +377,7 @@ function Difusiones({ puede }: { puede: boolean }) {
   // que faltan. El tope de 300 por tanda lo controla también el servidor.
   const barrios = Array.from(new Set(base.map((b) => b.barrio).filter(Boolean))).sort() as string[];
   const filtrados = base.filter((b) =>
+    (!telsLista || telsLista.has(b.telefono_wa)) &&
     (segmento === 'todos' ? true : b.estado_relacion === segmento) &&
     (origen === 'todos' ? true : b.origen === origen) &&
     (barrio === 'todos' ? true : b.barrio === barrio) &&
@@ -396,6 +407,14 @@ function Difusiones({ puede }: { puede: boolean }) {
           <div className="space-y-2">
             <input value={titulo} onChange={(e) => setTitulo(e.target.value)} placeholder="Título interno (ej: Oferta vinos agosto)" className="w-full rounded-lg border border-black/15 px-3 py-2 text-sm outline-none focus:border-[#B82D25]" />
             <textarea value={texto} onChange={(e) => setTexto(e.target.value)} rows={4} placeholder="El mensaje que van a recibir…" className="w-full resize-none rounded-lg border border-black/15 px-3 py-2 text-sm outline-none focus:border-[#B82D25]" />
+            <div className="flex flex-wrap items-center gap-1.5 text-xs">
+              <span className="text-black/50">Lista:</span>
+              <select value={listaId} onChange={(e) => setListaId(e.target.value)} className="rounded-full bg-black/5 px-2.5 py-1 text-black/70 outline-none max-w-[260px]">
+                <option value="">toda la base</option>
+                {listas.map((l) => <option key={l.id} value={l.id}>{l.nombre} ({l.miembros})</option>)}
+              </select>
+              {listaId && telsLista === null && <span className="text-black/40">cargando lista…</span>}
+            </div>
             <div className="flex flex-wrap items-center gap-1.5 text-xs">
               <span className="text-black/50">Relación:</span>
               {(['todos', 'activo', 'enfriándose', 'dormido'] as const).map((s) => (

@@ -3314,6 +3314,35 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     await this.db.from('responde_difusiones').update({ terminada_en: new Date().toISOString() }).eq('id', id);
   }
 
+  // Listas de difusión guardadas (General ODB, zonas, Degustación): la
+  // pantalla las ofrece como punto de partida para armar cada tanda.
+  async listasDifusion() {
+    const { data: listas, error } = await this.db.from('responde_listas').select('id, nombre, descripcion').order('nombre');
+    if (error) throw new BadRequestException(error.message);
+    const salida = [] as any[];
+    for (const l of (listas ?? []) as any[]) {
+      const { count } = await this.db.from('responde_listas_miembros').select('telefono', { count: 'exact', head: true }).eq('lista_id', l.id);
+      salida.push({ ...l, miembros: count ?? 0 });
+    }
+    return salida;
+  }
+
+  // Los teléfonos de una lista, en formato WhatsApp (549...). Paginado: el
+  // tope silencioso de 1.000 filas dejaría media lista afuera.
+  async listaTelefonos(id: string) {
+    const tels: string[] = [];
+    for (let desde = 0; ; desde += 1000) {
+      const { data, error } = await this.db.from('responde_listas_miembros').select('telefono').eq('lista_id', id).range(desde, desde + 999);
+      if (error) throw new BadRequestException(error.message);
+      for (const m of (data ?? []) as any[]) {
+        const d = String(m.telefono).replace(/\D/g, '');
+        tels.push(d.startsWith('549') ? d : '549' + d);
+      }
+      if (!data || data.length < 1000) break;
+    }
+    return { telefonos: tels };
+  }
+
   async difusiones() {
     const { data } = await this.db.from('responde_difusiones').select('*').order('creado_en', { ascending: false }).limit(30);
     return data ?? [];
