@@ -3240,6 +3240,14 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
   async crearDifusion(dto: { linea?: string; titulo?: string; texto: string; imagenUrl?: string; telefonos: string[]; usuarioId?: string }) {
     const tels = Array.from(new Set((dto.telefonos ?? []).map((t) => String(t).replace(/\D/g, '')).filter((t) => t.length >= 10)));
     if (!tels.length) throw new BadRequestException('No hay destinatarios');
+    // Tope de tanda: WhatsApp corta números que disparan masivo. Las campañas
+    // grandes salen en tandas de hasta 300 por día — la pantalla filtra "sin
+    // difusiones previas", así la tanda de mañana trae a los siguientes.
+    if (tels.length > 300) {
+      throw new BadRequestException(
+        `Son ${tels.length} destinatarios y el tope por tanda es 300 (cuida que WhatsApp no bloquee la línea). Mandá esta tanda con los primeros 300 y repetí mañana: el filtro "sin difusiones previas" te trae a los que faltan.`,
+      );
+    }
     if (!dto.texto?.trim() && !dto.imagenUrl) throw new BadRequestException('La difusión está vacía');
     const { data: d, error } = await this.db.from('responde_difusiones').insert({
       linea: dto.linea === 'proveedores' ? 'proveedores' : 'pedidos', titulo: dto.titulo ?? null,
@@ -3261,8 +3269,10 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
       if (r.enviado) { ok++; await this.db.from('responde_difusiones_destinatarios').update({ estado: 'enviado', enviado_en: new Date().toISOString() }).eq('difusion_id', id).eq('telefono', x.telefono); }
       else { mal++; await this.db.from('responde_difusiones_destinatarios').update({ estado: 'fallido', error: r.motivo ?? null }).eq('difusion_id', id).eq('telefono', x.telefono); }
       await this.db.from('responde_difusiones').update({ enviados: ok, fallidos: mal }).eq('id', id);
-      // pausa entre envíos: 2 a 4 segundos, como una persona
-      await new Promise((r) => setTimeout(r, 2000 + Math.random() * 2000));
+      // pausa entre envíos, como una persona: 2-4 s en tandas chicas; en
+      // tandas grandes (contactos fríos) 8-15 s — la línea vale más que la prisa
+      const grande = ((dest ?? []) as any[]).length > 50;
+      await new Promise((r) => setTimeout(r, grande ? 8000 + Math.random() * 7000 : 2000 + Math.random() * 2000));
     }
     await this.db.from('responde_difusiones').update({ terminada_en: new Date().toISOString() }).eq('id', id);
   }

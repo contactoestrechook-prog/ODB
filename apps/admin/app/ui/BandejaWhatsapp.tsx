@@ -348,6 +348,9 @@ function Difusiones({ puede }: { puede: boolean }) {
   const [texto, setTexto] = useState('');
   const [titulo, setTitulo] = useState('');
   const [segmento, setSegmento] = useState<'todos' | 'activo' | 'enfriándose' | 'dormido'>('todos');
+  const [origen, setOrigen] = useState<'todos' | 'cliente' | 'agenda'>('todos');
+  const [barrio, setBarrio] = useState<string>('todos');
+  const [soloNuevos, setSoloNuevos] = useState(true);
   const [aviso, setAviso] = useState('');
   const [enviando, setEnviando] = useState(false);
 
@@ -358,7 +361,19 @@ function Difusiones({ puede }: { puede: boolean }) {
   useEffect(() => { cargar(); const t = setInterval(cargar, 10000); return () => clearInterval(t); }, [cargar]);
   useEffect(() => { if (armando && !base.length) fetch('/api/responde?recurso=base').then((r) => r.ok ? r.json() : []).then(setBase); }, [armando, base.length]);
 
-  const destinatarios = base.filter((b) => segmento === 'todos' ? true : b.estado_relacion === segmento);
+  // La lista se ARMA con filtros: estado de relación, origen (cliente real vs
+  // agenda), barrio, y "sin difusiones previas" — que es lo que hace que las
+  // campañas grandes salgan en tandas: hoy 300, mañana el filtro trae a los
+  // que faltan. El tope de 300 por tanda lo controla también el servidor.
+  const barrios = Array.from(new Set(base.map((b) => b.barrio).filter(Boolean))).sort() as string[];
+  const filtrados = base.filter((b) =>
+    (segmento === 'todos' ? true : b.estado_relacion === segmento) &&
+    (origen === 'todos' ? true : b.origen === origen) &&
+    (barrio === 'todos' ? true : b.barrio === barrio) &&
+    (!soloNuevos || !b.ultima_difusion),
+  );
+  const destinatarios = filtrados.slice(0, 300);
+  const recortada = filtrados.length > 300;
 
   async function enviar() {
     if (!texto.trim() || !destinatarios.length || enviando) return;
@@ -382,13 +397,33 @@ function Difusiones({ puede }: { puede: boolean }) {
             <input value={titulo} onChange={(e) => setTitulo(e.target.value)} placeholder="Título interno (ej: Oferta vinos agosto)" className="w-full rounded-lg border border-black/15 px-3 py-2 text-sm outline-none focus:border-[#B82D25]" />
             <textarea value={texto} onChange={(e) => setTexto(e.target.value)} rows={4} placeholder="El mensaje que van a recibir…" className="w-full resize-none rounded-lg border border-black/15 px-3 py-2 text-sm outline-none focus:border-[#B82D25]" />
             <div className="flex flex-wrap items-center gap-1.5 text-xs">
-              <span className="text-black/50">A:</span>
+              <span className="text-black/50">Relación:</span>
               {(['todos', 'activo', 'enfriándose', 'dormido'] as const).map((s) => (
                 <button key={s} onClick={() => setSegmento(s)} className={`rounded-full px-2.5 py-1 ${segmento === s ? 'bg-black text-white' : 'bg-black/5 text-black/70'}`}>{s}</button>
               ))}
-              <span className="ml-auto font-semibold">{destinatarios.length} destinatario(s)</span>
             </div>
-            <p className="text-[11px] text-black/45">Solo a quien dio permiso para recibir novedades. Sale de a uno, con pausa, para cuidar el número.</p>
+            <div className="flex flex-wrap items-center gap-1.5 text-xs">
+              <span className="text-black/50">Origen:</span>
+              {([['todos', 'todos'], ['cliente', 'clientes reales'], ['agenda', 'agenda']] as const).map(([v, l]) => (
+                <button key={v} onClick={() => setOrigen(v)} className={`rounded-full px-2.5 py-1 ${origen === v ? 'bg-black text-white' : 'bg-black/5 text-black/70'}`}>{l}</button>
+              ))}
+              {barrios.length > 0 && (
+                <select value={barrio} onChange={(e) => setBarrio(e.target.value)} className="rounded-full bg-black/5 px-2.5 py-1 text-black/70 outline-none">
+                  <option value="todos">todos los barrios</option>
+                  {barrios.map((b) => <option key={b} value={b}>{b}</option>)}
+                </select>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <label className="flex items-center gap-1.5 text-black/70">
+                <input type="checkbox" checked={soloNuevos} onChange={(e) => setSoloNuevos(e.target.checked)} />
+                solo sin difusiones previas (arma las tandas)
+              </label>
+              <span className="ml-auto font-semibold">
+                {destinatarios.length} destinatario(s){recortada ? ` · tanda de 300 (quedan ${filtrados.length - 300} para la próxima)` : ''}
+              </span>
+            </div>
+            <p className="text-[11px] text-black/45">Solo a quien dio permiso. Sale de a uno con pausa para cuidar el número; el tope es 300 por tanda — mañana el filtro trae a los que faltan.</p>
             <div className="flex gap-2">
               <button onClick={enviar} disabled={enviando || !texto.trim() || !destinatarios.length} className="flex-1 rounded-lg bg-[#B82D25] py-2 text-sm font-medium text-white disabled:opacity-40">{enviando ? 'Enviando…' : 'Enviar'}</button>
               <button onClick={() => setArmando(false)} className="rounded-lg border border-black/15 px-3 py-2 text-sm">Cancelar</button>
