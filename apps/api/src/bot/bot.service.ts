@@ -1184,6 +1184,9 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     for (const salida of salidasDelTurno) for (const m of salida.matchAll(/\d{1,3}(?:\.\d{3})+|\d{2,}/g)) permitidos.add(m[0].replace(/\./g, ''));
     for (const t of dichoPorElBot) for (const n of normImporte(String(t))) permitidos.add(n);
     for (const n of normImporte(texto)) permitidos.add(n);
+    // los importes de la información vigente de la casa (evento/campaña) son
+    // oficiales: el precio de la entrada no sale de cotizar_pedido
+    for (const m of infoVigente.matchAll(/\d{1,3}(?:\.\d{3})+|\d{2,}/g)) permitidos.add(m[0].replace(/\./g, ''));
     const importes = normImporte(respuesta);
     const inventados = importes.filter((n) => !permitidos.has(n));
     if (inventados.length && salidasDelTurno.length && vueltasReintento < 3) {
