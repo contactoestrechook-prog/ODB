@@ -315,7 +315,7 @@ export class BotService {
     // toda la línea, se guarda el mensaje y no se contesta nada.
     const { data: lineaCfg } = await this.db
       .from('lineas_whatsapp')
-      .select('bot_activo')
+      .select('bot_activo, notas')
       .eq('linea', linea)
       .eq('activa', true)
       .limit(1)
@@ -456,6 +456,30 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
       return callar('saludo en charla ya abierta');
     }
 
+    // RESPUESTAS CLAVE (campañas): si el mensaje ES la palabra clave de una
+    // campaña activa ("ENTRADA" tras una difusión), la respuesta sale fija e
+    // instantánea, sin gastar modelo y sin margen de improvisación.
+    {
+      const palabra = texto.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9 ]/g, '').trim();
+      if (palabra && palabra.length <= 30) {
+        const { data: claves } = await this.db.from('bot_respuestas_clave').select('clave, respuesta').eq('activa', true);
+        const hit = ((claves ?? []) as any[]).find((c) => {
+          const k = String(c.clave).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+          return palabra === k || palabra === k + 's' || palabra + 's' === k;
+        });
+        if (hit) {
+          this.log.log(`respuesta clave "${hit.clave}" para ${telefono}`);
+          await this.db.from('bot_conversaciones').upsert({
+            linea, telefono,
+            mensajes: [...historial, { role: 'user', content: texto }, { role: 'assistant', content: hit.respuesta }].slice(-MAX_HISTORIAL),
+            actualizado_en: new Date().toISOString(),
+          }, { onConflict: 'linea,telefono' }).then(() => null, () => null);
+          if (mensajeId) await this.db.from('bot_mensajes').upsert({ linea, mensaje_id: mensajeId, telefono, respuesta: hit.respuesta }).then(() => null, () => null);
+          return { respuesta: hit.respuesta };
+        }
+      }
+    }
+
     // si este número ya se identificó antes (proveedor conocido), el bot lo sabe
     // desde el primer mensaje y no arranca tratándolo como cliente
     const { data: contacto } = await this.db.from('bot_contactos').select('tipo, nombre').eq('telefono', telefono).maybeSingle();
@@ -557,6 +581,16 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
         cache_control: { type: 'ephemeral' },
       },
     ];
+    // Información vigente de la línea (campañas, eventos, avisos del momento):
+    // la carga la dirección en las notas de la línea y Emilia la conoce sin
+    // deploy. Va como bloque aparte para no romper el caché del prompt fijo.
+    const infoVigente = String((lineaCfg as any)?.notas ?? '').trim();
+    if (infoVigente) {
+      system.push({
+        type: 'text',
+        text: `INFORMACIÓN VIGENTE DE LA CASA (cargada por la dirección; usala para responder, con el mismo registro de siempre):\n${infoVigente.slice(0, 4000)}`,
+      });
+    }
 
     // lo último que dijo el bot antes de este mensaje: las guardas de crear_pedido
     // lo usan para saber si ya mostró el total y pidió confirmación

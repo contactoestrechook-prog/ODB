@@ -947,3 +947,53 @@ describe('el circuito del pago lo cierra el bot: administración contesta y el c
     expect(envios).toHaveLength(0);
   });
 });
+
+describe('campañas: respuestas clave e información vigente de la línea', () => {
+  beforeEach(() => { process.env.ANTHROPIC_API_KEY = 'test'; });
+
+  it('la palabra clave contesta fija e instantánea, sin llamar al modelo', async () => {
+    const db = dbFalsa({
+      lineas_whatsapp: { data: { bot_activo: true, notas: null }, error: null },
+      bot_respuestas_clave: { data: [{ clave: 'ENTRADA', respuesta: 'Acá tenés el link para las entradas: https://passcore.net/x 🥂' }], error: null },
+      bot_conversaciones: { data: { mensajes: [] }, error: null },
+    });
+    const { s } = servicio(db);
+    const crear = jest.fn();
+    (s as any).claude = { messages: { create: crear } };
+    const r: any = await s.charla({ linea: 'pedidos', telefono: '5491144556677', mensaje: 'Entrada' });
+    expect(r.respuesta).toContain('passcore.net');
+    expect(crear).not.toHaveBeenCalled();
+    // con tilde y plural también
+    const r2: any = await s.charla({ linea: 'pedidos', telefono: '5491144556678', mensaje: 'ENTRADAS!' });
+    expect(r2.respuesta).toContain('passcore.net');
+  });
+
+  it('una frase que solo CONTIENE la palabra no dispara la respuesta fija (va al modelo)', async () => {
+    const db = dbFalsa({
+      lineas_whatsapp: { data: { bot_activo: true }, error: null },
+      bot_respuestas_clave: { data: [{ clave: 'ENTRADA', respuesta: 'link' }], error: null },
+      bot_conversaciones: { data: { mensajes: [] }, error: null },
+    });
+    const { s } = servicio(db);
+    const crear = jest.fn().mockResolvedValue(respuestaClaude('El evento es el 30/10 a las 20.'));
+    (s as any).claude = { messages: { create: crear } };
+    const r: any = await s.charla({ linea: 'pedidos', telefono: '5491144556679', mensaje: '¿La entrada incluye estacionamiento?' });
+    expect(crear).toHaveBeenCalled();
+    expect(r.respuesta).toContain('30/10');
+  });
+
+  it('las notas de la línea entran al prompt como información vigente', async () => {
+    const db = dbFalsa({
+      lineas_whatsapp: { data: { bot_activo: true, notas: 'ODB WINE FEST 30/10 20hs, entrada $65.000 con copón y voucher $20.000.' }, error: null },
+      bot_conversaciones: { data: { mensajes: [] }, error: null },
+      bot_respuestas_clave: { data: [], error: null },
+    });
+    const { s } = servicio(db);
+    const crear = jest.fn().mockResolvedValue(respuestaClaude('Sí, la entrada sale $65.000 e incluye el copón.'));
+    (s as any).claude = { messages: { create: crear } };
+    await s.charla({ linea: 'pedidos', telefono: '5491144556680', mensaje: 'cuánto sale la entrada del wine fest?' });
+    const system = crear.mock.calls[0][0].system;
+    expect(JSON.stringify(system)).toContain('WINE FEST 30/10');
+    expect(JSON.stringify(system)).toContain('INFORMACIÓN VIGENTE');
+  });
+});
