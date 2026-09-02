@@ -145,6 +145,61 @@ export class StockService {
     return { movimientoId: data };
   }
 
+  // ---- FRACCIONAMIENTO (caso huevos, 2026-09-03) ----
+  // Tres instancias: (1) la mercadería ENTRA al producto madre en unidades
+  // (el pozo); (2) las chicas FRACCIONAN: arman docenas/maples y el sistema
+  // mueve stock del pozo al fraccionado (RPC atómica, auditada); (3) la caja
+  // VENDE el fraccionado de su stock armado, sin lógica especial.
+
+  // Los grupos madre + fracciones con su stock por sucursal, para la pantalla.
+  async fraccionables() {
+    const { data: fracciones, error } = await this.db
+      .from('productos')
+      .select('id, sku, nombre, fraccion_de, unidades_por_fraccion')
+      .not('fraccion_de', 'is', null)
+      .eq('activo', true)
+      .order('unidades_por_fraccion');
+    if (error) throw new BadRequestException(error.message);
+    const madresIds = Array.from(new Set((fracciones ?? []).map((f: any) => f.fraccion_de)));
+    if (!madresIds.length) return { grupos: [], sucursales: [] };
+    const [madres, stockRes, sucs] = await Promise.all([
+      this.db.from('productos').select('id, sku, nombre').in('id', madresIds),
+      this.db.from('stock').select('producto_id, sucursal_id, cantidad').in('producto_id', [...madresIds, ...(fracciones ?? []).map((f: any) => f.id)]),
+      this.db.from('sucursales').select('id, nombre').order('nombre'),
+    ]);
+    const stockDe = (pid: string) => {
+      const porSuc: Record<string, number> = {};
+      for (const s of (stockRes.data ?? []) as any[]) if (s.producto_id === pid) porSuc[s.sucursal_id] = Number(s.cantidad);
+      return porSuc;
+    };
+    const grupos = ((madres.data ?? []) as any[]).map((m) => ({
+      madre: { ...m, stock: stockDe(m.id) },
+      fracciones: ((fracciones ?? []) as any[])
+        .filter((f) => f.fraccion_de === m.id)
+        .map((f) => ({ id: f.id, sku: f.sku, nombre: f.nombre, unidades: Number(f.unidades_por_fraccion), stock: stockDe(f.id) })),
+    }));
+    return { grupos, sucursales: (sucs.data ?? []) };
+  }
+
+  // Armar (cantidad > 0) o desarmar (cantidad < 0) fracciones. La conversión,
+  // el control de stock y la auditoría viven en la RPC.
+  async fraccionar(dto: { destinoId: string; cantidad: number; sucursalId: string }, usuarioId?: string) {
+    const cantidad = Number(dto.cantidad);
+    if (!dto.destinoId || !dto.sucursalId) throw new BadRequestException('Faltan el producto o la sucursal');
+    if (!Number.isFinite(cantidad) || cantidad === 0 || !Number.isInteger(cantidad)) {
+      throw new BadRequestException('La cantidad tiene que ser un entero distinto de 0');
+    }
+    if (Math.abs(cantidad) > 1000) throw new BadRequestException('Cantidad demasiado grande para una sola operación');
+    const { data, error } = await this.db.rpc('fraccionar_producto', {
+      p_destino: dto.destinoId,
+      p_cantidad: cantidad,
+      p_sucursal: dto.sucursalId,
+      p_usuario: usuarioId ?? null,
+    });
+    if (error) throw new BadRequestException(this.traducirError(error.message));
+    return data;
+  }
+
   // La transferencia se perdió en el camino o se cargó por error: el stock
   // vuelve a la sucursal de origen y queda auditado (RPC atómica).
   async anularTransferencia(id: string, motivo: string | undefined, usuarioId?: string) {

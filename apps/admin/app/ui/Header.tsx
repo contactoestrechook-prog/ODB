@@ -74,6 +74,7 @@ const GRUPOS: Grupo[] = [
       { href: '/precios', label: 'Precios', icono: 'productos' },
       { href: '/stock', label: 'Stock', icono: 'stock' },
       { href: '/conteo', label: 'Conteo', icono: 'stock' },
+      { href: '/fraccionar', label: 'Fraccionar', icono: 'stock' },
       { href: '/promociones', label: 'Promociones', icono: 'promociones' },
       { href: '/listas-venta', label: 'Listas de venta', icono: 'listas' },
       { href: '/listas', label: 'Listas de proveedor', icono: 'listas' },

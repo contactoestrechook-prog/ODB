@@ -571,6 +571,29 @@ export const SECCIONES: Seccion[] = [
 
   // --------------------------------------------------------------- whatsapp
   {
+    id: 'fraccionar',
+    titulo: 'Fraccionar (huevos y similares)',
+    area: 'Depósito',
+    roles: ['cajero', 'deposito', 'gerente', 'dueno'],
+    bajada: 'La mercadería entra al pozo, se arman las presentaciones y la caja vende lo armado.',
+    bloques: [
+      {
+        tipo: 'texto',
+        texto:
+          'Hay productos que entran a granel y se venden fraccionados, como los huevos: entran por cajón (tantos maples de 30) y se venden por docena, media docena o maple. El circuito tiene tres pasos: (1) la factura del proveedor carga el POZO en unidades (el producto "Huevos x unidad"); (2) en la pantalla Fraccionar se anota lo que se arma — "armé 20 docenas" — y el sistema saca del pozo y carga el stock de la docena; (3) la caja vende la docena como cualquier producto, de su stock armado.',
+      },
+      {
+        tipo: 'ojo',
+        puntos: [
+          'Si la caja dice que no hay stock de docenas pero hay huevos, falta ARMAR: se arma en Fraccionar y ya se puede vender.',
+          'El botón Deshacer vuelve fracciones al pozo (se rompió un cartón, se armó de más).',
+          'Cada armado queda registrado con quién y cuándo, en los movimientos de stock.',
+          'Vale para cualquier producto: se configura en la ficha qué producto es fracción de cuál y cuántas unidades lleva.',
+        ],
+      },
+    ],
+  },
+  {
     id: 'bot',
     titulo: 'El bot de WhatsApp',
     area: 'WhatsApp',
