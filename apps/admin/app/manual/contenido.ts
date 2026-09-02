@@ -614,7 +614,7 @@ export const SECCIONES: Seccion[] = [
         tipo: 'ojo',
         puntos: [
           'Todo lo que el bot cotiza sale de la lista de precios del sistema. Si un precio está mal en el sistema, el bot lo va a repetir mal.',
-          'Las conversaciones completas se ven en RESPONDE. Ahí se revisa qué contestó y se corrige lo que haga falta.',
+          'Las conversaciones completas se ven en RESPONDE (app) o en la pantalla WhatsApp y difusiones, que además tiene menú para volver y las pestañas de mensajes programados y difusiones: las campañas se arman y se siguen desde ahí.',
           'El bot se puede apagar desde la pantalla del Bot cuando conviene atender a mano.',
         ],
       },
