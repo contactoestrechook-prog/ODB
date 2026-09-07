@@ -41,9 +41,17 @@ export class ComprasController {
         cb(null, /^image\//.test(archivo.mimetype) || archivo.mimetype === 'application/pdf' || /\.pdf$/i.test(archivo.originalname ?? '')),
     }),
   )
-  entradaFoto(@UploadedFile() archivo: Express.Multer.File, @Body('aclaraciones') aclaraciones?: string) {
+  entradaFoto(@UploadedFile() archivo: Express.Multer.File, @Body('aclaraciones') aclaraciones?: string, @Req() req?: any) {
     if (!archivo) throw new BadRequestException('Subí una foto o el PDF de la factura/remito (máx. 32MB)');
-    return this.listas.analizarComprobanteFoto(archivo, aclaraciones);
+    // Se responde al instante con el id: la lectura sigue en segundo plano y la
+    // pantalla pregunta por el resultado. Un comprobante grande tarda minutos y
+    // el gateway corta la conexión a los cinco.
+    return this.listas.encolarComprobanteFoto(archivo, aclaraciones, req?.usuario?.sub);
+  }
+
+  @Get('compras/entrada-foto/:id')
+  estadoEntradaFoto(@Param('id') id: string) {
+    return this.listas.estadoLecturaComprobante(id);
   }
 
   @Roles('deposito', 'comprador', 'gerente', 'dueno')

@@ -363,6 +363,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   const [fotoItems, setFotoItems] = useState<any[]>([]); // renglones editables
   const [fotoImp, setFotoImp] = useState<any>({});
   const [leyendoFoto, setLeyendoFoto] = useState(false);
+  const [segundosLeyendo, setSegundosLeyendo] = useState(0);
   const [sumarIva, setSumarIva] = useState(true); // factura A: costo = neto + IVA
   // Percepciones adentro del costo: es la política de la casa. Se puede sacar
   // para una factura puntual (por ejemplo si esa percepción se va a usar).
@@ -399,6 +400,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
 
   async function enviarComprobante(listo: File, aclara: string) {
     setLeyendoFoto(true);
+    setSegundosLeyendo(0);
     // la autorización del dueño es POR FACTURA: no puede arrastrarse a la próxima
     setProrrateoAut(null);
     setPinProrrateo('');
@@ -407,9 +409,27 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
       const fd = new FormData();
       fd.append('archivo', listo);
       if (aclara.trim()) fd.append('aclaraciones', aclara.trim());
+      // La lectura corre en segundo plano: el POST devuelve un id al instante y
+      // acá se pregunta por el resultado hasta que está. Antes se esperaba la
+      // respuesta del tirón y una factura grande (4-5 min) moría con "upstream
+      // error" del gateway, con la lectura ya terminada del lado del servidor.
       const r = await fetch('/api/entrada-foto', { method: 'POST', body: fd });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.message ?? 'No se pudo leer el comprobante');
+      const encolado = await r.json();
+      if (!r.ok) throw new Error(encolado.message ?? 'No se pudo leer el comprobante');
+      const lecturaId = encolado.lecturaId;
+      let d: any = encolado;
+      if (lecturaId) {
+        const desde = Date.now();
+        for (;;) {
+          await new Promise((res) => setTimeout(res, 3000));
+          const p = await fetch(`/api/entrada-foto?id=${encodeURIComponent(lecturaId)}`, { cache: 'no-store' });
+          const e = await p.json().catch(() => ({ estado: 'procesando' }));
+          if (e.estado === 'listo') { d = e; break; }
+          if (e.estado === 'error') throw new Error(e.message ?? 'No se pudo leer el comprobante');
+          setSegundosLeyendo(Math.round((Date.now() - desde) / 1000));
+          if (Date.now() - desde > 12 * 60_000) throw new Error('La lectura tardó demasiado. Probá de nuevo con la misma foto.');
+        }
+      }
       setFoto(d);
       setF((x: any) => ({
         ...x,
@@ -1243,7 +1263,9 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
               <p className="text-xs text-black/50">Sacale una foto a la factura o remito que llegó con la mercadería (o subí el PDF, hasta 32MB). La IA (Sonnet 5) lee proveedor, renglones e impuestos y, si algo no se entiende, te lo pregunta para que se lo aclares. Vos revisás y confirmás: la entrada suma stock, fija costo/precio y registra la factura con su desglose fiscal.</p>
               <label className="flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-black/20 px-4 py-10 text-sm text-black/60 cursor-pointer hover:border-[#B82D25] hover:text-[#B82D25]">
                 <span className="text-3xl">📷</span>
-                {leyendoFoto ? 'Leyendo el comprobante…' : 'Tocar para sacar foto o elegir archivo'}
+                {leyendoFoto
+                  ? `Leyendo el comprobante… ${segundosLeyendo > 4 ? `(${segundosLeyendo}s — podés esperar, no se corta)` : ''}`
+                  : 'Tocar para sacar foto o elegir archivo'}
                 <input type="file" accept="image/*,.pdf" capture="environment" className="hidden" disabled={leyendoFoto}
                   onChange={(e) => { const a = e.target.files?.[0]; if (a) leerFoto(a); e.target.value = ''; }} />
               </label>

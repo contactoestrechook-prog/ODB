@@ -313,6 +313,63 @@ export class ListasService {
   // renglones e impuestos; acá se matchea el proveedor (por CUIT) y los productos.
   // Devuelve la propuesta completa para la pantalla de revisión (no escribe nada).
   // acepta un archivo subido (multipart) o un buffer directo (bot de WhatsApp)
+  // ---- LECTURA EN SEGUNDO PLANO ----
+  // Leer una factura grande lleva minutos y el gateway corta la conexión a los
+  // cinco: la pantalla mostraba "upstream error" con la lectura ya terminada
+  // del lado del servidor (2026-09-07). Ahora la foto entra, se contesta al
+  // instante con un id, y la pantalla pregunta por el resultado hasta que
+  // está. Tarde lo que tarde, no se corta nada.
+  async encolarComprobanteFoto(
+    archivo: { buffer: Buffer; mimetype: string; originalname?: string },
+    aclaraciones?: string,
+    usuarioId?: string,
+  ) {
+    const { data, error } = await this.db
+      .from('lecturas_comprobante')
+      .insert({ estado: 'procesando', usuario_id: usuarioId ?? null })
+      .select('id')
+      .single();
+    if (error) throw new BadRequestException(error.message);
+    const id = (data as any).id as string;
+
+    // se procesa sin await: el HTTP vuelve ya
+    this.analizarComprobanteFoto(archivo, aclaraciones)
+      .then((resultado) =>
+        this.db.from('lecturas_comprobante')
+          .update({ estado: 'listo', resultado, terminado_en: new Date().toISOString() })
+          .eq('id', id),
+      )
+      .catch((e) => {
+        const msg = e?.response?.message ?? e?.message ?? 'No se pudo leer el comprobante';
+        this.log.warn(`lectura ${id} falló: ${msg}`);
+        return this.db.from('lecturas_comprobante')
+          .update({ estado: 'error', error: String(msg).slice(0, 500), terminado_en: new Date().toISOString() })
+          .eq('id', id);
+      });
+
+    return { lecturaId: id, estado: 'procesando' as const };
+  }
+
+  // La pantalla pregunta por acá cada pocos segundos.
+  async estadoLecturaComprobante(id: string) {
+    const { data, error } = await this.db
+      .from('lecturas_comprobante')
+      .select('estado, resultado, error, creado_en')
+      .eq('id', id)
+      .maybeSingle();
+    if (error) throw new BadRequestException(error.message);
+    if (!data) throw new BadRequestException('Esa lectura no existe');
+    const d = data as any;
+    // una lectura que quedó colgada (el contenedor se reinició a mitad) no
+    // puede dejar la pantalla girando para siempre
+    if (d.estado === 'procesando' && Date.now() - new Date(d.creado_en).getTime() > 12 * 60_000) {
+      return { estado: 'error', message: 'La lectura se interrumpió. Probá de nuevo con la misma foto.' };
+    }
+    if (d.estado === 'listo') return { estado: 'listo', ...(d.resultado ?? {}) };
+    if (d.estado === 'error') return { estado: 'error', message: d.error ?? 'No se pudo leer el comprobante' };
+    return { estado: 'procesando' };
+  }
+
   async analizarComprobanteFoto(archivo: { buffer: Buffer; mimetype: string; originalname?: string }, aclaraciones?: string) {
     if (!archivo?.buffer) throw new BadRequestException('Falta el archivo');
     if (!process.env.ANTHROPIC_API_KEY) {
@@ -403,8 +460,17 @@ export class ListasService {
             // una pantalla vacía "sin dudas". Ya streameamos, así que un tope
             // alto no arriesga timeouts.
             max_tokens: 64000,
-            // Esfuerzo ALTO, a propósito y con costo conocido: son unos 90
-            // segundos por comprobante contra 40 en esfuerzo bajo.
+            // Esfuerzo MEDIO (2026-09-07). Estaba en alto y una factura de 31
+            // renglones tardaba 4 a 5 MINUTOS: de los 32.460 tokens que generaba,
+            // el JSON de la factura eran ~4.000 y el resto era razonamiento. Con
+            // el gateway cortando a los 5 minutos, la pantalla mostraba "upstream
+            // error" con la lectura ya terminada del lado del servidor.
+            //
+            // 'medium' corta ese razonamiento a la mitad y mantiene la lectura de
+            // columnas (lo que se rompía en 'low' era cruzar la fila de al lado en
+            // FOTOS de papel). Si alguna vez una foto difícil sale mal, se sube a
+            // 'high' con ODB_ESFUERZO_LECTURA sin deploy, y el operador siempre
+            // tiene el botón de volver a leer con aclaraciones.
             //
             // Se probó bajarlo. Sobre un PDF nativo, con las columnas limpias,
             // daba los mismos números en menos de la mitad de tiempo. Pero
@@ -419,7 +485,7 @@ export class ListasService {
             // acelerar una carga puntual.
             output_config: {
               format: { type: 'json_schema', schema: ESQUEMA_COMPROBANTE as any },
-              effort: (process.env.ODB_ESFUERZO_LECTURA ?? 'high') as any,
+              effort: (process.env.ODB_ESFUERZO_LECTURA ?? 'medium') as any,
             },
             messages: [{ role: 'user', content: contenido }],
           })
