@@ -70,8 +70,8 @@ export class CatalogoController {
   // La cajera vincula un código de barras que el sistema no conocía
   @Roles('cajero', 'deposito', 'gerente', 'dueno')
   @Post('pos/vincular-codigo')
-  vincularCodigo(@Body() b: { sku: string; codigo: string }, @Req() req: any) {
-    return this.catalogo.vincularCodigo(b?.sku, b?.codigo, req.usuario?.sub);
+  vincularCodigo(@Body() b: { sku: string; codigo: string; tipo?: 'barras' | 'plu'; porPeso?: boolean }, @Req() req: any) {
+    return this.catalogo.vincularCodigo(b?.sku, b?.codigo, req.usuario?.sub, b?.tipo === 'plu' ? 'plu' : 'barras', b?.porPeso);
   }
 
   // Catálogo con stock para precargar en la caja (búsqueda local instantánea)

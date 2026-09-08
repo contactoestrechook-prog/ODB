@@ -12,6 +12,8 @@ export type CrearProductoDto = {
   // varios códigos: el de la unidad y el del bulto suelen ser distintos
   codigosBarras?: string[];
   esAlcohol?: boolean;
+  plu?: string | null; // PLU de la balanza interna (= codigo_legacy si no se carga)
+  vendidoPorPeso?: boolean; // la balanza manda gramos; el precio es por kilo
   volumenMl?: number | null;
   costo?: number | null;
   precio?: number | null;
@@ -36,6 +38,8 @@ export type EditarProductoDto = {
   marca?: string | null;
   esAlcohol?: boolean;
   activo?: boolean;
+  plu?: string | null;
+  vendidoPorPeso?: boolean;
   volumenMl?: number | null;
   costo?: number | null;
   precio?: number | null; // crea un nuevo precio vigente en la lista Minorista
@@ -122,6 +126,8 @@ export class ProductosAdminService {
         categoria_id: categoriaId,
         marca_id: marcaId,
         es_alcohol: dto.esAlcohol ?? false,
+        plu: dto.plu?.trim().replace(/^0+/, '') || null,
+        vendido_por_peso: dto.vendidoPorPeso ?? false,
         volumen_ml: dto.volumenMl ?? null,
         unidades_pack: dto.unidadesPack && dto.unidadesPack > 0 ? Math.round(dto.unidadesPack) : 1,
         graduacion: dto.graduacion ?? null,
@@ -203,6 +209,8 @@ export class ProductosAdminService {
     if (dto.rubro !== undefined) cambios.categoria_id = await this.idCategoria(dto.rubro);
     if (dto.marca !== undefined) cambios.marca_id = await this.idMarca(dto.marca ?? undefined);
     if (dto.esAlcohol !== undefined) cambios.es_alcohol = dto.esAlcohol;
+    if (dto.plu !== undefined) cambios.plu = dto.plu ? String(dto.plu).trim().replace(/^0+/, '') || null : null;
+    if (dto.vendidoPorPeso !== undefined) cambios.vendido_por_peso = !!dto.vendidoPorPeso;
     if (dto.activo !== undefined) cambios.activo = dto.activo;
     if (dto.volumenMl !== undefined) cambios.volumen_ml = dto.volumenMl;
     if (dto.costo !== undefined) cambios.costo = dto.costo;

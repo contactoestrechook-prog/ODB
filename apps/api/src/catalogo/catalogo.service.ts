@@ -1,3 +1,4 @@
+import { parsearCodigoBalanza, cantidadDeBalanza } from './balanza';
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
@@ -71,34 +72,62 @@ export class CatalogoService {
   async posBuscar(q: string, sucursalId?: string) {
     const t = (q ?? '').trim();
     if (t.length < 2) return { items: [] };
+    // Etiqueta de la balanza: se busca el producto por su PLU y viaja la
+    // cantidad de la etiqueta (kilos o unidades según el producto).
+    const balanza = parsearCodigoBalanza(t);
     const { data, error } = await this.db.rpc('pos_buscar', {
-      p_q: t,
+      p_q: balanza ? balanza.plu : t,
       p_limit: 8,
       p_sucursal: sucursalId || null,
     });
     if (error) throw new BadRequestException(error.message);
+    if (balanza) {
+      const fila = (data ?? []).find((r: any) => String(r.plu ?? '').replace(/^0+/, '') === balanza.plu);
+      if (!fila) return { items: [], balanza };
+      const porPeso = !!fila.por_peso;
+      return {
+        items: [{ ...this.itemPos(fila), deBalanza: true, cantidadBalanza: cantidadDeBalanza(balanza.valor, porPeso) }],
+        balanza,
+      };
+    }
     return {
-      items: (data ?? []).map((r: any) => ({
-        sku: r.sku, nombre: r.nombre,
-        precio: r.precio != null ? Number(r.precio) : null,
-        precioMayorista: r.precio_mayorista != null ? Number(r.precio_mayorista) : null,
-        precioLista: null, descuento: null,
-        esAlcohol: !!r.es_alcohol, imagenUrl: null,
-        codigosBarras: r.codigos ?? [],
-        codigo: r.codigo ?? null,
-        stock: r.stock != null ? Number(r.stock) : null,
-        // el producto se reconoce aunque esté dado de baja (por código exacto) o sin stock
-        activo: r.activo !== false,
-        // "se terminó el…": fecha del último egreso en la sucursal, solo si hoy no hay
-        sinStockDesde: r.stock != null && Number(r.stock) <= 0 && r.ultimo_egreso ? r.ultimo_egreso : null,
-      })),
+      items: (data ?? []).map((r: any) => this.itemPos(r)),
+    };
+  }
+
+  private itemPos(r: any) {
+    return {
+      sku: r.sku, nombre: r.nombre,
+      precio: r.precio != null ? Number(r.precio) : null,
+      precioMayorista: r.precio_mayorista != null ? Number(r.precio_mayorista) : null,
+      precioLista: null, descuento: null,
+      esAlcohol: !!r.es_alcohol, imagenUrl: null,
+      codigosBarras: r.codigos ?? [],
+      codigo: r.codigo ?? null,
+      stock: r.stock != null ? Number(r.stock) : null,
+      activo: r.activo !== false,
+      sinStockDesde: r.stock != null && Number(r.stock) <= 0 && r.ultimo_egreso ? r.ultimo_egreso : null,
+      porPeso: !!r.por_peso,
+      plu: r.plu ?? null,
     };
   }
 
   // Vincular un código de barras desde la caja: el producto existe pero el
   // código no estaba cargado (2.341 activos sin código al 2026-09-08), así que
   // al escanearlo "no salía nada". La cajera lo busca por nombre y lo vincula.
-  async vincularCodigo(sku: string, codigo: string, usuarioId?: string) {
+  async vincularCodigo(sku: string, codigo: string, usuarioId?: string, tipo: 'barras' | 'plu' = 'barras', porPeso?: boolean) {
+    if (tipo === 'plu') {
+      const plu = String(codigo ?? '').replace(/\D/g, '').replace(/^0+/, '');
+      if (!plu) throw new BadRequestException('PLU inválido');
+      const { data: prod } = await this.db.from('productos').select('id, nombre').eq('sku', String(sku ?? '').trim()).maybeSingle();
+      if (!prod) throw new BadRequestException('No existe ese producto');
+      const cambios: any = { plu };
+      if (porPeso !== undefined) cambios.vendido_por_peso = !!porPeso;
+      const { error } = await this.db.from('productos').update(cambios).eq('id', (prod as any).id);
+      if (error) throw new BadRequestException(error.message);
+      await this.db.from('auditoria').insert({ usuario_id: usuarioId ?? null, accion: 'plu_balanza_vinculado', entidad: 'producto', entidad_id: (prod as any).id, datos_despues: { plu, porPeso: porPeso ?? null, desde: 'caja' } }).then(() => null, () => null);
+      return { ok: true, nombre: (prod as any).nombre };
+    }
     const cod = String(codigo ?? '').replace(/\D/g, '');
     if (cod.length < 6 || cod.length > 14) throw new BadRequestException('El código tiene que tener entre 6 y 14 dígitos');
     const { data: prod } = await this.db.from('productos').select('id, nombre, sku').eq('sku', String(sku ?? '').trim()).maybeSingle();
@@ -149,6 +178,8 @@ export class CatalogoService {
         esAlcohol: !!r.es_alcohol, imagenUrl: null,
         codigosBarras: r.codigos ?? [],
         codigo: r.codigo ?? null,
+        porPeso: !!r.por_peso,
+        plu: r.plu ?? null,
       })),
     };
   }
