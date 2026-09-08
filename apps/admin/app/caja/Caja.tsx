@@ -109,7 +109,7 @@ const ETIQUETA_COMP: Record<TipoComprobante, string> = { A: 'Factura A', B: 'Fac
 const TERMINAL_LABEL: Record<string, string> = { getnet: 'Getnet', clover: 'Clover' };
 
 const NOTA_MEDIO: Record<string, string> = {
-  mercadopago: 'Mostrá el QR de tu caja para que pague',
+  mercadopago: 'Al cobrar, el importe se manda al QR de la caja y la venta se registra cuando MP confirma el pago',
   tarjeta: 'Cobrá en el posnet',
   cta_cte: 'Se carga a la cuenta corriente del cliente',
 };
@@ -852,6 +852,7 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
   }
 
   function limpiarVenta() {
+    fijarCobroMP(null);
     setCarrito([]);
     setCliente(null);
     setClientes([]);
@@ -968,12 +969,28 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
   }
 
   // ---- impresión de ticket (térmica 80mm vía diálogo del navegador) ----
+  // El diálogo de impresión se abre DESPUÉS de que el ticket quedó dibujado.
+  // Con un setTimeout de 60 ms, en la PC de la caja salía la hoja en blanco
+  // (2026-09-08): React todavía no había pintado #ticket-odb.
+  const [pendienteImprimir, setPendienteImprimir] = useState(0);
   function imprimir(t: TicketData) {
     imprimirRef.current = t;
     setTicket(t);
-    // esperar el render del ticket antes de abrir el diálogo
-    setTimeout(() => window.print(), 60);
+    setPendienteImprimir((n) => n + 1);
   }
+  useEffect(() => {
+    if (!pendienteImprimir || !ticket) return;
+    let vivo = true;
+    const esperar = (intentos: number) => {
+      const el = document.getElementById('ticket-odb');
+      if (el && el.textContent && el.textContent.trim().length > 0) {
+        requestAnimationFrame(() => requestAnimationFrame(() => { if (vivo) window.print(); }));
+      } else if (intentos > 0) setTimeout(() => esperar(intentos - 1), 50);
+      else window.print();
+    };
+    esperar(20);
+    return () => { vivo = false; };
+  }, [pendienteImprimir, ticket]);
 
   function armarTicket(base: { items: TicketData['items']; total: number; descuento: number }, extras: Partial<TicketData>): TicketData {
     return {
@@ -990,6 +1007,128 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
   }
 
   // ---- cobro (con cola offline idempotente) ----
+  // ───────── Cobro con QR integrado de Mercado Pago (2026-09-08) ─────────
+  // ANTES: "Cobrar" registraba la venta (y facturaba) al instante y el cliente
+  // tenía que tipear el importe en el QR fijo. AHORA: primero se cobra. La caja
+  // manda el importe exacto al QR de MP de esta caja, espera la aprobación y
+  // recién entonces registra la venta e imprime. Cancelar = no se registra nada.
+  type CobroMP = {
+    id?: string;
+    monto: number;
+    estado: 'iniciando' | 'esperando' | 'aprobado' | 'omitido' | 'sin_qr' | 'error';
+    qr?: string | null;
+    mpPaymentId?: string;
+    aviso?: string;
+    error?: string;
+    opcionesQR?: { id: string; nombre: string; externalId: string | null }[];
+  };
+  const [cobroMP, setCobroMP] = useState<CobroMP | null>(null);
+  const cobroMPRef = useRef<CobroMP | null>(null);
+  function fijarCobroMP(v: CobroMP | null) {
+    cobroMPRef.current = v; // el ref se actualiza en el acto: cobrar() lo lee en la misma llamada
+    setCobroMP(v);
+  }
+  async function pedirMP(body: Record<string, unknown>) {
+    const r = await fetch('/api/mp-cobro', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const d = await r.json().catch(() => ({}));
+    return { ok: r.ok, d };
+  }
+  function textoError(d: any, porDefecto: string): string {
+    const m = d?.message;
+    if (typeof m === 'string') return m;
+    if (m && typeof m.message === 'string') return m.message;
+    return porDefecto;
+  }
+  async function iniciarCobroMP(monto: number) {
+    if (!sesion) {
+      setEstado({ tipo: 'error', texto: 'Abrí la caja antes de cobrar con Mercado Pago' });
+      return;
+    }
+    fijarCobroMP({ monto, estado: 'iniciando' });
+    const detalle = `${carrito.length} artículo${carrito.length === 1 ? '' : 's'} · ${sesion.cajaNombre}`;
+    const { ok, d } = await pedirMP({ accion: 'iniciar', cajaId: sesion.cajaId, monto, detalle });
+    if (ok) {
+      fijarCobroMP({ id: d.cobroId, monto, estado: 'esperando', qr: d.qr ?? null });
+      return;
+    }
+    const codigo = d?.codigo ?? d?.message?.codigo;
+    if (codigo === 'sin_qr') {
+      const l = await fetch(`/api/mp-cobro?cajas=1&sucursalId=${encodeURIComponent(sucursalId)}`).then((x) => x.json()).catch(() => ({}));
+      fijarCobroMP({ monto, estado: 'sin_qr', opcionesQR: l?.cajas ?? [] });
+      return;
+    }
+    if (codigo === 'sin_mp') {
+      // sucursal sin Mercado Pago integrado: se registra como siempre
+      fijarCobroMP({ monto, estado: 'omitido' });
+      void cobrar();
+      return;
+    }
+    fijarCobroMP({ monto, estado: 'error', error: textoError(d, 'Mercado Pago no respondió') });
+  }
+  async function vincularQR(posId: string) {
+    if (!sesion) return;
+    const monto = cobroMPRef.current?.monto ?? 0;
+    const { ok, d } = await pedirMP({ accion: 'vincular', cajaId: sesion.cajaId, posId });
+    if (!ok) {
+      fijarCobroMP({ monto, estado: 'error', error: textoError(d, 'No se pudo asignar ese QR') });
+      return;
+    }
+    await iniciarCobroMP(monto);
+  }
+  async function cambiarQR() {
+    const c = cobroMPRef.current;
+    if (!c) return;
+    if (c.id && c.estado === 'esperando') void pedirMP({ accion: 'cancelar', id: c.id });
+    const l = await fetch(`/api/mp-cobro?cajas=1&sucursalId=${encodeURIComponent(sucursalId)}`).then((x) => x.json()).catch(() => ({}));
+    fijarCobroMP({ monto: c.monto, estado: 'sin_qr', opcionesQR: l?.cajas ?? [] });
+  }
+  function cancelarCobroMP() {
+    const c = cobroMPRef.current;
+    if (c?.id && c.estado === 'esperando') void pedirMP({ accion: 'cancelar', id: c.id });
+    fijarCobroMP(null);
+    setEstado({ tipo: 'error', texto: 'Cobro con Mercado Pago cancelado: la venta NO se registró' });
+  }
+  function registrarIgual() {
+    const c = cobroMPRef.current;
+    if (!c) return;
+    if (c.id && c.estado === 'esperando') void pedirMP({ accion: 'cancelar', id: c.id });
+    fijarCobroMP({ ...c, estado: 'omitido' });
+    void cobrar();
+  }
+  // Mientras se espera el pago: se consulta cada 2 segundos.
+  useEffect(() => {
+    if (cobroMP?.estado !== 'esperando' || !cobroMP.id) return;
+    const id = cobroMP.id;
+    let vivo = true;
+    const tick = async () => {
+      try {
+        const d = await fetch(`/api/mp-cobro?id=${encodeURIComponent(id)}`, { cache: 'no-store' }).then((r) => r.json());
+        if (!vivo || cobroMPRef.current?.id !== id) return;
+        if (d.estado === 'aprobado') {
+          fijarCobroMP({ ...(cobroMPRef.current as CobroMP), estado: 'aprobado', mpPaymentId: d.mpPaymentId });
+        } else if (d.estado === 'vencido' || d.estado === 'cancelado' || d.estado === 'fallido') {
+          fijarCobroMP(null);
+          setEstado({
+            tipo: 'error',
+            texto: d.estado === 'vencido' ? 'Pasaron 10 minutos sin pago: el cobro venció y la venta NO se registró' : 'El cobro con Mercado Pago se canceló: la venta NO se registró',
+          });
+        } else if (d.aviso && cobroMPRef.current?.aviso !== d.aviso) {
+          fijarCobroMP({ ...(cobroMPRef.current as CobroMP), aviso: d.aviso });
+        }
+      } catch {
+        /* sin red momentánea: se vuelve a intentar en el próximo tick */
+      }
+    };
+    const t = setInterval(tick, 2000);
+    return () => { vivo = false; clearInterval(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cobroMP?.estado, cobroMP?.id]);
+  // Aprobado → recién ahora se registra la venta (y se imprime).
+  useEffect(() => {
+    if (cobroMP?.estado === 'aprobado' && !cobrando) void cobrar();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cobroMP?.estado]);
+
   async function cobrar() {
     if (carrito.length === 0 || cobrando) return;
     // La restricción del candado también acá: el botón puede haber quedado
@@ -1005,6 +1144,16 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
     }
     if (dividido && restante !== 0) {
       setEstado({ tipo: 'error', texto: restante > 0 ? `Falta asignar ${pesos(restante)} entre los medios de pago` : `Los pagos superan el total por ${pesos(-restante)}` });
+      return;
+    }
+    // MERCADO PAGO: primero se cobra, después se registra. Si todavía no hay un
+    // pago aprobado (ni el cajero eligió registrar igual), se manda el importe
+    // al QR y se espera; cobrar() vuelve a llamarse solo al aprobarse.
+    const montoMP = pagosVenta.filter((p) => p.medio === 'mercadopago').reduce((s, p) => s + p.monto, 0);
+    const cMP = cobroMPRef.current;
+    if (montoMP > 0 && !(cMP && (cMP.estado === 'aprobado' || cMP.estado === 'omitido'))) {
+      if (cMP && (cMP.estado === 'iniciando' || cMP.estado === 'esperando')) return; // ya está en curso
+      await iniciarCobroMP(montoMP);
       return;
     }
     setCobrando(true);
@@ -1069,6 +1218,10 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
         { numero },
       );
       setUltima({ ventaId, ticket: t });
+      if (cobroMPRef.current?.id && cobroMPRef.current.estado === 'aprobado') {
+        void pedirMP({ accion: 'venta', id: cobroMPRef.current.id, ventaId });
+      }
+      fijarCobroMP(null);
       const vueltoTxt = vuelto != null && vuelto > 0 ? ` · VUELTO ${pesos(vuelto)}` : '';
       const compTxt = numero ?? ETIQUETA_COMP[comprobante];
       setEstado({
@@ -2124,6 +2277,90 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
       )}
 
       {/* ---- consulta de stock en ambas sucursales ---- */}
+      {cobroMP && cobroMP.estado !== 'omitido' && (
+        <div className="fixed inset-0 z-[60] bg-black/60 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl">
+            <div className="flex items-center gap-3 mb-4">
+              <span className="inline-flex w-11 h-11 rounded-full bg-[#009EE3] text-white items-center justify-center font-black text-sm">MP</span>
+              <div>
+                <p className="text-[11px] uppercase tracking-wider text-black/50">Mercado Pago · QR de la caja{cobroMP.qr ? ` (${cobroMP.qr})` : ''}</p>
+                <p className="text-3xl font-black tabular-nums leading-tight">{pesos(cobroMP.monto)}</p>
+              </div>
+            </div>
+            {cobroMP.estado === 'iniciando' && <p className="text-sm text-black/60">Mandando el importe al QR…</p>}
+            {cobroMP.estado === 'esperando' && (
+              <>
+                <p className="text-sm">
+                  El cliente escanea el <b>QR de esta caja</b> con la app de Mercado Pago: ve <b>{pesos(cobroMP.monto)}</b> ya cargado y solo confirma.
+                </p>
+                <p className="mt-3 text-sm text-black/60 flex items-center gap-2">
+                  <span className="inline-block w-3 h-3 rounded-full bg-[#009EE3] animate-pulse" />
+                  Esperando la confirmación del pago… al aprobarse, la venta se registra e imprime sola.
+                </p>
+                {cobroMP.aviso && <p className="mt-2 text-sm text-amber-700">{cobroMP.aviso}</p>}
+                <div className="mt-5 flex flex-wrap gap-2 justify-end">
+                  <button type="button" onClick={() => void cambiarQR()} className="mr-auto text-xs text-black/50 underline">¿No es este QR? Cambiar</button>
+                  <button type="button" onClick={cancelarCobroMP} className="px-4 py-2 rounded-lg border border-neutral-300 text-sm">Cancelar cobro</button>
+                  <button
+                    type="button"
+                    onClick={registrarIgual}
+                    className="px-4 py-2 rounded-lg bg-neutral-800 text-white text-sm"
+                    title="Solo si ya viste el pago acreditado en el teléfono o en el Point"
+                  >
+                    Ya pagó por fuera: registrar igual
+                  </button>
+                </div>
+              </>
+            )}
+            {cobroMP.estado === 'aprobado' && (
+              <>
+                <p className="text-sm text-emerald-700 font-semibold">
+                  ✓ Pago aprobado por Mercado Pago{cobroMP.mpPaymentId ? ` · operación ${cobroMP.mpPaymentId}` : ''}
+                </p>
+                <p className="mt-1 text-sm text-black/60">
+                  {cobrando || estado?.tipo !== 'error' ? 'Registrando la venta…' : `El pago está cobrado pero la venta no se pudo registrar: ${estado.texto}`}
+                </p>
+                {!cobrando && estado?.tipo === 'error' && (
+                  <div className="mt-4 flex gap-2 justify-end">
+                    <button type="button" onClick={() => fijarCobroMP(null)} className="px-4 py-2 rounded-lg border border-neutral-300 text-sm">Cerrar</button>
+                    <button type="button" onClick={() => void cobrar()} className="px-4 py-2 rounded-lg bg-black text-white text-sm">Reintentar el registro</button>
+                  </div>
+                )}
+              </>
+            )}
+            {cobroMP.estado === 'sin_qr' && (
+              <>
+                <p className="text-sm">
+                  Esta caja todavía no tiene asignado su QR de Mercado Pago. Elegí el QR que está en este mostrador (queda guardado):
+                </p>
+                <div className="mt-3 grid gap-2 max-h-64 overflow-auto">
+                  {(cobroMP.opcionesQR ?? []).map((q) => (
+                    <button key={q.id} type="button" onClick={() => void vincularQR(q.id)} className="text-left px-3 py-2 rounded-lg border border-neutral-300 hover:border-black text-sm">
+                      <b>{q.nombre}</b>
+                      {q.externalId ? <span className="text-black/40"> · {q.externalId}</span> : null}
+                    </button>
+                  ))}
+                  {!(cobroMP.opcionesQR ?? []).length && <p className="text-sm text-black/50">No hay QR en la cuenta de Mercado Pago de esta sucursal.</p>}
+                </div>
+                <div className="mt-4 flex flex-wrap gap-2 justify-end">
+                  <button type="button" onClick={() => fijarCobroMP(null)} className="px-4 py-2 rounded-lg border border-neutral-300 text-sm">Cancelar</button>
+                  <button type="button" onClick={registrarIgual} className="px-4 py-2 rounded-lg bg-neutral-800 text-white text-sm">Cobrar con el QR fijo (como antes)</button>
+                </div>
+              </>
+            )}
+            {cobroMP.estado === 'error' && (
+              <>
+                <p className="text-sm text-red-700">{cobroMP.error}</p>
+                <div className="mt-4 flex flex-wrap gap-2 justify-end">
+                  <button type="button" onClick={() => fijarCobroMP(null)} className="px-4 py-2 rounded-lg border border-neutral-300 text-sm">Cerrar</button>
+                  <button type="button" onClick={() => void iniciarCobroMP(cobroMP.monto)} className="px-4 py-2 rounded-lg bg-black text-white text-sm">Reintentar</button>
+                  <button type="button" onClick={registrarIgual} className="px-4 py-2 rounded-lg bg-neutral-800 text-white text-sm">Registrar igual</button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
       {modalStock && (
         <div className="fixed inset-0 z-50 bg-black/50 flex items-start justify-center p-4 pt-16" onClick={() => setModalStock(false)}>
           <div className="w-full max-w-lg rounded-2xl bg-white p-5" onClick={(e) => e.stopPropagation()}>

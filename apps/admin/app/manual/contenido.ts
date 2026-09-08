@@ -118,6 +118,7 @@ export const SECCIONES: Seccion[] = [
         titulo: 'Formas de cobro',
         filas: [
           ['Efectivo', 'Entra al arqueo del turno.'],
+          ['Mercado Pago (QR)', 'Al tocar Cobrar, el importe viaja al QR de tu caja: el cliente escanea el mismo QR de siempre, ve el monto ya cargado y solo confirma. La venta se registra y el ticket se imprime solos cuando Mercado Pago aprueba el pago; "Cancelar cobro" no registra nada. Si el cliente ya pagó por fuera o Mercado Pago no responde, "registrar igual". La primera vez, la caja te pide elegir cuál de los QR de la cuenta es el que está en tu mostrador (queda guardado).'],
           ['Tarjeta (posnet)', 'Elegí la terminal que usaste. El sistema después cruza contra lo que liquida la tarjeta.'],
           ['Cuenta corriente', 'Solo si el cliente la tiene habilitada y le queda disponible. No baja plata: sube la deuda.'],
           ['Cheque', 'Queda en cartera y se ve en la pantalla de Cheques.'],
