@@ -323,10 +323,27 @@ export class ListasService {
     archivo: { buffer: Buffer; mimetype: string; originalname?: string },
     aclaraciones?: string,
     usuarioId?: string,
+    extra?: { origenId?: string },
   ) {
+    // Hasta 5 por persona a la vez (pedido del dueño: "cinco por carriles
+    // distintos"). Más que eso es sospechoso de doble carga y satura la IA.
+    if (usuarioId) {
+      const { count } = await this.db
+        .from('lecturas_comprobante')
+        .select('id', { count: 'exact', head: true })
+        .eq('usuario_id', usuarioId)
+        .eq('estado', 'procesando')
+        .gte('creado_en', new Date(Date.now() - 15 * 60_000).toISOString());
+      if ((count ?? 0) >= 5) throw new BadRequestException('Ya hay 5 facturas leyéndose. Esperá a que termine alguna.');
+    }
     const { data, error } = await this.db
       .from('lecturas_comprobante')
-      .insert({ estado: 'procesando', usuario_id: usuarioId ?? null })
+      .insert({
+        estado: 'procesando',
+        usuario_id: usuarioId ?? null,
+        nombre_archivo: archivo.originalname ?? null,
+        origen_id: extra?.origenId ?? null,
+      })
       .select('id')
       .single();
     if (error) throw new BadRequestException(error.message);
@@ -348,6 +365,66 @@ export class ListasService {
       });
 
     return { lecturaId: id, estado: 'procesando' as const };
+  }
+
+  // BANDEJA DE LECTURA: lo que se cargó en las últimas 24 h y no se descartó.
+  // Dueños y gerentes ven todo; el resto, lo suyo.
+  async bandejaLecturas(usuarioId?: string, rol?: string) {
+    let q = this.db
+      .from('lecturas_comprobante')
+      .select('id, estado, error, creado_en, terminado_en, nombre_archivo, abierta_en, origen_id, resultado')
+      .is('descartada_en', null)
+      .gte('creado_en', new Date(Date.now() - 24 * 3600_000).toISOString())
+      .order('creado_en', { ascending: false })
+      .limit(20);
+    if (!(rol === 'dueno' || rol === 'gerente') && usuarioId) q = q.eq('usuario_id', usuarioId);
+    const { data, error } = await q;
+    if (error) throw new BadRequestException(error.message);
+    return ((data ?? []) as any[]).map((l) => {
+      const r = l.resultado ?? {};
+      const colgada = l.estado === 'procesando' && Date.now() - new Date(l.creado_en).getTime() > 12 * 60_000;
+      return {
+        id: l.id,
+        estado: colgada ? 'error' : l.estado,
+        error: colgada ? 'La lectura se interrumpió. Volvé a cargarla.' : l.error ?? null,
+        creadoEn: l.creado_en,
+        terminadoEn: l.terminado_en,
+        nombreArchivo: l.nombre_archivo,
+        abiertaEn: l.abierta_en,
+        releida: !!l.origen_id,
+        resumen: l.estado === 'listo' ? {
+          proveedor: r.proveedor?.match?.nombre ?? r.proveedor?.detectado?.nombre ?? null,
+          numero: r.comprobante?.numero ?? null,
+          renglones: (r.items ?? []).length,
+          dudas: (r.dudas ?? []).length,
+          total: r.impuestos?.total ?? null,
+          demora: r.demora?.total ?? null,
+        } : null,
+      };
+    });
+  }
+
+  async marcarLectura(id: string, campo: 'abierta_en' | 'descartada_en') {
+    const { error } = await this.db.from('lecturas_comprobante').update({ [campo]: new Date().toISOString() }).eq('id', id);
+    if (error) throw new BadRequestException(error.message);
+    return { ok: true };
+  }
+
+  // Volver a leer con aclaraciones una lectura abierta desde la bandeja: el
+  // original está en el bucket, no hace falta volver a subir la foto.
+  async releerConAclaraciones(id: string, aclaraciones: string, usuarioId?: string) {
+    const { data } = await this.db.from('lecturas_comprobante').select('resultado, nombre_archivo').eq('id', id).maybeSingle();
+    const ruta = (data as any)?.resultado?.archivoUrl as string | undefined;
+    if (!ruta) throw new BadRequestException('Esa lectura no tiene el original guardado: volvé a subir la foto');
+    const { data: file, error } = await this.db.storage.from('comprobantes').download(ruta);
+    if (error || !file) throw new BadRequestException('No se pudo recuperar el original: volvé a subir la foto');
+    const buffer = Buffer.from(await file.arrayBuffer());
+    const ext = (ruta.split('.').pop() ?? 'jpg').toLowerCase();
+    const mimetype = ext === 'pdf' ? 'application/pdf' : ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
+    return this.encolarComprobanteFoto(
+      { buffer, mimetype, originalname: (data as any)?.nombre_archivo ?? ruta.split('/').pop() },
+      aclaraciones, usuarioId, { origenId: id },
+    );
   }
 
   // La pantalla pregunta por acá cada pocos segundos.

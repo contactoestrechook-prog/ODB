@@ -54,6 +54,31 @@ export class ComprasController {
     return this.listas.estadoLecturaComprobante(id);
   }
 
+  // Bandeja de lectura: hasta 5 facturas a la vez, cada una en su carril
+  @Roles('deposito', 'comprador', 'gerente', 'dueno')
+  @Get('compras/lecturas')
+  bandejaLecturas(@Req() req: any) {
+    return this.listas.bandejaLecturas(req.usuario?.sub, req.usuario?.rol);
+  }
+
+  @Roles('deposito', 'comprador', 'gerente', 'dueno')
+  @Post('compras/entrada-foto/:id/abrir')
+  abrirLectura(@Param('id') id: string) {
+    return this.listas.marcarLectura(id, 'abierta_en');
+  }
+
+  @Roles('deposito', 'comprador', 'gerente', 'dueno')
+  @Post('compras/entrada-foto/:id/descartar')
+  descartarLectura(@Param('id') id: string) {
+    return this.listas.marcarLectura(id, 'descartada_en');
+  }
+
+  @Roles('deposito', 'comprador', 'gerente', 'dueno')
+  @Post('compras/entrada-foto/:id/releer')
+  releerLectura(@Param('id') id: string, @Body() b: { aclaraciones?: string }, @Req() req: any) {
+    return this.listas.releerConAclaraciones(id, b?.aclaraciones ?? '', req.usuario?.sub);
+  }
+
   @Roles('deposito', 'comprador', 'gerente', 'dueno')
   @Get('proveedores')
   proveedores() {
