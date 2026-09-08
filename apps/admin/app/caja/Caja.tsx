@@ -16,6 +16,8 @@ type Producto = {
   codigosBarras: string[];
   codigo?: string | null; // código interno de ODB (lo que se escanea / imprime en la etiqueta)
   stock?: number | null; // stock en la sucursal de la caja (null = desconocido, <= 0 = sin stock)
+  activo?: boolean; // false = dado de baja (se reconoce por código, no se vende)
+  sinStockDesde?: string | null; // fecha del último egreso en la sucursal, si hoy no hay
 };
 
 type Renglon = Producto & { cantidad: number };
@@ -137,6 +139,9 @@ const fmtNumero = (c: { tipo: string; punto_venta: number; numero: number }) =>
 export function Caja({ sucursales }: { sucursales: { id: string; nombre: string; terminales_tarjeta?: string[] }[] }) {
   const [sucursalId, setSucursalId] = useState(sucursales[0]?.id ?? '');
   const sucursalNombre = sucursales.find((s) => s.id === sucursalId)?.nombre ?? 'esta sucursal';
+  const fechaCorta = (iso?: string | null) => (iso ? new Date(iso).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' }) : '');
+  const haceDias = (iso?: string | null) => { if (!iso) return ''; const d = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000); return d <= 0 ? 'hoy' : d === 1 ? 'ayer' : `hace ${d} días`; };
+  const textoSinStock = (p: Producto) => `sin stock en ${sucursalNombre}${p.sinStockDesde ? ` · se terminó el ${fechaCorta(p.sinStockDesde)} (${haceDias(p.sinStockDesde)})` : ''}`;
   // Sant Thomas tiene DOS posnet (Getnet y Clover): la tarjeta se elige por terminal
   const [terminal, setTerminal] = useState<string | undefined>(undefined);
   const terminales = sucursales.find((s) => s.id === sucursalId)?.terminales_tarjeta ?? [];
@@ -154,6 +159,8 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
   const [busqueda, setBusqueda] = useState('');
   // '6*' (o '6x') antes de escanear: el próximo producto entra con esa cantidad
   const [multiplicador, setMultiplicador] = useState<number | null>(null);
+  // código escaneado que el sistema no conoce: se busca el producto por nombre y se vincula
+  const [codigoPendiente, setCodigoPendiente] = useState<string | null>(null);
   const [resultados, setResultados] = useState<Producto[]>([]);
   const [carrito, setCarrito] = useState<Renglon[]>([]);
   const [dni, setDni] = useState('');
@@ -431,6 +438,11 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
   }
 
   function agregar(p: Producto) {
+    if (p.activo === false) {
+      setEstado({ tipo: 'error', texto: `"${p.nombre}" está dado de baja: se reconoce pero no se vende. Avisá a backoffice si hay que reactivarlo.` });
+      setBusqueda(''); setResultados([]);
+      return;
+    }
     if (p.precio == null) {
       setEstado({ tipo: 'error', texto: `"${p.nombre}" no tiene precio cargado — no se puede vender` });
       setBusqueda(''); setResultados([]);
@@ -443,11 +455,29 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
       }
       return [...c, { ...p, cantidad: multiplicador ?? 1 }];
     });
-    if (multiplicador) setEstado({ tipo: 'ok', texto: `×${multiplicador} · ${p.nombre}` });
+    const sinStock = p.stock != null && p.stock <= 0;
+    if (sinStock) setEstado({ tipo: 'error', texto: `⚠ ${p.nombre}: ${textoSinStock(p)}. Si lo tenés en la mano, el stock está mal: avisá a depósito.` });
+    else if (multiplicador) setEstado({ tipo: 'ok', texto: `×${multiplicador} · ${p.nombre}` });
+    else setEstado(null);
     setMultiplicador(null);
+    setCodigoPendiente(null);
     setBusqueda('');
     setResultados([]);
-    if (!multiplicador) setEstado(null);
+  }
+
+  // Un código que el sistema no conoce: la cajera busca el producto por nombre
+  // y lo vincula acá mismo. La próxima vez, el escaneo lo encuentra solo.
+  async function vincularCodigo(p: Producto) {
+    const codigo = codigoPendiente;
+    if (!codigo) return;
+    try {
+      const r = await fetch('/api/pos-vincular', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sku: p.sku, codigo }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { setEstado({ tipo: 'error', texto: d.message ?? 'No se pudo vincular el código' }); return; }
+      setCatalogoLocal((c) => c.map((x) => (x.sku === p.sku ? { ...x, codigosBarras: [...(x.codigosBarras ?? []), codigo] } : x)));
+      agregar({ ...p, codigosBarras: [...(p.codigosBarras ?? []), codigo] });
+      setEstado({ tipo: 'ok', texto: `✓ Código ${codigo} vinculado a ${p.nombre}. La próxima vez entra solo.` });
+    } catch { setEstado({ tipo: 'error', texto: 'No se pudo vincular el código (revisá la conexión)' }); }
   }
 
   // "6*" → los próximos productos escaneados entran de a 6. También "6*7791234567890"
@@ -501,7 +531,12 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
       if (esCodigo || esEnter) {
         const exacto = datos.find((p) => p.codigo === t || p.sku === t || (p.codigosBarras ?? []).includes(t)) ?? (datos.length === 1 ? datos[0] : null);
         if (exacto) { agregar(exacto); return; }
-        if (esCodigo && datos.length === 0) { setEstado({ tipo: 'error', texto: `Código ${t} no encontrado` }); setResultados([]); return; }
+        if (esCodigo && datos.length === 0) {
+          setCodigoPendiente(t);
+          setEstado({ tipo: 'error', texto: `Código ${t}: el sistema no lo tiene vinculado a ningún producto. Buscá el producto por nombre y tocá «Vincular este código» en el resultado.` });
+          setResultados([]);
+          return;
+        }
       }
       setResultados(datos);
     } catch {
@@ -1455,8 +1490,15 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
                       {p.imagenUrl && <img src={p.imagenUrl} alt="" className="h-11 w-11 rounded-lg object-cover shrink-0" />}
                       <span className="min-w-0">
                         <span className="truncate text-base block">{p.nombre}</span>
-                        {sinStock && <span className="text-xs font-semibold text-[#B82D25]">Sin stock en {sucursalNombre}</span>}
+                        {p.activo === false && <span className="block text-xs font-semibold text-black/60">Dado de baja · se reconoce pero no se vende</span>}
+                        {sinStock && p.activo !== false && <span className="block text-xs font-semibold text-[#B82D25]">Sin stock en {sucursalNombre}{p.sinStockDesde ? ` · se terminó el ${fechaCorta(p.sinStockDesde)} (${haceDias(p.sinStockDesde)})` : ''}</span>}
                         {pocoStock && <span className="text-xs text-black/45">Quedan {Math.round(p.stock as number)} u.</span>}
+                        {codigoPendiente && p.activo !== false && (
+                          <span role="button" tabIndex={0} onClick={(e) => { e.stopPropagation(); vincularCodigo(p); }} onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); vincularCodigo(p); } }}
+                            className="mt-1 inline-block rounded-full bg-[#141414] px-3 py-1 text-xs font-semibold text-[#F0EBE2] hover:bg-black/80">
+                            Vincular este código ({codigoPendiente})
+                          </span>
+                        )}
                       </span>
                       {p.esAlcohol && <span className="rounded-full bg-black px-1.5 py-0.5 text-[10px] text-white shrink-0">+18</span>}
                     </span>
@@ -1485,7 +1527,7 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
                   <button onClick={() => seleccionarLinea(r.sku)} className="flex-1 min-w-0 text-left">
                     <p className="font-medium text-black leading-tight">
                       {r.nombre}
-                      {r.stock != null && r.stock <= 0 && <span className="ml-2 rounded bg-[#B82D25]/15 px-1.5 py-0.5 text-[11px] font-semibold text-[#B82D25] align-middle">sin stock</span>}
+                      {r.stock != null && r.stock <= 0 && <span className="ml-2 rounded bg-[#B82D25]/15 px-1.5 py-0.5 text-[11px] font-semibold text-[#B82D25] align-middle">sin stock{r.sinStockDesde ? ` · desde el ${fechaCorta(r.sinStockDesde)}` : ''}</span>}
                     </p>
                     <p className="text-xs text-black/45">{pesos(precioDe(r))} c/u{mayorista && r.precioMayorista != null ? ' · may.' : ''}{r.descuento ? ` · ${r.descuento}` : ''}{sel ? ' · tocá los números para la cantidad' : ''}</p>
                   </button>

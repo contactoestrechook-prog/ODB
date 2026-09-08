@@ -96,6 +96,8 @@ export const SECCIONES: Seccion[] = [
         pasos: [
           'Pasá el código de barras con el lector, o buscá por nombre.',
           'Varias unidades del mismo producto: escribí la cantidad en el casillero del renglón (tocalo, tipeá y Enter), o antes de escanear tipeá la cantidad y un asterisco —"6*"— y el próximo producto entra de a 6.',
+          'Si el producto no tiene stock en tu sucursal, igual lo reconoce: te dice "sin stock" y desde cuándo (la fecha del último egreso). Si lo tenés en la mano, el stock está mal: avisá a depósito.',
+          'Si el código no está vinculado a ningún producto, el sistema te lo dice: buscá el producto por nombre y tocá "Vincular este código" en el resultado. Queda guardado y la próxima vez entra solo.',
           'Si un producto no aparece, probá con parte del nombre. Si sigue sin aparecer, avisá a backoffice: falta darlo de alta o vincularle el código.',
           'El precio sale de la lista, no se escribe a mano.',
         ],
