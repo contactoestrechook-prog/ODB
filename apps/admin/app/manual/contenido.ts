@@ -617,6 +617,7 @@ export const SECCIONES: Seccion[] = [
         puntos: [
           'Todo lo que el bot cotiza sale de la lista de precios del sistema. Si un precio está mal en el sistema, el bot lo va a repetir mal.',
           'Las conversaciones completas se ven en RESPONDE (app) o en la pantalla WhatsApp y difusiones, que además tiene menú para volver y las pestañas de mensajes programados y difusiones: las campañas se arman y se siguen desde ahí.',
+          'Pausar el bot en UNA charla: abrila y tocá el botón de pausa (rojo). Desde ese momento el bot no contesta nada en esa conversación —ni un acuse—, los mensajes del cliente siguen entrando al hilo y la atendés vos, desde el panel o desde el teléfono. Cuando terminaste, "Devolver al bot". Contestar desde el panel también pausa la charla sola. El interruptor de arriba ("Pausar en todas") apaga la línea entera.',
           'El bot se puede apagar desde la pantalla del Bot cuando conviene atender a mano.',
         ],
       },
