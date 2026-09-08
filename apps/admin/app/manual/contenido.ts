@@ -283,6 +283,7 @@ export const SECCIONES: Seccion[] = [
         pasos: [
           'Entrá a Facturas de compra y cargá la factura: proveedor, número, fecha y los renglones.',
           'Adjuntá el archivo o la foto de la factura. Después nadie tiene que ir a buscar el papel.',
+          'Si venís con varias: en Compras → Entrada por foto elegí hasta 5 fotos de una vez. Se leen todas juntas, en segundo plano, y van apareciendo en la bandeja de lectura de Compras. Mientras tanto seguí con otra cosa; abrí cada una cuando diga "lista".',
           'Revisá el desglose: neto, IVA, percepciones e impuestos internos van separados. De ahí sale el Libro IVA.',
           'Guardá. La factura queda como deuda pendiente de pago.',
         ],
@@ -292,6 +293,7 @@ export const SECCIONES: Seccion[] = [
         puntos: [
           'Una factura ya cargada no se edita de prepo: se pide el cambio con el motivo, y lo aprueba un dueño. Queda el antes y el después.',
           'Si un renglón no matchea con ningún producto, se puede dar de alta el producto ahí mismo. No lo dejes sin vincular: ese costo no llega al precio de venta.',
+          'La foto: sacala con la cámara desde el panel, o mandala por WhatsApp como DOCUMENTO. Una foto que pasó por WhatsApp como imagen llega chica (1.280 píxeles): a la lectura le cuesta el doble, tarda más y es donde se equivoca. El panel avisa cuando la foto es chica.',
         ],
       },
       {

@@ -99,6 +99,33 @@ export function ComprasWorkspace({ resumen, ordenes, proveedores, sugerencias, s
         </div>
       </div>
 
+      {(bandeja.length > 0 || avisoBandeja) && (
+        <div className="rounded-xl border border-black/10 bg-white p-4">
+          <div className="flex items-baseline justify-between gap-2 flex-wrap">
+            <p className="text-sm font-semibold text-black">📷 Bandeja de lectura</p>
+            <p className="text-[11px] text-black/45">Las facturas se leen en segundo plano. Abrí cada una cuando esté lista.</p>
+          </div>
+          {avisoBandeja && <p className="mt-2 rounded-lg bg-[#F0EBE2] px-3 py-2 text-xs text-black/70">{avisoBandeja}</p>}
+          <div className="mt-2 divide-y divide-black/5">
+            {bandeja.map((l: any) => {
+              const seg = Math.max(0, Math.round((Date.now() - new Date(l.creadoEn).getTime()) / 1000));
+              return (
+                <div key={l.id} className="flex items-center gap-3 py-2 text-sm flex-wrap">
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-black">{l.nombreArchivo || 'Factura'}{l.releida ? ' · releída con aclaraciones' : ''}</span>
+                    {l.estado === 'procesando' && <span className="block text-xs text-black/50">⏳ leyendo… {seg}s — podés seguir con otra cosa</span>}
+                    {l.estado === 'listo' && <span className="block text-xs text-emerald-800">✓ lista{l.resumen?.proveedor ? ` · ${l.resumen.proveedor}` : ''}{l.resumen?.numero ? ` · ${l.resumen.numero}` : ''} · {l.resumen?.renglones ?? 0} renglones{l.resumen?.dudas ? ` · ${l.resumen.dudas} duda(s)` : ''}{l.resumen?.total != null ? ` · ${pesos(l.resumen.total)}` : ''}{l.abiertaEn ? ' · ya abierta' : ''}</span>}
+                    {l.estado === 'error' && <span className="block text-xs text-[#932A1F]">✕ {l.error || 'No se pudo leer'}</span>}
+                  </span>
+                  {l.estado === 'listo' && <button onClick={() => abrirLectura(l.id)} className="rounded-full bg-black px-3 py-1.5 text-xs font-medium text-white hover:bg-black/80">Abrir</button>}
+                  {l.estado !== 'procesando' && <button onClick={() => descartarLectura(l.id)} className="text-xs text-black/40 hover:text-[#B82D25]" title="Sacar de la bandeja">✕</button>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       <div className="flex gap-1.5 flex-wrap border-b border-black/10">
         {TABS.map(([k, label]) => {
           const badge = k === 'aprobar' ? porAprobar.length : k === 'recepcion' ? porRecibir.length : k === 'sugerencias' ? sugerencias.length : 0;
@@ -364,6 +391,10 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   const [fotoImp, setFotoImp] = useState<any>({});
   const [leyendoFoto, setLeyendoFoto] = useState(false);
   const [segundosLeyendo, setSegundosLeyendo] = useState(0);
+  const [avisoFoto, setAvisoFoto] = useState<string | null>(null); // foto chica (comprimida por WhatsApp)
+  // Bandeja de lectura: hasta 5 facturas a la vez, cada una en su carril
+  const [bandeja, setBandeja] = useState<any[]>([]);
+  const [avisoBandeja, setAvisoBandeja] = useState<string | null>(null);
   const [sumarIva, setSumarIva] = useState(true); // factura A: costo = neto + IVA
   // Percepciones adentro del costo: es la política de la casa. Se puede sacar
   // para una factura puntual (por ejemplo si esa percepción se va a usar).
@@ -387,6 +418,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   // va tal cual.
   async function leerFoto(archivo: File) {
     setAclaraciones('');
+    setAvisoFoto(await avisoSiEsChica(archivo));
     const listo = await prepararComprobante(archivo);
     setFotoArchivo(listo);
     await enviarComprobante(listo, '');
@@ -394,42 +426,37 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
 
   // Segunda pasada: la misma imagen + lo que el operador aclaró sobre las dudas.
   async function reLeerConAclaraciones() {
-    if (!fotoArchivo || !aclaraciones.trim()) return;
-    await enviarComprobante(fotoArchivo, aclaraciones);
+    if (!aclaraciones.trim()) return;
+    if (fotoArchivo) { await enviarComprobante(fotoArchivo, aclaraciones); return; }
+    // abierta desde la bandeja: el original está en el servidor, no se vuelve a subir
+    if (!foto?.lecturaId) return;
+    setLeyendoFoto(true); setSegundosLeyendo(0);
+    try {
+      const r = await fetch('/api/entrada-foto', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'releer', id: foto.lecturaId, aclaraciones: aclaraciones.trim() }) });
+      const enc = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(enc.message ?? 'No se pudo volver a leer');
+      const d = await esperarLectura(enc.lecturaId);
+      cargarLecturaEnPantalla({ ...d, lecturaId: enc.lecturaId });
+    } catch (e) { setFoto({ error: e instanceof Error ? e.message : 'Error al leer' }); }
+    setLeyendoFoto(false);
   }
 
-  async function enviarComprobante(listo: File, aclara: string) {
-    setLeyendoFoto(true);
-    setSegundosLeyendo(0);
-    // la autorización del dueño es POR FACTURA: no puede arrastrarse a la próxima
-    setProrrateoAut(null);
-    setPinProrrateo('');
-    setErrorProrrateo('');
-    try {
-      const fd = new FormData();
-      fd.append('archivo', listo);
-      if (aclara.trim()) fd.append('aclaraciones', aclara.trim());
-      // La lectura corre en segundo plano: el POST devuelve un id al instante y
-      // acá se pregunta por el resultado hasta que está. Antes se esperaba la
-      // respuesta del tirón y una factura grande (4-5 min) moría con "upstream
-      // error" del gateway, con la lectura ya terminada del lado del servidor.
-      const r = await fetch('/api/entrada-foto', { method: 'POST', body: fd });
-      const encolado = await r.json();
-      if (!r.ok) throw new Error(encolado.message ?? 'No se pudo leer el comprobante');
-      const lecturaId = encolado.lecturaId;
-      let d: any = encolado;
-      if (lecturaId) {
-        const desde = Date.now();
-        for (;;) {
-          await new Promise((res) => setTimeout(res, 3000));
-          const p = await fetch(`/api/entrada-foto?id=${encodeURIComponent(lecturaId)}`, { cache: 'no-store' });
-          const e = await p.json().catch(() => ({ estado: 'procesando' }));
-          if (e.estado === 'listo') { d = e; break; }
-          if (e.estado === 'error') throw new Error(e.message ?? 'No se pudo leer el comprobante');
-          setSegundosLeyendo(Math.round((Date.now() - desde) / 1000));
-          if (Date.now() - desde > 12 * 60_000) throw new Error('La lectura tardó demasiado. Probá de nuevo con la misma foto.');
-        }
-      }
+  // Espera una lectura en segundo plano preguntando cada 3 s (con el contador).
+  async function esperarLectura(lecturaId: string): Promise<any> {
+    const desde = Date.now();
+    for (;;) {
+      await new Promise((res) => setTimeout(res, 3000));
+      const p = await fetch(`/api/entrada-foto?id=${encodeURIComponent(lecturaId)}`, { cache: 'no-store' });
+      const e = await p.json().catch(() => ({ estado: 'procesando' }));
+      if (e.estado === 'listo') return e;
+      if (e.estado === 'error') throw new Error(e.message ?? 'No se pudo leer el comprobante');
+      setSegundosLeyendo(Math.round((Date.now() - desde) / 1000));
+      if (Date.now() - desde > 12 * 60_000) throw new Error('La lectura tardó demasiado. Probá de nuevo con la misma foto.');
+    }
+  }
+
+  // Lo leído (de una foto recién subida o de la bandeja) pasa a la pantalla.
+  function cargarLecturaEnPantalla(d: any) {
       setFoto(d);
       setF((x: any) => ({
         ...x,
@@ -496,6 +523,87 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
           incluir: !i.esDescuento && !!i.match && !sugerido,
         };
       }));
+  }
+
+  // Foto chica (≤1300 px): casi siempre vino comprimida por WhatsApp. Al modelo
+  // le cuesta el doble leerla —y es donde cruza filas—: mejor avisar.
+  async function avisoSiEsChica(archivo: File): Promise<string | null> {
+    if (!/^image\//.test(archivo.type)) return null;
+    try {
+      const bmp = await createImageBitmap(archivo);
+      const lado = Math.max(bmp.width, bmp.height);
+      bmp.close?.();
+      if (lado <= 1300) return `Esta foto es chica (${lado} px): seguramente vino comprimida por WhatsApp. Sacala con la cámara desde el panel, o mandala por WhatsApp como documento: se lee más rápido y con menos errores.`;
+    } catch { /* HEIC u otros que el navegador no decodifica: sin aviso */ }
+    return null;
+  }
+
+  // Varias fotos a la vez: cada una entra a su carril y la pantalla queda libre.
+  async function leerVarias(archivos: File[]) {
+    setLeyendoFoto(true); setAvisoBandeja(null);
+    let ok = 0; const errores: string[] = [];
+    for (const a of archivos.slice(0, 5)) {
+      try {
+        const listo = await prepararComprobante(a);
+        const fd = new FormData(); fd.append('archivo', listo, a.name);
+        const r = await fetch('/api/entrada-foto', { method: 'POST', body: fd });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(d.message ?? 'No se pudo cargar');
+        ok++;
+      } catch (e) { errores.push(`${a.name}: ${e instanceof Error ? e.message : 'error'}`); }
+    }
+    setLeyendoFoto(false);
+    setAvisoBandeja(`${ok} factura(s) en lectura. Podés seguir trabajando: cuando estén listas aparecen en la bandeja de lectura.${errores.length ? ' No se pudo cargar → ' + errores.join(' · ') : ''}`);
+    setModal(null);
+    cargarBandeja();
+  }
+
+  const cargarBandeja = async () => {
+    try { const r = await fetch('/api/entrada-foto?bandeja=1', { cache: 'no-store' }); if (r.ok) setBandeja(await r.json()); } catch { /* sin red: se reintenta */ }
+  };
+  useEffect(() => { cargarBandeja(); }, []);
+  useEffect(() => {
+    if (!bandeja.some((l) => l.estado === 'procesando')) return;
+    const t = setInterval(cargarBandeja, 4000);
+    return () => clearInterval(t);
+  }, [bandeja]);
+
+  async function abrirLectura(id: string) {
+    const r = await fetch(`/api/entrada-foto?id=${encodeURIComponent(id)}`, { cache: 'no-store' });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || d.estado !== 'listo') { setAvisoBandeja(d.message ?? 'Esa lectura todavía no está lista'); return; }
+    setFotoArchivo(null); setFotoUrl(null); setAclaraciones(''); setAvisoFoto(null);
+    cargarLecturaEnPantalla({ ...d, lecturaId: id });
+    setModal({ tipo: 'entradaFoto' });
+    fetch('/api/entrada-foto', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'abrir', id }) })
+      .then(() => cargarBandeja()).catch(() => {});
+  }
+  async function descartarLectura(id: string) {
+    await fetch('/api/entrada-foto', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'descartar', id }) }).catch(() => {});
+    cargarBandeja();
+  }
+
+  async function enviarComprobante(listo: File, aclara: string) {
+    setLeyendoFoto(true);
+    setSegundosLeyendo(0);
+    // la autorización del dueño es POR FACTURA: no puede arrastrarse a la próxima
+    setProrrateoAut(null);
+    setPinProrrateo('');
+    setErrorProrrateo('');
+    try {
+      const fd = new FormData();
+      fd.append('archivo', listo);
+      if (aclara.trim()) fd.append('aclaraciones', aclara.trim());
+      // La lectura corre en segundo plano: el POST devuelve un id al instante y
+      // acá se pregunta por el resultado hasta que está. Antes se esperaba la
+      // respuesta del tirón y una factura grande (4-5 min) moría con "upstream
+      // error" del gateway, con la lectura ya terminada del lado del servidor.
+      const r = await fetch('/api/entrada-foto', { method: 'POST', body: fd });
+      const encolado = await r.json();
+      if (!r.ok) throw new Error(encolado.message ?? 'No se pudo leer el comprobante');
+      const lecturaId = encolado.lecturaId;
+      const d: any = lecturaId ? await esperarLectura(lecturaId) : encolado;
+      cargarLecturaEnPantalla({ ...d, lecturaId });
     } catch (e) {
       setFoto({ error: e instanceof Error ? e.message : 'Error al leer' });
     }
@@ -1271,9 +1379,11 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                 {leyendoFoto
                   ? `Leyendo el comprobante… ${segundosLeyendo > 4 ? `(${segundosLeyendo}s — podés esperar, no se corta)` : ''}`
                   : 'Tocar para sacar foto o elegir archivo'}
-                <input type="file" accept="image/*,.pdf" capture="environment" className="hidden" disabled={leyendoFoto}
-                  onChange={(e) => { const a = e.target.files?.[0]; if (a) leerFoto(a); e.target.value = ''; }} />
+                <input type="file" accept="image/*,.pdf" multiple className="hidden" disabled={leyendoFoto}
+                  onChange={(e) => { const fs = Array.from(e.target.files ?? []); if (fs.length === 1) leerFoto(fs[0]); else if (fs.length > 1) leerVarias(fs); e.target.value = ''; }} />
               </label>
+              <p className="text-[11px] text-black/45">Podés elegir hasta <b>5</b> fotos a la vez: se leen todas juntas y aparecen en la <b>bandeja de lectura</b> cuando están listas. Consejo: sacá la foto desde acá (cámara) o mandala por WhatsApp como <i>documento</i> — comprimida por WhatsApp se lee más lento y peor.</p>
+              {avisoFoto && <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">{avisoFoto}</p>}
               <Acciones cerrar={cerrar} okLabel="—" disabled onOk={() => {}} />
             </>
           ) : foto.error ? (
