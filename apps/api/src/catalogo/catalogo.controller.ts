@@ -1,4 +1,4 @@
-import { Controller, Get, Headers, Param, Query } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, Post, Query, Req } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { CatalogoService } from './catalogo.service';
 import type { FiltrosCatalogo } from './catalogo.service';
@@ -65,6 +65,13 @@ export class CatalogoController {
   @Get('pos/buscar')
   posBuscar(@Query('q') q: string, @Query('sucursal') sucursal?: string) {
     return this.catalogo.posBuscar(q ?? '', sucursal);
+  }
+
+  // La cajera vincula un código de barras que el sistema no conocía
+  @Roles('cajero', 'deposito', 'gerente', 'dueno')
+  @Post('pos/vincular-codigo')
+  vincularCodigo(@Body() b: { sku: string; codigo: string }, @Req() req: any) {
+    return this.catalogo.vincularCodigo(b?.sku, b?.codigo, req.usuario?.sub);
   }
 
   // Catálogo con stock para precargar en la caja (búsqueda local instantánea)

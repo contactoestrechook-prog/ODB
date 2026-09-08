@@ -87,8 +87,34 @@ export class CatalogoService {
         codigosBarras: r.codigos ?? [],
         codigo: r.codigo ?? null,
         stock: r.stock != null ? Number(r.stock) : null,
+        // el producto se reconoce aunque esté dado de baja (por código exacto) o sin stock
+        activo: r.activo !== false,
+        // "se terminó el…": fecha del último egreso en la sucursal, solo si hoy no hay
+        sinStockDesde: r.stock != null && Number(r.stock) <= 0 && r.ultimo_egreso ? r.ultimo_egreso : null,
       })),
     };
+  }
+
+  // Vincular un código de barras desde la caja: el producto existe pero el
+  // código no estaba cargado (2.341 activos sin código al 2026-09-08), así que
+  // al escanearlo "no salía nada". La cajera lo busca por nombre y lo vincula.
+  async vincularCodigo(sku: string, codigo: string, usuarioId?: string) {
+    const cod = String(codigo ?? '').replace(/\D/g, '');
+    if (cod.length < 6 || cod.length > 14) throw new BadRequestException('El código tiene que tener entre 6 y 14 dígitos');
+    const { data: prod } = await this.db.from('productos').select('id, nombre, sku').eq('sku', String(sku ?? '').trim()).maybeSingle();
+    if (!prod) throw new BadRequestException('No existe ese producto');
+    const { data: existente } = await this.db.from('codigos_barras').select('producto_id, producto:productos(nombre)').eq('codigo', cod).maybeSingle();
+    if (existente) {
+      if ((existente as any).producto_id === (prod as any).id) return { ok: true, nombre: (prod as any).nombre, yaEstaba: true };
+      throw new BadRequestException(`Ese código ya es de «${(existente as any).producto?.nombre ?? 'otro producto'}»`);
+    }
+    const { error } = await this.db.from('codigos_barras').insert({ codigo: cod, producto_id: (prod as any).id });
+    if (error) throw new BadRequestException(error.message);
+    await this.db.from('auditoria').insert({
+      usuario_id: usuarioId ?? null, accion: 'codigo_barras_vinculado', entidad: 'producto', entidad_id: (prod as any).id,
+      datos_despues: { codigo: cod, desde: 'caja' },
+    }).then(() => null, () => null);
+    return { ok: true, nombre: (prod as any).nombre };
   }
 
   // Consulta de stock por sucursal (la usa el cajero para decirle al cliente
