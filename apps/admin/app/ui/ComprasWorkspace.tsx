@@ -1504,7 +1504,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
               {provAviso && <p className="text-xs text-[#B82D25]">{provAviso}</p>}
 
               {/* renglones: cada uno editable — vincular producto, cantidad, remarcación y precio */}
-              <div className="hidden sm:grid grid-cols-[26px_minmax(0,1fr)_72px_116px_64px_92px] items-end gap-2 px-3 pt-1 text-[10px] uppercase tracking-[0.12em] text-black/40">
+              <div className="hidden sm:grid grid-cols-[26px_minmax(0,1fr)_72px_190px_64px_92px] items-end gap-2 px-3 pt-1 text-[10px] uppercase tracking-[0.12em] text-black/40">
                 <span /><span>Renglón del papel → producto en el sistema</span>
                 <span className="text-right">Cant.</span><span className="text-right">Costo</span>
                 <span className="text-right">Remar. %</span><span className="text-right">P. venta</span>
@@ -1561,7 +1561,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                       </div>
 
                       {/* 2 · lo que entra al sistema: producto y números, en columnas fijas */}
-                      <div className="grid grid-cols-[minmax(0,1fr)_72px_116px_64px_92px] items-center gap-2">
+                      <div className="grid grid-cols-[minmax(0,1fr)_72px_190px_64px_92px] items-center gap-2">
                         <div className="min-w-0 text-xs leading-snug">
                           {i.sugerido && i.nombre ? (
                             <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -1587,8 +1587,8 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                           )}
                         </div>
                         <input type="number" step="any" min="0" value={i.cantidad} onChange={(e) => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, cantidad: Number(e.target.value) } : x))} className="w-full rounded-md border border-black/15 px-2 py-1 text-right text-sm tabular-nums text-[#141414] focus:border-black/50 outline-none" />
-                        <div className="text-right tabular-nums">
-                          <div className="text-sm font-semibold text-[#141414]">{pesos(costoFinal(i))}</div>
+                        {/* costo: el precio del papel (corregible) → el costo final que queda en stock, en la misma línea */}
+                        <div className="flex items-center justify-end gap-1.5 tabular-nums">
                           <input
                             type="number" step="any" min="0" value={i.precio}
                             onChange={(e) => setFotoItems((xs) => xs.map((x, j) => {
@@ -1596,14 +1596,18 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                               const p = Number(e.target.value) || 0;
                               return { ...x, precio: p, importe: numImp(x.cantidad) * p, cantidadCorregida: null, bultoConsumido: null };
                             }))}
-                            title="Precio unitario leído del papel: corregilo si la lectura falló"
-                            className="mt-0.5 block w-full rounded border border-black/10 px-1 py-0.5 text-right text-[11px] text-black/60 focus:border-black/40 outline-none"
+                            title="Precio unitario tal como está en el papel (sin IVA): corregilo si la lectura falló"
+                            className="w-[78px] rounded border border-black/10 px-1 py-0.5 text-right text-[12px] text-[#141414] focus:border-black/40 outline-none"
                           />
-                          {numImp(i.cantidad) > 0 && (
-                            <div className="mt-0.5 text-[10px] leading-tight text-black/45" title="Cantidad × precio leído tiene que dar el importe del renglón en el papel">
-                              {pesos(numImp(i.cantidad) * precioEfectivo(i))} factura · <b className="font-medium text-black/65">{pesos(numImp(i.cantidad) * costoFinal(i))}</b> a stock
-                            </div>
-                          )}
+                          {Math.abs(costoFinal(i) - precioEfectivo(i)) > 0.5 ? (
+                            <span
+                              className="whitespace-nowrap text-right leading-none"
+                              title="Costo final por unidad: el precio del papel más el IVA, las percepciones y los impuestos internos de la factura, repartidos entre los renglones. Es el costo que queda en stock y del que sale el margen."
+                            >
+                              <span className="text-black/35">→</span> <b className="text-sm font-semibold text-[#141414]">{pesos(costoFinal(i))}</b>
+                              <span className="ml-1 text-[9.5px] uppercase tracking-wide text-black/45">c/IVA</span>
+                            </span>
+                          ) : null}
                         </div>
                         <div>
                           <input type="number" value={i.margenPct} placeholder="rubro" onChange={(e) => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, margenPct: e.target.value === '' ? '' : Number(e.target.value) } : x))} className="w-full rounded-md border border-black/15 px-2 py-1 text-right text-sm tabular-nums text-[#141414] focus:border-black/50 outline-none" />
