@@ -3,7 +3,7 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
 import * as XLSX from 'xlsx';
 import { SUPABASE } from '../supabase.provider';
-import { unidadesPorBulto, esRenglonDeDescuento, porcentajeDeDescuento, puedeVendersePorPeso, interpretarRenglon } from '../compras/bultos';
+import { unidadesPorBulto, esRenglonDeDescuento, porcentajeDeDescuento, puedeVendersePorPeso, interpretarRenglon, unidadesDeLaPresentacion } from '../compras/bultos';
 
 export type ItemExtraido = { codigo: string | null; descripcion: string; precio: number };
 // pedido exportado del portal del proveedor: igual que la lista pero con cantidad
@@ -401,13 +401,10 @@ export class ListasService {
     }
 
     const claude = new Anthropic();
-    const contenido: Anthropic.ContentBlockParam[] = [
-      esPdf
-        ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: archivo.buffer.toString('base64') } }
-        : { type: 'image', source: { type: 'base64', media_type: mediaType!, data: archivo.buffer.toString('base64') } },
-      {
-        type: 'text',
-        text:
+    // Las instrucciones son idénticas en cada factura (~9k tokens): van al
+    // system con caché. Antes viajaban en el mensaje, DESPUÉS de la imagen —y
+    // como la imagen cambia siempre, nunca podían cachearse.
+    const instrucciones =
           'Este es un comprobante de COMPRA argentino de un almacén (factura A/B/C, remito o ticket; puede ser una foto de celular). El pie de impuestos puede estar denso o desalineado (típico en cigarrillos, bebidas y otros regímenes especiales). Seguí estos pasos EN ORDEN.\n\n' +
           'PASO 1 — Encabezado y renglones. Extraé emisor + CUIT, tipo/número/fecha/condición de venta y TODOS los renglones: código, descripción (que EMPIECE por la marca cuando se vea), cantidad, precio unitario de la columna PRE.UNIT tal cual figura, y el % de IVA del renglón si el comprobante lo imprime (columna IVA/Alic.: 21, 10.5, 27 — es común que una misma factura mezcle 21% y 10,5%). NO uses PRE.VTA.PUBLICO ni la columna IMPORTE.\n\n' +
           'PASO 1 QUINQUIES — El importe del renglón manda. Copiá SIEMPRE la columna Importe/Subtotal de cada renglón en "importe". Es común que el proveedor mande mercadería sin cargo: el precio unitario aparece lleno (porque es el de lista) pero el importe del renglón es 0,00, a veces con un "-100" en la columna de descuento. Ese renglón ES mercadería y entra al stock; lo que no se paga es su importe. No lo confundas con un renglón de descuento.\n\n' +
@@ -428,9 +425,17 @@ export class ListasService {
           '  descuentoGlobal ← un descuento del PIE sobre toda la factura ("Desc. 50%", "DESCUENTO GENERAL"), en POSITIVO. Es MUY común y es lo que explica que la suma de los renglones sea mayor que el neto: si lo metés en "otros" o lo ignorás, el costo de todos los productos queda mal.\n' +
           '  total ← TOTAL / TOTAL CBTE / TOTAL A PAGAR\n' +
           'REGLAS DURAS: "PER."/"PERCEPCIÓN" es SIEMPRE percepción, JAMÁS el IVA discriminado. Una etiqueta = un solo campo. Una etiqueta con eco=true (mismo valor que otra ya mapeada) NO se vuelve a sumar en ningún campo.\n\n' +
-          'PASO 4 — AUTOVERIFICACIÓN OBLIGATORIA. Calculá S = neto + iva + percepcionIva + percepcionIibb + impuestosInternos + otros y compará con total (el descuentoGlobal NO entra acá: ya está restado dentro del neto). Verificá además que suma(cantidad × precio de los renglones que se pagan) − descuentoGlobal ≈ neto; si no cierra, o falta el descuento del pie o leíste mal una columna. Si |S − total| ≤ max(1, 0,5% de total): cierra, OK. Si NO cierra: NO inventes. Reasigná los valores de pieLiteral hasta encontrar el mapeo que hace cerrar la identidad (el error más común es cruzar PER. DE IVA con el IVA discriminado, o meter el SUB TOTAL en otros). El TOTAL es tu ancla; leelo con cuidado (viene también en letras). Si tras reintentar sigue sin cerrar, dejá tu mejor lectura y AGREGÁ una duda indicando qué etiqueta del pie no pudiste asignar con seguridad.\n\n' +
+          'PASO 4 — Control rápido, UNA sola vez. Sumá S = neto + iva + percepcionIva + percepcionIibb + impuestosInternos + otros y compará con total (el descuentoGlobal no entra: ya está restado en el neto). Si difiere en más del 0,5%, lo más probable es que hayas cruzado PER. DE IVA con el IVA discriminado o metido el SUB TOTAL en otros: corregí ese mapeo una vez y seguí. NO iteres ni recalcules varias veces: el sistema vuelve a verificar la identidad en código y le pregunta al operador si no cierra. Dejá tu mejor lectura y, si quedó una etiqueta dudosa, agregá una duda diciendo cuál.\n\n' +
           'PASO 5 — Renglones vs neto (régimen especial). En cigarrillos, bebidas con impuestos internos y similares, la suma de (cantidad × PRE.UNIT) NO tiene por qué coincidir con el neto, y el IVA NO es el 21% del neto (puede ser mucho menor): el precio unitario ya trae impuestos internos y percepción IIBB embebidos. Para estos comprobantes NO fuerces suma(renglones) = neto y NO uses ese descuadre para "corregir" el pie ni para dudar. Preguntá por el descuadre de renglones SOLO si el comprobante claramente NO es de régimen especial (verdulería, limpieza) y la diferencia es grande.\n\n' +
-          'PASO 6 — Dudas. Preguntá por cualquier número borroso, tapado o ambiguo, y por letra manuscrita. Si la identidad del PASO 4 no cerró, es OBLIGATORIO dejar una duda. Si hay anotaciones manuscritas relevantes, transcribilas en notasManuscritas. Es mejor preguntar que cargar un número equivocado.' +
+          'PASO 6 — Dudas. Preguntá por cualquier número borroso, tapado o ambiguo, y por letra manuscrita. Si la identidad del PASO 4 no cerró, es OBLIGATORIO dejar una duda. Si hay anotaciones manuscritas relevantes, transcribilas en notasManuscritas. Es mejor preguntar que cargar un número equivocado.';
+    const contenido: Anthropic.ContentBlockParam[] = [
+      esPdf
+        ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: archivo.buffer.toString('base64') } }
+        : { type: 'image', source: { type: 'base64', media_type: mediaType!, data: archivo.buffer.toString('base64') } },
+      {
+        type: 'text',
+        text:
+          'Leé el comprobante adjunto siguiendo las instrucciones del sistema.' +
           (aclaraciones && aclaraciones.trim()
             ? '\n\nEl operador ya revisó una primera lectura y te aclara lo siguiente (tenelo en cuenta y NO vuelvas a preguntar por esto): ' + aclaraciones.trim()
             : ''),
@@ -454,6 +459,7 @@ export class ListasService {
         const respuesta = await claude.messages
           .stream({
             model: 'claude-sonnet-5',
+            system: [{ type: 'text', text: instrucciones, cache_control: { type: 'ephemeral' } }],
             // 64k: una factura de dos hojas con 60 renglones, más el
             // razonamiento —que cuenta contra este mismo tope—, no entra en
             // 16k. Con 16k, La Serenísima moría justo en el límite y salía
@@ -1079,11 +1085,13 @@ export class ListasService {
         .stream({
           model: 'claude-sonnet-5',
           max_tokens: 32000, // comprobante largo con muchos renglones sin match: que no se trunque el JSON
-          // elegir el candidato correcto de una lista corta tampoco necesita
-          // razonamiento profundo
+          // Elegir el candidato correcto de una lista corta no necesita
+          // razonamiento profundo, y la sugerencia SIEMPRE pasa por el "¿es
+          // este?" del operador antes de vincularse. Estaba en 'high' y eran
+          // 16-19 segundos por factura; regulable aparte de la lectura.
           output_config: {
             format: { type: 'json_schema', schema: ESQUEMA_SUGERENCIAS as any },
-            effort: (process.env.ODB_ESFUERZO_LECTURA ?? 'high') as any,
+            effort: (process.env.ODB_ESFUERZO_MATCHING ?? 'low') as any,
           },
           messages: [{ role: 'user', content: [{ type: 'text', text:
             'Sos el encargado de compras de un almacén argentino. Para cada renglón de una factura de proveedor te doy una lista de productos CANDIDATOS del catálogo. ' +
