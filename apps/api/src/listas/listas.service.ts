@@ -459,7 +459,9 @@ export class ListasService {
         const respuesta = await claude.messages
           .stream({
             model: 'claude-sonnet-5',
-            system: [{ type: 'text', text: instrucciones, cache_control: { type: 'ephemeral' } }],
+            // caché de UNA HORA: las facturas se cargan salteadas a lo largo de la
+            // mañana y con los 5 minutos por defecto casi nunca se aprovechaba
+            system: [{ type: 'text', text: instrucciones, cache_control: { type: 'ephemeral', ttl: '1h' } }],
             // 64k: una factura de dos hojas con 60 renglones, más el
             // razonamiento —que cuenta contra este mismo tope—, no entra en
             // 16k. Con 16k, La Serenísima moría justo en el límite y salía
