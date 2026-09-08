@@ -1657,6 +1657,15 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                         title="Precio unitario leído del papel: corregilo si la lectura falló"
                         className="mt-0.5 block w-full rounded border border-black/10 px-1 py-0.5 text-right text-[11px] text-black/60 focus:border-black/40"
                       />
+                      {/* El total del renglón, para cotejar con el papel sin calculadora:
+                          cantidad × precio leído tiene que dar el importe impreso; y lo
+                          que entra a stock ya con impuestos (pedido del dueño 2026-09-08). */}
+                      {numImp(i.cantidad) > 0 && (
+                        <span className="mt-0.5 block text-[10px] leading-tight text-black/50" title="Cantidad × precio unitario leído: tiene que coincidir con el importe del renglón en la factura">
+                          = {pesos(numImp(i.cantidad) * precioEfectivo(i))} en factura
+                          <span className="block">→ {pesos(numImp(i.cantidad) * costoFinal(i))} a stock</span>
+                        </span>
+                      )}
                     </span>
                     <span className="w-16">
                       <input type="number" value={i.margenPct} placeholder="rubro" onChange={(e) => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, margenPct: e.target.value === '' ? '' : Number(e.target.value) } : x))} className="w-full rounded border border-black/15 px-1 py-1 text-right text-sm text-black" title="Remarcación % (vacío = usa la del rubro)" />
