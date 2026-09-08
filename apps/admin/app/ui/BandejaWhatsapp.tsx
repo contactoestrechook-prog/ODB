@@ -6,6 +6,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 // atiende. Charlas (pausar el bot, contestar, devolver), ficha y notas del
 // contacto, mensajes programados y difusiones. Un solo lugar, marca RESPONDE.
 type Conv = {
+  telefonoReal?: string | null; // número real detrás de un @lid (lo resuelve WAHA)
+  esEquipo?: boolean;
   linea: string; telefono: string; nombre: string | null; actualizado_en: string;
   ultimo: string; ultimoRol: string | null; pausada: boolean; derivada: boolean;
   derivadaMotivo: string | null; sinLeer: boolean; turnos: number;
@@ -109,7 +111,11 @@ export function BandejaWhatsapp({ puedeApagarLinea }: { puedeApagarLinea: boolea
                 <div className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${c.sinLeer ? 'bg-[#B82D25]' : 'bg-transparent'}`} />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-baseline justify-between gap-2">
-                    <p className={`truncate text-[15px] ${c.sinLeer ? 'font-bold text-black' : 'font-medium text-black/85'}`}>{c.nombre ?? bonito(c.telefono)}</p>
+                    <p className={`truncate text-[15px] ${c.sinLeer ? 'font-bold text-black' : 'font-medium text-black/85'}`}>
+                      {c.nombre ?? bonito(c.telefonoReal ?? c.telefono)}
+                      {c.nombre && c.telefonoReal && <span className="ml-1.5 text-[11px] font-normal text-black/40">{bonito(c.telefonoReal)}</span>}
+                      {c.esEquipo && <span className="ml-1.5 rounded bg-black/10 px-1 text-[10px] font-medium text-black/60">casa</span>}
+                    </p>
                     <span className="shrink-0 text-[11px] text-black/40">{fechaCorta(c.actualizado_en)}</span>
                   </div>
                   <p className="mt-0.5 truncate text-[13px] text-black/55">{c.ultimoRol === 'assistant' ? '🤖 ' : ''}{c.ultimo || '(sin mensajes)'}</p>
@@ -223,8 +229,8 @@ function Charla({ conv, onVolver, onCambio }: { conv: Conv; onVolver: () => void
       <header className="flex items-center gap-2 bg-black px-3 py-2.5 text-[#F0EBE2]">
         <button onClick={onVolver} className="rounded-lg px-2 py-1 text-lg leading-none">‹</button>
         <button onClick={abrirFicha} className="min-w-0 flex-1 text-left">
-          <p className="truncate text-sm font-semibold">{c.nombre ?? bonito(c.telefono)}</p>
-          <p className="text-[11px] text-white/55">{c.nombre ? bonito(c.telefono) : 'tocar para ver la ficha'}</p>
+          <p className="truncate text-sm font-semibold">{c.nombre ?? bonito(c.telefonoReal ?? c.telefono)}</p>
+          <p className="text-[11px] text-white/55">{c.nombre ? bonito(c.telefonoReal ?? c.telefono) : 'tocar para ver la ficha'}</p>
         </button>
         <button onClick={() => setPanel(panel === 'programar' ? null : 'programar')} title="Programar mensaje" className="rounded-lg px-2 py-1 text-base">🕒</button>
         {c.pausada ? (
