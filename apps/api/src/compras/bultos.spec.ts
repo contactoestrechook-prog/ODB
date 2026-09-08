@@ -498,3 +498,18 @@ describe('descuentoEsDelRenglon — tolerancia de redondeo (maní, 2026-09-08)',
     expect(descuentoEsDelRenglon(1600, 1521.16, null)).toBe(false);
   });
 });
+
+describe('variacionPorUnidad — el "+42543%" de la caja (2026-09-08)', () => {
+  const { variacionPorUnidad } = require('./bultos');
+  it('si el renglón viene por caja, compara el precio por unidad', () => {
+    // caja de 12 a $37.100 = $3.092 la unidad; costo actual $3.000 → +3,1%, no +1136%
+    expect(variacionPorUnidad(37100, 12, 3000)).toBe(3.1);
+  });
+  it('sin bulto compara tal cual', () => {
+    expect(variacionPorUnidad(3300, null, 3000)).toBe(10);
+  });
+  it('sin costo actual no hay variación', () => {
+    expect(variacionPorUnidad(3300, 12, null)).toBeNull();
+    expect(variacionPorUnidad(3300, 12, 0)).toBeNull();
+  });
+});

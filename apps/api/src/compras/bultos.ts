@@ -554,3 +554,19 @@ export function costearConGruposPromo(
   for (const v of salida.values()) delete (v as any)._total;
   return salida;
 }
+
+
+/**
+ * Variación % entre el precio leído y el costo actual del producto, comparando
+ * POR UNIDAD: si el renglón viene por caja de N, el precio leído es el de la
+ * caja. Compararlo contra el costo unitario daba "+42543%" y degradaba
+ * vínculos buenos a "¿es este?" (2026-09-08).
+ */
+export function variacionPorUnidad(precioLeido: number, unidadesPorBulto: number | null | undefined, costoActual: number | null | undefined): number | null {
+  const costo = Number(costoActual);
+  if (!(costo > 0)) return null;
+  const bulto = Number(unidadesPorBulto);
+  const porUnidad = bulto > 1 ? Number(precioLeido) / bulto : Number(precioLeido);
+  if (!Number.isFinite(porUnidad)) return null;
+  return Math.round(((porUnidad - costo) / costo) * 1000) / 10;
+}

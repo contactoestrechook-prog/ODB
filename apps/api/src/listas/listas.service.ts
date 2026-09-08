@@ -4,7 +4,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import * as XLSX from 'xlsx';
 import { SUPABASE } from '../supabase.provider';
 import { elegirProveedor } from '../compras/proveedor-match';
-import { unidadesPorBulto, esRenglonDeDescuento, porcentajeDeDescuento, puedeVendersePorPeso, interpretarRenglon, unidadesDeLaPresentacion } from '../compras/bultos';
+import { unidadesPorBulto, esRenglonDeDescuento, porcentajeDeDescuento, puedeVendersePorPeso, interpretarRenglon, unidadesDeLaPresentacion, variacionPorUnidad } from '../compras/bultos';
 
 export type ItemExtraido = { codigo: string | null; descripcion: string; precio: number };
 // pedido exportado del portal del proveedor: igual que la lista pero con cantidad
@@ -707,7 +707,7 @@ export class ListasService {
             sku: s.sku,
             nombre: s.nombre,
             costoActual: s.costo,
-            variacionPct: s.costo ? Math.round(((i.precio - s.costo) / s.costo) * 1000) / 10 : null,
+            variacionPct: variacionPorUnidad(i.precio, (i as any).unidadesPorBulto, s.costo),
             metodo: 'ia',
             margenPct: null,
             sugerido: true,
@@ -1062,6 +1062,13 @@ export class ListasService {
       // miniatura de 50ml. Se degrada a sugerencia: que lo confirme una
       // persona. Los vínculos por código (proveedor o barras) quedan firmes,
       // porque ahí la evidencia es dura y la variación puede ser inflación real.
+      // El precio leído puede ser por CAJA (x12): compararlo contra el costo por
+      // unidad daba +42543% y mandaba vínculos buenos a "¿es este?". Se compara
+      // por unidad (variacionPorUnidad, con pruebas).
+      const bultoLeido = Number((item as any).unidadesPorBulto);
+      if (match && match.costoActual != null && bultoLeido > 1) {
+        match = { ...match, variacionPct: variacionPorUnidad(Number((item as any).precio), bultoLeido, match.costoActual) };
+      }
       if (
         match &&
         (match.metodo === 'similitud' || match.metodo === 'alias') &&
