@@ -172,8 +172,11 @@ export function descuentoEsDelRenglon(
     return Math.abs(real - pctDeclarado) <= 1; // un punto de tolerancia por redondeos
   }
   // sin porcentaje declarado, lo único que se puede afirmar es que una rebaja
-  // no puede superar a lo que rebaja
-  return d <= linea;
+  // no puede superar a lo que rebaja. Con tolerancia de redondeo: el maní se
+  // factura a $760,585 la unidad, el papel imprime 760,58 y el importe 1.521,17
+  // — una rebaja del 100% "superaba" a la línea por un centavo y no se
+  // vinculaba (2026-09-08).
+  return d <= linea + Math.max(0.05, linea * 0.001);
 }
 
 

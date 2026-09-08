@@ -488,3 +488,13 @@ describe('envase cerrado que la casa vende entero (blíster de azafrán, 2026-09
     expect(r.cantidad).toBe(2);
   });
 });
+
+describe('descuentoEsDelRenglon — tolerancia de redondeo (maní, 2026-09-08)', () => {
+  it('una rebaja del 100% que supera a la línea por un centavo de redondeo SÍ es de ese renglón', () => {
+    // 2 × 760,58 = 1.521,16 en pantalla; el papel dice 1.521,17 (precio real 760,585)
+    expect(descuentoEsDelRenglon(1521.17, 1521.16, null)).toBe(true);
+  });
+  it('una rebaja claramente mayor que la línea sigue sin ser de ese renglón', () => {
+    expect(descuentoEsDelRenglon(1600, 1521.16, null)).toBe(false);
+  });
+});
