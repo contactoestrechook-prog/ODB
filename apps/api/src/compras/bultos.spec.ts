@@ -398,3 +398,93 @@ describe('costearConGruposPromo — el 10+1 abarata a todo el grupo', () => {
     expect(r.get('CORTE_A')!.costo).toBeCloseTo(285000, 1);
   });
 });
+
+describe('envase cerrado que la casa vende entero (blíster de azafrán, 2026-09-08)', () => {
+  const { unidadesDeLaPresentacion: presentacion } = require('./bultos');
+
+  it('un gramaje pegado al número NO es un bulto ("x 2Grs" es el peso, no dos unidades)', () => {
+    expect(unidadesPorBulto('Azafran Alicante Blister 2U x 2Grs.')).toBeNull();
+    expect(unidadesPorBulto('Mani Tostado sin Piel sin Sal x100Grs.')).toBeNull();
+    expect(unidadesPorBulto('Oregano x 50 gr')).toBeNull();
+    expect(unidadesPorBulto('Queso rallado x 250grs')).toBeNull();
+  });
+
+  it('sigue reconociendo los bultos de verdad (los que SÍ se desarman)', () => {
+    expect(unidadesPorBulto('CORONA 355 X 24B')).toBe(24);
+    expect(unidadesPorBulto('Savora 1 x 24')).toBe(24);
+    expect(unidadesPorBulto('MANOS NEGRAS Malbec CJ x6')).toBe(6);
+    expect(unidadesPorBulto('Agua Glaciar PACK X 6')).toBe(6);
+  });
+
+  it('lee las unidades que ya expresa el nombre del producto del catálogo', () => {
+    expect(presentacion('Azafran Alicante x 2 x 0.2g')).toBe(2);
+    expect(presentacion('Yerba Playadito x 3 un')).toBe(3);
+    expect(presentacion('Blister 2U Especias')).toBe(2);
+    // el tamaño del envase nunca es cantidad de unidades
+    expect(presentacion('Coca Cola 1,5 L')).toBeNull();
+    expect(presentacion('Mani King x100gr')).toBeNull();
+    expect(presentacion('Fernet Branca 750 cc')).toBeNull();
+  });
+
+  it('EL CASO: 1 blíster con el precio de cada unidad de adentro NO se convierte en 2 unidades', () => {
+    const renglon = {
+      descripcion: 'Azafran Alicante Blister 2U x 2Grs.',
+      cantidad: 1, precio: 2338.18, importe: 4676,
+      unidadesPorBulto: null, bonificacionPct: null, esDescuento: false,
+      kg: null, puedePorPeso: false,
+      unidadesDelCatalogo: 2, // el producto de la casa YA es el blíster de 2
+    };
+    const r = interpretarRenglon(renglon);
+    expect(r.decision).toBe('precio_por_unidad_interna');
+    expect(r.cantidad).toBe(1);            // 1 blíster, como vino en la factura
+    expect(r.precioPropuesto).toBe(4676);  // el costo del blíster es el importe
+    expect(r.unidadesPorBulto).toBeNull();
+  });
+
+  it('sin el dato del catálogo se comporta como antes (no cambia nada de lo que ya andaba)', () => {
+    const renglon = {
+      descripcion: 'Azafran Alicante Blister 2U x 2Grs.',
+      cantidad: 1, precio: 2338.18, importe: 4676,
+      unidadesPorBulto: null, bonificacionPct: null, esDescuento: false,
+      kg: null, puedePorPeso: false,
+    };
+    expect(interpretarRenglon(renglon).decision).toBe('cantidad_corregida');
+  });
+
+  it('un BULTO de reventa se sigue corrigiendo (Corona: el catálogo es la botella suelta)', () => {
+    // 1 cajón × 24 botellas: el catálogo es "Cerveza Corona 355cc", sin xN
+    const r = interpretarRenglon({
+      descripcion: 'CORONA 355 X 24B',
+      cantidad: 1, precio: 1200, importe: 28800,
+      unidadesPorBulto: 24, bonificacionPct: null, esDescuento: false,
+      kg: null, puedePorPeso: false,
+      unidadesDelCatalogo: null,
+    });
+    expect(r.decision).toBe('cantidad_corregida');
+    expect(r.cantidad).toBe(24);
+  });
+
+  it('varios blísteres: 3 blísteres de 2 quedan en 3, no en 6', () => {
+    const r = interpretarRenglon({
+      descripcion: 'Azafran Alicante Blister 2U x 2Grs.',
+      cantidad: 3, precio: 2338.18, importe: 14028.  , // 3 × 2 × 2338,18
+      unidadesPorBulto: null, bonificacionPct: null, esDescuento: false,
+      kg: null, puedePorPeso: false, unidadesDelCatalogo: 2,
+    });
+    expect(r.decision).toBe('precio_por_unidad_interna');
+    expect(r.cantidad).toBe(3);
+    expect(r.precioPropuesto).toBe(4676);
+  });
+
+  it('si el renglón YA cierra, el catálogo con xN no lo toca', () => {
+    // 2 blísteres facturados al precio del blíster: cierra solo, sin corrección
+    const r = interpretarRenglon({
+      descripcion: 'Azafran Alicante Blister 2U x 2Grs.',
+      cantidad: 2, precio: 4676, importe: 9352,
+      unidadesPorBulto: null, bonificacionPct: null, esDescuento: false,
+      kg: null, puedePorPeso: false, unidadesDelCatalogo: 2,
+    });
+    expect(r.decision).toBe('cierra');
+    expect(r.cantidad).toBe(2);
+  });
+});

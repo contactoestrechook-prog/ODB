@@ -71,7 +71,10 @@ export function unidadesPorBulto(descripcion: string): number | null {
     // la bodega al lado.
     if (/^(cc|ml|cm3)$/.test(sufijo) && n >= 50) continue;
     if (/^(l|lt|lts|litros?)$/.test(sufijo) && n <= 10) continue;
-    if (/^(g|gr|gramos?)$/.test(sufijo) && n >= 50) continue;
+    // Un número pegado a una unidad de PESO es el gramaje del producto, no un
+    // bulto: nadie factura "caja x 6 gr". Sin umbral, a propósito — el azafrán
+    // viene en blíster de 2 gramos y con el piso de 50 se leía "bulto de 2".
+    if (/^(g|gr|grs|grms|gra|gramos?)$/.test(sufijo)) continue;
     if (/^(kg|k|kilos?)$/.test(sufijo) && n <= 25) continue;
     return n;
   }
@@ -323,6 +326,13 @@ export type LecturaRenglon = {
   esDescuento: boolean;
   kg: number | null;
   puedePorPeso: boolean;
+  /**
+   * Unidades que ya expresa el producto del CATÁLOGO al que se vinculó
+   * ("Azafran Alicante x 2" → 2). Cuando la casa vende el envase cerrado, el
+   * precio impreso suele ser el de cada unidad de adentro y la cantidad de la
+   * factura YA está en unidades de stock: no hay que multiplicar nada.
+   */
+  unidadesDelCatalogo?: number | null;
 };
 
 export type RenglonInterpretado = {
@@ -333,6 +343,7 @@ export type RenglonInterpretado = {
     | 'cierra'
     | 'bulto_pendiente'
     | 'cantidad_corregida'
+    | 'precio_por_unidad_interna'
     | 'peso_implicito'
     | 'no_cierra';
   /** en la unidad final: unidades sueltas, bultos (si quedó pendiente) o kg */
@@ -348,6 +359,32 @@ export type RenglonInterpretado = {
 
 const TOLERANCIA_CIERRE = 0.02; // el proveedor redondea el importe
 const TOLERANCIA_ENTERO = 0.005;
+
+/**
+ * ¿Cuántas unidades expresa la PRESENTACIÓN de un nombre de producto?
+ *
+ * "Azafran Alicante x 2 x 0.2g" → 2 · "Yerba x 3 un" → 3 · "Coca 1,5 L" → null
+ *
+ * Se usa contra el producto del CATÁLOGO para saber si la unidad de stock de la
+ * casa ya es el envase cerrado. Solo cuenta el multiplicador de unidades: el
+ * tamaño del envase (750cc, 0.2g, 1.5L) nunca lo es.
+ */
+export function unidadesDeLaPresentacion(nombre: string): number | null {
+  const t = normalizar(nombre);
+  if (!t) return null;
+  for (const m of t.matchAll(/\bx\s*(\d{1,3})\s*([a-z]*)/g)) {
+    const n = Number(m[1]);
+    const sufijo = m[2] ?? '';
+    if (!plausible(n)) continue;
+    // seguido de una medida es tamaño de envase, no cantidad de unidades
+    if (/^(cc|ml|cm3|l|lt|lts|litros?|g|gr|grs|grms|gramos?|kg|k|kilos?)$/.test(sufijo)) continue;
+    return n;
+  }
+  // "Blister 2U", "Pack 6U", "Tira 10 un"
+  const porUnidades = t.match(/\b(\d{1,3})\s*(?:u|un|uni|unid|unidades?)\b/);
+  if (porUnidades && plausible(Number(porUnidades[1]))) return Number(porUnidades[1]);
+  return null;
+}
 
 export function interpretarRenglon(l: LecturaRenglon): RenglonInterpretado {
   const cantidad = Number(l.cantidad) || 1;
@@ -398,9 +435,31 @@ export function interpretarRenglon(l: LecturaRenglon): RenglonInterpretado {
     return bulto ? { ...base, decision: 'bulto_pendiente' } : base;
   }
 
-  // 5 — la cantidad real sale del importe; consume el bulto
   const q = importe / precio;
   const entero = Math.round(q);
+
+  // 4 BIS — envase CERRADO que la casa vende entero (blíster de azafrán, pack
+  //     de especias). El proveedor imprime el precio de cada unidad de ADENTRO
+  //     y el importe del renglón es por el envase completo: 1 blíster × 2
+  //     unidades × $2.338,18 = $4.676. Antes esto se "corregía" a 2 unidades y
+  //     entraban al stock dos artículos que no existen sueltos.
+  //
+  //     La señal que lo distingue de un bulto de reventa (Corona x24, que SÍ se
+  //     desarma) es el producto del catálogo: si la unidad de stock de la casa
+  //     ya es el envase de N, no hay nada que convertir. La cantidad queda como
+  //     vino en la factura y el costo del renglón es el importe.
+  const internas = Number(l.unidadesDelCatalogo) > 1 ? Math.round(Number(l.unidadesDelCatalogo)) : null;
+  if (internas && entero === cantidad * internas && Math.abs(q - entero) <= TOLERANCIA_ENTERO) {
+    return {
+      ...base,
+      decision: 'precio_por_unidad_interna',
+      cantidad,
+      unidadesPorBulto: null,
+      precioPropuesto: Math.round((importe / cantidad) * 100) / 100,
+    };
+  }
+
+  // 5 — la cantidad real sale del importe; consume el bulto
   if (entero >= 1 && Math.abs(q - entero) <= TOLERANCIA_ENTERO && entero !== cantidad) {
     return {
       ...base,

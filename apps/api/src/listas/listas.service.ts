@@ -607,6 +607,9 @@ export class ListasService {
         alicuotaIva: Number(i.alicuotaIva) > 0 ? Number(i.alicuotaIva) : null,
         descuentoPct: porcentajeDeDescuento(String(i.descripcion ?? '')),
         interpretado: interpretarRenglon(lectura),
+        // se guarda la lectura cruda: la interpretación se rehace después del
+        // matching, cuando ya se sabe a qué producto del catálogo se vinculó
+        _lectura: lectura,
       } as any;
     });
     const propuesta = proveedor ? await this.matchear(items, proveedor.id) : items.map((i) => ({ ...i, match: null as Match }));
@@ -633,6 +636,23 @@ export class ListasService {
           };
         }
       }
+    }
+
+    // Con el producto del catálogo ya elegido se rehace la interpretación: si la
+    // casa vende el ENVASE CERRADO (el blíster de azafrán x2, no las unidades
+    // sueltas), el precio impreso es el de cada unidad de adentro y la cantidad
+    // de la factura ya está en unidades de stock. Sin este paso, "1 blíster"
+    // entraba al stock como "2 unidades" que no existen sueltas.
+    for (const i of propuesta as any[]) {
+      const lectura = i._lectura;
+      if (!lectura) continue;
+      const nombreCatalogo = i.match?.nombre ?? null;
+      const internas = nombreCatalogo ? unidadesDeLaPresentacion(String(nombreCatalogo)) : null;
+      if (internas && internas > 1) {
+        i.interpretado = interpretarRenglon({ ...lectura, unidadesDelCatalogo: internas });
+        i.unidadesDelCatalogo = internas;
+      }
+      delete i._lectura;
     }
 
     const msMatch = Date.now() - tMatch;
