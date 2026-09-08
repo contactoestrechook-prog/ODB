@@ -83,6 +83,26 @@ export function ComprasWorkspace({ resumen, ordenes, proveedores, sugerencias, s
   const porAprobar = ordenes.filter((o) => o.estado === 'pendiente_aprobacion');
   const porRecibir = ordenes.filter((o) => ['aprobada', 'enviada', 'recibida_parcial'].includes(o.estado));
 
+  // --- Bandeja de lectura: hasta 5 facturas a la vez, cada una en su carril ---
+  const [bandeja, setBandeja] = useState<any[]>([]);
+  const [avisoBandeja, setAvisoBandeja] = useState<string | null>(null);
+  const cargarBandeja = async () => {
+    try { const r = await fetch('/api/entrada-foto?bandeja=1', { cache: 'no-store' }); if (r.ok) setBandeja(await r.json()); } catch { /* sin red: se reintenta */ }
+  };
+  useEffect(() => { cargarBandeja(); }, []);
+  // se refresca sola mientras haya alguna leyéndose, y cada vez que se cierra un modal
+  useEffect(() => {
+    if (!bandeja.some((l) => l.estado === 'procesando')) return;
+    const t = setInterval(cargarBandeja, 4000);
+    return () => clearInterval(t);
+  }, [bandeja]);
+  useEffect(() => { if (!modal) cargarBandeja(); }, [modal]);
+  const abrirLectura = (id: string) => setModal({ tipo: 'entradaFoto', lecturaId: id });
+  const descartarLectura = async (id: string) => {
+    await fetch('/api/entrada-foto', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'descartar', id }) }).catch(() => {});
+    cargarBandeja();
+  };
+
   return (
     <div className="space-y-5">
       {/* KPIs + nueva OC */}
@@ -287,12 +307,12 @@ export function ComprasWorkspace({ resumen, ordenes, proveedores, sugerencias, s
         </section>
       )}
 
-      {modal && <Modal modal={modal} setModal={setModal} post={post} proveedores={proveedores} sucursales={sucursales} aviso={aviso} categorias={categorias} />}
+      {modal && <Modal modal={modal} setModal={setModal} post={post} proveedores={proveedores} sucursales={sucursales} aviso={aviso} categorias={categorias} onLecturasEncoladas={(t: string) => { setAvisoBandeja(t); cargarBandeja(); }} />}
     </div>
   );
 }
 
-function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categorias = [] }: any) {
+function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categorias = [], onLecturasEncoladas }: any) {
   const [f, setF] = useState<any>(modal.prov ?? modal);
   const set = (k: string, v: any) => setF((x: any) => ({ ...x, [k]: v }));
   const [items, setItems] = useState<any[]>([]);
@@ -392,9 +412,6 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   const [leyendoFoto, setLeyendoFoto] = useState(false);
   const [segundosLeyendo, setSegundosLeyendo] = useState(0);
   const [avisoFoto, setAvisoFoto] = useState<string | null>(null); // foto chica (comprimida por WhatsApp)
-  // Bandeja de lectura: hasta 5 facturas a la vez, cada una en su carril
-  const [bandeja, setBandeja] = useState<any[]>([]);
-  const [avisoBandeja, setAvisoBandeja] = useState<string | null>(null);
   const [sumarIva, setSumarIva] = useState(true); // factura A: costo = neto + IVA
   // Percepciones adentro del costo: es la política de la casa. Se puede sacar
   // para una factura puntual (por ejemplo si esa percepción se va a usar).
@@ -540,7 +557,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
 
   // Varias fotos a la vez: cada una entra a su carril y la pantalla queda libre.
   async function leerVarias(archivos: File[]) {
-    setLeyendoFoto(true); setAvisoBandeja(null);
+    setLeyendoFoto(true);
     let ok = 0; const errores: string[] = [];
     for (const a of archivos.slice(0, 5)) {
       try {
@@ -553,35 +570,20 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
       } catch (e) { errores.push(`${a.name}: ${e instanceof Error ? e.message : 'error'}`); }
     }
     setLeyendoFoto(false);
-    setAvisoBandeja(`${ok} factura(s) en lectura. Podés seguir trabajando: cuando estén listas aparecen en la bandeja de lectura.${errores.length ? ' No se pudo cargar → ' + errores.join(' · ') : ''}`);
+    onLecturasEncoladas?.(`${ok} factura(s) en lectura. Podés seguir trabajando: cuando estén listas aparecen en la bandeja de lectura.${errores.length ? ' No se pudo cargar → ' + errores.join(' · ') : ''}`);
     setModal(null);
-    cargarBandeja();
   }
 
-  const cargarBandeja = async () => {
-    try { const r = await fetch('/api/entrada-foto?bandeja=1', { cache: 'no-store' }); if (r.ok) setBandeja(await r.json()); } catch { /* sin red: se reintenta */ }
-  };
-  useEffect(() => { cargarBandeja(); }, []);
-  useEffect(() => {
-    if (!bandeja.some((l) => l.estado === 'procesando')) return;
-    const t = setInterval(cargarBandeja, 4000);
-    return () => clearInterval(t);
-  }, [bandeja]);
-
-  async function abrirLectura(id: string) {
+  // Abrir desde la bandeja: el workspace manda el id; acá se carga la lectura.
+  async function abrirDesdeBandeja(id: string) {
     const r = await fetch(`/api/entrada-foto?id=${encodeURIComponent(id)}`, { cache: 'no-store' });
     const d = await r.json().catch(() => ({}));
-    if (!r.ok || d.estado !== 'listo') { setAvisoBandeja(d.message ?? 'Esa lectura todavía no está lista'); return; }
+    if (!r.ok || d.estado !== 'listo') { setFoto({ error: d.message ?? 'Esa lectura todavía no está lista' }); return; }
     setFotoArchivo(null); setFotoUrl(null); setAclaraciones(''); setAvisoFoto(null);
     cargarLecturaEnPantalla({ ...d, lecturaId: id });
-    setModal({ tipo: 'entradaFoto' });
-    fetch('/api/entrada-foto', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'abrir', id }) })
-      .then(() => cargarBandeja()).catch(() => {});
+    fetch('/api/entrada-foto', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'abrir', id }) }).catch(() => {});
   }
-  async function descartarLectura(id: string) {
-    await fetch('/api/entrada-foto', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'descartar', id }) }).catch(() => {});
-    cargarBandeja();
-  }
+  useEffect(() => { if (modal?.tipo === 'entradaFoto' && modal?.lecturaId) abrirDesdeBandeja(modal.lecturaId); }, [modal?.lecturaId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function enviarComprobante(listo: File, aclara: string) {
     setLeyendoFoto(true);
