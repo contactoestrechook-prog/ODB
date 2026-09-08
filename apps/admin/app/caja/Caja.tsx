@@ -165,6 +165,10 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
   const [multiplicador, setMultiplicador] = useState<number | null>(null);
   // código escaneado que el sistema no conoce: se busca el producto por nombre y se vincula
   const [codigoPendiente, setCodigoPendiente] = useState<string | null>(null);
+  // "C" + cantidad + Enter: la cantidad va al ÚLTIMO producto escaneado (o al próximo si no hay)
+  const [ultimoSku, setUltimoSku] = useState<string | null>(null);
+  const modoCantidad = /^[cC]\d{0,3}$/.test(busqueda.trim());
+  const cantidadTecleada = modoCantidad && busqueda.trim().length > 1 ? Number(busqueda.trim().slice(1)) : null;
   const [resultados, setResultados] = useState<Producto[]>([]);
   const [carrito, setCarrito] = useState<Renglon[]>([]);
   const [dni, setDni] = useState('');
@@ -455,6 +459,7 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
       return;
     }
     const cant = cantidadFija ?? multiplicador ?? 1;
+    setUltimoSku(p.sku);
     setCarrito((c) => {
       const existente = c.find((r) => r.sku === p.sku);
       if (existente) {
@@ -503,6 +508,34 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
     } catch { setEstado({ tipo: 'error', texto: 'No se pudo vincular el código (revisá la conexión)' }); }
   }
 
+  // C → modo cantidad: el buscador queda con "c", el último renglón queda
+  // seleccionado (así el teclado numérico en pantalla también lo edita) y
+  // "c10" + Enter pone 10 unidades. Sin producto escaneado, arma el próximo.
+  function entrarModoCantidad() {
+    setBusqueda('c');
+    setResultados([]);
+    if (ultimoSku && carrito.some((r) => r.sku === ultimoSku)) { setFoco({ tipo: 'linea', sku: ultimoSku }); setCantBuf(''); }
+    setEstado(null);
+    inputRef.current?.focus();
+  }
+  function aplicarCantidad(n: number) {
+    const cant = Math.max(1, Math.min(999, Math.round(n)));
+    const linea = ultimoSku ? carrito.find((r) => r.sku === ultimoSku) : null;
+    if (linea) {
+      if (linea.porPeso) setEstado({ tipo: 'error', texto: `${linea.nombre} se vende por peso: la cantidad la manda la etiqueta de la balanza` });
+      else {
+        setCarrito((c) => c.map((r) => (r.sku === linea.sku ? { ...r, cantidad: cant } : r)));
+        setEstado({ tipo: 'ok', texto: `${linea.nombre}: ${cant} unidades` });
+      }
+    } else {
+      setMultiplicador(cant);
+      setEstado({ tipo: 'ok', texto: `×${cant} para el próximo producto que escanees` });
+    }
+    setFoco(null); setCantBuf('');
+    setBusqueda('');
+    inputRef.current?.focus();
+  }
+
   // "6*" → los próximos productos escaneados entran de a 6. También "6*7791234567890"
   // todo junto (cantidad, asterisco, código). Devuelve true si el texto era eso.
   function tomarMultiplicador(texto: string): boolean {
@@ -532,6 +565,12 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
     setEstado(null);
     if (debRef.current) clearTimeout(debRef.current);
     const t = termino.trim();
+    if (/^[cC]\d{0,3}$/.test(t)) {
+      // recién entra en modo cantidad: seleccionar el último renglón
+      if (t.length === 1 && ultimoSku && carrito.some((r) => r.sku === ultimoSku)) { setFoco({ tipo: 'linea', sku: ultimoSku }); setCantBuf(''); }
+      setResultados([]);
+      return;
+    }
     if (t.length < 2) { setResultados([]); return; }
     if (esCodigoBalanza(t)) { ejecutar(t, true); return; }
     if (/^\d{4,14}$/.test(t)) {
@@ -586,6 +625,16 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
     e.preventDefault();
     if (debRef.current) clearTimeout(debRef.current);
     const t = busqueda.trim();
+    const mc = /^[cC](\d*)$/.exec(t);
+    if (mc) {
+      if (!mc[1]) { // "C" solo + Enter: ir al casillero de cantidad del último renglón
+        const el = document.querySelector<HTMLInputElement>(`input[data-cantidad-de="${ultimoSku ?? ''}"]`);
+        setBusqueda(''); if (el) { el.focus(); el.select(); } else if (!ultimoSku) setEstado({ tipo: 'error', texto: 'Escaneá un producto y después C + cantidad' });
+        return;
+      }
+      if (mc[1].length <= 3) { aplicarCantidad(Number(mc[1])); return; }
+      setBusqueda(''); escanear(mc[1]); return; // la pistola tipeó el código después de la c
+    }
     if (tomarMultiplicador(t)) return;
     if (esCodigoBalanza(t)) { ejecutar(t, true); return; }
     const ex = catalogoLocal.find((p) => p.codigo === t || p.sku === t || (p.codigosBarras ?? []).includes(t));
@@ -1117,6 +1166,8 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
   stockRef.current = abrirStock;
   const escanearRef = useRef<(c: string) => void>(() => {});
   escanearRef.current = escanear;
+  const modoCantidadRef = useRef<() => void>(() => {});
+  modoCantidadRef.current = entrarModoCantidad;
 
   // Captura global del lector de código de barras: la pistola manda los dígitos
   // muy rápido y cierra con Enter. Si el foco NO está en un campo de texto (el
@@ -1134,6 +1185,10 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
     function onScan(e: KeyboardEvent) {
       if (esEditable(document.activeElement)) return; // un input activo maneja lo suyo
       const ahora = Date.now();
+      // C suelta (no parte de un escaneo): modo cantidad para el último producto
+      if ((e.key === 'c' || e.key === 'C') && buffer.length === 0 && ahora - ultima > 120 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault(); modoCantidadRef.current?.(); return;
+      }
       if (e.key === 'Enter') {
         if (buffer.length >= 3) { escanearRef.current?.(buffer); }
         buffer = '';
@@ -1507,7 +1562,12 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
               className="w-full rounded-2xl border-2 border-[#B82D25] px-5 py-4 text-lg text-black outline-none"
             />
             {buscando && <span className="absolute right-5 top-1/2 -translate-y-1/2 text-sm text-black/40">buscando…</span>}
-            {multiplicador && !buscando && (
+            {modoCantidad && (
+              <span className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2 rounded-full bg-[#141414] px-3 py-1 text-sm font-semibold text-[#F0EBE2]">
+                Cantidad{ultimoSku && carrito.some((r) => r.sku === ultimoSku) ? ` de ${carrito.find((r) => r.sku === ultimoSku)?.nombre}` : ' para el próximo'}: {cantidadTecleada ?? '…'} <span className="font-normal text-[#F0EBE2]/60">Enter</span>
+              </span>
+            )}
+            {multiplicador && !buscando && !modoCantidad && (
               <span className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2 rounded-full bg-[#141414] px-3 py-1 text-sm font-semibold text-[#F0EBE2]">
                 ×{multiplicador} al próximo
                 <button onClick={() => setMultiplicador(null)} aria-label="Cancelar cantidad" className="text-[#F0EBE2]/70 hover:text-white">✕</button>
@@ -1576,6 +1636,7 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
                     onChange={(e) => { const v = Number(e.target.value); const n = r.porPeso ? Math.max(0.001, Math.min(999, Math.round((v || 0.001) * 1000) / 1000)) : Math.max(1, Math.min(999, Math.round(v || 1))); setCarrito((c) => c.map((x) => (x.sku === r.sku ? { ...x, cantidad: n } : x))); }}
                     onKeyDown={(e) => { if (e.key === 'Enter' || e.key === 'Escape') { e.preventDefault(); (e.target as HTMLInputElement).blur(); inputRef.current?.focus(); } }}
                     aria-label="Cantidad"
+                    data-cantidad-de={r.sku}
                     title="Escribí la cantidad y Enter"
                     className="h-12 w-16 shrink-0 rounded-xl border border-black/15 bg-white text-center text-2xl font-bold tabular-nums text-black outline-none focus:border-[#B82D25]"
                   />
@@ -1817,7 +1878,7 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
           )}
 
           <p className="text-center text-[11px] text-black/35 -mt-1">
-            6* y escaneá = 6 unidades · etiqueta de balanza = entra con su peso/cantidad · F2 comprobante · F3 cliente · F4 medio · F6 estacionar · F8 reimprimir · F9 stock · F12 cobrar · F10 salir
+            C + cantidad + Enter = cantidad del último producto · 6* y escaneá = 6 unidades · etiqueta de balanza = entra con su peso/cantidad · F2 comprobante · F3 cliente · F4 medio · F6 estacionar · F8 reimprimir · F9 stock · F12 cobrar · F10 salir
           </p>
 
           {estado && (

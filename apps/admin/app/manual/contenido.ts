@@ -95,7 +95,7 @@ export const SECCIONES: Seccion[] = [
         titulo: 'Cargar los productos',
         pasos: [
           'Pasá el código de barras con el lector, o buscá por nombre.',
-          'Varias unidades del mismo producto: escribí la cantidad en el casillero del renglón (tocalo, tipeá y Enter), o antes de escanear tipeá la cantidad y un asterisco —"6*"— y el próximo producto entra de a 6.',
+          'Varias unidades del mismo producto: escaneá una y tocá C, tipeá la cantidad y Enter (C 10 = diez unidades). También podés escribirla en el casillero del renglón, o antes de escanear tipear "6*" para que el próximo entre de a 6.',
           'Si el producto no tiene stock en tu sucursal, igual lo reconoce: te dice "sin stock" y desde cuándo (la fecha del último egreso). Si lo tenés en la mano, el stock está mal: avisá a depósito.',
           'Si el código no está vinculado a ningún producto, el sistema te lo dice: buscá el producto por nombre y tocá "Vincular este código" en el resultado. Queda guardado y la próxima vez entra solo.',
           'Etiquetas de la balanza (pan al peso, fiambres, tortas): escanealas como cualquier código. El sistema reconoce el PLU y toma de la etiqueta los kilos (si el producto se vende por peso) o las unidades; el precio sale de la lista. Si un PLU no está cargado, la caja avisa y se vincula ahí mismo; en la ficha del producto están el PLU y la casilla "se vende por peso".',
