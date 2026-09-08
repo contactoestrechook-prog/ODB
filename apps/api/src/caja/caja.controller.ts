@@ -45,6 +45,13 @@ export class CajaController {
     return this.caja.cerrar(body.sesionId, Number(body.montoCierre), req.usuario?.sub, req.usuario?.rol);
   }
 
+  // planilla de cierre de una sesión (abierta = cómo va; cerrada = cómo terminó)
+  @Roles('cajero', 'gerente', 'dueno')
+  @Get('caja/sesion-resumen')
+  resumenSesion(@Query('sesionId') sesionId: string, @Req() req: any) {
+    return this.caja.resumenSesion(sesionId, req.usuario?.sub, req.usuario?.rol);
+  }
+
   @Roles('cajero', 'gerente', 'dueno')
   @Get('caja/sesiones')
   sesiones(@Query('limite') limite?: string) {

@@ -1,6 +1,7 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
+import { agruparPorMedio } from './cierre';
 
 @Injectable()
 export class CajaService {
@@ -115,6 +116,65 @@ export class CajaService {
     if (!data) throw new BadRequestException('Autorización de supervisor inválida, vencida o ya utilizada');
     const fila = data as any;
     return { usuarioId: fila.usuario_id, nombre: fila.usuario?.nombre, rol: fila.usuario?.rol };
+  }
+
+  // Cómo terminó (o cómo va) una sesión de caja: ventas, cada medio de pago,
+  // arqueo de efectivo y movimientos. Sirve antes de cerrar (para saber qué
+  // tendría que haber) y después (planilla de cierre, imprimible).
+  async resumenSesion(sesionId: string, usuarioId?: string, rol?: string) {
+    const { data: sesion, error } = await this.db
+      .from('sesiones_caja')
+      .select(`id, usuario_id, monto_inicial, monto_cierre, diferencia, abierta_en, cerrada_en,
+               caja:cajas(nombre, sucursal:sucursales(nombre)),
+               usuario:usuarios!sesiones_caja_usuario_id_fkey(nombre)`)
+      .eq('id', sesionId)
+      .maybeSingle();
+    if (error) throw new BadRequestException(error.message);
+    if (!sesion) throw new BadRequestException('No existe la sesión de caja');
+    const s = sesion as any;
+    if (rol === 'cajero' && s.usuario_id !== usuarioId) throw new BadRequestException('Solo podés ver el cierre de tu propia caja');
+
+    const { data: ventas } = await this.db
+      .from('ventas').select('id, total, estado').eq('sesion_caja_id', sesionId);
+    const vs = (ventas ?? []) as any[];
+    const completadas = vs.filter((v) => v.estado === 'completada');
+    const ids = completadas.map((v) => v.id);
+    const pagos: any[] = [];
+    for (let i = 0; i < ids.length; i += 300) {
+      const { data } = await this.db.from('pagos').select('medio, monto, terminal').in('venta_id', ids.slice(i, i + 300));
+      pagos.push(...((data ?? []) as any[]));
+    }
+    const { data: movs } = await this.db
+      .from('caja_movimientos').select('tipo, monto, motivo, creado_en, usuario:usuarios(nombre)')
+      .eq('sesion_id', sesionId).order('creado_en');
+    const movimientos = ((movs ?? []) as any[]).map((m) => ({ tipo: m.tipo, monto: Number(m.monto), motivo: m.motivo, creadoEn: m.creado_en, usuario: m.usuario?.nombre ?? null }));
+    const ingresos = movimientos.filter((m) => m.tipo === 'ingreso').reduce((a, m) => a + m.monto, 0);
+    const egresos = movimientos.filter((m) => m.tipo === 'egreso').reduce((a, m) => a + m.monto, 0);
+    const medios = agruparPorMedio(pagos);
+    const ventasEfectivo = medios.find((m) => m.medio === 'efectivo')?.monto ?? 0;
+    const base = Number(s.monto_inicial) || 0;
+    const esperado = base + ventasEfectivo + ingresos - egresos;
+    const cerrada = !!s.cerrada_en;
+    return {
+      sesion: {
+        id: s.id, caja: s.caja?.nombre ?? null, sucursal: s.caja?.sucursal?.nombre ?? null, cajero: s.usuario?.nombre ?? null,
+        abiertaEn: s.abierta_en, cerradaEn: s.cerrada_en, cerrada,
+      },
+      ventas: {
+        cantidad: completadas.length,
+        total: Math.round(completadas.reduce((a, v) => a + Number(v.total), 0) * 100) / 100,
+        anuladas: vs.length - completadas.length,
+      },
+      medios,
+      cobrado: Math.round(medios.reduce((a, m) => a + m.monto, 0) * 100) / 100,
+      efectivo: {
+        base, ventas: ventasEfectivo, ingresos, egresos,
+        esperado: Math.round(esperado * 100) / 100,
+        contado: cerrada ? Number(s.monto_cierre) : null,
+        diferencia: cerrada ? Number(s.diferencia) : null,
+      },
+      movimientos,
+    };
   }
 
   async sesiones(limite = 30) {
