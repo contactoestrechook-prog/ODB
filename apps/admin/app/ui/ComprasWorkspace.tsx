@@ -575,14 +575,16 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   const descuentoDesmedido = (i: any) => {
     const d = Math.abs(numImp(i._descuento));
     const linea = Math.abs(baseUnitaria(i) * (numImp(i.cantidad) || 1));
-    return d > 0 && linea > 0 && d > linea;
+    // Igual a la línea (±redondeo) NO es desmedido: es el renglón sin cargo,
+    // y sigue el circuito de regalos (prorrateo con PIN del dueño).
+    return d > 0 && linea > 0 && d > linea + Math.max(0.05, linea * 0.001);
   };
 
   const precioEfectivo = (i: any) => {
     const cant = numImp(i.cantidad) || 1;
     const base = baseUnitaria(i);
     if (descuentoDesmedido(i)) return base; // sin aplicar: hay que revisarlo a mano
-    return base + numImp(i._descuento) / cant;
+    return Math.max(0, base + numImp(i._descuento) / cant);
   };
   // Producto por PESO (fiambres, quesos fraccionados): la factura trae CANT=1
   // (una horma), pero el precio es POR KILO y el importe del renglón = peso ×
@@ -703,7 +705,10 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
         if (esRenglonDescuento(fotoItems[k])) continue;
         const nombre = soloTexto(fotoItems[k].descripcion);
         const linea = base(fotoItems[k]);
-        const cierraUno = linea > 0 && (pct != null ? Math.abs((abs / linea) * 100 - pct) <= 1.5 : abs <= linea);
+        // Tolerancia de redondeo: el maní se factura a $760,585, el papel
+        // imprime 760,58 y el importe 1.521,17 — una rebaja del 100% "superaba"
+        // a la línea por un centavo y quedaba sin atribuir (2026-09-08).
+        const cierraUno = linea > 0 && (pct != null ? Math.abs((abs / linea) * 100 - pct) <= 1.5 : abs <= linea + Math.max(0.05, linea * 0.001));
         if (nombre && textoDesc.includes(nombre) && cierraUno) { destino = k; break; }
       }
       if (destino >= 0) { m.set(destino, (m.get(destino) ?? 0) + importe); return cerrarVentana(); }
