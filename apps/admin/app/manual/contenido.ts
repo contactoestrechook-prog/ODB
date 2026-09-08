@@ -95,6 +95,7 @@ export const SECCIONES: Seccion[] = [
         titulo: 'Cargar los productos',
         pasos: [
           'Pasá el código de barras con el lector, o buscá por nombre.',
+          'Varias unidades del mismo producto: escribí la cantidad en el casillero del renglón (tocalo, tipeá y Enter), o antes de escanear tipeá la cantidad y un asterisco —"6*"— y el próximo producto entra de a 6.',
           'Si un producto no aparece, probá con parte del nombre. Si sigue sin aparecer, avisá a backoffice: falta darlo de alta o vincularle el código.',
           'El precio sale de la lista, no se escribe a mano.',
         ],
@@ -177,8 +178,9 @@ export const SECCIONES: Seccion[] = [
         tipo: 'pasos',
         pasos: [
           '"Cerrar caja · arqueo" al terminar el turno.',
-          'El sistema muestra el efectivo esperado: base inicial más las ventas en efectivo, menos los movimientos de caja.',
+          'Aparece la planilla de cierre: cuántas ventas hubo, cuánto se cobró por cada medio (efectivo, Mercado Pago, tarjeta por posnet, transferencia, cuenta corriente) y el efectivo que tiene que haber en el cajón: base inicial más ventas en efectivo, más ingresos, menos retiros.',
           'Contá el cajón y cargá lo que hay de verdad.',
+          'Al cerrar queda la planilla final con la diferencia. Se imprime con el botón "Imprimir cierre" y queda guardada en Cierres → Histórico (botón Ver).',
           'Si hay diferencia, se registra. No la ajustes para que dé cero: la diferencia sirve justamente para encontrar el error.',
         ],
       },

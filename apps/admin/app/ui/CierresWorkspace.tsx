@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { ResumenCierre } from './ResumenCierre';
 
 const pesos = (n: any) => (n == null ? '—' : '$' + Math.round(Number(n)).toLocaleString('es-AR'));
 const fechaHora = (iso: string) => (iso ? new Date(iso).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—');
@@ -114,7 +115,7 @@ export function CierresWorkspace({ resumen, cajas, sesiones, arca, empleados = [
       {/* HISTÓRICO */}
       {tab === 'historico' && (
         <Tabla titulo={`Histórico de cierres (${cerradas.length})`} vacio="Todavía no hay cierres."
-          filas={cerradas} cols={['Caja', 'Cajero', 'Abierta', 'Cerrada', 'Cierre', 'Dif.']}
+          filas={cerradas} cols={['Caja', 'Cajero', 'Abierta', 'Cerrada', 'Cierre', 'Dif.', '']}
           render={(s: any) => (
             <tr key={s.id} className="border-b border-black/5 last:border-0">
               <td className="px-4 py-2.5"><p className="font-medium">{s.caja?.nombre}</p><p className="text-xs text-black/45">{s.caja?.sucursal?.nombre}</p></td>
@@ -123,6 +124,7 @@ export function CierresWorkspace({ resumen, cajas, sesiones, arca, empleados = [
               <td className="px-4 py-2.5 text-black/55 text-xs">{fechaHora(s.cerrada_en)}</td>
               <td className="px-4 py-2.5 text-right">{pesos(s.monto_cierre)}</td>
               <td className={`px-4 py-2.5 text-right text-xs font-medium ${Number(s.diferencia) !== 0 ? 'text-[#B82D25]' : 'text-black/40'}`}>{Number(s.diferencia) !== 0 ? pesos(s.diferencia) : 'justo'}</td>
+              <td className="px-2 py-2.5 text-right"><button onClick={() => setModal({ tipo: 'ver', sesion: s, caja: s.caja })} className="text-xs font-medium text-black/60 underline hover:text-[#B82D25]">Ver cierre</button></td>
             </tr>
           )} />
       )}
@@ -161,25 +163,26 @@ export function CierresWorkspace({ resumen, cajas, sesiones, arca, empleados = [
         </Modal>
       )}
 
+      {modal?.tipo === 'ver' && (
+        <Modal cerrar={() => setModal(null)}>
+          <ResumenCierre sesionId={modal.sesion.id} />
+          <div className="flex justify-end"><button onClick={() => setModal(null)} className="rounded-full bg-black text-white text-sm font-medium px-6 py-2.5 hover:bg-black/80">Cerrar</button></div>
+        </Modal>
+      )}
+
       {modal?.tipo === 'cerrar' && (
         <Modal cerrar={() => { setModal(null); setResultado(null); }}>
           {resultado ? (
             <div className="space-y-2 text-center">
               <h2 className="font-semibold text-black text-lg">Arqueo de {modal.caja.nombre}</h2>
-              <div className="rounded-xl bg-[#F0EBE2]/60 p-4 space-y-1 text-sm">
-                <p className="flex justify-between"><span className="text-black/55">Esperado en caja</span><span>{pesos(resultado.esperado)}</span></p>
-                <p className="flex justify-between"><span className="text-black/55">Contado</span><span>{pesos(resultado.contado)}</span></p>
-                <p className={`flex justify-between font-semibold text-base border-t border-black/10 pt-1 ${Number(resultado.diferencia) !== 0 ? 'text-[#B82D25]' : 'text-emerald-700'}`}>
-                  <span>Diferencia</span><span>{Number(resultado.diferencia) > 0 ? '+' : ''}{pesos(resultado.diferencia)}</span>
-                </p>
-              </div>
-              <p className="text-xs text-black/50">{Number(resultado.diferencia) === 0 ? 'Cerró justo ✓' : Number(resultado.diferencia) < 0 ? 'Faltó efectivo' : 'Sobró efectivo'}</p>
+              <div className="text-left"><ResumenCierre sesionId={modal.sesion.id} recargar={1} /></div>
               <button onClick={() => { setModal(null); setResultado(null); router.refresh(); }} className="rounded-full bg-black text-white text-sm font-medium px-6 py-2.5 hover:bg-black/80">Listo</button>
             </div>
           ) : (
             <>
               <h2 className="font-semibold text-black text-lg">Arquear {modal.caja.nombre}</h2>
-              <p className="text-xs text-black/45">Base {pesos(modal.sesion.monto_inicial)} · contá el efectivo y registralo. El sistema calcula la diferencia contra lo esperado.</p>
+              <p className="text-xs text-black/45">Así va la caja. Contá el efectivo y registralo: el sistema calcula la diferencia contra lo que tiene que haber.</p>
+              <div className="max-h-[42vh] overflow-y-auto rounded-xl border border-black/10 p-3"><ResumenCierre sesionId={modal.sesion.id} imprimible={false} /></div>
               <label className="text-xs text-black/50">Efectivo contado en caja</label>
               <input id="montoCierre" type="number" placeholder="0" className={input} autoFocus />
               {aviso && <p className="text-xs text-[#B82D25]">{aviso}</p>}

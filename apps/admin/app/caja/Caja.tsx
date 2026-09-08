@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import { ResumenCierre } from '../ui/ResumenCierre';
 
 type Producto = {
   imagenUrl: string | null;
@@ -151,6 +152,8 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
   );
   const [comprobante, setComprobante] = useState<TipoComprobante>('B');
   const [busqueda, setBusqueda] = useState('');
+  // '6*' (o '6x') antes de escanear: el próximo producto entra con esa cantidad
+  const [multiplicador, setMultiplicador] = useState<number | null>(null);
   const [resultados, setResultados] = useState<Producto[]>([]);
   const [carrito, setCarrito] = useState<Renglon[]>([]);
   const [dni, setDni] = useState('');
@@ -186,6 +189,7 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
   const [cajas, setCajas] = useState<CajaInfo[]>([]);
   const [modalCaja, setModalCaja] = useState<'abrir' | 'cerrar' | null>(null);
   const [montoBuf, setMontoBuf] = useState('');
+  const [sesionCerradaId, setSesionCerradaId] = useState<string | null>(null); // para la planilla final
   const [cajaElegida, setCajaElegida] = useState('');
   const [cerrando, setCerrando] = useState(false);
   const [arqueo, setArqueo] = useState<{ esperado: number; contado: number; diferencia: number } | null>(null);
@@ -314,6 +318,7 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
       const d = await r.json();
       if (!r.ok) throw new Error(d.message ?? 'No se pudo cerrar la caja');
       setArqueo({ esperado: Number(d.esperado ?? 0), contado: Number(d.contado ?? contado), diferencia: Number(d.diferencia ?? 0) });
+      setSesionCerradaId(sesion.sesionId);
       setSesion(null);
       setMontoBuf('');
       cargarCajas();
@@ -434,13 +439,39 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
     setCarrito((c) => {
       const existente = c.find((r) => r.sku === p.sku);
       if (existente) {
-        return c.map((r) => (r.sku === p.sku ? { ...r, cantidad: r.cantidad + 1 } : r));
+        return c.map((r) => (r.sku === p.sku ? { ...r, cantidad: Math.min(999, r.cantidad + (multiplicador ?? 1)) } : r));
       }
-      return [...c, { ...p, cantidad: 1 }];
+      return [...c, { ...p, cantidad: multiplicador ?? 1 }];
     });
+    if (multiplicador) setEstado({ tipo: 'ok', texto: `×${multiplicador} · ${p.nombre}` });
+    setMultiplicador(null);
     setBusqueda('');
     setResultados([]);
-    setEstado(null);
+    if (!multiplicador) setEstado(null);
+  }
+
+  // "6*" → los próximos productos escaneados entran de a 6. También "6*7791234567890"
+  // todo junto (cantidad, asterisco, código). Devuelve true si el texto era eso.
+  function tomarMultiplicador(texto: string): boolean {
+    const t = texto.trim();
+    const solo = /^(\d{1,3})\s*[*xX×]$/.exec(t);
+    if (solo) {
+      const n = Math.max(1, Math.min(999, Number(solo[1])));
+      setMultiplicador(n);
+      setBusqueda('');
+      setResultados([]);
+      setEstado({ tipo: 'ok', texto: `×${n} para el próximo producto que escanees` });
+      return true;
+    }
+    const junto = /^(\d{1,3})\s*[*xX×]\s*([A-Za-z0-9-]{3,20})$/.exec(t);
+    if (junto) {
+      const n = Math.max(1, Math.min(999, Number(junto[1])));
+      setMultiplicador(n);
+      setTimeout(() => escanearRef.current?.(junto[2]), 0); // con el multiplicador ya seteado
+      setBusqueda('');
+      return true;
+    }
+    return false;
   }
 
   function onBuscar(termino: string) {
@@ -485,6 +516,7 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
     e.preventDefault();
     if (debRef.current) clearTimeout(debRef.current);
     const t = busqueda.trim();
+    if (tomarMultiplicador(t)) return;
     const ex = catalogoLocal.find((p) => p.codigo === t || p.sku === t || (p.codigosBarras ?? []).includes(t));
     if (ex) { agregar(ex); return; }
     if (resultados[0]) { agregar(resultados[0]); return; }
@@ -498,6 +530,7 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
   function escanear(codigo: string) {
     const t = codigo.trim();
     if (!t) return;
+    if (tomarMultiplicador(t)) return;
     setBusqueda('');
     const ex = catalogoLocal.find((p) => p.codigo === t || p.sku === t || (p.codigosBarras ?? []).includes(t));
     if (ex) { agregar(ex); return; }
@@ -1033,7 +1066,7 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
         buffer = '';
         return;
       }
-      if (e.key.length === 1 && /[A-Za-z0-9\-]/.test(e.key)) {
+      if (e.key.length === 1 && /[A-Za-z0-9\-*×]/.test(e.key)) {
         if (ahora - ultima > 120) buffer = ''; // gap grande = arranque de un escaneo nuevo
         ultima = ahora;
         buffer += e.key;
@@ -1401,6 +1434,12 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
               className="w-full rounded-2xl border-2 border-[#B82D25] px-5 py-4 text-lg text-black outline-none"
             />
             {buscando && <span className="absolute right-5 top-1/2 -translate-y-1/2 text-sm text-black/40">buscando…</span>}
+            {multiplicador && !buscando && (
+              <span className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2 rounded-full bg-[#141414] px-3 py-1 text-sm font-semibold text-[#F0EBE2]">
+                ×{multiplicador} al próximo
+                <button onClick={() => setMultiplicador(null)} aria-label="Cancelar cantidad" className="text-[#F0EBE2]/70 hover:text-white">✕</button>
+              </span>
+            )}
             {resultados.length > 0 && (
               <div className="absolute z-10 mt-1 w-full rounded-2xl bg-white border border-black/10 overflow-hidden shadow-xl">
                 {resultados.map((p) => {
@@ -1451,7 +1490,15 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
                     <p className="text-xs text-black/45">{pesos(precioDe(r))} c/u{mayorista && r.precioMayorista != null ? ' · may.' : ''}{r.descuento ? ` · ${r.descuento}` : ''}{sel ? ' · tocá los números para la cantidad' : ''}</p>
                   </button>
                   <button onClick={() => cambiarCantidad(r.sku, -1)} className="h-12 w-12 rounded-xl bg-white border border-black/15 text-2xl text-black active:scale-95 shrink-0" aria-label="Restar">−</button>
-                  <span className="w-10 text-center text-2xl font-bold text-black tabular-nums">{r.cantidad}</span>
+                  <input
+                    type="number" inputMode="numeric" min={1} max={999} value={r.cantidad}
+                    onFocus={(e) => e.currentTarget.select()}
+                    onChange={(e) => { const n = Math.max(1, Math.min(999, Math.round(Number(e.target.value) || 1))); setCarrito((c) => c.map((x) => (x.sku === r.sku ? { ...x, cantidad: n } : x))); }}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === 'Escape') { e.preventDefault(); (e.target as HTMLInputElement).blur(); inputRef.current?.focus(); } }}
+                    aria-label="Cantidad"
+                    title="Escribí la cantidad y Enter"
+                    className="h-12 w-16 shrink-0 rounded-xl border border-black/15 bg-white text-center text-2xl font-bold tabular-nums text-black outline-none focus:border-[#B82D25]"
+                  />
                   <button onClick={() => cambiarCantidad(r.sku, 1)} className="h-12 w-12 rounded-xl bg-black text-white text-2xl active:scale-95 shrink-0" aria-label="Sumar">+</button>
                   <span className="w-28 text-right font-bold text-xl text-black whitespace-nowrap shrink-0">{pesos(precioDe(r) * r.cantidad)}</span>
                   <button onClick={() => quitar(r.sku)} className="h-12 w-10 rounded-xl text-black/40 active:text-[#B82D25] text-2xl shrink-0" aria-label="Quitar">✕</button>
@@ -1690,7 +1737,7 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
           )}
 
           <p className="text-center text-[11px] text-black/35 -mt-1">
-            F2 comprobante · F3 cliente · F4 medio · F6 estacionar · F8 reimprimir · F9 stock · F12 cobrar · F10 salir
+            6* y escaneá = 6 unidades · F2 comprobante · F3 cliente · F4 medio · F6 estacionar · F8 reimprimir · F9 stock · F12 cobrar · F10 salir
           </p>
 
           {estado && (
@@ -1704,11 +1751,12 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
       {/* ---- modal apertura / cierre de caja ---- */}
       {(modalCaja || arqueo) && (
         <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-          <div className="w-full max-w-md rounded-2xl bg-white p-5">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-5 max-h-[92vh] overflow-y-auto">
             {arqueo ? (
               <>
-                <h2 className="text-xl font-bold text-black">Arqueo de caja</h2>
-                <div className="mt-3 space-y-1.5 text-black">
+                <h2 className="text-xl font-bold text-black">Cierre de caja</h2>
+                {sesionCerradaId && <div className="mt-3"><ResumenCierre sesionId={sesionCerradaId} /></div>}
+                <div className={'mt-3 space-y-1.5 text-black' + (sesionCerradaId ? ' hidden' : '')}>
                   <p className="flex justify-between"><span className="text-black/55">Efectivo esperado</span><span className="font-semibold tabular-nums">{pesos(arqueo.esperado)}</span></p>
                   <p className="flex justify-between"><span className="text-black/55">Contado</span><span className="font-semibold tabular-nums">{pesos(arqueo.contado)}</span></p>
                   <p className={'flex justify-between rounded-lg px-2 py-1.5 ' + (arqueo.diferencia === 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-[#B82D25]/10 text-[#932A1F]')}>
@@ -1716,7 +1764,7 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
                     <span className="font-bold tabular-nums">{arqueo.diferencia === 0 ? 'Sin diferencia ✓' : pesos(arqueo.diferencia)}</span>
                   </p>
                 </div>
-                <button onClick={() => { setArqueo(null); setModalCaja('abrir'); }} className="mt-4 w-full rounded-xl bg-black py-3 text-white font-medium">
+                <button onClick={() => { setArqueo(null); setSesionCerradaId(null); setModalCaja('abrir'); }} className="mt-4 w-full rounded-xl bg-black py-3 text-white font-medium">
                   Listo
                 </button>
               </>
@@ -1761,7 +1809,8 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
             ) : (
               <>
                 <h2 className="text-xl font-bold text-black">Cerrar caja · arqueo</h2>
-                <p className="mt-1 text-sm text-black/55">Contá el efectivo del cajón e ingresá el total. El sistema compara contra lo esperado.</p>
+                <p className="mt-1 text-sm text-black/55">Así va la caja. Contá el efectivo del cajón e ingresá el total: el sistema compara contra lo que tiene que haber.</p>
+                {sesion && <div className="mt-3 max-h-[42vh] overflow-y-auto rounded-xl border border-black/10 p-3"><ResumenCierre sesionId={sesion.sesionId} imprimible={false} /></div>}
                 <input
                   value={montoBuf}
                   onChange={(e) => setMontoBuf(e.target.value.replace(/[^\d]/g, ''))}
