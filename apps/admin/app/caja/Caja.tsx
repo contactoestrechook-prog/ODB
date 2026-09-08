@@ -18,6 +18,10 @@ type Producto = {
   stock?: number | null; // stock en la sucursal de la caja (null = desconocido, <= 0 = sin stock)
   activo?: boolean; // false = dado de baja (se reconoce por código, no se vende)
   sinStockDesde?: string | null; // fecha del último egreso en la sucursal, si hoy no hay
+  porPeso?: boolean; // se vende por kilo: la balanza manda gramos y el precio es $/kg
+  plu?: string | null; // PLU de la balanza interna
+  deBalanza?: boolean; // vino de una etiqueta de balanza
+  cantidadBalanza?: number; // kilos o unidades que dice la etiqueta
 };
 
 type Renglon = Producto & { cantidad: number };
@@ -437,7 +441,9 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
     }
   }
 
-  function agregar(p: Producto) {
+  const esCodigoBalanza = (t: string) => /^2\d{12}$/.test(t.trim());
+
+  function agregar(p: Producto, cantidadFija?: number) {
     if (p.activo === false) {
       setEstado({ tipo: 'error', texto: `"${p.nombre}" está dado de baja: se reconoce pero no se vende. Avisá a backoffice si hay que reactivarlo.` });
       setBusqueda(''); setResultados([]);
@@ -448,15 +454,20 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
       setBusqueda(''); setResultados([]);
       return;
     }
+    const cant = cantidadFija ?? multiplicador ?? 1;
     setCarrito((c) => {
       const existente = c.find((r) => r.sku === p.sku);
       if (existente) {
-        return c.map((r) => (r.sku === p.sku ? { ...r, cantidad: Math.min(999, r.cantidad + (multiplicador ?? 1)) } : r));
+        // por peso: dos etiquetas del mismo producto suman kilos (0,290 + 0,415)
+        const suma = existente.porPeso ? Math.round((existente.cantidad + cant) * 1000) / 1000 : Math.min(999, existente.cantidad + cant);
+        return c.map((r) => (r.sku === p.sku ? { ...r, cantidad: suma } : r));
       }
-      return [...c, { ...p, cantidad: multiplicador ?? 1 }];
+      return [...c, { ...p, cantidad: cant }];
     });
     const sinStock = p.stock != null && p.stock <= 0;
     if (sinStock) setEstado({ tipo: 'error', texto: `⚠ ${p.nombre}: ${textoSinStock(p)}. Si lo tenés en la mano, el stock está mal: avisá a depósito.` });
+    else if (cantidadFija != null && p.porPeso) setEstado({ tipo: 'ok', texto: `⚖ ${p.nombre}: ${cantidadFija.toFixed(3).replace('.', ',')} kg a ${pesos(p.precio)} el kilo = ${pesos((p.precio ?? 0) * cantidadFija)}` });
+    else if (cantidadFija != null && cantidadFija !== 1) setEstado({ tipo: 'ok', texto: `${cantidadFija} × ${p.nombre} (etiqueta de balanza)` });
     else if (multiplicador) setEstado({ tipo: 'ok', texto: `×${multiplicador} · ${p.nombre}` });
     else setEstado(null);
     setMultiplicador(null);
@@ -471,9 +482,21 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
     const codigo = codigoPendiente;
     if (!codigo) return;
     try {
-      const r = await fetch('/api/pos-vincular', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sku: p.sku, codigo }) });
+      const esPlu = codigo.startsWith('PLU:');
+      const cuerpo = esPlu
+        ? { sku: p.sku, codigo: codigo.slice(4).split('|')[0], tipo: 'plu', porPeso: codigo.endsWith('|kg') }
+        : { sku: p.sku, codigo };
+      const r = await fetch('/api/pos-vincular', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cuerpo) });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) { setEstado({ tipo: 'error', texto: d.message ?? 'No se pudo vincular el código' }); return; }
+      if (esPlu) {
+        const plu = codigo.slice(4).split('|')[0]; const porPeso = codigo.endsWith('|kg');
+        const valor = Number(codigo.split('|')[1] ?? '1') || 1;
+        setCatalogoLocal((c) => c.map((x) => (x.sku === p.sku ? { ...x, plu, porPeso } : x)));
+        agregar({ ...p, plu, porPeso }, porPeso ? Math.round(valor) / 1000 : Math.max(1, Math.round(valor)));
+        setEstado({ tipo: 'ok', texto: `✓ PLU ${plu} vinculado a ${p.nombre}${porPeso ? ' (se vende por peso)' : ''}. La próxima etiqueta entra sola.` });
+        return;
+      }
       setCatalogoLocal((c) => c.map((x) => (x.sku === p.sku ? { ...x, codigosBarras: [...(x.codigosBarras ?? []), codigo] } : x)));
       agregar({ ...p, codigosBarras: [...(p.codigosBarras ?? []), codigo] });
       setEstado({ tipo: 'ok', texto: `✓ Código ${codigo} vinculado a ${p.nombre}. La próxima vez entra solo.` });
@@ -510,6 +533,7 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
     if (debRef.current) clearTimeout(debRef.current);
     const t = termino.trim();
     if (t.length < 2) { setResultados([]); return; }
+    if (esCodigoBalanza(t)) { ejecutar(t, true); return; }
     if (/^\d{4,14}$/.test(t)) {
       const ex = catalogoLocal.find((p) => p.codigo === t || p.sku === t || (p.codigosBarras ?? []).includes(t));
       if (ex) { agregar(ex); return; }
@@ -525,8 +549,19 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
     setBuscando(true);
     try {
       const res = await fetch(`/api/pos-buscar?q=${encodeURIComponent(t)}&sucursal=${encodeURIComponent(sucursalId)}`);
-      const datos: Producto[] = res.ok ? ((await res.json()).items ?? []) : [];
+      const j: any = res.ok ? await res.json() : {};
+      const datos: Producto[] = j.items ?? [];
       if (seq !== seqRef.current) return;
+      if (j.balanza) {
+        // etiqueta de balanza: el producto entra con la cantidad de la etiqueta
+        const it = datos[0];
+        if (it) { agregar(it, it.cantidadBalanza ?? 1); return; }
+        const gramos = Number(j.balanza.valor) >= 100; // 290 = gramos; 1 = unidades
+        setCodigoPendiente(`PLU:${j.balanza.plu}|${j.balanza.valor}${gramos ? '|kg' : ''}`);
+        setEstado({ tipo: 'error', texto: `Etiqueta de balanza con PLU ${j.balanza.plu}: el sistema no lo tiene vinculado. Buscá el producto por nombre y tocá «Vincular PLU ${j.balanza.plu}» en el resultado.` });
+        setResultados([]);
+        return;
+      }
       const esCodigo = /^\d{6,14}$/.test(t);
       if (esCodigo || esEnter) {
         const exacto = datos.find((p) => p.codigo === t || p.sku === t || (p.codigosBarras ?? []).includes(t)) ?? (datos.length === 1 ? datos[0] : null);
@@ -552,6 +587,7 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
     if (debRef.current) clearTimeout(debRef.current);
     const t = busqueda.trim();
     if (tomarMultiplicador(t)) return;
+    if (esCodigoBalanza(t)) { ejecutar(t, true); return; }
     const ex = catalogoLocal.find((p) => p.codigo === t || p.sku === t || (p.codigosBarras ?? []).includes(t));
     if (ex) { agregar(ex); return; }
     if (resultados[0]) { agregar(resultados[0]); return; }
@@ -567,6 +603,7 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
     if (!t) return;
     if (tomarMultiplicador(t)) return;
     setBusqueda('');
+    if (esCodigoBalanza(t)) { ejecutar(t, true); inputRef.current?.focus(); return; }
     const ex = catalogoLocal.find((p) => p.codigo === t || p.sku === t || (p.codigosBarras ?? []).includes(t));
     if (ex) { agregar(ex); return; }
     ejecutar(t, true);
@@ -942,6 +979,7 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
     };
     // snapshot local por si hay que imprimir sin respuesta del servidor (offline)
     const itemsLocales = carrito.map((r) => ({
+      porPeso: !!r.porPeso,
       cantidad: r.cantidad,
       nombre: r.nombre,
       precioUnitario: precioDe(r),
@@ -1496,7 +1534,7 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
                         {codigoPendiente && p.activo !== false && (
                           <span role="button" tabIndex={0} onClick={(e) => { e.stopPropagation(); vincularCodigo(p); }} onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); vincularCodigo(p); } }}
                             className="mt-1 inline-block rounded-full bg-[#141414] px-3 py-1 text-xs font-semibold text-[#F0EBE2] hover:bg-black/80">
-                            Vincular este código ({codigoPendiente})
+                            {codigoPendiente.startsWith('PLU:') ? `Vincular PLU ${codigoPendiente.slice(4).split('|')[0]}${codigoPendiente.endsWith('|kg') ? ' (por peso)' : ''}` : `Vincular este código (${codigoPendiente})`}
                           </span>
                         )}
                       </span>
@@ -1529,19 +1567,19 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
                       {r.nombre}
                       {r.stock != null && r.stock <= 0 && <span className="ml-2 rounded bg-[#B82D25]/15 px-1.5 py-0.5 text-[11px] font-semibold text-[#B82D25] align-middle">sin stock{r.sinStockDesde ? ` · desde el ${fechaCorta(r.sinStockDesde)}` : ''}</span>}
                     </p>
-                    <p className="text-xs text-black/45">{pesos(precioDe(r))} c/u{mayorista && r.precioMayorista != null ? ' · may.' : ''}{r.descuento ? ` · ${r.descuento}` : ''}{sel ? ' · tocá los números para la cantidad' : ''}</p>
+                    <p className="text-xs text-black/45">{pesos(precioDe(r))} {r.porPeso ? 'el kilo' : 'c/u'}{mayorista && r.precioMayorista != null ? ' · may.' : ''}{r.descuento ? ` · ${r.descuento}` : ''}{sel ? ' · tocá los números para la cantidad' : ''}</p>
                   </button>
-                  <button onClick={() => cambiarCantidad(r.sku, -1)} className="h-12 w-12 rounded-xl bg-white border border-black/15 text-2xl text-black active:scale-95 shrink-0" aria-label="Restar">−</button>
+                  {!r.porPeso && <button onClick={() => cambiarCantidad(r.sku, -1)} className="h-12 w-12 rounded-xl bg-white border border-black/15 text-2xl text-black active:scale-95 shrink-0" aria-label="Restar">−</button>}
                   <input
-                    type="number" inputMode="numeric" min={1} max={999} value={r.cantidad}
+                    type="number" inputMode={r.porPeso ? 'decimal' : 'numeric'} min={r.porPeso ? 0.001 : 1} max={999} step={r.porPeso ? 0.001 : 1} value={r.cantidad}
                     onFocus={(e) => e.currentTarget.select()}
-                    onChange={(e) => { const n = Math.max(1, Math.min(999, Math.round(Number(e.target.value) || 1))); setCarrito((c) => c.map((x) => (x.sku === r.sku ? { ...x, cantidad: n } : x))); }}
+                    onChange={(e) => { const v = Number(e.target.value); const n = r.porPeso ? Math.max(0.001, Math.min(999, Math.round((v || 0.001) * 1000) / 1000)) : Math.max(1, Math.min(999, Math.round(v || 1))); setCarrito((c) => c.map((x) => (x.sku === r.sku ? { ...x, cantidad: n } : x))); }}
                     onKeyDown={(e) => { if (e.key === 'Enter' || e.key === 'Escape') { e.preventDefault(); (e.target as HTMLInputElement).blur(); inputRef.current?.focus(); } }}
                     aria-label="Cantidad"
                     title="Escribí la cantidad y Enter"
                     className="h-12 w-16 shrink-0 rounded-xl border border-black/15 bg-white text-center text-2xl font-bold tabular-nums text-black outline-none focus:border-[#B82D25]"
                   />
-                  <button onClick={() => cambiarCantidad(r.sku, 1)} className="h-12 w-12 rounded-xl bg-black text-white text-2xl active:scale-95 shrink-0" aria-label="Sumar">+</button>
+                  {r.porPeso ? <span className="w-12 text-center text-sm text-black/50 shrink-0">kg</span> : <button onClick={() => cambiarCantidad(r.sku, 1)} className="h-12 w-12 rounded-xl bg-black text-white text-2xl active:scale-95 shrink-0" aria-label="Sumar">+</button>}
                   <span className="w-28 text-right font-bold text-xl text-black whitespace-nowrap shrink-0">{pesos(precioDe(r) * r.cantidad)}</span>
                   <button onClick={() => quitar(r.sku)} className="h-12 w-10 rounded-xl text-black/40 active:text-[#B82D25] text-2xl shrink-0" aria-label="Quitar">✕</button>
                 </div>
@@ -1779,7 +1817,7 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
           )}
 
           <p className="text-center text-[11px] text-black/35 -mt-1">
-            6* y escaneá = 6 unidades · F2 comprobante · F3 cliente · F4 medio · F6 estacionar · F8 reimprimir · F9 stock · F12 cobrar · F10 salir
+            6* y escaneá = 6 unidades · etiqueta de balanza = entra con su peso/cantidad · F2 comprobante · F3 cliente · F4 medio · F6 estacionar · F8 reimprimir · F9 stock · F12 cobrar · F10 salir
           </p>
 
           {estado && (
@@ -2105,7 +2143,7 @@ function TicketPrint({ t }: { t: TicketData | null }) {
         {t.items.map((i, idx) => (
           <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', gap: 6 }}>
             <span style={{ flex: 1, overflow: 'hidden' }}>
-              {i.cantidad} x {i.nombre.slice(0, 26)}
+              {(i as any).porPeso ? `${Number(i.cantidad).toFixed(3).replace('.', ',')} kg` : `${i.cantidad} x`} {i.nombre.slice(0, 26)}
             </span>
             <span>{pesos(i.total)}</span>
           </div>

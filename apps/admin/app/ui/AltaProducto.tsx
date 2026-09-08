@@ -23,7 +23,7 @@ const IVA = [21, 10.5, 27, 0];
 
 const FORM = {
   codigoBarras: '', nombre: '', marca: '', rubro: '', sku: '',
-  volumenMl: '', unidadesPack: '', graduacion: '', esAlcohol: false,
+  volumenMl: '', unidadesPack: '', graduacion: '', esAlcohol: false, plu: '', vendidoPorPeso: false,
   controlaVencimiento: false, alicuotaIva: '21', aliasBusqueda: '', descripcion: '',
   costo: '', precio: '', precioCaja: '', precioMayorista: '',
 };
@@ -139,6 +139,8 @@ export function AltaProducto({ rubros, marcas, sucursales, proveedores = [] }: {
           descripcion: form.descripcion.trim() || undefined,
           aliasBusqueda: form.aliasBusqueda.trim() || undefined,
           esAlcohol: form.esAlcohol,
+          plu: form.plu || undefined,
+          vendidoPorPeso: form.vendidoPorPeso,
           controlaVencimiento: form.controlaVencimiento,
           volumenMl: num(form.volumenMl),
           unidadesPack: num(form.unidadesPack),
@@ -333,6 +335,14 @@ export function AltaProducto({ rubros, marcas, sucursales, proveedores = [] }: {
           <label className="flex items-center gap-2 text-sm text-black">
             <input type="checkbox" checked={form.esAlcohol} onChange={(e) => campo('esAlcohol', e.target.checked)} className="accent-[#B82D25] w-4 h-4" />
             Bebida alcohólica (+18)
+          </label>
+          <label className="flex items-center gap-2 text-sm text-black" title="La balanza manda gramos y el precio es por kilo">
+            <input type="checkbox" checked={form.vendidoPorPeso} onChange={(e) => campo('vendidoPorPeso', e.target.checked)} className="accent-[#B82D25] w-4 h-4" />
+            Se vende por peso (balanza)
+          </label>
+          <label className="flex items-center gap-2 text-sm text-black">
+            PLU balanza
+            <input value={form.plu} onChange={(e) => campo('plu', e.target.value.replace(/\D/g, ''))} placeholder="ej: 3931" className="w-24 rounded border border-black/15 px-2 py-1 text-sm" />
           </label>
           <label className="flex items-center gap-2 text-sm text-black">
             <input type="checkbox" checked={form.controlaVencimiento} onChange={(e) => campo('controlaVencimiento', e.target.checked)} className="accent-[#B82D25] w-4 h-4" />

@@ -24,6 +24,8 @@ export function EditarProducto({
     precio: producto.precio ?? '',
     codigoBarras: '',
     esAlcohol: !!producto.esAlcohol,
+    plu: producto.plu ?? '',
+    vendidoPorPeso: !!producto.vendidoPorPeso,
   });
   const [error, setError] = useState('');
   const [cargando, setCargando] = useState(false);
@@ -44,6 +46,8 @@ export function EditarProducto({
       if (form.rubro !== (producto.categoria ?? '')) cambios.rubro = form.rubro;
       if (form.marca !== (producto.marca ?? '')) cambios.marca = form.marca || null;
       if (form.esAlcohol !== !!producto.esAlcohol) cambios.esAlcohol = form.esAlcohol;
+      if ((form.plu ?? '') !== (producto.plu ?? '')) cambios.plu = form.plu || null;
+      if (form.vendidoPorPeso !== !!producto.vendidoPorPeso) cambios.vendidoPorPeso = form.vendidoPorPeso;
       if (Number(form.costo) > 0 && Number(form.costo) !== producto.costo) cambios.costo = Number(form.costo);
       if (Number(form.precio) > 0 && Number(form.precio) !== producto.precio) cambios.precio = Number(form.precio);
       if (form.codigoBarras.trim()) cambios.codigoBarras = form.codigoBarras.trim();
@@ -180,6 +184,14 @@ export function EditarProducto({
                   className="accent-[#B82D25] w-4 h-4"
                 />
                 +18
+              </label>
+              <label className="flex items-center gap-2 text-sm text-black" title="La balanza manda gramos y el precio es por kilo">
+                <input type="checkbox" checked={!!form.vendidoPorPeso} onChange={(e) => campo('vendidoPorPeso', e.target.checked)} className="accent-[#B82D25] w-4 h-4" />
+                Se vende por peso (balanza)
+              </label>
+              <label className="flex items-center gap-2 text-sm text-black">
+                PLU balanza
+                <input value={form.plu ?? ''} onChange={(e) => campo('plu', e.target.value.replace(/\D/g, ''))} placeholder="ej: 3931" className="w-24 rounded border border-black/15 px-2 py-1 text-sm" />
               </label>
             </div>
 
