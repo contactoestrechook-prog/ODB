@@ -38,6 +38,8 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const ruta = url.searchParams.get('bandeja')
     ? '/compras/lecturas'
+    : url.searchParams.get('original')
+    ? `/compras/entrada-foto/${encodeURIComponent(url.searchParams.get('original') ?? '')}/original`
     : `/compras/entrada-foto/${encodeURIComponent(url.searchParams.get('id') ?? '')}`;
   const res = await fetch(`${API}${ruta}`, { headers: auth, cache: 'no-store' });
   return NextResponse.json(await res.json().catch(() => ({})), { status: res.status });
