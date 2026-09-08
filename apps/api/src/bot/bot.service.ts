@@ -353,8 +353,16 @@ export class BotService {
         const yaAcuso = !!conv?.acuse_derivacion_en;
         const preguntaIdentidad = /\b(bot|robot|ia|inteligencia artificial|persona real|humano|con qui[eé]n hablo|qui[eé]n sos|me le[eé]s|hay alguien|sos una persona)\b/i.test(texto);
         let respuesta: string | null = null;
+        // ¿La atiende una PERSONA? (pausada desde la bandeja o la app, contestada
+        // desde el panel, o tecleada desde el teléfono). Entonces SILENCIO: el bot
+        // no se mete en una charla que ya lleva una persona. El "modo acotado" de
+        // abajo queda solo para las derivadas por el bot que nadie tomó todavía.
+        // Auditoría 2026-09-08: antes contestaba igual, pisando a quien atendía.
+        const atiendeUnaPersona = !!conv?.atendida_por || /^(Pausado desde la bandeja|Atendida desde el tel[eé]fono)/i.test(String(conv?.derivada_motivo ?? ''));
         if (botApagadoGlobal) {
           respuesta = null; // línea apagada por el dueño: silencio total, es intencional
+        } else if (atiendeUnaPersona) {
+          respuesta = null; // hay una persona en la charla: el mensaje queda en el hilo y nadie lo pisa
         } else {
           let datosHoy = '';
           try {
@@ -2609,11 +2617,44 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
   // WAHA le pega directo acá con su formato nativo. El sistema traduce, piensa
   // y despacha la respuesta por el mismo camino. Sin escalas: un salto menos es
   // un lugar menos donde se pierden mensajes.
+  // WhatsApp devuelve también lo que sale de este número ("fromMe", con el
+  // evento message.any). Si lo mandó el sistema (está en bot_envios) se ignora.
+  // Si no, lo tecleó una PERSONA desde el teléfono: el bot se pausa 6 h en esa
+  // charla para no pisarla y lo escrito queda en el hilo. Vence solo: si nadie
+  // sigue, el bot vuelve con una nota interna.
+  private async mensajePropio(p: any) {
+    const id = String(p?.id ?? p?.key?.id ?? p?._data?.key?.id ?? '').trim();
+    if (id) {
+      const { data: nuestro } = await this.db.from('bot_envios').select('waha_id').eq('waha_id', id).maybeSingle();
+      if (nuestro) return { ignorado: 'lo mandamos nosotros' };
+    }
+    const chat = String(p?.to ?? p?.chatId ?? p?._data?.key?.remoteJid ?? '');
+    if (!chat || chat.endsWith('@g.us') || chat.includes('status@broadcast')) return { ignorado: 'fromMe sin chat de persona' };
+    const identidad = chat.endsWith('@lid') ? chat : chat.split('@')[0].replace(/\D/g, '');
+    if (!identidad) return { ignorado: 'fromMe sin destinatario' };
+    const texto = String(p?.body ?? p?.caption ?? '').trim();
+    const { data: conv } = await this.db.from('bot_conversaciones').select('mensajes, bot_activo').eq('linea', 'pedidos').eq('telefono', identidad).maybeSingle();
+    const hist: any[] = Array.isArray(conv?.mensajes) ? conv!.mensajes : [];
+    // red de seguridad si el id no coincidió: lo último que dijo el bot no es de una persona
+    const ultimoBot = String([...hist].reverse().find((m) => m.role === 'assistant')?.content ?? '').replace(/^\[acuse-archivo\] /, '');
+    if (texto && ultimoBot && texto === ultimoBot) return { ignorado: 'coincide con lo último del bot' };
+    this.log.log(`una persona contestó desde el teléfono a ${identidad}: el bot se pausa 6 h en esa charla`);
+    await this.db.from('bot_conversaciones').upsert({
+      linea: 'pedidos', telefono: identidad,
+      mensajes: [...hist, ...(texto ? [{ role: 'assistant', content: texto }] : [])].slice(-40),
+      actualizado_en: new Date().toISOString(),
+      bot_activo: false, derivada_en: new Date().toISOString(), derivada_motivo: 'Atendida desde el teléfono',
+      atendida_por: null, derivacion_vence_en: new Date(Date.now() + 6 * 3600_000).toISOString(), acuse_derivacion_en: null,
+    }, { onConflict: 'linea,telefono' }).then(() => null, () => null);
+    return { pausada: true, motivo: 'una persona contestó desde el teléfono' };
+  }
+
   async webhookWaha(evento: any, numeroLinea?: string) {
-    // solo mensajes entrantes de personas
-    if (evento?.event !== 'message') return { ignorado: 'no es un mensaje' };
+    // mensajes entrantes de personas ('message') y lo que sale de este número ('message.any' con fromMe)
+    if (evento?.event !== 'message' && evento?.event !== 'message.any') return { ignorado: 'no es un mensaje' };
     const p = evento.payload ?? {};
-    if (p.fromMe === true) return { ignorado: 'lo mandamos nosotros' };
+    if (p.fromMe === true) return this.mensajePropio(p);
+    if (evento.event === 'message.any') return { ignorado: 'entrante por message.any: lo procesa el evento message' };
 
     const desde = String(p.from ?? '');
     if (!desde) return { ignorado: 'sin remitente' };
@@ -2792,6 +2833,9 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
         ].slice(-40),
         actualizado_en: new Date().toISOString(), bot_activo: false,
         derivada_en: new Date().toISOString(), derivada_motivo: `El cliente mandó ${queEs}: hay que escucharlo/abrirlo`, resuelta_en: null,
+        // Vence sola: sin esto, 68 charlas quedaron derivadas para siempre (nadie
+        // las tomó) y esos clientes solo recibían "ya está avisado" (2026-09-08).
+        atendida_por: null, derivacion_vence_en: new Date(Date.now() + 4 * 3600_000).toISOString(),
       }, { onConflict: 'linea,telefono' }).then(() => null, () => null);
       if (yaAviso) return { contestado: false, motivo: `${queEs}: ya avisado, derivado` };
       const aviso = esAudio
@@ -2977,6 +3021,16 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
   // WAHA identifica los chats por chatId: "<digitos>@c.us". Los contactos con
   // número oculto por privacidad llegan como "<id>@lid" y hay que devolverlos
   // TAL CUAL, si no el mensaje no encuentra al destinatario.
+  // Todo lo que sale por WhatsApp queda registrado por su id: así, cuando
+  // WhatsApp devuelve un mensaje "fromMe", se sabe si lo mandó el sistema o lo
+  // tecleó una persona desde el teléfono.
+  private registrarEnvio<T extends { enviado: boolean; id?: string | null }>(r: T, telefono: string, origen?: string): T {
+    if (r?.enviado && r.id) {
+      this.db.from('bot_envios').upsert({ waha_id: String(r.id), telefono, origen: origen ?? 'bot' }, { onConflict: 'waha_id' }).then(() => null, () => null);
+    }
+    return r;
+  }
+
   async enviarPorWhatsapp(payload: {
     to: string;
     text?: string | null;
@@ -3026,7 +3080,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
             caption: payload.text || '',
           });
           if (!r.ok) return { enviado: false, motivo: `WAHA sendFile ${r.estado}` };
-          return { enviado: true, via: 'waha', id: r.cuerpo?.id ?? r.cuerpo?.key?.id ?? null };
+          return this.registrarEnvio({ enviado: true, via: 'waha', id: r.cuerpo?.id ?? r.cuerpo?.key?.id ?? null }, payload.to, payload.kind);
         }
 
         if (payload.imagenUrl) {
@@ -3039,7 +3093,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
             caption: payload.text || '',
           });
           if (!r.ok) return { enviado: false, motivo: `WAHA sendImage ${r.estado}` };
-          return { enviado: true, via: 'waha', id: r.cuerpo?.id ?? r.cuerpo?.key?.id ?? null };
+          return this.registrarEnvio({ enviado: true, via: 'waha', id: r.cuerpo?.id ?? r.cuerpo?.key?.id ?? null }, payload.to, payload.kind);
         }
 
         const esAudio = !!payload.audioUrl;
@@ -3071,7 +3125,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
         const id = r.cuerpo?.id ?? r.cuerpo?.key?.id ?? r.cuerpo?._data?.id?.id ?? null;
         // sin id no hay prueba de que haya salido: se reporta como falla
         if (esAudio && !id) return { enviado: false, motivo: 'WhatsApp no confirmó la nota de voz' };
-        return { enviado: true, via: 'waha', id };
+        return this.registrarEnvio({ enviado: true, via: 'waha', id }, payload.to, payload.kind);
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         this.log.warn(`No se pudo contactar a WAHA: ${msg}`);

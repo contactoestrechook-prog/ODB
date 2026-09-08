@@ -997,3 +997,79 @@ describe('campañas: respuestas clave e información vigente de la línea', () =
     expect(JSON.stringify(system)).toContain('INFORMACIÓN VIGENTE');
   });
 });
+
+
+describe('pausa del bot por conversación (auditoría 2026-09-08)', () => {
+  beforeEach(() => { process.env.ANTHROPIC_API_KEY = 'test'; });
+
+  it('si una PERSONA pausó la charla, el bot calla del todo: no llama al modelo y guarda el mensaje en el hilo', async () => {
+    const db = dbFalsa({
+      lineas_whatsapp: { data: { bot_activo: true }, error: null },
+      bot_conversaciones: { data: { mensajes: [{ role: 'user', content: 'hola' }], bot_activo: false, atendida_por: 'u-jackie', derivada_motivo: 'Pausado desde la bandeja', derivacion_vence_en: null }, error: null },
+    });
+    const { s } = servicio(db);
+    const crear = jest.fn();
+    (s as any).claude = { messages: { create: crear } };
+    const r: any = await s.charla({ linea: 'pedidos', telefono: '5491144556677', mensaje: '¿me confirmás el precio del malbec?' });
+    expect(r.respuesta ?? null).toBeNull();
+    expect(crear).not.toHaveBeenCalled();
+    const up = db.llamadas.upsert.find((u: any) => u.tabla === 'bot_conversaciones');
+    expect(up.fila.mensajes.at(-1)).toEqual({ role: 'user', content: '¿me confirmás el precio del malbec?' });
+  });
+
+  it('si la contestaron desde el TELÉFONO, también calla', async () => {
+    const db = dbFalsa({
+      lineas_whatsapp: { data: { bot_activo: true }, error: null },
+      bot_conversaciones: { data: { mensajes: [], bot_activo: false, atendida_por: null, derivada_motivo: 'Atendida desde el teléfono', derivacion_vence_en: new Date(Date.now() + 3600_000).toISOString() }, error: null },
+    });
+    const { s } = servicio(db);
+    const crear = jest.fn();
+    (s as any).claude = { messages: { create: crear } };
+    const r: any = await s.charla({ linea: 'pedidos', telefono: '5491144556678', mensaje: 'dale, gracias' });
+    expect(r.respuesta ?? null).toBeNull();
+    expect(crear).not.toHaveBeenCalled();
+  });
+
+  it('una charla derivada por el BOT que nadie tomó sigue contestando en modo acotado (comportamiento previo)', async () => {
+    const db = dbFalsa({
+      lineas_whatsapp: { data: { bot_activo: true }, error: null },
+      bot_conversaciones: { data: { mensajes: [], bot_activo: false, atendida_por: null, derivada_motivo: 'Cliente reclama que faltaron dos botellas', derivacion_vence_en: new Date(Date.now() + 3600_000).toISOString() }, error: null },
+    });
+    const { s } = servicio(db);
+    const crear = jest.fn().mockResolvedValue(respuestaClaude('Tu reclamo ya está avisado al sector; te responden por acá.'));
+    (s as any).claude = { messages: { create: crear } };
+    const r: any = await s.charla({ linea: 'pedidos', telefono: '5491144556679', mensaje: '¿alguna novedad?' });
+    expect(crear).toHaveBeenCalled();
+    expect(r.respuesta).toContain('avisado');
+  });
+
+  it('un mensaje fromMe que NO mandó el sistema pausa la charla 6 h y deja lo escrito en el hilo', async () => {
+    const db = dbFalsa({
+      bot_envios: { data: null, error: null },
+      bot_conversaciones: { data: { mensajes: [{ role: 'assistant', content: 'Buenas tardes, te damos la bienvenida a O.D.B.' }] }, error: null },
+    });
+    const { s } = servicio(db);
+    const r: any = await s.webhookWaha({ event: 'message.any', payload: { fromMe: true, id: 'ID-TECLEADO', from: '5491122812200@c.us', to: '5491155556666@c.us', body: 'Hola! Soy Jackie, te lo preparo yo' } });
+    expect(r.pausada).toBe(true);
+    const up = db.llamadas.upsert.find((u: any) => u.tabla === 'bot_conversaciones');
+    expect(up.fila.bot_activo).toBe(false);
+    expect(up.fila.derivada_motivo).toBe('Atendida desde el teléfono');
+    expect(up.fila.telefono).toBe('5491155556666');
+    expect(up.fila.mensajes.at(-1).content).toContain('Soy Jackie');
+    expect(new Date(up.fila.derivacion_vence_en).getTime()).toBeGreaterThan(Date.now() + 5 * 3600_000);
+  });
+
+  it('un fromMe que SÍ mandó el sistema (está en bot_envios) se ignora', async () => {
+    const db = dbFalsa({ bot_envios: { data: { waha_id: 'ID-DEL-BOT' }, error: null } });
+    const { s } = servicio(db);
+    const r: any = await s.webhookWaha({ event: 'message.any', payload: { fromMe: true, id: 'ID-DEL-BOT', to: '5491155556666@c.us', body: 'respuesta del bot' } });
+    expect(r.ignorado).toBe('lo mandamos nosotros');
+    expect(db.llamadas.upsert.find((u: any) => u.tabla === 'bot_conversaciones')).toBeUndefined();
+  });
+
+  it('un entrante duplicado por message.any no se procesa dos veces', async () => {
+    const { s } = servicio(dbFalsa());
+    const r: any = await s.webhookWaha({ event: 'message.any', payload: { fromMe: false, from: '5491155556666@c.us', body: 'hola' } });
+    expect(r.ignorado).toMatch(/message\.any/);
+  });
+});
