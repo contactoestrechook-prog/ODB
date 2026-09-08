@@ -1,6 +1,7 @@
 import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import { emprolijarListado, nombreLimpio, saludoSegunHora, saludarConBienvenida, niegaPercepcion, respetuosoSinConfianza } from './prolijo';
 import { oggCompleto } from './ogg';
+import { atiendeUnaPersona, motivoDeSilencio } from './pausa';
 import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
 import { Cron } from '@nestjs/schedule';
@@ -408,10 +409,9 @@ export class BotService {
         // no se mete en una charla que ya lleva una persona. El "modo acotado" de
         // abajo queda solo para las derivadas por el bot que nadie tomó todavía.
         // Auditoría 2026-09-08: antes contestaba igual, pisando a quien atendía.
-        const atiendeUnaPersona = !!conv?.atendida_por || /^(Pausado desde la bandeja|Atendida desde el tel[eé]fono)/i.test(String(conv?.derivada_motivo ?? ''));
         if (botApagadoGlobal) {
           respuesta = null; // línea apagada por el dueño: silencio total, es intencional
-        } else if (atiendeUnaPersona) {
+        } else if (atiendeUnaPersona(conv as any)) {
           respuesta = null; // hay una persona en la charla: el mensaje queda en el hilo y nadie lo pisa
         } else {
           let datosHoy = '';
@@ -2878,6 +2878,25 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
       // que alguien lo abra y responda. Al cliente no se le dice "no puedo".
       const queEs = esAudio ? 'un audio' : tipo === 'video' ? 'un video' : 'un archivo';
       const enlace = enlacePublico;
+      // ¿Hay que callar? (línea apagada, o una persona atiende esta charla). Se
+      // guarda el archivo en el hilo con su enlace —para leerlo al retomar— y
+      // no se manda acuse ni se toca la pausa de la persona.
+      {
+        const { data: lineaCfg } = await this.db.from('lineas_whatsapp').select('bot_activo').eq('linea', 'pedidos').eq('activa', true).limit(1).maybeSingle();
+        const { data: convPrev } = await this.db.from('bot_conversaciones').select('mensajes, bot_activo, atendida_por, derivada_motivo').eq('linea', 'pedidos').eq('telefono', identidad).maybeSingle();
+        const silencio = motivoDeSilencio(lineaCfg as any, convPrev as any, /^54911000000\d{1,3}$/.test(identidad));
+        if (silencio) {
+          const hist: any[] = Array.isArray((convPrev as any)?.mensajes) ? (convPrev as any).mensajes : [];
+          await this.db.from('bot_conversaciones').upsert({
+            linea: 'pedidos', telefono: identidad,
+            mensajes: [...hist, { role: 'user', content: `[el cliente mandó ${queEs}]${enlace ? ` [adjunto sin leer: ${enlace}]` : ''}` }].slice(-40),
+            actualizado_en: new Date().toISOString(),
+          }, { onConflict: 'linea,telefono' }).then(() => null, () => null);
+          await this.respondeRegistrar(waIdM, p._data?.notifyName ?? p.notifyName ?? null, etiqueta(esAudio ? '🎙️ Audio del cliente' : tipo === 'video' ? '🎬 Video del cliente' : `📄 ${media?.nombre || 'Archivo'} del cliente`), null, p.id ? String(p.id) : undefined, mediaReg).catch(() => null);
+          this.log.log(`archivo de ${identidad} guardado sin acuse (${silencio})`);
+          return { contestado: false, motivo: silencio };
+        }
+      }
       const icono = esAudio ? '🎙️ Audio del cliente' : tipo === 'video' ? '🎬 Video del cliente' : `📄 ${media?.nombre || 'Archivo'} del cliente`;
       await this.respondeRegistrar(waIdM, p._data?.notifyName ?? p.notifyName ?? null, etiqueta(icono), null, p.id ? String(p.id) : undefined, mediaReg).catch(() => null);
       if (await this.respondeModoHumano(waIdM).catch(() => false)) return { contestado: false, motivo: 'RESPONDE: atiende una persona' };
