@@ -3,6 +3,7 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
 import * as XLSX from 'xlsx';
 import { SUPABASE } from '../supabase.provider';
+import { elegirProveedor } from '../compras/proveedor-match';
 import { unidadesPorBulto, esRenglonDeDescuento, porcentajeDeDescuento, puedeVendersePorPeso, interpretarRenglon, unidadesDeLaPresentacion } from '../compras/bultos';
 
 export type ItemExtraido = { codigo: string | null; descripcion: string; precio: number };
@@ -631,31 +632,13 @@ export class ListasService {
     // especial. Agrega dudas si algo no cierra; nunca rechaza el comprobante.
     const regimenEspecial = this.validarPie(datos);
 
-    // proveedor: por CUIT exacto (solo dígitos), sino por similitud de nombre
-    const cuit = (datos.proveedor?.cuit ?? '').replace(/\D/g, '');
-    let proveedor: any = null;
-    if (cuit) {
-      const { data } = await this.db.from('proveedores').select('id, razon_social, cuit').eq('activo', true);
-      proveedor = (data ?? []).find((p: any) => (p.cuit ?? '').replace(/\D/g, '') === cuit) ?? null;
-    }
-    if (!proveedor && datos.proveedor?.nombre) {
-      // Buscamos por la primera palabra DISTINTIVA (no "Distribuidora", "Comercial",
-      // "SRL"…): usar la genérica matcheaba proveedores equivocados.
-      const GENERICAS = new Set(['distribuidora', 'distribuidor', 'comercial', 'mayorista', 'sociedad', 'srl', 'sa', 'sas', 'saci', 'saci', 'industrias', 'industria', 'import', 'export', 'importadora', 'grupo', 'the']);
-      const token = datos.proveedor.nombre
-        .split(/\s+/)
-        .map((w: string) => w.toLowerCase().replace(/[^a-z0-9]/gi, ''))
-        .find((w: string) => w.length >= 4 && !GENERICAS.has(w));
-      if (token) {
-        const { data } = await this.db
-          .from('proveedores')
-          .select('id, razon_social, cuit')
-          .ilike('razon_social', `%${token}%`)
-          .limit(1)
-          .maybeSingle();
-        proveedor = data ?? null;
-      }
-    }
+    // proveedor: por CUIT exacto y, si no, por nombre con dos candados (ver
+    // compras/proveedor-match.ts: el caso Diamandes → Vistalba del 2026-09-08)
+    const { data: candidatosProv } = await this.db.from('proveedores').select('id, razon_social, cuit').eq('activo', true);
+    let proveedor: any = elegirProveedor(
+      { nombre: datos.proveedor?.nombre ?? null, cuit: datos.proveedor?.cuit ?? null },
+      (candidatosProv ?? []) as any[],
+    );
 
     // productos: mismo matching que listas/pedidos (código prov → EAN → similitud)
     // El bulto y el descuento se resuelven en CÓDIGO, sobre la descripción, no
