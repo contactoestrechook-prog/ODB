@@ -5,7 +5,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { SUPABASE } from '../supabase.provider';
 
 const SELECT_PRODUCTO = `
-  id, sku, nombre, descripcion, volumen_ml, unidades_pack, graduacion, es_alcohol, costo, activo, creado_en, alicuota_iva,
+  id, sku, nombre, descripcion, volumen_ml, unidades_pack, graduacion, es_alcohol, plu, vendido_por_peso, codigo_legacy, costo, activo, creado_en, alicuota_iva,
   marca:marcas ( id, nombre ),
   categoria:categorias ( id, nombre ),
   stock ( sucursal_id, cantidad, stock_minimo ),
