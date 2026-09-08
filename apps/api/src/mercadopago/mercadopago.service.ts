@@ -1,4 +1,5 @@
 import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
 import { fetchConTimeout } from '../comun/http';
@@ -339,5 +340,210 @@ export class MercadoPagoService {
     if (!r.ok) throw new BadRequestException(d?.message ?? 'MP no pudo crear el link');
     this.log.log(`link de pago creado (${cuenta.slug}): $${monto} (${concepto})`);
     return { url: d.init_point, monto, concepto, cuenta: cuenta.slug };
+  }
+
+  // ───────────── Cobro con QR integrado (2026-09-08) ─────────────
+  // ANTES la caja registraba la venta apenas se tocaba "Cobrar" con Mercado Pago
+  // y el cliente tenía que tipear el importe en el QR fijo. AHORA la caja manda
+  // el importe exacto al QR de SU caja en MP (orden "atribuida"): el cliente
+  // escanea el mismo QR del mostrador, ve $X cargado y paga; la venta se registra
+  // recién cuando MP confirma el pago aprobado.
+
+  // Las cajas (POS) con QR de la cuenta de MP que usa una sucursal.
+  async cajasQR(sucursalId: string) {
+    const cuenta = await cuentaDeSucursal(this.db, sucursalId);
+    if (!cuenta) return { vinculado: false, cajas: [] as any[] };
+    const r = await fetchConTimeout(`${MP}/pos?limit=50`, { headers: { Authorization: `Bearer ${cuenta.token}` } });
+    if (!r.ok) throw new BadRequestException(`Mercado Pago respondió ${r.status} al listar las cajas`);
+    const d: any = await r.json();
+    const cajas = ((d.results ?? []) as any[])
+      .filter((p) => p.status !== 'inactive')
+      .map((p) => ({ id: String(p.id), nombre: String(p.name ?? '').trim(), externalId: p.external_id ?? null, conQr: !!p.qr }));
+    return { vinculado: true, cuenta: cuenta.slug, cajas };
+  }
+
+  // Vincula una caja de ODB con una caja/QR de MP (por id de MP). Si ese QR no
+  // tiene identificador externo (MP lo exige para direccionar órdenes), se lo asigna.
+  async vincularCajaQR(cajaId: string, posId: string | null) {
+    const { data: caja } = await this.db.from('cajas').select('id, sucursal_id').eq('id', cajaId).maybeSingle();
+    if (!caja) throw new BadRequestException('Caja inexistente');
+    if (!posId) {
+      await this.db.from('cajas').update({ mp_external_pos_id: null }).eq('id', cajaId);
+      return { ok: true, externalId: null };
+    }
+    const cuenta = await cuentaDeSucursal(this.db, caja.sucursal_id);
+    if (!cuenta) throw new BadRequestException('Esta sucursal no tiene Mercado Pago vinculado');
+    const { cajas } = await this.cajasQR(caja.sucursal_id);
+    const pos = cajas.find((c: any) => c.id === String(posId));
+    if (!pos) throw new BadRequestException('Ese QR no pertenece a la cuenta de Mercado Pago de la sucursal');
+    let externalId: string = pos.externalId;
+    if (!externalId) {
+      externalId = `ODB${String(posId).replace(/\D/g, '')}`;
+      const r = await fetchConTimeout(`${MP}/pos/${posId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cuenta.token}` },
+        body: JSON.stringify({ external_id: externalId }),
+      });
+      if (!r.ok) throw new BadRequestException(`Mercado Pago no dejó identificar ese QR (${r.status})`);
+    }
+    await this.db.from('cajas').update({ mp_external_pos_id: externalId }).eq('id', cajaId);
+    this.log.log(`caja ${cajaId} vinculada al QR de MP "${pos.nombre}" (${externalId})`);
+    return { ok: true, externalId, nombre: pos.nombre };
+  }
+
+  private async userIdDe(cuenta: CuentaMP): Promise<string> {
+    if (cuenta.userId) return cuenta.userId;
+    const r = await fetchConTimeout(`${MP}/users/me`, { headers: { Authorization: `Bearer ${cuenta.token}` } });
+    if (!r.ok) throw new BadRequestException(`Mercado Pago respondió ${r.status} (¿token vencido?)`);
+    const me: any = await r.json();
+    await this.db.from('sucursales').update({ mp_user_id: String(me.id) }).in('id', cuenta.sucursalIds);
+    return String(me.id);
+  }
+
+  private urlOrden(userId: string, externalPosId: string) {
+    return `${MP}/instore/qr/seller/collectors/${userId}/pos/${encodeURIComponent(externalPosId)}/orders`;
+  }
+
+  // Manda el importe al QR de la caja. Devuelve el id del cobro para consultar su estado.
+  async iniciarCobroQR(dto: { cajaId: string; monto: number; detalle?: string; usuarioId?: string }) {
+    const { data: caja } = await this.db
+      .from('cajas')
+      .select('id, nombre, sucursal_id, mp_external_pos_id')
+      .eq('id', dto.cajaId)
+      .maybeSingle();
+    if (!caja) throw new BadRequestException('Caja inexistente');
+    const cuenta = await cuentaDeSucursal(this.db, caja.sucursal_id);
+    if (!cuenta) throw new BadRequestException({ codigo: 'sin_mp', message: 'Esta sucursal no tiene Mercado Pago vinculado' });
+    if (!caja.mp_external_pos_id) {
+      throw new BadRequestException({ codigo: 'sin_qr', message: 'Esta caja no tiene un QR de Mercado Pago asignado' });
+    }
+    const monto = Math.round(Number(dto.monto) * 100) / 100;
+    if (!Number.isFinite(monto) || monto <= 0) throw new BadRequestException('Monto inválido');
+    if (monto > 5_000_000) throw new BadRequestException('Monto demasiado alto para cobrar por QR');
+    const userId = await this.userIdDe(cuenta);
+    const ahora = new Date().toISOString();
+    // Un cobro pendiente anterior de esta caja quedó colgado (cerraron la ventana): se da por cancelado.
+    await this.db.from('mp_cobros').update({ estado: 'cancelado', resuelto_en: ahora }).eq('caja_id', caja.id).eq('estado', 'pendiente');
+    const referencia = `ODB-${Date.now().toString(36).toUpperCase()}-${randomUUID().slice(0, 8).toUpperCase()}`;
+    const { data: cobro, error } = await this.db
+      .from('mp_cobros')
+      .insert({
+        caja_id: caja.id,
+        sucursal_id: caja.sucursal_id,
+        cuenta: cuenta.slug,
+        external_pos_id: caja.mp_external_pos_id,
+        referencia,
+        monto,
+        usuario_id: dto.usuarioId ?? null,
+      })
+      .select('id')
+      .single();
+    if (error || !cobro) throw new BadRequestException(`No se pudo registrar el cobro: ${error?.message ?? 'sin datos'}`);
+    const detalle = (dto.detalle ?? '').trim() || 'Compra en mostrador';
+    const r = await fetchConTimeout(this.urlOrden(userId, caja.mp_external_pos_id), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cuenta.token}` },
+      body: JSON.stringify({
+        external_reference: referencia,
+        title: 'O.D.B Premium Market',
+        description: detalle,
+        total_amount: monto,
+        items: [
+          {
+            sku_number: 'VENTA',
+            category: 'marketplace',
+            title: 'Compra en O.D.B Premium Market',
+            description: detalle,
+            unit_price: monto,
+            quantity: 1,
+            unit_measure: 'unit',
+            total_amount: monto,
+          },
+        ],
+      }),
+    });
+    if (!r.ok) {
+      const texto = (await r.text().catch(() => '')).slice(0, 200);
+      await this.db.from('mp_cobros').update({ estado: 'fallido', resuelto_en: new Date().toISOString() }).eq('id', cobro.id);
+      this.log.warn(`MP rechazó la orden al QR ${caja.mp_external_pos_id}: ${r.status} ${texto}`);
+      throw new BadRequestException(`Mercado Pago no aceptó el cobro (${r.status}). ${texto}`);
+    }
+    this.log.log(`cobro QR iniciado (${cuenta.slug}/${caja.mp_external_pos_id}): $${monto} ref ${referencia}`);
+    return { cobroId: cobro.id, referencia, monto, caja: caja.nombre, qr: caja.mp_external_pos_id };
+  }
+
+  // Estado del cobro: consulta a MP por la referencia hasta encontrar el pago aprobado.
+  async estadoCobroQR(id: string) {
+    const { data: c } = await this.db.from('mp_cobros').select('*').eq('id', id).maybeSingle();
+    if (!c) throw new BadRequestException('Cobro inexistente');
+    const monto = Number(c.monto);
+    if (c.estado !== 'pendiente') return { estado: c.estado, mpPaymentId: c.mp_payment_id, monto };
+    const cuenta = (await cuentasMP(this.db)).find((x) => x.slug === c.cuenta);
+    if (!cuenta) return { estado: 'pendiente', monto };
+    const r = await fetchConTimeout(
+      `${MP}/v1/payments/search?external_reference=${encodeURIComponent(c.referencia)}&sort=date_created&criteria=desc`,
+      { headers: { Authorization: `Bearer ${cuenta.token}` } },
+    );
+    let aviso: string | undefined;
+    if (r.ok) {
+      const d: any = await r.json();
+      const pagos: any[] = d.results ?? [];
+      const aprobado = pagos.find((p) => p.status === 'approved');
+      if (aprobado) {
+        await this.db
+          .from('mp_cobros')
+          .update({ estado: 'aprobado', mp_payment_id: String(aprobado.id), resuelto_en: new Date().toISOString() })
+          .eq('id', id)
+          .eq('estado', 'pendiente');
+        this.log.log(`cobro QR aprobado ref ${c.referencia}: pago ${aprobado.id} ($${aprobado.transaction_amount})`);
+        return {
+          estado: 'aprobado',
+          mpPaymentId: String(aprobado.id),
+          monto,
+          medio: aprobado.payment_method_id ?? null,
+          tipo: aprobado.payment_type_id ?? null,
+        };
+      }
+      if (pagos.some((p) => p.status === 'rejected')) aviso = 'Un intento de pago fue rechazado; el cliente puede volver a intentar.';
+    }
+    if (Date.now() - new Date(c.creado_en).getTime() > 10 * 60_000) {
+      await this.cancelarCobroQR(id, 'vencido');
+      return { estado: 'vencido', monto };
+    }
+    return { estado: 'pendiente', monto, aviso };
+  }
+
+  // Cancela el cobro: borra la orden del QR (solo si sigue siendo la nuestra) y lo marca.
+  async cancelarCobroQR(id: string, estado: 'cancelado' | 'vencido' = 'cancelado') {
+    const { data: c } = await this.db.from('mp_cobros').select('*').eq('id', id).maybeSingle();
+    if (!c) throw new BadRequestException('Cobro inexistente');
+    if (c.estado !== 'pendiente') return { estado: c.estado };
+    const cuenta = (await cuentasMP(this.db)).find((x) => x.slug === c.cuenta);
+    if (cuenta) {
+      try {
+        const userId = await this.userIdDe(cuenta);
+        const url = this.urlOrden(userId, c.external_pos_id);
+        const g = await fetchConTimeout(url, { headers: { Authorization: `Bearer ${cuenta.token}` } });
+        if (g.ok) {
+          const o: any = await g.json().catch(() => null);
+          if (o?.external_reference === c.referencia) {
+            await fetchConTimeout(url, { method: 'DELETE', headers: { Authorization: `Bearer ${cuenta.token}` } });
+          }
+        }
+      } catch (e: any) {
+        this.log.warn(`no se pudo borrar la orden del QR ${c.external_pos_id}: ${e?.message ?? e}`);
+      }
+    }
+    await this.db.from('mp_cobros').update({ estado, resuelto_en: new Date().toISOString() }).eq('id', id).eq('estado', 'pendiente');
+    return { estado };
+  }
+
+  // Cuando la venta ya quedó registrada: el cobro y el pago de MP apuntan a ella.
+  async vincularCobroAVenta(id: string, ventaId: string) {
+    const { data: c } = await this.db.from('mp_cobros').select('id, mp_payment_id, estado').eq('id', id).maybeSingle();
+    if (!c) throw new BadRequestException('Cobro inexistente');
+    await this.db.from('mp_cobros').update({ venta_id: ventaId }).eq('id', id);
+    if (c.mp_payment_id) await this.db.from('mp_pagos').update({ venta_id: ventaId }).eq('id', c.mp_payment_id).is('venta_id', null);
+    return { ok: true };
   }
 }

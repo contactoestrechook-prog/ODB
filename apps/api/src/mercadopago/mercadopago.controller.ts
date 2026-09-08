@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Query, Req } from '@nestjs/common';
 import { MercadoPagoService } from './mercadopago.service';
 import { Roles } from '../auth/decorators';
 
@@ -35,6 +35,43 @@ export class MercadoPagoController {
   @Post('link')
   link(@Body() b: { monto: number; concepto?: string; sucursalId?: string }) {
     return this.mp.crearLink(b ?? ({} as any));
+  }
+
+  // ── Cobro con QR integrado (la caja manda el importe al QR y espera la aprobación) ──
+  @Roles('cajero', 'gerente', 'dueno')
+  @Get('cajas-qr')
+  cajasQR(@Query('sucursalId') sucursalId: string) {
+    return this.mp.cajasQR(sucursalId);
+  }
+
+  @Roles('cajero', 'gerente', 'dueno')
+  @Post('vincular-caja-qr')
+  vincularCajaQR(@Body() b: { cajaId: string; posId?: string | null }) {
+    return this.mp.vincularCajaQR(b?.cajaId, b?.posId ?? null);
+  }
+
+  @Roles('cajero', 'gerente', 'dueno')
+  @Post('cobro-qr')
+  cobroQR(@Body() b: { cajaId: string; monto: number; detalle?: string }, @Req() req: any) {
+    return this.mp.iniciarCobroQR({ ...(b ?? ({} as any)), usuarioId: req?.user?.sub ?? req?.user?.id });
+  }
+
+  @Roles('cajero', 'gerente', 'dueno')
+  @Get('cobro-qr/:id')
+  estadoCobroQR(@Param('id') id: string) {
+    return this.mp.estadoCobroQR(id);
+  }
+
+  @Roles('cajero', 'gerente', 'dueno')
+  @Delete('cobro-qr/:id')
+  cancelarCobroQR(@Param('id') id: string) {
+    return this.mp.cancelarCobroQR(id);
+  }
+
+  @Roles('cajero', 'gerente', 'dueno')
+  @Post('cobro-qr/:id/venta')
+  vincularCobroAVenta(@Param('id') id: string, @Body() b: { ventaId: string }) {
+    return this.mp.vincularCobroAVenta(id, b?.ventaId);
   }
 
   private cuenta(v: unknown): string | undefined {
