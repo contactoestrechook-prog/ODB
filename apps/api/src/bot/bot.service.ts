@@ -2682,8 +2682,10 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     if (ts > 0 && Date.now() / 1000 - ts > 120) return { ignorado: 'fromMe histórico (sincronización)' };
     const id = String(p?.id ?? p?.key?.id ?? p?._data?.key?.id ?? '').trim();
     if (id) {
-      const { data: nuestro } = await this.db.from('bot_envios').select('waha_id').eq('waha_id', id).maybeSingle();
+      const { data: nuestro, error } = await this.db.from('bot_envios').select('waha_id').eq('waha_id', id).maybeSingle();
       if (nuestro) return { ignorado: 'lo mandamos nosotros' };
+      // ante la duda, NO pausar: pausar de más le calla el bot a un cliente
+      if (error) return { ignorado: 'registro de envíos no disponible' };
     }
     const chat = String(p?.to ?? p?.chatId ?? p?._data?.key?.remoteJid ?? '');
     if (!chat || chat.endsWith('@g.us') || chat.includes('status@broadcast')) return { ignorado: 'fromMe sin chat de persona' };
@@ -2698,9 +2700,10 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     const texto = String(p?.body ?? p?.caption ?? '').trim();
     const { data: conv } = await this.db.from('bot_conversaciones').select('mensajes, bot_activo').eq('linea', 'pedidos').eq('telefono', identidad).maybeSingle();
     const hist: any[] = Array.isArray(conv?.mensajes) ? conv!.mensajes : [];
-    // red de seguridad si el id no coincidió: lo último que dijo el bot no es de una persona
-    const ultimoBot = String([...hist].reverse().find((m) => m.role === 'assistant')?.content ?? '').replace(/^\[acuse-archivo\] /, '');
-    if (texto && ultimoBot && texto === ultimoBot) return { ignorado: 'coincide con lo último del bot' };
+    // red de seguridad si el id no coincidió: lo que dijo el bot en sus últimos
+    // turnos no es de una persona
+    const dichoPorElBot = hist.filter((m) => m.role === 'assistant').slice(-5).map((m) => String(m.content ?? '').replace(/^\[acuse-archivo\] /, '').trim());
+    if (texto && dichoPorElBot.includes(texto)) return { ignorado: 'coincide con lo último del bot' };
     this.log.log(`una persona contestó desde el teléfono a ${identidad}: el bot se pausa 6 h en esa charla`);
     await this.db.from('bot_conversaciones').upsert({
       linea: 'pedidos', telefono: identidad,
