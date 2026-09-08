@@ -76,6 +76,10 @@ export default function Login() {
         >
           {cargando ? 'Entrando…' : 'Entrar'}
         </button>
+
+        <a href="/olvide-clave" className="mt-4 block text-center text-xs text-black/50 hover:text-black/80 underline">
+          Olvidé mi contraseña
+        </a>
       </form>
     </main>
   );
