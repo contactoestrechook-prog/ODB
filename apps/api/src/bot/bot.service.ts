@@ -2637,7 +2637,10 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     }
     const chat = String(p?.to ?? p?.chatId ?? p?._data?.key?.remoteJid ?? '');
     if (!chat || chat.endsWith('@g.us') || chat.includes('status@broadcast')) return { ignorado: 'fromMe sin chat de persona' };
-    const identidad = chat.endsWith('@lid') ? chat : chat.split('@')[0].replace(/\D/g, '');
+    // MISMA clave que charla(): solo dígitos (un @lid se guarda sin el sufijo).
+    // Con '@lid' la pausa iba a una charla distinta de la real y cada persona
+    // aparecía dos veces en la bandeja (2026-09-08).
+    const identidad = chat.split('@')[0].replace(/\D/g, '');
     if (!identidad) return { ignorado: 'fromMe sin destinatario' };
     const propio = String(numeroLinea ?? '').replace(/\D/g, '');
     if (propio && identidad === propio) return { ignorado: 'chat con uno mismo' };
