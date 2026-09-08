@@ -405,6 +405,17 @@ export class ListasService {
     });
   }
 
+  // El documento original de una lectura, para verlo al lado de lo leído
+  // cuando se abre desde la bandeja (la foto ya no está en el navegador).
+  async originalDeLectura(id: string) {
+    const { data } = await this.db.from('lecturas_comprobante').select('resultado').eq('id', id).maybeSingle();
+    const ruta = (data as any)?.resultado?.archivoUrl as string | undefined;
+    if (!ruta) throw new BadRequestException('Esta lectura no tiene el original guardado');
+    const { data: firmada, error } = await this.db.storage.from('comprobantes').createSignedUrl(ruta, 3600);
+    if (error || !firmada?.signedUrl) throw new BadRequestException('No se pudo abrir el original');
+    return { url: firmada.signedUrl, esPdf: /\.pdf$/i.test(ruta) };
+  }
+
   async marcarLectura(id: string, campo: 'abierta_en' | 'descartada_en') {
     const { error } = await this.db.from('lecturas_comprobante').update({ [campo]: new Date().toISOString() }).eq('id', id);
     if (error) throw new BadRequestException(error.message);

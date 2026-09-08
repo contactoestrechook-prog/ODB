@@ -56,6 +56,12 @@ export class ComprasController {
 
   // Bandeja de lectura: hasta 5 facturas a la vez, cada una en su carril
   @Roles('deposito', 'comprador', 'gerente', 'dueno')
+  @Get('compras/entrada-foto/:id/original')
+  originalDeLectura(@Param('id') id: string) {
+    return this.listas.originalDeLectura(id);
+  }
+
+  @Roles('deposito', 'comprador', 'gerente', 'dueno')
   @Get('compras/lecturas')
   bandejaLecturas(@Req() req: any) {
     return this.listas.bandejaLecturas(req.usuario?.sub, req.usuario?.rol);
