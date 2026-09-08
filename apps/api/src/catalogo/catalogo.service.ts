@@ -535,6 +535,9 @@ export class CatalogoService {
       descripcion: p.descripcion ?? null,
       categoriaId: p.categoria?.id ?? null,
       esAlcohol: p.es_alcohol,
+      // balanza interna: PLU (= codigo_legacy si no se cargó otro) y si se vende por peso
+      plu: p.plu ?? p.codigo_legacy ?? null,
+      vendidoPorPeso: !!p.vendido_por_peso,
       precioLista: precioVigente?.precio_lista ?? null,
       precio: precioVigente?.precio_final ?? precioVigente?.precio_lista ?? null,
       descuento: precioVigente?.descuento_nombre ?? null,
