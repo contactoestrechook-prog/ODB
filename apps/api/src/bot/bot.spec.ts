@@ -1049,7 +1049,7 @@ describe('pausa del bot por conversación (auditoría 2026-09-08)', () => {
       bot_conversaciones: { data: { mensajes: [{ role: 'assistant', content: 'Buenas tardes, te damos la bienvenida a O.D.B.' }] }, error: null },
     });
     const { s } = servicio(db);
-    const r: any = await s.webhookWaha({ event: 'message.any', payload: { fromMe: true, id: 'ID-TECLEADO', from: '5491122812200@c.us', to: '5491155556666@c.us', body: 'Hola! Soy Jackie, te lo preparo yo' } });
+    const r: any = await s.webhookWaha({ event: 'message.any', payload: { fromMe: true, id: 'ID-TECLEADO', from: '5491122812200@c.us', to: '5491155556666@c.us', body: 'Hola! Soy Jackie, te lo preparo yo', timestamp: Math.floor(Date.now() / 1000) } });
     expect(r.pausada).toBe(true);
     const up = db.llamadas.upsert.find((u: any) => u.tabla === 'bot_conversaciones');
     expect(up.fila.bot_activo).toBe(false);
@@ -1057,6 +1057,18 @@ describe('pausa del bot por conversación (auditoría 2026-09-08)', () => {
     expect(up.fila.telefono).toBe('5491155556666');
     expect(up.fila.mensajes.at(-1).content).toContain('Soy Jackie');
     expect(new Date(up.fila.derivacion_vence_en).getTime()).toBeGreaterThan(Date.now() + 5 * 3600_000);
+  });
+
+  it('un fromMe VIEJO (sincronización de historial al re-vincular) se ignora', async () => {
+    const { s } = servicio(dbFalsa({ bot_envios: { data: null, error: null } }));
+    const r: any = await s.webhookWaha({ event: 'message.any', payload: { fromMe: true, id: 'VIEJO', to: '5491155556666@c.us', body: 'respuesta de ayer', timestamp: Math.floor(Date.now() / 1000) - 3600 } });
+    expect(r.ignorado).toMatch(/histórico/);
+  });
+
+  it('un fromMe al chat con uno mismo se ignora', async () => {
+    const { s } = servicio(dbFalsa({ bot_envios: { data: null, error: null } }));
+    const r: any = await s.webhookWaha({ event: 'message.any', payload: { fromMe: true, id: 'X', to: '5491122812200@c.us', body: 'nota para mí', timestamp: Math.floor(Date.now() / 1000) } }, '5491122812200');
+    expect(r.ignorado).toMatch(/uno mismo/);
   });
 
   it('un fromMe que SÍ mandó el sistema (está en bot_envios) se ignora', async () => {

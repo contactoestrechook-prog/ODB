@@ -2622,7 +2622,14 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
   // Si no, lo tecleó una PERSONA desde el teléfono: el bot se pausa 6 h en esa
   // charla para no pisarla y lo escrito queda en el hilo. Vence solo: si nadie
   // sigue, el bot vuelve con una nota interna.
-  private async mensajePropio(p: any) {
+  private async mensajePropio(p: any, numeroLinea?: string) {
+    // Al re-vincular, WhatsApp sincroniza el historial y reenvía mensajes VIEJOS
+    // como si salieran ahora: respuestas del bot anteriores al registro de
+    // envíos parecerían "una persona tecleando" y pausarían charlas en masa
+    // (pasó el 2026-09-08 al volver a vincular). Solo cuenta lo de los últimos
+    // 2 minutos, y nunca el chat con uno mismo.
+    const ts = Number(p?.timestamp ?? p?._data?.messageTimestamp ?? 0);
+    if (ts > 0 && Date.now() / 1000 - ts > 120) return { ignorado: 'fromMe histórico (sincronización)' };
     const id = String(p?.id ?? p?.key?.id ?? p?._data?.key?.id ?? '').trim();
     if (id) {
       const { data: nuestro } = await this.db.from('bot_envios').select('waha_id').eq('waha_id', id).maybeSingle();
@@ -2632,6 +2639,8 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     if (!chat || chat.endsWith('@g.us') || chat.includes('status@broadcast')) return { ignorado: 'fromMe sin chat de persona' };
     const identidad = chat.endsWith('@lid') ? chat : chat.split('@')[0].replace(/\D/g, '');
     if (!identidad) return { ignorado: 'fromMe sin destinatario' };
+    const propio = String(numeroLinea ?? '').replace(/\D/g, '');
+    if (propio && identidad === propio) return { ignorado: 'chat con uno mismo' };
     const texto = String(p?.body ?? p?.caption ?? '').trim();
     const { data: conv } = await this.db.from('bot_conversaciones').select('mensajes, bot_activo').eq('linea', 'pedidos').eq('telefono', identidad).maybeSingle();
     const hist: any[] = Array.isArray(conv?.mensajes) ? conv!.mensajes : [];
@@ -2653,7 +2662,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     // mensajes entrantes de personas ('message') y lo que sale de este número ('message.any' con fromMe)
     if (evento?.event !== 'message' && evento?.event !== 'message.any') return { ignorado: 'no es un mensaje' };
     const p = evento.payload ?? {};
-    if (p.fromMe === true) return this.mensajePropio(p);
+    if (p.fromMe === true) return this.mensajePropio(p, numeroLinea);
     if (evento.event === 'message.any') return { ignorado: 'entrante por message.any: lo procesa el evento message' };
 
     const desde = String(p.from ?? '');
