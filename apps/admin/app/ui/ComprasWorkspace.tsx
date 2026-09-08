@@ -1504,9 +1504,9 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
               {provAviso && <p className="text-xs text-[#B82D25]">{provAviso}</p>}
 
               {/* renglones: cada uno editable — vincular producto, cantidad, remarcación y precio */}
-              <div className="hidden sm:grid grid-cols-[26px_minmax(0,1fr)_72px_190px_64px_92px] items-end gap-2 px-3 pt-1 text-[10px] uppercase tracking-[0.12em] text-black/40">
+              <div className="hidden sm:grid grid-cols-[26px_minmax(0,1fr)_72px_290px_64px_92px] items-end gap-2 px-3 pt-1 text-[10px] uppercase tracking-[0.12em] text-black/40">
                 <span /><span>Renglón del papel → producto en el sistema</span>
-                <span className="text-right">Cant.</span><span className="text-right">Costo</span>
+                <span className="text-right">Cant.</span><span className="text-right">Costo papel → c/IVA → total</span>
                 <span className="text-right">Remar. %</span><span className="text-right">P. venta</span>
               </div>
               {itemsCalc.map((i: any, idx: number) => (
@@ -1561,7 +1561,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                       </div>
 
                       {/* 2 · lo que entra al sistema: producto y números, en columnas fijas */}
-                      <div className="grid grid-cols-[minmax(0,1fr)_72px_190px_64px_92px] items-center gap-2">
+                      <div className="grid grid-cols-[minmax(0,1fr)_72px_290px_64px_92px] items-center gap-2">
                         <div className="min-w-0 text-xs leading-snug">
                           {i.sugerido && i.nombre ? (
                             <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -1608,6 +1608,15 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                               <span className="ml-1 text-[9.5px] uppercase tracking-wide text-black/45">c/IVA</span>
                             </span>
                           ) : null}
+                          {numImp(i.cantidad) > 0 && (
+                            <span
+                              className="whitespace-nowrap text-right leading-none"
+                              title={`Total del renglón: ${numImp(i.cantidad).toLocaleString('es-AR')} × ${pesos(costoFinal(i))} (costo final por unidad)`}
+                            >
+                              <span className="text-black/35">×{numImp(i.cantidad).toLocaleString('es-AR')} =</span>{' '}
+                              <b className="text-sm font-semibold text-[#141414]">{pesos(numImp(i.cantidad) * costoFinal(i))}</b>
+                            </span>
+                          )}
                         </div>
                         <div>
                           <input type="number" value={i.margenPct} placeholder="rubro" onChange={(e) => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, margenPct: e.target.value === '' ? '' : Number(e.target.value) } : x))} className="w-full rounded-md border border-black/15 px-2 py-1 text-right text-sm tabular-nums text-[#141414] focus:border-black/50 outline-none" />
