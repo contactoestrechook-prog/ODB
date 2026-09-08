@@ -36,7 +36,7 @@ export class RespondeAppController {
 
     const [{ data: convs }, { data: contactos }, { data: clientes }, { data: progs }] = await Promise.all([
       this.db.from('bot_conversaciones').select('linea, telefono, mensajes, actualizado_en, bot_activo, derivada_en, derivada_motivo, resuelta_en').eq('linea', LINEA).order('actualizado_en', { ascending: false }).limit(300),
-      this.db.from('bot_contactos').select('telefono, tipo, nombre, notas, notas_equipo, etiquetas'),
+      this.db.from('bot_contactos').select('telefono, tipo, nombre, notas, notas_equipo, etiquetas, nombre_wa'),
       this.db.from('clientes').select('telefono, nombre, tipo').not('telefono', 'is', null),
       this.db.from('mensajes_programados').select('id, telefono, texto, enviar_en').is('enviado_en', null).is('cancelado_en', null).order('enviar_en'),
     ]);
@@ -56,7 +56,7 @@ export class RespondeAppController {
       // el id del contacto ES el teléfono: es estable y la app solo lo usa como clave
       contacts.push({
         id: tel,
-        nombre: ct?.nombre ?? cli?.nombre ?? null,
+        nombre: ct?.nombre ?? cli?.nombre ?? ct?.nombre_wa ?? null,
         // un @lid (número oculto por privacidad) va tal cual; un teléfono, como chat id
         whatsapp_id: tel.includes('@') ? tel : /^549\d{10}$/.test(tel) ? `${tel}@c.us` : `${tel}@lid`,
         // etapa: lo que la app pinta como tag arriba del nombre

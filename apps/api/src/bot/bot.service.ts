@@ -191,6 +191,56 @@ export class BotService {
   // El teléfono marcable, cuando la carga del mensaje lo trae. Según la versión
   // del motor viaja en un campo u otro, así que se prueban todos y se registra
   // cuál sirvió: es el dato que permite volver a reconocer a la gente de la casa.
+  // WhatsApp manda un @lid (id de privacidad) en vez del número. WAHA, con su
+  // store activo, traduce el @lid al número y conoce el nombre con el que el
+  // teléfono del local tiene agendado al contacto. Sin esto la bandeja mostraba
+  // "+191169078280330@lid" y nadie reconocía a nadie (2026-09-08).
+  private contactosResueltos = new Map<string, number>();
+  async resolverContactoWaha(claveContacto: string, esLid: boolean) {
+    const base = (process.env.WAHA_URL ?? '').replace(/\/$/, '');
+    const key = process.env.WAHA_API_KEY ?? '';
+    const sesion = process.env.WAHA_SESSION ?? 'odb';
+    if (!base || !key || !claveContacto) return null;
+    const ahora = Date.now();
+    const previo = this.contactosResueltos.get(claveContacto);
+    if (previo && ahora - previo < 6 * 3600_000) return null;
+    this.contactosResueltos.set(claveContacto, ahora);
+    const opts = { headers: { 'X-Api-Key': key }, signal: AbortSignal.timeout(6000) } as any;
+    let telefonoReal: string | null = null;
+    const lid = esLid ? `${claveContacto}@lid` : null;
+    try {
+      if (lid) {
+        const r = await fetch(`${base}/api/${sesion}/lids/${encodeURIComponent(lid)}`, opts);
+        if (r.ok) { const j: any = await r.json(); telefonoReal = String(j?.pn ?? '').split('@')[0].replace(/\D/g, '') || null; }
+      }
+      const contactId = telefonoReal ? `${telefonoReal}@c.us` : lid ?? `${claveContacto}@c.us`;
+      let nombre: string | null = null;
+      const c = await fetch(`${base}/api/contacts?contactId=${encodeURIComponent(contactId)}&session=${sesion}`, opts);
+      if (c.ok) {
+        const j: any = await c.json();
+        nombre = (j?.name ?? j?.pushname ?? j?.pushName ?? '') || null;
+        if (!telefonoReal && j?.phoneNumber) telefonoReal = String(j.phoneNumber).split('@')[0].replace(/\D/g, '') || null;
+      }
+      if (!telefonoReal && !nombre) return null;
+      await this.db.from('bot_contactos').upsert(
+        {
+          telefono: claveContacto,
+          ...(telefonoReal ? { telefono_real: telefonoReal } : {}),
+          ...(nombre ? { nombre_wa: nombre } : {}),
+          ...(lid ? { lid } : {}),
+          resuelto_en: new Date().toISOString(),
+          actualizado_en: new Date().toISOString(),
+        },
+        { onConflict: 'telefono' },
+      ).then(() => null, () => null);
+      this.log.log(`contacto resuelto: ${claveContacto} → ${telefonoReal ?? '?'} · ${nombre ?? 'sin nombre de agenda'}`);
+      return { telefonoReal, nombre };
+    } catch (e: any) {
+      this.log.warn(`no se pudo resolver el contacto ${claveContacto}: ${e?.message ?? e}`);
+      return null;
+    }
+  }
+
   private telefonoDeLaCarga(p: any): { numero: string; campo: string } | null {
     const candidatos: [string, any][] = [
       ['_data.key.remoteJidAlt', p?._data?.key?.remoteJidAlt],
@@ -2642,6 +2692,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     // aparecía dos veces en la bandeja (2026-09-08).
     const identidad = chat.split('@')[0].replace(/\D/g, '');
     if (!identidad) return { ignorado: 'fromMe sin destinatario' };
+    this.resolverContactoWaha(identidad, chat.endsWith('@lid')).catch(() => null);
     const propio = String(numeroLinea ?? '').replace(/\D/g, '');
     if (propio && identidad === propio) return { ignorado: 'chat con uno mismo' };
     const texto = String(p?.body ?? p?.caption ?? '').trim();
@@ -2688,6 +2739,8 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     // lo que no sea dígito, así que el contacto se guarda igual o no se
     // encuentra nunca.
     const claveContacto = identidad.replace(/\D/g, '');
+    // número real y nombre de agenda vía WAHA (con memoria: no pega por cada mensaje)
+    this.resolverContactoWaha(claveContacto, esLid).catch(() => null);
     if (real && esLid && claveContacto) {
       const { data: yaEsta } = await this.db
         .from('bot_contactos').select('telefono_real').eq('telefono', claveContacto).maybeSingle();
@@ -3481,9 +3534,24 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     // nombres de los clientes conocidos, en una sola consulta
     const telefonos = ((data ?? []) as any[]).map((c) => c.telefono);
     const nombres = new Map<string, string>();
+    const reales = new Map<string, string>();
+    const agenda = new Map<string, string>();
+    const equipo = new Set<string>();
     if (telefonos.length) {
-      const { data: cls } = await this.db.from('clientes').select('telefono, nombre').in('telefono', telefonos);
-      for (const c of (cls ?? []) as any[]) if (c.nombre) nombres.set(String(c.telefono), c.nombre);
+      const { data: cts } = await this.db.from('bot_contactos').select('telefono, telefono_real, nombre_wa, es_equipo').in('telefono', telefonos);
+      for (const c of (cts ?? []) as any[]) {
+        if (c.telefono_real) reales.set(String(c.telefono), String(c.telefono_real));
+        if (c.nombre_wa) agenda.set(String(c.telefono), c.nombre_wa);
+        if (c.es_equipo) equipo.add(String(c.telefono));
+      }
+      const claves = [...new Set([...telefonos, ...reales.values()])];
+      const { data: cls } = await this.db.from('clientes').select('telefono, nombre').in('telefono', claves);
+      const porTel = new Map<string, string>();
+      for (const c of (cls ?? []) as any[]) if (c.nombre) porTel.set(String(c.telefono), c.nombre);
+      for (const t of telefonos) {
+        const n = porTel.get(String(t)) ?? (reales.get(String(t)) ? porTel.get(reales.get(String(t))!) : undefined) ?? agenda.get(String(t));
+        if (n) nombres.set(String(t), n);
+      }
     }
     return ((data ?? []) as any[]).map((c) => {
       const msjs = Array.isArray(c.mensajes) ? c.mensajes : [];
@@ -3497,6 +3565,8 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
         linea: c.linea,
         telefono: c.telefono,
         nombre: nombres.get(String(c.telefono)) ?? null,
+        telefonoReal: reales.get(String(c.telefono)) ?? (/^549\d{10}$/.test(String(c.telefono)) ? String(c.telefono) : null),
+        esEquipo: equipo.has(String(c.telefono)),
         actualizado_en: c.actualizado_en,
         tokens: Number(c.tokens || 0),
         turnos: msjs.length,
