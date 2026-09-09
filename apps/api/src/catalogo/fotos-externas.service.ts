@@ -80,9 +80,22 @@ export class FotosExternasService {
   // mayoría ya tiene foto y se descarta acá, así que un tope corto mostraba un
   // número de pendientes que no era el real y hacía trabajar siempre la misma punta.
   private async pendientes(): Promise<{ producto_id: string; sku: string; codigo: string; nombre: string }[]> {
-    const [fotos, cand] = await Promise.all([this.catalogo.skusConFoto(), this.db.rpc('fotos_externas_pendientes', { p_limite: 20000 })]);
-    if (cand.error) throw new BadRequestException(cand.error.message);
-    return ((cand.data ?? []) as any[]).filter((c) => !fotos.has(`${c.sku}.jpg`));
+    const fotos = await this.catalogo.skusConFoto();
+    // PostgREST devuelve como mucho 1.000 filas aunque la función pida más: sin
+    // paginar, el sistema veía 1.000 candidatos y decía que faltaban 951 fotos
+    // cuando en realidad faltaban casi 7.000. Ver [[odb-supabase-limites-silenciosos]].
+    const PAGINA = 1000;
+    const todos: any[] = [];
+    for (let desde = 0; desde < 20000; desde += PAGINA) {
+      const { data, error } = await this.db
+        .rpc('fotos_externas_pendientes', { p_limite: 20000 })
+        .range(desde, desde + PAGINA - 1);
+      if (error) throw new BadRequestException(error.message);
+      const filas = (data ?? []) as any[];
+      todos.push(...filas);
+      if (filas.length < PAGINA) break;
+    }
+    return todos.filter((c) => !fotos.has(`${c.sku}.jpg`));
   }
 
   // Un lote: la pantalla lo llama repetidamente hasta que no queden pendientes.
