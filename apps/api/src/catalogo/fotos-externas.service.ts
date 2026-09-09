@@ -16,14 +16,16 @@ const EAN_PRUEBA = '7790895000010'; // Coca-Cola 2,25 l: existe seguro en cualqu
 const POR_MINUTO = Math.max(10, Number(process.env.EZ_CATALOG_POR_MINUTO ?? 60)); // Basic 60/min, Pro 300/min
 const PARALELO = Math.max(1, Math.min(Number(process.env.EZ_CATALOG_PARALELO ?? 6), 20)); // descargas de imagen en vuelo a la vez
 // Consultas al catálogo en vuelo a la vez. Medido el 9/9 con códigos nunca
-// consultados: de a una tarda 9 s cada una (6,7 por minuto); de a cuatro tarda
-// 12-20 s cada una pero rinde 13 por minuto. Más de cuatro no mejora y encima
-// hace que cada una tarde tanto que se corta sola.
+// consultados: de a una, 9 s cada una (6,7 por minuto); de a cuatro, 12-20 s
+// cada una pero 13 por minuto. De a ocho rinde algo más en la prueba suelta,
+// pero cada consulta se estira tanto que la tanda entera pasa el límite del
+// proxy de Railway y se corta la conexión: cuatro es el punto que aguanta.
 const PARALELO_CONSULTA = Math.max(1, Math.min(Number(process.env.EZ_CATALOG_PARALELO_CONSULTA ?? 4), 10));
 // Fallas pasajeras (corte por tiempo, red): no se registran, para que el producto se vuelva a intentar.
 const PASAJERO = /aborted|abort|timeout|ETIMEDOUT|ECONNRESET|ENOTFOUND|fetch failed|socket/i;
 
 type Externo = { nombre: string | null; marca: string | null; imagenUrl: string | null; presentacion: string | null; verificado: boolean };
+type Pendiente = { producto_id: string; sku: string; codigo: string; nombre: string };
 type Resultado = { resultado: 'foto' | 'sin_producto' | 'sin_imagen' | 'dudoso' | 'error'; imagenUrl?: string; nombreExterno?: string | null; marcaExterna?: string | null; detalle?: string };
 
 @Injectable()
@@ -68,7 +70,7 @@ export class FotosExternasService {
         if (r.estado === 'sin_producto') mensaje = 'La clave funciona (el código de prueba no está en el catálogo)';
       } catch (e) { conexion = 'error'; mensaje = e instanceof Error ? e.message : String(e); }
     }
-    const pendientes = await this.pendientes();
+    const pendientes = this.cola && Date.now() - this.cola.ts < 15 * 60_000 ? this.cola.lista : await this.pendientes();
     const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
     const { count } = await this.db.from('fotos_externas').select('id', { count: 'exact', head: true }).gte('creado_en', hoy.toISOString());
     const { count: conFoto } = await this.db.from('fotos_externas').select('id', { count: 'exact', head: true }).eq('resultado', 'foto');
@@ -79,7 +81,7 @@ export class FotosExternasService {
   // El tope tiene que cubrir TODO el catálogo (7.900 activos con código): la
   // mayoría ya tiene foto y se descarta acá, así que un tope corto mostraba un
   // número de pendientes que no era el real y hacía trabajar siempre la misma punta.
-  private async pendientes(): Promise<{ producto_id: string; sku: string; codigo: string; nombre: string }[]> {
+  private async pendientes(): Promise<Pendiente[]> {
     const fotos = await this.catalogo.skusConFoto();
     // PostgREST devuelve como mucho 1.000 filas aunque la función pida más: sin
     // paginar, el sistema veía 1.000 candidatos y decía que faltaban 951 fotos
@@ -98,6 +100,20 @@ export class FotosExternasService {
     return todos.filter((c) => !fotos.has(`${c.sku}.jpg`));
   }
 
+  // Armar esa lista cuesta ~45 s (ocho páginas de mil filas + el listado de
+  // Storage). Como el lote se llama una vez atrás de otra hasta terminar, se
+  // arma una vez y cada tanda se lleva su parte: si no, la mitad del tiempo de
+  // cada tanda se iba en recalcular lo mismo.
+  private cola: { lista: Pendiente[]; ts: number } | null = null;
+
+  private async proximos(cuantos: number): Promise<{ lote: Pendiente[]; faltan: number }> {
+    if (!this.cola || !this.cola.lista.length || Date.now() - this.cola.ts > 15 * 60_000) {
+      this.cola = { lista: await this.pendientes(), ts: Date.now() };
+    }
+    const lote = this.cola.lista.splice(0, cuantos);
+    return { lote, faltan: this.cola.lista.length };
+  }
+
   // Un lote: la pantalla lo llama repetidamente hasta que no queden pendientes.
   // En dos etapas, porque las dos mitades del trabajo tienen límites distintos:
   //   1) preguntarle al catálogo, de a pocas y al ritmo del plan: un código nunca
@@ -106,9 +122,8 @@ export class FotosExternasService {
   //   2) bajar la imagen y subirla a Storage, de a varias: eso va contra otros
   //      servidores, no contra la API con tope, y es la parte lenta (unos 7 s).
   async completar(limite = 30) {
-    const pendientes = await this.pendientes();
-    const lote = pendientes.slice(0, Math.max(1, Math.min(Number(limite) || 30, 200)));
-    const res = { procesados: 0, conFoto: 0, sinProducto: 0, sinImagen: 0, dudosas: 0, errores: 0, restantes: Math.max(0, pendientes.length - lote.length), parado: null as string | null, detalle: [] as any[] };
+    const { lote, faltan } = await this.proximos(Math.max(1, Math.min(Number(limite) || 30, 200)));
+    const res = { procesados: 0, conFoto: 0, sinProducto: 0, sinImagen: 0, dudosas: 0, errores: 0, restantes: faltan, parado: null as string | null, detalle: [] as any[] };
     const frenar = (e: unknown) => /clave|401|403|límite|429|Falta/i.test(e instanceof Error ? e.message : String(e)); // sin clave o sin cupo: no tiene sentido seguir
     const anotar = (c: { sku: string; codigo: string }, r: Resultado) => {
       res.procesados++;
@@ -138,7 +153,6 @@ export class FotosExternasService {
       anotar(c, await this.guardarFoto(c.producto_id, c.sku, c.codigo, p, c.nombre));
     });
     res.errores += guardadas.errores.length;
-    res.restantes = Math.max(0, pendientes.length - res.procesados);
 
     if (res.procesados) this.log.log(`EZ Catalog: ${res.conFoto} fotos de ${res.procesados} consultas (${res.restantes} pendientes)`);
     return res;
@@ -160,7 +174,7 @@ export class FotosExternasService {
       await this.db.from('fotos_externas').update({ resultado: 'dudoso', detalle: v.motivo }).eq('id', d.id);
       sacadas.push({ sku: d.sku, nuestro: d.producto?.nombre ?? d.sku, externo: d.nombre_externo, motivo: v.motivo });
     }
-    if (sacadas.length) { this.catalogo.invalidarFotos(); this.log.warn(`EZ Catalog: ${sacadas.length} fotos sacadas por no coincidir con el producto`); }
+    if (sacadas.length) { this.cola = null; this.catalogo.invalidarFotos(); this.log.warn(`EZ Catalog: ${sacadas.length} fotos sacadas por no coincidir con el producto`); }
     return { revisadas: (data ?? []).length, sacadas: sacadas.length, detalle: sacadas.slice(0, 50) };
   }
 
