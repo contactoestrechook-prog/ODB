@@ -64,10 +64,20 @@ export const SECCIONES: Seccion[] = [
         ],
       },
       {
+        tipo: 'pasos',
+        titulo: 'La campanita de avisos',
+        pasos: [
+          'En la computadora está arriba del menú lateral; en el celular, en la barra negra de arriba, al lado del logo. El número rojo es la cantidad de avisos sin leer.',
+          'Ahí llegan los avisos que el sistema deja para vos: un proveedor que escribió, un pago para revisar, un arreglo que se hizo en tu área.',
+          'Tocá "Listo" en cada aviso cuando lo hayas visto; desaparece de tu lista (no del historial).',
+        ],
+      },
+      {
         tipo: 'ojo',
         titulo: 'Cuando algo se ve raro',
         puntos: [
           'Si aparece el aviso de actualización arriba, tocá "Actualizar ahora": estás viendo una versión vieja de la pantalla.',
+          'Si en el celular algo se ve cortado o fuera de la pantalla, sacá una captura y mandala: es un error de pantalla, no tuyo, y se arregla en el sistema.',
           'Cada persona ve el menú de su área. Si no ves una pantalla, es porque tu rol no la abre, no porque esté rota.',
         ],
       },
