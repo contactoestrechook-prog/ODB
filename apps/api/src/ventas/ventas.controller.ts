@@ -75,6 +75,19 @@ export class VentasController {
     return this.ventas.anular(id, req.usuario?.sub);
   }
 
+  // Sin supervisor en el local: la cajera pide la autorización a distancia y la sigue.
+  @Roles('cajero', 'gerente', 'dueno')
+  @Post(':id/devolucion-pedir')
+  pedirDevolucion(@Param('id') id: string, @Body() dto: any, @Req() req: any) {
+    return this.ventas.pedirDevolucion(id, { ...(dto ?? {}), usuarioId: req.usuario?.sub });
+  }
+
+  @Roles('cajero', 'gerente', 'dueno')
+  @Get('devolucion-estado/:id')
+  estadoDevolucion(@Param('id') id: string) {
+    return this.ventas.estadoDevolucion(id);
+  }
+
   // Devolución parcial: el cajero necesita la autorización de un supervisor
   // (PIN validado en /caja/autorizar → autorizadoPor); gerencia se autoriza sola.
   @Roles('cajero', 'gerente', 'dueno')

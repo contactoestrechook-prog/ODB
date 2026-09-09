@@ -4,6 +4,7 @@ import { SUPABASE } from '../supabase.provider';
 import { Roles } from '../auth/decorators';
 import { ComprasService } from '../compras/compras.service';
 import { MesaComprasService } from '../compras/mesa-compras.service';
+import { VentasService } from '../ventas/ventas.service';
 
 // Todo lo que espera la firma del dueño, en una sola bandeja.
 //
@@ -17,7 +18,7 @@ import { MesaComprasService } from '../compras/mesa-compras.service';
 // de siempre, con sus validaciones y su auditoría. Lo único que cambia es que
 // están todas juntas y ordenadas por lo que más cuesta dejar esperando.
 type Pendiente = {
-  tipo: 'orden_compra' | 'orden_pago' | 'cobranza' | 'cambio_factura' | 'propuesta_costo';
+  tipo: 'orden_compra' | 'orden_pago' | 'cobranza' | 'cambio_factura' | 'propuesta_costo' | 'devolucion';
   id: string;
   titulo: string;
   detalle: string;
@@ -33,6 +34,7 @@ const NOMBRE_TIPO: Record<Pendiente['tipo'], string> = {
   cobranza: 'Cobro a cuenta',
   cambio_factura: 'Cambio en factura',
   propuesta_costo: 'Cambio de costos',
+  devolucion: 'Devolución en caja',
 };
 
 @Controller('aprobaciones')
@@ -41,6 +43,7 @@ export class AprobacionesController {
     @Inject(SUPABASE) private readonly db: SupabaseClient,
     private readonly compras: ComprasService,
     private readonly mesa: MesaComprasService,
+    private readonly ventas: VentasService,
   ) {}
 
   private dias(s: string) {
@@ -50,7 +53,7 @@ export class AprobacionesController {
   @Roles('gerente', 'dueno')
   @Get()
   async pendientes(): Promise<{ items: Pendiente[]; total: number; porTipo: Record<string, number> }> {
-    const [ocs, ops, cobros, cambios, propuestas] = await Promise.all([
+    const [ocs, ops, cobros, cambios, propuestas, devoluciones] = await Promise.all([
       this.db.from('ordenes_compra')
         .select('id, numero, total, creado_en, proveedor:proveedores(razon_social), autor:usuarios!ordenes_compra_creada_por_fkey(nombre)')
         .eq('estado', 'pendiente_aprobacion').order('creado_en'),
@@ -66,6 +69,7 @@ export class AprobacionesController {
       this.db.from('propuestas_costo')
         .select('id, titulo, creada_en, proveedor:proveedores(razon_social), autor:usuarios!propuestas_costo_creada_por_fkey(nombre), items:propuestas_costo_items(costo_nuevo)')
         .eq('estado', 'pendiente').order('creada_en'),
+      this.ventas.devolucionesPendientes(),
     ]);
 
     // Una consulta rota NO puede leerse como "no hay nada que firmar": esta
@@ -116,6 +120,18 @@ export class AprobacionesController {
         titulo: p.titulo || `Costos de ${p.proveedor?.razon_social ?? 'un proveedor'}`,
         detalle: `${(p.items ?? []).length} producto(s) cambian de costo y de precio de venta`,
         monto: null, pidio: p.autor?.nombre ?? null, cuando: p.creada_en, dias: this.dias(p.creada_en),
+      });
+    }
+
+    // Devoluciones en caja pedidas a distancia: la cajera está esperando con el
+    // cliente adelante, así que es lo más urgente de la bandeja.
+    for (const d of (devoluciones as any[])) {
+      const renglones = ((d.detalle ?? []) as any[]).map((x) => `${x.cantidad}× ${x.nombre}`).join(', ');
+      items.push({
+        tipo: 'devolucion', id: d.id,
+        titulo: `Devolución en caja · ${renglones || 'venta'}`,
+        detalle: `${d.caja_nombre ?? 'Caja'}${d.sucursal?.nombre ? ' · ' + d.sucursal.nombre : ''} · ${d.reintegro === 'efectivo' ? 'reintegro en efectivo' : 'sin reintegro en efectivo'}${d.motivo ? ' · ' + d.motivo : ''} · al aprobar se repone stock y sale la nota de crédito`,
+        monto: Number(d.monto ?? 0), pidio: d.cajero?.nombre ?? null, cuando: d.creada_en, dias: this.dias(d.creada_en),
       });
     }
 
@@ -186,6 +202,9 @@ export class AprobacionesController {
         resultado = aprueba
           ? await this.mesa.aprobar(id, usuarioId)
           : await this.mesa.rechazar(id, motivo ?? '', usuarioId);
+        break;
+      case 'devolucion':
+        resultado = await this.ventas.resolverDevolucion(id, aprueba ? 'aprobar' : 'rechazar', usuarioId, motivo);
         break;
       default:
         throw new BadRequestException('Tipo de aprobación desconocido');

@@ -9,5 +9,6 @@ import { CajaModule } from '../caja/caja.module';
   imports: [FacturacionModule, CajaModule],
   controllers: [VentasController],
   providers: [VentasService, supabaseProvider],
+  exports: [VentasService],
 })
 export class VentasModule {}

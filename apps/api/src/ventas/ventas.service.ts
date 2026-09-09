@@ -3,6 +3,7 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
 import { FacturacionService } from '../facturacion/facturacion.service';
 import { CajaService } from '../caja/caja.service';
+import { enviarTextoWhatsapp } from '../comun/whatsapp';
 
 export type CrearVentaDto = {
   sucursalId: string;
@@ -248,6 +249,161 @@ export class VentasService {
     }
 
     return { ...resultado, nc };
+  }
+
+  // ============================================================
+  // DEVOLUCIÓN CON AUTORIZACIÓN A DISTANCIA (2026-09-09)
+  // ANTES: la devolución solo salía con el PIN del supervisor tecleado en el
+  // mostrador. Si no estaba, no había forma de avisarle y la nota de crédito no
+  // se hacía. AHORA: la cajera pide, a los supervisores les llega WhatsApp +
+  // campanita, aprueban desde /aprobaciones y acá se ejecuta la devolución con
+  // el mismo circuito de siempre (stock + NC + egreso), autorizada por quien firmó.
+  // ============================================================
+  async pedirDevolucion(
+    ventaId: string,
+    dto: { items: { sku: string; cantidad: number }[]; reintegro?: 'efectivo' | 'otro'; sesionCajaId?: string; motivo?: string; usuarioId?: string },
+  ) {
+    const items = (dto.items ?? [])
+      .map((i) => ({ sku: String(i.sku ?? '').trim(), cantidad: Number(i.cantidad) }))
+      .filter((i) => i.sku && Number.isFinite(i.cantidad) && i.cantidad > 0);
+    if (!items.length) throw new BadRequestException('Elegí qué renglones se devuelven');
+    const { data: venta, error } = await this.db
+      .from('ventas')
+      .select('id, sucursal_id, estado, items:ventas_items(cantidad, precio_unitario, producto:productos(sku, nombre))')
+      .eq('id', ventaId)
+      .maybeSingle();
+    if (error || !venta) throw new BadRequestException('Venta inexistente');
+    const porSku = new Map<string, any>(((venta as any).items ?? []).map((i: any) => [i.producto?.sku, i]));
+    const detalle: { nombre: string; cantidad: number; precio: number }[] = [];
+    let monto = 0;
+    for (const it of items) {
+      const v = porSku.get(it.sku);
+      if (!v) throw new BadRequestException(`El producto ${it.sku} no está en esa venta`);
+      if (it.cantidad > Number(v.cantidad)) throw new BadRequestException(`No se pueden devolver ${it.cantidad} de ${v.producto?.nombre}: la venta tiene ${v.cantidad}`);
+      const precio = Number(v.precio_unitario);
+      monto += precio * it.cantidad;
+      detalle.push({ nombre: v.producto?.nombre ?? it.sku, cantidad: it.cantidad, precio });
+    }
+    monto = Math.round(monto * 100) / 100;
+    const { data: previo } = await this.db
+      .from('devoluciones_pendientes').select('id').eq('venta_id', ventaId).eq('estado', 'pendiente').maybeSingle();
+    if (previo) throw new BadRequestException('Esa venta ya tiene una devolución esperando autorización');
+
+    let cajaNombre: string | null = null;
+    if (dto.sesionCajaId) {
+      const { data: ses } = await this.db.from('sesiones_caja').select('caja:cajas(nombre)').eq('id', dto.sesionCajaId).maybeSingle();
+      cajaNombre = (ses as any)?.caja?.nombre ?? null;
+    }
+    const { data: cajero } = dto.usuarioId
+      ? await this.db.from('usuarios').select('nombre').eq('id', dto.usuarioId).maybeSingle()
+      : { data: null as any };
+    const reintegro = dto.reintegro === 'efectivo' ? 'efectivo' : 'otro';
+    const { data: pedido, error: e2 } = await this.db
+      .from('devoluciones_pendientes')
+      .insert({
+        venta_id: ventaId, items, detalle, monto, reintegro,
+        sesion_caja_id: dto.sesionCajaId ?? null, cajero_id: dto.usuarioId ?? null,
+        sucursal_id: (venta as any).sucursal_id ?? null, caja_nombre: cajaNombre,
+        motivo: (dto.motivo ?? '').trim() || null,
+      })
+      .select('id')
+      .single();
+    if (e2 || !pedido) throw new BadRequestException(`No se pudo registrar el pedido: ${e2?.message ?? 'sin datos'}`);
+
+    // El aviso sale YA, a todos los supervisores, por los dos canales.
+    const { data: sup } = await this.db
+      .from('usuarios').select('id, nombre, telefono').in('rol', ['dueno', 'gerente']).eq('activo', true);
+    const { data: suc } = await this.db.from('sucursales').select('nombre').eq('id', (venta as any).sucursal_id).maybeSingle();
+    const pesos = '$' + Math.round(monto).toLocaleString('es-AR');
+    const renglones = detalle.map((d) => `${d.cantidad}× ${d.nombre}`).join(', ');
+    const titulo = `Devolución en caja: ${pesos} esperando tu autorización`;
+    const texto = `${cajero?.nombre ?? 'La caja'} (${cajaNombre ?? 'caja'}${suc?.nombre ? ' · ' + suc.nombre : ''}) pide devolver ${renglones}${reintegro === 'efectivo' ? ', con reintegro en efectivo' : ''}.`;
+    const link = `${(process.env.ADMIN_URL ?? 'https://odb-admin-production.up.railway.app').replace(/\/$/, '')}/aprobaciones`;
+    const avisos: any[] = [];
+    for (const u of (sup ?? []) as any[]) {
+      await this.db.from('alertas_internas').insert({
+        para_usuario: u.id, tipo: 'devolucion', titulo,
+        detalle: `${texto} Aprobala o rechazala en Aprobaciones.`,
+        referencia: { devolucion_id: pedido.id, venta_id: ventaId, link: '/aprobaciones' },
+      });
+      let whatsapp = false;
+      if (u.telefono) {
+        try {
+          const r = await enviarTextoWhatsapp(this.db, u.telefono, `ODB · ${titulo}\n${texto}\nAprobala o rechazala acá: ${link}`, 'devolucion');
+          whatsapp = !!r.enviado;
+          if (!r.enviado) this.log.warn(`aviso de devolución a ${u.nombre} sin WhatsApp: ${r.motivo}`);
+        } catch (e) { this.log.warn(`aviso de devolución a ${u.nombre} falló: ${e instanceof Error ? e.message : e}`); }
+      }
+      avisos.push({ usuario: u.nombre, campanita: true, whatsapp });
+    }
+    await this.db.from('devoluciones_pendientes').update({ avisos }).eq('id', pedido.id);
+    this.log.log(`devolución pedida a distancia: venta ${ventaId.slice(0, 8)} ${pesos} · avisados ${avisos.length}`);
+    return { id: pedido.id, monto, avisados: ((sup ?? []) as any[]).map((u) => String(u.nombre).split(' ')[0]) };
+  }
+
+  async estadoDevolucion(id: string) {
+    const { data } = await this.db
+      .from('devoluciones_pendientes')
+      .select('id, estado, monto, respuesta, resultado, error, resuelto:usuarios!devoluciones_pendientes_resuelta_por_fkey(nombre)')
+      .eq('id', id)
+      .maybeSingle();
+    if (!data) throw new BadRequestException('Pedido inexistente');
+    const d = data as any;
+    return { id, estado: d.estado, monto: Number(d.monto), respuesta: d.respuesta, resultado: d.resultado, error: d.error, resueltaPor: d.resuelto?.nombre ?? null };
+  }
+
+  // Lo que ve la bandeja de aprobaciones.
+  async devolucionesPendientes() {
+    const { data, error } = await this.db
+      .from('devoluciones_pendientes')
+      .select('id, monto, detalle, reintegro, caja_nombre, motivo, creada_en, cajero:usuarios!devoluciones_pendientes_cajero_id_fkey(nombre), sucursal:sucursales(nombre)')
+      .eq('estado', 'pendiente')
+      .order('creada_en');
+    if (error) throw new BadRequestException(error.message);
+    return (data ?? []) as any[];
+  }
+
+  // Firma del supervisor desde la bandeja: acá se ejecuta la devolución real.
+  async resolverDevolucion(id: string, decision: 'aprobar' | 'rechazar', usuarioId: string, motivo?: string) {
+    const { data: p } = await this.db.from('devoluciones_pendientes').select('*').eq('id', id).maybeSingle();
+    if (!p) throw new BadRequestException('Pedido inexistente');
+    if (p.estado !== 'pendiente') throw new BadRequestException('Ese pedido ya fue resuelto');
+    const ahora = new Date().toISOString();
+    const { data: quien } = await this.db.from('usuarios').select('nombre').eq('id', usuarioId).maybeSingle();
+    const pesos = '$' + Math.round(Number(p.monto)).toLocaleString('es-AR');
+    const avisarCajero = async (titulo: string, detalle: string) => {
+      if (!p.cajero_id) return;
+      await this.db.from('alertas_internas').insert({
+        para_usuario: p.cajero_id, tipo: 'devolucion', titulo, detalle, referencia: { devolucion_id: id, venta_id: p.venta_id },
+      });
+    };
+    if (decision === 'rechazar') {
+      await this.db.from('devoluciones_pendientes')
+        .update({ estado: 'rechazada', resuelta_por: usuarioId, resuelta_en: ahora, respuesta: motivo ?? null })
+        .eq('id', id).eq('estado', 'pendiente');
+      await avisarCajero(`Devolución de ${pesos} rechazada por ${quien?.nombre ?? 'un supervisor'}`, motivo ? `Motivo: ${motivo}` : 'Sin motivo indicado.');
+      return { rechazada: true };
+    }
+    try {
+      const res: any = await this.devolver(p.venta_id, {
+        items: p.items, reintegro: p.reintegro, sesionCajaId: p.sesion_caja_id ?? undefined,
+        autorizadoPor: usuarioId, usuarioId: p.cajero_id ?? usuarioId,
+      });
+      const resultado = { monto: res?.monto ?? p.monto, nc: res?.nc ?? null, egreso: p.reintegro === 'efectivo' && !!p.sesion_caja_id };
+      await this.db.from('devoluciones_pendientes')
+        .update({ estado: 'aprobada', resuelta_por: usuarioId, resuelta_en: ahora, respuesta: motivo ?? null, resultado })
+        .eq('id', id);
+      await avisarCajero(`Devolución de ${pesos} autorizada por ${quien?.nombre ?? 'un supervisor'}`, `Stock repuesto${resultado.egreso ? ' · egreso de caja registrado: entregá el efectivo' : ''}.`);
+      this.log.log(`devolución ${id.slice(0, 8)} autorizada por ${quien?.nombre ?? usuarioId} y ejecutada`);
+      return { aprobada: true, ...resultado };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      await this.db.from('devoluciones_pendientes')
+        .update({ estado: 'error', resuelta_por: usuarioId, resuelta_en: ahora, error: msg })
+        .eq('id', id);
+      await avisarCajero(`La devolución de ${pesos} fue autorizada pero no se pudo ejecutar`, msg);
+      throw new BadRequestException(`Se autorizó pero la devolución falló: ${msg}`);
+    }
   }
 
   // La cuenta corriente exige cliente con cuenta habilitada y crédito disponible.
