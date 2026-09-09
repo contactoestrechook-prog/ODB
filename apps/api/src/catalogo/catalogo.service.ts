@@ -39,6 +39,11 @@ export class CatalogoService {
     return set;
   }
 
+  // Qué SKUs tienen foto en Storage (para el catálogo externo y los informes)
+  async skusConFoto(): Promise<Set<string>> {
+    return this.fotos();
+  }
+
   invalidarFotos() {
     this.fotosCache = null;
     this.catalogoCache.clear();

@@ -1,0 +1,21 @@
+import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { Roles } from '../auth/decorators';
+import { FotosExternasService } from './fotos-externas.service';
+
+// Fotos por código de barras desde EZ Catalog: estado, lote y producto puntual.
+@Controller('catalogo/fotos-externas')
+export class FotosExternasController {
+  constructor(private readonly fotos: FotosExternasService) {}
+
+  @Roles('comprador', 'gerente', 'dueno')
+  @Get('estado')
+  estado() { return this.fotos.estado(); }
+
+  @Roles('comprador', 'gerente', 'dueno')
+  @Post('completar')
+  completar(@Body() b: { limite?: number }) { return this.fotos.completar(b?.limite ?? 30); }
+
+  @Roles('comprador', 'gerente', 'dueno')
+  @Post('producto/:sku')
+  producto(@Param('sku') sku: string) { return this.fotos.paraSku(sku); }
+}
