@@ -1,5 +1,6 @@
 'use client';
 
+import { Dictado } from './Dictado';
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { prepararComprobante } from './comprimirImagen';
@@ -1476,6 +1477,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                 <textarea value={aclaraciones} onChange={(e) => setAclaraciones(e.target.value)} rows={2}
                   placeholder="Aclaraciones para la IA (ej: el renglón 3 dice 72, no 12; la percepción de IIBB es 4.850)…"
                   className="w-full rounded border border-black/15 bg-white px-2 py-1.5 text-sm text-black outline-none focus:border-[#B82D25]" />
+                <div className="mt-1 mb-1"><Dictado onTexto={(t) => setAclaraciones((v) => (v ? v + ' ' : '') + t)} /></div>
                 <button onClick={reLeerConAclaraciones} disabled={leyendoFoto || !aclaraciones.trim()}
                   className="rounded-full bg-black px-4 py-1.5 text-xs font-semibold text-white hover:bg-[#B82D25] disabled:opacity-40">
                   {leyendoFoto ? 'Releyendo…' : '↺ Volver a leer con mis aclaraciones'}

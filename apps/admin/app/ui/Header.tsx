@@ -121,6 +121,7 @@ const GRUPOS: Grupo[] = [
       { href: '/cheques', label: 'Cheques', icono: 'cheques' },
       { href: '/libro-iva', label: 'Libro IVA', icono: 'libroiva' },
       { href: '/informes', label: 'Informe diario', icono: 'informe' },
+      { href: '/reportes', label: 'Reportes del equipo', icono: 'usuarios' },
       { href: '/eficiencia', label: 'Eficiencia', icono: 'eficiencia' },
       { href: '/usuarios', label: 'Usuarios', icono: 'usuarios' },
     ],
@@ -173,6 +174,7 @@ const TITULOS: Record<string, { titulo: string; bajada: string }> = {
   '/informes': { titulo: 'Informe diario', bajada: 'El parte matutino del Analista, todos los días a las 7:00' },
   '/eficiencia': { titulo: 'Eficiencia', bajada: 'Productividad por empleado: tiempos por cliente y de preparación' },
   '/usuarios': { titulo: 'Usuarios', bajada: 'Equipo, roles y permisos de firma' },
+  '/reportes': { titulo: 'Reportes del equipo', bajada: 'Lo que marcaron con "Esto está mal", clasificado por la IA' },
 };
 
 function Icono({ d, activo }: { d: string; activo: boolean }) {

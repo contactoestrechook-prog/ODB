@@ -73,6 +73,15 @@ export const SECCIONES: Seccion[] = [
         ],
       },
       {
+        tipo: 'pasos',
+        titulo: 'Si algo está mal: "Esto está mal"',
+        pasos: [
+          'En cualquier pantalla, abajo a la izquierda, está el botón "Esto está mal". Tocalo y contá qué esperabas (escrito o dictado con el micrófono). La pantalla y los datos se adjuntan solos.',
+          'La IA te contesta en el momento: si es un dato que se corrige ahí mismo, te dice exactamente qué tocar; si es un error del sistema, le llega a Leandro como tarea y te avisamos por la campanita cuando quede arreglado.',
+          'En Entrada por foto, el cuadro "Aclaraciones para la IA" también se puede dictar: tocá "Dictar", hablá, y después "Volver a leer con mis aclaraciones".',
+        ],
+      },
+      {
         tipo: 'ojo',
         titulo: 'Cuando algo se ve raro',
         puntos: [

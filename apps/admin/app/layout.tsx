@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { BannerInstalarApp } from "./ui/BannerInstalarApp";
 import { AvisoActualizacion } from "./ui/AvisoActualizacion";
+import { ReportarProblema } from "./ui/ReportarProblema";
 
 export const metadata: Metadata = {
   title: "O.D.B Premium Market",
@@ -34,6 +35,7 @@ export default function RootLayout({
         {children}
         <AvisoActualizacion />
         <BannerInstalarApp />
+        <ReportarProblema />
       </body>
     </html>
   );
