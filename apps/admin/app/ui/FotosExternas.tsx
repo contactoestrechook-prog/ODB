@@ -27,7 +27,7 @@ export function FotosExternas() {
     parar.current = false; setCorriendo(true); setAviso(''); setUltimos([]);
     const acumulado = { procesados: 0, conFoto: 0, sinProducto: 0, sinImagen: 0, errores: 0, restantes: estado?.sinFoto ?? 0 };
     while (!parar.current) {
-      const r = await fetch('/api/fotos-externas', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'completar', limite: 60 }) });
+      const r = await fetch('/api/fotos-externas', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'completar', limite: 40 }) });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) { setAviso(d.message ?? 'No se pudo consultar'); break; }
       for (const k of ['procesados', 'conFoto', 'sinProducto', 'sinImagen', 'errores'] as const) acumulado[k] += Number(d[k] ?? 0);

@@ -14,6 +14,11 @@ const BASE = (process.env.EZ_CATALOG_URL ?? 'https://api.ez-catalog.huggian.com'
 const EAN_PRUEBA = '7790895000010'; // Coca-Cola 2,25 l: existe seguro en cualquier catálogo argentino
 const POR_MINUTO = Math.max(10, Number(process.env.EZ_CATALOG_POR_MINUTO ?? 60)); // Basic 60/min, Pro 300/min
 const PARALELO = Math.max(1, Math.min(Number(process.env.EZ_CATALOG_PARALELO ?? 6), 20)); // descargas de imagen en vuelo a la vez
+// Consultas al catálogo en vuelo a la vez. Medido el 9/9 con códigos nunca
+// consultados: de a una tarda 9 s cada una (6,7 por minuto); de a cuatro tarda
+// 12-20 s cada una pero rinde 13 por minuto. Más de cuatro no mejora y encima
+// hace que cada una tarde tanto que se corta sola.
+const PARALELO_CONSULTA = Math.max(1, Math.min(Number(process.env.EZ_CATALOG_PARALELO_CONSULTA ?? 4), 10));
 // Fallas pasajeras (corte por tiempo, red): no se registran, para que el producto se vuelva a intentar.
 const PASAJERO = /aborted|abort|timeout|ETIMEDOUT|ECONNRESET|ENOTFOUND|fetch failed|socket/i;
 
@@ -33,7 +38,7 @@ export class FotosExternasService {
     const clave = this.clave();
     if (!clave) throw new BadRequestException('Falta la clave de EZ Catalog (variable EZ_CATALOG_API_KEY en Railway)');
     const ctrl = new AbortController();
-    const reloj = setTimeout(() => ctrl.abort(), 30_000);
+    const reloj = setTimeout(() => ctrl.abort(), 45_000);
     try {
       const r = await fetch(`${BASE}/v1/products/barcode/${encodeURIComponent(ean)}`, { headers: { 'X-Api-Key': clave }, signal: ctrl.signal });
       if (r.status === 404) return { estado: 'sin_producto' };
@@ -78,9 +83,9 @@ export class FotosExternasService {
 
   // Un lote: la pantalla lo llama repetidamente hasta que no queden pendientes.
   // En dos etapas, porque las dos mitades del trabajo tienen límites distintos:
-  //   1) preguntarle al catálogo, DE A UNA y al ritmo del plan. Medido el 9/9:
-  //      una sola consulta tarda 0,6 s, pero ocho a la vez tardan 28 s cada una
-  //      (la API las encola), y con el corte a los 30 s se perdían casi todas.
+  //   1) preguntarle al catálogo, de a pocas y al ritmo del plan: un código nunca
+  //      consultado tarda unos 9 s (el catálogo lo resuelve en el momento; después
+  //      queda cacheado y vuelve en 0,2 s). De a ocho tardan 28 s cada una y se cortan.
   //   2) bajar la imagen y subirla a Storage, de a varias: eso va contra otros
   //      servidores, no contra la API con tope, y es la parte lenta (unos 7 s).
   async completar(limite = 30) {
@@ -98,7 +103,7 @@ export class FotosExternasService {
     const conFoto: { c: (typeof lote)[number]; p: Externo }[] = [];
     const consultas = await recorrerConRitmo(
       lote,
-      { paralelo: 1, espaciadoMs: Math.ceil(60_000 / POR_MINUTO) },
+      { paralelo: PARALELO_CONSULTA, espaciadoMs: Math.ceil(60_000 / POR_MINUTO) },
       async (c) => {
         const q = await this.consultar(c.codigo);
         if (q.estado === 'sin_producto') { await this.registrar(c.producto_id, c.sku, c.codigo, 'sin_producto'); anotar(c, { resultado: 'sin_producto' }); return; }
