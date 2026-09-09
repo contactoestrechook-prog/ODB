@@ -13,7 +13,9 @@ import { recorrerConRitmo } from './ritmo';
 const BASE = (process.env.EZ_CATALOG_URL ?? 'https://api.ez-catalog.huggian.com').replace(/\/$/, '');
 const EAN_PRUEBA = '7790895000010'; // Coca-Cola 2,25 l: existe seguro en cualquier catálogo argentino
 const POR_MINUTO = Math.max(10, Number(process.env.EZ_CATALOG_POR_MINUTO ?? 60)); // Basic 60/min, Pro 300/min
-const PARALELO = Math.max(1, Math.min(Number(process.env.EZ_CATALOG_PARALELO ?? 8), 20)); // cuántas en vuelo a la vez
+const PARALELO = Math.max(1, Math.min(Number(process.env.EZ_CATALOG_PARALELO ?? 6), 20)); // descargas de imagen en vuelo a la vez
+// Fallas pasajeras (corte por tiempo, red): no se registran, para que el producto se vuelva a intentar.
+const PASAJERO = /aborted|abort|timeout|ETIMEDOUT|ECONNRESET|ENOTFOUND|fetch failed|socket/i;
 
 type Externo = { nombre: string | null; marca: string | null; imagenUrl: string | null; presentacion: string | null; verificado: boolean };
 type Resultado = { resultado: 'foto' | 'sin_producto' | 'sin_imagen' | 'error'; imagenUrl?: string; nombreExterno?: string | null; marcaExterna?: string | null; detalle?: string };
@@ -31,7 +33,7 @@ export class FotosExternasService {
     const clave = this.clave();
     if (!clave) throw new BadRequestException('Falta la clave de EZ Catalog (variable EZ_CATALOG_API_KEY en Railway)');
     const ctrl = new AbortController();
-    const reloj = setTimeout(() => ctrl.abort(), 20_000);
+    const reloj = setTimeout(() => ctrl.abort(), 30_000);
     try {
       const r = await fetch(`${BASE}/v1/products/barcode/${encodeURIComponent(ean)}`, { headers: { 'X-Api-Key': clave }, signal: ctrl.signal });
       if (r.status === 404) return { estado: 'sin_producto' };
@@ -75,30 +77,45 @@ export class FotosExternasService {
   }
 
   // Un lote: la pantalla lo llama repetidamente hasta que no queden pendientes.
-  // Varias consultas en vuelo a la vez (cada una espera catálogo + descarga +
-  // Storage: de a una se usaba menos de la décima parte del cupo del plan), pero
-  // sin arrancar más de una cada 60.000/POR_MINUTO ms: el tope lo sigue marcando el plan.
+  // En dos etapas, porque las dos mitades del trabajo tienen límites distintos:
+  //   1) preguntarle al catálogo, DE A UNA y al ritmo del plan. Medido el 9/9:
+  //      una sola consulta tarda 0,6 s, pero ocho a la vez tardan 28 s cada una
+  //      (la API las encola), y con el corte a los 30 s se perdían casi todas.
+  //   2) bajar la imagen y subirla a Storage, de a varias: eso va contra otros
+  //      servidores, no contra la API con tope, y es la parte lenta (unos 7 s).
   async completar(limite = 30) {
     const pendientes = await this.pendientes();
     const lote = pendientes.slice(0, Math.max(1, Math.min(Number(limite) || 30, 200)));
     const res = { procesados: 0, conFoto: 0, sinProducto: 0, sinImagen: 0, errores: 0, restantes: Math.max(0, pendientes.length - lote.length), parado: null as string | null, detalle: [] as any[] };
-
-    const corrida = await recorrerConRitmo(
-      lote,
-      { paralelo: PARALELO, espaciadoMs: Math.ceil(60_000 / POR_MINUTO) },
-      async (c) => ({ c, r: await this.traerPara(c.producto_id, c.sku, c.codigo) }),
-      (e) => /clave|401|403|límite|429|Falta/i.test(e instanceof Error ? e.message : String(e)), // sin clave o sin cupo: no tiene sentido seguir
-    );
-
-    for (const hecho of corrida.resultados) {
-      if (!hecho) continue;
-      const { c, r } = hecho;
+    const frenar = (e: unknown) => /clave|401|403|límite|429|Falta/i.test(e instanceof Error ? e.message : String(e)); // sin clave o sin cupo: no tiene sentido seguir
+    const anotar = (c: { sku: string; codigo: string }, r: Resultado) => {
       res.procesados++;
       if (r.resultado === 'foto') res.conFoto++; else if (r.resultado === 'sin_producto') res.sinProducto++; else if (r.resultado === 'sin_imagen') res.sinImagen++; else res.errores++;
       if (res.detalle.length < 30) res.detalle.push({ sku: c.sku, ean: c.codigo, resultado: r.resultado, nombre: r.nombreExterno ?? null });
-    }
-    res.errores += corrida.errores.length;
-    res.parado = corrida.motivoParada;
+    };
+
+    // 1) consultas al catálogo, de a una
+    const conFoto: { c: (typeof lote)[number]; p: Externo }[] = [];
+    const consultas = await recorrerConRitmo(
+      lote,
+      { paralelo: 1, espaciadoMs: Math.ceil(60_000 / POR_MINUTO) },
+      async (c) => {
+        const q = await this.consultar(c.codigo);
+        if (q.estado === 'sin_producto') { await this.registrar(c.producto_id, c.sku, c.codigo, 'sin_producto'); anotar(c, { resultado: 'sin_producto' }); return; }
+        const p = q.producto!;
+        if (!p.imagenUrl) { await this.registrar(c.producto_id, c.sku, c.codigo, 'sin_imagen', p); anotar(c, { resultado: 'sin_imagen', nombreExterno: p.nombre }); return; }
+        conFoto.push({ c, p });
+      },
+      frenar,
+    );
+    res.parado = consultas.motivoParada;
+    res.errores += consultas.errores.length;
+
+    // 2) descarga y guardado, de a varias
+    const guardadas = await recorrerConRitmo(conFoto, { paralelo: PARALELO, espaciadoMs: 0 }, async ({ c, p }) => {
+      anotar(c, await this.guardarFoto(c.producto_id, c.sku, c.codigo, p));
+    });
+    res.errores += guardadas.errores.length;
     res.restantes = Math.max(0, pendientes.length - res.procesados);
 
     if (res.procesados) this.log.log(`EZ Catalog: ${res.conFoto} fotos de ${res.procesados} consultas (${res.restantes} pendientes)`);
@@ -119,18 +136,31 @@ export class FotosExternasService {
     return { sku: p.sku, nombre: (p as any).nombre, ...ultimo };
   }
 
+  private registrar(productoId: string, sku: string, ean: string, resultado: Resultado['resultado'], p?: Externo | null, detalle?: string) {
+    return this.db.from('fotos_externas').insert({ producto_id: productoId, sku, ean, resultado, nombre_externo: p?.nombre ?? null, marca_externa: p?.marca ?? null, url_externa: p?.imagenUrl ?? null, detalle: detalle ?? null }).then(() => null, () => null);
+  }
+
   private async traerPara(productoId: string, sku: string, ean: string): Promise<Resultado> {
-    const registrar = (resultado: Resultado['resultado'], p?: Externo | null, detalle?: string) =>
-      this.db.from('fotos_externas').insert({ producto_id: productoId, sku, ean, resultado, nombre_externo: p?.nombre ?? null, marca_externa: p?.marca ?? null, url_externa: p?.imagenUrl ?? null, detalle: detalle ?? null }).then(() => null, () => null);
+    const registrar = (resultado: Resultado['resultado'], p?: Externo | null, detalle?: string) => this.registrar(productoId, sku, ean, resultado, p, detalle);
     let consulta: { estado: 'ok' | 'sin_producto'; producto?: Externo };
+    // Un corte por tiempo de espera o de red NO se registra: si quedara como
+    // 'error' el producto no se volvería a consultar por 30 días por una caída
+    // pasajera. Sin registro, la próxima tanda lo toma de nuevo.
     try { consulta = await this.consultar(ean); }
-    catch (e) { const msg = e instanceof Error ? e.message : String(e); await registrar('error', null, msg); throw e; }
+    catch (e) { const msg = e instanceof Error ? e.message : String(e); if (!PASAJERO.test(msg)) await registrar('error', null, msg); throw e; }
     if (consulta.estado === 'sin_producto') { await registrar('sin_producto'); return { resultado: 'sin_producto' }; }
     const p = consulta.producto!;
     if (!p.imagenUrl) { await registrar('sin_imagen', p); return { resultado: 'sin_imagen', nombreExterno: p.nombre, marcaExterna: p.marca }; }
+    return this.guardarFoto(productoId, sku, ean, p);
+  }
+
+  // Bajar la imagen y guardarla en Storage. Va contra images.huggian.com y
+  // Supabase (no contra la API con tope), así que esto sí se puede hacer de a varias.
+  private async guardarFoto(productoId: string, sku: string, ean: string, p: Externo): Promise<Resultado> {
+    const registrar = (resultado: Resultado['resultado'], q?: Externo | null, detalle?: string) => this.registrar(productoId, sku, ean, resultado, q, detalle);
     try {
       const ctrl = new AbortController(); const reloj = setTimeout(() => ctrl.abort(), 25_000);
-      const img = await fetch(p.imagenUrl, { signal: ctrl.signal }).finally(() => clearTimeout(reloj));
+      const img = await fetch(p.imagenUrl ?? '', { signal: ctrl.signal }).finally(() => clearTimeout(reloj));
       if (!img.ok) throw new Error(`la imagen respondió ${img.status}`);
       const buf = Buffer.from(await img.arrayBuffer());
       if (buf.length < 500) throw new Error('la imagen llegó vacía');
