@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 // Planilla de cierre de una sesión de caja. Con la caja ABIERTA dice cómo va
 // (qué tendría que haber en el cajón); CERRADA, cómo terminó: ventas, cada
 // medio de pago, el arqueo de efectivo y los movimientos. Se imprime tal cual.
-const pesos = (n: any) => (n == null ? '—' : '$' + Math.round(Number(n)).toLocaleString('es-AR'));
+const pesos = (n: any) => (n == null || !Number.isFinite(Number(n)) ? '—' : '$' + Math.round(Number(n)).toLocaleString('es-AR'));
 const hora = (iso?: string | null) => (iso ? new Date(iso).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—');
 
 export type ResumenCierreDatos = {

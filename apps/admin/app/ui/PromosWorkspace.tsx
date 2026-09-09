@@ -8,7 +8,7 @@ import { TogglePromo } from './TogglePromo';
 type Opcion = { id: string; nombre: string };
 type Segmento = { segmento: string; etiqueta: string; clientes: number; ticketPromedio: number | null; ventasIdentificadas: number };
 
-const pesos = (n: number | null) => (n == null ? '—' : '$' + Math.round(n).toLocaleString('es-AR'));
+const pesos = (n: number | null) => (n == null || !Number.isFinite(Number(n)) ? '—' : '$' + Math.round(Number(n)).toLocaleString('es-AR'));
 const fecha = (iso: string) => new Date(iso).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: '2-digit' });
 
 const SEG_LABEL: Record<string, string> = {

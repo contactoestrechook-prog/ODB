@@ -28,7 +28,7 @@ type Producto = {
   codigosBarras: string[];
 };
 
-const pesos = (n: number | null) => (n == null ? '—' : '$' + Math.round(n).toLocaleString('es-AR'));
+const pesos = (n: number | null) => (n == null || !Number.isFinite(Number(n)) ? '—' : '$' + Math.round(Number(n)).toLocaleString('es-AR'));
 
 export function VerificadorPrecios({ sucursales }: { sucursales: { id: string; nombre: string }[] }) {
   const [texto, setTexto] = useState('');

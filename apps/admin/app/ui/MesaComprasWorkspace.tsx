@@ -9,7 +9,7 @@ import { prepararComprobante } from './comprimirImagen';
 // propuesta. Nada se aplica hasta que el dueño aprueba.
 type Mensaje = { rol: 'usuario' | 'asistente'; texto: string; imagen?: string; mimeType?: string; nombre?: string };
 
-const pesos = (n: any) => (n == null ? '—' : '$' + Math.round(Number(n)).toLocaleString('es-AR'));
+const pesos = (n: any) => (n == null || !Number.isFinite(Number(n)) ? '—' : '$' + Math.round(Number(n)).toLocaleString('es-AR'));
 
 export function MesaComprasWorkspace({ esDueno }: { esDueno: boolean }) {
   const [tab, setTab] = useState<'costear' | 'aprobar'>('costear');

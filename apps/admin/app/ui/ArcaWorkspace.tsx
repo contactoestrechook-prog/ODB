@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 
-const pesos = (n: any) => (n == null ? '—' : '$' + Math.round(Number(n)).toLocaleString('es-AR'));
+const pesos = (n: any) => (n == null || !Number.isFinite(Number(n)) ? '—' : '$' + Math.round(Number(n)).toLocaleString('es-AR'));
 const EMISOR_LABEL: Record<string, string> = {
   principal: 'Sant Thomas · Chinvenguencha SRL',
   santa_ines: 'Santa Inés · ODB SRL',

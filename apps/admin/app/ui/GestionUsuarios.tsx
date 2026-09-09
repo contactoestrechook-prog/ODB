@@ -13,7 +13,7 @@ const ROLES: Record<string, { etiqueta: string; chip: string; descripcion: strin
   repartidor: { etiqueta: 'Repartidor', chip: 'bg-orange-100 text-orange-900', descripcion: 'Solo la pantalla de reparto: sus entregas del día' },
 };
 
-const pesos = (n: number) => '$' + Math.round(n).toLocaleString('es-AR');
+const pesos = (n: number) => '$' + Math.round(Number(n) || 0).toLocaleString('es-AR');
 
 const iniciales = (nombre: string) =>
   nombre

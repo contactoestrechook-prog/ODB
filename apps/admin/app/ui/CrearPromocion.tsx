@@ -12,7 +12,7 @@ type Segmento = {
   ventasIdentificadas: number;
 };
 
-const pesos = (n: number | null) => (n == null ? '—' : '$' + Math.round(n).toLocaleString('es-AR'));
+const pesos = (n: number | null) => (n == null || !Number.isFinite(Number(n)) ? '—' : '$' + Math.round(Number(n)).toLocaleString('es-AR'));
 
 const hoy = () => new Date().toISOString().slice(0, 10);
 const enDias = (d: number) => new Date(Date.now() + d * 86400_000).toISOString().slice(0, 10);

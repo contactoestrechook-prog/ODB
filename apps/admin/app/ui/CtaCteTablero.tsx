@@ -14,7 +14,7 @@ type Cuenta = {
   riesgo: 'alto' | 'medio' | 'bajo';
 };
 
-const pesos = (n: number | null) => (n == null ? '—' : '$' + Math.round(n).toLocaleString('es-AR'));
+const pesos = (n: number | null) => (n == null || !Number.isFinite(Number(n)) ? '—' : '$' + Math.round(Number(n)).toLocaleString('es-AR'));
 const COLOR = { alto: '#B82D25', medio: '#B77B00', bajo: '#1A7F4B' } as const;
 const ETIQ = { alto: 'Riesgo alto', medio: 'Atención', bajo: 'Al día' } as const;
 

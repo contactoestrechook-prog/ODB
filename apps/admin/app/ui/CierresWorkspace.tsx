@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ResumenCierre } from './ResumenCierre';
 
-const pesos = (n: any) => (n == null ? '—' : '$' + Math.round(Number(n)).toLocaleString('es-AR'));
+const pesos = (n: any) => (n == null || !Number.isFinite(Number(n)) ? '—' : '$' + Math.round(Number(n)).toLocaleString('es-AR'));
 const fechaHora = (iso: string) => (iso ? new Date(iso).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—');
 
 const TABS = [['cajas', 'Cajas'], ['porcajero', 'Por cajero'], ['diferencias', 'Diferencias'], ['historico', 'Histórico'], ['arca', 'Facturación ARCA']] as const;

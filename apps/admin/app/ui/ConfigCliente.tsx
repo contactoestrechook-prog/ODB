@@ -10,7 +10,7 @@ const CONDICIONES = [
   ['exento', 'Exento'],
 ];
 
-const pesos = (n: number) => '$' + Math.round(n).toLocaleString('es-AR');
+const pesos = (n: number) => '$' + Math.round(Number(n) || 0).toLocaleString('es-AR');
 
 export function ConfigCliente({ cliente }: { cliente: any }) {
   const router = useRouter();

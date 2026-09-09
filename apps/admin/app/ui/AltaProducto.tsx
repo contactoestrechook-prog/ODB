@@ -28,7 +28,7 @@ const FORM = {
   costo: '', precio: '', precioCaja: '', precioMayorista: '',
 };
 
-const pesos = (n: number) => '$' + Math.round(n).toLocaleString('es-AR');
+const pesos = (n: number) => '$' + Math.round(Number(n) || 0).toLocaleString('es-AR');
 
 // Mismo redondeo de góndola que el servidor (apps/api/src/compras/precio.ts):
 // a la centena, de 50 para arriba sube.

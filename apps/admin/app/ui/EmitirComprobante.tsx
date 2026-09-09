@@ -10,7 +10,7 @@ const TIPOS: Record<string, string> = {
   REM: 'Remito', REC: 'Recibo de cobranza', ANT: 'Anticipo', SIN: 'Comprobante interno',
 };
 
-const pesos = (n: number) => '$' + Math.round(n).toLocaleString('es-AR');
+const pesos = (n: number) => '$' + Math.round(Number(n) || 0).toLocaleString('es-AR');
 
 type Item = { sku?: string; descripcion: string; cantidad: number; precioUnitario: number; alicuota: number };
 type Sucursal = { id: string; nombre: string };
