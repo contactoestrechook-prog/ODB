@@ -28,6 +28,8 @@ describe('pareceElMismoProducto', () => {
     ['Chandon Extra Brut', 'Espumante Chandon Extra Brut 750 Ml', 'Chandon'],
     ['Taittinger Brut', '75CL Champagne Brut Reserve Taittinger', 'Taittinger'],
     ['Queso Untable Sabor Fontina La Paulina', 'Queso Untable Sabor Fontina 190 Grs x 1 Un La Paulina', 'La Paulina'],
+    // El catálogo puso "Clásica" y nada más: sin nombre útil, la marca decide.
+    ['Vitina semola clasica 500gr', 'clasica', 'Vitina'],
   ];
   it.each(bien)('acepta: %s → %s', (nuestro, externo, marca) => {
     expect(pareceElMismoProducto(nuestro, externo, marca ?? null).parecido).toBe(true);

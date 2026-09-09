@@ -47,15 +47,18 @@ export function pareceElMismoProducto(
   if (esBasura(nombreExterno)) return { parecido: false, motivo: 'la ficha del catálogo arranca con otro código de barras' };
   const nuestras = palabras(nombreNuestro);
   const suyas = palabras(nombreExterno);
-  if (!nuestras.size || !suyas.size) return { parecido: false, motivo: 'falta el nombre de un lado' };
+  if (!nuestras.size) return { parecido: false, motivo: 'falta el nombre de nuestro lado' };
 
   const comunes = [...nuestras].filter((w) => suyas.has(w));
   if (comunes.length) return { parecido: true, motivo: `coincide en ${comunes.slice(0, 3).join(', ')}` };
 
-  // La marca del catálogo alcanza: "Philadelphia Queso Crema" contra "Cream Cheese" de marca Philadelphia.
+  // La marca del catálogo alcanza: "Philadelphia Queso Crema" contra "Cream
+  // Cheese" de marca Philadelphia. Se mira SIEMPRE, incluso cuando el nombre
+  // del catálogo no dejó ninguna palabra con peso ("Clásica", de marca Vitina).
   for (const m of palabras(marcaExterna)) {
     if (nuestras.has(m)) return { parecido: true, motivo: `coincide la marca (${m})` };
   }
+  if (!suyas.size) return { parecido: false, motivo: 'el catálogo no le puso nombre' };
 
   // La misma palabra escrita distinto cuenta: "pasatta"/"passata",
   // "fetuccini"/"fettucine", "sky"/"skyy". Con la distancia de edición, no con
