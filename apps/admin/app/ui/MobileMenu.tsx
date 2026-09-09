@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { InstalarApp } from './InstalarApp';
+import { CampanaAlertas } from './CampanaAlertas';
 
 type Item = { href: string; label: string; icono: string };
 type Grupo = { titulo: string; items: Item[] };
@@ -20,8 +21,12 @@ export function MobileMenu({ grupos, iconos, activo, titulo }: { grupos: Grupo[]
           </svg>
           <span className="text-sm font-medium">{titulo}</span>
         </button>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/odb-logo-blanco.png" alt="O.D.B Premium Market" className="h-7 w-auto" />
+        <div className="flex items-center gap-1">
+          {/* avisos internos: en el celular el panel se abre a lo ancho de la pantalla */}
+          <CampanaAlertas donde="movil" />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/odb-logo-blanco.png" alt="O.D.B Premium Market" className="h-7 w-auto" />
+        </div>
       </header>
 
       {/* cajón lateral */}

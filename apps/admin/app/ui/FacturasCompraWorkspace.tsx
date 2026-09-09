@@ -150,9 +150,9 @@ export function FacturasCompraWorkspace({ resumenInicial, facturasInicial, prove
             {CATEGORIAS_GASTO.map((c) => <option key={c} value={c}>{c}</option>)}
           </select>
         </div>
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-xs text-black/50">{cargando ? 'Buscando…' : `${datos.total} comprobante${datos.total === 1 ? '' : 's'}`}</p>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap justify-end gap-2">
             {!!usuarioId && (
               <button onClick={alternarMias} className={`rounded-full px-4 py-1.5 text-xs font-semibold border ${soloMias ? 'bg-black text-white border-black' : 'border-black/15 text-black/70 hover:border-black/40'}`} title="Solo los comprobantes que cargué yo">
                 {soloMias ? '✓ Mis facturas' : 'Mis facturas'}

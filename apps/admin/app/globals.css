@@ -25,6 +25,11 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
+/* Un <select> con opciones largas o un <input> dentro de una fila no pueden
+   medir más que su contenedor: en el celular estiraban la pantalla a 459 px y
+   Chrome "alejaba" todo el panel (listas, salida, 2026-09-09). */
+input, select, textarea { max-width: 100%; min-width: 0; }
+
 /* En celular, las tablas anchas scrollean horizontal en vez de romper el layout */
 @media (max-width: 768px) {
   main table {

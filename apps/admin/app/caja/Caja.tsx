@@ -1415,14 +1415,14 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
 
   return (
     <main className="h-screen bg-[#F0EBE2] flex flex-col overflow-hidden print:hidden">
-      <header className="bg-black px-4 py-3 flex items-center justify-between shrink-0">
+      <header className="bg-black px-4 py-3 flex flex-wrap items-center justify-between gap-2 shrink-0">
         <span className="text-white tracking-widest font-medium">
           O.D.B <span className="tracking-normal font-normal text-[#F0EBE2]/70">· Caja</span>
           {sesion && <span className="ml-3 rounded-lg bg-white/10 px-2 py-1 text-xs text-[#F0EBE2]/80">{sesion.cajaNombre}</span>}
           {sinRed && <span className="ml-2 rounded-lg bg-[#B82D25] px-2 py-1 text-xs text-white">SIN RED · {cola.length} en cola</span>}
           {!sinRed && cola.length > 0 && <span className="ml-2 rounded-lg bg-amber-500 px-2 py-1 text-xs text-black">{cola.length} por enviar</span>}
         </span>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           <button
             onClick={() => setAutoPrint((a) => !a)}
             title={autoPrint ? 'Impresión automática: SÍ' : 'Impresión automática: NO'}

@@ -1561,7 +1561,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                       </div>
 
                       {/* 2 · lo que entra al sistema: producto y números, en columnas fijas */}
-                      <div className="grid grid-cols-[minmax(0,1fr)_72px_290px_64px_92px] items-center gap-2">
+                      <div className="grid grid-cols-[minmax(0,1fr)_72px] sm:grid-cols-[minmax(0,1fr)_72px_290px_64px_92px] items-center gap-2">
                         <div className="min-w-0 text-xs leading-snug">
                           {i.sugerido && i.nombre ? (
                             <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -1588,7 +1588,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                         </div>
                         <input type="number" step="any" min="0" value={i.cantidad} onChange={(e) => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, cantidad: Number(e.target.value) } : x))} className="w-full rounded-md border border-black/15 px-2 py-1 text-right text-sm tabular-nums text-[#141414] focus:border-black/50 outline-none" />
                         {/* costo: el precio del papel (corregible) → el costo final que queda en stock, en la misma línea */}
-                        <div className="flex items-center justify-end gap-1.5 tabular-nums">
+                        <div className="col-span-2 sm:col-span-1 flex flex-wrap items-center justify-end gap-1.5 tabular-nums">
                           <input
                             type="number" step="any" min="0" value={i.precio}
                             onChange={(e) => setFotoItems((xs) => xs.map((x, j) => {

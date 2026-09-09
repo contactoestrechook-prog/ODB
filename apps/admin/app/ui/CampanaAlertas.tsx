@@ -16,7 +16,11 @@ const hace = (v: string) => {
   return h < 24 ? `hace ${h} h` : new Date(v).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' });
 };
 
-export function CampanaAlertas() {
+// `donde`: 'lateral' (barra lateral de escritorio: el panel se abre hacia la derecha,
+// sobre el contenido) o 'movil' (barra superior del celular: ocupa el ancho de la
+// pantalla). ANTES se abría con right-0 pegado a la campanita de la barra lateral y
+// quedaba 150 px fuera de la pantalla por la izquierda (2026-09-09).
+export function CampanaAlertas({ donde = 'lateral' }: { donde?: 'lateral' | 'movil' } = {}) {
   const [alertas, setAlertas] = useState<Alerta[]>([]);
   const [abierta, setAbierta] = useState(false);
 
@@ -51,7 +55,14 @@ export function CampanaAlertas() {
       </button>
 
       {abierta && (
-        <div className="absolute right-0 z-50 mt-2 w-[min(92vw,380px)] overflow-hidden rounded-xl bg-white text-black shadow-2xl ring-1 ring-black/10">
+        <div
+          className={
+            'z-50 overflow-hidden rounded-xl bg-white text-black shadow-2xl ring-1 ring-black/10 ' +
+            (donde === 'movil'
+              ? 'fixed inset-x-2 top-[58px]'
+              : 'absolute left-0 top-full mt-2 w-[min(calc(100vw-17rem),380px)]')
+          }
+        >
           <div className="flex items-center justify-between border-b border-black/10 px-3 py-2">
             <p className="text-sm font-semibold">Avisos</p>
             <button onClick={() => setAbierta(false)} className="text-xs text-black/45">cerrar</button>
