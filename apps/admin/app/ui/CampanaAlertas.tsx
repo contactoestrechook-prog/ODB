@@ -81,6 +81,9 @@ export function CampanaAlertas({ donde = 'lateral' }: { donde?: 'lateral' | 'mov
                       {a.referencia?.telefono && (
                         <a href={`/whatsapp`} className="text-[#B82D25] underline">Abrir la charla</a>
                       )}
+                      {a.referencia?.link && (
+                        <a href={String(a.referencia.link)} className="text-[#B82D25] underline font-semibold">Ir a Aprobaciones</a>
+                      )}
                       <button onClick={() => leida(a)} className="text-black/45 underline">Listo</button>
                     </div>
                   </div>

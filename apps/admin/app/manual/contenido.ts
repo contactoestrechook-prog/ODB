@@ -115,6 +115,16 @@ export const SECCIONES: Seccion[] = [
       },
       {
         tipo: 'pasos',
+        titulo: 'Devolución sin supervisor en el local',
+        pasos: [
+          'En la caja, "Devolución": elegí la venta, marcá qué se devuelve y, si no hay nadie con el PIN, tocá "Pedir autorización a distancia".',
+          'A los supervisores les llega en el acto por WhatsApp y por la campanita del panel. Aprueban o rechazan desde el celular, en Aprobaciones.',
+          'Cuando uno aprueba, el sistema hace la devolución solo: repone el stock, emite la nota de crédito y, si marcaste reintegro en efectivo, registra el egreso. La caja lo muestra en un cartel arriba; hasta entonces podés seguir vendiendo.',
+          'Supervisores: la campanita tiene el botón "Ir a Aprobaciones" y el WhatsApp trae el link. La devolución que se pide con el cliente adelante es lo primero de la bandeja.',
+        ],
+      },
+      {
+        tipo: 'pasos',
         titulo: 'Antes de cobrar: el documento del cliente',
         pasos: [
           'Pedí el DNI (o el CUIT si es cuenta corriente) y cargalo.',

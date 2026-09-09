@@ -220,6 +220,9 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
   const [devVentas, setDevVentas] = useState<any[]>([]);
   const [devVenta, setDevVenta] = useState<any | null>(null);
   const [devolver, setDevolver] = useState<Record<string, number>>({});
+  // devolución pedida a distancia (sin supervisor en el local): se sigue hasta que la aprueban o rechazan
+  type DevPedido = { id: string; monto: number; estado: 'pendiente' | 'aprobada' | 'rechazada' | 'error'; respuesta?: string | null; resueltaPor?: string | null; resultado?: any; error?: string | null; avisados?: string[] };
+  const [devPedido, setDevPedido] = useState<DevPedido | null>(null);
   const [devEfectivo, setDevEfectivo] = useState(true);
   const [procesando, setProcesando] = useState(false);
 
@@ -968,6 +971,46 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
     setProcesando(false);
   }
 
+  // ---- devolución SIN supervisor presente: se pide a distancia ----
+  // ANTES la devolución solo salía con el PIN tecleado en el mostrador: si el
+  // supervisor no estaba, no había forma de avisarle y la nota de crédito no se
+  // hacía (2026-09-08). AHORA la cajera pide la autorización; a los supervisores
+  // les llega WhatsApp + campanita, aprueban desde /aprobaciones y el sistema
+  // ejecuta la devolución (stock + NC + egreso) solo. La caja lo sigue acá.
+  async function pedirAutorizacionDevolucion() {
+    if (!devVenta) return;
+    const items = Object.entries(devolver).filter(([, c]) => c > 0).map(([sku, cantidad]) => ({ sku, cantidad }));
+    if (!items.length) { setEstado({ tipo: 'error', texto: 'Elegí qué renglones se devuelven' }); return; }
+    setProcesando(true);
+    try {
+      const r = await fetch('/api/devolucion-pedir', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ventaId: devVenta.id, items, reintegro: devEfectivo ? 'efectivo' : 'otro', sesionCajaId: sesion?.sesionId }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.message ?? 'No se pudo pedir la autorización');
+      setDevPedido({ id: d.id, monto: Number(d.monto), estado: 'pendiente', avisados: d.avisados });
+      setModalExtra(null); setPinBuf('');
+      setEstado({ tipo: 'ok', texto: `Pedido enviado: ${(d.avisados ?? []).join(', ') || 'los supervisores'} ya tienen el aviso. Podés seguir vendiendo.` });
+    } catch (e) {
+      setEstado({ tipo: 'error', texto: e instanceof Error ? e.message : 'No se pudo pedir la autorización' });
+    }
+    setProcesando(false);
+  }
+  useEffect(() => {
+    if (!devPedido || devPedido.estado !== 'pendiente') return;
+    let vivo = true;
+    const tick = async () => {
+      try {
+        const d = await fetch(`/api/devolucion-pedir?id=${encodeURIComponent(devPedido.id)}`, { cache: 'no-store' }).then((r) => r.json());
+        if (!vivo || !d?.estado || d.estado === 'pendiente') return;
+        setDevPedido((p) => (p ? { ...p, estado: d.estado, respuesta: d.respuesta, resueltaPor: d.resueltaPor, resultado: d.resultado, error: d.error } : p));
+      } catch { /* sin red momentánea */ }
+    };
+    const t = setInterval(tick, 5000);
+    return () => { vivo = false; clearInterval(t); };
+  }, [devPedido]);
+
   // ---- impresión de ticket (térmica 80mm vía diálogo del navegador) ----
   // El diálogo de impresión se abre DESPUÉS de que el ticket quedó dibujado.
   // Con un setTimeout de 60 ms, en la PC de la caja salía la hoja en blanco
@@ -1458,6 +1501,15 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
           <Link href="/inicio" className="rounded-lg bg-white/10 text-[#F0EBE2]/80 px-3 py-2 text-sm">Panel</Link>
         </div>
       </header>
+      {devPedido && (
+        <div className={'px-4 py-2 text-sm flex flex-wrap items-center gap-x-3 gap-y-1 shrink-0 ' + (devPedido.estado === 'pendiente' ? 'bg-amber-100 text-amber-900' : devPedido.estado === 'aprobada' ? 'bg-emerald-100 text-emerald-900' : 'bg-red-100 text-red-900')}>
+          {devPedido.estado === 'pendiente' && <><span className="inline-block w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse" /><b>Devolución de {pesos(devPedido.monto)} esperando autorización</b><span>{(devPedido.avisados ?? []).length ? `Avisados: ${devPedido.avisados!.join(', ')}` : 'Los supervisores ya tienen el aviso'}</span></>}
+          {devPedido.estado === 'aprobada' && <><b>✓ Devolución de {pesos(devPedido.monto)} autorizada{devPedido.resueltaPor ? ` por ${devPedido.resueltaPor}` : ''}</b><span>Stock repuesto{devPedido.resultado?.nc ? ` · ${fmtNumero(devPedido.resultado.nc)}` : ''}{devPedido.resultado?.egreso ? ' · egreso de caja registrado: entregá el efectivo' : ''}</span></>}
+          {devPedido.estado === 'rechazada' && <><b>Devolución de {pesos(devPedido.monto)} rechazada{devPedido.resueltaPor ? ` por ${devPedido.resueltaPor}` : ''}</b>{devPedido.respuesta && <span>«{devPedido.respuesta}»</span>}</>}
+          {devPedido.estado === 'error' && <><b>La devolución fue autorizada pero no se pudo ejecutar</b><span>{devPedido.error}. Avisá a un supervisor.</span></>}
+          {devPedido.estado !== 'pendiente' && <button type="button" onClick={() => setDevPedido(null)} className="ml-auto underline text-xs">Cerrar</button>}
+        </div>
+      )}
 
       {/* tickets estacionados: la barra del "segundo cliente" */}
       {estacionados.length > 0 && (
@@ -2262,6 +2314,15 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
                       inputMode="numeric"
                       className="mt-2 w-full rounded-xl border-2 border-black/10 px-3 py-3 text-lg text-black outline-none focus:border-[#B82D25]"
                     />
+                    <button
+                      type="button"
+                      onClick={pedirAutorizacionDevolucion}
+                      disabled={procesando}
+                      className="mt-2 w-full rounded-xl border-2 border-dashed border-[#B82D25]/40 py-3 text-sm font-semibold text-[#932A1F] hover:bg-[#B82D25]/5 disabled:opacity-50"
+                    >
+                      ¿No hay supervisor en el local? Pedir autorización a distancia
+                    </button>
+                    <p className="mt-1 text-xs text-black/45">Les llega por WhatsApp y campanita a los supervisores; cuando uno aprueba, la devolución se hace sola y acá te avisa.</p>
                     <div className="mt-4 flex gap-2">
                       <button onClick={() => setDevVenta(null)} className="flex-1 rounded-xl border border-black/10 py-3 text-black/60">Volver</button>
                       <button onClick={confirmarDevolucion} disabled={procesando} className="flex-1 rounded-xl bg-[#B82D25] py-3 text-white font-semibold disabled:opacity-40">

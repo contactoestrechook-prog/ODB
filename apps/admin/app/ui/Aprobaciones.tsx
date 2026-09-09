@@ -15,6 +15,7 @@ const ETIQUETA: Record<string, string> = {
   cobranza: 'Cobro a cuenta',
   cambio_factura: 'Cambio en factura',
   propuesta_costo: 'Cambio de costos',
+  devolucion: 'Devolución en caja',
 };
 // El PDF que respalda la firma, cuando el tipo tiene uno
 const PDF: Record<string, string> = { orden_compra: 'oc', orden_pago: 'op' };
