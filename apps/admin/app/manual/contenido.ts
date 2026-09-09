@@ -387,7 +387,7 @@ export const SECCIONES: Seccion[] = [
           'Arriba de la lista de Productos está la tarjeta "Fotos por código de barras": muestra cuántos productos activos con código todavía no tienen foto.',
           '"Traer fotos faltantes" consulta el catálogo externo (EZ Catalog) producto por producto y guarda la foto en el mismo lugar que las subidas a mano: la web, la app y el panel la muestran al instante. Podés parar y seguir después; no vuelve a pedir un código que ya dio foto.',
           'Para uno solo, escribí el SKU y tocá "Buscar su foto por código". Si el producto no tiene código de barras cargado, primero vinculalo desde la caja o la ficha.',
-          'Si la tarjeta dice que falta la clave o que fue rechazada, hay que cargar la clave de EZ Catalog (empieza con "ezc_") en la configuración del sistema; la carga Leandro.',
+          'La clave de EZ Catalog ya está cargada (plan Básico: hasta 60 consultas por minuto). Si la tarjeta dice que fue rechazada o que se acabó el cupo, avisale a Leandro: la clave se cambia en la configuración del sistema, no desde el panel.',
         ],
       },
       {
