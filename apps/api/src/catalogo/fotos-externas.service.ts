@@ -3,6 +3,7 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
 import { CatalogoService } from './catalogo.service';
 import { recorrerConRitmo } from './ritmo';
+import { pareceElMismoProducto } from './parecido';
 
 // Fotos de producto por código de barras desde EZ Catalog (Huggian), 2026-09-09.
 // Pedido de Leandro: «con los códigos de barra nos dan las fotos de los productos».
@@ -23,7 +24,7 @@ const PARALELO_CONSULTA = Math.max(1, Math.min(Number(process.env.EZ_CATALOG_PAR
 const PASAJERO = /aborted|abort|timeout|ETIMEDOUT|ECONNRESET|ENOTFOUND|fetch failed|socket/i;
 
 type Externo = { nombre: string | null; marca: string | null; imagenUrl: string | null; presentacion: string | null; verificado: boolean };
-type Resultado = { resultado: 'foto' | 'sin_producto' | 'sin_imagen' | 'error'; imagenUrl?: string; nombreExterno?: string | null; marcaExterna?: string | null; detalle?: string };
+type Resultado = { resultado: 'foto' | 'sin_producto' | 'sin_imagen' | 'dudoso' | 'error'; imagenUrl?: string; nombreExterno?: string | null; marcaExterna?: string | null; detalle?: string };
 
 @Injectable()
 export class FotosExternasService {
@@ -75,7 +76,7 @@ export class FotosExternasService {
   }
 
   // Activos con código de barras que todavía no tienen foto en Storage.
-  private async pendientes(): Promise<{ producto_id: string; sku: string; codigo: string }[]> {
+  private async pendientes(): Promise<{ producto_id: string; sku: string; codigo: string; nombre: string }[]> {
     const [fotos, cand] = await Promise.all([this.catalogo.skusConFoto(), this.db.rpc('fotos_externas_pendientes', { p_limite: 5000 })]);
     if (cand.error) throw new BadRequestException(cand.error.message);
     return ((cand.data ?? []) as any[]).filter((c) => !fotos.has(`${c.sku}.jpg`));
@@ -91,11 +92,11 @@ export class FotosExternasService {
   async completar(limite = 30) {
     const pendientes = await this.pendientes();
     const lote = pendientes.slice(0, Math.max(1, Math.min(Number(limite) || 30, 200)));
-    const res = { procesados: 0, conFoto: 0, sinProducto: 0, sinImagen: 0, errores: 0, restantes: Math.max(0, pendientes.length - lote.length), parado: null as string | null, detalle: [] as any[] };
+    const res = { procesados: 0, conFoto: 0, sinProducto: 0, sinImagen: 0, dudosas: 0, errores: 0, restantes: Math.max(0, pendientes.length - lote.length), parado: null as string | null, detalle: [] as any[] };
     const frenar = (e: unknown) => /clave|401|403|límite|429|Falta/i.test(e instanceof Error ? e.message : String(e)); // sin clave o sin cupo: no tiene sentido seguir
     const anotar = (c: { sku: string; codigo: string }, r: Resultado) => {
       res.procesados++;
-      if (r.resultado === 'foto') res.conFoto++; else if (r.resultado === 'sin_producto') res.sinProducto++; else if (r.resultado === 'sin_imagen') res.sinImagen++; else res.errores++;
+      if (r.resultado === 'foto') res.conFoto++; else if (r.resultado === 'sin_producto') res.sinProducto++; else if (r.resultado === 'sin_imagen') res.sinImagen++; else if (r.resultado === 'dudoso') res.dudosas++; else res.errores++;
       if (res.detalle.length < 30) res.detalle.push({ sku: c.sku, ean: c.codigo, resultado: r.resultado, nombre: r.nombreExterno ?? null });
     };
 
@@ -118,13 +119,66 @@ export class FotosExternasService {
 
     // 2) descarga y guardado, de a varias
     const guardadas = await recorrerConRitmo(conFoto, { paralelo: PARALELO, espaciadoMs: 0 }, async ({ c, p }) => {
-      anotar(c, await this.guardarFoto(c.producto_id, c.sku, c.codigo, p));
+      anotar(c, await this.guardarFoto(c.producto_id, c.sku, c.codigo, p, c.nombre));
     });
     res.errores += guardadas.errores.length;
     res.restantes = Math.max(0, pendientes.length - res.procesados);
 
     if (res.procesados) this.log.log(`EZ Catalog: ${res.conFoto} fotos de ${res.procesados} consultas (${res.restantes} pendientes)`);
     return res;
+  }
+
+  // Repasar con la regla de parecido las fotos YA guardadas (las que entraron
+  // antes de que existiera el control). Las que no dan, salen de Storage y
+  // quedan como dudosas para que una persona decida.
+  async revisarGuardadas() {
+    const { data, error } = await this.db
+      .from('fotos_externas').select('id, sku, ean, nombre_externo, marca_externa, producto:productos(nombre)')
+      .eq('resultado', 'foto').limit(5000);
+    if (error) throw new BadRequestException(error.message);
+    const sacadas: { sku: string; nuestro: string; externo: string | null; motivo: string }[] = [];
+    for (const d of (data ?? []) as any[]) {
+      const v = pareceElMismoProducto(d.producto?.nombre, d.nombre_externo, d.marca_externa);
+      if (v.parecido) continue;
+      await this.db.storage.from('productos').remove([`${d.sku}.jpg`]);
+      await this.db.from('fotos_externas').update({ resultado: 'dudoso', detalle: v.motivo }).eq('id', d.id);
+      sacadas.push({ sku: d.sku, nuestro: d.producto?.nombre ?? d.sku, externo: d.nombre_externo, motivo: v.motivo });
+    }
+    if (sacadas.length) { this.catalogo.invalidarFotos(); this.log.warn(`EZ Catalog: ${sacadas.length} fotos sacadas por no coincidir con el producto`); }
+    return { revisadas: (data ?? []).length, sacadas: sacadas.length, detalle: sacadas.slice(0, 50) };
+  }
+
+  // Las que el catálogo devolvió con otro nombre: esperan que alguien las mire.
+  async dudosas() {
+    const { data, error } = await this.db
+      .from('fotos_externas')
+      .select('id, sku, ean, nombre_externo, marca_externa, url_externa, detalle, creado_en, producto:productos(nombre)')
+      .eq('resultado', 'dudoso')
+      .order('creado_en', { ascending: false })
+      .limit(200);
+    if (error) throw new BadRequestException(error.message);
+    return (data ?? []).map((d: any) => ({
+      id: d.id, sku: d.sku, ean: d.ean,
+      nuestro: d.producto?.nombre ?? d.sku,
+      externo: d.nombre_externo, marca: d.marca_externa, urlExterna: d.url_externa,
+      motivo: d.detalle, creadoEn: d.creado_en,
+    }));
+  }
+
+  // Aceptar = bajar esa foto y guardarla; descartar = dejarla anotada para no volver a pedirla.
+  async resolverDudosa(id: string, aceptar: boolean) {
+    const { data: d, error } = await this.db.from('fotos_externas').select('id, producto_id, sku, ean, nombre_externo, marca_externa, url_externa, resultado').eq('id', id).maybeSingle();
+    if (error) throw new BadRequestException(error.message);
+    if (!d) throw new BadRequestException('Ese pendiente ya no existe');
+    if ((d as any).resultado !== 'dudoso') throw new BadRequestException('Ese pendiente ya fue resuelto');
+    if (!aceptar) {
+      await this.db.from('fotos_externas').update({ resultado: 'descartada', detalle: 'no es este producto (revisado a mano)' }).eq('id', id);
+      return { ok: true, resultado: 'descartada' };
+    }
+    const p: Externo = { nombre: (d as any).nombre_externo, marca: (d as any).marca_externa, imagenUrl: (d as any).url_externa, presentacion: null, verificado: false };
+    const r = await this.guardarFotoSinControl((d as any).producto_id, (d as any).sku, (d as any).ean, p);
+    if (r.resultado === 'foto') await this.db.from('fotos_externas').delete().eq('id', id); // ya quedó el registro nuevo con resultado 'foto'
+    return { ok: r.resultado === 'foto', resultado: r.resultado, detalle: r.detalle ?? null, imagenUrl: r.imagenUrl ?? null };
   }
 
   // Para un producto puntual (desde la ficha), aunque ya se haya consultado antes.
@@ -135,7 +189,7 @@ export class FotosExternasService {
     if (!codigos.length) throw new BadRequestException('Este producto no tiene código de barras cargado: vinculalo primero desde la caja o la ficha');
     let ultimo: Resultado = { resultado: 'sin_producto' };
     for (const ean of codigos) {
-      ultimo = await this.traerPara(p.id, p.sku, ean);
+      ultimo = await this.traerPara(p.id, p.sku, ean, (p as any).nombre ?? '');
       if (ultimo.resultado === 'foto') break;
     }
     return { sku: p.sku, nombre: (p as any).nombre, ...ultimo };
@@ -145,7 +199,7 @@ export class FotosExternasService {
     return this.db.from('fotos_externas').insert({ producto_id: productoId, sku, ean, resultado, nombre_externo: p?.nombre ?? null, marca_externa: p?.marca ?? null, url_externa: p?.imagenUrl ?? null, detalle: detalle ?? null }).then(() => null, () => null);
   }
 
-  private async traerPara(productoId: string, sku: string, ean: string): Promise<Resultado> {
+  private async traerPara(productoId: string, sku: string, ean: string, nombreNuestro: string): Promise<Resultado> {
     const registrar = (resultado: Resultado['resultado'], p?: Externo | null, detalle?: string) => this.registrar(productoId, sku, ean, resultado, p, detalle);
     let consulta: { estado: 'ok' | 'sin_producto'; producto?: Externo };
     // Un corte por tiempo de espera o de red NO se registra: si quedara como
@@ -156,12 +210,25 @@ export class FotosExternasService {
     if (consulta.estado === 'sin_producto') { await registrar('sin_producto'); return { resultado: 'sin_producto' }; }
     const p = consulta.producto!;
     if (!p.imagenUrl) { await registrar('sin_imagen', p); return { resultado: 'sin_imagen', nombreExterno: p.nombre, marcaExterna: p.marca }; }
-    return this.guardarFoto(productoId, sku, ean, p);
+    return this.guardarFoto(productoId, sku, ean, p, nombreNuestro);
   }
 
   // Bajar la imagen y guardarla en Storage. Va contra images.huggian.com y
   // Supabase (no contra la API con tope), así que esto sí se puede hacer de a varias.
-  private async guardarFoto(productoId: string, sku: string, ean: string, p: Externo): Promise<Resultado> {
+  private async guardarFoto(productoId: string, sku: string, ean: string, p: Externo, nombreNuestro: string): Promise<Resultado> {
+    const registrar = (resultado: Resultado['resultado'], q?: Externo | null, detalle?: string) => this.registrar(productoId, sku, ean, resultado, q, detalle);
+    // El catálogo a veces devuelve la ficha de otro producto con NUESTRO código
+    // (a un vino, pintura; a una sal, creatina). Si el nombre no se parece en
+    // nada, la foto no se guarda sola: queda para que una persona la mire.
+    const v = pareceElMismoProducto(nombreNuestro, p.nombre, p.marca);
+    if (!v.parecido) {
+      await registrar('dudoso', p, v.motivo);
+      return { resultado: 'dudoso', nombreExterno: p.nombre, marcaExterna: p.marca, detalle: v.motivo };
+    }
+    return this.guardarFotoSinControl(productoId, sku, ean, p);
+  }
+
+  private async guardarFotoSinControl(productoId: string, sku: string, ean: string, p: Externo): Promise<Resultado> {
     const registrar = (resultado: Resultado['resultado'], q?: Externo | null, detalle?: string) => this.registrar(productoId, sku, ean, resultado, q, detalle);
     try {
       const ctrl = new AbortController(); const reloj = setTimeout(() => ctrl.abort(), 25_000);

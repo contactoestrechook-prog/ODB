@@ -15,6 +15,19 @@ export class FotosExternasController {
   @Post('completar')
   completar(@Body() b: { limite?: number }) { return this.fotos.completar(b?.limite ?? 30); }
 
+  @Roles('gerente', 'dueno')
+  @Post('revisar-guardadas')
+  revisarGuardadas() { return this.fotos.revisarGuardadas(); }
+
+  @Roles('comprador', 'gerente', 'dueno')
+  @Get('dudosas')
+  dudosas() { return this.fotos.dudosas(); }
+
+  // Con la foto a la vista, una persona decide: es este producto o no lo es.
+  @Roles('comprador', 'gerente', 'dueno')
+  @Post('dudosa/:id')
+  resolverDudosa(@Param('id') id: string, @Body() b: { aceptar?: boolean }) { return this.fotos.resolverDudosa(id, !!b?.aceptar); }
+
   @Roles('comprador', 'gerente', 'dueno')
   @Post('producto/:sku')
   producto(@Param('sku') sku: string) { return this.fotos.paraSku(sku); }
