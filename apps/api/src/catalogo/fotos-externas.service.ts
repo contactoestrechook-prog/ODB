@@ -2,6 +2,7 @@ import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common'
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
 import { CatalogoService } from './catalogo.service';
+import { recorrerConRitmo } from './ritmo';
 
 // Fotos de producto por código de barras desde EZ Catalog (Huggian), 2026-09-09.
 // Pedido de Leandro: «con los códigos de barra nos dan las fotos de los productos».
@@ -12,11 +13,10 @@ import { CatalogoService } from './catalogo.service';
 const BASE = (process.env.EZ_CATALOG_URL ?? 'https://api.ez-catalog.huggian.com').replace(/\/$/, '');
 const EAN_PRUEBA = '7790895000010'; // Coca-Cola 2,25 l: existe seguro en cualquier catálogo argentino
 const POR_MINUTO = Math.max(10, Number(process.env.EZ_CATALOG_POR_MINUTO ?? 60)); // Basic 60/min, Pro 300/min
+const PARALELO = Math.max(1, Math.min(Number(process.env.EZ_CATALOG_PARALELO ?? 8), 20)); // cuántas en vuelo a la vez
 
 type Externo = { nombre: string | null; marca: string | null; imagenUrl: string | null; presentacion: string | null; verificado: boolean };
 type Resultado = { resultado: 'foto' | 'sin_producto' | 'sin_imagen' | 'error'; imagenUrl?: string; nombreExterno?: string | null; marcaExterna?: string | null; detalle?: string };
-
-const dormir = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 @Injectable()
 export class FotosExternasService {
@@ -75,23 +75,32 @@ export class FotosExternasService {
   }
 
   // Un lote: la pantalla lo llama repetidamente hasta que no queden pendientes.
+  // Varias consultas en vuelo a la vez (cada una espera catálogo + descarga +
+  // Storage: de a una se usaba menos de la décima parte del cupo del plan), pero
+  // sin arrancar más de una cada 60.000/POR_MINUTO ms: el tope lo sigue marcando el plan.
   async completar(limite = 30) {
     const pendientes = await this.pendientes();
-    const lote = pendientes.slice(0, Math.max(1, Math.min(Number(limite) || 30, 100)));
+    const lote = pendientes.slice(0, Math.max(1, Math.min(Number(limite) || 30, 200)));
     const res = { procesados: 0, conFoto: 0, sinProducto: 0, sinImagen: 0, errores: 0, restantes: Math.max(0, pendientes.length - lote.length), parado: null as string | null, detalle: [] as any[] };
-    for (const c of lote) {
-      try {
-        const r = await this.traerPara(c.producto_id, c.sku, c.codigo);
-        res.procesados++;
-        if (r.resultado === 'foto') res.conFoto++; else if (r.resultado === 'sin_producto') res.sinProducto++; else if (r.resultado === 'sin_imagen') res.sinImagen++; else res.errores++;
-        if (res.detalle.length < 30) res.detalle.push({ sku: c.sku, ean: c.codigo, resultado: r.resultado, nombre: r.nombreExterno ?? null });
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        res.errores++;
-        if (/clave|401|403|límite|429|Falta/i.test(msg)) { res.parado = msg; break; } // sin clave o sin cupo: no tiene sentido seguir
-      }
-      await dormir(Math.ceil(60_000 / POR_MINUTO));
+
+    const corrida = await recorrerConRitmo(
+      lote,
+      { paralelo: PARALELO, espaciadoMs: Math.ceil(60_000 / POR_MINUTO) },
+      async (c) => ({ c, r: await this.traerPara(c.producto_id, c.sku, c.codigo) }),
+      (e) => /clave|401|403|límite|429|Falta/i.test(e instanceof Error ? e.message : String(e)), // sin clave o sin cupo: no tiene sentido seguir
+    );
+
+    for (const hecho of corrida.resultados) {
+      if (!hecho) continue;
+      const { c, r } = hecho;
+      res.procesados++;
+      if (r.resultado === 'foto') res.conFoto++; else if (r.resultado === 'sin_producto') res.sinProducto++; else if (r.resultado === 'sin_imagen') res.sinImagen++; else res.errores++;
+      if (res.detalle.length < 30) res.detalle.push({ sku: c.sku, ean: c.codigo, resultado: r.resultado, nombre: r.nombreExterno ?? null });
     }
+    res.errores += corrida.errores.length;
+    res.parado = corrida.motivoParada;
+    res.restantes = Math.max(0, pendientes.length - res.procesados);
+
     if (res.procesados) this.log.log(`EZ Catalog: ${res.conFoto} fotos de ${res.procesados} consultas (${res.restantes} pendientes)`);
     return res;
   }
