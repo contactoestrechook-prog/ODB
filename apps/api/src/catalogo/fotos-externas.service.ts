@@ -76,8 +76,11 @@ export class FotosExternasService {
   }
 
   // Activos con código de barras que todavía no tienen foto en Storage.
+  // El tope tiene que cubrir TODO el catálogo (7.900 activos con código): la
+  // mayoría ya tiene foto y se descarta acá, así que un tope corto mostraba un
+  // número de pendientes que no era el real y hacía trabajar siempre la misma punta.
   private async pendientes(): Promise<{ producto_id: string; sku: string; codigo: string; nombre: string }[]> {
-    const [fotos, cand] = await Promise.all([this.catalogo.skusConFoto(), this.db.rpc('fotos_externas_pendientes', { p_limite: 5000 })]);
+    const [fotos, cand] = await Promise.all([this.catalogo.skusConFoto(), this.db.rpc('fotos_externas_pendientes', { p_limite: 20000 })]);
     if (cand.error) throw new BadRequestException(cand.error.message);
     return ((cand.data ?? []) as any[]).filter((c) => !fotos.has(`${c.sku}.jpg`));
   }
