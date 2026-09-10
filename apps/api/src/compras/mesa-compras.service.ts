@@ -6,6 +6,7 @@ import { SUPABASE } from '../supabase.provider';
 import { calcularCosto, compararOfertas, impactoEnPrecio, type OfertaCompra } from './costeo';
 import { margenAplicable } from './precio';
 import { TONO_ODB } from '../comun/tono-odb';
+import { respuestaSinVueltas } from '../comun/sin-vueltas';
 
 export type MensajeMesa = {
   rol: 'usuario' | 'asistente';
@@ -606,6 +607,11 @@ export class MesaComprasService {
       return { role: m.rol === 'usuario' ? 'user' : 'assistant', content: bloques };
     });
 
+    // Lo que el analista ya dijo en esta charla: ninguna respuesta puede
+    // repetirlo. Ver [[sin-vueltas]]: repetirse deja al comprador sin salida.
+    const yaDicho = mensajes.filter((m) => m.rol !== 'usuario').map((m) => m.texto ?? '').filter(Boolean);
+    const contestar = (texto: string) => respuestaSinVueltas(texto, yaDicho).texto;
+
     const usados: string[] = [];
     // Cuando el modelo se queda sin espacio antes de escribir nada (le pasa si
     // arma una tanda gigante), se reintenta UNA vez con una nota que le dice que
@@ -618,7 +624,7 @@ export class MesaComprasService {
     // se calcularon, no un "el analista tardó demasiado" con la charla perdida.
     const limite = Date.now() + 200_000;
     for (let vuelta = 0; vuelta < 8; vuelta++) {
-      if (vuelta > 0 && Date.now() > limite) return { respuesta: await this.cerrarConLoQueHay(claude, historial), herramientas: usados };
+      if (vuelta > 0 && Date.now() > limite) return { respuesta: contestar(await this.cerrarConLoQueHay(claude, historial)), herramientas: usados };
       let res: Anthropic.Message;
       try {
         // En streaming: una charla con varias tandas de costeo pasa los minutos
@@ -629,6 +635,11 @@ export class MesaComprasService {
             model: 'claude-opus-4-8',
             max_tokens: 32000,
             thinking: { type: 'adaptive' },
+            // Acá se decide plata: qué se paga por la mercadería y a cuánto se
+            // vende. Con esfuerzo bajo el analista contesta rápido y flojo
+            // (repregunta lo que ya sabe, no relaciona el costo con el precio
+            // vigente). Se paga el rato de más y se piensa en serio.
+            output_config: { effort: (process.env.MESA_ESFUERZO ?? 'high') as any },
             system: [{ type: 'text', text: SYSTEM, cache_control: { type: 'ephemeral' } }],
             tools: HERRAMIENTAS,
             messages: historial,
@@ -654,7 +665,7 @@ export class MesaComprasService {
           .map((b) => b.text)
           .join('\n')
           .trim();
-        if (texto) return { respuesta: texto, herramientas: usados };
+        if (texto) return { respuesta: contestar(texto), herramientas: usados };
 
         // Sin texto. Si fue por falta de espacio, se lo decimos y sigue solo:
         // el comprador no tiene por qué arreglar un problema nuestro.
@@ -670,7 +681,7 @@ export class MesaComprasService {
           });
           continue;
         }
-        return { respuesta: salida.texto, herramientas: usados };
+        return { respuesta: contestar(salida.texto), herramientas: usados };
       }
 
       historial.push({ role: 'assistant', content: res.content });
@@ -692,7 +703,7 @@ export class MesaComprasService {
       }
       historial.push({ role: 'user', content: resultados });
     }
-    return { respuesta: await this.cerrarConLoQueHay(claude, historial), herramientas: usados };
+    return { respuesta: contestar(await this.cerrarConLoQueHay(claude, historial)), herramientas: usados };
   }
 
   // Última llamada, sin herramientas y corta: que escriba el resultado de lo que
