@@ -26,5 +26,17 @@ export function FotoProducto({
       </div>
     );
   }
-  return <img src={src} alt="" onError={() => setI((n) => n + 1)} className={`w-full h-full object-cover ${className}`} />;
+  // La foto propia del producto (i === 0) se muestra ENTERA: son packshots
+  // verticales sobre fondo blanco y, recortadas para llenar el cuadro, les
+  // cortaba el cuello y la base a las botellas. Los tiles decorativos que vienen
+  // después no son el producto: esos sí llenan el cuadro.
+  const esLaFoto = i === 0 && !!imagenUrl;
+  return (
+    <img
+      src={src}
+      alt=""
+      onError={() => setI((n) => n + 1)}
+      className={`w-full h-full ${esLaFoto ? "object-contain p-2" : "object-cover"} ${className}`}
+    />
+  );
 }
