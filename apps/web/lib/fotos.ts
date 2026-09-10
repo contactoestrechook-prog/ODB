@@ -30,6 +30,16 @@ const REGLAS: { tipo: string; kw: string[] }[] = [
   { tipo: "limpieza", kw: ["lavandina", "detergente", "jabon", "jabón", "limpiador", "desinfectante", "lavavajilla", "suavizante", "esponja", "magistral", "cif"] },
 ];
 
+// Cuántos tiles existen de verdad en public/cat por tipo. Sin esto se pedían
+// /cat/chocolate-2.jpg y /cat/whisky-1.jpg, que no existen: cada tarjeta de
+// chocolate, fernet, whisky, agua o fiambre disparaba dos o tres 404 antes de
+// caer en el logo. Si se agregan tiles nuevos, actualizar este mapa.
+const DISPONIBLES: Record<string, number> = {
+  aceite: 2, aceitunas: 3, aperitivo: 2, arroz: 2, cafe: 1, cerveza: 1, conservas: 1,
+  espumante: 1, fideos: 3, galletitas: 3, gaseosa: 3, gin: 2, harina: 1, jugo: 2,
+  leche: 2, limpieza: 2, mayonesa: 1, queso: 2, snacks: 2, vino: 3, yerba: 2,
+};
+
 function hash(s: string): number {
   let h = 2166136261;
   for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
@@ -40,7 +50,9 @@ export function fotosCandidatas(nombre?: string | null, sku?: string | null): st
   const n = (nombre ?? "").toLowerCase();
   const tipo = REGLAS.find((r) => r.kw.some((k) => n.includes(k)))?.tipo;
   if (!tipo) return [];
-  const pick = (hash(sku || nombre || tipo) % 3) + 1; // variante por producto (1-3)
-  const orden = [pick, 1, 2, 3].filter((v, i, a) => a.indexOf(v) === i);
+  const cuantos = DISPONIBLES[tipo] ?? 0;
+  if (!cuantos) return []; // ese tipo no tiene tile: mejor el logo que un 404
+  const pick = (hash(sku || nombre || tipo) % cuantos) + 1; // variante por producto
+  const orden = [pick, ...Array.from({ length: cuantos }, (_, i) => i + 1)].filter((v, i, a) => a.indexOf(v) === i);
   return orden.map((i) => `/cat/${tipo}-${i}.jpg`);
 }
