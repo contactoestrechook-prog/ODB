@@ -81,6 +81,8 @@ Tu trabajo es sacar el COSTO REAL de cada compra y proponer el precio de venta q
 Cuando el comprador te describe una oferta (por texto, dictada, en una foto o PDF de la lista, o en una planilla Excel/CSV):
 - Si viene una planilla, primero identificá qué columna es el producto, cuál el precio y cuál la unidad. Si el comprador dice "tomá la columna X y sumale 29%", eso es un ajuste de precio de lista (por ejemplo, un aumento del proveedor): pasale a la herramienta el precio de la columna tal cual y el porcentaje en ajusteListaPct (29). NUNCA multipliques vos el 1,29: la herramienta lo hace y te devuelve el precio ajustado en el detalle.
 - IMPORTANTE con planillas: cuando el comprador quiere costear VARIOS renglones (por ejemplo "aplicá el 29% a toda la columna Base unit", o los 10/20/50 que te pida), NO llames calcular_costo una vez por renglón. Armá calcular_costos_en_tanda con el array de renglones. Usá calcular_costo (en singular) solo cuando es un producto suelto.
+- FÓRMULAS: si el comprador dicta una fórmula sobre la columna ("dividila por 1,21 y hacela por 1,24", "multiplicala por 1,1"), pasala TAL CUAL en operacionesLista, en el orden en que la dijo, y seguí. No preguntes qué significa cada factor ni si el 1,21 es el IVA: la fórmula es de él y la calculadora la aplica. Preguntar por una fórmula que ya te dio es no hacer tu trabajo.
+- Cuando dejes armada una propuesta, decí en el mismo mensaje el costo y el precio que quedaron propuestos: el comprador no tiene que ir a buscarlos.
 - TOPE: como mucho 25 renglones por llamada a calcular_costos_en_tanda. Si el comprador pidió 30, 50 o 100, hacé varias llamadas seguidas de 25 y después mostrá todo junto. Meter 60 renglones en una sola llamada te deja sin espacio a mitad de camino y el comprador se queda sin respuesta.
 - Con una planilla de muchísimos renglones (cientos o miles), no cuestes todo de una: proponé arrancar por los que más interesan (mayor volumen/stock) o pedile al comprador que te diga cuántos y cuáles, y después esos van juntos en calcular_costos_en_tanda.
 - Extraé los datos: presentación, precio, descuentos, bonificación, flete, plazo.
@@ -134,6 +136,11 @@ const HERRAMIENTAS: Anthropic.Tool[] = [
         bultos: { type: 'number', description: 'Cuántos bultos se compran.' },
         precioBulto: { type: 'number', description: 'Precio de lista de UN bulto, SIN IVA.' },
         ajusteListaPct: { type: 'number', description: 'Ajuste sobre la lista antes de descuentos. Si el proveedor "sube 29%" o el comprador dice "sumale 29%", va 29. Si baja, negativo.' },
+        operacionesLista: {
+          type: 'array',
+          description: 'La fórmula que el comprador dicta sobre la columna de precio, TAL CUAL y en su orden. "Dividila por 1,21 y hacela por 1,24" = [{"op":"dividir","valor":1.21},{"op":"multiplicar","valor":1.24}]. Se aplica después del ajuste y antes de los descuentos. No la conviertas en un porcentaje ni la simplifiques: pasala como la dijo.',
+          items: { type: 'object', properties: { op: { type: 'string', enum: ['dividir', 'multiplicar'] }, valor: { type: 'number' } }, required: ['op', 'valor'] },
+        },
         descuentosPct: { type: 'array', items: { type: 'number' }, description: 'Descuentos en cascada, en orden. Ej: [10, 5].' },
         bonificacionPaga: { type: 'number', description: 'En "compra 10 lleva 12", va 10.' },
         bonificacionGratis: { type: 'number', description: 'En "compra 10 lleva 12", va 2.' },
@@ -155,7 +162,7 @@ const HERRAMIENTAS: Anthropic.Tool[] = [
       properties: {
         ofertas: {
           type: 'array',
-          description: 'Un renglón por producto a costear. Cada uno con los mismos campos que calcular_costo (descripcion, unidadesPorBulto, bultos, precioBulto, ajusteListaPct, descuentosPct, flete, plazoDias, etc.).',
+          description: 'Un renglón por producto a costear. Cada uno con los mismos campos que calcular_costo (descripcion, unidadesPorBulto, bultos, precioBulto, ajusteListaPct, operacionesLista, descuentosPct, flete, plazoDias, etc.).',
           items: { type: 'object' },
         },
       },
@@ -278,6 +285,9 @@ export class MesaComprasService {
       bultos: Number(i.bultos) || 1,
       precioBulto: Number(i.precioBulto) || 0,
       ajusteListaPct: Number(i.ajusteListaPct) || 0,
+      operacionesLista: Array.isArray(i.operacionesLista)
+        ? i.operacionesLista.map((o: any) => ({ op: String(o?.op ?? '').toLowerCase() as any, valor: Number(o?.valor) }))
+        : [],
       descuentosPct: Array.isArray(i.descuentosPct) ? i.descuentosPct.map(Number) : [],
       bonificacion:
         Number(i.bonificacionPaga) > 0 && Number(i.bonificacionGratis) > 0

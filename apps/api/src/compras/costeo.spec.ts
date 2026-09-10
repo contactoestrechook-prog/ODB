@@ -115,3 +115,46 @@ describe('ajuste de lista (aumento del proveedor)', () => {
     expect(r.costoUnitarioContado).toBe(1161);
   });
 });
+
+// La fórmula que Leandro le dio al analista el 10/9/2026 con la lista de
+// Mosquita Muerta: "a la columna costo hay que dividirla por 1.21 y hacerla por
+// 1.24. Al resultado hacerle un 10% de descuento". Sin estas operaciones el
+// analista (que tiene prohibido hacer cuentas) no tenía cómo expresarla y se
+// quedaba tres minutos trabado hasta terminar preguntando.
+describe('la fórmula del comprador sobre la columna', () => {
+  it('÷1,21 ×1,24 −10% sobre una caja de 6 a $63.000 da $9.684 la botella', () => {
+    const r = calcularCosto({
+      unidadesPorBulto: 6,
+      bultos: 1,
+      precioBulto: 63000,
+      operacionesLista: [{ op: 'dividir', valor: 1.21 }, { op: 'multiplicar', valor: 1.24 }],
+      descuentosPct: [10],
+    });
+    // 63.000 ÷ 1,21 = 52.066,12 → ×1,24 = 64.561,98 → −10% = 58.105,79 → ÷6
+    expect(r.costoUnitarioContado).toBeCloseTo(9684.3, 1);
+    expect(r.detalle.some((d) => d.startsWith('Dividido por 1.21'))).toBe(true);
+    expect(r.detalle.some((d) => d.startsWith('Multiplicado por 1.24'))).toBe(true);
+  });
+
+  it('el orden importa y se respeta: primero la fórmula, después los descuentos', () => {
+    const conFormula = calcularCosto({ unidadesPorBulto: 1, bultos: 1, precioBulto: 1000, operacionesLista: [{ op: 'multiplicar', valor: 2 }], descuentosPct: [50] });
+    expect(conFormula.costoUnitarioContado).toBe(1000); // 1000 ×2 = 2000 −50% = 1000
+  });
+
+  it('se encadena con el ajuste de lista', () => {
+    // 1000 +10% = 1100 ÷ 1,1 = 1000
+    const r = calcularCosto({ unidadesPorBulto: 1, bultos: 1, precioBulto: 1000, ajusteListaPct: 10, operacionesLista: [{ op: 'dividir', valor: 1.1 }] });
+    expect(r.costoUnitarioContado).toBeCloseTo(1000, 4);
+  });
+
+  it('un factor inválido frena con un mensaje claro, no con un número cualquiera', () => {
+    expect(() => calcularCosto({ unidadesPorBulto: 1, bultos: 1, precioBulto: 1000, operacionesLista: [{ op: 'dividir', valor: 0 }] })).toThrow(/factor inválido/);
+    expect(() => calcularCosto({ unidadesPorBulto: 1, bultos: 1, precioBulto: 1000, operacionesLista: [{ op: 'sumar' as any, valor: 2 }] })).toThrow(/operación desconocida/);
+  });
+
+  it('el aviso de "los descuentos no se suman" se calcula sobre el precio ya con la fórmula', () => {
+    const r = calcularCosto({ unidadesPorBulto: 1, bultos: 1, precioBulto: 1000, operacionesLista: [{ op: 'multiplicar', valor: 2 }], descuentosPct: [10, 10] });
+    // 2000 → 1800 → 1620: el descuento real es 19%, no 20%
+    expect(r.detalle.some((d) => d.includes('19.00%'))).toBe(true);
+  });
+});

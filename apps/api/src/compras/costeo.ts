@@ -28,6 +28,14 @@ export type OfertaCompra = {
   precioBulto: number;
   /** ajuste sobre la lista ANTES de descuentos: +29 = el proveedor subió 29%; -5 = bajó 5% */
   ajusteListaPct?: number;
+  /**
+   * Fórmula del comprador sobre la columna de precio, en el orden en que la
+   * dice: "dividila por 1,21 y hacela por 1,24" = [{op:'dividir',valor:1.21},
+   * {op:'multiplicar',valor:1.24}]. Va después del ajuste y antes de los
+   * descuentos. Existe porque el analista tiene prohibido hacer cuentas y sin
+   * esto no tenía cómo expresar la fórmula: se quedaba minutos trabado.
+   */
+  operacionesLista?: { op: 'dividir' | 'multiplicar'; valor: number }[];
   /** descuentos que se aplican uno sobre otro, en orden: [10, 5] = 10% y después 5% */
   descuentosPct?: number[];
   bonificacion?: Bonificacion | null;
@@ -92,6 +100,19 @@ export function calcularCosto(oferta: OfertaCompra): CostoCalculado {
     );
   }
 
+  // 0 bis) la fórmula del comprador sobre la columna, tal cual la dijo
+  for (const o of oferta.operacionesLista ?? []) {
+    const valor = Number(o?.valor);
+    if (!Number.isFinite(valor) || valor <= 0) throw new Error(`La fórmula tiene un factor inválido (${o?.valor}): tiene que ser un número mayor a cero`);
+    const antes = precioBultoNeto;
+    if (o.op === 'dividir') precioBultoNeto = precioBultoNeto / valor;
+    else if (o.op === 'multiplicar') precioBultoNeto = precioBultoNeto * valor;
+    else throw new Error(`La fórmula tiene una operación desconocida (${String(o?.op)}): va "dividir" o "multiplicar"`);
+    detalle.push(`${o.op === 'dividir' ? 'Dividido' : 'Multiplicado'} por ${valor}: ${pesos(antes)} → ${pesos(precioBultoNeto)} por bulto`);
+  }
+  // el precio sobre el que se aplican los descuentos (para el aviso de "no se suman")
+  const baseDescuentos = precioBultoNeto;
+
   // 1) descuentos en cascada (no se suman: se aplican uno sobre el otro)
   for (const d of oferta.descuentosPct ?? []) {
     const pct = Number(d) || 0;
@@ -102,8 +123,7 @@ export function calcularCosto(oferta: OfertaCompra): CostoCalculado {
   }
   if ((oferta.descuentosPct ?? []).filter((d) => Number(d) > 0).length > 1) {
     const suma = (oferta.descuentosPct ?? []).reduce((s, d) => s + (Number(d) || 0), 0);
-    const base = precioBulto * (1 + ajuste / 100);
-    const real = (1 - precioBultoNeto / base) * 100;
+    const real = (1 - precioBultoNeto / baseDescuentos) * 100;
     detalle.push(
       `Ojo: los descuentos NO se suman. ${suma.toFixed(1)}% "de arriba" es en realidad ${real.toFixed(2)}%`,
     );
