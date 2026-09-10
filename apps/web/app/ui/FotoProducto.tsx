@@ -21,7 +21,7 @@ export function FotoProducto({
 
   if (!src) {
     return (
-      <div className="w-full h-full grid place-items-center bg-crema">
+      <div className="w-full h-full grid place-items-center bg-crema-prof/60">
         <img src="/odb-logo.png" alt="" className={`${logoH} w-auto opacity-35`} />
       </div>
     );
@@ -36,7 +36,7 @@ export function FotoProducto({
       src={src}
       alt=""
       onError={() => setI((n) => n + 1)}
-      className={`w-full h-full ${esLaFoto ? "object-contain p-2" : "object-cover"} ${className}`}
+      className={`w-full h-full ${esLaFoto ? "object-contain p-4 sm:p-5" : "object-cover"} ${className}`}
     />
   );
 }

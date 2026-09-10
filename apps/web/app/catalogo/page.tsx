@@ -19,7 +19,10 @@ export default async function Catalogo({ searchParams }: { searchParams: Promise
   if (q) qs.set("buscar", q);
   if (categoriaId) qs.set("categoriaId", categoriaId);
   if (filtro) qs.set("filtro", filtro);
-  qs.set("porPagina", "20");
+  qs.set("porPagina", "24");
+  // La góndola abre con lo que tiene foto: en orden alfabético arrancaba con
+  // vasos y huevos sueltos sin imagen, que es la peor primera pantalla posible.
+  if (!sp.orden) qs.set("orden", "foto");
   qs.set("pagina", String(pagina));
 
   const [filtros, data] = await Promise.all([
@@ -43,6 +46,10 @@ export default async function Catalogo({ searchParams }: { searchParams: Promise
     p.set("pagina", String(n));
     return `/catalogo?${p.toString()}`;
   };
+
+  // La primera fila va en grande: son las que abren la góndola y tienen foto.
+  const destacados = pagina === 1 && !q ? data.items.slice(0, 4) : [];
+  const resto = data.items.slice(destacados.length);
 
   const kicker = filtro === "promo" ? "Por tiempo limitado" : "La tienda";
   const titulo = filtro === "promo" ? "Ofertas" : q ? "Resultados" : "Catálogo";
@@ -76,9 +83,16 @@ export default async function Catalogo({ searchParams }: { searchParams: Promise
       {data.items.length === 0 ? (
         <p className="text-center text-humo py-24">No encontramos productos. Probá con otra búsqueda.</p>
       ) : (
-        <div className="mt-6 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-x-4 gap-y-9">
-          {data.items.map((p) => <Producto key={p.sku} p={p} />)}
-        </div>
+        <>
+          {destacados.length > 0 && (
+            <div className="mt-8 grid grid-cols-2 lg:grid-cols-4 gap-x-5 gap-y-10">
+              {destacados.map((p) => <Producto key={p.sku} p={p} grande />)}
+            </div>
+          )}
+          <div className="mt-10 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-x-5 gap-y-10">
+            {resto.map((p) => <Producto key={p.sku} p={p} />)}
+          </div>
+        </>
       )}
 
       {data.paginas > 1 && (

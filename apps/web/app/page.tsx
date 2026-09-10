@@ -28,8 +28,8 @@ export default async function Home() {
   const cliente = await sesion();
   const [filtros, promo, destacados] = await Promise.all([
     apiJson<{ categorias: any[] }>("/catalogo/filtros", { categorias: [] }),
-    apiJson<{ items: P[] }>("/productos?filtro=promo&porPagina=10", { items: [] }),
-    apiJson<{ items: P[] }>("/productos?porPagina=10&orden=recientes", { items: [] }),
+    apiJson<{ items: P[] }>("/productos?filtro=promo&porPagina=8", { items: [] }),
+    apiJson<{ items: P[] }>("/productos?porPagina=8&orden=foto", { items: [] }),
   ]);
   const categorias = (filtros.categorias ?? []).slice(0, 8);
 
@@ -82,7 +82,7 @@ export default async function Home() {
         {promo.items.length > 0 && (
           <section className="mt-20">
             <Encabezado kicker="Por tiempo limitado" titulo="Ofertas de la semana" href="/catalogo?filtro=promo" />
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-x-4 gap-y-9">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-x-5 gap-y-10">
               {promo.items.map((p) => <Producto key={p.sku} p={p} />)}
             </div>
           </section>
@@ -126,7 +126,7 @@ export default async function Home() {
         <div className="max-w-7xl mx-auto px-5 lg:px-8">
           <section className="mt-20">
             <Encabezado kicker={cliente ? "Elegidos para vos" : "Recién llegados"} titulo={cliente ? "Recomendados" : "Novedades"} href="/catalogo" />
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-x-4 gap-y-9">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-x-5 gap-y-10">
               {destacados.items.map((p) => <Producto key={p.sku} p={p} />)}
             </div>
           </section>
