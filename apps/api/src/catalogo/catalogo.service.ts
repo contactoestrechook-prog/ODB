@@ -33,8 +33,18 @@ export class CatalogoService {
     if (this.fotosCache && Date.now() - this.fotosCache.ts < 300_000) {
       return this.fotosCache.set;
     }
-    const { data } = await this.db.storage.from('productos').list('', { limit: 20000 });
-    const set = new Set((data ?? []).map((f) => f.name));
+    // Storage devuelve como mucho 1.500 archivos por pedido, aunque el límite
+    // que se le pase sea mayor y sin avisar que cortó. Con 5.630 fotos el
+    // sistema conocía solo las 1.500 primeras y la web mostraba el logo
+    // genérico en el resto. Hay que pedir de a páginas hasta que venga corta.
+    const PAGINA = 1000;
+    const set = new Set<string>();
+    for (let offset = 0; offset < 100_000; offset += PAGINA) {
+      const { data, error } = await this.db.storage.from('productos').list('', { limit: PAGINA, offset });
+      if (error) throw new Error(error.message); // que falle a la vista: nunca una lista vacía
+      for (const f of data ?? []) set.add(f.name);
+      if ((data ?? []).length < PAGINA) break;
+    }
     this.fotosCache = { set, ts: Date.now() };
     return set;
   }
