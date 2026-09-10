@@ -31,6 +31,7 @@ import sys
 import time
 import unicodedata
 import urllib.request
+import base64
 
 API = os.environ.get('ODB_API_URL', 'https://odb-api-production.up.railway.app')
 TOKEN = os.environ.get('ODB_DEPLOY_TOKEN', '')
@@ -52,7 +53,20 @@ def charlar(mensajes, timeout=290):
         return json.loads(r.read()), time.time() - t0
 
 
+def planilla_mosquita(renglones=80):
+    """Una planilla como la que adjuntó Leandro (Mosquita Ago-26): producto,
+    presentación y costo. CSV para no depender de nada; el analista lee igual
+    Excel y CSV."""
+    varietales = ['Malbec', 'Blend', 'Rosé', 'Cabernet', 'Extra Brut', 'Torrontés', 'Syrah', 'Pinot Noir']
+    lineas = ['Producto;Presentacion;Costo']
+    for i in range(renglones):
+        v = varietales[i % len(varietales)]
+        lineas.append(f'Mosquita Muerta {v} linea {i // len(varietales) + 1};caja x6;{52000 + (i * 713) % 19000}')
+    return base64.b64encode('\n'.join(lineas).encode('utf-8')).decode()
+
+
 # Cada caso: los turnos del comprador, y qué tiene que pasar al final.
+# Un turno es un texto, o (texto, adjunto) con el adjunto en base64.
 CASOS = [
     {
         'nombre': 'Le contesta todo y le dice que avance',
@@ -68,13 +82,12 @@ CASOS = [
     },
     {
         'nombre': 'Le pide una lista larga y después le dice con cuántos arranca',
+        # El caso real: planilla adjunta de 80 renglones con la fórmula dictada.
         'turnos': [
-            'Tengo una lista de 80 vinos de Mosquita Muerta. A la columna costo hay que '
-            'dividirla por 1.21 y multiplicarla por 1.24, y al resultado un 10% de descuento. '
-            'Los primeros: Malbec x6 63.000, Blend x6 58.000, Rose x6 55.000, Cabernet x6 61.000, '
-            'Extra Brut x6 71.000, Torrontes x6 52.000, Syrah x6 59.000, Pinot x6 67.000.',
+            ('a la columna costo hay q dividirla por 1.21 y hacerla por 1.24. Al resultado hacerle un 10% de descuento',
+             {'imagenBase64': planilla_mosquita(80), 'mimeType': 'text/csv', 'nombreArchivo': 'Mosquita Ago-26.csv'}),
             'los primeros 30 dale',
-            'dale, arrancá',
+            'dale, seguí con los que siguen',
         ],
         'pide_numeros': True,
         'no_repreguntar': [],
@@ -88,6 +101,9 @@ CASOS = [
 ]
 
 
+TRANSCRIPCION = []
+
+
 def correr():
     if not TOKEN:
         print('Falta ODB_DEPLOY_TOKEN en el entorno', file=sys.stderr)
@@ -98,7 +114,8 @@ def correr():
         print(f"\n=== {caso['nombre']}")
         mensajes, dichas = [], []
         for i, turno in enumerate(caso['turnos']):
-            mensajes.append({'rol': 'usuario', 'texto': turno})
+            texto, adjunto = (turno if isinstance(turno, tuple) else (turno, None))
+            mensajes.append({'rol': 'usuario', 'texto': texto, **(adjunto or {})})
             try:
                 d, seg = charlar(mensajes)
             except urllib.error.HTTPError as e:
@@ -112,6 +129,7 @@ def correr():
                 break
             respuesta = (d.get('respuesta') or '').strip()
             mensajes.append({'rol': 'analista', 'texto': respuesta})
+            TRANSCRIPCION.append(f"### {caso['nombre']} · turno {i+1} ({seg:.0f}s)\n> {texto}\n\n{respuesta}\n")
             print(f'  turno {i+1} ({seg:.0f}s): {respuesta[:110]}…')
 
             if not respuesta:
@@ -135,11 +153,17 @@ def correr():
                 fallas += 1
 
             if i == len(caso['turnos']) - 1:
+                preguntas = [f for f in re.split(r'(?<=[?.!\n])', respuesta) if f.strip().endswith('?')]
                 for dato in caso['no_repreguntar']:
-                    if normalizar(dato) in normalizar(respuesta) and '?' in respuesta:
+                    if any(normalizar(dato) in normalizar(f) for f in preguntas):
                         print(f'    ✗ vuelve a preguntar por "{dato}", que ya le contestaron')
                         fallas += 1
 
+    destino = os.environ.get('AUDITORIA_TRANSCRIPCION')
+    if destino:
+        with open(destino, 'w', encoding='utf-8') as f:
+            f.write('\n'.join(TRANSCRIPCION))
+        print(f'\ntranscripción completa en {destino}')
     print(f"\n{'TODO BIEN' if not fallas else str(fallas) + ' PROBLEMAS'}")
     return 1 if fallas else 0
 
