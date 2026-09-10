@@ -15,6 +15,11 @@ export class FotosExternasController {
   @Post('completar')
   completar(@Body() b: { limite?: number }) { return this.fotos.completar(b?.limite ?? 30); }
 
+  // Repasa Storage contra la marca "tiene foto" que usa la tienda para ordenar.
+  @Roles('gerente', 'dueno')
+  @Post('sincronizar-marca')
+  sincronizarMarca() { return this.fotos.sincronizarMarca(); }
+
   @Roles('gerente', 'dueno')
   @Post('revisar-guardadas')
   revisarGuardadas() { return this.fotos.revisarGuardadas(); }

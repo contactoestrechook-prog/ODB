@@ -17,7 +17,7 @@ export type FiltrosCatalogo = {
   categoriaId?: string;
   marcaId?: string;
   filtro?: 'bajo_minimo' | 'promo' | 'sin_stock' | '';
-  orden?: 'nombre_asc' | 'nombre_desc' | 'recientes' | '';
+  orden?: 'nombre_asc' | 'nombre_desc' | 'recientes' | 'foto' | '';
   pagina?: string | number;
   porPagina?: string | number;
 };
@@ -54,6 +54,27 @@ export class CatalogoService {
     return this.fotos();
   }
 
+  // La foto vive en Storage y Storage no se puede ordenar desde SQL, así que en
+  // productos.tiene_foto queda anotado si existe. Con eso la tienda muestra
+  // primero lo que tiene foto, que es lo que se ve bien.
+  async marcarFoto(sku: string, tiene: boolean) {
+    await this.db.from('productos').update({ tiene_foto: tiene }).eq('sku', sku);
+  }
+
+  // Repasa Storage contra la bandera y corrige lo que no coincida.
+  async sincronizarTieneFoto() {
+    this.invalidarFotos();
+    const fotos = await this.fotos();
+    const conFoto = new Set([...fotos].filter((f) => f.endsWith('.jpg')).map((f) => f.slice(0, -4)));
+    const { data, error } = await this.db.from('productos').select('sku, tiene_foto');
+    if (error) throw new BadRequestException(error.message);
+    const aPrender = (data ?? []).filter((p: any) => conFoto.has(p.sku) && !p.tiene_foto).map((p: any) => p.sku);
+    const aApagar = (data ?? []).filter((p: any) => !conFoto.has(p.sku) && p.tiene_foto).map((p: any) => p.sku);
+    for (let i = 0; i < aPrender.length; i += 200) await this.db.from('productos').update({ tiene_foto: true }).in('sku', aPrender.slice(i, i + 200));
+    for (let i = 0; i < aApagar.length; i += 200) await this.db.from('productos').update({ tiene_foto: false }).in('sku', aApagar.slice(i, i + 200));
+    return { fotosEnStorage: conFoto.size, marcados: aPrender.length, desmarcados: aApagar.length };
+  }
+
   invalidarFotos() {
     this.fotosCache = null;
     this.catalogoCache.clear();
@@ -65,6 +86,7 @@ export class CatalogoService {
       .upload(`${sku}.jpg`, archivo.buffer, { contentType: 'image/jpeg', upsert: true });
     if (error) throw new Error(error.message);
     this.invalidarFotos();
+    await this.marcarFoto(sku, true);
     return { imagenUrl: this.urlImagen(sku) };
   }
 
@@ -273,6 +295,9 @@ export class CatalogoService {
 
     if (q.orden === 'nombre_desc') query = query.order('nombre', { ascending: false });
     else if (q.orden === 'recientes') query = query.order('creado_en', { ascending: false });
+    // La tienda pide 'foto': primero lo que tiene foto. Una góndola que arranca
+    // con vasos y huevos sueltos sin imagen espanta; el panel sigue alfabético.
+    else if (q.orden === 'foto') query = query.order('tiene_foto', { ascending: false }).order('nombre');
     else query = query.order('nombre');
 
     if (!saltarRango) query = query.range((pagina - 1) * porPagina, pagina * porPagina - 1);

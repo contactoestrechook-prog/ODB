@@ -171,12 +171,15 @@ export class FotosExternasService {
       const v = pareceElMismoProducto(d.producto?.nombre, d.nombre_externo, d.marca_externa);
       if (v.parecido) continue;
       await this.db.storage.from('productos').remove([`${d.sku}.jpg`]);
+      await this.catalogo.marcarFoto(d.sku, false);
       await this.db.from('fotos_externas').update({ resultado: 'dudoso', detalle: v.motivo }).eq('id', d.id);
       sacadas.push({ sku: d.sku, nuestro: d.producto?.nombre ?? d.sku, externo: d.nombre_externo, motivo: v.motivo });
     }
     if (sacadas.length) { this.cola = null; this.catalogo.invalidarFotos(); this.log.warn(`EZ Catalog: ${sacadas.length} fotos sacadas por no coincidir con el producto`); }
     return { revisadas: (data ?? []).length, sacadas: sacadas.length, detalle: sacadas.slice(0, 50) };
   }
+
+  sincronizarMarca() { return this.catalogo.sincronizarTieneFoto(); }
 
   // Las que el catálogo devolvió con otro nombre: esperan que alguien las mire.
   async dudosas() {
@@ -270,6 +273,7 @@ export class FotosExternasService {
       const { error } = await this.db.storage.from('productos').upload(`${sku}.jpg`, buf, { contentType: tipo.startsWith('image/') ? tipo : 'image/jpeg', upsert: true });
       if (error) throw new Error(error.message);
       this.catalogo.invalidarFotos();
+      await this.catalogo.marcarFoto(sku, true);
       await registrar('foto', p);
       return { resultado: 'foto', imagenUrl: this.urlImagen(sku), nombreExterno: p.nombre, marcaExterna: p.marca };
     } catch (e) {
