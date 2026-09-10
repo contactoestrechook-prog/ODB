@@ -95,6 +95,21 @@ export class CatalogoService {
     return `${process.env.SUPABASE_URL}/storage/v1/object/public/productos/${encodeURIComponent(sku)}.jpg`;
   }
 
+  // Categorías para la portada: las que más productos con foto tienen, cada una
+  // con la foto de uno de sus productos. Ver la función categorias_destacadas.
+  async categoriasDestacadas(limite = 8) {
+    const { data, error } = await this.db.rpc('categorias_destacadas', { p_limite: Math.min(Math.max(Number(limite) || 8, 1), 24) });
+    if (error) throw new BadRequestException(error.message);
+    return {
+      categorias: (data ?? []).map((c: any) => ({
+        id: c.id,
+        nombre: c.nombre,
+        productos: Number(c.con_foto ?? 0),
+        imagenUrl: c.sku_foto ? this.urlImagen(c.sku_foto) : null,
+      })),
+    };
+  }
+
   async filtros() {
     // el margen sugerido viaja con la categoría: el alta de producto propone el
     // precio de venta con el margen del rubro en lugar de dejarlo al ojo

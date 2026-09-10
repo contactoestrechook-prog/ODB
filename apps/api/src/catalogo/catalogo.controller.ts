@@ -54,6 +54,12 @@ export class CatalogoController {
   }
 
   @Publico()
+  @Get('catalogo/categorias-destacadas')
+  categoriasDestacadas(@Query('limite') limite?: string) {
+    return this.catalogo.categoriasDestacadas(Number(limite) || 8);
+  }
+
+  @Publico()
   @Get('catalogo/filtros')
   filtros() {
     return this.catalogo.filtros();

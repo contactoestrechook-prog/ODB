@@ -27,7 +27,7 @@ function Encabezado({ kicker, titulo, href }: { kicker: string; titulo: string; 
 export default async function Home() {
   const cliente = await sesion();
   const [filtros, promo, destacados] = await Promise.all([
-    apiJson<{ categorias: any[] }>("/catalogo/filtros", { categorias: [] }),
+    apiJson<{ categorias: any[] }>("/catalogo/categorias-destacadas?limite=8", { categorias: [] }),
     apiJson<{ items: P[] }>("/productos?filtro=promo&porPagina=8", { items: [] }),
     apiJson<{ items: P[] }>("/productos?porPagina=8&orden=foto", { items: [] }),
   ]);
@@ -67,11 +67,21 @@ export default async function Home() {
                 <Link
                   key={c.id}
                   href={`/catalogo?categoriaId=${c.id}`}
-                  className="group relative border border-linea hover:border-dorado/60 bg-crema rounded-[10px] p-5 transition-colors"
+                  className="group relative overflow-hidden rounded-xl bg-white ring-1 ring-tinta/[0.07] transition-shadow duration-300 hover:shadow-[0_10px_30px_rgba(0,0,0,0.10)]"
                 >
-                  <span className="display text-sm text-dorado/70">{String(i + 1).padStart(2, "0")}</span>
-                  <p className="mt-6 text-[15px] font-semibold text-ink leading-snug">{c.nombre}</p>
-                  <IcoFlecha size={16} className="mt-2 text-humo group-hover:text-rojo group-hover:translate-x-0.5 transition-all" />
+                  {/* la cara de la categoría es un producto suyo, no un número */}
+                  <div className="aspect-[5/4] grid place-items-center bg-white p-6">
+                    {c.imagenUrl
+                      ? <img src={c.imagenUrl} alt="" className="w-full h-full object-contain transition-transform duration-[600ms] ease-out group-hover:scale-[1.07]" />
+                      : <img src="/odb-logo.png" alt="" className="h-10 w-auto opacity-30" />}
+                  </div>
+                  <div className="flex items-center justify-between gap-2 border-t border-linea px-4 py-3">
+                    <div className="min-w-0">
+                      <p className="text-[15px] font-semibold text-ink leading-snug truncate">{c.nombre}</p>
+                      {c.productos > 0 && <p className="text-[11px] text-humo">{c.productos} productos</p>}
+                    </div>
+                    <IcoFlecha size={16} className="shrink-0 text-humo group-hover:text-rojo group-hover:translate-x-0.5 transition-all" />
+                  </div>
                 </Link>
               ))}
             </div>
