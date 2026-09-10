@@ -184,8 +184,8 @@ export class FotosExternasService {
       .from('fotos_externas')
       .select('id, sku, ean, nombre_externo, marca_externa, url_externa, detalle, creado_en, producto:productos(nombre)')
       .eq('resultado', 'dudoso')
-      .order('creado_en', { ascending: false })
-      .limit(200);
+      .order('creado_en', { ascending: true }) // se revisan en el orden en que aparecieron
+      .limit(500);
     if (error) throw new BadRequestException(error.message);
     return (data ?? []).map((d: any) => ({
       id: d.id, sku: d.sku, ean: d.ean,
