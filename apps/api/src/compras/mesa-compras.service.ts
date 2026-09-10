@@ -69,6 +69,8 @@ Tu trabajo es sacar el COSTO REAL de cada compra y proponer el precio de venta q
 
 1. NUNCA hagas una cuenta vos. Ni una multiplicación, ni un porcentaje, ni una suma. Para todo número usás calcular_costo, calcular_costos_en_tanda o comparar_ofertas. El número que informás es el que devuelve la herramienta, tal cual.
 2. Antes de calcular, asegurate de tener los datos. Si falta algo que cambia el resultado (cuántas unidades trae el bulto, si hay flete, si el precio es con o sin IVA, a cuántos días se paga), preguntalo. Una sola pregunta por mensaje, la más importante.
+2 bis. NUNCA vuelvas a preguntar algo que el comprador ya contestó, ni le repitas una pregunta que ya está más arriba en la charla. Releé lo que te dijo: si ya te aclaró que el 29% es costo y que no hay flete ni plazo, dalo por hecho y seguí.
+2 ter. Cuando el comprador te dice que avances ("preparame la propuesta", "los primeros 30", "dale"), AVANZÁ. Si falta elegir cuáles renglones, elegilos vos por volumen o por orden de la planilla, decí en una línea con qué criterio los elegiste y mostrá el resultado. Preguntar en vez de resolver es la peor respuesta que podés dar: el comprador está con el proveedor enfrente.
 3. Si el comprador te da un precio CON IVA, pedile el neto o aclarale que vas a trabajar sobre el neto: el IVA no es costo, se recupera.
 4. Las percepciones tampoco son costo (son pagos a cuenta). Los impuestos internos SÍ.
 5. No inventes productos. Para vincular un costo a un producto de la casa, buscalo con buscar_producto y usá el sku que te devuelve.
@@ -77,7 +79,8 @@ Tu trabajo es sacar el COSTO REAL de cada compra y proponer el precio de venta q
 
 Cuando el comprador te describe una oferta (por texto, dictada, en una foto o PDF de la lista, o en una planilla Excel/CSV):
 - Si viene una planilla, primero identificá qué columna es el producto, cuál el precio y cuál la unidad. Si el comprador dice "tomá la columna X y sumale 29%", eso es un ajuste de precio de lista (por ejemplo, un aumento del proveedor): pasale a la herramienta el precio de la columna tal cual y el porcentaje en ajusteListaPct (29). NUNCA multipliques vos el 1,29: la herramienta lo hace y te devuelve el precio ajustado en el detalle.
-- IMPORTANTE con planillas: cuando el comprador quiere costear VARIOS renglones (por ejemplo "aplicá el 29% a toda la columna Base unit", o los 10/20/50 que te pida), NO llames calcular_costo una vez por renglón. Armá UNA sola llamada a calcular_costos_en_tanda con el array de todos los renglones. Una planilla de 50 productos es UNA llamada, no 50: así no se hace eterno. Usá calcular_costo (en singular) solo cuando es un producto suelto.
+- IMPORTANTE con planillas: cuando el comprador quiere costear VARIOS renglones (por ejemplo "aplicá el 29% a toda la columna Base unit", o los 10/20/50 que te pida), NO llames calcular_costo una vez por renglón. Armá calcular_costos_en_tanda con el array de renglones. Usá calcular_costo (en singular) solo cuando es un producto suelto.
+- TOPE: como mucho 25 renglones por llamada a calcular_costos_en_tanda. Si el comprador pidió 30, 50 o 100, hacé varias llamadas seguidas de 25 y después mostrá todo junto. Meter 60 renglones en una sola llamada te deja sin espacio a mitad de camino y el comprador se queda sin respuesta.
 - Con una planilla de muchísimos renglones (cientos o miles), no cuestes todo de una: proponé arrancar por los que más interesan (mayor volumen/stock) o pedile al comprador que te diga cuántos y cuáles, y después esos van juntos en calcular_costos_en_tanda.
 - Extraé los datos: presentación, precio, descuentos, bonificación, flete, plazo.
 - Calculá con la herramienta.
@@ -92,6 +95,30 @@ Cuando los números están cerrados y el comprador quiere aplicarlos, usá crear
 Directo y claro, sin vueltas. Tratá de usted al comprador. Números redondos en pesos. Nada de markdown pesado: renglones simples. Si algo te huele mal en la oferta (un descuento que no cierra, un flete alto para el volumen, un plazo que no compensa), decilo: para eso estás.
 
 ${TONO_ODB}`;
+
+// Qué hacer cuando el modelo termina una vuelta SIN escribir nada.
+//
+// El 10/9/2026 Leandro mostró la pantalla: el analista contestaba "decime con
+// cuántos renglones arranco", él contestaba "los primeros 30 dale", y volvía el
+// MISMO texto. Era un callejón sin salida: si el modelo se quedaba sin espacio
+// no había nada que el comprador pudiera contestar para destrabarlo.
+// Ahora la primera vez se destraba solo (reintenta cortando en tandas) y, si
+// vuelve a pasar, el mensaje pide algo distinto y concreto.
+export type SalidaSinTexto = { accion: 'reintentar' } | { accion: 'responder'; texto: string };
+
+export function decidirSinTexto(stopReason: string | null | undefined, yaReintento: boolean): SalidaSinTexto {
+  if (stopReason === 'max_tokens' && !yaReintento) return { accion: 'reintentar' };
+  if (stopReason === 'max_tokens') {
+    return {
+      accion: 'responder',
+      texto: 'Es demasiada planilla para una sola pasada. Arranquemos por una parte: decime "los primeros 25" y los cuesto enteros, o pasame los SKU de los que más te interesan.',
+    };
+  }
+  return {
+    accion: 'responder',
+    texto: 'No me salió una respuesta clara. Contame de nuevo la oferta en dos renglones y sigo desde ahí.',
+  };
+}
 
 const HERRAMIENTAS: Anthropic.Tool[] = [
   {
@@ -580,21 +607,33 @@ export class MesaComprasService {
     });
 
     const usados: string[] = [];
+    // Cuando el modelo se queda sin espacio antes de escribir nada (le pasa si
+    // arma una tanda gigante), se reintenta UNA vez con una nota que le dice que
+    // corte en tandas de 25. Antes se devolvía un texto fijo pidiéndole al
+    // comprador que dijera cuántos renglones; él contestaba "los primeros 30" y
+    // volvía el mismo texto, porque nada cambiaba: un callejón sin salida.
+    let reintentoPorEspacio = false;
+    // El proxy del panel corta a los 4,5 minutos. Antes de llegar ahí cerramos
+    // nosotros con lo que haya: el comprador tiene que ver los números que ya
+    // se calcularon, no un "el analista tardó demasiado" con la charla perdida.
+    const limite = Date.now() + 200_000;
     for (let vuelta = 0; vuelta < 8; vuelta++) {
+      if (vuelta > 0 && Date.now() > limite) return { respuesta: await this.cerrarConLoQueHay(claude, historial), herramientas: usados };
       let res: Anthropic.Message;
       try {
-        res = await claude.messages.create({
-          model: 'claude-opus-4-8',
-          // Con planillas el analista arma tandas grandes (una llamada a
-          // calcular_costos_en_tanda con decenas de renglones) y después lista
-          // el precio de cada uno: 4k tokens quedaba corto y la respuesta salía
-          // vacía. 16k da aire de sobra sin necesidad de streaming.
-          max_tokens: 16000,
-          thinking: { type: 'adaptive' },
-          system: [{ type: 'text', text: SYSTEM, cache_control: { type: 'ephemeral' } }],
-          tools: HERRAMIENTAS,
-          messages: historial,
-        });
+        // En streaming: una charla con varias tandas de costeo pasa los minutos
+        // y sin stream se corta la conexión (el comprador veía "el analista
+        // tardó demasiado" con la planilla a medio costear).
+        res = await claude.messages
+          .stream({
+            model: 'claude-opus-4-8',
+            max_tokens: 32000,
+            thinking: { type: 'adaptive' },
+            system: [{ type: 'text', text: SYSTEM, cache_control: { type: 'ephemeral' } }],
+            tools: HERRAMIENTAS,
+            messages: historial,
+          })
+          .finalMessage();
       } catch (e) {
         // Que un error del modelo (sobrecarga, límite, timeout) no salga como un
         // 500 pelado: la pantalla tiene que poder decirle algo útil al comprador.
@@ -615,16 +654,23 @@ export class MesaComprasService {
           .map((b) => b.text)
           .join('\n')
           .trim();
-        return {
-          // Si el modelo cortó sin texto (por ejemplo, se le fue el presupuesto
-          // pensando una tanda enorme), no devolvemos vacío: damos una salida útil.
-          respuesta:
-            texto ||
-            (res.stop_reason === 'max_tokens'
-              ? 'Se me hizo muy larga la lista de una. Decime con cuántos renglones arranco (por ejemplo los primeros 30) y te los paso todos juntos.'
-              : 'No me salió una respuesta clara. ¿Probamos con menos renglones a la vez?'),
-          herramientas: usados,
-        };
+        if (texto) return { respuesta: texto, herramientas: usados };
+
+        // Sin texto. Si fue por falta de espacio, se lo decimos y sigue solo:
+        // el comprador no tiene por qué arreglar un problema nuestro.
+        const salida = decidirSinTexto(res.stop_reason, reintentoPorEspacio);
+        if (salida.accion === 'reintentar') {
+          reintentoPorEspacio = true;
+          historial.push({
+            role: 'user',
+            content: [{
+              type: 'text',
+              text: '[Nota del sistema: te quedaste sin espacio antes de contestar. Rehacelo cortando el trabajo en tandas de 25 renglones como mucho por llamada, y contestá con lo que tengas. No le pidas al comprador que repita nada: ya te dijo lo que necesitabas.]',
+            }],
+          });
+          continue;
+        }
+        return { respuesta: salida.texto, herramientas: usados };
       }
 
       historial.push({ role: 'assistant', content: res.content });
@@ -646,7 +692,37 @@ export class MesaComprasService {
       }
       historial.push({ role: 'user', content: resultados });
     }
-    return { respuesta: 'Se me hizo largo el cálculo. ¿Lo dividimos en partes?', herramientas: usados };
+    return { respuesta: await this.cerrarConLoQueHay(claude, historial), herramientas: usados };
+  }
+
+  // Última llamada, sin herramientas y corta: que escriba el resultado de lo que
+  // ya calculó. Sin esto, una charla larga terminaba en "¿lo dividimos en
+  // partes?" y se perdían todos los costos que la herramienta ya había sacado.
+  private async cerrarConLoQueHay(claude: Anthropic, historial: Anthropic.MessageParam[]) {
+    try {
+      const res = await claude.messages
+        .stream({
+          model: 'claude-opus-4-8',
+          max_tokens: 6000,
+          system: [{ type: 'text', text: SYSTEM, cache_control: { type: 'ephemeral' } }],
+          messages: [
+            ...historial,
+            {
+              role: 'user',
+              content: [{
+                type: 'text',
+                text: '[Nota del sistema: se acabó el tiempo de esta pasada. Cerrá YA con lo que ya calculaste: mostrá los costos que tengas, decí en una línea qué quedó afuera, y no pidas nada que el comprador ya te haya dicho.]',
+              }],
+            },
+          ],
+        })
+        .finalMessage();
+      const texto = res.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map((b) => b.text).join('\n').trim();
+      if (texto) return texto;
+    } catch (e) {
+      this.log.warn(`no pude cerrar la charla: ${e instanceof Error ? e.message : e}`);
+    }
+    return 'Alcancé a costear una parte pero no llegué a escribirla. Decime "seguí" y la termino desde donde quedó.';
   }
 
   // ---- bandeja del dueño ----
