@@ -7,6 +7,7 @@ import { calcularCosto, compararOfertas, impactoEnPrecio, type OfertaCompra } fr
 import { margenAplicable } from './precio';
 import { TONO_ODB } from '../comun/tono-odb';
 import { respuestaSinVueltas } from '../comun/sin-vueltas';
+import { unidadesPorBulto } from './bultos';
 
 export type MensajeMesa = {
   rol: 'usuario' | 'asistente';
@@ -27,7 +28,7 @@ type PlanillaCargada = { nombre: string; hojas: { hoja: string; filas: any[][] }
 // Deja la planilla parseada a mano para que el CÓDIGO la recorra. El modelo no
 // tiene que reescribir 400 renglones como JSON — eso era lento por diseño y
 // terminaba en "el analista tardó más de lo permitido".
-function planillaCargar(base64: string, nombre = 'planilla'): PlanillaCargada {
+export function planillaCargar(base64: string, nombre = 'planilla'): PlanillaCargada {
   const libro = XLSX.read(Buffer.from(base64, 'base64'), { type: 'buffer' });
   const hojas = libro.SheetNames.map((hoja) => ({
     hoja,
@@ -56,7 +57,8 @@ function planillaATexto(base64: string, nombre = 'planilla'): string {
   if (!partes.length) return `[La planilla "${nombre}" no tiene datos legibles]`;
   return (
     `[Planilla "${nombre}" · ${filasTotales} filas en total. Abajo va una MUESTRA para que reconozcas las columnas y las líneas de producto.\n` +
-    `Para costearla NO copies los renglones: usá costear_planilla diciendo qué columna es la descripción, cuál el precio, y las reglas de descuento por línea. ` +
+    `Para costearla NO copies los renglones: usá costear_planilla diciendo qué columna es la descripción, cuál el precio, las reglas de descuento por línea y, si el comprador dictó una fórmula sobre la columna ("dividila por 1,21 y hacela por 1,24"), esa fórmula en operacionesLista. ` +
+    `Copiar renglones a mano es lento y encima solo ves esta muestra: se te quedarían afuera las filas que no se muestran. ` +
     `El sistema recorre las ${filasTotales} filas solo.]\n` +
     partes.join('\n\n')
   );
@@ -196,6 +198,11 @@ const HERRAMIENTAS: Anthropic.Tool[] = [
         },
         descuentoPorDefectoPct: { type: 'array', items: { type: 'number' }, description: 'Descuentos para los renglones que no caen en ninguna regla (ej: [50]).' },
         ajusteListaPct: { type: 'number', description: 'Aumento o baja de lista ANTES de los descuentos (+29 = subió 29%). 0 si no hay.' },
+        operacionesLista: {
+          type: 'array',
+          description: 'La fórmula que el comprador dicta sobre la columna de precio, TAL CUAL y en su orden, para TODAS las filas. "Dividila por 1,21 y hacela por 1,24" = [{"op":"dividir","valor":1.21},{"op":"multiplicar","valor":1.24}]. Va después del ajuste y antes de los descuentos. No la conviertas en porcentaje: pasala como la dijo.',
+          items: { type: 'object', properties: { op: { type: 'string', enum: ['dividir', 'multiplicar'] }, valor: { type: 'number' } }, required: ['op', 'valor'] },
+        },
         impuestosPct: { type: 'number', description: 'Impuestos que se SUMAN al final, sobre el neto (ej: 29).' },
         plazoDias: { type: 'number', description: 'Plazo de pago en días. 0 = contado.' },
         tasaMensualPct: { type: 'number', description: 'Tasa mensual para valuar el plazo. 5 si el comprador no la dice.' },
@@ -484,10 +491,18 @@ export class MesaComprasService {
       try {
         const c = calcularCosto({
           descripcion: desc || `fila ${i + 1}`,
-          unidadesPorBulto: cUnid >= 0 ? Number(f[cUnid]) || 1 : 1,
+          // "caja x6" no es un número: con Number() daba 1 y el costo salía por
+          // caja en vez de por botella. Se lee con el mismo lector de bultos de
+          // las facturas, y si no hay columna de unidades, de la descripción.
+          unidadesPorBulto: cUnid >= 0
+            ? Number(f[cUnid]) || unidadesPorBulto(String(f[cUnid] ?? '')) || 1
+            : unidadesPorBulto(desc) || 1,
           bultos: 1,
           precioBulto: precio,
           ajusteListaPct: Number(input.ajusteListaPct) || 0,
+          operacionesLista: Array.isArray(input.operacionesLista)
+            ? input.operacionesLista.map((o: any) => ({ op: String(o?.op ?? '').toLowerCase() as any, valor: Number(o?.valor) }))
+            : [],
           descuentosPct: descuentos,
           impuestosInternosPct: impuestosPct,
           plazoDias: Number(input.plazoDias) || 0,
