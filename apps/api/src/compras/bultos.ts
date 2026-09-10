@@ -17,6 +17,14 @@ const MAX_BULTO = 60;
 /** Tamaños de envase: si el número grande es uno de estos, el chico es el pack. */
 const ES_TAMANO = (n: number) => n >= 100;
 
+/**
+ * Lo que viene ADENTRO de cada unidad, no unidades que se venden sueltas.
+ * "HILERET ZUCRA 8 X 50 SOBRES" es un bulto de 8 cajas de 50 sobres cada una:
+ * el 50 son sobres, no cajas. Se leía al revés y entraban 50 unidades a $30 en
+ * vez de 8 a $1.353 (Leandro, 10/9/2026). Nadie vende un sobre suelto.
+ */
+const RE_CONTENIDO = /^(sobres?|sobrecitos?|saquitos?|sachets?|c[aá]psulas?|tiras?|pastillas?|comprimidos?|rollos?|panuelos?|servilletas?|toallitas?|hojas?|fetas?)$/;
+
 const normalizar = (t: string) =>
   String(t ?? '')
     .toLowerCase()
@@ -45,7 +53,14 @@ export function unidadesPorBulto(descripcion: string): number | null {
   );
   if (porPalabra && plausible(Number(porPalabra[1]))) return Number(porPalabra[1]);
 
-  // 2) Número + x + número de envase: "6x750", "12 x 1000cc".
+  // 2) Número + x + número de CONTENIDO: "8 x 50 sobres", "3 x 25 saquitos".
+  //    El primero es el bulto; el segundo es lo que trae adentro cada unidad.
+  const porContenido = t.match(/\b(\d{1,3})\s*x\s*(\d{1,4})\s*([a-z]+)\b/);
+  if (porContenido && RE_CONTENIDO.test(porContenido[3]) && plausible(Number(porContenido[1]))) {
+    return Number(porContenido[1]);
+  }
+
+  // 3) Número + x + número de envase: "6x750", "12 x 1000cc".
   //    El chico es el pack y el grande el tamaño. El orden importa: en
   //    "355 X 24B" el primero es el tamaño, así que esta regla NO tiene que
   //    dispararse (la agarra la 3).
@@ -54,7 +69,7 @@ export function unidadesPorBulto(descripcion: string): number | null {
     return Number(porEnvase[1]);
   }
 
-  // 3) "x" + número, sin más. Es la forma más común y la que no se puede
+  // 4) "x" + número, sin más. Es la forma más común y la que no se puede
   //    enumerar: cada bodega mete su abreviatura antes ("cc x 6", "SV x 6",
   //    "CJ x6", "x 24B"). En vez de listar las abreviaturas —que es lo que se
   //    rompe con el proveedor nuevo— se acepta cualquier cosa antes de la "x",
@@ -76,6 +91,9 @@ export function unidadesPorBulto(descripcion: string): number | null {
     // viene en blíster de 2 gramos y con el piso de 50 se leía "bulto de 2".
     if (/^(g|gr|grs|grms|gra|gramos?)$/.test(sufijo)) continue;
     if (/^(kg|k|kilos?)$/.test(sufijo) && n <= 25) continue;
+    // "x 50 sobres" sin un número de bulto adelante: la caja de 50 sobres ES la
+    // unidad que se vende. No son 50 unidades sueltas.
+    if (RE_CONTENIDO.test(sufijo)) continue;
     return n;
   }
 

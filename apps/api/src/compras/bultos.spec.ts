@@ -1,6 +1,27 @@
 import { unidadesPorBulto, esRenglonDeDescuento, fusionarRenglonesPorSku, porcentajeDeDescuento, descuentoEsDelRenglon, puedeVendersePorPeso, corregirRenglonQueNoCierra, resolverCantidadYBulto, interpretarRenglon, costearConGruposPromo } from './bultos';
 
 describe('unidadesPorBulto — la forma, no la lista de proveedores', () => {
+  // El caso real (Leandro, 10/9/2026): "HILERET ZUCRA 8 X 50 SOBRES" entraba
+  // como 50 unidades a $30 en vez de 8 cajas a $1.353. Los sobres son lo que
+  // trae adentro cada caja; nadie vende un sobre suelto.
+  it('"8 X 50 SOBRES" es un bulto de 8, no de 50', () => {
+    expect(unidadesPorBulto('HILERET ZUCRA 8 X 50 SOBRES')).toBe(8);
+  });
+
+  it.each([
+    ['TE GREEN HILLS 6 X 25 SAQUITOS', 6],
+    ['CAFE DOLCE GUSTO 3 X 16 CAPSULAS', 3],
+    ['PAPEL HIGIENICO ELEGANTE 12 X 4 ROLLOS', 12],
+    ['ASPIRINA 10 X 20 COMPRIMIDOS', 10],
+  ])('%s → bulto de %i', (texto, esperado) => {
+    expect(unidadesPorBulto(texto as string)).toBe(esperado);
+  });
+
+  it('sin número de bulto adelante, la caja de sobres ES la unidad', () => {
+    expect(unidadesPorBulto('HILERET ZUCRA X 50 SOBRES')).toBeNull();
+    expect(unidadesPorBulto('TE TARAGUI X 25 SAQUITOS')).toBeNull();
+  });
+
   it.each([
     ['MANOS NEGRAS Pinot Noir CJ x 6', 6],
     ['MANOS NEGRAS Malbec CJx6', 6],

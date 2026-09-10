@@ -622,9 +622,14 @@ export class MesaComprasService {
     // El proxy del panel corta a los 4,5 minutos. Antes de llegar ahí cerramos
     // nosotros con lo que haya: el comprador tiene que ver los números que ya
     // se calcularon, no un "el analista tardó demasiado" con la charla perdida.
-    const limite = Date.now() + 200_000;
+    // El proxy del panel corta a los 4,5 minutos. Nos guardamos 60 s para
+    // escribir el cierre, así que ninguna llamada puede pasarse de ahí: cada
+    // una va con su propio corte. Antes la PRIMERA no tenía tope y una lista de
+    // 80 renglones se comía los 4,5 minutos sin devolver una línea.
+    const limite = Date.now() + 170_000;
     for (let vuelta = 0; vuelta < 8; vuelta++) {
-      if (vuelta > 0 && Date.now() > limite) return { respuesta: contestar(await this.cerrarConLoQueHay(claude, historial)), herramientas: usados };
+      const queda = limite - Date.now();
+      if (queda < 15_000) return { respuesta: contestar(await this.cerrarConLoQueHay(claude, historial)), herramientas: usados };
       let res: Anthropic.Message;
       try {
         // En streaming: una charla con varias tandas de costeo pasa los minutos
@@ -643,9 +648,15 @@ export class MesaComprasService {
             system: [{ type: 'text', text: SYSTEM, cache_control: { type: 'ephemeral' } }],
             tools: HERRAMIENTAS,
             messages: historial,
-          })
+          }, { signal: AbortSignal.timeout(queda) })
           .finalMessage();
       } catch (e) {
+        // Si se acabó el tiempo de esta pasada, no es un error para el
+        // comprador: cerramos con los costos que ya salieron.
+        const porTiempo = e instanceof Error && /abort|timeout/i.test(e.name + ' ' + e.message);
+        if (porTiempo && usados.length) {
+          return { respuesta: contestar(await this.cerrarConLoQueHay(claude, historial)), herramientas: usados };
+        }
         // Que un error del modelo (sobrecarga, límite, timeout) no salga como un
         // 500 pelado: la pantalla tiene que poder decirle algo útil al comprador.
         this.log.error(`analista falló: ${e instanceof Error ? e.message : e}`);
@@ -715,6 +726,9 @@ export class MesaComprasService {
         .stream({
           model: 'claude-opus-4-8',
           max_tokens: 6000,
+          // Escribir lo que ya está calculado no necesita pensar de nuevo: bajo
+          // esfuerzo para que entre en el minuto que queda antes del corte.
+          output_config: { effort: 'low' as any },
           system: [{ type: 'text', text: SYSTEM, cache_control: { type: 'ephemeral' } }],
           messages: [
             ...historial,
@@ -726,7 +740,7 @@ export class MesaComprasService {
               }],
             },
           ],
-        })
+        }, { signal: AbortSignal.timeout(55_000) })
         .finalMessage();
       const texto = res.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map((b) => b.text).join('\n').trim();
       if (texto) return texto;
