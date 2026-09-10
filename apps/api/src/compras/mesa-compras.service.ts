@@ -627,6 +627,12 @@ export class MesaComprasService {
     // una va con su propio corte. Antes la PRIMERA no tenía tope y una lista de
     // 80 renglones se comía los 4,5 minutos sin devolver una línea.
     const limite = Date.now() + 170_000;
+    // Esfuerzo alto para pensar bien, pero con correa: medido el 10/9, con
+    // esfuerzo alto una lista de 8 renglones con fórmula (÷1,21 ×1,24 −10%) se
+    // pasaba 170 s pensando SIN llamar a la calculadora, y el comprador esperaba
+    // tres minutos para leer "no alcancé a calcular nada". Si la vuelta con
+    // esfuerzo alto se pasa de 100 s, se corta y se sigue con esfuerzo medio.
+    let esfuerzo = (process.env.MESA_ESFUERZO ?? 'high') as 'low' | 'medium' | 'high';
     for (let vuelta = 0; vuelta < 8; vuelta++) {
       const queda = limite - Date.now();
       if (queda < 15_000) return { respuesta: contestar(await this.cerrarConLoQueHay(claude, historial)), herramientas: usados };
@@ -644,11 +650,11 @@ export class MesaComprasService {
             // vende. Con esfuerzo bajo el analista contesta rápido y flojo
             // (repregunta lo que ya sabe, no relaciona el costo con el precio
             // vigente). Se paga el rato de más y se piensa en serio.
-            output_config: { effort: (process.env.MESA_ESFUERZO ?? 'high') as any },
+            output_config: { effort: esfuerzo as any },
             system: [{ type: 'text', text: SYSTEM, cache_control: { type: 'ephemeral' } }],
             tools: HERRAMIENTAS,
             messages: historial,
-          }, { signal: AbortSignal.timeout(queda) })
+          }, { signal: AbortSignal.timeout(esfuerzo === 'high' ? Math.min(queda, 100_000) : queda) })
           .finalMessage();
       } catch (e) {
         // Si se acabó el tiempo de esta pasada, no es un error para el
@@ -657,6 +663,16 @@ export class MesaComprasService {
         // haya, aunque todavía no se haya calculado nada. Un 400 en la pantalla
         // con la planilla cargada es la peor salida posible.
         const porTiempo = e instanceof Error && /abort|timeout/i.test(e.name + ' ' + e.message);
+        if (porTiempo && esfuerzo === 'high' && limite - Date.now() > 50_000) {
+          // Se fue en pensar: segunda vuelta con esfuerzo medio y la orden de
+          // usar la calculadora ya, en vez de mostrarle al comprador un "no llegué".
+          esfuerzo = 'medium';
+          historial.push({
+            role: 'user',
+            content: [{ type: 'text', text: '[Nota del sistema: se te fue el tiempo pensando. Usá YA la calculadora con los renglones que el comprador te pasó, en tandas de 25 como mucho, y mostrá los costos.]' }],
+          });
+          continue;
+        }
         if (porTiempo) {
           return { respuesta: contestar(await this.cerrarConLoQueHay(claude, historial)), herramientas: usados };
         }

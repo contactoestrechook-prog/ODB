@@ -13,7 +13,13 @@ no puede hacer nunca:
   1. repetir un mensaje que ya dijo (deja al usuario sin salida);
   2. volver a preguntar un dato que el usuario ya contestó;
   3. contestar sin números cuando el usuario le dio todo y le dijo que avance;
-  4. quedarse sin contestar.
+  4. quedarse sin contestar;
+  5. tardar más de dos minutos en un turno (el comprador está con el proveedor);
+  6. contestar "no alcancé / no llegué / no tengo ningún costo": eso es no contestar.
+
+La tercera corrida del 10/9 dio "TODO BIEN" y no lo estaba: en la lista larga,
+dos turnos de casi tres minutos devolvieron "no alcancé a calcular nada" y solo
+el tercero mostró números. Se miraba solo el último turno. Ahora se mira cada uno.
 
 Uso:  ODB_DEPLOY_TOKEN=... python3 scripts/auditar-asistentes.py
       (opcional ODB_API_URL; por defecto, producción)
@@ -111,15 +117,24 @@ def correr():
             if not respuesta:
                 print('    ✗ contestó vacío')
                 fallas += 1
+            if seg > 120:
+                print(f'    ✗ tardó {seg:.0f} s: más de dos minutos para un turno')
+                fallas += 1
+            if re.search(r'no (alcanc|llegu)|ningun costo (calculado|cerrado)|no tengo (todavia )?ningun costo', normalizar(respuesta)):
+                print('    ✗ contestó que no calculó nada: eso es no contestar')
+                fallas += 1
             if normalizar(respuesta) in dichas:
                 print('    ✗ REPITIÓ un mensaje que ya había dicho')
                 fallas += 1
             dichas.append(normalizar(respuesta))
 
+            # Desde que el comprador le pasó precios, cada turno tiene que traer
+            # números, no solo el último.
+            if caso['pide_numeros'] and not re.search(r'\d[\d.]{3,}', respuesta):
+                print('    ✗ ya tenía precios y no mostró ni un número')
+                fallas += 1
+
             if i == len(caso['turnos']) - 1:
-                if caso['pide_numeros'] and not re.search(r'\d[\d.]{3,}', respuesta):
-                    print('    ✗ le dieron todos los datos y no mostró ni un número')
-                    fallas += 1
                 for dato in caso['no_repreguntar']:
                     if normalizar(dato) in normalizar(respuesta) and '?' in respuesta:
                         print(f'    ✗ vuelve a preguntar por "{dato}", que ya le contestaron')
