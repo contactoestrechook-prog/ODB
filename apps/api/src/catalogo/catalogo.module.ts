@@ -6,11 +6,13 @@ import { CatalogoService } from './catalogo.service';
 import { ProductosAdminService } from './productos-admin.service';
 import { FotosExternasController } from './fotos-externas.controller';
 import { FotosExternasService } from './fotos-externas.service';
+import { CalidadFotosService } from './calidad-fotos.service';
 import { supabaseProvider } from '../supabase.provider';
 
 @Module({
   controllers: [CatalogoController, ImagenesController, ProductosAdminController, FotosExternasController],
-  providers: [CatalogoService, ProductosAdminService, FotosExternasService, supabaseProvider],
+  providers: [CatalogoService, ProductosAdminService, FotosExternasService,
+    CalidadFotosService, supabaseProvider],
   exports: [CatalogoService],
 })
 export class CatalogoModule {}

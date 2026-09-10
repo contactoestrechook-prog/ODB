@@ -1,11 +1,12 @@
 import { Body, Controller, Get, Param, Post } from '@nestjs/common';
 import { Roles } from '../auth/decorators';
 import { FotosExternasService } from './fotos-externas.service';
+import { CalidadFotosService } from './calidad-fotos.service';
 
 // Fotos por código de barras desde EZ Catalog: estado, lote y producto puntual.
 @Controller('catalogo/fotos-externas')
 export class FotosExternasController {
-  constructor(private readonly fotos: FotosExternasService) {}
+  constructor(private readonly fotos: FotosExternasService, private readonly calidad: CalidadFotosService) {}
 
   @Roles('comprador', 'gerente', 'dueno')
   @Get('estado')
@@ -32,6 +33,19 @@ export class FotosExternasController {
   @Roles('comprador', 'gerente', 'dueno')
   @Post('dudosa/:id')
   resolverDudosa(@Param('id') id: string, @Body() b: { aceptar?: boolean }) { return this.fotos.resolverDudosa(id, !!b?.aceptar); }
+
+  // Control de calidad: el modelo mira las fotos y saca las que no sirven.
+  @Roles('comprador', 'gerente', 'dueno')
+  @Get('calidad')
+  calidadEstado() { return this.calidad.estado(); }
+
+  @Roles('comprador', 'gerente', 'dueno')
+  @Get('calidad/sacadas')
+  calidadSacadas() { return this.calidad.sacadas(); }
+
+  @Roles('gerente', 'dueno')
+  @Post('calidad/revisar')
+  calidadRevisar(@Body() b: { limite?: number }) { return this.calidad.revisar(b?.limite ?? 40); }
 
   @Roles('comprador', 'gerente', 'dueno')
   @Post('producto/:sku')
