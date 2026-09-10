@@ -3,6 +3,7 @@ import { BadRequestException, Inject, Injectable, NotFoundException } from '@nes
 import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
 import { SUPABASE } from '../supabase.provider';
+import { traerTodo } from '../comun/lotes';
 
 const SELECT_PRODUCTO = `
   id, sku, nombre, descripcion, volumen_ml, unidades_pack, graduacion, es_alcohol, plu, vendido_por_peso, codigo_legacy, costo, activo, creado_en, alicuota_iva,
@@ -66,10 +67,10 @@ export class CatalogoService {
     this.invalidarFotos();
     const fotos = await this.fotos();
     const conFoto = new Set([...fotos].filter((f) => f.endsWith('.jpg')).map((f) => f.slice(0, -4)));
-    const { data, error } = await this.db.from('productos').select('sku, tiene_foto');
-    if (error) throw new BadRequestException(error.message);
-    const aPrender = (data ?? []).filter((p: any) => conFoto.has(p.sku) && !p.tiene_foto).map((p: any) => p.sku);
-    const aApagar = (data ?? []).filter((p: any) => !conFoto.has(p.sku) && p.tiene_foto).map((p: any) => p.sku);
+    // PostgREST corta en 1.000 filas: hay 10.240 productos activos. Ver [[odb-supabase-limites-silenciosos]].
+    const data = await traerTodo<any>((desde, hasta) => this.db.from('productos').select('sku, tiene_foto').range(desde, hasta));
+    const aPrender = data.filter((p: any) => conFoto.has(p.sku) && !p.tiene_foto).map((p: any) => p.sku);
+    const aApagar = data.filter((p: any) => !conFoto.has(p.sku) && p.tiene_foto).map((p: any) => p.sku);
     for (let i = 0; i < aPrender.length; i += 200) await this.db.from('productos').update({ tiene_foto: true }).in('sku', aPrender.slice(i, i + 200));
     for (let i = 0; i < aApagar.length; i += 200) await this.db.from('productos').update({ tiene_foto: false }).in('sku', aApagar.slice(i, i + 200));
     return { fotosEnStorage: conFoto.size, marcados: aPrender.length, desmarcados: aApagar.length };

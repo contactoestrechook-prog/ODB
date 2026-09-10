@@ -4,6 +4,7 @@ import { SUPABASE } from '../supabase.provider';
 import { CatalogoService } from './catalogo.service';
 import { recorrerConRitmo } from './ritmo';
 import { pareceElMismoProducto } from './parecido';
+import { traerTodo } from '../comun/lotes';
 
 // Fotos de producto por código de barras desde EZ Catalog (Huggian), 2026-09-09.
 // Pedido de Leandro: «con los códigos de barra nos dan las fotos de los productos».
@@ -86,17 +87,8 @@ export class FotosExternasService {
     // PostgREST devuelve como mucho 1.000 filas aunque la función pida más: sin
     // paginar, el sistema veía 1.000 candidatos y decía que faltaban 951 fotos
     // cuando en realidad faltaban casi 7.000. Ver [[odb-supabase-limites-silenciosos]].
-    const PAGINA = 1000;
-    const todos: any[] = [];
-    for (let desde = 0; desde < 20000; desde += PAGINA) {
-      const { data, error } = await this.db
-        .rpc('fotos_externas_pendientes', { p_limite: 20000 })
-        .range(desde, desde + PAGINA - 1);
-      if (error) throw new BadRequestException(error.message);
-      const filas = (data ?? []) as any[];
-      todos.push(...filas);
-      if (filas.length < PAGINA) break;
-    }
+    const todos = await traerTodo<any>((desde, hasta) =>
+      this.db.rpc('fotos_externas_pendientes', { p_limite: 20000 }).range(desde, hasta));
     return todos.filter((c) => !fotos.has(`${c.sku}.jpg`));
   }
 

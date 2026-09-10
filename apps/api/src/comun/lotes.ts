@@ -22,3 +22,28 @@ export async function enLotes<T>(
   }
   return salida;
 }
+
+// Traer TODAS las filas de una consulta que puede devolver más de mil.
+//
+// PostgREST corta cualquier respuesta en 1.000 filas y no avisa: ni error, ni
+// marca de que faltan. Ya nos mordió tres veces en un día — la lista de fotos
+// pendientes decía 951 cuando faltaban 7.260, y la sincronización de fotos vio
+// 1.000 productos de 10.240. Cuando una consulta puede pasar las mil filas,
+// tiene que venir por acá.
+//
+// `consulta(desde, hasta)` tiene que aplicar `.range(desde, hasta)`.
+export async function traerTodo<T>(
+  consulta: (desde: number, hasta: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
+  pagina = 1000,
+  tope = 200_000,
+): Promise<T[]> {
+  const salida: T[] = [];
+  for (let desde = 0; desde < tope; desde += pagina) {
+    const { data, error } = await consulta(desde, desde + pagina - 1);
+    if (error) throw new Error(error.message); // nunca devolver vacío por un error
+    const filas = data ?? [];
+    salida.push(...filas);
+    if (filas.length < pagina) break;
+  }
+  return salida;
+}
