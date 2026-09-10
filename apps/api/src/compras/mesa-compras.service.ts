@@ -653,8 +653,11 @@ export class MesaComprasService {
       } catch (e) {
         // Si se acabó el tiempo de esta pasada, no es un error para el
         // comprador: cerramos con los costos que ya salieron.
+        // Un corte de tiempo NO es un error del comprador: se cierra con lo que
+        // haya, aunque todavía no se haya calculado nada. Un 400 en la pantalla
+        // con la planilla cargada es la peor salida posible.
         const porTiempo = e instanceof Error && /abort|timeout/i.test(e.name + ' ' + e.message);
-        if (porTiempo && usados.length) {
+        if (porTiempo) {
           return { respuesta: contestar(await this.cerrarConLoQueHay(claude, historial)), herramientas: usados };
         }
         // Que un error del modelo (sobrecarga, límite, timeout) no salga como un

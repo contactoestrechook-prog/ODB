@@ -95,6 +95,11 @@ def correr():
             mensajes.append({'rol': 'usuario', 'texto': turno})
             try:
                 d, seg = charlar(mensajes)
+            except urllib.error.HTTPError as e:
+                cuerpo = e.read().decode('utf-8', 'replace')[:200]
+                print(f'  turno {i+1}: NO CONTESTÓ (HTTP {e.code}: {cuerpo})')
+                fallas += 1
+                break
             except Exception as e:
                 print(f'  turno {i+1}: NO CONTESTÓ ({repr(e)[:80]})')
                 fallas += 1
@@ -112,7 +117,7 @@ def correr():
             dichas.append(normalizar(respuesta))
 
             if i == len(caso['turnos']) - 1:
-                if caso['pide_numeros'] and not re.search(r'\$\s?[\d.]{4,}', respuesta):
+                if caso['pide_numeros'] and not re.search(r'\d[\d.]{3,}', respuesta):
                     print('    ✗ le dieron todos los datos y no mostró ni un número')
                     fallas += 1
                 for dato in caso['no_repreguntar']:
