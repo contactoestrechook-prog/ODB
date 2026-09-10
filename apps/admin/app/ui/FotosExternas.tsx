@@ -9,6 +9,10 @@ import { useEffect, useRef, useState } from 'react';
 type Estado = { configurada: boolean; conexion: 'ok' | 'error' | 'sin_clave'; mensaje: string; muestra?: any; sinFoto: number; consultadosHoy: number; fotosTraidas: number; porMinuto: number };
 // El catálogo a veces devuelve la ficha de otro producto con nuestro código (a
 // un vino, pintura). Esas no se guardan solas: quedan acá para mirarlas.
+// Control de calidad: el catálogo externo saca muchas fotos de bases
+// colaborativas (Open Food Facts), donde la gente fotografía el producto con el
+// celular. Una foto con la mano y la mesa de madera queda peor que no tener foto.
+type Calidad = { conFoto: number; revisadas: number; sacadas: number; sinRevisar: number; modelo: string };
 type Dudosa = { id: string; sku: string; ean: string; nuestro: string; externo: string | null; marca: string | null; urlExterna: string | null; motivo: string | null };
 
 export function FotosExternas() {
@@ -21,12 +25,32 @@ export function FotosExternas() {
   const [buscando, setBuscando] = useState(false);
   const [resultadoSku, setResultadoSku] = useState<any>(null);
   const [dudosas, setDudosas] = useState<Dudosa[]>([]);
+  const [calidad, setCalidad] = useState<Calidad | null>(null);
+  const [mirando, setMirando] = useState(false);
+  const [totCalidad, setTotCalidad] = useState({ revisadas: 0, sacadas: 0 });
+  const pararCalidad = useRef(false);
   const [resolviendo, setResolviendo] = useState<string | null>(null);
   const parar = useRef(false);
 
   const cargar = async () => { try { const r = await fetch('/api/fotos-externas', { cache: 'no-store' }); if (r.ok) setEstado(await r.json()); } catch {} };
   const cargarDudosas = async () => { try { const r = await fetch('/api/fotos-externas?que=dudosas', { cache: 'no-store' }); if (r.ok) setDudosas(await r.json()); } catch {} };
-  useEffect(() => { cargar(); cargarDudosas(); }, []);
+  const cargarCalidad = async () => { try { const r = await fetch('/api/fotos-externas?que=calidad', { cache: 'no-store' }); if (r.ok) setCalidad(await r.json()); } catch {} };
+  useEffect(() => { cargar(); cargarDudosas(); cargarCalidad(); }, []);
+
+  const revisarCalidad = async () => {
+    if (mirando) { pararCalidad.current = true; return; }
+    pararCalidad.current = false; setMirando(true);
+    const acum = { revisadas: 0, sacadas: 0 };
+    while (!pararCalidad.current) {
+      const r = await fetch('/api/fotos-externas', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'calidad', limite: 40 }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { setAviso(d.message ?? 'No se pudo revisar'); break; }
+      acum.revisadas += Number(d.revisadas ?? 0); acum.sacadas += Number(d.sacadas ?? 0);
+      setTotCalidad({ ...acum });
+      if (!d.revisadas || d.faltan === 0) break;
+    }
+    setMirando(false); cargar(); cargarCalidad();
+  };
 
   const resolver = async (d: Dudosa, aceptar: boolean) => {
     setResolviendo(d.id);
@@ -94,6 +118,20 @@ export function FotosExternas() {
         </div>
       )}
       {aviso && <p className="mt-2 text-sm text-red-700">{aviso}</p>}
+      {calidad && calidad.conFoto > 0 && (
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-black/10 bg-[#F0EBE2]/50 px-3 py-2.5">
+          <div className="min-w-0 text-xs text-black/70">
+            <b className="text-black">Calidad de las fotos.</b> El catálogo externo trae muchas fotos caseras (una mano, la mesa de madera, la góndola de fondo): esas se sacan y el producto queda sin foto, que se ve mejor.
+            <span className="block mt-0.5">{calidad.revisadas.toLocaleString('es-AR')} miradas · <b className="text-black">{calidad.sacadas.toLocaleString('es-AR')} sacadas</b> · {calidad.sinRevisar.toLocaleString('es-AR')} sin mirar
+              {mirando && <> · <span className="text-[#B82D25]">{totCalidad.revisadas} en esta pasada, {totCalidad.sacadas} sacadas</span></>}
+            </span>
+          </div>
+          <button type="button" onClick={revisarCalidad} disabled={!mirando && calidad.sinRevisar === 0}
+            className={'shrink-0 rounded-xl px-4 py-2 text-sm font-semibold text-white disabled:opacity-40 ' + (mirando ? 'bg-neutral-700' : 'bg-black/80')}>
+            {mirando ? 'Parar' : 'Revisar calidad'}
+          </button>
+        </div>
+      )}
       {dudosas.length > 0 && (
         <div className="mt-3 rounded-xl border border-amber-300/70 bg-amber-50/70 p-3">
           <p className="text-sm font-semibold text-amber-900">{dudosas.length} {dudosas.length === 1 ? 'foto para revisar' : 'fotos para revisar'}</p>
