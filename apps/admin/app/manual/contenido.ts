@@ -344,6 +344,34 @@ export const SECCIONES: Seccion[] = [
     ],
   },
   {
+    id: 'compras-analista',
+    titulo: 'Costear una compra con el analista',
+    area: 'Compras',
+    roles: ['administrativo', 'comprador', 'gerente', 'dueno'],
+    bajada: 'Sacar el costo real de una oferta mientras estás con el proveedor, y ver qué pasa con el precio de venta.',
+    bloques: [
+      {
+        tipo: 'texto',
+        texto:
+          'Es un chat. Le contás la oferta como te la dijo el proveedor, con tus palabras: podés escribir, dictar, sacarle una foto a la lista, mandar el PDF o adjuntar la planilla de Excel. Él saca el costo real por unidad (descuentos en cascada, bonificación, flete, impuestos internos y lo que cuesta el plazo de pago) y después te muestra cómo queda el precio de venta contra el vigente.',
+      },
+      {
+        tipo: 'ojo',
+        puntos: [
+          'Las cuentas las hace el sistema, no la IA: el analista tiene prohibido hacer una multiplicación de cabeza. Cada número que te muestra sale de la calculadora del sistema.',
+          'Las percepciones NO son costo (son pago a cuenta). Los impuestos internos SÍ. Si no aclarás, te lo pregunta una vez.',
+          'El IVA no es costo: siempre se trabaja sobre el neto. Si le pasás un precio con IVA, avisale.',
+          'Cuando los números cierran y le decís que avance, arma la propuesta. Eso NO cambia ningún precio: queda esperando la firma del dueño en Aprobaciones.',
+        ],
+      },
+      {
+        tipo: 'texto',
+        texto:
+          'Con una planilla larga trabaja de a 25 renglones por vez. Si le pedís 100, los hace en tandas y te los muestra juntos. Si te dice que fue demasiado de una, pedile "los primeros 25" o pasale los SKU que más te interesan: no repitas la lista entera.',
+      },
+    ],
+  },
+  {
     id: 'admin-remarcacion',
     titulo: 'Costos, remarcación y precio de venta',
     area: 'Administración',
