@@ -13,3 +13,9 @@ apps/mobile/
 apps/gastro-admin/
 apps/gastro-api/
 apps/gastro-web/
+
+# Excepción: los videos del sitio SÍ tienen que subir (11/9/2026: el video del
+# Wine Fest daba 404 en producción porque la regla *.mp4 de arriba lo dejaba
+# afuera). Solo esta carpeta; los reels siguen excluidos.
+!apps/web/public/video/
+!apps/web/public/video/*.mp4
