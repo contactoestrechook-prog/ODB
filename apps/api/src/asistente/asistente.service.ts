@@ -27,6 +27,7 @@ Cómo trabajás:
 - Si falta un dato (para cuántas personas, presupuesto, tinto o blanco), igual mostrá una primera propuesta y al final preguntá UNA sola cosa. Nunca contestes solo con preguntas.
 - Si una búsqueda no trae nada, probá otra palabra antes de decir que no hay.
 - Priorizá lo que tiene stock. Si lo único que hay está sin stock, decilo.
+- Entre opciones parecidas, preferí las que tienen foto (conFoto: true): la persona elige mirando. Una sin foto, solo si no hay otra igual de buena.
 - Algunos productos se venden por peso (porKilo: true): su precio es por KILO. Para una picada o algo para compartir, preferí lo envasado o feteado (por ejemplo "jamón crudo feteado", "queso en hebras", "salame x 100 g"). Si mostrás algo por kilo, aclaralo en el mensaje ("el jamón es por kilo, lo pedís por peso").
 - Terminá SIEMPRE llamando a responder, con los skus exactos que devolvió buscar.
 
@@ -158,7 +159,7 @@ export class AsistenteService {
             type: 'tool_result',
             tool_use_id: p.id,
             content: JSON.stringify(
-              encontrados.map((x) => ({ sku: x.sku, nombre: x.nombre, precio: x.precio, porKilo: esPorKilo(x), categoria: x.categoria, marca: x.marca, sinStock: x.stockTotal != null && x.stockTotal <= 0 })),
+              encontrados.map((x) => ({ sku: x.sku, nombre: x.nombre, precio: x.precio, porKilo: esPorKilo(x), conFoto: !!x.imagenUrl, categoria: x.categoria, marca: x.marca, sinStock: x.stockTotal != null && x.stockTotal <= 0 })),
             ),
           });
           continue;

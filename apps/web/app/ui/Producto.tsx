@@ -50,21 +50,22 @@ export function Producto({ p, grande = false }: { p: P; grande?: boolean }) {
           {p.nombre}
         </Link>
 
-        <div className="mt-auto pt-2.5 flex items-end justify-between gap-2">
-          <div className="min-w-0 leading-none">
-            {pct != null && <p className="text-[12px] text-humo line-through mb-1">{pesos(p.precioLista)}</p>}
-            <p className={`marca font-extrabold text-ink truncate ${grande ? "text-[22px] sm:text-[24px]" : "text-[19px] sm:text-[21px]"}`}>
-              {pesos(p.precio)}{porKilo(p) && <span className="text-[12px] font-bold text-humo"> / kg</span>}
-            </p>
-          </div>
+        {/* Precio en su propia línea y el botón debajo, a lo ancho: lado a lado no
+            entraban en una tarjeta angosta (el asistente las muestra de 200 px) y el
+            precio se cortaba en "$39…". Así no se corta en ningún ancho. */}
+        <div className="mt-auto pt-2.5 min-w-0">
+          {pct != null && <p className="text-[12px] text-humo line-through mb-1 leading-none">{pesos(p.precioLista)}</p>}
+          <p className={`marca font-extrabold text-ink leading-none whitespace-nowrap ${grande ? "text-[22px] sm:text-[24px]" : "text-[19px] sm:text-[21px]"}`}>
+            {pesos(p.precio)}{porKilo(p) && <span className="text-[12px] font-bold text-humo"> / kg</span>}
+          </p>
           {!sinStock && p.precio != null && (
             <button
               onClick={() => agregar(p)}
               aria-label={`Agregar ${p.nombre}`}
-              className="shrink-0 inline-flex items-center gap-1.5 h-9 rounded-full bg-ink px-3 sm:px-3.5 text-[12.5px] font-bold text-white hover:bg-rojo active:scale-95 transition-colors"
+              className="mt-2.5 w-full inline-flex items-center justify-center gap-1.5 h-9 rounded-full bg-ink text-[12.5px] font-bold text-white hover:bg-rojo active:scale-95 transition-colors"
             >
               <IcoMas size={15} />
-              <span className="hidden sm:inline">Agregar</span>
+              Agregar
             </button>
           )}
         </div>
