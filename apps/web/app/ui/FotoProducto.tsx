@@ -4,6 +4,9 @@ import { useState } from "react";
 
 // Imagen del producto con cascada: foto propia → fotos del tipo → tile de marca.
 // Si una imagen falla (404 / no existe), prueba la siguiente y, al agotarse, el tile.
+// Va en posición absoluta sobre un recuadro `relative` (tarjeta y ficha lo son):
+// con `h-full` dentro de una grilla centrada el alto no se resolvía y las fotos
+// 4:5 se dibujaban más altas que el recuadro y quedaban cortadas (11/9/2026).
 export function FotoProducto({
   imagenUrl,
   fotos = [],
@@ -21,7 +24,7 @@ export function FotoProducto({
 
   if (!src) {
     return (
-      <div className="w-full h-full grid place-items-center bg-crema-prof/60">
+      <div className="absolute inset-0 grid place-items-center bg-crema-prof/60">
         <img src="/odb-logo.png" alt="" className={`${logoH} w-auto opacity-35`} />
       </div>
     );
@@ -36,7 +39,7 @@ export function FotoProducto({
       src={src}
       alt=""
       onError={() => setI((n) => n + 1)}
-      className={`w-full h-full ${esLaFoto ? "object-contain p-4 sm:p-5" : "object-cover"} ${className}`}
+      className={`absolute inset-0 w-full h-full ${esLaFoto ? "object-contain p-4 sm:p-5" : "object-cover"} ${className}`}
     />
   );
 }
