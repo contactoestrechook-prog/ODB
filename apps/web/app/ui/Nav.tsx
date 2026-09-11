@@ -25,6 +25,7 @@ export function Nav({ cliente }: { cliente: Cliente | null }) {
           <nav className="hidden lg:flex items-center gap-1 text-[14px] font-semibold text-ink">
             <Link href="/catalogo" className="rounded-full px-3.5 py-2 hover:bg-crema transition-colors">Catálogo</Link>
             <Link href="/catalogo?filtro=promo" className="rounded-full px-3.5 py-2 hover:bg-crema transition-colors">Ofertas</Link>
+            <Link href="/#como-comprar" className="rounded-full px-3.5 py-2 hover:bg-crema transition-colors">Cómo comprar</Link>
           </nav>
 
           <form action="/catalogo" className="hidden md:flex flex-1 min-w-0 max-w-xl items-center gap-2.5 rounded-full border-2 border-ink px-4 h-11 focus-within:border-rojo transition-colors">
@@ -33,6 +34,10 @@ export function Nav({ cliente }: { cliente: Cliente | null }) {
           </form>
 
           <div className="flex items-center gap-2 ml-auto shrink-0">
+            <Link href="/#app" className="hidden md:inline-flex items-center gap-2 rounded-full border-2 border-ink px-4 h-11 text-[13px] font-bold text-ink hover:bg-ink hover:text-white transition-colors" aria-label="Descargá la app ODB">
+              <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M12 3v12M7 10l5 5 5-5M5 21h14" /></svg>
+              App
+            </Link>
             <Link href={cliente ? "/cuenta" : "/ingresar"} className="hidden sm:inline-flex items-center gap-2 rounded-full border-2 border-ink px-4 h-11 text-[13px] font-bold text-ink hover:bg-ink hover:text-white transition-colors">
               <IcoUsuario size={17} /> {cliente ? "Mi cuenta" : "Comunidad ODB"}
             </Link>

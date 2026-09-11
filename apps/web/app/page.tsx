@@ -4,6 +4,8 @@ import { sesion } from "../lib/sesion";
 import { Producto } from "./ui/Producto";
 import { Hero } from "./ui/Hero";
 import { WineFest } from "./ui/WineFest";
+import { ComoComprar } from "./ui/ComoComprar";
+import { SeccionApp } from "./ui/SeccionApp";
 import { Titulo } from "./ui/Titulo";
 import { IcoUva, IcoMoto, IcoMedalla, IcoFlecha, IcoTarjeta } from "./ui/Iconos";
 import type { Producto as P } from "../lib/tipos";
@@ -98,6 +100,9 @@ export default async function Home() {
       {/* el Wine Fest, con su video, justo debajo de la portada */}
       <WineFest />
 
+      {/* las tres formas de comprar: domicilio, pick-up al auto y Compra Fácil */}
+      <ComoComprar />
+
       <div className="max-w-7xl mx-auto px-5 lg:px-8">
         {/* ───────── CATEGORÍAS: placas de color con la foto en su propio pozo ───────── */}
         {categorias.length > 0 && (
@@ -152,6 +157,9 @@ export default async function Home() {
           </section>
         )}
       </div>
+
+      {/* ───────── LA APP ───────── */}
+      <SeccionApp />
 
       {/* ───────── COMUNIDAD: placa negra ───────── */}
       <section className="max-w-7xl mx-auto px-5 lg:px-8 mt-16">

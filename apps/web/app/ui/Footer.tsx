@@ -24,8 +24,10 @@ export function Footer() {
           <div>
             <p className="kicker text-crema/40 mb-4">Cómo recibís</p>
             <ul className="space-y-2.5 text-sm">
-              <li>Envío a domicilio</li>
-              <li>Retiro en el local</li>
+              <li><Link href="/#como-comprar" className="hover:text-crema transition-colors">Envío a domicilio</Link></li>
+              <li><Link href="/#como-comprar" className="hover:text-crema transition-colors">Pick-up: te lo llevamos al auto</Link></li>
+              <li><Link href="/#como-comprar" className="hover:text-crema transition-colors">Compra Fácil: sin hacer fila</Link></li>
+              <li><Link href="/#app" className="hover:text-crema transition-colors">Descargá la app</Link></li>
               <li>Pago con Mercado Pago</li>
             </ul>
           </div>

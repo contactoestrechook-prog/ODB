@@ -1,10 +1,11 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Fraunces, Manrope, Montserrat, Kaushan_Script } from "next/font/google";
 import "./globals.css";
 import { CarritoProvider } from "../lib/carrito";
 import { Nav } from "./ui/Nav";
 import { Footer } from "./ui/Footer";
 import { sesion } from "../lib/sesion";
+import { RegistroApp } from "./ui/RegistroApp";
 
 const display = Fraunces({ subsets: ["latin"], variable: "--font-fraunces", display: "swap" });
 const sans = Manrope({ subsets: ["latin"], variable: "--font-manrope", display: "swap" });
@@ -18,8 +19,13 @@ const script = Kaushan_Script({ subsets: ["latin"], weight: "400", variable: "--
 export const metadata: Metadata = {
   title: "O.D.B Premium Market — Vinos, fiambrería y almacén",
   description:
-    "La tienda de O.D.B Premium Market. Vinos, destilados, fiambrería de autor y almacén selecto. Envío a domicilio y retiro en el local.",
+    "La tienda de O.D.B Premium Market. Almacén gourmet, fiambrería, bebidas y bodega en Canning. Envío a domicilio, pick-up con estacionamiento y Compra Fácil.",
+  manifest: "/manifest.webmanifest",
+  appleWebApp: { capable: true, title: "O.D.B", statusBarStyle: "default" },
+  icons: { icon: "/icon-192.png", apple: "/apple-touch-icon.png" },
 };
+
+export const viewport: Viewport = { themeColor: "#b82d25" };
 
 export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const cliente = await sesion();
@@ -27,6 +33,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
     <html lang="es" className={`${display.variable} ${sans.variable} ${marca.variable} ${script.variable} h-full`}>
       <body className="min-h-full flex flex-col bg-papel text-tinta">
         <CarritoProvider>
+          <RegistroApp />
           <Nav cliente={cliente} />
           <main className="flex-1">{children}</main>
           <Footer />
