@@ -3,13 +3,14 @@ import { apiJson } from "../lib/api";
 import { sesion } from "../lib/sesion";
 import { Producto } from "./ui/Producto";
 import { Hero } from "./ui/Hero";
+import { WineFest } from "./ui/WineFest";
 import { Titulo } from "./ui/Titulo";
 import { IcoUva, IcoMoto, IcoMedalla, IcoFlecha, IcoTarjeta } from "./ui/Iconos";
 import type { Producto as P } from "../lib/tipos";
 
 export const dynamic = "force-dynamic";
 
-// Cabecera de sección: título en dos colores a la izquierda y el "ver todo"
+// Cabecera de sección: título (un solo color) a la izquierda y el "ver todo"
 // alineado a la misma base. flex-wrap para que en celular el link baje en vez
 // de pisar el título.
 function Seccion({ a, b, href, texto = "Ver todo" }: { a: string; b: string; href?: string; texto?: string }) {
@@ -93,6 +94,9 @@ export default async function Home() {
   return (
     <div className="pb-6">
       <Hero nombre={cliente?.nombre ? cliente.nombre.split(" ")[0] : null} vitrina={vitrina} />
+
+      {/* el Wine Fest, con su video, justo debajo de la portada */}
+      <WineFest />
 
       <div className="max-w-7xl mx-auto px-5 lg:px-8">
         {/* ───────── CATEGORÍAS: placas de color con la foto en su propio pozo ───────── */}
