@@ -101,16 +101,67 @@ CASOS = [
 ]
 
 
+
+# ─── Asistente de compras de la tienda (/asistente/charla, público) ───
+# Además de lo de arriba, tiene que mostrar productos reales: una respuesta que
+# solo pregunta y no muestra nada es no ayudar a comprar.
+def charlar_tienda(mensajes, timeout=120):
+    pedido = urllib.request.Request(
+        API + '/asistente/charla', method='POST',
+        headers={'Content-Type': 'application/json'},
+        data=json.dumps({'mensajes': mensajes}).encode())
+    t0 = time.time()
+    with urllib.request.urlopen(pedido, timeout=timeout) as r:
+        return json.loads(r.read()), time.time() - t0
+
+
+CASOS_TIENDA = [
+    {'nombre': 'Tienda: una picada para 6', 'turnos': ['una picada para 6 personas'], 'pide_productos': True},
+    {'nombre': 'Tienda: refina lo anterior', 'turnos': ['un malbec para regalar', 'más barato, hasta 10000'], 'pide_productos': True},
+    {'nombre': 'Tienda: insiste con lo mismo', 'turnos': ['dale', 'dale', 'dale'], 'pide_productos': False},
+]
+
+
+def correr_tienda():
+    fallas = 0
+    for caso in CASOS_TIENDA:
+        print(f"\n=== {caso['nombre']}")
+        mensajes, dichas = [], []
+        for i, texto in enumerate(caso['turnos']):
+            mensajes.append({'rol': 'usuario', 'texto': texto})
+            try:
+                d, seg = charlar_tienda(mensajes)
+            except urllib.error.HTTPError as e:
+                print(f'  turno {i+1}: NO CONTESTÓ (HTTP {e.code}: {e.read().decode("utf-8","replace")[:160]})'); fallas += 1; break
+            except Exception as e:
+                print(f'  turno {i+1}: NO CONTESTÓ ({repr(e)[:80]})'); fallas += 1; break
+            msj = (d.get('mensaje') or '').strip()
+            grupos = d.get('grupos') or []
+            n = sum(len(g.get('items') or []) for g in grupos)
+            mensajes.append({'rol': 'asistente', 'texto': msj})
+            TRANSCRIPCION.append(f"### {caso['nombre']} · turno {i+1} ({seg:.0f}s)\n> {texto}\n\n{msj}\n" + ''.join(f"- {g.get('titulo')}: " + ', '.join(f"{it.get('nombre')} ${it.get('precio')}" for it in (g.get('items') or [])) + '\n' for g in grupos))
+            print(f'  turno {i+1} ({seg:.0f}s): {len(grupos)} grupos, {n} productos · {msj[:90]}')
+            if not msj: print('    ✗ contestó vacío'); fallas += 1
+            if seg > 60: print(f'    ✗ tardó {seg:.0f} s: una compra guiada no puede hacer esperar tanto'); fallas += 1
+            if normalizar(msj) in dichas: print('    ✗ REPITIÓ un mensaje'); fallas += 1
+            dichas.append(normalizar(msj))
+            if caso['pide_productos'] and n == 0: print('    ✗ no mostró ningún producto'); fallas += 1
+            for g in grupos:
+                for it in g.get('items') or []:
+                    if not it.get('sku') or it.get('precio') is None: print(f"    ✗ producto sin sku o sin precio: {it.get('nombre')}"); fallas += 1
+    return fallas
+
 TRANSCRIPCION = []
 
 
 def correr():
+    fallas = correr_tienda()
     if not TOKEN:
-        print('Falta ODB_DEPLOY_TOKEN en el entorno', file=sys.stderr)
-        return 2
-
-    fallas = 0
-    for caso in CASOS:
+        print('\n(sin ODB_DEPLOY_TOKEN: no se audita el analista de compras, solo la tienda)')
+        CASOS_ANALISTA = []
+    else:
+        CASOS_ANALISTA = CASOS
+    for caso in CASOS_ANALISTA:
         print(f"\n=== {caso['nombre']}")
         mensajes, dichas = [], []
         for i, turno in enumerate(caso['turnos']):
