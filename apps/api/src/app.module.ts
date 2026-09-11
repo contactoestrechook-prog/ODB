@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { SaludController } from './salud.controller';
+import { AsistenteModule } from './asistente/asistente.module';
 import { NovedadesController } from './novedades/novedades.controller';
 import { supabaseProvider } from './supabase.provider';
 import { CatalogoModule } from './catalogo/catalogo.module';
@@ -56,6 +57,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]),
     ConfigModule.forRoot({ isGlobal: true }),
     CatalogoModule,
+    AsistenteModule,
     StockModule,
     DescuentosModule,
     ComprasModule,
