@@ -4,6 +4,7 @@ import { SUPABASE } from '../supabase.provider';
 import { CatalogoService } from './catalogo.service';
 import { recorrerConRitmo } from './ritmo';
 import { pareceElMismoProducto } from './parecido';
+import { normalizarFoto, anotarNormalizada } from './normalizar-foto';
 import { traerTodo } from '../comun/lotes';
 
 // Fotos de producto por código de barras desde EZ Catalog (Huggian), 2026-09-09.
@@ -35,7 +36,7 @@ export class FotosExternasService {
   constructor(@Inject(SUPABASE) private readonly db: SupabaseClient, private readonly catalogo: CatalogoService) {}
 
   private clave() { return (process.env.EZ_CATALOG_API_KEY ?? '').trim(); }
-  private urlImagen(sku: string) { return `${process.env.SUPABASE_URL}/storage/v1/object/public/productos/${encodeURIComponent(sku)}.jpg`; }
+  private urlImagen(sku: string) { return `${process.env.SUPABASE_URL}/storage/v1/object/public/productos/${encodeURIComponent(sku)}.jpg?v=${process.env.FOTOS_VERSION ?? '1'}`; }
 
   // Una consulta al catálogo externo. 404 = no está; el resto de los errores, con mensaje claro.
   async consultar(ean: string): Promise<{ estado: 'ok' | 'sin_producto'; producto?: Externo }> {
@@ -261,9 +262,11 @@ export class FotosExternasService {
       if (!img.ok) throw new Error(`la imagen respondió ${img.status}`);
       const buf = Buffer.from(await img.arrayBuffer());
       if (buf.length < 500) throw new Error('la imagen llegó vacía');
-      const tipo = img.headers.get('content-type') ?? 'image/jpeg';
-      const { error } = await this.db.storage.from('productos').upload(`${sku}.jpg`, buf, { contentType: tipo.startsWith('image/') ? tipo : 'image/jpeg', upsert: true });
+      // misma medida y margen que el resto de la tienda
+      const n = await normalizarFoto(buf);
+      const { error } = await this.db.storage.from('productos').upload(`${sku}.jpg`, n.buffer, { contentType: 'image/jpeg', upsert: true });
       if (error) throw new Error(error.message);
+      await anotarNormalizada(this.db, sku, n, productoId);
       this.catalogo.invalidarFotos();
       await this.catalogo.marcarFoto(sku, true);
       await registrar('foto', p);

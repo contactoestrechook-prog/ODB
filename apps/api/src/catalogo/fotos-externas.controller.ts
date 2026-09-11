@@ -2,11 +2,12 @@ import { Body, Controller, Get, Param, Post } from '@nestjs/common';
 import { Roles } from '../auth/decorators';
 import { FotosExternasService } from './fotos-externas.service';
 import { CalidadFotosService } from './calidad-fotos.service';
+import { NormalizarFotosService } from './normalizar-fotos.service';
 
 // Fotos por código de barras desde EZ Catalog: estado, lote y producto puntual.
 @Controller('catalogo/fotos-externas')
 export class FotosExternasController {
-  constructor(private readonly fotos: FotosExternasService, private readonly calidad: CalidadFotosService) {}
+  constructor(private readonly fotos: FotosExternasService, private readonly calidad: CalidadFotosService, private readonly normalizador: NormalizarFotosService) {}
 
   @Roles('comprador', 'gerente', 'dueno')
   @Get('estado')
@@ -35,6 +36,15 @@ export class FotosExternasController {
   resolverDudosa(@Param('id') id: string, @Body() b: { aceptar?: boolean }) { return this.fotos.resolverDudosa(id, !!b?.aceptar); }
 
   // Control de calidad: el modelo mira las fotos y saca las que no sirven.
+  // Misma medida y margen para todas las fotos ya guardadas.
+  @Roles('comprador', 'gerente', 'dueno')
+  @Get('normalizar')
+  normalizarEstado() { return this.normalizador.estado(); }
+
+  @Roles('gerente', 'dueno')
+  @Post('normalizar')
+  normalizar(@Body() b: { limite?: number }) { return this.normalizador.normalizar(b?.limite ?? 40); }
+
   @Roles('comprador', 'gerente', 'dueno')
   @Get('calidad')
   calidadEstado() { return this.calidad.estado(); }

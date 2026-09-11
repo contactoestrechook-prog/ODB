@@ -3,6 +3,7 @@ import { BadRequestException, Inject, Injectable, NotFoundException } from '@nes
 import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
 import { SUPABASE } from '../supabase.provider';
+import { normalizarFoto, anotarNormalizada } from './normalizar-foto';
 import { traerTodo } from '../comun/lotes';
 
 const SELECT_PRODUCTO = `
@@ -82,17 +83,22 @@ export class CatalogoService {
   }
 
   async subirImagen(sku: string, archivo: Express.Multer.File) {
+    // Toda foto entra con la misma medida y margen que el resto de la tienda.
+    const n = await normalizarFoto(archivo.buffer);
     const { error } = await this.db.storage
       .from('productos')
-      .upload(`${sku}.jpg`, archivo.buffer, { contentType: 'image/jpeg', upsert: true });
+      .upload(`${sku}.jpg`, n.buffer, { contentType: 'image/jpeg', upsert: true });
+    if (!error) await anotarNormalizada(this.db, sku, n);
     if (error) throw new Error(error.message);
     this.invalidarFotos();
     await this.marcarFoto(sku, true);
     return { imagenUrl: this.urlImagen(sku) };
   }
 
+  // ?v= cambia cuando se re-procesan las fotos (FOTOS_VERSION en Railway): la
+  // dirección es la misma y sin esto el navegador y la CDN muestran la vieja.
   private urlImagen(sku: string) {
-    return `${process.env.SUPABASE_URL}/storage/v1/object/public/productos/${encodeURIComponent(sku)}.jpg`;
+    return `${process.env.SUPABASE_URL}/storage/v1/object/public/productos/${encodeURIComponent(sku)}.jpg?v=${process.env.FOTOS_VERSION ?? '1'}`;
   }
 
   // Categorías para la portada: las que más productos con foto tienen, cada una
