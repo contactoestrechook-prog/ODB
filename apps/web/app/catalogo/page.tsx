@@ -30,7 +30,17 @@ export default async function Catalogo({ searchParams }: { searchParams: Promise
     apiJson<{ categorias: any[] }>("/catalogo/filtros", { categorias: [] }),
     apiJson<{ items: P[]; total: number; paginas: number }>(`/productos?${qs.toString()}`, { items: [], total: 0, paginas: 1 }),
   ]);
-  const categorias = filtros.categorias ?? [];
+  // Los filtros en el mismo orden que la tienda (ver prioridad_tienda en la
+  // base): bodega y gourmet adelante, bazar y limpieza al final. En orden
+  // alfabético arrancaban con "Accesorios", "Adhesivos" y "Aerosoles".
+  const nivel = (n: string) =>
+    /limpi|higien|jab[oó]n|papel|desodor|shampoo|aerosol|detergen|esponj|depila|algod|bolsa|insectic|pa[ñn]al|tabaco|cigarr|pilas|encendedor/i.test(n) ? 3
+    : /cristal|bazar|vaso|copa|accesorio|deco|estuch|adhesiv/i.test(n) ? 2
+    : /vino|malbec|cabernet|corte|merlot|syrah|blanco|rosado|torront|chardon|sauvig|pinot|bonarda|espumant|champ|cava|whisk|gin|vodka|ron|fernet|aperit|licor|destil|vermu|delicat|aceite|queso|fiambre|jam[oó]n|chocolates? importad|gourmet|conserva/i.test(n) ? 0
+    : 1;
+  const categorias = [...(filtros.categorias ?? [])].sort(
+    (a: any, b: any) => nivel(a.nombre) - nivel(b.nombre) || String(a.nombre).localeCompare(String(b.nombre), "es", { sensitivity: "base" }),
+  );
   const categoriaActual = categorias.find((c: any) => c.id === categoriaId)?.nombre as string | undefined;
 
   const chipHref = (cat: string) => {
@@ -53,7 +63,7 @@ export default async function Catalogo({ searchParams }: { searchParams: Promise
   const destacados = pagina === 1 && !q ? data.items.slice(0, 4) : [];
   const resto = data.items.slice(destacados.length);
 
-  // Título en dos colores según dónde estás parado
+  // Título según dónde estás parado (un solo color: ver Titulo.tsx)
   const [a, b] =
     filtro === "promo" ? ["Ofertas", "de la semana"]
     : q ? ["Resultados para", `“${q}”`]
