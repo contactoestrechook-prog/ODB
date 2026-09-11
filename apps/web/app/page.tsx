@@ -71,7 +71,14 @@ export default async function Home() {
   ]);
   const categorias = repartirPorRubro(filtros.categorias ?? []).slice(0, 8);
   // Un estante por rubro distinto: almacén, fiambrería, bebidas, dulces.
-  const estantes = RUBROS.map((_, r) => categorias.find((c: any) => rubroDe(c.nombre) === r)).filter(Boolean).slice(0, 3);
+  // Estantes y vitrina solo con lo gourmet de cada rubro. Quesos y fiambres
+  // casi no tienen foto (son de balanza, sin código de barras), así que el rubro
+  // fiambrería quedaba representado por "lácteos" y la vitrina mostraba un
+  // Actimel. Si un rubro no tiene una categoría gourmet con fotos, ese rubro va
+  // en la grilla de categorías pero no en los estantes.
+  const estantes = RUBROS.map((_, r) => categorias.find((c: any) => rubroDe(c.nombre) === r && GOURMET.test(c.nombre)))
+    .filter(Boolean)
+    .slice(0, 3);
   const filas = await Promise.all(
     estantes.map((c: any) =>
       apiJson<{ items: P[] }>(`/productos?categoriaId=${c.id}&porPagina=7&orden=foto`, { items: [] }).then((r) => ({
