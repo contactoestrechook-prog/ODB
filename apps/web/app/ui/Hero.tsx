@@ -1,98 +1,51 @@
-"use client";
-
 import Link from "next/link";
-import { useEffect, useRef } from "react";
+import { Titulo } from "./Titulo";
+import { pesos, type Producto } from "../../lib/tipos";
 
-export function Hero({ nombre }: { nombre?: string | null }) {
-  const frameRef = useRef<HTMLDivElement>(null);
-  const auraRef = useRef<HTMLDivElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-
-  useEffect(() => {
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-
-    // parallax sutil con el mouse
-    const onMove = (e: MouseEvent) => {
-      const x = e.clientX / window.innerWidth - 0.5;
-      const y = e.clientY / window.innerHeight - 0.5;
-      if (frameRef.current) frameRef.current.style.transform = `translate(${x * -10}px, ${y * -10}px)`;
-      if (auraRef.current) auraRef.current.style.transform = `translate(${x * 26}px, ${y * 26}px)`;
-    };
-    window.addEventListener("mousemove", onMove);
-
-    // partículas doradas flotando (polvo de cava)
-    const canvas = canvasRef.current;
-    const ctx = canvas?.getContext("2d");
-    let raf = 0;
-    let parts: { x: number; y: number; r: number; vy: number; sway: number; ph: number; a: number }[] = [];
-    const resize = () => {
-      if (!canvas) return;
-      canvas.width = canvas.offsetWidth;
-      canvas.height = canvas.offsetHeight;
-    };
-    if (canvas && ctx) {
-      resize();
-      const n = window.innerWidth < 640 ? 16 : 30;
-      parts = Array.from({ length: n }, () => ({
-        x: Math.random() * canvas.width,
-        y: Math.random() * canvas.height,
-        r: Math.random() * 1.6 + 0.4,
-        vy: -(Math.random() * 0.28 + 0.06),
-        sway: Math.random() * 0.35 + 0.08,
-        ph: Math.random() * Math.PI * 2,
-        a: Math.random() * 0.4 + 0.12,
-      }));
-      const tick = () => {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        for (const p of parts) {
-          p.y += p.vy;
-          p.ph += 0.01;
-          p.x += Math.sin(p.ph) * p.sway;
-          if (p.y < -6) { p.y = canvas.height + 6; p.x = Math.random() * canvas.width; }
-          ctx.beginPath();
-          ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-          ctx.fillStyle = `rgba(240,235,226,${p.a})`;
-          ctx.fill();
-        }
-        raf = requestAnimationFrame(tick);
-      };
-      tick();
-      window.addEventListener("resize", resize);
-    }
-    return () => {
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("resize", resize);
-      cancelAnimationFrame(raf);
-    };
-  }, []);
-
+// Portada "placa roja": la placa del logo es la estructura. Texto a la
+// izquierda y productos a la derecha, cada cosa en su columna: ninguna foto
+// pasa por debajo de un texto. Las fotos del catálogo vienen sobre fondo
+// blanco, así que van en su propia placa blanca en vez de flotar sobre el rojo
+// (sueltas se veían como rectángulos pegados).
+export function Hero({ nombre, vitrina }: { nombre?: string | null; vitrina: Producto[] }) {
+  const fotos = vitrina.filter((p) => p.imagenUrl).slice(0, 2);
   return (
-    <section className="bg-ink text-crema relative overflow-hidden">
-      <div ref={auraRef} className="absolute inset-0 pointer-events-none deriva-glow" style={{ backgroundImage: "radial-gradient(58% 50% at 50% 32%, rgba(147,42,31,0.8), transparent 70%)" }} />
-      <div className="absolute inset-0 pointer-events-none" style={{ backgroundImage: "radial-gradient(42% 36% at 50% 0%, rgba(184,45,37,0.18), transparent 70%)" }} />
-      <canvas ref={canvasRef} className="absolute inset-0 w-full h-full pointer-events-none" aria-hidden />
+    <section className="max-w-7xl mx-auto px-5 lg:px-8 pt-6">
+      <div className="relative overflow-hidden rounded-[28px] bg-rojo text-white grid lg:grid-cols-[1.05fr_1fr]">
+        {/* círculo rojo oscuro: el único adorno, y vive detrás de la columna de fotos */}
+        <div aria-hidden className="pointer-events-none absolute -right-24 -top-24 w-[520px] h-[520px] rounded-full bg-rojo-osc hidden lg:block" />
 
-      <div className="max-w-7xl mx-auto px-5 lg:px-8 py-16 lg:py-28 relative">
-        <div ref={frameRef} className="border border-dorado/25 px-6 sm:px-14 py-16 sm:py-24 text-center" style={{ transition: "transform 0.25s ease-out" }}>
-          <p className="kicker text-dorado entrar" style={{ animationDelay: "0.05s" }}>Vinos · Fiambrería · Almacén</p>
-          <h1 className="mt-7 tracking-[-0.01em]">
-            <span className="marca block text-[38px] sm:text-6xl lg:text-[74px] font-bold leading-[1.05] entrar" style={{ animationDelay: "0.18s" }}>El placer de lo bueno,</span>
-            <span className="script block text-[46px] sm:text-7xl lg:text-[92px] text-dorado-claro leading-[1.15] pb-1 entrar" style={{ animationDelay: "0.34s" }}>a un toque.</span>
-          </h1>
-          <p className="mt-7 max-w-xl mx-auto text-crema/55 leading-relaxed entrar" style={{ animationDelay: "0.5s" }}>
+        <div className="relative z-10 min-w-0 px-7 sm:px-12 py-10 sm:py-14 self-center">
+          <p className="text-[12px] font-bold tracking-[0.16em] uppercase text-white/75">Canning · Almacén, fiambrería, bebidas</p>
+          <Titulo como="h1" tono="rojo" a="El placer de lo bueno," b="a un toque." className="mt-4 text-[42px] sm:text-[58px] lg:text-[66px]" />
+          <p className="mt-5 max-w-[42ch] text-[16px] leading-relaxed text-white/85">
             {nombre
-              ? `Hola, ${nombre}. Estás viendo tus precios.`
-              : "Curaduría de bodega, fiambrería de autor y almacén selecto. Entrá con tu email y mirá tus precios."}
+              ? `Hola, ${nombre}. Estás viendo tus precios de socio.`
+              : "Almacén gourmet, fiambrería, quesos, bebidas y bodega: más de 10.000 productos. Te lo llevamos o lo retirás en el local."}
           </p>
-          <div className="mt-10 flex flex-wrap gap-3 justify-center entrar" style={{ animationDelay: "0.64s" }}>
-            <Link href="/catalogo" className="bg-crema text-ink rounded-full px-8 py-3.5 text-sm font-semibold hover:bg-white transition-colors">Ver catálogo</Link>
-            <Link href="/catalogo?filtro=promo" className="border border-dorado/50 text-dorado-claro rounded-full px-8 py-3.5 text-sm font-semibold hover:bg-dorado/10 transition-colors">Ofertas de la semana</Link>
+          <div className="mt-8 flex flex-wrap gap-3">
+            <Link href="/catalogo" className="rounded-full bg-white px-7 h-12 inline-flex items-center text-[14px] font-extrabold text-rojo hover:bg-crema transition-colors">Entrar a la tienda</Link>
+            <Link href="/catalogo?filtro=promo" className="rounded-full border-2 border-white px-7 h-12 inline-flex items-center text-[14px] font-bold text-white hover:bg-white hover:text-rojo transition-colors">Ofertas de la semana</Link>
           </div>
         </div>
-      </div>
 
-      <div className="absolute bottom-5 left-1/2 -translate-x-1/2 text-dorado/50 flotar pointer-events-none" aria-hidden>
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M6 13l6 6 6-6" /></svg>
+        {fotos.length > 0 && (
+          <div className="relative z-10 min-w-0 px-7 sm:px-12 lg:pl-0 pb-10 lg:py-12 grid grid-cols-2 gap-4 self-center">
+            {fotos.map((p, i) => (
+              <Link
+                key={p.sku}
+                href={`/producto/${p.sku}`}
+                className={`group rounded-[22px] bg-white p-4 text-ink shadow-[0_18px_40px_-18px_rgba(0,0,0,0.45)] ${i === 1 ? "lg:mt-10" : ""}`}
+              >
+                <div className="aspect-[4/5] grid place-items-center overflow-hidden rounded-[14px]">
+                  <img src={p.imagenUrl!} alt={p.nombre} className="w-full h-full object-contain transition-transform duration-500 group-hover:scale-[1.05]" />
+                </div>
+                <p className="mt-3 text-[13px] font-semibold leading-snug line-clamp-2 min-h-[2.5em]">{p.nombre}</p>
+                <p className="marca mt-1 text-[22px] font-extrabold leading-none">{pesos(p.precio)}</p>
+              </Link>
+            ))}
+          </div>
+        )}
       </div>
     </section>
   );

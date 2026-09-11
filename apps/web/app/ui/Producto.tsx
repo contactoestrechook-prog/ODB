@@ -7,60 +7,62 @@ import { IcoMas } from "./Iconos";
 import { FotoProducto } from "./FotoProducto";
 import { fotosCandidatas } from "../../lib/fotos";
 
-function Tag({ children, tono }: { children: React.ReactNode; tono: "ink" | "rojo" | "oro" }) {
-  const c =
-    tono === "rojo" ? "bg-rojo text-crema"
-    : tono === "oro" ? "bg-ink/85 text-dorado-claro border border-dorado/40"
-    : "bg-ink/85 text-crema";
-  return <span className={`text-[10px] tracking-[0.12em] uppercase font-semibold rounded px-2 py-1 ${c}`}>{children}</span>;
+function Tag({ children, tono }: { children: React.ReactNode; tono: "ink" | "rojo" | "socio" }) {
+  const c = tono === "rojo" ? "bg-rojo text-white" : tono === "socio" ? "bg-white text-rojo ring-1 ring-rojo/30" : "bg-ink text-white";
+  return <span className={`text-[11px] font-extrabold rounded-full px-2.5 py-1 leading-none ${c}`}>{children}</span>;
 }
 
-// La tarjeta manda la foto: las del catálogo son packshots sobre blanco, así que
-// el cuadro va blanco (no crema) para que el producto quede recortado contra el
-// fondo y no se vea el rectángulo de la imagen. `grande` la usa la primera fila
-// del catálogo, que es la que abre la góndola.
+// Tarjeta "placa roja": placa crema con el pozo blanco de la foto adentro (los
+// packshots vienen sobre blanco, así el producto queda recortado). Todo lo que
+// es texto vive DEBAJO de la foto, nunca encima, y nada tiene ancho fijo: en
+// celular, con dos columnas, el precio y el botón no entraban lado a lado y el
+// texto se salía de la tarjeta; por eso ahí el botón queda solo con el "+".
 export function Producto({ p, grande = false }: { p: P; grande?: boolean }) {
   const { agregar } = useCarrito();
   const pct = descuentoPct(p);
   const sinStock = p.stockTotal != null && p.stockTotal <= 0;
 
   return (
-    <div className="group">
+    <div className="group flex flex-col min-w-0 rounded-[20px] bg-crema p-2.5 sm:p-3">
       <Link
         href={`/producto/${p.sku}`}
-        className={`block relative overflow-hidden rounded-xl bg-white ring-1 ring-tinta/[0.07] shadow-[0_1px_2px_rgba(0,0,0,0.04)] transition-shadow duration-300 group-hover:shadow-[0_10px_30px_rgba(0,0,0,0.10)] ${grande ? "aspect-square" : "aspect-[4/5]"}`}
+        className={`relative block overflow-hidden rounded-[14px] bg-white ${grande ? "aspect-square" : "aspect-[4/5]"}`}
       >
         <FotoProducto
           imagenUrl={p.imagenUrl}
           fotos={fotosCandidatas(p.nombre, p.sku)}
-          className="transition-transform duration-[600ms] ease-out group-hover:scale-[1.06]"
+          className="transition-transform duration-[600ms] ease-out group-hover:scale-[1.05]"
         />
-        <div className="absolute top-3 left-3 flex flex-col items-start gap-1.5">
-          {sinStock ? <Tag tono="ink">Sin stock</Tag> : pct != null ? <Tag tono="rojo">−{pct}%</Tag> : null}
-          {p.descuentoComunidad && <Tag tono="oro">Socio</Tag>}
-        </div>
+        {(sinStock || pct != null || p.descuentoComunidad) && (
+          <div className="absolute top-2.5 left-2.5 flex flex-col items-start gap-1.5">
+            {sinStock ? <Tag tono="ink">Sin stock</Tag> : pct != null ? <Tag tono="rojo">−{pct}%</Tag> : null}
+            {p.descuentoComunidad && <Tag tono="socio">Precio socio</Tag>}
+          </div>
+        )}
       </Link>
 
-      <div className="pt-3.5">
-        {p.categoria && <p className="kicker text-dorado">{p.categoria}</p>}
+      <div className="flex flex-1 flex-col min-w-0 px-1 pt-3">
+        {p.categoria && <p className="truncate text-[10.5px] font-bold uppercase tracking-[0.12em] text-rojo">{p.categoria}</p>}
         <Link
           href={`/producto/${p.sku}`}
-          className={`block mt-1 leading-snug text-tinta hover:text-rojo transition-colors line-clamp-2 ${grande ? "text-[15px] min-h-[2.6rem]" : "text-[14px] min-h-[2.5rem]"}`}
+          className={`mt-1 block leading-snug text-ink hover:text-rojo transition-colors line-clamp-2 [overflow-wrap:anywhere] ${grande ? "text-[15px] min-h-[2.6em]" : "text-[13.5px] min-h-[2.6em]"}`}
         >
           {p.nombre}
         </Link>
-        <div className="mt-2 flex items-center justify-between gap-2">
-          <div className="leading-none">
-            <span className={`display font-semibold text-ink ${grande ? "text-[22px]" : "text-[19px]"}`}>{pesos(p.precio)}</span>
-            {pct != null && <span className="ml-2 text-xs text-humo line-through">{pesos(p.precioLista)}</span>}
+
+        <div className="mt-auto pt-2.5 flex items-end justify-between gap-2">
+          <div className="min-w-0 leading-none">
+            {pct != null && <p className="text-[12px] text-humo line-through mb-1">{pesos(p.precioLista)}</p>}
+            <p className={`marca font-extrabold text-ink truncate ${grande ? "text-[22px] sm:text-[24px]" : "text-[19px] sm:text-[21px]"}`}>{pesos(p.precio)}</p>
           </div>
           {!sinStock && p.precio != null && (
             <button
               onClick={() => agregar(p)}
               aria-label={`Agregar ${p.nombre}`}
-              className="shrink-0 w-9 h-9 grid place-items-center rounded-full border border-tinta/20 text-tinta hover:bg-ink hover:text-crema hover:border-ink active:scale-95 transition-colors"
+              className="shrink-0 inline-flex items-center gap-1.5 h-9 rounded-full bg-ink px-3 sm:px-3.5 text-[12.5px] font-bold text-white hover:bg-rojo active:scale-95 transition-colors"
             >
-              <IcoMas size={17} />
+              <IcoMas size={15} />
+              <span className="hidden sm:inline">Agregar</span>
             </button>
           )}
         </div>

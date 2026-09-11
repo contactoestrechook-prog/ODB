@@ -8,6 +8,7 @@ import { Producto } from "../../ui/Producto";
 import { IcoLocal, IcoMoto, IcoTarjeta } from "../../ui/Iconos";
 import { FotoProducto } from "../../ui/FotoProducto";
 import { fotosCandidatas } from "../../../lib/fotos";
+import { Titulo } from "../../ui/Titulo";
 
 export const dynamic = "force-dynamic";
 
@@ -42,23 +43,23 @@ export default async function ProductoPage({ params }: { params: Promise<{ sku: 
       <div className="grid md:grid-cols-2 gap-10 lg:gap-16">
         {/* imagen (sticky en desktop) */}
         <div className="md:sticky md:top-28 h-fit">
-          <div className="relative overflow-hidden rounded-xl bg-crema aspect-[4/5] border border-linea">
+          <div className="relative overflow-hidden rounded-[22px] bg-white aspect-[4/5] ring-[10px] ring-crema">
             <FotoProducto imagenUrl={prod.imagenUrl} fotos={fotosCandidatas(prod.nombre, prod.sku)} logoH="h-16" />
-            {pct != null && <span className="absolute top-4 left-4 bg-rojo text-crema text-xs font-semibold tracking-wide rounded px-2.5 py-1">−{pct}%</span>}
+            {pct != null && <span className="absolute top-4 left-4 bg-rojo text-white text-[12px] font-extrabold rounded-full px-3 py-1">−{pct}%</span>}
           </div>
         </div>
 
         {/* info */}
         <div className="md:py-2">
           {prod.marca && <p className="kicker text-dorado">{prod.marca}</p>}
-          <h1 className="display text-3xl sm:text-[42px] font-semibold text-ink mt-2 leading-[1.08] tracking-tight">{prod.nombre}</h1>
+          <h1 className="marca text-[32px] sm:text-[44px] font-extrabold text-ink mt-2 leading-[1] tracking-[-0.015em] [text-wrap:balance] [overflow-wrap:anywhere]">{prod.nombre}</h1>
 
           {prod.descuentoComunidad && (
-            <span className="inline-block mt-4 border border-dorado/50 text-dorado text-[11px] font-semibold tracking-wide rounded px-2.5 py-1">PRECIO SOCIO · COMUNIDAD ODB</span>
+            <span className="inline-block mt-4 bg-white text-rojo ring-1 ring-rojo/30 text-[12px] font-extrabold rounded-full px-3 py-1">Precio socio · Comunidad ODB</span>
           )}
 
           <div className="mt-6 flex items-end gap-3">
-            <span className="display text-4xl font-semibold text-ink">{pesos(prod.precio)}</span>
+            <span className="marca text-[40px] font-extrabold text-ink leading-none">{pesos(prod.precio)}</span>
             {pct != null && <span className="text-lg text-humo line-through mb-1">{pesos(prod.precioLista)}</span>}
           </div>
 
@@ -93,14 +94,11 @@ export default async function ProductoPage({ params }: { params: Promise<{ sku: 
       {/* Relacionados */}
       {relacionados.length > 0 && (
         <section className="mt-16">
-          <div className="flex items-end justify-between mb-7">
-            <div>
-              <p className="kicker text-dorado">De la misma estantería</p>
-              <h2 className="display text-2xl sm:text-3xl font-semibold text-ink mt-1.5 tracking-tight">También te puede gustar</h2>
-            </div>
-            {prod.categoriaId && <Link href={`/catalogo?categoriaId=${prod.categoriaId}`} className="text-sm text-tinta/70 hover:text-rojo transition-colors">Ver más →</Link>}
+          <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2 mb-6">
+            <Titulo a="También" b="te puede gustar" className="text-[30px] sm:text-[38px] min-w-0" />
+            {prod.categoriaId && <Link href={`/catalogo?categoriaId=${prod.categoriaId}`} className="shrink-0 text-[14px] font-bold text-rojo hover:text-rojo-osc transition-colors">Ver más →</Link>}
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-x-4 gap-y-9">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
             {relacionados.map((r) => <Producto key={r.sku} p={r} />)}
           </div>
         </section>

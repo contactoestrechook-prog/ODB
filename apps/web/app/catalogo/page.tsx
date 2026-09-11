@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { apiJson } from "../../lib/api";
 import { Producto } from "../ui/Producto";
+import { Titulo } from "../ui/Titulo";
 import { IcoBuscar } from "../ui/Iconos";
 import type { Producto as P } from "../../lib/tipos";
 
@@ -19,7 +20,7 @@ export default async function Catalogo({ searchParams }: { searchParams: Promise
   if (q) qs.set("buscar", q);
   if (categoriaId) qs.set("categoriaId", categoriaId);
   if (filtro) qs.set("filtro", filtro);
-  qs.set("porPagina", "24");
+  qs.set("porPagina", "25");
   // La góndola abre con lo que tiene foto: en orden alfabético arrancaba con
   // vasos y huevos sueltos sin imagen, que es la peor primera pantalla posible.
   if (!sp.orden) qs.set("orden", "foto");
@@ -30,6 +31,7 @@ export default async function Catalogo({ searchParams }: { searchParams: Promise
     apiJson<{ items: P[]; total: number; paginas: number }>(`/productos?${qs.toString()}`, { items: [], total: 0, paginas: 1 }),
   ]);
   const categorias = filtros.categorias ?? [];
+  const categoriaActual = categorias.find((c: any) => c.id === categoriaId)?.nombre as string | undefined;
 
   const chipHref = (cat: string) => {
     const p = new URLSearchParams();
@@ -51,56 +53,64 @@ export default async function Catalogo({ searchParams }: { searchParams: Promise
   const destacados = pagina === 1 && !q ? data.items.slice(0, 4) : [];
   const resto = data.items.slice(destacados.length);
 
-  const kicker = filtro === "promo" ? "Por tiempo limitado" : "La tienda";
-  const titulo = filtro === "promo" ? "Ofertas" : q ? "Resultados" : "Catálogo";
+  // Título en dos colores según dónde estás parado
+  const [a, b] =
+    filtro === "promo" ? ["Ofertas", "de la semana"]
+    : q ? ["Resultados para", `“${q}”`]
+    : categoriaActual ? ["Todo en", categoriaActual.toLowerCase()]
+    : ["Toda", "la tienda"];
+
+  const chip = (activo: boolean) =>
+    `shrink-0 rounded-full h-10 px-4 inline-flex items-center text-[13px] font-bold border-2 transition-colors ${
+      activo ? "bg-ink text-white border-ink" : "border-ink/15 text-ink hover:border-ink"
+    }`;
 
   return (
-    <div className="max-w-7xl mx-auto px-5 lg:px-8 py-10">
-      <header className="text-center max-w-2xl mx-auto">
-        <p className="kicker text-dorado">{kicker}</p>
-        <h1 className="display text-4xl sm:text-5xl font-semibold text-ink mt-2 tracking-tight">{titulo}</h1>
-        {q && <p className="text-humo mt-2">Buscando “{q}”</p>}
+    <div className="max-w-7xl mx-auto px-5 lg:px-8 pt-8 pb-6">
+      <header className="flex flex-wrap items-end justify-between gap-x-8 gap-y-3">
+        <div className="min-w-0">
+          <Titulo como="h1" a={a} b={b} className="text-[36px] sm:text-[52px] [overflow-wrap:anywhere]" />
+          <p className="mt-2 text-[14px] font-semibold text-humo">{data.total.toLocaleString("es-AR")} productos</p>
+        </div>
+        <form action="/catalogo" className="w-full sm:w-auto sm:min-w-[380px] flex items-center gap-2.5 rounded-full border-2 border-ink pl-4 pr-1.5 h-12 focus-within:border-rojo transition-colors">
+          {filtro && <input type="hidden" name="filtro" value={filtro} />}
+          <IcoBuscar size={18} className="text-humo shrink-0" />
+          <input name="q" defaultValue={q} placeholder="Buscar vinos, fiambres, almacén…" className="min-w-0 flex-1 bg-transparent outline-none text-[14px] placeholder:text-humo" />
+          <button className="shrink-0 rounded-full bg-rojo text-white h-9 px-4 text-[13px] font-bold hover:bg-rojo-osc transition-colors">Buscar</button>
+        </form>
       </header>
 
-      <form action="/catalogo" className="mt-8 max-w-xl mx-auto">
-        {filtro && <input type="hidden" name="filtro" value={filtro} />}
-        <div className="flex items-center gap-3 border-b border-tinta/25 focus-within:border-dorado transition-colors pb-2.5">
-          <IcoBuscar size={19} className="text-humo" />
-          <input name="q" defaultValue={q} placeholder="Buscar vinos, fiambres, almacén…" className="flex-1 bg-transparent outline-none text-[15px] placeholder:text-humo/70" />
-          <button className="text-sm font-semibold text-ink hover:text-rojo transition-colors">Buscar</button>
-        </div>
-      </form>
-
-      <div className="mt-8 flex gap-2 overflow-x-auto sin-scroll pb-1 justify-start sm:justify-center">
-        <Link href={chipHref("")} className={`shrink-0 rounded-full px-4 py-2 text-[13px] border transition-colors ${!categoriaId ? "bg-ink text-crema border-ink" : "border-linea text-tinta/80 hover:border-dorado"}`}>Todo</Link>
+      <div className="mt-6 -mx-5 px-5 lg:mx-0 lg:px-0 flex gap-2 overflow-x-auto sin-scroll pb-1">
+        <Link href={chipHref("")} className={chip(!categoriaId)}>Todo</Link>
         {categorias.map((c: any) => (
-          <Link key={c.id} href={chipHref(c.id)} className={`shrink-0 rounded-full px-4 py-2 text-[13px] border transition-colors ${categoriaId === c.id ? "bg-ink text-crema border-ink" : "border-linea text-tinta/80 hover:border-dorado"}`}>{c.nombre}</Link>
+          <Link key={c.id} href={chipHref(c.id)} className={`${chip(categoriaId === c.id)} capitalize`}>{String(c.nombre).toLowerCase()}</Link>
         ))}
       </div>
 
-      <p className="text-center text-xs text-humo mt-6">{data.total.toLocaleString("es-AR")} productos</p>
-
       {data.items.length === 0 ? (
-        <p className="text-center text-humo py-24">No encontramos productos. Probá con otra búsqueda.</p>
+        <div className="mt-10 rounded-[22px] bg-crema px-8 py-14 text-center">
+          <Titulo a="No encontramos" b="nada con eso" className="text-[28px] sm:text-[34px]" />
+          <p className="mt-3 text-humo">Probá con otra palabra, o con la marca o el varietal: “malbec”, “Salentein”, “fernet”.</p>
+        </div>
       ) : (
         <>
           {destacados.length > 0 && (
-            <div className="mt-8 grid grid-cols-2 lg:grid-cols-4 gap-x-5 gap-y-10">
+            <div className="mt-6 grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
               {destacados.map((p) => <Producto key={p.sku} p={p} grande />)}
             </div>
           )}
-          <div className="mt-10 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-x-5 gap-y-10">
+          <div className={`${destacados.length ? "mt-3 sm:mt-4" : "mt-6"} grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4`}>
             {resto.map((p) => <Producto key={p.sku} p={p} />)}
           </div>
         </>
       )}
 
       {data.paginas > 1 && (
-        <div className="flex justify-center items-center gap-5 mt-14">
-          {pagina > 1 ? <Link href={pageHref(pagina - 1)} className="text-sm font-medium text-tinta hover:text-rojo transition-colors">← Anterior</Link> : <span />}
-          <span className="text-xs text-humo tracking-wide">{pagina} / {data.paginas}</span>
-          {pagina < data.paginas ? <Link href={pageHref(pagina + 1)} className="text-sm font-medium text-tinta hover:text-rojo transition-colors">Siguiente →</Link> : <span />}
-        </div>
+        <nav className="flex justify-center items-center gap-3 mt-12" aria-label="Páginas">
+          {pagina > 1 ? <Link href={pageHref(pagina - 1)} className="rounded-full border-2 border-ink h-11 px-5 inline-flex items-center text-[14px] font-bold text-ink hover:bg-ink hover:text-white transition-colors">← Anterior</Link> : <span />}
+          <span className="text-[13px] font-semibold text-humo tabular-nums">Página {pagina} de {data.paginas}</span>
+          {pagina < data.paginas ? <Link href={pageHref(pagina + 1)} className="rounded-full bg-ink h-11 px-5 inline-flex items-center text-[14px] font-bold text-white hover:bg-rojo transition-colors">Siguiente →</Link> : <span />}
+        </nav>
       )}
     </div>
   );
