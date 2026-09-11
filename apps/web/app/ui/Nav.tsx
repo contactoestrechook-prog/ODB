@@ -23,6 +23,7 @@ export function Nav({ cliente }: { cliente: Cliente | null }) {
           </Link>
 
           <nav className="hidden lg:flex items-center gap-1 text-[14px] font-semibold text-ink">
+            <Link href="/comprar" className="rounded-full px-3.5 py-2 bg-crema hover:bg-crema-prof transition-colors">Comprá con ayuda</Link>
             <Link href="/catalogo" className="rounded-full px-3.5 py-2 hover:bg-crema transition-colors">Catálogo</Link>
             <Link href="/catalogo?filtro=promo" className="rounded-full px-3.5 py-2 hover:bg-crema transition-colors">Ofertas</Link>
             <Link href="/#como-comprar" className="rounded-full px-3.5 py-2 hover:bg-crema transition-colors">Cómo comprar</Link>

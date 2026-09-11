@@ -1,14 +1,12 @@
 import Link from "next/link";
 import { apiJson } from "../lib/api";
 import { sesion } from "../lib/sesion";
-import { Producto } from "./ui/Producto";
 import { Hero } from "./ui/Hero";
 import { WineFest } from "./ui/WineFest";
 import { ComoComprar } from "./ui/ComoComprar";
 import { SeccionApp } from "./ui/SeccionApp";
 import { Titulo } from "./ui/Titulo";
 import { IcoUva, IcoMoto, IcoMedalla, IcoFlecha, IcoTarjeta } from "./ui/Iconos";
-import type { Producto as P } from "../lib/tipos";
 
 export const dynamic = "force-dynamic";
 
@@ -68,34 +66,14 @@ const PLACAS = [
 
 export default async function Home() {
   const cliente = await sesion();
-  const [filtros, promo] = await Promise.all([
-    apiJson<{ categorias: any[] }>("/catalogo/categorias-destacadas?limite=40", { categorias: [] }),
-    apiJson<{ items: P[] }>("/productos?filtro=promo&porPagina=10", { items: [] }),
-  ]);
+  const filtros = await apiJson<{ categorias: any[] }>("/catalogo/categorias-destacadas?limite=40", { categorias: [] });
+  // Las categorías quedan como atajos; los productos los muestra el asistente
+  // cuando la persona dice qué busca (sin paredes de productos en la portada).
   const categorias = repartirPorRubro(filtros.categorias ?? []).slice(0, 8);
-  // Un estante por rubro distinto: almacén, fiambrería, bebidas, dulces.
-  // Estantes y vitrina solo con lo gourmet de cada rubro. Quesos y fiambres
-  // casi no tienen foto (son de balanza, sin código de barras), así que el rubro
-  // fiambrería quedaba representado por "lácteos" y la vitrina mostraba un
-  // Actimel. Si un rubro no tiene una categoría gourmet con fotos, ese rubro va
-  // en la grilla de categorías pero no en los estantes.
-  const estantes = RUBROS.map((_, r) => categorias.find((c: any) => rubroDe(c.nombre) === r && GOURMET.test(c.nombre)))
-    .filter(Boolean)
-    .slice(0, 3);
-  const filas = await Promise.all(
-    estantes.map((c: any) =>
-      apiJson<{ items: P[] }>(`/productos?categoriaId=${c.id}&porPagina=7&orden=foto`, { items: [] }).then((r) => ({
-        cat: c,
-        items: (r.items ?? []).filter((p) => p.imagenUrl),
-      })),
-    ),
-  );
-  // La vitrina mezcla rubros: el primero de dos estantes distintos.
-  const vitrina = filas.slice(0, 2).map((f) => f.items[0]).filter(Boolean) as P[];
 
   return (
     <div className="pb-6">
-      <Hero nombre={cliente?.nombre ? cliente.nombre.split(" ")[0] : null} vitrina={vitrina} />
+      <Hero nombre={cliente?.nombre ? cliente.nombre.split(" ")[0] : null} />
 
       {/* el Wine Fest, con su video, justo debajo de la portada */}
       <WineFest />
@@ -130,32 +108,6 @@ export default async function Home() {
           </section>
         )}
 
-        {/* ───────── ESTANTES: uno por rubro, con productos reales de cada categoría ───────── */}
-        {filas.map((f, i) =>
-          f.items.length >= 3 ? (
-            <section key={f.cat.id} className="mt-16">
-              <Seccion
-                a={String(f.cat.nombre).charAt(0).toUpperCase() + String(f.cat.nombre).slice(1).toLowerCase()}
-                b=""
-                href={`/catalogo?categoriaId=${f.cat.id}`}
-                texto={`Ver los ${f.cat.productos}`}
-              />
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
-                {f.items.slice(i < 2 ? 1 : 0, (i < 2 ? 1 : 0) + 5).map((p) => <Producto key={p.sku} p={p} />)}
-              </div>
-            </section>
-          ) : null,
-        )}
-
-        {/* ───────── OFERTAS ───────── */}
-        {promo.items.length > 0 && (
-          <section className="mt-16">
-            <Seccion a="Ofertas" b="de la semana" href="/catalogo?filtro=promo" texto="Ver todas las ofertas" />
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
-              {promo.items.map((p) => <Producto key={p.sku} p={p} />)}
-            </div>
-          </section>
-        )}
       </div>
 
       {/* ───────── LA APP ───────── */}
