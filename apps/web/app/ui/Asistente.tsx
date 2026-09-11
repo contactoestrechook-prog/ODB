@@ -92,7 +92,9 @@ export function Asistente({ inicial = "" }: { inicial?: string }) {
   const vacio = turnos.length === 0;
 
   return (
-    <div className="max-w-5xl mx-auto px-5 lg:px-8 pt-8 pb-40">
+    // Alto mínimo de pantalla y barra "sticky" (no "fixed"): así la barra queda
+    // siempre a mano mientras se baja, pero nunca flota encima del pie de página.
+    <div className="max-w-5xl mx-auto px-5 lg:px-8 pt-8 min-h-[calc(100svh-120px)] flex flex-col">
       {vacio && (
         <div className="pt-6 sm:pt-14 text-center">
           <p className="text-[12px] font-bold tracking-[0.16em] uppercase text-rojo">Comprá con ayuda</p>
@@ -110,7 +112,7 @@ export function Asistente({ inicial = "" }: { inicial?: string }) {
         </div>
       )}
 
-      <div className="space-y-8">
+      <div className="flex-1 space-y-8 pb-8">
         {turnos.map((t, i) =>
           t.rol === "usuario" ? (
             <div key={i} className="flex justify-end">
@@ -168,8 +170,8 @@ export function Asistente({ inicial = "" }: { inicial?: string }) {
       </div>
 
       {/* barra de abajo: el carrito siempre a la vista y dónde escribir o hablar */}
-      <div className="fixed inset-x-0 bottom-0 z-40 bg-gradient-to-t from-white via-white to-white/0 pt-6 pb-4">
-        <div className="max-w-5xl mx-auto px-5 lg:px-8 space-y-3">
+      <div className="sticky bottom-0 z-40 -mx-5 px-5 lg:mx-0 lg:px-0 bg-gradient-to-t from-white via-white to-white/0 pt-6 pb-4">
+        <div className="space-y-3">
           {unidades > 0 && (
             <Link href="/carrito" className="flex items-center justify-between gap-3 rounded-full bg-ink text-white pl-5 pr-2 h-12 min-w-0">
               <span className="min-w-0 truncate text-[14px] font-bold">Tu carrito · {unidades} {unidades === 1 ? "producto" : "productos"} · {pesos(total)}</span>
