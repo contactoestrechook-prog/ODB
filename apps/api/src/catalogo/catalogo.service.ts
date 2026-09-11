@@ -319,7 +319,16 @@ export class CatalogoService {
     else if (q.orden === 'recientes') query = query.order('creado_en', { ascending: false });
     // La tienda pide 'foto': primero lo que tiene foto. Una góndola que arranca
     // con vasos y huevos sueltos sin imagen espanta; el panel sigue alfabético.
-    else if (q.orden === 'foto') query = query.order('tiene_foto', { ascending: false }).order('nombre');
+    // Orden de la tienda (11/9/2026): con foto primero, después el rubro (bodega
+    // y gourmet antes que bazar y limpieza: si no, abría con "5668 Vaso"),
+    // dentro del rubro lo más vendido (ventas_historicas + ventas propias) y
+    // recién al final el nombre.
+    else if (q.orden === 'foto')
+      query = query
+        .order('tiene_foto', { ascending: false })
+        .order('prioridad_tienda', { ascending: true })
+        .order('unidades_vendidas', { ascending: false })
+        .order('nombre');
     else query = query.order('nombre');
 
     if (!saltarRango) query = query.range((pagina - 1) * porPagina, pagina * porPagina - 1);
