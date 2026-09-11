@@ -16,6 +16,7 @@ export type Producto = {
   unidadesPack?: number | null;
   descripcion?: string | null;
   stockTotal?: number;
+  vendidoPorPeso?: boolean;
 };
 
 export const pesos = (n: any) => (n == null ? "—" : "$" + Math.round(Number(n)).toLocaleString("es-AR"));
@@ -26,3 +27,9 @@ export const descuentoPct = (p: Producto): number | null => {
   }
   return null;
 };
+
+// Se vende por peso: la marca del producto, o "x fracción" en el nombre (así
+// los nombra el sistema viejo). Su precio es por kilo y hay que decirlo: sin el
+// "/ kg", "Jamón crudo $82.800" parece el precio de un paquete.
+export const porKilo = (p: { vendidoPorPeso?: boolean; nombre?: string | null }) =>
+  !!p.vendidoPorPeso || /\bx\s*fracci[oó]n\b|fraccionad|\bx\s*kg\b/i.test(String(p.nombre ?? ""));

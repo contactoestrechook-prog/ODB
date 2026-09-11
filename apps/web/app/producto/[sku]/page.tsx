@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { apiJson } from "../../../lib/api";
-import { pesos, descuentoPct, type Producto as P } from "../../../lib/tipos";
+import { pesos, descuentoPct, porKilo, type Producto as P } from "../../../lib/tipos";
 import { AgregarProducto } from "../../ui/AgregarProducto";
 import { NotaCata } from "../../ui/NotaCata";
 import { Producto } from "../../ui/Producto";
@@ -60,6 +60,7 @@ export default async function ProductoPage({ params }: { params: Promise<{ sku: 
 
           <div className="mt-6 flex items-end gap-3">
             <span className="marca text-[40px] font-extrabold text-ink leading-none">{pesos(prod.precio)}</span>
+            {porKilo(prod) && <span className="text-[15px] font-bold text-humo mb-1">por kilo · se pide por peso</span>}
             {pct != null && <span className="text-lg text-humo line-through mb-1">{pesos(prod.precioLista)}</span>}
           </div>
 

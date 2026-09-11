@@ -21,11 +21,13 @@ La persona te escribe o te habla lo que está buscando. Tu trabajo es MOSTRARLE 
 
 Cómo trabajás:
 - Antes de mostrar algo, buscalo con la herramienta buscar. Nunca inventes productos, marcas ni precios.
+- Hacé TODAS las búsquedas que necesitás juntas, en una misma vuelta (varias llamadas a buscar a la vez), y después respondé. Buscar de a una hace esperar a la persona.
 - Buscá con términos cortos, como los escribiría alguien en un buscador: "malbec", "queso brie", "jamón crudo", "grisines", "fernet".
 - Si pide algo compuesto (una picada, un asado, un regalo, una cena), buscá cada parte por separado y armá un grupo por parte: por ejemplo Quesos, Fiambres, Para acompañar, Vino.
 - Si falta un dato (para cuántas personas, presupuesto, tinto o blanco), igual mostrá una primera propuesta y al final preguntá UNA sola cosa. Nunca contestes solo con preguntas.
 - Si una búsqueda no trae nada, probá otra palabra antes de decir que no hay.
 - Priorizá lo que tiene stock. Si lo único que hay está sin stock, decilo.
+- Algunos productos se venden por peso (porKilo: true): su precio es por KILO. Para una picada o algo para compartir, preferí lo envasado o feteado (por ejemplo "jamón crudo feteado", "queso en hebras", "salame x 100 g"). Si mostrás algo por kilo, aclaralo en el mensaje ("el jamón es por kilo, lo pedís por peso").
 - Terminá SIEMPRE llamando a responder, con los skus exactos que devolvió buscar.
 
 Cómo hablás: de vos, cálido y corto, como alguien del local que conoce la mercadería. Dos o tres oraciones como mucho: los productos hablan solos en la pantalla. Nada de listas ni markdown en el mensaje. No repitas precios en el texto: ya se ven en cada producto.
@@ -72,6 +74,10 @@ const HERRAMIENTAS: Anthropic.Tool[] = [
     },
   },
 ];
+
+// Se vende por peso: la marca del producto, o "x fracción" en el nombre (así
+// los nombra el sistema viejo). Su precio es por kilo.
+export const esPorKilo = (p: any) => !!(p?.porPeso || p?.vendidoPorPeso || /\bx\s*fracci[oó]n\b|fraccionad|\bx\s*kg\b/i.test(String(p?.nombre ?? '')));
 
 export type MensajeAsistente = { rol: 'usuario' | 'asistente'; texto: string };
 
@@ -127,6 +133,15 @@ export class AsistenteService {
       if (!pedidos.length) break;
 
       historial.push({ role: 'assistant', content: res.content });
+      // Las búsquedas que el modelo pidió juntas corren en simultáneo: de a una,
+      // una picada con cuatro partes hacía esperar 30 segundos.
+      const hallados = new Map<string, any[]>();
+      await Promise.all(
+        pedidos.filter((p) => p.name === 'buscar').map(async (p) => {
+          const input = p.input as any;
+          hallados.set(p.id, await this.buscar(String(input.q ?? ''), input.precioMax, verificado, segmento));
+        }),
+      );
       const resultados: Anthropic.ToolResultBlockParam[] = [];
       for (const p of pedidos) {
         const input = p.input as any;
@@ -136,14 +151,14 @@ export class AsistenteService {
           continue;
         }
         if (p.name === 'buscar') {
-          const encontrados = await this.buscar(String(input.q ?? ''), input.precioMax, verificado, segmento);
+          const encontrados = hallados.get(p.id) ?? [];
           for (const it of encontrados) vistos.set(it.sku, it);
           busquedas.push({ q: String(input.q ?? ''), skus: encontrados.map((x) => x.sku) });
           resultados.push({
             type: 'tool_result',
             tool_use_id: p.id,
             content: JSON.stringify(
-              encontrados.map((x) => ({ sku: x.sku, nombre: x.nombre, precio: x.precio, categoria: x.categoria, marca: x.marca, sinStock: x.stockTotal != null && x.stockTotal <= 0 })),
+              encontrados.map((x) => ({ sku: x.sku, nombre: x.nombre, precio: x.precio, porKilo: esPorKilo(x), categoria: x.categoria, marca: x.marca, sinStock: x.stockTotal != null && x.stockTotal <= 0 })),
             ),
           });
           continue;

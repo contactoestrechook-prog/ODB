@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCarrito } from "../../lib/carrito";
-import { pesos, descuentoPct, type Producto as P } from "../../lib/tipos";
+import { pesos, descuentoPct, porKilo, type Producto as P } from "../../lib/tipos";
 import { IcoMas } from "./Iconos";
 import { FotoProducto } from "./FotoProducto";
 import { fotosCandidatas } from "../../lib/fotos";
@@ -53,7 +53,9 @@ export function Producto({ p, grande = false }: { p: P; grande?: boolean }) {
         <div className="mt-auto pt-2.5 flex items-end justify-between gap-2">
           <div className="min-w-0 leading-none">
             {pct != null && <p className="text-[12px] text-humo line-through mb-1">{pesos(p.precioLista)}</p>}
-            <p className={`marca font-extrabold text-ink truncate ${grande ? "text-[22px] sm:text-[24px]" : "text-[19px] sm:text-[21px]"}`}>{pesos(p.precio)}</p>
+            <p className={`marca font-extrabold text-ink truncate ${grande ? "text-[22px] sm:text-[24px]" : "text-[19px] sm:text-[21px]"}`}>
+              {pesos(p.precio)}{porKilo(p) && <span className="text-[12px] font-bold text-humo"> / kg</span>}
+            </p>
           </div>
           {!sinStock && p.precio != null && (
             <button

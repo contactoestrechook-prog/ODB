@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCarrito } from "../../lib/carrito";
-import { pesos } from "../../lib/tipos";
+import { porKilo, pesos } from "../../lib/tipos";
 import { IcoCarrito, IcoMas, IcoMenos } from "../ui/Iconos";
 
 export default function CarritoPage() {
@@ -35,7 +35,7 @@ export default function CarritoPage() {
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-ink line-clamp-2">{r.nombre}</p>
-                <p className="display text-base font-semibold text-ink mt-1">{pesos(r.precio)}</p>
+                <p className="display text-base font-semibold text-ink mt-1">{pesos(r.precio)}{porKilo(r) && <span className="text-[12px] font-bold text-humo"> / kg</span>}</p>
               </div>
               <div className="flex items-center border border-tinta/20 rounded-full">
                 <button onClick={() => setCantidad(r.sku, r.cantidad - 1)} className="w-8 h-9 grid place-items-center text-tinta hover:text-rojo" aria-label="Menos"><IcoMenos size={14} /></button>
