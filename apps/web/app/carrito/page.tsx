@@ -30,7 +30,7 @@ export default function CarritoPage() {
         <div className="divide-y divide-linea border-y border-linea">
           {items.map((r) => (
             <div key={r.sku} className="flex items-center gap-4 py-4">
-              <div className="w-16 h-20 rounded-lg bg-crema overflow-hidden shrink-0 grid place-items-center">
+              <div className="relative w-16 h-20 rounded-lg bg-crema overflow-hidden shrink-0 grid place-items-center">
                 {r.imagenUrl ? <img src={r.imagenUrl} alt={r.nombre} className="w-full h-full object-cover" /> : <span className="display text-2xl text-ink/15">{r.nombre[0]}</span>}
               </div>
               <div className="flex-1 min-w-0">

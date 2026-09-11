@@ -37,8 +37,8 @@ export function Hero({ nombre, vitrina }: { nombre?: string | null; vitrina: Pro
                 href={`/producto/${p.sku}`}
                 className={`group rounded-[22px] bg-white p-4 text-ink shadow-[0_18px_40px_-18px_rgba(0,0,0,0.45)] ${i === 1 ? "lg:mt-10" : ""}`}
               >
-                <div className="aspect-[4/5] grid place-items-center overflow-hidden rounded-[14px]">
-                  <img src={p.imagenUrl!} alt={p.nombre} className="w-full h-full object-contain transition-transform duration-500 group-hover:scale-[1.05]" />
+                <div className="relative aspect-[4/5] overflow-hidden rounded-[14px]">
+                  <img src={p.imagenUrl!} alt={p.nombre} className="absolute inset-0 w-full h-full object-contain transition-transform duration-500 group-hover:scale-[1.05]" />
                 </div>
                 <p className="mt-3 text-[13px] font-semibold leading-snug line-clamp-2 min-h-[2.5em]">{p.nombre}</p>
                 <p className="marca mt-1 text-[22px] font-extrabold leading-none">{pesos(p.precio)}</p>

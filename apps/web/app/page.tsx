@@ -114,10 +114,10 @@ export default async function Home() {
                     <p className="marca text-[20px] sm:text-[24px] font-extrabold leading-[1.05] line-clamp-2 [overflow-wrap:anywhere] capitalize">{c.nombre.toLowerCase()}</p>
                     {c.productos > 0 && <p className="mt-1 text-[12px] font-semibold opacity-70">{c.productos} productos</p>}
                   </div>
-                  <div className="mt-3 aspect-[16/11] rounded-[14px] bg-white grid place-items-center overflow-hidden p-3">
+                  <div className="relative mt-3 aspect-[4/3] rounded-[14px] bg-white overflow-hidden">
                     {c.imagenUrl
-                      ? <img src={c.imagenUrl} alt="" className="w-full h-full object-contain transition-transform duration-500 group-hover:scale-[1.06]" />
-                      : <img src="/odb-logo.png" alt="" className="h-9 w-auto opacity-30" />}
+                      ? <img src={c.imagenUrl} alt="" className="absolute inset-0 w-full h-full object-contain p-2 transition-transform duration-500 group-hover:scale-[1.06]" />
+                      : <img src="/odb-logo.png" alt="" className="absolute inset-0 m-auto h-9 w-auto opacity-30" />}
                   </div>
                 </Link>
               ))}
