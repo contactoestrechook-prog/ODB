@@ -60,8 +60,8 @@ export function BuscadorGlobal() {
                 <p className="px-4 pt-2 pb-1 text-[10px] font-semibold tracking-wider text-black/35 uppercase">{label}</p>
                 {items.map((it, i) => (
                   <button key={i} onClick={() => ir(it.href)} className="w-full text-left px-4 py-2 hover:bg-[#F0EBE2] border-b border-black/5 last:border-0">
-                    <p className="text-sm text-black truncate">{it.titulo}</p>
-                    <p className="text-xs text-black/45 truncate">{it.sub}</p>
+                    <p className="text-sm text-black min-w-0 break-words">{it.titulo}</p>
+                    <p className="text-xs text-black/45 min-w-0 break-words">{it.sub}</p>
                   </button>
                 ))}
               </div>

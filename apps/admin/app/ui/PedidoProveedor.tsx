@@ -143,7 +143,7 @@ export function PedidoProveedor({ sucursales }: { sucursales: { id: string; nomb
               <button key={p.id} onClick={() => { setProveedor(p); setBusca(''); setVerTodo(false); }}
                 className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left active:bg-black/5">
                 <span className="min-w-0">
-                  <span className="block truncate text-sm font-medium text-black">{p.razon_social}</span>
+                  <span className="block min-w-0 break-words text-sm font-medium text-black">{p.razon_social}</span>
                   <span className="text-[11px] text-black/45">
                     {p.productos > 0 ? `${p.productos} producto${p.productos === 1 ? '' : 's'} en su lista` : 'sin lista cargada todavía'}
                   </span>
@@ -210,7 +210,7 @@ export function PedidoProveedor({ sucursales }: { sucursales: { id: string; nomb
           {resultados.map((p: any) => (
             <button key={p.sku} onClick={() => sumarALista(p.sku)}
               className="mt-1.5 flex w-full items-center justify-between gap-2 rounded-lg px-2 py-2 text-left hover:bg-black/5">
-              <span className="min-w-0 truncate text-sm text-black">{p.nombre} <span className="text-xs text-black/35">{p.sku}</span></span>
+              <span className="min-w-0 break-words text-sm text-black">{p.nombre} <span className="text-xs text-black/35">{p.sku}</span></span>
               <span className="shrink-0 text-xs font-medium text-[#B82D25]">agregar</span>
             </button>
           ))}
@@ -274,7 +274,7 @@ export function PedidoProveedor({ sucursales }: { sucursales: { id: string; nomb
               <p className="text-sm font-semibold text-black">
                 {elegidos.length} producto{elegidos.length === 1 ? '' : 's'} · {pesos(totalPedido)}
               </p>
-              <p className="truncate text-[11px] text-black/45">
+              <p className="min-w-0 break-words text-[11px] text-black/45">
                 {totalPedido === 0 ? 'sin costos cargados: el total lo confirma la factura' : 'estimado con el último costo conocido'}
               </p>
             </div>

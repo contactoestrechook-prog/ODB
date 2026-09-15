@@ -80,7 +80,7 @@ export default async function Informes() {
                   <h3 className="text-xs font-medium text-black/50 mb-2">Top del día (facturación)</h3>
                   {(d.topProductos ?? []).map((p: any) => (
                     <div key={p.sku} className="flex justify-between text-xs text-black py-1">
-                      <span className="truncate pr-3">{p.nombre}</span>
+                      <span className="min-w-0 break-words pr-3">{p.nombre}</span>
                       <span className="whitespace-nowrap font-medium">{pesos(p.facturado)}</span>
                     </div>
                   ))}

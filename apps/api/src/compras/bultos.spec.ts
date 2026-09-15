@@ -1,4 +1,4 @@
-import { unidadesPorBulto, esRenglonDeDescuento, fusionarRenglonesPorSku, porcentajeDeDescuento, descuentoEsDelRenglon, puedeVendersePorPeso, corregirRenglonQueNoCierra, resolverCantidadYBulto, interpretarRenglon, costearConGruposPromo } from './bultos';
+import { unidadesPorBulto, esRenglonDeDescuento, fusionarRenglonesPorSku, porcentajeDeDescuento, descuentoEsDelRenglon, puedeVendersePorPeso, corregirRenglonQueNoCierra, resolverCantidadYBulto, interpretarRenglon, costearConGruposPromo, unidadesDeLaPresentacion } from './bultos';
 
 describe('unidadesPorBulto — la forma, no la lista de proveedores', () => {
   // El caso real (Leandro, 10/9/2026): "HILERET ZUCRA 8 X 50 SOBRES" entraba
@@ -15,6 +15,18 @@ describe('unidadesPorBulto — la forma, no la lista de proveedores', () => {
     ['ASPIRINA 10 X 20 COMPRIMIDOS', 10],
   ])('%s → bulto de %i', (texto, esperado) => {
     expect(unidadesPorBulto(texto as string)).toBe(esperado);
+  });
+
+  // Arcor (Leandro, 15/9/2026): la columna corta la descripción después de la
+  // "x". Eran 3 displays de 12 y entraban como 3 unidades a $5.237.
+  it('"12 x" al final (descripción cortada) es un bulto de 12', () => {
+    expect(unidadesPorBulto('HWN DISPLAY MOGUL COLMILLO 12 x')).toBe(12);
+    expect(unidadesPorBulto('BOMBON BUTIFARRA 24X')).toBe(24);
+  });
+
+  it('"x" al final sin número adelante no inventa un bulto', () => {
+    expect(unidadesPorBulto('CARAMELO MASTICABLE x')).toBeNull();
+    expect(unidadesPorBulto('YERBA 500 GR 1000 x')).toBeNull();
   });
 
   it('sin número de bulto adelante, la caja de sobres ES la unidad', () => {
@@ -532,5 +544,150 @@ describe('variacionPorUnidad — el "+42543%" de la caja (2026-09-08)', () => {
   it('sin costo actual no hay variación', () => {
     expect(variacionPorUnidad(3300, 12, null)).toBeNull();
     expect(variacionPorUnidad(3300, 12, 0)).toBeNull();
+  });
+});
+
+
+// Distri Sur (Leandro, 15/9/2026): la columna del descuento no se leyó, pero el
+// importe lo prueba. Antes salía "revisar lectura: ¿el precio es $2.228?".
+describe('interpretarRenglon — descuento del renglón deducido del importe', () => {
+  const leer = (o: any) => interpretarRenglon({
+    descripcion: '', cantidad: 1, precio: 0, importe: null, kg: null, puedePorPeso: false,
+    unidadesPorBulto: null, bonificacionPct: null, esDescuento: false, ...o,
+  });
+
+  it.each([
+    ['Tom.Triturado BOTELLA X950Grs Inca', 18, 2345.25, 40103.82, 5],
+    ['Garbanzo UNIDAD X350grs Inca', 24, 655.94, 14955.36, 5],
+    ['Mayonesa Heinz UNIDAD x350 Grs', 10, 1818.46, 17275.3, 5],
+    ['Lentejon UNIDAD X400Grs Don Elio', 10, 1678.68, 15947.4, 5],
+  ])('%s → bonificado %i%%', (descripcion, cantidad, precio, importe, pct) => {
+    const r = leer({ descripcion, cantidad, precio, importe });
+    expect(r.decision).toBe('bonificado');
+    expect(r.bonificacionPct).toBe(pct);
+    expect(r.cantidad).toBe(cantidad); // la cantidad NO se toca
+  });
+
+  it('mayonesa "x350 Grs" (fraccionable por el Grs): 10 unidades con 5% off, NO 9,5 kg', () => {
+    const r = leer({ descripcion: 'Mayonesa Heinz UNIDAD x350 Grs', cantidad: 10, precio: 1818.46, importe: 17275.3, puedePorPeso: true });
+    expect(r.decision).toBe('bonificado');
+    expect(r.bonificacionPct).toBe(5);
+    expect(r.porPeso).toBe(false);
+    expect(r.cantidad).toBe(10);
+  });
+
+  it('con cantidad 1, un fraccionable sigue siendo peso (una horma de 0,95 kg)', () => {
+    const r = leer({ descripcion: 'Queso Barra Danbo', cantidad: 1, precio: 10000, importe: 9500, puedePorPeso: true });
+    expect(r.decision).toBe('peso_implicito');
+    expect(r.cantidad).toBe(0.95);
+  });
+
+  it('con bulto: caja de 12 tostadas con 3% de descuento', () => {
+    const r = leer({ descripcion: 'Tostadas Gruesas Tosti Clásicas 12x200 Grs', cantidad: 1, precio: 828.1, importe: 9639.07, unidadesPorBulto: 12 });
+    expect(r.decision).toBe('bonificado');
+    expect(r.bonificacionPct).toBe(3);
+    expect(r.unidadesPorBulto).toBe(12);
+  });
+
+  it('un descuadre que no es un porcentaje redondo sigue pidiendo revisión', () => {
+    const r = leer({ cantidad: 18, precio: 2345.25, importe: 39500 }); // −6,43%: ni redondo ni entero
+    expect(r.decision).toBe('no_cierra');
+    expect(r.bonificacionPct).toBeNull();
+  });
+
+  it('la cantidad mal leída (importe = entero × precio) le gana al descuento', () => {
+    const r = leer({ cantidad: 20, precio: 100, importe: 1900 }); // 19 unidades, no −5%
+    expect(r.decision).toBe('cantidad_corregida');
+    expect(r.cantidad).toBe(19);
+  });
+});
+
+
+// Ferrero (Leandro, 15/9/2026): la factura trae el BOCADITO y la casa stockea la
+// CAJA (x3, x8, x12, x24). "x12.5grs" además se leía como caja de 12.
+describe('Ferrero — factura por unidad, stock por caja', () => {
+  const leer = (o: any) => interpretarRenglon({
+    descripcion: '', cantidad: 1, precio: 0, importe: null, kg: null, puedePorPeso: false,
+    unidadesPorBulto: null, bonificacionPct: null, esDescuento: false, ...o,
+  });
+
+  it('"x12.5grs" y "x 12.5 gr" son gramaje, no bulto de 12', () => {
+    expect(unidadesPorBulto('Bocadito Ferrero Rocher T12 UNIDAD x12.5grs')).toBeNull();
+    expect(unidadesPorBulto('Galletitas x 12.5 gr')).toBeNull();
+    expect(unidadesPorBulto('Cerveza Corona x 24')).toBe(24); // lo de siempre sigue igual
+  });
+
+  it('la presentación del catálogo: "x 12 un", "x 3 un", "T24"', () => {
+    expect(unidadesDeLaPresentacion('Ferrero Rocher x 12 un')).toBe(12);
+    expect(unidadesDeLaPresentacion('Ferrero Rocher x 3 un')).toBe(3);
+    expect(unidadesDeLaPresentacion('Ferrero Rocher T24')).toBe(24);
+    expect(unidadesDeLaPresentacion('Galletitas x 12.5 gr')).toBeNull();
+  });
+
+  it('60 bocaditos × $827,49 vinculados a la caja x12 = 5 cajas a $9.929,88', () => {
+    const r = leer({ descripcion: 'Bocadito Ferrero Rocher T12 UNIDAD x12.5grs', cantidad: 60, precio: 827.49, importe: 49649.4, unidadesDelCatalogo: 12, costoCatalogo: 9500 });
+    expect(r.decision).toBe('unidades_a_envase');
+    expect(r.cantidad).toBe(5);
+    expect(r.precioPropuesto).toBeCloseTo(9929.88, 2);
+    expect(r.cantidadOriginal).toBe(60);
+  });
+
+  it('sin costo en el catálogo alcanza con que el papel diga UNIDAD', () => {
+    const r = leer({ descripcion: 'Ferrero Rocher T3 UNIDAD', cantidad: 24, precio: 900, importe: 21600, unidadesDelCatalogo: 3 });
+    expect(r.decision).toBe('unidades_a_envase');
+    expect(r.cantidad).toBe(8);
+  });
+
+  it('si ya viene por caja (precio de caja contra el costo) no convierte', () => {
+    const r = leer({ descripcion: 'Ferrero Rocher x12', cantidad: 12, precio: 9929.88, importe: 119158.56, unidadesDelCatalogo: 12, costoCatalogo: 9500 });
+    expect(r.decision).toBe('cierra');
+    expect(r.cantidad).toBe(12);
+  });
+
+  it('si la cantidad no es múltiplo del envase no inventa cajas', () => {
+    const r = leer({ descripcion: 'Bocadito Ferrero UNIDAD', cantidad: 20, precio: 827.49, importe: 16549.8, unidadesDelCatalogo: 8, costoCatalogo: 6600 });
+    expect(r.decision).toBe('cierra');
+    expect(r.cantidad).toBe(20);
+  });
+});
+
+
+// Marolio (Leandro, 15/9/2026): la lectura tomó el importe CON IVA.
+describe('interpretarRenglon — importe leído con el IVA adentro', () => {
+  const leer = (o: any) => interpretarRenglon({
+    descripcion: '', cantidad: 1, precio: 0, importe: null, kg: null, puedePorPeso: false,
+    unidadesPorBulto: null, bonificacionPct: null, esDescuento: false, ...o,
+  });
+
+  it('TE MAROLIO: 2 cajas × 10 × $537,19 = $13.000 con IVA → neto $10.743,80 y 20 unidades', () => {
+    const r = leer({ descripcion: 'TE MAROLIO 25 UN.', cantidad: 2, precio: 537.19, importe: 13000, unidadesPorBulto: 10 });
+    expect(r.importeNeto).toBeCloseTo(10743.8, 2);
+    expect(r.alicuotaDeducida).toBe(21);
+    expect(r.decision).toBe('cantidad_corregida');
+    expect(r.cantidad).toBe(20);
+  });
+
+  it('al 10,5%: 10 × $1.000 = $11.050 con IVA → neto $10.000', () => {
+    const r = leer({ descripcion: 'Lentejas x 400', cantidad: 10, precio: 1000, importe: 11050 });
+    expect(r.importeNeto).toBeCloseTo(10000, 2);
+    expect(r.alicuotaDeducida).toBe(10.5);
+    expect(r.decision).toBe('cierra');
+  });
+
+  it('un importe que ya cierra neto no se toca', () => {
+    const r = leer({ cantidad: 10, precio: 1000, importe: 10000 });
+    expect(r.importeNeto).toBeNull();
+  });
+
+  it('un importe que da un entero de unidades (cantidad mal leída) no se confunde con IVA', () => {
+    const r = leer({ cantidad: 20, precio: 100, importe: 2400 }); // 24 unidades
+    expect(r.importeNeto).toBeNull();
+    expect(r.cantidad).toBe(24);
+  });
+
+  it('un descuadre que no es ningún IVA sigue pidiendo revisión', () => {
+    const r = leer({ cantidad: 7, precio: 333.33, importe: 2900 }); // ni 21, ni 10,5, ni 27
+    expect(r.importeNeto).toBeNull();
+    expect(r.decision).toBe('no_cierra');
   });
 });

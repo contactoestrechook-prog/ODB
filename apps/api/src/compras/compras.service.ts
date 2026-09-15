@@ -51,6 +51,10 @@ export type EntradaDirectaDto = {
   items: { sku: string; cantidad: number; costo: number; lote?: string; vencimiento?: string; margenPct?: number; fijarMargen?: boolean; descripcionLeida?: string }[];
   margenPct?: number;
   usuarioId?: string;
+  // Alícuotas de IVA que la factura PROBÓ: el panel las manda solo cuando el IVA
+  // de los renglones cerró al centavo con el del pie, y solo las que salieron de
+  // la fila impresa o de una persona. Con eso el catálogo aprende (ver aprenderAlicuotas).
+  alicuotasVerificadas?: { sku: string; alicuota: number; origen: 'impresa' | 'elegida' }[];
   // si la mercadería vino con factura, se registra junto con la entrada,
   // con su desglose fiscal y vinculada a la OC/remito (nada de facturas flotantes)
   factura?: {
@@ -374,6 +378,13 @@ export class ComprasService {
     // compra del mismo proveedor matchee sola y traiga el margen anterior.
     await this.aprenderVinculos(dto.proveedorId, dto.items);
 
+    // El catálogo aprende el IVA de cada producto de las facturas que lo prueban.
+    // El 15/9/2026 los 19.846 productos estaban al 21% (también los que van al
+    // 10,5), y de ese dato sale la alícuota de las facturas de VENTA a ARCA.
+    if ((dto.factura?.letra ?? '').toUpperCase() === 'A' && dto.alicuotasVerificadas?.length) {
+      resultado.alicuotasAprendidas = await this.aprenderAlicuotas(dto.alicuotasVerificadas, dto.usuarioId, dto.factura?.numero);
+    }
+
     // factura del proveedor: nace vinculada a la OC y al remito de esta entrada,
     // con el desglose de impuestos (IVA, percepciones) para el libro IVA compras
     if (dto.factura?.numero && Number(dto.factura.total) > 0) {
@@ -426,6 +437,45 @@ export class ComprasService {
       }
     }
     return resultado;
+  }
+
+  // Guarda en el producto la alícuota que probó una factura A. Solo alícuotas
+  // que existen, y un SKU con dos alícuotas distintas en la misma factura no se
+  // toca (algo está mal y que lo mire una persona). Cada cambio queda auditado.
+  async aprenderAlicuotas(
+    verificadas: { sku: string; alicuota: number; origen: string }[],
+    usuarioId?: string,
+    numeroFactura?: string,
+  ): Promise<{ sku: string; nombre: string; antes: number | null; ahora: number }[]> {
+    const ALICUOTAS = [0, 2.5, 5, 10.5, 21, 27];
+    const porSku = new Map<string, Set<number>>();
+    for (const v of verificadas ?? []) {
+      const a = Number(v.alicuota);
+      if (!v.sku || !ALICUOTAS.includes(a) || !['impresa', 'elegida'].includes(v.origen)) continue;
+      if (!porSku.has(v.sku)) porSku.set(v.sku, new Set());
+      porSku.get(v.sku)!.add(a);
+    }
+    const unicas = [...porSku.entries()].filter(([, set]) => set.size === 1).map(([sku, set]) => ({ sku, alicuota: [...set][0] }));
+    if (!unicas.length) return [];
+    const { data: prods } = await this.db.from('productos').select('id, sku, nombre, alicuota_iva').in('sku', unicas.map((u) => u.sku));
+    const cambios: { sku: string; nombre: string; antes: number | null; ahora: number }[] = [];
+    for (const p of (prods ?? []) as any[]) {
+      const nueva = unicas.find((u) => u.sku === p.sku)!.alicuota;
+      const antes = p.alicuota_iva != null ? Number(p.alicuota_iva) : null;
+      if (antes === nueva) continue;
+      const { error } = await this.db.from('productos').update({ alicuota_iva: nueva }).eq('id', p.id);
+      if (error) continue;
+      cambios.push({ sku: p.sku, nombre: p.nombre, antes, ahora: nueva });
+      await this.db.from('auditoria').insert({
+        usuario_id: usuarioId ?? null,
+        accion: 'producto_alicuota_iva',
+        entidad: 'producto',
+        entidad_id: p.id,
+        datos_antes: { alicuotaIva: antes },
+        datos_despues: { alicuotaIva: nueva, desde: 'factura_compra', factura: numeroFactura ?? null },
+      }).then(() => null, () => null);
+    }
+    return cambios;
   }
 
   // Calcula los renglones {sku, costo, precio} para la regla de oro. Solo lee la OC

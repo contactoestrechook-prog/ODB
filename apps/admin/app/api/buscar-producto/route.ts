@@ -12,7 +12,10 @@ export async function GET(req: Request) {
   // (ej. todos los helados), no una muestra: 200 es el tope del backend. Para la
   // búsqueda por texto (usada en varios modales) dejamos el 12 de siempre: se
   // afina escribiendo, y no cambiamos la carga de los otros consumidores.
-  const params = new URLSearchParams({ buscar: q, porPagina: categoria ? '200' : '12' });
+  // 12 opciones eran pocas para un catálogo de 11.000: buscando "leche la sere"
+  // entraban 12 dulces de leche y la leche no aparecía (15/9/2026). Con el orden
+  // por relevancia del backend, 25 alcanza y sobra para elegir.
+  const params = new URLSearchParams({ buscar: q, porPagina: categoria ? '200' : '25' });
   if (categoria) params.set('categoriaId', categoria);
   const res = await fetch(`${API}/productos?${params.toString()}`);
   return NextResponse.json(await res.json(), { status: res.status });

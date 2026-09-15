@@ -17,6 +17,13 @@ export class ProductosAdminController {
     return this.servicio.revisar(dto ?? {});
   }
 
+  // Cómo está (sin porPeso) o cambiar (con porPeso) si el producto se vende por
+  // kilo. POST por el mismo motivo que 'revisar': 'productos/:sku' es público.
+  @Post('por-peso')
+  porPeso(@Body() dto: { sku?: string; porPeso?: boolean }, @Req() req: any) {
+    return this.servicio.porPesoPorSku(dto?.sku ?? '', dto?.porPeso, req.usuario?.sub);
+  }
+
   @Post()
   crear(@Body() dto: CrearProductoDto, @Req() req: any) {
     return this.servicio.crear(dto, req.usuario?.sub);

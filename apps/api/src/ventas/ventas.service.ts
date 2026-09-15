@@ -3,6 +3,8 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
 import { FacturacionService } from '../facturacion/facturacion.service';
 import { CajaService } from '../caja/caja.service';
+import { etiquetaMedio } from '../caja/cierre';
+import { MercadoPagoService } from '../mercadopago/mercadopago.service';
 import { enviarTextoWhatsapp } from '../comun/whatsapp';
 
 export type CrearVentaDto = {
@@ -47,6 +49,7 @@ export class VentasService {
     @Inject(SUPABASE) private readonly db: SupabaseClient,
     private readonly facturacion: FacturacionService,
     private readonly caja: CajaService,
+    private readonly mp: MercadoPagoService,
   ) {}
 
   async registrar(dto: CrearVentaDto) {
@@ -460,6 +463,174 @@ export class VentasService {
       );
     }
     return filas.slice(0, f.limite ?? 50);
+  }
+
+  // ============================================================
+  // DETALLE Y CAMBIO DE MEDIO DE PAGO (2026-09-12)
+  // El cliente ya pagó y se arrepiente ("¿me lo podés pasar a efectivo?").
+  // Antes la única salida era anular la venta y rehacerla: se perdía el
+  // comprobante y se ensuciaba el arqueo. Ahora se cambian los pagos dejando
+  // la venta y la factura como están (la factura no depende del medio), con
+  // PIN de supervisor y auditoría de qué había antes.
+  // ============================================================
+
+  // Todo lo de una venta para el panel de la caja: renglones, pagos,
+  // comprobante y los cambios de medio de pago que ya tuvo.
+  async detalle(ventaId: string) {
+    const { data, error } = await this.db
+      .from('ventas')
+      .select(
+        `id, canal, estado, subtotal, descuento, total, vendida_en, sesion_caja_id,
+         sucursal:sucursales(nombre),
+         cliente:clientes(id, dni, nombre, tipo),
+         items:ventas_items(cantidad, precio_unitario, producto:productos(sku, nombre)),
+         pagos(id, medio, monto, terminal, mp_payment_id)`,
+      )
+      .eq('id', ventaId)
+      .maybeSingle();
+    if (error) throw new BadRequestException(error.message);
+    if (!data) throw new BadRequestException('Esa venta no existe');
+    const v = data as any;
+
+    const { data: comprobantes } = await this.db
+      .from('comprobantes')
+      .select('id, tipo, punto_venta, numero, cae, cae_vencimiento, estado, emitido_en, total')
+      .eq('venta_id', ventaId)
+      .order('emitido_en', { ascending: false });
+
+    const { data: cambios } = await this.db
+      .from('ventas_cambios_pago')
+      .select('pagos_antes, pagos_despues, motivo, mp_refund_id, mp_estado, creado_en, usuario:usuarios!ventas_cambios_pago_usuario_id_fkey(nombre), autorizante:usuarios!ventas_cambios_pago_autorizado_por_fkey(nombre)')
+      .eq('venta_id', ventaId)
+      .order('creado_en', { ascending: false });
+
+    return {
+      id: v.id,
+      ticket: v.id.slice(-8).toUpperCase(),
+      estado: v.estado,
+      canal: v.canal,
+      vendidaEn: v.vendida_en,
+      sesionCajaId: v.sesion_caja_id,
+      sucursal: v.sucursal?.nombre ?? null,
+      cliente: v.cliente ?? null,
+      subtotal: Number(v.subtotal),
+      descuento: Number(v.descuento),
+      total: Number(v.total),
+      items: (v.items ?? []).map((i: any) => ({
+        sku: i.producto?.sku ?? null,
+        nombre: i.producto?.nombre ?? '—',
+        cantidad: Number(i.cantidad),
+        precioUnitario: Number(i.precio_unitario),
+        total: Math.round(Number(i.cantidad) * Number(i.precio_unitario) * 100) / 100,
+      })),
+      pagos: (v.pagos ?? []).map((p: any) => ({
+        id: p.id,
+        medio: p.medio,
+        terminal: p.terminal ?? null,
+        monto: Number(p.monto),
+        mpPaymentId: p.mp_payment_id ?? null,
+        etiqueta: etiquetaMedio(p.medio, p.terminal),
+      })),
+      comprobantes: (comprobantes ?? []).map((c: any) => ({
+        id: c.id,
+        tipo: c.tipo,
+        numero: `${String(c.punto_venta).padStart(5, '0')}-${String(c.numero).padStart(8, '0')}`,
+        cae: c.cae,
+        caeVencimiento: c.cae_vencimiento,
+        estado: c.estado,
+        emitidoEn: c.emitido_en,
+        total: Number(c.total),
+      })),
+      cambiosPago: (cambios ?? []).map((c: any) => ({
+        antes: c.pagos_antes,
+        despues: c.pagos_despues,
+        motivo: c.motivo,
+        mpRefundId: c.mp_refund_id,
+        mpEstado: c.mp_estado,
+        creadoEn: c.creado_en,
+        usuario: c.usuario?.nombre ?? null,
+        autorizante: c.autorizante?.nombre ?? null,
+      })),
+    };
+  }
+
+  // Reemplaza los pagos de una venta ya cobrada. Si lo que se saca es un pago
+  // de Mercado Pago, PRIMERO se le devuelve la plata al cliente por MP: si el
+  // reembolso falla, no se toca nada (si no, el arqueo diría efectivo y la
+  // plata seguiría en la cuenta de MP).
+  async cambiarMedioPago(
+    ventaId: string,
+    dto: {
+      pagos: { medio: string; monto: number; terminal?: string }[];
+      motivo?: string;
+      autorizadoPor?: string;
+      autorizacionToken?: string;
+      usuarioId?: string;
+    },
+  ) {
+    const pagos = (dto.pagos ?? [])
+      .map((p) => ({
+        medio: String(p.medio ?? '').trim(),
+        monto: Math.round(Number(p.monto) * 100) / 100,
+        terminal: p.terminal?.trim() || undefined,
+      }))
+      .filter((p) => p.medio && Number.isFinite(p.monto) && p.monto > 0);
+    if (!pagos.length) throw new BadRequestException('Indicá con qué queda pagada la venta');
+
+    let autorizadoPor = dto.autorizadoPor;
+    if (!autorizadoPor && dto.autorizacionToken) {
+      const auth = await this.caja.consumirAutorizacion(dto.autorizacionToken);
+      autorizadoPor = auth?.usuarioId;
+    }
+    if (!autorizadoPor) throw new BadRequestException('Cambiar el medio de pago requiere autorización de un supervisor (PIN)');
+
+    const { data: venta } = await this.db.from('ventas').select('id, total, estado').eq('id', ventaId).maybeSingle();
+    if (!venta) throw new BadRequestException('Esa venta no existe');
+    if ((venta as any).estado !== 'completada') throw new BadRequestException('La venta no está completada');
+    const suma = pagos.reduce((a, p) => a + p.monto, 0);
+    if (Math.abs(suma - Number((venta as any).total)) > 0.01) {
+      throw new BadRequestException(
+        `Los pagos suman $${suma.toLocaleString('es-AR')} y la venta es de $${Number((venta as any).total).toLocaleString('es-AR')}`,
+      );
+    }
+
+    // ¿había Mercado Pago y deja de haberlo (o baja el importe)? → devolver la diferencia
+    const { data: pagosActuales } = await this.db
+      .from('pagos').select('medio, monto').eq('venta_id', ventaId);
+    const mpAntes = ((pagosActuales ?? []) as any[])
+      .filter((p) => p.medio === 'mercadopago')
+      .reduce((a, p) => a + Number(p.monto), 0);
+    const mpDespues = pagos.filter((p) => p.medio === 'mercadopago').reduce((a, p) => a + p.monto, 0);
+    const aDevolver = Math.round((mpAntes - mpDespues) * 100) / 100;
+
+    let mp: { paymentId: string; refundId: string | null; estado: string } | null = null;
+    if (aDevolver > 0) {
+      const pagoMP = await this.mp.pagoMPDeVenta(ventaId);
+      if (!pagoMP) {
+        throw new BadRequestException(
+          'Esa venta no tiene identificada la operación de Mercado Pago, así que no se puede devolver automáticamente. Devolvela desde la app de Mercado Pago y avisá a gerencia.',
+        );
+      }
+      const total = Math.abs(aDevolver - pagoMP.monto) < 0.01;
+      const r = await this.mp.reembolsar(pagoMP.paymentId, total ? undefined : aDevolver, pagoMP.cuenta);
+      mp = { paymentId: pagoMP.paymentId, refundId: r.refundId, estado: r.estado };
+    }
+
+    const { data, error } = await this.db.rpc('cambiar_medio_pago_venta', {
+      p_venta: ventaId,
+      p_pagos: pagos,
+      p_usuario: dto.usuarioId ?? null,
+      p_autorizado_por: autorizadoPor,
+      p_motivo: dto.motivo ?? null,
+      p_mp: mp,
+    });
+    if (error) {
+      // el reembolso ya salió: que quede el rastro aunque el cambio no entre
+      if (mp) this.log.error(`Venta ${ventaId}: se reembolsó MP ${mp.paymentId} pero falló el cambio de pagos: ${error.message}`);
+      throw new BadRequestException(this.traducirError(error.message));
+    }
+    this.log.log(`Venta ${ventaId}: medio de pago cambiado por ${dto.usuarioId ?? '—'} (autorizó ${autorizadoPor})${mp ? ` · devuelto por MP ${mp.refundId ?? mp.paymentId}` : ''}`);
+    return { ...(data as any), mp };
   }
 
   async resumenHoy() {

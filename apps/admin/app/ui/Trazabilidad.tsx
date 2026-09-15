@@ -129,7 +129,7 @@ export function Trazabilidad() {
                 <div className="mt-3 divide-y divide-black/5 rounded-xl border border-black/10">
                   {filas.slice(0, 30).map((x: any) => (
                     <div key={x.id} className="flex items-center justify-between gap-3 px-3 py-2.5">
-                      <p className="min-w-0 truncate text-sm text-black">{b.linea(x)}</p>
+                      <p className="min-w-0 break-words text-sm text-black">{b.linea(x)}</p>
                       {b.accion && (
                         <button onClick={() => b.accion!(x)} className="shrink-0 rounded-full border border-black/15 px-3 py-1 text-xs text-black/70 hover:bg-black/5">
                           Ver cadena
@@ -158,7 +158,7 @@ export function Trazabilidad() {
               {libro.map((d: any) => (
                 <div key={d.id} className="flex items-center justify-between gap-3 px-3 py-2.5">
                   <div className="min-w-0">
-                    <p className="truncate text-sm text-black"><b>{d.folio}</b> · {TIPOS[d.tipo] ?? d.tipo}</p>
+                    <p className="min-w-0 break-words text-sm text-black"><b>{d.folio}</b> · {TIPOS[d.tipo] ?? d.tipo}</p>
                     <p className="text-[11px] text-black/45">{cuando(d.emitido_en)} · {d.emitidoPor ?? '—'}</p>
                   </div>
                   <a

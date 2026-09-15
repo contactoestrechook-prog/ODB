@@ -72,7 +72,7 @@ export function CobrosAIngresar({ esDueno }: { esDueno: boolean }) {
           {items.map((c) => (
             <div key={c.id} className="flex items-center justify-between gap-3 px-3 py-2.5">
               <div className="min-w-0">
-                <p className="text-sm text-black truncate">
+                <p className="text-sm text-black min-w-0 break-words">
                   <b>{nombreDe(c)}</b> · {pesos(c.monto)} <span className="text-black/50">({c.medio})</span>
                   {c.comprobanteUrl && (
                     <a href={c.comprobanteUrl} target="_blank" rel="noreferrer" className="ml-2 text-xs text-[#B82D25] underline">ver comprobante</a>

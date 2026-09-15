@@ -172,7 +172,7 @@ export function VerificadorPrecios({ sucursales }: { sucursales: { id: string; n
           {opciones.map((p) => (
             <button key={p.sku} onClick={() => { setProducto(p); setOpciones([]); }} className="w-full text-left px-4 py-3 hover:bg-[#F0EBE2]/60 flex items-center justify-between gap-3">
               <span className="min-w-0">
-                <span className="block truncate text-sm text-black">{p.nombre}</span>
+                <span className="block min-w-0 break-words text-sm text-black">{p.nombre}</span>
                 <span className="text-xs text-black/45">{p.sku}{p.marca ? ` · ${p.marca}` : ''}</span>
               </span>
               <span className="shrink-0 font-semibold text-black">{pesos(p.precio)}</span>

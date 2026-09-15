@@ -1,7 +1,7 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
-import { agruparPorMedio } from './cierre';
+import { agruparPorMedio, etiquetaMedio } from './cierre';
 
 @Injectable()
 export class CajaService {
@@ -134,16 +134,14 @@ export class CajaService {
     const s = sesion as any;
     if (rol === 'cajero' && s.usuario_id !== usuarioId) throw new BadRequestException('Solo podés ver el cierre de tu propia caja');
 
-    const { data: ventas } = await this.db
-      .from('ventas').select('id, total, estado').eq('sesion_caja_id', sesionId);
-    const vs = (ventas ?? []) as any[];
-    const completadas = vs.filter((v) => v.estado === 'completada');
-    const ids = completadas.map((v) => v.id);
-    const pagos: any[] = [];
-    for (let i = 0; i < ids.length; i += 300) {
-      const { data } = await this.db.from('pagos').select('medio, monto, terminal').in('venta_id', ids.slice(i, i + 300));
-      pagos.push(...((data ?? []) as any[]));
-    }
+    // El grueso (ventas del turno + sus pagos agrupados por medio) lo resuelve
+    // Postgres de una. Antes se traían todas las ventas y los pagos de a 300
+    // desde Node: con el volumen de un turno real eso tardaba segundos.
+    const { data: agregado, error: errorAgregado } = await this.db.rpc('caja_turno_resumen', { p_sesion: sesionId });
+    if (errorAgregado) throw new BadRequestException(this.traducirError(errorAgregado.message));
+    const ag = (agregado ?? {}) as any;
+    const pagos: any[] = (ag.medios ?? []).map((m: any) => ({ medio: m.medio, terminal: m.terminal, monto: m.monto }));
+
     const { data: movs } = await this.db
       .from('caja_movimientos').select('tipo, monto, motivo, creado_en, usuario:usuarios(nombre)')
       .eq('sesion_id', sesionId).order('creado_en');
@@ -161,9 +159,9 @@ export class CajaService {
         abiertaEn: s.abierta_en, cerradaEn: s.cerrada_en, cerrada,
       },
       ventas: {
-        cantidad: completadas.length,
-        total: Math.round(completadas.reduce((a, v) => a + Number(v.total), 0) * 100) / 100,
-        anuladas: vs.length - completadas.length,
+        cantidad: Number(ag.tickets ?? 0),
+        total: Number(ag.total ?? 0),
+        anuladas: Number(ag.anuladas ?? 0),
       },
       medios,
       cobrado: Math.round(medios.reduce((a, m) => a + m.monto, 0) * 100) / 100,
@@ -174,6 +172,69 @@ export class CajaService {
         diferencia: cerrada ? Number(s.diferencia) : null,
       },
       movimientos,
+    };
+  }
+
+  // ============================================================
+  // "MI TURNO" (2026-09-12)
+  // La cajera cobraba a ciegas: no volvía a ver ni lo que vendió ni las
+  // facturas que emitió. Esto le da su turno en vivo. Lo pesado (agrupar
+  // pagos, buscar comprobantes) lo resuelve Postgres en una sola consulta:
+  // con cientos de tickets por turno, traerlos a Node no escala.
+  // ============================================================
+
+  // Un cajero solo mira SU sesión, y solo mientras sea suya. Gerencia, cualquiera.
+  private async verificarSesionPropia(sesionId: string, usuarioId?: string, rol?: string) {
+    const { data: sesion } = await this.db
+      .from('sesiones_caja')
+      .select('id, usuario_id')
+      .eq('id', sesionId)
+      .maybeSingle();
+    if (!sesion) throw new BadRequestException('No existe la sesión de caja');
+    if (rol === 'cajero' && (sesion as any).usuario_id !== usuarioId) {
+      throw new BadRequestException('Solo podés ver tu propio turno');
+    }
+    return sesion as any;
+  }
+
+  async turnoResumen(sesionId: string, usuarioId?: string, rol?: string) {
+    await this.verificarSesionPropia(sesionId, usuarioId, rol);
+    const { data, error } = await this.db.rpc('caja_turno_resumen', { p_sesion: sesionId });
+    if (error) throw new BadRequestException(this.traducirError(error.message));
+    const r = (data ?? {}) as any;
+    const medios = agruparPorMedio(
+      (r.medios ?? []).map((m: any) => ({ medio: m.medio, terminal: m.terminal, monto: m.monto })),
+    ).map((m, i) => ({ ...m, pagos: (r.medios ?? [])[i]?.pagos ?? m.pagos }));
+    return { ...r, medios };
+  }
+
+  async turnoVentas(
+    sesionId: string,
+    f: { buscar?: string; medio?: string; limite?: number; offset?: number },
+    usuarioId?: string,
+    rol?: string,
+  ) {
+    await this.verificarSesionPropia(sesionId, usuarioId, rol);
+    const { data, error } = await this.db.rpc('caja_turno_ventas', {
+      p_sesion: sesionId,
+      p_buscar: f.buscar?.trim() || null,
+      p_medio: f.medio?.trim() || null,
+      p_limite: Math.min(Math.max(Number(f.limite) || 50, 1), 200),
+      p_offset: Math.max(Number(f.offset) || 0, 0),
+    });
+    if (error) throw new BadRequestException(this.traducirError(error.message));
+    const r = (data ?? { total: 0, items: [] }) as any;
+    return {
+      total: r.total ?? 0,
+      items: (r.items ?? []).map((v: any) => ({
+        ...v,
+        total: Number(v.total),
+        pagos: (v.pagos ?? []).map((p: any) => ({
+          ...p,
+          monto: Number(p.monto),
+          etiqueta: etiquetaMedio(p.medio, p.terminal),
+        })),
+      })),
     };
   }
 

@@ -539,11 +539,85 @@ export class MercadoPagoService {
   }
 
   // Cuando la venta ya quedó registrada: el cobro y el pago de MP apuntan a ella.
+  // También se le graba al renglón de pago el id de la operación de MP: sin eso,
+  // si después hay que devolver la plata (el cliente cambia el medio de pago),
+  // no hay a qué pago pedirle el reembolso hasta que corra el importador.
   async vincularCobroAVenta(id: string, ventaId: string) {
     const { data: c } = await this.db.from('mp_cobros').select('id, mp_payment_id, estado').eq('id', id).maybeSingle();
     if (!c) throw new BadRequestException('Cobro inexistente');
     await this.db.from('mp_cobros').update({ venta_id: ventaId }).eq('id', id);
-    if (c.mp_payment_id) await this.db.from('mp_pagos').update({ venta_id: ventaId }).eq('id', c.mp_payment_id).is('venta_id', null);
+    if (c.mp_payment_id) {
+      await this.db.from('mp_pagos').update({ venta_id: ventaId }).eq('id', c.mp_payment_id).is('venta_id', null);
+      await this.db
+        .from('pagos')
+        .update({ mp_payment_id: String(c.mp_payment_id) })
+        .eq('venta_id', ventaId)
+        .eq('medio', 'mercadopago')
+        .is('mp_payment_id', null);
+    }
     return { ok: true };
+  }
+
+  // El pago de Mercado Pago de una venta, con su importe real en MP. Mira
+  // primero el renglón de pago (camino nuevo) y, para las ventas viejas que
+  // todavía no lo tienen grabado, cae al cobro por QR de esa venta.
+  async pagoMPDeVenta(ventaId: string): Promise<{ paymentId: string; cuenta: string; monto: number } | null> {
+    const { data: pago } = await this.db
+      .from('pagos')
+      .select('mp_payment_id, monto')
+      .eq('venta_id', ventaId)
+      .eq('medio', 'mercadopago')
+      .not('mp_payment_id', 'is', null)
+      .maybeSingle();
+    const { data: cobro } = await this.db
+      .from('mp_cobros')
+      .select('mp_payment_id, cuenta, monto')
+      .eq('venta_id', ventaId)
+      .eq('estado', 'aprobado')
+      .maybeSingle();
+    const paymentId = (pago as any)?.mp_payment_id ?? (cobro as any)?.mp_payment_id;
+    if (!paymentId) return null;
+    // la cuenta sale del cobro; si la venta es vieja y no lo tiene, se busca por sucursal
+    let cuenta = (cobro as any)?.cuenta as string | undefined;
+    if (!cuenta) {
+      const { data: venta } = await this.db.from('ventas').select('sucursal_id').eq('id', ventaId).maybeSingle();
+      const c = venta ? await cuentaDeSucursal(this.db, (venta as any).sucursal_id) : null;
+      cuenta = c?.slug;
+    }
+    if (!cuenta) return null;
+    return {
+      paymentId: String(paymentId),
+      cuenta,
+      monto: Number((pago as any)?.monto ?? (cobro as any)?.monto ?? 0),
+    };
+  }
+
+  // Devuelve la plata de un pago de QR. Con `monto` hace un reembolso parcial.
+  // MP es idempotente por X-Idempotency-Key: reintentar no devuelve dos veces.
+  async reembolsar(paymentId: string, monto?: number, cuentaSlug?: string) {
+    const cuentas = await cuentasMP(this.db);
+    const cuenta = cuentaSlug ? cuentas.find((c) => c.slug === cuentaSlug) : cuentas[0];
+    if (!cuenta) throw new BadRequestException('No hay credenciales de Mercado Pago para devolver el pago');
+    const cuerpo = monto && monto > 0 ? JSON.stringify({ amount: Math.round(monto * 100) / 100 }) : '{}';
+    const r = await fetchConTimeout(`${MP}/v1/payments/${encodeURIComponent(paymentId)}/refunds`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${cuenta.token}`,
+        'X-Idempotency-Key': `odb-refund-${paymentId}-${monto ?? 'total'}`,
+      },
+      body: cuerpo,
+    });
+    const texto = await r.text().catch(() => '');
+    if (!r.ok) {
+      this.log.warn(`MP rechazó el reembolso del pago ${paymentId}: ${r.status} ${texto.slice(0, 200)}`);
+      throw new BadRequestException(
+        `Mercado Pago no pudo devolver el pago (${r.status}). ${texto.slice(0, 200)}`,
+      );
+    }
+    let d: any = null;
+    try { d = JSON.parse(texto); } catch {}
+    this.log.log(`reembolso MP del pago ${paymentId}: ${d?.id ?? 'sin id'} (${d?.status ?? 'sin estado'})`);
+    return { refundId: d?.id ? String(d.id) : null, estado: d?.status ?? 'approved', monto: Number(d?.amount ?? monto ?? 0) };
   }
 }

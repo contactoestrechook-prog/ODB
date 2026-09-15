@@ -18,6 +18,7 @@ type Match = {
   metodo: 'codigo_proveedor' | 'codigo_barras' | 'similitud' | 'alias' | 'ia';
   margenPct: number | null; // remarcación guardada de la última compra (si hay)
   sugerido?: boolean; // propuesto por la IA: el operador tiene que confirmar ("¿es este?")
+  alicuotaCatalogo?: number | null; // IVA del producto en el catálogo (para verificar contra el pie)
   motivo?: string; // por qué la IA cree que es ese producto
 } | null;
 
@@ -454,9 +455,44 @@ export class ListasService {
     if (d.estado === 'procesando' && Date.now() - new Date(d.creado_en).getTime() > 12 * 60_000) {
       return { estado: 'error', message: 'La lectura se interrumpió. Probá de nuevo con la misma foto.' };
     }
-    if (d.estado === 'listo') return { estado: 'listo', ...(d.resultado ?? {}) };
+    if (d.estado === 'listo') return { estado: 'listo', ...(await this.actualizarLectura(d.resultado ?? {})) };
     if (d.estado === 'error') return { estado: 'error', message: d.error ?? 'No se pudo leer el comprobante' };
     return { estado: 'procesando' };
+  }
+
+  // Una factura leída ayer se abre hoy con las reglas de HOY. La interpretación
+  // de cada renglón (descuento, peso, bulto) se guardó con las reglas del
+  // momento de la lectura; si después se corrigió una regla —el 15/9/2026 la
+  // mayonesa de Distri Sur quedaba "9,5 kg" en vez de 10 unidades con 5% off—
+  // la lectura vieja seguiría mostrando el error. Se rehace sobre la lectura
+  // cruda del renglón, que quedó guardada, y se trae la alícuota del catálogo.
+  private async actualizarLectura(resultado: any) {
+    const items = Array.isArray(resultado?.items) ? resultado.items : [];
+    for (const i of items) {
+      if (i?.descripcion == null || i?.precio == null) continue;
+      i.interpretado = interpretarRenglon({
+        descripcion: String(i.descripcion ?? ''),
+        cantidad: Number(i.cantidad) || 1,
+        precio: Number(i.precio) || 0,
+        importe: Number.isFinite(Number(i.importe)) && i.importe != null ? Number(i.importe) : null,
+        // el detector de bultos también se corrige (el "12 x" de Arcor): gana el texto
+        unidadesPorBulto: unidadesPorBulto(String(i.descripcion ?? '')) ?? (Number(i.unidadesPorBulto) > 1 ? Number(i.unidadesPorBulto) : null),
+        bonificacionPct: Math.abs(Number(i.bonificacionPct)) > 0 ? Math.min(100, Math.abs(Number(i.bonificacionPct))) : null,
+        esDescuento: !!i.esDescuento,
+        kg: Number(i.kg) > 0 ? Number(i.kg) : null,
+        puedePorPeso: puedeVendersePorPeso(String(i.descripcion ?? '')),
+        // la presentación del producto vinculado se recalcula (el detector mejora)
+        unidadesDelCatalogo: (i.match?.nombre ? unidadesDeLaPresentacion(String(i.match.nombre)) : null) ?? (Number(i.unidadesDelCatalogo) > 1 ? Number(i.unidadesDelCatalogo) : null),
+        costoCatalogo: i.match?.costoActual ?? null,
+      });
+    }
+    const skus = [...new Set(items.map((i: any) => i?.match?.sku).filter(Boolean))] as string[];
+    if (skus.length) {
+      const { data: alics } = await this.db.from('productos').select('sku, alicuota_iva').in('sku', skus);
+      const porSku = new Map(((alics ?? []) as any[]).map((r) => [r.sku, r.alicuota_iva != null ? Number(r.alicuota_iva) : null]));
+      for (const i of items) if (i?.match?.sku) i.match.alicuotaCatalogo = porSku.get(i.match.sku) ?? null;
+    }
+    return resultado;
   }
 
   async analizarComprobanteFoto(archivo: { buffer: Buffer; mimetype: string; originalname?: string }, aclaraciones?: string) {
@@ -728,10 +764,20 @@ export class ListasService {
       const nombreCatalogo = i.match?.nombre ?? null;
       const internas = nombreCatalogo ? unidadesDeLaPresentacion(String(nombreCatalogo)) : null;
       if (internas && internas > 1) {
-        i.interpretado = interpretarRenglon({ ...lectura, unidadesDelCatalogo: internas });
+        i.interpretado = interpretarRenglon({ ...lectura, unidadesDelCatalogo: internas, costoCatalogo: i.match?.costoActual ?? null });
         i.unidadesDelCatalogo = internas;
       }
       delete i._lectura;
+    }
+
+    // La alícuota de IVA de cada producto vinculado, de una sola consulta: el
+    // panel la usa cuando la fila no imprime la suya, y la verifica contra el IVA
+    // del pie (apps/admin/app/lib/iva-compras.ts).
+    const skusVinculados = [...new Set((propuesta as any[]).map((i) => i.match?.sku).filter(Boolean))];
+    if (skusVinculados.length) {
+      const { data: alics } = await this.db.from('productos').select('sku, alicuota_iva').in('sku', skusVinculados);
+      const porSku = new Map(((alics ?? []) as any[]).map((r) => [r.sku, r.alicuota_iva != null ? Number(r.alicuota_iva) : null]));
+      for (const i of propuesta as any[]) if (i.match?.sku) i.match.alicuotaCatalogo = porSku.get(i.match.sku) ?? null;
     }
 
     const msMatch = Date.now() - tMatch;

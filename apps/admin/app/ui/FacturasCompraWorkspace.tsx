@@ -194,7 +194,7 @@ export function FacturasCompraWorkspace({ resumenInicial, facturasInicial, prove
                     <span className="font-medium">{f.tipo === 'nota_credito' ? 'NC' : f.tipo === 'nota_debito' ? 'ND' : 'FC'}{f.letra ? ` ${f.letra}` : ''} {f.numero}</span>
                     {f.archivo_url && <span title="Tiene comprobante adjunto" className="ml-1.5 text-black/40">📎</span>}
                   </td>
-                  <td className="px-3 py-2.5 max-w-[180px] truncate">{f.proveedor?.razon_social ?? '—'}</td>
+                  <td className="px-3 py-2.5 max-w-[180px] min-w-0 break-words">{f.proveedor?.razon_social ?? '—'}</td>
                   <td className="px-3 py-2.5 whitespace-nowrap text-black/60 text-xs">{EMPRESA_CORTA[f.empresa] ?? '—'}</td>
                   <td className="px-3 py-2.5 whitespace-nowrap text-black/60 text-xs">{f.categoria_gasto ?? 'Mercadería'}</td>
                   <td className="px-3 py-2.5 whitespace-nowrap text-black/60">{fecha(f.fecha_emision ?? f.creado_en)}</td>
@@ -204,7 +204,7 @@ export function FacturasCompraWorkspace({ resumenInicial, facturasInicial, prove
                   <td className="px-3 py-2.5 whitespace-nowrap">
                     <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${ESTADOS[f.estado]?.[1] ?? ''}`}>{ESTADOS[f.estado]?.[0] ?? f.estado}</span>
                   </td>
-                  <td className="px-3 py-2.5 whitespace-nowrap text-black/60 text-xs max-w-[140px] truncate" title={f.cargador?.nombre ?? ''}>{f.cargada_por === usuarioId ? 'Yo' : (f.cargador?.nombre ?? '—')}</td>
+                  <td className="px-3 py-2.5 text-black/60 text-xs max-w-[140px] min-w-0 break-words" title={f.cargador?.nombre ?? ''}>{f.cargada_por === usuarioId ? 'Yo' : (f.cargador?.nombre ?? '—')}</td>
                 </tr>
               ))}
               {!datos.items.length && (

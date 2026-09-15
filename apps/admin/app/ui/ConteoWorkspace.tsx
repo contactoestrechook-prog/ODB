@@ -219,7 +219,7 @@ export function ConteoWorkspace({ sucursales, conteosIniciales }: { sucursales: 
         {/* scanner / buscador + cantidad */}
         {producto ? (
           <div className="flex items-center gap-2">
-            <span className="flex-1 rounded-lg bg-[#F0EBE2]/70 px-3 py-2.5 text-sm text-black truncate">
+            <span className="flex-1 rounded-lg bg-[#F0EBE2]/70 px-3 py-2.5 text-sm text-black min-w-0 break-words">
               {producto.nombre} <span className="text-black/40 text-xs">({producto.sku})</span>
             </span>
             <input

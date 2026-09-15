@@ -66,7 +66,7 @@ function FlotaMapa() {
           {reps.length === 0 ? <p className="p-4 text-sm text-black/40">Ningún repartidor reportando posición. Aparecen acá cuando salen a la calle con la app.</p> : reps.map((rp: any) => (
             <div key={rp.id} className="px-4 py-3 border-b border-black/5 flex items-center gap-2.5">
               <span className={`w-2.5 h-2.5 rounded-full ${rp.activo ? 'bg-emerald-500' : 'bg-black/25'}`} />
-              <div className="flex-1 min-w-0"><p className="text-sm font-medium text-black truncate">{rp.nombre}</p><p className="text-[11px] text-black/45">{rp.reparto ? `Ruta #${rp.reparto.numero}${rp.reparto.zona ? ' · ' + rp.reparto.zona : ''}` : 'sin ruta'} · hace {rp.hace_min}′</p></div>
+              <div className="flex-1 min-w-0"><p className="text-sm font-medium text-black break-words">{rp.nombre}</p><p className="text-[11px] text-black/45">{rp.reparto ? `Ruta #${rp.reparto.numero}${rp.reparto.zona ? ' · ' + rp.reparto.zona : ''}` : 'sin ruta'} · hace {rp.hace_min}′</p></div>
             </div>
           ))}
         </div>

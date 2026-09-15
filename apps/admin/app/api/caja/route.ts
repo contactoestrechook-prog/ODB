@@ -7,6 +7,9 @@ const GET_RECURSOS: Record<string, string> = {
   resumen: '/caja/resumen', cajas: '/caja/cajas', sesiones: '/caja/sesiones', arca: '/arca/pendientes',
   'por-cajero': '/caja/por-cajero', empleados: '/usuarios', movimientos: '/caja/movimientos',
   'sesion-resumen': '/caja/sesion-resumen', // planilla de cierre (abierta = cómo va; cerrada = cómo terminó)
+  // "Mi turno": lo que la cajera mira sin salir de la caja
+  'turno-resumen': '/caja/turno/resumen',
+  'turno-ventas': '/caja/turno/ventas',
 };
 export async function GET(req: Request) {
   const token = (await cookies()).get('odb_token')?.value;

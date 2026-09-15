@@ -57,10 +57,15 @@ const cajaFalsa = () => ({
   consumirAutorizacion: jest.fn().mockResolvedValue({ ok: true }),
 });
 
-function servicio(r: Respuestas, fact = facturacionFalsa()) {
+const mpFalso = () => ({
+  pagoMPDeVenta: jest.fn().mockResolvedValue(null),
+  reembolsar: jest.fn(),
+});
+
+function servicio(r: Respuestas, fact = facturacionFalsa(), mp = mpFalso()) {
   const { db, llamadas } = dbFalsa(r);
-  const svc = new VentasService(db, fact as any, cajaFalsa() as any);
-  return { svc, llamadas, fact, db };
+  const svc = new VentasService(db, fact as any, cajaFalsa() as any, mp as any);
+  return { svc, llamadas, fact, db, mp };
 }
 
 const dtoBase = {
@@ -207,5 +212,90 @@ describe('VentasService.registrar', () => {
     await expect(
       svc.registrar({ ...dtoBase, sesionCajaId: 'ses-1' } as any),
     ).rejects.toThrow(/cerrada/);
+  });
+});
+
+
+// ============================================================
+// CAMBIO DE MEDIO DE PAGO (el cliente se arrepintió después de cobrar)
+// El contrato que importa: sin supervisor no se toca nada, los pagos tienen
+// que sumar el total del ticket, y si sale Mercado Pago la plata se devuelve
+// ANTES de cambiar los pagos (si el reembolso falla, el arqueo no miente).
+// ============================================================
+describe('VentasService.cambiarMedioPago', () => {
+  const tablasVenta = {
+    ventas: { id: 'v-1', total: 1400, estado: 'completada' },
+    pagos: [{ medio: 'mercadopago', monto: 1400 }],
+  };
+  const rpcOk = { cambiar_medio_pago_venta: { ok: true } };
+
+  it('sin autorización de supervisor no cambia nada', async () => {
+    const { svc, llamadas } = servicio({ rpc: rpcOk, tablas: tablasVenta });
+    await expect(
+      svc.cambiarMedioPago('v-1', { pagos: [{ medio: 'efectivo', monto: 1400 }] }),
+    ).rejects.toThrow(/supervisor/);
+    expect(llamadas.rpc.find(([fn]) => fn === 'cambiar_medio_pago_venta')).toBeUndefined();
+  });
+
+  it('rechaza si los pagos no suman el total del ticket', async () => {
+    const { svc, llamadas } = servicio({ rpc: rpcOk, tablas: tablasVenta });
+    await expect(
+      svc.cambiarMedioPago('v-1', { pagos: [{ medio: 'efectivo', monto: 999 }], autorizadoPor: 'sup-1' }),
+    ).rejects.toThrow(/suman/);
+    expect(llamadas.rpc.find(([fn]) => fn === 'cambiar_medio_pago_venta')).toBeUndefined();
+  });
+
+  it('si sale Mercado Pago, devuelve la plata ANTES de cambiar los pagos', async () => {
+    const mp = {
+      pagoMPDeVenta: jest.fn().mockResolvedValue({ paymentId: '123', cuenta: 'principal', monto: 1400 }),
+      reembolsar: jest.fn().mockResolvedValue({ refundId: 'r-1', estado: 'approved', monto: 1400 }),
+    };
+    const { svc, llamadas } = servicio({ rpc: rpcOk, tablas: tablasVenta }, facturacionFalsa(), mp);
+    await svc.cambiarMedioPago('v-1', {
+      pagos: [{ medio: 'efectivo', monto: 1400 }],
+      autorizadoPor: 'sup-1',
+    });
+    expect(mp.reembolsar).toHaveBeenCalledWith('123', undefined, 'principal');
+    const rpc = llamadas.rpc.find(([fn]) => fn === 'cambiar_medio_pago_venta');
+    expect(rpc).toBeDefined();
+    expect(rpc![1].p_mp).toEqual({ paymentId: '123', refundId: 'r-1', estado: 'approved' });
+  });
+
+  it('si el reembolso de Mercado Pago falla, los pagos quedan como estaban', async () => {
+    const mp = {
+      pagoMPDeVenta: jest.fn().mockResolvedValue({ paymentId: '123', cuenta: 'principal', monto: 1400 }),
+      reembolsar: jest.fn().mockRejectedValue(new BadRequestException('MP no pudo devolver')),
+    };
+    const { svc, llamadas } = servicio({ rpc: rpcOk, tablas: tablasVenta }, facturacionFalsa(), mp);
+    await expect(
+      svc.cambiarMedioPago('v-1', { pagos: [{ medio: 'efectivo', monto: 1400 }], autorizadoPor: 'sup-1' }),
+    ).rejects.toThrow(/devolver/);
+    expect(llamadas.rpc.find(([fn]) => fn === 'cambiar_medio_pago_venta')).toBeUndefined();
+  });
+
+  it('sin operación de MP identificada avisa en vez de cambiar a ciegas', async () => {
+    const { svc, llamadas } = servicio({ rpc: rpcOk, tablas: tablasVenta });
+    await expect(
+      svc.cambiarMedioPago('v-1', { pagos: [{ medio: 'efectivo', monto: 1400 }], autorizadoPor: 'sup-1' }),
+    ).rejects.toThrow(/Mercado Pago/);
+    expect(llamadas.rpc.find(([fn]) => fn === 'cambiar_medio_pago_venta')).toBeUndefined();
+  });
+
+  it('sin Mercado Pago de por medio, cambia sin pedirle nada a MP', async () => {
+    const mp = { pagoMPDeVenta: jest.fn(), reembolsar: jest.fn() };
+    const { svc, llamadas } = servicio(
+      { rpc: rpcOk, tablas: { ...tablasVenta, pagos: [{ medio: 'efectivo', monto: 1400 }] } },
+      facturacionFalsa(),
+      mp,
+    );
+    await svc.cambiarMedioPago('v-1', {
+      pagos: [{ medio: 'tarjeta', monto: 1400, terminal: 'getnet' }],
+      autorizadoPor: 'sup-1',
+      motivo: 'el cliente pagó con tarjeta',
+    });
+    expect(mp.reembolsar).not.toHaveBeenCalled();
+    const rpc = llamadas.rpc.find(([fn]) => fn === 'cambiar_medio_pago_venta');
+    expect(rpc![1].p_pagos).toEqual([{ medio: 'tarjeta', monto: 1400, terminal: 'getnet' }]);
+    expect(rpc![1].p_motivo).toBe('el cliente pagó con tarjeta');
   });
 });

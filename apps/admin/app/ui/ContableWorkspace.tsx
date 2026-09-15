@@ -298,7 +298,7 @@ export function ContableWorkspace({ inicial }: { inicial: any }) {
                     {(c.filas ?? []).slice(0, 100).map((f: any, i: number) => (
                       <tr key={i} className="border-b border-black/5 last:border-0">
                         <td className="px-4 py-2 text-xs text-black/55 whitespace-nowrap">{f.fecha}</td>
-                        <td className="px-4 py-2 text-xs max-w-44 truncate">{f.proveedor}{f.cuit ? ` (${f.cuit})` : ''}</td>
+                        <td className="px-4 py-2 text-xs max-w-44 min-w-0 break-words">{f.proveedor}{f.cuit ? ` (${f.cuit})` : ''}</td>
                         <td className="px-4 py-2 text-xs">{f.comprobante}{f.estimado ? ' *' : ''}</td>
                         <td className="px-4 py-2 text-right text-xs tabular-nums">{pesos(f.neto)}</td>
                         <td className="px-4 py-2 text-right text-xs tabular-nums text-emerald-700">{pesos(f.iva)}</td>

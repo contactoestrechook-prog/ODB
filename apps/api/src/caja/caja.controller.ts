@@ -52,6 +52,35 @@ export class CajaController {
     return this.caja.resumenSesion(sesionId, req.usuario?.sub, req.usuario?.rol);
   }
 
+  // ---- "Mi turno": lo que la cajera ve sin salir de la caja ----
+  // Cabecera del turno: cuánto lleva vendido, por medio de pago, cuántos
+  // tickets y qué comprobantes emitió (incluidos los que quedaron sin CAE).
+  @Roles('cajero', 'gerente', 'dueno')
+  @Get('caja/turno/resumen')
+  turnoResumen(@Query('sesionId') sesionId: string, @Req() req: any) {
+    return this.caja.turnoResumen(sesionId, req.usuario?.sub, req.usuario?.rol);
+  }
+
+  // Los tickets del turno, paginados. `buscar` acepta el número de ticket, el
+  // importe, el número de factura o el cliente: lo que el cliente trae al mostrador.
+  @Roles('cajero', 'gerente', 'dueno')
+  @Get('caja/turno/ventas')
+  turnoVentas(
+    @Query('sesionId') sesionId: string,
+    @Query('buscar') buscar: string,
+    @Query('medio') medio: string,
+    @Query('limite') limite: string,
+    @Query('offset') offset: string,
+    @Req() req: any,
+  ) {
+    return this.caja.turnoVentas(
+      sesionId,
+      { buscar, medio, limite: limite ? Number(limite) : undefined, offset: offset ? Number(offset) : undefined },
+      req.usuario?.sub,
+      req.usuario?.rol,
+    );
+  }
+
   @Roles('cajero', 'gerente', 'dueno')
   @Get('caja/sesiones')
   sesiones(@Query('limite') limite?: string) {

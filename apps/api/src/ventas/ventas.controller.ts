@@ -54,6 +54,29 @@ export class VentasController {
     return this.ventas.resumenHoy();
   }
 
+  // Todo lo de un ticket para el panel de la caja (renglones, pagos, factura)
+  @Roles('cajero', 'gerente', 'dueno')
+  @Get(':id/detalle')
+  detalle(@Param('id') id: string) {
+    return this.ventas.detalle(id);
+  }
+
+  // El cliente se arrepintió del medio de pago. Cambia los pagos dejando la
+  // venta y su factura intactas. Igual que el descuento y la devolución: el
+  // cajero necesita el PIN de un supervisor; gerencia se autoriza sola.
+  @Roles('cajero', 'gerente', 'dueno')
+  @Post(':id/medio-pago')
+  cambiarMedioPago(@Param('id') id: string, @Body() dto: any, @Req() req: any) {
+    const rol = req.usuario?.rol;
+    let autorizadoPor: string | undefined;
+    if (rol !== 'cajero') {
+      autorizadoPor = req.usuario?.sub;
+    } else if (!dto?.autorizacionToken) {
+      throw new ForbiddenException('Cambiar el medio de pago requiere autorización de un supervisor (PIN)');
+    }
+    return this.ventas.cambiarMedioPago(id, { ...(dto ?? {}), autorizadoPor, usuarioId: req.usuario?.sub });
+  }
+
   @Roles('cajero', 'gerente', 'dueno')
   @Get('cliente/:dni')
   cliente(@Param('dni') dni: string) {

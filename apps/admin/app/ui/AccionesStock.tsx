@@ -288,7 +288,7 @@ export function AccionesStock({
                 />
                 {items.map((i, idx) => (
                   <div key={i.sku} className="flex items-center gap-2 text-sm text-black">
-                    <span className="flex-1 truncate">{i.nombre}</span>
+                    <span className="flex-1 min-w-0 break-words">{i.nombre}</span>
                     <input
                       type="number"
                       value={i.cantidad}
@@ -305,7 +305,7 @@ export function AccionesStock({
               <>
                 {producto ? (
                   <div className="flex items-center justify-between rounded-lg bg-[#F0EBE2]/70 px-3 py-2.5 text-sm text-black">
-                    <span className="truncate">{producto.nombre} <span className="text-black/40 text-xs">({producto.sku})</span></span>
+                    <span className="min-w-0 break-words">{producto.nombre} <span className="text-black/40 text-xs">({producto.sku})</span></span>
                     <button onClick={() => setProducto(null)} className="text-black/40 hover:text-[#B82D25] ml-2">✕</button>
                   </div>
                 ) : (

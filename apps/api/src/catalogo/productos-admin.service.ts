@@ -233,6 +233,42 @@ export class ProductosAdminService {
     return { ok: true };
   }
 
+  // ⚖️ "Vendido por peso" desde la carga de una factura (2026-09-15).
+  // Cuando administración pasa un renglón a kilos, el producto del catálogo
+  // tiene que quedar igual: si no, la compra entra en kg y la caja lo sigue
+  // cobrando por unidad, y el stock mezcla kilos con unidades. Sin `porPeso`
+  // solo informa cómo está; con `porPeso` lo cambia y deja auditoría.
+  async porPesoPorSku(sku: string, porPeso?: boolean, usuarioId?: string) {
+    const clave = String(sku ?? '').trim();
+    if (!clave) throw new BadRequestException('Falta el producto');
+    const { data: prod, error } = await this.db
+      .from('productos')
+      .select('id, sku, nombre, vendido_por_peso')
+      .eq('sku', clave)
+      .maybeSingle();
+    if (error) throw new BadRequestException(error.message);
+    if (!prod) throw new BadRequestException('No existe ese producto');
+    const p = prod as any;
+    if (porPeso === undefined || !!porPeso === !!p.vendido_por_peso) {
+      return { sku: p.sku, nombre: p.nombre, vendidoPorPeso: !!p.vendido_por_peso };
+    }
+    const { error: errUpd } = await this.db.from('productos').update({ vendido_por_peso: !!porPeso }).eq('id', p.id);
+    if (errUpd) throw new BadRequestException(errUpd.message);
+    await this.db
+      .from('auditoria')
+      .insert({
+        usuario_id: usuarioId ?? null,
+        accion: 'producto_vendido_por_peso',
+        entidad: 'producto',
+        entidad_id: p.id,
+        datos_antes: { vendidoPorPeso: !!p.vendido_por_peso },
+        datos_despues: { vendidoPorPeso: !!porPeso, desde: 'carga_factura' },
+      })
+      .then(() => null, () => null);
+    this.catalogo.invalidarFotos(); // limpia el caché del catálogo
+    return { sku: p.sku, nombre: p.nombre, vendidoPorPeso: !!porPeso };
+  }
+
   // el precio canónico vive en la tabla precios: cada cambio es una vigencia nueva
   private async fijarPrecio(productoId: string, precio: number, usuarioId?: string, listaNombre = 'Minorista') {
     const { data: lista } = await this.db

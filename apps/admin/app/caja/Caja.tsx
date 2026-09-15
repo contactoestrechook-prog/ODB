@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { ResumenCierre } from '../ui/ResumenCierre';
+import MiTurno from './MiTurno';
 
 type Producto = {
   imagenUrl: string | null;
@@ -187,6 +188,8 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
   const [receptorNombre, setReceptorNombre] = useState('');
   const [medio, setMedio] = useState('efectivo');
   const [mayorista, setMayorista] = useState(false); // venta a precio mayorista
+  // "Mi turno": la cajera ve lo que lleva vendido sin salir de la caja (F7)
+  const [verTurno, setVerTurno] = useState(false);
   const [pagos, setPagos] = useState<Pago[]>([]); // vacío = "todo con `medio`" (camino rápido)
   const [dividido, setDividido] = useState(false);
   const [estado, setEstado] = useState<{ tipo: 'ok' | 'error'; texto: string } | null>(null);
@@ -939,6 +942,22 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
     } catch { setDevVentas([]); }
   }
 
+  // Devolución arrancando desde un ticket puntual (viene de "Mi turno"): evita
+  // que la cajera tenga que buscarlo de nuevo en la lista de las últimas 24 h.
+  async function abrirDevolucionDeVenta(ventaId: string) {
+    setModalExtra('devolucion');
+    setDevVenta(null);
+    setDevolver({});
+    setPinBuf('');
+    try {
+      const r = await fetch(`/api/ventas?dias=1&estado=completada&limite=300`);
+      const lista = r.ok ? await r.json() : [];
+      setDevVentas(lista);
+      const v = (lista ?? []).find((x: any) => x.id === ventaId);
+      if (v) setDevVenta(v);
+    } catch { setDevVentas([]); }
+  }
+
   async function confirmarDevolucion() {
     if (!devVenta) return;
     const items = Object.entries(devolver)
@@ -1430,6 +1449,10 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
           e.preventDefault();
           estacionarRef.current?.();
           break;
+        case 'F7': // mi turno: lo vendido, las facturas y el cambio de medio de pago
+          e.preventDefault();
+          setVerTurno((v) => !v);
+          break;
         case 'F8': // reimprimir último ticket
           e.preventDefault();
           reimprimirRef.current?.();
@@ -1485,6 +1508,11 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
           {sesion && (
             <button onClick={() => { setModalExtra('movimiento'); setMovMonto(''); setMovMotivo(''); }} className="rounded-lg bg-white/10 text-[#F0EBE2]/80 px-3 py-2 text-sm" title="Ingreso / retiro de efectivo">
               💵 Mov.
+            </button>
+          )}
+          {sesion && (
+            <button onClick={() => setVerTurno(true)} className="rounded-lg bg-white/10 text-[#F0EBE2]/80 px-3 py-2 text-sm" title="Lo que vendiste en este turno: tickets, facturas y medios de pago (F7)">
+              📋 Mi turno
             </button>
           )}
           <button onClick={abrirStock} className="rounded-lg bg-white/10 text-[#F0EBE2]/80 px-3 py-2 text-sm" title="Consultar stock en ambas sucursales (F9)">
@@ -1792,7 +1820,7 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
                     <span className="flex items-center gap-3 min-w-0">
                       {p.imagenUrl && <img src={p.imagenUrl} alt="" className="h-11 w-11 rounded-lg object-cover shrink-0" />}
                       <span className="min-w-0">
-                        <span className="truncate text-base block">{p.nombre}</span>
+                        <span className="min-w-0 break-words text-base block">{p.nombre}</span>
                         {p.activo === false && <span className="block text-xs font-semibold text-black/60">Dado de baja · se reconoce pero no se vende</span>}
                         {sinStock && p.activo !== false && <span className="block text-xs font-semibold text-[#B82D25]">Sin stock en {sucursalNombre}{p.sinStockDesde ? ` · se terminó el ${fechaCorta(p.sinStockDesde)} (${haceDias(p.sinStockDesde)})` : ''}</span>}
                         {pocoStock && <span className="text-xs text-black/45">Quedan {Math.round(p.stock as number)} u.</span>}
@@ -1981,7 +2009,7 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
             <div className="rounded-xl bg-[#F0EBE2]/60 px-4 py-2.5 flex items-center justify-between">
               {lineaFoco ? (
                 <>
-                  <span className="text-sm text-black/60 truncate mr-2">Cantidad · {lineaFoco.nombre}</span>
+                  <span className="text-sm text-black/60 min-w-0 break-words mr-2">Cantidad · {lineaFoco.nombre}</span>
                   <span className="text-2xl font-semibold tabular-nums">{lineaFoco.cantidad}</span>
                 </>
               ) : pagoFoco ? (
@@ -2083,7 +2111,7 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
           )}
 
           <p className="text-center text-[11px] text-black/35 -mt-1">
-            C + cantidad + Enter = cantidad del último producto · 6* y escaneá = 6 unidades · etiqueta de balanza = entra con su peso/cantidad · F2 comprobante · F3 cliente · F4 medio · F6 estacionar · F8 reimprimir · F9 stock · F12 cobrar · F10 salir
+            C + cantidad + Enter = cantidad del último producto · 6* y escaneá = 6 unidades · etiqueta de balanza = entra con su peso/cantidad · F2 comprobante · F3 cliente · F4 medio · F6 estacionar · F7 mi turno · F8 reimprimir · F9 stock · F12 cobrar · F10 salir
           </p>
 
           {estado && (
@@ -2273,7 +2301,7 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
                             </span>
                             <span className="font-semibold text-black tabular-nums">{pesos(v.total)}</span>
                           </span>
-                          <span className="block text-xs text-black/50 truncate">
+                          <span className="block text-xs text-black/50 min-w-0 break-words">
                             {(v.items ?? []).map((i: any) => `${i.cantidad}x ${i.producto?.nombre}`).join(' · ')}
                           </span>
                         </button>
@@ -2292,7 +2320,7 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
                         return (
                           <div key={sku} className="rounded-xl bg-[#F0EBE2]/60 px-3 py-2 flex items-center gap-2">
                             <span className="flex-1 min-w-0">
-                              <span className="block text-sm font-medium text-black truncate">{i.producto?.nombre}</span>
+                              <span className="block text-sm font-medium text-black min-w-0 break-words">{i.producto?.nombre}</span>
                               <span className="text-xs text-black/50">{pesos(i.precio_unitario)} c/u · compró {max}</span>
                             </span>
                             <button onClick={() => setDevolver((d) => ({ ...d, [sku]: Math.max(0, (d[sku] ?? 0) - 1) }))} className="h-10 w-10 rounded-lg bg-white border border-black/10 text-xl">−</button>
@@ -2422,6 +2450,33 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
           </div>
         </div>
       )}
+      {/* ---- "Mi turno": lo vendido, las facturas y el cambio de medio de pago ---- */}
+      {verTurno && sesion && (
+        <MiTurno
+          sesionId={sesion.sesionId}
+          cajaNombre={`${sesion.cajaNombre}${sucursalNombre ? ` · ${sucursalNombre}` : ''}`}
+          abiertaEn={sesion.abiertaEn}
+          onCerrar={() => { setVerTurno(false); setTimeout(() => inputRef.current?.focus(), 60); }}
+          onReimprimir={(d) => {
+            // el ticket se rearma con lo que quedó guardado en la venta, no con
+            // el carrito de ahora (que puede tener otra cosa a medio cobrar)
+            const comp = (d.comprobantes ?? []).find((c: any) => ['FA', 'FB', 'FC', 'REM'].includes(c.tipo));
+            imprimir({
+              numero: comp ? `${comp.tipo} ${comp.numero}` : undefined,
+              etiqueta: comp ? (ETIQUETA_COMP[(comp.tipo === 'FA' ? 'A' : comp.tipo === 'REM' ? 'R' : 'B') as TipoComprobante] ?? 'Ticket') : 'Ticket',
+              fecha: new Date(d.vendidaEn).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }),
+              items: d.items.map((i: any) => ({ cantidad: i.cantidad, nombre: i.nombre, precioUnitario: i.precioUnitario, total: i.total })),
+              total: d.total,
+              descuento: d.descuento,
+              pagos: d.pagos.map((p: any) => ({ medio: p.medio, monto: p.monto, terminal: p.terminal ?? undefined })),
+              vuelto: null,
+              dni: d.cliente?.dni ?? undefined,
+            });
+          }}
+          onDevolver={(ventaId) => { setVerTurno(false); void abrirDevolucionDeVenta(ventaId); }}
+        />
+      )}
+
       {modalStock && (
         <div className="fixed inset-0 z-50 bg-black/50 flex items-start justify-center p-4 pt-16" onClick={() => setModalStock(false)}>
           <div className="w-full max-w-lg rounded-2xl bg-white p-5" onClick={(e) => e.stopPropagation()}>

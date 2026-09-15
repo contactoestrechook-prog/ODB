@@ -4,6 +4,8 @@ import { Dictado } from './Dictado';
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { prepararComprobante } from './comprimirImagen';
+import { ALICUOTAS_IVA, repartirIva } from '../lib/iva-compras';
+import { conversionSugerida } from '../lib/presentacion';
 
 // Mismo redondeo de góndola que aplica el servidor al guardar el precio
 // (apps/api/src/compras/precio.ts): a la centena, de 50 para arriba sube. Se
@@ -133,7 +135,7 @@ export function ComprasWorkspace({ resumen, ordenes, proveedores, sugerencias, s
               return (
                 <div key={l.id} className="flex items-center gap-3 py-2 text-sm flex-wrap">
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-black">{l.nombreArchivo || 'Factura'}{l.releida ? ' · releída con aclaraciones' : ''}</span>
+                    <span className="block min-w-0 break-words text-black">{l.nombreArchivo || 'Factura'}{l.releida ? ' · releída con aclaraciones' : ''}</span>
                     {l.estado === 'procesando' && <span className="block text-xs text-black/50">⏳ leyendo… {seg}s — podés seguir con otra cosa</span>}
                     {l.estado === 'listo' && <span className="block text-xs text-emerald-800">✓ lista{l.resumen?.proveedor ? ` · ${l.resumen.proveedor}` : ''}{l.resumen?.numero ? ` · ${l.resumen.numero}` : ''} · {l.resumen?.renglones ?? 0} renglones{l.resumen?.dudas ? ` · ${l.resumen.dudas} duda(s)` : ''}{l.resumen?.total != null ? ` · ${pesos(l.resumen.total)}` : ''}{l.abiertaEn ? ' · ya abierta' : ''}</span>}
                     {l.estado === 'error' && <span className="block text-xs text-[#932A1F]">✕ {l.error || 'No se pudo leer'}</span>}
@@ -440,6 +442,11 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   const [soloFactura, setSoloFactura] = useState(false);
   // buscador por renglón para vincular un producto (índice de fila + texto + resultados)
   const [vinculaIdx, setVinculaIdx] = useState<number | null>(null);
+  // Renglón al que administración le está cargando los kilos a mano (ver pasarAPesoManual)
+  const [pesoEdit, setPesoEdit] = useState<{ idx: number; kg: string; marcarCatalogo: boolean; enCatalogo: boolean | null } | null>(null);
+  // Renglón al que administración le indica cuántas unidades trae cada bulto
+  const [bultoEdit, setBultoEdit] = useState<{ idx: number; unidades: string } | null>(null);
+  const [avisoCatalogo, setAvisoCatalogo] = useState<{ idx: number; texto: string; error?: boolean } | null>(null);
   const [vinculaBusca, setVinculaBusca] = useState('');
   const [vinculaSug, setVinculaSug] = useState<any[]>([]);
 
@@ -516,7 +523,11 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
         const r = i.interpretado ?? {};
         const cantidad = Number(r.cantidad) || Number(i.cantidad) || 1;
         const porPeso = !!r.porPeso;
-        const cantidadCorregida = r.cantidadOriginal ?? null;
+        // Factura por unidad suelta y la casa stockea el envase (Ferrero T12): el
+        // servidor ya dividió la cantidad; el precio pasa a ser el del envase
+        const envase = r.decision === 'unidades_a_envase' && Number(r.cantidadOriginal) > 0 && cantidad > 0
+          ? Math.round(Number(r.cantidadOriginal) / cantidad) : null;
+        const cantidadCorregida = envase ? null : (r.cantidadOriginal ?? null);
         const bultoConsumido = r.bultoConsumido ?? null;
         return {
           descripcion: i.descripcion,
@@ -525,7 +536,8 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
           bultoConsumido,
           porPeso,
           kg: i.kg ?? null,
-          precio: Number(i.precio) || 0,
+          precio: envase && Number(r.precioPropuesto) > 0 ? Number(r.precioPropuesto) : Number(i.precio) || 0,
+          envaseAplicado: envase,
           sku: i.match?.sku ?? '',
           nombre: i.match?.nombre ?? null,
           variacionPct: i.match?.variacionPct ?? null,
@@ -541,12 +553,19 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
           // objeto nuevo, así que un campo que no se copie acá no existe para la
           // pantalla por más que la API lo mande.
           unidadesPorBulto: r.unidadesPorBulto ?? null,
-          bonificacionPct: i.bonificacionPct ?? null,
-          importe: i.importe ?? null,
+          // la del papel, o la que el servidor dedujo del importe (columna "Dto" no leída)
+          bonificacionPct: r.bonificacionPct ?? i.bonificacionPct ?? null,
+          // si la lectura tomó el importe CON IVA, se usa el neto que dedujo el servidor
+          importe: r.importeNeto ?? i.importe ?? null,
+          importeConIvaLeido: r.importeNeto != null ? i.importe : null,
           esDescuento: !!i.esDescuento,
           descuentoPct: i.descuentoPct ?? null,
           puedePorPeso: !!i.puedePorPeso,
-          alicuotaIva: i.alicuotaIva ?? null,
+          // la alícuota impresa, o la que prueba un importe leído con IVA adentro
+          alicuotaIva: i.alicuotaIva ?? r.alicuotaDeducida ?? null,
+          alicuotaCatalogo: i.match?.alicuotaCatalogo ?? null,
+          costoCatalogo: i.match?.costoActual ?? null,
+          alicuotaElegida: null,
           bultoAplicado: null,
           // las sugerencias de IA NO se incluyen hasta que el operador confirme "¿es este?"
           // y una rebaja no se incluye NUNCA: no es mercadería
@@ -668,7 +687,8 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
         cantidad: numImp(x.cantidad) / n,
         precio: Math.round(numImp(x.precio) * n * 100) / 100,
         bultoAplicado: null,
-        unidadesPorBulto: n,
+        unidadesPorBulto: x.bultoManual ? null : n,
+        bultoManual: false,
       };
     }));
   const discriminaIva = foto?.comprobante?.tipo === 'factura_a';
@@ -751,6 +771,120 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
     const imp = Math.abs(numImp(x.importe));
     const kilos = p > 0 ? Math.round((imp / p) * 1000) / 1000 : numImp(x.cantidad);
     return { ...x, cantidad: kilos, porPeso: true };
+  }));
+
+  // ⚖️ POR PESO A MANO (2026-09-15)
+  // Hay facturas que traen la horma como "1 × $39.600": la cuenta cierra y no
+  // hay columna de kilos, así que nada permite deducir que es por peso. Solo
+  // quien recibe sabe cuántos kilos vinieron. Con esos kilos, la cantidad pasa
+  // a kg y el costo pasa a ser por kilo (el importe del renglón no cambia).
+  // Se guarda lo que había para poder deshacerlo tal cual.
+  const pasarAPesoManual = (idx: number, kg: number) => setFotoItems((xs) => xs.map((x, j) => {
+    if (j !== idx || !(kg > 0)) return x;
+    const importe = Math.abs(numImp(x.importe)) || numImp(x.cantidad) * Math.abs(numImp(x.precio));
+    return {
+      ...x,
+      antesDePeso: x.antesDePeso ?? { cantidad: x.cantidad, precio: x.precio, importe: x.importe },
+      cantidad: Math.round(kg * 1000) / 1000,
+      precio: Math.round((importe / kg) * 100) / 100,
+      importe,
+      porPeso: true,
+      cantidadCorregida: null,
+      bultoConsumido: null,
+    };
+  }));
+  // Abre el editor de kilos y averigua cómo está el producto en el catálogo:
+  // si ya se vende por peso no hay nada que marcar.
+  const abrirPesoEdit = async (idx: number, sku: string) => {
+    if (pesoEdit?.idx === idx) { setPesoEdit(null); return; }
+    setBultoEdit(null);
+    setPesoEdit({ idx, kg: '', marcarCatalogo: true, enCatalogo: null });
+    if (!sku) return;
+    try {
+      const r = await fetch('/api/producto/por-peso', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sku }) });
+      const d = await r.json();
+      if (r.ok) setPesoEdit((e) => (e && e.idx === idx ? { ...e, enCatalogo: !!d.vendidoPorPeso, marcarCatalogo: !d.vendidoPorPeso } : e));
+    } catch {}
+  };
+  // Aplica los kilos y, si se pidió, deja el producto "vendido por peso" en el
+  // catálogo para que caja y stock queden en la misma unidad que la compra.
+  const confirmarPeso = async (idx: number, sku: string, nombre: string) => {
+    if (!pesoEdit || !(Number(pesoEdit.kg) > 0)) return;
+    const marcar = pesoEdit.marcarCatalogo && pesoEdit.enCatalogo !== true && !!sku;
+    pasarAPesoManual(idx, Number(pesoEdit.kg));
+    setPesoEdit(null);
+    if (!marcar) return;
+    try {
+      const r = await fetch('/api/producto/por-peso', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sku, porPeso: true }) });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d?.message ?? 'no se pudo marcar');
+      setAvisoCatalogo({ idx, texto: `«${nombre}» quedó vendido por peso en el catálogo: la caja lo cobra por kilo.` });
+    } catch (e) {
+      setAvisoCatalogo({ idx, texto: `Los kilos se aplicaron, pero no se pudo marcar el producto en el catálogo (${e instanceof Error ? e.message : 'error'}).`, error: true });
+    }
+  };
+
+  // 📦 BULTO A MANO (2026-09-15): "HWN DISPLAY MOGUL COLMILLO 12 x" = 3 displays
+  // de 12. Cuando el detector no lo lee, administración dice cuántas unidades
+  // trae cada bulto y el renglón pasa a unidades sueltas con su costo unitario.
+  // Reusa bultoAplicado, así "deshacer" funciona igual que en la conversión automática.
+  // 📦 ARMAR ENVASES (2026-09-15): lo inverso de "pasar a unidades". Ferrero
+  // factura el bocadito ($827) y la casa vende la caja x3/x8/x12/x24: 60
+  // bocaditos = 5 cajas de 12 a $9.930. El importe del renglón no cambia.
+  const armarEnvases = (idx: number, n: number) => setFotoItems((xs) => xs.map((x, j) => {
+    if (j !== idx || !(n > 1)) return x;
+    const cant = numImp(x.cantidad);
+    if (!(cant > 0) || !Number.isInteger(cant / n)) return x;
+    return { ...x, cantidad: cant / n, precio: Math.round(numImp(x.precio) * n * 100) / 100, envaseAplicado: n, cantidadCorregida: null };
+  }));
+  const deshacerEnvases = (idx: number) => setFotoItems((xs) => xs.map((x, j) => {
+    if (j !== idx) return x;
+    const n = Math.round(numImp(x.envaseAplicado));
+    if (!(n > 1)) return x;
+    return { ...x, cantidad: numImp(x.cantidad) * n, precio: Math.round((numImp(x.precio) / n) * 100) / 100, envaseAplicado: null };
+  }));
+  // ¿La factura viene en otra unidad que la del stock? (cajas de Ferrero,
+  // congelados por kilo empaquetados de 250 g). La cuenta está en
+  // app/lib/presentacion.ts, con tests; acá solo se ofrece.
+  const sugerirConversion = (i: any) => {
+    if (!i.sku || i._esDescuento || i.porPeso || numImp(i.envaseAplicado) > 1 || numImp(i.paqueteAplicado) > 0
+      || numImp(i.bultoAplicado) > 1 || numImp(i.unidadesPorBulto) > 1) return null;
+    return conversionSugerida({
+      descripcion: i.descripcion,
+      nombreCatalogo: i.nombre,
+      cantidad: numImp(i.cantidad),
+      precio: numImp(i.precio),
+      costoCatalogo: i.costoCatalogo,
+    });
+  };
+  // kilos facturados → paquetes de N gramos (y su vuelta atrás)
+  const pasarAPaquetes = (idx: number, gramos: number, cantidadNueva: number, precioNuevo: number) =>
+    setFotoItems((xs) => xs.map((x, j) => (j === idx
+      ? { ...x, cantidad: cantidadNueva, precio: precioNuevo, paqueteAplicado: gramos, porPeso: false, cantidadCorregida: null }
+      : x)));
+  const deshacerPaquetes = (idx: number) => setFotoItems((xs) => xs.map((x, j) => {
+    if (j !== idx) return x;
+    const g = numImp(x.paqueteAplicado);
+    if (!(g > 0)) return x;
+    return { ...x, cantidad: numImp(x.cantidad) / (1000 / g), precio: Math.round(numImp(x.precio) * (1000 / g) * 100) / 100, paqueteAplicado: null };
+  }));
+
+  const pasarABultoManual = (idx: number, n: number) => setFotoItems((xs) => xs.map((x, j) => {
+    if (j !== idx || !(n > 1)) return x;
+    return {
+      ...x,
+      cantidad: numImp(x.cantidad) * n,
+      precio: Math.round((numImp(x.precio) / n) * 100) / 100,
+      bultoAplicado: n,
+      bultoManual: true,
+      unidadesPorBulto: null,
+    };
+  }));
+
+  const deshacerPeso = (idx: number) => setFotoItems((xs) => xs.map((x, j) => {
+    if (j !== idx) return x;
+    if (x.antesDePeso) return { ...x, ...x.antesDePeso, porPeso: false, antesDePeso: null };
+    return { ...x, cantidad: 1, porPeso: false };
   }));
 
   // ¿Este renglón vino sin cargo? Es lo que después se prorratea.
@@ -904,14 +1038,15 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   const baseCosto = valorConIva != null ? valorConIva + (percepcionesAlCosto ? percepciones : 0) : null;
   const factorRecon = (baseCosto != null && sumaRenglones > 0) ? baseCosto / sumaRenglones
     : (discriminaIva && sumarIva && alicEfectiva != null ? 1 + alicEfectiva : discriminaIva && sumarIva ? 1.21 : 1);
-  // IVA por renglón. Una misma factura mezcla productos al 21% con alimentos al
-  // 10,5% (Tufaro: brócoli al 10,5 junto a almacén al 21). Un factor único
-  // reparte el IVA promedio y le cobra a la verdura parte del IVA de los otros
-  // —al brócoli le salía 21,5% en vez de 10,5 + percepción.
-  //
-  // Se activa SOLO cuando el papel lo prueba: todos los renglones de mercadería
-  // declaran su alícuota y, aplicadas sobre el neto de cada uno, reconstruyen
-  // el IVA del pie (±2%). Si no, se queda con el factor único de siempre.
+  // ============================================================
+  // IVA POR RENGLÓN, VERIFICADO CONTRA EL PIE (2026-09-15)
+  // Regla: en una factura A cada renglón paga SU alícuota (la que eligió una
+  // persona › la impresa en la fila › la del catálogo › 21%) y la suma tiene que
+  // dar el IVA del pie. Si no da, la factura NO se registra: se marca cuánto
+  // falta y se pide la alícuota. Nunca más un promedio en silencio (Tufaro:
+  // brócoli al 10,5; Distri Sur: lentejón al 10,5). La cuenta está en
+  // app/lib/iva-compras.ts, con tests.
+  // ============================================================
   const alicLinea = (i: any): number | null => {
     const a = numImp(i.alicuotaIva);
     return a > 0 && a <= 27 ? a : null;
@@ -921,24 +1056,62 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   const cargaComunPct = netoDoc != null && netoDoc > 0
     ? (impIntDoc + (percepcionesAlCosto ? percepciones : 0)) / netoDoc
     : 0;
-  const usarAlicPorLinea = (() => {
-    if (netoDoc == null || netoDoc <= 0 || sumaRenglones <= 0 || ivaDoc == null) return false;
-    const aNeto = netoDoc / sumaRenglones;
-    let iva = 0;
-    for (const i of itemsCalc) {
-      if (i._esDescuento) continue;
-      const cant = numImp(i.cantidad);
-      if (cant <= 0) continue;
-      const a = alicLinea(i);
-      if (a == null) return false; // sin la alícuota de TODOS, no hay prueba
-      iva += cant * precioEfectivo(i) * aNeto * (a / 100);
+  const renglonesIva = itemsCalc
+    .map((i: any, idx: number) => ({ i, idx }))
+    .filter(({ i }) => !i._esDescuento && numImp(i.cantidad) > 0);
+  const ivaFactura = discriminaIva
+    ? repartirIva(
+        renglonesIva.map(({ i }) => ({
+          neto: numImp(i.cantidad) * precioEfectivo(i),
+          alicuotaImpresa: alicLinea(i),
+          alicuotaElegida: i.alicuotaElegida != null && i.alicuotaElegida !== '' ? Number(i.alicuotaElegida) : null,
+          alicuotaCatalogo: i.alicuotaCatalogo != null ? Number(i.alicuotaCatalogo) : null,
+        })),
+        { neto: netoDoc, iva: ivaDoc, percepcionesAlCosto: percepcionesAlCosto ? percepciones : 0, impuestosInternos: impIntDoc },
+      )
+    : null;
+  // posición de cada renglón de fotoItems dentro del cálculo del IVA
+  const posIva = new Map<number, number>(renglonesIva.map(({ idx }, k) => [idx, k]));
+  const ivaConAlicuotas = ivaFactura && (ivaFactura.estado === 'cierra' || ivaFactura.estado === 'no_cierra') ? ivaFactura : null;
+  const alicDe = (idx: number): number | null => {
+    const k = posIva.get(idx);
+    return ivaConAlicuotas && k != null ? ivaConAlicuotas.alicuotas[k] : null;
+  };
+  const origenAlic = (idx: number) => {
+    const k = posIva.get(idx);
+    return ivaConAlicuotas && k != null ? ivaConAlicuotas.origenes[k] : null;
+  };
+  // Factura A: el IVA es el de cada renglón (aunque todavía no cierre: así el
+  // costo que se ve ya responde a la alícuota que se va eligiendo). B, C y
+  // remitos: el precio ya trae el IVA adentro y sigue el factor de siempre.
+  const factorDe = (i: any, idx: number) => {
+    const a = alicDe(idx);
+    return ivaConAlicuotas && a != null
+      ? ivaConAlicuotas.factorNeto * (1 + a / 100 + ivaConAlicuotas.cargaComunPct)
+      : factorRecon;
+  };
+  const ivaBloquea = !!ivaFactura && ivaFactura.estado !== 'cierra' && renglonesIva.some(({ i }) => i.incluir);
+  // cambia la alícuota de uno o varios renglones (a mano o aceptando la sugerencia)
+  const elegirAlicuota = (indices: number[], a: number | null) =>
+    setFotoItems((xs) => xs.map((x, j) => (indices.includes(j) ? { ...x, alicuotaElegida: a } : x)));
+  // La cuenta del costo de un renglón, escrita: lo que se muestra al pasar el
+  // mouse por el "c/IVA" para no tener que sacarla a mano.
+  const desgloseCosto = (i: any, idx: number) => {
+    const partes = [`${pesos(precioEfectivo(i))} por unidad${numImp(i.bonificacionPct) > 0 ? ` (ya con el ${numImp(i.bonificacionPct)}% de descuento)` : ''}`];
+    const a = alicDe(idx);
+    if (ivaConAlicuotas && a != null) {
+      const neto = precioEfectivo(i) * ivaConAlicuotas.factorNeto;
+      if (Math.abs(ivaConAlicuotas.factorNeto - 1) > 0.0001) partes.push(`× ${ivaConAlicuotas.factorNeto.toFixed(4).replace('.', ',')} (descuento del pie)`);
+      const origen = { elegida: 'elegida a mano', impresa: 'impresa en la factura', catalogo: 'del catálogo', general: 'general' }[origenAlic(idx) ?? 'general'];
+      partes.push(`+ IVA ${String(a).replace('.', ',')}% (${origen}) ${pesos(neto * a / 100)}`);
+      if (ivaConAlicuotas.cargaComunPct > 0) partes.push(`+ percepciones${impIntDoc > 0 ? ' e internos' : ''} ${(ivaConAlicuotas.cargaComunPct * 100).toFixed(2).replace('.', ',')}% ${pesos(neto * ivaConAlicuotas.cargaComunPct)}`);
+    } else if (hayDatosFiscales) {
+      partes.push(`× ${factorRecon.toFixed(4).replace('.', ',')} (impuestos de la factura repartidos en proporción)`);
     }
-    return ivaDoc > 0 ? Math.abs(iva - ivaDoc) / ivaDoc <= 0.02 : iva < 1;
-  })();
-  const factorDe = (i: any) => usarAlicPorLinea
-    ? (netoDoc! / sumaRenglones) * (1 + alicLinea(i)! / 100 + cargaComunPct)
-    : factorRecon;
-  const costoFinal = (i: any) => Math.round(precioEfectivo(i) * factorDe(i) * 100) / 100;
+    return `${partes.join('  ')}  = ${pesos(costoFinal(i, idx))} c/IVA`;
+  };
+  const costoFinal = (i: any, idx?: number) =>
+    Math.round(precioEfectivo(i) * factorDe(i, idx ?? itemsCalc.indexOf(i)) * 100) / 100;
   const hayDatosFiscales = baseCosto != null;
   // Reconciliación: el costo a stock nunca puede superar el valor de la mercadería
   // con IVA (ni el total). Si lo hace, hay un error y se bloquea Registrar.
@@ -1028,7 +1201,8 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   const hayRegalos = inclItems.some((i: any) => esSinCargo(i));
   const itemsFusionados = fusionarPorSku(inclItems.filter((i) => i.sku));
   const skusFusionados = itemsFusionados.filter((i) => i._renglones > 1 || i._enPromo);
-  const costoBloquea = excedeMerc || excedeTotal;
+  // el IVA que no cierra con el pie también bloquea: nunca más un promedio
+  const costoBloquea = excedeMerc || excedeTotal || ivaBloquea;
 
   // Excel/CSV del portal del proveedor → precarga los renglones de la OC
   async function importarPedido(archivo: File) {
@@ -1101,7 +1275,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
 
   // vincula un producto a un renglón leído (y lo tilda para incluirlo)
   const vincularProducto = (idx: number, p: any) => {
-    setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, sku: p.sku, nombre: p.nombre, variacionPct: null, sugerido: false, motivoIa: null, incluir: true } : x));
+    setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, sku: p.sku, nombre: p.nombre, variacionPct: null, sugerido: false, motivoIa: null, incluir: true, alicuotaCatalogo: p.alicuotaIva != null ? Number(p.alicuotaIva) : null, costoCatalogo: p.costo ?? null } : x));
     setVinculaIdx(null); setVinculaBusca(''); setVinculaSug([]);
   };
 
@@ -1249,7 +1423,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
               {importInfo.sinMatch.length > 0 && (
                 <>
                   <p className="text-[#932A1F] font-medium">⚠ Sin match en el catálogo ({importInfo.sinMatch.length}) — agregalos a mano:</p>
-                  {importInfo.sinMatch.slice(0, 6).map((s, i) => <p key={i} className="truncate">· {s}</p>)}
+                  {importInfo.sinMatch.slice(0, 6).map((s, i) => <p key={i} className="min-w-0 break-words">· {s}</p>)}
                   {importInfo.sinMatch.length > 6 && <p>… y {importInfo.sinMatch.length - 6} más</p>}
                 </>
               )}
@@ -1264,7 +1438,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
           </div>
           {items.map((i, idx) => (
             <div key={idx} className="flex items-center gap-2 text-sm">
-              <span className="flex-1 truncate">{i.nombre}</span>
+              <span className="flex-1 min-w-0 break-words">{i.nombre}</span>
               <input type="number" value={i.cantidad} onChange={(e) => setItems((xs) => xs.map((x, j) => j === idx ? { ...x, cantidad: Number(e.target.value) } : x))} className="w-16 rounded border border-black/15 px-2 py-1 text-right" />
               <input type="number" value={i.costoUnitario} onChange={(e) => setItems((xs) => xs.map((x, j) => j === idx ? { ...x, costoUnitario: Number(e.target.value) } : x))} className="w-24 rounded border border-black/15 px-2 py-1 text-right" placeholder="costo" />
               <button onClick={() => setItems((xs) => xs.filter((_, j) => j !== idx))} className="text-black/40 hover:text-[#B82D25]">✕</button>
@@ -1305,7 +1479,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
             const info = remarca[sku];
             return (
               <div key={idx} className="flex items-center gap-2 text-sm">
-                <span className="flex-1 truncate">{it.producto?.nombre} <span className="text-xs text-black/40">(pend. {pend})</span></span>
+                <span className="flex-1 min-w-0 break-words">{it.producto?.nombre} <span className="text-xs text-black/40">(pend. {pend})</span></span>
                 <input type="number" value={recibido[sku] ?? ''} onChange={(e) => setRecibido((r) => ({ ...r, [sku]: e.target.value }))} placeholder={String(pend)} className="w-20 rounded border border-black/15 px-2 py-1 text-right" />
                 <span className="w-24">
                   <input
@@ -1360,7 +1534,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
             const venta = Number(i.costo) > 0 && margen !== '' ? redondearPrecio(Number(i.costo) * (1 + Number(margen) / 100)) : null;
             return (
               <div key={idx} className="flex items-center gap-2 text-sm">
-                <span className="flex-1 truncate">
+                <span className="flex-1 min-w-0 break-words">
                   {i.nombre}
                   {venta != null && <span className="ml-2 text-xs text-black/40">vende {pesos(venta)}</span>}
                 </span>
@@ -1506,10 +1680,12 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
               {provAviso && <p className="text-xs text-[#B82D25]">{provAviso}</p>}
 
               {/* renglones: cada uno editable — vincular producto, cantidad, remarcación y precio */}
-              <div className="hidden sm:grid grid-cols-[26px_minmax(0,1fr)_72px_290px_64px_92px] items-end gap-2 px-3 pt-1 text-[10px] uppercase tracking-[0.12em] text-black/40">
+              <div className="@container">
+              <div className="hidden @min-[49rem]:grid grid-cols-[26px_minmax(11rem,1fr)_72px_290px_64px_92px] items-end gap-2 px-3 pt-1 text-[10px] uppercase tracking-[0.12em] text-black/40">
                 <span /><span>Renglón del papel → producto en el sistema</span>
                 <span className="text-right">Cant.</span><span className="text-right">Costo papel → c/IVA → total</span>
                 <span className="text-right">Remar. %</span><span className="text-right">P. venta</span>
+              </div>
               </div>
               {itemsCalc.map((i: any, idx: number) => (
                 <div key={idx} className={'rounded-xl border px-3 py-2.5 ' + (i.sugerido ? 'border-[#C9A96E] bg-[#FBF7EE]' : i.incluir ? 'border-black/[0.08] bg-white' : 'border-transparent bg-[#F0EBE2]/50')}>
@@ -1519,7 +1695,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                           <span className="font-mono text-[12.5px] leading-snug text-[#141414]">{i.descripcion}</span>
-                          <span className="font-mono text-[11px] tabular-nums text-black/50">rebaja de <b className="text-black/70">{pesos(Math.abs(numImp(i.cantidad) * numImp(i.precio)))}</b></span>
+                          <span className="font-mono text-[11px] tabular-nums text-black/50">rebaja de <b className="text-black/70">{pesos(Math.abs(numImp(i.cantidad) * numImp(i.precio)) || Math.abs(numImp(i.importe)))}</b></span>
                           {i.noAplicar ? <Sello>sin aplicar</Sello>
                             : sinAtribuir.some((x) => x.descripcion === i.descripcion) ? <Sello tono="ojo">sin destino</Sello>
                             : grupoDeDescuento.has(idx) ? <Sello tono="ok">repartida en {grupoDeDescuento.get(idx)!.n}</Sello>
@@ -1544,7 +1720,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                   ) : (
                   <div className="flex items-start gap-2.5">
                     <input type="checkbox" checked={i.incluir} disabled={i.sugerido} onChange={(e) => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, incluir: e.target.checked } : x))} className="mt-1 h-4 w-4 accent-[#B82D25]" />
-                    <div className="min-w-0 flex-1 space-y-1.5">
+                    <div className="@container min-w-0 flex-1 space-y-1.5">
                       {/* 1 · lo que dice el papel, tal cual, con sus sellos */}
                       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                         <span className="font-mono text-[12.5px] leading-snug text-[#141414]">{i.descripcion}</span>
@@ -1554,17 +1730,47 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                         </span>
                         {numImp(i.unidadesPorBulto) > 1 && <Sello tono="info">caja ×{Math.round(numImp(i.unidadesPorBulto))}</Sello>}
                         {numImp(i.bultoAplicado) > 1 && <Sello tono="info">×{Math.round(numImp(i.bultoAplicado))} → unidades</Sello>}
+                        {numImp(i.envaseAplicado) > 1 && <Sello tono="info">u. → cajas ×{Math.round(numImp(i.envaseAplicado))}</Sello>}
+                        {numImp(i.paqueteAplicado) > 0 && <Sello tono="info">kg → paq. {Math.round(numImp(i.paqueteAplicado))} g</Sello>}
                         {esSinCargo(i) ? <Sello tono="ok">sin cargo</Sello> : numImp(i.bonificacionPct) > 0 ? <Sello tono="ok">bonif. {numImp(i.bonificacionPct)}%</Sello> : null}
                         {numImp(i._descuento) < 0 && (descuentoDesmedido(i) ? <Sello tono="ojo">desc. sin aplicar</Sello> : <Sello tono="ok">desc. aplicado</Sello>)}
                         {numImp(i.cantidadCorregida) > 0 && <Sello tono="ok">cant. corregida</Sello>}
                         {correccionRenglon(i)?.seguro === false && <Sello tono="ojo">revisar lectura</Sello>}
                         {(medidaVariable(i) || i.porPeso) && <Sello tono="info">por peso</Sello>}
                         {i.sugerido && <Sello tono="oro">¿es este?</Sello>}
+                        {/* IVA del renglón: siempre a la vista y siempre corregible. Lo que se
+                            elige acá manda sobre lo impreso (la lectura pudo tomar mal el %). */}
+                        {discriminaIva && numImp(i.cantidad) > 0 && alicDe(idx) != null && (
+                          <label
+                            className={'ml-auto inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] ' +
+                              (origenAlic(idx) === 'elegida' ? 'border-[#141414] bg-[#141414] text-[#F0EBE2]'
+                                : ivaFactura?.estado === 'no_cierra' ? 'border-[#B82D25]/60 bg-[#B82D25]/5 text-[#932A1F]'
+                                : 'border-black/15 bg-white text-black/60')}
+                            title={{ elegida: 'Alícuota elegida a mano', impresa: 'Alícuota impresa en la factura', catalogo: 'Alícuota del producto en el catálogo', general: 'La fila no imprime alícuota: se toma 21%' }[origenAlic(idx) ?? 'general'] + '. Cambiala si no es la correcta: se recalcula todo.'}
+                          >
+                            IVA
+                            <select
+                              value={String(alicDe(idx))}
+                              onChange={(e) => elegirAlicuota([idx], Number(e.target.value))}
+                              className="bg-transparent font-semibold tabular-nums outline-none"
+                            >
+                              {ALICUOTAS_IVA.map((a) => <option key={a} value={String(a)} className="text-black">{String(a).replace('.', ',')}%</option>)}
+                            </select>
+                            <span className="opacity-60">{{ elegida: 'a mano', impresa: 'factura', catalogo: 'catálogo', general: 'general' }[origenAlic(idx) ?? 'general']}</span>
+                            {origenAlic(idx) === 'elegida' && (
+                              <button type="button" onClick={(e) => { e.preventDefault(); elegirAlicuota([idx], null); }} className="opacity-60 hover:opacity-100" title="Volver a la alícuota de la factura / catálogo">↺</button>
+                            )}
+                          </label>
+                        )}
                       </div>
 
                       {/* 2 · lo que entra al sistema: producto y números, en columnas fijas */}
-                      <div className="grid grid-cols-[minmax(0,1fr)_72px] sm:grid-cols-[minmax(0,1fr)_72px_290px_64px_92px] items-center gap-2">
-                        <div className="min-w-0 text-xs leading-snug">
+                      {/* Se adapta al ancho de la TARJETA (container query), no al de la ventana:
+                          con el documento original abierto al lado, la columna del nombre quedaba
+                          en cero y el nombre se partía letra por letra. Si no entra, el nombre va
+                          en su propia línea de ancho completo y los números abajo. */}
+                      <div className="grid grid-cols-[72px_minmax(0,1fr)] @min-[46rem]:grid-cols-[minmax(11rem,1fr)_72px_290px_64px_92px] items-center gap-2">
+                        <div className="col-span-full @min-[46rem]:col-span-1 min-w-0 text-xs leading-snug">
                           {i.sugerido && i.nombre ? (
                             <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
                               <span className="text-[#6B5320]">¿Es <b className="text-[#141414]">{i.nombre}</b>?</span>
@@ -1574,11 +1780,124 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                             </span>
                           ) : i.nombre ? (
                             <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                              <span className="truncate text-emerald-800">→ <b>{i.nombre}</b></span>
+                              {/* el nombre entero (baja de renglón si hace falta): es lo que se mira
+                                  para confirmar que el vínculo es el correcto sin entrar a "cambiar" */}
+                              <span className="min-w-0 break-words text-emerald-800" title={i.nombre}>→ <b>{i.nombre}</b></span>
                               {i.variacionPct != null && (numImp(i.unidadesPorBulto) > 1 && Math.abs(i.variacionPct) > 300
                                 ? <span className="text-black/40">precio de caja vs. unidad</span>
                                 : <span className={Math.abs(i.variacionPct) > 25 ? 'text-[#932A1F]' : 'text-black/45'}>costo {i.variacionPct > 0 ? '+' : ''}{i.variacionPct}%</span>)}
                               <button onClick={() => setVinculaIdx(idx)} className="text-black/40 underline hover:text-[#B82D25]">cambiar</button>
+                              {!i.porPeso && !medidaVariable(i) && !(numImp(i.bultoAplicado) > 1) && !(numImp(i.unidadesPorBulto) > 1) && !(numImp(i.envaseAplicado) > 1) && !(numImp(i.paqueteAplicado) > 0) && (
+                                <>
+                                  <button
+                                    onClick={() => void abrirPesoEdit(idx, i.sku)}
+                                    className="text-sky-800/70 underline hover:text-sky-900"
+                                    title="La factura lo trae por unidad pero en stock va por kilo: cargá cuántos kilos vinieron"
+                                  >
+                                    ⚖️ es por peso
+                                  </button>
+                                  <button
+                                    onClick={() => { setPesoEdit(null); setBultoEdit(bultoEdit?.idx === idx ? null : { idx, unidades: '' }); }}
+                                    className="text-sky-800/70 underline hover:text-sky-900"
+                                    title="Cada unidad de la factura es una caja o display: cargá cuántas unidades trae"
+                                  >
+                                    📦 es por bulto
+                                  </button>
+                                </>
+                              )}
+                              {pesoEdit?.idx === idx && (
+                                <span className="basis-full flex flex-wrap items-center gap-1.5 rounded-md bg-sky-50 px-2 py-1.5 text-sky-900">
+                                  ¿Cuántos kilos vinieron?
+                                  <input
+                                    autoFocus type="number" step="0.001" min="0" inputMode="decimal"
+                                    value={pesoEdit.kg}
+                                    onChange={(e) => setPesoEdit({ ...pesoEdit, kg: e.target.value })}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') void confirmarPeso(idx, i.sku, i.nombre);
+                                      if (e.key === 'Escape') setPesoEdit(null);
+                                    }}
+                                    placeholder="kg"
+                                    className="w-20 rounded border border-sky-300 bg-white px-1.5 py-0.5 text-right tabular-nums text-[#141414] outline-none focus:border-sky-600"
+                                  />
+                                  {Number(pesoEdit.kg) > 0 && (
+                                    <span className="text-sky-800/80">
+                                      → {pesos((Math.abs(numImp(i.importe)) || numImp(i.cantidad) * Math.abs(numImp(i.precio))) / Number(pesoEdit.kg))} el kilo
+                                    </span>
+                                  )}
+                                  <button
+                                    disabled={!(Number(pesoEdit.kg) > 0)}
+                                    onClick={() => void confirmarPeso(idx, i.sku, i.nombre)}
+                                    className="rounded-full bg-sky-700 px-2.5 py-0.5 text-[10.5px] font-semibold text-white hover:bg-sky-800 disabled:opacity-40"
+                                  >
+                                    Pasar a kilos
+                                  </button>
+                                  <button onClick={() => setPesoEdit(null)} className="text-sky-900/50 underline">cancelar</button>
+                                  <span className="basis-full">
+                                    {pesoEdit.enCatalogo === true ? (
+                                      <span className="text-sky-800/70">✓ En el catálogo ya se vende por peso.</span>
+                                    ) : (
+                                      <label className="inline-flex items-center gap-1.5">
+                                        <input
+                                          type="checkbox"
+                                          checked={pesoEdit.marcarCatalogo}
+                                          disabled={pesoEdit.enCatalogo === null}
+                                          onChange={(e) => setPesoEdit({ ...pesoEdit, marcarCatalogo: e.target.checked })}
+                                        />
+                                        {pesoEdit.enCatalogo === null
+                                          ? 'Revisando el catálogo…'
+                                          : <>Marcar el producto como <b>vendido por peso</b> en el catálogo (la caja lo va a cobrar por kilo)</>}
+                                      </label>
+                                    )}
+                                  </span>
+                                </span>
+                              )}
+                              {bultoEdit?.idx === idx && (
+                                <span className="basis-full flex flex-wrap items-center gap-1.5 rounded-md bg-sky-50 px-2 py-1.5 text-sky-900">
+                                  ¿Cuántas unidades trae cada caja?
+                                  <input
+                                    autoFocus type="number" step="1" min="2" inputMode="numeric"
+                                    value={bultoEdit.unidades}
+                                    onChange={(e) => setBultoEdit({ idx, unidades: e.target.value.replace(/[^\d]/g, '') })}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter' && Number(bultoEdit.unidades) > 1) { pasarABultoManual(idx, Number(bultoEdit.unidades)); setBultoEdit(null); }
+                                      if (e.key === 'Escape') setBultoEdit(null);
+                                    }}
+                                    placeholder="u."
+                                    className="w-16 rounded border border-sky-300 bg-white px-1.5 py-0.5 text-right tabular-nums text-[#141414] outline-none focus:border-sky-600"
+                                  />
+                                  {Number(bultoEdit.unidades) > 1 && (
+                                    <span className="text-sky-800/80">
+                                      → {numImp(i.cantidad) * Number(bultoEdit.unidades)} unidades a {pesos(numImp(i.precio) / Number(bultoEdit.unidades))} c/u
+                                    </span>
+                                  )}
+                                  <button
+                                    disabled={!(Number(bultoEdit.unidades) > 1)}
+                                    onClick={() => { pasarABultoManual(idx, Number(bultoEdit.unidades)); setBultoEdit(null); }}
+                                    className="rounded-full bg-sky-700 px-2.5 py-0.5 text-[10.5px] font-semibold text-white hover:bg-sky-800 disabled:opacity-40"
+                                  >
+                                    Pasar a unidades
+                                  </button>
+                                  {Number(bultoEdit.unidades) > 1 && Number.isInteger(numImp(i.cantidad) / Number(bultoEdit.unidades)) && (
+                                    <span className="basis-full flex flex-wrap items-center gap-1.5">
+                                      <span className="text-sky-800/80">…o al revés, la factura trae unidades sueltas y en stock va la caja:
+                                        {' '}{numImp(i.cantidad)} u. = <b>{numImp(i.cantidad) / Number(bultoEdit.unidades)} cajas</b> a {pesos(numImp(i.precio) * Number(bultoEdit.unidades))}</span>
+                                      <button
+                                        onClick={() => { armarEnvases(idx, Number(bultoEdit.unidades)); setBultoEdit(null); }}
+                                        className="rounded-full bg-[#141414] px-2.5 py-0.5 text-[10.5px] font-semibold text-[#F0EBE2] hover:bg-black/80"
+                                      >
+                                        Armar cajas
+                                      </button>
+                                    </span>
+                                  )}
+                                  <button onClick={() => setBultoEdit(null)} className="text-sky-900/50 underline">cancelar</button>
+                                </span>
+                              )}
+                              {avisoCatalogo?.idx === idx && (
+                                <span className={'basis-full ' + (avisoCatalogo.error ? 'text-[#932A1F]' : 'text-emerald-800')}>
+                                  {avisoCatalogo.texto}
+                                  <button onClick={() => setAvisoCatalogo(null)} className="ml-2 text-black/40 underline">ok</button>
+                                </span>
+                              )}
                             </span>
                           ) : (
                             <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -1590,7 +1909,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                         </div>
                         <input type="number" step="any" min="0" value={i.cantidad} onChange={(e) => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, cantidad: Number(e.target.value) } : x))} className="w-full rounded-md border border-black/15 px-2 py-1 text-right text-sm tabular-nums text-[#141414] focus:border-black/50 outline-none" />
                         {/* costo: el precio del papel (corregible) → el costo final que queda en stock, en la misma línea */}
-                        <div className="col-span-2 sm:col-span-1 flex flex-wrap items-center justify-end gap-1.5 tabular-nums">
+                        <div className="col-span-1 flex flex-wrap items-center justify-end gap-1.5 tabular-nums">
                           <input
                             type="number" step="any" min="0" value={i.precio}
                             onChange={(e) => setFotoItems((xs) => xs.map((x, j) => {
@@ -1601,12 +1920,12 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                             title="Precio unitario tal como está en el papel (sin IVA): corregilo si la lectura falló"
                             className="w-[78px] rounded border border-black/10 px-1 py-0.5 text-right text-[12px] text-[#141414] focus:border-black/40 outline-none"
                           />
-                          {Math.abs(costoFinal(i) - precioEfectivo(i)) > 0.5 ? (
+                          {Math.abs(costoFinal(i, idx) - precioEfectivo(i)) > 0.5 ? (
                             <span
                               className="whitespace-nowrap text-right leading-none"
-                              title="Costo final por unidad: el precio del papel más el IVA, las percepciones y los impuestos internos de la factura, repartidos entre los renglones. Es el costo que queda en stock y del que sale el margen."
+                              title={desgloseCosto(i, idx)}
                             >
-                              <span className="text-black/35">→</span> <b className="text-sm font-semibold text-[#141414]">{pesos(costoFinal(i))}</b>
+                              <span className="text-black/35">→</span> <b className="text-sm font-semibold text-[#141414]">{pesos(costoFinal(i, idx))}</b>
                               <span className="ml-1 text-[9.5px] uppercase tracking-wide text-black/45">c/IVA</span>
                             </span>
                           ) : null}
@@ -1635,7 +1954,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                       </div>
 
                       {/* 3 · una nota por situación, una línea y un solo botón */}
-                      {(numImp(i._descuento) < 0 || numImp(i.cantidadCorregida) > 0 || correccionRenglon(i)?.seguro === false || esSinCargo(i) || numImp(i.bonificacionPct) > 0 || numImp(i.unidadesPorBulto) > 1 || numImp(i.bultoAplicado) > 1 || medidaVariable(i) || (i.porPeso && numImp(i.cantidad) > 0 && !medidaVariable(i))) && (
+                      {(numImp(i._descuento) < 0 || numImp(i.cantidadCorregida) > 0 || correccionRenglon(i)?.seguro === false || esSinCargo(i) || numImp(i.bonificacionPct) > 0 || numImp(i.unidadesPorBulto) > 1 || numImp(i.bultoAplicado) > 1 || numImp(i.envaseAplicado) > 1 || numImp(i.paqueteAplicado) > 0 || !!sugerirConversion(i) || i.importeConIvaLeido != null || medidaVariable(i) || (i.porPeso && numImp(i.cantidad) > 0 && !medidaVariable(i))) && (
                       <div className="flex flex-col gap-1 text-[11px] leading-snug">
                         {numImp(i._descuento) < 0 && (descuentoDesmedido(i) ? (
                           <span className="rounded-md bg-[#B82D25]/5 px-2 py-1 text-[#932A1F]">⚠ El descuento ({pesos(Math.abs(numImp(i._descuento)))}) supera al renglón ({pesos(Math.abs(baseUnitaria(i) * (numImp(i.cantidad) || 1)))}): no se aplicó. Suele ser de varios renglones o de toda la factura; revisalo antes de registrar.</span>
@@ -1665,6 +1984,44 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                             <span className="ml-1 text-sky-800/60">(dejalo así solo si el producto es la caja)</span>
                           </span>
                         )}
+                        {i.importeConIvaLeido != null && (
+                          <span className="text-sky-800">🧾 El importe leído ({pesos(Math.abs(numImp(i.importeConIvaLeido)))}) traía el IVA adentro: se toma el neto <b>{pesos(Math.abs(numImp(i.importe)))}</b>.</span>
+                        )}
+                        {numImp(i.envaseAplicado) > 1 && (
+                          <span className="text-sky-800">📦 La factura trae unidades sueltas: {numImp(i.cantidad) * Math.round(numImp(i.envaseAplicado))} u. = <b>{numImp(i.cantidad)} caja(s) de {Math.round(numImp(i.envaseAplicado))}</b> a {pesos(numImp(i.precio))} cada una.
+                            <button onClick={() => deshacerEnvases(idx)} className="ml-2 text-black/45 underline hover:text-[#B82D25]">deshacer</button>
+                          </span>
+                        )}
+                        {numImp(i.paqueteAplicado) > 0 && (
+                          <span className="text-sky-800">📦 Facturado por kilo: entran <b>{numImp(i.cantidad)} paquete(s) de {Math.round(numImp(i.paqueteAplicado))} g</b> a {pesos(numImp(i.precio))} cada uno.
+                            <button onClick={() => deshacerPaquetes(idx)} className="ml-2 text-black/45 underline hover:text-[#B82D25]">deshacer</button>
+                          </span>
+                        )}
+                        {(() => {
+                          const c = sugerirConversion(i);
+                          if (!c) return null;
+                          return (
+                            <span className="rounded-md bg-sky-50 px-2 py-1 text-sky-900">
+                              📦 {c.tipo === 'kilo_a_paquete'
+                                ? <>La factura cobra por kilo y el producto viene en paquetes de <b>{c.factor} g</b>: ¿son <b>{c.cantidadNueva} paquetes</b> a {pesos(c.precioNuevo)} cada uno?</>
+                                : <>El producto es la caja de <b>{c.factor}</b> y vienen {numImp(i.cantidad)} u.: ¿son <b>{c.cantidadNueva} cajas</b> a {pesos(c.precioNuevo)}?</>}
+                              <button
+                                onClick={() => (c.tipo === 'kilo_a_paquete'
+                                  ? pasarAPaquetes(idx, c.factor, c.cantidadNueva, c.precioNuevo)
+                                  : armarEnvases(idx, c.factor))}
+                                className="ml-2 rounded-full bg-sky-700 px-2.5 py-0.5 text-[10.5px] font-semibold text-white hover:bg-sky-800"
+                              >
+                                {c.tipo === 'kilo_a_paquete' ? 'Pasar a paquetes' : 'Armar cajas'}
+                              </button>
+                              <span className="ml-1 text-sky-800/60">(dejalo así si ya viene en la unidad de stock)</span>
+                            </span>
+                          );
+                        })()}
+                        {numImp(i.envaseAplicado) > 1 && (
+                          <span className="text-sky-800">📦 La factura trae unidades sueltas: {numImp(i.cantidad) * Math.round(numImp(i.envaseAplicado))} u. = <b>{numImp(i.cantidad)} caja(s) de {Math.round(numImp(i.envaseAplicado))}</b> a {pesos(numImp(i.precio))} cada una.
+                            <button onClick={() => deshacerEnvases(idx)} className="ml-2 text-black/45 underline hover:text-[#B82D25]">deshacer</button>
+                          </span>
+                        )}
                         {numImp(i.bultoAplicado) > 1 && (
                           <span className="text-sky-800">📦 Convertido a unidades (caja de {Math.round(numImp(i.bultoAplicado))}).
                             <button onClick={() => volverABulto(idx)} className="ml-2 text-black/45 underline hover:text-[#B82D25]">deshacer</button>
@@ -1678,7 +2035,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                         )}
                         {i.porPeso && numImp(i.cantidad) > 0 && !medidaVariable(i) && (
                           <span className="text-sky-800">⚖️ Por peso: {numImp(i.cantidad).toLocaleString('es-AR')} kg a {pesos(numImp(i.precio))} el kilo.
-                            <button onClick={() => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, cantidad: 1, porPeso: false } : x))} className="ml-2 text-black/45 underline hover:text-[#B82D25]">deshacer</button>
+                            <button onClick={() => deshacerPeso(idx)} className="ml-2 text-black/45 underline hover:text-[#B82D25]">deshacer</button>
                           </span>
                         )}
                       </div>
@@ -1691,12 +2048,28 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                   {!i._esDescuento && vinculaIdx === idx && (
                     <div className="relative mt-2 ml-6">
                       <input autoFocus value={vinculaBusca} onChange={(e) => setVinculaBusca(e.target.value)} placeholder="Buscar por nombre, código o PLU…" className={input + ' w-full'} />
+                      {/* El vínculo puede estar mal y el producto correcto no existir todavía
+                          (té Marolio vinculado al paté Marolio, 15/9/2026): el alta tiene que
+                          estar acá también, no solo en los renglones sin vincular. */}
+                      <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px]">
+                        <span className="text-black/45">¿No está en el catálogo?</span>
+                        <button onClick={() => abrirAlta(idx, i)} className="rounded-full border border-[#B82D25]/50 px-3 py-0.5 font-medium text-[#932A1F] hover:bg-[#B82D25]/5">Dar de alta un producto nuevo</button>
+                        {i.sku && (
+                          <button
+                            onClick={() => { setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, sku: '', nombre: null, variacionPct: null, sugerido: false, motivoIa: null, incluir: false, alicuotaCatalogo: null } : x)); setVinculaIdx(null); }}
+                            className="text-black/45 underline hover:text-[#B82D25]"
+                          >
+                            Quitar el vínculo
+                          </button>
+                        )}
+                        <button onClick={() => setVinculaIdx(null)} className="ml-auto text-black/40 underline">cerrar</button>
+                      </div>
                       {vinculaSug.length > 0 && (
                         <div className="absolute z-20 mt-1 w-full rounded-lg bg-white shadow-lg border border-black/10 max-h-60 overflow-y-auto">
                           {vinculaSug.map((p: any) => (
                             <button key={p.sku} onClick={() => vincularProducto(idx, p)} className="w-full text-left px-3 py-2 hover:bg-[#F0EBE2] border-b border-black/5 last:border-0">
                               <div className="flex items-center justify-between gap-2">
-                                <span className="text-sm text-black truncate">{p.nombre}{p.marca ? <span className="text-black/40"> · {p.marca}</span> : null}</span>
+                                <span className="text-sm text-black min-w-0 break-words">{p.nombre}{p.marca ? <span className="text-black/40"> · {p.marca}</span> : null}</span>
                                 {p.precio != null && <span className="shrink-0 text-xs font-medium text-emerald-700">{pesos(p.precio)}</span>}
                               </div>
                               <div className="text-[10px] text-black/40">{p.sku}{p.categoria ? ` · ${p.categoria}` : ''}</div>
@@ -1785,20 +2158,66 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                 {/* De dónde sale el costo de cada renglón, escrito. Sin esto, la
                     única forma de saber si falta un impuesto es sacar la cuenta
                     a mano y desconfiar del sistema. */}
-                {usarAlicPorLinea && (
-                  <p className="mt-1 text-black/60">
-                    ✓ Esta factura mezcla alícuotas y el IVA se aplica <b>por renglón</b> (el % que imprime cada fila), verificado contra
-                    el IVA del pie. Percepciones{impIntDoc > 0 ? ' e internos' : ''}: +{(cargaComunPct * 100).toFixed(2).replace('.', ',')}% repartido según el neto de cada renglón.
+                {hayDatosFiscales && netoDoc != null && netoDoc > 0 && (
+                  <div className="mt-1.5 flex flex-wrap gap-1.5 text-[11px]">
+                    <span className="rounded bg-white px-2 py-0.5 text-black/70">Neto <b className="text-black">{pesos(netoDoc)}</b></span>
+                    {ivaDoc != null && <span className="rounded bg-white px-2 py-0.5 text-black/70">+ IVA <b className="text-black">{pesos(ivaDoc)}</b> ({(ivaDoc / netoDoc * 100).toFixed(2).replace('.', ',')}%)</span>}
+                    {percIvaDoc > 0 && <span className={'rounded px-2 py-0.5 ' + (percepcionesAlCosto ? 'bg-white text-black/70' : 'bg-white/40 text-black/35 line-through')}>+ Percepción IVA <b>{pesos(percIvaDoc)}</b> ({(percIvaDoc / netoDoc * 100).toFixed(2).replace('.', ',')}%)</span>}
+                    {percIibbDoc > 0 && <span className={'rounded px-2 py-0.5 ' + (percepcionesAlCosto ? 'bg-white text-black/70' : 'bg-white/40 text-black/35 line-through')}>+ Percepción IIBB <b>{pesos(percIibbDoc)}</b> ({(percIibbDoc / netoDoc * 100).toFixed(2).replace('.', ',')}%)</span>}
+                    {impIntDoc > 0 && <span className="rounded bg-white px-2 py-0.5 text-black/70">+ Internos <b className="text-black">{pesos(impIntDoc)}</b></span>}
+                    {descuentoGlobalDoc > 0 && <span className="rounded bg-white px-2 py-0.5 text-black/70">Descuento del pie <b className="text-black">{pesos(descuentoGlobalDoc)}</b></span>}
+                    {totalDoc != null && <span className="rounded bg-[#141414] px-2 py-0.5 text-[#F0EBE2]">= Total <b>{pesos(totalDoc)}</b></span>}
+                  </div>
+                )}
+                {ivaFactura?.estado === 'cierra' && (
+                  <p className="mt-1 text-emerald-900">
+                    ✓ <b>IVA verificado:</b> cada renglón con su alícuota suma {pesos(ivaFactura.ivaCalculado)}, igual al IVA del pie.
+                    {ivaFactura.cargaComunPct > 0 && <> Percepciones{impIntDoc > 0 ? ' e internos' : ''}: +{(ivaFactura.cargaComunPct * 100).toFixed(2).replace('.', ',')}% sobre el neto de cada renglón.</>}
+                    {' '}<span className="text-black/50">Pasá el mouse por el precio c/IVA de un renglón para ver su cuenta.</span>
                   </p>
                 )}
-                {!usarAlicPorLinea && hayDatosFiscales && sumaRenglones > 0 && (
+                {ivaFactura?.estado === 'no_cierra' && (
+                  <div className="mt-1.5 rounded-md border border-[#B82D25] bg-[#B82D25]/10 px-2.5 py-2 text-[#932A1F]">
+                    <p className="font-semibold">⚠ El IVA no cierra: los renglones suman {pesos(ivaFactura.ivaCalculado)} de IVA y el pie dice {pesos(ivaFactura.ivaPie)}
+                      {' '}({ivaFactura.diferencia < 0 ? 'sobran' : 'faltan'} {pesos(Math.abs(ivaFactura.diferencia))}). No se puede registrar hasta que cierre.</p>
+                    <p className="mt-0.5">
+                      {ivaFactura.diferencia < 0
+                        ? 'Hay renglones cargados con más IVA del que tienen: suele ser un producto al 10,5% (legumbres, carnes, frutas, verduras, harinas) tomado como 21%.'
+                        : 'Hay renglones cargados con menos IVA del que tienen, o el IVA del pie se leyó mal.'}
+                      {' '}Corregí la alícuota en el renglón (el recuadro <b>IVA</b>) o el IVA del pie si se leyó mal.
+                    </p>
+                    {ivaFactura.sugerencias.map((sug, n) => {
+                      const nombres = sug.indices.map((k) => renglonesIva[k]?.i).map((it: any) => it?.nombre ?? it?.descripcion ?? '—');
+                      return (
+                        <p key={n} className="mt-1.5 flex flex-wrap items-center gap-2 text-[#141414]">
+                          <span>💡 Cierra al centavo si <b>{nombres.join(' y ')}</b> {sug.indices.length > 1 ? 'van' : 'va'} al <b>{String(sug.alicuota).replace('.', ',')}%</b>.</span>
+                          <button
+                            type="button"
+                            onClick={() => elegirAlicuota(sug.indices.map((k) => renglonesIva[k].idx), sug.alicuota)}
+                            className="rounded-full bg-[#141414] px-2.5 py-0.5 text-[10.5px] font-semibold text-[#F0EBE2] hover:bg-black/80"
+                          >
+                            Sí, aplicar {String(sug.alicuota).replace('.', ',')}%
+                          </button>
+                        </p>
+                      );
+                    })}
+                  </div>
+                )}
+                {ivaFactura?.estado === 'falta_pie' && (
+                  <p className="mt-1.5 rounded-md border border-[#B82D25] bg-[#B82D25]/10 px-2.5 py-2 font-semibold text-[#932A1F]">
+                    ⚠ {ivaFactura.motivo}: sin eso no hay contra qué verificar el IVA. Cargalo en el pie (arriba) para poder registrar.
+                  </p>
+                )}
+                {ivaFactura?.estado === 'alicuota_invalida' && (
+                  <p className="mt-1.5 rounded-md border border-[#B82D25] bg-[#B82D25]/10 px-2.5 py-2 font-semibold text-[#932A1F]">
+                    ⚠ La lectura trajo una alícuota que no existe en {ivaFactura.indices.length === 1 ? 'un renglón' : `${ivaFactura.indices.length} renglones`}
+                    {' '}({ivaFactura.indices.map((k) => renglonesIva[k]?.i?.descripcion).join(', ')}). Elegí la correcta en el recuadro IVA del renglón.
+                  </p>
+                )}
+                {!ivaFactura && hayDatosFiscales && sumaRenglones > 0 && (
                   <p className="mt-1 text-black/60">
-                    Cada renglón leído <b>× {factorRecon.toFixed(4).replace('.', ',')}</b> — de{' '}
-                    {pesos(sumaRenglones)} leídos a {pesos(baseCosto!)}: neto {pesos(netoDoc ?? 0)} + IVA {pesos(ivaDoc ?? 0)}
-                    {impIntDoc > 0 ? ` + internos ${pesos(impIntDoc)}` : ''}
-                    {descuentoGlobalDoc > 0 ? ` − descuento del pie ${pesos(descuentoGlobalDoc)}` : ''}
-                    {percepcionesAlCosto && percepciones > 0 ? ` + percepciones ${pesos(percepciones)}` : ''}
-                    {!percepcionesAlCosto && percepciones > 0 ? ` (quedan afuera ${pesos(percepciones)} de percepciones)` : ''}.
+                    Comprobante sin IVA discriminado: el precio ya lo trae adentro. Cada renglón leído <b>× {factorRecon.toFixed(4).replace('.', ',')}</b>
+                    {percepcionesAlCosto && percepciones > 0 ? ` (incluye percepciones ${pesos(percepciones)})` : ''}.
                   </p>
                 )}
                 {(excedeMerc || excedeTotal) && (
@@ -1944,6 +2363,13 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                   numeroRemito: foto.comprobante?.numero || f.numeroRemito,
                   margenPct: f.margenPct ? Number(f.margenPct) : undefined,
                   items: itemsFusionados.map((i) => ({ sku: i.sku, cantidad: Number(i.cantidad), costo: i.costoUnitario, precioLeido: numImp(i.precio), margenPct: i.margenPct === '' ? undefined : Number(i.margenPct), fijarMargen: !!fijarSku[i.sku], descripcionLeida: i.descripcion })),
+                  // el catálogo aprende el IVA que esta factura PROBÓ (cerró al centavo con el pie)
+                  ...(ivaFactura?.estado === 'cierra' ? {
+                    alicuotasVerificadas: renglonesIva
+                      .map(({ i }, k) => ({ sku: i.sku, alicuota: ivaFactura.alicuotas[k], origen: ivaFactura.origenes[k], incluir: i.incluir }))
+                      .filter((x) => x.incluir && x.sku && (x.origen === 'impresa' || x.origen === 'elegida'))
+                      .map(({ sku, alicuota, origen }) => ({ sku, alicuota, origen })),
+                  } : {}),
                   ...(foto.comprobante?.tipo?.startsWith('factura') && fotoImp?.total > 0 ? {
                     factura: {
                       numero: foto.comprobante?.numero ?? 's/n',
@@ -2076,7 +2502,7 @@ function OrdenDetalle({ id, numero, cerrar, verFactura }: { id: string; numero: 
               const falta = Number(it.cantidad_recibida ?? 0) < Number(it.cantidad);
               return (
                 <div key={i} className="flex items-center gap-2 px-3 py-1.5 text-sm">
-                  <span className="flex-1 truncate text-black">{it.producto?.nombre ?? '—'} <span className="text-xs text-black/35">{it.producto?.sku}</span></span>
+                  <span className="flex-1 min-w-0 break-words text-black">{it.producto?.nombre ?? '—'} <span className="text-xs text-black/35">{it.producto?.sku}</span></span>
                   <span className="w-20 text-right tabular-nums text-black/70">{it.cantidad}</span>
                   <span className={`w-20 text-right tabular-nums ${falta ? 'text-[#B82D25] font-medium' : 'text-black/70'}`}>{it.cantidad_recibida ?? 0}</span>
                   <span className="w-24 text-right tabular-nums text-black/70">{pesos(it.costo_unitario)}</span>
@@ -2098,7 +2524,7 @@ function OrdenDetalle({ id, numero, cerrar, verFactura }: { id: string; numero: 
                     className="w-full text-left px-3 py-2 hover:bg-[#F0EBE2]/50 flex items-center justify-between gap-2"
                   >
                     <span className="min-w-0">
-                      <span className="text-sm text-black block truncate">
+                      <span className="text-sm text-black block min-w-0 break-words">
                         {f.letra ? `${String(f.tipo ?? 'factura').replace('_', ' ')} ${f.letra}` : 'Factura'} {f.numero}
                         {f.tieneComprobante && <span className="ml-2 text-[10px] rounded-full bg-black/5 px-2 py-0.5 text-black/50">con comprobante</span>}
                       </span>
@@ -2122,7 +2548,7 @@ function OrdenDetalle({ id, numero, cerrar, verFactura }: { id: string; numero: 
               <div className="rounded-lg border border-black/10 divide-y divide-black/5">
                 {d.remitos.map((r: any) => (
                   <div key={r.id} className="flex items-center justify-between gap-2 px-3 py-1.5 text-sm text-black/75">
-                    <span className="min-w-0 truncate">
+                    <span className="min-w-0 break-words">
                       {r.numero || 'sin número'} <span className="text-xs text-black/45">· {fecha(r.creado_en)} · {String(r.estado ?? '').replace(/_/g, ' ')}</span>
                     </span>
                     <a href={`/api/documento?tipo=remito&id=${r.id}`} target="_blank" rel="noreferrer" className="shrink-0 text-xs text-[#B82D25] underline">acta de recepción</a>
@@ -2183,7 +2609,7 @@ function FacturaDetalle({ id, cerrar, volviendo }: { id: string; cerrar: () => v
             <div className="rounded-lg border border-black/10 divide-y divide-black/5 max-h-56 overflow-y-auto">
               {d.items.map((it: any, i: number) => (
                 <div key={i} className="flex items-center justify-between gap-2 px-3 py-1.5 text-sm">
-                  <span className="text-black truncate">{it.cantidad}× {it.nombre}</span>
+                  <span className="text-black min-w-0 break-words">{it.cantidad}× {it.nombre}</span>
                   {it.costo != null && <span className="shrink-0 text-black/45 text-xs tabular-nums">costo {pesos(it.costo)}</span>}
                 </div>
               ))}

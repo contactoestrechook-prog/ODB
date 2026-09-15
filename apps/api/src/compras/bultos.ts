@@ -75,9 +75,12 @@ export function unidadesPorBulto(descripcion: string): number | null {
   //    rompe con el proveedor nuevo— se acepta cualquier cosa antes de la "x",
   //    y se filtra por lo que sigue: si el número es un tamaño de envase
   //    ("x 750", "x 1000cc") no es un bulto, y si no entra en 2..60 tampoco.
-  for (const m of t.matchAll(/\bx\s*(\d{1,4})\s*([a-z]*)/g)) {
+  for (const m of t.matchAll(/\bx\s*(\d{1,4})([.,]\d+)?\s*([a-z]*)/g)) {
     const n = Number(m[1]);
-    const sufijo = m[2] ?? '';
+    const sufijo = m[3] ?? '';
+    // "x12.5grs", "x 1,5 lts": un número con decimales es una medida, nunca un
+    // bulto. El 15/9/2026 el bocadito Ferrero "x12.5grs" se leía caja de 12.
+    if (m[2]) continue;
     if (!plausible(n)) continue; // 750, 1000, 2019… no son bultos
     // Una unidad de medida después del número descarta el bulto SOLO si ese
     // número podría ser esa medida de verdad. "x 2 L" es un envase de dos
@@ -96,6 +99,14 @@ export function unidadesPorBulto(descripcion: string): number | null {
     if (RE_CONTENIDO.test(sufijo)) continue;
     return n;
   }
+
+  // 5) Número + x AL FINAL del texto: "HWN DISPLAY MOGUL COLMILLO 12 x".
+  //    Pasa cuando la columna de la factura corta la descripción justo después
+  //    de la "x" (Arcor, 15/9/2026: 3 displays de 12 entraban como 3 unidades a
+  //    $5.237). Lo que venía después —el gramaje— se perdió, pero "12 x" sigue
+  //    siendo cuántas unidades trae el bulto.
+  const alFinal = t.match(/\b(\d{1,3})\s*x\s*$/);
+  if (alFinal && plausible(Number(alFinal[1]))) return Number(alFinal[1]);
 
   return null;
 }
@@ -354,6 +365,12 @@ export type LecturaRenglon = {
    * factura YA está en unidades de stock: no hay que multiplicar nada.
    */
   unidadesDelCatalogo?: number | null;
+  /**
+   * Costo actual del producto del catálogo (por SU unidad de stock). Desempata
+   * si la factura viene por unidad suelta o por envase: $827 contra una caja
+   * que cuesta $9.900 es precio de bocadito, no de caja.
+   */
+  costoCatalogo?: number | null;
 };
 
 export type RenglonInterpretado = {
@@ -365,6 +382,7 @@ export type RenglonInterpretado = {
     | 'bulto_pendiente'
     | 'cantidad_corregida'
     | 'precio_por_unidad_interna'
+    | 'unidades_a_envase'
     | 'peso_implicito'
     | 'no_cierra';
   /** en la unidad final: unidades sueltas, bultos (si quedó pendiente) o kg */
@@ -376,6 +394,15 @@ export type RenglonInterpretado = {
   bultoConsumido: number | null;
   /** cuando no cierra: el unitario que SÍ daría el importe */
   precioPropuesto: number | null;
+  /** descuento del renglón deducido del importe (la columna "Dto" no se leyó) */
+  bonificacionPct: number | null;
+  /**
+   * El importe leído traía el IVA adentro (la lectura tomó la columna "Total c/IVA"):
+   * este es el importe NETO que hay que usar. null = el importe leído ya era neto.
+   */
+  importeNeto: number | null;
+  /** la alícuota que prueba ese importe con IVA (21, 10,5 o 27) */
+  alicuotaDeducida: number | null;
 };
 
 const TOLERANCIA_CIERRE = 0.02; // el proveedor redondea el importe
@@ -393,14 +420,18 @@ const TOLERANCIA_ENTERO = 0.005;
 export function unidadesDeLaPresentacion(nombre: string): number | null {
   const t = normalizar(nombre);
   if (!t) return null;
-  for (const m of t.matchAll(/\bx\s*(\d{1,3})\s*([a-z]*)/g)) {
+  for (const m of t.matchAll(/\bx\s*(\d{1,3})([.,]\d+)?\s*([a-z]*)/g)) {
     const n = Number(m[1]);
-    const sufijo = m[2] ?? '';
+    const sufijo = m[3] ?? '';
+    if (m[2]) continue; // "x 12.5 gr" es el gramaje
     if (!plausible(n)) continue;
     // seguido de una medida es tamaño de envase, no cantidad de unidades
     if (/^(cc|ml|cm3|l|lt|lts|litros?|g|gr|grs|grms|gramos?|kg|k|kilos?)$/.test(sufijo)) continue;
     return n;
   }
+  // "Ferrero Rocher T12", "T24": el código de bandeja de la marca
+  const bandeja = t.match(/\bt(\d{1,2})\b/);
+  if (bandeja && plausible(Number(bandeja[1]))) return Number(bandeja[1]);
   // "Blister 2U", "Pack 6U", "Tira 10 un"
   const porUnidades = t.match(/\b(\d{1,3})\s*(?:u|un|uni|unid|unidades?)\b/);
   if (porUnidades && plausible(Number(porUnidades[1]))) return Number(porUnidades[1]);
@@ -410,8 +441,38 @@ export function unidadesDeLaPresentacion(nombre: string): number | null {
 export function interpretarRenglon(l: LecturaRenglon): RenglonInterpretado {
   const cantidad = Number(l.cantidad) || 1;
   const precio = Number(l.precio) || 0;
-  const importe = l.importe == null ? null : Math.abs(Number(l.importe));
+  const importeLeido = l.importe == null ? null : Math.abs(Number(l.importe));
   const bulto = Number(l.unidadesPorBulto) > 1 ? Math.round(Number(l.unidadesPorBulto)) : null;
+
+  // 0 — IMPORTE CON EL IVA ADENTRO. Marolio (15/9/2026): "TE MAROLIO 25 UN.
+  //     2 × $537,19 = $13.000". 2 × 10 × 537,19 = 10.743,80 y × 1,21 = 13.000,00
+  //     exacto: la lectura tomó la columna del total con IVA. Sin esto salía
+  //     "revisar lectura: ¿el precio es $6.500?" y el costo sumaba el IVA dos
+  //     veces. Solo con evidencia dura: el importe dividido por (1 + alícuota)
+  //     da un número ENTERO de unidades (la cantidad, o la cantidad × el bulto)
+  //     y el importe tal cual no cerraba de ninguna forma.
+  let importe = importeLeido;
+  let importeNeto: number | null = null;
+  let alicuotaDeducida: number | null = null;
+  if (importe != null && importe > 0 && precio > 0 && cantidad > 0 && !l.esDescuento && !(Number(l.bonificacionPct) > 0)) {
+    const cierraTalCual = Math.abs(importe - cantidad * precio) / (cantidad * precio) <= TOLERANCIA_CIERRE;
+    const qLeido = importe / precio;
+    const enteroLeido = Math.abs(qLeido - Math.round(qLeido)) <= TOLERANCIA_ENTERO;
+    if (!cierraTalCual && !enteroLeido) {
+      for (const a of [21, 10.5, 27]) {
+        const neto = importe / (1 + a / 100);
+        const q = neto / precio;
+        const u = Math.round(q);
+        const esCantidad = u === cantidad || (bulto != null && u === cantidad * bulto);
+        if (esCantidad && Math.abs(q - u) <= 0.0005 * Math.max(1, u)) {
+          importe = Math.round(neto * 100) / 100;
+          importeNeto = importe;
+          alicuotaDeducida = a;
+          break;
+        }
+      }
+    }
+  }
   const bonif = Math.min(100, Math.abs(Number(l.bonificacionPct) || 0));
   const kg = Number(l.kg) || 0;
 
@@ -423,6 +484,9 @@ export function interpretarRenglon(l: LecturaRenglon): RenglonInterpretado {
     cantidadOriginal: null,
     bultoConsumido: null,
     precioPropuesto: null,
+    bonificacionPct: null,
+    importeNeto,
+    alicuotaDeducida,
   };
 
   // 1 — rebaja, no mercadería
@@ -452,7 +516,32 @@ export function interpretarRenglon(l: LecturaRenglon): RenglonInterpretado {
 
   // 4 — cierra tal cual
   const esperado = cantidad * precio;
+  const internasCatalogo = Number(l.unidadesDelCatalogo) > 1 ? Math.round(Number(l.unidadesDelCatalogo)) : null;
   if (Math.abs(importe - esperado) / esperado <= TOLERANCIA_CIERRE) {
+    // 4 TER — la factura viene por UNIDAD SUELTA y la casa stockea el ENVASE.
+    //     Ferrero (15/9/2026): "Bocadito Ferrero Rocher T12 UNIDAD" 60 × $827,49
+    //     vinculado a "Ferrero Rocher x 12 un": son 5 cajas a $9.929,88, no 60
+    //     cajas (ni 720 unidades). Vienen en x3, x8, x12 y x24. Se convierte
+    //     solo con evidencia: la cantidad es múltiplo exacto del envase y el
+    //     precio impreso es de unidad (contra el costo del catálogo, o porque
+    //     el papel dice "UNIDAD"). Si no hay evidencia, queda como está y la
+    //     pantalla ofrece "armar cajas" a mano.
+    if (internasCatalogo && cantidad >= internasCatalogo && Number.isInteger(cantidad / internasCatalogo)) {
+      const costo = Number(l.costoCatalogo) || 0;
+      const porUnidad = costo > 0
+        ? Math.abs(precio * internasCatalogo - costo) < Math.abs(precio - costo)
+        : /\b(unidad|unid|un|u)\b/.test(normalizar(l.descripcion));
+      if (porUnidad) {
+        return {
+          ...base,
+          decision: 'unidades_a_envase',
+          cantidad: cantidad / internasCatalogo,
+          unidadesPorBulto: null,
+          cantidadOriginal: cantidad,
+          precioPropuesto: Math.round(precio * internasCatalogo * 100) / 100,
+        };
+      }
+    }
     return bulto ? { ...base, decision: 'bulto_pendiente' } : base;
   }
 
@@ -492,7 +581,41 @@ export function interpretarRenglon(l: LecturaRenglon): RenglonInterpretado {
     };
   }
 
-  // 6 — decimal + producto fraccionable = kilos
+  // DESCUENTO DEL RENGLÓN que la lectura no trajo como columna.
+  //     Distri Sur (15/9/2026): "Tom.Triturado 18 × $2.345,25 = $40.103,82".
+  //     18 × 2.345,25 = 42.214,50 y el importe es EXACTO un 5% menos; igual en
+  //     garbanzo, mayonesa y lentejón, y −3% en las tostadas. Se mostraba como
+  //     "revisar lectura: ¿el precio es $2.228?", como si el lector se hubiera
+  //     equivocado, cuando el papel está bien y es un descuento.
+  //     Evidencia dura, igual que la del entero de la regla 5: un porcentaje
+  //     REDONDO (múltiplo de 0,5, hasta 50%) que cierra al centavo. Un error de
+  //     lectura no cae justo en −5,000%. Con bulto, se mide contra las unidades
+  //     de adentro (la caja de 12 de tostadas).
+  const descuentoDelRenglon = (): RenglonInterpretado | null => {
+    const unidades = cantidad * (bulto ?? 1);
+    for (const u of bulto ? [unidades, cantidad] : [cantidad]) {
+      const lista = u * precio;
+      if (!(lista > 0) || importe >= lista) continue;
+      const pct = (1 - importe / lista) * 100;
+      const redondo = Math.round(pct * 2) / 2;
+      if (redondo >= 1 && redondo <= 50 && Math.abs(lista * (1 - redondo / 100) - importe) <= Math.max(0.05, lista * 0.0002)) {
+        return { ...base, decision: 'bonificado', bonificacionPct: redondo, unidadesPorBulto: u === unidades ? bulto : null };
+      }
+    }
+    return null;
+  };
+
+  // 6 — decimal + producto fraccionable = kilos. PERO una cantidad entera de 2
+  //     o más con un descuento redondo exacto es descuento, no peso: la
+  //     "Mayonesa Heinz x350 Grs" (el "Grs" la hace fraccionable) entraba como
+  //     9,5 kg en vez de 10 unidades con 5% off. Con cantidad 1 el peso sigue
+  //     ganando: una horma de 0,95 kg es tan posible como un 5% de descuento.
+  const cantidadEntera = Number.isInteger(cantidad) && cantidad >= 2;
+  if (cantidadEntera) {
+    const d = descuentoDelRenglon();
+    if (d) return d;
+  }
+  // (regla 6)
   if (l.puedePorPeso && !bulto && Math.abs(q - cantidad) > 0.01) {
     return {
       ...base,
@@ -501,6 +624,12 @@ export function interpretarRenglon(l: LecturaRenglon): RenglonInterpretado {
       porPeso: true,
       unidadesPorBulto: null,
     };
+  }
+
+  // 6 BIS — el descuento redondo con cantidad 1 (o fraccionaria), si no fue peso
+  {
+    const d = descuentoDelRenglon();
+    if (d) return d;
   }
 
   // 7 — no se pudo deducir: que decida una persona, con el dato servido

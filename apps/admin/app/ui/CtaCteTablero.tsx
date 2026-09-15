@@ -86,7 +86,7 @@ export function CtaCteTablero({ esDueno }: { esDueno: boolean }) {
             const marca80 = c.limite > 0 ? Math.min(((c.limite * 0.8) / maxSaldo) * 100, 100) : null;
             return (
               <div key={c.id} className="grid grid-cols-[9rem_1fr_6rem] items-center gap-2 text-sm">
-                <span className="truncate text-black/75" title={c.nombre}>{c.nombre}</span>
+                <span className="min-w-0 break-words text-black/75" title={c.nombre}>{c.nombre}</span>
                 <div className="relative h-5 rounded bg-black/5 overflow-hidden">
                   <div className="absolute inset-y-0 left-0 rounded" style={{ width: `${ancho}%`, background: COLOR[c.riesgo] }} />
                   {marca80 != null && <div className="absolute inset-y-0 w-0.5 bg-[#B82D25]" style={{ left: `${marca80}%` }} title="80% del tope" />}
@@ -106,7 +106,7 @@ export function CtaCteTablero({ esDueno }: { esDueno: boolean }) {
           <div className="grid sm:grid-cols-5 gap-2">
             {mejores.map((c) => (
               <div key={c.id} className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
-                <p className="text-xs font-medium text-emerald-900 truncate" title={c.nombre}>{c.nombre}</p>
+                <p className="text-xs font-medium text-emerald-900 min-w-0 break-words" title={c.nombre}>{c.nombre}</p>
                 <p className="text-sm font-semibold text-emerald-800">{pesos(c.pagado)}</p>
                 <p className="text-[10px] text-emerald-700/70">{c.pagos} pago(s){c.diasSinPagar != null ? ` · último hace ${c.diasSinPagar}d` : ''}</p>
               </div>
@@ -136,7 +136,7 @@ export function CtaCteTablero({ esDueno }: { esDueno: boolean }) {
             <div key={c.id} className="py-2.5 grid grid-cols-[auto_1fr_auto] items-center gap-3">
               <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ background: COLOR[c.riesgo] }} title={ETIQ[c.riesgo]} />
               <div className="min-w-0">
-                <p className="text-sm text-black truncate">
+                <p className="text-sm text-black min-w-0 break-words">
                   {c.nombre}
                   <span className="ml-2 text-xs text-black/40">
                     {c.diasSinPagar != null ? `último pago hace ${c.diasSinPagar}d` : c.saldo > 0 ? 'sin pagos registrados' : ''}

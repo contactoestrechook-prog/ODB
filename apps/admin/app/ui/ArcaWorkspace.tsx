@@ -232,7 +232,7 @@ export function ArcaWorkspace({ estado, contador, pendientes }: { estado: any; c
                   <tr key={c.numero + c.tipo} className="border-b border-black/5 last:border-0">
                     <td className="px-4 py-2 text-xs text-black/55 whitespace-nowrap">{c.fecha}</td>
                     <td className="px-4 py-2 text-xs whitespace-nowrap">{TIPO_LABEL[c.tipo] ?? c.tipo} {c.numero}</td>
-                    <td className="px-4 py-2 text-xs max-w-40 truncate">{c.receptor}{c.docNro ? ` (${c.docTipo} ${c.docNro})` : ''}</td>
+                    <td className="px-4 py-2 text-xs max-w-40 min-w-0 break-words">{c.receptor}{c.docNro ? ` (${c.docTipo} ${c.docNro})` : ''}</td>
                     <td className="px-4 py-2 text-right text-xs tabular-nums">{pesos(c.neto)}</td>
                     <td className="px-4 py-2 text-right text-xs tabular-nums text-[#932A1F]">{pesos(c.iva)}</td>
                     <td className="px-4 py-2 text-right font-medium tabular-nums">{pesos(c.total)}</td>

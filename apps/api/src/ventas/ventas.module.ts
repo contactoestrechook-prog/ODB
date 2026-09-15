@@ -4,9 +4,10 @@ import { VentasService } from './ventas.service';
 import { supabaseProvider } from '../supabase.provider';
 import { FacturacionModule } from '../facturacion/facturacion.module';
 import { CajaModule } from '../caja/caja.module';
+import { MercadoPagoModule } from '../mercadopago/mercadopago.module';
 
 @Module({
-  imports: [FacturacionModule, CajaModule],
+  imports: [FacturacionModule, CajaModule, MercadoPagoModule],
   controllers: [VentasController],
   providers: [VentasService, supabaseProvider],
   exports: [VentasService],

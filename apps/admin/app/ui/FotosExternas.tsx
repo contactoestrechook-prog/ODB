@@ -143,9 +143,9 @@ export function FotosExternas() {
                   ? <img src={d.urlExterna} alt="" className="h-14 w-14 shrink-0 rounded-lg border border-black/10 object-contain" />
                   : <span className="grid h-14 w-14 shrink-0 place-items-center rounded-lg border border-black/10 text-[10px] text-black/40">sin foto</span>}
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-black/85">{d.nuestro}</p>
-                  <p className="truncate text-xs text-black/55">En el catálogo: {d.externo ?? '—'}{d.marca ? ` · ${d.marca}` : ''}</p>
-                  <p className="truncate text-[11px] text-black/40">{d.sku} · {d.ean}</p>
+                  <p className="min-w-0 break-words text-sm font-medium text-black/85">{d.nuestro}</p>
+                  <p className="min-w-0 break-words text-xs text-black/55">En el catálogo: {d.externo ?? '—'}{d.marca ? ` · ${d.marca}` : ''}</p>
+                  <p className="min-w-0 break-words text-[11px] text-black/40">{d.sku} · {d.ean}</p>
                 </div>
                 <div className="flex shrink-0 gap-2">
                   <button type="button" disabled={resolviendo === d.id || !d.urlExterna} onClick={() => resolver(d, true)} className="rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40">Es este</button>

@@ -157,7 +157,7 @@ export function RegistrarCobranza({ clienteId, nombre, saldo }: { clienteId: str
                       <div key={f.id} className={`rounded-lg border px-3 py-2 flex items-center gap-3 ${sel ? 'border-[#B82D25] bg-white' : 'border-black/10 bg-white/60'}`}>
                         <input type="checkbox" checked={sel} onChange={() => toggleFactura(f)} className="accent-[#B82D25]" />
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm text-black truncate">{f.etiqueta}</p>
+                          <p className="text-sm text-black min-w-0 break-words">{f.etiqueta}</p>
                           <p className="text-[11px] text-black/45">
                             {new Date(f.emitidoEn).toLocaleDateString('es-AR')} · saldo {pesos(f.saldo)}
                           </p>
