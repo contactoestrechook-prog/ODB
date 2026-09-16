@@ -1041,20 +1041,27 @@ describe('pausa del bot por conversación (auditoría 2026-09-08)', () => {
     expect(crear).not.toHaveBeenCalled();
   });
 
-  it('una charla derivada por el BOT que nadie tomó sigue contestando en modo acotado (comportamiento previo)', async () => {
+  it('una charla pausada NO contesta nada hasta que la reactiven a mano (regla del 16/9)', async () => {
     const db = dbFalsa({
       lineas_whatsapp: { data: { bot_activo: true }, error: null },
-      bot_conversaciones: { data: { mensajes: [], bot_activo: false, atendida_por: null, derivada_motivo: 'Cliente reclama que faltaron dos botellas', derivacion_vence_en: new Date(Date.now() + 3600_000).toISOString() }, error: null },
+      // aunque la derivación "vencida" antes hacía volver al bot solo
+      bot_conversaciones: { data: { mensajes: [], bot_activo: false, atendida_por: null, derivada_motivo: 'Cliente reclama que faltaron dos botellas', derivacion_vence_en: new Date(Date.now() - 3600_000).toISOString() }, error: null },
     });
     const { s } = servicio(db);
     const crear = jest.fn().mockResolvedValue(respuestaClaude('Tu reclamo ya está avisado al sector; te responden por acá.'));
     (s as any).claude = { messages: { create: crear } };
     const r: any = await s.charla({ linea: 'pedidos', telefono: '5491144556679', mensaje: '¿alguna novedad?' });
-    expect(crear).toHaveBeenCalled();
-    expect(r.respuesta).toContain('avisado');
+    expect(crear).not.toHaveBeenCalled();
+    expect(r.respuesta).toBeNull();
+    expect(r.motivo).toContain('RESPONDE');
+    // el mensaje queda en el hilo para quien atiende
+    const up = db.llamadas.upsert.find((u: any) => u.tabla === 'bot_conversaciones');
+    expect(up.fila.mensajes.at(-1).content).toContain('alguna novedad');
+    // y nadie la "retoma" sola
+    expect(db.llamadas.update.some((u: any) => u.tabla === 'bot_conversaciones' && u.fila.bot_activo === true)).toBe(false);
   });
 
-  it('un mensaje fromMe que NO mandó el sistema pausa la charla 6 h y deja lo escrito en el hilo', async () => {
+  it('un mensaje fromMe que NO mandó el sistema pausa la charla SIN vencimiento, la pausa en RESPONDE y deja lo escrito en el hilo', async () => {
     const db = dbFalsa({
       bot_envios: { data: null, error: null },
       bot_conversaciones: { data: { mensajes: [{ role: 'assistant', content: 'Buenas tardes, te damos la bienvenida a O.D.B.' }] }, error: null },
@@ -1067,7 +1074,7 @@ describe('pausa del bot por conversación (auditoría 2026-09-08)', () => {
     expect(up.fila.derivada_motivo).toBe('Atendida desde el teléfono');
     expect(up.fila.telefono).toBe('5491155556666');
     expect(up.fila.mensajes.at(-1).content).toContain('Soy Jackie');
-    expect(new Date(up.fila.derivacion_vence_en).getTime()).toBeGreaterThan(Date.now() + 5 * 3600_000);
+    expect(up.fila.derivacion_vence_en).toBeNull();
   });
 
   it('un fromMe VIEJO (sincronización de historial al re-vincular) se ignora', async () => {
@@ -1204,5 +1211,66 @@ describe('respuestas escritas desde el teléfono: también llegan a RESPONDE (16
     const r: any = await (s as any).mensajePropio({ fromMe: true, id: 'X1', to: '5491133344455@c.us', body: 'hola', timestamp: Math.floor(Date.now() / 1000) }, '5491122812200');
     expect(r.ignorado).toBe('lo mandamos nosotros');
     expect(registrar).not.toHaveBeenCalled();
+  });
+});
+
+
+describe('pausa manual: RESPONDE es el interruptor de cada charla (16/9/2026)', () => {
+  const armar = (conv: any, estadoResponde: any) => {
+    const db = dbFalsa({ bot_conversaciones: { data: conv, error: null } });
+    const { s } = servicio(db);
+    const rpcs: any[] = [];
+    (s as any).respondeRpc = jest.fn(async (fn: string, args: any) => { rpcs.push({ fn, args }); return fn === 'odb_estado_contacto' ? estadoResponde : { ok: true }; });
+    return { s, db, rpcs };
+  };
+
+  it('reactivada a mano en RESPONDE → el bot retoma en ODB', async () => {
+    const { s, db } = armar({ bot_activo: false, derivada_motivo: 'Atendida desde el teléfono' }, { modo_humano: false, bloqueado: false, existe: true });
+    const humano = await s.respondeModoHumano('227208148869238@lid');
+    expect(humano).toBe(false);
+    const up = db.llamadas.update.find((u: any) => u.tabla === 'bot_conversaciones');
+    expect(up.fila.bot_activo).toBe(true);
+    expect(up.fila.derivada_motivo).toContain('reactivada desde RESPONDE');
+  });
+
+  it('pausada en RESPONDE → queda pausada en ODB', async () => {
+    const { s, db } = armar({ bot_activo: true }, { modo_humano: true, bloqueado: false, existe: true });
+    expect(await s.respondeModoHumano('5491133344455')).toBe(true);
+    const up = db.llamadas.update.find((u: any) => u.tabla === 'bot_conversaciones');
+    expect(up.fila.bot_activo).toBe(false);
+    expect(up.fila.derivada_motivo).toBe('Pausado desde RESPONDE');
+    expect(up.fila.derivacion_vence_en).toBeNull();
+  });
+
+  it('si RESPONDE no contesta, no se toca nada (no reactiva a ciegas)', async () => {
+    const { s, db } = armar({ bot_activo: false }, null);
+    await s.respondeModoHumano('5491133344455');
+    expect(db.llamadas.update).toHaveLength(0);
+  });
+
+  it('un contacto que RESPONDE todavía no conoce no reactiva nada', async () => {
+    const { s, db } = armar({ bot_activo: false }, { modo_humano: false, bloqueado: false, existe: false });
+    await s.respondeModoHumano('5491133344455');
+    expect(db.llamadas.update).toHaveLength(0);
+  });
+
+  it('derivar a una persona la pausa también en RESPONDE y sin vencimiento', async () => {
+    const db = dbFalsa({ lineas_whatsapp: { data: { avisar_proveedores_a: null }, error: null } });
+    const { s } = servicio(db);
+    const rpcs: any[] = [];
+    (s as any).respondeRpc = jest.fn(async (fn: string, args: any) => (rpcs.push({ fn, args }), { ok: true }));
+    await s.derivarAHumano('pedidos', '227208148869238', 'Reclamo por un faltante');
+    const marca = db.llamadas.update.find((u: any) => u.tabla === 'bot_conversaciones');
+    expect(marca.fila.derivacion_vence_en).toBeNull();
+    expect(rpcs).toContainEqual({ fn: 'odb_pausar_contacto', args: { p_whatsapp_id: '227208148869238@lid', p_nombre: null } });
+  });
+
+  it('"devolver al bot" desde la bandeja de ODB también la reactiva en RESPONDE', async () => {
+    const db = dbFalsa();
+    const { s } = servicio(db);
+    const rpcs: any[] = [];
+    (s as any).respondeRpc = jest.fn(async (fn: string, args: any) => (rpcs.push({ fn, args }), { ok: true }));
+    await s.devolverAlBot('pedidos', '5491133344455');
+    expect(rpcs).toContainEqual({ fn: 'odb_reactivar_contacto', args: { p_whatsapp_id: '5491133344455' } });
   });
 });

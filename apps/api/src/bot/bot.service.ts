@@ -385,67 +385,17 @@ export class BotService {
       const hist: { role: 'user' | 'assistant'; content: string }[] = Array.isArray(conv?.mensajes) ? conv!.mensajes : [];
       const ahora = new Date();
 
-      // Derivada a una persona pero nadie la tomó a tiempo: el bot vuelve solo.
-      // Dejar a un cliente en silencio indefinido es peor que cualquier respuesta.
-      const vence = conv?.derivacion_vence_en ? new Date(conv.derivacion_vence_en) : null;
-      const nadieLaTomo = !botApagadoGlobal && vence && vence < ahora && !conv?.atendida_por;
-      if (nadieLaTomo) {
-        await this.db.from('bot_conversaciones').update({ bot_activo: true, resuelta_en: ahora.toISOString(), derivada_motivo: (conv?.derivada_motivo ?? '') + ' · retomada por el bot (nadie la tomó a tiempo)' })
-          .eq('linea', linea).eq('telefono', telefono);
-        // sigue de largo: se procesa como una charla normal, con el contexto de que hubo derivación
-        texto = `${texto}\n[nota interna: esta persona había sido derivada a una persona del equipo y nadie la atendió a tiempo; retomás vos con cuidado, sin prometer plazos]`;
-      } else {
-        // Se guarda el mensaje para quien atiende y se contesta en modo ACOTADO:
-        // TODO pasa por el modelo con los datos duros inyectados (identidad, pagos,
-        // horarios de hoy). Antes había plantillas por regex y pisaban al modelo:
-        // "botellas" disparaba la de identidad (/bot/ sin \b), la de horarios
-        // contestaba "abierto ahora" a "¿a qué hora abren mañana?", y esas ramas
-        // no dejaban nota para la persona que atiende. Ahora: una sola vía.
+      // REGLA DE LEANDRO (2026-09-16): una charla pausada se reactiva SOLO a mano
+      // desde RESPONDE. Antes el bot volvía solo (a los 20 min si nadie tomaba la
+      // derivación, a las 6 h si alguien había contestado desde el teléfono) y
+      // en las derivadas contestaba "en modo acotado". Ahora, pausada = silencio:
+      // el mensaje queda en el hilo para quien atiende y nadie lo pisa.
+      {
+        const respuesta: string | null = null;
         const yaAcuso = !!conv?.acuse_derivacion_en;
-        const preguntaIdentidad = /\b(bot|robot|ia|inteligencia artificial|persona real|humano|con qui[eé]n hablo|qui[eé]n sos|me le[eé]s|hay alguien|sos una persona)\b/i.test(texto);
-        let respuesta: string | null = null;
-        // ¿La atiende una PERSONA? (pausada desde la bandeja o la app, contestada
-        // desde el panel, o tecleada desde el teléfono). Entonces SILENCIO: el bot
-        // no se mete en una charla que ya lleva una persona. El "modo acotado" de
-        // abajo queda solo para las derivadas por el bot que nadie tomó todavía.
-        // Auditoría 2026-09-08: antes contestaba igual, pisando a quien atendía.
-        if (botApagadoGlobal) {
-          respuesta = null; // línea apagada por el dueño: silencio total, es intencional
-        } else if (atiendeUnaPersona(conv as any)) {
-          respuesta = null; // hay una persona en la charla: el mensaje queda en el hilo y nadie lo pisa
-        } else {
-          let datosHoy = '';
-          try {
-            const est: any = await this.estadoAtencion();
-            const sucs = (est?.sucursales ?? []).map((x: any) => `${String(x.nombre).replace(/^Suc /, '')} (${x.direccion}): ${x.horario}${x.abierta_ahora ? ', abierta ahora' : ', cerrada ahora'}`).join('; ');
-            datosHoy = `Hoy es ${est?.dia_semana ?? ''} ${est?.ahora ?? ''} (hora de Buenos Aires). Locales: ${sucs}. Reparto: ${est?.reparto?.motivo ?? ''}; los domingos no hay reparto. ${est?.retiro ?? ''}`;
-          } catch { /* sin datos: el modelo no los inventa */ }
-          // lo que YA quedó registrado para la persona del local: el bot lo dice
-          // ("su propuesta ya está anotada: las 2 botellas hoy sin cargo") en vez de
-          // repetir "se lo traslado" cada vez
-          let yaRegistrado = '';
-          try {
-            const { data: notas } = await this.db.from('bot_notas_equipo').select('nota').eq('telefono', telefono).order('creada_en', { ascending: false }).limit(4);
-            yaRegistrado = ((notas ?? []) as any[]).map((n) => String(n.nota).replace(/^\[en derivación\]\s*/, '')).filter(Boolean).join(' | ');
-          } catch { /* sin notas */ }
-          try {
-            const prev = hist.slice(-8).map((m) => `${m.role === 'user' ? 'CLIENTE' : 'BOT'}: ${m.content}`).join('\n');
-            const r = await this.claude.messages.create({
-              model: MODELO_BOT, max_tokens: 450,
-              system: `Sos el asistente automático de O.D.B Premium Market (Canning). Esta conversación YA está avisada al sector correspondiente${conv?.derivada_motivo ? ` (motivo de la derivación: ${conv.derivada_motivo})` : ''}; vos solo acusás recibo y contestás datos duros. Tratás de usted, sobrio, respetuoso, sin emojis, sin apodos, sin exclamaciones.
-DATOS DUROS que sí podés afirmar: ${datosHoy || 'horarios no disponibles ahora: no los inventes'}. Pagos, transferencias, devoluciones y facturas: administración ya fue avisada por adentro y le responde por este mismo chat. NUNCA le des otro número de teléfono ni le digas que escriba a otro lado.
-${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver a "trasladarlo"; podés decirle al cliente que eso ya está asentado, reformulándolo): ${yaRegistrado}\n` : ''}REGLAS: máximo 3 líneas. (0) La cortesía se devuelve como una persona que atiende el teléfono: a "¿cómo andás?" / "¿todo bien?" → "Buen día, ¿cómo va? Todo bien por acá, gracias." y seguís — JAMÁS expliques que no podés responder eso ni que sos un asistente sin que te lo pregunten. (1) Primera línea = respuesta concreta a LO ÚLTIMO que escribió: si pregunta EXPLÍCITAMENTE si sos un bot/persona → "Soy Emilia, la asistente de O.D.B."; si propone algo (reposición, descuento, horario de entrega) → reformulá su propuesta con sus palabras ("su propuesta queda clara: las dos botellas hoy sin cargo") y decí que la evalúa la persona del local, sin confirmarla vos; si pregunta horario/dirección → contestá con los datos duros (si pregunta por MAÑANA, dá el horario habitual, no "abierto ahora"); si es un reclamo → una disculpa breve y sobria ("lamento el inconveniente") la primera vez, y contenelo sin prometer plazos, reintegros ni reposiciones. (2) "Una persona del local le responde por acá" se dice UNA sola vez en toda la derivación (mirá el historial): si ya lo dijiste, no lo repitas; decí algo nuevo o más corto. NO repitas textualmente ninguna oración que ya hayas dicho. NO digas "queda anotado", "en breve", "ya lo estamos viendo", "se lo traslado" (si ya está registrado, está registrado). Si el tema es de plata, administración ya fue avisada: decí que le confirman por acá y no des plazos ni números. No inventes nombres de personas ni datos que no estén acá.`,
-              messages: [{ role: 'user', content: `HISTORIAL RECIENTE:\n${prev}\n\nÚLTIMO MENSAJE DEL CLIENTE: ${texto}` }],
-            });
-            respuesta = r.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map((b) => b.text).join('\n').trim() || null;
-            // si el modelo repite lo mismo que el acuse anterior, no se manda
-            const ultimoBot = [...hist].reverse().find((m) => m.role === 'assistant')?.content ?? '';
-            if (respuesta && ultimoBot && respuesta.toLowerCase().replace(/\s+/g, ' ') === ultimoBot.toLowerCase().replace(/\s+/g, ' ')) respuesta = null;
-          } catch {
-            respuesta = yaAcuso ? null : 'Tomo tu mensaje y doy aviso al sector correspondiente.';
-          }
-          // TODO lo que dice el cliente en derivación queda como nota para quien atiende
-          await this.db.from('bot_notas_equipo').insert({ linea, telefono, nota: `[en derivación] ${texto.slice(0, 300)}` }).then(() => null, () => null);
+        const preguntaIdentidad = false;
+        if (!botApagadoGlobal) {
+          await this.db.from('bot_notas_equipo').insert({ linea, telefono, nota: `[en pausa] ${texto.slice(0, 300)}` }).then(() => null, () => null);
         }
         await this.db.from('bot_conversaciones').upsert(
           {
@@ -457,7 +407,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
           },
           { onConflict: 'linea,telefono' },
         );
-        return { respuesta, derivada: true, motivo: botApagadoGlobal ? 'bot apagado en toda la línea' : 'conversación en manos de una persona' };
+        return { respuesta, derivada: true, motivo: botApagadoGlobal ? 'bot apagado en toda la línea' : 'conversación pausada: se reactiva desde RESPONDE' };
       }
     }
     const historial: { role: 'user' | 'assistant'; content: string }[] = Array.isArray(conv?.mensajes) ? conv!.mensajes : [];
@@ -2496,8 +2446,8 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
       derivada_motivo: motivo || 'El cliente pidió hablar con una persona',
       resuelta_en: null,
       acuse_derivacion_en: null,
-      // si nadie la toma en 20 minutos, el bot vuelve solo
-      derivacion_vence_en: new Date(Date.now() + 20 * 60_000).toISOString(),
+      // sin vencimiento: se reactiva a mano desde RESPONDE (regla del 16/9)
+      derivacion_vence_en: null,
     };
     // OJO con el orden: la herramienta corre DENTRO del turno, y la conversación
     // recién se guarda al final. En el primer mensaje de un cliente nuevo la fila
@@ -2530,6 +2480,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
       referencia: { linea, telefono, urgente },
     }).then(() => null, () => null);
 
+    await this.respondePausar(telefono);
     return { derivada: true, aviso: 'El equipo ya fue notificado por el sistema' };
   }
 
@@ -2566,9 +2517,44 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
   }
 
   // ¿RESPONDE dice que en este chat atiende una persona?
+  // RESPONDE es el interruptor de cada charla. Cuando se pregunta el estado, ODB
+  // se alinea: si allá la reactivaron a mano, acá el bot retoma; si allá la
+  // pausaron, acá queda pausada. Si RESPONDE no contesta, no se toca nada.
   async respondeModoHumano(whatsappId: string): Promise<boolean> {
     const r = await this.respondeRpc('odb_estado_contacto', { p_whatsapp_id: whatsappId });
-    return r?.modo_humano === true || r?.bloqueado === true;
+    const humano = r?.modo_humano === true || r?.bloqueado === true;
+    if (r && r.existe === true) await this.sincronizarPausa(whatsappId, humano).catch(() => null);
+    return humano;
+  }
+
+  private async sincronizarPausa(whatsappId: string, humano: boolean) {
+    const telefono = String(whatsappId).split('@')[0].replace(/\D/g, '');
+    if (!telefono) return;
+    const { data: conv } = await this.db.from('bot_conversaciones').select('bot_activo, derivada_motivo').eq('linea', 'pedidos').eq('telefono', telefono).maybeSingle();
+    if (!conv) return;
+    const ahora = new Date().toISOString();
+    if (!humano && conv.bot_activo === false) {
+      await this.db.from('bot_conversaciones').update({
+        bot_activo: true, resuelta_en: ahora, derivacion_vence_en: null, atendida_por: null,
+        derivada_motivo: `${conv.derivada_motivo ?? ''} · reactivada desde RESPONDE`.replace(/^ · /, ''),
+      }).eq('linea', 'pedidos').eq('telefono', telefono);
+      this.log.log(`charla ${telefono} reactivada desde RESPONDE: el bot retoma`);
+    } else if (humano && conv.bot_activo !== false) {
+      await this.db.from('bot_conversaciones').update({
+        bot_activo: false, derivada_en: ahora, derivada_motivo: 'Pausado desde RESPONDE', derivacion_vence_en: null, resuelta_en: null,
+      }).eq('linea', 'pedidos').eq('telefono', telefono);
+    }
+  }
+
+  // Pone la charla en "atendés vos" en RESPONDE (la crea si no existe). Se usa
+  // en cada pausa que nace en ODB, para que la app muestre el estado real y la
+  // reactivación sea desde ahí.
+  async respondePausar(telefonoOWaId: string, nombre?: string | null) {
+    const t = String(telefonoOWaId);
+    const waId = t.includes('@') ? t : (t.replace(/\D/g, '').length >= 14 ? `${t.replace(/\D/g, '')}@lid` : t.replace(/\D/g, ''));
+    if (/^54911000000\d{1,3}$/.test(waId)) return; // banco de pruebas
+    const r = await this.respondeRpc('odb_pausar_contacto', { p_whatsapp_id: waId, p_nombre: nombre ?? null });
+    if (!r) this.log.warn(`no pude pausar ${waId} en RESPONDE: la app va a mostrar el bot activo`);
   }
 
   // Deja el turno escrito en RESPONDE (best-effort: si falla, el bot igual atendió)
@@ -2850,7 +2836,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     // turnos no es de una persona
     const dichoPorElBot = hist.filter((m) => m.role === 'assistant').slice(-5).map((m) => String(m.content ?? '').replace(/^\[acuse-archivo\] /, '').trim());
     if (texto && dichoPorElBot.includes(texto)) return { ignorado: 'coincide con lo último del bot' };
-    this.log.log(`una persona contestó desde el teléfono a ${identidad}: el bot se pausa 6 h en esa charla`);
+    this.log.log(`una persona contestó desde el teléfono a ${identidad}: el bot queda pausado hasta que lo reactiven desde RESPONDE`);
     // Lo que se escribió desde el teléfono va también a RESPONDE: sin esto la
     // charla quedaba con los mensajes del cliente solos y no se entendía nada
     // (16/9/2026: faltaban 8 respuestas en una charla de 23 mensajes). Con el
@@ -2864,8 +2850,9 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
       mensajes: [...hist, ...(texto ? [{ role: 'assistant', content: texto }] : [])].slice(-40),
       actualizado_en: new Date().toISOString(),
       bot_activo: false, derivada_en: new Date().toISOString(), derivada_motivo: 'Atendida desde el teléfono',
-      atendida_por: null, derivacion_vence_en: new Date(Date.now() + 6 * 3600_000).toISOString(), acuse_derivacion_en: null,
+      atendida_por: null, derivacion_vence_en: null, acuse_derivacion_en: null,
     }, { onConflict: 'linea,telefono' }).then(() => null, () => null);
+    await this.respondePausar(chat.endsWith('@lid') ? `${identidad}@lid` : identidad);
     return { pausada: true, motivo: 'una persona contestó desde el teléfono' };
   }
 
@@ -3451,6 +3438,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
       { onConflict: 'linea,telefono' },
     );
 
+    await this.respondePausar(telefono);
     const envio = await this.enviarPorWhatsapp({ to: telefono, text: mensaje, referencia: `${linea}/${telefono}` });
     // el mensaje de la persona queda también en el hilo de RESPONDE, así la
     // burbuja aparece en la app apenas refresca
@@ -3468,6 +3456,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     if (!tocadas?.length) {
       await this.db.from('bot_conversaciones').insert({ linea, telefono, mensajes: [], actualizado_en: new Date().toISOString(), ...marca });
     }
+    await this.respondePausar(telefono);
     return { ok: true, botActivo: false };
   }
 
@@ -3684,10 +3673,13 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
   async devolverAlBot(linea: 'pedidos' | 'proveedores', telefono: string, usuarioId?: string) {
     const { error } = await this.db
       .from('bot_conversaciones')
-      .update({ bot_activo: true, resuelta_en: new Date().toISOString(), atendida_por: usuarioId ?? null })
+      .update({ bot_activo: true, resuelta_en: new Date().toISOString(), atendida_por: usuarioId ?? null, derivacion_vence_en: null })
       .eq('linea', linea)
       .eq('telefono', telefono);
     if (error) throw new BadRequestException(error.message);
+    // RESPONDE queda igual: si no, al próximo mensaje la volvería a pausar
+    const waId = telefono.replace(/\D/g, '').length >= 14 ? `${telefono.replace(/\D/g, '')}@lid` : telefono.replace(/\D/g, '');
+    await this.respondeRpc('odb_reactivar_contacto', { p_whatsapp_id: waId });
     return { ok: true, botActivo: true };
   }
 
