@@ -2825,7 +2825,9 @@ export class BotService {
       // ante la duda, NO pausar: pausar de más le calla el bot a un cliente
       if (error) return { ignorado: 'registro de envíos no disponible' };
     }
-    const chat = String(p?.to ?? p?.chatId ?? p?._data?.key?.remoteJid ?? '');
+    // NOWEB: lo que se manda desde el teléfono llega con `to` vacío y el chat en
+    // `_data.key.remoteJid` (o en `from`, que en un fromMe es la otra persona)
+    const chat = String(p?.to ?? p?.chatId ?? p?._data?.key?.remoteJid ?? p?.from ?? '');
     if (!chat || chat.endsWith('@g.us') || chat.includes('status@broadcast')) return { ignorado: 'fromMe sin chat de persona' };
     // MISMA clave que charla(): solo dígitos (un @lid se guarda sin el sufijo).
     // Con '@lid' la pausa iba a una charla distinta de la real y cada persona
@@ -2835,7 +2837,31 @@ export class BotService {
     this.resolverContactoWaha(identidad, chat.endsWith('@lid')).catch(() => null);
     const propio = String(numeroLinea ?? '').replace(/\D/g, '');
     if (propio && identidad === propio) return { ignorado: 'chat con uno mismo' };
-    const texto = String(p?.body ?? p?.caption ?? '').trim();
+    let texto = String(p?.body ?? p?.caption ?? '').trim();
+    // FOTO/AUDIO/ARCHIVO mandado desde el teléfono (16/9/2026): antes solo se
+    // registraba el texto y en RESPONDE no aparecía nada. Se baja YA (WAHA borra
+    // sus archivos enseguida), se guarda en el bucket y viaja como media.
+    const tipoMsg = String(p?.type ?? p?._data?.type ?? '').toLowerCase();
+    const esMedia = !!p?.hasMedia || !!p?.media || ['ptt', 'audio', 'image', 'video', 'document', 'sticker'].includes(tipoMsg);
+    let mediaSaliente: { tipo: 'image' | 'audio' | 'video' | 'document'; url: string } | null = null;
+    if (esMedia) {
+      const media = await this.bajarMediaWaha(p).catch(() => null);
+      const mime = media?.mime ?? String(p?.media?.mimetype ?? '');
+      const tipoMedia: 'image' | 'audio' | 'video' | 'document' = /^image\//.test(mime) || tipoMsg === 'image' ? 'image'
+        : /^audio\//.test(mime) || ['ptt', 'audio'].includes(tipoMsg) ? 'audio'
+        : /^video\//.test(mime) || tipoMsg === 'video' ? 'video' : 'document';
+      if (media) {
+        try {
+          const ext = (media.nombre.match(/\.[a-z0-9]{2,4}$/i)?.[0]) || (tipoMedia === 'image' ? '.jpg' : tipoMedia === 'audio' ? '.ogg' : '');
+          const ruta = `whatsapp/${identidad}/enviado-${Date.now()}${ext}`;
+          const { error: errSubida } = await this.db.storage.from('publico').upload(ruta, Buffer.from(media.base64, 'base64'), { contentType: media.mime, upsert: true });
+          if (!errSubida) mediaSaliente = { tipo: tipoMedia, url: this.db.storage.from('publico').getPublicUrl(ruta).data.publicUrl };
+        } catch { /* sin archivo: igual queda el rótulo */ }
+      }
+      const rotulo = tipoMedia === 'image' ? '📷 Foto enviada' : tipoMedia === 'audio' ? '🎙️ Audio enviado' : tipoMedia === 'video' ? '🎬 Video enviado' : '📄 Archivo enviado';
+      const epigrafe = String(p?.caption ?? p?._data?.caption ?? (/\.[a-z0-9]{2,5}$/i.test(texto) ? '' : texto)).trim();
+      texto = epigrafe ? `${rotulo}: ${epigrafe}` : rotulo;
+    }
     const { data: conv } = await this.db.from('bot_conversaciones').select('mensajes, bot_activo').eq('linea', 'pedidos').eq('telefono', identidad).maybeSingle();
     const hist: any[] = Array.isArray(conv?.mensajes) ? conv!.mensajes : [];
     // red de seguridad si el id no coincidió: lo que dijo el bot en sus últimos
@@ -2849,7 +2875,7 @@ export class BotService {
     // id de WhatsApp, un aviso repetido de WAHA no lo duplica.
     if (texto) {
       const waId = chat.endsWith('@lid') ? `${identidad}@lid` : identidad;
-      this.respondeRegistrar(waId, null, '', texto, undefined, null, { waMessageId: id || undefined, humano: true }).catch(() => null);
+      this.respondeRegistrar(waId, null, '', texto, undefined, mediaSaliente, { waMessageId: id || undefined, humano: true }).catch(() => null);
     }
     await this.db.from('bot_conversaciones').upsert({
       linea: 'pedidos', telefono: identidad,

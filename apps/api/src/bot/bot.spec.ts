@@ -1289,3 +1289,24 @@ describe('eco de los avisos internos: el id corto o largo de WAHA es el mismo me
     expect(ids[0]).toEqual(expect.arrayContaining(['true_5491126600320@c.us_3EB062E4CD2EFE14B932A6', '3EB062E4CD2EFE14B932A6']));
   });
 });
+
+describe('archivos mandados desde el teléfono: también se ven en RESPONDE (16/9/2026)', () => {
+  it('una foto enviada desde el teléfono (eco NOWEB con `to` vacío) se guarda y se registra como imagen', async () => {
+    const db: any = dbFalsa({ bot_envios: { data: null, error: null }, bot_conversaciones: { data: { mensajes: [] }, error: null } });
+    db.storage = { from: () => ({ upload: async () => ({ error: null }), getPublicUrl: () => ({ data: { publicUrl: 'https://x/publico/whatsapp/170806604746941/enviado-1.jpg' } }) }) };
+    const { s } = servicio(db);
+    (s as any).bajarMediaWaha = jest.fn(async () => ({ base64: 'AAAA', mime: 'image/jpeg', nombre: 'foto.jpg' }));
+    (s as any).resolverContactoWaha = jest.fn(async () => null);
+    (s as any).respondePausar = jest.fn(async () => null);
+    const registrar = jest.fn(async () => null);
+    (s as any).respondeRegistrar = registrar;
+    const r: any = await (s as any).mensajePropio({
+      fromMe: true, id: 'true_170806604746941@lid_ABC', from: '170806604746941@lid', hasMedia: true, body: '',
+      _data: { key: { remoteJid: '170806604746941@lid' } }, timestamp: Math.floor(Date.now() / 1000),
+    }, '5491122812200');
+    expect(r.pausada).toBe(true);
+    expect(registrar).toHaveBeenCalledWith('170806604746941@lid', null, '', '📷 Foto enviada', undefined,
+      { tipo: 'image', url: 'https://x/publico/whatsapp/170806604746941/enviado-1.jpg' },
+      { waMessageId: 'true_170806604746941@lid_ABC', humano: true });
+  });
+});
