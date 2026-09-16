@@ -1212,6 +1212,51 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
       vueltasReintento++;
     }
 
+    // ============================================================
+    // NADA DE MÁS (Leandro, 16/9/2026: "responde breve y conciso, no dice nada
+    // de más"). El control de largo de arriba no ve las respuestas con precio,
+    // y justo ahí se escapaban: preguntaron por el estacionamiento del evento y
+    // el bot repitió precio, voucher y link; preguntaron por un Rutini y ofreció
+    // otros dos vinos; preguntaron si llegan y ofreció el retiro.
+    // ============================================================
+    const saludoInicial = /^(buen d[ií]a|buenas tardes|buenas noches|hola)[^.\n]*[.!]?\s*(te damos la bienvenida a o\.?d\.?b\.?)?\s*/i;
+    const cuerpo = respuesta.replace(saludoInicial, '').trim();
+    const oracionesCuerpo = cuerpo.split(/(?<=[.!?])\s+/).filter((o) => o.trim().length > 0).length;
+
+    // 1) Mientras se consulta adentro, la respuesta es SOLO "lo consulto y te
+    //    confirmo por acá": sin precios, links, fechas ni alternativas.
+    if (herramientasDelTurno.has('consultar_interno') && (oracionesCuerpo > 2 || /\$\s?\d|https?:\/\/|retir/i.test(cuerpo)) && vueltasReintento < 3) {
+      this.log.warn(`consulta en curso con respuesta cargada (${telefono}): regenero`);
+      messages.push({ role: 'assistant', content: respuesta });
+      messages.push({ role: 'user', content: '[nota interna: le estás consultando a la casa lo que preguntó. Respondé SOLO eso, en una línea: que lo consultás y le confirmás por acá (con el saludo si corresponde). Nada más: ni precios, ni links, ni fechas, ni el resto de la información, ni alternativas como el retiro. No digas que no tenés el dato.]' });
+      const t19 = await this.regenerar(system, messages, 1024, sumarUso);
+      if (t19) respuesta = t19;
+      vueltasReintento++;
+    }
+
+    // 2) "Ese dato no lo tengo" no se dice: se consulta y se confirma por acá.
+    const RE_NO_LO_TENGO = /\b(ese dato no lo tengo|no lo tengo ac[aá]|no tengo ese dato|no tengo esa info(?:rmaci[oó]n)?|no cuento con (?:ese|esa|el) (?:dato|informaci[oó]n))\b/i;
+    if (RE_NO_LO_TENGO.test(respuesta) && vueltasReintento < 3) {
+      this.log.warn(`dijo que no tiene el dato (${telefono}): regenero`);
+      messages.push({ role: 'assistant', content: respuesta });
+      messages.push({ role: 'user', content: `[nota interna: no le digas al cliente que no tenés el dato. ${herramientasDelTurno.has('consultar_interno') ? 'Ya lo consultaste: decí solo que lo consultás y le confirmás por acá.' : 'Llamá a consultar_interno con la pregunta y decí solo que lo consultás y le confirmás por acá.'}]` });
+      const t20 = await this.regenerar(system, messages, 1024, sumarUso);
+      if (t20) respuesta = t20;
+      vueltasReintento++;
+    }
+
+    // 3) Pidió algo puntual y se lo ofrecen con otros productos que no pidió.
+    const RE_OFRECE_OTROS = /\b(tambi[eé]n (?:tengo|tenemos|hay)|si quer[eé]s algo de la misma l[ií]nea|otras opciones|te puedo ofrecer|ten[eé]s tambi[eé]n)\b/i;
+    const RE_PIDE_OPCIONES = /\b(opciones|recomend|suger|alternativ|qu[eé] (?:ten[eé]s|tienen|hay)|algo (?:para|parecido|similar)|otro|otra|cu[aá]les|variedad|parecid)/i;
+    if (RE_OFRECE_OTROS.test(cuerpo) && !RE_PIDE_OPCIONES.test(texto) && vueltasReintento < 3) {
+      this.log.warn(`ofreció productos que no pidieron (${telefono}): regenero`);
+      messages.push({ role: 'assistant', content: respuesta });
+      messages.push({ role: 'user', content: '[nota interna: el cliente preguntó por algo puntual. Contestá SOLO eso (si lo hay, precio y disponibilidad) y a lo sumo una pregunta para avanzar. No ofrezcas otros productos que no pidió.]' });
+      const t21 = await this.regenerar(system, messages, 1024, sumarUso);
+      if (t21) respuesta = t21;
+      vueltasReintento++;
+    }
+
     // Disputa de precio o cantidad ("son 18 botellas de $1.950 c/u", "está mal
     // la cuenta"): el bot no discute. La primera vez recotiza asumiendo que el
     // cliente tiene razón (precio por unidad, cantidad en unidades); si ya
