@@ -2905,12 +2905,102 @@ export class BotService {
     return { pausada: true, motivo: 'una persona contestó desde el teléfono' };
   }
 
-  async webhookWaha(evento: any, numeroLinea?: string) {
+  async webhookWaha(evento: any, numeroLinea?: string, origen: 'webhook' | 'barrido' = 'webhook') {
     // mensajes entrantes de personas ('message') y lo que sale de este número ('message.any' con fromMe)
     if (evento?.event !== 'message' && evento?.event !== 'message.any') return { ignorado: 'no es un mensaje' };
     const p = evento.payload ?? {};
     if (p.fromMe === true) return this.mensajePropio(p, numeroLinea);
     if (evento.event === 'message.any') return { ignorado: 'entrante por message.any: lo procesa el evento message' };
+
+    // Cada entrante queda anotado ANTES de procesarse y se marca terminado al
+    // final. Así un aviso repetido no se contesta dos veces y el barrido de
+    // cada minuto (recuperarEntrantesPerdidos) encuentra lo que nunca llegó o
+    // quedó a medias por un reinicio. 16/9/2026: un deploy devolvió 502 a n8n
+    // y el pedido de una clienta se perdió sin rastro.
+    const idEntrante = String(p.id ?? '').trim();
+    if (idEntrante) {
+      const alta = await this.db.from('bot_entrantes').insert({
+        waha_id: idEntrante, chat: String(p.from ?? ''), origen,
+        mensaje_ts: Number(p.timestamp) > 0 ? new Date(Number(p.timestamp) * 1000).toISOString() : null,
+      }).then((r: any) => r, () => null);
+      if (alta?.error?.code === '23505' && origen === 'webhook') return { ignorado: 'mensaje ya recibido' };
+    }
+    try {
+      const r = await this.procesarEntrante(p, numeroLinea);
+      if (idEntrante) await this.db.from('bot_entrantes').update({ terminado_en: new Date().toISOString() }).eq('waha_id', idEntrante).then(() => null, () => null);
+      return r;
+    } catch (e) {
+      this.log.error(`entrante ${idEntrante || '?'} falló: ${(e as any)?.message ?? e} (el barrido lo reintenta)`);
+      throw e;
+    }
+  }
+
+  // Barrido de seguridad: cada minuto mira las charlas con movimiento reciente
+  // en WhatsApp y procesa los entrantes que el sistema no registró, o que
+  // quedaron sin terminar (máximo 3 intentos). Nada viejo: solo los últimos 20
+  // minutos, y nunca antes del primer registro (para no re-contestar historia).
+  private barriendo = false;
+  private registroDesde: number | null = null;
+  @Cron('30 * * * * *')
+  async recuperarEntrantesPerdidos() {
+    const url = process.env.WAHA_URL, key = process.env.WAHA_API_KEY;
+    if (!url || !key || this.barriendo) return;
+    this.barriendo = true;
+    try {
+      if (this.registroDesde == null) {
+        const { data } = await this.db.from('bot_entrantes').select('recibido_en').order('recibido_en', { ascending: true }).limit(1).maybeSingle();
+        if (!data) return;
+        this.registroDesde = new Date((data as any).recibido_en).getTime();
+      }
+      const base = `${url.replace(/\/$/, '')}/api/${process.env.WAHA_SESSION || 'odb'}`;
+      const pedir = async (ruta: string) => {
+        const r = await fetch(`${base}${ruta}`, { headers: { 'X-Api-Key': key }, signal: AbortSignal.timeout(15000) });
+        return r.ok ? r.json() : [];
+      };
+      const ahora = Date.now();
+      const desde = Math.max(this.registroDesde, ahora - 20 * 60_000);
+      const chats = ((await pedir('/chats?limit=30&sortBy=conversationTimestamp&sortOrder=desc')) as any[])
+        .filter((c) => Number(c.conversationTimestamp) * 1000 >= desde)
+        .map((c) => String(c.id ?? ''))
+        .filter((id) => id && !/@g\.us$|@newsletter$|^status@broadcast$/.test(id));
+      for (const chat of chats) {
+        const lista = async (media: boolean) => ((await pedir(`/chats/${encodeURIComponent(chat)}/messages?limit=12&downloadMedia=${media}`)) as any[]) ?? [];
+        let msgs = (await lista(false)).filter((m) => !m.fromMe && m.id && Number(m.timestamp) * 1000 >= desde && Number(m.timestamp) * 1000 <= ahora - 90_000);
+        if (!msgs.length) continue;
+        const { data: vistos } = await this.db.from('bot_entrantes').select('waha_id, terminado_en, intentos, recibido_en').in('waha_id', msgs.map((m) => String(m.id)));
+        const porId = new Map(((vistos ?? []) as any[]).map((v) => [v.waha_id, v]));
+        const pendientes = msgs.filter((m) => {
+          const v = porId.get(String(m.id));
+          return !v || (!v.terminado_en && v.intentos < 3 && ahora - new Date(v.recibido_en).getTime() > 6 * 60_000);
+        });
+        if (!pendientes.length) continue;
+        if (pendientes.some((m) => m.hasMedia)) {
+          const conMedia = new Map((await lista(true)).map((m) => [String(m.id), m]));
+          msgs = pendientes.map((m) => conMedia.get(String(m.id)) ?? m);
+        } else msgs = pendientes;
+        msgs.sort((a, b) => Number(a.timestamp) - Number(b.timestamp));
+        for (const m of msgs) {
+          const v = porId.get(String(m.id));
+          this.log.warn(`barrido: entrante ${v ? 'sin terminar' : 'PERDIDO'} de ${chat} (${String(m.body ?? '').slice(0, 40)}): lo proceso ahora`);
+          try {
+            if (v) {
+              await this.db.from('bot_entrantes').update({ intentos: v.intentos + 1, origen: 'barrido' }).eq('waha_id', String(m.id));
+              await this.procesarEntrante(m, process.env.WAHA_NUMERO_LINEA || '5491122812200');
+              await this.db.from('bot_entrantes').update({ terminado_en: new Date().toISOString() }).eq('waha_id', String(m.id));
+            } else {
+              await this.webhookWaha({ event: 'message', payload: m }, process.env.WAHA_NUMERO_LINEA || '5491122812200', 'barrido');
+            }
+          } catch (e: any) { this.log.warn(`barrido: no pude procesar ${m.id}: ${e?.message ?? e}`); }
+        }
+      }
+    } catch (e: any) {
+      this.log.warn(`barrido de entrantes: ${e?.message ?? e}`);
+    } finally {
+      this.barriendo = false;
+    }
+  }
+
+  private async procesarEntrante(p: any, numeroLinea?: string) {
 
     const desde = String(p.from ?? '');
     if (!desde) return { ignorado: 'sin remitente' };

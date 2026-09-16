@@ -22,6 +22,10 @@ async function bootstrap() {
   const origenes = (process.env.CORS_ORIGINS ?? 'http://localhost:3000,http://localhost:8081,http://localhost:19006')
     .split(',').map((s) => s.trim()).filter(Boolean);
   app.enableCors({ origin: (o, cb) => cb(null, !o || origenes.includes(o)), credentials: true });
+  // En un deploy, Railway manda SIGTERM al contenedor viejo: con esto Nest deja
+  // de aceptar pedidos y termina los que están en curso (una respuesta del bot
+  // tarda 20-40 s) en vez de cortarlos a la mitad.
+  app.enableShutdownHooks();
   // PORT lo inyectan los hostings (Railway/Render); PUERTO es el override local
   await app.listen(process.env.PUERTO ?? process.env.PORT ?? 3001);
 }
