@@ -1,4 +1,5 @@
 import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
+import { volumenMl, etiquetaVolumen, pideTamano, PALABRA_GENERICA } from './formatos';
 import { emprolijarListado, nombreLimpio, saludoSegunHora, saludarConBienvenida, niegaPercepcion, respetuosoSinConfianza, saintThomas, nombreSucursalCliente, esAutomaticoWhatsappBusiness } from './prolijo';
 import { oggCompleto } from './ogg';
 import { atiendeUnaPersona, motivoDeSilencio } from './pausa';
@@ -1707,7 +1708,7 @@ export class BotService {
   // producto, no se deja a su interpretación.
   private notaUnidad(nombre: string, unidadesPack?: number | null): string | null {
     if (Number(unidadesPack) > 1) return `pack de ${Number(unidadesPack)}: el precio es por el pack`;
-    if (/\bx\s?\d{1,3}\s?(?:un|u|unid|unidades)?\b|\bpack\b|\bcaja\b|\bbulto\b/i.test(nombre)) {
+    if (/\bx\s?\d{1,3}(?![\d.,]|\s?(?:cc|ml|l|lt|lts|litros?|kg|grs?|g)\b)\s?(?:un|u|unid|unidades)?\b|\bpack\b|\bcaja\b|\bbulto\b/i.test(nombre)) {
       return 'precio y stock por UNIDAD suelta; el "xN" del nombre es el bulto del proveedor, NO un pack para el cliente';
     }
     return null;
@@ -1718,7 +1719,7 @@ export class BotService {
     // (Ronda 6: pasarle el texto a .map() rompió la cava entera: 38 llamadas fallidas.)
     if (typeof xs === 'string') return xs;
     return (xs ?? [])
-      .map((s: any) => `${String(s.sucursal ?? s.nombre ?? '').replace(/^Suc /, '')}: ${Math.round(Number(s.cantidad ?? 0))}`)
+      .map((s: any) => `${String(s.sucursal ?? s.nombre ?? '').replace(/^Suc /, '').replace(/^Sant Thomas/, 'Saint Thomas')}: ${Math.round(Number(s.cantidad ?? 0))}`)
       .join(' · ');
   }
   private sinNulos<T extends Record<string, any>>(o: T): Partial<T> {
@@ -1749,16 +1750,19 @@ export class BotService {
     // se parece al nombre de una categoría, se traen los productos de esa
     // categoría con stock en la sucursal de retiro.
     const hayConStock = stock.some((p: any) => Number(p.total) > 0);
-    if (!hayConStock || stock.length < 5) {
+    {
       try {
         const { data: cats } = await this.db.from('categorias').select('id, nombre');
         const nq = t.toLowerCase();
         const sing = (w: string) => w.replace(/(es|s)$/, '');
-        const match = ((cats ?? []) as any[]).filter((c) => {
-          const nc = String(c.nombre).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-          return nq.split(/\s+/).some((w) => w.length >= 4 && (nc.includes(sing(w)) || sing(w).includes(nc.split(/\s+/)[0])));
-        });
-        if (match.length) {
+        const esDeCategoria = (w: string, nc: string) => w.length >= 4 && (nc.includes(sing(w)) || sing(w).includes(nc.split(/\s+/)[0]));
+        const nombresCat = ((cats ?? []) as any[]).map((c) => String(c.nombre).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''));
+        const match = ((cats ?? []) as any[]).filter((_, i) => nq.split(/\s+/).some((w) => esDeCategoria(w, nombresCat[i])));
+        // 16/9/2026: "whisky" traía 13 productos (los que dicen "whisky" en el
+        // nombre) y se perdía el resto de la categoría, incluido el Chivas de
+        // 4,5 L. Si no nombró marca (solo categoría y tamaño), va la categoría entera.
+        const sinMarca = match.length > 0 && nq.split(/\s+/).every((w) => PALABRA_GENERICA.test(w) || nombresCat.some((nc) => esDeCategoria(w, nc)));
+        if (match.length && (!hayConStock || stock.length < 5 || sinMarca)) {
           const { data: porCat } = await this.db
             .from('productos')
             .select('sku, nombre, stock(cantidad, sucursal:sucursales(nombre))')
@@ -1802,9 +1806,18 @@ export class BotService {
         promo: pr?.descuento_nombre ? `${pr.descuento_nombre} (antes $${Math.round(pr.precio_lista)})` : null,
         alcohol: !!prod?.es_alcohol,
         unidad: this.notaUnidad(String(p.nombre ?? ''), prod?.unidades_pack),
+        medida: etiquetaVolumen(volumenMl(p.nombre)),
         stock: this.sucCompacta(p.sucursales) || String(Math.round(Number(p.total))),
       });
     });
+    // Tamaños: la medida viaja aparte y las botellas de MÁS de 1 litro se
+    // nombran explícitas. Si pidió un tamaño, las más grandes van primero.
+    const tamano = pideTamano(t);
+    if (tamano) items.sort((a: any, b: any) => (volumenMl(b.nombre) ?? 0) - (volumenMl(a.nombre) ?? 0));
+    const grandes = items.filter((i: any) => (volumenMl(i.nombre) ?? 0) > 1000);
+    const avisoGrandes = grandes.length
+      ? `Formatos de MÁS de 1 litro con stock: ${grandes.map((i: any) => `${i.nombre} (${i.medida}) $${i.precio}`).join(' | ')}. Si el cliente pide "más de 1 litro", "2 o 3 litros", "grande" o para regalo, OFRECÉ ESTOS primero; nunca digas que 1 L es lo más grande.`
+      : tamano?.grande ? 'En esta búsqueda no hay botellas de más de 1 litro con stock. Antes de decírselo al cliente, buscá también "balancin" y la categoría sola.' : null;
     // Ronda 7 (CRÍTICA, reincidente): "no tenemos Quilmes clásica ni una lager
     // parecida" cuando había Brahma, Imperial, Andes… El bot buscaba por marca y
     // con cero stock se rendía. Si lo buscado no tiene stock, el sistema mismo
@@ -1847,7 +1860,8 @@ export class BotService {
                 nombre: p.nombre,
                 precio: precioDe.get(p.id)?.precio_final != null ? Math.round(Number(precioDe.get(p.id).precio_final)) : null,
                 alcohol: !!p.es_alcohol,
-                stock: (p.stock ?? []).filter((r: any) => Number(r.cantidad) > 0).map((r: any) => `${String(r.sucursal?.nombre ?? '').replace(/^Suc /, '')}: ${Math.round(Number(r.cantidad))}`).join(' · '),
+                medida: etiquetaVolumen(volumenMl(p.nombre)),
+                stock: (p.stock ?? []).filter((r: any) => Number(r.cantidad) > 0).map((r: any) => `${String(r.sucursal?.nombre ?? '').replace(/^Suc /, '').replace(/^Sant Thomas/, 'Saint Thomas')}: ${Math.round(Number(r.cantidad))}`).join(' · '),
               }))
               .filter((p) => p.precio)
               .sort((a, b) => (Number(esMismaMarca(b.nombre)) - Number(esMismaMarca(a.nombre))) || (Number(a.precio) - Number(b.precio)))
@@ -1860,6 +1874,7 @@ export class BotService {
     }
     return {
       items,
+      ...(avisoGrandes ? { formatosGrandes: avisoGrandes } : {}),
       ...(sinStock.length
         ? {
             sinStock: `${sinStock.slice(0, 6).map((p: any) => p.nombre).join(' | ')}${sinStock.length > 6 ? ` | +${sinStock.length - 6} más` : ''} [SIN STOCK — no ofrecer]`,

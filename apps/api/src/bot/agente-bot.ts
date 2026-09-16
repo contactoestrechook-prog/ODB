@@ -293,7 +293,7 @@ export const HERRAMIENTAS_PEDIDOS: Anthropic.Tool[] = [
   {
     name: 'buscar_productos',
     description:
-      'Busca productos en el catálogo real por nombre o marca. Devuelve sku, nombre, precio minorista y mayorista, stock por sucursal y si es alcohol. ÚNICA fuente válida de precios y stock — llamala cada vez que necesites datos de un producto. Buscá términos cortos ("coca", "fernet", "queso") y refiná.',
+      'Busca productos en el catálogo real por nombre o marca. Devuelve sku, nombre, precio minorista y mayorista, stock por sucursal y si es alcohol. ÚNICA fuente válida de precios y stock — llamala cada vez que necesites datos de un producto. Buscá términos cortos ("coca", "fernet", "queso") y refiná. Cada item trae su medida; si el cliente pide un tamaño ("más de 1 litro", "2 o 3 litros", "grande"), poné el tamaño en la búsqueda ("whisky 3 litros") y leé formatosGrandes antes de decir que no hay ese tamaño.',
     strict: true,
     input_schema: {
       type: 'object',
