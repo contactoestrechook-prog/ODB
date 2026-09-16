@@ -27,7 +27,8 @@ export async function enviarTextoWhatsapp(
     });
     const cuerpo: any = await r.json().catch(() => ({}));
     if (!r.ok) return { enviado: false, motivo: `WAHA sendText ${r.status}` };
-    const id = cuerpo?.id ?? cuerpo?.key?.id ?? null;
+    // el id completo ("true_549…@c.us_3EB0…") es el que trae el eco del mensaje
+    const id = cuerpo?.id?._serialized ?? (typeof cuerpo?.id === 'string' ? cuerpo.id : null) ?? cuerpo?.key?.id ?? null;
     if (id) await db.from('bot_envios').insert({ waha_id: String(id), telefono: digitos, origen }).then(() => null, () => null);
     return { enviado: true, id };
   } catch (e) {

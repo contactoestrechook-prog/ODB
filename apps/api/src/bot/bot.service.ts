@@ -2814,7 +2814,13 @@ export class BotService {
     if (ts > 0 && Date.now() / 1000 - ts > 120) return { ignorado: 'fromMe histórico (sincronización)' };
     const id = String(p?.id ?? p?.key?.id ?? p?._data?.key?.id ?? '').trim();
     if (id) {
-      const { data: nuestro, error } = await this.db.from('bot_envios').select('waha_id').eq('waha_id', id).maybeSingle();
+      // WAHA a veces devuelve el id corto al mandar ("3EB0…") y el eco llega con
+      // el largo ("true_549…@c.us_3EB0…"): se buscan las dos formas. Sin esto,
+      // cada aviso interno (recuperar clave, devoluciones, reportes) parecía una
+      // persona escribiendo y pausaba la charla (16/9/2026).
+      const corto = id.includes('_') ? id.split('_').pop()! : id;
+      const { data: nuestros, error } = await this.db.from('bot_envios').select('waha_id').in('waha_id', [...new Set([id, corto])]).limit(1);
+      const nuestro = Array.isArray(nuestros) ? nuestros[0] : nuestros;
       if (nuestro) return { ignorado: 'lo mandamos nosotros' };
       // ante la duda, NO pausar: pausar de más le calla el bot a un cliente
       if (error) return { ignorado: 'registro de envíos no disponible' };

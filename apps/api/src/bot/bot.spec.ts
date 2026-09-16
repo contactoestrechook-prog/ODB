@@ -38,7 +38,7 @@ function dbFalsa(porTabla: Record<string, any> = {}) {
     from(tabla: string) {
       const res = porTabla[tabla] ?? { data: null, error: null };
       const b: any = {
-        select: () => b, eq: () => b, ilike: () => b, limit: () => b,
+        select: () => b, eq: () => b, ilike: () => b, limit: () => b, in: () => b,
         maybeSingle: async () => res,
         single: async () => res,
         upsert: async (fila: any) => (llamadas.upsert.push({ tabla, fila }), { data: null, error: null }),
@@ -1272,5 +1272,20 @@ describe('pausa manual: RESPONDE es el interruptor de cada charla (16/9/2026)', 
     (s as any).respondeRpc = jest.fn(async (fn: string, args: any) => (rpcs.push({ fn, args }), { ok: true }));
     await s.devolverAlBot('pedidos', '5491133344455');
     expect(rpcs).toContainEqual({ fn: 'odb_reactivar_contacto', args: { p_whatsapp_id: '5491133344455' } });
+  });
+});
+
+
+describe('eco de los avisos internos: el id corto o largo de WAHA es el mismo mensaje (16/9/2026)', () => {
+  it('un aviso guardado con el id CORTO no se confunde con una persona cuando el eco llega con el LARGO', async () => {
+    const ids: any[] = [];
+    const db = dbFalsa({ bot_envios: { data: [{ waha_id: '3EB062E4CD2EFE14B932A6' }], error: null } });
+    const original = db.from.bind(db);
+    db.from = (t: string) => { const b = original(t); const inOrig = b.in; b.in = (col: string, vals: any[]) => (ids.push(vals), b); return b; };
+    const { s } = servicio(db);
+    (s as any).respondeRegistrar = jest.fn();
+    const r: any = await (s as any).mensajePropio({ fromMe: true, id: 'true_5491126600320@c.us_3EB062E4CD2EFE14B932A6', to: '5491126600320@c.us', body: 'O.D.B · Recuperar contraseña', timestamp: Math.floor(Date.now() / 1000) }, '5491122812200');
+    expect(r.ignorado).toBe('lo mandamos nosotros');
+    expect(ids[0]).toEqual(expect.arrayContaining(['true_5491126600320@c.us_3EB062E4CD2EFE14B932A6', '3EB062E4CD2EFE14B932A6']));
   });
 });
