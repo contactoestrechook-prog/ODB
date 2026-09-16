@@ -1235,7 +1235,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     }
 
     // 2) "Ese dato no lo tengo" no se dice: se consulta y se confirma por acá.
-    const RE_NO_LO_TENGO = /\b(ese dato no lo tengo|no lo tengo ac[aá]|no tengo ese dato|no tengo esa info(?:rmaci[oó]n)?|no cuento con (?:ese|esa|el) (?:dato|informaci[oó]n))\b/i;
+    const RE_NO_LO_TENGO = /\b(dato (?:que )?no (?:lo )?tengo|no lo tengo ac[aá]|no tengo (?:ese|el|este) dato|no tengo esa info(?:rmaci[oó]n)?|no cuento con (?:ese|esa|el|la) (?:dato|informaci[oó]n)|no tengo (?:ac[aá] )?(?:esa|la) informaci[oó]n)\b/i;
     if (RE_NO_LO_TENGO.test(respuesta) && vueltasReintento < 3) {
       this.log.warn(`dijo que no tiene el dato (${telefono}): regenero`);
       messages.push({ role: 'assistant', content: respuesta });
