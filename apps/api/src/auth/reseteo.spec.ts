@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { AuthService } from './auth.service';
+import * as whatsapp from '../comun/whatsapp';
 
 // El circuito de "olvidé mi contraseña" toca cuentas ajenas: cada regla de
 // seguridad tiene su prueba. La base se simula porque lo que se verifica es la
@@ -100,5 +101,38 @@ describe('olvidé mi contraseña', () => {
     // se recrea el hash como lo hace el servicio al validar
     expect(guardado).toHaveLength(64);
     expect(createHash('sha256').update('otro-token').digest('hex')).not.toBe(guardado);
+  });
+});
+
+
+// Jackie (16/9/2026) pidió recuperar la clave y no le llegó nada: no había
+// servicio de mail configurado. El enlace sale también por WhatsApp al celular
+// de SU ficha.
+describe('olvidé mi contraseña: el enlace llega aunque no haya mail', () => {
+  beforeEach(() => { delete process.env.RESEND_API_KEY; });
+  afterEach(() => jest.restoreAllMocks());
+
+  it('sin mail configurado, el enlace sale por WhatsApp al celular registrado', async () => {
+    const wa = jest.spyOn(whatsapp, 'enviarTextoWhatsapp').mockResolvedValue({ enviado: true, id: 'W1' });
+    const db = dbFalsa({ usuarios: { id: 'u1', nombre: 'Ana', email: 'ana@odb.com.ar', activo: true, telefono: '+54 9 11 5555-1234' } });
+    await servicio(db).pedirReseteo('ana@odb.com.ar', '1.2.3.4');
+    expect(wa).toHaveBeenCalledTimes(1);
+    const [, para, texto] = wa.mock.calls[0];
+    expect(para).toBe('5491155551234');
+    expect(texto).toContain('/restablecer?token=');
+    expect(texto).toContain('Vence en 30 minutos');
+  });
+
+  it('sin celular en la ficha no inventa a quién mandarlo', async () => {
+    const wa = jest.spyOn(whatsapp, 'enviarTextoWhatsapp').mockResolvedValue({ enviado: true });
+    const db = dbFalsa({ usuarios: { id: 'u1', nombre: 'Ana', email: 'ana@odb.com.ar', activo: true, telefono: null } });
+    await servicio(db).pedirReseteo('ana@odb.com.ar');
+    expect(wa).not.toHaveBeenCalled();
+  });
+
+  it('un mail que no tiene cuenta no dispara ningún WhatsApp', async () => {
+    const wa = jest.spyOn(whatsapp, 'enviarTextoWhatsapp').mockResolvedValue({ enviado: true });
+    await servicio(dbFalsa({ usuarios: null })).pedirReseteo('nadie@ejemplo.com');
+    expect(wa).not.toHaveBeenCalled();
   });
 });

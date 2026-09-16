@@ -4,6 +4,7 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
 import { hashClave, verificarClave } from '../comun/passwords';
 import { enviarMail, mailDeReseteo, hayMailConfigurado } from '../comun/mail';
+import { enviarTextoWhatsapp } from '../comun/whatsapp';
 import { createHash, randomBytes } from 'node:crypto';
 
 @Injectable()
@@ -44,14 +45,14 @@ export class AuthService {
   async pedirReseteo(email: string, origen?: string) {
     const generico = {
       ok: true,
-      mensaje: 'Si ese mail tiene una cuenta, le llega un enlace para elegir una contraseña nueva. Revisá también el correo no deseado.',
+      mensaje: 'Si ese mail tiene una cuenta, le llega un enlace para elegir una contraseña nueva, por mail y por WhatsApp al celular registrado. Revisá también el correo no deseado.',
     };
     const limpio = String(email ?? '').trim().toLowerCase();
     if (!limpio || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(limpio)) return generico;
 
     const { data: u } = await this.db
       .from('usuarios')
-      .select('id, nombre, email, activo')
+      .select('id, nombre, email, activo, telefono')
       .ilike('email', limpio)
       .maybeSingle();
     if (!u || (u as any).activo === false) return generico;
@@ -81,9 +82,26 @@ export class AuthService {
     const { asunto, html, texto } = mailDeReseteo(usuario.nombre ?? 'Hola', enlace);
     const envio = await enviarMail({ para: usuario.email, asunto, html, texto });
     if (!envio.enviado) {
-      // Sin mail configurado el circuito no se cae: queda registrado para que
-      // un dueño pueda pasarle el enlace a la persona por otro medio.
       this.log.warn(`reseteo de ${usuario.email}: no se pudo mandar el mail (${envio.motivo})`);
+    }
+    // El enlace sale TAMBIÉN por WhatsApp al celular del usuario (16/9/2026):
+    // Jackie pidió recuperar la clave y no le llegó nada porque no había servicio
+    // de mail configurado; el circuito "funcionaba" y nadie podía entrar. El
+    // celular es el que figura en su ficha, no uno que escriba quien lo pide.
+    const cel = String(usuario.telefono ?? '').replace(/\D/g, '');
+    let porWhatsapp = false;
+    if (cel.length >= 10) {
+      const wa = await enviarTextoWhatsapp(
+        this.db,
+        cel,
+        `O.D.B · Recuperar contraseña\nHola ${usuario.nombre ?? ''}. Pediste restablecer tu contraseña del sistema. Entrá acá para elegir una nueva:\n${enlace}\nVence en 30 minutos y sirve una sola vez. Si no lo pediste vos, ignorá este mensaje.`,
+        'reseteo_clave',
+      ).catch((e) => ({ enviado: false, motivo: e instanceof Error ? e.message : String(e) }));
+      porWhatsapp = wa.enviado;
+      if (!wa.enviado) this.log.warn(`reseteo de ${usuario.email}: no se pudo mandar por WhatsApp (${(wa as any).motivo})`);
+    }
+    if (!envio.enviado && !porWhatsapp) {
+      this.log.error(`reseteo de ${usuario.email}: el enlace NO salió por ningún canal (mail ni WhatsApp)`);
     }
     return generico;
   }
