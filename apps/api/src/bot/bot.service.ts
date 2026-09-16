@@ -2393,14 +2393,48 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     }).then(() => null, () => null);
     await this.db.from('bot_notas_equipo').insert({ linea, telefono, nota: `[${area}] ${consulta}${direccion ? ` · ${direccion}` : ''}` }).then(() => null, () => null);
 
-    // REGLA DEL DUEÑO (2026-09-01): los pedidos y las consultas de la operación
-    // viven ADENTRO del sistema (campanita + notas), no salen por WhatsApp.
-    // El WhatsApp interno queda reservado para pagos (derivarPago): comprobantes
-    // y diferencias de plata, nada más.
+    // DECISIÓN DE LEANDRO (2026-09-16), reemplaza la regla del 1/9: lo que el
+    // bot no sabe se le PREGUNTA a administración por WhatsApp (además de la
+    // campanita). Antes quedaba solo en el panel y nadie le contestaba al
+    // cliente. La consulta queda esperando: cuando administración responde
+    // citando este aviso, el bot le lleva la respuesta al cliente
+    // (ver respuestaDeAdministracion → llevarRespuestaDeConsulta).
+    let enviada = false;
+    // el banco de pruebas (549110000000XX) audita el cerebro sin molestar a nadie:
+    // la consulta queda registrada, pero no le llega al teléfono de administración
+    const esPrueba = /^54911000000\d{1,3}$/.test(telefono);
+    if (esPrueba) {
+      await this.db.from('bot_consultas_internas').insert({
+        linea, telefono_cliente: telefono, nombre, area, consulta: consulta.slice(0, 1000),
+        direccion: direccion || null, enviado_a: 'banco-de-pruebas', respondido_en: new Date().toISOString(),
+      }).then(() => null, () => null);
+    }
+    if (destino.length >= 10 && !esPrueba) {
+      const texto = [
+        `❓ Consulta de un cliente (${etiqueta.replace(/^\S+\s/, '')})`,
+        `De: ${nombre ?? 'sin identificar'} · +${telefono}`,
+        consulta,
+        direccion ? `Dirección: ${direccion}` : null,
+        `👉 Respondé CITANDO este mensaje y se lo paso al cliente.`,
+      ].filter(Boolean).join('\n');
+      try {
+        const env: any = await this.enviarPorWhatsapp({ to: destino, text: texto, kind: 'aviso-interno' } as any);
+        enviada = !!env?.enviado;
+        await this.db.from('bot_consultas_internas').insert({
+          linea, telefono_cliente: telefono, nombre, area,
+          consulta: consulta.slice(0, 1000), direccion: direccion || null,
+          waha_msg_id: env?.id ? String(env.id) : null,
+          enviado_a: destino,
+        }).then(() => null, () => null);
+      } catch (e: any) {
+        this.log.warn(`no pude mandarle la consulta a ${area} por WhatsApp: ${e?.message ?? e}`);
+      }
+    }
     return {
       consultado: true,
       area,
-      aviso: `Consulta registrada para ${area} adentro del sistema. Decile al cliente en UNA línea que lo consultás con ${area === 'reparto' ? 'reparto' : area} y que le confirmás por acá. No digas "no sé", "no puedo confirmar" ni "no estoy seguro", y no des plazos.`,
+      avisoPorWhatsapp: enviada,
+      aviso: `Consulta enviada a ${area === 'reparto' ? 'reparto' : area}. Decile al cliente en UNA línea que lo consultás y que le confirmás por acá. No digas "no sé", "no puedo confirmar" ni "no estoy seguro", no des plazos y no le digas a quién le preguntaste.`,
     };
   }
 
@@ -2557,6 +2591,23 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
 
     const texto = String(p.body ?? '').trim();
     if (!texto) return { contestado: false, motivo: 'administración: sin texto' };
+    const citado = String(p.replyTo?.id ?? p.replyTo ?? '');
+
+    // CONSULTAS (2026-09-16): lo que el bot no sabía y le preguntó a
+    // administración. Si contesta citando el aviso de la consulta, va a esa
+    // consulta. Sin cita: si hay una sola esperando y no es una confirmación de
+    // pago, es para esa; si hay varias, se le pide que cite (no se adivina a
+    // qué cliente le va la respuesta).
+    const { data: pendC } = await this.db
+      .from('bot_consultas_internas').select('*')
+      .is('respondido_en', null)
+      .gte('creado_en', new Date(Date.now() - 24 * 3_600_000).toISOString())
+      .order('creado_en', { ascending: false })
+      .limit(10);
+    const consultas = ((pendC ?? []) as any[]).filter((c) => String(c.enviado_a ?? '').slice(-10) === admin.slice(-10) || !c.enviado_a);
+    const consultaCitada = citado ? consultas.find((c) => c.waha_msg_id && citado.includes(String(c.waha_msg_id))) : null;
+    if (consultaCitada) return this.llevarRespuestaDeConsulta(consultaCitada, texto, admin, cfg?.bot_activo !== false);
+
     const { data: pend } = await this.db
       .from('bot_pagos_en_confirmacion').select('*')
       .is('confirmado_en', null)
@@ -2564,10 +2615,17 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
       .order('creado_en', { ascending: false })
       .limit(5);
     const lista = (pend ?? []) as any[];
-    if (!lista.length) return { contestado: false, motivo: 'administración escribió y no hay pagos esperando confirmación' };
+    const pagoCitado = citado ? lista.find((x) => x.waha_msg_id && citado.includes(String(x.waha_msg_id))) : null;
+    const pareceDePago = /\b(recibido|recib[ií]|acreditad[oa]|lleg[oó]|no\s+(lleg[oó]|figura|est[aá]|aparece|entr[oó]|acredit[oó]))\b/i.test(texto);
+    if (!pagoCitado && consultas.length && !(lista.length && pareceDePago)) {
+      if (consultas.length === 1) return this.llevarRespuestaDeConsulta(consultas[0], texto, admin, cfg?.bot_activo !== false);
+      const quienes = consultas.slice(0, 5).map((c, i) => `${i + 1}. ${c.nombre ?? '+' + c.telefono_cliente}: ${String(c.consulta).slice(0, 70)}`).join('\n');
+      await this.enviarPorWhatsapp({ to: admin, text: `Tengo ${consultas.length} consultas esperando respuesta y no sé a cuál va la tuya. Respondé CITANDO el mensaje de la consulta:\n${quienes}`, kind: 'aviso-interno' } as any).catch(() => null);
+      return { contestado: false, motivo: 'administración respondió sin citar y hay varias consultas esperando: se le pidió que cite' };
+    }
+    if (!lista.length) return { contestado: false, motivo: 'administración escribió y no hay pagos ni consultas esperando' };
 
-    const citado = String(p.replyTo?.id ?? p.replyTo ?? '');
-    const fila = (citado && lista.find((x) => x.waha_msg_id && citado.includes(String(x.waha_msg_id)))) || lista[0];
+    const fila = pagoCitado || lista[0];
     const montoTexto = fila.monto ? ` de $${Math.round(Number(fila.monto)).toLocaleString('es-AR')}` : '';
     const destinoCliente = String(fila.telefono_cliente).length >= 14 ? `${fila.telefono_cliente}@lid` : String(fila.telefono_cliente);
 
@@ -2605,6 +2663,44 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     await this.enviarPorWhatsapp({ to: admin, text: ok ? `Listo: le confirmé a ${fila.nombre ?? '+' + fila.telefono_cliente} que su pago${montoTexto} quedó recibido.` : `Tomé la confirmación; el bot está apagado, así que al cliente no le escribí todavía.`, kind: 'aviso-interno' } as any).catch(() => null);
     this.log.log(`pago${montoTexto} de ${fila.telefono_cliente} confirmado por administración: cliente avisado=${ok}`);
     return { contestado: true, motivo: 'pago confirmado por administración, cliente avisado' };
+  }
+
+  // Lleva la respuesta de administración al cliente. No se reenvía tal cual
+  // ("sí, 2500"): entra a la charla como dato interno y el bot la redacta con su
+  // tono, sus frenos y el contexto de lo que venían hablando. Solo con lo que
+  // dijo administración: nada inventado encima.
+  private async llevarRespuestaDeConsulta(c: any, respuesta: string, admin: string, botActivo: boolean) {
+    const quien = c.nombre ?? `+${c.telefono_cliente}`;
+    await this.db.from('bot_consultas_internas').update({ respuesta_admin: respuesta.slice(0, 1000) }).eq('id', c.id).then(() => null, () => null);
+    if (!botActivo) {
+      await this.enviarPorWhatsapp({ to: admin, text: `Tomé tu respuesta para ${quien}, pero el bot está apagado: al cliente no le escribí. Contestale desde RESPONDE.`, kind: 'aviso-interno' } as any).catch(() => null);
+      return { contestado: false, motivo: 'consulta respondida por administración con el bot apagado' };
+    }
+    const nota = `[nota interna — respuesta de administración a la consulta que hiciste ("${String(c.consulta).slice(0, 300)}"): "${respuesta.slice(0, 600)}". Pasale al cliente esta respuesta en una o dos líneas, con tus palabras. Usá SOLO lo que dijo administración: no agregues datos, plazos ni promesas. No menciones a administración ni que lo consultaste.]`;
+    let r: any = null;
+    try {
+      r = await this.charla({ linea: c.linea === 'proveedores' ? 'proveedores' : 'pedidos', telefono: String(c.telefono_cliente), mensaje: nota });
+    } catch (e: any) {
+      this.log.warn(`no pude redactar la respuesta de la consulta ${c.id}: ${e?.message ?? e}`);
+    }
+    if (!r?.respuesta) {
+      await this.enviarPorWhatsapp({ to: admin, text: `Tomé tu respuesta para ${quien}, pero esa charla la está atendiendo una persona: contestale desde RESPONDE.`, kind: 'aviso-interno' } as any).catch(() => null);
+      return { contestado: false, motivo: 'consulta respondida, pero la charla está en manos de una persona' };
+    }
+    const destino = String(c.telefono_cliente).length >= 14 ? `${c.telefono_cliente}@lid` : String(c.telefono_cliente);
+    const env: any = await this.enviarPorWhatsapp({ to: destino, text: r.respuesta, referencia: `consulta/${c.id}` });
+    const ok = !!env?.enviado;
+    await this.db.from('bot_consultas_internas').update({
+      respondido_en: new Date().toISOString(), mensaje_cliente: String(r.respuesta).slice(0, 1000),
+    }).eq('id', c.id).then(() => null, () => null);
+    this.respondeRegistrar(destino.includes('@') ? destino : String(c.telefono_cliente), c.nombre ?? null, '', r.respuesta).catch(() => null);
+    await this.enviarPorWhatsapp({
+      to: admin,
+      text: ok ? `Listo, le respondí a ${quien}: «${String(r.respuesta).slice(0, 300)}»` : `Tomé tu respuesta para ${quien}, pero no le pude mandar el mensaje: contestale desde RESPONDE.`,
+      kind: 'aviso-interno',
+    } as any).catch(() => null);
+    this.log.log(`consulta ${c.id} respondida por administración y llevada a ${c.telefono_cliente}: enviado=${ok}`);
+    return { contestado: ok, motivo: 'consulta respondida por administración, cliente avisado' };
   }
 
   private async bajarMediaWaha(p: any): Promise<{ base64: string; mime: string; nombre: string } | null> {

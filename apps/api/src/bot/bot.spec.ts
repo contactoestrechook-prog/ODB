@@ -816,7 +816,7 @@ describe('audios cortados: la bajada verifica el cierre del OGG y reintenta', ()
   }, 20000);
 });
 
-describe('regla del dueño: los pedidos viven adentro; el WhatsApp interno es solo para plata', () => {
+describe('regla del dueño: las derivaciones viven adentro; las consultas se le preguntan a administración', () => {
   it('derivarAHumano avisa por la campanita del sistema y NO manda WhatsApp', async () => {
     const db = dbFalsa({ lineas_whatsapp: { data: { avisar_proveedores_a: 'jp-id' }, error: null } });
     const { s } = servicio(db);
@@ -830,18 +830,29 @@ describe('regla del dueño: los pedidos viven adentro; el WhatsApp interno es so
     expect(alerta.fila.detalle).toContain('$445.266');
   });
 
-  it('consultarInterno registra adentro y NO manda WhatsApp (antes caía al teléfono de administración)', async () => {
+  it('consultarInterno registra adentro Y le pregunta a administración por WhatsApp (decisión del 16/9)', async () => {
     const db = dbFalsa({ lineas_whatsapp: { data: { derivar_pagos_a: '5491125213601', avisar_proveedores_a: 'jp-id' }, error: null } });
     const { s } = servicio(db);
-    const wsp = jest.fn();
-    (s as any).enviarPorWhatsapp = wsp;
-    (s as any).identificarCliente = jest.fn(async () => ({ existe: false }));
+    const envios: any[] = [];
+    (s as any).enviarPorWhatsapp = jest.fn(async (p: any) => (envios.push(p), { enviado: true, id: 'CONS1' }));
+    (s as any).identificarCliente = jest.fn(async () => ({ existe: true, nombre: 'Laura Blanco' }));
     const r: any = await (s as any).consultarInterno('pedidos', '5491133344455', 'reparto', '¿Llegamos hoy a La Providencia con el pedido?', 'Ruta 52 10001');
-    expect(wsp).not.toHaveBeenCalled();
     expect(r.consultado).toBe(true);
-    expect(r.aviso).toContain('adentro del sistema');
+    expect(r.avisoPorWhatsapp).toBe(true);
+    expect(envios).toHaveLength(1);
+    expect(envios[0].to).toBe('5491125213601');
+    expect(envios[0].text).toContain('De: Laura Blanco');
+    expect(envios[0].text).toContain('La Providencia');
+    expect(envios[0].text).toContain('CITANDO');
+    // campanita y notas siguen
     expect(db.llamadas.insert.some((i: any) => i.tabla === 'alertas_internas')).toBe(true);
     expect(db.llamadas.insert.some((i: any) => i.tabla === 'bot_notas_equipo')).toBe(true);
+    // la consulta queda esperando la respuesta, con el id del aviso
+    const pendiente = db.llamadas.insert.find((i: any) => i.tabla === 'bot_consultas_internas');
+    expect(pendiente.fila.waha_msg_id).toBe('CONS1');
+    expect(pendiente.fila.telefono_cliente).toBe('5491133344455');
+    // al cliente no se le dice a quién se consultó
+    expect(r.aviso).toContain('no le digas a quién');
   });
 });
 
@@ -1083,5 +1094,92 @@ describe('pausa del bot por conversación (auditoría 2026-09-08)', () => {
     const { s } = servicio(dbFalsa());
     const r: any = await s.webhookWaha({ event: 'message.any', payload: { fromMe: false, from: '5491155556666@c.us', body: 'hola' } });
     expect(r.ignorado).toMatch(/message\.any/);
+  });
+});
+
+
+describe('consultas a administración: la respuesta vuelve al cliente (16/9/2026)', () => {
+  const consulta = { id: 'c1', linea: 'pedidos', telefono_cliente: '5491133344455', nombre: 'Laura Blanco', area: 'reparto', consulta: '¿Llegan a Terra 812 hoy?', waha_msg_id: 'CONS1', enviado_a: '5491125213601' };
+  const armar = (o: { consultas?: any[]; pagos?: any[]; botActivo?: boolean } = {}) => {
+    const db = dbFalsa({
+      lineas_whatsapp: { data: { bot_activo: o.botActivo ?? true, derivar_pagos_a: '5491125213601' }, error: null },
+      bot_consultas_internas: { data: o.consultas ?? [consulta], error: null },
+      bot_pagos_en_confirmacion: { data: o.pagos ?? [], error: null },
+      bot_conversaciones: { data: { mensajes: [] }, error: null },
+    });
+    const { s } = servicio(db);
+    const envios: any[] = [];
+    (s as any).enviarPorWhatsapp = jest.fn(async (p: any) => (envios.push(p), { enviado: true, id: 'X' }));
+    (s as any).respondeRegistrar = jest.fn(async () => null);
+    const charla = jest.fn(async () => ({ respuesta: 'Sí, llegamos hoy a Terra 812. El envío sale $2.500.' }));
+    (s as any).charla = charla;
+    return { s, db, envios, charla };
+  };
+
+  it('administración responde citando la consulta → el bot la redacta y se la manda al cliente', async () => {
+    const { s, db, envios, charla } = armar();
+    const r: any = await (s as any).respuestaDeAdministracion('5491125213601', { body: 'si llegamos, 2500 el envio', replyTo: { id: 'true_549@c.us_CONS1' } });
+    expect(r.contestado).toBe(true);
+    // la respuesta entra como nota interna, no se reenvía cruda
+    const nota = (charla.mock.calls[0] as any)[0].mensaje;
+    expect(nota).toContain('nota interna');
+    expect(nota).toContain('si llegamos, 2500 el envio');
+    expect(nota).toContain('SOLO lo que dijo administración');
+    const alCliente = envios.find((e) => e.to === '5491133344455');
+    expect(alCliente.text).toBe('Sí, llegamos hoy a Terra 812. El envío sale $2.500.');
+    const ack = envios.find((e) => e.to === '5491125213601');
+    expect(ack.text).toContain('le respondí a Laura Blanco');
+    expect(db.llamadas.update.some((u: any) => u.tabla === 'bot_consultas_internas' && u.fila.respondido_en)).toBe(true);
+  });
+
+  it('sin citar y con UNA sola consulta esperando, va a esa', async () => {
+    const { s, envios } = armar();
+    const r: any = await (s as any).respuestaDeAdministracion('5491125213601', { body: 'sí, llegamos' });
+    expect(r.contestado).toBe(true);
+    expect(envios.some((e) => e.to === '5491133344455')).toBe(true);
+  });
+
+  it('sin citar y con VARIAS consultas esperando, no adivina: le pide a administración que cite', async () => {
+    const otra = { ...consulta, id: 'c2', telefono_cliente: '5491144455566', nombre: 'Martín', consulta: '¿Tienen Rutini Malbec?', waha_msg_id: 'CONS2' };
+    const { s, envios, charla } = armar({ consultas: [consulta, otra] });
+    const r: any = await (s as any).respuestaDeAdministracion('5491125213601', { body: 'sí' });
+    expect(r.contestado).toBe(false);
+    expect(charla).not.toHaveBeenCalled();
+    expect(envios.some((e) => e.to === '5491133344455' || e.to === '5491144455566')).toBe(false);
+    const pedido = envios.find((e) => e.to === '5491125213601');
+    expect(pedido.text).toContain('CITANDO');
+    expect(pedido.text).toContain('Martín');
+  });
+
+  it('un "recibido" con un pago esperando sigue siendo del pago, aunque haya una consulta', async () => {
+    const pago = { id: 'pc1', linea: 'pedidos', telefono_cliente: '5491177788899', nombre: 'Distribuidora Norte SRL', monto: 85000, waha_msg_id: 'PAGO1' };
+    const { s, envios, charla } = armar({ pagos: [pago] });
+    const r: any = await (s as any).respuestaDeAdministracion('5491125213601', { body: 'recibido ok' });
+    expect(r.contestado).toBe(true);
+    expect(charla).not.toHaveBeenCalled();
+    expect(envios.find((e) => e.to === '5491177788899')?.text).toContain('recibimos tu pago');
+  });
+
+  it('con el bot apagado no le escribe al cliente y se lo dice a administración', async () => {
+    const { s, envios, charla } = armar({ botActivo: false });
+    const r: any = await (s as any).respuestaDeAdministracion('5491125213601', { body: 'sí', replyTo: { id: 'CONS1' } });
+    expect(r.contestado).toBe(false);
+    expect(charla).not.toHaveBeenCalled();
+    expect(envios.find((e) => e.to === '5491125213601')?.text).toContain('el bot está apagado');
+  });
+});
+
+describe('banco de pruebas: auditar el bot no le escribe a administración', () => {
+  it('una consulta desde un número de prueba queda registrada pero NO sale por WhatsApp', async () => {
+    const db = dbFalsa({ lineas_whatsapp: { data: { derivar_pagos_a: '5491125213601' }, error: null } });
+    const { s } = servicio(db);
+    const wsp = jest.fn();
+    (s as any).enviarPorWhatsapp = wsp;
+    (s as any).identificarCliente = jest.fn(async () => ({ existe: false }));
+    const r: any = await (s as any).consultarInterno('pedidos', '5491100000027', 'reparto', '¿Llegan a Terra 812?', 'Terra 812');
+    expect(r.consultado).toBe(true);
+    expect(wsp).not.toHaveBeenCalled();
+    const fila = db.llamadas.insert.find((i: any) => i.tabla === 'bot_consultas_internas');
+    expect(fila.fila.enviado_a).toBe('banco-de-pruebas');
   });
 });
