@@ -2575,6 +2575,7 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
   async respondeRegistrar(
     whatsappId: string, nombre: string | null, textoCliente: string, textoBot: string | null, waMessageId?: string,
     media?: { tipo: 'image' | 'audio' | 'video' | 'document'; url: string } | null,
+    salida?: { waMessageId?: string; humano?: boolean },
   ) {
     // con tipo + url, la app de RESPONDE dibuja la miniatura / el reproductor,
     // igual que hace con los archivos de Car Cash
@@ -2582,6 +2583,8 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
       p_whatsapp_id: whatsappId, p_nombre: nombre ?? '', p_texto_cliente: textoCliente,
       p_texto_bot: textoBot ?? '', p_wa_message_id: waMessageId ?? null,
       p_media_tipo: media?.tipo ?? null, p_media_url: media?.url ?? null,
+      // lo que sale: su id (para no duplicarlo) y si lo escribió una persona
+      ...(salida ? { p_bot_wa_message_id: salida.waMessageId ?? null, p_bot_humano: !!salida.humano } : {}),
     });
   }
 
@@ -2848,6 +2851,14 @@ ${yaRegistrado ? `YA REGISTRADO para la persona del local (no hace falta volver 
     const dichoPorElBot = hist.filter((m) => m.role === 'assistant').slice(-5).map((m) => String(m.content ?? '').replace(/^\[acuse-archivo\] /, '').trim());
     if (texto && dichoPorElBot.includes(texto)) return { ignorado: 'coincide con lo último del bot' };
     this.log.log(`una persona contestó desde el teléfono a ${identidad}: el bot se pausa 6 h en esa charla`);
+    // Lo que se escribió desde el teléfono va también a RESPONDE: sin esto la
+    // charla quedaba con los mensajes del cliente solos y no se entendía nada
+    // (16/9/2026: faltaban 8 respuestas en una charla de 23 mensajes). Con el
+    // id de WhatsApp, un aviso repetido de WAHA no lo duplica.
+    if (texto) {
+      const waId = chat.endsWith('@lid') ? `${identidad}@lid` : identidad;
+      this.respondeRegistrar(waId, null, '', texto, undefined, null, { waMessageId: id || undefined, humano: true }).catch(() => null);
+    }
     await this.db.from('bot_conversaciones').upsert({
       linea: 'pedidos', telefono: identidad,
       mensajes: [...hist, ...(texto ? [{ role: 'assistant', content: texto }] : [])].slice(-40),

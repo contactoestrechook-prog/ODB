@@ -1183,3 +1183,26 @@ describe('banco de pruebas: auditar el bot no le escribe a administración', () 
     expect(fila.fila.enviado_a).toBe('banco-de-pruebas');
   });
 });
+
+describe('respuestas escritas desde el teléfono: también llegan a RESPONDE (16/9/2026)', () => {
+  it('una respuesta tecleada en el teléfono se registra en RESPONDE como de una persona, con su id', async () => {
+    const db = dbFalsa({ bot_envios: { data: null, error: null }, bot_conversaciones: { data: { mensajes: [] }, error: null } });
+    const { s } = servicio(db);
+    const registrar = jest.fn(async () => null);
+    (s as any).respondeRegistrar = registrar;
+    (s as any).resolverContactoWaha = jest.fn(async () => null);
+    const r: any = await (s as any).mensajePropio({ fromMe: true, id: 'true_227208148869238@lid_ABC', to: '227208148869238@lid', body: 'Ya pagué recién', timestamp: Math.floor(Date.now() / 1000) }, '5491122812200');
+    expect(r.pausada).toBe(true);
+    expect(registrar).toHaveBeenCalledWith('227208148869238@lid', null, '', 'Ya pagué recién', undefined, null, { waMessageId: 'true_227208148869238@lid_ABC', humano: true });
+  });
+
+  it('lo que mandó el propio sistema (está en bot_envios) no se registra de nuevo', async () => {
+    const db = dbFalsa({ bot_envios: { data: { waha_id: 'X1' }, error: null } });
+    const { s } = servicio(db);
+    const registrar = jest.fn(async () => null);
+    (s as any).respondeRegistrar = registrar;
+    const r: any = await (s as any).mensajePropio({ fromMe: true, id: 'X1', to: '5491133344455@c.us', body: 'hola', timestamp: Math.floor(Date.now() / 1000) }, '5491122812200');
+    expect(r.ignorado).toBe('lo mandamos nosotros');
+    expect(registrar).not.toHaveBeenCalled();
+  });
+});
