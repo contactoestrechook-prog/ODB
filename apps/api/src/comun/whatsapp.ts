@@ -4,6 +4,30 @@ import { SupabaseClient } from '@supabase/supabase-js';
 // la casa en WAHA. Se registra en bot_envios para que el bot sepa que el
 // mensaje lo mandó el sistema y no una persona desde el teléfono (si no, esa
 // charla quedaría "atendida desde el teléfono" y el bot se callaría 6 h).
+// Número de WhatsApp de un celular argentino, como lo espera WhatsApp: 549 + área
+// + número. En las fichas hay de todo ("11 2281-2200", "541122812200",
+// "+54 9 11…", "011 15…"); sin el 9 WhatsApp acepta el envío y no le llega a
+// nadie (16/9/2026: el enlace para recuperar la clave de Jackie salió a
+// 541122812200). Números de otros países se dejan como vienen.
+export function celularWhatsapp(numero: string): string {
+  let d = String(numero ?? '').replace(/\D/g, '');
+  if (!d) return d;
+  if (d.startsWith('00')) d = d.slice(2);
+  if (d.startsWith('549')) return d;
+  if (d.startsWith('54')) {
+    let resto = d.slice(2);
+    if (resto.startsWith('0')) resto = resto.slice(1);
+    resto = resto.replace(/^(\d{2,4})15(\d{6,8})$/, '$1$2');
+    return resto.length === 10 ? `549${resto}` : d;
+  }
+  // local: "011 15 2281-2200", "11 2281-2200". "15 2281 2200" no trae código de
+  // área: no se inventa uno.
+  if (d.startsWith('15') && d.length === 10) return d;
+  if (d.startsWith('0')) d = d.slice(1);
+  d = d.replace(/^(\d{2,4})15(\d{6,8})$/, '$1$2');
+  return d.length === 10 ? `549${d}` : d;
+}
+
 export async function enviarTextoWhatsapp(
   db: SupabaseClient,
   to: string,
@@ -14,7 +38,7 @@ export async function enviarTextoWhatsapp(
   const wahaKey = process.env.WAHA_API_KEY;
   const sesion = process.env.WAHA_SESSION || 'default';
   if (!wahaUrl || !wahaKey) return { enviado: false, motivo: 'WAHA sin configurar' };
-  const digitos = String(to ?? '').replace(/\D/g, '');
+  const digitos = celularWhatsapp(String(to ?? ''));
   if (digitos.length < 8) return { enviado: false, motivo: 'Número inválido' };
   const ctrl = new AbortController();
   const reloj = setTimeout(() => ctrl.abort(), 15_000);
