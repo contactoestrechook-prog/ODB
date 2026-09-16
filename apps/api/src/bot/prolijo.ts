@@ -133,3 +133,29 @@ export function emprolijarListado(t: string): string {
   r = r.replace(/(\d)\s*[xX*]\s*(?=\$|\d)/g, '$1 × ');
   return r.replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n').trim();
 }
+
+// Cómo se nombra la sucursal central ante el cliente (Leandro, 16/9/2026:
+// "Saint o ST, mejor decir sucursal Saint Thomas, Suc ST"). En la base se
+// llama "Suc Sant Thomas" y la caja la usa así: se corrige solo lo que se le
+// dice al cliente.
+export const SUCURSAL_CENTRAL = 'sucursal Saint Thomas';
+export function nombreSucursalCliente(nombre: string | null | undefined): string {
+  const n = String(nombre ?? '').trim();
+  if (!n || /\bsa(i)?n(t)?h?\s*th?omas\b/i.test(n)) return SUCURSAL_CENTRAL;
+  return n.replace(/^Suc\.?\s+/i, '');
+}
+export function saintThomas(t: string): string {
+  return t
+    .replace(/\b(la\s+)?(suc(ursal)?\.?\s+)?(Sant|San|Sainth?)\s+Th?omas\b/gi, (m, la) => `${la ?? ''}${SUCURSAL_CENTRAL}`)
+    .replace(/\b(sucursal\s+)+sucursal Saint Thomas/gi, SUCURSAL_CENTRAL)
+    .replace(/\b(en|a|de)\s+sucursal Saint Thomas/g, (_, prep) => `${prep === 'de' ? 'de la' : `${prep} la`} sucursal Saint Thomas`)
+    .replace(/(^|[.?!:]\s+|\n)sucursal Saint Thomas/g, (_, a) => `${a}Sucursal Saint Thomas`);
+}
+
+// Los mensajes automáticos de WhatsApp Business (bienvenida y fuera de
+// horario) salen "desde el teléfono" pero no los escribió nadie: no pausan.
+// 16/9/2026 pausaron charlas en medio de una consulta de whiskies.
+export function esAutomaticoWhatsappBusiness(t: string | null | undefined): boolean {
+  const s = String(t ?? '').trim();
+  return /^Gracias por comunicarte con ODB\b/i.test(s) || /^Gracias por tu mensaje\. En este momento este celular se encuentra fuera del horario/i.test(s);
+}

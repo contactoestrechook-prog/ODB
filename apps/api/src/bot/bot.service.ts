@@ -1,5 +1,5 @@
 import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
-import { emprolijarListado, nombreLimpio, saludoSegunHora, saludarConBienvenida, niegaPercepcion, respetuosoSinConfianza } from './prolijo';
+import { emprolijarListado, nombreLimpio, saludoSegunHora, saludarConBienvenida, niegaPercepcion, respetuosoSinConfianza, saintThomas, nombreSucursalCliente, esAutomaticoWhatsappBusiness } from './prolijo';
 import { oggCompleto } from './ogg';
 import { atiendeUnaPersona, motivoDeSilencio } from './pausa';
 import { SupabaseClient } from '@supabase/supabase-js';
@@ -1292,7 +1292,7 @@ export class BotService {
     // los emojis, las exclamaciones y las muletillas de amigo se corrigen acá.
     {
       const antes = respuesta;
-      respuesta = respetuosoSinConfianza(respuesta);
+      respuesta = saintThomas(respetuosoSinConfianza(respuesta));
       if (antes !== respuesta) this.log.log(`registro ajustado (usted/confianzudo) para ${telefono}`);
     }
 
@@ -1868,7 +1868,7 @@ export class BotService {
       ...(alternativas.length
         ? {
             alternativasDeLaCategoria: alternativas,
-            aviso: `Alternativas con stock en ${nombrePick.replace(/^Suc /, '')} (de ahí salen los pedidos) de la categoría ${categoriaAlt ?? ''}: PRIMERO la misma marca en otro tamaño (mismaMarca: true), después el resto de menor a mayor precio. Si lo que pidió no se puede pedir, el "no tenemos X" va SIEMPRE con "sí tenemos Y a $Z" en el mismo mensaje. NUNCA cotices un producto distinto al que nombró el cliente sin decirlo en la primera línea.`,
+            aviso: `Alternativas con stock en ${nombreSucursalCliente(nombrePick)} (de ahí salen los pedidos) de la categoría ${categoriaAlt ?? ''}: PRIMERO la misma marca en otro tamaño (mismaMarca: true), después el resto de menor a mayor precio. Si lo que pidió no se puede pedir, el "no tenemos X" va SIEMPRE con "sí tenemos Y a $Z" en el mismo mensaje. NUNCA cotices un producto distinto al que nombró el cliente sin decirlo en la primera línea.`,
           }
         : {}),
     };
@@ -1939,7 +1939,7 @@ export class BotService {
     // cotizar 48 latas cuando en Sant Thomas había 30 (ronda 5).
     const { data: sucPick } = await this.db.from('sucursales').select('id, nombre').eq('activa', true).eq('pickup', true).limit(1).maybeSingle();
     const sucPickId = sucPick?.id ?? null;
-    const sucPickNombre = String(sucPick?.nombre ?? 'Sant Thomas').replace(/^Suc /, '');
+    const sucPickNombre = nombreSucursalCliente(sucPick?.nombre);
 
     for (const it of items) {
       const sku = String(it.sku ?? '').trim();
@@ -2140,7 +2140,7 @@ export class BotService {
       // "total 69.200" sin aclarar que el envío no está incluido ni cómo se paga)
       decirleAlCliente: [
         `El total ${Number(p.total).toLocaleString('es-AR')} es de la mercadería.`,
-        esEnvio ? 'El costo del envío no está incluido: lo define el sector de reparto, al que ya le di aviso.' : `Se retira en la sucursal Sant Thomas (Castex 3601) con el código ${p.qr_retiro ?? ''}.`,
+        esEnvio ? 'El costo del envío no está incluido: lo define el sector de reparto, al que ya le di aviso.' : `Se retira en la sucursal Saint Thomas (Castex 3601) con el código ${p.qr_retiro ?? ''}.`,
         esEnvio ? 'Se abona al recibir, en efectivo o con tarjeta; si preferís, te paso un link de Mercado Pago, o administración te pasa los datos para transferir por acá.' : 'Se abona al retirar, en efectivo o con tarjeta; si preferís, te paso un link de Mercado Pago.',
       ],
     };
@@ -2825,6 +2825,8 @@ export class BotService {
       // ante la duda, NO pausar: pausar de más le calla el bot a un cliente
       if (error) return { ignorado: 'registro de envíos no disponible' };
     }
+    // la bienvenida y el fuera de horario de WhatsApp Business no son una persona
+    if (esAutomaticoWhatsappBusiness(p?.body ?? p?._data?.message?.conversation)) return { ignorado: 'automático de WhatsApp Business' };
     // NOWEB: lo que se manda desde el teléfono llega con `to` vacío y el chat en
     // `_data.key.remoteJid` (o en `from`, que en un fromMe es la otra persona)
     const chat = String(p?.to ?? p?.chatId ?? p?._data?.key?.remoteJid ?? p?.from ?? '');
@@ -3234,7 +3236,7 @@ export class BotService {
         titulo,
         renglones,
         total: mTotal ? mTotal[1].replace(/\s/g, '') : null,
-        pie: `Precios al ${hoy} · Sant Thomas, Castex 3601`,
+        pie: `Precios al ${hoy} · Suc. Saint Thomas (ST), Castex 3601`,
       });
       const ruta = `carteles/${new Date().toISOString().slice(0, 7)}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.png`;
       const { error } = await this.db.storage.from('publico').upload(ruta, png, { contentType: 'image/png', upsert: true });

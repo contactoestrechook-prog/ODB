@@ -672,7 +672,7 @@ export class PedidosService {
     const telefono = pedido.cliente?.telefono;
     // solo estados que le importan al cliente y solo si tenemos su teléfono
     const avisables: Record<string, string> = {
-      listo: `Su pedido de O.D.B está listo para retirar.${pedido.qr_retiro ? ` Código: ${pedido.qr_retiro}.` : ''} Lo esperamos en Suc Sant Thomas.`,
+      listo: `Su pedido de O.D.B está listo para retirar.${pedido.qr_retiro ? ` Código: ${pedido.qr_retiro}.` : ''} Lo esperamos en la sucursal Saint Thomas (Castex 3601).`,
       en_camino: 'Su pedido de O.D.B salió y está en camino a su domicilio.',
       entregado: 'Su pedido de O.D.B fue entregado. Gracias por su compra.',
     };
