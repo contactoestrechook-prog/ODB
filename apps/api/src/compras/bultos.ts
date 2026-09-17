@@ -462,9 +462,14 @@ export function interpretarRenglon(l: LecturaRenglon): RenglonInterpretado {
       for (const a of [21, 10.5, 27]) {
         const neto = importe / (1 + a / 100);
         const q = neto / precio;
-        const u = Math.round(q);
-        const esCantidad = u === cantidad || (bulto != null && u === cantidad * bulto);
-        if (esCantidad && Math.abs(q - u) <= 0.0005 * Math.max(1, u)) {
+        // la cantidad puede ser kilos (Cabaña Piedras Blancas, 17/9/2026:
+        // "QUESO BRIE 3,06 × $25.566,97 = $94.664,27" con IVA). Antes solo se
+        // aceptaban enteros, el importe con IVA pasaba como neto y el peso
+        // implícito inflaba los kilos un 21% (3,06 → 3,703), bajando el costo
+        // de TODA la factura al repartir el pie.
+        const cerca = (x: number) => Math.abs(q - x) <= 0.0005 * Math.max(1, x);
+        const esCantidad = cerca(cantidad) || (bulto != null && cerca(cantidad * bulto));
+        if (esCantidad) {
           importe = Math.round(neto * 100) / 100;
           importeNeto = importe;
           alicuotaDeducida = a;
@@ -500,8 +505,9 @@ export function interpretarRenglon(l: LecturaRenglon): RenglonInterpretado {
     return { ...base, decision: 'bonificado' };
   }
 
-  // 3 — peso con columna: evidencia escrita, y tiene que cerrar con el importe
-  if (l.puedePorPeso && kg > 0 && Math.abs(kg - cantidad) > 0.01 && precio > 0) {
+  // 3 — peso con columna: evidencia escrita, y tiene que cerrar con el importe.
+  //     Si la columna de kilos repite la cantidad (3,06 y 3,06) también es peso.
+  if (l.puedePorPeso && kg > 0 && precio > 0 && (Math.abs(kg - cantidad) > 0.01 || !Number.isInteger(kg))) {
     const esperado = kg * precio;
     const cierra = importe == null || esperado <= 0 || Math.abs(importe - esperado) / esperado < 0.05;
     if (cierra) {

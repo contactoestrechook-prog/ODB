@@ -691,3 +691,40 @@ describe('interpretarRenglon — importe leído con el IVA adentro', () => {
     expect(r.decision).toBe('no_cierra');
   });
 });
+
+
+// Cabaña Piedras Blancas 0013-00007539 (17/9/2026): quesos por kilo con el
+// importe CON IVA. Neto del pie $309.543,05 = suma de cantidad × precio.
+describe('interpretarRenglon — kilos con el importe con IVA', () => {
+  const leer = (o: any) => interpretarRenglon({
+    descripcion: '', cantidad: 1, precio: 0, importe: null, kg: null, puedePorPeso: true,
+    unidadesPorBulto: null, bonificacionPct: null, esDescuento: false, ...o,
+  });
+  const factura = [
+    { descripcion: 'QUESO BRIE CUÑA X UNI', cantidad: 12, precio: 5839, importe: 84782.28, kg: null },
+    { descripcion: 'QUESO BRIE', cantidad: 3.06, precio: 25566.97, importe: 94664.27, kg: 3.06 },
+    { descripcion: 'QUESO MINIBRIE', cantidad: 1.75, precio: 26830.35, importe: 56813.26, kg: 1.75 },
+    { descripcion: 'QUESO CHEVROTIN CUÑA', cantidad: 0.85, precio: 47025.88, importe: 48366.12, kg: 0.85 },
+    { descripcion: 'QUESO FETA CUÑA', cantidad: 0.92, precio: 46305.69, importe: 51547.49, kg: 0.92 },
+    { descripcion: 'QUESO UNTABLE DE CABRA NATURAL', cantidad: 3, precio: 5285.63, importe: 19186.84, kg: null },
+    { descripcion: 'QUESO UNTABLE DE CABRA FINAS HIERBAS', cantidad: 3, precio: 5285.63, importe: 19186.84, kg: null },
+  ];
+
+  it('el brie de 3,06 kg queda en 3,06 kg (no 3,703) y por peso', () => {
+    const r = leer(factura[1]);
+    expect(r.cantidad).toBeCloseTo(3.06, 3);
+    expect(r.porPeso).toBe(true);
+    expect(r.alicuotaDeducida).toBe(21);
+  });
+
+  it('los renglones suman el neto del pie', () => {
+    const suma = factura.reduce((acc, f) => acc + leer(f).cantidad * f.precio, 0);
+    expect(suma).toBeCloseTo(309543.05, 0);
+  });
+
+  it('una horma de 0,95 kg con importe neto sigue siendo peso implícito', () => {
+    const r = leer({ descripcion: 'Queso Pategras x fraccion', cantidad: 1, precio: 20000, importe: 19000 });
+    expect(r.porPeso).toBe(true);
+    expect(r.cantidad).toBeCloseTo(0.95, 3);
+  });
+});
