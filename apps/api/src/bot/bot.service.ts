@@ -2917,6 +2917,9 @@ export class BotService {
     // cada minuto (recuperarEntrantesPerdidos) encuentra lo que nunca llegó o
     // quedó a medias por un reinicio. 16/9/2026: un deploy devolvió 502 a n8n
     // y el pedido de una clienta se perdió sin rastro.
+    // canales, estados y grupos no son una persona: nada que contestar ni que anotar
+    // (16/9/2026 el bot le contestó dos veces a un canal de YouTube)
+    if (/@newsletter$|@broadcast$|@g\.us$/.test(String(p.from ?? ''))) return { ignorado: 'canal, estado o grupo' };
     const idEntrante = String(p.id ?? '').trim();
     if (idEntrante) {
       const alta = await this.db.from('bot_entrantes').insert({

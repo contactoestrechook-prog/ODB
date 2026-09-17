@@ -1309,4 +1309,11 @@ describe('archivos mandados desde el teléfono: también se ven en RESPONDE (16/
       { tipo: 'image', url: 'https://x/publico/whatsapp/170806604746941/enviado-1.jpg' },
       { waMessageId: 'true_170806604746941@lid_ABC', humano: true });
   });
+  it('canales, estados y grupos se ignoran sin contestar', async () => {
+    const s: any = Object.create(BotService.prototype);
+    for (const from of ['120363192235385360@newsletter', 'status@broadcast', '5491132514278-1539091510@g.us']) {
+      const r: any = await s.webhookWaha({ event: 'message', payload: { id: 'x', from, body: 'TODOS LOS CAPÍTULOS YA EN YOUTUBE' } });
+      expect(r.ignorado).toBe('canal, estado o grupo');
+    }
+  });
 });
