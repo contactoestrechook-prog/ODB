@@ -466,7 +466,23 @@ export class ListasService {
   // mayonesa de Distri Sur quedaba "9,5 kg" en vez de 10 unidades con 5% off—
   // la lectura vieja seguiría mostrando el error. Se rehace sobre la lectura
   // cruda del renglón, que quedó guardada, y se trae la alícuota del catálogo.
+  // Las percepciones que el proveedor cobra siempre, en % del neto (promedio de
+  // sus últimas 6 facturas registradas). Con eso la pantalla de compras avisa
+  // "este proveedor siempre cobra IIBB 5%" cuando una factura no lo trae.
+  private async impuestosHabituales(proveedorId?: string | null) {
+    if (!proveedorId) return null;
+    const { data } = await this.db.from('facturas_proveedor')
+      .select('neto, percepcion_iva, percepcion_iibb, impuestos_internos')
+      .eq('proveedor_id', proveedorId).gt('neto', 0)
+      .order('creado_en', { ascending: false }).limit(6);
+    const filas = (data ?? []) as any[];
+    if (!filas.length) return null;
+    const prom = (k: string) => Math.round((filas.reduce((a, f) => a + Number(f[k] ?? 0) / Number(f.neto), 0) / filas.length) * 10000) / 100;
+    return { facturas: filas.length, percepcionIva: prom('percepcion_iva'), percepcionIibb: prom('percepcion_iibb'), impuestosInternos: prom('impuestos_internos') };
+  }
+
   private async actualizarLectura(resultado: any) {
+    resultado.impuestosHabituales = await this.impuestosHabituales(resultado?.proveedor?.match?.id).catch(() => null);
     const items = Array.isArray(resultado?.items) ? resultado.items : [];
     for (const i of items) {
       if (i?.descripcion == null || i?.precio == null) continue;
@@ -795,6 +811,7 @@ export class ListasService {
       },
       comprobante: datos.comprobante ?? null,
       impuestos: datos.impuestos ?? null,
+      impuestosHabituales: await this.impuestosHabituales(proveedor?.id).catch(() => null),
       archivoUrl, // ruta del original en el bucket: viaja con la factura al registrarla
       regimenEspecial, // true = IVA efectivo fuera de banda (cigarrillos/bebidas): el front no auto-suma IVA
       notasManuscritas: datos.notasManuscritas ?? null,

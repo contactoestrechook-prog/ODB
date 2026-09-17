@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { prepararComprobante } from './comprimirImagen';
 import { ALICUOTAS_IVA, repartirIva } from '../lib/iva-compras';
 import { conversionSugerida } from '../lib/presentacion';
+import { PanelImpuestos } from './PanelImpuestos';
 
 // Mismo redondeo de góndola que aplica el servidor al guardar el precio
 // (apps/api/src/compras/precio.ts): a la centena, de 50 para arriba sube. Se
@@ -1634,71 +1635,19 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                 <p>{foto.proveedor?.detectado?.nombre ?? 'Proveedor no detectado'} {foto.proveedor?.detectado?.cuit ? `· CUIT ${foto.proveedor.detectado.cuit}` : ''} {foto.proveedor?.match ? '· ✓ en el sistema' : '· ⚠ no está en el sistema'}</p>
               </div>
 
-              {/* IMPUESTOS DEL PIE, arriba y a la vista (17/9/2026). Administración
-                  preguntó "¿los impuestos los tenemos que marcar nosotros?" y no
-                  encontraba dónde corregirlos: estaban abajo de todos los renglones
-                  y solo en pesos. Se leen solos del papel; acá se ven como % sobre
-                  el neto (así los piensa quien carga: IVA 21 + perc. IVA 3 + IIBB 5
-                  = 29%) y se corrigen en % o en $. */}
-              <div className="rounded-lg border-2 border-[#141414]/15 bg-white p-3 text-xs">
-                <div className="flex flex-wrap items-baseline justify-between gap-2">
-                  <p className="text-sm font-semibold text-black">Impuestos de la factura</p>
-                  {netoDoc != null && netoDoc > 0 && (
-                    <p className="text-black/60">
-                      Sobre el neto: IVA {ivaDoc != null ? (ivaDoc / netoDoc * 100).toFixed(1).replace('.', ',') : '—'}%
-                      {percIvaDoc > 0 ? ` + perc. IVA ${(percIvaDoc / netoDoc * 100).toFixed(1).replace('.', ',')}%` : ''}
-                      {percIibbDoc > 0 ? ` + IIBB ${(percIibbDoc / netoDoc * 100).toFixed(1).replace('.', ',')}%` : ''}
-                      {impIntDoc > 0 ? ` + internos ${(impIntDoc / netoDoc * 100).toFixed(1).replace('.', ',')}%` : ''}
-                      {' = '}<b className="text-black">{(((ivaDoc ?? 0) + (percepcionesAlCosto ? percepciones : 0) + impIntDoc) / netoDoc * 100).toFixed(1).replace('.', ',')}%</b>
-                    </p>
-                  )}
-                </div>
-                <p className="mt-0.5 text-black/55">Se leen solos del pie del papel. Si alguno está mal o falta (por ejemplo la percepción de IIBB), corregilo acá: en % sobre el neto o en pesos. Todos los costos se recalculan.</p>
-                <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
-                  {[['neto', 'Neto'], ['iva', 'IVA $'], ['percepcionIva', 'Perc. IVA'], ['percepcionIibb', 'Perc. IIBB'], ['impuestosInternos', 'Imp. internos'], ['descuentoGlobal', 'Desc. del pie'], ['otros', 'Otros'], ['total', 'TOTAL']].map(([k, l]) => {
-                    const conPct = (k === 'percepcionIva' || k === 'percepcionIibb' || k === 'impuestosInternos') && netoDoc != null && netoDoc > 0;
-                    const pct = conPct && numImp(fotoImp?.[k]) > 0 ? Math.round(numImp(fotoImp?.[k]) / (netoDoc as number) * 10000) / 100 : null;
-                    return (
-                      <label key={k} className="flex flex-col gap-0.5">
-                        <span className="text-black/60 font-medium">{l}{k === 'iva' && alicEfectiva != null ? ` (${(alicEfectiva * 100).toFixed(1).replace('.', ',')}%)` : ''}</span>
-                        <span className="flex gap-1">
-                          {conPct && (
-                            <span className="flex items-center rounded border border-black/15 bg-white pr-1.5">
-                              <input
-                                // se aplica al salir del casillero (o con Enter): mientras se
-                                // escribe "2,5" no se pisa el número a medio tipear
-                                key={`${k}-${fotoImp?.[k] ?? ''}`}
-                                type="number" step="0.1" placeholder="%" aria-label={`${l} en %`}
-                                defaultValue={pct ?? ''}
-                                onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
-                                onBlur={(e) => {
-                                  const v = e.target.value === '' ? null : Number(e.target.value.replace(',', '.'));
-                                  if (v != null && !Number.isFinite(v)) return;
-                                  const monto = v == null ? null : Math.round((netoDoc as number) * v) / 100;
-                                  if (monto !== (fotoImp?.[k] ?? null)) setFotoImp((x: any) => ({ ...x, [k]: monto }));
-                                }}
-                                className="w-14 bg-transparent px-1.5 py-1 text-right text-sm text-black outline-none"
-                              />
-                              <span className="text-black/45">%</span>
-                            </span>
-                          )}
-                          <input type="number" value={fotoImp?.[k] ?? ''} onChange={(e) => setFotoImp((x: any) => ({ ...x, [k]: e.target.value === '' ? null : Number(e.target.value) }))} className="min-w-0 flex-1 rounded border border-black/15 bg-white px-2 py-1 text-right text-sm text-black" />
-                        </span>
-                      </label>
-                    );
-                  })}
-                </div>
-                {totalDoc != null && netoDoc != null && (() => {
-                  const suma = netoDoc + (ivaDoc ?? 0) + percIvaDoc + percIibbDoc + impIntDoc + otrosDoc - descuentoGlobalDoc;
-                  const dif = Math.round((totalDoc - suma) * 100) / 100;
-                  return Math.abs(dif) > 1
-                    ? <p className="mt-2 font-semibold text-[#932A1F]">⚠ El pie no suma el total: faltan {pesos(dif)}{netoDoc > 0 ? ` (${(dif / netoDoc * 100).toFixed(1).replace('.', ',')}% del neto)` : ''}. Suele ser una percepción que no se leyó: cargala arriba.</p>
-                    : <p className="mt-2 text-emerald-800">✓ Neto + impuestos = total de la factura.</p>;
-                })()}
-                <p className="mt-1 text-[10px] text-black/45">
-                  Los impuestos internos <b>siempre</b> son costo. Las percepciones (IVA e IIBB) son pago a cuenta: solo dejan de ser costo si después se usan contra ese impuesto.
-                </p>
-              </div>
+              {/* IMPUESTOS DE LA FACTURA (17/9/2026). Leandro: "necesito que lea
+                  bien los impuestos y que si los lee mal todo se pueda sacar o
+                  agregar con un click". Arriba y a la vista: cada impuesto leído
+                  es una pastilla con ✕; los que faltan se agregan con un click en
+                  su % (o con "lo que falta"); si el pie no cierra con el total, el
+                  sistema dice cuál es el impuesto y ofrece el arreglo exacto
+                  (app/lib/pie-factura.ts, con tests). Todo se deshace con ↺. */}
+                            <PanelImpuestos
+                key={foto.archivoUrl ?? foto.comprobante?.numero ?? 'factura'}
+                fotoImp={fotoImp} setFotoImp={setFotoImp}
+                habituales={foto.impuestosHabituales ?? null}
+                sumaRenglones={sumaRenglones}
+              />
 
               {/* La IA pregunta lo que no entendió; aclarás y vuelve a leer teniéndolo en cuenta */}
               <div className={'rounded-lg px-3 py-2.5 space-y-2 border ' + (foto.dudas?.length ? 'border-amber-300 bg-amber-50' : 'border-black/10 bg-[#F0EBE2]/40')}>
