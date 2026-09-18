@@ -237,6 +237,16 @@ export class BotService {
         { onConflict: 'telefono' },
       ).then(() => null, () => null);
       this.log.log(`contacto resuelto: ${claveContacto} → ${telefonoReal ?? '?'} · ${nombre ?? 'sin nombre de agenda'}`);
+      // el nombre viaja a RESPONDE apenas se conoce: sin esto el panel muestra
+      // "+110634079383788@lid" y la charla no se puede encontrar (18/9/2026).
+      // Con los textos vacíos, la RPC solo crea/nombra el contacto: no agrega mensajes.
+      const nombrePanel = nombre || (telefonoReal ? `+${telefonoReal}` : '');
+      if (nombrePanel) {
+        this.respondeRpc('odb_registrar_turno', {
+          p_whatsapp_id: esLid ? `${claveContacto}@lid` : (telefonoReal ?? claveContacto),
+          p_nombre: nombrePanel, p_texto_cliente: '', p_texto_bot: '', p_wa_message_id: null,
+        }).catch(() => null);
+      }
       return { telefonoReal, nombre };
     } catch (e: any) {
       this.log.warn(`no se pudo resolver el contacto ${claveContacto}: ${e?.message ?? e}`);
@@ -2564,14 +2574,43 @@ export class BotService {
   // en cada pausa que nace en ODB, para que la app muestre el estado real y la
   // reactivación sea desde ahí.
   async respondePausar(telefonoOWaId: string, nombre?: string | null) {
-    const t = String(telefonoOWaId);
-    const waId = t.includes('@') ? t : (t.replace(/\D/g, '').length >= 14 ? `${t.replace(/\D/g, '')}@lid` : t.replace(/\D/g, ''));
+    const ident = await this.identidadResponde(telefonoOWaId, nombre);
+    const waId = ident.waId;
     if (/^54911000000\d{1,3}$/.test(waId)) return; // banco de pruebas
-    const r = await this.respondeRpc('odb_pausar_contacto', { p_whatsapp_id: waId, p_nombre: nombre ?? null });
+    const r = await this.respondeRpc('odb_pausar_contacto', { p_whatsapp_id: waId, p_nombre: ident.nombre || null });
     if (!r) this.log.warn(`no pude pausar ${waId} en RESPONDE: la app va a mostrar el bot activo`);
   }
 
   // Deja el turno escrito en RESPONDE (best-effort: si falla, el bot igual atendió)
+  // Identidad ÚNICA de una charla en RESPONDE (18/9/2026). El panel mostraba
+  // "+110634079383788@lid" sin nombre —imposible de encontrar— y una respuesta
+  // mandada al número real abría un contacto NUEVO para la misma persona. Acá se
+  // resuelve siempre al mismo id (el @lid si el contacto lo tiene) y se completa
+  // el nombre de la agenda, que el sistema ya conoce.
+  private async identidadResponde(destino: string, nombre?: string | null) {
+    const t = String(destino ?? '');
+    const digitos = t.replace(/\D/g, '');
+    // sin contacto en la base vale la forma del id: 14 dígitos o más no es un
+    // teléfono argentino, es un @lid
+    let waId = t.includes('@') ? t : (digitos.length >= 14 ? `${digitos}@lid` : digitos);
+    let nombreFinal = (nombre ?? '').trim();
+    if (!digitos) return { waId, nombre: nombreFinal };
+    try {
+      const { data } = await this.db
+        .from('bot_contactos').select('telefono, telefono_real, lid, nombre, nombre_wa')
+        .or(`telefono.eq.${digitos},telefono_real.eq.${digitos}`).limit(1).maybeSingle();
+      const c: any = data;
+      if (c) {
+        const lid = String(c.lid ?? '');
+        if (lid) waId = lid;
+        else if (!t.includes('@')) waId = String(c.telefono ?? digitos);
+        // el contacto existe y NO tiene @lid: es un teléfono común
+        if (!nombreFinal) nombreFinal = String(c.nombre ?? c.nombre_wa ?? '').trim() || (c.telefono_real ? `+${c.telefono_real}` : '');
+      }
+    } catch { /* si la consulta falla, se registra igual con lo que vino */ }
+    return { waId, nombre: nombreFinal };
+  }
+
   async respondeRegistrar(
     whatsappId: string, nombre: string | null, textoCliente: string, textoBot: string | null, waMessageId?: string,
     media?: { tipo: 'image' | 'audio' | 'video' | 'document'; url: string } | null,
@@ -2579,8 +2618,9 @@ export class BotService {
   ) {
     // con tipo + url, la app de RESPONDE dibuja la miniatura / el reproductor,
     // igual que hace con los archivos de Car Cash
+    const ident = await this.identidadResponde(whatsappId, nombre);
     await this.respondeRpc('odb_registrar_turno', {
-      p_whatsapp_id: whatsappId, p_nombre: nombre ?? '', p_texto_cliente: textoCliente,
+      p_whatsapp_id: ident.waId, p_nombre: ident.nombre, p_texto_cliente: textoCliente,
       p_texto_bot: textoBot ?? '', p_wa_message_id: waMessageId ?? null,
       p_media_tipo: media?.tipo ?? null, p_media_url: media?.url ?? null,
       // lo que sale: su id (para no duplicarlo) y si lo escribió una persona
