@@ -1,6 +1,7 @@
 import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import { volumenMl, etiquetaVolumen, pideTamano, PALABRA_GENERICA } from './formatos';
 import { emprolijarListado, nombreLimpio, saludoSegunHora, saludarConBienvenida, niegaPercepcion, respetuosoSinConfianza, saintThomas, nombreSucursalCliente, esAutomaticoWhatsappBusiness } from './prolijo';
+import { controlDeFechas } from './fechas';
 import { oggCompleto } from './ogg';
 import { atiendeUnaPersona, motivoDeSilencio } from './pausa';
 import { SupabaseClient } from '@supabase/supabase-js';
@@ -597,7 +598,9 @@ export class BotService {
     if (infoVigente) {
       system.push({
         type: 'text',
-        text: `INFORMACIÓN VIGENTE DE LA CASA (cargada por la dirección). Es OFICIAL: afirmá estos datos tal cual están, incluidos precios de entradas, fechas y promociones del evento — la regla de no inventar precios aplica a los productos del catálogo, no a esto. No digas "lo vas a ver en el link": el dato lo tenés acá.\n${infoVigente.slice(0, 4000)}`,
+        // el día de la semana lo calcula el sistema: en la nota decía "jueves
+        // 30/10/2026" y el 30 cae viernes; el bot se lo dijo así a un cliente (18/9/2026)
+        text: `INFORMACIÓN VIGENTE DE LA CASA (cargada por la dirección). Es OFICIAL: afirmá estos datos tal cual están, incluidos precios de entradas, fechas y promociones del evento — la regla de no inventar precios aplica a los productos del catálogo, no a esto. No digas "lo vas a ver en el link": el dato lo tenés acá.\n${infoVigente.slice(0, 4000)}\n${controlDeFechas(infoVigente)}`.trim(),
       });
     }
 
