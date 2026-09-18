@@ -159,3 +159,13 @@ export function esAutomaticoWhatsappBusiness(t: string | null | undefined): bool
   const s = String(t ?? '').trim();
   return /^Gracias por comunicarte con ODB\b/i.test(s) || /^Gracias por tu mensaje\. En este momento este celular se encuentra fuera del horario/i.test(s);
 }
+
+// EL ENVÍO EN ODB ES SIN CARGO (regla de Leandro, 18/9/2026). El bot cerraba
+// los pedidos con "es el total de la mercadería; el envío va aparte" y así se
+// lo dijo a un cliente con un pedido de $176.000. Si vuelve a escribirlo, se
+// corrige antes de que salga.
+const RE_ENVIO_APARTE = /[^.\n]*\b(env[ií]o|entrega|flete)\b[^.\n]*\b(aparte|no est[aá] incluid|no incluye|lo define el sector de reparto|se cotiza|tiene un costo|costo del env[ií]o)\b[^.\n]*[.;]?/gi;
+export function envioSinCargo(t: string): string {
+  if (!RE_ENVIO_APARTE.test(t)) return t;
+  return String(t).replace(RE_ENVIO_APARTE, ' El envío es sin cargo.').replace(/[ \t]{2,}/g, ' ').replace(/ +\n/g, '\n').replace(/\n +/g, '\n').trim();
+}

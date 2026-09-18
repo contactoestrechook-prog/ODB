@@ -1,6 +1,6 @@
 import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import { volumenMl, etiquetaVolumen, pideTamano, PALABRA_GENERICA } from './formatos';
-import { emprolijarListado, nombreLimpio, saludoSegunHora, saludarConBienvenida, niegaPercepcion, respetuosoSinConfianza, saintThomas, nombreSucursalCliente, esAutomaticoWhatsappBusiness } from './prolijo';
+import { emprolijarListado, nombreLimpio, saludoSegunHora, saludarConBienvenida, niegaPercepcion, respetuosoSinConfianza, saintThomas, envioSinCargo, nombreSucursalCliente, esAutomaticoWhatsappBusiness } from './prolijo';
 import { controlDeFechas } from './fechas';
 import { oggCompleto } from './ogg';
 import { atiendeUnaPersona, motivoDeSilencio } from './pausa';
@@ -960,18 +960,14 @@ export class BotService {
       } catch (e: any) { this.log.warn(`verificador de preguntas falló: ${e?.message ?? e}`); }
     }
 
-    // A (ronda 12): un total cerrado sin decir que el envío va aparte deja al
-    // cliente creyendo que paga eso. Si el turno cotizó/creó pedido a domicilio
-    // y el texto no lo aclara, se agrega la línea.
-    const hablaDeEnvio = /\b(env[ií]o|domicilio|se lo mando|se lo llevamos|reparto)\b/i.test(respuesta) || /\b(env[ií]o|domicilio)\b/i.test(texto);
-    const dioTotal = /total[^.\n]{0,40}\$?\s?\d{1,3}[.\s]?\d{3}/i.test(respuesta);
-    if (dioTotal && hablaDeEnvio && !/(envío|envio)[^.\n]{0,40}(aparte|no est[aá] incluid|no incluye)|mercader[ií]a/i.test(respuesta)) {
-      // La aclaración va al FINAL, no intercalada: el "[^.\n]{0,20}" del final
-      // cortaba en cualquier lado y salió publicado "Necesito que me def (es el
-      // total de la mercadería; el envío va aparte)ina estos puntos". Un
-      // paréntesis en medio de una palabra es lo más feo que puede mandar.
-      respuesta = `${respuesta.trimEnd()}\n\nEs el total de la mercadería; el envío va aparte.`;
-      this.log.log(`aclaración de envío agregada al final para ${telefono}`);
+    // EL ENVÍO EN ODB ES SIN CARGO (regla del dueño, 18/9/2026). Antes el bot
+    // cerraba los pedidos con "el total es de la mercadería; el envío va
+    // aparte" y le cobró de más, de palabra, a un cliente con un pedido de
+    // $176.000. Si igual se le escapa, acá se corrige el texto ya escrito.
+    const conEnvio = envioSinCargo(respuesta);
+    if (conEnvio !== respuesta) {
+      respuesta = conEnvio;
+      this.log.warn(`decía que el envío iba aparte a ${telefono}: corregido a "sin cargo"`);
     }
 
     // No empujar la compra cuando acabás de decir que no sabés algo (ronda 10:
@@ -2031,7 +2027,7 @@ export class BotService {
       hayFaltantes,
       sucursalDeSalida: sucPickNombre,
       ...(renglones.some((r: any) => r.reemplazo_no_confirmado) ? { reemplazoSinConfirmar: 'HAY UN RENGLÓN QUE NO ES LO QUE EL CLIENTE PIDIÓ: no des ningún total ni pases a retiro/domicilio hasta que acepte el reemplazo.' } : {}),
-      aclaracion: `Este total lo calculó el sistema. Informalo tal cual, sin rehacer la cuenta. Cada precio es POR UNIDAD SUELTA (una botella, un paquete) salvo que el renglón diga "pack de N": el "x6un" de un nombre es el bulto del proveedor, no un pack; si el cliente pidió 18 botellas, la cantidad es 18, no 3. Cada renglón viene formateado en "renglon": usalo tal cual (2 × $20.500 c/u = $41.000). El stock que cuenta es el de ${sucPickNombre} (de ahí salen retiros y envíos).${hayFaltantes ? ' HAY RENGLONES SIN STOCK SUFICIENTE: avisale al cliente la cantidad real antes de seguir.' : ''} Si el cliente quiere envío, el total se informa como "total de la mercadería; el envío va aparte y lo define el sector de reparto".`,
+      aclaracion: `Este total lo calculó el sistema. Informalo tal cual, sin rehacer la cuenta. Cada precio es POR UNIDAD SUELTA (una botella, un paquete) salvo que el renglón diga "pack de N": el "x6un" de un nombre es el bulto del proveedor, no un pack; si el cliente pidió 18 botellas, la cantidad es 18, no 3. Cada renglón viene formateado en "renglon": usalo tal cual (2 × $20.500 c/u = $41.000). El stock que cuenta es el de ${sucPickNombre} (de ahí salen retiros y envíos).${hayFaltantes ? ' HAY RENGLONES SIN STOCK SUFICIENTE: avisale al cliente la cantidad real antes de seguir.' : ''} El envío es SIN CARGO: el total que informás es todo lo que paga, no agregues costo de entrega ni digas que "va aparte".`,
     };
   }
 
@@ -2158,7 +2154,7 @@ export class BotService {
       // "total 69.200" sin aclarar que el envío no está incluido ni cómo se paga)
       decirleAlCliente: [
         `El total ${Number(p.total).toLocaleString('es-AR')} es de la mercadería.`,
-        esEnvio ? 'El costo del envío no está incluido: lo define el sector de reparto, al que ya le di aviso.' : `Se retira en la sucursal Saint Thomas (Castex 3601) con el código ${p.qr_retiro ?? ''}.`,
+        esEnvio ? 'El envío es sin cargo: no se suma nada por la entrega.' : `Se retira en la sucursal Saint Thomas (Castex 3601) con el código ${p.qr_retiro ?? ''}.`,
         esEnvio ? 'Se abona al recibir, en efectivo o con tarjeta; si preferís, te paso un link de Mercado Pago, o administración te pasa los datos para transferir por acá.' : 'Se abona al retirar, en efectivo o con tarjeta; si preferís, te paso un link de Mercado Pago.',
       ],
     };
@@ -3419,8 +3415,23 @@ export class BotService {
 
     const crudo = String(payload.to ?? '');
     const digitos = crudo.replace(/\D/g, '');
-    const chatId = crudo.includes('@') ? crudo.split(':')[0] : digitos ? `${digitos}@c.us` : null;
+    let chatId = crudo.includes('@') ? crudo.split(':')[0] : digitos ? `${digitos}@c.us` : null;
     if (!chatId) return { enviado: false, motivo: 'Número inválido' };
+    // Un @lid (el id de privacidad de WhatsApp) NO es un número marcable: armar
+    // "digitos@c.us" con él manda el mensaje a la nada o a un desconocido. Las
+    // charlas guardan esos dígitos como teléfono, así que acá se traduce al
+    // número real del contacto y, si no lo tenemos, al @lid tal cual
+    // (18/9/2026: una corrección al cliente no habría llegado nunca).
+    if (!crudo.includes('@') && digitos.length >= 11) {
+      const { data: contacto } = await this.db
+        .from('bot_contactos').select('telefono_real, lid').eq('telefono', digitos).maybeSingle();
+      const lid = String((contacto as any)?.lid ?? '');
+      if (lid.startsWith(digitos)) {
+        const real = String((contacto as any)?.telefono_real ?? '').replace(/\D/g, '');
+        chatId = real ? `${real}@c.us` : lid;
+        this.log.log(`destino @lid traducido: ${digitos} → ${chatId}`);
+      }
+    }
 
     if (wahaUrl && wahaKey) {
       const base = wahaUrl.replace(/\/$/, '');
