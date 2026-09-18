@@ -1,4 +1,4 @@
-import { etiquetaVolumen, pideTamano, volumenMl } from './formatos';
+import { etiquetaVolumen, medidaPartida, pideTamano, resumenDeTamanos, volumenMl } from './formatos';
 
 describe('tamaño de las botellas', () => {
   it('lee la medida como la escribe el catálogo', () => {
@@ -19,5 +19,25 @@ describe('tamaño de las botellas', () => {
     expect(pideTamano('whisky balancín')).toEqual({ ml: null, grande: true });
     expect(pideTamano('whisky 750')).toBeNull();
     expect(pideTamano('fernet')).toBeNull();
+  });
+});
+
+describe('medida partida y tamaños del catálogo', () => {
+  it('"coca zero de 2 litros 25" son 2,25 L', () => {
+    expect(medidaPartida('Coca zero de 2 litros 25')).toBe(2250);
+    expect(medidaPartida('coca de 1 litro 5')).toBe(1500);
+    expect(medidaPartida('un litro y medio de coca')).toBe(1500);
+    expect(medidaPartida('Coca de 2 litros')).toBeNull();
+    expect(medidaPartida('llevame 2 litros 25 de coca')).toBe(2250);
+    expect(medidaPartida('agua x 500 gr')).toBeNull();
+  });
+  it('los tamaños dicen cuál existe sin stock', () => {
+    const r = resumenDeTamanos(['Coca Cola Zero x1.75L', 'Coca Cola 1.75l'], ['Coca Cola Zero 2.25L', 'Coca Cola 2.25L']);
+    expect(r).toMatch(/2,25 L \(SIN stock\)/);
+    expect(r).toMatch(/1,75 L \(hay\)/);
+    expect(r).toMatch(/NUNCA "no lo tenemos"/);
+  });
+  it('un solo tamaño no arma resumen', () => {
+    expect(resumenDeTamanos(['Fernet Branca x750cc'], [])).toBeNull();
   });
 });

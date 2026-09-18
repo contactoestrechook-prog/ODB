@@ -1,5 +1,5 @@
 import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
-import { volumenMl, etiquetaVolumen, pideTamano, PALABRA_GENERICA } from './formatos';
+import { volumenMl, etiquetaVolumen, pideTamano, medidaPartida, resumenDeTamanos, PALABRA_GENERICA } from './formatos';
 import { emprolijarListado, nombreLimpio, saludoSegunHora, saludarConBienvenida, niegaPercepcion, respetuosoSinConfianza, saintThomas, envioSinCargo, nombreSucursalCliente, esAutomaticoWhatsappBusiness } from './prolijo';
 import { controlDeFechas } from './fechas';
 import { oggCompleto } from './ogg';
@@ -611,6 +611,16 @@ export class BotService {
         // el día de la semana lo calcula el sistema: en la nota decía "jueves
         // 30/10/2026" y el 30 cae viernes; el bot se lo dijo así a un cliente (18/9/2026)
         text: `INFORMACIÓN VIGENTE DE LA CASA (cargada por la dirección). Es OFICIAL: afirmá estos datos tal cual están, incluidos precios de entradas, fechas y promociones del evento — la regla de no inventar precios aplica a los productos del catálogo, no a esto. No digas "lo vas a ver en el link": el dato lo tenés acá.\n${infoVigente.slice(0, 4000)}\n${controlDeFechas(infoVigente)}`.trim(),
+      });
+    }
+
+    // "coca de 2 litros 25" es 2,25 L, no 25 unidades de 2 L: la medida partida
+    // la resuelve el sistema y se la dice al modelo (18/9/2026).
+    const mlPartida = medidaPartida(texto);
+    if (mlPartida) {
+      system.push({
+        type: 'text',
+        text: `MEDIDA QUE ESCRIBIÓ EL CLIENTE: "${texto.slice(0, 80)}" significa ${String(mlPartida / 1000).replace('.', ',')} L (la medida viene partida, NO es una cantidad). Buscá ese tamaño (por ejemplo "${String(mlPartida / 1000).replace('.', ',')}") antes de contestar.`,
       });
     }
 
@@ -1881,8 +1891,13 @@ export class BotService {
         }
       } catch { /* sin alternativas: el bot lo dice honestamente */ }
     }
+    // Tamaños del catálogo, con y sin stock. Sin esto el bot dice "no lo
+    // tenemos" o "el formato más grande es X" cuando el tamaño existe y solo
+    // falta stock (18/9/2026: Coca 2,25 L, que la casa sí vende).
+    const tamanos = resumenDeTamanos(items.map((i: any) => String(i.nombre ?? '')), sinStock.map((p: any) => String(p.nombre ?? '')));
     return {
       items,
+      ...(tamanos ? { tamanos } : {}),
       ...(avisoGrandes ? { formatosGrandes: avisoGrandes } : {}),
       ...(sinStock.length
         ? {

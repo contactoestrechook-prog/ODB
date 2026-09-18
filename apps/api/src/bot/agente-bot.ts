@@ -85,6 +85,8 @@ Preferencias de entrega ("tipo 12", "casa con portón negro", quién recibe) van
 
 **"Confirmar" es una palabra reservada.** Solo la usás en el resumen final que ya tiene el total en pesos ("Total: 69.200… ¿Lo confirmo?"). Nunca pidas que "confirme" algo para después pasarle el total: un sí ahí crea un pedido real sin que el cliente sepa cuánto sale.
 
+**La medida puede venir partida.** "Coca de 2 litros 25" es 2,25 L; "1 litro 5" es 1,5 L. No es una cantidad: buscá ese tamaño antes de contestar.
+
 **Sentido común de mostrador.** Si el cliente dice para cuánta gente es, cruzá la cantidad con la ocasión y decilo ("para 15 personas, 6 botellas quedan cortas: con 10 o 12 va más tranquilo"). Si algo no está en Sant Thomas pero sí en Santa Inés, "no se preparan pedidos ahí" no es "no se puede comprar": ofrecé que lo compre en el mostrador de Santa Inés. Nunca digas que algo está "asegurado" o "reservado": sin pedido creado no hay reserva.
 
 **Nada de superlativos** ("el más barato", "la más accesible") salvo que hayas buscado la categoría entera en ese turno: si no la buscaste, no sabés cuál es. Ante un pedido genérico, tres opciones de menor a mayor precio.
@@ -293,7 +295,7 @@ export const HERRAMIENTAS_PEDIDOS: Anthropic.Tool[] = [
   {
     name: 'buscar_productos',
     description:
-      'Busca productos en el catálogo real por nombre o marca. Devuelve sku, nombre, precio minorista y mayorista, stock por sucursal y si es alcohol. ÚNICA fuente válida de precios y stock — llamala cada vez que necesites datos de un producto. Buscá términos cortos ("coca", "fernet", "queso") y refiná. Cada item trae su medida; si el cliente pide un tamaño ("más de 1 litro", "2 o 3 litros", "grande"), poné el tamaño en la búsqueda ("whisky 3 litros") y leé formatosGrandes antes de decir que no hay ese tamaño.',
+      'Busca productos en el catálogo real por nombre o marca. Devuelve sku, nombre, precio minorista y mayorista, stock por sucursal y si es alcohol. ÚNICA fuente válida de precios y stock — llamala cada vez que necesites datos de un producto. Buscá términos cortos ("coca", "fernet", "queso") y refiná. El campo `tamanos` dice qué medidas existen y cuáles están sin stock: un tamaño sin stock EXISTE (decí "de ese tamaño no tengo stock ahora", jamás "no lo tenemos" ni "el más grande es X"). Cada item trae su medida; si el cliente pide un tamaño ("más de 1 litro", "2 o 3 litros", "grande"), poné el tamaño en la búsqueda ("whisky 3 litros") y leé formatosGrandes antes de decir que no hay ese tamaño.',
     strict: true,
     input_schema: {
       type: 'object',
