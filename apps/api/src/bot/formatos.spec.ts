@@ -1,4 +1,4 @@
-import { etiquetaVolumen, medidaPartida, pideTamano, resumenDeTamanos, volumenMl } from './formatos';
+import { cantidadesPedidas, etiquetaVolumen, medidaPartida, pideTamano, resumenDeTamanos, volumenMl } from './formatos';
 
 describe('tamaño de las botellas', () => {
   it('lee la medida como la escribe el catálogo', () => {
@@ -39,5 +39,21 @@ describe('medida partida y tamaños del catálogo', () => {
   });
   it('un solo tamaño no arma resumen', () => {
     expect(resumenDeTamanos(['Fernet Branca x750cc'], [])).toBeNull();
+  });
+});
+
+describe('cantidades que pide el cliente', () => {
+  it('"4 Malboro gold" son cuatro', () => {
+    expect(cantidadesPedidas('Puede ser 4 Malboro gold el blanco y dorado')).toEqual([{ cantidad: 4, que: 'malboro gold el blanco y dorado' }]);
+    expect(cantidadesPedidas('4 Malboro gold el blanco y dorado')).toEqual([{ cantidad: 4, que: 'malboro gold el blanco y dorado' }]);
+    expect(cantidadesPedidas('Pero 4 necesito')).toEqual([]);
+    expect(cantidadesPedidas('necesito 4 de fernet\n2 coca de 600')).toEqual([
+      { cantidad: 4, que: 'fernet' }, { cantidad: 2, que: 'coca de 600' },
+    ]);
+    expect(cantidadesPedidas('dame dos quilmes porron')).toEqual([{ cantidad: 2, que: 'quilmes porron' }]);
+  });
+  it('una medida no es una cantidad', () => {
+    expect(cantidadesPedidas('Coca zero de 2 litros 25')).toEqual([]);
+    expect(cantidadesPedidas('2 litros de coca')).toEqual([]);
   });
 });

@@ -72,3 +72,40 @@ export function resumenDeTamanos(conStock: string[], sinStock: string[]): string
     .map(([ml, hay]) => `${etiquetaVolumen(ml)} (${hay ? 'hay' : 'SIN stock'})`);
   return `Tamaños de esto en el catálogo: ${partes.join(' · ')}. Un tamaño "SIN stock" EXISTE y se vende en la casa: decí "de ese tamaño no tengo stock ahora", NUNCA "no lo tenemos" ni "el más grande es X".`;
 }
+
+/**
+ * Lo que el cliente pide, renglón por renglón: cuánto y de qué.
+ * "4 Malboro gold el blanco y dorado" son CUATRO atados (18/9/2026: el bot
+ * cotizó uno y el cliente tuvo que pedirlo dos veces más). No se confunde con
+ * la medida: "Coca de 2 litros 25" es un tamaño, no 25 unidades.
+ */
+const NUMERO_PALABRA: Record<string, number> = {
+  un: 1, una: 1, uno: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6, siete: 7, ocho: 8,
+  nueve: 9, diez: 10, once: 11, doce: 12, docena: 12, quince: 15, veinte: 20, veinticuatro: 24,
+};
+const UNIDAD_MEDIDA = /^(l|lt|lts|litros?|cc|ml|k|kg|kilos?|g|gr|grs|gramos?|cm3|a|am|pm|hs?|horas?)$/;
+
+export function cantidadesPedidas(texto: string | null | undefined): { cantidad: number; que: string }[] {
+  const salida: { cantidad: number; que: string }[] = [];
+  for (const cruda of String(texto ?? '').split(/[\n;]+/)) {
+    const linea = cruda.trim();
+    if (!linea || linea.length < 3) continue;
+    let t = norm(linea);
+    if (medidaPartida(t)) continue; // "coca de 2 litros 25": es tamaño, no cantidad
+    // el pedido casi nunca empieza por el número: "puede ser 4 Malboro gold",
+    // "necesito 2 fernet". Se saca la cortesía de adelante y queda el pedido.
+    t = t.replace(/^(?:hola|buenas|buen dia|dale|ok|okey|okei|si|sii|por favor|porfa|pf|y|tambien|además|ademas|me|te|le)\b[\s,]*/g, '')
+      .replace(/^(?:puede ser|podes ser|podrias|podes|necesito|necesitaria|quiero|querria|queria|dame|damelo|ponme|poneme|sumame|agregame|agrega|mandame|manda|traeme|trae|anotame|anota|llevo|llevame|va|van|ser[ií]an?|sumale|pedime|encargame)\b[\s,:]*/g, '')
+      .trim();
+    // "4 Malboro", "4 de malboro", "x4 malboro", "cuatro malboro"
+    const m = t.match(/^(?:x\s*)?(\d{1,3}|[a-z]+)\s*(?:x|de|del)?\s+(.{3,60})$/);
+    if (!m) continue;
+    const bruto = m[1];
+    const cantidad = /^\d+$/.test(bruto) ? Number(bruto) : NUMERO_PALABRA[bruto] ?? 0;
+    if (!(cantidad >= 1 && cantidad <= 500)) continue;
+    const resto = m[2].trim();
+    if (UNIDAD_MEDIDA.test(resto.split(/\s+/)[0] ?? '')) continue; // "2 litros de coca" lo resuelve la medida
+    salida.push({ cantidad, que: resto });
+  }
+  return salida;
+}

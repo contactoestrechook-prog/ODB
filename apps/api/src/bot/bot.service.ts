@@ -1,5 +1,5 @@
 import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
-import { volumenMl, etiquetaVolumen, pideTamano, medidaPartida, resumenDeTamanos, PALABRA_GENERICA } from './formatos';
+import { volumenMl, etiquetaVolumen, pideTamano, medidaPartida, resumenDeTamanos, cantidadesPedidas, PALABRA_GENERICA } from './formatos';
 import { emprolijarListado, nombreLimpio, saludoSegunHora, saludarConBienvenida, niegaPercepcion, respetuosoSinConfianza, saintThomas, envioSinCargo, nombreSucursalCliente, esAutomaticoWhatsappBusiness } from './prolijo';
 import { controlDeFechas } from './fechas';
 import { oggCompleto } from './ogg';
@@ -621,6 +621,17 @@ export class BotService {
       system.push({
         type: 'text',
         text: `MEDIDA QUE ESCRIBIÓ EL CLIENTE: "${texto.slice(0, 80)}" significa ${String(mlPartida / 1000).replace('.', ',')} L (la medida viene partida, NO es una cantidad). Buscá ese tamaño (por ejemplo "${String(mlPartida / 1000).replace('.', ',')}") antes de contestar.`,
+      });
+    }
+
+    // CUÁNTO pidió de cada cosa, leído por el sistema. "Puede ser 4 Malboro gold"
+    // son cuatro: el bot cotizó uno y el cliente tuvo que pedirlo dos veces más
+    // (18/9/2026). El modelo ve la cuenta ya hecha y no tiene que deducirla.
+    const pedidas = cantidadesPedidas(texto);
+    if (pedidas.length) {
+      system.push({
+        type: 'text',
+        text: `CANTIDADES QUE PIDIÓ EL CLIENTE EN ESTE MENSAJE (las leyó el sistema, son firmes): ${pedidas.map((x) => `${x.cantidad} × ${x.que}`).join(' · ')}. Cotizá ESAS cantidades de una, sin volver a preguntar cuántas, y nombrando el producto puntual que pidió (no la lista de la marca).`,
       });
     }
 
