@@ -415,6 +415,10 @@ export class BotService {
             telefono,
             mensajes: [...hist, { role: 'user', content: texto + marcaAdjunto }, ...(respuesta ? [{ role: 'assistant', content: respuesta }] : [])].slice(-40),
             actualizado_en: ahora.toISOString(),
+            // el cliente escribió y nadie le va a contestar: queda esperando,
+            // y el cron avisa a administración si pasa el tiempo (19/9/2026)
+            esperando_desde: (conv as any)?.esperando_desde ?? ahora.toISOString(),
+            esperando_texto: (texto + marcaAdjunto).slice(0, 300),
             ...(respuesta && !yaAcuso && !preguntaIdentidad ? { acuse_derivacion_en: ahora.toISOString() } : {}),
           },
           { onConflict: 'linea,telefono' },
@@ -1362,6 +1366,10 @@ export class BotService {
       mensajes: nuevoHistorial,
       tokens: Number(convPrev?.tokens ?? 0) + tokens,
       actualizado_en: new Date().toISOString(),
+      // el bot contestó: la charla ya no espera a nadie
+      esperando_desde: null,
+      esperando_texto: null,
+      esperando_aviso_en: null,
     });
     // tarifa por millón según modelo (entrada, caché leída, caché escrita, salida)
     const TARIFA: Record<string, [number, number, number, number]> = {
@@ -3123,6 +3131,11 @@ export class BotService {
     const esLid = desde.endsWith('@lid');
     const identidad = esLid ? desde : desde.split('@')[0].replace(/\D/g, '');
     if (!identidad) return { ignorado: 'remitente ilegible' };
+    // La charla SIEMPRE se guarda con la clave en dígitos: charla() normaliza
+    // así, y usar el "@lid" crudo abría una conversación fantasma donde el
+    // chequeo de silencio no veía nada y el bot le hablaba encima a la persona
+    // que estaba atendiendo (19/9/2026).
+    const clave = identidad.replace(/\D/g, '');
 
     // Si la carga trae el teléfono marcable, se guarda pegado al @lid. Es lo
     // único que después permite reconocer a la gente de la casa, porque el @lid
@@ -3200,11 +3213,11 @@ export class BotService {
         const rotulo = esImagen ? '📷 Foto del cliente' : '📄 PDF del cliente';
         if (await this.respondeModoHumano(waIdM).catch(() => false)) {
           await this.respondeRegistrar(waIdM, p._data?.notifyName ?? p.notifyName ?? null, etiqueta(rotulo), null, p.id ? String(p.id) : undefined, mediaReg).catch(() => null);
-          await this.anotarEsperaEnPausa('pedidos', identidad, etiqueta(rotulo));
+          await this.anotarEsperaEnPausa('pedidos', clave, etiqueta(rotulo));
           return { contestado: false, motivo: 'RESPONDE: atiende una persona' };
         }
         const r: any = await this.charla({
-          numeroLinea, telefono: identidad,
+          numeroLinea, telefono: clave,
           mensaje: epigrafe,
           archivoBase64: media.base64, mimeType: esPdf && !esImagen ? 'application/pdf' : media.mime,
           archivoUrl: enlacePublico || undefined,
@@ -3229,7 +3242,7 @@ export class BotService {
           .find((x: any) => typeof x === 'string' && x.length > 100);
         if (miniatura && !(await this.respondeModoHumano(waIdM).catch(() => false))) {
           const r: any = await this.charla({
-            numeroLinea, telefono: identidad,
+            numeroLinea, telefono: clave,
             mensaje: epigrafe,
             archivoBase64: miniatura, mimeType: 'image/jpeg', vistaPreviaDeVideo: true,
             archivoUrl: enlacePublico || undefined,
@@ -3252,10 +3265,10 @@ export class BotService {
           this.log.log(`audio transcripto de ${identidad}: "${dicho.slice(0, 80)}"`);
           if (await this.respondeModoHumano(waIdM).catch(() => false)) {
             await this.respondeRegistrar(waIdM, p._data?.notifyName ?? p.notifyName ?? null, etiqueta(`🎙️ ${dicho}`), null, p.id ? String(p.id) : undefined, mediaReg).catch(() => null);
-            await this.anotarEsperaEnPausa('pedidos', identidad, `🎙️ ${dicho}`);
+            await this.anotarEsperaEnPausa('pedidos', clave, `🎙️ ${dicho}`);
             return { contestado: false, motivo: 'RESPONDE: atiende una persona' };
           }
-          const r: any = await this.charla({ numeroLinea, telefono: identidad, mensaje: dicho, mensajeId: p.id ? String(p.id) : undefined });
+          const r: any = await this.charla({ numeroLinea, telefono: clave, mensaje: dicho, mensajeId: p.id ? String(p.id) : undefined });
           if (!r?.respuesta) {
             await this.respondeRegistrar(waIdM, p.notifyName ?? null, etiqueta(`🎙️ ${dicho}`), null, p.id ? String(p.id) : undefined, mediaReg).catch(() => null);
             return { contestado: false, motivo: r?.derivada ? 'derivada a una persona' : 'sin respuesta' };
@@ -3278,14 +3291,16 @@ export class BotService {
       // no se manda acuse ni se toca la pausa de la persona.
       {
         const { data: lineaCfg } = await this.db.from('lineas_whatsapp').select('bot_activo').eq('linea', 'pedidos').eq('activa', true).limit(1).maybeSingle();
-        const { data: convPrev } = await this.db.from('bot_conversaciones').select('mensajes, bot_activo, atendida_por, derivada_motivo').eq('linea', 'pedidos').eq('telefono', identidad).maybeSingle();
+        const { data: convPrev } = await this.db.from('bot_conversaciones').select('mensajes, bot_activo, atendida_por, derivada_motivo').eq('linea', 'pedidos').eq('telefono', clave).maybeSingle();
         const silencio = motivoDeSilencio(lineaCfg as any, convPrev as any, /^54911000000\d{1,3}$/.test(identidad));
         if (silencio) {
           const hist: any[] = Array.isArray((convPrev as any)?.mensajes) ? (convPrev as any).mensajes : [];
           await this.db.from('bot_conversaciones').upsert({
-            linea: 'pedidos', telefono: identidad,
+            linea: 'pedidos', telefono: clave,
             mensajes: [...hist, { role: 'user', content: `[el cliente mandó ${queEs}]${enlace ? ` [adjunto sin leer: ${enlace}]` : ''}` }].slice(-40),
             actualizado_en: new Date().toISOString(),
+            esperando_desde: (convPrev as any)?.esperando_desde ?? new Date().toISOString(),
+            esperando_texto: `${esAudio ? '🎙️' : tipo === 'video' ? '🎬' : '📄'} El cliente mandó ${queEs} y nadie lo abrió`,
           }, { onConflict: 'linea,telefono' }).then(() => null, () => null);
           await this.respondeRegistrar(waIdM, p._data?.notifyName ?? p.notifyName ?? null, etiqueta(esAudio ? '🎙️ Audio del cliente' : tipo === 'video' ? '🎬 Video del cliente' : `📄 ${media?.nombre || 'Archivo'} del cliente`), null, p.id ? String(p.id) : undefined, mediaReg).catch(() => null);
           this.log.log(`archivo de ${identidad} guardado sin acuse (${silencio})`);
@@ -3296,18 +3311,18 @@ export class BotService {
       await this.respondeRegistrar(waIdM, p._data?.notifyName ?? p.notifyName ?? null, etiqueta(icono), null, p.id ? String(p.id) : undefined, mediaReg).catch(() => null);
       if (await this.respondeModoHumano(waIdM).catch(() => false)) return { contestado: false, motivo: 'RESPONDE: atiende una persona' };
 
-      await this.db.from('bot_notas_equipo').insert({ linea: 'pedidos', telefono: identidad, nota: `El cliente mandó ${queEs} por WhatsApp. Hay que escucharlo/abrirlo y responderle.${enlace ? ` Archivo: ${enlace}` : ''}` }).then(() => null, () => null);
+      await this.db.from('bot_notas_equipo').insert({ linea: 'pedidos', telefono: clave, nota: `El cliente mandó ${queEs} por WhatsApp. Hay que escucharlo/abrirlo y responderle.${enlace ? ` Archivo: ${enlace}` : ''}` }).then(() => null, () => null);
       const { data: cfg } = await this.db.from('lineas_whatsapp').select('avisar_proveedores_a').eq('linea', 'pedidos').eq('activa', true).limit(1).maybeSingle();
-      await this.db.from('alertas_internas').insert({ para_usuario: cfg?.avisar_proveedores_a ?? null, tipo: 'derivacion', titulo: `Mensaje de voz de +${identidad}`, detalle: `El cliente mandó ${queEs}. Escuchalo y respondele por WhatsApp.${enlace ? ` ${enlace}` : ''}`, referencia: { linea: 'pedidos', telefono: identidad, enlace } }).then(() => null, () => null);
+      await this.db.from('alertas_internas').insert({ para_usuario: cfg?.avisar_proveedores_a ?? null, tipo: 'derivacion', titulo: `Mensaje de voz de +${identidad}`, detalle: `El cliente mandó ${queEs}. Escuchalo y respondele por WhatsApp.${enlace ? ` ${enlace}` : ''}`, referencia: { linea: 'pedidos', telefono: clave, enlace } }).then(() => null, () => null);
 
-      const { data: conv } = await this.db.from('bot_conversaciones').select('mensajes').eq('linea', 'pedidos').eq('telefono', identidad).maybeSingle();
+      const { data: conv } = await this.db.from('bot_conversaciones').select('mensajes').eq('linea', 'pedidos').eq('telefono', clave).maybeSingle();
       const hist: any[] = Array.isArray(conv?.mensajes) ? conv!.mensajes : [];
       // marca fija en el historial: chequear por palabras fallaba y el cliente
       // recibía el mismo acuse por cada archivo que mandaba
       const MARCA = '[acuse-archivo] ';
       const yaAviso = hist.slice(-8).some((m: any) => m.role === 'assistant' && String(m.content).startsWith(MARCA));
       await this.db.from('bot_conversaciones').upsert({
-        linea: 'pedidos', telefono: identidad,
+        linea: 'pedidos', telefono: clave,
         mensajes: [...hist, { role: 'user', content: `[el cliente mandó ${queEs}]` }, ...(yaAviso ? [] : [{ role: 'assistant', content: MARCA + (esAudio ? 'Recibí tu audio: lo escucha alguien de la casa.' : 'Recibí tu archivo: lo revisa alguien de la casa.') }]),
         ].slice(-40),
         actualizado_en: new Date().toISOString(), bot_activo: false,
@@ -3325,7 +3340,27 @@ export class BotService {
       this.respondeRegistrar(waIdM, p.notifyName ?? null, etiqueta(icono), aviso, undefined, mediaReg).catch(() => null);
       return { contestado: env.enviado, motivo: `${queEs}: derivado a una persona` };
     }
-    if (!texto) return { ignorado: 'mensaje sin texto' };
+    // UN MENSAJE QUE NO ES TEXTO NI ARCHIVO NO SE TIRA (19/9/2026). WhatsApp
+    // manda la ubicación, la tarjeta de contacto, la encuesta o la respuesta de
+    // un botón sin `body` y sin media: caían en "mensaje sin texto" y
+    // desaparecían — ni respuesta, ni RESPONDE, ni nota. Y justo la ubicación es
+    // lo que manda el cliente cuando el bot le pide la dirección del envío.
+    if (!texto) {
+      const ubic = p.location ?? p._data?.location ?? p._data?.message?.locationMessage;
+      const contacto = p.vCards ?? p._data?.message?.contactMessage;
+      texto = ubic
+        ? `📍 Ubicación del cliente${ubic.description || ubic.name ? `: ${ubic.description ?? ubic.name}` : ''}${ubic.latitude && ubic.longitude ? ` (mapa: https://maps.google.com/?q=${ubic.latitude},${ubic.longitude})` : ''}`
+        : contacto ? '📇 El cliente mandó una tarjeta de contacto'
+        : `✉️ El cliente mandó un mensaje que no puedo leer (tipo ${tipo || 'desconocido'})`;
+      this.log.warn(`entrante sin texto (type=${tipo || '?'}): se deriva a una persona · ${clave}`);
+      const waIdSinTexto = esLid ? desde : identidad;
+      await this.respondeRegistrar(waIdSinTexto, p._data?.notifyName ?? p.notifyName ?? null, texto, null, p.id ? String(p.id) : undefined).catch(() => null);
+      await this.db.from('bot_notas_equipo')
+        .insert({ linea: 'pedidos', telefono: clave, nota: `${texto} Hay que mirarlo y contestarle.` })
+        .then(() => null, () => null);
+      await this.anotarEsperaEnPausa('pedidos', clave, texto);
+      return { contestado: false, motivo: 'mensaje sin texto: derivado a una persona' };
+    }
 
     // whatsapp_id como lo guarda RESPONDE: solo dígitos para números normales,
     // el @lid completo para contactos con número oculto
@@ -3335,7 +3370,7 @@ export class BotService {
     // igual queda registrado allá para que la persona lo vea.
     if (await this.respondeModoHumano(waId)) {
       await this.respondeRegistrar(waId, p._data?.notifyName ?? p.notifyName ?? null, texto, null, p.id ? String(p.id) : undefined);
-      await this.anotarEsperaEnPausa('pedidos', identidad, texto);
+      await this.anotarEsperaEnPausa('pedidos', clave, texto);
       return { contestado: false, motivo: 'RESPONDE: atiende una persona' };
     }
 
@@ -3368,6 +3403,18 @@ export class BotService {
     }
     // el turno completo queda en RESPONDE (best-effort, no bloquea la respuesta)
     this.respondeRegistrar(waId, p.notifyName ?? null, texto, r.respuesta, p.id ? String(p.id) : undefined).catch(() => null);
+    // SI NO SALIÓ, NO ESTÁ CONTESTADO (19/9/2026). Antes se registraba el turno
+    // como si el cliente lo hubiera recibido: el panel mostraba la respuesta, el
+    // bot creía que ya lo había dicho y el cliente no tenía nada. Ahora queda
+    // marcado como esperando, con nota, y el barrido lo reintenta (la excepción
+    // evita que el entrante se marque como terminado).
+    if (!envio.enviado) {
+      await this.anotarEsperaEnPausa('pedidos', clave, `${texto} [el bot contestó pero WhatsApp no lo entregó]`);
+      await this.db.from('bot_notas_equipo')
+        .insert({ linea: 'pedidos', telefono: clave, nota: `[no entregado] La respuesta del bot no salió (${envio.motivo ?? 'sin motivo'}). El cliente sigue esperando: ${texto.slice(0, 200)}` })
+        .then(() => null, () => null);
+      throw new Error(`WhatsApp no entregó la respuesta a ${clave}: ${envio.motivo ?? 'sin motivo'}`);
+    }
     return { contestado: envio.enviado, ...envio };
   }
 
