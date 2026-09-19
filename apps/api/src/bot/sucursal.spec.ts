@@ -23,16 +23,40 @@ describe('automáticos de WhatsApp Business', () => {
 });
 
 describe('el envío en ODB es sin cargo', () => {
-  it('corrige el cierre que cobraba la entrega', () => {
+  it('corrige todas las formas de cobrarlo que salieron en charlas reales', () => {
     expect(envioSinCargo('*Total: $176.000*\n\nEs el total de la mercadería; el envío va aparte.'))
       .toBe('*Total: $176.000*\n\nEl envío es sin cargo.');
     expect(envioSinCargo('El total de $13.650 corresponde a la mercadería; el costo del envío lo define el sector de reparto, ya avisado.'))
-      .toMatch(/El envío es sin cargo\./);
+      .toBe('El total de $13.650 corresponde a la mercadería; el envío es sin cargo.');
     expect(envioSinCargo('El costo del envío no está incluido: lo define el sector de reparto.')).toBe('El envío es sin cargo.');
+    for (const frase of [
+      'El envío tiene un costo de $3.500.',
+      'El envío sale $4.000 según la zona.',
+      'Al total hay que sumarle el envío, que se cobra aparte.',
+      'El flete es adicional.',
+      'La entrega tiene un recargo.',
+      'El envío no está incluido en el total.',
+    ]) {
+      expect(envioSinCargo(frase)).toBe('El envío es sin cargo.');
+    }
   });
-  it('no toca un mensaje que ya está bien', () => {
-    const t = 'Total: $13.650. El envío es sin cargo. ¿Lo confirmo?';
-    expect(envioSinCargo(t)).toBe(t);
-    expect(envioSinCargo('Te lo enviamos mañana a la mañana.')).toBe('Te lo enviamos mañana a la mañana.');
+  it('no toca lo que ya está bien ni la forma de pago', () => {
+    for (const frase of [
+      'Total: $13.650. El envío es sin cargo. ¿Lo confirmo?',
+      'Te lo enviamos mañana a la mañana.',
+      'Se abona al recibir el envío, en efectivo o con tarjeta.',
+      'El envío sale hoy después de las 18.',
+      'El envío es gratis.',
+    ]) {
+      expect(envioSinCargo(frase)).toBe(frase);
+    }
+  });
+  it('en un mensaje largo corrige solo la oración del costo', () => {
+    const t = 'Pedido confirmado, código DOM-YD5GNY. El total de $13.650 corresponde a la mercadería; el costo del envío lo define el sector de reparto. Se abona al recibir, en efectivo o con tarjeta.';
+    const r = envioSinCargo(t);
+    expect(r).toMatch(/^Pedido confirmado, código DOM-YD5GNY\./);
+    expect(r).toMatch(/el envío es sin cargo\./);
+    expect(r).toMatch(/Se abona al recibir, en efectivo o con tarjeta\.$/);
+    expect(r).not.toMatch(/sector de reparto/);
   });
 });

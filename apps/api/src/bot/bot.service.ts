@@ -3479,6 +3479,19 @@ export class BotService {
     const wahaKey = process.env.WAHA_API_KEY;
     const sesion = process.env.WAHA_SESSION || 'default';
 
+    // ÚLTIMA PUERTA: el envío en ODB es SIN CARGO y por acá sale TODO lo que la
+    // casa manda por WhatsApp (bot, cierres de pedido, avisos, difusiones,
+    // respuestas desde el panel). Regla de Leandro, 19/9/2026: "nunca más que
+    // digas esa parte". Si algún texto todavía dice que el envío se cobra, se
+    // corrige acá, aunque venga de un camino que nadie revisó.
+    if (payload.text) {
+      const limpio = envioSinCargo(String(payload.text));
+      if (limpio !== payload.text) {
+        this.log.warn(`salía un mensaje diciendo que el envío se cobra (${payload.referencia ?? payload.kind ?? 'sin referencia'}): corregido a "sin cargo"`);
+        payload = { ...payload, text: limpio };
+      }
+    }
+
     const crudo = String(payload.to ?? '');
     const digitos = crudo.replace(/\D/g, '');
     let chatId = crudo.includes('@') ? crudo.split(':')[0] : digitos ? `${digitos}@c.us` : null;

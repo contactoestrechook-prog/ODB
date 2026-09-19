@@ -160,12 +160,43 @@ export function esAutomaticoWhatsappBusiness(t: string | null | undefined): bool
   return /^Gracias por comunicarte con ODB\b/i.test(s) || /^Gracias por tu mensaje\. En este momento este celular se encuentra fuera del horario/i.test(s);
 }
 
-// EL ENVÍO EN ODB ES SIN CARGO (regla de Leandro, 18/9/2026). El bot cerraba
-// los pedidos con "es el total de la mercadería; el envío va aparte" y así se
-// lo dijo a un cliente con un pedido de $176.000. Si vuelve a escribirlo, se
-// corrige antes de que salga.
-const RE_ENVIO_APARTE = /[^.\n]*\b(env[ií]o|entrega|flete)\b[^.\n]*\b(aparte|no est[aá] incluid|no incluye|lo define el sector de reparto|se cotiza|tiene un costo|costo del env[ií]o)\b[^.\n]*[.;]?/gi;
+// EL ENVÍO EN ODB ES SIN CARGO (regla de Leandro, 18/9/2026, reforzada el
+// 19/9: "nunca más que digas esa parte"). El bot cerraba pedidos con "es el
+// total de la mercadería; el envío va aparte" y así se lo dijo a un cliente con
+// un pedido de $176.000. Acá se revisa ORACIÓN POR ORACIÓN cualquier texto que
+// la casa esté por mandar: la que habla del envío y de un costo se reemplaza
+// entera por "El envío es sin cargo.". Se aplica en la respuesta del bot y, de
+// nuevo, en la puerta de salida de WhatsApp (enviarPorWhatsapp), que es por
+// donde pasan también los avisos, las difusiones y el panel.
+const RE_ENVIO = /\b(env[ií]os?|flete|entrega|reparto|delivery)\b/i;
+const RE_COSTO = /\b(aparte|no est[aá]n? incluid\w*|no incluye|sin incluir|adicional\w*|extra|recargo|costo|cuesta|se cobra|se paga aparte|tiene un (costo|precio|valor)|lo cotiza|lo define|seg[uú]n la zona|depende de la zona|a cargo del cliente)\b|\$\s?\d/i;
+// una oración de PAGO ("se abona al recibir, en efectivo o con tarjeta") habla
+// de plata y de entrega sin cobrar el envío: esa no se toca
+const RE_FORMA_DE_PAGO = /\b(efectivo|tarjeta|posnet|transferencia|mercado pago|link de pago|d[eé]bito|cr[eé]dito)\b/i;
+const RE_YA_ESTA_BIEN = /\bsin cargo|gratis|bonificad|no tiene costo|no se cobra\b/i;
+
 export function envioSinCargo(t: string): string {
-  if (!RE_ENVIO_APARTE.test(t)) return t;
-  return String(t).replace(RE_ENVIO_APARTE, ' El envío es sin cargo.').replace(/[ \t]{2,}/g, ' ').replace(/ +\n/g, '\n').replace(/\n +/g, '\n').trim();
+  const texto = String(t ?? '');
+  if (!RE_ENVIO.test(texto)) return texto;
+  // se corta en frases Y en cláusulas (el ";" separa "es el total de la
+  // mercadería" de "el envío va aparte"), conservando el separador
+  const trozos = texto.split(/(?<=[.;!?])\s+|(?<=\n)/);
+  let cambio = false;
+  const salida = trozos.map((trozo) => {
+    const limpia = trozo.trim();
+    if (!limpia) return trozo;
+    if (!RE_ENVIO.test(limpia) || !RE_COSTO.test(limpia)) return trozo;
+    if (RE_YA_ESTA_BIEN.test(limpia) || RE_FORMA_DE_PAGO.test(limpia)) return trozo;
+    cambio = true;
+    const cola = trozo.endsWith('\n') ? '\n' : trozo.endsWith(' ') ? ' ' : '';
+    return `El envío es sin cargo.${cola}`;
+  });
+  if (!cambio) return texto;
+  return salida.join('')
+    // lo que quedaba colgado de la frase partida: "Es el total de la
+    // mercadería; El envío es sin cargo." → "El envío es sin cargo."
+    .replace(/(?:^|(?<=[.\n]\s))(?:este\s+)?es\s+el\s+total\s+de\s+la\s+mercader[ií]a\s*[;,:]?\s*(?=El envío es sin cargo)/gi, '')
+    .replace(/([;,])\s*El envío es sin cargo\./g, '$1 el envío es sin cargo.')
+    .replace(/[ \t]{2,}/g, ' ').replace(/ +\n/g, '\n').replace(/\n +/g, '\n')
+    .trim();
 }
