@@ -200,3 +200,20 @@ export function envioSinCargo(t: string): string {
     .replace(/[ \t]{2,}/g, ' ').replace(/ +\n/g, '\n').replace(/\n +/g, '\n')
     .trim();
 }
+
+// Si el cliente PREGUNTA por el costo del envío, la respuesta es un dato que la
+// casa tiene: es sin cargo. No se consulta con nadie ni se promete confirmar
+// (19/9/2026: "cuánto es el flete?" → "lo consulto y te confirmo").
+const RE_PREGUNTA_COSTO_ENVIO = /\b(cu[aá]nto|precio|costo|valor|cobran|cobr[aá]s|se cobra|aparte|gratis|sin cargo)\b[^.?!\n]{0,40}\b(env[ií]o|flete|reparto|delivery|entrega)\b|\b(env[ií]o|flete|reparto|delivery|entrega)\b[^.?!\n]{0,40}\b(cu[aá]nto|cuesta|precio|costo|valor|cobran|cobr[aá]s|aparte|gratis|sin cargo)\b/i;
+
+export function preguntaPorElCostoDelEnvio(texto: string): boolean {
+  return RE_PREGUNTA_COSTO_ENVIO.test(String(texto ?? ''));
+}
+
+/** La respuesta a "¿cuánto sale el envío?" siempre dice que es sin cargo. */
+export function asegurarEnvioSinCargo(textoCliente: string, respuesta: string): string {
+  const r = String(respuesta ?? '');
+  if (!preguntaPorElCostoDelEnvio(textoCliente)) return r;
+  if (/sin cargo|gratis|no tiene costo|no se cobra/i.test(r)) return r;
+  return r.trim() ? `El envío es sin cargo. ${r.trim()}` : 'El envío es sin cargo.';
+}

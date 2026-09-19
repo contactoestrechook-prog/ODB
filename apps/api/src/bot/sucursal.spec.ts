@@ -1,4 +1,4 @@
-import { esAutomaticoWhatsappBusiness, envioSinCargo, nombreSucursalCliente, saintThomas } from './prolijo';
+import { asegurarEnvioSinCargo, esAutomaticoWhatsappBusiness, envioSinCargo, nombreSucursalCliente, saintThomas } from './prolijo';
 
 describe('nombre de la sucursal ante el cliente', () => {
   it('Sant Thomas pasa a sucursal Saint Thomas', () => {
@@ -58,5 +58,20 @@ describe('el envío en ODB es sin cargo', () => {
     expect(r).toMatch(/el envío es sin cargo\./);
     expect(r).toMatch(/Se abona al recibir, en efectivo o con tarjeta\.$/);
     expect(r).not.toMatch(/sector de reparto/);
+  });
+});
+
+describe('preguntó cuánto sale el envío', () => {
+  it('la respuesta siempre dice que es sin cargo', () => {
+    expect(asegurarEnvioSinCargo('Cuanto es el flete? me cobran el reparto aparte no?', 'Lo consulto y te confirmo por acá.'))
+      .toBe('El envío es sin cargo. Lo consulto y te confirmo por acá.');
+    expect(asegurarEnvioSinCargo('cuanto me sale el envio?', 'El envío es sin cargo: ese es el total.'))
+      .toBe('El envío es sin cargo: ese es el total.');
+    expect(asegurarEnvioSinCargo('¿el envío lo cobran aparte?', 'Te paso el total: $12.000.'))
+      .toMatch(/^El envío es sin cargo\./);
+  });
+  it('si no preguntó por el costo, no agrega nada', () => {
+    expect(asegurarEnvioSinCargo('¿a qué hora sale el reparto?', 'Sale después de las 18.')).toBe('Sale después de las 18.');
+    expect(asegurarEnvioSinCargo('quiero 2 fernet', 'Te cotizo 2 Fernet Branca.')).toBe('Te cotizo 2 Fernet Branca.');
   });
 });

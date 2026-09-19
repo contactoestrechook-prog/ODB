@@ -1,6 +1,6 @@
 import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import { volumenMl, etiquetaVolumen, pideTamano, medidaPartida, resumenDeTamanos, cantidadesPedidas, PALABRA_GENERICA } from './formatos';
-import { emprolijarListado, nombreLimpio, saludoSegunHora, saludarConBienvenida, niegaPercepcion, respetuosoSinConfianza, saintThomas, envioSinCargo, nombreSucursalCliente, esAutomaticoWhatsappBusiness } from './prolijo';
+import { emprolijarListado, nombreLimpio, saludoSegunHora, saludarConBienvenida, niegaPercepcion, respetuosoSinConfianza, saintThomas, envioSinCargo, asegurarEnvioSinCargo, nombreSucursalCliente, esAutomaticoWhatsappBusiness } from './prolijo';
 import { controlDeFechas } from './fechas';
 import { oggCompleto } from './ogg';
 import { atiendeUnaPersona, motivoDeSilencio } from './pausa';
@@ -995,6 +995,12 @@ export class BotService {
     // cerraba los pedidos con "el total es de la mercadería; el envío va
     // aparte" y le cobró de más, de palabra, a un cliente con un pedido de
     // $176.000. Si igual se le escapa, acá se corrige el texto ya escrito.
+    // preguntó por el costo del envío: la respuesta la tenemos, no se consulta
+    const conDato = asegurarEnvioSinCargo(texto, respuesta);
+    if (conDato !== respuesta) {
+      respuesta = conDato;
+      this.log.warn(`preguntó por el costo del envío y la respuesta no lo decía (${telefono}): se antepuso "sin cargo"`);
+    }
     const conEnvio = envioSinCargo(respuesta);
     if (conEnvio !== respuesta) {
       respuesta = conEnvio;
