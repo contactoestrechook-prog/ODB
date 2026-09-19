@@ -3,7 +3,7 @@ import { volumenMl, etiquetaVolumen, pideTamano, medidaPartida, resumenDeTamanos
 import { emprolijarListado, nombreLimpio, saludoSegunHora, saludarConBienvenida, niegaPercepcion, respetuosoSinConfianza, saintThomas, envioSinCargo, asegurarEnvioSinCargo, nombreSucursalCliente, esAutomaticoWhatsappBusiness } from './prolijo';
 import { controlDeFechas } from './fechas';
 import { oggCompleto } from './ogg';
-import { atiendeUnaPersona, motivoDeSilencio } from './pausa';
+import { atiendeUnaPersona, motivoDeSilencio, pideRespuesta } from './pausa';
 import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
 import { Cron } from '@nestjs/schedule';
@@ -2595,6 +2595,7 @@ export class BotService {
         derivada_motivo: `${conv.derivada_motivo ?? ''} · reactivada desde RESPONDE`.replace(/^ · /, ''),
       }).eq('linea', 'pedidos').eq('telefono', telefono);
       this.log.log(`charla ${telefono} reactivada desde RESPONDE: el bot retoma`);
+      await this.limpiarEspera('pedidos', telefono);
     } else if (humano && conv.bot_activo !== false) {
       await this.db.from('bot_conversaciones').update({
         bot_activo: false, derivada_en: ahora, derivada_motivo: 'Pausado desde RESPONDE', derivacion_vence_en: null, resuelta_en: null,
@@ -2614,6 +2615,40 @@ export class BotService {
   }
 
   // Deja el turno escrito en RESPONDE (best-effort: si falla, el bot igual atendió)
+  // CHARLA PAUSADA: el cliente escribió y el bot se calla (la atiende una
+  // persona). La pausa se respeta SIEMPRE —regla del dueño— pero el mensaje no
+  // se pierde: queda en el historial del bot (para que tenga contexto cuando lo
+  // reactiven) y la charla queda marcada como esperando respuesta. Si nadie
+  // contesta, el cron avisaEsperandoRespuesta() le escribe a administración.
+  // 19/9/2026: un pedido de un cliente estuvo 4 horas sin que nadie lo viera.
+  private async anotarEsperaEnPausa(linea: 'pedidos' | 'proveedores', telefono: string, texto: string) {
+    const limpio = String(texto ?? '').trim();
+    if (!limpio || /^54911000000\d{1,3}$/.test(telefono)) return;
+    try {
+      const { data: conv } = await this.db.from('bot_conversaciones')
+        .select('mensajes, esperando_desde').eq('linea', linea).eq('telefono', telefono).maybeSingle();
+      const hist: any[] = Array.isArray((conv as any)?.mensajes) ? (conv as any).mensajes : [];
+      const ahora = new Date().toISOString();
+      await this.db.from('bot_conversaciones').upsert({
+        linea, telefono,
+        mensajes: [...hist, { role: 'user', content: limpio }].slice(-40),
+        actualizado_en: ahora,
+        bot_activo: false,
+        esperando_desde: (conv as any)?.esperando_desde ?? ahora,
+        esperando_texto: limpio.slice(0, 300),
+      }, { onConflict: 'linea,telefono' });
+    } catch (e: any) {
+      this.log.warn(`no pude anotar la espera de ${telefono}: ${e?.message ?? e}`);
+    }
+  }
+
+  /** Alguien de la casa atendió (o el bot volvió): la charla deja de esperar. */
+  private async limpiarEspera(linea: 'pedidos' | 'proveedores', telefono: string) {
+    await this.db.from('bot_conversaciones')
+      .update({ esperando_desde: null, esperando_texto: null, esperando_aviso_en: null })
+      .eq('linea', linea).eq('telefono', telefono).then(() => null, () => null);
+  }
+
   // Identidad ÚNICA de una charla en RESPONDE (18/9/2026). El panel mostraba
   // "+110634079383788@lid" sin nombre —imposible de encontrar— y una respuesta
   // mandada al número real abría un contacto NUEVO para la misma persona. Acá se
@@ -2973,6 +3008,7 @@ export class BotService {
       atendida_por: null, derivacion_vence_en: null, acuse_derivacion_en: null,
     }, { onConflict: 'linea,telefono' }).then(() => null, () => null);
     await this.respondePausar(chat.endsWith('@lid') ? `${identidad}@lid` : identidad);
+    await this.limpiarEspera('pedidos', identidad); // ya la atendieron: deja de esperar
     return { pausada: true, motivo: 'una persona contestó desde el teléfono' };
   }
 
@@ -3164,6 +3200,7 @@ export class BotService {
         const rotulo = esImagen ? '📷 Foto del cliente' : '📄 PDF del cliente';
         if (await this.respondeModoHumano(waIdM).catch(() => false)) {
           await this.respondeRegistrar(waIdM, p._data?.notifyName ?? p.notifyName ?? null, etiqueta(rotulo), null, p.id ? String(p.id) : undefined, mediaReg).catch(() => null);
+          await this.anotarEsperaEnPausa('pedidos', identidad, etiqueta(rotulo));
           return { contestado: false, motivo: 'RESPONDE: atiende una persona' };
         }
         const r: any = await this.charla({
@@ -3215,6 +3252,7 @@ export class BotService {
           this.log.log(`audio transcripto de ${identidad}: "${dicho.slice(0, 80)}"`);
           if (await this.respondeModoHumano(waIdM).catch(() => false)) {
             await this.respondeRegistrar(waIdM, p._data?.notifyName ?? p.notifyName ?? null, etiqueta(`🎙️ ${dicho}`), null, p.id ? String(p.id) : undefined, mediaReg).catch(() => null);
+            await this.anotarEsperaEnPausa('pedidos', identidad, `🎙️ ${dicho}`);
             return { contestado: false, motivo: 'RESPONDE: atiende una persona' };
           }
           const r: any = await this.charla({ numeroLinea, telefono: identidad, mensaje: dicho, mensajeId: p.id ? String(p.id) : undefined });
@@ -3297,6 +3335,7 @@ export class BotService {
     // igual queda registrado allá para que la persona lo vea.
     if (await this.respondeModoHumano(waId)) {
       await this.respondeRegistrar(waId, p._data?.notifyName ?? p.notifyName ?? null, texto, null, p.id ? String(p.id) : undefined);
+      await this.anotarEsperaEnPausa('pedidos', identidad, texto);
       return { contestado: false, motivo: 'RESPONDE: atiende una persona' };
     }
 
@@ -3680,6 +3719,7 @@ export class BotService {
     );
 
     await this.respondePausar(telefono);
+    await this.limpiarEspera(linea, telefono); // la atendió una persona desde el panel
     const envio = await this.enviarPorWhatsapp({ to: telefono, text: mensaje, referencia: `${linea}/${telefono}` });
     // el mensaje de la persona queda también en el hilo de RESPONDE, así la
     // burbuja aparece en la app apenas refresca
@@ -3780,6 +3820,53 @@ export class BotService {
     const { error } = await this.db.from('mensajes_programados').update({ cancelado_en: new Date().toISOString() }).eq('id', id).is('enviado_en', null);
     if (error) throw new BadRequestException(error.message);
     return { ok: true };
+  }
+
+  // NADIE SE QUEDA SIN RESPUESTA (19/9/2026). La charla pausada sigue pausada:
+  // el bot no habla. Pero si el cliente escribió algo que pide respuesta y
+  // pasaron más de 20 minutos sin que nadie conteste, administración recibe un
+  // WhatsApp con el nombre y lo que dijo, UNA sola vez cada 6 horas por charla.
+  // Solo en horario de local (8 a 21) para no despertar a nadie.
+  @Cron('20 */5 * * * *')
+  async avisarEsperandoRespuesta() {
+    const hora = Number(new Date().toLocaleString('es-AR', { hour: '2-digit', hour12: false, timeZone: 'America/Argentina/Buenos_Aires' }));
+    if (!(hora >= 8 && hora < 21)) return;
+    const hace20 = new Date(Date.now() - 20 * 60_000).toISOString();
+    const hace6h = new Date(Date.now() - 6 * 3600_000).toISOString();
+    const { data: esperando } = await this.db.from('bot_conversaciones')
+      .select('linea, telefono, esperando_desde, esperando_texto, esperando_aviso_en')
+      .not('esperando_desde', 'is', null)
+      .lte('esperando_desde', hace20)
+      .order('esperando_desde', { ascending: true })
+      .limit(12);
+    const pendientes = ((esperando ?? []) as any[])
+      .filter((c) => !c.esperando_aviso_en || c.esperando_aviso_en < hace6h);
+    if (!pendientes.length) return;
+
+    const { data: cfg } = await this.db
+      .from('lineas_whatsapp').select('derivar_pagos_a').eq('linea', 'pedidos').eq('activa', true).limit(1).maybeSingle();
+    const admin = String((cfg as any)?.derivar_pagos_a ?? '').replace(/\D/g, '');
+
+    for (const c of pendientes) {
+      const texto = String(c.esperando_texto ?? '').trim();
+      const marcarAvisado = () => this.db.from('bot_conversaciones')
+        .update({ esperando_aviso_en: new Date().toISOString() })
+        .eq('linea', c.linea).eq('telefono', c.telefono).then(() => null, () => null);
+      // "gracias", "ok", un pulgar: no hace falta que nadie corra
+      if (!pideRespuesta(texto)) { await marcarAvisado(); continue; }
+      const minutos = Math.round((Date.now() - new Date(c.esperando_desde).getTime()) / 60_000);
+      const { data: k } = await this.db.from('bot_contactos')
+        .select('nombre, nombre_wa, telefono_real').eq('telefono', c.telefono).maybeSingle();
+      const quien = String((k as any)?.nombre ?? (k as any)?.nombre_wa ?? '').trim()
+        || ((k as any)?.telefono_real ? `+${(k as any).telefono_real}` : c.telefono);
+      const aviso = `⏳ ${quien} escribió hace ${minutos >= 60 ? `${Math.round(minutos / 60)} h` : `${minutos} min`} y nadie contestó. La charla está en pausa (la atiende una persona), así que el bot no habla.\n\nDice: "${texto.slice(0, 200)}"\n\nSi ya no la atiende nadie, reactivá el bot desde RESPONDE.`;
+      await this.db.from('bot_notas_equipo')
+        .insert({ linea: c.linea, telefono: c.telefono, nota: `[esperando] ${texto.slice(0, 280)}` })
+        .then(() => null, () => null);
+      if (admin) await this.enviarPorWhatsapp({ to: admin, text: aviso, kind: 'aviso-interno' } as any).catch(() => null);
+      this.log.warn(`charla en pausa sin atender: ${quien} hace ${minutos} min · aviso ${admin ? 'enviado' : 'sin destino'}`);
+      await marcarAvisado();
+    }
   }
 
   // Cada minuto: despacha los mensajes programados que ya vencieron

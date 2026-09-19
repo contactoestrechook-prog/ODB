@@ -1,4 +1,4 @@
-import { atiendeUnaPersona, motivoDeSilencio } from './pausa';
+import { atiendeUnaPersona, motivoDeSilencio, pideRespuesta } from './pausa';
 
 describe('¿el bot tiene que callar?', () => {
   it('línea apagada: silencio siempre (salvo el banco de pruebas)', () => {
@@ -15,5 +15,30 @@ describe('¿el bot tiene que callar?', () => {
   });
   it('charla activa: contesta', () => {
     expect(motivoDeSilencio({ bot_activo: true }, { bot_activo: true })).toBeNull();
+  });
+});
+
+// Textos REALES de charlas pausadas de ODB (auditoría del 19/9/2026)
+describe('¿el mensaje pide una respuesta?', () => {
+  it('pedidos, precios y preguntas: sí', () => {
+    for (const t of [
+      '1 smirnoff mango\n1 smirnoff normal\n3 vinos santa julia tinto\n3 powerade azul de la grande',
+      'cuanto me saldria eso??',
+      'Tienen ???',
+      'para hacer un pedido?',
+      'hasta q hora estan abiertos?',
+      'me mandaron mal el pedido, falta una botella',
+      '🎙️ Hola Jacky, ¿cómo andas? Ya te averiguo',
+      '📷 Foto del cliente',
+    ]) expect(pideRespuesta(t)).toBe(true);
+  });
+  it('cortesías y cierres: no', () => {
+    for (const t of [
+      'Gracias !!', 'Graciasss', 'Okk', 'ok gracias', 'dale', 'Listo', 'perfecto', '👍🏻👍🏻', 'recibido', 'Buenas noches', 'Si si claro',
+    ]) expect(pideRespuesta(t)).toBe(false);
+  });
+  it('un mensaje largo se avisa aunque no tenga pregunta', () => {
+    expect(pideRespuesta('Te dejo anotado que el viernes paso por la sucursal a buscar lo que quedó pendiente de la semana pasada')).toBe(true);
+    expect(pideRespuesta('')).toBe(false);
   });
 });
