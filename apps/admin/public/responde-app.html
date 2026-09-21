@@ -340,7 +340,10 @@ body.embed > main { height: 100vh; }
       <svg viewBox="0 0 24 24"><path d="M12 3C7 3 3 6.6 3 11c0 2.2 1 4.2 2.6 5.6L5 21l4.4-1.4c.8.2 1.7.4 2.6.4 5 0 9-3.6 9-8s-4-9-9-9z"/></svg>
       Elegí una conversación para verla en vivo
     </div></div>
-    <div id="aviso">⏸ Bot pausado: respondés vos. Si el lead espera 2+ horas sin respuesta tuya, el bot retoma solo (red de seguridad).</div>
+    <!-- En ODB la pausa NO vence: el bot vuelve solo cuando alguien toca REACTIVAR BOT
+         (regla del dueño, 16/9/2026). Si el cliente escribe y nadie contesta en 20
+         minutos, administración recibe un aviso por WhatsApp. -->
+    <div id="aviso">⏸ Bot pausado: respondés vos. La pausa no vence: el bot vuelve cuando tocás REACTIVAR BOT. Si el cliente espera 20 min sin respuesta, se avisa a administración.</div>
     <div id="adjBar"><span id="adjThumb"></span><span id="adjInfo"></span><span id="adjQuitar" title="Quitar adjunto">✕</span></div>
     <div id="composer">
       <button id="btnAdj" title="Adjuntar imagen, video, audio o documento">📎</button>
