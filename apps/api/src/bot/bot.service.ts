@@ -1,7 +1,7 @@
 import { agruparItems, cantidadesIndividuales, centavos, confirmacionInequivoca, idWhatsappCorto, importesDeHerramienta, importesDelTexto, pesos, presentacionProducto } from './comercio';
 import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import { volumenMl, etiquetaVolumen, pideTamano, medidaPartida, resumenDeTamanos, cantidadesPedidas, PALABRA_GENERICA } from './formatos';
-import { emprolijarListado, nombreLimpio, saludoSegunHora, saludarConBienvenida, niegaPercepcion, respetuosoSinConfianza, saintThomas, envioSinCargo, asegurarEnvioSinCargo, casiIgual, nombreSucursalCliente, esAutomaticoWhatsappBusiness } from './prolijo';
+import { emprolijarListado, nombreLimpio, saludoSegunHora, saludarConBienvenida, niegaPercepcion, respetuosoSinConfianza, saintThomas, envioSinCargo, asegurarEnvioSinCargo, casiIgual, campoLimpio, nombreSucursalCliente, esAutomaticoWhatsappBusiness } from './prolijo';
 import { controlDeFechas } from './fechas';
 import { desvioDeLoPedido } from './desvio';
 import { oggCompleto } from './ogg';
@@ -609,6 +609,16 @@ export class BotService {
         cache_control: { type: 'ephemeral' },
       },
     ];
+    // El modelo NO tiene reloj: sin esto inventaba fechas de entrega pasadas y
+    // "mañana" era cualquier día. Va como bloque aparte (cambia cada minuto y
+    // no debe romper el caché del prompt fijo).
+    const reloj = new Date();
+    const fechaLarga = reloj.toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'America/Argentina/Buenos_Aires' });
+    const fechaIso = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }).format(reloj);
+    const horaReloj = reloj.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Argentina/Buenos_Aires' });
+    const manianaIso = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }).format(new Date(reloj.getTime() + 86400_000));
+    system.push({ type: 'text', text: `HOY ES ${fechaLarga}, ${horaReloj} hs (Buenos Aires). En formato AAAA-MM-DD: hoy ${fechaIso}, mañana ${manianaIso}. Una fecha de entrega solo se pasa si el cliente pidió un día; si no, entrega_fecha va vacío.` });
+
     // Información vigente de la línea (campañas, eventos, avisos del momento):
     // la carga la dirección en las notas de la línea y Emilia la conoce sin
     // deploy. Va como bloque aparte para no romper el caché del prompt fijo.
@@ -2065,6 +2075,8 @@ export class BotService {
   async prepararPedido(telefono: string, linea: string, input: any, textoCliente?: string) {
     const tipo = input.tipo;
     if (!['pickup', 'domicilio'].includes(tipo)) throw new BadRequestException('Falta elegir retiro o envío');
+    // el modelo llena los campos obligatorios con basura cuando no tiene el dato
+    for (const k of ['nombre', 'direccion', 'notas', 'entrega_fecha', 'entrega_franja']) input[k] = campoLimpio(input[k]);
     const nombre = nombreLimpio(input.nombre);
     const direccion = String(input.direccion ?? '').trim();
     if (tipo === 'domicilio' && (!nombre || !/[a-záéíóúñ]/i.test(direccion) || !/\d/.test(direccion))) throw new BadRequestException('Para envío faltan nombre y dirección con calle y número');
@@ -2073,8 +2085,18 @@ export class BotService {
     const cot = await this.cotizarPedido(items, telefono, { textoCliente });
     if (cot.hayFaltantes || cot.renglones.some(r => r.error || r.presentacion === 'requiere_verificacion') || !cot.sucursalId) throw new BadRequestException('No se puede confirmar: falta stock, precio o un dato de la presentación');
     const ident = await this.identificarCliente(telefono);
-    const fecha = String(input.entrega_fecha ?? '').trim();
-    if (fecha && (!/^\d{4}-\d{2}-\d{2}$/.test(fecha) || Number.isNaN(Date.parse(fecha)) || new Date(fecha).toISOString().slice(0,10) !== fecha || fecha < new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }).format(new Date()))) throw new BadRequestException('Fecha de entrega inválida o pasada');
+    // La fecha NO tumba el pedido (22/9/2026): el modelo no sabe qué día es y
+    // llenaba entrega_fecha con una fecha pasada; preparar_pedido fallaba dos
+    // veces y el pedido nunca se guardaba. Una fecha inválida o pasada se
+    // ignora y queda avisado en el resultado; el pedido sigue.
+    let fecha = String(input.entrega_fecha ?? '').trim();
+    const hoyBA = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }).format(new Date());
+    let avisoFecha: string | null = null;
+    if (fecha && (!/^\d{4}-\d{2}-\d{2}$/.test(fecha) || Number.isNaN(Date.parse(fecha)) || new Date(fecha).toISOString().slice(0,10) !== fecha || fecha < hoyBA)) {
+      this.log.warn(`preparar_pedido: fecha "${fecha}" inválida o pasada (hoy ${hoyBA}); se ignora y el pedido sigue`);
+      avisoFecha = `La fecha "${fecha}" es inválida o pasada (hoy es ${hoyBA}): se guardó el pedido SIN fecha. Si el cliente pidió un día puntual, decíselo y pedí la fecha correcta.`;
+      fecha = '';
+    }
     const franja = ['mañana','tarde'].includes(input.entrega_franja) ? input.entrega_franja : null;
     const resumen = [
       ...cot.renglones.map(r => `• ${r.nombre} — ${r.renglon}`),
@@ -2090,8 +2112,11 @@ export class BotService {
       nombre, notas: String(input.notas ?? '').slice(0,300) || null,
       entrega_fecha: fecha || null, entrega_franja: franja, resumen,
     }).select('id').single();
-    if (error || !data?.id) throw new BadRequestException('No se pudo guardar el resumen: no pidas confirmación todavía');
-    return { cotizacionId: data.id, resumen, total: cot.total, renglones: cot.renglones };
+    if (error || !data?.id) {
+      this.log.error(`preparar_pedido: no se pudo guardar la cotización de ${telefono}: ${error?.message ?? 'sin id'} · input=${JSON.stringify(input).slice(0, 300)}`);
+      throw new BadRequestException('No se pudo guardar el resumen: no pidas confirmación todavía');
+    }
+    return { cotizacionId: data.id, resumen, total: cot.total, renglones: cot.renglones, ...(avisoFecha ? { avisoFecha } : {}) };
   }
 
   async crearPedido(dto: { telefono: string; linea?: string; confirmacion?: string; resumenPresentado?: string; items?: {sku:string;cantidad:number}[]; tipo?: string }) {

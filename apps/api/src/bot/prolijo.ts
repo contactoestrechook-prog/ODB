@@ -260,3 +260,13 @@ export function casiIgual(a: string, b: string): boolean {
   const comunes = A.filter((w) => setB.has(w)).length;
   return comunes / Math.max(A.length, B.length) >= 0.85;
 }
+
+// Basura que el modelo a veces mete en los campos de una herramienta cuando
+// el esquema lo obliga a llenar todo: etiquetas sueltas ("</antml…parameter>"),
+// "null", "N/A", "vacío". Nada de eso es un dato del cliente (22/9/2026).
+export function campoLimpio(v: unknown): string {
+  const t = String(v ?? '').trim();
+  if (!t) return '';
+  if (/<\/?\s*(antml|parameter|invoke|function)/i.test(t) || /^(null|undefined|n\/a|na|vacio|vacío|ninguna|ninguno|-|—)$/i.test(t)) return '';
+  return t;
+}

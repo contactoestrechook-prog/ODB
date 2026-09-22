@@ -1,4 +1,4 @@
-import { asegurarEnvioSinCargo, casiIgual, esAutomaticoWhatsappBusiness, envioSinCargo, nombreSucursalCliente, saintThomas } from './prolijo';
+import { asegurarEnvioSinCargo, campoLimpio, casiIgual, esAutomaticoWhatsappBusiness, envioSinCargo, nombreSucursalCliente, saintThomas } from './prolijo';
 
 describe('nombre de la sucursal ante el cliente', () => {
   it('Sant Thomas pasa a sucursal Saint Thomas', () => {
@@ -101,5 +101,15 @@ describe('nunca el mismo mensaje dos veces', () => {
     expect(casiIgual('Pedido DOM-ABC123 confirmado. Total: $75.000. Envío sin cargo.', 'Recibe Catalina. Se abona en efectivo al recibir. ¿Lo confirmo?')).toBe(false);
     expect(casiIgual('Buen día. ¿Qué necesitás?', 'Buenas tardes. ¿Qué necesitás?')).toBe(false);
     expect(casiIgual('', 'hola')).toBe(false);
+  });
+});
+
+describe('campos de herramienta sin basura', () => {
+  it('descarta etiquetas y placeholders, conserva datos reales', () => {
+    expect(campoLimpio('</antmlःparameter>')).toBe('');
+    expect(campoLimpio('null')).toBe('');
+    expect(campoLimpio('N/A')).toBe('');
+    expect(campoLimpio('  Rivadavia 234, Canning ')).toBe('Rivadavia 234, Canning');
+    expect(campoLimpio('2026-09-25')).toBe('2026-09-25');
   });
 });
