@@ -3,6 +3,7 @@ import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common'
 import { volumenMl, etiquetaVolumen, pideTamano, medidaPartida, resumenDeTamanos, cantidadesPedidas, PALABRA_GENERICA } from './formatos';
 import { emprolijarListado, nombreLimpio, saludoSegunHora, saludarConBienvenida, niegaPercepcion, respetuosoSinConfianza, saintThomas, envioSinCargo, asegurarEnvioSinCargo, casiIgual, nombreSucursalCliente, esAutomaticoWhatsappBusiness } from './prolijo';
 import { controlDeFechas } from './fechas';
+import { desvioDeLoPedido } from './desvio';
 import { oggCompleto } from './ogg';
 import { atiendeUnaPersona, motivoDeSilencio, pideRespuesta } from './pausa';
 import { SupabaseClient } from '@supabase/supabase-js';
@@ -1915,32 +1916,7 @@ export class BotService {
   // reincidencia: pidió Coca 1,5 y Quilmes clásica, le cotizó 1,75 e IPA sin
   // decirlo). Compara medida y variedad de lo que dijo el cliente contra el
   // nombre del producto elegido. Devuelve el motivo del desvío o null.
-  private desvioDeLoPedido(nombreProducto: string, textoCliente: string): string | null {
-    const norm = (t: string) => t.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-    const prod = norm(nombreProducto), cli = norm(textoCliente);
-    // medidas que el cliente nombró (1.5 / 1,5 l / 750 / 473 / 2 litros…)
-    const medidaCli = [...cli.matchAll(/\b(\d{2,4})\s?(?:cc|ml)\b|\b(\d(?:[.,]\d)?)\s?(?:l\b|lt|lts|litros?)\b/g)]
-      .map((m) => (m[1] ? Number(m[1]) : Math.round(Number(String(m[2]).replace(',', '.')) * 1000)))
-      .filter((n) => n >= 100);
-    if (medidaCli.length) {
-      const medidaProd = [...prod.matchAll(/\b(\d{3,4})\s?(?:cc|ml)\b|\b(\d(?:[.,]\d)?)\s?(?:l\b|lt|lts|litros?)\b/g)]
-        .map((m) => (m[1] ? Number(m[1]) : Math.round(Number(String(m[2]).replace(',', '.')) * 1000)))
-        .filter((n) => n >= 100);
-      if (medidaProd.length && !medidaProd.some((mp) => medidaCli.some((mc) => Math.abs(mp - mc) <= 30))) {
-        return `el cliente pidió ${medidaCli[0] >= 1000 ? (medidaCli[0] / 1000).toString().replace('.', ',') + ' L' : medidaCli[0] + 'cc'} y este producto es de ${medidaProd[0] >= 1000 ? (medidaProd[0] / 1000).toString().replace('.', ',') + ' L' : medidaProd[0] + 'cc'}`;
-      }
-    }
-    // variedades que se confunden entre sí dentro de una misma marca
-    const VARIEDADES = ['ipa', 'stout', 'zero', 'light', 'clasica', 'red lager', 'bock', 'sin alcohol', 'negra', 'rubia'];
-    const pidio = VARIEDADES.filter((v) => new RegExp(`\\b${v}\\b`).test(cli));
-    const tiene = VARIEDADES.filter((v) => new RegExp(`\\b${v}\\b`).test(prod));
-    // "clásica" en el cliente = la común: cualquier variedad en el producto es un desvío
-    if (pidio.includes('clasica') && tiene.length) return `el cliente pidió la clásica y este producto es ${tiene[0]}`;
-    if (pidio.length && !pidio.some((v) => tiene.includes(v)) && (tiene.length || pidio.some((v) => v !== 'clasica'))) {
-      return `el cliente pidió ${pidio[0]} y este producto ${tiene.length ? `es ${tiene[0]}` : 'no lo es'}`;
-    }
-    return null;
-  }
+  // el control de desvío vive en desvio.ts (con tests): ver por qué ahí
 
   async cotizarPedido(items: { sku: string; cantidad: number }[], telefono?: string, ctxCliente?: { textoCliente?: string; ultimosBot?: string[] }) {
     items = agruparItems(items);
@@ -2011,7 +1987,7 @@ export class BotService {
         continue;
       }
       // ¿es lo que el cliente pidió, o un reemplazo que nunca anunció?
-      const desvio = ctxCliente?.textoCliente ? this.desvioDeLoPedido(p.nombre, ctxCliente.textoCliente) : null;
+      const desvio = ctxCliente?.textoCliente ? desvioDeLoPedido(p.nombre, ctxCliente.textoCliente) : null;
       if (desvio) {
         // ¿el bot ya avisó del reemplazo? Se compara por MARCA (la palabra
         // significativa del nombre), no por un prefijo fijo de 18 caracteres:
