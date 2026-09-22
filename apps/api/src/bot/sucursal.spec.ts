@@ -1,4 +1,4 @@
-import { asegurarEnvioSinCargo, esAutomaticoWhatsappBusiness, envioSinCargo, nombreSucursalCliente, saintThomas } from './prolijo';
+import { asegurarEnvioSinCargo, casiIgual, esAutomaticoWhatsappBusiness, envioSinCargo, nombreSucursalCliente, saintThomas } from './prolijo';
 
 describe('nombre de la sucursal ante el cliente', () => {
   it('Sant Thomas pasa a sucursal Saint Thomas', () => {
@@ -51,6 +51,20 @@ describe('el envío en ODB es sin cargo', () => {
       expect(envioSinCargo(frase)).toBe(frase);
     }
   });
+  it('NO toca la oración del total ni la del reemplazo (Catalina, 21/9/2026)', () => {
+    for (const frase of [
+      'Listo, reemplacé las Coca comunes por Coca Zero: el total queda en $75.000 con el envío. ¿Lo confirmo?',
+      'Recibe Catalina. Se abona en efectivo al recibir y el envío es sin cargo, así que $75.000 es todo. ¿Lo confirmo?',
+      'Te lo mando mañana por la mañana; el envío llega entre las 10 y las 13.',
+      'Coca Cola Zero 1.75 L — $4.700 c/u. Envío a domicilio.',
+    ]) expect(envioSinCargo(frase)).toBe(frase);
+  });
+  it('conserva los espacios y no repite la frase', () => {
+    expect(envioSinCargo('El envío es sin cargo. Recibe Catalina. El envío va aparte. ¿Lo confirmo?'))
+      .toBe('El envío es sin cargo. Recibe Catalina. ¿Lo confirmo?');
+    expect(envioSinCargo('Recibe Catalina. El envío tiene un costo de $3.500. ¿Lo confirmo?'))
+      .toBe('Recibe Catalina. El envío es sin cargo. ¿Lo confirmo?');
+  });
   it('en un mensaje largo corrige solo la oración del costo', () => {
     const t = 'Pedido confirmado, código DOM-YD5GNY. El total de $13.650 corresponde a la mercadería; el costo del envío lo define el sector de reparto. Se abona al recibir, en efectivo o con tarjeta.';
     const r = envioSinCargo(t);
@@ -73,5 +87,19 @@ describe('preguntó cuánto sale el envío', () => {
   it('si no preguntó por el costo, no agrega nada', () => {
     expect(asegurarEnvioSinCargo('¿a qué hora sale el reparto?', 'Sale después de las 18.')).toBe('Sale después de las 18.');
     expect(asegurarEnvioSinCargo('quiero 2 fernet', 'Te cotizo 2 Fernet Branca.')).toBe('Te cotizo 2 Fernet Branca.');
+  });
+});
+
+describe('nunca el mismo mensaje dos veces', () => {
+  it('detecta la repetición real de Catalina (21/9/2026)', () => {
+    const a = 'El envío es sin cargo. Recibe Catalina y se abona en efectivo al recibir. El envío es sin cargo, así que $75.000 es todo. ¿Lo confirmo?';
+    const b = 'El envío es sin cargo. Recibe Catalina. Se abona en efectivo al recibir y el envío es sin cargo, así que $75.000 es todo. ¿Lo confirmo?';
+    expect(casiIgual(a, b)).toBe(true);
+    expect(casiIgual(a, a)).toBe(true);
+  });
+  it('un mensaje distinto no se confunde', () => {
+    expect(casiIgual('Pedido DOM-ABC123 confirmado. Total: $75.000. Envío sin cargo.', 'Recibe Catalina. Se abona en efectivo al recibir. ¿Lo confirmo?')).toBe(false);
+    expect(casiIgual('Buen día. ¿Qué necesitás?', 'Buenas tardes. ¿Qué necesitás?')).toBe(false);
+    expect(casiIgual('', 'hola')).toBe(false);
   });
 });

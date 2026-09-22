@@ -168,33 +168,59 @@ export function esAutomaticoWhatsappBusiness(t: string | null | undefined): bool
 // entera por "El envío es sin cargo.". Se aplica en la respuesta del bot y, de
 // nuevo, en la puerta de salida de WhatsApp (enviarPorWhatsapp), que es por
 // donde pasan también los avisos, las difusiones y el panel.
-const RE_ENVIO = /\b(env[ií]os?|flete|entrega|reparto|delivery)\b/i;
-const RE_COSTO = /\b(aparte|no est[aá]n? incluid\w*|no incluye|sin incluir|adicional\w*|extra|recargo|costo|cuesta|se cobra|se paga aparte|tiene un (costo|precio|valor)|lo cotiza|lo define|seg[uú]n la zona|depende de la zona|a cargo del cliente)\b|\$\s?\d/i;
+const RE_ENVIO = /\b(env[ií]os?|flete|reparto|delivery|entrega)\b/i;
+// SOLO las que COBRAN el envío. Antes alcanzaba con que la oración nombrara el
+// envío y tuviera un "$": se comía la oración del total ("reemplacé las Coca por
+// Coca Zero, el total queda $75.000 con envío") y el mensaje perdía el contenido.
+// El cliente terminó recibiendo tres veces el mismo "El envío es sin cargo.
+// ¿Lo confirmo?" (Catalina, 21/9/2026).
+const RE_COSTO = /\b(aparte|no est[aá]n? incluid\w*|no incluye|sin incluir|adicional\w*|recargo|tiene un (costo|precio|valor)|se cobra|se paga aparte|a cargo del cliente|lo cotiza|lo define|seg[uú]n la zona|depende de la zona)\b|\b(costo|precio|valor)\s+(de|del)\s+(env[ií]o|flete|reparto)|\b(env[ií]o|flete|reparto)\s+(cuesta|sale\s+\$?\s?\d)/i;
 // una oración de PAGO ("se abona al recibir, en efectivo o con tarjeta") habla
 // de plata y de entrega sin cobrar el envío: esa no se toca
 const RE_FORMA_DE_PAGO = /\b(efectivo|tarjeta|posnet|transferencia|mercado pago|link de pago|d[eé]bito|cr[eé]dito)\b/i;
 const RE_YA_ESTA_BIEN = /\bsin cargo|gratis|bonificad|no tiene costo|no se cobra\b/i;
 
+/** Frases y cláusulas con su separador y su espacio: el punto de "$3.500" o "1.75" no corta. */
+function trozosDeTexto(texto: string): string[] {
+  const out: string[] = [];
+  let desde = 0;
+  for (let i = 0; i < texto.length; i++) {
+    const c = texto[i];
+    const corta = c === '\n' || (/[.;!?]/.test(c) && (i + 1 >= texto.length || /\s/.test(texto[i + 1])));
+    if (!corta) continue;
+    let j = i + 1;
+    while (j < texto.length && /[ \t]/.test(texto[j])) j++;
+    out.push(texto.slice(desde, j));
+    desde = j;
+    i = j - 1;
+  }
+  if (desde < texto.length) out.push(texto.slice(desde));
+  return out;
+}
+
 export function envioSinCargo(t: string): string {
   const texto = String(t ?? '');
   if (!RE_ENVIO.test(texto)) return texto;
-  // se corta en frases Y en cláusulas (el ";" separa "es el total de la
-  // mercadería" de "el envío va aparte"), conservando el separador
-  const trozos = texto.split(/(?<=[.;!?])\s+|(?<=\n)/);
+  // se corta en frases y cláusulas CONSERVANDO el separador (antes el join se
+  // comía los espacios y salía "El envío es sin cargo.Recibe Catalina.")
+  const trozos = trozosDeTexto(texto);
   let cambio = false;
+  let yaLoDijo = /\benv[ií]o es sin cargo\b/i.test(texto);
   const salida = trozos.map((trozo) => {
     const limpia = trozo.trim();
     if (!limpia) return trozo;
     if (!RE_ENVIO.test(limpia) || !RE_COSTO.test(limpia)) return trozo;
     if (RE_YA_ESTA_BIEN.test(limpia) || RE_FORMA_DE_PAGO.test(limpia)) return trozo;
     cambio = true;
-    const cola = trozo.endsWith('\n') ? '\n' : trozo.endsWith(' ') ? ' ' : '';
-    return `El envío es sin cargo.${cola}`;
+    const espacio = /\s$/.test(trozo) ? (trozo.endsWith('\n') ? '\n' : ' ') : '';
+    // si el mensaje ya dice que es sin cargo, la oración que cobraba se borra
+    // (no se repite la frase dos veces en el mismo mensaje)
+    if (yaLoDijo) return espacio;
+    yaLoDijo = true;
+    return `El envío es sin cargo.${espacio}`;
   });
   if (!cambio) return texto;
   return salida.join('')
-    // lo que quedaba colgado de la frase partida: "Es el total de la
-    // mercadería; El envío es sin cargo." → "El envío es sin cargo."
     .replace(/(?:^|(?<=[.\n]\s))(?:este\s+)?es\s+el\s+total\s+de\s+la\s+mercader[ií]a\s*[;,:]?\s*(?=El envío es sin cargo)/gi, '')
     .replace(/([;,])\s*El envío es sin cargo\./g, '$1 el envío es sin cargo.')
     .replace(/[ \t]{2,}/g, ' ').replace(/ +\n/g, '\n').replace(/\n +/g, '\n')
@@ -216,4 +242,21 @@ export function asegurarEnvioSinCargo(textoCliente: string, respuesta: string): 
   if (!preguntaPorElCostoDelEnvio(textoCliente)) return r;
   if (/sin cargo|gratis|no tiene costo|no se cobra/i.test(r)) return r;
   return r.trim() ? `El envío es sin cargo. ${r.trim()}` : 'El envío es sin cargo.';
+}
+
+// NUNCA EL MISMO MENSAJE DOS VECES (Leandro, 22/9/2026: "no quiero que repita
+// nunca más un mensaje"). Dos textos son "el mismo" si, sacando tildes,
+// mayúsculas y puntuación, comparten casi todas las palabras. Se compara
+// contra el último mensaje del bot antes de mandar; si es casi igual, se
+// reescribe, y si vuelve a salir igual, la charla pasa a una persona.
+const palabrasDe = (t: string) =>
+  String(t ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+    .replace(/[^a-z0-9ñ$ ]+/g, ' ').split(/\s+/).filter((w) => w.length >= 2);
+
+export function casiIgual(a: string, b: string): boolean {
+  const A = palabrasDe(a), B = palabrasDe(b);
+  if (A.length < 5 || B.length < 5) return A.join(' ') === B.join(' ') && A.length > 0;
+  const setB = new Set(B);
+  const comunes = A.filter((w) => setB.has(w)).length;
+  return comunes / Math.max(A.length, B.length) >= 0.85;
 }

@@ -1,6 +1,7 @@
+import { agruparItems, cantidadesIndividuales, centavos, confirmacionInequivoca, idWhatsappCorto, importesDeHerramienta, importesDelTexto, pesos, presentacionProducto } from './comercio';
 import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import { volumenMl, etiquetaVolumen, pideTamano, medidaPartida, resumenDeTamanos, cantidadesPedidas, PALABRA_GENERICA } from './formatos';
-import { emprolijarListado, nombreLimpio, saludoSegunHora, saludarConBienvenida, niegaPercepcion, respetuosoSinConfianza, saintThomas, envioSinCargo, asegurarEnvioSinCargo, nombreSucursalCliente, esAutomaticoWhatsappBusiness } from './prolijo';
+import { emprolijarListado, nombreLimpio, saludoSegunHora, saludarConBienvenida, niegaPercepcion, respetuosoSinConfianza, saintThomas, envioSinCargo, asegurarEnvioSinCargo, casiIgual, nombreSucursalCliente, esAutomaticoWhatsappBusiness } from './prolijo';
 import { controlDeFechas } from './fechas';
 import { oggCompleto } from './ogg';
 import { atiendeUnaPersona, motivoDeSilencio, pideRespuesta } from './pausa';
@@ -323,7 +324,9 @@ export class BotService {
         .eq('linea', linea)
         .eq('mensaje_id', mensajeId)
         .maybeSingle();
-      if (previo?.respuesta) return { respuesta: previo.respuesta };
+      if (previo && typeof previo.respuesta === 'string') return previo.respuesta
+        ? { respuesta: previo.respuesta }
+        : { respuesta: null, silencio: true, motivo: 'mensaje ya procesado sin respuesta' } as any;
     }
 
     // 1) armar el texto del turno del usuario. Si vino un adjunto (factura),
@@ -369,7 +372,7 @@ export class BotService {
     // 2) memoria de conversación (solo texto plano user/assistant, sin bloques internos)
     const { data: conv } = await this.db
       .from('bot_conversaciones')
-      .select('mensajes, bot_activo, derivada_motivo, derivacion_vence_en, atendida_por, acuse_derivacion_en, actualizado_en')
+      .select('mensajes, bot_activo, derivada_motivo, derivacion_vence_en, atendida_por, acuse_derivacion_en, actualizado_en, importes_verificados')
       .eq('linea', linea)
       .eq('telefono', telefono)
       .maybeSingle();
@@ -593,7 +596,7 @@ export class BotService {
       : t);
     const messages: Anthropic.MessageParam[] = [
       ...historial,
-      { role: 'user', content: contenidoDelTurno(`${texto}\n\n[metadatos: telefono del chat = ${telefono}${quien}; ahora es ${ahoraBA} (hora de Buenos Aires); si corresponde saludar, el saludo correcto es "${saludo}". Estado de la charla: ${estado.join(' · ')}${bloquesPendientes.length ? `. OJO: el cliente mandó ${bloquesPendientes.length} archivo(s) ANTES (cuando no se podían abrir) y ahora los tenés adjuntos en este turno: leelos y usalos para responder; NO preguntes nada que esos archivos ya respondan` : ''}${imagenDelTurno ? (dto.vistaPreviaDeVideo ? '. El cliente mandó un VIDEO y lo que ves es su vista previa (el primer cuadro). Respondé sobre lo que se ve; si con eso no alcanza para responder con seguridad, acusá recibo en una línea y dejá nota_interna para que lo mire alguien de la casa. Jamás digas que no podés ver videos' : '. El cliente mandó una FOTO: mirala y respondé sobre lo que se ve. Si es un producto, buscalo en el catálogo por lo que leas en la etiqueta; si es un comprobante de pago, leé el MONTO y el NOMBRE o razón social del titular que transfirió, y llamá derivar_pago con tipo "comprobante_enviado", ese monto y de_quien; si no se entiende, pedí que la saque de nuevo más nítida') : documentoDelTurno ? '. El cliente mandó un PDF: leelo y respondé sobre lo que dice. Si pregunta por productos de una lista, contestá con los del catálogo nuestro; si es un comprobante de pago, leé el MONTO y el NOMBRE o razón social del titular que transfirió, y llamá derivar_pago con tipo "comprobante_enviado", ese monto y de_quien; si no se puede leer, pedí que lo reenvíe' : ''}]`) },
+      { role: 'user', content: contenidoDelTurno(`${texto}\n\n[metadatos: telefono del chat = ${telefono}${quien}; ahora es ${ahoraBA} (hora de Buenos Aires); si corresponde saludar, el saludo correcto es "${saludo}". Estado de la charla: ${estado.join(' · ')}${bloquesPendientes.length ? `. OJO: el cliente mandó ${bloquesPendientes.length} archivo(s) ANTES (cuando no se podían abrir) y ahora los tenés adjuntos en este turno: leelos y usalos para responder; NO preguntes nada que esos archivos ya respondan` : ''}${imagenDelTurno ? (dto.vistaPreviaDeVideo ? '. El cliente mandó un VIDEO y lo que ves es su vista previa (el primer cuadro). Usá la vista previa para entender el requerimiento, sin describir la imagen. Si falta un dato, ejecutá consultar_interno para que lo revise el local y guardá silencio hasta tener respuesta. Jamás digas que no podés ver videos' : '. El cliente mandó una FOTO: usala como información para resolver su requerimiento. NO describas la imagen, no enumeres lo visible, no digas "veo dos botellas" ni "recibí la foto". La cantidad visible NO es cantidad pedida. Respondé directamente al pedido del texto o del historial. Si falta intención, una sola pregunta concreta. Si es un producto, buscalo en el catálogo por lo que leas en la etiqueta; si es un comprobante de pago, leé el MONTO y el NOMBRE o razón social del titular que transfirió, y llamá derivar_pago con tipo "comprobante_enviado", ese monto y de_quien; si no se entiende, pedí que la saque de nuevo más nítida') : documentoDelTurno ? '. El cliente mandó un PDF: usalo para resolver su requerimiento, sin resumir el archivo salvo que lo pida. Si pregunta por productos de una lista, contestá con los del catálogo nuestro; si es un comprobante de pago, leé el MONTO y el NOMBRE o razón social del titular que transfirió, y llamá derivar_pago con tipo "comprobante_enviado", ese monto y de_quien; si no se puede leer, pedí que lo reenvíe' : ''}]`) },
     ];
 
     // 3) loop del agente: Opus razona, pide herramientas, las ejecutamos y sigue
@@ -646,7 +649,7 @@ export class BotService {
     const ultimosDelCliente = [...[...historial].reverse().filter((m) => m.role === 'user').slice(0, 6).map((m) => String(m.content)).reverse(), texto];
     const fallosDelTurno = new Map<string, number>();
     // una herramienta puede fijar la respuesta del turno ("Recibido." ante un comprobante)
-    const respuestaFija: { texto?: string } = {};
+    const respuestaFija: { texto?: string; consultaPendiente?: boolean; operacion?: boolean } = {};
     // todo lo que devolvieron las herramientas en este turno: los únicos
     // números que el bot tiene permitido decir
     const salidasDelTurno: string[] = [];
@@ -719,6 +722,7 @@ export class BotService {
           resultados.push(res);
         }
         messages.push({ role: 'user', content: resultados });
+        if (respuestaFija.consultaPendiente || respuestaFija.operacion) break;
         continue;
       }
 
@@ -742,6 +746,7 @@ export class BotService {
       }
       break;
     }
+    if (!respuestaFija.consultaPendiente && !respuestaFija.operacion) {
     if (!respuesta) {
       // Ronda 9: "Disculpe, no pude procesar su mensaje" a "¿qué pedidos tengo?" —
       // el loop terminó sin texto (tope de vueltas o el modelo se quedó en
@@ -834,11 +839,11 @@ export class BotService {
     // promesa puntual: no cuenta. Se saca esa oración antes de evaluar.
     // si en la charla ya hubo un código con "cancelado"/"confirmado", volver a decirlo
     // ("el que armamos quedó cancelado") es describir un hecho, no prometer
-    const huboCancelacion = dichoPorElBot.some((t) => /cancelad/i.test(t) && /\b(DOM|RET|PICKUP)-[A-Z0-9]{4,8}\b/.test(t));
+    const huboCancelacion = dichoPorElBot.some((t) => /cancelad/i.test(t) && /\b(DOM|RET|PICKUP)-[A-Z0-9]{4,12}\b/.test(t));
     const sinFormulaReparto = (t: string) => t
       .replace(/[^.\n]*coordina el reparto[^.\n]*/gi, '')
       // "el pedido DOM-XXXX quedó cancelado/confirmado" es un hecho (el código solo existe si la herramienta lo creó)
-      .replace(/[^.\n]*\b(DOM|RET|PICKUP)-[A-Z0-9]{4,8}\b[^.\n]*/g, '')
+      .replace(/[^.\n]*\b(DOM|RET|PICKUP)-[A-Z0-9]{4,12}\b[^.\n]*/g, '')
       .replace(huboCancelacion ? /[^.\n]*cancelad[^.\n]*/gi : /$^/, '');
     // G6 (ronda 6): plazos e iniciativa que el bot no controla ("en breve le
     // confirman", "apenas lo tenga le aviso", "¿prefiere que le avise?"): el bot no
@@ -890,7 +895,7 @@ export class BotService {
     // que crear_pedido haya devuelto un código en ESTE turno es mentira. Se
     // regenera una vez con la verdad; si no se puede, se reemplaza la frase.
     const diceCargado = /(pedido (queda|quedó|ya está|está|ya quedó) (confirmado|cargado|registrado|armado|tomado)|confirmo (el|su) pedido|queda(n)? (cargado|registrado|confirmado)s? (el|su) pedido|ya está registrado|pedido confirmado|queda(n)?[^.]{0,40}\b(en|al) (el |su )?pedido\b|agregad[oa] al pedido)/i;
-    const pedidoCreadoEnTurno = fallosDelTurno.get('__pedido_creado__') === 1 || /\b(DOM|RET|PICKUP)-[A-Z0-9]{4,8}\b/.test(respuesta);
+    const pedidoCreadoEnTurno = fallosDelTurno.get('__pedido_creado__') === 1 || /\b(DOM|RET|PICKUP)-[A-Z0-9]{4,12}\b/.test(respuesta);
     if (diceCargado.test(respuesta) && !pedidoCreadoEnTurno && vueltasReintento < 2) {
       this.log.warn(`dice pedido cargado sin crear_pedido exitoso para ${telefono}: regenero`);
       messages.push({ role: 'assistant', content: respuesta });
@@ -1173,7 +1178,7 @@ export class BotService {
     if ((respuesta.match(/¿/g) ?? []).length >= 3 && vueltasReintento < 3) {
       this.log.warn(`${(respuesta.match(/¿/g) ?? []).length} preguntas en un mensaje para ${telefono}: regenero`);
       messages.push({ role: 'assistant', content: respuesta });
-      messages.push({ role: 'user', content: '[nota interna: hiciste tres o más preguntas en un solo mensaje. Reescribilo con UNA sola pregunta, la más importante; para lo demás asumí la opción más común y decilo ("le puse azúcar Ledesma 1 kg, que es la común"). Si el cliente ya dio todo lo necesario, no preguntes nada: mostrá el resumen con el total y "¿Lo confirmo?".]' });
+      messages.push({ role: 'user', content: '[nota interna: hiciste tres o más preguntas en un solo mensaje. Reescribilo con UNA sola pregunta, la más importante; no asumas presentaciones ni cantidades para los demás artículos. Si el cliente ya dio todo lo necesario, no preguntes nada: mostrá el resumen con el total y "¿Lo confirmo?".]' });
       const t15 = await this.regenerar(system, messages, 2048, sumarUso);
       if (t15) respuesta = t15;
       vueltasReintento++;
@@ -1194,10 +1199,10 @@ export class BotService {
     // Respuestas acotadas: más de cuatro oraciones sin un total ($) es un
     // discurso, no una atención. Se regenera en dos o tres líneas.
     const oraciones = respuesta.split(/(?<=[.!?])\s+/).filter((o) => o.trim().length > 0).length;
-    if (oraciones > 4 && !/\$\s?\d/.test(respuesta) && vueltasReintento < 3) {
+    if ((oraciones > 4 || respuesta.length > 600) && !herramientasDelTurno.has('cotizar_pedido') && !herramientasDelTurno.has('crear_pedido') && vueltasReintento < 3) {
       this.log.warn(`${oraciones} oraciones sin cotización (${telefono}): regenero más corto`);
       messages.push({ role: 'assistant', content: respuesta });
-      messages.push({ role: 'user', content: '[nota interna: demasiado largo. Reescribilo en dos o tres líneas como máximo: el dato o la respuesta concreta, y a lo sumo una pregunta. Sin explicaciones de lo que podés o no podés hacer.]' });
+      messages.push({ role: 'user', content: '[nota interna: demasiado largo. Conservá exactamente los datos verificados, importes y enlaces necesarios. Reescribilo en dos o tres líneas como máximo: el dato o la respuesta concreta, y a lo sumo una pregunta. Sin explicaciones de lo que podés o no podés hacer.]' });
       const t17 = await this.regenerar(system, messages, 1024, sumarUso);
       if (t17) respuesta = t17;
       vueltasReintento++;
@@ -1214,29 +1219,8 @@ export class BotService {
     const cuerpo = respuesta.replace(saludoInicial, '').trim();
     const oracionesCuerpo = cuerpo.split(/(?<=[.!?])\s+/).filter((o) => o.trim().length > 0).length;
 
-    // 1) Mientras se consulta adentro, la respuesta es SOLO "lo consulto y te
-    //    confirmo por acá": sin precios, links, fechas ni alternativas.
-    if (herramientasDelTurno.has('consultar_interno') && (oracionesCuerpo > 2 || /\$\s?\d|https?:\/\/|retir/i.test(cuerpo)) && vueltasReintento < 3) {
-      this.log.warn(`consulta en curso con respuesta cargada (${telefono}): regenero`);
-      messages.push({ role: 'assistant', content: respuesta });
-      messages.push({ role: 'user', content: '[nota interna: le estás consultando a la casa lo que preguntó. Respondé SOLO eso, en una línea: que lo consultás y le confirmás por acá (con el saludo si corresponde). Nada más: ni precios, ni links, ni fechas, ni el resto de la información, ni alternativas como el retiro. No digas que no tenés el dato.]' });
-      const t19 = await this.regenerar(system, messages, 1024, sumarUso);
-      if (t19) respuesta = t19;
-      vueltasReintento++;
-    }
-
-    // 2) "Ese dato no lo tengo" no se dice: se consulta y se confirma por acá.
-    const RE_NO_LO_TENGO = /\b(dato (?:que )?no (?:lo )?tengo|no lo tengo ac[aá]|no tengo (?:ese|el|este) dato|no tengo esa info(?:rmaci[oó]n)?|no cuento con (?:ese|esa|el|la) (?:dato|informaci[oó]n)|no tengo (?:ac[aá] )?(?:esa|la) informaci[oó]n)\b/i;
-    // con una consulta en curso, cualquier "no (lo) tengo…" sobra: ya se está consultando
-    const confiesaConConsulta = herramientasDelTurno.has('consultar_interno') && /\bno\s+(?:lo\s+|la\s+)?tengo\b/i.test(respuesta);
-    if ((RE_NO_LO_TENGO.test(respuesta) || confiesaConConsulta) && vueltasReintento < 3) {
-      this.log.warn(`dijo que no tiene el dato (${telefono}): regenero`);
-      messages.push({ role: 'assistant', content: respuesta });
-      messages.push({ role: 'user', content: `[nota interna: no le digas al cliente que no tenés el dato. ${herramientasDelTurno.has('consultar_interno') ? 'Ya lo consultaste: decí solo que lo consultás y le confirmás por acá.' : 'Llamá a consultar_interno con la pregunta y decí solo que lo consultás y le confirmás por acá.'}]` });
-      const t20 = await this.regenerar(system, messages, 1024, sumarUso);
-      if (t20) respuesta = t20;
-      vueltasReintento++;
-    }
+    // Consultas sin dato se registran en la barrera final, sin reformular
+    // una promesa ni solicitar herramientas a una llamada que no las tiene.
 
     // 3) Pidió algo puntual y se lo ofrecen con otros productos que no pidió.
     const RE_OFRECE_OTROS = /\b(tambi[eé]n (?:tengo|tenemos|hay)|si quer[eé]s algo de la misma l[ií]nea|otras opciones|te puedo ofrecer|ten[eé]s tambi[eé]n)\b/i;
@@ -1251,7 +1235,7 @@ export class BotService {
     }
 
     // Disputa de precio o cantidad ("son 18 botellas de $1.950 c/u", "está mal
-    // la cuenta"): el bot no discute. La primera vez recotiza asumiendo que el
+    // la cuenta"): el bot no discute. La primera vez vuelve a verificar lo que el
     // cliente tiene razón (precio por unidad, cantidad en unidades); si ya
     // discutió una vez, lo consulta adentro y dice que lo verifica.
     const RE_DISPUTA = /\b(mal la cuenta|la cuenta est[aá] mal|est[aá] mal|te cargaron mal|sacando mal|mal las cuentas|c\/u|cada una|cada uno|por unidad|no es (?:el|por) pack|son \d+ (?:botellas|unidades|latas|paquetes))\b/i;
@@ -1262,7 +1246,7 @@ export class BotService {
       messages.push({ role: 'assistant', content: respuesta });
       messages.push({ role: 'user', content: yaDiscutio
         ? '[nota interna: el cliente ya discutió el precio o la cantidad más de una vez. No vuelvas a decirle que está correcto. Llamá a consultar_interno (area "local") con el detalle de lo que dice el cliente y respondé en una línea: "Lo verifico con el local y le confirmo por acá."]'
-        : '[nota interna: el cliente discute el precio o la cantidad. Por defecto tiene razón: los precios del catálogo son por UNIDAD suelta y el "x6un" del nombre es el bulto del proveedor, no un pack. Volvé a cotizar con cotizar_pedido usando la cantidad de UNIDADES que dijo el cliente (si dijo 18 botellas, son 18) y mostrale el total nuevo en dos líneas, sin justificar el anterior.]' });
+        : '[nota interna: el cliente discute el precio o la cantidad. Verificá la presentación real con unidadesPorVenta; no asumas que todos los artículos se venden sueltos ni que un x6 en el nombre define el precio. Volvé a cotizar con cotizar_pedido usando la cantidad de UNIDADES que dijo el cliente (si dijo 18 botellas, son 18) y mostrale el total nuevo en dos líneas, sin justificar el anterior.]' });
       const t18 = await this.regenerar(system, messages, 2048, sumarUso);
       if (t18) respuesta = t18;
       vueltasReintento++;
@@ -1337,6 +1321,15 @@ export class BotService {
       if (antes !== respuesta) this.log.log(`registro ajustado (usted/confianzudo) para ${telefono}`);
     }
 
+    // Una foto aporta contexto comercial; no pide una descripción visual.
+    if (imagenDelTurno && !/\b(describ[ií]|descripci[oó]n|qu[eé] (?:ves|se ve|hay en la foto))\b/i.test(texto)
+        && /\b(veo|se (?:ve|ven|observa|observan)|en la (?:foto|imagen) (?:hay|aparece|se ve)|recib[ií] (?:la|tu) foto)\b/i.test(respuesta)) {
+      messages.push({ role: 'assistant', content: respuesta });
+      messages.push({ role: 'user', content: '[nota interna: no describas la foto ni acuses recibo. Respondé directamente al requerimiento comercial usando SOLO los datos verificados. No asumas que la cantidad visible es la pedida. Si falta intención, hacé una sola pregunta útil. Conservá los importes verificados sin agregar otros.]' });
+      const directa = await this.regenerar(system, messages, 1024, sumarUso);
+      if (directa) respuesta = directa;
+    }
+
     // CANDADO FINAL (regla del dueño: "jamás pueda esa respuesta"). Las guardas
     // de más arriba regeneran mensajes, y una regeneración tardía puede volver
     // a meter "no puedo ver/escuchar/abrir". Acá ya no se negocia: si la frase
@@ -1348,11 +1341,55 @@ export class BotService {
         : 'Recibido. Contame qué necesitás y lo vemos.';
     }
 
+    }
+
+    // NUNCA EL MISMO MENSAJE DOS VECES (regla del dueño, 22/9/2026). Si lo que
+    // está por salir es casi igual al último mensaje del bot, el cliente ya lo
+    // leyó y ya contestó: se reescribe una vez diciendo algo que AVANCE; si
+    // vuelve a salir igual, la charla pasa a una persona en vez de repetir.
+    if (respuesta && !respuestaFija.operacion && ultimosDelBot[0] && casiIgual(respuesta, ultimosDelBot[0])) {
+      this.log.warn(`iba a repetir el mismo mensaje a ${telefono}: reescribo`);
+      messages.push({ role: 'assistant', content: respuesta });
+      messages.push({ role: 'user', content: `[nota interna: ese mensaje es casi idéntico al último que le mandaste, y el cliente ya lo leyó y contestó "${texto.slice(0, 120)}". Prohibido repetirlo. Si contestó que sí a "¿Lo confirmo?", el pedido está confirmado: llamá a crear_pedido AHORA. Si dio un dato (forma de pago, quién recibe, dirección), tomalo y avanzá al paso siguiente sin volver a resumir. Si no sabés cómo seguir, derivá a una persona con derivar_a_humano. Respondé distinto y corto.]` });
+      let otra: string | null = null;
+      try { otra = await this.regenerar(system, messages, 1024, sumarUso); } catch (e: any) { this.log.warn(`reescritura anti-repetición falló: ${e?.message ?? e}`); }
+      if (otra && !casiIgual(otra, ultimosDelBot[0]) && !casiIgual(otra, respuesta)) {
+        respuesta = otra;
+      } else {
+        this.log.error(`el bot iba a repetir dos veces el mismo mensaje a ${telefono}: pasa a una persona`);
+        await this.derivarAHumano(linea, telefono, `El bot iba a repetir el mismo mensaje. Último del cliente: ${texto.slice(0, 200)}`, true).catch(() => null);
+        respuesta = 'Te paso con una persona del local para cerrarlo, en un momento te escribe por acá.';
+      }
+    }
+
+    // Última validación, DESPUÉS de todas las reformulaciones: sólo importes
+    // devueltos por herramientas, nunca números escritos por el cliente.
+    const hechos = new Set<number>(Array.isArray(conv?.importes_verificados) ? conv.importes_verificados.filter((n: any) => Number.isInteger(n)) : []);
+    for (const raw of salidasDelTurno) {
+      try { for (const n of importesDeHerramienta(JSON.parse(raw))) hechos.add(n); } catch { /* error de herramienta sin datos */ }
+    }
+    for (const n of importesDelTexto(infoVigente)) hechos.add(n);
+    if (respuestaFija.operacion && respuestaFija.texto) respuesta = respuestaFija.texto;
+    else if (respuestaFija.consultaPendiente) respuesta = '';
+    else {
+      const importeSinFuente = importesDelTexto(respuesta).some(n => !hechos.has(n));
+      const prometeConsultar = /\b(lo consulto|[tl]e confirm(?:o|amos) por ac[aá]|vuelvo a vos|lo verifico con|no (?:lo |la )?tengo (?:ese |el |este |esa |la )?(?:dato|info(?:rmaci[oó]n)?|cargad)|no cuento con (?:ese|esa|el|la) (?:dato|informaci[oó]n)|lo revisa alguien)\b/i.test(respuesta);
+      if (importeSinFuente || prometeConsultar) {
+        try {
+          const consulta = await this.consultarInterno(linea, telefono, 'local', texto || 'Revisar el adjunto enviado por el cliente', '', dto.archivoUrl);
+          if (consulta.consultado) { respuestaFija.consultaPendiente = true; respuesta = ''; }
+        } catch {
+          await this.derivarAHumano(linea, telefono, `Revisar consulta no resuelta: ${texto.slice(0,500)}`, true);
+          respuesta = 'Tomo tu consulta y doy aviso al equipo.';
+        }
+      }
+    }
+
     // 4) persistir memoria (solo los turnos de texto, recortada) + tokens acumulados
     const nuevoHistorial = [
       ...historial,
       { role: 'user' as const, content: texto },
-      { role: 'assistant' as const, content: respuesta },
+      ...(respuesta ? [{ role: 'assistant' as const, content: respuesta }] : []),
     ].slice(-MAX_HISTORIAL);
     const { data: convPrev } = await this.db
       .from('bot_conversaciones')
@@ -1365,11 +1402,10 @@ export class BotService {
       telefono,
       mensajes: nuevoHistorial,
       tokens: Number(convPrev?.tokens ?? 0) + tokens,
+      importes_verificados: [...hechos].slice(-400),
       actualizado_en: new Date().toISOString(),
-      // el bot contestó: la charla ya no espera a nadie
-      esperando_desde: null,
-      esperando_texto: null,
-      esperando_aviso_en: null,
+      // La cola de consultas tiene seguimiento propio; no borrar la espera al callar.
+      ...(respuestaFija.consultaPendiente ? {} : { esperando_desde: null, esperando_texto: null, esperando_aviso_en: null }),
     });
     // tarifa por millón según modelo (entrada, caché leída, caché escrita, salida)
     const TARIFA: Record<string, [number, number, number, number]> = {
@@ -1386,7 +1422,9 @@ export class BotService {
       await this.db.from('bot_mensajes').upsert({ linea, mensaje_id: mensajeId, telefono, respuesta });
     }
 
-    return { respuesta };
+    return respuestaFija.consultaPendiente && !respuesta
+      ? { respuesta: null, silencio: true, motivo: 'consulta interna pendiente' } as any
+      : { respuesta };
   }
 
   // Despacha cada tool_use del modelo a la implementación real. El `telefono`
@@ -1475,7 +1513,7 @@ export class BotService {
     block: Anthropic.ToolUseBlock,
     telefono: string,
     linea: 'pedidos' | 'proveedores' = 'pedidos',
-    ctx: { ultimoBot?: string; ultimosBot?: string[]; ultimosCliente?: string[]; textoCliente?: string; fallos?: Map<string, number>; archivoUrl?: string; fija?: { texto?: string }; salidas?: string[] } = {},
+    ctx: { ultimoBot?: string; ultimosBot?: string[]; ultimosCliente?: string[]; textoCliente?: string; fallos?: Map<string, number>; archivoUrl?: string; fija?: { texto?: string; consultaPendiente?: boolean; operacion?: boolean }; salidas?: string[] } = {},
   ): Promise<Anthropic.ToolResultBlockParam> {
     const input: any = block.input;
     const skusVistosEnTurno = this.skusDe(telefono);
@@ -1490,88 +1528,22 @@ export class BotService {
           out = await this.identificarCliente(telefono);
           break;
         case 'buscar_productos':
-          out = await this.buscarProductos(String(input.q ?? ''), (sku) => skusVistosEnTurno.add(sku));
+          out = await this.buscarProductos(String(input.q ?? ''), (sku) => skusVistosEnTurno.add(sku), telefono);
           for (const it of ((out as any)?.items ?? [])) if (it?.sku) skusVistosEnTurno.add(String(it.sku));
           break;
+        case 'preparar_pedido': {
+          out = await this.prepararPedido(telefono, linea, input, ctx.textoCliente);
+          if (ctx.fija) { ctx.fija.texto = (out as any).resumen; ctx.fija.operacion = true; }
+          break;
+        }
         case 'crear_pedido': {
-          this.log.log(`crear_pedido input · ${telefono}: ${JSON.stringify(input).slice(0, 400)}`);
-          // Guardas en código (el prompt no alcanza: en la auditoría creó un pedido real
-          // con "dale envío el sábado" y después lo negó):
-          //  1. confirmación textual del cliente, y que sea una afirmación, no una elección de modalidad
-          //  2. envío → dirección con calle Y número
-          //  3. todos los sku tienen que haber salido de una búsqueda/cotización de ESTA conversación
-          const conf = String(input.confirmacion_del_cliente ?? '').trim();
-          const afirma = /(^|[^a-záéíóúñ])(s[ií](?![a-záéíóúñ])|confirm|dale|hacelo|listo|de acuerdo|ok(?![a-z])|perfecto|cerralo|armalo|quiero ese|va(?![a-záéíóúñ]))/i.test(conf);
-          const soloModalidad = /^(env[ií]o|retiro|a domicilio|lo paso a buscar|el (s[aá]bado|domingo|lunes|martes|mi[eé]rcoles|jueves|viernes))\b/i.test(conf) && !/confirm|dale|hacelo|listo|(^|[^a-záéíóúñ])s[ií](?![a-záéíóúñ])/i.test(conf);
-          if (!conf || !afirma || soloModalidad) {
-            out = { error: 'NO se creó el pedido: falta la confirmación explícita del cliente al resumen con total. Mostrale el resumen (ítems, cantidades, total, modalidad y dirección) y pedile que confirme con un "sí". No digas que el pedido está cargado.' };
+          if (!confirmacionInequivoca(ctx.textoCliente ?? '')) {
+            out = { error: 'NO se creó el pedido: falta confirmación inequívoca al resumen. Usá preparar_pedido y esperá la aceptación del cliente.' };
             break;
           }
-          //  4. DOBLE CONFIRMACIÓN (ronda 5: "juana de arco 7450, mandamelo tipo 12" se tomó como
-          //     confirmación y el cliente dijo "yo no te confirmé nada"): el pedido se crea
-          //     solo si el ÚLTIMO mensaje del bot mostró el total Y preguntó si lo confirma,
-          //     y lo que el cliente acaba de escribir es un sí (o dice "confirmo" textual).
-          const ultimoBot = String(ctx.ultimoBot ?? '');
-          const textoCli = String(ctx.textoCliente ?? '').trim();
-          // el bot tiene que haber mostrado un IMPORTE, no solo la palabra
-          // "total" (ronda 11: "¿Confirma estos productos así le paso el total
-          // exacto?" pasaba la guarda y un "sí" creaba un pedido sin total dado)
-          const RE_TOTAL = /(total[^.\n]{0,40}?\$?\s?\d{1,3}[.\s]?\d{3}|\$\s?\d{1,3}[.\s]?\d{3}[^.\n]{0,40}total)/i;
-          const RE_PREGUNTA = /(confirm|lo armo|lo dejo armado|lo armamos|lo dejo listo|lo cierro|lo genero|lo cargo|lo tomo|avanzo|dejo confirmado|lo hacemos|lo mando|lo env[ií]o|lo preparo)[^?]{0,80}\?/i;
-          // "confirmalo" dicho con todas las letras vale aunque el resumen haya sido
-          // dos mensajes antes (el cliente preguntó un precio en el medio y volvió):
-          // obligarlo a decir que sí dos veces es robótico. Un "sí"/"dale" a secas
-          // sigue necesitando que el resumen sea LO ÚLTIMO que dijo el bot.
-          const diceConfirmar = /\bconfirm(o|ado|ame|alo|ar|emos)\b/i.test(textoCli);
-          const candidatos = diceConfirmar ? (ctx.ultimosBot?.length ? ctx.ultimosBot : [ultimoBot]) : [ultimoBot];
-          const botMostroTotal = candidatos.some((t) => RE_TOTAL.test(t));
-          const botPregunto = candidatos.some((t) => RE_PREGUNTA.test(t));
-          const clienteDiceSi = /^\W*(s[ií](?![a-záéíóúñ])|dale|ok(ey)?(?![a-z])|listo|confirm|perfecto|de una|hacelo|armalo|mandalo|genial|b[aá]rbaro|joya|va(?![a-záéíóúñ])|vamos|bueno(?![a-z])|correcto|exacto|as[ií] es|me sirve|hag[aá]moslo|cerr[aá]lo|claro|obvio|por supuesto|eso|esa|ese)/i.test(textoCli) || /\bconfirm(o|ado|ame|alo|ar)\b/i.test(textoCli);
-          const clienteNiega = /\b(no\b|par[aá]\b|espera|todav[ií]a no|despu[eé]s|m[aá]s tarde|lo pienso|lo consulto|cancel)/i.test(textoCli) && !/\bconfirm(o|ado)\b/i.test(textoCli);
-          if (!textoCli || !botMostroTotal || !botPregunto || !clienteDiceSi || clienteNiega) {
-            out = { error: 'NO se creó el pedido: todavía no hay una confirmación explícita a un resumen. Protocolo: en ESTE mensaje mandá el resumen final (ítems con cantidades, total, modalidad y dirección si es envío) y terminá con la pregunta "¿Lo confirmo?". Creá el pedido recién en el próximo mensaje, cuando el cliente diga que sí. No digas que el pedido está cargado ni confirmado.' };
-            break;
-          }
-          const tipo = input.tipo === 'domicilio' ? 'domicilio' : 'pickup';
-          const dir = input.direccion ? String(input.direccion).trim() : '';
-          if (tipo === 'domicilio' && !/\d{1,5}/.test(dir)) {
-            out = { error: 'NO se creó el pedido: para envío hace falta la dirección con calle y número. Pedísela. No digas que el pedido está cargado.' };
-            break;
-          }
-          const skus = (input.items ?? []).map((i: any) => String(i.sku));
-          const desconocidos = skus.filter((k: string) => !skusVistosEnTurno.has(k) && !skusVistosEnHistorial.has(k));
-          if (desconocidos.length) {
-            out = { error: `NO se creó el pedido: estos sku no salieron de ninguna búsqueda de esta conversación: ${desconocidos.join(', ')}. Buscá los productos con buscar_productos y usá el sku exacto que devuelve. Nunca inventes un sku.` };
-            break;
-          }
-          // si el modelo no pasó el nombre, se busca en lo que dijo el cliente
-          // ("recibe Martín", "soy Ana", o un "martin" a secas cuando se lo pidieron)
-          let nombreRecibe = input.nombre ? String(input.nombre).trim() : '';
-          if (!nombreRecibe && tipo === 'domicilio') {
-            const msgs = ctx.ultimosCliente ?? [];
-            for (let k = msgs.length - 1; k >= 0 && !nombreRecibe; k--) {
-              const m = msgs[k].match(/\b(?:recibe|retira|soy|me llamo|a nombre de|nombre[:\s]+)\s*([A-Za-zÁÉÍÓÚÑáéíóúñ]{2,}(?:\s+[A-Za-zÁÉÍÓÚÑáéíóúñ]{2,})?)/i);
-              if (m?.[1] && !/^(yo|el|la|los|las|mi|tu|su|que|para|hoy|tipo)$/i.test(m[1])) nombreRecibe = m[1];
-            }
-            if (!nombreRecibe) {
-              // un mensaje corto sin números (una o dos palabras) después de que el bot pidió el nombre
-              const corto = [...msgs].reverse().find((m) => /^[A-Za-zÁÉÍÓÚÑáéíóúñ]{2,}(\s+[A-Za-zÁÉÍÓÚÑáéíóúñ]{2,})?$/.test(m.trim()) && !/^(si|sí|no|dale|ok|hola|gracias|bueno|listo|confirmalo|confirmo|claro|perfecto|retiro|envio|envío|domicilio)$/i.test(m.trim()));
-              const botPidioNombre = (ctx.ultimosBot ?? []).some((b) => /nombre/i.test(b));
-              if (corto && botPidioNombre) nombreRecibe = corto.trim();
-            }
-            if (nombreRecibe) nombreRecibe = nombreRecibe.replace(/\b\w/g, (c) => c.toUpperCase());
-          }
-          out = await this.crearPedido({
-            telefono,
-            nombre: nombreRecibe || undefined,
-            tipo,
-            items: (input.items ?? []).map((i: any) => ({ sku: String(i.sku), cantidad: Number(i.cantidad) })),
-            direccion: dir || undefined,
-            notas: input.notas ? String(input.notas).slice(0, 300) : undefined,
-            entregaFecha: input.entrega_fecha ? String(input.entrega_fecha) : undefined,
-            entregaFranja: input.entrega_franja === 'mañana' || input.entrega_franja === 'tarde' ? input.entrega_franja : undefined,
-          });
+          out = await this.crearPedido({ telefono, linea, confirmacion: ctx.textoCliente!, resumenPresentado: ctx.ultimoBot ?? '' });
           ctx.fallos?.set('__pedido_creado__', 1);
+          if (ctx.fija) { ctx.fija.texto = (out as any).respuesta; ctx.fija.operacion = true; }
           break;
         }
         case 'estado_pedido':
@@ -1586,20 +1558,6 @@ export class BotService {
           break;
         }
         case 'cotizar_pedido': {
-          // La cantidad que va a cotizar tiene que ser la que DIJO el cliente.
-          // Ayer "18 botellas" se convirtió en 3 packs por cuenta del modelo.
-          // Si el cliente nombró un número con unidad (18 botellas, 6 latas) y
-          // el renglón trae un divisor exacto de ese número (3, 6, 9), se
-          // rechaza la llamada y se le ordena usar el número del cliente.
-          const dichoCliente = String((ctx.ultimosCliente ?? []).slice(-1)[0] ?? ctx.textoCliente ?? '');
-          const cantidadesDichas = [...dichoCliente.matchAll(/\b(\d{1,3})\s*(?:botellas?|unidades?|latas?|paquetes?|bolsas?|cajas?|u\b|un\b)/gi)].map((m) => Number(m[1])).filter((n) => n > 1);
-          const sospechoso = (input.items ?? []).find((i: any) => cantidadesDichas.some((n) => Number(i.cantidad) > 0 && Number(i.cantidad) < n && n % Number(i.cantidad) === 0));
-          if (sospechoso) {
-            const n = cantidadesDichas.find((x) => x % Number(sospechoso.cantidad) === 0);
-            out = { error: `El cliente dijo ${n} unidades y vos pasaste cantidad ${sospechoso.cantidad}. Los precios son por UNIDAD suelta: el "x6un" del nombre no es un pack. Volvé a llamar a cotizar_pedido con cantidad ${n}.` };
-            this.log.warn(`cantidad convertida a packs para ${telefono}: cliente dijo ${n}, modelo pasó ${sospechoso.cantidad} → rechazada`);
-            break;
-          }
           out = await this.cotizarPedido(
             (input.items ?? []).map((i: any) => ({ sku: String(i.sku), cantidad: Number(i.cantidad) })),
             telefono,
@@ -1642,7 +1600,8 @@ export class BotService {
           const consulta = String(input.consulta ?? '').trim();
           const direccion = String(input.direccion ?? '').trim();
           if (!consulta) { out = { error: 'consultar_interno necesita la consulta concreta.' }; break; }
-          out = await this.consultarInterno(linea, telefono, area, consulta, direccion);
+          out = await this.consultarInterno(linea, telefono, area, consulta, direccion, ctx.archivoUrl);
+          if ((out as any)?.consultado && ctx.fija) ctx.fija.consultaPendiente = true;
           break;
         }
         case 'nota_interna': {
@@ -1663,9 +1622,8 @@ export class BotService {
           out = await this.derivarAHumano(linea, telefono, String(input.motivo ?? ''), input.urgente === true);
           break;
         case 'generar_link_pago': {
-          const monto = Number(input.monto);
-          if (!(monto > 0)) { out = { error: 'Monto inválido' }; break; }
-          out = await this.mercadopago.crearLink({ monto, concepto: String(input.concepto ?? 'Pedido ODB') });
+          out = await this.linkDelPedido(telefono, String(input.codigo ?? ''));
+          if (ctx.fija) { ctx.fija.texto = `Total: $${pesos((out as any).monto)}. ${(out as any).url}`; ctx.fija.operacion = true; }
           break;
         }
         case 'consultar_cava':
@@ -1675,7 +1633,7 @@ export class BotService {
             precioMin: input.precioMin != null ? Number(input.precioMin) : undefined,
             precioMax: input.precioMax != null ? Number(input.precioMax) : undefined,
             buscar: input.buscar ? String(input.buscar) : undefined,
-          });
+          }, telefono);
           for (const it of ((out as any)?.items ?? [])) if (it?.sku) skusVistosEnTurno.add(String(it.sku));
           break;
         default:
@@ -1743,19 +1701,19 @@ export class BotService {
   // stock por sucursal. Es lo que hace que el bot no invente ni venda sin stock.
   // Los resultados de herramienta se reenvían en CADA vuelta del loop del modelo:
   // cuanto más compactos, menos tokens. Sucursales como texto corto y sin nulos.
-  // 1.063 productos activos llevan "x6un", "x12", "pack" o "caja" en el nombre
-  // y TODOS tienen unidades_pack = 1: ese "xN" es el bulto del proveedor, no
-  // lo que se lleva el cliente. Ayer (2026-08-21) el bot leyó "Villavicencio
-  // 1.5L x6un" a $1.950 y le juró a un cliente que $1.950 era el pack de 6:
-  // le cotizó 18 botellas a $5.850. El precio y el stock son por unidad suelta
-  // salvo que unidades_pack diga otra cosa, y eso se le dice al modelo en cada
-  // producto, no se deja a su interpretación.
-  private notaUnidad(nombre: string, unidadesPack?: number | null): string | null {
-    if (Number(unidadesPack) > 1) return `pack de ${Number(unidadesPack)}: el precio es por el pack`;
-    if (/\bx\s?\d{1,3}(?![\d.,]|\s?(?:cc|ml|l|lt|lts|litros?|kg|grs?|g)\b)\s?(?:un|u|unid|unidades)?\b|\bpack\b|\bcaja\b|\bbulto\b/i.test(nombre)) {
-      return 'precio y stock por UNIDAD suelta; el "xN" del nombre es el bulto del proveedor, NO un pack para el cliente';
-    }
-    return null;
+  // unidades_pack=1 también se usa en artículos envasados y kits. No prueba
+  // que se pueda abrir un envase o vender su contenido por separado.
+  private presentacionAmbigua(nombre: string, unidadesPack?: number | null): boolean {
+    return presentacionProducto({ nombre, unidades_pack: unidadesPack }).presentacion === 'requiere_verificacion';
+  }
+  private notaUnidad(nombre: string, unidadesPack?: number | null): string {
+    return presentacionProducto({ nombre, unidades_pack: unidadesPack }).unidad;
+  }
+  private async preciosDelCliente(ids: string[], telefono?: string) {
+    const cliente = telefono ? await this.identificarCliente(telefono) : null;
+    const { data, error } = await this.db.rpc('catalogo_precios_bot', { p_ids: ids, p_cliente_id: cliente?.clienteId ?? null });
+    if (error) throw new BadRequestException('No se pudo consultar el precio vigente del cliente');
+    return data ?? [];
   }
 
   private sucCompacta(xs: any[] | string | undefined): string {
@@ -1763,7 +1721,7 @@ export class BotService {
     // (Ronda 6: pasarle el texto a .map() rompió la cava entera: 38 llamadas fallidas.)
     if (typeof xs === 'string') return xs;
     return (xs ?? [])
-      .map((s: any) => `${String(s.sucursal ?? s.nombre ?? '').replace(/^Suc /, '').replace(/^Sant Thomas/, 'Saint Thomas')}: ${Math.round(Number(s.cantidad ?? 0))}`)
+      .map((s: any) => `${String(s.sucursal ?? s.nombre ?? '').replace(/^Suc /, '').replace(/^Sant Thomas/, 'Saint Thomas')}: ${Number(s.cantidad ?? 0)}`)
       .join(' · ');
   }
   private sinNulos<T extends Record<string, any>>(o: T): Partial<T> {
@@ -1772,7 +1730,7 @@ export class BotService {
     return r;
   }
 
-  async buscarProductos(q: string, skusVistos: (sku: string) => void = () => undefined) {
+  async buscarProductos(q: string, skusVistos: (sku: string) => void = () => undefined, telefono?: string) {
     const t = (q ?? '').trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
     if (t.length < 2) return { items: [] };
     // el bot necesita ver la categoría entera ("gaseosas", "cerveza en lata"), no
@@ -1830,9 +1788,9 @@ export class BotService {
     // búsqueda de texto con otro límite: antes se cruzaban 40 filas de stock con
     // 8 de precio y quedaban productos "sin precio" que sí lo tenían (auditoría:
     // "el precio no me está tomando en el sistema" con un hielo cotizado 6 turnos antes).
-    const { data: prods } = await this.db.from('productos').select('id, sku, es_alcohol').in('sku', stock.map((p: any) => p.sku));
+    const { data: prods } = await this.db.from('productos').select('id, sku, es_alcohol, unidades_pack, vendido_por_peso').in('sku', stock.map((p: any) => p.sku));
     const idPorSku = new Map((prods ?? []).map((p: any) => [p.sku, p]));
-    const { data: precios } = await this.db.rpc('catalogo_precios', { p_ids: (prods ?? []).map((p: any) => p.id) });
+    const precios = await this.preciosDelCliente((prods ?? []).map((p: any) => p.id), telefono);
     const precioPorId = new Map<string, any>((precios ?? []).map((r: any) => [r.producto_id, r]));
     // los sin stock se marcan bien claro: el modelo los ofrecía igual. Se listan
     // por nombre hasta 6 (para que pueda decir "el de litro no hay"); el resto
@@ -1845,11 +1803,10 @@ export class BotService {
       return this.sinNulos({
         sku: p.sku,
         nombre: p.nombre,
-        precio: pr?.precio_final != null ? Math.round(Number(pr.precio_final)) : null,
-        precioMayorista: pr?.precio_mayorista != null && Number(pr.precio_mayorista) !== Number(pr.precio_final) ? Math.round(Number(pr.precio_mayorista)) : null,
+        precio: pr?.precio_final != null ? Number(pr.precio_final) : null,
         promo: pr?.descuento_nombre ? `${pr.descuento_nombre} (antes $${Math.round(pr.precio_lista)})` : null,
         alcohol: !!prod?.es_alcohol,
-        unidad: this.notaUnidad(String(p.nombre ?? ''), prod?.unidades_pack),
+        ...presentacionProducto({ ...prod, nombre: p.nombre }),
         medida: etiquetaVolumen(volumenMl(p.nombre)),
         stock: this.sucCompacta(p.sucursales) || String(Math.round(Number(p.total))),
       });
@@ -1885,13 +1842,13 @@ export class BotService {
           categoriaAlt = (ref as any).categoria?.nombre ?? null;
           const { data: mismos } = await this.db
             .from('productos')
-            .select('id, sku, nombre, es_alcohol, stock(cantidad, sucursal:sucursales(nombre))')
+            .select('id, sku, nombre, es_alcohol, unidades_pack, vendido_por_peso, stock(cantidad, sucursal:sucursales(nombre))')
             .eq('categoria_id', (ref as any).categoria_id)
             .eq('activo', true)
             .limit(80);
           const conAlgo = ((mismos ?? []) as any[]).filter((p) => (p.stock ?? []).some((r: any) => Number(r.cantidad) > 0 && String(r.sucursal?.nombre ?? '') === nombrePick));
           if (conAlgo.length) {
-            const { data: pr } = await this.db.rpc('catalogo_precios', { p_ids: conAlgo.map((p) => p.id) });
+            const pr = await this.preciosDelCliente(conAlgo.map((p) => p.id), telefono);
             const precioDe = new Map<string, any>((pr ?? []).map((r: any) => [r.producto_id, r]));
             // ranking: (1) misma marca/otro tamaño (primera palabra del nombre
             // buscado), (2) misma categoría por precio (ronda 8: a "Coca de 1.5"
@@ -1902,10 +1859,11 @@ export class BotService {
               .map((p) => ({
                 sku: p.sku,
                 nombre: p.nombre,
-                precio: precioDe.get(p.id)?.precio_final != null ? Math.round(Number(precioDe.get(p.id).precio_final)) : null,
+                precio: precioDe.get(p.id)?.precio_final != null ? Number(precioDe.get(p.id).precio_final) : null,
+                ...presentacionProducto(p),
                 alcohol: !!p.es_alcohol,
                 medida: etiquetaVolumen(volumenMl(p.nombre)),
-                stock: (p.stock ?? []).filter((r: any) => Number(r.cantidad) > 0).map((r: any) => `${String(r.sucursal?.nombre ?? '').replace(/^Suc /, '').replace(/^Sant Thomas/, 'Saint Thomas')}: ${Math.round(Number(r.cantidad))}`).join(' · '),
+                stock: (p.stock ?? []).filter((r: any) => Number(r.cantidad) > 0).map((r: any) => `${String(r.sucursal?.nombre ?? '').replace(/^Suc /, '').replace(/^Sant Thomas/, 'Saint Thomas')}: ${Number(r.cantidad)}`).join(' · '),
               }))
               .filter((p) => p.precio)
               .sort((a, b) => (Number(esMismaMarca(b.nombre)) - Number(esMismaMarca(a.nombre))) || (Number(a.precio) - Number(b.precio)))
@@ -1985,7 +1943,7 @@ export class BotService {
   }
 
   async cotizarPedido(items: { sku: string; cantidad: number }[], telefono?: string, ctxCliente?: { textoCliente?: string; ultimosBot?: string[] }) {
-    if (!items?.length) throw new BadRequestException('No hay renglones para cotizar');
+    items = agruparItems(items);
 
     // el precio depende del cliente (mayorista/segmento), igual que en la venta
     let mayorista = false;
@@ -2008,26 +1966,45 @@ export class BotService {
     for (const it of items) {
       const sku = String(it.sku ?? '').trim();
       const cantidad = Number(it.cantidad ?? 0);
-      if (!sku || !(cantidad > 0)) continue;
+      if (!sku || !Number.isFinite(cantidad) || !(cantidad > 0)) throw new BadRequestException('Cada renglón necesita SKU y cantidad positiva finita');
 
       // por SKU exacto: la búsqueda por texto fallaba con códigos cortos (L1063)
-      const { data: prod } = await this.db.from('productos').select('id, sku, nombre, activo, stock(cantidad, sucursal_id)').eq('sku', sku).maybeSingle();
+      const { data: prod } = await this.db.from('productos').select('id, sku, nombre, activo, unidades_pack, vendido_por_peso, stock(cantidad, sucursal_id)').eq('sku', sku).maybeSingle();
       if (!prod || prod.activo === false) {
         renglones.push({ sku, cantidad, error: 'No existe ese código en el catálogo' });
         hayFaltantes = true;
         continue;
       }
-      const { data: pr } = await this.db.rpc('catalogo_precios', { p_ids: [prod.id] });
+      // Solo contrastar una cantidad inequívoca de un único producto. Comparar
+      // todos los números con todos los SKU rechazaba listas válidas (6 aguas + 2 vinos).
+      const unidadesPorVenta = Number(prod.unidades_pack ?? 1);
+      const cantidades = cantidadesIndividuales(String(ctxCliente?.textoCliente ?? ''));
+      if (!prod.vendido_por_peso && !Number.isInteger(cantidad)) {
+        renglones.push({ sku, cantidad, error: 'Este producto se vende por unidades enteras; no se puede fraccionar.' }); hayFaltantes = true; continue;
+      }
+      if (cantidades.length && this.presentacionAmbigua(prod.nombre, prod.unidades_pack)) {
+        renglones.push({ sku, cantidad, error: 'Contenido del envase no verificado. Consultá al local antes de cotizar unidades individuales de este artículo.' });
+        hayFaltantes = true;
+        continue;
+      }
+      if (items.length === 1 && cantidades.length === 1 && !/\b(packs?|cajas?|bultos?)\b/i.test(ctxCliente?.textoCliente ?? '')) {
+        const solicitadas = cantidades[0];
+        if (cantidad * unidadesPorVenta !== solicitadas) {
+          renglones.push({ sku, cantidad, unidadesPorVenta, error: `El cliente pidió ${solicitadas} unidades individuales; cada unidad de venta contiene ${unidadesPorVenta}. No cambies la cantidad solicitada. Si no se puede vender esa cantidad exacta, preguntá antes de redondear o sustituir.` });
+          hayFaltantes = true;
+          continue;
+        }
+      }
+      const pr = await this.preciosDelCliente([prod.id], telefono);
       const fila: any = (pr ?? [])[0] ?? {};
       const p: any = {
         sku: prod.sku, nombre: prod.nombre,
         precio: fila.precio_final != null ? Number(fila.precio_final) : null,
-        precioMayorista: fila.precio_mayorista != null ? Number(fila.precio_mayorista) : null,
         stockTotal: ((prod as any).stock ?? []).reduce((a: number, r: any) => a + Number(r.cantidad), 0),
-        stockSantThomas: ((prod as any).stock ?? []).filter((r: any) => !sucPickId || r.sucursal_id === sucPickId).reduce((a: number, r: any) => a + Number(r.cantidad), 0),
+        stockSantThomas: ((prod as any).stock ?? []).filter((r: any) => sucPickId && r.sucursal_id === sucPickId).reduce((a: number, r: any) => a + Number(r.cantidad), 0),
       };
-      const disponible = sucPickId ? Number(p.stockSantThomas ?? 0) : Number(p.stockTotal ?? 0);
-      const unitario = mayorista && p.precioMayorista ? Number(p.precioMayorista) : Number(p.precio ?? 0);
+      const disponible = Number(p.stockSantThomas ?? 0);
+      const unitario = Number(p.precio ?? 0);
       if (!(unitario > 0)) {
         renglones.push({ sku, nombre: p.nombre, cantidad, error: 'Sin precio cargado' });
         hayFaltantes = true;
@@ -2046,7 +2023,7 @@ export class BotService {
           return (!!marcaProd && nb.includes(marcaProd)) && /(no (la|lo|las|los)? ?tengo|no tenemos|no hay|en su lugar|le cotizo|alternativa|reemplaz|le sirve|le ofrezco|¿va\?)/.test(nb);
         });
         const acepto = /\b(dale|si|sí|ok|va|bueno|perfecto|esa|ese|listo|sirve|me sirve)\b/i.test(String(ctxCliente?.textoCliente ?? '')) && yaLoAnuncio;
-        if (!yaLoAnuncio && !acepto) {
+        if (!acepto) {
           renglones.push({ sku, nombre: p.nombre, cantidad, reemplazo_no_confirmado: true, error: `NO cotices esto todavía: ${desvio}. Decíselo en la primera línea ("la de X no la tengo; ¿le cotizo la de Y a $Z?") y esperá que acepte. Recién después pedí el total.` });
           hayFaltantes = true;
           continue;
@@ -2056,11 +2033,14 @@ export class BotService {
       total += subtotal;
       renglones.push({
         sku,
+        producto_id: prod.id,
+        unidades_pack: prod.unidades_pack,
         nombre: p.nombre,
         cantidad,
         precioUnitario: unitario,
-        renglon: `${cantidad} × $${Math.round(unitario).toLocaleString('es-AR')} c/u = $${Math.round(subtotal).toLocaleString('es-AR')}`,
-        unidad: this.notaUnidad(String(p.nombre ?? ''), (prod as any)?.unidades_pack),
+        unidadesIndividuales: this.presentacionAmbigua(prod.nombre, prod.unidades_pack) ? null : cantidad * unidadesPorVenta,
+        renglon: `${cantidad} × $${pesos(unitario)} c/u = $${pesos(subtotal)}`,
+        ...presentacionProducto({ ...prod, nombre: p.nombre }),
         subtotal,
         stockDisponible: disponible,
         stockEnOtraSucursal: Math.max(0, Number(p.stockTotal ?? 0) - disponible),
@@ -2075,9 +2055,10 @@ export class BotService {
       total: Math.round(total * 100) / 100,
       listaDePrecio: mayorista ? 'mayorista' : 'minorista',
       hayFaltantes,
+      sucursalId: sucPickId,
       sucursalDeSalida: sucPickNombre,
       ...(renglones.some((r: any) => r.reemplazo_no_confirmado) ? { reemplazoSinConfirmar: 'HAY UN RENGLÓN QUE NO ES LO QUE EL CLIENTE PIDIÓ: no des ningún total ni pases a retiro/domicilio hasta que acepte el reemplazo.' } : {}),
-      aclaracion: `Este total lo calculó el sistema. Informalo tal cual, sin rehacer la cuenta. Cada precio es POR UNIDAD SUELTA (una botella, un paquete) salvo que el renglón diga "pack de N": el "x6un" de un nombre es el bulto del proveedor, no un pack; si el cliente pidió 18 botellas, la cantidad es 18, no 3. Cada renglón viene formateado en "renglon": usalo tal cual (2 × $20.500 c/u = $41.000). El stock que cuenta es el de ${sucPickNombre} (de ahí salen retiros y envíos).${hayFaltantes ? ' HAY RENGLONES SIN STOCK SUFICIENTE: avisale al cliente la cantidad real antes de seguir.' : ''} El envío es SIN CARGO: el total que informás es todo lo que paga, no agregues costo de entrega ni digas que "va aparte".`,
+      aclaracion: `Este total lo calculó el sistema. Informalo tal cual, sin rehacer la cuenta. Cada precio es por UNIDAD DE VENTA del SKU. Respetá unidad, presentacion y unidadesPorVenta de cada renglón; no deduzcas el contenido de un envase por su nombre. Los renglones con error no están cotizados; el total es parcial y no permite confirmar el pedido completo. Cada renglón viene formateado en "renglon": usalo tal cual (2 × $20.500 c/u = $41.000). El stock que cuenta es el de ${sucPickNombre} (de ahí salen retiros y envíos).${hayFaltantes ? ' HAY RENGLONES SIN STOCK SUFICIENTE: avisale al cliente la cantidad real antes de seguir.' : ''} El envío es SIN CARGO: el total que informás es todo lo que paga, no agregues costo de entrega ni digas que "va aparte".`,
     };
   }
 
@@ -2105,152 +2086,74 @@ export class BotService {
     return { ok: true, codigo: ped.qr_retiro, estado: 'cancelado', total: Number(ped.total), mensaje: 'Pedido cancelado; el stock volvió a quedar disponible.' };
   }
 
-  async crearPedido(dto: {
-    telefono: string;
-    nombre?: string;
-    tipo?: 'pickup' | 'domicilio';
-    items: { sku: string; cantidad: number }[];
-    direccion?: string;
-    notas?: string;
-    entregaFecha?: string; // AAAA-MM-DD: pedido programado para ese día
-    entregaFranja?: 'mañana' | 'tarde';
-  }) {
-    if (!dto.telefono) throw new BadRequestException('Falta el teléfono del cliente');
-    if (!dto.items?.length) throw new BadRequestException('El pedido está vacío');
-    // topes del canal WhatsApp: un pedido gigante "reserva" stock sin pagar,
-    // así que lo grande se deriva a un humano
-    const unidades = dto.items.reduce((s, i) => s + Number(i.cantidad || 0), 0);
-    if (dto.items.length > maxRenglonesBot() || unidades > maxUnidadesBot()) {
-      throw new BadRequestException(
-        `El pedido supera el máximo del canal WhatsApp (${maxRenglonesBot()} productos distintos / ${maxUnidadesBot()} unidades). Para pedidos grandes lo toma una persona del equipo: decile al cliente que en breve lo contactan.`,
-      );
-    }
-
-    // resolver o crear el cliente por teléfono (para atribuir y reconocerlo la próxima)
-    let clienteId: string | null = null;
-    const ident = await this.identificarCliente(dto.telefono);
-    // un envío sin nombre de quien recibe no se puede entregar (ronda 7). Si el
-    // modelo lo puso en las notas ("recibe Martín") se toma de ahí.
-    dto.nombre = nombreLimpio(dto.nombre) ?? undefined;
-    if (dto.tipo === 'domicilio' && !dto.nombre?.trim()) {
-      const enNotas = String(dto.notas ?? '').match(/\b(?:recibe|retira|a nombre de|para)\s+([A-ZÁÉÍÓÚÑ][\wáéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][\wáéíóúñ]+)?)/);
-      if (enNotas?.[1]) dto.nombre = enNotas[1];
-    }
-    if (dto.tipo === 'domicilio' && !dto.nombre?.trim() && !ident.nombre) {
-      throw new BadRequestException('NO se creó el pedido: para el envío hace falta el nombre de quien recibe. Si el cliente ya lo dijo en la charla, volvé a llamar a crear_pedido pasándolo en el parámetro "nombre" (ej. nombre: "Martín"); si no lo dijo, pedíselo en este mensaje. No digas que el pedido está cargado.');
-    }
-    if (ident.existe) {
-      clienteId = ident.clienteId!;
-      if (dto.nombre && !ident.nombre) {
-        await this.db.from('clientes').update({ nombre: dto.nombre.trim() }).eq('id', clienteId);
-      }
-    } else {
-      const { data } = await this.db
-        .from('clientes')
-        .insert({ telefono: soloDigitos(dto.telefono), nombre: dto.nombre?.trim() ?? null })
-        .select('id')
-        .single();
-      clienteId = data?.id ?? null;
-    }
-
-    // Idempotencia: si este cliente ya tiene un pedido IGUAL de hace minutos
-    // (tool use duplicado, reintento de webhook, "no me llegó, mandalo de nuevo"),
-    // devolvemos el existente en vez de duplicar la reserva de stock.
-    if (clienteId) {
-      const existente = await this.pedidoRecienteIgual(clienteId, dto);
-      if (existente) return existente;
-    }
-
-    const pedido = await this.pedidos.crearDesdeApp({
-      tipo: dto.tipo ?? 'pickup',
-      items: dto.items,
-      clienteId: clienteId ?? undefined,
-      destino: dto.direccion ? { direccion: dto.direccion } : undefined,
-    });
-    // preferencias del cliente ("tipo 12", "portón negro", "tocar timbre"): quedan
-    // en el pedido para el reparto; antes se decían "anotadas" y no iban a ningún lado
-    // fecha programada: "para mañana" tiene que quedar como dato, no como nota.
-    // Fecha inválida o pasada se ignora (mejor pedido de hoy que pedido roto).
-    let entregaFecha: string | null = null;
-    if (dto.entregaFecha && /^\d{4}-\d{2}-\d{2}$/.test(dto.entregaFecha)) {
-      const hoy = new Date().toISOString().slice(0, 10);
-      if (dto.entregaFecha >= hoy) entregaFecha = dto.entregaFecha;
-    }
-    const cambios: Record<string, unknown> = {};
-    if (dto.notas?.trim()) cambios.notas = `WhatsApp: ${dto.notas.trim()}`;
-    if (entregaFecha) {
-      cambios.entrega_fecha = entregaFecha;
-      if (dto.entregaFranja === 'mañana' || dto.entregaFranja === 'tarde') cambios.entrega_franja = dto.entregaFranja;
-    }
-    if (Object.keys(cambios).length && (pedido as any)?.id) {
-      const { error: eNotas } = await this.db.from('pedidos').update(cambios).eq('id', (pedido as any).id);
-      if (eNotas) this.log.error(`no pude guardar notas/fecha del pedido ${(pedido as any).qr_retiro ?? (pedido as any).id}: ${eNotas.message}`);
-    }
-
-    // resumen legible para que el bot lo repita por WhatsApp
-    const p: any = pedido;
-    const resumen = (p.items ?? [])
-      .map((i: any) => `${i.cantidad}x ${i.producto?.nombre ?? i.nombre ?? ''}`.trim())
-      .join(', ');
-    const esEnvio = p.canal === 'domicilio';
-    return {
-      pedidoId: p.id,
-      estado: p.estado,
-      total: Number(p.total),
-      codigoRetiro: p.qr_retiro ?? null,
-      resumen,
-      canal: p.canal,
-      // lo que el cliente tiene que saber en la confirmación (ronda 6: confirmó
-      // "total 69.200" sin aclarar que el envío no está incluido ni cómo se paga)
-      decirleAlCliente: [
-        `El total ${Number(p.total).toLocaleString('es-AR')} es de la mercadería.`,
-        esEnvio ? 'El envío es sin cargo: no se suma nada por la entrega.' : `Se retira en la sucursal Saint Thomas (Castex 3601) con el código ${p.qr_retiro ?? ''}.`,
-        esEnvio ? 'Se abona al recibir, en efectivo o con tarjeta; si preferís, te paso un link de Mercado Pago, o administración te pasa los datos para transferir por acá.' : 'Se abona al retirar, en efectivo o con tarjeta; si preferís, te paso un link de Mercado Pago.',
-      ],
-    };
+  async prepararPedido(telefono: string, linea: string, input: any, textoCliente?: string) {
+    const tipo = input.tipo;
+    if (!['pickup', 'domicilio'].includes(tipo)) throw new BadRequestException('Falta elegir retiro o envío');
+    const nombre = nombreLimpio(input.nombre);
+    const direccion = String(input.direccion ?? '').trim();
+    if (tipo === 'domicilio' && (!nombre || !/[a-záéíóúñ]/i.test(direccion) || !/\d/.test(direccion))) throw new BadRequestException('Para envío faltan nombre y dirección con calle y número');
+    const items = agruparItems(input.items ?? []);
+    if (items.length > maxRenglonesBot() || items.reduce((n, i) => n + i.cantidad, 0) > maxUnidadesBot()) throw new BadRequestException('El pedido supera el máximo del canal WhatsApp; debe tomarlo el equipo');
+    const cot = await this.cotizarPedido(items, telefono, { textoCliente });
+    if (cot.hayFaltantes || cot.renglones.some(r => r.error || r.presentacion === 'requiere_verificacion') || !cot.sucursalId) throw new BadRequestException('No se puede confirmar: falta stock, precio o un dato de la presentación');
+    const ident = await this.identificarCliente(telefono);
+    const fecha = String(input.entrega_fecha ?? '').trim();
+    if (fecha && (!/^\d{4}-\d{2}-\d{2}$/.test(fecha) || Number.isNaN(Date.parse(fecha)) || new Date(fecha).toISOString().slice(0,10) !== fecha || fecha < new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }).format(new Date()))) throw new BadRequestException('Fecha de entrega inválida o pasada');
+    const franja = ['mañana','tarde'].includes(input.entrega_franja) ? input.entrega_franja : null;
+    const resumen = [
+      ...cot.renglones.map(r => `• ${r.nombre} — ${r.renglon}`),
+      `Total: $${pesos(cot.total)}`,
+      tipo === 'domicilio' ? `Envío sin cargo a ${direccion}. Recibe ${nombre}.` : 'Retiro en la sucursal Saint Thomas.',
+      fecha ? `Entrega: ${fecha}${franja ? ' por la ' + franja : ''}.` : null,
+      input.notas ? `Indicaciones: ${String(input.notas).slice(0,300)}` : null,
+      '¿Lo confirmo?',
+    ].filter(Boolean).join('\n');
+    const { data, error } = await this.db.from('bot_cotizaciones').insert({
+      linea, telefono, cliente_id: ident.clienteId ?? null, sucursal_id: cot.sucursalId,
+      items: cot.renglones, total: cot.total, tipo, direccion: tipo === 'domicilio' ? direccion : null,
+      nombre, notas: String(input.notas ?? '').slice(0,300) || null,
+      entrega_fecha: fecha || null, entrega_franja: franja, resumen,
+    }).select('id').single();
+    if (error || !data?.id) throw new BadRequestException('No se pudo guardar el resumen: no pidas confirmación todavía');
+    return { cotizacionId: data.id, resumen, total: cot.total, renglones: cot.renglones };
   }
 
-  // ¿Este cliente ya creó un pedido idéntico (mismo canal, mismos renglones)
-  // en los últimos minutos y sigue activo? Devuelve el existente para no duplicar.
-  private async pedidoRecienteIgual(
-    clienteId: string,
-    dto: { tipo?: 'pickup' | 'domicilio'; items: { sku: string; cantidad: number }[] },
-  ) {
-    const hace5m = new Date(Date.now() - 5 * 60_000).toISOString();
-    const { data } = await this.db
-      .from('pedidos')
-      .select('id, canal, estado, total, qr_retiro, items:pedidos_items(cantidad, producto:productos(sku, nombre))')
-      .eq('cliente_id', clienteId)
-      .eq('canal', dto.tipo ?? 'pickup')
-      .in('estado', ['recibido', 'pagado', 'en_preparacion'])
-      .gte('creado_en', hace5m)
-      .order('creado_en', { ascending: false })
-      .limit(3);
-    const querido = dto.items
-      .map((i) => `${i.sku}x${Math.floor(Number(i.cantidad))}`)
-      .sort()
-      .join('|');
-    for (const p of (data ?? []) as any[]) {
-      const suyo = (p.items ?? [])
-        .map((i: any) => `${i.producto?.sku}x${Math.round(Number(i.cantidad))}`)
-        .sort()
-        .join('|');
-      if (suyo !== querido) continue;
-      this.log.warn(`crear_pedido idéntico reciente para cliente ${clienteId}: devuelvo el existente ${p.id}`);
-      const resumen = (p.items ?? [])
-        .map((i: any) => `${i.cantidad}x ${i.producto?.nombre ?? ''}`.trim())
-        .join(', ');
-      return {
-        pedidoId: p.id,
-        estado: p.estado,
-        total: Number(p.total),
-        codigoRetiro: p.qr_retiro ?? null,
-        resumen,
-        canal: p.canal,
-        nota: 'Este pedido ya estaba creado (era idéntico y reciente): NO se creó uno nuevo. Confirmale al cliente el existente.',
-      };
-    }
-    return null;
+  async crearPedido(dto: { telefono: string; linea?: string; confirmacion?: string; resumenPresentado?: string; items?: {sku:string;cantidad:number}[]; tipo?: string }) {
+    // Se conserva la firma antigua sólo para rechazar clientes desactualizados.
+    if (dto.items && (dto.items.length > maxRenglonesBot() || dto.items.reduce((n,i)=>n+i.cantidad,0)>maxUnidadesBot())) throw new BadRequestException('El pedido supera el máximo del canal WhatsApp');
+    if (!confirmacionInequivoca(dto.confirmacion ?? '')) throw new BadRequestException('NO se creó el pedido: falta confirmación inequívoca');
+    const { data: q, error } = await this.db.from('bot_cotizaciones').select('*')
+      .eq('telefono', dto.telefono).eq('linea', dto.linea ?? 'pedidos').order('creada_en', { ascending: false }).limit(1).maybeSingle();
+    // EL BUCLE DEL "¿LO CONFIRMO?" (Catalina, 21/9/2026). Antes se exigía que el
+    // último mensaje del bot fuera IDÉNTICO al resumen de preparar_pedido. Pero
+    // entre el resumen y el "sí" el cliente contesta cosas ("efectivo", "recibe
+    // Catalina") y el bot escribe un mensaje nuevo con el mismo total y otra vez
+    // "¿Lo confirmo?". Ese mensaje ya no era el resumen: el "sí" se rechazaba,
+    // el bot volvía a preguntar, y así tres veces. Ahora también vale que el
+    // último mensaje del bot pregunte "¿Lo confirmo?" con el MISMO total de la
+    // cotización vigente (misma plata, misma charla, cotización fresca).
+    const ultimo = String(dto.resumenPresentado ?? '');
+    const totalTxt = q ? `$${pesos(Number(q.total))}` : '';
+    const fresca = !!q && !q.confirmada_en && Date.now() - new Date(q.creada_en).getTime() < 3 * 3600_000;
+    const coincideResumen = !!q && !!ultimo && q.resumen === ultimo;
+    const preguntaConMismoTotal = fresca && /¿lo confirmo\?/i.test(ultimo) && !!totalTxt && ultimo.includes(totalTxt);
+    if (error || !q || !(coincideResumen || preguntaConMismoTotal)) throw new BadRequestException('NO se creó el pedido: usá preparar_pedido para mostrar un resumen verificable y esperá confirmación');
+    const { data: id, error: e } = await this.db.rpc('confirmar_cotizacion_bot', { p_id: q.id, p_telefono: dto.telefono, p_linea: dto.linea ?? 'pedidos', p_confirmacion: dto.confirmacion });
+    if (e || !id) throw new BadRequestException(e?.message ?? 'No se pudo confirmar el pedido');
+    const ped: any = await this.pedidos.obtener(id);
+    const respuesta = `Pedido ${ped.qr_retiro} confirmado. Total: $${pesos(Number(ped.total))}.\n${q.tipo === 'domicilio' ? 'Envío sin cargo. Se abona al recibir' : 'Se abona al retirar'}, en efectivo o tarjeta.`;
+    return { pedidoId: id, codigoRetiro: ped.qr_retiro, total: Number(ped.total), estado: ped.estado, respuesta };
+  }
+
+  private async linkDelPedido(telefono: string, codigo: string) {
+    if (!codigo.trim()) throw new BadRequestException('Hace falta el código del pedido confirmado');
+    const ident = await this.identificarCliente(telefono);
+    if (!ident.clienteId) throw new BadRequestException('No hay un pedido propio para cobrar');
+    const { data: pedido, error } = await this.db.from('pedidos').select('id,total,estado,cliente_id,qr_retiro')
+      .eq('cliente_id', ident.clienteId).eq('qr_retiro', codigo.trim()).maybeSingle();
+    if (error || !pedido || !['recibido','en_preparacion','listo'].includes(pedido.estado)) throw new BadRequestException('No hay un pedido propio pendiente de pago con ese código');
+    const enlace = await this.pedidos.crearPreferenciaMP(pedido.id);
+    return { ...enlace, monto: Number(pedido.total), codigo: pedido.qr_retiro };
   }
 
   // "Nueva conversación" del simulador del panel: borra la memoria del teléfono
@@ -2426,12 +2329,11 @@ export class BotService {
     };
   }
 
-  // Lo que el bot no sabe lo pregunta ADENTRO, no se lo confiesa al cliente.
-  // "¿Llegan a Terra 812?" → el bot toma la dirección, le manda la consulta a
-  // reparto por WhatsApp interno (con alerta en el panel) y le dice al cliente
-  // "lo consulto con reparto y le confirmo por acá". Hoy (2026-08-21) dijo "no
-  // puedo confirmar si llega a su zona" y el cliente canceló.
-  async consultarInterno(linea: 'pedidos' | 'proveedores', telefono: string, area: string, consulta: string, direccion = '') {
+  // Registra la pregunta, avisa al área y espera el dato sin promesas al cliente.
+  async consultarInterno(linea: 'pedidos' | 'proveedores', telefono: string, area: string, consulta: string, direccion = '', archivoUrl?: string) {
+    consulta = String(consulta).replace(/<[^>]*>/g, '').trim().slice(0,1000);
+    direccion = /[<>]/.test(direccion) ? '' : direccion.slice(0,300);
+    if (!consulta) throw new BadRequestException('Falta la consulta concreta');
     const { data: cfg } = await this.db
       .from('lineas_whatsapp').select('derivar_pagos_a, avisar_proveedores_a, whatsapp_reparto, whatsapp_compras').eq('linea', linea).eq('activa', true).limit(1).maybeSingle();
     const numeroDe: Record<string, string> = {
@@ -2454,48 +2356,39 @@ export class BotService {
     }).then(() => null, () => null);
     await this.db.from('bot_notas_equipo').insert({ linea, telefono, nota: `[${area}] ${consulta}${direccion ? ` · ${direccion}` : ''}` }).then(() => null, () => null);
 
-    // DECISIÓN DE LEANDRO (2026-09-16), reemplaza la regla del 1/9: lo que el
-    // bot no sabe se le PREGUNTA a administración por WhatsApp (además de la
-    // campanita). Antes quedaba solo en el panel y nadie le contestaba al
-    // cliente. La consulta queda esperando: cuando administración responde
-    // citando este aviso, el bot le lleva la respuesta al cliente
-    // (ver respuestaDeAdministracion → llevarRespuestaDeConsulta).
-    let enviada = false;
-    // el banco de pruebas (549110000000XX) audita el cerebro sin molestar a nadie:
-    // la consulta queda registrada, pero no le llega al teléfono de administración
+    // Registrar antes del envío: la consulta no se pierde si WhatsApp falla.
     const esPrueba = /^54911000000\d{1,3}$/.test(telefono);
-    if (esPrueba) {
-      await this.db.from('bot_consultas_internas').insert({
-        linea, telefono_cliente: telefono, nombre, area, consulta: consulta.slice(0, 1000),
-        direccion: direccion || null, enviado_a: 'banco-de-pruebas', respondido_en: new Date().toISOString(),
-      }).then(() => null, () => null);
-    }
+    const { data: pendiente, error } = await this.db.from('bot_consultas_internas').insert({
+      linea, telefono_cliente: telefono, nombre, area, consulta: consulta.slice(0, 1000), gestion_version: 2,
+      direccion: direccion || null,
+      enviado_a: esPrueba ? 'banco-de-pruebas' : destino || null,
+      ...(esPrueba ? { respondido_en: new Date().toISOString() } : {}),
+    }).select('id').maybeSingle();
+    if (error || !pendiente?.id) throw new Error('No se pudo registrar la consulta interna');
+    let enviada = false;
     if (destino.length >= 10 && !esPrueba) {
       const texto = [
-        `❓ Consulta de un cliente (${etiqueta.replace(/^\S+\s/, '')})`,
+        `Consulta de un cliente (${area})`,
         `De: ${nombre ?? 'sin identificar'} · +${telefono}`,
         consulta,
         direccion ? `Dirección: ${direccion}` : null,
-        `👉 Respondé CITANDO este mensaje y se lo paso al cliente.`,
+        archivoUrl ? `Adjunto del cliente (acceso temporal): ${archivoUrl}` : null,
+        'Respondé CITANDO este mensaje con el texto para el cliente, sin notas internas.',
       ].filter(Boolean).join('\n');
       try {
         const env: any = await this.enviarPorWhatsapp({ to: destino, text: texto, kind: 'aviso-interno' } as any);
         enviada = !!env?.enviado;
-        await this.db.from('bot_consultas_internas').insert({
-          linea, telefono_cliente: telefono, nombre, area,
-          consulta: consulta.slice(0, 1000), direccion: direccion || null,
-          waha_msg_id: env?.id ? String(env.id) : null,
-          enviado_a: destino,
-        }).then(() => null, () => null);
+        if (pendiente?.id && env?.id) await this.db.from('bot_consultas_internas')
+          .update({ waha_msg_id: String(env.id) }).eq('id', pendiente.id);
       } catch (e: any) {
-        this.log.warn(`no pude mandarle la consulta a ${area} por WhatsApp: ${e?.message ?? e}`);
+        this.log.warn(`consulta registrada, aviso a ${area} falló: ${e?.message ?? e}`);
       }
     }
     return {
       consultado: true,
       area,
       avisoPorWhatsapp: enviada,
-      aviso: `Consulta enviada a ${area === 'reparto' ? 'reparto' : area}. Decile al cliente en UNA línea que lo consultás y que le confirmás por acá. No digas "no sé", "no puedo confirmar" ni "no estoy seguro", no des plazos y no le digas a quién le preguntaste.`,
+      aviso: 'Consulta registrada. NO envíes mensaje al cliente: ni acuse, ni lo consulto, ni vuelvo a vos. La respuesta se enviará cuando el área aporte el dato.',
     };
   }
 
@@ -2691,6 +2584,9 @@ export class BotService {
     media?: { tipo: 'image' | 'audio' | 'video' | 'document'; url: string } | null,
     salida?: { waMessageId?: string; humano?: boolean },
   ) {
+    // las charlas del banco de pruebas (54911000000xx) no van al panel: son
+    // ensayos del sistema y confundían a quien atiende (22/9/2026)
+    if (/^54911000000\d{1,3}(@|$)/.test(String(whatsappId))) return;
     // con tipo + url, la app de RESPONDE dibuja la miniatura / el reproductor,
     // igual que hace con los archivos de Car Cash
     const ident = await this.identidadResponde(whatsappId, nombre);
@@ -2740,58 +2636,43 @@ export class BotService {
   // Administración contesta en SU chat el aviso de pago; el bot escucha esa
   // respuesta y se la lleva al cliente: "recibimos tu pago, muchas gracias".
   // Si contesta citando el aviso, se matchea ese pago puntual; si no, el
-  // pendiente más reciente (48 h). Devuelve null si el mensaje no es de
+  // único pendiente inequívoco. Devuelve null si el mensaje no es de
   // administración: sigue el camino normal.
   private async respuestaDeAdministracion(identidad: string, p: any) {
-    const { data: cfg } = await this.db
-      .from('lineas_whatsapp').select('bot_activo, derivar_pagos_a').eq('linea', 'pedidos').eq('activa', true).limit(1).maybeSingle();
-    const admin = String(cfg?.derivar_pagos_a ?? '').replace(/\D/g, '');
+    const { data: cfg } = await this.db.from('lineas_whatsapp')
+      .select('bot_activo, derivar_pagos_a, whatsapp_reparto, whatsapp_compras').eq('linea', 'pedidos').eq('activa', true).limit(1).maybeSingle();
+    const destinos = [cfg?.derivar_pagos_a, cfg?.whatsapp_reparto, cfg?.whatsapp_compras].map(v => soloDigitos(String(v ?? ''))).filter(Boolean);
+    let quien = soloDigitos(identidad);
+    if (String(identidad).includes('@lid')) {
+      const { data } = await this.db.from('bot_contactos').select('telefono_real').eq('telefono', quien).maybeSingle();
+      quien = soloDigitos(String(data?.telefono_real ?? ''));
+    }
+    const admin = destinos.find(t => t === quien);
     if (!admin) return null;
-    let quien = String(identidad).replace(/\D/g, '');
-    if (!/^\d{8,}$/.test(String(identidad))) {
-      const { data: c } = await this.db.from('bot_contactos').select('telefono_real').eq('telefono', quien).maybeSingle();
-      quien = String((c as any)?.telefono_real ?? '').replace(/\D/g, '');
-    }
-    if (!quien || quien.slice(-10) !== admin.slice(-10)) return null;
-
+    const esAdministracion = admin === soloDigitos(String(cfg?.derivar_pagos_a ?? ''));
     const texto = String(p.body ?? '').trim();
-    if (!texto) return { contestado: false, motivo: 'administración: sin texto' };
-    const citado = String(p.replyTo?.id ?? p.replyTo ?? '');
-
-    // CONSULTAS (2026-09-16): lo que el bot no sabía y le preguntó a
-    // administración. Si contesta citando el aviso de la consulta, va a esa
-    // consulta. Sin cita: si hay una sola esperando y no es una confirmación de
-    // pago, es para esa; si hay varias, se le pide que cite (no se adivina a
-    // qué cliente le va la respuesta).
-    const { data: pendC } = await this.db
-      .from('bot_consultas_internas').select('*')
-      .is('respondido_en', null)
-      .gte('creado_en', new Date(Date.now() - 24 * 3_600_000).toISOString())
-      .order('creado_en', { ascending: false })
-      .limit(10);
-    const consultas = ((pendC ?? []) as any[]).filter((c) => String(c.enviado_a ?? '').slice(-10) === admin.slice(-10) || !c.enviado_a);
-    const consultaCitada = citado ? consultas.find((c) => c.waha_msg_id && citado.includes(String(c.waha_msg_id))) : null;
-    if (consultaCitada) return this.llevarRespuestaDeConsulta(consultaCitada, texto, admin, cfg?.bot_activo !== false);
-
-    const { data: pend } = await this.db
-      .from('bot_pagos_en_confirmacion').select('*')
-      .is('confirmado_en', null)
-      .gte('creado_en', new Date(Date.now() - 48 * 3_600_000).toISOString())
-      .order('creado_en', { ascending: false })
-      .limit(5);
-    const lista = (pend ?? []) as any[];
-    const pagoCitado = citado ? lista.find((x) => x.waha_msg_id && citado.includes(String(x.waha_msg_id))) : null;
-    const pareceDePago = /\b(recibido|recib[ií]|acreditad[oa]|lleg[oó]|no\s+(lleg[oó]|figura|est[aá]|aparece|entr[oó]|acredit[oó]))\b/i.test(texto);
-    if (!pagoCitado && consultas.length && !(lista.length && pareceDePago)) {
+    if (!texto) return { contestado: false, motivo: 'equipo: sin texto' };
+    const citado = idWhatsappCorto(typeof p.replyTo === 'object' ? p.replyTo?.id : p.replyTo);
+    // Sin ventana de 24h ni límite global: una cita vieja sigue identificando su consulta.
+    const consultasTodas = await this.pendientesPaginados('bot_consultas_internas', 'respondido_en');
+    const consultas = consultasTodas.filter(c => soloDigitos(String(c.enviado_a ?? '')) === admin || (!c.enviado_a && esAdministracion));
+    const lista = esAdministracion ? await this.pendientesPaginados('bot_pagos_en_confirmacion', 'confirmado_en') : [];
+    const consultaCitada = citado ? consultas.find(c => idWhatsappCorto(c.waha_msg_id) === citado) : null;
+    const pagoCitado = citado ? lista.find(c => idWhatsappCorto(c.waha_msg_id) === citado) : null;
+    const pedirReferencia = async () => {
+      await this.enviarPorWhatsapp({ to: admin, text: 'Respondé CITANDO el aviso exacto de la consulta o del pago. No pude identificar una única referencia.', kind: 'aviso-interno' }).catch(() => null);
+      return { contestado: false, motivo: 'falta referencia inequívoca' };
+    };
+    if (citado) {
+      if (consultaCitada && !pagoCitado) return this.llevarRespuestaDeConsulta(consultaCitada, texto, admin, cfg?.bot_activo !== false);
+      if (!pagoCitado || consultaCitada) return pedirReferencia();
+    } else {
+      if (consultas.length + lista.length > 1) return pedirReferencia();
       if (consultas.length === 1) return this.llevarRespuestaDeConsulta(consultas[0], texto, admin, cfg?.bot_activo !== false);
-      const quienes = consultas.slice(0, 5).map((c, i) => `${i + 1}. ${c.nombre ?? '+' + c.telefono_cliente}: ${String(c.consulta).slice(0, 70)}`).join('\n');
-      await this.enviarPorWhatsapp({ to: admin, text: `Tengo ${consultas.length} consultas esperando respuesta y no sé a cuál va la tuya. Respondé CITANDO el mensaje de la consulta:\n${quienes}`, kind: 'aviso-interno' } as any).catch(() => null);
-      return { contestado: false, motivo: 'administración respondió sin citar y hay varias consultas esperando: se le pidió que cite' };
+      if (!lista.length) return { contestado: false, motivo: 'sin consultas o pagos pendientes' };
     }
-    if (!lista.length) return { contestado: false, motivo: 'administración escribió y no hay pagos ni consultas esperando' };
-
-    const fila = pagoCitado || lista[0];
-    const montoTexto = fila.monto ? ` de $${Math.round(Number(fila.monto)).toLocaleString('es-AR')}` : '';
+    const fila = pagoCitado ?? lista[0];
+    const montoTexto = fila.monto ? ` de $${Number(fila.monto).toLocaleString('es-AR', { maximumFractionDigits: 2 })}` : '';
     const destinoCliente = String(fila.telefono_cliente).length >= 14 ? `${fila.telefono_cliente}@lid` : String(fila.telefono_cliente);
 
     const NO = /\bno\s+(lleg[oó]|figura|est[aá]|aparece|entr[oó]|acredit[oó]|lo veo|la veo|lo encuentro|la encuentro)\b/i;
@@ -2799,7 +2680,15 @@ export class BotService {
 
     const avisarCliente = async (msj: string) => {
       if (cfg?.bot_activo === false) return false;
-      const env = await this.enviarPorWhatsapp({ to: destinoCliente, text: msj, referencia: `pago-confirmado/${fila.id}` });
+      const { data: estado } = await this.db.from('bot_conversaciones').select('bot_activo').eq('linea', fila.linea).eq('telefono', String(fila.telefono_cliente)).maybeSingle();
+      if (estado?.bot_activo === false) return false;
+      const { data: claim, error } = await this.db.rpc('tomar_aviso_pago_bot', { p_id: fila.id });
+      if (error || !(Array.isArray(claim) ? claim.length : claim)) return false;
+      const env: any = await this.enviarPorWhatsapp({ to: destinoCliente, text: msj, referencia: `pago-confirmado/${fila.id}` }).catch(() => ({ enviado: false }));
+      if (!env?.enviado) {
+        await this.db.from('bot_pagos_en_confirmacion').update({ ultimo_error: 'Entrega no confirmada; revisar antes de repetir', ...(env?.reintentable === true ? { envio_iniciado_en: null } : {}) }).eq('id',fila.id);
+        return false;
+      }
       const { data: conv } = await this.db.from('bot_conversaciones').select('mensajes').eq('linea', fila.linea).eq('telefono', String(fila.telefono_cliente)).maybeSingle();
       const hist: any[] = Array.isArray(conv?.mensajes) ? conv!.mensajes : [];
       await this.db.from('bot_conversaciones').upsert({
@@ -2814,58 +2703,119 @@ export class BotService {
     if (NO.test(texto)) {
       await this.db.from('bot_pagos_en_confirmacion').update({ respuesta_admin: texto.slice(0, 300) }).eq('id', fila.id).then(() => null, () => null);
       const ok = await avisarCliente(`Estuvimos revisando tu transferencia${montoTexto} y todavía no la encontramos acreditada. ¿Me reenviás el comprobante así lo chequean de nuevo?`);
-      await this.enviarPorWhatsapp({ to: admin, text: ok ? `Listo, le avisé a ${fila.nombre ?? '+' + fila.telefono_cliente} que todavía no figura y le pedí el comprobante de nuevo.` : `Tomé tu respuesta; el bot está apagado, así que al cliente no le escribí.`, kind: 'aviso-interno' } as any).catch(() => null);
+      await this.enviarPorWhatsapp({ to: admin, text: ok ? `Listo, le avisé a ${fila.nombre ?? '+' + fila.telefono_cliente} que todavía no figura y le pedí el comprobante de nuevo.` : `Respuesta guardada; la entrega al cliente sigue pendiente. Revisá el estado del bot y del envío.`, kind: 'aviso-interno' } as any).catch(() => null);
       this.log.log(`administración respondió "no figura" para ${fila.telefono_cliente}: relayado=${ok}`);
-      return { contestado: true, motivo: 'administración: no figura, cliente avisado' };
+      if (ok) await this.db.from('bot_pagos_en_confirmacion').update({ confirmado_en: new Date().toISOString(), ultimo_error: null }).eq('id', fila.id);
+      return { contestado: ok, motivo: ok ? 'administración: no figura, cliente avisado' : 'respuesta guardada, envío pendiente' };
     }
     if (!SI.test(texto)) {
       await this.db.from('bot_pagos_en_confirmacion').update({ respuesta_admin: texto.slice(0, 300) }).eq('id', fila.id).then(() => null, () => null);
       return { contestado: false, motivo: 'administración: respuesta no concluyente, quedó registrada' };
     }
 
-    await this.db.from('bot_pagos_en_confirmacion').update({ confirmado_en: new Date().toISOString(), respuesta_admin: texto.slice(0, 300) }).eq('id', fila.id).then(() => null, () => null);
+    await this.db.from('bot_pagos_en_confirmacion').update({ respuesta_admin: texto.slice(0, 300) }).eq('id', fila.id).then(() => null, () => null);
     const ok = await avisarCliente(`Te confirmamos que recibimos tu pago${montoTexto}. Muchas gracias.`);
-    await this.enviarPorWhatsapp({ to: admin, text: ok ? `Listo: le confirmé a ${fila.nombre ?? '+' + fila.telefono_cliente} que su pago${montoTexto} quedó recibido.` : `Tomé la confirmación; el bot está apagado, así que al cliente no le escribí todavía.`, kind: 'aviso-interno' } as any).catch(() => null);
+    await this.enviarPorWhatsapp({ to: admin, text: ok ? `Listo: le confirmé a ${fila.nombre ?? '+' + fila.telefono_cliente} que su pago${montoTexto} quedó recibido.` : `Confirmación guardada; la entrega al cliente sigue pendiente. Revisá el estado del bot y del envío.`, kind: 'aviso-interno' } as any).catch(() => null);
+    if (ok) await this.db.from('bot_pagos_en_confirmacion').update({ confirmado_en: new Date().toISOString() }).eq('id', fila.id);
     this.log.log(`pago${montoTexto} de ${fila.telefono_cliente} confirmado por administración: cliente avisado=${ok}`);
-    return { contestado: true, motivo: 'pago confirmado por administración, cliente avisado' };
+    return { contestado: ok, motivo: ok ? 'pago confirmado por administración, cliente avisado' : 'pago confirmado por administración, envío pendiente' };
   }
 
-  // Lleva la respuesta de administración al cliente. No se reenvía tal cual
-  // ("sí, 2500"): entra a la charla como dato interno y el bot la redacta con su
-  // tono, sus frenos y el contexto de lo que venían hablando. Solo con lo que
-  // dijo administración: nada inventado encima.
+  // Consultas y pagos se resuelven por referencia, nunca por proximidad temporal.
+  private async pendientesPaginados(tabla: 'bot_consultas_internas' | 'bot_pagos_en_confirmacion', cierre: string): Promise<any[]> {
+    const todos: any[] = [];
+    for (let desde = 0; ; desde += 500) {
+      const { data, error } = await this.db.from(tabla).select('*').is(cierre, null).order('creado_en', { ascending: false }).range(desde, desde + 499);
+      if (error) throw new Error('No se pudieron consultar las referencias pendientes');
+      todos.push(...(data ?? []));
+      if (!data || data.length < 500) return todos;
+    }
+  }
+
   private async llevarRespuestaDeConsulta(c: any, respuesta: string, admin: string, botActivo: boolean) {
-    const quien = c.nombre ?? `+${c.telefono_cliente}`;
-    await this.db.from('bot_consultas_internas').update({ respuesta_admin: respuesta.slice(0, 1000) }).eq('id', c.id).then(() => null, () => null);
-    if (!botActivo) {
-      await this.enviarPorWhatsapp({ to: admin, text: `Tomé tu respuesta para ${quien}, pero el bot está apagado: al cliente no le escribí. Contestale desde RESPONDE.`, kind: 'aviso-interno' } as any).catch(() => null);
-      return { contestado: false, motivo: 'consulta respondida por administración con el bot apagado' };
+    const texto = String(respuesta ?? '').trim();
+    const { error: eRespuesta } = await this.db.from('bot_consultas_internas').update({ respuesta_admin: texto.slice(0,1000) }).eq('id', c.id);
+    if (eRespuesta) throw new Error('No se pudo guardar la respuesta del equipo');
+    const { data: conv } = await this.db.from('bot_conversaciones').select('bot_activo,mensajes').eq('linea', c.linea).eq('telefono', c.telefono_cliente).maybeSingle();
+    if (!botActivo || conv?.bot_activo === false) {
+      return { contestado: false, motivo: 'respuesta guardada; bot apagado o atiende una persona' };
     }
-    const nota = `[nota interna — respuesta de administración a la consulta que hiciste ("${String(c.consulta).slice(0, 300)}"): "${respuesta.slice(0, 600)}". Pasale al cliente esta respuesta en una o dos líneas, con tus palabras. Usá SOLO lo que dijo administración: no agregues datos, plazos ni promesas. No menciones a administración ni que lo consultaste.]`;
-    let r: any = null;
-    try {
-      r = await this.charla({ linea: c.linea === 'proveedores' ? 'proveedores' : 'pedidos', telefono: String(c.telefono_cliente), mensaje: nota });
-    } catch (e: any) {
-      this.log.warn(`no pude redactar la respuesta de la consulta ${c.id}: ${e?.message ?? e}`);
+    // La respuesta del área es el dato autorizado, no una nueva orden al agente.
+    // No llamar a charla: eso podía abrir otra consulta o ejecutar otras herramientas.
+    if (!texto || texto.length > 1000 || /nota interna|no le digas|decile al bot|instrucciones para/i.test(texto)) {
+      await this.enviarPorWhatsapp({ to: admin, text: 'Escribí la respuesta dirigida al cliente, sin instrucciones internas y en pocas líneas.', kind: 'aviso-interno' }).catch(() => null);
+      return { contestado: false, motivo: 'requiere texto para el cliente' };
     }
-    if (!r?.respuesta) {
-      await this.enviarPorWhatsapp({ to: admin, text: `Tomé tu respuesta para ${quien}, pero esa charla la está atendiendo una persona: contestale desde RESPONDE.`, kind: 'aviso-interno' } as any).catch(() => null);
-      return { contestado: false, motivo: 'consulta respondida, pero la charla está en manos de una persona' };
-    }
+    const { data: tomadas, error: eClaim } = await this.db.rpc('tomar_entrega_consulta_bot', { p_id: c.id });
+    if (eClaim) throw new Error('No se pudo reservar la entrega de la consulta');
+    const tomada = Array.isArray(tomadas) ? tomadas[0] : tomadas;
+    if (!tomada) return { contestado: false, motivo: 'consulta ya entregada o en proceso' };
+    if (tomada.envio_iniciado_en) return { contestado: false, motivo: 'envío anterior incierto: revisar antes de repetir' };
     const destino = String(c.telefono_cliente).length >= 14 ? `${c.telefono_cliente}@lid` : String(c.telefono_cliente);
-    const env: any = await this.enviarPorWhatsapp({ to: destino, text: r.respuesta, referencia: `consulta/${c.id}` });
-    const ok = !!env?.enviado;
-    await this.db.from('bot_consultas_internas').update({
-      respondido_en: new Date().toISOString(), mensaje_cliente: String(r.respuesta).slice(0, 1000),
-    }).eq('id', c.id).then(() => null, () => null);
-    this.respondeRegistrar(destino.includes('@') ? destino : String(c.telefono_cliente), c.nombre ?? null, '', r.respuesta).catch(() => null);
-    await this.enviarPorWhatsapp({
-      to: admin,
-      text: ok ? `Listo, le respondí a ${quien}: «${String(r.respuesta).slice(0, 300)}»` : `Tomé tu respuesta para ${quien}, pero no le pude mandar el mensaje: contestale desde RESPONDE.`,
-      kind: 'aviso-interno',
-    } as any).catch(() => null);
-    this.log.log(`consulta ${c.id} respondida por administración y llevada a ${c.telefono_cliente}: enviado=${ok}`);
-    return { contestado: ok, motivo: 'consulta respondida por administración, cliente avisado' };
+    const mensaje = envioSinCargo(texto); // aplica la política comercial también al texto que se registra
+    const { error: eInicio } = await this.db.from('bot_consultas_internas').update({ mensaje_cliente: mensaje, envio_iniciado_en: new Date().toISOString() }).eq('id', c.id);
+    if (eInicio) throw new Error('No se pudo registrar el intento de envío');
+    let env: any;
+    try { env = await this.enviarPorWhatsapp({ to: destino, text: mensaje, referencia: `consulta/${c.id}` }); }
+    catch { env = { enviado: false, motivo: 'resultado de transporte incierto' }; }
+    const ok = env?.enviado === true;
+    if (!ok) {
+      const conocido = env?.reintentable === true;
+      await this.db.from('bot_consultas_internas').update({
+        ultimo_error: conocido ? 'No enviado; reintento programado' : 'Envío incierto; revisar antes de repetir',
+        ...(conocido ? { envio_iniciado_en: null } : {}),
+        bloqueada_hasta: null,
+        proximo_intento_en: conocido ? new Date(Date.now()+5*60_000).toISOString() : null,
+      }).eq('id', c.id);
+      return { contestado: false, motivo: conocido ? 'envío pendiente' : 'envío incierto; requiere revisión' };
+    }
+    const { error: eCierre } = await this.db.from('bot_consultas_internas').update({
+      respondido_en: new Date().toISOString(), ultimo_error: null, bloqueada_hasta: null, proximo_intento_en: null,
+    }).eq('id', c.id);
+    if (eCierre) throw new Error('Mensaje enviado; falta registrar el cierre. No repetir automáticamente');
+    const hist = Array.isArray(conv?.mensajes) ? conv.mensajes : [];
+    await this.db.from('bot_conversaciones').upsert({ linea: c.linea, telefono: c.telefono_cliente,
+      mensajes: [...hist, { role: 'assistant', content: mensaje }].slice(-MAX_HISTORIAL), actualizado_en: new Date().toISOString(),
+    }, { onConflict: 'linea,telefono' });
+    await this.respondeRegistrar(destino, c.nombre ?? null, '', mensaje).catch(() => null);
+    return { contestado: true, motivo: 'respuesta del equipo enviada al cliente' };
+  }
+
+  // Sólo pendientes creados con el circuito nuevo. No vuelve a enviar el backlog
+  // histórico: pudo haberse atendido manualmente y requiere conciliación.
+  @Cron('10 */5 * * * *')
+  async seguirConsultasPendientes() {
+    const { data: cfg } = await this.db.from('lineas_whatsapp').select('bot_activo,derivar_pagos_a').eq('linea','pedidos').eq('activa',true).maybeSingle();
+    if (!cfg?.bot_activo) return;
+    const todos = await this.pendientesPaginados('bot_consultas_internas','respondido_en');
+    for (const c of todos.filter(x => x.gestion_version === 2 && x.enviado_a !== 'banco-de-pruebas').reverse().slice(0,50)) {
+      if (c.respuesta_admin && !c.envio_iniciado_en && Number(c.intentos ?? 0) < 3 && (!c.proximo_intento_en || Date.parse(c.proximo_intento_en) <= Date.now())) {
+        const entrega = await this.llevarRespuestaDeConsulta(c,c.respuesta_admin,c.enviado_a ?? cfg.derivar_pagos_a,true).catch(e=>{ this.log.warn(e.message); return null; });
+        if (entrega?.contestado) continue;
+      }
+      if (Date.now()-Date.parse(c.creado_en)<20*60_000 || (c.aviso_recordatorio_en && Date.now()-Date.parse(c.aviso_recordatorio_en)<6*3600_000)) continue;
+      const { error } = await this.db.from('alertas_internas').insert({ tipo:'consulta', titulo:'Consulta pendiente de atención', detalle:String(c.consulta).slice(0,500), referencia:{consulta_id:c.id,telefono:c.telefono_cliente,area:c.area} });
+      if (!error) await this.db.from('bot_consultas_internas').update({aviso_recordatorio_en:new Date().toISOString()}).eq('id',c.id);
+    }
+  }
+
+  private async guardarAdjuntoPrivado(ruta: string, media: { base64: string; mime: string }): Promise<string> {
+    const bucket = this.db.storage.from('bot-adjuntos');
+    const { error } = await bucket.upload(ruta, Buffer.from(media.base64, 'base64'), { contentType: media.mime, upsert: false });
+    if (error) { this.log.warn('No se pudo archivar el adjunto privado'); return ''; }
+    const { data, error: firma } = await bucket.createSignedUrl(ruta, 3600);
+    if (firma) return '';
+    return data?.signedUrl ?? '';
+  }
+
+  // Acceso del staff autenticado: renueva únicamente rutas del archivo privado.
+  async renovarAdjunto(ruta: string) {
+    if (!/^whatsapp\/[0-9]+\/(?:enviado-)?[0-9]+(?:\.[a-z0-9]{2,4})?$/.test(String(ruta ?? ''))) {
+      throw new BadRequestException('Ruta de adjunto inválida');
+    }
+    const { data, error } = await this.db.storage.from('bot-adjuntos').createSignedUrl(ruta, 3600);
+    if (error || !data?.signedUrl) throw new BadRequestException('Adjunto no disponible');
+    return { url: data.signedUrl, venceEnSegundos: 3600 };
   }
 
   private async bajarMediaWaha(p: any): Promise<{ base64: string; mime: string; nombre: string } | null> {
@@ -2985,8 +2935,8 @@ export class BotService {
         try {
           const ext = (media.nombre.match(/\.[a-z0-9]{2,4}$/i)?.[0]) || (tipoMedia === 'image' ? '.jpg' : tipoMedia === 'audio' ? '.ogg' : '');
           const ruta = `whatsapp/${identidad}/enviado-${Date.now()}${ext}`;
-          const { error: errSubida } = await this.db.storage.from('publico').upload(ruta, Buffer.from(media.base64, 'base64'), { contentType: media.mime, upsert: true });
-          if (!errSubida) mediaSaliente = { tipo: tipoMedia, url: this.db.storage.from('publico').getPublicUrl(ruta).data.publicUrl };
+          const url = await this.guardarAdjuntoPrivado(ruta, media);
+          if (url) mediaSaliente = { tipo: tipoMedia, url };
         } catch { /* sin archivo: igual queda el rótulo */ }
       }
       const rotulo = tipoMedia === 'image' ? '📷 Foto enviada' : tipoMedia === 'audio' ? '🎙️ Audio enviado' : tipoMedia === 'video' ? '🎬 Video enviado' : '📄 Archivo enviado';
@@ -3198,8 +3148,7 @@ export class BotService {
         try {
           const ext = (media.nombre.match(/\.[a-z0-9]{2,4}$/i)?.[0]) || (esImagen ? '.jpg' : esAudio ? '.ogg' : '');
           const ruta = `whatsapp/${identidad}/${Date.now()}${ext}`;
-          const { error } = await this.db.storage.from('publico').upload(ruta, Buffer.from(media.base64, 'base64'), { contentType: media.mime, upsert: true });
-          if (!error) enlacePublico = this.db.storage.from('publico').getPublicUrl(ruta).data.publicUrl;
+          enlacePublico = await this.guardarAdjuntoPrivado(ruta, media);
         } catch { /* sin enlace: el mensaje igual llega */ }
       }
       // el texto va limpio; el archivo viaja aparte como media (tipo + url)
@@ -3524,7 +3473,8 @@ export class BotService {
     const crudo = String(to ?? ''); const digitos = crudo.replace(/\D/g, '');
     const chatId = crudo.includes('@') ? crudo.split(':')[0] : digitos ? `${digitos}@c.us` : null;
     // ~40 caracteres por segundo, con piso y techo
-    const ms = Math.min(8000, Math.max(2000, Math.round((texto?.length ?? 0) / 40) * 1000));
+    const ms = Math.min(2000, Math.max(0, Number(process.env.ODB_BOT_PAUSA_ESCRITURA_MS ?? 0)));
+    if (!ms) return;
     const post = async (ruta: string) => {
       if (!wahaUrl || !wahaKey || !chatId) return;
       try {
@@ -3587,7 +3537,7 @@ export class BotService {
     const crudo = String(payload.to ?? '');
     const digitos = crudo.replace(/\D/g, '');
     let chatId = crudo.includes('@') ? crudo.split(':')[0] : digitos ? `${digitos}@c.us` : null;
-    if (!chatId) return { enviado: false, motivo: 'Número inválido' };
+    if (!chatId) return { enviado: false, reintentable: false, motivo: 'Número inválido' };
     // Un @lid (el id de privacidad de WhatsApp) NO es un número marcable: armar
     // "digitos@c.us" con él manda el mensaje a la nada o a un desconocido. Las
     // charlas guardan esos dígitos como teléfono, así que acá se traduce al
@@ -3692,7 +3642,7 @@ export class BotService {
     const url = process.env.N8N_WSP_SEND_URL;
     if (!url) {
       this.log.warn('WhatsApp sin conectar: falta WAHA_URL o N8N_WSP_SEND_URL');
-      return { enviado: false, motivo: 'WhatsApp no conectado' };
+      return { enviado: false, reintentable: true, motivo: 'WhatsApp no conectado' };
     }
     const ctrl = new AbortController();
     const reloj = setTimeout(() => ctrl.abort(), 10_000);
@@ -4170,7 +4120,7 @@ export class BotService {
     precioMin?: number;
     precioMax?: number;
     buscar?: string;
-  }) {
+  }, telefono?: string) {
     // La cava tiene ~2.300 etiquetas y Supabase corta en 1.000 filas por consulta:
     // sin paginar, el bot veía la mitad de la cava y decía "no tenemos" de vinos
     // que estaban en góndola (visto en la auditoría con un Gualtallary a $18.330).
@@ -4178,7 +4128,7 @@ export class BotService {
     for (let desde = 0; ; desde += 1000) {
       const { data: pagina, error } = await this.db
         .from('productos')
-        .select('id, sku, nombre, descripcion, alias_busqueda, categoria:categorias!inner(nombre), stock(cantidad, sucursal:sucursales(nombre))')
+        .select('id, sku, nombre, descripcion, alias_busqueda, unidades_pack, vendido_por_peso, categoria:categorias!inner(nombre), stock(cantidad, sucursal:sucursales(nombre))')
         .eq('activo', true)
         .or('nombre.ilike.vino%,nombre.ilike.espumante%,nombre.ilike.champagne%', { referencedTable: 'categoria' })
         .order('id')
@@ -4203,12 +4153,14 @@ export class BotService {
         id: p.id,
         sku: p.sku,
         nombre: p.nombre,
+        unidades_pack: p.unidades_pack,
+        vendido_por_peso: p.vendido_por_peso,
         descripcion: p.descripcion ?? null,
         alias: p.alias_busqueda ?? null,
         categoria: p.categoria?.nombre ?? '',
         stockTotal: (p.stock ?? []).reduce((s: number, r: any) => s + Number(r.cantidad), 0),
         // en qué sucursal hay: el bot tiene que poder decirlo sin inventar
-        sucursales: (p.stock ?? []).filter((r: any) => Number(r.cantidad) > 0).map((r: any) => `${(r.sucursal?.nombre ?? '').replace(/^Suc /, '')} (${Math.round(Number(r.cantidad))})`).join(', '),
+        sucursales: (p.stock ?? []).filter((r: any) => Number(r.cantidad) > 0).map((r: any) => `${(r.sucursal?.nombre ?? '').replace(/^Suc /, '')} (${Number(r.cantidad)})`).join(', '),
       }))
       .filter((p) => p.stockTotal > 0);
 
@@ -4232,9 +4184,7 @@ export class BotService {
     if (!vinos.length) return { items: [], nota: 'No hay etiquetas con stock para ese filtro; probá aflojando cepa o tipo.' };
 
     // precios reales (con promos vigentes) en un solo viaje
-    const { data: precios } = await this.db.rpc('catalogo_precios', {
-      p_ids: vinos.map((p) => p.id),
-    });
+    const precios = await this.preciosDelCliente(vinos.map((p) => p.id), telefono);
     const precioPor = new Map<string, any>((precios ?? []).map((r: any) => [r.producto_id, r]));
 
     const min = Number(f.precioMin ?? 0);
@@ -4242,17 +4192,18 @@ export class BotService {
     const filtrados = vinos
       .map((p) => {
         const pr = precioPor.get(p.id);
-        const precio = Math.round(Number(pr?.precio_final ?? 0));
+        const precio = Number(pr?.precio_final ?? 0);
         const desc = String(p.descripcion ?? '').replace(/\s+/g, ' ').trim();
         return this.sinNulos({
           sku: p.sku,
           nombre: p.nombre,
           categoria: p.categoria,
+          ...presentacionProducto(p),
           // la ficha, recortada: es lo único que el bot puede afirmar del vino
           ficha: desc ? (desc.length > 220 ? desc.slice(0, 217) + '…' : desc) : null,
           precio,
           promo: pr?.descuento_nombre ? `${pr.descuento_nombre} (antes $${Math.round(pr.precio_lista)})` : null,
-          stock: this.sucCompacta(p.sucursales) || String(Math.round(p.stockTotal)),
+          stock: this.sucCompacta(p.sucursales) || String(p.stockTotal),
         }) as any;
       })
       .filter((p) => p.precio > 0 && p.precio >= min && p.precio <= max)
