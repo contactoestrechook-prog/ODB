@@ -5,7 +5,7 @@ import { emprolijarListado, nombreLimpio, saludoSegunHora, saludarConBienvenida,
 import { controlDeFechas } from './fechas';
 import { desvioDeLoPedido } from './desvio';
 import { oggCompleto } from './ogg';
-import { atiendeUnaPersona, esperasParaAvisar, motivoDeSilencio, pideRespuesta } from './pausa';
+import { atiendeUnaPersona, decisionSesion, esperasParaAvisar, motivoDeSilencio, pideRespuesta } from './pausa';
 import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
 import { Cron } from '@nestjs/schedule';
@@ -3820,6 +3820,45 @@ export class BotService {
     return { ok: true };
   }
 
+  // VIGILANTE DE LA SESIÓN DE WHATSAPP (23/9/2026). La sesión de WAHA quedó en
+  // FAILED el domingo 21/9 a las 18:49 y no entró ni un mensaje por casi dos
+  // días sin que nadie se enterara. Cada 5 minutos se mira el estado: si falla
+  // dos veces seguidas se reinicia UNA vez y queda la alerta en la campanita del
+  // panel (no por WhatsApp: justamente es lo que está caído).
+  private fallosSesion = 0;
+  @Cron('40 */5 * * * *')
+  async vigilarSesionWhatsapp() {
+    const url = process.env.WAHA_URL, key = process.env.WAHA_API_KEY;
+    if (!url || !key) return;
+    const sesion = process.env.WAHA_SESSION || 'odb';
+    const base = url.replace(/\/$/, '');
+    let status: string | null = null;
+    try {
+      const r = await fetch(`${base}/api/sessions/${sesion}`, { headers: { 'X-Api-Key': key }, signal: AbortSignal.timeout(15000) });
+      status = r.ok ? String(((await r.json()) as any)?.status ?? '') || null : null;
+    } catch { status = null; }
+    const d = decisionSesion(status, this.fallosSesion);
+    this.fallosSesion = d.fallos;
+    if (!d.alertar && !d.reiniciar) return;
+    this.log.error(`WhatsApp: la sesión "${sesion}" está ${status ?? 'sin respuesta'} (${d.fallos} lecturas seguidas)${d.reiniciar ? ': la reinicio' : ''}`);
+    if (d.reiniciar) {
+      await fetch(`${base}/api/sessions/${sesion}/restart`, { method: 'POST', headers: { 'X-Api-Key': key }, signal: AbortSignal.timeout(60000) }).catch(() => null);
+    }
+    const hace2h = new Date(Date.now() - 2 * 3600_000).toISOString();
+    const { data: prev } = await this.db.from('alertas_internas').select('id').eq('tipo', 'whatsapp_caido').gte('creada_en', hace2h).limit(1).maybeSingle();
+    if (prev) return;
+    const { data: cfg } = await this.db.from('lineas_whatsapp').select('avisar_proveedores_a').eq('linea', 'pedidos').eq('activa', true).limit(1).maybeSingle();
+    await this.db.from('alertas_internas').insert({
+      para_usuario: (cfg as any)?.avisar_proveedores_a ?? null,
+      tipo: 'whatsapp_caido',
+      titulo: status === 'SCAN_QR_CODE' ? 'WhatsApp desvinculado: hay que escanear el QR' : 'La línea de WhatsApp no recibe mensajes',
+      detalle: status === 'SCAN_QR_CODE'
+        ? 'El teléfono de la línea se desvinculó del sistema. Hasta escanear el QR de nuevo, el bot no recibe ni manda nada: atendé desde el teléfono.'
+        : `La sesión de WhatsApp está ${status ?? 'sin respuesta'}. ${d.reiniciar ? 'Ya se intentó reiniciar sola.' : 'Sigue caída después del reinicio.'} Mientras tanto los clientes escriben y el bot no los ve: atendé desde el teléfono.`,
+      referencia: { sesion, status },
+    }).then(() => null, () => null);
+  }
+
   // NADIE SE QUEDA SIN RESPUESTA (19/9/2026). La charla pausada sigue pausada:
   // el bot no habla. Pero si el cliente escribió algo que pide respuesta y
   // pasaron más de 20 minutos sin que nadie conteste, administración recibe un
@@ -3864,9 +3903,10 @@ export class BotService {
       await this.db.from('bot_notas_equipo')
         .insert({ linea: c.linea, telefono: c.telefono, nota: `[esperando] ${texto.slice(0, 280)}` })
         .then(() => null, () => null);
-      if (admin) await this.enviarPorWhatsapp({ to: admin, text: aviso, kind: 'aviso-interno' } as any).catch(() => null);
-      this.log.warn(`charla en pausa sin atender: ${quien} hace ${minutos} min · aviso ${admin ? 'enviado' : 'sin destino'}`);
-      await marcarAvisado();
+      const env: any = admin ? await this.enviarPorWhatsapp({ to: admin, text: aviso, kind: 'aviso-interno' } as any).catch(() => ({ enviado: false })) : { enviado: false };
+      this.log.warn(`charla en pausa sin atender: ${quien} hace ${minutos} min · aviso ${env?.enviado ? 'enviado' : 'NO salió'}`);
+      // si el aviso no salió (WhatsApp caído), no se gasta: se reintenta en la próxima vuelta
+      if (env?.enviado) await marcarAvisado();
     }
   }
 

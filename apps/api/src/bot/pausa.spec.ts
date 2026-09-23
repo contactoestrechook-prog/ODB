@@ -1,4 +1,4 @@
-import { atiendeUnaPersona, esperasParaAvisar, motivoDeSilencio, pideRespuesta } from './pausa';
+import { atiendeUnaPersona, decisionSesion, esperasParaAvisar, motivoDeSilencio, pideRespuesta } from './pausa';
 
 describe('¿el bot tiene que callar?', () => {
   it('línea apagada: silencio siempre (salvo el banco de pruebas)', () => {
@@ -60,5 +60,20 @@ describe('qué esperas avisar', () => {
   });
   it('menos de 20 minutos no se avisa', () => {
     expect(esperasParaAvisar([{ telefono: 'e', esperando_desde: h(0.2), esperando_aviso_en: null }], ahora)).toHaveLength(0);
+  });
+});
+
+describe('vigilante de la sesión de WhatsApp', () => {
+  it('una lectura mala es un parpadeo; dos seguidas reinician y alertan una vez', () => {
+    expect(decisionSesion('FAILED', 0)).toEqual({ fallos: 1, reiniciar: false, alertar: false });
+    expect(decisionSesion('FAILED', 1)).toEqual({ fallos: 2, reiniciar: true, alertar: true });
+    expect(decisionSesion('FAILED', 2)).toEqual({ fallos: 3, reiniciar: false, alertar: true });
+    expect(decisionSesion('WORKING', 5)).toEqual({ fallos: 0, reiniciar: false, alertar: false });
+  });
+  it('desvinculada (QR) no se reinicia: hay que escanear', () => {
+    expect(decisionSesion('SCAN_QR_CODE', 1)).toEqual({ fallos: 2, reiniciar: false, alertar: true });
+  });
+  it('sin respuesta de WAHA cuenta como caída', () => {
+    expect(decisionSesion(null, 1).reiniciar).toBe(true);
   });
 });

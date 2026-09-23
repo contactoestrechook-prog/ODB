@@ -76,3 +76,20 @@ export function esperasParaAvisar<T extends Espera>(filas: T[], ahora: number, t
     .sort((a, b) => (a.esperando_aviso_en ? 1 : 0) - (b.esperando_aviso_en ? 1 : 0) || ms(a.esperando_desde) - ms(b.esperando_desde))
     .slice(0, tope);
 }
+
+// ============================================================
+// ¿LA SESIÓN DE WHATSAPP ESTÁ CAÍDA? (23/9/2026)
+//
+// El domingo 21/9 a las 18:49 la sesión de WAHA pasó a FAILED y nadie se
+// enteró: casi dos días sin recibir un solo mensaje. Una lectura mala puede ser
+// un parpadeo; dos seguidas es una caída de verdad.
+// ============================================================
+export function decisionSesion(status: string | null, fallosSeguidos: number): { fallos: number; reiniciar: boolean; alertar: boolean } {
+  if (status === 'WORKING') return { fallos: 0, reiniciar: false, alertar: false };
+  const fallos = fallosSeguidos + 1;
+  // STARTING: está arrancando, se le da una vuelta más antes de tocarla
+  if (status === 'STARTING' && fallos < 3) return { fallos, reiniciar: false, alertar: false };
+  // SCAN_QR_CODE: se desvinculó el teléfono; reiniciar no sirve, hay que escanear
+  if (status === 'SCAN_QR_CODE') return { fallos, reiniciar: false, alertar: fallos >= 2 };
+  return { fallos, reiniciar: fallos === 2, alertar: fallos >= 2 };
+}
