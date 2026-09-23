@@ -48,3 +48,31 @@ export function pideRespuesta(texto: string | null | undefined): boolean {
   // mensajes largos: alguien que escribe tres renglones espera respuesta
   return t.length >= 40;
 }
+
+// ============================================================
+// QUÉ CHARLAS AVISAR AHORA (23/9/2026)
+//
+// El vigilante traía las 12 esperas MÁS VIEJAS y recién después filtraba las ya
+// avisadas: esas 12 ocupaban la lista para siempre y las charlas nuevas nunca
+// se avisaban (el comprobante de un cliente del 21/9 quedó sin aviso). Además
+// re-avisaba cada 6 h sin fin. Ahora: primero las nunca avisadas (de la más
+// vieja a la más nueva), después los re-avisos; tope de 3 avisos por espera
+// (a los 20 min, a las 6 h y a las 24 h).
+// ============================================================
+export type Espera = { telefono: string; esperando_desde: string; esperando_aviso_en: string | null; esperando_avisos?: number | null };
+
+export function esperasParaAvisar<T extends Espera>(filas: T[], ahora: number, tope = 12): T[] {
+  const ms = (s: string | null) => (s ? new Date(s).getTime() : 0);
+  const listas = filas.filter((f) => {
+    const desde = ms(f.esperando_desde);
+    if (!desde || ahora - desde < 20 * 60_000) return false;
+    const avisos = Number(f.esperando_avisos ?? (f.esperando_aviso_en ? 1 : 0));
+    if (avisos >= 3) return false;
+    if (!f.esperando_aviso_en) return true;
+    const espera = avisos >= 2 ? 24 * 3600_000 : 6 * 3600_000;
+    return ahora - ms(f.esperando_aviso_en) >= espera;
+  });
+  return listas
+    .sort((a, b) => (a.esperando_aviso_en ? 1 : 0) - (b.esperando_aviso_en ? 1 : 0) || ms(a.esperando_desde) - ms(b.esperando_desde))
+    .slice(0, tope);
+}

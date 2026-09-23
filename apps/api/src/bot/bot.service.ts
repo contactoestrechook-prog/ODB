@@ -5,7 +5,7 @@ import { emprolijarListado, nombreLimpio, saludoSegunHora, saludarConBienvenida,
 import { controlDeFechas } from './fechas';
 import { desvioDeLoPedido } from './desvio';
 import { oggCompleto } from './ogg';
-import { atiendeUnaPersona, motivoDeSilencio, pideRespuesta } from './pausa';
+import { atiendeUnaPersona, esperasParaAvisar, motivoDeSilencio, pideRespuesta } from './pausa';
 import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
 import { Cron } from '@nestjs/schedule';
@@ -2547,7 +2547,7 @@ export class BotService {
   /** Alguien de la casa atendió (o el bot volvió): la charla deja de esperar. */
   private async limpiarEspera(linea: 'pedidos' | 'proveedores', telefono: string) {
     await this.db.from('bot_conversaciones')
-      .update({ esperando_desde: null, esperando_texto: null, esperando_aviso_en: null })
+      .update({ esperando_desde: null, esperando_texto: null, esperando_aviso_en: null, esperando_avisos: 0 })
       .eq('linea', linea).eq('telefono', telefono).then(() => null, () => null);
   }
 
@@ -3829,16 +3829,13 @@ export class BotService {
   async avisarEsperandoRespuesta() {
     const hora = Number(new Date().toLocaleString('es-AR', { hour: '2-digit', hour12: false, timeZone: 'America/Argentina/Buenos_Aires' }));
     if (!(hora >= 8 && hora < 21)) return;
-    const hace20 = new Date(Date.now() - 20 * 60_000).toISOString();
-    const hace6h = new Date(Date.now() - 6 * 3600_000).toISOString();
+    // se traen TODAS las esperas (son decenas) y la selección la hace una
+    // función con tests: nunca avisadas primero, re-avisos a las 6 y 24 h, tope 3
     const { data: esperando } = await this.db.from('bot_conversaciones')
-      .select('linea, telefono, esperando_desde, esperando_texto, esperando_aviso_en')
+      .select('linea, telefono, esperando_desde, esperando_texto, esperando_aviso_en, esperando_avisos')
       .not('esperando_desde', 'is', null)
-      .lte('esperando_desde', hace20)
-      .order('esperando_desde', { ascending: true })
-      .limit(12);
-    const pendientes = ((esperando ?? []) as any[])
-      .filter((c) => !c.esperando_aviso_en || c.esperando_aviso_en < hace6h);
+      .limit(500);
+    const pendientes = esperasParaAvisar((esperando ?? []) as any[], Date.now());
     if (!pendientes.length) return;
 
     const { data: cfg } = await this.db
@@ -3848,16 +3845,22 @@ export class BotService {
     for (const c of pendientes) {
       const texto = String(c.esperando_texto ?? '').trim();
       const marcarAvisado = () => this.db.from('bot_conversaciones')
-        .update({ esperando_aviso_en: new Date().toISOString() })
+        .update({ esperando_aviso_en: new Date().toISOString(), esperando_avisos: Number(c.esperando_avisos ?? 0) + 1 })
         .eq('linea', c.linea).eq('telefono', c.telefono).then(() => null, () => null);
       // "gracias", "ok", un pulgar: no hace falta que nadie corra
       if (!pideRespuesta(texto)) { await marcarAvisado(); continue; }
       const minutos = Math.round((Date.now() - new Date(c.esperando_desde).getTime()) / 60_000);
       const { data: k } = await this.db.from('bot_contactos')
         .select('nombre, nombre_wa, telefono_real').eq('telefono', c.telefono).maybeSingle();
+      const { data: conv } = await this.db.from('bot_conversaciones')
+        .select('derivada_motivo, atendida_por').eq('linea', c.linea).eq('telefono', c.telefono).maybeSingle();
+      // el aviso dice la verdad: casi siempre la pausó un mensaje desde el teléfono, no hay nadie atendiendo
+      const porque = /tel[eé]fono/i.test(String((conv as any)?.derivada_motivo ?? ''))
+        ? 'La charla quedó en pausa porque alguien escribió desde el teléfono de la línea'
+        : (conv as any)?.atendida_por ? 'La charla la tomó una persona desde el panel' : 'La charla está en pausa';
       const quien = String((k as any)?.nombre ?? (k as any)?.nombre_wa ?? '').trim()
         || ((k as any)?.telefono_real ? `+${(k as any).telefono_real}` : c.telefono);
-      const aviso = `⏳ ${quien} escribió hace ${minutos >= 60 ? `${Math.round(minutos / 60)} h` : `${minutos} min`} y nadie contestó. La charla está en pausa (la atiende una persona), así que el bot no habla.\n\nDice: "${texto.slice(0, 200)}"\n\nSi ya no la atiende nadie, reactivá el bot desde RESPONDE.`;
+      const aviso = `⏳ ${quien} escribió hace ${minutos >= 60 ? `${Math.round(minutos / 60)} h` : `${minutos} min`} y nadie contestó. ${porque}, así que el bot no habla.\n\nDice: "${texto.slice(0, 200)}"\n\nContestale vos, o reactivá el bot desde el panel de ODB → WhatsApp → REACTIVAR BOT.${Number(c.esperando_avisos ?? 0) >= 2 ? '\n(Último aviso por esta charla.)' : ''}`;
       await this.db.from('bot_notas_equipo')
         .insert({ linea: c.linea, telefono: c.telefono, nota: `[esperando] ${texto.slice(0, 280)}` })
         .then(() => null, () => null);
@@ -4006,6 +4009,7 @@ export class BotService {
     // RESPONDE queda igual: si no, al próximo mensaje la volvería a pausar
     const waId = telefono.replace(/\D/g, '').length >= 14 ? `${telefono.replace(/\D/g, '')}@lid` : telefono.replace(/\D/g, '');
     await this.respondeRpc('odb_reactivar_contacto', { p_whatsapp_id: waId });
+    await this.limpiarEspera(linea, String(telefono).replace(/\D/g, ''));
     return { ok: true, botActivo: true };
   }
 

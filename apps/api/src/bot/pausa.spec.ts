@@ -1,4 +1,4 @@
-import { atiendeUnaPersona, motivoDeSilencio, pideRespuesta } from './pausa';
+import { atiendeUnaPersona, esperasParaAvisar, motivoDeSilencio, pideRespuesta } from './pausa';
 
 describe('¿el bot tiene que callar?', () => {
   it('línea apagada: silencio siempre (salvo el banco de pruebas)', () => {
@@ -40,5 +40,25 @@ describe('¿el mensaje pide una respuesta?', () => {
   it('un mensaje largo se avisa aunque no tenga pregunta', () => {
     expect(pideRespuesta('Te dejo anotado que el viernes paso por la sucursal a buscar lo que quedó pendiente de la semana pasada')).toBe(true);
     expect(pideRespuesta('')).toBe(false);
+  });
+});
+
+describe('qué esperas avisar', () => {
+  const ahora = new Date('2026-09-22T17:05:00Z').getTime();
+  const h = (horas: number) => new Date(ahora - horas * 3600_000).toISOString();
+  it('las nunca avisadas van primero aunque haya 12 viejas ya avisadas', () => {
+    const viejas = Array.from({ length: 12 }, (_, i) => ({ telefono: `v${i}`, esperando_desde: h(50 + i), esperando_aviso_en: h(1), esperando_avisos: 1 }));
+    const nueva = { telefono: '101249693302890', esperando_desde: h(20), esperando_aviso_en: null, esperando_avisos: 0 };
+    const r = esperasParaAvisar([...viejas, nueva], ahora);
+    expect(r.map((x) => x.telefono)).toEqual(['101249693302890']);
+  });
+  it('re-aviso a las 6 h, tercero a las 24 h, y después silencio', () => {
+    expect(esperasParaAvisar([{ telefono: 'a', esperando_desde: h(8), esperando_aviso_en: h(7), esperando_avisos: 1 }], ahora)).toHaveLength(1);
+    expect(esperasParaAvisar([{ telefono: 'b', esperando_desde: h(10), esperando_aviso_en: h(7), esperando_avisos: 2 }], ahora)).toHaveLength(0);
+    expect(esperasParaAvisar([{ telefono: 'c', esperando_desde: h(40), esperando_aviso_en: h(25), esperando_avisos: 2 }], ahora)).toHaveLength(1);
+    expect(esperasParaAvisar([{ telefono: 'd', esperando_desde: h(80), esperando_aviso_en: h(30), esperando_avisos: 3 }], ahora)).toHaveLength(0);
+  });
+  it('menos de 20 minutos no se avisa', () => {
+    expect(esperasParaAvisar([{ telefono: 'e', esperando_desde: h(0.2), esperando_aviso_en: null }], ahora)).toHaveLength(0);
   });
 });
