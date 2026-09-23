@@ -1,4 +1,4 @@
-import { asegurarEnvioSinCargo, campoLimpio, casiIgual, esAutomaticoWhatsappBusiness, envioSinCargo, nombreSucursalCliente, saintThomas } from './prolijo';
+import { asegurarEnvioSinCargo, campoLimpio, casiIgual, respuestaConConsulta, esAutomaticoWhatsappBusiness, envioSinCargo, nombreSucursalCliente, saintThomas } from './prolijo';
 
 describe('nombre de la sucursal ante el cliente', () => {
   it('Sant Thomas pasa a sucursal Saint Thomas', () => {
@@ -111,5 +111,24 @@ describe('campos de herramienta sin basura', () => {
     expect(campoLimpio('N/A')).toBe('');
     expect(campoLimpio('  Rivadavia 234, Canning ')).toBe('Rivadavia 234, Canning');
     expect(campoLimpio('2026-09-25')).toBe('2026-09-25');
+  });
+});
+
+describe('consulta interna sin dejar mudo al cliente', () => {
+  it('manda lo que sabe y el acuse una vez', () => {
+    const r = respuestaConConsulta('Coca Cola Zero 1,75 L a $4.700 y chips a $1.200. Las picadas las consulto y te confirmo por acá.', 'Buen día, ¿qué necesitás?');
+    expect(r).toBe('Coca Cola Zero 1,75 L a $4.700 y chips a $1.200.\n\nLo consulto y te confirmo por acá.');
+  });
+  it('conserva la lista renglón por renglón', () => {
+    const r = respuestaConConsulta('• 10 × Coca Cola Zero 1,75 L = $47.000\n• 4 × Papas Lays 330 g = $49.200\nTotal: $96.200\nLas picadas las consulto y te confirmo por acá.', null);
+    expect(r).toBe('• 10 × Coca Cola Zero 1,75 L = $47.000\n• 4 × Papas Lays 330 g = $49.200\nTotal: $96.200\n\nLo consulto y te confirmo por acá.');
+  });
+  it('sin nada útil: solo el acuse', () => {
+    expect(respuestaConConsulta('', null)).toBe('Lo consulto y te confirmo por acá.');
+    expect(respuestaConConsulta('Lo estoy consultando y te aviso en breve.', null)).toBe('Lo consulto y te confirmo por acá.');
+  });
+  it('no repite el acuse si ya lo dijo', () => {
+    expect(respuestaConConsulta('', 'Lo consulto y te confirmo por acá.')).toBe('');
+    expect(respuestaConConsulta('El fernet está a $20.500.', 'Lo consulto y te confirmo por acá.')).toBe('El fernet está a $20.500.');
   });
 });

@@ -270,3 +270,25 @@ export function campoLimpio(v: unknown): string {
   if (/<\/?\s*(antml|parameter|invoke|function)/i.test(t) || /^(null|undefined|n\/a|na|vacio|vacío|ninguna|ninguno|-|—)$/i.test(t)) return '';
   return t;
 }
+
+// ============================================================
+// CONSULTA INTERNA SIN DEJAR MUDO AL CLIENTE (23/9/2026)
+//
+// Cuando el bot consultaba algo por adentro, vaciaba la respuesta: el cliente
+// que pedía "2 picadas, 10 coca zero y 4 chips" no recibía NADA, ni siquiera el
+// precio de las cocas. 48 clientes quedaron así en 14 días. Ahora se manda lo
+// que sí se sabe, sin las promesas sueltas del modelo, y el acuse va una sola
+// vez (si el último mensaje del bot ya era el acuse, no se repite).
+// ============================================================
+export const ACUSE_CONSULTA = 'Lo consulto y te confirmo por acá.';
+const RE_PROMESA = /\b(lo consulto|lo estoy consultando|te confirmo|le confirmo|vuelvo a vos|lo verifico|lo reviso|te aviso|en breve|en un momento|no (?:lo |la )?tengo (?:ese |el |este |esa |la )?(?:dato|info(?:rmaci[oó]n)?)|no cuento con (?:ese|esa|el|la) (?:dato|informaci[oó]n))\b/i;
+
+export function respuestaConConsulta(respuesta: string, ultimoDelBot: string | null | undefined): string {
+  // renglón por renglón, para no aplastar la lista del pedido en una sola línea
+  const util = String(respuesta ?? '').split('\n').map((linea) =>
+    linea.split(/(?<=[.!?])\s+/).filter((o) => !RE_PROMESA.test(o)).join(' ').trimEnd(),
+  ).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  const yaAcuso = !!ultimoDelBot && casiIgual(String(ultimoDelBot), ACUSE_CONSULTA);
+  if (!util) return yaAcuso ? '' : ACUSE_CONSULTA;
+  return yaAcuso ? util : `${util}\n\n${ACUSE_CONSULTA}`;
+}

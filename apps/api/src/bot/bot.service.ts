@@ -1,7 +1,7 @@
 import { agruparItems, cantidadesIndividuales, centavos, confirmacionInequivoca, idWhatsappCorto, importesDeHerramienta, importesDelTexto, pesos, presentacionProducto } from './comercio';
 import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import { volumenMl, etiquetaVolumen, pideTamano, medidaPartida, resumenDeTamanos, cantidadesPedidas, PALABRA_GENERICA } from './formatos';
-import { emprolijarListado, nombreLimpio, saludoSegunHora, saludarConBienvenida, niegaPercepcion, respetuosoSinConfianza, saintThomas, envioSinCargo, asegurarEnvioSinCargo, casiIgual, campoLimpio, nombreSucursalCliente, esAutomaticoWhatsappBusiness } from './prolijo';
+import { emprolijarListado, nombreLimpio, saludoSegunHora, saludarConBienvenida, niegaPercepcion, respetuosoSinConfianza, saintThomas, envioSinCargo, asegurarEnvioSinCargo, casiIgual, campoLimpio, respuestaConConsulta, nombreSucursalCliente, esAutomaticoWhatsappBusiness } from './prolijo';
 import { controlDeFechas } from './fechas';
 import { desvioDeLoPedido } from './desvio';
 import { oggCompleto } from './ogg';
@@ -661,6 +661,7 @@ export class BotService {
     const fallosDelTurno = new Map<string, number>();
     // una herramienta puede fijar la respuesta del turno ("Recibido." ante un comprobante)
     const respuestaFija: { texto?: string; consultaPendiente?: boolean; operacion?: boolean } = {};
+    let vueltasTrasConsulta = 0;
     // todo lo que devolvieron las herramientas en este turno: los únicos
     // números que el bot tiene permitido decir
     const salidasDelTurno: string[] = [];
@@ -723,6 +724,12 @@ export class BotService {
           herramientasDelTurno.add(block.name);
           const clave = `${block.name}:${JSON.stringify(block.input)}`;
           const previo = vistos.get(clave);
+          // una consulta interna por turno: si el modelo la vuelve a pedir en la
+          // vuelta siguiente, no se manda de nuevo a la casa (23/9/2026)
+          if (block.name === 'consultar_interno' && respuestaFija.consultaPendiente) {
+            resultados.push({ type: 'tool_result', tool_use_id: block.id, content: JSON.stringify({ consultado: true, aviso: 'Ya consultaste en este turno. No consultes de nuevo: escribí ahora la respuesta al cliente con lo que sí sabés.' }) });
+            continue;
+          }
           if (previo) {
             this.log.warn(`Herramienta ${block.name} duplicada en el mismo turno: reuso el resultado`);
             resultados.push({ ...previo, tool_use_id: block.id });
@@ -733,7 +740,10 @@ export class BotService {
           resultados.push(res);
         }
         messages.push({ role: 'user', content: resultados });
-        if (respuestaFija.consultaPendiente || respuestaFija.operacion) break;
+        // tras consultar_interno el modelo SIGUE una vuelta más para contestar lo
+        // que sí sabe (23/9/2026); si insiste con herramientas, se corta ahí
+        if (respuestaFija.operacion) break;
+        if (respuestaFija.consultaPendiente) { vueltasTrasConsulta++; if (vueltasTrasConsulta > 1) break; }
         continue;
       }
 
@@ -1381,14 +1391,14 @@ export class BotService {
     }
     for (const n of importesDelTexto(infoVigente)) hechos.add(n);
     if (respuestaFija.operacion && respuestaFija.texto) respuesta = respuestaFija.texto;
-    else if (respuestaFija.consultaPendiente) respuesta = '';
+    else if (respuestaFija.consultaPendiente) respuesta = respuestaConConsulta(respuesta, ultimosDelBot[0]);
     else {
       const importeSinFuente = importesDelTexto(respuesta).some(n => !hechos.has(n));
       const prometeConsultar = /\b(lo consulto|[tl]e confirm(?:o|amos) por ac[aá]|vuelvo a vos|lo verifico con|no (?:lo |la )?tengo (?:ese |el |este |esa |la )?(?:dato|info(?:rmaci[oó]n)?|cargad)|no cuento con (?:ese|esa|el|la) (?:dato|informaci[oó]n)|lo revisa alguien)\b/i.test(respuesta);
       if (importeSinFuente || prometeConsultar) {
         try {
           const consulta = await this.consultarInterno(linea, telefono, 'local', texto || 'Revisar el adjunto enviado por el cliente', '', dto.archivoUrl);
-          if (consulta.consultado) { respuestaFija.consultaPendiente = true; respuesta = ''; }
+          if (consulta.consultado) { respuestaFija.consultaPendiente = true; respuesta = respuestaConConsulta(importeSinFuente ? '' : respuesta, ultimosDelBot[0]); }
         } catch {
           await this.derivarAHumano(linea, telefono, `Revisar consulta no resuelta: ${texto.slice(0,500)}`, true);
           respuesta = 'Tomo tu consulta y doy aviso al equipo.';

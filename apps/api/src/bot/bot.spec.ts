@@ -35,10 +35,11 @@ function dbFalsa(porTabla: Record<string, any> = {}) {
   const llamadas: Record<string, any[]> = { upsert: [], insert: [], update: [] };
   const db = {
     llamadas,
+    rpc: jest.fn(async (nombre: string) => ({ data: (porTabla[nombre === 'tomar_entrega_consulta_bot' ? 'bot_consultas_internas' : 'bot_pagos_en_confirmacion']?.data ?? []), error: null })),
     from(tabla: string) {
       const res = porTabla[tabla] ?? { data: null, error: null };
       const b: any = {
-        select: () => b, eq: () => b, ilike: () => b, limit: () => b, in: () => b,
+        range: () => b, select: () => b, eq: () => b, ilike: () => b, limit: () => b, in: () => b,
         maybeSingle: async () => res,
         single: async () => res,
         upsert: async (fila: any) => (llamadas.upsert.push({ tabla, fila }), { data: null, error: null }),
@@ -364,12 +365,12 @@ describe('BotService.ejecutarHerramienta · cierre de pedido (doble confirmació
     expect(String(r.content)).toMatch(/NO se creó el pedido/);
   });
 
-  it('un sku que no salió de ninguna búsqueda de la charla se rechaza', async () => {
+  it('sin cotización persistida no crea aunque el modelo invente items', async () => {
     const { s } = servicio();
-    const crear = jest.spyOn(s, 'crearPedido').mockResolvedValue({ pedidoId: 'x' } as any);
+    const crear = jest.spyOn(s, 'crearPedido');
     const r = await (s as any).ejecutarHerramienta({ ...base, input: { ...input, items: [{ sku: 'INVENTADO', cantidad: 1 }], confirmacion_del_cliente: 'sí' } }, tel, 'pedidos', { ultimoBot: 'Total: 20.500. ¿Lo confirmo?', textoCliente: 'sí' });
-    expect(crear).not.toHaveBeenCalled();
-    expect(String(r.content)).toMatch(/no salieron de ninguna búsqueda/);
+    expect(crear).toHaveBeenCalledWith({ telefono: tel, linea: 'pedidos', confirmacion: 'sí', resumenPresentado: 'Total: 20.500. ¿Lo confirmo?' });
+    expect(String(r.content)).toMatch(/cotización|resumen/i);
   });
 });
 
@@ -581,7 +582,7 @@ describe('Emilia: presentación breve y adjuntos que el bot abre solo', () => {
 
   it('un PDF del cliente viaja al modelo como documento (el bot lo LEE, no lo deriva)', async () => {
     const { s } = servicio();
-    const crear = jest.fn().mockResolvedValue(respuestaClaude('De esa lista tenemos el Malbec a $16.600.'));
+    const crear = jest.fn().mockResolvedValue(respuestaClaude('¿Querés consultar disponibilidad del Malbec?'));
     (s as any).claude = { messages: { create: crear } };
     const r: any = await s.charla({
       linea: 'pedidos', telefono: '3012', mensaje: '¿tienen algo de esta lista?',
@@ -831,7 +832,7 @@ describe('regla del dueño: las derivaciones viven adentro; las consultas se le 
   });
 
   it('consultarInterno registra adentro Y le pregunta a administración por WhatsApp (decisión del 16/9)', async () => {
-    const db = dbFalsa({ lineas_whatsapp: { data: { derivar_pagos_a: '5491125213601', avisar_proveedores_a: 'jp-id' }, error: null } });
+    const db = dbFalsa({ lineas_whatsapp: { data: { derivar_pagos_a: '5491125213601', avisar_proveedores_a: 'jp-id' }, error: null }, bot_consultas_internas: { data: { id: 'consulta-1' }, error: null } });
     const { s } = servicio(db);
     const envios: any[] = [];
     (s as any).enviarPorWhatsapp = jest.fn(async (p: any) => (envios.push(p), { enviado: true, id: 'CONS1' }));
@@ -849,10 +850,10 @@ describe('regla del dueño: las derivaciones viven adentro; las consultas se le 
     expect(db.llamadas.insert.some((i: any) => i.tabla === 'bot_notas_equipo')).toBe(true);
     // la consulta queda esperando la respuesta, con el id del aviso
     const pendiente = db.llamadas.insert.find((i: any) => i.tabla === 'bot_consultas_internas');
-    expect(pendiente.fila.waha_msg_id).toBe('CONS1');
+    expect(db.llamadas.update.some((u: any) => u.tabla === 'bot_consultas_internas' && u.fila.waha_msg_id === 'CONS1')).toBe(true);
     expect(pendiente.fila.telefono_cliente).toBe('5491133344455');
     // al cliente no se le dice a quién se consultó
-    expect(r.aviso).toContain('no le digas a quién');
+    expect(r.aviso).toContain('NO envíes mensaje al cliente');
   });
 });
 
@@ -1123,19 +1124,13 @@ describe('consultas a administración: la respuesta vuelve al cliente (16/9/2026
     return { s, db, envios, charla };
   };
 
-  it('administración responde citando la consulta → el bot la redacta y se la manda al cliente', async () => {
+  it('administración responde citando: envía el texto sin ejecutar herramientas', async () => {
     const { s, db, envios, charla } = armar();
-    const r: any = await (s as any).respuestaDeAdministracion('5491125213601', { body: 'si llegamos, 2500 el envio', replyTo: { id: 'true_549@c.us_CONS1' } });
+    const r: any = await (s as any).respuestaDeAdministracion('5491125213601', { body: 'Sí, llegamos hoy a Terra 812.', replyTo: { id: 'true_549@c.us_CONS1' } });
     expect(r.contestado).toBe(true);
-    // la respuesta entra como nota interna, no se reenvía cruda
-    const nota = (charla.mock.calls[0] as any)[0].mensaje;
-    expect(nota).toContain('nota interna');
-    expect(nota).toContain('si llegamos, 2500 el envio');
-    expect(nota).toContain('SOLO lo que dijo administración');
+    expect(charla).not.toHaveBeenCalled();
     const alCliente = envios.find((e) => e.to === '5491133344455');
-    expect(alCliente.text).toBe('Sí, llegamos hoy a Terra 812. El envío sale $2.500.');
-    const ack = envios.find((e) => e.to === '5491125213601');
-    expect(ack.text).toContain('le respondí a Laura Blanco');
+    expect(alCliente.text).toBe('Sí, llegamos hoy a Terra 812.');
     expect(db.llamadas.update.some((u: any) => u.tabla === 'bot_consultas_internas' && u.fila.respondido_en)).toBe(true);
   });
 
@@ -1155,30 +1150,31 @@ describe('consultas a administración: la respuesta vuelve al cliente (16/9/2026
     expect(envios.some((e) => e.to === '5491133344455' || e.to === '5491144455566')).toBe(false);
     const pedido = envios.find((e) => e.to === '5491125213601');
     expect(pedido.text).toContain('CITANDO');
-    expect(pedido.text).toContain('Martín');
   });
 
-  it('un "recibido" con un pago esperando sigue siendo del pago, aunque haya una consulta', async () => {
+  it('un "recibido" con un pago esperando requiere citar si también hay una consulta', async () => {
     const pago = { id: 'pc1', linea: 'pedidos', telefono_cliente: '5491177788899', nombre: 'Distribuidora Norte SRL', monto: 85000, waha_msg_id: 'PAGO1' };
     const { s, envios, charla } = armar({ pagos: [pago] });
     const r: any = await (s as any).respuestaDeAdministracion('5491125213601', { body: 'recibido ok' });
-    expect(r.contestado).toBe(true);
+    expect(r.contestado).toBe(false);
     expect(charla).not.toHaveBeenCalled();
-    expect(envios.find((e) => e.to === '5491177788899')?.text).toContain('recibimos tu pago');
+    expect(envios.some((e) => e.to === '5491177788899')).toBe(false);
+    expect(envios[0].text).toContain('CITANDO');
   });
 
-  it('con el bot apagado no le escribe al cliente y se lo dice a administración', async () => {
+  it('con el bot apagado guarda la respuesta y no le escribe al cliente', async () => {
     const { s, envios, charla } = armar({ botActivo: false });
     const r: any = await (s as any).respuestaDeAdministracion('5491125213601', { body: 'sí', replyTo: { id: 'CONS1' } });
     expect(r.contestado).toBe(false);
     expect(charla).not.toHaveBeenCalled();
-    expect(envios.find((e) => e.to === '5491125213601')?.text).toContain('el bot está apagado');
+    expect(r.motivo).toContain('bot apagado');
+    expect(envios.some((e) => e.to === '5491133344455')).toBe(false);
   });
 });
 
 describe('banco de pruebas: auditar el bot no le escribe a administración', () => {
   it('una consulta desde un número de prueba queda registrada pero NO sale por WhatsApp', async () => {
-    const db = dbFalsa({ lineas_whatsapp: { data: { derivar_pagos_a: '5491125213601' }, error: null } });
+    const db = dbFalsa({ bot_consultas_internas: { data: { id: 'c-prueba' }, error: null }, lineas_whatsapp: { data: { derivar_pagos_a: '5491125213601' }, error: null } });
     const { s } = servicio(db);
     const wsp = jest.fn();
     (s as any).enviarPorWhatsapp = wsp;
@@ -1293,7 +1289,7 @@ describe('eco de los avisos internos: el id corto o largo de WAHA es el mismo me
 describe('archivos mandados desde el teléfono: también se ven en RESPONDE (16/9/2026)', () => {
   it('una foto enviada desde el teléfono (eco NOWEB con `to` vacío) se guarda y se registra como imagen', async () => {
     const db: any = dbFalsa({ bot_envios: { data: null, error: null }, bot_conversaciones: { data: { mensajes: [] }, error: null } });
-    db.storage = { from: () => ({ upload: async () => ({ error: null }), getPublicUrl: () => ({ data: { publicUrl: 'https://x/publico/whatsapp/170806604746941/enviado-1.jpg' } }) }) };
+    db.storage = { from: () => ({ upload: async () => ({ error: null }), createSignedUrl: async () => ({ data: { signedUrl: 'https://x/privado/archivo?token=prueba' } }) }) };
     const { s } = servicio(db);
     (s as any).bajarMediaWaha = jest.fn(async () => ({ base64: 'AAAA', mime: 'image/jpeg', nombre: 'foto.jpg' }));
     (s as any).resolverContactoWaha = jest.fn(async () => null);
@@ -1306,7 +1302,7 @@ describe('archivos mandados desde el teléfono: también se ven en RESPONDE (16/
     }, '5491122812200');
     expect(r.pausada).toBe(true);
     expect(registrar).toHaveBeenCalledWith('170806604746941@lid', null, '', '📷 Foto enviada', undefined,
-      { tipo: 'image', url: 'https://x/publico/whatsapp/170806604746941/enviado-1.jpg' },
+      { tipo: 'image', url: 'https://x/privado/archivo?token=prueba' },
       { waMessageId: 'true_170806604746941@lid_ABC', humano: true });
   });
   it('canales, estados y grupos se ignoran sin contestar', async () => {
@@ -1315,5 +1311,119 @@ describe('archivos mandados desde el teléfono: también se ven en RESPONDE (16/
       const r: any = await s.webhookWaha({ event: 'message', payload: { id: 'x', from, body: 'TODOS LOS CAPÍTULOS YA EN YOUTUBE' } });
       expect(r.ignorado).toBe('canal, estado o grupo');
     }
+  });
+});
+
+describe('Cotización comercial: presentación y stock', () => {
+  function cotizador(pack = 1, pickup = true) {
+    const db = dbFalsa({
+      sucursales: { data: pickup ? { id: 'st', nombre: 'Saint Thomas' } : null },
+      productos: { data: { id: 'p', sku: 'AGUA', nombre: 'Agua 500 ml', activo: true, unidades_pack: pack, stock: [{ sucursal_id: 'st', cantidad: 20 }, { sucursal_id: 'ines', cantidad: 50 }] } },
+    });
+    db.rpc = jest.fn().mockResolvedValue({ data: [{ precio_final: 1000 }] });
+    return servicio(db).s;
+  }
+  it('18 botellas sueltas no se convierten en 3 unidades de venta', async () => {
+    const s = cotizador();
+    const mal = await s.cotizarPedido([{ sku: 'AGUA', cantidad: 3 }], undefined, { textoCliente: '18 botellas' });
+    expect(mal.hayFaltantes).toBe(true);
+    expect(mal.renglones[0].error).toBeDefined();
+    const bien = await s.cotizarPedido([{ sku: 'AGUA', cantidad: 18 }], undefined, { textoCliente: '18 botellas' });
+    expect(bien.total).toBe(18000);
+    expect(bien.renglones[0].unidadesIndividuales).toBe(18);
+  });
+  it('18 botellas en packs reales de 6 son 3 unidades de venta', async () => {
+    const r = await cotizador(6).cotizarPedido([{ sku: 'AGUA', cantidad: 3 }], undefined, { textoCliente: '18 botellas' });
+    expect(r.total).toBe(3000);
+    expect(r.hayFaltantes).toBe(false);
+    expect(r.renglones[0]).toMatchObject({ unidadesPorVenta: 6, unidadesIndividuales: 18, stockDisponible: 20 });
+    expect(r.renglones[0].unidad).toContain('pack de 6');
+  });
+  it('no redondea 7 botellas a dos packs de 6', async () => {
+    const r = await cotizador(6).cotizarPedido([{ sku: 'AGUA', cantidad: 2 }], undefined, { textoCliente: '7 botellas' });
+    expect(r.hayFaltantes).toBe(true);
+    expect(r.renglones[0].error).toBeDefined();
+  });
+  it('no compara cantidades de distintos artículos entre sí', async () => {
+    const r = await cotizador().cotizarPedido([{ sku: 'AGUA', cantidad: 6 }, { sku: 'OTRO', cantidad: 2 }], undefined, { textoCliente: '6 botellas de agua y 2 botellas de vino' });
+    expect(r.renglones.every((r) => !r.error)).toBe(true);
+    expect(r.total).toBe(8000);
+  });
+  it('sin sucursal de preparación no ofrece el stock de otras sucursales', async () => {
+    const r = await cotizador(1, false).cotizarPedido([{ sku: 'AGUA', cantidad: 1 }]);
+    expect(r.hayFaltantes).toBe(true);
+    expect(r.renglones[0].stockDisponible).toBe(0);
+  });
+  it.each([Infinity, NaN, 0, -1])('rechaza cantidad inválida %s', async (cantidad) => {
+    await expect(cotizador().cotizarPedido([{ sku: 'AGUA', cantidad }])).rejects.toThrow();
+  });
+});
+
+
+describe('Envases ambiguos del catálogo real', () => {
+  it.each(['Guolis Caja Media Docena Alfajores (6UN)', 'Negroni KIT Campari Pack x3un', 'Figacita Envasada x9UN'])('no asegura venta suelta para %s', (nombre) => {
+    const { s } = servicio();
+    expect((s as any).presentacionAmbigua(nombre, 1)).toBe(true);
+    expect((s as any).notaUnidad(nombre, 1)).toContain('NO verificado');
+  });
+  it('no confunde volumen con cantidad', () => {
+    const { s } = servicio();
+    expect((s as any).presentacionAmbigua('Coca Cola x1.75L', 1)).toBe(false);
+    expect((s as any).presentacionAmbigua('Agua x500ml', 1)).toBe(false);
+  });
+});
+
+
+describe('Consulta pendiente: responder recién con el dato', () => {
+  // 23/9/2026: la regla cambió. Antes, tras consultar, silencio total (48
+  // clientes quedaron sin una sola línea). Ahora el cliente recibe UNA vez el
+  // acuse "Lo consulto y te confirmo por acá", sin las promesas sueltas del modelo.
+  it('registra la consulta y el cliente recibe el acuse una sola vez', async () => {
+    process.env.ANTHROPIC_API_KEY = 'test';
+    const { s, db } = servicio();
+    const consultar = jest.spyOn(s, 'consultarInterno').mockResolvedValue({ consultado: true, area: 'local', avisoPorWhatsapp: true, aviso: 'Esperar' });
+    const crear = jest.fn().mockResolvedValue({ stop_reason: 'tool_use', content: [
+      { type: 'text', text: 'Lo consulto y vuelvo a vos.' },
+      { type: 'tool_use', id: 'consulta1', name: 'consultar_interno', input: { area: 'local', consulta: '¿Cuántas unidades trae el kit?' } },
+    ], usage: { input_tokens: 10, output_tokens: 10 } });
+    (s as any).claude = { messages: { create: crear } };
+    const r: any = await s.charla({ linea: 'pedidos', telefono: '5491155512345', mensaje: '¿Cuántas unidades trae el kit?', mensajeId: 'consulta-nueva' });
+    expect(consultar).toHaveBeenCalledTimes(1);
+    expect(r.respuesta).toMatch(/Lo consulto y te confirmo por acá\.$/);
+    expect(r.respuesta).not.toMatch(/vuelvo a vos/);
+    expect(r.silencio).toBeFalsy();
+  });
+  it('un reintento de un mensaje silencioso no vuelve a generar alertas', async () => {
+    const { s } = servicio(dbFalsa({ bot_mensajes: { data: { respuesta: '' } } }));
+    const crear = jest.fn();
+    (s as any).claude = { messages: { create: crear } };
+    const r: any = await s.charla({ linea: 'pedidos', telefono: '5491155512345', mensaje: '¿Cuántas unidades trae?', mensajeId: 'repetido' });
+    expect(r.silencio).toBe(true);
+    expect(crear).not.toHaveBeenCalled();
+  });
+  it('si WhatsApp falla conserva la consulta para el equipo', async () => {
+    const db = dbFalsa({ lineas_whatsapp: { data: { derivar_pagos_a: '5491125213601' } }, bot_consultas_internas: { data: { id: 'pendiente' } } });
+    const { s } = servicio(db);
+    jest.spyOn(s, 'identificarCliente').mockResolvedValue({} as any);
+    (s as any).enviarPorWhatsapp = jest.fn().mockRejectedValue(new Error('sin conexión'));
+    const r = await s.consultarInterno('pedidos', '5491155512345', 'local', 'Contenido del kit');
+    expect(r.consultado).toBe(true);
+    expect(r.avisoPorWhatsapp).toBe(false);
+    expect(db.llamadas.insert.some((x: any) => x.tabla === 'bot_consultas_internas')).toBe(true);
+  });
+});
+
+describe('Fotos: respuesta comercial directa', () => {
+  it('reformula la narración visual sin asumir cantidades de pedido', async () => {
+    process.env.ANTHROPIC_API_KEY = 'test';
+    const { s } = servicio();
+    const crear = jest.fn()
+      .mockResolvedValueOnce(respuestaClaude('Veo dos botellas en la foto. ¿Qué necesitás?'))
+      .mockResolvedValue(respuestaClaude('¿Querés consultar precio o disponibilidad?'));
+    (s as any).claude = { messages: { create: crear } };
+    const r = await s.charla({ linea: 'pedidos', telefono: '5491155512348', mensaje: '', archivoBase64: 'aW1hZ2Vu', mimeType: 'image/jpeg' });
+    expect(r.respuesta).not.toMatch(/veo dos botellas/i);
+    expect(r.respuesta).toContain('precio o disponibilidad');
+    expect(crear.mock.calls.some(([arg]) => JSON.stringify(arg.messages).includes('La cantidad visible NO es cantidad pedida'))).toBe(true);
   });
 });
