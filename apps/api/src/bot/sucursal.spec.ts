@@ -1,4 +1,4 @@
-import { asegurarEnvioSinCargo, campoLimpio, casiIgual, respuestaConConsulta, esAutomaticoWhatsappBusiness, envioSinCargo, nombreSucursalCliente, saintThomas } from './prolijo';
+import { asegurarEnvioSinCargo, campoLimpio, casiIgual, emprolijarListado, respuestaConConsulta, esAutomaticoWhatsappBusiness, envioSinCargo, nombreSucursalCliente, saintThomas } from './prolijo';
 
 describe('nombre de la sucursal ante el cliente', () => {
   it('Sant Thomas pasa a sucursal Saint Thomas', () => {
@@ -130,5 +130,18 @@ describe('consulta interna sin dejar mudo al cliente', () => {
   it('no repite el acuse si ya lo dijo', () => {
     expect(respuestaConConsulta('', 'Lo consulto y te confirmo por acá.')).toBe('');
     expect(respuestaConConsulta('El fernet está a $20.500.', 'Lo consulto y te confirmo por acá.')).toBe('El fernet está a $20.500.');
+  });
+});
+
+describe('la lista sin viñetas vuelve a ser lista (Rachel, 23/9/2026)', () => {
+  it('cada renglón con cantidad y precio arranca con viñeta; el total no', () => {
+    const t = 'Sigo con el resto de la lista:\n\n2 Chuker con Stevia 200 cc: 2 × $4.800 c/u = $9.600\n2 Pan Bimbo Blanco 400 g: 2 × $4.900 c/u = $9.800\n1 Club Social Original 6 x 24 g: 1 × $4.700\n2 Oreo Chocolate 118 g: 2 × $2.900 c/u = $5.800\nTotal de estos renglones: $49.300';
+    const r = emprolijarListado(t);
+    expect(r.split('\n').filter((l) => l.startsWith('• ')).length).toBe(4);
+    expect(r).toMatch(/\*Total de estos renglones: \$49\.300\*/);
+    expect(r).not.toMatch(/• Total/);
+  });
+  it('no toca un texto sin precios', () => {
+    expect(emprolijarListado('2 de las 3 cosas las tengo.')).toBe('2 de las 3 cosas las tengo.');
   });
 });

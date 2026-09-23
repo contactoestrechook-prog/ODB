@@ -98,6 +98,10 @@ export function emprolijarListado(t: string): string {
   // 1. cada guion/viñeta de listado arranca renglón propio
   r = r.replace(/[ \t]+[-–—•]\s+(?=[A-ZÁÉÍÓÚÑ0-9¿])/g, '\n• ');
   r = r.replace(/^[ \t]*[-–—]\s+/gm, '• ');
+  // 1b. renglón de producto SIN viñeta ("2 Chuker con Stevia 200 cc: 2 × $4.800
+  // c/u = $9.600"): arranca con una cantidad, tiene un precio y no es el total.
+  // Sin la viñeta no se armaba el cartel gráfico de la lista (23/9/2026).
+  r = r.replace(/^[ \t]*(?!total|subtotal)(\d+(?:[.,]\d+)?\s*(?:kg|g|gr|u|un)?\s*[×x]?\s*[A-Za-zÁÉÍÓÚÑáéíóúñ][^\n]*\$\s?[\d.]+[^\n]*)$/gim, '• $1');
   // 2. "Ya cotizado:" / "Le confirmo lo que quedó:" cortan antes del listado
   r = r.replace(/([:：])[ \t]*(?=•)/g, '$1\n');
   // 3. una línea en blanco antes del listado, ninguna adentro
@@ -281,7 +285,7 @@ export function campoLimpio(v: unknown): string {
 // vez (si el último mensaje del bot ya era el acuse, no se repite).
 // ============================================================
 export const ACUSE_CONSULTA = 'Lo consulto y te confirmo por acá.';
-const RE_PROMESA = /\b(lo consulto|lo estoy consultando|te confirmo|le confirmo|vuelvo a vos|lo verifico|lo reviso|te aviso|en breve|en un momento|no (?:lo |la )?tengo (?:ese |el |este |esa |la )?(?:dato|info(?:rmaci[oó]n)?)|no cuento con (?:ese|esa|el|la) (?:dato|informaci[oó]n))\b/i;
+const RE_PROMESA = /\b(lo consulto|lo estoy consultando|lo estoy viendo|lo veo con|te confirmo|le confirmo|vuelvo a vos|lo verifico|lo reviso|te aviso|en breve|en un momento|no (?:lo |la )?tengo (?:ese |el |este |esa |la )?(?:dato|info(?:rmaci[oó]n)?)|no cuento con (?:ese|esa|el|la) (?:dato|informaci[oó]n))\b/i;
 
 export function respuestaConConsulta(respuesta: string, ultimoDelBot: string | null | undefined): string {
   // renglón por renglón, para no aplastar la lista del pedido en una sola línea
