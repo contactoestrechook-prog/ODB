@@ -37,7 +37,8 @@ const RE_CORTESIA = /^(ok+|oka+y?|okey|okk+|dale+|listo+|perfecto|barbaro|buenis
 const RE_PIDE = /\?|¿|\b(precio|precios|cuanto|cuesta|sale|saldria|presupuesto|cotiza|stock|tenes|tienen|hay|queda|quedan|necesito|quiero|llevo|mandame|manda|enviame|envio|pedido|pedir|encargar|reservar|reserva|factura|pagar|pago|transferencia|alias|entrega|retiro|demora|cuando|horario|abren|cierran|problema|reclamo|falta|faltan|urgente|me olvide|me mandaron mal)\b/;
 
 /** Un audio, una foto o un archivo del cliente casi siempre esperan algo. */
-const RE_ADJUNTO = /^(🎙️|📷|📄|🎬)/;
+// adjuntos, derivaciones (🔔), ubicación (📍) y tarjetas (📇): siempre esperan algo
+const RE_ADJUNTO = /^(🎙️|📷|📄|🎬|🔔|📍|📇|✉️)/u;
 
 export function pideRespuesta(texto: string | null | undefined): boolean {
   const t = sinAcentos(texto ?? '');
