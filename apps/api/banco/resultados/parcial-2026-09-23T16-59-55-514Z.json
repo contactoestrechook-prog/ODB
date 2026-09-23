@@ -1,0 +1,199 @@
+{
+ "fecha": "2026-09-23T16:59:55.514Z",
+ "pasan": 5,
+ "total": 8,
+ "promedio": 3.875,
+ "costoBot": 0.19,
+ "resultados": [
+  {
+   "id": "cant-02",
+   "categoria": "cantidades",
+   "titulo": "Medida partida: coca de 2 litros 25",
+   "ok": true,
+   "puntaje": 5,
+   "fallas": [],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "Coca zero de 2 litros 25 y coca comun misma medida",
+     "archivo": false,
+     "respuesta": "Buenas tardes. Te damos la bienvenida a O.D.B. De 2,25 L no manejamos ese formato. El más grande que tengo con stock es el de 1,75 L: Coca Cola Zero 1,75 L a $4.700 y Coca Cola común 1,75 L a $4.700.\n\nDecime si te sirven y cuántas de cada una.",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos",
+      "buscar_productos"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "puntual-03",
+   "categoria": "producto puntual",
+   "titulo": "Producto que no está en el catálogo",
+   "ok": true,
+   "puntaje": 4,
+   "fallas": [],
+   "problemas": [
+    "No aclaró qué aromas hay disponibles pese a mencionar 'varios aromas', dejando la elección incompleta"
+   ],
+   "charla": [
+    {
+     "cliente": "Tenés difusores Saphirus?",
+     "archivo": false,
+     "respuesta": "Buenas tardes. Te damos la bienvenida a O.D.B. Sí, tenemos el difusor Saphirus (varios aromas) a $7.900 la unidad, con 7 disponibles en la sucursal Saint Thomas.",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "cons-02",
+   "categoria": "consulta interna",
+   "titulo": "Solo algo desconocido",
+   "ok": true,
+   "puntaje": 4,
+   "fallas": [],
+   "problemas": [
+    "Incluye texto interno de razonamiento ('La añada no me figura en la ficha...') que no debería mostrarse al cliente, en vez de responder solo la línea de consulta"
+   ],
+   "charla": [
+    {
+     "cliente": "¿El Catena Zapata Malbec Argentino es cosecha 2019 o 2020?",
+     "archivo": false,
+     "respuesta": "Buenas tardes, te damos la bienvenida a O.D.B.\n\nLa añada no me figura en la ficha, así que la tengo que verificar sobre la botella.\n\nLo consulto y te confirmo por acá.",
+     "herramientas": [
+      "identificar_cliente",
+      "consultar_cava",
+      "consultar_interno"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "cierre-01",
+   "categoria": "cierres",
+   "titulo": "Gracias no se contesta",
+   "ok": true,
+   "puntaje": 5,
+   "fallas": [],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "Graciasss",
+     "archivo": false,
+     "respuesta": "",
+     "herramientas": []
+    }
+   ]
+  },
+  {
+   "id": "casa-01",
+   "categoria": "la casa",
+   "titulo": "Horario",
+   "ok": true,
+   "puntaje": 4,
+   "fallas": [],
+   "problemas": [
+    "Llamó a identificar_cliente sin que la consulta lo requiriera",
+    "Agregó datos de Santa Inés y del reparto sin que se pidieran, alargando la respuesta más de lo necesario"
+   ],
+   "charla": [
+    {
+     "cliente": "hasta que hora estan abiertos hoy?",
+     "archivo": false,
+     "respuesta": "Buenas tardes. Te damos la bienvenida a O.D.B. Hoy la sucursal Saint Thomas (Castex 3601) está abierta hasta las 21:00 y Santa Inés (Juana de Arco 7300) hasta las 20:30. El reparto a domicilio sale hasta las 20:15.",
+     "herramientas": [
+      "estado_local",
+      "identificar_cliente"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "pago-01",
+   "categoria": "pagos",
+   "titulo": "Pide el alias",
+   "ok": false,
+   "puntaje": 4,
+   "fallas": [
+    "turno 1: no usó derivar_pago"
+   ],
+   "problemas": [
+    "No aclaró explícitamente que el pago se procesa por adentro (podría generar expectativa de recibir un alias)",
+    "Pide datos extra (titular/importe) antes de derivar, cuando podría derivar directamente el pago sin inventar alias"
+   ],
+   "charla": [
+    {
+     "cliente": "pasame el alias así te transfiero",
+     "archivo": false,
+     "respuesta": "Buenas tardes. Te damos la bienvenida a O.D.B. Para pasarte los datos de transferencia, decime a nombre de quién va el pago (titular o razón social) y por qué importe o pedido es.",
+     "herramientas": [
+      "identificar_cliente"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "tono-01",
+   "categoria": "tono",
+   "titulo": "Consulta simple, respuesta corta",
+   "ok": false,
+   "puntaje": 3,
+   "fallas": [],
+   "problemas": [
+    "Respuesta muy extensa para lo pedido: debía ser 1-2 líneas y agrega detalles innecesarios de stock por sucursal",
+    "Incluye información no solicitada sobre Santa Inés que alarga el mensaje",
+    "No es tan concreto como se esperaba, aunque la info es correcta y útil"
+   ],
+   "charla": [
+    {
+     "cliente": "tienen hielo?",
+     "archivo": false,
+     "respuesta": "Buenas tardes. Te damos la bienvenida a O.D.B. Sí, tenemos hielo: bolsa de 15 kg a $14.000 (con stock en la sucursal Saint Thomas). La de 5 kg a $6.900 por ahora está sin stock en la sucursal Saint Thomas, solo queda en Santa Inés para compra presencial.",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "alcohol-01",
+   "categoria": "alcohol",
+   "titulo": "Suma con precio y no da la entrega por elegida",
+   "ok": false,
+   "puntaje": 2,
+   "fallas": [],
+   "problemas": [
+    "Dio por hecho 'Retiro en la sucursal Saint Thomas' sin que el cliente lo haya elegido, en vez de volver a preguntar retiro o envío",
+    "Asumió una decisión del cliente que no fue expresada"
+   ],
+   "charla": [
+    {
+     "cliente": "quiero 2 fernet branca de 750",
+     "archivo": false,
+     "respuesta": "Buenas tardes. Te damos la bienvenida a O.D.B.\n• Fernet Branca x750cc\n• 2 × $20.500 c/u = $41.000\n\n*Total: $41.000*\n\n¿Lo retirás por la sucursal Saint Thomas o te lo enviamos a domicilio?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos",
+      "cotizar_pedido"
+     ]
+    },
+    {
+     "cliente": "y sumale 1 smirnoff",
+     "archivo": false,
+     "respuesta": "• Fernet Branca  x750cc — 2 × $20.500 c/u = $41.000\n• Smirnoff 700cc — 1 × $12.800 c/u = $12.800\nTotal: $53.800\nRetiro en la sucursal Saint Thomas.\n¿Lo confirmo?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos",
+      "buscar_productos",
+      "cotizar_pedido",
+      "preparar_pedido"
+     ]
+    }
+   ]
+  }
+ ]
+}

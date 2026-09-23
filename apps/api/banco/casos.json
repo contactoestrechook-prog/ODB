@@ -1,0 +1,798 @@
+[
+  {
+    "id": "envio-01",
+    "categoria": "envío",
+    "titulo": "Pregunta directa por el costo del envío",
+    "turnos": [
+      {
+        "cliente": "Hola, cuánto me sale el envío a Canning?",
+        "espera": {
+          "debe": [
+            "sin cargo"
+          ],
+          "sin_herramientas": [
+            "consultar_interno"
+          ]
+        }
+      }
+    ],
+    "juez": "Dice que el envío es sin cargo, en el acto y sin consultar a nadie. Corto."
+  },
+  {
+    "id": "envio-02",
+    "categoria": "envío",
+    "titulo": "Insiste con el flete aparte",
+    "turnos": [
+      {
+        "cliente": "me cobran el flete aparte no? cuanto es?",
+        "espera": {
+          "debe": [
+            "sin cargo"
+          ],
+          "sin_herramientas": [
+            "consultar_interno"
+          ]
+        }
+      }
+    ],
+    "juez": "Aclara que el envío es sin cargo y que no se cobra nada aparte."
+  },
+  {
+    "id": "envio-03",
+    "categoria": "envío",
+    "titulo": "Pedido con envío: el total es todo",
+    "turnos": [
+      {
+        "cliente": "Quiero 2 fernet branca de 750 y 3 coca cola de 1.75 para envío a domicilio",
+        "espera": {
+          "debe": [
+            "\\$\\s?55\\.?100|55\\.100"
+          ],
+          "no_debe": [
+            "aparte",
+            "reparto (define|cotiza)"
+          ],
+          "herramientas": [
+            "cotizar_pedido"
+          ]
+        }
+      }
+    ],
+    "juez": "Cotiza 2 Fernet Branca 750 y 3 Coca Cola 1,75 L (total $55.100), dice o no contradice que el envío es sin cargo, y pide la dirección y quién recibe."
+  },
+  {
+    "id": "envio-04",
+    "categoria": "envío",
+    "titulo": "Domingo: no hay reparto",
+    "turnos": [
+      {
+        "cliente": "El domingo me pueden mandar un pedido?",
+        "espera": {
+          "debe": [
+            "domingo"
+          ]
+        }
+      }
+    ],
+    "juez": "Dice que los domingos no hay reparto y ofrece otra opción (otro día o retiro). No inventa horarios."
+  },
+  {
+    "id": "cant-01",
+    "categoria": "cantidades",
+    "titulo": "4 Marlboro gold de entrada",
+    "turnos": [
+      {
+        "cliente": "Puede ser 4 Malboro gold el blanco y dorado",
+        "espera": {
+          "debe": [
+            "\\b4\\s*(×|x)"
+          ],
+          "herramientas": [
+            "cotizar_pedido"
+          ]
+        }
+      }
+    ],
+    "juez": "Cotiza CUATRO Marlboro Gold (no uno) sin preguntar cuántos, mostrando ese producto puntual y no toda la marca."
+  },
+  {
+    "id": "cant-02",
+    "categoria": "cantidades",
+    "titulo": "Medida partida: coca de 2 litros 25",
+    "turnos": [
+      {
+        "cliente": "Coca zero de 2 litros 25 y coca comun misma medida",
+        "espera": {
+          "no_debe": [
+            "25\\s*(×|x|unidades|botellas)",
+            "m[aá]s grande es"
+          ],
+          "debe": [
+            "1[,.]75"
+          ]
+        }
+      }
+    ],
+    "juez": "Entiende 2,25 L (no 25 unidades). ODB no trabaja Coca 2,25: ofrece la 1,75 L en zero y común con precio. No dice que el formato más grande sea X de forma engañosa."
+  },
+  {
+    "id": "cant-03",
+    "categoria": "cantidades",
+    "titulo": "10 packs de agua",
+    "turnos": [
+      {
+        "cliente": "10 pack de agua Villavicencio de 2 litros",
+        "espera": {
+          "herramientas": [
+            "buscar_productos"
+          ]
+        }
+      }
+    ],
+    "juez": "No inventa el tamaño del pack. Si el producto es por botella suelta, lo aclara en una línea y pregunta o confirma la cantidad de botellas de forma clara; no convierte 10 packs en 60 botellas sin decirlo."
+  },
+  {
+    "id": "cant-04",
+    "categoria": "cantidades",
+    "titulo": "Medio kilo de pan",
+    "turnos": [
+      {
+        "cliente": "medio kilo de pan",
+        "espera": {
+          "debe": [
+            "pan"
+          ]
+        }
+      }
+    ],
+    "juez": "Cotiza 0,5 kg de pan al peso con el precio por kilo del sistema."
+  },
+  {
+    "id": "cant-05",
+    "categoria": "cantidades",
+    "titulo": "Queso por gramos",
+    "turnos": [
+      {
+        "cliente": "200 gramos de parmesano vaquero",
+        "espera": {
+          "herramientas": [
+            "buscar_productos"
+          ]
+        }
+      }
+    ],
+    "juez": "Encuentra el parmesano Vaquero y cotiza 200 g (0,2 kg) o, si el sistema no lo permite, lo dice claro y consulta UNA vez. No se traba ni repite."
+  },
+  {
+    "id": "puntual-01",
+    "categoria": "producto puntual",
+    "titulo": "Fernet puntual",
+    "turnos": [
+      {
+        "cliente": "tenés fernet branca de 750?",
+        "espera": {
+          "debe": [
+            "20\\.500"
+          ],
+          "max_lineas": 4
+        }
+      }
+    ],
+    "juez": "Dice que sí con el precio del Fernet Branca 750 cc. No lista todas las variantes de fernet. Corto."
+  },
+  {
+    "id": "puntual-02",
+    "categoria": "producto puntual",
+    "titulo": "Whisky de más de un litro",
+    "turnos": [
+      {
+        "cliente": "Que whiskies tienen en botella de más de 1 litro? es para regalo",
+        "espera": {
+          "debe": [
+            "4[,.]5"
+          ],
+          "no_debe": [
+            "no (manejamos|tenemos) (de )?m[aá]s de 1"
+          ]
+        }
+      }
+    ],
+    "juez": "Ofrece el Chivas Regal 12 balancín 4,5 L que hay en stock. No dice que 1 L es lo máximo."
+  },
+  {
+    "id": "puntual-03",
+    "categoria": "producto puntual",
+    "titulo": "Producto que no está en el catálogo",
+    "turnos": [
+      {
+        "cliente": "Tenés difusores Saphirus?",
+        "espera": {
+          "herramientas": [
+            "buscar_productos"
+          ]
+        }
+      }
+    ],
+    "juez": "Busca antes de responder. Si no lo encuentra, no inventa precio ni stock: lo dice o consulta una sola vez."
+  },
+  {
+    "id": "puntual-04",
+    "categoria": "producto puntual",
+    "titulo": "Vino por nombre coloquial",
+    "turnos": [
+      {
+        "cliente": "3 santa julia tinto dulce",
+        "espera": {
+          "debe": [
+            "santa julia"
+          ],
+          "herramientas": [
+            "cotizar_pedido"
+          ]
+        }
+      }
+    ],
+    "juez": "Identifica el Santa Julia Tinto Dulce y cotiza 3 con precio y total."
+  },
+  {
+    "id": "pedido-01",
+    "categoria": "pedido",
+    "titulo": "Pedido completo para retirar",
+    "turnos": [
+      {
+        "cliente": "Hola, quiero 2 fernet branca de 750 y 3 coca zero de 1.75, paso a retirar yo, Juan Perez",
+        "espera": {
+          "debe": [
+            "55\\.100",
+            "¿Lo confirmo\\?"
+          ],
+          "herramientas": [
+            "preparar_pedido"
+          ]
+        }
+      }
+    ],
+    "juez": "Arma el resumen final (2 Fernet, 3 Coca Zero, total $55.100, retiro en sucursal Saint Thomas) y pregunta ¿Lo confirmo?."
+  },
+  {
+    "id": "pedido-02",
+    "categoria": "pedido",
+    "titulo": "El sí confirma y crea el pedido",
+    "turnos": [
+      {
+        "cliente": "Hola, quiero 2 fernet branca de 750 y 3 coca zero de 1.75, paso a retirar yo, Juan Perez"
+      },
+      {
+        "cliente": "si",
+        "espera": {
+          "herramientas": [
+            "crear_pedido"
+          ],
+          "debe": [
+            "PICKUP-|c[oó]digo|confirmad"
+          ]
+        }
+      }
+    ],
+    "juez": "En el segundo turno, con el 'si', crea el pedido y le pasa el código y el total. No vuelve a preguntar ¿Lo confirmo?."
+  },
+  {
+    "id": "pedido-03",
+    "categoria": "pedido",
+    "titulo": "Sí después de un mensaje intermedio (Catalina)",
+    "turnos": [
+      {
+        "cliente": "Quiero 6 coca zero de 1.75 para envío a Los Talas 15, recibe Catalina"
+      },
+      {
+        "cliente": "efectivo"
+      },
+      {
+        "cliente": "si",
+        "espera": {
+          "herramientas": [
+            "crear_pedido"
+          ]
+        }
+      }
+    ],
+    "juez": "Al 'si' final crea el pedido. En ningún turno repite el mismo mensaje dos veces seguidas."
+  },
+  {
+    "id": "pedido-04",
+    "categoria": "pedido",
+    "titulo": "Cambio de producto en el resumen",
+    "turnos": [
+      {
+        "cliente": "Quiero 4 coca cola de 1.75 para retirar, soy Ana"
+      },
+      {
+        "cliente": "reemplazalas por coca zero",
+        "espera": {
+          "debe": [
+            "zero"
+          ],
+          "no_debe": [
+            "^El envío es sin cargo\\.?$"
+          ]
+        }
+      }
+    ],
+    "juez": "Actualiza el pedido con 4 Coca Zero 1,75 L, muestra el nuevo total y pide confirmación. No responde solo con una frase suelta."
+  },
+  {
+    "id": "pedido-05",
+    "categoria": "pedido",
+    "titulo": "Lista larga con renglones",
+    "turnos": [
+      {
+        "cliente": "Necesito:\n2 fernet branca 750\n6 coca cola 1.75\n1 hielo\n2 papas lays\n1 mani king",
+        "espera": {
+          "debe": [
+            "•",
+            "Total"
+          ],
+          "herramientas": [
+            "cotizar_pedido"
+          ]
+        }
+      }
+    ],
+    "juez": "Cotiza todos los renglones que existan en formato de lista (una viñeta por producto) con total. Lo que no haya, lo dice en una línea."
+  },
+  {
+    "id": "rep-01",
+    "categoria": "repetición",
+    "titulo": "Dos sí seguidos no repiten",
+    "turnos": [
+      {
+        "cliente": "3 coca zero 1.75 para retirar, Pedro"
+      },
+      {
+        "cliente": "si"
+      },
+      {
+        "cliente": "si"
+      }
+    ],
+    "juez": "Nunca manda dos veces el mismo mensaje. Después de crear el pedido, un segundo 'si' no reenvía el resumen."
+  },
+  {
+    "id": "rep-02",
+    "categoria": "repetición",
+    "titulo": "Signo de pregunta suelto",
+    "turnos": [
+      {
+        "cliente": "cuanto sale la coca zero de 1.75 y el fernet branca?"
+      },
+      {
+        "cliente": "?"
+      }
+    ],
+    "juez": "Ante el '?' no repite el mismo listado: pregunta en qué lo puede ayudar o sigue avanzando, corto."
+  },
+  {
+    "id": "cons-01",
+    "categoria": "consulta interna",
+    "titulo": "Parte sabe, parte consulta",
+    "turnos": [
+      {
+        "cliente": "necesito 2 picadas XL para 10 personas, 10 coca zero de 1.75 y 4 papas lays grandes. Cuanto sale?",
+        "espera": {
+          "debe": [
+            "4[.]?700|47\\.000",
+            "(consulto|confirmo)"
+          ]
+        }
+      }
+    ],
+    "juez": "Cotiza las cocas y las papas con precio y dice UNA sola vez que consulta lo que falta (las picadas). No deja al cliente sin respuesta."
+  },
+  {
+    "id": "cons-02",
+    "categoria": "consulta interna",
+    "titulo": "Solo algo desconocido",
+    "turnos": [
+      {
+        "cliente": "¿El Catena Zapata Malbec Argentino es cosecha 2019 o 2020?",
+        "espera": {
+          "no_silencio": true
+        }
+      }
+    ],
+    "juez": "Si la ficha no lo dice, lo consulta y responde una sola línea tipo 'Lo consulto y te confirmo por acá'. No inventa la cosecha."
+  },
+  {
+    "id": "cierre-01",
+    "categoria": "cierres",
+    "titulo": "Gracias no se contesta",
+    "turnos": [
+      {
+        "cliente": "Graciasss",
+        "espera": {
+          "silencio": true
+        }
+      }
+    ],
+    "juez": "No responde a un gracias suelto (o responde algo mínimo y cordial una sola vez)."
+  },
+  {
+    "id": "cierre-02",
+    "categoria": "cierres",
+    "titulo": "Holis abre la charla",
+    "turnos": [
+      {
+        "cliente": "holis",
+        "espera": {
+          "no_silencio": true,
+          "max_lineas": 3
+        }
+      }
+    ],
+    "juez": "Saluda y pregunta qué necesita. Corto."
+  },
+  {
+    "id": "cierre-03",
+    "categoria": "cierres",
+    "titulo": "Ok gracias después de cotizar",
+    "turnos": [
+      {
+        "cliente": "cuanto sale el fernet branca de 750?"
+      },
+      {
+        "cliente": "ok gracias",
+        "espera": {
+          "silencio": true
+        }
+      }
+    ],
+    "juez": "Al 'ok gracias' no contesta (o una despedida mínima). No vuelve a ofrecer armar el pedido."
+  },
+  {
+    "id": "casa-01",
+    "categoria": "la casa",
+    "titulo": "Horario",
+    "turnos": [
+      {
+        "cliente": "hasta que hora estan abiertos hoy?",
+        "espera": {
+          "herramientas": [
+            "estado_local"
+          ],
+          "max_lineas": 3
+        }
+      }
+    ],
+    "juez": "Consulta estado_local y da el horario de hoy. No inventa."
+  },
+  {
+    "id": "casa-02",
+    "categoria": "la casa",
+    "titulo": "Retiro en Santa Inés",
+    "turnos": [
+      {
+        "cliente": "puedo retirar el pedido en santa ines?",
+        "espera": {
+          "debe": [
+            "Saint Thomas"
+          ]
+        }
+      }
+    ],
+    "juez": "Dice que los pedidos por WhatsApp se retiran solo en la sucursal Saint Thomas (Castex 3601), nunca en Santa Inés."
+  },
+  {
+    "id": "casa-03",
+    "categoria": "la casa",
+    "titulo": "Nombre de la sucursal",
+    "turnos": [
+      {
+        "cliente": "donde queda el local de castex?",
+        "espera": {
+          "debe": [
+            "Saint Thomas",
+            "Castex 3601"
+          ]
+        }
+      }
+    ],
+    "juez": "Da la dirección como sucursal Saint Thomas, Castex 3601, Canning. Nunca 'Sant Thomas'."
+  },
+  {
+    "id": "casa-04",
+    "categoria": "la casa",
+    "titulo": "Evento Wine Fest",
+    "turnos": [
+      {
+        "cliente": "cuando es el wine fest?",
+        "espera": {
+          "debe": [
+            "viernes",
+            "30"
+          ],
+          "no_debe": [
+            "jueves"
+          ]
+        }
+      }
+    ],
+    "juez": "Dice viernes 30 de octubre, de 20 a 01 hs. No dice jueves."
+  },
+  {
+    "id": "casa-05",
+    "categoria": "la casa",
+    "titulo": "Entradas del Wine Fest",
+    "turnos": [
+      {
+        "cliente": "como compro la entrada para el wine fest?",
+        "espera": {
+          "debe": [
+            "passcore"
+          ]
+        }
+      }
+    ],
+    "juez": "Pasa el link de Passcore. No ofrece venderla por el chat ni por transferencia."
+  },
+  {
+    "id": "pago-01",
+    "categoria": "pagos",
+    "titulo": "Pide el alias",
+    "turnos": [
+      {
+        "cliente": "pasame el alias así te transfiero",
+        "espera": {
+          "herramientas": [
+            "derivar_pago"
+          ],
+          "no_debe": [
+            "\\b(?!o\\.d\\.b\\b)[a-z]+\\.[a-z]+\\.[a-z]+\\b"
+          ]
+        }
+      }
+    ],
+    "juez": "Deriva el pago por adentro. No inventa un alias ni manda a otro teléfono."
+  },
+  {
+    "id": "pago-02",
+    "categoria": "pagos",
+    "titulo": "Avisa que mandó el comprobante",
+    "turnos": [
+      {
+        "cliente": "ya te transferí, te mando el comprobante",
+        "espera": {
+          "herramientas": [
+            "derivar_pago"
+          ],
+          "max_lineas": 2
+        }
+      }
+    ],
+    "juez": "Responde corto (por ejemplo 'Recibido.') y deriva a administración. No afirma que el dinero se acreditó."
+  },
+  {
+    "id": "pago-03",
+    "categoria": "pagos",
+    "titulo": "Pregunta si debe algo",
+    "turnos": [
+      {
+        "cliente": "creo que me quedó una cuenta sin pagar, cuanto les debo?",
+        "espera": {
+          "no_silencio": true
+        }
+      }
+    ],
+    "juez": "No inventa un saldo. Lo deriva o consulta por adentro y avisa una sola vez que le confirman por acá."
+  },
+  {
+    "id": "prov-01",
+    "categoria": "proveedores",
+    "titulo": "Distribuidor ofrece mercadería",
+    "turnos": [
+      {
+        "cliente": "Buen día, soy de Distribuidora City, te paso las ofertas de la semana en alfajores y galletitas, necesitas algo?",
+        "espera": {
+          "herramientas": [
+            "registrar_proveedor"
+          ],
+          "sin_herramientas": [
+            "cotizar_pedido"
+          ]
+        }
+      }
+    ],
+    "juez": "Lo trata como proveedor: registra la oferta para compras, respuesta breve. No le da precios de venta ni le cotiza."
+  },
+  {
+    "id": "prov-02",
+    "categoria": "proveedores",
+    "titulo": "Proveedor avisa entrega",
+    "turnos": [
+      {
+        "cliente": "el jueves te llevo el pedido de las 30 cajas de napolitana",
+        "espera": {
+          "sin_herramientas": [
+            "cotizar_pedido",
+            "buscar_productos"
+          ]
+        }
+      }
+    ],
+    "juez": "Entiende que es un proveedor que entrega (no un cliente que compra). Toma nota o registra y responde breve."
+  },
+  {
+    "id": "persona-01",
+    "categoria": "persona",
+    "titulo": "Pide hablar con alguien",
+    "turnos": [
+      {
+        "cliente": "quiero hablar con una persona por favor",
+        "espera": {
+          "herramientas": [
+            "derivar_a_humano"
+          ],
+          "no_debe": [
+            "en un momento"
+          ]
+        }
+      }
+    ],
+    "juez": "Deriva a una persona y lo dice sin prometer tiempos."
+  },
+  {
+    "id": "persona-02",
+    "categoria": "persona",
+    "titulo": "Saluda a Jackie",
+    "turnos": [
+      {
+        "cliente": "Hola Jackie! como andas?",
+        "espera": {
+          "no_silencio": true,
+          "max_lineas": 3
+        }
+      }
+    ],
+    "juez": "Aclara una sola vez que atiende Emilia, la asistente, y pregunta qué necesita. No finge ser Jackie."
+  },
+  {
+    "id": "persona-03",
+    "categoria": "persona",
+    "titulo": "¿Sos un bot?",
+    "turnos": [
+      {
+        "cliente": "sos un bot?",
+        "espera": {
+          "debe": [
+            "Emilia"
+          ],
+          "max_lineas": 3
+        }
+      }
+    ],
+    "juez": "Responde 'Soy Emilia, la asistente de O.D.B.' y ofrece ayuda. Corto."
+  },
+  {
+    "id": "tono-01",
+    "categoria": "tono",
+    "titulo": "Consulta simple, respuesta corta",
+    "turnos": [
+      {
+        "cliente": "tienen hielo?",
+        "espera": {
+          "max_lineas": 4,
+          "herramientas": [
+            "buscar_productos"
+          ]
+        }
+      }
+    ],
+    "juez": "Responde si hay hielo con precio en una o dos líneas. Sin '¿cuántas te preparo?' innecesario. Voseo, sin emojis, sin usted."
+  },
+  {
+    "id": "tono-02",
+    "categoria": "tono",
+    "titulo": "Reclamo de precio",
+    "turnos": [
+      {
+        "cliente": "la coca zero la semana pasada estaba a 3000, por que me la cobras 4700?",
+        "espera": {
+          "no_debe": [
+            "\\b3\\.?000\\b.*(te la dejo|queda)"
+          ]
+        }
+      }
+    ],
+    "juez": "No acepta el precio del cliente ni discute: informa el precio vigente del sistema o lo consulta con el local una vez. Respetuoso."
+  },
+  {
+    "id": "alcohol-01",
+    "categoria": "alcohol",
+    "titulo": "Suma con precio y no da la entrega por elegida",
+    "turnos": [
+      {
+        "cliente": "quiero 2 fernet branca de 750"
+      },
+      {
+        "cliente": "y sumale 1 smirnoff",
+        "espera": {
+          "herramientas": [
+            "cotizar_pedido"
+          ]
+        }
+      }
+    ],
+    "juez": "Suma el Smirnoff con precio al pedido. Si el cliente todavía no eligió retiro o envío, lo vuelve a preguntar en vez de darlo por hecho. El aviso de mayores de 18 solo hace falta si hay indicios de que es menor."
+  },
+  {
+    "id": "archivo-01",
+    "categoria": "archivos",
+    "titulo": "Texto 'gracias' con archivo no es cierre",
+    "turnos": [
+      {
+        "cliente": "Graciassss",
+        "archivo": "comprobante",
+        "espera": {
+          "no_silencio": true
+        }
+      }
+    ],
+    "juez": "Como vino con un archivo (un comprobante), no lo trata como despedida: acusa recibo corto o lo deriva a administración."
+  },
+  {
+    "id": "stock-01",
+    "categoria": "stock",
+    "titulo": "Tamaño sin stock",
+    "turnos": [
+      {
+        "cliente": "tenes coca cola de 1.5?",
+        "espera": {
+          "no_debe": [
+            "no (la )?(tenemos|trabajamos|manejamos)\\b(?!.*stock)"
+          ],
+          "debe": [
+            "1[,.]75|stock"
+          ]
+        }
+      }
+    ],
+    "juez": "Si la de 1,5 existe sin stock, dice que de ese tamaño no hay stock ahora y ofrece la de 1,75 con precio."
+  },
+  {
+    "id": "stock-02",
+    "categoria": "stock",
+    "titulo": "Pide más de lo que hay",
+    "turnos": [
+      {
+        "cliente": "quiero 500 fernet branca de 750",
+        "espera": {
+          "herramientas": [
+            "cotizar_pedido"
+          ]
+        }
+      }
+    ],
+    "juez": "Avisa la cantidad real disponible en la sucursal Saint Thomas y ofrece esa cantidad; no promete 500 si no hay."
+  },
+  {
+    "id": "mixto-01",
+    "categoria": "mixto",
+    "titulo": "Pregunta de envío dentro de un pedido",
+    "turnos": [
+      {
+        "cliente": "Hola, me mandas 6 quilmes a casa? Rivadavia 234, Canning, a nombre de Ana"
+      },
+      {
+        "cliente": "Perfecto. Cuanto es el flete? me cobran el reparto aparte no?",
+        "espera": {
+          "debe": [
+            "sin cargo"
+          ],
+          "sin_herramientas": [
+            "consultar_interno"
+          ]
+        }
+      }
+    ],
+    "juez": "En el segundo turno aclara que el envío es sin cargo y sigue con el pedido. No dice 'lo consulto'."
+  }
+]
