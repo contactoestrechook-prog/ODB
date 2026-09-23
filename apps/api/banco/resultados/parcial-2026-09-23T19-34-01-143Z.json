@@ -1,0 +1,82 @@
+{
+ "fecha": "2026-09-23T19:34:01.143Z",
+ "pasan": 3,
+ "total": 3,
+ "promedio": 4.666666666666667,
+ "costoBot": 0.19799999999999998,
+ "resultados": [
+  {
+   "id": "envio-01",
+   "categoria": "envío",
+   "titulo": "Pregunta directa por el costo del envío",
+   "ok": true,
+   "puntaje": 5,
+   "fallas": [],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "Hola, cuánto me sale el envío a Canning?",
+     "archivo": false,
+     "respuesta": "Buenas tardes. Te damos la bienvenida a O.D.B.\n\nEl envío a Canning es sin cargo: no se cobra nada por la entrega, el total del pedido es todo lo que pagás.\n\nDecime qué necesitás y te lo cotizo.",
+     "herramientas": [
+      "identificar_cliente"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "pedido-05",
+   "categoria": "pedido",
+   "titulo": "Lista larga con renglones",
+   "ok": true,
+   "puntaje": 4,
+   "fallas": [],
+   "problemas": [
+    "Asumió la bolsa de hielo de 15kg en vez de preguntar la cantidad/tamaño que el cliente quería, cambiando el pedido sin confirmación explícita aunque avisó el motivo"
+   ],
+   "charla": [
+    {
+     "cliente": "Necesito:\n2 fernet branca 750\n6 coca cola 1.75\n1 hielo\n2 papas lays\n1 mani king",
+     "archivo": false,
+     "respuesta": "Buenas tardes. Te damos la bienvenida a O.D.B. Te paso lo que ya tengo cargado:\n• Fernet Branca x750cc — 2 × $20.500 c/u = $41.000\n• Coca Cola 1.75l — 6 × $4.700 c/u = $28.200\n• Hielo Bolsa 15KG — 1 × $14.000 c/u = $14.000\n\nSubtotal: $83.200 (la bolsa de 5 kg no tengo stock ahora, por eso va la de 15 kg). Me faltan dos definiciones: las Lays, ¿las clásicas de 134 g a $7.000, las de 330 g a $12.300 o alguna de las de 77 g a $4.400 (asado, provoleta, jamón serrano, queso y cebolla, barbacoa, ketchup, flamin hot)?; y el Mani King, ¿con cáscara x 400 g a $4.200 o pelado x 350 g a $5.100?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "cotizar_pedido"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "rep-02",
+   "categoria": "repetición",
+   "titulo": "Signo de pregunta suelto",
+   "ok": true,
+   "puntaje": 5,
+   "fallas": [],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "cuanto sale la coca zero de 1.75 y el fernet branca?",
+     "archivo": false,
+     "respuesta": "Buenas tardes. Te damos la bienvenida a O.D.B. Coca Cola Zero 1,75 L: $4.700\n\nFernet Branca 750 cc: $20.500 (también está la de 450 cc a $13.500)",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos",
+      "buscar_productos"
+     ]
+    },
+    {
+     "cliente": "?",
+     "archivo": false,
+     "respuesta": "¿Qué necesitás saber: alguno de esos precios, el stock o armamos el pedido?",
+     "herramientas": []
+    }
+   ]
+  }
+ ]
+}

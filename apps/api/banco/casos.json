@@ -545,13 +545,13 @@
           "herramientas": [
             "derivar_pago"
           ],
-          "no_debe": [
-            "\\b(?!o\\.d\\.b\\b)[a-z]+\\.[a-z]+\\.[a-z]+\\b"
+          "debe": [
+            "outlet\\.de\\.bebidas"
           ]
         }
       }
     ],
-    "juez": "Deriva el pago por adentro. No inventa un alias ni manda a otro teléfono."
+    "juez": "Da el alias de la casa (outlet.de.bebidas, titular Chinvenguencha SRL) directo, sin pedir datos antes, y pide que mande el comprobante por acá. No manda a otro teléfono."
   },
   {
     "id": "pago-02",
@@ -561,14 +561,15 @@
       {
         "cliente": "ya te transferí, te mando el comprobante",
         "espera": {
-          "herramientas": [
-            "derivar_pago"
-          ],
-          "max_lineas": 2
+          "max_lineas": 2,
+          "no_debe": [
+            "acredit",
+            "nombre|titular"
+          ]
         }
       }
     ],
-    "juez": "Responde corto (por ejemplo 'Recibido.') y deriva a administración. No afirma que el dinero se acreditó."
+    "juez": "Todavía no llegó el archivo: contesta corto que lo mande por acá (por ejemplo \"Dale, mandalo por acá.\"). No pide datos de más ni afirma que el dinero se acreditó."
   },
   {
     "id": "pago-03",
@@ -582,7 +583,7 @@
         }
       }
     ],
-    "juez": "No inventa un saldo. Lo deriva o consulta por adentro y avisa una sola vez que le confirman por acá."
+    "juez": "No inventa un saldo. Regla del dueño: si no se sabe quién es el cliente, primero le pregunta en UNA línea a nombre de quién o de qué empresa está la cuenta (a administración no se le pasa un teléfono pelado); si ya se sabe, lo deriva por adentro y avisa una sola vez que le confirman por acá."
   },
   {
     "id": "prov-01",
@@ -732,11 +733,16 @@
         "cliente": "Graciassss",
         "archivo": "comprobante",
         "espera": {
-          "no_silencio": true
+          "herramientas": [
+            "derivar_pago"
+          ],
+          "debe": [
+            "^\\s*Recibido\\.\\s*$"
+          ]
         }
       }
     ],
-    "juez": "Como vino con un archivo (un comprobante), no lo trata como despedida: acusa recibo corto o lo deriva a administración."
+    "juez": "Lee el comprobante, lo pasa a administración (derivar_pago) y al cliente le contesta exactamente \"Recibido.\" y nada más (regla del dueño)."
   },
   {
     "id": "stock-01",

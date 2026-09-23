@@ -1,0 +1,352 @@
+{
+ "fecha": "2026-09-23T19:24:09.885Z",
+ "pasan": 2,
+ "total": 11,
+ "promedio": 3.272727272727273,
+ "costoBot": 0.8660000000000002,
+ "resultados": [
+  {
+   "id": "pedido-01",
+   "categoria": "pedido",
+   "titulo": "Pedido completo para retirar",
+   "ok": true,
+   "puntaje": 5,
+   "fallas": [],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "Hola, quiero 2 fernet branca de 750 y 3 coca zero de 1.75, paso a retirar yo, Juan Perez",
+     "archivo": false,
+     "respuesta": "• Fernet Branca  x750cc — 2 × $20.500 c/u = $41.000\n• Coca Cola Zero x1.75L — 3 × $4.700 c/u = $14.100\nTotal: $55.100\nRetiro en la sucursal Saint Thomas.\n¿Lo confirmo?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos",
+      "buscar_productos",
+      "cotizar_pedido",
+      "preparar_pedido"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "pedido-02",
+   "categoria": "pedido",
+   "titulo": "El sí confirma y crea el pedido",
+   "ok": false,
+   "puntaje": 5,
+   "fallas": [
+    "turno 2: no usó crear_pedido"
+   ],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "Hola, quiero 2 fernet branca de 750 y 3 coca zero de 1.75, paso a retirar yo, Juan Perez",
+     "archivo": false,
+     "respuesta": "• Fernet Branca  x750cc — 2 × $20.500 c/u = $41.000\n• Coca Cola Zero x1.75L — 3 × $4.700 c/u = $14.100\nTotal: $55.100\nRetiro en la sucursal Saint Thomas.\n¿Lo confirmo?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos",
+      "buscar_productos",
+      "cotizar_pedido",
+      "preparar_pedido"
+     ]
+    },
+    {
+     "cliente": "si",
+     "archivo": false,
+     "respuesta": "Pedido PICKUP-BANCO0001 confirmado. Total: $55.100.\nSe abona al retirar, en efectivo o tarjeta.",
+     "herramientas": []
+    }
+   ]
+  },
+  {
+   "id": "pedido-03",
+   "categoria": "pedido",
+   "titulo": "Sí después de un mensaje intermedio (Catalina)",
+   "ok": false,
+   "puntaje": 4,
+   "fallas": [
+    "turno 3: no usó crear_pedido"
+   ],
+   "problemas": [
+    "En la confirmación final dice 'en efectivo o tarjeta' cuando el cliente había especificado solo efectivo, agregando una opción no confirmada"
+   ],
+   "charla": [
+    {
+     "cliente": "Quiero 6 coca zero de 1.75 para envío a Los Talas 15, recibe Catalina",
+     "archivo": false,
+     "respuesta": "• Coca Cola Zero x1.75L — 6 × $4.700 c/u = $28.200\nTotal: $28.200\nEnvío sin cargo a Los Talas 15. Recibe Catalina.\n¿Lo confirmo?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos",
+      "cotizar_pedido",
+      "preparar_pedido"
+     ]
+    },
+    {
+     "cliente": "efectivo",
+     "archivo": false,
+     "respuesta": "• Coca Cola Zero x1.75L — 6 × $4.700 c/u = $28.200\nTotal: $28.200\nEnvío sin cargo a Los Talas 15. Recibe Catalina.\nIndicaciones: Paga en efectivo al recibir\n¿Lo confirmo?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos",
+      "cotizar_pedido",
+      "preparar_pedido"
+     ]
+    },
+    {
+     "cliente": "si",
+     "archivo": false,
+     "respuesta": "Pedido PICKUP-BANCO0002 confirmado. Total: $28.200.\nEnvío sin cargo. Se abona al recibir, en efectivo o tarjeta.",
+     "herramientas": []
+    }
+   ]
+  },
+  {
+   "id": "pedido-04",
+   "categoria": "pedido",
+   "titulo": "Cambio de producto en el resumen",
+   "ok": false,
+   "puntaje": 4,
+   "fallas": [
+    "turno 2: repite el mensaje anterior"
+   ],
+   "problemas": [
+    "No confirma explícitamente el cambio de producto (Coca Cola por Coca Cola Zero) antes de mostrar el resumen, podría generar confusión si el precio difiere en realidad",
+    "Asume mismo precio para Coca Zero sin verificarlo, podría no ser exacto"
+   ],
+   "charla": [
+    {
+     "cliente": "Quiero 4 coca cola de 1.75 para retirar, soy Ana",
+     "archivo": false,
+     "respuesta": "• Coca Cola 1.75l — 4 × $4.700 c/u = $18.800\nTotal: $18.800\nRetiro en la sucursal Saint Thomas.\n¿Lo confirmo?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos",
+      "cotizar_pedido",
+      "preparar_pedido"
+     ]
+    },
+    {
+     "cliente": "reemplazalas por coca zero",
+     "archivo": false,
+     "respuesta": "• Coca Cola Zero x1.75L — 4 × $4.700 c/u = $18.800\nTotal: $18.800\nRetiro en la sucursal Saint Thomas.\n¿Lo confirmo?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos",
+      "cotizar_pedido",
+      "preparar_pedido"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "pedido-05",
+   "categoria": "pedido",
+   "titulo": "Lista larga con renglones",
+   "ok": false,
+   "puntaje": 3,
+   "fallas": [],
+   "problemas": [
+    "No debió asumir ni cotizar la bolsa de hielo de 15kg sin que el cliente lo pidiera; debió consultar la variante en vez de reemplazarla unilateralmente",
+    "El pedido de hielo era ambiguo en cantidad/tamaño y se resolvió con una suposición propia, alterando precio y producto sin autorización del cliente",
+    "Papas Lays y Maní King no se cotizaron ni se listó su ausencia de forma clara como línea aparte, quedaron mezclados en el texto de cierre en vez de formato de lista",
+    "El total parcial no aclara que faltan 2 renglones por definir, podría confundir al cliente"
+   ],
+   "charla": [
+    {
+     "cliente": "Necesito:\n2 fernet branca 750\n6 coca cola 1.75\n1 hielo\n2 papas lays\n1 mani king",
+     "archivo": false,
+     "respuesta": "Buenas tardes. Te damos la bienvenida a O.D.B. Te paso lo que tengo confirmado:\n• Fernet Branca x750cc\n• 2 × $20.500 c/u = $41.000\n• Coca Cola 1.75l\n• 6 × $4.700 c/u = $28.200\n• Hielo Bolsa 15KG\n• 1 × $14.000 c/u = $14.000\n\n*Total parcial: $83.200*\n\nDel hielo, la bolsa de 5 kg no tengo stock ahora en la sucursal Saint Thomas; por eso te puse la de 15 kg. Me falta que me definas dos cosas para cerrar: las papas Lays (clásicas de 134 g a $7.000 o de 330 g a $12.300, o las de 77 g en sabores a $4.400) y el Mani King (con cáscara 400 g a $4.200 o pelado 350 g a $5.100).",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "cotizar_pedido"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "rep-01",
+   "categoria": "repetición",
+   "titulo": "Dos sí seguidos no repiten",
+   "ok": false,
+   "puntaje": 1,
+   "fallas": [],
+   "problemas": [
+    "Repitió un mensaje ya enviado anteriormente (el resumen de cotización), violando la regla de nunca repetir mensajes",
+    "Después de crear el pedido con éxito, un segundo 'si' no debía reenviar el resumen ni volver a pedir confirmación",
+    "Generó confusión al dar la impresión de que se estaba creando un pedido duplicado",
+    "Debió reconocer que el pedido ya estaba confirmado (PICKUP-BANCO0003) y responder acorde a eso, o simplemente no responder ante la ambigüedad del segundo 'si'"
+   ],
+   "charla": [
+    {
+     "cliente": "3 coca zero 1.75 para retirar, Pedro",
+     "archivo": false,
+     "respuesta": "• Coca Cola Zero x1.75L — 3 × $4.700 c/u = $14.100\nTotal: $14.100\nRetiro en la sucursal Saint Thomas.\n¿Lo confirmo?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos",
+      "cotizar_pedido",
+      "preparar_pedido"
+     ]
+    },
+    {
+     "cliente": "si",
+     "archivo": false,
+     "respuesta": "Pedido PICKUP-BANCO0003 confirmado. Total: $14.100.\nSe abona al retirar, en efectivo o tarjeta.",
+     "herramientas": []
+    },
+    {
+     "cliente": "si",
+     "archivo": false,
+     "respuesta": "• Coca Cola Zero x1.75L — 3 × $4.700 c/u = $14.100\nTotal: $14.100\nRetiro en la sucursal Saint Thomas.\n¿Lo confirmo?",
+     "herramientas": [
+      "estado_pedido",
+      "identificar_cliente",
+      "buscar_productos",
+      "cotizar_pedido",
+      "preparar_pedido"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "pago-01",
+   "categoria": "pagos",
+   "titulo": "Pide el alias",
+   "ok": false,
+   "puntaje": 2,
+   "fallas": [
+    "turno 1: falta: /outlet\\.de\\.bebidas/"
+   ],
+   "problemas": [
+    "No dio el alias directo (outlet.de.bebidas, titular Chinvenguencha SRL) como indica la regla de la casa",
+    "Pidió datos antes de dar el alias, cuando debía darlo directo sin pedir nada previo",
+    "Derivó a administración innecesariamente en vez de responder con el dato inmediato",
+    "No pidió que mande el comprobante por el mismo chat"
+   ],
+   "charla": [
+    {
+     "cliente": "pasame el alias así te transfiero",
+     "archivo": false,
+     "respuesta": "Buenas tardes. Te damos la bienvenida a O.D.B. Ya le pedí a administración los datos para transferir y te los pasan por acá. Mientras tanto, decime a nombre de quién va el pago y a qué pedido o importe corresponde, así queda registrado.",
+     "herramientas": [
+      "identificar_cliente",
+      "derivar_pago"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "pago-02",
+   "categoria": "pagos",
+   "titulo": "Avisa que mandó el comprobante",
+   "ok": false,
+   "puntaje": 3,
+   "fallas": [
+    "turno 1: no debía: /nombre|titular/"
+   ],
+   "problemas": [
+    "Pide datos de más (nombre de quién figura la transferencia y por qué pedido o factura), cuando debía ser corto y concreto solo pidiendo el comprobante"
+   ],
+   "charla": [
+    {
+     "cliente": "ya te transferí, te mando el comprobante",
+     "archivo": false,
+     "respuesta": "Buenas tardes. Te damos la bienvenida a O.D.B. Mandámelo por acá y lo registro. Si podés, decime también a nombre de quién figura la transferencia y por qué pedido o factura es.",
+     "herramientas": [
+      "identificar_cliente"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "pago-03",
+   "categoria": "pagos",
+   "titulo": "Pregunta si debe algo",
+   "ok": true,
+   "puntaje": 5,
+   "fallas": [],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "creo que me quedó una cuenta sin pagar, cuanto les debo?",
+     "archivo": false,
+     "respuesta": "Buenas tardes. Te damos la bienvenida a O.D.B.\n\nCuánto debés: no tengo acceso al saldo de cuentas corrientes, ese dato lo maneja administración y te lo confirman por acá.\n\nPara que puedan buscarlo, pasame el nombre o razón social a nombre de quien figura la cuenta.",
+     "herramientas": [
+      "identificar_cliente"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "alcohol-01",
+   "categoria": "alcohol",
+   "titulo": "Suma con precio y no da la entrega por elegida",
+   "ok": false,
+   "puntaje": 2,
+   "fallas": [],
+   "problemas": [
+    "Asumió 'Retiro en la sucursal Saint Thomas' sin que el cliente lo haya indicado, en vez de repreguntar retiro o envío",
+    "Agregó aviso implícito de confirmación de retiro dando por hecho un dato no confirmado por el cliente"
+   ],
+   "charla": [
+    {
+     "cliente": "quiero 2 fernet branca de 750",
+     "archivo": false,
+     "respuesta": "Buenas tardes. Te damos la bienvenida a O.D.B.\n• Fernet Branca x750cc\n• 2 × $20.500 c/u = $41.000\n\n*Total: $41.000*\n\n¿Lo retirás por la sucursal Saint Thomas o te lo enviamos a domicilio?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos",
+      "cotizar_pedido"
+     ]
+    },
+    {
+     "cliente": "y sumale 1 smirnoff",
+     "archivo": false,
+     "respuesta": "• Fernet Branca  x750cc — 2 × $20.500 c/u = $41.000\n• Smirnoff 700cc — 1 × $12.800 c/u = $12.800\nTotal: $53.800\nRetiro en la sucursal Saint Thomas.\n¿Lo confirmo?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos",
+      "buscar_productos",
+      "cotizar_pedido",
+      "preparar_pedido"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "archivo-01",
+   "categoria": "archivos",
+   "titulo": "Texto 'gracias' con archivo no es cierre",
+   "ok": false,
+   "puntaje": 2,
+   "fallas": [
+    "turno 1: falta: /^\\s*Recibido\\.\\s*$/"
+   ],
+   "problemas": [
+    "Agregó el saludo de bienvenida cuando la regla dice que la respuesta debía ser exactamente 'Recibido.' y nada más",
+    "Llamó a derivar_pago 4 veces de forma redundante para un solo comprobante, pudiendo duplicar el aviso a administración"
+   ],
+   "charla": [
+    {
+     "cliente": "Graciassss",
+     "archivo": true,
+     "respuesta": "Buenas tardes, te damos la bienvenida a O.D.B. Recibido.",
+     "herramientas": [
+      "identificar_cliente",
+      "derivar_pago",
+      "derivar_pago",
+      "derivar_pago",
+      "derivar_pago"
+     ]
+    }
+   ]
+  }
+ ]
+}

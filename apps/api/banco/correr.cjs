@@ -30,6 +30,7 @@ const SALIDA = path.join(__dirname, 'resultados');
 const JUEZ = process.env.BANCO_JUEZ ?? 'claude-sonnet-5';
 const EN_PARALELO = Number(process.env.BANCO_PARALELO ?? 4);
 const soloIds = process.argv.slice(2);
+fs.mkdirSync(SALIDA, { recursive: true });
 
 // un comprobante de transferencia mínimo, en PDF válido, para el caso con archivo
 function pdfComprobante() {
@@ -55,10 +56,12 @@ function chequeosGenerales(resp, previa) {
   const f = [];
   if (/\bSant Thomas\b/.test(resp)) f.push('dice "Sant Thomas" (es sucursal Saint Thomas)');
   if (/\busted\b/i.test(resp)) f.push('trata de usted'); // «ustedes» es el plural del voseo: está bien
-  if (/env[ií]o[^.\n]{0,40}(va aparte|no est[aá] incluid|se cobra|tiene un costo)|lo define (el sector de )?reparto/i.test(resp)) f.push('cobra el envío');
+  if (resp.split(/(?<=[.!?:])\s+|\n/).some((o) => /env[ií]o[^.\n]{0,40}(va aparte|no est[aá] incluid|se cobra|tiene un costo)|lo define (el sector de )?reparto/i.test(o) && !/sin cargo|no se cobra|sin costo|gratis/i.test(o))) f.push('cobra el envío');
   if (/[\u{1F300}-\u{1FAFF}]/u.test(resp)) f.push('usa emojis');
   if (/\S\.[A-ZÁÉÍÓÚ]/.test(resp.replace(/\d\.\d/g, '').replace(/[A-Z]\.[A-Z]/g, ''))) f.push('oraciones pegadas sin espacio');
-  if (previa && casiIgual(resp, previa)) f.push('repite el mensaje anterior');
+  // un resumen NUEVO (otro producto, mismo formato) no es repetir; el mismo texto sí
+  const resumenNuevo = /¿lo confirmo\?/i.test(resp) && /¿lo confirmo\?/i.test(previa ?? '') && resp.trim() !== String(previa).trim();
+  if (previa && !resumenNuevo && casiIgual(resp, previa)) f.push('repite el mensaje anterior');
   return f;
 }
 
@@ -80,7 +83,7 @@ async function juzgar(claude, caso, charla) {
   const guion = charla.map((t) => `CLIENTE: ${t.cliente}${t.archivo ? ' [adjunta un PDF: comprobante de transferencia de $12.000]' : ''}\nBOT: ${t.respuesta || '(no contestó)'}\n(herramientas: ${t.herramientas.join(', ') || 'ninguna'})`).join('\n\n');
   const r = await claude.messages.create({
     model: JUEZ, max_tokens: 4000, thinking: { type: 'adaptive' },
-    system: 'Sos un evaluador exigente de un bot de WhatsApp de un almacén premium argentino (O.D.B, Canning). Reglas de la casa: envío SIN CARGO siempre; nunca repetir un mensaje; la cantidad la dice el cliente; mostrar el producto puntual; "sin stock" no es "no existe"; sucursal Saint Thomas (Castex 3601) es la única de retiro; corto y concreto, voseo, sin emojis; no inventar precios ni datos; lo que no sabe lo consulta y avisa UNA vez; pagos siempre por adentro (quiere decir: alias, comprobantes y cobros los maneja administración por este mismo chat, nunca se manda a otro teléfono; pagar al retirar o al recibir en efectivo o tarjeta es correcto). Santa Inés (Juana de Arco 7300) también es del local, pero solo para compra presencial: nombrarla así es correcto. Cada charla del banco empieza de cero: el saludo "Buenas tardes, te damos la bienvenida a O.D.B." en el PRIMER mensaje es la regla de la casa, no lo penalices (sí en los siguientes). Ante un "gracias" o un cierre suelto la casa prefiere no contestar: el silencio ahí es correcto. Las herramientas de crear pedido, derivar y avisar a la casa están simuladas (el código de pedido siempre sale PICKUP-BANCO…, aunque sea envío): no las penalices por eso.',
+    system: 'Sos un evaluador exigente de un bot de WhatsApp de un almacén premium argentino (O.D.B, Canning). Reglas de la casa: envío SIN CARGO siempre; nunca repetir un mensaje; la cantidad la dice el cliente; mostrar el producto puntual; "sin stock" no es "no existe"; sucursal Saint Thomas (Castex 3601) es la única de retiro; corto y concreto, voseo, sin emojis; no inventar precios ni datos; lo que no sabe lo consulta y avisa UNA vez; pagos siempre por adentro (quiere decir: alias, comprobantes y cobros los maneja administración por este mismo chat, nunca se manda a otro teléfono; pagar al retirar o al recibir en efectivo o tarjeta es correcto). Santa Inés (Juana de Arco 7300) también es del local, pero solo para compra presencial: nombrarla así es correcto. Cada charla del banco empieza de cero: el saludo "Buenas tardes, te damos la bienvenida a O.D.B." en el PRIMER mensaje es la regla de la casa, no lo penalices (sí en los siguientes). Ante un "gracias" o un cierre suelto la casa prefiere no contestar: el silencio ahí es correcto. Las herramientas de crear pedido, derivar y avisar a la casa están simuladas (el código de pedido siempre sale PICKUP-BANCO…, aunque sea envío): no las penalices por eso. Si una herramienta aparece repetida en la lista son intentos del modelo: el servidor registra un solo aviso por comprobante, no lo penalices salvo que se note en la respuesta.',
     messages: [{ role: 'user', content: `Qué tenía que hacer el bot: ${caso.juez}\n\nLa charla:\n${guion}\n\nPuntuá de 1 a 5 (5 = lo que haría el mejor vendedor del local; 4 = bien con detalles menores; 3 = cumple a medias; 1-2 = mal). Respondé SOLO un JSON: {"puntaje": n, "problemas": ["..."]}` }],
   });
   const txt = r.content.filter((b) => b.type === 'text').map((b) => b.text).join('');
@@ -100,9 +103,13 @@ async function juzgar(claude, caso, charla) {
     registro.get(telefono)?.push(block.name);
     return original(block, telefono, ...resto);
   };
+  // el "sí" puede crear el pedido directo desde el servidor, sin la herramienta
+  const crearReal = bot.crearPedido.bind(bot);
+  bot.crearPedido = async (dto) => { const r = await crearReal(dto); const l = registro.get(dto.telefono); if (l && !l.includes('crear_pedido')) l.push('crear_pedido'); return r; };
   bot.consultarInterno = async (_l, _t, area) => ({ consultado: true, area, avisoPorWhatsapp: true, aviso: '' });
   bot.derivarAHumano = async () => ({ derivada: true, aviso: 'El equipo ya fue notificado por el sistema' });
-  bot.derivarPago = async () => ({ derivado: true, aviso: 'Administración ya fue notificada' });
+  // derivarPago corre el real (da el alias, fija "Recibido."): su WhatsApp a
+  // administración sale por enviarPorWhatsapp, que está simulado; lo que anota se limpia abajo
   bot.registrarProveedor = async () => ({ registrado: true });
   bot.linkDelPedido = async (_t, codigo) => ({ url: 'https://mpago.la/banco', monto: 0, codigo });
   bot.enviarPorWhatsapp = async () => ({ enviado: true, id: null, via: 'banco' });
@@ -135,7 +142,7 @@ async function juzgar(claude, caso, charla) {
       try {
         for (const [k, t] of caso.turnos.entries()) {
           registro.set(telefono, []);
-          const r = await bot.charla({ linea: 'pedidos', telefono, mensaje: t.cliente, ...(t.archivo ? { archivoBase64: pdfComprobante(), mimeType: 'application/pdf' } : {}) });
+          const r = await bot.charla({ linea: 'pedidos', telefono, mensaje: t.cliente, ...(t.archivo ? { archivoBase64: pdfComprobante(), mimeType: 'application/pdf', archivoUrl: 'https://banco.invalid/comprobante.pdf' } : {}) });
           const resp = String(r?.respuesta ?? '');
           const herramientas = registro.get(telefono);
           charla.push({ cliente: t.cliente, archivo: !!t.archivo, respuesta: resp, herramientas });
@@ -154,25 +161,44 @@ async function juzgar(claude, caso, charla) {
       // limpieza: nada del banco queda en la base
       await bot.borrarConversacion('pedidos', telefono).catch(() => null);
       for (const t of ['bot_cotizaciones', 'bot_notas_equipo', 'bot_mensajes']) await bot.db.from(t).delete().eq('telefono', telefono).then(() => null, () => null);
+      await bot.db.from('alertas_internas').delete().filter('referencia->>telefono', 'eq', telefono).then(() => null, () => null);
+      await bot.db.from('bot_pagos_en_confirmacion').delete().eq('telefono_cliente', telefono).then(() => null, () => null);
     }
   }
   await Promise.all(Array.from({ length: EN_PARALELO }, trabajador));
 
+  // EL BOT NO CONTESTA DOS VECES IGUAL: un caso que andaba y ahora falla se
+  // corre UNA vez más. Si vuelve a fallar está roto (frena la publicación); si
+  // pasa, queda como intermitente (se informa, no frena).
+  const previos = fs.readdirSync(SALIDA).filter((f) => f.endsWith('.json') && !f.startsWith('parcial-')).sort();
+  const anterior = previos.length ? JSON.parse(fs.readFileSync(path.join(SALIDA, previos.at(-1)), 'utf8')) : null;
+  const antes = new Map((anterior?.resultados ?? []).map((r) => [r.id, r.ok]));
+  const aRepetir = soloIds.length ? [] : resultados.filter((r) => antes.get(r.id) === true && !r.ok);
+  const intermitentes = [];
+  if (aRepetir.length) {
+    console.log(`\nSe repiten ${aRepetir.length} que andaban: ${aRepetir.map((r) => r.id).join(', ')}`);
+    const primeras = new Map(aRepetir.map((r) => [r.id, r]));
+    for (const r of aRepetir) resultados.splice(resultados.indexOf(r), 1);
+    for (const r of aRepetir) cola.push([0, CASOS.find((c) => c.id === r.id)]);
+    await Promise.all(Array.from({ length: EN_PARALELO }, trabajador));
+    for (const [id, primera] of primeras) {
+      const segunda = resultados.find((r) => r.id === id);
+      if (segunda?.ok) { segunda.intermitente = { primera: { puntaje: primera.puntaje, fallas: primera.fallas, problemas: primera.problemas } }; intermitentes.push(id); }
+    }
+  }
+
   resultados.sort((a, b) => CASOS.findIndex((c) => c.id === a.id) - CASOS.findIndex((c) => c.id === b.id));
   const pasan = resultados.filter((r) => r.ok).length;
   const promedio = resultados.reduce((s, r) => s + (r.puntaje || 0), 0) / (resultados.length || 1);
-  fs.mkdirSync(SALIDA, { recursive: true });
-  const previos = fs.readdirSync(SALIDA).filter((f) => f.endsWith('.json') && !f.startsWith('parcial-')).sort();
-  const anterior = previos.length ? JSON.parse(fs.readFileSync(path.join(SALIDA, previos.at(-1)), 'utf8')) : null;
   const sello = new Date().toISOString().replace(/[:.]/g, '-');
-  fs.writeFileSync(path.join(SALIDA, `${soloIds.length ? 'parcial-' : ''}${sello}.json`), JSON.stringify({ fecha: new Date().toISOString(), pasan, total: resultados.length, promedio, costoBot: costo, resultados }, null, 1));
+  fs.writeFileSync(path.join(SALIDA, `${soloIds.length ? 'parcial-' : ''}${sello}.json`), JSON.stringify({ fecha: new Date().toISOString(), pasan, total: resultados.length, promedio, costoBot: costo, intermitentes, resultados }, null, 1));
 
   console.log(`\nPasan ${pasan} de ${resultados.length} · puntaje promedio ${promedio.toFixed(2)}/5 · costo del bot ≈ USD ${costo.toFixed(2)} (más el juez)`);
   if (anterior && !soloIds.length) {
-    const antes = new Map(anterior.resultados.map((r) => [r.id, r.ok]));
     const rotos = resultados.filter((r) => antes.get(r.id) === true && !r.ok).map((r) => r.id);
     const arreglados = resultados.filter((r) => antes.get(r.id) === false && r.ok).map((r) => r.id);
     console.log(`Contra la corrida anterior (${anterior.pasan}/${anterior.total}): ${arreglados.length} arreglados${arreglados.length ? ' (' + arreglados.join(', ') + ')' : ''} · ${rotos.length} ROTOS${rotos.length ? ' (' + rotos.join(', ') + ')' : ''}`);
+    if (intermitentes.length) console.log(`Intermitentes (fallaron una vez y pasaron al repetir): ${intermitentes.join(', ')}`);
     if (rotos.length) process.exitCode = 1;
   }
   await app.close();

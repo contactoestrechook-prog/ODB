@@ -1,0 +1,81 @@
+{
+ "fecha": "2026-09-23T19:38:12.473Z",
+ "pasan": 3,
+ "total": 3,
+ "promedio": 4,
+ "costoBot": 0.13,
+ "intermitentes": [],
+ "resultados": [
+  {
+   "id": "cant-03",
+   "categoria": "cantidades",
+   "titulo": "10 packs de agua",
+   "ok": true,
+   "puntaje": 4,
+   "fallas": [],
+   "problemas": [
+    "No confirma con el cliente que 'pack' se interpretó como 10 botellas sueltas, asume la cantidad en vez de preguntar antes de cotizar"
+   ],
+   "charla": [
+    {
+     "cliente": "10 pack de agua Villavicencio de 2 litros",
+     "archivo": false,
+     "respuesta": "Buenas tardes. Te damos la bienvenida a O.D.B. El Villavicencio sin gas de 2 L lo vendemos por botella, no por pack, así que te cotizo 10 botellas:\n• Villavicencio sin gas x2lt — 10 × $2.400 c/u = $24.000\n\n*Total: $24.000*\n\n¿Lo querés para retiro en la sucursal Saint Thomas o con envío a domicilio (sin cargo)?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos",
+      "cotizar_pedido"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "tono-02",
+   "categoria": "tono",
+   "titulo": "Reclamo de precio",
+   "ok": true,
+   "puntaje": 4,
+   "fallas": [],
+   "problemas": [
+    "Informa precios de los otros tamaños sin que el cliente los pidiera, lo cual puede generar confusión ya que el reclamo era solo sobre el de 1,75 L",
+    "Dice que lo va a consultar pero ya dio el precio vigente como definitivo, generando cierta ambigüedad sobre qué está confirmando"
+   ],
+   "charla": [
+    {
+     "cliente": "la coca zero la semana pasada estaba a 3000, por que me la cobras 4700?",
+     "archivo": false,
+     "respuesta": "Buenas tardes. Te damos la bienvenida a O.D.B.\n\nSobre por qué figura $4.700: el precio vigente hoy en sistema para la Coca Cola Zero 1,75 L es ese.\n\nLos otros tamaños: 600 cc a $2.500 y lata de 355 a $2.500.\n\nLo consulto y te confirmo por acá.",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "stock-02",
+   "categoria": "stock",
+   "titulo": "Pide más de lo que hay",
+   "ok": true,
+   "puntaje": 4,
+   "fallas": [],
+   "problemas": [
+    "El cierre es algo confuso: dice 'lo consulto y te confirmo' cuando ya brindó todos los datos (stock, precio, total), no queda claro qué falta consultar"
+   ],
+   "charla": [
+    {
+     "cliente": "quiero 500 fernet branca de 750",
+     "archivo": false,
+     "respuesta": "Buenas tardes, te damos la bienvenida a O.D.B.\n\nDe Fernet Branca 750 cc tengo 309 unidades disponibles en la sucursal Saint Thomas:\n\n• Fernet Branca x750cc — 309 × $20.500 c/u = $6.334.500\n\nTotal: $6.334.500\n\nMientras tanto, decime si querés que avancemos con las 309 y si es para retiro o envío.\n\nLo consulto y te confirmo por acá.",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos",
+      "cotizar_pedido",
+      "cotizar_pedido",
+      "consultar_interno"
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -57,3 +57,18 @@ describe('cantidades que pide el cliente', () => {
     expect(cantidadesPedidas('2 litros de coca')).toEqual([]);
   });
 });
+
+import { emprolijarListado } from './prolijo';
+describe('la lista: nombre y cuenta en un solo renglón', () => {
+  it('une "• Nombre" + "• 2 × $X c/u = $Y"', () => {
+    const r = emprolijarListado('Te paso lo que tengo:\n• Fernet Branca x750cc\n• 2 × $20.500 c/u = $41.000\n• Coca Cola 1.75l\n• 6 × $4.700 c/u = $28.200\n\nTotal: $69.200');
+    expect(r).toContain('• Fernet Branca x750cc — 2 × $20.500 c/u = $41.000');
+    expect(r).toContain('• Coca Cola 1.75l — 6 × $4.700 c/u = $28.200');
+    expect(r).toContain('*Total: $69.200*');
+  });
+  it('no toca un renglón ya completo ni una pregunta', () => {
+    const ok = '• Fernet Branca x750cc — 2 × $20.500 c/u = $41.000';
+    expect(emprolijarListado(ok)).toBe(ok);
+    expect(emprolijarListado('¿Cuántas querés?\n2 × $4.700 c/u = $9.400')).toContain('¿Cuántas querés?');
+  });
+});

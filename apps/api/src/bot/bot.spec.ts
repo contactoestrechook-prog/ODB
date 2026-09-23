@@ -878,6 +878,17 @@ describe('identidad primero: sin saber de quién es la plata, no se molesta a ad
     expect(r.aviso).toContain('NO le digas al cliente que ya está avisado');
   });
 
+  it('comprobante CON archivo y sin nombre: pasa igual a administración (el archivo muestra quién transfirió)', async () => {
+    const { s, envios } = armar();
+    const r: any = await s.derivarPago('pedidos', '5491100000027', 'Mandó el comprobante de $12.000', {
+      monto: 12000, tipo: 'comprobante_enviado', comprobanteUrl: 'https://x.supabase.co/publico/whatsapp/549/174.pdf',
+    });
+    expect(r.faltaIdentidad).toBeUndefined();
+    expect(envios.length).toBeGreaterThan(0);
+    expect(envios[0].text).toContain('ver comprobante adjunto');
+    expect(r.aviso).toContain('"Recibido."');
+  });
+
   it('con la identidad construida, el nombre encabeza el mensaje a administración', async () => {
     const { s, envios } = armar();
     await s.derivarPago('pedidos', '5491100000027', 'Transfirió $85.000 por la factura de la semana pasada; la factura era de $125.000: faltan $40.000', {

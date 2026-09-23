@@ -127,6 +127,9 @@ describe('consulta interna sin dejar mudo al cliente', () => {
     expect(respuestaConConsulta('', null)).toBe('Lo consulto y te confirmo por acá.');
     expect(respuestaConConsulta('Lo estoy consultando y te aviso en breve.', null)).toBe('Lo consulto y te confirmo por acá.');
   });
+  it('el acuse sale una sola vez aunque el modelo lo diga con otras palabras (tono-02, 23/9/2026)', () => {
+    expect(respuestaConConsulta('Queda registrada la consulta. En cuanto tenga la respuesta, te la paso por acá.', null)).toBe('Lo consulto y te confirmo por acá.');
+  });
   it('no repite el acuse si ya lo dijo', () => {
     expect(respuestaConConsulta('', 'Lo consulto y te confirmo por acá.')).toBe('');
     expect(respuestaConConsulta('El fernet está a $20.500.', 'Lo consulto y te confirmo por acá.')).toBe('El fernet está a $20.500.');

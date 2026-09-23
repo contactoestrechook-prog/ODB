@@ -1,3 +1,4 @@
+import { esperaRetiroOEnvio, eligeRetiroOEnvio } from './entrega';
 import { agruparItems, cantidadesIndividuales, centavos, confirmacionInequivoca, idWhatsappCorto, importesDeHerramienta, importesDelTexto, pesos, presentacionProducto } from './comercio';
 import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import { volumenMl, etiquetaVolumen, pideTamano, medidaPartida, resumenDeTamanos, cantidadesPedidas, PALABRA_GENERICA } from './formatos';
@@ -511,6 +512,37 @@ export class BotService {
       }
     }
 
+    // UN "SÍ" DE MÁS DESPUÉS DE CONFIRMAR (23/9/2026). Si el último mensaje del
+    // bot ya fue "Pedido X confirmado", otro "si"/"dale"/"ok" es un acuse:
+    // el modelo lo tomaba como pedido nuevo y armaba el mismo pedido otra vez.
+    if (!traeArchivo && /^Pedido \S+ confirmado\./.test(String(ultimoMsgBot).trim()) && (confirmacionInequivoca(texto) || RE_SI_NO.test(texto.trim()))) {
+      return callar('acuse de un pedido ya confirmado');
+    }
+
+    // EL "SÍ" CREA EL PEDIDO (23/9/2026). El banco de pruebas mostró que, ante un
+    // "si" al "¿Lo confirmo?", el modelo a veces volvía a llamar preparar_pedido
+    // y repetía el resumen entero (Catalina, Pedro, Juan). Es intermitente: la
+    // misma charla sale bien o mal según la corrida. Un sí sin vueltas a un
+    // resumen con "¿Lo confirmo?" no necesita al modelo: lo confirma el servidor
+    // con las mismas guardas de crear_pedido (cotización fresca, mismo total).
+    // Si la guarda lo rechaza, sigue el camino de siempre.
+    if (!traeArchivo && confirmacionInequivoca(texto) && /¿lo confirmo\?/i.test(String(ultimoMsgBot))) {
+      try {
+        const creado = await this.crearPedido({ telefono, linea, confirmacion: texto, resumenPresentado: String(ultimoMsgBot) });
+        this.log.log(`pedido ${creado.codigoRetiro} confirmado por el "sí" de ${telefono} (sin modelo)`);
+        await this.db.from('bot_conversaciones').upsert({
+          linea, telefono,
+          mensajes: [...historial, { role: 'user', content: texto }, { role: 'assistant', content: creado.respuesta }].slice(-MAX_HISTORIAL),
+          actualizado_en: new Date().toISOString(),
+          esperando_desde: null, esperando_texto: null, esperando_aviso_en: null, esperando_avisos: 0,
+        }, { onConflict: 'linea,telefono' });
+        if (mensajeId) await this.db.from('bot_mensajes').upsert({ linea, mensaje_id: mensajeId, telefono, respuesta: creado.respuesta }).then(() => null, () => null);
+        return { respuesta: creado.respuesta };
+      } catch (e: any) {
+        this.log.warn(`el "sí" de ${telefono} no alcanzó para confirmar directo (${e?.message ?? e}); decide el modelo`);
+      }
+    }
+
     // si este número ya se identificó antes (proveedor conocido), el bot lo sabe
     // desde el primer mensaje y no arranca tratándolo como cliente
     const { data: contacto } = await this.db.from('bot_contactos').select('tipo, nombre').eq('telefono', telefono).maybeSingle();
@@ -647,6 +679,10 @@ export class BotService {
 
     // CUÁNTO pidió de cada cosa, leído por el sistema. "Puede ser 4 Malboro gold"
     // son cuatro: el bot cotizó uno y el cliente tuvo que pedirlo dos veces más
+    // UN "?" SUELTO (23/9/2026): el bot repetía los precios que acababa de dar.
+    if (/^\s*[?¿]+\s*$/.test(texto)) {
+      system.push({ type: 'text', text: 'El cliente mandó solo un signo de pregunta: no entendió lo último o espera algo más. PROHIBIDO repetir nada de lo que ya le dijiste (ni precios ni productos) y no llames herramientas. Preguntale en UNA línea corta qué necesita saber.' });
+    }
     // (18/9/2026). El modelo ve la cuenta ya hecha y no tiene que deducirla.
     const pedidas = cantidadesPedidas(texto);
     if (pedidas.length) {
@@ -1324,7 +1360,8 @@ export class BotService {
 
     // Primer mensaje de la charla (y no a un proveedor): arranca con el saludo
     // correcto para la hora y la bienvenida a O.D.B, garantizado en código.
-    if (!yaSaludo && !esProveedor && respuesta.trim()) {
+    // "Recibido." ante un comprobante va solo, sin saludo (regla del dueño, 23/9/2026)
+    if (!yaSaludo && !esProveedor && respuesta.trim() && respuesta.trim() !== 'Recibido.') {
       const antes = respuesta;
       respuesta = saludarConBienvenida(respuesta, saludo);
       if (antes !== respuesta) this.log.log(`saludo y bienvenida ajustados para ${telefono}`);
@@ -1557,7 +1594,7 @@ export class BotService {
           for (const it of ((out as any)?.items ?? [])) if (it?.sku) skusVistosEnTurno.add(String(it.sku));
           break;
         case 'preparar_pedido': {
-          out = await this.prepararPedido(telefono, linea, input, ctx.textoCliente);
+          out = await this.prepararPedido(telefono, linea, input, ctx.textoCliente, ctx.ultimoBot);
           if (ctx.fija) { ctx.fija.texto = (out as any).resumen; ctx.fija.operacion = true; }
           break;
         }
@@ -1614,9 +1651,18 @@ export class BotService {
             out = { derivado: true, aviso: 'Administración ya fue avisada hace un momento de este mismo tema. No lo anuncies de nuevo ni des ningún número: contestá lo nuevo, y si pregunta, decile que administración ya lo tiene y le confirma por acá.' };
             break;
           }
+          // un comprobante se registra UNA vez por turno: el modelo a veces llama
+          // la herramienta varias veces seguidas y a administración le llegaban
+          // avisos repetidos del mismo pago (banco de pruebas, 23/9/2026)
+          if (tipoPago === 'comprobante_enviado' && ctx.fallos?.get('__comprobante__')) {
+            out = { derivado: true, aviso: 'Este comprobante ya quedó registrado y avisado en este turno. No llames más derivar_pago. Respondé exactamente "Recibido."' };
+            if (ctx.fija) ctx.fija.texto = 'Recibido.';
+            break;
+          }
+          if (tipoPago === 'comprobante_enviado') ctx.fallos?.set('__comprobante__', 1);
           out = await this.derivarPago(linea, telefono, motivo, { monto, tipo: tipoPago, comprobanteUrl: ctx.archivoUrl, dichoPorElCliente: ctx.textoCliente, deQuien: input.de_quien ? String(input.de_quien).slice(0, 120) : undefined });
           // un comprobante se contesta con una palabra, y la pone el código
-          if (tipoPago === 'comprobante_enviado' && ctx.fija) ctx.fija.texto = 'Recibido, lo reviso y te confirmo.';
+          if (tipoPago === 'comprobante_enviado' && ctx.fija) ctx.fija.texto = 'Recibido.';
           if ((out as any)?.respuestaFija && ctx.fija) ctx.fija.texto = String((out as any).respuestaFija);
           break;
         }
@@ -2087,9 +2133,15 @@ export class BotService {
     return { ok: true, codigo: ped.qr_retiro, estado: 'cancelado', total: Number(ped.total), mensaje: 'Pedido cancelado; el stock volvió a quedar disponible.' };
   }
 
-  async prepararPedido(telefono: string, linea: string, input: any, textoCliente?: string) {
+  async prepararPedido(telefono: string, linea: string, input: any, textoCliente?: string, ultimoBot?: string) {
     const tipo = input.tipo;
     if (!['pickup', 'domicilio'].includes(tipo)) throw new BadRequestException('Falta elegir retiro o envío');
+    // RETIRO O ENVÍO LO ELIGE EL CLIENTE (23/9/2026). Si el bot acaba de
+    // preguntarlo y el cliente contestó otra cosa ("sumale 1 smirnoff"), el
+    // modelo ponía "Retiro en la sucursal Saint Thomas" por su cuenta.
+    if (esperaRetiroOEnvio(ultimoBot ?? '') && !eligeRetiroOEnvio(textoCliente ?? '')) {
+      throw new BadRequestException('El cliente todavía NO eligió retiro o envío: cotizá lo nuevo con cotizar_pedido y volvé a preguntarle si lo retira por la sucursal Saint Thomas o se lo enviamos.');
+    }
     // el modelo llena los campos obligatorios con basura cuando no tiene el dato
     for (const k of ['nombre', 'direccion', 'notas', 'entrega_fecha', 'entrega_franja']) input[k] = campoLimpio(input[k]);
     const nombre = nombreLimpio(input.nombre);
@@ -2253,14 +2305,20 @@ export class BotService {
     const esComprobante = tipo === 'comprobante_enviado' && monto > 0;
 
     const ident = await this.identificarCliente(telefono).catch(() => null as any);
-    const nombre = ident?.nombre ?? (extra.deQuien ? String(extra.deQuien).trim() : null);
+    let nombre = ident?.nombre ?? (extra.deQuien ? String(extra.deQuien).trim() : null);
 
     // REGLA DEL DUEÑO (2026-09-01): a administración no le llega un teléfono
     // pelado con un monto — no sabe quién es ni de quién es la plata. Antes de
     // avisar, el bot CONSTRUYE la identidad: la lee del comprobante, la saca
     // del sistema si el cliente ya existe, o la pregunta. Sin identidad, no se
     // manda nada: se le pide el nombre al cliente y se deriva en el próximo turno.
-    if (!nombre && tipo !== 'quiere_pagar') {
+    // Con un COMPROBANTE no se frena (23/9/2026, pedido del dueño: al cliente
+    // "Recibido." y nada más): el archivo mismo dice quién transfirió y le llega
+    // adjunto a administración, así que no es un teléfono pelado. Va con el
+    // nombre de WhatsApp si no hay otro.
+    const conArchivo = esComprobante && !!extra.comprobanteUrl;
+    if (!nombre && conArchivo) nombre = extra.deQuien = `${await this.nombreDeContacto(telefono)} (ver comprobante adjunto)`;
+    if (!nombre && !conArchivo && tipo !== 'quiere_pagar') {
       return {
         derivado: false,
         faltaIdentidad: true,
@@ -2334,7 +2392,7 @@ export class BotService {
     }
 
     const queDecir = esComprobante
-      ? 'Respondé exactamente "Recibido, lo reviso y te confirmo." y nada más.'
+      ? 'Respondé exactamente "Recibido." y nada más.'
       : tipo === 'quiere_pagar'
         ? 'Respondé en una línea corta: "Le paso los datos por acá en un rato." NO inventes alias ni CBU.'
         : 'Respondé corto: "Recibido, le confirmo por acá."';

@@ -95,8 +95,15 @@ export function nombreLimpio(s: string | null | undefined): string | null {
 
 export function emprolijarListado(t: string): string {
   let r = t;
+  // 0. el nombre en un renglón y la cuenta en el siguiente ("• Fernet Branca
+  // x750cc" / "• 2 × $20.500 c/u = $41.000") van en UNO solo: dos viñetas
+  // parecían dos productos (banco de pruebas, 23/9/2026)
+  r = r.replace(/^[ \t]*(?:[-–—•][ \t]*)?([^\n$•]*[A-Za-zÁÉÍÓÚÑáéíóúñ][^\n$]*?)[ \t]*\n[ \t]*(?:[-–—•][ \t]*)?(\d+(?:[.,]\d+)?[ \t]*(?:kg|g|gr|u|un)?[ \t]*[×xX*][ \t]*\$[^\n]*)$/gm,
+    (m, nombre: string, cuenta: string) => /^(total|subtotal)\b|[:?]$/i.test(nombre.trim()) ? m : `• ${nombre.trim()} — ${cuenta.trim()}`);
   // 1. cada guion/viñeta de listado arranca renglón propio
-  r = r.replace(/[ \t]+[-–—•]\s+(?=[A-ZÁÉÍÓÚÑ0-9¿])/g, '\n• ');
+  // (no el "— 2 × $20.500" que separa el nombre de la cuenta: eso partía cada
+  // renglón en dos viñetas; banco de pruebas, 23/9/2026)
+  r = r.replace(/[ \t]+[-–—•]\s+(?=[A-ZÁÉÍÓÚÑ0-9¿])(?!\d+(?:[.,]\d+)?\s*(?:kg|g|gr|u|un)?\s*[×xX*]\s*\$)/g, '\n• ');
   r = r.replace(/^[ \t]*[-–—]\s+/gm, '• ');
   // 1b. renglón de producto SIN viñeta ("2 Chuker con Stevia 200 cc: 2 × $4.800
   // c/u = $9.600"): arranca con una cantidad, tiene un precio y no es el total.
@@ -285,7 +292,7 @@ export function campoLimpio(v: unknown): string {
 // vez (si el último mensaje del bot ya era el acuse, no se repite).
 // ============================================================
 export const ACUSE_CONSULTA = 'Lo consulto y te confirmo por acá.';
-const RE_PROMESA = /\b(lo consulto|lo estoy consultando|lo estoy viendo|lo veo con|te confirmo|le confirmo|vuelvo a vos|lo verifico|lo reviso|te aviso|en breve|en un momento|no (?:lo |la )?tengo (?:ese |el |este |esa |la )?(?:dato|info(?:rmaci[oó]n)?)|no cuento con (?:ese|esa|el|la) (?:dato|informaci[oó]n))\b/i;
+const RE_PROMESA = /\b(queda registrad[ao] la consulta|en cuanto tenga (?:la )?respuesta|lo consulto|lo estoy consultando|lo estoy viendo|lo veo con|te confirmo|le confirmo|vuelvo a vos|lo verifico|lo reviso|te aviso|en breve|en un momento|no (?:lo |la )?tengo (?:ese |el |este |esa |la )?(?:dato|info(?:rmaci[oó]n)?)|no cuento con (?:ese|esa|el|la) (?:dato|informaci[oó]n))\b/i;
 
 export function respuestaConConsulta(respuesta: string, ultimoDelBot: string | null | undefined): string {
   // renglón por renglón, para no aplastar la lista del pedido en una sola línea
