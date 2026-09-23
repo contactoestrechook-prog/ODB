@@ -660,7 +660,7 @@ export class BotService {
     const ultimosDelCliente = [...[...historial].reverse().filter((m) => m.role === 'user').slice(0, 6).map((m) => String(m.content)).reverse(), texto];
     const fallosDelTurno = new Map<string, number>();
     // una herramienta puede fijar la respuesta del turno ("Recibido." ante un comprobante)
-    const respuestaFija: { texto?: string; consultaPendiente?: boolean; operacion?: boolean } = {};
+    const respuestaFija: { texto?: string; consultaPendiente?: boolean; operacion?: boolean; derivada?: boolean } = {};
     let vueltasTrasConsulta = 0;
     // todo lo que devolvieron las herramientas en este turno: los únicos
     // números que el bot tiene permitido decir
@@ -1379,7 +1379,7 @@ export class BotService {
       } else {
         this.log.error(`el bot iba a repetir dos veces el mismo mensaje a ${telefono}: pasa a una persona`);
         await this.derivarAHumano(linea, telefono, `El bot iba a repetir el mismo mensaje. Último del cliente: ${texto.slice(0, 200)}`, true).catch(() => null);
-        respuesta = 'Te paso con una persona del local para cerrarlo, en un momento te escribe por acá.';
+        respuesta = 'Te paso con una persona del local, te contesta por acá.';
       }
     }
 
@@ -1426,7 +1426,8 @@ export class BotService {
       importes_verificados: [...hechos].slice(-400),
       actualizado_en: new Date().toISOString(),
       // La cola de consultas tiene seguimiento propio; no borrar la espera al callar.
-      ...(respuestaFija.consultaPendiente ? {} : { esperando_desde: null, esperando_texto: null, esperando_aviso_en: null }),
+      // si en el turno se consultó o se derivó, el cliente sigue esperando a una persona
+      ...(respuestaFija.consultaPendiente || respuestaFija.derivada ? {} : { esperando_desde: null, esperando_texto: null, esperando_aviso_en: null, esperando_avisos: 0 }),
     });
     // tarifa por millón según modelo (entrada, caché leída, caché escrita, salida)
     const TARIFA: Record<string, [number, number, number, number]> = {
@@ -1534,7 +1535,7 @@ export class BotService {
     block: Anthropic.ToolUseBlock,
     telefono: string,
     linea: 'pedidos' | 'proveedores' = 'pedidos',
-    ctx: { ultimoBot?: string; ultimosBot?: string[]; ultimosCliente?: string[]; textoCliente?: string; fallos?: Map<string, number>; archivoUrl?: string; fija?: { texto?: string; consultaPendiente?: boolean; operacion?: boolean }; salidas?: string[] } = {},
+    ctx: { ultimoBot?: string; ultimosBot?: string[]; ultimosCliente?: string[]; textoCliente?: string; fallos?: Map<string, number>; archivoUrl?: string; fija?: { texto?: string; consultaPendiente?: boolean; operacion?: boolean; derivada?: boolean }; salidas?: string[] } = {},
   ): Promise<Anthropic.ToolResultBlockParam> {
     const input: any = block.input;
     const skusVistosEnTurno = this.skusDe(telefono);
@@ -1641,6 +1642,7 @@ export class BotService {
         }
         case 'derivar_a_humano':
           out = await this.derivarAHumano(linea, telefono, String(input.motivo ?? ''), input.urgente === true);
+          if (ctx.fija) ctx.fija.derivada = true;
           break;
         case 'generar_link_pago': {
           out = await this.linkDelPedido(telefono, String(input.codigo ?? ''));
@@ -2407,8 +2409,22 @@ export class BotService {
   // El bot deja de contestar esa conversación, queda marcada en la bandeja y el
   // equipo recibe el aviso por WhatsApp. Sin esto, "te derivo al equipo" era una
   // promesa que no llegaba a ningún lado.
+  /** Nombre para mostrar: agenda › WhatsApp › teléfono real › lo que haya (nunca el @lid crudo). */
+  private async nombreDeContacto(telefono: string): Promise<string> {
+    const { data: k } = await this.db.from('bot_contactos').select('nombre, nombre_wa, telefono_real').eq('telefono', String(telefono).replace(/\D/g, '')).maybeSingle();
+    return String((k as any)?.nombre ?? (k as any)?.nombre_wa ?? '').trim()
+      || ((k as any)?.telefono_real ? bonitoTelefono((k as any).telefono_real) : bonitoTelefono(telefono));
+  }
+
   async derivarAHumano(linea: 'pedidos' | 'proveedores', telefono: string, motivo: string, urgente = false) {
+    // la derivación entra al vigilante de esperas (23/9/2026): antes quedaba en
+    // una alerta que nadie leía (147 sin leer) y el cliente esperaba días. El
+    // texto del aviso es genérico: el motivo puede traer el detalle de un pedido
+    // y eso no sale por WhatsApp (regla del 1/9).
+    const { data: previa } = await this.db.from('bot_conversaciones').select('esperando_desde').eq('linea', linea).eq('telefono', telefono).maybeSingle();
     const marca = {
+      esperando_desde: (previa as any)?.esperando_desde ?? new Date().toISOString(),
+      esperando_texto: urgente ? '🔔 Urgente: pidió que lo atienda una persona' : '🔔 Pidió que lo atienda una persona',
       bot_activo: false,
       derivada_en: new Date().toISOString(),
       derivada_motivo: motivo || 'El cliente pidió hablar con una persona',
@@ -2443,7 +2459,7 @@ export class BotService {
     await this.db.from('alertas_internas').insert({
       para_usuario: cfgAviso?.avisar_proveedores_a ?? null,
       tipo: 'derivacion',
-      titulo: `${urgente ? '🔴' : '🟡'} Conversación derivada: ${bonitoTelefono(telefono)}`,
+      titulo: `${urgente ? '🔴' : '🟡'} Conversación derivada: ${await this.nombreDeContacto(telefono)}`,
       detalle: `${motivo || 'El cliente pidió hablar con una persona'} · Contestarle desde RESPONDE.`,
       referencia: { linea, telefono, urgente },
     }).then(() => null, () => null);

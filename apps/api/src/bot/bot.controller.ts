@@ -77,6 +77,11 @@ export class BotController {
 export class BotPruebaController {
   constructor(private readonly bot: BotService) {}
 
+  @Get('adjuntos/renovar')
+  renovarAdjunto(@Query('ruta') ruta: string) {
+    return this.bot.renovarAdjunto(ruta);
+  }
+
   // RESPONDE: bandeja de conversaciones en vivo del empleado virtual
   @Get('conversaciones')
   conversaciones() {

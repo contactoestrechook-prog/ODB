@@ -77,3 +77,14 @@ describe('vigilante de la sesión de WhatsApp', () => {
     expect(decisionSesion(null, 1).reiniciar).toBe(true);
   });
 });
+
+describe('una derivación entra al vigilante', () => {
+  it('a los 21 minutos se avisa, y el aviso no trae el detalle del pedido', () => {
+    const ahora = Date.now();
+    const fila = { telefono: '147643963568301', esperando_desde: new Date(ahora - 21 * 60_000).toISOString(), esperando_aviso_en: null, esperando_avisos: 0, esperando_texto: '🔔 Pidió que lo atienda una persona' };
+    const r = esperasParaAvisar([fila], ahora);
+    expect(r).toHaveLength(1);
+    expect(pideRespuesta(r[0].esperando_texto)).toBe(true);
+    expect(r[0].esperando_texto).not.toMatch(/\$/);
+  });
+});
