@@ -296,3 +296,10 @@ export function respuestaConConsulta(respuesta: string, ultimoDelBot: string | n
   if (!util) return yaAcuso ? '' : ACUSE_CONSULTA;
   return yaAcuso ? util : `${util}\n\n${ACUSE_CONSULTA}`;
 }
+
+// Frases que Whisper inventa ante un audio mudo o con ruido (créditos de
+// subtítulos de videos). Si la transcripción es solo eso, no hay texto real.
+const RE_ALUCINACION = /^\s*(subt[ií]tulos (realizados|hechos) por la comunidad de amara\.org|subt[ií]tulos por la comunidad de amara\.org|gracias por ver( el video)?|suscr[ií]bete( al canal)?|¡?gracias por su atenci[oó]n!?|m[uú]sica|\[m[uú]sica\]|\.+)\s*[.!]*\s*$/i;
+export function esAlucinacionDeTranscripcion(t: string): boolean {
+  return RE_ALUCINACION.test(String(t ?? ''));
+}

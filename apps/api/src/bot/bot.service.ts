@@ -1,7 +1,7 @@
 import { agruparItems, cantidadesIndividuales, centavos, confirmacionInequivoca, idWhatsappCorto, importesDeHerramienta, importesDelTexto, pesos, presentacionProducto } from './comercio';
 import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import { volumenMl, etiquetaVolumen, pideTamano, medidaPartida, resumenDeTamanos, cantidadesPedidas, PALABRA_GENERICA } from './formatos';
-import { emprolijarListado, nombreLimpio, saludoSegunHora, saludarConBienvenida, niegaPercepcion, respetuosoSinConfianza, saintThomas, envioSinCargo, asegurarEnvioSinCargo, casiIgual, campoLimpio, respuestaConConsulta, nombreSucursalCliente, esAutomaticoWhatsappBusiness } from './prolijo';
+import { emprolijarListado, nombreLimpio, saludoSegunHora, saludarConBienvenida, niegaPercepcion, respetuosoSinConfianza, saintThomas, envioSinCargo, asegurarEnvioSinCargo, casiIgual, campoLimpio, respuestaConConsulta, esAlucinacionDeTranscripcion, nombreSucursalCliente, esAutomaticoWhatsappBusiness } from './prolijo';
 import { controlDeFechas } from './fechas';
 import { desvioDeLoPedido } from './desvio';
 import { oggCompleto } from './ogg';
@@ -453,9 +453,12 @@ export class BotService {
 
     const ultimoMsgBot = [...historial].reverse().find((m) => m.role === 'assistant')?.content ?? '';
     const botDejoPregunta = /\?\s*$/.test(String(ultimoMsgBot).trim()) || /¿[^?]*\?/.test(String(ultimoMsgBot).slice(-160));
-    const RE_CIERRE = /^(?:(?:dale|ok+|okey|oka|okis|listo|perfecto|b[aá]rbaro|genial|joya|buen[ií]simo|bueno|gracias+|muchas gracias|mil gracias|de nada|a vos|saludos|hablamos|nos vemos|un abrazo|abrazo|chau|ciao|hablamos despu[eé]s|despu[eé]s|(?:ja|je|ji){2,}|holis|bien)\b[\s!.,]*)+$|^[\s👍🙏🫶👌🏻🏼❤️🙂😊😂🤣✨🔥]+$/i;
+    const RE_CIERRE = /^(?:(?:dale|ok+|okey|oka|okis|listo|perfecto|b[aá]rbaro|genial|joya|buen[ií]simo|bueno|gracias+|muchas gracias|mil gracias|de nada|a vos|saludos|hablamos|nos vemos|un abrazo|abrazo|chau|ciao|hablamos despu[eé]s|despu[eé]s|(?:ja|je|ji){2,})\b[\s!.,]*)+$|^[\s👍🙏🫶👌🏻🏼❤️🙂😊😂🤣✨🔥]+$/i;
     const RE_SI_NO = /^(s[ií]+|sisi|si si|no|nop|dale|ok|listo|bueno)\b[\s!.]*$/i;
-    if (RE_CIERRE.test(texto.trim())) {
+    // un ARCHIVO con "gracias" abajo no es un cierre: es un comprobante o una
+    // lista, y hay que abrirlo (Belén, 23/9/2026: PDF + "Graciassss" quedó sin leer)
+    const traeArchivo = !!(dto.archivoBase64 || dto.archivoUrl);
+    if (!traeArchivo && RE_CIERRE.test(texto.trim())) {
       // "sí" / "dale" / "ok" CONTESTAN una pregunta del bot: esos pasan. Los demás
       // cierres, y cualquier cierre sin pregunta pendiente, no se responden.
       if (!(botDejoPregunta && RE_SI_NO.test(texto.trim()))) return callar('cierre de la charla');
@@ -2651,6 +2654,9 @@ export class BotService {
       if (!r.ok) { this.log.warn(`transcripción falló (${r.status}): ${(await r.text().catch(() => '')).slice(0, 160)}`); return null; }
       const j: any = await r.json();
       const texto = String(j?.text ?? '').trim();
+      // Whisper "alucina" con audios mudos o con ruido: devuelve créditos de
+      // subtítulos de YouTube. Eso no lo dijo el cliente (Rachel, 23/9/2026).
+      if (texto && esAlucinacionDeTranscripcion(texto)) { this.log.warn(`transcripción descartada (alucinación): "${texto.slice(0, 80)}"`); return null; }
       return texto || null;
     } catch (e: any) {
       this.log.warn(`transcripción falló: ${e?.message ?? e}`);
@@ -3561,6 +3567,20 @@ export class BotService {
       }
     }
 
+    // RÁFAGAS: 10 fotos juntas se procesan en paralelo y cada una ve el mismo
+    // historial, así que salían 9 respuestas iguales seguidas (Distribuidora
+    // Porti, 23/9/2026). Lo mismo al mismo chat dentro de 3 minutos no sale dos veces.
+    if (payload.text && !payload.imagenUrl && !payload.audioUrl && !payload.documentoUrl && payload.kind !== 'aviso-interno') {
+      const k = String(payload.to ?? '').replace(/\D/g, '');
+      const prev = this.ultimoEnviado.get(k);
+      if (prev && Date.now() - prev.en < 180_000 && casiIgual(prev.texto, String(payload.text))) {
+        this.log.warn(`mensaje repetido a ${k} dentro de 3 min: no se manda de nuevo`);
+        return { enviado: true, id: null, via: 'omitido-repetido' } as any;
+      }
+      this.ultimoEnviado.set(k, { texto: String(payload.text), en: Date.now() });
+      if (this.ultimoEnviado.size > 3000) this.ultimoEnviado.clear();
+    }
+
     const crudo = String(payload.to ?? '');
     const digitos = crudo.replace(/\D/g, '');
     let chatId = crudo.includes('@') ? crudo.split(':')[0] : digitos ? `${digitos}@c.us` : null;
@@ -3852,6 +3872,7 @@ export class BotService {
   // dos veces seguidas se reinicia UNA vez y queda la alerta en la campanita del
   // panel (no por WhatsApp: justamente es lo que está caído).
   private fallosSesion = 0;
+  private ultimoEnviado = new Map<string, { texto: string; en: number }>();
   @Cron('40 */5 * * * *')
   async vigilarSesionWhatsapp() {
     const url = process.env.WAHA_URL, key = process.env.WAHA_API_KEY;

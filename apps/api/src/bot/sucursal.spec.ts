@@ -1,4 +1,4 @@
-import { asegurarEnvioSinCargo, campoLimpio, casiIgual, emprolijarListado, respuestaConConsulta, esAutomaticoWhatsappBusiness, envioSinCargo, nombreSucursalCliente, saintThomas } from './prolijo';
+import { asegurarEnvioSinCargo, campoLimpio, casiIgual, emprolijarListado, esAlucinacionDeTranscripcion, respuestaConConsulta, esAutomaticoWhatsappBusiness, envioSinCargo, nombreSucursalCliente, saintThomas } from './prolijo';
 
 describe('nombre de la sucursal ante el cliente', () => {
   it('Sant Thomas pasa a sucursal Saint Thomas', () => {
@@ -143,5 +143,13 @@ describe('la lista sin viñetas vuelve a ser lista (Rachel, 23/9/2026)', () => {
   });
   it('no toca un texto sin precios', () => {
     expect(emprolijarListado('2 de las 3 cosas las tengo.')).toBe('2 de las 3 cosas las tengo.');
+  });
+});
+
+describe('transcripciones inventadas', () => {
+  it('descarta los créditos de subtítulos que inventa Whisper', () => {
+    expect(esAlucinacionDeTranscripcion('Subtítulos realizados por la comunidad de Amara.org')).toBe(true);
+    expect(esAlucinacionDeTranscripcion('Gracias por ver el video.')).toBe(true);
+    expect(esAlucinacionDeTranscripcion('Hola Jackie, ¿me mandás 4 fernet?')).toBe(false);
   });
 });
