@@ -2931,9 +2931,22 @@ export class BotService {
       // cada aviso interno (recuperar clave, devoluciones, reportes) parecía una
       // persona escribiendo y pausaba la charla (16/9/2026).
       const corto = id.includes('_') ? id.split('_').pop()! : id;
-      const { data: nuestros, error } = await this.db.from('bot_envios').select('waha_id').in('waha_id', [...new Set([id, corto])]).limit(1);
-      const nuestro = Array.isArray(nuestros) ? nuestros[0] : nuestros;
+      const buscar = () => this.db.from('bot_envios').select('waha_id').in('waha_id', [...new Set([id, corto])]).limit(1);
+      let { data: nuestros, error } = await buscar();
+      let nuestro = Array.isArray(nuestros) ? nuestros[0] : nuestros;
+      // CARRERA (23/9/2026): el eco de WhatsApp puede llegar antes de que se
+      // termine de anotar el envío, y un mensaje del bot se tomaba como de una
+      // persona y pausaba la charla. Se espera un momento y se vuelve a mirar.
+      if (!nuestro && !error) {
+        await new Promise((r) => setTimeout(r, 2500));
+        ({ data: nuestros, error } = await buscar());
+        nuestro = Array.isArray(nuestros) ? nuestros[0] : nuestros;
+      }
       if (nuestro) return { ignorado: 'lo mandamos nosotros' };
+      // y si el texto es el mismo que el bot acaba de mandar a ese chat, también es nuestro
+      const eco = String(p?.body ?? '').trim();
+      const reciente = [...this.ultimoEnviado.entries()].find(([, v]) => Date.now() - v.en < 180_000 && eco && v.texto.trim() === eco);
+      if (reciente) return { ignorado: 'eco de un mensaje del bot' };
       // ante la duda, NO pausar: pausar de más le calla el bot a un cliente
       if (error) return { ignorado: 'registro de envíos no disponible' };
     }
@@ -3534,9 +3547,10 @@ export class BotService {
   // Todo lo que sale por WhatsApp queda registrado por su id: así, cuando
   // WhatsApp devuelve un mensaje "fromMe", se sabe si lo mandó el sistema o lo
   // tecleó una persona desde el teléfono.
-  private registrarEnvio<T extends { enviado: boolean; id?: string | null }>(r: T, telefono: string, origen?: string): T {
+  private async registrarEnvio<T extends { enviado: boolean; id?: string | null }>(r: T, telefono: string, origen?: string): Promise<T> {
+    // se ESPERA la anotación: si no, el eco llegaba antes y pausaba la charla
     if (r?.enviado && r.id) {
-      this.db.from('bot_envios').upsert({ waha_id: String(r.id), telefono, origen: origen ?? 'bot' }, { onConflict: 'waha_id' }).then(() => null, () => null);
+      await this.db.from('bot_envios').upsert({ waha_id: String(r.id), telefono, origen: origen ?? 'bot' }, { onConflict: 'waha_id' }).then(() => null, () => null);
     }
     return r;
   }
