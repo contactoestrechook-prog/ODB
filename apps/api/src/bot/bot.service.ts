@@ -1,4 +1,5 @@
 import { esperaRetiroOEnvio, eligeRetiroOEnvio } from './entrega';
+import { esContestadorAutomatico } from './contestador';
 import { agruparItems, cantidadesIndividuales, centavos, confirmacionInequivoca, idWhatsappCorto, importesDeHerramienta, importesDelTexto, pesos, presentacionProducto } from './comercio';
 import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import { volumenMl, etiquetaVolumen, pideTamano, medidaPartida, resumenDeTamanos, cantidadesPedidas, PALABRA_GENERICA } from './formatos';
@@ -97,7 +98,13 @@ export class BotService {
     }
 
     // límite por teléfono/hora: si se pasa, respuesta fija SIN gastar Opus
+    // el aviso sale UNA vez por hora: repetido en cada mensaje alimentaba la
+    // ronda con un contestador automático del otro lado (24/9/2026)
     if (this.superaLimite(telefono)) {
+      const avisado = this.avisoLimite.get(telefono) ?? 0;
+      if (Date.now() - avisado < 3_600_000) return { respuesta: null, silencio: true, motivo: 'límite por hora (ya avisado)' } as any;
+      this.avisoLimite.set(telefono, Date.now());
+      if (this.avisoLimite.size > 2000) this.avisoLimite.clear();
       return {
         respuesta:
           'Recibimos muchos mensajes tuyos en la última hora. Tomo tu consulta y doy aviso al sector correspondiente. Gracias por la paciencia.',
@@ -297,6 +304,7 @@ export class BotService {
     return { ok: true, telefono: clave, esEquipo };
   }
 
+  private avisoLimite = new Map<string, number>();
   private superaLimite(telefono: string): boolean {
     const ahora = Date.now();
     const ventana = (this.llegadas.get(telefono) ?? []).filter((t) => ahora - t < 3_600_000);
@@ -451,6 +459,11 @@ export class BotService {
     };
 
     if (await this.esNumeroDelEquipo(telefono)) return callar('número del equipo');
+    // del otro lado contesta una máquina (bot de menú de otra empresa): no se le
+    // habla, o las dos máquinas charlan en ronda (24/9/2026)
+    if (esContestadorAutomatico(texto, historial.filter((m) => m.role === 'user').slice(-12).map((m) => String(m.content)))) {
+      return callar('contestador automático del otro lado');
+    }
 
     const ultimoMsgBot = [...historial].reverse().find((m) => m.role === 'assistant')?.content ?? '';
     const botDejoPregunta = /\?\s*$/.test(String(ultimoMsgBot).trim()) || /¿[^?]*\?/.test(String(ultimoMsgBot).slice(-160));

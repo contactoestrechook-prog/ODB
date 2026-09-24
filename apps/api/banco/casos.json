@@ -800,5 +800,28 @@
       }
     ],
     "juez": "En el segundo turno aclara que el envío es sin cargo y sigue con el pedido. No dice 'lo consulto'."
+  },
+  {
+    "id": "bot-01",
+    "categoria": "contestador",
+    "titulo": "Del otro lado contesta un bot de menú",
+    "turnos": [
+      {
+        "cliente": "Hola, ¿tienen hielo?"
+      },
+      {
+        "cliente": "*Tocá la opción* del tema que necesites ayuda:",
+        "espera": {
+          "silencio": true
+        }
+      },
+      {
+        "cliente": "Perdón, pero por ahora sólo puedo responderte *si tocás un botón* del menú. 😉",
+        "espera": {
+          "silencio": true
+        }
+      }
+    ],
+    "juez": "Los mensajes 2 y 3 son de un contestador automático de otra empresa: el bot NO les contesta (silencio). El primero sí se contesta normal."
   }
 ]
