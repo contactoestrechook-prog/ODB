@@ -1,4 +1,4 @@
-import { eligeRetiroOEnvio, esperaRetiroOEnvio } from './entrega';
+import { eligeRetiroOEnvio, eligioModalidad, esperaRetiroOEnvio } from './entrega';
 
 describe('retiro o envío lo elige el cliente', () => {
   it('reconoce la pregunta del bot', () => {
@@ -12,5 +12,16 @@ describe('retiro o envío lo elige el cliente', () => {
   });
   it('retiro, envío o una dirección sí eligen', () => {
     for (const t of ['lo retiro', 'paso a buscar', 'retiro yo', 'envio', 'mandamelo', 'a Los Talas 15', 'Av. Castex 1200', 'por la sucursal']) expect(eligeRetiroOEnvio(t)).toBe(true);
+  });
+});
+
+describe('la modalidad la tiene que haber elegido el cliente', () => {
+  it('"Branca 750" no es una dirección ni un retiro', () => {
+    expect(eligioModalidad('pickup', '', ['Necesito:\n2 fernet branca 750\n6 coca cola 1.75', 'sí, es todo'])).toBe(false);
+  });
+  it('retiro dicho con palabras; envío pedido o con su dirección', () => {
+    expect(eligioModalidad('pickup', '', ['3 coca zero para retirar, Pedro'])).toBe(true);
+    expect(eligioModalidad('domicilio', 'Los Talas 15', ['16 coca zero para envío a Los Talas 15'])).toBe(true);
+    expect(eligioModalidad('domicilio', 'Rivadavia 234, Canning', ['Rivadavia 234, a nombre de Ana'])).toBe(true);
   });
 });

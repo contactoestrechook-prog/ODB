@@ -1,0 +1,1204 @@
+{
+ "fecha": "2026-09-25T13:13:07.129Z",
+ "pasan": 43,
+ "total": 46,
+ "promedio": 4.630434782608695,
+ "costoBot": 2.7799999999999994,
+ "intermitentes": [
+  "tono-02",
+  "mixto-01"
+ ],
+ "resultados": [
+  {
+   "id": "envio-01",
+   "categoria": "envío",
+   "titulo": "Pregunta directa por el costo del envío",
+   "ok": true,
+   "puntaje": 5,
+   "fallas": [],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "Hola, cuánto me sale el envío a Canning?",
+     "archivo": false,
+     "respuesta": "Buen día, te damos la bienvenida a O.D.B. El envío es sin cargo, siempre. ¿Querés que te arme el pedido? Decime qué productos necesitás y te paso la lista.",
+     "herramientas": [
+      "identificar_cliente"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "envio-02",
+   "categoria": "envío",
+   "titulo": "Insiste con el flete aparte",
+   "ok": true,
+   "puntaje": 5,
+   "fallas": [],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "me cobran el flete aparte no? cuanto es?",
+     "archivo": false,
+     "respuesta": "Buen día. Te damos la bienvenida a O.D.B. No, el flete no se cobra aparte: el envío es sin cargo siempre.",
+     "herramientas": [
+      "identificar_cliente"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "envio-03",
+   "categoria": "envío",
+   "titulo": "Pedido con envío: el total es todo",
+   "ok": true,
+   "puntaje": 5,
+   "fallas": [],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "Quiero 2 fernet branca de 750 y 3 coca cola de 1.75 para envío a domicilio",
+     "archivo": false,
+     "respuesta": "Buen día. Te damos la bienvenida a O.D.B. Te anoto:\n• 2 × Fernet Branca 750 cc\n• 3 × Coca Cola 1.75 L (común)\n\n¿Está completo el pedido o querés sumar algo?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos",
+      "buscar_productos"
+     ]
+    },
+    {
+     "cliente": "sí, es todo",
+     "archivo": false,
+     "respuesta": "• Fernet Branca 750 cc — 2 × $20.500 c/u = $41.000\n• Coca Cola 1.75 L — 3 × $4.700 c/u = $14.100\n\n*Total: $55.100*\n\nCon ese total todavía no llegamos al mínimo de $70.000 para envío a domicilio. Podés sumar algún producto para alcanzarlo, o retirarlo en la sucursal Saint Thomas (Castex 3601), que no tiene mínimo. ¿Cómo preferís?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos",
+      "buscar_productos",
+      "cotizar_pedido"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "envio-04",
+   "categoria": "envío",
+   "titulo": "Domingo: no hay reparto",
+   "ok": true,
+   "puntaje": 5,
+   "fallas": [],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "El domingo me pueden mandar un pedido?",
+     "archivo": false,
+     "respuesta": "Buen día. Te damos la bienvenida a O.D.B. Los domingos no hacemos reparto; de lunes a sábado sí, entre las 11:00 y las 20:15. Si querés, te lo podemos mandar el sábado o el lunes.",
+     "herramientas": [
+      "identificar_cliente",
+      "estado_local"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "cant-01",
+   "categoria": "cantidades",
+   "titulo": "4 Marlboro gold de entrada",
+   "ok": true,
+   "puntaje": 5,
+   "fallas": [],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "Puede ser 4 Malboro gold el blanco y dorado",
+     "archivo": false,
+     "respuesta": "Buen día. Te damos la bienvenida a O.D.B. Te anoto:\n• 4 × Marlboro Gold Box x 20 un\n\n¿Está completo el pedido o querés sumar algo?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "cant-02",
+   "categoria": "cantidades",
+   "titulo": "Medida partida: coca de 2 litros 25",
+   "ok": true,
+   "puntaje": 5,
+   "fallas": [],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "Coca zero de 2 litros 25 y coca comun misma medida",
+     "archivo": false,
+     "respuesta": "Buen día. Te damos la bienvenida a O.D.B. En 2,25 L no manejamos Coca. El formato más grande que tengo es de 1,75 L: Coca Cola Zero 1,75 L y Coca Cola común 1,75 L, ambas a $4.700. ¿Te sirven y cuántas de cada una te anoto?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos",
+      "buscar_productos"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "cant-03",
+   "categoria": "cantidades",
+   "titulo": "10 packs de agua",
+   "ok": false,
+   "puntaje": 2,
+   "fallas": [],
+   "problemas": [
+    "Mezcló dos preguntas en una en vez de una sola pregunta puntual sobre las botellas de 2 L",
+    "Ofreció una alternativa de otro producto (pack 1,5 L x6) no pedida por el cliente, desviando la consulta original",
+    "No se ciñó estrictamente a aclarar y preguntar solo cuántas botellas de 2 L quiere"
+   ],
+   "charla": [
+    {
+     "cliente": "10 pack de agua Villavicencio de 2 litros",
+     "archivo": false,
+     "respuesta": "Buen día. Te damos la bienvenida a O.D.B. El Villavicencio de 2 L lo tenemos por botella suelta (no viene en pack); en pack x6 está el de 1,5 L. ¿Te anoto 10 botellas de 2 L o preferís 10 packs de 1,5 L x6?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "cant-04",
+   "categoria": "cantidades",
+   "titulo": "Medio kilo de pan",
+   "ok": true,
+   "puntaje": 5,
+   "fallas": [],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "medio kilo de pan",
+     "archivo": false,
+     "respuesta": "Buen día. Te damos la bienvenida a O.D.B. Anoté:\n• 0,5 kg × Pan al peso\n\n¿Está completo el pedido o querés sumar algo?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "cant-05",
+   "categoria": "cantidades",
+   "titulo": "Queso por gramos",
+   "ok": true,
+   "puntaje": 5,
+   "fallas": [],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "200 gramos de parmesano vaquero",
+     "archivo": false,
+     "respuesta": "Buen día. Te damos la bienvenida a O.D.B. Te anoto:\n• 0,200 kg × Queso Parmesano Vaquero x fracción\n\n¿Está completo el pedido o querés sumar algo?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "puntual-01",
+   "categoria": "producto puntual",
+   "titulo": "Fernet puntual",
+   "ok": true,
+   "puntaje": 5,
+   "fallas": [],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "tenés fernet branca de 750?",
+     "archivo": false,
+     "respuesta": "Buen día. Te damos la bienvenida a O.D.B. Sí, tenemos Fernet Branca de 750 cc a $20.500.",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "puntual-02",
+   "categoria": "producto puntual",
+   "titulo": "Whisky de más de un litro",
+   "ok": true,
+   "puntaje": 5,
+   "fallas": [],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "Que whiskies tienen en botella de más de 1 litro? es para regalo",
+     "archivo": false,
+     "respuesta": "Buen día. Te damos la bienvenida a O.D.B. En más de 1 litro tengo el Chivas Regal 12 años Balancin x 4,5 L a $465.000 (quedan 2 en la sucursal Saint Thomas). Es el formato más grande con stock hoy y va muy bien como regalo. Si querés, te paso opciones de 1 litro.",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "puntual-03",
+   "categoria": "producto puntual",
+   "titulo": "Producto que no está en el catálogo",
+   "ok": true,
+   "puntaje": 4,
+   "fallas": [],
+   "problemas": [
+    "No especifica qué aromas hay disponibles, obligando al cliente a preguntar de nuevo"
+   ],
+   "charla": [
+    {
+     "cliente": "Tenés difusores Saphirus?",
+     "archivo": false,
+     "respuesta": "Buen día. Te damos la bienvenida a O.D.B. Sí, tenemos el Aromatizante Saphirus Difusor (varios aromas) a $7.900, con 7 unidades en la sucursal Saint Thomas.",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "puntual-04",
+   "categoria": "producto puntual",
+   "titulo": "Vino por nombre coloquial",
+   "ok": true,
+   "puntaje": 5,
+   "fallas": [],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "3 santa julia tinto dulce",
+     "archivo": false,
+     "respuesta": "Buen día. Te damos la bienvenida a O.D.B. Te anoto:\n• 3 × Santa Julia Tinto Dulce 750 cc\n\n¿Está completo el pedido o querés sumar algo?",
+     "herramientas": [
+      "identificar_cliente",
+      "consultar_cava"
+     ]
+    },
+    {
+     "cliente": "si",
+     "archivo": false,
+     "respuesta": "• Santa Julia Tinto Dulce x750cc — 3 × $8.100 c/u = $24.300\n\n*Total: $24.300*\n\n¿Lo retirás por la sucursal Saint Thomas (Castex 3601) o preferís envío?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos",
+      "cotizar_pedido",
+      "preparar_pedido(frenado)"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "pedido-01",
+   "categoria": "pedido",
+   "titulo": "Pedido completo para retirar",
+   "ok": true,
+   "puntaje": 5,
+   "fallas": [],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "Hola, quiero 2 fernet branca de 750 y 3 coca zero de 1.75, paso a retirar yo, Juan Perez",
+     "archivo": false,
+     "respuesta": "Buen día. Te damos la bienvenida a O.D.B. Anoté:\n• 2 × Fernet Branca 750 cc\n• 3 × Coca Cola Zero 1,75 L\n\n¿Está completo el pedido o querés sumar algo?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos",
+      "buscar_productos"
+     ]
+    },
+    {
+     "cliente": "sí, eso es todo",
+     "archivo": false,
+     "respuesta": "• Fernet Branca  x750cc — 2 × $20.500 c/u = $41.000\n• Coca Cola Zero x1.75L — 3 × $4.700 c/u = $14.100\nTotal: $55.100\nRetiro en la sucursal Saint Thomas.\n¿Lo confirmo?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos",
+      "buscar_productos",
+      "cotizar_pedido",
+      "preparar_pedido"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "pedido-02",
+   "categoria": "pedido",
+   "titulo": "El sí confirma y crea el pedido",
+   "ok": true,
+   "puntaje": 5,
+   "fallas": [],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "Hola, quiero 2 fernet branca de 750 y 3 coca zero de 1.75, paso a retirar yo, Juan Perez",
+     "archivo": false,
+     "respuesta": "Buen día. Te damos la bienvenida a O.D.B. Anoté:\n• 2 × Fernet Branca 750 cc\n• 3 × Coca Cola Zero 1,75 L\n\n¿Está completo el pedido o querés sumar algo?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos",
+      "buscar_productos"
+     ]
+    },
+    {
+     "cliente": "es todo",
+     "archivo": false,
+     "respuesta": "• Fernet Branca  x750cc — 2 × $20.500 c/u = $41.000\n• Coca Cola Zero x1.75L — 3 × $4.700 c/u = $14.100\nTotal: $55.100\nRetiro en la sucursal Saint Thomas.\n¿Lo confirmo?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos",
+      "buscar_productos",
+      "cotizar_pedido",
+      "preparar_pedido"
+     ]
+    },
+    {
+     "cliente": "si",
+     "archivo": false,
+     "respuesta": "Pedido PICKUP-BANCO0001 confirmado. Total: $55.100.\nSe abona al retirar, en efectivo o tarjeta.",
+     "herramientas": [
+      "crear_pedido"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "pedido-03",
+   "categoria": "pedido",
+   "titulo": "Sí después de un mensaje intermedio (Catalina)",
+   "ok": true,
+   "puntaje": 5,
+   "fallas": [],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "Quiero 16 coca zero de 1.75 para envío a Los Talas 15, recibe Catalina",
+     "archivo": false,
+     "respuesta": "Buen día. Te damos la bienvenida a O.D.B. Anoté:\n• 16 × Coca Cola Zero 1,75 L Envío a Los Talas 15, recibe Catalina.\n\n¿Está completo el pedido o querés sumar algo?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos"
+     ]
+    },
+    {
+     "cliente": "sí, nada más",
+     "archivo": false,
+     "respuesta": "• Coca Cola Zero x1.75L — 16 × $4.700 c/u = $75.200\nTotal: $75.200\nEnvío sin cargo a Los Talas 15. Recibe Catalina.\n¿Lo confirmo?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos",
+      "cotizar_pedido",
+      "preparar_pedido"
+     ]
+    },
+    {
+     "cliente": "efectivo",
+     "archivo": false,
+     "respuesta": "Perfecto, efectivo al recibir. Total $75.200. ¿Lo confirmo?",
+     "herramientas": []
+    },
+    {
+     "cliente": "si",
+     "archivo": false,
+     "respuesta": "Pedido PICKUP-BANCO0002 confirmado. Total: $75.200.\nEnvío sin cargo. Se abona al recibir, en efectivo.",
+     "herramientas": [
+      "crear_pedido"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "pedido-04",
+   "categoria": "pedido",
+   "titulo": "Cambio de producto en el resumen",
+   "ok": true,
+   "puntaje": 4,
+   "fallas": [],
+   "problemas": [
+    "No confirma explícitamente el cambio de producto antes de repetir el resumen (ej: 'Cambié a Coca Zero 1.75L')",
+    "Asume mismo precio para Coca Zero sin verificar que sea el precio real del producto"
+   ],
+   "charla": [
+    {
+     "cliente": "Quiero 4 coca cola de 1.75 para retirar, soy Ana",
+     "archivo": false,
+     "respuesta": "Buen día. Te damos la bienvenida a O.D.B. Ana, anoté:\n• 4 × Coca Cola 1.75l\n\n¿Está completo el pedido o querés sumar algo?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos"
+     ]
+    },
+    {
+     "cliente": "es todo",
+     "archivo": false,
+     "respuesta": "• Coca Cola 1.75l — 4 × $4.700 c/u = $18.800\nTotal: $18.800\nRetiro en la sucursal Saint Thomas.\n¿Lo confirmo?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos",
+      "cotizar_pedido",
+      "preparar_pedido"
+     ]
+    },
+    {
+     "cliente": "reemplazalas por coca zero",
+     "archivo": false,
+     "respuesta": "• Coca Cola Zero x1.75L — 4 × $4.700 c/u = $18.800\nTotal: $18.800\nRetiro en la sucursal Saint Thomas.\n¿Lo confirmo?",
+     "herramientas": [
+      "buscar_productos",
+      "cotizar_pedido",
+      "preparar_pedido"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "pedido-05",
+   "categoria": "pedido",
+   "titulo": "Lista larga con renglones",
+   "ok": false,
+   "puntaje": 2,
+   "fallas": [
+    "turno 1: falta: /•/",
+    "turno 3: falta: /Total/",
+    "turno 3: no usó cotizar_pedido"
+   ],
+   "problemas": [
+    "Turno 3 no cotizó los renglones con viñeta y precios ni dio el total, pese a tener toda la info para hacerlo",
+    "No preguntó retiro o envío en el turno 3 como correspondía",
+    "Volvió a preguntar si el pedido está completo, algo que ya se había confirmado en turnos anteriores, generando un loop innecesario",
+    "La herramienta cotizar_pedido aparece pero queda 'frenada', sin reflejarse en la respuesta al cliente"
+   ],
+   "charla": [
+    {
+     "cliente": "Necesito:\n2 fernet branca 750\n6 coca cola 1.75\n1 hielo\n2 papas lays\n1 mani king",
+     "archivo": false,
+     "respuesta": "Buen día. Te damos la bienvenida a O.D.B. Anoté: 2 × Fernet Branca 750 cc, 6 × Coca Cola 1.75 L, 1 × Hielo bolsa 15 kg (de 5 kg no tengo stock ahora), 2 × papas Lays y 1 × Maní King.\n\nEn Lays hay clásicas 134 g o 330 g y las de 77 g (queso crema y cebolla, asado, provoleta, jamón serrano, barbacoa, ketchup, flaming hot); en Maní King, con cáscara 400 g o pelado 350 g. ¿Cuáles te preparo y el pedido queda completo así?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos"
+     ]
+    },
+    {
+     "cliente": "sí, es todo",
+     "archivo": false,
+     "respuesta": "Me falta una sola definición para cerrarlo: las 2 Lays, ¿clásicas 134 g, clásicas 330 g o de 77 g (queso crema y cebolla, asado, provoleta, jamón serrano, barbacoa, ketchup o flaming hot)? Y el Maní King, ¿con cáscara 400 g o pelado 350 g? No quiero elegirte un sabor que no sea el que buscás; con eso te paso el total.",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos"
+     ]
+    },
+    {
+     "cliente": "las clásicas de 134 y el pelado",
+     "archivo": false,
+     "respuesta": "Anotado así:\n• 2 × Fernet Branca 750 cc\n• 6 × Coca Cola 1.75 L\n• 1 × Hielo bolsa 15 kg\n• 2 × Papas Lays clásicas 134 g\n• 1 × Maní King pelado 350 g\n\n¿Está completo el pedido o querés sumar algo?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "cotizar_pedido(frenado)"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "rep-01",
+   "categoria": "repetición",
+   "titulo": "Dos sí seguidos no repiten",
+   "ok": true,
+   "puntaje": 5,
+   "fallas": [],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "3 coca zero 1.75 para retirar, Pedro",
+     "archivo": false,
+     "respuesta": "Buen día. Te damos la bienvenida a O.D.B. Anoté:\n• 3 × Coca Cola Zero 1,75 L\n\n¿Está completo el pedido o querés sumar algo?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos"
+     ]
+    },
+    {
+     "cliente": "si",
+     "archivo": false,
+     "respuesta": "• Coca Cola Zero x1.75L — 3 × $4.700 c/u = $14.100\nTotal: $14.100\nRetiro en la sucursal Saint Thomas.\n¿Lo confirmo?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos",
+      "cotizar_pedido",
+      "preparar_pedido"
+     ]
+    },
+    {
+     "cliente": "si",
+     "archivo": false,
+     "respuesta": "Pedido PICKUP-BANCO0003 confirmado. Total: $14.100.\nSe abona al retirar, en efectivo o tarjeta.",
+     "herramientas": [
+      "crear_pedido"
+     ]
+    },
+    {
+     "cliente": "si",
+     "archivo": false,
+     "respuesta": "",
+     "herramientas": []
+    }
+   ]
+  },
+  {
+   "id": "rep-02",
+   "categoria": "repetición",
+   "titulo": "Signo de pregunta suelto",
+   "ok": true,
+   "puntaje": 5,
+   "fallas": [],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "cuanto sale la coca zero de 1.75 y el fernet branca?",
+     "archivo": false,
+     "respuesta": "Buen día. Te damos la bienvenida a O.D.B. La Coca Cola Zero de 1,75 L está $4.700 y el Fernet Branca de 750 cc, $20.500.",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos",
+      "buscar_productos"
+     ]
+    },
+    {
+     "cliente": "?",
+     "archivo": false,
+     "respuesta": "¿Qué necesitás saber?",
+     "herramientas": []
+    }
+   ]
+  },
+  {
+   "id": "cons-01",
+   "categoria": "consulta interna",
+   "titulo": "Parte sabe, parte consulta",
+   "ok": true,
+   "puntaje": 4,
+   "fallas": [],
+   "problemas": [
+    "No calculó el subtotal ni total pese a que el cliente preguntó 'cuánto sale'",
+    "Agregó una pregunta extra (confirmar papas de 330g) además de la consulta sobre las picadas, aunque razonable por la ambigüedad de stock"
+   ],
+   "charla": [
+    {
+     "cliente": "necesito 2 picadas XL para 10 personas, 10 coca zero de 1.75 y 4 papas lays grandes. Cuanto sale?",
+     "archivo": false,
+     "respuesta": "Buen día, te damos la bienvenida a O.D.B.\n\nTe paso lo que tengo:\n\n• Coca Cola Zero 1,75 L — $4.700 c/u (hay stock para las 10)\n• Papas Lays: la más grande con stock es la clásica de 330 g a $12.300; la de 230 g no tengo stock ahora. ¿Te preparo 4 de la de 330 g?\n\nLas picadas XL me figuran sin stock en el sistema.\n\nLo consulto y te confirmo por acá.",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "consultar_interno"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "cons-02",
+   "categoria": "consulta interna",
+   "titulo": "Solo algo desconocido",
+   "ok": true,
+   "puntaje": 4,
+   "fallas": [],
+   "problemas": [
+    "El mensaje es más extenso de lo necesario, mezcla info de precio/stock con la consulta de añada cuando podría ser más directo",
+    "Repite la idea de 'chequeando' y luego 'te confirmo por acá', es redundante"
+   ],
+   "charla": [
+    {
+     "cliente": "¿El Catena Zapata Malbec Argentino es cosecha 2019 o 2020?",
+     "archivo": false,
+     "respuesta": "Buen día, te damos la bienvenida a O.D.B.\n\nLa ficha del Catena Zapata Malbec Argentino x750cc no indica la añada, así que la estoy chequeando con las botellas que hay en góndola. Está a $73.800 y hay stock en la sucursal Saint Thomas.\n\nLo consulto y te confirmo por acá.",
+     "herramientas": [
+      "identificar_cliente",
+      "consultar_cava",
+      "consultar_interno"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "cierre-01",
+   "categoria": "cierres",
+   "titulo": "Gracias no se contesta",
+   "ok": true,
+   "puntaje": 5,
+   "fallas": [],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "Graciasss",
+     "archivo": false,
+     "respuesta": "",
+     "herramientas": []
+    }
+   ]
+  },
+  {
+   "id": "cierre-02",
+   "categoria": "cierres",
+   "titulo": "Holis abre la charla",
+   "ok": true,
+   "puntaje": 5,
+   "fallas": [],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "holis",
+     "archivo": false,
+     "respuesta": "Buen día. Te damos la bienvenida a O.D.B. ¿En qué te puedo ayudar?",
+     "herramientas": [
+      "identificar_cliente"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "cierre-03",
+   "categoria": "cierres",
+   "titulo": "Ok gracias después de cotizar",
+   "ok": true,
+   "puntaje": 5,
+   "fallas": [],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "cuanto sale el fernet branca de 750?",
+     "archivo": false,
+     "respuesta": "Buen día. Te damos la bienvenida a O.D.B. El Fernet Branca de 750 cc está $20.500.",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos"
+     ]
+    },
+    {
+     "cliente": "ok gracias",
+     "archivo": false,
+     "respuesta": "",
+     "herramientas": []
+    }
+   ]
+  },
+  {
+   "id": "casa-01",
+   "categoria": "la casa",
+   "titulo": "Horario",
+   "ok": true,
+   "puntaje": 5,
+   "fallas": [],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "hasta que hora estan abiertos hoy?",
+     "archivo": false,
+     "respuesta": "Buen día. Te damos la bienvenida a O.D.B. Hoy la sucursal Saint Thomas está abierta de 8 a 21 y Santa Inés de 8.30 a 20.30.",
+     "herramientas": [
+      "estado_local",
+      "identificar_cliente"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "casa-02",
+   "categoria": "la casa",
+   "titulo": "Retiro en Santa Inés",
+   "ok": true,
+   "puntaje": 5,
+   "fallas": [],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "puedo retirar el pedido en santa ines?",
+     "archivo": false,
+     "respuesta": "Buen día. Te damos la bienvenida a O.D.B. Los pedidos por WhatsApp se retiran en la sucursal Saint Thomas, Castex 3601, Canning. En Santa Inés (Juana de Arco 7300) la compra es presencial en el local.",
+     "herramientas": [
+      "identificar_cliente"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "casa-03",
+   "categoria": "la casa",
+   "titulo": "Nombre de la sucursal",
+   "ok": true,
+   "puntaje": 5,
+   "fallas": [],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "donde queda el local de castex?",
+     "archivo": false,
+     "respuesta": "Buen día. Te damos la bienvenida a O.D.B. La sucursal Saint Thomas queda en Mariano Castex 3601, Canning.",
+     "herramientas": [
+      "identificar_cliente"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "casa-04",
+   "categoria": "la casa",
+   "titulo": "Evento Wine Fest",
+   "ok": true,
+   "puntaje": 5,
+   "fallas": [],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "cuando es el wine fest?",
+     "archivo": false,
+     "respuesta": "Buen día. Te damos la bienvenida a O.D.B. El ODB Wine Fest 2026 es el viernes 30 de octubre de 2026, de 20 a 01 hs, en el local de Mariano Castex 3601, Canning.",
+     "herramientas": [
+      "identificar_cliente"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "casa-05",
+   "categoria": "la casa",
+   "titulo": "Entradas del Wine Fest",
+   "ok": true,
+   "puntaje": 5,
+   "fallas": [],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "como compro la entrada para el wine fest?",
+     "archivo": false,
+     "respuesta": "Buen día. Te damos la bienvenida a O.D.B. Las entradas del ODB Wine Fest 2026 se consiguen solo por este link de Passcore: https://passcore.net/organizador/odb-premium-market-6a525b88e41c6e2b71e2c0b7 La entrada sale $65.000 (+ service charge) e incluye el copón para degustar y un voucher de $20.000 para comprar productos después del evento. Es el viernes 30/10/2026, de 20 a 01 hs, en Mariano Castex 3601, Canning.",
+     "herramientas": [
+      "identificar_cliente"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "pago-01",
+   "categoria": "pagos",
+   "titulo": "Pide el alias",
+   "ok": true,
+   "puntaje": 5,
+   "fallas": [],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "pasame el alias así te transfiero",
+     "archivo": false,
+     "respuesta": "Buen día, te damos la bienvenida a O.D.B. Alias: outlet.de.bebidas · CBU: 0720738120000000655518 · Titular: Chinvenguencha SRL (Santander). Cuando transfieras, mandame el comprobante por acá.",
+     "herramientas": [
+      "identificar_cliente",
+      "derivar_pago"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "pago-02",
+   "categoria": "pagos",
+   "titulo": "Avisa que mandó el comprobante",
+   "ok": true,
+   "puntaje": 5,
+   "fallas": [],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "ya te transferí, te mando el comprobante",
+     "archivo": false,
+     "respuesta": "Buen día. Te damos la bienvenida a O.D.B. Perfecto, mandalo por acá.",
+     "herramientas": [
+      "identificar_cliente"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "pago-03",
+   "categoria": "pagos",
+   "titulo": "Pregunta si debe algo",
+   "ok": true,
+   "puntaje": 5,
+   "fallas": [],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "creo que me quedó una cuenta sin pagar, cuanto les debo?",
+     "archivo": false,
+     "respuesta": "Buen día. Te damos la bienvenida a O.D.B.\n\nEl monto de la deuda no lo tengo por acá: el saldo lo confirma administración.\n\nPara que lo revisen, ¿a nombre de quién está la cuenta (nombre o razón social)?",
+     "herramientas": [
+      "identificar_cliente"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "prov-01",
+   "categoria": "proveedores",
+   "titulo": "Distribuidor ofrece mercadería",
+   "ok": true,
+   "puntaje": 5,
+   "fallas": [],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "Buen día, soy de Distribuidora City, te paso las ofertas de la semana en alfajores y galletitas, necesitas algo?",
+     "archivo": false,
+     "respuesta": "Buen día. Te damos la bienvenida a O.D.B. Soy Emilia. Registré el contacto y le avisé a la encargada de compras. Podés dejar acá la lista con precios y condiciones, y la revisan desde compras.",
+     "herramientas": [
+      "registrar_proveedor"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "prov-02",
+   "categoria": "proveedores",
+   "titulo": "Proveedor avisa entrega",
+   "ok": true,
+   "puntaje": 4,
+   "fallas": [],
+   "problemas": [
+    "Dice 'ya le avisé a compras' antes de tener los datos completos (nombre de empresa y horario), siendo que después los pide: el aviso debería confirmarse recién al completar esos datos"
+   ],
+   "charla": [
+    {
+     "cliente": "el jueves te llevo el pedido de las 30 cajas de napolitana",
+     "archivo": false,
+     "respuesta": "Buen día. Te damos la bienvenida a O.D.B. Te habla Emilia. Queda registrada la entrega de las 30 cajas de napolitana para el jueves y ya le avisé a compras. Para completar el aviso, decime el nombre de la empresa y el horario aproximado en que llegan.",
+     "herramientas": [
+      "identificar_cliente",
+      "registrar_proveedor"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "persona-01",
+   "categoria": "persona",
+   "titulo": "Pide hablar con alguien",
+   "ok": true,
+   "puntaje": 5,
+   "fallas": [],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "quiero hablar con una persona por favor",
+     "archivo": false,
+     "respuesta": "Buen día. Te damos la bienvenida a O.D.B. Ya pasé tu consulta al equipo para que te atienda una persona por acá.",
+     "herramientas": [
+      "identificar_cliente",
+      "derivar_a_humano"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "persona-02",
+   "categoria": "persona",
+   "titulo": "Saluda a Jackie",
+   "ok": true,
+   "puntaje": 5,
+   "fallas": [],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "Hola Jackie! como andas?",
+     "archivo": false,
+     "respuesta": "Buen día. Te damos la bienvenida a O.D.B. Te atiende Emilia, la asistente. ¿En qué te puedo ayudar?",
+     "herramientas": [
+      "identificar_cliente"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "persona-03",
+   "categoria": "persona",
+   "titulo": "¿Sos un bot?",
+   "ok": true,
+   "puntaje": 4,
+   "fallas": [],
+   "problemas": [
+    "Respuesta algo más larga de lo necesario ('corto' era la pauta), aunque el contenido es correcto y cumple con la identificación y oferta de ayuda"
+   ],
+   "charla": [
+    {
+     "cliente": "sos un bot?",
+     "archivo": false,
+     "respuesta": "Buen día. Te damos la bienvenida a O.D.B.\n\n¿Sos un bot? Soy Emilia, la asistente de O.D.B.: te atiendo por este chat y, si hace falta, te paso con alguien del local.\n\n¿En qué te puedo ayudar?",
+     "herramientas": [
+      "identificar_cliente"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "tono-01",
+   "categoria": "tono",
+   "titulo": "Consulta simple, respuesta corta",
+   "ok": true,
+   "puntaje": 5,
+   "fallas": [],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "tienen hielo?",
+     "archivo": false,
+     "respuesta": "Buen día. Te damos la bienvenida a O.D.B. Sí, tenemos hielo en bolsa de 15 kg a $14.000.",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "tono-02",
+   "categoria": "tono",
+   "titulo": "Reclamo de precio",
+   "ok": true,
+   "puntaje": 4,
+   "fallas": [],
+   "problemas": [
+    "Dice que va a consultar y confirmar, pero no queda claro que efectivamente se derive la consulta al local (falta acción concreta de derivación, no solo la mención)",
+    "Podría ofrecer alternativa de precio del tamaño similar de forma más clara para cerrar la duda sin dejar todo pendiente a la consulta"
+   ],
+   "charla": [
+    {
+     "cliente": "la coca zero la semana pasada estaba a 3000, por que me la cobras 4700?",
+     "archivo": false,
+     "respuesta": "Buen día. Te damos la bienvenida a O.D.B.\n\nSobre por qué son $4.700: ese es el precio que figura hoy en el sistema para la Coca Cola Zero de 1,75 L. No tengo acá el registro de lo que se cobró la semana pasada, así que no te puedo confirmar de dónde salió el valor anterior; puede haber sido otro tamaño (la de 600 cc y la lata de 355 cc están $2.500).\n\nLo consulto y te confirmo por acá.",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos"
+     ]
+    }
+   ],
+   "intermitente": {
+    "primera": {
+     "puntaje": 3,
+     "fallas": [],
+     "problemas": [
+      "Da el precio vigente correctamente pero luego agrega 'lo consulto y te confirmo por acá' sin dejar claro qué queda pendiente de confirmar, ya que el precio ya fue informado como definitivo: genera confusión y una promesa de seguimiento innecesaria",
+      "Agrega información de otros tamaños no solicitada por el cliente, alargando la respuesta sin necesidad"
+     ]
+    }
+   }
+  },
+  {
+   "id": "alcohol-01",
+   "categoria": "alcohol",
+   "titulo": "Suma con precio y no da la entrega por elegida",
+   "ok": false,
+   "puntaje": 3,
+   "fallas": [
+    "turno 2: falta: /complet|sumar algo|algo m[aá]s|agregar algo/"
+   ],
+   "problemas": [
+    "En el primer mensaje anotó el pedido sin precios pero incluyó un saludo distinto al de la regla ('Buen día' en vez de 'Buenas tardes, te damos la bienvenida a O.D.B.')",
+    "No se detecta que haya inventado precios, pero no se puede confirmar que los precios cotizados sean reales/correctos",
+    "El flujo de herramientas muestra cotizar_pedido y preparar_pedido en estado 'frenado' repetidas veces sin resolución clara, lo que sugiere fallas técnicas no explicadas en el chat"
+   ],
+   "charla": [
+    {
+     "cliente": "quiero 2 fernet branca de 750",
+     "archivo": false,
+     "respuesta": "Buen día. Te damos la bienvenida a O.D.B. Anoté:\n• 2 × Fernet Branca 750 cc\n\n¿Está completo el pedido o querés sumar algo?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos"
+     ]
+    },
+    {
+     "cliente": "y sumale 1 smirnoff",
+     "archivo": false,
+     "respuesta": "Sumé el Smirnoff. La lista queda:\n• 2 × Fernet Branca 750 cc\n• 1 × Smirnoff 700 cc (vodka clásico)\n\n¿Eso sería todo?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos",
+      "buscar_productos",
+      "cotizar_pedido(frenado)",
+      "preparar_pedido(frenado)"
+     ]
+    },
+    {
+     "cliente": "listo, eso es todo",
+     "archivo": false,
+     "respuesta": "• Fernet Branca 750 cc — 2 × $20.500 c/u = $41.000\n• Smirnoff 700 cc — 1 × $12.800 c/u = $12.800\n\n*Total: $53.800*\n\n¿Lo retirás por la sucursal Saint Thomas (Castex 3601) o preferís envío?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos",
+      "buscar_productos",
+      "cotizar_pedido",
+      "preparar_pedido(frenado)"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "archivo-01",
+   "categoria": "archivos",
+   "titulo": "Texto 'gracias' con archivo no es cierre",
+   "ok": true,
+   "puntaje": 5,
+   "fallas": [],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "Graciassss",
+     "archivo": true,
+     "respuesta": "Recibido.",
+     "herramientas": [
+      "identificar_cliente",
+      "derivar_pago"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "stock-01",
+   "categoria": "stock",
+   "titulo": "Tamaño sin stock",
+   "ok": true,
+   "puntaje": 5,
+   "fallas": [],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "tenes coca cola de 1.5?",
+     "archivo": false,
+     "respuesta": "Buen día. Te damos la bienvenida a O.D.B. De 1,5 L no tengo stock ahora; sí tengo la de 1,75 L a $4.700.",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "stock-02",
+   "categoria": "stock",
+   "titulo": "Pide más de lo que hay",
+   "ok": true,
+   "puntaje": 4,
+   "fallas": [],
+   "problemas": [
+    "No incluyó precio de las 309 unidades disponibles, pudiendo cotizar al menos esa parte",
+    "Podría haber confirmado que se trata de una cantidad mayorista antes de avanzar, en vez de asumir directamente disponibilidad parcial"
+   ],
+   "charla": [
+    {
+     "cliente": "quiero 500 fernet branca de 750",
+     "archivo": false,
+     "respuesta": "Buen día, te damos la bienvenida a O.D.B. Te anoto:\n\n• 500 × Fernet Branca 750 cc — en la sucursal Saint Thomas tengo 309 disponibles ahora; las 191 restantes las estoy consultando\n\n¿Querés que avancemos con las 309 mientras tanto, o preferís esperar la respuesta por el total?\n\nLo consulto y te confirmo por acá.",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos",
+      "consultar_interno"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "mixto-01",
+   "categoria": "mixto",
+   "titulo": "Pregunta de envío dentro de un pedido",
+   "ok": true,
+   "puntaje": 4,
+   "fallas": [],
+   "problemas": [
+    "No retoma el pedido pendiente (confirmar las 6 IPA o si suma algo más) tras responder la duda del envío"
+   ],
+   "charla": [
+    {
+     "cliente": "Hola, me mandas 6 quilmes a casa? Rivadavia 234, Canning, a nombre de Ana",
+     "archivo": false,
+     "respuesta": "Buen día, te damos la bienvenida a O.D.B. Envío a Rivadavia 234, Canning, a nombre de Ana: sin cargo, aunque 6 latas no alcanzan el mínimo de $70.000 para envío; el retiro por la sucursal Saint Thomas no tiene mínimo.\n\nDe Quilmes clásica 473 cc no tengo stock; sí Quilmes IPA 473 cc a $2.500. ¿Te anoto las 6 IPA y sumás algo más, o preferís retirarlo?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos"
+     ]
+    },
+    {
+     "cliente": "Perfecto. Cuanto es el flete? me cobran el reparto aparte no?",
+     "archivo": false,
+     "respuesta": "El flete es sin cargo, no tiene costo. No, el reparto no se cobra aparte: el total del pedido es todo lo que pagás.",
+     "herramientas": []
+    }
+   ],
+   "intermitente": {
+    "primera": {
+     "puntaje": 2,
+     "fallas": [],
+     "problemas": [
+      "Repite el mensaje de envío sin cargo ya confirmado en el turno anterior",
+      "Dice 'lo consulto' cuando no correspondía, ya que el dato del envío sin cargo ya estaba confirmado",
+      "No avanza con el pedido (falta confirmar medio de pago, retiro/envío, etc.)",
+      "Uso innecesario de cotizar_pedido cuando no había nada que cotizar"
+     ]
+    }
+   }
+  },
+  {
+   "id": "bot-01",
+   "categoria": "contestador",
+   "titulo": "Del otro lado contesta un bot de menú",
+   "ok": true,
+   "puntaje": 5,
+   "fallas": [],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "Hola, ¿tienen hielo?",
+     "archivo": false,
+     "respuesta": "Buen día. Te damos la bienvenida a O.D.B. Sí, tenemos hielo en bolsa de 15 kg a $14.000 en la sucursal Saint Thomas.",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos"
+     ]
+    },
+    {
+     "cliente": "*Tocá la opción* del tema que necesites ayuda:",
+     "archivo": false,
+     "respuesta": "",
+     "herramientas": []
+    },
+    {
+     "cliente": "Perdón, pero por ahora sólo puedo responderte *si tocás un botón* del menú. 😉",
+     "archivo": false,
+     "respuesta": "",
+     "herramientas": []
+    }
+   ]
+  }
+ ]
+}

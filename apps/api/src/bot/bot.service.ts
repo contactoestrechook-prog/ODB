@@ -1,9 +1,10 @@
-import { esperaRetiroOEnvio, eligeRetiroOEnvio } from './entrega';
+import { esperaRetiroOEnvio, eligeRetiroOEnvio, eligioModalidad } from './entrega';
 import { esContestadorAutomatico } from './contestador';
+import { puedeCotizar } from './completo';
 import { agruparItems, cantidadesIndividuales, centavos, confirmacionInequivoca, idWhatsappCorto, importesDeHerramienta, importesDelTexto, pesos, presentacionProducto } from './comercio';
 import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import { volumenMl, etiquetaVolumen, pideTamano, medidaPartida, resumenDeTamanos, cantidadesPedidas, PALABRA_GENERICA } from './formatos';
-import { emprolijarListado, nombreLimpio, saludoSegunHora, saludarConBienvenida, niegaPercepcion, respetuosoSinConfianza, saintThomas, envioSinCargo, asegurarEnvioSinCargo, casiIgual, campoLimpio, respuestaConConsulta, esAlucinacionDeTranscripcion, nombreSucursalCliente, esAutomaticoWhatsappBusiness } from './prolijo';
+import { emprolijarListado, nombreLimpio, saludoSegunHora, saludarConBienvenida, niegaPercepcion, respetuosoSinConfianza, saintThomas, envioSinCargo, asegurarEnvioSinCargo, casiIgual, campoLimpio, respuestaConConsulta, esAlucinacionDeTranscripcion, nombreSucursalCliente, esAutomaticoWhatsappBusiness, minimoConMonto } from './prolijo';
 import { controlDeFechas } from './fechas';
 import { desvioDeLoPedido } from './desvio';
 import { oggCompleto } from './ogg';
@@ -47,6 +48,11 @@ function bonitoTelefono(t: string): string {
   return d ? `+${d}` : '';
 }
 import { cartelPrecios } from '../comun/cartel-precios';
+import { cartelPedido, leerResumenDePedido } from '../comun/cartel-pedido';
+
+// pedido mínimo para envío a domicilio (Leandro, 25/9/2026); ENVIO_MINIMO lo cambia sin tocar código
+const envioMinimo = () => Number(process.env.ENVIO_MINIMO ?? 70000) || 70000;
+const TODAVIA_SIN_PRECIOS = 'TODAVÍA NO PASES PRECIOS (regla del dueño): primero confirmá que el pedido está completo. Respondé con la lista de lo que anotaste, un renglón por producto «• cantidad × producto puntual», SIN precios ni total, y la pregunta «¿Está completo el pedido o querés sumar algo?». Si algo no tiene stock o hay que elegir variante, decilo en esa lista. Recién cuando el cliente confirme que está completo, cotizar_pedido.';
 
 @Injectable()
 export class BotService {
@@ -532,6 +538,30 @@ export class BotService {
       return callar('acuse de un pedido ya confirmado');
     }
 
+    // SOLO LA FORMA DE PAGO DESPUÉS DEL RESUMEN (25/9/2026): el cliente dice
+    // "efectivo" al "¿Lo confirmo?" y el modelo rehacía el resumen entero, casi
+    // igual (Catalina). La forma de pago no cambia el pedido: se anota en la
+    // cotización y se vuelve a pedir confirmación en una línea, con el total.
+    {
+      const medio = /^(?:en |con |pago (?:en |con )?)?(efectivo|tarjeta(?: de (?:d[eé]bito|cr[eé]dito))?|d[eé]bito|cr[eé]dito)[\s!.]*$/i.exec(texto.trim())?.[1];
+      if (!traeArchivo && medio && /¿lo confirmo\?/i.test(String(ultimoMsgBot))) {
+        const { data: q } = await this.db.from('bot_cotizaciones').select('id, total, tipo, notas, confirmada_en, creada_en')
+          .eq('telefono', telefono).eq('linea', linea).order('creada_en', { ascending: false }).limit(1).maybeSingle();
+        if (q && !q.confirmada_en && Date.now() - new Date(q.creada_en).getTime() < 3 * 3600_000 && String(ultimoMsgBot).includes(`$${pesos(Number(q.total))}`)) {
+          const forma = medio.toLowerCase().startsWith('efectivo') ? 'efectivo' : 'tarjeta';
+          await this.db.from('bot_cotizaciones').update({ notas: [q.notas, `Paga con ${forma}`].filter(Boolean).join(' · ').slice(0, 300) }).eq('id', q.id);
+          const resp = `Perfecto, ${forma} al ${q.tipo === 'domicilio' ? 'recibir' : 'retirar'}. Total $${pesos(Number(q.total))}. ¿Lo confirmo?`;
+          await this.db.from('bot_conversaciones').upsert({
+            linea, telefono,
+            mensajes: [...historial, { role: 'user', content: texto }, { role: 'assistant', content: resp }].slice(-MAX_HISTORIAL),
+            actualizado_en: new Date().toISOString(),
+          }, { onConflict: 'linea,telefono' });
+          if (mensajeId) await this.db.from('bot_mensajes').upsert({ linea, mensaje_id: mensajeId, telefono, respuesta: resp }).then(() => null, () => null);
+          return { respuesta: resp };
+        }
+      }
+    }
+
     // EL "SÍ" CREA EL PEDIDO (23/9/2026). El banco de pruebas mostró que, ante un
     // "si" al "¿Lo confirmo?", el modelo a veces volvía a llamar preparar_pedido
     // y repetía el resumen entero (Catalina, Pedro, Juan). Es intermitente: la
@@ -701,7 +731,7 @@ export class BotService {
     if (pedidas.length) {
       system.push({
         type: 'text',
-        text: `CANTIDADES QUE PIDIÓ EL CLIENTE EN ESTE MENSAJE (las leyó el sistema, son firmes): ${pedidas.map((x) => `${x.cantidad} × ${x.que}`).join(' · ')}. Cotizá ESAS cantidades de una, sin volver a preguntar cuántas, y nombrando el producto puntual que pidió (no la lista de la marca).`,
+        text: `CANTIDADES QUE PIDIÓ EL CLIENTE EN ESTE MENSAJE (las leyó el sistema, son firmes): ${pedidas.map((x) => `${x.cantidad} × ${x.que}`).join(' · ')}. Anotá ESAS cantidades de una, sin volver a preguntar cuántas, y nombrando el producto puntual que pidió (no la lista de la marca).`,
       });
     }
 
@@ -1459,6 +1489,12 @@ export class BotService {
       }
     }
 
+    // si preguntó cuánto sale el envío, la respuesta lo dice SIEMPRE, también
+    // cuando la validación de importes de arriba reemplazó el texto por el acuse
+    // de consulta (banco 25/9/2026: "¿cuánto es el flete?" → "Lo consulto…")
+    if (respuesta) respuesta = asegurarEnvioSinCargo(texto, respuesta);
+    if (respuesta) respuesta = minimoConMonto(respuesta, envioMinimo());
+
     // 4) persistir memoria (solo los turnos de texto, recortada) + tokens acumulados
     const nuevoHistorial = [
       ...historial,
@@ -1607,7 +1643,8 @@ export class BotService {
           for (const it of ((out as any)?.items ?? [])) if (it?.sku) skusVistosEnTurno.add(String(it.sku));
           break;
         case 'preparar_pedido': {
-          out = await this.prepararPedido(telefono, linea, input, ctx.textoCliente, ctx.ultimoBot);
+          if (!puedeCotizar(ctx.textoCliente ?? '', ctx.ultimosBot ?? [], (ctx.ultimosCliente ?? []).slice(0, -1))) { out = { error: TODAVIA_SIN_PRECIOS }; break; }
+          out = await this.prepararPedido(telefono, linea, input, ctx.textoCliente, ctx.ultimoBot, ctx.ultimosCliente);
           if (ctx.fija) { ctx.fija.texto = (out as any).resumen; ctx.fija.operacion = true; }
           break;
         }
@@ -1633,6 +1670,7 @@ export class BotService {
           break;
         }
         case 'cotizar_pedido': {
+          if (!puedeCotizar(ctx.textoCliente ?? '', ctx.ultimosBot ?? [], (ctx.ultimosCliente ?? []).slice(0, -1))) { out = { error: TODAVIA_SIN_PRECIOS }; break; }
           out = await this.cotizarPedido(
             (input.items ?? []).map((i: any) => ({ sku: String(i.sku), cantidad: Number(i.cantidad) })),
             telefono,
@@ -2146,13 +2184,13 @@ export class BotService {
     return { ok: true, codigo: ped.qr_retiro, estado: 'cancelado', total: Number(ped.total), mensaje: 'Pedido cancelado; el stock volvió a quedar disponible.' };
   }
 
-  async prepararPedido(telefono: string, linea: string, input: any, textoCliente?: string, ultimoBot?: string) {
+  async prepararPedido(telefono: string, linea: string, input: any, textoCliente?: string, ultimoBot?: string, dichoPorElCliente?: string[]) {
     const tipo = input.tipo;
     if (!['pickup', 'domicilio'].includes(tipo)) throw new BadRequestException('Falta elegir retiro o envío');
     // RETIRO O ENVÍO LO ELIGE EL CLIENTE (23/9/2026). Si el bot acaba de
     // preguntarlo y el cliente contestó otra cosa ("sumale 1 smirnoff"), el
     // modelo ponía "Retiro en la sucursal Saint Thomas" por su cuenta.
-    if (esperaRetiroOEnvio(ultimoBot ?? '') && !eligeRetiroOEnvio(textoCliente ?? '')) {
+    if ((esperaRetiroOEnvio(ultimoBot ?? '') && !eligeRetiroOEnvio(textoCliente ?? '')) || (dichoPorElCliente && !eligioModalidad(tipo, String(input.direccion ?? ''), dichoPorElCliente))) {
       throw new BadRequestException('El cliente todavía NO eligió retiro o envío: cotizá lo nuevo con cotizar_pedido y volvé a preguntarle si lo retira por la sucursal Saint Thomas o se lo enviamos.');
     }
     // el modelo llena los campos obligatorios con basura cuando no tiene el dato
@@ -2164,6 +2202,10 @@ export class BotService {
     if (items.length > maxRenglonesBot() || items.reduce((n, i) => n + i.cantidad, 0) > maxUnidadesBot()) throw new BadRequestException('El pedido supera el máximo del canal WhatsApp; debe tomarlo el equipo');
     const cot = await this.cotizarPedido(items, telefono, { textoCliente });
     if (cot.hayFaltantes || cot.renglones.some(r => r.error || r.presentacion === 'requiere_verificacion') || !cot.sucursalId) throw new BadRequestException('No se puede confirmar: falta stock, precio o un dato de la presentación');
+    // PEDIDO MÍNIMO PARA ENVÍO (Leandro, 25/9/2026): $70.000. El retiro no tiene mínimo.
+    if (tipo === 'domicilio' && cot.total < envioMinimo()) {
+      throw new BadRequestException(`El envío a domicilio es para pedidos desde $${pesos(envioMinimo())} y este suma $${pesos(cot.total)}. Decíselo al cliente con esos números y ofrecé sumar productos o retirarlo sin mínimo en la sucursal Saint Thomas. No lo prepares como envío.`);
+    }
     const ident = await this.identificarCliente(telefono);
     // La fecha NO tumba el pedido (22/9/2026): el modelo no sabe qué día es y
     // llenaba entrega_fecha con una fecha pasada; preparar_pedido fallaba dos
@@ -2222,7 +2264,9 @@ export class BotService {
     const { data: id, error: e } = await this.db.rpc('confirmar_cotizacion_bot', { p_id: q.id, p_telefono: dto.telefono, p_linea: dto.linea ?? 'pedidos', p_confirmacion: dto.confirmacion });
     if (e || !id) throw new BadRequestException(e?.message ?? 'No se pudo confirmar el pedido');
     const ped: any = await this.pedidos.obtener(id);
-    const respuesta = `Pedido ${ped.qr_retiro} confirmado. Total: $${pesos(Number(ped.total))}.\n${q.tipo === 'domicilio' ? 'Envío sin cargo. Se abona al recibir' : 'Se abona al retirar'}, en efectivo o tarjeta.`;
+    // si ya dijo cómo paga, se repite eso y no "efectivo o tarjeta" (25/9/2026)
+    const medio = /paga con efectivo|efectivo/i.test(String(q.notas ?? '')) ? 'en efectivo' : /tarjeta|d[eé]bito|cr[eé]dito/i.test(String(q.notas ?? '')) ? 'con tarjeta' : 'en efectivo o tarjeta';
+    const respuesta = `Pedido ${ped.qr_retiro} confirmado. Total: $${pesos(Number(ped.total))}.\n${q.tipo === 'domicilio' ? 'Envío sin cargo. Se abona al recibir' : 'Se abona al retirar'}, ${medio}.`;
     return { pedidoId: id, codigoRetiro: ped.qr_retiro, total: Number(ped.total), estado: ped.estado, respuesta };
   }
 
@@ -3459,7 +3503,9 @@ export class BotService {
     // como bot; uno que "escribe" se siente atendido.
     await this.simularEscritura(desde, r.respuesta);
     // listado largo → cartel con pie de foto; si algo falla, va el texto igual
-    const cartel = (await this.cartelDePedido(r.respuesta)) ?? (await this.cartelDeListado(r.respuesta));
+    // el resumen del pedido (cantidades, total, entrega) va con el diseño Placa
+    // roja (25/9/2026); una lista de precios sin cantidades, con el cartel de siempre
+    const cartel = (await this.cartelDeResumen(r.respuesta)) ?? (await this.cartelDePedido(r.respuesta)) ?? (await this.cartelDeListado(r.respuesta));
     let envio = cartel
       ? await this.enviarPorWhatsapp({ to: desde, imagenUrl: cartel.imagenUrl, text: cartel.pie, referencia: `waha/${identidad}` })
       : { enviado: false, motivo: 'sin cartel' } as any;
@@ -3498,6 +3544,24 @@ export class BotService {
   // guarda y muestra en el mostrador. Se dispara cuando la respuesta trae un
   // código de pedido y al menos un renglón con precio — a diferencia del
   // listado, acá UNA sola línea ya amerita la tarjeta.
+  // Resumen de pedido como imagen (diseño Placa roja, elegido el 25/9/2026).
+  // Solo si TODOS los renglones se leen y suman el total; si no, va el texto.
+  private async cartelDeResumen(respuesta: string): Promise<{ imagenUrl: string; pie: string } | null> {
+    const resumen = leerResumenDePedido(respuesta);
+    if (!resumen) return null;
+    try {
+      const png = await cartelPedido(resumen);
+      const ruta = `carteles/${new Date().toISOString().slice(0, 7)}/resumen-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.png`;
+      const { error } = await this.db.storage.from('publico').upload(ruta, png, { contentType: 'image/png', upsert: true });
+      if (error) { this.log.warn(`no pude subir el resumen: ${error.message}`); return null; }
+      const imagenUrl = this.db.storage.from('publico').getPublicUrl(ruta).data.publicUrl;
+      return { imagenUrl, pie: resumen.pie || (resumen.confirmar ? '¿Lo confirmo?' : 'Te paso el resumen.') };
+    } catch (e) {
+      this.log.warn(`cartel de resumen falló: ${e instanceof Error ? e.message : e}`);
+      return null;
+    }
+  }
+
   private async cartelDePedido(respuesta: string): Promise<{ imagenUrl: string; pie: string } | null> {
     const codigo = respuesta.match(/\b(?:DOM|RET|PICKUP)-[A-Z0-9]{4,10}\b/)?.[0];
     if (!codigo) return null;

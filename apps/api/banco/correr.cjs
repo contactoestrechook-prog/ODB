@@ -83,7 +83,7 @@ async function juzgar(claude, caso, charla) {
   const guion = charla.map((t) => `CLIENTE: ${t.cliente}${t.archivo ? ' [adjunta un PDF: comprobante de transferencia de $12.000]' : ''}\nBOT: ${t.respuesta || '(no contestó)'}\n(herramientas: ${t.herramientas.join(', ') || 'ninguna'})`).join('\n\n');
   const r = await claude.messages.create({
     model: JUEZ, max_tokens: 4000, thinking: { type: 'adaptive' },
-    system: 'Sos un evaluador exigente de un bot de WhatsApp de un almacén premium argentino (O.D.B, Canning). Reglas de la casa: envío SIN CARGO siempre; nunca repetir un mensaje; la cantidad la dice el cliente; mostrar el producto puntual; "sin stock" no es "no existe"; sucursal Saint Thomas (Castex 3601) es la única de retiro; corto y concreto, voseo, sin emojis; no inventar precios ni datos; lo que no sabe lo consulta y avisa UNA vez; pagos siempre por adentro (quiere decir: alias, comprobantes y cobros los maneja administración por este mismo chat, nunca se manda a otro teléfono; pagar al retirar o al recibir en efectivo o tarjeta es correcto). Santa Inés (Juana de Arco 7300) también es del local, pero solo para compra presencial: nombrarla así es correcto. Cada charla del banco empieza de cero: el saludo "Buenas tardes, te damos la bienvenida a O.D.B." en el PRIMER mensaje es la regla de la casa, no lo penalices (sí en los siguientes). Ante un "gracias" o un cierre suelto la casa prefiere no contestar: el silencio ahí es correcto. Las herramientas de crear pedido, derivar y avisar a la casa están simuladas (el código de pedido siempre sale PICKUP-BANCO…, aunque sea envío): no las penalices por eso. Si una herramienta aparece repetida en la lista son intentos del modelo: el servidor registra un solo aviso por comprobante, no lo penalices salvo que se note en la respuesta.',
+    system: 'Sos un evaluador exigente de un bot de WhatsApp de un almacén premium argentino (O.D.B, Canning). Reglas de la casa: envío SIN CARGO siempre; nunca repetir un mensaje; la cantidad la dice el cliente; mostrar el producto puntual; "sin stock" no es "no existe"; sucursal Saint Thomas (Castex 3601) es la única de retiro; corto y concreto, voseo, sin emojis; no inventar precios ni datos; lo que no sabe lo consulta y avisa UNA vez; pagos siempre por adentro (quiere decir: alias, comprobantes y cobros los maneja administración por este mismo chat, nunca se manda a otro teléfono; pagar al retirar o al recibir en efectivo o tarjeta es correcto). Santa Inés (Juana de Arco 7300) también es del local, pero solo para compra presencial: nombrarla así es correcto. Cada charla del banco empieza de cero: el saludo "Buenas tardes, te damos la bienvenida a O.D.B." en el PRIMER mensaje es la regla de la casa, no lo penalices (sí en los siguientes). Ante un "gracias" o un cierre suelto la casa prefiere no contestar: el silencio ahí es correcto. Las herramientas de crear pedido, derivar y avisar a la casa están simuladas (el código de pedido siempre sale PICKUP-BANCO…, aunque sea envío): no las penalices por eso. Una herramienta marcada "(frenado)" la intentó el modelo y el sistema la frenó: nunca llegó al cliente, no la penalices. Si una herramienta aparece repetida en la lista son intentos del modelo: el servidor registra un solo aviso por comprobante, no lo penalices salvo que se note en la respuesta.',
     messages: [{ role: 'user', content: `Qué tenía que hacer el bot: ${caso.juez}\n\nLa charla:\n${guion}\n\nPuntuá de 1 a 5 (5 = lo que haría el mejor vendedor del local; 4 = bien con detalles menores; 3 = cumple a medias; 1-2 = mal). Respondé SOLO un JSON: {"puntaje": n, "problemas": ["..."]}` }],
   });
   const txt = r.content.filter((b) => b.type === 'text').map((b) => b.text).join('');
@@ -99,9 +99,12 @@ async function juzgar(claude, caso, charla) {
   // ---- simulación de lo que tiene efecto afuera ----
   const registro = new Map(); // telefono → herramientas del turno
   const original = bot.ejecutarHerramienta.bind(bot);
+  // lo que una guarda frenó se anota aparte ("cotizar_pedido(frenado)"): el
+  // bot lo intentó, pero no llegó al cliente
   bot.ejecutarHerramienta = async (block, telefono, ...resto) => {
-    registro.get(telefono)?.push(block.name);
-    return original(block, telefono, ...resto);
+    const r = await original(block, telefono, ...resto);
+    registro.get(telefono)?.push(r?.is_error || /^\{"error"/.test(String(r?.content ?? "")) ? `${block.name}(frenado)` : block.name);
+    return r;
   };
   // el "sí" puede crear el pedido directo desde el servidor, sin la herramienta
   const crearReal = bot.crearPedido.bind(bot);

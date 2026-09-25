@@ -1,4 +1,4 @@
-import { asegurarEnvioSinCargo, campoLimpio, casiIgual, emprolijarListado, esAlucinacionDeTranscripcion, respuestaConConsulta, esAutomaticoWhatsappBusiness, envioSinCargo, nombreSucursalCliente, saintThomas } from './prolijo';
+import { minimoConMonto, asegurarEnvioSinCargo, campoLimpio, casiIgual, emprolijarListado, esAlucinacionDeTranscripcion, respuestaConConsulta, esAutomaticoWhatsappBusiness, envioSinCargo, nombreSucursalCliente, saintThomas } from './prolijo';
 
 describe('nombre de la sucursal ante el cliente', () => {
   it('Sant Thomas pasa a sucursal Saint Thomas', () => {
@@ -154,5 +154,20 @@ describe('transcripciones inventadas', () => {
     expect(esAlucinacionDeTranscripcion('Subtítulos realizados por la comunidad de Amara.org')).toBe(true);
     expect(esAlucinacionDeTranscripcion('Gracias por ver el video.')).toBe(true);
     expect(esAlucinacionDeTranscripcion('Hola Jackie, ¿me mandás 4 fernet?')).toBe(false);
+  });
+});
+
+describe('el mínimo de envío con su monto', () => {
+  it('agrega el monto en la oración del mínimo', () => {
+    expect(minimoConMonto('Con ese total todavía no llegamos al mínimo para envío a domicilio. Podés sumar algo.'))
+      .toBe('Con ese total todavía no llegamos al mínimo de $70.000 para envío a domicilio. Podés sumar algo.');
+  });
+  it('con el total en el renglón de arriba y "mínimo de compra" (banco 25/9)', () => {
+    expect(minimoConMonto('• Fernet — 2 × $20.500 c/u = $41.000\n\n*Total: $55.100*\n\nPara envío hay un mínimo de compra que este pedido todavía no alcanza.'))
+      .toContain('Para envío hay un mínimo de compra de $70.000 que este pedido todavía no alcanza.');
+  });
+  it('no toca lo que ya tiene el monto ni otros mínimos', () => {
+    expect(minimoConMonto('El envío es para pedidos desde $70.000.')).toBe('El envío es para pedidos desde $70.000.');
+    expect(minimoConMonto('El mínimo de compra del vino es 6 botellas.')).toBe('El mínimo de compra del vino es 6 botellas.');
   });
 });

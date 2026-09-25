@@ -45,8 +45,25 @@
       {
         "cliente": "Quiero 2 fernet branca de 750 y 3 coca cola de 1.75 para envío a domicilio",
         "espera": {
+          "no_debe": [
+            "\\$\\s?\\d",
+            "[Tt]otal:?\\s*\\$"
+          ],
+          "sin_herramientas": [
+            "cotizar_pedido",
+            "preparar_pedido"
+          ],
           "debe": [
-            "\\$\\s?55\\.?100|55\\.100"
+            "complet|sumar algo|algo m[aá]s|agregar algo|(es|ser[ií]a|eso) todo"
+          ]
+        }
+      },
+      {
+        "cliente": "sí, es todo",
+        "espera": {
+          "debe": [
+            "55\\.?100",
+            "70\\.000"
           ],
           "no_debe": [
             "aparte",
@@ -58,7 +75,7 @@
         }
       }
     ],
-    "juez": "Cotiza 2 Fernet Branca 750 y 3 Coca Cola 1,75 L (total $55.100), dice o no contradice que el envío es sin cargo, y pide la dirección y quién recibe."
+    "juez": "Turno 1: anota 2 Fernet Branca 750 y 3 Coca Cola 1,75 L SIN precios y pregunta si el pedido está completo. Turno 2: pasa precios y total $55.100 y avisa que el envío es para pedidos desde $70.000 (ofrece sumar o retirar sin mínimo). Nunca dice que el envío va aparte."
   },
   {
     "id": "envio-04",
@@ -84,16 +101,22 @@
       {
         "cliente": "Puede ser 4 Malboro gold el blanco y dorado",
         "espera": {
-          "debe": [
-            "\\b4\\s*(×|x)"
+          "no_debe": [
+            "\\$\\s?\\d",
+            "[Tt]otal:?\\s*\\$"
           ],
-          "herramientas": [
-            "cotizar_pedido"
+          "sin_herramientas": [
+            "cotizar_pedido",
+            "preparar_pedido"
+          ],
+          "debe": [
+            "complet|sumar algo|algo m[aá]s|agregar algo|(es|ser[ií]a|eso) todo",
+            "\\b4\\b"
           ]
         }
       }
     ],
-    "juez": "Cotiza CUATRO Marlboro Gold (no uno) sin preguntar cuántos, mostrando ese producto puntual y no toda la marca."
+    "juez": "Anota CUATRO Marlboro Gold (el producto puntual, no toda la marca) sin preguntar cuántos y SIN precio todavía, y pregunta si el pedido está completo."
   },
   {
     "id": "cant-02",
@@ -129,7 +152,7 @@
         }
       }
     ],
-    "juez": "No inventa el tamaño del pack. Si el producto es por botella suelta, lo aclara en una línea y pregunta o confirma la cantidad de botellas de forma clara; no convierte 10 packs en 60 botellas sin decirlo."
+    "juez": "10 packs de Villavicencio 2 L: si en el sistema se vende por botella, lo aclara en una línea y pregunta UNA sola cosa (cuántas botellas o de cuántas es el pack), sin mezclarla con otra pregunta. No inventa el contenido del pack."
   },
   {
     "id": "cant-04",
@@ -145,7 +168,7 @@
         }
       }
     ],
-    "juez": "Cotiza 0,5 kg de pan al peso con el precio por kilo del sistema."
+    "juez": "Es un pedido: anota medio kilo (0,5 kg) del pan que corresponda, sin preguntar la cantidad, y pregunta si el pedido está completo antes de pasar el precio (regla del dueño del 25/9). No lo toma como 1 unidad."
   },
   {
     "id": "cant-05",
@@ -161,7 +184,7 @@
         }
       }
     ],
-    "juez": "Encuentra el parmesano Vaquero y cotiza 200 g (0,2 kg) o, si el sistema no lo permite, lo dice claro y consulta UNA vez. No se traba ni repite."
+    "juez": "Es un pedido: anota 200 g (0,2 kg) del parmesano Vaquero (el producto puntual), sin preguntar la cantidad, y pregunta si el pedido está completo antes de pasar el precio (regla del dueño del 25/9)."
   },
   {
     "id": "puntual-01",
@@ -223,8 +246,25 @@
       {
         "cliente": "3 santa julia tinto dulce",
         "espera": {
+          "no_debe": [
+            "\\$\\s?\\d",
+            "[Tt]otal:?\\s*\\$"
+          ],
+          "sin_herramientas": [
+            "cotizar_pedido",
+            "preparar_pedido"
+          ],
           "debe": [
+            "complet|sumar algo|algo m[aá]s|agregar algo|(es|ser[ií]a|eso) todo",
             "santa julia"
+          ]
+        }
+      },
+      {
+        "cliente": "si",
+        "espera": {
+          "debe": [
+            "\\$"
           ],
           "herramientas": [
             "cotizar_pedido"
@@ -232,7 +272,7 @@
         }
       }
     ],
-    "juez": "Identifica el Santa Julia Tinto Dulce y cotiza 3 con precio y total."
+    "juez": "Turno 1: identifica el Santa Julia Tinto Dulce, anota 3 sin precio y pregunta si está completo. Turno 2: pasa precio y total de los 3."
   },
   {
     "id": "pedido-01",
@@ -241,6 +281,22 @@
     "turnos": [
       {
         "cliente": "Hola, quiero 2 fernet branca de 750 y 3 coca zero de 1.75, paso a retirar yo, Juan Perez",
+        "espera": {
+          "no_debe": [
+            "\\$\\s?\\d",
+            "[Tt]otal:?\\s*\\$"
+          ],
+          "sin_herramientas": [
+            "cotizar_pedido",
+            "preparar_pedido"
+          ],
+          "debe": [
+            "complet|sumar algo|algo m[aá]s|agregar algo|(es|ser[ií]a|eso) todo"
+          ]
+        }
+      },
+      {
+        "cliente": "sí, eso es todo",
         "espera": {
           "debe": [
             "55\\.100",
@@ -252,7 +308,7 @@
         }
       }
     ],
-    "juez": "Arma el resumen final (2 Fernet, 3 Coca Zero, total $55.100, retiro en sucursal Saint Thomas) y pregunta ¿Lo confirmo?."
+    "juez": "Turno 1: anota el pedido sin precios y pregunta si está completo. Turno 2: arma el resumen final (2 Fernet, 3 Coca Zero, total $55.100, retiro en sucursal Saint Thomas) y pregunta ¿Lo confirmo?."
   },
   {
     "id": "pedido-02",
@@ -261,6 +317,9 @@
     "turnos": [
       {
         "cliente": "Hola, quiero 2 fernet branca de 750 y 3 coca zero de 1.75, paso a retirar yo, Juan Perez"
+      },
+      {
+        "cliente": "es todo"
       },
       {
         "cliente": "si",
@@ -274,7 +333,7 @@
         }
       }
     ],
-    "juez": "En el segundo turno, con el 'si', crea el pedido y le pasa el código y el total. No vuelve a preguntar ¿Lo confirmo?."
+    "juez": "Pregunta si está completo, con \"es todo\" pasa el resumen con ¿Lo confirmo?, y con el \"si\" crea el pedido y pasa código y total. No repite mensajes."
   },
   {
     "id": "pedido-03",
@@ -282,7 +341,10 @@
     "titulo": "Sí después de un mensaje intermedio (Catalina)",
     "turnos": [
       {
-        "cliente": "Quiero 6 coca zero de 1.75 para envío a Los Talas 15, recibe Catalina"
+        "cliente": "Quiero 16 coca zero de 1.75 para envío a Los Talas 15, recibe Catalina"
+      },
+      {
+        "cliente": "sí, nada más"
       },
       {
         "cliente": "efectivo"
@@ -296,7 +358,7 @@
         }
       }
     ],
-    "juez": "Al 'si' final crea el pedido. En ningún turno repite el mismo mensaje dos veces seguidas."
+    "juez": "Pregunta si está completo; después pasa el resumen (16 Coca Zero, $75.200, supera el mínimo de envío); toma \"efectivo\" como forma de pago; al \"si\" final crea el pedido. Nunca repite el mismo mensaje dos veces seguidas."
   },
   {
     "id": "pedido-04",
@@ -305,6 +367,9 @@
     "turnos": [
       {
         "cliente": "Quiero 4 coca cola de 1.75 para retirar, soy Ana"
+      },
+      {
+        "cliente": "es todo"
       },
       {
         "cliente": "reemplazalas por coca zero",
@@ -318,7 +383,7 @@
         }
       }
     ],
-    "juez": "Actualiza el pedido con 4 Coca Zero 1,75 L, muestra el nuevo total y pide confirmación. No responde solo con una frase suelta."
+    "juez": "Tras confirmar que está completo pasa el resumen; al pedir el cambio actualiza a 4 Coca Zero 1,75 L con el nuevo total y pide confirmación. No responde solo con una frase suelta."
   },
   {
     "id": "pedido-05",
@@ -327,6 +392,35 @@
     "turnos": [
       {
         "cliente": "Necesito:\n2 fernet branca 750\n6 coca cola 1.75\n1 hielo\n2 papas lays\n1 mani king",
+        "espera": {
+          "no_debe": [
+            "\\$\\s?\\d",
+            "[Tt]otal:?\\s*\\$"
+          ],
+          "sin_herramientas": [
+            "cotizar_pedido",
+            "preparar_pedido"
+          ],
+          "debe": [
+            "complet|sumar algo|algo m[aá]s|agregar algo|(es|ser[ií]a|eso) todo",
+            "•"
+          ]
+        }
+      },
+      {
+        "cliente": "sí, es todo",
+        "espera": {
+          "debe": [
+            "[Ll]ays",
+            "(c[aá]scara|pelado)"
+          ],
+          "sin_herramientas": [
+            "preparar_pedido"
+          ]
+        }
+      },
+      {
+        "cliente": "las clásicas de 134 y el pelado",
         "espera": {
           "debe": [
             "•",
@@ -338,7 +432,7 @@
         }
       }
     ],
-    "juez": "Cotiza todos los renglones que existan en formato de lista (una viñeta por producto) con total. Lo que no haya, lo dice en una línea."
+    "juez": "Turno 1: lista lo anotado sin precios, dice qué hay que definir (qué Lays, qué Maní King) y pregunta si está completo. Turno 2: \"es todo\" no elige variantes: pregunta las dos que faltan, sin elegir por el cliente. Turno 3: cotiza todos los renglones con viñeta y total, y pregunta retiro o envío (no lo da por elegido)."
   },
   {
     "id": "rep-01",
@@ -353,9 +447,12 @@
       },
       {
         "cliente": "si"
+      },
+      {
+        "cliente": "si"
       }
     ],
-    "juez": "Nunca manda dos veces el mismo mensaje. Después de crear el pedido, un segundo 'si' no reenvía el resumen."
+    "juez": "Pregunta si está completo, pasa el resumen con ¿Lo confirmo?, crea el pedido al sí siguiente y el último sí no reenvía nada. Nunca manda dos veces el mismo mensaje."
   },
   {
     "id": "rep-02",
@@ -711,18 +808,51 @@
     "titulo": "Suma con precio y no da la entrega por elegida",
     "turnos": [
       {
-        "cliente": "quiero 2 fernet branca de 750"
+        "cliente": "quiero 2 fernet branca de 750",
+        "espera": {
+          "no_debe": [
+            "\\$\\s?\\d",
+            "[Tt]otal:?\\s*\\$"
+          ],
+          "sin_herramientas": [
+            "cotizar_pedido",
+            "preparar_pedido"
+          ],
+          "debe": [
+            "complet|sumar algo|algo m[aá]s|agregar algo|(es|ser[ií]a|eso) todo"
+          ]
+        }
       },
       {
         "cliente": "y sumale 1 smirnoff",
         "espera": {
+          "no_debe": [
+            "\\$\\s?\\d",
+            "[Tt]otal:?\\s*\\$"
+          ],
+          "sin_herramientas": [
+            "cotizar_pedido",
+            "preparar_pedido"
+          ],
+          "debe": [
+            "complet|sumar algo|algo m[aá]s|agregar algo|(es|ser[ií]a|eso) todo",
+            "[Ss]mirnoff"
+          ]
+        }
+      },
+      {
+        "cliente": "listo, eso es todo",
+        "espera": {
           "herramientas": [
             "cotizar_pedido"
+          ],
+          "no_debe": [
+            "^Retiro en la sucursal Saint Thomas\\.$"
           ]
         }
       }
     ],
-    "juez": "Suma el Smirnoff con precio al pedido. Si el cliente todavía no eligió retiro o envío, lo vuelve a preguntar en vez de darlo por hecho. El aviso de mayores de 18 solo hace falta si hay indicios de que es menor."
+    "juez": "Anota sin precios y pregunta si está completo; al sumar el Smirnoff actualiza la lista y vuelve a preguntar; con \"eso es todo\" cotiza los dos con total y pregunta retiro o envío (no lo da por elegido). El aviso de mayores de 18 solo si hay indicios de menor."
   },
   {
     "id": "archivo-01",
@@ -772,12 +902,15 @@
         "cliente": "quiero 500 fernet branca de 750",
         "espera": {
           "herramientas": [
-            "cotizar_pedido"
+            "buscar_productos"
+          ],
+          "no_debe": [
+            "500 × \\$"
           ]
         }
       }
     ],
-    "juez": "Avisa la cantidad real disponible en la sucursal Saint Thomas y ofrece esa cantidad; no promete 500 si no hay."
+    "juez": "No promete 500: dice cuántos Fernet Branca 750 hay en la sucursal Saint Thomas y ofrece esa cantidad (o lo consulta por ser cantidad mayorista), sin precio todavía o con precio solo de lo disponible."
   },
   {
     "id": "mixto-01",
@@ -799,7 +932,7 @@
         }
       }
     ],
-    "juez": "En el segundo turno aclara que el envío es sin cargo y sigue con el pedido. No dice 'lo consulto'."
+    "juez": "En el segundo turno aclara que el envío es sin cargo (sin decir que va aparte) y sigue con el pedido. Si ya se sabe que el pedido no llega a $70.000, puede avisar el mínimo de envío. No dice lo consulto."
   },
   {
     "id": "bot-01",

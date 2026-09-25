@@ -103,7 +103,7 @@ export function emprolijarListado(t: string): string {
   // 1. cada guion/viñeta de listado arranca renglón propio
   // (no el "— 2 × $20.500" que separa el nombre de la cuenta: eso partía cada
   // renglón en dos viñetas; banco de pruebas, 23/9/2026)
-  r = r.replace(/[ \t]+[-–—•]\s+(?=[A-ZÁÉÍÓÚÑ0-9¿])(?!\d+(?:[.,]\d+)?\s*(?:kg|g|gr|u|un)?\s*[×xX*]\s*\$)/g, '\n• ');
+  r = r.replace(/[ \t]+[-–—•]\s+(?=[A-ZÁÉÍÓÚÑ0-9])(?!\d+(?:[.,]\d+)?\s*(?:kg|g|gr|u|un)?\s*[×xX*]\s*\$)/g, '\n• ');
   r = r.replace(/^[ \t]*[-–—]\s+/gm, '• ');
   // 1b. renglón de producto SIN viñeta ("2 Chuker con Stevia 200 cc: 2 × $4.800
   // c/u = $9.600"): arranca con una cantidad, tiene un precio y no es el total.
@@ -309,4 +309,20 @@ export function respuestaConConsulta(respuesta: string, ultimoDelBot: string | n
 const RE_ALUCINACION = /^\s*(subt[ií]tulos (realizados|hechos) por la comunidad de amara\.org|subt[ií]tulos por la comunidad de amara\.org|gracias por ver( el video)?|suscr[ií]bete( al canal)?|¡?gracias por su atenci[oó]n!?|m[uú]sica|\[m[uú]sica\]|\.+)\s*[.!]*\s*$/i;
 export function esAlucinacionDeTranscripcion(t: string): boolean {
   return RE_ALUCINACION.test(String(t ?? ''));
+}
+
+// EL MÍNIMO DE ENVÍO SE DICE CON EL MONTO (25/9/2026): el bot escribía "no
+// llegamos al mínimo para envío" sin decir cuánto es. En la oración que habla del
+// mínimo y del envío, "mínimo" pasa a "mínimo de $70.000".
+export function minimoConMonto(t: string, minimo = 70000): string {
+  const monto = '$' + minimo.toLocaleString('es-AR');
+  if (!t || t.includes(monto)) return t;
+  // renglón por renglón y oración por oración: la del mínimo suele venir pegada
+  // al total, y un "$" de otra oración no tiene que frenarla
+  return t.split('\n').map((linea) => linea.split(/(?<=[.!?])(\s+)/).map((o) =>
+    /\bm[ií]nimo\b/i.test(o) && /\b(env[ií]\w*|despach\w*|reparto|domicilio)\b/i.test(o) && !/\$\s?\d/.test(o)
+      ? (/\bm[ií]nimo de compra\b/i.test(o)
+        ? o.replace(/\b(m[ií]nimo de compra)\b/i, `$1 de ${monto}`)
+        : o.replace(/\b(m[ií]nimo)\b(?!\s+de\s+\$)/i, `$1 de ${monto}`))
+      : o).join('')).join('\n');
 }
