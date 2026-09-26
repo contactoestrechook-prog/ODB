@@ -79,11 +79,22 @@ function chequeosDelTurno(espera, resp, herramientas) {
   return f;
 }
 
+// Datos REALES del local, los mismos que el bot recibe de estado_local. El juez
+// no ve lo que devuelven las herramientas: sin esto castigaba como "inventado"
+// un horario verdadero (26/9: Saint Thomas de 8 a 21, abre los domingos).
+let DATOS_LOCAL = '';
+function datosDelLocal(est) {
+  if (!est) return '';
+  const suc = (est.sucursales || []).map((x) => `${x.nombre} (${x.direccion}) de ${x.horario}`).join('; ');
+  const rep = est.reparto ? `reparto de ${est.reparto.desde} a ${est.reparto.hasta}, de lunes a sábado (los domingos no hay reparto)` : '';
+  return ` Datos reales del sistema (salen de la herramienta estado_local; si el bot los dice, NO los está inventando): ${suc}; el horario de cada sucursal es el mismo todos los días, domingo incluido; ${rep}.`;
+}
+
 async function juzgar(claude, caso, charla) {
   const guion = charla.map((t) => `CLIENTE: ${t.cliente}${t.archivo ? ' [adjunta un PDF: comprobante de transferencia de $12.000]' : ''}\nBOT: ${t.respuesta || '(no contestó)'}\n(herramientas: ${t.herramientas.join(', ') || 'ninguna'})`).join('\n\n');
   const r = await claude.messages.create({
     model: JUEZ, max_tokens: 4000, thinking: { type: 'adaptive' },
-    system: 'Sos un evaluador exigente de un bot de WhatsApp de un almacén premium argentino (O.D.B, Canning). Reglas de la casa: envío SIN CARGO siempre; nunca repetir un mensaje; la cantidad la dice el cliente; mostrar el producto puntual; "sin stock" no es "no existe"; sucursal Saint Thomas (Castex 3601) es la única de retiro; corto y concreto, voseo, sin emojis; no inventar precios ni datos; lo que no sabe lo consulta y avisa UNA vez; pagos siempre por adentro (quiere decir: alias, comprobantes y cobros los maneja administración por este mismo chat, nunca se manda a otro teléfono; pagar al retirar o al recibir en efectivo o tarjeta es correcto). Santa Inés (Juana de Arco 7300) también es del local, pero solo para compra presencial: nombrarla así es correcto. Cada charla del banco empieza de cero: el saludo "Buenas tardes, te damos la bienvenida a O.D.B." en el PRIMER mensaje es la regla de la casa, no lo penalices (sí en los siguientes). Ante un "gracias" o un cierre suelto la casa prefiere no contestar: el silencio ahí es correcto. Las herramientas de crear pedido, derivar y avisar a la casa están simuladas (el código de pedido siempre sale PICKUP-BANCO…, aunque sea envío): no las penalices por eso. Una herramienta marcada "(frenado)" la intentó el modelo y el sistema la frenó: nunca llegó al cliente, no la penalices. Si una herramienta aparece repetida en la lista son intentos del modelo: el servidor registra un solo aviso por comprobante, no lo penalices salvo que se note en la respuesta.',
+    system: 'Sos un evaluador exigente de un bot de WhatsApp de un almacén premium argentino (O.D.B, Canning). Reglas de la casa: envío SIN CARGO siempre; nunca repetir un mensaje; la cantidad la dice el cliente; mostrar el producto puntual; "sin stock" no es "no existe"; sucursal Saint Thomas (Castex 3601) es la única de retiro y abre también los domingos (confirmado por el dueño el 26/9: decirlo es correcto; lo que no hay los domingos es reparto, que va de lunes a sábado); corto y concreto, voseo, sin emojis; no inventar precios ni datos; lo que no sabe lo consulta y avisa UNA vez; pagos siempre por adentro (quiere decir: alias, comprobantes y cobros los maneja administración por este mismo chat, nunca se manda a otro teléfono; pagar al retirar o al recibir en efectivo o tarjeta es correcto). Santa Inés (Juana de Arco 7300) también es del local, pero solo para compra presencial: nombrarla así es correcto. Cada charla del banco empieza de cero: el saludo "Buenas tardes, te damos la bienvenida a O.D.B." en el PRIMER mensaje es la regla de la casa, no lo penalices (sí en los siguientes). Ante un "gracias" o un cierre suelto la casa prefiere no contestar: el silencio ahí es correcto. Las herramientas de crear pedido, derivar y avisar a la casa están simuladas (el código de pedido siempre sale PICKUP-BANCO…, aunque sea envío): no las penalices por eso. Una herramienta marcada "(frenado)" la intentó el modelo y el sistema la frenó: nunca llegó al cliente, no la penalices. Si una herramienta aparece repetida en la lista son intentos del modelo: el servidor registra un solo aviso por comprobante, no lo penalices salvo que se note en la respuesta.' + DATOS_LOCAL,
     messages: [{ role: 'user', content: `Qué tenía que hacer el bot: ${caso.juez}\n\nLa charla:\n${guion}\n\nPuntuá de 1 a 5 (5 = lo que haría el mejor vendedor del local; 4 = bien con detalles menores; 3 = cumple a medias; 1-2 = mal). Respondé SOLO un JSON: {"puntaje": n, "problemas": ["..."]}` }],
   });
   const txt = r.content.filter((b) => b.type === 'text').map((b) => b.text).join('');
@@ -93,6 +104,7 @@ async function juzgar(claude, caso, charla) {
 (async () => {
   const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error'] });
   const bot = app.get(BotService);
+  DATOS_LOCAL = datosDelLocal(await bot.estadoAtencion().catch(() => null));
   const claude = new Anthropic();
   let costo = 0;
 
