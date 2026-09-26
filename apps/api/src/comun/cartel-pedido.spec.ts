@@ -54,4 +54,53 @@ describe('cartel del pedido (diseño Placa roja)', () => {
     expect(png.subarray(1, 4).toString()).toBe('PNG');
     expect(png.length).toBeGreaterThan(20_000);
   });
+
+  // 26/9/2026: la tarjeta no salía nunca porque el bot escribe el total con texto
+  // pegado. Estos son textos REALES que mandó en producción.
+  it('el total con texto pegado en el mismo renglón (real, 25/9)', () => {
+    const real = [
+      '• Fernet Branca 450 — 1 × $13.500 c/u = $13.500',
+      '• Coca Cola 1.75l — 1 × $4.700 c/u = $4.700',
+      '',
+      '*Total: $18.200* (envío sin cargo) El reparto de hoy ya cerró, así que el envío saldría mañana viernes. Pasame la dirección dentro de Solar del Bosque (calle y número o lote) y el nombre de quien recibe.',
+    ].join('\n');
+    const r = leerResumenDePedido(real)!;
+    expect(r).not.toBeNull();
+    expect(r.total).toBe(18200);
+    expect(r.renglones).toHaveLength(2);
+    expect(r.entrega?.titulo).toBe('Envío sin cargo');
+    expect(r.entrega?.detalle ?? '').not.toMatch(/recibe y/);        // "quien recibe y la dirección" no es un nombre
+    expect(r.pie).toContain('El reparto de hoy ya cerró');             // lo que seguía al monto va de epígrafe
+    expect(r.pie).not.toMatch(/Total/);
+    expect(r.pie).not.toMatch(/^\(env[ií]o sin cargo\)/i);           // no se repite lo que muestra el recuadro
+  });
+
+  it('"el envío es sin cargo" en otra oración (real, 24/9)', () => {
+    const real = [
+      'Por ahora queda así:',
+      '',
+      '• Coca Cola Zero x1.75L — 4 × $4.700 c/u = $18.800',
+      '• Pan al peso — 1 × $4.500 c/u = $4.500',
+      '',
+      'Total: $23.300 (sin la picada, que se suma cuando tenga la confirmación). El envío es sin cargo.',
+      '',
+      'Para el delivery, pasame nombre de quien recibe y la dirección con calle y número.',
+    ].join('\n');
+    const r = leerResumenDePedido(real)!;
+    expect(r.total).toBe(23300);
+    expect(r.entrega).toEqual({ titulo: 'Envío sin cargo', detalle: null });
+    expect(r.pie).toContain('sin la picada');
+  });
+
+  it('el envío con dirección y quién recibe, dichos al pasar', () => {
+    const r = leerResumenDePedido('• A — 1 × $1.000 c/u = $1.000\n• B — 2 × $500 c/u = $1.000\nTotal: $2.000. Te lo llevamos con envío sin cargo a Los Talas 15. Recibe Catalina.')!;
+    expect(r.entrega).toEqual({ titulo: 'Envío sin cargo', detalle: 'Los Talas 15 · recibe Catalina' });
+  });
+
+  it('el retiro ofrecido como alternativa no se toma como elegido', () => {
+    const r = leerResumenDePedido('• A — 1 × $1.000 c/u = $1.000\n• B — 2 × $500 c/u = $1.000\nTotal: $2.000\nEl envío sin cargo a domicilio es desde $70.000; si no, podés retirarlo en la sucursal.')!;
+    expect(r).not.toBeNull();
+    expect(r.entrega).toBeNull();
+  });
 });
+

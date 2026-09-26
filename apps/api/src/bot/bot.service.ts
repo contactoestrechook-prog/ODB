@@ -3607,7 +3607,7 @@ export class BotService {
     const items = lineas
       .map((l, i) => ({ l: l.trim(), i }))
       .filter((x) => x.l.startsWith('•') && /\$\s?[\d.]+/.test(x.l));
-    if (items.length < 4) return null; // con pocos, el texto se lee mejor
+    if (items.length < 3) return null; // con uno o dos renglones el texto se lee mejor
 
     const renglones = items.map((x) => {
       const sinVineta = x.l.replace(/^•\s*/, '');
@@ -3615,7 +3615,7 @@ export class BotService {
       if (!m) return { nombre: sinVineta, precio: '' };
       return { nombre: m[1].replace(/[—:-]\s*$/, '').trim(), precio: m[2].replace(/\s+/g, ' ').trim() };
     }).filter((r) => r.precio);
-    if (renglones.length < 4) return null;
+    if (renglones.length < 3) return null;
 
     // título: la línea con ":" justo antes del listado ("Tenemos, por ejemplo:")
     const antes = lineas.slice(0, items[0].i).map((l) => l.trim()).filter(Boolean);

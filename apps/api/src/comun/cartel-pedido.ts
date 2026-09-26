@@ -46,9 +46,32 @@ export function nombreParaCartel(n: string): string {
 
 // "• Fernet Branca x750cc — 2 × $20.500 c/u = $41.000"
 const RE_RENGLON = /^•\s*(.+?)\s+[—–-]\s+(\d+(?:[.,]\d+)?)\s*[×x]\s*\$\s?([\d.]+)(?:\s*c\/u)?\s*=\s*\$\s?([\d.]+)\s*$/i;
-const RE_TOTAL = /^\*?\s*total[^:\n]{0,20}:\s*\$\s?([\d.]+)\s*\*?\s*$/i;
+// El total puede venir con texto pegado en el mismo renglón: el bot escribe
+// "*Total: $18.200* (envío sin cargo) El reparto de hoy ya cerró...". Antes se
+// exigía que la línea terminara en el monto y la tarjeta no salía nunca
+// (26/9/2026: ni un cartel entre el 19 y el 26). Ahora se toma el monto y lo
+// que sigue viaja como epígrafe de la foto.
+const RE_TOTAL = /^\*?\s*total[^:\n]{0,25}:\s*\$\s?([\d.]+)\s*\*?\s*(.*)$/i;
 const RE_ENVIO = /^Env[ií]o sin cargo(?: a (.+?))?\.\s*(?:Recibe (.+?)\.)?\s*$/i;
 const RE_RETIRO = /^Retiro en la sucursal Saint Thomas\.?\s*$/i;
+// la misma información, pero dicha dentro de una oración ("El envío es sin cargo.")
+const RE_ENVIO_SUELTO = /env[ií]o\s+(?:es\s+)?sin\s+cargo(?:\s+a\s+([^.;,\n(]{3,60}))?/i;
+// "Recibe Catalina": el nombre con mayúscula; "nombre de quien recibe y la dirección" no es un nombre
+const RE_RECIBE = /\b[Rr]ecibe:?\s+([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)?)/;
+
+/** El envío dicho en cualquier parte del texto (no como renglón propio). */
+function entregaEnElTexto(texto: string): ResumenPedido['entrega'] {
+  // el retiro solo cuenta como renglón propio: dicho al pasar suele ser la
+  // alternativa que se le ofrece ("o retiralo sin mínimo en la sucursal")
+  if (/retir/i.test(texto)) return null;
+  const e = RE_ENVIO_SUELTO.exec(texto);
+  if (!e) return null;
+  let donde = (e[1] ?? '').split(/\s+(?:es|para|desde|que|y|con|porque)\s+/i)[0].trim();
+  if (/^(?:domicilio|tu casa)\b/i.test(donde)) donde = '';
+  const quien = RE_RECIBE.exec(texto)?.[1]?.trim();
+  const detalle = [donde || null, quien ? `recibe ${quien}` : null].filter(Boolean).join(' · ');
+  return { titulo: 'Envío sin cargo', detalle: detalle || null };
+}
 
 /**
  * Lee el resumen que manda el bot. Devuelve null si no es un pedido con
@@ -70,7 +93,14 @@ export function leerResumenDePedido(texto: string): ResumenPedido | null {
     }
     if (l.startsWith('•')) return null;
     const t = RE_TOTAL.exec(l);
-    if (t) { total = numero(t[1]); continue; }
+    if (t) {
+      total = numero(t[1]);
+      const cola = (t[2] ?? '').replace(/^[\s*)\]]+/, '')
+        .replace(/^\(\s*env[ií]o\s+sin\s+cargo\s*\)\s*/i, '')          // ya está en el recuadro de la tarjeta
+        .trim();                                                       // lo que sigue al monto
+      if (cola) resto.push(cola);
+      continue;
+    }
     const e = RE_ENVIO.exec(l);
     if (e) {
       entrega = { titulo: 'Envío sin cargo', detalle: [e[1], e[2] ? `recibe ${e[2]}` : null].filter(Boolean).join(' · ') || null };
@@ -80,6 +110,9 @@ export function leerResumenDePedido(texto: string): ResumenPedido | null {
     resto.push(cruda);
   }
   if (renglones.length < 2 || total === null) return null;
+  // la entrega también se reconoce dicha dentro de una oración; ahí la frase se
+  // queda en el epígrafe, porque suele traer más datos ("el reparto ya cerró")
+  if (!entrega) entrega = entregaEnElTexto(texto);
   // si los renglones no suman el total, algo se leyó mal: mejor el texto
   if (Math.abs(renglones.reduce((s, r) => s + r.subtotal, 0) - total) > 1) return null;
   const pie = resto.join('\n').replace(/\n{3,}/g, '\n\n').trim();
