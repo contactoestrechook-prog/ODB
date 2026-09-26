@@ -1,6 +1,7 @@
 import { esperaRetiroOEnvio, eligeRetiroOEnvio, eligioModalidad } from './entrega';
 import { esContestadorAutomatico } from './contestador';
 import { puedeCotizar } from './completo';
+import { esSilenciado } from './pausa';
 import { agruparItems, cantidadesIndividuales, centavos, confirmacionInequivoca, idWhatsappCorto, importesDeHerramienta, importesDelTexto, pesos, presentacionProducto } from './comercio';
 import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import { volumenMl, etiquetaVolumen, pideTamano, medidaPartida, resumenDeTamanos, cantidadesPedidas, PALABRA_GENERICA } from './formatos';
@@ -408,6 +409,27 @@ export class BotService {
     // el bot para todo el mundo.
     const esBancoDePruebas = /^54911000000\d{1,3}$/.test(telefono);
     const botApagadoGlobal = lineaCfg?.bot_activo === false && !esBancoDePruebas;
+
+    // CONTACTOS SILENCIADOS (26/9/2026, pedido de Leandro): proveedores y
+    // conocidos a los que el bot no tiene que contestar nunca. El mensaje queda
+    // en el hilo (y en RESPONDE) para quien atiende, pero no se contesta ni se
+    // anota como espera: esos contactos llenaban el WhatsApp de administración
+    // de avisos "⏳ nadie contestó" y tapaban las consultas de clientes.
+    // Se saca al reactivar la charla desde el panel.
+    {
+      const { data: k } = await this.db.from('bot_contactos').select('etiquetas').eq('telefono', telefono).maybeSingle();
+      if (esSilenciado((k as any)?.etiquetas)) {
+        const hist: { role: 'user' | 'assistant'; content: string }[] = Array.isArray(conv?.mensajes) ? conv!.mensajes : [];
+        await this.db.from('bot_conversaciones').upsert({
+          linea, telefono, bot_activo: false,
+          mensajes: [...hist, { role: 'user', content: texto + marcaAdjunto }].slice(-40),
+          actualizado_en: new Date().toISOString(),
+          esperando_desde: null, esperando_texto: null, esperando_aviso_en: null, esperando_avisos: 0,
+        }, { onConflict: 'linea,telefono' }).then(() => null, () => null);
+        this.log.log(`contacto silenciado ${telefono}: no se contesta`);
+        return { respuesta: null, silencio: true, motivo: 'contacto silenciado' } as any;
+      }
+    }
 
     // La conversación está derivada a una persona: el mensaje se guarda en el
     // hilo (para que el que atiende lo vea) pero el bot NO contesta, así no le
@@ -4070,7 +4092,10 @@ export class BotService {
       .select('linea, telefono, esperando_desde, esperando_texto, esperando_aviso_en, esperando_avisos')
       .not('esperando_desde', 'is', null)
       .limit(500);
-    const pendientes = esperasParaAvisar((esperando ?? []) as any[], Date.now());
+    // los contactos silenciados no generan avisos (26/9/2026)
+    const { data: silenciados } = await this.db.from('bot_contactos').select('telefono').contains('etiquetas', ['silenciado']);
+    const callados = new Set(((silenciados ?? []) as any[]).map((x) => String(x.telefono)));
+    const pendientes = esperasParaAvisar(((esperando ?? []) as any[]).filter((e) => !callados.has(String(e.telefono))), Date.now());
     if (!pendientes.length) return;
 
     const { data: cfg } = await this.db
@@ -4246,6 +4271,11 @@ export class BotService {
     const waId = telefono.replace(/\D/g, '').length >= 14 ? `${telefono.replace(/\D/g, '')}@lid` : telefono.replace(/\D/g, '');
     await this.respondeRpc('odb_reactivar_contacto', { p_whatsapp_id: waId });
     await this.limpiarEspera(linea, String(telefono).replace(/\D/g, ''));
+    // reactivar desde el panel también saca el silencio del contacto
+    const { data: k } = await this.db.from('bot_contactos').select('etiquetas').eq('telefono', String(telefono).replace(/\D/g, '')).maybeSingle();
+    if (esSilenciado((k as any)?.etiquetas)) {
+      await this.db.from('bot_contactos').update({ etiquetas: ((k as any).etiquetas as string[]).filter((e) => e !== 'silenciado') }).eq('telefono', String(telefono).replace(/\D/g, ''));
+    }
     return { ok: true, botActivo: true };
   }
 

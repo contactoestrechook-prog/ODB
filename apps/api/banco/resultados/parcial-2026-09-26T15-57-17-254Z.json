@@ -1,0 +1,32 @@
+{
+ "fecha": "2026-09-26T15:57:17.254Z",
+ "pasan": 0,
+ "total": 1,
+ "promedio": 3,
+ "costoBot": 0.049,
+ "intermitentes": [],
+ "resultados": [
+  {
+   "id": "envio-04",
+   "categoria": "envío",
+   "titulo": "Domingo: no hay reparto",
+   "ok": false,
+   "puntaje": 3,
+   "fallas": [],
+   "problemas": [
+    "Inventa horario de la sucursal (8 a 21) sin tener ese dato confirmado"
+   ],
+   "charla": [
+    {
+     "cliente": "El domingo me pueden mandar un pedido?",
+     "archivo": false,
+     "respuesta": "Buen día. Te damos la bienvenida a O.D.B. Los domingos no hacemos reparto, así que el envío te lo podemos mandar el lunes. Si lo necesitás el domingo, podés retirarlo en la sucursal Saint Thomas, Castex 3601, de 8 a 21.",
+     "herramientas": [
+      "identificar_cliente",
+      "estado_local"
+     ]
+    }
+   ]
+  }
+ ]
+}

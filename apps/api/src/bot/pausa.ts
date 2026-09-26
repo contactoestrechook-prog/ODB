@@ -94,3 +94,8 @@ export function decisionSesion(status: string | null, fallosSeguidos: number): {
   if (status === 'SCAN_QR_CODE') return { fallos, reiniciar: false, alertar: fallos >= 2 };
   return { fallos, reiniciar: fallos === 2, alertar: fallos >= 2 };
 }
+
+/** El contacto está silenciado: el bot no le contesta ni avisa sus esperas (26/9/2026). */
+export function esSilenciado(etiquetas: unknown): boolean {
+  return Array.isArray(etiquetas) && etiquetas.some((e) => String(e).toLowerCase() === 'silenciado');
+}

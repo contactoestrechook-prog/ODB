@@ -88,3 +88,13 @@ describe('una derivación entra al vigilante', () => {
     expect(r[0].esperando_texto).not.toMatch(/\$/);
   });
 });
+
+import { esSilenciado } from './pausa';
+describe('contactos silenciados', () => {
+  it('reconoce la etiqueta', () => {
+    expect(esSilenciado(['silenciado'])).toBe(true);
+    expect(esSilenciado(['proveedor', 'Silenciado'])).toBe(true);
+    expect(esSilenciado([])).toBe(false);
+    expect(esSilenciado(null)).toBe(false);
+  });
+});
