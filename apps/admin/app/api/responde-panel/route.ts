@@ -23,6 +23,11 @@ export async function GET(req: Request) {
   // aplica, así que se manda a loguear en ODB
   if (!headers) return NextResponse.json({ error: 'Sesión de ODB vencida' }, { status: 401 });
   const url = new URL(req.url);
+  if (url.searchParams.has('adjunto')) {
+    const ruta = url.searchParams.get('adjunto') ?? '';
+    const res = await fetch(`${API}/bot/adjuntos/renovar?ruta=${encodeURIComponent(ruta)}`, { headers, cache: 'no-store' });
+    return new NextResponse(await res.text(), { status: res.status, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } });
+  }
   const qs = new URLSearchParams(url.search);
   qs.delete('key'); qs.delete('token'); // credenciales de la app original: acá no se usan
   const cola = qs.toString();

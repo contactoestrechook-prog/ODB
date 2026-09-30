@@ -1,5 +1,6 @@
 'use client';
 
+import { camposDeLecturaIncompletos } from '../lib/lectura-compras';
 import { Dictado } from './Dictado';
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -522,7 +523,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
         // dibuja. Recalcular en el panel fue la fuente de los últimos bugs:
         // cinco reglas sueltas que se pisaban entre sí.
         const r = i.interpretado ?? {};
-        const cantidad = Number(r.cantidad) || Number(i.cantidad) || 1;
+        const cantidad = r.cantidad ?? i.cantidad ?? '';
         const porPeso = !!r.porPeso;
         // Factura por unidad suelta y la casa stockea el envase (Ferrero T12): el
         // servidor ya dividió la cantidad; el precio pasa a ser el del envase
@@ -537,7 +538,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
           bultoConsumido,
           porPeso,
           kg: i.kg ?? null,
-          precio: envase && Number(r.precioPropuesto) > 0 ? Number(r.precioPropuesto) : Number(i.precio) || 0,
+          precio: envase && Number(r.precioPropuesto) > 0 ? Number(r.precioPropuesto) : i.precio ?? '',
           envaseAplicado: envase,
           sku: i.match?.sku ?? '',
           nombre: i.match?.nombre ?? null,
@@ -1203,7 +1204,8 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   const itemsFusionados = fusionarPorSku(inclItems.filter((i) => i.sku));
   const skusFusionados = itemsFusionados.filter((i) => i._renglones > 1 || i._enPromo);
   // el IVA que no cierra con el pie también bloquea: nunca más un promedio
-  const costoBloquea = excedeMerc || excedeTotal || ivaBloquea;
+  const lecturaIncompleta = fotoItems.some((i) => (soloFactura || i.incluir) && camposDeLecturaIncompletos(i));
+  const costoBloquea = excedeMerc || excedeTotal || ivaBloquea || lecturaIncompleta;
 
   // Excel/CSV del portal del proveedor → precarga los renglones de la OC
   async function importarPedido(archivo: File) {
@@ -1649,7 +1651,9 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                 sumaRenglones={sumaRenglones}
               />
 
+              {foto.items?.some((i: any) => i.interpretado?.faltantes?.includes('importe')) && <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">No se pudieron leer todos los importes de los renglones. Verificá cantidades, precios y totales contra el original; esos importes no se dieron por comprobados.</p>}
               {/* La IA pregunta lo que no entendió; aclarás y vuelve a leer teniéndolo en cuenta */}
+              {lecturaIncompleta && <p role="alert" className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">Hay renglones con cantidad o precio incompletos o inválidos. Revisá el comprobante y completalos antes de registrar.</p>}
               <div className={'rounded-lg px-3 py-2.5 space-y-2 border ' + (foto.dudas?.length ? 'border-amber-300 bg-amber-50' : 'border-black/10 bg-[#F0EBE2]/40')}>
                 {foto.dudas?.length ? (
                   <>
@@ -2330,7 +2334,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                 <Acciones
                   cerrar={cerrar}
                   okLabel="Registrar factura para conciliar"
-                  disabled={!f.proveedorId || !(fotoImp?.total > 0)}
+                  disabled={!f.proveedorId || !(fotoImp?.total > 0) || lecturaIncompleta}
                   onOk={() => post({
                     accion: 'factura',
                     proveedorId: f.proveedorId,

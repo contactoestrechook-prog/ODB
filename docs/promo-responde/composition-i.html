@@ -1,0 +1,368 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,500;0,6..72,600;0,6..72,700;1,6..72,500;1,6..72,600&family=Inter+Tight:wght@300;500;700&family=IBM+Plex+Mono:wght@400;500;600&display=block" rel="stylesheet">
+</head>
+<body>
+<script src="motor.js"></script>
+<script>
+injectBase('grafito');
+
+/* ==================================================================
+   VIDEO I · TERMINAL · ONE SHOT (v2)
+   Tres mediciones que se desploman, cada una con su zona roja de
+   alerta… y una cuarta que es una línea perfectamente recta:
+   tu manera de vender. Esa placa es la alarma del video.
+   ================================================================== */
+window.DURATION = 46.2;
+
+const CAM = [
+  {t:0.00,  x:540,  y:660,   s:1.75, r:-0.6},
+  {t:3.90,  x:640,  y:700,   s:1.42, r:-0.2},
+  {t:5.40,  x:760,  y:1280,  s:0.80, r: 0.3},
+  {t:7.20,  x:620,  y:2080,  s:0.88, r: 0.1},   /* 01 */
+  {t:10.60, x:1250, y:2090,  s:0.88, r:-0.1},
+  {t:13.00, x:1880, y:2130,  s:0.94, r: 0.15}, /* cae en zona crítica */
+  {t:15.00, x:640,  y:4180,  s:0.88, r:-0.2},   /* 02 */
+  {t:17.60, x:1400, y:4180,  s:0.88, r: 0.1},  /* el cruce */
+  {t:19.60, x:700,  y:6290,  s:0.76, r:-0.15}, /* 03 · los dos mapas */
+  {t:22.20, x:700,  y:6520,  s:1.02, r: 0.15}, /* entra al 2026 */
+  {t:24.60, x:1080, y:4260,  s:0.29, r:-0.4},  /* los tres juntos */
+  {t:27.60, x:660,  y:8580,  s:0.90, r: 0.2},  /* 04 · LA RECTA */
+  {t:33.40, x:1880, y:8580,  s:0.90, r:-0.1},  /* la recorre · 5,8 s */
+  {t:36.40, x:1210, y:10310, s:0.94, r: 0.15},
+  {t:40.40, x:1210, y:10370, s:1.00, r:-0.1},  /* 4 s casi quieto */
+  {t:43.00, x:1210, y:11565, s:0.96, r: 0},
+  {t:46.20, x:1210, y:11585, s:0.99, r: 0},
+];
+const SK = 0.93;
+const CX = CAM.map(k=>({t:k.t,v:k.x,e:E.inOutCubic}));
+const CY = CAM.map(k=>({t:k.t,v:k.y,e:E.inOutCubic}));
+const CS = CAM.map(k=>({t:k.t,v:k.s,e:E.inOutCubic}));
+const CR = CAM.map(k=>({t:k.t,v:k.r,e:E.inOutCubic}));
+function camAt(t){
+  const xs=kf(t,CX), ys=kf(t,CY), s=kf(t,CS);
+  return { xs, ys, s, roll:kf(t,CR), x:540+(xs-540)*SK, y:960+(ys-960)*SK };
+}
+
+/* ---------------- HUD ---------------- */
+const hud = document.createElement('div');
+hud.id='hud';
+hud.style.cssText='position:fixed;inset:0;z-index:50;pointer-events:none;';
+hud.innerHTML = `
+  <div id="hfr" style="position:absolute;left:58px;top:58px;right:58px;bottom:58px;border:1px solid rgba(245,243,238,.13);"></div>
+  ${[['left:44px;top:44px','border-left:2px solid;border-top:2px solid'],
+     ['right:44px;top:44px','border-right:2px solid;border-top:2px solid'],
+     ['left:44px;bottom:44px','border-left:2px solid;border-bottom:2px solid'],
+     ['right:44px;bottom:44px','border-right:2px solid;border-bottom:2px solid']]
+    .map(([pos,br])=>`<div class="tk" style="position:absolute;${pos};width:34px;height:34px;${br};border-color:#c9a96e;opacity:.8;"></div>`).join('')}
+  <div class="mo" style="position:absolute;left:92px;top:96px;font-size:20px;letter-spacing:.22em;color:rgba(245,243,238,.62);">OBSERVACIÓN 2016—2026</div>
+  <div id="htr" class="mo" style="position:absolute;right:92px;top:96px;font-size:20px;letter-spacing:.22em;color:#c9a96e;">01/04</div>
+  <div id="halert" class="mo" style="position:absolute;right:92px;top:132px;font-size:19px;letter-spacing:.2em;color:#e0483f;opacity:0;">⚠ ALERTA</div>
+  <div id="hsite" class="mo" style="position:absolute;left:0;bottom:96px;width:1080px;text-align:center;font-size:18px;letter-spacing:.26em;color:rgba(245,243,238,.42);">RESPONDE · METOGROUP</div>`;
+document.getElementById('viewport').appendChild(hud);
+
+const css = document.createElement('style');
+css.textContent = `
+  .mo { font-family:'IBM Plex Mono',monospace; font-variant-numeric:tabular-nums; }
+  .grid { position:absolute; background-image:
+      repeating-linear-gradient(90deg, rgba(245,243,238,.05) 0 1px, transparent 1px 120px),
+      repeating-linear-gradient(180deg, rgba(245,243,238,.05) 0 1px, transparent 1px 120px); }
+  .axis { position:absolute; height:1px; background:rgba(245,243,238,.32); }
+  .vaxis { position:absolute; width:1px; background:rgba(245,243,238,.18); }
+  .tick { position:absolute; width:1px; height:14px; background:rgba(245,243,238,.35); }
+  .kick { font-family:'IBM Plex Mono',monospace; font-size:26px; letter-spacing:.28em; color:#c9a96e; }
+  .ttl  { font-family:'Newsreader',serif; font-weight:600; letter-spacing:-.02em; color:#f5f3ee; line-height:1.05; }
+  .note { font-family:'IBM Plex Mono',monospace; font-size:20px; letter-spacing:.10em; color:rgba(245,243,238,.34); }
+  .rdlbl{ font-family:'IBM Plex Mono',monospace; font-size:22px; letter-spacing:.26em; color:rgba(245,243,238,.38); }
+  .rdval{ font-family:'IBM Plex Mono',monospace; font-weight:600; }
+  .bar  { position:absolute; bottom:0; transform-origin:50% 100%; }
+  .rzone{ position:absolute; background:rgba(224,72,63,.09); border-top:2px dashed rgba(224,72,63,.55); }
+  .rbox2{ position:absolute; border:2px dashed rgba(224,72,63,.60); }
+  .rtag { display:inline-block; white-space:nowrap; font-family:'IBM Plex Mono',monospace; font-weight:600;
+          letter-spacing:.18em; color:#e0483f; border:2px solid #e0483f; background:rgba(224,72,63,.10); padding:14px 24px; }
+  .cell { position:absolute; box-shadow:inset 0 0 0 999px rgba(245,243,238,.075); border:1px solid rgba(245,243,238,.16); }
+  .lgd  { font-family:'IBM Plex Mono',monospace; font-size:23px; letter-spacing:.14em; }
+`;
+document.head.appendChild(css);
+
+const YEARS = ['2016','2018','2020','2022','2024','2026'];
+const stage = $('stage');
+function axisBlock(x, y, w){
+  let h = `<div class="axis" style="left:${x}px;top:${y}px;width:${w}px;"></div>`;
+  YEARS.forEach((yr,i)=>{
+    const px = x + (w/(YEARS.length-1))*i;
+    h += `<div class="tick" style="left:${px}px;top:${y}px;"></div>`;
+    h += `<div class="mo" style="position:absolute;left:${px-60}px;top:${y+28}px;width:120px;text-align:center;
+        font-size:27px;letter-spacing:.14em;color:rgba(245,243,238,.5);">${yr}</div>`;
+  });
+  return h;
+}
+
+/* ---- 01 · la curva que se desploma, con zona crítica ---- */
+const T1 = {x:260, y:1810, w:1900, h:540};
+const V1 = [1.00, 0.56, 0.38, 0.20, 0.085, 0.012];
+const L1 = ['24 h','8 h','4 h','1 h','15 min','AHORA'];
+const CRIT = 0.22;
+const curveD = V1.map((v,i)=>{ const x=(T1.w/5)*i, y=T1.h*(1-v); return (i?'L':'M')+x.toFixed(0)+','+y.toFixed(0); }).join(' ');
+
+/* ---- 02 · barras de canal ---- */
+const T2 = {x:260, y:3900, w:1500, h:560};
+const B_CALL = [0.78,0.55,0.34,0.19,0.10,0.06];
+const B_CHAT = [0.09,0.28,0.49,0.66,0.75,0.81];
+const CROSS = 2;
+
+/* ---- 03 · mapas APILADOS: 2016 arriba, 2026 abajo ---- */
+const T3 = {x:300, y:5960, cw:118, ch:112};
+const FR = ['09 — 18','18 — 24','00 — 09'];
+const DIAS = ['L','M','M','J','V','S','D'];
+const H16 = [[.92,.95,.90,.93,.88,.10,.03],
+             [.12,.14,.11,.13,.16,.06,.02],
+             [.02,.02,.02,.02,.03,.02,.01]];
+const H26 = [[.55,.58,.54,.57,.60,.62,.48],
+             [.86,.88,.85,.90,.95,.92,.80],
+             [.34,.36,.33,.38,.44,.52,.46]];
+function heatGrid(x,y,data,tag,tagCol){
+  let h = `<div class="mo" style="position:absolute;left:${x-210}px;top:${y+10}px;width:180px;text-align:right;
+      font-size:46px;letter-spacing:.10em;color:${tagCol};">${tag}</div>`;
+  data.forEach((row,r)=> row.forEach((v,c)=>{
+    h += `<div class="cell hc" data-rx="${x+c*T3.cw}" style="left:${x+c*T3.cw}px;top:${y+r*T3.ch}px;
+        width:${T3.cw-4}px;height:${T3.ch-4}px;background:rgba(201,169,110,${(v*0.95).toFixed(2)});"></div>`;
+  }));
+  FR.forEach((f,r)=> h += `<div class="mo" style="position:absolute;left:${x+7*T3.cw+16}px;top:${y+r*T3.ch+T3.ch/2-13}px;width:200px;
+      text-align:left;font-size:20px;color:rgba(245,243,238,.32);">${f}</div>`);
+  DIAS.forEach((d,c)=> h += `<div class="mo" style="position:absolute;left:${x+c*T3.cw}px;top:${y+3*T3.ch+8}px;width:${T3.cw-4}px;
+      text-align:center;font-size:21px;color:rgba(245,243,238,.38);">${d}</div>`);
+  /* recuadros rojos: todo lo que cae FUERA de hora comercial */
+  h += `<div class="rbox2" style="left:${x+5*T3.cw-3}px;top:${y-3}px;width:${2*T3.cw}px;height:${3*T3.ch}px;"></div>`;
+  h += `<div class="rbox2" style="left:${x-3}px;top:${y+T3.ch-3}px;width:${5*T3.cw}px;height:${2*T3.ch}px;"></div>`;
+  return h;
+}
+
+/* ---- 04 · la recta ---- */
+const T4 = {x:260, y:8400, w:1900, h:420};
+const G1 = [1.00,0.56,0.38,0.20,0.085,0.012];
+const G2 = [0.09,0.28,0.49,0.66,0.75,0.81];
+const G3 = [0.18,0.26,0.38,0.50,0.58,0.63];
+const ghost = v => v.map((q,i)=>{ const x=(T4.w/5)*i, y=T4.h*(1-q); return (i?'L':'M')+x.toFixed(0)+','+y.toFixed(0); }).join(' ');
+
+stage.innerHTML = `
+<div class="grid" style="left:-500px;top:-300px;width:3600px;height:12900px;"></div>
+
+<!-- encabezado -->
+<div style="position:absolute;left:260px;top:470px;width:1400px;">
+  <div class="mo" style="font-size:24px;letter-spacing:.34em;color:#c9a96e;">METOGROUP · OBSERVACIÓN DE CAMPO</div>
+  <div class="axis" style="position:relative;left:0;top:26px;width:900px;"></div>
+  <div class="mo" style="margin-top:60px;font-size:56px;font-weight:500;color:#f5f3ee;white-space:nowrap;">
+    <span id="tw"></span><span id="twc" style="display:inline-block;width:22px;height:50px;background:#c9a96e;vertical-align:-6px;"></span>
+  </div>
+  <div class="note" style="margin-top:44px;">2016 — 2026 · CÓMO CAMBIÓ EL QUE COMPRA</div>
+</div>
+
+<!-- 01 -->
+<div style="position:absolute;left:${T1.x}px;top:${T1.y-250}px;width:960px;">
+  <div class="kick">01 · TIEMPO DE ESPERA TOLERADO</div>
+  <div class="ttl" style="font-size:70px;margin-top:16px;">Cuánto te espera<br>antes de irse con otro</div>
+</div>
+<div class="rzone" style="left:${T1.x}px;top:${T1.y+T1.h*(1-CRIT)}px;width:${T1.w}px;height:${T1.h*CRIT}px;"></div>
+<div class="mo" style="position:absolute;left:${T1.x+20}px;top:${T1.y+T1.h*(1-CRIT)+16}px;font-size:22px;
+     letter-spacing:.22em;color:rgba(224,72,63,.85);">ZONA CRÍTICA · MENOS DE 1 HORA</div>
+${axisBlock(T1.x, T1.y+T1.h, T1.w)}
+<div class="vaxis" style="left:${T1.x}px;top:${T1.y}px;height:${T1.h}px;"></div>
+<svg style="position:absolute;left:${T1.x}px;top:${T1.y}px;overflow:visible;" width="${T1.w}" height="${T1.h}">
+  <path id="cv1" d="${curveD}" fill="none" stroke="#c9a96e" stroke-width="8" stroke-linejoin="round" stroke-linecap="round"/>
+</svg>
+${V1.map((v,i)=>{
+  const px = T1.x + (T1.w/5)*i, py = T1.y + T1.h*(1-v), crit = v < CRIT;
+  return `<div class="rv" data-rx="${px}" style="position:absolute;left:${px-10}px;top:${py-10}px;width:20px;height:20px;
+      border-radius:50%;background:${crit?'#e0483f':'#c9a96e'};"></div>
+    <div class="rv rdval" data-rx="${px}" style="position:absolute;left:${px-120}px;top:${py-84}px;width:240px;text-align:center;
+      font-size:${i===5?48:42}px;color:${crit?'#e0483f':'#c9a96e'};">${L1[i]}</div>`;
+}).join('')}
+<div style="position:absolute;left:${T1.x}px;top:${T1.y+T1.h+120}px;width:1100px;">
+  <div class="rdlbl">VARIACIÓN 2016 → 2026</div>
+  <div class="rdval" style="font-size:104px;color:#e0483f;margin-top:8px;">− 99 %</div>
+  <div class="note" style="margin-top:10px;">DE 24 HORAS A "AHORA" · ESTIMACIÓN PROPIA SOBRE OPERACIONES ACOMPAÑADAS</div>
+</div>
+
+<!-- 02 -->
+<div style="position:absolute;left:${T2.x}px;top:${T2.y-330}px;width:1000px;">
+  <div class="kick">02 · CANAL DE PRIMER CONTACTO</div>
+  <div class="ttl" style="font-size:70px;margin-top:16px;">Por dónde entra hoy<br>el que quiere comprar</div>
+  <div style="margin-top:24px;">
+    <span class="lgd" style="color:rgba(245,243,238,.55);">▉ LLAMADA</span>
+    <span class="lgd" style="color:#c9a96e;margin-left:46px;">▉ MENSAJE</span>
+  </div>
+</div>
+${axisBlock(T2.x, T2.y+T2.h, T2.w)}
+${B_CALL.map((v,i)=>{
+  const px = T2.x + (T2.w/5)*i, c = B_CHAT[i];
+  return `<div class="rv bar" data-rx="${px}" style="left:${px-112}px;top:${T2.y}px;height:${T2.h}px;width:100px;
+      background:linear-gradient(180deg,rgba(245,243,238,.40),rgba(245,243,238,.16));--h:${v};"></div>
+    <div class="rv bar" data-rx="${px}" style="left:${px+12}px;top:${T2.y}px;height:${T2.h}px;width:100px;
+      background:linear-gradient(180deg,#c9a96e,#8a6f3c);--h:${c};"></div>
+    <div class="rv mo" data-rx="${px}" style="position:absolute;left:${px-112}px;top:${T2.y+T2.h-v*T2.h-44}px;width:100px;
+      text-align:center;font-size:26px;color:rgba(245,243,238,.55);">${Math.round(v*100)}%</div>
+    <div class="rv mo" data-rx="${px}" style="position:absolute;left:${px+12}px;top:${T2.y+T2.h-c*T2.h-44}px;width:100px;
+      text-align:center;font-size:26px;color:#c9a96e;">${Math.round(c*100)}%</div>`;
+}).join('')}
+<div class="rv" data-rx="${T2.x+(T2.w/5)*CROSS}" style="position:absolute;left:${T2.x+(T2.w/5)*CROSS}px;top:${T2.y-46}px;
+     width:2px;height:${T2.h+46}px;background:repeating-linear-gradient(180deg,rgba(224,72,63,.75) 0 10px,transparent 10px 20px);"></div>
+<div class="rv mo" data-rx="${T2.x+(T2.w/5)*CROSS}" style="position:absolute;left:${T2.x+(T2.w/5)*CROSS+18}px;top:${T2.y-80}px;
+     font-size:24px;letter-spacing:.2em;color:#e0483f;">PUNTO DE CRUCE</div>
+<div style="position:absolute;left:${T2.x}px;top:${T2.y+T2.h+120}px;width:1300px;">
+  <div class="rdlbl">VARIACIÓN 2016 → 2026</div>
+  <div class="rdval" style="font-size:86px;color:#e0483f;margin-top:8px;">LLAMADA − 92 %</div>
+  <div class="rdval" style="font-size:86px;color:#c9a96e;margin-top:4px;">MENSAJE × 9</div>
+</div>
+
+<!-- 03 · mapas apilados -->
+<div style="position:absolute;left:${T3.x-210}px;top:${T3.y-330}px;width:1100px;">
+  <div class="kick">03 · CUÁNDO TE ESCRIBEN</div>
+  <div class="ttl" style="font-size:70px;margin-top:16px;">La consulta se fue<br>a la noche y al finde</div>
+  <div class="mo" style="margin-top:22px;font-size:22px;letter-spacing:.18em;color:#e0483f;">⬚ RECUADRO ROJO · FUERA DE HORA COMERCIAL</div>
+</div>
+${heatGrid(T3.x, T3.y, H16, '2016', 'rgba(245,243,238,.55)')}
+${heatGrid(T3.x, T3.y+3*T3.ch+150, H26, '2026', '#c9a96e')}
+<div style="position:absolute;left:${T3.x-210}px;top:${T3.y+6*T3.ch+270}px;width:1300px;">
+  <div class="rdlbl">CONSULTAS FUERA DE HORA COMERCIAL</div>
+  <div class="rdval" style="font-size:96px;color:#e0483f;margin-top:8px;">18 %&nbsp;&nbsp;→&nbsp;&nbsp;63 %</div>
+</div>
+
+<!-- 04 · LA RECTA -->
+<div style="position:absolute;left:${T4.x}px;top:${T4.y-330}px;width:1200px;">
+  <div class="kick" style="color:#e0483f;">04 · LA ÚNICA CONSTANTE DE LA DÉCADA</div>
+  <div class="ttl" style="font-size:98px;margin-top:16px;">Tu manera de vender</div>
+</div>
+<div style="position:absolute;left:${T4.x-40}px;top:${T4.y-70}px;width:${T4.w+80}px;height:${T4.h+190}px;background:rgba(224,72,63,.06);"></div>
+<div class="rbox2" style="left:${T4.x-40}px;top:${T4.y-70}px;width:${T4.w+80}px;height:${T4.h+190}px;border-width:3px;"></div>
+${axisBlock(T4.x, T4.y+T4.h, T4.w)}
+<svg style="position:absolute;left:${T4.x}px;top:${T4.y}px;overflow:visible;" width="${T4.w}" height="${T4.h}">
+  <path d="${ghost(G1)}" fill="none" stroke="rgba(245,243,238,.17)" stroke-width="3" stroke-dasharray="10 10"/>
+  <path d="${ghost(G2)}" fill="none" stroke="rgba(245,243,238,.17)" stroke-width="3" stroke-dasharray="10 10"/>
+  <path d="${ghost(G3)}" fill="none" stroke="rgba(245,243,238,.17)" stroke-width="3" stroke-dasharray="10 10"/>
+</svg>
+<div class="mo" style="position:absolute;left:${T4.x+30}px;top:${T4.y-42}px;font-size:21px;letter-spacing:.18em;color:rgba(245,243,238,.33);">— — —  TODO LO DEMÁS</div>
+<div id="flat" style="position:absolute;left:${T4.x}px;top:${T4.y+T4.h*0.52}px;height:11px;width:${T4.w}px;
+     background:#f5f3ee;transform-origin:0 50%;box-shadow:0 0 34px rgba(245,243,238,.35);"></div>
+${YEARS.map((yr,i)=>{
+  const px = T4.x + (T4.w/5)*i;
+  return `<div class="rv" data-rx="${px}" style="position:absolute;left:${px-11}px;top:${T4.y+T4.h*0.52-6}px;width:22px;height:22px;
+     border-radius:50%;background:#f5f3ee;"></div>
+   <div class="rv mo" data-rx="${px}" style="position:absolute;left:${px-110}px;top:${T4.y+T4.h*0.52-86}px;width:220px;text-align:center;
+     font-size:36px;letter-spacing:.14em;color:rgba(245,243,238,.72);">IGUAL</div>`;
+}).join('')}
+<div style="position:absolute;left:${T4.x}px;top:${T4.y+T4.h+150}px;width:1400px;">
+  <span class="rtag" style="font-size:32px;">⚠ SIN CAMBIOS · 2016 — 2026</span>
+  <div class="rdval" style="font-size:96px;color:#f5f3ee;margin-top:26px;">VARIACIÓN 0 %</div>
+</div>
+
+<!-- remate -->
+<div style="position:absolute;left:${T4.x}px;top:10050px;width:1900px;text-align:center;">
+  <div class="mask" style="position:relative;width:1900px;"><span id="f1" class="ser bone" style="font-size:110px;font-weight:700;">TODO CAMBIÓ.</span></div>
+  <div id="fr" style="width:420px;height:2px;background:#c9a96e;margin:30px auto 26px;transform-origin:50% 50%;"></div>
+  <div class="mask" style="position:relative;width:1900px;"><span id="f2" class="seri tan" style="font-size:86px;font-weight:600;">Menos tu manera de vender.</span></div>
+  <div class="mask" style="position:relative;width:1900px;margin-top:64px;"><span id="f3" class="ser bone" style="font-size:58px;font-weight:600;opacity:.85;">No te quejes si los resultados</span></div>
+  <div class="mask" style="position:relative;width:1900px;"><span id="f3b" class="ser bone" style="font-size:58px;font-weight:600;opacity:.85;">no son los mismos.</span></div>
+</div>
+
+<!-- cierre -->
+<div style="position:absolute;left:${T4.x}px;top:11290px;width:1900px;text-align:center;">
+  <div id="rbox" class="rbox" style="display:inline-grid;width:126px;height:126px;font-size:68px;"></div>
+  <div id="rlogo" class="ser bone" style="font-size:150px;font-weight:600;letter-spacing:-.02em;margin-top:40px;"></div>
+  <div id="rrule" style="width:460px;height:2px;background:#c9a96e;margin:26px auto 0;transform-origin:50% 50%;"></div>
+  <div id="rtag" class="seri tan" style="font-size:48px;font-weight:500;margin-top:28px;">El que contesta primero.</div>
+  <div id="rbtn" class="pill" style="display:inline-block;font-size:40px;white-space:nowrap;padding:30px 62px;margin-top:48px;">Probame ahora →</div>
+  <div id="rsite" class="mo" style="font-size:24px;letter-spacing:.26em;margin-top:40px;color:rgba(245,243,238,.6);">RESPONDE · BY METOGROUP · METOGROUP.AR</div>
+</div>`;
+
+const st2 = document.createElement('style');
+st2.textContent = `.mask{overflow:hidden;line-height:1.28;padding-bottom:10px;} .mask>span{display:inline-block;}`;
+document.head.appendChild(st2);
+
+const RV = [...document.querySelectorAll('.rv')].map(el=>({el, rx:parseFloat(el.dataset.rx)}));
+const HC = [...document.querySelectorAll('.hc')].map(el=>({el, rx:parseFloat(el.dataset.rx)}));
+const cv1 = $('cv1');
+let LEN1 = 0;
+const TW = 'EL MUNDO CAMBIÓ.', TW0 = 0.55, TW1 = 3.60;
+
+window.seek = function(t){
+  setWorld(t, 0);
+  if (!LEN1){ LEN1 = cv1.getTotalLength(); cv1.style.strokeDasharray = LEN1; }
+  const c = camAt(t), c2 = camAt(t+1/60);
+  const v = Math.hypot((c2.x-c.x)*c.s, (c2.y-c.y)*c.s) + Math.abs(c2.s-c.s)/c.s*900;
+  const blur = Math.min(7, Math.max(0, (v-8)*0.19));
+  const bx = Math.sin(t*0.62)*4 + Math.sin(t*1.7)*1.6;
+  const by = Math.cos(t*0.5)*4.5 + Math.sin(t*1.3)*1.6;
+  const rot = c.roll + Math.sin(t*0.33)*0.32 + Math.sin(t*0.9)*0.11;
+  const cam = $('camera');
+  cam.style.transform = `translate(540px,960px) rotate(${rot}deg) scale(${c.s}) translate(${-(c.x+bx)}px,${-(c.y+by)}px)`;
+  cam.style.filter = blur>0.25 ? `blur(${blur.toFixed(2)}px)` : 'none';
+  const gi = Math.floor(t*24)%9;
+  $('grainD').style.transform = `translate(${(gi%3)*-22}px,${Math.floor(gi/3)*-18}px)`;
+  $('blackout').style.opacity = Math.max(1-seg(t,0,0.5,E.outQuad), seg(t,45.55,46.15,E.inQuad));
+  $('flash').style.opacity = 0;
+
+  const n = Math.round(seg(t, TW0, TW1, E.linear) * TW.length);
+  $('tw').textContent = TW.slice(0, n);
+  $('twc').style.opacity = t < TW1+0.6 ? (Math.floor(t*2.6)%2?1:.15) : 0;
+
+  /* los datos se dibujan al pasar la cámara */
+  const px = c.xs;
+  const rp = x => clamp01((px - (x - 330)) / 420);
+  cv1.style.strokeDashoffset = LEN1 * (1 - rp(T1.x + 260));
+  for (const r of RV){ const q = rp(r.rx); r.el.style.opacity = q; r.el.style.transform = `translateY(${lerp(16,0,q)}px)`; }
+  for (const b of [...document.querySelectorAll('.bar')]){
+    const q = rp(parseFloat(b.style.left)+50);
+    b.style.transform = `scaleY(${(parseFloat(b.style.getPropertyValue('--h'))*q).toFixed(3)})`;
+  }
+  for (const h of HC) h.el.style.opacity = rp(h.rx + 300);
+  $('flat').style.transform = `scaleX(${rp(T4.x+520).toFixed(3)})`;
+
+  /* HUD · alerta roja en la pista 04 */
+  let tr='01/04';
+  if (c.ys > 3400) tr='02/04';
+  if (c.ys > 5500) tr='03/04';
+  if (c.ys > 7900) tr='04/04';
+  if (c.ys > 9700) tr='—/—';
+  $('htr').textContent = tr;
+  const alerta = c.ys > 7900 && c.ys < 9700;
+  const pulse = alerta ? (0.45 + 0.55*Math.abs(Math.sin(t*2.4))) : 0;
+  $('halert').style.opacity = pulse;
+  $('htr').style.color = alerta ? '#e0483f' : '#c9a96e';
+  $('hfr').style.borderColor = alerta ? `rgba(224,72,63,${(0.16+0.22*pulse).toFixed(2)})` : 'rgba(245,243,238,.13)';
+  [...document.querySelectorAll('.tk')].forEach(el=> el.style.borderColor = alerta ? '#e0483f' : '#c9a96e');
+  $('hsite').style.opacity = t>38.4 ? 0 : .42;
+
+  const w = (id,t0,d)=>{ const q=seg(t,t0,t0+d,E.outExpo); $(id).style.transform=`translateY(${(1-q)*115}%)`; };
+  w('f1', 36.75, 0.8); w('f2', 38.10, 0.85); w('f3', 39.40, 0.7); w('f3b', 39.85, 0.7);
+  const fq = seg(t, 37.65, 38.25, E.outExpo);
+  $('fr').style.transform = `scaleX(${fq})`; $('fr').style.opacity = fq;
+  const rq = seg(t, 43.20, 43.70, E.outExpo);
+  $('rbox').style.opacity = rq; $('rbox').textContent='R';
+  $('rbox').style.transform = `scale(${lerp(.55,1,rq)})`;
+  scramble($('rlogo'), 'RESPONDE', t, 43.50, 44.70);
+  const ru = seg(t, 44.70, 45.15, E.outExpo);
+  $('rrule').style.transform = `scaleX(${ru})`; $('rrule').style.opacity = ru;
+  const tg = seg(t, 44.90, 45.35, E.outCubic);
+  $('rtag').style.opacity = tg; $('rtag').style.transform=`translateY(${lerp(18,0,tg)}px)`;
+  const bq = seg(t, 45.15, 45.65, E.outBack);
+  $('rbtn').style.opacity = bq;
+  $('rbtn').style.transform = `scale(${bq<1?lerp(.7,1,bq):1+0.02*Math.sin((t-45.15)*2.4)})`;
+  $('rsite').style.opacity = seg(t, 45.45, 45.95, E.outCubic);
+};
+window.READY = Promise.all([
+  document.fonts.load('600 150px Newsreader'),
+  document.fonts.load('600 98px Newsreader'),
+  document.fonts.load('italic 600 86px Newsreader'),
+  document.fonts.load('500 56px "IBM Plex Mono"'),
+  document.fonts.load('600 104px "IBM Plex Mono"'),
+  document.fonts.load('700 40px "Inter Tight"'),
+  document.fonts.ready
+]).then(()=>{ window.seek(0); return true; });
+</script>
+</body>
+</html>

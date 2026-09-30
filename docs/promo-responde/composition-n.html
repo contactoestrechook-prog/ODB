@@ -1,0 +1,517 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,500;0,6..72,600;0,6..72,700;1,6..72,500;1,6..72,600&family=Inter+Tight:wght@300;500;700&family=IBM+Plex+Mono:wght@400;500;600&display=block" rel="stylesheet">
+</head>
+<body>
+<script src="motor.js"></script>
+<script>
+injectBase('petroleo');
+$('stage').style.transform='scale(1.00)';  /* contención */
+
+/* ==================================================================
+   VIDEO N · "EL MOSTRADOR" · manifiesto
+   Te hiciste dueño para salir del mostrador — y estás atrás de uno
+   digital. Mientras tanto: la empresa no crece, los márgenes se
+   achican, quedan menos intermediarios. ¿Cuándo generás lo nuevo?
+   HUD: la barra de tu día (8 bloques = 8 horas) que se come en rojo
+   → PARA CREAR 0:00 → RESPONDE te la devuelve en oro.
+   ================================================================== */
+const TL = {
+  b1: {in:0.00,  w1:0.16, w2:0.85, x:2.75, cut:3.40},
+  b2: {in:3.40,  q1:3.58, q2:4.65, q3:5.72, x:6.90, cut:7.60},
+  b3: {in:7.60,  w1:7.80, w2:9.30, x:10.45, cut:11.10},
+  b4: {in:11.10, w1:11.30, w2:12.90, x:14.15, cut:14.90},
+  b5: {in:14.90, w1:15.10, w2:16.15, w3:17.25, x:18.65, cut:19.20},
+  b6: {in:19.20, w1:19.45, w2:20.60, x:22.15, cut:23.00},
+  b6b:{in:23.00, w0:23.18, l1:23.90, l2:25.00, l3:26.10, x:27.00, cut:27.60},
+  b7: {in:27.60, w1:27.82, w2:29.20, cut:31.20},
+  b8: {in:31.20, cut:32.70},                              /* el día en cero */
+  b9: {in:32.70, r:32.85, logo:33.20, logoEnd:34.40, tag:34.80, cut:36.20},
+  b10:{in:36.20, l1:36.40, l2:37.75, l3:39.10, cut:41.00},
+  b11:{in:41.00, w:41.25, cut:44.50},
+  b12:{in:44.50, logo:44.72, rule:45.60, tag:46.10, btn:47.00, site:47.75, shimmer:50.30, end:53.80},
+};
+window.DURATION = 53.8;
+const BEATS = Object.keys(TL);
+const CUTS = BEATS.map(k=>TL[k].cut).filter(Boolean).slice(0,-1);
+/* la barra del día: 8 horas; b5 se come dos; la última se va con el
+   mundo achicándose — la pregunta llega con el día ya en 0:00 */
+const XS  = [TL.b1.x, TL.b2.x, TL.b3.x, TL.b4.x, TL.b5.x-0.45, TL.b5.x, TL.b6.x, TL.b6b.x];
+const OKS = [0,1,2,3,4,5,6,7].map(i=> TL.b10.l1 + 0.15 + i*0.42);
+
+const camera = makeCamera({
+  S:[
+    {t:0,v:1.20},{t:0.55,v:1.02,e:E.outExpo},{t:3.40,v:1.00,e:E.linear},
+    {t:3.40,v:1.00},{t:7.60,v:1.06,e:E.linear},
+    {t:7.60,v:1.02},{t:11.10,v:1.07,e:E.linear},
+    {t:11.10,v:1.00},{t:14.90,v:1.06,e:E.linear},
+    {t:14.90,v:1.01},{t:19.20,v:1.06,e:E.linear},
+    {t:19.20,v:1.16},{t:20.10,v:1.00,e:E.outExpo},{t:23.00,v:1.03,e:E.linear},
+    {t:23.00,v:1.00},{t:27.60,v:1.065,e:E.linear},
+    {t:27.60,v:1.00},{t:31.20,v:1.08,e:E.linear},
+    {t:31.20,v:1.08},{t:32.70,v:1.02,e:E.linear},
+    {t:32.70,v:1.40},{t:34.40,v:1.00,e:E.outExpo},{t:36.20,v:1.035,e:E.linear},
+    {t:36.20,v:1.00},{t:41.00,v:1.07,e:E.linear},
+    {t:41.00,v:1.15},{t:41.90,v:1.00,e:E.outExpo},{t:44.50,v:1.03,e:E.linear},
+    {t:44.50,v:1.10},{t:45.35,v:1.00,e:E.outExpo},{t:53.80,v:1.065,e:E.linear},
+  ],
+  X:[{t:0,v:540}],
+  Y:[
+    {t:0,v:930},{t:0.55,v:955,e:E.outExpo},{t:3.40,v:962,e:E.linear},
+    {t:3.40,v:948},{t:7.60,v:975,e:E.linear},
+    {t:7.60,v:950},{t:11.10,v:975,e:E.linear},
+    {t:11.10,v:948},{t:14.90,v:975,e:E.linear},
+    {t:14.90,v:950},{t:19.20,v:978,e:E.linear},
+    {t:19.20,v:935},{t:20.10,v:960,e:E.outExpo},{t:23.00,v:970,e:E.linear},
+    {t:23.00,v:948},{t:27.60,v:978,e:E.linear},
+    {t:27.60,v:950},{t:31.20,v:978,e:E.linear},
+    {t:31.20,v:960},{t:32.70,v:960},
+    {t:32.70,v:915},{t:34.40,v:960,e:E.outExpo},{t:36.20,v:970,e:E.linear},
+    {t:36.20,v:950},{t:41.00,v:975,e:E.linear},
+    {t:41.00,v:935},{t:41.90,v:960,e:E.outExpo},{t:44.50,v:970,e:E.linear},
+    {t:44.50,v:938},{t:45.35,v:960,e:E.outExpo},{t:53.80,v:968,e:E.linear},
+  ],
+  shakes:[
+    {t:0.18,amp:9,freq:11,dur:0.5},
+    {t:2.75,amp:4,freq:12,dur:0.3},{t:6.90,amp:4,freq:12,dur:0.3},
+    {t:9.33,amp:7,freq:10,dur:0.45},{t:10.45,amp:4,freq:12,dur:0.3},
+    {t:12.93,amp:6,freq:10,dur:0.42},{t:14.15,amp:4,freq:12,dur:0.3},
+    {t:18.20,amp:4,freq:12,dur:0.3},{t:18.65,amp:4,freq:12,dur:0.3},
+    {t:19.25,amp:10,freq:10,dur:0.55},{t:22.15,amp:4,freq:12,dur:0.3},
+    {t:23.95,amp:5,freq:11,dur:0.32},{t:25.05,amp:5,freq:11,dur:0.32},{t:26.15,amp:6,freq:11,dur:0.35},{t:27.00,amp:4,freq:12,dur:0.3},
+    {t:29.23,amp:8,freq:10,dur:0.5},
+    {t:32.75,amp:13,freq:9,dur:0.75},
+    {t:41.05,amp:8,freq:10,dur:0.5},{t:44.55,amp:4,freq:10,dur:0.35},
+  ],
+  whips:[],
+  flashes:[
+    {t:0.18,p:.42},{t:3.45,p:.2},{t:7.65,p:.22},{t:9.33,p:.28},{t:11.15,p:.2},{t:12.93,p:.26},
+    {t:14.95,p:.2},{t:19.25,p:.55},{t:23.05,p:.25},{t:26.15,p:.22},{t:27.65,p:.25},{t:29.23,p:.32},
+    {t:32.75,p:.7},{t:36.25,p:.2},{t:41.05,p:.5},{t:44.55,p:.28},{t:50.30,p:.15},
+  ],
+  cutsBlack: CUTS.map(t=>({a:t-0.05,b:t+0.05})),
+  cutsBone: [{a:19.15,b:19.27},{a:40.95,b:41.07}],
+  fade:[53.15,53.75],
+});
+
+function paperF(t){
+  return Math.max(
+    Math.min(seg(t,19.20,19.33,E.outCubic), 1-seg(t,22.93,23.01,E.inQuad)),
+    Math.min(seg(t,41.00,41.13,E.outCubic), 1-seg(t,44.43,44.51,E.inQuad))
+  );
+}
+
+/* ================= HUD · la barra de tu día ================= */
+const hud = document.createElement('div');
+hud.id='hud';
+hud.style.cssText='position:fixed;inset:0;z-index:50;pointer-events:none;';
+hud.innerHTML = `
+  <div id="hfr" style="position:absolute;left:58px;top:58px;right:58px;bottom:58px;border:1px solid rgba(245,243,238,.13);"></div>
+  ${[['left:44px;top:44px','border-left:2px solid;border-top:2px solid'],
+     ['right:44px;top:44px','border-right:2px solid;border-top:2px solid'],
+     ['left:44px;bottom:44px','border-left:2px solid;border-bottom:2px solid'],
+     ['right:44px;bottom:44px','border-right:2px solid;border-bottom:2px solid']]
+    .map(([pos,br])=>`<div class="tk" style="position:absolute;${pos};width:34px;height:34px;${br};border-color:#c9a96e;opacity:.8;"></div>`).join('')}
+  <div id="hlbl" class="mo" style="position:absolute;left:92px;top:96px;font-size:20px;letter-spacing:.22em;color:rgba(245,243,238,.62);">AUDITORÍA · TU DÍA DE TRABAJO</div>
+  <div id="hctrl" class="mo" style="position:absolute;right:92px;top:96px;font-size:20px;letter-spacing:.22em;color:#c9a96e;">PARA CREAR 8:00</div>
+  <div id="hbarlbl" class="mo" style="position:absolute;left:0;bottom:196px;width:1080px;text-align:center;font-size:16px;letter-spacing:.3em;color:rgba(245,243,238,.42);">TU DÍA · 8 HORAS</div>
+  <div id="hboxes" style="position:absolute;left:0;bottom:150px;width:1080px;display:flex;justify-content:center;gap:8px;"></div>
+  <div id="hsite" class="mo" style="position:absolute;left:0;bottom:96px;width:1080px;text-align:center;font-size:17px;letter-spacing:.26em;color:rgba(245,243,238,.4);">RESPONDE · METOGROUP</div>`;
+document.getElementById('viewport').appendChild(hud);
+
+const BX = [];
+for (let i=0;i<8;i++){
+  const d=document.createElement('div');
+  d.style.cssText='width:92px;height:26px;border:2px solid rgba(245,243,238,.35);position:relative;overflow:hidden;';
+  d.innerHTML = `<div class="fill" style="position:absolute;inset:0;transform-origin:0 50%;transform:scaleX(0);"></div>`;
+  $('hboxes').appendChild(d);
+  BX.push({box:d, fill:d.querySelector('.fill')});
+}
+
+const css2 = document.createElement('style');
+css2.textContent = `
+  .mo { font-family:'IBM Plex Mono',monospace; font-variant-numeric:tabular-nums; }
+  .mask { position:absolute; overflow:hidden; text-align:center; line-height:1.3; padding-bottom:12px; }
+  .mask > span { display:inline-block; }
+  .qrow { position:relative; display:flex; align-items:baseline; gap:32px; margin-bottom:36px; }
+  .qn { font-family:'IBM Plex Mono',monospace; font-weight:300; font-size:25px; letter-spacing:.16em; color:#c9a96e; width:96px; flex-shrink:0; }
+  .qt { font-family:'Newsreader',serif; font-weight:600; font-size:64px; color:#f5f3ee; white-space:nowrap; }
+  .ans { font-family:'Newsreader',serif; font-style:italic; font-weight:600; color:#c9a96e; }
+  .lrow { position:relative; display:flex; align-items:center; gap:26px; margin-bottom:42px; }
+  .lok { width:52px; height:52px; border:2px solid #c9a96e; display:grid; place-items:center; flex-shrink:0;
+         font-family:'IBM Plex Mono',monospace; font-weight:600; font-size:36px; color:#c9a96e; }
+  .lt { font-family:'Newsreader',serif; font-weight:600; font-size:52px; color:#f5f3ee; }
+  .ldn { width:46px; height:46px; border:2px solid #e0483f; display:grid; place-items:center; flex-shrink:0;
+         font-family:'IBM Plex Mono',monospace; font-weight:600; font-size:34px; color:#e0483f; }
+  .lt2 { font-family:'Newsreader',serif; font-weight:600; font-size:56px; color:#f5f3ee; white-space:nowrap; }
+`;
+document.head.appendChild(css2);
+
+/* ================= carteles ================= */
+const stage = $('stage');
+stage.innerHTML = `
+<div class="layer beat" id="b1">
+  <div class="mask" style="left:0;top:770px;width:1080px;"><span id="b1w1" class="ser bone" style="font-size:72px;font-weight:600;">Te hiciste dueño para salir</span></div>
+  <div class="mask" style="left:0;top:890px;width:1080px;"><span id="b1w2" class="ser tan" style="font-size:100px;font-weight:700;">DEL MOSTRADOR.</span></div>
+</div>
+
+<div class="layer beat" id="b2"><div id="b2list" style="position:absolute;left:150px;top:740px;width:820px;"></div></div>
+
+<div class="layer beat" id="b3">
+  <div class="mask" style="left:0;top:760px;width:1080px;"><span id="b3w1" class="ser bone" style="font-size:74px;font-weight:600;">¿Y dónde estás</span></div>
+  <div class="mask" style="left:0;top:876px;width:1080px;"><span id="b3w1b" class="ser bone" style="font-size:74px;font-weight:600;">ahora mismo?</span></div>
+  <div class="mask" style="left:0;top:1040px;width:1080px;"><span id="b3w2" class="ans" style="font-size:78px;">Atrás del mostrador.</span></div>
+</div>
+
+<div class="layer beat" id="b4">
+  <div class="mask" style="left:0;top:760px;width:1080px;"><span id="b4w1" class="ser bone" style="font-size:72px;font-weight:600;">El mostrador cambió.</span></div>
+  <div class="mask" style="left:0;top:874px;width:1080px;"><span id="b4w1b" class="ser bone" style="font-size:72px;font-weight:600;">Ya no es de madera.</span></div>
+  <div class="mask" style="left:0;top:1040px;width:1080px;"><span id="b4w2" class="ans" style="font-size:82px;">Es tu teléfono.</span></div>
+</div>
+
+<div class="layer beat" id="b5">
+  <div class="mask" style="left:0;top:735px;width:1080px;"><span id="b5w1" class="ser bone" style="font-size:68px;font-weight:600;">Atendés. Contestás.</span></div>
+  <div class="mask" style="left:0;top:850px;width:1080px;"><span id="b5w2" class="ser bone" style="font-size:68px;font-weight:600;">Apagás incendios.</span></div>
+  <div class="mask" style="left:0;top:990px;width:1080px;"><span id="b5w3" class="ans" style="font-size:82px;">Y el día se fue.</span></div>
+</div>
+
+<div class="layer beat" id="b6">
+  <div class="mask" style="left:0;top:800px;width:1080px;"><span id="b6w1" class="ser" style="font-size:70px;font-weight:700;color:#0d0c0a;white-space:nowrap;">ESO NO ES SER DUEÑO.</span></div>
+  <div class="mask" style="left:0;top:936px;width:1080px;"><span id="b6w2" class="ans" style="font-size:64px;color:#8a6f3c;">Es ser el empleado más caro.</span></div>
+</div>
+
+<div class="layer beat" id="b6b">
+  <div id="b6bhdr" class="mo" style="position:absolute;left:0;top:690px;width:1080px;text-align:center;font-size:24px;letter-spacing:.3em;color:#e0483f;">MIENTRAS VOS CONTESTÁS…</div>
+  <div id="b6blist" style="position:absolute;left:104px;top:790px;width:900px;"></div>
+</div>
+
+<div class="layer beat" id="b7">
+  <div class="mask" style="left:0;top:740px;width:1080px;"><span id="b7w1" class="ser bone" style="font-size:76px;font-weight:700;">¿Cuándo generás</span></div>
+  <div class="mask" style="left:0;top:862px;width:1080px;"><span id="b7w1b" class="ser bone" style="font-size:76px;font-weight:700;">oportunidades nuevas?</span></div>
+  <div class="mask" style="left:0;top:1020px;width:1080px;"><span id="b7w2" class="seri" style="font-size:54px;font-weight:500;color:rgba(245,243,238,.72);">¿En qué momento del día?</span></div>
+</div>
+
+<div class="layer beat" id="b8"></div>
+
+<div class="layer beat" id="b9">
+  <div id="b9r" class="rbox" style="position:absolute;left:475px;top:640px;width:130px;height:130px;font-size:70px;">R</div>
+  <div id="b9logo" class="ser bone" style="position:absolute;left:0;top:830px;width:1080px;text-align:center;font-size:160px;font-weight:600;letter-spacing:-.02em;"></div>
+  <div id="b9rule" style="position:absolute;left:300px;top:1035px;width:480px;height:2px;background:#c9a96e;transform-origin:50% 50%;"></div>
+  <div id="b9tag" class="seri tan" style="position:absolute;left:0;top:1080px;width:1080px;text-align:center;font-size:50px;font-weight:500;">Tu empleado en el mostrador, 24/7.</div>
+</div>
+
+<div class="layer beat" id="b10"><div id="b10list" style="position:absolute;left:128px;top:760px;width:880px;"></div></div>
+
+<div class="layer beat" id="b11">
+  <div class="mask" style="left:0;top:790px;width:1080px;"><span id="b11w" class="ser" style="font-size:56px;font-weight:700;color:#0d0c0a;white-space:nowrap;">SALÍ DEL MOSTRADOR.</span></div>
+  <div class="mask" style="left:0;top:900px;width:1080px;"><span id="b11w2" class="ser" style="font-size:75px;font-weight:700;color:#8a6f3c;white-space:nowrap;">VOLVÉ A SER EL DUEÑO.</span></div>
+</div>
+
+<div class="layer beat" id="b12">
+  <div id="cglow" style="position:absolute;left:190px;top:600px;width:700px;height:620px;background:radial-gradient(ellipse 50% 42% at 50% 45%, rgba(201,169,110,.16) 0%, transparent 70%);"></div>
+  <div id="cr" class="rbox" style="position:absolute;left:470px;top:580px;width:140px;height:140px;font-size:76px;">R</div>
+  <div id="clogo" class="ser bone" style="position:absolute;left:0;top:766px;width:1080px;text-align:center;font-size:156px;font-weight:600;letter-spacing:-.02em;"></div>
+  <div id="crule" style="position:absolute;left:280px;top:1000px;width:520px;height:2px;background:#c9a96e;transform-origin:50% 50%;"></div>
+  <div id="ctag" class="seri tan" style="position:absolute;left:0;top:1038px;width:1080px;text-align:center;font-size:52px;">Atiende él. Dirigís vos.</div>
+  <div id="cbtn" class="pill" style="position:absolute;left:50%;top:1176px;transform:translateX(-50%);font-size:44px;white-space:nowrap;padding:34px 70px;">Probame ahora →</div>
+  <div id="csite" class="mo" style="position:absolute;left:0;top:1382px;width:1080px;text-align:center;font-size:24px;letter-spacing:.26em;color:rgba(245,243,238,.6);">RESPONDE · BY METOGROUP · METOGROUP.AR</div>
+</div>`;
+
+/* la ráfaga: lo de siempre, a toda hora */
+const Q2 = [
+  {n:'09:12', txt:'«¿Está disponible?»'},
+  {n:'13:47', txt:'«¿Cuánto sale?»'},
+  {n:'21:05', txt:'«¿Hacen envíos?»'},
+];
+Q2.forEach((q,i)=>{
+  const row=document.createElement('div');
+  row.className='qrow';
+  row.innerHTML=`<span class="qn">${q.n}</span><span class="qt">${q.txt}</span>`;
+  $('b2list').appendChild(row);
+  q.row=row; q.t0=[TL.b2.q1,TL.b2.q2,TL.b2.q3][i];
+});
+/* el problema real: el mundo se achica mientras contestás */
+const L6B = [
+  'Tu empresa no crece.',
+  'Los márgenes se achican.',
+  'Quedan menos intermediarios.',
+];
+const l6bels = L6B.map((txt,i)=>{
+  const row=document.createElement('div');
+  row.className='lrow';
+  row.innerHTML=`<span class="ldn"></span><span class="lt2">${txt}</span>`;
+  $('b6blist').appendChild(row);
+  return {row, dn:row.querySelector('.ldn'), t0:[TL.b6b.l1,TL.b6b.l2,TL.b6b.l3][i]};
+});
+const L10 = [
+  'El mostrador, cubierto 24/7.',
+  'Vos, del otro lado. Por fin.',
+  'Tu empresa vuelve a crecer.',
+];
+const l10els = L10.map((txt,i)=>{
+  const row=document.createElement('div');
+  row.className='lrow';
+  row.innerHTML=`<span class="lok"></span><span class="lt">${txt}</span>`;
+  $('b10list').appendChild(row);
+  return {row, ok:row.querySelector('.lok'), t0:[TL.b10.l1,TL.b10.l2,TL.b10.l3][i]};
+});
+
+function wipe(id,t,t0,dur){ const q=seg(t,t0,t0+(dur||0.55),E.outExpo); $(id).style.transform=`translateY(${(1-q)*140}%)`; return q; }
+function show(id,t,a,b){ const v=t>=a-0.02&&t<b+0.02; $(id).style.display=v?'block':'none'; return v; }
+
+/* la barra del día, por frame */
+function hudFrame(t, inv){
+  const bone='245,243,238', ink='13,12,10';
+  const mixc = a=>`rgba(${inv>.5?ink:bone},${a})`;
+  hud.style.opacity = seg(t,0.25,0.7,E.outCubic);
+  $('hfr').style.borderColor = mixc(.13);
+  let comidas=0; XS.forEach(x=>{ if(t>=x) comidas++; });
+  let devueltas=0; OKS.forEach(o=>{ if(t>=o) devueltas++; });
+  const enPanico = t>=TL.b8.in && t<TL.b9.r;
+  BX.forEach((b,i)=>{
+    const roja = t>=XS[i] && t<OKS[i];
+    const oro  = t>=OKS[i];
+    const grow = roja ? seg(t,XS[i],XS[i]+0.35,E.outCubic) : (oro ? seg(t,OKS[i],OKS[i]+0.3,E.outCubic) : 0);
+    b.fill.style.transform = `scaleX(${grow})`;
+    const blink = enPanico ? (0.55+0.45*Math.abs(Math.sin(t*3.2+i))) : 1;
+    b.fill.style.background = oro ? '#c9a96e' : `rgba(224,72,63,${(0.85*blink).toFixed(2)})`;
+    b.box.style.borderColor = oro ? '#c9a96e' :
+      (roja ? `rgba(224,72,63,${(0.8*blink).toFixed(2)})` : (inv>.5?'rgba(13,12,10,.45)':'rgba(245,243,238,.35)'));
+  });
+  const libres = Math.max(0, 8 - comidas);   /* de día: sólo se come; de vuelta: se recupera */
+  const ctrl = $('hctrl');
+  ctrl.textContent = devueltas>0 ? `PARA CREAR ${devueltas}:00` : `PARA CREAR ${libres}:00`;
+  ctrl.style.color = devueltas>0 ? '#c9a96e' : (comidas>0 ? '#e0483f' : '#c9a96e');
+  $('hbarlbl').textContent = devueltas===8 ? 'TU DÍA · TUYO OTRA VEZ' : 'TU DÍA · 8 HORAS';
+  $('hbarlbl').style.color = devueltas===8 ? '#c9a96e' : mixc(.42);
+  [...document.querySelectorAll('.tk')].forEach(el=> el.style.borderColor = inv>.5 ? '#12100c' : (enPanico?'#e0483f':'#c9a96e'));
+  $('hsite').style.color = mixc(.4);
+}
+
+window.seek = function(t){
+  const paper = paperF(t);
+  setWorld(t, paper);
+  camera(t);
+  hudFrame(t, paper);
+
+  if (show('b1',t,TL.b1.in,TL.b1.cut)){
+    wipe('b1w1',t,TL.b1.w1,0.55);
+    wipe('b1w2',t,TL.b1.w2,0.6);
+    aberr($('b1w2'), Math.max(0,.9-(t-TL.b1.w2)*1.2));
+  }
+  if (show('b2',t,TL.b2.in,TL.b2.cut)){
+    Q2.forEach(q=>{
+      const p = seg(t,q.t0,q.t0+0.32,E.outExpo);
+      q.row.style.opacity=p;
+      q.row.style.transform=`translateX(${lerp(46,0,p)}px)`;
+    });
+  }
+  if (show('b3',t,TL.b3.in,TL.b3.cut)){
+    wipe('b3w1',t,TL.b3.w1,0.5); wipe('b3w1b',t,TL.b3.w1+0.18,0.5);
+    wipe('b3w2',t,TL.b3.w2,0.6);
+    aberr($('b3w2'), Math.max(0,.8-(t-TL.b3.w2)*1.2));
+  }
+  if (show('b4',t,TL.b4.in,TL.b4.cut)){
+    wipe('b4w1',t,TL.b4.w1,0.5); wipe('b4w1b',t,TL.b4.w1+0.18,0.5);
+    wipe('b4w2',t,TL.b4.w2,0.6);
+    aberr($('b4w2'), Math.max(0,.8-(t-TL.b4.w2)*1.2));
+  }
+  if (show('b5',t,TL.b5.in,TL.b5.cut)){
+    wipe('b5w1',t,TL.b5.w1,0.5);
+    wipe('b5w2',t,TL.b5.w2,0.5);
+    wipe('b5w3',t,TL.b5.w3,0.55);
+    aberr($('b5w3'), Math.max(0,.8-(t-TL.b5.w3)*1.2));
+  }
+  if (show('b6',t,TL.b6.in,TL.b6.cut)){
+    wipe('b6w1',t,TL.b6.w1,0.55);
+    wipe('b6w2',t,TL.b6.w2,0.6);
+  }
+  if (show('b6b',t,TL.b6b.in,TL.b6b.cut)){
+    const h = seg(t,TL.b6b.w0,TL.b6b.w0+0.4,E.outCubic);
+    $('b6bhdr').style.opacity=h;
+    $('b6bhdr').style.transform=`translateY(${lerp(18,0,h)}px)`;
+    l6bels.forEach((l,i)=>{
+      const p = seg(t,l.t0,l.t0+0.4,E.outExpo);
+      l.row.style.opacity=p;
+      l.row.style.transform=`translateX(${lerp(40,0,p)}px)`;
+      l.dn.textContent = t>=l.t0+0.22 ? '↓' : '';
+    });
+  }
+  if (show('b7',t,TL.b7.in,TL.b7.cut)){
+    wipe('b7w1',t,TL.b7.w1,0.6); wipe('b7w1b',t,TL.b7.w1+0.18,0.6);
+    aberr($('b7w1'), Math.max(0,1-(t-TL.b7.w1)*1.1));
+    wipe('b7w2',t,TL.b7.w2,0.6);
+  }
+  show('b8',t,TL.b8.in,TL.b8.cut);
+  if (show('b9',t,TL.b9.in,TL.b9.cut)){
+    const rq = seg(t,TL.b9.r,TL.b9.r+0.4,E.outBack);
+    $('b9r').style.opacity=rq;
+    $('b9r').style.transform=`scale(${lerp(.5,1,rq)}) rotate(${lerp(-8,0,rq)}deg)`;
+    scramble($('b9logo'),'RESPONDE',t,TL.b9.logo,TL.b9.logoEnd);
+    aberr($('b9logo'), Math.max(0,.9-(t-TL.b9.logo)*0.8));
+    const ru=seg(t,TL.b9.logoEnd,TL.b9.logoEnd+0.45,E.outExpo);
+    $('b9rule').style.transform=`scaleX(${ru})`; $('b9rule').style.opacity=ru;
+    const tg=seg(t,TL.b9.tag,TL.b9.tag+0.45,E.outCubic);
+    $('b9tag').style.opacity=tg;
+    $('b9tag').style.transform=`translateY(${lerp(22,0,tg)}px)`;
+  }
+  if (show('b10',t,TL.b10.in,TL.b10.cut)){
+    l10els.forEach(l=>{
+      const p = seg(t,l.t0,l.t0+0.4,E.outExpo);
+      l.row.style.opacity=p;
+      l.row.style.transform=`translateX(${lerp(40,0,p)}px)`;
+      l.ok.textContent = t>=l.t0+0.22 ? '✓' : '';
+    });
+  }
+  if (show('b11',t,TL.b11.in,TL.b11.cut)){
+    wipe('b11w',t,TL.b11.w,0.55);
+    wipe('b11w2',t,TL.b11.w+0.5,0.6);
+    aberr($('b11w2'), Math.max(0,.8-(t-TL.b11.w-0.5)*1.2));
+  }
+  if (show('b12',t,TL.b12.in,1e9)){
+    const rq=seg(t,TL.b12.in+0.05,TL.b12.in+0.5,E.outBack);
+    $('cr').style.opacity=rq;
+    const breath = 0.75+0.25*Math.sin((t-47)*2*Math.PI/2.1);
+    $('cr').style.transform=`scale(${lerp(.55,1,rq)})`;
+    $('cr').style.boxShadow=`0 0 ${Math.round(26*breath)}px rgba(201,169,110,${(0.32*breath).toFixed(2)})`;
+    /* la estrella: decode + halo que respira + destello */
+    scramble($('clogo'),'RESPONDE',t,TL.b12.logo,TL.b12.logo+1.15);
+    const shim = Math.max(0, 1 - Math.abs(t-TL.b12.shimmer)/0.30);
+    aberr($('clogo'), Math.max(Math.max(0,.9-(t-TL.b12.logo)*0.8), shim*.85));
+    $('cglow').style.opacity = seg(t,TL.b12.logo,TL.b12.logo+1.2,E.outCubic)*(0.55+0.25*Math.sin((t-46)*2*Math.PI/3.4)) + shim*0.5;
+    const ru=seg(t,TL.b12.rule,TL.b12.rule+0.5,E.outExpo);
+    $('crule').style.transform=`scaleX(${ru})`; $('crule').style.opacity=ru;
+    const tg=seg(t,TL.b12.tag,TL.b12.tag+0.5,E.outCubic);
+    $('ctag').style.opacity=tg; $('ctag').style.transform=`translateY(${lerp(20,0,tg)}px)`;
+    const bq=seg(t,TL.b12.btn,TL.b12.btn+0.45,E.outBack);
+    $('cbtn').style.opacity=bq;
+    $('cbtn').style.transform=`translateX(-50%) scale(${bq<1?lerp(.6,1,bq):1+0.022*Math.sin((t-TL.b12.btn)*2.0)})`;
+    $('csite').style.opacity=seg(t,TL.b12.site,TL.b12.site+0.5,E.outCubic);
+  }
+};
+
+/* ==================================================================
+   PASE DE LEGIBILIDAD EN CELULAR
+   El motivo real de que la letra se viera rota y apagada: Newsreader
+   es una fuente variable y trae el eje opsz (tamaño óptico). Chrome
+   lo autoajusta al cuerpo, así que a 72–160 px estaba usando el corte
+   de display, el de los perfiles más finos (~2 px a 1080). El H.264
+   se come esos perfiles y en el teléfono la letra queda deshilachada.
+   Acá se fuerza opsz 12 —el corte de texto, de trazo grueso—, se sube
+   el peso, se aclaran los tonos y se corre la grana y las líneas de
+   barrido de encima de la tipografía.
+   ================================================================== */
+const css3 = document.createElement('style');
+css3.textContent = `
+  .ser,.seri,.ans,.qt,.lt,.lt2,.rbox,.mono,.ghostnum {
+    font-variation-settings:'opsz' 12;
+    -webkit-font-smoothing:antialiased;
+    text-rendering:geometricPrecision;
+  }
+  .ser { font-weight:700 !important; }
+
+  .bone,.qt,.lt,.lt2 { color:#ffffff; }
+  .tan  { color:#e8c583; }
+  .ans  { color:#f2cf8d; }
+  .qn   { color:#e8c583; font-weight:400; }
+  .lok,.rbox { border-color:#e8c583; color:#e8c583; border-width:3px; }
+  .ldn  { border-color:#f0594c; color:#f0594c; border-width:3px; }
+  .dim  { color:rgba(245,243,238,.60); }
+
+  /* separación del fondo. Va en el contenedor y no en el texto porque
+     aberr() reescribe text-shadow cuadro a cuadro. */
+  .mask,.qrow,.lrow,#b9logo,#b9tag,#clogo,#ctag,#b6bhdr,#b7w2,#cbtn {
+    filter: drop-shadow(0 3px 12px rgba(0,0,0,.62)) drop-shadow(0 0 34px rgba(0,0,0,.42));
+  }
+  /* sobre papel el contraste ya está: el halo negro solo ensuciaría */
+  #b6 .mask, #b11 .mask { filter:none; }
+
+  #hud .mo { font-weight:500; }
+
+  /* Los renglones de una sola línea: el corte de texto y el peso 700
+     ensanchan la letra, así que estas frases se pasaban del marco.
+     Se recuperan con tracking cerrado y un ajuste chico de cuerpo —
+     el trazo grueso las hace leer más grandes igual. */
+  #b1w2   { font-size:95px !important; letter-spacing:-.055em; }
+  #b11w2  { font-size:69px !important; letter-spacing:-.06em; }
+  #b11w   { letter-spacing:-.05em; }
+  #b6w1   { letter-spacing:-.05em; }
+  .lt2    { font-size:50px !important; letter-spacing:-.045em; }
+  .lt     { letter-spacing:-.04em; }
+  #b9logo { font-size:146px !important; letter-spacing:-.04em; }
+  #clogo  { font-size:144px !important; letter-spacing:-.04em; }
+`;
+document.head.appendChild(css3);
+
+/* el HUD también se leía como polvo en el celular */
+(function(){
+  document.querySelectorAll('#hud .mo').forEach(el=>{
+    const fs=parseFloat(getComputedStyle(el).fontSize);
+    el.style.fontSize=(fs*1.16).toFixed(1)+'px';
+  });
+})();
+
+/* hudFrame reescribe los colores del HUD en cada cuadro, así que el
+   pase de brillo tiene que ir después de él. De paso, el rótulo de
+   arriba a la izquierda no giraba a tinta sobre las placas de papel:
+   quedaba claro sobre claro. */
+const REMAP = { 'rgb(201, 169, 110)':'#e8c583', 'rgb(224, 72, 63)':'#f0594c' };
+const _hudFrame = hudFrame;
+hudFrame = function(t, inv){
+  _hudFrame(t, inv);
+  const c = a => `rgba(${inv>.5 ? '13,12,10' : '245,243,238'},${a})`;
+  $('hlbl').style.color = c(.80);
+  $('hfr').style.borderColor = c(.20);
+  $('hsite').style.color = c(.56);
+  if (!$('hbarlbl').style.color.startsWith('#') &&
+      !$('hbarlbl').style.color.startsWith('rgb(201')) $('hbarlbl').style.color = c(.60);
+  ['hctrl','hbarlbl'].forEach(id=>{
+    const e=$(id), m=REMAP[e.style.color]; if(m) e.style.color=m;
+  });
+  document.querySelectorAll('#hud .tk').forEach(e=>{
+    const m=REMAP[e.style.color] || REMAP[e.style.borderColor];
+    if(m) e.style.borderColor=m;
+    e.style.opacity = '.92';
+  });
+  BX.forEach(b=>{
+    const mf=REMAP[b.fill.style.background];   if(mf) b.fill.style.background=mf;
+    const mb=REMAP[b.box.style.borderColor];   if(mb) b.box.style.borderColor=mb;
+    else if (b.box.style.borderColor==='rgba(245, 243, 238, 0.35)') b.box.style.borderColor='rgba(245,243,238,.52)';
+    else if (b.box.style.borderColor==='rgba(13, 12, 10, 0.45)')    b.box.style.borderColor='rgba(13,12,10,.60)';
+  });
+};
+
+/* viñeta menos cerrada: apagaba la letra en los bordes del cuadro */
+$('vigD').style.background =
+  'radial-gradient(ellipse 134% 100% at 50% 44%, transparent 62%, rgba(0,0,0,.34) 100%)';
+
+/* grana y barrido: dejan de comerse los perfiles de la letra */
+const _setWorld = setWorld;
+setWorld = function(t, paper){
+  _setWorld(t, paper);
+  $('grainD').style.opacity = .048 * (1 - paper);
+  $('grainP').style.opacity = .055 * paper;
+  $('scan').style.opacity   = .016 * (1 - paper) + .010 * paper;
+};
+
+/* la franja de color en los golpes, a la mitad: sumaba al deshilachado */
+const _aberr = aberr;
+aberr = function(el, amt){ _aberr(el, amt * 0.55); };
+
+window.READY = Promise.all([
+  document.fonts.load('700 112px Newsreader'),
+  document.fonts.load('700 160px Newsreader'),
+  document.fonts.load('600 160px Newsreader'),
+  document.fonts.load('italic 600 94px Newsreader'),
+  document.fonts.load('300 25px "IBM Plex Mono"'),
+  document.fonts.load('600 36px "IBM Plex Mono"'),
+  document.fonts.load('700 42px "Inter Tight"'),
+  document.fonts.ready
+]).then(()=>{ window.seek(0); return true; });
+</script>
+</body>
+</html>

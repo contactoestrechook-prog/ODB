@@ -1,0 +1,43 @@
+
+> web@0.1.0 prebuild
+> node scripts/verificar-tiles.mjs
+
+Fotos por tipo: 21 tipos, todas presentes.
+
+> web@0.1.0 build
+> next build
+
+▲ Next.js 16.2.9 (Turbopack)
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 1718ms
+  Running TypeScript ...
+  Finished TypeScript in 1880ms ...
+  Collecting page data using 11 workers ...
+  Generating static pages using 11 workers (0/12) ...
+  Generating static pages using 11 workers (3/12) 
+  Generating static pages using 11 workers (6/12) 
+  Generating static pages using 11 workers (9/12) 
+✓ Generating static pages using 11 workers (12/12) in 122ms
+  Finalizing page optimization ...
+
+Route (app)
+┌ ƒ /
+├ ƒ /_not-found
+├ ƒ /api/asistente
+├ ƒ /api/checkout
+├ ƒ /api/ingresar
+├ ƒ /api/nota
+├ ƒ /api/registro
+├ ƒ /api/salir
+├ ƒ /carrito
+├ ƒ /catalogo
+├ ƒ /checkout
+├ ƒ /comprar
+├ ƒ /cuenta
+├ ƒ /ingresar
+└ ƒ /producto/[sku]
+
+
+ƒ  (Dynamic)  server-rendered on demand
+

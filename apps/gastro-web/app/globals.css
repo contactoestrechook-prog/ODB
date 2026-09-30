@@ -1,0 +1,33 @@
+@import "tailwindcss";
+
+/* Misma identidad de los mockups: parrilla de noche — charcoal + dorado ember.
+   Un solo tema (no light/dark): es la pantalla que el cliente ve en la mesa,
+   de noche, en el propio local — conviene que se vea siempre igual. */
+@theme inline {
+  --color-bg: #141010;
+  --color-screen: #1b1613;
+  --color-card: #241d19;
+  --color-line: rgba(255, 255, 255, 0.08);
+  --color-ink: #f4ece2;
+  --color-dim: #b6a89a;
+  --color-faint: #877a6d;
+  --color-accent: #e8a03d;
+  --color-accent-2: #c47a24;
+  --color-good: #4cc38a;
+  --color-loss: #f2555a;
+  --font-display: var(--font-fraunces);
+  --font-sans: var(--font-manrope);
+}
+
+html { scroll-behavior: smooth; }
+body {
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-manrope), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+.display { font-family: var(--font-fraunces), Georgia, serif; }
+
+@keyframes entrar { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+.entrar { animation: entrar 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+@media (prefers-reduced-motion: reduce) { .entrar { animation: none; opacity: 1; transform: none; } }

@@ -1,0 +1,381 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,500;0,6..72,600;0,6..72,700;1,6..72,500;1,6..72,600&family=Inter+Tight:wght@300;500;700&family=Courier+Prime:wght@400;700&display=block" rel="stylesheet">
+</head>
+<body>
+<script src="motor.js"></script>
+<script>
+injectBase('grafito');
+
+/* ==================================================================
+   VIDEO H · "EL MUNDO CAMBIÓ" · ONE SHOT
+   Un solo plano continuo: la cámara arranca sobre una hoja de máquina
+   de escribir, baja por una pared de archivo (2016→2026), se aleja
+   para mostrarla entera y termina en el remate. Sin cortes, sin
+   fundidos, sin flashes: todo es movimiento de cámara.
+   Todo el material es de archivo PROPIO (nada de medios reales).
+   ================================================================== */
+window.DURATION = 47.2;
+
+/* ---------- LA TOMA ----------
+   Un solo plano. Coordenadas en espacio de la hoja; camera() convierte
+   al espacio de cámara (después del 93% de margen seguro).
+   r = roll (inclinación). Las piezas tienen profundidad (data-k):
+   k<1 están lejos, k>1 pegadas al lente. De ahí salen el parallax y
+   el desenfoque de campo.                                            */
+const CAM = [
+  {t:0.00,  x:470, y:560,  s:2.30, r:-1.2},  /* muy cerrado sobre la tecla */
+  {t:3.30,  x:500, y:585,  s:1.95, r:-0.5},
+  {t:5.40,  x:540, y:890,  s:0.95, r: 0.2},  /* grúa atrás: la hoja entera */
+  {t:7.00,  x:430, y:1800, s:0.72, r: 1.4},  /* cae y rola */
+  {t:8.80,  x:540, y:2679, s:0.76, r: 0.4},  /* 2016 */
+  {t:10.80, x:690, y:2380, s:1.28, r:-0.6},  /* dolly lateral al titular */
+  {t:12.20, x:520, y:3060, s:2.50, r: 1.8},  /* se mete en la oscuridad */
+  {t:13.80, x:700, y:4318, s:0.82, r:-0.5},  /* sale abriendo en 2019 */
+  {t:15.60, x:690, y:4090, s:1.28, r: 0.3},
+  {t:17.00, x:430, y:5250, s:1.85, r:-1.6},  /* pasa rozando un recorte */
+  {t:18.60, x:540, y:6000, s:0.80, r: 0.5},  /* 2021 */
+  {t:20.40, x:600, y:5830, s:1.26, r:-0.4},
+  {t:21.80, x:760, y:6880, s:2.30, r: 1.5},  /* oscuridad */
+  {t:23.40, x:640, y:7560, s:1.10, r:-0.6},  /* 2023 */
+  {t:25.20, x:580, y:7720, s:1.28, r: 0.2},
+  {t:26.60, x:560, y:8650, s:1.45, r:-1.2},
+  {t:28.40, x:560, y:9717, s:0.76, r: 0.4},  /* 2026 */
+  {t:30.20, x:580, y:9400, s:1.22, r:-0.3},
+  {t:33.00, x:540, y:6215, s:0.21, r: 1.0},  /* se eleva: toda la pared */
+  {t:35.80, x:540, y:10850,s:1.55, r:-1.4},  /* se zambulle en lo oscuro */
+  {t:37.20, x:540, y:11276,s:1.00, r: 0.3},
+  {t:39.40, x:540, y:12423,s:1.00, r:-0.3},
+  {t:41.60, x:540, y:13407,s:1.00, r: 0.25},
+  {t:44.00, x:540, y:14949,s:1.00, r: 0},
+  {t:47.20, x:540, y:14975,s:1.03, r: 0},
+];
+const SK = 0.93;
+const CX = CAM.map(k=>({t:k.t,v:k.x,e:E.inOutCubic}));
+const CY = CAM.map(k=>({t:k.t,v:k.y,e:E.inOutCubic}));
+const CS = CAM.map(k=>({t:k.t,v:k.s,e:E.inOutCubic}));
+const CR = CAM.map(k=>({t:k.t,v:k.r,e:E.inOutCubic}));
+
+function camAt(t){
+  const xs=kf(t,CX), ys=kf(t,CY), s=kf(t,CS);
+  return { xs, ys, s, roll:kf(t,CR), x:540+(xs-540)*SK, y:960+(ys-960)*SK };
+}
+/* las piezas y su profundidad, medidas una sola vez */
+let PIECES = null;
+function collectPieces(){
+  PIECES = [...document.querySelectorAll('#stage .pc')].map(el=>({
+    el, k:parseFloat(el.dataset.k)||1, rot:parseFloat(el.dataset.rot)||0,
+    bx: el.offsetLeft + el.offsetWidth/2, by: el.offsetTop + el.offsetHeight/2
+  }));
+}
+function parallax(c){
+  if(!PIECES) collectPieces();
+  for (const p of PIECES){
+    const ox = (c.xs - p.bx) * (1 - p.k);
+    const oy = (c.ys - p.by) * (1 - p.k);
+    p.el.style.transform = `translate(${ox.toFixed(1)}px,${oy.toFixed(1)}px) scale(${p.k}) rotate(${p.rot}deg)`;
+    /* profundidad de campo: enfoca el plano de las tapas (k=1).
+       En plano abierto casi no hay desenfoque, como una lente real. */
+    const dof = Math.min(1, c.s*1.25);
+    const b = (p.k>1 ? (p.k-1)*15 : (1-p.k)*6.5) * dof;
+    p.el.style.filter = b>0.35 ? `blur(${b.toFixed(2)}px)` : 'none';
+  }
+}
+function camera(t){
+  const c = camAt(t), c2 = camAt(t+1/60);
+  const v = Math.hypot((c2.x-c.x)*c.s, (c2.y-c.y)*c.s) + Math.abs(c2.s-c.s)/c.s*900;
+  const blur = Math.min(7, Math.max(0, (v-8)*0.19));
+  const bx = Math.sin(t*0.62)*4 + Math.sin(t*1.7)*1.6;
+  const by = Math.cos(t*0.5)*4.5 + Math.sin(t*1.3)*1.6;
+  const rot = c.roll + Math.sin(t*0.33)*0.35 + Math.sin(t*0.9)*0.12;
+  const cam = $('camera');
+  cam.style.transform = `translate(540px,960px) rotate(${rot}deg) scale(${c.s}) translate(${-(c.x+bx)}px,${-(c.y+by)}px)`;
+  cam.style.filter = blur>0.25 ? `blur(${blur.toFixed(2)}px)` : 'none';
+  parallax(c);
+  const gi = Math.floor(t*24)%9;
+  $('grainD').style.transform = `translate(${(gi%3)*-22}px,${Math.floor(gi/3)*-18}px)`;
+  /* luz que barre al cruzar por lo oscuro: no es un corte, es una lente */
+  let fl = 0;
+  for (const [tt,amp] of [[12.9,.30],[22.5,.28],[36.4,.34]]){
+    const d = Math.abs(t-tt);
+    if (d < .85) fl = Math.max(fl, amp*(1-d/.85));
+  }
+  $('flash').style.opacity = fl;
+  $('blackout').style.opacity = Math.max(1-seg(t,0,0.5,E.outQuad), seg(t,46.55,47.15,E.inQuad));
+  return c;
+}
+
+/* ================= HUD (marca el año según dónde está la cámara) ================= */
+const hud = document.createElement('div');
+hud.id='hud';
+hud.style.cssText='position:fixed;inset:0;z-index:50;pointer-events:none;';
+hud.innerHTML = `
+  <div id="hframe" style="position:absolute;left:58px;top:58px;right:58px;bottom:58px;border:1px solid rgba(245,243,238,.14);"></div>
+  ${[['left:44px;top:44px','border-left:2px solid;border-top:2px solid'],
+     ['right:44px;top:44px','border-right:2px solid;border-top:2px solid'],
+     ['left:44px;bottom:44px','border-left:2px solid;border-bottom:2px solid'],
+     ['right:44px;bottom:44px','border-right:2px solid;border-bottom:2px solid']]
+    .map(([pos,br])=>`<div class="htick" style="position:absolute;${pos};width:34px;height:34px;${br};border-color:#c9a96e;opacity:.8;"></div>`).join('')}
+  <div class="lbl" style="position:absolute;left:92px;top:96px;font-size:20px;letter-spacing:.4em;color:rgba(245,243,238,.7);">ARCHIVO</div>
+  <div id="hyear" class="lblb" style="position:absolute;right:92px;top:92px;font-size:30px;letter-spacing:.12em;color:#c9a96e;font-variant-numeric:tabular-nums;">2016</div>
+  <div id="hbar" style="position:absolute;right:92px;top:136px;width:150px;height:2px;background:rgba(245,243,238,.18);">
+    <div id="hbarf" style="height:100%;width:0;background:#c9a96e;"></div></div>
+  <div id="hsite" class="lbl" style="position:absolute;left:0;bottom:96px;width:1080px;text-align:center;font-size:19px;letter-spacing:.28em;color:rgba(245,243,238,.5);">RESPONDE · METOGROUP.AR</div>`;
+document.getElementById('viewport').appendChild(hud);
+
+/* ================= la pared de archivo ================= */
+const stage = $('stage');
+const css = document.createElement('style');
+css.textContent = `
+  .sheet, .paper, .clip { background:#e9e5db; color:#14120e; box-shadow:0 40px 90px rgba(0,0,0,.6); }
+  .mono { font-family:'Courier Prime',monospace; }
+  .rule { height:2px; background:#14120e; opacity:.75; }
+  .rulet { height:1px; background:#14120e; opacity:.3; }
+  .cols { columns:3; column-gap:26px; column-rule:1px solid rgba(20,18,14,.18); }
+  .lines { background-image:repeating-linear-gradient(180deg, rgba(20,18,14,.30) 0 7px, transparent 7px 20px); }
+  .photo { position:relative; background:linear-gradient(155deg,#9a9287 0%,#514c44 45%,#7b736a 100%); overflow:hidden; }
+  .photo::after { content:''; position:absolute; inset:0; mix-blend-mode:multiply;
+    background-image:radial-gradient(circle at 50% 50%, rgba(0,0,0,.62) 1.25px, transparent 1.45px);
+    background-size:6px 6px; }
+  .photo::before { content:''; position:absolute; inset:0; mix-blend-mode:overlay;
+    background:radial-gradient(ellipse at 30% 25%, rgba(255,255,255,.35), transparent 60%); }
+  .kick { font-family:'Inter Tight',sans-serif; font-weight:700; letter-spacing:.26em; font-size:22px; color:#8a6f3c; }
+  .hl { font-family:'Newsreader',serif; font-weight:700; letter-spacing:-.02em; line-height:1.03; color:#14120e; }
+  .sub { font-family:'Newsreader',serif; font-style:italic; font-weight:500; color:rgba(20,18,14,.72); }
+  .cap { font-family:'Inter Tight',sans-serif; font-weight:300; letter-spacing:.14em; font-size:17px; color:rgba(20,18,14,.55); }
+  .yearbig { font-family:'Newsreader',serif; font-weight:700; color:#14120e; line-height:.85; }
+  .win { background:#12161a; border:1px solid rgba(245,243,238,.14); border-radius:12px; overflow:hidden; box-shadow:0 40px 90px rgba(0,0,0,.65); }
+  .winbar { height:56px; background:#1b2026; display:flex; align-items:center; gap:12px; padding:0 20px; }
+  .dot3 { width:13px; height:13px; border-radius:50%; }
+  .urlbar { flex:1; height:32px; border-radius:16px; background:#0d1114; display:flex; align-items:center; padding:0 16px;
+            font-family:'Inter Tight',sans-serif; font-size:17px; color:#7d8b96; letter-spacing:.06em; }
+  /* superficie oscura que cruza cerca del lente: se ve el borde pasar,
+     por eso lee como objeto y no como corte */
+  .slab { background:linear-gradient(168deg,#161b21 0%,#080b0e 38%,#05070a 62%,#12171d 100%);
+          border-top:3px solid rgba(201,169,110,.30); border-bottom:3px solid rgba(201,169,110,.22);
+          box-shadow:0 0 140px 50px rgba(5,7,10,.92); }
+  .ph { background:#05080a; border-radius:44px; padding:12px; box-shadow:0 40px 90px rgba(0,0,0,.7); }
+  .phin { background:#0b141a; border-radius:34px; overflow:hidden; }
+  .nota { display:flex; gap:14px; align-items:center; padding:16px 18px; border-bottom:1px solid rgba(245,243,238,.06); }
+  .navat { width:46px; height:46px; border-radius:50%; display:grid; place-items:center; font-family:'Inter Tight',sans-serif;
+           font-weight:700; font-size:19px; color:#0b141a; flex-shrink:0; }
+  .badge { background:#25D366; color:#0b141a; font-family:'Inter Tight',sans-serif; font-weight:700; font-size:16px;
+           min-width:28px; height:28px; border-radius:14px; display:grid; place-items:center; padding:0 8px; }
+`;
+document.head.appendChild(css);
+
+/* --- generadores de piezas de archivo --- */
+function bodyCols(h){ return `<div class="cols" style="height:${h}px;"><div class="lines" style="height:${h}px;"></div></div>`; }
+
+function miniClip({x,y,rot,year,kick,hl,k}){
+  return `<div class="clip pc" data-k="${k||1}" data-rot="${rot}" style="position:absolute;left:${x}px;top:${y}px;width:380px;padding:26px 28px 30px;">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;">
+      <span class="kick" style="font-size:15px;">${kick}</span>
+      <span class="yearbig" style="font-size:26px;">${year}</span></div>
+    <div class="rule" style="margin:10px 0 16px;"></div>
+    <div class="hl" style="font-size:34px;">${hl}</div>
+    <div class="photo" style="height:96px;margin-top:16px;"></div>
+    <div style="margin-top:14px;">${bodyCols(54)}</div>
+  </div>`;
+}
+function paperPage({x,y,rot,year,kick,hl,sub,cap}){
+  return `<div class="paper pc" data-k="1" data-rot="${rot}" style="position:absolute;left:${x}px;top:${y}px;width:880px;padding:46px 50px 52px;">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;">
+      <span class="kick">${kick}</span><span class="cap">ARCHIVO · METOGROUP</span></div>
+    <div class="rule" style="margin:16px 0 8px;"></div>
+    <div class="rulet" style="margin-bottom:30px;"></div>
+    <div style="display:flex;gap:34px;align-items:flex-start;">
+      <div class="yearbig" style="font-size:150px;flex-shrink:0;">${year}</div>
+      <div class="hl" style="font-size:74px;flex:1;">${hl}</div>
+    </div>
+    <div class="sub" style="font-size:40px;margin-top:26px;">${sub}</div>
+    <div class="photo" style="height:250px;margin-top:30px;"></div>
+    <div class="cap" style="margin-top:14px;">${cap}</div>
+    <div style="margin-top:26px;">${bodyCols(150)}</div>
+  </div>`;
+}
+function clipPage({x,y,rot,year,kick,hl,sub,cap}){
+  return `<div class="clip pc" data-k="1" data-rot="${rot}" style="position:absolute;left:${x}px;top:${y}px;width:940px;padding:42px 46px 46px;">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;">
+      <span class="kick">${kick}</span><span class="yearbig" style="font-size:56px;">${year}</span></div>
+    <div class="rule" style="margin:14px 0 26px;"></div>
+    <div style="display:flex;gap:30px;">
+      <div class="photo" style="width:300px;height:300px;flex-shrink:0;"></div>
+      <div>
+        <div class="hl" style="font-size:70px;">${hl}</div>
+        <div class="sub" style="font-size:36px;margin-top:20px;">${sub}</div>
+        <div class="cap" style="margin-top:20px;">${cap}</div>
+      </div>
+    </div>
+    <div style="margin-top:26px;">${bodyCols(120)}</div>
+  </div>`;
+}
+function browserWin({x,y,rot,year,hl,sub,url}){
+  return `<div class="win pc" data-k="1" data-rot="${rot}" style="position:absolute;left:${x}px;top:${y}px;width:920px;">
+    <div class="winbar">
+      <span class="dot3" style="background:#4a5560"></span><span class="dot3" style="background:#4a5560"></span><span class="dot3" style="background:#4a5560"></span>
+      <span class="urlbar">${url}</span>
+      <span class="lbl" style="font-size:17px;letter-spacing:.2em;color:#c9a96e;">${year}</span>
+    </div>
+    <div style="padding:46px 50px 52px;">
+      <div class="kick" style="color:#c9a96e;">TENDENCIA</div>
+      <div class="hl" style="font-size:70px;color:#f5f3ee;margin-top:20px;">${hl}</div>
+      <div class="sub" style="font-size:36px;color:rgba(245,243,238,.65);margin-top:22px;">${sub}</div>
+      <div class="photo" style="height:230px;margin-top:30px;filter:saturate(.4)"></div>
+      <div style="margin-top:26px;height:110px;background-image:repeating-linear-gradient(180deg, rgba(245,243,238,.16) 0 7px, transparent 7px 20px);"></div>
+    </div>
+  </div>`;
+}
+function phoneShot({x,y,rot,year,hl,sub,rows}){
+  const list = rows.map(([i,n,p,c,col])=>`<div class="nota">
+      <span class="navat" style="background:${col}">${i}</span>
+      <span style="flex:1;min-width:0;">
+        <span style="display:block;font-family:'Inter Tight',sans-serif;font-weight:700;font-size:22px;color:#e9edef;">${n}</span>
+        <span style="display:block;font-family:'Inter Tight',sans-serif;font-weight:300;font-size:19px;color:#8696a0;margin-top:3px;">${p}</span>
+      </span>
+      <span class="badge">${c}</span></div>`).join('');
+  return `<div class="pc" data-k="1" data-rot="${rot}" style="position:absolute;left:${x}px;top:${y}px;width:900px;">
+    <div class="kick" style="color:#c9a96e;">${year}</div>
+    <div class="hl" style="font-size:68px;color:#f5f3ee;margin-top:16px;">${hl}</div>
+    <div class="sub" style="font-size:34px;color:rgba(245,243,238,.6);margin-top:16px;">${sub}</div>
+    <div class="ph" style="width:520px;margin-top:34px;">
+      <div class="phin">
+        <div style="padding:38px 22px 12px;display:flex;justify-content:space-between;align-items:baseline;">
+          <span style="font-family:'Inter Tight',sans-serif;font-weight:700;font-size:25px;color:#e9edef;">Mensajes</span>
+          <span style="font-family:'Inter Tight',sans-serif;font-weight:700;font-size:19px;color:#25D366;">ahora</span></div>
+        ${list}
+      </div>
+    </div>
+  </div>`;
+}
+
+stage.innerHTML = `
+<!-- hoja de máquina de escribir -->
+<div class="sheet pc" data-k="1" data-rot="0" style="position:absolute;left:120px;top:300px;width:840px;height:1180px;padding:120px 90px;">
+  <div class="mono" style="font-size:20px;letter-spacing:.22em;color:rgba(20,18,14,.5);">METOGROUP — ARCHIVO 2016 / 2026</div>
+  <div class="rulet" style="margin:26px 0 60px;"></div>
+  <div class="mono" style="font-size:56px;font-weight:700;color:#14120e;letter-spacing:-.01em;white-space:nowrap;">
+    <span id="tw"></span><span id="twc" style="display:inline-block;width:24px;height:50px;background:#14120e;vertical-align:-8px;"></span>
+  </div>
+  <div style="margin-top:70px;opacity:.5;">${bodyCols(420)}</div>
+</div>
+
+${miniClip({x:700,y:1650,rot:2.0,k:1.55,year:'2017',kick:'HÁBITOS',hl:'El chat le gana<br>al teléfono'})}
+${miniClip({x:130,y:3380,rot:-2.4,k:0.70,year:'2018',kick:'VELOCIDAD',hl:'El cliente compara<br>en 30 segundos'})}
+${miniClip({x:770,y:4880,rot:1.8,k:1.62,year:'2020',kick:'TODO REMOTO',hl:'Se acabó el horario<br>de oficina'})}
+${miniClip({x:100,y:6580,rot:-1.6,k:0.72,year:'2022',kick:'COMPETENCIA',hl:'Todos venden<br>a toda hora'})}
+${miniClip({x:820,y:8180,rot:2.2,k:1.48,year:'2024',kick:'EXPECTATIVA',hl:'Una respuesta tarde<br>ya es un no'})}
+${miniClip({x:170,y:8560,rot:-1.9,k:0.68,year:'2025',kick:'CIERRE',hl:'El primero que<br>contesta, vende'})}
+${miniClip({x:690,y:10480,rot:1.4,k:1.35,year:'2026',kick:'ATENCIÓN',hl:'Dejó de ser<br>un lujo'})}
+${paperPage({x:100,y:2100,rot:-1.1,year:'2016',kick:'CÓMO COMPRAN',
+  hl:'El cliente deja de llamar.<br>Empieza a escribir.',
+  sub:'La conversación comercial se muda al chat. El teléfono fijo queda de adorno.',
+  cap:'FIG. 1 · LA LLAMADA DEJA DE SER LA PUERTA DE ENTRADA'})}
+
+${browserWin({x:240,y:3900,rot:0.8,year:'2019',url:'metogroup.ar/archivo/2019',
+  hl:'Comprar es mandar un mensaje',
+  sub:'Catálogo, precio y seña sin pisar el local. El vendedor pasa a ser una casilla.'})}
+
+${clipPage({x:60,y:5600,rot:-0.7,year:'2021',kick:'HORARIO COMERCIAL',
+  hl:'El local cierra a las 20.<br>La casilla, nunca.',
+  sub:'El que compra deja de mirar el horario. El que vende sigue mirándolo.',
+  cap:'FIG. 3 · LA DEMANDA SE CORRE A LA NOCHE Y AL FIN DE SEMANA'})}
+
+${phoneShot({x:300,y:7300,rot:1.0,year:'2023',
+  hl:'La IA empieza a atender',
+  sub:'Responder deja de ser un problema de personal.',
+  rows:[['M','Mariana P.','Hola! ¿Está disponible?','12','#7c5cbf'],
+        ['+','+54 9 11 5·· ····','¿Precio por mayor?','3','#4e8fa3'],
+        ['C','Consulta web','Lo necesito para el lunes','7','#b07c3f']]})}
+
+${paperPage({x:120,y:9100,rot:-0.5,year:'2026',kick:'HOY',
+  hl:'Nadie espera. Le compra<br>al que contesta primero.',
+  sub:'La paciencia del cliente se mide en minutos. Después ya está hablando con otro.',
+  cap:'FIG. 5 · LA VENTA SE DEFINE EN EL TIEMPO DE RESPUESTA'})}
+
+<!-- losas de paso: llenan el cuadro un instante y esconden el salto -->
+<div class="pc slab" data-k="2.55" data-rot="-6" style="position:absolute;left:-620px;top:2740px;width:2400px;height:640px;"></div>
+<div class="pc slab" data-k="2.35" data-rot="5" style="position:absolute;left:-560px;top:6560px;width:2400px;height:640px;"></div>
+<div class="pc slab" data-k="2.10" data-rot="-4" style="position:absolute;left:-600px;top:10500px;width:2400px;height:700px;"></div>
+<!-- remate -->
+<div style="position:absolute;left:0;top:11100px;width:1080px;text-align:center;">
+  <div class="mask" style="left:0;top:0;width:1080px;position:relative;"><span id="f1" class="ser bone" style="font-size:130px;font-weight:700;">TODO CAMBIÓ.</span></div>
+  <div class="mask" style="left:0;top:20px;width:1080px;position:relative;"><span id="f2" class="seri tan" style="font-size:130px;font-weight:600;">Menos vos.</span></div>
+</div>
+<div style="position:absolute;left:0;top:12300px;width:1080px;text-align:center;">
+  <div class="mask" style="left:0;top:0;width:1080px;position:relative;"><span id="f3" class="ser bone" style="font-size:88px;font-weight:600;">Seguís vendiendo</span></div>
+  <div class="mask" style="left:0;top:14px;width:1080px;position:relative;"><span id="f4" class="ser tan" style="font-size:88px;font-weight:700;">como en 2016.</span></div>
+</div>
+<div style="position:absolute;left:60px;top:13300px;width:960px;text-align:center;">
+  <div class="mask" style="left:0;top:0;width:960px;position:relative;"><span id="f5" class="ser bone" style="font-size:76px;font-weight:600;">No te quejes si los resultados</span></div>
+  <div class="mask" style="left:0;top:12px;width:960px;position:relative;"><span id="f6" class="ser bone" style="font-size:76px;font-weight:600;">no son los mismos.</span></div>
+</div>
+<div style="position:absolute;left:0;top:14700px;width:1080px;text-align:center;">
+  <div id="rbox" class="rbox" style="display:inline-grid;width:130px;height:130px;font-size:70px;"></div>
+  <div id="rlogo" class="ser bone" style="font-size:150px;font-weight:600;letter-spacing:-.02em;margin-top:44px;"></div>
+  <div id="rrule" style="width:480px;height:2px;background:#c9a96e;margin:26px auto 0;transform-origin:50% 50%;"></div>
+  <div id="rtag" class="seri tan" style="font-size:50px;font-weight:500;margin-top:30px;">El que contesta primero.</div>
+  <div id="rbtn" class="pill" style="display:inline-block;font-size:42px;white-space:nowrap;padding:32px 66px;margin-top:52px;">Probame ahora →</div>
+  <div id="rsite" class="lbl bone" style="font-size:26px;letter-spacing:.3em;margin-top:44px;">RESPONDE · by Metogroup · metogroup.ar</div>
+</div>`;
+
+const st2 = document.createElement('style');
+st2.textContent = `.mask{overflow:hidden;line-height:1.28;padding-bottom:10px;} .mask>span{display:inline-block;}`;
+document.head.appendChild(st2);
+
+/* ---------- animación mínima: sólo lo que "ocurre" en el plano ---------- */
+const TW = 'EL MUNDO CAMBIÓ.';
+const TW_T0 = 0.45, TW_T1 = 3.25;
+window.TYPE = {txt:TW, t0:TW_T0, t1:TW_T1};
+
+function wipeAt(id, t, t0, dur){
+  const q = seg(t, t0, t0+dur, E.outExpo);
+  $(id).style.transform = `translateY(${(1-q)*115}%)`;
+}
+
+window.seek = function(t){
+  setWorld(t, 0);
+  const c = camera(t);
+  /* tipeo */
+  const n = Math.round(seg(t, TW_T0, TW_T1, E.linear) * TW.length);
+  $('tw').textContent = TW.slice(0, n);
+  $('twc').style.opacity = t < TW_T1+0.6 ? (Math.floor(t*2.6)%2?1:.12) : 0;
+  /* HUD: el año sale de dónde está mirando la cámara */
+  const yr = Math.round(clamp01((c.ys-2679)/(9717-2679))*10) + 2016;
+  $('hyear').textContent = c.ys < 2100 ? '2016' : (c.ys > 10400 ? '2026' : yr);
+  $('hbarf').style.width = (clamp01((c.ys-890)/(9717-890))*100).toFixed(1)+'%';
+  $('hsite').style.opacity = t>42 ? 0 : .5;    /* al final lo dice el propio cartel */
+  /* remates: aparecen cuando la cámara llega */
+  wipeAt('f1', t, 37.05, 0.7);  wipeAt('f2', t, 37.85, 0.75);
+  wipeAt('f3', t, 39.30, 0.65); wipeAt('f4', t, 39.95, 0.7);
+  wipeAt('f5', t, 41.50, 0.65); wipeAt('f6', t, 42.15, 0.7);
+  /* cierre */
+  const rq = seg(t, 43.9, 44.4, E.outExpo);
+  $('rbox').style.opacity = rq; $('rbox').textContent = 'R';
+  $('rbox').style.transform = `scale(${lerp(.55,1,rq)})`;
+  scramble($('rlogo'), 'RESPONDE', t, 44.2, 45.4);
+  const ru = seg(t, 45.4, 45.9, E.outExpo);
+  $('rrule').style.transform = `scaleX(${ru})`; $('rrule').style.opacity = ru;
+  const tg = seg(t, 45.6, 46.1, E.outCubic);
+  $('rtag').style.opacity = tg; $('rtag').style.transform = `translateY(${lerp(20,0,tg)}px)`;
+  const bq = seg(t, 46.0, 46.5, E.outBack);
+  $('rbtn').style.opacity = bq;
+  $('rbtn').style.transform = `scale(${bq<1?lerp(.7,1,bq):1+0.02*Math.sin((t-46.0)*2.4)})`;
+  $('rsite').style.opacity = seg(t, 46.3, 46.8, E.outCubic);
+};
+window.READY = Promise.all([
+  document.fonts.load('700 150px Newsreader'),
+  document.fonts.load('600 166px Newsreader'),
+  document.fonts.load('italic 500 50px Newsreader'),
+  document.fonts.load('700 62px "Courier Prime"'),
+  document.fonts.load('300 20px "Inter Tight"'),
+  document.fonts.load('700 42px "Inter Tight"'),
+  document.fonts.ready
+]).then(()=>{ window.seek(0); return true; });
+</script>
+</body>
+</html>

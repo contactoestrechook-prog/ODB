@@ -1,0 +1,48 @@
+{
+  "fecha": "2026-09-21T16:35:15.023Z",
+  "catalogo": {
+    "activos": 10578,
+    "packsDeclarados": 18,
+    "porPeso": 9,
+    "candidatosPresentacion": 1233,
+    "conStockSinPrecio": 1,
+    "preciosDecimales": 12,
+    "columnasPrecio": [
+      "producto_id",
+      "precio_lista",
+      "precio_final",
+      "descuento_nombre",
+      "descuento_comunidad"
+    ],
+    "stockNegativo": 88
+  },
+  "sucursales": [
+    {
+      "nombre": "Suc Santa Ines",
+      "activa": true,
+      "pickup": false
+    },
+    {
+      "nombre": "Suc Sant Thomas",
+      "activa": true,
+      "pickup": true
+    }
+  ],
+  "lineas": [
+    {
+      "linea": "pedidos",
+      "activa": true,
+      "botActivo": true,
+      "adminConfigurado": true,
+      "repartoDistintoAdmin": false,
+      "comprasDistintoAdmin": false
+    }
+  ],
+  "consultas": {
+    "total": 53,
+    "pendientes": 45,
+    "pendientesMas24h": 29,
+    "pendientesSinIdWhatsApp": 0,
+    "conRespuestaAdminNoCerradas": 4
+  }
+}

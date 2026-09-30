@@ -1,0 +1,266 @@
+[
+  {
+    "id": "R01",
+    "input": "Necesito 12 botellas de Agua Prueba de 1,5 litros. Si viene en pack de 6, ¿cuántos packs son?",
+    "segundos": 8,
+    "steps": [
+      [
+        {
+          "type": "tool_use",
+          "id": "toolu_01BVHUnBVd9MzHPtMppVHmWC",
+          "name": "identificar_cliente",
+          "input": {},
+          "caller": {
+            "type": "direct"
+          }
+        },
+        {
+          "type": "tool_use",
+          "id": "toolu_01NiA72S6sezZcUH3TT9aeHZ",
+          "name": "buscar_productos",
+          "input": {
+            "q": "agua prueba"
+          },
+          "caller": {
+            "type": "direct"
+          }
+        }
+      ],
+      [
+        {
+          "type": "tool_use",
+          "id": "toolu_01A7EmDRVrggQzN9kZnRb3kv",
+          "name": "cotizar_pedido",
+          "input": {
+            "items": [
+              {
+                "sku": "TEST-P6",
+                "cantidad": 2
+              }
+            ]
+          },
+          "caller": {
+            "type": "direct"
+          }
+        }
+      ],
+      [
+        {
+          "type": "text",
+          "text": "Son 2 packs de 6 (12 botellas de 1,5 L): $12.000 en total.\n\n¿Lo querés para retiro por Castex 3601 o con envío a domicilio?"
+        }
+      ]
+    ]
+  },
+  {
+    "id": "R02",
+    "input": "¿Cuándo vuelve a entrar el producto Prueba agotado? Necesito la fecha exacta.",
+    "segundos": 13.4,
+    "steps": [
+      [
+        {
+          "type": "tool_use",
+          "id": "toolu_0174MmNRUnCuT9qhz22gQWf4",
+          "name": "identificar_cliente",
+          "input": {},
+          "caller": {
+            "type": "direct"
+          }
+        },
+        {
+          "type": "tool_use",
+          "id": "toolu_01PMezMdTfRKqfiN6wYpp9Cp",
+          "name": "buscar_productos",
+          "input": {
+            "q": "Prueba agotado"
+          },
+          "caller": {
+            "type": "direct"
+          }
+        }
+      ],
+      [
+        {
+          "type": "tool_use",
+          "id": "toolu_01M6PjVr8bvbANRTFKfGWVUx",
+          "name": "buscar_productos",
+          "input": {
+            "q": "prueba"
+          },
+          "caller": {
+            "type": "direct"
+          }
+        }
+      ],
+      [
+        {
+          "type": "tool_use",
+          "id": "toolu_01N1HZRLhKx8ijpj4ArvP6dA",
+          "name": "consultar_interno",
+          "input": {
+            "area": "compras",
+            "consulta": "Cliente pregunta fecha exacta de reposición del producto \"Prueba agotado\" (no aparece en el catálogo con ese nombre): ¿cuándo vuelve a entrar?",
+            "direccion": "</antml():parameter>\n"
+          },
+          "caller": {
+            "type": "direct"
+          }
+        }
+      ]
+    ]
+  },
+  {
+    "id": "R03",
+    "input": "Te envío la transferencia. ¿Ya quedó pagado?",
+    "segundos": 5.9,
+    "steps": [
+      [
+        {
+          "type": "tool_use",
+          "id": "toolu_015KyezXFpXNYdfnE4tYTtLa",
+          "name": "identificar_cliente",
+          "input": {},
+          "caller": {
+            "type": "direct"
+          }
+        }
+      ],
+      [
+        {
+          "type": "tool_use",
+          "id": "toolu_017ZgBA8LHJ34nYrK7MJ89ec",
+          "name": "derivar_pago",
+          "input": {
+            "de_quien": "Cliente de Prueba",
+            "monto": 12345.67,
+            "motivo": "Envió comprobante de transferencia por $12.345,67 a ODB, operación TEST-000001 del 21/09/2026, con estado PENDIENTE DE ACREDITACIÓN. Pregunta si el pago ya quedó registrado; hay que verificar la acreditación en la cuenta.",
+            "tipo": "comprobante_enviado"
+          },
+          "caller": {
+            "type": "direct"
+          }
+        }
+      ]
+    ]
+  },
+  {
+    "id": "R04",
+    "input": "Quiero 0,5 kg de queso cremoso. ¿Cuánto sale?",
+    "segundos": 5.8,
+    "steps": [
+      [
+        {
+          "type": "tool_use",
+          "id": "toolu_01XJaC98TuNCVHuTzcEPYdTA",
+          "name": "identificar_cliente",
+          "input": {},
+          "caller": {
+            "type": "direct"
+          }
+        },
+        {
+          "type": "tool_use",
+          "id": "toolu_01LaMkuiF9Yy4KSb65p7JY9W",
+          "name": "buscar_productos",
+          "input": {
+            "q": "queso cremoso"
+          },
+          "caller": {
+            "type": "direct"
+          }
+        }
+      ],
+      [
+        {
+          "type": "tool_use",
+          "id": "toolu_01Vgc91sy13iCHv2rzQATE4Y",
+          "name": "cotizar_pedido",
+          "input": {
+            "items": [
+              {
+                "sku": "TEST-KG",
+                "cantidad": 0.5
+              }
+            ]
+          },
+          "caller": {
+            "type": "direct"
+          }
+        }
+      ],
+      [
+        {
+          "type": "text",
+          "text": "Medio kilo de queso cremoso sale $750,25."
+        }
+      ]
+    ]
+  },
+  {
+    "id": "R05",
+    "input": "La factura es por $20.000. Transferí $12.345,67. Soy Cliente de Prueba. Te mando el comprobante.",
+    "segundos": 4.9,
+    "steps": [
+      [
+        {
+          "type": "tool_use",
+          "id": "toolu_01FUxyc69Yqpq8uPCokgR2vN",
+          "name": "identificar_cliente",
+          "input": {},
+          "caller": {
+            "type": "direct"
+          }
+        },
+        {
+          "type": "tool_use",
+          "id": "toolu_01H8i8XYcQ11D1pFnhFKAYfo",
+          "name": "derivar_pago",
+          "input": {
+            "de_quien": "Cliente de Prueba",
+            "monto": 12345.67,
+            "motivo": "Envía comprobante de transferencia por $12.345,67 (estado: pendiente de acreditación, operación TEST-000001) a cuenta de una factura de $20.000: quedan $7.654,33 de diferencia. Espera que se impute el pago y se le indique cómo saldar el resto.",
+            "tipo": "comprobante_enviado"
+          },
+          "caller": {
+            "type": "direct"
+          }
+        }
+      ]
+    ]
+  },
+  {
+    "id": "R06",
+    "input": "¿Tenés de esta?",
+    "segundos": 8.1,
+    "steps": [
+      [
+        {
+          "type": "tool_use",
+          "id": "toolu_01AAWtAHQ1UZSY6NmvPMwQgX",
+          "name": "identificar_cliente",
+          "input": {},
+          "caller": {
+            "type": "direct"
+          }
+        },
+        {
+          "type": "tool_use",
+          "id": "toolu_01QT2uqJ1n53yKMkdoiRE1Ka",
+          "name": "buscar_productos",
+          "input": {
+            "q": "agua sin gas 1,5"
+          },
+          "caller": {
+            "type": "direct"
+          }
+        }
+      ],
+      [
+        {
+          "type": "text",
+          "text": "Sí, la tengo, pero se vende por pack cerrado de 6 botellas de 1,5 L: $6.000 el pack ($1.000 la botella). Suelta no la manejo."
+        }
+      ]
+    ]
+  }
+]

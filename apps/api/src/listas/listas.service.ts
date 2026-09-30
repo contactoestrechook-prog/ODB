@@ -1,10 +1,11 @@
+import { numeroLeido, interpretarLecturaSegura } from '../compras/lectura-segura';
 import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
 import * as XLSX from 'xlsx';
 import { SUPABASE } from '../supabase.provider';
 import { elegirProveedor } from '../compras/proveedor-match';
-import { unidadesPorBulto, esRenglonDeDescuento, porcentajeDeDescuento, puedeVendersePorPeso, interpretarRenglon, unidadesDeLaPresentacion, variacionPorUnidad } from '../compras/bultos';
+import { unidadesPorBulto, esRenglonDeDescuento, porcentajeDeDescuento, puedeVendersePorPeso, unidadesDeLaPresentacion, variacionPorUnidad } from '../compras/bultos';
 
 export type ItemExtraido = { codigo: string | null; descripcion: string; precio: number };
 // pedido exportado del portal del proveedor: igual que la lista pero con cantidad
@@ -72,15 +73,15 @@ const ESQUEMA_COMPROBANTE = {
         properties: {
           codigo: { type: ['string', 'null'], description: 'Código del artículo del proveedor' },
           descripcion: { type: 'string' },
-          cantidad: { type: 'number', description: 'La cantidad tal cual figura en la columna CANT. Si el renglón se factura por bulto/caja/pack, esta es la cantidad de BULTOS, no de unidades sueltas.' },
-          precio: { type: 'number', description: 'Importe unitario de la columna PRE.UNIT tal cual impreso. NO uses PRE.VTA.PUBLICO (PVP) ni la columna IMPORTE. La relación con neto/IVA/total se resuelve en el pie; NO asumas que es neto+21% (en cigarrillos el precio ya trae impuestos internos y percepción IIBB embebidos). Si el renglón se factura por bulto, este es el precio DEL BULTO.' },
+          cantidad: { type: 'number', description: 'Si no es legible, omití este campo; nunca inventes 1. La cantidad tal cual figura en la columna CANT. Si el renglón se factura por bulto/caja/pack, esta es la cantidad de BULTOS, no de unidades sueltas.' },
+          precio: { type: 'number', description: 'Si no es legible, omití este campo; cero solo si está impreso. Importe unitario de la columna PRE.UNIT tal cual impreso. NO uses PRE.VTA.PUBLICO (PVP) ni la columna IMPORTE. La relación con neto/IVA/total se resuelve en el pie; NO asumas que es neto+21% (en cigarrillos el precio ya trae impuestos internos y percepción IIBB embebidos). Si el renglón se factura por bulto, este es el precio DEL BULTO.' },
           alicuotaIva: {
             type: 'number',
             description: 'El % de IVA impreso EN ESE RENGLÓN (columna IVA/Alic.: 21, 10.5 o 27). Muchas facturas mezclan productos al 21% con alimentos al 10,5%, y este dato es lo único que permite costear cada renglón con SU IVA. Poné 0 si el comprobante no imprime el IVA por renglón.',
           },
           importe: {
             type: 'number',
-            description: 'El IMPORTE del renglón tal cual impreso en la última columna (Importe / Subtotal / Total del renglón), con su signo. Es la VERDAD de lo que cuesta ese renglón: ya trae aplicado cualquier descuento o bonificación de la fila. Un renglón SIN CARGO tiene importe 0 aunque su precio unitario figure lleno. Si el comprobante no tiene columna de importe, poné cantidad × precio unitario. SIEMPRE un número.',
+            description: 'El IMPORTE del renglón tal cual impreso en la última columna (Importe / Subtotal / Total del renglón), con su signo. Es la VERDAD de lo que cuesta ese renglón: ya trae aplicado cualquier descuento o bonificación de la fila. Un renglón SIN CARGO tiene importe 0 aunque su precio unitario figure lleno. Si no está impreso o no es legible, omití este campo. Nunca lo calcules ni lo inventes.',
           },
           esDescuento: {
             type: 'boolean',
@@ -99,7 +100,9 @@ const ESQUEMA_COMPROBANTE = {
             description: 'PESO del renglón cuando el producto se vende por kilo (fiambres, quesos en horma o fraccionados, carnicería, verdulería a granel). Copiá el valor de la columna KG / KILOS / PESO tal cual (el peso total del renglón, ej 5,44). En esas facturas la columna CANT suele decir 1 (una horma) pero el precio es POR KILO: acá va el peso. Si el renglón no se vende por peso o no hay columna de peso, poné null. NO lo inventes ni lo deduzcas del importe.',
           },
         },
-        required: ['codigo', 'descripcion', 'cantidad', 'precio', 'unidadesPorBulto'],
+        // Cantidad/precio/importe ausentes se normalizan a null. Evita superar
+        // el límite de 16 propiedades con unión del servicio de extracción.
+        required: ['codigo', 'descripcion', 'unidadesPorBulto'],
         additionalProperties: false,
       },
     },
@@ -485,12 +488,15 @@ export class ListasService {
     resultado.impuestosHabituales = await this.impuestosHabituales(resultado?.proveedor?.match?.id).catch(() => null);
     const items = Array.isArray(resultado?.items) ? resultado.items : [];
     for (const i of items) {
-      if (i?.descripcion == null || i?.precio == null) continue;
-      i.interpretado = interpretarRenglon({
+      if (i?.descripcion == null) continue;
+      i.cantidad = numeroLeido(i.cantidad);
+      i.precio = numeroLeido(i.precio);
+      i.importe = numeroLeido(i.importe);
+      i.interpretado = interpretarLecturaSegura({
         descripcion: String(i.descripcion ?? ''),
-        cantidad: Number(i.cantidad) || 1,
-        precio: Number(i.precio) || 0,
-        importe: Number.isFinite(Number(i.importe)) && i.importe != null ? Number(i.importe) : null,
+        cantidad: numeroLeido(i.cantidad),
+        precio: numeroLeido(i.precio),
+        importe: numeroLeido(i.importe),
         // el detector de bultos también se corrige (el "12 x" de Arcor): gana el texto
         unidadesPorBulto: unidadesPorBulto(String(i.descripcion ?? '')) ?? (Number(i.unidadesPorBulto) > 1 ? Number(i.unidadesPorBulto) : null),
         bonificacionPct: Math.abs(Number(i.bonificacionPct)) > 0 ? Math.min(100, Math.abs(Number(i.bonificacionPct))) : null,
@@ -709,7 +715,7 @@ export class ListasService {
     // manera y una lista de casos en el prompt se rompe con el próximo que
     // aparezca; acá se reconoce la FORMA y queda cubierto con tests. Lo que
     // haya leído el modelo se conserva solo cuando el parser no encuentra nada.
-    const items: ItemPedidoExtraido[] = (datos.items ?? []).map((i: any) => {
+    const items = (datos.items ?? []).map((i: any) => {
       const delTexto = unidadesPorBulto(String(i.descripcion ?? ''));
       const delModelo = Number(i.unidadesPorBulto) > 1 ? Math.round(Number(i.unidadesPorBulto)) : null;
       if (delTexto && delModelo && delTexto !== delModelo) {
@@ -721,9 +727,9 @@ export class ListasService {
       // El panel ya no decide nada de esto: dibuja lo que se decidió acá.
       const lectura = {
         descripcion: String(i.descripcion ?? ''),
-        cantidad: Number(i.cantidad) || 1,
-        precio: Number(i.precio) || 0,
-        importe: Number.isFinite(Number(i.importe)) ? Number(i.importe) : null,
+        cantidad: numeroLeido(i.cantidad),
+        precio: numeroLeido(i.precio),
+        importe: numeroLeido(i.importe),
         unidadesPorBulto: delTexto ?? delModelo ?? null,
         bonificacionPct: Math.abs(Number(i.bonificacionPct)) > 0 ? Math.min(100, Math.abs(Number(i.bonificacionPct))) : null,
         esDescuento: esRenglonDeDescuento({ descripcion: i.descripcion, precio: Number(i.precio) || 0 }) || !!i.esDescuento,
@@ -737,11 +743,11 @@ export class ListasService {
         ...lectura,
         alicuotaIva: Number(i.alicuotaIva) > 0 ? Number(i.alicuotaIva) : null,
         descuentoPct: porcentajeDeDescuento(String(i.descripcion ?? '')),
-        interpretado: interpretarRenglon(lectura),
+        interpretado: interpretarLecturaSegura(lectura),
         // se guarda la lectura cruda: la interpretación se rehace después del
         // matching, cuando ya se sabe a qué producto del catálogo se vinculó
         _lectura: lectura,
-      } as any;
+      };
     });
     const propuesta = proveedor ? await this.matchear(items, proveedor.id) : items.map((i) => ({ ...i, match: null as Match }));
 
@@ -759,7 +765,7 @@ export class ListasService {
             sku: s.sku,
             nombre: s.nombre,
             costoActual: s.costo,
-            variacionPct: variacionPorUnidad(i.precio, (i as any).unidadesPorBulto, s.costo),
+            variacionPct: i.precio == null ? null : variacionPorUnidad(i.precio, (i as any).unidadesPorBulto, s.costo),
             metodo: 'ia',
             margenPct: null,
             sugerido: true,
@@ -780,7 +786,7 @@ export class ListasService {
       const nombreCatalogo = i.match?.nombre ?? null;
       const internas = nombreCatalogo ? unidadesDeLaPresentacion(String(nombreCatalogo)) : null;
       if (internas && internas > 1) {
-        i.interpretado = interpretarRenglon({ ...lectura, unidadesDelCatalogo: internas, costoCatalogo: i.match?.costoActual ?? null });
+        i.interpretado = interpretarLecturaSegura({ ...lectura, unidadesDelCatalogo: internas, costoCatalogo: i.match?.costoActual ?? null });
         i.unidadesDelCatalogo = internas;
       }
       delete i._lectura;
@@ -1062,7 +1068,7 @@ export class ListasService {
   }
 
   // --- Matching contra el catálogo (genérico: conserva campos extra como cantidad) ---
-  private async matchear<T extends ItemExtraido>(items: T[], proveedorId: string): Promise<(T & { match: Match })[]> {
+  private async matchear<T extends { codigo: string | null; descripcion: string; precio: number | null }>(items: T[], proveedorId: string): Promise<(T & { match: Match })[]> {
     const { data: catalogoProv } = await this.db
       .from('proveedor_productos')
       .select('codigo_proveedor, alias_descripcion, ultimo_costo, margen_pct, producto:productos(sku, nombre, costo)')
@@ -1129,7 +1135,7 @@ export class ListasService {
       // unidad daba +42543% y mandaba vínculos buenos a "¿es este?". Se compara
       // por unidad (variacionPorUnidad, con pruebas).
       const bultoLeido = Number((item as any).unidadesPorBulto);
-      if (match && match.costoActual != null && bultoLeido > 1) {
+      if (match && match.costoActual != null && item.precio != null && bultoLeido > 1) {
         match = { ...match, variacionPct: variacionPorUnidad(Number((item as any).precio), bultoLeido, match.costoActual) };
       }
       if (
@@ -1199,7 +1205,7 @@ export class ListasService {
   // sugiere el más probable, para que el operador confirme ("¿es este?"). Devuelve
   // un mapa descripción→sugerencia. Best-effort: si algo falla, no sugiere nada.
   private async sugerirMatchConIA(
-    descripciones: { descripcion: string; precio: number }[],
+    descripciones: { descripcion: string; precio: number | null }[],
   ): Promise<Map<string, { sku: string; nombre: string; costo: number | null; motivo: string }>> {
     const salida = new Map<string, { sku: string; nombre: string; costo: number | null; motivo: string }>();
     if (!descripciones.length || !process.env.ANTHROPIC_API_KEY) return salida;
@@ -1325,7 +1331,7 @@ export class ListasService {
   private armarMatch(
     producto: any,
     costoActual: number | null,
-    precioNuevo: number,
+    precioNuevo: number | null,
     metodo: 'codigo_proveedor' | 'codigo_barras' | 'similitud' | 'alias',
     margenPct: number | null,
   ): Match {
@@ -1334,7 +1340,7 @@ export class ListasService {
       sku: producto.sku,
       nombre: producto.nombre,
       costoActual: costo,
-      variacionPct: costo ? Math.round(((precioNuevo - costo) / costo) * 1000) / 10 : null,
+      variacionPct: costo && precioNuevo != null ? Math.round(((precioNuevo - costo) / costo) * 1000) / 10 : null,
       metodo,
       margenPct: margenPct != null ? Number(margenPct) : null,
     };

@@ -1,0 +1,359 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,500;0,6..72,600;0,6..72,700;1,6..72,500;1,6..72,600&family=Inter+Tight:wght@300;500;700&family=IBM+Plex+Mono:wght@400;500;600&display=block" rel="stylesheet">
+</head>
+<body>
+<script src="motor.js"></script>
+<script>
+injectBase('petroleo');
+$('stage').style.transform='scale(0.90)';  /* contención extra */
+
+/* ==================================================================
+   VIDEO K · "EL CONTROL" · manifiesto
+   El dolor del dueño: no sabe cómo responden por él.
+   Siete preguntas que no puede contestar → siete ☒ en la checklist
+   del HUD → RESPONDE las da vuelta en ✓.
+   ================================================================== */
+const TL = {
+  b1: {in:0.00,  w1:0.16, w2:0.75, x:2.30, cut:2.90},
+  b2: {in:2.90,  q1:3.08, q2:4.05, q3:5.02, x:5.85, cut:6.40},
+  b3: {in:6.40,  w1:6.60, w2:7.75, x:8.75, cut:9.30},
+  b4: {in:9.30,  w1:9.50, w2:10.85, x:12.05, cut:12.60},
+  b5: {in:12.60, w1:12.80, w2:13.75, w3:14.65, x:15.75, cut:16.30},
+  b6: {in:16.30, w1:16.55, w2:17.55, x:18.85, cut:19.40},
+  b7: {in:19.40, w1:19.62, w2:20.80, x:22.05, cut:22.60},
+  b8: {in:22.60, cut:23.90},                              /* sin control: negro + checklist roja */
+  b9: {in:23.90, r:24.05, logo:24.40, logoEnd:25.55, tag:25.95, cut:27.20},
+  b10:{in:27.20, l1:27.40, l2:28.55, l3:29.75, cut:31.40},
+  b11:{in:31.40, w:31.65, cut:34.40},
+  b12:{in:34.40, logo:34.55, tag:35.15, btn:35.85, site:36.55, end:39.00},
+};
+window.DURATION = 39.0;
+const BEATS = Object.keys(TL);
+const CUTS = BEATS.map(k=>TL[k].cut).filter(Boolean).slice(0,-1);
+/* cuándo se tacha cada casilla */
+const XS = [TL.b1.x, TL.b2.x, TL.b3.x, TL.b4.x, TL.b5.x, TL.b6.x, TL.b7.x];
+/* cuándo se da vuelta cada tilde */
+const OKS = [0,1,2,3,4,5,6].map(i=> TL.b10.l1 + 0.15 + i*0.42);
+
+const camera = makeCamera({
+  S:[
+    {t:0,v:1.20},{t:0.55,v:1.02,e:E.outExpo},{t:2.90,v:1.00,e:E.linear},
+    {t:2.90,v:1.00},{t:6.40,v:1.06,e:E.linear},
+    {t:6.40,v:1.02},{t:9.30,v:1.07,e:E.linear},
+    {t:9.30,v:1.00},{t:12.60,v:1.06,e:E.linear},
+    {t:12.60,v:1.01},{t:16.30,v:1.06,e:E.linear},
+    {t:16.30,v:1.16},{t:17.20,v:1.00,e:E.outExpo},{t:19.40,v:1.03,e:E.linear},
+    {t:19.40,v:1.00},{t:22.60,v:1.08,e:E.linear},
+    {t:22.60,v:1.08},{t:23.90,v:1.02,e:E.linear},
+    {t:23.90,v:1.40},{t:25.55,v:1.00,e:E.outExpo},{t:27.20,v:1.035,e:E.linear},
+    {t:27.20,v:1.00},{t:31.40,v:1.07,e:E.linear},
+    {t:31.40,v:1.15},{t:32.30,v:1.00,e:E.outExpo},{t:34.40,v:1.03,e:E.linear},
+    {t:34.40,v:1.10},{t:35.25,v:1.00,e:E.outExpo},{t:39.00,v:1.05,e:E.linear},
+  ],
+  X:[{t:0,v:540}],
+  Y:[
+    {t:0,v:930},{t:0.55,v:955,e:E.outExpo},{t:2.90,v:962,e:E.linear},
+    {t:2.90,v:948},{t:6.40,v:975,e:E.linear},
+    {t:6.40,v:950},{t:9.30,v:975,e:E.linear},
+    {t:9.30,v:948},{t:12.60,v:975,e:E.linear},
+    {t:12.60,v:950},{t:16.30,v:978,e:E.linear},
+    {t:16.30,v:935},{t:17.20,v:960,e:E.outExpo},{t:19.40,v:970,e:E.linear},
+    {t:19.40,v:948},{t:22.60,v:978,e:E.linear},
+    {t:22.60,v:960},{t:23.90,v:960},
+    {t:23.90,v:915},{t:25.55,v:960,e:E.outExpo},{t:27.20,v:970,e:E.linear},
+    {t:27.20,v:950},{t:31.40,v:975,e:E.linear},
+    {t:31.40,v:935},{t:32.30,v:960,e:E.outExpo},{t:34.40,v:970,e:E.linear},
+    {t:34.40,v:938},{t:35.25,v:960,e:E.outExpo},
+  ],
+  shakes:[
+    {t:0.18,amp:9,freq:11,dur:0.5},
+    {t:2.30,amp:4,freq:12,dur:0.3},{t:5.85,amp:4,freq:12,dur:0.3},{t:8.75,amp:4,freq:12,dur:0.3},
+    {t:7.78,amp:7,freq:10,dur:0.45},{t:10.88,amp:6,freq:10,dur:0.42},{t:12.05,amp:4,freq:12,dur:0.3},
+    {t:15.75,amp:4,freq:12,dur:0.3},
+    {t:16.35,amp:10,freq:10,dur:0.55},{t:18.85,amp:4,freq:12,dur:0.3},
+    {t:20.83,amp:8,freq:10,dur:0.5},{t:22.05,amp:5,freq:12,dur:0.35},
+    {t:23.95,amp:13,freq:9,dur:0.75},
+    {t:31.45,amp:8,freq:10,dur:0.5},{t:34.45,amp:4,freq:10,dur:0.35},
+  ],
+  whips:[],
+  flashes:[
+    {t:0.18,p:.42},{t:2.95,p:.2},{t:6.45,p:.22},{t:7.78,p:.28},{t:9.35,p:.2},{t:10.88,p:.26},
+    {t:12.65,p:.2},{t:16.35,p:.55},{t:19.45,p:.22},{t:20.83,p:.32},
+    {t:23.95,p:.7},{t:27.25,p:.2},{t:31.45,p:.5},{t:34.45,p:.28},
+  ],
+  cutsBlack: CUTS.map(t=>({a:t-0.05,b:t+0.05})),
+  cutsBone: [{a:16.25,b:16.37},{a:31.35,b:31.47}],
+  fade:[38.35,38.95],
+});
+
+function paperF(t){
+  return Math.max(
+    Math.min(seg(t,16.30,16.43,E.outCubic), 1-seg(t,19.33,19.41,E.inQuad)),
+    Math.min(seg(t,31.40,31.53,E.outCubic), 1-seg(t,34.33,34.41,E.inQuad))
+  );
+}
+
+/* ================= HUD + checklist de control ================= */
+const hud = document.createElement('div');
+hud.id='hud';
+hud.style.cssText='position:fixed;inset:0;z-index:50;pointer-events:none;';
+hud.innerHTML = `
+  <div id="hfr" style="position:absolute;left:58px;top:58px;right:58px;bottom:58px;border:1px solid rgba(245,243,238,.13);"></div>
+  ${[['left:44px;top:44px','border-left:2px solid;border-top:2px solid'],
+     ['right:44px;top:44px','border-right:2px solid;border-top:2px solid'],
+     ['left:44px;bottom:44px','border-left:2px solid;border-bottom:2px solid'],
+     ['right:44px;bottom:44px','border-right:2px solid;border-bottom:2px solid']]
+    .map(([pos,br])=>`<div class="tk" style="position:absolute;${pos};width:34px;height:34px;${br};border-color:#c9a96e;opacity:.8;"></div>`).join('')}
+  <div class="mo" style="position:absolute;left:92px;top:96px;font-size:20px;letter-spacing:.22em;color:rgba(245,243,238,.62);">AUDITORÍA · TU TIEMPO DE RESPUESTA</div>
+  <div id="hctrl" class="mo" style="position:absolute;right:92px;top:96px;font-size:20px;letter-spacing:.22em;color:#c9a96e;">A TIEMPO 7/7</div>
+  <div id="hboxes" style="position:absolute;left:0;bottom:150px;width:1080px;display:flex;justify-content:center;gap:26px;"></div>
+  <div id="hsite" class="mo" style="position:absolute;left:0;bottom:96px;width:1080px;text-align:center;font-size:17px;letter-spacing:.26em;color:rgba(245,243,238,.4);">RESPONDE · METOGROUP</div>`;
+document.getElementById('viewport').appendChild(hud);
+
+const BX = [];
+for (let i=0;i<7;i++){
+  const d=document.createElement('div');
+  d.style.cssText='width:46px;height:46px;border:2px solid rgba(245,243,238,.4);position:relative;display:grid;place-items:center;';
+  d.innerHTML = `<span class="bx" style="font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:34px;line-height:1;"></span>`;
+  $('hboxes').appendChild(d);
+  BX.push({box:d, mark:d.querySelector('.bx')});
+}
+
+const css2 = document.createElement('style');
+css2.textContent = `
+  .mo { font-family:'IBM Plex Mono',monospace; font-variant-numeric:tabular-nums; }
+  .mask { position:absolute; overflow:hidden; text-align:center; line-height:1.3; padding-bottom:12px; }
+  .mask > span { display:inline-block; }
+  .qrow { position:relative; display:flex; align-items:baseline; gap:32px; margin-bottom:36px; }
+  .qn { font-family:'IBM Plex Mono',monospace; font-weight:300; font-size:25px; letter-spacing:.22em; color:#c9a96e; width:58px; flex-shrink:0; }
+  .qt { font-family:'Newsreader',serif; font-weight:600; font-size:66px; color:#f5f3ee; white-space:nowrap; }
+  .ans { font-family:'Newsreader',serif; font-style:italic; font-weight:600; color:#c9a96e; }
+  .lrow { position:relative; display:flex; align-items:center; gap:30px; margin-bottom:42px; }
+  .lok { width:52px; height:52px; border:2px solid #c9a96e; display:grid; place-items:center; flex-shrink:0;
+         font-family:'IBM Plex Mono',monospace; font-weight:600; font-size:36px; color:#c9a96e; }
+  .lt { font-family:'Newsreader',serif; font-weight:600; font-size:52px; color:#f5f3ee; }
+`;
+document.head.appendChild(css2);
+
+/* ================= carteles ================= */
+const stage = $('stage');
+stage.innerHTML = `
+<div class="layer beat" id="b1">
+  <div class="mask" style="left:0;top:770px;width:1080px;"><span id="b1w1" class="ser bone" style="font-size:84px;font-weight:600;">¿Cuánto tarda tu equipo</span></div>
+  <div class="mask" style="left:0;top:905px;width:1080px;"><span id="b1w2" class="ser tan" style="font-size:112px;font-weight:700;">EN CONTESTAR?</span></div>
+</div>
+
+<div class="layer beat" id="b2"><div id="b2list" style="position:absolute;left:150px;top:740px;width:820px;"></div></div>
+
+<div class="layer beat" id="b3">
+  <div class="mask" style="left:0;top:760px;width:1080px;"><span id="b3w1" class="ser bone" style="font-size:70px;font-weight:600;">¿Y el mensaje que entra</span></div>
+  <div class="mask" style="left:0;top:872px;width:1080px;"><span id="b3w1b" class="ser bone" style="font-size:70px;font-weight:600;">a las 9 de la noche?</span></div>
+  <div class="mask" style="left:0;top:1035px;width:1080px;"><span id="b3w2" class="ans" style="font-size:96px;">Mañana lo vemos.</span></div>
+</div>
+
+<div class="layer beat" id="b4">
+  <div class="mask" style="left:0;top:760px;width:1080px;"><span id="b4w1" class="ser bone" style="font-size:74px;font-weight:600;">¿Y el del sábado</span></div>
+  <div class="mask" style="left:0;top:872px;width:1080px;"><span id="b4w1b" class="ser bone" style="font-size:74px;font-weight:600;">a la tarde?</span></div>
+  <div class="mask" style="left:0;top:1035px;width:1080px;"><span id="b4w2" class="ans" style="font-size:68px;">El lunes. Si me acuerdo.</span></div>
+</div>
+
+<div class="layer beat" id="b5">
+  <div class="mask" style="left:0;top:735px;width:1080px;"><span id="b5w1" class="ser bone" style="font-size:66px;font-weight:600;">El cliente no espera.</span></div>
+  <div class="mask" style="left:0;top:875px;width:1080px;"><span id="b5w2" class="ser bone" style="font-size:66px;font-weight:600;">Compara.</span></div>
+  <div class="mask" style="left:0;top:1015px;width:1080px;"><span id="b5w3" class="ans" style="font-size:80px;">Se va con otro.</span></div>
+</div>
+
+<div class="layer beat" id="b6">
+  <div class="mask" style="left:0;top:800px;width:1080px;"><span id="b6w1" class="ser" style="font-size:72px;font-weight:700;color:#0d0c0a;white-space:nowrap;">CADA HORA QUE TARDÁS,</span></div>
+  <div class="mask" style="left:0;top:950px;width:1080px;"><span id="b6w2" class="ans" style="font-size:84px;color:#8a6f3c;">la venta es de otro.</span></div>
+</div>
+
+<div class="layer beat" id="b7">
+  <div class="mask" style="left:0;top:780px;width:1080px;"><span id="b7w1" class="ser bone" style="font-size:66px;font-weight:700;">¿Cuántas ventas perdiste así?</span></div>
+  <div class="mask" style="left:0;top:945px;width:1080px;"><span id="b7w2" class="seri" style="font-size:56px;font-weight:500;color:rgba(245,243,238,.72);">¿O preferís no saberlo?</span></div>
+</div>
+
+<div class="layer beat" id="b8"></div>
+
+<div class="layer beat" id="b9">
+  <div id="b9r" class="rbox" style="position:absolute;left:475px;top:640px;width:130px;height:130px;font-size:70px;">R</div>
+  <div id="b9logo" class="ser bone" style="position:absolute;left:0;top:830px;width:1080px;text-align:center;font-size:160px;font-weight:600;letter-spacing:-.02em;"></div>
+  <div id="b9rule" style="position:absolute;left:300px;top:1035px;width:480px;height:2px;background:#c9a96e;transform-origin:50% 50%;"></div>
+  <div id="b9tag" class="seri tan" style="position:absolute;left:0;top:1080px;width:1080px;text-align:center;font-size:52px;font-weight:500;">Contesta en segundos. Siempre.</div>
+</div>
+
+<div class="layer beat" id="b10"><div id="b10list" style="position:absolute;left:120px;top:760px;width:880px;"></div></div>
+
+<div class="layer beat" id="b11">
+  <div class="mask" style="left:0;top:790px;width:1080px;"><span id="b11w" class="ser" style="font-size:58px;font-weight:700;color:#0d0c0a;white-space:nowrap;">EL QUE CONTESTA PRIMERO,</span></div>
+  <div class="mask" style="left:0;top:905px;width:1080px;"><span id="b11w2" class="ser" style="font-size:128px;font-weight:700;color:#8a6f3c;white-space:nowrap;">VENDE.</span></div>
+</div>
+
+<div class="layer beat" id="b12">
+  <div id="cr" class="rbox" style="position:absolute;left:475px;top:600px;width:130px;height:130px;font-size:70px;">R</div>
+  <div id="clogo" class="ser bone" style="position:absolute;left:0;top:786px;width:1080px;text-align:center;font-size:138px;font-weight:600;">RESPONDE</div>
+  <div id="ctag" class="seri tan" style="position:absolute;left:0;top:985px;width:1080px;text-align:center;font-size:48px;">Tu empleado que nunca duerme.</div>
+  <div id="cbtn" class="pill" style="position:absolute;left:50%;top:1120px;transform:translateX(-50%);font-size:42px;white-space:nowrap;padding:32px 66px;">Probame ahora →</div>
+  <div id="csite" class="mo" style="position:absolute;left:0;top:1310px;width:1080px;text-align:center;font-size:24px;letter-spacing:.26em;color:rgba(245,243,238,.6);">RESPONDE · BY METOGROUP · METOGROUP.AR</div>
+</div>`;
+
+/* preguntas rápidas del golpe 2 */
+const Q2 = [
+  {n:'01', txt:'¿Minutos?'},
+  {n:'02', txt:'¿Horas?'},
+  {n:'03', txt:'¿Al otro día?'},
+];
+Q2.forEach((q,i)=>{
+  const row=document.createElement('div');
+  row.className='qrow';
+  row.innerHTML=`<span class="qn">${q.n}</span><span class="qt">${q.txt}</span>`;
+  $('b2list').appendChild(row);
+  q.row=row; q.t0=[TL.b2.q1,TL.b2.q2,TL.b2.q3][i];
+});
+/* la resolución del golpe 10 */
+const L10 = [
+  'En segundos, no en horas.',
+  'De noche, de finde, feriados.',
+  'Nadie espera. Nadie se va.',
+];
+const l10els = L10.map((txt,i)=>{
+  const row=document.createElement('div');
+  row.className='lrow';
+  row.innerHTML=`<span class="lok"></span><span class="lt">${txt}</span>`;
+  $('b10list').appendChild(row);
+  return {row, ok:row.querySelector('.lok'), t0:[TL.b10.l1,TL.b10.l2,TL.b10.l3][i]};
+});
+
+function wipe(id,t,t0,dur){ const q=seg(t,t0,t0+(dur||0.55),E.outExpo); $(id).style.transform=`translateY(${(1-q)*140}%)`; return q; }
+function show(id,t,a,b){ const v=t>=a-0.02&&t<b+0.02; $(id).style.display=v?'block':'none'; return v; }
+
+/* checklist del HUD por frame */
+function hudFrame(t, inv){
+  const bone='245,243,238', ink='13,12,10';
+  const mixc = a=>`rgba(${inv>.5?ink:bone},${a})`;
+  hud.style.opacity = seg(t,0.25,0.7,E.outCubic);
+  $('hfr').style.borderColor = mixc(.13);
+  /* cuántas tachadas / cuántas recuperadas */
+  let nx=0; XS.forEach(x=>{ if(t>=x) nx++; });
+  let nok=0; OKS.forEach(o=>{ if(t>=o) nok++; });
+  const enPanico = t>=TL.b8.in && t<TL.b9.r;
+  BX.forEach((b,i)=>{
+    const tachada = t>=XS[i] && t<OKS[i];
+    const ok = t>=OKS[i];
+    const justX = t>=XS[i] && t<XS[i]+0.3;
+    const justOk = ok && t<OKS[i]+0.3;
+    const pop = justX||justOk ? 1+0.35*Math.sin(iv(t, ok?OKS[i]:XS[i], (ok?OKS[i]:XS[i])+0.3)*Math.PI) : 1;
+    b.mark.textContent = ok ? '✓' : (tachada ? '✕' : '');
+    b.mark.style.color = ok ? '#c9a96e' : '#e0483f';
+    b.mark.style.transform = `scale(${pop})`;
+    const blink = enPanico ? (0.45+0.55*Math.abs(Math.sin(t*3.2+i))) : 1;
+    b.box.style.borderColor = ok ? '#c9a96e' :
+      (tachada ? `rgba(224,72,63,${(0.8*blink).toFixed(2)})` : (inv>.5?'rgba(13,12,10,.45)':'rgba(245,243,238,.4)'));
+  });
+  const ctrl = $('hctrl');
+  const rest = 7-nx+nok;
+  ctrl.textContent = `A TIEMPO ${Math.max(0,Math.min(7,rest))}/7`;
+  ctrl.style.color = nok>0 ? '#c9a96e' : (nx>0 ? '#e0483f' : '#c9a96e');
+  [...document.querySelectorAll('.tk')].forEach(el=> el.style.borderColor = inv>.5 ? '#12100c' : (enPanico?'#e0483f':'#c9a96e'));
+  $('hsite').style.color = mixc(.4);
+  $('hctrl').style.opacity = 1;
+}
+
+window.seek = function(t){
+  const paper = paperF(t);
+  setWorld(t, paper);
+  camera(t);
+  hudFrame(t, paper);
+
+  if (show('b1',t,TL.b1.in,TL.b1.cut)){
+    wipe('b1w1',t,TL.b1.w1,0.55);
+    wipe('b1w2',t,TL.b1.w2,0.6);
+    aberr($('b1w2'), Math.max(0,.9-(t-TL.b1.w2)*1.2));
+  }
+  if (show('b2',t,TL.b2.in,TL.b2.cut)){
+    Q2.forEach(q=>{
+      const p = seg(t,q.t0,q.t0+0.32,E.outExpo);
+      q.row.style.opacity=p;
+      q.row.style.transform=`translateX(${lerp(46,0,p)}px)`;
+    });
+  }
+  if (show('b3',t,TL.b3.in,TL.b3.cut)){
+    wipe('b3w1',t,TL.b3.w1,0.5); wipe('b3w1b',t,TL.b3.w1+0.18,0.5);
+    wipe('b3w2',t,TL.b3.w2,0.6);
+    aberr($('b3w2'), Math.max(0,.8-(t-TL.b3.w2)*1.2));
+  }
+  if (show('b4',t,TL.b4.in,TL.b4.cut)){
+    wipe('b4w1',t,TL.b4.w1,0.5); wipe('b4w1b',t,TL.b4.w1+0.18,0.5);
+    wipe('b4w2',t,TL.b4.w2,0.6);
+  }
+  if (show('b5',t,TL.b5.in,TL.b5.cut)){
+    wipe('b5w1',t,TL.b5.w1,0.5);
+    wipe('b5w2',t,TL.b5.w2,0.5);
+    wipe('b5w3',t,TL.b5.w3,0.55);
+    aberr($('b5w3'), Math.max(0,.8-(t-TL.b5.w3)*1.2));
+  }
+  if (show('b6',t,TL.b6.in,TL.b6.cut)){
+    wipe('b6w1',t,TL.b6.w1,0.55);
+    wipe('b6w2',t,TL.b6.w2,0.6);
+  }
+  if (show('b7',t,TL.b7.in,TL.b7.cut)){
+    wipe('b7w1',t,TL.b7.w1,0.6);
+    aberr($('b7w1'), Math.max(0,1-(t-TL.b7.w1)*1.1));
+    wipe('b7w2',t,TL.b7.w2,0.6);
+  }
+  show('b8',t,TL.b8.in,TL.b8.cut);
+  if (show('b9',t,TL.b9.in,TL.b9.cut)){
+    const rq = seg(t,TL.b9.r,TL.b9.r+0.4,E.outBack);
+    $('b9r').style.opacity=rq;
+    $('b9r').style.transform=`scale(${lerp(.5,1,rq)}) rotate(${lerp(-8,0,rq)}deg)`;
+    scramble($('b9logo'),'RESPONDE',t,TL.b9.logo,TL.b9.logoEnd);
+    aberr($('b9logo'), Math.max(0,.9-(t-TL.b9.logo)*0.8));
+    const ru=seg(t,TL.b9.logoEnd,TL.b9.logoEnd+0.45,E.outExpo);
+    $('b9rule').style.transform=`scaleX(${ru})`; $('b9rule').style.opacity=ru;
+    const tg=seg(t,TL.b9.tag,TL.b9.tag+0.45,E.outCubic);
+    $('b9tag').style.opacity=tg;
+    $('b9tag').style.transform=`translateY(${lerp(22,0,tg)}px)`;
+  }
+  if (show('b10',t,TL.b10.in,TL.b10.cut)){
+    l10els.forEach(l=>{
+      const p = seg(t,l.t0,l.t0+0.4,E.outExpo);
+      l.row.style.opacity=p;
+      l.row.style.transform=`translateX(${lerp(40,0,p)}px)`;
+      l.ok.textContent = t>=l.t0+0.22 ? '✓' : '';
+    });
+  }
+  if (show('b11',t,TL.b11.in,TL.b11.cut)){
+    wipe('b11w',t,TL.b11.w,0.55);
+    wipe('b11w2',t,TL.b11.w+0.5,0.6);
+    aberr($('b11w2'), Math.max(0,.8-(t-TL.b11.w-0.5)*1.2));
+  }
+  if (show('b12',t,TL.b12.in,1e9)){
+    const rq=seg(t,TL.b12.in,TL.b12.in+0.35,E.outExpo);
+    $('cr').style.opacity=rq; $('cr').style.transform=`scale(${lerp(.55,1,rq)})`;
+    const lg=seg(t,TL.b12.logo,TL.b12.logo+0.4,E.outExpo);
+    $('clogo').style.opacity=lg; $('clogo').style.transform=`scale(${lerp(1.15,1,lg)})`;
+    const tg=seg(t,TL.b12.tag,TL.b12.tag+0.45,E.outCubic);
+    $('ctag').style.opacity=tg; $('ctag').style.transform=`translateY(${lerp(20,0,tg)}px)`;
+    const bq=seg(t,TL.b12.btn,TL.b12.btn+0.45,E.outBack);
+    $('cbtn').style.opacity=bq;
+    $('cbtn').style.transform=`translateX(-50%) scale(${bq<1?lerp(.6,1,bq):1+0.02*Math.sin((t-TL.b12.btn)*2.3)})`;
+    $('csite').style.opacity=seg(t,TL.b12.site,TL.b12.site+0.45,E.outCubic);
+  }
+};
+window.READY = Promise.all([
+  document.fonts.load('700 112px Newsreader'),
+  document.fonts.load('600 160px Newsreader'),
+  document.fonts.load('italic 600 104px Newsreader'),
+  document.fonts.load('300 25px "IBM Plex Mono"'),
+  document.fonts.load('600 36px "IBM Plex Mono"'),
+  document.fonts.load('700 42px "Inter Tight"'),
+  document.fonts.ready
+]).then(()=>{ window.seek(0); return true; });
+</script>
+</body>
+</html>

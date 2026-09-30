@@ -1,0 +1,6 @@
+// Evaluación de PDFs sintéticos. Modelo real; base de datos y almacenamiento simulados.
+require('reflect-metadata');const fs=require('node:fs'),path=require('node:path');
+const {ListasService}=require('../dist/listas/listas.service');
+const db={storage:{from:()=>({upload:async()=>({error:null})})},from(){const b={};for(const k of ['select','eq','neq','is','not','in','gte','gt','lte','lt','ilike','limit','order','range','or'])b[k]=()=>b;b.single=b.maybeSingle=async()=>({data:null,error:null});b.then=(ok,err)=>Promise.resolve({data:[],error:null}).then(ok,err);return b;}};
+const root=path.resolve('../..');
+(async()=>{const results=[];for(const file of ['01-packs-bonificacion.pdf','02-peso-decimales.pdf','03-dos-paginas.pdf']){const s=new ListasService(db);s.sugerirMatchConIA=async()=>new Map();try{const result=await s.analizarComprobanteFoto({buffer:fs.readFileSync(path.join(root,'output/pdf/auditoria-integral',file)),mimetype:'application/pdf',originalname:file});results.push({file,result});console.log(file,JSON.stringify({demora:result.demora,total:result.total,items:result.items,impuestos:result.impuestos,dudas:result.dudas}));}catch(e){results.push({file,error:e.message});console.log(file,'ERROR',e.message);}fs.writeFileSync(path.join(root,'docs/auditoria-integral-2026-09-21/ocr-real.json'),JSON.stringify(results,null,2));}})();

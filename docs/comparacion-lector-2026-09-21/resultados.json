@@ -1,0 +1,562 @@
+{
+  "azure": "No evaluado: usuario confirma que no tiene recurso configurado",
+  "alcance": "Tres PDFs sintéticos, una ejecución por configuración; no mide precisión en producción ni matching",
+  "results": [
+    {
+      "effort": "medium",
+      "file": "01-packs-bonificacion.pdf",
+      "diferencias": [],
+      "result": {
+        "demora": {
+          "total": 10.9,
+          "lectura": 10.9,
+          "matching": 0
+        },
+        "proveedor": {
+          "detectado": {
+            "nombre": "Distribuidora Prueba",
+            "cuit": "30000000000"
+          },
+          "match": null
+        },
+        "comprobante": {
+          "tipo": "factura_a",
+          "numero": "0001-00000001",
+          "fecha": "2026-09-21",
+          "condicionVenta": null
+        },
+        "impuestos": {
+          "neto": 12000,
+          "iva": 2520,
+          "alicuotaIva": 21,
+          "percepcionIva": null,
+          "percepcionIibb": null,
+          "impuestosInternos": null,
+          "otros": null,
+          "descuentoGlobal": 0,
+          "total": 14520
+        },
+        "impuestosHabituales": null,
+        "archivoUrl": "facturas/2026-09/d311e5d1-397c-436e-981e-4198c36681a2.pdf",
+        "regimenEspecial": false,
+        "notasManuscritas": null,
+        "dudas": [],
+        "total": 2,
+        "conMatch": 0,
+        "sugeridos": 0,
+        "items": [
+          {
+            "codigo": null,
+            "descripcion": "Agua mineral 1,5 L - pack x 6",
+            "cantidad": 2,
+            "precio": 6000,
+            "importe": 12000,
+            "unidadesPorBulto": 6,
+            "bonificacionPct": null,
+            "esDescuento": false,
+            "kg": null,
+            "puedePorPeso": false,
+            "alicuotaIva": 21,
+            "descuentoPct": null,
+            "interpretado": {
+              "decision": "bulto_pendiente",
+              "cantidad": 2,
+              "porPeso": false,
+              "unidadesPorBulto": 6,
+              "cantidadOriginal": null,
+              "bultoConsumido": null,
+              "precioPropuesto": null,
+              "bonificacionPct": null,
+              "importeNeto": null,
+              "alicuotaDeducida": null,
+              "faltantes": []
+            },
+            "match": null
+          },
+          {
+            "codigo": null,
+            "descripcion": "Agua mineral 1,5 L - pack x 6",
+            "cantidad": 1,
+            "precio": 6000,
+            "importe": 0,
+            "unidadesPorBulto": 6,
+            "bonificacionPct": 100,
+            "esDescuento": false,
+            "kg": null,
+            "puedePorPeso": false,
+            "alicuotaIva": 21,
+            "descuentoPct": null,
+            "interpretado": {
+              "decision": "bonificado",
+              "cantidad": 1,
+              "porPeso": false,
+              "unidadesPorBulto": 6,
+              "cantidadOriginal": null,
+              "bultoConsumido": null,
+              "precioPropuesto": null,
+              "bonificacionPct": null,
+              "importeNeto": null,
+              "alicuotaDeducida": null,
+              "faltantes": []
+            },
+            "match": null
+          }
+        ]
+      }
+    },
+    {
+      "effort": "medium",
+      "file": "02-peso-decimales.pdf",
+      "diferencias": [],
+      "result": {
+        "demora": {
+          "total": 5.6,
+          "lectura": 5.6,
+          "matching": 0
+        },
+        "proveedor": {
+          "detectado": {
+            "nombre": "Proveedor de Prueba",
+            "cuit": "30000000000"
+          },
+          "match": null
+        },
+        "comprobante": {
+          "tipo": "factura_a",
+          "numero": "0001-00000002",
+          "fecha": "2026-09-21",
+          "condicionVenta": null
+        },
+        "impuestos": {
+          "neto": 750.25,
+          "iva": 157.55,
+          "alicuotaIva": 21,
+          "percepcionIva": null,
+          "percepcionIibb": null,
+          "impuestosInternos": null,
+          "otros": null,
+          "descuentoGlobal": 0,
+          "total": 907.8
+        },
+        "impuestosHabituales": null,
+        "archivoUrl": "facturas/2026-09/f3873b04-1006-40b0-8eb1-fba21906f4d3.pdf",
+        "regimenEspecial": false,
+        "notasManuscritas": null,
+        "dudas": [],
+        "total": 1,
+        "conMatch": 0,
+        "sugeridos": 0,
+        "items": [
+          {
+            "codigo": null,
+            "descripcion": "Queso cremoso a granel",
+            "cantidad": 1,
+            "precio": 1500.5,
+            "importe": 750.25,
+            "unidadesPorBulto": null,
+            "bonificacionPct": null,
+            "esDescuento": false,
+            "kg": 0.5,
+            "puedePorPeso": true,
+            "alicuotaIva": 21,
+            "descuentoPct": null,
+            "interpretado": {
+              "decision": "peso_columna",
+              "cantidad": 0.5,
+              "porPeso": true,
+              "unidadesPorBulto": null,
+              "cantidadOriginal": null,
+              "bultoConsumido": null,
+              "precioPropuesto": null,
+              "bonificacionPct": null,
+              "importeNeto": null,
+              "alicuotaDeducida": null,
+              "faltantes": []
+            },
+            "match": null
+          }
+        ]
+      }
+    },
+    {
+      "effort": "medium",
+      "file": "03-dos-paginas.pdf",
+      "diferencias": [],
+      "result": {
+        "demora": {
+          "total": 6.1,
+          "lectura": 6.1,
+          "matching": 0
+        },
+        "proveedor": {
+          "detectado": {
+            "nombre": "Proveedor de Prueba",
+            "cuit": "30000000000"
+          },
+          "match": null
+        },
+        "comprobante": {
+          "tipo": "factura_a",
+          "numero": "0001-00000003",
+          "fecha": null,
+          "condicionVenta": null
+        },
+        "impuestos": {
+          "neto": 700,
+          "iva": 147,
+          "alicuotaIva": 21,
+          "percepcionIva": null,
+          "percepcionIibb": null,
+          "impuestosInternos": null,
+          "otros": null,
+          "descuentoGlobal": 0,
+          "total": 847
+        },
+        "impuestosHabituales": null,
+        "archivoUrl": "facturas/2026-09/158f0b6b-6ab7-48f8-8cd4-04023b1419a3.pdf",
+        "regimenEspecial": false,
+        "notasManuscritas": null,
+        "dudas": [],
+        "total": 2,
+        "conMatch": 0,
+        "sugeridos": 0,
+        "items": [
+          {
+            "codigo": null,
+            "descripcion": "Detergente 500 ml",
+            "cantidad": 3,
+            "precio": 100,
+            "importe": 300,
+            "unidadesPorBulto": null,
+            "bonificacionPct": null,
+            "esDescuento": false,
+            "kg": null,
+            "puedePorPeso": false,
+            "alicuotaIva": 21,
+            "descuentoPct": null,
+            "interpretado": {
+              "decision": "cierra",
+              "cantidad": 3,
+              "porPeso": false,
+              "unidadesPorBulto": null,
+              "cantidadOriginal": null,
+              "bultoConsumido": null,
+              "precioPropuesto": null,
+              "bonificacionPct": null,
+              "importeNeto": null,
+              "alicuotaDeducida": null,
+              "faltantes": []
+            },
+            "match": null
+          },
+          {
+            "codigo": null,
+            "descripcion": "Lavandina 1 L",
+            "cantidad": 2,
+            "precio": 200,
+            "importe": 400,
+            "unidadesPorBulto": null,
+            "bonificacionPct": null,
+            "esDescuento": false,
+            "kg": null,
+            "puedePorPeso": false,
+            "alicuotaIva": 21,
+            "descuentoPct": null,
+            "interpretado": {
+              "decision": "cierra",
+              "cantidad": 2,
+              "porPeso": false,
+              "unidadesPorBulto": null,
+              "cantidadOriginal": null,
+              "bultoConsumido": null,
+              "precioPropuesto": null,
+              "bonificacionPct": null,
+              "importeNeto": null,
+              "alicuotaDeducida": null,
+              "faltantes": []
+            },
+            "match": null
+          }
+        ]
+      }
+    },
+    {
+      "effort": "high",
+      "file": "01-packs-bonificacion.pdf",
+      "diferencias": [],
+      "result": {
+        "demora": {
+          "total": 7.3,
+          "lectura": 7.3,
+          "matching": 0
+        },
+        "proveedor": {
+          "detectado": {
+            "nombre": "Distribuidora Prueba",
+            "cuit": "30000000000"
+          },
+          "match": null
+        },
+        "comprobante": {
+          "tipo": "factura_a",
+          "numero": "0001-00000001",
+          "fecha": "2026-09-21",
+          "condicionVenta": null
+        },
+        "impuestos": {
+          "neto": 12000,
+          "iva": 2520,
+          "alicuotaIva": 21,
+          "percepcionIva": null,
+          "percepcionIibb": null,
+          "impuestosInternos": null,
+          "otros": null,
+          "descuentoGlobal": 0,
+          "total": 14520
+        },
+        "impuestosHabituales": null,
+        "archivoUrl": "facturas/2026-09/474717ef-11ff-46ea-b62f-aa1c3c093247.pdf",
+        "regimenEspecial": false,
+        "notasManuscritas": null,
+        "dudas": [],
+        "total": 2,
+        "conMatch": 0,
+        "sugeridos": 0,
+        "items": [
+          {
+            "codigo": null,
+            "descripcion": "Agua mineral 1,5 L - pack x 6",
+            "cantidad": 2,
+            "precio": 6000,
+            "importe": 12000,
+            "unidadesPorBulto": 6,
+            "bonificacionPct": null,
+            "esDescuento": false,
+            "kg": null,
+            "puedePorPeso": false,
+            "alicuotaIva": 21,
+            "descuentoPct": null,
+            "interpretado": {
+              "decision": "bulto_pendiente",
+              "cantidad": 2,
+              "porPeso": false,
+              "unidadesPorBulto": 6,
+              "cantidadOriginal": null,
+              "bultoConsumido": null,
+              "precioPropuesto": null,
+              "bonificacionPct": null,
+              "importeNeto": null,
+              "alicuotaDeducida": null,
+              "faltantes": []
+            },
+            "match": null
+          },
+          {
+            "codigo": null,
+            "descripcion": "Agua mineral 1,5 L - pack x 6",
+            "cantidad": 1,
+            "precio": 6000,
+            "importe": 0,
+            "unidadesPorBulto": 6,
+            "bonificacionPct": 100,
+            "esDescuento": false,
+            "kg": null,
+            "puedePorPeso": false,
+            "alicuotaIva": 21,
+            "descuentoPct": null,
+            "interpretado": {
+              "decision": "bonificado",
+              "cantidad": 1,
+              "porPeso": false,
+              "unidadesPorBulto": 6,
+              "cantidadOriginal": null,
+              "bultoConsumido": null,
+              "precioPropuesto": null,
+              "bonificacionPct": null,
+              "importeNeto": null,
+              "alicuotaDeducida": null,
+              "faltantes": []
+            },
+            "match": null
+          }
+        ]
+      }
+    },
+    {
+      "effort": "high",
+      "file": "02-peso-decimales.pdf",
+      "diferencias": [],
+      "result": {
+        "demora": {
+          "total": 10.1,
+          "lectura": 10.1,
+          "matching": 0
+        },
+        "proveedor": {
+          "detectado": {
+            "nombre": "Proveedor de Prueba",
+            "cuit": "30000000000"
+          },
+          "match": null
+        },
+        "comprobante": {
+          "tipo": "factura_a",
+          "numero": "0001-00000002",
+          "fecha": "2026-09-21",
+          "condicionVenta": null
+        },
+        "impuestos": {
+          "neto": 750.25,
+          "iva": 157.55,
+          "alicuotaIva": 21,
+          "percepcionIva": null,
+          "percepcionIibb": null,
+          "impuestosInternos": null,
+          "otros": null,
+          "descuentoGlobal": 0,
+          "total": 907.8
+        },
+        "impuestosHabituales": null,
+        "archivoUrl": "facturas/2026-09/3691d26c-5d22-4198-bf8f-0b1d7cf2059b.pdf",
+        "regimenEspecial": false,
+        "notasManuscritas": null,
+        "dudas": [],
+        "total": 1,
+        "conMatch": 0,
+        "sugeridos": 0,
+        "items": [
+          {
+            "codigo": null,
+            "descripcion": "Queso cremoso a granel",
+            "cantidad": 1,
+            "precio": 1500.5,
+            "importe": 750.25,
+            "unidadesPorBulto": null,
+            "bonificacionPct": null,
+            "esDescuento": false,
+            "kg": 0.5,
+            "puedePorPeso": true,
+            "alicuotaIva": 21,
+            "descuentoPct": null,
+            "interpretado": {
+              "decision": "peso_columna",
+              "cantidad": 0.5,
+              "porPeso": true,
+              "unidadesPorBulto": null,
+              "cantidadOriginal": null,
+              "bultoConsumido": null,
+              "precioPropuesto": null,
+              "bonificacionPct": null,
+              "importeNeto": null,
+              "alicuotaDeducida": null,
+              "faltantes": []
+            },
+            "match": null
+          }
+        ]
+      }
+    },
+    {
+      "effort": "high",
+      "file": "03-dos-paginas.pdf",
+      "diferencias": [],
+      "result": {
+        "demora": {
+          "total": 7.4,
+          "lectura": 7.4,
+          "matching": 0
+        },
+        "proveedor": {
+          "detectado": {
+            "nombre": "Proveedor de Prueba",
+            "cuit": "30000000000"
+          },
+          "match": null
+        },
+        "comprobante": {
+          "tipo": "factura_a",
+          "numero": "0001-00000003",
+          "fecha": null,
+          "condicionVenta": null
+        },
+        "impuestos": {
+          "neto": 700,
+          "iva": 147,
+          "alicuotaIva": 21,
+          "percepcionIva": null,
+          "percepcionIibb": null,
+          "impuestosInternos": null,
+          "otros": null,
+          "descuentoGlobal": 0,
+          "total": 847
+        },
+        "impuestosHabituales": null,
+        "archivoUrl": "facturas/2026-09/62595f02-053a-48ee-a5cb-37ca31f2bafe.pdf",
+        "regimenEspecial": false,
+        "notasManuscritas": null,
+        "dudas": [],
+        "total": 2,
+        "conMatch": 0,
+        "sugeridos": 0,
+        "items": [
+          {
+            "codigo": null,
+            "descripcion": "Detergente 500 ml",
+            "cantidad": 3,
+            "precio": 100,
+            "importe": 300,
+            "unidadesPorBulto": null,
+            "bonificacionPct": null,
+            "esDescuento": false,
+            "kg": null,
+            "puedePorPeso": false,
+            "alicuotaIva": 21,
+            "descuentoPct": null,
+            "interpretado": {
+              "decision": "cierra",
+              "cantidad": 3,
+              "porPeso": false,
+              "unidadesPorBulto": null,
+              "cantidadOriginal": null,
+              "bultoConsumido": null,
+              "precioPropuesto": null,
+              "bonificacionPct": null,
+              "importeNeto": null,
+              "alicuotaDeducida": null,
+              "faltantes": []
+            },
+            "match": null
+          },
+          {
+            "codigo": null,
+            "descripcion": "Lavandina 1 L",
+            "cantidad": 2,
+            "precio": 200,
+            "importe": 400,
+            "unidadesPorBulto": null,
+            "bonificacionPct": null,
+            "esDescuento": false,
+            "kg": null,
+            "puedePorPeso": false,
+            "alicuotaIva": 21,
+            "descuentoPct": null,
+            "interpretado": {
+              "decision": "cierra",
+              "cantidad": 2,
+              "porPeso": false,
+              "unidadesPorBulto": null,
+              "cantidadOriginal": null,
+              "bultoConsumido": null,
+              "precioPropuesto": null,
+              "bonificacionPct": null,
+              "importeNeto": null,
+              "alicuotaDeducida": null,
+              "faltantes": []
+            },
+            "match": null
+          }
+        ]
+      }
+    }
+  ]
+}

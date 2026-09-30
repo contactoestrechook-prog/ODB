@@ -1,0 +1,147 @@
+[
+  {
+    "id": "S01",
+    "reproducido": true,
+    "evidence": "Token emitido antes de una desactivación sigue autorizado; el guard no consulta usuario activo ni revocación"
+  },
+  {
+    "id": "S02",
+    "reproducido": true,
+    "evidence": "Cliente obtiene resultado de lectura de compras por ID; sin rol ni propietario"
+  },
+  {
+    "id": "S03",
+    "reproducido": true,
+    "evidence": "Cajero A registra retiro de efectivo en caja B sin verificar asignación"
+  },
+  {
+    "id": "S04",
+    "reproducido": true,
+    "evidence": "Ubicación de pedido ajeno se actualiza por ID sin repartidor asignado"
+  },
+  {
+    "id": "S05",
+    "reproducido": true,
+    "evidence": "Rendido → armado → rendido duplica deuda"
+  },
+  {
+    "id": "S06",
+    "reproducido": true,
+    "evidence": "Dos rendiciones concurrentes generan dos deudas y dos cobros"
+  },
+  {
+    "id": "S07",
+    "reproducido": true,
+    "evidence": "Se rechaza OP pagada y se reabren facturas sin validar estado anterior"
+  },
+  {
+    "id": "S08",
+    "reproducido": true,
+    "evidence": "Registro acepta total 100 con neto 1000 + IVA 210 y pagada=true sin pago/OP"
+  },
+  {
+    "id": "S09",
+    "reproducido": true,
+    "evidence": "Falla de inserción de renglones deja encabezado y devuelve ok"
+  },
+  {
+    "id": "S10",
+    "reproducido": true,
+    "evidence": "notify_admin confirma notificación sin persistirla ni enviarla"
+  },
+  {
+    "id": "S11",
+    "reproducido": true,
+    "evidence": "Tras escalar, otra herramienta del mismo turno modifica stock"
+  },
+  {
+    "id": "S12",
+    "reproducido": true,
+    "evidence": {
+      "importeLeido": null,
+      "importeProcesado": 0,
+      "interpretado": {
+        "decision": "cierra",
+        "cantidad": 2,
+        "porPeso": false,
+        "unidadesPorBulto": null,
+        "cantidadOriginal": null,
+        "bultoConsumido": null,
+        "precioPropuesto": null,
+        "bonificacionPct": null,
+        "importeNeto": null,
+        "alicuotaDeducida": null
+      }
+    }
+  },
+  {
+    "id": "S13",
+    "reproducido": true,
+    "evidence": "Email autoconfirmado sin verificar propiedad permite vincular ficha comercial existente"
+  },
+  {
+    "id": "S14",
+    "reproducido": true,
+    "evidence": "Parada ajena acepta cobro negativo sin actor ni validación de monto"
+  },
+  {
+    "id": "S15",
+    "reproducido": true,
+    "evidence": "Renglón de factura con cantidad 0 se guarda como 1"
+  },
+  {
+    "id": "S16",
+    "reproducido": true,
+    "evidence": "403 por falta de permisos se interpreta como sesión expirada y expulsa al cliente"
+  },
+  {
+    "id": "S17",
+    "reproducido": true,
+    "evidence": "Agente falla sus seis herramientas y marca tarea completada"
+  },
+  {
+    "id": "S18",
+    "reproducido": true,
+    "evidence": "Rechazos simultáneos de un cheque pueden duplicar débito de cliente"
+  },
+  {
+    "id": "S19",
+    "reproducido": true,
+    "evidence": "Controller QR lee req.user pero AuthGuard escribe req.usuario: pierde autor"
+  },
+  {
+    "id": "S20",
+    "reproducido": true,
+    "evidence": "Pago aprobado de $1 USD marca pagado un ID de pedido sin consultar total ni moneda (firma excluida del test; producción sí la exige)"
+  },
+  {
+    "id": "S21",
+    "reproducido": true,
+    "evidence": "Fallo temporal al consultar MP se acusa ok; se pierde incentivo de reintento del webhook"
+  },
+  {
+    "id": "S22",
+    "reproducido": true,
+    "evidence": {
+      "esperadoSegundoEmisor": 901,
+      "numeroUsado": 102,
+      "causa": "Cache por punto de venta/tipo omite emisor"
+    }
+  },
+  {
+    "id": "S23",
+    "reproducido": true,
+    "evidence": "CAE autorizado por servicio simulado y falla de guardado local igualmente devuelven emitido, sin error"
+  },
+  {
+    "id": "S24",
+    "reproducido": true,
+    "evidence": {
+      "solicitadoKg": 0.5,
+      "precioKg": 1500.5,
+      "esperado": 750.25,
+      "cobroPreparado": 1501,
+      "causa": "Compra Fácil redondea peso a entero y precio a pesos"
+    }
+  }
+]

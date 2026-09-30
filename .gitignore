@@ -19,3 +19,10 @@ tmp/
 
 # Local Netlify folder
 .netlify
+
+# copias de claves (.env.bak, .env.prod, etc.): nunca al repo
+.env.*
+!.env.example
+# videos pesados de piezas de promo: van por Drive, no por git
+*.mp4
+*.mov

@@ -1,0 +1,10 @@
+{
+  "muestraConversaciones": 120,
+  "respuestas": 868,
+  "mas600Caracteres": 5,
+  "mas1000Caracteres": 1,
+  "promesasDeConsulta": 38,
+  "narracionesVisuales": 1,
+  "bucketAdjuntosPublico": true,
+  "nota": "Muestra reciente de memoria almacenada, no historial completo; excluye números de prueba conocidos y puede incluir proveedores/equipo."
+}

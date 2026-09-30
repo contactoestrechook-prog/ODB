@@ -1,0 +1,187 @@
+
+> admin@0.1.0 build
+> next build
+
+▲ Next.js 16.2.9 (Turbopack)
+
+⚠ The "middleware" file convention is deprecated. Please use "proxy" instead. Learn more: https://nextjs.org/docs/messages/middleware-to-proxy
+  Creating an optimized production build ...
+✓ Compiled successfully in 3.8s
+  Running TypeScript ...
+  Finished TypeScript in 5.6s ...
+  Collecting page data using 11 workers ...
+  Generating static pages using 11 workers (0/102) ...
+  Generating static pages using 11 workers (25/102) 
+  Generating static pages using 11 workers (50/102) 
+  Generating static pages using 11 workers (76/102) 
+✓ Generating static pages using 11 workers (102/102) in 142ms
+  Finalizing page optimization ...
+
+Route (app)
+┌ ○ /
+├ ○ /_not-found
+├ ƒ /agente
+├ ƒ /analista
+├ ƒ /api/agente
+├ ƒ /api/analista
+├ ƒ /api/anular
+├ ƒ /api/aprobaciones
+├ ƒ /api/arca
+├ ƒ /api/armados
+├ ƒ /api/bot-charla
+├ ƒ /api/buscar
+├ ƒ /api/buscar-cliente
+├ ƒ /api/buscar-producto
+├ ƒ /api/caja
+├ ƒ /api/cambiar-clave
+├ ƒ /api/cheques
+├ ƒ /api/cliente
+├ ƒ /api/cliente-editar
+├ ƒ /api/clientes
+├ ƒ /api/cobranzas
+├ ƒ /api/comparador
+├ ƒ /api/compras
+├ ƒ /api/conciliacion
+├ ƒ /api/contable
+├ ƒ /api/cta-cte
+├ ƒ /api/descuento
+├ ƒ /api/devolucion-pedir
+├ ƒ /api/devolver
+├ ƒ /api/difusiones
+├ ƒ /api/documento
+├ ƒ /api/eficiencia
+├ ƒ /api/entrada-foto
+├ ƒ /api/envios
+├ ƒ /api/eventos
+├ ƒ /api/eventos/[id]
+├ ƒ /api/eventos/[id]/enviar
+├ ƒ /api/eventos/[id]/presupuesto
+├ ƒ /api/eventos/[id]/propuesta
+├ ƒ /api/eventos/oportunidades
+├ ƒ /api/eventos/resumen
+├ ƒ /api/eventos/sugerir
+├ ƒ /api/facturacion
+├ ƒ /api/fotos-externas
+├ ƒ /api/fotos-proveedor
+├ ƒ /api/fraccionar
+├ ƒ /api/imagen
+├ ƒ /api/importar-oc
+├ ƒ /api/informes
+├ ƒ /api/libro-iva
+├ ƒ /api/listas
+├ ƒ /api/listas-venta
+├ ƒ /api/mensajes/automaticas
+├ ƒ /api/mensajes/automaticas/correr
+├ ƒ /api/mensajes/enviar
+├ ƒ /api/mensajes/historial
+├ ƒ /api/mensajes/resumen
+├ ƒ /api/mensajes/segmentos
+├ ƒ /api/mercadopago
+├ ƒ /api/mesa-compras
+├ ƒ /api/mp-cobro
+├ ƒ /api/novedades
+├ ƒ /api/oc
+├ ƒ /api/olvide-clave
+├ ƒ /api/pedidos
+├ ƒ /api/pedidos/[id]/repartidor
+├ ƒ /api/pos-buscar
+├ ƒ /api/pos-catalogo
+├ ƒ /api/pos-stock
+├ ƒ /api/pos-vincular
+├ ƒ /api/producto
+├ ƒ /api/producto/por-peso
+├ ƒ /api/producto/revisar
+├ ƒ /api/promo
+├ ƒ /api/promos
+├ ƒ /api/recibos
+├ ƒ /api/repartidor/mis-entregas
+├ ƒ /api/repartidor/pedidos/[id]/ubicacion
+├ ƒ /api/repartidores
+├ ƒ /api/repartidores/poliza
+├ ƒ /api/repartos
+├ ƒ /api/reportes
+├ ƒ /api/responde
+├ ƒ /api/responde-panel
+├ ƒ /api/salida
+├ ƒ /api/salir
+├ ƒ /api/sesion
+├ ƒ /api/solicitudes
+├ ƒ /api/solicitudes/[id]
+├ ƒ /api/sommelier
+├ ƒ /api/stock
+├ ƒ /api/sync-estado
+├ ƒ /api/tarjetas
+├ ƒ /api/tiendanube
+├ ƒ /api/trazabilidad
+├ ƒ /api/usuarios
+├ ƒ /api/venta
+├ ƒ /api/venta-pagos
+├ ƒ /api/ventas
+├ ƒ /api/version
+├ ƒ /aprobaciones
+├ ƒ /arca
+├ ƒ /bandeja
+├ ƒ /bot
+├ ƒ /caja
+├ ○ /cambiar-clave
+├ ƒ /cheques
+├ ƒ /cierres
+├ ƒ /clientes
+├ ƒ /comparador
+├ ƒ /compras
+├ ƒ /conciliacion
+├ ƒ /contable
+├ ƒ /conteo
+├ ƒ /cuentas-corrientes
+├ ƒ /deposito
+├ ƒ /eficiencia
+├ ƒ /envios
+├ ƒ /estadisticas
+├ ƒ /eventos
+├ ƒ /facturacion
+├ ƒ /facturacion/[id]
+├ ƒ /facturacion/cuentas
+├ ƒ /facturacion/cuentas/[clienteId]
+├ ƒ /facturas-compra
+├ ƒ /fraccionar
+├ ƒ /informes
+├ ƒ /inicio
+├ ƒ /libro-iva
+├ ƒ /listas
+├ ƒ /listas-venta
+├ ○ /login
+├ ƒ /manual
+├ ƒ /mensajes
+├ ƒ /mercadopago
+├ ƒ /mesa-compras
+├ ○ /olvide-clave
+├ ƒ /pedido-proveedor
+├ ƒ /pedidos
+├ ƒ /precios
+├ ƒ /productos
+├ ƒ /productos/[sku]
+├ ƒ /productos/nuevo
+├ ƒ /promociones
+├ ƒ /recepcion
+├ ƒ /repartidor
+├ ƒ /repartidores
+├ ƒ /reparto
+├ ƒ /reportes
+├ ƒ /responde
+├ ○ /restablecer
+├ ƒ /salida
+├ ƒ /sommelier
+├ ƒ /stock
+├ ƒ /tarjetas
+├ ƒ /tiendanube
+├ ƒ /trazabilidad
+├ ƒ /usuarios
+├ ƒ /ventas
+└ ƒ /whatsapp
+
+
+ƒ Proxy (Middleware)
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+

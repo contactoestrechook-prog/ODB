@@ -1,0 +1,406 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,500;0,6..72,600;0,6..72,700;1,6..72,500;1,6..72,600&family=Inter+Tight:wght@300;500;700&display=block" rel="stylesheet">
+</head>
+<body>
+<script src="motor.js"></script>
+<script>
+injectBase();
+
+/* ============ VIDEO A · RESPONDE 24/7 (ancla) ============ */
+const TL = {
+  s1:{clock:0.2, lbl:0.9, b1:1.5, b2:2.5, b3:3.4, sinresp:4.0, h1:4.6, out:6.4},
+  whipA:{a:6.4,b:6.85},
+  s2:{in:6.85, stat:9.3, out:11.3},
+  cutB:{a:11.3,b:11.75},
+  s3:{in:11.75, logo:12.0, logoEnd:13.35, tag:14.1, out:16.5},
+  whipC:{a:16.5,b:16.95},
+  s4:{in:16.95, st1:17.6, msg1:17.95, st2:19.35, typ0:19.4, typ1:21.7, st3:21.75, tw0:21.9, twA:22.7, twB:24.6, tw1:25.7,
+      msg2:26.15, out2:27.05, st4:28.15, ch1:28.4, ch2:29.3, ch3:30.2, ch4:31.0, st5:31.7, out:33.9},
+  whipD:{a:33.9,b:34.35},
+  s5:{in:34.35, roll0:34.7, roll1:36.5, h1:36.9, h2:37.7, out:39.6},
+  whipE:{a:39.6,b:40.05},
+  s6:{in:40.05, cta:41.6, end:45.8},
+};
+window.DURATION = TL.s6.end;
+
+const camera = makeCamera({
+  S:[
+    {t:0,v:1.65},{t:0.5,v:1.3,e:E.outExpo},{t:1.4,v:1.18,e:E.outCubic},{t:4.0,v:1.12,e:E.inOutCubic},
+    {t:4.15,v:1.2,e:E.outExpo},{t:6.4,v:1.28,e:E.inCubic},
+    {t:6.85,v:1.04,e:E.outExpo},{t:9.15,v:0.98,e:E.linear},{t:9.42,v:1.1,e:E.outExpo},{t:11.3,v:1.16,e:E.linear},{t:11.7,v:1.7,e:E.inExpo},
+    {t:11.75,v:2.5},{t:13.35,v:1.0,e:E.outExpo},{t:16.5,v:1.045,e:E.linear},
+    {t:16.95,v:1.0,e:E.outExpo},{t:18.05,v:1.0},{t:18.45,v:1.12,e:E.outExpo},{t:19.35,v:1.05,e:E.inOutCubic},
+    {t:21.9,v:1.08,e:E.inOutCubic},{t:25.7,v:1.24,e:E.inOutCubic},{t:26.15,v:1.12,e:E.outCubic},
+    {t:27.05,v:1.16,e:E.outExpo},{t:28.05,v:1.04,e:E.outCubic},{t:31.7,v:1.04},{t:31.95,v:1.1,e:E.outExpo},{t:33.9,v:1.14,e:E.linear},
+    {t:34.35,v:1.06,e:E.outExpo},{t:36.4,v:0.99,e:E.linear},{t:36.6,v:1.08,e:E.outExpo},{t:39.6,v:1.02,e:E.linear},
+    {t:40.05,v:1.0,e:E.outExpo},{t:45.8,v:1.06,e:E.linear},
+  ],
+  X:[
+    {t:0,v:540},
+    {t:28.35,v:540},{t:28.5,v:578,e:E.outExpo},{t:28.75,v:540,e:E.outCubic},
+    {t:29.25,v:540},{t:29.4,v:578,e:E.outExpo},{t:29.65,v:540,e:E.outCubic},
+    {t:30.15,v:540},{t:30.3,v:578,e:E.outExpo},{t:30.55,v:540,e:E.outCubic},
+    {t:30.95,v:540},{t:31.1,v:578,e:E.outExpo},{t:31.35,v:540,e:E.outCubic},
+  ],
+  Y:[
+    {t:0,v:640},{t:1.4,v:740,e:E.outCubic},{t:4.0,v:900,e:E.inOutCubic},{t:6.4,v:1000,e:E.inCubic},
+    {t:6.85,v:900,e:E.outExpo},{t:9.15,v:920},{t:9.42,v:830,e:E.outExpo},{t:11.3,v:840},
+    {t:11.75,v:920},{t:13.35,v:960,e:E.outExpo},
+    {t:16.95,v:960,e:E.outExpo},{t:18.45,v:800,e:E.outExpo},{t:19.35,v:890,e:E.inOutCubic},
+    {t:21.9,v:1000,e:E.inOutCubic},{t:25.7,v:1110,e:E.inOutCubic},{t:26.15,v:1060,e:E.outCubic},{t:28.05,v:960,e:E.outCubic},
+    {t:31.95,v:900,e:E.outExpo},{t:33.9,v:900},
+    {t:34.35,v:800,e:E.outExpo},{t:36.6,v:880,e:E.outExpo},{t:39.6,v:930},
+    {t:40.05,v:960,e:E.outExpo},
+  ],
+  shakes:[
+    {t:0.5,amp:15,freq:11,dur:0.6},{t:4.15,amp:7,freq:12,dur:0.4},{t:9.42,amp:10,freq:11,dur:0.5},
+    {t:13.35,amp:6,freq:9,dur:0.5},{t:18.45,amp:5,freq:10,dur:0.35},{t:27.05,amp:4,freq:11,dur:0.3},
+    {t:34.35,amp:5,freq:10,dur:0.35},{t:36.6,amp:9,freq:10,dur:0.5},{t:40.05,amp:4,freq:9,dur:0.35},
+  ],
+  whips:[TL.whipA,TL.whipC,TL.whipD,TL.whipE,{a:28.35,b:28.6},{a:29.25,b:29.5},{a:30.15,b:30.4},{a:30.95,b:31.2}],
+  flashes:[{t:0.5,p:.4},{t:4.15,p:.14},{t:9.42,p:.5},{t:13.35,p:.3},{t:34.35,p:.22},{t:36.6,p:.4},{t:40.3,p:.12}],
+  cutsBlack:[{a:TL.cutB.a,b:TL.cutB.b},{a:TL.whipE.a,b:TL.whipE.b}],
+  cutsBone:[{a:TL.whipD.a,b:TL.whipD.b}],
+  fade:[45.15,45.75],
+});
+
+function paperF(t){
+  return Math.max(
+    Math.min(seg(t,9.28,9.44,E.outCubic), 1-seg(t,11.35,11.6,E.inQuad)),
+    Math.min(seg(t,33.95,34.2,E.outCubic), 1-seg(t,39.65,39.95,E.inQuad))
+  );
+}
+
+/* ============ DOM de escenas ============ */
+const stage = $('stage');
+stage.innerHTML = `
+<div class="layer" id="s1">
+  <div id="clock" class="seri tan" style="position:absolute;left:0;top:170px;width:1080px;text-align:center;font-size:300px;font-weight:500;letter-spacing:-.04em;"></div>
+  <div id="s1lbl" class="lbl dim" style="position:absolute;left:0;top:560px;width:1080px;text-align:center;font-size:26px;"></div>
+  <div id="s1b1" class="bub bubin" style="position:absolute;left:110px;top:700px;background:#1f1e1c;color:#f5f3ee;max-width:660px;">Hola! ¿Tenés stock de la membrana 4mm?<span class="btime">02:47</span></div>
+  <div id="s1b2" class="bub bubin" style="position:absolute;left:200px;top:880px;background:#1f1e1c;color:#f5f3ee;max-width:660px;">¿Precio por 12 rollos? Es para el lunes<span class="btime">02:47</span></div>
+  <div id="s1b3" class="bub bubin" style="position:absolute;left:140px;top:1058px;background:#1f1e1c;color:#f5f3ee;max-width:660px;">¿Hola? 🙂<span class="btime">02:53</span></div>
+  <div id="s1sr" class="lbl" style="position:absolute;left:140px;top:1185px;font-size:22px;color:#c9a96e;border:1px solid rgba(201,169,110,.55);padding:12px 20px;border-radius:6px;">Visto · Sin responder</div>
+  <div id="s1h1" class="ser bone" style="position:absolute;left:90px;top:1420px;width:900px;font-size:66px;font-weight:600;line-height:1.14;white-space:nowrap;"></div>
+  <div id="s1h2" class="ser bone" style="position:absolute;left:90px;top:1548px;width:900px;font-size:66px;font-weight:600;line-height:1.14;white-space:nowrap;"></div>
+</div>
+
+<div class="layer" id="s2">
+  <div id="s2dark">
+    <div class="lbl dim" id="s2lbl" style="position:absolute;left:0;top:265px;width:1080px;text-align:center;font-size:27px;">Mensajes sin responder</div>
+    <div id="s2odo" class="ser" style="position:absolute;left:0;top:330px;width:1080px;text-align:center;color:#c9a96e;"></div>
+    <div id="s2grid" style="position:absolute;left:70px;top:700px;width:940px;display:grid;grid-template-columns:1fr 1fr;gap:24px;"></div>
+  </div>
+  <div id="s2paper" style="opacity:0">
+    <div class="ser" style="position:absolute;left:0;top:430px;width:1080px;text-align:center;font-size:400px;font-weight:600;color:#0d0c0a;letter-spacing:-.05em;" id="s2num67">67<span class="tan">%</span></div>
+    <div class="ser ink" id="s2statline" style="position:absolute;left:110px;top:1010px;width:860px;text-align:center;font-size:56px;font-weight:500;line-height:1.3;color:#0d0c0a;"></div>
+    <div class="lbl" style="position:absolute;left:0;top:1370px;width:1080px;text-align:center;font-size:24px;color:rgba(13,12,10,.5);" id="s2src">/ De los clientes que escriben a una PyME · metogroup.ar</div>
+  </div>
+</div>
+
+<div class="layer" id="s3">
+  <div class="ghostnum" style="left:560px;top:300px;font-size:760px;">00</div>
+  <div id="s3r" class="rbox" style="position:absolute;left:480px;top:590px;width:120px;height:120px;font-size:64px;">R</div>
+  <div id="s3lbl" class="lbl tan" style="position:absolute;left:0;top:770px;width:1080px;text-align:center;font-size:26px;"></div>
+  <div id="s3logo" class="ser bone" style="position:absolute;left:0;top:845px;width:1080px;text-align:center;font-size:168px;font-weight:600;letter-spacing:-.02em;"></div>
+  <div id="s3rule" style="position:absolute;left:290px;top:1090px;width:500px;height:2px;background:#c9a96e;transform-origin:0 50%;"></div>
+  <div id="s3tag" class="seri tan" style="position:absolute;left:0;top:1135px;width:1080px;text-align:center;font-size:58px;font-weight:500;"></div>
+  <div id="s3sub" class="lbl dim" style="position:absolute;left:0;top:1250px;width:1080px;text-align:center;font-size:20px;">WhatsApp · Instagram · Email · Chat web</div>
+</div>
+
+<div class="layer" id="s4">
+  <div id="s4step" class="lbl tan" style="position:absolute;left:0;top:252px;width:1080px;text-align:center;font-size:34px;"></div>
+  <div class="phone" id="phoneA">
+    <div class="screen dark" id="screenA">
+      <div class="notch"></div>
+      <div class="chathead">
+        <div class="mono">R</div>
+        <div><div class="chatname bone">Corralón · Casa Central</div><div class="chatsub" style="color:#7d9a6f;">● En línea · 24/7</div></div>
+        <div class="chanbadge" id="chan">WhatsApp</div>
+      </div>
+      <div class="stream" id="streamA">
+        <div class="bub bubin" id="a_in1">Hola! Necesito 12 rollos de membrana 4mm para el lunes. ¿Tenés stock? ¿Precio?<span class="btime">02:47</span></div>
+        <div class="typing" id="a_typ"><i></i><i></i><i></i></div>
+        <div class="bub bubout" id="a_out1"><span id="a_tw"></span><span id="a_caret" style="display:inline-block;width:3px;height:26px;background:#c9a96e;vertical-align:-3px;margin-left:2px;"></span><span class="btime">02:47 <span class="tan">✓✓</span></span></div>
+        <div class="bub bubin" id="a_in2">Dale, reservá 👍<span class="btime">02:48</span></div>
+        <div class="bub bubout" id="a_out2">Listo, reservado ✓ Pasame el CUIT y te dejo la factura A lista.<span class="btime">02:48 <span class="tan">✓✓</span></span></div>
+      </div>
+    </div>
+  </div>
+  <div id="a_chips"></div>
+  <div id="a_niv" style="position:absolute;left:90px;top:590px;width:900px;display:flex;flex-direction:column;gap:26px;"></div>
+  <div id="a_nivbg" style="position:absolute;inset:0;background:rgba(8,7,6,.72);opacity:0;"></div>
+</div>
+
+<div class="layer" id="s5">
+  <div class="lbl" id="s5lbl" style="position:absolute;left:0;top:395px;width:1080px;text-align:center;font-size:27px;color:rgba(13,12,10,.55);">Mensajes sin responder</div>
+  <div id="s5odo" style="position:absolute;left:0;top:470px;width:1080px;text-align:center;"></div>
+  <div id="s5ring" style="position:absolute;left:466px;top:800px;width:148px;height:148px;border:4px solid #8a6f3c;border-radius:50%;display:grid;place-items:center;font-size:70px;color:#8a6f3c;">✓</div>
+  <div id="s5h1" class="ser" style="position:absolute;left:80px;top:1060px;width:920px;text-align:center;font-size:86px;font-weight:600;color:#0d0c0a;line-height:1.12;"></div>
+  <div id="s5h2" class="seri" style="position:absolute;left:0;top:1290px;width:1080px;text-align:center;font-size:110px;font-weight:600;color:#8a6f3c;"></div>
+  <div class="lbl" id="s5sub" style="position:absolute;left:0;top:1490px;width:1080px;text-align:center;font-size:24px;color:rgba(13,12,10,.5);">/ 24·7 · 365 días · Operativo en semanas</div>
+</div>
+
+<div class="layer" id="s6">
+  <div id="s6r" class="rbox" style="position:absolute;left:470px;top:520px;width:140px;height:140px;font-size:76px;">R</div>
+  <div id="s6logo" class="ser bone" style="position:absolute;left:0;top:700px;width:1080px;text-align:center;font-size:158px;font-weight:600;">RESPONDE</div>
+  <div id="s6by" class="lbl dim" style="position:absolute;left:0;top:905px;width:1080px;text-align:center;font-size:26px;">By Metogroup</div>
+  <div id="s6tag" class="seri tan" style="position:absolute;left:0;top:990px;width:1080px;text-align:center;font-size:52px;">Atiende, organiza y vende. Mientras vos dormís.</div>
+  <div id="s6cta" class="pill" style="position:absolute;left:50%;top:1150px;transform:translateX(-50%);font-size:33px;white-space:nowrap;">Contratá tu empleado virtual →</div>
+  <div id="s6site" class="lbl bone" style="position:absolute;left:0;top:1355px;width:1080px;text-align:center;font-size:30px;letter-spacing:.34em;">metogroup.ar</div>
+</div>`;
+
+/* S1 prep */
+const h1w = words($('s1h1'), 'No escriben en tu horario.', [3,4]);
+const h2w = words($('s1h2'), 'Escriben en el de ellos.', [4]);
+/* S2 prep */
+const S2MINIS = [
+  ['¿Tenés stock?','02:51'],['¿Precio x mayor?','03:10'],['Hola, ¿atienden sábados?','07:02'],['¿Me pasás el catálogo?','07:44'],
+  ['Necesito para el lunes','08:15'],['¿Hacen envíos?','08:31'],['¿Está disponible?','09:05'],['Sigo esperando…','11:58'],
+];
+const s2minis = S2MINIS.map(([tx,tm])=>{
+  const d = document.createElement('div');
+  d.className='bub bubin';
+  d.style.cssText='position:relative;background:#1f1e1c;color:#f5f3ee;max-width:none;';
+  d.innerHTML = tx + `<span class="btime">${tm}</span>`;
+  $('s2grid').appendChild(d);
+  return d;
+});
+const DROPS = []; { let acc=7.0; const ivs=[0,.42,.35,.29,.24,.2,.165,.14]; for(let i=0;i<8;i++){ acc+=ivs[i]; DROPS.push(acc);} }
+const s2odoSet = makeOdometer($('s2odo'), 2, 150, 250, "font-family:'Newsreader',serif;font-weight:600;font-size:225px;color:#c9a96e");
+const statw = words($('s2statline'), 'nunca recibe respuesta a tiempo.', [0]);
+/* S3 prep */
+/* S4 prep */
+const REPLY_A = "¡Hola! Sí — tengo los 12 rollos de membrana 4mm: $18.400 c/u, por cantidad te quedan a $16.900. ¿Te los reservo y coordinamos entrega el lunes a primera hora?";
+function twCount(t){
+  const L = REPLY_A.length;
+  if (t < TL.s4.tw0) return 0;
+  if (t < TL.s4.twA) return Math.round(seg(t,TL.s4.tw0,TL.s4.twA,E.inOutCubic)*12);
+  if (t < TL.s4.twB) return 12 + Math.round(seg(t,TL.s4.twA,TL.s4.twB,E.inQuad)*(L-40-12));
+  return (L-40) + Math.round(seg(t,TL.s4.twB,TL.s4.tw1,E.outCubic)*40);
+}
+const A_CHIPS = [
+  {x:96,y:608, txt:'/ Lee tu lista de precios'},
+  {x:556,y:706, txt:'/ Chequea stock real'},
+  {x:430,y:1592, txt:'/ Aplica descuento x cantidad'},
+  {x:96,y:1676, txt:'/ Decide: reservar y coordinar'},
+];
+A_CHIPS.forEach(ch=>{
+  const d=document.createElement('div');
+  d.className='chipR ondark';
+  d.style.left=ch.x+'px'; d.style.top=ch.y+'px';
+  d.innerHTML=`<span class="dot"></span>${ch.txt}`;
+  $('a_chips').appendChild(d); ch.el=d;
+});
+const STEPS_A = [
+  {t:TL.s4.st1, txt:'01 · Llega el mensaje'},
+  {t:TL.s4.st2, txt:'02 · Razona'},
+  {t:TL.s4.st3, txt:'03 · Responde y resuelve'},
+  {t:TL.s4.st4, txt:'04 · Multicanal'},
+  {t:TL.s4.st5, txt:'05 · Elegís el nivel'},
+];
+const CHANS = [[TL.s4.ch1,'Instagram'],[TL.s4.ch2,'Email'],[TL.s4.ch3,'Chat web'],[TL.s4.ch4,'WhatsApp']];
+const NIV = [
+  ['JR','Plan 01 · Junior','Tu asistente','Atiende y deriva'],
+  ['SR','Plan 02 · Senior','Tu recepcionista','Registra y organiza'],
+  ['MGR','Plan 03 · Manager','Tu vendedor','Cotiza, agenda y cobra'],
+];
+const nivEls = NIV.map(([tag,plan,ttl,sub])=>{
+  const d=document.createElement('div');
+  d.style.cssText='background:#181613;border:1px solid rgba(201,169,110,.4);border-radius:10px;padding:34px 40px;display:flex;align-items:center;gap:34px;box-shadow:0 30px 70px rgba(0,0,0,.55);';
+  d.innerHTML=`<span class="rbox" style="width:104px;height:104px;font-size:40px;flex-shrink:0;">${tag}</span>
+    <span style="flex:1"><span class="lbl tan" style="font-size:20px;display:block;">${plan}</span>
+    <span class="ser bone" style="font-size:52px;font-weight:600;display:block;margin-top:6px;">${ttl}</span></span>
+    <span class="lbl dim" style="font-size:20px;">${sub}</span>`;
+  $('a_niv').appendChild(d);
+  return d;
+});
+/* S5 prep */
+const s5odoSet = makeOdometer($('s5odo'), 2, 160, 270, "font-family:'Newsreader',serif;font-weight:600;font-size:240px;color:#0d0c0a");
+const s5h1w = words($('s5h1'), 'Ningún cliente sin respuesta.', []);
+
+/* ============ escenas por frame ============ */
+function s1(t){
+  const on = t < 6.63;
+  $('s1').style.display = on?'block':'none';
+  if (!on) return;
+  const cl = $('clock');
+  const cq = seg(t, TL.s1.clock, TL.s1.clock+0.5, E.outExpo);
+  cl.style.opacity = cq;
+  const sec = Math.floor(t);
+  const pulse = 1 + 0.018*Math.exp(-6*(t-sec));
+  cl.style.transform = `scale(${lerp(1.5,1,cq)*pulse})`;
+  cl.innerHTML = `02<span style="opacity:${Math.floor(t*2)%2?1:.25}">:</span>47`;
+  aberr(cl, Math.max(0, .8-(t-TL.s1.clock)*1.6));
+  scramble($('s1lbl'), 'TU EMPRESA · FUERA DE HORARIO', t, TL.s1.lbl, TL.s1.lbl+0.9);
+  popIn($('s1b1'), t, TL.s1.b1);
+  popIn($('s1b2'), t, TL.s1.b2);
+  popIn($('s1b3'), t, TL.s1.b3);
+  const sr = seg(t, TL.s1.sinresp, TL.s1.sinresp+0.3, E.outBack);
+  $('s1sr').style.opacity = sr * (0.75+0.25*Math.sin(t*5));
+  $('s1sr').style.transform = `scale(${lerp(.7,1,sr)})`;
+  staggerWords(h1w, t, TL.s1.h1, 0.1, 0.3);
+  staggerWords(h2w, t, TL.s1.h1+0.85, 0.1, 0.3);
+}
+function s2(t){
+  const on = t>=6.6 && t<11.55;
+  $('s2').style.display = on?'block':'none';
+  if (!on) return;
+  const pf = paperF(t);
+  $('s2dark').style.opacity = 1-pf;
+  $('s2paper').style.opacity = pf;
+  if (pf < .6){
+    s2minis.forEach((el,i)=>{
+      const p = seg(t, DROPS[i], DROPS[i]+0.3, E.outExpo);
+      el.style.opacity = p;
+      el.style.transform = `translateY(${lerp(-80,0,p)}px) scale(${lerp(1.5,1,p)}) rotate(${(i%2?1:-1)*lerp(4,0,p)}deg)`;
+    });
+    s2odoSet(kf(t,[{t:7.0,v:7},{t:9.25,v:23,e:E.inOutCubic}]));
+    $('s2dark').style.filter = 'none';
+  }
+  if (pf > .1){
+    const n67 = $('s2num67');
+    const q = seg(t, TL.s2.stat+0.05, TL.s2.stat+0.5, E.outExpo);
+    n67.style.transform = `scale(${lerp(1.6,1,q)})`;
+    aberr(n67, Math.max(0,.7-(t-TL.s2.stat)*1.4));
+    staggerWords(statw, t, TL.s2.stat+0.35, 0.07, 0.26);
+    $('s2src').style.opacity = seg(t, TL.s2.stat+0.8, TL.s2.stat+1.2, E.outCubic);
+  }
+}
+function s3(t){
+  const on = t>=11.55 && t<16.73;
+  $('s3').style.display = on?'block':'none';
+  if (!on) return;
+  const rq = seg(t, TL.s3.in+0.1, TL.s3.in+0.55, E.outBack);
+  $('s3r').style.opacity = rq;
+  $('s3r').style.transform = `scale(${lerp(.5,1,rq)}) rotate(${lerp(-8,0,rq)}deg)`;
+  scramble($('s3lbl'), 'ETAPA 00 · ATENCIÓN AUTOMATIZADA', t, TL.s3.in+0.35, TL.s3.in+1.25);
+  scramble($('s3logo'), 'RESPONDE', t, TL.s3.logo, TL.s3.logoEnd);
+  aberr($('s3logo'), t>TL.s3.logo ? Math.max(0,.9-(t-TL.s3.logo)*0.7) : 0);
+  const ru = seg(t, TL.s3.logoEnd, TL.s3.logoEnd+0.5, E.outExpo);
+  $('s3rule').style.transform = `scaleX(${ru})`;
+  const tg = seg(t, TL.s3.tag, TL.s3.tag+0.55, E.outCubic);
+  $('s3tag').style.opacity = tg;
+  $('s3tag').style.transform = `translateY(${lerp(30,0,tg)}px)`;
+  $('s3tag').textContent = 'El primer empleado que nunca se cansa.';
+  const sb = seg(t, TL.s3.tag+0.4, TL.s3.tag+0.9, E.outCubic);
+  $('s3sub').style.opacity = sb;
+}
+function s4(t){
+  const on = t>=16.73 && t<TL.whipD.b-0.2;
+  $('s4').style.display = on?'block':'none';
+  if (!on) return;
+  const ph = seg(t, TL.s4.in, TL.s4.in+0.6, E.outExpo);
+  $('phoneA').style.transform = `translateY(${lerp(700,0,ph)}px) scale(${lerp(.93,1,ph)})`;
+  $('phoneA').style.opacity = ph;
+  /* step label con decode */
+  let idx=-1;
+  for (let i=0;i<STEPS_A.length;i++) if (t>=STEPS_A[i].t) idx=i;
+  if (idx>=0){
+    const st=STEPS_A[idx];
+    const nxt = idx<STEPS_A.length-1 ? STEPS_A[idx+1].t : 1e9;
+    let o = 1-seg(t, nxt-0.16, nxt, E.inQuad);
+    if (idx===2) o *= 1-seg(t, 23.4, 24.0, E.inQuad); /* el zoom del typing lo cortaría */
+    $('s4step').style.opacity = o;
+    scramble($('s4step'), st.txt.toUpperCase(), t, st.t, st.t+0.55, true);
+  } else $('s4step').style.opacity = 0;
+  /* mensajes */
+  popIn($('a_in1'), t, TL.s4.msg1);
+  typingDots($('a_typ'), t, TL.s4.typ0, TL.s4.typ1);
+  const o1 = t>=TL.s4.typ1;
+  $('a_out1').style.display = o1?'block':'none';
+  if (o1) popIn($('a_out1'), t, TL.s4.typ1, 0.3);
+  const n = twCount(t);
+  $('a_tw').textContent = REPLY_A.slice(0,n);
+  $('a_caret').style.opacity = (t>TL.s4.typ1 && t<TL.s4.tw1+0.5) ? (Math.floor(t*2.6)%2?1:.1) : 0;
+  popIn($('a_in2'), t, TL.s4.msg2);
+  const o2v = t>=TL.s4.out2;
+  $('a_out2').style.display = o2v?'block':'none';
+  if (o2v) popIn($('a_out2'), t, TL.s4.out2, 0.3);
+  /* chips */
+  A_CHIPS.forEach((ch,i)=>{
+    const t0 = TL.s4.st2+0.25 + i*0.3;
+    const q = seg(t, t0, t0+0.4, E.outBackS);
+    const qo = 1 - seg(t, TL.s4.tw1-0.2, TL.s4.tw1+0.2, E.inQuad);
+    ch.el.style.opacity = q*qo;
+    ch.el.style.transform = `translateY(${lerp(34,0,q) + Math.sin(t*1.6+i*2.1)*6}px)`;
+  });
+  /* multicanal */
+  let chan = 'WhatsApp';
+  for (const [tt,name] of CHANS) if (t>=tt) chan=name;
+  const chEl = $('chan');
+  chEl.textContent = chan;
+  let chPulse = 1;
+  for (const [tt] of CHANS) if (t>tt && t<tt+0.3) chPulse = 1+0.14*Math.sin(iv(t,tt,tt+0.3)*Math.PI);
+  chEl.style.transform = `scale(${chPulse})`;
+  chEl.style.background = chPulse>1.005 ? 'rgba(201,169,110,.2)' : 'transparent';
+  /* niveles */
+  const bg = Math.min(seg(t, TL.s4.st5+0.05, TL.s4.st5+0.4, E.outCubic), 1);
+  $('a_nivbg').style.opacity = bg*.9;
+  nivEls.forEach((el,i)=>{
+    const t0 = TL.s4.st5+0.15+i*0.22;
+    const q = seg(t, t0, t0+0.4, E.outExpo);
+    el.style.opacity = q;
+    el.style.transform = `translateX(${lerp(120,0,q)}px)`;
+  });
+  if (bg===0){ nivEls.forEach(el=>{el.style.opacity=0;}); }
+}
+function s5(t){
+  const on = t>=TL.whipD.a && t<TL.whipE.b-0.2;
+  $('s5').style.display = on?'block':'none';
+  if (!on) return;
+  const lq = seg(t, TL.s5.in-0.25, TL.s5.in+0.2, E.outExpo);
+  $('s5lbl').style.opacity = lq;
+  $('s5odo').style.opacity = lq;
+  const val = kf(t,[{t:TL.s5.roll0,v:23},{t:TL.s5.roll1,v:0,e:E.inOutCubic}]);
+  s5odoSet(val);
+  const rg = seg(t, TL.s5.roll1+0.05, TL.s5.roll1+0.45, E.outBack);
+  $('s5ring').style.opacity = rg;
+  $('s5ring').style.transform = `scale(${lerp(.4,1,rg)})`;
+  staggerWords(s5h1w, t, TL.s5.h1, 0.09, 0.3);
+  const h2 = seg(t, TL.s5.h2, TL.s5.h2+0.4, E.outExpo);
+  $('s5h2').style.opacity = h2;
+  $('s5h2').style.transform = `translateY(${lerp(36,0,h2)}px) scale(${lerp(1.25,1,h2)})`;
+  $('s5h2').textContent = 'Nunca más.';
+  $('s5sub').style.opacity = seg(t, TL.s5.h2+0.4, TL.s5.h2+0.85, E.outCubic);
+}
+function s6(t){
+  const on = t>=TL.whipE.a;
+  $('s6').style.display = on?'block':'none';
+  if (!on) return;
+  const rq = seg(t, TL.s6.in-0.22, TL.s6.in+0.25, E.outExpo);
+  $('s6r').style.opacity = rq;
+  $('s6r').style.transform = `scale(${lerp(.5,1,rq)})`;
+  const lg = seg(t, TL.s6.in, TL.s6.in+0.4, E.outExpo);
+  $('s6logo').style.opacity = lg;
+  $('s6logo').style.transform = `scale(${lerp(1.35,1,lg)})`;
+  $('s6by').style.opacity = seg(t, TL.s6.in+0.3, TL.s6.in+0.7, E.outCubic);
+  const tg = seg(t, TL.s6.in+0.55, TL.s6.in+1.0, E.outCubic);
+  $('s6tag').style.opacity = tg;
+  $('s6tag').style.transform = `translateY(${lerp(24,0,tg)}px)`;
+  const ct = seg(t, TL.s6.cta, TL.s6.cta+0.45, E.outBack);
+  $('s6cta').style.opacity = ct;
+  $('s6cta').style.transform = `translateX(-50%) scale(${ct<1?lerp(.6,1,ct):1+0.02*Math.sin((t-TL.s6.cta)*2.2)})`;
+  $('s6site').style.opacity = seg(t, TL.s6.cta+0.3, TL.s6.cta+0.7, E.outCubic);
+}
+
+window.seek = function(t){
+  setWorld(t, paperF(t));
+  camera(t);
+  s1(t); s2(t); s3(t); s4(t); s5(t); s6(t);
+};
+window.READY = Promise.all([
+  document.fonts.load('600 186px Newsreader'),
+  document.fonts.load('italic 500 110px Newsreader'),
+  document.fonts.load('300 26px "Inter Tight"'),
+  document.fonts.load('700 26px "Inter Tight"'),
+  document.fonts.ready
+]).then(()=>{ window.seek(0); return true; });
+</script>
+</body>
+</html>

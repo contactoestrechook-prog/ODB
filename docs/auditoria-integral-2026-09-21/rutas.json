@@ -1,0 +1,5437 @@
+[
+  {
+    "file": "agente/agente.controller.ts",
+    "line": 11,
+    "class": "AgenteController",
+    "method": "resumen",
+    "verb": "GET",
+    "path": "/agente/resumen",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "agente/agente.controller.ts",
+    "line": 16,
+    "class": "AgenteController",
+    "method": "tareas",
+    "verb": "GET",
+    "path": "/agente/tareas",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "agente/agente.controller.ts",
+    "line": 21,
+    "class": "AgenteController",
+    "method": "auditoria",
+    "verb": "GET",
+    "path": "/agente/tareas/:id/auditoria",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "agente/agente.controller.ts",
+    "line": 26,
+    "class": "AgenteController",
+    "method": "encolar",
+    "verb": "POST",
+    "path": "/agente/encolar",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "agente/agente.controller.ts",
+    "line": 31,
+    "class": "AgenteController",
+    "method": "ejecutar",
+    "verb": "POST",
+    "path": "/agente/tareas/:id/ejecutar",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "agente/agente.controller.ts",
+    "line": 36,
+    "class": "AgenteController",
+    "method": "procesar",
+    "verb": "POST",
+    "path": "/agente/procesar",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "agente/agente.controller.ts",
+    "line": 41,
+    "class": "AgenteController",
+    "method": "barrido",
+    "verb": "POST",
+    "path": "/agente/barrido",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "agente/agente.controller.ts",
+    "line": 46,
+    "class": "AgenteController",
+    "method": "enriquecer",
+    "verb": "POST",
+    "path": "/agente/enriquecer",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "agente/agente.controller.ts",
+    "line": 51,
+    "class": "AgenteController",
+    "method": "fotos",
+    "verb": "POST",
+    "path": "/agente/fotos",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "agente/agente.controller.ts",
+    "line": 58,
+    "class": "AgenteController",
+    "method": "fotosProveedor",
+    "verb": "POST",
+    "path": "/agente/fotos-proveedor",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "agente/agente.controller.ts",
+    "line": 64,
+    "class": "AgenteController",
+    "method": "resolver",
+    "verb": "POST",
+    "path": "/agente/tareas/:id/resolver",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "analista/analista.controller.ts",
+    "line": 14,
+    "class": "AnalistaController",
+    "method": "metricas",
+    "verb": "GET",
+    "path": "/analista/metricas",
+    "public": false,
+    "roles": [
+      "comprador",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "analista/analista.controller.ts",
+    "line": 19,
+    "class": "AnalistaController",
+    "method": "charlar",
+    "verb": "POST",
+    "path": "/analista/charla",
+    "public": false,
+    "roles": [
+      "comprador",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "analista/analista.controller.ts",
+    "line": 25,
+    "class": "AnalistaController",
+    "method": "armados",
+    "verb": "POST",
+    "path": "/analista/armados",
+    "public": false,
+    "roles": [
+      "comprador",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "aprobaciones/aprobaciones.controller.ts",
+    "line": 53,
+    "class": "AprobacionesController",
+    "method": "pendientes",
+    "verb": "GET",
+    "path": "/aprobaciones",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "aprobaciones/aprobaciones.controller.ts",
+    "line": 148,
+    "class": "AprobacionesController",
+    "method": "resolver",
+    "verb": "POST",
+    "path": "/aprobaciones/:tipo/:id/:decision",
+    "public": false,
+    "roles": [
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "asistente/asistente.controller.ts",
+    "line": 14,
+    "class": "AsistenteController",
+    "method": "charla",
+    "verb": "POST",
+    "path": "/asistente/charla",
+    "public": true,
+    "roles": [],
+    "guards": []
+  },
+  {
+    "file": "auth/auth.controller.ts",
+    "line": 12,
+    "class": "AuthController",
+    "method": "login",
+    "verb": "POST",
+    "path": "/auth/login",
+    "public": true,
+    "roles": [],
+    "guards": []
+  },
+  {
+    "file": "auth/auth.controller.ts",
+    "line": 21,
+    "class": "AuthController",
+    "method": "olvideClave",
+    "verb": "POST",
+    "path": "/auth/olvide-clave",
+    "public": true,
+    "roles": [],
+    "guards": []
+  },
+  {
+    "file": "auth/auth.controller.ts",
+    "line": 30,
+    "class": "AuthController",
+    "method": "verificarReseteo",
+    "verb": "GET",
+    "path": "/auth/reseteo/verificar",
+    "public": true,
+    "roles": [],
+    "guards": []
+  },
+  {
+    "file": "auth/auth.controller.ts",
+    "line": 37,
+    "class": "AuthController",
+    "method": "confirmarReseteo",
+    "verb": "POST",
+    "path": "/auth/reseteo/confirmar",
+    "public": true,
+    "roles": [],
+    "guards": []
+  },
+  {
+    "file": "auth/auth.controller.ts",
+    "line": 46,
+    "class": "AuthController",
+    "method": "cambiarClave",
+    "verb": "POST",
+    "path": "/auth/cambiar-clave",
+    "public": false,
+    "roles": [],
+    "guards": []
+  },
+  {
+    "file": "bot/bot.controller.ts",
+    "line": 16,
+    "class": "BotController",
+    "method": "charla",
+    "verb": "POST",
+    "path": "/bot/charla",
+    "public": true,
+    "roles": [],
+    "guards": [
+      "BotGuard"
+    ]
+  },
+  {
+    "file": "bot/bot.controller.ts",
+    "line": 31,
+    "class": "BotController",
+    "method": "waha",
+    "verb": "POST",
+    "path": "/bot/waha",
+    "public": true,
+    "roles": [],
+    "guards": [
+      "BotGuard"
+    ]
+  },
+  {
+    "file": "bot/bot.controller.ts",
+    "line": 38,
+    "class": "BotController",
+    "method": "cliente",
+    "verb": "POST",
+    "path": "/bot/pedidos/cliente",
+    "public": true,
+    "roles": [],
+    "guards": [
+      "BotGuard"
+    ]
+  },
+  {
+    "file": "bot/bot.controller.ts",
+    "line": 43,
+    "class": "BotController",
+    "method": "buscar",
+    "verb": "GET",
+    "path": "/bot/pedidos/buscar",
+    "public": true,
+    "roles": [],
+    "guards": [
+      "BotGuard"
+    ]
+  },
+  {
+    "file": "bot/bot.controller.ts",
+    "line": 48,
+    "class": "BotController",
+    "method": "crear",
+    "verb": "POST",
+    "path": "/bot/pedidos/crear",
+    "public": true,
+    "roles": [],
+    "guards": [
+      "BotGuard"
+    ]
+  },
+  {
+    "file": "bot/bot.controller.ts",
+    "line": 59,
+    "class": "BotController",
+    "method": "estado",
+    "verb": "GET",
+    "path": "/bot/pedidos/:id",
+    "public": true,
+    "roles": [],
+    "guards": [
+      "BotGuard"
+    ]
+  },
+  {
+    "file": "bot/bot.controller.ts",
+    "line": 66,
+    "class": "BotController",
+    "method": "factura",
+    "verb": "POST",
+    "path": "/bot/proveedores/factura",
+    "public": true,
+    "roles": [],
+    "guards": [
+      "BotGuard"
+    ]
+  },
+  {
+    "file": "bot/bot.controller.ts",
+    "line": 80,
+    "class": "BotPruebaController",
+    "method": "renovarAdjunto",
+    "verb": "GET",
+    "path": "/bot/adjuntos/renovar",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "bot/bot.controller.ts",
+    "line": 86,
+    "class": "BotPruebaController",
+    "method": "conversaciones",
+    "verb": "GET",
+    "path": "/bot/conversaciones",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "bot/bot.controller.ts",
+    "line": 91,
+    "class": "BotPruebaController",
+    "method": "conversacionDetalle",
+    "verb": "GET",
+    "path": "/bot/conversaciones/detalle",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "bot/bot.controller.ts",
+    "line": 98,
+    "class": "BotPruebaController",
+    "method": "responder",
+    "verb": "POST",
+    "path": "/bot/conversaciones/responder",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "bot/bot.controller.ts",
+    "line": 109,
+    "class": "BotPruebaController",
+    "method": "devolver",
+    "verb": "POST",
+    "path": "/bot/conversaciones/devolver",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "bot/bot.controller.ts",
+    "line": 119,
+    "class": "BotPruebaController",
+    "method": "pausar",
+    "verb": "POST",
+    "path": "/bot/conversaciones/pausar",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "bot/bot.controller.ts",
+    "line": 126,
+    "class": "BotPruebaController",
+    "method": "equipo",
+    "verb": "POST",
+    "path": "/bot/conversaciones/equipo",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "bot/bot.controller.ts",
+    "line": 132,
+    "class": "BotPruebaController",
+    "method": "leida",
+    "verb": "POST",
+    "path": "/bot/conversaciones/leida",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "bot/bot.controller.ts",
+    "line": 138,
+    "class": "BotPruebaController",
+    "method": "estadoLinea",
+    "verb": "GET",
+    "path": "/bot/linea/estado",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "bot/bot.controller.ts",
+    "line": 143,
+    "class": "BotPruebaController",
+    "method": "setBotLinea",
+    "verb": "POST",
+    "path": "/bot/linea/bot",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "bot/bot.controller.ts",
+    "line": 150,
+    "class": "BotPruebaController",
+    "method": "ficha",
+    "verb": "GET",
+    "path": "/bot/contactos/ficha",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "bot/bot.controller.ts",
+    "line": 155,
+    "class": "BotPruebaController",
+    "method": "nota",
+    "verb": "POST",
+    "path": "/bot/contactos/nota",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "bot/bot.controller.ts",
+    "line": 160,
+    "class": "BotPruebaController",
+    "method": "programar",
+    "verb": "POST",
+    "path": "/bot/programados",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "bot/bot.controller.ts",
+    "line": 165,
+    "class": "BotPruebaController",
+    "method": "programados",
+    "verb": "GET",
+    "path": "/bot/programados",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "bot/bot.controller.ts",
+    "line": 170,
+    "class": "BotPruebaController",
+    "method": "cancelarProgramado",
+    "verb": "POST",
+    "path": "/bot/programados/:id/cancelar",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "bot/bot.controller.ts",
+    "line": 176,
+    "class": "BotPruebaController",
+    "method": "crearDifusion",
+    "verb": "POST",
+    "path": "/bot/difusiones",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "bot/bot.controller.ts",
+    "line": 182,
+    "class": "BotPruebaController",
+    "method": "cancelarDifusion",
+    "verb": "POST",
+    "path": "/bot/difusiones/:id/cancelar",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "bot/bot.controller.ts",
+    "line": 188,
+    "class": "BotPruebaController",
+    "method": "difusiones",
+    "verb": "GET",
+    "path": "/bot/difusiones",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "bot/bot.controller.ts",
+    "line": 194,
+    "class": "BotPruebaController",
+    "method": "listasDifusion",
+    "verb": "GET",
+    "path": "/bot/listas",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "bot/bot.controller.ts",
+    "line": 200,
+    "class": "BotPruebaController",
+    "method": "listaTelefonos",
+    "verb": "GET",
+    "path": "/bot/listas/:id/telefonos",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "bot/bot.controller.ts",
+    "line": 206,
+    "class": "BotPruebaController",
+    "method": "baseDifundible",
+    "verb": "GET",
+    "path": "/bot/difusiones/base",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "bot/bot.controller.ts",
+    "line": 212,
+    "class": "BotPruebaController",
+    "method": "resumenResponde",
+    "verb": "GET",
+    "path": "/bot/responde/resumen",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "bot/bot.controller.ts",
+    "line": 217,
+    "class": "BotPruebaController",
+    "method": "probar",
+    "verb": "POST",
+    "path": "/bot/probar",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "bot/bot.controller.ts",
+    "line": 229,
+    "class": "BotPruebaController",
+    "method": "reiniciar",
+    "verb": "DELETE",
+    "path": "/bot/probar",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "bot/responde-app.controller.ts",
+    "line": 33,
+    "class": "RespondeAppController",
+    "method": "datos",
+    "verb": "GET",
+    "path": "/responde-app",
+    "public": false,
+    "roles": [
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "bot/responde-app.controller.ts",
+    "line": 100,
+    "class": "RespondeAppController",
+    "method": "accion",
+    "verb": "POST",
+    "path": "/responde-app",
+    "public": false,
+    "roles": [
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "caja/caja.controller.ts",
+    "line": 13,
+    "class": "CajaController",
+    "method": "resumen",
+    "verb": "GET",
+    "path": "/caja/resumen",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "caja/caja.controller.ts",
+    "line": 19,
+    "class": "CajaController",
+    "method": "cajas",
+    "verb": "GET",
+    "path": "/caja/cajas",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "caja/caja.controller.ts",
+    "line": 25,
+    "class": "CajaController",
+    "method": "porCajero",
+    "verb": "GET",
+    "path": "/caja/por-cajero",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "caja/caja.controller.ts",
+    "line": 31,
+    "class": "CajaController",
+    "method": "abrir",
+    "verb": "POST",
+    "path": "/caja/abrir",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "caja/caja.controller.ts",
+    "line": 42,
+    "class": "CajaController",
+    "method": "cerrar",
+    "verb": "POST",
+    "path": "/caja/cerrar",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "caja/caja.controller.ts",
+    "line": 49,
+    "class": "CajaController",
+    "method": "resumenSesion",
+    "verb": "GET",
+    "path": "/caja/sesion-resumen",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "caja/caja.controller.ts",
+    "line": 58,
+    "class": "CajaController",
+    "method": "turnoResumen",
+    "verb": "GET",
+    "path": "/caja/turno/resumen",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "caja/caja.controller.ts",
+    "line": 66,
+    "class": "CajaController",
+    "method": "turnoVentas",
+    "verb": "GET",
+    "path": "/caja/turno/ventas",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "caja/caja.controller.ts",
+    "line": 84,
+    "class": "CajaController",
+    "method": "sesiones",
+    "verb": "GET",
+    "path": "/caja/sesiones",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "caja/caja.controller.ts",
+    "line": 91,
+    "class": "CajaController",
+    "method": "movimiento",
+    "verb": "POST",
+    "path": "/caja/movimiento",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "caja/caja.controller.ts",
+    "line": 100,
+    "class": "CajaController",
+    "method": "movimientos",
+    "verb": "GET",
+    "path": "/caja/movimientos",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "caja/caja.controller.ts",
+    "line": 107,
+    "class": "CajaController",
+    "method": "autorizar",
+    "verb": "POST",
+    "path": "/caja/autorizar",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "caja/caja.controller.ts",
+    "line": 113,
+    "class": "CajaController",
+    "method": "pendientes",
+    "verb": "GET",
+    "path": "/arca/pendientes",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "caja/caja.controller.ts",
+    "line": 120,
+    "class": "CajaController",
+    "method": "estadoArca",
+    "verb": "GET",
+    "path": "/arca/estado",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "caja/caja.controller.ts",
+    "line": 127,
+    "class": "CajaController",
+    "method": "contador",
+    "verb": "GET",
+    "path": "/arca/contador",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "caja/caja.controller.ts",
+    "line": 138,
+    "class": "CajaController",
+    "method": "emitir",
+    "verb": "POST",
+    "path": "/arca/emitir",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "catalogo/catalogo.controller.ts",
+    "line": 56,
+    "class": "CatalogoController",
+    "method": "categoriasDestacadas",
+    "verb": "GET",
+    "path": "/catalogo/categorias-destacadas",
+    "public": true,
+    "roles": [],
+    "guards": []
+  },
+  {
+    "file": "catalogo/catalogo.controller.ts",
+    "line": 62,
+    "class": "CatalogoController",
+    "method": "filtros",
+    "verb": "GET",
+    "path": "/catalogo/filtros",
+    "public": true,
+    "roles": [],
+    "guards": []
+  },
+  {
+    "file": "catalogo/catalogo.controller.ts",
+    "line": 70,
+    "class": "CatalogoController",
+    "method": "posBuscar",
+    "verb": "GET",
+    "path": "/pos/buscar",
+    "public": false,
+    "roles": [
+      "cajero",
+      "deposito",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "catalogo/catalogo.controller.ts",
+    "line": 77,
+    "class": "CatalogoController",
+    "method": "vincularCodigo",
+    "verb": "POST",
+    "path": "/pos/vincular-codigo",
+    "public": false,
+    "roles": [
+      "cajero",
+      "deposito",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "catalogo/catalogo.controller.ts",
+    "line": 84,
+    "class": "CatalogoController",
+    "method": "posCatalogo",
+    "verb": "GET",
+    "path": "/pos/catalogo",
+    "public": false,
+    "roles": [
+      "cajero",
+      "deposito",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "catalogo/catalogo.controller.ts",
+    "line": 91,
+    "class": "CatalogoController",
+    "method": "consultarStock",
+    "verb": "GET",
+    "path": "/pos/stock",
+    "public": false,
+    "roles": [
+      "cajero",
+      "deposito",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "catalogo/catalogo.controller.ts",
+    "line": 97,
+    "class": "CatalogoController",
+    "method": "buscar",
+    "verb": "GET",
+    "path": "/productos",
+    "public": true,
+    "roles": [],
+    "guards": []
+  },
+  {
+    "file": "catalogo/catalogo.controller.ts",
+    "line": 112,
+    "class": "CatalogoController",
+    "method": "porSku",
+    "verb": "GET",
+    "path": "/productos/:sku",
+    "public": true,
+    "roles": [],
+    "guards": []
+  },
+  {
+    "file": "catalogo/catalogo.controller.ts",
+    "line": 119,
+    "class": "CatalogoController",
+    "method": "detalle",
+    "verb": "GET",
+    "path": "/productos/:sku/detalle",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno",
+      "comprador"
+    ],
+    "guards": []
+  },
+  {
+    "file": "catalogo/catalogo.controller.ts",
+    "line": 126,
+    "class": "CatalogoController",
+    "method": "nota",
+    "verb": "GET",
+    "path": "/productos/:sku/nota",
+    "public": true,
+    "roles": [],
+    "guards": []
+  },
+  {
+    "file": "catalogo/catalogo.controller.ts",
+    "line": 132,
+    "class": "CatalogoController",
+    "method": "sucursales",
+    "verb": "GET",
+    "path": "/sucursales",
+    "public": true,
+    "roles": [],
+    "guards": []
+  },
+  {
+    "file": "catalogo/fotos-externas.controller.ts",
+    "line": 12,
+    "class": "FotosExternasController",
+    "method": "estado",
+    "verb": "GET",
+    "path": "/catalogo/fotos-externas/estado",
+    "public": false,
+    "roles": [
+      "comprador",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "catalogo/fotos-externas.controller.ts",
+    "line": 16,
+    "class": "FotosExternasController",
+    "method": "completar",
+    "verb": "POST",
+    "path": "/catalogo/fotos-externas/completar",
+    "public": false,
+    "roles": [
+      "comprador",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "catalogo/fotos-externas.controller.ts",
+    "line": 21,
+    "class": "FotosExternasController",
+    "method": "sincronizarMarca",
+    "verb": "POST",
+    "path": "/catalogo/fotos-externas/sincronizar-marca",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "catalogo/fotos-externas.controller.ts",
+    "line": 25,
+    "class": "FotosExternasController",
+    "method": "revisarGuardadas",
+    "verb": "POST",
+    "path": "/catalogo/fotos-externas/revisar-guardadas",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "catalogo/fotos-externas.controller.ts",
+    "line": 29,
+    "class": "FotosExternasController",
+    "method": "dudosas",
+    "verb": "GET",
+    "path": "/catalogo/fotos-externas/dudosas",
+    "public": false,
+    "roles": [
+      "comprador",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "catalogo/fotos-externas.controller.ts",
+    "line": 34,
+    "class": "FotosExternasController",
+    "method": "resolverDudosa",
+    "verb": "POST",
+    "path": "/catalogo/fotos-externas/dudosa/:id",
+    "public": false,
+    "roles": [
+      "comprador",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "catalogo/fotos-externas.controller.ts",
+    "line": 40,
+    "class": "FotosExternasController",
+    "method": "normalizarEstado",
+    "verb": "GET",
+    "path": "/catalogo/fotos-externas/normalizar",
+    "public": false,
+    "roles": [
+      "comprador",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "catalogo/fotos-externas.controller.ts",
+    "line": 44,
+    "class": "FotosExternasController",
+    "method": "normalizar",
+    "verb": "POST",
+    "path": "/catalogo/fotos-externas/normalizar",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "catalogo/fotos-externas.controller.ts",
+    "line": 48,
+    "class": "FotosExternasController",
+    "method": "calidadEstado",
+    "verb": "GET",
+    "path": "/catalogo/fotos-externas/calidad",
+    "public": false,
+    "roles": [
+      "comprador",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "catalogo/fotos-externas.controller.ts",
+    "line": 52,
+    "class": "FotosExternasController",
+    "method": "calidadSacadas",
+    "verb": "GET",
+    "path": "/catalogo/fotos-externas/calidad/sacadas",
+    "public": false,
+    "roles": [
+      "comprador",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "catalogo/fotos-externas.controller.ts",
+    "line": 56,
+    "class": "FotosExternasController",
+    "method": "calidadRevisar",
+    "verb": "POST",
+    "path": "/catalogo/fotos-externas/calidad/revisar",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "catalogo/fotos-externas.controller.ts",
+    "line": 60,
+    "class": "FotosExternasController",
+    "method": "producto",
+    "verb": "POST",
+    "path": "/catalogo/fotos-externas/producto/:sku",
+    "public": false,
+    "roles": [
+      "comprador",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "catalogo/imagenes.controller.ts",
+    "line": 10,
+    "class": "ImagenesController",
+    "method": "subir",
+    "verb": "POST",
+    "path": "/productos/:sku/imagen",
+    "public": false,
+    "roles": [
+      "comprador",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "catalogo/productos-admin.controller.ts",
+    "line": 15,
+    "class": "ProductosAdminController",
+    "method": "revisar",
+    "verb": "POST",
+    "path": "/productos/revisar",
+    "public": false,
+    "roles": [
+      "dueno",
+      "gerente",
+      "comprador"
+    ],
+    "guards": []
+  },
+  {
+    "file": "catalogo/productos-admin.controller.ts",
+    "line": 22,
+    "class": "ProductosAdminController",
+    "method": "porPeso",
+    "verb": "POST",
+    "path": "/productos/por-peso",
+    "public": false,
+    "roles": [
+      "dueno",
+      "gerente",
+      "comprador"
+    ],
+    "guards": []
+  },
+  {
+    "file": "catalogo/productos-admin.controller.ts",
+    "line": 27,
+    "class": "ProductosAdminController",
+    "method": "crear",
+    "verb": "POST",
+    "path": "/productos",
+    "public": false,
+    "roles": [
+      "dueno",
+      "gerente",
+      "comprador"
+    ],
+    "guards": []
+  },
+  {
+    "file": "catalogo/productos-admin.controller.ts",
+    "line": 32,
+    "class": "ProductosAdminController",
+    "method": "editar",
+    "verb": "PATCH",
+    "path": "/productos/:id",
+    "public": false,
+    "roles": [
+      "dueno",
+      "gerente",
+      "comprador"
+    ],
+    "guards": []
+  },
+  {
+    "file": "cheques/cheques.controller.ts",
+    "line": 12,
+    "class": "ChequesController",
+    "method": "resumen",
+    "verb": "GET",
+    "path": "/cheques/resumen",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "cheques/cheques.controller.ts",
+    "line": 17,
+    "class": "ChequesController",
+    "method": "listar",
+    "verb": "GET",
+    "path": "/cheques",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "cheques/cheques.controller.ts",
+    "line": 22,
+    "class": "ChequesController",
+    "method": "detalle",
+    "verb": "GET",
+    "path": "/cheques/:id",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "cheques/cheques.controller.ts",
+    "line": 27,
+    "class": "ChequesController",
+    "method": "crear",
+    "verb": "POST",
+    "path": "/cheques",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "cheques/cheques.controller.ts",
+    "line": 32,
+    "class": "ChequesController",
+    "method": "depositar",
+    "verb": "POST",
+    "path": "/cheques/:id/depositar",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "cheques/cheques.controller.ts",
+    "line": 37,
+    "class": "ChequesController",
+    "method": "acreditar",
+    "verb": "POST",
+    "path": "/cheques/:id/acreditar",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "cheques/cheques.controller.ts",
+    "line": 42,
+    "class": "ChequesController",
+    "method": "rechazar",
+    "verb": "POST",
+    "path": "/cheques/:id/rechazar",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "cheques/cheques.controller.ts",
+    "line": 47,
+    "class": "ChequesController",
+    "method": "aplicar",
+    "verb": "POST",
+    "path": "/cheques/:id/aplicar",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "cheques/cheques.controller.ts",
+    "line": 52,
+    "class": "ChequesController",
+    "method": "debitar",
+    "verb": "POST",
+    "path": "/cheques/:id/debitar",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "cheques/cheques.controller.ts",
+    "line": 57,
+    "class": "ChequesController",
+    "method": "anular",
+    "verb": "POST",
+    "path": "/cheques/:id/anular",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "clientes/clientes.controller.ts",
+    "line": 11,
+    "class": "ClientesController",
+    "method": "editar",
+    "verb": "PATCH",
+    "path": "/clientes/:id",
+    "public": false,
+    "roles": [
+      "dueno",
+      "gerente"
+    ],
+    "guards": []
+  },
+  {
+    "file": "clientes/clientes.controller.ts",
+    "line": 68,
+    "class": "ClientesController",
+    "method": "resumen",
+    "verb": "GET",
+    "path": "/clientes/resumen",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "clientes/clientes.controller.ts",
+    "line": 90,
+    "class": "ClientesController",
+    "method": "reactivacion",
+    "verb": "GET",
+    "path": "/clientes/reactivacion",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "clientes/clientes.controller.ts",
+    "line": 123,
+    "class": "ClientesController",
+    "method": "listar",
+    "verb": "GET",
+    "path": "/clientes",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "clientes/cobranzas.controller.ts",
+    "line": 18,
+    "class": "CobranzasController",
+    "method": "tomar",
+    "verb": "POST",
+    "path": "/cobranzas",
+    "public": false,
+    "roles": [
+      "cajero",
+      "administrativo",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "clientes/cobranzas.controller.ts",
+    "line": 78,
+    "class": "CobranzasController",
+    "method": "listar",
+    "verb": "GET",
+    "path": "/cobranzas",
+    "public": false,
+    "roles": [
+      "cajero",
+      "administrativo",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "clientes/cobranzas.controller.ts",
+    "line": 104,
+    "class": "CobranzasController",
+    "method": "aprobar",
+    "verb": "POST",
+    "path": "/cobranzas/:id/aprobar",
+    "public": false,
+    "roles": [
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "clientes/cobranzas.controller.ts",
+    "line": 131,
+    "class": "CobranzasController",
+    "method": "recibo",
+    "verb": "GET",
+    "path": "/cobranzas/:id/recibo",
+    "public": false,
+    "roles": [
+      "cajero",
+      "administrativo",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "clientes/cobranzas.controller.ts",
+    "line": 169,
+    "class": "CobranzasController",
+    "method": "rechazar",
+    "verb": "POST",
+    "path": "/cobranzas/:id/rechazar",
+    "public": false,
+    "roles": [
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "clientes/cta-cte.controller.ts",
+    "line": 13,
+    "class": "CtaCteController",
+    "method": "tablero",
+    "verb": "GET",
+    "path": "/cta-cte/tablero",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "clientes-auth/clientes-auth.controller.ts",
+    "line": 10,
+    "class": "ClientesAuthController",
+    "method": "registro",
+    "verb": "POST",
+    "path": "/app/registro",
+    "public": true,
+    "roles": [],
+    "guards": []
+  },
+  {
+    "file": "clientes-auth/clientes-auth.controller.ts",
+    "line": 17,
+    "class": "ClientesAuthController",
+    "method": "login",
+    "verb": "POST",
+    "path": "/app/login",
+    "public": true,
+    "roles": [],
+    "guards": []
+  },
+  {
+    "file": "clientes-auth/clientes-auth.controller.ts",
+    "line": 25,
+    "class": "ClientesAuthController",
+    "method": "registroEmail",
+    "verb": "POST",
+    "path": "/app/registro-email",
+    "public": true,
+    "roles": [],
+    "guards": []
+  },
+  {
+    "file": "clientes-auth/clientes-auth.controller.ts",
+    "line": 32,
+    "class": "ClientesAuthController",
+    "method": "loginEmail",
+    "verb": "POST",
+    "path": "/app/login-email",
+    "public": true,
+    "roles": [],
+    "guards": []
+  },
+  {
+    "file": "clientes-auth/clientes-auth.controller.ts",
+    "line": 40,
+    "class": "ClientesAuthController",
+    "method": "verificacion",
+    "verb": "POST",
+    "path": "/app/verificacion",
+    "public": false,
+    "roles": [],
+    "guards": []
+  },
+  {
+    "file": "clientes-auth/clientes-auth.controller.ts",
+    "line": 48,
+    "class": "ClientesAuthController",
+    "method": "webhook",
+    "verb": "POST",
+    "path": "/didit/webhook",
+    "public": true,
+    "roles": [],
+    "guards": []
+  },
+  {
+    "file": "comparador/comparador.controller.ts",
+    "line": 11,
+    "class": "ComparadorController",
+    "method": "comparar",
+    "verb": "GET",
+    "path": "/comparador",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno",
+      "comprador"
+    ],
+    "guards": []
+  },
+  {
+    "file": "comparador/comparador.controller.ts",
+    "line": 16,
+    "class": "ComparadorController",
+    "method": "directorio",
+    "verb": "GET",
+    "path": "/comparador/directorio",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno",
+      "comprador"
+    ],
+    "guards": []
+  },
+  {
+    "file": "comparador/comparador.controller.ts",
+    "line": 21,
+    "class": "ComparadorController",
+    "method": "stats",
+    "verb": "GET",
+    "path": "/comparador/stats",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno",
+      "comprador"
+    ],
+    "guards": []
+  },
+  {
+    "file": "comparador/comparador.controller.ts",
+    "line": 26,
+    "class": "ComparadorController",
+    "method": "proveedores",
+    "verb": "GET",
+    "path": "/comparador/proveedores",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno",
+      "comprador"
+    ],
+    "guards": []
+  },
+  {
+    "file": "comparador/comparador.controller.ts",
+    "line": 31,
+    "class": "ComparadorController",
+    "method": "guardar",
+    "verb": "PATCH",
+    "path": "/comparador/proveedor/:id",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno",
+      "comprador"
+    ],
+    "guards": []
+  },
+  {
+    "file": "comparador/comparador.controller.ts",
+    "line": 37,
+    "class": "ComparadorController",
+    "method": "analizar",
+    "verb": "POST",
+    "path": "/comparador/analizar-lista",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno",
+      "comprador"
+    ],
+    "guards": []
+  },
+  {
+    "file": "comparador/comparador.controller.ts",
+    "line": 43,
+    "class": "ComparadorController",
+    "method": "aplicar",
+    "verb": "POST",
+    "path": "/comparador/aplicar-lista",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno",
+      "comprador"
+    ],
+    "guards": []
+  },
+  {
+    "file": "comparador/comparador.controller.ts",
+    "line": 49,
+    "class": "ComparadorController",
+    "method": "interpretar",
+    "verb": "POST",
+    "path": "/comparador/interpretar-aclaracion",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno",
+      "comprador"
+    ],
+    "guards": []
+  },
+  {
+    "file": "comprafacil/comprafacil.controller.ts",
+    "line": 13,
+    "class": "CompraFacilController",
+    "method": "comprar",
+    "verb": "POST",
+    "path": "/app/compra-facil",
+    "public": false,
+    "roles": [],
+    "guards": []
+  },
+  {
+    "file": "comprafacil/comprafacil.controller.ts",
+    "line": 26,
+    "class": "CompraFacilController",
+    "method": "estado",
+    "verb": "GET",
+    "path": "/app/compra-facil/:id/estado",
+    "public": false,
+    "roles": [],
+    "guards": []
+  },
+  {
+    "file": "comprafacil/comprafacil.controller.ts",
+    "line": 35,
+    "class": "CompraFacilController",
+    "method": "webhook",
+    "verb": "POST",
+    "path": "/comprafacil/webhook",
+    "public": true,
+    "roles": [],
+    "guards": []
+  },
+  {
+    "file": "comprafacil/comprafacil.controller.ts",
+    "line": 43,
+    "class": "CompraFacilController",
+    "method": "webhookPing",
+    "verb": "GET",
+    "path": "/comprafacil/webhook",
+    "public": true,
+    "roles": [],
+    "guards": []
+  },
+  {
+    "file": "comprafacil/comprafacil.controller.ts",
+    "line": 50,
+    "class": "CompraFacilController",
+    "method": "buscar",
+    "verb": "GET",
+    "path": "/salida/:codigo",
+    "public": false,
+    "roles": [
+      "cajero",
+      "deposito",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "comprafacil/comprafacil.controller.ts",
+    "line": 56,
+    "class": "CompraFacilController",
+    "method": "validar",
+    "verb": "POST",
+    "path": "/salida/:codigo/validar",
+    "public": false,
+    "roles": [
+      "cajero",
+      "deposito",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "compras/compras.controller.ts",
+    "line": 17,
+    "class": "ComprasController",
+    "method": "importarPedido",
+    "verb": "POST",
+    "path": "/compras/ordenes/importar",
+    "public": false,
+    "roles": [
+      "comprador",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "compras/compras.controller.ts",
+    "line": 31,
+    "class": "ComprasController",
+    "method": "entradaFoto",
+    "verb": "POST",
+    "path": "/compras/entrada-foto",
+    "public": false,
+    "roles": [
+      "deposito",
+      "comprador",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "compras/compras.controller.ts",
+    "line": 52,
+    "class": "ComprasController",
+    "method": "estadoEntradaFoto",
+    "verb": "GET",
+    "path": "/compras/entrada-foto/:id",
+    "public": false,
+    "roles": [],
+    "guards": []
+  },
+  {
+    "file": "compras/compras.controller.ts",
+    "line": 58,
+    "class": "ComprasController",
+    "method": "originalDeLectura",
+    "verb": "GET",
+    "path": "/compras/entrada-foto/:id/original",
+    "public": false,
+    "roles": [
+      "deposito",
+      "comprador",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "compras/compras.controller.ts",
+    "line": 64,
+    "class": "ComprasController",
+    "method": "bandejaLecturas",
+    "verb": "GET",
+    "path": "/compras/lecturas",
+    "public": false,
+    "roles": [
+      "deposito",
+      "comprador",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "compras/compras.controller.ts",
+    "line": 70,
+    "class": "ComprasController",
+    "method": "abrirLectura",
+    "verb": "POST",
+    "path": "/compras/entrada-foto/:id/abrir",
+    "public": false,
+    "roles": [
+      "deposito",
+      "comprador",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "compras/compras.controller.ts",
+    "line": 76,
+    "class": "ComprasController",
+    "method": "descartarLectura",
+    "verb": "POST",
+    "path": "/compras/entrada-foto/:id/descartar",
+    "public": false,
+    "roles": [
+      "deposito",
+      "comprador",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "compras/compras.controller.ts",
+    "line": 82,
+    "class": "ComprasController",
+    "method": "releerLectura",
+    "verb": "POST",
+    "path": "/compras/entrada-foto/:id/releer",
+    "public": false,
+    "roles": [
+      "deposito",
+      "comprador",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "compras/compras.controller.ts",
+    "line": 88,
+    "class": "ComprasController",
+    "method": "proveedores",
+    "verb": "GET",
+    "path": "/proveedores",
+    "public": false,
+    "roles": [
+      "deposito",
+      "comprador",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "compras/compras.controller.ts",
+    "line": 94,
+    "class": "ComprasController",
+    "method": "crearProveedor",
+    "verb": "POST",
+    "path": "/proveedores",
+    "public": false,
+    "roles": [
+      "comprador",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "compras/compras.controller.ts",
+    "line": 100,
+    "class": "ComprasController",
+    "method": "editarProveedor",
+    "verb": "PATCH",
+    "path": "/proveedores/:id",
+    "public": false,
+    "roles": [
+      "comprador",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "compras/compras.controller.ts",
+    "line": 107,
+    "class": "ComprasController",
+    "method": "remarcacion",
+    "verb": "GET",
+    "path": "/compras/remarcacion",
+    "public": false,
+    "roles": [
+      "comprador",
+      "deposito",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "compras/compras.controller.ts",
+    "line": 114,
+    "class": "ComprasController",
+    "method": "autorizarProrrateo",
+    "verb": "POST",
+    "path": "/compras/autorizar-prorrateo",
+    "public": false,
+    "roles": [
+      "comprador",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "compras/compras.controller.ts",
+    "line": 122,
+    "class": "ComprasController",
+    "method": "proveedoresConLista",
+    "verb": "GET",
+    "path": "/compras/proveedores-lista",
+    "public": false,
+    "roles": [
+      "comprador",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "compras/compras.controller.ts",
+    "line": 128,
+    "class": "ComprasController",
+    "method": "catalogoProveedor",
+    "verb": "GET",
+    "path": "/compras/proveedores/:id/catalogo",
+    "public": false,
+    "roles": [
+      "comprador",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "compras/compras.controller.ts",
+    "line": 139,
+    "class": "ComprasController",
+    "method": "agregarAListaProveedor",
+    "verb": "POST",
+    "path": "/compras/proveedores/:id/catalogo",
+    "public": false,
+    "roles": [
+      "comprador",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "compras/compras.controller.ts",
+    "line": 146,
+    "class": "ComprasController",
+    "method": "documentoOp",
+    "verb": "GET",
+    "path": "/compras/ordenes-pago/:id/documento",
+    "public": false,
+    "roles": [
+      "comprador",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "compras/compras.controller.ts",
+    "line": 156,
+    "class": "ComprasController",
+    "method": "documentoRecepcion",
+    "verb": "GET",
+    "path": "/compras/recepciones/:id/documento",
+    "public": false,
+    "roles": [
+      "deposito",
+      "comprador",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "compras/compras.controller.ts",
+    "line": 166,
+    "class": "ComprasController",
+    "method": "documentoOc",
+    "verb": "GET",
+    "path": "/compras/ordenes/:id/documento",
+    "public": false,
+    "roles": [
+      "comprador",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "compras/compras.controller.ts",
+    "line": 177,
+    "class": "ComprasController",
+    "method": "ordenDetalle",
+    "verb": "GET",
+    "path": "/compras/ordenes/:id",
+    "public": false,
+    "roles": [
+      "comprador",
+      "deposito",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "compras/compras.controller.ts",
+    "line": 183,
+    "class": "ComprasController",
+    "method": "resumen",
+    "verb": "GET",
+    "path": "/compras/resumen",
+    "public": false,
+    "roles": [
+      "comprador",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "compras/compras.controller.ts",
+    "line": 189,
+    "class": "ComprasController",
+    "method": "sugerencias",
+    "verb": "GET",
+    "path": "/compras/sugerencias",
+    "public": false,
+    "roles": [
+      "comprador",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "compras/compras.controller.ts",
+    "line": 195,
+    "class": "ComprasController",
+    "method": "deuda",
+    "verb": "GET",
+    "path": "/compras/deuda",
+    "public": false,
+    "roles": [
+      "comprador",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "compras/compras.controller.ts",
+    "line": 204,
+    "class": "ComprasController",
+    "method": "mesaCharla",
+    "verb": "POST",
+    "path": "/compras/mesa/charla",
+    "public": false,
+    "roles": [
+      "comprador",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "compras/compras.controller.ts",
+    "line": 211,
+    "class": "ComprasController",
+    "method": "propuestas",
+    "verb": "GET",
+    "path": "/compras/propuestas",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "compras/compras.controller.ts",
+    "line": 218,
+    "class": "ComprasController",
+    "method": "aprobarPropuesta",
+    "verb": "POST",
+    "path": "/compras/propuestas/:id/aprobar",
+    "public": false,
+    "roles": [
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "compras/compras.controller.ts",
+    "line": 224,
+    "class": "ComprasController",
+    "method": "rechazarPropuesta",
+    "verb": "POST",
+    "path": "/compras/propuestas/:id/rechazar",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "compras/compras.controller.ts",
+    "line": 231,
+    "class": "ComprasController",
+    "method": "recepcionPistola",
+    "verb": "POST",
+    "path": "/compras/recepcion",
+    "public": false,
+    "roles": [
+      "deposito",
+      "comprador",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "compras/compras.controller.ts",
+    "line": 237,
+    "class": "ComprasController",
+    "method": "productoPorCodigo",
+    "verb": "GET",
+    "path": "/compras/recepcion/codigo/:codigo",
+    "public": false,
+    "roles": [
+      "deposito",
+      "comprador",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "compras/compras.controller.ts",
+    "line": 244,
+    "class": "ComprasController",
+    "method": "vincularCodigo",
+    "verb": "POST",
+    "path": "/compras/recepcion/codigo",
+    "public": false,
+    "roles": [
+      "deposito",
+      "cajero",
+      "comprador",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "compras/compras.controller.ts",
+    "line": 251,
+    "class": "ComprasController",
+    "method": "bandejaConciliacion",
+    "verb": "GET",
+    "path": "/compras/conciliacion",
+    "public": false,
+    "roles": [
+      "comprador",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "compras/compras.controller.ts",
+    "line": 257,
+    "class": "ComprasController",
+    "method": "cruce",
+    "verb": "GET",
+    "path": "/compras/conciliacion/cruce",
+    "public": false,
+    "roles": [
+      "comprador",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "compras/compras.controller.ts",
+    "line": 263,
+    "class": "ComprasController",
+    "method": "confirmarConciliacion",
+    "verb": "POST",
+    "path": "/compras/conciliacion/confirmar",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "compras/compras.controller.ts",
+    "line": 270,
+    "class": "ComprasController",
+    "method": "listarFacturas",
+    "verb": "GET",
+    "path": "/compras/facturas",
+    "public": false,
+    "roles": [
+      "comprador",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "compras/compras.controller.ts",
+    "line": 276,
+    "class": "ComprasController",
+    "method": "resumenFacturas",
+    "verb": "GET",
+    "path": "/compras/facturas/resumen",
+    "public": false,
+    "roles": [
+      "comprador",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "compras/compras.controller.ts",
+    "line": 283,
+    "class": "ComprasController",
+    "method": "listarCambiosFactura",
+    "verb": "GET",
+    "path": "/compras/facturas/cambios",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno",
+      "comprador",
+      "deposito"
+    ],
+    "guards": []
+  },
+  {
+    "file": "compras/compras.controller.ts",
+    "line": 289,
+    "class": "ComprasController",
+    "method": "facturaDetalle",
+    "verb": "GET",
+    "path": "/compras/facturas/:id",
+    "public": false,
+    "roles": [
+      "comprador",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "compras/compras.controller.ts",
+    "line": 298,
+    "class": "ComprasController",
+    "method": "aprobarCambioFactura",
+    "verb": "POST",
+    "path": "/compras/facturas/cambios/:id/aprobar",
+    "public": false,
+    "roles": [
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "compras/compras.controller.ts",
+    "line": 304,
+    "class": "ComprasController",
+    "method": "rechazarCambioFactura",
+    "verb": "POST",
+    "path": "/compras/facturas/cambios/:id/rechazar",
+    "public": false,
+    "roles": [
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "compras/compras.controller.ts",
+    "line": 310,
+    "class": "ComprasController",
+    "method": "solicitarCambioFactura",
+    "verb": "POST",
+    "path": "/compras/facturas/:id/solicitar-cambio",
+    "public": false,
+    "roles": [
+      "comprador",
+      "deposito",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "compras/compras.controller.ts",
+    "line": 316,
+    "class": "ComprasController",
+    "method": "editarFactura",
+    "verb": "PATCH",
+    "path": "/compras/facturas/:id",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "compras/compras.controller.ts",
+    "line": 322,
+    "class": "ComprasController",
+    "method": "anularFactura",
+    "verb": "POST",
+    "path": "/compras/facturas/:id/anular",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "compras/compras.controller.ts",
+    "line": 328,
+    "class": "ComprasController",
+    "method": "pagoFactura",
+    "verb": "POST",
+    "path": "/compras/facturas/:id/pagos",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "compras/compras.controller.ts",
+    "line": 334,
+    "class": "ComprasController",
+    "method": "ordenesPago",
+    "verb": "GET",
+    "path": "/compras/ordenes-pago",
+    "public": false,
+    "roles": [
+      "comprador",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "compras/compras.controller.ts",
+    "line": 340,
+    "class": "ComprasController",
+    "method": "registrarFactura",
+    "verb": "POST",
+    "path": "/compras/facturas",
+    "public": false,
+    "roles": [
+      "comprador",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "compras/compras.controller.ts",
+    "line": 347,
+    "class": "ComprasController",
+    "method": "crearOP",
+    "verb": "POST",
+    "path": "/compras/ordenes-pago",
+    "public": false,
+    "roles": [
+      "comprador",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "compras/compras.controller.ts",
+    "line": 353,
+    "class": "ComprasController",
+    "method": "aprobarOP",
+    "verb": "POST",
+    "path": "/compras/ordenes-pago/:id/aprobar",
+    "public": false,
+    "roles": [
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "compras/compras.controller.ts",
+    "line": 359,
+    "class": "ComprasController",
+    "method": "rechazarOP",
+    "verb": "POST",
+    "path": "/compras/ordenes-pago/:id/rechazar",
+    "public": false,
+    "roles": [
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "compras/compras.controller.ts",
+    "line": 365,
+    "class": "ComprasController",
+    "method": "pagarOP",
+    "verb": "POST",
+    "path": "/compras/ordenes-pago/:id/pagar",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "compras/compras.controller.ts",
+    "line": 371,
+    "class": "ComprasController",
+    "method": "ordenes",
+    "verb": "GET",
+    "path": "/compras/ordenes",
+    "public": false,
+    "roles": [
+      "deposito",
+      "comprador",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "compras/compras.controller.ts",
+    "line": 377,
+    "class": "ComprasController",
+    "method": "crear",
+    "verb": "POST",
+    "path": "/compras/ordenes",
+    "public": false,
+    "roles": [
+      "comprador",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "compras/compras.controller.ts",
+    "line": 386,
+    "class": "ComprasController",
+    "method": "aprobar",
+    "verb": "POST",
+    "path": "/compras/ordenes/:id/aprobar",
+    "public": false,
+    "roles": [
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "compras/compras.controller.ts",
+    "line": 392,
+    "class": "ComprasController",
+    "method": "rechazar",
+    "verb": "POST",
+    "path": "/compras/ordenes/:id/rechazar",
+    "public": false,
+    "roles": [
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "compras/compras.controller.ts",
+    "line": 398,
+    "class": "ComprasController",
+    "method": "recibir",
+    "verb": "POST",
+    "path": "/compras/ordenes/:id/recibir",
+    "public": false,
+    "roles": [
+      "deposito",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "compras/compras.controller.ts",
+    "line": 406,
+    "class": "ComprasController",
+    "method": "entradaDirecta",
+    "verb": "POST",
+    "path": "/compras/entrada-directa",
+    "public": false,
+    "roles": [
+      "deposito",
+      "comprador",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "conciliacion/conciliacion.controller.ts",
+    "line": 11,
+    "class": "ConciliacionController",
+    "method": "resumen",
+    "verb": "GET",
+    "path": "/conciliacion/resumen",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "conciliacion/conciliacion.controller.ts",
+    "line": 16,
+    "class": "ConciliacionController",
+    "method": "listar",
+    "verb": "GET",
+    "path": "/conciliacion",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "conciliacion/conciliacion.controller.ts",
+    "line": 21,
+    "class": "ConciliacionController",
+    "method": "comisiones",
+    "verb": "GET",
+    "path": "/conciliacion/comisiones",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "conciliacion/conciliacion.controller.ts",
+    "line": 26,
+    "class": "ConciliacionController",
+    "method": "guardarComision",
+    "verb": "PATCH",
+    "path": "/conciliacion/comisiones",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "conciliacion/conciliacion.controller.ts",
+    "line": 32,
+    "class": "ConciliacionController",
+    "method": "conciliarMP",
+    "verb": "POST",
+    "path": "/conciliacion/mp",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "conciliacion/conciliacion.controller.ts",
+    "line": 38,
+    "class": "ConciliacionController",
+    "method": "lote",
+    "verb": "POST",
+    "path": "/conciliacion/lote",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "conciliacion/conciliacion.controller.ts",
+    "line": 44,
+    "class": "ConciliacionController",
+    "method": "acreditar",
+    "verb": "POST",
+    "path": "/conciliacion/:id/acreditar",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "contable/contable.controller.ts",
+    "line": 11,
+    "class": "ContableController",
+    "method": "resumen",
+    "verb": "GET",
+    "path": "/contable",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "contable/contable.controller.ts",
+    "line": 18,
+    "class": "ContableController",
+    "method": "anual",
+    "verb": "GET",
+    "path": "/contable/anual",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "descuentos/descuentos.controller.ts",
+    "line": 10,
+    "class": "DescuentosController",
+    "method": "listar",
+    "verb": "GET",
+    "path": "/descuentos",
+    "public": true,
+    "roles": [],
+    "guards": []
+  },
+  {
+    "file": "descuentos/descuentos.controller.ts",
+    "line": 17,
+    "class": "DescuentosController",
+    "method": "segmentos",
+    "verb": "GET",
+    "path": "/descuentos/segmentos",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "descuentos/descuentos.controller.ts",
+    "line": 23,
+    "class": "DescuentosController",
+    "method": "crear",
+    "verb": "POST",
+    "path": "/descuentos",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "descuentos/descuentos.controller.ts",
+    "line": 30,
+    "class": "DescuentosController",
+    "method": "cambiarEstado",
+    "verb": "PATCH",
+    "path": "/descuentos/:id",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "difusiones/difusiones.controller.ts",
+    "line": 11,
+    "class": "DifusionesController",
+    "method": "listar",
+    "verb": "GET",
+    "path": "/difusiones",
+    "public": false,
+    "roles": [
+      "dueno",
+      "gerente"
+    ],
+    "guards": []
+  },
+  {
+    "file": "difusiones/difusiones.controller.ts",
+    "line": 16,
+    "class": "DifusionesController",
+    "method": "audiencia",
+    "verb": "GET",
+    "path": "/difusiones/audiencia",
+    "public": false,
+    "roles": [
+      "dueno",
+      "gerente"
+    ],
+    "guards": []
+  },
+  {
+    "file": "difusiones/difusiones.controller.ts",
+    "line": 21,
+    "class": "DifusionesController",
+    "method": "redactar",
+    "verb": "POST",
+    "path": "/difusiones/redactar",
+    "public": false,
+    "roles": [
+      "dueno",
+      "gerente"
+    ],
+    "guards": []
+  },
+  {
+    "file": "difusiones/difusiones.controller.ts",
+    "line": 27,
+    "class": "DifusionesController",
+    "method": "crear",
+    "verb": "POST",
+    "path": "/difusiones",
+    "public": false,
+    "roles": [
+      "dueno",
+      "gerente"
+    ],
+    "guards": []
+  },
+  {
+    "file": "documentos/documentos.controller.ts",
+    "line": 31,
+    "class": "DocumentosController",
+    "method": "libro",
+    "verb": "GET",
+    "path": "/documentos",
+    "public": false,
+    "roles": [
+      "administrativo",
+      "comprador",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "documentos/documentos.controller.ts",
+    "line": 47,
+    "class": "DocumentosController",
+    "method": "cadena",
+    "verb": "GET",
+    "path": "/documentos/cadena/:ocId",
+    "public": false,
+    "roles": [
+      "administrativo",
+      "comprador",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "documentos/documentos.controller.ts",
+    "line": 141,
+    "class": "DocumentosController",
+    "method": "huecos",
+    "verb": "GET",
+    "path": "/documentos/huecos",
+    "public": false,
+    "roles": [
+      "administrativo",
+      "comprador",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "estadisticas/estadisticas.controller.ts",
+    "line": 18,
+    "class": "EstadisticasController",
+    "method": "resumen",
+    "verb": "GET",
+    "path": "/estadisticas",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "estadisticas/estadisticas.controller.ts",
+    "line": 27,
+    "class": "EstadisticasController",
+    "method": "promocionablesLista",
+    "verb": "GET",
+    "path": "/estadisticas/promocionables",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "estadisticas/vencimientos.controller.ts",
+    "line": 11,
+    "class": "VencimientosController",
+    "method": "listar",
+    "verb": "GET",
+    "path": "/vencimientos",
+    "public": false,
+    "roles": [
+      "deposito",
+      "comprador",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "eventos/eventos.controller.ts",
+    "line": 12,
+    "class": "EventosController",
+    "method": "oportunidades",
+    "verb": "GET",
+    "path": "/eventos/oportunidades",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "eventos/eventos.controller.ts",
+    "line": 17,
+    "class": "EventosController",
+    "method": "resumen",
+    "verb": "GET",
+    "path": "/eventos/resumen",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "eventos/eventos.controller.ts",
+    "line": 23,
+    "class": "EventosController",
+    "method": "sugerir",
+    "verb": "POST",
+    "path": "/eventos/sugerir",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "eventos/eventos.controller.ts",
+    "line": 29,
+    "class": "EventosController",
+    "method": "listar",
+    "verb": "GET",
+    "path": "/eventos",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "eventos/eventos.controller.ts",
+    "line": 34,
+    "class": "EventosController",
+    "method": "crear",
+    "verb": "POST",
+    "path": "/eventos",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "eventos/eventos.controller.ts",
+    "line": 39,
+    "class": "EventosController",
+    "method": "presupuesto",
+    "verb": "GET",
+    "path": "/eventos/:id/presupuesto",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "eventos/eventos.controller.ts",
+    "line": 47,
+    "class": "EventosController",
+    "method": "detalle",
+    "verb": "GET",
+    "path": "/eventos/:id",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "eventos/eventos.controller.ts",
+    "line": 52,
+    "class": "EventosController",
+    "method": "actualizar",
+    "verb": "PATCH",
+    "path": "/eventos/:id",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "eventos/eventos.controller.ts",
+    "line": 57,
+    "class": "EventosController",
+    "method": "guardar",
+    "verb": "POST",
+    "path": "/eventos/:id/propuesta",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "eventos/eventos.controller.ts",
+    "line": 62,
+    "class": "EventosController",
+    "method": "enviar",
+    "verb": "POST",
+    "path": "/eventos/:id/enviar",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "facturacion/facturacion.controller.ts",
+    "line": 12,
+    "class": "FacturacionController",
+    "method": "tipos",
+    "verb": "GET",
+    "path": "/facturacion/tipos",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "facturacion/facturacion.controller.ts",
+    "line": 17,
+    "class": "FacturacionController",
+    "method": "listar",
+    "verb": "GET",
+    "path": "/facturacion/comprobantes",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "facturacion/facturacion.controller.ts",
+    "line": 22,
+    "class": "FacturacionController",
+    "method": "detalle",
+    "verb": "GET",
+    "path": "/facturacion/comprobantes/:id",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "facturacion/facturacion.controller.ts",
+    "line": 27,
+    "class": "FacturacionController",
+    "method": "emitir",
+    "verb": "POST",
+    "path": "/facturacion/comprobantes",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "facturacion/facturacion.controller.ts",
+    "line": 32,
+    "class": "FacturacionController",
+    "method": "anular",
+    "verb": "POST",
+    "path": "/facturacion/comprobantes/:id/anular",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "facturacion/facturacion.controller.ts",
+    "line": 38,
+    "class": "FacturacionController",
+    "method": "resumen",
+    "verb": "GET",
+    "path": "/facturacion/resumen",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "facturacion/facturacion.controller.ts",
+    "line": 43,
+    "class": "FacturacionController",
+    "method": "libroIva",
+    "verb": "GET",
+    "path": "/facturacion/libro-iva",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "facturacion/facturacion.controller.ts",
+    "line": 49,
+    "class": "FacturacionController",
+    "method": "cuentas",
+    "verb": "GET",
+    "path": "/facturacion/cuentas",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "facturacion/facturacion.controller.ts",
+    "line": 54,
+    "class": "FacturacionController",
+    "method": "cuenta",
+    "verb": "GET",
+    "path": "/facturacion/cuentas/:clienteId",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "facturacion/facturacion.controller.ts",
+    "line": 61,
+    "class": "FacturacionController",
+    "method": "facturasAbiertas",
+    "verb": "GET",
+    "path": "/facturacion/cuentas/:clienteId/abiertas",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "facturacion/facturacion.controller.ts",
+    "line": 66,
+    "class": "FacturacionController",
+    "method": "emitirRecibo",
+    "verb": "POST",
+    "path": "/facturacion/recibos",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "facturacion/facturacion.controller.ts",
+    "line": 71,
+    "class": "FacturacionController",
+    "method": "detalleRecibo",
+    "verb": "GET",
+    "path": "/facturacion/recibos/:id",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "facturacion/mi-cuenta.controller.ts",
+    "line": 12,
+    "class": "MiCuentaController",
+    "method": "cuenta",
+    "verb": "GET",
+    "path": "/mi/cuenta",
+    "public": false,
+    "roles": [
+      "cliente"
+    ],
+    "guards": []
+  },
+  {
+    "file": "facturacion/mi-cuenta.controller.ts",
+    "line": 41,
+    "class": "MiCuentaController",
+    "method": "notificaciones",
+    "verb": "GET",
+    "path": "/mi/notificaciones",
+    "public": false,
+    "roles": [
+      "cliente"
+    ],
+    "guards": []
+  },
+  {
+    "file": "facturacion/mi-cuenta.controller.ts",
+    "line": 56,
+    "class": "MiCuentaController",
+    "method": "marcarLeidas",
+    "verb": "POST",
+    "path": "/mi/notificaciones/leidas",
+    "public": false,
+    "roles": [
+      "cliente"
+    ],
+    "guards": []
+  },
+  {
+    "file": "facturacion/mi-cuenta.controller.ts",
+    "line": 67,
+    "class": "MiCuentaController",
+    "method": "guardarPushToken",
+    "verb": "POST",
+    "path": "/mi/push-token",
+    "public": false,
+    "roles": [
+      "cliente"
+    ],
+    "guards": []
+  },
+  {
+    "file": "fidelizacion/fidelizacion.controller.ts",
+    "line": 11,
+    "class": "FidelizacionController",
+    "method": "compras",
+    "verb": "GET",
+    "path": "/mi/compras",
+    "public": false,
+    "roles": [
+      "cliente"
+    ],
+    "guards": []
+  },
+  {
+    "file": "fidelizacion/fidelizacion.controller.ts",
+    "line": 16,
+    "class": "FidelizacionController",
+    "method": "frecuentes",
+    "verb": "GET",
+    "path": "/mi/frecuentes",
+    "public": false,
+    "roles": [
+      "cliente"
+    ],
+    "guards": []
+  },
+  {
+    "file": "fidelizacion/fidelizacion.controller.ts",
+    "line": 21,
+    "class": "FidelizacionController",
+    "method": "favoritos",
+    "verb": "GET",
+    "path": "/mi/favoritos",
+    "public": false,
+    "roles": [
+      "cliente"
+    ],
+    "guards": []
+  },
+  {
+    "file": "fidelizacion/fidelizacion.controller.ts",
+    "line": 26,
+    "class": "FidelizacionController",
+    "method": "toggleFavorito",
+    "verb": "POST",
+    "path": "/mi/favoritos/:productoId",
+    "public": false,
+    "roles": [
+      "cliente"
+    ],
+    "guards": []
+  },
+  {
+    "file": "fidelizacion/fidelizacion.controller.ts",
+    "line": 31,
+    "class": "FidelizacionController",
+    "method": "puntos",
+    "verb": "GET",
+    "path": "/mi/puntos",
+    "public": false,
+    "roles": [
+      "cliente"
+    ],
+    "guards": []
+  },
+  {
+    "file": "fidelizacion/fidelizacion.controller.ts",
+    "line": 36,
+    "class": "FidelizacionController",
+    "method": "canjear",
+    "verb": "POST",
+    "path": "/mi/puntos/canjear",
+    "public": false,
+    "roles": [
+      "cliente"
+    ],
+    "guards": []
+  },
+  {
+    "file": "fidelizacion/fidelizacion.controller.ts",
+    "line": 42,
+    "class": "FidelizacionController",
+    "method": "avisos",
+    "verb": "GET",
+    "path": "/mi/avisos",
+    "public": false,
+    "roles": [
+      "cliente"
+    ],
+    "guards": []
+  },
+  {
+    "file": "fidelizacion/fidelizacion.controller.ts",
+    "line": 47,
+    "class": "FidelizacionController",
+    "method": "suscribirAviso",
+    "verb": "POST",
+    "path": "/mi/avisos/:productoId",
+    "public": false,
+    "roles": [
+      "cliente"
+    ],
+    "guards": []
+  },
+  {
+    "file": "fidelizacion/fidelizacion.controller.ts",
+    "line": 52,
+    "class": "FidelizacionController",
+    "method": "referidos",
+    "verb": "GET",
+    "path": "/mi/referidos",
+    "public": false,
+    "roles": [
+      "cliente"
+    ],
+    "guards": []
+  },
+  {
+    "file": "informes/informes.controller.ts",
+    "line": 11,
+    "class": "InformesController",
+    "method": "listar",
+    "verb": "GET",
+    "path": "/informes",
+    "public": false,
+    "roles": [
+      "dueno",
+      "gerente",
+      "comprador"
+    ],
+    "guards": []
+  },
+  {
+    "file": "informes/informes.controller.ts",
+    "line": 17,
+    "class": "InformesController",
+    "method": "generar",
+    "verb": "POST",
+    "path": "/informes/generar",
+    "public": false,
+    "roles": [
+      "dueno",
+      "gerente",
+      "comprador"
+    ],
+    "guards": []
+  },
+  {
+    "file": "listas/listas.controller.ts",
+    "line": 17,
+    "class": "ListasController",
+    "method": "analizar",
+    "verb": "POST",
+    "path": "/listas-precios/analizar",
+    "public": false,
+    "roles": [
+      "comprador",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "listas/listas.controller.ts",
+    "line": 26,
+    "class": "ListasController",
+    "method": "aplicar",
+    "verb": "POST",
+    "path": "/listas-precios/aplicar",
+    "public": false,
+    "roles": [
+      "comprador",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "listas-venta/listas-venta.controller.ts",
+    "line": 10,
+    "class": "ListasVentaController",
+    "method": "listar",
+    "verb": "GET",
+    "path": "/listas-venta",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "listas-venta/listas-venta.controller.ts",
+    "line": 15,
+    "class": "ListasVentaController",
+    "method": "editar",
+    "verb": "PATCH",
+    "path": "/listas-venta/:id",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "listas-venta/listas-venta.controller.ts",
+    "line": 20,
+    "class": "ListasVentaController",
+    "method": "regenerar",
+    "verb": "POST",
+    "path": "/listas-venta/:id/regenerar",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "mensajes/mensajes.controller.ts",
+    "line": 15,
+    "class": "MensajesController",
+    "method": "solicitudes",
+    "verb": "GET",
+    "path": "/solicitudes",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "mensajes/mensajes.controller.ts",
+    "line": 21,
+    "class": "MensajesController",
+    "method": "responder",
+    "verb": "PATCH",
+    "path": "/solicitudes/:id",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "mensajes/mensajes.controller.ts",
+    "line": 27,
+    "class": "MensajesController",
+    "method": "resumen",
+    "verb": "GET",
+    "path": "/mensajes/resumen",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "mensajes/mensajes.controller.ts",
+    "line": 33,
+    "class": "MensajesController",
+    "method": "historial",
+    "verb": "GET",
+    "path": "/mensajes/historial",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "mensajes/mensajes.controller.ts",
+    "line": 39,
+    "class": "MensajesController",
+    "method": "segmentos",
+    "verb": "GET",
+    "path": "/mensajes/segmentos",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "mensajes/mensajes.controller.ts",
+    "line": 45,
+    "class": "MensajesController",
+    "method": "enviar",
+    "verb": "POST",
+    "path": "/mensajes/enviar",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "mensajes/mensajes.controller.ts",
+    "line": 51,
+    "class": "MensajesController",
+    "method": "automaticasPreview",
+    "verb": "GET",
+    "path": "/mensajes/automaticas",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "mensajes/mensajes.controller.ts",
+    "line": 57,
+    "class": "MensajesController",
+    "method": "correrAutomaticas",
+    "verb": "POST",
+    "path": "/mensajes/automaticas/correr",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "mensajes/mis-solicitudes.controller.ts",
+    "line": 14,
+    "class": "MisSolicitudesController",
+    "method": "crear",
+    "verb": "POST",
+    "path": "/mi/solicitudes",
+    "public": false,
+    "roles": [
+      "cliente"
+    ],
+    "guards": []
+  },
+  {
+    "file": "mensajes/mis-solicitudes.controller.ts",
+    "line": 37,
+    "class": "MisSolicitudesController",
+    "method": "mias",
+    "verb": "GET",
+    "path": "/mi/solicitudes",
+    "public": false,
+    "roles": [
+      "cliente"
+    ],
+    "guards": []
+  },
+  {
+    "file": "mercadopago/mercadopago.controller.ts",
+    "line": 9,
+    "class": "MercadoPagoController",
+    "method": "estado",
+    "verb": "GET",
+    "path": "/mercadopago/estado",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "mercadopago/mercadopago.controller.ts",
+    "line": 15,
+    "class": "MercadoPagoController",
+    "method": "resumen",
+    "verb": "GET",
+    "path": "/mercadopago/resumen",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "mercadopago/mercadopago.controller.ts",
+    "line": 21,
+    "class": "MercadoPagoController",
+    "method": "pagos",
+    "verb": "GET",
+    "path": "/mercadopago/pagos",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "mercadopago/mercadopago.controller.ts",
+    "line": 27,
+    "class": "MercadoPagoController",
+    "method": "importar",
+    "verb": "POST",
+    "path": "/mercadopago/importar",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "mercadopago/mercadopago.controller.ts",
+    "line": 34,
+    "class": "MercadoPagoController",
+    "method": "link",
+    "verb": "POST",
+    "path": "/mercadopago/link",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "mercadopago/mercadopago.controller.ts",
+    "line": 41,
+    "class": "MercadoPagoController",
+    "method": "cajasQR",
+    "verb": "GET",
+    "path": "/mercadopago/cajas-qr",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "mercadopago/mercadopago.controller.ts",
+    "line": 47,
+    "class": "MercadoPagoController",
+    "method": "vincularCajaQR",
+    "verb": "POST",
+    "path": "/mercadopago/vincular-caja-qr",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "mercadopago/mercadopago.controller.ts",
+    "line": 53,
+    "class": "MercadoPagoController",
+    "method": "cobroQR",
+    "verb": "POST",
+    "path": "/mercadopago/cobro-qr",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "mercadopago/mercadopago.controller.ts",
+    "line": 59,
+    "class": "MercadoPagoController",
+    "method": "estadoCobroQR",
+    "verb": "GET",
+    "path": "/mercadopago/cobro-qr/:id",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "mercadopago/mercadopago.controller.ts",
+    "line": 65,
+    "class": "MercadoPagoController",
+    "method": "cancelarCobroQR",
+    "verb": "DELETE",
+    "path": "/mercadopago/cobro-qr/:id",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "mercadopago/mercadopago.controller.ts",
+    "line": 71,
+    "class": "MercadoPagoController",
+    "method": "vincularCobroAVenta",
+    "verb": "POST",
+    "path": "/mercadopago/cobro-qr/:id/venta",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "novedades/novedades.controller.ts",
+    "line": 13,
+    "class": "NovedadesController",
+    "method": "pendientes",
+    "verb": "GET",
+    "path": "/novedades/pendientes",
+    "public": false,
+    "roles": [],
+    "guards": []
+  },
+  {
+    "file": "novedades/novedades.controller.ts",
+    "line": 21,
+    "class": "NovedadesController",
+    "method": "vista",
+    "verb": "POST",
+    "path": "/novedades/:id/vista",
+    "public": false,
+    "roles": [],
+    "guards": []
+  },
+  {
+    "file": "novedades/novedades.controller.ts",
+    "line": 33,
+    "class": "NovedadesController",
+    "method": "alertas",
+    "verb": "GET",
+    "path": "/novedades/alertas",
+    "public": false,
+    "roles": [],
+    "guards": []
+  },
+  {
+    "file": "novedades/novedades.controller.ts",
+    "line": 47,
+    "class": "NovedadesController",
+    "method": "crearAlerta",
+    "verb": "POST",
+    "path": "/novedades/alertas",
+    "public": false,
+    "roles": [
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "novedades/novedades.controller.ts",
+    "line": 65,
+    "class": "NovedadesController",
+    "method": "alertaLeida",
+    "verb": "POST",
+    "path": "/novedades/alertas/:id/leida",
+    "public": false,
+    "roles": [],
+    "guards": []
+  },
+  {
+    "file": "novedades/novedades.controller.ts",
+    "line": 76,
+    "class": "NovedadesController",
+    "method": "publicar",
+    "verb": "POST",
+    "path": "/novedades",
+    "public": false,
+    "roles": [
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "pedidos/pedidos.controller.ts",
+    "line": 43,
+    "class": "PedidosController",
+    "method": "webhook",
+    "verb": "POST",
+    "path": "/pedidosya/webhook",
+    "public": true,
+    "roles": [],
+    "guards": []
+  },
+  {
+    "file": "pedidos/pedidos.controller.ts",
+    "line": 65,
+    "class": "PedidosController",
+    "method": "simular",
+    "verb": "POST",
+    "path": "/pedidosya/simular",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "pedidos/pedidos.controller.ts",
+    "line": 94,
+    "class": "PedidosController",
+    "method": "analizarWa",
+    "verb": "POST",
+    "path": "/pedidos/whatsapp/analizar",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno",
+      "deposito"
+    ],
+    "guards": []
+  },
+  {
+    "file": "pedidos/pedidos.controller.ts",
+    "line": 100,
+    "class": "PedidosController",
+    "method": "crearWa",
+    "verb": "POST",
+    "path": "/pedidos/whatsapp",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno",
+      "deposito"
+    ],
+    "guards": []
+  },
+  {
+    "file": "pedidos/pedidos.controller.ts",
+    "line": 106,
+    "class": "PedidosController",
+    "method": "cola",
+    "verb": "GET",
+    "path": "/pedidos",
+    "public": false,
+    "roles": [
+      "deposito",
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "pedidos/pedidos.controller.ts",
+    "line": 115,
+    "class": "PedidosController",
+    "method": "crearDesdeApp",
+    "verb": "POST",
+    "path": "/app/pedidos",
+    "public": true,
+    "roles": [],
+    "guards": []
+  },
+  {
+    "file": "pedidos/pedidos.controller.ts",
+    "line": 130,
+    "class": "PedidosController",
+    "method": "sucursalPickup",
+    "verb": "GET",
+    "path": "/sucursal-pickup",
+    "public": true,
+    "roles": [],
+    "guards": []
+  },
+  {
+    "file": "pedidos/pedidos.controller.ts",
+    "line": 136,
+    "class": "PedidosController",
+    "method": "obtener",
+    "verb": "GET",
+    "path": "/app/pedidos/:id",
+    "public": true,
+    "roles": [],
+    "guards": []
+  },
+  {
+    "file": "pedidos/pedidos.controller.ts",
+    "line": 143,
+    "class": "PedidosController",
+    "method": "ubicacion",
+    "verb": "POST",
+    "path": "/app/pedidos/:id/ubicacion",
+    "public": true,
+    "roles": [],
+    "guards": []
+  },
+  {
+    "file": "pedidos/pedidos.controller.ts",
+    "line": 149,
+    "class": "PedidosController",
+    "method": "seguimiento",
+    "verb": "GET",
+    "path": "/app/pedidos/:id/seguimiento",
+    "public": true,
+    "roles": [],
+    "guards": []
+  },
+  {
+    "file": "pedidos/pedidos.controller.ts",
+    "line": 156,
+    "class": "PedidosController",
+    "method": "pago",
+    "verb": "POST",
+    "path": "/app/pedidos/:id/pago",
+    "public": true,
+    "roles": [],
+    "guards": []
+  },
+  {
+    "file": "pedidos/pedidos.controller.ts",
+    "line": 162,
+    "class": "PedidosController",
+    "method": "webhookMP",
+    "verb": "POST",
+    "path": "/mercadopago/webhook",
+    "public": true,
+    "roles": [],
+    "guards": []
+  },
+  {
+    "file": "pedidos/pedidos.controller.ts",
+    "line": 168,
+    "class": "PedidosController",
+    "method": "pagoOk",
+    "verb": "GET",
+    "path": "/pago/ok",
+    "public": true,
+    "roles": [],
+    "guards": []
+  },
+  {
+    "file": "pedidos/pedidos.controller.ts",
+    "line": 180,
+    "class": "PedidosController",
+    "method": "estacionamientos",
+    "verb": "GET",
+    "path": "/estacionamientos",
+    "public": false,
+    "roles": [
+      "deposito",
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "pedidos/pedidos.controller.ts",
+    "line": 187,
+    "class": "PedidosController",
+    "method": "asignarRepartidor",
+    "verb": "PATCH",
+    "path": "/pedidos/:id/repartidor",
+    "public": false,
+    "roles": [
+      "deposito",
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "pedidos/pedidos.controller.ts",
+    "line": 193,
+    "class": "PedidosController",
+    "method": "misEntregas",
+    "verb": "GET",
+    "path": "/repartidor/mis-entregas",
+    "public": false,
+    "roles": [
+      "repartidor",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "pedidos/pedidos.controller.ts",
+    "line": 199,
+    "class": "PedidosController",
+    "method": "repartidorUbicacion",
+    "verb": "POST",
+    "path": "/repartidor/pedidos/:id/ubicacion",
+    "public": false,
+    "roles": [
+      "repartidor",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "pedidos/pedidos.controller.ts",
+    "line": 207,
+    "class": "PedidosController",
+    "method": "perfil",
+    "verb": "GET",
+    "path": "/app/perfil",
+    "public": false,
+    "roles": [
+      "cliente"
+    ],
+    "guards": []
+  },
+  {
+    "file": "pedidos/pedidos.controller.ts",
+    "line": 213,
+    "class": "PedidosController",
+    "method": "avanzar",
+    "verb": "POST",
+    "path": "/pedidos/:id/avanzar",
+    "public": false,
+    "roles": [
+      "deposito",
+      "cajero",
+      "gerente",
+      "dueno",
+      "repartidor"
+    ],
+    "guards": []
+  },
+  {
+    "file": "pedidos/pedidos.controller.ts",
+    "line": 223,
+    "class": "PedidosController",
+    "method": "envios",
+    "verb": "GET",
+    "path": "/envios",
+    "public": false,
+    "roles": [
+      "deposito",
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "pedidos/pedidos.controller.ts",
+    "line": 229,
+    "class": "PedidosController",
+    "method": "repartidores",
+    "verb": "GET",
+    "path": "/repartidores",
+    "public": false,
+    "roles": [
+      "deposito",
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "promos/promos.controller.ts",
+    "line": 14,
+    "class": "PromosController",
+    "method": "segunStock",
+    "verb": "GET",
+    "path": "/promos/segun-stock",
+    "public": false,
+    "roles": [
+      "dueno",
+      "gerente"
+    ],
+    "guards": []
+  },
+  {
+    "file": "promos/promos.controller.ts",
+    "line": 19,
+    "class": "PromosController",
+    "method": "sugerir",
+    "verb": "POST",
+    "path": "/promos/sugerir",
+    "public": false,
+    "roles": [
+      "dueno",
+      "gerente"
+    ],
+    "guards": []
+  },
+  {
+    "file": "promos/promos.controller.ts",
+    "line": 25,
+    "class": "PromosController",
+    "method": "contexto",
+    "verb": "POST",
+    "path": "/promos/contexto",
+    "public": false,
+    "roles": [
+      "dueno",
+      "gerente"
+    ],
+    "guards": []
+  },
+  {
+    "file": "promos/promos.controller.ts",
+    "line": 31,
+    "class": "PromosController",
+    "method": "rendimiento",
+    "verb": "GET",
+    "path": "/promos/rendimiento",
+    "public": false,
+    "roles": [
+      "dueno",
+      "gerente"
+    ],
+    "guards": []
+  },
+  {
+    "file": "promos/promos.controller.ts",
+    "line": 36,
+    "class": "PromosController",
+    "method": "anuncio",
+    "verb": "POST",
+    "path": "/promos/anuncio",
+    "public": false,
+    "roles": [
+      "dueno",
+      "gerente"
+    ],
+    "guards": []
+  },
+  {
+    "file": "repartidores/repartidores.controller.ts",
+    "line": 14,
+    "class": "RepartidoresController",
+    "method": "listar",
+    "verb": "GET",
+    "path": "/gestion/repartidores",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "repartidores/repartidores.controller.ts",
+    "line": 19,
+    "class": "RepartidoresController",
+    "method": "crear",
+    "verb": "POST",
+    "path": "/gestion/repartidores",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "repartidores/repartidores.controller.ts",
+    "line": 24,
+    "class": "RepartidoresController",
+    "method": "editar",
+    "verb": "PATCH",
+    "path": "/gestion/repartidores/:id",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "repartidores/repartidores.controller.ts",
+    "line": 29,
+    "class": "RepartidoresController",
+    "method": "agregarVehiculo",
+    "verb": "POST",
+    "path": "/gestion/repartidores/:id/vehiculos",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "repartidores/repartidores.controller.ts",
+    "line": 34,
+    "class": "RepartidoresController",
+    "method": "editarVehiculo",
+    "verb": "PATCH",
+    "path": "/gestion/repartidores/vehiculos/:vid",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "repartidores/repartidores.controller.ts",
+    "line": 39,
+    "class": "RepartidoresController",
+    "method": "desactivarVehiculo",
+    "verb": "DELETE",
+    "path": "/gestion/repartidores/vehiculos/:vid",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "repartidores/repartidores.controller.ts",
+    "line": 45,
+    "class": "RepartidoresController",
+    "method": "subirPoliza",
+    "verb": "POST",
+    "path": "/gestion/repartidores/vehiculos/:vid/poliza",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "repartidores/repartidores.controller.ts",
+    "line": 58,
+    "class": "RepartidoresController",
+    "method": "asignar",
+    "verb": "POST",
+    "path": "/gestion/repartidores/asignar/:pedidoId",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "repartidores/repartidores.controller.ts",
+    "line": 63,
+    "class": "RepartidoresController",
+    "method": "autorizacion",
+    "verb": "GET",
+    "path": "/gestion/repartidores/autorizacion/:pedidoId",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "repartos/repartos.controller.ts",
+    "line": 9,
+    "class": "RepartosController",
+    "method": "listar",
+    "verb": "GET",
+    "path": "/repartos",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno",
+      "repartidor"
+    ],
+    "guards": []
+  },
+  {
+    "file": "repartos/repartos.controller.ts",
+    "line": 16,
+    "class": "RepartosController",
+    "method": "flota",
+    "verb": "GET",
+    "path": "/repartos/flota",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "repartos/repartos.controller.ts",
+    "line": 22,
+    "class": "RepartosController",
+    "method": "choferes",
+    "verb": "GET",
+    "path": "/repartos/choferes",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno",
+      "cajero"
+    ],
+    "guards": []
+  },
+  {
+    "file": "repartos/repartos.controller.ts",
+    "line": 28,
+    "class": "RepartosController",
+    "method": "clientesZona",
+    "verb": "GET",
+    "path": "/repartos/clientes-zona",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno",
+      "cajero"
+    ],
+    "guards": []
+  },
+  {
+    "file": "repartos/repartos.controller.ts",
+    "line": 35,
+    "class": "RepartosController",
+    "method": "posicion",
+    "verb": "POST",
+    "path": "/repartos/posicion",
+    "public": false,
+    "roles": [
+      "repartidor",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "repartos/repartos.controller.ts",
+    "line": 41,
+    "class": "RepartosController",
+    "method": "crear",
+    "verb": "POST",
+    "path": "/repartos",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "repartos/repartos.controller.ts",
+    "line": 47,
+    "class": "RepartosController",
+    "method": "detalle",
+    "verb": "GET",
+    "path": "/repartos/:id",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno",
+      "repartidor"
+    ],
+    "guards": []
+  },
+  {
+    "file": "repartos/repartos.controller.ts",
+    "line": 53,
+    "class": "RepartosController",
+    "method": "agregar",
+    "verb": "POST",
+    "path": "/repartos/:id/paradas",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno",
+      "cajero"
+    ],
+    "guards": []
+  },
+  {
+    "file": "repartos/repartos.controller.ts",
+    "line": 59,
+    "class": "RepartosController",
+    "method": "traer",
+    "verb": "POST",
+    "path": "/repartos/:id/traer-zona",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno",
+      "cajero"
+    ],
+    "guards": []
+  },
+  {
+    "file": "repartos/repartos.controller.ts",
+    "line": 65,
+    "class": "RepartosController",
+    "method": "marcar",
+    "verb": "POST",
+    "path": "/repartos/parada/:pid",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno",
+      "repartidor"
+    ],
+    "guards": []
+  },
+  {
+    "file": "repartos/repartos.controller.ts",
+    "line": 71,
+    "class": "RepartosController",
+    "method": "estado",
+    "verb": "POST",
+    "path": "/repartos/:id/estado",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno",
+      "repartidor"
+    ],
+    "guards": []
+  },
+  {
+    "file": "reportes/reportes.controller.ts",
+    "line": 11,
+    "class": "ReportesController",
+    "method": "crear",
+    "verb": "POST",
+    "path": "/reportes",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno",
+      "comprador",
+      "deposito",
+      "administrativo",
+      "repartidor"
+    ],
+    "guards": []
+  },
+  {
+    "file": "reportes/reportes.controller.ts",
+    "line": 17,
+    "class": "ReportesController",
+    "method": "listar",
+    "verb": "GET",
+    "path": "/reportes",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "reportes/reportes.controller.ts",
+    "line": 23,
+    "class": "ReportesController",
+    "method": "resolver",
+    "verb": "POST",
+    "path": "/reportes/:id/resolver",
+    "public": false,
+    "roles": [
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "salud.controller.ts",
+    "line": 7,
+    "class": "SaludController",
+    "method": "salud",
+    "verb": "GET",
+    "path": "/['/', 'salud']",
+    "public": true,
+    "roles": [],
+    "guards": []
+  },
+  {
+    "file": "sommelier/sommelier.controller.ts",
+    "line": 17,
+    "class": "SommelierController",
+    "method": "charlar",
+    "verb": "POST",
+    "path": "/sommelier/charla",
+    "public": true,
+    "roles": [],
+    "guards": []
+  },
+  {
+    "file": "stock/stock.controller.ts",
+    "line": 13,
+    "class": "StockController",
+    "method": "bajoMinimo",
+    "verb": "GET",
+    "path": "/stock/bajo-minimo",
+    "public": false,
+    "roles": [
+      "cajero",
+      "deposito",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "stock/stock.controller.ts",
+    "line": 18,
+    "class": "StockController",
+    "method": "movimientos",
+    "verb": "GET",
+    "path": "/stock/movimientos",
+    "public": false,
+    "roles": [
+      "cajero",
+      "deposito",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "stock/stock.controller.ts",
+    "line": 35,
+    "class": "StockController",
+    "method": "resumen",
+    "verb": "GET",
+    "path": "/stock/resumen",
+    "public": false,
+    "roles": [
+      "cajero",
+      "deposito",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "stock/stock.controller.ts",
+    "line": 40,
+    "class": "StockController",
+    "method": "valorizacion",
+    "verb": "GET",
+    "path": "/stock/valorizacion",
+    "public": false,
+    "roles": [
+      "cajero",
+      "deposito",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "stock/stock.controller.ts",
+    "line": 45,
+    "class": "StockController",
+    "method": "negativos",
+    "verb": "GET",
+    "path": "/stock/negativos",
+    "public": false,
+    "roles": [
+      "cajero",
+      "deposito",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "stock/stock.controller.ts",
+    "line": 50,
+    "class": "StockController",
+    "method": "abc",
+    "verb": "GET",
+    "path": "/stock/abc",
+    "public": false,
+    "roles": [
+      "cajero",
+      "deposito",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "stock/stock.controller.ts",
+    "line": 55,
+    "class": "StockController",
+    "method": "sinRotacion",
+    "verb": "GET",
+    "path": "/stock/sin-rotacion",
+    "public": false,
+    "roles": [
+      "cajero",
+      "deposito",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "stock/stock.controller.ts",
+    "line": 63,
+    "class": "StockController",
+    "method": "ajuste",
+    "verb": "POST",
+    "path": "/stock/ajustes",
+    "public": false,
+    "roles": [
+      "deposito",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "stock/stock.controller.ts",
+    "line": 70,
+    "class": "StockController",
+    "method": "merma",
+    "verb": "POST",
+    "path": "/stock/mermas",
+    "public": false,
+    "roles": [
+      "deposito",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "stock/stock.controller.ts",
+    "line": 77,
+    "class": "StockController",
+    "method": "fraccionables",
+    "verb": "GET",
+    "path": "/stock/fraccionables",
+    "public": false,
+    "roles": [
+      "cajero",
+      "deposito",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "stock/stock.controller.ts",
+    "line": 82,
+    "class": "StockController",
+    "method": "fraccionar",
+    "verb": "POST",
+    "path": "/stock/fraccionar",
+    "public": false,
+    "roles": [
+      "cajero",
+      "deposito",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "stock/stock.controller.ts",
+    "line": 87,
+    "class": "StockController",
+    "method": "motivosMerma",
+    "verb": "GET",
+    "path": "/stock/motivos-merma",
+    "public": false,
+    "roles": [
+      "cajero",
+      "deposito",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "stock/stock.controller.ts",
+    "line": 94,
+    "class": "StockController",
+    "method": "crearConteo",
+    "verb": "POST",
+    "path": "/stock/conteos",
+    "public": false,
+    "roles": [
+      "deposito",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "stock/stock.controller.ts",
+    "line": 100,
+    "class": "StockController",
+    "method": "conteos",
+    "verb": "GET",
+    "path": "/stock/conteos",
+    "public": false,
+    "roles": [
+      "deposito",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "stock/stock.controller.ts",
+    "line": 106,
+    "class": "StockController",
+    "method": "conteoItem",
+    "verb": "POST",
+    "path": "/stock/conteos/:id/items",
+    "public": false,
+    "roles": [
+      "deposito",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "stock/stock.controller.ts",
+    "line": 115,
+    "class": "StockController",
+    "method": "finalizarConteo",
+    "verb": "POST",
+    "path": "/stock/conteos/:id/finalizar",
+    "public": false,
+    "roles": [
+      "deposito",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "stock/stock.controller.ts",
+    "line": 126,
+    "class": "StockController",
+    "method": "descartarConteo",
+    "verb": "POST",
+    "path": "/stock/conteos/:id/descartar",
+    "public": false,
+    "roles": [
+      "deposito",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "stock/stock.controller.ts",
+    "line": 132,
+    "class": "StockController",
+    "method": "transferencias",
+    "verb": "GET",
+    "path": "/stock/transferencias",
+    "public": false,
+    "roles": [
+      "cajero",
+      "deposito",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "stock/stock.controller.ts",
+    "line": 137,
+    "class": "StockController",
+    "method": "transferencia",
+    "verb": "POST",
+    "path": "/stock/transferencias",
+    "public": false,
+    "roles": [
+      "deposito",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "stock/stock.controller.ts",
+    "line": 143,
+    "class": "StockController",
+    "method": "recibir",
+    "verb": "POST",
+    "path": "/stock/transferencias/:id/recibir",
+    "public": false,
+    "roles": [
+      "deposito",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "stock/stock.controller.ts",
+    "line": 150,
+    "class": "StockController",
+    "method": "anularTransferencia",
+    "verb": "POST",
+    "path": "/stock/transferencias/:id/anular",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "sync/sync.controller.ts",
+    "line": 10,
+    "class": "SyncController",
+    "method": "estado",
+    "verb": "GET",
+    "path": "/sync/estado",
+    "public": false,
+    "roles": [
+      "deposito",
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "tarjetas/tarjetas.controller.ts",
+    "line": 9,
+    "class": "TarjetasController",
+    "method": "resumen",
+    "verb": "GET",
+    "path": "/tarjetas/resumen",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "tarjetas/tarjetas.controller.ts",
+    "line": 15,
+    "class": "TarjetasController",
+    "method": "pagos",
+    "verb": "GET",
+    "path": "/tarjetas/pagos",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "tiendanube/tiendanube.controller.ts",
+    "line": 9,
+    "class": "TiendanubeController",
+    "method": "estado",
+    "verb": "GET",
+    "path": "/tiendanube/estado",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "tiendanube/tiendanube.controller.ts",
+    "line": 15,
+    "class": "TiendanubeController",
+    "method": "syncCatalogo",
+    "verb": "POST",
+    "path": "/tiendanube/sync-catalogo",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "tiendanube/tiendanube.controller.ts",
+    "line": 21,
+    "class": "TiendanubeController",
+    "method": "importar",
+    "verb": "POST",
+    "path": "/tiendanube/importar-pedidos",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "tiendanube/tiendanube.controller.ts",
+    "line": 29,
+    "class": "TiendanubeController",
+    "method": "webhook",
+    "verb": "POST",
+    "path": "/tiendanube/webhook",
+    "public": true,
+    "roles": [],
+    "guards": []
+  },
+  {
+    "file": "usuarios/usuarios.controller.ts",
+    "line": 16,
+    "class": "UsuariosController",
+    "method": "listar",
+    "verb": "GET",
+    "path": "/usuarios",
+    "public": false,
+    "roles": [
+      "dueno",
+      "gerente"
+    ],
+    "guards": []
+  },
+  {
+    "file": "usuarios/usuarios.controller.ts",
+    "line": 21,
+    "class": "UsuariosController",
+    "method": "sucursales",
+    "verb": "GET",
+    "path": "/usuarios/sucursales",
+    "public": false,
+    "roles": [
+      "dueno",
+      "gerente"
+    ],
+    "guards": []
+  },
+  {
+    "file": "usuarios/usuarios.controller.ts",
+    "line": 27,
+    "class": "UsuariosController",
+    "method": "crear",
+    "verb": "POST",
+    "path": "/usuarios",
+    "public": false,
+    "roles": [
+      "dueno",
+      "gerente"
+    ],
+    "guards": []
+  },
+  {
+    "file": "usuarios/usuarios.controller.ts",
+    "line": 32,
+    "class": "UsuariosController",
+    "method": "editar",
+    "verb": "PATCH",
+    "path": "/usuarios/:id",
+    "public": false,
+    "roles": [
+      "dueno",
+      "gerente"
+    ],
+    "guards": []
+  },
+  {
+    "file": "usuarios/usuarios.controller.ts",
+    "line": 37,
+    "class": "UsuariosController",
+    "method": "eliminar",
+    "verb": "DELETE",
+    "path": "/usuarios/:id",
+    "public": false,
+    "roles": [
+      "dueno",
+      "gerente"
+    ],
+    "guards": []
+  },
+  {
+    "file": "ventas/ventas.controller.ts",
+    "line": 10,
+    "class": "VentasController",
+    "method": "registrar",
+    "verb": "POST",
+    "path": "/ventas",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "ventas/ventas.controller.ts",
+    "line": 31,
+    "class": "VentasController",
+    "method": "listar",
+    "verb": "GET",
+    "path": "/ventas",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "ventas/ventas.controller.ts",
+    "line": 51,
+    "class": "VentasController",
+    "method": "resumen",
+    "verb": "GET",
+    "path": "/ventas/resumen",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "ventas/ventas.controller.ts",
+    "line": 58,
+    "class": "VentasController",
+    "method": "detalle",
+    "verb": "GET",
+    "path": "/ventas/:id/detalle",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "ventas/ventas.controller.ts",
+    "line": 67,
+    "class": "VentasController",
+    "method": "cambiarMedioPago",
+    "verb": "POST",
+    "path": "/ventas/:id/medio-pago",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "ventas/ventas.controller.ts",
+    "line": 80,
+    "class": "VentasController",
+    "method": "cliente",
+    "verb": "GET",
+    "path": "/ventas/cliente/:dni",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "ventas/ventas.controller.ts",
+    "line": 88,
+    "class": "VentasController",
+    "method": "sumarWhatsapp",
+    "verb": "POST",
+    "path": "/ventas/cliente/:dni/whatsapp",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "ventas/ventas.controller.ts",
+    "line": 95,
+    "class": "VentasController",
+    "method": "anular",
+    "verb": "POST",
+    "path": "/ventas/:id/anular",
+    "public": false,
+    "roles": [
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "ventas/ventas.controller.ts",
+    "line": 102,
+    "class": "VentasController",
+    "method": "pedirDevolucion",
+    "verb": "POST",
+    "path": "/ventas/:id/devolucion-pedir",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "ventas/ventas.controller.ts",
+    "line": 108,
+    "class": "VentasController",
+    "method": "estadoDevolucion",
+    "verb": "GET",
+    "path": "/ventas/devolucion-estado/:id",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  },
+  {
+    "file": "ventas/ventas.controller.ts",
+    "line": 116,
+    "class": "VentasController",
+    "method": "devolver",
+    "verb": "POST",
+    "path": "/ventas/:id/devolver",
+    "public": false,
+    "roles": [
+      "cajero",
+      "gerente",
+      "dueno"
+    ],
+    "guards": []
+  }
+]

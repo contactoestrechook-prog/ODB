@@ -1,0 +1,116 @@
+
+> api@0.0.1 test
+> jest --runInBand
+
+[Nest] 63108  - 09/21/2026, 2:26:31 PM     LOG [BotService] saludo y bienvenida ajustados para 111
+[Nest] 63108  - 09/21/2026, 2:26:31 PM     LOG [BotService] charla pedidos/111: 150 tokens · 1 llamadas · entrada 100 · caché leída 0 · caché escrita 0 · salida 50 · ≈ USD 0.001
+[Nest] 63108  - 09/21/2026, 2:26:31 PM     LOG [BotService] saludo y bienvenida ajustados para 111
+[Nest] 63108  - 09/21/2026, 2:26:31 PM     LOG [BotService] charla pedidos/111: 150 tokens · 1 llamadas · entrada 100 · caché leída 0 · caché escrita 0 · salida 50 · ≈ USD 0.001
+[Nest] 63108  - 09/21/2026, 2:26:31 PM     LOG [BotService] saludo y bienvenida ajustados para 333
+[Nest] 63108  - 09/21/2026, 2:26:31 PM     LOG [BotService] charla pedidos/333: 150 tokens · 1 llamadas · entrada 100 · caché leída 0 · caché escrita 0 · salida 50 · ≈ USD 0.001
+[Nest] 63108  - 09/21/2026, 2:26:31 PM     LOG [BotService] saludo y bienvenida ajustados para 333
+[Nest] 63108  - 09/21/2026, 2:26:31 PM     LOG [BotService] charla pedidos/333: 150 tokens · 1 llamadas · entrada 100 · caché leída 0 · caché escrita 0 · salida 50 · ≈ USD 0.001
+[Nest] 63108  - 09/21/2026, 2:26:31 PM     LOG [BotService] saludo y bienvenida ajustados para 333
+[Nest] 63108  - 09/21/2026, 2:26:31 PM     LOG [BotService] charla pedidos/333: 150 tokens · 1 llamadas · entrada 100 · caché leída 0 · caché escrita 0 · salida 50 · ≈ USD 0.001
+[Nest] 63108  - 09/21/2026, 2:26:31 PM     LOG [BotService] silencio (saludo en charla ya abierta) para 777: "Hola"
+[Nest] 63108  - 09/21/2026, 2:26:31 PM     LOG [BotService] charla pedidos/888: 150 tokens · 1 llamadas · entrada 100 · caché leída 0 · caché escrita 0 · salida 50 · ≈ USD 0.001
+[Nest] 63108  - 09/21/2026, 2:26:31 PM     LOG [BotService] charla pedidos/999: 150 tokens · 1 llamadas · entrada 100 · caché leída 0 · caché escrita 0 · salida 50 · ≈ USD 0.001
+[Nest] 63108  - 09/21/2026, 2:26:31 PM    WARN [BotService] dice pedido cargado sin crear_pedido exitoso para 1010: regenero
+[Nest] 63108  - 09/21/2026, 2:26:31 PM     LOG [BotService] saludo y bienvenida ajustados para 1010
+[Nest] 63108  - 09/21/2026, 2:26:31 PM     LOG [BotService] charla pedidos/1010: 150 tokens · 1 llamadas · entrada 100 · caché leída 0 · caché escrita 0 · salida 50 · ≈ USD 0.001
+[Nest] 63108  - 09/21/2026, 2:26:31 PM     LOG [BotService] silencio (número del equipo) para 49375296409753: "quiero un fernet"
+[Nest] 63108  - 09/21/2026, 2:26:31 PM    WARN [BotService] verificador de preguntas falló: Unexpected token 'B', "Buen día. "... is not valid JSON
+[Nest] 63108  - 09/21/2026, 2:26:31 PM    WARN [BotService] presentación de robot sin que la pidieran para 2020: oración(es) removida(s)
+[Nest] 63108  - 09/21/2026, 2:26:31 PM     LOG [BotService] saludo y bienvenida ajustados para 2020
+[Nest] 63108  - 09/21/2026, 2:26:31 PM     LOG [BotService] charla pedidos/2020: 150 tokens · 1 llamadas · entrada 100 · caché leída 0 · caché escrita 0 · salida 50 · ≈ USD 0.001
+[Nest] 63108  - 09/21/2026, 2:26:31 PM    WARN [BotService] verificador de preguntas falló: Unexpected token 'B', "Buen día, "... is not valid JSON
+[Nest] 63108  - 09/21/2026, 2:26:31 PM    WARN [BotService] presentación de robot sin que la pidieran para 2022: oración(es) removida(s)
+[Nest] 63108  - 09/21/2026, 2:26:31 PM     LOG [BotService] saludo y bienvenida ajustados para 2022
+[Nest] 63108  - 09/21/2026, 2:26:31 PM     LOG [BotService] charla pedidos/2022: 150 tokens · 1 llamadas · entrada 100 · caché leída 0 · caché escrita 0 · salida 50 · ≈ USD 0.001
+[Nest] 63108  - 09/21/2026, 2:26:31 PM    WARN [BotService] verificador de preguntas falló: Unexpected token 'S', "Soy el asi"... is not valid JSON
+[Nest] 63108  - 09/21/2026, 2:26:31 PM     LOG [BotService] saludo y bienvenida ajustados para 2021
+[Nest] 63108  - 09/21/2026, 2:26:31 PM     LOG [BotService] charla pedidos/2021: 150 tokens · 1 llamadas · entrada 100 · caché leída 0 · caché escrita 0 · salida 50 · ≈ USD 0.001
+[Nest] 63108  - 09/21/2026, 2:26:31 PM     LOG [BotService] saludo y bienvenida ajustados para 444
+[Nest] 63108  - 09/21/2026, 2:26:31 PM     LOG [BotService] charla pedidos/444: 150 tokens · 1 llamadas · entrada 100 · caché leída 0 · caché escrita 0 · salida 50 · ≈ USD 0.001
+[Nest] 63108  - 09/21/2026, 2:26:31 PM     LOG [BotService] herramienta herramienta_inexistente · pedidos/111
+[Nest] 63108  - 09/21/2026, 2:26:31 PM    WARN [BotService] Herramienta herramienta_inexistente falló: Herramienta desconocida: herramienta_inexistente
+[Nest] 63108  - 09/21/2026, 2:26:31 PM     LOG [BotService] herramienta identificar_cliente · pedidos/5491199990000
+[Nest] 63108  - 09/21/2026, 2:26:31 PM     LOG [BotService] herramienta crear_pedido · pedidos/5491199990000
+[Nest] 63108  - 09/21/2026, 2:26:31 PM     LOG [BotService] herramienta crear_pedido · pedidos/5491199990001
+[Nest] 63108  - 09/21/2026, 2:26:31 PM     LOG [BotService] herramienta crear_pedido · pedidos/5491199990001
+[Nest] 63108  - 09/21/2026, 2:26:31 PM     LOG [BotService] herramienta crear_pedido · pedidos/5491199990001
+[Nest] 63108  - 09/21/2026, 2:26:31 PM     LOG [BotService] herramienta crear_pedido · pedidos/5491199990001
+[Nest] 63108  - 09/21/2026, 2:26:31 PM     LOG [BotService] herramienta crear_pedido · pedidos/5491199990001
+[Nest] 63108  - 09/21/2026, 2:26:31 PM    WARN [BotService] Herramienta crear_pedido falló: NO se creó el pedido: usá preparar_pedido para mostrar un resumen verificable y esperá confirmación
+[Nest] 63108  - 09/21/2026, 2:26:31 PM    WARN [BotService] verificador de preguntas falló: Unexpected token 'B', "Buen día. "... is not valid JSON
+[Nest] 63108  - 09/21/2026, 2:26:31 PM     LOG [BotService] saludo y bienvenida ajustados para 3011
+[Nest] 63108  - 09/21/2026, 2:26:31 PM     LOG [BotService] registro ajustado (usted/confianzudo) para 3011
+[Nest] 63108  - 09/21/2026, 2:26:31 PM     LOG [BotService] charla pedidos/3011: 150 tokens · 1 llamadas · entrada 100 · caché leída 0 · caché escrita 0 · salida 50 · ≈ USD 0.001
+[Nest] 63108  - 09/21/2026, 2:26:31 PM    WARN [BotService] verificador de preguntas falló: Unexpected token '¿', "¿Querés co"... is not valid JSON
+[Nest] 63108  - 09/21/2026, 2:26:31 PM     LOG [BotService] saludo y bienvenida ajustados para 3012
+[Nest] 63108  - 09/21/2026, 2:26:31 PM     LOG [BotService] charla pedidos/3012: 150 tokens · 1 llamadas · entrada 100 · caché leída 0 · caché escrita 0 · salida 50 · ≈ USD 0.001
+[Nest] 63108  - 09/21/2026, 2:26:31 PM     LOG [BotService] saludo y bienvenida ajustados para 3013
+[Nest] 63108  - 09/21/2026, 2:26:31 PM     LOG [BotService] charla pedidos/3013: 300 tokens · 2 llamadas · entrada 200 · caché leída 0 · caché escrita 0 · salida 100 · ≈ USD 0.002
+[Nest] 63108  - 09/21/2026, 2:26:31 PM    WARN [BotService] 3 preguntas en un mensaje para 4001: regenero
+[Nest] 63108  - 09/21/2026, 2:26:31 PM     LOG [BotService] saludo y bienvenida ajustados para 4001
+[Nest] 63108  - 09/21/2026, 2:26:31 PM   ERROR [BotService] CANDADO FINAL: "no puedo ver/escuchar" sobrevivió a todas las guardas para 4001; mensaje reemplazado
+[Nest] 63108  - 09/21/2026, 2:26:31 PM     LOG [BotService] charla pedidos/4001: 300 tokens · 2 llamadas · entrada 200 · caché leída 0 · caché escrita 0 · salida 100 · ≈ USD 0.002
+[Nest] 63108  - 09/21/2026, 2:26:31 PM     LOG [BotService] adjunto pendiente leído para 5491155556666: https://x.supabase.co/publico/whatsapp/549/cat.pdf
+[Nest] 63108  - 09/21/2026, 2:26:31 PM    WARN [BotService] verificador de preguntas falló: Unexpected token 'P', "Perfecto, "... is not valid JSON
+[Nest] 63108  - 09/21/2026, 2:26:31 PM     LOG [BotService] saludo y bienvenida ajustados para 5491155556666
+[Nest] 63108  - 09/21/2026, 2:26:31 PM     LOG [BotService] charla pedidos/5491155556666: 150 tokens · 1 llamadas · entrada 100 · caché leída 0 · caché escrita 0 · salida 50 · ≈ USD 0.001
+[Nest] 63108  - 09/21/2026, 2:26:32 PM    WARN [BotService] no pude pausar 5491133344455 en RESPONDE: la app va a mostrar el bot activo
+[Nest] 63108  - 09/21/2026, 2:26:32 PM     LOG [BotService] pago de $85.000 de 5491133344455 confirmado por administración: cliente avisado=true
+[Nest] 63108  - 09/21/2026, 2:26:32 PM     LOG [BotService] administración respondió "no figura" para 5491133344455: relayado=true
+[Nest] 63108  - 09/21/2026, 2:26:32 PM     LOG [BotService] respuesta clave "ENTRADA" para 5491144556677
+[Nest] 63108  - 09/21/2026, 2:26:32 PM     LOG [BotService] respuesta clave "ENTRADA" para 5491144556678
+[Nest] 63108  - 09/21/2026, 2:26:32 PM    WARN [BotService] verificador de preguntas falló: Unexpected token 'E', "El evento "... is not valid JSON
+[Nest] 63108  - 09/21/2026, 2:26:32 PM     LOG [BotService] saludo y bienvenida ajustados para 5491144556679
+[Nest] 63108  - 09/21/2026, 2:26:32 PM     LOG [BotService] charla pedidos/5491144556679: 150 tokens · 1 llamadas · entrada 100 · caché leída 0 · caché escrita 0 · salida 50 · ≈ USD 0.001
+[Nest] 63108  - 09/21/2026, 2:26:32 PM    WARN [BotService] verificador de preguntas falló: Unexpected token 'S', "Sí, la ent"... is not valid JSON
+[Nest] 63108  - 09/21/2026, 2:26:32 PM     LOG [BotService] saludo y bienvenida ajustados para 5491144556680
+[Nest] 63108  - 09/21/2026, 2:26:32 PM     LOG [BotService] charla pedidos/5491144556680: 150 tokens · 1 llamadas · entrada 100 · caché leída 0 · caché escrita 0 · salida 50 · ≈ USD 0.001
+[Nest] 63108  - 09/21/2026, 2:26:32 PM     LOG [BotService] una persona contestó desde el teléfono a 5491155556666: el bot queda pausado hasta que lo reactiven desde RESPONDE
+[Nest] 63108  - 09/21/2026, 2:26:32 PM    WARN [BotService] no pude pausar 5491155556666 en RESPONDE: la app va a mostrar el bot activo
+[Nest] 63108  - 09/21/2026, 2:26:32 PM     LOG [BotService] una persona contestó desde el teléfono a 227208148869238: el bot queda pausado hasta que lo reactiven desde RESPONDE
+[Nest] 63108  - 09/21/2026, 2:26:32 PM    WARN [BotService] no pude pausar 227208148869238@lid en RESPONDE: la app va a mostrar el bot activo
+[Nest] 63108  - 09/21/2026, 2:26:32 PM     LOG [BotService] charla 227208148869238 reactivada desde RESPONDE: el bot retoma
+[Nest] 63108  - 09/21/2026, 2:26:32 PM     LOG [BotService] una persona contestó desde el teléfono a 170806604746941: el bot queda pausado hasta que lo reactiven desde RESPONDE
+[Nest] 63108  - 09/21/2026, 2:26:32 PM     LOG [BotService] herramienta consultar_interno · pedidos/5491155512345
+[Nest] 63108  - 09/21/2026, 2:26:32 PM     LOG [BotService] charla pedidos/5491155512345: 20 tokens · 1 llamadas · entrada 10 · caché leída 0 · caché escrita 0 · salida 10 · ≈ USD 0.000
+[Nest] 63108  - 09/21/2026, 2:26:32 PM    WARN [BotService] consulta registrada, aviso a local falló: sin conexión
+[Nest] 63108  - 09/21/2026, 2:26:32 PM     LOG [BotService] saludo y bienvenida ajustados para 5491155512348
+[Nest] 63108  - 09/21/2026, 2:26:32 PM     LOG [BotService] charla pedidos/5491155512348: 300 tokens · 2 llamadas · entrada 200 · caché leída 0 · caché escrita 0 · salida 100 · ≈ USD 0.002
+[Nest] 63108  - 09/21/2026, 2:26:32 PM     LOG [BotService] saludo y bienvenida ajustados para 5491155510011
+[Nest] 63108  - 09/21/2026, 2:26:32 PM     LOG [BotService] charla pedidos/5491155510011: 4 tokens · 2 llamadas · entrada 2 · caché leída 0 · caché escrita 0 · salida 2 · ≈ USD 0.000
+[Nest] 63108  - 09/21/2026, 2:26:32 PM    WARN [BotService] verificador de preguntas falló: Unexpected token 'L', "Lo consult"... is not valid JSON
+[Nest] 63108  - 09/21/2026, 2:26:33 PM     LOG [BotService] saludo y bienvenida ajustados para 5491155510022
+[Nest] 63108  - 09/21/2026, 2:26:33 PM     LOG [BotService] charla pedidos/5491155510022: 2 tokens · 1 llamadas · entrada 1 · caché leída 0 · caché escrita 0 · salida 1 · ≈ USD 0.000
+[Nest] 63108  - 09/21/2026, 2:26:33 PM     LOG [BotService] herramienta crear_pedido · pedidos/5491155510033
+[Nest] 63108  - 09/21/2026, 2:26:33 PM     LOG [BotService] herramienta consultar_interno · pedidos/5491155510033
+[Nest] 63108  - 09/21/2026, 2:26:33 PM     LOG [BotService] charla pedidos/5491155510033: 2 tokens · 1 llamadas · entrada 1 · caché leída 0 · caché escrita 0 · salida 1 · ≈ USD 0.000
+[Nest] 63108  - 09/21/2026, 2:26:33 PM     LOG [BotService] herramienta generar_link_pago · pedidos/111
+[Nest] 63108  - 09/21/2026, 2:26:33 PM    WARN [BotService] Herramienta generar_link_pago falló: Hace falta el código del pedido confirmado
+[Nest] 63108  - 09/21/2026, 2:26:33 PM     LOG [BotService] herramienta generar_link_pago · pedidos/111
+[Nest] 63108  - 09/21/2026, 2:26:33 PM     LOG [BotService] pago de 222 confirmado por administración: cliente avisado=false
+[Nest] 63108  - 09/21/2026, 2:26:33 PM     LOG [BotService] pago de 222 confirmado por administración: cliente avisado=false
+[Nest] 63108  - 09/21/2026, 2:26:34 PM    WARN [AuthService] reseteo de ana@odb.com.ar: no se pudo mandar el mail (no hay servicio de mail configurado)
+[Nest] 63108  - 09/21/2026, 2:26:34 PM   ERROR [AuthService] reseteo de ana@odb.com.ar: el enlace NO salió por ningún canal (mail ni WhatsApp)
+[Nest] 63108  - 09/21/2026, 2:26:34 PM    WARN [AuthService] reseteo de ana@odb.com.ar: no se pudo mandar el mail (no hay servicio de mail configurado)
+[Nest] 63108  - 09/21/2026, 2:26:34 PM   ERROR [AuthService] reseteo de ana@odb.com.ar: el enlace NO salió por ningún canal (mail ni WhatsApp)
+[Nest] 63108  - 09/21/2026, 2:26:34 PM    WARN [AuthService] reseteo de ana@odb.com.ar: no se pudo mandar el mail (no hay servicio de mail configurado)
+[Nest] 63108  - 09/21/2026, 2:26:34 PM   ERROR [AuthService] reseteo de ana@odb.com.ar: el enlace NO salió por ningún canal (mail ni WhatsApp)
+[Nest] 63108  - 09/21/2026, 2:26:34 PM    WARN [AuthService] reseteo de ana@odb.com.ar: no se pudo mandar el mail (no hay servicio de mail configurado)
+[Nest] 63108  - 09/21/2026, 2:26:34 PM    WARN [AuthService] reseteo de ana@odb.com.ar: no se pudo mandar el mail (no hay servicio de mail configurado)
+[Nest] 63108  - 09/21/2026, 2:26:34 PM   ERROR [AuthService] reseteo de ana@odb.com.ar: el enlace NO salió por ningún canal (mail ni WhatsApp)
+[Nest] 63108  - 09/21/2026, 2:26:34 PM   ERROR [VentasService] Venta v-1 sin comprobante: numerador roto
+[Nest] 63108  - 09/21/2026, 2:26:34 PM     LOG [VentasService] Venta v-1: medio de pago cambiado por — (autorizó sup-1) · devuelto por MP r-1
+[Nest] 63108  - 09/21/2026, 2:26:34 PM     LOG [VentasService] Venta v-1: medio de pago cambiado por — (autorizó sup-1)
+[Nest] 63108  - 09/21/2026, 2:26:34 PM    WARN [firmas-webhook] MERCADOPAGO_WEBHOOK_SECRET sin configurar: webhook aceptado sin verificar firma
+[Nest] 63108  - 09/21/2026, 2:26:34 PM    WARN [firmas-webhook] TIENDANUBE_CLIENT_SECRET sin configurar: webhook aceptado sin verificar firma
+
+Test Suites: 43 passed, 43 total
+Tests:       572 passed, 572 total
+Snapshots:   0 total
+Time:        5.297 s, estimated 6 s
+Ran all test suites.

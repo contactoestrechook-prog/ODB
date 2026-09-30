@@ -1,0 +1,51 @@
+Using src/app as the root directory for Expo Router.
+React Compiler enabled
+Starting Metro Bundler
+
+Static rendering is enabled. Learn more: https://docs.expo.dev/router/web/static-rendering/
+| (node:63852) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+| (Use `node --trace-warnings ...` to show where the warning was created)
+| (node:63852) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+| (Use `node --trace-warnings ...` to show where the warning was created)
+| (node:63852) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+| (Use `node --trace-warnings ...` to show where the warning was created)
+| (node:63852) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+| (Use `node --trace-warnings ...` to show where the warning was created)
+| (node:63852) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+| (Use `node --trace-warnings ...` to show where the warning was created)
+| (node:63852) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+| (Use `node --trace-warnings ...` to show where the warning was created)
+| (node:63852) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+| (Use `node --trace-warnings ...` to show where the warning was created)
+| (node:63852) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+| (Use `node --trace-warnings ...` to show where the warning was created)
+λ Bundled 10484ms node_modules/expo/node_modules/@expo/cli/node_modules/@expo/router-server/node/render.js (1310 modules)
+[expo-notifications] Listening to push token changes is not yet fully supported on web. Adding a listener will have no effect.
+Web Bundled 11830ms node_modules/expo-router/entry.js (1278 modules)
+
+› web bundles (2):
+_expo/static/js/web/entry-106fc26735e8ae96ba36831c12a23b79.js (2.5MB)
+_expo/static/js/web/index-a24de39c8bbab1a75c1c7414fb57d5cc.js (46KB)
+
+› Static routes (19):
+/ (index) (40KB)
+/puntos (25KB)
+/cuenta (39KB)
+/compras (24KB)
+/carrito (36KB)
+/_sitemap (24KB)
+/catalogo (35KB)
+/somelier (42KB)
+/favoritos (24KB)
+/referidos (26KB)
+/+not-found (24KB)
+/comprafacil (37KB)
+/pedido/[id] (31KB)
+/(tabs) (40KB)
+/(tabs)/cuenta (39KB)
+/(tabs)/carrito (36KB)
+/(tabs)/catalogo (35KB)
+/(tabs)/somelier (42KB)
+/(tabs)/comprafacil (37KB)
+
+Exported: /tmp/odb-audit-mobile-export

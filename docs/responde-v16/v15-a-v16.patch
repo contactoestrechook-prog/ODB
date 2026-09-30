@@ -1,0 +1,125 @@
+--- index.v15.bak	2026-08-18 14:29:35
++++ index.ts	2026-08-18 14:29:35
+@@ -1,4 +1,4 @@
+-// Panel RESPONDE v15 — + difusion_plantilla (masivo fuera de 24h) + plantillas_sync_todas (cron). Sobre v14 (recurrentes), v13 (plantillas), v12 (análisis IA).
++// Panel RESPONDE v16 — + envío por WAHA para tenants waha (enviar, enviar_media, difusión). Sobre v15 — + difusion_plantilla (masivo fuera de 24h) + plantillas_sync_todas (cron). Sobre v14 (recurrentes), v13 (plantillas), v12 (análisis IA).
+ import { createClient } from 'npm:@supabase/supabase-js@2';
+ 
+ const PANEL_KEY = 'MG-resp-9t3Kx7Qw41Lp';
+@@ -51,6 +51,45 @@
+   return { ok: resp.ok, detalle: j };
+ }
+ 
++// v16 — tenants WAHA: la app envía por la instancia propia (mismo camino que el
++// CRM de CarCash). Los tenants Meta siguen exactamente igual que antes.
++type TenantCanal = { channel_type?: string | null; waha_base_url?: string | null; waha_session?: string | null; waha_api_key?: string | null; whatsapp_phone_number_id?: string; whatsapp_access_token?: string };
++function esWaha(t: TenantCanal | null | undefined): boolean {
++  return !!(t && t.channel_type === 'waha' && t.waha_base_url && t.waha_session && t.waha_api_key);
++}
++function chatIdWaha(waId: string): string {
++  const raw = String(waId);
++  if (raw.includes('@')) return raw.split(':')[0];           // @lid o @c.us: tal cual
++  const d = raw.replace(/\D/g, '');
++  return d ? `${d}@c.us` : raw;
++}
++async function wahaPost(t: TenantCanal, ruta: string, cuerpo: Record<string, unknown>) {
++  const resp = await fetch(`${String(t.waha_base_url).replace(/\/$/, '')}${ruta}`, {
++    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Api-Key': String(t.waha_api_key) },
++    body: JSON.stringify({ session: t.waha_session, ...cuerpo })
++  });
++  const j = await resp.json().catch(() => ({}));
++  return { ok: resp.ok, detalle: j };
++}
++async function enviarTextoWaha(t: TenantCanal, waId: string, texto: string) {
++  return wahaPost(t, '/api/sendText', { chatId: chatIdWaha(waId), text: texto });
++}
++async function enviarMediaWaha(t: TenantCanal, waId: string, kind: string, mediaUrl: string, mime: string, filename: string, cap: string) {
++  const file = { url: mediaUrl, mimetype: mime, filename };
++  const chatId = chatIdWaha(waId);
++  if (kind === 'image') return wahaPost(t, '/api/sendImage', { chatId, file, caption: cap });
++  if (kind === 'video') {
++    const r = await wahaPost(t, '/api/sendVideo', { chatId, file, caption: cap });
++    return r.ok ? r : wahaPost(t, '/api/sendFile', { chatId, file, caption: cap || '🎬 Video' });
++  }
++  if (kind === 'audio') {
++    const r = await wahaPost(t, '/api/sendVoice', { chatId, file });
++    if (r.ok && cap) await enviarTextoWaha(t, waId, cap);
++    return r.ok ? r : wahaPost(t, '/api/sendFile', { chatId, file, caption: cap || '🎤 Nota de voz' });
++  }
++  return wahaPost(t, '/api/sendFile', { chatId, file, caption: cap });
++}
++
+ function tipoMedia(mime: string): string {
+   const mm = mime.toLowerCase();
+   return mm.startsWith('image/') ? 'image' : mm.startsWith('audio/') ? 'audio' : mm.startsWith('video/') ? 'video' : 'document';
+@@ -269,9 +308,9 @@
+       if (!contact_id || !texto || !String(texto).trim()) return J({ error: 'faltan datos' }, 400);
+       const c = await contactoAutorizado(auth, contact_id);
+       if (!c) return J({ error: 'contacto no autorizado' }, 403);
+-      const { data: t } = await supa.from('tenants').select('whatsapp_phone_number_id, whatsapp_access_token').eq('id', c.tenant_id).single();
+-      const r = await enviarWhatsApp(t!, c.whatsapp_id, String(texto).trim());
+-      if (!r.ok) return J({ error: 'Meta rechazó el envío (¿ventana de 24h vencida?)', detalle: r.detalle }, 502);
++      const { data: t } = await supa.from('tenants').select('whatsapp_phone_number_id, whatsapp_access_token, channel_type, waha_base_url, waha_session, waha_api_key').eq('id', c.tenant_id).single();
++      const r = esWaha(t) ? await enviarTextoWaha(t!, c.whatsapp_id, String(texto).trim()) : await enviarWhatsApp(t!, c.whatsapp_id, String(texto).trim());
++      if (!r.ok) return J({ error: esWaha(t) ? 'WhatsApp rechazó el envío' : 'Meta rechazó el envío (¿ventana de 24h vencida?)', detalle: r.detalle }, 502);
+       await supa.from('messages').insert({ contact_id: c.id, tenant_id: c.tenant_id, role: 'assistant', content: String(texto).trim(), message_type: 'text', fase_en_momento: c.fase_descubrimiento, metadata: { humano: true } });
+       await supa.from('contacts').update({ modo_humano: true }).eq('id', c.id);
+       return J({ ok: true });
+@@ -287,18 +326,25 @@
+       if (bin.length > 8 * 1024 * 1024) return J({ error: 'máximo 8 MB por archivo' }, 400);
+       const mm = String(mime).toLowerCase();
+       const kind = tipoMedia(mm);
+-      const { data: t } = await supa.from('tenants').select('whatsapp_phone_number_id, whatsapp_access_token').eq('id', c.tenant_id).single();
+-      const up = await subirMediaAMeta(t!, bin, mm, String(filename));
+-      if (!up.ok) return J({ error: 'Meta rechazó el archivo (formato no soportado o muy pesado)', detalle: up.detalle }, 502);
++      const { data: t } = await supa.from('tenants').select('whatsapp_phone_number_id, whatsapp_access_token, channel_type, waha_base_url, waha_session, waha_api_key').eq('id', c.tenant_id).single();
+       const cap = String(caption || '').trim();
+-      const r = await enviarMediaWhatsApp(t!, c.whatsapp_id, kind, up.id!, String(filename), cap);
+-      if (!r.ok) return J({ error: 'Meta rechazó el envío (¿ventana de 24h vencida?)', detalle: r.detalle }, 502);
+       let media_url: string | null = null;
+       try {
+         const path = `${c.tenant_id}/${c.id}/${Date.now()}_${String(filename).replace(/[^a-zA-Z0-9._-]/g, '_').slice(-80)}`;
+         const { error: se } = await supa.storage.from('panel-media').upload(path, bin, { contentType: mm });
+         if (!se) media_url = `${Deno.env.get('SUPABASE_URL')}/storage/v1/object/public/panel-media/${path}`;
+       } catch (_) { }
++      if (esWaha(t)) {
++        // WAHA baja el archivo desde una URL pública: sin bucket no hay envío
++        if (!media_url) return J({ error: 'No pude guardar el archivo para enviarlo' }, 502);
++        const r = await enviarMediaWaha(t!, c.whatsapp_id, kind, media_url, mm, String(filename), cap);
++        if (!r.ok) return J({ error: 'WhatsApp rechazó el archivo', detalle: r.detalle }, 502);
++      } else {
++        const up = await subirMediaAMeta(t!, bin, mm, String(filename));
++        if (!up.ok) return J({ error: 'Meta rechazó el archivo (formato no soportado o muy pesado)', detalle: up.detalle }, 502);
++        const r = await enviarMediaWhatsApp(t!, c.whatsapp_id, kind, up.id!, String(filename), cap);
++        if (!r.ok) return J({ error: 'Meta rechazó el envío (¿ventana de 24h vencida?)', detalle: r.detalle }, 502);
++      }
+       const etiqueta = etiquetaMedia(kind, String(filename));
+       await supa.from('messages').insert({ contact_id: c.id, tenant_id: c.tenant_id, role: 'assistant', content: cap ? etiqueta + ' — ' + cap : etiqueta, message_type: kind, fase_en_momento: c.fase_descubrimiento, metadata: { humano: true, media_url, mime: mm, filename: String(filename), caption: cap || null } });
+       await supa.from('contacts').update({ modo_humano: true }).eq('id', c.id);
+@@ -420,17 +466,22 @@
+       if (auth.tipo === 'cliente') q = q.eq('tenant_id', auth.tenant_id);
+       const { data: cs } = await q;
+       const resultados: { id: string; ok: boolean; error?: string }[] = [];
+-      const tCache: Record<string, { whatsapp_phone_number_id: string; whatsapp_access_token: string }> = {};
++      const tCache: Record<string, TenantCanal & { whatsapp_phone_number_id: string; whatsapp_access_token: string }> = {};
+       const mediaIdCache: Record<string, string> = {};
+       for (const c of (cs || [])) {
+         if (c.bloqueado) { resultados.push({ id: c.id, ok: false, error: 'bloqueado' }); continue; }
+         if (!tCache[c.tenant_id]) {
+-          const { data: t } = await supa.from('tenants').select('whatsapp_phone_number_id, whatsapp_access_token').eq('id', c.tenant_id).single();
+-          tCache[c.tenant_id] = t!;
++          const { data: t } = await supa.from('tenants').select('whatsapp_phone_number_id, whatsapp_access_token, channel_type, waha_base_url, waha_session, waha_api_key').eq('id', c.tenant_id).single();
++          tCache[c.tenant_id] = t! as { whatsapp_phone_number_id: string; whatsapp_access_token: string };
+         }
+         const t = tCache[c.tenant_id];
+         let r: { ok: boolean; detalle: Record<string, unknown> };
+-        if (bin) {
++        if (esWaha(t as TenantCanal)) {
++          // tenant WAHA: texto por WAHA; con adjunto, la URL pública del bucket
++          r = bin && media_url
++            ? await enviarMediaWaha(t as TenantCanal, c.whatsapp_id, kind, media_url, mm, String(filename), cap)
++            : await enviarTextoWaha(t as TenantCanal, c.whatsapp_id, cap);
++        } else if (bin) {
+           if (!mediaIdCache[c.tenant_id]) {
+             const up = await subirMediaAMeta(t, bin, mm, String(filename));
+             if (!up.ok) { resultados.push({ id: c.id, ok: false, error: 'Meta rechazó el archivo' }); continue; }

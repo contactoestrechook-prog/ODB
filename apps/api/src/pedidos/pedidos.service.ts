@@ -327,9 +327,10 @@ export class PedidosService {
       if (!Number.isFinite(cant) || cant <= 0 || cant > 50) {
         throw new BadRequestException(`Cantidad inválida para ${i.sku}`);
       }
-      const { data } = await this.db.from('productos').select('id').eq('sku', i.sku).maybeSingle();
-      if (!data) throw new BadRequestException(`No existe el producto ${i.sku}`);
-      items.push({ producto_id: data.id, cantidad: Math.floor(cant) });
+      const { data } = await this.db.from('productos').select('id, activo, vendido_por_peso').eq('sku', i.sku).maybeSingle();
+      if (!data || data.activo === false) throw new BadRequestException(`No existe el producto ${i.sku}`);
+      if (!data.vendido_por_peso && !Number.isInteger(cant)) throw new BadRequestException(`El producto ${i.sku} requiere unidades enteras`);
+      items.push({ producto_id: data.id, cantidad: cant });
     }
     // Todos los pedidos de la app (pick-up y domicilio) salen de la sucursal
     // central (Suc Sant Thomas, la única con pickup habilitado).
@@ -421,17 +422,19 @@ export class PedidosService {
       );
     }
     const ped: any = await this.obtener(pedidoId);
+    if (ped.pagado_en || !['recibido', 'en_preparacion', 'listo'].includes(ped.estado)) throw new BadRequestException('Este pedido no admite un nuevo cobro');
     const items = (ped.items ?? [])
       .map((i: any) => ({
-        title: i.producto?.nombre ?? 'Producto O.D.B',
-        quantity: Math.round(Number(i.cantidad)) || 1,
-        unit_price: Math.round(Number(i.precio_unitario)),
+        title: `${Number(i.cantidad)} × ${i.producto?.nombre ?? 'Producto O.D.B'}`,
+        quantity: 1,
+        unit_price: Math.round(Number(i.cantidad) * Number(i.precio_unitario) * 100) / 100,
         currency_id: 'ARS',
       }))
       .filter((i: any) => i.unit_price > 0);
     if (!items.length) {
       throw new BadRequestException('El pedido no tiene importes válidos para cobrar (revisá los precios).');
     }
+    if (items.reduce((n: number, i: any) => n + Math.round(i.unit_price * 100), 0) !== Math.round(Number(ped.total) * 100)) throw new BadRequestException('El total del pedido no coincide con sus renglones');
     const base = process.env.API_PUBLIC_URL ?? 'https://odb-api-production.up.railway.app';
     const res = await fetchConTimeout("https://api.mercadopago.com/checkout/preferences", {
       method: 'POST',
@@ -557,7 +560,7 @@ export class PedidosService {
     const { data, error } = await this.db
       .from('pedidos')
       .select(
-        `id, canal, estado, total, qr_retiro, creado_en, listo_en,
+        `id, canal, estado, total, qr_retiro, creado_en, listo_en, pagado_en,
          sucursal:sucursales(nombre, direccion),
          items:pedidos_items(cantidad, precio_unitario, producto:productos(sku, nombre))`,
       )
@@ -572,7 +575,7 @@ export class PedidosService {
     const { data, error } = await this.db
       .from('pedidos')
       .select(
-        `id, canal, estado, total, qr_retiro, creado_en, listo_en, notas, entrega_fecha, entrega_franja,
+        `id, canal, estado, total, qr_retiro, creado_en, listo_en, pagado_en, notas, entrega_fecha, entrega_franja,
          sucursal:sucursales(nombre),
          cliente:clientes(dni, tipo),
          items:pedidos_items(cantidad, precio_unitario, producto:productos(sku, nombre))`,

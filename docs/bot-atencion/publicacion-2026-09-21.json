@@ -1,0 +1,38 @@
+{
+  "previous": [
+    {
+      "service": "odb-admin",
+      "rollbackDeployment": "d789000f-9138-4428-bfb5-05d43bc18b00"
+    },
+    {
+      "service": "odb-api",
+      "rollbackDeployment": "dc8e894c-b55a-49da-b317-de0e35f4683d"
+    }
+  ],
+  "migrationSha256": "eb59b5321a3bc98e364a534cc419763c6d742fbb34c826344e70e490194e5fb0",
+  "publishedAt": "2026-09-21T17:25:12.174363+00:00",
+  "migrationApplied": true,
+  "transactionRollbackTest": "passed; 0 test quotes persisted",
+  "deployments": [
+    {
+      "service": "odb-api",
+      "id": "8c91faf7-a584-43dd-a6f6-7df351f93718",
+      "status": "SUCCESS",
+      "url": "https://odb-api-production.up.railway.app"
+    },
+    {
+      "service": "odb-admin",
+      "id": "07d4c8f1-1740-49b2-8fae-16b1bb404c53",
+      "status": "SUCCESS",
+      "url": "https://odb-admin-production.up.railway.app"
+    }
+  ],
+  "checks": {
+    "health": 200,
+    "catalogWithNewPresentationFields": 200,
+    "createWithoutConfirmation": 400,
+    "privateMediaWithoutSession": 401,
+    "adminLogin": 200
+  },
+  "realCustomerMessagesSentForTesting": 0
+}

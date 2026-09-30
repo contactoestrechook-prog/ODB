@@ -1,0 +1,45 @@
+@import "tailwindcss";
+
+/* Misma identidad "parrilla de noche" que gastro-web y los mockups, pero acá
+   la interfaz se opera de día también → damos ambos temas. */
+@theme inline {
+  --color-bg: #141010;
+  --color-card: #241d19;
+  --color-card-2: #2c2320;
+  --color-line: rgba(255, 255, 255, 0.08);
+  --color-ink: #f4ece2;
+  --color-dim: #b6a89a;
+  --color-faint: #877a6d;
+  --color-accent: #e8a03d;
+  --color-accent-2: #c47a24;
+  --color-good: #4cc38a;
+  --color-loss: #f2555a;
+  --color-warn: #e8bd4d;
+  --font-display: var(--font-fraunces);
+  --font-sans: var(--font-manrope);
+}
+
+@media (prefers-color-scheme: light) {
+  @theme inline {
+    --color-bg: #f6f1e8;
+    --color-card: #ffffff;
+    --color-card-2: #f0e7d8;
+    --color-line: rgba(40, 28, 20, 0.12);
+    --color-ink: #2a201a;
+    --color-dim: #6d5f52;
+    --color-faint: #9a8b7c;
+    --color-accent: #bf7620;
+    --color-accent-2: #9c5f18;
+    --color-good: #238a5c;
+    --color-loss: #cf3237;
+    --color-warn: #a9781a;
+  }
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-manrope), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+.display { font-family: var(--font-fraunces), Georgia, serif; }

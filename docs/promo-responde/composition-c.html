@@ -1,0 +1,332 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,500;0,6..72,600;0,6..72,700;1,6..72,500;1,6..72,600&family=Inter+Tight:wght@300;500;700&display=block" rel="stylesheet">
+</head>
+<body>
+<script src="motor.js"></script>
+<script>
+injectBase();
+
+/* ============ VIDEO C · EL QUE VENDE (Manager · Mercado Pago) ============ */
+const TL = {
+  s1:{lbl:0.5, clock:0.2, b1:1.6, h1:2.9, h2:3.8, out:5.0},
+  whipA:{a:5.0,b:5.45},
+  s2:{in:5.45, r:5.65, lbl:5.95, w1:6.35, w2:6.75, tag:7.85, out:9.9},
+  whipB:{a:9.9,b:10.3},
+  s3:{in:9.95, phone:10.05, st1:10.8, msg1:11.15, st2:12.7, typ0:12.8, typ1:14.6,
+      tw0:14.75, twA:15.45, twB:16.75, tw1:17.6,
+      st3:17.9, link:18.15, msg2:19.65, st4:20.65, rec:20.95, recOut:23.15,
+      out2:23.45, st5:25.25, nf1:25.55, nf2:26.15,
+      cnt0:27.5, cnt1:30.3, out:30.95},
+  whipD:{a:30.95,b:31.4},
+  s4:{in:31.4, q:31.8, at:32.9, h1:33.6, out:35.4},
+  whipE:{a:35.4,b:35.85},
+  s5:{in:35.85, cta:37.4, end:43.6},
+};
+window.DURATION = TL.s5.end;
+
+const camera = makeCamera({
+  S:[
+    {t:0,v:1.6},{t:0.5,v:1.26,e:E.outExpo},{t:2.9,v:1.16,e:E.inOutCubic},{t:3.05,v:1.24,e:E.outExpo},{t:5.0,v:1.32,e:E.inCubic},
+    {t:5.45,v:1.05,e:E.outExpo},{t:6.3,v:1.02},{t:6.42,v:1.1,e:E.outExpo},{t:6.75,v:1.08},{t:6.9,v:1.16,e:E.outExpo},{t:9.9,v:1.24,e:E.inCubic},
+    {t:10.3,v:1.0,e:E.outExpo},{t:11.15,v:1.0},{t:11.55,v:1.12,e:E.outExpo},{t:12.7,v:1.05,e:E.inOutCubic},
+    {t:14.75,v:1.08,e:E.inOutCubic},{t:17.6,v:1.2,e:E.inOutCubic},
+    {t:18.15,v:1.2},{t:18.35,v:1.3,e:E.outExpo},{t:19.3,v:1.18,e:E.outCubic},{t:19.65,v:1.12,e:E.outCubic},
+    {t:20.95,v:1.12},{t:21.15,v:1.26,e:E.outExpo},{t:22.6,v:1.16,e:E.outCubic},{t:23.45,v:1.1,e:E.outCubic},
+    {t:25.25,v:1.06,e:E.inOutCubic},{t:27.3,v:1.06},{t:27.55,v:0.99,e:E.outCubic},{t:30.3,v:1.04},{t:30.5,v:1.1,e:E.outExpo},{t:30.95,v:1.14},
+    {t:31.4,v:1.02,e:E.outExpo},{t:33.5,v:1.02},{t:33.65,v:1.1,e:E.outExpo},{t:35.4,v:1.14,e:E.linear},
+    {t:35.85,v:1.0,e:E.outExpo},{t:43.6,v:1.06,e:E.linear},
+  ],
+  X:[{t:0,v:540}],
+  Y:[
+    {t:0,v:680},{t:2.9,v:880,e:E.inOutCubic},{t:5.0,v:980,e:E.inCubic},
+    {t:5.45,v:900,e:E.outExpo},{t:7.85,v:950,e:E.inOutCubic},{t:9.9,v:970},
+    {t:10.3,v:960,e:E.outExpo},{t:11.55,v:790,e:E.outExpo},{t:12.7,v:880,e:E.inOutCubic},
+    {t:14.75,v:980,e:E.inOutCubic},{t:17.6,v:1060,e:E.inOutCubic},
+    {t:18.35,v:1120,e:E.outExpo},{t:19.65,v:1080,e:E.outCubic},
+    {t:21.15,v:960,e:E.outExpo},{t:23.45,v:1040,e:E.outCubic},
+    {t:25.25,v:1080,e:E.inOutCubic},{t:27.55,v:900,e:E.outCubic},{t:30.95,v:880},
+    {t:31.4,v:900,e:E.outExpo},{t:35.4,v:930},
+    {t:35.85,v:960,e:E.outExpo},
+  ],
+  shakes:[
+    {t:0.5,amp:13,freq:11,dur:0.55},{t:3.05,amp:6,freq:11,dur:0.35},{t:6.42,amp:6,freq:10,dur:0.35},{t:6.9,amp:9,freq:11,dur:0.45},
+    {t:11.55,amp:4,freq:10,dur:0.3},{t:18.35,amp:6,freq:11,dur:0.4},{t:21.15,amp:11,freq:10,dur:0.55},
+    {t:30.5,amp:6,freq:10,dur:0.4},{t:31.4,amp:5,freq:10,dur:0.35},{t:33.65,amp:7,freq:10,dur:0.4},{t:35.85,amp:4,freq:9,dur:0.3},
+  ],
+  whips:[TL.whipA,TL.whipB,TL.whipD,TL.whipE,{a:25.05,b:25.35}],
+  flashes:[{t:0.5,p:.35},{t:6.9,p:.35},{t:18.35,p:.2},{t:21.15,p:.5},{t:30.5,p:.2},{t:33.65,p:.25},{t:35.85,p:.15}],
+  cutsBlack:[{a:TL.whipB.a,b:TL.whipB.b},{a:TL.whipE.a,b:TL.whipE.b}],
+  cutsBone:[],
+  fade:[42.95,43.55],
+});
+
+/* ============ DOM ============ */
+const stage = $('stage');
+stage.innerHTML = `
+<div class="layer" id="s1">
+  <div id="s1clock" class="seri tan" style="position:absolute;left:0;top:170px;width:1080px;text-align:center;font-size:250px;font-weight:500;"></div>
+  <div id="s1lbl" class="lbl dim" style="position:absolute;left:0;top:500px;width:1080px;text-align:center;font-size:25px;"></div>
+  <div id="s1b1" class="bub bubin" style="position:absolute;left:110px;top:660px;background:#1f1e1c;color:#f5f3ee;max-width:760px;">Hola! ¿Tenés la mochila urbana negra? ¿La puedo pagar ya y retirarla mañana?<span class="btime">23:12</span></div>
+  <div id="s1h1" class="ser bone" style="position:absolute;left:0;top:1400px;width:1080px;text-align:center;font-size:70px;font-weight:600;white-space:nowrap;"></div>
+  <div id="s1h2" class="ser bone" style="position:absolute;left:0;top:1535px;width:1080px;text-align:center;font-size:70px;font-weight:600;white-space:nowrap;"></div>
+</div>
+
+<div class="layer" id="s2">
+  <div class="ghostnum" style="left:520px;top:280px;font-size:740px;">$</div>
+  <div id="s2r" class="rbox" style="position:absolute;left:480px;top:530px;width:120px;height:120px;font-size:64px;">R</div>
+  <div id="s2lbl" class="lbl tan" style="position:absolute;left:0;top:710px;width:1080px;text-align:center;font-size:26px;"></div>
+  <div id="s2w1" class="ser" style="position:absolute;left:0;top:780px;width:1080px;text-align:center;font-size:150px;font-weight:600;color:transparent;-webkit-text-stroke:2.5px #f5f3ee;">EL QUE</div>
+  <div id="s2w2" class="ser tan" style="position:absolute;left:0;top:960px;width:1080px;text-align:center;font-size:210px;font-weight:700;letter-spacing:-.01em;">VENDE</div>
+  <div id="s2tag" class="seri tan" style="position:absolute;left:0;top:1265px;width:1080px;text-align:center;font-size:54px;font-weight:500;"></div>
+  <div id="s2sub" class="lbl dim" style="position:absolute;left:0;top:1370px;width:1080px;text-align:center;font-size:20px;">Cotiza · Mercado Pago · Reserva · Post-venta</div>
+</div>
+
+<div class="layer" id="s3">
+  <div id="s3step" class="lbl tan" style="position:absolute;left:0;top:252px;width:1080px;text-align:center;font-size:34px;"></div>
+  <div class="phone" id="phoneC">
+    <div class="screen dark" id="screenC">
+      <div class="notch"></div>
+      <div class="chathead">
+        <div class="mono">R</div>
+        <div><div class="chatname bone">Tienda · Ventas</div><div class="chatsub" style="color:#7d9a6f;">● En línea · 24/7</div></div>
+        <div class="chanbadge">WhatsApp</div>
+      </div>
+      <div class="stream" id="streamC">
+        <div class="bub bubin" id="c_in1">Hola! ¿Tenés la mochila urbana negra? ¿La puedo pagar ya y retirarla mañana?<span class="btime">23:12</span></div>
+        <div class="typing" id="c_typ"><i></i><i></i><i></i></div>
+        <div class="bub bubout" id="c_out1"><span id="c_tw"></span><span id="c_caret" style="display:inline-block;width:3px;height:26px;background:#c9a96e;vertical-align:-3px;margin-left:2px;"></span>
+          <span class="linkpill" id="c_link">💳&nbsp; mpago.la /tienda — $74.900 →</span>
+          <span class="btime">23:12 <span class="tan">✓✓</span></span></div>
+        <div class="bub bubin" id="c_in2">Listo, pagado! 🙌<span class="btime">23:14</span></div>
+        <div class="bub bubout" id="c_out2">¡Gracias! Pago confirmado ✓ Te la dejo reservada en el mostrador a tu nombre. Hasta mañana 👋<span class="btime">23:14 <span class="tan">✓✓</span></span></div>
+      </div>
+    </div>
+  </div>
+  <div id="c_chips"></div>
+  <div id="c_receipt" style="position:absolute;left:150px;top:640px;width:780px;background:#f5f3ee;border-radius:6px;padding:50px 54px 42px;box-shadow:0 60px 140px rgba(0,0,0,.7);">
+    <div class="lbl" style="font-size:22px;color:#5f8a55;">Pago acreditado ✓</div>
+    <div class="ser" style="font-size:120px;font-weight:600;color:#0d0c0a;margin-top:10px;font-variant-numeric:lining-nums;">$ 74.900</div>
+    <div style="border-top:2px dashed rgba(13,12,10,.25);margin:30px 0 24px;"></div>
+    <div class="lblb" style="font-size:26px;color:#171512;">Mochila urbana negra</div>
+    <div class="lbl" style="font-size:19px;color:rgba(13,12,10,.55);margin-top:10px;">Mercado Pago · 23:14 · Domingo</div>
+    <div class="lbl" style="display:inline-block;font-size:19px;color:#8a6f3c;border:1px solid rgba(138,111,60,.6);padding:10px 18px;border-radius:6px;margin-top:22px;">Reservada para retiro ✓</div>
+  </div>
+  <div id="c_nf1" class="chipR ondark" style="left:96px;top:1560px;">→ Depósito: separar 1 · retiro mañana · pagada</div>
+  <div id="c_nf2" class="chipR ondark" style="left:150px;top:1676px;">→ Pipeline: venta $74.900 · cliente nuevo</div>
+  <div id="c_cnt" style="position:absolute;left:0;top:262px;width:1080px;text-align:center;opacity:0;">
+    <div class="lbl dim" style="font-size:24px;">Vendido fuera de horario · esta semana</div>
+    <div style="margin-top:8px;white-space:nowrap;" id="c_odow"><span class="ser tan" style="font-size:150px;font-weight:600;vertical-align:top;line-height:190px;">$&nbsp;</span><span id="c_odoH"></span><span class="ser tan" style="font-size:150px;font-weight:600;vertical-align:top;line-height:190px;">.</span><span id="c_odoL"></span></div>
+  </div>
+</div>
+
+<div class="layer" id="s4">
+  <div id="s4q" class="seri bone" style="position:absolute;left:110px;top:760px;width:860px;text-align:center;font-size:76px;font-weight:500;line-height:1.25;"></div>
+  <div id="s4at" class="lbl tan" style="position:absolute;left:0;top:1105px;width:1080px;text-align:center;font-size:25px;"></div>
+  <div id="s4h1" class="ser bone" style="position:absolute;left:0;top:1260px;width:1080px;text-align:center;font-size:88px;font-weight:600;white-space:nowrap;"></div>
+</div>
+
+<div class="layer" id="s5">
+  <div id="s5r" class="rbox" style="position:absolute;left:470px;top:500px;width:140px;height:140px;font-size:76px;">R</div>
+  <div id="s5logo" class="ser bone" style="position:absolute;left:0;top:680px;width:1080px;text-align:center;font-size:150px;font-weight:600;">RESPONDE</div>
+  <div id="s5mode" class="lbl tan" style="position:absolute;left:0;top:880px;width:1080px;text-align:center;font-size:30px;">El que vende · Plan Manager · By Metogroup</div>
+  <div id="s5tag" class="seri tan" style="position:absolute;left:0;top:975px;width:1080px;text-align:center;font-size:52px;">Tu primer empleado que cierra ventas.</div>
+  <div id="s5cta" class="pill" style="position:absolute;left:50%;top:1140px;transform:translateX(-50%);font-size:33px;white-space:nowrap;">Probame ahora →</div>
+  <div id="s5site" class="lbl bone" style="position:absolute;left:0;top:1345px;width:1080px;text-align:center;font-size:30px;letter-spacing:.34em;">metogroup.ar</div>
+</div>`;
+
+/* preps */
+const h1w = words($('s1h1'), 'El que pregunta de noche,', []);
+const h2w = words($('s1h2'), 'compra de noche.', [0,1,2]);
+const REPLY_C = "¡Hola! Sí, me queda una en stock 🎒 $74.900 — te paso el link para pagarla ahora y mañana la retirás por el local:";
+function twCount(t){
+  const Lc = REPLY_C.length;
+  if (t < TL.s3.tw0) return 0;
+  if (t < TL.s3.twA) return Math.round(seg(t,TL.s3.tw0,TL.s3.twA,E.inOutCubic)*10);
+  if (t < TL.s3.twB) return 10 + Math.round(seg(t,TL.s3.twA,TL.s3.twB,E.inQuad)*(Lc-30-10));
+  return (Lc-30) + Math.round(seg(t,TL.s3.twB,TL.s3.tw1,E.outCubic)*30);
+}
+const C_CHIPS = [
+  {x:96,y:608, txt:'/ Detecta intención de compra'},
+  {x:556,y:706, txt:'/ Chequea stock y precio'},
+  {x:96,y:1560, txt:'/ Genera el link en Mercado Pago'},
+  {x:430,y:1676, txt:'/ Reserva y avisa al depósito'},
+];
+C_CHIPS.forEach(ch=>{
+  const d=document.createElement('div');
+  d.className='chipR ondark';
+  d.style.left=ch.x+'px'; d.style.top=ch.y+'px';
+  d.innerHTML=`<span class="dot"></span>${ch.txt}`;
+  $('c_chips').appendChild(d); ch.el=d;
+});
+const STEPS_C = [
+  {t:TL.s3.st1, txt:'01 · Detecta la intención'},
+  {t:TL.s3.st2, txt:'02 · Cotiza en el momento'},
+  {t:TL.s3.st3, txt:'03 · Manda el link de pago'},
+  {t:TL.s3.st4, txt:'04 · Cobra'},
+  {t:TL.s3.st5, txt:'05 · Avisa al equipo'},
+];
+const odoH = makeOdometer($('c_odoH'), 3, 100, 190, "font-family:'Newsreader',serif;font-weight:600;font-size:150px;color:#c9a96e");
+const odoL = makeOdometer($('c_odoL'), 3, 100, 190, "font-family:'Newsreader',serif;font-weight:600;font-size:150px;color:#c9a96e");
+const s4h1w = words($('s4h1'), 'Atiende. Cotiza. Cobra.', []);
+
+/* escenas */
+function s1(t){
+  const on = t < TL.whipA.b-0.1;
+  $('s1').style.display = on?'block':'none';
+  if (!on) return;
+  const cq = seg(t, TL.s1.clock, TL.s1.clock+0.5, E.outExpo);
+  const cl = $('s1clock');
+  cl.style.opacity = cq;
+  cl.style.transform = `scale(${lerp(1.45,1,cq)})`;
+  cl.innerHTML = `23<span style="opacity:${Math.floor(t*2)%2?1:.25}">:</span>12`;
+  aberr(cl, Math.max(0,.8-t*1.5));
+  scramble($('s1lbl'), 'DOMINGO · TU VENDEDOR DUERME', t, TL.s1.lbl, TL.s1.lbl+0.9);
+  popIn($('s1b1'), t, TL.s1.b1);
+  staggerWords(h1w, t, TL.s1.h1, 0.1, 0.3);
+  staggerWords(h2w, t, TL.s1.h2, 0.11, 0.3);
+}
+function s2(t){
+  const on = t>=TL.whipA.a && t<TL.whipB.b-0.05;
+  $('s2').style.display = on?'block':'none';
+  if (!on) return;
+  const rq = seg(t, TL.s2.r, TL.s2.r+0.45, E.outBack);
+  $('s2r').style.opacity = rq;
+  $('s2r').style.transform = `scale(${lerp(.5,1,rq)}) rotate(${lerp(-8,0,rq)}deg)`;
+  scramble($('s2lbl'), 'ETAPA 00 · RESPONDE · PLAN MANAGER', t, TL.s2.lbl, TL.s2.lbl+0.95);
+  const w1 = seg(t, TL.s2.w1, TL.s2.w1+0.4, E.outExpo);
+  $('s2w1').style.opacity = w1;
+  $('s2w1').style.transform = `translateY(${lerp(60,0,w1)}px) scale(${lerp(1.2,1,w1)})`;
+  const w2 = seg(t, TL.s2.w2, TL.s2.w2+0.42, E.outExpo);
+  $('s2w2').style.opacity = w2;
+  $('s2w2').style.transform = `translateY(${lerp(70,0,w2)}px) scale(${lerp(1.4,1,w2)})`;
+  aberr($('s2w2'), t>TL.s2.w2 ? Math.max(0,1-(t-TL.s2.w2)*1.4) : 0);
+  const tg = seg(t, TL.s2.tag, TL.s2.tag+0.5, E.outCubic);
+  $('s2tag').style.opacity = tg;
+  $('s2tag').style.transform = `translateY(${lerp(28,0,tg)}px)`;
+  $('s2tag').textContent = 'Cierra la venta solo. Con el pago adentro.';
+  $('s2sub').style.opacity = seg(t, TL.s2.tag+0.35, TL.s2.tag+0.8, E.outCubic);
+}
+function s3(t){
+  const on = t>=TL.whipB.a && t<TL.whipD.b-0.2;
+  $('s3').style.display = on?'block':'none';
+  if (!on) return;
+  const ph = seg(t, TL.s3.phone, TL.s3.phone+0.6, E.outExpo);
+  $('phoneC').style.transform = `translateY(${lerp(700,0,ph)}px) scale(${lerp(.93,1,ph)})`;
+  $('phoneC').style.opacity = ph;
+  /* recibo tapa el teléfono */
+  const rin = seg(t, TL.s3.rec, TL.s3.rec+0.45, E.outExpo);
+  const rout = seg(t, TL.s3.recOut-0.25, TL.s3.recOut, E.inQuad);
+  const rON = t>=TL.s3.rec-0.05 && rout<1;
+  $('c_receipt').style.display = rON?'block':'none';
+  if (rON){
+    $('c_receipt').style.opacity = rin*(1-rout);
+    $('c_receipt').style.transform = `translateY(${lerp(-140,0,rin)}px) scale(${lerp(1.5,1,rin)}) rotate(${lerp(-5,-1.2,rin)}deg)`;
+  }
+  const cfDim = seg(t, TL.s3.cnt0-0.15, TL.s3.cnt0+0.25, E.outCubic);
+  $('phoneC').style.filter = (rON && rin>.3) ? 'brightness(.45) blur(3px)'
+    : cfDim>0.02 ? `brightness(${lerp(1,.38,cfDim)}) blur(${(cfDim*2.5).toFixed(1)}px)` : 'none';
+  /* steps */
+  let idx=-1;
+  for (let i=0;i<STEPS_C.length;i++) if (t>=STEPS_C[i].t) idx=i;
+  if (idx>=0){
+    const st=STEPS_C[idx];
+    const nxt = idx<STEPS_C.length-1 ? STEPS_C[idx+1].t : 1e9;
+    let o = 1-seg(t, nxt-0.16, nxt, E.inQuad);
+    if (idx===1) o *= 1-seg(t, 16.4, 17.0, E.inQuad);
+    if (idx===4) o *= 1-seg(t, TL.s3.cnt0-0.25, TL.s3.cnt0, E.inQuad);
+    $('s3step').style.opacity = o;
+    scramble($('s3step'), st.txt.toUpperCase(), t, st.t, st.t+0.55, true);
+  } else $('s3step').style.opacity = 0;
+  /* chat */
+  popIn($('c_in1'), t, TL.s3.msg1);
+  typingDots($('c_typ'), t, TL.s3.typ0, TL.s3.typ1);
+  const o1 = t>=TL.s3.typ1;
+  $('c_out1').style.display = o1?'block':'none';
+  if (o1) popIn($('c_out1'), t, TL.s3.typ1, 0.3);
+  const n = twCount(t);
+  $('c_tw').textContent = REPLY_C.slice(0,n);
+  $('c_caret').style.opacity = (t>TL.s3.typ1 && t<TL.s3.tw1+0.4) ? (Math.floor(t*2.6)%2?1:.1) : 0;
+  const lk = seg(t, TL.s3.link, TL.s3.link+0.4, E.outBack);
+  $('c_link').style.display = t>=TL.s3.link-0.02 ? 'flex' : 'none';
+  $('c_link').style.opacity = lk;
+  $('c_link').style.transform = `scale(${lerp(.7,1,lk)})`;
+  popIn($('c_in2'), t, TL.s3.msg2);
+  const o2 = t>=TL.s3.out2;
+  $('c_out2').style.display = o2?'block':'none';
+  if (o2) popIn($('c_out2'), t, TL.s3.out2, 0.3);
+  /* chips */
+  C_CHIPS.forEach((ch,i)=>{
+    const t0 = TL.s3.st2+0.25 + i*0.3;
+    const q = seg(t, t0, t0+0.4, E.outBackS);
+    const qo = 1 - seg(t, TL.s3.tw1-0.3, TL.s3.tw1+0.1, E.inQuad);
+    ch.el.style.opacity = q*qo;
+    ch.el.style.transform = `translateY(${lerp(34,0,q) + Math.sin(t*1.6+i*2.1)*6}px)`;
+  });
+  /* avisos al equipo */
+  const n1 = seg(t, TL.s3.nf1, TL.s3.nf1+0.4, E.outBackS);
+  const nfo = 1 - seg(t, TL.s3.cnt0-0.25, TL.s3.cnt0, E.inQuad);
+  $('c_nf1').style.opacity = n1*nfo;
+  $('c_nf1').style.transform = `translateX(${lerp(90,0,n1)}px)`;
+  const n2 = seg(t, TL.s3.nf2, TL.s3.nf2+0.4, E.outBackS);
+  $('c_nf2').style.opacity = n2*nfo;
+  $('c_nf2').style.transform = `translateX(${lerp(90,0,n2)}px)`;
+  /* contador de plata */
+  const cf = seg(t, TL.s3.cnt0-0.15, TL.s3.cnt0+0.25, E.outCubic);
+  $('c_cnt').style.opacity = cf;
+  const val = kf(t,[{t:TL.s3.cnt0,v:0},{t:TL.s3.cnt1,v:312400,e:E.inOutCubic}]);
+  odoH(val/1000);
+  odoL(val%1000);
+}
+function s4(t){
+  const on = t>=TL.whipD.a && t<TL.whipE.b-0.15;
+  $('s4').style.display = on?'block':'none';
+  if (!on) return;
+  const q = seg(t, TL.s4.q, TL.s4.q+0.55, E.outCubic);
+  $('s4q').style.opacity = q;
+  $('s4q').style.transform = `translateY(${lerp(34,0,q)}px)`;
+  $('s4q').innerHTML = '“Atiendo, organizo y cierro. Te dejo el lunes con clientes nuevos en tu pipeline.”';
+  const at = seg(t, TL.s4.at, TL.s4.at+0.4, E.outCubic);
+  $('s4at').style.opacity = at;
+  $('s4at').textContent = '— TU VENDEDOR · PLAN MANAGER';
+  staggerWords(s4h1w, t, TL.s4.h1, 0.16, 0.3);
+}
+function s5(t){
+  const on = t>=TL.whipE.a;
+  $('s5').style.display = on?'block':'none';
+  if (!on) return;
+  const rq = seg(t, TL.s5.in-0.2, TL.s5.in+0.25, E.outExpo);
+  $('s5r').style.opacity = rq;
+  $('s5r').style.transform = `scale(${lerp(.5,1,rq)})`;
+  const lg = seg(t, TL.s5.in, TL.s5.in+0.4, E.outExpo);
+  $('s5logo').style.opacity = lg;
+  $('s5logo').style.transform = `scale(${lerp(1.35,1,lg)})`;
+  $('s5mode').style.opacity = seg(t, TL.s5.in+0.3, TL.s5.in+0.7, E.outCubic);
+  const tg = seg(t, TL.s5.in+0.55, TL.s5.in+1.0, E.outCubic);
+  $('s5tag').style.opacity = tg;
+  $('s5tag').style.transform = `translateY(${lerp(24,0,tg)}px)`;
+  const ct = seg(t, TL.s5.cta, TL.s5.cta+0.45, E.outBack);
+  $('s5cta').style.opacity = ct;
+  $('s5cta').style.transform = `translateX(-50%) scale(${ct<1?lerp(.6,1,ct):1+0.02*Math.sin((t-TL.s5.cta)*2.2)})`;
+  $('s5site').style.opacity = seg(t, TL.s5.cta+0.3, TL.s5.cta+0.7, E.outCubic);
+}
+
+window.seek = function(t){
+  setWorld(t, 0);
+  camera(t);
+  s1(t); s2(t); s3(t); s4(t); s5(t);
+};
+window.READY = Promise.all([
+  document.fonts.load('700 210px Newsreader'),
+  document.fonts.load('italic 500 76px Newsreader'),
+  document.fonts.load('300 26px "Inter Tight"'),
+  document.fonts.load('700 26px "Inter Tight"'),
+  document.fonts.ready
+]).then(()=>{ window.seek(0); return true; });
+</script>
+</body>
+</html>

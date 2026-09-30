@@ -1,0 +1,347 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,500;0,6..72,600;0,6..72,700;1,6..72,500;1,6..72,600&family=Inter+Tight:wght@300;500;700&display=block" rel="stylesheet">
+</head>
+<body>
+<script src="motor.js"></script>
+<script>
+injectBase();
+
+/* ============ VIDEO B · MODO SECRETARIA (mundo papel) ============ */
+const TL = {
+  s1:{lbl:0.5, b1:1.3, b2:2.3, h1:3.15, h2:4.05, out:5.2},
+  whipA:{a:5.2,b:5.65},
+  s2:{in:5.65, r:5.85, lbl:6.15, w1:6.55, w2:6.95, tag:8.05, out:10.4},
+  whipB:{a:10.4,b:10.75},
+  s3:{in:10.45, phone:10.55, st1:11.05, msg1:11.4, st2:12.75, typ0:12.85, typ1:15.3,
+      slot1:13.35, slot2:13.6, slot3:13.85,
+      st3:15.35, tw0:15.5, twA:16.2, twB:17.6, tw1:18.5,
+      msg2:18.95, st4:19.85, out2:20.1, cal:21.35, book:20.4,
+      st5:23.5, skip:23.75, rem:24.35, rok:25.75,
+      fill0:26.7, fill1:29.0, out:29.15},
+  whipD:{a:29.15,b:29.6},
+  s4:{in:29.6, h1:30.05, h2:31.05, lbl:31.95, out:34.2},
+  whipE:{a:34.2,b:34.65},
+  s5:{in:34.65, cta:36.25, end:43.2},
+};
+window.DURATION = TL.s5.end;
+
+const camera = makeCamera({
+  S:[
+    {t:0,v:1.5},{t:0.55,v:1.2,e:E.outExpo},{t:3.1,v:1.14,e:E.inOutCubic},{t:3.25,v:1.22,e:E.outExpo},{t:5.2,v:1.3,e:E.inCubic},
+    {t:5.65,v:1.06,e:E.outExpo},{t:6.5,v:1.02},{t:6.62,v:1.1,e:E.outExpo},{t:8.0,v:1.05,e:E.inOutCubic},{t:10.4,v:1.12,e:E.inCubic},
+    {t:10.75,v:1.0,e:E.outExpo},{t:11.4,v:1.0},{t:11.8,v:1.12,e:E.outExpo},{t:12.75,v:1.05,e:E.inOutCubic},
+    {t:15.5,v:1.08,e:E.inOutCubic},{t:18.5,v:1.22,e:E.inOutCubic},{t:18.95,v:1.12,e:E.outCubic},
+    {t:20.1,v:1.16,e:E.outExpo},{t:21.35,v:1.2,e:E.outExpo},{t:22.6,v:1.08,e:E.outCubic},
+    {t:23.75,v:1.02,e:E.inOutCubic},{t:24.45,v:1.14,e:E.outExpo},{t:26.2,v:1.06},
+    {t:26.7,v:1.0,e:E.outCubic},{t:29.15,v:1.1,e:E.linear},
+    {t:29.6,v:1.04,e:E.outExpo},{t:31.05,v:1.0},{t:31.15,v:1.08,e:E.outExpo},{t:34.2,v:1.12,e:E.linear},
+    {t:34.65,v:1.0,e:E.outExpo},{t:43.2,v:1.06,e:E.linear},
+  ],
+  X:[{t:0,v:540}],
+  Y:[
+    {t:0,v:780},{t:3.1,v:900,e:E.inOutCubic},{t:5.2,v:980,e:E.inCubic},
+    {t:5.65,v:900,e:E.outExpo},{t:8.0,v:940,e:E.inOutCubic},{t:10.4,v:960},
+    {t:10.75,v:960,e:E.outExpo},{t:11.8,v:790,e:E.outExpo},{t:12.75,v:880,e:E.inOutCubic},
+    {t:15.5,v:980,e:E.inOutCubic},{t:18.5,v:1080,e:E.inOutCubic},{t:18.95,v:1040},
+    {t:20.1,v:1080,e:E.outExpo},{t:21.35,v:1130,e:E.outExpo},{t:22.6,v:1000,e:E.outCubic},
+    {t:24.45,v:1060,e:E.outExpo},{t:26.7,v:900,e:E.outCubic},{t:29.15,v:880},
+    {t:29.6,v:900,e:E.outExpo},{t:34.2,v:940},
+    {t:34.65,v:960,e:E.outExpo},
+  ],
+  shakes:[
+    {t:0.55,amp:10,freq:10,dur:0.5},{t:3.25,amp:6,freq:11,dur:0.35},{t:6.62,amp:7,freq:10,dur:0.4},
+    {t:11.8,amp:4,freq:10,dur:0.3},{t:20.1,amp:4,freq:11,dur:0.3},{t:21.4,amp:5,freq:10,dur:0.35},
+    {t:29.6,amp:8,freq:10,dur:0.45},{t:31.15,amp:5,freq:10,dur:0.35},{t:34.65,amp:4,freq:9,dur:0.3},
+  ],
+  whips:[TL.whipA,TL.whipB,TL.whipD,TL.whipE,{a:23.55,b:23.85}],
+  flashes:[{t:0.55,p:.3},{t:5.65,p:.45},{t:10.75,p:.15},{t:21.4,p:.2},{t:29.6,p:.3},{t:31.15,p:.15},{t:34.65,p:.15}],
+  cutsBlack:[{a:TL.whipD.a,b:TL.whipD.b},{a:TL.whipE.a,b:TL.whipE.b}],
+  cutsBone:[{a:TL.whipA.a,b:TL.whipA.b}],
+  fade:[42.55,43.15],
+});
+
+function paperF(t){
+  return Math.min(seg(t,5.55,5.85,E.outCubic), 1-seg(t,29.2,29.5,E.inQuad));
+}
+
+/* ============ DOM ============ */
+const stage = $('stage');
+stage.innerHTML = `
+<div class="layer" id="s1">
+  <div id="s1lbl" class="lbl dim" style="position:absolute;left:0;top:430px;width:1080px;text-align:center;font-size:26px;"></div>
+  <div id="s1clock" class="seri tan" style="position:absolute;left:0;top:180px;width:1080px;text-align:center;font-size:210px;font-weight:500;">21:38</div>
+  <div id="s1b1" class="bub bubin" style="position:absolute;left:120px;top:620px;background:#1f1e1c;color:#f5f3ee;max-width:700px;">Hola! ¿Tenés turno para una limpieza esta semana?<span class="btime">21:38</span></div>
+  <div id="s1b2" class="bub bubin" style="position:absolute;left:190px;top:800px;background:#1f1e1c;color:#f5f3ee;max-width:700px;">¿Atienden por obra social?<span class="btime">21:41</span></div>
+  <div id="s1h1" class="ser bone" style="position:absolute;left:0;top:1400px;width:1080px;text-align:center;font-size:66px;font-weight:600;white-space:nowrap;"></div>
+  <div id="s1h2" class="ser bone" style="position:absolute;left:0;top:1528px;width:1080px;text-align:center;font-size:66px;font-weight:600;white-space:nowrap;"></div>
+</div>
+
+<div class="layer" id="s2">
+  <div class="ghostnum" style="left:490px;top:260px;font-size:720px;color:rgba(13,12,10,.045);">00</div>
+  <div id="s2r" class="rbox" style="position:absolute;left:480px;top:520px;width:120px;height:120px;font-size:64px;border-color:#8a6f3c;color:#8a6f3c;">R</div>
+  <div id="s2lbl" class="lbl" style="position:absolute;left:0;top:700px;width:1080px;text-align:center;font-size:26px;color:#8a6f3c;"></div>
+  <div id="s2w1" class="ser" style="position:absolute;left:0;top:775px;width:1080px;text-align:center;font-size:140px;font-weight:600;color:transparent;-webkit-text-stroke:2.5px #0d0c0a;">MODO</div>
+  <div id="s2w2" class="ser" style="position:absolute;left:0;top:945px;width:1080px;text-align:center;font-size:132px;font-weight:600;color:#0d0c0a;letter-spacing:-.01em;">SECRETARIA</div>
+  <div id="s2tag" class="seri" style="position:absolute;left:0;top:1230px;width:1080px;text-align:center;font-size:56px;font-weight:500;color:#8a6f3c;"></div>
+  <div id="s2sub" class="lbl" style="position:absolute;left:0;top:1340px;width:1080px;text-align:center;font-size:20px;color:rgba(13,12,10,.5);">Atiende · Agenda · Confirma · Recuerda</div>
+</div>
+
+<div class="layer" id="s3">
+  <div id="s3step" class="lbl" style="position:absolute;left:0;top:252px;width:1080px;text-align:center;font-size:34px;color:#8a6f3c;"></div>
+  <div class="phone" id="phoneB" style="box-shadow:0 60px 130px rgba(60,45,20,.35), 0 0 0 2px rgba(13,12,10,.08);">
+    <div class="screen paper" id="screenB">
+      <div class="notch"></div>
+      <div class="chathead" style="border-bottom:1px solid rgba(60,48,30,.14);">
+        <div class="mono">R</div>
+        <div><div class="chatname" style="color:#171512;">Consultorio Odontológico</div><div class="chatsub" style="color:#5f8a55;">● Recepción · 24/7</div></div>
+        <div class="chanbadge" style="border-color:rgba(138,111,60,.6);color:#8a6f3c;">WhatsApp</div>
+      </div>
+      <div class="stream" id="streamB">
+        <div class="bub bubin" id="b_in1">Hola! ¿Tenés turno para una limpieza esta semana? Soy Caro 😊<span class="btime">21:38</span></div>
+        <div class="typing" id="b_typ"><i></i><i></i><i></i></div>
+        <div class="bub bubout" id="b_out1"><span id="b_tw"></span><span id="b_caret" style="display:inline-block;width:3px;height:26px;background:#8a6f3c;vertical-align:-3px;margin-left:2px;"></span><span class="btime">21:38 <span style="color:#8a6f3c">✓✓</span></span></div>
+        <div class="bub bubin" id="b_in2">Jueves 16 👍<span class="btime">21:39</span></div>
+        <div class="bub bubout" id="b_out2">Listo ✓ Te agendé para el <b>jueves 16:00</b>. Te llega la confirmación y un recordatorio el miércoles.
+          <span class="calcard" style="background:#f5efdf;border:1px solid rgba(138,111,60,.5);" id="b_cal">
+            <span class="rbox" style="width:76px;height:76px;font-size:22px;border-color:#8a6f3c;color:#8a6f3c;flex-direction:column;display:inline-flex;align-items:center;justify-content:center;"><b style="font-size:26px;">JUE</b>16:00</span>
+            <span style="color:#171512;font-weight:700;font-size:22px;line-height:1.3;">Limpieza · Caro M.<br><span style="font-weight:300;letter-spacing:.12em;font-size:17px;color:#8a6f3c;">AGENDADO ✓</span></span>
+          </span>
+          <span class="btime">21:39 <span style="color:#8a6f3c">✓✓</span></span></div>
+        <div id="b_skip" class="lbl" style="align-self:center;font-size:19px;color:rgba(23,21,18,.45);margin:6px 0;"></div>
+        <div class="bub bubout" id="b_rem">Hola Caro! Mañana jueves 16:00 tenés tu limpieza 🦷 ¿Me confirmás?<span class="btime">10:00 · automático <span style="color:#8a6f3c">✓✓</span></span></div>
+        <div class="bub bubin" id="b_rok">Confirmado! Ahí estaré 😁<span class="btime">10:04</span></div>
+      </div>
+    </div>
+  </div>
+  <div id="b_chips"></div>
+  <div id="b_slots" style="position:absolute;left:0;top:0;width:1080px;height:1920px;"></div>
+  <div id="b_cnt" style="position:absolute;left:0;top:262px;width:1080px;text-align:center;opacity:0;">
+    <div class="lbl" style="font-size:24px;color:rgba(13,12,10,.55);">Turnos agendados hoy</div>
+    <div id="b_odo" style="margin-top:6px;"></div>
+  </div>
+</div>
+
+<div class="layer" id="s4">
+  <div id="s4h1" class="ser bone" style="position:absolute;left:70px;top:800px;width:940px;text-align:center;font-size:96px;font-weight:600;line-height:1.12;"></div>
+  <div id="s4h2" class="seri tan" style="position:absolute;left:0;top:1060px;width:1080px;text-align:center;font-size:88px;font-weight:600;"></div>
+  <div id="s4lbl" class="lbl dim" style="position:absolute;left:0;top:1260px;width:1080px;text-align:center;font-size:24px;">/ Atiende · Agenda · Confirma · Recuerda</div>
+</div>
+
+<div class="layer" id="s5">
+  <div id="s5r" class="rbox" style="position:absolute;left:470px;top:500px;width:140px;height:140px;font-size:76px;">R</div>
+  <div id="s5logo" class="ser bone" style="position:absolute;left:0;top:680px;width:1080px;text-align:center;font-size:150px;font-weight:600;">RESPONDE</div>
+  <div id="s5mode" class="lbl tan" style="position:absolute;left:0;top:880px;width:1080px;text-align:center;font-size:30px;">Modo Secretaria · By Metogroup</div>
+  <div id="s5tag" class="seri tan" style="position:absolute;left:0;top:975px;width:1080px;text-align:center;font-size:52px;">La recepción que nunca corta.</div>
+  <div id="s5cta" class="pill" style="position:absolute;left:50%;top:1140px;transform:translateX(-50%);font-size:33px;white-space:nowrap;">Sumala a tu consultorio →</div>
+  <div id="s5site" class="lbl bone" style="position:absolute;left:0;top:1345px;width:1080px;text-align:center;font-size:30px;letter-spacing:.34em;">metogroup.ar</div>
+</div>`;
+
+/* preps */
+const h1w = words($('s1h1'), 'Vos estás con un paciente.', [4]);
+const h2w = words($('s1h2'), '¿Quién contesta?', [1]);
+const REPLY_B = "¡Hola Caro! Sí 😊 Tengo jueves 10:30, jueves 16:00 o viernes 11:15. ¿Cuál te queda mejor?";
+function twCount(t){
+  const Lb = REPLY_B.length;
+  if (t < TL.s3.tw0) return 0;
+  if (t < TL.s3.twA) return Math.round(seg(t,TL.s3.tw0,TL.s3.twA,E.inOutCubic)*10);
+  if (t < TL.s3.twB) return 10 + Math.round(seg(t,TL.s3.twA,TL.s3.twB,E.inQuad)*(Lb-30-10));
+  return (Lb-30) + Math.round(seg(t,TL.s3.twB,TL.s3.tw1,E.outCubic)*30);
+}
+const B_CHIPS = [
+  {x:86,y:748, txt:'/ Lee la agenda en vivo'},
+  {x:86,y:864, txt:'/ Cruza horarios libres'},
+  {x:86,y:1676, txt:'/ Confirma y recuerda sola'},
+];
+B_CHIPS.forEach(ch=>{
+  const d=document.createElement('div');
+  d.className='chipR onpaper';
+  d.style.left=ch.x+'px'; d.style.top=ch.y+'px';
+  d.innerHTML=`<span class="dot"></span>${ch.txt}`;
+  $('b_chips').appendChild(d); ch.el=d;
+});
+/* slots de agenda (aparecen al costado, se multiplican al final) */
+const SLOTS = [
+  {x:858,y:560, d:'JUE', h:'10:30', t0:TL.s3.slot1},
+  {x:872,y:706, d:'JUE', h:'16:00', t0:TL.s3.slot2, book:true},
+  {x:858,y:852, d:'VIE', h:'11:15', t0:TL.s3.slot3},
+  {x:70,y:1495, d:'VIE', h:'09:00', t0:TL.s3.fill0+0.1},
+  {x:330,y:1558, d:'VIE', h:'12:30', t0:TL.s3.fill0+0.32},
+  {x:600,y:1495, d:'LUN', h:'10:15', t0:TL.s3.fill0+0.54},
+  {x:830,y:1558, d:'LUN', h:'17:30', t0:TL.s3.fill0+0.76},
+];
+const slotEls = SLOTS.map(s=>{
+  const d=document.createElement('div');
+  d.style.cssText='position:absolute;background:rgba(245,243,238,.97);border:1px solid rgba(60,48,30,.4);border-left:5px solid #8a6f3c;border-radius:8px;padding:12px 18px;box-shadow:0 16px 40px rgba(50,40,22,.16);font-family:\'Inter Tight\',sans-serif;white-space:nowrap;';
+  d.style.left=s.x+'px'; d.style.top=s.y+'px';
+  d.innerHTML=`<span class="lbl" style="font-size:17px;color:#8a6f3c;">${s.d} · ${s.h}</span><br><span id="" style="font-weight:700;font-size:20px;color:#171512;" class="slotlab">LIBRE</span>`;
+  $('b_slots').appendChild(d);
+  return {el:d, cfg:s, lab:d.querySelector('.slotlab')};
+});
+const bOdoSet = makeOdometer($('b_odo'), 2, 120, 200, "font-family:'Newsreader',serif;font-weight:600;font-size:175px;color:#0d0c0a");
+const STEPS_B = [
+  {t:TL.s3.st1, txt:'01 · Llega el mensaje'},
+  {t:TL.s3.st2, txt:'02 · Mira la agenda'},
+  {t:TL.s3.st3, txt:'03 · Ofrece horarios'},
+  {t:TL.s3.st4, txt:'04 · Agenda y confirma'},
+  {t:TL.s3.st5, txt:'05 · Recuerda sola'},
+];
+const s4h1w = words($('s4h1'), 'Tu agenda se llena sola.', [3,4]);
+
+/* escenas */
+function s1(t){
+  const on = t < TL.whipA.b-0.1;
+  $('s1').style.display = on?'block':'none';
+  if (!on) return;
+  const cq = seg(t, 0.15, 0.6, E.outExpo);
+  $('s1clock').style.opacity = cq;
+  $('s1clock').style.transform = `scale(${lerp(1.4,1,cq)})`;
+  aberr($('s1clock'), Math.max(0,.7-t*1.2));
+  scramble($('s1lbl'), 'CONSULTORIO · FUERA DE HORARIO', t, TL.s1.lbl, TL.s1.lbl+0.9);
+  popIn($('s1b1'), t, TL.s1.b1);
+  popIn($('s1b2'), t, TL.s1.b2);
+  staggerWords(h1w, t, TL.s1.h1, 0.1, 0.3);
+  staggerWords(h2w, t, TL.s1.h2, 0.12, 0.3);
+}
+function s2(t){
+  const on = t>=TL.whipA.a && t<TL.whipB.b-0.05;
+  $('s2').style.display = on?'block':'none';
+  if (!on) return;
+  const rq = seg(t, TL.s2.r, TL.s2.r+0.45, E.outBack);
+  $('s2r').style.opacity = rq;
+  $('s2r').style.transform = `scale(${lerp(.5,1,rq)}) rotate(${lerp(-8,0,rq)}deg)`;
+  scramble($('s2lbl'), 'ETAPA 00 · RESPONDE · TU RECEPCIONISTA VIRTUAL', t, TL.s2.lbl, TL.s2.lbl+0.95);
+  const w1 = seg(t, TL.s2.w1, TL.s2.w1+0.4, E.outExpo);
+  $('s2w1').style.opacity = w1;
+  $('s2w1').style.transform = `translateY(${lerp(60,0,w1)}px) scale(${lerp(1.2,1,w1)})`;
+  const w2 = seg(t, TL.s2.w2, TL.s2.w2+0.4, E.outExpo);
+  $('s2w2').style.opacity = w2;
+  $('s2w2').style.transform = `translateY(${lerp(60,0,w2)}px) scale(${lerp(1.25,1,w2)})`;
+  aberr($('s2w2'), t>TL.s2.w2 ? Math.max(0,.8-(t-TL.s2.w2)*1.3) : 0);
+  const tg = seg(t, TL.s2.tag, TL.s2.tag+0.5, E.outCubic);
+  $('s2tag').style.opacity = tg;
+  $('s2tag').style.transform = `translateY(${lerp(28,0,tg)}px)`;
+  $('s2tag').textContent = 'Atiende y da turnos mientras vos trabajás.';
+  $('s2sub').style.opacity = seg(t, TL.s2.tag+0.35, TL.s2.tag+0.8, E.outCubic);
+}
+function s3(t){
+  const on = t>=TL.whipB.a && t<TL.whipD.b-0.2;
+  $('s3').style.display = on?'block':'none';
+  if (!on) return;
+  const ph = seg(t, TL.s3.phone, TL.s3.phone+0.6, E.outExpo);
+  $('phoneB').style.transform = `translateY(${lerp(700,0,ph)}px) scale(${lerp(.93,1,ph)})`;
+  $('phoneB').style.opacity = ph;
+  let idx=-1;
+  for (let i=0;i<STEPS_B.length;i++) if (t>=STEPS_B[i].t) idx=i;
+  if (idx>=0){
+    const st=STEPS_B[idx];
+    const nxt = idx<STEPS_B.length-1 ? STEPS_B[idx+1].t : 1e9;
+    let o = 1-seg(t, nxt-0.16, nxt, E.inQuad);
+    if (idx===2) o *= 1-seg(t, 17.2, 17.8, E.inQuad);
+    if (idx===4) o *= 1-seg(t, TL.s3.fill0-0.25, TL.s3.fill0, E.inQuad);
+    $('s3step').style.opacity = o;
+    scramble($('s3step'), st.txt.toUpperCase(), t, st.t, st.t+0.55, true);
+  } else $('s3step').style.opacity = 0;
+  popIn($('b_in1'), t, TL.s3.msg1);
+  typingDots($('b_typ'), t, TL.s3.typ0, TL.s3.typ1);
+  const o1 = t>=TL.s3.typ1;
+  $('b_out1').style.display = o1?'block':'none';
+  if (o1) popIn($('b_out1'), t, TL.s3.typ1, 0.3);
+  const n = twCount(t);
+  $('b_tw').textContent = REPLY_B.slice(0,n);
+  $('b_caret').style.opacity = (t>TL.s3.typ1 && t<TL.s3.tw1+0.5) ? (Math.floor(t*2.6)%2?1:.1) : 0;
+  popIn($('b_in2'), t, TL.s3.msg2);
+  const o2 = t>=TL.s3.out2;
+  $('b_out2').style.display = o2?'block':'none';
+  if (o2) popIn($('b_out2'), t, TL.s3.out2, 0.3);
+  const cq = seg(t, TL.s3.cal, TL.s3.cal+0.4, E.outBack);
+  $('b_cal').style.opacity = cq;
+  $('b_cal').style.transform = `scale(${lerp(.7,1,cq)})`;
+  /* time-skip + recordatorio */
+  const sk = t>=TL.s3.skip;
+  $('b_skip').style.display = sk?'block':'none';
+  if (sk) scramble($('b_skip'), '——— MIÉRCOLES · 10:00 ———', t, TL.s3.skip, TL.s3.skip+0.5);
+  const rv = t>=TL.s3.rem;
+  $('b_rem').style.display = rv?'block':'none';
+  if (rv) popIn($('b_rem'), t, TL.s3.rem, 0.3);
+  const kv = t>=TL.s3.rok;
+  $('b_rok').style.display = kv?'block':'none';
+  if (kv) popIn($('b_rok'), t, TL.s3.rok, 0.3);
+  /* chips */
+  B_CHIPS.forEach((ch,i)=>{
+    const t0 = TL.s3.st2+0.25 + i*0.3;
+    const q = seg(t, t0, t0+0.4, E.outBackS);
+    const qo = 1 - seg(t, TL.s3.tw1-0.3, TL.s3.tw1+0.1, E.inQuad);
+    ch.el.style.opacity = q*qo;
+    ch.el.style.transform = `translateY(${lerp(34,0,q) + Math.sin(t*1.6+i*2.1)*6}px)`;
+  });
+  /* slots */
+  slotEls.forEach((s,i)=>{
+    const q = seg(t, s.cfg.t0, s.cfg.t0+0.4, E.outBackS);
+    let qo = 1;
+    if (i<3) qo = 1 - seg(t, TL.s3.st5-0.3, TL.s3.st5, E.inQuad) * 0; /* quedan */
+    s.el.style.opacity = q*qo*(i<3 ? (1 - seg(t, TL.s3.tw1-0.3, TL.s3.tw1+0.1, E.inQuad)*0) : 1);
+    s.el.style.transform = `translateY(${lerp(30,0,q)}px) scale(${lerp(.8,1,q)}) rotate(${(i%2?1.5:-1.5)*(1-q)*3}deg)`;
+    if (s.cfg.book && t>=TL.s3.book){
+      s.lab.textContent = 'RESERVADO ✓';
+      s.lab.style.color = '#8a6f3c';
+      const bq = 1+0.12*Math.exp(-6*Math.max(0,t-TL.s3.book))*Math.sin((t-TL.s3.book)*22);
+      s.el.style.borderLeftColor = '#5f8a55';
+      if (t<TL.s3.book+0.4) s.el.style.transform += ` scale(${bq})`;
+    }
+  });
+  /* contador final */
+  const cf = seg(t, TL.s3.fill0-0.15, TL.s3.fill0+0.25, E.outCubic);
+  $('b_cnt').style.opacity = cf;
+  bOdoSet(kf(t,[{t:TL.s3.fill0,v:3},{t:TL.s3.fill1,v:12,e:E.inOutCubic}]));
+}
+function s4(t){
+  const on = t>=TL.whipD.a && t<TL.whipE.b-0.15;
+  $('s4').style.display = on?'block':'none';
+  if (!on) return;
+  staggerWords(s4h1w, t, TL.s4.h1, 0.1, 0.32);
+  const h2 = seg(t, TL.s4.h2, TL.s4.h2+0.4, E.outExpo);
+  $('s4h2').style.opacity = h2;
+  $('s4h2').style.transform = `translateY(${lerp(36,0,h2)}px) scale(${lerp(1.25,1,h2)})`;
+  $('s4h2').textContent = 'Sin llamadas perdidas.';
+  $('s4lbl').style.opacity = seg(t, TL.s4.lbl, TL.s4.lbl+0.45, E.outCubic);
+}
+function s5(t){
+  const on = t>=TL.whipE.a;
+  $('s5').style.display = on?'block':'none';
+  if (!on) return;
+  const rq = seg(t, TL.s5.in-0.2, TL.s5.in+0.25, E.outExpo);
+  $('s5r').style.opacity = rq;
+  $('s5r').style.transform = `scale(${lerp(.5,1,rq)})`;
+  const lg = seg(t, TL.s5.in, TL.s5.in+0.4, E.outExpo);
+  $('s5logo').style.opacity = lg;
+  $('s5logo').style.transform = `scale(${lerp(1.35,1,lg)})`;
+  $('s5mode').style.opacity = seg(t, TL.s5.in+0.3, TL.s5.in+0.7, E.outCubic);
+  const tg = seg(t, TL.s5.in+0.55, TL.s5.in+1.0, E.outCubic);
+  $('s5tag').style.opacity = tg;
+  $('s5tag').style.transform = `translateY(${lerp(24,0,tg)}px)`;
+  const ct = seg(t, TL.s5.cta, TL.s5.cta+0.45, E.outBack);
+  $('s5cta').style.opacity = ct;
+  $('s5cta').style.transform = `translateX(-50%) scale(${ct<1?lerp(.6,1,ct):1+0.02*Math.sin((t-TL.s5.cta)*2.2)})`;
+  $('s5site').style.opacity = seg(t, TL.s5.cta+0.3, TL.s5.cta+0.7, E.outCubic);
+}
+
+window.seek = function(t){
+  setWorld(t, paperF(t));
+  camera(t);
+  s1(t); s2(t); s3(t); s4(t); s5(t);
+};
+window.READY = Promise.all([
+  document.fonts.load('600 170px Newsreader'),
+  document.fonts.load('italic 500 88px Newsreader'),
+  document.fonts.load('300 26px "Inter Tight"'),
+  document.fonts.load('700 26px "Inter Tight"'),
+  document.fonts.ready
+]).then(()=>{ window.seek(0); return true; });
+</script>
+</body>
+</html>

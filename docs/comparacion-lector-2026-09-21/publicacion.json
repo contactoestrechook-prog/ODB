@@ -1,0 +1,35 @@
+{
+  "publishedAt": "2026-09-21T19:41:32.505209+00:00",
+  "deployments": [
+    {
+      "service": "odb-api",
+      "id": "186c18cf-4837-4331-8495-372b2316eecb",
+      "status": "SUCCESS",
+      "previousDeployment": "8c91faf7-a584-43dd-a6f6-7df351f93718"
+    },
+    {
+      "service": "odb-admin",
+      "id": "a275689b-41f0-4af1-85b3-53d19a01fdc3",
+      "status": "SUCCESS",
+      "previousDeployment": "07d4c8f1-1740-49b2-8fae-16b1bb404c53"
+    }
+  ],
+  "checks": [
+    {
+      "url": "https://odb-api-production.up.railway.app/salud",
+      "status": 200,
+      "finalUrl": "https://odb-api-production.up.railway.app/salud"
+    },
+    {
+      "url": "https://odb-admin-production.up.railway.app/login",
+      "status": 200,
+      "finalUrl": "https://odb-admin-production.up.railway.app/login"
+    },
+    {
+      "url": "https://odb-admin-production.up.railway.app/compras",
+      "status": 200,
+      "finalUrl": "https://odb-admin-production.up.railway.app/login"
+    }
+  ],
+  "customerOperationsCreated": 0
+}

@@ -634,6 +634,32 @@ function render() {
   }
 }
 
+// Los adjuntos de clientes son privados. El panel renueva el acceso con la sesión ODB.
+const adjuntosPrivados = new Map();
+async function renovarAdjuntosPrivados() {
+  const presentes = (datos.messages || []).filter(m => m.contact_id === sel);
+  await Promise.all(presentes.map(async m => {
+    const original = m.metadata && m.metadata.media_url;
+    if (!original) return;
+    let ruta;
+    try {
+      const u = new URL(original);
+      const prefijo = '/storage/v1/object/sign/bot-adjuntos/';
+      if (!u.pathname.startsWith(prefijo)) return;
+      ruta = decodeURIComponent(u.pathname.slice(prefijo.length));
+    } catch { return; }
+    let cache = adjuntosPrivados.get(ruta);
+    if (!cache || cache.vence < Date.now()) {
+      const tarea = fetch('/api/responde-panel?adjunto=' + encodeURIComponent(ruta), { cache: 'no-store' })
+        .then(async r => { if (!r.ok) throw new Error('Adjunto no disponible'); return r.json(); });
+      cache = { tarea, vence: Date.now() + 50 * 60 * 1000 };
+      adjuntosPrivados.set(ruta, cache);
+    }
+    try { const nuevo = await cache.tarea; m.metadata.media_url = nuevo.url; }
+    catch { adjuntosPrivados.delete(ruta); }
+  }));
+}
+
 function cuerpoMsg(m) {
   const md = m.metadata || {};
   if (!md.media_url) return esc(m.content);
@@ -836,6 +862,7 @@ async function refrescar() {
     if (r.status === 401) { localStorage.removeItem('panelToken'); TOKEN = ''; document.getElementById('estadoTxt').textContent = 'sesión vencida'; if (!KEY) mostrarLogin(); return; }
     if (!r.ok) throw new Error(r.status);
     datos = await r.json();
+    await renovarAdjuntosPrivados();
     if (datos.rol === 'admin' && Array.isArray(datos.tenants) && !tenantsPintados) {
       const st = document.getElementById('selTenant');
       st.innerHTML = '<option value="all">Todas las empresas</option>' + datos.tenants.map(t => '<option value="' + t.id + '">' + esc(t.nombre || t.slug) + '</option>').join('');

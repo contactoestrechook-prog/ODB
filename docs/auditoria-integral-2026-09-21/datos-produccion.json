@@ -1,0 +1,50 @@
+{
+  "fecha": "2026-09-21T17:37:36.129Z",
+  "tablas": {
+    "productos": {
+      "filas": 20205,
+      "activos": 10578,
+      "porPeso": 10
+    },
+    "stock": {
+      "filas": 7583,
+      "negativos": 88
+    },
+    "usuarios": {
+      "filas": 15,
+      "roles": {
+        "dueno": 7,
+        "cajero": 4,
+        "administrativo": 3,
+        "gerente": 1
+      },
+      "inactivos": 9,
+      "claveTemporal": 0
+    },
+    "lecturas_comprobante": {
+      "filas": 73,
+      "estados": {
+        "listo": 73
+      },
+      "procesandoMas12min": 0
+    },
+    "facturas_proveedor": {
+      "filas": 29,
+      "estados": {
+        "pendiente": 18,
+        "pagada": 11
+      },
+      "pagadasConMontoIncompleto": 0,
+      "sumaFiscalDifiere": 0
+    },
+    "repartos": {
+      "filas": 0
+    },
+    "agente_tareas": {
+      "filas": 0
+    },
+    "cobranzas_pendientes": {
+      "filas": 0
+    }
+  }
+}

@@ -1,0 +1,500 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,500;0,6..72,600;0,6..72,700;1,6..72,500;1,6..72,600&family=Inter+Tight:wght@300;500;700&display=block" rel="stylesheet">
+</head>
+<body>
+<script src="motor.js"></script>
+<script src="latidos.js"></script>
+<script>
+injectBase('grafito');
+
+/* ==================================================================
+   VIDEO G · "PARO CARDÍACO"
+   Arco: late → la casilla explota (taquicardia) → se apaga →
+   LÍNEA PLANA → RESPONDE reanima → late más fuerte que antes.
+   ECG en vivo abajo, todo el video. Audio sincronizado al mismo pulso.
+   ================================================================== */
+const TL = {
+  b1: {in:0.00,  w:0.14, chk:0.70, cut:3.10},
+  b2: {in:3.10,  w1:3.32, w2:4.00, cut:6.10},
+  b3: {in:6.10,  blk:6.18, w1:6.58, w2:7.22, lbl:7.90, cut:9.40},
+  b4: {in:9.40,  ph:9.50, rows:9.80, num:9.95, cut:13.90},
+  b5: {in:13.90, r1:14.02, w:14.32, cut:16.90},
+  b7: {in:16.90, e1:17.08, e2:18.28, e3:19.48, e4:20.68, cut:22.10},
+  b7b:{in:22.10, w1:22.34, w2:23.10, w3:23.92, cut:25.40},
+  b8: {in:25.40, w1:25.62, w2:26.36, w3:27.14, cut:28.70},
+  b9: {in:28.70, line:28.88, w1:29.85, w2:30.95, cut:33.20},   /* cámara lenta */
+  b10:{in:33.20, r:33.32, logo:33.74, logoEnd:35.10, tag:35.60, cut:37.10},
+  b11:{in:37.10, ph:37.22, clear:37.62, cut:40.40},
+  b12:{in:40.40, w1:40.64, w2:41.48, cut:43.70},
+  b13:{in:43.70, w1:43.88, w2:44.54, btn:45.45, site:46.20, end:47.90},
+};
+window.DURATION = TL.b13.end;
+const BEATS = ['b1','b2','b3','b4','b5','b7','b7b','b8','b9','b10','b11','b12','b13'];
+const CUTS = BEATS.map(k=>TL[k].cut).slice(0,-1);
+const ECUTS = [TL.b7.e2, TL.b7.e3, TL.b7.e4];
+
+const camera = makeCamera({
+  S:[
+    {t:0,v:1.20},{t:0.55,v:1.02,e:E.outExpo},{t:3.10,v:1.00,e:E.linear},
+    {t:3.10,v:1.00},{t:6.10,v:1.06,e:E.linear},
+    {t:6.10,v:1.13},{t:7.15,v:1.00,e:E.outExpo},{t:9.40,v:1.03,e:E.linear},
+    {t:9.40,v:1.00},{t:10.20,v:1.00,e:E.linear},{t:13.90,v:1.12,e:E.inOutCubic},
+    {t:13.90,v:1.04},{t:16.90,v:1.00,e:E.linear},
+    {t:16.90,v:1.02},{t:22.10,v:1.05,e:E.linear},
+    {t:22.10,v:1.00},{t:25.40,v:1.06,e:E.linear},
+    {t:25.40,v:1.00},{t:28.70,v:1.06,e:E.linear},
+    /* PARO · cámara lenta: un movimiento largo, continuo y mínimo */
+    {t:28.70,v:1.09},{t:33.20,v:0.985,e:E.linear},
+    {t:33.20,v:1.40},{t:35.10,v:1.00,e:E.outExpo},{t:37.10,v:1.035,e:E.linear},
+    {t:37.10,v:1.02},{t:40.40,v:1.09,e:E.inOutCubic},
+    {t:40.40,v:1.16},{t:41.45,v:1.00,e:E.outExpo},{t:43.70,v:1.03,e:E.linear},
+    {t:43.70,v:1.09},{t:44.60,v:1.00,e:E.outExpo},{t:47.90,v:1.045,e:E.linear},
+  ],
+  X:[{t:0,v:540}],
+  Y:[
+    {t:0,v:930},{t:0.55,v:955,e:E.outExpo},{t:3.10,v:962,e:E.linear},
+    {t:3.10,v:948},{t:6.10,v:978,e:E.linear},
+    {t:6.10,v:935},{t:7.15,v:960,e:E.outExpo},{t:9.40,v:972,e:E.linear},
+    {t:9.40,v:900},{t:13.90,v:960,e:E.inOutCubic},
+    {t:13.90,v:972},{t:16.90,v:944,e:E.linear},
+    {t:16.90,v:952},{t:22.10,v:978,e:E.linear},
+    {t:22.10,v:944},{t:25.40,v:976,e:E.linear},
+    {t:25.40,v:948},{t:28.70,v:980,e:E.linear},
+    {t:28.70,v:992},{t:33.20,v:1052,e:E.linear},
+    {t:33.20,v:915},{t:35.10,v:960,e:E.outExpo},{t:37.10,v:972,e:E.linear},
+    {t:37.10,v:920},{t:40.40,v:960,e:E.inOutCubic},
+    {t:40.40,v:932},{t:41.45,v:960,e:E.outExpo},{t:43.70,v:972,e:E.linear},
+    {t:43.70,v:938},{t:44.60,v:960,e:E.outExpo},
+  ],
+  shakes:[
+    {t:0.16,amp:14,freq:11,dur:0.5},{t:3.34,amp:8,freq:11,dur:0.4},{t:4.03,amp:11,freq:10,dur:0.45},
+    {t:6.20,amp:15,freq:10,dur:0.55},
+    {t:9.85,amp:9,freq:13,dur:0.5},{t:10.9,amp:8,freq:13,dur:0.5},{t:11.9,amp:9,freq:14,dur:0.5},{t:13.0,amp:11,freq:14,dur:0.6},
+    {t:17.10,amp:5,freq:12,dur:0.24},{t:18.30,amp:5,freq:12,dur:0.24},{t:19.50,amp:5,freq:12,dur:0.24},{t:20.70,amp:6,freq:12,dur:0.26},
+    {t:23.94,amp:13,freq:10,dur:0.5},
+    {t:27.16,amp:12,freq:10,dur:0.5},
+    /* en el paro NO hay temblor: la quietud es el efecto */
+    {t:33.32,amp:22,freq:9,dur:0.9},
+    {t:35.10,amp:8,freq:10,dur:0.5},{t:37.24,amp:7,freq:10,dur:0.45},
+    {t:41.42,amp:13,freq:10,dur:0.55},{t:44.58,amp:7,freq:10,dur:0.4},
+  ],
+  whips:[],
+  flashes:[
+    {t:0.16,p:.45},{t:3.15,p:.22},{t:4.03,p:.3},{t:6.15,p:.6},
+    {t:9.45,p:.25},{t:13.95,p:.2},{t:16.95,p:.2},
+    {t:17.08,p:.18},{t:18.28,p:.18},{t:19.48,p:.18},{t:20.68,p:.2},
+    {t:22.15,p:.22},{t:23.94,p:.4},
+    {t:25.45,p:.2},{t:27.16,p:.35},{t:28.75,p:.42},
+    {t:33.32,p:.8},{t:37.15,p:.25},{t:40.45,p:.5},{t:43.75,p:.3},
+  ],
+  cutsBlack: CUTS.concat(ECUTS).map(t=>({a:t-0.05,b:t+0.05})),
+  cutsBone: [{a:40.35,b:40.47}],
+  fade:[47.25,47.85],
+});
+
+function paperF(t){
+  return Math.min(seg(t,40.40,40.53,E.outCubic), 1-seg(t,43.63,43.71,E.inQuad));
+}
+/* ================= HUD + ECG (fijos, fuera de cámara) ================= */
+const HB = heartBeats();
+const ECG_W = 920, ECG_H = 150;
+
+const hud = document.createElement('div');
+hud.id='hud';
+hud.style.cssText='position:fixed;inset:0;z-index:50;pointer-events:none;';
+hud.innerHTML = `
+  <div id="hframe" style="position:absolute;left:58px;top:58px;right:58px;bottom:58px;border:1px solid rgba(245,243,238,.16);"></div>
+  ${[['left:44px;top:44px','border-left:2px solid;border-top:2px solid'],
+     ['right:44px;top:44px','border-right:2px solid;border-top:2px solid'],
+     ['left:44px;bottom:44px','border-left:2px solid;border-bottom:2px solid'],
+     ['right:44px;bottom:44px','border-right:2px solid;border-bottom:2px solid']]
+    .map(([pos,br])=>`<div class="htick" style="position:absolute;${pos};width:34px;height:34px;${br};"></div>`).join('')}
+  <div id="hbrand" class="lbl" style="position:absolute;left:92px;top:96px;font-size:21px;letter-spacing:.42em;">RESPONDE</div>
+  <div id="hidx" class="lbl" style="position:absolute;right:92px;top:96px;font-size:21px;letter-spacing:.3em;">01/13</div>
+
+  <div id="ecgw" style="position:absolute;left:80px;top:1470px;width:920px;height:${ECG_H}px;">
+    <svg id="ecgsvg" width="${ECG_W}" height="${ECG_H}" viewBox="0 0 ${ECG_W} ${ECG_H}" style="display:block;overflow:visible;">
+      <line x1="0" y1="${ECG_H/2}" x2="${ECG_W}" y2="${ECG_H/2}" stroke="rgba(245,243,238,.07)" stroke-width="1"/>
+      <polyline id="ecgline" fill="none" stroke="#c9a96e" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"/>
+      <circle id="ecgdot" r="7" fill="#c9a96e"/>
+    </svg>
+  </div>
+  <div id="bpmw" style="position:absolute;left:92px;top:1638px;display:flex;align-items:baseline;gap:16px;">
+    <span id="bpm" class="lblb" style="font-size:44px;letter-spacing:.02em;font-variant-numeric:tabular-nums;color:#c9a96e;">72</span>
+    <span id="bpml" class="lbl" style="font-size:19px;letter-spacing:.3em;color:rgba(245,243,238,.5);">LPM</span>
+  </div>
+  <div id="hclockw" style="position:absolute;right:92px;top:1638px;text-align:right;">
+    <div id="hclbl" class="lbl" style="font-size:16px;letter-spacing:.28em;opacity:.5;">SIN RESPONDER</div>
+    <div id="hclock" class="lblb" style="font-size:27px;letter-spacing:.05em;margin-top:5px;font-variant-numeric:tabular-nums;">03 d 07:41:22</div>
+  </div>
+  <div id="hsite" class="lbl" style="position:absolute;left:0;bottom:96px;width:1080px;text-align:center;font-size:19px;letter-spacing:.28em;opacity:.55;">METOGROUP.AR</div>`;
+document.getElementById('viewport').appendChild(hud);
+
+const ecgLine = $('ecgline'), ecgDot = $('ecgdot');
+function ecgFrame(t){
+  /* estado del pulso → color */
+  const flat = t>=FLAT.a && t<FLAT.b;
+  let col = '#c9a96e';
+  if (t>9.4 && t<16.9) col = '#e0864e';           // taquicardia
+  else if (t>=16.9 && t<FLAT.a) col = '#d9614f';  // se apaga
+  if (flat) col = '#e0483f';                       // paro
+  if (t>=TL.b10.in) col = '#c9a96e';               // reanimado
+  ecgLine.setAttribute('stroke', col);
+  ecgDot.setAttribute('fill', col);
+  /* trazo: la derecha es "ahora", se corre hacia la izquierda */
+  const mid = ECG_H/2;
+  const SPD = ecgSpeedAt(t);            /* se arrastra al apagarse */
+  let pts = '';
+  let lastY = mid;
+  for (let x=0; x<=ECG_W; x+=3){
+    const tt = t - (ECG_W - x)/SPD;
+    let y = 0;
+    for (const b of HB){
+      const u = (tt - b.t)/(b.d||0.42);
+      if (u>=0 && u<=1) y += b.a * pqrst(u);
+    }
+    const yy = mid - y*ECG_H*0.42;
+    if (x===ECG_W) lastY = yy;
+    pts += x+','+yy.toFixed(1)+' ';
+  }
+  ecgLine.setAttribute('points', pts);
+  ecgDot.setAttribute('cx', ECG_W);
+  ecgDot.setAttribute('cy', lastY.toFixed(1));
+  /* opacidad del trazo: aparece con el HUD */
+  $('ecgw').style.opacity = seg(t,0.3,0.85,E.outCubic);
+  /* LPM */
+  const bpmEl = $('bpm');
+  if (flat){
+    bpmEl.textContent = '—';
+    bpmEl.style.color = '#e0483f';
+    $('bpml').textContent = 'SIN PULSO';
+    $('bpml').style.color = 'rgba(224,72,63,.75)';
+    bpmEl.style.opacity = (Math.floor(t*2.2)%2) ? 1 : .35;
+  } else {
+    let prev=null, cur=null;
+    for (const b of HB){ if (b.t<=t){ prev=cur; cur=b; } }
+    let v = 72;
+    if (cur && prev) v = Math.round(60/(cur.t-prev.t));
+    else if (t<0.3) v = 72;
+    if (t>=TL.b10.in && t<35.3) v = Math.round(lerp(36, 64, iv(t,33.3,35.2)));
+    bpmEl.textContent = Math.max(0,Math.min(190,v));
+    bpmEl.style.color = col;
+    bpmEl.style.opacity = 1;
+    $('bpml').textContent = 'LPM';
+    $('bpml').style.color = 'rgba(245,243,238,.5)';
+  }
+}
+
+const T0_SEG = 3*86400 + 7*3600 + 41*60 + 22;
+function hudFrame(t, inv){
+  const bone='245,243,238', ink='13,12,10';
+  const mixc = a=>`rgba(${inv>.5?ink:bone},${a})`;
+  hud.style.opacity = seg(t,0.28,0.75,E.outCubic);
+  $('hframe').style.borderColor = mixc(.16);
+  [...document.querySelectorAll('.htick')].forEach(el=>{
+    el.style.borderColor = inv>.5 ? '#12100c' : '#c9a96e'; el.style.opacity=.85;
+  });
+  $('hbrand').style.color = mixc(.75);
+  $('hidx').style.color = mixc(.75);
+  $('hclbl').style.color = mixc(.5);
+  $('hsite').style.color = mixc(.55);
+  let i=0; BEATS.forEach((k,ix)=>{ if (t>=TL[k].in) i=ix; });
+  $('hidx').textContent = String(i+1).padStart(2,'0')+'/13';
+  const reset = seg(t, TL.b10.in, TL.b10.in+0.5, E.outExpo);
+  const secs = Math.floor((T0_SEG + t)*(1-reset));
+  const d=Math.floor(secs/86400), h=Math.floor(secs%86400/3600), m=Math.floor(secs%3600/60), s=secs%60;
+  const p2 = n=>String(n).padStart(2,'0');
+  const cl = $('hclock');
+  cl.textContent = `${p2(d)} d ${p2(h)}:${p2(m)}:${p2(s)}`;
+  cl.style.color = reset>.9 ? (inv>.5?'#7a5f26':'#c9a96e') : mixc(.95);
+  $('hclbl').textContent = reset>.9 ? 'TIEMPO DE RESPUESTA' : 'SIN RESPONDER';
+}
+
+/* ================= carteles ================= */
+const stage = $('stage');
+stage.innerHTML = `
+<div class="layer beat" id="b1">
+  <div class="ghostnum" style="left:0;top:150px;width:1080px;text-align:center;font-size:560px;">01</div>
+  <div id="b1chk" class="ser tan" style="position:absolute;left:0;top:600px;width:1080px;text-align:center;font-size:92px;font-weight:600;">✓✓</div>
+  <div class="mask" style="left:0;top:720px;width:1080px;"><span id="b1w" class="ser bone" style="font-size:180px;font-weight:700;">LO VISTE.</span></div>
+</div>
+
+<div class="layer beat" id="b2">
+  <div id="b2bar" style="position:absolute;left:118px;top:690px;width:9px;height:290px;background:#c9a96e;transform-origin:50% 0;"></div>
+  <div class="mask" style="left:168px;top:690px;width:800px;text-align:left;"><span id="b2w1" class="ser bone" style="font-size:104px;font-weight:600;">NO</span></div>
+  <div class="mask" style="left:168px;top:820px;width:800px;text-align:left;"><span id="b2w2" class="ser bone" style="font-size:104px;font-weight:600;">CONTESTASTE.</span></div>
+</div>
+
+<div class="layer beat" id="b3">
+  <div id="b3blk" style="position:absolute;left:-160px;top:-140px;width:1400px;height:2200px;background:#c9a96e;transform-origin:50% 100%;"></div>
+  <div class="mask" style="left:0;top:700px;width:1080px;"><span id="b3w1" class="ser" style="font-size:122px;font-weight:700;color:#12100c;">YA LE COMPRÓ</span></div>
+  <div class="mask" style="left:0;top:845px;width:1080px;"><span id="b3w2" class="ser" style="font-size:122px;font-weight:700;color:#12100c;">A OTRO.</span></div>
+  <div id="b3lbl" class="lbl" style="position:absolute;left:0;top:1030px;width:1080px;text-align:center;font-size:26px;color:rgba(18,16,12,.65);">12 MINUTOS DESPUÉS DE ESCRIBIRTE</div>
+</div>
+
+<div class="layer beat" id="bphone">
+  <div id="phone" style="position:absolute;left:250px;top:250px;width:580px;height:1060px;background:#05080a;border-radius:52px;padding:12px;box-shadow:0 60px 130px rgba(0,0,0,.7),0 0 0 2px rgba(245,243,238,.08);">
+    <div style="width:100%;height:100%;background:#0b141a;border-radius:42px;overflow:hidden;position:relative;">
+      <div style="position:absolute;left:50%;top:10px;transform:translateX(-50%);width:150px;height:26px;background:#05080a;border-radius:16px;z-index:5;"></div>
+      <div style="padding:52px 26px 14px;display:flex;align-items:baseline;justify-content:space-between;border-bottom:1px solid rgba(245,243,238,.07);">
+        <span style="font-family:'Inter Tight',sans-serif;font-weight:700;font-size:30px;color:#e9edef;">Chats</span>
+        <span id="phcount" style="font-family:'Inter Tight',sans-serif;font-weight:700;font-size:23px;color:#25D366;">0 sin leer</span>
+      </div>
+      <div id="phrows" style="padding:6px 0;"></div>
+    </div>
+  </div>
+  <div id="phnum" class="ser" style="position:absolute;left:0;top:1075px;width:1080px;text-align:center;font-size:0px;
+       text-shadow:0 10px 50px rgba(0,0,0,.95), 0 0 90px rgba(0,0,0,.9);"></div>
+</div>
+
+<div class="layer beat" id="b5">
+  <div id="b5r1" style="position:absolute;left:190px;top:790px;width:700px;height:2px;background:rgba(245,243,238,.45);transform-origin:50% 50%;"></div>
+  <div class="mask" style="left:0;top:840px;width:1080px;"><span id="b5w1" class="ser bone" style="font-size:86px;font-weight:600;">Y el lunes volvés</span></div>
+  <div class="mask" style="left:0;top:955px;width:1080px;"><span id="b5w2" class="seri tan" style="font-size:86px;font-weight:600;">a pagar publicidad.</span></div>
+  <div id="b5r2" style="position:absolute;left:190px;top:1090px;width:700px;height:2px;background:rgba(245,243,238,.45);transform-origin:50% 50%;"></div>
+</div>
+
+<div class="layer beat" id="b7"><div id="b7list" style="position:absolute;left:120px;top:650px;width:860px;"></div></div>
+
+<div class="layer beat" id="b7b">
+  <div id="b7bw1" class="ser bone" style="position:absolute;left:0;top:700px;width:1080px;text-align:center;font-size:60px;font-weight:500;opacity:.7;">No es sólo la economía.</div>
+  <div class="mask" style="left:0;top:810px;width:1080px;"><span id="b7bw2" class="ser bone" style="font-size:104px;font-weight:600;">TAMBIÉN ES</span></div>
+  <div class="mask" style="left:0;top:945px;width:1080px;"><span id="b7bw3" class="ser tan" style="font-size:104px;font-weight:700;">CULPA TUYA.</span></div>
+</div>
+
+<div class="layer beat" id="b8">
+  <div id="b8w1" class="ser bone" style="position:absolute;left:0;top:680px;width:1080px;text-align:center;font-size:56px;font-weight:500;opacity:.7;">Nadie piensa que estás ocupado.</div>
+  <div class="mask" style="left:0;top:790px;width:1080px;"><span id="b8w2" class="ser bone" style="font-size:96px;font-weight:600;">PIENSAN QUE</span></div>
+  <div class="mask" style="left:0;top:920px;width:1080px;"><span id="b8w3" class="ser tan" style="font-size:96px;font-weight:700;">NO TE IMPORTAN.</span></div>
+</div>
+
+<div class="layer beat" id="b9">
+  <div class="mask" style="left:0;top:760px;width:1080px;"><span id="b9w1" class="ser" style="font-size:100px;font-weight:700;color:#e0483f;">ASÍ SE APAGA</span></div>
+  <div class="mask" style="left:0;top:900px;width:1080px;"><span id="b9w2" class="ser bone" style="font-size:100px;font-weight:700;">UN NEGOCIO.</span></div>
+  <div id="b9sub" class="lbl" style="position:absolute;left:0;top:1090px;width:1080px;text-align:center;font-size:22px;color:rgba(224,72,63,.8);">SIN RUIDO · SIN AVISO · UN MENSAJE POR VEZ</div>
+</div>
+
+<div class="layer beat" id="b10">
+  <div id="b10r" class="rbox" style="position:absolute;left:475px;top:600px;width:130px;height:130px;font-size:70px;">R</div>
+  <div id="b10logo" class="ser bone" style="position:absolute;left:0;top:790px;width:1080px;text-align:center;font-size:160px;font-weight:600;letter-spacing:-.02em;"></div>
+  <div id="b10rule" style="position:absolute;left:300px;top:1010px;width:480px;height:2px;background:#c9a96e;transform-origin:50% 50%;"></div>
+  <div id="b10tag" class="seri tan" style="position:absolute;left:0;top:1055px;width:1080px;text-align:center;font-size:52px;font-weight:500;">Contesta por vos. Siempre.</div>
+</div>
+
+<div class="layer beat" id="b12">
+  <div class="mask" style="left:0;top:760px;width:1080px;"><span id="b12w1" class="ser" style="font-size:94px;font-weight:600;color:#0d0c0a;">COMO CONTESTÁS</span></div>
+  <div id="b12r" style="position:absolute;left:390px;top:890px;width:300px;height:2px;background:#8a6f3c;transform-origin:50% 50%;"></div>
+  <div class="mask" style="left:130px;top:925px;width:820px;"><span id="b12w2" class="ser" style="font-size:94px;font-weight:700;color:#8a6f3c;">ES COMO TRABAJÁS.</span></div>
+</div>
+
+<div class="layer beat" id="b13">
+  <div class="mask" style="left:0;top:660px;width:1080px;"><span id="b13w1" class="ser bone" style="font-size:84px;font-weight:600;">Ni un mensaje más</span></div>
+  <div class="mask" style="left:0;top:772px;width:1080px;"><span id="b13w2" class="seri tan" style="font-size:84px;font-weight:600;">sin responder.</span></div>
+  <div id="b13btn" class="pill" style="position:absolute;left:50%;top:950px;transform:translateX(-50%);font-size:44px;white-space:nowrap;padding:34px 70px;">Probame ahora →</div>
+  <div id="b13site" class="lbl bone" style="position:absolute;left:0;top:1130px;width:1080px;text-align:center;font-size:27px;letter-spacing:.3em;">RESPONDE · by Metogroup · metogroup.ar</div>
+</div>`;
+
+const st = document.createElement('style');
+st.textContent = `
+  .mask { position:absolute; overflow:hidden; text-align:center; line-height:1.3; padding-bottom:12px; }
+  .mask > span { display:inline-block; }
+  .exrow { position:relative; display:flex; align-items:baseline; gap:30px; margin-bottom:30px; }
+  .exn { font-family:'Inter Tight',sans-serif; font-weight:300; font-size:26px; letter-spacing:.24em; color:#c9a96e; width:60px; flex-shrink:0; }
+  .ext { font-family:'Newsreader',serif; font-style:italic; font-weight:500; font-size:71px; color:#f5f3ee; position:relative; white-space:nowrap; }
+  .exs { position:absolute; left:-10px; top:52%; height:6px; background:#c9a96e; transform-origin:0 50%; }
+  .phrow { display:flex; align-items:center; gap:18px; padding:17px 26px; border-bottom:1px solid rgba(245,243,238,.05); }
+  .phav { width:60px; height:60px; border-radius:50%; display:grid; place-items:center; flex-shrink:0;
+          font-family:'Inter Tight',sans-serif; font-weight:700; font-size:25px; color:#0b141a; }
+  .phmid { flex:1; min-width:0; }
+  .phname { display:block; font-family:'Inter Tight',sans-serif; font-weight:700; font-size:24px; color:#e9edef; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .phprev { display:block; font-family:'Inter Tight',sans-serif; font-weight:300; font-size:21px; color:#8696a0; margin-top:5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .phright { text-align:right; flex-shrink:0; }
+  .phtime { font-family:'Inter Tight',sans-serif; font-weight:500; font-size:17px; color:#25D366; }
+  .phbadge { margin-top:7px; background:#25D366; color:#0b141a; font-family:'Inter Tight',sans-serif; font-weight:700;
+             font-size:19px; min-width:34px; height:34px; border-radius:17px; display:inline-grid; place-items:center; padding:0 10px; }
+  .phok { margin-top:7px; font-family:'Inter Tight',sans-serif; font-weight:700; font-size:20px; color:#c9a96e; }
+`;
+document.head.appendChild(st);
+
+/* excusas */
+const EXC = [
+  {n:'01', txt:'«Estaba ocupado»'}, {n:'02', txt:'«Se me pasó»'},
+  {n:'03', txt:'«Somos pocos»'}, {n:'04', txt:'«Está dura la economía»'},
+];
+EXC.forEach((e,i)=>{
+  const row = document.createElement('div');
+  row.className='exrow';
+  row.innerHTML = `<span class="exn">${e.n}</span><span class="ext">${e.txt}<i class="exs"></i></span>`;
+  $('b7list').appendChild(row);
+  e.row=row; e.txt_=row.querySelector('.ext'); e.line=row.querySelector('.exs');
+  e.t0=[TL.b7.e1,TL.b7.e2,TL.b7.e3,TL.b7.e4][i];
+});
+
+/* casilla explotada */
+const ROWS = [
+  ['M','Mariana P.','Hola! ¿Está disponible?','23:41',12,'#7c5cbf'],
+  ['+','+54 9 11 5·· ····','Buenas, ¿precio por mayor?','23:38',3,'#4e8fa3'],
+  ['C','Consulta web','Lo necesito para el lunes','23:22',7,'#b07c3f'],
+  ['J','Juan Ibarra','¿Hola? Sigo esperando…','22:57',24,'#5a8f5e'],
+  ['L','Lucía Ferrán','¿Me pasás el catálogo?','22:40',5,'#a45a6b'],
+  ['+','+54 9 351 4·· ····','Buenas tardes, una consulta','21:19',2,'#6f6f8f'],
+  ['D','Distribuidores','31 mensajes nuevos','20:55',31,'#3f7f7a'],
+];
+const rowEls = ROWS.map(([ini,name,prev,time,badge,col])=>{
+  const d=document.createElement('div');
+  d.className='phrow';
+  d.innerHTML = `<span class="phav" style="background:${col}">${ini}</span>
+    <span class="phmid"><span class="phname">${name}</span><span class="phprev">${prev}</span></span>
+    <span class="phright"><span class="phtime">${time}</span><br><span class="phbadge">${badge}</span><span class="phok" style="display:none">✓✓</span></span>`;
+  $('phrows').appendChild(d);
+  return {el:d, badge:d.querySelector('.phbadge'), ok:d.querySelector('.phok'),
+          prev:d.querySelector('.phprev'), time:d.querySelector('.phtime')};
+});
+
+/* helpers */
+function wipe(id,t,t0,dur){ const q=seg(t,t0,t0+(dur||0.55),E.outExpo); $(id).style.transform=`translateY(${(1-q)*112}%)`; return q; }
+function grow(id,t,t0,dur,axis){ const q=seg(t,t0,t0+(dur||0.45),E.outExpo);
+  $(id).style.transform=(axis==='y')?`scaleY(${q})`:`scaleX(${q})`; $(id).style.opacity=q>0?1:0; return q; }
+function show(id,t,a,b){ const v=t>=a-0.02&&t<b+0.02; $(id).style.display=v?'block':'none'; return v; }
+
+/* ---------- carteles ---------- */
+function b1(t){ if(!show('b1',t,TL.b1.in,TL.b1.cut))return;
+  wipe('b1w',t,TL.b1.w,0.5); aberr($('b1w'),Math.max(0,.9-(t-TL.b1.w)*1.1));
+  const c=seg(t,TL.b1.chk,TL.b1.chk+0.3,E.outBack);
+  $('b1chk').style.opacity=c*(0.75+0.25*Math.sin(t*7));
+  $('b1chk').style.transform=`scale(${lerp(.5,1,c)})`; }
+function b2(t){ if(!show('b2',t,TL.b2.in,TL.b2.cut))return;
+  grow('b2bar',t,TL.b2.in+0.06,0.4,'y'); wipe('b2w1',t,TL.b2.w1,0.55); wipe('b2w2',t,TL.b2.w2,0.6);
+  aberr($('b2w2'),Math.max(0,.8-(t-TL.b2.w2)*1.2)); }
+function b3(t){ if(!show('b3',t,TL.b3.in,TL.b3.cut))return;
+  grow('b3blk',t,TL.b3.blk,0.34,'y'); wipe('b3w1',t,TL.b3.w1,0.55); wipe('b3w2',t,TL.b3.w2,0.55);
+  aberr($('b3w2'),Math.max(0,.6-(t-TL.b3.w2)*1.2));
+  $('b3lbl').style.opacity=seg(t,TL.b3.lbl,TL.b3.lbl+0.4,E.outCubic); }
+
+/* teléfono: explota en b4, revive en b11 */
+function phone(t){
+  const inA = t>=TL.b4.in-0.02 && t<TL.b4.cut+0.02;
+  const inB = t>=TL.b11.in-0.02 && t<TL.b11.cut+0.02;
+  $('bphone').style.display = (inA||inB)?'block':'none';
+  if(!inA && !inB) return;
+  const t0 = inA ? TL.b4.ph : TL.b11.ph;
+  const q = seg(t,t0,t0+0.5,E.outExpo);
+  /* temblor propio del teléfono cuando explota */
+  const sh = inA ? Math.max(0,seg(t,7.0,7.4,E.outCubic)-seg(t,10.2,10.55,E.outCubic)) : 0;
+  const jx = sh*Math.sin(t*33)*7, jy = sh*Math.cos(t*29)*5;
+  $('phone').style.opacity=q;
+  $('phone').style.transform=`translate(${jx}px,${lerp(120,0,q)+jy}px) scale(${lerp(.92,1,q)})`;
+  const num = $('phnum');
+  if (inA){
+    /* filas cayendo + contador subiendo a 800 */
+    rowEls.forEach((r,i)=>{
+      const rt = TL.b4.rows + i*0.16;
+      const rq = seg(t,rt,rt+0.3,E.outExpo);
+      r.el.style.opacity=rq;
+      r.el.style.transform=`translateY(${lerp(-40,0,rq)}px)`;
+      r.badge.style.display='inline-grid'; r.ok.style.display='none';
+      r.badge.textContent = Math.max(1, Math.round(ROWS[i][4]*Math.min(1,seg(t,rt,rt+1.6,E.outCubic)*1.15)));
+      r.prev.textContent = ROWS[i][2]; r.time.style.color='#25D366';
+    });
+    const v = Math.round(kf(t,[{t:TL.b4.num,v:0},{t:TL.b4.num+2.3,v:800,e:E.outQuint}]));
+    $('phcount').textContent = v+' sin leer';
+    $('phcount').style.color = '#25D366';
+    num.style.fontSize='150px'; num.style.fontWeight='700';
+    num.style.color='#e0483f';
+    num.textContent = v;
+    num.style.opacity = seg(t,TL.b4.num+0.2,TL.b4.num+0.6,E.outCubic);
+    num.style.transform = `scale(${1+0.02*Math.sin(t*9)})`;
+  } else {
+    /* revivido: badges → ✓✓, contador a 0 */
+    rowEls.forEach((r,i)=>{
+      const rt = TL.b11.clear + i*0.12;
+      const done = t>=rt;
+      r.el.style.opacity=1; r.el.style.transform='none';
+      r.badge.style.display = done?'none':'inline-grid';
+      r.ok.style.display = done?'block':'none';
+      r.badge.textContent = ROWS[i][4];
+      r.prev.textContent = done ? 'Respondido por RESPONDE' : ROWS[i][2];
+      r.prev.style.color = done ? '#c9a96e' : '#8696a0';
+      r.time.style.color = done ? '#8696a0' : '#25D366';
+    });
+    const left = ROWS.reduce((acc,r,i)=> acc + (t>=TL.b11.clear+i*0.12?0:r[4]), 0);
+    const v = Math.round(800*(left/84));
+    $('phcount').textContent = (t>TL.b11.clear+7*0.12+0.2?'0':v)+' sin leer';
+    $('phcount').style.color = (t>TL.b11.clear+7*0.12+0.2)?'#c9a96e':'#25D366';
+    num.style.fontSize='150px'; num.style.color='#c9a96e'; num.style.fontWeight='700';
+    num.textContent = (t>TL.b11.clear+7*0.12+0.2)?'0':v;
+    num.style.opacity = seg(t,TL.b11.clear,TL.b11.clear+0.4,E.outCubic);
+    num.style.transform='scale(1)';
+  }
+}
+function b5(t){ if(!show('b5',t,TL.b5.in,TL.b5.cut))return;
+  grow('b5r1',t,TL.b5.r1,0.5); grow('b5r2',t,TL.b5.r1+0.12,0.5);
+  wipe('b5w1',t,TL.b5.w,0.6); wipe('b5w2',t,TL.b5.w+0.62,0.6); }
+function b7(t){ if(!show('b7',t,TL.b7.in,TL.b7.cut))return;
+  EXC.forEach(e=>{
+    const q=seg(t,e.t0,e.t0+0.3,E.outExpo);
+    e.row.style.opacity=q; e.row.style.transform=`translateX(${lerp(50,0,q)}px)`;
+    const w=e.txt_.offsetWidth+20;
+    const s=seg(t,e.t0+0.34,e.t0+0.62,E.outExpo);
+    e.line.style.width=w+'px'; e.line.style.transform=`scaleX(${s}) rotate(-1.2deg)`;
+    e.line.style.opacity=s>0?1:0;
+    e.txt_.style.color = s>.6?'rgba(245,243,238,.4)':'#f5f3ee';
+  }); }
+function b7b(t){ if(!show('b7b',t,TL.b7b.in,TL.b7b.cut))return;
+  const q=seg(t,TL.b7b.w1,TL.b7b.w1+0.4,E.outCubic);
+  $('b7bw1').style.opacity=q*.7; $('b7bw1').style.transform=`translateY(${lerp(20,0,q)}px)`;
+  wipe('b7bw2',t,TL.b7b.w2,0.6); wipe('b7bw3',t,TL.b7b.w3,0.62);
+  aberr($('b7bw3'),Math.max(0,1-(t-TL.b7b.w3)*1.1)); }
+function b8(t){ if(!show('b8',t,TL.b8.in,TL.b8.cut))return;
+  const q=seg(t,TL.b8.w1,TL.b8.w1+0.4,E.outCubic);
+  $('b8w1').style.opacity=q*.7; $('b8w1').style.transform=`translateY(${lerp(20,0,q)}px)`;
+  wipe('b8w2',t,TL.b8.w2,0.6); wipe('b8w3',t,TL.b8.w3,0.62);
+  aberr($('b8w3'),Math.max(0,1-(t-TL.b8.w3)*1.1)); }
+function b9(t){ if(!show('b9',t,TL.b9.in,TL.b9.cut))return;
+  wipe('b9w1',t,TL.b9.w1,1.05); wipe('b9w2',t,TL.b9.w2,1.05);
+  aberr($('b9w1'),Math.max(0,.7-(t-TL.b9.w1)*1.0));
+  $('b9sub').style.opacity=seg(t,TL.b9.w2+0.5,TL.b9.w2+0.9,E.outCubic)*(0.55+0.45*Math.abs(Math.sin(t*1.8))); }
+function b10(t){ if(!show('b10',t,TL.b10.in,TL.b10.cut))return;
+  const rq=seg(t,TL.b10.r,TL.b10.r+0.4,E.outBack);
+  $('b10r').style.opacity=rq; $('b10r').style.transform=`scale(${lerp(.5,1,rq)}) rotate(${lerp(-8,0,rq)}deg)`;
+  scramble($('b10logo'),'RESPONDE',t,TL.b10.logo,TL.b10.logoEnd);
+  aberr($('b10logo'),Math.max(0,.9-(t-TL.b10.logo)*0.8));
+  grow('b10rule',t,TL.b10.logoEnd,0.45);
+  const tg=seg(t,TL.b10.tag,TL.b10.tag+0.45,E.outCubic);
+  $('b10tag').style.opacity=tg; $('b10tag').style.transform=`translateY(${lerp(22,0,tg)}px)`; }
+function b12(t){ if(!show('b12',t,TL.b12.in,TL.b12.cut))return;
+  wipe('b12w1',t,TL.b12.w1,0.6); grow('b12r',t,TL.b12.w1+0.4,0.4); wipe('b12w2',t,TL.b12.w2,0.62);
+  aberr($('b12w2'),Math.max(0,.7-(t-TL.b12.w2)*1.2)); }
+function b13(t){ if(!show('b13',t,TL.b13.in,1e9))return;
+  wipe('b13w1',t,TL.b13.w1,0.6); wipe('b13w2',t,TL.b13.w2,0.6);
+  const bq=seg(t,TL.b13.btn,TL.b13.btn+0.45,E.outBack);
+  const br=1+0.03*Math.sin((t-TL.b13.btn)*2.3);
+  $('b13btn').style.opacity=bq;
+  $('b13btn').style.transform=`translateX(-50%) scale(${bq<1?lerp(.6,1,bq):br})`;
+  $('b13site').style.opacity=seg(t,TL.b13.site,TL.b13.site+0.4,E.outCubic); }
+
+window.seek = function(t){
+  const paper = paperF(t);
+  const inv = Math.max(paper, Math.min(seg(t,TL.b3.blk,TL.b3.blk+0.18,E.outCubic), 1-seg(t,TL.b3.cut-0.09,TL.b3.cut-0.01,E.inQuad)));
+  setWorld(t, paper);
+  camera(t);
+  hudFrame(t, inv);
+  ecgFrame(t);
+  b1(t);b2(t);b3(t);phone(t);b5(t);b7(t);b7b(t);b8(t);b9(t);b10(t);b12(t);b13(t);
+};
+window.READY = Promise.all([
+  document.fonts.load('700 300px Newsreader'),
+  document.fonts.load('600 180px Newsreader'),
+  document.fonts.load('italic 500 104px Newsreader'),
+  document.fonts.load('300 30px "Inter Tight"'),
+  document.fonts.load('700 44px "Inter Tight"'),
+  document.fonts.ready
+]).then(()=>{ window.seek(0); return true; });
+</script>
+</body>
+</html>

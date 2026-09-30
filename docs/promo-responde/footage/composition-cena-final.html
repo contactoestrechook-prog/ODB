@@ -1,0 +1,289 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,500;0,6..72,600;0,6..72,700;1,6..72,500;1,6..72,600&family=Inter+Tight:wght@300;500;700&family=IBM+Plex+Mono:wght@400;500;600&display=block" rel="stylesheet">
+</head>
+<body>
+<script src="motor.js"></script>
+<script>
+injectBase('grafito');
+
+/* ==================================================================
+   LA CENA · MONTAJE FINAL
+   Material real de Higgsfield + insertos + carteles + música propia.
+   Cada cuadro busca el fotograma exacto del clip (seek determinístico).
+   ================================================================== */
+const SC = [
+  {id:'v01', t0:0.00,  t1:4.00,  clip:'p01', off:0.60},
+  {id:'v02', t0:4.00,  t1:8.00,  clip:'p02', off:0.30},
+  {id:'i03', t0:8.00,  t1:10.00},
+  {id:'v04', t0:10.00, t1:14.00, clip:'p04', off:0.40},
+  {id:'i05', t0:14.00, t1:16.00},
+  {id:'v06', t0:16.00, t1:20.00, clip:'p06', off:0.40},
+  {id:'v07', t0:20.00, t1:23.00, clip:'p07', off:1.10},
+  {id:'i08', t0:23.00, t1:25.00},
+  {id:'v09', t0:25.00, t1:31.00, clip:'p09', off:0.20, rate:0.86},
+  {id:'v10', t0:31.00, t1:34.00, clip:'p10', off:0.00, rate:0.85},
+  {id:'g11', t0:34.00, t1:39.40},
+  {id:'i12', t0:39.40, t1:43.80},
+  {id:'v13', t0:43.80, t1:46.80, clip:'p12', off:0.50},
+  {id:'g14', t0:46.80, t1:51.00},
+];
+window.DURATION = 51.0;
+const SIL = {a:25.0, b:34.0};
+
+/* ---------------- capa de video (a sangre completa, fuera del 93%) ---------------- */
+const cam = $('camera');
+const vlayer = document.createElement('div');
+vlayer.className='layer';
+vlayer.id='vlayer';
+cam.insertBefore(vlayer, $('stage'));
+const CLIPS = [...new Set(SC.filter(s=>s.clip).map(s=>s.clip))];
+const V = {};
+CLIPS.forEach(c=>{
+  const v = document.createElement('video');
+  v.src = 'footage/' + c + '.mp4';
+  v.muted = true; v.playsInline = true; v.preload = 'auto';
+  v.style.cssText = `position:absolute;left:0;top:0;width:1080px;height:1920px;object-fit:cover;display:none;
+    filter:saturate(.90) contrast(1.07) brightness(.97);`;
+  vlayer.appendChild(v);
+  V[c] = v;
+});
+/* viñeta de lente sobre el material real */
+const lensvig = document.createElement('div');
+lensvig.className='layer';
+lensvig.style.cssText='background:radial-gradient(ellipse 118% 88% at 50% 46%, transparent 55%, rgba(0,0,0,.38) 100%);';
+cam.insertBefore(lensvig, $('stage'));
+
+/* ---------------- HUD mínimo de película ---------------- */
+const hud = document.createElement('div');
+hud.style.cssText='position:fixed;inset:0;z-index:50;pointer-events:none;';
+hud.innerHTML = `<div id="hsil" class="mo" style="position:absolute;left:0;bottom:98px;width:1080px;text-align:center;
+  font-family:'IBM Plex Mono',monospace;font-size:19px;letter-spacing:.3em;color:rgba(224,72,63,.0);"> </div>`;
+document.getElementById('viewport').appendChild(hud);
+
+/* ---------------- mensajes / insertos / carteles (idénticos al animático) ---------------- */
+const MSG = [
+  ['M','Mariana P.','¿Tenés stock de la 4mm?','21:12','#7c5cbf'],
+  ['+','+54 9 11 5·· ····','Hola! ¿Precio por mayor?','21:14','#4e8fa3'],
+  ['R','Reclamo · pedido 8842','Llegó incompleto, necesito solución','21:18','#b0503f'],
+  ['C','Consulta web','¿Hacen envíos al interior?','21:21','#b07c3f'],
+  ['J','Juan Ibarra','¿Hola? Sigo esperando…','21:24','#5a8f5e'],
+];
+const stage = $('stage');
+const css = document.createElement('style');
+css.textContent = `
+  .mo { font-family:'IBM Plex Mono',monospace; font-variant-numeric:tabular-nums; }
+  .phbig { position:absolute; left:180px; top:330px; width:720px; height:1240px; background:#05080a;
+           border-radius:58px; padding:14px; box-shadow:0 60px 130px rgba(0,0,0,.75); }
+  .phin  { width:100%; height:100%; background:#0b141a; border-radius:46px; overflow:hidden; position:relative; }
+  .row   { display:flex; gap:20px; align-items:center; padding:26px 28px; border-bottom:1px solid rgba(245,243,238,.06); }
+  .av    { width:74px; height:74px; border-radius:50%; display:grid; place-items:center; flex-shrink:0;
+           font-family:'Inter Tight',sans-serif; font-weight:700; font-size:29px; color:#0b141a; }
+  .nm    { display:block; font-family:'Inter Tight',sans-serif; font-weight:700; font-size:29px; color:#e9edef; }
+  .pv    { display:block; font-family:'Inter Tight',sans-serif; font-weight:300; font-size:25px; color:#8696a0; margin-top:6px; }
+  .bg    { background:#25D366; color:#0b141a; font-family:'Inter Tight',sans-serif; font-weight:700; font-size:22px;
+           min-width:38px; height:38px; border-radius:19px; display:grid; place-items:center; padding:0 10px; }
+  .ok    { font-family:'Inter Tight',sans-serif; font-weight:700; font-size:26px; color:#c9a96e; }
+  .mask  { overflow:hidden; line-height:1.26; padding-bottom:10px; }
+  .mask>span { display:inline-block; }
+`;
+document.head.appendChild(css);
+
+stage.innerHTML = `
+${['i03','i05','i08','i12'].map(id=>`
+<div class="layer sc" id="${id}">
+  <div class="phbig">
+    <div class="phin">
+      <div style="padding:56px 28px 16px;display:flex;justify-content:space-between;align-items:baseline;
+           border-bottom:1px solid rgba(245,243,238,.07);">
+        <span style="font-family:'Inter Tight',sans-serif;font-weight:700;font-size:34px;color:#e9edef;">Mensajes</span>
+        <span class="cnt" style="font-family:'Inter Tight',sans-serif;font-weight:700;font-size:26px;color:#25D366;">0 sin leer</span>
+      </div>
+      <div class="rows"></div>
+    </div>
+  </div>
+</div>`).join('')}
+
+<div class="layer sc" id="g11">
+  <div class="mask" style="position:absolute;left:0;top:720px;width:1080px;text-align:center;white-space:nowrap;">
+    <span id="w1" class="ser bone" style="font-size:84px;font-weight:700;">NO ESCUCHÓ NADA.</span></div>
+  <div class="mask" style="position:absolute;left:0;top:872px;width:1080px;text-align:center;white-space:nowrap;">
+    <span id="w2" class="seri tan" style="font-size:64px;font-weight:600;">Estaba contestando pedidos.</span></div>
+  <div class="mask" style="position:absolute;left:0;top:1030px;width:1080px;text-align:center;white-space:nowrap;">
+    <span id="w3" class="ser bone" style="font-size:96px;font-weight:700;">NO SEAS COMO ÉL.</span></div>
+</div>
+
+<div class="layer sc" id="g14">
+  <div style="position:absolute;left:0;top:640px;width:1080px;text-align:center;">
+    <div id="rbox" class="rbox" style="display:inline-grid;width:130px;height:130px;font-size:70px;"></div>
+    <div id="rlogo" class="ser bone" style="font-size:158px;font-weight:600;letter-spacing:-.02em;margin-top:42px;"></div>
+    <div id="rrule" style="width:470px;height:2px;background:#c9a96e;margin:28px auto 0;transform-origin:50% 50%;"></div>
+    <div id="rtag" class="seri tan" style="font-size:50px;font-weight:500;margin-top:30px;">El que contesta primero.</div>
+    <div id="rbtn" class="pill" style="display:inline-block;font-size:42px;white-space:nowrap;padding:32px 66px;margin-top:52px;">Probame ahora →</div>
+    <div id="rsite" class="mo" style="font-size:25px;letter-spacing:.26em;margin-top:44px;color:rgba(245,243,238,.6);">RESPONDE · BY METOGROUP · METOGROUP.AR</div>
+  </div>
+</div>`;
+
+const INS = { i03:{n:1}, i05:{n:3}, i08:{n:5}, i12:{n:5} };
+Object.entries(INS).forEach(([id,cfg])=>{
+  const cont = $(id).querySelector('.rows');
+  MSG.slice(0,cfg.n).forEach(([i,nm,pv,tm,col])=>{
+    const d = document.createElement('div');
+    d.className = 'row';
+    d.innerHTML = `<span class="av" style="background:${col}">${i}</span>
+      <span style="flex:1;min-width:0;"><span class="nm">${nm}</span><span class="pv">${pv}</span></span>
+      <span style="text-align:right;flex-shrink:0;">
+        <span style="font-family:'Inter Tight',sans-serif;font-weight:500;font-size:21px;color:#25D366;">${tm}</span><br>
+        <span class="bg" style="margin-top:8px;">1</span><span class="ok" style="display:none;">✓✓</span></span>`;
+    cont.appendChild(d);
+  });
+});
+
+function cur(t){ for (const s of SC) if (t>=s.t0 && t<s.t1) return s; return SC[SC.length-1]; }
+const seekWaits = [];
+function showClip(sc, t){
+  for (const c of CLIPS) V[c].style.display = 'none';
+  if (!sc.clip) return;
+  const v = V[sc.clip];
+  v.style.display = 'block';
+  const rate = sc.rate || 1;
+  const target = Math.min(v.duration ? v.duration - 0.05 : 99, (sc.off||0) + (t - sc.t0) * rate);
+  if (Math.abs(v.currentTime - target) > 0.003){
+    seekWaits.push(new Promise(res=>{
+      const done = ()=>{ v.removeEventListener('seeked', done); res(); };
+      v.addEventListener('seeked', done);
+      v.currentTime = target;
+      setTimeout(done, 350);
+    }));
+  }
+}
+
+window.seek = async function(t){
+  setWorld(t, 0);
+  const sc = cur(t), p = (t-sc.t0)/(sc.t1-sc.t0);
+  [...document.querySelectorAll('.sc')].forEach(el=> el.style.display='none');
+  if ($(sc.id)) $(sc.id).style.display='block';
+  seekWaits.length = 0;
+  showClip(sc, t);
+
+  /* mundo gráfico sólo en insertos y carteles */
+  const graphic = !sc.clip;
+  $('bgdark').style.opacity = graphic ? 1 : 0;
+  $('fogdark').style.opacity = graphic ? 1 : 0;
+  $('dustL').style.opacity = graphic ? 1 : 0;
+  lensvig.style.opacity = sc.clip ? 1 : 0;
+  $('grainD').style.opacity = sc.clip ? .13 : (sc.id==='g11'||sc.id==='g14' ? .16 : .11);
+  $('vigD').style.opacity = sc.id==='g11'||sc.id==='g14' ? 1.35 : 1;
+
+  /* cámara: los clips van clavados (el movimiento ya viene filmado);
+     los tramos gráficos respiran apenas */
+  let zoom = 1, dy = 0;
+  if (graphic){ zoom = lerp(1.03, 1.00, E.outCubic(Math.min(1,p*2))); dy = lerp(18,0,E.outCubic(Math.min(1,p*2))); }
+  cam.style.transform = `translate(540px,960px) rotate(0deg) scale(${zoom.toFixed(4)}) translate(-540px,${(-960+dy).toFixed(1)}px)`;
+  cam.style.filter = 'none';
+  const gi = Math.floor(t*24)%9;
+  $('grainD').style.transform = `translate(${(gi%3)*-22}px,${Math.floor(gi/3)*-18}px)`;
+
+  /* cortes secos + fundidos de punta */
+  const near = Math.min(t-sc.t0, sc.t1-t);
+  $('blackout').style.opacity = Math.max(
+    1-seg(t,0,0.6,E.outQuad), seg(t,50.4,50.95,E.inQuad),
+    near < 0.05 ? (1-near/0.05)*0.92 : 0);
+  $('flash').style.opacity = 0;
+
+  /* insertos */
+  if (sc.id[0]==='i'){
+    const rows = [...$(sc.id).querySelectorAll('.row')];
+    const cntEl = $(sc.id).querySelector('.cnt');
+    if (sc.id==='i03'){
+      rows.forEach(r=>{ const q=seg(t,8.35,8.75,E.outExpo);
+        r.style.opacity=q; r.style.transform=`translateY(${lerp(-34,0,q)}px)`; });
+      cntEl.textContent = t>8.4 ? '1 sin leer' : '0 sin leer';
+    }
+    if (sc.id==='i05'){
+      const T=[14.00,14.35,15.15];
+      rows.forEach((r,k)=>{ const q=seg(t,T[k],T[k]+0.4,E.outExpo);
+        r.style.opacity=q; r.style.transform=`translateY(${lerp(-34,0,q)}px)`; });
+      cntEl.textContent = (t>15.2?3:t>14.4?2:1)+' sin leer';
+    }
+    if (sc.id==='i08'){
+      const T=[23.00,23.00,23.00,23.40,24.10];
+      rows.forEach((r,k)=>{ const q=seg(t,T[k],T[k]+0.4,E.outExpo);
+        r.style.opacity=q; r.style.transform=`translateY(${lerp(-34,0,q)}px)`; });
+      cntEl.textContent = (t>24.15?5:t>23.45?4:3)+' sin leer';
+      cntEl.style.color = t>23.45 ? '#e0483f' : '#25D366';
+    }
+    if (sc.id==='i12'){
+      rows.forEach((r,k)=>{
+        r.style.opacity=1; r.style.transform='none';
+        const done = t >= 40.05 + k*0.50;
+        r.querySelector('.bg').style.display = done?'none':'grid';
+        r.querySelector('.ok').style.display = done?'inline':'none';
+        const pv = r.querySelector('.pv');
+        pv.textContent = done ? 'Respondido por RESPONDE' : MSG[k][2];
+        pv.style.color = done ? '#c9a96e' : '#8696a0';
+      });
+      const left = MSG.length - Math.max(0, Math.min(5, Math.floor((t-40.05)/0.50)+1));
+      const z = t>=40.05 ? Math.max(0,left) : 5;
+      cntEl.textContent = z+' sin leer';
+      cntEl.style.color = z===0 ? '#c9a96e' : '#e0483f';
+    }
+  }
+
+  /* carteles con tratamiento de cine */
+  if (sc.id==='g11'){
+    const cine=(id,t0,dur)=>{
+      const q = seg(t,t0,t0+dur,E.outCubic);
+      const el=$(id);
+      el.style.transform = `translateY(0) scale(${lerp(1.055,1,q).toFixed(4)})`;
+      el.style.opacity = q;
+      const glow = q*0.55;
+      el.style.textShadow = `0 0 ${(38*glow).toFixed(0)}px rgba(245,238,222,${(0.30*glow).toFixed(2)}),
+                             0 0 ${(90*glow).toFixed(0)}px rgba(201,169,110,${(0.18*glow).toFixed(2)})`;
+    };
+    cine('w1',34.35,1.15); cine('w2',36.15,1.15); cine('w3',37.85,1.25);
+  }
+  if (sc.id==='g14'){
+    const rq = seg(t,46.90,47.40,E.outCubic);
+    $('rbox').style.opacity=rq; $('rbox').textContent='R';
+    $('rbox').style.transform=`scale(${lerp(.8,1,rq)})`;
+    $('rlogo').textContent='RESPONDE';
+    { const q=seg(t,47.10,48.60,E.outCubic);
+      $('rlogo').style.opacity=q;
+      $('rlogo').style.transform=`scale(${lerp(1.045,1,q).toFixed(4)})`;
+      $('rlogo').style.textShadow=`0 0 ${(44*q).toFixed(0)}px rgba(245,238,222,${(0.26*q).toFixed(2)}),
+                                   0 0 ${(110*q).toFixed(0)}px rgba(201,169,110,${(0.16*q).toFixed(2)})`; }
+    const ru=seg(t,48.55,49.15,E.outCubic);
+    $('rrule').style.transform=`scaleX(${ru})`; $('rrule').style.opacity=ru;
+    const tg=seg(t,48.90,49.45,E.outCubic);
+    $('rtag').style.opacity=tg; $('rtag').style.transform=`translateY(${lerp(18,0,tg)}px)`;
+    const bq=seg(t,49.35,49.95,E.outCubic);
+    $('rbtn').style.opacity=bq;
+    $('rbtn').style.transform=`scale(${lerp(1.03,1,bq)})`;
+    $('rsite').style.opacity=seg(t,49.85,50.35,E.outCubic);
+  }
+
+  await Promise.all(seekWaits);
+};
+
+window.READY = Promise.all([
+  document.fonts.load('600 158px Newsreader'),
+  document.fonts.load('700 96px Newsreader'),
+  document.fonts.load('italic 600 64px Newsreader'),
+  document.fonts.load('700 34px "Inter Tight"'),
+  document.fonts.load('500 25px "IBM Plex Mono"'),
+  document.fonts.ready,
+  ...CLIPS.map(c=>new Promise(res=>{
+    const v=V[c];
+    if (v.readyState>=2) return res();
+    v.addEventListener('loadeddata', res, {once:true});
+    v.addEventListener('error', res, {once:true});
+  })),
+]).then(async ()=>{ await window.seek(0); return true; });
+</script>
+</body>
+</html>

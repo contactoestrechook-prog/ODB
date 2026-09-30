@@ -1,0 +1,142 @@
+[
+  {
+    "id": "A01",
+    "descripcion": "Acepta no confirmo como confirmación",
+    "reproducido": true,
+    "evidencia": {
+      "codigo": "SIMULADO",
+      "items": [
+        {
+          "sku": "AGUA",
+          "cantidad": 1
+        }
+      ]
+    }
+  },
+  {
+    "id": "A02",
+    "descripcion": "Crear no verifica igualdad con cantidades cotizadas",
+    "reproducido": true,
+    "evidencia": {
+      "cotizado": 1,
+      "aceptado": 40
+    }
+  },
+  {
+    "id": "A03",
+    "descripcion": "Stock no se acumula para SKU repetido",
+    "reproducido": true,
+    "evidencia": {
+      "solicitadas": 12,
+      "stock": 10,
+      "hayFaltantes": false
+    }
+  },
+  {
+    "id": "A04",
+    "descripcion": "Contenido x6 sin sufijo se da por catalogado",
+    "reproducido": true,
+    "evidencia": {
+      "nombre": "Agua mineral 1.5L x6",
+      "ambigua": false
+    }
+  },
+  {
+    "id": "A05",
+    "descripcion": "Se cierra consulta aunque falle envío al cliente",
+    "reproducido": true,
+    "evidencia": {
+      "cerrada": true,
+      "resultado": {
+        "contestado": false,
+        "motivo": "consulta respondida por administración, cliente avisado"
+      }
+    }
+  },
+  {
+    "id": "A06",
+    "descripcion": "Respuesta del teléfono de reparto no se reconoce",
+    "reproducido": true,
+    "evidencia": {
+      "respuesta": null
+    }
+  },
+  {
+    "id": "A07",
+    "descripcion": "Pedido por peso pierde los decimales al crear",
+    "reproducido": true,
+    "evidencia": {
+      "solicitado": 0.5,
+      "enviadoALaBase": 0
+    }
+  },
+  {
+    "id": "A08",
+    "descripcion": "Regeneración de foto posterior al control puede inventar un precio",
+    "reproducido": true,
+    "evidencia": {
+      "respuesta": "Cuesta $999.999.",
+      "llamadas": 2
+    }
+  },
+  {
+    "id": "A09",
+    "descripcion": "Cotización fraccional falsa por regex que lee 5 de 1,5",
+    "reproducido": true,
+    "evidencia": {
+      "sku": "AGUA",
+      "cantidad": 1.5,
+      "unidadesPorVenta": 1,
+      "error": "El cliente pidió 5 unidades individuales; cada unidad de venta contiene 1. No cambies la cantidad solicitada. Si no se puede vender esa cantidad exacta, preguntá antes de redondear o sustituir."
+    }
+  },
+  {
+    "id": "A10",
+    "descripcion": "Consulta simultánea oculta código de pedido creado",
+    "reproducido": true,
+    "evidencia": {
+      "creado": true,
+      "respuesta": {
+        "respuesta": null,
+        "silencio": true,
+        "motivo": "consulta interna pendiente"
+      }
+    }
+  },
+  {
+    "id": "A11",
+    "descripcion": "Citar consulta fuera de ventana puede responder otra",
+    "reproducido": true,
+    "evidencia": {
+      "cita": "VIEJA-ID",
+      "consultaElegida": "NUEVA"
+    }
+  },
+  {
+    "id": "A12",
+    "descripcion": "Reformular dato desconocido puede prometer consulta sin crearla",
+    "reproducido": true,
+    "evidencia": {
+      "respuesta": "Buenas tardes, te damos la bienvenida a O.D.B. Lo consulto y te confirmo por acá.",
+      "consultas": 0
+    }
+  },
+  {
+    "id": "A13",
+    "descripcion": "Link de pago admite monto sin cotejar pedido",
+    "reproducido": true,
+    "evidencia": {
+      "totalEnCharla": 18000,
+      "montoSolicitadoAlProveedor": 1
+    }
+  },
+  {
+    "id": "A14",
+    "descripcion": "Pago sin cita se asigna al más reciente entre varios",
+    "reproducido": true,
+    "evidencia": {
+      "pagosPendientes": 2,
+      "confirmacionesSinReferencia": 1
+    }
+  }
+]

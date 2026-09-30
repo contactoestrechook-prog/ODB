@@ -1,0 +1,312 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,500;0,6..72,600;0,6..72,700;1,6..72,500;1,6..72,600&family=Inter+Tight:wght@300;500;700&display=block" rel="stylesheet">
+</head>
+<body>
+<script src="motor.js"></script>
+<script>
+/* paleta: 'grafito' (frío) · alternativas: 'brasa' (cálida), 'petroleo' */
+injectBase('grafito');
+
+/* ============ VIDEO E · SIN EXCUSAS (manifiesto) ============
+   Todos carteles. Cero maquetas. Cada placa se sostiene y se lee.
+   Los cortes son secos; el mundo se da vuelta a papel en las dos
+   frases que van al hueso.
+   ============================================================ */
+const TL = {
+  b1: {in:0.00, num:0.12, lbl:1.30, sub:2.05, cut:3.15},
+  b2: {in:3.15, w1:3.38, w2:4.50, cut:6.05},
+  b3: {in:6.05, w1:6.25, w2:7.10, cut:8.65},
+  b4: {in:8.65, w1:8.85, w2:9.80, cut:11.15},
+  b5: {in:11.15, e1:11.30, e2:12.37, e3:13.44, cut:14.35},
+  b6: {in:14.35, w1:14.55, w2:15.25, cut:17.05},
+  b7: {in:17.05, w1:17.28, w2:18.20, w3:19.05, cut:20.45},
+  b8: {in:20.45, w1:20.68, w2:21.55, cut:23.45},
+  b9: {in:23.45, r:23.62, logo:24.00, logoEnd:25.20, tag:25.65, cut:26.75},
+  b10:{in:26.75, w1:26.95, w2:27.80, cut:29.05},
+  cta:{in:29.05, logo:29.22, tag:29.85, btn:30.45, site:31.10, end:32.90},
+};
+window.DURATION = TL.cta.end;
+const CUTS = [TL.b1.cut,TL.b2.cut,TL.b3.cut,TL.b4.cut,TL.b5.cut,TL.b6.cut,TL.b7.cut,TL.b8.cut,TL.b9.cut,TL.b10.cut];
+/* cortes internos de las excusas (más secos y rápidos) */
+const ECUTS = [TL.b5.e2, TL.b5.e3];
+
+const camera = makeCamera({
+  S:[
+    {t:0,v:1.28},{t:0.55,v:1.05,e:E.outExpo},{t:3.15,v:1.00,e:E.linear},
+    {t:3.15,v:1.00},{t:6.05,v:1.08,e:E.linear},
+    {t:6.05,v:1.09},{t:8.65,v:1.00,e:E.linear},
+    {t:8.65,v:1.00},{t:11.15,v:1.07,e:E.linear},
+    /* excusas: cada una entra un toque más cerrada */
+    {t:11.15,v:1.02},{t:12.37,v:1.05,e:E.linear},
+    {t:12.37,v:1.03},{t:13.44,v:1.06,e:E.linear},
+    {t:13.44,v:1.04},{t:14.35,v:1.07,e:E.linear},
+    /* el cartel de 2026 */
+    {t:14.35,v:1.22},{t:15.30,v:1.00,e:E.outExpo},{t:17.05,v:1.03,e:E.linear},
+    {t:17.05,v:1.00},{t:20.45,v:1.09,e:E.linear},
+    {t:20.45,v:1.18},{t:21.40,v:1.00,e:E.outExpo},{t:23.45,v:1.035,e:E.linear},
+    {t:23.45,v:1.50},{t:25.20,v:1.00,e:E.outExpo},{t:26.75,v:1.04,e:E.linear},
+    {t:26.75,v:1.00},{t:29.05,v:1.07,e:E.linear},
+    {t:29.05,v:1.12},{t:29.90,v:1.00,e:E.outExpo},{t:32.9,v:1.05,e:E.linear},
+  ],
+  X:[{t:0,v:540}],
+  Y:[
+    {t:0,v:900},{t:0.55,v:940,e:E.outExpo},{t:3.15,v:960,e:E.linear},
+    {t:3.15,v:945},{t:6.05,v:975,e:E.linear},
+    {t:6.05,v:975},{t:8.65,v:945,e:E.linear},
+    {t:8.65,v:950},{t:11.15,v:975,e:E.linear},
+    {t:11.15,v:960},{t:14.35,v:960,e:E.linear},
+    {t:14.35,v:930},{t:15.30,v:960,e:E.outExpo},{t:17.05,v:970,e:E.linear},
+    {t:17.05,v:950},{t:20.45,v:980,e:E.linear},
+    {t:20.45,v:930},{t:21.40,v:960,e:E.outExpo},{t:23.45,v:970,e:E.linear},
+    {t:23.45,v:910},{t:25.20,v:960,e:E.outExpo},{t:26.75,v:970,e:E.linear},
+    {t:26.75,v:950},{t:29.05,v:975,e:E.linear},
+    {t:29.05,v:930},{t:29.90,v:960,e:E.outExpo},
+  ],
+  shakes:[
+    {t:0.14,amp:15,freq:11,dur:0.55},
+    {t:3.40,amp:8,freq:11,dur:0.4},{t:7.12,amp:12,freq:10,dur:0.5},{t:9.82,amp:9,freq:11,dur:0.42},
+    {t:11.32,amp:5,freq:12,dur:0.26},{t:12.39,amp:5,freq:12,dur:0.26},{t:13.46,amp:5,freq:12,dur:0.26},
+    {t:15.27,amp:14,freq:10,dur:0.6},
+    {t:19.07,amp:11,freq:10,dur:0.5},{t:21.57,amp:13,freq:10,dur:0.55},
+    {t:23.52,amp:12,freq:10,dur:0.5},{t:25.20,amp:7,freq:9,dur:0.45},
+    {t:27.82,amp:7,freq:10,dur:0.4},{t:29.22,amp:6,freq:10,dur:0.4},
+  ],
+  whips:[],
+  flashes:[
+    {t:0.14,p:.45},{t:3.20,p:.25},{t:6.10,p:.25},{t:7.12,p:.3},{t:8.70,p:.25},
+    {t:11.20,p:.2},{t:12.39,p:.2},{t:13.46,p:.2},
+    {t:14.40,p:.55},{t:17.10,p:.25},{t:19.07,p:.35},{t:20.50,p:.5},
+    {t:23.50,p:.45},{t:26.80,p:.25},{t:29.10,p:.3},
+  ],
+  cutsBlack: CUTS.concat(ECUTS).map(t=>({a:t-0.05,b:t+0.05})),
+  cutsBone: [{a:14.30,b:14.42},{a:20.40,b:20.52}],   /* fogonazo hueso al dar vuelta el mundo */
+  fade:[32.25,32.85],
+});
+
+/* el mundo se da vuelta a papel en los dos carteles que van al hueso */
+function paperF(t){
+  const p1 = Math.min(seg(t,14.35,14.48,E.outCubic), 1-seg(t,16.98,17.06,E.inQuad));
+  const p2 = Math.min(seg(t,20.45,20.58,E.outCubic), 1-seg(t,23.38,23.46,E.inQuad));
+  return Math.max(p1,p2);
+}
+
+/* ============ DOM ============ */
+const stage = $('stage');
+stage.innerHTML = `
+<div class="layer" id="b1">
+  <div id="b1num" class="ser tan" style="position:absolute;left:0;top:600px;width:1080px;text-align:center;font-size:390px;font-weight:700;letter-spacing:-.04em;font-variant-numeric:lining-nums;"></div>
+  <div id="b1lbl" class="lbl bone" style="position:absolute;left:0;top:1055px;width:1080px;text-align:center;font-size:39px;"></div>
+  <div id="b1sub" class="seri dim" style="position:absolute;left:0;top:1150px;width:1080px;text-align:center;font-size:46px;">en una sola casilla</div>
+</div>
+
+<div class="layer" id="b2">
+  <div id="b2w1" class="ser bone" style="position:absolute;left:0;top:790px;width:1080px;text-align:center;font-size:96px;font-weight:600;">Y el lunes volvés</div>
+  <div id="b2w2" class="seri tan" style="position:absolute;left:0;top:920px;width:1080px;text-align:center;font-size:96px;font-weight:600;">a pagar publicidad.</div>
+</div>
+
+<div class="layer" id="b3">
+  <div id="b3w1" class="lbl dim" style="position:absolute;left:0;top:800px;width:1080px;text-align:center;font-size:36px;">Pagás para que te escriban</div>
+  <div id="b3w2" class="ser tan" style="position:absolute;left:0;top:890px;width:1080px;text-align:center;font-size:138px;font-weight:700;">NO CONTESTÁS.</div>
+</div>
+
+<div class="layer" id="b4">
+  <div id="b4w1" class="ser bone" style="position:absolute;left:0;top:800px;width:1080px;text-align:center;font-size:70px;font-weight:500;">Ya no es falta de tiempo.</div>
+  <div id="b4w2" class="ser tan" style="position:absolute;left:0;top:920px;width:1080px;text-align:center;font-size:112px;font-weight:700;">ES UNA DECISIÓN.</div>
+</div>
+
+<div class="layer" id="b5">
+  <div class="exc" id="x1"><span class="exct ser bone">«Estaba ocupado»</span><i class="strike"></i></div>
+  <div class="exc" id="x2"><span class="exct ser bone">«Se me pasó»</span><i class="strike"></i></div>
+  <div class="exc" id="x3"><span class="exct ser bone">«Somos pocos»</span><i class="strike"></i></div>
+</div>
+
+<div class="layer" id="b6">
+  <div id="b6w1" class="lbl" style="position:absolute;left:0;top:775px;width:1080px;text-align:center;font-size:42px;color:#8a6f3c;">EN 2026</div>
+  <div id="b6w2" class="ser" style="position:absolute;left:0;top:845px;width:1080px;text-align:center;font-size:134px;font-weight:700;color:#0d0c0a;line-height:1.08;">NO HAY<br>EXCUSAS.</div>
+</div>
+
+<div class="layer" id="b7">
+  <div id="b7w1" class="ser bone" style="position:absolute;left:0;top:740px;width:1080px;text-align:center;font-size:60px;font-weight:500;">Nadie piensa que estás ocupado.</div>
+  <div id="b7w2" class="ser bone" style="position:absolute;left:0;top:880px;width:1080px;text-align:center;font-size:104px;font-weight:600;">PIENSAN QUE</div>
+  <div id="b7w3" class="ser tan" style="position:absolute;left:0;top:1000px;width:1080px;text-align:center;font-size:104px;font-weight:700;">NO TE IMPORTAN.</div>
+</div>
+
+<div class="layer" id="b8">
+  <div id="b8w1" class="ser" style="position:absolute;left:0;top:830px;width:1080px;text-align:center;font-size:106px;font-weight:600;color:#0d0c0a;">COMO CONTESTÁS</div>
+  <div id="b8w2" class="ser" style="position:absolute;left:0;top:960px;width:1080px;text-align:center;font-size:106px;font-weight:700;color:#8a6f3c;">ES COMO TRABAJÁS.</div>
+</div>
+
+<div class="layer" id="b9">
+  <div id="b9r" class="rbox" style="position:absolute;left:475px;top:620px;width:130px;height:130px;font-size:70px;">R</div>
+  <div id="b9logo" class="ser bone" style="position:absolute;left:0;top:810px;width:1080px;text-align:center;font-size:172px;font-weight:600;letter-spacing:-.02em;"></div>
+  <div id="b9rule" style="position:absolute;left:300px;top:1030px;width:480px;height:2px;background:#c9a96e;transform-origin:50% 50%;"></div>
+  <div id="b9tag" class="seri tan" style="position:absolute;left:0;top:1075px;width:1080px;text-align:center;font-size:54px;font-weight:500;">Contesta por vos. Siempre.</div>
+</div>
+
+<div class="layer" id="b10">
+  <div id="b10w1" class="ser bone" style="position:absolute;left:0;top:820px;width:1080px;text-align:center;font-size:92px;font-weight:600;">Ni un mensaje más</div>
+  <div id="b10w2" class="seri tan" style="position:absolute;left:0;top:945px;width:1080px;text-align:center;font-size:92px;font-weight:600;">sin responder.</div>
+</div>
+
+<div class="layer" id="cta">
+  <div id="ctar" class="rbox" style="position:absolute;left:470px;top:600px;width:140px;height:140px;font-size:76px;">R</div>
+  <div id="ctalogo" class="ser bone" style="position:absolute;left:0;top:780px;width:1080px;text-align:center;font-size:158px;font-weight:600;">RESPONDE</div>
+  <div id="ctatag" class="lbl tan" style="position:absolute;left:0;top:985px;width:1080px;text-align:center;font-size:27px;">Empleados virtuales con IA · by Metogroup</div>
+  <div id="ctabtn" class="pill" style="position:absolute;left:50%;top:1090px;transform:translateX(-50%);font-size:44px;white-space:nowrap;padding:34px 70px;">Probame ahora →</div>
+  <div id="ctasite" class="lbl bone" style="position:absolute;left:0;top:1280px;width:1080px;text-align:center;font-size:30px;letter-spacing:.34em;">metogroup.ar</div>
+</div>`;
+
+const st = document.createElement('style');
+st.textContent = `
+  .exc { position:absolute; left:0; top:880px; width:1080px; text-align:center; }
+  .exct { font-size:104px; font-weight:500; font-style:italic; display:inline-block; position:relative; }
+  .strike { position:absolute; left:50%; top:50%; height:7px; background:#c9a96e; display:block;
+            transform-origin:50% 50%; margin-top:-3px; }
+`;
+document.head.appendChild(st);
+
+/* la línea que tacha se dibuja del ancho del texto */
+const EXCS = [
+  {id:'x1', t0:TL.b5.e1, t1:TL.b5.e2},
+  {id:'x2', t0:TL.b5.e2, t1:TL.b5.e3},
+  {id:'x3', t0:TL.b5.e3, t1:TL.b5.cut},
+];
+EXCS.forEach(e=>{
+  const el = $(e.id);
+  e.el = el; e.txt = el.querySelector('.exct'); e.line = el.querySelector('.strike');
+});
+
+/* ---- golpes ---- */
+function on(id, t, a, b){
+  const v = t>=a-0.02 && t<b+0.02;
+  $(id).style.display = v?'block':'none';
+  return v;
+}
+function b1(t){
+  if(!on('b1', t, TL.b1.in, TL.b1.cut)) return;
+  const q = seg(t, TL.b1.num, TL.b1.num+0.45, E.outExpo);
+  const el = $('b1num');
+  el.textContent = Math.round(kf(t,[{t:0.22,v:0},{t:1.15,v:800,e:E.outQuint}]));
+  el.style.opacity = q;
+  el.style.transform = `scale(${lerp(1.35,1,q)})`;
+  aberr(el, Math.max(0,.95-(t-TL.b1.num)*1.1));
+  scramble($('b1lbl'), 'MENSAJES SIN RESPONDER', t, TL.b1.lbl, TL.b1.lbl+0.7);
+  const s = seg(t, TL.b1.sub, TL.b1.sub+0.45, E.outCubic);
+  $('b1sub').style.opacity = s;
+  $('b1sub').style.transform = `translateY(${lerp(22,0,s)}px)`;
+}
+function pair(idA, idB, t, tA, tB, bigB){
+  const q1 = seg(t, tA, tA+0.42, E.outExpo);
+  $(idA).style.opacity = q1;
+  $(idA).style.transform = `translateY(${lerp(30,0,q1)}px) scale(${lerp(1.14,1,q1)})`;
+  const q2 = seg(t, tB, tB+0.42, E.outExpo);
+  $(idB).style.opacity = q2;
+  $(idB).style.transform = `translateY(${lerp(34,0,q2)}px) scale(${lerp(bigB||1.2,1,q2)})`;
+  aberr($(idB), Math.max(0,.8-(t-tB)*1.2));
+}
+function b2(t){ if(!on('b2', t, TL.b2.in, TL.b2.cut)) return; pair('b2w1','b2w2',t,TL.b2.w1,TL.b2.w2,1.18); }
+function b3(t){ if(!on('b3', t, TL.b3.in, TL.b3.cut)) return; pair('b3w1','b3w2',t,TL.b3.w1,TL.b3.w2,1.5); }
+function b4(t){ if(!on('b4', t, TL.b4.in, TL.b4.cut)) return; pair('b4w1','b4w2',t,TL.b4.w1,TL.b4.w2,1.35); }
+function b5(t){
+  if(!on('b5', t, TL.b5.in, TL.b5.cut)) return;
+  EXCS.forEach(e=>{
+    const vis = t>=e.t0-0.02 && t<e.t1;
+    e.el.style.display = vis?'block':'none';
+    if(!vis) return;
+    const q = seg(t, e.t0, e.t0+0.26, E.outExpo);
+    e.txt.style.opacity = q;
+    e.txt.style.transform = `scale(${lerp(1.2,1,q)})`;
+    /* la tachadura se dibuja apenas se lee */
+    const w = e.txt.offsetWidth + 40;
+    const s = seg(t, e.t0+0.34, e.t0+0.62, E.outExpo);
+    e.line.style.width = w+'px';
+    e.line.style.marginLeft = (-w/2)+'px';
+    e.line.style.transform = `scaleX(${s}) rotate(-1.5deg)`;
+    e.line.style.opacity = s>0?1:0;
+    e.txt.style.color = s>0.6 ? 'rgba(245,243,238,.42)' : '#f5f3ee';
+  });
+}
+function b6(t){
+  if(!on('b6', t, TL.b6.in, TL.b6.cut)) return;
+  const q1 = seg(t, TL.b6.w1, TL.b6.w1+0.35, E.outCubic);
+  $('b6w1').style.opacity = q1;
+  $('b6w1').style.letterSpacing = lerp(.55,.24,q1)+'em';
+  const q2 = seg(t, TL.b6.w2, TL.b6.w2+0.4, E.outExpo);
+  $('b6w2').style.opacity = q2;
+  /* entra como sello: gira apenas y aplasta */
+  $('b6w2').style.transform = `scale(${lerp(1.6,1,q2)}) rotate(${lerp(-4,0,q2)}deg)`;
+}
+function b7(t){
+  if(!on('b7', t, TL.b7.in, TL.b7.cut)) return;
+  const q1 = seg(t, TL.b7.w1, TL.b7.w1+0.4, E.outCubic);
+  $('b7w1').style.opacity = q1*.85;
+  $('b7w1').style.transform = `translateY(${lerp(24,0,q1)}px)`;
+  const q2 = seg(t, TL.b7.w2, TL.b7.w2+0.4, E.outExpo);
+  $('b7w2').style.opacity = q2;
+  $('b7w2').style.transform = `scale(${lerp(1.2,1,q2)})`;
+  const q3 = seg(t, TL.b7.w3, TL.b7.w3+0.4, E.outExpo);
+  $('b7w3').style.opacity = q3;
+  $('b7w3').style.transform = `scale(${lerp(1.45,1,q3)})`;
+  aberr($('b7w3'), Math.max(0,1-(t-TL.b7.w3)*1.1));
+}
+function b8(t){
+  if(!on('b8', t, TL.b8.in, TL.b8.cut)) return;
+  const q1 = seg(t, TL.b8.w1, TL.b8.w1+0.4, E.outExpo);
+  $('b8w1').style.opacity = q1;
+  $('b8w1').style.transform = `scale(${lerp(1.25,1,q1)}) rotate(${lerp(-3,0,q1)}deg)`;
+  const q2 = seg(t, TL.b8.w2, TL.b8.w2+0.4, E.outExpo);
+  $('b8w2').style.opacity = q2;
+  $('b8w2').style.transform = `scale(${lerp(1.35,1,q2)}) rotate(${lerp(3,0,q2)}deg)`;
+}
+function b9(t){
+  if(!on('b9', t, TL.b9.in, TL.b9.cut)) return;
+  const rq = seg(t, TL.b9.r, TL.b9.r+0.4, E.outBack);
+  $('b9r').style.opacity = rq;
+  $('b9r').style.transform = `scale(${lerp(.5,1,rq)}) rotate(${lerp(-8,0,rq)}deg)`;
+  scramble($('b9logo'), 'RESPONDE', t, TL.b9.logo, TL.b9.logoEnd);
+  aberr($('b9logo'), Math.max(0,.9-(t-TL.b9.logo)*0.8));
+  const ru = seg(t, TL.b9.logoEnd, TL.b9.logoEnd+0.45, E.outExpo);
+  $('b9rule').style.transform = `scaleX(${ru})`;
+  $('b9rule').style.opacity = ru;
+  const tg = seg(t, TL.b9.tag, TL.b9.tag+0.45, E.outCubic);
+  $('b9tag').style.opacity = tg;
+  $('b9tag').style.transform = `translateY(${lerp(24,0,tg)}px)`;
+}
+function b10(t){ if(!on('b10', t, TL.b10.in, TL.b10.cut)) return; pair('b10w1','b10w2',t,TL.b10.w1,TL.b10.w2,1.15); }
+function cta(t){
+  if(!on('cta', t, TL.cta.in, 1e9)) return;
+  const rq = seg(t, TL.cta.in, TL.cta.in+0.35, E.outExpo);
+  $('ctar').style.opacity = rq;
+  $('ctar').style.transform = `scale(${lerp(.55,1,rq)})`;
+  const lg = seg(t, TL.cta.logo, TL.cta.logo+0.4, E.outExpo);
+  $('ctalogo').style.opacity = lg;
+  $('ctalogo').style.transform = `scale(${lerp(1.3,1,lg)})`;
+  $('ctatag').style.opacity = seg(t, TL.cta.tag, TL.cta.tag+0.4, E.outCubic);
+  const bq = seg(t, TL.cta.btn, TL.cta.btn+0.45, E.outBack);
+  const br = 1 + 0.025*Math.sin((t-TL.cta.btn)*2.3);
+  $('ctabtn').style.opacity = bq;
+  $('ctabtn').style.transform = `translateX(-50%) scale(${bq<1?lerp(.6,1,bq):br})`;
+  $('ctasite').style.opacity = seg(t, TL.cta.site, TL.cta.site+0.4, E.outCubic);
+}
+
+window.seek = function(t){
+  setWorld(t, paperF(t));
+  camera(t);
+  b1(t); b2(t); b3(t); b4(t); b5(t); b6(t); b7(t); b8(t); b9(t); b10(t); cta(t);
+};
+window.READY = Promise.all([
+  document.fonts.load('700 300px Newsreader'),
+  document.fonts.load('600 172px Newsreader'),
+  document.fonts.load('italic 500 104px Newsreader'),
+  document.fonts.load('300 34px "Inter Tight"'),
+  document.fonts.load('700 44px "Inter Tight"'),
+  document.fonts.ready
+]).then(()=>{ window.seek(0); return true; });
+</script>
+</body>
+</html>

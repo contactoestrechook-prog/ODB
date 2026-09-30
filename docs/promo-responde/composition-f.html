@@ -1,0 +1,421 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,500;0,6..72,600;0,6..72,700;1,6..72,500;1,6..72,600&family=Inter+Tight:wght@300;500;700&display=block" rel="stylesheet">
+</head>
+<body>
+<script src="motor.js"></script>
+<script>
+injectBase('grafito');
+
+/* ==================================================================
+   VIDEO F · MANIFIESTO "SIN EXCUSAS" v2
+   Sistema gráfico: marco HUD fijo (no se mueve con la cámara) +
+   índice de placa + cronómetro corriendo + revelados por máscara +
+   layouts asimétricos + placas invertidas.
+   Arranca por la CONSECUENCIA (perdiste al cliente), no por el dato.
+   ================================================================== */
+const TL = {
+  b1: {in:0.00, w:0.12, chk:0.62, cut:2.15},   // LO VISTE.
+  b2: {in:2.15, w1:2.32, w2:2.85, cut:4.20},   // NO CONTESTASTE.
+  b3: {in:4.20, blk:4.28, w1:4.62, w2:5.15, lbl:5.75, cut:6.60}, // YA LE COMPRÓ A OTRO
+  b4: {in:6.60, num:6.75, lbl:7.35, cut:8.90}, // 800
+  b5: {in:8.90, r1:9.02, w:9.25, cut:11.30},   // y el lunes volvés a pagar publicidad
+  b6: {in:11.30, w1:11.45, r:11.95, w2:12.15, cut:13.90}, // es una decisión
+  b7: {in:13.90, e1:14.02, e2:15.05, e3:16.08, cut:17.20},
+  b8: {in:17.20, box:17.30, w1:17.55, w2:17.95, cut:19.90}, // 2026 (papel)
+  b9: {in:19.90, w1:20.08, w2:20.85, w3:21.60, cut:23.10},
+  b10:{in:23.10, w1:23.30, w2:24.05, cut:26.00},            // como contestás (papel)
+  b11:{in:26.00, r:26.18, logo:26.55, logoEnd:27.70, tag:28.10, cut:29.20},
+  b12:{in:29.20, w1:29.35, w2:29.95, btn:30.85, site:31.55, end:33.60},
+};
+window.DURATION = TL.b12.end;
+const BEATS = ['b1','b2','b3','b4','b5','b6','b7','b8','b9','b10','b11','b12'];
+const CUTS = BEATS.map(k=>TL[k].cut).slice(0,-1);
+const ECUTS = [TL.b7.e2, TL.b7.e3];
+
+const camera = makeCamera({
+  S:[
+    {t:0,v:1.22},{t:0.5,v:1.03,e:E.outExpo},{t:2.15,v:1.00,e:E.linear},
+    {t:2.15,v:1.00},{t:4.20,v:1.07,e:E.linear},
+    {t:4.20,v:1.14},{t:5.10,v:1.00,e:E.outExpo},{t:6.60,v:1.03,e:E.linear},
+    {t:6.60,v:1.02},{t:8.90,v:1.08,e:E.linear},
+    {t:8.90,v:1.06},{t:11.30,v:1.00,e:E.linear},
+    {t:11.30,v:1.00},{t:13.90,v:1.06,e:E.linear},
+    {t:13.90,v:1.02},{t:17.20,v:1.06,e:E.linear},
+    {t:17.20,v:1.20},{t:18.10,v:1.00,e:E.outExpo},{t:19.90,v:1.03,e:E.linear},
+    {t:19.90,v:1.00},{t:23.10,v:1.08,e:E.linear},
+    {t:23.10,v:1.18},{t:24.10,v:1.00,e:E.outExpo},{t:26.00,v:1.035,e:E.linear},
+    {t:26.00,v:1.45},{t:27.70,v:1.00,e:E.outExpo},{t:29.20,v:1.04,e:E.linear},
+    {t:29.20,v:1.10},{t:30.05,v:1.00,e:E.outExpo},{t:33.6,v:1.05,e:E.linear},
+  ],
+  X:[{t:0,v:540}],
+  Y:[
+    {t:0,v:930},{t:0.5,v:955,e:E.outExpo},{t:2.15,v:960,e:E.linear},
+    {t:2.15,v:950},{t:4.20,v:975,e:E.linear},
+    {t:4.20,v:935},{t:5.10,v:960,e:E.outExpo},{t:6.60,v:970,e:E.linear},
+    {t:6.60,v:950},{t:8.90,v:975,e:E.linear},
+    {t:8.90,v:970},{t:11.30,v:945,e:E.linear},
+    {t:11.30,v:950},{t:13.90,v:975,e:E.linear},
+    {t:13.90,v:955},{t:17.20,v:975,e:E.linear},
+    {t:17.20,v:930},{t:18.10,v:960,e:E.outExpo},{t:19.90,v:970,e:E.linear},
+    {t:19.90,v:950},{t:23.10,v:980,e:E.linear},
+    {t:23.10,v:930},{t:24.10,v:960,e:E.outExpo},{t:26.00,v:970,e:E.linear},
+    {t:26.00,v:915},{t:27.70,v:960,e:E.outExpo},{t:29.20,v:970,e:E.linear},
+    {t:29.20,v:935},{t:30.05,v:960,e:E.outExpo},
+  ],
+  shakes:[
+    {t:0.14,amp:14,freq:11,dur:0.5},{t:2.34,amp:8,freq:11,dur:0.4},{t:2.88,amp:11,freq:10,dur:0.45},
+    {t:4.30,amp:15,freq:10,dur:0.55},{t:6.78,amp:11,freq:11,dur:0.45},
+    {t:9.28,amp:7,freq:11,dur:0.38},{t:12.18,amp:10,freq:10,dur:0.45},
+    {t:14.04,amp:5,freq:12,dur:0.24},{t:15.07,amp:5,freq:12,dur:0.24},{t:16.10,amp:5,freq:12,dur:0.24},
+    {t:17.98,amp:14,freq:10,dur:0.6},{t:21.62,amp:12,freq:10,dur:0.5},
+    {t:24.08,amp:13,freq:10,dur:0.55},{t:26.08,amp:11,freq:10,dur:0.5},{t:27.70,amp:7,freq:9,dur:0.45},
+    {t:29.98,amp:7,freq:10,dur:0.4},
+  ],
+  whips:[],
+  flashes:[
+    {t:0.14,p:.45},{t:2.20,p:.22},{t:2.88,p:.3},{t:4.25,p:.6},{t:6.65,p:.25},{t:6.78,p:.3},
+    {t:8.95,p:.2},{t:11.35,p:.2},{t:12.18,p:.3},
+    {t:14.02,p:.18},{t:15.06,p:.18},{t:16.09,p:.18},
+    {t:17.25,p:.55},{t:19.95,p:.22},{t:21.62,p:.35},{t:23.15,p:.5},
+    {t:26.05,p:.4},{t:29.25,p:.3},
+  ],
+  cutsBlack: CUTS.concat(ECUTS).map(t=>({a:t-0.05,b:t+0.05})),
+  cutsBone: [{a:17.15,b:17.27},{a:23.05,b:23.17}],
+  fade:[32.95,33.55],
+});
+
+function paperF(t){
+  return Math.max(
+    Math.min(seg(t,17.20,17.33,E.outCubic), 1-seg(t,19.83,19.91,E.inQuad)),
+    Math.min(seg(t,23.10,23.23,E.outCubic), 1-seg(t,26.93*0+25.93,26.01,E.inQuad))
+  );
+}
+
+/* ================= HUD fijo (fuera de la cámara) ================= */
+const hud = document.createElement('div');
+hud.id = 'hud';
+hud.style.cssText = 'position:fixed;inset:0;z-index:50;pointer-events:none;';
+hud.innerHTML = `
+  <div id="hframe" style="position:absolute;left:58px;top:58px;right:58px;bottom:58px;border:1px solid rgba(245,243,238,.16);"></div>
+  ${[['left:44px;top:44px','border-left:2px solid;border-top:2px solid'],
+     ['right:44px;top:44px','border-right:2px solid;border-top:2px solid'],
+     ['left:44px;bottom:44px','border-left:2px solid;border-bottom:2px solid'],
+     ['right:44px;bottom:44px','border-right:2px solid;border-bottom:2px solid']]
+    .map(([pos,br])=>`<div class="htick" style="position:absolute;${pos};width:34px;height:34px;${br};"></div>`).join('')}
+  <div id="hbrand" class="lbl" style="position:absolute;left:92px;top:96px;font-size:21px;letter-spacing:.42em;">RESPONDE</div>
+  <div id="hidx" class="lbl" style="position:absolute;right:92px;top:96px;font-size:21px;letter-spacing:.3em;">01/12</div>
+  <div id="hclockw" style="position:absolute;left:92px;bottom:96px;">
+    <div id="hclbl" class="lbl" style="font-size:17px;letter-spacing:.3em;opacity:.55;">SIN RESPONDER</div>
+    <div id="hclock" class="lblb" style="font-size:30px;letter-spacing:.06em;margin-top:6px;font-variant-numeric:tabular-nums;">03 d 07:41:22</div>
+  </div>
+  <div id="hsite" class="lbl" style="position:absolute;right:92px;bottom:96px;font-size:19px;letter-spacing:.28em;opacity:.6;">METOGROUP.AR</div>
+  <div id="hticker" class="lbl" style="position:absolute;left:-6px;top:0;font-size:19px;letter-spacing:.5em;opacity:.07;
+       transform-origin:0 0;white-space:nowrap;"></div>`;
+document.getElementById('viewport').appendChild(hud);
+$('hticker').textContent = ('SIN RESPONDER · ').repeat(14);
+
+/* ================= carteles ================= */
+const stage = $('stage');
+stage.innerHTML = `
+<div class="layer beat" id="b1">
+  <div class="ghostnum" style="left:0;top:230px;width:1080px;text-align:center;font-size:600px;">01</div>
+  <div id="b1chk" class="ser tan" style="position:absolute;left:0;top:700px;width:1080px;text-align:center;font-size:96px;font-weight:600;">✓✓</div>
+  <div class="mask" style="left:0;top:830px;width:1080px;"><span id="b1w" class="ser bone" style="font-size:186px;font-weight:700;">LO VISTE.</span></div>
+</div>
+
+<div class="layer beat" id="b2">
+  <div id="b2bar" style="position:absolute;left:118px;top:790px;width:9px;height:300px;background:#c9a96e;transform-origin:50% 0;"></div>
+  <div class="mask" style="left:168px;top:788px;width:800px;text-align:left;"><span id="b2w1" class="ser bone" style="font-size:104px;font-weight:600;">NO</span></div>
+  <div class="mask" style="left:168px;top:918px;width:800px;text-align:left;"><span id="b2w2" class="ser bone" style="font-size:104px;font-weight:600;">CONTESTASTE.</span></div>
+</div>
+
+<div class="layer beat" id="b3">
+  <div id="b3blk" style="position:absolute;left:-160px;top:-140px;width:1400px;height:2200px;background:#c9a96e;transform-origin:50% 100%;"></div>
+  <div class="mask" style="left:0;top:800px;width:1080px;"><span id="b3w1" class="ser" style="font-size:132px;font-weight:700;color:#12100c;">YA LE COMPRÓ</span></div>
+  <div class="mask" style="left:0;top:945px;width:1080px;"><span id="b3w2" class="ser" style="font-size:132px;font-weight:700;color:#12100c;">A OTRO.</span></div>
+  <div id="b3lbl" class="lbl" style="position:absolute;left:0;top:1130px;width:1080px;text-align:center;font-size:26px;color:rgba(18,16,12,.65);">12 MINUTOS DESPUÉS DE ESCRIBIRTE</div>
+</div>
+
+<div class="layer beat" id="b4">
+  <div id="b4stack" style="position:absolute;left:110px;top:760px;width:330px;">
+    <div class="lbl bone" style="font-size:32px;line-height:1.75;">MENSAJES<br>SIN<br>RESPONDER</div>
+    <div id="b4rule" style="height:2px;background:#c9a96e;margin-top:22px;transform-origin:0 50%;"></div>
+  </div>
+  <div id="b4num" class="ser tan" style="position:absolute;left:400px;top:640px;width:570px;text-align:right;font-size:300px;font-weight:700;letter-spacing:-.04em;font-variant-numeric:lining-nums;"></div>
+  <div id="b4sub" class="seri dim" style="position:absolute;left:0;top:1130px;width:1080px;text-align:center;font-size:44px;">en una sola casilla</div>
+</div>
+
+<div class="layer beat" id="b5">
+  <div id="b5r1" style="position:absolute;left:190px;top:830px;width:700px;height:2px;background:rgba(245,243,238,.45);transform-origin:50% 50%;"></div>
+  <div class="mask" style="left:0;top:880px;width:1080px;"><span id="b5w1" class="ser bone" style="font-size:88px;font-weight:600;">Y el lunes volvés</span></div>
+  <div class="mask" style="left:0;top:1000px;width:1080px;"><span id="b5w2" class="seri tan" style="font-size:88px;font-weight:600;">a pagar publicidad.</span></div>
+  <div id="b5r2" style="position:absolute;left:190px;top:1140px;width:700px;height:2px;background:rgba(245,243,238,.45);transform-origin:50% 50%;"></div>
+</div>
+
+<div class="layer beat" id="b6">
+  <div id="b6w1" class="ser bone" style="position:absolute;left:0;top:790px;width:1080px;text-align:center;font-size:66px;font-weight:500;opacity:.75;">Ya no es falta de tiempo.</div>
+  <div id="b6r" style="position:absolute;left:420px;top:890px;width:240px;height:2px;background:#c9a96e;transform-origin:50% 50%;"></div>
+  <div class="mask" style="left:0;top:930px;width:1080px;"><span id="b6w2" class="ser tan" style="font-size:118px;font-weight:700;">ES UNA DECISIÓN.</span></div>
+</div>
+
+<div class="layer beat" id="b7">
+  <div id="b7list" style="position:absolute;left:130px;top:760px;width:840px;"></div>
+</div>
+
+<div class="layer beat" id="b8">
+  <div id="b8box" style="position:absolute;left:130px;top:700px;width:820px;height:520px;border:3px solid #0d0c0a;transform-origin:50% 50%;"></div>
+  <div id="b8w1" class="lbl" style="position:absolute;left:0;top:772px;width:1080px;text-align:center;font-size:38px;color:#8a6f3c;">EN 2026</div>
+  <div id="b8w2" class="ser" style="position:absolute;left:0;top:838px;width:1080px;text-align:center;font-size:128px;font-weight:700;color:#0d0c0a;line-height:1.06;">NO HAY<br>EXCUSAS.</div>
+</div>
+
+<div class="layer beat" id="b9">
+  <div id="b9w1" class="ser bone" style="position:absolute;left:0;top:730px;width:1080px;text-align:center;font-size:58px;font-weight:500;opacity:.7;">Nadie piensa que estás ocupado.</div>
+  <div class="mask" style="left:0;top:850px;width:1080px;"><span id="b9w2" class="ser bone" style="font-size:106px;font-weight:600;">PIENSAN QUE</span></div>
+  <div class="mask" style="left:0;top:985px;width:1080px;"><span id="b9w3" class="ser tan" style="font-size:106px;font-weight:700;">NO TE IMPORTAN.</span></div>
+</div>
+
+<div class="layer beat" id="b10">
+  <div class="mask" style="left:0;top:820px;width:1080px;"><span id="b10w1" class="ser" style="font-size:104px;font-weight:600;color:#0d0c0a;">COMO CONTESTÁS</span></div>
+  <div id="b10r" style="position:absolute;left:390px;top:950px;width:300px;height:2px;background:#8a6f3c;transform-origin:50% 50%;"></div>
+  <div class="mask" style="left:0;top:985px;width:1080px;"><span id="b10w2" class="ser" style="font-size:104px;font-weight:700;color:#8a6f3c;">ES COMO TRABAJÁS.</span></div>
+</div>
+
+<div class="layer beat" id="b11">
+  <div id="b11r" class="rbox" style="position:absolute;left:475px;top:640px;width:130px;height:130px;font-size:70px;">R</div>
+  <div id="b11logo" class="ser bone" style="position:absolute;left:0;top:830px;width:1080px;text-align:center;font-size:172px;font-weight:600;letter-spacing:-.02em;"></div>
+  <div id="b11rule" style="position:absolute;left:300px;top:1050px;width:480px;height:2px;background:#c9a96e;transform-origin:50% 50%;"></div>
+  <div id="b11tag" class="seri tan" style="position:absolute;left:0;top:1095px;width:1080px;text-align:center;font-size:52px;font-weight:500;">Contesta por vos. Siempre.</div>
+</div>
+
+<div class="layer beat" id="b12">
+  <div class="mask" style="left:0;top:700px;width:1080px;"><span id="b12w1" class="ser bone" style="font-size:86px;font-weight:600;">Ni un mensaje más</span></div>
+  <div class="mask" style="left:0;top:812px;width:1080px;"><span id="b12w2" class="seri tan" style="font-size:86px;font-weight:600;">sin responder.</span></div>
+  <div id="b12btn" class="pill" style="position:absolute;left:50%;top:1000px;transform:translateX(-50%);font-size:44px;white-space:nowrap;padding:34px 70px;">Probame ahora →</div>
+  <div id="b12site" class="lbl bone" style="position:absolute;left:0;top:1180px;width:1080px;text-align:center;font-size:27px;letter-spacing:.3em;">RESPONDE · by Metogroup · metogroup.ar</div>
+</div>`;
+
+const st = document.createElement('style');
+st.textContent = `
+  /* line-height holgado: si no, el recorte de la máscara se come las tildes de Ó/Á */
+  .mask { position:absolute; overflow:hidden; text-align:center; line-height:1.3; padding-bottom:12px; }
+  .mask > span { display:inline-block; }
+  .exrow { position:relative; display:flex; align-items:baseline; gap:34px; margin-bottom:34px; }
+  .exn { font-family:'Inter Tight',sans-serif; font-weight:300; font-size:26px; letter-spacing:.24em; color:#c9a96e; width:60px; flex-shrink:0; }
+  .ext { font-family:'Newsreader',serif; font-style:italic; font-weight:500; font-size:88px; color:#f5f3ee; position:relative; white-space:nowrap; }
+  .exs { position:absolute; left:-10px; top:52%; height:6px; background:#c9a96e; transform-origin:0 50%; }
+`;
+document.head.appendChild(st);
+
+/* lista de excusas */
+const EXC = [
+  {n:'01', txt:'«Estaba ocupado»'},
+  {n:'02', txt:'«Se me pasó»'},
+  {n:'03', txt:'«Somos pocos»'},
+];
+EXC.forEach((e,i)=>{
+  const row = document.createElement('div');
+  row.className = 'exrow';
+  row.innerHTML = `<span class="exn">${e.n}</span><span class="ext">${e.txt}<i class="exs"></i></span>`;
+  $('b7list').appendChild(row);
+  e.row = row; e.txt_ = row.querySelector('.ext'); e.line = row.querySelector('.exs');
+  e.t0 = [TL.b7.e1, TL.b7.e2, TL.b7.e3][i];
+});
+
+/* ---------- helpers ---------- */
+function wipe(id, t, t0, dur){
+  const el = $(id);
+  const q = seg(t, t0, t0+(dur||0.55), E.outExpo);
+  el.style.transform = `translateY(${(1-q)*112}%)`;
+  return q;
+}
+function grow(id, t, t0, dur, axis){
+  const q = seg(t, t0, t0+(dur||0.45), E.outExpo);
+  $(id).style.transform = (axis==='y') ? `scaleY(${q})` : `scaleX(${q})`;
+  $(id).style.opacity = q>0?1:0;
+  return q;
+}
+function show(id, t, a, b){
+  const v = t>=a-0.02 && t<b+0.02;
+  $(id).style.display = v?'block':'none';
+  return v;
+}
+
+/* ---------- HUD por frame ---------- */
+const T0_SEG = 3*86400 + 7*3600 + 41*60 + 22;   /* 03 d 07:41:22 */
+function hudFrame(t, inv){
+  const bone='245,243,238', ink='13,12,10';
+  const mixc = (a)=>`rgba(${inv>.5?ink:bone},${a})`;
+  const app = seg(t, 0.28, 0.75, E.outCubic);
+  hud.style.opacity = app;
+  $('hframe').style.borderColor = mixc(.16);
+  [...document.querySelectorAll('.htick')].forEach(el=>{
+    el.style.borderColor = inv>.5 ? '#12100c' : '#c9a96e';
+    el.style.opacity = .85;
+  });
+  $('hbrand').style.color = mixc(.75);
+  $('hidx').style.color = mixc(.75);
+  $('hclbl').style.color = mixc(.55);
+  $('hsite').style.color = mixc(.6);
+  $('hticker').style.color = mixc(1);
+  /* índice de placa */
+  let i = 0;
+  BEATS.forEach((k,ix)=>{ if (t>=TL[k].in) i=ix; });
+  $('hidx').textContent = String(i+1).padStart(2,'0')+'/12';
+  /* cronómetro: corre hasta el reveal, ahí se pone en cero */
+  const reset = seg(t, TL.b11.in, TL.b11.in+0.5, E.outExpo);
+  const secs = Math.floor((T0_SEG + t*1.0) * (1-reset));
+  const d = Math.floor(secs/86400), h = Math.floor(secs%86400/3600), m = Math.floor(secs%3600/60), s = secs%60;
+  const p2 = n=>String(n).padStart(2,'0');
+  const cl = $('hclock');
+  cl.textContent = `${p2(d)} d ${p2(h)}:${p2(m)}:${p2(s)}`;
+  cl.style.color = reset>.9 ? '#c9a96e' : mixc(.95);
+  if (reset>.9 && inv>.5) cl.style.color = '#7a5f26';
+  $('hclbl').textContent = reset>.9 ? 'TIEMPO DE RESPUESTA' : 'SIN RESPONDER';
+  /* ticker vertical lento */
+  $('hticker').style.transform = `rotate(90deg) translateX(${(t*26)%900 - 100}px) translateY(0)`;
+}
+
+/* ---------- carteles por frame ---------- */
+function b1(t){
+  if(!show('b1',t,TL.b1.in,TL.b1.cut)) return;
+  wipe('b1w', t, TL.b1.w, 0.5);
+  aberr($('b1w'), Math.max(0,.9-(t-TL.b1.w)*1.1));
+  const c = seg(t, TL.b1.chk, TL.b1.chk+0.3, E.outBack);
+  $('b1chk').style.opacity = c*(0.75+0.25*Math.sin(t*7));
+  $('b1chk').style.transform = `scale(${lerp(.5,1,c)})`;
+}
+function b2(t){
+  if(!show('b2',t,TL.b2.in,TL.b2.cut)) return;
+  grow('b2bar', t, TL.b2.in+0.06, 0.4, 'y');
+  wipe('b2w1', t, TL.b2.w1, 0.45);
+  wipe('b2w2', t, TL.b2.w2, 0.5);
+  aberr($('b2w2'), Math.max(0,.8-(t-TL.b2.w2)*1.2));
+}
+function b3(t){
+  if(!show('b3',t,TL.b3.in,TL.b3.cut)) return;
+  grow('b3blk', t, TL.b3.blk, 0.34, 'y');
+  wipe('b3w1', t, TL.b3.w1, 0.45);
+  wipe('b3w2', t, TL.b3.w2, 0.45);
+  aberr($('b3w2'), Math.max(0,.6-(t-TL.b3.w2)*1.2));
+  $('b3lbl').style.opacity = seg(t, TL.b3.lbl, TL.b3.lbl+0.4, E.outCubic);
+}
+function b4(t){
+  if(!show('b4',t,TL.b4.in,TL.b4.cut)) return;
+  const q = seg(t, TL.b4.num, TL.b4.num+0.4, E.outExpo);
+  const el = $('b4num');
+  el.textContent = Math.round(kf(t,[{t:TL.b4.num,v:0},{t:TL.b4.num+0.95,v:800,e:E.outQuint}]));
+  el.style.opacity = q;
+  el.style.transform = `scale(${lerp(1.3,1,q)})`;
+  aberr(el, Math.max(0,.8-(t-TL.b4.num)*1.2));
+  const l = seg(t, TL.b4.lbl, TL.b4.lbl+0.4, E.outCubic);
+  $('b4stack').style.opacity = l;
+  $('b4stack').style.transform = `translateX(${lerp(-40,0,l)}px)`;
+  grow('b4rule', t, TL.b4.lbl+0.2, 0.4);
+  $('b4sub').style.opacity = seg(t, TL.b4.lbl+0.45, TL.b4.lbl+0.85, E.outCubic);
+}
+function b5(t){
+  if(!show('b5',t,TL.b5.in,TL.b5.cut)) return;
+  grow('b5r1', t, TL.b5.r1, 0.5);
+  grow('b5r2', t, TL.b5.r1+0.12, 0.5);
+  wipe('b5w1', t, TL.b5.w, 0.5);
+  wipe('b5w2', t, TL.b5.w+0.42, 0.5);
+}
+function b6(t){
+  if(!show('b6',t,TL.b6.in,TL.b6.cut)) return;
+  const q = seg(t, TL.b6.w1, TL.b6.w1+0.4, E.outCubic);
+  $('b6w1').style.opacity = q*.75;
+  $('b6w1').style.transform = `translateY(${lerp(20,0,q)}px)`;
+  grow('b6r', t, TL.b6.r, 0.4);
+  wipe('b6w2', t, TL.b6.w2, 0.5);
+  aberr($('b6w2'), Math.max(0,.8-(t-TL.b6.w2)*1.2));
+}
+function b7(t){
+  if(!show('b7',t,TL.b7.in,TL.b7.cut)) return;
+  EXC.forEach(e=>{
+    const q = seg(t, e.t0, e.t0+0.3, E.outExpo);
+    e.row.style.opacity = q;
+    e.row.style.transform = `translateX(${lerp(50,0,q)}px)`;
+    const w = e.txt_.offsetWidth + 20;
+    const s = seg(t, e.t0+0.36, e.t0+0.66, E.outExpo);
+    e.line.style.width = w+'px';
+    e.line.style.transform = `scaleX(${s}) rotate(-1.2deg)`;
+    e.line.style.opacity = s>0?1:0;
+    e.txt_.style.color = s>.6 ? 'rgba(245,243,238,.4)' : '#f5f3ee';
+  });
+}
+function b8(t){
+  if(!show('b8',t,TL.b8.in,TL.b8.cut)) return;
+  const bq = seg(t, TL.b8.box, TL.b8.box+0.4, E.outBack);
+  $('b8box').style.opacity = bq;
+  $('b8box').style.transform = `scale(${lerp(1.25,1,bq)})`;
+  const q1 = seg(t, TL.b8.w1, TL.b8.w1+0.35, E.outCubic);
+  $('b8w1').style.opacity = q1;
+  $('b8w1').style.letterSpacing = lerp(.55,.24,q1)+'em';
+  const q2 = seg(t, TL.b8.w2, TL.b8.w2+0.4, E.outExpo);
+  $('b8w2').style.opacity = q2;
+  $('b8w2').style.transform = `scale(${lerp(1.5,1,q2)}) rotate(${lerp(-3,0,q2)}deg)`;
+}
+function b9(t){
+  if(!show('b9',t,TL.b9.in,TL.b9.cut)) return;
+  const q = seg(t, TL.b9.w1, TL.b9.w1+0.4, E.outCubic);
+  $('b9w1').style.opacity = q*.7;
+  $('b9w1').style.transform = `translateY(${lerp(20,0,q)}px)`;
+  wipe('b9w2', t, TL.b9.w2, 0.5);
+  wipe('b9w3', t, TL.b9.w3, 0.5);
+  aberr($('b9w3'), Math.max(0,1-(t-TL.b9.w3)*1.1));
+}
+function b10(t){
+  if(!show('b10',t,TL.b10.in,TL.b10.cut)) return;
+  wipe('b10w1', t, TL.b10.w1, 0.5);
+  grow('b10r', t, TL.b10.w1+0.4, 0.4);
+  wipe('b10w2', t, TL.b10.w2, 0.5);
+  aberr($('b10w2'), Math.max(0,.7-(t-TL.b10.w2)*1.2));
+}
+function b11(t){
+  if(!show('b11',t,TL.b11.in,TL.b11.cut)) return;
+  const rq = seg(t, TL.b11.r, TL.b11.r+0.4, E.outBack);
+  $('b11r').style.opacity = rq;
+  $('b11r').style.transform = `scale(${lerp(.5,1,rq)}) rotate(${lerp(-8,0,rq)}deg)`;
+  scramble($('b11logo'), 'RESPONDE', t, TL.b11.logo, TL.b11.logoEnd);
+  aberr($('b11logo'), Math.max(0,.9-(t-TL.b11.logo)*0.8));
+  grow('b11rule', t, TL.b11.logoEnd, 0.45);
+  const tg = seg(t, TL.b11.tag, TL.b11.tag+0.45, E.outCubic);
+  $('b11tag').style.opacity = tg;
+  $('b11tag').style.transform = `translateY(${lerp(22,0,tg)}px)`;
+}
+function b12(t){
+  if(!show('b12',t,TL.b12.in,1e9)) return;
+  wipe('b12w1', t, TL.b12.w1, 0.5);
+  wipe('b12w2', t, TL.b12.w2, 0.5);
+  const bq = seg(t, TL.b12.btn, TL.b12.btn+0.45, E.outBack);
+  const br = 1 + 0.025*Math.sin((t-TL.b12.btn)*2.3);
+  $('b12btn').style.opacity = bq;
+  $('b12btn').style.transform = `translateX(-50%) scale(${bq<1?lerp(.6,1,bq):br})`;
+  $('b12site').style.opacity = seg(t, TL.b12.site, TL.b12.site+0.4, E.outCubic);
+}
+
+window.seek = function(t){
+  const paper = paperF(t);
+  /* el HUD también se invierte sobre la placa dorada del golpe 03 */
+  const inv = Math.max(paper, Math.min(seg(t,TL.b3.blk,TL.b3.blk+0.18,E.outCubic), 1-seg(t,TL.b3.cut-0.09,TL.b3.cut-0.01,E.inQuad)));
+  setWorld(t, paper);
+  camera(t);
+  hudFrame(t, inv);
+  b1(t);b2(t);b3(t);b4(t);b5(t);b6(t);b7(t);b8(t);b9(t);b10(t);b11(t);b12(t);
+};
+window.READY = Promise.all([
+  document.fonts.load('700 300px Newsreader'),
+  document.fonts.load('600 186px Newsreader'),
+  document.fonts.load('italic 500 104px Newsreader'),
+  document.fonts.load('300 32px "Inter Tight"'),
+  document.fonts.load('700 44px "Inter Tight"'),
+  document.fonts.ready
+]).then(()=>{ window.seek(0); return true; });
+</script>
+</body>
+</html>

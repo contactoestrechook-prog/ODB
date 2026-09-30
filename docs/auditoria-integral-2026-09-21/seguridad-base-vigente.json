@@ -1,0 +1,43 @@
+{
+  "verificado": "2026-09-21",
+  "metodo": "Consultas SELECT en SQL Editor Supabase ODB, sin ejecutar mutaciones",
+  "rpcSecurityDefinerEjecutableAnon": [
+    "aprobar_cobranza",
+    "aprobar_propuesta_costo",
+    "avisar_credito_consumido",
+    "cancelar_pedido",
+    "catalogo_proveedor",
+    "emitir_documento",
+    "entregar_pedido",
+    "fn_blindaje_arca_cola",
+    "fraccionar_producto",
+    "perfil_compra",
+    "pos_buscar",
+    "pos_catalogo",
+    "recalcular_tipo_cliente",
+    "registrar_pago_factura",
+    "sumar_saldo_cta_cte",
+    "trg_perfil_tras_venta",
+    "venta_diaria",
+    "verificar_login"
+  ],
+  "funcionesInternasLeidasSinControlDeActor": [
+    "aprobar_cobranza",
+    "sumar_saldo_cta_cte"
+  ],
+  "tablasSinRLSConSelectAnon": 0,
+  "buckets": {
+    "bot-adjuntos": false,
+    "comprobantes": false,
+    "productos": true,
+    "productos-originales": false,
+    "publico": true
+  },
+  "rpcSinExecuteAnonVerificadas": [
+    "crear_pedido",
+    "pagar_orden_pago",
+    "registrar_movimiento",
+    "registrar_venta"
+  ],
+  "nota": "No todas las funciones expuestas son mutaciones ni todas carecen de controles; dos cuerpos críticos comprobados."
+}

@@ -1,0 +1,296 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,500;0,6..72,600;0,6..72,700;1,6..72,500;1,6..72,600&family=Inter+Tight:wght@300;500;700&family=IBM+Plex+Mono:wght@400;500;600&display=block" rel="stylesheet">
+</head>
+<body>
+<script src="motor.js"></script>
+<script>
+injectBase('grafito');
+
+/* ==================================================================
+   LA CENA · ANIMÁTICO
+   Los insertos de pantalla, los carteles y el cierre están TERMINADOS.
+   Los planos de actuación son pizarras: encuadre, movimiento y duración
+   exacta para generar en Higgsfield una sola vez.
+   ================================================================== */
+const SC = [
+  {id:'p01', t0:0.00,  t1:4.00,  slate:1},
+  {id:'p02', t0:4.00,  t1:8.00,  slate:1},
+  {id:'i03', t0:8.00,  t1:10.00},
+  {id:'p04', t0:10.00, t1:14.00, slate:1},
+  {id:'i05', t0:14.00, t1:16.00},
+  {id:'p06', t0:16.00, t1:20.00, slate:1},
+  {id:'p07', t0:20.00, t1:23.00, slate:1},
+  {id:'i08', t0:23.00, t1:25.00},
+  {id:'p09', t0:25.00, t1:31.00, slate:1},
+  {id:'p10', t0:31.00, t1:34.00, slate:1},
+  {id:'g11', t0:34.00, t1:38.60},
+  {id:'i12', t0:38.60, t1:43.60},
+  {id:'p13', t0:43.60, t1:46.60, slate:1},
+  {id:'g14', t0:46.60, t1:51.00},
+];
+window.DURATION = 51.0;
+const SIL = {a:25.0, b:34.0};        /* el silencio */
+
+/* ---------------- pizarras ---------------- */
+const SLATES = {
+  p01:{n:'01', dur:'4,0 s', mov:'DOLLY IN MUY LENTO', txt:'Plano general. Los dos cenando. Ella habla relajada, él asiente. El celular boca arriba junto al plato.', fr:'general'},
+  p02:{n:'02', dur:'4,0 s', mov:'FIJA · RESPIRACIÓN A MANO', txt:'Plano medio de ella hablando, viva, gesticulando. Él desenfocado en primer plano.', fr:'ella-medio'},
+  p04:{n:'04', dur:'4,0 s', mov:'RACK FOCUS · ELLA → TELÉFONO', txt:'Él baja los ojos al teléfono y los vuelve a subir. Microexpresión de atención partida.', fr:'el-close'},
+  p06:{n:'06', dur:'4,0 s', mov:'PUSH IN LENTO', txt:'Ella se pone seria. Le está contando algo difícil. La cara le cambia.', fr:'ella-close'},
+  p07:{n:'07', dur:'3,0 s', mov:'FIJA', txt:'Él con los ojos abajo, en la pantalla. El pulgar suspendido. No está ahí.', fr:'el-abajo'},
+  p09:{n:'09', dur:'6,0 s', mov:'QUIETA · SIN MÚSICA', txt:'EL SILENCIO. Primerísimo primer plano de él. Levanta la vista. Se da cuenta de que no escuchó una palabra. Abre la boca y no sale nada.', fr:'el-xclose', key:1},
+  p10:{n:'10', dur:'3,0 s', mov:'FIJA', txt:'Ella lo mira esperando una respuesta que no llega. Se le cae la cara. Corre la mirada.', fr:'ella-close'},
+  p13:{n:'12', dur:'3,0 s', mov:'PUSH IN MUY LENTO', txt:'PLANO ESPEJO. Misma mesa, misma luz. El teléfono boca abajo. Él la mira a ella. Está presente.', fr:'general-ok'},
+};
+/* dibujos de encuadre (storyboard abstracto) */
+function board(fr){
+  const P = (x,y,w,h,o)=>`<div style="position:absolute;left:${x}px;top:${y}px;width:${w}px;height:${h}px;
+      border-radius:${w/2}px ${w/2}px 14px 14px;background:rgba(245,243,238,${o});"></div>`;
+  const HEAD = (x,y,r,o)=>`<div style="position:absolute;left:${x}px;top:${y}px;width:${r}px;height:${r}px;
+      border-radius:50%;background:rgba(245,243,238,${o});"></div>`;
+  const TABLE = y=>`<div style="position:absolute;left:0;top:${y}px;width:760px;height:3px;background:rgba(245,243,238,.30);"></div>`;
+  const PH = (x,y,w,h,red)=>`<div style="position:absolute;left:${x}px;top:${y}px;width:${w}px;height:${h}px;border-radius:5px;
+      background:${red?'rgba(224,72,63,.85)':'rgba(201,169,110,.85)'};"></div>`;
+  switch(fr){
+    case 'general':    return HEAD(190,150,64,.5)+P(170,215,104,150,.34)+HEAD(500,150,64,.5)+P(480,215,104,150,.34)+TABLE(368)+PH(352,376,44,26,1);
+    case 'general-ok': return HEAD(190,150,64,.5)+P(170,215,104,150,.34)+HEAD(500,150,64,.5)+P(480,215,104,150,.34)+TABLE(368)+PH(348,378,52,14,0);
+    case 'ella-medio': return HEAD(400,110,120,.55)+P(360,230,200,200,.34)+P(60,300,220,180,.12)+TABLE(430);
+    case 'ella-close': return HEAD(300,90,200,.6)+P(250,290,300,160,.32);
+    case 'el-close':   return HEAD(280,90,210,.6)+P(230,300,310,150,.32)+PH(600,330,54,32,1);
+    case 'el-abajo':   return HEAD(270,70,220,.6)+P(220,290,320,160,.32)+PH(330,400,100,58,1);
+    case 'el-xclose':  return HEAD(190,40,380,.68);
+  }
+  return '';
+}
+
+/* ---------------- mensajes ---------------- */
+const MSG = [
+  ['M','Mariana P.','¿Tenés stock de la 4mm?','21:12','#7c5cbf'],
+  ['+','+54 9 11 5·· ····','Hola! ¿Precio por mayor?','21:14','#4e8fa3'],
+  ['R','Reclamo · pedido 8842','Llegó incompleto, necesito solución','21:18','#b0503f'],
+  ['C','Consulta web','¿Hacen envíos al interior?','21:21','#b07c3f'],
+  ['J','Juan Ibarra','¿Hola? Sigo esperando…','21:24','#5a8f5e'],
+];
+
+const stage = $('stage');
+const css = document.createElement('style');
+css.textContent = `
+  .mo { font-family:'IBM Plex Mono',monospace; font-variant-numeric:tabular-nums; }
+  .slate { position:absolute; left:90px; top:300px; width:900px; }
+  .sbox  { position:relative; width:760px; height:520px; margin:0 auto; border:1px solid rgba(245,243,238,.20); }
+  .stxt  { font-family:'Inter Tight',sans-serif; font-weight:300; font-size:30px; line-height:1.42; color:rgba(245,243,238,.78); }
+  .phbig { position:absolute; left:180px; top:330px; width:720px; height:1240px; background:#05080a;
+           border-radius:58px; padding:14px; box-shadow:0 60px 130px rgba(0,0,0,.75); }
+  .phin  { width:100%; height:100%; background:#0b141a; border-radius:46px; overflow:hidden; position:relative; }
+  .row   { display:flex; gap:20px; align-items:center; padding:26px 28px; border-bottom:1px solid rgba(245,243,238,.06); }
+  .av    { width:74px; height:74px; border-radius:50%; display:grid; place-items:center; flex-shrink:0;
+           font-family:'Inter Tight',sans-serif; font-weight:700; font-size:29px; color:#0b141a; }
+  .nm    { display:block; font-family:'Inter Tight',sans-serif; font-weight:700; font-size:29px; color:#e9edef; }
+  .pv    { display:block; font-family:'Inter Tight',sans-serif; font-weight:300; font-size:25px; color:#8696a0; margin-top:6px; }
+  .bg    { background:#25D366; color:#0b141a; font-family:'Inter Tight',sans-serif; font-weight:700; font-size:22px;
+           min-width:38px; height:38px; border-radius:19px; display:grid; place-items:center; padding:0 10px; }
+  .ok    { font-family:'Inter Tight',sans-serif; font-weight:700; font-size:26px; color:#c9a96e; }
+  .mask  { overflow:hidden; line-height:1.26; padding-bottom:10px; }
+  .mask>span { display:inline-block; }
+`;
+document.head.appendChild(css);
+
+stage.innerHTML = `
+${Object.entries(SLATES).map(([id,s])=>`
+<div class="layer sc" id="${id}">
+  <div class="slate">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;">
+      <span class="mo" style="font-size:30px;letter-spacing:.26em;color:${s.key?'#e0483f':'#c9a96e'};">PLANO ${s.n}</span>
+      <span class="mo" style="font-size:26px;letter-spacing:.2em;color:rgba(245,243,238,.55);">${s.dur}</span>
+    </div>
+    <div style="height:1px;background:rgba(245,243,238,.22);margin:16px 0 26px;"></div>
+    <div class="sbox">${board(s.fr)}
+      <div class="mo" style="position:absolute;left:14px;bottom:12px;font-size:19px;letter-spacing:.18em;color:rgba(245,243,238,.35);">ENCUADRE</div>
+    </div>
+    <div class="mo" style="margin-top:30px;font-size:24px;letter-spacing:.2em;color:${s.key?'#e0483f':'#c9a96e'};">▸ ${s.mov}</div>
+    <div class="stxt" style="margin-top:20px;">${s.txt}</div>
+    <div class="mo" id="bar_${id}" style="margin-top:34px;font-size:20px;letter-spacing:.2em;color:rgba(245,243,238,.32);">GENERAR EN HIGGSFIELD</div>
+    <div style="margin-top:14px;height:4px;background:rgba(245,243,238,.12);">
+      <div class="pgb" data-id="${id}" style="height:100%;width:0;background:${s.key?'#e0483f':'#c9a96e'};"></div>
+    </div>
+  </div>
+</div>`).join('')}
+
+<!-- insertos de pantalla · TERMINADOS -->
+${['i03','i05','i08','i12'].map(id=>`
+<div class="layer sc" id="${id}">
+  <div class="phbig">
+    <div class="phin">
+      <div style="padding:56px 28px 16px;display:flex;justify-content:space-between;align-items:baseline;
+           border-bottom:1px solid rgba(245,243,238,.07);">
+        <span style="font-family:'Inter Tight',sans-serif;font-weight:700;font-size:34px;color:#e9edef;">Mensajes</span>
+        <span class="cnt" style="font-family:'Inter Tight',sans-serif;font-weight:700;font-size:26px;color:#25D366;">0 sin leer</span>
+      </div>
+      <div class="rows"></div>
+    </div>
+  </div>
+</div>`).join('')}
+
+<!-- latigazo -->
+<div class="layer sc" id="g11">
+  <div class="mask" style="position:absolute;left:0;top:720px;width:1080px;text-align:center;white-space:nowrap;">
+    <span id="w1" class="ser bone" style="font-size:84px;font-weight:700;">NO ESCUCHÓ NADA.</span></div>
+  <div class="mask" style="position:absolute;left:0;top:872px;width:1080px;text-align:center;white-space:nowrap;">
+    <span id="w2" class="seri tan" style="font-size:64px;font-weight:600;">Estaba contestando pedidos.</span></div>
+  <div class="mask" style="position:absolute;left:0;top:1030px;width:1080px;text-align:center;white-space:nowrap;">
+    <span id="w3" class="ser bone" style="font-size:96px;font-weight:700;">NO SEAS COMO ÉL.</span></div>
+</div>
+
+<!-- cierre -->
+<div class="layer sc" id="g14">
+  <div style="position:absolute;left:0;top:640px;width:1080px;text-align:center;">
+    <div id="rbox" class="rbox" style="display:inline-grid;width:130px;height:130px;font-size:70px;"></div>
+    <div id="rlogo" class="ser bone" style="font-size:158px;font-weight:600;letter-spacing:-.02em;margin-top:42px;"></div>
+    <div id="rrule" style="width:470px;height:2px;background:#c9a96e;margin:28px auto 0;transform-origin:50% 50%;"></div>
+    <div id="rtag" class="seri tan" style="font-size:50px;font-weight:500;margin-top:30px;">El que contesta primero.</div>
+    <div id="rbtn" class="pill" style="display:inline-block;font-size:42px;white-space:nowrap;padding:32px 66px;margin-top:52px;">Probame ahora →</div>
+    <div id="rsite" class="mo" style="font-size:25px;letter-spacing:.26em;margin-top:44px;color:rgba(245,243,238,.6);">RESPONDE · BY METOGROUP · METOGROUP.AR</div>
+  </div>
+</div>`;
+
+/* filas de los insertos */
+const INS = {
+  i03:{n:1, ans:0}, i05:{n:3, ans:0}, i08:{n:5, ans:0}, i12:{n:5, ans:1},
+};
+Object.entries(INS).forEach(([id,cfg])=>{
+  const cont = $(id).querySelector('.rows');
+  MSG.slice(0,cfg.n).forEach(([i,nm,pv,tm,col],k)=>{
+    const d = document.createElement('div');
+    d.className = 'row';
+    d.dataset.k = k;
+    d.innerHTML = `<span class="av" style="background:${col}">${i}</span>
+      <span style="flex:1;min-width:0;"><span class="nm">${nm}</span><span class="pv">${pv}</span></span>
+      <span style="text-align:right;flex-shrink:0;">
+        <span style="font-family:'Inter Tight',sans-serif;font-weight:500;font-size:21px;color:#25D366;">${tm}</span><br>
+        <span class="bg" style="margin-top:8px;">1</span><span class="ok" style="display:none;">✓✓</span></span>`;
+    cont.appendChild(d);
+  });
+});
+
+/* ---------------- HUD del animático ---------------- */
+const hud = document.createElement('div');
+hud.style.cssText='position:fixed;inset:0;z-index:50;pointer-events:none;';
+hud.innerHTML = `
+  <div style="position:absolute;left:58px;top:58px;right:58px;bottom:58px;border:1px solid rgba(245,243,238,.10);"></div>
+  <div id="hl" class="mo" style="position:absolute;left:92px;top:96px;font-size:19px;letter-spacing:.24em;color:rgba(245,243,238,.5);">ANIMÁTICO · LA CENA</div>
+  <div id="htc" class="mo" style="position:absolute;right:92px;top:96px;font-size:19px;letter-spacing:.16em;color:#c9a96e;">00:00</div>
+  <div id="hsil" class="mo" style="position:absolute;left:0;bottom:98px;width:1080px;text-align:center;font-size:20px;
+       letter-spacing:.26em;color:#e0483f;opacity:0;">— SIN MÚSICA —</div>`;
+document.getElementById('viewport').appendChild(hud);
+
+/* ---------------- por cuadro ---------------- */
+function cur(t){ for (const s of SC) if (t>=s.t0 && t<s.t1) return s; return SC[SC.length-1]; }
+
+window.seek = function(t){
+  setWorld(t, 0);
+  const sc = cur(t), p = (t-sc.t0)/(sc.t1-sc.t0);
+  SC.forEach(s=> { const el=$(s.id); if(el) el.style.display = (s.id===sc.id)?'block':'none'; });
+
+  /* cámara por escena: entrada suave y deriva lenta */
+  const zoom = sc.slate ? lerp(1.02, 1.05, p) : lerp(1.03, 1.00, E.outCubic(Math.min(1,p*2)));
+  const dy   = sc.slate ? lerp(6,-6,p) : lerp(18,0,E.outCubic(Math.min(1,p*2)));
+  const cam = $('camera');
+  cam.style.transform = `translate(540px,960px) rotate(${(Math.sin(t*0.5)*0.22).toFixed(3)}deg) scale(${zoom.toFixed(4)}) translate(-540px,${(-960+dy).toFixed(1)}px)`;
+  cam.style.filter = 'none';
+  const gi = Math.floor(t*24)%9;
+  $('grainD').style.transform = `translate(${(gi%3)*-22}px,${Math.floor(gi/3)*-18}px)`;
+  /* corte seco entre escenas */
+  const near = Math.min(t-sc.t0, sc.t1-t);
+  $('blackout').style.opacity = Math.max(
+    1-seg(t,0,0.4,E.outQuad), seg(t,50.4,50.95,E.inQuad),
+    near < 0.06 ? (1-near/0.06)*0.9 : 0);
+  $('flash').style.opacity = 0;
+
+  /* HUD */
+  const mm = String(Math.floor(t/60)).padStart(2,'0'), ss = String(Math.floor(t%60)).padStart(2,'0');
+  $('htc').textContent = `${mm}:${ss}`;
+  $('hsil').style.opacity = (t>=SIL.a && t<SIL.b) ? (0.45+0.55*Math.abs(Math.sin(t*1.6))) : 0;
+
+  /* barra de duración en la pizarra */
+  [...document.querySelectorAll('.pgb')].forEach(b=>{
+    b.style.width = (b.dataset.id===sc.id ? p*100 : 0).toFixed(1)+'%';
+  });
+
+  /* --- insertos --- */
+  if (sc.id[0]==='i'){
+    const rows = [...$(sc.id).querySelectorAll('.row')];
+    const cntEl = $(sc.id).querySelector('.cnt');
+    if (sc.id==='i03'){
+      rows.forEach((r,k)=>{ const q=seg(t,8.35,8.75,E.outExpo);
+        r.style.opacity=q; r.style.transform=`translateY(${lerp(-34,0,q)}px)`; });
+      cntEl.textContent = t>8.4 ? '1 sin leer' : '0 sin leer';
+    }
+    if (sc.id==='i05'){
+      const T=[14.00,14.35,15.15];
+      rows.forEach((r,k)=>{ const q=seg(t,T[k],T[k]+0.4,E.outExpo);
+        r.style.opacity=q; r.style.transform=`translateY(${lerp(-34,0,q)}px)`; });
+      cntEl.textContent = (t>15.2?3:t>14.4?2:1)+' sin leer';
+    }
+    if (sc.id==='i08'){
+      const T=[23.00,23.00,23.00,23.40,24.10];
+      rows.forEach((r,k)=>{ const q=seg(t,T[k],T[k]+0.4,E.outExpo);
+        r.style.opacity=q; r.style.transform=`translateY(${lerp(-34,0,q)}px)`; });
+      cntEl.textContent = (t>24.15?5:t>23.45?4:3)+' sin leer';
+      cntEl.style.color = t>23.45 ? '#e0483f' : '#25D366';
+    }
+    if (sc.id==='i12'){
+      rows.forEach((r,k)=>{
+        r.style.opacity=1; r.style.transform='none';
+        const done = t >= 39.25 + k*0.55;
+        r.querySelector('.bg').style.display = done?'none':'grid';
+        r.querySelector('.ok').style.display = done?'inline':'none';
+        const pv = r.querySelector('.pv');
+        pv.textContent = done ? 'Respondido por RESPONDE' : MSG[k][2];
+        pv.style.color = done ? '#c9a96e' : '#8696a0';
+      });
+      const left = MSG.length - Math.max(0, Math.min(5, Math.floor((t-39.25)/0.55)+1));
+      const z = t>=39.25 ? Math.max(0,left) : 5;
+      cntEl.textContent = z+' sin leer';
+      cntEl.style.color = z===0 ? '#c9a96e' : '#e0483f';
+    }
+  }
+
+  /* --- latigazo --- */
+  if (sc.id==='g11'){
+    const w=(id,t0,d)=>{ const q=seg(t,t0,t0+d,E.outExpo); $(id).style.transform=`translateY(${(1-q)*118}%)`; };
+    w('w1',34.15,0.55); w('w2',35.60,0.6); w('w3',37.05,0.5);
+    aberr($('w3'), Math.max(0,.9-(t-37.05)*1.2));
+  }
+  /* --- cierre --- */
+  if (sc.id==='g14'){
+    const rq = seg(t,46.80,47.30,E.outExpo);
+    $('rbox').style.opacity=rq; $('rbox').textContent='R';
+    $('rbox').style.transform=`scale(${lerp(.55,1,rq)})`;
+    scramble($('rlogo'),'RESPONDE',t,47.10,48.30);
+    const ru=seg(t,48.30,48.75,E.outExpo);
+    $('rrule').style.transform=`scaleX(${ru})`; $('rrule').style.opacity=ru;
+    const tg=seg(t,48.55,49.00,E.outCubic);
+    $('rtag').style.opacity=tg; $('rtag').style.transform=`translateY(${lerp(18,0,tg)}px)`;
+    const bq=seg(t,48.90,49.40,E.outBack);
+    $('rbtn').style.opacity=bq;
+    $('rbtn').style.transform=`scale(${bq<1?lerp(.7,1,bq):1+0.02*Math.sin((t-48.9)*2.4)})`;
+    $('rsite').style.opacity=seg(t,49.30,49.80,E.outCubic);
+  }
+};
+window.READY = Promise.all([
+  document.fonts.load('600 158px Newsreader'),
+  document.fonts.load('700 126px Newsreader'),
+  document.fonts.load('italic 600 74px Newsreader'),
+  document.fonts.load('300 30px "Inter Tight"'),
+  document.fonts.load('700 34px "Inter Tight"'),
+  document.fonts.load('500 30px "IBM Plex Mono"'),
+  document.fonts.ready
+]).then(()=>{ window.seek(0); return true; });
+</script>
+</body>
+</html>
