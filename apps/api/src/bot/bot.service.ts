@@ -2306,8 +2306,16 @@ export class BotService {
     if (e || !id) throw new BadRequestException(e?.message ?? 'No se pudo confirmar el pedido');
     const ped: any = await this.pedidos.obtener(id);
     // si ya dijo cómo paga, se repite eso y no "efectivo o tarjeta" (25/9/2026)
-    const medio = /paga con efectivo|efectivo/i.test(String(q.notas ?? '')) ? 'en efectivo' : /tarjeta|d[eé]bito|cr[eé]dito/i.test(String(q.notas ?? '')) ? 'con tarjeta' : 'en efectivo o tarjeta';
-    const respuesta = `Pedido ${ped.qr_retiro} confirmado. Total: $${pesos(Number(ped.total))}.\n${q.tipo === 'domicilio' ? 'Envío sin cargo. Se abona al recibir' : 'Se abona al retirar'}, ${medio}.`;
+    // con el descuento en efectivo o transferencia (30/9/2026), los dos totales
+    const totalLista = Number(ped.total);
+    const totalEfectivo = Math.round(((q.items ?? []) as any[]).reduce((s2: number, r: any) => s2 + Number(r?.subtotalEfectivo ?? r?.subtotal ?? 0), 0));
+    const hayDescuento = totalEfectivo > 0 && totalEfectivo < Math.round(totalLista);
+    const notas = String(q.notas ?? '');
+    const paga = /efectivo/i.test(notas) ? 'efectivo' : /tarjeta|d[eé]bito|cr[eé]dito/i.test(notas) ? 'tarjeta' : null;
+    const cobro = hayDescuento
+      ? (paga === 'efectivo' ? `en efectivo: $${pesos(totalEfectivo)}` : paga === 'tarjeta' ? `con tarjeta: $${pesos(totalLista)}` : `$${pesos(totalLista)} con tarjeta o $${pesos(totalEfectivo)} en efectivo o transferencia`)
+      : (paga === 'efectivo' ? 'en efectivo' : paga === 'tarjeta' ? 'con tarjeta' : 'en efectivo o tarjeta');
+    const respuesta = `Pedido ${ped.qr_retiro} confirmado. Total: $${pesos(totalLista)}.\n${q.tipo === 'domicilio' ? 'Envío sin cargo. Se abona al recibir' : 'Se abona al retirar'}, ${cobro}.`;
     return { pedidoId: id, codigoRetiro: ped.qr_retiro, total: Number(ped.total), estado: ped.estado, respuesta };
   }
 
