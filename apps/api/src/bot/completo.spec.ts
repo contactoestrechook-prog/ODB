@@ -58,3 +58,13 @@ describe('"es todo" no elige variantes', () => {
     expect(faltaElegirVariante('sí, es todo', ['• 2 × Fernet Branca 750 cc\n• 6 × Coca Cola 1,75 L\n\n¿Está completo el pedido o querés sumar algo?'])).toBe(false);
   });
 });
+
+describe('los dos escapes del banco del 30/9', () => {
+  it('"Sumado: 1 × Smirnoff" sin viñeta también lleva la pregunta', () => {
+    expect(conPreguntaDeCompleto('Sumado: 1 × Smirnoff Vodka 700 cc.')).toMatch(/¿Está completo el pedido o querés sumar algo\?$/);
+  });
+  it('la lista que termina en «¿qué papas te preparo?» también frena el "es todo"', () => {
+    const lista = 'Te anoté:\n• 2 × Fernet Branca 750 cc\n• 2 × Papas Lays (a definir variante)\n• 1 × Maní King (a definir variante)\n\n¿Qué papas Lays y qué Maní King te preparo?';
+    expect(faltaElegirVariante('sí, es todo', [lista])).toBe(true);
+  });
+});

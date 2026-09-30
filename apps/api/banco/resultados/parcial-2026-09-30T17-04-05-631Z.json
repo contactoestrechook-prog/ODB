@@ -1,0 +1,383 @@
+{
+ "fecha": "2026-09-30T17:04:05.631Z",
+ "pasan": 10,
+ "total": 10,
+ "promedio": 4.9,
+ "costoBot": 1.331,
+ "intermitentes": [],
+ "resultados": [
+  {
+   "id": "envio-03",
+   "categoria": "envío",
+   "titulo": "Pedido con envío: el total es todo",
+   "ok": true,
+   "puntaje": 5,
+   "fallas": [],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "Quiero 2 fernet branca de 750 y 3 coca cola de 1.75 para envío a domicilio",
+     "archivo": false,
+     "respuesta": "Buenas tardes. Te damos la bienvenida a O.D.B. Te anoto:\n• 2 × Fernet Branca 750 cc\n• 3 × Coca Cola 1,75 L\n\n¿Está completo el pedido o querés sumar algo?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos",
+      "buscar_productos"
+     ]
+    },
+    {
+     "cliente": "sí, es todo",
+     "archivo": false,
+     "respuesta": "• Fernet Branca x750cc — 2 × $20.500 c/u = $41.000\n• Coca Cola 1.75l — 3 × $4.700 c/u = $14.100\n\n*Total: $55.100* (o $51.000 pagando en efectivo o transferencia, por el 10% de descuento en el fernet).\n\nEste total todavía no alcanza el mínimo de $70.000 para envío. Podés sumar algún producto para llegar, o retirarlo por la sucursal Saint Thomas (Castex 3601), que no tiene mínimo. Decime cuál preferís y te paso el resumen para confirmar.",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos",
+      "buscar_productos",
+      "cotizar_pedido"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "cant-01",
+   "categoria": "cantidades",
+   "titulo": "4 Marlboro gold de entrada",
+   "ok": true,
+   "puntaje": 5,
+   "fallas": [],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "Puede ser 4 Malboro gold el blanco y dorado",
+     "archivo": false,
+     "respuesta": "Buenas tardes. Te damos la bienvenida a O.D.B. Te anoto:\n• 4 × Marlboro Gold Box x 20 un\n\n¿Está completo el pedido o querés sumar algo?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos",
+      "buscar_productos"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "pedido-01",
+   "categoria": "pedido",
+   "titulo": "Pedido completo para retirar",
+   "ok": true,
+   "puntaje": 5,
+   "fallas": [],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "Hola, quiero 2 fernet branca de 750 y 3 coca zero de 1.75, paso a retirar yo, Juan Perez",
+     "archivo": false,
+     "respuesta": "Buenas tardes. Te damos la bienvenida a O.D.B. Anoté:\n• 2 × Fernet Branca 750 cc\n• 3 × Coca Cola Zero 1,75 L\n\n¿Está completo el pedido o querés sumar algo?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos",
+      "buscar_productos"
+     ]
+    },
+    {
+     "cliente": "sí, eso es todo",
+     "archivo": false,
+     "respuesta": "• Fernet Branca  x750cc — 2 × $20.500 c/u = $41.000\n• Coca Cola Zero x1.75L — 3 × $4.700 c/u = $14.100\nTotal: $55.100\nPagando en efectivo o transferencia: $51.000 (10% off en vinos, destilados, aperitivos, estuchería y espumantes).\nRetiro en la sucursal Saint Thomas.\n¿Lo confirmo?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos",
+      "buscar_productos",
+      "cotizar_pedido",
+      "preparar_pedido"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "pedido-02",
+   "categoria": "pedido",
+   "titulo": "El sí confirma y crea el pedido",
+   "ok": true,
+   "puntaje": 5,
+   "fallas": [],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "Hola, quiero 2 fernet branca de 750 y 3 coca zero de 1.75, paso a retirar yo, Juan Perez",
+     "archivo": false,
+     "respuesta": "Buenas tardes. Te damos la bienvenida a O.D.B. Anoté:\n• 2 × Fernet Branca 750 cc\n• 3 × Coca Cola Zero 1,75 L\n\n¿Está completo el pedido o querés sumar algo?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos",
+      "buscar_productos"
+     ]
+    },
+    {
+     "cliente": "es todo",
+     "archivo": false,
+     "respuesta": "• Fernet Branca  x750cc — 2 × $20.500 c/u = $41.000\n• Coca Cola Zero x1.75L — 3 × $4.700 c/u = $14.100\nTotal: $55.100\nPagando en efectivo o transferencia: $51.000 (10% off en vinos, destilados, aperitivos, estuchería y espumantes).\nRetiro en la sucursal Saint Thomas.\n¿Lo confirmo?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos",
+      "buscar_productos",
+      "cotizar_pedido",
+      "preparar_pedido"
+     ]
+    },
+    {
+     "cliente": "si",
+     "archivo": false,
+     "respuesta": "Pedido PICKUP-BANCO0001 confirmado. Total: $55.100.\nSe abona al retirar, $55.100 con tarjeta o $51.000 en efectivo o transferencia.",
+     "herramientas": [
+      "crear_pedido"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "pedido-04",
+   "categoria": "pedido",
+   "titulo": "Cambio de producto en el resumen",
+   "ok": true,
+   "puntaje": 4,
+   "fallas": [],
+   "problemas": [
+    "No repitió el saludo de bienvenida (correcto), pero no confirmó explícitamente el cambio de producto antes de mostrar el resumen actualizado (ej: 'listo, cambio a Coca Zero')"
+   ],
+   "charla": [
+    {
+     "cliente": "Quiero 4 coca cola de 1.75 para retirar, soy Ana",
+     "archivo": false,
+     "respuesta": "Buenas tardes. Te damos la bienvenida a O.D.B. Te anoto:\n• 4 × Coca Cola 1.75 L\n\n¿Está completo el pedido o querés sumar algo?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos"
+     ]
+    },
+    {
+     "cliente": "es todo",
+     "archivo": false,
+     "respuesta": "• Coca Cola 1.75l — 4 × $4.700 c/u = $18.800\nTotal: $18.800\nRetiro en la sucursal Saint Thomas.\n¿Lo confirmo?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos",
+      "cotizar_pedido",
+      "preparar_pedido"
+     ]
+    },
+    {
+     "cliente": "reemplazalas por coca zero",
+     "archivo": false,
+     "respuesta": "• Coca Cola Zero x1.75L — 4 × $4.700 c/u = $18.800\nTotal: $18.800\nRetiro en la sucursal Saint Thomas.\n¿Lo confirmo?",
+     "herramientas": [
+      "buscar_productos",
+      "cotizar_pedido",
+      "preparar_pedido"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "pedido-05",
+   "categoria": "pedido",
+   "titulo": "Lista larga con renglones",
+   "ok": true,
+   "puntaje": 5,
+   "fallas": [],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "Necesito:\n2 fernet branca 750\n6 coca cola 1.75\n1 hielo\n2 papas lays\n1 mani king",
+     "archivo": false,
+     "respuesta": "Buenas tardes. Te damos la bienvenida a O.D.B. Te anoto:\n• 2 × Fernet Branca 750 cc\n• 6 × Coca Cola 1.75 L\n• 1 × Hielo bolsa 15 kg (es el formato con stock en la sucursal Saint Thomas)\n• 2 × Papas Lays — decime cuál: clásicas 134 g, clásicas 330 g, o las de 77 g (ketchup, asado, barbacoa, flaming hot, jamón serrano, provoleta, queso crema y cebolla)\n• 1 × Maní King — con cáscara 400 g o pelado 350 g Con esas dos elecciones te paso el total.\n\n¿Está completo el pedido o querés sumar algo?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos"
+     ]
+    },
+    {
+     "cliente": "sí, es todo",
+     "archivo": false,
+     "respuesta": "Me falta una sola definición para cerrar: las Lays, ¿clásicas 134 g o 330 g? Y el Maní King, ¿con cáscara 400 g o pelado 350 g?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "cotizar_pedido(frenado)",
+      "preparar_pedido(frenado)"
+     ]
+    },
+    {
+     "cliente": "las clásicas de 134 y el pelado",
+     "archivo": false,
+     "respuesta": "• Fernet Branca 750 cc — 2 × $20.500 c/u = $41.000\n• Coca Cola 1.75 L — 6 × $4.700 c/u = $28.200\n• Hielo Bolsa 15 kg — 1 × $14.000 c/u = $14.000\n• Papas Fritas clásicas Lays 134 g — 2 × $7.000 c/u = $14.000\n• Maní King pelado 350 g — 1 × $5.100 c/u = $5.100\n\n*Total: $102.300*, o $98.200 pagando en efectivo o transferencia (el 10% aplica sobre el fernet). ¿Lo retirás por la sucursal Saint Thomas o te lo enviamos a domicilio?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "cotizar_pedido"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "rep-01",
+   "categoria": "repetición",
+   "titulo": "Dos sí seguidos no repiten",
+   "ok": true,
+   "puntaje": 5,
+   "fallas": [],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "3 coca zero 1.75 para retirar, Pedro",
+     "archivo": false,
+     "respuesta": "Buenas tardes. Te damos la bienvenida a O.D.B. Anoté:\n• 3 × Coca Cola Zero x1.75L\n\n¿Está completo el pedido o querés sumar algo?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos"
+     ]
+    },
+    {
+     "cliente": "si",
+     "archivo": false,
+     "respuesta": "• Coca Cola Zero x1.75L — 3 × $4.700 c/u = $14.100\nTotal: $14.100\nRetiro en la sucursal Saint Thomas.\n¿Lo confirmo?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos",
+      "preparar_pedido"
+     ]
+    },
+    {
+     "cliente": "si",
+     "archivo": false,
+     "respuesta": "Pedido PICKUP-BANCO0002 confirmado. Total: $14.100.\nSe abona al retirar, en efectivo o tarjeta.",
+     "herramientas": [
+      "crear_pedido"
+     ]
+    },
+    {
+     "cliente": "si",
+     "archivo": false,
+     "respuesta": "",
+     "herramientas": []
+    }
+   ]
+  },
+  {
+   "id": "alcohol-01",
+   "categoria": "alcohol",
+   "titulo": "Suma con precio y no da la entrega por elegida",
+   "ok": true,
+   "puntaje": 5,
+   "fallas": [],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "quiero 2 fernet branca de 750",
+     "archivo": false,
+     "respuesta": "Buenas tardes. Te damos la bienvenida a O.D.B. Te anoto:\n• 2 × Fernet Branca 750 cc\n\n¿Está completo el pedido o querés sumar algo?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos"
+     ]
+    },
+    {
+     "cliente": "y sumale 1 smirnoff",
+     "archivo": false,
+     "respuesta": "Sumado el Smirnoff 700 cc, quedan los 2 Fernet Branca 750 cc más esa botella. ¿Agregás algo más?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos",
+      "buscar_productos",
+      "cotizar_pedido(frenado)",
+      "preparar_pedido(frenado)"
+     ]
+    },
+    {
+     "cliente": "listo, eso es todo",
+     "archivo": false,
+     "respuesta": "• Fernet Branca 750 cc — 2 × $20.500 c/u = $41.000\n• Smirnoff 700 cc — 1 × $12.800 c/u = $12.800\n\n*Total: $53.800*, o $48.420 pagando en efectivo o transferencia. ¿Lo retirás por la sucursal Saint Thomas (Castex 3601) o te lo enviamos?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos",
+      "buscar_productos",
+      "cotizar_pedido",
+      "preparar_pedido(frenado)"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "desc-01",
+   "categoria": "descuento efectivo",
+   "titulo": "Precio de whisky con el 10% en efectivo (Pablito, 30/9)",
+   "ok": true,
+   "puntaje": 5,
+   "fallas": [],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "Me pasas precio del Jony walker balck",
+     "archivo": false,
+     "respuesta": "Buenas tardes. Te damos la bienvenida a O.D.B. Johnnie Walker Black Label 1 L: $59.400, o $53.460 en efectivo o transferencia.",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos"
+     ]
+    },
+    {
+     "cliente": "Y tenés alguno japonés ?",
+     "archivo": false,
+     "respuesta": "Sí, japoneses tengo dos:\n• Hibiki Master's Select 700 cc — $290.000, o $261.000 en efectivo o transferencia\n• Kamiki 750 cc — $430.000, o $387.000 en efectivo o transferencia\n\nDe Suntory (Toki y World) no tengo stock por ahora.",
+     "herramientas": [
+      "buscar_productos",
+      "buscar_productos"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "desc-02",
+   "categoria": "descuento efectivo",
+   "titulo": "Pedido mixto: el descuento solo en los rubros que lo tienen",
+   "ok": true,
+   "puntaje": 5,
+   "fallas": [],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "quiero 2 fernet branca de 750 y 3 coca zero de 1.75 para retirar, soy Ana",
+     "archivo": false,
+     "respuesta": "Buenas tardes. Te damos la bienvenida a O.D.B. Anoté:\n• 2 × Fernet Branca 750 cc\n• 3 × Coca Cola Zero 1,75 L\n\n¿Está completo el pedido o querés sumar algo?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos",
+      "buscar_productos"
+     ]
+    },
+    {
+     "cliente": "sí, es todo",
+     "archivo": false,
+     "respuesta": "• Fernet Branca  x750cc — 2 × $20.500 c/u = $41.000\n• Coca Cola Zero x1.75L — 3 × $4.700 c/u = $14.100\nTotal: $55.100\nPagando en efectivo o transferencia: $51.000 (10% off en vinos, destilados, aperitivos, estuchería y espumantes).\nRetiro en la sucursal Saint Thomas.\n¿Lo confirmo?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos",
+      "buscar_productos",
+      "cotizar_pedido",
+      "preparar_pedido"
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -37,13 +37,14 @@ export function puedeCotizar(textoCliente: string, ultimosDelBot: string[], ante
  */
 export function conPreguntaDeCompleto(respuesta: string): string {
   const t = String(respuesta ?? '');
-  const esListaAnotada = /^•\s*\d+(?:[.,]\d+)?\s*(?:kg\s*)?[×x]\s*\S/m.test(t) && !/\$\s?\d/.test(t) && !/\?/.test(t);
+  // «• 2 × Fernet» o «Sumado: 1 × Smirnoff»: lo anotado, sin precio y sin pregunta
+  const esListaAnotada = /\b\d+(?:[.,]\d+)?\s*(?:kg\s*)?×\s*[A-Za-zÁÉÍÓÚÑáéíóúñ]/.test(t) && !/\$\s?\d/.test(t) && !/\?/.test(t);
   return esListaAnotada ? `${t.trimEnd()}\n\n¿Está completo el pedido o querés sumar algo?` : t;
 }
 
 // en la lista quedó algo para elegir ("decime cuál: clásicas 134 g o 330 g",
 // "¿con cáscara o pelado?")
-const RE_VARIANTE_PENDIENTE = /decime cu[aá]l|¿\s*cu[aá]l(es)?\b|eleg[ií] (cu[aá]l|una|entre)|qu[eé] (sabor|variante|tama[nñ]o|marca)|—[^\n$]{0,80}\bo\b[^\n$]{0,60}(\?|$)/im;
+const RE_VARIANTE_PENDIENTE = /a definir|decime cu[aá]l|¿\s*qu[eé] [^?]{0,60}(te preparo|quer[eé]s|prefer[ií]s)|¿\s*cu[aá]l(es)?\b|eleg[ií] (cu[aá]l|una|entre)|qu[eé] (sabor|variante|tama[nñ]o|marca)|—[^\n$]{0,80}\bo\b[^\n$]{0,60}(\?|$)/im;
 
 /**
  * "Es todo" NO elige variantes (30/9/2026, el modelo elegía papas y maní por el
@@ -52,7 +53,9 @@ const RE_VARIANTE_PENDIENTE = /decime cu[aá]l|¿\s*cu[aá]l(es)?\b|eleg[ií] (c
  */
 export function faltaElegirVariante(textoCliente: string, ultimosDelBot: string[]): boolean {
   const ultimo = ultimosDelBot[0] ?? '';
-  if (!RE_PREGUNTA_COMPLETO.test(ultimo) || /\$\s?\d/.test(ultimo) || !RE_VARIANTE_PENDIENTE.test(ultimo)) return false;
+  // una lista de lo anotado (sin precios) con opciones abiertas, termine en la
+  // pregunta de completo o en «¿qué papas te preparo?»
+  if (!/[×x]\s*\S/.test(ultimo) || /\$\s?\d/.test(ultimo) || !RE_VARIANTE_PENDIENTE.test(ultimo)) return false;
   const t = String(textoCliente ?? '').trim();
   return diceQueEstaCompleto(t) && t.split(/\s+/).length <= 5;
 }
