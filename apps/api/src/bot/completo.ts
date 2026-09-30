@@ -4,7 +4,7 @@
 // confirma se cotiza. Esta guarda decide si ya se puede cotizar.
 
 /** La pregunta del bot: «¿Está completo el pedido o querés sumar algo?» */
-export const RE_PREGUNTA_COMPLETO = /¿[^?]*(est[aá] completo|queda completo|algo m[aá]s|sumar algo|agregar algo|falta algo|(?:es|ser[ií]a|eso) todo|nada m[aá]s)[^?]*\?/i;
+export const RE_PREGUNTA_COMPLETO = /¿[^?]*(est[aá] completo|queda completo|algo m[aá]s|sumar algo|agregar algo|falta algo|(?:es|ser[ií]a|eso) todo|nada m[aá]s|cerramos|lo cierro|cierro as[ií]|queda as[ií]|as[ií] est[aá] bien)[^?]*\?/i;
 
 /** El cliente dice que el pedido está completo. */
 export function diceQueEstaCompleto(texto: string): boolean {
@@ -28,4 +28,31 @@ export function puedeCotizar(textoCliente: string, ultimosDelBot: string[], ante
   if (ultimosDelBot.some((m) => RE_PREGUNTA_COMPLETO.test(m)) && anterioresDelCliente.some(diceQueEstaCompleto)) return true;
   if (diceQueEstaCompleto(textoCliente) && (RE_PREGUNTA_COMPLETO.test(ultimosDelBot[0] ?? '') || /\b(es todo|nada m[aá]s|completo)\b/i.test(textoCliente))) return true;
   return ultimosDelBot.some((m) => /\btotal\b[^\n]{0,20}\$|¿lo confirmo\?/i.test(m));
+}
+
+/**
+ * La lista de lo anotado (sin precios) sin ninguna pregunta deja al cliente sin
+ * saber qué contestar: se le agrega la pregunta de si está completo (30/9/2026,
+ * el bot la olvidaba al sumar un producto).
+ */
+export function conPreguntaDeCompleto(respuesta: string): string {
+  const t = String(respuesta ?? '');
+  const esListaAnotada = /^•\s*\d+(?:[.,]\d+)?\s*(?:kg\s*)?[×x]\s*\S/m.test(t) && !/\$\s?\d/.test(t) && !/\?/.test(t);
+  return esListaAnotada ? `${t.trimEnd()}\n\n¿Está completo el pedido o querés sumar algo?` : t;
+}
+
+// en la lista quedó algo para elegir ("decime cuál: clásicas 134 g o 330 g",
+// "¿con cáscara o pelado?")
+const RE_VARIANTE_PENDIENTE = /decime cu[aá]l|¿\s*cu[aá]l(es)?\b|eleg[ií] (cu[aá]l|una|entre)|qu[eé] (sabor|variante|tama[nñ]o|marca)|—[^\n$]{0,80}\bo\b[^\n$]{0,60}(\?|$)/im;
+
+/**
+ * "Es todo" NO elige variantes (30/9/2026, el modelo elegía papas y maní por el
+ * cliente): si la última lista dejó opciones abiertas y el cliente solo confirma,
+ * todavía no se cotiza.
+ */
+export function faltaElegirVariante(textoCliente: string, ultimosDelBot: string[]): boolean {
+  const ultimo = ultimosDelBot[0] ?? '';
+  if (!RE_PREGUNTA_COMPLETO.test(ultimo) || /\$\s?\d/.test(ultimo) || !RE_VARIANTE_PENDIENTE.test(ultimo)) return false;
+  const t = String(textoCliente ?? '').trim();
+  return diceQueEstaCompleto(t) && t.split(/\s+/).length <= 5;
 }

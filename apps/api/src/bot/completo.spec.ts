@@ -1,4 +1,4 @@
-import { diceQueEstaCompleto, puedeCotizar } from './completo';
+import { conPreguntaDeCompleto, diceQueEstaCompleto, faltaElegirVariante, puedeCotizar } from './completo';
 
 const PREGUNTA = '• 2 × Fernet Branca 750 cc\n• 6 × Coca Cola Zero 1,75 L\n\n¿Está completo el pedido o querés sumar algo?';
 
@@ -25,10 +25,36 @@ describe('el pedido se confirma completo antes de los precios', () => {
   it('otras formas de preguntar si está completo', () => {
     expect(puedeCotizar('sí', ['• 2 × Fernet\n• 1 × Smirnoff\n\n¿Eso sería todo?'])).toBe(true);
     expect(puedeCotizar('si', ['¿Algo más?'])).toBe(true);
+    expect(puedeCotizar('sí', ['• 2 × Fernet\n• 1 × Smirnoff\n\n¿Con eso cerramos?'])).toBe(true);
   });
   it('confirmó completo y después eligió variantes: se cotiza, no se vuelve a preguntar', () => {
     const bot = ['Me faltan dos definiciones: ¿qué Lays? ¿Maní con o sin cáscara?', PREGUNTA];
     expect(puedeCotizar('las clásicas de 134 y el pelado', bot, ['Necesito: 2 fernet...', 'sí, es todo'])).toBe(true);
     expect(puedeCotizar('las clásicas de 134 y el pelado', bot, ['Necesito: 2 fernet...'])).toBe(false);
+  });
+});
+
+describe('la lista de lo anotado siempre termina con la pregunta', () => {
+  it('se agrega si falta', () => {
+    expect(conPreguntaDeCompleto('Te anoto:\n• 2 × Fernet Branca 750 cc\n• 1 × Smirnoff 700 cc')).toMatch(/¿Está completo el pedido o querés sumar algo\?$/);
+  });
+  it('no se toca si ya pregunta algo, si tiene precios o si no es una lista', () => {
+    const conPregunta = '• 2 × Fernet\n\n¿Eso sería todo?';
+    expect(conPreguntaDeCompleto(conPregunta)).toBe(conPregunta);
+    const conPrecio = '• Fernet — 2 × $20.500 c/u = $41.000\nTotal: $41.000';
+    expect(conPreguntaDeCompleto(conPrecio)).toBe(conPrecio);
+    expect(conPreguntaDeCompleto('Recibido.')).toBe('Recibido.');
+  });
+});
+
+describe('"es todo" no elige variantes', () => {
+  const LISTA = 'Te anoto:\n• 2 × Fernet Branca 750 cc\n• 2 × Papas Lays — decime cuál: clásicas 134 g o 330 g\n• 1 × Maní King — con cáscara 400 g o pelado 350 g\n\n¿Está completo el pedido o querés sumar algo?';
+  it('con opciones abiertas, "sí, es todo" no alcanza para cotizar', () => {
+    expect(faltaElegirVariante('sí, es todo', [LISTA])).toBe(true);
+    expect(faltaElegirVariante('si', [LISTA])).toBe(true);
+  });
+  it('si elige, o si no había nada para elegir, sigue normal', () => {
+    expect(faltaElegirVariante('las clásicas de 134 y el pelado', [LISTA])).toBe(false);
+    expect(faltaElegirVariante('sí, es todo', ['• 2 × Fernet Branca 750 cc\n• 6 × Coca Cola 1,75 L\n\n¿Está completo el pedido o querés sumar algo?'])).toBe(false);
   });
 });
