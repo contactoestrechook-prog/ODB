@@ -956,5 +956,57 @@
       }
     ],
     "juez": "Los mensajes 2 y 3 son de un contestador automático de otra empresa: el bot NO les contesta (silencio). El primero sí se contesta normal."
+  },
+  {
+    "id": "desc-01",
+    "categoria": "descuento efectivo",
+    "titulo": "Precio de whisky con el 10% en efectivo (Pablito, 30/9)",
+    "turnos": [
+      {
+        "cliente": "Me pasas precio del Jony walker balck",
+        "espera": {
+          "debe": [
+            "59\\.400",
+            "53\\.460",
+            "efectivo|transferencia"
+          ]
+        }
+      },
+      {
+        "cliente": "Y tenés alguno japonés ?",
+        "espera": {
+          "herramientas": [
+            "buscar_productos"
+          ],
+          "debe": [
+            "efectivo|transferencia"
+          ]
+        }
+      }
+    ],
+    "juez": "Turno 1: da el precio del Johnnie Walker Black Label ($59.400 de lista) y el precio pagando en efectivo o transferencia ($53.460, 10% off). Turno 2: busca whiskies japoneses reales del catálogo y da cada precio de lista y con el descuento en efectivo o transferencia; si no hay, lo dice sin inventar."
+  },
+  {
+    "id": "desc-02",
+    "categoria": "descuento efectivo",
+    "titulo": "Pedido mixto: el descuento solo en los rubros que lo tienen",
+    "turnos": [
+      {
+        "cliente": "quiero 2 fernet branca de 750 y 3 coca zero de 1.75 para retirar, soy Ana"
+      },
+      {
+        "cliente": "sí, es todo",
+        "espera": {
+          "debe": [
+            "55\\.100",
+            "efectivo|transferencia"
+          ],
+          "herramientas": [
+            "preparar_pedido"
+          ]
+        }
+      }
+    ],
+    "juez": "Primero pregunta si el pedido está completo; después pasa el resumen con total de lista $55.100 y el total pagando en efectivo o transferencia (descuento solo en el Fernet, no en las Coca: $51.000). Pide confirmación."
   }
 ]

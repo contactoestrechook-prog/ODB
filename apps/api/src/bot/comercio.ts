@@ -40,7 +40,7 @@ export function presentacionProducto(p: { nombre?: string; unidades_pack?: numbe
   };
 }
 
-const CAMPOS_PRECIO = /^(precio|precioUnitario|precioLista|precio_final|precio_lista|subtotal|total|monto)$/;
+const CAMPOS_PRECIO = /^(precio|precioUnitario|precioLista|precio_final|precio_lista|subtotal|total|monto|precioEfectivo|subtotalEfectivo|totalEfectivo)$/;
 export function importesDeHerramienta(value: unknown): number[] {
   const out: number[] = [];
   function visitar(x: any) {

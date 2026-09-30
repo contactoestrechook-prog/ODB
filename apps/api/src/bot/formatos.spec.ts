@@ -72,3 +72,11 @@ describe('la lista: nombre y cuenta en un solo renglón', () => {
     expect(emprolijarListado('¿Cuántas querés?\n2 × $4.700 c/u = $9.400')).toContain('¿Cuántas querés?');
   });
 });
+
+describe('renglón con precio en efectivo', () => {
+  it('la oración que sigue baja a su línea', () => {
+    const r = emprolijarListado('Tengo dos:\n• Hibiki 700 cc — $290.000, o $261.000 en efectivo o transferencia\n• Kamiki 750 cc — $430.000, o $387.000 en efectivo o transferencia Suntory está sin stock por ahora.');
+    expect(r).toContain('• Kamiki 750 cc — $430.000, o $387.000 en efectivo o transferencia\n\nSuntory está sin stock por ahora.');
+    expect(r).toContain('• Hibiki 700 cc — $290.000, o $261.000 en efectivo o transferencia\n• Kamiki');
+  });
+});

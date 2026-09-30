@@ -123,6 +123,10 @@ export function emprolijarListado(t: string): string {
   // baja a su línea. Solo si el renglón ya tiene $: un paréntesis en medio del
   // nombre de un producto no se toca.
   r = r.replace(/^(•[^\n]*\$[\d.]+[^\n]*?\))[ \t]+(?=[A-ZÁÉÍÓÚÑ])/gm, '$1\n\n');
+  // 4d. renglón con el precio en efectivo ("…, o $387.000 en efectivo o
+  // transferencia Suntory está sin stock"): la oración que sigue baja a su
+  // línea (30/9/2026)
+  r = r.replace(/^(•[^\n]*\$[\d.]+[^\n]*?\ben efectivo o transferencia)[ \t]+(?=[A-ZÁÉÍÓÚÑ¿])/gm, '$1\n\n');
   // 4a. la pregunta pegada al final de un renglón baja a su propia línea:
   // "…(se compra en el mostrador) ¿Cuántas necesita?" — la regla del importe
   // no la ve porque el renglón termina en paréntesis, no en precio

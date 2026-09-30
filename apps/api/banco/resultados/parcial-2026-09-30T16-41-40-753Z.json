@@ -1,0 +1,74 @@
+{
+ "fecha": "2026-09-30T16:41:40.753Z",
+ "pasan": 2,
+ "total": 2,
+ "promedio": 5,
+ "costoBot": 0.244,
+ "intermitentes": [],
+ "resultados": [
+  {
+   "id": "desc-01",
+   "categoria": "descuento efectivo",
+   "titulo": "Precio de whisky con el 10% en efectivo (Pablito, 30/9)",
+   "ok": true,
+   "puntaje": 5,
+   "fallas": [],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "Me pasas precio del Jony walker balck",
+     "archivo": false,
+     "respuesta": "Buenas tardes. Te damos la bienvenida a O.D.B. Johnnie Walker Black Label 1 L: $59.400, o $53.460 en efectivo o transferencia.",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos"
+     ]
+    },
+    {
+     "cliente": "Y tenés alguno japonés ?",
+     "archivo": false,
+     "respuesta": "Sí, japoneses tengo dos:\n• Hibiki Master's Select 700 cc — $290.000, o $261.000 en efectivo o transferencia\n• Kamiki 750 cc — $430.000, o $387.000 en efectivo o transferencia Suntory (Toki y World Whisky) está sin stock por ahora.",
+     "herramientas": [
+      "buscar_productos",
+      "identificar_cliente",
+      "buscar_productos",
+      "buscar_productos"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "desc-02",
+   "categoria": "descuento efectivo",
+   "titulo": "Pedido mixto: el descuento solo en los rubros que lo tienen",
+   "ok": true,
+   "puntaje": 5,
+   "fallas": [],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "quiero 2 fernet branca de 750 y 3 coca zero de 1.75 para retirar, soy Ana",
+     "archivo": false,
+     "respuesta": "Buenas tardes. Te damos la bienvenida a O.D.B. Anoté:\n• 2 × Fernet Branca 750 cc\n• 3 × Coca Cola Zero 1,75 L\n\n¿Está completo el pedido o querés sumar algo?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos",
+      "buscar_productos"
+     ]
+    },
+    {
+     "cliente": "sí, es todo",
+     "archivo": false,
+     "respuesta": "• Fernet Branca  x750cc — 2 × $20.500 c/u = $41.000\n• Coca Cola Zero x1.75L — 3 × $4.700 c/u = $14.100\nTotal: $55.100\nPagando en efectivo o transferencia: $51.000 (10% off en vinos, destilados, aperitivos, estuchería y espumantes).\nRetiro en la sucursal Saint Thomas.\n¿Lo confirmo?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos",
+      "buscar_productos",
+      "cotizar_pedido",
+      "preparar_pedido"
+     ]
+    }
+   ]
+  }
+ ]
+}

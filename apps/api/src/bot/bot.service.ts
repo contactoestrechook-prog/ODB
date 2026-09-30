@@ -1,6 +1,7 @@
 import { esperaRetiroOEnvio, eligeRetiroOEnvio, eligioModalidad } from './entrega';
 import { esContestadorAutomatico } from './contestador';
 import { puedeCotizar } from './completo';
+import { conDescuentoEfectivo, porcentajeEfectivo, RUBROS_DESCUENTO_EFECTIVO, tieneDescuentoEfectivo } from './descuento-efectivo';
 import { esSilenciado } from './pausa';
 import { agruparItems, cantidadesIndividuales, centavos, confirmacionInequivoca, idWhatsappCorto, importesDeHerramienta, importesDelTexto, pesos, presentacionProducto } from './comercio';
 import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
@@ -567,12 +568,18 @@ export class BotService {
     {
       const medio = /^(?:en |con |pago (?:en |con )?)?(efectivo|tarjeta(?: de (?:d[eé]bito|cr[eé]dito))?|d[eé]bito|cr[eé]dito)[\s!.]*$/i.exec(texto.trim())?.[1];
       if (!traeArchivo && medio && /¿lo confirmo\?/i.test(String(ultimoMsgBot))) {
-        const { data: q } = await this.db.from('bot_cotizaciones').select('id, total, tipo, notas, confirmada_en, creada_en')
+        const { data: q } = await this.db.from('bot_cotizaciones').select('id, total, tipo, notas, items, confirmada_en, creada_en')
           .eq('telefono', telefono).eq('linea', linea).order('creada_en', { ascending: false }).limit(1).maybeSingle();
         if (q && !q.confirmada_en && Date.now() - new Date(q.creada_en).getTime() < 3 * 3600_000 && String(ultimoMsgBot).includes(`$${pesos(Number(q.total))}`)) {
           const forma = medio.toLowerCase().startsWith('efectivo') ? 'efectivo' : 'tarjeta';
           await this.db.from('bot_cotizaciones').update({ notas: [q.notas, `Paga con ${forma}`].filter(Boolean).join(' · ').slice(0, 300) }).eq('id', q.id);
-          const resp = `Perfecto, ${forma} al ${q.tipo === 'domicilio' ? 'recibir' : 'retirar'}. Total $${pesos(Number(q.total))}. ¿Lo confirmo?`;
+          // con efectivo, el descuento de los rubros que lo tienen (30/9/2026)
+          const conEfectivo = forma === 'efectivo'
+            ? Math.round(((q as any).items ?? []).reduce((s: number, r: any) => s + Number(r?.subtotalEfectivo ?? r?.subtotal ?? 0), 0))
+            : Number(q.total);
+          const resp = conEfectivo && conEfectivo < Number(q.total)
+            ? `Perfecto, ${forma} al ${q.tipo === 'domicilio' ? 'recibir' : 'retirar'}: con el ${porcentajeEfectivo()}% off en ${RUBROS_DESCUENTO_EFECTIVO} te queda en $${pesos(conEfectivo)} (total de lista $${pesos(Number(q.total))}). ¿Lo confirmo?`
+            : `Perfecto, ${forma} al ${q.tipo === 'domicilio' ? 'recibir' : 'retirar'}. Total $${pesos(Number(q.total))}. ¿Lo confirmo?`;
           await this.db.from('bot_conversaciones').upsert({
             linea, telefono,
             mensajes: [...historial, { role: 'user', content: texto }, { role: 'assistant', content: resp }].slice(-MAX_HISTORIAL),
@@ -1933,7 +1940,8 @@ export class BotService {
     // búsqueda de texto con otro límite: antes se cruzaban 40 filas de stock con
     // 8 de precio y quedaban productos "sin precio" que sí lo tenían (auditoría:
     // "el precio no me está tomando en el sistema" con un hielo cotizado 6 turnos antes).
-    const { data: prods } = await this.db.from('productos').select('id, sku, es_alcohol, unidades_pack, vendido_por_peso').in('sku', stock.map((p: any) => p.sku));
+    const { data: prods } = await this.db.from('productos').select('id, sku, es_alcohol, unidades_pack, vendido_por_peso, categoria:categorias(nombre)').in('sku', stock.map((p: any) => p.sku));
+    const esMayorista = telefono ? (await this.identificarCliente(telefono).catch(() => null as any))?.mayorista === true : false;
     const idPorSku = new Map((prods ?? []).map((p: any) => [p.sku, p]));
     const precios = await this.preciosDelCliente((prods ?? []).map((p: any) => p.id), telefono);
     const precioPorId = new Map<string, any>((precios ?? []).map((r: any) => [r.producto_id, r]));
@@ -1949,6 +1957,7 @@ export class BotService {
         sku: p.sku,
         nombre: p.nombre,
         precio: pr?.precio_final != null ? Number(pr.precio_final) : null,
+        precioEfectivo: pr?.precio_final != null && !esMayorista && tieneDescuentoEfectivo(prod?.categoria?.nombre) ? conDescuentoEfectivo(Number(pr.precio_final)) : null,
         promo: pr?.descuento_nombre ? `${pr.descuento_nombre} (antes $${Math.round(pr.precio_lista)})` : null,
         alcohol: !!prod?.es_alcohol,
         ...presentacionProducto({ ...prod, nombre: p.nombre }),
@@ -2074,6 +2083,7 @@ export class BotService {
 
     const renglones: any[] = [];
     let total = 0;
+    let totalEfectivo = 0;
     let hayFaltantes = false;
 
     // Los pedidos por WhatsApp salen SIEMPRE de la sucursal con retiro (Sant
@@ -2089,7 +2099,7 @@ export class BotService {
       if (!sku || !Number.isFinite(cantidad) || !(cantidad > 0)) throw new BadRequestException('Cada renglón necesita SKU y cantidad positiva finita');
 
       // por SKU exacto: la búsqueda por texto fallaba con códigos cortos (L1063)
-      const { data: prod } = await this.db.from('productos').select('id, sku, nombre, activo, unidades_pack, vendido_por_peso, stock(cantidad, sucursal_id)').eq('sku', sku).maybeSingle();
+      const { data: prod } = await this.db.from('productos').select('id, sku, nombre, activo, unidades_pack, vendido_por_peso, categoria:categorias(nombre), stock(cantidad, sucursal_id)').eq('sku', sku).maybeSingle();
       if (!prod || prod.activo === false) {
         renglones.push({ sku, cantidad, error: 'No existe ese código en el catálogo' });
         hayFaltantes = true;
@@ -2151,6 +2161,9 @@ export class BotService {
       }
       const subtotal = Math.round(unitario * cantidad * 100) / 100;
       total += subtotal;
+      const conDescuento = !mayorista && tieneDescuentoEfectivo((prod as any)?.categoria?.nombre);
+      const subtotalEfectivo = conDescuento ? conDescuentoEfectivo(subtotal) : subtotal;
+      totalEfectivo += subtotalEfectivo;
       renglones.push({
         sku,
         producto_id: prod.id,
@@ -2162,6 +2175,7 @@ export class BotService {
         renglon: `${cantidad} × $${pesos(unitario)} c/u = $${pesos(subtotal)}`,
         ...presentacionProducto({ ...prod, nombre: p.nombre }),
         subtotal,
+        ...(conDescuento ? { subtotalEfectivo } : {}),
         stockDisponible: disponible,
         stockEnOtraSucursal: Math.max(0, Number(p.stockTotal ?? 0) - disponible),
         alcanzaElStock: disponible >= cantidad,
@@ -2173,6 +2187,10 @@ export class BotService {
     return {
       renglones,
       total: Math.round(total * 100) / 100,
+      ...(Math.round(totalEfectivo) < Math.round(total) ? {
+        totalEfectivo: Math.round(totalEfectivo * 100) / 100,
+        descuentoEfectivo: `Pagando en efectivo o transferencia hay ${porcentajeEfectivo()}% de descuento en ${RUBROS_DESCUENTO_EFECTIVO}: el total queda en totalEfectivo. Informá los dos totales; el pedido se confirma con el total de lista.`,
+      } : {}),
       listaDePrecio: mayorista ? 'mayorista' : 'minorista',
       hayFaltantes,
       sucursalId: sucPickId,
@@ -2245,6 +2263,7 @@ export class BotService {
     const resumen = [
       ...cot.renglones.map(r => `• ${r.nombre} — ${r.renglon}`),
       `Total: $${pesos(cot.total)}`,
+      (cot as any).totalEfectivo ? `Pagando en efectivo o transferencia: $${pesos((cot as any).totalEfectivo)} (${porcentajeEfectivo()}% off en ${RUBROS_DESCUENTO_EFECTIVO}).` : null,
       tipo === 'domicilio' ? `Envío sin cargo a ${direccion}. Recibe ${nombre}.` : 'Retiro en la sucursal Saint Thomas.',
       fecha ? `Entrega: ${fecha}${franja ? ' por la ' + franja : ''}.` : null,
       input.notas ? `Indicaciones: ${String(input.notas).slice(0,300)}` : null,
@@ -4473,6 +4492,7 @@ export class BotService {
           // la ficha, recortada: es lo único que el bot puede afirmar del vino
           ficha: desc ? (desc.length > 220 ? desc.slice(0, 217) + '…' : desc) : null,
           precio,
+          precioEfectivo: precio > 0 && tieneDescuentoEfectivo(p.categoria) ? conDescuentoEfectivo(precio) : null,
           promo: pr?.descuento_nombre ? `${pr.descuento_nombre} (antes $${Math.round(pr.precio_lista)})` : null,
           stock: this.sucCompacta(p.sucursales) || String(p.stockTotal),
         }) as any;
