@@ -13,6 +13,9 @@ apps/mobile/
 apps/gastro-admin/
 apps/gastro-api/
 apps/gastro-web/
+# la clave de Anthropic de Leandro para programar (1/10/2026): nunca a producción,
+# ahí corre solo la del cliente
+.env.desarrollo
 
 # Excepción: los videos del sitio SÍ tienen que subir (11/9/2026: el video del
 # Wine Fest daba 404 en producción porque la regla *.mp4 de arriba lo dejaba

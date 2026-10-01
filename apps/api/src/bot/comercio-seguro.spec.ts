@@ -61,10 +61,10 @@ describe('Regresiones de auditoría: contrato comercial', () => {
     jest.spyOn(s,'consultarInterno').mockResolvedValue({consultado:true,area:'local',avisoPorWhatsapp:true,aviso:''});
     const r:any=await s.charla({linea:'pedidos',telefono:'5491155510011',archivoBase64:'aW1hZ2Vu',mimeType:'image/jpeg'});
     // 23/9/2026: sin precio inventado, pero el cliente recibe el acuse (antes: silencio)
-    expect(r.respuesta).toBe('Lo consulto y te confirmo por acá.');expect(s.consultarInterno).toHaveBeenCalledTimes(1);
+    expect(r.respuesta).toBe('Ya te confirmo por acá.');expect(s.consultarInterno).toHaveBeenCalledTimes(1);
   });
   it('A12: una promesa sin herramienta se convierte en consulta real y un solo acuse',async()=>{
-    const s=servicio();let vuelta=0;(s as any).claude={messages:{create:jest.fn(async()=>respuesta(++vuelta===1?'No tengo ese dato.':'Lo consulto y te confirmo por acá.'))}};
+    const s=servicio();let vuelta=0;(s as any).claude={messages:{create:jest.fn(async()=>respuesta(++vuelta===1?'No tengo ese dato.':'Ya te confirmo por acá.'))}};
     jest.spyOn(s,'consultarInterno').mockResolvedValue({consultado:true,area:'local',avisoPorWhatsapp:true,aviso:''});
     const r:any=await s.charla({linea:'pedidos',telefono:'5491155510022',mensaje:'¿Es cosecha 2020?'});
     expect(r.respuesta).toMatch(/Lo consulto y te confirmo por acá\.$/);expect(r.respuesta).not.toMatch(/No tengo ese dato/);expect(s.consultarInterno).toHaveBeenCalledWith('pedidos','5491155510022','local','¿Es cosecha 2020?','',undefined);

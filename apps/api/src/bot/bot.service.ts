@@ -6,7 +6,7 @@ import { esSilenciado } from './pausa';
 import { agruparItems, cantidadesIndividuales, centavos, confirmacionInequivoca, idWhatsappCorto, importesDeHerramienta, importesDelTexto, pesos, presentacionProducto } from './comercio';
 import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import { volumenMl, etiquetaVolumen, pideTamano, medidaPartida, resumenDeTamanos, cantidadesPedidas, PALABRA_GENERICA } from './formatos';
-import { emprolijarListado, nombreLimpio, saludoSegunHora, saludarConBienvenida, niegaPercepcion, respetuosoSinConfianza, saintThomas, envioSinCargo, asegurarEnvioSinCargo, casiIgual, campoLimpio, respuestaConConsulta, esAlucinacionDeTranscripcion, nombreSucursalCliente, esAutomaticoWhatsappBusiness, minimoConMonto, retiroOEnvio, sinCocinaInterna } from './prolijo';
+import { emprolijarListado, nombreLimpio, saludoSegunHora, saludarConBienvenida, niegaPercepcion, respetuosoSinConfianza, saintThomas, envioSinCargo, asegurarEnvioSinCargo, casiIgual, campoLimpio, respuestaConConsulta, esAlucinacionDeTranscripcion, nombreSucursalCliente, esAutomaticoWhatsappBusiness, minimoConMonto, retiroOEnvio, sinCocinaInterna, sinLoConsulto } from './prolijo';
 import { controlDeFechas } from './fechas';
 import { desvioDeLoPedido } from './desvio';
 import { oggCompleto } from './ogg';
@@ -50,6 +50,7 @@ function bonitoTelefono(t: string): string {
   return d ? `+${d}` : '';
 }
 import { cartelPrecios } from '../comun/cartel-precios';
+import { costoUSD } from './tarifas';
 import { cartelListaPrecios, cartelPedido, imagenEsperada, leerResumenDePedido, pieSinPrecios, preciosDeLaRespuesta, ProductoConPrecio } from '../comun/cartel-pedido';
 
 // pedido mínimo para envío a domicilio (Leandro, 25/9/2026); ENVIO_MINIMO lo cambia sin tocar código
@@ -1555,7 +1556,7 @@ export class BotService {
     if (respuesta) respuesta = minimoConMonto(respuesta, envioMinimo());
     if (respuesta && !respuestaFija.operacion) respuesta = conPreguntaDeCompleto(respuesta);
     // lo interno (stock, sucursales, "el sistema") no sale al cliente (1/10/2026)
-    if (respuesta) respuesta = retiroOEnvio(sinCocinaInterna(respuesta));
+    if (respuesta) respuesta = sinLoConsulto(retiroOEnvio(sinCocinaInterna(respuesta)));
 
     // 4) persistir memoria (solo los turnos de texto, recortada) + tokens acumulados
     const nuevoHistorial = [
@@ -1580,15 +1581,9 @@ export class BotService {
       // si en el turno se consultó o se derivó, el cliente sigue esperando a una persona
       ...(respuestaFija.consultaPendiente || respuestaFija.derivada ? {} : { esperando_desde: null, esperando_texto: null, esperando_aviso_en: null, esperando_avisos: 0 }),
     });
-    // tarifa por millón según modelo (entrada, caché leída, caché escrita, salida)
-    const TARIFA: Record<string, [number, number, number, number]> = {
-      'claude-sonnet-5': [3, 0.3, 3.75, 15],
-      'claude-opus-4-8': [5, 0.5, 6.25, 25],
-      'claude-haiku-4-5': [1, 0.1, 1.25, 5],
-    };
-    const [tEnt, tLee, tEsc, tSal] = TARIFA[MODELO_BOT] ?? TARIFA['claude-sonnet-5'];
-    const costoUSD = (uso.entrada * tEnt + uso.cacheLeida * tLee + uso.cacheEscrita * tEsc + uso.salida * tSal) / 1_000_000;
-    this.log.log(`charla ${linea}/${telefono}: ${tokens} tokens · ${uso.llamadas} llamadas · entrada ${uso.entrada} · caché leída ${uso.cacheLeida} · caché escrita ${uso.cacheEscrita} · salida ${uso.salida} · ≈ USD ${costoUSD.toFixed(3)}`);
+    // la tarifa vive en tarifas.ts (la misma que usa el banco de pruebas)
+    const costo = costoUSD(MODELO_BOT, uso);
+    this.log.log(`charla ${linea}/${telefono}: ${tokens} tokens · ${uso.llamadas} llamadas · entrada ${uso.entrada} · caché leída ${uso.cacheLeida} · caché escrita ${uso.cacheEscrita} · salida ${uso.salida} · ≈ USD ${costo.toFixed(3)}`);
 
     // 5) marcar el mensaje como procesado (idempotencia ante reintentos)
     if (mensajeId) {

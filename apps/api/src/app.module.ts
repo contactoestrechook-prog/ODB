@@ -55,7 +55,11 @@ import { ScheduleModule } from '@nestjs/schedule';
     // límite global de tráfico por IP (anti-abuso); los endpoints de IA
     // tienen límites más estrictos en sus controllers
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]),
-    ConfigModule.forRoot({ isGlobal: true }),
+    // .env.desarrollo (solo en la Mac de Leandro) va primero: lo que se programa
+    // y se prueba localmente usa su clave de Anthropic, no la del cliente. En
+    // Railway no existe (.railwayignore) y además las variables del servicio
+    // siempre ganan sobre los archivos.
+    ConfigModule.forRoot({ isGlobal: true, envFilePath: ['.env.desarrollo', '.env'] }),
     CatalogoModule,
     AsistenteModule,
     StockModule,

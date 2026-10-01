@@ -15,8 +15,30 @@
 //   npm run build && node banco/correr.cjs            → todos los casos
 //   node banco/correr.cjs envio-01 pedido-02          → solo esos
 // Deja el resultado en banco/resultados/ y compara con la corrida anterior.
+//
+// CUÁNTO CUESTA: cada caso son varias llamadas a Opus con razonamiento (≈ USD
+// 0,10-0,15 con el juez). Corre con la clave de desarrollo de Leandro
+// (.env.desarrollo), nunca con la del cliente, y con tope diario
+// (BANCO_TOPE_USD_DIA, 10 por defecto). Mientras se ajusta algo: solo los casos
+// afectados. La corrida completa, UNA vez antes de publicar.
 // ============================================================
-process.loadEnvFile(require('path').join(__dirname, '..', '.env'));
+// LA CLAVE (1/10/2026, pedido de Leandro): el banco es programación y lo paga
+// Leandro con su clave (apps/api/.env.desarrollo). El cliente paga solo el bot
+// que atiende a sus clientes (la clave de .env, la misma de Railway). Sin la
+// clave de desarrollo, o si es la del cliente, el banco no corre.
+{
+  const dirApi = require('path').join(__dirname, '..');
+  const claveDe = (archivo) => {
+    try { return ((require('fs').readFileSync(require('path').join(dirApi, archivo), 'utf8').match(/^\s*ANTHROPIC_API_KEY\s*=\s*(.*)$/m) ?? [])[1] ?? '').trim().replace(/^["']|["']$/g, ''); }
+    catch { return ''; }
+  };
+  const desarrollo = claveDe('.env.desarrollo');
+  if (!desarrollo) { console.error('El banco corre con la clave de desarrollo de Leandro y falta apps/api/.env.desarrollo (ANTHROPIC_API_KEY=...). Con la del cliente no corre.'); process.exit(1); }
+  if (desarrollo === claveDe('.env')) { console.error('apps/api/.env.desarrollo tiene la MISMA clave que el cliente (.env): el banco no corre con la clave del cliente.'); process.exit(1); }
+  process.loadEnvFile(require('path').join(dirApi, '.env.desarrollo'));
+  process.loadEnvFile(require('path').join(dirApi, '.env'));
+  process.env.ANTHROPIC_API_KEY = desarrollo; // aunque la terminal tenga otra exportada
+}
 const fs = require('fs');
 const path = require('path');
 const { NestFactory } = require('@nestjs/core');
@@ -35,6 +57,37 @@ const JUEZ = process.env.BANCO_JUEZ ?? 'claude-sonnet-5';
 const EN_PARALELO = Number(process.env.BANCO_PARALELO ?? 4);
 const soloIds = process.argv.slice(2);
 fs.mkdirSync(SALIDA, { recursive: true });
+const { costoUSD, usoDeRespuesta } = require('../dist/bot/tarifas.js');
+let costoJuez = 0;
+
+// TOPE DIARIO (1/10/2026): en una semana el banco gastó ≈ USD 100, 14 corridas
+// en un solo día. Si lo gastado hoy más lo estimado para esta corrida pasa el
+// tope, no corre. Para ajustar algo alcanza con los casos afectados
+// (node banco/correr.cjs envio-01 pedido-02); la corrida completa, una vez
+// antes de publicar. BANCO_FORZAR=1 la corre igual.
+const TOPE_DIA = Number(process.env.BANCO_TOPE_USD_DIA ?? 10);
+{
+  const diaAR = (f) => new Date(f).toLocaleDateString('sv-SE', { timeZone: 'America/Argentina/Buenos_Aires' });
+  const hoy = diaAR(Date.now());
+  let gastadoHoy = 0;
+  const porCaso = [];
+  for (const f of fs.readdirSync(SALIDA).filter((x) => x.endsWith('.json')).sort()) {
+    let d; try { d = JSON.parse(fs.readFileSync(path.join(SALIDA, f), 'utf8')); } catch { continue; }
+    // las corridas de antes del 1/10 se registraron con la tarifa de Sonnet (x 5/3) y sin el juez
+    const costo = d.costoTotal ?? Number(d.costoBot ?? 0) * 5 / 3;
+    if (d.total) porCaso.push(costo / d.total);
+    if (d.fecha && diaAR(d.fecha) === hoy) gastadoHoy += costo;
+  }
+  const ultimos = porCaso.slice(-10).sort((a, b) => a - b);
+  const unCaso = ultimos.length ? ultimos[Math.floor(ultimos.length / 2)] : 0.15;
+  const cuantos = CASOS.filter((c) => !soloIds.length || soloIds.includes(c.id)).length;
+  const estimado = cuantos * unCaso;
+  console.log(`Banco: ${cuantos} casos · estimado ≈ USD ${estimado.toFixed(2)} · hoy ya van ≈ USD ${gastadoHoy.toFixed(2)} (tope USD ${TOPE_DIA}/día, clave de desarrollo)`);
+  if (gastadoHoy + estimado > TOPE_DIA && !process.env.BANCO_FORZAR) {
+    console.error(`Pasaría el tope diario de USD ${TOPE_DIA}. Corré solo los casos afectados, o BANCO_FORZAR=1 si de verdad hace falta la corrida completa.`);
+    process.exit(1);
+  }
+}
 
 // un comprobante de transferencia mínimo, en PDF válido, para el caso con archivo
 function pdfComprobante() {
@@ -106,6 +159,7 @@ async function juzgar(claude, caso, charla) {
     system: 'Sos un evaluador exigente de un bot de WhatsApp de un almacén premium argentino (O.D.B, Canning). Reglas de la casa: envío SIN CARGO siempre, con pedido mínimo de $70.000 para envío a domicilio (el retiro no tiene mínimo; el mínimo se menciona SOLO si el cliente pidió envío, no hay que avisarlo de entrada); pagando en efectivo o transferencia hay 10% de descuento en vinos, destilados, aperitivos (el Fernet es aperitivo), estuchería y espumantes, y NO en el resto (gaseosas, almacén…): el bot informa el precio de lista y el de efectivo, que calcula el sistema (ej. 2 Fernet $41.000 → $36.900 + 3 Coca $14.100 = $51.000); nunca repetir un mensaje; la cantidad la dice el cliente; mostrar el producto puntual; "sin stock" no es "no existe"; sucursal Saint Thomas (Castex 3601) es la única de retiro y abre también los domingos (confirmado por el dueño el 26/9: decirlo es correcto; lo que no hay los domingos es reparto, que va de lunes a sábado); corto y concreto, voseo, sin emojis; no inventar precios ni datos; lo que no sabe lo consulta y avisa UNA vez; pagos siempre por adentro (quiere decir: alias, comprobantes y cobros los maneja administración por este mismo chat, nunca se manda a otro teléfono; pagar al retirar o al recibir en efectivo o tarjeta es correcto). Santa Inés (Juana de Arco 7300) también es del local, pero solo para compra presencial: nombrarla así es correcto. Cada charla del banco empieza de cero: el saludo "Buenas tardes, te damos la bienvenida a O.D.B." en el PRIMER mensaje es la regla de la casa, no lo penalices (sí en los siguientes). Ante un "gracias" o un cierre suelto la casa prefiere no contestar: el silencio ahí es correcto. Lo que el bot dice que NO tiene o que está sin stock sale de datos que vos no ves: no lo castigues como inventado. Los "datos del sistema que vio el bot" son reales: un precio, una variante o una medida que sale de ahí NO es inventada (si el único Villavicencio de 2 L es sin gas, decir "sin gas" es correcto). El stock es interno: el bot no tiene que decir cantidades ni sucursales. Las herramientas de crear pedido, derivar y avisar a la casa están simuladas (el código de pedido siempre sale PICKUP-BANCO…, aunque sea envío): no las penalices por eso. Una herramienta marcada "(frenado)" la intentó el modelo y el sistema la frenó: nunca llegó al cliente, no la penalices. Si una herramienta aparece repetida en la lista son intentos del modelo: el servidor registra un solo aviso por comprobante, no lo penalices salvo que se note en la respuesta.' + DATOS_LOCAL,
     messages: [{ role: 'user', content: `Qué tenía que hacer el bot: ${caso.juez}\n\nLa charla:\n${guion}\n\nPuntuá de 1 a 5 (5 = lo que haría el mejor vendedor del local; 4 = bien con detalles menores; 3 = cumple a medias; 1-2 = mal). Respondé SOLO un JSON: {"puntaje": n, "problemas": ["..."]}` }],
   });
+  costoJuez += costoUSD(JUEZ, usoDeRespuesta(r.usage));
   const txt = r.content.filter((b) => b.type === 'text').map((b) => b.text).join('');
   try { return JSON.parse(txt.slice(txt.indexOf('{'), txt.lastIndexOf('}') + 1)); } catch { return { puntaje: 0, problemas: ['el juez no devolvió JSON'] }; }
 }
@@ -228,9 +282,9 @@ async function juzgar(claude, caso, charla) {
   const pasan = resultados.filter((r) => r.ok).length;
   const promedio = resultados.reduce((s, r) => s + (r.puntaje || 0), 0) / (resultados.length || 1);
   const sello = new Date().toISOString().replace(/[:.]/g, '-');
-  fs.writeFileSync(path.join(SALIDA, `${soloIds.length || process.env.BANCO_CASOS ? 'parcial-' : ''}${sello}.json`), JSON.stringify({ fecha: new Date().toISOString(), pasan, total: resultados.length, promedio, costoBot: costo, intermitentes, resultados }, null, 1));
+  fs.writeFileSync(path.join(SALIDA, `${soloIds.length || process.env.BANCO_CASOS ? 'parcial-' : ''}${sello}.json`), JSON.stringify({ fecha: new Date().toISOString(), pasan, total: resultados.length, promedio, costoBot: costo, costoJuez, costoTotal: costo + costoJuez, intermitentes, resultados }, null, 1));
 
-  console.log(`\nPasan ${pasan} de ${resultados.length} · puntaje promedio ${promedio.toFixed(2)}/5 · costo del bot ≈ USD ${costo.toFixed(2)} (más el juez)`);
+  console.log(`\nPasan ${pasan} de ${resultados.length} · puntaje promedio ${promedio.toFixed(2)}/5 · costo ≈ USD ${(costo + costoJuez).toFixed(2)} (bot ${costo.toFixed(2)} + juez ${costoJuez.toFixed(2)}, clave de desarrollo)`);
   if (anterior && !soloIds.length) {
     const rotos = resultados.filter((r) => antes.get(r.id) === true && !r.ok).map((r) => r.id);
     const arreglados = resultados.filter((r) => antes.get(r.id) === false && r.ok).map((r) => r.id);

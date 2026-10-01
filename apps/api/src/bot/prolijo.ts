@@ -298,8 +298,9 @@ export function campoLimpio(v: unknown): string {
 // que sí se sabe, sin las promesas sueltas del modelo, y el acuse va una sola
 // vez (si el último mensaje del bot ya era el acuse, no se repite).
 // ============================================================
-export const ACUSE_CONSULTA = 'Lo consulto y te confirmo por acá.';
-const RE_PROMESA = /\b(queda registrad[ao] la consulta|en cuanto tenga (?:la )?respuesta|lo consulto|lo estoy consultando|lo estoy viendo|lo veo con|te confirmo|le confirmo|vuelvo a vos|lo verifico|lo reviso|te aviso|en breve|en un momento|no (?:lo |la )?tengo (?:ese |el |este |esa |la )?(?:dato|info(?:rmaci[oó]n)?)|no cuento con (?:ese|esa|el|la) (?:dato|informaci[oó]n))\b/i;
+// "Lo consulto" quedó prohibido (Leandro, 1/10/2026): el acuse es este
+export const ACUSE_CONSULTA = 'Ya te confirmo por acá.';
+const RE_PROMESA = /\b(ya te confirmo|queda registrad[ao] la consulta|consult(?:o|ando|ar(?:lo|la)?|amos)\b|en cuanto tenga (?:la )?respuesta|lo consulto|lo estoy consultando|lo estoy viendo|lo veo con|te confirmo|le confirmo|vuelvo a vos|lo verifico|lo reviso|te aviso|en breve|en un momento|no (?:lo |la )?tengo (?:ese |el |este |esa |la )?(?:dato|info(?:rmaci[oó]n)?)|no cuento con (?:ese|esa|el|la) (?:dato|informaci[oó]n))\b/i;
 
 export function respuestaConConsulta(respuesta: string, ultimoDelBot: string | null | undefined): string {
   // renglón por renglón, para no aplastar la lista del pedido en una sola línea
@@ -363,4 +364,17 @@ export function sinCocinaInterna(t: string): string {
 // pregunta siempre ofrece las dos (banco 1/10/2026)
 export function retiroOEnvio(t: string): string {
   return String(t ?? '').replace(/¿\s*Lo retir[aá]s (?:por|en) la sucursal Saint Thomas(?:,? \(?Castex 3601\)?)?\s*\?/gi, '¿Lo retirás por la sucursal Saint Thomas o te lo enviamos?');
+}
+
+// PROHIBIDO "LO CONSULTO" (Leandro, 1/10/2026). Cualquier oración que diga que el
+// bot consulta ("lo consulto", "lo estoy consultando con el local", "lo voy a
+// consultar") se saca; si se sacó alguna, queda el acuse una sola vez.
+const RE_CONSULTO = /\b(?:lo |la |los |las |te )?(?:consulto|estoy consultando|voy a consultar|vamos a consultar|consultamos|consultarlo|consultarla|consultar con)\b|\blo verifico con\b/i;
+export function sinLoConsulto(t: string): string {
+  if (!t || !RE_CONSULTO.test(t)) return t;
+  let saco = false;
+  const lineas = t.split('\n').map((l) => l.split(/(?<=[.!?])\s+/).filter((o) => { const malo = RE_CONSULTO.test(o); if (malo) saco = true; return !malo; }).join(' '));
+  let r = lineas.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  if (saco && !r.includes(ACUSE_CONSULTA)) r = r ? `${r}\n\n${ACUSE_CONSULTA}` : ACUSE_CONSULTA;
+  return r;
 }
