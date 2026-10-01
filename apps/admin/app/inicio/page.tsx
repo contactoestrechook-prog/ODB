@@ -1,9 +1,13 @@
 import Link from 'next/link';
-import { Header, ICONOS } from '../ui/Header';
+import { cookies } from 'next/headers';
+import { ICONOS } from '../ui/Header';
+import { Pantalla } from '../ui/kit/Pantalla';
+import { Aviso, Etiqueta, FOCO, Kpi, ROTULO, unir } from '../ui/kit';
 import { apiFetch } from '../../lib/api';
+import { fecha, numero, pesos } from '../lib/formato';
+import { puedeVer, rolDesdeToken } from '../lib/permisos';
 
-const pesos = (n: any) => '$' + Math.round(Number(n) || 0).toLocaleString('es-AR');
-const miles = (n: any) => (Number(n) || 0).toLocaleString('es-AR');
+const miles = (n: any) => numero(n ?? 0);
 
 export const dynamic = 'force-dynamic';
 
@@ -24,13 +28,18 @@ const EXTRA: Record<string, string> = {
 
 function Ico({ d }: { d: string }) {
   return (
-    <svg viewBox="0 0 24 24" className="w-[18px] h-[18px]" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round">
+    <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d={d} />
     </svg>
   );
 }
 
+// Tarjeta de acceso: blanca, del mismo alto en toda la grilla. El número rojo
+// es "algo espera" (como en el menú); el gris, un dato (cantidad de productos).
+const TARJETA = 'flex min-h-28 min-w-0 flex-col justify-between rounded-2xl border p-4';
+
 export default async function Inicio() {
+  const rol = rolDesdeToken((await cookies()).get('odb_token')?.value);
   const errs: string[] = [];
   const [ventas, stock, compras, fact, caja, pedidos] = await Promise.all([
     json('/ventas/resumen', {}, errs),
@@ -46,15 +55,15 @@ export default async function Inicio() {
   const pedidosActivos = Array.isArray(pedidos) ? pedidos.length : 0;
 
   const kpis = [
-    { label: 'Facturado hoy', valor: pesos(ventas.facturado) },
+    { label: 'Facturado hoy', valor: pesos(ventas.facturado ?? 0) },
     { label: 'Ventas', valor: miles(ventas.tickets) },
-    { label: 'Por cobrar', valor: pesos(fact.porCobrar) },
+    { label: 'Por cobrar', valor: pesos(fact.porCobrar ?? 0) },
     { label: 'Quiebres', valor: miles(quiebres), alerta: quiebres > 0 },
   ];
 
   const GRUPOS: any[] = [
     {
-      titulo: 'Operación', color: '#F0837B', card: '#1d1712',
+      titulo: 'Operación',
       items: [
         { label: 'Facturación', href: '/facturacion', icon: 'facturacion', sub: 'A · B · R · cuenta corriente' },
         { label: 'Pedidos', href: '/pedidos', icon: 'pedidos', sub: 'whatsapp · web · PY', badge: pedidosActivos },
@@ -64,7 +73,7 @@ export default async function Inicio() {
       ],
     },
     {
-      titulo: 'Catálogo y abastecimiento', color: '#EBB25A', card: '#1d1a12',
+      titulo: 'Catálogo y abastecimiento',
       items: [
         { label: 'Productos', href: '/productos', icon: 'productos', sub: 'catálogo y precios', count: stock.skus_activos ? miles(stock.skus_activos) : null },
         { label: 'Stock', href: '/stock', icon: 'stock', sub: 'quiebres y vencimientos', badge: quiebres },
@@ -77,7 +86,7 @@ export default async function Inicio() {
       ],
     },
     {
-      titulo: 'Clientes y administración', color: '#57C6B4', card: '#12191a',
+      titulo: 'Clientes y administración',
       items: [
         { label: 'Clientes', href: '/clientes', icon: 'clientes', sub: 'RFM y comunidad' },
         { label: 'Cuenta corriente', href: '/facturacion', icon: 'facturacion', sub: 'cobranzas', badge: fact.cuentasActivas },
@@ -89,7 +98,7 @@ export default async function Inicio() {
       ],
     },
     {
-      titulo: 'Dirección', color: '#B4A4E4', card: '#171522',
+      titulo: 'Dirección',
       items: [
         { label: 'Estadísticas', href: '/estadisticas', icon: 'estadisticas', sub: 'el negocio en números' },
         { label: 'Informe diario', href: '/informes', icon: 'informe', sub: 'parte de las 7:00' },
@@ -102,89 +111,103 @@ export default async function Inicio() {
     },
   ];
 
-  const hoy = new Date().toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' });
+  // Los accesos muestran solo lo que el rol puede abrir (el mismo filtro que el menú).
+  const grupos = GRUPOS.map((g) => ({ ...g, items: g.items.filter((it: any) => !it.href || puedeVer(rol, it.href)) })).filter(
+    (g) => g.items.length > 0,
+  );
+  const veCaja = puedeVer(rol, '/caja');
+
+  const hoy = fecha(new Date(), 'dia');
 
   return (
-    <main className="min-h-screen bg-[#14100d] lg:pl-64">
-      <Header activo="/inicio" sinCabecera />
-      <div className="max-w-6xl mx-auto p-4 sm:p-6">
-
-        {/* cabecera oscura: marca + KPIs en vivo */}
-        <div className="rounded-2xl bg-[#1c1712] p-4 sm:p-5">
-          <div className="flex items-start justify-between gap-3">
-            <div className="flex items-center gap-3">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/odb-logo-blanco.png" alt="O.D.B" className="h-8 w-auto" />
-              <span className="text-[#9a8f86] text-[13px] hidden sm:inline">Centro de operación</span>
-            </div>
-            <div className="text-right text-[#867e74] text-[11.5px] leading-snug capitalize">
-              Caja 1 · Canning<br />{hoy}
-            </div>
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-px mt-4 bg-white/[0.08] rounded-xl overflow-hidden">
-            {kpis.map((k) => (
-              <div key={k.label} className="bg-[#221a15] px-3.5 py-3">
-                <p className="text-[#867e74] text-[11px]">{k.label}</p>
-                <p className={`text-[17px] font-semibold mt-0.5 tabular-nums ${k.alerta ? 'text-[#EBB25A]' : 'text-[#F0EBE2]'}`}>{k.valor}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {apiCaida && (
-          <p className="mt-4 rounded-xl bg-[#3a1512] border border-[#B82D25]/30 px-4 py-3 text-sm text-[#E8837B]">
-            No pude consultar la API: revisá tu sesión (quizás expiró) o la conexión. Los números pueden no ser reales.
+    <Pantalla activo="/inicio" ancho="ancho">
+      <section aria-labelledby="inicio-hoy" className="space-y-3">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 px-0.5">
+          <h2 id="inicio-hoy" className={ROTULO}>Centro de operación</h2>
+          <p className="text-sm text-tinta/60">
+            <span className="inline-block first-letter:uppercase">{hoy}</span> · Caja 1 · Canning
           </p>
-        )}
+        </div>
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          {kpis.map((k) => (
+            <Kpi key={k.label} etiqueta={k.label} valor={k.valor} tono={k.alerta ? 'atencion' : 'neutro'} />
+          ))}
+        </div>
+      </section>
 
-        {GRUPOS.map((g) => (
-          <div key={g.titulo}>
-            <p className="text-[12px] font-medium mt-5 mb-2 px-0.5" style={{ color: g.color }}>{g.titulo}</p>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
-              {g.titulo === 'Operación' && (
-                <Link href="/caja" className="col-span-2 rounded-xl bg-[#B82D25] p-4 flex flex-col justify-between min-h-[92px] transition hover:-translate-y-0.5">
-                  <div className="flex items-center justify-between">
-                    <span className="w-9 h-9 rounded-[9px] bg-white/20 flex items-center justify-center text-white"><Ico d={ICONOS.caja} /></span>
-                    <span className="text-white/85 text-[11.5px]">cobrar →</span>
+      {apiCaida && (
+        <Aviso tono="error">
+          No pude consultar la API: revisá tu sesión (quizás expiró) o la conexión. Los números pueden no ser reales.
+        </Aviso>
+      )}
+
+      {grupos.map((g, gi) => (
+        <section key={g.titulo} aria-labelledby={`inicio-grupo-${gi}`}>
+          <h2 id={`inicio-grupo-${gi}`} className={unir(ROTULO, 'mb-2.5 px-0.5')}>{g.titulo}</h2>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+            {g.titulo === 'Operación' && veCaja && (
+              <Link
+                href="/caja"
+                className={unir(
+                  'col-span-2 flex min-h-28 min-w-0 flex-col justify-between rounded-2xl bg-marca p-4 text-white shadow-tarjeta transition-colors hover:bg-marca-hondo',
+                  FOCO,
+                )}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="flex size-10 items-center justify-center rounded-xl bg-white/20">
+                    <Ico d={ICONOS.caja} />
+                  </span>
+                  <span className="text-sm text-white/85" aria-hidden="true">cobrar →</span>
+                </div>
+                <div className="mt-3">
+                  <p className="text-base font-semibold">Caja</p>
+                  <p className="mt-0.5 text-sm text-white/85">cobrar · escanear · facturar</p>
+                </div>
+              </Link>
+            )}
+            {g.items.map((it: any) => {
+              const inner = (
+                <>
+                  <div className="flex items-start justify-between gap-2">
+                    <span
+                      className={unir(
+                        'flex size-10 shrink-0 items-center justify-center rounded-xl',
+                        it.pronto ? 'bg-crema text-tinta/40' : 'bg-crema text-tinta/70',
+                      )}
+                    >
+                      <Ico d={it.path ?? ICONOS[it.icon]} />
+                    </span>
+                    {it.badge ? (
+                      <span className="importe rounded-full bg-marca px-2 text-xs font-semibold leading-5 text-white">{it.badge}</span>
+                    ) : it.count ? (
+                      <span className="importe text-xs text-tinta/60">{it.count}</span>
+                    ) : it.pronto ? (
+                      <Etiqueta>pronto</Etiqueta>
+                    ) : null}
                   </div>
-                  <div>
-                    <p className="text-[16px] font-medium text-white">Caja</p>
-                    <p className="text-[12px] text-white/80 mt-0.5">cobrar · escanear · facturar</p>
+                  <div className="mt-3 min-w-0">
+                    <p className={unir('truncate text-sm font-semibold', it.pronto ? 'text-tinta/60' : 'text-tinta')}>{it.label}</p>
+                    {it.sub && <p className="mt-0.5 text-xs leading-snug text-tinta/60">{it.sub}</p>}
                   </div>
+                </>
+              );
+              return it.pronto ? (
+                <div key={it.label} className={unir(TARJETA, 'border-dashed border-black/15 bg-white/60')} aria-disabled="true">
+                  {inner}
+                </div>
+              ) : (
+                <Link
+                  key={it.label}
+                  href={it.href}
+                  className={unir(TARJETA, 'border-black/[0.06] bg-white shadow-tarjeta transition-colors hover:border-black/15 hover:bg-crema-claro', FOCO)}
+                >
+                  {inner}
                 </Link>
-              )}
-              {g.items.map((it: any) => {
-                const inner = (
-                  <>
-                    <div className="flex items-start justify-between">
-                      <span className="w-9 h-9 rounded-[9px] flex items-center justify-center shrink-0" style={{ backgroundColor: g.color + '26', color: g.color }}>
-                        <Ico d={it.path ?? ICONOS[it.icon]} />
-                      </span>
-                      {it.badge ? (
-                        <span className="text-[11px] font-medium rounded-full px-2 py-0.5 bg-[#B82D25] text-white">{it.badge}</span>
-                      ) : it.count ? (
-                        <span className="text-[11px] text-white/45 tabular-nums">{it.count}</span>
-                      ) : it.pronto ? (
-                        <span className="text-[10px] text-white/40 border border-white/15 rounded-full px-1.5 py-0.5">pronto</span>
-                      ) : null}
-                    </div>
-                    <div>
-                      <p className="text-[13.5px] font-medium text-[#EDE6DA] mt-2.5">{it.label}</p>
-                      {it.sub && <p className="text-[11px] text-white/35 mt-0.5">{it.sub}</p>}
-                    </div>
-                  </>
-                );
-                const cls = 'rounded-xl p-3.5 border border-white/[0.07] flex flex-col justify-between min-h-[92px] transition';
-                return it.pronto ? (
-                  <div key={it.label} className={`${cls} opacity-45`} style={{ backgroundColor: g.card }}>{inner}</div>
-                ) : (
-                  <Link key={it.label} href={it.href} className={`${cls} hover:-translate-y-0.5 hover:border-white/25`} style={{ backgroundColor: g.card }}>{inner}</Link>
-                );
-              })}
-            </div>
+              );
+            })}
           </div>
-        ))}
-      </div>
-    </main>
+        </section>
+      ))}
+    </Pantalla>
   );
 }

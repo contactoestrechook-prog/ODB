@@ -118,31 +118,31 @@ export function MesaComprasWorkspace({ esDueno, tabInicial }: { esDueno: boolean
 
   return (
     <div className="space-y-4">
-      <div className="flex gap-1.5 border-b border-black/10">
+      <div className="flex gap-1.5 border-b border-black/[0.06]">
         {([['abastecer', 'Qué comprar'], ['costear', 'Costear una compra'], ['aprobar', `Para aprobar${propuestas.length ? ` (${propuestas.length})` : ''}`]] as const).map(([k, l]) => (
           <button key={k} onClick={() => setTab(k)}
-            className={`px-4 py-2 text-sm font-medium rounded-t-lg -mb-px border-b-2 ${tab === k ? 'border-[#B82D25] text-black' : 'border-transparent text-black/45 hover:text-black'}`}>
+            className={`px-4 py-2 text-sm font-medium rounded-t-lg -mb-px border-b-2 ${tab === k ? 'border-marca text-tinta' : 'border-transparent text-tinta/60 hover:text-tinta'}`}>
             {l}
           </button>
         ))}
       </div>
 
-      {error && <p className="rounded-lg bg-[#B82D25]/10 border border-[#B82D25]/30 px-3 py-2 text-sm text-[#932A1F]">{error}</p>}
+      {error && <p className="rounded-xl bg-marca-suave border border-marca/30 px-3 py-2 text-sm text-marca-hondo">{error}</p>}
 
       {tab === 'abastecer' && <AbastecimientoPanel />}
 
       {tab === 'costear' && (
         <div className="rounded-xl bg-white overflow-hidden">
-          <div className="px-4 py-3 border-b border-black/10">
-            <p className="text-sm font-medium text-black">Analista de compras</p>
-            <p className="text-xs text-black/50 mt-0.5">
+          <div className="px-4 py-3 border-b border-black/[0.06]">
+            <p className="text-sm font-medium text-tinta">Analista de compras</p>
+            <p className="text-xs text-tinta/60 mt-0.5">
               Contale la oferta como se la dijo el proveedor. Las cuentas las hace el sistema, no la IA.
             </p>
           </div>
 
-          <div className="max-h-[52vh] overflow-y-auto p-4 space-y-3">
+          <div className="max-h-[52dvh] overflow-y-auto p-4 space-y-3">
             {mensajes.length === 0 && (
-              <div className="text-sm text-black/45 space-y-2">
+              <div className="text-sm text-tinta/60 space-y-2">
                 <p>Por ejemplo:</p>
                 <p className="italic">
                   «Cepas me ofrece el Malbec en caja de 6 a $54.000 sin IVA. Me hace 10% y después
@@ -154,19 +154,19 @@ export function MesaComprasWorkspace({ esDueno, tabInicial }: { esDueno: boolean
             {mensajes.map((m, i) => (
               <div key={i} className={`flex ${m.rol === 'usuario' ? 'justify-end' : 'justify-start'}`}>
                 <div className={`max-w-[85%] whitespace-pre-wrap rounded-xl px-3.5 py-2.5 text-sm leading-relaxed ${
-                  m.rol === 'usuario' ? 'bg-black text-[#F0EBE2]' : 'bg-[#F0EBE2] text-black'}`}>
+                  m.rol === 'usuario' ? 'bg-black text-crema' : 'bg-crema text-tinta'}`}>
                   {m.imagen && <p className="text-xs opacity-70 mb-1">📎 {m.nombre ?? 'Adjunto'}</p>}
                   {m.texto}
                 </div>
               </div>
             ))}
-            {pensando && <p className="text-sm text-black/40">Sacando cuentas…</p>}
+            {pensando && <p className="text-sm text-tinta/60">Sacando cuentas…</p>}
             <div ref={finRef} />
           </div>
 
-          <div className="border-t border-black/10 p-3 space-y-2">
+          <div className="border-t border-black/[0.06] p-3 space-y-2">
             {foto && (
-              <div className="flex items-center gap-2 text-xs text-black/60">
+              <div className="flex items-center gap-2 text-xs text-tinta/70">
                 <span>📎 {foto.nombre}</span>
                 <button onClick={() => setFoto(null)} className="underline">quitar</button>
               </div>
@@ -175,7 +175,7 @@ export function MesaComprasWorkspace({ esDueno, tabInicial }: { esDueno: boolean
               <input ref={archivoRef} type="file" accept="image/*,.pdf,.xlsx,.xls,.xlsm,.csv" className="hidden"
                 onChange={(e) => elegirFoto(e.target.files?.[0] ?? null)} />
               <button onClick={() => archivoRef.current?.click()} title="Adjuntar la lista del proveedor (foto, PDF o Excel)"
-                className="rounded-lg border border-black/15 px-3 py-2.5 text-sm hover:bg-[#F0EBE2]">📎</button>
+                className="rounded-xl border border-black/15 px-3 py-2.5 text-sm hover:bg-crema-claro">📎</button>
               <BotonMicrofono onTexto={setTexto} titulo="Dictarle al analista" />
               <textarea
                 value={texto}
@@ -183,10 +183,10 @@ export function MesaComprasWorkspace({ esDueno, tabInicial }: { esDueno: boolean
                 onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); enviar(); } }}
                 rows={2}
                 placeholder="Contale la oferta…"
-                className="flex-1 resize-none rounded-lg border border-black/15 px-3 py-2 text-sm text-black outline-none focus:border-[#B82D25]"
+                className="flex-1 resize-none rounded-xl border border-black/15 px-3 py-2 text-sm text-tinta outline-none focus:border-marca"
               />
               <button onClick={() => enviar()} disabled={pensando || (!texto.trim() && !foto)}
-                className="rounded-lg bg-[#B82D25] px-4 py-2.5 text-sm font-medium text-white active:scale-95 disabled:opacity-40">
+                className="rounded-xl bg-marca px-4 py-2.5 text-sm font-medium text-white active:scale-95 disabled:opacity-40">
                 Enviar
               </button>
             </div>
@@ -197,23 +197,23 @@ export function MesaComprasWorkspace({ esDueno, tabInicial }: { esDueno: boolean
       {tab === 'aprobar' && (
         <div className="space-y-3">
           {propuestas.length === 0 && (
-            <p className="rounded-xl bg-white px-4 py-10 text-center text-sm text-black/45">
+            <p className="rounded-xl bg-white px-4 py-10 text-center text-sm text-tinta/60">
               No hay nada esperando aprobación.
             </p>
           )}
           {propuestas.map((p) => (
             <div key={p.id} className="rounded-xl bg-white overflow-hidden">
-              <div className="px-4 py-3 border-b border-black/10">
-                <p className="text-sm font-semibold text-black">{p.titulo}</p>
-                <p className="text-xs text-black/50 mt-0.5">
+              <div className="px-4 py-3 border-b border-black/[0.06]">
+                <p className="text-sm font-semibold text-tinta">{p.titulo}</p>
+                <p className="text-xs text-tinta/60 mt-0.5">
                   {p.proveedor?.razon_social ?? 'Sin proveedor'} · lo armó {p.autor?.nombre ?? 'alguien'}
                 </p>
-                {p.notas && <p className="text-sm text-black/70 mt-2">{p.notas}</p>}
+                {p.notas && <p className="text-sm text-tinta/70 mt-2">{p.notas}</p>}
               </div>
 
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
-                  <thead className="bg-[#F0EBE2] text-black/60">
+                  <thead className="bg-crema text-tinta/70">
                     <tr>
                       <th className="text-left px-4 py-2 font-medium">Producto</th>
                       <th className="text-right px-3 py-2 font-medium">Costo</th>
@@ -225,35 +225,35 @@ export function MesaComprasWorkspace({ esDueno, tabInicial }: { esDueno: boolean
                     {(p.items ?? []).map((i: any) => {
                       const sube = Number(i.costo_nuevo) > Number(i.costo_anterior ?? 0);
                       return (
-                        <tr key={i.producto?.sku} className="border-t border-black/5">
+                        <tr key={i.producto?.sku} className="border-t border-black/[0.06]">
                           <td className="px-4 py-2.5">
-                            <span className="text-black">{i.producto?.nombre}</span>
-                            <span className="text-black/40 text-xs"> · {i.producto?.sku}</span>
+                            <span className="text-tinta">{i.producto?.nombre}</span>
+                            <span className="text-tinta/60 text-xs"> · {i.producto?.sku}</span>
                             {i.detalle?.vendeBajoCosto && (
-                              <span className="ml-2 rounded-full bg-[#B82D25]/10 px-2 py-0.5 text-[10px] font-bold text-[#B82D25] uppercase">
+                              <span className="ml-2 rounded-full bg-marca-suave px-2 py-0.5 text-xs font-bold text-marca uppercase">
                                 queda bajo costo
                               </span>
                             )}
                           </td>
                           <td className="px-3 py-2.5 text-right tabular-nums">
-                            <span className="text-black/40">{pesos(i.costo_anterior)}</span>
-                            <span className="text-black/30"> → </span>
-                            <span className={sube ? 'text-[#B82D25] font-medium' : 'text-emerald-700 font-medium'}>
+                            <span className="text-tinta/60">{pesos(i.costo_anterior)}</span>
+                            <span className="text-tinta/60"> → </span>
+                            <span className={sube ? 'text-marca font-medium' : 'text-ok font-medium'}>
                               {pesos(i.costo_nuevo)}
                             </span>
                           </td>
                           <td className="px-3 py-2.5 text-right tabular-nums">
                             {i.aplicar_precio ? (
                               <>
-                                <span className="text-black/40">{pesos(i.precio_anterior)}</span>
-                                <span className="text-black/30"> → </span>
-                                <span className="text-black font-medium">{pesos(i.precio_sugerido)}</span>
+                                <span className="text-tinta/60">{pesos(i.precio_anterior)}</span>
+                                <span className="text-tinta/60"> → </span>
+                                <span className="text-tinta font-medium">{pesos(i.precio_sugerido)}</span>
                               </>
                             ) : (
-                              <span className="text-black/40">no se toca</span>
+                              <span className="text-tinta/60">no se toca</span>
                             )}
                           </td>
-                          <td className="px-4 py-2.5 text-right tabular-nums text-black/60">{i.margen_pct}%</td>
+                          <td className="px-4 py-2.5 text-right tabular-nums text-tinta/70">{i.margen_pct}%</td>
                         </tr>
                       );
                     })}
@@ -261,18 +261,18 @@ export function MesaComprasWorkspace({ esDueno, tabInicial }: { esDueno: boolean
                 </table>
               </div>
 
-              <div className="px-4 py-3 border-t border-black/10 flex items-center justify-end gap-2">
+              <div className="px-4 py-3 border-t border-black/[0.06] flex items-center justify-end gap-2">
                 <button onClick={() => decidir(p.id, 'rechazar')} disabled={!!trabajando}
-                  className="rounded-lg border border-black/15 px-4 py-2 text-sm hover:bg-[#F0EBE2] disabled:opacity-40">
+                  className="rounded-xl border border-black/15 px-4 py-2 text-sm hover:bg-crema-claro disabled:opacity-40">
                   Rechazar
                 </button>
                 {esDueno ? (
                   <button onClick={() => decidir(p.id, 'aprobar')} disabled={!!trabajando}
-                    className="rounded-lg bg-[#B82D25] px-5 py-2 text-sm font-medium text-white active:scale-95 disabled:opacity-40">
+                    className="rounded-xl bg-marca px-5 py-2 text-sm font-medium text-white active:scale-95 disabled:opacity-40">
                     {trabajando === p.id ? 'Aplicando…' : 'Aprobar y aplicar'}
                   </button>
                 ) : (
-                  <span className="text-xs text-black/45">Solo el dueño puede aprobar</span>
+                  <span className="text-xs text-tinta/60">Solo el dueño puede aprobar</span>
                 )}
               </div>
             </div>

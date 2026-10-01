@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { Aviso, Boton, Campo, Entrada } from '../ui/kit';
+import { CLASE_CASILLA, PantallaAcceso } from '../ui/PantallaAcceso';
 
 export default function CambiarClave() {
   const [error, setError] = useState<string | null>(null);
@@ -50,43 +52,38 @@ export default function CambiarClave() {
     }
   }
 
-  const inputCls = 'w-full rounded-lg border border-black/15 px-3 py-2 text-sm text-black outline-none focus:border-[#B82D25]';
-
   return (
-    <main className="min-h-screen bg-[#F0EBE2] flex items-center justify-center p-6">
-      <form onSubmit={enviar} className="w-full max-w-sm rounded-2xl bg-white p-8 shadow-[0_20px_60px_-25px_rgba(0,0,0,0.35)] border border-black/5">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/odb-logo.png" alt="O.D.B Premium Market" className="h-14 w-auto mx-auto mb-3" />
-        <h1 className="text-center text-lg font-semibold text-black">Cambiá tu contraseña</h1>
-        <p className="text-center text-xs text-black/50 mb-6 mt-1">
-          Por seguridad, elegí una clave nueva que solo vos sepas.
-        </p>
-
+    <PantallaAcceso titulo="Cambiá tu contraseña" bajada="Por seguridad, elegí una clave nueva que solo vos sepas.">
+      <form onSubmit={enviar} className="space-y-4">
         {/* username oculto: imprescindible para que el navegador asocie la clave
             nueva a esta cuenta y actualice la guardada (si falta, autocompleta
             la vieja en el próximo login) */}
         <input name="email" type="email" value={email} readOnly autoComplete="username" className="hidden" tabIndex={-1} aria-hidden="true" />
 
-        <label className="block text-xs text-black/60 mb-1">Clave actual</label>
-        <input name="actual" type={ver ? 'text' : 'password'} required autoComplete="current-password" className={`${inputCls} mb-4`} />
+        <Campo etiqueta="Clave actual">
+          <Entrada name="actual" type={ver ? 'text' : 'password'} required autoComplete="current-password" />
+        </Campo>
 
-        <label className="block text-xs text-black/60 mb-1">Clave nueva</label>
-        <input name="nueva" type={ver ? 'text' : 'password'} required minLength={6} autoComplete="new-password" className={`${inputCls} mb-4`} placeholder="Mínimo 6 caracteres" />
+        <Campo etiqueta="Clave nueva">
+          <Entrada name="nueva" type={ver ? 'text' : 'password'} required minLength={6} autoComplete="new-password" placeholder="Mínimo 6 caracteres" />
+        </Campo>
 
-        <label className="block text-xs text-black/60 mb-1">Repetir clave nueva</label>
-        <input name="repetir" type={ver ? 'text' : 'password'} required autoComplete="new-password" className={`${inputCls} mb-3`} />
+        <div>
+          <Campo etiqueta="Repetir clave nueva">
+            <Entrada name="repetir" type={ver ? 'text' : 'password'} required autoComplete="new-password" />
+          </Campo>
+          <label className={CLASE_CASILLA}>
+            <input type="checkbox" checked={ver} onChange={(e) => setVer(e.target.checked)} className="size-4 accent-marca" />
+            Mostrar las claves mientras escribo
+          </label>
+        </div>
 
-        <label className="flex items-center gap-2 text-xs text-black/60 mb-6 cursor-pointer">
-          <input type="checkbox" checked={ver} onChange={(e) => setVer(e.target.checked)} className="accent-[#B82D25]" />
-          Mostrar las claves mientras escribo
-        </label>
+        {error && <Aviso tono="error">{error}</Aviso>}
 
-        {error && <p className="mb-4 text-sm text-[#932A1F]">{error}</p>}
-
-        <button type="submit" disabled={cargando} className="w-full rounded-full bg-[#B82D25] py-2.5 text-sm font-medium text-white hover:bg-[#932A1F] disabled:opacity-60">
+        <Boton type="submit" cargando={cargando} anchoCompleto>
           {cargando ? 'Guardando…' : 'Cambiar contraseña'}
-        </button>
+        </Boton>
       </form>
-    </main>
+    </PantallaAcceso>
   );
 }

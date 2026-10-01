@@ -1,5 +1,5 @@
 import { cookies } from 'next/headers';
-import { Header } from '../ui/Header';
+import { Pantalla } from '../ui/kit/Pantalla';
 import { Manual } from '../ui/Manual';
 import { rolDesdeToken } from '../lib/permisos';
 
@@ -11,9 +11,8 @@ export const dynamic = 'force-dynamic';
 export default async function ManualPage() {
   const rol = rolDesdeToken((await cookies()).get('odb_token')?.value);
   return (
-    <main className="min-h-screen bg-[#F0EBE2] lg:pl-64">
-      <Header activo="/manual" />
+    <Pantalla activo="/manual" ancho="angosto">
       <Manual rol={rol} />
-    </main>
+    </Pantalla>
   );
 }

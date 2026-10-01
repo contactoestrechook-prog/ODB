@@ -48,15 +48,15 @@ export function PanelImpuestos({ fotoImp, setFotoImp, habituales, sumaRenglones 
   const sumaEsperada = (netoDoc ?? 0) + descuentoGlobalDoc;
   const renglonesDif = netoDoc != null && netoDoc > 0 && sumaRenglones > 0 ? sumaRenglones - sumaEsperada : null;
   return (
-    <div className={'rounded-lg border-2 bg-white p-3 text-xs ' + (diag.cierra ? 'border-emerald-600/40' : 'border-[#B82D25]')}>
+    <div className={'rounded-xl border-2 bg-white p-3 text-xs ' + (diag.cierra ? 'border-ok/40' : 'border-marca')}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <p className="text-sm font-semibold text-black">Impuestos de la factura</p>
+        <p className="text-sm font-semibold text-tinta">Impuestos de la factura</p>
         <span className="flex items-center gap-3">
           {impDeshacer.length > 0 && (
             <button type="button" onClick={() => { setFotoImp(() => impDeshacer[impDeshacer.length - 1]); setImpDeshacer((h) => h.slice(0, -1)); }}
-              className="text-[11px] font-semibold text-black/60 underline hover:text-[#B82D25]">↺ Deshacer</button>
+              className="text-xs font-semibold text-tinta/70 underline hover:text-marca">↺ Deshacer</button>
           )}
-          <button type="button" onClick={() => setImpAMano((v) => !v)} className="text-[11px] text-black/50 underline hover:text-[#B82D25]">
+          <button type="button" onClick={() => setImpAMano((v) => !v)} className="text-xs text-tinta/60 underline hover:text-marca">
             {impAMano ? 'Ocultar montos' : 'Editar montos a mano'}
           </button>
         </span>
@@ -64,11 +64,11 @@ export function PanelImpuestos({ fotoImp, setFotoImp, habituales, sumaRenglones 
 
       {/* el control que importa: neto + impuestos = total */}
       {diag.diferencia == null ? (
-        <p className="mt-1 font-semibold text-[#932A1F]">⚠ Falta el neto o el total del pie: cargalos en “Editar montos a mano”.</p>
+        <p className="mt-1 font-semibold text-marca-hondo">⚠ Falta el neto o el total del pie: cargalos en “Editar montos a mano”.</p>
       ) : diag.cierra ? (
-        <p className="mt-1 text-emerald-800">✓ <b>Cierra:</b> neto {pesos(netoDoc)} + impuestos {deNeto(sumaPie(pie) - (netoDoc ?? 0))} = total {pesos(totalDoc)}, igual que el papel.</p>
+        <p className="mt-1 text-ok">✓ <b>Cierra:</b> neto {pesos(netoDoc)} + impuestos {deNeto(sumaPie(pie) - (netoDoc ?? 0))} = total {pesos(totalDoc)}, igual que el papel.</p>
       ) : (
-        <p className="mt-1 font-semibold text-[#932A1F]">
+        <p className="mt-1 font-semibold text-marca-hondo">
           ⚠ No cierra con el total del papel: {diag.diferencia < 0 ? `faltan ${pesos(-diag.diferencia)}` : `sobran ${pesos(diag.diferencia)}`} ({deNeto(Math.abs(diag.diferencia))} del neto).
         </p>
       )}
@@ -77,18 +77,18 @@ export function PanelImpuestos({ fotoImp, setFotoImp, habituales, sumaRenglones 
       {diag.arreglos.length > 0 && (
         <div className="mt-1.5 flex flex-col gap-1">
           {diag.arreglos.map((a, k) => (
-            <p key={k} className="flex flex-wrap items-center gap-2 text-[#141414]">
+            <p key={k} className="flex flex-wrap items-center gap-2 text-tinta">
               <button type="button" onClick={() => fijar(a.campo, a.monto === 0 ? null : a.monto)}
-                className={'rounded-full px-3 py-1 text-[11px] font-semibold text-white ' + (k === 0 ? 'bg-[#B82D25] hover:bg-[#932A1F]' : 'bg-[#141414] hover:bg-black/80')}>
+                className={'rounded-full px-3 py-1 text-xs font-semibold text-white ' + (k === 0 ? 'bg-marca hover:bg-marca-hondo' : 'bg-tinta hover:bg-black/80')}>
                 {a.accion === 'quitar' ? `Quitar ${NOMBRE_CAMPO[a.campo]}` : `${a.accion === 'agregar' ? 'Agregar' : 'Corregir'} ${NOMBRE_CAMPO[a.campo]} ${pesos(a.monto)}${a.pct ? ` (${pctTxt(a.pct)})` : ''}`}
               </button>
-              <span className="text-black/60">{a.motivo}</span>
+              <span className="text-tinta/70">{a.motivo}</span>
             </p>
           ))}
         </div>
       )}
       {avisos.map((a) => (
-        <p key={a.campo} className="mt-1 text-amber-900">
+        <p key={a.campo} className="mt-1 text-atencion">
           💡 Este proveedor suele cobrar <b>{NOMBRE_CAMPO[a.campo]} {pctTxt(a.pct)}</b> y esta factura no la trae. Si el papel la tiene, agregala abajo con un click.
         </p>
       ))}
@@ -101,18 +101,18 @@ export function PanelImpuestos({ fotoImp, setFotoImp, habituales, sumaRenglones 
           const opciones = [...new Set([...(habitual >= 0.5 ? [habitual] : []), ...pcts])];
           return (
             <div key={campo} className="flex flex-wrap items-center gap-1.5">
-              <span className="w-32 shrink-0 text-black/60">{NOMBRE_CAMPO[campo]}</span>
+              <span className="w-32 shrink-0 text-tinta/70">{NOMBRE_CAMPO[campo]}</span>
               {v > 0 ? (
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-[#141414] py-0.5 pl-3 pr-1 text-[#F0EBE2]">
-                  <b>{pesos(v)}</b>{netoDoc ? <span className="text-[#F0EBE2]/70">{deNeto(v)}</span> : null}
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-tinta py-0.5 pl-3 pr-1 text-crema">
+                  <b>{pesos(v)}</b>{netoDoc ? <span className="text-crema/70">{deNeto(v)}</span> : null}
                   <button type="button" title={`Sacar ${NOMBRE_CAMPO[campo]}`} onClick={() => fijar(campo, null)}
-                    className="flex h-5 w-5 items-center justify-center rounded-full bg-white/15 text-[11px] hover:bg-[#B82D25]">✕</button>
+                    className="flex h-5 w-5 items-center justify-center rounded-full bg-white/15 text-xs hover:bg-marca">✕</button>
                 </span>
               ) : (
                 <>
                   {netoDoc != null && netoDoc > 0 && opciones.map((p) => (
                     <button key={p} type="button" onClick={() => fijar(campo, montoPorPct(netoDoc, p))}
-                      className={'rounded-full border px-2.5 py-0.5 text-[11px] hover:border-[#B82D25] hover:text-[#B82D25] ' + (p === habitual ? 'border-amber-500 bg-amber-50 font-semibold text-amber-900' : 'border-black/15 text-black/70')}>
+                      className={'rounded-full border px-2.5 py-0.5 text-xs hover:border-marca hover:text-marca ' + (p === habitual ? 'border-atencion bg-atencion-suave font-semibold text-atencion' : 'border-black/15 text-tinta/70')}>
                       + {pctTxt(p)}{p === habitual ? ' (habitual)' : ''}
                     </button>
                   ))}
@@ -127,17 +127,17 @@ export function PanelImpuestos({ fotoImp, setFotoImp, habituales, sumaRenglones 
                         setCargando(null);
                       }}
                       onBlur={() => setCargando(null)}
-                      className="w-28 rounded-full border border-[#141414] px-2.5 py-0.5 text-right text-[11px] text-black outline-none"
+                      className="w-28 rounded-full border border-tinta px-2.5 py-0.5 text-right text-xs text-tinta outline-none"
                     />
                   ) : (
                     <button type="button" onClick={() => setCargando(campo)}
-                      className="rounded-full border border-black/15 px-2.5 py-0.5 text-[11px] text-black/70 hover:border-[#B82D25] hover:text-[#B82D25]">
+                      className="rounded-full border border-black/15 px-2.5 py-0.5 text-xs text-tinta/70 hover:border-marca hover:text-marca">
                       + monto
                     </button>
                   )}
                   {faltaPlata > 0 && (
                     <button type="button" onClick={() => fijar(campo, Math.round(faltaPlata * 100) / 100)}
-                      className="rounded-full border border-dashed border-[#B82D25] px-2.5 py-0.5 text-[11px] text-[#B82D25] hover:bg-[#B82D25]/10">
+                      className="rounded-full border border-dashed border-marca px-2.5 py-0.5 text-xs text-marca hover:bg-marca-suave">
                       + lo que falta {pesos(faltaPlata)}
                     </button>
                   )}
@@ -150,7 +150,7 @@ export function PanelImpuestos({ fotoImp, setFotoImp, habituales, sumaRenglones 
 
       {/* los renglones contra el neto: si no dan, el costo de TODOS queda mal */}
       {renglonesDif != null && Math.abs(renglonesDif) > Math.max(1, sumaEsperada * 0.005) && (
-        <p className="mt-2 rounded-md bg-amber-50 px-2 py-1.5 text-amber-900">
+        <p className="mt-2 rounded-xl bg-atencion-suave px-2 py-1.5 text-atencion">
           ⚠ Los renglones suman {pesos(sumaRenglones)} y el neto del papel es {pesos(netoDoc)}
           {renglonesDif < 0 ? ` (faltan ${pesos(-renglonesDif)}: hay renglones que no se leyeron, o una hoja que no se subió)` : ` (sobran ${pesos(renglonesDif)}: algún renglón se leyó con el IVA adentro o con la cantidad mal)`}.
           {' '}Revisá los renglones contra el papel: los impuestos están bien, pero el costo de cada producto sale de esta suma.
@@ -158,16 +158,16 @@ export function PanelImpuestos({ fotoImp, setFotoImp, habituales, sumaRenglones 
       )}
 
       {impAMano && (
-        <div className="mt-2 grid grid-cols-2 gap-2 border-t border-black/10 pt-2 sm:grid-cols-4">
+        <div className="mt-2 grid grid-cols-2 gap-2 border-t border-black/[0.06] pt-2 sm:grid-cols-4">
           {[['neto', 'Neto'], ['iva', 'IVA $'], ['percepcionIva', 'Perc. IVA'], ['percepcionIibb', 'Perc. IIBB'], ['impuestosInternos', 'Imp. internos'], ['descuentoGlobal', 'Desc. del pie'], ['otros', 'Otros'], ['total', 'TOTAL']].map(([k, l]) => (
             <label key={k} className="flex flex-col gap-0.5">
-              <span className="text-black/60 font-medium">{l}</span>
-              <input type="number" value={fotoImp?.[k] ?? ''} onChange={(e) => setFotoImp((x: any) => ({ ...x, [k]: e.target.value === '' ? null : Number(e.target.value) }))} className="rounded border border-black/15 bg-white px-2 py-1 text-right text-sm text-black" />
+              <span className="text-tinta/70 font-medium">{l}</span>
+              <input type="number" value={fotoImp?.[k] ?? ''} onChange={(e) => setFotoImp((x: any) => ({ ...x, [k]: e.target.value === '' ? null : Number(e.target.value) }))} className="rounded border border-black/15 bg-white px-2 py-1 text-right text-sm text-tinta" />
             </label>
           ))}
         </div>
       )}
-      <p className="mt-2 text-[10px] text-black/45">
+      <p className="mt-2 text-xs text-tinta/60">
         Se leen solos del pie del papel. Los impuestos internos <b>siempre</b> son costo; las percepciones (IVA e IIBB) son pago a cuenta y van al costo si está tildado “Percepciones al costo”.
       </p>
     </div>

@@ -130,21 +130,21 @@ export function AbastecimientoPanel() {
         <div className="grid gap-2 sm:grid-cols-2">
           {resumen
             ? Object.entries(resumen.porSucursal).map(([suc, a]) => (
-                <div key={suc} className="rounded-lg border border-black/10 px-3 py-2">
-                  <p className="text-sm font-medium text-black">{suc}</p>
-                  <p className="mt-1 text-xs text-black/65">
-                    <span className="font-semibold text-[#B82D25]">{miles(a.sin_stock)}</span> sin stock ·{' '}
-                    <span className="font-semibold text-[#B82D25]">{miles(a.no_llega)}</span> no llegan a tiempo ·{' '}
+                <div key={suc} className="rounded-xl border border-black/[0.06] px-3 py-2">
+                  <p className="text-sm font-medium text-tinta">{suc}</p>
+                  <p className="mt-1 text-xs text-tinta/70">
+                    <span className="font-semibold text-marca">{miles(a.sin_stock)}</span> sin stock ·{' '}
+                    <span className="font-semibold text-marca">{miles(a.no_llega)}</span> no llegan a tiempo ·{' '}
                     <span className="font-semibold">{miles(a.menos_de_12)}</span> con menos de 12
                   </p>
                 </div>
               ))
-            : <p className="text-sm text-black/45">{errorResumen ? 'No pude calcular el resumen. Recargá la página para reintentar.' : 'Calculando…'}</p>}
+            : <p className="text-sm text-tinta/60">{errorResumen ? 'No pude calcular el resumen. Recargá la página para reintentar.' : 'Calculando…'}</p>}
         </div>
         {resumen && (
-          <p className="text-xs text-black/55">
+          <p className="text-xs text-tinta/70">
             Stock al {fecha(resumen.stockActualizado)} · ritmo de venta con datos hasta {fecha(resumen.ventasHasta)}
-            {ventasViejas && <span className="text-[#932A1F]"> — dato viejo: las cantidades son orientativas hasta cargar el reporte de ventas reciente del sistema viejo</span>}
+            {ventasViejas && <span className="text-marca-hondo"> — dato viejo: las cantidades son orientativas hasta cargar el reporte de ventas reciente del sistema viejo</span>}
             {resumen.sinProveedor > 0 && <> · {miles(resumen.sinProveedor)} productos en alerta sin proveedor habitual</>}
           </p>
         )}
@@ -153,13 +153,13 @@ export function AbastecimientoPanel() {
       <section aria-labelledby="sugerido" className="space-y-3">
         <div className="flex flex-wrap items-end justify-between gap-3 pt-2">
           <div className="min-w-0">
-            <h2 id="sugerido" className="text-lg font-semibold text-black">Sugerido para comprar</h2>
-            <p className="text-[12.5px] text-black/55">Una nota de pedido por proveedor. Tildá lo que vas a pedir y ajustá las cantidades.</p>
+            <h2 id="sugerido" className="text-lg font-semibold text-tinta">Sugerido para comprar</h2>
+            <p className="text-sm text-tinta/70">Una nota de pedido por proveedor. Tildá lo que vas a pedir y ajustá las cantidades.</p>
           </div>
           <div role="group" aria-label="Sucursal" className="flex rounded-full bg-white p-1 ring-1 ring-black/10">
             {SUCURSALES.map((s) => (
               <button key={s} aria-pressed={sucursal === s} onClick={() => setSucursal(s)}
-                className={`rounded-full px-3.5 py-1.5 text-[12.5px] font-medium transition-colors ${sucursal === s ? 'bg-[#141414] text-white' : 'text-black/55 hover:text-black'}`}>
+                className={`rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors ${sucursal === s ? 'bg-tinta text-white' : 'text-tinta/70 hover:text-tinta'}`}>
                 {s}
               </button>
             ))}
@@ -167,7 +167,7 @@ export function AbastecimientoPanel() {
         </div>
 
         {errorNotas && (
-          <p className="rounded-lg bg-[#B82D25]/10 border border-[#B82D25]/30 px-3 py-2 text-sm text-[#932A1F]">
+          <p className="rounded-xl bg-marca-suave border border-marca/30 px-3 py-2 text-sm text-marca-hondo">
             {errorNotas}{' '}
             <button onClick={() => setRecargar((n) => n + 1)} className="font-medium underline underline-offset-2">Reintentar</button>
           </p>
@@ -176,55 +176,55 @@ export function AbastecimientoPanel() {
           <div className="space-y-3" aria-busy="true">
             {[0, 1].map((i) => (
               <div key={i} className="overflow-hidden rounded-2xl bg-white ring-1 ring-black/[0.06]">
-                <div className="h-[62px] bg-[#141414]" /><div className="h-[3px] bg-[#C9A96E]" />
-                <div className="space-y-3 p-5">{[0, 1, 2].map((j) => <div key={j} className="h-9 rounded-lg bg-black/[0.04] motion-safe:animate-pulse" />)}</div>
+                <div className="h-[62px] bg-tinta" /><div className="h-[3px] bg-dorado" />
+                <div className="space-y-3 p-5">{[0, 1, 2].map((j) => <div key={j} className="h-9 rounded-xl bg-black/[0.04] motion-safe:animate-pulse" />)}</div>
               </div>
             ))}
           </div>
         )}
         {notas && notas.propuestas.length === 0 && (
-          <p className="rounded-2xl bg-white px-5 py-6 text-sm text-black/55">No hay nada para reponer en {sucursal} con proveedor habitual. Si te falta algo puntual, preguntale al agente acá abajo.</p>
+          <p className="rounded-2xl bg-white px-5 py-6 text-sm text-tinta/70">No hay nada para reponer en {sucursal} con proveedor habitual. Si te falta algo puntual, preguntale al agente acá abajo.</p>
         )}
         {notas?.propuestas.slice(0, verTodas ? undefined : PROVEEDORES_VISIBLES).map((p) => (
           <NotaDePedido key={`${sucursal}:${p.clave}`} propuesta={p} yaPedidos={yaPedidos} onArmada={alArmar} />
         ))}
         {notas && notas.propuestas.length > PROVEEDORES_VISIBLES && !verTodas && (
           <button onClick={() => setVerTodas(true)}
-            className="w-full rounded-2xl bg-white px-4 py-3 text-sm font-medium text-black/60 ring-1 ring-black/[0.06] hover:text-black">
+            className="w-full rounded-2xl bg-white px-4 py-3 text-sm font-medium text-tinta/70 ring-1 ring-black/[0.06] hover:text-tinta">
             Ver {notas.propuestas.length - PROVEEDORES_VISIBLES} proveedor{notas.propuestas.length - PROVEEDORES_VISIBLES === 1 ? '' : 'es'} más
           </button>
         )}
         {notas && notas.sinProveedor > 0 && (
-          <p className="text-[12.5px] text-black/55">
+          <p className="text-sm text-tinta/70">
             Hay {miles(notas.sinProveedor)} productos urgentes sin proveedor habitual: no entran en ninguna nota.{' '}
-            <button onClick={() => enviar(`¿A quién le compro lo urgente que no tiene proveedor habitual en ${sucursal}?`)} className="font-medium text-[#B82D25] underline underline-offset-2">Preguntale al agente</button>.
+            <button onClick={() => enviar(`¿A quién le compro lo urgente que no tiene proveedor habitual en ${sucursal}?`)} className="font-medium text-marca underline underline-offset-2">Preguntale al agente</button>.
           </p>
         )}
       </section>
 
-      {error && <p className="rounded-lg bg-[#B82D25]/10 border border-[#B82D25]/30 px-3 py-2 text-sm text-[#932A1F]">{error}</p>}
+      {error && <p className="rounded-xl bg-marca-suave border border-marca/30 px-3 py-2 text-sm text-marca-hondo">{error}</p>}
 
       <div className="rounded-xl bg-white overflow-hidden">
-        <div className="px-4 py-3 border-b border-black/10">
-          <p className="text-sm font-medium text-black">Agente de compras</p>
-          <p className="text-xs text-black/50 mt-0.5">
+        <div className="px-4 py-3 border-b border-black/[0.06]">
+          <p className="text-sm font-medium text-tinta">Agente de compras</p>
+          <p className="text-xs text-tinta/60 mt-0.5">
             Para algo puntual: un rubro, un producto o qué hacer con lo que no tiene proveedor. Lo que propone te llega como nota de pedido para tildar.
           </p>
         </div>
-        <div className="max-h-[70vh] overflow-y-auto p-4 space-y-3">
+        <div className="max-h-[70dvh] overflow-y-auto p-4 space-y-3">
           {mensajes.length === 0 && (
             <div className="flex flex-wrap gap-2">
               {SUGERENCIAS.map((s) => (
-                <button key={s} onClick={() => enviar(s)} className="rounded-lg bg-[#F0EBE2] px-3 py-2 text-left text-sm text-black/75 hover:bg-[#E6DFD3]">{s}</button>
+                <button key={s} onClick={() => enviar(s)} className="rounded-xl bg-crema px-3 py-2 text-left text-sm text-tinta/80 hover:bg-crema-hondo">{s}</button>
               ))}
             </div>
           )}
           {mensajes.map((m, i) => (
             <div key={i} className={`flex flex-col ${m.rol === 'usuario' ? 'items-end' : 'items-start'}`}>
-              <div className={`max-w-[85%] whitespace-pre-wrap rounded-xl px-3.5 py-2.5 text-sm leading-relaxed ${m.rol === 'usuario' ? 'bg-black text-[#F0EBE2]' : 'bg-[#F0EBE2] text-black'}`}>
+              <div className={`max-w-[85%] whitespace-pre-wrap rounded-xl px-3.5 py-2.5 text-sm leading-relaxed ${m.rol === 'usuario' ? 'bg-black text-crema' : 'bg-crema text-tinta'}`}>
                 {m.texto}
                 {m.ordenes && (
-                  <a href="/aprobaciones" className="mt-2 block text-xs font-semibold text-[#B82D25] underline">
+                  <a href="/aprobaciones" className="mt-2 block text-xs font-semibold text-marca underline">
                     {m.ordenes.length === 1 ? `Orden #${m.ordenes[0]}` : `Órdenes #${m.ordenes.join(', #')}`} creada{m.ordenes.length > 1 ? 's' : ''}: ver en Aprobaciones
                   </a>
                 )}
@@ -244,10 +244,10 @@ export function AbastecimientoPanel() {
               )}
             </div>
           ))}
-          {pensando && <p className="text-sm text-black/40">Revisando stock, ventas y proveedores…</p>}
+          {pensando && <p className="text-sm text-tinta/60">Revisando stock, ventas y proveedores…</p>}
           <div ref={finRef} />
         </div>
-        <div className="border-t border-black/10 p-3">
+        <div className="border-t border-black/[0.06] p-3">
           <div className="flex items-end gap-2">
             <BotonMicrofono onTexto={setTexto} titulo="Dictarle al agente" />
             <textarea
@@ -256,10 +256,10 @@ export function AbastecimientoPanel() {
               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); enviar(); } }}
               rows={2}
               placeholder="Preguntale qué falta, qué pedir o a quién…"
-              className="flex-1 resize-none rounded-lg border border-black/15 px-3 py-2 text-sm text-black outline-none focus:border-[#B82D25]"
+              className="flex-1 resize-none rounded-xl border border-black/15 px-3 py-2 text-sm text-tinta outline-none focus:border-marca"
             />
             <button onClick={() => enviar()} disabled={pensando || !texto.trim()}
-              className="rounded-lg bg-[#B82D25] px-4 py-2.5 text-sm font-medium text-white active:scale-95 disabled:opacity-40">
+              className="rounded-xl bg-marca px-4 py-2.5 text-sm font-medium text-white active:scale-95 disabled:opacity-40">
               Enviar
             </button>
           </div>

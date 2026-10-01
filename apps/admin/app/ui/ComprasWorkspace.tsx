@@ -23,21 +23,21 @@ const pesos = (n: any) => '$' + Math.round(Number(n) || 0).toLocaleString('es-AR
 const fecha = (iso: string) => (iso ? new Date(iso).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: '2-digit' }) : '—');
 
 const ESTADO_ESTILO: Record<string, string> = {
-  borrador: 'bg-[#F0EBE2] text-black/60', pendiente_aprobacion: 'bg-[#B82D25] text-white',
+  borrador: 'bg-crema text-tinta/70', pendiente_aprobacion: 'bg-marca text-white',
   aprobada: 'bg-black text-white', enviada: 'bg-black text-white',
-  recibida_parcial: 'bg-amber-100 text-amber-900', recibida: 'bg-emerald-100 text-emerald-800',
-  cancelada: 'bg-[#F0EBE2] text-black/40',
+  recibida_parcial: 'bg-atencion-suave text-atencion', recibida: 'bg-ok-suave text-ok',
+  cancelada: 'bg-crema text-tinta/60',
 };
 const ESTADO_LABEL: Record<string, string> = { pendiente_aprobacion: 'a aprobar', recibida_parcial: 'parcial' };
 const OP_ESTILO: Record<string, string> = {
-  pendiente_aprobacion: 'bg-[#B82D25] text-white', aprobada: 'bg-black text-white',
-  pagada: 'bg-emerald-100 text-emerald-800', rechazada: 'bg-[#F0EBE2] text-black/40',
+  pendiente_aprobacion: 'bg-marca text-white', aprobada: 'bg-black text-white',
+  pagada: 'bg-ok-suave text-ok', rechazada: 'bg-crema text-tinta/60',
 };
 const OP_LABEL: Record<string, string> = { pendiente_aprobacion: 'a aprobar', aprobada: 'aprobada · a pagar', pagada: 'pagada', rechazada: 'rechazada' };
 
 const TABS = [['ordenes', 'Órdenes'], ['aprobar', 'Por aprobar'], ['recepcion', 'Recepción'], ['proveedores', 'Proveedores'], ['pagos', 'Órdenes de pago'], ['sugerencias', 'Sugerencias']] as const;
 
-const input = 'w-full rounded-lg border border-black/15 px-3 py-2.5 text-sm text-black focus:border-[#B82D25] focus:outline-none';
+const input = 'w-full rounded-xl border border-black/15 px-3 py-2.5 text-sm text-tinta focus:border-marca focus:outline-none';
 
 // La IA a veces devuelve la fecha como DD/MM/AAAA: la base solo acepta ISO.
 // Si no se puede normalizar con certeza, mejor no mandar nada.
@@ -116,37 +116,37 @@ export function ComprasWorkspace({ resumen, ordenes, proveedores, sugerencias, s
       {/* KPIs + nueva OC */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div className="flex gap-7 flex-wrap">
-          {[['Comprado (mes)', pesos(resumen?.compradoMes)], ['A aprobar', resumen?.pendientesAprobacion ?? 0, 'text-[#B82D25]'], ['Por recibir', resumen?.porRecibir ?? 0], ['Deuda proveedores', pesos(resumen?.deudaProveedores), resumen?.deudaProveedores > 0 ? 'text-[#B82D25]' : ''], ['Sugerencias', resumen?.sugerencias ?? 0]].map(([l, v, c]: any) => (
-            <div key={l}><p className={`text-xl font-semibold leading-none ${c || 'text-black'}`}>{v}</p><p className="text-[11px] text-black/45 mt-1">{l}</p></div>
+          {[['Comprado (mes)', pesos(resumen?.compradoMes)], ['A aprobar', resumen?.pendientesAprobacion ?? 0, 'text-marca'], ['Por recibir', resumen?.porRecibir ?? 0], ['Deuda proveedores', pesos(resumen?.deudaProveedores), resumen?.deudaProveedores > 0 ? 'text-marca' : ''], ['Sugerencias', resumen?.sugerencias ?? 0]].map(([l, v, c]: any) => (
+            <div key={l}><p className={`text-xl font-semibold leading-none ${c || 'text-tinta'}`}>{v}</p><p className="text-xs text-tinta/60 mt-1">{l}</p></div>
           ))}
         </div>
         <div className="flex gap-2 flex-wrap">
           <button onClick={() => setModal({ tipo: 'entradaFoto' })} className="rounded-full bg-black text-white text-sm font-medium px-4 py-2.5 hover:bg-black/80 shadow-sm">📷 Entrada por foto</button>
-          <button onClick={() => setModal({ tipo: 'entradaDirecta' })} className="rounded-full bg-white border border-black/15 text-black text-sm font-medium px-4 py-2.5 hover:border-black/40 shadow-sm">📦 Entrada directa (sin OC)</button>
-          <button onClick={() => setModal({ tipo: 'nuevaOC', items: [] })} className="rounded-full bg-[#B82D25] text-white text-sm font-medium px-5 py-2.5 hover:bg-[#932A1F] shadow-sm">+ Nueva orden de compra</button>
+          <button onClick={() => setModal({ tipo: 'entradaDirecta' })} className="rounded-full bg-white border border-black/15 text-tinta text-sm font-medium px-4 py-2.5 hover:border-black/40 shadow-sm">📦 Entrada directa (sin OC)</button>
+          <button onClick={() => setModal({ tipo: 'nuevaOC', items: [] })} className="rounded-full bg-marca text-white text-sm font-medium px-5 py-2.5 hover:bg-marca-hondo shadow-sm">+ Nueva orden de compra</button>
         </div>
       </div>
 
       {(bandeja.length > 0 || avisoBandeja) && (
-        <div className="rounded-xl border border-black/10 bg-white p-4">
+        <div className="rounded-xl border border-black/[0.06] bg-white p-4">
           <div className="flex items-baseline justify-between gap-2 flex-wrap">
-            <p className="text-sm font-semibold text-black">📷 Bandeja de lectura</p>
-            <p className="text-[11px] text-black/45">Las facturas se leen en segundo plano. Abrí cada una cuando esté lista.</p>
+            <p className="text-sm font-semibold text-tinta">📷 Bandeja de lectura</p>
+            <p className="text-xs text-tinta/60">Las facturas se leen en segundo plano. Abrí cada una cuando esté lista.</p>
           </div>
-          {avisoBandeja && <p className="mt-2 rounded-lg bg-[#F0EBE2] px-3 py-2 text-xs text-black/70">{avisoBandeja}</p>}
-          <div className="mt-2 divide-y divide-black/5">
+          {avisoBandeja && <p className="mt-2 rounded-xl bg-crema px-3 py-2 text-xs text-tinta/70">{avisoBandeja}</p>}
+          <div className="mt-2 divide-y divide-black/[0.06]">
             {bandeja.map((l: any) => {
               const seg = Math.max(0, Math.round((Date.now() - new Date(l.creadoEn).getTime()) / 1000));
               return (
                 <div key={l.id} className="flex items-center gap-3 py-2 text-sm flex-wrap">
                   <span className="min-w-0 flex-1">
-                    <span className="block min-w-0 break-words text-black">{l.nombreArchivo || 'Factura'}{l.releida ? ' · releída con aclaraciones' : ''}</span>
-                    {l.estado === 'procesando' && <span className="block text-xs text-black/50">⏳ leyendo… {seg}s — podés seguir con otra cosa</span>}
-                    {l.estado === 'listo' && <span className="block text-xs text-emerald-800">✓ lista{l.resumen?.proveedor ? ` · ${l.resumen.proveedor}` : ''}{l.resumen?.numero ? ` · ${l.resumen.numero}` : ''} · {l.resumen?.renglones ?? 0} renglones{l.resumen?.dudas ? ` · ${l.resumen.dudas} duda(s)` : ''}{l.resumen?.total != null ? ` · ${pesos(l.resumen.total)}` : ''}{l.abiertaEn ? ' · ya abierta' : ''}</span>}
-                    {l.estado === 'error' && <span className="block text-xs text-[#932A1F]">✕ {l.error || 'No se pudo leer'}</span>}
+                    <span className="block min-w-0 break-words text-tinta">{l.nombreArchivo || 'Factura'}{l.releida ? ' · releída con aclaraciones' : ''}</span>
+                    {l.estado === 'procesando' && <span className="block text-xs text-tinta/60">⏳ leyendo… {seg}s — podés seguir con otra cosa</span>}
+                    {l.estado === 'listo' && <span className="block text-xs text-ok">✓ lista{l.resumen?.proveedor ? ` · ${l.resumen.proveedor}` : ''}{l.resumen?.numero ? ` · ${l.resumen.numero}` : ''} · {l.resumen?.renglones ?? 0} renglones{l.resumen?.dudas ? ` · ${l.resumen.dudas} duda(s)` : ''}{l.resumen?.total != null ? ` · ${pesos(l.resumen.total)}` : ''}{l.abiertaEn ? ' · ya abierta' : ''}</span>}
+                    {l.estado === 'error' && <span className="block text-xs text-marca-hondo">✕ {l.error || 'No se pudo leer'}</span>}
                   </span>
                   {l.estado === 'listo' && <button onClick={() => abrirLectura(l.id)} className="rounded-full bg-black px-3 py-1.5 text-xs font-medium text-white hover:bg-black/80">Abrir</button>}
-                  {l.estado !== 'procesando' && <button onClick={() => descartarLectura(l.id)} className="text-xs text-black/40 hover:text-[#B82D25]" title="Sacar de la bandeja">✕</button>}
+                  {l.estado !== 'procesando' && <button onClick={() => descartarLectura(l.id)} className="text-xs text-tinta/60 hover:text-marca" title="Sacar de la bandeja">✕</button>}
                 </div>
               );
             })}
@@ -154,14 +154,14 @@ export function ComprasWorkspace({ resumen, ordenes, proveedores, sugerencias, s
         </div>
       )}
 
-      <div className="flex gap-1.5 flex-wrap border-b border-black/10">
+      <div className="flex gap-1.5 flex-wrap border-b border-black/[0.06]">
         {TABS.map(([k, label]) => {
           const badge = k === 'aprobar' ? porAprobar.length : k === 'recepcion' ? porRecibir.length : k === 'sugerencias' ? sugerencias.length : 0;
-          return <button key={k} onClick={() => setTab(k)} className={`px-3.5 py-2 text-sm font-medium rounded-t-lg -mb-px border-b-2 ${tab === k ? 'border-[#B82D25] text-black' : 'border-transparent text-black/45 hover:text-black'}`}>{label}{badge ? <span className="ml-1.5 text-[10px] rounded-full bg-[#B82D25] text-white px-1.5 py-0.5">{badge > 99 ? '99+' : badge}</span> : ''}</button>;
+          return <button key={k} onClick={() => setTab(k)} className={`px-3.5 py-2 text-sm font-medium rounded-t-lg -mb-px border-b-2 ${tab === k ? 'border-marca text-tinta' : 'border-transparent text-tinta/60 hover:text-tinta'}`}>{label}{badge ? <span className="ml-1.5 text-xs rounded-full bg-marca text-white px-1.5 py-0.5">{badge > 99 ? '99+' : badge}</span> : ''}</button>;
         })}
       </div>
 
-      {aviso && <p className="rounded-lg bg-white p-3 text-sm text-[#B82D25]">{aviso}</p>}
+      {aviso && <p className="rounded-xl bg-white p-3 text-sm text-marca">{aviso}</p>}
 
       {/* ÓRDENES (todas) */}
       {(tab === 'ordenes' || tab === 'aprobar' || tab === 'recepcion') && (
@@ -170,39 +170,39 @@ export function ComprasWorkspace({ resumen, ordenes, proveedores, sugerencias, s
             <div
               key={o.numero}
               onClick={() => setModal({ tipo: 'ocDetalle', ocId: o.id, numero: o.numero })}
-              className="rounded-xl bg-white p-4 cursor-pointer hover:bg-[#F0EBE2]/40 transition-colors"
+              className="rounded-xl bg-white p-4 cursor-pointer hover:bg-crema-claro transition-colors"
               title="Ver el detalle, los remitos y las facturas de esta compra"
             >
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <p className="font-medium text-black">OC #{o.numero} · {o.proveedor?.razon_social ?? '—'}
-                    <span className={`ml-2 text-[11px] rounded-full px-2 py-0.5 ${ESTADO_ESTILO[o.estado] ?? ''}`}>{ESTADO_LABEL[o.estado] ?? o.estado}</span>
+                  <p className="font-medium text-tinta">OC #{o.numero} · {o.proveedor?.razon_social ?? '—'}
+                    <span className={`ml-2 text-xs rounded-full px-2 py-0.5 ${ESTADO_ESTILO[o.estado] ?? ''}`}>{ESTADO_LABEL[o.estado] ?? o.estado}</span>
                   </p>
-                  <p className="text-xs text-black/50 mt-0.5">
+                  <p className="text-xs text-tinta/60 mt-0.5">
                     {o.sucursal?.nombre} · {fecha(o.creado_en)} · {(o.items ?? []).length} ítems
                     {o.condicion_pago && ` · ${o.condicion_pago}`}
                     {o.vencimiento_pago && ` · vence ${fecha(o.vencimiento_pago)}`}
                     {o.fecha_entrega && ` · entrega ${fecha(o.fecha_entrega)}`}
                     {o.firmadaPor && ` · aprobó ${o.firmadaPor}`}
                   </p>
-                  {o.observaciones && <p className="text-xs text-black/40 mt-0.5 italic">“{o.observaciones}”</p>}
-                  {o.estado === 'cancelada' && o.rechazo_motivo && <p className="text-xs text-[#B82D25] mt-0.5">Rechazada: {o.rechazo_motivo}</p>}
+                  {o.observaciones && <p className="text-xs text-tinta/60 mt-0.5 italic">“{o.observaciones}”</p>}
+                  {o.estado === 'cancelada' && o.rechazo_motivo && <p className="text-xs text-marca mt-0.5">Rechazada: {o.rechazo_motivo}</p>}
                 </div>
                 <div className="text-right whitespace-nowrap">
-                  <p className="font-semibold text-black">{pesos(o.total)}</p>
+                  <p className="font-semibold text-tinta">{pesos(o.total)}</p>
                   <div className="flex gap-2 justify-end mt-1" onClick={(e) => e.stopPropagation()}>
                     {o.estado === 'pendiente_aprobacion' && <>
-                      <button onClick={() => post({ accion: 'aprobar', id: o.id })} className="text-xs font-medium text-emerald-700 hover:underline">Aprobar</button>
-                      <button onClick={() => setModal({ tipo: 'rechazar', oc: o })} className="text-xs font-medium text-[#B82D25] hover:underline">Rechazar</button>
+                      <button onClick={() => post({ accion: 'aprobar', id: o.id })} className="text-xs font-medium text-ok hover:underline">Aprobar</button>
+                      <button onClick={() => setModal({ tipo: 'rechazar', oc: o })} className="text-xs font-medium text-marca hover:underline">Rechazar</button>
                     </>}
-                    {['aprobada', 'enviada', 'recibida_parcial'].includes(o.estado) && <button onClick={() => setModal({ tipo: 'recibir', oc: o, recibido: {} })} className="text-xs font-medium text-emerald-700 hover:underline">Recibir</button>}
+                    {['aprobada', 'enviada', 'recibida_parcial'].includes(o.estado) && <button onClick={() => setModal({ tipo: 'recibir', oc: o, recibido: {} })} className="text-xs font-medium text-ok hover:underline">Recibir</button>}
                   </div>
                 </div>
               </div>
             </div>
           ))}
           {(tab === 'ordenes' ? ordenes : tab === 'aprobar' ? porAprobar : porRecibir).length === 0 && (
-            <p className="rounded-xl bg-white p-8 text-center text-black/40 text-sm">
+            <p className="rounded-xl bg-white p-8 text-center text-tinta/60 text-sm">
               {tab === 'aprobar' ? 'No hay órdenes esperando aprobación.' : tab === 'recepcion' ? 'No hay órdenes pendientes de recepción.' : 'Sin órdenes de compra. Creá una o miralas en Sugerencias.'}
             </p>
           )}
@@ -212,23 +212,23 @@ export function ComprasWorkspace({ resumen, ordenes, proveedores, sugerencias, s
       {/* PROVEEDORES */}
       {tab === 'proveedores' && (
         <div className="space-y-3">
-          <div className="flex justify-end"><button onClick={() => setModal({ tipo: 'proveedor', prov: {} })} className="rounded-full bg-[#B82D25] text-white text-sm font-medium px-4 py-2 hover:bg-[#932A1F]">+ Nuevo proveedor</button></div>
+          <div className="flex justify-end"><button onClick={() => setModal({ tipo: 'proveedor', prov: {} })} className="rounded-full bg-marca text-white text-sm font-medium px-4 py-2 hover:bg-marca-hondo">+ Nuevo proveedor</button></div>
           <section className="rounded-xl bg-white overflow-hidden">
-            <table className="w-full text-sm text-black">
-              <thead><tr className="text-left text-xs text-black/50 border-b border-black/5">
+            <table className="w-full text-sm text-tinta">
+              <thead><tr className="text-left text-xs text-tinta/60 border-b border-black/[0.06]">
                 <th className="px-4 py-2 font-medium">Proveedor</th><th className="px-4 py-2 font-medium">CUIT</th><th className="px-4 py-2 font-medium">Condición</th><th className="px-4 py-2 font-medium text-right">Entrega</th><th className="px-4 py-2" />
               </tr></thead>
               <tbody>
                 {proveedores.map((p) => (
-                  <tr key={p.id} className="border-b border-black/5 last:border-0">
-                    <td className="px-4 py-3"><p className="font-medium">{p.razon_social}</p><p className="text-xs text-black/45">{[p.telefono, p.email].filter(Boolean).join(' · ')}</p>{p.faltan?.length > 0 && <p className="text-xs text-[#932A1F]">Para comprarle falta: {p.faltan.join(', ')}</p>}</td>
-                    <td className="px-4 py-3 text-black/70">{p.cuit ?? '—'}</td>
-                    <td className="px-4 py-3 text-black/70">{p.condicion_pago ?? '—'}</td>
-                    <td className="px-4 py-3 text-right text-black/70">{p.lead_time_dias} días{p.lead_time_confirmado ? '' : ' ?'}</td>
-                    <td className="px-4 py-3 text-right"><button onClick={() => setModal({ tipo: 'proveedor', prov: p })} className="text-xs text-[#B82D25] hover:underline">Editar</button></td>
+                  <tr key={p.id} className="border-b border-black/[0.06] last:border-0">
+                    <td className="px-4 py-3"><p className="font-medium">{p.razon_social}</p><p className="text-xs text-tinta/60">{[p.telefono, p.email].filter(Boolean).join(' · ')}</p>{p.faltan?.length > 0 && <p className="text-xs text-marca-hondo">Para comprarle falta: {p.faltan.join(', ')}</p>}</td>
+                    <td className="px-4 py-3 text-tinta/70">{p.cuit ?? '—'}</td>
+                    <td className="px-4 py-3 text-tinta/70">{p.condicion_pago ?? '—'}</td>
+                    <td className="px-4 py-3 text-right text-tinta/70">{p.lead_time_dias} días{p.lead_time_confirmado ? '' : ' ?'}</td>
+                    <td className="px-4 py-3 text-right"><button onClick={() => setModal({ tipo: 'proveedor', prov: p })} className="text-xs text-marca hover:underline">Editar</button></td>
                   </tr>
                 ))}
-                {proveedores.length === 0 && <tr><td colSpan={5} className="px-4 py-8 text-center text-black/40 text-sm">Sin proveedores. Agregá el primero.</td></tr>}
+                {proveedores.length === 0 && <tr><td colSpan={5} className="px-4 py-8 text-center text-tinta/60 text-sm">Sin proveedores. Agregá el primero.</td></tr>}
               </tbody>
             </table>
           </section>
@@ -238,23 +238,23 @@ export function ComprasWorkspace({ resumen, ordenes, proveedores, sugerencias, s
       {/* ÓRDENES DE PAGO */}
       {tab === 'pagos' && (
         <div className="space-y-3">
-          <div className="flex justify-end"><button onClick={() => setModal({ tipo: 'factura' })} className="rounded-full bg-white border border-black/15 text-black text-sm font-medium px-4 py-2 hover:border-black/40">+ Registrar factura de proveedor</button></div>
+          <div className="flex justify-end"><button onClick={() => setModal({ tipo: 'factura' })} className="rounded-full bg-white border border-black/15 text-tinta text-sm font-medium px-4 py-2 hover:border-black/40">+ Registrar factura de proveedor</button></div>
           <section className="rounded-xl bg-white overflow-hidden">
-            <h2 className="px-4 py-3 border-b border-black/10 font-medium text-black text-sm">Cuentas a pagar (por proveedor)</h2>
-            {deuda === null ? <p className="px-4 py-6 text-center text-black/40 text-sm">Cargando…</p>
-              : deuda.length === 0 ? <p className="px-4 py-6 text-center text-black/40 text-sm">Sin facturas pendientes de pago.</p>
+            <h2 className="px-4 py-3 border-b border-black/[0.06] font-medium text-tinta text-sm">Cuentas a pagar (por proveedor)</h2>
+            {deuda === null ? <p className="px-4 py-6 text-center text-tinta/60 text-sm">Cargando…</p>
+              : deuda.length === 0 ? <p className="px-4 py-6 text-center text-tinta/60 text-sm">Sin facturas pendientes de pago.</p>
               : deuda.map((d) => (
-                <div key={d.proveedor?.id} className="px-4 py-3 border-b border-black/5 last:border-0">
+                <div key={d.proveedor?.id} className="px-4 py-3 border-b border-black/[0.06] last:border-0">
                   <div className="flex items-center justify-between gap-3">
-                    <div><p className="font-medium text-black">{d.proveedor?.razon_social}</p><p className="text-xs text-black/50">{d.facturas.length} factura(s) · próx. vence {fecha(d.facturas[0]?.vencimiento)}</p></div>
-                    <div className="text-right"><p className="font-semibold text-[#B82D25]">{pesos(d.total)}</p>
-                      <button onClick={() => setModal({ tipo: 'pagar', prov: d })} className="text-xs font-medium text-emerald-700 hover:underline">Crear orden de pago →</button></div>
+                    <div><p className="font-medium text-tinta">{d.proveedor?.razon_social}</p><p className="text-xs text-tinta/60">{d.facturas.length} factura(s) · próx. vence {fecha(d.facturas[0]?.vencimiento)}</p></div>
+                    <div className="text-right"><p className="font-semibold text-marca">{pesos(d.total)}</p>
+                      <button onClick={() => setModal({ tipo: 'pagar', prov: d })} className="text-xs font-medium text-ok hover:underline">Crear orden de pago →</button></div>
                   </div>
                   {/* cada factura es clickeable para ver su detalle */}
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     {d.facturas.map((fc: any) => (
                       <button key={fc.id} onClick={() => setModal({ tipo: 'facturaDetalle', facturaId: fc.id })}
-                        className="rounded-full border border-black/15 px-2.5 py-1 text-xs text-black/70 hover:border-[#B82D25] hover:text-[#B82D25]">
+                        className="rounded-full border border-black/15 px-2.5 py-1 text-xs text-tinta/70 hover:border-marca hover:text-marca">
                         #{fc.numero} · {pesos(fc.monto)} ↗
                       </button>
                     ))}
@@ -264,22 +264,22 @@ export function ComprasWorkspace({ resumen, ordenes, proveedores, sugerencias, s
           </section>
           {pagos && pagos.length > 0 && (
             <section className="rounded-xl bg-white overflow-hidden">
-              <h2 className="px-4 py-3 border-b border-black/10 font-medium text-black text-sm">Órdenes de pago</h2>
+              <h2 className="px-4 py-3 border-b border-black/[0.06] font-medium text-tinta text-sm">Órdenes de pago</h2>
               {pagos.map((p) => (
-                <div key={p.numero} className="px-4 py-2.5 border-b border-black/5 last:border-0 flex items-center justify-between gap-3 text-sm">
+                <div key={p.numero} className="px-4 py-2.5 border-b border-black/[0.06] last:border-0 flex items-center justify-between gap-3 text-sm">
                   <div>
-                    <span className="text-black">OP #{p.numero} · {p.proveedor?.razon_social}</span>
-                    <span className={`ml-2 text-[10px] rounded-full px-2 py-0.5 ${OP_ESTILO[p.estado] ?? 'bg-[#F0EBE2] text-black/60'}`}>{OP_LABEL[p.estado] ?? p.estado}</span>
-                    <p className="text-xs text-black/45">{p.medio_pago}{p.vencimiento ? ` · vence ${fecha(p.vencimiento)}` : ''}{p.pagada_en ? ` · pagada ${fecha(p.pagada_en)}` : ''}</p>
+                    <span className="text-tinta">OP #{p.numero} · {p.proveedor?.razon_social}</span>
+                    <span className={`ml-2 text-xs rounded-full px-2 py-0.5 ${OP_ESTILO[p.estado] ?? 'bg-crema text-tinta/70'}`}>{OP_LABEL[p.estado] ?? p.estado}</span>
+                    <p className="text-xs text-tinta/60">{p.medio_pago}{p.vencimiento ? ` · vence ${fecha(p.vencimiento)}` : ''}{p.pagada_en ? ` · pagada ${fecha(p.pagada_en)}` : ''}</p>
                   </div>
                   <div className="text-right whitespace-nowrap">
                     <p className="font-medium">{pesos(p.total)}</p>
                     <div className="flex gap-2 justify-end mt-0.5">
                       {p.estado === 'pendiente_aprobacion' && <>
-                        <button onClick={() => post({ accion: 'aprobarOP', id: p.id })} className="text-xs font-medium text-emerald-700 hover:underline">Aprobar</button>
-                        <button onClick={() => setModal({ tipo: 'rechazarOP', op: p })} className="text-xs font-medium text-[#B82D25] hover:underline">Rechazar</button>
+                        <button onClick={() => post({ accion: 'aprobarOP', id: p.id })} className="text-xs font-medium text-ok hover:underline">Aprobar</button>
+                        <button onClick={() => setModal({ tipo: 'rechazarOP', op: p })} className="text-xs font-medium text-marca hover:underline">Rechazar</button>
                       </>}
-                      {p.estado === 'aprobada' && <button onClick={() => post({ accion: 'pagarOP', id: p.id })} className="text-xs font-medium text-black hover:underline">Marcar pagada</button>}
+                      {p.estado === 'aprobada' && <button onClick={() => post({ accion: 'pagarOP', id: p.id })} className="text-xs font-medium text-tinta hover:underline">Marcar pagada</button>}
                     </div>
                   </div>
                 </div>
@@ -292,21 +292,21 @@ export function ComprasWorkspace({ resumen, ordenes, proveedores, sugerencias, s
       {/* SUGERENCIAS */}
       {tab === 'sugerencias' && (
         <section className="rounded-xl bg-white overflow-hidden">
-          <div className="px-4 py-3 border-b border-black/10 flex items-center justify-between">
-            <h2 className="font-medium text-black text-sm">Sugerencias de reposición</h2>
-            <a href="/analista" className="text-xs text-[#B82D25] hover:underline">Pedir plan al Analista ODB →</a>
+          <div className="px-4 py-3 border-b border-black/[0.06] flex items-center justify-between">
+            <h2 className="font-medium text-tinta text-sm">Sugerencias de reposición</h2>
+            <a href="/analista" className="text-xs text-marca hover:underline">Pedir plan al Analista ODB →</a>
           </div>
-          {sugerencias.length === 0 ? <p className="px-4 py-6 text-sm text-black/50">Nada para reponer por ahora.</p> : (
-            <table className="w-full text-sm text-black">
-              <thead><tr className="text-left text-xs text-black/50 border-b border-black/5"><th className="px-4 py-2 font-medium">Producto</th><th className="px-4 py-2 font-medium">Sucursal</th><th className="px-4 py-2 font-medium text-right">Stock</th><th className="px-4 py-2 font-medium text-right">Sugerido</th><th className="px-4 py-2 font-medium">Proveedor</th></tr></thead>
+          {sugerencias.length === 0 ? <p className="px-4 py-6 text-sm text-tinta/60">Nada para reponer por ahora.</p> : (
+            <table className="w-full text-sm text-tinta">
+              <thead><tr className="text-left text-xs text-tinta/60 border-b border-black/[0.06]"><th className="px-4 py-2 font-medium">Producto</th><th className="px-4 py-2 font-medium">Sucursal</th><th className="px-4 py-2 font-medium text-right">Stock</th><th className="px-4 py-2 font-medium text-right">Sugerido</th><th className="px-4 py-2 font-medium">Proveedor</th></tr></thead>
               <tbody>
                 {sugerencias.slice(0, 100).map((s) => (
-                  <tr key={`${s.sku}-${s.sucursal}`} className="border-b border-black/5 last:border-0">
-                    <td className="px-4 py-2.5"><p className="font-medium">{s.producto}</p><p className="text-xs text-black/45">{s.sku}</p></td>
-                    <td className="px-4 py-2.5 text-black/70">{s.sucursal}</td>
+                  <tr key={`${s.sku}-${s.sucursal}`} className="border-b border-black/[0.06] last:border-0">
+                    <td className="px-4 py-2.5"><p className="font-medium">{s.producto}</p><p className="text-xs text-tinta/60">{s.sku}</p></td>
+                    <td className="px-4 py-2.5 text-tinta/70">{s.sucursal}</td>
                     <td className="px-4 py-2.5 text-right">{Math.round(Number(s.cantidad))}</td>
                     <td className="px-4 py-2.5 text-right font-medium">{Math.round(Number(s.cantidad_sugerida))} u.</td>
-                    <td className="px-4 py-2.5 text-black/70 text-xs">{s.proveedor ?? 'sin asignar'}</td>
+                    <td className="px-4 py-2.5 text-tinta/70 text-xs">{s.proveedor ?? 'sin asignar'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -323,12 +323,12 @@ export function ComprasWorkspace({ resumen, ordenes, proveedores, sugerencias, s
 // Sello: la marca corta que resume el estado de un renglón (CAJA ×12, BONIF. 12%,
 // SIN CARGO, REVISAR). Lee de un vistazo lo que antes era un párrafo.
 function Sello({ tono = 'neutro', children }: { tono?: 'neutro' | 'ok' | 'ojo' | 'info' | 'oro'; children: any }) {
-  const c = tono === 'ok' ? 'border-emerald-300 text-emerald-800 bg-emerald-50'
-    : tono === 'ojo' ? 'border-[#B82D25]/40 text-[#932A1F] bg-[#B82D25]/5'
-    : tono === 'info' ? 'border-sky-300 text-sky-800 bg-sky-50'
-    : tono === 'oro' ? 'border-[#C9A96E] text-[#6B5320] bg-[#FBF7EE]'
-    : 'border-black/15 text-black/55 bg-white';
-  return <span className={`inline-block whitespace-nowrap rounded-[3px] border px-1.5 py-[1px] text-[9.5px] font-semibold uppercase tracking-[0.12em] leading-4 ${c}`}>{children}</span>;
+  const c = tono === 'ok' ? 'border-ok/30 text-ok bg-ok-suave'
+    : tono === 'ojo' ? 'border-marca/40 text-marca-hondo bg-marca-suave'
+    : tono === 'info' ? 'border-info/30 text-info bg-info-suave'
+    : tono === 'oro' ? 'border-dorado text-dorado-hondo bg-crema-claro'
+    : 'border-black/15 text-tinta/70 bg-white';
+  return <span className={`inline-block whitespace-nowrap rounded-[3px] border px-1.5 py-[1px] text-xs font-semibold uppercase tracking-[0.12em] leading-4 ${c}`}>{children}</span>;
 }
 
 function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categorias = [], onLecturasEncoladas }: any) {
@@ -399,15 +399,15 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
     const puesto = valor !== undefined ? (valor === '' || valor == null ? '' : String(valor)) : (margenPorSku[sku] ?? '');
     const setear = poner ?? ((v: string) => setMargenPorSku((m) => ({ ...m, [sku]: v })));
     if (puesto === '' || Number(puesto) === Number(habitual)) {
-      return <p className="text-[10px] text-black/35 text-right">habitual {habitual}%</p>;
+      return <p className="text-xs text-tinta/60 text-right">habitual {habitual}%</p>;
     }
     return (
-      <p className="text-[10px] text-right">
-        <button onClick={() => setear(String(habitual))} className="text-black/45 underline">
+      <p className="text-xs text-right">
+        <button onClick={() => setear(String(habitual))} className="text-tinta/60 underline">
           volver al {habitual}%
         </button>
-        <label className="ml-2 inline-flex items-center gap-1 text-[#B82D25]" title="Si no lo tildás, este % vale solo para esta entrada">
-          <input type="checkbox" checked={!!fijarSku[sku]} onChange={(e) => setFijarSku((x) => ({ ...x, [sku]: e.target.checked }))} className="accent-[#B82D25]" />
+        <label className="ml-2 inline-flex items-center gap-1 text-marca" title="Si no lo tildás, este % vale solo para esta entrada">
+          <input type="checkbox" checked={!!fijarSku[sku]} onChange={(e) => setFijarSku((x) => ({ ...x, [sku]: e.target.checked }))} className="accent-marca" />
           dejarlo fijo
         </label>
       </p>
@@ -1397,9 +1397,9 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-[2px] flex items-center justify-center p-4 z-50">
-      <div className={`bg-white rounded-2xl w-full ${modalAncho} p-6 space-y-3 shadow-2xl max-h-[92vh] overflow-y-auto`}>
+      <div className={`bg-white rounded-2xl w-full ${modalAncho} p-6 space-y-3 shadow-flotante max-h-[92dvh] overflow-y-auto`}>
         {t === 'nuevaOC' && (<>
-          <h2 className="font-semibold text-black text-lg">Nueva orden de compra</h2>
+          <h2 className="font-semibold text-tinta text-lg">Nueva orden de compra</h2>
           <select className={input + ' bg-white'} value={f.proveedorId ?? ''} onChange={(e) => set('proveedorId', e.target.value)}>
             <option value="">Proveedor…</option>{proveedores.map((p: any) => <option key={p.id} value={p.id}>{p.razon_social}</option>)}
           </select>
@@ -1407,13 +1407,13 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
             <option value="">Sucursal destino…</option>{sucursales.map((s: any) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
           </select>
           <div className="grid grid-cols-2 gap-3">
-            <div><label className="text-[11px] text-black/45 block mb-1">Entrega esperada</label><input type="date" value={f.fechaEntrega ?? ''} onChange={(e) => set('fechaEntrega', e.target.value)} className={input} /></div>
-            <div><label className="text-[11px] text-black/45 block mb-1">Vence el pago</label><input type="date" value={f.vencimientoPago ?? ''} onChange={(e) => set('vencimientoPago', e.target.value)} className={input} /></div>
+            <div><label className="text-xs text-tinta/60 block mb-1">Entrega esperada</label><input type="date" value={f.fechaEntrega ?? ''} onChange={(e) => set('fechaEntrega', e.target.value)} className={input} /></div>
+            <div><label className="text-xs text-tinta/60 block mb-1">Vence el pago</label><input type="date" value={f.vencimientoPago ?? ''} onChange={(e) => set('vencimientoPago', e.target.value)} className={input} /></div>
           </div>
           <input value={f.condicionPago ?? ''} onChange={(e) => set('condicionPago', e.target.value)} placeholder="Condición de pago (contado / 30 días / cta cte…)" className={input} />
 
           {/* pedido armado en el portal del proveedor → Excel/CSV precarga los renglones */}
-          <label className={'flex items-center justify-center gap-2 rounded-lg border border-dashed px-3 py-2.5 text-sm cursor-pointer ' + (f.proveedorId ? 'border-black/25 text-black/60 hover:border-[#B82D25] hover:text-[#B82D25]' : 'border-black/10 text-black/30')}>
+          <label className={'flex items-center justify-center gap-2 rounded-xl border border-dashed px-3 py-2.5 text-sm cursor-pointer ' + (f.proveedorId ? 'border-black/15 text-tinta/70 hover:border-marca hover:text-marca' : 'border-black/[0.06] text-tinta/60')}>
             📄 {importando ? 'Leyendo el archivo…' : 'Importar Excel del pedido (portal del proveedor)'}
             <input
               type="file"
@@ -1424,11 +1424,11 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
             />
           </label>
           {importInfo && (
-            <div className="rounded-lg bg-[#F0EBE2]/70 px-3 py-2 text-xs text-black/70 space-y-1">
-              {importInfo.conMatch > 0 && <p className="text-emerald-700 font-medium">✓ {importInfo.conMatch} renglón(es) importados al pedido</p>}
+            <div className="rounded-xl bg-crema-claro px-3 py-2 text-xs text-tinta/70 space-y-1">
+              {importInfo.conMatch > 0 && <p className="text-ok font-medium">✓ {importInfo.conMatch} renglón(es) importados al pedido</p>}
               {importInfo.sinMatch.length > 0 && (
                 <>
-                  <p className="text-[#932A1F] font-medium">⚠ Sin match en el catálogo ({importInfo.sinMatch.length}) — agregalos a mano:</p>
+                  <p className="text-marca-hondo font-medium">⚠ Sin match en el catálogo ({importInfo.sinMatch.length}) — agregalos a mano:</p>
                   {importInfo.sinMatch.slice(0, 6).map((s, i) => <p key={i} className="min-w-0 break-words">· {s}</p>)}
                   {importInfo.sinMatch.length > 6 && <p>… y {importInfo.sinMatch.length - 6} más</p>}
                 </>
@@ -1438,8 +1438,8 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
 
           <div className="relative">
             <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Agregar producto…" className={input} />
-            {sug.length > 0 && <div className="absolute z-10 mt-1 w-full rounded-lg bg-white shadow-lg border border-black/10 max-h-48 overflow-y-auto">
-              {sug.map((p: any) => <button key={p.sku} onClick={() => { setItems((xs) => [...xs, { sku: p.sku, nombre: p.nombre, cantidad: 1, costoUnitario: p.costo ?? 0 }]); setBusca(''); setSug([]); }} className="w-full text-left px-3 py-2 text-sm hover:bg-[#F0EBE2] border-b border-black/5 last:border-0">{p.nombre} <span className="text-xs text-black/40">{p.sku}</span></button>)}
+            {sug.length > 0 && <div className="absolute z-10 mt-1 w-full rounded-xl bg-white shadow-flotante border border-black/[0.06] max-h-48 overflow-y-auto">
+              {sug.map((p: any) => <button key={p.sku} onClick={() => { setItems((xs) => [...xs, { sku: p.sku, nombre: p.nombre, cantidad: 1, costoUnitario: p.costo ?? 0 }]); setBusca(''); setSug([]); }} className="w-full text-left px-3 py-2 text-sm hover:bg-crema-claro border-b border-black/[0.06] last:border-0">{p.nombre} <span className="text-xs text-tinta/60">{p.sku}</span></button>)}
             </div>}
           </div>
           {items.map((i, idx) => (
@@ -1447,36 +1447,36 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
               <span className="flex-1 min-w-0 break-words">{i.nombre}</span>
               <input type="number" value={i.cantidad} onChange={(e) => setItems((xs) => xs.map((x, j) => j === idx ? { ...x, cantidad: Number(e.target.value) } : x))} className="w-16 rounded border border-black/15 px-2 py-1 text-right" />
               <input type="number" value={i.costoUnitario} onChange={(e) => setItems((xs) => xs.map((x, j) => j === idx ? { ...x, costoUnitario: Number(e.target.value) } : x))} className="w-24 rounded border border-black/15 px-2 py-1 text-right" placeholder="costo" />
-              <button onClick={() => setItems((xs) => xs.filter((_, j) => j !== idx))} className="text-black/40 hover:text-[#B82D25]">✕</button>
+              <button onClick={() => setItems((xs) => xs.filter((_, j) => j !== idx))} className="text-tinta/60 hover:text-marca">✕</button>
             </div>
           ))}
-          {aviso && <p className="text-xs text-[#B82D25]">{aviso}</p>}
+          {aviso && <p className="text-xs text-marca">{aviso}</p>}
           <textarea value={f.observaciones ?? ''} onChange={(e) => set('observaciones', e.target.value)} placeholder="Observaciones (opcional)" rows={2} className={input} />
-          {items.length > 0 && <p className="text-right text-sm font-semibold text-black">Total OC: {pesos(items.reduce((s: number, i: any) => s + Number(i.cantidad) * Number(i.costoUnitario || 0), 0))}</p>}
-          <p className="text-[11px] text-black/40">La OC queda <b>pendiente de aprobación del dueño</b>.</p>
+          {items.length > 0 && <p className="text-right text-sm font-semibold text-tinta">Total OC: {pesos(items.reduce((s: number, i: any) => s + Number(i.cantidad) * Number(i.costoUnitario || 0), 0))}</p>}
+          <p className="text-xs text-tinta/60">La OC queda <b>pendiente de aprobación del dueño</b>.</p>
           <Acciones cerrar={cerrar} onOk={() => post({ accion: 'crearOC', proveedorId: f.proveedorId, sucursalId: f.sucursalId, items, fechaEntrega: f.fechaEntrega, condicionPago: f.condicionPago, vencimientoPago: f.vencimientoPago, observaciones: f.observaciones })} okLabel="Crear OC" disabled={!f.proveedorId || !f.sucursalId || !items.length} />
         </>)}
 
         {t === 'rechazar' && (<>
-          <h2 className="font-semibold text-black text-lg">Rechazar OC #{modal.oc.numero}</h2>
-          <p className="text-sm text-black/60">{modal.oc.proveedor?.razon_social} · {pesos(modal.oc.total)}. Se cancela la orden y queda registrado el motivo.</p>
+          <h2 className="font-semibold text-tinta text-lg">Rechazar OC #{modal.oc.numero}</h2>
+          <p className="text-sm text-tinta/70">{modal.oc.proveedor?.razon_social} · {pesos(modal.oc.total)}. Se cancela la orden y queda registrado el motivo.</p>
           <input value={f.motivo ?? ''} onChange={(e) => set('motivo', e.target.value)} placeholder="Motivo del rechazo (opcional)" className={input} autoFocus />
-          {aviso && <p className="text-xs text-[#B82D25]">{aviso}</p>}
+          {aviso && <p className="text-xs text-marca">{aviso}</p>}
           <Acciones cerrar={cerrar} onOk={() => post({ accion: 'rechazar', id: modal.oc.id, motivo: f.motivo })} okLabel="Rechazar orden" />
         </>)}
 
         {t === 'rechazarOP' && (<>
-          <h2 className="font-semibold text-black text-lg">Rechazar OP #{modal.op.numero}</h2>
-          <p className="text-sm text-black/60">{modal.op.proveedor?.razon_social} · {pesos(modal.op.total)}. Las facturas vuelven a quedar pendientes.</p>
+          <h2 className="font-semibold text-tinta text-lg">Rechazar OP #{modal.op.numero}</h2>
+          <p className="text-sm text-tinta/70">{modal.op.proveedor?.razon_social} · {pesos(modal.op.total)}. Las facturas vuelven a quedar pendientes.</p>
           <input value={f.motivo ?? ''} onChange={(e) => set('motivo', e.target.value)} placeholder="Motivo del rechazo (opcional)" className={input} autoFocus />
-          {aviso && <p className="text-xs text-[#B82D25]">{aviso}</p>}
+          {aviso && <p className="text-xs text-marca">{aviso}</p>}
           <Acciones cerrar={cerrar} onOk={() => post({ accion: 'rechazarOP', id: modal.op.id, motivo: f.motivo })} okLabel="Rechazar OP" />
         </>)}
 
         {t === 'recibir' && (<>
-          <h2 className="font-semibold text-black text-lg">Recibir OC #{modal.oc.numero}</h2>
-          <p className="text-xs text-black/50">Ingresá lo que llegó de cada ítem. Al recibir se fija el costo de la compra y se calcula el precio de venta con el % de remarcación. Si cargás vencimiento, nace el lote para la vigilancia de vencimientos.</p>
-          <div className="flex items-center gap-2 text-[10px] uppercase tracking-wide text-black/40">
+          <h2 className="font-semibold text-tinta text-lg">Recibir OC #{modal.oc.numero}</h2>
+          <p className="text-xs text-tinta/60">Ingresá lo que llegó de cada ítem. Al recibir se fija el costo de la compra y se calcula el precio de venta con el % de remarcación. Si cargás vencimiento, nace el lote para la vigilancia de vencimientos.</p>
+          <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-tinta/60">
             <span className="flex-1">Producto</span><span className="w-20 text-right">Llegó</span><span className="w-24 text-right">Remarc. %</span><span className="w-36">Vencimiento</span>
           </div>
           {(modal.oc.items ?? []).map((it: any, idx: number) => {
@@ -1485,7 +1485,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
             const info = remarca[sku];
             return (
               <div key={idx} className="flex items-center gap-2 text-sm">
-                <span className="flex-1 min-w-0 break-words">{it.producto?.nombre} <span className="text-xs text-black/40">(pend. {pend})</span></span>
+                <span className="flex-1 min-w-0 break-words">{it.producto?.nombre} <span className="text-xs text-tinta/60">(pend. {pend})</span></span>
                 <input type="number" value={recibido[sku] ?? ''} onChange={(e) => setRecibido((r) => ({ ...r, [sku]: e.target.value }))} placeholder={String(pend)} className="w-20 rounded border border-black/15 px-2 py-1 text-right" />
                 <span className="w-24">
                   <input
@@ -1494,7 +1494,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                     onChange={(e) => setMargenPorSku((m) => ({ ...m, [sku]: e.target.value }))}
                     placeholder={info?.margenRubro != null ? String(info.margenRubro) : 'rubro'}
                     title={info?.margenPct != null ? `La última vez se remarcó ${info.margenPct}%` : 'Sin remarcación previa: se usa la del rubro'}
-                    className={`w-full rounded border px-2 py-1 text-right ${info?.margenPct != null ? 'border-[#B82D25]/40 bg-[#B82D25]/5' : 'border-black/15'}`}
+                    className={`w-full rounded border px-2 py-1 text-right ${info?.margenPct != null ? 'border-marca/40 bg-marca-suave' : 'border-black/15'}`}
                   />
                   <AvisoMargen sku={sku} />
                 </span>
@@ -1502,18 +1502,18 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
               </div>
             );
           })}
-          <div className="flex items-center gap-2 text-sm pt-2 mt-1 border-t border-black/10">
-            <span className="flex-1 text-black/60">% de remarcación <span className="text-xs text-black/40">(vacío = usa el del rubro)</span></span>
+          <div className="flex items-center gap-2 text-sm pt-2 mt-1 border-t border-black/[0.06]">
+            <span className="flex-1 text-tinta/70">% de remarcación <span className="text-xs text-tinta/60">(vacío = usa el del rubro)</span></span>
             <input type="number" value={f.margenPct ?? ''} onChange={(e) => set('margenPct', e.target.value)} placeholder="rubro" className="w-20 rounded border border-black/15 px-2 py-1 text-right" />
-            <span className="text-black/40 text-xs">%</span>
+            <span className="text-tinta/60 text-xs">%</span>
           </div>
-          {aviso && <p className="text-xs text-[#B82D25]">{aviso}</p>}
+          {aviso && <p className="text-xs text-marca">{aviso}</p>}
           <Acciones cerrar={cerrar} okLabel="Registrar recepción" onOk={() => post({ accion: 'recibir', id: modal.oc.id, margenPct: f.margenPct ? Number(f.margenPct) : undefined, items: (modal.oc.items ?? []).map((it: any) => ({ sku: it.producto?.sku, cantidad: Number(recibido[it.producto?.sku] ?? (Number(it.cantidad) - Number(it.cantidad_recibida ?? 0))), vencimiento: vencs[it.producto?.sku] || undefined, margenPct: margenPorSku[it.producto?.sku] ? Number(margenPorSku[it.producto?.sku]) : undefined, fijarMargen: !!fijarSku[it.producto?.sku] })).filter((x: any) => x.cantidad > 0) })} />
         </>)}
 
         {t === 'entradaDirecta' && (<>
-          <h2 className="font-semibold text-black text-lg">Entrada directa de mercadería</h2>
-          <p className="text-xs text-black/50">Llegó mercadería <b>sin orden de compra previa</b> (reparto, compra de oportunidad). Genera la OC retroactiva con su remito, suma stock, fija costo y recalcula el precio de venta — todo trazable.</p>
+          <h2 className="font-semibold text-tinta text-lg">Entrada directa de mercadería</h2>
+          <p className="text-xs text-tinta/60">Llegó mercadería <b>sin orden de compra previa</b> (reparto, compra de oportunidad). Genera la OC retroactiva con su remito, suma stock, fija costo y recalcula el precio de venta — todo trazable.</p>
           <select className={input + ' bg-white'} value={f.proveedorId ?? ''} onChange={(e) => set('proveedorId', e.target.value)}>
             <option value="">Proveedor…</option>{proveedores.map((p: any) => <option key={p.id} value={p.id}>{p.razon_social}</option>)}
           </select>
@@ -1525,12 +1525,12 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
           </div>
           <div className="relative">
             <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Agregar producto…" className={input} />
-            {sug.length > 0 && <div className="absolute z-10 mt-1 w-full rounded-lg bg-white shadow-lg border border-black/10 max-h-48 overflow-y-auto">
-              {sug.map((p: any) => <button key={p.sku} onClick={() => { setItems((xs) => [...xs, { sku: p.sku, nombre: p.nombre, cantidad: 1, costo: p.costo ?? 0, vencimiento: '' }]); setBusca(''); setSug([]); }} className="w-full text-left px-3 py-2 text-sm hover:bg-[#F0EBE2] border-b border-black/5 last:border-0">{p.nombre} <span className="text-xs text-black/40">{p.sku}</span></button>)}
+            {sug.length > 0 && <div className="absolute z-10 mt-1 w-full rounded-xl bg-white shadow-flotante border border-black/[0.06] max-h-48 overflow-y-auto">
+              {sug.map((p: any) => <button key={p.sku} onClick={() => { setItems((xs) => [...xs, { sku: p.sku, nombre: p.nombre, cantidad: 1, costo: p.costo ?? 0, vencimiento: '' }]); setBusca(''); setSug([]); }} className="w-full text-left px-3 py-2 text-sm hover:bg-crema-claro border-b border-black/[0.06] last:border-0">{p.nombre} <span className="text-xs text-tinta/60">{p.sku}</span></button>)}
             </div>}
           </div>
           {items.length > 0 && (
-            <div className="flex items-center gap-2 text-[10px] uppercase tracking-wide text-black/40 pr-6">
+            <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-tinta/60 pr-6">
               <span className="flex-1">Producto</span><span className="w-16 text-right">Cant.</span><span className="w-24 text-right">Costo $</span><span className="w-24 text-right">Remarc. %</span><span className="w-36">Vencimiento</span>
             </div>
           )}
@@ -1542,7 +1542,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
               <div key={idx} className="flex items-center gap-2 text-sm">
                 <span className="flex-1 min-w-0 break-words">
                   {i.nombre}
-                  {venta != null && <span className="ml-2 text-xs text-black/40">vende {pesos(venta)}</span>}
+                  {venta != null && <span className="ml-2 text-xs text-tinta/60">vende {pesos(venta)}</span>}
                 </span>
                 <input type="number" value={i.cantidad} onChange={(e) => setItems((xs) => xs.map((x, j) => j === idx ? { ...x, cantidad: Number(e.target.value) } : x))} className="w-16 rounded border border-black/15 px-2 py-1 text-right" />
                 <input type="number" value={i.costo} onChange={(e) => setItems((xs) => xs.map((x, j) => j === idx ? { ...x, costo: Number(e.target.value) } : x))} className="w-24 rounded border border-black/15 px-2 py-1 text-right" placeholder="costo" />
@@ -1553,31 +1553,31 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                     onChange={(e) => setMargenPorSku((m) => ({ ...m, [i.sku]: e.target.value }))}
                     placeholder={info?.margenRubro != null ? String(info.margenRubro) : 'rubro'}
                     title={info?.margenPct != null ? `La última vez se remarcó ${info.margenPct}%` : 'Sin remarcación previa: se usa la del rubro'}
-                    className={`w-full rounded border px-2 py-1 text-right ${info?.margenPct != null ? 'border-[#B82D25]/40 bg-[#B82D25]/5' : 'border-black/15'}`}
+                    className={`w-full rounded border px-2 py-1 text-right ${info?.margenPct != null ? 'border-marca/40 bg-marca-suave' : 'border-black/15'}`}
                   />
                   <AvisoMargen sku={i.sku} />
                 </span>
                 <input type="date" value={i.vencimiento ?? ''} onChange={(e) => setItems((xs) => xs.map((x, j) => j === idx ? { ...x, vencimiento: e.target.value } : x))} className="w-36 rounded border border-black/15 px-2 py-1 text-xs" />
-                <button onClick={() => setItems((xs) => xs.filter((_, j) => j !== idx))} className="text-black/40 hover:text-[#B82D25]">✕</button>
+                <button onClick={() => setItems((xs) => xs.filter((_, j) => j !== idx))} className="text-tinta/60 hover:text-marca">✕</button>
               </div>
             );
           })}
-          <div className="flex items-center gap-2 text-sm pt-2 mt-1 border-t border-black/10">
-            <span className="flex-1 text-black/60">% de remarcación <span className="text-xs text-black/40">(vacío = usa el del rubro)</span></span>
+          <div className="flex items-center gap-2 text-sm pt-2 mt-1 border-t border-black/[0.06]">
+            <span className="flex-1 text-tinta/70">% de remarcación <span className="text-xs text-tinta/60">(vacío = usa el del rubro)</span></span>
             <input type="number" value={f.margenPct ?? ''} onChange={(e) => set('margenPct', e.target.value)} placeholder="rubro" className="w-20 rounded border border-black/15 px-2 py-1 text-right" />
-            <span className="text-black/40 text-xs">%</span>
+            <span className="text-tinta/60 text-xs">%</span>
           </div>
-          {items.length > 0 && <p className="text-right text-sm font-semibold text-black">Total entrada: {pesos(items.reduce((s: number, i: any) => s + Number(i.cantidad) * Number(i.costo || 0), 0))}</p>}
-          {aviso && <p className="text-xs text-[#B82D25]">{aviso}</p>}
+          {items.length > 0 && <p className="text-right text-sm font-semibold text-tinta">Total entrada: {pesos(items.reduce((s: number, i: any) => s + Number(i.cantidad) * Number(i.costo || 0), 0))}</p>}
+          {aviso && <p className="text-xs text-marca">{aviso}</p>}
           <Acciones cerrar={cerrar} okLabel="Registrar entrada" disabled={!f.proveedorId || !f.sucursalId || !items.length} onOk={() => post({ accion: 'entradaDirecta', proveedorId: f.proveedorId, sucursalId: f.sucursalId, numeroRemito: f.numeroRemito, margenPct: f.margenPct ? Number(f.margenPct) : undefined, items: items.map((i: any) => ({ sku: i.sku, cantidad: Number(i.cantidad), costo: Number(i.costo) || 0, vencimiento: i.vencimiento || undefined, margenPct: margenPorSku[i.sku] ? Number(margenPorSku[i.sku]) : undefined, fijarMargen: !!fijarSku[i.sku] })) })} />
         </>)}
 
         {t === 'entradaFoto' && (<>
-          <h2 className="font-semibold text-black text-lg">📷 Entrada por foto</h2>
+          <h2 className="font-semibold text-tinta text-lg">📷 Entrada por foto</h2>
           {!foto ? (
             <>
-              <p className="text-xs text-black/50">Sacale una foto a la factura o remito que llegó con la mercadería (o subí el PDF, hasta 32MB). La IA (Sonnet 5) lee proveedor, renglones e impuestos y, si algo no se entiende, te lo pregunta para que se lo aclares. Vos revisás y confirmás: la entrada suma stock, fija costo/precio y registra la factura con su desglose fiscal.</p>
-              <label className="flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-black/20 px-4 py-10 text-sm text-black/60 cursor-pointer hover:border-[#B82D25] hover:text-[#B82D25]">
+              <p className="text-xs text-tinta/60">Sacale una foto a la factura o remito que llegó con la mercadería (o subí el PDF, hasta 32MB). La IA (Sonnet 5) lee proveedor, renglones e impuestos y, si algo no se entiende, te lo pregunta para que se lo aclares. Vos revisás y confirmás: la entrada suma stock, fija costo/precio y registra la factura con su desglose fiscal.</p>
+              <label className="flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-black/15 px-4 py-10 text-sm text-tinta/70 cursor-pointer hover:border-marca hover:text-marca">
                 <span className="text-3xl">📷</span>
                 {leyendoFoto
                   ? `Leyendo el comprobante… ${segundosLeyendo > 4 ? `(${segundosLeyendo}s — podés esperar, no se corta)` : ''}`
@@ -1585,38 +1585,38 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                 <input type="file" accept="image/*,.pdf" multiple className="hidden" disabled={leyendoFoto}
                   onChange={(e) => { const fs = Array.from(e.target.files ?? []); if (fs.length === 1) leerFoto(fs[0]); else if (fs.length > 1) leerVarias(fs); e.target.value = ''; }} />
               </label>
-              <p className="text-[11px] text-black/45">Podés elegir hasta <b>5</b> fotos a la vez: se leen todas juntas y aparecen en la <b>bandeja de lectura</b> cuando están listas. Consejo: sacá la foto desde acá (cámara) o mandala por WhatsApp como <i>documento</i> — comprimida por WhatsApp se lee más lento y peor.</p>
-              {avisoFoto && <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">{avisoFoto}</p>}
+              <p className="text-xs text-tinta/60">Podés elegir hasta <b>5</b> fotos a la vez: se leen todas juntas y aparecen en la <b>bandeja de lectura</b> cuando están listas. Consejo: sacá la foto desde acá (cámara) o mandala por WhatsApp como <i>documento</i> — comprimida por WhatsApp se lee más lento y peor.</p>
+              {avisoFoto && <p className="rounded-xl bg-atencion-suave px-3 py-2 text-xs text-atencion">{avisoFoto}</p>}
               <Acciones cerrar={cerrar} okLabel="—" disabled onOk={() => {}} />
             </>
           ) : foto.error ? (
             <>
-              <p className="rounded-lg bg-[#B82D25]/10 px-3 py-2 text-sm text-[#932A1F]">{foto.error}</p>
+              <p className="rounded-xl bg-marca-suave px-3 py-2 text-sm text-marca-hondo">{foto.error}</p>
               <Acciones cerrar={cerrar} okLabel="Reintentar" onOk={() => setFoto(null)} />
             </>
           ) : (
             <div className={verOriginal && fotoUrl ? 'grid md:grid-cols-[minmax(0,380px)_1fr] gap-4 items-start' : ''}>
               {/* documento original, para comparar contra lo que leyó la IA */}
               {verOriginal && fotoUrl && (
-                <div className="md:sticky md:top-0 rounded-xl border border-black/10 bg-[#F0EBE2]/30 overflow-hidden">
-                  <div className="flex items-center justify-between gap-1 px-2 py-1.5 border-b border-black/10 bg-white/70">
-                    <span className="text-[11px] font-medium text-black/60">Documento original</span>
+                <div className="md:sticky md:top-0 rounded-xl border border-black/[0.06] bg-crema-claro overflow-hidden">
+                  <div className="flex items-center justify-between gap-1 px-2 py-1.5 border-b border-black/[0.06] bg-white/70">
+                    <span className="text-xs font-medium text-tinta/70">Documento original</span>
                     <div className="flex items-center gap-1">
                       {!fotoEsPdf && (<>
-                        <button type="button" onClick={() => setFotoZoom((z) => Math.max(1, Math.round((z - 0.25) * 100) / 100))} title="Alejar" className="h-6 w-6 rounded text-black/60 hover:bg-black/5 text-sm">−</button>
-                        <button type="button" onClick={() => setFotoZoom((z) => Math.min(4, Math.round((z + 0.25) * 100) / 100))} title="Acercar" className="h-6 w-6 rounded text-black/60 hover:bg-black/5 text-sm">+</button>
-                        <button type="button" onClick={() => setFotoRot((r) => (r + 90) % 360)} title="Rotar" className="h-6 w-6 rounded text-black/60 hover:bg-black/5 text-sm">⟳</button>
+                        <button type="button" onClick={() => setFotoZoom((z) => Math.max(1, Math.round((z - 0.25) * 100) / 100))} title="Alejar" className="h-6 w-6 rounded text-tinta/70 hover:bg-black/5 text-sm">−</button>
+                        <button type="button" onClick={() => setFotoZoom((z) => Math.min(4, Math.round((z + 0.25) * 100) / 100))} title="Acercar" className="h-6 w-6 rounded text-tinta/70 hover:bg-black/5 text-sm">+</button>
+                        <button type="button" onClick={() => setFotoRot((r) => (r + 90) % 360)} title="Rotar" className="h-6 w-6 rounded text-tinta/70 hover:bg-black/5 text-sm">⟳</button>
                         {(fotoZoom !== 1 || fotoRot !== 0) && (
-                          <button type="button" onClick={() => { setFotoZoom(1); setFotoRot(0); }} title="Restablecer" className="h-6 px-1.5 rounded text-black/60 hover:bg-black/5 text-[10px]">reset</button>
+                          <button type="button" onClick={() => { setFotoZoom(1); setFotoRot(0); }} title="Restablecer" className="h-6 px-1.5 rounded text-tinta/70 hover:bg-black/5 text-xs">reset</button>
                         )}
                       </>)}
-                      <button type="button" onClick={() => setVerOriginal(false)} title="Ocultar" className="h-6 w-6 rounded text-black/60 hover:bg-black/5 text-sm">✕</button>
+                      <button type="button" onClick={() => setVerOriginal(false)} title="Ocultar" className="h-6 w-6 rounded text-tinta/70 hover:bg-black/5 text-sm">✕</button>
                     </div>
                   </div>
                   {fotoEsPdf ? (
                     <iframe src={fotoUrl} title="Documento original" className="w-full h-[70vh] bg-white" />
                   ) : (
-                    <div className="h-[70vh] overflow-auto bg-[#111] flex items-center justify-center">
+                    <div className="h-[70vh] overflow-auto bg-tinta flex items-center justify-center">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
                         src={fotoUrl}
@@ -1629,13 +1629,13 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                 </div>
               )}
               {!verOriginal && fotoUrl && (
-                <button type="button" onClick={() => setVerOriginal(true)} className="text-xs text-black/50 underline hover:text-[#B82D25]">
+                <button type="button" onClick={() => setVerOriginal(true)} className="text-xs text-tinta/60 underline hover:text-marca">
                   📄 Mostrar el documento original para comparar
                 </button>
               )}
               <div className="space-y-3">
               {/* encabezado detectado */}
-              <div className="rounded-lg bg-[#F0EBE2]/70 px-3 py-2 text-xs text-black/70">
+              <div className="rounded-xl bg-crema-claro px-3 py-2 text-xs text-tinta/70">
                 <p><b>{foto.comprobante?.tipo?.replace('_', ' ').toUpperCase() ?? 'COMPROBANTE'}</b> {foto.comprobante?.numero ?? ''} · {foto.comprobante?.fecha ?? 's/f'} {foto.comprobante?.condicionVenta ? `· ${foto.comprobante.condicionVenta}` : ''}</p>
                 <p>{foto.proveedor?.detectado?.nombre ?? 'Proveedor no detectado'} {foto.proveedor?.detectado?.cuit ? `· CUIT ${foto.proveedor.detectado.cuit}` : ''} {foto.proveedor?.match ? '· ✓ en el sistema' : '· ⚠ no está en el sistema'}</p>
               </div>
@@ -1654,28 +1654,28 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                 sumaRenglones={sumaRenglones}
               />
 
-              {foto.items?.some((i: any) => i.interpretado?.faltantes?.includes('importe')) && <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">No se pudieron leer todos los importes de los renglones. Verificá cantidades, precios y totales contra el original; esos importes no se dieron por comprobados.</p>}
+              {foto.items?.some((i: any) => i.interpretado?.faltantes?.includes('importe')) && <p className="rounded-xl bg-atencion-suave p-3 text-sm text-atencion">No se pudieron leer todos los importes de los renglones. Verificá cantidades, precios y totales contra el original; esos importes no se dieron por comprobados.</p>}
               {/* La IA pregunta lo que no entendió; aclarás y vuelve a leer teniéndolo en cuenta */}
-              {lecturaIncompleta && <p role="alert" className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">Hay renglones con cantidad o precio incompletos o inválidos. Revisá el comprobante y completalos antes de registrar.</p>}
-              <div className={'rounded-lg px-3 py-2.5 space-y-2 border ' + (foto.dudas?.length ? 'border-amber-300 bg-amber-50' : 'border-black/10 bg-[#F0EBE2]/40')}>
+              {lecturaIncompleta && <p role="alert" className="rounded-xl bg-atencion-suave p-3 text-sm text-atencion">Hay renglones con cantidad o precio incompletos o inválidos. Revisá el comprobante y completalos antes de registrar.</p>}
+              <div className={'rounded-xl px-3 py-2.5 space-y-2 border ' + (foto.dudas?.length ? 'border-atencion/30 bg-atencion-suave' : 'border-black/[0.06] bg-crema-claro')}>
                 {foto.dudas?.length ? (
                   <>
-                    <p className="text-xs font-semibold text-amber-900">🤔 La IA tiene {foto.dudas.length === 1 ? 'una duda' : `${foto.dudas.length} dudas`} — mirá el papel y aclarale:</p>
-                    <ul className="list-disc pl-4 space-y-1 text-xs text-amber-900">
+                    <p className="text-xs font-semibold text-atencion">🤔 La IA tiene {foto.dudas.length === 1 ? 'una duda' : `${foto.dudas.length} dudas`} — mirá el papel y aclarale:</p>
+                    <ul className="list-disc pl-4 space-y-1 text-xs text-atencion">
                       {foto.dudas.map((d: any, i: number) => (
                         <li key={i}>{d.referencia ? <b>{d.referencia}: </b> : null}{d.pregunta}</li>
                       ))}
                     </ul>
                   </>
                 ) : (
-                  <p className="text-xs text-black/55">✓ La IA no tuvo dudas. Si ves algo mal, aclarale y volvé a leer.</p>
+                  <p className="text-xs text-tinta/70">✓ La IA no tuvo dudas. Si ves algo mal, aclarale y volvé a leer.</p>
                 )}
                 <textarea value={aclaraciones} onChange={(e) => setAclaraciones(e.target.value)} rows={2}
                   placeholder="Aclaraciones para la IA (ej: el renglón 3 dice 72, no 12; la percepción de IIBB es 4.850)…"
-                  className="w-full rounded border border-black/15 bg-white px-2 py-1.5 text-sm text-black outline-none focus:border-[#B82D25]" />
+                  className="w-full rounded border border-black/15 bg-white px-2 py-1.5 text-sm text-tinta outline-none focus:border-marca" />
                 <div className="mt-1 mb-1"><Dictado onTexto={(t) => setAclaraciones((v) => (v ? v + ' ' : '') + t)} /></div>
                 <button onClick={reLeerConAclaraciones} disabled={leyendoFoto || !aclaraciones.trim()}
-                  className="rounded-full bg-black px-4 py-1.5 text-xs font-semibold text-white hover:bg-[#B82D25] disabled:opacity-40">
+                  className="rounded-full bg-black px-4 py-1.5 text-xs font-semibold text-white hover:bg-marca disabled:opacity-40">
                   {leyendoFoto ? 'Releyendo…' : '↺ Volver a leer con mis aclaraciones'}
                 </button>
               </div>
@@ -1694,61 +1694,61 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                 <button
                   onClick={crearProveedorDetectado}
                   disabled={creandoProv}
-                  className="self-start rounded-full border border-[#B82D25] bg-[#B82D25]/5 px-4 py-1.5 text-xs font-semibold text-[#932A1F] hover:bg-[#B82D25]/10 disabled:opacity-50"
+                  className="self-start rounded-full border border-marca bg-marca-suave px-4 py-1.5 text-xs font-semibold text-marca-hondo hover:bg-marca-suave disabled:opacity-50"
                 >
                   {creandoProv ? 'Dando de alta…' : `+ Dar de alta "${foto.proveedor.detectado.nombre}"${foto.proveedor.detectado.cuit ? ` · CUIT ${foto.proveedor.detectado.cuit}` : ''}`}
                 </button>
               )}
-              {provAviso && <p className="text-xs text-[#B82D25]">{provAviso}</p>}
+              {provAviso && <p className="text-xs text-marca">{provAviso}</p>}
 
               {/* renglones: cada uno editable — vincular producto, cantidad, remarcación y precio */}
               <div className="@container">
-              <div className="hidden @min-[49rem]:grid grid-cols-[26px_minmax(11rem,1fr)_72px_290px_64px_92px] items-end gap-2 px-3 pt-1 text-[10px] uppercase tracking-[0.12em] text-black/40">
+              <div className="hidden @min-[49rem]:grid grid-cols-[26px_minmax(11rem,1fr)_72px_290px_64px_92px] items-end gap-2 px-3 pt-1 text-xs uppercase tracking-[0.12em] text-tinta/60">
                 <span /><span>Renglón del papel → producto en el sistema</span>
                 <span className="text-right">Cant.</span><span className="text-right">Costo papel → c/IVA → total</span>
                 <span className="text-right">Remar. %</span><span className="text-right">P. venta</span>
               </div>
               </div>
               {itemsCalc.map((i: any, idx: number) => (
-                <div key={idx} className={'rounded-xl border px-3 py-2.5 ' + (i.sugerido ? 'border-[#C9A96E] bg-[#FBF7EE]' : i.incluir ? 'border-black/[0.08] bg-white' : 'border-transparent bg-[#F0EBE2]/50')}>
+                <div key={idx} className={'rounded-xl border px-3 py-2.5 ' + (i.sugerido ? 'border-dorado bg-crema-claro' : i.incluir ? 'border-black/[0.06] bg-white' : 'border-transparent bg-crema-claro')}>
                   {i._esDescuento ? (
                     <div className={'flex items-start gap-2.5' + (i.noAplicar ? ' opacity-60' : '')}>
                       <span className="mt-0.5 w-4 text-center text-sm">🏷️</span>
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                          <span className="font-mono text-[12.5px] leading-snug text-[#141414]">{i.descripcion}</span>
-                          <span className="font-mono text-[11px] tabular-nums text-black/50">rebaja de <b className="text-black/70">{pesos(Math.abs(numImp(i.cantidad) * numImp(i.precio)) || Math.abs(numImp(i.importe)))}</b></span>
+                          <span className="font-mono text-sm leading-snug text-tinta">{i.descripcion}</span>
+                          <span className="font-mono text-xs tabular-nums text-tinta/60">rebaja de <b className="text-tinta/70">{pesos(Math.abs(numImp(i.cantidad) * numImp(i.precio)) || Math.abs(numImp(i.importe)))}</b></span>
                           {i.noAplicar ? <Sello>sin aplicar</Sello>
                             : sinAtribuir.some((x) => x.descripcion === i.descripcion) ? <Sello tono="ojo">sin destino</Sello>
                             : grupoDeDescuento.has(idx) ? <Sello tono="ok">repartida en {grupoDeDescuento.get(idx)!.n}</Sello>
                             : <Sello tono="ok">aplicada</Sello>}
                         </div>
-                        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-black/60">
+                        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-tinta/70">
                           {i.noAplicar ? (
                             <>La mercadería queda a precio de lista; lo pagado de menos se reparte en el costo general.
-                              <button onClick={() => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, noAplicar: false } : x))} className="text-black/45 underline hover:text-[#B82D25]">Aplicar de nuevo</button></>
+                              <button onClick={() => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, noAplicar: false } : x))} className="text-tinta/60 underline hover:text-marca">Aplicar de nuevo</button></>
                           ) : sinAtribuir.some((x) => x.descripcion === i.descripcion) ? (
-                            <span className="text-[#932A1F]">No se sabe a qué renglón corresponde{numImp(i.descuentoPct) > 0 ? ` (dice ${numImp(i.descuentoPct)}% y no cierra con ninguno)` : ''}: no se descontó de ningún costo. Si es de toda la factura, cargala en “Desc. del pie”.</span>
+                            <span className="text-marca-hondo">No se sabe a qué renglón corresponde{numImp(i.descuentoPct) > 0 ? ` (dice ${numImp(i.descuentoPct)}% y no cierra con ninguno)` : ''}: no se descontó de ningún costo. Si es de toda la factura, cargala en “Desc. del pie”.</span>
                           ) : grupoDeDescuento.has(idx) ? (
                             <>Se reparte entre los {grupoDeDescuento.get(idx)!.n} renglones de arriba{grupoDeDescuento.get(idx)!.pct ? ` (${grupoDeDescuento.get(idx)!.pct}%)` : ''}, proporcional a cada uno.
-                              <button onClick={() => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, noAplicar: true } : x))} className="rounded-full border border-black/20 px-2 py-0.5 text-[10.5px] text-black/60 hover:border-[#B82D25] hover:text-[#B82D25]">No aplicar</button></>
+                              <button onClick={() => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, noAplicar: true } : x))} className="rounded-full border border-black/15 px-2 py-0.5 text-xs text-tinta/70 hover:border-marca hover:text-marca">No aplicar</button></>
                           ) : (
                             <>Se descuenta del renglón que nombra.
-                              <button onClick={() => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, noAplicar: true } : x))} className="rounded-full border border-black/20 px-2 py-0.5 text-[10.5px] text-black/60 hover:border-[#B82D25] hover:text-[#B82D25]">No aplicar</button></>
+                              <button onClick={() => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, noAplicar: true } : x))} className="rounded-full border border-black/15 px-2 py-0.5 text-xs text-tinta/70 hover:border-marca hover:text-marca">No aplicar</button></>
                           )}
                         </div>
                       </div>
                     </div>
                   ) : (
                   <div className="flex items-start gap-2.5">
-                    <input type="checkbox" checked={i.incluir} disabled={i.sugerido} onChange={(e) => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, incluir: e.target.checked } : x))} className="mt-1 h-4 w-4 accent-[#B82D25]" />
+                    <input type="checkbox" checked={i.incluir} disabled={i.sugerido} onChange={(e) => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, incluir: e.target.checked } : x))} className="mt-1 h-4 w-4 accent-marca" />
                     <div className="@container min-w-0 flex-1 space-y-1.5">
                       {/* 1 · lo que dice el papel, tal cual, con sus sellos */}
                       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                        <span className="font-mono text-[12.5px] leading-snug text-[#141414]">{i.descripcion}</span>
-                        <span className="font-mono text-[11px] tabular-nums text-black/50">
+                        <span className="font-mono text-sm leading-snug text-tinta">{i.descripcion}</span>
+                        <span className="font-mono text-xs tabular-nums text-tinta/60">
                           {numImp(i.cantidad).toLocaleString('es-AR')} × {pesos(numImp(i.precio))}
-                          {i.importe != null && i.importe !== '' ? <> = <b className="text-black/70">{pesos(Math.abs(numImp(i.importe)))}</b></> : null}
+                          {i.importe != null && i.importe !== '' ? <> = <b className="text-tinta/70">{pesos(Math.abs(numImp(i.importe)))}</b></> : null}
                         </span>
                         {numImp(i.unidadesPorBulto) > 1 && <Sello tono="info">caja ×{Math.round(numImp(i.unidadesPorBulto))}</Sello>}
                         {numImp(i.bultoAplicado) > 1 && <Sello tono="info">×{Math.round(numImp(i.bultoAplicado))} → unidades</Sello>}
@@ -1764,10 +1764,10 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                             elige acá manda sobre lo impreso (la lectura pudo tomar mal el %). */}
                         {discriminaIva && numImp(i.cantidad) > 0 && alicDe(idx) != null && (
                           <label
-                            className={'ml-auto inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] ' +
-                              (origenAlic(idx) === 'elegida' ? 'border-[#141414] bg-[#141414] text-[#F0EBE2]'
-                                : ivaFactura?.estado === 'no_cierra' ? 'border-[#B82D25]/60 bg-[#B82D25]/5 text-[#932A1F]'
-                                : 'border-black/15 bg-white text-black/60')}
+                            className={'ml-auto inline-flex items-center gap-1 rounded-xl border px-1.5 py-0.5 text-xs ' +
+                              (origenAlic(idx) === 'elegida' ? 'border-tinta bg-tinta text-crema'
+                                : ivaFactura?.estado === 'no_cierra' ? 'border-marca/60 bg-marca-suave text-marca-hondo'
+                                : 'border-black/15 bg-white text-tinta/70')}
                             title={{ elegida: 'Alícuota elegida a mano', impresa: 'Alícuota impresa en la factura', catalogo: 'Alícuota del producto en el catálogo', general: 'La fila no imprime alícuota: se toma 21%' }[origenAlic(idx) ?? 'general'] + '. Cambiala si no es la correcta: se recalcula todo.'}
                           >
                             IVA
@@ -1776,7 +1776,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                               onChange={(e) => elegirAlicuota([idx], Number(e.target.value))}
                               className="bg-transparent font-semibold tabular-nums outline-none"
                             >
-                              {ALICUOTAS_IVA.map((a) => <option key={a} value={String(a)} className="text-black">{String(a).replace('.', ',')}%</option>)}
+                              {ALICUOTAS_IVA.map((a) => <option key={a} value={String(a)} className="text-tinta">{String(a).replace('.', ',')}%</option>)}
                             </select>
                             <span className="opacity-60">{{ elegida: 'a mano', impresa: 'factura', catalogo: 'catálogo', general: 'general' }[origenAlic(idx) ?? 'general']}</span>
                             {origenAlic(idx) === 'elegida' && (
@@ -1795,32 +1795,32 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                         <div className="col-span-full @min-[46rem]:col-span-1 min-w-0 text-xs leading-snug">
                           {i.sugerido && i.nombre ? (
                             <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                              <span className="text-[#6B5320]">¿Es <b className="text-[#141414]">{i.nombre}</b>?</span>
-                              <button onClick={() => confirmarSugerencia(idx)} className="rounded-full bg-[#141414] px-3 py-0.5 text-[11px] font-semibold text-[#F0EBE2] hover:bg-black/80">Sí, es este</button>
-                              <button onClick={() => rechazarSugerencia(idx)} className="rounded-full border border-black/20 px-3 py-0.5 text-[11px] text-black/70 hover:border-[#B82D25] hover:text-[#B82D25]">Buscar otro</button>
-                              {i.motivoIa && <span className="basis-full text-[10.5px] text-black/45">{String(i.motivoIa).replace(/\s*:\s*puede ser otro producto.*$/i, '').slice(0, 110)}</span>}
+                              <span className="text-dorado-hondo">¿Es <b className="text-tinta">{i.nombre}</b>?</span>
+                              <button onClick={() => confirmarSugerencia(idx)} className="rounded-full bg-tinta px-3 py-0.5 text-xs font-semibold text-crema hover:bg-black/80">Sí, es este</button>
+                              <button onClick={() => rechazarSugerencia(idx)} className="rounded-full border border-black/15 px-3 py-0.5 text-xs text-tinta/70 hover:border-marca hover:text-marca">Buscar otro</button>
+                              {i.motivoIa && <span className="basis-full text-xs text-tinta/60">{String(i.motivoIa).replace(/\s*:\s*puede ser otro producto.*$/i, '').slice(0, 110)}</span>}
                             </span>
                           ) : i.nombre ? (
                             <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                               {/* el nombre entero (baja de renglón si hace falta): es lo que se mira
                                   para confirmar que el vínculo es el correcto sin entrar a "cambiar" */}
-                              <span className="min-w-0 break-words text-emerald-800" title={i.nombre}>→ <b>{i.nombre}</b></span>
+                              <span className="min-w-0 break-words text-ok" title={i.nombre}>→ <b>{i.nombre}</b></span>
                               {i.variacionPct != null && (numImp(i.unidadesPorBulto) > 1 && Math.abs(i.variacionPct) > 300
-                                ? <span className="text-black/40">precio de caja vs. unidad</span>
-                                : <span className={Math.abs(i.variacionPct) > 25 ? 'text-[#932A1F]' : 'text-black/45'}>costo {i.variacionPct > 0 ? '+' : ''}{i.variacionPct}%</span>)}
-                              <button onClick={() => setVinculaIdx(idx)} className="text-black/40 underline hover:text-[#B82D25]">cambiar</button>
+                                ? <span className="text-tinta/60">precio de caja vs. unidad</span>
+                                : <span className={Math.abs(i.variacionPct) > 25 ? 'text-marca-hondo' : 'text-tinta/60'}>costo {i.variacionPct > 0 ? '+' : ''}{i.variacionPct}%</span>)}
+                              <button onClick={() => setVinculaIdx(idx)} className="text-tinta/60 underline hover:text-marca">cambiar</button>
                               {!i.porPeso && !medidaVariable(i) && !(numImp(i.bultoAplicado) > 1) && !(numImp(i.unidadesPorBulto) > 1) && !(numImp(i.envaseAplicado) > 1) && !(numImp(i.paqueteAplicado) > 0) && (
                                 <>
                                   <button
                                     onClick={() => void abrirPesoEdit(idx, i.sku)}
-                                    className="text-sky-800/70 underline hover:text-sky-900"
+                                    className="text-info/80 underline hover:text-info"
                                     title="La factura lo trae por unidad pero en stock va por kilo: cargá cuántos kilos vinieron"
                                   >
                                     ⚖️ es por peso
                                   </button>
                                   <button
                                     onClick={() => { setPesoEdit(null); setBultoEdit(bultoEdit?.idx === idx ? null : { idx, unidades: '' }); }}
-                                    className="text-sky-800/70 underline hover:text-sky-900"
+                                    className="text-info/80 underline hover:text-info"
                                     title="Cada unidad de la factura es una caja o display: cargá cuántas unidades trae"
                                   >
                                     📦 es por bulto
@@ -1828,7 +1828,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                                 </>
                               )}
                               {pesoEdit?.idx === idx && (
-                                <span className="basis-full flex flex-wrap items-center gap-1.5 rounded-md bg-sky-50 px-2 py-1.5 text-sky-900">
+                                <span className="basis-full flex flex-wrap items-center gap-1.5 rounded-xl bg-info-suave px-2 py-1.5 text-info">
                                   ¿Cuántos kilos vinieron?
                                   <input
                                     autoFocus type="number" step="0.001" min="0" inputMode="decimal"
@@ -1839,24 +1839,24 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                                       if (e.key === 'Escape') setPesoEdit(null);
                                     }}
                                     placeholder="kg"
-                                    className="w-20 rounded border border-sky-300 bg-white px-1.5 py-0.5 text-right tabular-nums text-[#141414] outline-none focus:border-sky-600"
+                                    className="w-20 rounded border border-info/30 bg-white px-1.5 py-0.5 text-right tabular-nums text-tinta outline-none focus:border-info"
                                   />
                                   {Number(pesoEdit.kg) > 0 && (
-                                    <span className="text-sky-800/80">
+                                    <span className="text-info/80">
                                       → {pesos((Math.abs(numImp(i.importe)) || numImp(i.cantidad) * Math.abs(numImp(i.precio))) / Number(pesoEdit.kg))} el kilo
                                     </span>
                                   )}
                                   <button
                                     disabled={!(Number(pesoEdit.kg) > 0)}
                                     onClick={() => void confirmarPeso(idx, i.sku, i.nombre)}
-                                    className="rounded-full bg-sky-700 px-2.5 py-0.5 text-[10.5px] font-semibold text-white hover:bg-sky-800 disabled:opacity-40"
+                                    className="rounded-full bg-sky-700 px-2.5 py-0.5 text-xs font-semibold text-white hover:bg-sky-800 disabled:opacity-40"
                                   >
                                     Pasar a kilos
                                   </button>
-                                  <button onClick={() => setPesoEdit(null)} className="text-sky-900/50 underline">cancelar</button>
+                                  <button onClick={() => setPesoEdit(null)} className="text-info/80 underline">cancelar</button>
                                   <span className="basis-full">
                                     {pesoEdit.enCatalogo === true ? (
-                                      <span className="text-sky-800/70">✓ En el catálogo ya se vende por peso.</span>
+                                      <span className="text-info/80">✓ En el catálogo ya se vende por peso.</span>
                                     ) : (
                                       <label className="inline-flex items-center gap-1.5">
                                         <input
@@ -1874,7 +1874,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                                 </span>
                               )}
                               {bultoEdit?.idx === idx && (
-                                <span className="basis-full flex flex-wrap items-center gap-1.5 rounded-md bg-sky-50 px-2 py-1.5 text-sky-900">
+                                <span className="basis-full flex flex-wrap items-center gap-1.5 rounded-xl bg-info-suave px-2 py-1.5 text-info">
                                   ¿Cuántas unidades trae cada caja?
                                   <input
                                     autoFocus type="number" step="1" min="2" inputMode="numeric"
@@ -1885,51 +1885,51 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                                       if (e.key === 'Escape') setBultoEdit(null);
                                     }}
                                     placeholder="u."
-                                    className="w-16 rounded border border-sky-300 bg-white px-1.5 py-0.5 text-right tabular-nums text-[#141414] outline-none focus:border-sky-600"
+                                    className="w-16 rounded border border-info/30 bg-white px-1.5 py-0.5 text-right tabular-nums text-tinta outline-none focus:border-info"
                                   />
                                   {Number(bultoEdit.unidades) > 1 && (
-                                    <span className="text-sky-800/80">
+                                    <span className="text-info/80">
                                       → {numImp(i.cantidad) * Number(bultoEdit.unidades)} unidades a {pesos(numImp(i.precio) / Number(bultoEdit.unidades))} c/u
                                     </span>
                                   )}
                                   <button
                                     disabled={!(Number(bultoEdit.unidades) > 1)}
                                     onClick={() => { pasarABultoManual(idx, Number(bultoEdit.unidades)); setBultoEdit(null); }}
-                                    className="rounded-full bg-sky-700 px-2.5 py-0.5 text-[10.5px] font-semibold text-white hover:bg-sky-800 disabled:opacity-40"
+                                    className="rounded-full bg-sky-700 px-2.5 py-0.5 text-xs font-semibold text-white hover:bg-sky-800 disabled:opacity-40"
                                   >
                                     Pasar a unidades
                                   </button>
                                   {Number(bultoEdit.unidades) > 1 && Number.isInteger(numImp(i.cantidad) / Number(bultoEdit.unidades)) && (
                                     <span className="basis-full flex flex-wrap items-center gap-1.5">
-                                      <span className="text-sky-800/80">…o al revés, la factura trae unidades sueltas y en stock va la caja:
+                                      <span className="text-info/80">…o al revés, la factura trae unidades sueltas y en stock va la caja:
                                         {' '}{numImp(i.cantidad)} u. = <b>{numImp(i.cantidad) / Number(bultoEdit.unidades)} cajas</b> a {pesos(numImp(i.precio) * Number(bultoEdit.unidades))}</span>
                                       <button
                                         onClick={() => { armarEnvases(idx, Number(bultoEdit.unidades)); setBultoEdit(null); }}
-                                        className="rounded-full bg-[#141414] px-2.5 py-0.5 text-[10.5px] font-semibold text-[#F0EBE2] hover:bg-black/80"
+                                        className="rounded-full bg-tinta px-2.5 py-0.5 text-xs font-semibold text-crema hover:bg-black/80"
                                       >
                                         Armar cajas
                                       </button>
                                     </span>
                                   )}
-                                  <button onClick={() => setBultoEdit(null)} className="text-sky-900/50 underline">cancelar</button>
+                                  <button onClick={() => setBultoEdit(null)} className="text-info/80 underline">cancelar</button>
                                 </span>
                               )}
                               {avisoCatalogo?.idx === idx && (
-                                <span className={'basis-full ' + (avisoCatalogo.error ? 'text-[#932A1F]' : 'text-emerald-800')}>
+                                <span className={'basis-full ' + (avisoCatalogo.error ? 'text-marca-hondo' : 'text-ok')}>
                                   {avisoCatalogo.texto}
-                                  <button onClick={() => setAvisoCatalogo(null)} className="ml-2 text-black/40 underline">ok</button>
+                                  <button onClick={() => setAvisoCatalogo(null)} className="ml-2 text-tinta/60 underline">ok</button>
                                 </span>
                               )}
                             </span>
                           ) : (
                             <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                              {i.avisoMedida && <span className="basis-full text-[#932A1F]">Medida distinta ({i.avisoMedida}): es otro producto.</span>}
-                              <button onClick={() => setVinculaIdx(vinculaIdx === idx ? null : idx)} className="rounded-full bg-[#141414] px-3 py-0.5 text-[11px] font-semibold text-[#F0EBE2] hover:bg-black/80">Vincular producto</button>
-                              <button onClick={() => abrirAlta(idx, i)} className="rounded-full border border-[#B82D25]/50 px-3 py-0.5 text-[11px] font-medium text-[#932A1F] hover:bg-[#B82D25]/5">Dar de alta</button>
+                              {i.avisoMedida && <span className="basis-full text-marca-hondo">Medida distinta ({i.avisoMedida}): es otro producto.</span>}
+                              <button onClick={() => setVinculaIdx(vinculaIdx === idx ? null : idx)} className="rounded-full bg-tinta px-3 py-0.5 text-xs font-semibold text-crema hover:bg-black/80">Vincular producto</button>
+                              <button onClick={() => abrirAlta(idx, i)} className="rounded-full border border-marca/50 px-3 py-0.5 text-xs font-medium text-marca-hondo hover:bg-marca-suave">Dar de alta</button>
                             </span>
                           )}
                         </div>
-                        <input type="number" step="any" min="0" value={i.cantidad} onChange={(e) => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, cantidad: Number(e.target.value) } : x))} className="w-full rounded-md border border-black/15 px-2 py-1 text-right text-sm tabular-nums text-[#141414] focus:border-black/50 outline-none" />
+                        <input type="number" step="any" min="0" value={i.cantidad} onChange={(e) => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, cantidad: Number(e.target.value) } : x))} className="w-full rounded-xl border border-black/15 px-2 py-1 text-right text-sm tabular-nums text-tinta focus:border-marca outline-none" />
                         {/* costo: el precio del papel (corregible) → el costo final que queda en stock, en la misma línea */}
                         <div className="col-span-1 flex flex-wrap items-center justify-end gap-1.5 tabular-nums">
                           <input
@@ -1940,15 +1940,15 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                               return { ...x, precio: p, importe: numImp(x.cantidad) * p, cantidadCorregida: null, bultoConsumido: null };
                             }))}
                             title="Precio unitario tal como está en el papel (sin IVA): corregilo si la lectura falló"
-                            className="w-[78px] rounded border border-black/10 px-1 py-0.5 text-right text-[12px] text-[#141414] focus:border-black/40 outline-none"
+                            className="w-[78px] rounded border border-black/[0.06] px-1 py-0.5 text-right text-xs text-tinta focus:border-marca outline-none"
                           />
                           {Math.abs(costoFinal(i, idx) - precioEfectivo(i)) > 0.5 ? (
                             <span
                               className="whitespace-nowrap text-right leading-none"
                               title={desgloseCosto(i, idx)}
                             >
-                              <span className="text-black/35">→</span> <b className="text-sm font-semibold text-[#141414]">{pesos(costoFinal(i, idx))}</b>
-                              <span className="ml-1 text-[9.5px] uppercase tracking-wide text-black/45">c/IVA</span>
+                              <span className="text-tinta/60">→</span> <b className="text-sm font-semibold text-tinta">{pesos(costoFinal(i, idx))}</b>
+                              <span className="ml-1 text-xs uppercase tracking-wide text-tinta/60">c/IVA</span>
                             </span>
                           ) : null}
                           {numImp(i.cantidad) > 0 && (
@@ -1956,13 +1956,13 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                               className="whitespace-nowrap text-right leading-none"
                               title={`Total del renglón: ${numImp(i.cantidad).toLocaleString('es-AR')} × ${pesos(costoFinal(i))} (costo final por unidad)`}
                             >
-                              <span className="text-black/35">×{numImp(i.cantidad).toLocaleString('es-AR')} =</span>{' '}
-                              <b className="text-sm font-semibold text-[#141414]">{pesos(numImp(i.cantidad) * costoFinal(i))}</b>
+                              <span className="text-tinta/60">×{numImp(i.cantidad).toLocaleString('es-AR')} =</span>{' '}
+                              <b className="text-sm font-semibold text-tinta">{pesos(numImp(i.cantidad) * costoFinal(i))}</b>
                             </span>
                           )}
                         </div>
                         <div>
-                          <input type="number" value={i.margenPct} placeholder="rubro" onChange={(e) => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, margenPct: e.target.value === '' ? '' : Number(e.target.value) } : x))} className="w-full rounded-md border border-black/15 px-2 py-1 text-right text-sm tabular-nums text-[#141414] focus:border-black/50 outline-none" />
+                          <input type="number" value={i.margenPct} placeholder="rubro" onChange={(e) => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, margenPct: e.target.value === '' ? '' : Number(e.target.value) } : x))} className="w-full rounded-xl border border-black/15 px-2 py-1 text-right text-sm tabular-nums text-tinta focus:border-marca outline-none" />
                           <AvisoMargen
                             sku={i.sku}
                             habitualExterno={i.match?.margenPct ?? null}
@@ -1970,60 +1970,60 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                             poner={(v) => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, margenPct: v === '' ? '' : Number(v) } : x))}
                           />
                         </div>
-                        <div className="text-right text-sm font-semibold tabular-nums text-[#141414]">
-                          {i.margenPct === '' || i.margenPct == null ? <span className="text-xs font-normal text-black/40">s/ rubro</span> : pesos(precioVenta(i))}
+                        <div className="text-right text-sm font-semibold tabular-nums text-tinta">
+                          {i.margenPct === '' || i.margenPct == null ? <span className="text-xs font-normal text-tinta/60">s/ rubro</span> : pesos(precioVenta(i))}
                         </div>
                       </div>
 
                       {/* 3 · una nota por situación, una línea y un solo botón */}
                       {(numImp(i._descuento) < 0 || numImp(i.cantidadCorregida) > 0 || correccionRenglon(i)?.seguro === false || esSinCargo(i) || numImp(i.bonificacionPct) > 0 || numImp(i.unidadesPorBulto) > 1 || numImp(i.bultoAplicado) > 1 || numImp(i.envaseAplicado) > 1 || numImp(i.paqueteAplicado) > 0 || !!sugerirConversion(i) || i.importeConIvaLeido != null || medidaVariable(i) || (i.porPeso && numImp(i.cantidad) > 0 && !medidaVariable(i))) && (
-                      <div className="flex flex-col gap-1 text-[11px] leading-snug">
+                      <div className="flex flex-col gap-1 text-xs leading-snug">
                         {numImp(i._descuento) < 0 && (descuentoDesmedido(i) ? (
-                          <span className="rounded-md bg-[#B82D25]/5 px-2 py-1 text-[#932A1F]">⚠ El descuento ({pesos(Math.abs(numImp(i._descuento)))}) supera al renglón ({pesos(Math.abs(baseUnitaria(i) * (numImp(i.cantidad) || 1)))}): no se aplicó. Suele ser de varios renglones o de toda la factura; revisalo antes de registrar.</span>
+                          <span className="rounded-xl bg-marca-suave px-2 py-1 text-marca-hondo">⚠ El descuento ({pesos(Math.abs(numImp(i._descuento)))}) supera al renglón ({pesos(Math.abs(baseUnitaria(i) * (numImp(i.cantidad) || 1)))}): no se aplicó. Suele ser de varios renglones o de toda la factura; revisalo antes de registrar.</span>
                         ) : (
-                          <span className="rounded-md bg-emerald-50 px-2 py-1 text-emerald-900">🏷️ Con el descuento: {pesos(baseUnitaria(i))} − {pesos(Math.abs(numImp(i._descuento)) / (numImp(i.cantidad) || 1))} = <b>{pesos(precioEfectivo(i))}</b> por unidad.</span>
+                          <span className="rounded-xl bg-ok-suave px-2 py-1 text-ok">🏷️ Con el descuento: {pesos(baseUnitaria(i))} − {pesos(Math.abs(numImp(i._descuento)) / (numImp(i.cantidad) || 1))} = <b>{pesos(precioEfectivo(i))}</b> por unidad.</span>
                         ))}
                         {numImp(i.cantidadCorregida) > 0 && (
-                          <span className="rounded-md bg-emerald-50 px-2 py-1 text-emerald-900">✔ Cantidad corregida: {numImp(i.bultoConsumido) > 1
+                          <span className="rounded-xl bg-ok-suave px-2 py-1 text-ok">✔ Cantidad corregida: {numImp(i.bultoConsumido) > 1
                             ? <>el papel decía <b>{numImp(i.cantidadCorregida)} bulto(s) de {numImp(i.bultoConsumido)}</b> al precio por unidad; el importe ({pesos(Math.abs(numImp(i.importe)))}) da <b>{numImp(i.cantidad)}</b> unidades.</>
                             : <>se leyó {numImp(i.cantidadCorregida)}, pero el importe ({pesos(Math.abs(numImp(i.importe)))}) ÷ el precio da exactamente <b>{numImp(i.cantidad)}</b>.</>}
-                            <button onClick={() => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, cantidad: numImp(x.cantidadCorregida), cantidadCorregida: null, unidadesPorBulto: numImp(x.bultoConsumido) > 1 ? numImp(x.bultoConsumido) : x.unidadesPorBulto, bultoConsumido: null } : x))} className="ml-2 text-black/45 underline hover:text-[#B82D25]">deshacer</button>
+                            <button onClick={() => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, cantidad: numImp(x.cantidadCorregida), cantidadCorregida: null, unidadesPorBulto: numImp(x.bultoConsumido) > 1 ? numImp(x.bultoConsumido) : x.unidadesPorBulto, bultoConsumido: null } : x))} className="ml-2 text-tinta/60 underline hover:text-marca">deshacer</button>
                           </span>
                         )}
                         {correccionRenglon(i)?.seguro === false && (
-                          <span className="rounded-md bg-amber-50 px-2 py-1 text-amber-900">🔎 {numImp(i.cantidad)} × {pesos(numImp(i.precio))} no da el importe del papel ({pesos(Math.abs(numImp(i.importe)))}). ¿El precio es <b>{pesos(correccionRenglon(i)!.valor)}</b>?
-                            <button onClick={() => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, precio: correccionRenglon(i)!.valor } : x))} className="ml-2 rounded-full bg-amber-700 px-2.5 py-0.5 text-[10.5px] font-semibold text-white hover:bg-amber-800">Usar {pesos(correccionRenglon(i)!.valor)}</button>
+                          <span className="rounded-xl bg-atencion-suave px-2 py-1 text-atencion">🔎 {numImp(i.cantidad)} × {pesos(numImp(i.precio))} no da el importe del papel ({pesos(Math.abs(numImp(i.importe)))}). ¿El precio es <b>{pesos(correccionRenglon(i)!.valor)}</b>?
+                            <button onClick={() => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, precio: correccionRenglon(i)!.valor } : x))} className="ml-2 rounded-full bg-amber-700 px-2.5 py-0.5 text-xs font-semibold text-white hover:bg-amber-800">Usar {pesos(correccionRenglon(i)!.valor)}</button>
                           </span>
                         )}
                         {esSinCargo(i) ? (
-                          <span className="rounded-md bg-emerald-50 px-2 py-1 text-emerald-900">🎁 Sin cargo: entran {numImp(i.cantidad)} que no se pagan. Con el PIN del dueño (abajo) se reparten en el grupo del mismo precio; sin él, solo abaratan este producto.</span>
+                          <span className="rounded-xl bg-ok-suave px-2 py-1 text-ok">🎁 Sin cargo: entran {numImp(i.cantidad)} que no se pagan. Con el PIN del dueño (abajo) se reparten en el grupo del mismo precio; sin él, solo abaratan este producto.</span>
                         ) : numImp(i.bonificacionPct) > 0 ? (
-                          <span className="rounded-md bg-emerald-50 px-2 py-1 text-emerald-900">🎁 Bonificado {numImp(i.bonificacionPct)}%: se paga {pesos(precioEfectivo(i))} de los {pesos(numImp(i.precio))} de lista.</span>
+                          <span className="rounded-xl bg-ok-suave px-2 py-1 text-ok">🎁 Bonificado {numImp(i.bonificacionPct)}%: se paga {pesos(precioEfectivo(i))} de los {pesos(numImp(i.precio))} de lista.</span>
                         ) : null}
                         {numImp(i.unidadesPorBulto) > 1 && (
-                          <span className="rounded-md bg-sky-50 px-2 py-1 text-sky-900">📦 Viene por caja de <b>{Math.round(numImp(i.unidadesPorBulto))}</b>: {numImp(i.cantidad)} caja(s) = <b>{numImp(i.cantidad) * Math.round(numImp(i.unidadesPorBulto))}</b> unidades a <b>{pesos(numImp(i.precio) / Math.round(numImp(i.unidadesPorBulto)))}</b>.
-                            <button onClick={() => pasarAUnidad(idx)} className="ml-2 rounded-full bg-sky-700 px-2.5 py-0.5 text-[10.5px] font-semibold text-white hover:bg-sky-800">Pasar a unidades</button>
-                            <span className="ml-1 text-sky-800/60">(dejalo así solo si el producto es la caja)</span>
+                          <span className="rounded-xl bg-info-suave px-2 py-1 text-info">📦 Viene por caja de <b>{Math.round(numImp(i.unidadesPorBulto))}</b>: {numImp(i.cantidad)} caja(s) = <b>{numImp(i.cantidad) * Math.round(numImp(i.unidadesPorBulto))}</b> unidades a <b>{pesos(numImp(i.precio) / Math.round(numImp(i.unidadesPorBulto)))}</b>.
+                            <button onClick={() => pasarAUnidad(idx)} className="ml-2 rounded-full bg-sky-700 px-2.5 py-0.5 text-xs font-semibold text-white hover:bg-sky-800">Pasar a unidades</button>
+                            <span className="ml-1 text-info/80">(dejalo así solo si el producto es la caja)</span>
                           </span>
                         )}
                         {i.importeConIvaLeido != null && (
-                          <span className="text-sky-800">🧾 El importe leído ({pesos(Math.abs(numImp(i.importeConIvaLeido)))}) traía el IVA adentro: se toma el neto <b>{pesos(Math.abs(numImp(i.importe)))}</b>.</span>
+                          <span className="text-info">🧾 El importe leído ({pesos(Math.abs(numImp(i.importeConIvaLeido)))}) traía el IVA adentro: se toma el neto <b>{pesos(Math.abs(numImp(i.importe)))}</b>.</span>
                         )}
                         {numImp(i.envaseAplicado) > 1 && (
-                          <span className="text-sky-800">📦 La factura trae unidades sueltas: {numImp(i.cantidad) * Math.round(numImp(i.envaseAplicado))} u. = <b>{numImp(i.cantidad)} caja(s) de {Math.round(numImp(i.envaseAplicado))}</b> a {pesos(numImp(i.precio))} cada una.
-                            <button onClick={() => deshacerEnvases(idx)} className="ml-2 text-black/45 underline hover:text-[#B82D25]">deshacer</button>
+                          <span className="text-info">📦 La factura trae unidades sueltas: {numImp(i.cantidad) * Math.round(numImp(i.envaseAplicado))} u. = <b>{numImp(i.cantidad)} caja(s) de {Math.round(numImp(i.envaseAplicado))}</b> a {pesos(numImp(i.precio))} cada una.
+                            <button onClick={() => deshacerEnvases(idx)} className="ml-2 text-tinta/60 underline hover:text-marca">deshacer</button>
                           </span>
                         )}
                         {numImp(i.paqueteAplicado) > 0 && (
-                          <span className="text-sky-800">📦 Facturado por kilo: entran <b>{numImp(i.cantidad)} paquete(s) de {Math.round(numImp(i.paqueteAplicado))} g</b> a {pesos(numImp(i.precio))} cada uno.
-                            <button onClick={() => deshacerPaquetes(idx)} className="ml-2 text-black/45 underline hover:text-[#B82D25]">deshacer</button>
+                          <span className="text-info">📦 Facturado por kilo: entran <b>{numImp(i.cantidad)} paquete(s) de {Math.round(numImp(i.paqueteAplicado))} g</b> a {pesos(numImp(i.precio))} cada uno.
+                            <button onClick={() => deshacerPaquetes(idx)} className="ml-2 text-tinta/60 underline hover:text-marca">deshacer</button>
                           </span>
                         )}
                         {(() => {
                           const c = sugerirConversion(i);
                           if (!c) return null;
                           return (
-                            <span className="rounded-md bg-sky-50 px-2 py-1 text-sky-900">
+                            <span className="rounded-xl bg-info-suave px-2 py-1 text-info">
                               📦 {c.tipo === 'kilo_a_paquete'
                                 ? <>La factura cobra por kilo y el producto viene en paquetes de <b>{c.factor} g</b>: ¿son <b>{c.cantidadNueva} paquetes</b> a {pesos(c.precioNuevo)} cada uno?</>
                                 : <>El producto es la caja de <b>{c.factor}</b> y vienen {numImp(i.cantidad)} u.: ¿son <b>{c.cantidadNueva} cajas</b> a {pesos(c.precioNuevo)}?</>}
@@ -2031,33 +2031,33 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                                 onClick={() => (c.tipo === 'kilo_a_paquete'
                                   ? pasarAPaquetes(idx, c.factor, c.cantidadNueva, c.precioNuevo)
                                   : armarEnvases(idx, c.factor))}
-                                className="ml-2 rounded-full bg-sky-700 px-2.5 py-0.5 text-[10.5px] font-semibold text-white hover:bg-sky-800"
+                                className="ml-2 rounded-full bg-sky-700 px-2.5 py-0.5 text-xs font-semibold text-white hover:bg-sky-800"
                               >
                                 {c.tipo === 'kilo_a_paquete' ? 'Pasar a paquetes' : 'Armar cajas'}
                               </button>
-                              <span className="ml-1 text-sky-800/60">(dejalo así si ya viene en la unidad de stock)</span>
+                              <span className="ml-1 text-info/80">(dejalo así si ya viene en la unidad de stock)</span>
                             </span>
                           );
                         })()}
                         {numImp(i.envaseAplicado) > 1 && (
-                          <span className="text-sky-800">📦 La factura trae unidades sueltas: {numImp(i.cantidad) * Math.round(numImp(i.envaseAplicado))} u. = <b>{numImp(i.cantidad)} caja(s) de {Math.round(numImp(i.envaseAplicado))}</b> a {pesos(numImp(i.precio))} cada una.
-                            <button onClick={() => deshacerEnvases(idx)} className="ml-2 text-black/45 underline hover:text-[#B82D25]">deshacer</button>
+                          <span className="text-info">📦 La factura trae unidades sueltas: {numImp(i.cantidad) * Math.round(numImp(i.envaseAplicado))} u. = <b>{numImp(i.cantidad)} caja(s) de {Math.round(numImp(i.envaseAplicado))}</b> a {pesos(numImp(i.precio))} cada una.
+                            <button onClick={() => deshacerEnvases(idx)} className="ml-2 text-tinta/60 underline hover:text-marca">deshacer</button>
                           </span>
                         )}
                         {numImp(i.bultoAplicado) > 1 && (
-                          <span className="text-sky-800">📦 Convertido a unidades (caja de {Math.round(numImp(i.bultoAplicado))}).
-                            <button onClick={() => volverABulto(idx)} className="ml-2 text-black/45 underline hover:text-[#B82D25]">deshacer</button>
+                          <span className="text-info">📦 Convertido a unidades (caja de {Math.round(numImp(i.bultoAplicado))}).
+                            <button onClick={() => volverABulto(idx)} className="ml-2 text-tinta/60 underline hover:text-marca">deshacer</button>
                           </span>
                         )}
                         {medidaVariable(i) && (
-                          <span className="rounded-md bg-sky-50 px-2 py-1 text-sky-900">⚖️ Se factura por peso: el importe ({pesos(Math.abs(numImp(i.importe)))}) a {pesos(numImp(i.precio))} el kilo da <b>{pesoDelImporte(i).toFixed(3).replace('.', ',')} kg</b>, pero entra como {numImp(i.cantidad)} unidad(es).
-                            <button onClick={() => pasarAPeso(idx)} className="ml-2 rounded-full bg-sky-700 px-2.5 py-0.5 text-[10.5px] font-semibold text-white hover:bg-sky-800">Pasar a kilos</button>
-                            <span className="ml-1 text-sky-800/60">(dejalo así solo si en stock va la horma entera)</span>
+                          <span className="rounded-xl bg-info-suave px-2 py-1 text-info">⚖️ Se factura por peso: el importe ({pesos(Math.abs(numImp(i.importe)))}) a {pesos(numImp(i.precio))} el kilo da <b>{pesoDelImporte(i).toFixed(3).replace('.', ',')} kg</b>, pero entra como {numImp(i.cantidad)} unidad(es).
+                            <button onClick={() => pasarAPeso(idx)} className="ml-2 rounded-full bg-sky-700 px-2.5 py-0.5 text-xs font-semibold text-white hover:bg-sky-800">Pasar a kilos</button>
+                            <span className="ml-1 text-info/80">(dejalo así solo si en stock va la horma entera)</span>
                           </span>
                         )}
                         {i.porPeso && numImp(i.cantidad) > 0 && !medidaVariable(i) && (
-                          <span className="text-sky-800">⚖️ Por peso: {numImp(i.cantidad).toLocaleString('es-AR')} kg a {pesos(numImp(i.precio))} el kilo.
-                            <button onClick={() => deshacerPeso(idx)} className="ml-2 text-black/45 underline hover:text-[#B82D25]">deshacer</button>
+                          <span className="text-info">⚖️ Por peso: {numImp(i.cantidad).toLocaleString('es-AR')} kg a {pesos(numImp(i.precio))} el kilo.
+                            <button onClick={() => deshacerPeso(idx)} className="ml-2 text-tinta/60 underline hover:text-marca">deshacer</button>
                           </span>
                         )}
                       </div>
@@ -2073,28 +2073,28 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                       {/* El vínculo puede estar mal y el producto correcto no existir todavía
                           (té Marolio vinculado al paté Marolio, 15/9/2026): el alta tiene que
                           estar acá también, no solo en los renglones sin vincular. */}
-                      <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px]">
-                        <span className="text-black/45">¿No está en el catálogo?</span>
-                        <button onClick={() => abrirAlta(idx, i)} className="rounded-full border border-[#B82D25]/50 px-3 py-0.5 font-medium text-[#932A1F] hover:bg-[#B82D25]/5">Dar de alta un producto nuevo</button>
+                      <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
+                        <span className="text-tinta/60">¿No está en el catálogo?</span>
+                        <button onClick={() => abrirAlta(idx, i)} className="rounded-full border border-marca/50 px-3 py-0.5 font-medium text-marca-hondo hover:bg-marca-suave">Dar de alta un producto nuevo</button>
                         {i.sku && (
                           <button
                             onClick={() => { setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, sku: '', nombre: null, variacionPct: null, sugerido: false, motivoIa: null, incluir: false, alicuotaCatalogo: null } : x)); setVinculaIdx(null); }}
-                            className="text-black/45 underline hover:text-[#B82D25]"
+                            className="text-tinta/60 underline hover:text-marca"
                           >
                             Quitar el vínculo
                           </button>
                         )}
-                        <button onClick={() => setVinculaIdx(null)} className="ml-auto text-black/40 underline">cerrar</button>
+                        <button onClick={() => setVinculaIdx(null)} className="ml-auto text-tinta/60 underline">cerrar</button>
                       </div>
                       {vinculaSug.length > 0 && (
-                        <div className="absolute z-20 mt-1 w-full rounded-lg bg-white shadow-lg border border-black/10 max-h-60 overflow-y-auto">
+                        <div className="absolute z-20 mt-1 w-full rounded-xl bg-white shadow-flotante border border-black/[0.06] max-h-60 overflow-y-auto">
                           {vinculaSug.map((p: any) => (
-                            <button key={p.sku} onClick={() => vincularProducto(idx, p)} className="w-full text-left px-3 py-2 hover:bg-[#F0EBE2] border-b border-black/5 last:border-0">
+                            <button key={p.sku} onClick={() => vincularProducto(idx, p)} className="w-full text-left px-3 py-2 hover:bg-crema-claro border-b border-black/[0.06] last:border-0">
                               <div className="flex items-center justify-between gap-2">
-                                <span className="text-sm text-black min-w-0 break-words">{p.nombre}{p.marca ? <span className="text-black/40"> · {p.marca}</span> : null}</span>
-                                {p.precio != null && <span className="shrink-0 text-xs font-medium text-emerald-700">{pesos(p.precio)}</span>}
+                                <span className="text-sm text-tinta min-w-0 break-words">{p.nombre}{p.marca ? <span className="text-tinta/60"> · {p.marca}</span> : null}</span>
+                                {p.precio != null && <span className="shrink-0 text-xs font-medium text-ok">{pesos(p.precio)}</span>}
                               </div>
-                              <div className="text-[10px] text-black/40">{p.sku}{p.categoria ? ` · ${p.categoria}` : ''}</div>
+                              <div className="text-xs text-tinta/60">{p.sku}{p.categoria ? ` · ${p.categoria}` : ''}</div>
                             </button>
                           ))}
                         </div>
@@ -2104,9 +2104,9 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
 
                   {/* alta ahí mismo: el producto no existe todavía en el catálogo */}
                   {altaIdx === idx && (
-                    <div className="mt-2 ml-6 rounded-lg border border-[#B82D25]/30 bg-[#B82D25]/5 p-3 space-y-2">
-                      <p className="text-xs font-semibold text-black">Dar de alta este producto</p>
-                      <p className="text-[11px] text-black/50 -mt-1">
+                    <div className="mt-2 ml-6 rounded-xl border border-marca/30 bg-marca-suave p-3 space-y-2">
+                      <p className="text-xs font-semibold text-tinta">Dar de alta este producto</p>
+                      <p className="text-xs text-tinta/60 -mt-1">
                         Queda creado y vinculado a este renglón. El costo sale de la factura ({pesos(costoFinal(i))}) y se guarda contra este proveedor, así la próxima factura lo reconoce sola.
                       </p>
                       <input autoFocus value={altaForm.nombre} onChange={(e) => setAltaForm((x: any) => ({ ...x, nombre: e.target.value }))} placeholder="Nombre del producto" className={input} />
@@ -2116,17 +2116,17 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                         <input value={altaForm.marca} onChange={(e) => setAltaForm((x: any) => ({ ...x, marca: e.target.value }))} placeholder="Marca" className={input} />
                         <input value={altaForm.codigoBarras} onChange={(e) => setAltaForm((x: any) => ({ ...x, codigoBarras: e.target.value }))} placeholder="Código de barras" className={input + ' font-mono'} />
                       </div>
-                      {altaError && <p className="text-xs text-[#B82D25]">{altaError}</p>}
+                      {altaError && <p className="text-xs text-marca">{altaError}</p>}
                       <div className="flex items-center justify-between">
-                        <a href="/productos/nuevo" target="_blank" rel="noreferrer" className="text-[11px] text-black/45 underline">
+                        <a href="/productos/nuevo" target="_blank" rel="noreferrer" className="text-xs text-tinta/60 underline">
                           Cargar la ficha completa (se abre aparte)
                         </a>
                         <span className="flex gap-2">
-                          <button onClick={() => setAltaIdx(null)} className="text-xs text-black/50 px-2">Cancelar</button>
+                          <button onClick={() => setAltaIdx(null)} className="text-xs text-tinta/60 px-2">Cancelar</button>
                           <button
                             onClick={() => crearDesdeFactura(idx, i)}
                             disabled={creandoProd || !altaForm.nombre.trim()}
-                            className="rounded-full bg-[#B82D25] text-white text-xs font-medium px-4 py-1.5 disabled:opacity-50"
+                            className="rounded-full bg-marca text-white text-xs font-medium px-4 py-1.5 disabled:opacity-50"
                           >
                             {creandoProd ? 'Creando…' : 'Crear y vincular'}
                           </button>
@@ -2137,55 +2137,55 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                 </div>
               ))}
               {fotoItems.some((i) => i.incluir && !i.sku) && (
-                <p className="text-xs text-[#932A1F]">Hay renglones tildados sin producto asignado: vinculalos o destildalos.</p>
+                <p className="text-xs text-marca-hondo">Hay renglones tildados sin producto asignado: vinculalos o destildalos.</p>
               )}
               {fotoItems.some((i) => i.sugerido) && (
-                <p className="text-xs text-amber-800">💡 La IA sugirió {fotoItems.filter((i) => i.sugerido).length} vínculo(s): confirmá “¿es este?” en los renglones amarillos para incluirlos.</p>
+                <p className="text-xs text-atencion">💡 La IA sugirió {fotoItems.filter((i) => i.sugerido).length} vínculo(s): confirmá “¿es este?” en los renglones amarillos para incluirlos.</p>
               )}
-              <p className="text-[11px] text-black/45">Al confirmar, cada vínculo y su remarcación quedan guardados: la próxima compra de este proveedor los toma solos.</p>
+              <p className="text-xs text-tinta/60">Al confirmar, cada vínculo y su remarcación quedan guardados: la próxima compra de este proveedor los toma solos.</p>
 
-              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-black items-center">
+              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-tinta items-center">
                 {/* Con datos fiscales el costo se reconcilia solo (prorrateo); el checkbox
                     "Sumar IVA" queda solo para remitos sin pie. */}
                 {!hayDatosFiscales && foto.comprobante?.tipo === 'factura_a' && (
-                  <label className="flex items-center gap-1.5"><input type="checkbox" checked={sumarIva} onChange={(e) => setSumarIva(e.target.checked)} className="accent-[#B82D25]" /> Sumar IVA al costo (precios netos)</label>
+                  <label className="flex items-center gap-1.5"><input type="checkbox" checked={sumarIva} onChange={(e) => setSumarIva(e.target.checked)} className="accent-marca" /> Sumar IVA al costo (precios netos)</label>
                 )}
                 {hayDatosFiscales && (
                   <label className="flex items-center gap-1.5" title="Percepciones de IVA e IIBB adentro del costo">
-                    <input type="checkbox" checked={percepcionesAlCosto} onChange={(e) => setPercepcionesAlCosto(e.target.checked)} className="accent-[#B82D25]" />
+                    <input type="checkbox" checked={percepcionesAlCosto} onChange={(e) => setPercepcionesAlCosto(e.target.checked)} className="accent-marca" />
                     Percepciones al costo{percepciones > 0 ? ` (${pesos(percepciones)})` : ''}
                   </label>
                 )}
-                <label className="flex items-center gap-1.5"><input type="checkbox" checked={pagada} onChange={(e) => setPagada(e.target.checked)} className="accent-[#B82D25]" /> Pagada (contado)</label>
-                <label className="flex items-center gap-1.5" title="Se aplica a todos los renglones de la factura">% remarcación general <input type="number" value={f.margenPct ?? ''} onChange={(e) => aplicarRemarcacionGeneral(e.target.value)} placeholder="a todos" className="w-16 rounded border border-black/15 px-1.5 py-0.5 text-right text-black" /></label>
+                <label className="flex items-center gap-1.5"><input type="checkbox" checked={pagada} onChange={(e) => setPagada(e.target.checked)} className="accent-marca" /> Pagada (contado)</label>
+                <label className="flex items-center gap-1.5" title="Se aplica a todos los renglones de la factura">% remarcación general <input type="number" value={f.margenPct ?? ''} onChange={(e) => aplicarRemarcacionGeneral(e.target.value)} placeholder="a todos" className="w-16 rounded border border-black/15 px-1.5 py-0.5 text-right text-tinta" /></label>
               </div>
 
               {/* Reconciliación del costo vs la mercadería de la factura */}
-              <div className={'rounded-lg px-3 py-2 text-xs ' + (excedeMerc || excedeTotal ? 'bg-[#B82D25]/10 border border-[#B82D25] text-[#932A1F]' : subCosteo ? 'bg-amber-50 border border-amber-300 text-amber-900' : 'bg-[#F0EBE2]/50 text-black/70')}>
+              <div className={'rounded-xl px-3 py-2 text-xs ' + (excedeMerc || excedeTotal ? 'bg-marca-suave border border-marca text-marca-hondo' : subCosteo ? 'bg-atencion-suave border border-atencion/30 text-atencion' : 'bg-crema-claro text-tinta/70')}>
                 <p>Costo a stock (renglones tildados): <b>{pesos(sumaCostos)}</b>{valorConIva != null && <> · Mercadería c/IVA: <b>{pesos(valorConIva)}</b></>}{totalDoc != null && <> · Total factura: <b>{pesos(totalDoc)}</b></>}</p>
                 {/* De dónde sale el costo de cada renglón, escrito. Sin esto, la
                     única forma de saber si falta un impuesto es sacar la cuenta
                     a mano y desconfiar del sistema. */}
                 {hayDatosFiscales && netoDoc != null && netoDoc > 0 && (
-                  <div className="mt-1.5 flex flex-wrap gap-1.5 text-[11px]">
-                    <span className="rounded bg-white px-2 py-0.5 text-black/70">Neto <b className="text-black">{pesos(netoDoc)}</b></span>
-                    {ivaDoc != null && <span className="rounded bg-white px-2 py-0.5 text-black/70">+ IVA <b className="text-black">{pesos(ivaDoc)}</b> ({(ivaDoc / netoDoc * 100).toFixed(2).replace('.', ',')}%)</span>}
-                    {percIvaDoc > 0 && <span className={'rounded px-2 py-0.5 ' + (percepcionesAlCosto ? 'bg-white text-black/70' : 'bg-white/40 text-black/35 line-through')}>+ Percepción IVA <b>{pesos(percIvaDoc)}</b> ({(percIvaDoc / netoDoc * 100).toFixed(2).replace('.', ',')}%)</span>}
-                    {percIibbDoc > 0 && <span className={'rounded px-2 py-0.5 ' + (percepcionesAlCosto ? 'bg-white text-black/70' : 'bg-white/40 text-black/35 line-through')}>+ Percepción IIBB <b>{pesos(percIibbDoc)}</b> ({(percIibbDoc / netoDoc * 100).toFixed(2).replace('.', ',')}%)</span>}
-                    {impIntDoc > 0 && <span className="rounded bg-white px-2 py-0.5 text-black/70">+ Internos <b className="text-black">{pesos(impIntDoc)}</b></span>}
-                    {descuentoGlobalDoc > 0 && <span className="rounded bg-white px-2 py-0.5 text-black/70">Descuento del pie <b className="text-black">{pesos(descuentoGlobalDoc)}</b></span>}
-                    {totalDoc != null && <span className="rounded bg-[#141414] px-2 py-0.5 text-[#F0EBE2]">= Total <b>{pesos(totalDoc)}</b></span>}
+                  <div className="mt-1.5 flex flex-wrap gap-1.5 text-xs">
+                    <span className="rounded bg-white px-2 py-0.5 text-tinta/70">Neto <b className="text-tinta">{pesos(netoDoc)}</b></span>
+                    {ivaDoc != null && <span className="rounded bg-white px-2 py-0.5 text-tinta/70">+ IVA <b className="text-tinta">{pesos(ivaDoc)}</b> ({(ivaDoc / netoDoc * 100).toFixed(2).replace('.', ',')}%)</span>}
+                    {percIvaDoc > 0 && <span className={'rounded px-2 py-0.5 ' + (percepcionesAlCosto ? 'bg-white text-tinta/70' : 'bg-white/40 text-tinta/60 line-through')}>+ Percepción IVA <b>{pesos(percIvaDoc)}</b> ({(percIvaDoc / netoDoc * 100).toFixed(2).replace('.', ',')}%)</span>}
+                    {percIibbDoc > 0 && <span className={'rounded px-2 py-0.5 ' + (percepcionesAlCosto ? 'bg-white text-tinta/70' : 'bg-white/40 text-tinta/60 line-through')}>+ Percepción IIBB <b>{pesos(percIibbDoc)}</b> ({(percIibbDoc / netoDoc * 100).toFixed(2).replace('.', ',')}%)</span>}
+                    {impIntDoc > 0 && <span className="rounded bg-white px-2 py-0.5 text-tinta/70">+ Internos <b className="text-tinta">{pesos(impIntDoc)}</b></span>}
+                    {descuentoGlobalDoc > 0 && <span className="rounded bg-white px-2 py-0.5 text-tinta/70">Descuento del pie <b className="text-tinta">{pesos(descuentoGlobalDoc)}</b></span>}
+                    {totalDoc != null && <span className="rounded bg-tinta px-2 py-0.5 text-crema">= Total <b>{pesos(totalDoc)}</b></span>}
                   </div>
                 )}
                 {ivaFactura?.estado === 'cierra' && (
-                  <p className="mt-1 text-emerald-900">
+                  <p className="mt-1 text-ok">
                     ✓ <b>IVA verificado:</b> cada renglón con su alícuota suma {pesos(ivaFactura.ivaCalculado)}, igual al IVA del pie.
                     {ivaFactura.cargaComunPct > 0 && <> Percepciones{impIntDoc > 0 ? ' e internos' : ''}: +{(ivaFactura.cargaComunPct * 100).toFixed(2).replace('.', ',')}% sobre el neto de cada renglón.</>}
-                    {' '}<span className="text-black/50">Pasá el mouse por el precio c/IVA de un renglón para ver su cuenta.</span>
+                    {' '}<span className="text-tinta/60">Pasá el mouse por el precio c/IVA de un renglón para ver su cuenta.</span>
                   </p>
                 )}
                 {ivaFactura?.estado === 'no_cierra' && (
-                  <div className="mt-1.5 rounded-md border border-[#B82D25] bg-[#B82D25]/10 px-2.5 py-2 text-[#932A1F]">
+                  <div className="mt-1.5 rounded-xl border border-marca bg-marca-suave px-2.5 py-2 text-marca-hondo">
                     <p className="font-semibold">⚠ El IVA no cierra: los renglones suman {pesos(ivaFactura.ivaCalculado)} de IVA y el pie dice {pesos(ivaFactura.ivaPie)}
                       {' '}({ivaFactura.diferencia < 0 ? 'sobran' : 'faltan'} {pesos(Math.abs(ivaFactura.diferencia))}). No se puede registrar hasta que cierre.</p>
                     <p className="mt-0.5">
@@ -2197,12 +2197,12 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                     {ivaFactura.sugerencias.map((sug, n) => {
                       const nombres = sug.indices.map((k) => renglonesIva[k]?.i).map((it: any) => it?.nombre ?? it?.descripcion ?? '—');
                       return (
-                        <p key={n} className="mt-1.5 flex flex-wrap items-center gap-2 text-[#141414]">
+                        <p key={n} className="mt-1.5 flex flex-wrap items-center gap-2 text-tinta">
                           <span>💡 Cierra al centavo si <b>{nombres.join(' y ')}</b> {sug.indices.length > 1 ? 'van' : 'va'} al <b>{String(sug.alicuota).replace('.', ',')}%</b>.</span>
                           <button
                             type="button"
                             onClick={() => elegirAlicuota(sug.indices.map((k) => renglonesIva[k].idx), sug.alicuota)}
-                            className="rounded-full bg-[#141414] px-2.5 py-0.5 text-[10.5px] font-semibold text-[#F0EBE2] hover:bg-black/80"
+                            className="rounded-full bg-tinta px-2.5 py-0.5 text-xs font-semibold text-crema hover:bg-black/80"
                           >
                             Sí, aplicar {String(sug.alicuota).replace('.', ',')}%
                           </button>
@@ -2212,18 +2212,18 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                   </div>
                 )}
                 {ivaFactura?.estado === 'falta_pie' && (
-                  <p className="mt-1.5 rounded-md border border-[#B82D25] bg-[#B82D25]/10 px-2.5 py-2 font-semibold text-[#932A1F]">
+                  <p className="mt-1.5 rounded-xl border border-marca bg-marca-suave px-2.5 py-2 font-semibold text-marca-hondo">
                     ⚠ {ivaFactura.motivo}: sin eso no hay contra qué verificar el IVA. Cargalo en el pie (arriba) para poder registrar.
                   </p>
                 )}
                 {ivaFactura?.estado === 'alicuota_invalida' && (
-                  <p className="mt-1.5 rounded-md border border-[#B82D25] bg-[#B82D25]/10 px-2.5 py-2 font-semibold text-[#932A1F]">
+                  <p className="mt-1.5 rounded-xl border border-marca bg-marca-suave px-2.5 py-2 font-semibold text-marca-hondo">
                     ⚠ La lectura trajo una alícuota que no existe en {ivaFactura.indices.length === 1 ? 'un renglón' : `${ivaFactura.indices.length} renglones`}
                     {' '}({ivaFactura.indices.map((k) => renglonesIva[k]?.i?.descripcion).join(', ')}). Elegí la correcta en el recuadro IVA del renglón.
                   </p>
                 )}
                 {!ivaFactura && hayDatosFiscales && sumaRenglones > 0 && (
-                  <p className="mt-1 text-black/60">
+                  <p className="mt-1 text-tinta/70">
                     Comprobante sin IVA discriminado: el precio ya lo trae adentro. Cada renglón leído <b>× {factorRecon.toFixed(4).replace('.', ',')}</b>
                     {percepcionesAlCosto && percepciones > 0 ? ` (incluye percepciones ${pesos(percepciones)})` : ''}.
                   </p>
@@ -2232,7 +2232,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                   <p className="mt-1 font-semibold">⚠ El costo a stock supera el valor de la mercadería con IVA de la factura. Los precios ya incluyen impuestos: revisá el neto/IVA del pie. (No se puede registrar hasta corregirlo.)</p>
                 )}
                 {hayRegalos && !prorrateoAut && (
-                  <div className="mt-1 rounded bg-amber-50 px-2 py-1.5 text-amber-900">
+                  <div className="mt-1 rounded bg-atencion-suave px-2 py-1.5 text-atencion">
                     <p>🎁 <b>Esta factura trae mercadería regalada.</b> Por ahora el regalo solo abarata a su propio producto.
                     Para repartirlo entre <b>todo el grupo del mismo precio de lista</b> (el 10+1 baja el costo de todos los varietales),
                     lo autoriza el dueño con su PIN:</p>
@@ -2240,7 +2240,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                       <input
                         type="password" inputMode="numeric" value={pinProrrateo} placeholder="PIN del dueño"
                         onChange={(e) => setPinProrrateo(e.target.value)}
-                        className="w-32 rounded border border-black/15 px-2 py-1 text-sm text-black"
+                        className="w-32 rounded border border-black/15 px-2 py-1 text-sm text-tinta"
                       />
                       <button
                         onClick={async () => {
@@ -2258,21 +2258,21 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                           } catch { setErrorProrrateo('No se pudo verificar el PIN'); }
                         }}
                         disabled={!pinProrrateo.trim()}
-                        className="rounded-full bg-amber-700 px-3 py-1 text-[11px] font-semibold text-white disabled:opacity-40 hover:bg-amber-800">
+                        className="rounded-full bg-amber-700 px-3 py-1 text-xs font-semibold text-white disabled:opacity-40 hover:bg-amber-800">
                         Autorizar prorrateo
                       </button>
-                      {errorProrrateo && <span className="text-[11px] font-medium text-[#932A1F]">{errorProrrateo}</span>}
+                      {errorProrrateo && <span className="text-xs font-medium text-marca-hondo">{errorProrrateo}</span>}
                     </span>
                   </div>
                 )}
                 {hayRegalos && prorrateoAut && (
-                  <p className="mt-1 rounded bg-emerald-50 px-2 py-1.5 text-emerald-900">
+                  <p className="mt-1 rounded bg-ok-suave px-2 py-1.5 text-ok">
                     🎁 Prorrateo autorizado por <b>{prorrateoAut.nombre}</b>: el regalo se reparte entre todo el grupo del mismo precio.
-                    <button onClick={() => setProrrateoAut(null)} className="ml-2 text-black/45 underline hover:text-[#B82D25]">deshacer</button>
+                    <button onClick={() => setProrrateoAut(null)} className="ml-2 text-tinta/60 underline hover:text-marca">deshacer</button>
                   </p>
                 )}
                 {skusFusionados.length > 0 && (
-                  <div className="mt-1 rounded bg-emerald-50 px-2 py-1.5 text-emerald-900">
+                  <div className="mt-1 rounded bg-ok-suave px-2 py-1.5 text-ok">
                     <p>🎁 <b>{skusFusionados.length}</b> producto(s) con mercadería sin cargo o repetidos. {prorrateoAut ? 'El regalo se reparte entre todo el grupo del mismo precio:' : 'El regalo abarata solo a su propio producto (sin autorización de prorrateo):'}</p>
                     {skusFusionados.map((i) => (
                       <p key={i.sku} className="mt-0.5">
@@ -2280,33 +2280,33 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                         {i._gratis > 0
                           ? <><b>{i.cantidad - i._gratis}</b> pagadas + <b>{i._gratis}</b> sin cargo = <b>{i.cantidad}</b> a <b>{pesos(i.costoUnitario)}</b> c/u</>
                           : <><b>{i.cantidad}</b> en total a <b>{pesos(i.costoUnitario)}</b> c/u</>}
-                        <span className="text-emerald-800/70"> ({i._renglones} renglones)</span>
+                        <span className="text-ok/80"> ({i._renglones} renglones)</span>
                       </p>
                     ))}
                   </div>
                 )}
                 {sinAtribuir.length > 0 && (
-                  <p className="mt-1 rounded bg-[#B82D25]/10 px-2 py-1.5 font-medium text-[#932A1F]">
+                  <p className="mt-1 rounded bg-marca-suave px-2 py-1.5 font-medium text-marca-hondo">
                     ⚠ Hay <b>{sinAtribuir.length}</b> rebaja(s) por <b>{pesos(sinAtribuir.reduce((a, x) => a + x.importe, 0))}</b> que no se pudo saber
                     a qué renglón corresponden, así que no se aplicaron a ningún costo. Si son promociones de toda la factura, cargalas en
                     “Desc. del pie” y se reparten entre todos los renglones.
                   </p>
                 )}
                 {descuentosDesmedidos > 0 && (
-                  <p className="mt-1 rounded bg-[#B82D25]/10 px-2 py-1.5 font-medium text-[#932A1F]">
+                  <p className="mt-1 rounded bg-marca-suave px-2 py-1.5 font-medium text-marca-hondo">
                     ⚠ <b>{descuentosDesmedidos}</b> renglón/es tienen un descuento más grande que el renglón mismo, así que no se aplicó.
                     Suele pasar cuando la rebaja cubre varios renglones o toda la factura y no uno solo. Revisá a qué corresponde antes de registrar:
                     si se aplicara entero a un renglón, ese producto entraría con el costo por el piso.
                   </p>
                 )}
                 {bultosSinResolver > 0 && (
-                  <p className="mt-1 rounded bg-sky-50 px-2 py-1.5 text-sky-900">
+                  <p className="mt-1 rounded bg-info-suave px-2 py-1.5 text-info">
                     📦 <b>{bultosSinResolver}</b> renglón/es vienen por bulto y todavía entran como bulto. Si el producto vinculado es la unidad suelta,
                     tocá “Pasar a unidad” en cada uno: si no, el stock y el costo unitario quedan mal por el factor del pack.
                   </p>
                 )}
                 {columnaSospechosa && (
-                  <p className="mt-1 rounded bg-amber-50 px-2 py-1.5 text-amber-900">
+                  <p className="mt-1 rounded bg-atencion-suave px-2 py-1.5 text-atencion">
                     ⚠ Los renglones leídos suman <b>{pesos(sumaRenglones)}</b> y el pie espera <b>{pesos(netoEsperado ?? 0)}</b>
                     {descuentoGlobalDoc > 0 ? ` (neto ${pesos(netoDoc ?? 0)} + descuento del pie ${pesos(descuentoGlobalDoc)})` : ''}
                     {' '}({desvioRenglones! > 0 ? '+' : ''}{(desvioRenglones! * 100).toFixed(1).replace('.', ',')}%).
@@ -2318,21 +2318,21 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                   <p className="mt-1">El costo quedó por debajo de lo esperado para los renglones tildados; revisá que no falte ninguno.</p>
                 )}
                 {!hayDatosFiscales && (
-                  <p className="mt-1 text-black/50">Sin datos fiscales para verificar el costo: se toma el precio leído {sumarIva ? '+ IVA' : 'tal cual'}.</p>
+                  <p className="mt-1 text-tinta/60">Sin datos fiscales para verificar el costo: se toma el precio leído {sumarIva ? '+ IVA' : 'tal cual'}.</p>
                 )}
               </div>
 
-              {foto.notasManuscritas && <p className="text-xs text-black/50 italic">✍ Nota manuscrita: {foto.notasManuscritas}</p>}
+              {foto.notasManuscritas && <p className="text-xs text-tinta/60 italic">✍ Nota manuscrita: {foto.notasManuscritas}</p>}
 
               {/* la mercadería ya entró por Recepción → solo factura + conciliación */}
               {foto.comprobante?.tipo?.startsWith('factura') && (
-                <label className="flex items-center gap-1.5 text-xs text-black">
-                  <input type="checkbox" checked={soloFactura} onChange={(e) => setSoloFactura(e.target.checked)} className="accent-[#B82D25]" />
+                <label className="flex items-center gap-1.5 text-xs text-tinta">
+                  <input type="checkbox" checked={soloFactura} onChange={(e) => setSoloFactura(e.target.checked)} className="accent-marca" />
                   La mercadería ya fue recibida con la pistola — solo cargar la factura (va a Conciliación, no mueve stock)
                 </label>
               )}
 
-              {aviso && <p className="text-xs text-[#B82D25]">{aviso}</p>}
+              {aviso && <p className="text-xs text-marca">{aviso}</p>}
               {soloFactura ? (
                 <Acciones
                   cerrar={cerrar}
@@ -2417,10 +2417,10 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
         )}
 
         {t === 'proveedor' && (<>
-          <h2 className="font-semibold text-black text-lg">{modal.prov?.id ? 'Editar proveedor' : 'Nuevo proveedor'}</h2>
+          <h2 className="font-semibold text-tinta text-lg">{modal.prov?.id ? 'Editar proveedor' : 'Nuevo proveedor'}</h2>
           {/* lo que le falta para poder comprarle (regla de la base: proveedor_faltantes, 1/10/2026) */}
           {modal.prov?.faltan?.length > 0 && (
-            <p className="rounded-lg bg-[#B82D25]/10 px-3 py-2 text-xs text-[#932A1F]">Para poder comprarle falta: {modal.prov.faltan.join(', ')}.</p>
+            <p className="rounded-xl bg-marca-suave px-3 py-2 text-xs text-marca-hondo">Para poder comprarle falta: {modal.prov.faltan.join(', ')}.</p>
           )}
           <input value={f.razon_social ?? f.razonSocial ?? ''} onChange={(e) => set('razonSocial', e.target.value)} placeholder="Razón social" className={input} />
           <div className="grid grid-cols-2 gap-3">
@@ -2429,17 +2429,17 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
             <input value={f.telefono ?? ''} onChange={(e) => set('telefono', e.target.value)} placeholder="Teléfono / WhatsApp" className={input} />
             <input value={f.email ?? ''} onChange={(e) => set('email', e.target.value)} placeholder="Email" className={input} />
             <input type="number" value={f.lead_time_dias ?? f.leadTimeDias ?? ''} onChange={(e) => set('leadTimeDias', e.target.value)} placeholder="Días de entrega" className={input} />
-            <label className="flex items-center gap-2 text-xs text-black/70">
+            <label className="flex items-center gap-2 text-xs text-tinta/70">
               <input type="checkbox" checked={!!(f.leadTimeConfirmado ?? f.lead_time_confirmado)} onChange={(e) => set('leadTimeConfirmado', e.target.checked)} />
               Plazo confirmado con el proveedor
             </label>
           </div>
-          {aviso && <p className="text-xs text-[#B82D25]">{aviso}</p>}
+          {aviso && <p className="text-xs text-marca">{aviso}</p>}
           <Acciones cerrar={cerrar} okLabel="Guardar" onOk={() => post(modal.prov?.id ? { accion: 'editarProveedor', id: modal.prov.id, razonSocial: f.razonSocial ?? f.razon_social, cuit: f.cuit, condicionPago: f.condicionPago ?? f.condicion_pago, email: f.email, telefono: f.telefono, leadTimeDias: f.leadTimeDias ?? f.lead_time_dias, leadTimeConfirmado: !!(f.leadTimeConfirmado ?? f.lead_time_confirmado) } : { accion: 'crearProveedor', razonSocial: f.razonSocial, cuit: f.cuit, condicionPago: f.condicionPago, email: f.email, telefono: f.telefono, leadTimeDias: f.leadTimeDias, leadTimeConfirmado: !!f.leadTimeConfirmado })} />
         </>)}
 
         {t === 'factura' && (<>
-          <h2 className="font-semibold text-black text-lg">Registrar factura de proveedor</h2>
+          <h2 className="font-semibold text-tinta text-lg">Registrar factura de proveedor</h2>
           <select className={input + ' bg-white'} value={f.proveedorId ?? ''} onChange={(e) => set('proveedorId', e.target.value)}>
             <option value="">Proveedor…</option>{proveedores.map((p: any) => <option key={p.id} value={p.id}>{p.razon_social}</option>)}
           </select>
@@ -2448,16 +2448,16 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
             <input type="number" value={f.monto ?? ''} onChange={(e) => set('monto', e.target.value)} placeholder="Monto $" className={input} />
           </div>
           <input type="date" value={f.vencimiento ?? ''} onChange={(e) => set('vencimiento', e.target.value)} className={input} />
-          {aviso && <p className="text-xs text-[#B82D25]">{aviso}</p>}
+          {aviso && <p className="text-xs text-marca">{aviso}</p>}
           <Acciones cerrar={cerrar} okLabel="Registrar" onOk={() => post({ accion: 'factura', proveedorId: f.proveedorId, numero: f.numero, monto: Number(f.monto), vencimiento: f.vencimiento })} />
         </>)}
 
         {t === 'pagar' && (<>
-          <h2 className="font-semibold text-black text-lg">Nueva orden de pago — {modal.prov.proveedor?.razon_social}</h2>
-          <p className="text-xs text-black/50">Elegí las facturas. La OP queda <b>pendiente de aprobación del dueño</b> antes de pagarse.</p>
+          <h2 className="font-semibold text-tinta text-lg">Nueva orden de pago — {modal.prov.proveedor?.razon_social}</h2>
+          <p className="text-xs text-tinta/60">Elegí las facturas. La OP queda <b>pendiente de aprobación del dueño</b> antes de pagarse.</p>
           {modal.prov.facturas.map((fa: any) => (
-            <label key={fa.id} className="flex items-center gap-2 text-sm text-black border-b border-black/5 py-1.5">
-              <input type="checkbox" checked={facturasSel.includes(fa.id)} onChange={(e) => setFacturasSel((s) => e.target.checked ? [...s, fa.id] : s.filter((x) => x !== fa.id))} className="accent-[#B82D25]" />
+            <label key={fa.id} className="flex items-center gap-2 text-sm text-tinta border-b border-black/[0.06] py-1.5">
+              <input type="checkbox" checked={facturasSel.includes(fa.id)} onChange={(e) => setFacturasSel((s) => e.target.checked ? [...s, fa.id] : s.filter((x) => x !== fa.id))} className="accent-marca" />
               <span className="flex-1">Factura {fa.numero} {fa.vencimiento ? `· vence ${fecha(fa.vencimiento)}` : ''}</span>
               <span className="font-medium">{pesos(fa.monto)}</span>
             </label>
@@ -2466,11 +2466,11 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
             <select className={input + ' bg-white'} value={f.medioPago ?? 'transferencia'} onChange={(e) => set('medioPago', e.target.value)}>
               <option value="transferencia">Transferencia</option><option value="cheque">Cheque</option><option value="efectivo">Efectivo</option>
             </select>
-            <div><label className="text-[11px] text-black/45 block mb-0.5">Pago programado</label><input type="date" value={f.fechaProgramada ?? ''} onChange={(e) => set('fechaProgramada', e.target.value)} className={input} /></div>
+            <div><label className="text-xs text-tinta/60 block mb-0.5">Pago programado</label><input type="date" value={f.fechaProgramada ?? ''} onChange={(e) => set('fechaProgramada', e.target.value)} className={input} /></div>
           </div>
           <input value={f.observaciones ?? ''} onChange={(e) => set('observaciones', e.target.value)} placeholder="Observaciones (opcional)" className={input} />
           {facturasSel.length > 0 && <p className="text-right text-sm font-semibold">Total OP: {pesos(modal.prov.facturas.filter((x: any) => facturasSel.includes(x.id)).reduce((s: number, x: any) => s + Number(x.monto), 0))}</p>}
-          {aviso && <p className="text-xs text-[#B82D25]">{aviso}</p>}
+          {aviso && <p className="text-xs text-marca">{aviso}</p>}
           <Acciones cerrar={cerrar} okLabel="Crear orden de pago" disabled={!facturasSel.length} onOk={() => post({ accion: 'crearOP', facturaIds: facturasSel, medioPago: f.medioPago ?? 'transferencia', fechaProgramada: f.fechaProgramada, observaciones: f.observaciones })} />
         </>)}
       </div>
@@ -2496,79 +2496,79 @@ function OrdenDetalle({ id, numero, cerrar, verFactura }: { id: string; numero: 
 
   return (
     <>
-      <h2 className="font-semibold text-black text-lg">OC #{numero}{d?.proveedor?.razon_social ? ` · ${d.proveedor.razon_social}` : ''}</h2>
-      {!d && !err && <p className="text-sm text-black/50">Cargando…</p>}
-      {err && <p className="text-sm text-[#B82D25]">{err}</p>}
+      <h2 className="font-semibold text-tinta text-lg">OC #{numero}{d?.proveedor?.razon_social ? ` · ${d.proveedor.razon_social}` : ''}</h2>
+      {!d && !err && <p className="text-sm text-tinta/60">Cargando…</p>}
+      {err && <p className="text-sm text-marca">{err}</p>}
       {d && (
         <div className="space-y-3">
-          <div className="rounded-lg bg-[#F0EBE2]/60 px-3 py-2 text-sm text-black/80">
-            <p className="text-xs text-black/55">
+          <div className="rounded-xl bg-crema-claro px-3 py-2 text-sm text-tinta/80">
+            <p className="text-xs text-tinta/70">
               {d.sucursal?.nombre} · {fecha(d.creado_en)}
               {d.creador?.nombre ? ` · cargó ${d.creador.nombre}` : ''}
               {d.condicion_pago ? ` · ${d.condicion_pago}` : ''}
               {d.origen === 'directa' ? ' · entrada directa (sin OC previa)' : ''}
             </p>
-            {d.observaciones && <p className="text-xs text-black/50 italic mt-0.5">“{d.observaciones}”</p>}
+            {d.observaciones && <p className="text-xs text-tinta/60 italic mt-0.5">“{d.observaciones}”</p>}
           </div>
 
-          <div className="rounded-lg border border-black/10 divide-y divide-black/5 max-h-64 overflow-y-auto">
-            <div className="flex items-center gap-2 px-3 py-1.5 text-[10px] uppercase tracking-wide text-black/40">
+          <div className="rounded-xl border border-black/[0.06] divide-y divide-black/[0.06] max-h-64 overflow-y-auto">
+            <div className="flex items-center gap-2 px-3 py-1.5 text-xs uppercase tracking-wide text-tinta/60">
               <span className="flex-1">Producto</span><span className="w-20 text-right">Pedido</span><span className="w-20 text-right">Recibido</span><span className="w-24 text-right">Costo</span>
             </div>
             {(d.items ?? []).map((it: any, i: number) => {
               const falta = Number(it.cantidad_recibida ?? 0) < Number(it.cantidad);
               return (
                 <div key={i} className="flex items-center gap-2 px-3 py-1.5 text-sm">
-                  <span className="flex-1 min-w-0 break-words text-black">{it.producto?.nombre ?? '—'} <span className="text-xs text-black/35">{it.producto?.sku}</span></span>
-                  <span className="w-20 text-right tabular-nums text-black/70">{it.cantidad}</span>
-                  <span className={`w-20 text-right tabular-nums ${falta ? 'text-[#B82D25] font-medium' : 'text-black/70'}`}>{it.cantidad_recibida ?? 0}</span>
-                  <span className="w-24 text-right tabular-nums text-black/70">{pesos(it.costo_unitario)}</span>
+                  <span className="flex-1 min-w-0 break-words text-tinta">{it.producto?.nombre ?? '—'} <span className="text-xs text-tinta/60">{it.producto?.sku}</span></span>
+                  <span className="w-20 text-right tabular-nums text-tinta/70">{it.cantidad}</span>
+                  <span className={`w-20 text-right tabular-nums ${falta ? 'text-marca font-medium' : 'text-tinta/70'}`}>{it.cantidad_recibida ?? 0}</span>
+                  <span className="w-24 text-right tabular-nums text-tinta/70">{pesos(it.costo_unitario)}</span>
                 </div>
               );
             })}
-            <div className="flex justify-between px-3 py-1.5"><span className="font-semibold text-black text-sm">TOTAL</span><span className="font-semibold text-black tabular-nums">{pesos(d.total)}</span></div>
+            <div className="flex justify-between px-3 py-1.5"><span className="font-semibold text-tinta text-sm">TOTAL</span><span className="font-semibold text-tinta tabular-nums">{pesos(d.total)}</span></div>
           </div>
 
           {/* FACTURAS de esta compra: el motivo por el que esto es clickeable */}
           <div>
-            <p className="text-xs uppercase tracking-wide text-black/40 mb-1">Facturas de esta compra</p>
+            <p className="text-xs uppercase tracking-wide text-tinta/60 mb-1">Facturas de esta compra</p>
             {d.facturas?.length > 0 ? (
-              <div className="rounded-lg border border-black/10 divide-y divide-black/5">
+              <div className="rounded-xl border border-black/[0.06] divide-y divide-black/[0.06]">
                 {d.facturas.map((f: any) => (
                   <button
                     key={f.id}
                     onClick={() => verFactura(f.id)}
-                    className="w-full text-left px-3 py-2 hover:bg-[#F0EBE2]/50 flex items-center justify-between gap-2"
+                    className="w-full text-left px-3 py-2 hover:bg-crema-claro flex items-center justify-between gap-2"
                   >
                     <span className="min-w-0">
-                      <span className="text-sm text-black block min-w-0 break-words">
+                      <span className="text-sm text-tinta block min-w-0 break-words">
                         {f.letra ? `${String(f.tipo ?? 'factura').replace('_', ' ')} ${f.letra}` : 'Factura'} {f.numero}
-                        {f.tieneComprobante && <span className="ml-2 text-[10px] rounded-full bg-black/5 px-2 py-0.5 text-black/50">con comprobante</span>}
+                        {f.tieneComprobante && <span className="ml-2 text-xs rounded-full bg-black/5 px-2 py-0.5 text-tinta/60">con comprobante</span>}
                       </span>
-                      <span className="text-xs text-black/45">
+                      <span className="text-xs text-tinta/60">
                         {f.fecha_emision ? fecha(f.fecha_emision) : fecha(f.creado_en)} · {ESTADO_FACT[f.estado] ?? f.estado}
                         {f.cargador?.nombre ? ` · cargó ${f.cargador.nombre}` : ''}
                       </span>
                     </span>
-                    <span className="shrink-0 text-sm font-medium text-black tabular-nums">{pesos(f.monto)}</span>
+                    <span className="shrink-0 text-sm font-medium text-tinta tabular-nums">{pesos(f.monto)}</span>
                   </button>
                 ))}
               </div>
             ) : (
-              <p className="text-xs text-black/45">Todavía no hay factura cargada para esta compra.</p>
+              <p className="text-xs text-tinta/60">Todavía no hay factura cargada para esta compra.</p>
             )}
           </div>
 
           {d.remitos?.length > 0 && (
             <div>
-              <p className="text-xs uppercase tracking-wide text-black/40 mb-1">Remitos</p>
-              <div className="rounded-lg border border-black/10 divide-y divide-black/5">
+              <p className="text-xs uppercase tracking-wide text-tinta/60 mb-1">Remitos</p>
+              <div className="rounded-xl border border-black/[0.06] divide-y divide-black/[0.06]">
                 {d.remitos.map((r: any) => (
-                  <div key={r.id} className="flex items-center justify-between gap-2 px-3 py-1.5 text-sm text-black/75">
+                  <div key={r.id} className="flex items-center justify-between gap-2 px-3 py-1.5 text-sm text-tinta/80">
                     <span className="min-w-0 break-words">
-                      {r.numero || 'sin número'} <span className="text-xs text-black/45">· {fecha(r.creado_en)} · {String(r.estado ?? '').replace(/_/g, ' ')}</span>
+                      {r.numero || 'sin número'} <span className="text-xs text-tinta/60">· {fecha(r.creado_en)} · {String(r.estado ?? '').replace(/_/g, ' ')}</span>
                     </span>
-                    <a href={`/api/documento?tipo=remito&id=${r.id}`} target="_blank" rel="noreferrer" className="shrink-0 text-xs text-[#B82D25] underline">acta de recepción</a>
+                    <a href={`/api/documento?tipo=remito&id=${r.id}`} target="_blank" rel="noreferrer" className="shrink-0 text-xs text-marca underline">acta de recepción</a>
                   </div>
                 ))}
               </div>
@@ -2583,7 +2583,7 @@ function OrdenDetalle({ id, numero, cerrar, verFactura }: { id: string; numero: 
           href={`/api/documento?tipo=oc&id=${id}`}
           target="_blank"
           rel="noreferrer"
-          className="rounded-full border border-black/15 px-4 py-2 text-sm font-medium text-black/75 hover:bg-black/5"
+          className="rounded-full border border-black/15 px-4 py-2 text-sm font-medium text-tinta/80 hover:bg-black/5"
         >
           Orden en PDF
         </a>
@@ -2605,34 +2605,34 @@ function FacturaDetalle({ id, cerrar, volviendo }: { id: string; cerrar: () => v
   const ESTADO: Record<string, string> = { pendiente: 'Pendiente de pago', pagada: 'Pagada', en_pago: 'En pago' };
   return (
     <>
-      <h2 className="font-semibold text-black text-lg">Factura {d?.numero ?? ''}</h2>
-      {!d && !err && <p className="text-sm text-black/50">Cargando…</p>}
-      {err && <p className="text-sm text-[#B82D25]">{err}</p>}
+      <h2 className="font-semibold text-tinta text-lg">Factura {d?.numero ?? ''}</h2>
+      {!d && !err && <p className="text-sm text-tinta/60">Cargando…</p>}
+      {err && <p className="text-sm text-marca">{err}</p>}
       {d && (
         <div className="space-y-3">
-          <div className="rounded-lg bg-[#F0EBE2]/60 px-3 py-2 text-sm text-black/80">
+          <div className="rounded-xl bg-crema-claro px-3 py-2 text-sm text-tinta/80">
             <p><b>{d.proveedor?.razon_social}</b>{d.proveedor?.cuit ? ` · CUIT ${d.proveedor.cuit}` : ''}</p>
-            <p className="text-xs text-black/55">{fecha(d.creado_en)} · {ESTADO[d.estado] ?? d.estado}{d.vencimiento ? ` · vence ${fecha(d.vencimiento)}` : ''}</p>
+            <p className="text-xs text-tinta/70">{fecha(d.creado_en)} · {ESTADO[d.estado] ?? d.estado}{d.vencimiento ? ` · vence ${fecha(d.vencimiento)}` : ''}</p>
           </div>
-          <div className="rounded-lg border border-black/10 p-2.5 space-y-1 text-sm">
+          <div className="rounded-xl border border-black/[0.06] p-2.5 space-y-1 text-sm">
             {[['Neto gravado', d.neto], ['IVA', d.iva], ['Percepción IVA', d.percepcion_iva], ['Percepción IIBB', d.percepcion_iibb], ['Impuestos internos', d.impuestos_internos], ['Otros impuestos', d.otros_impuestos]]
               .filter(([, v]: any) => v != null && Number(v) !== 0)
               .map(([l, v]: any) => (
-                <div key={l} className="flex justify-between"><span className="text-black/55">{l}</span><span className="text-black tabular-nums">{pesos(v)}</span></div>
+                <div key={l} className="flex justify-between"><span className="text-tinta/70">{l}</span><span className="text-tinta tabular-nums">{pesos(v)}</span></div>
               ))}
-            <div className="flex justify-between border-t border-black/10 pt-1 mt-1"><span className="font-semibold text-black">TOTAL</span><span className="font-semibold text-black tabular-nums">{pesos(d.monto)}</span></div>
+            <div className="flex justify-between border-t border-black/[0.06] pt-1 mt-1"><span className="font-semibold text-tinta">TOTAL</span><span className="font-semibold text-tinta tabular-nums">{pesos(d.monto)}</span></div>
           </div>
           {d.items?.length > 0 ? (
-            <div className="rounded-lg border border-black/10 divide-y divide-black/5 max-h-56 overflow-y-auto">
+            <div className="rounded-xl border border-black/[0.06] divide-y divide-black/[0.06] max-h-56 overflow-y-auto">
               {d.items.map((it: any, i: number) => (
                 <div key={i} className="flex items-center justify-between gap-2 px-3 py-1.5 text-sm">
-                  <span className="text-black min-w-0 break-words">{it.cantidad}× {it.nombre}</span>
-                  {it.costo != null && <span className="shrink-0 text-black/45 text-xs tabular-nums">costo {pesos(it.costo)}</span>}
+                  <span className="text-tinta min-w-0 break-words">{it.cantidad}× {it.nombre}</span>
+                  {it.costo != null && <span className="shrink-0 text-tinta/60 text-xs tabular-nums">costo {pesos(it.costo)}</span>}
                 </div>
               ))}
             </div>
           ) : (
-            <p className="text-xs text-black/45">Sin renglones asociados (factura cargada a mano).</p>
+            <p className="text-xs text-tinta/60">Sin renglones asociados (factura cargada a mano).</p>
           )}
 
           {/* El papel original. Es lo que se mira cuando hay una duda: el enlace
@@ -2640,21 +2640,21 @@ function FacturaDetalle({ id, cerrar, volviendo }: { id: string; cerrar: () => v
           {d.comprobanteUrl ? (
             <div>
               <div className="flex items-center justify-between mb-1">
-                <p className="text-xs uppercase tracking-wide text-black/40">Comprobante</p>
-                <a href={d.comprobanteUrl} target="_blank" rel="noreferrer" className="text-xs font-medium text-[#B82D25] hover:underline">Abrir en grande</a>
+                <p className="text-xs uppercase tracking-wide text-tinta/60">Comprobante</p>
+                <a href={d.comprobanteUrl} target="_blank" rel="noreferrer" className="text-xs font-medium text-marca hover:underline">Abrir en grande</a>
               </div>
               {/pdf(\?|$)/i.test(d.archivo_url ?? d.comprobanteUrl) ? (
-                <a href={d.comprobanteUrl} target="_blank" rel="noreferrer" className="block rounded-lg border border-black/10 bg-[#F0EBE2]/50 px-3 py-4 text-center text-sm text-black/70 hover:border-black/30">
+                <a href={d.comprobanteUrl} target="_blank" rel="noreferrer" className="block rounded-xl border border-black/[0.06] bg-crema-claro px-3 py-4 text-center text-sm text-tinta/70 hover:border-black/30">
                   Abrir el comprobante (PDF)
                 </a>
               ) : (
                 <a href={d.comprobanteUrl} target="_blank" rel="noreferrer">
-                  <img src={d.comprobanteUrl} alt="Comprobante" className="w-full rounded-lg border border-black/10 max-h-96 object-contain bg-white" />
+                  <img src={d.comprobanteUrl} alt="Comprobante" className="w-full rounded-xl border border-black/[0.06] max-h-96 object-contain bg-white" />
                 </a>
               )}
             </div>
           ) : (
-            <p className="text-xs text-black/45">Esta factura se cargó a mano: no hay foto ni PDF del comprobante.</p>
+            <p className="text-xs text-tinta/60">Esta factura se cargó a mano: no hay foto ni PDF del comprobante.</p>
           )}
         </div>
       )}
@@ -2667,8 +2667,8 @@ function Acciones({ cerrar, onOk, okLabel, disabled }: any) {
   const [cargando, setCargando] = useState(false);
   return (
     <div className="flex justify-end gap-3 pt-1">
-      <button onClick={cerrar} className="text-sm text-black/60 px-4 py-2 hover:text-black">Cancelar</button>
-      <button onClick={async () => { setCargando(true); try { await onOk(); } finally { setCargando(false); } }} disabled={disabled || cargando} className="rounded-full bg-[#B82D25] text-white text-sm font-medium px-6 py-2.5 hover:bg-[#932A1F] disabled:opacity-50">{cargando ? '…' : okLabel}</button>
+      <button onClick={cerrar} className="text-sm text-tinta/70 px-4 py-2 hover:text-tinta">Cancelar</button>
+      <button onClick={async () => { setCargando(true); try { await onOk(); } finally { setCargando(false); } }} disabled={disabled || cargando} className="rounded-full bg-marca text-white text-sm font-medium px-6 py-2.5 hover:bg-marca-hondo disabled:opacity-50">{cargando ? '…' : okLabel}</button>
     </div>
   );
 }

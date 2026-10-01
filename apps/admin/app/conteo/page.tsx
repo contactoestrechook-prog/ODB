@@ -1,4 +1,4 @@
-import { Header } from '../ui/Header';
+import { Pantalla } from '../ui/kit/Pantalla';
 import { apiFetch } from '../../lib/api';
 import { ConteoWorkspace } from '../ui/ConteoWorkspace';
 
@@ -17,11 +17,8 @@ export default async function Conteo() {
   } catch {}
 
   return (
-    <main className="min-h-screen bg-[#F0EBE2] lg:pl-64">
-      <Header activo="/conteo" />
-      <div className="p-4 lg:p-6 max-w-4xl">
-        <ConteoWorkspace sucursales={sucursales} conteosIniciales={conteos} />
-      </div>
-    </main>
+    <Pantalla activo="/conteo">
+      <ConteoWorkspace sucursales={sucursales} conteosIniciales={conteos} />
+    </Pantalla>
   );
 }

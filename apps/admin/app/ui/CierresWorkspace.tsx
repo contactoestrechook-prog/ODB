@@ -3,12 +3,11 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ResumenCierre } from './ResumenCierre';
-
-const pesos = (n: any) => (n == null || !Number.isFinite(Number(n)) ? '—' : '$' + Math.round(Number(n)).toLocaleString('es-AR'));
-const fechaHora = (iso: string) => (iso ? new Date(iso).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—');
+import { Aviso, Boton, Campo, Cargando, Entrada, Etiqueta, Kpi, Modal, Pestanas, Selector, TablaResponsiva, Tarjeta, TarjetaCabecera } from './kit';
+import type { ColumnaTabla } from './kit';
+import { fechaHora, pesos } from '../lib/formato';
 
 const TABS = [['cajas', 'Cajas'], ['porcajero', 'Por cajero'], ['diferencias', 'Diferencias'], ['historico', 'Histórico'], ['arca', 'Facturación ARCA']] as const;
-const input = 'w-full rounded-lg border border-black/15 px-3 py-2.5 text-sm text-black focus:border-[#B82D25] focus:outline-none';
 
 export function CierresWorkspace({ resumen, cajas, sesiones, arca, empleados = [] }: { resumen: any; cajas: any[]; sesiones: any[]; arca: any; empleados?: any[] }) {
   const router = useRouter();
@@ -35,192 +34,190 @@ export function CierresWorkspace({ resumen, cajas, sesiones, arca, empleados = [
   const conDif = cerradas.filter((s) => s.diferencia != null && Number(s.diferencia) !== 0);
 
   return (
-    <div className="space-y-5">
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-        {[
-          ['Cajas abiertas', `${resumen?.cajasAbiertas ?? 0}/${resumen?.cajasTotal ?? 0}`],
-          ['Base en cajas', pesos(resumen?.baseEnCajas)],
-          ['Cierres del mes', resumen?.sesionesMes ?? 0],
-          ['Con diferencia', resumen?.conDiferenciaMes ?? 0, resumen?.conDiferenciaMes > 0 ? 'text-[#B82D25]' : ''],
-          ['Diferencia neta', pesos(resumen?.diferenciaNetaMes), Number(resumen?.diferenciaNetaMes) !== 0 ? 'text-[#B82D25]' : ''],
-          ['ARCA pendientes', arca?.total ?? 0, arca?.total > 0 ? 'text-amber-600' : ''],
-        ].map(([l, v, c]: any) => (
-          <div key={l} className="rounded-xl bg-white p-3.5 border border-black/[0.04]"><p className={`text-lg font-semibold leading-none ${c || 'text-black'}`}>{v}</p><p className="text-[11px] text-black/45 mt-1">{l}</p></div>
-        ))}
+    <div className="space-y-4 sm:space-y-6">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <Kpi etiqueta="Cajas abiertas" valor={`${resumen?.cajasAbiertas ?? 0}/${resumen?.cajasTotal ?? 0}`} />
+        <Kpi etiqueta="Base en cajas" valor={pesos(resumen?.baseEnCajas)} />
+        <Kpi etiqueta="Cierres del mes" valor={resumen?.sesionesMes ?? 0} />
+        <Kpi etiqueta="Con diferencia" valor={resumen?.conDiferenciaMes ?? 0} tono={resumen?.conDiferenciaMes > 0 ? 'error' : 'neutro'} />
+        <Kpi etiqueta="Diferencia neta" valor={pesos(resumen?.diferenciaNetaMes)} tono={Number(resumen?.diferenciaNetaMes) !== 0 ? 'error' : 'neutro'} />
+        <Kpi etiqueta="ARCA pendientes" valor={arca?.total ?? 0} tono={arca?.total > 0 ? 'atencion' : 'neutro'} />
       </div>
 
-      <div className="flex gap-1.5 flex-wrap border-b border-black/10">
-        {TABS.map(([k, label]) => <button key={k} onClick={() => setTab(k)} className={`px-3.5 py-2 text-sm font-medium rounded-t-lg -mb-px border-b-2 ${tab === k ? 'border-[#B82D25] text-black' : 'border-transparent text-black/45 hover:text-black'}`}>{label}</button>)}
-      </div>
+      <Pestanas
+        etiquetaAccesible="Vistas de cierres"
+        valor={tab}
+        onCambiar={setTab}
+        opciones={TABS.map(([k, label]) => ({ valor: k, etiqueta: label }))}
+      />
 
-      {aviso && <p className="rounded-lg bg-white p-3 text-sm text-[#B82D25]">{aviso}</p>}
+      {aviso && <Aviso tono="error">{aviso}</Aviso>}
 
       {/* CAJAS: abrir / arquear */}
       {tab === 'cajas' && (
-        <div className="grid sm:grid-cols-2 gap-3">
+        <div className="grid gap-3 sm:grid-cols-2">
           {cajas.map((c) => (
-            <div key={c.id} className="rounded-xl bg-white p-5">
-              <div className="flex items-start justify-between">
-                <div>
-                  <p className="font-medium text-black">{c.nombre}</p>
-                  <p className="text-xs text-black/45">{c.sucursal?.nombre}</p>
+            <Tarjeta key={c.id}>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="break-words font-semibold text-tinta">{c.nombre}</p>
+                  <p className="text-xs text-tinta/60">{c.sucursal?.nombre}</p>
                 </div>
-                <span className={`text-[11px] rounded-full px-2.5 py-0.5 ${c.sesionAbierta ? 'bg-emerald-100 text-emerald-800' : 'bg-[#F0EBE2] text-black/50'}`}>{c.sesionAbierta ? 'abierta' : 'cerrada'}</span>
+                <Etiqueta tono={c.sesionAbierta ? 'ok' : 'neutro'} className="shrink-0">{c.sesionAbierta ? 'abierta' : 'cerrada'}</Etiqueta>
               </div>
               {c.sesionAbierta ? (
                 <div className="mt-3">
-                  <p className="text-xs text-black/55">Base inicial {pesos(c.sesionAbierta.monto_inicial)} · abrió {c.sesionAbierta.usuario?.nombre ?? '—'}</p>
-                  <p className="text-xs text-black/45">desde {fechaHora(c.sesionAbierta.abierta_en)}</p>
-                  <button onClick={() => { setResultado(null); setModal({ tipo: 'cerrar', sesion: c.sesionAbierta, caja: c }); }} className="mt-3 rounded-full bg-[#B82D25] text-white text-xs font-medium px-4 py-2 hover:bg-[#932A1F]">Arquear y cerrar</button>
+                  <p className="text-xs text-tinta/70">Base inicial {pesos(c.sesionAbierta.monto_inicial)} · abrió {c.sesionAbierta.usuario?.nombre ?? '—'}</p>
+                  <p className="text-xs text-tinta/60">desde {fechaHora(c.sesionAbierta.abierta_en)}</p>
+                  <Boton tamano="chico" className="mt-3" onClick={() => { setResultado(null); setModal({ tipo: 'cerrar', sesion: c.sesionAbierta, caja: c }); }}>Arquear y cerrar</Boton>
                 </div>
               ) : (
-                <button onClick={() => setModal({ tipo: 'abrir', caja: c })} className="mt-3 rounded-full bg-black text-white text-xs font-medium px-4 py-2 hover:bg-black/80">Abrir caja</button>
+                <Boton tamano="chico" className="mt-3" onClick={() => setModal({ tipo: 'abrir', caja: c })}>Abrir caja</Boton>
               )}
-            </div>
+            </Tarjeta>
           ))}
         </div>
       )}
 
       {/* POR CAJERO (control de diferencias por persona) */}
       {tab === 'porcajero' && (
-        porCajero === null ? <p className="rounded-xl bg-white p-8 text-center text-black/40 text-sm">Cargando…</p> :
+        porCajero === null ? <Tarjeta><Cargando bloque /></Tarjeta> :
         <Tabla titulo="Arqueos por cajero" vacio="Sin cierres registrados todavía."
-          filas={porCajero} cols={['Cajero', 'Cierres', 'Total cerrado', 'Con dif.', 'Diferencia acum.']}
-          render={(c: any, i: number) => (
-            <tr key={i} className="border-b border-black/5 last:border-0">
-              <td className="px-4 py-3"><p className="font-medium">{c.usuario}</p><p className="text-xs text-black/45">{c.rol}</p></td>
-              <td className="px-4 py-3 text-right">{c.cierres}</td>
-              <td className="px-4 py-3 text-right text-black/70">{pesos(c.totalCerrado)}</td>
-              <td className="px-4 py-3 text-right">{c.conDiferencia}</td>
-              <td className={`px-4 py-3 text-right font-semibold ${Number(c.diferenciaNeta) !== 0 ? 'text-[#B82D25]' : 'text-emerald-700'}`}>{Number(c.diferenciaNeta) !== 0 ? pesos(c.diferenciaNeta) : 'justo'}</td>
-            </tr>
-          )} />
+          filas={porCajero} claveFila={(_: any, i: number) => i}
+          columnas={[
+            { clave: 'cajero', titulo: 'Cajero', principal: true, celda: (c: any) => <><p className="font-semibold">{c.usuario}</p><p className="text-xs font-normal text-tinta/60">{c.rol}</p></> },
+            { clave: 'cierres', titulo: 'Cierres', importe: true, celda: (c: any) => c.cierres },
+            { clave: 'total', titulo: 'Total cerrado', importe: true, celda: (c: any) => <span className="text-tinta/70">{pesos(c.totalCerrado)}</span> },
+            { clave: 'condif', titulo: 'Con dif.', importe: true, celda: (c: any) => c.conDiferencia },
+            { clave: 'dif', titulo: 'Diferencia acum.', importe: true, celda: (c: any) => <span className={`font-semibold ${Number(c.diferenciaNeta) !== 0 ? 'text-marca-hondo' : 'text-ok'}`}>{Number(c.diferenciaNeta) !== 0 ? pesos(c.diferenciaNeta) : 'justo'}</span> },
+          ]} />
       )}
 
       {/* DIFERENCIAS */}
       {tab === 'diferencias' && (
         <Tabla titulo={`Cierres con diferencia (${conDif.length})`} vacio="Sin diferencias de caja. Todos los arqueos cerraron justos."
-          filas={conDif} cols={['Caja', 'Cajero', 'Cerrada', 'Esperado', 'Diferencia']}
-          render={(s: any) => (
-            <tr key={s.id} className="border-b border-black/5 last:border-0">
-              <td className="px-4 py-3"><p className="font-medium">{s.caja?.nombre}</p><p className="text-xs text-black/45">{s.caja?.sucursal?.nombre}</p></td>
-              <td className="px-4 py-3 text-black/70">{s.usuario?.nombre ?? '—'}</td>
-              <td className="px-4 py-3 text-black/60 text-xs">{fechaHora(s.cerrada_en)}</td>
-              <td className="px-4 py-3 text-right text-black/70">{pesos(Number(s.monto_cierre) - Number(s.diferencia))}</td>
-              <td className={`px-4 py-3 text-right font-semibold ${Number(s.diferencia) < 0 ? 'text-[#B82D25]' : 'text-emerald-700'}`}>{Number(s.diferencia) > 0 ? '+' : ''}{pesos(s.diferencia)}</td>
-            </tr>
-          )} />
+          filas={conDif} claveFila="id"
+          columnas={[
+            { clave: 'caja', titulo: 'Caja', principal: true, celda: (s: any) => <><p className="font-semibold">{s.caja?.nombre}</p><p className="text-xs font-normal text-tinta/60">{s.caja?.sucursal?.nombre}</p></> },
+            { clave: 'cajero', titulo: 'Cajero', celda: (s: any) => <span className="text-tinta/70">{s.usuario?.nombre ?? '—'}</span> },
+            { clave: 'cerrada', titulo: 'Cerrada', celda: (s: any) => <span className="importe text-xs text-tinta/70">{fechaHora(s.cerrada_en)}</span> },
+            { clave: 'esperado', titulo: 'Esperado', importe: true, celda: (s: any) => <span className="text-tinta/70">{pesos(Number(s.monto_cierre) - Number(s.diferencia))}</span> },
+            { clave: 'dif', titulo: 'Diferencia', importe: true, celda: (s: any) => <span className={`font-semibold ${Number(s.diferencia) < 0 ? 'text-marca-hondo' : 'text-ok'}`}>{Number(s.diferencia) > 0 ? '+' : ''}{pesos(s.diferencia)}</span> },
+          ]} />
       )}
 
       {/* HISTÓRICO */}
       {tab === 'historico' && (
         <Tabla titulo={`Histórico de cierres (${cerradas.length})`} vacio="Todavía no hay cierres."
-          filas={cerradas} cols={['Caja', 'Cajero', 'Abierta', 'Cerrada', 'Cierre', 'Dif.', '']}
-          render={(s: any) => (
-            <tr key={s.id} className="border-b border-black/5 last:border-0">
-              <td className="px-4 py-2.5"><p className="font-medium">{s.caja?.nombre}</p><p className="text-xs text-black/45">{s.caja?.sucursal?.nombre}</p></td>
-              <td className="px-4 py-2.5 text-black/70 text-xs">{s.usuario?.nombre ?? '—'}</td>
-              <td className="px-4 py-2.5 text-black/55 text-xs">{fechaHora(s.abierta_en)}</td>
-              <td className="px-4 py-2.5 text-black/55 text-xs">{fechaHora(s.cerrada_en)}</td>
-              <td className="px-4 py-2.5 text-right">{pesos(s.monto_cierre)}</td>
-              <td className={`px-4 py-2.5 text-right text-xs font-medium ${Number(s.diferencia) !== 0 ? 'text-[#B82D25]' : 'text-black/40'}`}>{Number(s.diferencia) !== 0 ? pesos(s.diferencia) : 'justo'}</td>
-              <td className="px-2 py-2.5 text-right"><button onClick={() => setModal({ tipo: 'ver', sesion: s, caja: s.caja })} className="text-xs font-medium text-black/60 underline hover:text-[#B82D25]">Ver cierre</button></td>
-            </tr>
-          )} />
+          filas={cerradas} claveFila="id"
+          columnas={[
+            { clave: 'caja', titulo: 'Caja', principal: true, celda: (s: any) => <><p className="font-semibold">{s.caja?.nombre}</p><p className="text-xs font-normal text-tinta/60">{s.caja?.sucursal?.nombre}</p></> },
+            { clave: 'cajero', titulo: 'Cajero', celda: (s: any) => <span className="text-xs text-tinta/70">{s.usuario?.nombre ?? '—'}</span> },
+            { clave: 'abierta', titulo: 'Abierta', celda: (s: any) => <span className="importe text-xs text-tinta/70">{fechaHora(s.abierta_en)}</span> },
+            { clave: 'cerrada', titulo: 'Cerrada', celda: (s: any) => <span className="importe text-xs text-tinta/70">{fechaHora(s.cerrada_en)}</span> },
+            { clave: 'cierre', titulo: 'Cierre', importe: true, celda: (s: any) => pesos(s.monto_cierre) },
+            { clave: 'dif', titulo: 'Dif.', importe: true, celda: (s: any) => <span className={`text-xs font-medium ${Number(s.diferencia) !== 0 ? 'text-marca-hondo' : 'text-tinta/60'}`}>{Number(s.diferencia) !== 0 ? pesos(s.diferencia) : 'justo'}</span> },
+            { clave: 'ver', titulo: '', acciones: true, celda: (s: any) => <Boton variante="fantasma" tamano="chico" onClick={() => setModal({ tipo: 'ver', sesion: s, caja: s.caja })}>Ver cierre</Boton> },
+          ]} />
       )}
 
       {/* ARCA */}
       {tab === 'arca' && (
-        <section className="rounded-xl bg-white p-5 space-y-3">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="font-medium text-black">Facturación electrónica ARCA</h2>
-              <p className="text-xs text-black/50 mt-0.5">{arca?.total ?? 0} comprobantes esperando CAE.</p>
+        <Tarjeta className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0">
+              <h2 className="text-base font-semibold text-tinta">Facturación electrónica ARCA</h2>
+              <p className="mt-0.5 text-sm text-tinta/60">{arca?.total ?? 0} comprobantes esperando CAE.</p>
             </div>
-            <button onClick={() => post({ accion: 'arca' })} disabled={!arca?.configurado} className="rounded-full bg-[#B82D25] text-white text-sm font-medium px-5 py-2.5 hover:bg-[#932A1F] disabled:opacity-50">Emitir pendientes</button>
+            <Boton onClick={() => post({ accion: 'arca' })} disabled={!arca?.configurado} className="w-full sm:w-auto">Emitir pendientes</Boton>
           </div>
           {!arca?.configurado && (
-            <p className="rounded-lg bg-[#F0EBE2]/70 p-3 text-xs text-black/70 leading-relaxed">
-              ⚠️ ARCA todavía no está configurado. Para emitir CAE reales hay que cargar el certificado digital del CUIT de O.D.B (ARCA_CUIT, ARCA_CERT_PATH, ARCA_KEY_PATH). Mientras tanto los comprobantes quedan numerados y en cola.
-            </p>
+            <Aviso tono="atencion">
+              ARCA todavía no está configurado. Para emitir CAE reales hay que cargar el certificado digital del CUIT de O.D.B (ARCA_CUIT, ARCA_CERT_PATH, ARCA_KEY_PATH). Mientras tanto los comprobantes quedan numerados y en cola.
+            </Aviso>
           )}
-        </section>
+        </Tarjeta>
       )}
 
       {/* MODALES */}
-      {modal?.tipo === 'abrir' && (
-        <Modal cerrar={() => setModal(null)}>
-          <h2 className="font-semibold text-black text-lg">Abrir {modal.caja.nombre}</h2>
-          <p className="text-xs text-black/45">{modal.caja.sucursal?.nombre}</p>
-          <label className="text-xs text-black/50">Cajero que toma la caja</label>
-          <select id="empleadoId" className={input + ' bg-white'} defaultValue="">
-            <option value="">— elegir empleado —</option>
-            {empleados.filter((e: any) => e.activo !== false).map((e: any) => <option key={e.id} value={e.id}>{e.nombre} ({e.rol})</option>)}
-          </select>
-          <label className="text-xs text-black/50">Base inicial (efectivo en caja al abrir)</label>
-          <input id="montoInicial" type="number" placeholder="0" className={input} />
-          <Acciones cerrar={() => setModal(null)} okLabel="Abrir caja" onOk={() => post({ accion: 'abrir', cajaId: modal.caja.id, montoInicial: Number((document.getElementById('montoInicial') as HTMLInputElement)?.value || 0), empleadoId: (document.getElementById('empleadoId') as HTMLSelectElement)?.value || undefined })} />
-        </Modal>
-      )}
+      <Modal
+        abierto={modal?.tipo === 'abrir'}
+        onCerrar={() => setModal(null)}
+        ancho="chico"
+        titulo={`Abrir ${modal?.caja?.nombre ?? ''}`}
+        descripcion={modal?.caja?.sucursal?.nombre}
+        pie={<Acciones cerrar={() => setModal(null)} okLabel="Abrir caja" onOk={() => post({ accion: 'abrir', cajaId: modal.caja.id, montoInicial: Number((document.getElementById('montoInicial') as HTMLInputElement)?.value || 0), empleadoId: (document.getElementById('empleadoId') as HTMLSelectElement)?.value || undefined })} />}
+      >
+        <div className="space-y-3">
+          <Campo etiqueta="Cajero que toma la caja" id="empleadoId">
+            <Selector defaultValue="">
+              <option value="">— elegir empleado —</option>
+              {empleados.filter((e: any) => e.activo !== false).map((e: any) => <option key={e.id} value={e.id}>{e.nombre} ({e.rol})</option>)}
+            </Selector>
+          </Campo>
+          <Campo etiqueta="Base inicial (efectivo en caja al abrir)" id="montoInicial">
+            <Entrada type="number" inputMode="decimal" placeholder="0" />
+          </Campo>
+          {aviso && <Aviso tono="error">{aviso}</Aviso>}
+        </div>
+      </Modal>
 
-      {modal?.tipo === 'ver' && (
-        <Modal cerrar={() => setModal(null)}>
-          <ResumenCierre sesionId={modal.sesion.id} />
-          <div className="flex justify-end"><button onClick={() => setModal(null)} className="rounded-full bg-black text-white text-sm font-medium px-6 py-2.5 hover:bg-black/80">Cerrar</button></div>
-        </Modal>
-      )}
+      <Modal
+        abierto={modal?.tipo === 'ver'}
+        onCerrar={() => setModal(null)}
+        titulo="Cierre de caja"
+        pie={<Boton variante="secundario" onClick={() => setModal(null)}>Cerrar</Boton>}
+      >
+        {modal?.tipo === 'ver' && <ResumenCierre sesionId={modal.sesion.id} />}
+      </Modal>
 
-      {modal?.tipo === 'cerrar' && (
-        <Modal cerrar={() => { setModal(null); setResultado(null); }}>
-          {resultado ? (
-            <div className="space-y-2 text-center">
-              <h2 className="font-semibold text-black text-lg">Arqueo de {modal.caja.nombre}</h2>
-              <div className="text-left"><ResumenCierre sesionId={modal.sesion.id} recargar={1} /></div>
-              <button onClick={() => { setModal(null); setResultado(null); router.refresh(); }} className="rounded-full bg-black text-white text-sm font-medium px-6 py-2.5 hover:bg-black/80">Listo</button>
-            </div>
-          ) : (
-            <>
-              <h2 className="font-semibold text-black text-lg">Arquear {modal.caja.nombre}</h2>
-              <p className="text-xs text-black/45">Así va la caja. Contá el efectivo y registralo: el sistema calcula la diferencia contra lo que tiene que haber.</p>
-              <div className="max-h-[42vh] overflow-y-auto rounded-xl border border-black/10 p-3"><ResumenCierre sesionId={modal.sesion.id} imprimible={false} /></div>
-              <label className="text-xs text-black/50">Efectivo contado en caja</label>
-              <input id="montoCierre" type="number" placeholder="0" className={input} autoFocus />
-              {aviso && <p className="text-xs text-[#B82D25]">{aviso}</p>}
-              <Acciones cerrar={() => setModal(null)} okLabel="Cerrar y arquear" onOk={() => post({ accion: 'cerrar', sesionId: modal.sesion.id, montoCierre: Number((document.getElementById('montoCierre') as HTMLInputElement)?.value || 0) })} />
-            </>
-          )}
-        </Modal>
-      )}
+      <Modal
+        abierto={modal?.tipo === 'cerrar'}
+        onCerrar={() => { setModal(null); setResultado(null); }}
+        titulo={resultado ? `Arqueo de ${modal?.caja?.nombre ?? ''}` : `Arquear ${modal?.caja?.nombre ?? ''}`}
+        descripcion={resultado ? undefined : 'Así va la caja. Contá el efectivo y registralo: el sistema calcula la diferencia contra lo que tiene que haber.'}
+        cerrarAlTocarAfuera={false}
+        pie={resultado
+          ? <Boton onClick={() => { setModal(null); setResultado(null); router.refresh(); }}>Listo</Boton>
+          : <Acciones cerrar={() => setModal(null)} okLabel="Cerrar y arquear" onOk={() => post({ accion: 'cerrar', sesionId: modal.sesion.id, montoCierre: Number((document.getElementById('montoCierre') as HTMLInputElement)?.value || 0) })} />}
+      >
+        {modal?.tipo === 'cerrar' && (resultado ? (
+          <ResumenCierre sesionId={modal.sesion.id} recargar={1} />
+        ) : (
+          <div className="space-y-3">
+            <div className="rounded-xl border border-black/[0.06] p-3"><ResumenCierre sesionId={modal.sesion.id} imprimible={false} /></div>
+            <Campo etiqueta="Efectivo contado en caja" id="montoCierre">
+              <Entrada type="number" inputMode="decimal" placeholder="0" autoFocus />
+            </Campo>
+            {aviso && <Aviso tono="error">{aviso}</Aviso>}
+          </div>
+        ))}
+      </Modal>
     </div>
   );
 }
 
-function Modal({ children, cerrar }: any) {
-  return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-[2px] flex items-center justify-center p-4 z-50" onClick={cerrar}>
-      <div className="bg-white rounded-2xl w-full max-w-sm p-6 space-y-3 shadow-2xl" onClick={(e) => e.stopPropagation()}>{children}</div>
-    </div>
-  );
-}
 function Acciones({ cerrar, onOk, okLabel }: any) {
   const [c, setC] = useState(false);
   return (
-    <div className="flex justify-end gap-3 pt-1">
-      <button onClick={cerrar} className="text-sm text-black/60 px-4 py-2 hover:text-black">Cancelar</button>
-      <button onClick={async () => { setC(true); try { await onOk(); } finally { setC(false); } }} disabled={c} className="rounded-full bg-[#B82D25] text-white text-sm font-medium px-6 py-2.5 hover:bg-[#932A1F] disabled:opacity-50">{c ? '…' : okLabel}</button>
-    </div>
+    <>
+      <Boton variante="secundario" onClick={cerrar}>Cancelar</Boton>
+      <Boton onClick={async () => { setC(true); try { await onOk(); } finally { setC(false); } }} cargando={c}>{okLabel}</Boton>
+    </>
   );
 }
-function Tabla({ titulo, vacio, filas, cols, render }: any) {
+function Tabla({ titulo, vacio, filas, claveFila, columnas }: { titulo: string; vacio: string; filas: any[]; claveFila: any; columnas: ColumnaTabla<any>[] }) {
   return (
-    <section className="rounded-xl bg-white overflow-hidden">
-      <h2 className="px-4 py-3 border-b border-black/10 font-medium text-black text-sm">{titulo}</h2>
-      {filas.length === 0 ? <p className="px-4 py-8 text-center text-black/40 text-sm">{vacio}</p> : (
-        <table className="w-full text-sm text-black">
-          <thead><tr className="text-left text-xs text-black/50 border-b border-black/5">{cols.map((c: string, i: number) => <th key={c} className={`px-4 py-2 font-medium ${i >= 3 ? 'text-right' : ''}`}>{c}</th>)}</tr></thead>
-          <tbody>{filas.map(render)}</tbody>
-        </table>
-      )}
-    </section>
+    <Tarjeta relleno={false} className="overflow-hidden">
+      <TarjetaCabecera titulo={titulo} />
+      <TablaResponsiva
+        sinMarco
+        etiqueta={titulo}
+        filas={filas}
+        claveFila={claveFila}
+        columnas={columnas}
+        vacio={<p className="px-4 py-8 text-center text-sm text-tinta/60">{vacio}</p>}
+      />
+    </Tarjeta>
   );
 }

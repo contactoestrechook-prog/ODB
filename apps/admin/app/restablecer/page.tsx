@@ -2,6 +2,8 @@
 
 import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { Aviso, Boton, Campo, Cargando, Entrada, clasesBoton } from '../ui/kit';
+import { CLASE_CASILLA, PantallaAcceso } from '../ui/PantallaAcceso';
 
 // Pantalla del enlace del mail: se valida el enlace ANTES de mostrar el
 // formulario, para que nadie escriba una clave nueva y se entere recién al
@@ -46,70 +48,55 @@ function Formulario() {
   }
 
   return (
-    <main className="min-h-screen bg-[#F0EBE2] flex items-center justify-center p-6">
-      <div className="w-full max-w-sm rounded-2xl bg-white p-8 shadow-[0_20px_60px_-25px_rgba(0,0,0,0.35)] border border-black/5">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/odb-logo.png" alt="O.D.B Premium Market" className="h-16 w-auto mx-auto mb-3" />
-        <p className="text-center text-xs tracking-[0.25em] uppercase text-black/45 mb-7">Contraseña nueva</p>
+    <PantallaAcceso rotulo="Contraseña nueva">
+      {estado === 'verificando' && <Cargando texto="Verificando el enlace…" className="justify-center" />}
 
-        {estado === 'verificando' && <p className="text-sm text-black/60 text-center">Verificando el enlace…</p>}
+      {estado === 'invalido' && (
+        <div className="space-y-4">
+          <Aviso tono="error">El enlace venció o ya se usó. Pedí uno nuevo, dura 30 minutos.</Aviso>
+          <a href="/olvide-clave" className={clasesBoton({ anchoCompleto: true })}>
+            Pedir un enlace nuevo
+          </a>
+        </div>
+      )}
 
-        {estado === 'invalido' && (
-          <>
-            <div className="rounded-lg bg-[#F7E9E7] px-4 py-3 text-sm text-[#932A1F] mb-5">
-              El enlace venció o ya se usó. Pedí uno nuevo, dura 30 minutos.
-            </div>
-            <a href="/olvide-clave" className="block w-full rounded-full bg-[#B82D25] py-2.5 text-center text-sm font-medium text-white hover:bg-[#932A1F]">
-              Pedir un enlace nuevo
-            </a>
-          </>
-        )}
+      {estado === 'listo' && (
+        <div className="space-y-4">
+          <Aviso tono="ok">Listo: ya podés entrar con tu contraseña nueva.</Aviso>
+          <a href="/login" className={clasesBoton({ anchoCompleto: true })}>
+            Ir al ingreso
+          </a>
+        </div>
+      )}
 
-        {estado === 'listo' && (
-          <>
-            <div className="rounded-lg bg-[#EAF2E9] px-4 py-3 text-sm text-[#2C5F2D] mb-5">
-              Listo: ya podés entrar con tu contraseña nueva.
-            </div>
-            <a href="/login" className="block w-full rounded-full bg-[#B82D25] py-2.5 text-center text-sm font-medium text-white hover:bg-[#932A1F]">
-              Ir al ingreso
-            </a>
-          </>
-        )}
-
-        {estado === 'valido' && (
-          <form onSubmit={guardar}>
-            {nombre && <p className="text-sm text-black/70 mb-5">Hola {nombre}, elegí tu contraseña nueva.</p>}
-            <label className="block text-xs text-black/60 mb-1">Contraseña nueva</label>
-            <input
-              name="clave" type={ver ? 'text' : 'password'} required autoComplete="new-password" autoFocus minLength={6}
-              className="w-full rounded-lg border border-black/15 px-3 py-2 text-sm text-black mb-4 outline-none focus:border-[#B82D25]"
-            />
-            <label className="block text-xs text-black/60 mb-1">Repetila</label>
-            <input
-              name="repetir" type={ver ? 'text' : 'password'} required autoComplete="new-password" minLength={6}
-              className="w-full rounded-lg border border-black/15 px-3 py-2 text-sm text-black mb-3 outline-none focus:border-[#B82D25]"
-            />
-            <label className="flex items-center gap-2 text-xs text-black/60 mb-6 cursor-pointer">
-              <input type="checkbox" checked={ver} onChange={(e) => setVer(e.target.checked)} className="accent-[#B82D25]" />
+      {estado === 'valido' && (
+        <form onSubmit={guardar} className="space-y-4">
+          {nombre && <p className="text-sm text-tinta/70">Hola {nombre}, elegí tu contraseña nueva.</p>}
+          <Campo etiqueta="Contraseña nueva">
+            <Entrada name="clave" type={ver ? 'text' : 'password'} required autoComplete="new-password" autoFocus minLength={6} />
+          </Campo>
+          <div>
+            <Campo etiqueta="Repetila">
+              <Entrada name="repetir" type={ver ? 'text' : 'password'} required autoComplete="new-password" minLength={6} />
+            </Campo>
+            <label className={CLASE_CASILLA}>
+              <input type="checkbox" checked={ver} onChange={(e) => setVer(e.target.checked)} className="size-4 accent-marca" />
               Mostrar la clave
             </label>
-            {error && <p className="mb-3 text-sm text-[#932A1F]">{error}</p>}
-            <button
-              type="submit" disabled={cargando}
-              className="w-full rounded-full bg-[#B82D25] py-2.5 text-sm font-medium text-white hover:bg-[#932A1F] disabled:opacity-60"
-            >
-              {cargando ? 'Guardando…' : 'Guardar y entrar'}
-            </button>
-          </form>
-        )}
-      </div>
-    </main>
+          </div>
+          {error && <Aviso tono="error">{error}</Aviso>}
+          <Boton type="submit" cargando={cargando} anchoCompleto>
+            {cargando ? 'Guardando…' : 'Guardar y entrar'}
+          </Boton>
+        </form>
+      )}
+    </PantallaAcceso>
   );
 }
 
 export default function Restablecer() {
   return (
-    <Suspense fallback={<main className="min-h-screen bg-[#F0EBE2]" />}>
+    <Suspense fallback={<main className="min-h-dvh bg-crema" />}>
       <Formulario />
     </Suspense>
   );
