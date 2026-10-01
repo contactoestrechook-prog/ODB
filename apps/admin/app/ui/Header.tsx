@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { cookies } from 'next/headers';
 import { puedeVer, rolDesdeToken } from '../lib/permisos';
+import { fecha } from '../lib/formato';
 import { apiFetch } from '../../lib/api';
 import { BuscadorGlobal } from './BuscadorGlobal';
 import { MobileMenu } from './MobileMenu';
@@ -46,6 +47,10 @@ export const ICONOS: Record<string, string> = {
   libroiva: 'M5 4h11l3 3v13H5zM9 4v16M12 9h5M12 13h5',
   tiendanube: 'M7 18a4 4 0 010-8 5 5 0 019.6-1.3A3.5 3.5 0 0117 18z',
   agente: 'M12 3v2M7 8h10a2 2 0 012 2v7a2 2 0 01-2 2H7a2 2 0 01-2-2v-7a2 2 0 012-2zM9 13h.01M15 13h.01',
+  // pie del menú (escritorio y celular)
+  manual: 'M4 5.5A1.5 1.5 0 015.5 4H10a2 2 0 012 2v13a2 2 0 00-2-2H5.5A1.5 1.5 0 014 15.5zM20 5.5A1.5 1.5 0 0018.5 4H14a2 2 0 00-2 2v13a2 2 0 012-2h4.5a1.5 1.5 0 001.5-1.5z',
+  clave: 'M7 11V7a5 5 0 0110 0v4M6 11h12v9H6zM12 15v2',
+  salir: 'M10 4H4v16h6M14 8l4 4-4 4M8 12h10',
 };
 
 const GRUPOS: Grupo[] = [
@@ -179,6 +184,12 @@ const TITULOS: Record<string, { titulo: string; bajada: string }> = {
   '/eficiencia': { titulo: 'Eficiencia', bajada: 'Productividad por empleado: tiempos por cliente y de preparación' },
   '/usuarios': { titulo: 'Usuarios', bajada: 'Equipo, roles y permisos de firma' },
   '/reportes': { titulo: 'Reportes del equipo', bajada: 'Lo que marcaron con "Esto está mal", clasificado por la IA' },
+  // Las cinco que faltaban: decían "O.D.B" en la barra y repetían un título propio.
+  '/manual': { titulo: 'Manual del sistema', bajada: 'Cómo funciona cada área: buscá por lo que necesitás resolver' },
+  '/pedido-proveedor': { titulo: 'Pedido a proveedor', bajada: 'Armá el pedido desde el celular, con la lista de cada proveedor' },
+  '/aprobaciones': { titulo: 'Aprobaciones', bajada: 'Todo lo que espera tu firma: órdenes, pagos, cobros y cambios de costos' },
+  '/trazabilidad': { titulo: 'Trazabilidad', bajada: 'Cada compra, de la orden al pago: quién la hizo, la aprobó y la recibió' },
+  '/fraccionar': { titulo: 'Fraccionar', bajada: 'Lo que se arma en el local (docenas, maples) para que la caja lo venda' },
 };
 
 function Icono({ d, activo }: { d: string; activo: boolean }) {
