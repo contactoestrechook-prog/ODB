@@ -23,6 +23,23 @@ export class AbastecimientoController {
     return filas.map(filaCorta);
   }
 
+  // "Qué comprar": lo sugerido, como notas de pedido para tildar
+  @Roles('comprador', 'gerente', 'dueno')
+  @Get('propuestas')
+  propuestas(@Query('sucursal') sucursal?: string) {
+    return this.abastecimiento.propuestas({ sucursal });
+  }
+
+  // La nota tildada se convierte en orden de compra (queda a aprobar)
+  @Roles('comprador', 'gerente', 'dueno')
+  @Post('orden')
+  orden(@Body() b: { proveedorId: string; sucursalId: string; items: { sku: string; cantidad: number }[] }, @Req() req: any) {
+    return this.abastecimiento.crearOrden({
+      proveedorId: b?.proveedorId, sucursalId: b?.sucursalId, items: Array.isArray(b?.items) ? b.items : [],
+      usuarioId: req.usuario?.sub, observaciones: 'Armada desde Qué comprar',
+    });
+  }
+
   @Roles('comprador', 'gerente', 'dueno')
   @Post('charla')
   charla(@Body() b: { mensajes: MensajeAbastecimiento[] }, @Req() req: any) {

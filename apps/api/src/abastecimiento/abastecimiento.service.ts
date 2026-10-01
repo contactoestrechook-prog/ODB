@@ -6,6 +6,8 @@ import { SUPABASE } from '../supabase.provider';
 import { ComprasService } from '../compras/compras.service';
 import { TONO_ODB } from '../comun/tono-odb';
 import { costoUSD, usoDeRespuesta } from '../bot/tarifas';
+import { enLotes } from '../comun/lotes';
+import { armarPropuestas, cantidadPedible, type Propuesta } from './propuesta';
 
 // ============================================================
 // ABASTECIMIENTO (1/10/2026): el agente de la mesa de compras.
@@ -95,6 +97,33 @@ const HERRAMIENTAS: Anthropic.Tool[] = [
     },
   },
   {
+    name: 'proponer_compra',
+    description:
+      'Muestra en la pantalla una propuesta de compra para UN proveedor y UNA sucursal, como nota de pedido con casillas para tildar y cantidades editables. El comprador la revisa y la arma desde ahí con un botón. Stock, ritmo, días que alcanza y costo los pone el sistema: vos elegís productos y cantidades. Para varios proveedores, una llamada por proveedor.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        proveedor: { type: 'string', description: 'Razón social del proveedor, como figura en ver_proveedor' },
+        sucursal: { type: 'string', description: '"Saint Thomas" o "Santa Inés"' },
+        items: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              sku: { type: 'string' },
+              cantidad: { type: 'number' },
+              motivo: { type: 'string', description: 'Opcional, muy corto: por qué esa cantidad si no es la sugerida (bulto cerrado, última compra, tendencia)' },
+            },
+            required: ['sku', 'cantidad'],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ['proveedor', 'sucursal', 'items'],
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'armar_orden',
     description:
       'Crea la orden de compra (queda "a aprobar" por el dueño). SOLO después de que el comprador aceptó la propuesta exacta: proveedor, sucursal, productos y cantidades. Si al proveedor le faltan datos, la orden igual se crea pero NO se puede aprobar: administración recibe el pedido de completarlo y el sistema avisa cuando esté.',
@@ -132,7 +161,8 @@ Cómo trabajás:
 - El plazo de entrega se aprende de las compras reales: cuando se aprueba o envía una orden y cuando entra. Si dice "sin confirmar: 7 días por defecto", decí que ese número es provisorio.
 - Si un producto no tiene proveedor habitual, preguntá a quién se le compra. Al armar la orden con ese proveedor, el sistema lo aprende para la próxima.
 - Si el ritmo viene del sistema viejo y el período terminó hace más de un mes, decilo una vez: las cantidades son orientativas hasta que se cargue el reporte de ventas reciente del sistema viejo.
-- Antes de armar una orden, mostrá la propuesta exacta (proveedor, sucursal, productos, cantidades y costo estimado) y esperá el sí del comprador. Nunca armes una orden sin ese sí.
+- Las propuestas de compra van SIEMPRE por proponer_compra: la pantalla las dibuja como nota de pedido para tildar, con stock, días que alcanza y costo, y el comprador la arma desde ahí. En tu texto NO repitas los productos ni sus números: una o dos líneas con lo que importa (qué es lo urgente, si el plazo es provisorio, qué le falta al proveedor).
+- armar_orden solo si el comprador te pide por escrito que la armes vos, con la propuesta exacta (proveedor, sucursal, productos y cantidades) ya acordada. Nunca armes una orden sin ese sí.
 - Proveedor bien cargado, sí o sí: para comprarle tiene que tener CUIT, razón social, teléfono o WhatsApp, condición de pago y plazo de entrega confirmado. Si le falta algo, decilo al proponer la compra. Si igual se arma la orden, queda a aprobar y frenada: administración ya recibe el pedido de completarlo y el sistema avisa cuando está.
 - Respuestas cortas y concretas, en castellano rioplatense, sin markdown pesado: listas simples con guiones.
 
@@ -282,21 +312,119 @@ export class AbastecimientoService {
       .map((i: any) => ({ sku: String(i?.sku ?? '').trim(), cantidad: Math.ceil(Number(i?.cantidad)) }))
       .filter((i: any) => i.sku && i.cantidad > 0);
     if (!items.length) return { error: 'La orden no tiene renglones con cantidad' };
-    const { ordenCompraId } = await this.compras.crear({
+    const oc = await this.crearOrden({
       proveedorId: provs[0].id, sucursalId, items, usuarioId,
-      observaciones: input?.observaciones ? String(input.observaciones).slice(0, 500) : 'Armada con el agente de abastecimiento',
-    } as any);
-    const [{ data: oc }, { data: faltan }] = await Promise.all([
-      this.db.from('ordenes_compra').select('numero, total, estado').eq('id', ordenCompraId).maybeSingle(),
-      this.db.rpc('proveedor_faltantes', { p_id: provs[0].id }),
-    ]);
-    const faltanLista = (faltan as string[] | null) ?? [];
+      observaciones: input?.observaciones ? String(input.observaciones) : 'Armada con el agente de abastecimiento',
+    });
+    const faltanLista = oc.faltan;
     return {
-      orden: (oc as any)?.numero, total: Math.round(Number((oc as any)?.total ?? 0)), estado: 'a aprobar por el dueño',
+      orden: oc.numero, total: oc.total, estado: 'a aprobar por el dueño',
       proveedor_completo: faltanLista.length === 0,
       aviso: faltanLista.length
         ? `La orden quedó creada pero FRENADA: no se puede aprobar hasta que administración cargue del proveedor: ${faltanLista.join(', ')}. Ya les llegó el pedido a la campanita; cuando lo completen, el sistema avisa.`
         : 'Proveedor completo: la orden queda para que el dueño la apruebe en Aprobaciones.',
+    };
+  }
+
+  // ---------- la propuesta para tildar ----------
+
+  private urlFoto(sku: string) {
+    return `${process.env.SUPABASE_URL}/storage/v1/object/public/productos/${encodeURIComponent(sku)}.jpg?v=${process.env.FOTOS_VERSION ?? '1'}`;
+  }
+
+  // Qué productos tienen foto: la nota de pedido se lee mejor con la cara del
+  // producto, pero una foto rota (cuadro vacío) se ve peor que ninguna.
+  private async conFoto(productoIds: string[]): Promise<Set<string>> {
+    const filas = await enLotes<{ id: string }>(productoIds, (lote) =>
+      this.db.from('productos').select('id').in('id', lote).eq('tiene_foto', true) as any,
+    ).catch(() => [] as { id: string }[]);
+    return new Set(filas.map((f) => f.id));
+  }
+
+  private async propuestasDe(filas: any[], pedidos?: Map<string, { cantidad: number; motivo?: string | null }>): Promise<Propuesta[]> {
+    const fotos = await this.conFoto(filas.map((f) => f.producto_id));
+    return armarPropuestas(filas, { pedidos, conFoto: fotos, urlFoto: (sku) => this.urlFoto(sku) });
+  }
+
+  // Vista directa de "Qué comprar": todo lo que tiene sugerido y proveedor,
+  // agrupado como se compra. Sin pasar por el agente: es lo mismo que él vería.
+  async propuestas(f: { sucursal?: string | null }) {
+    const sucursalId = await this.sucursalId(f.sucursal);
+    const filas = await this.situacion({ sucursalId, limite: 20000 });
+    const conProveedor = filas.filter((x) => x.proveedor_id && Number(x.cantidad_sugerida) > 0);
+    const sinProveedor = filas.filter((x) => !x.proveedor_id && Number(x.cantidad_sugerida) > 0 && x.alerta !== 'menos_de_12').length;
+    let ventasHasta: string | null = null;
+    for (const x of filas) if (x.ritmo_hasta && (!ventasHasta || x.ritmo_hasta > ventasHasta)) ventasHasta = x.ritmo_hasta;
+    return { propuestas: await this.propuestasDe(conProveedor), sinProveedor, ventasHasta };
+  }
+
+  // Herramienta del agente: arma la nota de pedido que se dibuja en pantalla.
+  // Al modelo le vuelve un resumen corto (cada campo viaja en cada vuelta); la
+  // versión con fotos y números va a la pantalla.
+  async proponerCompra(input: any): Promise<{ propuesta?: Propuesta; resultado: Record<string, unknown> }> {
+    const provs = await this.buscarProveedor(input?.proveedor);
+    if (provs.length !== 1) {
+      return { resultado: { error: provs.length ? `Hay varios proveedores con "${input?.proveedor}": ${provs.map((p) => p.razon_social).join(', ')}` : `No hay un proveedor activo con "${input?.proveedor}"` } };
+    }
+    const sucursalId = await this.sucursalId(input?.sucursal);
+    if (!sucursalId) return { resultado: { error: 'La propuesta es para una sucursal: "Saint Thomas" o "Santa Inés"' } };
+    const pedidos = new Map<string, { cantidad: number; motivo?: string | null }>();
+    for (const i of Array.isArray(input?.items) ? input.items : []) {
+      const sku = String(i?.sku ?? '').trim();
+      const cantidad = cantidadPedible(i?.cantidad);
+      if (sku && cantidad) pedidos.set(sku, { cantidad, motivo: i?.motivo ? String(i.motivo).slice(0, 120) : null });
+    }
+    if (!pedidos.size) return { resultado: { error: 'La propuesta no tiene renglones con cantidad' } };
+
+    // lo habitual de ese proveedor; lo que no es suyo se busca uno por uno
+    let filas = (await this.situacion({ proveedorId: provs[0].id, sucursalId, soloAlertas: false, limite: 2000 }))
+      .filter((f) => pedidos.has(f.sku));
+    const faltanSku = [...pedidos.keys()].filter((sku) => !filas.some((f) => f.sku === sku));
+    for (const sku of faltanSku.slice(0, 30)) {
+      const hit = (await this.situacion({ sucursalId, soloAlertas: false, q: sku, limite: 5 })).find((f) => f.sku === sku);
+      if (hit) filas.push(hit);
+    }
+    // la nota es de ESTE proveedor aunque el producto se le compre a otro
+    filas = filas.map((f) => ({ ...f, proveedor_id: provs[0].id, proveedor: provs[0].razon_social }));
+    const [propuesta] = await this.propuestasDe(filas, pedidos);
+    if (!propuesta) return { resultado: { error: `Ninguno de esos SKU existe en ${input?.sucursal}` } };
+    const { data: faltan } = await this.db.rpc('proveedor_faltantes', { p_id: provs[0].id });
+    propuesta.faltan = (faltan as string[] | null) ?? [];
+    const noEncontrados = [...pedidos.keys()].filter((sku) => !propuesta.items.some((i) => i.sku === sku));
+    return {
+      propuesta,
+      resultado: {
+        mostrada: true, proveedor: propuesta.proveedor, sucursal: propuesta.sucursal,
+        renglones: propuesta.items.length, total_estimado: Math.round(propuesta.total),
+        ...(noEncontrados.length ? { no_encontrados: noEncontrados } : {}),
+        ...(propuesta.faltan.length ? { para_comprarle_falta: propuesta.faltan } : {}),
+      },
+    };
+  }
+
+  // La orden que sale de la nota tildada (o de armar_orden). Queda a aprobar
+  // por el dueño; si al proveedor le faltan datos, se crea igual y la base la
+  // frena y le pide a administración que lo complete.
+  async crearOrden(f: { proveedorId: string; sucursalId: string; items: { sku: string; cantidad: number }[]; usuarioId?: string; observaciones?: string | null }) {
+    const items = (f.items ?? [])
+      .map((i) => ({ sku: String(i?.sku ?? '').trim(), cantidad: cantidadPedible(i?.cantidad) }))
+      .filter((i) => i.sku && i.cantidad > 0);
+    if (!f.proveedorId || !f.sucursalId) throw new BadRequestException('Falta el proveedor o la sucursal');
+    if (!items.length) throw new BadRequestException('Tildá al menos un producto con cantidad');
+    const { ordenCompraId } = await this.compras.crear({
+      proveedorId: f.proveedorId, sucursalId: f.sucursalId, items, usuarioId: f.usuarioId,
+      observaciones: f.observaciones ? String(f.observaciones).slice(0, 500) : undefined,
+    } as any);
+    const [{ data: oc }, { data: faltan }] = await Promise.all([
+      this.db.from('ordenes_compra').select('numero, total, estado').eq('id', ordenCompraId).maybeSingle(),
+      this.db.rpc('proveedor_faltantes', { p_id: f.proveedorId }),
+    ]);
+    return {
+      id: ordenCompraId,
+      numero: (oc as any)?.numero ?? null,
+      total: Math.round(Number((oc as any)?.total ?? 0)),
+      renglones: items.length,
+      faltan: (faltan as string[] | null) ?? [],
     };
   }
 
@@ -306,6 +434,7 @@ export class AbastecimientoService {
       case 'ver_producto': return this.verProducto(input);
       case 'ver_proveedor': return this.verProveedor(input);
       case 'armar_orden': return this.armarOrden(input, usuarioId);
+      case 'proponer_compra': return (await this.proponerCompra(input)).resultado;
       default: return { error: `Herramienta desconocida: ${nombre}` };
     }
   }
@@ -330,6 +459,7 @@ export class AbastecimientoService {
     }));
     const usadas: string[] = [];
     let ordenes: number[] = [];
+    const propuestas: Propuesta[] = [];
     let costo = 0;
     const limite = Date.now() + 170_000; // el proxy del panel corta a los 4,5 min
     for (let vuelta = 0; vuelta < 10; vuelta++) {
@@ -346,11 +476,11 @@ export class AbastecimientoService {
       } as any, { signal: AbortSignal.timeout(queda) }).finalMessage();
       costo += costoUSD(MODELO_ABASTECIMIENTO, usoDeRespuesta(res.usage));
       historial.push({ role: 'assistant', content: res.content });
-      if (res.stop_reason === 'refusal') return { respuesta: 'No puedo ayudar con eso. Probá reformularlo.', herramientas: usadas, ordenes };
+      if (res.stop_reason === 'refusal') return { respuesta: 'No puedo ayudar con eso. Probá reformularlo.', herramientas: usadas, ordenes, propuestas };
       if (res.stop_reason !== 'tool_use') {
         const texto = res.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map((b) => b.text).join('\n').trim();
         this.log.log(`abastecimiento: ${usadas.length} herramientas · ≈ USD ${costo.toFixed(3)}`);
-        return { respuesta: texto || 'Listo.', herramientas: usadas, ordenes };
+        return { respuesta: texto || 'Listo.', herramientas: usadas, ordenes, propuestas };
       }
       const resultados: Anthropic.ToolResultBlockParam[] = [];
       for (const b of res.content) {
@@ -358,7 +488,13 @@ export class AbastecimientoService {
         usadas.push(b.name);
         let salida: unknown;
         try {
-          salida = await this.ejecutar(b.name, b.input, usuarioId);
+          if (b.name === 'proponer_compra') {
+            const r = await this.proponerCompra(b.input);
+            if (r.propuesta) propuestas.push(r.propuesta);
+            salida = r.resultado;
+          } else {
+            salida = await this.ejecutar(b.name, b.input, usuarioId);
+          }
           if (b.name === 'armar_orden' && (salida as any)?.orden) ordenes = [...ordenes, (salida as any).orden];
         } catch (e) {
           salida = { error: e instanceof Error ? e.message : String(e) };
@@ -367,7 +503,7 @@ export class AbastecimientoService {
       }
       historial.push({ role: 'user', content: resultados });
     }
-    return { respuesta: 'Se me fue el tiempo armando la respuesta. Pedime una tanda más chica (un proveedor o un rubro).', herramientas: usadas, ordenes };
+    return { respuesta: 'Se me fue el tiempo armando la respuesta. Pedime una tanda más chica (un proveedor o un rubro).', herramientas: usadas, ordenes, propuestas };
   }
 
   // ---------- el aviso del día ----------

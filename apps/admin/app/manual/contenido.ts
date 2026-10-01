@@ -454,6 +454,42 @@ export const SECCIONES: Seccion[] = [
 
   // ---------------------------------------------------------------- compras
   {
+    id: 'compras-que-comprar',
+    titulo: 'Qué comprar: lo sugerido para tildar',
+    area: 'Compras',
+    roles: ['comprador', 'gerente', 'dueno'],
+    bajada: 'Mesa de compras → Qué comprar. Una nota de pedido por proveedor, lista para tildar.',
+    bloques: [
+      {
+        tipo: 'pasos',
+        pasos: [
+          'Elegí la sucursal arriba a la derecha (Saint Thomas o Santa Inés).',
+          'Cada proveedor aparece como una nota de pedido con lo que conviene reponer. Arriba de todo, el que tiene más urgencias.',
+          'Lo urgente (sin stock o que no llega a tiempo) viene tildado. Lo que solo bajó de 12 queda sin tildar para que decidas vos.',
+          'Tildá o destildá cada producto y corregí la cantidad con − y +. Si cambiás la cantidad, el producto se tilda solo.',
+          'Abajo ves el total de lo tildado. "Armar pedido con lo tildado" crea la orden de compra y la deja esperando la firma del dueño en Aprobaciones.',
+        ],
+      },
+      {
+        tipo: 'campos',
+        titulo: 'Qué dice cada renglón',
+        filas: [
+          ['Sin stock / No llega / Menos de 12', 'Por qué se sugiere. "No llega" es que se termina antes de que el proveedor pueda entregar.'],
+          ['La barrita', 'Cuántos días le alcanza el stock. La marca dorada es lo que tarda el proveedor: si la barra no llega a la marca, se queda sin stock antes de que llegue el pedido.'],
+          ['Sugerido', 'La cantidad que cubre el plazo de entrega, un margen y 14 días más, según lo que se vende.'],
+        ],
+      },
+      {
+        tipo: 'ojo',
+        puntos: [
+          'Si al proveedor le faltan datos (CUIT, teléfono, plazo de entrega…), la nota lo dice en rojo. El pedido se arma igual, pero queda frenado hasta que administración los complete.',
+          'Mientras el ritmo de venta venga del sistema viejo, las cantidades son orientativas.',
+          'Para algo puntual (un rubro, un producto, a quién comprarle lo que no tiene proveedor) preguntale al agente de abajo: lo que propone aparece como otra nota para tildar.',
+        ],
+      },
+    ],
+  },
+  {
     id: 'compras-pedido',
     titulo: 'Armar un pedido a un proveedor',
     area: 'Compras',

@@ -32,7 +32,7 @@ function caido(e: unknown): NextResponse {
   );
 }
 
-// ?que=resumen (default) | lista (&sucursal&alerta&q&limite)
+// ?que=resumen (default) | lista (&sucursal&alerta&q&limite) | propuestas (&sucursal)
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const que = url.searchParams.get('que') ?? 'resumen';
@@ -42,16 +42,31 @@ export async function GET(req: Request) {
     if (v) params.set(k, v);
   }
   try {
-    const res = await fetch(`${API}/abastecimiento/${que === 'lista' ? 'lista' : 'resumen'}?${params}`, { headers: await auth(), cache: 'no-store' });
+    const ruta = que === 'lista' || que === 'propuestas' ? que : 'resumen';
+    const res = await fetch(`${API}/abastecimiento/${ruta}?${params}`, { headers: await auth(), cache: 'no-store' });
     return await reenviar(res);
   } catch (e) {
     return caido(e);
   }
 }
 
-// La charla con el agente
+// La charla con el agente, o (?que=orden) la nota tildada que se convierte en orden
 export async function POST(req: Request) {
-  const { mensajes } = await req.json().catch(() => ({}) as any);
+  const cuerpo = await req.json().catch(() => ({}) as any);
+  if (new URL(req.url).searchParams.get('que') === 'orden') {
+    try {
+      const res = await fetch(`${API}/abastecimiento/orden`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(await auth()) },
+        body: JSON.stringify({ proveedorId: cuerpo?.proveedorId, sucursalId: cuerpo?.sucursalId, items: cuerpo?.items }),
+        signal: AbortSignal.timeout(60_000),
+      });
+      return await reenviar(res);
+    } catch (e) {
+      return caido(e);
+    }
+  }
+  const { mensajes } = cuerpo;
   try {
     const res = await fetch(`${API}/abastecimiento/charla`, {
       method: 'POST',

@@ -2,11 +2,12 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { BotonMicrofono } from './BotonMicrofono';
+import { NotaDePedido, type Propuesta } from './NotaDePedido';
 
 // "Qué comprar": la foto de lo que falta y el agente de abastecimiento.
 // La alerta no es un número fijo: cruza ritmo de venta, stock y plazo de
 // entrega del proveedor (ver apps/api/src/abastecimiento).
-type Mensaje = { rol: 'usuario' | 'asistente'; texto: string; ordenes?: number[] };
+type Mensaje = { rol: 'usuario' | 'asistente'; texto: string; ordenes?: number[]; propuestas?: Propuesta[] };
 type Resumen = {
   porSucursal: Record<string, { sin_stock?: number; no_llega?: number; menos_de_12?: number }>;
   proveedoresUrgentes: { proveedor: string; urgentes: number; faltan: string[] }[];
@@ -18,8 +19,20 @@ type Resumen = {
 const fecha = (v?: string | null) => (v ? new Date(v.length === 10 ? `${v}T12:00:00` : v).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '—');
 const miles = (n?: number) => (n ?? 0).toLocaleString('es-AR');
 
+// El agente no ve la pantalla: para que la charla siga ("sumale el aceite"),
+// lo que se le mostró como nota de pedido viaja como una línea de texto.
+const conPropuestas = (m: Mensaje) =>
+  m.propuestas?.length
+    ? `${m.texto}\n\n(Propuestas mostradas en pantalla: ${m.propuestas
+        .map((p) => `${p.proveedor} · ${p.sucursal}: ${p.items.map((i) => `${i.sku}×${i.cantidad}`).join(', ')}`)
+        .join(' | ')})`
+    : m.texto;
+
+const SUCURSALES = ['Saint Thomas', 'Santa Inés'];
+const PROVEEDORES_VISIBLES = 6;
+
 const SUGERENCIAS = [
-  '¿Qué no llega a tiempo en Saint Thomas?',
+  '¿Qué vinos se me terminan antes de que lleguen?',
   '¿Qué está sin stock y se vende todos los días?',
   '¿A qué proveedores les falta cargar datos para poder comprarles?',
 ];
@@ -30,6 +43,10 @@ export function AbastecimientoPanel() {
   const [texto, setTexto] = useState('');
   const [pensando, setPensando] = useState(false);
   const [error, setError] = useState('');
+  const [sucursal, setSucursal] = useState(SUCURSALES[0]);
+  const [notas, setNotas] = useState<{ propuestas: Propuesta[]; sinProveedor: number } | null>(null);
+  const [errorNotas, setErrorNotas] = useState('');
+  const [verTodas, setVerTodas] = useState(false);
   const finRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -38,7 +55,20 @@ export function AbastecimientoPanel() {
       .then((j) => j && setResumen(j))
       .catch(() => null);
   }, []);
-  useEffect(() => { finRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [mensajes, pensando]);
+  useEffect(() => {
+    setNotas(null);
+    setErrorNotas('');
+    setVerTodas(false);
+    fetch(`/api/abastecimiento?que=propuestas&sucursal=${encodeURIComponent(sucursal)}`, { cache: 'no-store' })
+      .then(async (r) => {
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(j?.message ?? 'No pude armar lo sugerido');
+        setNotas({ propuestas: j.propuestas ?? [], sinProveedor: j.sinProveedor ?? 0 });
+      })
+      .catch((e) => setErrorNotas(e instanceof Error ? e.message : 'No pude armar lo sugerido'));
+  }, [sucursal]);
+  // al mandar un mensaje se baja hasta el final; no al abrir la pestaña
+  useEffect(() => { if (mensajes.length) finRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }, [mensajes, pensando]);
 
   const ventasViejas = resumen?.ventasHasta ? Date.now() - new Date(resumen.ventasHasta).getTime() > 30 * 86400_000 : true;
 
@@ -54,11 +84,11 @@ export function AbastecimientoPanel() {
       const r = await fetch('/api/abastecimiento', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mensajes: conversacion.map(({ rol, texto }) => ({ rol, texto })) }),
+        body: JSON.stringify({ mensajes: conversacion.map((m) => ({ rol: m.rol, texto: conPropuestas(m) })) }),
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j?.message ?? 'El agente no pudo contestar');
-      setMensajes([...conversacion, { rol: 'asistente', texto: j.respuesta, ordenes: j.ordenes?.length ? j.ordenes : undefined }]);
+      setMensajes([...conversacion, { rol: 'asistente', texto: j.respuesta, ordenes: j.ordenes?.length ? j.ordenes : undefined, propuestas: j.propuestas?.length ? j.propuestas : undefined }]);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'El agente no pudo contestar');
     } finally {
@@ -90,18 +120,52 @@ export function AbastecimientoPanel() {
             {resumen.sinProveedor > 0 && <> · {miles(resumen.sinProveedor)} productos en alerta sin proveedor habitual</>}
           </p>
         )}
-        {!!resumen?.proveedoresUrgentes.length && (
-          <div className="flex flex-wrap gap-1.5">
-            {resumen.proveedoresUrgentes.map((p) => (
-              <button key={p.proveedor} onClick={() => enviar(`Armame la propuesta de compra para ${p.proveedor}`)}
-                title={p.faltan.length ? `Le falta: ${p.faltan.join(', ')}` : 'Proveedor completo'}
-                className="rounded-full border border-black/15 px-2.5 py-1 text-xs hover:bg-[#F0EBE2]">
-                {p.proveedor} · {p.urgentes}{p.faltan.length ? ' ⚠️' : ''}
+      </div>
+
+      <section aria-labelledby="sugerido" className="space-y-3">
+        <div className="flex flex-wrap items-end justify-between gap-3 pt-2">
+          <div className="min-w-0">
+            <h2 id="sugerido" className="text-lg font-semibold text-black">Sugerido para comprar</h2>
+            <p className="text-[12.5px] text-black/55">Una nota de pedido por proveedor. Tildá lo que vas a pedir y ajustá las cantidades.</p>
+          </div>
+          <div role="tablist" aria-label="Sucursal" className="flex rounded-full bg-white p-1 ring-1 ring-black/10">
+            {SUCURSALES.map((s) => (
+              <button key={s} role="tab" aria-selected={sucursal === s} onClick={() => setSucursal(s)}
+                className={`rounded-full px-3.5 py-1.5 text-[12.5px] font-medium transition-colors ${sucursal === s ? 'bg-[#141414] text-white' : 'text-black/55 hover:text-black'}`}>
+                {s}
               </button>
             ))}
           </div>
+        </div>
+
+        {errorNotas && <p className="rounded-lg bg-[#B82D25]/10 border border-[#B82D25]/30 px-3 py-2 text-sm text-[#932A1F]">{errorNotas}</p>}
+        {!notas && !errorNotas && (
+          <div className="space-y-3" aria-busy="true">
+            {[0, 1].map((i) => (
+              <div key={i} className="overflow-hidden rounded-2xl bg-white ring-1 ring-black/[0.06]">
+                <div className="h-[62px] bg-[#141414]" /><div className="h-[3px] bg-[#C9A96E]" />
+                <div className="space-y-3 p-5">{[0, 1, 2].map((j) => <div key={j} className="h-9 rounded-lg bg-black/[0.04] motion-safe:animate-pulse" />)}</div>
+              </div>
+            ))}
+          </div>
         )}
-      </div>
+        {notas && notas.propuestas.length === 0 && (
+          <p className="rounded-2xl bg-white px-5 py-6 text-sm text-black/55">No hay nada para reponer en {sucursal} con proveedor habitual. Si te falta algo puntual, preguntale al agente acá abajo.</p>
+        )}
+        {notas?.propuestas.slice(0, verTodas ? undefined : PROVEEDORES_VISIBLES).map((p) => <NotaDePedido key={`${sucursal}:${p.clave}`} propuesta={p} />)}
+        {notas && notas.propuestas.length > PROVEEDORES_VISIBLES && !verTodas && (
+          <button onClick={() => setVerTodas(true)}
+            className="w-full rounded-2xl bg-white px-4 py-3 text-sm font-medium text-black/60 ring-1 ring-black/[0.06] hover:text-black">
+            Ver {notas.propuestas.length - PROVEEDORES_VISIBLES} proveedor{notas.propuestas.length - PROVEEDORES_VISIBLES === 1 ? '' : 'es'} más
+          </button>
+        )}
+        {notas && notas.sinProveedor > 0 && (
+          <p className="text-[12.5px] text-black/55">
+            Hay {miles(notas.sinProveedor)} productos urgentes sin proveedor habitual: no entran en ninguna nota.{' '}
+            <button onClick={() => enviar(`¿A quién le compro lo urgente que no tiene proveedor habitual en ${sucursal}?`)} className="font-medium text-[#B82D25] underline underline-offset-2">Preguntale al agente</button>.
+          </p>
+        )}
+      </section>
 
       {error && <p className="rounded-lg bg-[#B82D25]/10 border border-[#B82D25]/30 px-3 py-2 text-sm text-[#932A1F]">{error}</p>}
 
@@ -109,10 +173,10 @@ export function AbastecimientoPanel() {
         <div className="px-4 py-3 border-b border-black/10">
           <p className="text-sm font-medium text-black">Agente de compras</p>
           <p className="text-xs text-black/50 mt-0.5">
-            Cruza ritmo de venta, stock y plazo de entrega. Propone; la orden la arma cuando le decís que sí, y la aprueba el dueño.
+            Para algo puntual: un rubro, un producto o qué hacer con lo que no tiene proveedor. Lo que propone te llega como nota de pedido para tildar.
           </p>
         </div>
-        <div className="max-h-[52vh] overflow-y-auto p-4 space-y-3">
+        <div className="max-h-[70vh] overflow-y-auto p-4 space-y-3">
           {mensajes.length === 0 && (
             <div className="flex flex-wrap gap-2">
               {SUGERENCIAS.map((s) => (
@@ -121,7 +185,7 @@ export function AbastecimientoPanel() {
             </div>
           )}
           {mensajes.map((m, i) => (
-            <div key={i} className={`flex ${m.rol === 'usuario' ? 'justify-end' : 'justify-start'}`}>
+            <div key={i} className={`flex flex-col ${m.rol === 'usuario' ? 'items-end' : 'items-start'}`}>
               <div className={`max-w-[85%] whitespace-pre-wrap rounded-xl px-3.5 py-2.5 text-sm leading-relaxed ${m.rol === 'usuario' ? 'bg-black text-[#F0EBE2]' : 'bg-[#F0EBE2] text-black'}`}>
                 {m.texto}
                 {m.ordenes && (
@@ -130,6 +194,11 @@ export function AbastecimientoPanel() {
                   </a>
                 )}
               </div>
+              {m.propuestas && (
+                <div className="mt-2 w-full space-y-3">
+                  {m.propuestas.map((p) => <NotaDePedido key={p.clave} propuesta={p} />)}
+                </div>
+              )}
             </div>
           ))}
           {pensando && <p className="text-sm text-black/40">Revisando stock, ventas y proveedores…</p>}
