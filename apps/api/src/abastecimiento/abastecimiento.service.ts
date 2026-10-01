@@ -6,7 +6,7 @@ import { SUPABASE } from '../supabase.provider';
 import { ComprasService } from '../compras/compras.service';
 import { TONO_ODB } from '../comun/tono-odb';
 import { costoUSD, usoDeRespuesta } from '../bot/tarifas';
-import { enLotes } from '../comun/lotes';
+import { enLotes, traerTodo } from '../comun/lotes';
 import { armarPropuestas, cantidadPedible, type Propuesta } from './propuesta';
 
 // ============================================================
@@ -99,7 +99,7 @@ const HERRAMIENTAS: Anthropic.Tool[] = [
   {
     name: 'proponer_compra',
     description:
-      'Muestra en la pantalla una propuesta de compra para UN proveedor y UNA sucursal, como nota de pedido con casillas para tildar y cantidades editables. El comprador la revisa y la arma desde ahí con un botón. Stock, ritmo, días que alcanza y costo los pone el sistema: vos elegís productos y cantidades. Para varios proveedores, una llamada por proveedor.',
+      'Muestra en la pantalla una propuesta de compra para UN proveedor y UNA sucursal, como nota de pedido con casillas para tildar y cantidades editables. El comprador la revisa y la arma desde ahí con un botón. Stock, ritmo, días que alcanza y costo los pone el sistema: vos elegís productos y cantidades. Para varios proveedores, una llamada por proveedor. Si volvés a llamarla para el mismo proveedor y sucursal, la nota nueva REEMPLAZA a la anterior: mandá la lista completa, no solo lo que corregís.',
     input_schema: {
       type: 'object',
       properties: {
@@ -154,17 +154,17 @@ const SISTEMA = `Sos el agente de abastecimiento de O.D.B (almacén y vinoteca p
 Tu trabajo: que no falte lo que se vende y que no se compre de más. La clave es ritmo de venta contra stock contra plazo de entrega. Un producto que vende 3 por día y tarda 10 días en llegar está en alerta con 40 unidades; uno que no se vende no está en alerta con 2.
 
 Cómo trabajás:
-- Todos los números salen de tus herramientas. Nunca inventes stock, ritmo, plazos, costos ni proveedores. Citá los números que justifican cada propuesta (stock, vende X por día, le quedan N días, el proveedor tarda M).
+- Todos los números salen de tus herramientas. Nunca inventes stock, ritmo, plazos, costos ni proveedores. Cuando contestás sin proponer una compra (un producto, un proveedor, una duda), citá los números que importan (stock, vende X por día, le quedan N días, el proveedor tarda M).
 - Prioridad: 1) sin stock de lo que se vende; 2) lo que no llega a tiempo (los días que le quedan no alcanzan para el plazo de entrega); 3) lo que quedó por debajo de 12. Lo que no se vende no se repone por reponer.
 - Son miles de renglones: trabajá de a tandas y agrupá por proveedor, que es como se compra. Empezá por lo más urgente y preguntá si sigue.
-- La cantidad sugerida ya cubre el plazo de entrega, un margen y 14 días más. Podés ajustarla con criterio (bultos cerrados, la cantidad de la última compra, una tendencia fuerte) explicando por qué.
+- La cantidad sugerida ya cubre el plazo de entrega, un margen y 14 días más. Podés ajustarla con criterio (bultos cerrados, la cantidad de la última compra, una tendencia fuerte); el porqué va en el motivo de ese renglón, no en el texto.
 - El plazo de entrega se aprende de las compras reales: cuando se aprueba o envía una orden y cuando entra. Si dice "sin confirmar: 7 días por defecto", decí que ese número es provisorio.
 - Si un producto no tiene proveedor habitual, preguntá a quién se le compra. Al armar la orden con ese proveedor, el sistema lo aprende para la próxima.
 - Si el ritmo viene del sistema viejo y el período terminó hace más de un mes, decilo una vez: las cantidades son orientativas hasta que se cargue el reporte de ventas reciente del sistema viejo.
 - Las propuestas de compra van SIEMPRE por proponer_compra: la pantalla las dibuja como nota de pedido para tildar, con stock, días que alcanza y costo, y el comprador la arma desde ahí. En tu texto NO repitas los productos ni sus números: una o dos líneas con lo que importa (qué es lo urgente, si el plazo es provisorio, qué le falta al proveedor).
 - armar_orden solo si el comprador te pide por escrito que la armes vos, con la propuesta exacta (proveedor, sucursal, productos y cantidades) ya acordada. Nunca armes una orden sin ese sí.
 - Proveedor bien cargado, sí o sí: para comprarle tiene que tener CUIT, razón social, teléfono o WhatsApp, condición de pago y plazo de entrega confirmado. Si le falta algo, decilo al proponer la compra. Si igual se arma la orden, queda a aprobar y frenada: administración ya recibe el pedido de completarlo y el sistema avisa cuando está.
-- Respuestas cortas y concretas, en castellano rioplatense, sin markdown pesado: listas simples con guiones.
+- Respuestas cortas y concretas, en castellano rioplatense, sin markdown pesado. Si hace falta una lista, guiones simples; nunca la lista de productos de una propuesta (esa la dibuja la pantalla).\n- El comprador te cuenta al principio de su mensaje cómo están las notas en pantalla (qué tildó, qué cantidades cambió, qué órdenes ya armó). Eso manda sobre lo que propusiste antes: no vuelvas a proponer ni a armar lo que ya está armado.
 
 ${TONO_ODB}`;
 
@@ -196,15 +196,22 @@ export class AbastecimientoService {
   }
 
   async situacion(f: { sucursalId?: string | null; soloAlertas?: boolean; proveedorId?: string | null; q?: string | null; limite?: number }) {
-    const { data, error } = await this.db.rpc('abastecimiento', {
+    const args = {
       p_sucursal: f.sucursalId ?? null,
       p_solo_alertas: f.soloAlertas !== false,
       p_proveedor: f.proveedorId ?? null,
       p_q: f.q?.trim() || null,
       p_limite: f.limite ?? 200,
-    });
-    if (error) throw new BadRequestException(error.message);
-    return (data ?? []) as any[];
+    };
+    // PostgREST corta en 1.000 filas también las funciones, sin avisar: el
+    // p_limite no manda. Saint Thomas tiene 2.154 alertas y llegaban las 1.000
+    // más urgentes (1/10/2026: la nota de pedido mostraba 133 productos de 388).
+    // De a páginas; una consulta chica es una sola vuelta.
+    try {
+      return await traerTodo<any>((desde, hasta) => this.db.rpc('abastecimiento', args).range(desde, hasta) as any);
+    } catch (e) {
+      throw new BadRequestException(e instanceof Error ? e.message : String(e));
+    }
   }
 
   // Totales por sucursal y alerta + de cuándo son los datos. Lo usan la pantalla,
@@ -453,7 +460,11 @@ export class AbastecimientoService {
       { type: 'text', text: SISTEMA, cache_control: { type: 'ephemeral' } },
       { type: 'text', text: `Hoy es ${new Date().toLocaleDateString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' })}. Situación al abrir la charla: ${JSON.stringify(resumen)}` },
     ];
-    const historial: Anthropic.MessageParam[] = mensajes.slice(-20).map((m) => ({
+    // la API exige que el primer mensaje sea del usuario: el recorte de 20 puede
+    // dejar una respuesta del agente adelante (pasaba en la pregunta 11)
+    const ultimos = mensajes.slice(-20);
+    while (ultimos.length > 1 && ultimos[0].rol !== 'usuario') ultimos.shift();
+    const historial: Anthropic.MessageParam[] = ultimos.map((m) => ({
       role: m.rol === 'usuario' ? 'user' : 'assistant',
       content: m.texto?.trim() || '(sin texto)',
     }));
