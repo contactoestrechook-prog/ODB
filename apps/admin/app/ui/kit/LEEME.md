@@ -87,7 +87,7 @@ La única excepción a la letra: la etiqueta térmica de `VerificadorPrecios.tsx
 - Página: `px-4 sm:px-6 lg:px-8` (lo pone `<Pantalla>`).
 - Tarjeta: `p-4 sm:p-5`. Entre bloques: `space-y-4 sm:space-y-6` (lo pone `<Pantalla>` entre sus hijos). Fila de lista: `px-4 py-3`. Formularios: `gap-3`.
 - Alto táctil en el celular: botones y campos `min-h-11` (44 px); chips `min-h-9`. Los componentes del kit ya lo cumplen.
-- Foco visible: `focus-visible:ring-4 focus-visible:ring-marca/15` (sobre oscuro, `ring-2 ring-white/50`).
+- Foco visible (con teclado): contorno rojo de 2 px separado del borde, `FOCO` de `kit/clases.ts` (`focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-marca`, 6:1 sobre blanco). Dentro de una fila con scroll, donde el de afuera queda cortado: `FOCO_ADENTRO` (contorno hacia adentro). Campos: borde `marca` entero más el halo `ring-4 ring-marca/15`. Sobre oscuro (menú): `ring-2 ring-white/50`. **No** usar solo `ring-marca/15` en botones: da 1,3:1 y no se ve.
 - Al tocar: `active:scale-[0.98]` (ya está en botones y chips).
 
 ### Escala tipográfica (Figtree)
@@ -117,7 +117,7 @@ Una sola escala. Clases: `z-contenido` (10), `z-barra-inferior` (30), `z-barra` 
 
 ## 2. Componentes
 
-Todos aceptan `className` **para ubicarlos** (márgenes, ancho, grilla), no para cambiarles el estilo: las clases no se pisan entre sí.
+Todos menos `Modal` y `Confirmar` aceptan `className` **para ubicarlos** (márgenes, ancho, grilla), no para cambiarles el estilo: las clases no se pisan entre sí (ver `unir` en Utilidades).
 
 Servidor o cliente: `Campo`, `Entrada`, `Selector`, `AreaTexto`, `Modal`, `Confirmar`/`useConfirmar` y `BarraInferior` son componentes de cliente. El resto sirve en los dos; pero un `onClick` solo se puede pasar desde un componente `'use client'` (en una `page.tsx` usá `href`).
 
@@ -159,6 +159,7 @@ clasesBoton({ variante, tamano, anchoCompleto, className }): string   // para <a
 - Por defecto `type="button"`; para enviar un formulario, `type="submit"`.
 - `cargando`: ruedita, desactivado y `aria-busy`.
 - `normal`: 44 px en el celular, 40 en escritorio. `chico`: 36/32 px, con la zona táctil estirada a 44 en el celular.
+- Foco: contorno rojo (verde en `ok`), solo con teclado.
 
 ```tsx
 <Boton onClick={guardar} cargando={guardando}>Guardar</Boton>
@@ -166,8 +167,10 @@ clasesBoton({ variante, tamano, anchoCompleto, className }): string   // para <a
 <Boton variante="ok" onClick={aprobar}>Aprobar pago</Boton>
 <Boton variante="peligro" tamano="chico" onClick={anular}>Anular</Boton>
 <BotonLink href="/compras?nueva=1">Nueva orden</BotonLink>
-<label className={clasesBoton({ variante: 'secundario' })}>Subir foto<input type="file" hidden /></label>
+<label className={clasesBoton({ variante: 'secundario' })}>Subir foto<input type="file" className="sr-only" onChange={…} /></label>
 ```
+
+- Para el `<label>` de archivo, el input va con `sr-only`, **no** con `hidden`: con `hidden` no se llega con el teclado. `clasesBoton` ya dibuja el contorno de foco cuando lo tiene el input de adentro.
 
 ### `<Tarjeta>`, `<TarjetaCabecera>`, `<TarjetaCuerpo>`
 
@@ -211,7 +214,9 @@ AreaTexto: props de <textarea> + { invalido?: boolean }        // rows=4 por def
 CLASES_ENTRADA: string    // las clases de un <input> del kit, para un campo suelto en una page.tsx
 ```
 
-- Dentro de `<Campo>`, el control toma solo el `id`, la ayuda/el error (`aria-describedby`) y `aria-invalid`.
+- Dentro de `<Campo>`, el control toma solo el `id`, la ayuda/el error (`aria-describedby`), `aria-invalid` y `required` (si `obligatorio`).
+- El `error` queda enlazado al campo (el lector de pantalla lo lee al enfocarlo), no se anuncia solo: si el error aparece al tocar Guardar, mostrá además un `<Aviso tono="error">`.
+- Un solo control por `<Campo>` (el `id` es uno).
 - 44 px de alto y 16 px de letra en el celular; 40 px y 14 px en escritorio.
 - `className` va a la caja de afuera (en `Entrada` con prefijo/sufijo y en `Selector`, la caja es un `div`).
 
@@ -267,7 +272,8 @@ Los de error se anuncian enseguida (`role="alert"`). Reemplaza los `<p className
 
 - Celular: hoja que sube desde abajo (`rounded-t-3xl`). Desde `sm`: ventana centrada. Alto máximo 90% de la pantalla visible (`dvh`).
 - Cabecera y pie fijos; el medio scrollea. ✕ de 44 px, Escape y toque afuera cierran (salvo `bloquearCierre`, mientras se guarda).
-- El foco queda adentro y vuelve al botón que lo abrió. Se monta en `<body>` (no lo corta ningún `overflow` del padre).
+- El foco queda adentro (Tab y Mayús+Tab dan la vuelta) y al cerrar vuelve al botón que lo abrió, también si un campo del modal tiene `autoFocus`. Se monta en `<body>` (no lo corta ningún `overflow` del padre).
+- Mientras está abierto, la página de atrás no scrollea y se esconden los flotantes ("Esto está mal", instalar, actualización).
 - En el celular, los botones del pie se reparten el ancho.
 - `cerrarAlTocarAfuera={false}` en formularios largos (un toque perdido haría perder lo cargado).
 
@@ -298,7 +304,7 @@ useConfirmar(): { confirmar(op): Promise<boolean>; pedirTexto(op & { campo }): P
 // op = { titulo; texto?; textoConfirmar?; textoCancelar?; variante? }
 ```
 
-La forma más corta de migrar: casi no cambia la lógica.
+La forma más corta de migrar: casi no cambia la lógica. Si se pide uno nuevo antes de contestar el anterior (doble toque), el anterior se da por cancelado (`false` / `null`).
 
 ```tsx
 const { confirmar, pedirTexto, avisar, dialogo } = useConfirmar();
@@ -331,7 +337,8 @@ ColumnaTabla<T> = { clave: string; titulo: ReactNode; celda: (fila, i) => ReactN
 - **Celular** (hasta `md`): una tarjeta por fila. Arriba, las columnas `principal` (si no hay, la primera); abajo, el resto como "rótulo: dato" en dos columnas; al final, las `acciones` en una fila que se acomoda sola. Nada se sale del ancho.
 - **Desde `md`**: tabla con scroll lateral propio, encabezado en rótulo, importes a la derecha con `importe`.
 - `importe: true` para plata y cantidades; `acciones: true` para la columna de botones (con `titulo: ''`).
-- `hrefFila`: la tarjeta entera es un enlace en el celular; en escritorio, la columna principal. No pongas botones dentro de `tarjetaMovil` si usás `hrefFila`.
+- `hrefFila`: la tarjeta entera es un enlace en el celular; en escritorio, la columna principal.
+- `tarjetaMovil` reemplaza solo los **datos** de la tarjeta: las columnas `acciones` van siempre abajo, fuera de la tarjeta y fuera del enlace. No pongas botones dentro de `tarjetaMovil`.
 - Las dos vistas están a la vez en la página (una escondida): si una celda tiene un **campo editable**, armá `tarjetaMovil` para no tener dos campos con el mismo estado.
 - Sin filas muestra `vacio` (o un `<Vacio>` genérico): pasale uno que diga qué hacer.
 - Ya trae su caja blanca; dentro de una `<Tarjeta relleno={false}>`, usá `sinMarco`.
@@ -369,8 +376,10 @@ Chip:     props de <button> + { activo?; cuenta?; href?; children }     // filtr
 ```
 
 - Pestañas: fila subrayada en rojo; en el celular scrollea de costado (nunca se parte ni se sale). `aLoAncho` solo si está directo en `<Pantalla>` (llega de borde a borde).
-- Chips: el activo es tinta con texto blanco (es un estado, no un botón). Bajan de renglón; `desplazable` para una sola fila con scroll.
-- Con `href` (filtro en la URL) se arman con `<Link>`: así sirven en una `page.tsx`.
+- Pestañas con `href` en **todas** las opciones: es navegación. Se arma como `<nav>` con enlaces (la activa lleva `aria-current="page"`) y sirve en una `page.tsx`.
+- Pestañas sin `href`, con `onCambiar`: pestañas de verdad (`role="tablist"`). Con el teclado, Tab entra a la activa y las flechas, Inicio y Fin pasan de una a otra. Solo desde un componente `'use client'`.
+- Chips: el activo es tinta con texto blanco (es un estado, no un botón). Bajan de renglón; `desplazable` para una sola fila con scroll (lleva 4 px de aire para que se vea el foco). Un nombre larguísimo se corta con "…".
+- Chips con `href` (filtro en la URL) se arman con `<Link>`: así sirven en una `page.tsx`.
 
 ```tsx
 <Pestanas valor={vista} onCambiar={setVista} opciones={[
@@ -402,7 +411,7 @@ El vacío siempre dice qué hacer, nunca solo "Sin datos".
 { children; resumen?: ReactNode; etiqueta?: string; className? }
 ```
 
-- Celular: fija abajo, respeta el gesto del iPhone y reserva su lugar al final (no tapa nada). Sin `resumen`, los botones se reparten el ancho.
+- Celular: fija abajo, respeta el gesto del iPhone y reserva al final un lugar que mide lo mismo que la barra (no tapa nada, aunque el resumen ocupe dos renglones). Sin `resumen`, los botones se reparten el ancho.
 - Desde `lg`: flota pegada al pie del contenido.
 - Mientras está, se esconde "Esto está mal" y el cartel de instalar sube por encima.
 
@@ -446,6 +455,21 @@ Al migrar una copia vieja de `pesos`:
 - `pesos()` devuelve `—` si no hay número (en plata, "no sé" no es "cero"). Si la copia vieja hacía `Number(n) || 0`, usá **`pesos(n ?? 0)`** para que la pantalla siga mostrando `$0`.
 - Los negativos salen `-$1.234` (antes algunas pantallas mostraban `$-1.234`).
 - Las fechas se arman en hora de Buenos Aires y pieza por pieza: el servidor (UTC) y el navegador escriben lo mismo. Una fecha sola (`2026-10-05`) se toma al mediodía y no se corre al día anterior. `new Date().toISOString().slice(0, 10)` da el día de Londres después de las 21 h: usá `hoyISO()`.
+
+---
+
+### Utilidades e íconos
+
+```ts
+unir(...clases)        // une clases salteando las vacías: unir('px-4', activo && 'bg-marca', className)
+FOCO, FOCO_ADENTRO     // el contorno de foco del kit, para un botón o enlace que no sea <Boton>
+ROTULO                 // rótulo en mayúsculas: 'text-xs font-semibold uppercase tracking-[0.08em] text-tinta/60'
+CLASES_ENTRADA         // las clases de un <input> del kit, para un campo suelto en una page.tsx
+useCampo()             // el id, la ayuda y el error del <Campo> que envuelve (para armar un control propio)
+IconoCerrar, IconoFlechaAbajo, IconoOk, IconoAtencion, IconoError, IconoInfo, IconoVacio   // { className? }, size-5 por defecto
+```
+
+`unir` no resuelve choques: dos clases del mismo tipo (`bg-crema` y `bg-crema-claro`) no se pisan por el orden en que se escriben; gana la que el CSS imprime después. Para estados, elegí **una** clase con un `?:` o usá variantes (`disabled:`, `aria-invalid:`), que siempre ganan.
 
 ---
 
@@ -493,7 +517,7 @@ Al migrar una copia vieja de `pesos`:
 ## 4. Lo que todavía no está
 
 - El parche global de tablas (se borra con la última tabla migrada, ver arriba).
-- `<Icono nombre>` único (hoy los íconos del menú están en `ICONOS` de `Header.tsx` y los del kit en `kit/iconos.tsx`).
+- `<Icono nombre>` único (hoy los íconos del menú están en `ICONOS` de `Header.tsx` y los del kit en `kit/iconos.tsx`, exportados desde el índice).
 - Un mapa único medio de pago → tono para las `<Etiqueta>` (Getnet, Clover, Mercado Pago, efectivo).
 - `<PantallaAcceso>` para login, recuperar y cambiar la clave.
 - Inicio pasa a clara en otra etapa.

@@ -16,18 +16,24 @@ import { unir } from './clases';
 export type VarianteBoton = 'primario' | 'secundario' | 'fantasma' | 'peligro' | 'ok';
 export type TamanoBoton = 'chico' | 'normal';
 
+// Foco con teclado: contorno de 2 px separado del botón (ver FOCO en
+// clases.ts). `has-[:focus-visible]` lo muestra también cuando el foco lo tiene
+// un <input type="file" className="sr-only"> dentro de un <label> con
+// clasesBoton() (el botón "Subir foto").
 const BASE =
   'relative inline-flex max-w-full items-center justify-center gap-2 rounded-full text-center font-semibold leading-tight ' +
   'select-none transition-[background-color,border-color,color,box-shadow,transform,filter] duration-150 ' +
-  'active:scale-[0.98] focus-visible:outline-none focus-visible:ring-4 ' +
+  'active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 ' +
   'disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50';
 
+const FOCO_ROJO = 'focus-visible:outline-marca has-[:focus-visible]:outline-marca';
+
 const VARIANTES: Record<VarianteBoton, string> = {
-  primario: 'bg-marca text-white hover:bg-marca-hondo focus-visible:ring-marca/25',
-  secundario: 'border border-black/15 bg-white text-tinta hover:border-black/25 hover:bg-crema-claro focus-visible:ring-marca/15',
-  fantasma: 'text-tinta/70 hover:bg-tinta/5 hover:text-tinta focus-visible:ring-marca/15',
-  peligro: 'border border-marca/30 bg-white text-marca-hondo hover:border-marca/50 hover:bg-marca-suave focus-visible:ring-marca/15',
-  ok: 'bg-ok text-white hover:brightness-90 focus-visible:ring-ok/25',
+  primario: `bg-marca text-white hover:bg-marca-hondo ${FOCO_ROJO}`,
+  secundario: `border border-black/15 bg-white text-tinta hover:border-black/25 hover:bg-crema-claro ${FOCO_ROJO}`,
+  fantasma: `text-tinta/70 hover:bg-tinta/5 hover:text-tinta ${FOCO_ROJO}`,
+  peligro: `border border-marca/30 bg-white text-marca-hondo hover:border-marca/50 hover:bg-marca-suave ${FOCO_ROJO}`,
+  ok: 'bg-ok text-white hover:brightness-90 focus-visible:outline-ok has-[:focus-visible]:outline-ok',
 };
 
 // 44 px de alto en el celular (dedo); en escritorio, un poco más bajos. El

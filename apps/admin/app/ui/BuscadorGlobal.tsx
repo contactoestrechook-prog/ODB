@@ -54,7 +54,7 @@ export function BuscadorGlobal() {
         onFocus={() => res && setAbierto(true)}
         onKeyDown={(e) => { if (e.key === 'Escape') setAbierto(false); }}
         placeholder="Buscar producto, cliente o comprobante…"
-        className="min-h-11 w-full appearance-none rounded-full border border-black/15 bg-crema-claro py-2 pl-10 pr-4 text-base text-tinta outline-none transition-[border-color,box-shadow,background-color] placeholder:text-tinta/40 focus:border-marca/60 focus:bg-white focus:ring-4 focus:ring-marca/15 sm:min-h-10 sm:text-sm"
+        className="min-h-11 w-full appearance-none rounded-full border border-black/15 bg-crema-claro py-2 pl-10 pr-4 text-base text-tinta outline-none transition-[border-color,box-shadow,background-color] placeholder:text-tinta/40 focus:border-marca focus:bg-white focus:ring-4 focus:ring-marca/15 sm:min-h-10 sm:text-sm"
       />
       {abierto && q.trim().length >= 2 && (
         <div className="absolute z-barra mt-1.5 max-h-[70dvh] w-full overflow-hidden overflow-y-auto rounded-2xl border border-black/10 bg-white shadow-flotante">
@@ -67,7 +67,7 @@ export function BuscadorGlobal() {
               <div key={clave}>
                 <p className="px-4 pt-3 pb-1 text-xs font-semibold uppercase tracking-[0.08em] text-tinta/60">{label}</p>
                 {items.map((it, i) => (
-                  <button key={i} type="button" onClick={() => ir(it.href)} className="block min-h-11 w-full border-b border-black/[0.06] px-4 py-2.5 text-left transition-colors last:border-0 hover:bg-crema-claro focus-visible:bg-crema-claro focus-visible:outline-none">
+                  <button key={i} type="button" onClick={() => ir(it.href)} className="block min-h-11 w-full border-b border-black/[0.06] px-4 py-2.5 text-left transition-colors last:border-0 hover:bg-crema-claro focus-visible:bg-crema-claro focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-marca">
                     <p className="min-w-0 break-words text-sm text-tinta">{it.titulo}</p>
                     <p className="min-w-0 break-words text-xs text-tinta/60">{it.sub}</p>
                   </button>

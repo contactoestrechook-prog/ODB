@@ -2,7 +2,7 @@
 
 import type { ComponentPropsWithRef } from 'react';
 import { useCampo } from './Campo';
-import { CAJA_CAMPO, CAMPO_DESACTIVADO, CAMPO_INVALIDO, FOCO_CAMPO } from './estilosCampo';
+import { CAJA_CAMPO, CAMPO_DESACTIVADO, CAMPO_INVALIDO, COLOR_CAMPO, FOCO_CAMPO } from './estilosCampo';
 import { unir } from './clases';
 
 export type PropsAreaTexto = ComponentPropsWithRef<'textarea'> & { invalido?: boolean };
@@ -22,6 +22,7 @@ export function AreaTexto({ invalido, className, id, rows = 4, ...resto }: Props
       className={unir(
         'block min-h-24 resize-y px-3.5 py-2.5 leading-relaxed placeholder:text-tinta/40',
         CAJA_CAMPO,
+        COLOR_CAMPO,
         FOCO_CAMPO,
         CAMPO_INVALIDO,
         CAMPO_DESACTIVADO,

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useState, type ReactNode } from 'react';
+import { useCallback, useRef, useState, type ReactNode } from 'react';
 import { Boton } from './Boton';
 import { Campo } from './Campo';
 import { AreaTexto } from './AreaTexto';
@@ -132,8 +132,13 @@ export function useConfirmar() {
   const [pedido, setPedido] = useState<Pedido | null>(null);
   // cada pedido lleva su número: así el campo de texto arranca vacío cada vez
   const [vez, setVez] = useState(0);
+  // el pedido que está esperando respuesta: si llega otro antes (un doble
+  // toque), el primero se contesta "cancelado" en vez de quedar colgado
+  const pendiente = useRef<Pedido | null>(null);
 
   const abrir = useCallback((p: Pedido) => {
+    pendiente.current?.resolver(null);
+    pendiente.current = p;
     setVez((v) => v + 1);
     setPedido(p);
   }, []);
@@ -153,6 +158,7 @@ export function useConfirmar() {
   );
 
   const terminar = (valor: string | null) => {
+    if (pedido && pendiente.current === pedido) pendiente.current = null;
     pedido?.resolver(valor);
     setPedido(null);
   };

@@ -46,4 +46,6 @@ export { Cargando, Girador } from './Cargando';
 export { BarraInferior } from './BarraInferior';
 export { Monto } from './Monto';
 
-export { unir } from './clases';
+export { IconoAtencion, IconoCerrar, IconoError, IconoFlechaAbajo, IconoInfo, IconoOk, IconoVacio } from './iconos';
+
+export { unir, FOCO, FOCO_ADENTRO, ROTULO } from './clases';

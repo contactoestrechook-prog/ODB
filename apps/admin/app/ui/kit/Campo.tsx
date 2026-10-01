@@ -17,7 +17,7 @@ type PropsCampo = {
   etiqueta: ReactNode;
   /** Una ayuda corta debajo ("Sin puntos ni guiones"). Si hay error, se muestra el error. */
   ayuda?: ReactNode;
-  /** Mensaje de error: pinta el campo en rojo y se anuncia. */
+  /** Mensaje de error: pinta el campo en rojo y queda enlazado a él (el lector de pantalla lo lee al enfocarlo). Para avisar un error al guardar, además un <Aviso tono="error">. */
   error?: ReactNode;
   /** Agrega el asterisco y marca el campo como obligatorio. */
   obligatorio?: boolean;

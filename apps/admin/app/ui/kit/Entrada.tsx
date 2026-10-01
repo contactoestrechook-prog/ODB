@@ -3,7 +3,7 @@
 import type { ComponentPropsWithRef, ReactNode } from 'react';
 import { useCampo } from './Campo';
 import { unir } from './clases';
-import { CAJA_CAMPO, CLASES_ENTRADA } from './estilosCampo';
+import { CAJA_CAMPO, CLASES_ENTRADA, COLOR_CAMPO } from './estilosCampo';
 
 export type PropsEntrada = ComponentPropsWithRef<'input'> & {
   /** Algo fijo a la izquierda, dentro de la caja: "$", un ícono. */
@@ -33,15 +33,20 @@ export function Entrada({ prefijo, sufijo, invalido, className, id, ...resto }: 
   }
 
   // Con prefijo/sufijo la caja es un div y el input va sin borde adentro: así
-  // el texto fijo puede medir lo que quiera ("$" o "unid.").
+  // el texto fijo puede medir lo que quiera ("$" o "unid."). El color sale de
+  // UN solo juego de clases según el estado (dos bg-* juntos no se pisan).
+  const color = resto.disabled
+    ? 'cursor-not-allowed border-black/15 bg-crema text-tinta/40'
+    : marcado
+      ? 'border-marca bg-white text-tinta'
+      : COLOR_CAMPO;
   return (
     <div
       className={unir(
         'flex min-h-11 items-center sm:min-h-10',
         CAJA_CAMPO,
-        'focus-within:border-marca/60 focus-within:bg-white focus-within:ring-4 focus-within:ring-marca/15',
-        marcado && 'border-marca bg-white',
-        resto.disabled && 'cursor-not-allowed bg-crema text-tinta/40',
+        color,
+        'focus-within:border-marca focus-within:bg-white focus-within:ring-4 focus-within:ring-marca/15',
         className,
       )}
     >

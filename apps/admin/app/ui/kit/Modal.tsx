@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useId, useRef, useSyncExternalStore, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { unir } from './clases';
+import { FOCO, unir } from './clases';
 import { IconoCerrar } from './iconos';
 
 export type AnchoModal = 'chico' | 'normal' | 'ancho';
@@ -65,6 +65,20 @@ export function Modal({
 }: PropsModal) {
   const montado = useSyncExternalStore(suscribirNada, enCliente, enServidor);
   const idBase = useId();
+
+  // Quién tenía el foco al abrirse, para devolvérselo al cerrar. Se toma en el
+  // render, ANTES de que un campo con autoFocus se lo lleve: React enfoca los
+  // autoFocus al montar, antes de correr los efectos, y si se leía en el
+  // efecto el "anterior" era el propio campo del modal (y al cerrar el foco
+  // quedaba perdido en <body>).
+  const [abridor, setAbridor] = useState<Element | null>(() =>
+    abierto && typeof document !== 'undefined' ? document.activeElement : null,
+  );
+  const [abiertoAntes, setAbiertoAntes] = useState(abierto);
+  if (abierto !== abiertoAntes) {
+    setAbiertoAntes(abierto);
+    if (abierto) setAbridor(document.activeElement);
+  }
   const idTitulo = `${idBase}-titulo`;
   const idDescripcion = `${idBase}-descripcion`;
   const panel = useRef<HTMLDivElement>(null);
@@ -80,9 +94,9 @@ export function Modal({
   });
 
   useEffect(() => {
-    if (!abierto) return;
+    if (!abierto || !montado) return;
     const html = document.documentElement;
-    const anterior = document.activeElement as HTMLElement | null;
+    const anterior = abridor instanceof HTMLElement && abridor !== document.body ? abridor : null;
     pila.push(idBase);
     html.style.overflow = 'hidden';
     html.dataset.modalAbierto = '1';
@@ -128,7 +142,7 @@ export function Modal({
       }
       if (anterior && document.contains(anterior)) anterior.focus({ preventScroll: true });
     };
-  }, [abierto, idBase]);
+  }, [abierto, montado, abridor, idBase]);
 
   if (!abierto || !montado) return null;
 
@@ -178,7 +192,10 @@ export function Modal({
             onClick={onCerrar}
             disabled={bloquearCierre}
             aria-label="Cerrar"
-            className="grid size-11 shrink-0 place-items-center rounded-full text-tinta/60 transition-colors hover:bg-tinta/5 hover:text-tinta focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-marca/15 disabled:opacity-40"
+            className={unir(
+              'grid size-11 shrink-0 place-items-center rounded-full text-tinta/60 transition-colors hover:bg-tinta/5 hover:text-tinta disabled:opacity-40',
+              FOCO,
+            )}
           >
             <IconoCerrar className="size-5" />
           </button>

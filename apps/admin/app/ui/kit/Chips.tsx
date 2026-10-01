@@ -1,13 +1,16 @@
 import Link from 'next/link';
 import type { ComponentPropsWithRef, ReactNode } from 'react';
-import { unir } from './clases';
+import { FOCO, unir } from './clases';
 
 // 36 px de alto; en el celular la zona táctil se estira a 44 con un ::before.
-const BASE =
-  'relative inline-flex min-h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3.5 text-sm font-medium ' +
-  'transition-[background-color,border-color,color,transform] active:scale-[0.98] ' +
-  'before:absolute before:inset-x-0 before:-inset-y-1 sm:before:hidden ' +
-  'focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-marca/15';
+// max-w-full + el texto con truncate: un chip con un nombre larguísimo se
+// corta con "…" en vez de estirar la pantalla.
+const BASE = unir(
+  'relative inline-flex min-h-9 max-w-full shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3.5 text-sm font-medium',
+  'transition-[background-color,border-color,color,transform] active:scale-[0.98]',
+  'before:absolute before:inset-x-0 before:-inset-y-1 sm:before:hidden',
+  FOCO,
+);
 
 const ACTIVO = 'border-tinta bg-tinta text-white';
 const INACTIVO = 'border-black/15 bg-white text-tinta/70 hover:border-black/25 hover:text-tinta';
@@ -33,7 +36,7 @@ export function Chip({ activo = false, cuenta, href, className, children, type =
   const clases = unir(BASE, activo ? ACTIVO : INACTIVO, className);
   const contenido = (
     <>
-      {children}
+      <span className="min-w-0 truncate">{children}</span>
       {cuenta != null && <Cuenta n={cuenta} activo={activo} />}
     </>
   );
@@ -80,7 +83,10 @@ export function Chips<V extends string>({
       aria-label={etiquetaAccesible}
       className={unir(
         'flex min-w-0 gap-2',
-        desplazable ? 'overflow-x-auto py-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden' : 'flex-wrap',
+        // desplazable: 4 px de aire alrededor para que el contorno del foco no
+        // quede cortado por el scroll (sin margen negativo: así nunca se pasa
+        // del ancho de lo que lo contiene)
+        desplazable ? 'overflow-x-auto p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden' : 'flex-wrap',
         className,
       )}
     >

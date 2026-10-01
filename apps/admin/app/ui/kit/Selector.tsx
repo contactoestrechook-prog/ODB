@@ -2,7 +2,7 @@
 
 import type { ComponentPropsWithRef } from 'react';
 import { useCampo } from './Campo';
-import { CAJA_CAMPO, CAMPO_DESACTIVADO, CAMPO_INVALIDO, FOCO_CAMPO } from './estilosCampo';
+import { CAJA_CAMPO, CAMPO_DESACTIVADO, CAMPO_INVALIDO, COLOR_CAMPO, FOCO_CAMPO } from './estilosCampo';
 import { unir } from './clases';
 import { IconoFlechaAbajo } from './iconos';
 
@@ -34,6 +34,7 @@ export function Selector({ opciones, vacio, invalido, className, id, children, .
         className={unir(
           'block min-h-11 appearance-none truncate py-2 pl-3.5 pr-10 sm:min-h-10',
           CAJA_CAMPO,
+          COLOR_CAMPO,
           FOCO_CAMPO,
           CAMPO_INVALIDO,
           CAMPO_DESACTIVADO,

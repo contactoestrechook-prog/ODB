@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { Fragment, type Key, type ReactNode } from 'react';
-import { ROTULO, unir } from './clases';
+import { FOCO, FOCO_ADENTRO, ROTULO, unir } from './clases';
 import { Vacio } from './Vacio';
 
 export type ColumnaTabla<T> = {
@@ -31,9 +31,11 @@ type PropsTabla<T> = {
   filas: T[];
   /** Clave única de cada fila: el nombre de un campo ('id') o una función. */
   claveFila: keyof T | ((fila: T, indice: number) => Key);
-  /** Tarjeta propia para el celular. Si no se pasa, se arma sola con las columnas. */
+  /** Tarjeta propia para el celular (solo los datos: las columnas `acciones`
+   *  van igual abajo, fuera de la tarjeta). Si no se pasa, se arma sola. */
   tarjetaMovil?: (fila: T, indice: number) => ReactNode;
-  /** Si cada fila lleva a una ficha: en el celular la tarjeta entera es un enlace; en escritorio, la columna principal. */
+  /** Si cada fila lleva a una ficha: en el celular la tarjeta entera es un enlace
+   *  (las acciones quedan abajo, fuera del enlace); en escritorio, la columna principal. */
   hrefFila?: (fila: T) => string;
   /** Qué mostrar si no hay filas (por defecto, un <Vacio> genérico). */
   vacio?: ReactNode;
@@ -58,7 +60,8 @@ function alineacion<T>(c: ColumnaTabla<T>) {
  * si no entra. Reemplaza a las <table> sueltas y al parche global de tablas.
  *
  * Ojo: las dos vistas existen a la vez en la página (una escondida). Si una
- * celda tiene un campo editable, armá `tarjetaMovil` para no duplicarlo.
+ * celda tiene un campo editable, armá `tarjetaMovil` para no duplicarlo, y no
+ * pongas botones dentro de `tarjetaMovil`: van en una columna `acciones`.
  */
 export function TablaResponsiva<T>({
   columnas,
@@ -127,14 +130,14 @@ export function TablaResponsiva<T>({
               {href ? (
                 <Link
                   href={href}
-                  className="block px-4 py-3 transition-colors hover:bg-crema-claro active:bg-crema-claro focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-inset focus-visible:ring-marca/15"
+                  className={unir('block px-4 py-3 transition-colors hover:bg-crema-claro active:bg-crema-claro', FOCO_ADENTRO)}
                 >
                   {contenido}
                 </Link>
               ) : (
                 <div className="px-4 py-3">{contenido}</div>
               )}
-              {!tarjetaMovil && acciones.length > 0 && (
+              {acciones.length > 0 && (
                 <div className="flex flex-wrap gap-2 px-4 pb-3">
                   {acciones.map((c) => (
                     <Fragment key={c.clave}>{c.celda(f, i)}</Fragment>
@@ -182,7 +185,7 @@ export function TablaResponsiva<T>({
                       {href && c === columnaEnlace ? (
                         <Link
                           href={href}
-                          className="font-medium text-tinta underline-offset-4 hover:text-marca hover:underline focus-visible:rounded focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-marca/15"
+                          className={unir('rounded-sm font-medium text-tinta underline-offset-4 hover:text-marca hover:underline', FOCO)}
                         >
                           {c.celda(f, i)}
                         </Link>

@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { Dictado } from './Dictado';
 import { llevaFlotantes } from '../lib/rutas';
-import { AreaTexto, Aviso, Boton, Modal } from './kit';
+import { AreaTexto, Aviso, Boton, FOCO, Modal } from './kit';
 
 // "Esto está mal": desde cualquier pantalla, la persona cuenta (escrito o
 // dictado) qué esperaba. El sistema adjunta solo la pantalla, la dirección y
@@ -58,7 +58,7 @@ export function ReportarProblema() {
         type="button"
         onClick={() => { setAbierto(true); setResultado(null); setError(''); }}
         title="Contanos qué está mal en esta pantalla"
-        className="flotante-reportar flotante-ocultable fixed bottom-[calc(1rem+env(safe-area-inset-bottom))] left-[max(1rem,env(safe-area-inset-left))] z-barra-inferior inline-flex min-h-10 items-center rounded-full border border-black/10 bg-white/95 px-4 text-xs font-semibold text-tinta/70 shadow-flotante backdrop-blur transition-colors hover:border-marca/40 hover:text-marca focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-marca/15 print:hidden lg:left-68"
+        className={`flotante-reportar flotante-ocultable fixed bottom-[calc(1rem+env(safe-area-inset-bottom))] left-[max(1rem,env(safe-area-inset-left))] z-barra-inferior inline-flex min-h-11 items-center rounded-full border border-black/10 bg-white/95 px-4 text-xs font-semibold text-tinta/70 shadow-flotante backdrop-blur transition-colors hover:border-marca/40 hover:text-marca sm:min-h-10 print:hidden lg:left-68 ${FOCO}`}
       >
         Esto está mal
       </button>

@@ -52,8 +52,10 @@ export function BarraInferior({ children, resumen, etiqueta = 'Acciones', classN
 
   return (
     <>
-      {/* lugar reservado: en el celular la barra es fija y taparía el final */}
-      <div aria-hidden="true" className="h-[calc(4.5rem+env(safe-area-inset-bottom))] lg:hidden" />
+      {/* lugar reservado: en el celular la barra es fija y taparía el final.
+          Mide lo que mide la barra de verdad (--alto-barra-inferior, que la
+          barra calcula sola: con un resumen de dos renglones es más alta). */}
+      <div aria-hidden="true" className="h-[var(--alto-barra-inferior,calc(4.5rem+env(safe-area-inset-bottom)))] lg:hidden" />
       <div
         ref={barra}
         role="region"

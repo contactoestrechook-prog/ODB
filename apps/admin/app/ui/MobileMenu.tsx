@@ -54,6 +54,7 @@ export function MobileMenu({
   const [abierto, setAbierto] = useState(false);
   const botonMenu = useRef<HTMLButtonElement>(null);
   const botonCerrar = useRef<HTMLButtonElement>(null);
+  const cajon = useRef<HTMLElement>(null);
   const hayPendientes = Object.values(pendientes).some((n) => n > 0);
 
   useEffect(() => {
@@ -68,7 +69,29 @@ export function MobileMenu({
     botonCerrar.current?.focus();
 
     const alTeclear = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setAbierto(false);
+      if (e.key === 'Escape') {
+        setAbierto(false);
+        return;
+      }
+      // el foco no se escapa a la página de atrás (el cajón es modal): Tab
+      // después del último vuelve al primero y Mayús+Tab al revés
+      if (e.key !== 'Tab' || !cajon.current) return;
+      const enfocables = Array.from(cajon.current.querySelectorAll<HTMLElement>('a[href], button:not([disabled])')).filter(
+        (x) => x.offsetParent !== null,
+      );
+      if (enfocables.length === 0) return;
+      const primero = enfocables[0];
+      const ultimo = enfocables[enfocables.length - 1];
+      if (e.shiftKey && document.activeElement === primero) {
+        e.preventDefault();
+        ultimo.focus();
+      } else if (!e.shiftKey && document.activeElement === ultimo) {
+        e.preventDefault();
+        primero.focus();
+      } else if (!cajon.current.contains(document.activeElement)) {
+        e.preventDefault();
+        primero.focus();
+      }
     };
     // si la ventana pasa a escritorio con el cajón abierto, se cierra solo
     const escritorio = window.matchMedia('(min-width: 1024px)');
@@ -118,6 +141,7 @@ export function MobileMenu({
         <div className="fixed inset-0 z-cajon flex lg:hidden">
           <div className="absolute inset-0 bg-tinta/60 animate-aparece motion-reduce:animate-none" onClick={() => setAbierto(false)} aria-hidden="true" />
           <aside
+            ref={cajon}
             id="menu-movil"
             role="dialog"
             aria-modal="true"
