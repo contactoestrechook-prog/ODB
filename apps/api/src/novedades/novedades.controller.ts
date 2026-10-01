@@ -64,11 +64,21 @@ export class NovedadesController {
 
   @Post('alertas/:id/leida')
   async alertaLeida(@Param('id') id: string, @Req() req: any) {
-    const { error } = await this.db.from('alertas_internas')
-      .update({ leida_en: new Date().toISOString() })
+    const ahora = new Date().toISOString();
+    const { data, error } = await this.db.from('alertas_internas')
+      .update({ leida_en: ahora })
       .eq('id', id)
-      .or(`para_usuario.eq.${req.usuario.sub},para_usuario.is.null`);
+      .or(`para_usuario.eq.${req.usuario.sub},para_usuario.is.null`)
+      .select('tipo, referencia');
     if (error) throw new BadRequestException(error.message);
+    // Una consulta del bot deja dos avisos (el del momento y el recordatorio):
+    // "Listo" en uno saca los dos, para no tener que despejarla dos veces.
+    const consultaId = data?.[0]?.tipo === 'consulta' ? data[0].referencia?.consulta_id : null;
+    if (consultaId) {
+      await this.db.from('alertas_internas').update({ leida_en: ahora })
+        .eq('tipo', 'consulta').filter('referencia->>consulta_id', 'eq', String(consultaId)).is('leida_en', null)
+        .or(`para_usuario.eq.${req.usuario.sub},para_usuario.is.null`);
+    }
     return { ok: true };
   }
 

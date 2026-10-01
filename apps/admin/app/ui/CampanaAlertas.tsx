@@ -7,7 +7,7 @@ import { useEffect, useState } from 'react';
 // de pago"), pero cualquier módulo puede dejar una alerta acá.
 type Alerta = { id: string; tipo: string; titulo: string; detalle: string | null; referencia: any; creada_en: string };
 
-const ICONO: Record<string, string> = { proveedor_ofrece: '🚚', pago: '💸', derivacion: '🟡', nota_bot: '📝', bot_caido: '🔴', cambio_factura: '🧾' };
+const ICONO: Record<string, string> = { proveedor_ofrece: '🚚', pago: '💸', derivacion: '🟡', nota_bot: '📝', bot_caido: '🔴', cambio_factura: '🧾', consulta: '❓', arreglo: '🛠️', reporte: '📊' };
 const hace = (v: string) => {
   const m = Math.round((Date.now() - new Date(v).getTime()) / 60000);
   if (m < 1) return 'recién';

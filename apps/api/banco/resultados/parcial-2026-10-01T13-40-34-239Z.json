@@ -1,0 +1,979 @@
+{
+ "fecha": "2026-10-01T13:40:34.239Z",
+ "pasan": 4,
+ "total": 4,
+ "promedio": 5,
+ "costoBot": 0.332,
+ "intermitentes": [],
+ "resultados": [
+  {
+   "id": "envio-01",
+   "categoria": "envío",
+   "titulo": "Pregunta directa por el costo del envío",
+   "ok": true,
+   "puntaje": 5,
+   "fallas": [],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "Hola, cuánto me sale el envío a Canning?",
+     "archivo": false,
+     "foto": false,
+     "respuesta": "Buen día, te damos la bienvenida a O.D.B. El envío es sin cargo. ¿Querés que te arme un pedido?",
+     "herramientas": [
+      "identificar_cliente"
+     ],
+     "imagen": null,
+     "catalogo": [],
+     "sinStock": []
+    }
+   ]
+  },
+  {
+   "id": "envio-02",
+   "categoria": "envío",
+   "titulo": "Insiste con el flete aparte",
+   "ok": true,
+   "puntaje": 5,
+   "fallas": [],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "me cobran el flete aparte no? cuanto es?",
+     "archivo": false,
+     "foto": false,
+     "respuesta": "Buen día. Te damos la bienvenida a O.D.B. No, el flete no se cobra aparte. El envío es sin cargo siempre: el total del pedido es todo lo que pagás.",
+     "herramientas": [
+      "identificar_cliente"
+     ],
+     "imagen": null,
+     "catalogo": [],
+     "sinStock": []
+    }
+   ]
+  },
+  {
+   "id": "envio-03",
+   "categoria": "envío",
+   "titulo": "Pedido con envío: el total es todo",
+   "ok": true,
+   "puntaje": 5,
+   "fallas": [],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "Quiero 2 fernet branca de 750 y 3 coca cola de 1.75 para envío a domicilio",
+     "archivo": false,
+     "foto": false,
+     "respuesta": "Buen día. Te damos la bienvenida a O.D.B.\n• 2 × Fernet Branca 750 cc\n• 3 × Coca Cola 1.75 L\n\n¿Está completo el pedido o querés sumar algo?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos",
+      "buscar_productos"
+     ],
+     "imagen": null,
+     "catalogo": [
+      {
+       "sku": "L272",
+       "nombre": "Fernet Branca  x750cc",
+       "precio": 20500,
+       "precioEfectivo": 18450
+      },
+      {
+       "sku": "L1139",
+       "nombre": "Fernet Branca 450",
+       "precio": 13500,
+       "precioEfectivo": 12150
+      },
+      {
+       "sku": "L11817",
+       "nombre": "Fernet Branca Edicion Aniversario (Negra) x750cc",
+       "precio": 22900,
+       "precioEfectivo": 20610
+      },
+      {
+       "sku": "L10953",
+       "nombre": "Coca Cola 1.75l",
+       "precio": 4700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L5295",
+       "nombre": "Coca Cola Botella x 600cc",
+       "precio": 2500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L341",
+       "nombre": "Coca Cola lata 354cc",
+       "precio": 2500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L5296",
+       "nombre": "Coca Cola Light botella x 600cc",
+       "precio": 2000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10886",
+       "nombre": "Coca Cola Ligth x 1.75L",
+       "precio": 4700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10956",
+       "nombre": "Coca Cola Vainilla x354cc",
+       "precio": 6800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L5554",
+       "nombre": "Coca Cola Zero botella x 600cc",
+       "precio": 2500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L1979",
+       "nombre": "Coca Cola Zero Lata 355",
+       "precio": 2500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10952",
+       "nombre": "Coca Cola Zero x1.75L",
+       "precio": 4700,
+       "precioEfectivo": null
+      }
+     ],
+     "sinStock": [
+      "Fernet Branca + Branca Menta Estuche x2 | Fernet Branca 750 + 2 Vasos | Fernet Branca BALANCIN X3Lts | Fernet Branca x 1000cc | Fernet Branca X3Lts [SIN STOCK — no ofrecer]",
+      "Tamaños de esto en el catálogo: 3 L (SIN stock) · 1 L (SIN stock) · 750 cc (hay). Un tamaño \"SIN stock\" EXISTE y se vende en la casa: decí \"de ese tamaño no tengo stock ahora\", NUNCA \"no lo tenemos\" ni \"el más grande es X\".",
+      "Coca Cola 1.5L | Coca Cola Cherry 330ml | Coca cola Light 1.5L | Coca Cola Light 600cm3 | Coca Cola ligth lata 354cc | Coca Cola Lima | +4 más [SIN STOCK — no ofrecer]",
+      "Tamaños de esto en el catálogo: 1,75 L (hay) · 1,5 L (SIN stock) · 600 cc (hay) · 473 cc (SIN stock) · 354 cc (hay) · 330 cc (SIN stock). Un tamaño \"SIN stock\" EXISTE y se vende en la casa: decí \"de ese tamaño no tengo stock ahora\", NUNCA \"no lo tenemos\" ni \"el más grande es X\"."
+     ]
+    },
+    {
+     "cliente": "sí, es todo",
+     "archivo": false,
+     "foto": false,
+     "respuesta": "• Fernet Branca 750 cc — 2 × $20.500 c/u = $41.000\n• Coca Cola 1.75 L — 3 × $4.700 c/u = $14.100\n\n*Total: $55.100* (o $51.000 en efectivo o transferencia)\n\nCon este total todavía no llegamos al mínimo de $70.000 para envío. ¿Querés sumar algo más o lo dejamos para retirar por la sucursal Saint Thomas, Castex 3601?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos",
+      "buscar_productos",
+      "cotizar_pedido"
+     ],
+     "imagen": "resumen",
+     "catalogo": [
+      {
+       "sku": "L272",
+       "nombre": "Fernet Branca  x750cc",
+       "precio": 20500,
+       "precioEfectivo": 18450
+      },
+      {
+       "sku": "L1139",
+       "nombre": "Fernet Branca 450",
+       "precio": 13500,
+       "precioEfectivo": 12150
+      },
+      {
+       "sku": "L11817",
+       "nombre": "Fernet Branca Edicion Aniversario (Negra) x750cc",
+       "precio": 22900,
+       "precioEfectivo": 20610
+      },
+      {
+       "sku": "L10953",
+       "nombre": "Coca Cola 1.75l",
+       "precio": 4700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10886",
+       "nombre": "Coca Cola Ligth x 1.75L",
+       "precio": 4700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10952",
+       "nombre": "Coca Cola Zero x1.75L",
+       "precio": 4700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L2828",
+       "nombre": "Baño reposteria celeste x 150 gr",
+       "precio": 4800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12281",
+       "nombre": "Lotte Pepero Bañado en Almendras x 32g",
+       "precio": 6900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13338",
+       "nombre": "Chocolate Cofler Block max DP x 130g",
+       "precio": 6500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10938",
+       "nombre": "Kinder Maxi Barritas x10un",
+       "precio": 23100,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7193",
+       "nombre": "Reese´s Chocolate x42gr",
+       "precio": 5400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13225",
+       "nombre": "Licoritas Felfort x unidad",
+       "precio": 1400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L3102",
+       "nombre": "Tableta de Chocolate Aguila Familiar  x 100grs",
+       "precio": 8100,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13091",
+       "nombre": "Cofler extra doble mousse 165gr",
+       "precio": 7300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10941",
+       "nombre": "Tableta de Chocolate Milka Castañas con Caramelo x55Gr",
+       "precio": 5400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L4344",
+       "nombre": "Nutella x 350 gr",
+       "precio": 14800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L5184",
+       "nombre": "Snickers Chocolate x 48g",
+       "precio": 6200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7007",
+       "nombre": "Tableta de Chocolate  Milka con Oreo 300Gr",
+       "precio": 34300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7100",
+       "nombre": "M&M Peanut Butter con  pasta de mani 40 gr",
+       "precio": 5600,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13165",
+       "nombre": "Tableta de Chocolate Milka Mandel karamell x 300gr",
+       "precio": 31800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12642",
+       "nombre": "Tableta de Chocolate Cofler Blanco/Cookie x 55gr",
+       "precio": 4700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10943",
+       "nombre": "Tableta de Chocolate  Milka con Crema de Frutilla x100Gr",
+       "precio": 10900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10778",
+       "nombre": "Mantecol caramel x 111g",
+       "precio": 4100,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11016",
+       "nombre": "Tableta de chocolate Cadburry Frutilla x 82g",
+       "precio": 9200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L3751",
+       "nombre": "Tableta de Chocolate Block miti miti x 170 gr",
+       "precio": 10100,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L8922",
+       "nombre": "Tableta de Chocolate Milka dulce de leche x135gr",
+       "precio": 14200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L3582",
+       "nombre": "Mantecol x 110 gr",
+       "precio": 3700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L3545",
+       "nombre": "Nutella x 140 gr",
+       "precio": 6700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11590",
+       "nombre": "Reese´s Big Cup Chocolate 39 gr",
+       "precio": 5400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L5842",
+       "nombre": "M&M Mini Tubes 30grs",
+       "precio": 5400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7352",
+       "nombre": "Tableta de Chocolate Aguila Blanco x 100g",
+       "precio": 7300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L2826",
+       "nombre": "Baño reposteria leche AGUILA x 150 gr",
+       "precio": 5900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13251",
+       "nombre": "Caja BOB Bon o bon aguila x 18UN x 15 gr",
+       "precio": 13300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L5175",
+       "nombre": "Kinder Barrita 12grs",
+       "precio": 1500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7178",
+       "nombre": "Tableta de Chocolate Milka Choco Swing x 300g",
+       "precio": 36500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L5212",
+       "nombre": "M&M Mani con Chocolate x 49grs",
+       "precio": 6200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L3863",
+       "nombre": "Tableta de chocolate Cadbury yogurt frutilla x29gr",
+       "precio": 3100,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L6962",
+       "nombre": "Marroc Felfort x unidad",
+       "precio": 1100,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L3544",
+       "nombre": "Ferrero Rocher x 12 un",
+       "precio": 21200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10850",
+       "nombre": "Chocolate con Naranja Lacasa x125gr",
+       "precio": 13300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10937",
+       "nombre": "Kinder 4 Barritas x50gr",
+       "precio": 5400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10689",
+       "nombre": "Raffaelo x 3u",
+       "precio": 3900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12999",
+       "nombre": "Tableta de Chocolate amargo con naranja x 70gr",
+       "precio": 5800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10605",
+       "nombre": "Tableta de Chocolate Milka Avellanas y Caramelo x 300gr",
+       "precio": 35500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13337",
+       "nombre": "Chocolate Rocklets mani DP x 130g",
+       "precio": 6500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13249",
+       "nombre": "Caja BOB Bon o bon chocolinas x 18UN x 15 gr",
+       "precio": 15100,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L9138",
+       "nombre": "M&M Caramel x 40gr",
+       "precio": 5600,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7548",
+       "nombre": "Tableta de Chocolate Milka Leche Chocolate x 55Gr",
+       "precio": 5100,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13339",
+       "nombre": "Chocolate BOB Bites leche DP x 130g",
+       "precio": 6500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L4183",
+       "nombre": "Almendras con chocolate semi amargo x 100 gr",
+       "precio": 5500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7175",
+       "nombre": "Tofi chocolate Blanco con ddl x 27g",
+       "precio": 2600,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13005",
+       "nombre": "Cofler extra cookies y cream 46gr",
+       "precio": 2700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L2824",
+       "nombre": "Tableta de Chocolate TOFI con leche x 28gr",
+       "precio": 2600,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12891",
+       "nombre": "Kinder & Co",
+       "precio": 32000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12700",
+       "nombre": "Chocolate Kit Kat Senses Caramel x120gr",
+       "precio": 19900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L4184",
+       "nombre": "Almendras con chocolate blanco x 100 gr",
+       "precio": 5000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L5211",
+       "nombre": "M&M  Confite Chocolate x  48grs",
+       "precio": 6200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13087",
+       "nombre": "Full Mani chocolate x 150g",
+       "precio": 4800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L4182",
+       "nombre": "Almendras con chocolate con leche x 100 gr",
+       "precio": 5000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L3075",
+       "nombre": "Tableta de Chocolate Cofler Block 300 x 300g",
+       "precio": 16300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L8660",
+       "nombre": "Tableta de Chocolate Cofler extra fino 60% cacao con naranja x100gr",
+       "precio": 9000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L3752",
+       "nombre": "Relleno Untable Cofler Block x 290 gr sin TACC",
+       "precio": 8900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12577",
+       "nombre": "Tableta de chocolate Lindt Chocolate Blanco x 150g",
+       "precio": 62800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L9197",
+       "nombre": "Chocolate Chocman bañado con DDL x 35g",
+       "precio": 1200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11081",
+       "nombre": "Tableta de Chocolate Cofler Leche c/ Rocklets",
+       "precio": 4700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7758",
+       "nombre": "Snickers Chocolate x 22g",
+       "precio": 3000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13254",
+       "nombre": "Caja BOB Bon o bon dubai x 18UN x 15 gr",
+       "precio": 22300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12619",
+       "nombre": "Reese´s White Chocolate x 39gr",
+       "precio": 5400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L8921",
+       "nombre": "Tableta de Chocolate Milka Oreo Blanco x55gr",
+       "precio": 6400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12701",
+       "nombre": "Chocolate Kit Kat Senses Cookie Crumble x120gr",
+       "precio": 19900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12616",
+       "nombre": "BOB Supreme x 8 U 144gr",
+       "precio": 10200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10944",
+       "nombre": "Tableta de Chocolate Milka con Avellanas Enteras x100Gr",
+       "precio": 11500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L5540",
+       "nombre": "Baci Caja Original Dark x 175g",
+       "precio": 24700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L9137",
+       "nombre": "Nutella B-Ready x 1Un",
+       "precio": 2500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L5944",
+       "nombre": "Tableta de Chocolate Aguila Familiar x 150grs",
+       "precio": 10300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13088",
+       "nombre": "Full Mani chocolate x 110g",
+       "precio": 3200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L8659",
+       "nombre": "Tableta de Chocolate Cofler 60 % cacao cremoso x100gr",
+       "precio": 10600,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L8896",
+       "nombre": "Tableta de Chocolate Milka dulce de leche x67.5gr",
+       "precio": 7100,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12677",
+       "nombre": "Tableta de Chocolate Lindt Tokyo Style Matcha Strawberry",
+       "precio": 62800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7721",
+       "nombre": "Paraguitas Felfort x unidad",
+       "precio": 1200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L2825",
+       "nombre": "Tableta de Chocolate Cofler Block x 170 gr",
+       "precio": 10800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10777",
+       "nombre": "Mantecol Untable x 250g",
+       "precio": 4600,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10876",
+       "nombre": "Tableta Bon O Bon x 160g",
+       "precio": 9300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L3542",
+       "nombre": "Huevo Kinder sorpresa Chico",
+       "precio": 4000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13253",
+       "nombre": "Caja BOB Bon o bon cookies and cream x 18UN x 15 gr",
+       "precio": 13300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12466",
+       "nombre": "Chocolate Cofler Dubai x 45g",
+       "precio": 4500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L3689",
+       "nombre": "Relleno Untable Bon o Bon Relleno x 290g",
+       "precio": 8900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12967",
+       "nombre": "Monedas de chocolate Piratas",
+       "precio": 600,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L8640",
+       "nombre": "Tableta de Chocolate Milka Strawberry cheesecake x 300g",
+       "precio": 35500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10747",
+       "nombre": "Nutella & Go",
+       "precio": 12800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10942",
+       "nombre": "Tableta de Chocolate  Milka con Cookies x100Gr",
+       "precio": 11700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L4467",
+       "nombre": "Ferrero Rocher x 8 un",
+       "precio": 14100,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13092",
+       "nombre": "Cofler extra chocotorta 165gr",
+       "precio": 7300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12578",
+       "nombre": "Tableta de chocolate Lindt Chocolate Amargo x 150g",
+       "precio": 62800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10940",
+       "nombre": "Tableta de Chocolate Milka Chocolate Blanco x55Gr",
+       "precio": 6900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7484",
+       "nombre": "Ferrero Rocher x 24 unidades",
+       "precio": 38500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12995",
+       "nombre": "Cofler extra doble mousse 46gr",
+       "precio": 2100,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L6963",
+       "nombre": "Medallon Mentitas felfort x Unidad",
+       "precio": 900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13226",
+       "nombre": "Licorfort  x unidad",
+       "precio": 1300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L3543",
+       "nombre": "Ferrero Rocher x 3 un",
+       "precio": 4700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10987",
+       "nombre": "Kinder Bueno x43gr",
+       "precio": 4200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13006",
+       "nombre": "Cofler extra chocotorta 46gr",
+       "precio": 2700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L5155",
+       "nombre": "Tableta de Chocolate Milka ChocoPause OREO x45grs",
+       "precio": 2800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7488",
+       "nombre": "Tableta de Chocolate Milka Oreo Chocolate x100gr",
+       "precio": 11200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L4331",
+       "nombre": "Toblerone Leche x100gr",
+       "precio": 12200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12511",
+       "nombre": "Tableta de Chocolate Milka x 150g",
+       "precio": 11900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7487",
+       "nombre": "Tableta de Chocolate Milka Oreo Chocolate Blanco x155gr",
+       "precio": 12200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12993",
+       "nombre": "Tableta de chocolate Cadbury yogurt frutilla x 82gr",
+       "precio": 7800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11101",
+       "nombre": "Cadbury Tres Sueños x 82g",
+       "precio": 8000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10939",
+       "nombre": "Tableta de Chocolate Milka Almendras x55Gr",
+       "precio": 6400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11148",
+       "nombre": "Chocolate Dubai Meltz Pistacho",
+       "precio": 42800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12597",
+       "nombre": "Bauducco Brownie Snack x80gr",
+       "precio": 6200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12641",
+       "nombre": "Tableta de Chocolate Cofler AIR rell BOB 67gr",
+       "precio": 4900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12631",
+       "nombre": "Tableta de Chocolate Cofler Tres Placeres x55gr",
+       "precio": 4300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12644",
+       "nombre": "Tableta de Chocolate Cofler Almendras x 55gr",
+       "precio": 4400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12702",
+       "nombre": "Chocolate Kit Kat Senses Cookie Dough x120gr",
+       "precio": 19900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12643",
+       "nombre": "Bocadito Cabsha Caja Acrilica x18un",
+       "precio": 13200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12703",
+       "nombre": "Chocolate Kit Kat Senses Hazelnut Crunch x120gr",
+       "precio": 19900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12738",
+       "nombre": "Relleno Untable Cofler Marroc x 290 gr",
+       "precio": 7600,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13043",
+       "nombre": "Mantecol x 253 gr",
+       "precio": 8500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10523",
+       "nombre": "Chips de Chocolate x Fraccion",
+       "precio": 17300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12278",
+       "nombre": "Chiaverini crema de avellanas y cacao x 300gr",
+       "precio": 28000,
+       "precioEfectivo": null
+      }
+     ],
+     "sinStock": [
+      "Fernet Branca + Branca Menta Estuche x2 | Fernet Branca 750 + 2 Vasos | Fernet Branca BALANCIN X3Lts | Fernet Branca x 1000cc | Fernet Branca X3Lts [SIN STOCK — no ofrecer]",
+      "Tamaños de esto en el catálogo: 3 L (SIN stock) · 1 L (SIN stock) · 750 cc (hay). Un tamaño \"SIN stock\" EXISTE y se vende en la casa: decí \"de ese tamaño no tengo stock ahora\", NUNCA \"no lo tenemos\" ni \"el más grande es X\"."
+     ]
+    }
+   ]
+  },
+  {
+   "id": "mixto-01",
+   "categoria": "mixto",
+   "titulo": "Pregunta de envío dentro de un pedido",
+   "ok": true,
+   "puntaje": 5,
+   "fallas": [],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "Hola, me mandas 6 quilmes a casa? Rivadavia 234, Canning, a nombre de Ana",
+     "archivo": false,
+     "foto": false,
+     "respuesta": "Buen día, te damos la bienvenida a O.D.B.\n• 6 × Quilmes 473 cc (¿la clásica o la IPA?)\n\nCon esa definición te paso el total. Tené en cuenta que el envío es sin cargo, pero hay un monto mínimo de $70.000 de pedido para enviar; si no llegamos, lo podés retirar por la sucursal Saint Thomas. ¿Querés sumar algo más?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos"
+     ],
+     "imagen": null,
+     "catalogo": [
+      {
+       "sku": "L8346",
+       "nombre": "Cerveza Quilmes IPA x473cc",
+       "precio": 2500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L120",
+       "nombre": "Quilmes x473cc",
+       "precio": 1990,
+       "precioEfectivo": null
+      }
+     ],
+     "sinStock": [
+      "Beermat Quilmes | Cerveza Cerveza Quilmes Doble Malta 410cc | Cerveza Quilmes 0,0% 473cc | Cerveza Quilmes Stout x473cc | Chopera + Quilmes 20l | Chopera + Quilmes 30 lt Barril | +8 más [SIN STOCK — no ofrecer]",
+      "Tamaños de esto en el catálogo: 20 L (SIN stock) · 473 cc (hay) · 410 cc (SIN stock) · 354 cc (SIN stock). Un tamaño \"SIN stock\" EXISTE y se vende en la casa: decí \"de ese tamaño no tengo stock ahora\", NUNCA \"no lo tenemos\" ni \"el más grande es X\"."
+     ]
+    },
+    {
+     "cliente": "Perfecto. Cuanto es el flete? me cobran el reparto aparte no?",
+     "archivo": false,
+     "foto": false,
+     "respuesta": "El envío es sin cargo. No, no se cobra aparte: el total del pedido es todo lo que pagás. Me falta definir si las Quilmes son la clásica o la IPA para pasarte el total.",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos"
+     ],
+     "imagen": null,
+     "catalogo": [
+      {
+       "sku": "L8346",
+       "nombre": "Cerveza Quilmes IPA x473cc",
+       "precio": 2500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L120",
+       "nombre": "Quilmes x473cc",
+       "precio": 1990,
+       "precioEfectivo": null
+      }
+     ],
+     "sinStock": [
+      "Beermat Quilmes | Cerveza Cerveza Quilmes Doble Malta 410cc | Cerveza Quilmes 0,0% 473cc | Cerveza Quilmes Stout x473cc | Chopera + Quilmes 20l | Chopera + Quilmes 30 lt Barril | +8 más [SIN STOCK — no ofrecer]",
+      "Tamaños de esto en el catálogo: 20 L (SIN stock) · 473 cc (hay) · 410 cc (SIN stock) · 354 cc (SIN stock). Un tamaño \"SIN stock\" EXISTE y se vende en la casa: decí \"de ese tamaño no tengo stock ahora\", NUNCA \"no lo tenemos\" ni \"el más grande es X\"."
+     ]
+    }
+   ]
+  }
+ ]
+}

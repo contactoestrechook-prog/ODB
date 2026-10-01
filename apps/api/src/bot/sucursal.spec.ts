@@ -205,3 +205,12 @@ describe('el acuse de consulta no se repite aunque viniera al final del mensaje 
     expect(respuestaConConsulta('El envío es sin cargo.', anterior)).toBe('El envío es sin cargo.');
   });
 });
+
+describe('el flete se contesta aunque haya una consulta pendiente', () => {
+  it('acuse ya dicho + pregunta por el flete = "El envío es sin cargo."', () => {
+    const anterior = 'Te anoto:\n• 6 × Quilmes 473 cc\n\nLo consulto y te confirmo por acá.';
+    const vacia = respuestaConConsulta('', anterior);
+    expect(vacia).toBe('');
+    expect(asegurarEnvioSinCargo('Cuanto es el flete? me cobran el reparto aparte no?', vacia)).toBe('El envío es sin cargo.');
+  });
+});

@@ -1331,8 +1331,12 @@ export class BotService {
 
     // Respuestas acotadas: más de cuatro oraciones sin un total ($) es un
     // discurso, no una atención. Se regenera en dos o tres líneas.
-    const oraciones = respuesta.split(/(?<=[.!?])\s+/).filter((o) => o.trim().length > 0).length;
-    if ((oraciones > 4 || respuesta.length > 600) && !herramientasDelTurno.has('cotizar_pedido') && !herramientasDelTurno.has('crear_pedido') && vueltasReintento < 3) {
+    // Solo cuenta el texto corrido: los renglones con viñeta son la lista (lo
+    // anotado de una foto de 30 productos, una lista de precios) y antes este
+    // control la achicaba a "tengo la lista anotada" (Blanquita, 1/10/2026).
+    const prosa = respuesta.split('\n').filter((l) => !/^\s*•/.test(l)).join('\n');
+    const oraciones = prosa.split(/(?<=[.!?])\s+/).filter((o) => o.trim().length > 0).length;
+    if ((oraciones > 4 || prosa.length > 600) && !herramientasDelTurno.has('cotizar_pedido') && !herramientasDelTurno.has('crear_pedido') && vueltasReintento < 3) {
       this.log.warn(`${oraciones} oraciones sin cotización (${telefono}): regenero más corto`);
       messages.push({ role: 'assistant', content: respuesta });
       messages.push({ role: 'user', content: '[nota interna: demasiado largo. Conservá exactamente los datos verificados, importes y enlaces necesarios. Reescribilo en dos o tres líneas como máximo: el dato o la respuesta concreta, y a lo sumo una pregunta. Sin explicaciones de lo que podés o no podés hacer.]' });
@@ -1522,7 +1526,9 @@ export class BotService {
     // si preguntó cuánto sale el envío, la respuesta lo dice SIEMPRE, también
     // cuando la validación de importes de arriba reemplazó el texto por el acuse
     // de consulta (banco 25/9/2026: "¿cuánto es el flete?" → "Lo consulto…")
-    if (respuesta) respuesta = asegurarEnvioSinCargo(texto, respuesta);
+    // también si quedó vacía (acuse ya dicho): "¿cuánto es el flete?" no queda sin
+    // respuesta nunca (banco 1/10/2026: silencio)
+    respuesta = asegurarEnvioSinCargo(texto, respuesta ?? '');
     if (respuesta) respuesta = minimoConMonto(respuesta, envioMinimo());
     if (respuesta && !respuestaFija.operacion) respuesta = conPreguntaDeCompleto(respuesta);
     // lo interno (stock, sucursales, "el sistema") no sale al cliente (1/10/2026)
@@ -2556,13 +2562,6 @@ export class BotService {
     const nombre = ident?.nombre ?? null;
     const etiqueta = area === 'reparto' ? '🚚 Reparto' : area === 'compras' ? '🛒 Compras' : area === 'administracion' ? '💳 Administración' : '🏪 Local';
 
-    await this.db.from('alertas_internas').insert({
-      para_usuario: cfg?.avisar_proveedores_a ?? null,
-      tipo: 'consulta',
-      titulo: `${etiqueta}: ${nombre ?? bonitoTelefono(telefono)}`,
-      detalle: `${consulta}${direccion ? ` · dirección: ${direccion}` : ''}`,
-      referencia: { linea, telefono, area, direccion: direccion || null },
-    }).then(() => null, () => null);
     await this.db.from('bot_notas_equipo').insert({ linea, telefono, nota: `[${area}] ${consulta}${direccion ? ` · ${direccion}` : ''}` }).then(() => null, () => null);
 
     // Registrar antes del envío: la consulta no se pierde si WhatsApp falla.
@@ -2573,6 +2572,16 @@ export class BotService {
       enviado_a: esPrueba ? 'banco-de-pruebas' : destino || null,
       ...(esPrueba ? { respondido_en: new Date().toISOString() } : {}),
     }).select('id').maybeSingle();
+    // El aviso lleva el id de la consulta: así el recordatorio sabe que ya hay
+    // uno y, cuando el área responde, se cierra solo (1/10/2026: la campanita
+    // tenía 1.260 avisos de consulta sin leer, uno nuevo cada 6 h por consulta).
+    if (!esPrueba) await this.db.from('alertas_internas').insert({
+      para_usuario: cfg?.avisar_proveedores_a ?? null,
+      tipo: 'consulta',
+      titulo: `${etiqueta}: ${nombre ?? bonitoTelefono(telefono)}`,
+      detalle: `${consulta}${direccion ? ` · dirección: ${direccion}` : ''}`,
+      referencia: { linea, telefono, area, direccion: direccion || null, consulta_id: pendiente?.id ?? null },
+    }).then(() => null, () => null);
     if (error || !pendiente?.id) throw new Error('No se pudo registrar la consulta interna');
     let enviada = false;
     if (destino.length >= 10 && !esPrueba) {
@@ -2999,6 +3008,12 @@ export class BotService {
       respondido_en: new Date().toISOString(), ultimo_error: null, bloqueada_hasta: null, proximo_intento_en: null,
     }).eq('id', c.id);
     if (eCierre) throw new Error('Mensaje enviado; falta registrar el cierre. No repetir automáticamente');
+    // Respondida: sus avisos salen de la campanita sin que nadie toque "Listo".
+    // El mensaje ya salió: nada de acá puede cortar el cierre.
+    try {
+      await this.db.from('alertas_internas').update({ leida_en: new Date().toISOString() })
+        .eq('tipo', 'consulta').filter('referencia->>consulta_id', 'eq', c.id).is('leida_en', null);
+    } catch { /* la campanita no frena la entrega */ }
     const hist = Array.isArray(conv?.mensajes) ? conv.mensajes : [];
     await this.db.from('bot_conversaciones').upsert({ linea: c.linea, telefono: c.telefono_cliente,
       mensajes: [...hist, { role: 'assistant', content: mensaje }].slice(-MAX_HISTORIAL), actualizado_en: new Date().toISOString(),
@@ -3014,14 +3029,23 @@ export class BotService {
     const { data: cfg } = await this.db.from('lineas_whatsapp').select('bot_activo,derivar_pagos_a').eq('linea','pedidos').eq('activa',true).maybeSingle();
     if (!cfg?.bot_activo) return;
     const todos = await this.pendientesPaginados('bot_consultas_internas','respondido_en');
-    for (const c of todos.filter(x => x.gestion_version === 2 && x.enviado_a !== 'banco-de-pruebas').reverse().slice(0,50)) {
-      if (c.respuesta_admin && !c.envio_iniciado_en && Number(c.intentos ?? 0) < 3 && (!c.proximo_intento_en || Date.parse(c.proximo_intento_en) <= Date.now())) {
+    const porEntregar = (x: any) => x.respuesta_admin && !x.envio_iniciado_en && Number(x.intentos ?? 0) < 3;
+    // Solo las que tienen algo por hacer: con 50 consultas viejas sin cerrar, el
+    // slice dejaba afuera a las nuevas (sin recordatorio ni reintento de entrega).
+    for (const c of todos.filter(x => x.gestion_version === 2 && x.enviado_a !== 'banco-de-pruebas' && (porEntregar(x) || !x.aviso_recordatorio_en)).reverse().slice(0,50)) {
+      if (porEntregar(c) && (!c.proximo_intento_en || Date.parse(c.proximo_intento_en) <= Date.now())) {
         const entrega = await this.llevarRespuestaDeConsulta(c,c.respuesta_admin,c.enviado_a ?? cfg.derivar_pagos_a,true).catch(e=>{ this.log.warn(e.message); return null; });
         if (entrega?.contestado) continue;
       }
-      if (Date.now()-Date.parse(c.creado_en)<20*60_000 || (c.aviso_recordatorio_en && Date.now()-Date.parse(c.aviso_recordatorio_en)<6*3600_000)) continue;
-      const { error } = await this.db.from('alertas_internas').insert({ tipo:'consulta', titulo:'Consulta pendiente de atención', detalle:String(c.consulta).slice(0,500), referencia:{consulta_id:c.id,telefono:c.telefono_cliente,area:c.area} });
-      if (!error) await this.db.from('bot_consultas_internas').update({aviso_recordatorio_en:new Date().toISOString()}).eq('id',c.id);
+      // Un solo recordatorio por consulta, a los 20 min: después queda en la
+      // campanita hasta que la respondan o alguien toque "Listo". Antes salía uno
+      // nuevo cada 6 h para siempre (hasta 39 por consulta) y tapaba todo lo demás.
+      // Se toma con un update condicional: si corren dos procesos, avisa uno.
+      if (c.aviso_recordatorio_en || Date.now()-Date.parse(c.creado_en)<20*60_000) continue;
+      const { data: tomada } = await this.db.from('bot_consultas_internas').update({aviso_recordatorio_en:new Date().toISOString()}).eq('id',c.id).is('aviso_recordatorio_en',null).select('id');
+      if (!tomada?.length) continue;
+      const { error } = await this.db.from('alertas_internas').insert({ tipo:'consulta', titulo:'Consulta pendiente de atención', detalle:String(c.consulta).slice(0,500), referencia:{consulta_id:c.id,telefono:c.telefono_cliente,area:c.area,recordatorio:true} });
+      if (error) await this.db.from('bot_consultas_internas').update({aviso_recordatorio_en:null}).eq('id',c.id);
     }
   }
 
