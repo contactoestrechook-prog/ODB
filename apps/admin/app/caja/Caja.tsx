@@ -1,8 +1,10 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import { ResumenCierre } from '../ui/ResumenCierre';
+import { Aviso, BarraInferior, Boton, BotonLink, Entrada, IconoCerrar, IconoOk, Modal, Selector, unir, useConfirmar, FOCO, ROTULO } from '../ui/kit';
+import { hora, pesos } from '../lib/formato';
 import MiTurno from './MiTurno';
 
 type Producto = {
@@ -83,9 +85,6 @@ type Estacionado = {
 
 type VentaPendiente = { ventaId: string; body: any; ticket: TicketData; ts: number };
 
-const pesos = (n: number | null | undefined) =>
-  n == null ? '—' : '$' + Math.round(Number(n)).toLocaleString('es-AR');
-
 const norm = (s: string) => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 
 const MEDIOS = [
@@ -141,8 +140,49 @@ const escribirLS = (k: string, v: unknown) => {
 const fmtNumero = (c: { tipo: string; punto_venta: number; numero: number }) =>
   `${c.tipo} ${String(c.punto_venta).padStart(4, '0')}-${String(c.numero).padStart(8, '0')}`;
 
+// ---- presentación: ¿la pantalla es de escritorio (lg, 1024 px)? ----
+// En el celular y la tableta, Cobrar va en la barra fija de abajo
+// (<BarraInferior>); en escritorio queda el botón grande al pie de la columna
+// derecha. La barra se monta solo en pantallas chicas: si no, escondería el
+// botón "Esto está mal" también en la caja de escritorio.
+const CONSULTA_ANCHA = '(min-width: 1024px)';
+const suscribirAncho = (avisar: () => void) => {
+  const m = window.matchMedia(CONSULTA_ANCHA);
+  m.addEventListener('change', avisar);
+  return () => m.removeEventListener('change', avisar);
+};
+const leerAncho = () => window.matchMedia(CONSULTA_ANCHA).matches;
+const anchoEnServidor = () => false;
+
+// Íconos de línea de la cabecera de la caja (en el celular van solos, sin texto)
+function IconoCaja({ d, className = 'size-5' }: { d: string; className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+      <path d={d} />
+    </svg>
+  );
+}
+const ICONO = {
+  imprimir: 'M7 9V4h10v5M7 17H5a2 2 0 01-2-2v-4a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2h-2M7 14h10v6H7z',
+  efectivo: 'M3 7h18v10H3zM12 9.5a2.5 2.5 0 110 5 2.5 2.5 0 010-5zM6.5 10v4M17.5 10v4',
+  turno: 'M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01',
+  stock: 'M3 7.5l9-4.5 9 4.5v9l-9 4.5-9-4.5zM3 7.5l9 4.5 9-4.5M12 12v9',
+  devolucion: 'M9 14l-5-5 5-5M4 9h11a5 5 0 010 10h-3',
+  candado: 'M7 11V7a5 5 0 0110 0v4M6 11h12v9H6z',
+  panel: 'M3 11l9-7 9 7M5.5 9.5V20h13V9.5',
+  pausa: 'M9 6v12M15 6v12',
+};
+
+// Botón de la cabecera negra (sobre oscuro: foco blanco hacia adentro, que no
+// lo corta el scroll de la fila)
+const BOTON_CABECERA =
+  'inline-flex min-h-11 shrink-0 items-center justify-center gap-1.5 rounded-xl px-3 text-sm transition-colors hover:bg-white/20 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/70 sm:min-h-10';
+
 export function Caja({ sucursales }: { sucursales: { id: string; nombre: string; terminales_tarjeta?: string[] }[] }) {
   const [sucursalId, setSucursalId] = useState(sucursales[0]?.id ?? '');
+  // confirmaciones con el diseño del panel (en lugar de confirm/prompt)
+  const { confirmar, pedirTexto, dialogo } = useConfirmar();
+  const pantallaAncha = useSyncExternalStore(suscribirAncho, leerAncho, anchoEnServidor);
   const sucursalNombre = sucursales.find((s) => s.id === sucursalId)?.nombre ?? 'esta sucursal';
   const fechaCorta = (iso?: string | null) => (iso ? new Date(iso).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' }) : '');
   const haceDias = (iso?: string | null) => { if (!iso) return ''; const d = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000); return d <= 0 ? 'hoy' : d === 1 ? 'ayer' : `hace ${d} días`; };
@@ -1296,7 +1336,12 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
       // Guardarraíl de precio: la venta quedaría por debajo del costo. Un
       // supervisor puede autorizarla (liquidación real) tecleando su PIN; se
       // reintenta con el MISMO ventaId, así no hay riesgo de duplicar.
-      const pin = window.prompt(`${datos.message}\n\nPIN de supervisor para autorizar la venta bajo costo (o Cancelar):`);
+      const pin = await pedirTexto({
+        titulo: 'Venta por debajo del costo',
+        texto: datos.message,
+        campo: { etiqueta: 'PIN de supervisor para autorizar la venta bajo costo', obligatorio: true },
+        textoConfirmar: 'Autorizar',
+      });
       if (pin && pin.trim()) {
         try {
           const aut = await autorizarPin(pin.trim());
@@ -1355,7 +1400,15 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
 
   async function anularUltima() {
     if (!ultima) return;
-    if (!window.confirm(`¿Anular la última venta (${pesos(ultima.ticket.total)})? Devuelve stock y emite nota de crédito.`)) return;
+    if (
+      !(await confirmar({
+        titulo: `¿Anular la última venta (${pesos(ultima.ticket.total)})?`,
+        texto: 'Devuelve stock y emite nota de crédito.',
+        variante: 'peligro',
+        textoConfirmar: 'Anular',
+      }))
+    )
+      return;
     try {
       const r = await fetch('/api/anular', {
         method: 'POST',
@@ -1479,77 +1532,115 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
   const pagoFoco = foco?.tipo === 'pago' ? pagos[foco.idx] : null;
   const tecladoVisible = !!lineaFoco || !!pagoFoco || esEfectivoSimple;
 
+  // botón Cobrar: el mismo en la barra del celular y al pie de la columna en escritorio
+  const cobrarDeshabilitado = carrito.length === 0 || cobrando || faltaCliente || (dividido && restante !== 0);
+  const textoCobrar = cobrando ? 'Cobrando…' : usaCtaCte && !dividido ? `Cargar a cuenta ${pesos(totalFinal)}` : `Cobrar ${pesos(totalFinal)}`;
+
+  // ✕ y Escape del modal de apertura/cierre: hacen lo mismo que su botón
+  // (Listo en el arqueo, Cancelar en el cierre). La apertura no se cierra:
+  // sin caja abierta no se vende (la salida es "Salir").
+  const cerrarModalCaja = () => {
+    if (arqueo) { setArqueo(null); setSesionCerradaId(null); setModalCaja('abrir'); }
+    else if (modalCaja === 'cerrar') setModalCaja(null);
+  };
+
+  // ✕ del cobro con QR: lo mismo que el botón de cancelar/cerrar de cada paso.
+  // Mientras se manda el importe o se registra la venta, no se cierra.
+  const cobroMPOcupado = cobroMP?.estado === 'iniciando' || (cobroMP?.estado === 'aprobado' && (cobrando || estado?.tipo !== 'error'));
+  const cerrarCobroMP = () => {
+    if (cobroMP?.estado === 'esperando') cancelarCobroMP();
+    else fijarCobroMP(null);
+  };
+
   return (
-    <main className="h-screen bg-[#F0EBE2] flex flex-col overflow-hidden print:hidden">
-      <header className="bg-black px-4 py-3 flex flex-wrap items-center justify-between gap-2 shrink-0">
-        <span className="text-white tracking-widest font-medium">
-          O.D.B <span className="tracking-normal font-normal text-[#F0EBE2]/70">· Caja</span>
-          {sesion && <span className="ml-3 rounded-lg bg-white/10 px-2 py-1 text-xs text-[#F0EBE2]/80">{sesion.cajaNombre}</span>}
-          {sinRed && <span className="ml-2 rounded-lg bg-[#B82D25] px-2 py-1 text-xs text-white">SIN RED · {cola.length} en cola</span>}
-          {!sinRed && cola.length > 0 && <span className="ml-2 rounded-lg bg-amber-500 px-2 py-1 text-xs text-black">{cola.length} por enviar</span>}
-        </span>
-        <div className="flex flex-wrap items-center justify-end gap-2">
+    <main className="flex min-h-dvh flex-col bg-crema print:hidden lg:h-dvh lg:overflow-hidden">
+      <header className="flex shrink-0 flex-col gap-2 bg-tinta px-3 py-2 sm:px-4 lg:flex-row lg:items-center lg:justify-between lg:py-3">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+          <span className="font-medium tracking-widest text-white">
+            O.D.B <span className="font-normal tracking-normal text-crema/70">· Caja</span>
+          </span>
+          {sesion && <span className="rounded-full bg-white/10 px-2.5 py-1 text-xs text-crema/80">{sesion.cajaNombre}</span>}
+          {sinRed && <span className="rounded-full bg-marca px-2.5 py-1 text-xs font-semibold text-white">SIN RED · {cola.length} en cola</span>}
+          {!sinRed && cola.length > 0 && <span className="rounded-full bg-atencion px-2.5 py-1 text-xs font-semibold text-white">{cola.length} por enviar</span>}
+        </div>
+        {/* en el celular, una sola fila que se desliza de costado (solo íconos) */}
+        <div className="-mx-3 flex items-center gap-2 overflow-x-auto px-3 [scrollbar-width:none] sm:mx-0 sm:flex-wrap sm:px-0 lg:justify-end [&::-webkit-scrollbar]:hidden">
           <button
+            type="button"
             onClick={() => setAutoPrint((a) => !a)}
             title={autoPrint ? 'Impresión automática: SÍ' : 'Impresión automática: NO'}
-            className={'rounded-lg px-3 py-2 text-sm ' + (autoPrint ? 'bg-white/20 text-white' : 'bg-white/10 text-[#F0EBE2]/50')}
+            aria-label={autoPrint ? 'Impresión automática: SÍ' : 'Impresión automática: NO'}
+            aria-pressed={autoPrint}
+            className={unir(BOTON_CABECERA, autoPrint ? 'bg-white/20 text-white' : 'bg-white/10 text-white/60')}
           >
-            🖨 {autoPrint ? 'Auto' : 'Manual'}
+            <IconoCaja d={ICONO.imprimir} />
+            <span className="hidden sm:inline">{autoPrint ? 'Auto' : 'Manual'}</span>
           </button>
           <select
             value={sucursalId}
             onChange={(e) => setSucursalId(e.target.value)}
-            className="rounded-lg bg-white/10 text-[#F0EBE2] px-3 py-2 text-sm"
+            aria-label="Sucursal"
+            className="min-h-11 max-w-44 shrink-0 rounded-xl bg-white/10 px-3 text-sm text-crema focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/70 sm:min-h-10"
           >
             {sucursales.map((s) => (
-              <option key={s.id} value={s.id} className="text-black">{s.nombre}</option>
+              <option key={s.id} value={s.id} className="text-tinta">{s.nombre}</option>
             ))}
           </select>
           {sesion && (
-            <button onClick={() => { setModalExtra('movimiento'); setMovMonto(''); setMovMotivo(''); }} className="rounded-lg bg-white/10 text-[#F0EBE2]/80 px-3 py-2 text-sm" title="Ingreso / retiro de efectivo">
-              💵 Mov.
+            <button type="button" onClick={() => { setModalExtra('movimiento'); setMovMonto(''); setMovMotivo(''); }} className={unir(BOTON_CABECERA, 'bg-white/10 text-crema/80')} title="Ingreso / retiro de efectivo" aria-label="Movimiento de efectivo">
+              <IconoCaja d={ICONO.efectivo} />
+              <span className="hidden sm:inline">Mov.</span>
             </button>
           )}
           {sesion && (
-            <button onClick={() => setVerTurno(true)} className="rounded-lg bg-white/10 text-[#F0EBE2]/80 px-3 py-2 text-sm" title="Lo que vendiste en este turno: tickets, facturas y medios de pago (F7)">
-              📋 Mi turno
+            <button type="button" onClick={() => setVerTurno(true)} className={unir(BOTON_CABECERA, 'bg-white/10 text-crema/80')} title="Lo que vendiste en este turno: tickets, facturas y medios de pago (F7)" aria-label="Mi turno">
+              <IconoCaja d={ICONO.turno} />
+              <span className="hidden sm:inline">Mi turno</span>
             </button>
           )}
-          <button onClick={abrirStock} className="rounded-lg bg-white/10 text-[#F0EBE2]/80 px-3 py-2 text-sm" title="Consultar stock en ambas sucursales (F9)">
-            📦 Stock
+          <button type="button" onClick={abrirStock} className={unir(BOTON_CABECERA, 'bg-white/10 text-crema/80')} title="Consultar stock en ambas sucursales (F9)" aria-label="Stock">
+            <IconoCaja d={ICONO.stock} />
+            <span className="hidden sm:inline">Stock</span>
           </button>
-          <button onClick={abrirDevolucion} className="rounded-lg bg-white/10 text-[#F0EBE2]/80 px-3 py-2 text-sm" title="Devolución de una venta">
-            ↩ Dev.
+          <button type="button" onClick={abrirDevolucion} className={unir(BOTON_CABECERA, 'bg-white/10 text-crema/80')} title="Devolución de una venta" aria-label="Devolución">
+            <IconoCaja d={ICONO.devolucion} />
+            <span className="hidden sm:inline">Dev.</span>
           </button>
           {sesion && (
-            <button onClick={() => { setModalCaja('cerrar'); setMontoBuf(''); }} className="rounded-lg bg-white/10 text-[#F0EBE2]/80 px-3 py-2 text-sm">
-              Cerrar caja
+            <button type="button" onClick={() => { setModalCaja('cerrar'); setMontoBuf(''); }} className={unir(BOTON_CABECERA, 'bg-white/10 text-crema/80')} aria-label="Cerrar caja">
+              <IconoCaja d={ICONO.candado} />
+              <span className="hidden sm:inline">Cerrar caja</span>
             </button>
           )}
-          <Link href="/inicio" className="rounded-lg bg-white/10 text-[#F0EBE2]/80 px-3 py-2 text-sm">Panel</Link>
+          <Link href="/inicio" className={unir(BOTON_CABECERA, 'bg-white/10 text-crema/80')} aria-label="Panel">
+            <IconoCaja d={ICONO.panel} />
+            <span className="hidden sm:inline">Panel</span>
+          </Link>
         </div>
       </header>
       {devPedido && (
-        <div className={'px-4 py-2 text-sm flex flex-wrap items-center gap-x-3 gap-y-1 shrink-0 ' + (devPedido.estado === 'pendiente' ? 'bg-amber-100 text-amber-900' : devPedido.estado === 'aprobada' ? 'bg-emerald-100 text-emerald-900' : 'bg-red-100 text-red-900')}>
-          {devPedido.estado === 'pendiente' && <><span className="inline-block w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse" /><b>Devolución de {pesos(devPedido.monto)} esperando autorización</b><span>{(devPedido.avisados ?? []).length ? `Avisados: ${devPedido.avisados!.join(', ')}` : 'Los supervisores ya tienen el aviso'}</span></>}
-          {devPedido.estado === 'aprobada' && <><b>✓ Devolución de {pesos(devPedido.monto)} autorizada{devPedido.resueltaPor ? ` por ${devPedido.resueltaPor}` : ''}</b><span>Stock repuesto{devPedido.resultado?.nc ? ` · ${fmtNumero(devPedido.resultado.nc)}` : ''}{devPedido.resultado?.egreso ? ' · egreso de caja registrado: entregá el efectivo' : ''}</span></>}
+        <div className={'flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2 text-sm ' + (devPedido.estado === 'pendiente' ? 'bg-atencion-suave text-atencion' : devPedido.estado === 'aprobada' ? 'bg-ok-suave text-ok' : 'bg-marca-suave text-marca-hondo')}>
+          {devPedido.estado === 'pendiente' && <><span className="inline-block size-2.5 animate-pulse rounded-full bg-atencion motion-reduce:animate-none" /><b>Devolución de {pesos(devPedido.monto)} esperando autorización</b><span>{(devPedido.avisados ?? []).length ? `Avisados: ${devPedido.avisados!.join(', ')}` : 'Los supervisores ya tienen el aviso'}</span></>}
+          {devPedido.estado === 'aprobada' && <><b className="inline-flex items-center gap-1"><IconoOk className="size-4 shrink-0" />Devolución de {pesos(devPedido.monto)} autorizada{devPedido.resueltaPor ? ` por ${devPedido.resueltaPor}` : ''}</b><span>Stock repuesto{devPedido.resultado?.nc ? ` · ${fmtNumero(devPedido.resultado.nc)}` : ''}{devPedido.resultado?.egreso ? ' · egreso de caja registrado: entregá el efectivo' : ''}</span></>}
           {devPedido.estado === 'rechazada' && <><b>Devolución de {pesos(devPedido.monto)} rechazada{devPedido.resueltaPor ? ` por ${devPedido.resueltaPor}` : ''}</b>{devPedido.respuesta && <span>«{devPedido.respuesta}»</span>}</>}
           {devPedido.estado === 'error' && <><b>La devolución fue autorizada pero no se pudo ejecutar</b><span>{devPedido.error}. Avisá a un supervisor.</span></>}
-          {devPedido.estado !== 'pendiente' && <button type="button" onClick={() => setDevPedido(null)} className="ml-auto underline text-xs">Cerrar</button>}
+          {devPedido.estado !== 'pendiente' && <button type="button" onClick={() => setDevPedido(null)} className={unir('ml-auto inline-flex min-h-9 items-center rounded-sm text-xs font-semibold underline', FOCO)}>Cerrar</button>}
         </div>
       )}
 
       {/* tickets estacionados: la barra del "segundo cliente" */}
       {estacionados.length > 0 && (
-        <div className="shrink-0 px-3 pt-2 flex items-center gap-2 flex-wrap">
-          <span className="text-[11px] uppercase tracking-wider text-black/40">En espera</span>
+        <div className="flex shrink-0 flex-wrap items-center gap-2 px-3 pt-2">
+          <span className={ROTULO}>En espera</span>
           {estacionados.map((e) => (
             <button
               key={e.id}
+              type="button"
               onClick={() => retomar(e.id)}
-              className="rounded-xl bg-amber-100 border border-amber-300 px-3 py-1.5 text-sm text-amber-900 active:scale-95"
+              className={unir('inline-flex min-h-11 max-w-full items-center gap-1.5 rounded-xl border border-atencion/30 bg-atencion-suave px-3 text-sm font-medium text-atencion active:scale-[0.98] sm:min-h-10', FOCO)}
             >
-              ⏸ {e.etiqueta} · {e.carrito.reduce((s, r) => s + r.cantidad, 0)} u.
+              <IconoCaja d={ICONO.pausa} className="size-4 shrink-0" />
+              <span className="truncate">{e.etiqueta} · {e.carrito.reduce((s, r) => s + r.cantidad, 0)} u.</span>
             </button>
           ))}
         </div>
@@ -1557,47 +1648,54 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
 
       {/* PASO 1: qué comprobante + a quién (lo primero que define el cajero) */}
       <div className="shrink-0 px-3 pt-3">
-        <div className="rounded-2xl bg-white px-3 py-2.5 flex flex-wrap items-center gap-x-4 gap-y-2">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-2xl bg-white px-3 py-2.5 shadow-tarjeta">
           <div className="flex items-center gap-2">
-            <span className="text-[11px] uppercase tracking-wider text-black/40 hidden sm:inline">Comprobante</span>
+            <span className={unir(ROTULO, 'hidden sm:inline')}>Comprobante</span>
             <div className="flex gap-1.5">
               {COMPROBANTES.map((c) => {
                 const on = comprobante === c.id;
                 return (
                   <button
                     key={c.id}
+                    type="button"
+                    aria-pressed={on}
                     onClick={() => setComprobante(c.id)}
-                    className={'rounded-xl px-3.5 py-1.5 text-left border-2 active:scale-95 transition ' +
-                      (on ? 'bg-black text-white border-black' : 'bg-[#F0EBE2] text-black border-transparent')}
+                    className={unir(
+                      'min-h-11 rounded-xl border-2 px-3.5 py-1.5 text-left transition active:scale-[0.98]',
+                      on ? 'border-tinta bg-tinta text-white' : 'border-transparent bg-crema text-tinta',
+                      FOCO,
+                    )}
                   >
                     <span className="text-xl font-bold leading-none">{c.label}</span>
-                    <span className={'block text-[10px] leading-tight ' + (on ? 'text-white/70' : 'text-black/45')}>{c.desc}</span>
+                    <span className={'block text-xs leading-tight ' + (on ? 'text-white/70' : 'text-tinta/60')}>{c.desc}</span>
                   </button>
                 );
               })}
             </div>
           </div>
 
-          <div className="flex items-center gap-2 ml-auto relative">
-            <span className={'text-[11px] uppercase tracking-wider hidden sm:inline ' + (requiereCliente ? 'text-[#B82D25]' : 'text-black/40')}>
+          <div className="relative flex w-full min-w-0 items-center gap-2 sm:ml-auto sm:w-auto">
+            <span className={'hidden text-xs font-semibold uppercase tracking-[0.08em] sm:inline ' + (requiereCliente ? 'text-marca-hondo' : 'text-tinta/60')}>
               Cliente{requiereCliente ? ' *' : ''}
             </span>
-            <input
-              ref={dniRef}
-              value={dni}
-              onChange={(e) => onCambioCliente(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && buscarCliente()}
-              placeholder={requiereCliente ? 'DNI o nombre (requerido)' : 'DNI o nombre (opcional)'}
-              className={'w-48 rounded-xl border-2 px-3 py-2 text-base text-black outline-none ' +
-                (faltaCliente && comprobante !== 'A' ? 'border-[#B82D25] bg-[#B82D25]/5' : 'border-black/10 focus:border-[#B82D25]')}
-            />
-            <button onClick={() => buscarCliente()} className="rounded-xl bg-black px-4 py-2 text-sm text-white active:scale-95">Buscar</button>
+            <div className="min-w-0 flex-1 sm:w-48 sm:flex-none">
+              <Entrada
+                ref={dniRef}
+                value={dni}
+                onChange={(e) => onCambioCliente(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && buscarCliente()}
+                placeholder={requiereCliente ? 'DNI o nombre (requerido)' : 'DNI o nombre (opcional)'}
+                aria-label="Cliente: DNI o nombre"
+                invalido={faltaCliente && comprobante !== 'A'}
+              />
+            </div>
+            <Boton variante="secundario" onClick={() => buscarCliente()}>Buscar</Boton>
             {clientes.length > 0 && (
-              <div className="absolute z-20 top-full mt-1 right-0 w-72 rounded-xl bg-white border border-black/10 shadow-xl overflow-hidden">
+              <div className="absolute right-0 top-full z-contenido mt-1 w-full overflow-hidden rounded-xl border border-black/[0.06] bg-white shadow-flotante sm:w-72">
                 {clientes.map((c) => (
-                  <button key={c.dni} onClick={() => buscarCliente(c.dni)} className="w-full px-3 py-2.5 text-left text-sm text-black hover:bg-[#F0EBE2] border-b border-black/5 last:border-0">
+                  <button key={c.dni} type="button" onClick={() => buscarCliente(c.dni)} className="min-h-11 w-full border-b border-black/[0.06] px-3 py-2.5 text-left text-sm text-tinta last:border-0 hover:bg-crema focus-visible:bg-crema focus-visible:outline-none">
                     <span className="font-medium">{c.nombre}</span>
-                    <span className="text-black/45"> · DNI {c.dni}</span>
+                    <span className="text-tinta/60"> · DNI {c.dni}</span>
                   </button>
                 ))}
               </div>
@@ -1609,34 +1707,32 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
             todavía no dio el permiso. La lista de difusión se construye acá, de
             a un cliente por vez, con su consentimiento fechado. */}
         {cliente?.existe && waHecho !== 'alta' && (
-          <div className="mt-1.5 rounded-2xl bg-white px-3 py-2 flex flex-wrap items-center gap-2">
-            <span className="text-[11px] uppercase tracking-wider text-[#8A6D3B]">WhatsApp</span>
+          <div className="mt-1.5 flex flex-wrap items-center gap-2 rounded-2xl bg-white px-3 py-2 shadow-tarjeta">
+            <span className="text-xs font-semibold uppercase tracking-[0.08em] text-dorado-hondo">WhatsApp</span>
             {waHecho === 'baja' ? (
-              <span className="text-sm text-black/50">Listo, no le mandamos nada.</span>
+              <span className="text-sm text-tinta/60">Listo, no le mandamos nada.</span>
             ) : (
               <>
-                <input
-                  value={waTel}
-                  onChange={(e) => setWaTel(e.target.value.replace(/[^\d]/g, ''))}
-                  placeholder="11 2345 6789"
-                  inputMode="numeric"
-                  className="w-40 rounded-xl border-2 border-black/10 px-3 py-2 text-base text-black outline-none focus:border-[#B82D25]"
-                />
-                <span className="text-sm text-black/55">¿Le mandamos ofertas y novedades?</span>
-                <button
+                <div className="w-40">
+                  <Entrada
+                    value={waTel}
+                    onChange={(e) => setWaTel(e.target.value.replace(/[^\d]/g, ''))}
+                    placeholder="11 2345 6789"
+                    inputMode="numeric"
+                    aria-label="WhatsApp del cliente"
+                  />
+                </div>
+                <span className="text-sm text-tinta/70">¿Le mandamos ofertas y novedades?</span>
+                <Boton
+                  tamano="chico"
                   onClick={() => guardarWhatsapp(true)}
                   disabled={waGuardando || waTel.replace(/\D/g, '').length < 10}
-                  className="rounded-xl bg-[#B82D25] px-4 py-2 text-sm font-medium text-white active:scale-95 disabled:opacity-40"
                 >
                   {waGuardando ? 'Guardando…' : 'Sí, sumar'}
-                </button>
-                <button
-                  onClick={() => guardarWhatsapp(false)}
-                  disabled={waGuardando}
-                  className="text-sm text-black/40 underline disabled:opacity-40"
-                >
+                </Boton>
+                <Boton variante="fantasma" tamano="chico" onClick={() => guardarWhatsapp(false)} disabled={waGuardando}>
                   No quiere
-                </button>
+                </Boton>
               </>
             )}
           </div>
@@ -1644,26 +1740,30 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
 
         {/* Factura A: datos del receptor (CUIT obligatorio) */}
         {comprobante === 'A' && (
-          <div className="mt-1.5 rounded-2xl bg-white px-3 py-2 flex flex-wrap items-center gap-2">
-            <span className="text-[11px] uppercase tracking-wider text-[#B82D25]">Receptor A *</span>
-            <input
-              value={receptorCuit}
-              onChange={(e) => setReceptorCuit(e.target.value.replace(/[^\d-]/g, ''))}
-              placeholder="CUIT (20-12345678-9)"
-              inputMode="numeric"
-              className={'w-48 rounded-xl border-2 px-3 py-2 text-base text-black outline-none ' +
-                (faltaCliente ? 'border-[#B82D25] bg-[#B82D25]/5' : 'border-black/10 focus:border-[#B82D25]')}
-            />
-            <input
-              value={receptorNombre}
-              onChange={(e) => setReceptorNombre(e.target.value)}
-              placeholder="Razón social"
-              className="flex-1 min-w-40 rounded-xl border-2 border-black/10 px-3 py-2 text-base text-black outline-none focus:border-[#B82D25]"
-            />
+          <div className="mt-1.5 flex flex-wrap items-center gap-2 rounded-2xl bg-white px-3 py-2 shadow-tarjeta">
+            <span className="text-xs font-semibold uppercase tracking-[0.08em] text-marca-hondo">Receptor A *</span>
+            <div className="w-full sm:w-48">
+              <Entrada
+                value={receptorCuit}
+                onChange={(e) => setReceptorCuit(e.target.value.replace(/[^\d-]/g, ''))}
+                placeholder="CUIT (20-12345678-9)"
+                inputMode="numeric"
+                aria-label="CUIT del receptor"
+                invalido={faltaCliente}
+              />
+            </div>
+            <div className="min-w-0 flex-1 basis-40">
+              <Entrada
+                value={receptorNombre}
+                onChange={(e) => setReceptorNombre(e.target.value)}
+                placeholder="Razón social"
+                aria-label="Razón social del receptor"
+              />
+            </div>
           </div>
         )}
         {cliente && (
-          <p className={'mt-1.5 rounded-xl px-3 py-1.5 text-sm inline-block ' + (cliente.existe ? 'bg-black text-white' : 'bg-white text-black')}>
+          <p className={'mt-1.5 inline-block max-w-full rounded-xl px-3 py-1.5 text-sm ' + (cliente.existe ? 'bg-tinta text-white' : 'bg-white text-tinta')}>
             {cliente.existe ? `${cliente.nombre ? cliente.nombre + ' · ' : ''}${cliente.tipo} · ${cliente.compras} compras · ticket ${pesos(cliente.ticketPromedio)}` : 'Cliente nuevo: se registra con esta venta'}
           </p>
         )}
@@ -1673,8 +1773,8 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
             nombre ("¿le pongo el de siempre?"). Antes de la tercera, se avisa
             cuántas faltan en vez de inventar un perfil con una sola visita. */}
         {cliente?.existe && cliente.perfil && (
-          <div className="mt-1.5 max-w-2xl rounded-xl bg-white/95 border border-black/10 px-3 py-2">
-            <p className="text-[11px] uppercase tracking-wide text-black/40">
+          <div className="mt-1.5 max-w-2xl rounded-xl border border-black/[0.06] bg-white/95 px-3 py-2">
+            <p className={ROTULO}>
               Suele llevar
               {cliente.perfil.cadaCuantosDias ? ` · viene cada ${cliente.perfil.cadaCuantosDias} días` : ''}
               {cliente.perfil.diasDesdeUltima != null ? ` · última hace ${cliente.perfil.diasDesdeUltima}` : ''}
@@ -1683,24 +1783,25 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
               {cliente.perfil.habituales.slice(0, 5).map((h) => (
                 <button
                   key={h.sku}
+                  type="button"
                   onClick={() => agregarPorSku(h.sku)}
                   title={`Lo llevó en ${h.veces} compras · tocá para agregarlo`}
-                  className="rounded-full bg-[#F0EBE2] px-2.5 py-1 text-xs text-black hover:bg-[#B82D25] hover:text-white"
+                  className={unir('relative inline-flex min-h-9 max-w-full items-center rounded-full bg-crema px-3 text-xs text-tinta before:absolute before:inset-x-0 before:-inset-y-1 hover:bg-marca hover:text-white sm:before:hidden', FOCO)}
                 >
-                  {h.nombre}
+                  <span className="truncate">{h.nombre}</span>
                 </button>
               ))}
-              {!cliente.perfil.habituales.length && <span className="text-xs text-black/40">todavía sin un producto que repita</span>}
+              {!cliente.perfil.habituales.length && <span className="text-xs text-tinta/60">todavía sin un producto que repita</span>}
             </div>
             {cliente.perfil.rubros?.length > 0 && (
-              <p className="mt-1 text-[11px] text-black/45">
+              <p className="mt-1 text-xs text-tinta/60">
                 {cliente.perfil.rubros.slice(0, 3).map((r) => `${r.rubro} ${r.pct}%`).join(' · ')}
               </p>
             )}
           </div>
         )}
         {cliente?.existe && !cliente.perfil && (cliente.faltanParaPerfil ?? 0) > 0 && (
-          <p className="mt-1.5 text-xs text-black/45">
+          <p className="mt-1.5 text-xs text-tinta/60">
             {cliente.faltanParaPerfil === 1
               ? 'Con una compra más, el sistema arma su perfil.'
               : `Faltan ${cliente.faltanParaPerfil} compras para armar su perfil.`}
@@ -1712,77 +1813,82 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
             dato no aparecía en ningún lado de la caja y había que ir a buscarlo
             a otra pantalla — o sea, no se lo decía nadie. */}
         {cliente?.existe && cliente.ctaCte?.habilitada && (
-          <div className="mt-1.5 inline-flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xl bg-[#B82D25] px-3 py-2 text-white">
-            <span className="text-[11px] uppercase tracking-wide text-white/70">Cuenta corriente</span>
+          <div className="mt-1.5 inline-flex max-w-full flex-wrap items-center gap-x-4 gap-y-1 rounded-xl border border-marca/20 bg-marca-suave px-3 py-2 text-marca-hondo">
+            <span className="text-xs font-semibold uppercase tracking-[0.08em]">Cuenta corriente</span>
             <span className="text-sm">
-              Saldo anterior <b className="text-base tabular-nums">{pesos(cliente.ctaCte.saldo)}</b>
+              Saldo anterior <b className="importe text-base">{pesos(cliente.ctaCte.saldo)}</b>
             </span>
             {total > 0 && (
               <span className="text-sm">
-                Con esta venta <b className="text-base tabular-nums">{pesos(cliente.ctaCte.saldo + totalFinal)}</b>
+                Con esta venta <b className="importe text-base">{pesos(cliente.ctaCte.saldo + totalFinal)}</b>
               </span>
             )}
             {cliente.ctaCte.disponible != null && (
-              <span className="text-xs text-white/75">
+              <span className="text-xs text-tinta/70">
                 disponible {pesos(cliente.ctaCte.disponible)} de {pesos(cliente.ctaCte.limite)}
               </span>
             )}
-            <button
+            <Boton
+              variante="secundario"
+              tamano="chico"
               onClick={() => setCobro(cobro ? null : { monto: '', medio: 'efectivo', nota: '', mandando: false, listo: false, error: '' })}
-              className="rounded-full bg-white/15 px-3 py-1 text-xs font-medium hover:bg-white/25"
             >
               Dejó un pago
-            </button>
+            </Boton>
           </div>
         )}
 
         {/* Pago a cuenta: queda PENDIENTE hasta que lo apruebe el dueño. El
             cajero nunca toca la cuenta corriente — toma el pago, avisa, sigue. */}
         {cobro && cliente?.existe && (
-          <div className="mt-1.5 rounded-xl bg-white border-2 border-[#B82D25]/30 p-3 max-w-xl">
+          <div className="mt-1.5 max-w-xl rounded-xl border-2 border-marca/30 bg-white p-3">
             {cobro.listo ? (
-              <p className="text-sm text-emerald-700">
-                ✓ Registrado. Le avisamos a Juan Pablo: cuando lo apruebe, se descuenta de la cuenta.
-                <button onClick={() => setCobro(null)} className="ml-3 text-xs text-black/50 underline">cerrar</button>
+              <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-ok">
+                <span className="inline-flex items-center gap-1"><IconoOk className="size-4 shrink-0" />Registrado. Le avisamos a Juan Pablo: cuando lo apruebe, se descuenta de la cuenta.</span>
+                <Boton variante="fantasma" tamano="chico" onClick={() => setCobro(null)}>cerrar</Boton>
               </p>
             ) : (
               <>
-                <p className="text-xs text-black/55 mb-2">
+                <p className="mb-2 text-sm text-tinta/70">
                   El pago <b>no</b> baja la deuda todavía: queda para que lo apruebe Juan Pablo.
                 </p>
                 <div className="flex flex-wrap items-center gap-2">
-                  <input
-                    value={cobro.monto}
-                    onChange={(e) => setCobro({ ...cobro, monto: e.target.value })}
-                    type="number" placeholder="$ monto" autoFocus
-                    className="w-32 rounded-lg border border-black/15 px-3 py-2 text-base text-black outline-none focus:border-[#B82D25]"
-                  />
-                  <select value={cobro.medio} onChange={(e) => setCobro({ ...cobro, medio: e.target.value })} className="rounded-lg border border-black/15 px-2 py-2 text-sm text-black bg-white">
+                  <div className="w-32">
+                    <Entrada
+                      value={cobro.monto}
+                      onChange={(e) => setCobro({ ...cobro, monto: e.target.value })}
+                      type="number" inputMode="decimal" placeholder="$ monto" autoFocus
+                      aria-label="Monto del pago"
+                    />
+                  </div>
+                  <Selector value={cobro.medio} onChange={(e) => setCobro({ ...cobro, medio: e.target.value })} aria-label="Medio del pago" className="w-44">
                     <option value="efectivo">Efectivo</option>
                     <option value="transferencia">Transferencia</option>
                     <option value="tarjeta">Tarjeta / posnet</option>
                     <option value="cheque">Cheque</option>
-                  </select>
-                  <input
-                    value={cobro.nota}
-                    onChange={(e) => setCobro({ ...cobro, nota: e.target.value })}
-                    placeholder="Nota (opcional)"
-                    className="flex-1 min-w-32 rounded-lg border border-black/15 px-3 py-2 text-sm text-black outline-none focus:border-[#B82D25]"
-                  />
-                  <button onClick={tomarCobro} disabled={cobro.mandando} className="rounded-full bg-[#B82D25] px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
-                    {cobro.mandando ? '…' : 'Registrar'}
-                  </button>
+                  </Selector>
+                  <div className="min-w-0 flex-1 basis-32">
+                    <Entrada
+                      value={cobro.nota}
+                      onChange={(e) => setCobro({ ...cobro, nota: e.target.value })}
+                      placeholder="Nota (opcional)"
+                      aria-label="Nota del pago"
+                    />
+                  </div>
+                  <Boton onClick={tomarCobro} cargando={cobro.mandando}>
+                    Registrar
+                  </Boton>
                 </div>
-                {cobro.error && <p className="mt-1.5 text-xs text-[#B82D25]">{cobro.error}</p>}
+                {cobro.error && <p role="alert" className="mt-1.5 text-sm font-medium text-marca-hondo">{cobro.error}</p>}
               </>
             )}
           </div>
         )}
       </div>
 
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-[1fr_420px] gap-3 p-3 overflow-hidden">
+      <div className="grid flex-1 grid-cols-1 gap-3 p-3 lg:min-h-0 lg:grid-cols-[1fr_420px] lg:overflow-hidden">
         {/* IZQUIERDA: búsqueda + carrito */}
-        <section className="rounded-2xl bg-white p-3 flex flex-col overflow-hidden">
+        <section className="flex min-w-0 flex-col rounded-2xl bg-white p-3 shadow-tarjeta lg:min-h-0 lg:overflow-hidden">
           <div className="relative shrink-0">
             <input
               ref={inputRef}
@@ -1790,50 +1896,54 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
               onChange={(e) => onBuscar(e.target.value)}
               onKeyDown={onKeyBuscar}
               placeholder="Escaneá o buscá un producto…"
+              aria-label="Escaneá o buscá un producto"
               autoFocus
               inputMode="search"
-              className="w-full rounded-2xl border-2 border-[#B82D25] px-5 py-4 text-lg text-black outline-none"
+              className="w-full rounded-2xl border-2 border-marca bg-white px-4 py-3.5 text-lg text-tinta outline-none placeholder:text-tinta/40 focus:ring-4 focus:ring-marca/15 sm:px-5 sm:py-4"
             />
-            {buscando && <span className="absolute right-5 top-1/2 -translate-y-1/2 text-sm text-black/40">buscando…</span>}
+            {buscando && <span className="absolute right-5 top-1/2 -translate-y-1/2 text-sm text-tinta/60">buscando…</span>}
             {modoCantidad && (
-              <span className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2 rounded-full bg-[#141414] px-3 py-1 text-sm font-semibold text-[#F0EBE2]">
-                Cantidad{ultimoSku && carrito.some((r) => r.sku === ultimoSku) ? ` de ${carrito.find((r) => r.sku === ultimoSku)?.nombre}` : ' para el próximo'}: {cantidadTecleada ?? '…'} <span className="font-normal text-[#F0EBE2]/60">Enter</span>
+              <span className="absolute right-3 top-1/2 flex max-w-[calc(100%-2rem)] -translate-y-1/2 items-center gap-2 rounded-full bg-tinta px-3 py-1 text-sm font-semibold text-crema">
+                <span className="min-w-0 truncate">Cantidad{ultimoSku && carrito.some((r) => r.sku === ultimoSku) ? ` de ${carrito.find((r) => r.sku === ultimoSku)?.nombre}` : ' para el próximo'}: {cantidadTecleada ?? '…'}</span> <span className="shrink-0 font-normal text-crema/60">Enter</span>
               </span>
             )}
             {multiplicador && !buscando && !modoCantidad && (
-              <span className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2 rounded-full bg-[#141414] px-3 py-1 text-sm font-semibold text-[#F0EBE2]">
+              <span className="absolute right-3 top-1/2 flex max-w-[calc(100%-2rem)] -translate-y-1/2 items-center gap-1 rounded-full bg-tinta py-1 pl-3 pr-1 text-sm font-semibold text-crema">
                 ×{multiplicador} al próximo
-                <button onClick={() => setMultiplicador(null)} aria-label="Cancelar cantidad" className="text-[#F0EBE2]/70 hover:text-white">✕</button>
+                <button type="button" onClick={() => setMultiplicador(null)} aria-label="Cancelar cantidad" className="grid size-8 place-items-center rounded-full text-crema/70 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70">
+                  <IconoCerrar className="size-4" />
+                </button>
               </span>
             )}
             {resultados.length > 0 && (
-              <div className="absolute z-10 mt-1 w-full rounded-2xl bg-white border border-black/10 overflow-hidden shadow-xl">
+              <div className="absolute z-contenido mt-1 w-full overflow-hidden rounded-2xl border border-black/[0.06] bg-white shadow-flotante">
                 {resultados.map((p) => {
                   const sinStock = p.stock != null && p.stock <= 0;
                   const pocoStock = p.stock != null && p.stock > 0 && p.stock <= 3;
                   return (
                   <button
                     key={p.sku}
+                    type="button"
                     onClick={() => agregar(p)}
-                    className={`w-full px-4 py-3.5 text-left flex items-center justify-between gap-3 border-b border-black/5 last:border-0 ${sinStock ? 'bg-[#B82D25]/10 text-[#932A1F] active:bg-[#B82D25]/20 hover:bg-[#B82D25]/20' : 'text-black active:bg-[#F0EBE2] hover:bg-[#F0EBE2]'}`}
+                    className={`flex w-full items-center justify-between gap-3 border-b border-black/[0.06] px-3 py-3 text-left last:border-0 focus-visible:outline-none sm:px-4 sm:py-3.5 ${sinStock ? 'bg-marca-suave text-marca-hondo hover:bg-marca/15 focus-visible:bg-marca/15 active:bg-marca/15' : 'text-tinta hover:bg-crema focus-visible:bg-crema active:bg-crema'}`}
                   >
-                    <span className="flex items-center gap-3 min-w-0">
-                      {p.imagenUrl && <img src={p.imagenUrl} alt="" className="h-11 w-11 rounded-lg object-cover shrink-0" />}
+                    <span className="flex min-w-0 items-center gap-3">
+                      {p.imagenUrl && <img src={p.imagenUrl} alt="" className="size-11 shrink-0 rounded-xl object-cover" />}
                       <span className="min-w-0">
-                        <span className="min-w-0 break-words text-base block">{p.nombre}</span>
-                        {p.activo === false && <span className="block text-xs font-semibold text-black/60">Dado de baja · se reconoce pero no se vende</span>}
-                        {sinStock && p.activo !== false && <span className="block text-xs font-semibold text-[#B82D25]">Sin stock en {sucursalNombre}{p.sinStockDesde ? ` · se terminó el ${fechaCorta(p.sinStockDesde)} (${haceDias(p.sinStockDesde)})` : ''}</span>}
-                        {pocoStock && <span className="text-xs text-black/45">Quedan {Math.round(p.stock as number)} u.</span>}
+                        <span className="block min-w-0 break-words text-base">{p.nombre}</span>
+                        {p.activo === false && <span className="block text-xs font-semibold text-tinta/70">Dado de baja · se reconoce pero no se vende</span>}
+                        {sinStock && p.activo !== false && <span className="block text-xs font-semibold text-marca-hondo">Sin stock en {sucursalNombre}{p.sinStockDesde ? ` · se terminó el ${fechaCorta(p.sinStockDesde)} (${haceDias(p.sinStockDesde)})` : ''}</span>}
+                        {pocoStock && <span className="text-xs text-tinta/60">Quedan {Math.round(p.stock as number)} u.</span>}
                         {codigoPendiente && p.activo !== false && (
                           <span role="button" tabIndex={0} onClick={(e) => { e.stopPropagation(); vincularCodigo(p); }} onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); vincularCodigo(p); } }}
-                            className="mt-1 inline-block rounded-full bg-[#141414] px-3 py-1 text-xs font-semibold text-[#F0EBE2] hover:bg-black/80">
+                            className="mt-1 inline-block rounded-full bg-tinta px-3 py-1.5 text-xs font-semibold text-crema hover:bg-tinta/80 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-marca">
                             {codigoPendiente.startsWith('PLU:') ? `Vincular PLU ${codigoPendiente.slice(4).split('|')[0]}${codigoPendiente.endsWith('|kg') ? ' (por peso)' : ''}` : `Vincular este código (${codigoPendiente})`}
                           </span>
                         )}
                       </span>
-                      {p.esAlcohol && <span className="rounded-full bg-black px-1.5 py-0.5 text-[10px] text-white shrink-0">+18</span>}
+                      {p.esAlcohol && <span className="shrink-0 rounded-full bg-tinta px-1.5 py-0.5 text-xs text-white">+18</span>}
                     </span>
-                    <span className="font-semibold text-lg whitespace-nowrap">{pesos(p.precio)}</span>
+                    <span className="importe shrink-0 text-lg font-semibold">{pesos(p.precio)}</span>
                   </button>
                   );
                 })}
@@ -1841,10 +1951,11 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
             )}
           </div>
 
-          {/* carrito */}
-          <div className="flex-1 overflow-y-auto mt-3 -mx-1 px-1">
+          {/* carrito: en el celular cada renglón va en dos líneas (nombre arriba,
+              cantidad y total abajo) para que nada se salga del ancho */}
+          <div className="-mx-1 mt-3 px-1 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
             {carrito.length === 0 && (
-              <div className="h-full flex items-center justify-center text-black/35 text-base">
+              <div className="flex min-h-32 items-center justify-center text-center text-base text-tinta/60 lg:h-full">
                 Escaneá un producto para empezar
               </div>
             )}
@@ -1853,16 +1964,16 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
               return (
                 <div
                   key={r.sku}
-                  className={`rounded-xl mb-2 px-3 py-2.5 flex items-center gap-2 border-2 ${sel ? 'border-[#B82D25] bg-[#B82D25]/5' : 'border-transparent bg-[#F0EBE2]/50'}`}
+                  className={`mb-2 flex flex-wrap items-center gap-2 rounded-xl border-2 px-3 py-2.5 sm:flex-nowrap ${sel ? 'border-marca bg-marca-suave' : 'border-transparent bg-crema/50'}`}
                 >
-                  <button onClick={() => seleccionarLinea(r.sku)} className="flex-1 min-w-0 text-left">
-                    <p className="font-medium text-black leading-tight">
+                  <button type="button" onClick={() => seleccionarLinea(r.sku)} className={unir('order-1 min-w-0 flex-1 basis-[calc(100%-3rem)] rounded-xl text-left sm:order-none sm:basis-auto', FOCO)}>
+                    <p className="break-words font-medium leading-tight text-tinta">
                       {r.nombre}
-                      {r.stock != null && r.stock <= 0 && <span className="ml-2 rounded bg-[#B82D25]/15 px-1.5 py-0.5 text-[11px] font-semibold text-[#B82D25] align-middle">sin stock{r.sinStockDesde ? ` · desde el ${fechaCorta(r.sinStockDesde)}` : ''}</span>}
+                      {r.stock != null && r.stock <= 0 && <span className="ml-2 inline-block rounded-full bg-marca/15 px-2 py-0.5 align-middle text-xs font-semibold text-marca-hondo">sin stock{r.sinStockDesde ? ` · desde el ${fechaCorta(r.sinStockDesde)}` : ''}</span>}
                     </p>
-                    <p className="text-xs text-black/45">{pesos(precioDe(r))} {r.porPeso ? 'el kilo' : 'c/u'}{mayorista && r.precioMayorista != null ? ' · may.' : ''}{r.descuento ? ` · ${r.descuento}` : ''}{sel ? ' · tocá los números para la cantidad' : ''}</p>
+                    <p className="text-xs text-tinta/60">{pesos(precioDe(r))} {r.porPeso ? 'el kilo' : 'c/u'}{mayorista && r.precioMayorista != null ? ' · may.' : ''}{r.descuento ? ` · ${r.descuento}` : ''}{sel ? ' · tocá los números para la cantidad' : ''}</p>
                   </button>
-                  {!r.porPeso && <button onClick={() => cambiarCantidad(r.sku, -1)} className="h-12 w-12 rounded-xl bg-white border border-black/15 text-2xl text-black active:scale-95 shrink-0" aria-label="Restar">−</button>}
+                  {!r.porPeso && <button type="button" onClick={() => cambiarCantidad(r.sku, -1)} className={unir('order-3 size-11 shrink-0 rounded-xl border border-black/15 bg-white text-2xl text-tinta active:scale-95 sm:order-none sm:size-12', FOCO)} aria-label="Restar">−</button>}
                   <input
                     type="number" inputMode={r.porPeso ? 'decimal' : 'numeric'} min={r.porPeso ? 0.001 : 1} max={999} step={r.porPeso ? 0.001 : 1} value={r.cantidad}
                     onFocus={(e) => e.currentTarget.select()}
@@ -1871,11 +1982,13 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
                     aria-label="Cantidad"
                     data-cantidad-de={r.sku}
                     title="Escribí la cantidad y Enter"
-                    className="h-12 w-16 shrink-0 rounded-xl border border-black/15 bg-white text-center text-2xl font-bold tabular-nums text-black outline-none focus:border-[#B82D25]"
+                    className="order-3 h-11 w-16 shrink-0 rounded-xl border border-black/15 bg-white text-center [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none text-xl font-bold tabular-nums text-tinta outline-none focus:border-marca focus:ring-4 focus:ring-marca/15 sm:order-none sm:h-12 sm:w-20 sm:text-2xl"
                   />
-                  {r.porPeso ? <span className="w-12 text-center text-sm text-black/50 shrink-0">kg</span> : <button onClick={() => cambiarCantidad(r.sku, 1)} className="h-12 w-12 rounded-xl bg-black text-white text-2xl active:scale-95 shrink-0" aria-label="Sumar">+</button>}
-                  <span className="w-28 text-right font-bold text-xl text-black whitespace-nowrap shrink-0">{pesos(precioDe(r) * r.cantidad)}</span>
-                  <button onClick={() => quitar(r.sku)} className="h-12 w-10 rounded-xl text-black/40 active:text-[#B82D25] text-2xl shrink-0" aria-label="Quitar">✕</button>
+                  {r.porPeso ? <span className="order-3 w-11 shrink-0 text-center text-sm text-tinta/60 sm:order-none sm:w-12">kg</span> : <button type="button" onClick={() => cambiarCantidad(r.sku, 1)} className={unir('order-3 size-11 shrink-0 rounded-xl bg-crema-hondo text-2xl text-tinta active:scale-95 sm:order-none sm:size-12', FOCO)} aria-label="Sumar">+</button>}
+                  <span className="importe order-3 ml-auto shrink-0 text-right text-lg font-bold text-tinta sm:order-none sm:w-28 sm:text-xl">{pesos(precioDe(r) * r.cantidad)}</span>
+                  <button type="button" onClick={() => quitar(r.sku)} className={unir('order-2 grid h-11 w-10 shrink-0 place-items-center self-start rounded-xl text-tinta/60 hover:text-marca-hondo active:text-marca sm:order-none sm:h-12 sm:self-center', FOCO)} aria-label="Quitar">
+                    <IconoCerrar className="size-6" />
+                  </button>
                 </div>
               );
             })}
@@ -1883,37 +1996,42 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
 
           {/* acciones del ticket actual */}
           {carrito.length > 0 && (
-            <div className="shrink-0 pt-2 flex gap-2">
-              <button onClick={estacionar} className="rounded-xl bg-amber-100 border border-amber-300 px-4 py-2.5 text-sm font-medium text-amber-900 active:scale-95">
-                ⏸ Estacionar (F6)
-              </button>
-              <button onClick={() => { if (window.confirm('¿Vaciar el ticket actual?')) limpiarVenta(); }} className="rounded-xl bg-white border border-black/10 px-4 py-2.5 text-sm text-black/60 active:scale-95">
+            <div className="flex shrink-0 flex-wrap gap-2 pt-2">
+              <Boton variante="secundario" onClick={estacionar} icono={<IconoCaja d={ICONO.pausa} className="size-4" />}>
+                Estacionar (F6)
+              </Boton>
+              <Boton
+                variante="fantasma"
+                onClick={async () => { if (await confirmar({ titulo: '¿Vaciar el ticket actual?', variante: 'peligro', textoConfirmar: 'Vaciar' })) limpiarVenta(); }}
+              >
                 Vaciar
-              </button>
+              </Boton>
             </div>
           )}
         </section>
 
         {/* DERECHA: total + medios + teclado + cobrar */}
-        <section className="rounded-2xl bg-white p-3 flex flex-col gap-3 overflow-y-auto">
+        <section className="flex min-w-0 flex-col gap-3 rounded-2xl bg-white p-3 shadow-tarjeta lg:min-h-0 lg:overflow-y-auto">
           {/* total */}
-          <div className="rounded-xl bg-black text-white px-4 py-3">
-            <div className="flex justify-between items-baseline">
-              <span className="text-sm text-white/60">{unidades} u.</span>
-              {subtotalLista > total && <span className="text-xs text-[#F0EBE2]/60 line-through">{pesos(subtotalLista)}</span>}
+          <div className="rounded-xl bg-tinta px-4 py-3 text-white">
+            <div className="flex items-baseline justify-between">
+              <span className="text-sm text-white/70">{unidades} u.</span>
+              {subtotalLista > total && <span className="importe text-xs text-crema/60 line-through">{pesos(subtotalLista)}</span>}
             </div>
-            <div className="flex justify-between items-baseline mt-0.5">
+            <div className="mt-0.5 flex items-baseline justify-between gap-3">
               <span className="text-sm text-white/70">Total</span>
-              <span className="text-4xl font-semibold tabular-nums">{pesos(totalFinal)}</span>
+              <span className="importe text-4xl font-bold">{pesos(totalFinal)}</span>
             </div>
             {descuento && (
-              <div className="mt-1 flex items-center justify-between rounded-lg bg-white/10 px-2 py-1">
-                <span className="text-xs text-emerald-300">Desc. {pesos(descuento.monto)} · aut. {descuento.nombre}</span>
-                <button onClick={() => setDescuento(null)} className="text-white/50 text-xs px-1">✕</button>
+              <div className="mt-1 flex items-center justify-between gap-2 rounded-xl bg-white/10 py-0.5 pl-2 pr-0.5">
+                <span className="text-xs text-ok-suave">Desc. {pesos(descuento.monto)} · aut. {descuento.nombre}</span>
+                <button type="button" onClick={() => setDescuento(null)} aria-label="Quitar descuento" className="grid size-9 place-items-center rounded-xl text-white/60 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70">
+                  <IconoCerrar className="size-4" />
+                </button>
               </div>
             )}
             {mayorista && (
-              <div className="mt-1 rounded-lg bg-[#C9A96E]/25 px-2 py-1 text-center text-xs text-[#C9A96E] font-semibold tracking-wide">
+              <div className="mt-1 rounded-xl bg-dorado/25 px-2 py-1 text-center text-xs font-semibold tracking-wide text-dorado">
                 PRECIO MAYORISTA
               </div>
             )}
@@ -1921,17 +2039,23 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
 
           {/* toggle mayorista: cambia la lista de precios de toda la venta */}
           <button
+            type="button"
+            aria-pressed={mayorista}
             onClick={() => setMayorista((v) => !v)}
-            className={'rounded-xl py-2.5 text-sm font-semibold border-2 active:scale-95 ' +
-              (mayorista ? 'bg-[#C9A96E] text-black border-[#C9A96E]' : 'bg-white text-black/70 border-black/10')}
+            className={unir(
+              'min-h-11 rounded-xl border-2 py-2.5 text-sm font-semibold active:scale-[0.98]',
+              mayorista ? 'border-dorado bg-dorado text-tinta' : 'border-black/10 bg-white text-tinta/70',
+              FOCO,
+            )}
           >
             {mayorista ? '★ Vendiendo MAYORISTA' : 'Precio mayorista'}
           </button>
 
           {carrito.length > 0 && !descuento && (
             <button
+              type="button"
               onClick={() => { setModalExtra('descuento'); setDescBuf(''); setPinBuf(''); }}
-              className="-mt-1 self-end text-xs text-[#B82D25] font-semibold underline underline-offset-2"
+              className={unir('-mt-1 inline-flex min-h-9 items-center self-end rounded-sm text-xs font-semibold text-marca-hondo underline underline-offset-2', FOCO)}
             >
               % Descuento con autorización
             </button>
@@ -1945,82 +2069,90 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
                   a ciegas: el saldo y el tope no se pueden verificar hasta que
                   vuelva la conexión, y el rechazo llegaría con el cliente ya ido. */}
               {sinRed && (
-                <p className="rounded-lg bg-[#B82D25]/10 px-3 py-2 text-xs font-medium text-[#932A1F]">
+                <p className="rounded-xl bg-marca-suave px-3 py-2 text-xs font-medium text-marca-hondo">
                   Sin conexión: solo efectivo. La venta queda guardada en esta máquina y se envía sola al volver la red.
                 </p>
               )}
               <div className="grid grid-cols-2 gap-2">
                 {medios.map((m) => {
                   const bloqueado = sinRed && m.id !== 'efectivo';
+                  const elegido = medio === m.id && terminal === m.terminal;
                   return (
                   <button
                     key={m.id + (m.terminal ?? '')}
+                    type="button"
                     disabled={bloqueado}
+                    aria-pressed={elegido}
                     title={bloqueado ? 'Sin conexión: solo efectivo' : undefined}
                     onClick={() => { setMedio(m.id); setTerminal(m.terminal); }}
-                    className={'rounded-xl py-3.5 text-base font-medium border-2 active:scale-95 disabled:opacity-30 ' +
-                      (medio === m.id && terminal === m.terminal ? 'bg-black text-white border-black' : 'bg-white text-black border-black/10')}
+                    className={unir(
+                      'min-h-12 rounded-xl border-2 px-2 py-3 text-base font-medium active:scale-[0.98] disabled:opacity-30',
+                      elegido ? 'border-tinta bg-tinta text-white' : 'border-black/10 bg-white text-tinta',
+                      FOCO,
+                    )}
                   >
                     {m.label}
                   </button>
                   );
                 })}
               </div>
-              <div className="flex items-center justify-between -mt-1">
-                {NOTA_MEDIO[medio] ? <p className="text-xs text-black/50">{medio === 'tarjeta' && terminal ? `Cobrá en el posnet ${TERMINAL_LABEL[terminal] ?? terminal}` : NOTA_MEDIO[medio]}</p> : <span />}
-                <button onClick={activarDividido} className="text-xs text-[#B82D25] font-semibold underline underline-offset-2">
-                  ➗ Dividir pago
+              <div className="-mt-1 flex flex-wrap items-center justify-between gap-x-3">
+                {NOTA_MEDIO[medio] ? <p className="min-w-0 flex-1 text-xs text-tinta/60">{medio === 'tarjeta' && terminal ? `Cobrá en el posnet ${TERMINAL_LABEL[terminal] ?? terminal}` : NOTA_MEDIO[medio]}</p> : <span />}
+                <button type="button" onClick={activarDividido} className={unir('inline-flex min-h-9 shrink-0 items-center rounded-sm text-xs font-semibold text-marca-hondo underline underline-offset-2', FOCO)}>
+                  Dividir pago
                 </button>
               </div>
             </>
           ) : (
-            <div className="rounded-xl border-2 border-black/10 p-2 flex flex-col gap-1.5">
-              <div className="flex items-center justify-between px-1">
-                <span className="text-[11px] uppercase tracking-wider text-black/45">Pago dividido</span>
-                <button onClick={salirDividido} className="text-xs text-black/50 underline">volver a un solo medio</button>
+            <div className="flex flex-col gap-1.5 rounded-xl border-2 border-black/10 p-2">
+              <div className="flex items-center justify-between gap-2 px-1">
+                <span className={ROTULO}>Pago dividido</span>
+                <button type="button" onClick={salirDividido} className={unir('inline-flex min-h-9 items-center rounded-sm text-xs text-tinta/60 underline', FOCO)}>volver a un solo medio</button>
               </div>
               {pagos.map((p, i) => {
                 const sel = foco?.tipo === 'pago' && foco.idx === i;
                 return (
-                  <div key={i} className={'rounded-lg px-3 py-2 flex items-center gap-2 border-2 ' + (sel ? 'border-[#B82D25] bg-[#B82D25]/5' : 'border-transparent bg-[#F0EBE2]/60')}>
-                    <span className="text-sm font-medium flex-1">{p.medio === 'tarjeta' && p.terminal ? `Tarjeta ${TERMINAL_LABEL[p.terminal] ?? p.terminal}` : MEDIO_LABEL[p.medio] ?? p.medio}</span>
-                    <button onClick={() => { setFoco({ tipo: 'pago', idx: i }); setCantBuf(''); }} className="text-lg font-semibold tabular-nums">
+                  <div key={i} className={'flex items-center gap-2 rounded-xl border-2 py-1 pl-3 pr-1 ' + (sel ? 'border-marca bg-marca-suave' : 'border-transparent bg-crema/60')}>
+                    <span className="min-w-0 flex-1 break-words text-sm font-medium">{p.medio === 'tarjeta' && p.terminal ? `Tarjeta ${TERMINAL_LABEL[p.terminal] ?? p.terminal}` : MEDIO_LABEL[p.medio] ?? p.medio}</span>
+                    <button type="button" onClick={() => { setFoco({ tipo: 'pago', idx: i }); setCantBuf(''); }} className={unir('importe min-h-11 shrink-0 rounded-xl px-1 text-lg font-semibold', FOCO)}>
                       {pesos(p.monto)}
                     </button>
-                    <button onClick={() => quitarPago(i)} className="text-black/30 px-1" aria-label="Quitar pago">✕</button>
+                    <button type="button" onClick={() => quitarPago(i)} className={unir('grid size-11 shrink-0 place-items-center rounded-xl text-tinta/60 hover:text-marca-hondo', FOCO)} aria-label="Quitar pago">
+                      <IconoCerrar className="size-5" />
+                    </button>
                   </div>
                 );
               })}
-              <div className="grid grid-cols-4 gap-1.5">
+              <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
                 {medios.map((m) => (
-                  <button key={m.id + (m.terminal ?? '')} onClick={() => agregarPago(m)} className="rounded-lg bg-white border border-black/10 py-2 text-xs font-medium active:scale-95">
+                  <button key={m.id + (m.terminal ?? '')} type="button" onClick={() => agregarPago(m)} className={unir('min-h-11 rounded-xl border border-black/10 bg-white px-1 py-2 text-xs font-medium active:scale-[0.98]', FOCO)}>
                     + {m.label}
                   </button>
                 ))}
               </div>
-              <p className={'text-center text-sm font-semibold ' + (restante === 0 ? 'text-emerald-700' : 'text-[#932A1F]')}>
-                {restante === 0 ? '✓ Pagos completos' : restante > 0 ? `Falta asignar ${pesos(restante)}` : `Sobran ${pesos(-restante)}`}
+              <p className={'flex items-center justify-center gap-1 text-center text-sm font-semibold ' + (restante === 0 ? 'text-ok' : 'text-marca-hondo')}>
+                {restante === 0 ? <><IconoOk className="size-4 shrink-0" />Pagos completos</> : restante > 0 ? `Falta asignar ${pesos(restante)}` : `Sobran ${pesos(-restante)}`}
               </p>
             </div>
           )}
 
           {/* display del teclado: cantidad / monto de pago / paga con */}
           {tecladoVisible && (
-            <div className="rounded-xl bg-[#F0EBE2]/60 px-4 py-2.5 flex items-center justify-between">
+            <div className="flex items-center justify-between gap-2 rounded-xl bg-crema/60 px-4 py-2.5">
               {lineaFoco ? (
                 <>
-                  <span className="text-sm text-black/60 min-w-0 break-words mr-2">Cantidad · {lineaFoco.nombre}</span>
-                  <span className="text-2xl font-semibold tabular-nums">{lineaFoco.cantidad}</span>
+                  <span className="mr-2 min-w-0 break-words text-sm text-tinta/70">Cantidad · {lineaFoco.nombre}</span>
+                  <span className="importe text-2xl font-semibold">{lineaFoco.cantidad}</span>
                 </>
               ) : pagoFoco ? (
                 <>
-                  <span className="text-sm text-black/60 truncate mr-2">Monto · {MEDIO_LABEL[pagoFoco.medio]}</span>
-                  <span className="text-2xl font-semibold tabular-nums">{pesos(pagoFoco.monto)}</span>
+                  <span className="mr-2 truncate text-sm text-tinta/70">Monto · {MEDIO_LABEL[pagoFoco.medio]}</span>
+                  <span className="importe text-2xl font-semibold">{pesos(pagoFoco.monto)}</span>
                 </>
               ) : (
                 <>
-                  <span className="text-sm text-black/60">Paga con</span>
-                  <span className="text-2xl font-semibold tabular-nums">{pagaCon ? pesos(pagaConN) : '$0'}</span>
+                  <span className="text-sm text-tinta/70">Paga con</span>
+                  <span className="importe text-2xl font-semibold">{pagaCon ? pesos(pagaConN) : '$0'}</span>
                 </>
               )}
             </div>
@@ -2029,9 +2161,9 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
           {/* atajos de efectivo */}
           {!lineaFoco && !pagoFoco && esEfectivoSimple && (
             <div className="grid grid-cols-4 gap-2">
-              <button onClick={() => setPagaCon(String(total))} className="rounded-lg bg-emerald-600 text-white py-2.5 text-sm font-medium active:scale-95">Justo</button>
+              <button type="button" onClick={() => setPagaCon(String(total))} className={unir('min-h-11 rounded-xl border border-ok/20 bg-ok-suave py-2.5 text-sm font-semibold text-ok active:scale-[0.98]', FOCO)}>Justo</button>
               {[1000, 2000, 5000].map((n) => (
-                <button key={n} onClick={() => sumarCash(n)} className="rounded-lg bg-white border border-black/10 py-2.5 text-sm font-medium active:scale-95">+{n / 1000}k</button>
+                <button key={n} type="button" onClick={() => sumarCash(n)} className={unir('min-h-11 rounded-xl border border-black/10 bg-white py-2.5 text-sm font-medium active:scale-[0.98]', FOCO)}>+{n / 1000}k</button>
               ))}
             </div>
           )}
@@ -2042,9 +2174,14 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
               {['1', '2', '3', '4', '5', '6', '7', '8', '9', 'C', '0', '⌫'].map((k) => (
                 <button
                   key={k}
+                  type="button"
                   onClick={() => tecla(k)}
-                  className={'rounded-xl py-4 text-2xl font-medium active:scale-95 ' +
-                    (k === 'C' ? 'bg-[#B82D25]/10 text-[#932A1F]' : k === '⌫' ? 'bg-black/5 text-black' : 'bg-[#F0EBE2] text-black')}
+                  aria-label={k === 'C' ? 'Borrar todo' : k === '⌫' ? 'Borrar' : undefined}
+                  className={unir(
+                    'rounded-xl py-3.5 text-2xl font-medium active:scale-95 sm:py-4',
+                    k === 'C' ? 'bg-marca-suave text-marca-hondo' : k === '⌫' ? 'bg-tinta/5 text-tinta' : 'bg-crema text-tinta',
+                    FOCO,
+                  )}
                 >
                   {k}
                 </button>
@@ -2053,13 +2190,13 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
           )}
 
           {vuelto != null && (
-            <div className={`rounded-xl px-4 py-3 text-center text-lg font-semibold ${vuelto < 0 ? 'bg-[#B82D25]/10 text-[#932A1F]' : 'bg-emerald-50 text-emerald-700'}`}>
+            <div className={`importe rounded-xl px-4 py-3 text-center text-lg font-semibold ${vuelto < 0 ? 'bg-marca-suave text-marca-hondo' : 'bg-ok-suave text-ok'}`}>
               {vuelto < 0 ? `Faltan ${pesos(-vuelto)}` : `Vuelto ${pesos(vuelto)}`}
             </div>
           )}
 
           {faltaCliente && (
-            <p className="rounded-xl bg-[#B82D25]/10 px-3 py-2 text-sm text-[#932A1F] text-center">
+            <p className="rounded-xl bg-marca-suave px-3 py-2 text-center text-sm text-marca-hondo">
               {comprobante === 'A' ? 'Factura A: cargá el CUIT del receptor' : 'Cuenta corriente: identificá al cliente (F3)'}
             </p>
           )}
@@ -2070,351 +2207,386 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
               obligatorio —hay quien no lo quiere dar— pero hay que preguntarlo,
               así que el pedido está a la vista y se salta con un toque. */}
           {!faltaCliente && carrito.length > 0 && !cliente && dni.trim().length < 7 && !sinDni && (
-            <div className="rounded-xl bg-black px-3 py-2.5 text-center text-white">
+            <div className="rounded-xl bg-tinta px-3 py-2.5 text-center text-white">
               <p className="text-sm font-medium">¿Me decís tu DNI?</p>
-              <p className="text-[11px] text-white/60 mt-0.5">
+              <p className="mt-0.5 text-xs text-white/70">
                 Con 3 compras el sistema le arma su perfil y le recomienda lo que lleva siempre.
               </p>
-              <div className="mt-2 flex gap-2 justify-center">
-                <button
-                  onClick={() => dniRef.current?.focus()}
-                  className="rounded-full bg-white px-4 py-1.5 text-xs font-medium text-black"
-                >
+              <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
+                <Boton variante="secundario" tamano="chico" onClick={() => dniRef.current?.focus()}>
                   Cargar DNI (F3)
-                </button>
-                <button onClick={() => setSinDni(true)} className="text-xs text-white/60 underline">
+                </Boton>
+                <button type="button" onClick={() => setSinDni(true)} className="inline-flex min-h-9 items-center rounded-sm text-xs text-white/70 underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70">
                   No quiere darlo
                 </button>
               </div>
             </div>
           )}
 
-          {/* cobrar */}
-          <button
-            onClick={cobrar}
-            disabled={carrito.length === 0 || cobrando || faltaCliente || (dividido && restante !== 0)}
-            className="mt-auto rounded-2xl bg-[#B82D25] py-6 text-2xl font-semibold text-white active:scale-95 disabled:opacity-40"
-          >
-            {cobrando ? 'Cobrando…' : usaCtaCte && !dividido ? `Cargar a cuenta ${pesos(totalFinal)}` : `Cobrar ${pesos(totalFinal)}`}
-          </button>
+          {/* cobrar (escritorio: botón grande al pie; celular: barra fija de abajo) */}
+          {pantallaAncha && (
+            <button
+              type="button"
+              onClick={cobrar}
+              disabled={cobrarDeshabilitado}
+              className={unir('mt-auto rounded-2xl bg-marca py-6 text-2xl font-semibold text-white transition-colors hover:bg-marca-hondo active:scale-[0.98] disabled:opacity-40', FOCO)}
+            >
+              {textoCobrar}
+            </button>
+          )}
 
           {/* última venta: reimprimir / anular */}
           {ultima && (
-            <div className="flex gap-2">
-              <button onClick={() => imprimir(ultima.ticket)} className="flex-1 rounded-xl bg-white border border-black/10 py-2.5 text-sm font-medium active:scale-95">
-                🖨 Reimprimir (F8)
-              </button>
-              <button onClick={anularUltima} className="flex-1 rounded-xl bg-white border border-[#B82D25]/40 py-2.5 text-sm font-medium text-[#932A1F] active:scale-95">
+            <div className="flex gap-2 *:flex-1">
+              <Boton variante="secundario" onClick={() => imprimir(ultima.ticket)} icono={<IconoCaja d={ICONO.imprimir} className="size-4" />}>
+                Reimprimir (F8)
+              </Boton>
+              <Boton variante="peligro" onClick={anularUltima}>
                 Anular última
-              </button>
+              </Boton>
             </div>
           )}
 
-          <p className="text-center text-[11px] text-black/35 -mt-1">
+          <p className="-mt-1 hidden text-center text-xs text-tinta/60 sm:block">
             C + cantidad + Enter = cantidad del último producto · 6* y escaneá = 6 unidades · etiqueta de balanza = entra con su peso/cantidad · F2 comprobante · F3 cliente · F4 medio · F6 estacionar · F7 mi turno · F8 reimprimir · F9 stock · F12 cobrar · F10 salir
           </p>
 
           {estado && (
-            <p className={'rounded-xl px-3 py-3 text-base ' + (estado.tipo === 'ok' ? 'bg-emerald-50 text-emerald-800' : 'bg-[#B82D25]/10 text-[#932A1F]')}>
+            <p role={estado.tipo === 'error' ? 'alert' : 'status'} className={'rounded-xl px-3 py-3 text-base ' + (estado.tipo === 'ok' ? 'bg-ok-suave text-ok' : 'bg-marca-suave text-marca-hondo')}>
               {estado.texto}
             </p>
           )}
         </section>
       </div>
 
-      {/* ---- modal apertura / cierre de caja ---- */}
-      {(modalCaja || arqueo) && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-          <div className="w-full max-w-lg rounded-2xl bg-white p-5 max-h-[92vh] overflow-y-auto">
-            {arqueo ? (
-              <>
-                <h2 className="text-xl font-bold text-black">Cierre de caja</h2>
-                {sesionCerradaId && <div className="mt-3"><ResumenCierre sesionId={sesionCerradaId} /></div>}
-                <div className={'mt-3 space-y-1.5 text-black' + (sesionCerradaId ? ' hidden' : '')}>
-                  <p className="flex justify-between"><span className="text-black/55">Efectivo esperado</span><span className="font-semibold tabular-nums">{pesos(arqueo.esperado)}</span></p>
-                  <p className="flex justify-between"><span className="text-black/55">Contado</span><span className="font-semibold tabular-nums">{pesos(arqueo.contado)}</span></p>
-                  <p className={'flex justify-between rounded-lg px-2 py-1.5 ' + (arqueo.diferencia === 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-[#B82D25]/10 text-[#932A1F]')}>
-                    <span>Diferencia</span>
-                    <span className="font-bold tabular-nums">{arqueo.diferencia === 0 ? 'Sin diferencia ✓' : pesos(arqueo.diferencia)}</span>
-                  </p>
-                </div>
-                <button onClick={() => { setArqueo(null); setSesionCerradaId(null); setModalCaja('abrir'); }} className="mt-4 w-full rounded-xl bg-black py-3 text-white font-medium">
-                  Listo
-                </button>
-              </>
-            ) : modalCaja === 'abrir' ? (
-              <>
-                <h2 className="text-xl font-bold text-black">Abrir caja</h2>
-                <p className="mt-1 text-sm text-black/55">Elegí tu línea de caja e ingresá la base de efectivo.</p>
-                <div className="mt-3 grid gap-1.5">
-                  {cajas.map((c) => (
-                    <button
-                      key={c.id}
-                      onClick={() => setCajaElegida(c.id)}
-                      className={'rounded-xl border-2 px-3 py-2.5 text-left ' + (cajaElegida === c.id ? 'border-[#B82D25] bg-[#B82D25]/5' : 'border-black/10')}
-                    >
-                      <span className="font-semibold text-black">
-                        {c.nombre}
-                        {c.sucursal?.nombre ? <span className="font-normal text-black/50"> · {c.sucursal.nombre}</span> : null}
-                      </span>
-                      <span className="block text-xs text-black/50">
-                        {c.sesionAbierta ? `Abierta por ${c.sesionAbierta.usuario?.nombre ?? '—'} · se retoma la sesión` : 'Cerrada · se abre nueva sesión'}
-                      </span>
-                    </button>
-                  ))}
-                  {cajas.length === 0 && <p className="text-sm text-black/50">No hay cajas configuradas (se pueden crear desde Cierres).</p>}
-                </div>
-                {!cajas.find((c) => c.id === cajaElegida)?.sesionAbierta && (
-                  <input
-                    value={montoBuf}
-                    onChange={(e) => setMontoBuf(e.target.value.replace(/[^\d]/g, ''))}
-                    placeholder="Base de efectivo (ej: 20000)"
-                    inputMode="numeric"
-                    className="mt-3 w-full rounded-xl border-2 border-black/10 px-3 py-3 text-lg text-black outline-none focus:border-[#B82D25]"
-                  />
-                )}
-                <div className="mt-4 flex gap-2">
-                  <Link href="/inicio" className="flex-1 rounded-xl border border-black/10 py-3 text-center text-black/60">Salir</Link>
-                  <button onClick={abrirCaja} disabled={!cajaElegida || cajas.length === 0} className="flex-1 rounded-xl bg-[#B82D25] py-3 text-white font-semibold disabled:opacity-40">
-                    {cajas.find((c) => c.id === cajaElegida)?.sesionAbierta ? 'Retomar sesión' : 'Abrir caja'}
-                  </button>
-                </div>
-              </>
-            ) : (
-              <>
-                <h2 className="text-xl font-bold text-black">Cerrar caja · arqueo</h2>
-                <p className="mt-1 text-sm text-black/55">Así va la caja. Contá el efectivo del cajón e ingresá el total: el sistema compara contra lo que tiene que haber.</p>
-                {sesion && <div className="mt-3 max-h-[42vh] overflow-y-auto rounded-xl border border-black/10 p-3"><ResumenCierre sesionId={sesion.sesionId} imprimible={false} /></div>}
-                <input
-                  value={montoBuf}
-                  onChange={(e) => setMontoBuf(e.target.value.replace(/[^\d]/g, ''))}
-                  placeholder="Efectivo contado"
-                  inputMode="numeric"
-                  autoFocus
-                  className="mt-3 w-full rounded-xl border-2 border-black/10 px-3 py-3 text-lg text-black outline-none focus:border-[#B82D25]"
-                />
-                {cola.length > 0 && (
-                  <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                    ⚠ Hay {cola.length} venta(s) sin enviar. El arqueo del sistema no las incluye hasta que se envíen.
-                  </p>
-                )}
-                <div className="mt-4 flex gap-2">
-                  <button onClick={() => setModalCaja(null)} className="flex-1 rounded-xl border border-black/10 py-3 text-black/60">Cancelar</button>
-                  <button onClick={cerrarCaja} disabled={cerrando || montoBuf === ''} className="flex-1 rounded-xl bg-black py-3 text-white font-semibold disabled:opacity-40">
-                    {cerrando ? 'Cerrando…' : 'Cerrar y arquear'}
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
+      {/* celular y tableta: Cobrar siempre a mano, fijo abajo */}
+      {!pantallaAncha && (
+        <BarraInferior etiqueta="Cobrar">
+          <button
+            type="button"
+            onClick={cobrar}
+            disabled={cobrarDeshabilitado}
+            className={unir('min-h-14 w-full rounded-2xl bg-marca px-4 text-xl font-semibold text-white transition-colors hover:bg-marca-hondo active:scale-[0.98] disabled:opacity-40', FOCO)}
+          >
+            {textoCobrar}
+          </button>
+        </BarraInferior>
       )}
+
+      {/* ---- modal apertura / cierre de caja ---- */}
+      <Modal
+        abierto={!!(modalCaja || arqueo)}
+        onCerrar={cerrarModalCaja}
+        titulo={arqueo ? 'Cierre de caja' : modalCaja === 'abrir' ? 'Abrir caja' : 'Cerrar caja · arqueo'}
+        descripcion={arqueo ? undefined : modalCaja === 'abrir' ? 'Elegí tu línea de caja e ingresá la base de efectivo.' : 'Así va la caja. Contá el efectivo del cajón e ingresá el total: el sistema compara contra lo que tiene que haber.'}
+        bloquearCierre={(!arqueo && modalCaja === 'abrir') || cerrando}
+        cerrarAlTocarAfuera={false}
+        pie={arqueo ? (
+          <Boton anchoCompleto onClick={() => { setArqueo(null); setSesionCerradaId(null); setModalCaja('abrir'); }}>
+            Listo
+          </Boton>
+        ) : modalCaja === 'abrir' ? (
+          <>
+            <BotonLink variante="secundario" href="/inicio">Salir</BotonLink>
+            <Boton onClick={abrirCaja} disabled={!cajaElegida || cajas.length === 0}>
+              {cajas.find((c) => c.id === cajaElegida)?.sesionAbierta ? 'Retomar sesión' : 'Abrir caja'}
+            </Boton>
+          </>
+        ) : (
+          <>
+            <Boton variante="secundario" onClick={() => setModalCaja(null)}>Cancelar</Boton>
+            <Boton onClick={cerrarCaja} disabled={cerrando || montoBuf === ''} cargando={cerrando}>
+              {cerrando ? 'Cerrando…' : 'Cerrar y arquear'}
+            </Boton>
+          </>
+        )}
+      >
+        {arqueo ? (
+          <>
+            {sesionCerradaId && <ResumenCierre sesionId={sesionCerradaId} />}
+            <div className={'space-y-1.5 text-tinta' + (sesionCerradaId ? ' hidden' : '')}>
+              <p className="flex justify-between gap-3"><span className="text-tinta/70">Efectivo esperado</span><span className="importe font-semibold">{pesos(arqueo.esperado)}</span></p>
+              <p className="flex justify-between gap-3"><span className="text-tinta/70">Contado</span><span className="importe font-semibold">{pesos(arqueo.contado)}</span></p>
+              <p className={'flex justify-between gap-3 rounded-xl px-2 py-1.5 ' + (arqueo.diferencia === 0 ? 'bg-ok-suave text-ok' : 'bg-marca-suave text-marca-hondo')}>
+                <span>Diferencia</span>
+                <span className="importe inline-flex items-center gap-1 font-bold">{arqueo.diferencia === 0 ? <>Sin diferencia <IconoOk className="size-4 shrink-0" /></> : pesos(arqueo.diferencia)}</span>
+              </p>
+            </div>
+          </>
+        ) : modalCaja === 'abrir' ? (
+          <>
+            <div className="grid gap-1.5">
+              {cajas.map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  aria-pressed={cajaElegida === c.id}
+                  onClick={() => setCajaElegida(c.id)}
+                  className={unir('min-h-11 rounded-xl border-2 px-3 py-2.5 text-left', cajaElegida === c.id ? 'border-marca bg-marca-suave' : 'border-black/10', FOCO)}
+                >
+                  <span className="font-semibold text-tinta">
+                    {c.nombre}
+                    {c.sucursal?.nombre ? <span className="font-normal text-tinta/60"> · {c.sucursal.nombre}</span> : null}
+                  </span>
+                  <span className="block text-xs text-tinta/60">
+                    {c.sesionAbierta ? `Abierta por ${c.sesionAbierta.usuario?.nombre ?? '—'} · se retoma la sesión` : 'Cerrada · se abre nueva sesión'}
+                  </span>
+                </button>
+              ))}
+              {cajas.length === 0 && <p className="text-sm text-tinta/60">No hay cajas configuradas (se pueden crear desde Cierres).</p>}
+            </div>
+            {!cajas.find((c) => c.id === cajaElegida)?.sesionAbierta && (
+              <Entrada
+                value={montoBuf}
+                onChange={(e) => setMontoBuf(e.target.value.replace(/[^\d]/g, ''))}
+                placeholder="Base de efectivo (ej: 20000)"
+                aria-label="Base de efectivo"
+                inputMode="numeric"
+                className="mt-3"
+              />
+            )}
+          </>
+        ) : (
+          <>
+            {sesion && <div className="rounded-xl border border-black/[0.06] p-3"><ResumenCierre sesionId={sesion.sesionId} imprimible={false} /></div>}
+            <Entrada
+              value={montoBuf}
+              onChange={(e) => setMontoBuf(e.target.value.replace(/[^\d]/g, ''))}
+              placeholder="Efectivo contado"
+              aria-label="Efectivo contado"
+              inputMode="numeric"
+              autoFocus
+              className="mt-3"
+            />
+            {cola.length > 0 && (
+              <Aviso tono="atencion" className="mt-2">
+                Hay {cola.length} venta(s) sin enviar. El arqueo del sistema no las incluye hasta que se envíen.
+              </Aviso>
+            )}
+          </>
+        )}
+      </Modal>
 
       {/* ---- modales: descuento / movimiento de efectivo / devolución ---- */}
-      {modalExtra && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-          <div className="w-full max-w-md rounded-2xl bg-white p-5 max-h-[85vh] overflow-y-auto">
-            {modalExtra === 'descuento' && (
-              <>
-                <h2 className="text-xl font-bold text-black">Descuento con autorización</h2>
-                <p className="mt-1 text-sm text-black/55">Un gerente o el dueño autoriza con su PIN de firma. Queda auditado.</p>
-                <input
-                  value={descBuf}
-                  onChange={(e) => setDescBuf(e.target.value.replace(/[^\d]/g, ''))}
-                  placeholder={`Monto a descontar (total ${pesos(total)})`}
-                  inputMode="numeric"
-                  autoFocus
-                  className="mt-3 w-full rounded-xl border-2 border-black/10 px-3 py-3 text-lg text-black outline-none focus:border-[#B82D25]"
-                />
-                <input
-                  value={pinBuf}
-                  onChange={(e) => setPinBuf(e.target.value)}
-                  placeholder="PIN del supervisor"
-                  type="password"
-                  inputMode="numeric"
-                  className="mt-2 w-full rounded-xl border-2 border-black/10 px-3 py-3 text-lg text-black outline-none focus:border-[#B82D25]"
-                />
-                <div className="mt-4 flex gap-2">
-                  <button onClick={() => setModalExtra(null)} className="flex-1 rounded-xl border border-black/10 py-3 text-black/60">Cancelar</button>
-                  <button onClick={aplicarDescuento} disabled={procesando} className="flex-1 rounded-xl bg-[#B82D25] py-3 text-white font-semibold disabled:opacity-40">
-                    {procesando ? 'Verificando…' : 'Autorizar'}
-                  </button>
-                </div>
-              </>
-            )}
-
-            {modalExtra === 'movimiento' && (
-              <>
-                <h2 className="text-xl font-bold text-black">Movimiento de efectivo</h2>
-                <p className="mt-1 text-sm text-black/55">Ingresos (cambio) o retiros (a tesorería). Entra al arqueo del cierre.</p>
-                <div className="mt-3 grid grid-cols-2 gap-2">
-                  {(['ingreso', 'egreso'] as const).map((t) => (
-                    <button
-                      key={t}
-                      onClick={() => setMovTipo(t)}
-                      className={'rounded-xl py-3 font-medium border-2 ' + (movTipo === t ? 'bg-black text-white border-black' : 'bg-white text-black border-black/10')}
-                    >
-                      {t === 'ingreso' ? '↓ Ingreso' : '↑ Retiro'}
-                    </button>
-                  ))}
-                </div>
-                <input
-                  value={movMonto}
-                  onChange={(e) => setMovMonto(e.target.value.replace(/[^\d]/g, ''))}
-                  placeholder="Monto"
-                  inputMode="numeric"
-                  className="mt-2 w-full rounded-xl border-2 border-black/10 px-3 py-3 text-lg text-black outline-none focus:border-[#B82D25]"
-                />
-                <input
-                  value={movMotivo}
-                  onChange={(e) => setMovMotivo(e.target.value)}
-                  placeholder={movTipo === 'ingreso' ? 'Motivo (ej: cambio de tesorería)' : 'Motivo (ej: retiro a tesorería)'}
-                  className="mt-2 w-full rounded-xl border-2 border-black/10 px-3 py-3 text-base text-black outline-none focus:border-[#B82D25]"
-                />
-                <div className="mt-4 flex gap-2">
-                  <button onClick={() => setModalExtra(null)} className="flex-1 rounded-xl border border-black/10 py-3 text-black/60">Cancelar</button>
-                  <button onClick={registrarMovimiento} disabled={procesando} className="flex-1 rounded-xl bg-black py-3 text-white font-semibold disabled:opacity-40">
-                    {procesando ? 'Guardando…' : 'Registrar'}
-                  </button>
-                </div>
-              </>
-            )}
-
-            {modalExtra === 'devolucion' && (
-              <>
-                <h2 className="text-xl font-bold text-black">Devolución de venta</h2>
-                {!devVenta ? (
-                  <>
-                    <p className="mt-1 text-sm text-black/55">Elegí la venta (últimas 24 h).</p>
-                    <div className="mt-3 grid gap-1.5">
-                      {devVentas.length === 0 && <p className="text-sm text-black/45">No hay ventas completadas hoy.</p>}
-                      {devVentas.map((v: any) => (
-                        <button
-                          key={v.id}
-                          onClick={() => { setDevVenta(v); setDevolver({}); }}
-                          className="rounded-xl border-2 border-black/10 px-3 py-2.5 text-left hover:border-[#B82D25]"
-                        >
-                          <span className="flex justify-between">
-                            <span className="font-semibold text-black">
-                              {new Date(v.vendida_en).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
-                              {v.cliente?.dni ? ` · DNI ${v.cliente.dni}` : ''}
-                            </span>
-                            <span className="font-semibold text-black tabular-nums">{pesos(v.total)}</span>
-                          </span>
-                          <span className="block text-xs text-black/50 min-w-0 break-words">
-                            {(v.items ?? []).map((i: any) => `${i.cantidad}x ${i.producto?.nombre}`).join(' · ')}
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                    <button onClick={() => setModalExtra(null)} className="mt-4 w-full rounded-xl border border-black/10 py-3 text-black/60">Cancelar</button>
-                  </>
-                ) : (
-                  <>
-                    <p className="mt-1 text-sm text-black/55">Marcá qué se devuelve (repone stock y emite nota de crédito).</p>
-                    <div className="mt-3 grid gap-1.5">
-                      {(devVenta.items ?? []).map((i: any) => {
-                        const sku = i.producto?.sku;
-                        const max = Number(i.cantidad);
-                        const cant = devolver[sku] ?? 0;
-                        return (
-                          <div key={sku} className="rounded-xl bg-[#F0EBE2]/60 px-3 py-2 flex items-center gap-2">
-                            <span className="flex-1 min-w-0">
-                              <span className="block text-sm font-medium text-black min-w-0 break-words">{i.producto?.nombre}</span>
-                              <span className="text-xs text-black/50">{pesos(i.precio_unitario)} c/u · compró {max}</span>
-                            </span>
-                            <button onClick={() => setDevolver((d) => ({ ...d, [sku]: Math.max(0, (d[sku] ?? 0) - 1) }))} className="h-10 w-10 rounded-lg bg-white border border-black/10 text-xl">−</button>
-                            <span className="w-7 text-center font-semibold tabular-nums">{cant}</span>
-                            <button onClick={() => setDevolver((d) => ({ ...d, [sku]: Math.min(max, (d[sku] ?? 0) + 1) }))} className="h-10 w-10 rounded-lg bg-black text-white text-xl">+</button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                    <label className="mt-3 flex items-center gap-2 text-sm text-black">
-                      <input type="checkbox" checked={devEfectivo} onChange={(e) => setDevEfectivo(e.target.checked)} className="h-4 w-4" />
-                      Reintegro en efectivo (registra egreso de caja)
-                    </label>
-                    <input
-                      value={pinBuf}
-                      onChange={(e) => setPinBuf(e.target.value)}
-                      placeholder="PIN del supervisor"
-                      type="password"
-                      inputMode="numeric"
-                      className="mt-2 w-full rounded-xl border-2 border-black/10 px-3 py-3 text-lg text-black outline-none focus:border-[#B82D25]"
-                    />
-                    <button
-                      type="button"
-                      onClick={pedirAutorizacionDevolucion}
-                      disabled={procesando}
-                      className="mt-2 w-full rounded-xl border-2 border-dashed border-[#B82D25]/40 py-3 text-sm font-semibold text-[#932A1F] hover:bg-[#B82D25]/5 disabled:opacity-50"
-                    >
-                      ¿No hay supervisor en el local? Pedir autorización a distancia
-                    </button>
-                    <p className="mt-1 text-xs text-black/45">Les llega por WhatsApp y campanita a los supervisores; cuando uno aprueba, la devolución se hace sola y acá te avisa.</p>
-                    <div className="mt-4 flex gap-2">
-                      <button onClick={() => setDevVenta(null)} className="flex-1 rounded-xl border border-black/10 py-3 text-black/60">Volver</button>
-                      <button onClick={confirmarDevolucion} disabled={procesando} className="flex-1 rounded-xl bg-[#B82D25] py-3 text-white font-semibold disabled:opacity-40">
-                        {procesando ? 'Procesando…' : 'Confirmar devolución'}
-                      </button>
-                    </div>
-                  </>
-                )}
-              </>
-            )}
+      <Modal
+        abierto={!!modalExtra}
+        onCerrar={() => setModalExtra(null)}
+        titulo={modalExtra === 'descuento' ? 'Descuento con autorización' : modalExtra === 'movimiento' ? 'Movimiento de efectivo' : 'Devolución de venta'}
+        descripcion={
+          modalExtra === 'descuento' ? 'Un gerente o el dueño autoriza con su PIN de firma. Queda auditado.'
+          : modalExtra === 'movimiento' ? 'Ingresos (cambio) o retiros (a tesorería). Entra al arqueo del cierre.'
+          : !devVenta ? 'Elegí la venta (últimas 24 h).'
+          : 'Marcá qué se devuelve (repone stock y emite nota de crédito).'
+        }
+        bloquearCierre={procesando}
+        cerrarAlTocarAfuera={false}
+        pie={
+          modalExtra === 'descuento' ? (
+            <>
+              <Boton variante="secundario" onClick={() => setModalExtra(null)}>Cancelar</Boton>
+              <Boton onClick={aplicarDescuento} cargando={procesando}>{procesando ? 'Verificando…' : 'Autorizar'}</Boton>
+            </>
+          ) : modalExtra === 'movimiento' ? (
+            <>
+              <Boton variante="secundario" onClick={() => setModalExtra(null)}>Cancelar</Boton>
+              <Boton onClick={registrarMovimiento} cargando={procesando}>{procesando ? 'Guardando…' : 'Registrar'}</Boton>
+            </>
+          ) : !devVenta ? (
+            <Boton variante="secundario" onClick={() => setModalExtra(null)}>Cancelar</Boton>
+          ) : (
+            <>
+              <Boton variante="secundario" onClick={() => setDevVenta(null)}>Volver</Boton>
+              <Boton onClick={confirmarDevolucion} cargando={procesando}>{procesando ? 'Procesando…' : 'Confirmar devolución'}</Boton>
+            </>
+          )
+        }
+      >
+        {modalExtra === 'descuento' && (
+          <div className="space-y-2">
+            <Entrada
+              value={descBuf}
+              onChange={(e) => setDescBuf(e.target.value.replace(/[^\d]/g, ''))}
+              placeholder={`Monto a descontar (total ${pesos(total)})`}
+              aria-label="Monto a descontar"
+              inputMode="numeric"
+              autoFocus
+            />
+            <Entrada
+              value={pinBuf}
+              onChange={(e) => setPinBuf(e.target.value)}
+              placeholder="PIN del supervisor"
+              aria-label="PIN del supervisor"
+              type="password"
+              inputMode="numeric"
+            />
           </div>
-        </div>
-      )}
+        )}
 
-      {/* ---- consulta de stock en ambas sucursales ---- */}
-      {cobroMP && cobroMP.estado !== 'omitido' && (
-        <div className="fixed inset-0 z-[60] bg-black/60 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl">
-            <div className="flex items-center gap-3 mb-4">
-              <span className="inline-flex w-11 h-11 rounded-full bg-[#009EE3] text-white items-center justify-center font-black text-sm">MP</span>
-              <div>
-                <p className="text-[11px] uppercase tracking-wider text-black/50">Mercado Pago · QR de la caja{cobroMP.qr ? ` (${cobroMP.qr})` : ''}</p>
-                <p className="text-3xl font-black tabular-nums leading-tight">{pesos(cobroMP.monto)}</p>
-              </div>
+        {modalExtra === 'movimiento' && (
+          <div className="space-y-2">
+            <div className="grid grid-cols-2 gap-2">
+              {(['ingreso', 'egreso'] as const).map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  aria-pressed={movTipo === t}
+                  onClick={() => setMovTipo(t)}
+                  className={unir('min-h-11 rounded-xl border-2 py-3 font-medium', movTipo === t ? 'border-tinta bg-tinta text-white' : 'border-black/10 bg-white text-tinta', FOCO)}
+                >
+                  {t === 'ingreso' ? '↓ Ingreso' : '↑ Retiro'}
+                </button>
+              ))}
             </div>
-            {cobroMP.estado === 'iniciando' && <p className="text-sm text-black/60">Mandando el importe al QR…</p>}
+            <Entrada
+              value={movMonto}
+              onChange={(e) => setMovMonto(e.target.value.replace(/[^\d]/g, ''))}
+              placeholder="Monto"
+              aria-label="Monto"
+              inputMode="numeric"
+            />
+            <Entrada
+              value={movMotivo}
+              onChange={(e) => setMovMotivo(e.target.value)}
+              placeholder={movTipo === 'ingreso' ? 'Motivo (ej: cambio de tesorería)' : 'Motivo (ej: retiro a tesorería)'}
+              aria-label="Motivo"
+            />
+          </div>
+        )}
+
+        {modalExtra === 'devolucion' && (
+          !devVenta ? (
+            <div className="grid gap-1.5">
+              {devVentas.length === 0 && <p className="text-sm text-tinta/60">No hay ventas completadas hoy.</p>}
+              {devVentas.map((v: any) => (
+                <button
+                  key={v.id}
+                  type="button"
+                  onClick={() => { setDevVenta(v); setDevolver({}); }}
+                  className={unir('min-h-11 rounded-xl border-2 border-black/10 px-3 py-2.5 text-left hover:border-marca', FOCO)}
+                >
+                  <span className="flex justify-between gap-3">
+                    <span className="font-semibold text-tinta">
+                      {hora(v.vendida_en)}
+                      {v.cliente?.dni ? ` · DNI ${v.cliente.dni}` : ''}
+                    </span>
+                    <span className="importe shrink-0 font-semibold text-tinta">{pesos(v.total)}</span>
+                  </span>
+                  <span className="block min-w-0 break-words text-xs text-tinta/60">
+                    {(v.items ?? []).map((i: any) => `${i.cantidad}x ${i.producto?.nombre}`).join(' · ')}
+                  </span>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <>
+              <div className="grid gap-1.5">
+                {(devVenta.items ?? []).map((i: any) => {
+                  const sku = i.producto?.sku;
+                  const max = Number(i.cantidad);
+                  const cant = devolver[sku] ?? 0;
+                  return (
+                    <div key={sku} className="flex items-center gap-2 rounded-xl bg-crema/60 px-3 py-2">
+                      <span className="min-w-0 flex-1">
+                        <span className="block min-w-0 break-words text-sm font-medium text-tinta">{i.producto?.nombre}</span>
+                        <span className="text-xs text-tinta/60">{pesos(i.precio_unitario)} c/u · compró {max}</span>
+                      </span>
+                      <button type="button" aria-label="Devolver uno menos" onClick={() => setDevolver((d) => ({ ...d, [sku]: Math.max(0, (d[sku] ?? 0) - 1) }))} className={unir('size-11 shrink-0 rounded-xl border border-black/10 bg-white text-xl', FOCO)}>−</button>
+                      <span className="importe w-7 text-center font-semibold">{cant}</span>
+                      <button type="button" aria-label="Devolver uno más" onClick={() => setDevolver((d) => ({ ...d, [sku]: Math.min(max, (d[sku] ?? 0) + 1) }))} className={unir('size-11 shrink-0 rounded-xl bg-crema-hondo text-xl text-tinta', FOCO)}>+</button>
+                    </div>
+                  );
+                })}
+              </div>
+              <label className="mt-3 flex min-h-11 items-center gap-2 text-sm text-tinta">
+                <input type="checkbox" checked={devEfectivo} onChange={(e) => setDevEfectivo(e.target.checked)} className="size-5 accent-marca" />
+                Reintegro en efectivo (registra egreso de caja)
+              </label>
+              <Entrada
+                value={pinBuf}
+                onChange={(e) => setPinBuf(e.target.value)}
+                placeholder="PIN del supervisor"
+                aria-label="PIN del supervisor"
+                type="password"
+                inputMode="numeric"
+                className="mt-2"
+              />
+              <button
+                type="button"
+                onClick={pedirAutorizacionDevolucion}
+                disabled={procesando}
+                className={unir('mt-2 min-h-11 w-full rounded-xl border-2 border-dashed border-marca/40 px-3 py-3 text-sm font-semibold text-marca-hondo hover:bg-marca-suave disabled:opacity-50', FOCO)}
+              >
+                ¿No hay supervisor en el local? Pedir autorización a distancia
+              </button>
+              <p className="mt-1 text-xs text-tinta/60">Les llega por WhatsApp y campanita a los supervisores; cuando uno aprueba, la devolución se hace sola y acá te avisa.</p>
+            </>
+          )
+        )}
+      </Modal>
+
+      {/* ---- cobro con el QR de Mercado Pago ---- */}
+      <Modal
+        abierto={!!cobroMP && cobroMP.estado !== 'omitido'}
+        onCerrar={cerrarCobroMP}
+        ancho="chico"
+        titulo={`Mercado Pago · QR de la caja${cobroMP?.qr ? ` (${cobroMP.qr})` : ''}`}
+        bloquearCierre={cobroMPOcupado}
+        cerrarAlTocarAfuera={false}
+        pie={
+          cobroMP?.estado === 'esperando' ? (
+            <>
+              <Boton variante="secundario" onClick={cancelarCobroMP}>Cancelar cobro</Boton>
+              <Boton onClick={registrarIgual} title="Solo si ya viste el pago acreditado en el teléfono o en el Point">
+                Ya pagó por fuera: registrar igual
+              </Boton>
+            </>
+          ) : cobroMP?.estado === 'aprobado' && !cobrando && estado?.tipo === 'error' ? (
+            <>
+              <Boton variante="secundario" onClick={() => fijarCobroMP(null)}>Cerrar</Boton>
+              <Boton onClick={() => void cobrar()}>Reintentar el registro</Boton>
+            </>
+          ) : cobroMP?.estado === 'sin_qr' ? (
+            <>
+              <Boton variante="secundario" onClick={() => fijarCobroMP(null)}>Cancelar</Boton>
+              <Boton onClick={registrarIgual}>Cobrar con el QR fijo (como antes)</Boton>
+            </>
+          ) : cobroMP?.estado === 'error' ? (
+            <>
+              <Boton variante="secundario" onClick={() => fijarCobroMP(null)}>Cerrar</Boton>
+              <Boton variante="secundario" onClick={registrarIgual}>Registrar igual</Boton>
+              <Boton onClick={() => void iniciarCobroMP(cobroMP.monto)}>Reintentar</Boton>
+            </>
+          ) : undefined
+        }
+      >
+        {cobroMP && (
+          <>
+            <div className="mb-4 flex items-center gap-3">
+              <span className="inline-flex size-11 shrink-0 items-center justify-center rounded-full bg-info text-sm font-bold text-white" aria-hidden="true">MP</span>
+              <p className="importe text-3xl font-bold leading-tight">{pesos(cobroMP.monto)}</p>
+            </div>
+            {cobroMP.estado === 'iniciando' && <p className="text-sm text-tinta/70">Mandando el importe al QR…</p>}
             {cobroMP.estado === 'esperando' && (
               <>
                 <p className="text-sm">
                   El cliente escanea el <b>QR de esta caja</b> con la app de Mercado Pago: ve <b>{pesos(cobroMP.monto)}</b> ya cargado y solo confirma.
                 </p>
-                <p className="mt-3 text-sm text-black/60 flex items-center gap-2">
-                  <span className="inline-block w-3 h-3 rounded-full bg-[#009EE3] animate-pulse" />
+                <p role="status" className="mt-3 flex items-center gap-2 text-sm text-tinta/70">
+                  <span className="inline-block size-3 shrink-0 animate-pulse rounded-full bg-info motion-reduce:animate-none" />
                   Esperando la confirmación del pago… al aprobarse, la venta se registra e imprime sola.
                 </p>
-                {cobroMP.aviso && <p className="mt-2 text-sm text-amber-700">{cobroMP.aviso}</p>}
-                <div className="mt-5 flex flex-wrap gap-2 justify-end">
-                  <button type="button" onClick={() => void cambiarQR()} className="mr-auto text-xs text-black/50 underline">¿No es este QR? Cambiar</button>
-                  <button type="button" onClick={cancelarCobroMP} className="px-4 py-2 rounded-lg border border-neutral-300 text-sm">Cancelar cobro</button>
-                  <button
-                    type="button"
-                    onClick={registrarIgual}
-                    className="px-4 py-2 rounded-lg bg-neutral-800 text-white text-sm"
-                    title="Solo si ya viste el pago acreditado en el teléfono o en el Point"
-                  >
-                    Ya pagó por fuera: registrar igual
-                  </button>
-                </div>
+                {cobroMP.aviso && <p className="mt-2 text-sm text-atencion">{cobroMP.aviso}</p>}
+                <button type="button" onClick={() => void cambiarQR()} className={unir('mt-3 inline-flex min-h-9 items-center rounded-sm text-xs text-tinta/60 underline', FOCO)}>¿No es este QR? Cambiar</button>
               </>
             )}
             {cobroMP.estado === 'aprobado' && (
               <>
-                <p className="text-sm text-emerald-700 font-semibold">
-                  ✓ Pago aprobado por Mercado Pago{cobroMP.mpPaymentId ? ` · operación ${cobroMP.mpPaymentId}` : ''}
+                <p className="flex items-center gap-1 text-sm font-semibold text-ok">
+                  <IconoOk className="size-4 shrink-0" />Pago aprobado por Mercado Pago{cobroMP.mpPaymentId ? ` · operación ${cobroMP.mpPaymentId}` : ''}
                 </p>
-                <p className="mt-1 text-sm text-black/60">
+                <p className="mt-1 text-sm text-tinta/70">
                   {cobrando || estado?.tipo !== 'error' ? 'Registrando la venta…' : `El pago está cobrado pero la venta no se pudo registrar: ${estado.texto}`}
                 </p>
-                {!cobrando && estado?.tipo === 'error' && (
-                  <div className="mt-4 flex gap-2 justify-end">
-                    <button type="button" onClick={() => fijarCobroMP(null)} className="px-4 py-2 rounded-lg border border-neutral-300 text-sm">Cerrar</button>
-                    <button type="button" onClick={() => void cobrar()} className="px-4 py-2 rounded-lg bg-black text-white text-sm">Reintentar el registro</button>
-                  </div>
-                )}
               </>
             )}
             {cobroMP.estado === 'sin_qr' && (
@@ -2422,34 +2594,23 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
                 <p className="text-sm">
                   Esta caja todavía no tiene asignado su QR de Mercado Pago. Elegí el QR que está en este mostrador (queda guardado):
                 </p>
-                <div className="mt-3 grid gap-2 max-h-64 overflow-auto">
+                <div className="mt-3 grid gap-2">
                   {(cobroMP.opcionesQR ?? []).map((q) => (
-                    <button key={q.id} type="button" onClick={() => void vincularQR(q.id)} className="text-left px-3 py-2 rounded-lg border border-neutral-300 hover:border-black text-sm">
+                    <button key={q.id} type="button" onClick={() => void vincularQR(q.id)} className={unir('min-h-11 rounded-xl border border-black/15 px-3 py-2 text-left text-sm hover:border-tinta', FOCO)}>
                       <b>{q.nombre}</b>
-                      {q.externalId ? <span className="text-black/40"> · {q.externalId}</span> : null}
+                      {q.externalId ? <span className="text-tinta/60"> · {q.externalId}</span> : null}
                     </button>
                   ))}
-                  {!(cobroMP.opcionesQR ?? []).length && <p className="text-sm text-black/50">No hay QR en la cuenta de Mercado Pago de esta sucursal.</p>}
-                </div>
-                <div className="mt-4 flex flex-wrap gap-2 justify-end">
-                  <button type="button" onClick={() => fijarCobroMP(null)} className="px-4 py-2 rounded-lg border border-neutral-300 text-sm">Cancelar</button>
-                  <button type="button" onClick={registrarIgual} className="px-4 py-2 rounded-lg bg-neutral-800 text-white text-sm">Cobrar con el QR fijo (como antes)</button>
+                  {!(cobroMP.opcionesQR ?? []).length && <p className="text-sm text-tinta/60">No hay QR en la cuenta de Mercado Pago de esta sucursal.</p>}
                 </div>
               </>
             )}
             {cobroMP.estado === 'error' && (
-              <>
-                <p className="text-sm text-red-700">{cobroMP.error}</p>
-                <div className="mt-4 flex flex-wrap gap-2 justify-end">
-                  <button type="button" onClick={() => fijarCobroMP(null)} className="px-4 py-2 rounded-lg border border-neutral-300 text-sm">Cerrar</button>
-                  <button type="button" onClick={() => void iniciarCobroMP(cobroMP.monto)} className="px-4 py-2 rounded-lg bg-black text-white text-sm">Reintentar</button>
-                  <button type="button" onClick={registrarIgual} className="px-4 py-2 rounded-lg bg-neutral-800 text-white text-sm">Registrar igual</button>
-                </div>
-              </>
+              <p role="alert" className="text-sm text-marca-hondo">{cobroMP.error}</p>
             )}
-          </div>
-        </div>
-      )}
+          </>
+        )}
+      </Modal>
       {/* ---- "Mi turno": lo vendido, las facturas y el cambio de medio de pago ---- */}
       {verTurno && sesion && (
         <MiTurno
@@ -2477,49 +2638,44 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
         />
       )}
 
-      {modalStock && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-start justify-center p-4 pt-16" onClick={() => setModalStock(false)}>
-          <div className="w-full max-w-lg rounded-2xl bg-white p-5" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-xl font-bold text-black">Stock por sucursal</h2>
-              <button onClick={() => setModalStock(false)} className="text-black/40 text-xl px-1">✕</button>
-            </div>
-            <div className="relative">
-              <input
-                ref={stockInputRef}
-                value={stockQ}
-                onChange={(e) => onBuscarStock(e.target.value)}
-                placeholder="Escaneá o buscá el producto…"
-                className="w-full rounded-xl border-2 border-[#B82D25] px-4 py-3 text-base text-black outline-none"
-              />
-              {stockBuscando && <span className="absolute right-4 top-1/2 -translate-y-1/2 text-sm text-black/40">buscando…</span>}
-            </div>
-            <div className="mt-3 max-h-[55vh] overflow-y-auto -mx-1 px-1">
-              {stockQ.trim().length >= 2 && !stockBuscando && stockRes.length === 0 && (
-                <p className="text-center text-black/40 py-8 text-sm">Sin resultados.</p>
-              )}
-              {stockRes.map((p) => (
-                <div key={p.sku} className="rounded-xl bg-[#F0EBE2]/50 px-4 py-3 mb-2">
-                  <p className="font-medium text-black leading-tight">{p.nombre}</p>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {p.sucursales.map((s) => (
-                      <span
-                        key={s.sucursal}
-                        className={'rounded-lg px-3 py-1.5 text-sm font-semibold tabular-nums ' +
-                          (s.cantidad > 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-[#B82D25]/10 text-[#932A1F]')}
-                      >
-                        {s.sucursal}: {Math.round(s.cantidad)}
-                      </span>
-                    ))}
-                    <span className="rounded-lg px-3 py-1.5 text-sm font-semibold bg-black text-white tabular-nums">Total {Math.round(p.total)}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <p className="mt-2 text-center text-[11px] text-black/35">Consulta sin afectar la venta · Esc o F9 para cerrar</p>
-          </div>
+      {/* ---- consulta de stock en ambas sucursales ---- */}
+      <Modal abierto={modalStock} onCerrar={() => setModalStock(false)} titulo="Stock por sucursal">
+        <div className="relative">
+          <Entrada
+            ref={stockInputRef}
+            value={stockQ}
+            onChange={(e) => onBuscarStock(e.target.value)}
+            placeholder="Escaneá o buscá el producto…"
+            aria-label="Escaneá o buscá el producto"
+          />
+          {stockBuscando && <span className="absolute right-4 top-1/2 -translate-y-1/2 text-sm text-tinta/60">buscando…</span>}
         </div>
-      )}
+        <div className="mt-3">
+          {stockQ.trim().length >= 2 && !stockBuscando && stockRes.length === 0 && (
+            <p className="py-8 text-center text-sm text-tinta/60">Sin resultados.</p>
+          )}
+          {stockRes.map((p) => (
+            <div key={p.sku} className="mb-2 rounded-xl bg-crema/50 px-4 py-3">
+              <p className="break-words font-medium leading-tight text-tinta">{p.nombre}</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {p.sucursales.map((s) => (
+                  <span
+                    key={s.sucursal}
+                    className={'rounded-xl px-3 py-1.5 text-sm font-semibold tabular-nums ' +
+                      (s.cantidad > 0 ? 'bg-ok-suave text-ok' : 'bg-marca-suave text-marca-hondo')}
+                  >
+                    {s.sucursal}: {Math.round(s.cantidad)}
+                  </span>
+                ))}
+                <span className="rounded-xl bg-tinta px-3 py-1.5 text-sm font-semibold tabular-nums text-white">Total {Math.round(p.total)}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+        <p className="mt-2 text-center text-xs text-tinta/60">Consulta sin afectar la venta · Esc o F9 para cerrar</p>
+      </Modal>
+
+      {dialogo}
 
       {/* ---- ticket 80mm (solo visible al imprimir) ---- */}
       <TicketPrint t={ticket} />

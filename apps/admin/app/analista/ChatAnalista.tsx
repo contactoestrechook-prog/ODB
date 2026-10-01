@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { BotonMicrofono } from '../ui/BotonMicrofono';
+import { Boton, Chip, Entrada, Tarjeta, unir } from '../ui/kit';
+import { pesos as pesosFmt } from '../lib/formato';
 
 type Item = { sku: string; cantidad: number };
 type Orden = {
@@ -32,7 +34,7 @@ const SUGERENCIAS = [
   '¿Qué costos aumentaron?',
 ];
 
-const pesos = (n: number) => '$' + Math.round(n).toLocaleString('es-AR');
+const pesos = (n: number) => pesosFmt(n);
 
 export function ChatAnalista() {
   const [mensajes, setMensajes] = useState<Mensaje[]>([
@@ -134,54 +136,54 @@ export function ChatAnalista() {
   }
 
   return (
-    <div className="rounded-2xl bg-white overflow-hidden flex flex-col" style={{ height: '78vh' }}>
-      <div className="bg-black px-5 py-4 flex items-center gap-3">
-        <div className="h-10 w-10 rounded-full bg-[#B82D25] flex items-center justify-center text-white text-lg">
-          📊
+    <Tarjeta relleno={false} className="flex h-[78dvh] min-h-[26rem] flex-col overflow-hidden">
+      <div className="flex items-center gap-3 border-b border-black/[0.06] px-4 py-3 sm:px-5">
+        <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-marca text-white" aria-hidden="true">
+          <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M4 20h16M7 16v-5M12 16V6M17 16v-8" />
+          </svg>
         </div>
-        <div>
-          <p className="text-white font-medium leading-tight">Analista ODB</p>
-          <p className="text-[#F0EBE2]/60 text-xs">
+        <div className="min-w-0">
+          <p className="font-semibold leading-tight text-tinta">Analista ODB</p>
+          <p className="text-xs text-tinta/60">
             Compras, stock y proveedores · números reales de las 2 sucursales
           </p>
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-3">
+      <div className="flex-1 space-y-3 overflow-y-auto p-4" aria-live="polite">
         {mensajes.map((m, i) => (
           <div key={i} className={'flex flex-col ' + (m.rol === 'usuario' ? 'items-end' : 'items-start')}>
             <div
-              className={
-                'max-w-[85%] rounded-2xl px-4 py-2.5 text-sm whitespace-pre-wrap ' +
-                (m.rol === 'usuario'
-                  ? 'bg-black text-white rounded-br-md'
-                  : 'bg-[#F0EBE2] text-black rounded-bl-md')
-              }
+              className={unir(
+                'max-w-[85%] whitespace-pre-wrap break-words rounded-2xl px-4 py-2.5 text-sm',
+                m.rol === 'usuario' ? 'rounded-br-md bg-tinta text-white' : 'rounded-bl-md bg-crema text-tinta',
+              )}
             >
               {m.texto}
             </div>
             {m.armados && (
-              <div className="mt-2 grid sm:grid-cols-2 gap-2 max-w-[95%]">
+              <div className="mt-2 grid w-full max-w-[95%] gap-2 sm:grid-cols-2">
                 {m.armados.map((a, j) => (
-                  <div key={j} className="rounded-xl border border-black/10 bg-white p-3 flex flex-col">
-                    <p className="text-sm font-medium text-black">🎁 {a.nombre}</p>
-                    <p className="text-xs text-[#932A1F] font-medium">{a.ocasion}</p>
-                    <p className="text-xs text-black/60 mt-1">{a.descripcion}</p>
-                    <ul className="mt-2 text-xs text-black/70 space-y-0.5">
+                  <div key={j} className="flex min-w-0 flex-col rounded-xl border border-black/[0.06] bg-white p-3 shadow-tarjeta">
+                    <p className="break-words text-sm font-semibold text-tinta">{a.nombre}</p>
+                    <p className="text-xs font-medium text-marca-hondo">{a.ocasion}</p>
+                    <p className="mt-1 text-xs text-tinta/70">{a.descripcion}</p>
+                    <ul className="mt-2 space-y-0.5 text-xs text-tinta/70">
                       {a.items.map((it) => (
                         <li key={it.sku}>
                           {it.cantidad}× {it.nombre}
                         </li>
                       ))}
                     </ul>
-                    <div className="mt-auto pt-2 flex items-baseline justify-between">
+                    <div className="mt-auto flex flex-wrap items-baseline justify-between gap-2 pt-2">
                       <div>
-                        <p className="text-xs text-black/40 line-through">{pesos(a.sumaLista)}</p>
-                        <p className="text-lg font-medium text-black">{pesos(a.precioBox)}</p>
+                        <p className="importe text-xs text-tinta/60 line-through">{pesos(a.sumaLista)}</p>
+                        <p className="importe text-lg font-semibold text-tinta">{pesos(a.precioBox)}</p>
                       </div>
                       <div className="text-right text-xs">
-                        <p className="text-[#932A1F] font-medium">ahorra {pesos(a.ahorro)}</p>
-                        {a.margenPct != null && <p className="text-black/40">margen {a.margenPct} %</p>}
+                        <p className="font-medium text-marca-hondo">ahorra <span className="importe">{pesos(a.ahorro)}</span></p>
+                        {a.margenPct != null && <p className="text-tinta/60">margen {a.margenPct} %</p>}
                       </div>
                     </div>
                   </div>
@@ -191,29 +193,30 @@ export function ChatAnalista() {
             {m.ordenes?.map((o, j) => {
               const clave = `${i}-${j}`;
               return (
-                <div key={clave} className="mt-2 max-w-[85%] w-full rounded-xl border-2 border-[#B82D25] bg-white p-3">
-                  <p className="text-xs font-medium text-[#932A1F] mb-1">
+                <div key={clave} className="mt-2 w-full max-w-[85%] rounded-xl border-2 border-marca bg-white p-3">
+                  <p className="mb-1 text-xs font-semibold text-marca-hondo">
                     Orden de compra propuesta
                   </p>
-                  <p className="text-sm text-black font-medium">
+                  <p className="break-words text-sm font-medium text-tinta">
                     {o.proveedor} → {o.sucursal}
                   </p>
-                  <p className="text-xs text-black/50 mb-2">{o.motivo}</p>
-                  <p className="text-sm text-black/80">
+                  <p className="mb-2 text-xs text-tinta/60">{o.motivo}</p>
+                  <p className="break-words text-sm text-tinta/80">
                     {o.items.map((it) => `${it.sku} × ${it.cantidad}`).join(' · ')}
                   </p>
                   {creadas[clave] ? (
-                    <p className="mt-2 text-xs font-medium text-black bg-[#F0EBE2] rounded-lg px-3 py-2">
+                    <p className="mt-2 rounded-xl bg-crema px-3 py-2 text-xs font-medium text-tinta">
                       {creadas[clave]}
                     </p>
                   ) : (
-                    <button
+                    <Boton
+                      tamano="chico"
+                      className="mt-2"
                       onClick={() => crearOc(o, clave)}
-                      disabled={creando === clave}
-                      className="mt-2 rounded-full bg-[#B82D25] px-4 py-1.5 text-xs font-medium text-white hover:bg-[#932A1F] disabled:opacity-50"
+                      cargando={creando === clave}
                     >
                       {creando === clave ? 'Creando…' : 'Crear borrador de OC'}
-                    </button>
+                    </Boton>
                   )}
                 </div>
               );
@@ -222,7 +225,7 @@ export function ChatAnalista() {
         ))}
         {pensando && (
           <div className="flex justify-start">
-            <div className="rounded-2xl rounded-bl-md bg-[#F0EBE2] px-4 py-2.5 text-sm text-black/50">
+            <div className="rounded-2xl rounded-bl-md bg-crema px-4 py-2.5 text-sm text-tinta/60">
               cruzando ventas, stock y proveedores…
             </div>
           </div>
@@ -231,15 +234,11 @@ export function ChatAnalista() {
       </div>
 
       {mensajes.length <= 1 && (
-        <div className="px-4 pb-2 flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2 px-4 pb-3">
           {SUGERENCIAS.map((s) => (
-            <button
-              key={s}
-              onClick={() => enviar(s)}
-              className="rounded-full border border-black px-3 py-1.5 text-xs text-black hover:bg-black hover:text-white"
-            >
+            <Chip key={s} onClick={() => enviar(s)}>
               {s}
-            </button>
+            </Chip>
           ))}
         </div>
       )}
@@ -249,23 +248,20 @@ export function ChatAnalista() {
           e.preventDefault();
           enviar(texto);
         }}
-        className="border-t border-black/10 p-3 flex gap-2"
+        className="flex items-center gap-2 border-t border-black/[0.06] p-3"
       >
-        <input
+        <Entrada
           value={texto}
           onChange={(e) => setTexto(e.target.value)}
           placeholder="Preguntale al analista… o hablá 🎤"
-          className="flex-1 rounded-full border border-black/15 px-4 py-2.5 text-sm text-black outline-none focus:border-[#B82D25]"
+          aria-label="Pregunta para el analista"
+          className="min-w-0 flex-1"
         />
         <BotonMicrofono onTexto={setTexto} titulo="Hablarle al analista" />
-        <button
-          type="submit"
-          disabled={pensando || !texto.trim()}
-          className="rounded-full bg-black px-6 text-sm font-medium text-white disabled:opacity-40"
-        >
+        <Boton type="submit" disabled={pensando || !texto.trim()} className="shrink-0">
           Enviar
-        </button>
+        </Boton>
       </form>
-    </div>
+    </Tarjeta>
   );
 }

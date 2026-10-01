@@ -7,7 +7,7 @@ import { apiFetch } from '../../lib/api';
 import { fecha, numero, pesos } from '../lib/formato';
 import { puedeVer, rolDesdeToken } from '../lib/permisos';
 
-const miles = (n: any) => numero(n ?? 0);
+const miles = (n: any) => numero(Number(n) || 0, 3);
 
 export const dynamic = 'force-dynamic';
 
@@ -55,9 +55,9 @@ export default async function Inicio() {
   const pedidosActivos = Array.isArray(pedidos) ? pedidos.length : 0;
 
   const kpis = [
-    { label: 'Facturado hoy', valor: pesos(ventas.facturado ?? 0) },
+    { label: 'Facturado hoy', valor: pesos(Number(ventas.facturado) || 0) },
     { label: 'Ventas', valor: miles(ventas.tickets) },
-    { label: 'Por cobrar', valor: pesos(fact.porCobrar ?? 0) },
+    { label: 'Por cobrar', valor: pesos(Number(fact.porCobrar) || 0) },
     { label: 'Quiebres', valor: miles(quiebres), alerta: quiebres > 0 },
   ];
 

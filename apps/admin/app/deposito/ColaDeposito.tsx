@@ -1,6 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { Aviso, Boton, Etiqueta, FOCO, IconoCerrar, Monto, unir, type TonoEtiqueta } from '../ui/kit';
+import { pesos as formatoPesos } from '../lib/formato';
 
 type Pedido = {
   id: string;
@@ -17,14 +19,14 @@ type Pedido = {
   items: { cantidad: number; producto: { nombre: string } | null }[];
 };
 
-const pesos = (n: number) => '$' + Math.round(Number(n)).toLocaleString('es-AR');
+const pesos = (n: number) => formatoPesos(n);
 
-const ORIGEN_CHIP: Record<string, { label: string; clase: string }> = {
-  pedidosya: { label: 'PedidosYa', clase: 'bg-[#B82D25] text-white' },
-  web: { label: 'Web', clase: 'bg-black text-white' },
-  pickup: { label: 'Pick-up', clase: 'bg-black text-white' },
-  whatsapp: { label: 'WhatsApp', clase: 'bg-[#F0EBE2] text-black' },
-  mostrador: { label: 'Mostrador', clase: 'bg-[#F0EBE2] text-black' },
+const ORIGEN_CHIP: Record<string, { label: string; tono: TonoEtiqueta }> = {
+  pedidosya: { label: 'PedidosYa', tono: 'error' },
+  web: { label: 'Web', tono: 'info' },
+  pickup: { label: 'Pick-up', tono: 'info' },
+  whatsapp: { label: 'WhatsApp', tono: 'ok' },
+  mostrador: { label: 'Mostrador', tono: 'neutro' },
 };
 
 const COLUMNAS = [
@@ -84,27 +86,23 @@ export function ColaDeposito() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div>
-          <h1 className="font-medium text-black">Depósito · pedidos en curso</h1>
-          <p className="text-xs text-black/50">
-            Se actualiza solo cada 10 segundos · el stock queda reservado al entrar el pedido
-          </p>
-        </div>
-        <button
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="min-w-0 text-sm text-tinta/60">
+          Se actualiza solo cada 10 segundos · el stock queda reservado al entrar el pedido
+        </p>
+        <Boton
+          variante="secundario"
+          tamano="chico"
           onClick={simular}
           disabled={ocupado === 'simular'}
-          className="rounded-full border-2 border-[#B82D25] px-4 py-2 text-xs font-medium text-[#B82D25] hover:bg-[#B82D25] hover:text-white disabled:opacity-50"
         >
           {ocupado === 'simular' ? 'Llegando…' : 'Simular pedido de PedidosYa'}
-        </button>
+        </Boton>
       </div>
 
-      {aviso && (
-        <p className="rounded-lg bg-white px-4 py-2.5 text-sm text-black">{aviso}</p>
-      )}
+      {aviso && <Aviso tono="neutro">{aviso}</Aviso>}
 
-      <div className="grid md:grid-cols-3 gap-4">
+      <div className="grid gap-4 md:grid-cols-3">
         {COLUMNAS.map((col) => {
           const enColumna = pedidos
             .filter((p) => p.estado === col.estado || (col.estado === 'recibido' && p.estado === 'pagado'))
@@ -112,10 +110,10 @@ export function ColaDeposito() {
             // apure a nadie ni se prepare antes de tiempo
             .sort((a, b) => Number(!!a.programado) - Number(!!b.programado));
           return (
-            <div key={col.estado} className="rounded-xl bg-white/60 p-3">
-              <div className="flex items-center justify-between mb-2 px-1">
-                <h2 className="text-sm font-medium text-black">{col.titulo}</h2>
-                <span className="rounded-full bg-black px-2.5 py-0.5 text-xs font-medium text-white">
+            <section key={col.estado} className="min-w-0 rounded-2xl bg-crema-hondo/50 p-3">
+              <div className="mb-2 flex items-center justify-between gap-2 px-1">
+                <h2 className="text-sm font-semibold text-tinta">{col.titulo}</h2>
+                <span className="importe rounded-full bg-white px-2 text-xs font-semibold leading-5 text-tinta/70">
                   {enColumna.length}
                 </span>
               </div>
@@ -123,65 +121,72 @@ export function ColaDeposito() {
                 {enColumna.map((p) => {
                   const chip = ORIGEN_CHIP[p.origen] ?? ORIGEN_CHIP.web;
                   return (
-                    <div key={p.id} className="rounded-xl bg-white p-3 border border-black/5">
+                    <div key={p.id} className="min-w-0 rounded-2xl border border-black/[0.06] bg-white p-3 shadow-tarjeta">
                       <div className="flex items-center justify-between gap-2">
-                        <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${chip.clase}`}>
+                        <Etiqueta tono={chip.tono}>
                           {chip.label}
-                        </span>
+                        </Etiqueta>
                         <span
                           className={
-                            'text-xs font-medium ' +
-                            (p.minutos > 20 ? 'text-[#932A1F]' : 'text-black/40')
+                            'shrink-0 text-xs font-medium ' +
+                            (p.minutos > 20 ? 'text-marca-hondo' : 'text-tinta/60')
                           }
                         >
                           hace {p.minutos} min
                         </span>
                       </div>
                       {p.entregaEtiqueta && (
-                        <p className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold ${p.programado ? 'bg-black/5 text-black/60' : 'bg-[#B82D25]/10 text-[#B82D25]'}`}>
-                          📅 {p.entregaEtiqueta}
-                        </p>
+                        <div className="mt-1">
+                          <Etiqueta tono={p.programado ? 'neutro' : 'error'}>
+                            {p.entregaEtiqueta}
+                          </Etiqueta>
+                        </div>
                       )}
                       {p.qr_retiro && (
-                        <p className="mt-1 text-xs text-black/40 font-mono">{p.qr_retiro}</p>
+                        <p className="mt-1 break-all font-mono text-xs text-tinta/60">{p.qr_retiro}</p>
                       )}
-                      {p.notas && <p className="mt-1 text-[11px] text-black/50 italic">{p.notas}</p>}
-                      <ul className="mt-2 text-sm text-black space-y-0.5">
+                      {p.notas && <p className="mt-1 break-words text-xs italic text-tinta/70">{p.notas}</p>}
+                      <ul className="mt-2 space-y-0.5 text-sm text-tinta">
                         {p.items.map((i, j) => (
-                          <li key={j}>
+                          <li key={j} className="break-words">
                             {Math.round(Number(i.cantidad))}× {i.producto?.nombre ?? '—'}
                           </li>
                         ))}
                       </ul>
-                      <div className="mt-2 flex items-center justify-between">
-                        <span className="text-sm font-medium text-black">{pesos(p.total)}</span>
-                        <span className="text-xs text-black/40">{p.sucursal?.nombre}</span>
+                      <div className="mt-2 flex items-center justify-between gap-2">
+                        <Monto valor={p.total} className="text-sm font-semibold text-tinta" />
+                        <span className="min-w-0 truncate text-xs text-tinta/60">{p.sucursal?.nombre}</span>
                       </div>
                       <div className="mt-2 flex gap-2">
-                        <button
+                        <Boton
                           onClick={() => avanzar(p, col.accion)}
                           disabled={ocupado === p.id}
-                          className="flex-1 rounded-full bg-[#B82D25] py-2 text-xs font-medium text-white hover:bg-[#932A1F] disabled:opacity-50"
+                          className="flex-1"
                         >
                           {ocupado === p.id ? '…' : col.botenLabel}
-                        </button>
+                        </Boton>
                         <button
+                          type="button"
                           onClick={() => avanzar(p, 'cancelado')}
                           disabled={ocupado === p.id}
-                          className="rounded-full border border-black/15 px-3 py-2 text-xs text-black/60 hover:border-black"
+                          className={unir(
+                            'grid size-11 shrink-0 place-items-center rounded-full border border-black/15 bg-white text-tinta/70 transition-colors hover:border-marca/50 hover:text-marca-hondo disabled:opacity-50 sm:size-10',
+                            FOCO,
+                          )}
                           title="Cancelar pedido (libera el stock)"
+                          aria-label="Cancelar pedido (libera el stock)"
                         >
-                          ✕
+                          <IconoCerrar className="size-5" />
                         </button>
                       </div>
                     </div>
                   );
                 })}
                 {enColumna.length === 0 && (
-                  <p className="px-1 py-6 text-center text-xs text-black/30">vacío</p>
+                  <p className="px-1 py-6 text-center text-xs text-tinta/60">vacío</p>
                 )}
               </div>
-            </div>
+            </section>
           );
         })}
       </div>

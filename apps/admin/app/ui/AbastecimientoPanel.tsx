@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { BotonMicrofono } from './BotonMicrofono';
 import { NotaDePedido, type Armada, type EstadoNota, type Propuesta } from './NotaDePedido';
+import { Aviso, Boton, CLASES_ENTRADA, Cargando, Chips, FOCO, Tarjeta, TarjetaCabecera, Vacio, unir } from './kit';
+import { fecha as fechaFmt, numero } from '../lib/formato';
 
 // "Qué comprar": la foto de lo que falta y el agente de abastecimiento.
 // La alerta no es un número fijo: cruza ritmo de venta, stock y plazo de
@@ -16,8 +18,8 @@ type Resumen = {
   stockActualizado: string | null;
 };
 
-const fecha = (v?: string | null) => (v ? new Date(v.length === 10 ? `${v}T12:00:00` : v).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '—');
-const miles = (n?: number) => (n ?? 0).toLocaleString('es-AR');
+const fecha = (v?: string | null) => fechaFmt(v, 'completa');
+const miles = (n?: number) => numero(n ?? 0);
 
 // El agente no ve la pantalla. Al mensaje que se manda se le antepone cómo
 // están ahora las notas que él propuso (lo tildado y lo corregido) y las órdenes
@@ -125,21 +127,23 @@ export function AbastecimientoPanel() {
   }
 
   return (
-    <div className="space-y-3">
-      <div className="rounded-xl bg-white p-4 space-y-3">
+    <div className="space-y-4">
+      <Tarjeta className="space-y-3">
         <div className="grid gap-2 sm:grid-cols-2">
           {resumen
             ? Object.entries(resumen.porSucursal).map(([suc, a]) => (
-                <div key={suc} className="rounded-xl border border-black/[0.06] px-3 py-2">
-                  <p className="text-sm font-medium text-tinta">{suc}</p>
+                <div key={suc} className="min-w-0 rounded-xl border border-black/[0.06] bg-crema-claro px-3 py-2.5">
+                  <p className="text-sm font-semibold text-tinta">{suc}</p>
                   <p className="mt-1 text-xs text-tinta/70">
-                    <span className="font-semibold text-marca">{miles(a.sin_stock)}</span> sin stock ·{' '}
-                    <span className="font-semibold text-marca">{miles(a.no_llega)}</span> no llegan a tiempo ·{' '}
-                    <span className="font-semibold">{miles(a.menos_de_12)}</span> con menos de 12
+                    <span className="importe font-semibold text-marca-hondo">{miles(a.sin_stock)}</span> sin stock ·{' '}
+                    <span className="importe font-semibold text-marca-hondo">{miles(a.no_llega)}</span> no llegan a tiempo ·{' '}
+                    <span className="importe font-semibold text-tinta">{miles(a.menos_de_12)}</span> con menos de 12
                   </p>
                 </div>
               ))
-            : <p className="text-sm text-tinta/60">{errorResumen ? 'No pude calcular el resumen. Recargá la página para reintentar.' : 'Calculando…'}</p>}
+            : errorResumen
+              ? <p className="text-sm text-tinta/60">No pude calcular el resumen. Recargá la página para reintentar.</p>
+              : <Cargando texto="Calculando…" />}
         </div>
         {resumen && (
           <p className="text-xs text-tinta/70">
@@ -148,7 +152,7 @@ export function AbastecimientoPanel() {
             {resumen.sinProveedor > 0 && <> · {miles(resumen.sinProveedor)} productos en alerta sin proveedor habitual</>}
           </p>
         )}
-      </div>
+      </Tarjeta>
 
       <section aria-labelledby="sugerido" className="space-y-3">
         <div className="flex flex-wrap items-end justify-between gap-3 pt-2">
@@ -156,26 +160,23 @@ export function AbastecimientoPanel() {
             <h2 id="sugerido" className="text-lg font-semibold text-tinta">Sugerido para comprar</h2>
             <p className="text-sm text-tinta/70">Una nota de pedido por proveedor. Tildá lo que vas a pedir y ajustá las cantidades.</p>
           </div>
-          <div role="group" aria-label="Sucursal" className="flex rounded-full bg-white p-1 ring-1 ring-black/10">
-            {SUCURSALES.map((s) => (
-              <button key={s} aria-pressed={sucursal === s} onClick={() => setSucursal(s)}
-                className={`rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors ${sucursal === s ? 'bg-tinta text-white' : 'text-tinta/70 hover:text-tinta'}`}>
-                {s}
-              </button>
-            ))}
-          </div>
+          <Chips
+            etiquetaAccesible="Sucursal"
+            valor={sucursal}
+            onCambiar={setSucursal}
+            opciones={SUCURSALES.map((s) => ({ valor: s, etiqueta: s }))}
+          />
         </div>
 
         {errorNotas && (
-          <p className="rounded-xl bg-marca-suave border border-marca/30 px-3 py-2 text-sm text-marca-hondo">
-            {errorNotas}{' '}
-            <button onClick={() => setRecargar((n) => n + 1)} className="font-medium underline underline-offset-2">Reintentar</button>
-          </p>
+          <Aviso tono="error" accion={<Boton tamano="chico" variante="secundario" onClick={() => setRecargar((n) => n + 1)}>Reintentar</Boton>}>
+            {errorNotas}
+          </Aviso>
         )}
         {!notas && !errorNotas && (
           <div className="space-y-3" aria-busy="true">
             {[0, 1].map((i) => (
-              <div key={i} className="overflow-hidden rounded-2xl bg-white ring-1 ring-black/[0.06]">
+              <div key={i} className="overflow-hidden rounded-2xl border border-black/[0.06] bg-white shadow-tarjeta">
                 <div className="h-[62px] bg-tinta" /><div className="h-[3px] bg-dorado" />
                 <div className="space-y-3 p-5">{[0, 1, 2].map((j) => <div key={j} className="h-9 rounded-xl bg-black/[0.04] motion-safe:animate-pulse" />)}</div>
               </div>
@@ -183,48 +184,48 @@ export function AbastecimientoPanel() {
           </div>
         )}
         {notas && notas.propuestas.length === 0 && (
-          <p className="rounded-2xl bg-white px-5 py-6 text-sm text-tinta/70">No hay nada para reponer en {sucursal} con proveedor habitual. Si te falta algo puntual, preguntale al agente acá abajo.</p>
+          <Vacio
+            titulo={`No hay nada para reponer en ${sucursal} con proveedor habitual.`}
+            texto="Si te falta algo puntual, preguntale al agente acá abajo."
+          />
         )}
         {notas?.propuestas.slice(0, verTodas ? undefined : PROVEEDORES_VISIBLES).map((p) => (
           <NotaDePedido key={`${sucursal}:${p.clave}`} propuesta={p} yaPedidos={yaPedidos} onArmada={alArmar} />
         ))}
         {notas && notas.propuestas.length > PROVEEDORES_VISIBLES && !verTodas && (
-          <button onClick={() => setVerTodas(true)}
-            className="w-full rounded-2xl bg-white px-4 py-3 text-sm font-medium text-tinta/70 ring-1 ring-black/[0.06] hover:text-tinta">
+          <Boton variante="secundario" anchoCompleto onClick={() => setVerTodas(true)}>
             Ver {notas.propuestas.length - PROVEEDORES_VISIBLES} proveedor{notas.propuestas.length - PROVEEDORES_VISIBLES === 1 ? '' : 'es'} más
-          </button>
+          </Boton>
         )}
         {notas && notas.sinProveedor > 0 && (
           <p className="text-sm text-tinta/70">
             Hay {miles(notas.sinProveedor)} productos urgentes sin proveedor habitual: no entran en ninguna nota.{' '}
-            <button onClick={() => enviar(`¿A quién le compro lo urgente que no tiene proveedor habitual en ${sucursal}?`)} className="font-medium text-marca underline underline-offset-2">Preguntale al agente</button>.
+            <button onClick={() => enviar(`¿A quién le compro lo urgente que no tiene proveedor habitual en ${sucursal}?`)} className={unir('rounded-sm font-semibold text-marca-hondo underline underline-offset-2', FOCO)}>Preguntale al agente</button>.
           </p>
         )}
       </section>
 
-      {error && <p className="rounded-xl bg-marca-suave border border-marca/30 px-3 py-2 text-sm text-marca-hondo">{error}</p>}
+      {error && <Aviso tono="error">{error}</Aviso>}
 
-      <div className="rounded-xl bg-white overflow-hidden">
-        <div className="px-4 py-3 border-b border-black/[0.06]">
-          <p className="text-sm font-medium text-tinta">Agente de compras</p>
-          <p className="text-xs text-tinta/60 mt-0.5">
-            Para algo puntual: un rubro, un producto o qué hacer con lo que no tiene proveedor. Lo que propone te llega como nota de pedido para tildar.
-          </p>
-        </div>
-        <div className="max-h-[70dvh] overflow-y-auto p-4 space-y-3">
+      <Tarjeta relleno={false} className="overflow-hidden">
+        <TarjetaCabecera
+          titulo="Agente de compras"
+          sub="Para algo puntual: un rubro, un producto o qué hacer con lo que no tiene proveedor. Lo que propone te llega como nota de pedido para tildar."
+        />
+        <div className="max-h-[70dvh] space-y-3 overflow-y-auto p-4 sm:p-5">
           {mensajes.length === 0 && (
             <div className="flex flex-wrap gap-2">
               {SUGERENCIAS.map((s) => (
-                <button key={s} onClick={() => enviar(s)} className="rounded-xl bg-crema px-3 py-2 text-left text-sm text-tinta/80 hover:bg-crema-hondo">{s}</button>
+                <button key={s} onClick={() => enviar(s)} className={unir('min-h-11 rounded-2xl bg-crema px-3.5 py-2 text-left text-sm text-tinta/80 transition-colors hover:bg-crema-hondo hover:text-tinta', FOCO)}>{s}</button>
               ))}
             </div>
           )}
           {mensajes.map((m, i) => (
             <div key={i} className={`flex flex-col ${m.rol === 'usuario' ? 'items-end' : 'items-start'}`}>
-              <div className={`max-w-[85%] whitespace-pre-wrap rounded-xl px-3.5 py-2.5 text-sm leading-relaxed ${m.rol === 'usuario' ? 'bg-black text-crema' : 'bg-crema text-tinta'}`}>
+              <div className={`max-w-[85%] min-w-0 whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${m.rol === 'usuario' ? 'bg-tinta text-crema' : 'bg-crema text-tinta'}`}>
                 {m.texto}
                 {m.ordenes && (
-                  <a href="/aprobaciones" className="mt-2 block text-xs font-semibold text-marca underline">
+                  <a href="/aprobaciones" className={unir('mt-2 block rounded-sm text-xs font-semibold text-marca-hondo underline', FOCO)}>
                     {m.ordenes.length === 1 ? `Orden #${m.ordenes[0]}` : `Órdenes #${m.ordenes.join(', #')}`} creada{m.ordenes.length > 1 ? 's' : ''}: ver en Aprobaciones
                   </a>
                 )}
@@ -244,27 +245,27 @@ export function AbastecimientoPanel() {
               )}
             </div>
           ))}
-          {pensando && <p className="text-sm text-tinta/60">Revisando stock, ventas y proveedores…</p>}
+          {pensando && <Cargando texto="Revisando stock, ventas y proveedores…" />}
           <div ref={finRef} />
         </div>
         <div className="border-t border-black/[0.06] p-3">
-          <div className="flex items-end gap-2">
-            <BotonMicrofono onTexto={setTexto} titulo="Dictarle al agente" />
+          <div className="flex flex-wrap items-end gap-2">
             <textarea
               value={texto}
               onChange={(e) => setTexto(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); enviar(); } }}
               rows={2}
               placeholder="Preguntale qué falta, qué pedir o a quién…"
-              className="flex-1 resize-none rounded-xl border border-black/15 px-3 py-2 text-sm text-tinta outline-none focus:border-marca"
+              aria-label="Mensaje para el agente de compras"
+              className={unir(CLASES_ENTRADA, 'order-first basis-full resize-none sm:order-none sm:basis-0 sm:flex-1')}
             />
-            <button onClick={() => enviar()} disabled={pensando || !texto.trim()}
-              className="rounded-xl bg-marca px-4 py-2.5 text-sm font-medium text-white active:scale-95 disabled:opacity-40">
+            <span className="sm:order-first"><BotonMicrofono onTexto={setTexto} titulo="Dictarle al agente" /></span>
+            <Boton onClick={() => enviar()} disabled={pensando || !texto.trim()} className="ml-auto sm:ml-0">
               Enviar
-            </button>
+            </Boton>
           </div>
         </div>
-      </div>
+      </Tarjeta>
     </div>
   );
 }

@@ -2,8 +2,9 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { Aviso, Boton, Cargando, Entrada, FOCO, IconoCerrar, Modal, Selector, unir } from './kit';
+import { fecha, pesos } from '../lib/formato';
 
-const pesos = (n: number) => '$' + Math.round(n || 0).toLocaleString('es-AR');
 const r2 = (n: number) => Math.round((n || 0) * 100) / 100;
 
 type Factura = { id: string; etiqueta: string; emitidoEn: string; total: number; saldo: number };
@@ -84,7 +85,7 @@ export function RegistrarCobranza({ clienteId, nombre, saldo }: { clienteId: str
       .map(([facturaId, v]) => ({ facturaId, importe: Number(v) || 0 }))
       .filter((x) => x.importe > 0);
     if (!imputaciones.length) return setError('Imputá el cobro a al menos una factura');
-    if (!balanceado) return setError(`Los medios (${pesos(totalMedios)}) no coinciden con lo imputado (${pesos(totalImput)})`);
+    if (!balanceado) return setError(`Los medios (${pesos(totalMedios || 0)}) no coinciden con lo imputado (${pesos(totalImput || 0)})`);
     const mediosDto = medios
       .filter((m) => Number(m.importe) > 0)
       .map((m) => ({
@@ -119,150 +120,152 @@ export function RegistrarCobranza({ clienteId, nombre, saldo }: { clienteId: str
 
   return (
     <>
-      <button
-        onClick={() => setAbierto(true)}
-        className="rounded-lg bg-[#B82D25] text-white text-sm font-medium px-4 py-2 hover:bg-[#9e251e]"
-      >
+      <Boton onClick={() => setAbierto(true)}>
         Registrar cobranza
-      </button>
+      </Boton>
 
-      {abierto && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-start justify-center overflow-y-auto p-4">
-          <div className="bg-[#F7F4EE] rounded-2xl w-full max-w-2xl my-8 shadow-xl">
-            <div className="px-5 py-4 border-b border-black/10 flex items-center justify-between sticky top-0 bg-[#F7F4EE] rounded-t-2xl">
-              <div>
-                <h2 className="font-semibold text-black">Cobranza · {nombre}</h2>
-                <p className="text-xs text-black/45">saldo deudor {pesos(saldo)}</p>
-              </div>
-              <button onClick={() => setAbierto(false)} className="text-black/40 hover:text-black text-xl leading-none">×</button>
+      <Modal
+        abierto={abierto}
+        onCerrar={() => setAbierto(false)}
+        titulo={`Cobranza · ${nombre}`}
+        descripcion={`saldo deudor ${pesos(saldo || 0)}`}
+        ancho="ancho"
+        bloquearCierre={guardando}
+        cerrarAlTocarAfuera={false}
+        pie={
+          <>
+            {error && <Aviso tono="error" className="min-w-full">{error}</Aviso>}
+            <div className="min-w-full text-sm sm:mr-auto sm:min-w-0">
+              <span className="text-tinta/60">Imputado </span><span className="importe font-semibold text-tinta">{pesos(totalImput || 0)}</span>
+              <span className="mx-2 text-tinta/40">·</span>
+              <span className="text-tinta/60">Medios </span>
+              <span className={unir('importe font-semibold', balanceado ? 'text-ok' : 'text-marca-hondo')}>{pesos(totalMedios || 0)}</span>
+              {!balanceado && totalImput > 0 && (
+                <span className="importe ml-2 text-xs text-marca-hondo">faltan {pesos(totalImput - totalMedios || 0)}</span>
+              )}
             </div>
+            <Boton onClick={emitir} cargando={guardando} disabled={guardando || totalImput <= 0 || !balanceado}>
+              {guardando ? 'Emitiendo…' : 'Emitir recibo'}
+            </Boton>
+          </>
+        }
+      >
+        <div className="space-y-5">
+          {/* FACTURAS ABIERTAS */}
+          <section>
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold text-tinta">Facturas a cancelar</h3>
+              {facturas.length > 0 && (
+                <Boton variante="fantasma" tamano="chico" onClick={saldarTodo}>Saldar todo</Boton>
+              )}
+            </div>
+            {cargando && <Cargando texto="Cargando facturas…" className="py-3" />}
+            {!cargando && facturas.length === 0 && (
+              <p className="py-3 text-sm text-tinta/60">Este cliente no tiene facturas abiertas en cuenta corriente.</p>
+            )}
+            <div className="space-y-1.5">
+              {facturas.map((f) => {
+                const sel = imput[f.id] != null;
+                return (
+                  <div
+                    key={f.id}
+                    className={unir(
+                      'flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border px-3 py-2',
+                      sel ? 'border-marca bg-white' : 'border-black/[0.06] bg-crema-claro',
+                    )}
+                  >
+                    <label className="flex min-h-11 min-w-0 flex-1 items-center gap-3">
+                      <input type="checkbox" checked={sel} onChange={() => toggleFactura(f)} className="size-5 shrink-0 accent-marca" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block break-words text-sm text-tinta">{f.etiqueta}</span>
+                        <span className="block text-xs text-tinta/60">
+                          {fecha(f.emitidoEn, 'completa')} · saldo {pesos(f.saldo || 0)}
+                        </span>
+                      </span>
+                    </label>
+                    {sel && (
+                      <Entrada
+                        type="number" inputMode="decimal" value={imput[f.id]}
+                        onChange={(e) => setImput((p) => ({ ...p, [f.id]: e.target.value }))}
+                        max={f.saldo}
+                        prefijo="$"
+                        aria-label={`Importe a imputar a ${f.etiqueta}`}
+                        className="w-full text-right sm:w-36"
+                      />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </section>
 
-            <div className="p-5 space-y-5">
-              {/* FACTURAS ABIERTAS */}
-              <section>
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="text-sm font-medium text-black">Facturas a cancelar</h3>
-                  {facturas.length > 0 && (
-                    <button onClick={saldarTodo} className="text-xs text-[#B82D25] hover:underline">Saldar todo</button>
+          {/* MEDIOS DE PAGO */}
+          <section>
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold text-tinta">Medios de pago</h3>
+              <div className="flex flex-wrap gap-2">
+                {totalImput > 0 && <Boton variante="fantasma" tamano="chico" onClick={igualarMedio}>Igualar 1º medio</Boton>}
+                <Boton variante="fantasma" tamano="chico" onClick={() => setMedios((m) => [...m, { medio: 'efectivo', importe: '' }])}>+ Agregar</Boton>
+              </div>
+            </div>
+            <div className="space-y-2">
+              {medios.map((m, i) => (
+                <div key={i} className="space-y-2 rounded-xl border border-black/[0.06] bg-crema-claro p-2.5">
+                  <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 sm:grid-cols-[9rem_minmax(0,1fr)_minmax(0,10rem)_auto]">
+                    <Selector
+                      value={m.medio}
+                      onChange={(e) => setMedio(i, { medio: e.target.value as Medio['medio'] })}
+                      aria-label="Medio de pago"
+                      className="col-span-2 sm:col-span-1"
+                    >
+                      {MEDIOS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                    </Selector>
+                    <Entrada
+                      type="number" inputMode="decimal" placeholder="importe" value={m.importe}
+                      onChange={(e) => setMedio(i, { importe: e.target.value })}
+                      prefijo="$"
+                      aria-label="Importe"
+                      className="text-right"
+                    />
+                    {/* la ✕ va al lado del importe en el celular y al final en escritorio */}
+                    {medios.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => setMedios((arr) => arr.filter((_, idx) => idx !== i))}
+                        aria-label="Quitar el medio de pago"
+                        className={unir('grid size-11 place-items-center rounded-full text-tinta/60 transition-colors hover:bg-tinta/5 hover:text-marca-hondo sm:order-last', FOCO)}
+                      >
+                        <IconoCerrar className="size-5" />
+                      </button>
+                    )}
+                    {m.medio !== 'cheque' && (
+                      <Entrada
+                        placeholder="ref. (opcional)" value={m.referencia ?? ''}
+                        onChange={(e) => setMedio(i, { referencia: e.target.value })}
+                        aria-label="Referencia"
+                        className="col-span-2 sm:col-span-1"
+                      />
+                    )}
+                  </div>
+                  {m.medio === 'cheque' && (
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                      <Entrada placeholder="N° cheque" value={m.cheque?.numero ?? ''} onChange={(e) => setCheque(i, { numero: e.target.value })} aria-label="Número de cheque" />
+                      <Entrada placeholder="Banco" value={m.cheque?.banco ?? ''} onChange={(e) => setCheque(i, { banco: e.target.value })} aria-label="Banco" />
+                      <Entrada placeholder="Librador" value={m.cheque?.titular ?? ''} onChange={(e) => setCheque(i, { titular: e.target.value })} aria-label="Librador" />
+                      <Entrada type="date" value={m.cheque?.fechaCobro ?? ''} onChange={(e) => setCheque(i, { fechaCobro: e.target.value, diferido: !!e.target.value })} aria-label="Fecha de cobro" />
+                    </div>
                   )}
                 </div>
-                {cargando && <p className="text-sm text-black/40 py-3">Cargando facturas…</p>}
-                {!cargando && facturas.length === 0 && (
-                  <p className="text-sm text-black/40 py-3">Este cliente no tiene facturas abiertas en cuenta corriente.</p>
-                )}
-                <div className="space-y-1.5">
-                  {facturas.map((f) => {
-                    const sel = imput[f.id] != null;
-                    return (
-                      <div key={f.id} className={`rounded-lg border px-3 py-2 flex items-center gap-3 ${sel ? 'border-[#B82D25] bg-white' : 'border-black/10 bg-white/60'}`}>
-                        <input type="checkbox" checked={sel} onChange={() => toggleFactura(f)} className="accent-[#B82D25]" />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm text-black min-w-0 break-words">{f.etiqueta}</p>
-                          <p className="text-[11px] text-black/45">
-                            {new Date(f.emitidoEn).toLocaleDateString('es-AR')} · saldo {pesos(f.saldo)}
-                          </p>
-                        </div>
-                        {sel && (
-                          <div className="flex items-center gap-1">
-                            <span className="text-black/40 text-sm">$</span>
-                            <input
-                              type="number" inputMode="decimal" value={imput[f.id]}
-                              onChange={(e) => setImput((p) => ({ ...p, [f.id]: e.target.value }))}
-                              max={f.saldo}
-                              className="w-28 rounded-md border border-black/15 px-2 py-1 text-sm text-right"
-                            />
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </section>
-
-              {/* MEDIOS DE PAGO */}
-              <section>
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="text-sm font-medium text-black">Medios de pago</h3>
-                  <div className="flex gap-3">
-                    {totalImput > 0 && <button onClick={igualarMedio} className="text-xs text-black/50 hover:underline">Igualar 1º medio</button>}
-                    <button onClick={() => setMedios((m) => [...m, { medio: 'efectivo', importe: '' }])} className="text-xs text-[#B82D25] hover:underline">+ Agregar</button>
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  {medios.map((m, i) => (
-                    <div key={i} className="rounded-lg bg-white border border-black/10 p-2.5 space-y-2">
-                      <div className="flex items-center gap-2">
-                        <select
-                          value={m.medio}
-                          onChange={(e) => setMedio(i, { medio: e.target.value as Medio['medio'] })}
-                          className="rounded-md border border-black/15 px-2 py-1.5 text-sm bg-white"
-                        >
-                          {MEDIOS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                        </select>
-                        <div className="flex items-center gap-1 flex-1">
-                          <span className="text-black/40 text-sm">$</span>
-                          <input
-                            type="number" inputMode="decimal" placeholder="importe" value={m.importe}
-                            onChange={(e) => setMedio(i, { importe: e.target.value })}
-                            className="w-full rounded-md border border-black/15 px-2 py-1.5 text-sm text-right"
-                          />
-                        </div>
-                        {m.medio !== 'cheque' && (
-                          <input
-                            placeholder="ref. (opcional)" value={m.referencia ?? ''}
-                            onChange={(e) => setMedio(i, { referencia: e.target.value })}
-                            className="w-32 rounded-md border border-black/15 px-2 py-1.5 text-sm"
-                          />
-                        )}
-                        {medios.length > 1 && (
-                          <button onClick={() => setMedios((arr) => arr.filter((_, idx) => idx !== i))} className="text-black/30 hover:text-[#B82D25] text-lg leading-none px-1">×</button>
-                        )}
-                      </div>
-                      {m.medio === 'cheque' && (
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                          <input placeholder="N° cheque" value={m.cheque?.numero ?? ''} onChange={(e) => setCheque(i, { numero: e.target.value })} className="rounded-md border border-black/15 px-2 py-1.5 text-sm" />
-                          <input placeholder="Banco" value={m.cheque?.banco ?? ''} onChange={(e) => setCheque(i, { banco: e.target.value })} className="rounded-md border border-black/15 px-2 py-1.5 text-sm" />
-                          <input placeholder="Librador" value={m.cheque?.titular ?? ''} onChange={(e) => setCheque(i, { titular: e.target.value })} className="rounded-md border border-black/15 px-2 py-1.5 text-sm" />
-                          <label className="flex items-center gap-1.5 text-xs text-black/60">
-                            <input type="date" value={m.cheque?.fechaCobro ?? ''} onChange={(e) => setCheque(i, { fechaCobro: e.target.value, diferido: !!e.target.value })} className="rounded-md border border-black/15 px-2 py-1.5 text-sm w-full" />
-                          </label>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </section>
-
-              <input
-                placeholder="Observaciones (opcional)" value={obs} onChange={(e) => setObs(e.target.value)}
-                className="w-full rounded-md border border-black/15 px-3 py-2 text-sm bg-white"
-              />
-
-              {error && <p className="text-sm text-[#B82D25] bg-[#B82D25]/5 rounded-lg px-3 py-2">{error}</p>}
+              ))}
             </div>
+          </section>
 
-            {/* FOOTER */}
-            <div className="px-5 py-4 border-t border-black/10 flex items-center justify-between gap-4 sticky bottom-0 bg-[#F7F4EE] rounded-b-2xl">
-              <div className="text-sm">
-                <span className="text-black/50">Imputado </span><span className="font-semibold text-black">{pesos(totalImput)}</span>
-                <span className="text-black/30 mx-2">·</span>
-                <span className="text-black/50">Medios </span>
-                <span className={`font-semibold ${balanceado ? 'text-emerald-700' : 'text-[#B82D25]'}`}>{pesos(totalMedios)}</span>
-                {!balanceado && totalImput > 0 && (
-                  <span className="text-[11px] text-[#B82D25] ml-2">faltan {pesos(totalImput - totalMedios)}</span>
-                )}
-              </div>
-              <button
-                onClick={emitir}
-                disabled={guardando || totalImput <= 0 || !balanceado}
-                className="rounded-lg bg-[#B82D25] text-white text-sm font-medium px-5 py-2 disabled:opacity-40 hover:bg-[#9e251e]"
-              >
-                {guardando ? 'Emitiendo…' : 'Emitir recibo'}
-              </button>
-            </div>
-          </div>
+          <Entrada
+            placeholder="Observaciones (opcional)" value={obs} onChange={(e) => setObs(e.target.value)}
+            aria-label="Observaciones"
+          />
         </div>
-      )}
+      </Modal>
     </>
   );
 }

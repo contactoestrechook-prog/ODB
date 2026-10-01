@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Boton, Etiqueta, FOCO, FOCO_ADENTRO, unir, type TonoEtiqueta } from './kit';
+import { pesos } from '../lib/formato';
 
 // La propuesta de compra de un proveedor, dibujada como la nota de pedido que
 // después le llega (misma franja negra y línea dorada que el PDF de la orden).
@@ -53,16 +55,15 @@ export type EstadoNota = {
   armadas: Armada[];
 };
 
-const pesos = (n: number) => '$ ' + Math.round(n || 0).toLocaleString('es-AR');
 const dec = (n: number) => n.toLocaleString('es-AR', { maximumFractionDigits: 1 });
 // un ritmo de 0,04 por día con un decimal se leería 'vende 0 por día'
 const ritmo = (n: number) => n.toLocaleString('es-AR', { maximumFractionDigits: n < 0.1 ? 2 : 1 });
 const VISIBLES = 12;
 
-const ETIQUETA: Record<string, { texto: string; clase: string }> = {
-  sin_stock: { texto: 'Sin stock', clase: 'bg-marca text-white' },
-  no_llega: { texto: 'No llega', clase: 'border border-marca text-marca' },
-  menos_de_12: { texto: 'Menos de 12', clase: 'bg-black/[0.06] text-tinta/70' },
+const ETIQUETA: Record<string, { texto: string; tono: TonoEtiqueta }> = {
+  sin_stock: { texto: 'Sin stock', tono: 'error' },
+  no_llega: { texto: 'No llega', tono: 'atencion' },
+  menos_de_12: { texto: 'Menos de 12', tono: 'neutro' },
 };
 
 function Casilla({ tildado, onClick, nombre }: { tildado: boolean; onClick: () => void; nombre: string }) {
@@ -73,9 +74,12 @@ function Casilla({ tildado, onClick, nombre }: { tildado: boolean; onClick: () =
       aria-checked={tildado}
       aria-label={`${tildado ? 'Destildar' : 'Tildar'} ${nombre}`}
       onClick={onClick}
-      className={`grid h-6 w-6 shrink-0 place-items-center rounded-xl border-2 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-marca ${
-        tildado ? 'border-marca bg-marca' : 'border-black/15 bg-white hover:border-black/50'
-      }`}
+      // la casilla mide 24 px pero se toca en 44 (el ::before estira la zona)
+      className={unir(
+        'relative grid size-6 shrink-0 place-items-center rounded-md border-2 transition-colors before:absolute before:-inset-2.5',
+        FOCO,
+        tildado ? 'border-marca bg-marca' : 'border-black/25 bg-white hover:border-black/50',
+      )}
     >
       <svg viewBox="0 0 16 16" className={`h-3.5 w-3.5 text-white motion-safe:transition-transform ${tildado ? 'scale-100' : 'scale-0'}`} aria-hidden>
         <path d="M3 8.5l3.2 3L13 4.5" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
@@ -97,7 +101,7 @@ function Alcance({ cobertura, plazo, stock }: { cobertura: number | null; plazo:
   return (
     <div className="mt-1.5">
       <div className="relative h-1 w-full max-w-[220px] rounded-full bg-black/[0.07]">
-        <div className={`absolute inset-y-0 left-0 rounded-full ${llega ? 'bg-black/45' : 'bg-marca'}`} style={{ width: `${ancho}%` }} />
+        <div className={`absolute inset-y-0 left-0 rounded-full ${llega ? 'bg-tinta/45' : 'bg-marca'}`} style={{ width: `${ancho}%` }} />
         <div className="absolute -top-[3px] h-2.5 w-[2px] rounded-full bg-dorado" style={{ left: `${(tarda / rango) * 100}%` }} aria-hidden />
       </div>
       <p className={`mt-1 text-xs leading-tight ${llega || cobertura == null ? 'text-tinta/60' : 'text-marca-hondo'}`}>{texto}</p>
@@ -187,7 +191,7 @@ export function NotaDePedido({
   }
 
   return (
-    <article className="overflow-hidden rounded-2xl bg-white shadow-[0_1px_2px_rgba(20,20,20,0.06)] ring-1 ring-black/[0.06]">
+    <article className="min-w-0 overflow-hidden rounded-2xl border border-black/[0.06] bg-white shadow-tarjeta">
       {/* la franja de la nota de pedido */}
       <header className="bg-tinta px-4 pb-3 pt-3.5 sm:px-5">
         <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
@@ -216,13 +220,13 @@ export function NotaDePedido({
           </span>
           <div className="min-w-0 text-sm leading-snug text-tinta">
             <p>
-              <b>Orden {a.numero != null ? `#${a.numero}` : ''} armada</b> · {a.renglones} producto{a.renglones === 1 ? '' : 's'} · {pesos(a.total)}
+              <b>Orden {a.numero != null ? `#${a.numero}` : ''} armada</b> · {a.renglones} producto{a.renglones === 1 ? '' : 's'} · {pesos(a.total ?? 0)}
             </p>
             {a.faltan.length ? (
               <p className="mt-0.5 text-marca-hondo">Frenada: para comprarle falta {a.faltan.join(', ')}. Administración ya recibió el pedido de completarlo.</p>
             ) : (
               <p className="mt-0.5 text-tinta/70">
-                Espera la firma del dueño en <a href="/aprobaciones" className="font-medium text-marca underline underline-offset-2">Aprobaciones</a>.
+                Espera la firma del dueño en <a href="/aprobaciones" className={unir('rounded-sm font-medium text-marca-hondo underline underline-offset-2', FOCO)}>Aprobaciones</a>.
               </p>
             )}
           </div>
@@ -238,7 +242,7 @@ export function NotaDePedido({
               type="button"
               disabled={armando}
               onClick={() => setItems((xs) => xs.map((x) => (todos ? { ...x, tildado: false } : { ...x, tildado: true, cantidad: x.cantidad || x.sugerido || 1 })))}
-              className="rounded text-xs font-medium text-marca hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-marca"
+              className={unir('-my-2 inline-flex min-h-11 items-center rounded-full px-2 text-xs font-semibold text-marca-hondo hover:underline disabled:opacity-50 sm:min-h-9', FOCO)}
             >
               {todos ? 'Destildar todos' : 'Tildar todos'}
             </button>
@@ -264,7 +268,7 @@ export function NotaDePedido({
                     <p className="break-words text-sm font-medium leading-snug text-tinta">{it.nombre}</p>
                     {/* sin puntos separadores: al saltar de línea en el celular quedaban colgando */}
                     <p className="mt-0.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-tinta/70">
-                      {etiqueta && <span className={`rounded px-1.5 py-[1px] text-xs font-semibold uppercase tracking-wide ${etiqueta.clase}`}>{etiqueta.texto}</span>}
+                      {etiqueta && <Etiqueta tono={etiqueta.tono}>{etiqueta.texto}</Etiqueta>}
                       <span className="tabular-nums">stock {dec(it.stock)}</span>
                       {it.ritmoDia > 0 && <span className="tabular-nums">vende {ritmo(it.ritmoDia)} por día</span>}
                       {it.enCamino > 0 && <span className="tabular-nums">{dec(it.enCamino)} en camino</span>}
@@ -273,22 +277,22 @@ export function NotaDePedido({
                     {/* sin stock ya lo dice la etiqueta; la barra es para lo que todavía tiene */}
                     {it.stock > 0 && <Alcance cobertura={it.coberturaDias} plazo={propuesta.plazoDias} stock={it.stock} />}
                   </div>
-                  <div className="col-start-3 mt-2.5 flex items-center justify-between gap-3 sm:col-start-4 sm:row-start-1 sm:mt-0 sm:flex-col sm:items-end sm:justify-start sm:gap-1">
+                  <div className="col-start-3 mt-2.5 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 sm:col-start-4 sm:row-start-1 sm:mt-0 sm:flex-col sm:flex-nowrap sm:items-end sm:justify-start sm:gap-1">
                     <div className="flex items-center rounded-full ring-1 ring-black/15">
                       <button type="button" onClick={() => poner(it.sku, it.cantidad - 1)} disabled={it.cantidad <= 0} aria-label={`Uno menos de ${it.nombre}`}
-                        className="h-8 w-8 rounded-l-full text-lg leading-none text-tinta/70 hover:bg-black/[0.04] disabled:opacity-30">−</button>
+                        className={unir('size-11 rounded-l-full text-lg leading-none text-tinta/70 hover:bg-tinta/5 disabled:opacity-30 sm:size-8', FOCO_ADENTRO)}>−</button>
                       <input
                         inputMode="numeric"
                         aria-label={`Cantidad de ${it.nombre}`}
                         value={it.cantidad || ''}
                         placeholder="0"
                         onChange={(e) => poner(it.sku, Number(e.target.value.replace(/\D/g, '')) || 0)}
-                        className="h-8 w-11 border-x border-black/[0.06] bg-transparent text-center text-base font-semibold tabular-nums text-tinta outline-none focus:bg-crema"
+                        className="importe h-11 w-12 border-x border-black/15 bg-transparent text-center text-base font-semibold text-tinta outline-none focus:bg-crema sm:h-8 sm:w-11"
                       />
                       <button type="button" onClick={() => poner(it.sku, it.cantidad + 1)} aria-label={`Uno más de ${it.nombre}`}
-                        className="h-8 w-8 rounded-r-full text-lg leading-none text-tinta/70 hover:bg-black/[0.04]">+</button>
+                        className={unir('size-11 rounded-r-full text-lg leading-none text-tinta/70 hover:bg-tinta/5 sm:size-8', FOCO_ADENTRO)}>+</button>
                     </div>
-                    <p className="text-xs tabular-nums text-tinta/60">
+                    <p className="importe text-xs text-tinta/60">
                       {it.costo != null ? pesos(it.costo * it.cantidad) : 'sin costo'}
                       {it.sugerido > 0 && it.cantidad !== it.sugerido && <span className="ml-1.5 text-tinta/60">(sugerido {it.sugerido})</span>}
                     </p>
@@ -301,24 +305,23 @@ export function NotaDePedido({
 
           {restantes > 0 && (
             <button type="button" onClick={() => setVerTodos(true)}
-              className="w-full border-t border-black/[0.06] px-4 py-2.5 text-sm font-medium text-tinta/70 hover:bg-black/[0.02] hover:text-tinta">
+              className={unir('min-h-11 w-full border-t border-black/[0.06] px-4 py-2.5 text-sm font-medium text-tinta/70 transition-colors hover:bg-crema-claro hover:text-tinta', FOCO_ADENTRO)}>
               Ver {restantes} producto{restantes === 1 ? '' : 's'} más
-              {tildadosOcultos > 0 && <span className="text-marca"> · {tildadosOcultos} ya tildado{tildadosOcultos === 1 ? '' : 's'}</span>}
+              {tildadosOcultos > 0 && <span className="text-marca-hondo"> · {tildadosOcultos} ya tildado{tildadosOcultos === 1 ? '' : 's'}</span>}
             </button>
           )}
 
           <footer className="flex flex-col gap-3 border-t border-black/[0.06] bg-crema-claro px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between sm:px-5">
             <div className="min-w-0">
-              <p className="text-xl font-bold tabular-nums leading-none text-tinta">{pesos(total)}</p>
+              <p className="importe text-xl font-bold leading-none text-tinta">{pesos(total)}</p>
               <p className="mt-1 text-xs text-tinta/60">
                 {tildados.length} tildado{tildados.length === 1 ? '' : 's'} · {unidades.toLocaleString('es-AR')} unidad{unidades === 1 ? '' : 'es'}
                 {sinCosto ? ' · hay productos sin costo: el total lo confirma la factura' : ' · con el último costo conocido'}
               </p>
             </div>
-            <button type="button" onClick={armar} disabled={!tildados.length || armando}
-              className="shrink-0 rounded-full bg-marca px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-marca-hondo focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-marca disabled:opacity-40">
+            <Boton onClick={armar} disabled={!tildados.length || armando} cargando={armando} className="shrink-0">
               {armando ? 'Armando el pedido…' : 'Armar pedido con lo tildado'}
-            </button>
+            </Boton>
           </footer>
           {error && <p role="alert" className="border-t border-marca/20 bg-marca-suave px-4 py-2.5 text-sm text-marca-hondo sm:px-5">{error}</p>}
         </>

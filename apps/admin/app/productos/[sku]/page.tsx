@@ -1,15 +1,10 @@
-import Link from 'next/link';
-import { Header } from '../../ui/Header';
+import { Pantalla } from '../../ui/kit/Pantalla';
+import { Aviso, BotonLink, Etiqueta, Kpi, Monto, TablaResponsiva, Tarjeta, TarjetaCabecera } from '../../ui/kit';
 import { SubirFoto } from '../../ui/SubirFoto';
 import { apiFetch } from '../../../lib/api';
 import { EditarProducto } from '../../ui/EditarProducto';
 import { BotonVolver } from '../../ui/BotonVolver';
-
-const pesos = (n: number | null | undefined) =>
-  n == null ? '—' : '$' + Math.round(Number(n)).toLocaleString('es-AR');
-
-const fecha = (iso: string) =>
-  new Date(iso).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: '2-digit' });
+import { fecha, pesos } from '../../lib/formato';
 
 const TIPO_MOV: Record<string, string> = {
   venta: 'Venta',
@@ -22,6 +17,9 @@ const TIPO_MOV: Record<string, string> = {
 };
 
 export const dynamic = 'force-dynamic';
+
+// Lista vacía dentro de una tarjeta: una línea, sin la caja grande de <Vacio>.
+const vacioChico = (texto: string) => <p className="px-4 py-4 text-sm text-tinta/60 sm:px-5">{texto}</p>;
 
 export default async function FichaProducto({
   params,
@@ -42,192 +40,226 @@ export default async function FichaProducto({
 
   if (!p) {
     return (
-      <main className="min-h-screen bg-[#F0EBE2] lg:pl-64">
-        <Header activo="/productos" />
-        <div className="max-w-4xl mx-auto p-6">
-          <p className="rounded-lg bg-white p-4 text-sm text-[#932A1F]">
-            No existe el producto {sku}. <Link href="/productos" className="underline">Volver</Link>
-          </p>
-        </div>
-      </main>
+      <Pantalla activo="/productos" ancho="normal">
+        <Aviso
+          tono="error"
+          accion={<BotonLink href="/productos" variante="secundario" tamano="chico">Volver</BotonLink>}
+        >
+          No existe el producto {sku}.
+        </Aviso>
+      </Pantalla>
     );
   }
 
   const margenPct = p.costo && p.precio ? Math.round(((p.precio - p.costo) / p.costo) * 100) : null;
+  const linea = `${p.sku} · ${p.marca ?? 'sin marca'} · ${p.categoria ?? 'sin categoría'}`;
 
   return (
-    <main className="min-h-screen bg-[#F0EBE2] lg:pl-64">
-      <Header activo="/productos" />
-      <div className="max-w-5xl mx-auto p-6 space-y-4">
-        <BotonVolver href="/productos" label="Volver a productos" />
+    <Pantalla activo="/productos" ancho="normal" titulo={String(p.nombre ?? sku)} bajada={linea}>
+      <BotonVolver href="/productos" label="Volver a productos" />
 
-        <section className="rounded-xl bg-white p-5 flex flex-wrap items-start justify-between gap-4">
-          <div className="flex flex-col items-center gap-2">
-            {p.imagenUrl ? (
-              <img src={p.imagenUrl} alt={p.nombre} className="h-32 w-32 rounded-xl object-cover" />
-            ) : (
-              <div className="h-32 w-32 rounded-xl bg-[#F0EBE2] flex items-center justify-center text-black/30 text-sm">
-                sin foto
+      <Tarjeta className="grid gap-4 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-start sm:gap-5">
+        <div className="flex items-center gap-3 sm:flex-col sm:items-center">
+          {p.imagenUrl ? (
+            <img src={p.imagenUrl} alt={p.nombre} className="size-24 shrink-0 rounded-xl object-cover sm:size-32" />
+          ) : (
+            <div className="flex size-24 shrink-0 items-center justify-center rounded-xl bg-crema text-sm text-tinta/60 sm:size-32">
+              sin foto
+            </div>
+          )}
+          <SubirFoto sku={p.sku} />
+        </div>
+
+        <div className="min-w-0 space-y-2">
+          {/* en escritorio el nombre y la línea de datos ya están en la cabecera */}
+          <div className="lg:hidden">
+            <h2 className="break-words text-xl font-bold leading-snug text-tinta">{p.nombre}</h2>
+            <p className="mt-1 break-words text-sm text-tinta/60">{linea}</p>
+          </div>
+          {(p.esAlcohol || p.descuento) && (
+            <div className="flex flex-wrap gap-2">
+              {p.esAlcohol && <Etiqueta>+18</Etiqueta>}
+              {p.descuento && <Etiqueta tono="error">{p.descuento}</Etiqueta>}
+            </div>
+          )}
+          {p.codigosBarras?.length > 0 && (
+            <p className="break-all font-mono text-xs text-tinta/60">{p.codigosBarras.join(' · ')}</p>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-3 border-t border-black/[0.06] pt-4 sm:items-end sm:border-0 sm:pt-0 sm:text-right">
+          <div>
+            {p.descuento && <p className="importe text-sm text-tinta/60 line-through">{pesos(p.precioLista)}</p>}
+            <p className="importe text-3xl font-bold tracking-tight text-tinta">{pesos(p.precio)}</p>
+            <p className="mt-1 text-xs text-tinta/60">
+              costo <span className="importe">{pesos(p.costo)}</span> {margenPct != null && `· margen ${margenPct} %`}
+            </p>
+            {!p.activo && (
+              <p className="mt-1 text-xs font-semibold text-marca-hondo">Pausado: no se vende</p>
+            )}
+          </div>
+          <EditarProducto producto={p} rubros={filtros.categorias} marcas={filtros.marcas} />
+        </div>
+      </Tarjeta>
+
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <Kpi
+          etiqueta="Vendido (30 días)"
+          valor={`${p.ventas30dias.unidades} u.`}
+          sub={`${p.ventas30dias.porDia}/día`}
+        />
+        <Kpi etiqueta="Facturado (30 días)" valor={<Monto valor={p.ventas30dias.facturado} />} />
+        <Kpi etiqueta="Margen (30 días)" valor={<Monto valor={p.ventas30dias.margen} />} />
+        <Kpi etiqueta="Stock total" valor={`${Math.round(p.stockTotal)} u.`} />
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <Tarjeta relleno={false}>
+          <TarjetaCabecera titulo="Stock por sucursal" />
+          <TablaResponsiva
+            sinMarco
+            etiqueta="Stock por sucursal"
+            filas={p.stockPorSucursal as any[]}
+            claveFila={(_, i) => i}
+            vacio={<></>}
+            tarjetaMovil={(s: any) => (
+              <div className="flex items-center justify-between gap-3 text-sm">
+                <span className="min-w-0 break-words">{s.sucursal}</span>
+                <span className="flex shrink-0 items-center gap-2">
+                  <StockSucursal s={s} />
+                  <span className="importe text-xs text-tinta/60">mín. {Math.round(Number(s.stock_minimo))}</span>
+                </span>
               </div>
             )}
-            <SubirFoto sku={p.sku} />
-          </div>
-          <div className="flex-1 min-w-48">
-            <h1 className="text-xl font-medium text-black">{p.nombre}</h1>
-            <p className="text-sm text-black/50 mt-1">
-              {p.sku} · {p.marca ?? 'sin marca'} · {p.categoria ?? 'sin categoría'}
-              {p.esAlcohol && (
-                <span className="ml-2 rounded-full bg-black px-2 py-0.5 text-[10px] text-white align-middle">+18</span>
-              )}
-            </p>
-            {p.codigosBarras?.length > 0 && (
-              <p className="text-xs text-black/40 mt-1 font-mono">{p.codigosBarras.join(' · ')}</p>
+            columnas={[
+              { clave: 'sucursal', titulo: 'Sucursal', celda: (s: any) => s.sucursal },
+              { clave: 'cantidad', titulo: 'Stock', importe: true, celda: (s: any) => <StockSucursal s={s} /> },
+              {
+                clave: 'minimo',
+                titulo: 'Mínimo',
+                importe: true,
+                celda: (s: any) => <span className="text-xs text-tinta/60">mín. {Math.round(Number(s.stock_minimo))}</span>,
+              },
+            ]}
+          />
+        </Tarjeta>
+
+        <Tarjeta relleno={false}>
+          <TarjetaCabecera titulo="Proveedores" />
+          <TablaResponsiva
+            sinMarco
+            etiqueta="Proveedores"
+            filas={p.proveedores as any[]}
+            claveFila={(_, i) => i}
+            vacio={vacioChico('Sin proveedor asignado')}
+            tarjetaMovil={(pr: any) => (
+              <div className="flex items-start justify-between gap-3 text-sm">
+                <div className="min-w-0">
+                  <p className="break-words">{pr.proveedor?.razon_social}</p>
+                  <p className="text-xs text-tinta/60">
+                    {pr.codigo_proveedor ?? 's/cód.'} · entrega {pr.proveedor?.lead_time_dias} días
+                  </p>
+                </div>
+                <span className="importe shrink-0 font-semibold">{pesos(pr.ultimo_costo)}</span>
+              </div>
             )}
-            {p.descuento && (
-              <p className="mt-2 inline-block rounded-full bg-[#B82D25] px-3 py-1 text-xs font-medium text-white">
-                {p.descuento}
-              </p>
+            columnas={[
+              {
+                clave: 'proveedor',
+                titulo: 'Proveedor',
+                celda: (pr: any) => (
+                  <>
+                    <p>{pr.proveedor?.razon_social}</p>
+                    <p className="text-xs text-tinta/60">
+                      {pr.codigo_proveedor ?? 's/cód.'} · entrega {pr.proveedor?.lead_time_dias} días
+                    </p>
+                  </>
+                ),
+              },
+              {
+                clave: 'costo',
+                titulo: 'Último costo',
+                importe: true,
+                celda: (pr: any) => <span className="font-semibold">{pesos(pr.ultimo_costo)}</span>,
+              },
+            ]}
+          />
+        </Tarjeta>
+
+        <Tarjeta relleno={false}>
+          <TarjetaCabecera titulo="Historial de costos" />
+          <TablaResponsiva
+            sinMarco
+            etiqueta="Historial de costos"
+            filas={p.historialCostos as any[]}
+            claveFila={(_, i) => i}
+            vacio={vacioChico('Sin cambios registrados')}
+            tarjetaMovil={(c: any) => (
+              <div className="flex items-center justify-between gap-3 text-sm">
+                <span className="min-w-0 break-words text-xs text-tinta/60">
+                  {fecha(c.creado_en)} · {c.proveedor?.razon_social ?? c.origen}
+                </span>
+                <span className="importe shrink-0 font-semibold">{pesos(c.costo)}</span>
+              </div>
             )}
-          </div>
-          <div className="text-right flex flex-col items-end gap-3">
-            <div>
-              {p.descuento && <p className="text-sm text-black/40 line-through">{pesos(p.precioLista)}</p>}
-              <p className="text-3xl font-medium text-black">{pesos(p.precio)}</p>
-              <p className="text-xs text-black/50 mt-1">
-                costo {pesos(p.costo)} {margenPct != null && `· margen ${margenPct} %`}
-              </p>
-              {!p.activo && (
-                <p className="text-xs font-medium text-[#B82D25] mt-1">Pausado: no se vende</p>
-              )}
-            </div>
-            <EditarProducto producto={p} rubros={filtros.categorias} marcas={filtros.marcas} />
-          </div>
-        </section>
+            columnas={[
+              { clave: 'fecha', titulo: 'Fecha', celda: (c: any) => <span className="text-xs text-tinta/60">{fecha(c.creado_en)}</span> },
+              {
+                clave: 'origen',
+                titulo: 'Origen',
+                celda: (c: any) => <span className="text-xs text-tinta/60">{c.proveedor?.razon_social ?? c.origen}</span>,
+              },
+              { clave: 'costo', titulo: 'Costo', importe: true, celda: (c: any) => <span className="font-semibold">{pesos(c.costo)}</span> },
+            ]}
+          />
+        </Tarjeta>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <div className="rounded-xl bg-white p-4">
-            <p className="text-xs text-black/50">Vendido (30 días)</p>
-            <p className="text-xl font-medium text-black">{p.ventas30dias.unidades} u.</p>
-            <p className="text-xs text-black/40">{p.ventas30dias.porDia}/día</p>
-          </div>
-          <div className="rounded-xl bg-white p-4">
-            <p className="text-xs text-black/50">Facturado (30 días)</p>
-            <p className="text-xl font-medium text-black">{pesos(p.ventas30dias.facturado)}</p>
-          </div>
-          <div className="rounded-xl bg-white p-4">
-            <p className="text-xs text-black/50">Margen (30 días)</p>
-            <p className="text-xl font-medium text-black">{pesos(p.ventas30dias.margen)}</p>
-          </div>
-          <div className="rounded-xl bg-white p-4">
-            <p className="text-xs text-black/50">Stock total</p>
-            <p className="text-xl font-medium text-black">{Math.round(p.stockTotal)} u.</p>
-          </div>
-        </div>
-
-        <div className="grid md:grid-cols-2 gap-4">
-          <section className="rounded-xl bg-white overflow-hidden">
-            <h2 className="px-4 py-3 border-b border-black/10 font-medium text-black text-sm">
-              Stock por sucursal
-            </h2>
-            <table className="w-full text-sm text-black">
-              <tbody>
-                {p.stockPorSucursal.map((s: any, i: number) => (
-                  <tr key={i} className="border-b border-black/5 last:border-0">
-                    <td className="px-4 py-2.5">{s.sucursal}</td>
-                    <td className="px-4 py-2.5 text-right">
-                      <span
-                        className={
-                          Number(s.cantidad) <= Number(s.stock_minimo)
-                            ? 'rounded-full bg-[#B82D25] px-2.5 py-0.5 text-xs font-medium text-white'
-                            : 'font-medium'
-                        }
-                      >
-                        {Math.round(Number(s.cantidad))} u.
-                      </span>
-                    </td>
-                    <td className="px-4 py-2.5 text-right text-xs text-black/40">
-                      mín. {Math.round(Number(s.stock_minimo))}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </section>
-
-          <section className="rounded-xl bg-white overflow-hidden">
-            <h2 className="px-4 py-3 border-b border-black/10 font-medium text-black text-sm">
-              Proveedores
-            </h2>
-            <table className="w-full text-sm text-black">
-              <tbody>
-                {p.proveedores.map((pr: any, i: number) => (
-                  <tr key={i} className="border-b border-black/5 last:border-0">
-                    <td className="px-4 py-2.5">
-                      <p>{pr.proveedor?.razon_social}</p>
-                      <p className="text-xs text-black/40">
-                        {pr.codigo_proveedor ?? 's/cód.'} · entrega {pr.proveedor?.lead_time_dias} días
-                      </p>
-                    </td>
-                    <td className="px-4 py-2.5 text-right font-medium">{pesos(pr.ultimo_costo)}</td>
-                  </tr>
-                ))}
-                {p.proveedores.length === 0 && (
-                  <tr><td className="px-4 py-4 text-sm text-black/40">Sin proveedor asignado</td></tr>
-                )}
-              </tbody>
-            </table>
-          </section>
-
-          <section className="rounded-xl bg-white overflow-hidden">
-            <h2 className="px-4 py-3 border-b border-black/10 font-medium text-black text-sm">
-              Historial de costos
-            </h2>
-            <table className="w-full text-sm text-black">
-              <tbody>
-                {p.historialCostos.map((c: any, i: number) => (
-                  <tr key={i} className="border-b border-black/5 last:border-0">
-                    <td className="px-4 py-2 text-xs text-black/50">{fecha(c.creado_en)}</td>
-                    <td className="px-4 py-2 text-xs text-black/50">{c.proveedor?.razon_social ?? c.origen}</td>
-                    <td className="px-4 py-2 text-right font-medium">{pesos(c.costo)}</td>
-                  </tr>
-                ))}
-                {p.historialCostos.length === 0 && (
-                  <tr><td className="px-4 py-4 text-sm text-black/40">Sin cambios registrados</td></tr>
-                )}
-              </tbody>
-            </table>
-          </section>
-
-          <section className="rounded-xl bg-white overflow-hidden">
-            <h2 className="px-4 py-3 border-b border-black/10 font-medium text-black text-sm">
-              Últimos movimientos de stock
-            </h2>
-            <table className="w-full text-sm text-black">
-              <tbody>
-                {p.movimientos.map((m: any, i: number) => (
-                  <tr key={i} className="border-b border-black/5 last:border-0">
-                    <td className="px-4 py-2 text-xs text-black/50">{fecha(m.creado_en)}</td>
-                    <td className="px-4 py-2 text-xs">{TIPO_MOV[m.tipo] ?? m.tipo}</td>
-                    <td className="px-4 py-2 text-xs text-black/50">{m.sucursal?.nombre}</td>
-                    <td
-                      className={
-                        'px-4 py-2 text-right font-medium ' +
-                        (Number(m.cantidad) < 0 ? 'text-[#932A1F]' : '')
-                      }
-                    >
-                      {Number(m.cantidad) > 0 ? '+' : ''}
-                      {Math.round(Number(m.cantidad))}
-                    </td>
-                  </tr>
-                ))}
-                {p.movimientos.length === 0 && (
-                  <tr><td className="px-4 py-4 text-sm text-black/40">Sin movimientos</td></tr>
-                )}
-              </tbody>
-            </table>
-          </section>
-        </div>
+        <Tarjeta relleno={false}>
+          <TarjetaCabecera titulo="Últimos movimientos de stock" />
+          <TablaResponsiva
+            sinMarco
+            etiqueta="Últimos movimientos de stock"
+            filas={p.movimientos as any[]}
+            claveFila={(_, i) => i}
+            vacio={vacioChico('Sin movimientos')}
+            tarjetaMovil={(m: any) => (
+              <div className="flex items-center justify-between gap-3 text-sm">
+                <div className="min-w-0">
+                  <p>{TIPO_MOV[m.tipo] ?? m.tipo}</p>
+                  <p className="break-words text-xs text-tinta/60">
+                    {fecha(m.creado_en)} · {m.sucursal?.nombre}
+                  </p>
+                </div>
+                <CantidadMovimiento m={m} />
+              </div>
+            )}
+            columnas={[
+              { clave: 'fecha', titulo: 'Fecha', celda: (m: any) => <span className="text-xs text-tinta/60">{fecha(m.creado_en)}</span> },
+              { clave: 'tipo', titulo: 'Tipo', celda: (m: any) => <span className="text-xs">{TIPO_MOV[m.tipo] ?? m.tipo}</span> },
+              { clave: 'sucursal', titulo: 'Sucursal', celda: (m: any) => <span className="text-xs text-tinta/60">{m.sucursal?.nombre}</span> },
+              { clave: 'cantidad', titulo: 'Cantidad', importe: true, celda: (m: any) => <CantidadMovimiento m={m} /> },
+            ]}
+          />
+        </Tarjeta>
       </div>
-    </main>
+    </Pantalla>
+  );
+}
+
+// Stock de una sucursal: en rojo suave si quedó en el mínimo o abajo.
+function StockSucursal({ s }: { s: any }) {
+  return Number(s.cantidad) <= Number(s.stock_minimo) ? (
+    <Etiqueta tono="error" className="importe">{Math.round(Number(s.cantidad))} u.</Etiqueta>
+  ) : (
+    <span className="importe font-semibold">{Math.round(Number(s.cantidad))} u.</span>
+  );
+}
+
+function CantidadMovimiento({ m }: { m: any }) {
+  return (
+    <span className={'importe shrink-0 font-semibold ' + (Number(m.cantidad) < 0 ? 'text-marca-hondo' : '')}>
+      {Number(m.cantidad) > 0 ? '+' : ''}
+      {Math.round(Number(m.cantidad))}
+    </span>
   );
 }

@@ -1,17 +1,19 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { pesos as pesosFmt } from '../lib/formato';
+import { AreaTexto, Aviso, Boton, Chips, Entrada, Etiqueta, FOCO, IconoCerrar, Modal, Tarjeta, unir, type TonoEtiqueta } from './kit';
 
-const pesos = (n: any) => '$' + Math.round(Number(n) || 0).toLocaleString('es-AR');
-const CANALES: Record<string, { label: string; cls: string }> = {
-  whatsapp: { label: 'WhatsApp', cls: 'bg-emerald-100 text-emerald-800' },
-  app: { label: 'App', cls: 'bg-black text-white' },
-  self_checkout: { label: 'App', cls: 'bg-black text-white' },
-  web: { label: 'Web', cls: 'bg-blue-100 text-blue-800' },
-  pedidosya: { label: 'PedidosYa', cls: 'bg-[#B82D25] text-white' },
-  pickup: { label: 'Pick-up', cls: 'bg-amber-100 text-amber-900' },
-  domicilio: { label: 'Domicilio', cls: 'bg-purple-100 text-purple-800' },
-  mostrador: { label: 'Mostrador', cls: 'bg-[#F0EBE2] text-black/60' },
+const pesos = (n: any) => pesosFmt(Number(n) || 0);
+const CANALES: Record<string, { label: string; tono: TonoEtiqueta }> = {
+  whatsapp: { label: 'WhatsApp', tono: 'ok' },
+  app: { label: 'App', tono: 'neutro' },
+  self_checkout: { label: 'App', tono: 'neutro' },
+  web: { label: 'Web', tono: 'info' },
+  pedidosya: { label: 'PedidosYa', tono: 'error' },
+  pickup: { label: 'Pick-up', tono: 'atencion' },
+  domicilio: { label: 'Domicilio', tono: 'info' },
+  mostrador: { label: 'Mostrador', tono: 'neutro' },
 };
 const canalDe = (p: any) => p.origen || p.canal;
 const siguiente = (p: any): { estado: string; label: string } | null => {
@@ -54,52 +56,54 @@ export function PedidosWorkspace({ inicial }: { inicial: any[] }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div className="flex gap-7 flex-wrap">
-          <div><p className="text-xl font-semibold leading-none text-black">{pedidos.length}</p><p className="text-[11px] text-black/45 mt-1">Pedidos activos</p></div>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="flex flex-wrap gap-x-7 gap-y-3">
+          <div><p className="importe text-xl font-bold leading-none text-tinta">{pedidos.length}</p><p className="mt-1 text-xs text-tinta/60">Pedidos activos</p></div>
           {Object.entries(porCanal).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([c, n]) => (
-            <div key={c}><p className="text-xl font-semibold leading-none text-black">{n}</p><p className="text-[11px] text-black/45 mt-1">{CANALES[c]?.label ?? c}</p></div>
+            <div key={c}><p className="importe text-xl font-bold leading-none text-tinta">{n}</p><p className="mt-1 text-xs text-tinta/60">{CANALES[c]?.label ?? c}</p></div>
           ))}
         </div>
-        <div className="flex gap-2">
-          <button onClick={() => setWa(true)} className="rounded-full bg-emerald-600 text-white text-sm font-medium px-4 py-2.5 hover:bg-emerald-700">📱 Pedido por WhatsApp</button>
-          <button onClick={() => post({ simular: true })} className="rounded-full bg-white border border-black/15 text-black text-sm font-medium px-4 py-2.5 hover:border-black/40">Simular PedidosYa</button>
+        <div className="flex w-full flex-wrap gap-2 sm:w-auto">
+          <Boton onClick={() => setWa(true)} className="flex-1 sm:flex-none">Pedido por WhatsApp</Boton>
+          <Boton variante="secundario" onClick={() => post({ simular: true })} className="flex-1 sm:flex-none">Simular PedidosYa</Boton>
         </div>
       </div>
 
-      <div className="flex gap-1.5 flex-wrap">
-        {['todos', 'whatsapp', 'app', 'web', 'pedidosya', 'pickup', 'domicilio', 'mostrador'].map((c) => (
-          <button key={c} onClick={() => setFiltro(c)} className={`text-xs font-medium rounded-full px-3 py-1.5 border ${filtro === c ? 'bg-[#B82D25] text-white border-[#B82D25]' : 'bg-white border-black/10 text-black/60 hover:border-black/30'}`}>
-            {c === 'todos' ? 'Todos' : CANALES[c]?.label ?? c}
-          </button>
-        ))}
-      </div>
+      <Chips
+        etiquetaAccesible="Canal del pedido"
+        valor={filtro}
+        onCambiar={setFiltro}
+        opciones={['todos', 'whatsapp', 'app', 'web', 'pedidosya', 'pickup', 'domicilio', 'mostrador'].map((c) => ({
+          valor: c,
+          etiqueta: c === 'todos' ? 'Todos' : CANALES[c]?.label ?? c,
+        }))}
+      />
 
-      {aviso && <p className="rounded-lg bg-white p-3 text-sm text-[#B82D25]">{aviso}</p>}
+      {aviso && <Aviso tono="error">{aviso}</Aviso>}
 
-      <div className="grid md:grid-cols-3 gap-4">
+      <div className="grid gap-4 md:grid-cols-3">
         {cols.map(([titulo, lista]) => (
-          <div key={titulo} className="space-y-2">
-            <h2 className="text-sm font-medium text-black/70 px-1 flex items-center justify-between">{titulo}<span className="text-xs text-black/40">{lista.length}</span></h2>
-            {lista.length === 0 && <p className="rounded-xl bg-white/60 p-5 text-center text-black/35 text-xs">Vacío</p>}
+          <div key={titulo} className="min-w-0 space-y-2">
+            <h2 className="flex items-center justify-between px-1 text-sm font-semibold text-tinta/70">{titulo}<span className="importe text-xs font-medium text-tinta/60">{lista.length}</span></h2>
+            {lista.length === 0 && <p className="rounded-2xl border border-dashed border-black/15 p-5 text-center text-xs text-tinta/60">Vacío</p>}
             {lista.map((p) => {
               const c = canalDe(p); const sig = siguiente(p); const tarde = p.minutos > 20;
               return (
-                <div key={p.id} className="rounded-xl bg-white p-3.5 shadow-sm">
+                <Tarjeta key={p.id}>
                   <div className="flex items-center justify-between gap-2">
-                    <span className={`text-[10px] font-semibold rounded-full px-2 py-0.5 ${CANALES[c]?.cls ?? 'bg-[#F0EBE2] text-black/60'}`}>{CANALES[c]?.label ?? c}</span>
-                    <span className={`text-[11px] ${tarde ? 'text-[#B82D25] font-semibold' : 'text-black/40'}`}>{p.minutos}′</span>
+                    <Etiqueta tono={CANALES[c]?.tono ?? 'neutro'}>{CANALES[c]?.label ?? c}</Etiqueta>
+                    <span className={unir('importe text-xs', tarde ? 'font-semibold text-marca-hondo' : 'text-tinta/60')}>{p.minutos}′</span>
                   </div>
-                  <p className="text-sm font-medium text-black mt-1.5">{p.cliente?.dni ? `Cliente ${p.cliente.dni}` : 'Consumidor final'}{p.cliente?.tipo ? ` · ${p.cliente.tipo}` : ''}</p>
-                  <p className="text-xs text-black/55 mt-0.5 leading-snug">
+                  <p className="mt-2 break-words text-sm font-medium text-tinta">{p.cliente?.dni ? `Cliente ${p.cliente.dni}` : 'Consumidor final'}{p.cliente?.tipo ? ` · ${p.cliente.tipo}` : ''}</p>
+                  <p className="mt-0.5 break-words text-sm leading-snug text-tinta/70">
                     {(p.items ?? []).slice(0, 3).map((it: any) => `${Math.round(Number(it.cantidad))}× ${it.producto?.nombre ?? ''}`).join(' · ')}
                     {(p.items ?? []).length > 3 && ` +${p.items.length - 3}`}
                   </p>
-                  <div className="flex items-center justify-between mt-2.5">
-                    <span className="font-semibold text-sm text-black">{pesos(p.total)}</span>
-                    {sig && <button onClick={() => post({ pedidoId: p.id, estado: sig.estado })} className="rounded-full bg-[#B82D25] text-white text-xs font-medium px-3.5 py-1.5 hover:bg-[#932A1F]">{sig.label}</button>}
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                    <span className="importe text-sm font-semibold text-tinta">{pesos(p.total)}</span>
+                    {sig && <Boton tamano="chico" onClick={() => post({ pedidoId: p.id, estado: sig.estado })}>{sig.label}</Boton>}
                   </div>
-                </div>
+                </Tarjeta>
               );
             })}
           </div>
@@ -152,39 +156,74 @@ function ModalWhatsApp({ cerrar, post }: { cerrar: () => void; post: (b: any) =>
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-[2px] flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-2xl w-full max-w-lg p-6 space-y-3 shadow-2xl max-h-[92vh] overflow-y-auto">
-        <h2 className="font-semibold text-black text-lg">Pedido por WhatsApp</h2>
-        <p className="text-xs text-black/50">Pegá (o dictá) el mensaje del cliente. La IA arma el pedido y lo matchea con el catálogo.</p>
-        <div className="flex items-center gap-2">
-          <button onClick={dictar} disabled={escuchando} className={`rounded-full text-xs font-medium px-3 py-1.5 border ${escuchando ? 'bg-[#B82D25] text-white border-[#B82D25] animate-pulse' : 'border-black/15 hover:bg-black/[0.03]'}`}>{escuchando ? '● Escuchando…' : '🎤 Dictar'}</button>
-          <span className="text-[11px] text-black/40">o pegá abajo</span>
+    <Modal
+      abierto
+      onCerrar={cerrar}
+      titulo="Pedido por WhatsApp"
+      descripcion="Pegá (o dictá) el mensaje del cliente. La IA arma el pedido y lo matchea con el catálogo."
+      bloquearCierre={cargando}
+      cerrarAlTocarAfuera={false}
+      pie={
+        !analisis ? (
+          <>
+            <Boton variante="secundario" onClick={cerrar}>Cancelar</Boton>
+            <Boton onClick={analizar} cargando={cargando} disabled={cargando || !texto.trim()}>{cargando ? 'Leyendo…' : 'Interpretar'}</Boton>
+          </>
+        ) : (
+          <>
+            <Boton variante="secundario" onClick={() => setAnalisis(null)}>Volver</Boton>
+            <Boton onClick={crear} cargando={cargando} disabled={cargando || !analisis.items.length}>{cargando ? 'Creando…' : 'Crear pedido'}</Boton>
+          </>
+        )
+      }
+    >
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <Boton
+            variante={escuchando ? 'primario' : 'secundario'}
+            tamano="chico"
+            onClick={dictar}
+            disabled={escuchando}
+            className={escuchando ? 'animate-pulse motion-reduce:animate-none' : undefined}
+            icono={
+              <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <rect x="9" y="3" width="6" height="11" rx="3" />
+                <path d="M5 11a7 7 0 0014 0M12 18v3" />
+              </svg>
+            }
+          >
+            {escuchando ? 'Escuchando…' : 'Dictar'}
+          </Boton>
+          <span className="text-xs text-tinta/60">o pegá abajo</span>
         </div>
-        <textarea value={texto} onChange={(e) => setTexto(e.target.value)} rows={4} placeholder="ej: Hola! me mandás 6 quilmes litro, 2 coca de 2.25 y un fernet? Para Av. Mate 123, pago en efectivo" className="w-full rounded-lg border border-black/15 px-3 py-2 text-sm" />
-        {!analisis && <div className="flex justify-end gap-3"><button onClick={cerrar} className="text-sm text-black/60 px-4 py-2">Cancelar</button><button onClick={analizar} disabled={cargando || !texto.trim()} className="rounded-full bg-black text-white text-sm font-medium px-5 py-2 disabled:opacity-50">{cargando ? 'Leyendo…' : 'Interpretar'}</button></div>}
+        <AreaTexto value={texto} onChange={(e) => setTexto(e.target.value)} rows={4} placeholder="ej: Hola! me mandás 6 quilmes litro, 2 coca de 2.25 y un fernet? Para Av. Mate 123, pago en efectivo" aria-label="Mensaje del cliente" />
 
         {analisis && (
-          <div className="rounded-xl border border-black/10 p-3 space-y-2">
-            {analisis.nombre && <p className="text-sm"><b>Cliente:</b> {analisis.nombre}</p>}
-            <p className="text-xs text-black/50">{analisis.items.length} producto(s) reconocido(s):</p>
+          <div className="space-y-2 rounded-xl border border-black/[0.06] bg-crema-claro p-3">
+            {analisis.nombre && <p className="text-sm text-tinta"><b className="font-semibold">Cliente:</b> {analisis.nombre}</p>}
+            <p className="text-xs text-tinta/60">{analisis.items.length} producto(s) reconocido(s):</p>
             {analisis.items.map((it: any, i: number) => (
               <div key={i} className="flex items-center gap-2 text-sm">
-                <input type="number" value={it.cantidad} onChange={(e) => setAnalisis((a: any) => ({ ...a, items: a.items.map((x: any, j: number) => j === i ? { ...x, cantidad: Number(e.target.value) } : x) }))} className="w-14 rounded border border-black/15 px-2 py-1 text-right" />
-                <span className="flex-1">{it.match} <span className="text-xs text-black/40">(pidió: {it.pedido})</span></span>
-                <button onClick={() => setAnalisis((a: any) => ({ ...a, items: a.items.filter((_: any, j: number) => j !== i) }))} className="text-black/30 hover:text-[#B82D25]">✕</button>
+                <div className="w-20 shrink-0">
+                  <Entrada type="number" inputMode="decimal" value={it.cantidad} onChange={(e) => setAnalisis((a: any) => ({ ...a, items: a.items.map((x: any, j: number) => j === i ? { ...x, cantidad: Number(e.target.value) } : x) }))} aria-label={`Cantidad de ${it.match}`} className="text-right" />
+                </div>
+                <span className="min-w-0 flex-1 break-words text-tinta">{it.match} <span className="text-xs text-tinta/60">(pidió: {it.pedido})</span></span>
+                <button
+                  onClick={() => setAnalisis((a: any) => ({ ...a, items: a.items.filter((_: any, j: number) => j !== i) }))}
+                  aria-label={`Quitar ${it.match}`}
+                  className={unir('flex size-11 shrink-0 items-center justify-center rounded-full text-tinta/60 hover:bg-marca-suave hover:text-marca-hondo', FOCO)}
+                >
+                  <IconoCerrar className="size-5" />
+                </button>
               </div>
             ))}
-            {analisis.sinMatch?.length > 0 && <p className="text-xs text-amber-700 bg-amber-50 rounded px-2 py-1">No encontré en el catálogo: {analisis.sinMatch.join(', ')}</p>}
-            {analisis.notas && <p className="text-xs text-black/50"><b>Nota:</b> {analisis.notas}</p>}
-            {aviso && <p className="text-xs text-[#B82D25]">{aviso}</p>}
-            <div className="flex justify-end gap-3 pt-1">
-              <button onClick={() => setAnalisis(null)} className="text-sm text-black/60 px-4 py-2">Volver</button>
-              <button onClick={crear} disabled={cargando || !analisis.items.length} className="rounded-full bg-emerald-600 text-white text-sm font-medium px-5 py-2 hover:bg-emerald-700 disabled:opacity-50">{cargando ? 'Creando…' : 'Crear pedido'}</button>
-            </div>
+            {analisis.sinMatch?.length > 0 && <Aviso tono="atencion">No encontré en el catálogo: {analisis.sinMatch.join(', ')}</Aviso>}
+            {analisis.notas && <p className="text-sm text-tinta/70"><b className="font-semibold">Nota:</b> {analisis.notas}</p>}
+            {aviso && <Aviso tono="error">{aviso}</Aviso>}
           </div>
         )}
-        {aviso && !analisis && <p className="text-xs text-[#B82D25]">{aviso}</p>}
+        {aviso && !analisis && <Aviso tono="error">{aviso}</Aviso>}
       </div>
-    </div>
+    </Modal>
   );
 }

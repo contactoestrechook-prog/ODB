@@ -1,5 +1,7 @@
 import type { ReactNode } from 'react';
-import { ROTULO, unir } from './kit';
+
+// Rótulo en mayúsculas debajo del logo (más espaciado que el ROTULO del kit).
+const CLASE_ROTULO = 'mt-3 text-center text-xs font-semibold uppercase tracking-[0.25em] text-tinta/60';
 
 // El marco de las pantallas de acceso (entrar, recuperar la clave, elegir una
 // nueva y cambiarla): fondo crema, una tarjeta blanca centrada con el logo y
@@ -27,9 +29,9 @@ export function PantallaAcceso({
         <img src="/odb-logo.png" alt="O.D.B Premium Market" className="mx-auto h-14 w-auto sm:h-16" />
         {rotulo &&
           (titulo ? (
-            <p className={unir(ROTULO, 'mt-3 text-center tracking-[0.25em]')}>{rotulo}</p>
+            <p className={CLASE_ROTULO}>{rotulo}</p>
           ) : (
-            <h1 className={unir(ROTULO, 'mt-3 text-center tracking-[0.25em]')}>{rotulo}</h1>
+            <h1 className={CLASE_ROTULO}>{rotulo}</h1>
           ))}
         {titulo && <h1 className="mt-3 text-center text-xl font-bold tracking-tight text-tinta">{titulo}</h1>}
         {bajada && <p className="mt-1 text-center text-sm text-tinta/60">{bajada}</p>}

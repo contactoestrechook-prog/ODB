@@ -88,15 +88,15 @@ export function VentasWorkspace({ resumen, ventas, sucursales }: { resumen: any;
       )}
 
       {tab === 'buscar' && (
-        <form onSubmit={(e) => { e.preventDefault(); cargar(`buscar=${encodeURIComponent(buscar)}&limite=50`); }} className="flex flex-wrap gap-2 sm:flex-nowrap">
+        <form onSubmit={(e) => { e.preventDefault(); cargar(`buscar=${encodeURIComponent(buscar)}&limite=50`); }} className="flex flex-col gap-2 sm:flex-row">
           <Entrada
             aria-label="Buscar ticket"
             value={buscar}
             onChange={(e) => setBuscar(e.target.value)}
             placeholder="N° de ticket, DNI o nombre del cliente…"
-            className="min-w-0 flex-1 basis-full sm:basis-auto"
+            className="sm:flex-1"
           />
-          <Boton type="submit" className="w-full sm:w-auto">Buscar</Boton>
+          <Boton type="submit">Buscar</Boton>
         </form>
       )}
 

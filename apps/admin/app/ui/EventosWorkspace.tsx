@@ -1,15 +1,37 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { BotonVolver } from './BotonVolver';
+import { fecha, pesos as pesosFmt } from '../lib/formato';
+import {
+  Aviso,
+  Boton,
+  Campo,
+  Chips,
+  Entrada,
+  Etiqueta,
+  FOCO,
+  IconoCerrar,
+  Kpi,
+  Pestanas,
+  Selector,
+  Tarjeta,
+  Vacio,
+  clasesBoton,
+  unir,
+  type TonoEtiqueta,
+} from './kit';
 
-const pesos = (n: any) => '$' + Math.round(Number(n) || 0).toLocaleString('es-AR');
+const pesos = (n: any) => pesosFmt(Number(n) || 0);
 const TIPO: [string, string][] = [['cumpleanos', 'Cumpleaños'], ['casamiento', 'Casamiento'], ['corporativo', 'Corporativo'], ['fin_de_ano', 'Fin de año'], ['otro', 'Otro']];
 const ESTADO: [string, string][] = [['prospecto', 'Prospecto'], ['propuesta', 'Propuesta'], ['confirmado', 'Confirmado'], ['realizado', 'Realizado'], ['cancelado', 'Cancelado']];
-const ESTADO_BADGE: Record<string, string> = { prospecto: 'bg-amber-100 text-amber-800', propuesta: 'bg-blue-100 text-blue-800', confirmado: 'bg-green-100 text-green-800', realizado: 'bg-black/10 text-black/60', cancelado: 'bg-red-100 text-red-800' };
+const ESTADO_TONO: Record<string, TonoEtiqueta> = { prospecto: 'atencion', propuesta: 'info', confirmado: 'ok', realizado: 'neutro', cancelado: 'error' };
 const tipoLabel = (t: string) => TIPO.find((x) => x[0] === t)?.[1] ?? t;
 const estadoLabel = (e: string) => ESTADO.find((x) => x[0] === e)?.[1] ?? e;
 const isoEnDias = (d: number) => new Date(Date.now() + d * 86400000).toISOString().slice(0, 10);
+
+// Los mensajes de éxito llegan con "✓ " adelante: aviso verde y sin el tilde.
+const tonoMsg = (msg: string) => (msg.startsWith('✓') ? 'ok' : 'error');
+const sinTilde = (msg: string) => msg.replace(/^✓\s*/, '');
 
 export function EventosWorkspace({ resumen, oportunidades, eventos }: { resumen: any; oportunidades: any[]; eventos: any[] }) {
   const [kpi, setKpi] = useState(resumen ?? {});
@@ -37,61 +59,67 @@ export function EventosWorkspace({ resumen, oportunidades, eventos }: { resumen:
   if (sel) return <Detalle ev={sel} onBack={() => { setSel(null); refrescar(); }} />;
 
   return (
-    <div className="space-y-5">
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        {[['Oportunidades 60d', kpi?.oportunidades ?? 0], ['Propuestas', kpi?.propuestas ?? 0], ['Confirmados', kpi?.confirmados ?? 0], ['Pipeline', pesos(kpi?.pipeline)]].map(([l, v]: any, i) => (
-          <div key={l} className={`rounded-xl p-4 ${i === 0 ? 'bg-[#B82D25] text-white' : 'bg-white'}`}>
-            <p className={`text-xs ${i === 0 ? 'text-white/80' : 'text-black/50'}`}>{l}</p>
-            <p className={`text-xl font-semibold ${i === 0 ? 'text-white' : 'text-black'}`}>{v}</p>
-          </div>
+    <div className="space-y-4 sm:space-y-6">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {[['Oportunidades 60d', kpi?.oportunidades ?? 0], ['Propuestas', kpi?.propuestas ?? 0], ['Confirmados', kpi?.confirmados ?? 0], ['Pipeline', pesos(kpi?.pipeline)]].map(([l, v]: any) => (
+          <Kpi key={l} etiqueta={<span className="whitespace-normal">{l}</span>} valor={v} />
         ))}
       </div>
 
-      <div className="flex gap-1.5 flex-wrap border-b border-black/10">
-        {[['oportunidades', 'Oportunidades'], ['pipeline', 'Eventos']].map(([k, label]) => (
-          <button key={k} onClick={() => setTab(k)} className={`px-3.5 py-2 text-sm font-medium rounded-t-lg -mb-px border-b-2 ${tab === k ? 'border-[#B82D25] text-black' : 'border-transparent text-black/45 hover:text-black'}`}>{label}</button>
-        ))}
-      </div>
+      <Pestanas
+        etiquetaAccesible="Vistas de eventos"
+        valor={tab}
+        onCambiar={setTab}
+        opciones={[['oportunidades', 'Oportunidades'], ['pipeline', 'Eventos']].map(([k, label]) => ({ valor: k, etiqueta: label }))}
+      />
 
       {tab === 'oportunidades' && (
         <div className="space-y-3">
-          <p className="text-sm text-black/55">Clientes que cumplen años en los próximos 60 días. Armales una propuesta para su festejo.</p>
+          <p className="text-sm text-tinta/70">Clientes que cumplen años en los próximos 60 días. Armales una propuesta para su festejo.</p>
           {op.length === 0 ? (
-            <p className="rounded-xl bg-white px-4 py-8 text-center text-black/40 text-sm">No hay cumpleaños próximos. Cargá fechas de nacimiento de tus clientes para ver oportunidades.</p>
+            <Vacio titulo="No hay cumpleaños próximos." texto="Cargá fechas de nacimiento de tus clientes para ver oportunidades." />
           ) : op.map((o) => (
-            <div key={o.cliente_id} className="rounded-xl bg-white p-4 flex items-center justify-between gap-3">
-              <div>
-                <p className="text-sm font-semibold text-black">{o.nombre ?? 'Cliente'} <span className="text-black/40 font-normal">· DNI {o.dni}</span></p>
-                <p className="text-xs text-black/50 mt-0.5">Cumple en <b className="text-[#B82D25]">{o.dias} días</b> · {new Date(o.fecha_nacimiento).toLocaleDateString('es-AR', { day: '2-digit', month: 'long' })}</p>
+            <Tarjeta key={o.cliente_id} className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <p className="break-words text-base font-semibold text-tinta">{o.nombre ?? 'Cliente'} <span className="text-sm font-normal text-tinta/60">· DNI {o.dni}</span></p>
+                <p className="mt-0.5 text-sm text-tinta/60">Cumple en <b className="font-semibold text-marca-hondo">{o.dias} días</b> · {new Date(o.fecha_nacimiento).toLocaleDateString('es-AR', { day: '2-digit', month: 'long' })}</p>
               </div>
-              <button onClick={() => crearDesdeCumple(o)} className="shrink-0 rounded-full bg-[#B82D25] text-white text-sm font-medium px-4 py-2 hover:bg-[#932A1F]">{o.tiene_evento ? 'Ver propuesta' : 'Armar propuesta →'}</button>
-            </div>
+              <Boton onClick={() => crearDesdeCumple(o)} className="w-full shrink-0 sm:w-auto">{o.tiene_evento ? 'Ver propuesta' : 'Armar propuesta'}</Boton>
+            </Tarjeta>
           ))}
         </div>
       )}
 
       {tab === 'pipeline' && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between gap-2 flex-wrap">
-            <div className="flex gap-1.5 flex-wrap">
-              {[['', 'Todos'], ...ESTADO].map(([k, label]) => (
-                <button key={k} onClick={() => setFiltro(k)} className={`px-3 py-1.5 text-xs font-medium rounded-full border ${filtro === k ? 'border-[#B82D25] bg-white text-black' : 'border-black/10 text-black/50 hover:text-black'}`}>{label}</button>
-              ))}
-            </div>
-            <button onClick={() => setNuevo(true)} className="rounded-full bg-[#B82D25] text-white text-sm font-medium px-4 py-2 hover:bg-[#932A1F]">+ Nuevo evento</button>
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <Chips
+              etiquetaAccesible="Estado del evento"
+              valor={filtro}
+              onCambiar={setFiltro}
+              opciones={[['', 'Todos'], ...ESTADO].map(([k, label]) => ({ valor: k, etiqueta: label }))}
+            />
+            <Boton onClick={() => setNuevo(true)}>Nuevo evento</Boton>
           </div>
           {nuevo && <NuevoEvento onClose={() => setNuevo(false)} onCreated={(id) => { setNuevo(false); refrescar(); abrir(id); }} />}
           {evs.length === 0 ? (
-            <p className="rounded-xl bg-white px-4 py-8 text-center text-black/40 text-sm">No hay eventos{filtro ? ' en este estado' : ''}.</p>
+            <Vacio titulo={`No hay eventos${filtro ? ' en este estado' : ''}.`} />
           ) : evs.map((e) => (
-            <button key={e.id} onClick={() => abrir(e.id)} className="w-full text-left rounded-xl bg-white p-4 flex items-center justify-between gap-3 hover:bg-black/[0.02]">
-              <div>
-                <p className="text-sm font-semibold text-black">{e.nombre}</p>
-                <p className="text-xs text-black/50 mt-0.5">{tipoLabel(e.tipo)}{e.cliente?.nombre ? ` · ${e.cliente.nombre}` : ''}{e.fecha ? ` · ${new Date(e.fecha).toLocaleDateString('es-AR')}` : ''}{e.invitados ? ` · ${e.invitados} inv.` : ''}</p>
+            <button
+              key={e.id}
+              onClick={() => abrir(e.id)}
+              className={unir(
+                'flex w-full flex-wrap items-center justify-between gap-3 rounded-2xl border border-black/[0.06] bg-white p-4 text-left shadow-tarjeta transition-colors hover:bg-crema-claro sm:p-5',
+                FOCO,
+              )}
+            >
+              <div className="min-w-0 flex-1">
+                <p className="break-words text-base font-semibold text-tinta">{e.nombre}</p>
+                <p className="mt-0.5 text-sm text-tinta/60">{tipoLabel(e.tipo)}{e.cliente?.nombre ? ` · ${e.cliente.nombre}` : ''}{e.fecha ? ` · ${fecha(e.fecha, 'completa')}` : ''}{e.invitados ? ` · ${e.invitados} inv.` : ''}</p>
               </div>
               <div className="shrink-0 text-right">
-                <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${ESTADO_BADGE[e.estado] ?? ''}`}>{estadoLabel(e.estado)}</span>
-                {Number(e.presupuesto) > 0 && <p className="text-sm font-semibold text-black mt-1">{pesos(e.presupuesto)}</p>}
+                <Etiqueta tono={ESTADO_TONO[e.estado] ?? 'neutro'}>{estadoLabel(e.estado)}</Etiqueta>
+                {Number(e.presupuesto) > 0 && <p className="importe mt-1 text-sm font-semibold text-tinta">{pesos(e.presupuesto)}</p>}
               </div>
             </button>
           ))}
@@ -115,20 +143,28 @@ function NuevoEvento({ onClose, onCreated }: { onClose: () => void; onCreated: (
     } finally { setGuardando(false); }
   };
   return (
-    <div className="rounded-xl bg-white p-4 space-y-3">
-      <div className="grid sm:grid-cols-2 gap-3">
-        <select value={tipo} onChange={(e) => setTipo(e.target.value)} className="rounded-lg border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none">
-          {TIPO.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
-        </select>
-        <input value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Nombre del evento" className="rounded-lg border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[#B82D25]" />
-        <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className="rounded-lg border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none" />
-        <input type="number" value={invitados} onChange={(e) => setInvitados(e.target.value)} placeholder="Invitados" className="rounded-lg border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none" />
+    <Tarjeta className="space-y-4">
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Campo etiqueta="Tipo">
+          <Selector value={tipo} onChange={(e) => setTipo(e.target.value)}>
+            {TIPO.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+          </Selector>
+        </Campo>
+        <Campo etiqueta="Nombre del evento">
+          <Entrada value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Nombre del evento" />
+        </Campo>
+        <Campo etiqueta="Fecha">
+          <Entrada type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} />
+        </Campo>
+        <Campo etiqueta="Invitados">
+          <Entrada type="number" inputMode="numeric" value={invitados} onChange={(e) => setInvitados(e.target.value)} placeholder="Invitados" />
+        </Campo>
       </div>
-      <div className="flex gap-2">
-        <button onClick={crear} disabled={guardando} className="rounded-full bg-[#B82D25] text-white text-sm font-medium px-4 py-2 hover:bg-[#932A1F] disabled:opacity-50">{guardando ? 'Creando…' : 'Crear evento'}</button>
-        <button onClick={onClose} className="text-sm text-black/45 hover:text-black">Cancelar</button>
+      <div className="flex flex-wrap gap-2">
+        <Boton onClick={crear} cargando={guardando}>{guardando ? 'Creando…' : 'Crear evento'}</Boton>
+        <Boton variante="fantasma" onClick={onClose}>Cancelar</Boton>
       </div>
-    </div>
+    </Tarjeta>
   );
 }
 
@@ -177,61 +213,87 @@ function Detalle({ ev, onBack }: { ev: any; onBack: () => void }) {
 
   return (
     <div className="space-y-4">
-      <BotonVolver onClick={onBack} label="Volver a eventos" />
-      <div className="rounded-xl bg-white p-5">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <p className="text-lg font-semibold text-black">{ev.nombre}</p>
-            <p className="text-sm text-black/50">{tipoLabel(ev.tipo)}{ev.cliente?.nombre ? ` · ${ev.cliente.nombre} (DNI ${ev.cliente.dni})` : ' · sin cliente asociado'}{ev.fecha ? ` · ${new Date(ev.fecha).toLocaleDateString('es-AR')}` : ''}</p>
+      <Boton
+        variante="secundario"
+        onClick={onBack}
+        icono={
+          <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M19 12H5M11 6l-6 6 6 6" />
+          </svg>
+        }
+      >
+        Volver a eventos
+      </Boton>
+      <Tarjeta>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <p className="break-words text-lg font-semibold text-tinta">{ev.nombre}</p>
+            <p className="break-words text-sm text-tinta/60">{tipoLabel(ev.tipo)}{ev.cliente?.nombre ? ` · ${ev.cliente.nombre} (DNI ${ev.cliente.dni})` : ' · sin cliente asociado'}{ev.fecha ? ` · ${fecha(ev.fecha, 'completa')}` : ''}</p>
           </div>
-          <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold ${ESTADO_BADGE[ev.estado] ?? ''}`}>{estadoLabel(ev.estado)}</span>
+          <Etiqueta tono={ESTADO_TONO[ev.estado] ?? 'neutro'} className="shrink-0">{estadoLabel(ev.estado)}</Etiqueta>
         </div>
-        <div className="flex items-end gap-3 mt-4 flex-wrap">
-          <label className="text-sm text-black/60">Invitados
-            <input type="number" value={invitados} onChange={(e) => setInvitados(e.target.value)} className="block mt-1 w-28 rounded-lg border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[#B82D25]" />
-          </label>
-          <button onClick={sugerir} disabled={sugiriendo} className="rounded-full bg-[#B82D25] text-white text-sm font-medium px-4 py-2.5 hover:bg-[#932A1F] disabled:opacity-50">{sugiriendo ? 'Pensando…' : '✨ Sugerir bebidas (IA)'}</button>
+        <div className="mt-4 flex flex-wrap items-end gap-3">
+          <Campo etiqueta="Invitados" className="w-32">
+            <Entrada type="number" inputMode="numeric" value={invitados} onChange={(e) => setInvitados(e.target.value)} />
+          </Campo>
+          <Boton variante="secundario" onClick={sugerir} cargando={sugiriendo}>{sugiriendo ? 'Pensando…' : 'Sugerir bebidas (IA)'}</Boton>
         </div>
-      </div>
+      </Tarjeta>
 
-      <div className="rounded-xl bg-white p-5 space-y-3">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-black">Propuesta</h3>
-          <span className="text-lg font-semibold text-black">{pesos(total)}</span>
+      <Tarjeta className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-base font-semibold text-tinta">Propuesta</h3>
+          <span className="importe text-lg font-semibold text-tinta">{pesos(total)}</span>
         </div>
-        {items.length === 0 ? <p className="text-sm text-black/40 py-4 text-center">Sin ítems. Usá la sugerencia de IA o agregá productos.</p> : (
-          <div className="divide-y divide-black/5">
+        {items.length === 0 ? <p className="py-4 text-center text-sm text-tinta/60">Sin ítems. Usá la sugerencia de IA o agregá productos.</p> : (
+          <div className="divide-y divide-black/[0.06]">
             {items.map((it, i) => (
-              <div key={i} className="flex items-center gap-3 py-2">
-                <span className="flex-1 text-sm text-black">{it.descripcion}</span>
-                <input type="number" value={it.cantidad} onChange={(e) => editar(i, 'cantidad', Number(e.target.value))} className="w-16 rounded-lg border border-black/15 px-2 py-1 text-sm text-black text-center outline-none" />
-                <span className="w-24 text-right text-sm text-black/60">{pesos(it.precio_unitario)}</span>
-                <span className="w-28 text-right text-sm font-medium text-black">{pesos(Number(it.cantidad) * Number(it.precio_unitario))}</span>
-                <button onClick={() => setItems((c) => c.filter((_, idx) => idx !== i))} className="text-black/30 hover:text-[#B82D25] text-lg leading-none">×</button>
+              <div key={i} className="flex flex-wrap items-center gap-x-3 gap-y-2 py-2.5 sm:flex-nowrap">
+                <span className="min-w-0 basis-full break-words text-sm text-tinta sm:basis-auto sm:flex-1">{it.descripcion}</span>
+                <div className="w-20 shrink-0">
+                  <Entrada type="number" inputMode="decimal" value={it.cantidad} onChange={(e) => editar(i, 'cantidad', Number(e.target.value))} aria-label={`Cantidad de ${it.descripcion}`} className="text-center" />
+                </div>
+                <span className="importe min-w-0 flex-1 truncate text-sm text-tinta/60 sm:w-24 sm:flex-none sm:text-right">
+                  <span className="sm:hidden">× </span>{pesos(it.precio_unitario)}
+                </span>
+                <span className="importe text-right text-sm font-medium text-tinta sm:w-28">{pesos(Number(it.cantidad) * Number(it.precio_unitario))}</span>
+                <button
+                  onClick={() => setItems((c) => c.filter((_, idx) => idx !== i))}
+                  aria-label={`Quitar ${it.descripcion}`}
+                  className={unir('flex size-11 shrink-0 items-center justify-center rounded-full text-tinta/60 hover:bg-marca-suave hover:text-marca-hondo', FOCO)}
+                >
+                  <IconoCerrar className="size-5" />
+                </button>
               </div>
             ))}
           </div>
         )}
         <div className="relative">
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="+ Agregar producto…" className="w-full rounded-lg border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none focus:border-[#B82D25]" />
+          <Entrada value={q} onChange={(e) => setQ(e.target.value)} placeholder="+ Agregar producto…" aria-label="Agregar producto" />
           {res.length > 0 && (
-            <div className="absolute z-10 mt-1 w-full rounded-lg border border-black/10 bg-white shadow-lg overflow-hidden">
+            <div className="absolute z-contenido mt-1 w-full overflow-hidden rounded-xl border border-black/[0.06] bg-white shadow-flotante">
               {res.map((p) => (
-                <button key={p.sku} onClick={() => agregar(p)} className="flex w-full items-center justify-between px-3 py-2 text-sm text-black hover:bg-[#F0EBE2]"><span>{p.nombre}</span><span className="text-black/45">{pesos(p.precio)}</span></button>
+                <button
+                  key={p.sku}
+                  onClick={() => agregar(p)}
+                  className="flex min-h-11 w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm text-tinta hover:bg-crema-claro focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-marca"
+                >
+                  <span className="min-w-0 break-words">{p.nombre}</span><span className="importe shrink-0 text-tinta/60">{pesos(p.precio)}</span>
+                </button>
               ))}
             </div>
           )}
         </div>
-      </div>
+      </Tarjeta>
 
-      {msg && <p className={`text-sm ${msg.startsWith('✓') ? 'text-green-700' : 'text-[#932A1F]'}`}>{msg}</p>}
-      <div className="flex items-center gap-2 flex-wrap">
-        <select value={estado} onChange={(e) => setEstado(e.target.value)} className="rounded-lg border border-black/15 bg-white px-3 py-2 text-sm text-black outline-none">
+      {msg && <Aviso tono={tonoMsg(msg)}>{sinTilde(msg)}</Aviso>}
+      <div className="flex flex-wrap items-center gap-2">
+        <Selector value={estado} onChange={(e) => setEstado(e.target.value)} aria-label="Estado del evento" className="w-full sm:w-auto">
           {ESTADO.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
-        </select>
-        <button onClick={guardar} disabled={guardando} className="rounded-full bg-black text-white text-sm font-medium px-4 py-2 hover:bg-black/80 disabled:opacity-50">{guardando ? 'Guardando…' : 'Guardar propuesta'}</button>
-        <a href={`/api/eventos/${ev.id}/presupuesto`} target="_blank" rel="noopener noreferrer" className="rounded-full border border-[#B82D25] text-[#B82D25] text-sm font-medium px-4 py-2 hover:bg-[#B82D25]/10">Descargar PDF</a>
-        <button onClick={enviar} disabled={enviando || !ev.cliente_id} title={!ev.cliente_id ? 'El evento no tiene cliente asociado' : ''} className="rounded-full bg-[#B82D25] text-white text-sm font-medium px-4 py-2 hover:bg-[#932A1F] disabled:opacity-40">{enviando ? 'Enviando…' : 'Enviar al cliente'}</button>
+        </Selector>
+        <Boton variante="secundario" onClick={guardar} cargando={guardando}>{guardando ? 'Guardando…' : 'Guardar propuesta'}</Boton>
+        <a href={`/api/eventos/${ev.id}/presupuesto`} target="_blank" rel="noopener noreferrer" className={clasesBoton({ variante: 'secundario' })}>Descargar PDF</a>
+        <Boton onClick={enviar} cargando={enviando} disabled={enviando || !ev.cliente_id} title={!ev.cliente_id ? 'El evento no tiene cliente asociado' : ''}>{enviando ? 'Enviando…' : 'Enviar al cliente'}</Boton>
       </div>
     </div>
   );

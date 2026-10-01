@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { FOCO, unir } from './kit';
 
 // Botón de dictado por voz (Web Speech API del navegador, en español rioplatense).
 // Mientras la persona habla, va llenando el input vía onTexto; al terminar,
@@ -94,20 +95,29 @@ export function BotonMicrofono({
         onClick={toggle}
         title={escuchando ? 'Tocá para terminar' : titulo}
         aria-label={escuchando ? 'Terminar dictado' : titulo}
-        className={
-          'h-11 w-11 rounded-full flex items-center justify-center border transition ' +
-          (escuchando
-            ? 'bg-[#B82D25] text-white border-[#B82D25] animate-pulse'
-            : 'bg-white text-black border-black/15 hover:border-[#B82D25]')
-        }
+        className={unir(
+          'flex size-11 items-center justify-center rounded-full border transition-colors active:scale-[0.98]',
+          escuchando
+            ? 'animate-pulse border-marca bg-marca text-white motion-reduce:animate-none'
+            : 'border-black/15 bg-white text-tinta hover:border-marca',
+          FOCO,
+        )}
       >
-        <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <rect x="9" y="3" width="6" height="11" rx="3" />
           <path d="M5 11a7 7 0 0014 0M12 18v3" />
         </svg>
       </button>
+      {/* el aviso de error va fijo en la pantalla (debajo de la barra negra en
+          el celular, arriba a la derecha en la compu): el micrófono está a veces
+          contra el borde izquierdo y a veces contra el derecho, y siempre dentro
+          de una caja con overflow-hidden; un globo pegado al botón se salía de
+          la pantalla o quedaba cortado */}
       {error && (
-        <span className="absolute top-full right-0 mt-1 w-52 rounded-lg bg-black text-white text-[11px] px-2.5 py-1.5 shadow-lg z-10">
+        <span
+          role="alert"
+          className="fixed inset-x-4 top-[calc(var(--alto-barra-movil)+0.5rem)] z-toast rounded-xl bg-tinta px-3 py-2 text-sm text-white shadow-flotante sm:inset-x-auto sm:top-6 sm:right-6 sm:w-80"
+        >
           {error}
         </span>
       )}

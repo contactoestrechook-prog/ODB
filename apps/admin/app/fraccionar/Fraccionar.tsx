@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { Aviso, Boton, Entrada, Selector, Tarjeta, Vacio } from '../ui/kit';
 
 // Fraccionamiento (caso huevos). Tres instancias: la mercadería ENTRA al pozo
 // madre en unidades (por la factura del proveedor); acá las chicas ARMAN las
@@ -52,79 +53,86 @@ export function Fraccionar() {
   const haySucursales = useMemo(() => sucursales.length > 0, [sucursales]);
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-[#141414]">Fraccionar</h1>
-          <p className="text-sm text-neutral-600">
-            La mercadería entra al pozo por la factura; acá se anota lo que se arma (docenas, maples) y la caja vende lo armado.
-          </p>
-        </div>
+    <div className="space-y-4 sm:space-y-6">
+      {/* el título "Fraccionar" ya lo pone la cabecera */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <p className="min-w-0 text-sm text-tinta/70">
+          La mercadería entra al pozo por la factura; acá se anota lo que se arma (docenas, maples) y la caja vende lo armado.
+        </p>
         {haySucursales && (
-          <select value={sucursal} onChange={(e) => setSucursal(e.target.value)}
-            className="border border-neutral-300 rounded-lg px-3 py-2 bg-white text-sm">
-            {sucursales.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
-          </select>
+          <Selector
+            value={sucursal}
+            onChange={(e) => setSucursal(e.target.value)}
+            aria-label="Sucursal"
+            className="shrink-0 sm:w-56"
+            opciones={sucursales.map((s) => ({ valor: s.id, etiqueta: s.nombre }))}
+          />
         )}
       </div>
 
-      {aviso && <div className="bg-green-50 border border-green-200 text-green-900 rounded-lg px-4 py-3 text-sm">{aviso}</div>}
-      {error && <div className="bg-red-50 border border-red-200 text-red-900 rounded-lg px-4 py-3 text-sm">{error}</div>}
+      {aviso && <Aviso tono="ok">{aviso}</Aviso>}
+      {error && <Aviso tono="error">{error}</Aviso>}
 
       {grupos.length === 0 && (
-        <div className="bg-white rounded-xl border border-neutral-200 p-6 text-sm text-neutral-600">
-          No hay productos fraccionables configurados. Se configuran en la ficha del producto (fracción de + unidades).
-        </div>
+        <Vacio
+          titulo="No hay productos fraccionables configurados."
+          texto="Se configuran en la ficha del producto (fracción de + unidades)."
+        />
       )}
 
       {grupos.map((g) => (
-        <div key={g.madre.id} className="bg-white rounded-xl border border-neutral-200 overflow-hidden">
-          <div className="bg-[#141414] text-[#F0EBE2] px-5 py-3 flex items-center justify-between">
-            <div>
-              <div className="font-semibold">{g.madre.nombre}</div>
-              <div className="text-xs opacity-70">{g.madre.sku} · el pozo se carga con la factura del proveedor</div>
+        <Tarjeta key={g.madre.id} relleno={false} className="overflow-hidden">
+          <div className="flex items-center justify-between gap-3 bg-tinta px-4 py-3 text-crema sm:px-5">
+            <div className="min-w-0">
+              <div className="break-words font-semibold">{g.madre.nombre}</div>
+              <div className="text-xs text-white/70">{g.madre.sku} · el pozo se carga con la factura del proveedor</div>
             </div>
-            <div className="text-right">
-              <div className="text-2xl font-bold text-[#C9A96E]">{stockEn(g.madre.stock).toLocaleString('es-AR')}</div>
-              <div className="text-xs opacity-70">unidades en el pozo</div>
+            <div className="shrink-0 text-right">
+              <div className="importe text-2xl font-bold text-dorado">{stockEn(g.madre.stock).toLocaleString('es-AR')}</div>
+              <div className="text-xs text-white/70">unidades en el pozo</div>
             </div>
           </div>
-          <div className="divide-y divide-neutral-100">
+          <div className="divide-y divide-black/[0.06]">
             {g.fracciones.map((f) => (
-              <div key={f.id} className="px-5 py-4 flex items-center gap-4 flex-wrap">
-                <div className="flex-1 min-w-[200px]">
-                  <div className="font-medium text-[#141414]">{f.nombre}</div>
-                  <div className="text-xs text-neutral-500">{f.sku} · lleva {f.unidades} unidades c/u</div>
+              <div key={f.id} className="flex flex-wrap items-center gap-x-4 gap-y-3 px-4 py-4 sm:px-5">
+                <div className="min-w-0 flex-1 basis-40">
+                  <div className="break-words font-semibold text-tinta">{f.nombre}</div>
+                  <div className="text-xs text-tinta/60">{f.sku} · lleva {f.unidades} unidades c/u</div>
                 </div>
-                <div className="text-right">
-                  <div className="font-semibold">{stockEn(f.stock).toLocaleString('es-AR')}</div>
-                  <div className="text-xs text-neutral-500">armadas</div>
+                <div className="shrink-0 text-right">
+                  <div className="importe font-semibold text-tinta">{stockEn(f.stock).toLocaleString('es-AR')}</div>
+                  <div className="text-xs text-tinta/60">armadas</div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="number" min={1} inputMode="numeric" placeholder="Cant."
-                    value={cantidades[f.id] ?? ''}
-                    onChange={(e) => setCantidades((c) => ({ ...c, [f.id]: e.target.value }))}
-                    className="w-20 border border-neutral-300 rounded-lg px-2 py-2 text-sm text-center"
-                  />
-                  <button
+                <div className="flex w-full items-center gap-2 sm:w-auto">
+                  <div className="w-24 shrink-0">
+                    <Entrada
+                      type="number" min={1} inputMode="numeric" placeholder="Cant."
+                      aria-label={`Cantidad de ${f.nombre}`}
+                      value={cantidades[f.id] ?? ''}
+                      onChange={(e) => setCantidades((c) => ({ ...c, [f.id]: e.target.value }))}
+                      className="text-center"
+                    />
+                  </div>
+                  <Boton
                     onClick={() => mover(f.id, 1)}
                     disabled={ocupado === f.id || !sucursal}
-                    className="bg-[#141414] text-[#F0EBE2] rounded-lg px-4 py-2 text-sm font-medium disabled:opacity-40">
+                    className="flex-1 sm:flex-none"
+                  >
                     {ocupado === f.id ? '…' : 'Armar'}
-                  </button>
-                  <button
+                  </Boton>
+                  <Boton
+                    variante="secundario"
                     onClick={() => mover(f.id, -1)}
                     disabled={ocupado === f.id || !sucursal}
                     title="Volver fracciones al pozo (se rompió el envase, se armó de más)"
-                    className="border border-neutral-300 text-neutral-700 rounded-lg px-3 py-2 text-sm disabled:opacity-40">
+                  >
                     Deshacer
-                  </button>
+                  </Boton>
                 </div>
               </div>
             ))}
           </div>
-        </div>
+        </Tarjeta>
       ))}
     </div>
   );

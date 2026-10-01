@@ -2,8 +2,24 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import {
+  Aviso,
+  Boton,
+  Cargando,
+  Chips,
+  Entrada,
+  Etiqueta,
+  IconoAtencion,
+  IconoOk,
+  Kpi,
+  Monto,
+  TablaResponsiva,
+  Tarjeta,
+  TarjetaCabecera,
+  Vacio,
+} from './kit';
+import { fecha, pesos } from '../lib/formato';
 
-const pesos = (n: any) => (n == null || !Number.isFinite(Number(n)) ? '—' : '$' + Math.round(Number(n)).toLocaleString('es-AR'));
 const EMISOR_LABEL: Record<string, string> = {
   principal: 'Sant Thomas · Chinvenguencha SRL',
   santa_ines: 'Santa Inés · ODB SRL',
@@ -88,163 +104,158 @@ export function ArcaWorkspace({ estado, contador, pendientes }: { estado: any; c
 
   const r = datos?.resumen ?? {};
   const cola = pendientes?.comprobantes ?? [];
+  const comprobantes: any[] = datos?.comprobantes ?? [];
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4 sm:space-y-6">
       {/* estado de la conexión */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="space-y-1.5">
-          <div className="flex flex-wrap items-center gap-1.5">
-            {['principal', 'santa_ines'].map((e) => (
-              <button
-                key={e}
-                onClick={() => cambiarEmisor(e)}
-                className={'rounded-full px-3.5 py-1.5 text-xs font-medium border ' +
-                  (emisorSel === e ? 'bg-black text-white border-black' : 'bg-white text-black border-black/15 hover:border-[#B82D25]')}
-              >
-                {EMISOR_LABEL[e] ?? e}
-              </button>
-            ))}
-          </div>
-          <div className="flex flex-wrap items-center gap-2 text-xs text-black/55">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0 space-y-2">
+          <Chips
+            etiquetaAccesible="Emisor"
+            valor={emisorSel}
+            onCambiar={cambiarEmisor}
+            opciones={['principal', 'santa_ines'].map((e) => ({ valor: e, etiqueta: EMISOR_LABEL[e] ?? e }))}
+          />
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-tinta/70">
             {(estado?.emisores ?? []).map((e: any) => (
-              <span key={e.emisor} className="flex items-center gap-1">
+              <span key={e.emisor} className="flex min-w-0 items-center gap-1.5">
                 {EMISOR_LABEL[e.emisor]?.split(' · ')[0] ?? e.emisor}:
                 {e.configurado && !e.error
-                  ? <span className="rounded-full bg-emerald-100 text-emerald-800 px-2 py-0.5 text-[11px]">conectado{e.ultimaFacturaB != null ? ` · última FB ${e.ultimaFacturaB}` : ''}</span>
-                  : <span className="rounded-full bg-amber-100 text-amber-800 px-2 py-0.5 text-[11px]" title={e.error}>pendiente</span>}
+                  ? <Etiqueta tono="ok">conectado{e.ultimaFacturaB != null ? ` · última FB ${e.ultimaFacturaB}` : ''}</Etiqueta>
+                  : <span title={e.error}><Etiqueta tono="atencion">pendiente</Etiqueta></span>}
               </span>
             ))}
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <button onClick={descargarCsv} disabled={!datos?.comprobantes?.length} className="rounded-full bg-white border border-black/15 text-black text-sm font-medium px-4 py-2 hover:border-[#B82D25] disabled:opacity-40">
-            Descargar CSV para el contador
-          </button>
-        </div>
+        <Boton variante="secundario" onClick={descargarCsv} disabled={!datos?.comprobantes?.length} className="w-full sm:w-auto lg:shrink-0">
+          Descargar CSV para el contador
+        </Boton>
       </div>
 
       {/* período: hoy / semana / quincena / mes */}
-      <div className="flex flex-wrap items-center gap-1.5">
-        <span className="text-xs text-black/40 mr-1">Período:</span>
-        {[['hoy', 'Hoy'], ['semana', 'Semana'], ['quincena', 'Quincena'], ['mes', 'Mes']].map(([id, label]) => (
-          <button
-            key={id}
-            onClick={() => cambiarPeriodo(id)}
-            className={'rounded-full px-3.5 py-1.5 text-xs font-medium border ' +
-              (periodo === id ? 'bg-black text-white border-black' : 'bg-white text-black border-black/15 hover:border-black/40')}
-          >
-            {label}
-          </button>
-        ))}
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-sm text-tinta/60">Período:</span>
+        <Chips
+          etiquetaAccesible="Período"
+          valor={periodo}
+          onCambiar={cambiarPeriodo}
+          opciones={[['hoy', 'Hoy'], ['semana', 'Semana'], ['quincena', 'Quincena'], ['mes', 'Mes']].map(([id, label]) => ({ valor: id, etiqueta: label }))}
+        />
         {periodo === 'mes' && (
-          <input type="month" value={mes} onChange={(e) => cambiarMes(e.target.value)} className="rounded-lg border border-black/15 px-2.5 py-1.5 text-xs bg-white ml-1" />
+          <div className="w-44">
+            <Entrada type="month" value={mes} onChange={(e) => cambiarMes(e.target.value)} aria-label="Mes" />
+          </div>
         )}
-        {cargando && <span className="text-xs text-black/40 ml-1">actualizando…</span>}
+        {cargando && <Cargando texto="actualizando…" />}
       </div>
 
-      {aviso && <p className="rounded-lg bg-white p-3 text-sm text-black/70">{aviso}</p>}
+      {aviso && <Aviso tono="neutro">{aviso}</Aviso>}
 
       {/* resumen del mes */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        {[
-          ['Comprobantes', r.comprobantes ?? 0],
-          ['Neto gravado', pesos(r.neto)],
-          ['IVA débito fiscal', pesos(r.ivaDebito), 'text-[#932A1F]'],
-          ['Total facturado', pesos(r.total)],
-        ].map(([l, v, c]: any) => (
-          <div key={l} className="rounded-xl bg-white p-3.5 border border-black/[0.04]">
-            <p className={`text-lg font-semibold leading-none ${c || 'text-black'}`}>{v}</p>
-            <p className="text-[11px] text-black/45 mt-1">{l}</p>
-          </div>
-        ))}
+      {/* en el celular, neto y total (los importes largos) van a todo el ancho */}
+      <div className="grid grid-flow-row-dense grid-cols-2 gap-3 sm:grid-cols-4">
+        <Kpi etiqueta="Comprobantes" valor={r.comprobantes ?? 0} />
+        <Kpi etiqueta="Neto gravado" valor={pesos(r.neto)} className="col-span-2 sm:col-span-1" />
+        <Kpi etiqueta="IVA débito fiscal" valor={pesos(r.ivaDebito)} tono="error" />
+        <Kpi etiqueta="Total facturado" valor={pesos(r.total)} className="col-span-2 sm:col-span-1" />
       </div>
 
       {(r.porTipo ?? []).length > 0 && (
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {r.porTipo.map((t: any) => (
-            <div key={t.tipo} className="rounded-xl bg-white p-4 border border-black/[0.04] flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-black">{TIPO_LABEL[t.tipo] ?? t.tipo}</p>
-                <p className="text-xs text-black/45">{t.cantidad} · IVA {pesos(t.iva)}</p>
+            <Tarjeta key={t.tipo} className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-tinta">{TIPO_LABEL[t.tipo] ?? t.tipo}</p>
+                <p className="text-xs text-tinta/60">{t.cantidad} · IVA {pesos(t.iva)}</p>
               </div>
-              <p className="font-semibold text-black">{pesos(t.total)}</p>
-            </div>
+              <Monto valor={t.total} className="shrink-0 font-semibold text-tinta" />
+            </Tarjeta>
           ))}
         </div>
       )}
 
       {/* cola pendiente */}
-      <section className="rounded-xl bg-white overflow-hidden">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-black/10">
-          <h2 className="font-medium text-black text-sm">Pendientes de CAE ({cola.length})</h2>
-          {cola.length > 0 && (
-            <button onClick={emitir} disabled={cargando || !estado?.configurado} className="rounded-full bg-black text-white text-xs font-medium px-4 py-1.5 hover:bg-black/80 disabled:opacity-50">
+      <Tarjeta relleno={false} className="overflow-hidden">
+        <TarjetaCabecera
+          titulo={`Pendientes de CAE (${cola.length})`}
+          accion={cola.length > 0 && (
+            <Boton tamano="chico" onClick={emitir} disabled={cargando || !estado?.configurado}>
               {cargando ? 'Emitiendo…' : 'Emitir todos'}
-            </button>
+            </Boton>
           )}
-        </div>
+        />
         {cola.length === 0 ? (
-          <p className="px-4 py-6 text-center text-emerald-700 text-sm">✓ Todo facturado. No hay comprobantes pendientes.</p>
-        ) : (
-          <table className="w-full text-sm text-black">
-            <tbody>
-              {cola.map((c: any) => (
-                <tr key={c.id} className="border-b border-black/5 last:border-0">
-                  <td className="px-4 py-2.5 text-xs">{TIPO_LABEL[c.tipo] ?? c.tipo}</td>
-                  <td className="px-4 py-2.5 text-xs text-black/55">{new Date(c.creado_en).toLocaleDateString('es-AR')}</td>
-                  <td className="px-4 py-2.5 text-right">{pesos(c.venta?.total)}</td>
-                  <td className="px-4 py-2.5 text-xs">
-                    {c.estado === 'error'
-                      ? <span className="text-[#B82D25]" title={c.error_detalle}>⚠ {String(c.error_detalle ?? 'error').slice(0, 60)}</span>
-                      : <span className="text-black/45">pendiente</span>}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </section>
-
-      {/* comprobantes emitidos del mes */}
-      <section className="rounded-xl bg-white overflow-hidden">
-        <h2 className="px-4 py-3 border-b border-black/10 font-medium text-black text-sm">
-          Comprobantes con CAE — {mes} ({(datos?.comprobantes ?? []).length})
-        </h2>
-        {(datos?.comprobantes ?? []).length === 0 ? (
-          <p className="px-4 py-10 text-center text-black/40 text-sm">
-            Sin comprobantes electrónicos este mes todavía. Cuando la caja facture, aparecen acá y en el CSV.
+          <p className="flex items-center justify-center gap-2 px-4 py-6 text-center text-sm text-ok">
+            <IconoOk className="size-5 shrink-0" />
+            Todo facturado. No hay comprobantes pendientes.
           </p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm text-black min-w-[46rem]">
-              <thead><tr className="text-left text-xs text-black/50 border-b border-black/5">
-                <th className="px-4 py-2 font-medium">Fecha</th>
-                <th className="px-4 py-2 font-medium">Comprobante</th>
-                <th className="px-4 py-2 font-medium">Receptor</th>
-                <th className="px-4 py-2 font-medium text-right">Neto</th>
-                <th className="px-4 py-2 font-medium text-right">IVA</th>
-                <th className="px-4 py-2 font-medium text-right">Total</th>
-                <th className="px-4 py-2 font-medium">CAE</th>
-              </tr></thead>
-              <tbody>
-                {(datos?.comprobantes ?? []).map((c: any) => (
-                  <tr key={c.numero + c.tipo} className="border-b border-black/5 last:border-0">
-                    <td className="px-4 py-2 text-xs text-black/55 whitespace-nowrap">{c.fecha}</td>
-                    <td className="px-4 py-2 text-xs whitespace-nowrap">{TIPO_LABEL[c.tipo] ?? c.tipo} {c.numero}</td>
-                    <td className="px-4 py-2 text-xs max-w-40 min-w-0 break-words">{c.receptor}{c.docNro ? ` (${c.docTipo} ${c.docNro})` : ''}</td>
-                    <td className="px-4 py-2 text-right text-xs tabular-nums">{pesos(c.neto)}</td>
-                    <td className="px-4 py-2 text-right text-xs tabular-nums text-[#932A1F]">{pesos(c.iva)}</td>
-                    <td className="px-4 py-2 text-right font-medium tabular-nums">{pesos(c.total)}</td>
-                    <td className="px-4 py-2 text-[11px] font-mono text-black/55">{c.cae}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <TablaResponsiva
+            sinMarco
+            etiqueta="Pendientes de CAE"
+            filas={cola}
+            claveFila="id"
+            columnas={[
+              { clave: 'tipo', titulo: 'Tipo', principal: true, celda: (c: any) => TIPO_LABEL[c.tipo] ?? c.tipo },
+              { clave: 'fecha', titulo: 'Fecha', claseCelda: 'whitespace-nowrap text-tinta/70', celda: (c: any) => fecha(c.creado_en, 'completa') },
+              { clave: 'total', titulo: 'Total', importe: true, celda: (c: any) => pesos(c.venta?.total) },
+              {
+                clave: 'estado',
+                titulo: 'Estado',
+                celda: (c: any) =>
+                  c.estado === 'error'
+                    ? (
+                      <span className="inline-flex items-start gap-1 text-xs text-marca-hondo" title={c.error_detalle}>
+                        <IconoAtencion className="mt-px size-4 shrink-0" />
+                        <span className="min-w-0 break-words">{String(c.error_detalle ?? 'error').slice(0, 60)}</span>
+                      </span>
+                    )
+                    : <span className="text-xs text-tinta/60">pendiente</span>,
+              },
+            ]}
+          />
         )}
-      </section>
-      <p className="text-xs text-black/45 px-1">
+      </Tarjeta>
+
+      {/* comprobantes emitidos del mes */}
+      <Tarjeta relleno={false} className="overflow-hidden">
+        <TarjetaCabecera titulo={`Comprobantes con CAE — ${mes} (${comprobantes.length})`} />
+        <TablaResponsiva
+          sinMarco
+          etiqueta="Comprobantes con CAE"
+          filas={comprobantes}
+          claveFila={(c: any) => c.numero + c.tipo}
+          vacio={
+            <Vacio
+              className="m-4"
+              titulo="Sin comprobantes electrónicos este mes todavía."
+              texto="Cuando la caja facture, aparecen acá y en el CSV."
+            />
+          }
+          columnas={[
+            { clave: 'fecha', titulo: 'Fecha', claseCelda: 'whitespace-nowrap text-tinta/70', celda: (c: any) => c.fecha },
+            {
+              clave: 'comprobante',
+              titulo: 'Comprobante',
+              principal: true,
+              claseCelda: 'whitespace-nowrap',
+              celda: (c: any) => `${TIPO_LABEL[c.tipo] ?? c.tipo} ${c.numero}`,
+            },
+            {
+              clave: 'receptor',
+              titulo: 'Receptor',
+              claseCelda: 'max-w-48',
+              celda: (c: any) => <span className="break-words">{c.receptor}{c.docNro ? ` (${c.docTipo} ${c.docNro})` : ''}</span>,
+            },
+            { clave: 'neto', titulo: 'Neto', importe: true, celda: (c: any) => pesos(c.neto) },
+            { clave: 'iva', titulo: 'IVA', importe: true, celda: (c: any) => <span className="text-marca-hondo">{pesos(c.iva)}</span> },
+            { clave: 'total', titulo: 'Total', importe: true, celda: (c: any) => <span className="font-semibold">{pesos(c.total)}</span> },
+            { clave: 'cae', titulo: 'CAE', celda: (c: any) => <span className="break-all font-mono text-xs text-tinta/70">{c.cae}</span> },
+          ]}
+        />
+      </Tarjeta>
+      <p className="px-1 text-xs text-tinta/60">
         El CSV incluye numeración completa, receptor, neto gravado, IVA débito, total y CAE de cada comprobante del período:
         listo para el libro IVA ventas del contador. Los importes usan coma decimal (formato Excel argentino).
       </p>

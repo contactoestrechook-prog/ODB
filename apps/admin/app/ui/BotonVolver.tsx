@@ -1,18 +1,29 @@
 'use client';
 
-import Link from 'next/link';
+import { Boton, BotonLink } from './kit';
+
+// Flecha de línea (en lugar del glifo "←"), del mismo trazo que los íconos del kit.
+function IconoVolver() {
+  return (
+    <svg viewBox="0 0 24 24" className="size-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+      <path d="M19 12H5M11 18l-6-6 6-6" />
+    </svg>
+  );
+}
 
 // Botón "Volver" claro y consistente para todas las pantallas de detalle.
 // Acepta un href (navega) o un onClick (volver dentro de un workspace).
 export function BotonVolver({ href, onClick, label = 'Volver' }: { href?: string; onClick?: () => void; label?: string }) {
-  const cls =
-    'inline-flex items-center gap-1.5 rounded-full bg-white border border-black/15 text-sm font-medium text-black px-4 py-2 hover:bg-[#F0EBE2] shadow-sm';
-  const contenido = (
-    <>
-      <span aria-hidden className="text-base leading-none">←</span>
+  if (href) {
+    return (
+      <BotonLink href={href} variante="secundario" tamano="chico" icono={<IconoVolver />}>
+        {label}
+      </BotonLink>
+    );
+  }
+  return (
+    <Boton variante="secundario" tamano="chico" onClick={onClick} icono={<IconoVolver />}>
       {label}
-    </>
+    </Boton>
   );
-  if (href) return <Link href={href} className={cls}>{contenido}</Link>;
-  return <button type="button" onClick={onClick} className={cls}>{contenido}</button>;
 }

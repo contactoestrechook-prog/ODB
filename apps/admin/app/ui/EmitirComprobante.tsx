@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { Aviso, Boton, Campo, Entrada, FOCO, FOCO_ADENTRO, IconoCerrar, Modal, Selector, unir } from './kit';
+import { pesos } from '../lib/formato';
 
 const TIPOS: Record<string, string> = {
   FA: 'Factura A', FB: 'Factura B', FC: 'Factura C',
@@ -10,14 +12,20 @@ const TIPOS: Record<string, string> = {
   REM: 'Remito', REC: 'Recibo de cobranza', ANT: 'Anticipo', SIN: 'Comprobante interno',
 };
 
-const pesos = (n: number) => '$' + Math.round(Number(n) || 0).toLocaleString('es-AR');
-
 type Item = { sku?: string; descripcion: string; cantidad: number; precioUnitario: number; alicuota: number };
 type Sucursal = { id: string; nombre: string };
 
 const esNota = (t: string) => t.startsWith('NC') || t.startsWith('ND');
 const llevaItems = (t: string) => ['FA', 'FB', 'FC', 'NCA', 'NCB', 'NCC', 'REM', 'SIN'].includes(t);
 const importeLibre = (t: string) => ['REC', 'ANT', 'NDA', 'NDB', 'NDC', 'SIN'].includes(t);
+
+// Sugerencias que se despliegan debajo de un buscador (clientes, productos)
+const LISTA_SUGERENCIAS = 'absolute z-contenido mt-1 w-full overflow-hidden rounded-xl border border-black/[0.06] bg-white shadow-flotante';
+const SUGERENCIA = unir(
+  'block min-h-11 w-full border-b border-black/[0.06] px-3.5 py-2 text-left text-sm text-tinta last:border-0 hover:bg-crema-claro',
+  FOCO_ADENTRO,
+);
+const CASILLA = 'flex min-h-11 items-center gap-2.5 text-sm text-tinta';
 
 export function EmitirComprobante({
   sucursales,
@@ -118,203 +126,216 @@ export function EmitirComprobante({
     }
   };
 
-  const input = 'w-full rounded-lg border border-black/15 px-3 py-2.5 text-sm text-black focus:border-[#B82D25] focus:outline-none';
-
   return (
     <>
-      <button
-        onClick={() => setAbierto(true)}
-        className="rounded-full bg-[#B82D25] text-white text-sm font-medium px-5 py-2.5 hover:bg-[#932A1F] shadow-sm whitespace-nowrap"
-      >
+      <Boton onClick={() => setAbierto(true)} className="w-full sm:w-auto">
         + Emitir comprobante
-      </button>
+      </Boton>
 
-      {abierto && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-[2px] flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl w-full max-w-2xl p-6 space-y-3 shadow-2xl max-h-[92vh] overflow-y-auto">
-            <div className="flex items-start justify-between">
-              <div>
-                <h2 className="font-semibold text-black text-lg">Emitir comprobante</h2>
-                <p className="text-xs text-black/45 mt-0.5">
-                  {ventaInicial ? `Facturando la venta de ${pesos(ventaInicial.total)}` : 'Numeración automática por tipo y punto de venta.'}
-                </p>
-              </div>
-              <select value={tipo} onChange={(e) => { setTipo(e.target.value); setError(''); }} className="rounded-lg border border-black/15 px-3 py-2 text-sm text-black bg-white font-medium">
-                {Object.entries(TIPOS).map(([v, l]) => (
-                  <option key={v} value={v}>{l}</option>
-                ))}
-              </select>
+      <Modal
+        abierto={abierto}
+        onCerrar={() => setAbierto(false)}
+        titulo="Emitir comprobante"
+        descripcion={ventaInicial ? `Facturando la venta de ${pesos(Number(ventaInicial.total) || 0)}` : 'Numeración automática por tipo y punto de venta.'}
+        ancho="ancho"
+        bloquearCierre={cargando}
+        cerrarAlTocarAfuera={false}
+        pie={
+          <>
+            <div className="min-w-full text-sm text-tinta sm:mr-auto sm:min-w-0">
+              Total: <strong className="importe text-lg">{pesos(Number(total) || 0)}</strong>
+              {tipo.endsWith('A') && total > 0 && <span className="ml-2 text-xs text-tinta/60">(IVA discriminado en el comprobante)</span>}
             </div>
+            <Boton variante="secundario" onClick={() => setAbierto(false)}>Cancelar</Boton>
+            <Boton onClick={emitir} cargando={cargando} disabled={cargando || total <= 0 && tipo !== 'REM'}>
+              {cargando ? 'Emitiendo…' : `Emitir ${TIPOS[tipo]}`}
+            </Boton>
+            {error && <Aviso tono="error" className="min-w-full">{error}</Aviso>}
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <Campo etiqueta="Tipo de comprobante">
+            <Selector value={tipo} onChange={(e) => { setTipo(e.target.value); setError(''); }}>
+              {Object.entries(TIPOS).map(([v, l]) => (
+                <option key={v} value={v}>{l}</option>
+              ))}
+            </Selector>
+          </Campo>
 
-            {/* receptor */}
-            <div className="rounded-xl bg-[#F0EBE2]/60 p-3 space-y-2">
-              {cliente ? (
-                <div className="flex items-center justify-between text-sm text-black">
-                  <span>
-                    <strong>{cliente.razon_social ?? cliente.nombre}</strong>
-                    <span className="text-xs text-black/50 ml-2">
-                      {cliente.cuit ?? cliente.dni} · {cliente.condicion_iva?.replaceAll('_', ' ') ?? 'consumidor final'}
-                    </span>
+          {/* receptor */}
+          <div className="space-y-2 rounded-2xl bg-crema p-3">
+            {cliente ? (
+              <div className="flex items-center justify-between gap-2 text-sm text-tinta">
+                <span className="min-w-0 break-words">
+                  <strong>{cliente.razon_social ?? cliente.nombre}</strong>
+                  <span className="ml-2 text-xs text-tinta/60">
+                    {cliente.cuit ?? cliente.dni} · {cliente.condicion_iva?.replaceAll('_', ' ') ?? 'consumidor final'}
                   </span>
-                  <button onClick={() => setCliente(null)} className="text-black/40 hover:text-[#B82D25]">✕</button>
-                </div>
-              ) : (
-                <div className="relative">
-                  <input
-                    value={buscaCliente}
-                    onChange={(e) => setBuscaCliente(e.target.value)}
-                    placeholder="Cliente (nombre o DNI) — vacío = Consumidor final"
-                    className={input}
-                  />
-                  {sugClientes.length > 0 && (
-                    <div className="absolute z-10 mt-1 w-full rounded-lg bg-white shadow-lg border border-black/10">
-                      {sugClientes.map((c) => (
-                        <button
-                          key={c.id}
-                          onClick={() => { setCliente(c); setBuscaCliente(''); setSugClientes([]); }}
-                          className="w-full text-left px-3 py-2 text-sm text-black hover:bg-[#F0EBE2] border-b border-black/5 last:border-0"
-                        >
-                          {c.razon_social ?? c.nombre}
-                          <span className="text-xs text-black/40 ml-2">{c.cuit ?? c.dni} · {(c.condicion_iva ?? '').replaceAll('_', ' ')}</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-              {['FA', 'FB', 'FC', 'NDA', 'NDB', 'NDC'].includes(tipo) && cliente && (
-                <label className="flex items-center gap-2 text-xs text-black">
-                  <input type="checkbox" checked={condicionPago === 'cta_cte'} onChange={(e) => setCondicionPago(e.target.checked ? 'cta_cte' : 'contado')} className="accent-[#B82D25]" />
-                  A cuenta corriente (queda como deuda del cliente)
-                </label>
-              )}
-            </div>
-
-            {/* referencia para notas */}
-            {esNota(tipo) && (
-              <select value={referenciaId} onChange={(e) => setReferenciaId(e.target.value)} className={input + ' bg-white'}>
-                <option value="">Sin comprobante de referencia</option>
-                {referencias.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {TIPOS[r.tipo]} {String(r.punto_venta).padStart(4, '0')}-{String(r.numero).padStart(8, '0')} · {pesos(r.total)}
-                  </option>
-                ))}
-              </select>
-            )}
-
-            {/* renglones */}
-            {llevaItems(tipo) && !(ventaInicial && ['FA', 'FB', 'FC'].includes(tipo) && !items.length) && (
-              <div className="space-y-2">
-                <div className="relative">
-                  <input
-                    value={buscaProducto}
-                    onChange={(e) => setBuscaProducto(e.target.value)}
-                    placeholder="Agregar producto del catálogo (nombre o SKU)…"
-                    className={input}
-                  />
-                  {sugProductos.length > 0 && (
-                    <div className="absolute z-10 mt-1 w-full rounded-lg bg-white shadow-lg border border-black/10 max-h-48 overflow-y-auto">
-                      {sugProductos.map((p) => (
-                        <button
-                          key={p.sku}
-                          onClick={() => {
-                            setItems((xs) => [...xs, { sku: p.sku, descripcion: p.nombre, cantidad: 1, precioUnitario: p.precio ?? 0, alicuota: p.alicuotaIva ?? 21 }]);
-                            setBuscaProducto('');
-                            setSugProductos([]);
-                          }}
-                          className="w-full text-left px-3 py-2 text-sm text-black hover:bg-[#F0EBE2] border-b border-black/5 last:border-0"
-                        >
-                          {p.nombre} <span className="text-xs text-black/40">{p.sku} · {p.precio ? pesos(p.precio) : 'sin precio'}</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                </span>
                 <button
-                  onClick={() => setItems((xs) => [...xs, { descripcion: '', cantidad: 1, precioUnitario: 0, alicuota: 21 }])}
-                  className="text-xs text-[#B82D25] hover:underline"
+                  type="button"
+                  onClick={() => setCliente(null)}
+                  aria-label="Quitar el cliente"
+                  className={unir('grid size-11 shrink-0 place-items-center rounded-full text-tinta/60 transition-colors hover:bg-tinta/5 hover:text-marca-hondo', FOCO)}
                 >
-                  + renglón libre (sin producto)
+                  <IconoCerrar className="size-5" />
                 </button>
-                {items.map((i, idx) => (
-                  <div key={idx} className="grid grid-cols-[1fr_64px_96px_72px_28px] gap-2 items-center">
-                    <input
-                      value={i.descripcion}
-                      onChange={(e) => setItems((xs) => xs.map((x, j) => (j === idx ? { ...x, descripcion: e.target.value } : x)))}
-                      placeholder="Descripción"
-                      className="rounded-lg border border-black/15 px-2 py-1.5 text-sm text-black"
-                    />
-                    <input
-                      type="number"
-                      value={i.cantidad}
-                      onChange={(e) => setItems((xs) => xs.map((x, j) => (j === idx ? { ...x, cantidad: Number(e.target.value) } : x)))}
-                      className="rounded-lg border border-black/15 px-2 py-1.5 text-sm text-black text-right"
-                    />
-                    <input
-                      type="number"
-                      value={i.precioUnitario}
-                      onChange={(e) => setItems((xs) => xs.map((x, j) => (j === idx ? { ...x, precioUnitario: Number(e.target.value) } : x)))}
-                      className="rounded-lg border border-black/15 px-2 py-1.5 text-sm text-black text-right"
-                    />
-                    <select
-                      value={i.alicuota}
-                      onChange={(e) => setItems((xs) => xs.map((x, j) => (j === idx ? { ...x, alicuota: Number(e.target.value) } : x)))}
-                      className="rounded-lg border border-black/15 px-1 py-1.5 text-xs text-black bg-white"
-                    >
-                      <option value={21}>21 %</option>
-                      <option value={10.5}>10,5 %</option>
-                      <option value={0}>Exento</option>
-                    </select>
-                    <button onClick={() => setItems((xs) => xs.filter((_, j) => j !== idx))} className="text-black/40 hover:text-[#B82D25]">✕</button>
+              </div>
+            ) : (
+              <div className="relative">
+                <Entrada
+                  value={buscaCliente}
+                  onChange={(e) => setBuscaCliente(e.target.value)}
+                  placeholder="Cliente (nombre o DNI) — vacío = Consumidor final"
+                  aria-label="Buscar cliente"
+                />
+                {sugClientes.length > 0 && (
+                  <div className={LISTA_SUGERENCIAS}>
+                    {sugClientes.map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => { setCliente(c); setBuscaCliente(''); setSugClientes([]); }}
+                        className={SUGERENCIA}
+                      >
+                        {c.razon_social ?? c.nombre}
+                        <span className="ml-2 text-xs text-tinta/60">{c.cuit ?? c.dni} · {(c.condicion_iva ?? '').replaceAll('_', ' ')}</span>
+                      </button>
+                    ))}
                   </div>
-                ))}
+                )}
               </div>
             )}
-
-            {/* importe libre */}
-            {(importeLibre(tipo) && !items.length) && (
-              <div className="grid grid-cols-2 gap-3">
-                <input value={importe} onChange={(e) => setImporte(e.target.value)} type="number" placeholder="Importe $" className={input} />
-                <input value={concepto} onChange={(e) => setConcepto(e.target.value)} placeholder="Concepto (interés, anticipo, seña…)" className={input} />
-              </div>
+            {['FA', 'FB', 'FC', 'NDA', 'NDB', 'NDC'].includes(tipo) && cliente && (
+              <label className={CASILLA}>
+                <input type="checkbox" checked={condicionPago === 'cta_cte'} onChange={(e) => setCondicionPago(e.target.checked ? 'cta_cte' : 'contado')} className="size-5 shrink-0 accent-marca" />
+                A cuenta corriente (queda como deuda del cliente)
+              </label>
             )}
-
-            {/* remito */}
-            {tipo === 'REM' && (
-              <div className="grid grid-cols-2 gap-3 items-center">
-                <select value={sucursalId} onChange={(e) => setSucursalId(e.target.value)} className={input + ' bg-white'}>
-                  {sucursales.map((s) => (
-                    <option key={s.id} value={s.id}>Sale de {s.nombre}</option>
-                  ))}
-                </select>
-                <label className="flex items-center gap-2 text-xs text-black">
-                  <input type="checkbox" checked={moverStock} onChange={(e) => setMoverStock(e.target.checked)} className="accent-[#B82D25]" />
-                  Descontar stock al emitir
-                </label>
-              </div>
-            )}
-
-            <div className="flex items-center justify-between border-t border-black/10 pt-3">
-              <p className="text-sm text-black">
-                Total: <strong className="text-lg">{pesos(total)}</strong>
-                {tipo.endsWith('A') && total > 0 && <span className="text-xs text-black/40 ml-2">(IVA discriminado en el comprobante)</span>}
-              </p>
-              <div className="flex gap-3">
-                <button onClick={() => setAbierto(false)} className="text-sm text-black/60 px-4 py-2 hover:text-black">Cancelar</button>
-                <button
-                  onClick={emitir}
-                  disabled={cargando || total <= 0 && tipo !== 'REM'}
-                  className="rounded-full bg-[#B82D25] text-white text-sm font-medium px-6 py-2.5 hover:bg-[#932A1F] disabled:opacity-50"
-                >
-                  {cargando ? 'Emitiendo…' : `Emitir ${TIPOS[tipo]}`}
-                </button>
-              </div>
-            </div>
-
-            {error && <p className="text-xs text-[#B82D25] font-medium">{error}</p>}
           </div>
+
+          {/* referencia para notas */}
+          {esNota(tipo) && (
+            <Selector value={referenciaId} onChange={(e) => setReferenciaId(e.target.value)} aria-label="Comprobante de referencia">
+              <option value="">Sin comprobante de referencia</option>
+              {referencias.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {TIPOS[r.tipo]} {String(r.punto_venta).padStart(4, '0')}-{String(r.numero).padStart(8, '0')} · {pesos(Number(r.total) || 0)}
+                </option>
+              ))}
+            </Selector>
+          )}
+
+          {/* renglones */}
+          {llevaItems(tipo) && !(ventaInicial && ['FA', 'FB', 'FC'].includes(tipo) && !items.length) && (
+            <div className="space-y-2">
+              <div className="relative">
+                <Entrada
+                  value={buscaProducto}
+                  onChange={(e) => setBuscaProducto(e.target.value)}
+                  placeholder="Agregar producto del catálogo (nombre o SKU)…"
+                  aria-label="Buscar producto del catálogo"
+                />
+                {sugProductos.length > 0 && (
+                  <div className={unir(LISTA_SUGERENCIAS, 'max-h-48 overflow-y-auto')}>
+                    {sugProductos.map((p) => (
+                      <button
+                        key={p.sku}
+                        type="button"
+                        onClick={() => {
+                          setItems((xs) => [...xs, { sku: p.sku, descripcion: p.nombre, cantidad: 1, precioUnitario: p.precio ?? 0, alicuota: p.alicuotaIva ?? 21 }]);
+                          setBuscaProducto('');
+                          setSugProductos([]);
+                        }}
+                        className={SUGERENCIA}
+                      >
+                        {p.nombre} <span className="text-xs text-tinta/60">{p.sku} · {p.precio ? pesos(Number(p.precio) || 0) : 'sin precio'}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <Boton
+                variante="fantasma"
+                tamano="chico"
+                onClick={() => setItems((xs) => [...xs, { descripcion: '', cantidad: 1, precioUnitario: 0, alicuota: 21 }])}
+              >
+                + renglón libre (sin producto)
+              </Boton>
+              {items.map((i, idx) => (
+                <div
+                  key={idx}
+                  className="grid grid-cols-[4rem_minmax(0,1fr)_3.75rem_2.75rem] items-center gap-2 rounded-xl border border-black/[0.06] p-2 sm:grid-cols-[minmax(0,1fr)_4.5rem_7rem_6.5rem_2.75rem] sm:border-0 sm:p-0"
+                >
+                  <Entrada
+                    value={i.descripcion}
+                    onChange={(e) => setItems((xs) => xs.map((x, j) => (j === idx ? { ...x, descripcion: e.target.value } : x)))}
+                    placeholder="Descripción"
+                    aria-label="Descripción"
+                    className="col-span-3 sm:col-span-1"
+                  />
+                  <Entrada
+                    type="number"
+                    value={i.cantidad}
+                    onChange={(e) => setItems((xs) => xs.map((x, j) => (j === idx ? { ...x, cantidad: Number(e.target.value) } : x)))}
+                    aria-label="Cantidad"
+                    className="text-right max-sm:order-2"
+                  />
+                  <Entrada
+                    type="number"
+                    value={i.precioUnitario}
+                    onChange={(e) => setItems((xs) => xs.map((x, j) => (j === idx ? { ...x, precioUnitario: Number(e.target.value) } : x)))}
+                    aria-label="Precio unitario"
+                    className="text-right max-sm:order-2"
+                  />
+                  <Selector
+                    value={i.alicuota}
+                    onChange={(e) => setItems((xs) => xs.map((x, j) => (j === idx ? { ...x, alicuota: Number(e.target.value) } : x)))}
+                    aria-label="Alícuota de IVA"
+                    className="max-sm:order-2 max-sm:col-span-2"
+                  >
+                    <option value={21}>21 %</option>
+                    <option value={10.5}>10,5 %</option>
+                    <option value={0}>Exento</option>
+                  </Selector>
+                  <button
+                    type="button"
+                    onClick={() => setItems((xs) => xs.filter((_, j) => j !== idx))}
+                    aria-label="Quitar el renglón"
+                    className={unir('grid size-11 place-items-center rounded-full text-tinta/60 transition-colors hover:bg-tinta/5 hover:text-marca-hondo max-sm:order-1', FOCO)}
+                  >
+                    <IconoCerrar className="size-5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* importe libre */}
+          {(importeLibre(tipo) && !items.length) && (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Entrada value={importe} onChange={(e) => setImporte(e.target.value)} type="number" placeholder="Importe $" aria-label="Importe" />
+              <Entrada value={concepto} onChange={(e) => setConcepto(e.target.value)} placeholder="Concepto (interés, anticipo, seña…)" aria-label="Concepto" />
+            </div>
+          )}
+
+          {/* remito */}
+          {tipo === 'REM' && (
+            <div className="grid items-center gap-3 sm:grid-cols-2">
+              <Selector value={sucursalId} onChange={(e) => setSucursalId(e.target.value)} aria-label="Sucursal de salida">
+                {sucursales.map((s) => (
+                  <option key={s.id} value={s.id}>Sale de {s.nombre}</option>
+                ))}
+              </Selector>
+              <label className={CASILLA}>
+                <input type="checkbox" checked={moverStock} onChange={(e) => setMoverStock(e.target.checked)} className="size-5 shrink-0 accent-marca" />
+                Descontar stock al emitir
+              </label>
+            </div>
+          )}
         </div>
-      )}
+      </Modal>
     </>
   );
 }

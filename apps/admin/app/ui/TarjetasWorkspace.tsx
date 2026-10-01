@@ -1,107 +1,98 @@
 'use client';
 
-const pesos = (n: any) => (n == null || !Number.isFinite(Number(n)) ? '—' : '$' + Math.round(Number(n)).toLocaleString('es-AR'));
-const fecha = (s: string | null) => (s ? new Date(s).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' }) : '—');
+import { Etiqueta, Kpi, TablaResponsiva, Tarjeta, TarjetaCabecera } from './kit';
+import { fecha as fechaLarga, pesos } from '../lib/formato';
+
+const fecha = (s: string | null) => fechaLarga(s, 'corta');
 const TERMINAL: Record<string, string> = { getnet: 'Getnet (Santander)', clover: 'Clover' };
 
 export function TarjetasWorkspace({ resumen, pagos }: { resumen: any; pagos: any[] }) {
   return (
-    <div className="space-y-5">
+    <div className="space-y-4 sm:space-y-6">
       {/* KPIs */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        {[
-          ['Cobrado con tarjeta (30 días)', pesos(resumen?.bruto), '', `${resumen?.cobros ?? 0} cobros`],
-          ['Por acreditar', pesos(resumen?.porAcreditar), resumen?.porAcreditar > 0 ? 'text-[#B82D25]' : ''],
-          ['Acreditado (neto)', pesos(resumen?.acreditado), 'text-emerald-700'],
-          ['Comisión real', pesos(resumen?.comisionReal), 'text-[#932A1F]', resumen?.comisionPromedioPct != null ? `${resumen.comisionPromedioPct} % promedio` : 'se completa al conciliar'],
-        ].map(([l, v, c, sub]: any) => (
-          <div key={l} className="rounded-xl bg-white p-3.5 border border-black/[0.04]">
-            <p className={`text-lg font-semibold leading-none ${c || 'text-black'}`}>{v}</p>
-            <p className="text-[11px] text-black/45 mt-1">{l}{sub ? ` · ${sub}` : ''}</p>
-          </div>
-        ))}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <Kpi etiqueta="Cobrado con tarjeta (30 días)" valor={pesos(resumen?.bruto)} sub={`${resumen?.cobros ?? 0} cobros`} />
+        <Kpi etiqueta="Por acreditar" valor={pesos(resumen?.porAcreditar)} tono={resumen?.porAcreditar > 0 ? 'atencion' : 'neutro'} />
+        <Kpi etiqueta="Acreditado (neto)" valor={pesos(resumen?.acreditado)} tono="ok" />
+        <Kpi
+          etiqueta="Comisión real"
+          valor={pesos(resumen?.comisionReal)}
+          tono="error"
+          sub={resumen?.comisionPromedioPct != null ? `${resumen.comisionPromedioPct} % promedio` : 'se completa al conciliar'}
+        />
       </div>
 
       {/* por terminal */}
       {(resumen?.porTerminal ?? []).length > 0 && (
-        <div className="grid sm:grid-cols-2 gap-3">
+        <div className="grid gap-3 sm:grid-cols-2">
           {resumen.porTerminal.map((t: any) => (
-            <div key={t.terminal} className="rounded-xl bg-white p-4 border border-black/[0.04]">
-              <div className="flex items-center justify-between">
-                <p className="font-medium text-black">{TERMINAL[t.terminal] ?? t.terminal}</p>
-                <p className="text-base font-semibold text-black">{pesos(t.bruto)}</p>
+            <Tarjeta key={t.terminal}>
+              <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                <p className="min-w-0 font-semibold text-tinta">{TERMINAL[t.terminal] ?? t.terminal}</p>
+                <p className="importe text-base font-semibold text-tinta">{pesos(t.bruto)}</p>
               </div>
-              <p className="text-xs text-black/45 mt-1">
+              <p className="mt-1 text-xs text-tinta/60">
                 {t.cobros} cobros · por acreditar {pesos(t.porAcreditar)} · acreditado {pesos(t.acreditado)}
                 {t.comisionReal > 0 ? ` · comisión ${pesos(t.comisionReal)}` : ''}
               </p>
-            </div>
+            </Tarjeta>
           ))}
         </div>
       )}
 
       {/* próximas acreditaciones */}
       {(resumen?.proximasAcreditaciones ?? []).length > 0 && (
-        <div className="rounded-xl bg-white p-4">
-          <p className="text-sm font-medium text-black mb-2">Próximas acreditaciones estimadas</p>
+        <Tarjeta>
+          <p className="mb-2 text-sm font-semibold text-tinta">Próximas acreditaciones estimadas</p>
           <div className="flex flex-wrap gap-2">
             {resumen.proximasAcreditaciones.map((p: any) => (
-              <span key={p.fecha} className="rounded-full bg-[#F0EBE2] px-3 py-1 text-xs text-black">
-                {fecha(p.fecha)} · <span className="font-semibold">{pesos(p.bruto)}</span>
+              <span key={p.fecha} className="rounded-full bg-crema px-3 py-1 text-xs text-tinta">
+                {fecha(p.fecha)} · <span className="importe font-semibold">{pesos(p.bruto)}</span>
               </span>
             ))}
           </div>
-        </div>
+        </Tarjeta>
       )}
 
       {/* listado */}
-      <section className="rounded-xl bg-white overflow-hidden">
-        <h2 className="px-4 py-3 border-b border-black/10 font-medium text-black text-sm">
-          Cobros con tarjeta (últimos 30 días · {pagos.length})
-        </h2>
-        {pagos.length === 0 ? (
-          <p className="px-4 py-10 text-center text-black/40 text-sm">
-            Todavía no hay cobros con tarjeta registrados. Cuando la caja cobre con Getnet o Clover, aparecen acá
-            con su fecha estimada de acreditación.
-          </p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm text-black min-w-[40rem]">
-              <thead><tr className="text-left text-xs text-black/50 border-b border-black/5">
-                <th className="px-4 py-2 font-medium">Fecha</th>
-                <th className="px-4 py-2 font-medium">Terminal</th>
-                <th className="px-4 py-2 font-medium">Sucursal</th>
-                <th className="px-4 py-2 font-medium text-right">Bruto</th>
-                <th className="px-4 py-2 font-medium text-right">Comisión</th>
-                <th className="px-4 py-2 font-medium text-right">Neto</th>
-                <th className="px-4 py-2 font-medium text-right">Acreditación</th>
-              </tr></thead>
-              <tbody>
-                {pagos.map((p) => (
-                  <tr key={p.id} className="border-b border-black/5 last:border-0">
-                    <td className="px-4 py-2.5 text-xs text-black/55 whitespace-nowrap">{fecha(p.fecha)}</td>
-                    <td className="px-4 py-2.5 text-xs whitespace-nowrap">
-                      <span className={`rounded-full px-2.5 py-0.5 text-[11px] ${p.terminal === 'getnet' ? 'bg-red-100 text-red-800' : p.terminal === 'clover' ? 'bg-emerald-100 text-emerald-800' : 'bg-black/5 text-black/50'}`}>
-                        {TERMINAL[p.terminal] ?? p.terminal ?? 'sin identificar'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-2.5 text-xs text-black/55">{p.sucursal ?? '—'}</td>
-                    <td className="px-4 py-2.5 text-right font-medium">{pesos(p.bruto)}</td>
-                    <td className="px-4 py-2.5 text-right text-[#932A1F] text-xs">{p.comisionReal != null ? pesos(p.comisionReal) : '—'}</td>
-                    <td className="px-4 py-2.5 text-right text-xs">{p.netoReal != null ? pesos(p.netoReal) : '—'}</td>
-                    <td className="px-4 py-2.5 text-right text-xs whitespace-nowrap">
-                      {p.estado === 'acreditada'
-                        ? <span className="rounded-full bg-emerald-100 text-emerald-800 px-2 py-0.5 text-[11px]">acreditado {fecha(p.fechaReal)}</span>
-                        : <span className="text-black/55">estimado {fecha(p.fechaEstimada)}</span>}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
-      <p className="text-xs text-black/45 px-1">
+      <Tarjeta relleno={false} className="overflow-hidden">
+        <TarjetaCabecera titulo={`Cobros con tarjeta (últimos 30 días · ${pagos.length})`} />
+        <TablaResponsiva
+          sinMarco
+          etiqueta="Cobros con tarjeta"
+          filas={pagos}
+          claveFila="id"
+          vacio={
+            <p className="px-4 py-10 text-center text-sm text-tinta/60">
+              Todavía no hay cobros con tarjeta registrados. Cuando la caja cobre con Getnet o Clover, aparecen acá
+              con su fecha estimada de acreditación.
+            </p>
+          }
+          columnas={[
+            { clave: 'fecha', titulo: 'Fecha', celda: (p) => <span className="importe text-xs text-tinta/70">{fecha(p.fecha)}</span> },
+            {
+              clave: 'terminal',
+              titulo: 'Terminal',
+              principal: true,
+              celda: (p) => <Etiqueta tono="neutro">{TERMINAL[p.terminal] ?? p.terminal ?? 'sin identificar'}</Etiqueta>,
+            },
+            { clave: 'sucursal', titulo: 'Sucursal', celda: (p) => <span className="text-xs text-tinta/70">{p.sucursal ?? '—'}</span> },
+            { clave: 'bruto', titulo: 'Bruto', importe: true, celda: (p) => <span className="font-semibold">{pesos(p.bruto)}</span> },
+            { clave: 'comision', titulo: 'Comisión', importe: true, celda: (p) => <span className="text-xs text-marca-hondo">{p.comisionReal != null ? pesos(p.comisionReal) : '—'}</span> },
+            { clave: 'neto', titulo: 'Neto', importe: true, celda: (p) => <span className="text-xs">{p.netoReal != null ? pesos(p.netoReal) : '—'}</span> },
+            {
+              clave: 'acreditacion',
+              titulo: 'Acreditación',
+              alinear: 'derecha',
+              celda: (p) =>
+                p.estado === 'acreditada'
+                  ? <Etiqueta tono="ok">acreditado {fecha(p.fechaReal)}</Etiqueta>
+                  : <span className="whitespace-nowrap text-xs text-tinta/70">estimado {fecha(p.fechaEstimada)}</span>,
+            },
+          ]}
+        />
+      </Tarjeta>
+      <p className="px-1 text-xs text-tinta/60">
         La comisión y el neto reales se completan al conciliar la liquidación de cada procesador (Conciliación → Acreditar,
         o automático cuando integremos Getnet y Clover por API). La fecha estimada usa el plazo típico de acreditación (2 días);
         con las liquidaciones pasa a ser la fecha exacta.

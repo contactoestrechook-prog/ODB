@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { Aviso, Boton, Entrada, Etiqueta, Tarjeta, useConfirmar } from './kit';
 
 // Las 4 listas de venta. Minorista es la base (precio inicial de cada producto).
 // Las demás se calculan como un % sobre Minorista (editable), y "regenerar"
@@ -11,16 +12,13 @@ type Lista = {
   id: string; nombre: string; ajustePct: number; esBase: boolean; activa: boolean; productosConPrecio: number;
 };
 
-const btn = 'rounded-full bg-[#B82D25] text-white text-sm font-medium px-4 py-2 hover:bg-[#932A1F] disabled:opacity-50';
-const btnGhost = 'rounded-full border border-black/15 text-sm px-4 py-2 hover:bg-black/5 disabled:opacity-50';
-const input = 'rounded-lg border border-black/15 px-3 py-2 text-sm text-black focus:border-[#B82D25] focus:outline-none';
-
 export function ListasVentaWorkspace({ inicial }: { inicial: Lista[] }) {
   const router = useRouter();
   const [listas, setListas] = useState<Lista[]>(inicial);
   const [edit, setEdit] = useState<Record<string, { nombre: string; ajustePct: number }>>({});
   const [estado, setEstado] = useState<{ tipo: 'ok' | 'error'; texto: string } | null>(null);
   const [ocupado, setOcupado] = useState<string | null>(null);
+  const { confirmar, dialogo } = useConfirmar();
 
   const campo = (id: string, base: Lista, k: 'nombre' | 'ajustePct', v: any) =>
     setEdit((e) => ({ ...e, [id]: { nombre: e[id]?.nombre ?? base.nombre, ajustePct: e[id]?.ajustePct ?? base.ajustePct, [k]: v } }));
@@ -51,7 +49,12 @@ export function ListasVentaWorkspace({ inicial }: { inicial: Lista[] }) {
   }
 
   async function regenerar(l: Lista) {
-    if (!window.confirm(`Regenerar los precios de "${l.nombre}" desde Minorista ${l.ajustePct >= 0 ? '+' : ''}${l.ajustePct}%? Reemplaza los precios actuales de esta lista.`)) return;
+    const ok = await confirmar({
+      titulo: `¿Regenerar los precios de "${l.nombre}" desde Minorista ${l.ajustePct >= 0 ? '+' : ''}${l.ajustePct}%?`,
+      texto: 'Reemplaza los precios actuales de esta lista.',
+      textoConfirmar: 'Regenerar precios',
+    });
+    if (!ok) return;
     setOcupado(l.id);
     try {
       const r = await fetch('/api/listas-venta', {
@@ -69,59 +72,59 @@ export function ListasVentaWorkspace({ inicial }: { inicial: Lista[] }) {
   }
 
   return (
-    <div className="space-y-5">
-      <div>
-        <h1 className="text-xl font-semibold text-black">Listas de precios de venta</h1>
-        <p className="text-sm text-black/50 mt-0.5">Minorista es el precio base de cada producto. Las otras listas se calculan como un % sobre Minorista — editá el nombre y el %, y regenerá sus precios.</p>
-      </div>
+    <div className="space-y-4">
+      <p className="text-sm text-tinta/70">Minorista es el precio base de cada producto. Las otras listas se calculan como un % sobre Minorista — editá el nombre y el %, y regenerá sus precios.</p>
 
-      {estado && (
-        <div className={`rounded-lg px-4 py-2.5 text-sm ${estado.tipo === 'ok' ? 'bg-emerald-50 text-emerald-800' : 'bg-red-50 text-[#B82D25]'}`}>{estado.texto}</div>
-      )}
+      {estado && <Aviso tono={estado.tipo === 'ok' ? 'ok' : 'error'}>{estado.texto}</Aviso>}
 
       <div className="space-y-3">
         {listas.map((l) => (
-          <div key={l.id} className="rounded-xl bg-white p-4 border border-black/[0.05]">
-            <div className="flex flex-wrap items-center gap-3">
-              <input
+          <Tarjeta key={l.id}>
+            <div className="grid items-center gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+              <Entrada
                 value={valor(l, 'nombre')}
                 onChange={(e) => campo(l.id, l, 'nombre', e.target.value)}
-                className={input + ' flex-1 min-w-[10rem] font-medium'}
+                aria-label="Nombre de la lista"
+                className="font-medium"
               />
               {l.esBase ? (
-                <span className="text-xs rounded-full bg-black text-white px-3 py-1.5 whitespace-nowrap">★ Precio base</span>
+                <Etiqueta className="justify-self-start">Precio base</Etiqueta>
               ) : (
-                <label className="flex items-center gap-1.5 text-sm text-black/60 whitespace-nowrap">
+                <label className="flex items-center gap-2 text-sm text-tinta/70">
                   Minorista
-                  <input
-                    type="number"
-                    value={valor(l, 'ajustePct')}
-                    onChange={(e) => campo(l.id, l, 'ajustePct', e.target.value)}
-                    className={input + ' w-20 text-right'}
-                  />
-                  %
+                  <span className="w-28">
+                    <Entrada
+                      type="number"
+                      value={valor(l, 'ajustePct')}
+                      onChange={(e) => campo(l.id, l, 'ajustePct', e.target.value)}
+                      sufijo="%"
+                      className="text-right"
+                    />
+                  </span>
                 </label>
               )}
             </div>
 
-            <div className="flex items-center justify-between mt-3 pt-3 border-t border-black/5">
-              <span className="text-xs text-black/45">{l.productosConPrecio.toLocaleString('es-AR')} productos con precio</span>
-              <div className="flex items-center gap-2">
-                <button onClick={() => guardar(l)} disabled={ocupado === l.id} className={btnGhost}>Guardar</button>
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-black/[0.06] pt-3">
+              <span className="text-xs text-tinta/60">{l.productosConPrecio.toLocaleString('es-AR')} productos con precio</span>
+              <div className="flex flex-wrap items-center gap-2">
+                <Boton variante="secundario" tamano="chico" onClick={() => guardar(l)} disabled={ocupado === l.id}>Guardar</Boton>
                 {!l.esBase && (
-                  <button onClick={() => regenerar(l)} disabled={ocupado === l.id} className={btn}>
+                  <Boton tamano="chico" onClick={() => regenerar(l)} disabled={ocupado === l.id}>
                     {ocupado === l.id ? 'Generando…' : 'Regenerar precios'}
-                  </button>
+                  </Boton>
                 )}
               </div>
             </div>
-          </div>
+          </Tarjeta>
         ))}
       </div>
 
-      <p className="text-[11px] text-black/40">
+      <p className="text-xs text-tinta/60">
         Al regenerar, cada producto toma su precio Minorista actual y se le aplica el %. Si después cambiás precios Minorista, volvé a regenerar para actualizarlas.
       </p>
+
+      {dialogo}
     </div>
   );
 }

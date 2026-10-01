@@ -3,6 +3,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import {
+  AreaTexto, Aviso, BarraInferior, Boton, BotonLink, Campo, Entrada, IconoCerrar, Selector, Tarjeta, clasesBoton,
+} from './kit';
+import { BotonVolver } from './BotonVolver';
+import { pesos } from '../lib/formato';
 
 // Alta de producto completa. Antes era un modal con seis campos: entraba el
 // nombre y el precio, y todo lo demás (medida, unidades por bulto, IVA,
@@ -27,8 +32,6 @@ const FORM = {
   controlaVencimiento: false, alicuotaIva: '21', aliasBusqueda: '', descripcion: '',
   costo: '', precio: '', precioCaja: '', precioMayorista: '',
 };
-
-const pesos = (n: number) => '$' + Math.round(Number(n) || 0).toLocaleString('es-AR');
 
 // Mismo redondeo de góndola que el servidor (apps/api/src/compras/precio.ts):
 // a la centena, de 50 para arriba sube.
@@ -192,354 +195,358 @@ export function AltaProducto({ rubros, marcas, sucursales, proveedores = [] }: {
     }
   };
 
-  const input = 'w-full rounded-lg border border-black/15 bg-white px-3 py-2.5 text-sm text-black focus:border-[#B82D25] focus:outline-none';
-  const etiqueta = 'text-xs text-black/50';
+  // título de cada tarjeta, enlaces dentro de textos y casillas de 44 px
+  const TITULO = 'text-base font-semibold text-tinta';
+  const ENLACE = 'font-medium underline underline-offset-2 hover:text-marca-hondo';
+  const CASILLA = 'flex min-h-11 items-center gap-2 text-sm text-tinta';
+  const CHECK = 'size-5 shrink-0 accent-marca';
 
   return (
-    <div className="max-w-3xl mx-auto p-6 pb-32">
-      <div className="flex items-center gap-3 mb-1">
-        <Link href={volverA ?? '/productos'} className="text-sm text-black/50 hover:text-black">←</Link>
-        <h1 className="text-xl font-semibold text-black">Nuevo producto</h1>
+    <div className="space-y-4">
+      <div className="space-y-2">
+        <BotonVolver href={volverA ?? '/productos'} />
+        <p className="text-sm text-tinta/70">
+          El SKU se asigna solo. El rubro y la marca que no existan se crean al guardar.
+        </p>
       </div>
-      <p className="text-sm text-black/50 mb-6">
-        El SKU se asigna solo. El rubro y la marca que no existan se crean al guardar.
-      </p>
 
       {hecho && (
-        <div className="mb-4 rounded-xl bg-emerald-50 border border-emerald-200 p-3 text-sm text-emerald-900">
+        <Aviso tono="ok">
           Cargado: <b>{hecho.nombre}</b> · SKU {hecho.sku}.{' '}
-          <Link href={`/productos/${hecho.sku}`} className="underline">Ver la ficha</Link> · seguí con el próximo.
-        </div>
+          <Link href={`/productos/${hecho.sku}`} className={ENLACE}>Ver la ficha</Link> · seguí con el próximo.
+        </Aviso>
       )}
 
       {/* 1 · QUÉ ES */}
-      <section className="rounded-2xl bg-white p-5 space-y-4 shadow-sm">
-        <h2 className="text-sm font-semibold text-black">Identificación</h2>
+      <Tarjeta className="space-y-4">
+        <h2 className={TITULO}>Identificación</h2>
 
         <div>
-          <label className={etiqueta}>Código de barras</label>
-          <input
-            value={form.codigoBarras}
-            onChange={(e) => campo('codigoBarras', e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); refNombre.current?.focus(); } }}
-            placeholder="Pasá el lector o escribilo"
-            inputMode="numeric"
-            autoFocus={!form.codigoBarras}
-            className={`${input} font-mono ${codigoDe ? 'border-[#B82D25] bg-[#B82D25]/5' : ''}`}
-          />
-          {codigoDe ? (
-            <p className="mt-1.5 text-xs text-[#B82D25]">
-              Ese código ya es de <b>{codigoDe.nombre}</b> (SKU {codigoDe.sku}).{' '}
-              <Link href={`/productos/${codigoDe.sku}`} className="underline">Abrí esa ficha</Link> y cargale el stock ahí:
-              si lo creás de nuevo, las existencias quedan partidas entre dos productos.
-            </p>
-          ) : (
-            <p className="mt-1 text-[11px] text-black/40">Sin código igual se puede cargar, pero después no escanea en caja ni en recepción.</p>
-          )}
+          <Campo
+            etiqueta="Código de barras"
+            error={
+              codigoDe ? (
+                <>
+                  Ese código ya es de <b>{codigoDe.nombre}</b> (SKU {codigoDe.sku}).{' '}
+                  <Link href={`/productos/${codigoDe.sku}`} className={ENLACE}>Abrí esa ficha</Link> y cargale el stock ahí:
+                  si lo creás de nuevo, las existencias quedan partidas entre dos productos.
+                </>
+              ) : undefined
+            }
+            ayuda="Sin código igual se puede cargar, pero después no escanea en caja ni en recepción."
+          >
+            <Entrada
+              value={form.codigoBarras}
+              onChange={(e) => campo('codigoBarras', e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); refNombre.current?.focus(); } }}
+              placeholder="Pasá el lector o escribilo"
+              inputMode="numeric"
+              autoFocus={!form.codigoBarras}
+              className="font-mono"
+            />
+          </Campo>
 
           {codigosExtra.map((c, i) => (
             <div key={i} className="mt-2 flex items-center gap-2">
-              <input
+              <Entrada
                 value={c}
                 onChange={(e) => setCodigosExtra((xs) => xs.map((x, j) => (j === i ? e.target.value : x)))}
                 placeholder="Otro código (el del bulto, el del pack)"
                 inputMode="numeric"
-                className={`${input} font-mono`}
+                aria-label="Otro código de barras"
+                className="min-w-0 flex-1 font-mono"
               />
-              <button onClick={() => setCodigosExtra((xs) => xs.filter((_, j) => j !== i))} className="text-black/40 hover:text-[#B82D25] px-1">✕</button>
+              <Boton
+                variante="fantasma"
+                aria-label="Quitar este código"
+                onClick={() => setCodigosExtra((xs) => xs.filter((_, j) => j !== i))}
+                icono={<IconoCerrar />}
+                className="shrink-0"
+              />
             </div>
           ))}
-          <button onClick={() => setCodigosExtra((xs) => [...xs, ''])} className="mt-1.5 text-xs text-[#B82D25] hover:underline">
+          <Boton variante="fantasma" tamano="chico" onClick={() => setCodigosExtra((xs) => [...xs, ''])} className="mt-2">
             + Agregar otro código de barras
-          </button>
+          </Boton>
         </div>
 
         <div>
-          <label className={etiqueta}>Nombre <span className="text-[#B82D25]">*</span></label>
-          <input
-            ref={refNombre}
-            value={form.nombre}
-            onChange={(e) => campo('nombre', e.target.value)}
-            placeholder="Como lo busca el vendedor: Fernet Branca 750cc"
-            autoFocus={!!form.codigoBarras}
-            className={input}
-          />
+          <Campo etiqueta="Nombre" obligatorio>
+            <Entrada
+              ref={refNombre}
+              value={form.nombre}
+              onChange={(e) => campo('nombre', e.target.value)}
+              placeholder="Como lo busca el vendedor: Fernet Branca 750cc"
+              autoFocus={!!form.codigoBarras}
+            />
+          </Campo>
           {parecidos.length > 0 && !ignorarParecidos && (
-            <div className="mt-2 rounded-lg bg-amber-50 border border-amber-200 p-2.5">
-              <p className="text-xs text-amber-900 font-medium">Ya hay {parecidos.length === 1 ? 'uno parecido' : `${parecidos.length} parecidos`} en el catálogo:</p>
-              <ul className="mt-1 space-y-0.5">
+            <Aviso
+              tono="atencion"
+              className="mt-2"
+              titulo={`Ya hay ${parecidos.length === 1 ? 'uno parecido' : `${parecidos.length} parecidos`} en el catálogo:`}
+              accion={
+                <Boton variante="secundario" tamano="chico" onClick={() => setIgnorarParecidos(true)}>
+                  Ninguno es este, sigo
+                </Boton>
+              }
+            >
+              <ul className="space-y-0.5">
                 {parecidos.map((p) => (
-                  <li key={p.sku} className="text-xs text-amber-900">
-                    <Link href={`/productos/${p.sku}`} className="underline">{p.nombre}</Link>
+                  <li key={p.sku} className="break-words">
+                    <Link href={`/productos/${p.sku}`} className={ENLACE}>{p.nombre}</Link>
                     {p.marca ? ` · ${p.marca}` : ''} · SKU {p.sku}{p.activo ? '' : ' · dado de baja'}
                   </li>
                 ))}
               </ul>
-              <button onClick={() => setIgnorarParecidos(true)} className="mt-1.5 text-xs text-amber-900/70 underline">
-                Ninguno es este, sigo
-              </button>
-            </div>
+            </Aviso>
           )}
         </div>
 
-        <div className="grid sm:grid-cols-3 gap-3">
-          <div>
-            <label className={etiqueta}>Rubro</label>
-            <input value={form.rubro} onChange={(e) => campo('rubro', e.target.value)} list="rubros" placeholder="Ej: Aguas" className={input} />
-            <datalist id="rubros">{rubros.map((r) => <option key={r.id} value={r.nombre} />)}</datalist>
-          </div>
-          <div>
-            <label className={etiqueta}>Marca</label>
-            <input value={form.marca} onChange={(e) => campo('marca', e.target.value)} list="marcas" placeholder="Ej: Quilmes" className={input} />
-            <datalist id="marcas">{marcas.map((m) => <option key={m.id} value={m.nombre} />)}</datalist>
-          </div>
-          <div>
-            <label className={etiqueta}>SKU</label>
-            <input value={form.sku} onChange={(e) => campo('sku', e.target.value)} placeholder="se asigna solo" className={`${input} font-mono`} />
-          </div>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <Campo etiqueta="Rubro">
+            <Entrada value={form.rubro} onChange={(e) => campo('rubro', e.target.value)} list="rubros" placeholder="Ej: Aguas" />
+          </Campo>
+          <datalist id="rubros">{rubros.map((r) => <option key={r.id} value={r.nombre} />)}</datalist>
+          <Campo etiqueta="Marca">
+            <Entrada value={form.marca} onChange={(e) => campo('marca', e.target.value)} list="marcas" placeholder="Ej: Quilmes" />
+          </Campo>
+          <datalist id="marcas">{marcas.map((m) => <option key={m.id} value={m.nombre} />)}</datalist>
+          <Campo etiqueta="SKU">
+            <Entrada value={form.sku} onChange={(e) => campo('sku', e.target.value)} placeholder="se asigna solo" className="font-mono" />
+          </Campo>
         </div>
-      </section>
+      </Tarjeta>
 
       {/* 2 · FICHA */}
-      <section className="mt-4 rounded-2xl bg-white p-5 space-y-4 shadow-sm">
-        <h2 className="text-sm font-semibold text-black">Ficha</h2>
-        <div className="grid sm:grid-cols-4 gap-3">
-          <div>
-            <label className={etiqueta}>Medida (cc)</label>
-            <input value={form.volumenMl} onChange={(e) => campo('volumenMl', e.target.value)} type="number" placeholder="750" className={input} />
-          </div>
-          <div>
-            <label className={etiqueta}>Unidades por bulto</label>
-            <input value={form.unidadesPack} onChange={(e) => campo('unidadesPack', e.target.value)} type="number" placeholder="1" className={input} />
-          </div>
-          <div>
-            <label className={etiqueta}>Graduación (%)</label>
-            <input
+      <Tarjeta className="space-y-4">
+        <h2 className={TITULO}>Ficha</h2>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <Campo etiqueta="Medida (cc)">
+            <Entrada value={form.volumenMl} onChange={(e) => campo('volumenMl', e.target.value)} type="number" placeholder="750" />
+          </Campo>
+          <Campo etiqueta="Unidades por bulto">
+            <Entrada value={form.unidadesPack} onChange={(e) => campo('unidadesPack', e.target.value)} type="number" placeholder="1" />
+          </Campo>
+          <Campo etiqueta="Graduación (%)">
+            <Entrada
               value={form.graduacion}
               onChange={(e) => {
                 campo('graduacion', e.target.value);
                 if (Number(e.target.value) > 0) campo('esAlcohol', true); // con alcohol, es +18 sí o sí
               }}
-              type="number" placeholder="—" className={input}
+              type="number" placeholder="—"
             />
-          </div>
-          <div>
-            <label className={etiqueta}>IVA</label>
-            <select value={form.alicuotaIva} onChange={(e) => campo('alicuotaIva', e.target.value)} className={input}>
+          </Campo>
+          <Campo etiqueta="IVA">
+            <Selector value={form.alicuotaIva} onChange={(e) => campo('alicuotaIva', e.target.value)}>
               {IVA.map((v) => <option key={v} value={v}>{v} %</option>)}
-            </select>
-          </div>
+            </Selector>
+          </Campo>
         </div>
 
-        <div className="flex flex-wrap gap-5">
-          <label className="flex items-center gap-2 text-sm text-black">
-            <input type="checkbox" checked={form.esAlcohol} onChange={(e) => campo('esAlcohol', e.target.checked)} className="accent-[#B82D25] w-4 h-4" />
+        <div className="flex flex-wrap gap-x-5 gap-y-1">
+          <label className={CASILLA}>
+            <input type="checkbox" checked={form.esAlcohol} onChange={(e) => campo('esAlcohol', e.target.checked)} className={CHECK} />
             Bebida alcohólica (+18)
           </label>
-          <label className="flex items-center gap-2 text-sm text-black" title="La balanza manda gramos y el precio es por kilo">
-            <input type="checkbox" checked={form.vendidoPorPeso} onChange={(e) => campo('vendidoPorPeso', e.target.checked)} className="accent-[#B82D25] w-4 h-4" />
+          <label className={CASILLA} title="La balanza manda gramos y el precio es por kilo">
+            <input type="checkbox" checked={form.vendidoPorPeso} onChange={(e) => campo('vendidoPorPeso', e.target.checked)} className={CHECK} />
             Se vende por peso (balanza)
           </label>
-          <label className="flex items-center gap-2 text-sm text-black">
+          <label className={CASILLA}>
             PLU balanza
-            <input value={form.plu} onChange={(e) => campo('plu', e.target.value.replace(/\D/g, ''))} placeholder="ej: 3931" className="w-24 rounded border border-black/15 px-2 py-1 text-sm" />
+            <span className="w-28">
+              <Entrada value={form.plu} onChange={(e) => campo('plu', e.target.value.replace(/\D/g, ''))} placeholder="ej: 3931" inputMode="numeric" />
+            </span>
           </label>
-          <label className="flex items-center gap-2 text-sm text-black">
-            <input type="checkbox" checked={form.controlaVencimiento} onChange={(e) => campo('controlaVencimiento', e.target.checked)} className="accent-[#B82D25] w-4 h-4" />
+          <label className={CASILLA}>
+            <input type="checkbox" checked={form.controlaVencimiento} onChange={(e) => campo('controlaVencimiento', e.target.checked)} className={CHECK} />
             Controla vencimiento
           </label>
         </div>
 
-        <div>
-          <label className={etiqueta}>Cómo lo pide el cliente</label>
-          <input
+        <Campo
+          etiqueta="Cómo lo pide el cliente"
+          ayuda="Lo usan el buscador y el bot de WhatsApp. Si el cliente lo nombra de una manera y la etiqueta dice otra, va acá."
+        >
+          <Entrada
             value={form.aliasBusqueda}
             onChange={(e) => campo('aliasBusqueda', e.target.value)}
             placeholder="fernet chico, birra litro, agua con gas"
-            className={input}
           />
-          <p className="mt-1 text-[11px] text-black/40">
-            Lo usan el buscador y el bot de WhatsApp. Si el cliente lo nombra de una manera y la etiqueta dice otra, va acá.
-          </p>
-        </div>
+        </Campo>
 
-        <div>
-          <label className={etiqueta}>Descripción (opcional)</label>
-          <textarea value={form.descripcion} onChange={(e) => campo('descripcion', e.target.value)} rows={2} className={input} />
-        </div>
-      </section>
+        <Campo etiqueta="Descripción (opcional)">
+          <AreaTexto value={form.descripcion} onChange={(e) => campo('descripcion', e.target.value)} rows={2} />
+        </Campo>
+      </Tarjeta>
 
       {/* FOTO */}
-      <section className="mt-4 rounded-2xl bg-white p-5 space-y-3 shadow-sm">
-        <h2 className="text-sm font-semibold text-black">Foto</h2>
+      <Tarjeta className="space-y-3">
+        <h2 className={TITULO}>Foto</h2>
         <div className="flex items-center gap-4">
           {fotoUrl ? (
-            <img src={fotoUrl} alt="" className="h-24 w-24 rounded-lg object-cover border border-black/10" />
+            <img src={fotoUrl} alt="" className="size-24 shrink-0 rounded-xl border border-black/[0.06] object-cover" />
           ) : (
-            <span className="h-24 w-24 rounded-lg bg-[#F0EBE2] flex items-center justify-center text-xs text-black/35">sin foto</span>
+            <span className="flex size-24 shrink-0 items-center justify-center rounded-xl bg-crema text-xs text-tinta/60">sin foto</span>
           )}
-          <div className="text-sm">
-            <input
-              type="file"
-              accept="image/*"
-              onChange={(e) => {
-                const f = e.target.files?.[0] ?? null;
-                setFoto(f);
-                setFotoUrl(f ? URL.createObjectURL(f) : null);
-              }}
-              className="text-sm text-black/70 file:mr-3 file:rounded-full file:border-0 file:bg-[#B82D25] file:px-4 file:py-2 file:text-white file:text-sm"
-            />
-            <p className="mt-1 text-[11px] text-black/40">
+          <div className="min-w-0 space-y-2 text-sm">
+            <label className={clasesBoton({ variante: 'secundario', tamano: 'chico' })}>
+              {fotoUrl ? 'Cambiar foto' : 'Elegir foto'}
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(e) => {
+                  const f = e.target.files?.[0] ?? null;
+                  setFoto(f);
+                  setFotoUrl(f ? URL.createObjectURL(f) : null);
+                }}
+                className="sr-only"
+              />
+            </label>
+            <p className="text-xs text-tinta/60">
               La ve el vendedor en la caja y el cliente en el catálogo. Sacala derecha y con la etiqueta a la vista.
             </p>
           </div>
         </div>
-      </section>
+      </Tarjeta>
 
       {/* PROVEEDORES QUE LO TRAEN */}
-      <section className="mt-4 rounded-2xl bg-white p-5 space-y-3 shadow-sm">
-        <h2 className="text-sm font-semibold text-black">Proveedores que lo traen</h2>
-        <p className="text-[11px] text-black/40 -mt-1">
-          Con el código que usa cada proveedor en su factura, la próxima entrada de ese proveedor lo reconoce sola y no hay que vincularlo a mano.
-        </p>
+      <Tarjeta className="space-y-3">
+        <div>
+          <h2 className={TITULO}>Proveedores que lo traen</h2>
+          <p className="mt-1 text-xs text-tinta/60">
+            Con el código que usa cada proveedor en su factura, la próxima entrada de ese proveedor lo reconoce sola y no hay que vincularlo a mano.
+          </p>
+        </div>
         {provs.map((pv, i) => (
-          <div key={i} className="grid sm:grid-cols-[1fr_auto_auto_auto] gap-2 items-end">
-            <div>
-              <label className={etiqueta}>Proveedor</label>
-              <select
+          <div
+            key={i}
+            className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-end gap-2 rounded-xl border border-black/[0.06] p-3 sm:grid-cols-[minmax(0,1fr)_9rem_7rem_auto] sm:border-0 sm:p-0"
+          >
+            <Campo etiqueta="Proveedor" className="col-span-3 sm:col-span-1">
+              <Selector
                 value={pv.proveedorId}
                 onChange={(e) => setProvs((xs) => xs.map((x, j) => (j === i ? { ...x, proveedorId: e.target.value } : x)))}
-                className={input}
-              >
-                <option value="">Elegí…</option>
-                {proveedores.map((p) => <option key={p.id} value={p.id}>{p.razon_social}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className={etiqueta}>Su código</label>
-              <input
+                vacio="Elegí…"
+                opciones={proveedores.map((p) => ({ valor: p.id, etiqueta: p.razon_social }))}
+              />
+            </Campo>
+            <Campo etiqueta="Su código">
+              <Entrada
                 value={pv.codigoProveedor}
                 onChange={(e) => setProvs((xs) => xs.map((x, j) => (j === i ? { ...x, codigoProveedor: e.target.value } : x)))}
                 placeholder="opcional"
-                className={`${input} sm:w-36 font-mono`}
+                className="font-mono"
               />
-            </div>
-            <div>
-              <label className={etiqueta}>Costo</label>
-              <input
+            </Campo>
+            <Campo etiqueta="Costo">
+              <Entrada
                 value={pv.costo}
                 onChange={(e) => setProvs((xs) => xs.map((x, j) => (j === i ? { ...x, costo: e.target.value } : x)))}
-                type="number" placeholder="$" className={`${input} sm:w-28`}
+                type="number" prefijo="$"
               />
-            </div>
-            <button onClick={() => setProvs((xs) => xs.filter((_, j) => j !== i))} className="pb-2.5 text-black/40 hover:text-[#B82D25]">✕</button>
+            </Campo>
+            <Boton
+              variante="fantasma"
+              aria-label="Quitar este proveedor"
+              onClick={() => setProvs((xs) => xs.filter((_, j) => j !== i))}
+              icono={<IconoCerrar />}
+            />
           </div>
         ))}
-        <button onClick={() => setProvs((xs) => [...xs, { proveedorId: '', codigoProveedor: '', costo: '' }])} className="text-xs text-[#B82D25] hover:underline">
+        <Boton
+          variante="fantasma"
+          tamano="chico"
+          onClick={() => setProvs((xs) => [...xs, { proveedorId: '', codigoProveedor: '', costo: '' }])}
+        >
           + Agregar proveedor
-        </button>
-      </section>
+        </Boton>
+      </Tarjeta>
 
       {/* 3 · PLATA */}
-      <section className="mt-4 rounded-2xl bg-white p-5 space-y-4 shadow-sm">
-        <h2 className="text-sm font-semibold text-black">Precios</h2>
-        <div className="grid sm:grid-cols-2 gap-3">
-          <div>
-            <label className={etiqueta}>Costo de compra (sin IVA)</label>
-            <input value={form.costo} onChange={(e) => campo('costo', e.target.value)} type="number" placeholder="$" className={input} />
-          </div>
-          <div>
-            <label className={etiqueta}>Precio de venta</label>
-            <input value={form.precio} onChange={(e) => campo('precio', e.target.value)} type="number" placeholder="$" className={input} />
-          </div>
+      <Tarjeta className="space-y-4">
+        <h2 className={TITULO}>Precios</h2>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Campo etiqueta="Costo de compra (sin IVA)">
+            <Entrada value={form.costo} onChange={(e) => campo('costo', e.target.value)} type="number" prefijo="$" />
+          </Campo>
+          <Campo etiqueta="Precio de venta">
+            <Entrada value={form.precio} onChange={(e) => campo('precio', e.target.value)} type="number" prefijo="$" />
+          </Campo>
         </div>
 
         {precioSugerido != null && (
-          <button
-            onClick={() => campo('precio', String(precioSugerido))}
-            className="text-xs rounded-full border border-[#B82D25]/30 text-[#B82D25] px-3 py-1.5 hover:bg-[#B82D25]/5"
-          >
-            Usar el margen de {form.rubro} ({margenRubro} %) → {pesos(precioSugerido)}
-          </button>
+          <Boton variante="secundario" tamano="chico" onClick={() => campo('precio', String(precioSugerido))}>
+            Usar el margen de {form.rubro} ({margenRubro} %) → <span className="importe">{pesos(precioSugerido)}</span>
+          </Boton>
         )}
 
         {margen != null && (
-          <p className={`text-xs font-medium ${margen < 0 ? 'text-[#B82D25]' : margen < 10 ? 'text-amber-700' : 'text-emerald-700'}`}>
+          <p className={`text-sm font-medium ${margen < 0 ? 'text-marca-hondo' : margen < 10 ? 'text-atencion' : 'text-ok'}`}>
             Margen: {margen} %{margen < 0 ? ' — estarías vendiendo abajo del costo' : margen < 10 ? ' — muy bajo, revisalo' : ''}
           </p>
         )}
 
-        <div className="grid sm:grid-cols-2 gap-3 pt-1">
-          <div>
-            <label className={etiqueta}>Precio por caja cerrada (opcional)</label>
-            <input value={form.precioCaja} onChange={(e) => campo('precioCaja', e.target.value)} type="number" placeholder="$" className={input} />
-          </div>
-          <div>
-            <label className={etiqueta}>Precio mayorista (opcional)</label>
-            <input value={form.precioMayorista} onChange={(e) => campo('precioMayorista', e.target.value)} type="number" placeholder="$" className={input} />
-          </div>
+        <div className="grid gap-3 pt-1 sm:grid-cols-2">
+          <Campo etiqueta="Precio por caja cerrada (opcional)">
+            <Entrada value={form.precioCaja} onChange={(e) => campo('precioCaja', e.target.value)} type="number" prefijo="$" />
+          </Campo>
+          <Campo etiqueta="Precio mayorista (opcional)">
+            <Entrada value={form.precioMayorista} onChange={(e) => campo('precioMayorista', e.target.value)} type="number" prefijo="$" />
+          </Campo>
         </div>
-      </section>
+      </Tarjeta>
 
       {/* 4 · STOCK */}
-      <section className="mt-4 rounded-2xl bg-white p-5 space-y-3 shadow-sm">
-        <h2 className="text-sm font-semibold text-black">Stock por sucursal</h2>
-        <p className="text-[11px] text-black/40 -mt-1">
-          La cantidad inicial entra como ajuste, con tu nombre. Si la mercadería llega por remito, dejala en cero y cargala en Recepción.
-        </p>
+      <Tarjeta className="space-y-3">
+        <div>
+          <h2 className={TITULO}>Stock por sucursal</h2>
+          <p className="mt-1 text-xs text-tinta/60">
+            La cantidad inicial entra como ajuste, con tu nombre. Si la mercadería llega por remito, dejala en cero y cargala en Recepción.
+          </p>
+        </div>
         {sucursales.map((s) => (
-          <div key={s.id} className="grid grid-cols-3 gap-3 items-end">
-            <div className="col-span-3 sm:col-span-1 text-sm text-black/70 pb-2">{s.nombre}</div>
-            <div>
-              <label className={etiqueta}>Cantidad</label>
-              <input
+          <div key={s.id} className="grid grid-cols-3 items-end gap-3 sm:grid-cols-4">
+            <div className="col-span-3 break-words pb-1 text-sm font-medium text-tinta/70 sm:col-span-1 sm:pb-2.5">{s.nombre}</div>
+            <Campo etiqueta="Cantidad">
+              <Entrada
                 value={stock[s.id]?.cantidad ?? ''}
                 onChange={(e) => setStock((x) => ({ ...x, [s.id]: { ...x[s.id], cantidad: e.target.value } }))}
-                type="number" placeholder="0" className={input}
+                type="number" placeholder="0"
               />
-            </div>
-            <div>
-              <label className={etiqueta}>Mínimo</label>
-              <input
+            </Campo>
+            <Campo etiqueta="Mínimo">
+              <Entrada
                 value={stock[s.id]?.minimo ?? ''}
                 onChange={(e) => setStock((x) => ({ ...x, [s.id]: { ...x[s.id], minimo: e.target.value } }))}
-                type="number" placeholder="0" className={input}
+                type="number" placeholder="0"
               />
-            </div>
-            <div>
-              <label className={etiqueta}>Reponer en</label>
-              <input
+            </Campo>
+            <Campo etiqueta="Reponer en">
+              <Entrada
                 value={stock[s.id]?.reposicion ?? ''}
                 onChange={(e) => setStock((x) => ({ ...x, [s.id]: { ...x[s.id], reposicion: e.target.value } }))}
-                type="number" placeholder="0" className={input}
+                type="number" placeholder="0"
               />
-            </div>
+            </Campo>
           </div>
         ))}
-      </section>
+      </Tarjeta>
 
-      {error && <p className="mt-4 rounded-lg bg-[#B82D25]/10 p-3 text-sm text-[#B82D25]">{error}</p>}
+      {error && <Aviso tono="error">{error}</Aviso>}
 
       {/* barra fija: cargar de a muchos sin perder el botón de vista */}
-      <div className="fixed bottom-0 left-0 right-0 lg:pl-64 bg-white/95 backdrop-blur border-t border-black/10 p-4">
-        <div className="max-w-3xl mx-auto flex items-center justify-end gap-3">
-          <Link href={volverA ?? '/productos'} className="text-sm text-black/60 px-4 py-2 hover:text-black">Cancelar</Link>
-          <button
-            onClick={() => guardar(true)}
-            disabled={!listo}
-            className="rounded-full border border-[#B82D25] text-[#B82D25] text-sm font-medium px-5 py-2.5 hover:bg-[#B82D25]/5 disabled:opacity-40"
-          >
-            Guardar y cargar otro
-          </button>
-          <button
-            onClick={() => guardar(false)}
-            disabled={!listo}
-            className="rounded-full bg-[#B82D25] text-white text-sm font-medium px-6 py-2.5 hover:bg-[#932A1F] disabled:opacity-40"
-          >
-            {guardando ? 'Guardando…' : 'Guardar producto'}
-          </button>
-        </div>
-      </div>
+      <BarraInferior etiqueta="Guardar el producto">
+        <BotonLink href={volverA ?? '/productos'} variante="fantasma" className="max-sm:hidden">Cancelar</BotonLink>
+        <Boton variante="secundario" onClick={() => guardar(true)} disabled={!listo}>
+          Guardar y cargar otro
+        </Boton>
+        <Boton onClick={() => guardar(false)} disabled={!listo}>
+          {guardando ? 'Guardando…' : 'Guardar producto'}
+        </Boton>
+      </BarraInferior>
     </div>
   );
 }

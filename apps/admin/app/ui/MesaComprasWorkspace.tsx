@@ -4,13 +4,22 @@ import { useEffect, useRef, useState } from 'react';
 import { BotonMicrofono } from './BotonMicrofono';
 import { prepararComprobante } from './comprimirImagen';
 import { AbastecimientoPanel } from './AbastecimientoPanel';
+import { Aviso, Boton, CLASES_ENTRADA, Cargando, Etiqueta, FOCO, Pestanas, TablaResponsiva, Tarjeta, TarjetaCabecera, Vacio, unir, useConfirmar } from './kit';
+import { pesos } from '../lib/formato';
 
 // Mesa de compras: el comprador negocia con el proveedor y acá saca el costo
 // real. El sistema hace las cuentas; el analista razona, pregunta y arma la
 // propuesta. Nada se aplica hasta que el dueño aprueba.
 type Mensaje = { rol: 'usuario' | 'asistente'; texto: string; imagen?: string; mimeType?: string; nombre?: string };
 
-const pesos = (n: any) => (n == null || !Number.isFinite(Number(n)) ? '—' : '$' + Math.round(Number(n)).toLocaleString('es-AR'));
+// el clip de los adjuntos (antes, el emoji 📎)
+function IconoClip({ className = 'size-4' }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+      <path d="M20.5 11.5l-8.3 8.3a5 5 0 01-7.1-7.1l8.6-8.6a3.4 3.4 0 014.8 4.8l-8.6 8.6a1.7 1.7 0 01-2.4-2.4l7.9-7.9" />
+    </svg>
+  );
+}
 
 export function MesaComprasWorkspace({ esDueno, tabInicial }: { esDueno: boolean; tabInicial?: string }) {
   // "Qué comprar" (el agente de abastecimiento, 1/10/2026) va primero
@@ -24,6 +33,7 @@ export function MesaComprasWorkspace({ esDueno, tabInicial }: { esDueno: boolean
   const [trabajando, setTrabajando] = useState('');
   const finRef = useRef<HTMLDivElement>(null);
   const archivoRef = useRef<HTMLInputElement>(null);
+  const { pedirTexto, dialogo } = useConfirmar();
 
   useEffect(() => { finRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [mensajes, pensando]);
 
@@ -95,7 +105,7 @@ export function MesaComprasWorkspace({ esDueno, tabInicial }: { esDueno: boolean
     if (trabajando) return;
     let motivo = '';
     if (accion === 'rechazar') {
-      motivo = window.prompt('¿Por qué se rechaza? Queda registrado.') ?? '';
+      motivo = (await pedirTexto({ titulo: '¿Por qué se rechaza? Queda registrado.', campo: { etiqueta: 'Motivo', multilinea: true }, variante: 'peligro', textoConfirmar: 'Rechazar' })) ?? '';
       if (motivo === null) return;
     }
     setTrabajando(id);
@@ -118,31 +128,32 @@ export function MesaComprasWorkspace({ esDueno, tabInicial }: { esDueno: boolean
 
   return (
     <div className="space-y-4">
-      <div className="flex gap-1.5 border-b border-black/[0.06]">
-        {([['abastecer', 'Qué comprar'], ['costear', 'Costear una compra'], ['aprobar', `Para aprobar${propuestas.length ? ` (${propuestas.length})` : ''}`]] as const).map(([k, l]) => (
-          <button key={k} onClick={() => setTab(k)}
-            className={`px-4 py-2 text-sm font-medium rounded-t-lg -mb-px border-b-2 ${tab === k ? 'border-marca text-tinta' : 'border-transparent text-tinta/60 hover:text-tinta'}`}>
-            {l}
-          </button>
-        ))}
-      </div>
+      <Pestanas
+        aLoAncho
+        etiquetaAccesible="Mesa de compras"
+        valor={tab}
+        onCambiar={setTab}
+        opciones={[
+          { valor: 'abastecer', etiqueta: 'Qué comprar' },
+          { valor: 'costear', etiqueta: 'Costear una compra' },
+          { valor: 'aprobar', etiqueta: 'Para aprobar', cuenta: propuestas.length || undefined },
+        ]}
+      />
 
-      {error && <p className="rounded-xl bg-marca-suave border border-marca/30 px-3 py-2 text-sm text-marca-hondo">{error}</p>}
+      {error && <Aviso tono="error">{error}</Aviso>}
 
       {tab === 'abastecer' && <AbastecimientoPanel />}
 
       {tab === 'costear' && (
-        <div className="rounded-xl bg-white overflow-hidden">
-          <div className="px-4 py-3 border-b border-black/[0.06]">
-            <p className="text-sm font-medium text-tinta">Analista de compras</p>
-            <p className="text-xs text-tinta/60 mt-0.5">
-              Contale la oferta como se la dijo el proveedor. Las cuentas las hace el sistema, no la IA.
-            </p>
-          </div>
+        <Tarjeta relleno={false} className="overflow-hidden">
+          <TarjetaCabecera
+            titulo="Analista de compras"
+            sub="Contale la oferta como se la dijo el proveedor. Las cuentas las hace el sistema, no la IA."
+          />
 
-          <div className="max-h-[52dvh] overflow-y-auto p-4 space-y-3">
+          <div className="max-h-[52dvh] space-y-3 overflow-y-auto p-4 sm:p-5">
             {mensajes.length === 0 && (
-              <div className="text-sm text-tinta/60 space-y-2">
+              <div className="space-y-2 text-sm text-tinta/60">
                 <p>Por ejemplo:</p>
                 <p className="italic">
                   «Cepas me ofrece el Malbec en caja de 6 a $54.000 sin IVA. Me hace 10% y después
@@ -153,132 +164,132 @@ export function MesaComprasWorkspace({ esDueno, tabInicial }: { esDueno: boolean
             )}
             {mensajes.map((m, i) => (
               <div key={i} className={`flex ${m.rol === 'usuario' ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-[85%] whitespace-pre-wrap rounded-xl px-3.5 py-2.5 text-sm leading-relaxed ${
-                  m.rol === 'usuario' ? 'bg-black text-crema' : 'bg-crema text-tinta'}`}>
-                  {m.imagen && <p className="text-xs opacity-70 mb-1">📎 {m.nombre ?? 'Adjunto'}</p>}
+                <div className={`max-w-[85%] min-w-0 whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${
+                  m.rol === 'usuario' ? 'bg-tinta text-crema' : 'bg-crema text-tinta'}`}>
+                  {m.imagen && <p className="mb-1 flex items-center gap-1 text-xs opacity-70"><IconoClip className="size-3.5 shrink-0" /><span className="min-w-0 break-words">{m.nombre ?? 'Adjunto'}</span></p>}
                   {m.texto}
                 </div>
               </div>
             ))}
-            {pensando && <p className="text-sm text-tinta/60">Sacando cuentas…</p>}
+            {pensando && <Cargando texto="Sacando cuentas…" />}
             <div ref={finRef} />
           </div>
 
-          <div className="border-t border-black/[0.06] p-3 space-y-2">
+          <div className="space-y-2 border-t border-black/[0.06] p-3">
             {foto && (
-              <div className="flex items-center gap-2 text-xs text-tinta/70">
-                <span>📎 {foto.nombre}</span>
-                <button onClick={() => setFoto(null)} className="underline">quitar</button>
+              <div className="flex flex-wrap items-center gap-2 text-xs text-tinta/70">
+                <span className="flex min-w-0 items-center gap-1"><IconoClip className="size-3.5 shrink-0" /><span className="min-w-0 break-words">{foto.nombre}</span></span>
+                <button onClick={() => setFoto(null)} className={unir('inline-flex min-h-9 items-center rounded-full px-2 underline', FOCO)}>quitar</button>
               </div>
             )}
-            <div className="flex items-end gap-2">
+            <div className="flex flex-wrap items-end gap-2">
               <input ref={archivoRef} type="file" accept="image/*,.pdf,.xlsx,.xls,.xlsm,.csv" className="hidden"
                 onChange={(e) => elegirFoto(e.target.files?.[0] ?? null)} />
-              <button onClick={() => archivoRef.current?.click()} title="Adjuntar la lista del proveedor (foto, PDF o Excel)"
-                className="rounded-xl border border-black/15 px-3 py-2.5 text-sm hover:bg-crema-claro">📎</button>
-              <BotonMicrofono onTexto={setTexto} titulo="Dictarle al analista" />
               <textarea
                 value={texto}
                 onChange={(e) => setTexto(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); enviar(); } }}
                 rows={2}
                 placeholder="Contale la oferta…"
-                className="flex-1 resize-none rounded-xl border border-black/15 px-3 py-2 text-sm text-tinta outline-none focus:border-marca"
+                aria-label="Mensaje para el analista de compras"
+                className={unir(CLASES_ENTRADA, 'order-first basis-full resize-none sm:order-none sm:basis-0 sm:flex-1')}
               />
-              <button onClick={() => enviar()} disabled={pensando || (!texto.trim() && !foto)}
-                className="rounded-xl bg-marca px-4 py-2.5 text-sm font-medium text-white active:scale-95 disabled:opacity-40">
-                Enviar
+              <button onClick={() => archivoRef.current?.click()} title="Adjuntar la lista del proveedor (foto, PDF o Excel)"
+                aria-label="Adjuntar la lista del proveedor (foto, PDF o Excel)"
+                className={unir('grid size-11 shrink-0 place-items-center rounded-full border border-black/15 bg-white text-tinta/70 transition-colors hover:bg-crema-claro hover:text-tinta sm:order-first', FOCO)}>
+                <IconoClip className="size-5" />
               </button>
+              <span className="sm:order-first"><BotonMicrofono onTexto={setTexto} titulo="Dictarle al analista" /></span>
+              <Boton onClick={() => enviar()} disabled={pensando || (!texto.trim() && !foto)} className="ml-auto sm:ml-0">
+                Enviar
+              </Boton>
             </div>
           </div>
-        </div>
+        </Tarjeta>
       )}
 
       {tab === 'aprobar' && (
         <div className="space-y-3">
           {propuestas.length === 0 && (
-            <p className="rounded-xl bg-white px-4 py-10 text-center text-sm text-tinta/60">
-              No hay nada esperando aprobación.
-            </p>
+            <Vacio titulo="No hay nada esperando aprobación." texto="Las propuestas que arme el analista de compras aparecen acá." />
           )}
           {propuestas.map((p) => (
-            <div key={p.id} className="rounded-xl bg-white overflow-hidden">
-              <div className="px-4 py-3 border-b border-black/[0.06]">
-                <p className="text-sm font-semibold text-tinta">{p.titulo}</p>
-                <p className="text-xs text-tinta/60 mt-0.5">
-                  {p.proveedor?.razon_social ?? 'Sin proveedor'} · lo armó {p.autor?.nombre ?? 'alguien'}
-                </p>
-                {p.notas && <p className="text-sm text-tinta/70 mt-2">{p.notas}</p>}
-              </div>
+            <Tarjeta key={p.id} relleno={false} className="overflow-hidden">
+              <TarjetaCabecera
+                nivel={3}
+                titulo={p.titulo}
+                sub={`${p.proveedor?.razon_social ?? 'Sin proveedor'} · lo armó ${p.autor?.nombre ?? 'alguien'}`}
+              />
+              {p.notas && <p className="border-b border-black/[0.06] px-4 py-3 text-sm text-tinta/70 sm:px-5">{p.notas}</p>}
 
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-crema text-tinta/70">
-                    <tr>
-                      <th className="text-left px-4 py-2 font-medium">Producto</th>
-                      <th className="text-right px-3 py-2 font-medium">Costo</th>
-                      <th className="text-right px-3 py-2 font-medium">Precio de venta</th>
-                      <th className="text-right px-4 py-2 font-medium">Margen</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(p.items ?? []).map((i: any) => {
+              <TablaResponsiva
+                sinMarco
+                etiqueta={`Cambios de ${p.titulo}`}
+                filas={p.items ?? []}
+                claveFila={(i: any, n) => i.producto?.sku ?? n}
+                vacio={<></>}
+                columnas={[
+                  {
+                    clave: 'producto',
+                    titulo: 'Producto',
+                    principal: true,
+                    celda: (i: any) => (
+                      <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                        <span className="min-w-0 break-words text-tinta">{i.producto?.nombre}<span className="text-xs font-normal text-tinta/60"> · {i.producto?.sku}</span></span>
+                        {i.detalle?.vendeBajoCosto && <Etiqueta tono="error">queda bajo costo</Etiqueta>}
+                      </span>
+                    ),
+                  },
+                  {
+                    clave: 'costo',
+                    titulo: 'Costo',
+                    importe: true,
+                    celda: (i: any) => {
                       const sube = Number(i.costo_nuevo) > Number(i.costo_anterior ?? 0);
                       return (
-                        <tr key={i.producto?.sku} className="border-t border-black/[0.06]">
-                          <td className="px-4 py-2.5">
-                            <span className="text-tinta">{i.producto?.nombre}</span>
-                            <span className="text-tinta/60 text-xs"> · {i.producto?.sku}</span>
-                            {i.detalle?.vendeBajoCosto && (
-                              <span className="ml-2 rounded-full bg-marca-suave px-2 py-0.5 text-xs font-bold text-marca uppercase">
-                                queda bajo costo
-                              </span>
-                            )}
-                          </td>
-                          <td className="px-3 py-2.5 text-right tabular-nums">
-                            <span className="text-tinta/60">{pesos(i.costo_anterior)}</span>
-                            <span className="text-tinta/60"> → </span>
-                            <span className={sube ? 'text-marca font-medium' : 'text-ok font-medium'}>
-                              {pesos(i.costo_nuevo)}
-                            </span>
-                          </td>
-                          <td className="px-3 py-2.5 text-right tabular-nums">
-                            {i.aplicar_precio ? (
-                              <>
-                                <span className="text-tinta/60">{pesos(i.precio_anterior)}</span>
-                                <span className="text-tinta/60"> → </span>
-                                <span className="text-tinta font-medium">{pesos(i.precio_sugerido)}</span>
-                              </>
-                            ) : (
-                              <span className="text-tinta/60">no se toca</span>
-                            )}
-                          </td>
-                          <td className="px-4 py-2.5 text-right tabular-nums text-tinta/70">{i.margen_pct}%</td>
-                        </tr>
+                        <span className="importe">
+                          <span className="text-tinta/60">{pesos(i.costo_anterior)}</span>
+                          <span className="text-tinta/60"> → </span>
+                          <span className={sube ? 'font-medium text-marca-hondo' : 'font-medium text-ok'}>{pesos(i.costo_nuevo)}</span>
+                        </span>
                       );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+                    },
+                  },
+                  {
+                    clave: 'precio',
+                    titulo: 'Precio de venta',
+                    importe: true,
+                    celda: (i: any) => (i.aplicar_precio ? (
+                      <span className="importe">
+                        <span className="text-tinta/60">{pesos(i.precio_anterior)}</span>
+                        <span className="text-tinta/60"> → </span>
+                        <span className="font-medium text-tinta">{pesos(i.precio_sugerido)}</span>
+                      </span>
+                    ) : (
+                      <span className="text-tinta/60">no se toca</span>
+                    )),
+                  },
+                  { clave: 'margen', titulo: 'Margen', importe: true, celda: (i: any) => <span className="text-tinta/70">{i.margen_pct}%</span> },
+                ]}
+              />
 
-              <div className="px-4 py-3 border-t border-black/[0.06] flex items-center justify-end gap-2">
-                <button onClick={() => decidir(p.id, 'rechazar')} disabled={!!trabajando}
-                  className="rounded-xl border border-black/15 px-4 py-2 text-sm hover:bg-crema-claro disabled:opacity-40">
+              <div className="flex flex-wrap items-center justify-end gap-2 border-t border-black/[0.06] px-4 py-3 sm:px-5">
+                <Boton variante="peligro" onClick={() => decidir(p.id, 'rechazar')} disabled={!!trabajando}>
                   Rechazar
-                </button>
+                </Boton>
                 {esDueno ? (
-                  <button onClick={() => decidir(p.id, 'aprobar')} disabled={!!trabajando}
-                    className="rounded-xl bg-marca px-5 py-2 text-sm font-medium text-white active:scale-95 disabled:opacity-40">
+                  <Boton onClick={() => decidir(p.id, 'aprobar')} disabled={!!trabajando}>
                     {trabajando === p.id ? 'Aplicando…' : 'Aprobar y aplicar'}
-                  </button>
+                  </Boton>
                 ) : (
                   <span className="text-xs text-tinta/60">Solo el dueño puede aprobar</span>
                 )}
               </div>
-            </div>
+            </Tarjeta>
           ))}
         </div>
       )}
+      {dialogo}
     </div>
   );
 }

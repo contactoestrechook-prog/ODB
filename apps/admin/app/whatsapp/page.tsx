@@ -21,10 +21,10 @@ export default async function RespondeApp() {
   const token = await tokenDelPanelResponde();
   if (!token) {
     return (
-      <main style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', background: '#0A0A0B', color: '#F0EBE2', fontFamily: 'system-ui', padding: 24 }}>
-        <div style={{ maxWidth: 460, textAlign: 'center', lineHeight: 1.6 }}>
-          <p style={{ fontSize: 15, fontWeight: 600 }}>RESPONDE no está configurado en este servidor</p>
-          <p style={{ fontSize: 13, opacity: 0.7, marginTop: 8 }}>
+      <main className="grid min-h-dvh place-items-center bg-tinta p-6 text-crema">
+        <div className="max-w-md text-center leading-relaxed">
+          <p className="text-base font-semibold">RESPONDE no está configurado en este servidor</p>
+          <p className="mt-2 text-sm text-crema/70">
             Faltan las credenciales del panel (RESPONDE_PANEL_EMAIL y RESPONDE_PANEL_CLAVE en las variables del servicio) o RESPONDE no respondió al login.
           </p>
         </div>
@@ -36,20 +36,18 @@ export default async function RespondeApp() {
       <iframe
         src={`/responde-app.html?embed=1&token=${encodeURIComponent(token)}`}
         title="RESPONDE · O.D.B"
-        style={{ position: 'fixed', inset: 0, width: '100%', height: '100%', border: 0, background: '#0A0A0B' }}
+        className="fixed inset-0 h-full w-full border-0 bg-tinta"
         allow="microphone; camera"
       />
       {/* la app es pantalla completa: sin esto no hay forma de volver al panel */}
       <a
         href="/inicio"
-        style={{
-          position: 'fixed', top: 'calc(env(safe-area-inset-top, 0px) + 10px)', left: 12, zIndex: 10,
-          background: '#F0EBE2', color: '#141414', textDecoration: 'none',
-          fontFamily: 'system-ui', fontSize: 13, fontWeight: 600,
-          padding: '7px 14px', borderRadius: 999, boxShadow: '0 2px 10px rgba(0,0,0,.35)', opacity: 0.92,
-        }}
+        className="fixed top-[calc(env(safe-area-inset-top,0px)+0.625rem)] left-3 z-contenido inline-flex min-h-9 items-center gap-1.5 rounded-full bg-crema px-3.5 text-sm font-semibold text-tinta no-underline opacity-90 shadow-flotante transition-opacity hover:opacity-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-crema"
       >
-        ← Panel
+        <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M19 12H5M11 6l-6 6 6 6" />
+        </svg>
+        Panel
       </a>
     </>
   );

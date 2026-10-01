@@ -1,7 +1,7 @@
-import { Header } from '../ui/Header';
 import { apiFetch } from '../../lib/api';
-
-const pesos = (n: number) => '$' + Math.round(n).toLocaleString('es-AR');
+import { Aviso, Etiqueta, FOCO, Kpi, Monto, TablaResponsiva, Tarjeta, TarjetaCabecera, unir } from '../ui/kit';
+import { Pantalla } from '../ui/kit/Pantalla';
+import { fecha, numero, pesos } from '../lib/formato';
 
 const MEDIO_LABEL: Record<string, string> = {
   efectivo: 'Efectivo',
@@ -9,6 +9,9 @@ const MEDIO_LABEL: Record<string, string> = {
   tarjeta: 'Tarjeta',
   cta_cte: 'Cuenta corriente',
 };
+
+// Colores de la barra de medios de pago (en orden)
+const COLORES_MEDIO = ['bg-marca', 'bg-tinta', 'bg-marca-hondo', 'bg-crema-hondo'];
 
 export const dynamic = 'force-dynamic';
 
@@ -25,80 +28,91 @@ function TablaRanking({
 }) {
   const max = Math.max(...filas.map((f) => f[valor]), 1);
   return (
-    <section className="rounded-xl bg-white overflow-hidden">
-      <h2 className="px-4 py-3 border-b border-black/10 font-medium text-black text-sm">{titulo}</h2>
-      <table className="w-full text-sm text-black">
-        <tbody>
-          {filas.map((f) => (
-            <tr key={f.sku ?? f.nombre} className="border-b border-black/5 last:border-0">
-              <td className="px-4 py-2">
-                <p className="text-xs">{f.nombre}</p>
-                <div className="mt-1 h-1.5 rounded-full bg-[#F0EBE2]">
-                  <div
-                    className="h-1.5 rounded-full bg-[#B82D25]"
-                    style={{ width: `${Math.max((f[valor] / max) * 100, 2)}%` }}
-                  />
-                </div>
-              </td>
-              <td className="px-4 py-2 text-right text-xs font-medium whitespace-nowrap w-24">
-                {formato === 'pesos' ? pesos(f[valor]) : `${f[valor]} u.`}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </section>
+    <Tarjeta relleno={false} className="overflow-hidden">
+      <TarjetaCabecera titulo={titulo} />
+      <ul className="divide-y divide-black/[0.06]">
+        {filas.map((f) => (
+          <li key={f.sku ?? f.nombre} className="flex items-center gap-3 px-4 py-2.5 sm:px-5">
+            <div className="min-w-0 flex-1">
+              <p className="break-words text-xs text-tinta">{f.nombre}</p>
+              <div className="mt-1 h-1.5 rounded-full bg-crema">
+                <div
+                  className="h-1.5 rounded-full bg-marca"
+                  style={{ width: `${Math.max((f[valor] / max) * 100, 2)}%` }}
+                />
+              </div>
+            </div>
+            <p className="importe shrink-0 text-right text-xs font-medium text-tinta">
+              {formato === 'pesos' ? pesos(f[valor]) : `${f[valor]} u.`}
+            </p>
+          </li>
+        ))}
+      </ul>
+    </Tarjeta>
   );
 }
 
 // Semáforo de cobertura: días que dura el stock al ritmo de venta.
 function chipCobertura(dias: number | null) {
-  if (dias == null) return <span className="text-xs text-black/40">s/d</span>;
-  const cls = dias <= 7 ? 'bg-[#B82D25]/12 text-[#B82D25]' : dias <= 15 ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800';
-  return <span className={`text-xs font-semibold rounded-full px-2 py-0.5 ${cls}`}>{dias} d{dias <= 7 ? ' ⚠' : ''}</span>;
+  if (dias == null) return <span className="text-xs text-tinta/60">s/d</span>;
+  return (
+    <Etiqueta tono={dias <= 7 ? 'error' : dias <= 15 ? 'atencion' : 'ok'} punto={dias <= 7}>
+      {dias} d
+    </Etiqueta>
+  );
 }
 
 function TablaCobertura({ filas }: { filas: any[] }) {
   const urgentes = filas.filter((f) => f.coberturaDias != null && f.coberturaDias <= 7).length;
   return (
-    <section className="rounded-xl bg-white overflow-hidden">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-black/10">
-        <h2 className="font-medium text-black text-sm">Más vendidos · cobertura de stock</h2>
-        <span className="text-xs text-black/40">
-          {urgentes > 0 ? <span className="text-[#B82D25] font-medium">{urgentes} para reponer ya</span> : 'stock cubierto'} · tocá los días para ver el stock
-        </span>
-      </div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm text-black min-w-[34rem]">
-          <thead>
-            <tr className="text-[11px] uppercase tracking-wide text-black/40 border-b border-black/5">
-              <th className="px-4 py-2 text-left font-medium">Producto</th>
-              <th className="px-4 py-2 text-right font-medium">Vendidas (30d)</th>
-              <th className="px-4 py-2 text-right font-medium">Stock</th>
-              <th className="px-4 py-2 text-right font-medium">Cobertura</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filas.map((f) => (
-              <tr key={f.sku ?? f.nombre} className="border-b border-black/5 last:border-0">
-                <td className="px-4 py-2"><p className="text-xs font-medium">{f.nombre}</p><p className="text-[11px] text-black/40">{f.sku}</p></td>
-                <td className="px-4 py-2 text-right text-xs tabular-nums whitespace-nowrap">{f.unidades} u.</td>
-                <td className="px-4 py-2 text-right text-xs tabular-nums whitespace-nowrap">{f.stock} u.</td>
-                <td className="px-4 py-2 text-right">
-                  {f.sku ? (
-                    <a href={`/stock?sku=${encodeURIComponent(f.sku)}`} className="inline-block hover:opacity-80" title="Ver el stock de este producto">
-                      {chipCobertura(f.coberturaDias)}
-                    </a>
-                  ) : (
-                    chipCobertura(f.coberturaDias)
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </section>
+    <Tarjeta relleno={false} className="overflow-hidden">
+      <TarjetaCabecera
+        titulo="Más vendidos · cobertura de stock"
+        sub={
+          <>
+            {urgentes > 0 ? <span className="font-medium text-marca-hondo">{urgentes} para reponer ya</span> : 'stock cubierto'} · tocá los días para ver el stock
+          </>
+        }
+      />
+      <TablaResponsiva
+        sinMarco
+        etiqueta="Más vendidos y cobertura de stock"
+        filas={filas}
+        claveFila={(f: any) => f.sku ?? f.nombre}
+        columnas={[
+          {
+            clave: 'producto',
+            titulo: 'Producto',
+            principal: true,
+            celda: (f: any) => (
+              <>
+                <p className="break-words text-sm font-medium">{f.nombre}</p>
+                <p className="text-xs font-normal text-tinta/60">{f.sku}</p>
+              </>
+            ),
+          },
+          { clave: 'vendidas', titulo: 'Vendidas (30d)', importe: true, claseCelda: 'whitespace-nowrap', celda: (f: any) => `${f.unidades} u.` },
+          { clave: 'stock', titulo: 'Stock', importe: true, claseCelda: 'whitespace-nowrap', celda: (f: any) => `${f.stock} u.` },
+          {
+            clave: 'cobertura',
+            titulo: 'Cobertura',
+            alinear: 'derecha',
+            celda: (f: any) =>
+              f.sku ? (
+                <a
+                  href={`/stock?sku=${encodeURIComponent(f.sku)}`}
+                  className={unir('inline-flex min-h-11 items-center rounded-full hover:opacity-80 md:min-h-0', FOCO)}
+                  title="Ver el stock de este producto"
+                >
+                  {chipCobertura(f.coberturaDias)}
+                </a>
+              ) : (
+                chipCobertura(f.coberturaDias)
+              ),
+          },
+        ]}
+      />
+    </Tarjeta>
   );
 }
 
@@ -115,12 +129,9 @@ export default async function Estadisticas() {
 
   if (!d) {
     return (
-      <main className="min-h-screen bg-[#F0EBE2] lg:pl-64">
-        <Header activo="/estadisticas" />
-        <div className="max-w-5xl mx-auto p-6">
-          <p className="rounded-lg bg-white p-4 text-sm text-[#932A1F]">No pude consultar la API ({error}).</p>
-        </div>
-      </main>
+      <Pantalla activo="/estadisticas">
+        <Aviso tono="error">No pude consultar la API ({error}).</Aviso>
+      </Pantalla>
     );
   }
 
@@ -128,125 +139,102 @@ export default async function Estadisticas() {
   const totalMedios = d.porMedio.reduce((s: number, m: any) => s + m.total, 0) || 1;
 
   return (
-    <main className="min-h-screen bg-[#F0EBE2] lg:pl-64">
-      <Header activo="/estadisticas" />
-      <div className="max-w-6xl mx-auto p-6 space-y-4">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <div className="rounded-xl bg-white p-4">
-            <p className="text-xs text-black/50">Facturado (30 días)</p>
-            <p className="text-xl font-medium text-black">{pesos(d.totales.facturado)}</p>
-          </div>
-          <div className="rounded-xl bg-white p-4">
-            <p className="text-xs text-black/50">Tickets</p>
-            <p className="text-xl font-medium text-black">{d.totales.tickets.toLocaleString('es-AR')}</p>
-          </div>
-          <div className="rounded-xl bg-white p-4">
-            <p className="text-xs text-black/50">Ticket promedio</p>
-            <p className="text-xl font-medium text-black">{pesos(d.totales.ticketPromedio)}</p>
-          </div>
-          <div className="rounded-xl bg-[#B82D25] p-4">
-            <p className="text-xs text-[#F0EBE2]">Descuentos otorgados</p>
-            <p className="text-xl font-medium text-white">{pesos(d.totales.descuentos)}</p>
-          </div>
-        </div>
+    <Pantalla activo="/estadisticas" ancho="ancho">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <Kpi etiqueta="Facturado (30 días)" valor={<Monto valor={d.totales.facturado} />} className="col-span-2 md:col-span-1" />
+        <Kpi etiqueta="Tickets" valor={numero(d.totales.tickets)} />
+        <Kpi etiqueta="Ticket promedio" valor={<Monto valor={d.totales.ticketPromedio} />} />
+        <Kpi etiqueta="Descuentos otorgados" valor={<Monto valor={d.totales.descuentos} />} tono="error" className="col-span-2 md:col-span-1" />
+      </div>
 
-        {d.historico && (
-          <p className="rounded-xl bg-white px-4 py-3 text-xs text-black/55">
-            Los rankings incluyen las ventas del sistema anterior del{' '}
-            {new Date(d.historico.desde + 'T12:00:00').toLocaleDateString('es-AR', { day: 'numeric', month: 'numeric' })} al{' '}
-            {new Date(d.historico.hasta + 'T12:00:00').toLocaleDateString('es-AR', { day: 'numeric', month: 'numeric' })}{' '}
-            ({d.historico.unidades.toLocaleString('es-AR')} unidades). La facturación y los tickets arrancan con las ventas
-            cargadas en este sistema.
-          </p>
-        )}
+      {d.historico && (
+        <Aviso tono="info">
+          Los rankings incluyen las ventas del sistema anterior del{' '}
+          {fecha(d.historico.desde, 'corta')} al{' '}
+          {fecha(d.historico.hasta, 'corta')}{' '}
+          ({numero(d.historico.unidades)} unidades). La facturación y los tickets arrancan con las ventas
+          cargadas en este sistema.
+        </Aviso>
+      )}
 
-        {d.totales.tickets > 0 && (
-        <section className="rounded-xl bg-white p-4">
-          <h2 className="font-medium text-black text-sm mb-3">Ventas por día (30 días)</h2>
-          <div className="flex items-end gap-[3px] h-36">
+      {d.totales.tickets > 0 && (
+        <Tarjeta>
+          <h2 className="mb-3 text-base font-semibold text-tinta">Ventas por día (30 días)</h2>
+          <div className="flex h-36 items-end gap-[3px]">
             {d.ventasPorDia.map((v: any) => (
               <div
                 key={v.fecha}
-                className="flex-1 rounded-t bg-[#B82D25] hover:bg-black transition-colors"
+                className="min-w-0 flex-1 rounded-t-sm bg-marca transition-colors hover:bg-marca-hondo"
                 style={{ height: `${Math.max((v.total / maxDia) * 100, 1.5)}%` }}
                 title={`${v.fecha}: ${pesos(v.total)} (${v.tickets} tickets)`}
               />
             ))}
           </div>
-          <div className="mt-1 flex justify-between text-[10px] text-black/40">
+          <div className="mt-1 flex justify-between text-xs text-tinta/60">
             <span>hace 30 días</span>
             <span>hoy</span>
           </div>
-        </section>
+        </Tarjeta>
+      )}
+
+      {d.ganadores.length > 0 && (
+        <Tarjeta relleno={false} className="overflow-hidden">
+          <TarjetaCabecera titulo="Ganadores del momento (aceleran su ritmo esta semana)" />
+          <ul className="divide-y divide-black/[0.06]">
+            {d.ganadores.map((g: any) => (
+              <li key={g.sku} className="flex items-center gap-3 px-4 py-2.5 sm:px-5">
+                <div className="min-w-0 flex-1">
+                  <p className="break-words text-sm text-tinta">{g.nombre}</p>
+                  <p className="text-xs text-tinta/60">{g.sku} · {g.unidades7} u. esta semana</p>
+                </div>
+                <div className="flex shrink-0 flex-col items-end gap-1 sm:flex-row sm:items-center sm:gap-4">
+                  <Etiqueta tono="ok">▲ +{g.crecimientoPct} %</Etiqueta>
+                  <span className="importe text-xs text-tinta/60 sm:w-28 sm:text-right">margen {pesos(g.margen)}</span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </Tarjeta>
+      )}
+
+      {d.topCobertura?.length > 0 && <TablaCobertura filas={d.topCobertura} />}
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <TablaRanking titulo="Más vendidos (unidades)" filas={d.topUnidades} valor="unidades" formato="unidades" />
+        {d.peores.length > 0 && (
+          <TablaRanking titulo="Peores (candidatos a liquidar)" filas={d.peores} valor="unidades" formato="unidades" />
         )}
-
-        {d.ganadores.length > 0 && (
-          <section className="rounded-xl bg-white overflow-hidden">
-            <h2 className="px-4 py-3 border-b border-black/10 font-medium text-black text-sm">
-              Ganadores del momento (aceleran su ritmo esta semana)
-            </h2>
-            <table className="w-full text-sm text-black">
-              <tbody>
-                {d.ganadores.map((g: any) => (
-                  <tr key={g.sku} className="border-b border-black/5 last:border-0">
-                    <td className="px-4 py-2.5">
-                      <p className="text-sm">{g.nombre}</p>
-                      <p className="text-xs text-black/40">{g.sku} · {g.unidades7} u. esta semana</p>
-                    </td>
-                    <td className="px-4 py-2.5 text-right">
-                      <span className="rounded-full bg-black px-2.5 py-0.5 text-xs font-medium text-white">
-                        ▲ +{g.crecimientoPct} %
-                      </span>
-                    </td>
-                    <td className="px-4 py-2.5 text-right text-xs text-black/50 w-28">
-                      margen {pesos(g.margen)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </section>
+        {d.topFacturacion.length > 0 && (
+          <TablaRanking titulo="Más facturación" filas={d.topFacturacion} valor="facturado" formato="pesos" />
         )}
+        {d.topMargen.length > 0 && (
+          <TablaRanking titulo="Más margen (la plata de verdad)" filas={d.topMargen} valor="margen" formato="pesos" />
+        )}
+      </div>
 
-        {d.topCobertura?.length > 0 && <TablaCobertura filas={d.topCobertura} />}
-
-        <div className="grid md:grid-cols-2 gap-4">
-          <TablaRanking titulo="Más vendidos (unidades)" filas={d.topUnidades} valor="unidades" formato="unidades" />
-          {d.peores.length > 0 && (
-            <TablaRanking titulo="Peores (candidatos a liquidar)" filas={d.peores} valor="unidades" formato="unidades" />
-          )}
-          {d.topFacturacion.length > 0 && (
-            <TablaRanking titulo="Más facturación" filas={d.topFacturacion} valor="facturado" formato="pesos" />
-          )}
-          {d.topMargen.length > 0 && (
-            <TablaRanking titulo="Más margen (la plata de verdad)" filas={d.topMargen} valor="margen" formato="pesos" />
-          )}
-        </div>
-
-        {d.porMedio.length > 0 && (
-        <section className="rounded-xl bg-white p-4">
-          <h2 className="font-medium text-black text-sm mb-3">Medios de pago (30 días)</h2>
-          <div className="flex h-7 rounded-full overflow-hidden">
+      {d.porMedio.length > 0 && (
+        <Tarjeta>
+          <h2 className="mb-3 text-base font-semibold text-tinta">Medios de pago (30 días)</h2>
+          <div className="flex h-7 overflow-hidden rounded-full">
             {d.porMedio.map((m: any, i: number) => (
               <div
                 key={m.medio}
-                className={['bg-[#B82D25]', 'bg-black', 'bg-[#932A1F]', 'bg-[#D9D2C5]'][i % 4]}
+                className={COLORES_MEDIO[i % 4]}
                 style={{ width: `${(m.total / totalMedios) * 100}%` }}
                 title={`${MEDIO_LABEL[m.medio] ?? m.medio}: ${pesos(m.total)}`}
               />
             ))}
           </div>
-          <div className="mt-2 flex flex-wrap gap-4 text-xs text-black/60">
+          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-tinta/70">
             {d.porMedio.map((m: any, i: number) => (
               <span key={m.medio} className="flex items-center gap-1.5">
-                <span className={'inline-block h-2.5 w-2.5 rounded-full ' + ['bg-[#B82D25]', 'bg-black', 'bg-[#932A1F]', 'bg-[#D9D2C5]'][i % 4]} />
+                <span className={unir('inline-block size-2.5 shrink-0 rounded-full', COLORES_MEDIO[i % 4])} />
                 {MEDIO_LABEL[m.medio] ?? m.medio} · {pesos(m.total)} ({Math.round((m.total / totalMedios) * 100)} %)
               </span>
             ))}
           </div>
-        </section>
-        )}
-      </div>
-    </main>
+        </Tarjeta>
+      )}
+    </Pantalla>
   );
 }

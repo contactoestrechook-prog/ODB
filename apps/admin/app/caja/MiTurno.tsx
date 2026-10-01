@@ -1,6 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Boton, Entrada, IconoCerrar, Selector, unir, FOCO, FOCO_ADENTRO, ROTULO } from '../ui/kit';
+import { hora, pesos } from '../lib/formato';
 
 // ============================================================
 // "MI TURNO" — la caja deja de ser ciega (2026-09-12)
@@ -14,12 +16,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 // cada ticket con su comprobante, y el cambio de medio de pago con PIN.
 // Todo lo pesado lo agrega Postgres: acá solo se pinta.
 // ============================================================
-
-const pesos = (n: number) =>
-  '$' + Math.round(Number(n) || 0).toLocaleString('es-AR');
-
-const hora = (iso: string) =>
-  new Date(iso).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
 
 const ETIQUETA_TIPO: Record<string, string> = {
   FA: 'Factura A', FB: 'Factura B', FC: 'Factura C', REM: 'Remito',
@@ -100,6 +96,8 @@ export default function MiTurno({
   const [detalle, setDetalle] = useState<Detalle | null>(null);
   const [cambio, setCambio] = useState<{ pagos: { medio: string; terminal?: string; monto: string }[]; motivo: string; pin: string; error: string; procesando: boolean } | null>(null);
   const buscarRef = useRef<HTMLInputElement>(null);
+  // en el celular el detalle queda debajo de la lista: al elegir un ticket se lo trae a la vista
+  const detalleRef = useRef<HTMLDivElement>(null);
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const PASO = 50;
@@ -150,6 +148,11 @@ export default function MiTurno({
   }, [traerVentas, buscar]);
 
   useEffect(() => { setTimeout(() => buscarRef.current?.focus(), 60); }, []);
+
+  useEffect(() => {
+    if (!detalle?.id || window.matchMedia('(min-width: 1024px)').matches) return;
+    detalleRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [detalle?.id]);
 
   // Esc cierra: la cajera tiene que poder volver al mostrador de un toque
   useEffect(() => {
@@ -248,46 +251,53 @@ export default function MiTurno({
     : 0;
 
   return (
-    <div className="fixed inset-0 z-40 bg-[#F0EBE2] flex flex-col">
+    <div className="fixed inset-0 z-cajon flex flex-col overflow-y-auto overscroll-contain bg-crema lg:overflow-hidden">
       {/* ---- cabecera ---- */}
-      <header className="bg-[#1A1A1A] text-[#F0EBE2] px-4 py-3 flex items-center gap-3 shrink-0">
-        <div className="min-w-0">
+      <header className="sticky top-0 z-contenido flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 bg-tinta px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] text-crema">
+        <div className="min-w-0 flex-1">
           <h1 className="text-lg font-bold leading-tight">Mi turno</h1>
-          <p className="text-xs text-[#F0EBE2]/60 min-w-0 break-words">
+          <p className="min-w-0 break-words text-xs text-crema/70">
             {cajaNombre}
             {abiertaEn ? ` · abierta ${hora(abiertaEn)}` : ''}
           </p>
         </div>
-        <button
-          onClick={() => { void traerResumen(); void traerVentas(0); }}
-          className="ml-auto rounded-lg bg-white/10 px-3 py-2 text-sm"
-        >
-          ↻ Actualizar
-        </button>
-        <button onClick={onCerrar} className="rounded-lg bg-white/15 px-4 py-2 text-sm font-semibold">
-          Volver a cobrar (Esc)
-        </button>
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={() => { void traerResumen(); void traerVentas(0); }}
+            className="inline-flex min-h-11 items-center rounded-xl bg-white/10 px-3 text-sm hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 sm:min-h-10"
+          >
+            Actualizar
+          </button>
+          <button
+            type="button"
+            onClick={onCerrar}
+            className="inline-flex min-h-11 items-center rounded-xl bg-white/15 px-4 text-sm font-semibold hover:bg-white/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 sm:min-h-10"
+          >
+            Volver a cobrar<span className="hidden sm:inline">&nbsp;(Esc)</span>
+          </button>
+        </div>
       </header>
 
       {/* ---- lo que lleva vendido ---- */}
-      <div className="px-4 pt-4 shrink-0">
-        <div className="grid gap-3 md:grid-cols-[1.2fr_1fr_1fr]">
-          <div className="rounded-2xl bg-[#1A1A1A] text-white px-5 py-4">
-            <p className="text-[11px] uppercase tracking-wider text-white/50">Vendido en este turno</p>
-            <p className="text-4xl font-black tabular-nums leading-tight">{pesos(resumen?.total ?? 0)}</p>
-            <p className="text-sm text-white/60">
+      <div className="shrink-0 px-4 pt-4">
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-[1.2fr_1fr_1fr]">
+          <div className="col-span-2 min-w-0 rounded-2xl bg-tinta px-5 py-4 text-white md:col-span-1">
+            <p className="text-xs font-semibold uppercase tracking-[0.08em] text-white/60">Vendido en este turno</p>
+            <p className="importe truncate text-4xl font-bold leading-tight">{pesos(resumen?.total ?? 0)}</p>
+            <p className="text-sm text-white/70">
               {resumen?.tickets ?? 0} {resumen?.tickets === 1 ? 'ticket' : 'tickets'}
               {resumen?.anuladas ? ` · ${resumen.anuladas} anulada(s)` : ''}
             </p>
           </div>
-          <div className="rounded-2xl bg-white px-5 py-4">
-            <p className="text-[11px] uppercase tracking-wider text-black/45">Ticket promedio</p>
-            <p className="text-2xl font-bold tabular-nums text-black">{pesos(resumen?.ticketPromedio ?? 0)}</p>
+          <div className="min-w-0 rounded-2xl bg-white px-4 py-4 shadow-tarjeta sm:px-5">
+            <p className={ROTULO}>Ticket promedio</p>
+            <p className="importe truncate text-xl font-bold text-tinta sm:text-2xl">{pesos(resumen?.ticketPromedio ?? 0)}</p>
           </div>
-          <div className="rounded-2xl bg-white px-5 py-4">
-            <p className="text-[11px] uppercase tracking-wider text-black/45">Tiene que haber en el cajón</p>
-            <p className="text-2xl font-bold tabular-nums text-black">{pesos(efectivoEsperado)}</p>
-            <p className="text-[11px] text-black/45">
+          <div className="min-w-0 rounded-2xl bg-white px-4 py-4 shadow-tarjeta sm:px-5">
+            <p className={ROTULO}>Tiene que haber en el cajón</p>
+            <p className="importe truncate text-xl font-bold text-tinta sm:text-2xl">{pesos(efectivoEsperado)}</p>
+            <p className="text-xs text-tinta/60">
               ventas en efectivo{resumen?.ingresos ? ` + ${pesos(resumen.ingresos)} ingresos` : ''}
               {resumen?.egresos ? ` − ${pesos(resumen.egresos)} retiros` : ''} (sin la base)
             </p>
@@ -297,46 +307,51 @@ export default function MiTurno({
         {/* ---- cómo cobró: chips que además filtran la lista ---- */}
         <div className="mt-3 flex flex-wrap gap-2">
           <button
+            type="button"
+            aria-pressed={medio === null}
             onClick={() => setMedio(null)}
-            className={'rounded-xl px-4 py-2.5 text-sm font-semibold border-2 ' + (medio === null ? 'bg-[#1A1A1A] text-white border-[#1A1A1A]' : 'bg-white text-black/70 border-black/10')}
+            className={unir('min-h-11 rounded-xl border-2 px-4 py-2.5 text-sm font-semibold', medio === null ? 'border-tinta bg-tinta text-white' : 'border-black/10 bg-white text-tinta/70', FOCO)}
           >
             Todo
           </button>
           {(resumen?.medios ?? []).map((m) => (
             <button
               key={m.etiqueta}
+              type="button"
+              aria-pressed={medio === m.medio}
               onClick={() => setMedio(medio === m.medio ? null : m.medio)}
-              className={'rounded-xl px-4 py-2.5 text-left border-2 ' + (medio === m.medio ? 'bg-[#1A1A1A] text-white border-[#1A1A1A]' : 'bg-white text-black border-black/10')}
+              className={unir('min-w-0 rounded-xl border-2 px-4 py-2.5 text-left', medio === m.medio ? 'border-tinta bg-tinta text-white' : 'border-black/10 bg-white text-tinta', FOCO)}
             >
-              <span className="block text-[11px] uppercase tracking-wider opacity-60">{m.etiqueta}</span>
-              <span className="block text-lg font-bold tabular-nums leading-tight">{pesos(m.monto)}</span>
-              <span className="block text-[11px] opacity-55">{m.pagos} {m.pagos === 1 ? 'cobro' : 'cobros'}</span>
+              <span className="block text-xs font-semibold uppercase tracking-[0.08em] opacity-70">{m.etiqueta}</span>
+              <span className="importe block text-lg font-bold leading-tight">{pesos(m.monto ?? 0)}</span>
+              <span className="block text-xs opacity-70">{m.pagos} {m.pagos === 1 ? 'cobro' : 'cobros'}</span>
             </button>
           ))}
           {(resumen?.comprobantes ?? []).map((c) => (
-            <div key={c.tipo} className="rounded-xl px-4 py-2.5 bg-white border-2 border-black/10">
-              <span className="block text-[11px] uppercase tracking-wider text-black/50">{ETIQUETA_TIPO[c.tipo] ?? c.tipo}</span>
-              <span className="block text-lg font-bold tabular-nums leading-tight text-black">{c.cantidad}</span>
-              {c.sinCae > 0 && <span className="block text-[11px] text-[#B82D25] font-semibold">{c.sinCae} sin CAE</span>}
+            <div key={c.tipo} className="rounded-xl border-2 border-black/10 bg-white px-4 py-2.5">
+              <span className="block text-xs font-semibold uppercase tracking-[0.08em] text-tinta/60">{ETIQUETA_TIPO[c.tipo] ?? c.tipo}</span>
+              <span className="importe block text-lg font-bold leading-tight text-tinta">{c.cantidad}</span>
+              {c.sinCae > 0 && <span className="block text-xs font-semibold text-marca-hondo">{c.sinCae} sin CAE</span>}
             </div>
           ))}
         </div>
       </div>
 
       {/* ---- buscador + lista ---- */}
-      <div className="px-4 pt-4 pb-4 flex-1 min-h-0 grid gap-4 lg:grid-cols-[1fr_420px]">
-        <div className="min-h-0 flex flex-col">
-          <input
+      <div className="grid gap-4 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4 lg:min-h-0 lg:flex-1 lg:grid-cols-[1fr_420px]">
+        <div className="flex min-w-0 flex-col lg:min-h-0">
+          <Entrada
             ref={buscarRef}
             value={buscar}
             onChange={(e) => setBuscar(e.target.value)}
             placeholder="Buscá por número de ticket, importe, factura, DNI o nombre…"
-            className="w-full rounded-xl border-2 border-[#B82D25] bg-white px-4 py-3 text-base text-black outline-none shrink-0"
+            aria-label="Buscar ticket"
+            className="shrink-0"
           />
-          <div className="mt-2 flex-1 min-h-0 overflow-y-auto rounded-2xl bg-white">
-            {error && <p className="px-4 py-3 text-sm text-[#B82D25]">{error}</p>}
+          <div className="mt-2 rounded-2xl bg-white shadow-tarjeta lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
+            {error && <p role="alert" className="px-4 py-3 text-sm font-medium text-marca-hondo">{error}</p>}
             {!cargando && ventas.length === 0 && (
-              <p className="px-4 py-10 text-center text-black/40 text-sm">
+              <p className="px-4 py-10 text-center text-sm text-tinta/60">
                 {buscar || medio ? 'Ningún ticket coincide.' : 'Todavía no cobraste nada en este turno.'}
               </p>
             )}
@@ -345,31 +360,34 @@ export default function MiTurno({
               return (
                 <button
                   key={v.id}
+                  type="button"
+                  aria-pressed={elegida}
                   onClick={() => void abrirDetalle(v.id)}
-                  className={'w-full text-left px-4 py-3 border-b border-black/5 flex items-center gap-3 ' + (elegida ? 'bg-[#F0EBE2]' : 'hover:bg-[#F0EBE2]/50')}
+                  className={unir('flex w-full items-center gap-3 border-b border-black/[0.06] px-4 py-3 text-left', elegida ? 'bg-crema' : 'hover:bg-crema/50', FOCO_ADENTRO)}
                 >
-                  <span className="w-12 shrink-0 text-sm tabular-nums text-black/50">{hora(v.vendidaEn)}</span>
+                  <span className="importe w-12 shrink-0 text-sm text-tinta/60">{hora(v.vendidaEn)}</span>
                   <span className="min-w-0 flex-1">
-                    <span className="block font-semibold text-black">
+                    <span className="block break-words font-semibold text-tinta">
                       #{v.ticket}
                       {v.cliente?.nombre ? ` · ${v.cliente.nombre}` : v.cliente?.dni ? ` · DNI ${v.cliente.dni}` : ''}
-                      {v.estado !== 'completada' && <span className="ml-2 text-[#B82D25] text-xs uppercase">{v.estado}</span>}
+                      {v.estado !== 'completada' && <span className="ml-2 inline-block whitespace-nowrap text-xs uppercase text-marca-hondo">{v.estado}</span>}
                     </span>
-                    <span className="block text-xs text-black/50 min-w-0 break-words">
+                    <span className="block min-w-0 break-words text-xs text-tinta/60">
                       {v.pagos.map((p) => p.etiqueta).join(' + ') || 'sin pagos'}
                       {v.comprobante ? ` · ${ETIQUETA_TIPO[v.comprobante.tipo] ?? v.comprobante.tipo} ${String(v.comprobante.numero).padStart(8, '0')}` : ''}
                       {v.comprobante && !v.comprobante.cae ? ' · sin CAE' : ''}
                       {v.cambiosPago > 0 ? ' · medio de pago cambiado' : ''}
                     </span>
                   </span>
-                  <span className="font-bold tabular-nums text-black">{pesos(v.total)}</span>
+                  <span className="importe shrink-0 font-bold text-tinta">{pesos(v.total ?? 0)}</span>
                 </button>
               );
             })}
             {ventas.length < totalVentas && (
               <button
+                type="button"
                 onClick={() => void traerVentas(ventas.length)}
-                className="w-full py-3 text-sm text-black/60 hover:bg-[#F0EBE2]/50"
+                className={unir('min-h-11 w-full py-3 text-sm text-tinta/70 hover:bg-crema/50', FOCO_ADENTRO)}
               >
                 Ver más ({totalVentas - ventas.length} restantes)
               </button>
@@ -378,58 +396,60 @@ export default function MiTurno({
         </div>
 
         {/* ---- detalle del ticket elegido ---- */}
-        <div className="min-h-0 overflow-y-auto rounded-2xl bg-white p-5">
+        <div ref={detalleRef} className="min-w-0 scroll-mt-24 rounded-2xl bg-white p-4 shadow-tarjeta sm:p-5 lg:min-h-0 lg:overflow-y-auto">
           {!detalle ? (
-            <p className="text-center text-black/35 text-sm py-16">
+            <p className="py-10 text-center text-sm text-tinta/60 lg:py-16">
               Tocá un ticket para ver el detalle, reimprimirlo o cambiarle el medio de pago.
             </p>
           ) : (
             <>
               <div className="flex items-start justify-between gap-2">
-                <div>
-                  <p className="text-[11px] uppercase tracking-wider text-black/45">Ticket #{detalle.ticket}</p>
-                  <p className="text-2xl font-black tabular-nums text-black leading-tight">{pesos(detalle.total)}</p>
-                  <p className="text-xs text-black/50">
+                <div className="min-w-0">
+                  <p className={ROTULO}>Ticket #{detalle.ticket}</p>
+                  <p className="importe text-2xl font-bold leading-tight text-tinta">{pesos(detalle.total ?? 0)}</p>
+                  <p className="text-xs text-tinta/60">
                     {hora(detalle.vendidaEn)}
                     {detalle.descuento ? ` · descuento ${pesos(detalle.descuento)}` : ''}
                     {detalle.cliente?.nombre ? ` · ${detalle.cliente.nombre}` : ''}
                   </p>
                 </div>
-                <button onClick={() => setDetalle(null)} className="text-black/30 text-xl px-1">✕</button>
+                <button type="button" onClick={() => setDetalle(null)} aria-label="Cerrar el detalle" className={unir('-mr-2 -mt-2 grid size-11 shrink-0 place-items-center rounded-full text-tinta/60 hover:bg-tinta/5 hover:text-tinta', FOCO)}>
+                  <IconoCerrar className="size-5" />
+                </button>
               </div>
 
-              <div className="mt-4 rounded-xl bg-[#F0EBE2]/60 p-3">
+              <div className="mt-4 rounded-xl bg-crema/60 p-3">
                 {detalle.items.map((i, n) => (
-                  <div key={`${i.sku}-${n}`} className="flex justify-between gap-2 text-sm py-0.5">
-                    <span className="min-w-0 break-words text-black">
-                      <span className="tabular-nums text-black/50">{i.cantidad}×</span> {i.nombre}
+                  <div key={`${i.sku}-${n}`} className="flex justify-between gap-2 py-0.5 text-sm">
+                    <span className="min-w-0 break-words text-tinta">
+                      <span className="importe text-tinta/60">{i.cantidad}×</span> {i.nombre}
                     </span>
-                    <span className="tabular-nums text-black/70 shrink-0">{pesos(i.total)}</span>
+                    <span className="importe shrink-0 text-tinta/70">{pesos(i.total ?? 0)}</span>
                   </div>
                 ))}
               </div>
 
-              <p className="mt-4 text-[11px] uppercase tracking-wider text-black/45">Cobrado con</p>
+              <p className={unir(ROTULO, 'mt-4')}>Cobrado con</p>
               <div className="mt-1 grid gap-1">
                 {detalle.pagos.map((p) => (
-                  <div key={p.id} className="flex justify-between text-sm">
-                    <span className="text-black">{p.etiqueta}</span>
-                    <span className="tabular-nums font-semibold text-black">{pesos(p.monto)}</span>
+                  <div key={p.id} className="flex justify-between gap-2 text-sm">
+                    <span className="min-w-0 break-words text-tinta">{p.etiqueta}</span>
+                    <span className="importe shrink-0 font-semibold text-tinta">{pesos(p.monto ?? 0)}</span>
                   </div>
                 ))}
               </div>
 
               {detalle.comprobantes.length > 0 && (
                 <>
-                  <p className="mt-4 text-[11px] uppercase tracking-wider text-black/45">Comprobantes</p>
+                  <p className={unir(ROTULO, 'mt-4')}>Comprobantes</p>
                   <div className="mt-1 grid gap-1">
                     {detalle.comprobantes.map((c, n) => (
-                      <div key={n} className="text-sm">
-                        <span className="text-black">{ETIQUETA_TIPO[c.tipo] ?? c.tipo} {c.numero}</span>
+                      <div key={n} className="break-words text-sm">
+                        <span className="text-tinta">{ETIQUETA_TIPO[c.tipo] ?? c.tipo} {c.numero}</span>
                         {c.cae ? (
-                          <span className="text-black/50"> · CAE {c.cae}</span>
+                          <span className="text-tinta/60"> · CAE {c.cae}</span>
                         ) : (
-                          <span className="text-[#B82D25] font-semibold"> · sin CAE todavía</span>
+                          <span className="font-semibold text-marca-hondo"> · sin CAE todavía</span>
                         )}
                       </div>
                     ))}
@@ -438,10 +458,10 @@ export default function MiTurno({
               )}
 
               {detalle.cambiosPago.length > 0 && (
-                <div className="mt-4 rounded-xl border-2 border-amber-200 bg-amber-50 p-3">
-                  <p className="text-[11px] uppercase tracking-wider text-amber-800">Cambios de medio de pago</p>
+                <div className="mt-4 rounded-xl border border-atencion/20 bg-atencion-suave p-3">
+                  <p className="text-xs font-semibold uppercase tracking-[0.08em] text-atencion">Cambios de medio de pago</p>
                   {detalle.cambiosPago.map((c, n) => (
-                    <p key={n} className="text-xs text-amber-900 mt-1">
+                    <p key={n} className="mt-1 break-words text-xs text-atencion">
                       {hora(c.creadoEn)} · {(c.antes ?? []).map((p: any) => p.medio).join('+')} → {(c.despues ?? []).map((p: any) => p.medio).join('+')}
                       {c.autorizante ? ` · autorizó ${c.autorizante}` : ''}
                       {c.motivo ? ` · «${c.motivo}»` : ''}
@@ -454,41 +474,32 @@ export default function MiTurno({
               {!cambio ? (
                 <div className="mt-5 grid gap-2">
                   {onReimprimir && (
-                    <button
-                      onClick={() => onReimprimir(detalle)}
-                      className="w-full rounded-xl border-2 border-black/10 py-3 text-black font-semibold"
-                    >
-                      🖨 Reimprimir el ticket
-                    </button>
+                    <Boton variante="secundario" anchoCompleto onClick={() => onReimprimir(detalle)}>
+                      Reimprimir el ticket
+                    </Boton>
                   )}
                   {detalle.estado === 'completada' && (
-                    <button
-                      onClick={empezarCambio}
-                      className="w-full rounded-xl bg-[#1A1A1A] py-3 text-white font-semibold"
-                    >
+                    <Boton anchoCompleto onClick={empezarCambio}>
                       Cambiar el medio de pago
-                    </button>
+                    </Boton>
                   )}
                   {onDevolver && detalle.estado === 'completada' && (
-                    <button
-                      onClick={() => onDevolver(detalle.id)}
-                      className="w-full rounded-xl border-2 border-black/10 py-3 text-black/70"
-                    >
-                      ↩ Devolver productos de este ticket
-                    </button>
+                    <Boton variante="secundario" anchoCompleto onClick={() => onDevolver(detalle.id)}>
+                      Devolver productos de este ticket
+                    </Boton>
                   )}
                 </div>
               ) : (
-                <div className="mt-5 rounded-xl border-2 border-[#B82D25] p-3">
-                  <p className="font-semibold text-black">Cambiar el medio de pago</p>
-                  <p className="text-xs text-black/55">
+                <div className="mt-5 rounded-xl border-2 border-marca/40 p-3">
+                  <p className="font-semibold text-tinta">Cambiar el medio de pago</p>
+                  <p className="text-sm text-tinta/70">
                     El ticket y la factura quedan como están. Solo cambia con qué se pagó.
                   </p>
 
                   <div className="mt-3 grid gap-2">
                     {cambio.pagos.map((p, i) => (
-                      <div key={i} className="flex gap-2">
-                        <select
+                      <div key={i} className="flex items-center gap-2">
+                        <Selector
                           value={`${p.medio}|${p.terminal ?? ''}`}
                           onChange={(e) => {
                             const [medioSel, term] = e.target.value.split('|');
@@ -497,28 +508,33 @@ export default function MiTurno({
                               pagos: c.pagos.map((x, n) => (n === i ? { ...x, medio: medioSel, terminal: term || undefined } : x)),
                             });
                           }}
-                          className="flex-1 rounded-lg border-2 border-black/10 px-2 py-2.5 text-sm text-black"
+                          aria-label="Medio de pago"
+                          className="flex-1"
                         >
                           {MEDIOS.map((m) => (
                             <option key={m.etiqueta} value={`${m.valor}|${m.terminal ?? ''}`}>{m.etiqueta}</option>
                           ))}
-                        </select>
-                        <input
-                          value={p.monto}
-                          onChange={(e) => {
-                            const v = e.target.value.replace(/[^\d]/g, '');
-                            setCambio((c) => c && { ...c, pagos: c.pagos.map((x, n) => (n === i ? { ...x, monto: v } : x)) });
-                          }}
-                          inputMode="numeric"
-                          className="w-28 rounded-lg border-2 border-black/10 px-2 py-2.5 text-sm text-black tabular-nums"
-                        />
+                        </Selector>
+                        <div className="w-28 shrink-0">
+                          <Entrada
+                            value={p.monto}
+                            onChange={(e) => {
+                              const v = e.target.value.replace(/[^\d]/g, '');
+                              setCambio((c) => c && { ...c, pagos: c.pagos.map((x, n) => (n === i ? { ...x, monto: v } : x)) });
+                            }}
+                            inputMode="numeric"
+                            aria-label="Monto"
+                            className="tabular-nums"
+                          />
+                        </div>
                         {cambio.pagos.length > 1 && (
                           <button
+                            type="button"
                             onClick={() => setCambio((c) => c && { ...c, pagos: c.pagos.filter((_, n) => n !== i) })}
-                            className="px-2 text-black/40 text-xl"
+                            className={unir('grid size-11 shrink-0 place-items-center rounded-xl text-tinta/60 hover:text-marca-hondo', FOCO)}
                             aria-label="Quitar"
                           >
-                            ✕
+                            <IconoCerrar className="size-5" />
                           </button>
                         )}
                       </div>
@@ -526,54 +542,53 @@ export default function MiTurno({
                   </div>
 
                   <button
+                    type="button"
                     onClick={() => setCambio((c) => c && {
                       ...c,
                       pagos: [...c.pagos, { medio: 'efectivo', monto: String(Math.max(0, Math.round(detalle.total - sumaCambio))) }],
                     })}
-                    className="mt-2 text-xs text-[#B82D25] underline"
+                    className={unir('mt-2 inline-flex min-h-9 items-center rounded-sm text-xs font-semibold text-marca-hondo underline underline-offset-2', FOCO)}
                   >
-                    ÷ Dividir en otro medio
+                    Dividir en otro medio
                   </button>
 
-                  <p className={'mt-2 text-sm tabular-nums ' + (Math.abs(sumaCambio - detalle.total) > 0.01 ? 'text-[#B82D25] font-semibold' : 'text-black/60')}>
+                  <p className={'mt-2 text-sm tabular-nums ' + (Math.abs(sumaCambio - detalle.total) > 0.01 ? 'font-semibold text-marca-hondo' : 'text-tinta/70')}>
                     Suma {pesos(sumaCambio)} de {pesos(detalle.total)}
                     {Math.abs(sumaCambio - detalle.total) > 0.01 && ` · faltan ${pesos(detalle.total - sumaCambio)}`}
                   </p>
 
                   {mpADevolver > 0 && (
-                    <p className="mt-2 rounded-lg bg-[#009EE3]/10 px-3 py-2 text-xs text-[#0a5c7a]">
+                    <p className="mt-2 rounded-xl bg-info-suave px-3 py-2 text-xs text-info">
                       Al confirmar, el sistema le devuelve <b>{pesos(mpADevolver)}</b> al cliente por Mercado Pago.
                       La plata vuelve sola a su cuenta; si el reembolso falla, no se cambia nada.
                     </p>
                   )}
 
-                  <input
+                  <Entrada
                     value={cambio.motivo}
                     onChange={(e) => setCambio((c) => c && { ...c, motivo: e.target.value })}
                     placeholder="Motivo (ej: el cliente prefirió pagar en efectivo)"
-                    className="mt-2 w-full rounded-lg border-2 border-black/10 px-3 py-2.5 text-sm text-black"
+                    aria-label="Motivo"
+                    className="mt-2"
                   />
-                  <input
+                  <Entrada
                     value={cambio.pin}
                     onChange={(e) => setCambio((c) => c && { ...c, pin: e.target.value })}
                     type="password"
                     inputMode="numeric"
                     placeholder="PIN del supervisor"
-                    className="mt-2 w-full rounded-lg border-2 border-black/10 px-3 py-2.5 text-sm text-black"
+                    aria-label="PIN del supervisor"
+                    className="mt-2"
                   />
-                  {cambio.error && <p className="mt-2 text-sm text-[#B82D25]">{cambio.error}</p>}
+                  {cambio.error && <p role="alert" className="mt-2 text-sm font-medium text-marca-hondo">{cambio.error}</p>}
 
-                  <div className="mt-3 flex gap-2">
-                    <button onClick={() => setCambio(null)} className="flex-1 rounded-xl border border-black/10 py-3 text-black/60">
+                  <div className="mt-3 flex gap-2 *:flex-1">
+                    <Boton variante="secundario" onClick={() => setCambio(null)}>
                       Cancelar
-                    </button>
-                    <button
-                      onClick={() => void confirmarCambio()}
-                      disabled={cambio.procesando}
-                      className="flex-1 rounded-xl bg-[#B82D25] py-3 text-white font-semibold disabled:opacity-40"
-                    >
+                    </Boton>
+                    <Boton onClick={() => void confirmarCambio()} cargando={cambio.procesando}>
                       {cambio.procesando ? 'Cambiando…' : 'Confirmar cambio'}
-                    </button>
+                    </Boton>
                   </div>
                 </div>
               )}

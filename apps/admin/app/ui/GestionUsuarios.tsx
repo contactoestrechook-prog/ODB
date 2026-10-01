@@ -2,18 +2,20 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { pesos as pesosFmt } from '../lib/formato';
+import { Aviso, Boton, Campo, Entrada, Etiqueta, FOCO, Modal, Selector, clasesBoton, unir, useConfirmar } from './kit';
 
-const ROLES: Record<string, { etiqueta: string; chip: string; descripcion: string }> = {
-  dueno: { etiqueta: 'Dueño', chip: 'bg-black text-white', descripcion: 'Acceso total. Es el único que firma aprobaciones: órdenes de compra y de pago, cobros a cuenta, cambios de factura y de costos' },
-  gerente: { etiqueta: 'Gerente', chip: 'bg-[#B82D25]/10 text-[#932A1F]', descripcion: 'Opera todo y administra el equipo. Ve la cola de aprobaciones, pero firmar es del dueño' },
-  comprador: { etiqueta: 'Comprador', chip: 'bg-amber-100 text-amber-900', descripcion: 'Compras, proveedores y Analista ODB' },
-  cajero: { etiqueta: 'Cajero', chip: 'bg-sky-100 text-sky-900', descripcion: 'Ventas, caja y control de salida' },
-  deposito: { etiqueta: 'Depósito', chip: 'bg-emerald-100 text-emerald-900', descripcion: 'Stock, recepción y pedidos' },
-  administrativo: { etiqueta: 'Administrativo', chip: 'bg-violet-100 text-violet-900', descripcion: 'Backoffice: facturas de compra, remitos y recepción de mercadería, compras y proveedores. No ve caja, ventas ni dirección; los cambios sobre facturas los aprueba un dueño' },
-  repartidor: { etiqueta: 'Repartidor', chip: 'bg-orange-100 text-orange-900', descripcion: 'Solo la pantalla de reparto: sus entregas del día' },
+const ROLES: Record<string, { etiqueta: string; descripcion: string }> = {
+  dueno: { etiqueta: 'Dueño', descripcion: 'Acceso total. Es el único que firma aprobaciones: órdenes de compra y de pago, cobros a cuenta, cambios de factura y de costos' },
+  gerente: { etiqueta: 'Gerente', descripcion: 'Opera todo y administra el equipo. Ve la cola de aprobaciones, pero firmar es del dueño' },
+  comprador: { etiqueta: 'Comprador', descripcion: 'Compras, proveedores y Analista ODB' },
+  cajero: { etiqueta: 'Cajero', descripcion: 'Ventas, caja y control de salida' },
+  deposito: { etiqueta: 'Depósito', descripcion: 'Stock, recepción y pedidos' },
+  administrativo: { etiqueta: 'Administrativo', descripcion: 'Backoffice: facturas de compra, remitos y recepción de mercadería, compras y proveedores. No ve caja, ventas ni dirección; los cambios sobre facturas los aprueba un dueño' },
+  repartidor: { etiqueta: 'Repartidor', descripcion: 'Solo la pantalla de reparto: sus entregas del día' },
 };
 
-const pesos = (n: number) => '$' + Math.round(Number(n) || 0).toLocaleString('es-AR');
+const pesos = (n: number) => pesosFmt(Number(n) || 0);
 
 const iniciales = (nombre: string) =>
   nombre
@@ -61,6 +63,7 @@ export function GestionUsuarios({ usuarios, sucursales }: { usuarios: any[]; suc
   // tras crear un usuario nuevo, guardamos sus accesos para ofrecer el envío por WhatsApp
   const [creado, setCreado] = useState<{ nombre: string; email: string; clave: string; telefono: string } | null>(null);
   const [aviso, setAviso] = useState('');
+  const { confirmar, dialogo } = useConfirmar();
 
   const campo = (k: string, v: any) => setForm((f: any) => ({ ...f, [k]: v }));
 
@@ -124,7 +127,12 @@ export function GestionUsuarios({ usuarios, sucursales }: { usuarios: any[]; suc
   };
 
   const eliminar = async (u: any) => {
-    if (!window.confirm(`¿Eliminar a ${u.nombre}? Si tiene ventas o cajas registradas, se desactiva en vez de borrarse (para no romper el historial).`)) return;
+    if (!(await confirmar({
+      titulo: `¿Eliminar a ${u.nombre}?`,
+      texto: 'Si tiene ventas o cajas registradas, se desactiva en vez de borrarse (para no romper el historial).',
+      variante: 'peligro',
+      textoConfirmar: 'Eliminar',
+    }))) return;
     const res = await fetch(`/api/usuarios?id=${u.id}`, { method: 'DELETE' });
     const d = await res.json().catch(() => ({}));
     if (!res.ok) { setAviso(d.message ?? 'No se pudo eliminar'); return; }
@@ -143,76 +151,76 @@ export function GestionUsuarios({ usuarios, sucursales }: { usuarios: any[]; suc
 
   const activos = usuarios.filter((u) => u.activo).length;
 
+  const cerrarModal = () => { setAbierto(false); setCreado(null); };
+
   return (
-    <div className="space-y-5">
+    <div className="space-y-4 sm:space-y-6">
       {aviso && (
-        <div className="flex items-center justify-between rounded-lg bg-black text-white text-sm px-4 py-2.5">
-          <span>{aviso}</span>
-          <button onClick={() => setAviso('')} className="text-white/60 hover:text-white">✕</button>
-        </div>
+        <Aviso
+          tono="info"
+          accion={<Boton variante="secundario" tamano="chico" onClick={() => setAviso('')}>Cerrar</Boton>}
+        >
+          {aviso}
+        </Aviso>
       )}
       {/* resumen + acción principal */}
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="flex gap-6">
+        <div className="flex flex-wrap gap-x-6 gap-y-3">
           <div>
-            <p className="text-2xl font-semibold text-black leading-none">{usuarios.length}</p>
-            <p className="text-xs text-black/45 mt-1">en el equipo</p>
+            <p className="importe text-2xl font-bold leading-none text-tinta">{usuarios.length}</p>
+            <p className="mt-1 text-xs text-tinta/60">en el equipo</p>
           </div>
           <div>
-            <p className="text-2xl font-semibold text-black leading-none">{activos}</p>
-            <p className="text-xs text-black/45 mt-1">activos</p>
+            <p className="importe text-2xl font-bold leading-none text-tinta">{activos}</p>
+            <p className="mt-1 text-xs text-tinta/60">activos</p>
           </div>
           <div>
-            <p className="text-2xl font-semibold text-black leading-none">
+            <p className="importe text-2xl font-bold leading-none text-tinta">
               {usuarios.filter((u) => u.tienePin).length}
             </p>
-            <p className="text-xs text-black/45 mt-1">con firma</p>
+            <p className="mt-1 text-xs text-tinta/60">con firma</p>
           </div>
         </div>
-        <button
-          onClick={abrirNuevo}
-          className="rounded-full bg-[#B82D25] text-white text-sm font-medium px-5 py-2.5 hover:bg-[#932A1F] shadow-sm"
-        >
-          + Sumar al equipo
-        </button>
+        <Boton onClick={abrirNuevo} icono={<svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>} className="w-full sm:w-auto">
+          Sumar al equipo
+        </Boton>
       </div>
 
       {/* tarjetas de usuario */}
-      <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-4">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {usuarios.map((u) => {
-          const rol = ROLES[u.rol] ?? { etiqueta: u.rol, chip: 'bg-black/10 text-black', descripcion: '' };
+          const rol = ROLES[u.rol] ?? { etiqueta: u.rol, descripcion: '' };
           return (
             <article
               key={u.id}
-              className={`rounded-2xl bg-white p-5 shadow-[0_1px_3px_rgba(0,0,0,0.06)] border border-black/[0.04] flex flex-col gap-4 ${
-                u.activo ? '' : 'opacity-55'
-              }`}
+              className={unir(
+                'flex min-w-0 flex-col gap-4 rounded-2xl border border-black/[0.06] bg-white p-4 shadow-tarjeta sm:p-5',
+                !u.activo && 'opacity-60',
+              )}
             >
               <div className="flex items-start justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-11 h-11 rounded-full bg-[#121212] text-white flex items-center justify-center text-sm font-semibold tracking-wide">
+                <div className="flex min-w-0 items-center gap-3">
+                  <div className="flex size-11 shrink-0 items-center justify-center rounded-full bg-tinta text-sm font-semibold tracking-wide text-white" aria-hidden="true">
                     {iniciales(u.nombre)}
                   </div>
-                  <div>
-                    <p className="font-medium text-black leading-tight">{u.nombre}</p>
-                    <p className="text-xs text-black/45">{u.email}</p>
+                  <div className="min-w-0">
+                    <p className="break-words font-semibold leading-tight text-tinta">{u.nombre}</p>
+                    <p className="text-xs text-tinta/60 [overflow-wrap:anywhere]">{u.email}</p>
                   </div>
                 </div>
-                <span className={`text-[11px] font-medium rounded-full px-2.5 py-1 whitespace-nowrap ${rol.chip}`}>
-                  {rol.etiqueta}
-                </span>
+                <Etiqueta className="shrink-0">{rol.etiqueta}</Etiqueta>
               </div>
 
-              <p className="text-xs text-black/50 leading-relaxed">{rol.descripcion}</p>
+              <p className="text-xs leading-relaxed text-tinta/70">{rol.descripcion}</p>
 
               <div className="grid grid-cols-2 gap-3 text-xs">
-                <div className="rounded-lg bg-[#F0EBE2]/70 px-3 py-2">
-                  <p className="text-black/45">Sucursal</p>
-                  <p className="font-medium text-black mt-0.5">{u.sucursal?.nombre ?? 'Todas'}</p>
+                <div className="min-w-0 rounded-xl bg-crema-claro px-3 py-2">
+                  <p className="text-tinta/60">Sucursal</p>
+                  <p className="mt-0.5 break-words font-medium text-tinta">{u.sucursal?.nombre ?? 'Todas'}</p>
                 </div>
-                <div className="rounded-lg bg-[#F0EBE2]/70 px-3 py-2">
-                  <p className="text-black/45">Firma de compras</p>
-                  <p className="font-medium text-black mt-0.5">
+                <div className="min-w-0 rounded-xl bg-crema-claro px-3 py-2">
+                  <p className="text-tinta/60">Firma de compras</p>
+                  <p className="mt-0.5 break-words font-medium text-tinta">
                     {u.tienePin && u.limiteAprobacion > 0
                       ? u.limiteAprobacion >= 999_999_999
                         ? 'Sin límite'
@@ -222,30 +230,26 @@ export function GestionUsuarios({ usuarios, sucursales }: { usuarios: any[]; suc
                 </div>
               </div>
 
-              <div className="flex items-center justify-between border-t border-black/5 pt-3 mt-auto">
+              <div className="mt-auto flex flex-wrap items-center justify-between gap-2 border-t border-black/[0.06] pt-3">
                 <button
                   onClick={() => alternarActivo(u)}
-                  className={`text-xs rounded-full px-3 py-1.5 font-medium ${
-                    u.activo
-                      ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
-                      : 'bg-black/5 text-black/50 hover:bg-black/10'
-                  }`}
+                  aria-pressed={!!u.activo}
+                  className={unir(
+                    'inline-flex min-h-9 items-center gap-1.5 rounded-full px-3 text-xs font-semibold transition-colors',
+                    FOCO,
+                    u.activo ? 'bg-ok-suave text-ok hover:brightness-95' : 'bg-crema-hondo/70 text-tinta/70 hover:bg-crema-hondo',
+                  )}
                 >
-                  {u.activo ? '● Activo' : '○ Inactivo'}
+                  <span className={unir('size-1.5 rounded-full', u.activo ? 'bg-current' : 'border border-current')} aria-hidden="true" />
+                  {u.activo ? 'Activo' : 'Inactivo'}
                 </button>
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={() => eliminar(u)}
-                    className="text-xs font-medium text-black/40 hover:text-[#B82D25]"
-                  >
+                <div className="flex items-center gap-2">
+                  <Boton variante="peligro" tamano="chico" onClick={() => eliminar(u)}>
                     Eliminar
-                  </button>
-                  <button
-                    onClick={() => abrirEdicion(u)}
-                    className="text-xs font-medium text-[#B82D25] hover:underline"
-                  >
-                    Editar →
-                  </button>
+                  </Boton>
+                  <Boton variante="secundario" tamano="chico" onClick={() => abrirEdicion(u)}>
+                    Editar
+                  </Boton>
                 </div>
               </div>
             </article>
@@ -255,155 +259,146 @@ export function GestionUsuarios({ usuarios, sucursales }: { usuarios: any[]; suc
         {/* invitación a sumar */}
         <button
           onClick={abrirNuevo}
-          className="rounded-2xl border-2 border-dashed border-black/15 text-black/40 hover:text-[#B82D25] hover:border-[#B82D25]/40 transition-colors flex flex-col items-center justify-center gap-2 p-8 min-h-[180px]"
+          className={unir(
+            'flex min-h-44 flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-black/15 p-8 text-tinta/60 transition-colors hover:border-marca/40 hover:text-marca-hondo',
+            FOCO,
+          )}
         >
-          <span className="text-3xl leading-none">+</span>
-          <span className="text-sm font-medium">Sumar a alguien del equipo</span>
-          <span className="text-xs text-black/35">cajeros, depósito, compradores…</span>
+          <svg viewBox="0 0 24 24" className="size-8" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+          <span className="text-sm font-semibold">Sumar a alguien del equipo</span>
+          <span className="text-xs text-tinta/60">cajeros, depósito, compradores…</span>
         </button>
       </div>
 
       {/* modal alta/edición */}
-      {abierto && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-[2px] flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl w-full max-w-md p-6 space-y-3 shadow-2xl">
-            <div>
-              <h2 className="font-semibold text-black text-lg">
-                {editando ? 'Editar usuario' : 'Nuevo usuario'}
-              </h2>
-              <p className="text-xs text-black/45 mt-0.5">
-                {editando ? 'Los campos de clave y PIN solo se cambian si escribís uno nuevo.' : 'Va a poder entrar al panel con su email y clave.'}
-              </p>
-            </div>
-
-            <input
-              value={form.nombre}
-              onChange={(e) => campo('nombre', e.target.value)}
-              placeholder="Nombre y apellido"
-              className="w-full rounded-lg border border-black/15 px-3 py-2.5 text-sm text-black focus:border-[#B82D25] focus:outline-none"
-            />
-            <input
-              value={form.email}
-              onChange={(e) => campo('email', e.target.value)}
-              placeholder="Email"
-              type="email"
-              className="w-full rounded-lg border border-black/15 px-3 py-2.5 text-sm text-black focus:border-[#B82D25] focus:outline-none"
-            />
-            <input
+      <Modal
+        abierto={abierto}
+        onCerrar={cerrarModal}
+        titulo={editando ? 'Editar usuario' : 'Nuevo usuario'}
+        descripcion={editando ? 'Los campos de clave y PIN solo se cambian si escribís uno nuevo.' : 'Va a poder entrar al panel con su email y clave.'}
+        bloquearCierre={cargando}
+        cerrarAlTocarAfuera={false}
+        pie={
+          creado ? (
+            <Boton onClick={() => { setAbierto(false); setCreado(null); }}>
+              Listo
+            </Boton>
+          ) : (
+            <>
+              <Boton variante="secundario" onClick={() => setAbierto(false)}>
+                Cancelar
+              </Boton>
+              <Boton onClick={guardar} cargando={cargando}>
+                {cargando ? 'Guardando…' : 'Guardar'}
+              </Boton>
+            </>
+          )
+        }
+      >
+        <div className="space-y-3">
+          <Campo etiqueta="Nombre y apellido">
+            <Entrada value={form.nombre} onChange={(e) => campo('nombre', e.target.value)} placeholder="Nombre y apellido" />
+          </Campo>
+          <Campo etiqueta="Email">
+            <Entrada value={form.email} onChange={(e) => campo('email', e.target.value)} placeholder="Email" type="email" />
+          </Campo>
+          <Campo etiqueta="WhatsApp">
+            <Entrada
               value={form.telefono}
               onChange={(e) => campo('telefono', e.target.value)}
               placeholder="WhatsApp (con cód. país, ej: 5491122334455)"
               inputMode="tel"
-              className="w-full rounded-lg border border-black/15 px-3 py-2.5 text-sm text-black focus:border-[#B82D25] focus:outline-none"
             />
-            <div className="grid grid-cols-2 gap-3">
-              <select
-                value={form.rol}
-                onChange={(e) => campo('rol', e.target.value)}
-                className="rounded-lg border border-black/15 px-3 py-2.5 text-sm text-black bg-white focus:border-[#B82D25] focus:outline-none"
-              >
+          </Campo>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Campo etiqueta="Rol">
+              <Selector value={form.rol} onChange={(e) => campo('rol', e.target.value)}>
                 {Object.entries(ROLES).map(([valor, r]) => (
                   <option key={valor} value={valor}>
                     {r.etiqueta}
                   </option>
                 ))}
-              </select>
-              <select
-                value={form.sucursalId}
-                onChange={(e) => campo('sucursalId', e.target.value)}
-                className="rounded-lg border border-black/15 px-3 py-2.5 text-sm text-black bg-white focus:border-[#B82D25] focus:outline-none"
-              >
+              </Selector>
+            </Campo>
+            <Campo etiqueta="Sucursal">
+              <Selector value={form.sucursalId} onChange={(e) => campo('sucursalId', e.target.value)}>
                 <option value="">Todas las sucursales</option>
                 {sucursales.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.nombre}
                   </option>
                 ))}
-              </select>
-            </div>
-            <input
+              </Selector>
+            </Campo>
+          </div>
+          <Campo etiqueta="Clave">
+            <Entrada
               value={form.clave}
               onChange={(e) => campo('clave', e.target.value)}
               placeholder={editando ? 'Nueva clave (vacío = no cambiar)' : 'Clave (mín. 6 caracteres)'}
               type="password"
-              className="w-full rounded-lg border border-black/15 px-3 py-2.5 text-sm text-black focus:border-[#B82D25] focus:outline-none"
             />
-            <div className="grid grid-cols-2 gap-3">
-              <input
+          </Campo>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Campo etiqueta="PIN de firma">
+              <Entrada
                 value={form.pin}
                 onChange={(e) => campo('pin', e.target.value)}
                 placeholder={editando ? 'Nuevo PIN de firma' : 'PIN de firma (opcional)'}
                 type="password"
                 inputMode="numeric"
-                className="rounded-lg border border-black/15 px-3 py-2.5 text-sm text-black focus:border-[#B82D25] focus:outline-none"
               />
-              <input
+            </Campo>
+            <Campo etiqueta="Límite de aprobación">
+              <Entrada
                 value={form.limiteAprobacion}
                 onChange={(e) => campo('limiteAprobacion', e.target.value)}
                 placeholder="Límite de aprobación $"
                 type="number"
-                className="rounded-lg border border-black/15 px-3 py-2.5 text-sm text-black focus:border-[#B82D25] focus:outline-none"
+                inputMode="decimal"
+                prefijo="$"
               />
-            </div>
-            <p className="text-xs text-black/40">
-              El PIN y el límite habilitan a firmar órdenes de compra hasta ese monto.
-            </p>
+            </Campo>
+          </div>
+          <p className="text-xs text-tinta/60">
+            El PIN y el límite habilitan a firmar órdenes de compra hasta ese monto.
+          </p>
 
-            {error && <p className="text-xs text-[#B82D25] font-medium">{error}</p>}
+          {error && <Aviso tono="error">{error}</Aviso>}
 
-            {/* usuario recién creado: enviar accesos por WhatsApp */}
-            {creado && (
-              <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-3 space-y-2">
-                <p className="text-sm font-medium text-emerald-900">✓ Usuario creado. Mandale los accesos:</p>
-                <div className="flex flex-wrap items-center gap-3">
-                  {soloDigitos(creado.telefono) ? (
+          {/* usuario recién creado: enviar accesos por WhatsApp */}
+          {creado && (
+            <Aviso
+              tono="ok"
+              titulo="Usuario creado. Mandale los accesos:"
+              accion={
+                <>
+                  {soloDigitos(creado.telefono) && (
                     <a
                       href={`https://wa.me/${soloDigitos(creado.telefono)}?text=${encodeURIComponent(mensajeAccesos(creado.nombre, creado.email, creado.clave))}`}
                       target="_blank"
                       rel="noreferrer"
-                      className="inline-flex items-center gap-2 rounded-full bg-[#25D366] text-white text-sm font-medium px-4 py-2 hover:brightness-95"
+                      className={clasesBoton({ tamano: 'chico' })}
                     >
-                      Enviar por WhatsApp →
+                      Enviar por WhatsApp
                     </a>
-                  ) : (
-                    <span className="text-xs text-emerald-900/70">No cargaste el WhatsApp de la persona — copiá el mensaje y mandáselo.</span>
                   )}
-                  <button
+                  <Boton
+                    variante="secundario"
+                    tamano="chico"
                     onClick={() => { navigator.clipboard.writeText(mensajeAccesos(creado.nombre, creado.email, creado.clave)); setAviso('Mensaje copiado'); }}
-                    className="text-xs text-emerald-900 underline"
                   >
                     Copiar mensaje
-                  </button>
-                </div>
-              </div>
-            )}
-
-            <div className="flex justify-end gap-3 pt-1">
-              {creado ? (
-                <button
-                  onClick={() => { setAbierto(false); setCreado(null); }}
-                  className="rounded-full bg-[#B82D25] text-white text-sm font-medium px-6 py-2.5 hover:bg-[#932A1F]"
-                >
-                  Listo
-                </button>
-              ) : (
-                <>
-                  <button onClick={() => setAbierto(false)} className="text-sm text-black/60 px-4 py-2 hover:text-black">
-                    Cancelar
-                  </button>
-                  <button
-                    onClick={guardar}
-                    disabled={cargando}
-                    className="rounded-full bg-[#B82D25] text-white text-sm font-medium px-6 py-2.5 hover:bg-[#932A1F] disabled:opacity-50"
-                  >
-                    {cargando ? 'Guardando…' : 'Guardar'}
-                  </button>
+                  </Boton>
                 </>
-              )}
-            </div>
-          </div>
+              }
+            >
+              {!soloDigitos(creado.telefono) && 'No cargaste el WhatsApp de la persona — copiá el mensaje y mandáselo.'}
+            </Aviso>
+          )}
         </div>
-      )}
+      </Modal>
+      {dialogo}
     </div>
   );
 }

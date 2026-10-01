@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { Boton, Etiqueta } from './kit';
 
 export function BotonPromo({
   sku,
@@ -26,20 +27,17 @@ export function BotonPromo({
   }
 
   if (estado === 'creada') {
-    return (
-      <span className="rounded-full bg-[#F0EBE2] px-3 py-1 text-xs font-medium text-black">
-        ✓ promo activa {dias} días
-      </span>
-    );
+    return <Etiqueta tono="ok">promo activa {dias} días</Etiqueta>;
   }
   return (
-    <button
+    <Boton
+      variante={estado === 'error' ? 'peligro' : 'secundario'}
+      tamano="chico"
       onClick={crear}
       disabled={estado === 'creando'}
-      className="rounded-full bg-[#B82D25] px-3 py-1 text-xs font-medium text-white hover:bg-[#932A1F] disabled:opacity-50"
       title={`Crea el descuento −${porcentaje} % por ${dias} días`}
     >
       {estado === 'creando' ? '…' : estado === 'error' ? 'reintentar' : `liquidar −${porcentaje} %`}
-    </button>
+    </Boton>
   );
 }

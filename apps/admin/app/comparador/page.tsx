@@ -1,4 +1,5 @@
-import { Header } from '../ui/Header';
+import { Pantalla } from '../ui/kit/Pantalla';
+import { Aviso } from '../ui/kit';
 import { apiFetch } from '../../lib/api';
 import { ComparadorWorkspace } from '../ui/ComparadorWorkspace';
 
@@ -20,15 +21,12 @@ export default async function Comparador() {
   }
 
   return (
-    <main className="min-h-screen bg-[#F0EBE2] lg:pl-64">
-      <Header activo="/comparador" />
-      <div className="max-w-5xl mx-auto p-6">
-        {error ? (
-          <p className="rounded-lg bg-white p-4 text-sm text-[#932A1F]">No pude consultar la API ({error}).</p>
-        ) : (
-          <ComparadorWorkspace comparacion={comparacion} directorio={directorio} stats={stats} />
-        )}
-      </div>
-    </main>
+    <Pantalla activo="/comparador">
+      {error ? (
+        <Aviso tono="error">No pude consultar la API ({error}).</Aviso>
+      ) : (
+        <ComparadorWorkspace comparacion={comparacion} directorio={directorio} stats={stats} />
+      )}
+    </Pantalla>
   );
 }

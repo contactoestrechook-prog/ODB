@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { BotonMicrofono } from './BotonMicrofono';
+import { Boton, Chips, Entrada, FOCO, Tarjeta, unir } from './kit';
 
 type Turno = { de: 'cliente' | 'bot'; texto: string; hora: string };
 
@@ -59,54 +60,49 @@ export default function BotSimulador() {
   }
 
   return (
-    <div className="mx-auto max-w-3xl px-4 pb-10">
+    <div className="space-y-3">
       {/* controles del simulador */}
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <div className="flex rounded-xl border border-black/10 bg-white p-1">
-          {(['pedidos', 'proveedores'] as const).map((l) => (
-            <button
-              key={l}
-              onClick={() => { setLinea(l); setTurnos([]); setTelefono(telAlAzar()); }}
-              className={`rounded-lg px-4 py-1.5 text-sm font-medium capitalize ${linea === l ? 'bg-black text-white' : 'text-black/60'}`}
-            >
-              Línea {l}
-            </button>
-          ))}
-        </div>
-        <label className="flex items-center gap-2 text-sm text-black/60">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <Chips
+          etiquetaAccesible="Línea del bot"
+          valor={linea}
+          onCambiar={(l) => { setLinea(l); setTurnos([]); setTelefono(telAlAzar()); }}
+          opciones={(['pedidos', 'proveedores'] as const).map((l) => ({ valor: l, etiqueta: <span className="capitalize">Línea {l}</span> }))}
+        />
+        <label className="flex items-center gap-2 text-sm text-tinta/70">
           Teléfono simulado
-          <input
-            value={telefono}
-            onChange={(e) => setTelefono(e.target.value.replace(/\D/g, ''))}
-            className="w-32 rounded-lg border border-black/10 bg-white px-2 py-1.5 font-mono text-sm"
-          />
+          <span className="block w-40">
+            <Entrada
+              value={telefono}
+              onChange={(e) => setTelefono(e.target.value.replace(/\D/g, ''))}
+              inputMode="numeric"
+              className="font-mono"
+            />
+          </span>
         </label>
-        <button
-          onClick={nuevaConversacion}
-          className="rounded-lg border border-black/10 bg-white px-3 py-1.5 text-sm text-black/70 hover:bg-black/5"
-        >
-          ↺ Nueva conversación
-        </button>
-        <span className="text-xs text-black/40">Los pedidos confirmados acá son reales.</span>
+        <Boton variante="secundario" tamano="chico" onClick={nuevaConversacion}>
+          Nueva conversación
+        </Boton>
       </div>
+      <p className="text-sm font-medium text-atencion">Los pedidos confirmados acá son reales.</p>
 
       {/* el "teléfono" */}
-      <div className="overflow-hidden rounded-2xl border border-black/10 shadow-sm">
-        <div className="flex items-center gap-3 bg-[#075E54] px-4 py-3 text-white">
-          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-white/20 text-lg">
-            {linea === 'pedidos' ? '🍷' : '📄'}
+      <Tarjeta relleno={false} className="overflow-hidden">
+        <div className="flex items-center gap-3 bg-tinta px-4 py-3 text-white">
+          <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/15 text-xs font-bold tracking-wide" aria-hidden="true">
+            ODB
           </div>
-          <div>
-            <p className="text-sm font-semibold leading-tight">
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold leading-tight">
               O.D.B {linea === 'pedidos' ? 'Pedidos' : 'Proveedores'}
             </p>
             <p className="text-xs text-white/70">{pensando ? 'escribiendo…' : 'en línea'}</p>
           </div>
         </div>
 
-        <div className="h-[52vh] space-y-2 overflow-y-auto bg-[#ECE5DD] p-4">
+        <div className="h-[52dvh] min-h-72 space-y-2 overflow-y-auto bg-crema p-3 sm:p-4" aria-live="polite">
           {turnos.length === 0 && !pensando && (
-            <p className="pt-16 text-center text-sm text-black/40">
+            <p className="px-2 pt-16 text-center text-sm text-tinta/60">
               Escribile como si fueras un {linea === 'pedidos' ? 'cliente' : 'proveedor'} —
               {linea === 'pedidos'
                 ? ' probá "hola, ¿qué fernet tenés?" o "recomendame un vino para un asado"'
@@ -116,51 +112,58 @@ export default function BotSimulador() {
           {turnos.map((t, i) => (
             <div key={i} className={`flex ${t.de === 'cliente' ? 'justify-end' : 'justify-start'}`}>
               <div
-                className={`max-w-[80%] whitespace-pre-wrap rounded-xl px-3 py-2 text-[15px] leading-snug shadow-sm ${
-                  t.de === 'cliente' ? 'rounded-br-sm bg-[#DCF8C6]' : 'rounded-bl-sm bg-white'
-                }`}
+                className={unir(
+                  'max-w-[85%] whitespace-pre-wrap break-words rounded-2xl px-3 py-2 text-base leading-snug text-tinta shadow-tarjeta sm:max-w-[80%]',
+                  t.de === 'cliente' ? 'rounded-br-md bg-ok-suave' : 'rounded-bl-md bg-white',
+                )}
               >
                 {t.texto}
-                <span className="mt-1 block text-right text-[10px] text-black/35">{t.hora}</span>
+                <span className="mt-1 block text-right text-xs text-tinta/60">{t.hora}</span>
               </div>
             </div>
           ))}
           {pensando && (
             <div className="flex justify-start">
-              <div className="rounded-xl rounded-bl-sm bg-white px-4 py-3 shadow-sm">
-                <span className="inline-flex gap-1">
-                  <i className="h-2 w-2 animate-bounce rounded-full bg-black/30 [animation-delay:0ms]" />
-                  <i className="h-2 w-2 animate-bounce rounded-full bg-black/30 [animation-delay:150ms]" />
-                  <i className="h-2 w-2 animate-bounce rounded-full bg-black/30 [animation-delay:300ms]" />
+              <div className="rounded-2xl rounded-bl-md bg-white px-4 py-3 shadow-tarjeta">
+                <span className="inline-flex gap-1" aria-label="El bot está escribiendo">
+                  <i className="size-2 animate-bounce rounded-full bg-tinta/30 [animation-delay:0ms]" />
+                  <i className="size-2 animate-bounce rounded-full bg-tinta/30 [animation-delay:150ms]" />
+                  <i className="size-2 animate-bounce rounded-full bg-tinta/30 [animation-delay:300ms]" />
                 </span>
               </div>
             </div>
           )}
-          {error && <p className="text-center text-sm text-[#B82D25]">{error}</p>}
+          {error && <p className="text-center text-sm font-medium text-marca-hondo" role="alert">{error}</p>}
           <div ref={finRef} />
         </div>
 
-        <div className="flex items-center gap-2 bg-[#F0F0F0] px-3 py-2">
-          <input
+        <div className="flex items-center gap-2 border-t border-black/[0.06] bg-white px-3 py-2">
+          <Entrada
             ref={inputRef}
             value={texto}
             onChange={(e) => setTexto(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && enviar()}
             placeholder="Escribí un mensaje o hablá 🎤"
+            aria-label="Mensaje para el bot"
             autoFocus
-            className="flex-1 rounded-full border border-black/10 bg-white px-4 py-2.5 text-[15px] outline-none"
+            className="min-w-0 flex-1"
           />
           <BotonMicrofono onTexto={setTexto} titulo="Hablar" />
           <button
             onClick={enviar}
             disabled={pensando || !texto.trim()}
-            className="flex h-11 w-11 items-center justify-center rounded-full bg-[#075E54] text-white disabled:opacity-40"
+            className={unir(
+              'flex size-11 shrink-0 items-center justify-center rounded-full bg-marca text-white transition-colors hover:bg-marca-hondo disabled:opacity-40',
+              FOCO,
+            )}
             aria-label="Enviar"
           >
-            ➤
+            <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M5 12h14M13 6l6 6-6 6" />
+            </svg>
           </button>
         </div>
-      </div>
+      </Tarjeta>
     </div>
   );
 }

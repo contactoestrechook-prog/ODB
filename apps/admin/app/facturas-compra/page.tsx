@@ -1,5 +1,6 @@
 import { cookies } from 'next/headers';
-import { Header } from '../ui/Header';
+import { Pantalla } from '../ui/kit/Pantalla';
+import { Aviso } from '../ui/kit';
 import { apiFetch } from '../../lib/api';
 import { datosDesdeToken } from '../lib/permisos';
 import { FacturasCompraWorkspace } from '../ui/FacturasCompraWorkspace';
@@ -29,15 +30,12 @@ export default async function FacturasCompra() {
   }
 
   return (
-    <main className="min-h-screen bg-[#F0EBE2] lg:pl-64">
-      <Header activo="/facturas-compra" />
-      <div className="max-w-7xl mx-auto p-6">
-        {error ? (
-          <p className="rounded-lg bg-white p-4 text-sm text-[#932A1F]">No pude consultar la API ({error}).</p>
-        ) : (
-          <FacturasCompraWorkspace resumenInicial={resumen} facturasInicial={facturas} proveedores={proveedores} rol={yo.rol} usuarioId={yo.sub} />
-        )}
-      </div>
-    </main>
+    <Pantalla activo="/facturas-compra" ancho="ancho">
+      {error ? (
+        <Aviso tono="error">No pude consultar la API ({error}).</Aviso>
+      ) : (
+        <FacturasCompraWorkspace resumenInicial={resumen} facturasInicial={facturas} proveedores={proveedores} rol={yo.rol} usuarioId={yo.sub} />
+      )}
+    </Pantalla>
   );
 }

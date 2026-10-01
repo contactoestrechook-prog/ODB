@@ -1,5 +1,6 @@
 import { Suspense } from 'react';
-import { Header } from '../../ui/Header';
+import { Pantalla } from '../../ui/kit/Pantalla';
+import { Aviso, Cargando } from '../../ui/kit';
 import { apiFetch } from '../../../lib/api';
 import { AltaProducto } from '../../ui/AltaProducto';
 
@@ -28,17 +29,15 @@ export default async function NuevoProducto() {
   }
 
   return (
-    <main className="min-h-screen bg-[#F0EBE2] lg:pl-64">
-      <Header activo="/productos" />
+    // bajada vacía: la explicación del alta ya va arriba del formulario
+    <Pantalla activo="/productos" ancho="angosto" titulo="Nuevo producto" bajada="">
       {error ? (
-        <p className="max-w-3xl mx-auto m-6 rounded-lg bg-white p-4 text-sm text-[#932A1F]">
-          No pude consultar la API ({error}).
-        </p>
+        <Aviso tono="error">No pude consultar la API ({error}).</Aviso>
       ) : (
-        <Suspense fallback={<p className="max-w-3xl mx-auto p-6 text-sm text-black/40">Cargando…</p>}>
+        <Suspense fallback={<Cargando bloque />}>
           <AltaProducto rubros={rubros} marcas={marcas} sucursales={sucursales} proveedores={proveedores} />
         </Suspense>
       )}
-    </main>
+    </Pantalla>
   );
 }

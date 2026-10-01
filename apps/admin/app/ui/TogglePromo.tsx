@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { Boton } from './kit';
 
 export function TogglePromo({ id, activo }: { id: string; activo: boolean }) {
   const router = useRouter();
@@ -22,12 +23,8 @@ export function TogglePromo({ id, activo }: { id: string; activo: boolean }) {
   };
 
   return (
-    <button
-      onClick={alternar}
-      disabled={cargando}
-      className={`text-xs font-medium hover:underline disabled:opacity-50 ${activo ? 'text-black/50' : 'text-emerald-700'}`}
-    >
+    <Boton variante={activo ? 'fantasma' : 'secundario'} tamano="chico" onClick={alternar} disabled={cargando}>
       {activo ? 'Pausar' : 'Reactivar'}
-    </button>
+    </Boton>
   );
 }

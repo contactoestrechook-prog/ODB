@@ -1,10 +1,16 @@
-import { Header } from '../../ui/Header';
 import { BotonVolver } from '../../ui/BotonVolver';
 import { apiFetch } from '../../../lib/api';
 import { AccionesComprobante } from '../../ui/AccionesComprobante';
+import { Aviso, Monto, Tarjeta } from '../../ui/kit';
+import { Pantalla } from '../../ui/kit/Pantalla';
+import { fecha } from '../../lib/formato';
 
-const pesos = (n: number) =>
-  '$' + Number(n).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+// Al imprimir sale solo el comprobante: se esconden el menú, la barra del
+// celular y el buscador (los hermanos del contenido dentro de <main>) y el
+// contenido va a todo el ancho de la hoja. <Pantalla> todavía no tiene una
+// opción para esto.
+const IMPRIMIBLE =
+  'print:max-w-none print:p-0 [main:has(>&)>:not(&)]:print:hidden [main:has(>&)]:print:bg-white [main:has(>&)]:print:pl-0';
 
 const TIPOS: Record<string, string> = {
   FA: 'FACTURA', FB: 'FACTURA', FC: 'FACTURA',
@@ -18,6 +24,8 @@ const MEDIO_LABEL: Record<string, string> = {
   tarjeta: 'Tarjeta', deposito: 'Depósito', retencion: 'Retención', nota_credito: 'Nota de crédito',
 };
 
+const ROTULO_COMPROBANTE = 'mb-1.5 text-xs font-semibold uppercase tracking-wide text-tinta/60';
+
 export const dynamic = 'force-dynamic';
 
 export default async function Comprobante({ params }: { params: Promise<{ id: string }> }) {
@@ -25,10 +33,9 @@ export default async function Comprobante({ params }: { params: Promise<{ id: st
   const res = await apiFetch(`/facturacion/comprobantes/${id}`);
   if (!res.ok) {
     return (
-      <main className="min-h-screen bg-[#F0EBE2] lg:pl-64">
-        <Header activo="/facturacion" />
-        <p className="max-w-3xl mx-auto p-6 text-sm text-[#932A1F]">No existe el comprobante.</p>
-      </main>
+      <Pantalla activo="/facturacion" ancho="angosto">
+        <Aviso tono="error">No existe el comprobante.</Aviso>
+      </Pantalla>
     );
   }
   const c = await res.json();
@@ -49,75 +56,72 @@ export default async function Comprobante({ params }: { params: Promise<{ id: st
   const numero = `${String(c.punto_venta).padStart(4, '0')}-${String(c.numero).padStart(8, '0')}`;
 
   return (
-    <main className="min-h-screen bg-[#F0EBE2] lg:pl-64 print:bg-white print:pl-0">
-      <div className="print:hidden">
-        <Header activo="/facturacion" />
+    <Pantalla activo="/facturacion" ancho="angosto" className={IMPRIMIBLE}>
+      <div className="flex flex-wrap items-center justify-between gap-3 print:hidden">
+        <BotonVolver href="/facturacion" label="Volver a facturación" />
+        <AccionesComprobante id={c.id} estado={c.estado} esFiscalDebito={['FA', 'FB', 'FC', 'NDA', 'NDB', 'NDC'].includes(c.tipo)} />
       </div>
-      <div className="max-w-3xl mx-auto p-6 space-y-4 print:p-0 print:max-w-none">
-        <div className="flex items-center justify-between print:hidden">
-          <BotonVolver href="/facturacion" label="Volver a facturación" />
-          <AccionesComprobante id={c.id} estado={c.estado} esFiscalDebito={['FA', 'FB', 'FC', 'NDA', 'NDB', 'NDC'].includes(c.tipo)} />
-        </div>
 
-        {/* comprobante imprimible */}
-        <section className="bg-white rounded-xl print:rounded-none overflow-hidden relative">
-          {c.estado === 'anulado' && (
-            <p className="absolute inset-0 flex items-center justify-center text-6xl font-black text-[#B82D25]/15 rotate-[-18deg] pointer-events-none">
-              ANULADO
+      {/* comprobante imprimible */}
+      <Tarjeta relleno={false} className="relative overflow-hidden text-tinta print:rounded-none print:border-0 print:shadow-none">
+        {c.estado === 'anulado' && (
+          <p className="pointer-events-none absolute inset-0 flex rotate-[-18deg] items-center justify-center text-5xl font-bold text-marca/15 sm:text-6xl">
+            ANULADO
+          </p>
+        )}
+        {/* encabezado: en el celular la numeración baja debajo de la letra */}
+        <div className="grid grid-cols-[minmax(0,1fr)_auto] border-b border-black/15 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] print:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]">
+          <div className="p-4 sm:p-5 print:p-5">
+            <p className="text-lg font-semibold tracking-[0.25em] text-tinta">O.D.B</p>
+            <p className="text-xs font-semibold tracking-[0.2em] text-marca">PREMIUM MARKET</p>
+            <p className="mt-2 text-xs leading-relaxed text-tinta/70">
+              O.D.B Premium Market<br />
+              Outlet de bebidas y almacén · Argentina<br />
+              IVA Responsable Inscripto
             </p>
-          )}
-          {/* encabezado */}
-          <div className="grid grid-cols-[1fr_auto_1fr] border-b border-black/15">
-            <div className="p-5">
-              <p className="text-lg font-semibold tracking-[0.25em] text-black">O.D.B</p>
-              <p className="text-[10px] tracking-[0.2em] text-[#B82D25] font-semibold">PREMIUM MARKET</p>
-              <p className="text-[11px] text-black/55 mt-2 leading-relaxed">
-                O.D.B Premium Market<br />
-                Outlet de bebidas y almacén · Argentina<br />
-                IVA Responsable Inscripto
-              </p>
-            </div>
-            <div className="px-6 py-4 border-x border-black/15 text-center">
-              <p className="text-4xl font-black text-black leading-none">{letra}</p>
-              {fiscal && <p className="text-[9px] text-black/45 mt-1">COD. {c.tipo}</p>}
-            </div>
-            <div className="p-5 text-right">
-              <p className="text-sm font-semibold text-black">{TIPOS[c.tipo]}</p>
-              <p className="font-mono text-sm text-black mt-1">N° {numero}</p>
-              <p className="text-xs text-black/55 mt-1">
-                Fecha: {new Date(c.emitido_en).toLocaleDateString('es-AR')}
-              </p>
-              {fiscal && (
-                <p className="text-[10px] text-black/45 mt-2">
-                  {c.cae ? `CAE ${c.cae} · vto ${c.cae_vencimiento}` : 'CAE pendiente de ARCA'}
-                </p>
-              )}
-            </div>
           </div>
-
-          {/* receptor */}
-          <div className="px-5 py-3 border-b border-black/10 text-sm text-black grid sm:grid-cols-2 gap-1">
-            <p><span className="text-black/45 text-xs">Señor/es:</span> {c.receptor?.nombre ?? 'Consumidor final'}</p>
-            <p><span className="text-black/45 text-xs">{c.receptor?.doc_tipo ?? 'Doc'}:</span> {c.receptor?.doc_numero ?? '—'}</p>
-            <p><span className="text-black/45 text-xs">Cond. IVA:</span> {(c.receptor?.condicion_iva ?? 'consumidor final').replaceAll('_', ' ')}</p>
-            <p><span className="text-black/45 text-xs">Cond. pago:</span> {c.condicion_pago === 'cta_cte' ? 'Cuenta corriente' : 'Contado'}</p>
-            {c.receptor?.domicilio && <p className="sm:col-span-2"><span className="text-black/45 text-xs">Domicilio:</span> {c.receptor.domicilio}</p>}
-            {c.referencia && (
-              <p className="sm:col-span-2 text-xs text-black/55">
-                Ref.: {TIPOS[c.referencia.tipo]} {String(c.referencia.punto_venta).padStart(4, '0')}-{String(c.referencia.numero).padStart(8, '0')}
+          <div className="border-l border-black/15 px-5 py-4 text-center sm:border-x sm:px-6 print:border-x print:px-6">
+            <p className="text-4xl font-bold leading-none text-tinta">{letra}</p>
+            {fiscal && <p className="mt-1 text-xs text-tinta/60">COD. {c.tipo}</p>}
+          </div>
+          <div className="col-span-2 border-t border-black/15 p-4 sm:col-span-1 sm:border-t-0 sm:p-5 sm:text-right print:col-span-1 print:border-t-0 print:p-5 print:text-right">
+            <p className="text-sm font-semibold text-tinta">{TIPOS[c.tipo]}</p>
+            <p className="mt-1 break-words font-mono text-sm text-tinta">N° {numero}</p>
+            <p className="mt-1 text-xs text-tinta/70">
+              Fecha: {fecha(c.emitido_en, 'completa')}
+            </p>
+            {fiscal && (
+              <p className="mt-2 break-words text-xs text-tinta/60">
+                {c.cae ? `CAE ${c.cae} · vto ${c.cae_vencimiento}` : 'CAE pendiente de ARCA'}
               </p>
             )}
           </div>
+        </div>
 
-          {/* renglones */}
-          <table className="w-full text-sm text-black">
+        {/* receptor */}
+        <div className="grid gap-1 border-b border-black/[0.06] px-4 py-3 text-sm text-tinta sm:grid-cols-2 sm:px-5 print:grid-cols-2 print:px-5">
+          <p className="break-words"><span className="text-xs text-tinta/60">Señor/es:</span> {c.receptor?.nombre ?? 'Consumidor final'}</p>
+          <p className="break-words"><span className="text-xs text-tinta/60">{c.receptor?.doc_tipo ?? 'Doc'}:</span> {c.receptor?.doc_numero ?? '—'}</p>
+          <p><span className="text-xs text-tinta/60">Cond. IVA:</span> {(c.receptor?.condicion_iva ?? 'consumidor final').replaceAll('_', ' ')}</p>
+          <p><span className="text-xs text-tinta/60">Cond. pago:</span> {c.condicion_pago === 'cta_cte' ? 'Cuenta corriente' : 'Contado'}</p>
+          {c.receptor?.domicilio && <p className="break-words sm:col-span-2 print:col-span-2"><span className="text-xs text-tinta/60">Domicilio:</span> {c.receptor.domicilio}</p>}
+          {c.referencia && (
+            <p className="text-xs text-tinta/70 sm:col-span-2 print:col-span-2">
+              Ref.: {TIPOS[c.referencia.tipo]} {String(c.referencia.punto_venta).padStart(4, '0')}-{String(c.referencia.numero).padStart(8, '0')}
+            </p>
+          )}
+        </div>
+
+        {/* renglones: tabla de verdad (también en el papel); en el celular scrollea dentro del comprobante si no entra */}
+        <div className="overflow-x-auto">
+          <table className="tabla-kit w-full text-sm text-tinta">
             <thead>
-              <tr className="text-left text-[11px] text-black/45 border-b border-black/10">
-                <th className="px-5 py-2 font-medium">Descripción</th>
-                <th className="px-2 py-2 font-medium text-right">Cant.</th>
-                <th className="px-2 py-2 font-medium text-right">{discrimina ? 'P. unit. (neto)' : 'P. unitario'}</th>
-                {discrimina && <th className="px-2 py-2 font-medium text-right">IVA</th>}
-                <th className="px-5 py-2 font-medium text-right">Importe</th>
+              <tr className="border-b border-black/[0.06] text-left text-xs text-tinta/60">
+                <th className="py-2 pl-4 pr-1.5 font-medium sm:pl-5 sm:pr-2 print:pl-5">Descripción</th>
+                <th className="px-1.5 py-2 text-right font-medium sm:px-2">Cant.</th>
+                <th className="px-1.5 py-2 text-right font-medium sm:px-2">{discrimina ? 'P. unit. (neto)' : 'P. unitario'}</th>
+                {discrimina && <th className="px-1.5 py-2 text-right font-medium sm:px-2">IVA</th>}
+                <th className="py-2 pl-1.5 pr-4 text-right font-medium sm:pl-2 sm:pr-5 print:pr-5">Importe</th>
               </tr>
             </thead>
             <tbody>
@@ -126,81 +130,81 @@ export default async function Comprobante({ params }: { params: Promise<{ id: st
                 const renglon = Number(i.precioUnitario) * Number(i.cantidad);
                 const unitNeto = alic > 0 ? Number(i.precioUnitario) / (1 + alic / 100) : Number(i.precioUnitario);
                 return (
-                  <tr key={idx} className="border-b border-black/5">
-                    <td className="px-5 py-2">
-                      {i.descripcion}
-                      {i.sku && <span className="text-[10px] text-black/35 ml-2">[{i.sku}]</span>}
+                  <tr key={idx} className="border-b border-black/[0.06]">
+                    <td className="py-2 pl-4 pr-1.5 sm:pl-5 sm:pr-2 print:pl-5">
+                      <span className="break-words">{i.descripcion}</span>
+                      {i.sku && <span className="ml-2 text-xs text-tinta/60">[{i.sku}]</span>}
                     </td>
-                    <td className="px-2 py-2 text-right">{i.cantidad}</td>
-                    <td className="px-2 py-2 text-right">{pesos(discrimina ? unitNeto : i.precioUnitario)}</td>
-                    {discrimina && <td className="px-2 py-2 text-right text-xs">{alic} %</td>}
-                    <td className="px-5 py-2 text-right">{pesos(discrimina ? unitNeto * i.cantidad : renglon)}</td>
+                    <td className="importe px-1.5 py-2 text-right sm:px-2">{i.cantidad}</td>
+                    <td className="importe px-1.5 py-2 text-right sm:px-2"><Monto valor={discrimina ? unitNeto : i.precioUnitario} decimales /></td>
+                    {discrimina && <td className="importe px-1.5 py-2 text-right text-xs sm:px-2">{alic} %</td>}
+                    <td className="importe py-2 pl-1.5 pr-4 text-right sm:pl-2 sm:pr-5 print:pr-5"><Monto valor={discrimina ? unitNeto * i.cantidad : renglon} decimales /></td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
+        </div>
 
-          {/* totales */}
-          <div className="px-5 py-4 flex justify-end">
-            <div className="w-72 space-y-1 text-sm text-black">
-              {discrimina && (
-                <>
-                  <p className="flex justify-between"><span className="text-black/55">Neto gravado</span><span>{pesos(c.neto)}</span></p>
-                  {(c.iva_detalle ?? []).map((d: any) => (
-                    <p key={d.alicuota} className="flex justify-between">
-                      <span className="text-black/55">IVA {d.alicuota} %</span>
-                      <span>{pesos(d.monto)}</span>
-                    </p>
-                  ))}
-                </>
-              )}
-              <p className="flex justify-between text-base font-semibold border-t border-black/15 pt-2">
-                <span>TOTAL</span><span>{pesos(c.total)}</span>
-              </p>
+        {/* totales */}
+        <div className="flex justify-end px-4 py-4 sm:px-5 print:px-5">
+          <div className="w-full space-y-1 text-sm text-tinta sm:w-72 print:w-72">
+            {discrimina && (
+              <>
+                <p className="flex justify-between gap-3"><span className="text-tinta/70">Neto gravado</span><Monto valor={c.neto} decimales /></p>
+                {(c.iva_detalle ?? []).map((d: any) => (
+                  <p key={d.alicuota} className="flex justify-between gap-3">
+                    <span className="text-tinta/70">IVA {d.alicuota} %</span>
+                    <Monto valor={d.monto} decimales />
+                  </p>
+                ))}
+              </>
+            )}
+            <p className="flex justify-between gap-3 border-t border-black/15 pt-2 text-base font-semibold">
+              <span>TOTAL</span><Monto valor={c.total} decimales />
+            </p>
+          </div>
+        </div>
+
+        {/* recibo: facturas canceladas + medios de pago */}
+        {reciboDet && (
+          <div className="grid gap-5 border-t border-black/[0.06] px-4 pb-4 pt-4 text-sm sm:grid-cols-2 sm:px-5 print:grid-cols-2 print:px-5">
+            <div className="min-w-0">
+              <p className={ROTULO_COMPROBANTE}>Facturas canceladas</p>
+              {reciboDet.imputaciones.length === 0 && <p className="text-xs text-tinta/60">—</p>}
+              {reciboDet.imputaciones.map((im: any, i: number) => (
+                <p key={i} className="flex justify-between gap-3 border-b border-black/[0.06] py-1">
+                  <span className="min-w-0 break-words text-tinta/80">{im.factura?.etiqueta ?? 'Factura'}</span>
+                  <Monto valor={im.importe} decimales className="shrink-0" />
+                </p>
+              ))}
+            </div>
+            <div className="min-w-0">
+              <p className={ROTULO_COMPROBANTE}>Medios de pago</p>
+              {reciboDet.medios.length === 0 && <p className="text-xs text-tinta/60">—</p>}
+              {reciboDet.medios.map((m: any, i: number) => (
+                <p key={i} className="flex justify-between gap-3 border-b border-black/[0.06] py-1">
+                  <span className="min-w-0 break-words text-tinta/80">
+                    {MEDIO_LABEL[m.medio] ?? m.medio}
+                    {m.cheque && <span className="ml-1 text-xs text-tinta/60">N° {m.cheque.numero}{m.cheque.banco ? ` · ${m.cheque.banco}` : ''}</span>}
+                    {m.referencia && <span className="ml-1 text-xs text-tinta/60">· {m.referencia}</span>}
+                  </span>
+                  <Monto valor={m.importe} decimales className="shrink-0" />
+                </p>
+              ))}
             </div>
           </div>
+        )}
 
-          {/* recibo: facturas canceladas + medios de pago */}
-          {reciboDet && (
-            <div className="px-5 pb-4 grid sm:grid-cols-2 gap-5 text-sm border-t border-black/10 pt-4">
-              <div>
-                <p className="text-[11px] text-black/45 font-medium mb-1.5 uppercase tracking-wide">Facturas canceladas</p>
-                {reciboDet.imputaciones.length === 0 && <p className="text-xs text-black/40">—</p>}
-                {reciboDet.imputaciones.map((im: any, i: number) => (
-                  <p key={i} className="flex justify-between border-b border-black/5 py-1">
-                    <span className="text-black/80">{im.factura?.etiqueta ?? 'Factura'}</span>
-                    <span>{pesos(im.importe)}</span>
-                  </p>
-                ))}
-              </div>
-              <div>
-                <p className="text-[11px] text-black/45 font-medium mb-1.5 uppercase tracking-wide">Medios de pago</p>
-                {reciboDet.medios.length === 0 && <p className="text-xs text-black/40">—</p>}
-                {reciboDet.medios.map((m: any, i: number) => (
-                  <p key={i} className="flex justify-between border-b border-black/5 py-1">
-                    <span className="text-black/80">
-                      {MEDIO_LABEL[m.medio] ?? m.medio}
-                      {m.cheque && <span className="text-[10px] text-black/45 ml-1">N° {m.cheque.numero}{m.cheque.banco ? ` · ${m.cheque.banco}` : ''}</span>}
-                      {m.referencia && <span className="text-[10px] text-black/45 ml-1">· {m.referencia}</span>}
-                    </span>
-                    <span>{pesos(m.importe)}</span>
-                  </p>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {c.observaciones && (
-            <p className="px-5 pb-4 text-xs text-black/55">Obs.: {c.observaciones}</p>
-          )}
-          {!fiscal && (
-            <p className="px-5 pb-4 text-[10px] text-black/40">
-              Documento no válido como factura.
-            </p>
-          )}
-        </section>
-      </div>
-    </main>
+        {c.observaciones && (
+          <p className="break-words px-4 pb-4 text-xs text-tinta/70 sm:px-5 print:px-5">Obs.: {c.observaciones}</p>
+        )}
+        {!fiscal && (
+          <p className="px-4 pb-4 text-xs text-tinta/60 sm:px-5 print:px-5">
+            Documento no válido como factura.
+          </p>
+        )}
+      </Tarjeta>
+    </Pantalla>
   );
 }

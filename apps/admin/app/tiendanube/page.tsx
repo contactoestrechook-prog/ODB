@@ -1,4 +1,4 @@
-import { Header } from '../ui/Header';
+import { Pantalla } from '../ui/kit/Pantalla';
 import { apiFetch } from '../../lib/api';
 import { TiendaNubeWorkspace } from '../ui/TiendaNubeWorkspace';
 
@@ -14,11 +14,8 @@ export default async function TiendaNube() {
   }
 
   return (
-    <main className="min-h-screen bg-[#F0EBE2] lg:pl-64">
-      <Header activo="/tiendanube" />
-      <div className="max-w-4xl mx-auto p-6">
-        <TiendaNubeWorkspace inicial={inicial} />
-      </div>
-    </main>
+    <Pantalla activo="/tiendanube" ancho="angosto">
+      <TiendaNubeWorkspace inicial={inicial} />
+    </Pantalla>
   );
 }

@@ -2,6 +2,7 @@
 
 import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { Boton } from './kit';
 
 export function SubirFoto({ sku }: { sku: string }) {
   const router = useRouter();
@@ -24,6 +25,7 @@ export function SubirFoto({ sku }: { sku: string }) {
 
   return (
     <>
+      {/* el input queda escondido: lo abre el botón, que sí se alcanza con el teclado */}
       <input
         ref={inputRef}
         type="file"
@@ -31,13 +33,14 @@ export function SubirFoto({ sku }: { sku: string }) {
         className="hidden"
         onChange={(e) => e.target.files?.[0] && subir(e.target.files[0])}
       />
-      <button
+      <Boton
+        variante={estado === 'error' ? 'peligro' : 'secundario'}
+        tamano="chico"
         onClick={() => inputRef.current?.click()}
         disabled={estado === 'subiendo'}
-        className="rounded-full border border-black/15 px-4 py-1.5 text-xs text-black/60 hover:border-[#B82D25] hover:text-[#932A1F] disabled:opacity-50"
       >
         {estado === 'subiendo' ? 'Subiendo…' : estado === 'error' ? 'Error: reintentar' : 'Cambiar foto'}
-      </button>
+      </Boton>
     </>
   );
 }

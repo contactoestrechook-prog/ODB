@@ -1,12 +1,28 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type Key, type ReactNode } from 'react';
 import { AccionesStock } from './AccionesStock';
 import { BotonPromo } from './BotonPromo';
+import {
+  Boton,
+  Cargando,
+  Entrada,
+  Etiqueta,
+  IconoOk,
+  Kpi,
+  Monto,
+  Pestanas,
+  Selector,
+  TablaResponsiva,
+  Tarjeta,
+  TarjetaCabecera,
+  type ColumnaTabla,
+  type TonoEtiqueta,
+} from './kit';
+import { fecha, fechaHora, numero } from '../lib/formato';
 
-const pesos = (n: any) => '$' + Math.round(Number(n) || 0).toLocaleString('es-AR');
-const num = (n: any) => Math.round(Number(n) || 0).toLocaleString('es-AR');
-const fecha = (iso: string) => (iso ? new Date(iso).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: '2-digit' }) : '—');
+// Las copias viejas hacían Math.round(Number(n) || 0): "no hay dato" se veía 0.
+const num = (n: any) => numero(n ?? 0);
 
 const MOV_LABEL: Record<string, string> = {
   venta: 'Venta', devolucion: 'Devolución', compra: 'Compra', ajuste: 'Ajuste', merma: 'Merma',
@@ -19,6 +35,19 @@ const TABS = [
   ['negativos', 'Stock negativo'], ['rotacion', 'Sin rotación'], ['abc', 'Análisis ABC'],
   ['movimientos', 'Movimientos'],
 ] as const;
+
+// Clases del análisis ABC: el mismo tono en las tarjetas y en la tabla.
+const TONO_ABC: Record<string, TonoEtiqueta> = { A: 'ok', B: 'info', C: 'neutro' };
+
+// Producto + SKU (y lo que venga después) en dos renglones, sin salirse del ancho.
+function Producto({ nombre, detalle }: { nombre: ReactNode; detalle?: ReactNode }) {
+  return (
+    <div className="min-w-0">
+      <p className="break-words font-medium text-tinta">{nombre}</p>
+      {detalle ? <p className="break-words text-xs font-normal text-tinta/60">{detalle}</p> : null}
+    </div>
+  );
+}
 
 export function StockWorkspace({
   resumen, valorizacion, criticos, vencimientos, sucursales, transferencias,
@@ -76,172 +105,185 @@ export function StockWorkspace({
   const valorMax = Math.max(...(valorizacion?.rubros ?? []).map((x: any) => Number(x.valor)), 1);
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4 sm:space-y-6">
       <AccionesStock sucursales={sucursales} transferencias={transferencias} />
 
-      {/* KPIs */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-        {[
-          ['Valor inventario', pesos(r.valor_inventario)],
-          ['SKUs activos', num(r.skus_activos)],
-          ['Unidades', num(r.unidades)],
-          ['Con stock', num(r.con_stock)],
-          ['Bajo reposición', num(r.bajo_reposicion), r.bajo_reposicion > 0 ? 'text-[#B82D25]' : ''],
-          ['Negativos', num(r.negativos), r.negativos > 0 ? 'text-[#B82D25]' : ''],
-        ].map(([lbl, val, cls]: any) => (
-          <div key={lbl} className="rounded-xl bg-white p-3.5 border border-black/[0.04]">
-            <p className={`text-lg font-semibold leading-none ${cls || 'text-black'}`}>{val}</p>
-            <p className="text-[11px] text-black/45 mt-1">{lbl}</p>
-          </div>
-        ))}
+      {/* KPIs: en el celular el valor del inventario va abreviado ($250M) para no cortarse */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <Kpi
+          etiqueta="Valor inventario"
+          valor={
+            <>
+              <Monto valor={r.valor_inventario ?? 0} corto className="md:hidden" />
+              <Monto valor={r.valor_inventario ?? 0} className="hidden md:inline" />
+            </>
+          }
+        />
+        <Kpi etiqueta="SKUs activos" valor={num(r.skus_activos)} />
+        <Kpi etiqueta="Unidades" valor={num(r.unidades)} />
+        <Kpi etiqueta="Con stock" valor={num(r.con_stock)} />
+        <Kpi etiqueta="Bajo reposición" valor={num(r.bajo_reposicion)} tono={r.bajo_reposicion > 0 ? 'error' : 'neutro'} />
+        <Kpi etiqueta="Negativos" valor={num(r.negativos)} tono={r.negativos > 0 ? 'error' : 'neutro'} />
       </div>
 
       {/* pestañas */}
-      <div className="flex gap-1.5 flex-wrap border-b border-black/10">
-        {TABS.map(([k, label]) => {
+      <Pestanas
+        etiquetaAccesible="Vistas de stock"
+        valor={tab}
+        onCambiar={setTab}
+        opciones={TABS.map(([k, label]) => {
           const badge = k === 'reposicion' ? criticos.length : k === 'vencimientos' ? (vencimientos?.lotes?.length ?? 0) : k === 'negativos' ? r.negativos : 0;
-          return (
-            <button key={k} onClick={() => setTab(k)}
-              className={`px-3.5 py-2 text-sm font-medium rounded-t-lg -mb-px border-b-2 ${tab === k ? 'border-[#B82D25] text-black' : 'border-transparent text-black/45 hover:text-black'}`}>
-              {label}{badge ? <span className="ml-1.5 text-[10px] rounded-full bg-[#B82D25] text-white px-1.5 py-0.5">{badge}</span> : ''}
-            </button>
-          );
+          return { valor: k, etiqueta: label, cuenta: badge ? Number(badge) : undefined };
         })}
-      </div>
+      />
 
       {/* RESUMEN: valorización por rubro y sucursal */}
       {tab === 'resumen' && (
-        <div className="grid lg:grid-cols-2 gap-4">
-          <section className="rounded-xl bg-white overflow-hidden">
-            <h2 className="px-4 py-3 border-b border-black/10 font-medium text-black text-sm">Valor por rubro (top 12)</h2>
-            <div className="p-4 space-y-2">
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Tarjeta relleno={false}>
+            <TarjetaCabecera titulo="Valor por rubro (top 12)" />
+            <div className="space-y-3 p-4 sm:p-5">
               {(valorizacion?.rubros ?? []).slice(0, 12).map((x: any) => (
                 <div key={x.rubro}>
-                  <div className="flex justify-between text-xs text-black mb-1">
-                    <span>{x.rubro} <span className="text-black/40">· {x.skus} SKUs</span></span>
-                    <span className="font-medium">{pesos(x.valor)}</span>
+                  <div className="mb-1 flex items-baseline justify-between gap-3 text-sm text-tinta">
+                    <span className="min-w-0 break-words">{x.rubro} <span className="text-xs text-tinta/60">· {x.skus} SKUs</span></span>
+                    <Monto valor={x.valor ?? 0} className="shrink-0 font-medium" />
                   </div>
-                  <div className="h-1.5 rounded-full bg-[#F0EBE2]">
-                    <div className="h-1.5 rounded-full bg-[#B82D25]" style={{ width: `${Math.max((Number(x.valor) / valorMax) * 100, 2)}%` }} />
+                  <div className="h-1.5 rounded-full bg-crema-hondo">
+                    <div className="h-1.5 rounded-full bg-tinta/70" style={{ width: `${Math.max((Number(x.valor) / valorMax) * 100, 2)}%` }} />
                   </div>
                 </div>
               ))}
             </div>
-          </section>
-          <section className="rounded-xl bg-white overflow-hidden h-fit">
-            <h2 className="px-4 py-3 border-b border-black/10 font-medium text-black text-sm">Valor por sucursal</h2>
-            <div className="p-4 space-y-3">
+          </Tarjeta>
+          <Tarjeta relleno={false} className="h-fit">
+            <TarjetaCabecera titulo="Valor por sucursal" />
+            <div className="divide-y divide-black/[0.06]">
               {(valorizacion?.sucursales ?? []).map((s: any) => (
-                <div key={s.sucursal} className="flex justify-between items-baseline">
-                  <div>
-                    <p className="text-sm font-medium text-black">{s.sucursal}</p>
-                    <p className="text-xs text-black/45">{s.skus} SKUs · {num(s.unidades)} u.</p>
+                <div key={s.sucursal} className="flex items-baseline justify-between gap-3 px-4 py-3 sm:px-5">
+                  <div className="min-w-0">
+                    <p className="break-words text-sm font-medium text-tinta">{s.sucursal}</p>
+                    <p className="text-xs text-tinta/60">{s.skus} SKUs · {num(s.unidades)} u.</p>
                   </div>
-                  <p className="text-lg font-semibold text-black">{pesos(s.valor)}</p>
+                  <Monto valor={s.valor ?? 0} className="shrink-0 text-lg font-semibold text-tinta" />
                 </div>
               ))}
             </div>
-          </section>
+          </Tarjeta>
         </div>
       )}
 
       {/* REPOSICIÓN */}
       {tab === 'reposicion' && (
-        <Tabla titulo={`Bajo punto de reposición (${criticos.length})`} vacio="Ningún producto por debajo de su punto de reposición."
-          filas={criticos} cols={['Producto', 'Sucursal', 'Stock', 'Mínimo', 'Reposición']}
-          render={(c: any) => (
-            <tr key={`${c.sku}-${c.sucursal}`} className="border-b border-black/5 last:border-0">
-              <td className="px-4 py-3"><p className="font-medium">{c.producto}</p><p className="text-xs text-black/50">{c.sku}</p></td>
-              <td className="px-4 py-3 text-black/70">{c.sucursal}</td>
-              <td className="px-4 py-3 text-right"><span className="rounded-full bg-[#B82D25] px-2.5 py-0.5 text-xs font-medium text-white">{num(c.cantidad)}</span></td>
-              <td className="px-4 py-3 text-right text-black/70">{num(c.stock_minimo)}</td>
-              <td className="px-4 py-3 text-right text-black/70">{num(c.punto_reposicion)}</td>
-            </tr>
-          )} />
+        <Tabla
+          titulo={`Bajo punto de reposición (${criticos.length})`}
+          vacio="Ningún producto por debajo de su punto de reposición."
+          filas={criticos}
+          claveFila={(c: any) => `${c.sku}-${c.sucursal}`}
+          columnas={[
+            { clave: 'producto', titulo: 'Producto', principal: true, celda: (c: any) => <Producto nombre={c.producto} detalle={c.sku} /> },
+            { clave: 'sucursal', titulo: 'Sucursal', celda: (c: any) => <span className="text-tinta/70">{c.sucursal}</span> },
+            { clave: 'stock', titulo: 'Stock', importe: true, celda: (c: any) => <Etiqueta tono="error">{num(c.cantidad)}</Etiqueta> },
+            { clave: 'minimo', titulo: 'Mínimo', importe: true, celda: (c: any) => <span className="text-tinta/70">{num(c.stock_minimo)}</span> },
+            { clave: 'reposicion', titulo: 'Reposición', importe: true, celda: (c: any) => <span className="text-tinta/70">{num(c.punto_reposicion)}</span> },
+          ]}
+        />
       )}
 
       {/* VENCIMIENTOS */}
       {tab === 'vencimientos' && (
-        <Tabla titulo="Vencimientos próximos (45 días)" vacio="Sin vencimientos próximos."
-          extra={vencimientos?.capitalEnRiesgo ? <span className="text-xs text-[#932A1F] font-medium">{pesos(vencimientos.capitalEnRiesgo)} en riesgo</span> : null}
-          filas={vencimientos?.lotes ?? []} cols={['Producto', 'Sucursal', 'Vence', 'Unidades', 'Acción']}
-          render={(l: any, i: number) => (
-            <tr key={i} className="border-b border-black/5 last:border-0">
-              <td className="px-4 py-2.5"><p className="font-medium">{l.producto}</p><p className="text-xs text-black/40">{l.sku} · lote {l.lote}</p></td>
-              <td className="px-4 py-2.5 text-black/70">{l.sucursal}</td>
-              <td className="px-4 py-2.5 text-right">
-                <span className={'rounded-full px-2.5 py-0.5 text-xs font-medium ' + (l.estado === 'vencido' || l.estado === 'critico' ? 'bg-[#B82D25] text-white' : l.estado === 'pronto' ? 'bg-black text-white' : 'bg-[#F0EBE2] text-black')}>
+        <Tabla
+          titulo="Vencimientos próximos (45 días)"
+          vacio="Sin vencimientos próximos."
+          extra={vencimientos?.capitalEnRiesgo ? <span className="text-sm font-medium text-marca-hondo"><Monto valor={vencimientos.capitalEnRiesgo} /> en riesgo</span> : null}
+          filas={vencimientos?.lotes ?? []}
+          claveFila={(_: any, i: number) => i}
+          columnas={[
+            { clave: 'producto', titulo: 'Producto', principal: true, celda: (l: any) => <Producto nombre={l.producto} detalle={`${l.sku} · lote ${l.lote}`} /> },
+            { clave: 'sucursal', titulo: 'Sucursal', celda: (l: any) => <span className="text-tinta/70">{l.sucursal}</span> },
+            {
+              clave: 'vence', titulo: 'Vence', alinear: 'derecha',
+              celda: (l: any) => (
+                <Etiqueta tono={l.estado === 'vencido' || l.estado === 'critico' ? 'error' : l.estado === 'pronto' ? 'atencion' : 'neutro'}>
                   {l.estado === 'vencido' ? 'VENCIDO' : `${l.dias} días`}
-                </span>
-              </td>
-              <td className="px-4 py-2.5 text-right text-black/70">{l.cantidad}</td>
-              <td className="px-4 py-2.5 text-right text-xs">
-                {l.estado === 'vencido' ? <span className="text-[#932A1F] font-medium">retirar / merma</span>
+                </Etiqueta>
+              ),
+            },
+            { clave: 'unidades', titulo: 'Unidades', importe: true, celda: (l: any) => <span className="text-tinta/70">{l.cantidad}</span> },
+            {
+              clave: 'accion', titulo: 'Acción', alinear: 'derecha',
+              celda: (l: any) => (
+                l.estado === 'vencido' ? <span className="text-xs font-medium text-marca-hondo">retirar / merma</span>
                   : l.descuentoSugerido ? <BotonPromo sku={l.sku} nombre={l.producto} porcentaje={l.descuentoSugerido} />
-                  : <span className="text-black/40">vigilar</span>}
-              </td>
-            </tr>
-          )} />
+                  : <span className="text-xs text-tinta/60">vigilar</span>
+              ),
+            },
+          ]}
+        />
       )}
 
       {/* NEGATIVOS */}
       {tab === 'negativos' && (
-        cargando && !data['negativos'] ? <Cargando /> :
-        <Tabla titulo={`Stock negativo (${(data['negativos'] ?? []).length})`}
-          vacio="✓ No hay stock negativo. El inventario está sano."
-          filas={data['negativos'] ?? []} cols={['Producto', 'Sucursal', 'Stock', 'Capital']}
-          render={(n: any, i: number) => (
-            <tr key={i} className="border-b border-black/5 last:border-0">
-              <td className="px-4 py-3"><p className="font-medium">{n.producto}</p><p className="text-xs text-black/50">{n.sku}</p></td>
-              <td className="px-4 py-3 text-black/70">{n.sucursal}</td>
-              <td className="px-4 py-3 text-right"><span className="rounded-full bg-[#B82D25] px-2.5 py-0.5 text-xs font-medium text-white">{n.cantidad}</span></td>
-              <td className="px-4 py-3 text-right text-black/60">{pesos(Number(n.cantidad) * Number(n.costo))}</td>
-            </tr>
-          )} />
+        cargando && !data['negativos'] ? <CargandoTabla /> :
+        <Tabla
+          titulo={`Stock negativo (${(data['negativos'] ?? []).length})`}
+          vacio={<span className="inline-flex items-center gap-2"><IconoOk className="size-5 shrink-0 text-ok" />No hay stock negativo. El inventario está sano.</span>}
+          filas={data['negativos'] ?? []}
+          claveFila={(_: any, i: number) => i}
+          columnas={[
+            { clave: 'producto', titulo: 'Producto', principal: true, celda: (n: any) => <Producto nombre={n.producto} detalle={n.sku} /> },
+            { clave: 'sucursal', titulo: 'Sucursal', celda: (n: any) => <span className="text-tinta/70">{n.sucursal}</span> },
+            { clave: 'stock', titulo: 'Stock', importe: true, celda: (n: any) => <Etiqueta tono="error">{n.cantidad}</Etiqueta> },
+            { clave: 'capital', titulo: 'Capital', importe: true, celda: (n: any) => <Monto valor={Number(n.cantidad) * Number(n.costo) || 0} className="text-tinta/70" /> },
+          ]}
+        />
       )}
 
       {/* SIN ROTACIÓN */}
       {tab === 'rotacion' && (
-        cargando && !data['sin-rotacion'] ? <Cargando /> :
-        <Tabla titulo="Sin rotación — con stock pero sin ventas en 30 días (capital dormido)"
+        cargando && !data['sin-rotacion'] ? <CargandoTabla /> :
+        <Tabla
+          titulo="Sin rotación — con stock pero sin ventas en 30 días (capital dormido)"
           vacio="Todo el stock rotó en los últimos 30 días."
-          filas={data['sin-rotacion'] ?? []} cols={['Producto', 'Unidades', 'Capital dormido', 'Última venta']}
-          render={(x: any, i: number) => (
-            <tr key={i} className="border-b border-black/5 last:border-0">
-              <td className="px-4 py-3"><p className="font-medium">{x.producto}</p><p className="text-xs text-black/50">{x.sku}</p></td>
-              <td className="px-4 py-3 text-right text-black/70">{num(x.unidades)}</td>
-              <td className="px-4 py-3 text-right font-medium text-[#932A1F]">{pesos(x.capital)}</td>
-              <td className="px-4 py-3 text-right text-xs text-black/50">{x.ultima_venta ? fecha(x.ultima_venta) : 'nunca'}</td>
-            </tr>
-          )} />
+          filas={data['sin-rotacion'] ?? []}
+          claveFila={(_: any, i: number) => i}
+          columnas={[
+            { clave: 'producto', titulo: 'Producto', principal: true, celda: (x: any) => <Producto nombre={x.producto} detalle={x.sku} /> },
+            { clave: 'unidades', titulo: 'Unidades', importe: true, celda: (x: any) => <span className="text-tinta/70">{num(x.unidades)}</span> },
+            { clave: 'capital', titulo: 'Capital dormido', importe: true, celda: (x: any) => <Monto valor={x.capital ?? 0} className="font-medium text-marca-hondo" /> },
+            { clave: 'ultima', titulo: 'Última venta', alinear: 'derecha', celda: (x: any) => <span className="text-xs text-tinta/60">{x.ultima_venta ? fecha(x.ultima_venta) : 'nunca'}</span> },
+          ]}
+        />
       )}
 
       {/* ABC */}
       {tab === 'abc' && (
-        cargando && !data['abc'] ? <Cargando /> : (
+        cargando && !data['abc'] ? <CargandoTabla /> : (
           <div className="space-y-3">
             <div className="grid grid-cols-3 gap-3">
-              {[['A', 'Generan el 80% de la venta', 'bg-black text-white'], ['B', 'El siguiente 15%', 'bg-[#B82D25] text-white'], ['C', 'El último 5% (cola larga)', 'bg-[#F0EBE2] text-black']].map(([clase, desc, cls]) => {
+              {[['A', 'Generan el 80% de la venta'], ['B', 'El siguiente 15%'], ['C', 'El último 5% (cola larga)']].map(([clase, desc]) => {
                 const n = (data['abc'] ?? []).filter((x: any) => x.clase === clase).length;
                 return (
-                  <div key={clase} className="rounded-xl bg-white p-4 border border-black/[0.04]">
-                    <span className={`text-xs font-bold rounded-full px-2 py-0.5 ${cls}`}>Clase {clase}</span>
-                    <p className="text-2xl font-semibold text-black mt-2">{n}</p>
-                    <p className="text-[11px] text-black/45">{desc}</p>
-                  </div>
+                  <Tarjeta key={clase} relleno={false} className="p-3 sm:p-5">
+                    <Etiqueta tono={TONO_ABC[clase]}>Clase {clase}</Etiqueta>
+                    <p className="importe mt-2 text-xl font-bold text-tinta sm:text-2xl sm:font-semibold">{n}</p>
+                    <p className="text-xs text-tinta/60">{desc}</p>
+                  </Tarjeta>
                 );
               })}
             </div>
-            <Tabla titulo="Productos por facturación (30 días)" vacio="Sin ventas en el período."
-              filas={data['abc'] ?? []} cols={['Clase', 'Producto', 'Facturado 30d', 'Acumulado']}
-              render={(x: any, i: number) => (
-                <tr key={i} className="border-b border-black/5 last:border-0">
-                  <td className="px-4 py-2.5"><span className={`text-[11px] font-bold rounded-full px-2 py-0.5 ${x.clase === 'A' ? 'bg-black text-white' : x.clase === 'B' ? 'bg-[#B82D25] text-white' : 'bg-[#F0EBE2] text-black'}`}>{x.clase}</span></td>
-                  <td className="px-4 py-2.5"><p className="font-medium">{x.producto}</p><p className="text-xs text-black/40">{x.sku}</p></td>
-                  <td className="px-4 py-2.5 text-right font-medium">{pesos(x.facturado)}</td>
-                  <td className="px-4 py-2.5 text-right text-xs text-black/50">{x.acum_pct}%</td>
-                </tr>
-              )} />
+            <Tabla
+              titulo="Productos por facturación (30 días)"
+              vacio="Sin ventas en el período."
+              filas={data['abc'] ?? []}
+              claveFila={(_: any, i: number) => i}
+              columnas={[
+                { clave: 'clase', titulo: 'Clase', celda: (x: any) => <Etiqueta tono={TONO_ABC[x.clase] ?? 'neutro'}>{x.clase}</Etiqueta> },
+                { clave: 'producto', titulo: 'Producto', principal: true, celda: (x: any) => <Producto nombre={x.producto} detalle={x.sku} /> },
+                { clave: 'facturado', titulo: 'Facturado 30d', importe: true, celda: (x: any) => <Monto valor={x.facturado ?? 0} className="font-medium" /> },
+                { clave: 'acumulado', titulo: 'Acumulado', importe: true, celda: (x: any) => <span className="text-xs text-tinta/60">{x.acum_pct}%</span> },
+              ]}
+            />
           </div>
         )
       )}
@@ -251,59 +293,88 @@ export function StockWorkspace({
         <div className="space-y-3">
           {/* stock del producto consultado (deep-link desde Estadísticas) */}
           {consulta && (
-            <div className="rounded-xl bg-white p-4 border border-black/[0.06]">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-semibold text-black">{consulta.nombre}</p>
-                  <p className="text-xs text-black/45">{consulta.sku}{consulta.codigo ? ` · ${consulta.codigo}` : ''}</p>
+            <Tarjeta>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="break-words font-semibold text-tinta">{consulta.nombre}</p>
+                  <p className="break-words text-xs text-tinta/60">{consulta.sku}{consulta.codigo ? ` · ${consulta.codigo}` : ''}</p>
                 </div>
-                <div className="text-right">
-                  <p className="text-2xl font-semibold text-black tabular-nums leading-none">{num(consulta.total)}</p>
-                  <p className="text-xs text-black/45">unidades en total</p>
+                <div className="shrink-0 text-right">
+                  <p className="importe text-2xl font-semibold leading-none text-tinta">{num(consulta.total)}</p>
+                  <p className="mt-1 text-xs text-tinta/60">unidades en total</p>
                 </div>
               </div>
-              <div className="flex flex-wrap gap-2 mt-3">
+              <div className="mt-3 flex flex-wrap gap-2">
                 {(consulta.sucursales ?? []).map((s: any) => (
-                  <span key={s.sucursal} className={`text-xs rounded-full px-3 py-1 ${Number(s.cantidad) < 0 ? 'bg-[#B82D25]/12 text-[#B82D25]' : 'bg-[#F0EBE2] text-black/70'}`}>
-                    {s.sucursal}: <b>{num(s.cantidad)}</b>
-                  </span>
+                  <Etiqueta key={s.sucursal} tono={Number(s.cantidad) < 0 ? 'error' : 'neutro'}>
+                    {s.sucursal}: <b className="importe">{num(s.cantidad)}</b>
+                  </Etiqueta>
                 ))}
               </div>
-            </div>
+            </Tarjeta>
           )}
-          <div className="flex flex-wrap gap-2 items-center">
-            <input value={movFiltro.sku} onChange={(e) => setMovFiltro((f) => ({ ...f, sku: e.target.value }))} placeholder="SKU / producto" className="rounded-lg border border-black/15 bg-white px-2.5 py-2 text-sm text-black w-36" />
-            <select value={movFiltro.tipo} onChange={(e) => setMovFiltro((f) => ({ ...f, tipo: e.target.value }))} className="rounded-lg border border-black/15 bg-white px-2.5 py-2 text-sm text-black">
+          <div className="grid gap-2 sm:flex sm:flex-wrap sm:items-center">
+            <Entrada
+              value={movFiltro.sku}
+              onChange={(e) => setMovFiltro((f) => ({ ...f, sku: e.target.value }))}
+              placeholder="SKU / producto"
+              aria-label="SKU o producto"
+              className="sm:w-44"
+            />
+            <Selector
+              value={movFiltro.tipo}
+              onChange={(e) => setMovFiltro((f) => ({ ...f, tipo: e.target.value }))}
+              aria-label="Tipo de movimiento"
+              className="sm:w-48"
+            >
               <option value="">Todos los tipos</option>
               {Object.entries(MOV_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-            </select>
-            <select value={movFiltro.sucursalId} onChange={(e) => setMovFiltro((f) => ({ ...f, sucursalId: e.target.value }))} className="rounded-lg border border-black/15 bg-white px-2.5 py-2 text-sm text-black">
+            </Selector>
+            <Selector
+              value={movFiltro.sucursalId}
+              onChange={(e) => setMovFiltro((f) => ({ ...f, sucursalId: e.target.value }))}
+              aria-label="Sucursal"
+              className="sm:w-52"
+            >
               <option value="">Todas las sucursales</option>
               {sucursales.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
-            </select>
-            <select value={movFiltro.dias} onChange={(e) => setMovFiltro((f) => ({ ...f, dias: e.target.value }))} className="rounded-lg border border-black/15 bg-white px-2.5 py-2 text-sm text-black">
+            </Selector>
+            <Selector
+              value={movFiltro.dias}
+              onChange={(e) => setMovFiltro((f) => ({ ...f, dias: e.target.value }))}
+              aria-label="Fecha"
+              className="sm:w-48"
+            >
               <option value="">Cualquier fecha</option>
               <option value="7">Últimos 7 días</option>
               <option value="30">Últimos 30 días</option>
               <option value="90">Últimos 90 días</option>
-            </select>
-            <button onClick={aplicarMovFiltro} className="rounded-full bg-[#B82D25] text-white text-sm font-medium px-4 py-2 hover:bg-[#932A1F]">Filtrar</button>
+            </Selector>
+            <Boton onClick={aplicarMovFiltro}>Filtrar</Boton>
           </div>
-          {cargando ? <Cargando /> : (
-            <Tabla titulo={`Movimientos (${(data['movimientos'] ?? []).length})`} vacio="Sin movimientos para ese filtro."
-              filas={data['movimientos'] ?? []} cols={['Fecha', 'Producto', 'Sucursal', 'Tipo', 'Cantidad']}
-              render={(m: any) => {
-                const salida = Number(m.cantidad) < 0;
-                return (
-                  <tr key={m.id} className="border-b border-black/5 last:border-0">
-                    <td className="px-4 py-2.5 text-xs text-black/50 whitespace-nowrap">{new Date(m.creado_en).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</td>
-                    <td className="px-4 py-2.5"><p className="text-sm">{m.producto?.nombre}</p><p className="text-xs text-black/40">{m.producto?.sku}{m.motivo ? ` · ${m.motivo}` : ''}</p></td>
-                    <td className="px-4 py-2.5 text-black/70 text-xs">{m.sucursal?.nombre}</td>
-                    <td className="px-4 py-2.5 text-xs">{MOV_LABEL[m.tipo] ?? m.tipo}</td>
-                    <td className={`px-4 py-2.5 text-right font-medium ${salida ? 'text-[#B82D25]' : 'text-emerald-700'}`}>{salida ? '' : '+'}{num(m.cantidad)}</td>
-                  </tr>
-                );
-              }} />
+          {cargando ? <CargandoTabla /> : (
+            <Tabla
+              titulo={`Movimientos (${(data['movimientos'] ?? []).length})`}
+              vacio="Sin movimientos para ese filtro."
+              filas={data['movimientos'] ?? []}
+              claveFila="id"
+              columnas={[
+                { clave: 'fecha', titulo: 'Fecha', claseCelda: 'whitespace-nowrap', celda: (m: any) => <span className="text-xs text-tinta/60">{fechaHora(m.creado_en)}</span> },
+                {
+                  clave: 'producto', titulo: 'Producto', principal: true,
+                  celda: (m: any) => <Producto nombre={m.producto?.nombre} detalle={`${m.producto?.sku ?? ''}${m.motivo ? ` · ${m.motivo}` : ''}`} />,
+                },
+                { clave: 'sucursal', titulo: 'Sucursal', celda: (m: any) => <span className="text-xs text-tinta/70">{m.sucursal?.nombre}</span> },
+                { clave: 'tipo', titulo: 'Tipo', celda: (m: any) => <span className="text-xs">{MOV_LABEL[m.tipo] ?? m.tipo}</span> },
+                {
+                  clave: 'cantidad', titulo: 'Cantidad', importe: true,
+                  celda: (m: any) => {
+                    const salida = Number(m.cantidad) < 0;
+                    return <span className={`font-medium ${salida ? 'text-marca-hondo' : 'text-ok'}`}>{salida ? '' : '+'}{num(m.cantidad)}</span>;
+                  },
+                },
+              ]}
+            />
           )}
         </div>
       )}
@@ -311,29 +382,37 @@ export function StockWorkspace({
   );
 }
 
-function Cargando() {
-  return <p className="rounded-xl bg-white p-8 text-center text-black/40 text-sm">Cargando…</p>;
+function CargandoTabla() {
+  return (
+    <Tarjeta relleno={false}>
+      <Cargando bloque />
+    </Tarjeta>
+  );
 }
 
-function Tabla({ titulo, vacio, filas, cols, render, extra }: any) {
+// Una tabla de stock: tarjeta con título (y algo a la derecha) y la tabla del
+// kit adentro, que en el celular se ve como tarjetas.
+function Tabla<T>({
+  titulo, vacio, filas, columnas, claveFila, extra,
+}: {
+  titulo: string;
+  vacio: ReactNode;
+  filas: T[];
+  columnas: ColumnaTabla<T>[];
+  claveFila: keyof T | ((fila: T, indice: number) => Key);
+  extra?: ReactNode;
+}) {
   return (
-    <section className="rounded-xl bg-white overflow-hidden">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-black/10">
-        <h2 className="font-medium text-black text-sm">{titulo}</h2>
-        {extra}
-      </div>
-      {filas.length === 0 ? (
-        <p className="px-4 py-8 text-center text-black/50 text-sm">{vacio}</p>
-      ) : (
-        <table className="w-full text-sm text-black">
-          <thead>
-            <tr className="text-left text-xs text-black/50 border-b border-black/5">
-              {cols.map((c: string, i: number) => <th key={c} className={`px-4 py-2 font-medium ${i >= 2 ? 'text-right' : ''}`}>{c}</th>)}
-            </tr>
-          </thead>
-          <tbody>{filas.map(render)}</tbody>
-        </table>
-      )}
-    </section>
+    <Tarjeta relleno={false}>
+      <TarjetaCabecera titulo={titulo} accion={extra} />
+      <TablaResponsiva
+        sinMarco
+        etiqueta={titulo}
+        filas={filas}
+        columnas={columnas}
+        claveFila={claveFila}
+        vacio={<p className="px-4 py-8 text-center text-sm text-tinta/60">{vacio}</p>}
+      />
+    </Tarjeta>
   );
 }

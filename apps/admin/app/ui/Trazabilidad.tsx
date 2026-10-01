@@ -199,7 +199,7 @@ export function Trazabilidad() {
             <ol className="mt-4 space-y-0">
               {cadena.pasos.map((p: any, i: number) => (
                 <li key={i} className="relative flex gap-3 pb-5 pl-1">
-                  <span className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${p.estado === 'hecho' ? 'bg-ok' : p.estado === 'rechazado' ? 'bg-marca' : 'bg-black/20'}`} />
+                  <span className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${p.estado === 'hecho' ? 'bg-ok' : p.estado === 'rechazado' ? 'bg-marca' : 'bg-tinta/20'}`} />
                   {i < cadena.pasos.length - 1 && <span className="absolute left-[9px] top-4 h-full w-px bg-black/10" />}
                   <div className="min-w-0 flex-1">
                     <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-tinta">

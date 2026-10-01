@@ -1,15 +1,17 @@
 'use client';
 
 import { useState } from 'react';
+import { fechaHora as fechaHoraFmt } from '../lib/formato';
+import { Aviso, Boton, Entrada, Etiqueta, Kpi, Modal, Tarjeta, TarjetaCabecera, type TonoEtiqueta } from './kit';
 
-const fechaHora = (s: string) => new Date(s).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+const fechaHora = (s: string) => fechaHoraFmt(s);
 
-const ESTADO: Record<string, { label: string; chip: string }> = {
-  pendiente: { label: 'Pendiente', chip: 'bg-black/10 text-black/60' },
-  procesando: { label: 'Procesando', chip: 'bg-sky-100 text-sky-900' },
-  completada: { label: 'Completada', chip: 'bg-emerald-100 text-emerald-900' },
-  escalada: { label: 'Escalada', chip: 'bg-amber-100 text-amber-900' },
-  error: { label: 'Error', chip: 'bg-[#B82D25]/10 text-[#932A1F]' },
+const ESTADO: Record<string, { label: string; tono: TonoEtiqueta }> = {
+  pendiente: { label: 'Pendiente', tono: 'neutro' },
+  procesando: { label: 'Procesando', tono: 'info' },
+  completada: { label: 'Completada', tono: 'ok' },
+  escalada: { label: 'Escalada', tono: 'atencion' },
+  error: { label: 'Error', tono: 'error' },
 };
 
 export function AgenteWorkspace({ resumenInicial, tareasIniciales }: { resumenInicial: any; tareasIniciales: any[] }) {
@@ -58,94 +60,86 @@ export function AgenteWorkspace({ resumenInicial, tareasIniciales }: { resumenIn
   ];
 
   return (
-    <div className="space-y-5">
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+    <div className="space-y-4 sm:space-y-6">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {KPIS.map((k) => (
-          <div key={k.label} className="rounded-xl bg-white p-4 border border-black/[0.04]">
-            <p className={`text-2xl font-semibold ${k.alerta ? 'text-[#B82D25]' : 'text-black'}`}>{k.valor}</p>
-            <p className="text-[11px] text-black/45 mt-1">{k.label}</p>
-          </div>
+          <Kpi key={k.label} etiqueta={<span className="whitespace-normal">{k.label}</span>} valor={k.valor} tono={k.alerta ? 'error' : 'neutro'} />
         ))}
       </div>
 
       {/* encolar + acciones */}
-      <section className="rounded-xl bg-white p-4 border border-black/[0.04] space-y-3">
-        <p className="text-sm font-medium text-black">Darle una tarea al agente</p>
-        <div className="flex flex-col sm:flex-row gap-2">
-          <input value={desc} onChange={(e) => setDesc(e.target.value)} placeholder='Ej: "Cargá Vino Trapiche Reserva Malbec 750ml a $4.500, categoría Vinos Tintos"'
-            className="flex-1 rounded-lg border border-black/15 px-3 py-2 text-sm" />
-          <button onClick={() => desc.trim() && post({ accion: 'encolar', descripcion: desc }, 'encolar')} disabled={!!ocupado || !desc.trim()}
-            className="rounded-lg bg-[#B82D25] text-white text-sm font-medium px-4 py-2 disabled:opacity-40 hover:bg-[#9e251e]">Encolar</button>
+      <Tarjeta className="space-y-3">
+        <h2 className="text-base font-semibold text-tinta">Darle una tarea al agente</h2>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <Entrada value={desc} onChange={(e) => setDesc(e.target.value)} placeholder='Ej: "Cargá Vino Trapiche Reserva Malbec 750ml a $4.500, categoría Vinos Tintos"'
+            aria-label="Tarea para el agente" className="min-w-0 flex-1" />
+          <Boton onClick={() => desc.trim() && post({ accion: 'encolar', descripcion: desc }, 'encolar')} disabled={!!ocupado || !desc.trim()}
+            cargando={ocupado === 'encolar'}>Encolar</Boton>
         </div>
         <div className="flex flex-wrap gap-2 pt-1">
-          <button onClick={() => post({ accion: 'procesar', limite: 5 }, 'procesar')} disabled={!!ocupado}
-            className="rounded-lg bg-black text-white text-sm font-medium px-4 py-2 disabled:opacity-40 hover:bg-black/80">
+          <Boton variante="secundario" onClick={() => post({ accion: 'procesar', limite: 5 }, 'procesar')} disabled={!!ocupado} cargando={ocupado === 'procesar'}>
             {ocupado === 'procesar' ? 'Procesando…' : 'Procesar pendientes'}
-          </button>
-          <button onClick={() => post({ accion: 'barrido', limite: 10 }, 'barrido')} disabled={!!ocupado}
-            className="rounded-lg bg-white border border-black/15 text-black text-sm font-medium px-4 py-2 disabled:opacity-40 hover:bg-black/5">
+          </Boton>
+          <Boton variante="secundario" onClick={() => post({ accion: 'barrido', limite: 10 }, 'barrido')} disabled={!!ocupado} cargando={ocupado === 'barrido'}>
             {ocupado === 'barrido' ? 'Barriendo…' : 'Barrido de mantenimiento'}
-          </button>
-          <button onClick={() => post({ accion: 'enriquecer', limite: 50 }, 'enriquecer')} disabled={!!ocupado}
-            className="rounded-lg bg-white border border-black/15 text-black text-sm font-medium px-4 py-2 disabled:opacity-40 hover:bg-black/5">
+          </Boton>
+          <Boton variante="secundario" onClick={() => post({ accion: 'enriquecer', limite: 50 }, 'enriquecer')} disabled={!!ocupado} cargando={ocupado === 'enriquecer'}>
             {ocupado === 'enriquecer' ? 'Enriqueciendo…' : 'Enriquecer catálogo (50)'}
-          </button>
-          <button onClick={() => post({ accion: 'fotos', limite: 60 }, 'fotos')} disabled={!!ocupado}
-            className="rounded-lg bg-white border border-black/15 text-black text-sm font-medium px-4 py-2 disabled:opacity-40 hover:bg-black/5">
+          </Boton>
+          <Boton variante="secundario" onClick={() => post({ accion: 'fotos', limite: 60 }, 'fotos')} disabled={!!ocupado} cargando={ocupado === 'fotos'}>
             {ocupado === 'fotos' ? 'Buscando fotos…' : 'Buscar fotos por código de barra (60)'}
-          </button>
-          {aviso && <span className="text-sm text-black/55 self-center">{aviso}</span>}
+          </Boton>
         </div>
-        <p className="text-[11px] text-black/40">El agente actúa solo en lo de bajo riesgo y escala a un humano cuando duda. Cada acción queda auditada. Las fotos salen de Open Food Facts (base pública, gratuita, por código de barra) y pasan un control de calidad con IA antes de subirse (rechaza fotos con gente, fondo de la calle o mala composición) — cubre ~30% del catálogo antes del filtro, más en marcas grandes. El resto necesita foto manual o pack del proveedor.</p>
-      </section>
+        {aviso && <Aviso tono="neutro">{aviso}</Aviso>}
+        <p className="text-xs leading-relaxed text-tinta/60">El agente actúa solo en lo de bajo riesgo y escala a un humano cuando duda. Cada acción queda auditada. Las fotos salen de Open Food Facts (base pública, gratuita, por código de barra) y pasan un control de calidad con IA antes de subirse (rechaza fotos con gente, fondo de la calle o mala composición) — cubre ~30% del catálogo antes del filtro, más en marcas grandes. El resto necesita foto manual o pack del proveedor.</p>
+      </Tarjeta>
 
       {/* tareas */}
-      <section className="rounded-xl bg-white overflow-hidden">
-        <div className="px-4 py-2.5 border-b border-black/10 text-sm font-medium text-black">Tareas ({tareas.length})</div>
-        {tareas.length === 0 && <p className="px-4 py-8 text-center text-black/40 text-sm">No hay tareas. Encolá una o corré el barrido.</p>}
-        {tareas.map((t) => (
-          <div key={t.id} className="px-4 py-3 border-b border-black/5 last:border-0 flex items-start gap-3">
-            <span className={`text-[11px] font-medium rounded-full px-2 py-0.5 shrink-0 mt-0.5 ${ESTADO[t.estado]?.chip ?? ''}`}>{ESTADO[t.estado]?.label ?? t.estado}</span>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm text-black">{t.descripcion}</p>
-              <p className="text-[11px] text-black/40 mt-0.5">
-                #{t.id} · {t.tipo} · {fechaHora(t.creado_en)}
-                {t.resultado && <span className="text-black/55"> · {t.resultado}</span>}
-              </p>
+      <Tarjeta relleno={false} className="overflow-hidden">
+        <TarjetaCabecera titulo={`Tareas (${tareas.length})`} />
+        {tareas.length === 0 && <p className="px-4 py-8 text-center text-sm text-tinta/60">No hay tareas. Encolá una o corré el barrido.</p>}
+        <div className="divide-y divide-black/[0.06]">
+          {tareas.map((t) => (
+            <div key={t.id} className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-start sm:gap-3 sm:px-5">
+              <Etiqueta tono={ESTADO[t.estado]?.tono ?? 'neutro'} className="shrink-0 self-start sm:mt-0.5">{ESTADO[t.estado]?.label ?? t.estado}</Etiqueta>
+              <div className="min-w-0 flex-1">
+                <p className="break-words text-sm text-tinta">{t.descripcion}</p>
+                <p className="mt-0.5 break-words text-xs text-tinta/60">
+                  #{t.id} · {t.tipo} · {fechaHora(t.creado_en)}
+                  {t.resultado && <span className="text-tinta/70"> · {t.resultado}</span>}
+                </p>
+              </div>
+              <div className="flex shrink-0 flex-wrap gap-1.5">
+                <Boton variante="fantasma" tamano="chico" onClick={() => verAuditoria(t)}>Auditoría</Boton>
+                {t.estado === 'pendiente' && <Boton variante="secundario" tamano="chico" onClick={() => post({ accion: 'ejecutar', id: t.id }, 'ejecutar')} disabled={!!ocupado}>Ejecutar</Boton>}
+                {t.estado === 'escalada' && <Boton variante="secundario" tamano="chico" onClick={() => post({ accion: 'resolver', id: t.id }, 'resolver')} disabled={!!ocupado}>Resolver</Boton>}
+              </div>
             </div>
-            <div className="flex gap-1.5 shrink-0">
-              <button onClick={() => verAuditoria(t)} className="text-xs rounded-md text-black/50 px-2 py-1 hover:bg-black/5">Auditoría</button>
-              {t.estado === 'pendiente' && <button onClick={() => post({ accion: 'ejecutar', id: t.id }, 'ejecutar')} disabled={!!ocupado} className="text-xs rounded-md bg-sky-50 text-sky-800 px-2 py-1 hover:bg-sky-100">Ejecutar</button>}
-              {t.estado === 'escalada' && <button onClick={() => post({ accion: 'resolver', id: t.id }, 'resolver')} disabled={!!ocupado} className="text-xs rounded-md bg-amber-50 text-amber-800 px-2 py-1 hover:bg-amber-100">Resolver</button>}
-            </div>
-          </div>
-        ))}
-      </section>
+          ))}
+        </div>
+      </Tarjeta>
 
       {/* modal auditoría */}
-      {abierta && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-start justify-center p-4 overflow-y-auto" onClick={() => setAbierta(null)}>
-          <div className="bg-[#F7F4EE] rounded-2xl w-full max-w-xl my-12 shadow-xl" onClick={(e) => e.stopPropagation()}>
-            <div className="px-5 py-4 border-b border-black/10 flex items-center justify-between">
-              <h2 className="font-semibold text-black text-sm">Auditoría · tarea #{abierta.id}</h2>
-              <button onClick={() => setAbierta(null)} className="text-black/40 hover:text-black text-xl leading-none">×</button>
+      <Modal
+        abierto={!!abierta}
+        onCerrar={() => setAbierta(null)}
+        titulo={`Auditoría · tarea #${abierta?.id ?? ''}`}
+        descripcion={abierta?.descripcion}
+        ancho="normal"
+      >
+        <div className="space-y-2">
+          {auditoria.length === 0 && <p className="text-sm text-tinta/60">Sin acciones registradas.</p>}
+          {auditoria.map((a) => (
+            <div key={a.id} className="rounded-xl border border-black/[0.06] bg-crema-claro p-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="min-w-0 break-all font-mono text-xs text-tinta">{a.herramienta}</span>
+                <Etiqueta tono={a.ok ? 'ok' : 'error'} className="shrink-0">{a.ok ? 'ok' : 'error'}</Etiqueta>
+              </div>
+              <pre className="mt-1 whitespace-pre-wrap break-words font-mono text-xs text-tinta/70 [overflow-wrap:anywhere]">{JSON.stringify(a.argumentos)} → {JSON.stringify(a.resultado)}</pre>
             </div>
-            <div className="p-5 space-y-2">
-              <p className="text-sm text-black/70">{abierta.descripcion}</p>
-              {auditoria.length === 0 && <p className="text-sm text-black/40">Sin acciones registradas.</p>}
-              {auditoria.map((a) => (
-                <div key={a.id} className="rounded-lg bg-white border border-black/10 p-2.5">
-                  <div className="flex items-center justify-between">
-                    <span className="font-mono text-xs text-black">{a.herramienta}</span>
-                    <span className={`text-[10px] ${a.ok ? 'text-emerald-700' : 'text-[#B82D25]'}`}>{a.ok ? 'ok' : 'error'}</span>
-                  </div>
-                  <pre className="text-[10px] text-black/50 mt-1 whitespace-pre-wrap break-words">{JSON.stringify(a.argumentos)} → {JSON.stringify(a.resultado)}</pre>
-                </div>
-              ))}
-            </div>
-          </div>
+          ))}
         </div>
-      )}
+      </Modal>
     </div>
   );
 }

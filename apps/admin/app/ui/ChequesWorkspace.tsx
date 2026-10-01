@@ -1,19 +1,19 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { Aviso, Boton, Campo, Chips, Entrada, Etiqueta, IconoAtencion, Kpi, Modal, Selector, TablaResponsiva, Tarjeta, Cargando, unir } from './kit';
+import type { TonoEtiqueta } from './kit';
+import { fecha, pesos } from '../lib/formato';
 
-const pesos = (n: number) => '$' + Math.round(n || 0).toLocaleString('es-AR');
-const fecha = (s?: string) => (s ? new Date(s + 'T00:00:00').toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: '2-digit' }) : '—');
-
-const ESTADO_CHIP: Record<string, string> = {
-  cartera: 'bg-sky-100 text-sky-900',
-  depositado: 'bg-indigo-100 text-indigo-900',
-  acreditado: 'bg-emerald-100 text-emerald-900',
-  rechazado: 'bg-[#B82D25]/10 text-[#932A1F]',
-  aplicado: 'bg-amber-100 text-amber-900',
-  emitido: 'bg-violet-100 text-violet-900',
-  debitado: 'bg-emerald-100 text-emerald-900',
-  anulado: 'bg-black/10 text-black/50',
+const ESTADO_TONO: Record<string, TonoEtiqueta> = {
+  cartera: 'info',
+  depositado: 'info',
+  acreditado: 'ok',
+  rechazado: 'error',
+  aplicado: 'atencion',
+  emitido: 'neutro',
+  debitado: 'ok',
+  anulado: 'neutro',
 };
 const ESTADO_LABEL: Record<string, string> = {
   cartera: 'En cartera', depositado: 'Depositado', acreditado: 'Acreditado', rechazado: 'Rechazado',
@@ -68,35 +68,34 @@ export function ChequesWorkspace({ resumen: resumenInicial, cheques: chequesInic
   };
 
   const KPIS = [
-    { label: 'En cartera', valor: pesos(resumen?.carteraImporte), sub: `${resumen?.carteraCantidad ?? 0} cheques de terceros` },
-    { label: 'Vencen en 7 días', valor: pesos(resumen?.venceEn7Importe), sub: `${resumen?.venceEn7Cantidad ?? 0} a depositar`, alerta: (resumen?.venceEn7Cantidad ?? 0) > 0 },
-    { label: 'Depositados', valor: pesos(resumen?.depositadosImporte), sub: 'esperando acreditación' },
-    { label: 'Rechazados', valor: pesos(resumen?.rechazadosImporte), sub: `${resumen?.rechazadosCantidad ?? 0} rebotados`, alerta: (resumen?.rechazadosCantidad ?? 0) > 0 },
-    { label: 'Propios pendientes', valor: pesos(resumen?.propiosPendientesImporte), sub: 'a debitar del banco' },
+    { label: 'En cartera', valor: pesos(resumen?.carteraImporte ?? 0), sub: `${resumen?.carteraCantidad ?? 0} cheques de terceros` },
+    { label: 'Vencen en 7 días', valor: pesos(resumen?.venceEn7Importe ?? 0), sub: `${resumen?.venceEn7Cantidad ?? 0} a depositar`, alerta: (resumen?.venceEn7Cantidad ?? 0) > 0 },
+    { label: 'Depositados', valor: pesos(resumen?.depositadosImporte ?? 0), sub: 'esperando acreditación' },
+    { label: 'Rechazados', valor: pesos(resumen?.rechazadosImporte ?? 0), sub: `${resumen?.rechazadosCantidad ?? 0} rebotados`, alerta: (resumen?.rechazadosCantidad ?? 0) > 0 },
+    { label: 'Propios pendientes', valor: pesos(resumen?.propiosPendientesImporte ?? 0), sub: 'a debitar del banco' },
   ];
 
+  // anulado: la fila se ve apagada
+  const tenue = (c: Cheque) => (c.estado === 'anulado' ? 'opacity-50' : undefined);
+
   return (
-    <div className="space-y-5">
+    <div className="space-y-4 sm:space-y-6">
       {/* KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         {KPIS.map((k) => (
-          <div key={k.label} className="rounded-xl bg-white p-4 border border-black/[0.04]">
-            <p className={`text-xl font-semibold ${k.alerta ? 'text-[#B82D25]' : 'text-black'}`}>{k.valor}</p>
-            <p className="text-[11px] text-black/45 mt-1">{k.label}</p>
-            <p className="text-[10px] text-black/35 mt-0.5">{k.sub}</p>
-          </div>
+          <Kpi key={k.label} etiqueta={k.label} valor={k.valor} sub={k.sub} tono={k.alerta ? 'error' : 'neutro'} />
         ))}
       </div>
 
       {/* filtros */}
       <div className="flex flex-wrap items-center gap-2">
-        <div className="flex rounded-lg bg-white border border-black/10 overflow-hidden text-sm">
-          {[['', 'Todos'], ['terceros', 'De terceros'], ['propio', 'Propios']].map(([v, l]) => (
-            <button key={v} onClick={() => setTipo(v as any)}
-              className={`px-3 py-1.5 ${tipo === v ? 'bg-[#B82D25] text-white' : 'text-black/55 hover:bg-black/5'}`}>{l}</button>
-          ))}
-        </div>
-        <select value={estado} onChange={(e) => setEstado(e.target.value)} className="rounded-lg border border-black/10 bg-white px-3 py-1.5 text-sm">
+        <Chips
+          etiquetaAccesible="Tipo de cheque"
+          valor={tipo}
+          onCambiar={(v) => setTipo(v as any)}
+          opciones={[['', 'Todos'], ['terceros', 'De terceros'], ['propio', 'Propios']].map(([v, l]) => ({ valor: v, etiqueta: l }))}
+        />
+        <Selector aria-label="Estado del cheque" value={estado} onChange={(e) => setEstado(e.target.value)} className="w-full sm:w-52">
           <option value="">Todos los estados</option>
           <option value="cartera">En cartera</option>
           <option value="depositado">Depositados</option>
@@ -105,80 +104,98 @@ export function ChequesWorkspace({ resumen: resumenInicial, cheques: chequesInic
           <option value="rechazado">Rechazados</option>
           <option value="emitido">Propios emitidos</option>
           <option value="debitado">Propios debitados</option>
-        </select>
-        <input value={buscar} onChange={(e) => setBuscar(e.target.value)} placeholder="Buscar N°, banco, librador…"
-          className="flex-1 min-w-[180px] rounded-lg border border-black/10 bg-white px-3 py-1.5 text-sm" />
-        <button onClick={() => setNuevo(true)} className="rounded-lg bg-[#B82D25] text-white text-sm font-medium px-4 py-1.5 hover:bg-[#9e251e]">+ Cargar cheque</button>
+        </Selector>
+        <Entrada
+          aria-label="Buscar cheque"
+          value={buscar}
+          onChange={(e) => setBuscar(e.target.value)}
+          placeholder="Buscar N°, banco, librador…"
+          className="w-full min-w-0 sm:w-auto sm:flex-1"
+        />
+        <Boton onClick={() => setNuevo(true)} className="w-full sm:w-auto">Cargar cheque</Boton>
       </div>
 
       {/* tabla */}
-      <section className="rounded-xl bg-white overflow-hidden">
-        {cargando && <p className="px-4 py-8 text-center text-black/40 text-sm">Cargando…</p>}
-        {!cargando && cheques.length === 0 && <p className="px-4 py-10 text-center text-black/40 text-sm">No hay cheques con estos filtros.</p>}
-        {!cargando && cheques.length > 0 && (
-          <table className="w-full text-sm text-black">
-            <thead>
-              <tr className="border-b border-black/10 text-left text-xs text-black/50">
-                <th className="px-4 py-3 font-medium">Cheque</th>
-                <th className="px-4 py-3 font-medium">Origen / destino</th>
-                <th className="px-4 py-3 font-medium">Cobro</th>
-                <th className="px-4 py-3 font-medium text-right">Importe</th>
-                <th className="px-4 py-3 font-medium text-center">Estado</th>
-                <th className="px-4 py-3 font-medium text-right">Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              {cheques.map((c) => {
+      {cargando && <Tarjeta><Cargando bloque /></Tarjeta>}
+      {!cargando && cheques.length === 0 && (
+        <Tarjeta><p className="py-6 text-center text-sm text-tinta/60">No hay cheques con estos filtros.</p></Tarjeta>
+      )}
+      {!cargando && cheques.length > 0 && (
+        <TablaResponsiva
+          etiqueta="Cheques"
+          filas={cheques}
+          claveFila="id"
+          columnas={[
+            {
+              clave: 'cheque',
+              titulo: 'Cheque',
+              principal: true,
+              celda: (c) => (
+                <div className={unir('min-w-0', tenue(c))}>
+                  <p className="font-mono text-sm">N° {c.numero}</p>
+                  <p className="break-words text-xs font-normal text-tinta/60">{c.banco || 'banco s/d'}{c.titular ? ` · ${c.titular}` : ''} · {c.tipo === 'propio' ? 'propio' : 'terceros'}</p>
+                </div>
+              ),
+            },
+            {
+              clave: 'origen',
+              titulo: 'Origen / destino',
+              celda: (c) => <span className={unir('break-words text-xs', tenue(c))}>{c.cliente?.razon_social ?? c.cliente?.nombre ?? c.proveedor?.razon_social ?? '—'}</span>,
+            },
+            {
+              clave: 'cobro',
+              titulo: 'Cobro',
+              celda: (c) => {
                 const vencido = c.estado === 'cartera' && c.fecha_cobro && c.fecha_cobro < new Date().toISOString().slice(0, 10);
                 return (
-                  <tr key={c.id} className={`border-b border-black/5 last:border-0 hover:bg-[#F0EBE2]/40 ${c.estado === 'anulado' ? 'opacity-50' : ''}`}>
-                    <td className="px-4 py-2.5">
-                      <p className="font-mono text-xs">N° {c.numero}</p>
-                      <p className="text-[11px] text-black/45">{c.banco || 'banco s/d'}{c.titular ? ` · ${c.titular}` : ''} · {c.tipo === 'propio' ? 'propio' : 'terceros'}</p>
-                    </td>
-                    <td className="px-4 py-2.5 text-xs">
-                      {c.cliente?.razon_social ?? c.cliente?.nombre ?? c.proveedor?.razon_social ?? '—'}
-                    </td>
-                    <td className={`px-4 py-2.5 text-xs ${vencido ? 'text-[#B82D25] font-medium' : 'text-black/55'}`}>
-                      {fecha(c.fecha_cobro)}{vencido ? ' ⚠' : ''}
-                    </td>
-                    <td className="px-4 py-2.5 text-right font-medium whitespace-nowrap">{pesos(c.importe)}</td>
-                    <td className="px-4 py-2.5 text-center">
-                      <span className={`text-[11px] font-medium rounded-full px-2 py-0.5 ${ESTADO_CHIP[c.estado] ?? ''}`}>{ESTADO_LABEL[c.estado] ?? c.estado}</span>
-                    </td>
-                    <td className="px-4 py-2.5 text-right whitespace-nowrap">
-                      <div className="flex justify-end gap-1.5">
-                        {c.tipo === 'terceros' && c.estado === 'cartera' && (
-                          <>
-                            <button onClick={() => accionRapida(c.id, 'depositar')} className="text-xs rounded-md bg-indigo-50 text-indigo-800 px-2 py-1 hover:bg-indigo-100">Depositar</button>
-                            <button onClick={() => setAccion({ id: c.id, tipo: 'aplicar' })} className="text-xs rounded-md bg-amber-50 text-amber-800 px-2 py-1 hover:bg-amber-100">Endosar</button>
-                            <button onClick={() => setAccion({ id: c.id, tipo: 'rechazar' })} className="text-xs rounded-md bg-[#B82D25]/5 text-[#932A1F] px-2 py-1 hover:bg-[#B82D25]/10">Rechazar</button>
-                          </>
-                        )}
-                        {c.tipo === 'terceros' && c.estado === 'depositado' && (
-                          <>
-                            <button onClick={() => accionRapida(c.id, 'acreditar')} className="text-xs rounded-md bg-emerald-50 text-emerald-800 px-2 py-1 hover:bg-emerald-100">Acreditar</button>
-                            <button onClick={() => setAccion({ id: c.id, tipo: 'rechazar' })} className="text-xs rounded-md bg-[#B82D25]/5 text-[#932A1F] px-2 py-1 hover:bg-[#B82D25]/10">Rechazar</button>
-                          </>
-                        )}
-                        {c.tipo === 'propio' && c.estado === 'emitido' && (
-                          <>
-                            <button onClick={() => accionRapida(c.id, 'debitar')} className="text-xs rounded-md bg-emerald-50 text-emerald-800 px-2 py-1 hover:bg-emerald-100">Debitado</button>
-                            <button onClick={() => setAccion({ id: c.id, tipo: 'rechazar' })} className="text-xs rounded-md bg-[#B82D25]/5 text-[#932A1F] px-2 py-1 hover:bg-[#B82D25]/10">Rechazar</button>
-                          </>
-                        )}
-                        {['cartera', 'depositado', 'emitido'].includes(c.estado) && (
-                          <button onClick={() => setAccion({ id: c.id, tipo: 'anular' })} className="text-xs rounded-md text-black/40 px-2 py-1 hover:bg-black/5">Anular</button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
+                  <span className={unir('importe inline-flex items-center gap-1 text-xs', vencido ? 'font-semibold text-marca-hondo' : 'text-tinta/70', tenue(c))}>
+                    {fecha(c.fecha_cobro)}
+                    {vencido ? <><IconoAtencion className="size-4 shrink-0" /><span className="sr-only">vencido</span></> : ''}
+                  </span>
                 );
-              })}
-            </tbody>
-          </table>
-        )}
-      </section>
+              },
+            },
+            { clave: 'importe', titulo: 'Importe', importe: true, celda: (c) => <span className={unir('font-semibold', tenue(c))}>{pesos(c.importe ?? 0)}</span> },
+            {
+              clave: 'estado',
+              titulo: 'Estado',
+              alinear: 'centro',
+              celda: (c) => <Etiqueta tono={ESTADO_TONO[c.estado] ?? 'neutro'} className={tenue(c)}>{ESTADO_LABEL[c.estado] ?? c.estado}</Etiqueta>,
+            },
+            {
+              clave: 'acciones',
+              titulo: 'Acciones',
+              acciones: true,
+              celda: (c) => (
+                <>
+                  {c.tipo === 'terceros' && c.estado === 'cartera' && (
+                    <>
+                      <Boton variante="secundario" tamano="chico" onClick={() => accionRapida(c.id, 'depositar')}>Depositar</Boton>
+                      <Boton variante="secundario" tamano="chico" onClick={() => setAccion({ id: c.id, tipo: 'aplicar' })}>Endosar</Boton>
+                      <Boton variante="peligro" tamano="chico" onClick={() => setAccion({ id: c.id, tipo: 'rechazar' })}>Rechazar</Boton>
+                    </>
+                  )}
+                  {c.tipo === 'terceros' && c.estado === 'depositado' && (
+                    <>
+                      <Boton variante="ok" tamano="chico" onClick={() => accionRapida(c.id, 'acreditar')}>Acreditar</Boton>
+                      <Boton variante="peligro" tamano="chico" onClick={() => setAccion({ id: c.id, tipo: 'rechazar' })}>Rechazar</Boton>
+                    </>
+                  )}
+                  {c.tipo === 'propio' && c.estado === 'emitido' && (
+                    <>
+                      <Boton variante="secundario" tamano="chico" onClick={() => accionRapida(c.id, 'debitar')}>Debitado</Boton>
+                      <Boton variante="peligro" tamano="chico" onClick={() => setAccion({ id: c.id, tipo: 'rechazar' })}>Rechazar</Boton>
+                    </>
+                  )}
+                  {['cartera', 'depositado', 'emitido'].includes(c.estado) && (
+                    <Boton variante="fantasma" tamano="chico" onClick={() => setAccion({ id: c.id, tipo: 'anular' })}>Anular</Boton>
+                  )}
+                </>
+              ),
+            },
+          ]}
+        />
+      )}
 
       {nuevo && <NuevoCheque onClose={() => setNuevo(false)} onSaved={() => { setNuevo(false); recargar(); }} />}
       {accion && <AccionCheque accion={accion} onClose={() => setAccion(null)} onDone={() => { setAccion(null); recargar(); }} />}
@@ -213,27 +230,34 @@ function NuevoCheque({ onClose, onSaved }: { onClose: () => void; onSaved: () =>
   };
 
   return (
-    <Overlay onClose={onClose} titulo="Cargar cheque">
+    <Modal
+      abierto
+      onCerrar={onClose}
+      titulo="Cargar cheque"
+      bloquearCierre={guardando}
+      cerrarAlTocarAfuera={false}
+      pie={<>
+        <Boton variante="secundario" onClick={onClose}>Cancelar</Boton>
+        <Boton onClick={guardar} cargando={guardando}>{guardando ? 'Guardando…' : 'Cargar'}</Boton>
+      </>}
+    >
       <div className="space-y-3">
-        <div className="flex rounded-lg bg-black/5 p-0.5 text-sm">
-          {[['terceros', 'De terceros (recibido)'], ['propio', 'Propio (emitido)']].map(([v, l]) => (
-            <button key={v} onClick={() => set('tipo', v)} className={`flex-1 rounded-md py-1.5 ${f.tipo === v ? 'bg-white shadow-sm font-medium' : 'text-black/55'}`}>{l}</button>
-          ))}
+        <Chips
+          etiquetaAccesible="Tipo de cheque"
+          valor={f.tipo}
+          onCambiar={(v) => set('tipo', v)}
+          opciones={[['terceros', 'De terceros (recibido)'], ['propio', 'Propio (emitido)']].map(([v, l]) => ({ valor: v, etiqueta: l }))}
+        />
+        <div className="grid gap-3 sm:grid-cols-2">
+          <CampoTexto label="N° cheque" v={f.numero} on={(v) => set('numero', v)} />
+          <CampoTexto label="Importe" v={f.importe} on={(v) => set('importe', v)} tipo="number" />
+          <CampoTexto label="Banco" v={f.banco} on={(v) => set('banco', v)} />
+          <CampoTexto label={f.tipo === 'propio' ? 'Titular' : 'Librador'} v={f.titular} on={(v) => set('titular', v)} />
+          <CampoTexto label="Fecha de cobro" v={f.fechaCobro} on={(v) => set('fechaCobro', v)} tipo="date" />
         </div>
-        <div className="grid grid-cols-2 gap-2">
-          <Campo label="N° cheque" v={f.numero} on={(v) => set('numero', v)} />
-          <Campo label="Importe" v={f.importe} on={(v) => set('importe', v)} tipo="number" />
-          <Campo label="Banco" v={f.banco} on={(v) => set('banco', v)} />
-          <Campo label={f.tipo === 'propio' ? 'Titular' : 'Librador'} v={f.titular} on={(v) => set('titular', v)} />
-          <Campo label="Fecha de cobro" v={f.fechaCobro} on={(v) => set('fechaCobro', v)} tipo="date" />
-        </div>
-        {error && <p className="text-sm text-[#B82D25]">{error}</p>}
-        <div className="flex justify-end gap-2 pt-1">
-          <button onClick={onClose} className="text-sm text-black/50 px-3 py-2">Cancelar</button>
-          <button onClick={guardar} disabled={guardando} className="rounded-lg bg-[#B82D25] text-white text-sm font-medium px-4 py-2 disabled:opacity-40">{guardando ? 'Guardando…' : 'Cargar'}</button>
-        </div>
+        {error && <Aviso tono="error">{error}</Aviso>}
       </div>
-    </Overlay>
+    </Modal>
   );
 }
 
@@ -266,51 +290,48 @@ function AccionCheque({ accion, onClose, onDone }: { accion: { id: string; tipo:
 
   const TITULO: Record<string, string> = { rechazar: 'Rechazar cheque', aplicar: 'Endosar a proveedor', anular: 'Anular cheque' };
   return (
-    <Overlay onClose={onClose} titulo={TITULO[accion.tipo] ?? 'Acción'}>
+    <Modal
+      abierto
+      onCerrar={onClose}
+      ancho="chico"
+      titulo={TITULO[accion.tipo] ?? 'Acción'}
+      bloquearCierre={guardando}
+      cerrarAlTocarAfuera={false}
+      pie={<>
+        <Boton variante="secundario" onClick={onClose}>Cancelar</Boton>
+        <Boton
+          variante={accion.tipo === 'aplicar' ? 'primario' : 'peligro'}
+          onClick={ejecutar}
+          cargando={guardando}
+          disabled={guardando || (accion.tipo === 'aplicar' && !proveedorId)}
+        >
+          Confirmar
+        </Boton>
+      </>}
+    >
       <div className="space-y-3">
         {accion.tipo === 'aplicar' && (
-          <select value={proveedorId} onChange={(e) => setProveedorId(e.target.value)} className="w-full rounded-lg border border-black/15 px-3 py-2 text-sm bg-white">
+          <Selector aria-label="Proveedor" value={proveedorId} onChange={(e) => setProveedorId(e.target.value)}>
             <option value="">Elegí el proveedor…</option>
             {proveedores.map((p) => <option key={p.id} value={p.id}>{p.razon_social}</option>)}
-          </select>
+          </Selector>
         )}
         {accion.tipo === 'rechazar' && (
           <>
-            <p className="text-xs text-black/55">Si el cheque venía de una cobranza, se reabre la deuda del cliente en su cuenta corriente.</p>
-            <Campo label="Motivo del rechazo" v={motivo} on={setMotivo} />
+            <p className="text-sm text-tinta/70">Si el cheque venía de una cobranza, se reabre la deuda del cliente en su cuenta corriente.</p>
+            <CampoTexto label="Motivo del rechazo" v={motivo} on={setMotivo} />
           </>
         )}
-        {accion.tipo === 'anular' && <Campo label="Motivo (opcional)" v={motivo} on={setMotivo} />}
-        <div className="flex justify-end gap-2 pt-1">
-          <button onClick={onClose} className="text-sm text-black/50 px-3 py-2">Cancelar</button>
-          <button onClick={ejecutar} disabled={guardando || (accion.tipo === 'aplicar' && !proveedorId)} className="rounded-lg bg-[#B82D25] text-white text-sm font-medium px-4 py-2 disabled:opacity-40">
-            {guardando ? '…' : 'Confirmar'}
-          </button>
-        </div>
+        {accion.tipo === 'anular' && <CampoTexto label="Motivo (opcional)" v={motivo} on={setMotivo} />}
       </div>
-    </Overlay>
+    </Modal>
   );
 }
 
-function Overlay({ titulo, children, onClose }: { titulo: string; children: React.ReactNode; onClose: () => void }) {
+function CampoTexto({ label, v, on, tipo = 'text' }: { label: string; v: string; on: (v: string) => void; tipo?: string }) {
   return (
-    <div className="fixed inset-0 z-50 bg-black/40 flex items-start justify-center p-4 overflow-y-auto">
-      <div className="bg-[#F7F4EE] rounded-2xl w-full max-w-md my-12 shadow-xl">
-        <div className="px-5 py-4 border-b border-black/10 flex items-center justify-between">
-          <h2 className="font-semibold text-black">{titulo}</h2>
-          <button onClick={onClose} className="text-black/40 hover:text-black text-xl leading-none">×</button>
-        </div>
-        <div className="p-5">{children}</div>
-      </div>
-    </div>
-  );
-}
-
-function Campo({ label, v, on, tipo = 'text' }: { label: string; v: string; on: (v: string) => void; tipo?: string }) {
-  return (
-    <label className="block">
-      <span className="text-[11px] text-black/45">{label}</span>
-      <input type={tipo} value={v} onChange={(e) => on(e.target.value)} className="mt-0.5 w-full rounded-md border border-black/15 px-2.5 py-1.5 text-sm bg-white" />
-    </label>
+    <Campo etiqueta={label}>
+      <Entrada type={tipo} inputMode={tipo === 'number' ? 'decimal' : undefined} value={v} onChange={(e) => on(e.target.value)} />
+    </Campo>
   );
 }

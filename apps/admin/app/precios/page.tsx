@@ -1,10 +1,12 @@
-import { Header } from '../ui/Header';
+import { Pantalla } from '../ui/kit/Pantalla';
 import { apiFetch } from '../../lib/api';
 import { VerificadorPrecios } from '../ui/VerificadorPrecios';
 
 export const dynamic = 'force-dynamic';
 
 // Verificador de precios: la pantalla que usa el salón con el equipo de mano.
+// Al imprimir, solo sale la etiqueta: el resto de la página (menú y cabecera
+// incluidos) lo esconden las reglas de impresión de VerificadorPrecios.
 export default async function Precios() {
   let sucursales: { id: string; nombre: string }[] = [];
   try {
@@ -13,9 +15,8 @@ export default async function Precios() {
   } catch { /* sin sucursales igual se consulta el precio */ }
 
   return (
-    <main className="min-h-screen bg-[#F0EBE2] lg:pl-64">
-      <div className="print:hidden"><Header activo="/precios" /></div>
+    <Pantalla activo="/precios" ancho="angosto">
       <VerificadorPrecios sucursales={sucursales} />
-    </main>
+    </Pantalla>
   );
 }

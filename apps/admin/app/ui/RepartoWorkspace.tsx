@@ -2,12 +2,35 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import {
+  Aviso,
+  Boton,
+  Campo,
+  Entrada,
+  Etiqueta,
+  FOCO_ADENTRO,
+  Kpi,
+  Modal,
+  Monto,
+  Selector,
+  Tarjeta,
+  TarjetaCabecera,
+  unir,
+  type TonoEtiqueta,
+} from './kit';
+import { fecha as formatoFecha, pesos as formatoPesos } from '../lib/formato';
 
-const pesos = (n: any) => '$' + Math.round(Number(n) || 0).toLocaleString('es-AR');
-const fecha = (iso: string) => (iso ? new Date(iso).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' }) : '—');
-const EST: Record<string, string> = { armado: 'bg-[#F0EBE2] text-black/60', en_calle: 'bg-black text-white', rendido: 'bg-emerald-100 text-emerald-800' };
+// Las copias viejas hacían Number(n) || 0: "no hay dato" se veía $0.
+const pesos = (n: any) => formatoPesos(n || 0);
+const fecha = (iso: string) => formatoFecha(iso, 'corta');
+const EST: Record<string, TonoEtiqueta> = { armado: 'neutro', en_calle: 'info', rendido: 'ok' };
 const ESTL: Record<string, string> = { armado: 'armado', en_calle: 'en la calle', rendido: 'rendido' };
-const input = 'w-full rounded-lg border border-black/15 px-3 py-2.5 text-sm';
+
+// Sugerencias de un buscador, en el flujo (dentro de un modal, una lista
+// absoluta quedaba cortada por el scroll del cuerpo).
+const LISTA_SUGERENCIAS = 'mt-1 max-h-44 overflow-y-auto rounded-xl border border-black/[0.06] bg-white shadow-flotante';
+const SUGERENCIA =
+  'block min-h-11 w-full border-b border-black/[0.06] px-3.5 py-2 text-left text-sm text-tinta last:border-0 hover:bg-crema-claro focus-visible:bg-crema-claro focus-visible:outline-none';
 
 function FlotaMapa() {
   const [flota, setFlota] = useState<any>({ central: null, repartidores: [] });
@@ -58,20 +81,26 @@ function FlotaMapa() {
 
   const reps = flota.repartidores ?? [];
   return (
-    <section className="rounded-xl bg-white overflow-hidden">
-      <h2 className="px-4 py-3 border-b border-black/10 font-medium text-black text-sm flex items-center gap-2"><span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse" /> Flota en vivo</h2>
-      <div className="grid md:grid-cols-[1fr_240px]">
-        <div id="flota-map" style={{ height: 380, zIndex: 0 }} className="bg-[#F0EBE2]" />
-        <div className="border-l border-black/5 max-h-[380px] overflow-y-auto">
-          {reps.length === 0 ? <p className="p-4 text-sm text-black/40">Ningún repartidor reportando posición. Aparecen acá cuando salen a la calle con la app.</p> : reps.map((rp: any) => (
-            <div key={rp.id} className="px-4 py-3 border-b border-black/5 flex items-center gap-2.5">
-              <span className={`w-2.5 h-2.5 rounded-full ${rp.activo ? 'bg-emerald-500' : 'bg-black/25'}`} />
-              <div className="flex-1 min-w-0"><p className="text-sm font-medium text-black break-words">{rp.nombre}</p><p className="text-[11px] text-black/45">{rp.reparto ? `Ruta #${rp.reparto.numero}${rp.reparto.zona ? ' · ' + rp.reparto.zona : ''}` : 'sin ruta'} · hace {rp.hace_min}′</p></div>
+    <Tarjeta relleno={false} className="overflow-hidden">
+      <TarjetaCabecera
+        titulo={
+          <span className="flex items-center gap-2">
+            <span className="inline-block size-2 shrink-0 rounded-full bg-ok motion-safe:animate-pulse" aria-hidden="true" /> Flota en vivo
+          </span>
+        }
+      />
+      <div className="grid md:grid-cols-[minmax(0,1fr)_15rem]">
+        <div id="flota-map" style={{ height: 380, zIndex: 0 }} className="min-w-0 bg-crema" />
+        <div className="max-h-[380px] overflow-y-auto border-t border-black/[0.06] md:border-l md:border-t-0">
+          {reps.length === 0 ? <p className="p-4 text-sm text-tinta/60">Ningún repartidor reportando posición. Aparecen acá cuando salen a la calle con la app.</p> : reps.map((rp: any) => (
+            <div key={rp.id} className="flex items-center gap-2.5 border-b border-black/[0.06] px-4 py-3 last:border-0">
+              <span className={`size-2.5 shrink-0 rounded-full ${rp.activo ? 'bg-ok' : 'bg-tinta/25'}`} />
+              <div className="min-w-0 flex-1"><p className="break-words text-sm font-medium text-tinta">{rp.nombre}</p><p className="text-xs text-tinta/60">{rp.reparto ? `Ruta #${rp.reparto.numero}${rp.reparto.zona ? ' · ' + rp.reparto.zona : ''}` : 'sin ruta'} · hace {rp.hace_min}′</p></div>
             </div>
           ))}
         </div>
       </div>
-    </section>
+    </Tarjeta>
   );
 }
 
@@ -93,40 +122,50 @@ export function RepartoWorkspace({ repartos, choferes }: { repartos: any[]; chof
   const refrescarDet = async () => { if (det) { const r = await fetch(`/api/repartos?recurso=detalle&id=${det.id}`); if (r.ok) setDet(await r.json()); } router.refresh(); };
 
   const hoy = new Date().toISOString().slice(0, 10);
-  const kpis = [
+  const kpis: [string, any, ('neutro' | 'ok')?][] = [
     ['Rutas (7 días)', repartos.length],
-    ['En la calle', repartos.filter((r) => r.estado === 'en_calle').length, 'text-black'],
+    ['En la calle', repartos.filter((r) => r.estado === 'en_calle').length],
     ['A rendir', repartos.filter((r) => r.estado === 'en_calle').length],
-    ['Cobrado hoy', pesos(repartos.filter((r) => r.fecha === hoy).reduce((s, r) => s + Number(r.cobrado || 0), 0)), 'text-emerald-700'],
+    ['Cobrado hoy', pesos(repartos.filter((r) => r.fecha === hoy).reduce((s, r) => s + Number(r.cobrado || 0), 0)), 'ok'],
   ];
 
   return (
-    <div className="space-y-5">
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div className="flex gap-7 flex-wrap">{kpis.map(([l, v, c]: any) => <div key={l}><p className={`text-xl font-semibold leading-none ${c || 'text-black'}`}>{v}</p><p className="text-[11px] text-black/45 mt-1">{l}</p></div>)}</div>
-        <button onClick={() => setModal({ tipo: 'nueva' })} className="rounded-full bg-[#B82D25] text-white text-sm font-medium px-5 py-2.5 hover:bg-[#932A1F]">+ Nueva hoja de ruta</button>
+    <div className="space-y-4 sm:space-y-6">
+      <div className="flex sm:justify-end">
+        <Boton onClick={() => setModal({ tipo: 'nueva' })} className="w-full sm:w-auto">+ Nueva hoja de ruta</Boton>
+      </div>
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {kpis.map(([l, v, tono]) => <Kpi key={l} etiqueta={l} valor={v} tono={tono} />)}
       </div>
 
-      {aviso && <p className="rounded-lg bg-white p-3 text-sm text-[#B82D25]">{aviso}</p>}
+      {aviso && <Aviso tono="error">{aviso}</Aviso>}
 
       <FlotaMapa />
 
-      <section className="rounded-xl bg-white overflow-hidden">
-        <h2 className="px-4 py-3 border-b border-black/10 font-medium text-black text-sm">Hojas de ruta</h2>
-        {repartos.length === 0 ? <p className="px-4 py-8 text-center text-black/40 text-sm">Sin hojas de ruta. Creá la primera.</p> : (
-          <div className="divide-y divide-black/5">
+      <Tarjeta relleno={false} className="overflow-hidden">
+        <TarjetaCabecera titulo="Hojas de ruta" />
+        {repartos.length === 0 ? <p className="px-4 py-8 text-center text-sm text-tinta/60">Sin hojas de ruta. Creá la primera.</p> : (
+          <div className="divide-y divide-black/[0.06]">
             {repartos.map((r) => (
-              <button key={r.id} onClick={() => abrir(r.id)} className="w-full text-left px-4 py-3 flex items-center justify-between gap-3 hover:bg-[#F0EBE2]/40">
-                <div>
-                  <p className="font-medium text-black text-sm">Ruta #{r.numero}{r.zona ? ` · ${r.zona}` : ''} <span className={`ml-1 text-[10px] rounded-full px-2 py-0.5 ${EST[r.estado] ?? ''}`}>{ESTL[r.estado] ?? r.estado}</span></p>
-                  <p className="text-xs text-black/45">{fecha(r.fecha)} · {r.chofer?.nombre ?? 'sin chofer'} · {r.entregadas}/{r.totalParadas} entregadas</p>
+              <button
+                key={r.id}
+                type="button"
+                onClick={() => abrir(r.id)}
+                className={unir('flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-crema-claro sm:px-5', FOCO_ADENTRO)}
+              >
+                <div className="min-w-0">
+                  <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-medium text-tinta">
+                    <span className="min-w-0 break-words">Ruta #{r.numero}{r.zona ? ` · ${r.zona}` : ''}</span>
+                    <Etiqueta tono={EST[r.estado] ?? 'neutro'}>{ESTL[r.estado] ?? r.estado}</Etiqueta>
+                  </p>
+                  <p className="mt-0.5 break-words text-xs text-tinta/60">{fecha(r.fecha)} · {r.chofer?.nombre ?? 'sin chofer'} · {r.entregadas}/{r.totalParadas} entregadas</p>
                 </div>
-                <div className="text-right"><p className="font-semibold text-sm">{pesos(r.cobrado)}</p><p className="text-[11px] text-black/40">de {pesos(r.estimado)}</p></div>
+                <div className="shrink-0 text-right"><p className="importe text-sm font-semibold text-tinta">{pesos(r.cobrado)}</p><p className="importe text-xs text-tinta/60">de {pesos(r.estimado)}</p></div>
               </button>
             ))}
           </div>
         )}
-      </section>
+      </Tarjeta>
 
       {modal?.tipo === 'nueva' && <NuevaRuta choferes={choferes} cerrar={() => setModal(null)} post={post} aviso={aviso} />}
       {det && <Detalle det={det} cerrar={() => setDet(null)} post={post} refrescar={refrescarDet} aviso={aviso} />}
@@ -138,21 +177,34 @@ function NuevaRuta({ choferes, cerrar, post, aviso }: any) {
   const [f, setF] = useState<any>({ fecha: new Date().toISOString().slice(0, 10) });
   const set = (k: string, v: any) => setF((x: any) => ({ ...x, [k]: v }));
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-[2px] flex items-center justify-center p-4 z-[1000]">
-      <div className="bg-white rounded-2xl w-full max-w-md p-6 space-y-3 shadow-2xl">
-        <h2 className="font-semibold text-black text-lg">Nueva hoja de ruta</h2>
-        <input type="date" className={input} value={f.fecha} onChange={(e) => set('fecha', e.target.value)} />
-        <select className={input + ' bg-white'} value={f.choferId ?? ''} onChange={(e) => set('choferId', e.target.value)}>
-          <option value="">Chofer…</option>{choferes.map((c: any) => <option key={c.id} value={c.id}>{c.nombre} ({c.rol})</option>)}
-        </select>
-        <input className={input} placeholder="Zona / ruta (ej. Canning Norte)" value={f.zona ?? ''} onChange={(e) => set('zona', e.target.value)} />
-        {aviso && <p className="text-xs text-[#B82D25]">{aviso}</p>}
-        <div className="flex justify-end gap-3 pt-1">
-          <button onClick={cerrar} className="text-sm text-black/60 px-4 py-2">Cancelar</button>
-          <button onClick={async () => { const d = await post({ accion: 'crear', fecha: f.fecha, choferId: f.choferId, zona: f.zona }); if (d) cerrar(); }} className="rounded-full bg-[#B82D25] text-white text-sm font-medium px-6 py-2.5">Crear ruta</button>
-        </div>
+    <Modal
+      abierto
+      onCerrar={cerrar}
+      cerrarAlTocarAfuera={false}
+      titulo="Nueva hoja de ruta"
+      ancho="chico"
+      pie={
+        <>
+          <Boton variante="secundario" onClick={cerrar}>Cancelar</Boton>
+          <Boton onClick={async () => { const d = await post({ accion: 'crear', fecha: f.fecha, choferId: f.choferId, zona: f.zona }); if (d) cerrar(); }}>Crear ruta</Boton>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        <Campo etiqueta="Fecha">
+          <Entrada type="date" value={f.fecha} onChange={(e) => set('fecha', e.target.value)} />
+        </Campo>
+        <Campo etiqueta="Chofer">
+          <Selector value={f.choferId ?? ''} onChange={(e) => set('choferId', e.target.value)}>
+            <option value="">Chofer…</option>{choferes.map((c: any) => <option key={c.id} value={c.id}>{c.nombre} ({c.rol})</option>)}
+          </Selector>
+        </Campo>
+        <Campo etiqueta="Zona">
+          <Entrada placeholder="Zona / ruta (ej. Canning Norte)" value={f.zona ?? ''} onChange={(e) => set('zona', e.target.value)} />
+        </Campo>
+        {aviso && <Aviso tono="error">{aviso}</Aviso>}
       </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -167,47 +219,51 @@ function Detalle({ det, cerrar, post, refrescar, aviso }: any) {
   const t = det.totales ?? {};
   const accion = async (b: any) => { await post(b); await refrescar(); };
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-[2px] flex items-center justify-center p-4 z-[1000]" onClick={cerrar}>
-      <div className="bg-white rounded-2xl w-full max-w-xl p-6 space-y-3 shadow-2xl max-h-[92vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between">
-          <h2 className="font-semibold text-black text-lg">Ruta #{det.numero} {det.zona ? `· ${det.zona}` : ''}</h2>
-          <span className={`text-[11px] rounded-full px-2 py-0.5 ${EST[det.estado] ?? ''}`}>{ESTL[det.estado] ?? det.estado}</span>
-        </div>
-        <p className="text-xs text-black/50">{det.chofer?.nombre ?? 'sin chofer'} · {t.entregadas}/{(det.paradas ?? []).length} entregadas · cobrado {pesos(t.cobrado)} de {pesos(t.estimado)}{t.efectivo ? ` · efectivo ${pesos(t.efectivo)}` : ''}</p>
-
+    <Modal
+      abierto
+      onCerrar={cerrar}
+      titulo={
+        <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span className="min-w-0 break-words">Ruta #{det.numero} {det.zona ? `· ${det.zona}` : ''}</span>
+          <Etiqueta tono={EST[det.estado] ?? 'neutro'}>{ESTL[det.estado] ?? det.estado}</Etiqueta>
+        </span>
+      }
+      descripcion={`${det.chofer?.nombre ?? 'sin chofer'} · ${t.entregadas}/${(det.paradas ?? []).length} entregadas · cobrado ${pesos(t.cobrado)} de ${pesos(t.estimado)}${t.efectivo ? ` · efectivo ${pesos(t.efectivo)}` : ''}`}
+      pie={<Boton variante="secundario" onClick={cerrar}>Cerrar</Boton>}
+    >
+      <div className="space-y-3">
         {det.estado !== 'rendido' && (
-          <div className="flex gap-2 flex-wrap">
-            {det.estado === 'armado' && <button onClick={() => accion({ accion: 'estado', id: det.id, estado: 'en_calle' })} className="rounded-full bg-black text-white text-xs font-medium px-4 py-1.5">Salir a la calle</button>}
-            {det.estado === 'en_calle' && <button onClick={() => accion({ accion: 'estado', id: det.id, estado: 'rendido' })} className="rounded-full bg-emerald-600 text-white text-xs font-medium px-4 py-1.5">Cerrar y rendir</button>}
+          <div className="flex flex-wrap gap-2">
+            {det.estado === 'armado' && <Boton tamano="chico" onClick={() => accion({ accion: 'estado', id: det.id, estado: 'en_calle' })}>Salir a la calle</Boton>}
+            {det.estado === 'en_calle' && <Boton variante="ok" tamano="chico" onClick={() => accion({ accion: 'estado', id: det.id, estado: 'rendido' })}>Cerrar y rendir</Boton>}
           </div>
         )}
 
         {/* agregar paradas (armado) */}
         {det.estado === 'armado' && (
-          <div className="rounded-lg border border-black/10 p-3 space-y-2">
-            <div className="flex gap-2">
-              <input className={input} placeholder="Traer clientes de una zona…" value={zona} onChange={(e) => setZona(e.target.value)} />
-              <button onClick={() => accion({ accion: 'traerZona', id: det.id, zona })} disabled={!zona.trim()} className="rounded-lg bg-black text-white text-xs px-3 disabled:opacity-40 whitespace-nowrap">Traer zona</button>
+          <div className="space-y-2 rounded-xl border border-black/[0.06] bg-crema-claro/60 p-3">
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Entrada placeholder="Traer clientes de una zona…" aria-label="Traer clientes de una zona" value={zona} onChange={(e) => setZona(e.target.value)} className="sm:flex-1" />
+              <Boton variante="secundario" onClick={() => accion({ accion: 'traerZona', id: det.id, zona })} disabled={!zona.trim()} className="shrink-0">Traer zona</Boton>
             </div>
-            <div className="relative">
-              <input className={input} placeholder="…o agregar un cliente puntual" value={busca} onChange={(e) => setBusca(e.target.value)} />
-              {sug.length > 0 && <div className="absolute z-10 mt-1 w-full rounded-lg bg-white shadow-lg border border-black/10 max-h-44 overflow-y-auto">
-                {sug.map((c: any) => <button key={c.id} onClick={async () => { setBusca(''); setSug([]); await accion({ accion: 'parada', id: det.id, clienteId: c.id, clienteNombre: c.nombre ?? c.razon_social ?? c.dni }); }} className="w-full text-left px-3 py-2 text-sm hover:bg-[#F0EBE2] border-b border-black/5 last:border-0">{c.nombre ?? c.razon_social ?? c.dni}</button>)}
+            <div>
+              <Entrada placeholder="…o agregar un cliente puntual" aria-label="Agregar un cliente puntual" value={busca} onChange={(e) => setBusca(e.target.value)} />
+              {sug.length > 0 && <div className={LISTA_SUGERENCIAS}>
+                {sug.map((c: any) => <button key={c.id} type="button" onClick={async () => { setBusca(''); setSug([]); await accion({ accion: 'parada', id: det.id, clienteId: c.id, clienteNombre: c.nombre ?? c.razon_social ?? c.dni }); }} className={SUGERENCIA}>{c.nombre ?? c.razon_social ?? c.dni}</button>)}
               </div>}
             </div>
           </div>
         )}
 
-        <div className="divide-y divide-black/5">
+        <div className="divide-y divide-black/[0.06]">
           {(det.paradas ?? []).map((p: any) => (
             <ParadaRow key={p.id} p={p} accion={accion} editable={det.estado === 'en_calle'} />
           ))}
-          {(det.paradas ?? []).length === 0 && <p className="py-6 text-center text-black/40 text-sm">Sin paradas. Agregá clientes arriba.</p>}
+          {(det.paradas ?? []).length === 0 && <p className="py-6 text-center text-sm text-tinta/60">Sin paradas. Agregá clientes arriba.</p>}
         </div>
-        {aviso && <p className="text-xs text-[#B82D25]">{aviso}</p>}
-        <button onClick={cerrar} className="w-full rounded-full bg-[#F0EBE2] text-black/70 text-sm font-medium py-2.5 mt-1">Cerrar</button>
+        {aviso && <Aviso tono="error">{aviso}</Aviso>}
       </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -215,17 +271,17 @@ function ParadaRow({ p, accion, editable }: any) {
   const [cobrado, setCobrado] = useState<string>(String(p.cobrado || p.monto || ''));
   const [medio, setMedio] = useState(p.medio_pago || 'efectivo');
   const nombre = p.cliente?.nombre ?? p.cliente?.razon_social ?? p.cliente_nombre ?? p.cliente?.dni ?? 'Cliente';
-  const col = p.estado === 'entregado' ? 'text-emerald-700' : ['no_estaba', 'rechazado'].includes(p.estado) ? 'text-black/40' : 'text-black';
+  const col = p.estado === 'entregado' ? 'text-ok' : ['no_estaba', 'rechazado'].includes(p.estado) ? 'text-tinta/60' : 'text-tinta';
   return (
-    <div className="py-2.5 flex items-center gap-2 flex-wrap">
-      <div className="flex-1 min-w-[120px]"><p className={`text-sm font-medium ${col}`}>{nombre}</p><p className="text-[11px] text-black/40">{p.cliente?.domicilio ?? ''} {p.estado !== 'pendiente' ? `· ${p.estado}` : ''}</p></div>
+    <div className="flex flex-wrap items-center gap-2 py-2.5">
+      <div className={editable && p.estado === 'pendiente' ? 'w-full min-w-0 sm:w-auto sm:flex-1' : 'min-w-0 flex-1'}><p className={`break-words text-sm font-medium ${col}`}>{nombre}</p><p className="break-words text-xs text-tinta/60">{p.cliente?.domicilio ?? ''} {p.estado !== 'pendiente' ? `· ${p.estado}` : ''}</p></div>
       {editable && p.estado === 'pendiente' ? (<>
-        <input type="number" value={cobrado} onChange={(e) => setCobrado(e.target.value)} placeholder="$ cobrado" className="w-24 rounded border border-black/15 px-2 py-1 text-right text-sm" />
-        <select value={medio} onChange={(e) => setMedio(e.target.value)} className="rounded border border-black/15 px-1.5 py-1 text-xs"><option value="efectivo">efvo</option><option value="transferencia">transf</option><option value="tarjeta">tarj</option></select>
-        <button onClick={() => accion({ accion: 'marcar', pid: p.id, estado: 'entregado', cobrado: Number(cobrado) || 0, medioPago: medio })} className="rounded-full bg-emerald-600 text-white text-xs px-3 py-1">Entregado</button>
-        <button onClick={() => accion({ accion: 'marcar', pid: p.id, estado: 'no_estaba' })} className="rounded-full bg-[#F0EBE2] text-black/60 text-xs px-3 py-1">No estaba</button>
+        <div className="w-28"><Entrada type="number" value={cobrado} onChange={(e) => setCobrado(e.target.value)} placeholder="$ cobrado" aria-label={`Cobrado a ${nombre}`} className="text-right" /></div>
+        <Selector value={medio} onChange={(e) => setMedio(e.target.value)} aria-label="Medio de pago" className="w-28"><option value="efectivo">efvo</option><option value="transferencia">transf</option><option value="tarjeta">tarj</option></Selector>
+        <Boton tamano="chico" onClick={() => accion({ accion: 'marcar', pid: p.id, estado: 'entregado', cobrado: Number(cobrado) || 0, medioPago: medio })}>Entregado</Boton>
+        <Boton variante="secundario" tamano="chico" onClick={() => accion({ accion: 'marcar', pid: p.id, estado: 'no_estaba' })}>No estaba</Boton>
       </>) : (
-        <span className="text-sm font-medium">{pesos(p.cobrado || p.monto)}</span>
+        <Monto valor={p.cobrado || p.monto || 0} className="shrink-0 text-sm font-medium text-tinta" />
       )}
     </div>
   );

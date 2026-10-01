@@ -1,6 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { Aviso, Boton, Cargando, Chips, Entrada, FOCO, Kpi, Tarjeta, unir } from './kit';
+import { pesos } from '../lib/formato';
 
 // Tablero de cuentas corrientes: la plata en la calle, contra qué tope, quién
 // paga bien y quién es un riesgo. Gráficos simples en SVG propio — sin
@@ -14,8 +16,8 @@ type Cuenta = {
   riesgo: 'alto' | 'medio' | 'bajo';
 };
 
-const pesos = (n: number | null) => (n == null || !Number.isFinite(Number(n)) ? '—' : '$' + Math.round(Number(n)).toLocaleString('es-AR'));
-const COLOR = { alto: '#B82D25', medio: '#B77B00', bajo: '#1A7F4B' } as const;
+// el color de cada riesgo (barras y semáforo), con los tokens del panel
+const COLOR = { alto: 'bg-marca', medio: 'bg-atencion', bajo: 'bg-ok' } as const;
 const ETIQ = { alto: 'Riesgo alto', medio: 'Atención', bajo: 'Al día' } as const;
 
 export function CtaCteTablero({ esDueno }: { esDueno: boolean }) {
@@ -48,8 +50,8 @@ export function CtaCteTablero({ esDueno }: { esDueno: boolean }) {
     } finally { setGuardando(false); }
   };
 
-  if (error) return <p className="rounded-xl bg-white p-4 text-sm text-[#B82D25]">{error}</p>;
-  if (!datos) return <p className="text-sm text-black/40 p-4">Cargando…</p>;
+  if (error) return <Aviso tono="error">{error}</Aviso>;
+  if (!datos) return <Cargando bloque />;
 
   const { kpis } = datos;
   const cuentas = datos.cuentas.filter((c) => filtro === 'todos' || c.riesgo === filtro);
@@ -59,122 +61,121 @@ export function CtaCteTablero({ esDueno }: { esDueno: boolean }) {
   const mejores = [...datos.cuentas].filter((c) => c.pagos > 0).sort((a, b) => b.pagado - a.pagado).slice(0, 5);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 sm:space-y-6">
       {/* KPIs */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-        {[
-          ['En la calle', pesos(kpis.enLaCalle), 'text-[#B82D25]'],
-          ['Con saldo', kpis.clientesConSaldo, ''],
-          ['Habilitados', kpis.clientesHabilitados, ''],
-          ['Riesgo alto', kpis.enRiesgo, kpis.enRiesgo > 0 ? 'text-[#B82D25]' : 'text-emerald-700'],
-          ['Sin tope asignado', kpis.sinTope, kpis.sinTope > 0 ? 'text-[#B77B00]' : ''],
-        ].map(([l, v, c]: any) => (
-          <div key={l} className="rounded-xl bg-white p-3">
-            <p className="text-[11px] text-black/45">{l}</p>
-            <p className={`text-xl font-semibold ${c}`}>{v}</p>
-          </div>
-        ))}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        <Kpi etiqueta="En la calle" valor={pesos(kpis.enLaCalle)} />
+        <Kpi etiqueta="Con saldo" valor={kpis.clientesConSaldo} />
+        <Kpi etiqueta="Habilitados" valor={kpis.clientesHabilitados} />
+        <Kpi etiqueta="Riesgo alto" valor={kpis.enRiesgo} tono={kpis.enRiesgo > 0 ? 'error' : 'ok'} />
+        <Kpi etiqueta="Sin tope asignado" valor={kpis.sinTope} tono={kpis.sinTope > 0 ? 'atencion' : 'neutro'} />
       </div>
 
       {/* GRÁFICO: la deuda, cliente por cliente, contra su tope */}
-      <div className="rounded-2xl bg-white p-5">
-        <h2 className="text-sm font-semibold text-black mb-1">Los que más deben</h2>
-        <p className="text-[11px] text-black/40 mb-3">La barra es la deuda; la marca roja, el 80% de su tope (si lo tiene).</p>
-        <div className="space-y-2">
+      <Tarjeta>
+        <h2 className="mb-1 text-base font-semibold text-tinta">Los que más deben</h2>
+        <p className="mb-3 text-xs text-tinta/60">La barra es la deuda; la marca roja, el 80% de su tope (si lo tiene).</p>
+        <div className="space-y-3 sm:space-y-2">
           {topDeudores.map((c) => {
             const ancho = Math.max((c.saldo / maxSaldo) * 100, 2);
             const marca80 = c.limite > 0 ? Math.min(((c.limite * 0.8) / maxSaldo) * 100, 100) : null;
             return (
-              <div key={c.id} className="grid grid-cols-[9rem_1fr_6rem] items-center gap-2 text-sm">
-                <span className="min-w-0 break-words text-black/75" title={c.nombre}>{c.nombre}</span>
-                <div className="relative h-5 rounded bg-black/5 overflow-hidden">
-                  <div className="absolute inset-y-0 left-0 rounded" style={{ width: `${ancho}%`, background: COLOR[c.riesgo] }} />
-                  {marca80 != null && <div className="absolute inset-y-0 w-0.5 bg-[#B82D25]" style={{ left: `${marca80}%` }} title="80% del tope" />}
+              <div key={c.id} className="grid grid-cols-[1fr_auto] items-center gap-x-2 gap-y-1 text-sm sm:grid-cols-[9rem_1fr_6rem]">
+                <span className="min-w-0 break-words text-tinta/80" title={c.nombre}>{c.nombre}</span>
+                <div className="relative col-span-2 h-5 overflow-hidden rounded-full bg-black/[0.06] sm:col-span-1 sm:col-start-2 sm:row-start-1">
+                  <div className={unir('absolute inset-y-0 left-0 rounded-full', COLOR[c.riesgo])} style={{ width: `${ancho}%` }} />
+                  {marca80 != null && <div className="absolute inset-y-0 w-0.5 bg-marca" style={{ left: `${marca80}%` }} title="80% del tope" />}
                 </div>
-                <span className="text-right tabular-nums font-medium text-black">{pesos(c.saldo)}</span>
+                <span className="importe col-start-2 row-start-1 text-right font-semibold text-tinta sm:col-start-3">{pesos(c.saldo)}</span>
               </div>
             );
           })}
-          {!topDeudores.length && <p className="text-sm text-black/40">Nadie debe nada.</p>}
+          {!topDeudores.length && <p className="text-sm text-tinta/60">Nadie debe nada.</p>}
         </div>
-      </div>
+      </Tarjeta>
 
       {/* MEJORES PAGADORES (se llena con el uso: cada cobro aprobado suma señal) */}
-      <div className="rounded-2xl bg-white p-5">
-        <h2 className="text-sm font-semibold text-black mb-2">Mejores pagadores</h2>
+      <Tarjeta>
+        <h2 className="mb-2 text-base font-semibold text-tinta">Mejores pagadores</h2>
         {mejores.length ? (
-          <div className="grid sm:grid-cols-5 gap-2">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
             {mejores.map((c) => (
-              <div key={c.id} className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
-                <p className="text-xs font-medium text-emerald-900 min-w-0 break-words" title={c.nombre}>{c.nombre}</p>
-                <p className="text-sm font-semibold text-emerald-800">{pesos(c.pagado)}</p>
-                <p className="text-[10px] text-emerald-700/70">{c.pagos} pago(s){c.diasSinPagar != null ? ` · último hace ${c.diasSinPagar}d` : ''}</p>
+              <div key={c.id} className="min-w-0 rounded-xl border border-ok/20 bg-ok-suave p-3">
+                <p className="min-w-0 break-words text-xs font-semibold text-ok" title={c.nombre}>{c.nombre}</p>
+                <p className="importe text-sm font-semibold text-ok">{pesos(c.pagado)}</p>
+                <p className="text-xs text-tinta/70">{c.pagos} pago(s){c.diasSinPagar != null ? ` · último hace ${c.diasSinPagar}d` : ''}</p>
               </div>
             ))}
           </div>
         ) : (
-          <p className="text-xs text-black/45">
+          <p className="text-sm text-tinta/60">
             Todavía no hay pagos registrados por el circuito nuevo. A medida que se aprueben cobros, acá aparece quién paga bien y cada cuánto.
           </p>
         )}
-      </div>
+      </Tarjeta>
 
       {/* LISTA COMPLETA con semáforo, tope editable y consumo */}
-      <div className="rounded-2xl bg-white p-5">
-        <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
-          <h2 className="text-sm font-semibold text-black">Todas las cuentas</h2>
-          <div className="flex gap-1.5">
-            {(['todos', 'alto', 'medio', 'bajo'] as const).map((f) => (
-              <button key={f} onClick={() => setFiltro(f)} className={`rounded-full px-3 py-1 text-xs font-medium ${filtro === f ? 'bg-black text-white' : 'bg-black/5 text-black/60'}`}>
-                {f === 'todos' ? 'Todos' : ETIQ[f]}
-              </button>
-            ))}
-          </div>
+      <Tarjeta>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-base font-semibold text-tinta">Todas las cuentas</h2>
+          <Chips
+            etiquetaAccesible="Filtrar por riesgo"
+            valor={filtro}
+            onCambiar={setFiltro}
+            opciones={(['todos', 'alto', 'medio', 'bajo'] as const).map((f) => ({ valor: f, etiqueta: f === 'todos' ? 'Todos' : ETIQ[f] }))}
+          />
         </div>
-        <div className="divide-y divide-black/5">
+        <div className="divide-y divide-black/[0.06]">
           {cuentas.map((c) => (
-            <div key={c.id} className="py-2.5 grid grid-cols-[auto_1fr_auto] items-center gap-3">
-              <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ background: COLOR[c.riesgo] }} title={ETIQ[c.riesgo]} />
+            <div key={c.id} className="grid grid-cols-[auto_1fr_auto] items-center gap-x-3 gap-y-2 py-2.5">
+              <span className={unir('size-2.5 shrink-0 rounded-full', COLOR[c.riesgo])} title={ETIQ[c.riesgo]} />
               <div className="min-w-0">
-                <p className="text-sm text-black min-w-0 break-words">
+                <p className="min-w-0 break-words text-sm text-tinta">
                   {c.nombre}
-                  <span className="ml-2 text-xs text-black/40">
+                  <span className="ml-2 text-xs text-tinta/60">
                     {c.diasSinPagar != null ? `último pago hace ${c.diasSinPagar}d` : c.saldo > 0 ? 'sin pagos registrados' : ''}
                     {c.compras30 > 0 && ` · ${c.compras30} compras/30d`}
                   </span>
                 </p>
                 {/* barra de consumo contra el tope */}
                 {c.limite > 0 ? (
-                  <div className="mt-1 flex items-center gap-2">
-                    <div className="relative h-2 w-40 rounded bg-black/10 overflow-hidden">
-                      <div className="absolute inset-y-0 left-0 rounded" style={{ width: `${Math.min(c.pctConsumido ?? 0, 100)}%`, background: (c.pctConsumido ?? 0) >= 80 ? '#B82D25' : '#1A7F4B' }} />
-                      <div className="absolute inset-y-0 w-0.5 bg-black/40" style={{ left: '80%' }} />
+                  <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                    <div className="relative h-2 w-full max-w-40 overflow-hidden rounded-full bg-black/10">
+                      <div className={unir('absolute inset-y-0 left-0 rounded-full', (c.pctConsumido ?? 0) >= 80 ? 'bg-marca' : 'bg-ok')} style={{ width: `${Math.min(c.pctConsumido ?? 0, 100)}%` }} />
+                      <div className="absolute inset-y-0 w-0.5 bg-tinta/40" style={{ left: '80%' }} />
                     </div>
-                    <span className="text-[11px] text-black/50">{c.pctConsumido}% de {pesos(c.limite)}</span>
+                    <span className="text-xs text-tinta/60">{c.pctConsumido}% de {pesos(c.limite)}</span>
                   </div>
                 ) : (
-                  <p className="mt-0.5 text-[11px] text-[#B77B00]">sin tope: no hay alerta de crédito para este cliente</p>
+                  <p className="mt-0.5 text-xs text-atencion">sin tope: no hay alerta de crédito para este cliente</p>
                 )}
               </div>
               <div className="text-right">
-                <p className="text-sm font-semibold tabular-nums text-black">{pesos(c.saldo)}</p>
-                {esDueno && (editando === c.id ? (
-                  <span className="flex items-center gap-1 justify-end">
-                    <input autoFocus value={tope} onChange={(e) => setTope(e.target.value)} type="number" placeholder="$ tope"
-                      onKeyDown={(e) => { if (e.key === 'Enter') guardarTope(c.id); if (e.key === 'Escape') setEditando(null); }}
-                      className="w-24 rounded border border-black/20 px-2 py-0.5 text-xs text-black text-right" />
-                    <button onClick={() => guardarTope(c.id)} disabled={guardando} className="text-xs font-medium text-emerald-700">ok</button>
-                  </span>
-                ) : (
-                  <button onClick={() => { setEditando(c.id); setTope(c.limite > 0 ? String(c.limite) : ''); }} className="text-[11px] text-[#B82D25] underline">
+                <p className="importe text-sm font-semibold text-tinta">{pesos(c.saldo)}</p>
+                {esDueno && editando !== c.id && (
+                  <button
+                    type="button"
+                    onClick={() => { setEditando(c.id); setTope(c.limite > 0 ? String(c.limite) : ''); }}
+                    className={unir('relative inline-flex min-h-9 items-center rounded-sm text-xs font-medium text-marca-hondo underline underline-offset-2 before:absolute before:inset-x-0 before:-inset-y-1 hover:text-marca sm:min-h-0 sm:before:hidden', FOCO)}
+                  >
                     {c.limite > 0 ? `tope ${pesos(c.limite)}` : 'asignar tope'}
                   </button>
-                ))}
+                )}
               </div>
+              {esDueno && editando === c.id && (
+                <div className="col-span-3 flex items-center justify-end gap-2">
+                  <div className="w-36">
+                    <Entrada autoFocus value={tope} onChange={(e) => setTope(e.target.value)} type="number" inputMode="decimal" placeholder="$ tope" aria-label={`Tope de ${c.nombre}`}
+                      onKeyDown={(e) => { if (e.key === 'Enter') guardarTope(c.id); if (e.key === 'Escape') setEditando(null); }}
+                      className="text-right" />
+                  </div>
+                  <Boton tamano="chico" onClick={() => guardarTope(c.id)} disabled={guardando}>ok</Boton>
+                </div>
+              )}
             </div>
           ))}
         </div>
-      </div>
+      </Tarjeta>
     </div>
   );
 }

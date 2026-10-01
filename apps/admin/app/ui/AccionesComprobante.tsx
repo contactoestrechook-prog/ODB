@@ -2,16 +2,18 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { Boton, useConfirmar } from './kit';
 
 export function AccionesComprobante({ id, estado, esFiscalDebito }: { id: string; estado: string; esFiscalDebito: boolean }) {
   const router = useRouter();
   const [cargando, setCargando] = useState(false);
+  const { confirmar, avisar, dialogo } = useConfirmar();
 
   const anular = async () => {
     const aviso = esFiscalDebito
       ? 'Se va a emitir la nota de crédito que revierte este comprobante. ¿Continuar?'
       : '¿Anular este comprobante?';
-    if (!confirm(aviso)) return;
+    if (!(await confirmar({ titulo: aviso, variante: 'peligro', textoConfirmar: esFiscalDebito ? 'Anular (emite NC)' : 'Anular' }))) return;
     setCargando(true);
     try {
       const res = await fetch('/api/facturacion', {
@@ -21,7 +23,7 @@ export function AccionesComprobante({ id, estado, esFiscalDebito }: { id: string
       });
       const datos = await res.json();
       if (!res.ok) {
-        alert(datos.message ?? 'No se pudo anular');
+        await avisar({ titulo: datos.message ?? 'No se pudo anular' });
         return;
       }
       if (datos.anuladoCon?.id) router.push(`/facturacion/${datos.anuladoCon.id}`);
@@ -32,22 +34,16 @@ export function AccionesComprobante({ id, estado, esFiscalDebito }: { id: string
   };
 
   return (
-    <div className="flex gap-2 print:hidden">
-      <button
-        onClick={() => window.print()}
-        className="rounded-full bg-black text-white text-xs font-medium px-4 py-2 hover:bg-black/80"
-      >
+    <div className="flex flex-wrap gap-2 print:hidden">
+      <Boton variante="secundario" onClick={() => window.print()}>
         Imprimir
-      </button>
+      </Boton>
       {estado !== 'anulado' && (
-        <button
-          onClick={anular}
-          disabled={cargando}
-          className="rounded-full bg-white border border-[#B82D25]/40 text-[#B82D25] text-xs font-medium px-4 py-2 hover:bg-[#B82D25] hover:text-white disabled:opacity-50"
-        >
+        <Boton variante="peligro" onClick={anular} cargando={cargando}>
           {cargando ? 'Anulando…' : esFiscalDebito ? 'Anular (emite NC)' : 'Anular'}
-        </button>
+        </Boton>
       )}
+      {dialogo}
     </div>
   );
 }

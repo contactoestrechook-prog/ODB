@@ -1,4 +1,5 @@
-import { Header } from '../ui/Header';
+import { Pantalla } from '../ui/kit/Pantalla';
+import { Vacio } from '../ui/kit';
 import { apiFetch } from '../../lib/api';
 import { GestionUsuarios } from '../ui/GestionUsuarios';
 
@@ -13,17 +14,12 @@ export default async function Usuarios() {
   const sucursales = resSucursales.ok ? await resSucursales.json() : [];
 
   return (
-    <div className="min-h-screen bg-[#F0EBE2] lg:pl-64">
-      <Header activo="/usuarios" />
-      <main className="max-w-5xl mx-auto p-6">
-        {!resUsuarios.ok ? (
-          <section className="rounded-xl bg-white p-8 text-center text-black/50 text-sm">
-            No tenés permisos para administrar usuarios (requiere rol dueño o gerente).
-          </section>
-        ) : (
-          <GestionUsuarios usuarios={usuarios} sucursales={sucursales} />
-        )}
-      </main>
-    </div>
+    <Pantalla activo="/usuarios">
+      {!resUsuarios.ok ? (
+        <Vacio titulo="No tenés permisos para administrar usuarios" texto="Requiere rol dueño o gerente." />
+      ) : (
+        <GestionUsuarios usuarios={usuarios} sucursales={sucursales} />
+      )}
+    </Pantalla>
   );
 }

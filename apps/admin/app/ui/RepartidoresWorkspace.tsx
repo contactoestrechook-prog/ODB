@@ -2,6 +2,18 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import {
+  Aviso,
+  Boton,
+  Entrada,
+  Etiqueta,
+  FOCO_ADENTRO,
+  Selector,
+  Tarjeta,
+  Vacio,
+  clasesBoton,
+  unir,
+} from './kit';
 
 // Alta y gestión de repartidores con sus vehículos y seguros. Los datos del
 // vehículo (patente, modelo) y la póliza son los que pide la seguridad de un
@@ -17,9 +29,6 @@ type Repartidor = {
 };
 
 const TIPOS = ['auto', 'moto', 'camioneta', 'bici'];
-const btn = 'rounded-full bg-[#B82D25] text-white text-sm font-medium px-5 py-2.5 hover:bg-[#932A1F] disabled:opacity-50';
-const btnGhost = 'rounded-full border border-black/15 text-sm px-4 py-2 hover:bg-black/5';
-const input = 'w-full rounded-lg bg-[#F0EBE2]/70 px-3 py-2.5 text-sm text-black focus:outline-none focus:ring-2 focus:ring-[#B82D25]/40';
 
 export function RepartidoresWorkspace({ inicial }: { inicial: Repartidor[] }) {
   const router = useRouter();
@@ -95,64 +104,67 @@ export function RepartidoresWorkspace({ inicial }: { inicial: Repartidor[] }) {
     setVehForm((f) => ({ ...f, [id]: { ...f[id], [campo]: valor } }));
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4 sm:space-y-6">
       {estado && (
-        <div className={`rounded-lg px-4 py-2.5 text-sm ${estado.tipo === 'ok' ? 'bg-green-50 text-green-800' : 'bg-red-50 text-[#B82D25]'}`}>
+        <Aviso tono={estado.tipo === 'ok' ? 'ok' : 'error'}>
           {estado.texto}
-        </div>
+        </Aviso>
       )}
 
       {/* Alta de repartidor */}
-      <div className="rounded-xl bg-white p-5 space-y-3">
-        <h2 className="font-semibold text-black">Nuevo repartidor</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          <input className={input} placeholder="Nombre y apellido" value={nuevo.nombre} onChange={(e) => setNuevo({ ...nuevo, nombre: e.target.value })} />
-          <input className={input} placeholder="Email (para entrar a la app)" value={nuevo.email} onChange={(e) => setNuevo({ ...nuevo, email: e.target.value })} />
-          <input className={input} placeholder="DNI" value={nuevo.dni} onChange={(e) => setNuevo({ ...nuevo, dni: e.target.value })} />
-          <input className={input} placeholder="Teléfono" value={nuevo.telefono} onChange={(e) => setNuevo({ ...nuevo, telefono: e.target.value })} />
-          <input className={input} type="password" placeholder="Clave (mín. 6)" value={nuevo.clave} onChange={(e) => setNuevo({ ...nuevo, clave: e.target.value })} />
+      <Tarjeta className="space-y-3">
+        <h2 className="text-base font-semibold text-tinta">Nuevo repartidor</h2>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Entrada placeholder="Nombre y apellido" aria-label="Nombre y apellido" value={nuevo.nombre} onChange={(e) => setNuevo({ ...nuevo, nombre: e.target.value })} />
+          <Entrada placeholder="Email (para entrar a la app)" aria-label="Email (para entrar a la app)" value={nuevo.email} onChange={(e) => setNuevo({ ...nuevo, email: e.target.value })} />
+          <Entrada placeholder="DNI" aria-label="DNI" value={nuevo.dni} onChange={(e) => setNuevo({ ...nuevo, dni: e.target.value })} />
+          <Entrada placeholder="Teléfono" aria-label="Teléfono" value={nuevo.telefono} onChange={(e) => setNuevo({ ...nuevo, telefono: e.target.value })} />
+          <Entrada type="password" placeholder="Clave (mín. 6)" aria-label="Clave (mín. 6)" value={nuevo.clave} onChange={(e) => setNuevo({ ...nuevo, clave: e.target.value })} />
         </div>
-        <button className={btn} onClick={crearRepartidor} disabled={creando}>{creando ? 'Creando…' : 'Crear repartidor'}</button>
-      </div>
+        <Boton onClick={crearRepartidor} cargando={creando} className="w-full sm:w-auto">{creando ? 'Creando…' : 'Crear repartidor'}</Boton>
+      </Tarjeta>
 
       {/* Lista de repartidores */}
-      {reps.length === 0 && <p className="text-sm text-black/50 px-1">Todavía no hay repartidores cargados.</p>}
+      {reps.length === 0 && <Vacio titulo="Todavía no hay repartidores cargados." />}
       {reps.map((r) => (
-        <div key={r.id} className="rounded-xl bg-white overflow-hidden">
-          <button className="w-full px-5 py-4 flex items-center justify-between text-left hover:bg-[#F0EBE2]/50"
+        <Tarjeta key={r.id} relleno={false} className="overflow-hidden">
+          <button
+            type="button"
+            aria-expanded={abierto === r.id}
+            className={unir('flex w-full items-center justify-between gap-3 px-4 py-4 text-left transition-colors hover:bg-crema-claro sm:px-5', FOCO_ADENTRO)}
             onClick={() => setAbierto(abierto === r.id ? null : r.id)}>
-            <div>
-              <p className="font-semibold text-black">{r.nombre}{!r.activo && <span className="text-black/40 font-normal"> · inactivo</span>}</p>
-              <p className="text-xs text-black/50">{r.dni ? `DNI ${r.dni} · ` : ''}{r.telefono ?? r.email}</p>
+            <div className="min-w-0">
+              <p className="break-words font-semibold text-tinta">{r.nombre}{!r.activo && <span className="font-normal text-tinta/60"> · inactivo</span>}</p>
+              <p className="break-words text-xs text-tinta/60">{r.dni ? `DNI ${r.dni} · ` : ''}{r.telefono ?? r.email}</p>
             </div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-black/50">{r.vehiculos.length} veh.</span>
-              {r.vehiculos.some((v) => v.seguroVencido) && <span className="text-xs text-[#B82D25] font-medium">⚠ seguro vencido</span>}
+            <div className="flex shrink-0 flex-col items-end gap-1 sm:flex-row sm:items-center sm:gap-2">
+              <span className="text-xs text-tinta/60">{r.vehiculos.length} veh.</span>
+              {r.vehiculos.some((v) => v.seguroVencido) && <Etiqueta tono="error">seguro vencido</Etiqueta>}
             </div>
           </button>
 
           {abierto === r.id && (
-            <div className="px-5 pb-5 space-y-4 border-t border-black/5 pt-4">
+            <div className="space-y-4 border-t border-black/[0.06] px-4 pb-5 pt-4 sm:px-5">
               {/* vehículos existentes */}
               {r.vehiculos.map((v) => (
-                <div key={v.id} className="rounded-lg bg-[#F0EBE2]/60 p-3 space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-medium text-black capitalize">
-                      {[v.tipo, v.marca, v.modelo].filter(Boolean).join(' ')} {v.patente && <span className="font-mono">· {v.patente}</span>} {v.color && <span className="text-black/50">· {v.color}</span>}
+                <div key={v.id} className="space-y-2 rounded-xl bg-crema-claro p-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="min-w-0 break-words pt-1.5 text-sm font-medium capitalize text-tinta">
+                      {[v.tipo, v.marca, v.modelo].filter(Boolean).join(' ')} {v.patente && <span className="font-mono">· {v.patente}</span>} {v.color && <span className="text-tinta/60">· {v.color}</span>}
                     </p>
-                    <button className="text-xs text-[#B82D25]" onClick={() => quitarVehiculo(v.id)}>Quitar</button>
+                    <Boton variante="peligro" tamano="chico" className="shrink-0" onClick={() => quitarVehiculo(v.id)}>Quitar</Boton>
                   </div>
-                  <p className="text-xs text-black/60">
+                  <p className="break-words text-xs text-tinta/70">
                     Seguro: {v.seguroCompania || '—'}{v.seguroPoliza ? ` · Póliza ${v.seguroPoliza}` : ''}{v.seguroVencimiento ? ` · Vence ${v.seguroVencimiento}` : ''}
-                    {v.seguroVencido && <span className="text-[#B82D25] font-medium"> ⚠ VENCIDO</span>}
+                    {v.seguroVencido && <> <Etiqueta tono="error" className="align-middle">VENCIDO</Etiqueta></>}
                   </p>
-                  <div className="flex items-center gap-3 text-xs">
+                  <div className="flex flex-wrap items-center gap-2 text-xs">
                     {v.seguroArchivoUrl
-                      ? <a href={v.seguroArchivoUrl} target="_blank" rel="noreferrer" className="text-[#B82D25] font-medium underline">Ver póliza</a>
-                      : <span className="text-black/40">Sin póliza subida</span>}
-                    <label className="text-black/60 cursor-pointer hover:text-black">
+                      ? <a href={v.seguroArchivoUrl} target="_blank" rel="noreferrer" className={clasesBoton({ variante: 'secundario', tamano: 'chico' })}>Ver póliza</a>
+                      : <span className="text-tinta/60">Sin póliza subida</span>}
+                    <label className={clasesBoton({ variante: 'secundario', tamano: 'chico', className: 'cursor-pointer' })}>
                       {v.seguroArchivoUrl ? 'Reemplazar' : 'Subir póliza'} (PDF/foto)
-                      <input type="file" accept="image/*,application/pdf" className="hidden"
+                      <input type="file" accept="image/*,application/pdf" className="sr-only"
                         onChange={(e) => e.target.files?.[0] && subirPoliza(v.id, e.target.files[0])} />
                     </label>
                   </div>
@@ -160,28 +172,28 @@ export function RepartidoresWorkspace({ inicial }: { inicial: Repartidor[] }) {
               ))}
 
               {/* agregar vehículo */}
-              <div className="rounded-lg border border-dashed border-black/15 p-3 space-y-2">
-                <p className="text-xs font-medium text-black/60">Agregar vehículo</p>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                  <select className={input} value={vehForm[r.id]?.tipo ?? ''} onChange={(e) => setVeh(r.id, 'tipo', e.target.value)}>
+              <div className="space-y-2 rounded-xl border border-dashed border-black/15 p-3">
+                <p className="text-xs font-medium text-tinta/70">Agregar vehículo</p>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  <Selector aria-label="Tipo de vehículo" value={vehForm[r.id]?.tipo ?? ''} onChange={(e) => setVeh(r.id, 'tipo', e.target.value)}>
                     <option value="">Tipo…</option>
                     {TIPOS.map((t) => <option key={t} value={t} className="capitalize">{t}</option>)}
-                  </select>
-                  <input className={input} placeholder="Marca" value={vehForm[r.id]?.marca ?? ''} onChange={(e) => setVeh(r.id, 'marca', e.target.value)} />
-                  <input className={input} placeholder="Modelo" value={vehForm[r.id]?.modelo ?? ''} onChange={(e) => setVeh(r.id, 'modelo', e.target.value)} />
-                  <input className={input} placeholder="Patente" value={vehForm[r.id]?.patente ?? ''} onChange={(e) => setVeh(r.id, 'patente', e.target.value)} />
-                  <input className={input} placeholder="Color" value={vehForm[r.id]?.color ?? ''} onChange={(e) => setVeh(r.id, 'color', e.target.value)} />
+                  </Selector>
+                  <Entrada placeholder="Marca" aria-label="Marca" value={vehForm[r.id]?.marca ?? ''} onChange={(e) => setVeh(r.id, 'marca', e.target.value)} />
+                  <Entrada placeholder="Modelo" aria-label="Modelo" value={vehForm[r.id]?.modelo ?? ''} onChange={(e) => setVeh(r.id, 'modelo', e.target.value)} />
+                  <Entrada placeholder="Patente" aria-label="Patente" value={vehForm[r.id]?.patente ?? ''} onChange={(e) => setVeh(r.id, 'patente', e.target.value)} />
+                  <Entrada placeholder="Color" aria-label="Color" value={vehForm[r.id]?.color ?? ''} onChange={(e) => setVeh(r.id, 'color', e.target.value)} />
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  <input className={input} placeholder="Cía. de seguro" value={vehForm[r.id]?.seguroCompania ?? ''} onChange={(e) => setVeh(r.id, 'seguroCompania', e.target.value)} />
-                  <input className={input} placeholder="Nº de póliza" value={vehForm[r.id]?.seguroPoliza ?? ''} onChange={(e) => setVeh(r.id, 'seguroPoliza', e.target.value)} />
-                  <input className={input} type="date" title="Vencimiento del seguro" value={vehForm[r.id]?.seguroVencimiento ?? ''} onChange={(e) => setVeh(r.id, 'seguroVencimiento', e.target.value)} />
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                  <Entrada placeholder="Cía. de seguro" aria-label="Cía. de seguro" value={vehForm[r.id]?.seguroCompania ?? ''} onChange={(e) => setVeh(r.id, 'seguroCompania', e.target.value)} />
+                  <Entrada placeholder="Nº de póliza" aria-label="Nº de póliza" value={vehForm[r.id]?.seguroPoliza ?? ''} onChange={(e) => setVeh(r.id, 'seguroPoliza', e.target.value)} />
+                  <Entrada type="date" title="Vencimiento del seguro" aria-label="Vencimiento del seguro" value={vehForm[r.id]?.seguroVencimiento ?? ''} onChange={(e) => setVeh(r.id, 'seguroVencimiento', e.target.value)} />
                 </div>
-                <button className={btnGhost} onClick={() => agregarVehiculo(r.id)}>Agregar vehículo</button>
+                <Boton variante="secundario" onClick={() => agregarVehiculo(r.id)}>Agregar vehículo</Boton>
               </div>
             </div>
           )}
-        </div>
+        </Tarjeta>
       ))}
     </div>
   );

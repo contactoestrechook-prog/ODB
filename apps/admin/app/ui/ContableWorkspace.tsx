@@ -1,9 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
+import { Boton, Cargando, Chips, Entrada, IconoAtencion, TablaResponsiva, Tarjeta, TarjetaCabecera, Vacio, unir } from './kit';
+import { pesos } from '../lib/formato';
 
-const pesos = (n: any) =>
-  n == null ? '—' : (n < 0 ? '-$' : '$') + Math.abs(Math.round(Number(n))).toLocaleString('es-AR');
 const num = (n: number) => Number(n ?? 0).toFixed(2).replace('.', ',');
 const esc = (v: any) => `"${String(v ?? '').replaceAll('"', '""')}"`;
 const MES_LABEL = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
@@ -28,6 +28,24 @@ const PRESETS: { id: string; label: string }[] = [
   { id: 'semestre', label: 'Semestre' },
   { id: 'anual', label: 'Año mes a mes' },
 ];
+
+function IconoBajar({ className = 'size-4' }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 4v11M7 10l5 5 5-5M5 20h14" />
+    </svg>
+  );
+}
+
+// Una cifra con su rótulo, dentro de una tarjeta (posición IVA, IIBB, ventas).
+function Dato({ etiqueta, valor, tono = 'text-tinta' }: { etiqueta: ReactNode; valor: ReactNode; tono?: string }) {
+  return (
+    <div className="min-w-0 rounded-xl bg-crema-claro p-3.5">
+      <p className={unir('importe truncate text-lg font-semibold leading-tight', tono)}>{valor}</p>
+      <p className="mt-1 text-xs text-tinta/60">{etiqueta}</p>
+    </div>
+  );
+}
 
 export function ContableWorkspace({ inicial }: { inicial: any }) {
   const [preset, setPreset] = useState('mes');
@@ -101,219 +119,180 @@ export function ContableWorkspace({ inicial }: { inicial: any }) {
   const v = d?.ventas ?? {};
   const c = d?.compras ?? {};
 
+  // la vista anual: los meses y, al final, la fila de totales (mismos campos)
+  const filasAnuales: any[] = (anual?.meses ?? []).length
+    ? [...anual.meses, { ...(anual?.totales ?? {}), mes: 'total', esTotal: true }]
+    : [];
+  const negrita = (m: any) => (m.esTotal ? 'font-bold' : '');
+
   return (
-    <div className="space-y-5">
+    <div className="space-y-4 sm:space-y-6">
       {/* filtros de período */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-1.5">
-          {PRESETS.map((pr) => (
-            <button
-              key={pr.id}
-              onClick={() => elegirPreset(pr.id)}
-              className={'rounded-full px-3.5 py-1.5 text-xs font-medium border ' +
-                (preset === pr.id ? 'bg-black text-white border-black' : 'bg-white text-black border-black/15 hover:border-[#B82D25]')}
-            >
-              {pr.label}
-            </button>
-          ))}
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <Chips etiquetaAccesible="Período" valor={preset} onCambiar={elegirPreset} opciones={PRESETS.map((pr) => ({ valor: pr.id, etiqueta: pr.label }))} />
           {preset === 'mes' && (
-            <input
-              type="month"
-              value={mes}
-              onChange={(e) => { setMes(e.target.value); void traer(`mes=${e.target.value}`, false); }}
-              className="rounded-lg border border-black/15 px-2.5 py-1.5 text-xs bg-white"
-            />
+            <div className="w-44">
+              <Entrada
+                type="month"
+                value={mes}
+                onChange={(e) => { setMes(e.target.value); void traer(`mes=${e.target.value}`, false); }}
+                aria-label="Mes"
+              />
+            </div>
           )}
           {preset === 'anual' && (
-            <input
-              type="number"
-              value={anio}
-              min={2024}
-              max={2100}
-              onChange={(e) => { setAnio(e.target.value); if (/^\d{4}$/.test(e.target.value)) void traer(`recurso=anual&anio=${e.target.value}`, true); }}
-              className="w-20 rounded-lg border border-black/15 px-2.5 py-1.5 text-xs bg-white"
-            />
+            <div className="w-28">
+              <Entrada
+                type="number"
+                value={anio}
+                min={2024}
+                max={2100}
+                onChange={(e) => { setAnio(e.target.value); if (/^\d{4}$/.test(e.target.value)) void traer(`recurso=anual&anio=${e.target.value}`, true); }}
+                aria-label="Año"
+              />
+            </div>
           )}
-          {cargando && <span className="text-xs text-black/40 ml-1">actualizando…</span>}
+          {cargando && <Cargando texto="actualizando…" />}
         </div>
         {preset !== 'anual' && (
-          <div className="flex items-center gap-2">
-            <button onClick={csvVentas} className="rounded-full bg-white border border-black/15 text-black text-xs font-medium px-3.5 py-2 hover:border-[#B82D25]">⬇ IVA Ventas</button>
-            <button onClick={csvCompras} className="rounded-full bg-white border border-black/15 text-black text-xs font-medium px-3.5 py-2 hover:border-[#B82D25]">⬇ IVA Compras</button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Boton variante="secundario" tamano="chico" icono={<IconoBajar />} onClick={csvVentas}>IVA Ventas</Boton>
+            <Boton variante="secundario" tamano="chico" icono={<IconoBajar />} onClick={csvCompras}>IVA Compras</Boton>
           </div>
         )}
       </div>
 
       {/* ---- VISTA ANUAL: el año mes a mes ---- */}
       {preset === 'anual' ? (
-        <section className="rounded-xl bg-white overflow-hidden">
-          <h2 className="px-4 py-3 border-b border-black/10 font-medium text-black text-sm">
-            {anual?.anio ?? anio} · mes a mes
-          </h2>
+        <Tarjeta relleno={false} className="overflow-hidden">
+          <TarjetaCabecera titulo={`${anual?.anio ?? anio} · mes a mes`} />
           {!(anual?.meses ?? []).length ? (
-            <p className="px-4 py-10 text-center text-black/40 text-sm">{cargando ? 'Calculando…' : 'Sin datos para ese año.'}</p>
+            cargando ? <Cargando texto="Calculando…" bloque /> : <Vacio className="m-4" titulo="Sin datos para ese año." />
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm text-black min-w-[52rem]">
-                <thead><tr className="text-left text-xs text-black/50 border-b border-black/5">
-                  <th className="px-4 py-2 font-medium">Mes</th>
-                  <th className="px-4 py-2 font-medium text-right">Comp.</th>
-                  <th className="px-4 py-2 font-medium text-right">Ventas</th>
-                  <th className="px-4 py-2 font-medium text-right">IVA débito</th>
-                  <th className="px-4 py-2 font-medium text-right">Compras</th>
-                  <th className="px-4 py-2 font-medium text-right">IVA crédito</th>
-                  <th className="px-4 py-2 font-medium text-right">Saldo IVA</th>
-                  <th className="px-4 py-2 font-medium text-right">Perc. IVA</th>
-                  <th className="px-4 py-2 font-medium text-right">Perc. IIBB</th>
-                </tr></thead>
-                <tbody>
-                  {anual.meses.map((m: any) => (
-                    <tr key={m.mes} className="border-b border-black/5 last:border-0">
-                      <td className="px-4 py-2 text-xs font-medium">{MES_LABEL[Number(m.mes.slice(5, 7))]}</td>
-                      <td className="px-4 py-2 text-right text-xs tabular-nums">{m.comprobantes}</td>
-                      <td className="px-4 py-2 text-right text-xs tabular-nums font-medium">{pesos(m.ventasTotal)}</td>
-                      <td className="px-4 py-2 text-right text-xs tabular-nums text-[#932A1F]">{pesos(m.ivaDebito)}</td>
-                      <td className="px-4 py-2 text-right text-xs tabular-nums">{pesos(m.comprasTotal)}</td>
-                      <td className="px-4 py-2 text-right text-xs tabular-nums text-emerald-700">{pesos(m.ivaCredito)}</td>
-                      <td className={'px-4 py-2 text-right text-xs tabular-nums font-medium ' + (m.saldoIva > 0 ? 'text-[#B82D25]' : 'text-emerald-700')}>{pesos(m.saldoIva)}</td>
-                      <td className="px-4 py-2 text-right text-xs tabular-nums">{pesos(m.percepIva)}</td>
-                      <td className="px-4 py-2 text-right text-xs tabular-nums">{pesos(m.percepIibb)}</td>
-                    </tr>
-                  ))}
-                  <tr className="border-t-2 border-black/15 bg-[#F0EBE2]/40">
-                    <td className="px-4 py-2.5 text-xs font-bold">TOTAL {anual?.anio}</td>
-                    <td className="px-4 py-2.5 text-right text-xs tabular-nums font-bold">{anual?.totales?.comprobantes}</td>
-                    <td className="px-4 py-2.5 text-right text-xs tabular-nums font-bold">{pesos(anual?.totales?.ventasTotal)}</td>
-                    <td className="px-4 py-2.5 text-right text-xs tabular-nums font-bold text-[#932A1F]">{pesos(anual?.totales?.ivaDebito)}</td>
-                    <td className="px-4 py-2.5 text-right text-xs tabular-nums font-bold">{pesos(anual?.totales?.comprasTotal)}</td>
-                    <td className="px-4 py-2.5 text-right text-xs tabular-nums font-bold text-emerald-700">{pesos(anual?.totales?.ivaCredito)}</td>
-                    <td className="px-4 py-2.5 text-right text-xs tabular-nums font-bold">{pesos(anual?.totales?.saldoIva)}</td>
-                    <td className="px-4 py-2.5 text-right text-xs tabular-nums font-bold">{pesos(anual?.totales?.percepIva)}</td>
-                    <td className="px-4 py-2.5 text-right text-xs tabular-nums font-bold">{pesos(anual?.totales?.percepIibb)}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
+            <TablaResponsiva
+              sinMarco
+              etiqueta={`${anual?.anio ?? anio} mes a mes`}
+              filas={filasAnuales}
+              claveFila="mes"
+              columnas={[
+                {
+                  clave: 'mes',
+                  titulo: 'Mes',
+                  principal: true,
+                  celda: (m) => <span className={m.esTotal ? 'font-bold' : 'font-medium'}>{m.esTotal ? `TOTAL ${anual?.anio}` : MES_LABEL[Number(m.mes.slice(5, 7))]}</span>,
+                },
+                { clave: 'comprobantes', titulo: 'Comp.', importe: true, celda: (m) => <span className={negrita(m)}>{m.comprobantes}</span> },
+                { clave: 'ventas', titulo: 'Ventas', importe: true, celda: (m) => <span className={m.esTotal ? 'font-bold' : 'font-medium'}>{pesos(m.ventasTotal)}</span> },
+                { clave: 'ivaDebito', titulo: 'IVA débito', importe: true, celda: (m) => <span className={unir('text-marca-hondo', negrita(m))}>{pesos(m.ivaDebito)}</span> },
+                { clave: 'compras', titulo: 'Compras', importe: true, celda: (m) => <span className={negrita(m)}>{pesos(m.comprasTotal)}</span> },
+                { clave: 'ivaCredito', titulo: 'IVA crédito', importe: true, celda: (m) => <span className={unir('text-ok', negrita(m))}>{pesos(m.ivaCredito)}</span> },
+                {
+                  clave: 'saldoIva',
+                  titulo: 'Saldo IVA',
+                  importe: true,
+                  celda: (m) => (
+                    <span className={m.esTotal ? 'font-bold' : unir('font-medium', m.saldoIva > 0 ? 'text-marca-hondo' : 'text-ok')}>{pesos(m.saldoIva)}</span>
+                  ),
+                },
+                { clave: 'percepIva', titulo: 'Perc. IVA', importe: true, celda: (m) => <span className={negrita(m)}>{pesos(m.percepIva)}</span> },
+                { clave: 'percepIibb', titulo: 'Perc. IIBB', importe: true, celda: (m) => <span className={negrita(m)}>{pesos(m.percepIibb)}</span> },
+              ]}
+            />
           )}
-        </section>
+        </Tarjeta>
       ) : (
         <>
           {/* POSICIÓN IVA */}
-          <section className="rounded-xl bg-white p-5">
-            <h2 className="font-medium text-black text-sm mb-3">Posición IVA — {etiqueta}</h2>
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+          <Tarjeta relleno={false}>
+            <TarjetaCabecera titulo={`Posición IVA — ${etiqueta}`} />
+            <div className="grid grid-cols-2 gap-3 p-4 sm:grid-cols-3 sm:p-5 lg:grid-cols-5">
               {[
                 ['IVA débito (ventas)', pesos(p.ivaDebito), ''],
-                ['IVA crédito (compras)', pesos(p.ivaCredito), 'text-emerald-700'],
-                ['Saldo técnico', pesos(p.saldoTecnico), p.saldoTecnico > 0 ? 'text-[#932A1F]' : 'text-emerald-700'],
-                ['Percepciones IVA a cuenta', pesos(p.percepcionesIvaACuenta), 'text-emerald-700'],
-                [p.ivaAPagar >= 0 ? 'IVA a pagar (estimado)' : 'IVA a favor (estimado)', pesos(Math.abs(p.ivaAPagar ?? 0)), p.ivaAPagar > 0 ? 'text-[#B82D25] font-bold' : 'text-emerald-700 font-bold'],
+                ['IVA crédito (compras)', pesos(p.ivaCredito), 'text-ok'],
+                ['Saldo técnico', pesos(p.saldoTecnico), p.saldoTecnico > 0 ? 'text-marca-hondo' : 'text-ok'],
+                ['Percepciones IVA a cuenta', pesos(p.percepcionesIvaACuenta), 'text-ok'],
+                [p.ivaAPagar >= 0 ? 'IVA a pagar (estimado)' : 'IVA a favor (estimado)', pesos(Math.abs(p.ivaAPagar ?? 0)), p.ivaAPagar > 0 ? 'text-marca-hondo font-bold' : 'text-ok font-bold'],
               ].map(([l, val, cls]: any) => (
-                <div key={l} className="rounded-xl bg-[#F0EBE2]/60 p-3.5">
-                  <p className={`text-lg font-semibold leading-none ${cls || 'text-black'}`}>{val}</p>
-                  <p className="text-[11px] text-black/45 mt-1">{l}</p>
-                </div>
+                <Dato key={l} etiqueta={l} valor={val} tono={cls || 'text-tinta'} />
               ))}
             </div>
-          </section>
+          </Tarjeta>
 
           {/* IIBB */}
-          <section className="rounded-xl bg-white p-5">
-            <h2 className="font-medium text-black text-sm mb-3">Ingresos Brutos (ARBA · Prov. de Buenos Aires)</h2>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              <div className="rounded-xl bg-[#F0EBE2]/60 p-3.5">
-                <p className="text-lg font-semibold leading-none text-black">{pesos(p.baseIibb)}</p>
-                <p className="text-[11px] text-black/45 mt-1">Base imponible (ventas netas devengadas)</p>
+          <Tarjeta relleno={false}>
+            <TarjetaCabecera titulo="Ingresos Brutos (ARBA · Prov. de Buenos Aires)" />
+            <div className="p-4 sm:p-5">
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                <Dato etiqueta="Base imponible (ventas netas devengadas)" valor={pesos(p.baseIibb)} />
+                <Dato etiqueta="Percepciones IIBB sufridas (a cuenta)" valor={pesos(p.percepcionesIibbACuenta)} tono="text-ok" />
+                <Dato etiqueta="Retenciones bancarias/SIRCREB (sin fuente aún)" valor={pesos(p.retenciones)} tono="text-tinta/60" />
               </div>
-              <div className="rounded-xl bg-[#F0EBE2]/60 p-3.5">
-                <p className="text-lg font-semibold leading-none text-emerald-700">{pesos(p.percepcionesIibbACuenta)}</p>
-                <p className="text-[11px] text-black/45 mt-1">Percepciones IIBB sufridas (a cuenta)</p>
-              </div>
-              <div className="rounded-xl bg-[#F0EBE2]/60 p-3.5">
-                <p className="text-lg font-semibold leading-none text-black/40">{pesos(p.retenciones)}</p>
-                <p className="text-[11px] text-black/45 mt-1">Retenciones bancarias/SIRCREB (sin fuente aún)</p>
-              </div>
+              <p className="mt-3 text-xs text-tinta/60">
+                El impuesto se calcula con la alícuota de tu actividad (la define el contador). Acá tiene la base y los pagos a cuenta listos.
+              </p>
             </div>
-            <p className="text-xs text-black/45 mt-3">
-              El impuesto se calcula con la alícuota de tu actividad (la define el contador). Acá tiene la base y los pagos a cuenta listos.
-            </p>
-          </section>
+          </Tarjeta>
 
           {/* VENTAS */}
-          <section className="rounded-xl bg-white p-5">
-            <h2 className="font-medium text-black text-sm mb-3">IVA Ventas</h2>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <div className="rounded-xl bg-[#F0EBE2]/60 p-3.5">
-                <p className="text-lg font-semibold leading-none text-black">{v.facturacion?.cantidad ?? 0} + {v.electronicosCaja?.cantidad ?? 0}</p>
-                <p className="text-[11px] text-black/45 mt-1">Comprobantes (facturación + electrónicos caja)</p>
+          <Tarjeta relleno={false}>
+            <TarjetaCabecera titulo="IVA Ventas" />
+            <div className="p-4 sm:p-5">
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <Dato etiqueta="Comprobantes (facturación + electrónicos caja)" valor={`${v.facturacion?.cantidad ?? 0} + ${v.electronicosCaja?.cantidad ?? 0}`} />
+                <Dato etiqueta="Neto gravado" valor={pesos(v.totales?.neto)} />
+                <Dato etiqueta="IVA débito" valor={pesos(v.totales?.iva)} tono="text-marca-hondo" />
+                <Dato etiqueta="Total" valor={pesos(v.totales?.total)} />
               </div>
-              <div className="rounded-xl bg-[#F0EBE2]/60 p-3.5">
-                <p className="text-lg font-semibold leading-none text-black">{pesos(v.totales?.neto)}</p>
-                <p className="text-[11px] text-black/45 mt-1">Neto gravado</p>
-              </div>
-              <div className="rounded-xl bg-[#F0EBE2]/60 p-3.5">
-                <p className="text-lg font-semibold leading-none text-[#932A1F]">{pesos(v.totales?.iva)}</p>
-                <p className="text-[11px] text-black/45 mt-1">IVA débito</p>
-              </div>
-              <div className="rounded-xl bg-[#F0EBE2]/60 p-3.5">
-                <p className="text-lg font-semibold leading-none text-black">{pesos(v.totales?.total)}</p>
-                <p className="text-[11px] text-black/45 mt-1">Total</p>
-              </div>
-            </div>
-            {(v.facturacion?.porAlicuota ?? []).length > 0 && (
-              <div className="mt-3 flex flex-wrap gap-2">
-                {v.facturacion.porAlicuota.map((a: any) => (
-                  <span key={a.alicuota} className="rounded-full bg-[#F0EBE2] px-3 py-1 text-xs text-black">
-                    {a.alicuota}% · neto {pesos(a.neto)} · IVA <span className="font-semibold">{pesos(a.iva)}</span>
-                  </span>
-                ))}
-              </div>
-            )}
-          </section>
-
-          {/* COMPRAS */}
-          <section className="rounded-xl bg-white overflow-hidden">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-black/10">
-              <h2 className="font-medium text-black text-sm">IVA Compras ({c.cantidad ?? 0} facturas)</h2>
-              {c.estimadas > 0 && (
-                <span className="text-xs text-amber-700">⚠ {c.estimadas} con IVA estimado al 21% (sin discriminar)</span>
+              {(v.facturacion?.porAlicuota ?? []).length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {v.facturacion.porAlicuota.map((a: any) => (
+                    <span key={a.alicuota} className="rounded-full bg-crema-claro px-3 py-1 text-xs text-tinta">
+                      {a.alicuota}% · neto <span className="importe">{pesos(a.neto)}</span> · IVA <span className="importe font-semibold">{pesos(a.iva)}</span>
+                    </span>
+                  ))}
+                </div>
               )}
             </div>
-            {(c.filas ?? []).length === 0 ? (
-              <p className="px-4 py-8 text-center text-black/40 text-sm">Sin facturas de proveedor cargadas en el período.</p>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm text-black min-w-[52rem]">
-                  <thead><tr className="text-left text-xs text-black/50 border-b border-black/5">
-                    <th className="px-4 py-2 font-medium">Fecha</th>
-                    <th className="px-4 py-2 font-medium">Proveedor</th>
-                    <th className="px-4 py-2 font-medium">Comprobante</th>
-                    <th className="px-4 py-2 font-medium text-right">Neto</th>
-                    <th className="px-4 py-2 font-medium text-right">IVA</th>
-                    <th className="px-4 py-2 font-medium text-right">Perc. IVA</th>
-                    <th className="px-4 py-2 font-medium text-right">Perc. IIBB</th>
-                    <th className="px-4 py-2 font-medium text-right">Total</th>
-                  </tr></thead>
-                  <tbody>
-                    {(c.filas ?? []).slice(0, 100).map((f: any, i: number) => (
-                      <tr key={i} className="border-b border-black/5 last:border-0">
-                        <td className="px-4 py-2 text-xs text-black/55 whitespace-nowrap">{f.fecha}</td>
-                        <td className="px-4 py-2 text-xs max-w-44 min-w-0 break-words">{f.proveedor}{f.cuit ? ` (${f.cuit})` : ''}</td>
-                        <td className="px-4 py-2 text-xs">{f.comprobante}{f.estimado ? ' *' : ''}</td>
-                        <td className="px-4 py-2 text-right text-xs tabular-nums">{pesos(f.neto)}</td>
-                        <td className="px-4 py-2 text-right text-xs tabular-nums text-emerald-700">{pesos(f.iva)}</td>
-                        <td className="px-4 py-2 text-right text-xs tabular-nums">{pesos(f.percepcionIva)}</td>
-                        <td className="px-4 py-2 text-right text-xs tabular-nums">{pesos(f.percepcionIibb)}</td>
-                        <td className="px-4 py-2 text-right text-xs font-medium tabular-nums">{pesos(f.total)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
+          </Tarjeta>
 
-          <p className="text-xs text-black/45 px-1">
+          {/* COMPRAS */}
+          <Tarjeta relleno={false} className="overflow-hidden">
+            <TarjetaCabecera
+              titulo={`IVA Compras (${c.cantidad ?? 0} facturas)`}
+              sub={c.estimadas > 0 && (
+                <span className="inline-flex items-start gap-1 text-atencion">
+                  <IconoAtencion className="mt-px size-4 shrink-0" />
+                  {c.estimadas} con IVA estimado al 21% (sin discriminar)
+                </span>
+              )}
+            />
+            <TablaResponsiva
+              sinMarco
+              etiqueta="IVA Compras"
+              filas={(c.filas ?? []).slice(0, 100)}
+              claveFila={(_f, i) => i}
+              vacio={<Vacio className="m-4" titulo="Sin facturas de proveedor cargadas en el período." />}
+              columnas={[
+                { clave: 'fecha', titulo: 'Fecha', claseCelda: 'whitespace-nowrap text-tinta/70', celda: (f: any) => f.fecha },
+                {
+                  clave: 'proveedor',
+                  titulo: 'Proveedor',
+                  principal: true,
+                  claseCelda: 'max-w-48',
+                  celda: (f: any) => <span className="break-words">{f.proveedor}{f.cuit ? ` (${f.cuit})` : ''}</span>,
+                },
+                { clave: 'comprobante', titulo: 'Comprobante', celda: (f: any) => `${f.comprobante}${f.estimado ? ' *' : ''}` },
+                { clave: 'neto', titulo: 'Neto', importe: true, celda: (f: any) => pesos(f.neto) },
+                { clave: 'iva', titulo: 'IVA', importe: true, celda: (f: any) => <span className="text-ok">{pesos(f.iva)}</span> },
+                { clave: 'percIva', titulo: 'Perc. IVA', importe: true, celda: (f: any) => pesos(f.percepcionIva) },
+                { clave: 'percIibb', titulo: 'Perc. IIBB', importe: true, celda: (f: any) => pesos(f.percepcionIibb) },
+                { clave: 'total', titulo: 'Total', importe: true, celda: (f: any) => <span className="font-semibold">{pesos(f.total)}</span> },
+              ]}
+            />
+          </Tarjeta>
+
+          <p className="px-1 text-xs text-tinta/60">
             Los CSV bajan los libros completos con coma decimal (Excel argentino). Las percepciones de IVA e IIBB sufridas en compras
             se computan como pagos a cuenta. Las facturas marcadas con * no tienen el IVA discriminado y se estiman al 21 % — cargalas
             con el detalle en Compras para que el libro quede exacto.

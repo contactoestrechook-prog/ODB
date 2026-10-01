@@ -1,21 +1,33 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  AreaTexto, Aviso, Boton, Campo, Cargando, Chip, Chips, Entrada, Etiqueta, FOCO, FOCO_ADENTRO, IconoAtencion, IconoFlechaAbajo, IconoOk,
+  Kpi, Modal, Monto, ROTULO, Selector, Tarjeta, unir, type TonoEtiqueta,
+} from './kit';
+import { fecha, pesos } from '../lib/formato';
 
-const pesos = (n: any) => '$' + Math.round(Number(n) || 0).toLocaleString('es-AR');
-const fecha = (v?: string | null) => (v ? new Date(v + (v.length === 10 ? 'T12:00:00' : '')).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: '2-digit' }) : '—');
-const input = 'w-full rounded-lg border border-black/15 bg-white px-3 py-2 text-sm text-black focus:border-[#B82D25] focus:outline-none';
+// clip de "tiene comprobante adjunto" (en lugar del 📎)
+function IconoClip({ className = 'size-4' }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+      <path d="M20.5 11.5l-8.2 8.2a5 5 0 01-7.1-7.1l8.6-8.6a3.4 3.4 0 014.8 4.8l-8.6 8.6a1.7 1.7 0 01-2.4-2.4l7.9-7.9" />
+    </svg>
+  );
+}
 
 const EMPRESAS: Record<string, string> = { principal: 'Sant Thomas · CHINVENGUENCHA', santa_ines: 'Santa Inés · ODB SRL' };
 const EMPRESA_CORTA: Record<string, string> = { principal: 'Sant Thomas', santa_ines: 'Santa Inés' };
 const TIPOS: Record<string, string> = { factura: 'Factura', nota_credito: 'Nota de crédito', nota_debito: 'Nota de débito' };
-const ESTADOS: Record<string, [string, string]> = {
-  pendiente: ['Pendiente', 'bg-amber-100 text-amber-900'],
-  parcial: ['Pago parcial', 'bg-blue-100 text-blue-800'],
-  en_pago: ['En orden de pago', 'bg-purple-100 text-purple-800'],
-  pagada: ['Pagada', 'bg-emerald-100 text-emerald-800'],
-  anulada: ['Anulada', 'bg-black/10 text-black/50'],
+const ESTADOS: Record<string, [string, TonoEtiqueta]> = {
+  pendiente: ['Pendiente', 'atencion'],
+  parcial: ['Pago parcial', 'info'],
+  en_pago: ['En orden de pago', 'info'],
+  pagada: ['Pagada', 'ok'],
+  anulada: ['Anulada', 'neutro'],
 };
+// casilla y botón de opción (conciliación, carga manual): 20 px, en rojo marca
+const CASILLA = 'size-5 shrink-0 accent-marca';
 const CATEGORIAS_GASTO = ['Alquiler', 'Servicios (luz/gas/agua)', 'Internet y telefonía', 'Honorarios', 'Impuestos y tasas', 'Mantenimiento', 'Logística y fletes', 'Limpieza', 'Publicidad', 'Seguros', 'Otros'];
 const MEDIOS_PAGO = ['transferencia', 'efectivo', 'cheque', 'mp', 'otro'];
 
@@ -98,129 +110,170 @@ export function FacturasCompraWorkspace({ resumenInicial, facturasInicial, prove
   return (
     <div className="space-y-4">
       {/* tablero */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        {[['Deuda total', resumen.total, ''], ['Vencido', resumen.vencido, 'text-[#B82D25]'], ['Vence en 7 días', resumen.venceSemana, 'text-amber-700'], ['Vence en 30 días', resumen.venceMes, '']].map(([l, v, c]: any) => (
-          <div key={l} className="rounded-xl bg-white p-4">
-            <p className="text-[11px] text-black/50">{l}</p>
-            <p className={`text-xl font-semibold ${c || 'text-black'}`}>{pesos(v)}</p>
-          </div>
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {([['Deuda total', resumen.total, 'neutro'], ['Vencido', resumen.vencido, 'error'], ['Vence en 7 días', resumen.venceSemana, 'atencion'], ['Vence en 30 días', resumen.venceMes, 'neutro']] as const).map(([l, v, c]) => (
+          // el rótulo baja de renglón en vez de cortarse con "…" (en el celular la tarjeta mide 165 px)
+          <Kpi key={l} etiqueta={<span className="whitespace-normal">{l}</span>} valor={<Monto valor={v ?? 0} />} tono={c} />
         ))}
       </div>
       {resumen.porEmpresa && Object.keys(resumen.porEmpresa).length > 0 && (
         <div className="flex flex-wrap gap-2">
           {Object.entries(resumen.porEmpresa).map(([emp, v]: any) => (
-            <span key={emp} className="rounded-full bg-white px-3 py-1.5 text-xs text-black/70">
-              <b>{EMPRESA_CORTA[emp] ?? 'Sin empresa'}</b>: {pesos(v)}
+            <span key={emp} className="inline-flex max-w-full flex-wrap items-center gap-x-1 rounded-full border border-black/[0.06] bg-white px-3 py-1.5 text-sm text-tinta/70">
+              <b className="text-tinta">{EMPRESA_CORTA[emp] ?? 'Sin empresa'}</b>: <Monto valor={v ?? 0} />
             </span>
           ))}
         </div>
       )}
 
       {/* filtros */}
-      <div className="rounded-xl bg-white p-3 space-y-3">
-        <div className="flex flex-wrap gap-1.5">
-          {chips.map(([k, l]) => (
-            <button key={k} onClick={() => setFiltro('estado', k)}
-              className={`rounded-full px-3 py-1.5 text-xs font-medium ${filtros.estado === k ? 'bg-black text-white' : 'bg-[#F0EBE2] text-black/60 hover:text-black'}`}>
-              {l}
-            </button>
-          ))}
-        </div>
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-          <input value={filtros.buscar} onChange={(e) => setFiltro('buscar', e.target.value)} placeholder="Buscar por número…" className={input} />
-          <select value={filtros.proveedorId} onChange={(e) => setFiltro('proveedorId', e.target.value)} className={input}>
+      <Tarjeta className="space-y-3">
+        <Chips
+          etiquetaAccesible="Estado de los comprobantes"
+          desplazable
+          valor={filtros.estado}
+          onCambiar={(k) => setFiltro('estado', k)}
+          opciones={chips.map(([k, l]) => ({ valor: k, etiqueta: l }))}
+        />
+        <div className="grid grid-cols-2 gap-2 lg:grid-cols-5">
+          <Entrada aria-label="Buscar por número" value={filtros.buscar} onChange={(e) => setFiltro('buscar', e.target.value)} placeholder="Buscar por número…" className="col-span-2 lg:col-span-1" />
+          <Selector aria-label="Proveedor" value={filtros.proveedorId} onChange={(e) => setFiltro('proveedorId', e.target.value)}>
             <option value="">Todos los proveedores</option>
             {proveedores.map((p: any) => <option key={p.id} value={p.id}>{p.razon_social}</option>)}
-          </select>
-          <select value={filtros.empresa} onChange={(e) => setFiltro('empresa', e.target.value)} className={input}>
+          </Selector>
+          <Selector aria-label="Empresa" value={filtros.empresa} onChange={(e) => setFiltro('empresa', e.target.value)}>
             <option value="">Las dos empresas</option>
             <option value="principal">{EMPRESAS.principal}</option>
             <option value="santa_ines">{EMPRESAS.santa_ines}</option>
-          </select>
-          <select value={filtros.tipo} onChange={(e) => setFiltro('tipo', e.target.value)} className={input}>
+          </Selector>
+          <Selector aria-label="Tipo de comprobante" value={filtros.tipo} onChange={(e) => setFiltro('tipo', e.target.value)}>
             <option value="">Todos los tipos</option>
             <option value="factura">Facturas</option>
             <option value="nota_credito">Notas de crédito</option>
             <option value="nota_debito">Notas de débito</option>
-          </select>
-          <select value={filtros.categoria} onChange={(e) => setFiltro('categoria', e.target.value)} className={input}>
+          </Selector>
+          <Selector aria-label="Categoría" value={filtros.categoria} onChange={(e) => setFiltro('categoria', e.target.value)}>
             <option value="">Mercadería y gastos</option>
             <option value="mercaderia">Solo mercadería</option>
             <option value="gastos">Solo gastos</option>
             {CATEGORIAS_GASTO.map((c) => <option key={c} value={c}>{c}</option>)}
-          </select>
+          </Selector>
         </div>
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-xs text-black/50">{cargando ? 'Buscando…' : `${datos.total} comprobante${datos.total === 1 ? '' : 's'}`}</p>
-          <div className="flex flex-wrap justify-end gap-2">
+          <p className="text-sm text-tinta/60">{cargando ? 'Buscando…' : `${datos.total} comprobante${datos.total === 1 ? '' : 's'}`}</p>
+          <div className="flex flex-wrap gap-2">
             {!!usuarioId && (
-              <button onClick={alternarMias} className={`rounded-full px-4 py-1.5 text-xs font-semibold border ${soloMias ? 'bg-black text-white border-black' : 'border-black/15 text-black/70 hover:border-black/40'}`} title="Solo los comprobantes que cargué yo">
-                {soloMias ? '✓ Mis facturas' : 'Mis facturas'}
-              </button>
+              <Chip activo={soloMias} onClick={alternarMias} title="Solo los comprobantes que cargué yo">
+                Mis facturas
+              </Chip>
             )}
             {(APRUEBA(rol) || pendientes.length > 0) && (
-              <button onClick={() => setVerPendientes(true)} className={`rounded-full px-4 py-1.5 text-xs font-semibold border ${pendientes.length ? 'bg-amber-100 text-amber-900 border-amber-300' : 'border-black/15 text-black/70'}`}>
-                Cambios pendientes{pendientes.length ? ` (${pendientes.length})` : ''}
-              </button>
+              <Boton variante="secundario" tamano="chico" onClick={() => setVerPendientes(true)}>
+                Cambios pendientes
+                {pendientes.length ? <span className="importe rounded-full bg-atencion-suave px-1.5 text-xs leading-5 text-atencion">{pendientes.length}</span> : null}
+              </Boton>
             )}
-            <button onClick={exportarCsv} className="rounded-full border border-black/15 px-4 py-1.5 text-xs font-medium text-black/70 hover:border-black/40">⬇ Exportar CSV</button>
-            <button onClick={() => setModalCarga(true)} className="rounded-full bg-[#B82D25] px-4 py-1.5 text-xs font-semibold text-white hover:bg-[#932A1F]">+ Cargar comprobante</button>
+            <Boton variante="secundario" tamano="chico" onClick={exportarCsv}>Exportar CSV</Boton>
+            <Boton tamano="chico" onClick={() => setModalCarga(true)}>+ Cargar comprobante</Boton>
           </div>
         </div>
-      </div>
+      </Tarjeta>
 
-      {/* tabla */}
-      <div className="rounded-xl bg-white overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm text-black">
+      {/* tabla: en el celular, una tarjeta por comprobante; desde md, la tabla */}
+      <Tarjeta relleno={false} className="overflow-hidden">
+        <ul className="divide-y divide-black/[0.06] md:hidden" aria-label="Comprobantes">
+          {datos.items.map((f: any) => (
+            <li key={f.id}>
+              <button type="button" onClick={() => setDetalleId(f.id)}
+                className={unir('block w-full px-4 py-3 text-left transition-colors hover:bg-crema-claro active:bg-crema-claro', FOCO_ADENTRO)}>
+                <span className="flex items-start justify-between gap-3">
+                  <span className="min-w-0">
+                    <span className="flex items-center gap-1.5 text-sm font-semibold text-tinta">
+                      <span className="min-w-0 break-words">{f.tipo === 'nota_credito' ? 'NC' : f.tipo === 'nota_debito' ? 'ND' : 'FC'}{f.letra ? ` ${f.letra}` : ''} {f.numero}</span>
+                      {f.archivo_url && <span title="Tiene comprobante adjunto" className="shrink-0 text-tinta/60"><IconoClip /><span className="sr-only">Tiene comprobante adjunto</span></span>}
+                    </span>
+                    <span className="block break-words text-sm text-tinta/70">{f.proveedor?.razon_social ?? '—'}</span>
+                  </span>
+                  <Etiqueta tono={ESTADOS[f.estado]?.[1] ?? 'neutro'} className="shrink-0">{ESTADOS[f.estado]?.[0] ?? f.estado}</Etiqueta>
+                </span>
+                <span className="mt-2 grid grid-cols-3 gap-x-3 gap-y-1 text-sm">
+                  <span className="min-w-0">
+                    <span className="block text-xs text-tinta/60">Vence</span>
+                    <span className={unir('inline-flex items-center gap-1', f.vencida ? 'font-semibold text-marca-hondo' : 'text-tinta/70')}>
+                      {fecha(f.vencimiento)}{f.vencida && <><IconoAtencion className="size-4" /><span className="sr-only">vencida</span></>}
+                    </span>
+                  </span>
+                  <span className="min-w-0 text-right">
+                    <span className="block text-xs text-tinta/60">Total</span>
+                    <span className="importe block truncate font-semibold text-tinta">{f.tipo === 'nota_credito' ? '−' : ''}{pesos(f.monto ?? 0)}</span>
+                  </span>
+                  <span className="min-w-0 text-right">
+                    <span className="block text-xs text-tinta/60">Saldo</span>
+                    <span className="importe block truncate text-tinta/70">{['pagada', 'anulada'].includes(f.estado) ? '—' : pesos(f.saldo ?? 0)}</span>
+                  </span>
+                  <span className="col-span-3 truncate text-xs text-tinta/60">
+                    {EMPRESA_CORTA[f.empresa] ?? '—'} · {f.categoria_gasto ?? 'Mercadería'} · emitida {fecha(f.fecha_emision ?? f.creado_en)} · cargó {f.cargada_por === usuarioId ? 'Yo' : (f.cargador?.nombre ?? '—')}
+                  </span>
+                </span>
+              </button>
+            </li>
+          ))}
+          {!datos.items.length && (
+            <li className="px-4 py-10 text-center text-sm text-tinta/60">{soloMias ? 'Todavía no cargaste comprobantes (o no coinciden con los filtros).' : 'No hay comprobantes con esos filtros.'}</li>
+          )}
+        </ul>
+        <div className="hidden overflow-x-auto md:block">
+          <table className="tabla-kit w-full text-sm text-tinta">
             <thead>
-              <tr className="text-left text-[11px] uppercase tracking-wide text-black/45 border-b border-black/10">
-                <th className="px-3 py-2.5 font-medium">Comprobante</th>
-                <th className="px-3 py-2.5 font-medium">Proveedor</th>
-                <th className="px-3 py-2.5 font-medium">Empresa</th>
-                <th className="px-3 py-2.5 font-medium">Categoría</th>
-                <th className="px-3 py-2.5 font-medium">Emisión</th>
-                <th className="px-3 py-2.5 font-medium">Vence</th>
-                <th className="px-3 py-2.5 font-medium text-right">Total</th>
-                <th className="px-3 py-2.5 font-medium text-right">Saldo</th>
-                <th className="px-3 py-2.5 font-medium">Estado</th>
-                <th className="px-3 py-2.5 font-medium">Cargó</th>
+              <tr className={unir('border-b border-black/[0.06] text-left', ROTULO)}>
+                <th className="whitespace-nowrap px-3 py-3 font-semibold">Comprobante</th>
+                <th className="whitespace-nowrap px-3 py-3 font-semibold">Proveedor</th>
+                <th className="whitespace-nowrap px-3 py-3 font-semibold">Empresa</th>
+                <th className="whitespace-nowrap px-3 py-3 font-semibold">Categoría</th>
+                <th className="whitespace-nowrap px-3 py-3 font-semibold">Emisión</th>
+                <th className="whitespace-nowrap px-3 py-3 font-semibold">Vence</th>
+                <th className="whitespace-nowrap px-3 py-3 text-right font-semibold">Total</th>
+                <th className="whitespace-nowrap px-3 py-3 text-right font-semibold">Saldo</th>
+                <th className="whitespace-nowrap px-3 py-3 font-semibold">Estado</th>
+                <th className="whitespace-nowrap px-3 py-3 font-semibold">Cargó</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="divide-y divide-black/[0.06]">
               {datos.items.map((f: any) => (
-                <tr key={f.id} onClick={() => setDetalleId(f.id)} className="border-b border-black/5 last:border-0 hover:bg-[#F0EBE2]/50 cursor-pointer">
-                  <td className="px-3 py-2.5 whitespace-nowrap">
+                <tr key={f.id} onClick={() => setDetalleId(f.id)} className="cursor-pointer transition-colors hover:bg-crema-claro">
+                  <td className="whitespace-nowrap px-3 py-3">
                     <span className="font-medium">{f.tipo === 'nota_credito' ? 'NC' : f.tipo === 'nota_debito' ? 'ND' : 'FC'}{f.letra ? ` ${f.letra}` : ''} {f.numero}</span>
-                    {f.archivo_url && <span title="Tiene comprobante adjunto" className="ml-1.5 text-black/40">📎</span>}
+                    {f.archivo_url && <span title="Tiene comprobante adjunto" className="ml-1.5 inline-flex align-[-3px] text-tinta/60"><IconoClip /><span className="sr-only">Tiene comprobante adjunto</span></span>}
                   </td>
-                  <td className="px-3 py-2.5 max-w-[180px] min-w-0 break-words">{f.proveedor?.razon_social ?? '—'}</td>
-                  <td className="px-3 py-2.5 whitespace-nowrap text-black/60 text-xs">{EMPRESA_CORTA[f.empresa] ?? '—'}</td>
-                  <td className="px-3 py-2.5 whitespace-nowrap text-black/60 text-xs">{f.categoria_gasto ?? 'Mercadería'}</td>
-                  <td className="px-3 py-2.5 whitespace-nowrap text-black/60">{fecha(f.fecha_emision ?? f.creado_en)}</td>
-                  <td className={`px-3 py-2.5 whitespace-nowrap ${f.vencida ? 'text-[#B82D25] font-semibold' : 'text-black/60'}`}>{fecha(f.vencimiento)}{f.vencida ? ' ⚠' : ''}</td>
-                  <td className="px-3 py-2.5 text-right tabular-nums font-medium whitespace-nowrap">{f.tipo === 'nota_credito' ? '−' : ''}{pesos(f.monto)}</td>
-                  <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap">{['pagada', 'anulada'].includes(f.estado) ? '—' : pesos(f.saldo)}</td>
-                  <td className="px-3 py-2.5 whitespace-nowrap">
-                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${ESTADOS[f.estado]?.[1] ?? ''}`}>{ESTADOS[f.estado]?.[0] ?? f.estado}</span>
+                  <td className="min-w-0 max-w-44 break-words px-3 py-3">{f.proveedor?.razon_social ?? '—'}</td>
+                  <td className="whitespace-nowrap px-3 py-3 text-xs text-tinta/70">{EMPRESA_CORTA[f.empresa] ?? '—'}</td>
+                  <td className="whitespace-nowrap px-3 py-3 text-xs text-tinta/70">{f.categoria_gasto ?? 'Mercadería'}</td>
+                  <td className="whitespace-nowrap px-3 py-3 text-tinta/70">{fecha(f.fecha_emision ?? f.creado_en)}</td>
+                  <td className={`whitespace-nowrap px-3 py-3 ${f.vencida ? 'font-semibold text-marca-hondo' : 'text-tinta/70'}`}>
+                    <span className="inline-flex items-center gap-1">{fecha(f.vencimiento)}{f.vencida && <><IconoAtencion className="size-4" /><span className="sr-only">vencida</span></>}</span>
                   </td>
-                  <td className="px-3 py-2.5 text-black/60 text-xs max-w-[140px] min-w-0 break-words" title={f.cargador?.nombre ?? ''}>{f.cargada_por === usuarioId ? 'Yo' : (f.cargador?.nombre ?? '—')}</td>
+                  <td className="importe whitespace-nowrap px-3 py-3 text-right font-medium">{f.tipo === 'nota_credito' ? '−' : ''}{pesos(f.monto ?? 0)}</td>
+                  <td className="importe whitespace-nowrap px-3 py-3 text-right">{['pagada', 'anulada'].includes(f.estado) ? '—' : pesos(f.saldo ?? 0)}</td>
+                  <td className="whitespace-nowrap px-3 py-3">
+                    <Etiqueta tono={ESTADOS[f.estado]?.[1] ?? 'neutro'}>{ESTADOS[f.estado]?.[0] ?? f.estado}</Etiqueta>
+                  </td>
+                  <td className="min-w-0 max-w-36 break-words px-3 py-3 text-xs text-tinta/70" title={f.cargador?.nombre ?? ''}>{f.cargada_por === usuarioId ? 'Yo' : (f.cargador?.nombre ?? '—')}</td>
                 </tr>
               ))}
               {!datos.items.length && (
-                <tr><td colSpan={10} className="px-4 py-10 text-center text-sm text-black/40">{soloMias ? 'Todavía no cargaste comprobantes (o no coinciden con los filtros).' : 'No hay comprobantes con esos filtros.'}</td></tr>
+                <tr><td colSpan={10} className="px-4 py-10 text-center text-sm text-tinta/60">{soloMias ? 'Todavía no cargaste comprobantes (o no coinciden con los filtros).' : 'No hay comprobantes con esos filtros.'}</td></tr>
               )}
             </tbody>
           </table>
         </div>
         {datos.total > datos.porPagina && (
-          <div className="flex items-center justify-between px-4 py-2.5 border-t border-black/10 text-xs text-black/60">
-            <button disabled={pagina <= 1} onClick={() => irPagina(pagina - 1)} className="disabled:opacity-30 hover:text-black">‹ Anterior</button>
-            <span>Página {pagina} de {Math.max(Math.ceil(datos.total / datos.porPagina), 1)}</span>
-            <button disabled={pagina >= Math.ceil(datos.total / datos.porPagina)} onClick={() => irPagina(pagina + 1)} className="disabled:opacity-30 hover:text-black">Siguiente ›</button>
+          <div className="flex items-center justify-between gap-2 border-t border-black/[0.06] px-2 py-2 text-sm text-tinta/70 sm:px-3">
+            <Boton variante="fantasma" tamano="chico" disabled={pagina <= 1} onClick={() => irPagina(pagina - 1)} icono={<IconoFlechaAbajo className="size-4 rotate-90" />}>Anterior</Boton>
+            <span className="text-center">Página {pagina} de {Math.max(Math.ceil(datos.total / datos.porPagina), 1)}</span>
+            <Boton variante="fantasma" tamano="chico" disabled={pagina >= Math.ceil(datos.total / datos.porPagina)} onClick={() => irPagina(pagina + 1)} iconoDerecha={<IconoFlechaAbajo className="size-4 -rotate-90" />}>Siguiente</Boton>
           </div>
         )}
-      </div>
+      </Tarjeta>
 
       <Conciliacion refrescar={() => cargar()} />
 
@@ -281,90 +334,102 @@ function Conciliacion({ refrescar }: { refrescar: () => void }) {
 
   if (!bandeja.remitos.length && !bandeja.facturas.length) return null;
 
+  // renglón elegible (remito o factura): 44 px de alto y el elegido en rojo suave
+  const renglon = (elegido: boolean) =>
+    unir(
+      'flex min-h-11 cursor-pointer items-center gap-3 rounded-xl border px-3 py-2 text-sm text-tinta transition-colors',
+      elegido ? 'border-marca/40 bg-marca-suave' : 'border-transparent hover:bg-crema-claro',
+    );
+
   return (
-    <div className="rounded-xl bg-white p-4 space-y-3">
+    <Tarjeta className="space-y-3">
       <div>
-        <h2 className="text-sm font-semibold text-black">Conciliación: remitos escaneados vs facturas</h2>
-        <p className="text-xs text-black/50">Elegí la factura y el o los remitos de esa entrega: el sistema compara lo facturado contra lo que realmente entró por la pistola.</p>
+        <h2 className="text-base font-semibold text-tinta">Conciliación: remitos escaneados vs facturas</h2>
+        <p className="text-sm text-tinta/60">Elegí la factura y el o los remitos de esa entrega: el sistema compara lo facturado contra lo que realmente entró por la pistola.</p>
       </div>
 
-      <div className="grid sm:grid-cols-2 gap-3">
-        <div className="rounded-lg border border-black/10 p-2.5 space-y-1.5">
-          <p className="text-[11px] font-semibold text-black/50 uppercase tracking-wide">Remitos sin conciliar ({bandeja.remitos.length})</p>
-          {bandeja.remitos.length === 0 && <p className="text-xs text-black/40 py-2">No hay remitos esperando factura.</p>}
+      <div className="grid gap-3 md:grid-cols-2">
+        <div className="min-w-0 space-y-1 rounded-xl border border-black/[0.06] p-2.5">
+          <p className={unir(ROTULO, 'px-1')}>Remitos sin conciliar ({bandeja.remitos.length})</p>
+          {bandeja.remitos.length === 0 && <p className="px-1 py-2 text-sm text-tinta/60">No hay remitos esperando factura.</p>}
           {bandeja.remitos.map((r: any) => (
-            <label key={r.id} className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs cursor-pointer ${remitosSel.includes(r.id) ? 'bg-[#B82D25]/10 border border-[#B82D25]/40' : 'hover:bg-[#F0EBE2]/60 border border-transparent'}`}>
-              <input type="checkbox" checked={remitosSel.includes(r.id)} onChange={() => toggleRemito(r.id)} className="accent-[#B82D25]" />
-              <span className="flex-1 min-w-0">
+            <label key={r.id} className={renglon(remitosSel.includes(r.id))}>
+              <input type="checkbox" checked={remitosSel.includes(r.id)} onChange={() => toggleRemito(r.id)} className={CASILLA} />
+              <span className="min-w-0 flex-1 break-words">
                 <b>{r.proveedor?.razon_social ?? '—'}</b> · {r.numero || 's/n'} · {r.renglones} renglones
-                <span className="block text-black/45">{fecha(r.creado_en)} · {r.sucursal?.nombre ?? ''}</span>
+                <span className="block text-xs text-tinta/60">{fecha(r.creado_en)} · {r.sucursal?.nombre ?? ''}</span>
               </span>
             </label>
           ))}
         </div>
-        <div className="rounded-lg border border-black/10 p-2.5 space-y-1.5">
-          <p className="text-[11px] font-semibold text-black/50 uppercase tracking-wide">Facturas para cruzar ({bandeja.facturas.length})</p>
-          {bandeja.facturas.length === 0 && <p className="text-xs text-black/40 py-2">No hay facturas sueltas. Cargala desde Entrada por foto con “la mercadería ya fue recibida”.</p>}
+        <div className="min-w-0 space-y-1 rounded-xl border border-black/[0.06] p-2.5">
+          <p className={unir(ROTULO, 'px-1')}>Facturas para cruzar ({bandeja.facturas.length})</p>
+          {bandeja.facturas.length === 0 && <p className="px-1 py-2 text-sm text-tinta/60">No hay facturas sueltas. Cargala desde Entrada por foto con “la mercadería ya fue recibida”.</p>}
           {bandeja.facturas.map((f: any) => (
-            <label key={f.id} className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs cursor-pointer ${facturaSel === f.id ? 'bg-[#B82D25]/10 border border-[#B82D25]/40' : 'hover:bg-[#F0EBE2]/60 border border-transparent'}`}>
-              <input type="radio" name="fact-conc" checked={facturaSel === f.id} onChange={() => { setFacturaSel(f.id); verCruce(f.id, remitosSel); }} className="accent-[#B82D25]" />
-              <span className="flex-1 min-w-0">
+            <label key={f.id} className={renglon(facturaSel === f.id)}>
+              <input type="radio" name="fact-conc" checked={facturaSel === f.id} onChange={() => { setFacturaSel(f.id); verCruce(f.id, remitosSel); }} className={CASILLA} />
+              <span className="min-w-0 flex-1 break-words">
                 <b>{f.proveedor?.razon_social ?? '—'}</b> · FC {f.letra ?? ''} {f.numero}
-                <span className="block text-black/45">{fecha(f.creado_en)} · {pesos(f.monto)}</span>
+                <span className="block text-xs text-tinta/60">{fecha(f.creado_en)} · <span className="importe">{pesos(f.monto ?? 0)}</span></span>
               </span>
             </label>
           ))}
         </div>
       </div>
 
-      {cargando && <p className="text-xs text-black/50">Cruzando…</p>}
-      {err && <p className="text-xs text-[#932A1F]">{err}</p>}
+      {cargando && <Cargando texto="Cruzando…" />}
+      {err && <Aviso tono="error">{err}</Aviso>}
 
       {cruce && (
-        <div className="rounded-lg border border-black/10 overflow-hidden">
-          <div className={`px-3 py-2 text-xs font-semibold ${cruce.coincide ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-900'}`}>
-            {cruce.coincide
-              ? '✓ Todo coincide: lo facturado es exactamente lo que entró'
-              : `⚠ ${cruce.resumen.conDiferencia} renglón(es) con diferencia${cruce.sinMatch.length ? ` · ${cruce.sinMatch.length} renglón(es) de factura sin producto identificado` : ''}`}
+        <div className="overflow-hidden rounded-xl border border-black/[0.06]">
+          <div className={`flex items-start gap-2 px-3 py-2.5 text-sm font-semibold ${cruce.coincide ? 'bg-ok-suave text-ok' : 'bg-atencion-suave text-atencion'}`}>
+            {cruce.coincide ? <IconoOk className="size-5 shrink-0" /> : <IconoAtencion className="size-5 shrink-0" />}
+            <span className="min-w-0">
+              {cruce.coincide
+                ? 'Todo coincide: lo facturado es exactamente lo que entró'
+                : `${cruce.resumen.conDiferencia} renglón(es) con diferencia${cruce.sinMatch.length ? ` · ${cruce.sinMatch.length} renglón(es) de factura sin producto identificado` : ''}`}
+            </span>
           </div>
-          <div className="overflow-x-auto max-h-64 overflow-y-auto">
-            <table className="w-full text-xs text-black">
-              <thead><tr className="text-left text-[10px] uppercase text-black/45 border-b border-black/10">
-                <th className="px-3 py-1.5">Producto</th><th className="px-3 py-1.5 text-right">Facturado</th><th className="px-3 py-1.5 text-right">Recibido</th><th className="px-3 py-1.5 text-right">Diferencia</th>
+          <div className="max-h-64 overflow-auto">
+            <table className="tabla-kit w-full text-sm text-tinta">
+              <thead><tr className={unir('border-b border-black/[0.06] text-left', ROTULO)}>
+                <th className="px-3 py-2 font-semibold">Producto</th><th className="px-3 py-2 text-right font-semibold">Facturado</th><th className="px-3 py-2 text-right font-semibold">Recibido</th><th className="px-3 py-2 text-right font-semibold">Diferencia</th>
               </tr></thead>
               <tbody>
                 {cruce.filas.map((x: any) => (
-                  <tr key={x.productoId} className={`border-b border-black/5 ${x.diferencia !== 0 ? 'bg-amber-50/60' : ''}`}>
-                    <td className="px-3 py-1.5">{x.nombre}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums">{x.facturado}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums">{x.recibido}</td>
-                    <td className={`px-3 py-1.5 text-right tabular-nums font-semibold ${x.diferencia < 0 ? 'text-[#B82D25]' : x.diferencia > 0 ? 'text-amber-700' : 'text-emerald-700'}`}>
-                      {x.diferencia === 0 ? '✓' : (x.diferencia > 0 ? '+' : '') + x.diferencia}
+                  <tr key={x.productoId} className={`border-b border-black/[0.06] ${x.diferencia !== 0 ? 'bg-atencion-suave/60' : ''}`}>
+                    <td className="min-w-0 break-words px-3 py-2">{x.nombre}</td>
+                    <td className="importe px-3 py-2 text-right">{x.facturado}</td>
+                    <td className="importe px-3 py-2 text-right">{x.recibido}</td>
+                    <td className={`importe px-3 py-2 text-right font-semibold ${x.diferencia < 0 ? 'text-marca-hondo' : x.diferencia > 0 ? 'text-atencion' : 'text-ok'}`}>
+                      {x.diferencia === 0
+                        ? <><IconoOk className="ml-auto size-4" /><span className="sr-only">sin diferencia</span></>
+                        : (x.diferencia > 0 ? '+' : '') + x.diferencia}
                     </td>
                   </tr>
                 ))}
                 {cruce.sinMatch.map((x: any, i: number) => (
-                  <tr key={'sm' + i} className="border-b border-black/5 bg-red-50/50">
-                    <td className="px-3 py-1.5 italic text-black/60">{x.descripcion} (sin producto identificado)</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums">{x.cantidad}</td>
-                    <td className="px-3 py-1.5 text-right">—</td>
-                    <td className="px-3 py-1.5 text-right text-[#B82D25] font-semibold">revisar</td>
+                  <tr key={'sm' + i} className="border-b border-black/[0.06] bg-marca-suave/50">
+                    <td className="min-w-0 break-words px-3 py-2 italic text-tinta/70">{x.descripcion} (sin producto identificado)</td>
+                    <td className="importe px-3 py-2 text-right">{x.cantidad}</td>
+                    <td className="px-3 py-2 text-right">—</td>
+                    <td className="px-3 py-2 text-right font-semibold text-marca-hondo">revisar</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-          <div className="px-3 py-2.5 border-t border-black/10 flex justify-between items-center">
-            <p className="text-[11px] text-black/45">
+          <div className="flex flex-col gap-2 border-t border-black/[0.06] px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-xs text-tinta/60">
               {cruce.coincide ? 'El remito quedará conciliado con esta factura.' : 'Se registran las diferencias para el reclamo al proveedor.'}
             </p>
-            <button onClick={confirmar} disabled={cargando} className={`rounded-full px-4 py-1.5 text-xs font-semibold text-white disabled:opacity-50 ${cruce.coincide ? 'bg-emerald-700 hover:bg-emerald-800' : 'bg-[#B82D25] hover:bg-[#932A1F]'}`}>
-              {cruce.coincide ? 'Conciliar ✓' : 'Conciliar con diferencias'}
-            </button>
+            <Boton onClick={confirmar} disabled={cargando} className="shrink-0" icono={cruce.coincide ? <IconoOk className="size-4" /> : undefined}>
+              {cruce.coincide ? 'Conciliar' : 'Conciliar con diferencias'}
+            </Boton>
           </div>
         </div>
       )}
-    </div>
+    </Tarjeta>
   );
 }
 
@@ -457,136 +522,137 @@ function DetalleFactura({ id, cerrar, refrescar, rol }: { id: string; cerrar: ()
   const pagable = d && ['pendiente', 'parcial'].includes(d.estado);
 
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-[2px] flex items-center justify-center p-4 z-50" onClick={cerrar}>
-      <div className="bg-white rounded-2xl w-full max-w-2xl p-6 space-y-4 shadow-2xl max-h-[92vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-        {!d && !err && <p className="text-sm text-black/50 py-8 text-center">Cargando…</p>}
-        {err && <p className="rounded-lg bg-[#B82D25]/10 px-3 py-2 text-sm text-[#932A1F]">{err}</p>}
+    <Modal
+      abierto
+      onCerrar={cerrar}
+      ancho="ancho"
+      titulo={d ? <>{TIPOS[d.tipo] ?? 'Factura'}{d.letra ? ` ${d.letra}` : ''} {d.numero}</> : 'Factura'}
+      descripcion={d ? <>{d.proveedor?.razon_social}{d.proveedor?.cuit ? ` · CUIT ${d.proveedor.cuit}` : ''} · cargada {fecha(d.creado_en)}</> : undefined}
+      pie={d ? <Boton variante="secundario" onClick={cerrar}>Cerrar</Boton> : undefined}
+    >
+      <div className="space-y-4">
+        {!d && !err && <Cargando bloque />}
+        {err && <Aviso tono="error">{err}</Aviso>}
         {d && (<>
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <h2 className="font-semibold text-black text-lg">
-                {TIPOS[d.tipo] ?? 'Factura'}{d.letra ? ` ${d.letra}` : ''} {d.numero}
-              </h2>
-              <p className="text-xs text-black/50">{d.proveedor?.razon_social}{d.proveedor?.cuit ? ` · CUIT ${d.proveedor.cuit}` : ''} · cargada {fecha(d.creado_en)}</p>
-            </div>
-            <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold ${ESTADOS[d.estado]?.[1] ?? ''}`}>{ESTADOS[d.estado]?.[0] ?? d.estado}</span>
-          </div>
+          <Etiqueta tono={ESTADOS[d.estado]?.[1] ?? 'neutro'}>{ESTADOS[d.estado]?.[0] ?? d.estado}</Etiqueta>
 
-          <div className="rounded-xl bg-[#F0EBE2]/60 p-3 flex items-baseline justify-between">
-            <div><p className="text-[11px] text-black/50">Total</p><p className="text-2xl font-semibold text-black tabular-nums">{pesos(d.monto)}</p></div>
-            <div className="text-right"><p className="text-[11px] text-black/50">Pagado</p><p className="text-lg font-medium text-emerald-700 tabular-nums">{pesos(d.monto_pagado)}</p></div>
-            <div className="text-right"><p className="text-[11px] text-black/50">Saldo</p><p className="text-lg font-semibold text-[#B82D25] tabular-nums">{pesos(d.saldo)}</p></div>
+          <div className="grid grid-cols-3 gap-2 rounded-xl bg-crema-claro p-3">
+            <div className="min-w-0"><p className="text-xs text-tinta/60">Total</p><p className="importe truncate text-base font-semibold text-tinta sm:text-2xl">{pesos(d.monto ?? 0)}</p></div>
+            <div className="min-w-0 text-right"><p className="text-xs text-tinta/60">Pagado</p><p className="importe truncate text-base font-medium text-ok sm:text-lg">{pesos(d.monto_pagado ?? 0)}</p></div>
+            <div className="min-w-0 text-right"><p className="text-xs text-tinta/60">Saldo</p><p className="importe truncate text-base font-semibold text-marca-hondo sm:text-lg">{pesos(d.saldo ?? 0)}</p></div>
           </div>
 
           {d.comprobanteUrl && (
-            <a href={d.comprobanteUrl} target="_blank" rel="noreferrer" className="block rounded-lg border border-black/15 px-3 py-2.5 text-sm text-black/70 hover:border-[#B82D25] hover:text-[#932A1F]">
-              📎 Ver el comprobante original
+            <a href={d.comprobanteUrl} target="_blank" rel="noreferrer"
+              className={unir('flex min-h-11 items-center gap-2 rounded-xl border border-black/15 px-3 py-2.5 text-sm text-tinta/70 transition-colors hover:border-marca hover:text-marca-hondo', FOCO)}>
+              <IconoClip className="size-4 shrink-0" /> Ver el comprobante original
             </a>
           )}
 
           {/* encabezado editable */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-            <label className="text-[11px] text-black/50">Número<input disabled={!editable} value={edit.numero} onChange={(e) => setEdit({ ...edit, numero: e.target.value })} className={input + ' mt-0.5'} /></label>
-            <label className="text-[11px] text-black/50">Letra<select disabled={!editable} value={edit.letra} onChange={(e) => setEdit({ ...edit, letra: e.target.value })} className={input + ' mt-0.5'}><option value="">—</option><option>A</option><option>B</option><option>C</option><option>X</option></select></label>
-            <label className="text-[11px] text-black/50">Empresa<select disabled={!editable} value={edit.empresa} onChange={(e) => setEdit({ ...edit, empresa: e.target.value })} className={input + ' mt-0.5'}><option value="">—</option><option value="principal">Sant Thomas</option><option value="santa_ines">Santa Inés</option></select></label>
-            <label className="text-[11px] text-black/50">Emisión<input disabled={!editable} type="date" value={edit.fechaEmision} onChange={(e) => setEdit({ ...edit, fechaEmision: e.target.value })} className={input + ' mt-0.5'} /></label>
-            <label className="text-[11px] text-black/50">Vencimiento<input disabled={!editable} type="date" value={edit.vencimiento} onChange={(e) => setEdit({ ...edit, vencimiento: e.target.value })} className={input + ' mt-0.5'} /></label>
-            <label className="text-[11px] text-black/50">Categoría<select disabled={!editable} value={edit.categoriaGasto} onChange={(e) => setEdit({ ...edit, categoriaGasto: e.target.value })} className={input + ' mt-0.5'}><option value="">Mercadería</option>{CATEGORIAS_GASTO.map((c) => <option key={c}>{c}</option>)}</select></label>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <Campo etiqueta="Número"><Entrada disabled={!editable} value={edit.numero} onChange={(e) => setEdit({ ...edit, numero: e.target.value })} /></Campo>
+            <Campo etiqueta="Letra"><Selector disabled={!editable} value={edit.letra} onChange={(e) => setEdit({ ...edit, letra: e.target.value })}><option value="">—</option><option>A</option><option>B</option><option>C</option><option>X</option></Selector></Campo>
+            <Campo etiqueta="Empresa"><Selector disabled={!editable} value={edit.empresa} onChange={(e) => setEdit({ ...edit, empresa: e.target.value })}><option value="">—</option><option value="principal">Sant Thomas</option><option value="santa_ines">Santa Inés</option></Selector></Campo>
+            <Campo etiqueta="Emisión"><Entrada disabled={!editable} type="date" value={edit.fechaEmision} onChange={(e) => setEdit({ ...edit, fechaEmision: e.target.value })} /></Campo>
+            <Campo etiqueta="Vencimiento"><Entrada disabled={!editable} type="date" value={edit.vencimiento} onChange={(e) => setEdit({ ...edit, vencimiento: e.target.value })} /></Campo>
+            <Campo etiqueta="Categoría"><Selector disabled={!editable} value={edit.categoriaGasto} onChange={(e) => setEdit({ ...edit, categoriaGasto: e.target.value })}><option value="">Mercadería</option>{CATEGORIAS_GASTO.map((c) => <option key={c}>{c}</option>)}</Selector></Campo>
           </div>
 
           {/* desglose fiscal */}
-          <div className="rounded-lg border border-black/10 p-2.5 grid grid-cols-3 sm:grid-cols-4 gap-2 text-xs">
+          <div className="grid grid-cols-2 gap-3 rounded-xl border border-black/[0.06] p-3 sm:grid-cols-4">
             {[['neto', 'Neto'], ['iva', 'IVA'], ['percepcionIva', 'Perc. IVA'], ['percepcionIibb', 'Perc. IIBB'], ['impuestosInternos', 'Imp. internos'], ['otros', 'Otros'], ['monto', 'TOTAL']].map(([k, l]) => (
-              <label key={k} className="flex flex-col gap-0.5">
-                <span className="text-black/55 font-medium">{l}</span>
-                <input disabled={!editable} type="number" value={edit[k] ?? ''} onChange={(e) => setEdit({ ...edit, [k]: e.target.value })} className="rounded border border-black/15 bg-white px-2 py-1 text-right text-sm text-black disabled:bg-black/5" />
-              </label>
+              <Campo key={k} etiqueta={l} className={k === 'monto' ? 'col-span-2 sm:col-span-1' : undefined}>
+                <Entrada disabled={!editable} type="number" value={edit[k] ?? ''} onChange={(e) => setEdit({ ...edit, [k]: e.target.value })} className="importe text-right" />
+              </Campo>
             ))}
           </div>
-          <textarea disabled={!editable} value={edit.notas} onChange={(e) => setEdit({ ...edit, notas: e.target.value })} rows={2} placeholder="Notas internas…" className={input} />
-          {solicitado && <p className="rounded-lg bg-emerald-50 border border-emerald-200 px-3 py-2 text-xs text-emerald-900">{solicitado}</p>}
+          <AreaTexto aria-label="Notas internas" disabled={!editable} value={edit.notas} onChange={(e) => setEdit({ ...edit, notas: e.target.value })} rows={2} placeholder="Notas internas…" />
+          {solicitado && <Aviso tono="ok">{solicitado}</Aviso>}
           {misPendientes.length > 0 && (
-            <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-900 space-y-1">
-              <p className="font-semibold">Esta factura tiene {misPendientes.length === 1 ? 'un pedido de cambio pendiente' : `${misPendientes.length} pedidos de cambio pendientes`} de aprobación</p>
-              {misPendientes.map((c: any) => (
-                <p key={c.id}>· {c.tipo === 'anular' ? 'Anulación' : `Cambio de ${Object.keys(c.cambios ?? {}).join(', ')}`} — {c.solicitante?.nombre ?? 'usuario'}: {c.motivo}</p>
-              ))}
-            </div>
+            <Aviso tono="atencion" titulo={`Esta factura tiene ${misPendientes.length === 1 ? 'un pedido de cambio pendiente' : `${misPendientes.length} pedidos de cambio pendientes`} de aprobación`}>
+              <div className="space-y-1">
+                {misPendientes.map((c: any) => (
+                  <p key={c.id} className="break-words">· {c.tipo === 'anular' ? 'Anulación' : `Cambio de ${Object.keys(c.cambios ?? {}).join(', ')}`} — {c.solicitante?.nombre ?? 'usuario'}: {c.motivo}</p>
+                ))}
+              </div>
+            </Aviso>
           )}
           {editable && editaDirecto && (
-            <button onClick={guardar} disabled={guardando} className="rounded-full bg-black px-5 py-2 text-xs font-semibold text-white hover:bg-black/80 disabled:opacity-50">
+            <Boton onClick={guardar} disabled={guardando}>
               {guardando ? 'Guardando…' : 'Guardar cambios'}
-            </button>
+            </Boton>
           )}
           {editable && !editaDirecto && (
             pidiendo === 'editar' ? (
-              <div className="rounded-xl border border-black/10 p-3 space-y-2">
-                <p className="text-xs font-semibold text-black">Pedir el cambio a un dueño</p>
-                <p className="text-[11px] text-black/55">Modifique arriba los campos que necesita, escriba el motivo y envíe. Hasta que se apruebe, la factura queda como está.</p>
-                <input placeholder="Motivo del cambio (obligatorio)" value={motivoCambio} onChange={(e) => setMotivoCambio(e.target.value)} className={input} />
-                <div className="flex gap-2">
-                  <button onClick={() => solicitar('editar')} disabled={guardando || !motivoCambio.trim()} className="rounded-full bg-black px-5 py-2 text-xs font-semibold text-white disabled:opacity-40">{guardando ? 'Enviando…' : 'Enviar pedido de cambio'}</button>
-                  <button onClick={() => setPidiendo(null)} className="text-xs text-black/50">Cancelar</button>
+              <div className="space-y-2 rounded-xl border border-black/[0.06] p-3">
+                <p className="text-sm font-semibold text-tinta">Pedir el cambio a un dueño</p>
+                <p className="text-xs text-tinta/60">Modifique arriba los campos que necesita, escriba el motivo y envíe. Hasta que se apruebe, la factura queda como está.</p>
+                <Entrada aria-label="Motivo del cambio" placeholder="Motivo del cambio (obligatorio)" value={motivoCambio} onChange={(e) => setMotivoCambio(e.target.value)} />
+                <div className="flex flex-wrap gap-2">
+                  <Boton onClick={() => solicitar('editar')} disabled={guardando || !motivoCambio.trim()}>{guardando ? 'Enviando…' : 'Enviar pedido de cambio'}</Boton>
+                  <Boton variante="fantasma" onClick={() => setPidiendo(null)}>Cancelar</Boton>
                 </div>
               </div>
             ) : (
-              <button onClick={() => setPidiendo('editar')} className="rounded-full border border-black px-5 py-2 text-xs font-semibold text-black hover:bg-black hover:text-white">Pedir cambio (lo aprueba un dueño)</button>
+              <Boton variante="secundario" onClick={() => setPidiendo('editar')}>Pedir cambio (lo aprueba un dueño)</Boton>
             )
           )}
 
           {/* pagos */}
-          <div className="rounded-xl border border-black/10 p-3 space-y-2">
-            <p className="text-xs font-semibold text-black">Pagos registrados</p>
-            {(d.pagos ?? []).length === 0 && <p className="text-xs text-black/45">Sin pagos todavía.</p>}
+          <div className="space-y-2 rounded-xl border border-black/[0.06] p-3">
+            <p className="text-sm font-semibold text-tinta">Pagos registrados</p>
+            {(d.pagos ?? []).length === 0 && <p className="text-sm text-tinta/60">Sin pagos todavía.</p>}
             {(d.pagos ?? []).map((p: any, i: number) => (
-              <div key={i} className="flex justify-between text-xs text-black/70">
-                <span>{fecha(p.creado_en)} · {p.medio}{p.nota ? ` · ${p.nota}` : ''}</span>
-                <span className="tabular-nums font-medium">{pesos(p.monto)}</span>
+              <div key={i} className="flex justify-between gap-3 text-sm text-tinta/70">
+                <span className="min-w-0 break-words">{fecha(p.creado_en)} · {p.medio}{p.nota ? ` · ${p.nota}` : ''}</span>
+                <span className="importe shrink-0 font-medium text-tinta">{pesos(p.monto ?? 0)}</span>
               </div>
             ))}
-            {pagable && !editaDirecto && <p className="text-[11px] text-black/45">Los pagos los registra gerencia o un dueño.</p>}
+            {pagable && !editaDirecto && <p className="text-xs text-tinta/60">Los pagos los registra gerencia o un dueño.</p>}
             {pagable && editaDirecto && (
-              <div className="flex flex-wrap gap-2 pt-1">
-                <input type="number" placeholder="Monto" value={pago.monto} onChange={(e) => setPago({ ...pago, monto: e.target.value })} className={input + ' w-28 flex-none'} />
-                <select value={pago.medio} onChange={(e) => setPago({ ...pago, medio: e.target.value })} className={input + ' w-36 flex-none'}>
+              <div className="grid grid-cols-2 gap-2 pt-1 sm:flex sm:flex-wrap">
+                <Entrada aria-label="Monto del pago" type="number" placeholder="Monto" value={pago.monto} onChange={(e) => setPago({ ...pago, monto: e.target.value })} className="importe sm:w-32" />
+                <Selector aria-label="Medio de pago" value={pago.medio} onChange={(e) => setPago({ ...pago, medio: e.target.value })} className="sm:w-40">
                   {MEDIOS_PAGO.map((m) => <option key={m}>{m}</option>)}
-                </select>
-                <input placeholder="Nota (opcional)" value={pago.nota} onChange={(e) => setPago({ ...pago, nota: e.target.value })} className={input + ' flex-1 min-w-[120px]'} />
-                <button onClick={registrarPago} disabled={guardando || !(Number(pago.monto) > 0)} className="rounded-full bg-emerald-700 px-4 py-2 text-xs font-semibold text-white hover:bg-emerald-800 disabled:opacity-40">
+                </Selector>
+                <Entrada aria-label="Nota del pago" placeholder="Nota (opcional)" value={pago.nota} onChange={(e) => setPago({ ...pago, nota: e.target.value })} className="col-span-2 sm:w-auto sm:min-w-40 sm:flex-1" />
+                <Boton variante="ok" onClick={registrarPago} disabled={guardando || !(Number(pago.monto) > 0)} className="col-span-2 sm:col-span-1">
                   Registrar pago
-                </button>
+                </Boton>
               </div>
             )}
-            {d.estado === 'en_pago' && <p className="text-[11px] text-black/45">Esta factura está dentro de una orden de pago: los pagos se registran por ese circuito.</p>}
+            {d.estado === 'en_pago' && <p className="text-xs text-tinta/60">Esta factura está dentro de una orden de pago: los pagos se registran por ese circuito.</p>}
           </div>
 
-          <div className="flex items-center justify-between pt-1">
-            {anulable && !editaDirecto ? (
-              pidiendo === 'anular' ? (
-                <div className="flex gap-2 items-center flex-1 mr-3">
-                  <input placeholder="Motivo de la anulación (la aprueba un dueño)" value={motivoCambio} onChange={(e) => setMotivoCambio(e.target.value)} className={input} />
-                  <button onClick={() => solicitar('anular')} disabled={guardando || !motivoCambio.trim()} className="rounded-full bg-[#B82D25] px-4 py-2 text-xs font-semibold text-white whitespace-nowrap disabled:opacity-40">Pedir anulación</button>
-                  <button onClick={() => setPidiendo(null)} className="text-xs text-black/50">No</button>
-                </div>
+          {anulable && (
+            <div className="border-t border-black/[0.06] pt-3">
+              {!editaDirecto ? (
+                pidiendo === 'anular' ? (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Entrada aria-label="Motivo de la anulación" placeholder="Motivo de la anulación (la aprueba un dueño)" value={motivoCambio} onChange={(e) => setMotivoCambio(e.target.value)} className="basis-full sm:basis-auto sm:flex-1" />
+                    <Boton variante="peligro" onClick={() => solicitar('anular')} disabled={guardando || !motivoCambio.trim()}>Pedir anulación</Boton>
+                    <Boton variante="fantasma" onClick={() => setPidiendo(null)}>No</Boton>
+                  </div>
+                ) : (
+                  <Boton variante="peligro" tamano="chico" onClick={() => setPidiendo('anular')}>Pedir anulación (la aprueba un dueño)</Boton>
+                )
               ) : (
-                <button onClick={() => setPidiendo('anular')} className="text-xs font-medium text-[#B82D25] hover:underline">Pedir anulación (la aprueba un dueño)</button>
-              )
-            ) : anulable ? (
-              anulando ? (
-                <div className="flex gap-2 items-center flex-1 mr-3">
-                  <input placeholder="Motivo de la anulación" value={motivo} onChange={(e) => setMotivo(e.target.value)} className={input} />
-                  <button onClick={anular} disabled={guardando} className="rounded-full bg-[#B82D25] px-4 py-2 text-xs font-semibold text-white whitespace-nowrap">Confirmar</button>
-                  <button onClick={() => setAnulando(false)} className="text-xs text-black/50">No</button>
-                </div>
-              ) : (
-                <button onClick={() => setAnulando(true)} className="text-xs font-medium text-[#B82D25] hover:underline">Anular comprobante</button>
-              )
-            ) : <span />}
-            <button onClick={cerrar} className="rounded-full bg-black px-5 py-2 text-sm font-medium text-white hover:bg-black/80">Cerrar</button>
-          </div>
+                anulando ? (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Entrada aria-label="Motivo de la anulación" placeholder="Motivo de la anulación" value={motivo} onChange={(e) => setMotivo(e.target.value)} className="basis-full sm:basis-auto sm:flex-1" />
+                    <Boton variante="peligro" onClick={anular} disabled={guardando}>Confirmar</Boton>
+                    <Boton variante="fantasma" onClick={() => setAnulando(false)}>No</Boton>
+                  </div>
+                ) : (
+                  <Boton variante="peligro" tamano="chico" onClick={() => setAnulando(true)}>Anular comprobante</Boton>
+                )
+              )}
+            </div>
+          )}
         </>)}
       </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -628,82 +694,84 @@ function CargaManual({ proveedores, cerrar, refrescar }: { proveedores: any[]; c
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-[2px] flex items-center justify-center p-4 z-50" onClick={cerrar}>
-      <div className="bg-white rounded-2xl w-full max-w-xl p-6 space-y-3 shadow-2xl max-h-[92vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-        <h2 className="font-semibold text-black text-lg">Cargar comprobante de proveedor</h2>
-        <p className="text-xs text-black/50">Para facturas de mercadería que mueven stock usá <b>Compras → Entrada por foto</b>. Esto es para cargar a mano: gastos, servicios, notas de crédito/débito o facturas sin remito.</p>
+    <Modal
+      abierto
+      onCerrar={cerrar}
+      titulo="Cargar comprobante de proveedor"
+      cerrarAlTocarAfuera={false}
+      pie={<>
+        <Boton variante="secundario" onClick={cerrar}>Cancelar</Boton>
+        <Boton onClick={guardar} disabled={guardando || !f.proveedorId || !f.numero || !(total > 0)}>
+          {guardando ? 'Cargando…' : 'Cargar comprobante'}
+        </Boton>
+      </>}
+    >
+      <div className="space-y-3">
+        <p className="text-sm text-tinta/60">Para facturas de mercadería que mueven stock usá <b className="text-tinta">Compras → Entrada por foto</b>. Esto es para cargar a mano: gastos, servicios, notas de crédito/débito o facturas sin remito.</p>
 
-        <div className="grid grid-cols-2 gap-2">
-          <select value={f.proveedorId ?? ''} onChange={(e) => set('proveedorId', e.target.value)} className={input}>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Selector aria-label="Proveedor" value={f.proveedorId ?? ''} onChange={(e) => set('proveedorId', e.target.value)}>
             <option value="">Proveedor…</option>
             {proveedores.map((p: any) => <option key={p.id} value={p.id}>{p.razon_social}</option>)}
-          </select>
-          <select value={f.empresa} onChange={(e) => set('empresa', e.target.value)} className={input}>
+          </Selector>
+          <Selector aria-label="Empresa" value={f.empresa} onChange={(e) => set('empresa', e.target.value)}>
             <option value="">Empresa…</option>
             <option value="principal">{EMPRESAS.principal}</option>
             <option value="santa_ines">{EMPRESAS.santa_ines}</option>
-          </select>
-          <select value={f.tipo} onChange={(e) => set('tipo', e.target.value)} className={input}>
+          </Selector>
+          <Selector aria-label="Tipo de comprobante" value={f.tipo} onChange={(e) => set('tipo', e.target.value)}>
             <option value="factura">Factura</option>
             <option value="nota_credito">Nota de crédito</option>
             <option value="nota_debito">Nota de débito</option>
-          </select>
-          <div className="grid grid-cols-[70px_1fr] gap-2">
-            <select value={f.letra} onChange={(e) => set('letra', e.target.value)} className={input}>
+          </Selector>
+          <div className="grid grid-cols-[5rem_minmax(0,1fr)] gap-2">
+            <Selector aria-label="Letra" value={f.letra} onChange={(e) => set('letra', e.target.value)}>
               <option>A</option><option>B</option><option>C</option><option>X</option>
-            </select>
-            <input value={f.numero ?? ''} onChange={(e) => set('numero', e.target.value)} placeholder="Número (0001-00001234)" className={input} />
+            </Selector>
+            <Entrada aria-label="Número" value={f.numero ?? ''} onChange={(e) => set('numero', e.target.value)} placeholder="Número (0001-00001234)" />
           </div>
-          <label className="text-[11px] text-black/50">Fecha de emisión<input type="date" value={f.fechaEmision ?? ''} onChange={(e) => set('fechaEmision', e.target.value)} className={input + ' mt-0.5'} /></label>
-          <label className="text-[11px] text-black/50">Vencimiento del pago<input type="date" value={f.vencimiento ?? ''} onChange={(e) => set('vencimiento', e.target.value)} className={input + ' mt-0.5'} /></label>
+          <Campo etiqueta="Fecha de emisión"><Entrada type="date" value={f.fechaEmision ?? ''} onChange={(e) => set('fechaEmision', e.target.value)} /></Campo>
+          <Campo etiqueta="Vencimiento del pago"><Entrada type="date" value={f.vencimiento ?? ''} onChange={(e) => set('vencimiento', e.target.value)} /></Campo>
         </div>
 
-        <div className="flex flex-wrap gap-x-4 gap-y-2 text-xs text-black items-center">
-          <label className="flex items-center gap-1.5"><input type="checkbox" checked={f.esGasto} onChange={(e) => set('esGasto', e.target.checked)} className="accent-[#B82D25]" /> Es un gasto (no mueve stock)</label>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-tinta">
+          <label className="flex min-h-11 cursor-pointer items-center gap-2"><input type="checkbox" checked={f.esGasto} onChange={(e) => set('esGasto', e.target.checked)} className={CASILLA} /> Es un gasto (no mueve stock)</label>
           {f.esGasto && (
-            <select value={f.categoriaGasto} onChange={(e) => set('categoriaGasto', e.target.value)} className={input + ' w-52'}>
+            <Selector aria-label="Categoría del gasto" value={f.categoriaGasto} onChange={(e) => set('categoriaGasto', e.target.value)} className="basis-full sm:basis-56">
               {CATEGORIAS_GASTO.map((c) => <option key={c}>{c}</option>)}
-            </select>
+            </Selector>
           )}
-          <label className="flex items-center gap-1.5"><input type="checkbox" checked={f.pagada} onChange={(e) => set('pagada', e.target.checked)} className="accent-[#B82D25]" /> Ya está pagada</label>
+          <label className="flex min-h-11 cursor-pointer items-center gap-2"><input type="checkbox" checked={f.pagada} onChange={(e) => set('pagada', e.target.checked)} className={CASILLA} /> Ya está pagada</label>
         </div>
 
-        <div className="rounded-lg border border-black/10 p-2.5 grid grid-cols-3 gap-2 text-xs">
+        <div className="grid grid-cols-2 gap-3 rounded-xl border border-black/[0.06] p-3 sm:grid-cols-3">
           {[['neto', 'Neto'], ['iva', 'IVA'], ['percepcionIva', 'Perc. IVA'], ['percepcionIibb', 'Perc. IIBB'], ['impuestosInternos', 'Imp. internos'], ['otros', 'Otros']].map(([k, l]) => (
-            <label key={k} className="flex flex-col gap-0.5">
-              <span className="text-black/55 font-medium">{l}</span>
-              <input type="number" value={f[k] ?? ''} onChange={(e) => set(k, e.target.value)} className="rounded border border-black/15 bg-white px-2 py-1 text-right text-sm text-black" />
-            </label>
+            <Campo key={k} etiqueta={l}>
+              <Entrada type="number" value={f[k] ?? ''} onChange={(e) => set(k, e.target.value)} className="importe text-right" />
+            </Campo>
           ))}
         </div>
-        <div className="flex items-center justify-between rounded-lg bg-[#F0EBE2]/70 px-3 py-2">
-          <span className="text-xs font-semibold text-black/60 uppercase tracking-wide">Total</span>
-          <input type="number" value={f.monto ?? ''} onChange={(e) => set('monto', e.target.value)} placeholder={String(Math.round(totalCalc))} className="w-36 rounded border border-black/15 bg-white px-2 py-1.5 text-right text-base font-semibold text-black" />
+        <div className="flex items-center justify-between gap-3 rounded-xl bg-crema-claro px-3 py-2">
+          <span className={ROTULO}>Total</span>
+          <div className="w-40 max-w-[60%]">
+            <Entrada aria-label="Total" type="number" value={f.monto ?? ''} onChange={(e) => set('monto', e.target.value)} placeholder={String(Math.round(totalCalc))} className="importe text-right font-semibold" />
+          </div>
         </div>
-        {f.monto == null || f.monto === '' ? <p className="text-[10px] text-black/40">El total se calcula solo sumando el desglose; si lo escribís, manda el tuyo.</p> : null}
+        {f.monto == null || f.monto === '' ? <p className="text-xs text-tinta/60">El total se calcula solo sumando el desglose; si lo escribís, manda el tuyo.</p> : null}
 
-        <textarea value={f.notas ?? ''} onChange={(e) => set('notas', e.target.value)} rows={2} placeholder="Notas internas (opcional)…" className={input} />
+        <AreaTexto aria-label="Notas internas" value={f.notas ?? ''} onChange={(e) => set('notas', e.target.value)} rows={2} placeholder="Notas internas (opcional)…" />
 
         {hayDuplicado && (
-          <label className="flex items-center gap-1.5 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-            <input type="checkbox" checked={f.permitirDuplicado} onChange={(e) => set('permitirDuplicado', e.target.checked)} className="accent-[#B82D25]" />
+          <label className="flex min-h-11 cursor-pointer items-center gap-2 rounded-xl border border-atencion/20 bg-atencion-suave px-3 py-2 text-sm text-atencion">
+            <input type="checkbox" checked={f.permitirDuplicado} onChange={(e) => set('permitirDuplicado', e.target.checked)} className={CASILLA} />
             Ya existe un comprobante con ese número para este proveedor — cargar igual
           </label>
         )}
-        {err && !hayDuplicado && <p className="text-xs text-[#932A1F]">{err}</p>}
-
-        <div className="flex justify-end gap-3 pt-1">
-          <button onClick={cerrar} className="text-sm text-black/60 px-4 py-2 hover:text-black">Cancelar</button>
-          <button onClick={guardar} disabled={guardando || !f.proveedorId || !f.numero || !(total > 0)}
-            className="rounded-full bg-[#B82D25] px-6 py-2.5 text-sm font-medium text-white hover:bg-[#932A1F] disabled:opacity-50">
-            {guardando ? 'Cargando…' : 'Cargar comprobante'}
-          </button>
-        </div>
+        {err && !hayDuplicado && <Aviso tono="error">{err}</Aviso>}
       </div>
-    </div>
+    </Modal>
   );
 }
-
 
 /* ---------- cambios pendientes: el dueño aprueba o rechaza; los demás ven el estado ---------- */
 function CambiosPendientes({ items, puedeResolver, cerrar, refrescar, abrirFactura }: { items: any[]; puedeResolver: boolean; cerrar: () => void; refrescar: () => void; abrirFactura: (id: string) => void }) {
@@ -721,46 +789,46 @@ function CambiosPendientes({ items, puedeResolver, cerrar, refrescar, abrirFactu
     } catch (e: any) { setErr(e.message); } finally { setOcupado(null); }
   };
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-[2px] flex items-center justify-center p-4 z-50" onClick={cerrar}>
-      <div className="bg-white rounded-2xl w-full max-w-2xl p-6 space-y-4 shadow-2xl max-h-[92vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <h2 className="font-semibold text-black text-lg">Cambios pendientes de aprobación</h2>
-            <p className="text-xs text-black/50">{puedeResolver ? 'Al aprobar, el cambio se aplica en el momento y se avisa a quien lo pidió.' : 'Los aprueba un dueño. Acá ve el estado de lo pedido.'}</p>
-          </div>
-          <button onClick={cerrar} className="text-sm text-black/50 hover:text-black">Cerrar</button>
-        </div>
-        {err && <p className="rounded-lg bg-[#B82D25]/10 px-3 py-2 text-sm text-[#932A1F]">{err}</p>}
-        {!items.length && <p className="text-sm text-black/45 py-6 text-center">No hay pedidos de cambio pendientes.</p>}
+    <Modal
+      abierto
+      onCerrar={cerrar}
+      ancho="ancho"
+      titulo="Cambios pendientes de aprobación"
+      descripcion={puedeResolver ? 'Al aprobar, el cambio se aplica en el momento y se avisa a quien lo pidió.' : 'Los aprueba un dueño. Acá ve el estado de lo pedido.'}
+      pie={<Boton variante="secundario" onClick={cerrar}>Cerrar</Boton>}
+    >
+      <div className="space-y-3">
+        {err && <Aviso tono="error">{err}</Aviso>}
+        {!items.length && <p className="py-6 text-center text-sm text-tinta/60">No hay pedidos de cambio pendientes.</p>}
         {items.map((c: any) => (
-          <div key={c.id} className="rounded-xl border border-black/10 p-3 space-y-2">
+          <div key={c.id} className="space-y-2 rounded-2xl border border-black/[0.06] p-3 sm:p-4">
             <div className="flex items-start justify-between gap-3">
-              <div>
-                <button onClick={() => abrirFactura(c.factura_id)} className="text-sm font-semibold text-black hover:underline text-left">
+              <div className="min-w-0">
+                <button type="button" onClick={() => abrirFactura(c.factura_id)} className={unir('break-words rounded-sm text-left text-sm font-semibold text-tinta underline-offset-4 hover:underline', FOCO)}>
                   {c.tipo === 'anular' ? 'Anular' : 'Cambiar'} {TIPOS[c.factura?.tipo] ?? 'Factura'}{c.factura?.letra ? ` ${c.factura.letra}` : ''} {c.factura?.numero} · {c.factura?.proveedor?.razon_social ?? ''}
                 </button>
-                <p className="text-xs text-black/55">Pidió {c.solicitante?.nombre ?? 'un usuario'} · {fecha(c.creado_en)} · total actual {pesos(c.factura?.monto)}</p>
+                <p className="text-xs text-tinta/60">Pidió {c.solicitante?.nombre ?? 'un usuario'} · {fecha(c.creado_en)} · total actual <span className="importe">{pesos(c.factura?.monto ?? 0)}</span></p>
               </div>
-              <span className="shrink-0 rounded-full bg-amber-100 text-amber-900 px-2.5 py-1 text-[11px] font-semibold">Pendiente</span>
+              <Etiqueta tono="atencion" className="shrink-0">Pendiente</Etiqueta>
             </div>
-            <p className="text-sm text-black"><span className="text-black/50">Motivo:</span> {c.motivo}</p>
+            <p className="break-words text-sm text-tinta"><span className="text-tinta/60">Motivo:</span> {c.motivo}</p>
             {c.tipo === 'editar' && (
               <div className="flex flex-wrap gap-1.5">
                 {Object.entries(c.cambios ?? {}).map(([k, v]) => (
-                  <span key={k} className="rounded-full bg-black/5 px-2.5 py-1 text-[11px] text-black">{ETIQ[k] ?? k}: <strong>{String(v ?? '—')}</strong></span>
+                  <span key={k} className="max-w-full break-words rounded-full bg-crema-hondo/70 px-2.5 py-1 text-xs text-tinta">{ETIQ[k] ?? k}: <strong>{String(v ?? '—')}</strong></span>
                 ))}
               </div>
             )}
             {puedeResolver && (
-              <div className="flex flex-wrap gap-2 pt-1 items-center">
-                <input placeholder="Respuesta (opcional)" value={respuesta[c.id] ?? ''} onChange={(e) => setRespuesta({ ...respuesta, [c.id]: e.target.value })} className={input + ' flex-1 min-w-[160px]'} />
-                <button onClick={() => resolver(c.id, 'aprobar')} disabled={ocupado === c.id} className="rounded-full bg-emerald-700 px-4 py-2 text-xs font-semibold text-white hover:bg-emerald-800 disabled:opacity-40">Aprobar y aplicar</button>
-                <button onClick={() => resolver(c.id, 'rechazar')} disabled={ocupado === c.id} className="rounded-full border border-[#B82D25] px-4 py-2 text-xs font-semibold text-[#B82D25] hover:bg-[#B82D25] hover:text-white disabled:opacity-40">Rechazar</button>
+              <div className="grid grid-cols-2 gap-2 pt-1 sm:flex sm:flex-wrap sm:items-center">
+                <Entrada aria-label="Respuesta" placeholder="Respuesta (opcional)" value={respuesta[c.id] ?? ''} onChange={(e) => setRespuesta({ ...respuesta, [c.id]: e.target.value })} className="col-span-2 sm:w-auto sm:min-w-40 sm:flex-1" />
+                <Boton variante="ok" onClick={() => resolver(c.id, 'aprobar')} disabled={ocupado === c.id}>Aprobar y aplicar</Boton>
+                <Boton variante="peligro" onClick={() => resolver(c.id, 'rechazar')} disabled={ocupado === c.id}>Rechazar</Boton>
               </div>
             )}
           </div>
         ))}
       </div>
-    </div>
+    </Modal>
   );
 }

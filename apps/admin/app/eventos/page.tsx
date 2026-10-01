@@ -1,4 +1,5 @@
-import { Header } from '../ui/Header';
+import { Pantalla } from '../ui/kit/Pantalla';
+import { Aviso } from '../ui/kit';
 import { apiFetch } from '../../lib/api';
 import { EventosWorkspace } from '../ui/EventosWorkspace';
 
@@ -20,15 +21,12 @@ export default async function Eventos() {
   }
 
   return (
-    <main className="min-h-screen bg-[#F0EBE2] lg:pl-64">
-      <Header activo="/eventos" />
-      <div className="max-w-5xl mx-auto p-6">
-        {error ? (
-          <p className="rounded-lg bg-white p-4 text-sm text-[#932A1F]">No pude consultar la API ({error}).</p>
-        ) : (
-          <EventosWorkspace resumen={resumen} oportunidades={oportunidades} eventos={eventos} />
-        )}
-      </div>
-    </main>
+    <Pantalla activo="/eventos">
+      {error ? (
+        <Aviso tono="error">No pude consultar la API ({error}).</Aviso>
+      ) : (
+        <EventosWorkspace resumen={resumen} oportunidades={oportunidades} eventos={eventos} />
+      )}
+    </Pantalla>
   );
 }

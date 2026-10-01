@@ -1,8 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-
-const pesos = (n: number) => '$' + Math.round(Number(n)).toLocaleString('es-AR');
+import { Aviso, Boton, Etiqueta, IconoAtencion, Monto, Tarjeta } from '../ui/kit';
 
 export function ControlSalida() {
   const [codigo, setCodigo] = useState('');
@@ -41,9 +40,8 @@ export function ControlSalida() {
 
   return (
     <div className="space-y-4">
-      <div className="rounded-xl bg-white p-5">
-        <h1 className="font-medium text-black mb-1">Control de salida · Comprá Fácil</h1>
-        <p className="text-xs text-black/50 mb-4">
+      <Tarjeta>
+        <p className="mb-4 text-sm text-tinta/70">
           El cliente muestra su código al salir: verificá que lo que lleva coincida con lo pagado.
         </p>
         <form onSubmit={buscar} className="flex gap-2">
@@ -51,70 +49,61 @@ export function ControlSalida() {
             value={codigo}
             onChange={(e) => setCodigo(e.target.value.toUpperCase())}
             placeholder="CF-XXXXXX"
-            className="flex-1 rounded-full border-2 border-[#B82D25] px-5 py-3 text-lg font-mono tracking-widest text-black outline-none"
+            aria-label="Código de salida"
+            className="min-h-12 min-w-0 flex-1 rounded-full border-2 border-marca bg-white px-5 py-2.5 font-mono text-lg tracking-widest text-tinta outline-none placeholder:text-tinta/40 focus:ring-4 focus:ring-marca/15"
           />
-          <button
-            type="submit"
-            disabled={ocupado}
-            className="rounded-full bg-black px-6 text-sm font-medium text-white disabled:opacity-50"
-          >
+          <Boton type="submit" disabled={ocupado} className="shrink-0">
             Buscar
-          </button>
+          </Boton>
         </form>
-      </div>
+      </Tarjeta>
 
       {mensaje && (
-        <p
-          className={
-            'rounded-xl px-4 py-3 text-sm font-medium ' +
-            (mensaje.startsWith('✓')
-              ? 'bg-white text-black'
-              : 'bg-[#B82D25] text-white')
-          }
-        >
-          {mensaje}
-        </p>
+        <Aviso tono={mensaje.startsWith('✓') ? 'ok' : 'error'}>
+          {mensaje.replace(/^✓\s*/, '')}
+        </Aviso>
       )}
 
       {datos && (
-        <div className="rounded-xl bg-white p-5">
-          <div className="flex items-center justify-between mb-3">
-            <span className="font-mono text-lg font-medium text-black tracking-widest">{datos.codigo}</span>
+        <Tarjeta>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <span className="break-all font-mono text-lg font-medium tracking-widest text-tinta">{datos.codigo}</span>
             {datos.yaValidada ? (
-              <span className="rounded-full bg-[#B82D25] px-3 py-1 text-xs font-medium text-white">
-                ⚠ YA VALIDADA — posible doble salida
-              </span>
+              <Etiqueta tono="error">
+                <IconoAtencion className="-mt-0.5 mr-1 inline size-3.5" />
+                YA VALIDADA — posible doble salida
+              </Etiqueta>
             ) : (
-              <span className="rounded-full bg-[#F0EBE2] px-3 py-1 text-xs font-medium text-black">
+              <Etiqueta tono="neutro">
                 pendiente de salida
-              </span>
+              </Etiqueta>
             )}
           </div>
-          <ul className="text-sm text-black space-y-1 mb-3">
+          <ul className="mb-3 space-y-1 text-sm text-tinta">
             {datos.venta.items.map((i: any, j: number) => (
-              <li key={j}>
+              <li key={j} className="break-words">
                 {Math.round(Number(i.cantidad))}× {i.producto?.nombre}
               </li>
             ))}
           </ul>
-          <div className="flex items-center justify-between border-t border-black/10 pt-3">
-            <div>
-              <p className="text-lg font-medium text-black">{pesos(datos.venta.total)}</p>
-              <p className="text-xs text-black/50">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-black/[0.06] pt-3">
+            <div className="min-w-0">
+              <p className="text-lg font-semibold text-tinta"><Monto valor={datos.venta.total} /></p>
+              <p className="text-xs text-tinta/60">
                 DNI {datos.venta.cliente?.dni} · {datos.venta.cliente?.verificado ? 'identidad verificada ✓' : 'SIN verificar'}
               </p>
             </div>
             {!datos.yaValidada && (
-              <button
+              <Boton
                 onClick={validar}
                 disabled={ocupado}
-                className="rounded-full bg-[#B82D25] px-6 py-3 text-sm font-medium text-white hover:bg-[#932A1F] disabled:opacity-50"
+                className="w-full sm:w-auto"
               >
                 Validar salida
-              </button>
+              </Boton>
             )}
           </div>
-        </div>
+        </Tarjeta>
       )}
     </div>
   );

@@ -4,27 +4,28 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { CrearPromocion } from './CrearPromocion';
 import { TogglePromo } from './TogglePromo';
+import { Aviso, Boton, Cargando, Entrada, Etiqueta, Kpi, Pestanas, TablaResponsiva, Tarjeta, Vacio, type TonoEtiqueta } from './kit';
+import { fecha, pesos } from '../lib/formato';
 
 type Opcion = { id: string; nombre: string };
 type Segmento = { segmento: string; etiqueta: string; clientes: number; ticketPromedio: number | null; ventasIdentificadas: number };
 
-const pesos = (n: number | null) => (n == null || !Number.isFinite(Number(n)) ? '—' : '$' + Math.round(Number(n)).toLocaleString('es-AR'));
-const fecha = (iso: string) => new Date(iso).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: '2-digit' });
-
 const SEG_LABEL: Record<string, string> = {
   nuevo: 'Nuevos', ocasional: 'Ocasionales', frecuente: 'Frecuentes', mayorista: 'Mayoristas', vip: 'VIP', '': 'Todos',
 };
-const ESTADO_ESTILO: Record<string, string> = {
-  vigente: 'bg-[#B82D25] text-white', programado: 'bg-black text-white',
-  vencido: 'bg-[#F0EBE2] text-black/50', inactivo: 'bg-[#F0EBE2] text-black/50',
+// Vigente en verde (está corriendo), programada en celeste, el resto apagado.
+// El rojo sólido de antes era para un dato normal y dejaba de avisar.
+const ESTADO_TONO: Record<string, TonoEtiqueta> = {
+  vigente: 'ok', programado: 'info',
+  vencido: 'neutro', inactivo: 'neutro',
 };
 
 const TABS = [
-  ['sugeridas', '✨ Sugeridas por IA'],
-  ['stock', '📦 Por stock'],
-  ['contexto', '🎯 Por contexto'],
-  ['vigentes', '📋 Vigentes y últimas'],
-  ['rendimiento', '📈 Rendimiento'],
+  ['sugeridas', 'Sugeridas por IA'],
+  ['stock', 'Por stock'],
+  ['contexto', 'Por contexto'],
+  ['vigentes', 'Vigentes y últimas'],
+  ['rendimiento', 'Rendimiento'],
 ] as const;
 
 type Propuesta = {
@@ -120,115 +121,112 @@ export function PromosWorkspace({
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4 sm:space-y-5">
       {/* cabecera: ticket por segmento + crear */}
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <p className="text-sm text-black/60">
-          Ticket promedio general: <strong className="text-black">{pesos(ticketGeneral)}</strong>
-          <span className="text-xs text-black/40"> · el precio con descuento se aplica solo al segmento elegido</span>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <p className="min-w-0 text-sm text-tinta/70">
+          Ticket promedio general: <strong className="importe text-tinta">{pesos(ticketGeneral)}</strong>
+          <span className="text-xs text-tinta/60"> · el precio con descuento se aplica solo al segmento elegido</span>
         </p>
         <CrearPromocion categorias={categorias} marcas={marcas} segmentos={segmentos} ticketGeneral={ticketGeneral} />
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         {segmentos.map((s) => {
           const alto = s.ticketPromedio != null && s.ticketPromedio >= ticketGeneral * 1.2;
           const bajo = s.ticketPromedio != null && s.ticketPromedio <= ticketGeneral * 0.8;
           return (
-            <div key={s.segmento} className="rounded-xl bg-white p-3.5 border border-black/[0.04]">
-              <p className="text-xs font-medium text-black">{s.etiqueta}</p>
-              <p className="text-lg font-semibold text-black mt-1 leading-none">{pesos(s.ticketPromedio)}</p>
-              <p className="text-[11px] text-black/40 mt-1">ticket prom · {s.clientes} cli.</p>
-              {alto && <p className="text-[10px] text-emerald-700 mt-1 font-medium">↑ sobre el promedio</p>}
-              {bajo && <p className="text-[10px] text-[#B82D25] mt-1 font-medium">↓ bajo el promedio</p>}
-            </div>
+            <Kpi
+              key={s.segmento}
+              etiqueta={s.etiqueta}
+              valor={pesos(s.ticketPromedio)}
+              sub={
+                <>
+                  ticket prom · {s.clientes} cli.
+                  {alto && <span className="mt-1 block font-semibold text-ok">↑ sobre el promedio</span>}
+                  {bajo && <span className="mt-1 block font-semibold text-marca-hondo">↓ bajo el promedio</span>}
+                </>
+              }
+            />
           );
         })}
       </div>
 
       {/* pestañas */}
-      <div className="flex gap-1.5 flex-wrap border-b border-black/10">
-        {TABS.map(([k, label]) => (
-          <button
-            key={k}
-            onClick={() => irA(k)}
-            className={`px-3.5 py-2 text-sm font-medium rounded-t-lg -mb-px border-b-2 ${
-              tab === k ? 'border-[#B82D25] text-black' : 'border-transparent text-black/45 hover:text-black'
-            }`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      <Pestanas
+        valor={tab}
+        onCambiar={irA}
+        etiquetaAccesible="Vistas de promociones"
+        opciones={TABS.map(([k, label]) => ({ valor: k as string, etiqueta: label }))}
+      />
 
-      {aviso && <p className="rounded-lg bg-white p-3 text-sm text-[#B82D25]">{aviso}</p>}
+      {aviso && <Aviso tono="error">{aviso}</Aviso>}
 
       {/* SUGERIDAS POR IA */}
       {tab === 'sugeridas' && (
         <div className="space-y-3">
-          <div className="rounded-xl bg-white p-5 flex items-center justify-between gap-4">
-            <div>
-              <p className="font-medium text-black">El estratega de promociones mira tu stock, vencimientos y el calendario</p>
-              <p className="text-xs text-black/50 mt-0.5">y te propone promociones rentables, listas para crear con un click.</p>
+          <Tarjeta className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+            <div className="min-w-0">
+              <p className="font-semibold text-tinta">El estratega de promociones mira tu stock, vencimientos y el calendario</p>
+              <p className="mt-0.5 text-sm text-tinta/60">y te propone promociones rentables, listas para crear con un click.</p>
             </div>
-            <button onClick={() => pedir('sugerir')} disabled={cargando}
-              className="rounded-full bg-[#B82D25] text-white text-sm font-medium px-5 py-2.5 hover:bg-[#932A1F] disabled:opacity-50 whitespace-nowrap">
-              {cargando ? 'Pensando…' : '✨ Sugerir promociones'}
-            </button>
-          </div>
+            <Boton onClick={() => pedir('sugerir')} disabled={cargando} className="w-full shrink-0 sm:w-auto">
+              {cargando ? 'Pensando…' : 'Sugerir promociones'}
+            </Boton>
+          </Tarjeta>
           {propuestas?.map((p, i) => (
             <PropuestaCard key={i} p={p} valorTxt={valorTxt} creada={creadas['sug-' + i]} onCrear={() => crearDesde(p, 'sug-' + i)} />
           ))}
-          {propuestas?.length === 0 && <p className="text-sm text-black/50 px-1">Sin propuestas ahora — probá de nuevo más tarde.</p>}
+          {propuestas?.length === 0 && <p className="px-1 text-sm text-tinta/60">Sin propuestas ahora — probá de nuevo más tarde.</p>}
         </div>
       )}
 
       {/* POR STOCK */}
       {tab === 'stock' && (
         <div className="space-y-3">
-          <p className="text-sm text-black/55 px-1">Productos con sobrestock, sin rotación o que vencen pronto, con margen que banca el descuento.</p>
-          {cargando && <p className="text-sm text-black/40 px-1">Calculando…</p>}
+          <p className="px-1 text-sm text-tinta/70">Productos con sobrestock, sin rotación o que vencen pronto, con margen que banca el descuento.</p>
+          {cargando && <Cargando texto="Calculando…" className="px-1" />}
           {(candidatos ?? []).map((c) => (
-            <div key={c.sku} className="rounded-xl bg-white p-4 flex items-center justify-between gap-3">
-              <div>
-                <p className="font-medium text-black">{c.nombre}</p>
-                <p className="text-xs text-black/50 mt-0.5">
-                  {c.motivos.join(' · ')} · stock {Math.round(c.stock)} · margen {c.margenPct}% · ${Number(c.capital).toLocaleString('es-AR')} inmovilizados
+            <Tarjeta key={c.sku} className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <p className="break-words font-semibold text-tinta">{c.nombre}</p>
+                <p className="mt-0.5 text-xs text-tinta/60">
+                  {c.motivos.join(' · ')} · stock {Math.round(c.stock)} · margen {c.margenPct}% · <span className="importe">{pesos(c.capital)}</span> inmovilizados
                 </p>
               </div>
-              <div className="text-right whitespace-nowrap">
-                <p className="text-[#932A1F] font-medium text-sm">−{c.descuentoSugerido}% sugerido</p>
+              <div className="flex shrink-0 items-center justify-between gap-3 sm:flex-col sm:items-end">
+                <p className="text-sm font-semibold text-marca-hondo">−{c.descuentoSugerido}% sugerido</p>
                 {creadas['stock-' + c.sku] ? (
-                  <span className="text-xs text-emerald-700">✓ creada</span>
+                  <Etiqueta tono="ok">creada</Etiqueta>
                 ) : (
-                  <button onClick={() => crearStock(c)} className="text-xs font-medium text-[#B82D25] hover:underline">Crear promo →</button>
+                  <Boton variante="secundario" tamano="chico" onClick={() => crearStock(c)}>Crear promo</Boton>
                 )}
               </div>
-            </div>
+            </Tarjeta>
           ))}
-          {candidatos?.length === 0 && <p className="text-sm text-black/50 px-1">Nada que liquidar ahora: el stock está sano.</p>}
+          {candidatos?.length === 0 && <p className="px-1 text-sm text-tinta/60">Nada que liquidar ahora: el stock está sano.</p>}
         </div>
       )}
 
       {/* POR CONTEXTO */}
       {tab === 'contexto' && (
         <div className="space-y-3">
-          <div className="rounded-xl bg-white p-5">
-            <p className="font-medium text-black">Promociones temáticas para un momento</p>
-            <p className="text-xs text-black/50 mt-0.5 mb-3">Contale el contexto y arma combos con lo que tenés en stock.</p>
-            <div className="flex gap-2">
-              <input
+          <Tarjeta>
+            <p className="font-semibold text-tinta">Promociones temáticas para un momento</p>
+            <p className="mb-3 mt-0.5 text-sm text-tinta/60">Contale el contexto y arma combos con lo que tenés en stock.</p>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Entrada
                 value={contexto}
                 onChange={(e) => setContexto(e.target.value)}
                 placeholder="Ej: partido de Argentina el sábado · Día del Padre · ola de calor"
-                className="flex-1 rounded-lg border border-black/15 px-3 py-2.5 text-sm text-black focus:border-[#B82D25] focus:outline-none"
+                aria-label="Contexto de la promoción"
+                className="min-w-0 sm:flex-1"
               />
-              <button onClick={() => pedir('contexto')} disabled={cargando || !contexto.trim()}
-                className="rounded-full bg-[#B82D25] text-white text-sm font-medium px-5 py-2.5 hover:bg-[#932A1F] disabled:opacity-50 whitespace-nowrap">
+              <Boton onClick={() => pedir('contexto')} disabled={cargando || !contexto.trim()} className="shrink-0">
                 {cargando ? 'Armando…' : 'Generar'}
-              </button>
+              </Boton>
             </div>
-          </div>
+          </Tarjeta>
           {propuestas?.map((p, i) => (
             <PropuestaCard key={i} p={p} valorTxt={valorTxt} creada={creadas['sug-' + i]} onCrear={() => crearDesde(p, 'sug-' + i)} />
           ))}
@@ -237,61 +235,71 @@ export function PromosWorkspace({
 
       {/* VIGENTES */}
       {tab === 'vigentes' && (
-        <div className="rounded-xl bg-white overflow-hidden">
-          <table className="w-full text-sm text-black">
-            <thead>
-              <tr className="text-left text-xs text-black/50 border-b border-black/5">
-                <th className="px-4 py-2 font-medium">Promoción</th>
-                <th className="px-4 py-2 font-medium">Beneficio</th>
-                <th className="px-4 py-2 font-medium">Vigencia</th>
-                <th className="px-4 py-2 font-medium text-right">Estado</th>
-                <th className="px-4 py-2" />
-              </tr>
-            </thead>
-            <tbody>
-              {descuentos.map((d) => (
-                <tr key={d.id} className="border-b border-black/5 last:border-0">
-                  <td className="px-4 py-3">
-                    <p className="font-medium">{d.nombre}</p>
-                    <p className="text-xs text-black/50">
-                      {[d.solo_comunidad && '🔒 Comunidad', d.segmento && `solo ${SEG_LABEL[d.segmento] ?? d.segmento}`, d.medio_pago && `con ${d.medio_pago}`].filter(Boolean).join(' · ')}
-                    </p>
-                  </td>
-                  <td className="px-4 py-3 font-medium text-[#932A1F]">{valorTxt(d.tipo, Math.round(d.valor))}</td>
-                  <td className="px-4 py-3 text-black/70">{fecha(d.desde)} → {fecha(d.hasta)}</td>
-                  <td className="px-4 py-3 text-right">
-                    <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${ESTADO_ESTILO[d.estado]}`}>{d.estado}</span>
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    {d.estado !== 'vencido' && <TogglePromo id={d.id} activo={d.estado !== 'inactivo'} />}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <TablaResponsiva
+          etiqueta="Promociones vigentes y últimas"
+          filas={descuentos}
+          claveFila="id"
+          vacio={<Vacio titulo="No hay promociones cargadas" texto="Creá una con “Nueva promoción” o desde las sugeridas." />}
+          columnas={[
+            {
+              clave: 'promocion',
+              titulo: 'Promoción',
+              principal: true,
+              celda: (d) => (
+                <>
+                  <p className="break-words font-medium">{d.nombre}</p>
+                  <p className="text-xs font-normal text-tinta/60">
+                    {[d.solo_comunidad && 'Comunidad', d.segmento && `solo ${SEG_LABEL[d.segmento] ?? d.segmento}`, d.medio_pago && `con ${d.medio_pago}`].filter(Boolean).join(' · ')}
+                  </p>
+                </>
+              ),
+            },
+            {
+              clave: 'beneficio',
+              titulo: 'Beneficio',
+              celda: (d) => <span className="font-semibold text-marca-hondo">{valorTxt(d.tipo, Math.round(d.valor))}</span>,
+            },
+            {
+              clave: 'vigencia',
+              titulo: 'Vigencia',
+              celda: (d) => <span className="importe text-tinta/70">{fecha(d.desde)} → {fecha(d.hasta)}</span>,
+            },
+            {
+              clave: 'estado',
+              titulo: 'Estado',
+              alinear: 'derecha',
+              celda: (d) => <Etiqueta tono={ESTADO_TONO[d.estado] ?? 'neutro'}>{d.estado}</Etiqueta>,
+            },
+            {
+              clave: 'acciones',
+              titulo: '',
+              acciones: true,
+              celda: (d) => (d.estado !== 'vencido' ? <TogglePromo id={d.id} activo={d.estado !== 'inactivo'} /> : null),
+            },
+          ]}
+        />
       )}
 
       {/* RENDIMIENTO */}
       {tab === 'rendimiento' && (
         <div className="space-y-3">
-          <p className="text-sm text-black/55 px-1">Cuánto se movió el alcance de cada promoción durante su vigencia (ordenado por facturación).</p>
-          {cargando && <p className="text-sm text-black/40 px-1">Midiendo…</p>}
+          <p className="px-1 text-sm text-tinta/70">Cuánto se movió el alcance de cada promoción durante su vigencia (ordenado por facturación).</p>
+          {cargando && <Cargando texto="Midiendo…" className="px-1" />}
           {(rendimiento ?? []).map((r) => (
-            <div key={r.id} className="rounded-xl bg-white p-4 flex items-center justify-between gap-3">
-              <div>
-                <p className="font-medium text-black">{r.nombre}</p>
-                <p className="text-xs text-black/50 mt-0.5">
+            <Tarjeta key={r.id} className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+              <div className="min-w-0">
+                <p className="break-words font-semibold text-tinta">{r.nombre}</p>
+                <p className="mt-0.5 text-xs text-tinta/60">
                   {valorTxt(r.tipo, Math.round(r.valor))} · {r.segmento ? `solo ${SEG_LABEL[r.segmento] ?? r.segmento}` : 'todos'} · {fecha(r.desde)} → {fecha(r.hasta)}
                 </p>
               </div>
-              <div className="text-right whitespace-nowrap">
-                <p className="font-semibold text-black">{pesos(r.facturado)}</p>
-                <p className="text-xs text-black/45">{r.unidades.toLocaleString('es-AR')} u. en la ventana</p>
+              <div className="flex shrink-0 items-baseline justify-between gap-3 sm:block sm:text-right">
+                <p className="importe font-semibold text-tinta">{pesos(r.facturado)}</p>
+                <p className="text-xs text-tinta/60">{r.unidades.toLocaleString('es-AR')} u. en la ventana</p>
               </div>
-            </div>
+            </Tarjeta>
           ))}
-          {rendimiento?.length === 0 && <p className="text-sm text-black/50 px-1">Todavía no hay promociones con ventas medibles.</p>}
+          {rendimiento?.length === 0 && <p className="px-1 text-sm text-tinta/60">Todavía no hay promociones con ventas medibles.</p>}
         </div>
       )}
     </div>
@@ -301,23 +309,23 @@ export function PromosWorkspace({
 function PropuestaCard({ p, valorTxt, creada, onCrear }: { p: Propuesta; valorTxt: (t: string, v: number) => string; creada?: boolean; onCrear: () => void }) {
   const objetivo = p.alcance === 'producto' ? p.sku : p.alcance === 'categoria' ? p.categoria : 'toda la tienda';
   return (
-    <div className="rounded-xl bg-white p-4 flex items-start justify-between gap-3">
-      <div className="flex-1">
-        <div className="flex items-center gap-2 flex-wrap">
-          <p className="font-medium text-black">{p.nombre}</p>
-          <span className="text-[11px] rounded-full bg-black text-white px-2 py-0.5">{SEG_LABEL[p.segmento] ?? p.segmento}</span>
-          {p.soloComunidad && <span className="text-[11px] rounded-full bg-[#B82D25]/10 text-[#932A1F] px-2 py-0.5">🔒 Comunidad</span>}
+    <Tarjeta className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="min-w-0 break-words font-semibold text-tinta">{p.nombre}</p>
+          <Etiqueta>{SEG_LABEL[p.segmento] ?? p.segmento}</Etiqueta>
+          {p.soloComunidad && <Etiqueta tono="info">Comunidad</Etiqueta>}
         </div>
-        <p className="text-xs text-black/55 mt-1">{p.motivo}</p>
-        <p className="text-xs text-black/40 mt-1">{valorTxt(p.tipo, p.valor)} · {objetivo} · {p.diasVigencia} días</p>
+        <p className="mt-1 text-sm text-tinta/70">{p.motivo}</p>
+        <p className="mt-1 text-xs text-tinta/60">{valorTxt(p.tipo, p.valor)} · {objetivo} · {p.diasVigencia} días</p>
       </div>
       {creada ? (
-        <span className="text-xs text-emerald-700 whitespace-nowrap">✓ creada</span>
+        <Etiqueta tono="ok" className="self-start">creada</Etiqueta>
       ) : (
-        <button onClick={onCrear} className="rounded-full bg-[#B82D25] text-white text-xs font-medium px-4 py-2 hover:bg-[#932A1F] whitespace-nowrap">
+        <Boton tamano="chico" onClick={onCrear} className="self-start">
           Crear
-        </button>
+        </Boton>
       )}
-    </div>
+    </Tarjeta>
   );
 }

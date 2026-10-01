@@ -2,12 +2,17 @@
 
 import { camposDeLecturaIncompletos } from '../lib/lectura-compras';
 import { Dictado } from './Dictado';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type KeyboardEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { prepararComprobante } from './comprimirImagen';
 import { ALICUOTAS_IVA, repartirIva } from '../lib/iva-compras';
 import { conversionSugerida } from '../lib/presentacion';
 import { PanelImpuestos } from './PanelImpuestos';
+import {
+  Aviso, Boton, CLASES_ENTRADA, Cargando, Etiqueta, FOCO, FOCO_ADENTRO, Girador, IconoAtencion, IconoCerrar, IconoError, IconoInfo, IconoOk, Kpi, Modal as Ventana,
+  Pestanas, TablaResponsiva, Tarjeta, TarjetaCabecera, Vacio, clasesBoton, unir, type TonoEtiqueta,
+} from './kit';
+import { fecha, pesos } from '../lib/formato';
 
 // Mismo redondeo de góndola que aplica el servidor al guardar el precio
 // (apps/api/src/compras/precio.ts): a la centena, de 50 para arriba sube. Se
@@ -19,25 +24,44 @@ function redondearPrecio(p: number): number {
   return Math.round(n / 100) * 100;
 }
 
-const pesos = (n: any) => '$' + Math.round(Number(n) || 0).toLocaleString('es-AR');
-const fecha = (iso: string) => (iso ? new Date(iso).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: '2-digit' }) : '—');
-
-const ESTADO_ESTILO: Record<string, string> = {
-  borrador: 'bg-crema text-tinta/70', pendiente_aprobacion: 'bg-marca text-white',
-  aprobada: 'bg-black text-white', enviada: 'bg-black text-white',
-  recibida_parcial: 'bg-atencion-suave text-atencion', recibida: 'bg-ok-suave text-ok',
-  cancelada: 'bg-crema text-tinta/60',
+// el mismo estado lleva el mismo color en todo el panel (chips <Etiqueta>)
+const ESTADO_TONO: Record<string, TonoEtiqueta> = {
+  borrador: 'neutro', pendiente_aprobacion: 'atencion',
+  aprobada: 'info', enviada: 'info',
+  recibida_parcial: 'atencion', recibida: 'ok',
+  cancelada: 'neutro',
 };
 const ESTADO_LABEL: Record<string, string> = { pendiente_aprobacion: 'a aprobar', recibida_parcial: 'parcial' };
-const OP_ESTILO: Record<string, string> = {
-  pendiente_aprobacion: 'bg-marca text-white', aprobada: 'bg-black text-white',
-  pagada: 'bg-ok-suave text-ok', rechazada: 'bg-crema text-tinta/60',
+const OP_TONO: Record<string, TonoEtiqueta> = {
+  pendiente_aprobacion: 'atencion', aprobada: 'info',
+  pagada: 'ok', rechazada: 'neutro',
 };
 const OP_LABEL: Record<string, string> = { pendiente_aprobacion: 'a aprobar', aprobada: 'aprobada · a pagar', pagada: 'pagada', rechazada: 'rechazada' };
 
 const TABS = [['ordenes', 'Órdenes'], ['aprobar', 'Por aprobar'], ['recepcion', 'Recepción'], ['proveedores', 'Proveedores'], ['pagos', 'Órdenes de pago'], ['sugerencias', 'Sugerencias']] as const;
 
-const input = 'w-full rounded-xl border border-black/15 px-3 py-2.5 text-sm text-tinta focus:border-marca focus:outline-none';
+// los campos sueltos de los formularios de compras: los del kit (44 px y 16 px en el celular)
+const input = CLASES_ENTRADA;
+// rótulo chico arriba de un campo
+const ROTULO_CAMPO = 'mb-1 block text-xs font-medium text-tinta/70';
+// campo chico de las filas (cantidad, costo, %): 44 px en el celular, 36 en escritorio.
+// La forma va separada del color para poder marcar la remarcación aprendida.
+const CAMPO_FILA_BASE = 'block min-h-11 rounded-xl border px-2.5 text-right text-tinta placeholder:text-tinta/40 focus:border-marca focus:bg-white focus:outline-none focus:ring-4 focus:ring-marca/15 sm:min-h-9 sm:text-sm';
+const CAMPO_FILA = 'w-full ' + CAMPO_FILA_BASE;
+const CAMPO_FILA_COLOR = 'border-black/15 bg-crema-claro';
+// el rótulo de cada dato de una fila: en el celular va arriba del campo; en escritorio lo dice el encabezado
+const ROTULO_FILA = 'mb-1 block text-xs text-tinta/60 md:hidden';
+// campo blanco (va sobre una caja crema, donde el campo crema del kit no se distingue)
+const CAMPO_BLANCO = 'block w-full min-h-11 rounded-xl border border-black/15 bg-white px-3.5 py-2 text-base text-tinta placeholder:text-tinta/40 focus:border-marca focus:outline-none focus:ring-4 focus:ring-marca/15 sm:min-h-10 sm:text-sm';
+// botones del visor del documento original (zoom, rotar, ocultar)
+const BOTON_VISOR = unir('grid size-11 place-items-center rounded-full text-tinta/70 transition-colors hover:bg-tinta/5 sm:size-8', FOCO);
+// acción de texto dentro de una nota (cambiar, deshacer, cancelar): la zona táctil
+// se estira con el ::before sin agrandar el renglón
+const ENLACE = unir('relative rounded-sm underline underline-offset-2 before:absolute before:-inset-x-1 before:-inset-y-3', FOCO);
+// acción secundaria chica con borde (Buscar otro, No aplicar): 32 px, 44 de zona táctil
+const CHIP_ACCION = unir('relative inline-flex min-h-8 items-center rounded-full border border-black/15 bg-white px-3 text-xs text-tinta/70 transition-colors before:absolute before:inset-x-0 before:-inset-y-1.5 hover:border-marca hover:text-marca-hondo', FOCO);
+// botón ✕ de quitar un renglón (44 px de zona táctil)
+const BOTON_QUITAR = unir('grid size-11 shrink-0 place-items-center rounded-full text-tinta/60 transition-colors hover:bg-marca-suave hover:text-marca-hondo md:size-9', FOCO);
 
 // La IA a veces devuelve la fecha como DD/MM/AAAA: la base solo acepta ISO.
 // Si no se puede normalizar con certeza, mejor no mandar nada.
@@ -112,99 +136,107 @@ export function ComprasWorkspace({ resumen, ordenes, proveedores, sugerencias, s
   };
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4 sm:space-y-6">
       {/* KPIs + nueva OC */}
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div className="flex gap-7 flex-wrap">
-          {[['Comprado (mes)', pesos(resumen?.compradoMes)], ['A aprobar', resumen?.pendientesAprobacion ?? 0, 'text-marca'], ['Por recibir', resumen?.porRecibir ?? 0], ['Deuda proveedores', pesos(resumen?.deudaProveedores), resumen?.deudaProveedores > 0 ? 'text-marca' : ''], ['Sugerencias', resumen?.sugerencias ?? 0]].map(([l, v, c]: any) => (
-            <div key={l}><p className={`text-xl font-semibold leading-none ${c || 'text-tinta'}`}>{v}</p><p className="text-xs text-tinta/60 mt-1">{l}</p></div>
-          ))}
-        </div>
-        <div className="flex gap-2 flex-wrap">
-          <button onClick={() => setModal({ tipo: 'entradaFoto' })} className="rounded-full bg-black text-white text-sm font-medium px-4 py-2.5 hover:bg-black/80 shadow-sm">📷 Entrada por foto</button>
-          <button onClick={() => setModal({ tipo: 'entradaDirecta' })} className="rounded-full bg-white border border-black/15 text-tinta text-sm font-medium px-4 py-2.5 hover:border-black/40 shadow-sm">📦 Entrada directa (sin OC)</button>
-          <button onClick={() => setModal({ tipo: 'nuevaOC', items: [] })} className="rounded-full bg-marca text-white text-sm font-medium px-5 py-2.5 hover:bg-marca-hondo shadow-sm">+ Nueva orden de compra</button>
-        </div>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        <Kpi etiqueta="Comprado (mes)" valor={pesos(resumen?.compradoMes ?? 0)} />
+        <Kpi etiqueta="A aprobar" valor={resumen?.pendientesAprobacion ?? 0} tono={(resumen?.pendientesAprobacion ?? 0) > 0 ? 'atencion' : 'neutro'} />
+        <Kpi etiqueta="Por recibir" valor={resumen?.porRecibir ?? 0} />
+        <Kpi etiqueta="Deuda proveedores" valor={pesos(resumen?.deudaProveedores ?? 0)} tono={resumen?.deudaProveedores > 0 ? 'error' : 'neutro'} />
+        <Kpi etiqueta="Sugerencias" valor={resumen?.sugerencias ?? 0} className="col-span-2 sm:col-span-1" />
+      </div>
+      <div className="flex flex-wrap gap-2 sm:justify-end">
+        <Boton variante="secundario" onClick={() => setModal({ tipo: 'entradaFoto' })}>Entrada por foto</Boton>
+        <Boton variante="secundario" onClick={() => setModal({ tipo: 'entradaDirecta' })}>Entrada directa (sin OC)</Boton>
+        <Boton onClick={() => setModal({ tipo: 'nuevaOC', items: [] })}>+ Nueva orden de compra</Boton>
       </div>
 
       {(bandeja.length > 0 || avisoBandeja) && (
-        <div className="rounded-xl border border-black/[0.06] bg-white p-4">
-          <div className="flex items-baseline justify-between gap-2 flex-wrap">
-            <p className="text-sm font-semibold text-tinta">📷 Bandeja de lectura</p>
-            <p className="text-xs text-tinta/60">Las facturas se leen en segundo plano. Abrí cada una cuando esté lista.</p>
-          </div>
-          {avisoBandeja && <p className="mt-2 rounded-xl bg-crema px-3 py-2 text-xs text-tinta/70">{avisoBandeja}</p>}
-          <div className="mt-2 divide-y divide-black/[0.06]">
+        <Tarjeta relleno={false}>
+          <TarjetaCabecera titulo="Bandeja de lectura" sub="Las facturas se leen en segundo plano. Abrí cada una cuando esté lista." />
+          {avisoBandeja && <Aviso tono="neutro" className="mx-4 mt-3 sm:mx-5">{avisoBandeja}</Aviso>}
+          <ul className="divide-y divide-black/[0.06]">
             {bandeja.map((l: any) => {
               const seg = Math.max(0, Math.round((Date.now() - new Date(l.creadoEn).getTime()) / 1000));
               return (
-                <div key={l.id} className="flex items-center gap-3 py-2 text-sm flex-wrap">
-                  <span className="min-w-0 flex-1">
+                <li key={l.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 text-sm sm:px-5">
+                  <span className="min-w-0 flex-1 basis-48">
                     <span className="block min-w-0 break-words text-tinta">{l.nombreArchivo || 'Factura'}{l.releida ? ' · releída con aclaraciones' : ''}</span>
-                    {l.estado === 'procesando' && <span className="block text-xs text-tinta/60">⏳ leyendo… {seg}s — podés seguir con otra cosa</span>}
-                    {l.estado === 'listo' && <span className="block text-xs text-ok">✓ lista{l.resumen?.proveedor ? ` · ${l.resumen.proveedor}` : ''}{l.resumen?.numero ? ` · ${l.resumen.numero}` : ''} · {l.resumen?.renglones ?? 0} renglones{l.resumen?.dudas ? ` · ${l.resumen.dudas} duda(s)` : ''}{l.resumen?.total != null ? ` · ${pesos(l.resumen.total)}` : ''}{l.abiertaEn ? ' · ya abierta' : ''}</span>}
-                    {l.estado === 'error' && <span className="block text-xs text-marca-hondo">✕ {l.error || 'No se pudo leer'}</span>}
+                    {l.estado === 'procesando' && <span className="mt-0.5 flex items-center gap-1.5 text-xs text-tinta/60"><Girador className="size-3.5 shrink-0 text-marca" />leyendo… {seg}s — podés seguir con otra cosa</span>}
+                    {l.estado === 'listo' && <span className="mt-0.5 flex items-start gap-1.5 text-xs text-ok"><IconoOk className="mt-px size-3.5 shrink-0" /><span className="min-w-0">lista{l.resumen?.proveedor ? ` · ${l.resumen.proveedor}` : ''}{l.resumen?.numero ? ` · ${l.resumen.numero}` : ''} · {l.resumen?.renglones ?? 0} renglones{l.resumen?.dudas ? ` · ${l.resumen.dudas} duda(s)` : ''}{l.resumen?.total != null ? ` · ${pesos(l.resumen.total)}` : ''}{l.abiertaEn ? ' · ya abierta' : ''}</span></span>}
+                    {l.estado === 'error' && <span className="mt-0.5 flex items-start gap-1.5 text-xs text-marca-hondo"><IconoError className="mt-px size-3.5 shrink-0" /><span className="min-w-0">{l.error || 'No se pudo leer'}</span></span>}
                   </span>
-                  {l.estado === 'listo' && <button onClick={() => abrirLectura(l.id)} className="rounded-full bg-black px-3 py-1.5 text-xs font-medium text-white hover:bg-black/80">Abrir</button>}
-                  {l.estado !== 'procesando' && <button onClick={() => descartarLectura(l.id)} className="text-xs text-tinta/60 hover:text-marca" title="Sacar de la bandeja">✕</button>}
-                </div>
+                  <span className="flex items-center gap-1">
+                    {l.estado === 'listo' && <Boton tamano="chico" onClick={() => abrirLectura(l.id)}>Abrir</Boton>}
+                    {l.estado !== 'procesando' && (
+                      <button onClick={() => descartarLectura(l.id)} title="Sacar de la bandeja" aria-label="Sacar de la bandeja"
+                        className={unir('grid size-11 place-items-center rounded-full text-tinta/60 transition-colors hover:bg-marca-suave hover:text-marca-hondo sm:size-9', FOCO)}>
+                        <IconoCerrar className="size-4" />
+                      </button>
+                    )}
+                  </span>
+                </li>
               );
             })}
-          </div>
-        </div>
+          </ul>
+        </Tarjeta>
       )}
 
-      <div className="flex gap-1.5 flex-wrap border-b border-black/[0.06]">
-        {TABS.map(([k, label]) => {
+      <Pestanas
+        aLoAncho
+        etiquetaAccesible="Secciones de compras"
+        valor={tab}
+        onCambiar={setTab}
+        opciones={TABS.map(([k, label]) => {
           const badge = k === 'aprobar' ? porAprobar.length : k === 'recepcion' ? porRecibir.length : k === 'sugerencias' ? sugerencias.length : 0;
-          return <button key={k} onClick={() => setTab(k)} className={`px-3.5 py-2 text-sm font-medium rounded-t-lg -mb-px border-b-2 ${tab === k ? 'border-marca text-tinta' : 'border-transparent text-tinta/60 hover:text-tinta'}`}>{label}{badge ? <span className="ml-1.5 text-xs rounded-full bg-marca text-white px-1.5 py-0.5">{badge > 99 ? '99+' : badge}</span> : ''}</button>;
+          return { valor: k, etiqueta: label, cuenta: badge ? badge : undefined };
         })}
-      </div>
+      />
 
-      {aviso && <p className="rounded-xl bg-white p-3 text-sm text-marca">{aviso}</p>}
+      {aviso && <Aviso tono="error">{aviso}</Aviso>}
 
       {/* ÓRDENES (todas) */}
       {(tab === 'ordenes' || tab === 'aprobar' || tab === 'recepcion') && (
-        <div className="space-y-2">
+        <div className="space-y-3">
           {(tab === 'ordenes' ? ordenes : tab === 'aprobar' ? porAprobar : porRecibir).map((o) => (
-            <div
+            <Tarjeta
               key={o.numero}
               onClick={() => setModal({ tipo: 'ocDetalle', ocId: o.id, numero: o.numero })}
-              className="rounded-xl bg-white p-4 cursor-pointer hover:bg-crema-claro transition-colors"
+              className="cursor-pointer transition-colors hover:bg-crema-claro"
               title="Ver el detalle, los remitos y las facturas de esta compra"
             >
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="font-medium text-tinta">OC #{o.numero} · {o.proveedor?.razon_social ?? '—'}
-                    <span className={`ml-2 text-xs rounded-full px-2 py-0.5 ${ESTADO_ESTILO[o.estado] ?? ''}`}>{ESTADO_LABEL[o.estado] ?? o.estado}</span>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0">
+                  <p className="break-words font-semibold text-tinta">OC #{o.numero} · {o.proveedor?.razon_social ?? '—'}
+                    <Etiqueta tono={ESTADO_TONO[o.estado] ?? 'neutro'} className="ml-2 align-middle">{ESTADO_LABEL[o.estado] ?? o.estado}</Etiqueta>
                   </p>
-                  <p className="text-xs text-tinta/60 mt-0.5">
+                  <p className="mt-0.5 text-xs text-tinta/60">
                     {o.sucursal?.nombre} · {fecha(o.creado_en)} · {(o.items ?? []).length} ítems
                     {o.condicion_pago && ` · ${o.condicion_pago}`}
                     {o.vencimiento_pago && ` · vence ${fecha(o.vencimiento_pago)}`}
                     {o.fecha_entrega && ` · entrega ${fecha(o.fecha_entrega)}`}
                     {o.firmadaPor && ` · aprobó ${o.firmadaPor}`}
                   </p>
-                  {o.observaciones && <p className="text-xs text-tinta/60 mt-0.5 italic">“{o.observaciones}”</p>}
-                  {o.estado === 'cancelada' && o.rechazo_motivo && <p className="text-xs text-marca mt-0.5">Rechazada: {o.rechazo_motivo}</p>}
+                  {o.observaciones && <p className="mt-0.5 break-words text-xs italic text-tinta/60">“{o.observaciones}”</p>}
+                  {o.estado === 'cancelada' && o.rechazo_motivo && <p className="mt-0.5 text-xs text-marca-hondo">Rechazada: {o.rechazo_motivo}</p>}
                 </div>
-                <div className="text-right whitespace-nowrap">
-                  <p className="font-semibold text-tinta">{pesos(o.total)}</p>
-                  <div className="flex gap-2 justify-end mt-1" onClick={(e) => e.stopPropagation()}>
+                <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 sm:flex-col sm:items-end">
+                  <p className="importe font-semibold text-tinta">{pesos(o.total ?? 0)}</p>
+                  <div className="flex flex-wrap justify-end gap-2" onClick={(e) => e.stopPropagation()}>
                     {o.estado === 'pendiente_aprobacion' && <>
-                      <button onClick={() => post({ accion: 'aprobar', id: o.id })} className="text-xs font-medium text-ok hover:underline">Aprobar</button>
-                      <button onClick={() => setModal({ tipo: 'rechazar', oc: o })} className="text-xs font-medium text-marca hover:underline">Rechazar</button>
+                      <Boton tamano="chico" variante="ok" onClick={() => post({ accion: 'aprobar', id: o.id })}>Aprobar</Boton>
+                      <Boton tamano="chico" variante="peligro" onClick={() => setModal({ tipo: 'rechazar', oc: o })}>Rechazar</Boton>
                     </>}
-                    {['aprobada', 'enviada', 'recibida_parcial'].includes(o.estado) && <button onClick={() => setModal({ tipo: 'recibir', oc: o, recibido: {} })} className="text-xs font-medium text-ok hover:underline">Recibir</button>}
+                    {['aprobada', 'enviada', 'recibida_parcial'].includes(o.estado) && <Boton tamano="chico" variante="secundario" onClick={() => setModal({ tipo: 'recibir', oc: o, recibido: {} })}>Recibir</Boton>}
                   </div>
                 </div>
               </div>
-            </div>
+            </Tarjeta>
           ))}
           {(tab === 'ordenes' ? ordenes : tab === 'aprobar' ? porAprobar : porRecibir).length === 0 && (
-            <p className="rounded-xl bg-white p-8 text-center text-tinta/60 text-sm">
-              {tab === 'aprobar' ? 'No hay órdenes esperando aprobación.' : tab === 'recepcion' ? 'No hay órdenes pendientes de recepción.' : 'Sin órdenes de compra. Creá una o miralas en Sugerencias.'}
-            </p>
+            tab === 'aprobar' ? <Vacio titulo="No hay órdenes esperando aprobación." />
+              : tab === 'recepcion' ? <Vacio titulo="No hay órdenes pendientes de recepción." />
+              : <Vacio titulo="Sin órdenes de compra." texto="Creá una o miralas en Sugerencias." />
           )}
         </div>
       )}
@@ -212,107 +244,111 @@ export function ComprasWorkspace({ resumen, ordenes, proveedores, sugerencias, s
       {/* PROVEEDORES */}
       {tab === 'proveedores' && (
         <div className="space-y-3">
-          <div className="flex justify-end"><button onClick={() => setModal({ tipo: 'proveedor', prov: {} })} className="rounded-full bg-marca text-white text-sm font-medium px-4 py-2 hover:bg-marca-hondo">+ Nuevo proveedor</button></div>
-          <section className="rounded-xl bg-white overflow-hidden">
-            <table className="w-full text-sm text-tinta">
-              <thead><tr className="text-left text-xs text-tinta/60 border-b border-black/[0.06]">
-                <th className="px-4 py-2 font-medium">Proveedor</th><th className="px-4 py-2 font-medium">CUIT</th><th className="px-4 py-2 font-medium">Condición</th><th className="px-4 py-2 font-medium text-right">Entrega</th><th className="px-4 py-2" />
-              </tr></thead>
-              <tbody>
-                {proveedores.map((p) => (
-                  <tr key={p.id} className="border-b border-black/[0.06] last:border-0">
-                    <td className="px-4 py-3"><p className="font-medium">{p.razon_social}</p><p className="text-xs text-tinta/60">{[p.telefono, p.email].filter(Boolean).join(' · ')}</p>{p.faltan?.length > 0 && <p className="text-xs text-marca-hondo">Para comprarle falta: {p.faltan.join(', ')}</p>}</td>
-                    <td className="px-4 py-3 text-tinta/70">{p.cuit ?? '—'}</td>
-                    <td className="px-4 py-3 text-tinta/70">{p.condicion_pago ?? '—'}</td>
-                    <td className="px-4 py-3 text-right text-tinta/70">{p.lead_time_dias} días{p.lead_time_confirmado ? '' : ' ?'}</td>
-                    <td className="px-4 py-3 text-right"><button onClick={() => setModal({ tipo: 'proveedor', prov: p })} className="text-xs text-marca hover:underline">Editar</button></td>
-                  </tr>
-                ))}
-                {proveedores.length === 0 && <tr><td colSpan={5} className="px-4 py-8 text-center text-tinta/60 text-sm">Sin proveedores. Agregá el primero.</td></tr>}
-              </tbody>
-            </table>
-          </section>
+          <div className="flex justify-end"><Boton onClick={() => setModal({ tipo: 'proveedor', prov: {} })}>+ Nuevo proveedor</Boton></div>
+          <TablaResponsiva
+            etiqueta="Proveedores"
+            filas={proveedores}
+            claveFila="id"
+            vacio={<Vacio titulo="Sin proveedores." texto="Agregá el primero." />}
+            columnas={[
+              {
+                clave: 'proveedor',
+                titulo: 'Proveedor',
+                principal: true,
+                celda: (p: any) => (
+                  <div className="min-w-0">
+                    <p className="break-words font-medium text-tinta">{p.razon_social}</p>
+                    <p className="break-words text-xs font-normal text-tinta/60">{[p.telefono, p.email].filter(Boolean).join(' · ')}</p>
+                    {p.faltan?.length > 0 && <p className="text-xs font-normal text-marca-hondo">Para comprarle falta: {p.faltan.join(', ')}</p>}
+                  </div>
+                ),
+              },
+              { clave: 'cuit', titulo: 'CUIT', celda: (p: any) => <span className="text-tinta/70">{p.cuit ?? '—'}</span> },
+              { clave: 'condicion', titulo: 'Condición', celda: (p: any) => <span className="text-tinta/70">{p.condicion_pago ?? '—'}</span> },
+              { clave: 'entrega', titulo: 'Entrega', alinear: 'derecha', celda: (p: any) => <span className="text-tinta/70">{p.lead_time_dias} días{p.lead_time_confirmado ? '' : ' ?'}</span> },
+              { clave: 'acciones', titulo: '', acciones: true, celda: (p: any) => <Boton tamano="chico" variante="fantasma" onClick={() => setModal({ tipo: 'proveedor', prov: p })}>Editar</Boton> },
+            ]}
+          />
         </div>
       )}
 
       {/* ÓRDENES DE PAGO */}
       {tab === 'pagos' && (
         <div className="space-y-3">
-          <div className="flex justify-end"><button onClick={() => setModal({ tipo: 'factura' })} className="rounded-full bg-white border border-black/15 text-tinta text-sm font-medium px-4 py-2 hover:border-black/40">+ Registrar factura de proveedor</button></div>
-          <section className="rounded-xl bg-white overflow-hidden">
-            <h2 className="px-4 py-3 border-b border-black/[0.06] font-medium text-tinta text-sm">Cuentas a pagar (por proveedor)</h2>
-            {deuda === null ? <p className="px-4 py-6 text-center text-tinta/60 text-sm">Cargando…</p>
-              : deuda.length === 0 ? <p className="px-4 py-6 text-center text-tinta/60 text-sm">Sin facturas pendientes de pago.</p>
+          <div className="flex justify-end"><Boton variante="secundario" onClick={() => setModal({ tipo: 'factura' })}>+ Registrar factura de proveedor</Boton></div>
+          <Tarjeta relleno={false}>
+            <TarjetaCabecera titulo="Cuentas a pagar (por proveedor)" />
+            {deuda === null ? <Cargando bloque />
+              : deuda.length === 0 ? <p className="px-4 py-6 text-center text-sm text-tinta/60">Sin facturas pendientes de pago.</p>
               : deuda.map((d) => (
-                <div key={d.proveedor?.id} className="px-4 py-3 border-b border-black/[0.06] last:border-0">
-                  <div className="flex items-center justify-between gap-3">
-                    <div><p className="font-medium text-tinta">{d.proveedor?.razon_social}</p><p className="text-xs text-tinta/60">{d.facturas.length} factura(s) · próx. vence {fecha(d.facturas[0]?.vencimiento)}</p></div>
-                    <div className="text-right"><p className="font-semibold text-marca">{pesos(d.total)}</p>
-                      <button onClick={() => setModal({ tipo: 'pagar', prov: d })} className="text-xs font-medium text-ok hover:underline">Crear orden de pago →</button></div>
+                <div key={d.proveedor?.id} className="border-b border-black/[0.06] px-4 py-3 last:border-0 sm:px-5">
+                  <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
+                    <div className="min-w-0"><p className="break-words font-medium text-tinta">{d.proveedor?.razon_social}</p><p className="text-xs text-tinta/60">{d.facturas.length} factura(s) · próx. vence {fecha(d.facturas[0]?.vencimiento)}</p></div>
+                    <div className="flex flex-wrap items-center gap-2 sm:flex-col sm:items-end"><p className="importe font-semibold text-marca-hondo">{pesos(d.total ?? 0)}</p>
+                      <Boton tamano="chico" variante="secundario" onClick={() => setModal({ tipo: 'pagar', prov: d })}>Crear orden de pago</Boton></div>
                   </div>
                   {/* cada factura es clickeable para ver su detalle */}
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     {d.facturas.map((fc: any) => (
                       <button key={fc.id} onClick={() => setModal({ tipo: 'facturaDetalle', facturaId: fc.id })}
-                        className="rounded-full border border-black/15 px-2.5 py-1 text-xs text-tinta/70 hover:border-marca hover:text-marca">
-                        #{fc.numero} · {pesos(fc.monto)} ↗
+                        className={unir('relative inline-flex min-h-9 max-w-full items-center rounded-full border border-black/15 bg-white px-3 text-xs text-tinta/70 transition-colors before:absolute before:inset-x-0 before:-inset-y-1 hover:border-marca hover:text-marca-hondo sm:min-h-8 sm:before:hidden', FOCO)}>
+                        <span className="truncate">#{fc.numero} · <span className="importe">{pesos(fc.monto ?? 0)}</span></span>
                       </button>
                     ))}
                   </div>
                 </div>
               ))}
-          </section>
+          </Tarjeta>
           {pagos && pagos.length > 0 && (
-            <section className="rounded-xl bg-white overflow-hidden">
-              <h2 className="px-4 py-3 border-b border-black/[0.06] font-medium text-tinta text-sm">Órdenes de pago</h2>
+            <Tarjeta relleno={false}>
+              <TarjetaCabecera titulo="Órdenes de pago" />
               {pagos.map((p) => (
-                <div key={p.numero} className="px-4 py-2.5 border-b border-black/[0.06] last:border-0 flex items-center justify-between gap-3 text-sm">
-                  <div>
-                    <span className="text-tinta">OP #{p.numero} · {p.proveedor?.razon_social}</span>
-                    <span className={`ml-2 text-xs rounded-full px-2 py-0.5 ${OP_ESTILO[p.estado] ?? 'bg-crema text-tinta/70'}`}>{OP_LABEL[p.estado] ?? p.estado}</span>
+                <div key={p.numero} className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2 border-b border-black/[0.06] px-4 py-3 text-sm last:border-0 sm:px-5">
+                  <div className="min-w-0">
+                    <span className="break-words text-tinta">OP #{p.numero} · {p.proveedor?.razon_social}</span>
+                    <Etiqueta tono={OP_TONO[p.estado] ?? 'neutro'} className="ml-2 align-middle">{OP_LABEL[p.estado] ?? p.estado}</Etiqueta>
                     <p className="text-xs text-tinta/60">{p.medio_pago}{p.vencimiento ? ` · vence ${fecha(p.vencimiento)}` : ''}{p.pagada_en ? ` · pagada ${fecha(p.pagada_en)}` : ''}</p>
                   </div>
-                  <div className="text-right whitespace-nowrap">
-                    <p className="font-medium">{pesos(p.total)}</p>
-                    <div className="flex gap-2 justify-end mt-0.5">
+                  <div className="flex flex-wrap items-center gap-2 sm:flex-col sm:items-end">
+                    <p className="importe font-medium text-tinta">{pesos(p.total ?? 0)}</p>
+                    <div className="flex flex-wrap justify-end gap-2">
                       {p.estado === 'pendiente_aprobacion' && <>
-                        <button onClick={() => post({ accion: 'aprobarOP', id: p.id })} className="text-xs font-medium text-ok hover:underline">Aprobar</button>
-                        <button onClick={() => setModal({ tipo: 'rechazarOP', op: p })} className="text-xs font-medium text-marca hover:underline">Rechazar</button>
+                        <Boton tamano="chico" variante="ok" onClick={() => post({ accion: 'aprobarOP', id: p.id })}>Aprobar</Boton>
+                        <Boton tamano="chico" variante="peligro" onClick={() => setModal({ tipo: 'rechazarOP', op: p })}>Rechazar</Boton>
                       </>}
-                      {p.estado === 'aprobada' && <button onClick={() => post({ accion: 'pagarOP', id: p.id })} className="text-xs font-medium text-tinta hover:underline">Marcar pagada</button>}
+                      {p.estado === 'aprobada' && <Boton tamano="chico" variante="secundario" onClick={() => post({ accion: 'pagarOP', id: p.id })}>Marcar pagada</Boton>}
                     </div>
                   </div>
                 </div>
               ))}
-            </section>
+            </Tarjeta>
           )}
         </div>
       )}
 
       {/* SUGERENCIAS */}
       {tab === 'sugerencias' && (
-        <section className="rounded-xl bg-white overflow-hidden">
-          <div className="px-4 py-3 border-b border-black/[0.06] flex items-center justify-between">
-            <h2 className="font-medium text-tinta text-sm">Sugerencias de reposición</h2>
-            <a href="/analista" className="text-xs text-marca hover:underline">Pedir plan al Analista ODB →</a>
-          </div>
-          {sugerencias.length === 0 ? <p className="px-4 py-6 text-sm text-tinta/60">Nada para reponer por ahora.</p> : (
-            <table className="w-full text-sm text-tinta">
-              <thead><tr className="text-left text-xs text-tinta/60 border-b border-black/[0.06]"><th className="px-4 py-2 font-medium">Producto</th><th className="px-4 py-2 font-medium">Sucursal</th><th className="px-4 py-2 font-medium text-right">Stock</th><th className="px-4 py-2 font-medium text-right">Sugerido</th><th className="px-4 py-2 font-medium">Proveedor</th></tr></thead>
-              <tbody>
-                {sugerencias.slice(0, 100).map((s) => (
-                  <tr key={`${s.sku}-${s.sucursal}`} className="border-b border-black/[0.06] last:border-0">
-                    <td className="px-4 py-2.5"><p className="font-medium">{s.producto}</p><p className="text-xs text-tinta/60">{s.sku}</p></td>
-                    <td className="px-4 py-2.5 text-tinta/70">{s.sucursal}</td>
-                    <td className="px-4 py-2.5 text-right">{Math.round(Number(s.cantidad))}</td>
-                    <td className="px-4 py-2.5 text-right font-medium">{Math.round(Number(s.cantidad_sugerida))} u.</td>
-                    <td className="px-4 py-2.5 text-tinta/70 text-xs">{s.proveedor ?? 'sin asignar'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        <Tarjeta relleno={false}>
+          <TarjetaCabecera
+            titulo="Sugerencias de reposición"
+            accion={<a href="/analista" className={unir('rounded-sm text-sm font-medium text-marca-hondo hover:underline', FOCO)}>Pedir plan al Analista ODB →</a>}
+          />
+          {sugerencias.length === 0 ? <p className="px-4 py-6 text-sm text-tinta/60 sm:px-5">Nada para reponer por ahora.</p> : (
+            <TablaResponsiva
+              sinMarco
+              etiqueta="Sugerencias de reposición"
+              filas={sugerencias.slice(0, 100)}
+              claveFila={(s: any) => `${s.sku}-${s.sucursal}`}
+              columnas={[
+                { clave: 'producto', titulo: 'Producto', principal: true, celda: (s: any) => <div className="min-w-0"><p className="break-words font-medium text-tinta">{s.producto}</p><p className="text-xs font-normal text-tinta/60">{s.sku}</p></div> },
+                { clave: 'sucursal', titulo: 'Sucursal', celda: (s: any) => <span className="text-tinta/70">{s.sucursal}</span> },
+                { clave: 'stock', titulo: 'Stock', importe: true, celda: (s: any) => Math.round(Number(s.cantidad)) },
+                { clave: 'sugerido', titulo: 'Sugerido', importe: true, celda: (s: any) => <span className="font-medium">{Math.round(Number(s.cantidad_sugerida))} u.</span> },
+                { clave: 'proveedor', titulo: 'Proveedor', celda: (s: any) => <span className="text-xs text-tinta/70">{s.proveedor ?? 'sin asignar'}</span> },
+              ]}
+            />
           )}
-        </section>
+        </Tarjeta>
       )}
 
       {modal && <Modal modal={modal} setModal={setModal} post={post} proveedores={proveedores} sucursales={sucursales} aviso={aviso} categorias={categorias} onLecturasEncoladas={(t: string) => { setAvisoBandeja(t); cargarBandeja(); }} />}
@@ -322,13 +358,18 @@ export function ComprasWorkspace({ resumen, ordenes, proveedores, sugerencias, s
 
 // Sello: la marca corta que resume el estado de un renglón (CAJA ×12, BONIF. 12%,
 // SIN CARGO, REVISAR). Lee de un vistazo lo que antes era un párrafo.
+// la etiqueta de precio de los renglones de rebaja (antes, el emoji 🏷️)
+function IconoRebaja({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+      <path d="M20.6 13.4l-7.2 7.2a2 2 0 01-2.8 0L3 13V3h10l7.6 7.6a2 2 0 010 2.8z" /><circle cx="7.5" cy="7.5" r="1.3" />
+    </svg>
+  );
+}
+
 function Sello({ tono = 'neutro', children }: { tono?: 'neutro' | 'ok' | 'ojo' | 'info' | 'oro'; children: any }) {
-  const c = tono === 'ok' ? 'border-ok/30 text-ok bg-ok-suave'
-    : tono === 'ojo' ? 'border-marca/40 text-marca-hondo bg-marca-suave'
-    : tono === 'info' ? 'border-info/30 text-info bg-info-suave'
-    : tono === 'oro' ? 'border-dorado text-dorado-hondo bg-crema-claro'
-    : 'border-black/15 text-tinta/70 bg-white';
-  return <span className={`inline-block whitespace-nowrap rounded-[3px] border px-1.5 py-[1px] text-xs font-semibold uppercase tracking-[0.12em] leading-4 ${c}`}>{children}</span>;
+  const t: TonoEtiqueta = tono === 'ok' ? 'ok' : tono === 'ojo' ? 'error' : tono === 'info' ? 'info' : tono === 'oro' ? 'atencion' : 'neutro';
+  return <Etiqueta tono={t} className="whitespace-nowrap">{children}</Etiqueta>;
 }
 
 function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categorias = [], onLecturasEncoladas }: any) {
@@ -399,15 +440,15 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
     const puesto = valor !== undefined ? (valor === '' || valor == null ? '' : String(valor)) : (margenPorSku[sku] ?? '');
     const setear = poner ?? ((v: string) => setMargenPorSku((m) => ({ ...m, [sku]: v })));
     if (puesto === '' || Number(puesto) === Number(habitual)) {
-      return <p className="text-xs text-tinta/60 text-right">habitual {habitual}%</p>;
+      return <p className="mt-0.5 text-right text-xs text-tinta/60">habitual {habitual}%</p>;
     }
     return (
-      <p className="text-xs text-right">
-        <button onClick={() => setear(String(habitual))} className="text-tinta/60 underline">
+      <p className="mt-0.5 flex flex-wrap items-center justify-end gap-x-2 gap-y-1 text-right text-xs">
+        <button onClick={() => setear(String(habitual))} className={unir(ENLACE, 'text-tinta/70')}>
           volver al {habitual}%
         </button>
-        <label className="ml-2 inline-flex items-center gap-1 text-marca" title="Si no lo tildás, este % vale solo para esta entrada">
-          <input type="checkbox" checked={!!fijarSku[sku]} onChange={(e) => setFijarSku((x) => ({ ...x, [sku]: e.target.checked }))} className="accent-marca" />
+        <label className="inline-flex min-h-8 items-center gap-1 text-marca-hondo" title="Si no lo tildás, este % vale solo para esta entrada">
+          <input type="checkbox" checked={!!fijarSku[sku]} onChange={(e) => setFijarSku((x) => ({ ...x, [sku]: e.target.checked }))} className="size-4 shrink-0 accent-marca" />
           dejarlo fijo
         </label>
       </p>
@@ -1391,44 +1432,173 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   const cerrar = () => setModal(null);
   const t = modal.tipo;
 
-  // con el documento a la vista, el modal se ensancha para el layout de dos columnas
-  // la revisión de una factura necesita ancho SIEMPRE (haya o no documento al lado)
-  const modalAncho = t === 'entradaFoto' && foto && !foto.error ? 'max-w-6xl' : 'max-w-lg';
+  // con el documento a la vista, la ventana se ensancha para el layout de dos columnas
+  // la revisión de una factura necesita ancho SIEMPRE (haya o no documento al lado).
+  // Ojo: el Modal del kit llega como mucho a max-w-3xl ('ancho'); antes esta
+  // revisión usaba max-w-6xl. Si el kit suma un ancho mayor, va acá.
+  // Recibir y entrada directa también van anchas: su fila (cantidad, costo, %,
+  // vencimiento) no entra en 512 px sin dejar el nombre del producto en cero.
+  const modalAncho = (t === 'entradaFoto' && foto && !foto.error) || t === 'recibir' || t === 'entradaDirecta' ? 'ancho' : 'normal';
+
+  // el título de cada ventana (antes, el <h2> de cada rama)
+  const titulo =
+    t === 'nuevaOC' ? 'Nueva orden de compra'
+    : t === 'rechazar' ? <>Rechazar OC #{modal.oc.numero}</>
+    : t === 'rechazarOP' ? <>Rechazar OP #{modal.op.numero}</>
+    : t === 'recibir' ? <>Recibir OC #{modal.oc.numero}</>
+    : t === 'entradaDirecta' ? 'Entrada directa de mercadería'
+    : t === 'entradaFoto' ? 'Entrada por foto'
+    : t === 'proveedor' ? (modal.prov?.id ? 'Editar proveedor' : 'Nuevo proveedor')
+    : t === 'factura' ? 'Registrar factura de proveedor'
+    : t === 'pagar' ? <>Nueva orden de pago — {modal.prov.proveedor?.razon_social}</>
+    : '';
+
+  // los botones de cada ventana (Cancelar + la acción), fijos abajo aunque el contenido scrollee
+  const pie =
+    t === 'nuevaOC' ? (
+      <Acciones cerrar={cerrar} onOk={() => post({ accion: 'crearOC', proveedorId: f.proveedorId, sucursalId: f.sucursalId, items, fechaEntrega: f.fechaEntrega, condicionPago: f.condicionPago, vencimientoPago: f.vencimientoPago, observaciones: f.observaciones })} okLabel="Crear OC" disabled={!f.proveedorId || !f.sucursalId || !items.length} />
+    ) : t === 'rechazar' ? (
+      <Acciones variante="peligro" cerrar={cerrar} onOk={() => post({ accion: 'rechazar', id: modal.oc.id, motivo: f.motivo })} okLabel="Rechazar orden" />
+    ) : t === 'rechazarOP' ? (
+      <Acciones variante="peligro" cerrar={cerrar} onOk={() => post({ accion: 'rechazarOP', id: modal.op.id, motivo: f.motivo })} okLabel="Rechazar OP" />
+    ) : t === 'recibir' ? (
+      <Acciones cerrar={cerrar} okLabel="Registrar recepción" onOk={() => post({ accion: 'recibir', id: modal.oc.id, margenPct: f.margenPct ? Number(f.margenPct) : undefined, items: (modal.oc.items ?? []).map((it: any) => ({ sku: it.producto?.sku, cantidad: Number(recibido[it.producto?.sku] ?? (Number(it.cantidad) - Number(it.cantidad_recibida ?? 0))), vencimiento: vencs[it.producto?.sku] || undefined, margenPct: margenPorSku[it.producto?.sku] ? Number(margenPorSku[it.producto?.sku]) : undefined, fijarMargen: !!fijarSku[it.producto?.sku] })).filter((x: any) => x.cantidad > 0) })} />
+    ) : t === 'entradaDirecta' ? (
+      <Acciones cerrar={cerrar} okLabel="Registrar entrada" disabled={!f.proveedorId || !f.sucursalId || !items.length} onOk={() => post({ accion: 'entradaDirecta', proveedorId: f.proveedorId, sucursalId: f.sucursalId, numeroRemito: f.numeroRemito, margenPct: f.margenPct ? Number(f.margenPct) : undefined, items: items.map((i: any) => ({ sku: i.sku, cantidad: Number(i.cantidad), costo: Number(i.costo) || 0, vencimiento: i.vencimiento || undefined, margenPct: margenPorSku[i.sku] ? Number(margenPorSku[i.sku]) : undefined, fijarMargen: !!fijarSku[i.sku] })) })} />
+    ) : t === 'entradaFoto' ? (
+      !foto ? (
+        <Acciones cerrar={cerrar} okLabel="—" disabled onOk={() => {}} />
+      ) : foto.error ? (
+        <Acciones cerrar={cerrar} okLabel="Reintentar" onOk={() => setFoto(null)} />
+      ) : (
+        soloFactura ? (
+          <Acciones
+            cerrar={cerrar}
+            okLabel="Registrar factura para conciliar"
+            disabled={!f.proveedorId || !(fotoImp?.total > 0) || lecturaIncompleta}
+            onOk={() => post({
+              accion: 'factura',
+              proveedorId: f.proveedorId,
+              sucursalId: f.sucursalId || undefined,
+              tipo: 'factura',
+              letra: foto.comprobante?.tipo?.split('_')[1]?.toUpperCase() || undefined,
+              numero: foto.comprobante?.numero ?? 's/n',
+              monto: Number(fotoImp.total),
+              neto: fotoImp.neto, iva: fotoImp.iva,
+              percepcionIva: Number(fotoImp.percepcionIva ?? 0),
+              percepcionIibb: Number(fotoImp.percepcionIibb ?? 0),
+              impuestosInternos: Number(fotoImp.impuestosInternos ?? 0),
+              otros: Number(fotoImp.otros ?? 0),
+              fechaEmision: normFechaIso(foto.comprobante?.fecha),
+              condicionVenta: foto.comprobante?.condicionVenta || undefined,
+              archivoUrl: foto.archivoUrl || undefined,
+              pagada,
+              // TODOS los renglones leídos (con o sin producto): son la base del cruce
+              items: fotoItems.map((i) => ({ sku: i.sku || undefined, descripcion: i.descripcion, cantidad: Number(i.cantidad), precio: numImp(i.precio) })),
+            })}
+          />
+        ) : (
+        <Acciones
+          cerrar={cerrar}
+          okLabel={`Registrar entrada${foto.comprobante?.tipo?.startsWith('factura') ? ' + factura' : ''}`}
+          disabled={!f.proveedorId || !f.sucursalId || !fotoItems.some((i) => i.incluir && i.sku) || fotoItems.some((i) => i.incluir && !i.sku) || costoBloquea}
+          onOk={() => post({
+            accion: 'entradaDirecta',
+            proveedorId: f.proveedorId,
+            sucursalId: f.sucursalId,
+            numeroRemito: foto.comprobante?.numero || f.numeroRemito,
+            margenPct: f.margenPct ? Number(f.margenPct) : undefined,
+            items: itemsFusionados.map((i) => ({ sku: i.sku, cantidad: Number(i.cantidad), costo: i.costoUnitario, precioLeido: numImp(i.precio), margenPct: i.margenPct === '' ? undefined : Number(i.margenPct), fijarMargen: !!fijarSku[i.sku], descripcionLeida: i.descripcion })),
+            // el catálogo aprende el IVA que esta factura PROBÓ (cerró al centavo con el pie)
+            ...(ivaFactura?.estado === 'cierra' ? {
+              alicuotasVerificadas: renglonesIva
+                .map(({ i }, k) => ({ sku: i.sku, alicuota: ivaFactura.alicuotas[k], origen: ivaFactura.origenes[k], incluir: i.incluir }))
+                .filter((x) => x.incluir && x.sku && (x.origen === 'impresa' || x.origen === 'elegida'))
+                .map(({ sku, alicuota, origen }) => ({ sku, alicuota, origen })),
+            } : {}),
+            ...(foto.comprobante?.tipo?.startsWith('factura') && fotoImp?.total > 0 ? {
+              factura: {
+                numero: foto.comprobante?.numero ?? 's/n',
+                total: Number(fotoImp.total),
+                neto: fotoImp.neto != null ? Number(fotoImp.neto) : undefined,
+                iva: fotoImp.iva != null ? Number(fotoImp.iva) : undefined,
+                percepcionIva: Number(fotoImp.percepcionIva ?? 0),
+                percepcionIibb: Number(fotoImp.percepcionIibb ?? 0),
+                impuestosInternos: Number(fotoImp.impuestosInternos ?? 0),
+                otros: Number(fotoImp.otros ?? 0),
+                letra: foto.comprobante?.tipo?.split('_')[1]?.toUpperCase() || undefined,
+                fechaEmision: normFechaIso(foto.comprobante?.fecha),
+                condicionVenta: foto.comprobante?.condicionVenta || undefined,
+                archivoUrl: foto.archivoUrl || undefined,
+                pagada,
+              },
+            } : {}),
+          })}
+        />
+        )
+      )
+    ) : t === 'proveedor' ? (
+      <Acciones cerrar={cerrar} okLabel="Guardar" onOk={() => post(modal.prov?.id ? { accion: 'editarProveedor', id: modal.prov.id, razonSocial: f.razonSocial ?? f.razon_social, cuit: f.cuit, condicionPago: f.condicionPago ?? f.condicion_pago, email: f.email, telefono: f.telefono, leadTimeDias: f.leadTimeDias ?? f.lead_time_dias, leadTimeConfirmado: !!(f.leadTimeConfirmado ?? f.lead_time_confirmado) } : { accion: 'crearProveedor', razonSocial: f.razonSocial, cuit: f.cuit, condicionPago: f.condicionPago, email: f.email, telefono: f.telefono, leadTimeDias: f.leadTimeDias, leadTimeConfirmado: !!f.leadTimeConfirmado })} />
+    ) : t === 'factura' ? (
+      <Acciones cerrar={cerrar} okLabel="Registrar" onOk={() => post({ accion: 'factura', proveedorId: f.proveedorId, numero: f.numero, monto: Number(f.monto), vencimiento: f.vencimiento })} />
+    ) : t === 'pagar' ? (
+      <Acciones cerrar={cerrar} okLabel="Crear orden de pago" disabled={!facturasSel.length} onOk={() => post({ accion: 'crearOP', facturaIds: facturasSel, medioPago: f.medioPago ?? 'transferencia', fechaProgramada: f.fechaProgramada, observaciones: f.observaciones })} />
+    ) : null;
+
+  // Escape dentro de un campo no cierra la ventana: varios campos lo usan para
+  // cancelar su propia edición (los kilos, las unidades por caja, el monto de un
+  // impuesto) y una factura a medio revisar no se puede perder por un Escape.
+  const escapeEnCampo = (e: KeyboardEvent) => {
+    if (e.key === 'Escape' && (e.target as HTMLElement).closest('input, textarea, select')) e.nativeEvent.stopImmediatePropagation();
+  };
+
+  if (t === 'ocDetalle') {
+    return (
+      <OrdenDetalle
+        id={modal.ocId}
+        numero={modal.numero}
+        cerrar={cerrar}
+        verFactura={(facturaId: string) => setModal({ tipo: 'facturaDetalle', facturaId, volverA: { tipo: 'ocDetalle', ocId: modal.ocId, numero: modal.numero } })}
+      />
+    );
+  }
+  if (t === 'facturaDetalle') {
+    return <FacturaDetalle id={modal.facturaId} cerrar={modal.volverA ? () => setModal(modal.volverA) : cerrar} volviendo={!!modal.volverA} />;
+  }
 
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-[2px] flex items-center justify-center p-4 z-50">
-      <div className={`bg-white rounded-2xl w-full ${modalAncho} p-6 space-y-3 shadow-flotante max-h-[92dvh] overflow-y-auto`}>
+    <Ventana abierto onCerrar={cerrar} titulo={titulo} ancho={modalAncho} pie={pie} cerrarAlTocarAfuera={false}>
+      <div className="space-y-3" onKeyDown={escapeEnCampo}>
         {t === 'nuevaOC' && (<>
-          <h2 className="font-semibold text-tinta text-lg">Nueva orden de compra</h2>
-          <select className={input + ' bg-white'} value={f.proveedorId ?? ''} onChange={(e) => set('proveedorId', e.target.value)}>
+          <select aria-label="Proveedor" className={input} value={f.proveedorId ?? ''} onChange={(e) => set('proveedorId', e.target.value)}>
             <option value="">Proveedor…</option>{proveedores.map((p: any) => <option key={p.id} value={p.id}>{p.razon_social}</option>)}
           </select>
-          <select className={input + ' bg-white'} value={f.sucursalId ?? ''} onChange={(e) => set('sucursalId', e.target.value)}>
+          <select aria-label="Sucursal destino" className={input} value={f.sucursalId ?? ''} onChange={(e) => set('sucursalId', e.target.value)}>
             <option value="">Sucursal destino…</option>{sucursales.map((s: any) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
           </select>
           <div className="grid grid-cols-2 gap-3">
-            <div><label className="text-xs text-tinta/60 block mb-1">Entrega esperada</label><input type="date" value={f.fechaEntrega ?? ''} onChange={(e) => set('fechaEntrega', e.target.value)} className={input} /></div>
-            <div><label className="text-xs text-tinta/60 block mb-1">Vence el pago</label><input type="date" value={f.vencimientoPago ?? ''} onChange={(e) => set('vencimientoPago', e.target.value)} className={input} /></div>
+            <label className="min-w-0"><span className={ROTULO_CAMPO}>Entrega esperada</span><input type="date" value={f.fechaEntrega ?? ''} onChange={(e) => set('fechaEntrega', e.target.value)} className={input} /></label>
+            <label className="min-w-0"><span className={ROTULO_CAMPO}>Vence el pago</span><input type="date" value={f.vencimientoPago ?? ''} onChange={(e) => set('vencimientoPago', e.target.value)} className={input} /></label>
           </div>
           <input value={f.condicionPago ?? ''} onChange={(e) => set('condicionPago', e.target.value)} placeholder="Condición de pago (contado / 30 días / cta cte…)" className={input} />
 
           {/* pedido armado en el portal del proveedor → Excel/CSV precarga los renglones */}
-          <label className={'flex items-center justify-center gap-2 rounded-xl border border-dashed px-3 py-2.5 text-sm cursor-pointer ' + (f.proveedorId ? 'border-black/15 text-tinta/70 hover:border-marca hover:text-marca' : 'border-black/[0.06] text-tinta/60')}>
-            📄 {importando ? 'Leyendo el archivo…' : 'Importar Excel del pedido (portal del proveedor)'}
+          <label className={'flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed px-3 py-2.5 text-center text-sm has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-marca ' + (f.proveedorId ? 'border-black/25 text-tinta/70 hover:border-marca hover:text-marca-hondo' : 'cursor-not-allowed border-black/15 text-tinta/60')}>
+            {importando ? 'Leyendo el archivo…' : 'Importar Excel del pedido (portal del proveedor)'}
             <input
               type="file"
               accept=".xlsx,.xls,.csv,.pdf"
-              className="hidden"
+              className="sr-only"
               disabled={!f.proveedorId || importando}
               onChange={(e) => { const a = e.target.files?.[0]; if (a) importarPedido(a); e.target.value = ''; }}
             />
           </label>
           {importInfo && (
-            <div className="rounded-xl bg-crema-claro px-3 py-2 text-xs text-tinta/70 space-y-1">
-              {importInfo.conMatch > 0 && <p className="text-ok font-medium">✓ {importInfo.conMatch} renglón(es) importados al pedido</p>}
+            <div className="space-y-1 rounded-xl bg-crema-claro px-3 py-2 text-xs text-tinta/70">
+              {importInfo.conMatch > 0 && <p className="flex items-start gap-1.5 font-medium text-ok"><IconoOk className="size-4 shrink-0" />{importInfo.conMatch} renglón(es) importados al pedido</p>}
               {importInfo.sinMatch.length > 0 && (
                 <>
-                  <p className="text-marca-hondo font-medium">⚠ Sin match en el catálogo ({importInfo.sinMatch.length}) — agregalos a mano:</p>
+                  <p className="flex items-start gap-1.5 font-medium text-marca-hondo"><IconoAtencion className="size-4 shrink-0" /><span className="min-w-0">Sin match en el catálogo ({importInfo.sinMatch.length}) — agregalos a mano:</span></p>
                   {importInfo.sinMatch.slice(0, 6).map((s, i) => <p key={i} className="min-w-0 break-words">· {s}</p>)}
                   {importInfo.sinMatch.length > 6 && <p>… y {importInfo.sinMatch.length - 6} más</p>}
                 </>
@@ -1437,46 +1607,45 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
           )}
 
           <div className="relative">
-            <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Agregar producto…" className={input} />
-            {sug.length > 0 && <div className="absolute z-10 mt-1 w-full rounded-xl bg-white shadow-flotante border border-black/[0.06] max-h-48 overflow-y-auto">
-              {sug.map((p: any) => <button key={p.sku} onClick={() => { setItems((xs) => [...xs, { sku: p.sku, nombre: p.nombre, cantidad: 1, costoUnitario: p.costo ?? 0 }]); setBusca(''); setSug([]); }} className="w-full text-left px-3 py-2 text-sm hover:bg-crema-claro border-b border-black/[0.06] last:border-0">{p.nombre} <span className="text-xs text-tinta/60">{p.sku}</span></button>)}
+            <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Agregar producto…" aria-label="Agregar producto" className={input} />
+            {sug.length > 0 && <div className="absolute z-contenido mt-1 max-h-48 w-full overflow-y-auto rounded-xl border border-black/[0.06] bg-white shadow-flotante">
+              {sug.map((p: any) => <button key={p.sku} onClick={() => { setItems((xs) => [...xs, { sku: p.sku, nombre: p.nombre, cantidad: 1, costoUnitario: p.costo ?? 0 }]); setBusca(''); setSug([]); }} className="min-h-11 w-full border-b border-black/[0.06] px-3 py-2 text-left text-sm text-tinta last:border-0 hover:bg-crema-claro focus-visible:bg-crema-claro focus-visible:outline-none">{p.nombre} <span className="text-xs text-tinta/60">{p.sku}</span></button>)}
             </div>}
           </div>
+          {items.length > 0 && (
+            <div className="hidden items-center gap-2 pr-11 text-xs font-semibold uppercase tracking-[0.08em] text-tinta/60 md:flex">
+              <span className="flex-1">Producto</span><span className="w-16 text-right">Cant.</span><span className="w-24 text-right">Costo $</span>
+            </div>
+          )}
           {items.map((i, idx) => (
-            <div key={idx} className="flex items-center gap-2 text-sm">
-              <span className="flex-1 min-w-0 break-words">{i.nombre}</span>
-              <input type="number" value={i.cantidad} onChange={(e) => setItems((xs) => xs.map((x, j) => j === idx ? { ...x, cantidad: Number(e.target.value) } : x))} className="w-16 rounded border border-black/15 px-2 py-1 text-right" />
-              <input type="number" value={i.costoUnitario} onChange={(e) => setItems((xs) => xs.map((x, j) => j === idx ? { ...x, costoUnitario: Number(e.target.value) } : x))} className="w-24 rounded border border-black/15 px-2 py-1 text-right" placeholder="costo" />
-              <button onClick={() => setItems((xs) => xs.filter((_, j) => j !== idx))} className="text-tinta/60 hover:text-marca">✕</button>
+            <div key={idx} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-end gap-x-3 gap-y-1 border-b border-black/[0.06] pb-3 text-sm last:border-0 md:flex md:items-center md:gap-2 md:border-0 md:pb-0">
+              <span className="col-span-2 min-w-0 self-center break-words text-tinta md:flex-1">{i.nombre}</span>
+              <div className="col-start-1 md:w-16"><span className={ROTULO_FILA}>Cant.</span><input type="number" aria-label={`Cantidad de ${i.nombre}`} value={i.cantidad} onChange={(e) => setItems((xs) => xs.map((x, j) => j === idx ? { ...x, cantidad: Number(e.target.value) } : x))} className={unir(CAMPO_FILA, CAMPO_FILA_COLOR)} /></div>
+              <div className="col-start-2 md:w-24"><span className={ROTULO_FILA}>Costo $</span><input type="number" aria-label={`Costo de ${i.nombre}`} value={i.costoUnitario} onChange={(e) => setItems((xs) => xs.map((x, j) => j === idx ? { ...x, costoUnitario: Number(e.target.value) } : x))} className={unir(CAMPO_FILA, CAMPO_FILA_COLOR)} placeholder="costo" /></div>
+              <button onClick={() => setItems((xs) => xs.filter((_, j) => j !== idx))} aria-label={`Quitar ${i.nombre}`} title="Quitar" className={unir(BOTON_QUITAR, 'col-start-3 row-start-1 justify-self-end')}><IconoCerrar className="size-4" /></button>
             </div>
           ))}
-          {aviso && <p className="text-xs text-marca">{aviso}</p>}
-          <textarea value={f.observaciones ?? ''} onChange={(e) => set('observaciones', e.target.value)} placeholder="Observaciones (opcional)" rows={2} className={input} />
-          {items.length > 0 && <p className="text-right text-sm font-semibold text-tinta">Total OC: {pesos(items.reduce((s: number, i: any) => s + Number(i.cantidad) * Number(i.costoUnitario || 0), 0))}</p>}
+          {aviso && <Aviso tono="error">{aviso}</Aviso>}
+          <textarea value={f.observaciones ?? ''} onChange={(e) => set('observaciones', e.target.value)} placeholder="Observaciones (opcional)" aria-label="Observaciones" rows={2} className={input} />
+          {items.length > 0 && <p className="importe text-right text-sm font-semibold text-tinta">Total OC: {pesos(items.reduce((s: number, i: any) => s + Number(i.cantidad) * Number(i.costoUnitario || 0), 0))}</p>}
           <p className="text-xs text-tinta/60">La OC queda <b>pendiente de aprobación del dueño</b>.</p>
-          <Acciones cerrar={cerrar} onOk={() => post({ accion: 'crearOC', proveedorId: f.proveedorId, sucursalId: f.sucursalId, items, fechaEntrega: f.fechaEntrega, condicionPago: f.condicionPago, vencimientoPago: f.vencimientoPago, observaciones: f.observaciones })} okLabel="Crear OC" disabled={!f.proveedorId || !f.sucursalId || !items.length} />
         </>)}
 
         {t === 'rechazar' && (<>
-          <h2 className="font-semibold text-tinta text-lg">Rechazar OC #{modal.oc.numero}</h2>
-          <p className="text-sm text-tinta/70">{modal.oc.proveedor?.razon_social} · {pesos(modal.oc.total)}. Se cancela la orden y queda registrado el motivo.</p>
-          <input value={f.motivo ?? ''} onChange={(e) => set('motivo', e.target.value)} placeholder="Motivo del rechazo (opcional)" className={input} autoFocus />
-          {aviso && <p className="text-xs text-marca">{aviso}</p>}
-          <Acciones cerrar={cerrar} onOk={() => post({ accion: 'rechazar', id: modal.oc.id, motivo: f.motivo })} okLabel="Rechazar orden" />
+          <p className="text-sm text-tinta/70">{modal.oc.proveedor?.razon_social} · {pesos(modal.oc.total ?? 0)}. Se cancela la orden y queda registrado el motivo.</p>
+          <input value={f.motivo ?? ''} onChange={(e) => set('motivo', e.target.value)} placeholder="Motivo del rechazo (opcional)" aria-label="Motivo del rechazo" className={input} autoFocus />
+          {aviso && <Aviso tono="error">{aviso}</Aviso>}
         </>)}
 
         {t === 'rechazarOP' && (<>
-          <h2 className="font-semibold text-tinta text-lg">Rechazar OP #{modal.op.numero}</h2>
-          <p className="text-sm text-tinta/70">{modal.op.proveedor?.razon_social} · {pesos(modal.op.total)}. Las facturas vuelven a quedar pendientes.</p>
-          <input value={f.motivo ?? ''} onChange={(e) => set('motivo', e.target.value)} placeholder="Motivo del rechazo (opcional)" className={input} autoFocus />
-          {aviso && <p className="text-xs text-marca">{aviso}</p>}
-          <Acciones cerrar={cerrar} onOk={() => post({ accion: 'rechazarOP', id: modal.op.id, motivo: f.motivo })} okLabel="Rechazar OP" />
+          <p className="text-sm text-tinta/70">{modal.op.proveedor?.razon_social} · {pesos(modal.op.total ?? 0)}. Las facturas vuelven a quedar pendientes.</p>
+          <input value={f.motivo ?? ''} onChange={(e) => set('motivo', e.target.value)} placeholder="Motivo del rechazo (opcional)" aria-label="Motivo del rechazo" className={input} autoFocus />
+          {aviso && <Aviso tono="error">{aviso}</Aviso>}
         </>)}
 
         {t === 'recibir' && (<>
-          <h2 className="font-semibold text-tinta text-lg">Recibir OC #{modal.oc.numero}</h2>
           <p className="text-xs text-tinta/60">Ingresá lo que llegó de cada ítem. Al recibir se fija el costo de la compra y se calcula el precio de venta con el % de remarcación. Si cargás vencimiento, nace el lote para la vigilancia de vencimientos.</p>
-          <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-tinta/60">
+          <div className="hidden items-center gap-2 text-xs font-semibold uppercase tracking-[0.08em] text-tinta/60 md:flex">
             <span className="flex-1">Producto</span><span className="w-20 text-right">Llegó</span><span className="w-24 text-right">Remarc. %</span><span className="w-36">Vencimiento</span>
           </div>
           {(modal.oc.items ?? []).map((it: any, idx: number) => {
@@ -1484,53 +1653,53 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
             const sku = it.producto?.sku;
             const info = remarca[sku];
             return (
-              <div key={idx} className="flex items-center gap-2 text-sm">
-                <span className="flex-1 min-w-0 break-words">{it.producto?.nombre} <span className="text-xs text-tinta/60">(pend. {pend})</span></span>
-                <input type="number" value={recibido[sku] ?? ''} onChange={(e) => setRecibido((r) => ({ ...r, [sku]: e.target.value }))} placeholder={String(pend)} className="w-20 rounded border border-black/15 px-2 py-1 text-right" />
-                <span className="w-24">
+              <div key={idx} className="grid grid-cols-2 items-start gap-x-3 gap-y-1 border-b border-black/[0.06] pb-3 text-sm last:border-0 md:flex md:items-start md:gap-2 md:border-0 md:pb-0">
+                <span className="col-span-2 min-w-0 break-words text-tinta md:flex-1 md:pt-2">{it.producto?.nombre} <span className="text-xs text-tinta/60">(pend. {pend})</span></span>
+                <div className="md:w-20"><span className={ROTULO_FILA}>Llegó</span><input type="number" aria-label={`Llegó de ${it.producto?.nombre ?? sku}`} value={recibido[sku] ?? ''} onChange={(e) => setRecibido((r) => ({ ...r, [sku]: e.target.value }))} placeholder={String(pend)} className={unir(CAMPO_FILA, CAMPO_FILA_COLOR)} /></div>
+                <div className="min-w-0 md:w-24">
+                  <span className={ROTULO_FILA}>Remarc. %</span>
                   <input
+                    aria-label={`Remarcación de ${it.producto?.nombre ?? sku}`}
                     type="number"
                     value={margenPorSku[sku] ?? ''}
                     onChange={(e) => setMargenPorSku((m) => ({ ...m, [sku]: e.target.value }))}
                     placeholder={info?.margenRubro != null ? String(info.margenRubro) : 'rubro'}
                     title={info?.margenPct != null ? `La última vez se remarcó ${info.margenPct}%` : 'Sin remarcación previa: se usa la del rubro'}
-                    className={`w-full rounded border px-2 py-1 text-right ${info?.margenPct != null ? 'border-marca/40 bg-marca-suave' : 'border-black/15'}`}
+                    className={unir(CAMPO_FILA, info?.margenPct != null ? 'border-marca/40 bg-marca-suave' : CAMPO_FILA_COLOR)}
                   />
                   <AvisoMargen sku={sku} />
-                </span>
-                <input type="date" title="Vencimiento (opcional)" value={vencs[sku] ?? ''} onChange={(e) => setVencs((v) => ({ ...v, [sku]: e.target.value }))} className="w-36 rounded border border-black/15 px-2 py-1 text-xs" />
+                </div>
+                <div className="md:w-36"><span className={ROTULO_FILA}>Vencimiento</span><input type="date" title="Vencimiento (opcional)" aria-label={`Vencimiento de ${it.producto?.nombre ?? sku} (opcional)`} value={vencs[sku] ?? ''} onChange={(e) => setVencs((v) => ({ ...v, [sku]: e.target.value }))} className={unir(CAMPO_FILA, CAMPO_FILA_COLOR, 'text-left')} /></div>
               </div>
             );
           })}
-          <div className="flex items-center gap-2 text-sm pt-2 mt-1 border-t border-black/[0.06]">
-            <span className="flex-1 text-tinta/70">% de remarcación <span className="text-xs text-tinta/60">(vacío = usa el del rubro)</span></span>
-            <input type="number" value={f.margenPct ?? ''} onChange={(e) => set('margenPct', e.target.value)} placeholder="rubro" className="w-20 rounded border border-black/15 px-2 py-1 text-right" />
-            <span className="text-tinta/60 text-xs">%</span>
-          </div>
-          {aviso && <p className="text-xs text-marca">{aviso}</p>}
-          <Acciones cerrar={cerrar} okLabel="Registrar recepción" onOk={() => post({ accion: 'recibir', id: modal.oc.id, margenPct: f.margenPct ? Number(f.margenPct) : undefined, items: (modal.oc.items ?? []).map((it: any) => ({ sku: it.producto?.sku, cantidad: Number(recibido[it.producto?.sku] ?? (Number(it.cantidad) - Number(it.cantidad_recibida ?? 0))), vencimiento: vencs[it.producto?.sku] || undefined, margenPct: margenPorSku[it.producto?.sku] ? Number(margenPorSku[it.producto?.sku]) : undefined, fijarMargen: !!fijarSku[it.producto?.sku] })).filter((x: any) => x.cantidad > 0) })} />
+          <label className="mt-1 flex items-center gap-2 border-t border-black/[0.06] pt-3 text-sm">
+            <span className="min-w-0 flex-1 text-tinta/70">% de remarcación <span className="text-xs text-tinta/60">(vacío = usa el del rubro)</span></span>
+            <input type="number" value={f.margenPct ?? ''} onChange={(e) => set('margenPct', e.target.value)} placeholder="rubro" className={unir(CAMPO_FILA_BASE, CAMPO_FILA_COLOR, 'w-20 shrink-0')} />
+            <span className="text-xs text-tinta/60">%</span>
+          </label>
+          {aviso && <Aviso tono="error">{aviso}</Aviso>}
         </>)}
 
         {t === 'entradaDirecta' && (<>
-          <h2 className="font-semibold text-tinta text-lg">Entrada directa de mercadería</h2>
           <p className="text-xs text-tinta/60">Llegó mercadería <b>sin orden de compra previa</b> (reparto, compra de oportunidad). Genera la OC retroactiva con su remito, suma stock, fija costo y recalcula el precio de venta — todo trazable.</p>
-          <select className={input + ' bg-white'} value={f.proveedorId ?? ''} onChange={(e) => set('proveedorId', e.target.value)}>
+          <select aria-label="Proveedor" className={input} value={f.proveedorId ?? ''} onChange={(e) => set('proveedorId', e.target.value)}>
             <option value="">Proveedor…</option>{proveedores.map((p: any) => <option key={p.id} value={p.id}>{p.razon_social}</option>)}
           </select>
-          <div className="grid grid-cols-2 gap-3">
-            <select className={input + ' bg-white'} value={f.sucursalId ?? ''} onChange={(e) => set('sucursalId', e.target.value)}>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <select aria-label="Sucursal" className={input} value={f.sucursalId ?? ''} onChange={(e) => set('sucursalId', e.target.value)}>
               <option value="">Sucursal…</option>{sucursales.map((s: any) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
             </select>
-            <input value={f.numeroRemito ?? ''} onChange={(e) => set('numeroRemito', e.target.value)} placeholder="N° de remito del proveedor" className={input} />
+            <input value={f.numeroRemito ?? ''} onChange={(e) => set('numeroRemito', e.target.value)} placeholder="N° de remito del proveedor" aria-label="N° de remito del proveedor" className={input} />
           </div>
           <div className="relative">
-            <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Agregar producto…" className={input} />
-            {sug.length > 0 && <div className="absolute z-10 mt-1 w-full rounded-xl bg-white shadow-flotante border border-black/[0.06] max-h-48 overflow-y-auto">
-              {sug.map((p: any) => <button key={p.sku} onClick={() => { setItems((xs) => [...xs, { sku: p.sku, nombre: p.nombre, cantidad: 1, costo: p.costo ?? 0, vencimiento: '' }]); setBusca(''); setSug([]); }} className="w-full text-left px-3 py-2 text-sm hover:bg-crema-claro border-b border-black/[0.06] last:border-0">{p.nombre} <span className="text-xs text-tinta/60">{p.sku}</span></button>)}
+            <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Agregar producto…" aria-label="Agregar producto" className={input} />
+            {sug.length > 0 && <div className="absolute z-contenido mt-1 max-h-48 w-full overflow-y-auto rounded-xl border border-black/[0.06] bg-white shadow-flotante">
+              {sug.map((p: any) => <button key={p.sku} onClick={() => { setItems((xs) => [...xs, { sku: p.sku, nombre: p.nombre, cantidad: 1, costo: p.costo ?? 0, vencimiento: '' }]); setBusca(''); setSug([]); }} className="min-h-11 w-full border-b border-black/[0.06] px-3 py-2 text-left text-sm text-tinta last:border-0 hover:bg-crema-claro focus-visible:bg-crema-claro focus-visible:outline-none">{p.nombre} <span className="text-xs text-tinta/60">{p.sku}</span></button>)}
             </div>}
           </div>
           {items.length > 0 && (
-            <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-tinta/60 pr-6">
+            <div className="hidden items-center gap-2 pr-11 text-xs font-semibold uppercase tracking-[0.08em] text-tinta/60 md:flex">
               <span className="flex-1">Producto</span><span className="w-16 text-right">Cant.</span><span className="w-24 text-right">Costo $</span><span className="w-24 text-right">Remarc. %</span><span className="w-36">Vencimiento</span>
             </div>
           )}
@@ -1539,84 +1708,86 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
             const margen = margenPorSku[i.sku] !== undefined ? margenPorSku[i.sku] : '';
             const venta = Number(i.costo) > 0 && margen !== '' ? redondearPrecio(Number(i.costo) * (1 + Number(margen) / 100)) : null;
             return (
-              <div key={idx} className="flex items-center gap-2 text-sm">
-                <span className="flex-1 min-w-0 break-words">
+              <div key={idx} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-start gap-x-3 gap-y-1 border-b border-black/[0.06] pb-3 text-sm last:border-0 md:flex md:items-start md:gap-2 md:border-0 md:pb-0">
+                <span className="col-span-2 min-w-0 self-center break-words text-tinta md:flex-1 md:self-start md:pt-2">
                   {i.nombre}
                   {venta != null && <span className="ml-2 text-xs text-tinta/60">vende {pesos(venta)}</span>}
                 </span>
-                <input type="number" value={i.cantidad} onChange={(e) => setItems((xs) => xs.map((x, j) => j === idx ? { ...x, cantidad: Number(e.target.value) } : x))} className="w-16 rounded border border-black/15 px-2 py-1 text-right" />
-                <input type="number" value={i.costo} onChange={(e) => setItems((xs) => xs.map((x, j) => j === idx ? { ...x, costo: Number(e.target.value) } : x))} className="w-24 rounded border border-black/15 px-2 py-1 text-right" placeholder="costo" />
-                <span className="w-24">
+                <div className="col-start-1 md:w-16"><span className={ROTULO_FILA}>Cant.</span><input type="number" aria-label={`Cantidad de ${i.nombre}`} value={i.cantidad} onChange={(e) => setItems((xs) => xs.map((x, j) => j === idx ? { ...x, cantidad: Number(e.target.value) } : x))} className={unir(CAMPO_FILA, CAMPO_FILA_COLOR)} /></div>
+                <div className="col-start-2 md:w-24"><span className={ROTULO_FILA}>Costo $</span><input type="number" aria-label={`Costo de ${i.nombre}`} value={i.costo} onChange={(e) => setItems((xs) => xs.map((x, j) => j === idx ? { ...x, costo: Number(e.target.value) } : x))} className={unir(CAMPO_FILA, CAMPO_FILA_COLOR)} placeholder="costo" /></div>
+                <div className="col-start-1 min-w-0 md:w-24">
+                  <span className={ROTULO_FILA}>Remarc. %</span>
                   <input
+                    aria-label={`Remarcación de ${i.nombre}`}
                     type="number"
                     value={margen}
                     onChange={(e) => setMargenPorSku((m) => ({ ...m, [i.sku]: e.target.value }))}
                     placeholder={info?.margenRubro != null ? String(info.margenRubro) : 'rubro'}
                     title={info?.margenPct != null ? `La última vez se remarcó ${info.margenPct}%` : 'Sin remarcación previa: se usa la del rubro'}
-                    className={`w-full rounded border px-2 py-1 text-right ${info?.margenPct != null ? 'border-marca/40 bg-marca-suave' : 'border-black/15'}`}
+                    className={unir(CAMPO_FILA, info?.margenPct != null ? 'border-marca/40 bg-marca-suave' : CAMPO_FILA_COLOR)}
                   />
                   <AvisoMargen sku={i.sku} />
-                </span>
-                <input type="date" value={i.vencimiento ?? ''} onChange={(e) => setItems((xs) => xs.map((x, j) => j === idx ? { ...x, vencimiento: e.target.value } : x))} className="w-36 rounded border border-black/15 px-2 py-1 text-xs" />
-                <button onClick={() => setItems((xs) => xs.filter((_, j) => j !== idx))} className="text-tinta/60 hover:text-marca">✕</button>
+                </div>
+                <div className="col-start-2 md:w-36"><span className={ROTULO_FILA}>Vencimiento</span><input type="date" aria-label={`Vencimiento de ${i.nombre}`} value={i.vencimiento ?? ''} onChange={(e) => setItems((xs) => xs.map((x, j) => j === idx ? { ...x, vencimiento: e.target.value } : x))} className={unir(CAMPO_FILA, CAMPO_FILA_COLOR, 'text-left')} /></div>
+                <button onClick={() => setItems((xs) => xs.filter((_, j) => j !== idx))} aria-label={`Quitar ${i.nombre}`} title="Quitar" className={unir(BOTON_QUITAR, 'col-start-3 row-start-1 justify-self-end')}><IconoCerrar className="size-4" /></button>
               </div>
             );
           })}
-          <div className="flex items-center gap-2 text-sm pt-2 mt-1 border-t border-black/[0.06]">
-            <span className="flex-1 text-tinta/70">% de remarcación <span className="text-xs text-tinta/60">(vacío = usa el del rubro)</span></span>
-            <input type="number" value={f.margenPct ?? ''} onChange={(e) => set('margenPct', e.target.value)} placeholder="rubro" className="w-20 rounded border border-black/15 px-2 py-1 text-right" />
-            <span className="text-tinta/60 text-xs">%</span>
-          </div>
-          {items.length > 0 && <p className="text-right text-sm font-semibold text-tinta">Total entrada: {pesos(items.reduce((s: number, i: any) => s + Number(i.cantidad) * Number(i.costo || 0), 0))}</p>}
-          {aviso && <p className="text-xs text-marca">{aviso}</p>}
-          <Acciones cerrar={cerrar} okLabel="Registrar entrada" disabled={!f.proveedorId || !f.sucursalId || !items.length} onOk={() => post({ accion: 'entradaDirecta', proveedorId: f.proveedorId, sucursalId: f.sucursalId, numeroRemito: f.numeroRemito, margenPct: f.margenPct ? Number(f.margenPct) : undefined, items: items.map((i: any) => ({ sku: i.sku, cantidad: Number(i.cantidad), costo: Number(i.costo) || 0, vencimiento: i.vencimiento || undefined, margenPct: margenPorSku[i.sku] ? Number(margenPorSku[i.sku]) : undefined, fijarMargen: !!fijarSku[i.sku] })) })} />
+          <label className="mt-1 flex items-center gap-2 border-t border-black/[0.06] pt-3 text-sm">
+            <span className="min-w-0 flex-1 text-tinta/70">% de remarcación <span className="text-xs text-tinta/60">(vacío = usa el del rubro)</span></span>
+            <input type="number" value={f.margenPct ?? ''} onChange={(e) => set('margenPct', e.target.value)} placeholder="rubro" className={unir(CAMPO_FILA_BASE, CAMPO_FILA_COLOR, 'w-20 shrink-0')} />
+            <span className="text-xs text-tinta/60">%</span>
+          </label>
+          {items.length > 0 && <p className="importe text-right text-sm font-semibold text-tinta">Total entrada: {pesos(items.reduce((s: number, i: any) => s + Number(i.cantidad) * Number(i.costo || 0), 0))}</p>}
+          {aviso && <Aviso tono="error">{aviso}</Aviso>}
         </>)}
 
         {t === 'entradaFoto' && (<>
-          <h2 className="font-semibold text-tinta text-lg">📷 Entrada por foto</h2>
           {!foto ? (
             <>
               <p className="text-xs text-tinta/60">Sacale una foto a la factura o remito que llegó con la mercadería (o subí el PDF, hasta 32MB). La IA (Sonnet 5) lee proveedor, renglones e impuestos y, si algo no se entiende, te lo pregunta para que se lo aclares. Vos revisás y confirmás: la entrada suma stock, fija costo/precio y registra la factura con su desglose fiscal.</p>
-              <label className="flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-black/15 px-4 py-10 text-sm text-tinta/70 cursor-pointer hover:border-marca hover:text-marca">
-                <span className="text-3xl">📷</span>
+              <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-black/15 bg-crema-claro px-4 py-10 text-center text-sm text-tinta/70 transition-colors hover:border-marca hover:text-marca-hondo has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-marca">
+                {leyendoFoto ? <Girador className="size-8 text-marca" /> : (
+                  <svg viewBox="0 0 24 24" className="size-8" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M4 8h3l1.5-2h7L17 8h3a1 1 0 011 1v9a1 1 0 01-1 1H4a1 1 0 01-1-1V9a1 1 0 011-1z" /><circle cx="12" cy="13" r="3.5" />
+                  </svg>
+                )}
                 {leyendoFoto
                   ? `Leyendo el comprobante… ${segundosLeyendo > 4 ? `(${segundosLeyendo}s — podés esperar, no se corta)` : ''}`
                   : 'Tocar para sacar foto o elegir archivo'}
-                <input type="file" accept="image/*,.pdf" multiple className="hidden" disabled={leyendoFoto}
+                <input type="file" accept="image/*,.pdf" multiple className="sr-only" disabled={leyendoFoto}
                   onChange={(e) => { const fs = Array.from(e.target.files ?? []); if (fs.length === 1) leerFoto(fs[0]); else if (fs.length > 1) leerVarias(fs); e.target.value = ''; }} />
               </label>
               <p className="text-xs text-tinta/60">Podés elegir hasta <b>5</b> fotos a la vez: se leen todas juntas y aparecen en la <b>bandeja de lectura</b> cuando están listas. Consejo: sacá la foto desde acá (cámara) o mandala por WhatsApp como <i>documento</i> — comprimida por WhatsApp se lee más lento y peor.</p>
-              {avisoFoto && <p className="rounded-xl bg-atencion-suave px-3 py-2 text-xs text-atencion">{avisoFoto}</p>}
-              <Acciones cerrar={cerrar} okLabel="—" disabled onOk={() => {}} />
+              {avisoFoto && <Aviso tono="atencion">{avisoFoto}</Aviso>}
             </>
           ) : foto.error ? (
             <>
-              <p className="rounded-xl bg-marca-suave px-3 py-2 text-sm text-marca-hondo">{foto.error}</p>
-              <Acciones cerrar={cerrar} okLabel="Reintentar" onOk={() => setFoto(null)} />
+              <Aviso tono="error">{foto.error}</Aviso>
             </>
           ) : (
-            <div className={verOriginal && fotoUrl ? 'grid md:grid-cols-[minmax(0,380px)_1fr] gap-4 items-start' : ''}>
+            <div className={verOriginal && fotoUrl ? 'grid items-start gap-4 md:grid-cols-[minmax(0,380px)_minmax(0,1fr)]' : ''}>
               {/* documento original, para comparar contra lo que leyó la IA */}
               {verOriginal && fotoUrl && (
-                <div className="md:sticky md:top-0 rounded-xl border border-black/[0.06] bg-crema-claro overflow-hidden">
-                  <div className="flex items-center justify-between gap-1 px-2 py-1.5 border-b border-black/[0.06] bg-white/70">
-                    <span className="text-xs font-medium text-tinta/70">Documento original</span>
-                    <div className="flex items-center gap-1">
+                <div className="min-w-0 overflow-hidden rounded-xl border border-black/[0.06] bg-crema-claro md:sticky md:top-0">
+                  <div className="flex items-center justify-between gap-1 border-b border-black/[0.06] bg-white/70 px-2 py-1">
+                    <span className="min-w-0 truncate pl-1 text-xs font-medium text-tinta/70">Documento original</span>
+                    <div className="flex shrink-0 items-center">
                       {!fotoEsPdf && (<>
-                        <button type="button" onClick={() => setFotoZoom((z) => Math.max(1, Math.round((z - 0.25) * 100) / 100))} title="Alejar" className="h-6 w-6 rounded text-tinta/70 hover:bg-black/5 text-sm">−</button>
-                        <button type="button" onClick={() => setFotoZoom((z) => Math.min(4, Math.round((z + 0.25) * 100) / 100))} title="Acercar" className="h-6 w-6 rounded text-tinta/70 hover:bg-black/5 text-sm">+</button>
-                        <button type="button" onClick={() => setFotoRot((r) => (r + 90) % 360)} title="Rotar" className="h-6 w-6 rounded text-tinta/70 hover:bg-black/5 text-sm">⟳</button>
+                        <button type="button" onClick={() => setFotoZoom((z) => Math.max(1, Math.round((z - 0.25) * 100) / 100))} title="Alejar" aria-label="Alejar" className={unir(BOTON_VISOR, 'text-base')}>−</button>
+                        <button type="button" onClick={() => setFotoZoom((z) => Math.min(4, Math.round((z + 0.25) * 100) / 100))} title="Acercar" aria-label="Acercar" className={unir(BOTON_VISOR, 'text-base')}>+</button>
+                        <button type="button" onClick={() => setFotoRot((r) => (r + 90) % 360)} title="Rotar" aria-label="Rotar" className={unir(BOTON_VISOR, 'text-base')}>⟳</button>
                         {(fotoZoom !== 1 || fotoRot !== 0) && (
-                          <button type="button" onClick={() => { setFotoZoom(1); setFotoRot(0); }} title="Restablecer" className="h-6 px-1.5 rounded text-tinta/70 hover:bg-black/5 text-xs">reset</button>
+                          <button type="button" onClick={() => { setFotoZoom(1); setFotoRot(0); }} title="Restablecer" className={unir(BOTON_VISOR, 'w-auto px-2 text-xs')}>reset</button>
                         )}
                       </>)}
-                      <button type="button" onClick={() => setVerOriginal(false)} title="Ocultar" className="h-6 w-6 rounded text-tinta/70 hover:bg-black/5 text-sm">✕</button>
+                      <button type="button" onClick={() => setVerOriginal(false)} title="Ocultar" aria-label="Ocultar el documento" className={BOTON_VISOR}><IconoCerrar className="size-4" /></button>
                     </div>
                   </div>
                   {fotoEsPdf ? (
-                    <iframe src={fotoUrl} title="Documento original" className="w-full h-[70vh] bg-white" />
+                    <iframe src={fotoUrl} title="Documento original" className="h-[45dvh] w-full bg-white md:h-[70dvh]" />
                   ) : (
-                    <div className="h-[70vh] overflow-auto bg-tinta flex items-center justify-center">
+                    <div className="flex h-[45dvh] items-center justify-center overflow-auto bg-tinta md:h-[70dvh]">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
                         src={fotoUrl}
@@ -1629,15 +1800,15 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                 </div>
               )}
               {!verOriginal && fotoUrl && (
-                <button type="button" onClick={() => setVerOriginal(true)} className="text-xs text-tinta/60 underline hover:text-marca">
-                  📄 Mostrar el documento original para comparar
+                <button type="button" onClick={() => setVerOriginal(true)} className={unir('inline-flex min-h-9 items-center rounded-full text-xs text-tinta/70 underline hover:text-marca-hondo', FOCO)}>
+                  Mostrar el documento original para comparar
                 </button>
               )}
-              <div className="space-y-3">
+              <div className="min-w-0 space-y-3">
               {/* encabezado detectado */}
-              <div className="rounded-xl bg-crema-claro px-3 py-2 text-xs text-tinta/70">
+              <div className="break-words rounded-xl bg-crema-claro px-3 py-2 text-xs text-tinta/70">
                 <p><b>{foto.comprobante?.tipo?.replace('_', ' ').toUpperCase() ?? 'COMPROBANTE'}</b> {foto.comprobante?.numero ?? ''} · {foto.comprobante?.fecha ?? 's/f'} {foto.comprobante?.condicionVenta ? `· ${foto.comprobante.condicionVenta}` : ''}</p>
-                <p>{foto.proveedor?.detectado?.nombre ?? 'Proveedor no detectado'} {foto.proveedor?.detectado?.cuit ? `· CUIT ${foto.proveedor.detectado.cuit}` : ''} {foto.proveedor?.match ? '· ✓ en el sistema' : '· ⚠ no está en el sistema'}</p>
+                <p>{foto.proveedor?.detectado?.nombre ?? 'Proveedor no detectado'} {foto.proveedor?.detectado?.cuit ? `· CUIT ${foto.proveedor.detectado.cuit}` : ''} {foto.proveedor?.match ? '· en el sistema' : '· no está en el sistema'}</p>
               </div>
 
               {/* IMPUESTOS DE LA FACTURA (17/9/2026). Leandro: "necesito que lea
@@ -1647,7 +1818,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                   su % (o con "lo que falta"); si el pie no cierra con el total, el
                   sistema dice cuál es el impuesto y ofrece el arreglo exacto
                   (app/lib/pie-factura.ts, con tests). Todo se deshace con ↺. */}
-                            <PanelImpuestos
+              <PanelImpuestos
                 key={foto.archivoUrl ?? foto.comprobante?.numero ?? 'factura'}
                 fotoImp={fotoImp} setFotoImp={setFotoImp}
                 habituales={foto.impuestosHabituales ?? null}
@@ -1660,7 +1831,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
               <div className={'rounded-xl px-3 py-2.5 space-y-2 border ' + (foto.dudas?.length ? 'border-atencion/30 bg-atencion-suave' : 'border-black/[0.06] bg-crema-claro')}>
                 {foto.dudas?.length ? (
                   <>
-                    <p className="text-xs font-semibold text-atencion">🤔 La IA tiene {foto.dudas.length === 1 ? 'una duda' : `${foto.dudas.length} dudas`} — mirá el papel y aclarale:</p>
+                    <p className="text-xs font-semibold text-atencion">La IA tiene {foto.dudas.length === 1 ? 'una duda' : `${foto.dudas.length} dudas`} — mirá el papel y aclarale:</p>
                     <ul className="list-disc pl-4 space-y-1 text-xs text-atencion">
                       {foto.dudas.map((d: any, i: number) => (
                         <li key={i}>{d.referencia ? <b>{d.referencia}: </b> : null}{d.pregunta}</li>
@@ -1668,42 +1839,46 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                     </ul>
                   </>
                 ) : (
-                  <p className="text-xs text-tinta/70">✓ La IA no tuvo dudas. Si ves algo mal, aclarale y volvé a leer.</p>
+                  <p className="flex items-start gap-1.5 text-xs text-tinta/70"><IconoOk className="size-4 shrink-0 text-ok" />La IA no tuvo dudas. Si ves algo mal, aclarale y volvé a leer.</p>
                 )}
                 <textarea value={aclaraciones} onChange={(e) => setAclaraciones(e.target.value)} rows={2}
                   placeholder="Aclaraciones para la IA (ej: el renglón 3 dice 72, no 12; la percepción de IIBB es 4.850)…"
-                  className="w-full rounded border border-black/15 bg-white px-2 py-1.5 text-sm text-tinta outline-none focus:border-marca" />
-                <div className="mt-1 mb-1"><Dictado onTexto={(t) => setAclaraciones((v) => (v ? v + ' ' : '') + t)} /></div>
-                <button onClick={reLeerConAclaraciones} disabled={leyendoFoto || !aclaraciones.trim()}
-                  className="rounded-full bg-black px-4 py-1.5 text-xs font-semibold text-white hover:bg-marca disabled:opacity-40">
-                  {leyendoFoto ? 'Releyendo…' : '↺ Volver a leer con mis aclaraciones'}
-                </button>
+                  aria-label="Aclaraciones para la IA"
+                  className={CAMPO_BLANCO} />
+                <div className="flex flex-wrap items-center gap-2">
+                  <Dictado onTexto={(t) => setAclaraciones((v) => (v ? v + ' ' : '') + t)} />
+                  <Boton tamano="chico" variante="secundario" onClick={reLeerConAclaraciones} disabled={leyendoFoto || !aclaraciones.trim()}>
+                    {leyendoFoto ? 'Releyendo…' : 'Volver a leer con mis aclaraciones'}
+                  </Boton>
+                </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <select className={input + ' bg-white'} value={f.proveedorId ?? ''} onChange={(e) => set('proveedorId', e.target.value)}>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <select aria-label="Proveedor" className={input} value={f.proveedorId ?? ''} onChange={(e) => set('proveedorId', e.target.value)}>
                   <option value="">Proveedor…</option>{provList.map((p: any) => <option key={p.id} value={p.id}>{p.razon_social}</option>)}
                 </select>
-                <select className={input + ' bg-white'} value={f.sucursalId ?? ''} onChange={(e) => set('sucursalId', e.target.value)}>
+                <select aria-label="Sucursal" className={input} value={f.sucursalId ?? ''} onChange={(e) => set('sucursalId', e.target.value)}>
                   <option value="">Sucursal…</option>{sucursales.map((s: any) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
                 </select>
               </div>
 
               {/* proveedor detectado pero no está en el sistema: alta en el momento */}
               {!f.proveedorId && foto.proveedor?.detectado?.nombre && !foto.proveedor?.match && (
-                <button
+                <Boton
+                  tamano="chico"
+                  variante="secundario"
                   onClick={crearProveedorDetectado}
                   disabled={creandoProv}
-                  className="self-start rounded-full border border-marca bg-marca-suave px-4 py-1.5 text-xs font-semibold text-marca-hondo hover:bg-marca-suave disabled:opacity-50"
+                  className="self-start"
                 >
                   {creandoProv ? 'Dando de alta…' : `+ Dar de alta "${foto.proveedor.detectado.nombre}"${foto.proveedor.detectado.cuit ? ` · CUIT ${foto.proveedor.detectado.cuit}` : ''}`}
-                </button>
+                </Boton>
               )}
-              {provAviso && <p className="text-xs text-marca">{provAviso}</p>}
+              {provAviso && <p className="text-xs text-marca-hondo">{provAviso}</p>}
 
               {/* renglones: cada uno editable — vincular producto, cantidad, remarcación y precio */}
               <div className="@container">
-              <div className="hidden @min-[49rem]:grid grid-cols-[26px_minmax(11rem,1fr)_72px_290px_64px_92px] items-end gap-2 px-3 pt-1 text-xs uppercase tracking-[0.12em] text-tinta/60">
+              <div className="hidden @min-[49rem]:grid grid-cols-[26px_minmax(11rem,1fr)_72px_290px_64px_92px] items-end gap-2 px-3 pt-1 text-xs font-semibold uppercase tracking-[0.08em] text-tinta/60">
                 <span /><span>Renglón del papel → producto en el sistema</span>
                 <span className="text-right">Cant.</span><span className="text-right">Costo papel → c/IVA → total</span>
                 <span className="text-right">Remar. %</span><span className="text-right">P. venta</span>
@@ -1713,10 +1888,10 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                 <div key={idx} className={'rounded-xl border px-3 py-2.5 ' + (i.sugerido ? 'border-dorado bg-crema-claro' : i.incluir ? 'border-black/[0.06] bg-white' : 'border-transparent bg-crema-claro')}>
                   {i._esDescuento ? (
                     <div className={'flex items-start gap-2.5' + (i.noAplicar ? ' opacity-60' : '')}>
-                      <span className="mt-0.5 w-4 text-center text-sm">🏷️</span>
+                      <IconoRebaja className="mt-0.5 size-4 shrink-0 text-tinta/60" />
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                          <span className="font-mono text-sm leading-snug text-tinta">{i.descripcion}</span>
+                          <span className="min-w-0 font-mono text-sm leading-snug text-tinta [overflow-wrap:anywhere]">{i.descripcion}</span>
                           <span className="font-mono text-xs tabular-nums text-tinta/60">rebaja de <b className="text-tinta/70">{pesos(Math.abs(numImp(i.cantidad) * numImp(i.precio)) || Math.abs(numImp(i.importe)))}</b></span>
                           {i.noAplicar ? <Sello>sin aplicar</Sello>
                             : sinAtribuir.some((x) => x.descripcion === i.descripcion) ? <Sello tono="ojo">sin destino</Sello>
@@ -1726,26 +1901,26 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                         <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-tinta/70">
                           {i.noAplicar ? (
                             <>La mercadería queda a precio de lista; lo pagado de menos se reparte en el costo general.
-                              <button onClick={() => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, noAplicar: false } : x))} className="text-tinta/60 underline hover:text-marca">Aplicar de nuevo</button></>
+                              <button onClick={() => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, noAplicar: false } : x))} className={unir(ENLACE, 'text-tinta/70 hover:text-marca-hondo')}>Aplicar de nuevo</button></>
                           ) : sinAtribuir.some((x) => x.descripcion === i.descripcion) ? (
                             <span className="text-marca-hondo">No se sabe a qué renglón corresponde{numImp(i.descuentoPct) > 0 ? ` (dice ${numImp(i.descuentoPct)}% y no cierra con ninguno)` : ''}: no se descontó de ningún costo. Si es de toda la factura, cargala en “Desc. del pie”.</span>
                           ) : grupoDeDescuento.has(idx) ? (
                             <>Se reparte entre los {grupoDeDescuento.get(idx)!.n} renglones de arriba{grupoDeDescuento.get(idx)!.pct ? ` (${grupoDeDescuento.get(idx)!.pct}%)` : ''}, proporcional a cada uno.
-                              <button onClick={() => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, noAplicar: true } : x))} className="rounded-full border border-black/15 px-2 py-0.5 text-xs text-tinta/70 hover:border-marca hover:text-marca">No aplicar</button></>
+                              <button onClick={() => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, noAplicar: true } : x))} className={CHIP_ACCION}>No aplicar</button></>
                           ) : (
                             <>Se descuenta del renglón que nombra.
-                              <button onClick={() => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, noAplicar: true } : x))} className="rounded-full border border-black/15 px-2 py-0.5 text-xs text-tinta/70 hover:border-marca hover:text-marca">No aplicar</button></>
+                              <button onClick={() => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, noAplicar: true } : x))} className={CHIP_ACCION}>No aplicar</button></>
                           )}
                         </div>
                       </div>
                     </div>
                   ) : (
                   <div className="flex items-start gap-2.5">
-                    <input type="checkbox" checked={i.incluir} disabled={i.sugerido} onChange={(e) => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, incluir: e.target.checked } : x))} className="mt-1 h-4 w-4 accent-marca" />
+                    <input type="checkbox" checked={i.incluir} disabled={i.sugerido} onChange={(e) => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, incluir: e.target.checked } : x))} aria-label={`Incluir ${i.nombre ?? i.descripcion}`} className="mt-0.5 size-5 shrink-0 accent-marca" />
                     <div className="@container min-w-0 flex-1 space-y-1.5">
                       {/* 1 · lo que dice el papel, tal cual, con sus sellos */}
                       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                        <span className="font-mono text-sm leading-snug text-tinta">{i.descripcion}</span>
+                        <span className="min-w-0 font-mono text-sm leading-snug text-tinta [overflow-wrap:anywhere]">{i.descripcion}</span>
                         <span className="font-mono text-xs tabular-nums text-tinta/60">
                           {numImp(i.cantidad).toLocaleString('es-AR')} × {pesos(numImp(i.precio))}
                           {i.importe != null && i.importe !== '' ? <> = <b className="text-tinta/70">{pesos(Math.abs(numImp(i.importe)))}</b></> : null}
@@ -1764,7 +1939,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                             elige acá manda sobre lo impreso (la lectura pudo tomar mal el %). */}
                         {discriminaIva && numImp(i.cantidad) > 0 && alicDe(idx) != null && (
                           <label
-                            className={'ml-auto inline-flex items-center gap-1 rounded-xl border px-1.5 py-0.5 text-xs ' +
+                            className={'ml-auto inline-flex min-h-8 items-center gap-1 rounded-full border px-2.5 text-xs has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-marca ' +
                               (origenAlic(idx) === 'elegida' ? 'border-tinta bg-tinta text-crema'
                                 : ivaFactura?.estado === 'no_cierra' ? 'border-marca/60 bg-marca-suave text-marca-hondo'
                                 : 'border-black/15 bg-white text-tinta/70')}
@@ -1780,7 +1955,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                             </select>
                             <span className="opacity-60">{{ elegida: 'a mano', impresa: 'factura', catalogo: 'catálogo', general: 'general' }[origenAlic(idx) ?? 'general']}</span>
                             {origenAlic(idx) === 'elegida' && (
-                              <button type="button" onClick={(e) => { e.preventDefault(); elegirAlicuota([idx], null); }} className="opacity-60 hover:opacity-100" title="Volver a la alícuota de la factura / catálogo">↺</button>
+                              <button type="button" onClick={(e) => { e.preventDefault(); elegirAlicuota([idx], null); }} className="relative opacity-70 before:absolute before:-inset-2 hover:opacity-100" title="Volver a la alícuota de la factura / catálogo" aria-label="Volver a la alícuota de la factura / catálogo">↺</button>
                             )}
                           </label>
                         )}
@@ -1796,8 +1971,8 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                           {i.sugerido && i.nombre ? (
                             <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
                               <span className="text-dorado-hondo">¿Es <b className="text-tinta">{i.nombre}</b>?</span>
-                              <button onClick={() => confirmarSugerencia(idx)} className="rounded-full bg-tinta px-3 py-0.5 text-xs font-semibold text-crema hover:bg-black/80">Sí, es este</button>
-                              <button onClick={() => rechazarSugerencia(idx)} className="rounded-full border border-black/15 px-3 py-0.5 text-xs text-tinta/70 hover:border-marca hover:text-marca">Buscar otro</button>
+                              <Boton tamano="chico" variante="secundario" onClick={() => confirmarSugerencia(idx)}>Sí, es este</Boton>
+                              <button onClick={() => rechazarSugerencia(idx)} className={CHIP_ACCION}>Buscar otro</button>
                               {i.motivoIa && <span className="basis-full text-xs text-tinta/60">{String(i.motivoIa).replace(/\s*:\s*puede ser otro producto.*$/i, '').slice(0, 110)}</span>}
                             </span>
                           ) : i.nombre ? (
@@ -1808,27 +1983,27 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                               {i.variacionPct != null && (numImp(i.unidadesPorBulto) > 1 && Math.abs(i.variacionPct) > 300
                                 ? <span className="text-tinta/60">precio de caja vs. unidad</span>
                                 : <span className={Math.abs(i.variacionPct) > 25 ? 'text-marca-hondo' : 'text-tinta/60'}>costo {i.variacionPct > 0 ? '+' : ''}{i.variacionPct}%</span>)}
-                              <button onClick={() => setVinculaIdx(idx)} className="text-tinta/60 underline hover:text-marca">cambiar</button>
+                              <button onClick={() => setVinculaIdx(idx)} className={unir(ENLACE, 'text-tinta/70 hover:text-marca-hondo')}>cambiar</button>
                               {!i.porPeso && !medidaVariable(i) && !(numImp(i.bultoAplicado) > 1) && !(numImp(i.unidadesPorBulto) > 1) && !(numImp(i.envaseAplicado) > 1) && !(numImp(i.paqueteAplicado) > 0) && (
                                 <>
                                   <button
                                     onClick={() => void abrirPesoEdit(idx, i.sku)}
-                                    className="text-info/80 underline hover:text-info"
+                                    className={unir(ENLACE, 'text-info hover:text-tinta')}
                                     title="La factura lo trae por unidad pero en stock va por kilo: cargá cuántos kilos vinieron"
                                   >
-                                    ⚖️ es por peso
+                                    es por peso
                                   </button>
                                   <button
                                     onClick={() => { setPesoEdit(null); setBultoEdit(bultoEdit?.idx === idx ? null : { idx, unidades: '' }); }}
-                                    className="text-info/80 underline hover:text-info"
+                                    className={unir(ENLACE, 'text-info hover:text-tinta')}
                                     title="Cada unidad de la factura es una caja o display: cargá cuántas unidades trae"
                                   >
-                                    📦 es por bulto
+                                    es por bulto
                                   </button>
                                 </>
                               )}
                               {pesoEdit?.idx === idx && (
-                                <span className="basis-full flex flex-wrap items-center gap-1.5 rounded-xl bg-info-suave px-2 py-1.5 text-info">
+                                <span className="flex basis-full flex-wrap items-center gap-2 rounded-xl bg-info-suave px-3 py-2 text-info">
                                   ¿Cuántos kilos vinieron?
                                   <input
                                     autoFocus type="number" step="0.001" min="0" inputMode="decimal"
@@ -1839,27 +2014,29 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                                       if (e.key === 'Escape') setPesoEdit(null);
                                     }}
                                     placeholder="kg"
-                                    className="w-20 rounded border border-info/30 bg-white px-1.5 py-0.5 text-right tabular-nums text-tinta outline-none focus:border-info"
+                                    aria-label="Kilos que vinieron"
+                                    className={unir(CAMPO_FILA_BASE, 'w-24 border-info/30 bg-white')}
                                   />
                                   {Number(pesoEdit.kg) > 0 && (
                                     <span className="text-info/80">
                                       → {pesos((Math.abs(numImp(i.importe)) || numImp(i.cantidad) * Math.abs(numImp(i.precio))) / Number(pesoEdit.kg))} el kilo
                                     </span>
                                   )}
-                                  <button
+                                  <Boton
+                                    tamano="chico"
                                     disabled={!(Number(pesoEdit.kg) > 0)}
                                     onClick={() => void confirmarPeso(idx, i.sku, i.nombre)}
-                                    className="rounded-full bg-sky-700 px-2.5 py-0.5 text-xs font-semibold text-white hover:bg-sky-800 disabled:opacity-40"
                                   >
                                     Pasar a kilos
-                                  </button>
-                                  <button onClick={() => setPesoEdit(null)} className="text-info/80 underline">cancelar</button>
+                                  </Boton>
+                                  <button onClick={() => setPesoEdit(null)} className={unir(ENLACE, 'text-info')}>cancelar</button>
                                   <span className="basis-full">
                                     {pesoEdit.enCatalogo === true ? (
-                                      <span className="text-info/80">✓ En el catálogo ya se vende por peso.</span>
+                                      <span className="inline-flex items-center gap-1"><IconoOk className="size-4 shrink-0" />En el catálogo ya se vende por peso.</span>
                                     ) : (
-                                      <label className="inline-flex items-center gap-1.5">
+                                      <label className="inline-flex min-h-9 items-center gap-2">
                                         <input
+                                          className="size-5 shrink-0 accent-marca"
                                           type="checkbox"
                                           checked={pesoEdit.marcarCatalogo}
                                           disabled={pesoEdit.enCatalogo === null}
@@ -1874,7 +2051,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                                 </span>
                               )}
                               {bultoEdit?.idx === idx && (
-                                <span className="basis-full flex flex-wrap items-center gap-1.5 rounded-xl bg-info-suave px-2 py-1.5 text-info">
+                                <span className="flex basis-full flex-wrap items-center gap-2 rounded-xl bg-info-suave px-3 py-2 text-info">
                                   ¿Cuántas unidades trae cada caja?
                                   <input
                                     autoFocus type="number" step="1" min="2" inputMode="numeric"
@@ -1885,51 +2062,53 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                                       if (e.key === 'Escape') setBultoEdit(null);
                                     }}
                                     placeholder="u."
-                                    className="w-16 rounded border border-info/30 bg-white px-1.5 py-0.5 text-right tabular-nums text-tinta outline-none focus:border-info"
+                                    aria-label="Unidades por caja"
+                                    className={unir(CAMPO_FILA_BASE, 'w-20 border-info/30 bg-white')}
                                   />
                                   {Number(bultoEdit.unidades) > 1 && (
                                     <span className="text-info/80">
                                       → {numImp(i.cantidad) * Number(bultoEdit.unidades)} unidades a {pesos(numImp(i.precio) / Number(bultoEdit.unidades))} c/u
                                     </span>
                                   )}
-                                  <button
+                                  <Boton
+                                    tamano="chico"
                                     disabled={!(Number(bultoEdit.unidades) > 1)}
                                     onClick={() => { pasarABultoManual(idx, Number(bultoEdit.unidades)); setBultoEdit(null); }}
-                                    className="rounded-full bg-sky-700 px-2.5 py-0.5 text-xs font-semibold text-white hover:bg-sky-800 disabled:opacity-40"
                                   >
                                     Pasar a unidades
-                                  </button>
+                                  </Boton>
                                   {Number(bultoEdit.unidades) > 1 && Number.isInteger(numImp(i.cantidad) / Number(bultoEdit.unidades)) && (
-                                    <span className="basis-full flex flex-wrap items-center gap-1.5">
-                                      <span className="text-info/80">…o al revés, la factura trae unidades sueltas y en stock va la caja:
+                                    <span className="flex basis-full flex-wrap items-center gap-2">
+                                      <span className="text-info">…o al revés, la factura trae unidades sueltas y en stock va la caja:
                                         {' '}{numImp(i.cantidad)} u. = <b>{numImp(i.cantidad) / Number(bultoEdit.unidades)} cajas</b> a {pesos(numImp(i.precio) * Number(bultoEdit.unidades))}</span>
-                                      <button
+                                      <Boton
+                                        tamano="chico"
+                                        variante="secundario"
                                         onClick={() => { armarEnvases(idx, Number(bultoEdit.unidades)); setBultoEdit(null); }}
-                                        className="rounded-full bg-tinta px-2.5 py-0.5 text-xs font-semibold text-crema hover:bg-black/80"
                                       >
                                         Armar cajas
-                                      </button>
+                                      </Boton>
                                     </span>
                                   )}
-                                  <button onClick={() => setBultoEdit(null)} className="text-info/80 underline">cancelar</button>
+                                  <button onClick={() => setBultoEdit(null)} className={unir(ENLACE, 'text-info')}>cancelar</button>
                                 </span>
                               )}
                               {avisoCatalogo?.idx === idx && (
                                 <span className={'basis-full ' + (avisoCatalogo.error ? 'text-marca-hondo' : 'text-ok')}>
                                   {avisoCatalogo.texto}
-                                  <button onClick={() => setAvisoCatalogo(null)} className="ml-2 text-tinta/60 underline">ok</button>
+                                  <button onClick={() => setAvisoCatalogo(null)} className={unir(ENLACE, 'ml-2 text-tinta/70')}>ok</button>
                                 </span>
                               )}
                             </span>
                           ) : (
                             <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
                               {i.avisoMedida && <span className="basis-full text-marca-hondo">Medida distinta ({i.avisoMedida}): es otro producto.</span>}
-                              <button onClick={() => setVinculaIdx(vinculaIdx === idx ? null : idx)} className="rounded-full bg-tinta px-3 py-0.5 text-xs font-semibold text-crema hover:bg-black/80">Vincular producto</button>
-                              <button onClick={() => abrirAlta(idx, i)} className="rounded-full border border-marca/50 px-3 py-0.5 text-xs font-medium text-marca-hondo hover:bg-marca-suave">Dar de alta</button>
+                              <Boton tamano="chico" variante="secundario" onClick={() => setVinculaIdx(vinculaIdx === idx ? null : idx)}>Vincular producto</Boton>
+                              <button onClick={() => abrirAlta(idx, i)} className={CHIP_ACCION}>Dar de alta</button>
                             </span>
                           )}
                         </div>
-                        <input type="number" step="any" min="0" value={i.cantidad} onChange={(e) => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, cantidad: Number(e.target.value) } : x))} className="w-full rounded-xl border border-black/15 px-2 py-1 text-right text-sm tabular-nums text-tinta focus:border-marca outline-none" />
+                        <input type="number" step="any" min="0" value={i.cantidad} onChange={(e) => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, cantidad: Number(e.target.value) } : x))} aria-label="Cantidad" className={unir(CAMPO_FILA, CAMPO_FILA_COLOR, 'importe')} />
                         {/* costo: el precio del papel (corregible) → el costo final que queda en stock, en la misma línea */}
                         <div className="col-span-1 flex flex-wrap items-center justify-end gap-1.5 tabular-nums">
                           <input
@@ -1940,7 +2119,8 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                               return { ...x, precio: p, importe: numImp(x.cantidad) * p, cantidadCorregida: null, bultoConsumido: null };
                             }))}
                             title="Precio unitario tal como está en el papel (sin IVA): corregilo si la lectura falló"
-                            className="w-[78px] rounded border border-black/[0.06] px-1 py-0.5 text-right text-xs text-tinta focus:border-marca outline-none"
+                            aria-label="Precio del papel"
+                            className={unir(CAMPO_FILA_BASE, CAMPO_FILA_COLOR, 'importe w-[78px] px-1.5')}
                           />
                           {Math.abs(costoFinal(i, idx) - precioEfectivo(i)) > 0.5 ? (
                             <span
@@ -1962,7 +2142,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                           )}
                         </div>
                         <div>
-                          <input type="number" value={i.margenPct} placeholder="rubro" onChange={(e) => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, margenPct: e.target.value === '' ? '' : Number(e.target.value) } : x))} className="w-full rounded-xl border border-black/15 px-2 py-1 text-right text-sm tabular-nums text-tinta focus:border-marca outline-none" />
+                          <input type="number" value={i.margenPct} placeholder="rubro" aria-label="Remarcación %" onChange={(e) => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, margenPct: e.target.value === '' ? '' : Number(e.target.value) } : x))} className={unir(CAMPO_FILA, CAMPO_FILA_COLOR, 'importe')} />
                           <AvisoMargen
                             sku={i.sku}
                             habitualExterno={i.match?.margenPct ?? null}
@@ -1970,7 +2150,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                             poner={(v) => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, margenPct: v === '' ? '' : Number(v) } : x))}
                           />
                         </div>
-                        <div className="text-right text-sm font-semibold tabular-nums text-tinta">
+                        <div className="importe text-right text-sm font-semibold text-tinta">
                           {i.margenPct === '' || i.margenPct == null ? <span className="text-xs font-normal text-tinta/60">s/ rubro</span> : pesos(precioVenta(i))}
                         </div>
                       </div>
@@ -1979,85 +2159,87 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                       {(numImp(i._descuento) < 0 || numImp(i.cantidadCorregida) > 0 || correccionRenglon(i)?.seguro === false || esSinCargo(i) || numImp(i.bonificacionPct) > 0 || numImp(i.unidadesPorBulto) > 1 || numImp(i.bultoAplicado) > 1 || numImp(i.envaseAplicado) > 1 || numImp(i.paqueteAplicado) > 0 || !!sugerirConversion(i) || i.importeConIvaLeido != null || medidaVariable(i) || (i.porPeso && numImp(i.cantidad) > 0 && !medidaVariable(i))) && (
                       <div className="flex flex-col gap-1 text-xs leading-snug">
                         {numImp(i._descuento) < 0 && (descuentoDesmedido(i) ? (
-                          <span className="rounded-xl bg-marca-suave px-2 py-1 text-marca-hondo">⚠ El descuento ({pesos(Math.abs(numImp(i._descuento)))}) supera al renglón ({pesos(Math.abs(baseUnitaria(i) * (numImp(i.cantidad) || 1)))}): no se aplicó. Suele ser de varios renglones o de toda la factura; revisalo antes de registrar.</span>
+                          <span className="rounded-xl bg-marca-suave px-2.5 py-1.5 text-marca-hondo"><IconoAtencion className="mr-1 inline size-4 align-[-3px]" />El descuento ({pesos(Math.abs(numImp(i._descuento)))}) supera al renglón ({pesos(Math.abs(baseUnitaria(i) * (numImp(i.cantidad) || 1)))}): no se aplicó. Suele ser de varios renglones o de toda la factura; revisalo antes de registrar.</span>
                         ) : (
-                          <span className="rounded-xl bg-ok-suave px-2 py-1 text-ok">🏷️ Con el descuento: {pesos(baseUnitaria(i))} − {pesos(Math.abs(numImp(i._descuento)) / (numImp(i.cantidad) || 1))} = <b>{pesos(precioEfectivo(i))}</b> por unidad.</span>
+                          <span className="rounded-xl bg-ok-suave px-2.5 py-1.5 text-ok">Con el descuento: {pesos(baseUnitaria(i))} − {pesos(Math.abs(numImp(i._descuento)) / (numImp(i.cantidad) || 1))} = <b>{pesos(precioEfectivo(i))}</b> por unidad.</span>
                         ))}
                         {numImp(i.cantidadCorregida) > 0 && (
-                          <span className="rounded-xl bg-ok-suave px-2 py-1 text-ok">✔ Cantidad corregida: {numImp(i.bultoConsumido) > 1
+                          <span className="rounded-xl bg-ok-suave px-2.5 py-1.5 text-ok">Cantidad corregida: {numImp(i.bultoConsumido) > 1
                             ? <>el papel decía <b>{numImp(i.cantidadCorregida)} bulto(s) de {numImp(i.bultoConsumido)}</b> al precio por unidad; el importe ({pesos(Math.abs(numImp(i.importe)))}) da <b>{numImp(i.cantidad)}</b> unidades.</>
                             : <>se leyó {numImp(i.cantidadCorregida)}, pero el importe ({pesos(Math.abs(numImp(i.importe)))}) ÷ el precio da exactamente <b>{numImp(i.cantidad)}</b>.</>}
-                            <button onClick={() => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, cantidad: numImp(x.cantidadCorregida), cantidadCorregida: null, unidadesPorBulto: numImp(x.bultoConsumido) > 1 ? numImp(x.bultoConsumido) : x.unidadesPorBulto, bultoConsumido: null } : x))} className="ml-2 text-tinta/60 underline hover:text-marca">deshacer</button>
+                            <button onClick={() => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, cantidad: numImp(x.cantidadCorregida), cantidadCorregida: null, unidadesPorBulto: numImp(x.bultoConsumido) > 1 ? numImp(x.bultoConsumido) : x.unidadesPorBulto, bultoConsumido: null } : x))} className={unir(ENLACE, 'ml-2 text-tinta/70 hover:text-marca-hondo')}>deshacer</button>
                           </span>
                         )}
                         {correccionRenglon(i)?.seguro === false && (
-                          <span className="rounded-xl bg-atencion-suave px-2 py-1 text-atencion">🔎 {numImp(i.cantidad)} × {pesos(numImp(i.precio))} no da el importe del papel ({pesos(Math.abs(numImp(i.importe)))}). ¿El precio es <b>{pesos(correccionRenglon(i)!.valor)}</b>?
-                            <button onClick={() => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, precio: correccionRenglon(i)!.valor } : x))} className="ml-2 rounded-full bg-amber-700 px-2.5 py-0.5 text-xs font-semibold text-white hover:bg-amber-800">Usar {pesos(correccionRenglon(i)!.valor)}</button>
+                          <span className="rounded-xl bg-atencion-suave px-2.5 py-1.5 text-atencion">{numImp(i.cantidad)} × {pesos(numImp(i.precio))} no da el importe del papel ({pesos(Math.abs(numImp(i.importe)))}). ¿El precio es <b>{pesos(correccionRenglon(i)!.valor)}</b>?
+                            <Boton tamano="chico" variante="secundario" onClick={() => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, precio: correccionRenglon(i)!.valor } : x))} className="ml-2 align-middle">Usar {pesos(correccionRenglon(i)!.valor)}</Boton>
                           </span>
                         )}
                         {esSinCargo(i) ? (
-                          <span className="rounded-xl bg-ok-suave px-2 py-1 text-ok">🎁 Sin cargo: entran {numImp(i.cantidad)} que no se pagan. Con el PIN del dueño (abajo) se reparten en el grupo del mismo precio; sin él, solo abaratan este producto.</span>
+                          <span className="rounded-xl bg-ok-suave px-2.5 py-1.5 text-ok">Sin cargo: entran {numImp(i.cantidad)} que no se pagan. Con el PIN del dueño (abajo) se reparten en el grupo del mismo precio; sin él, solo abaratan este producto.</span>
                         ) : numImp(i.bonificacionPct) > 0 ? (
-                          <span className="rounded-xl bg-ok-suave px-2 py-1 text-ok">🎁 Bonificado {numImp(i.bonificacionPct)}%: se paga {pesos(precioEfectivo(i))} de los {pesos(numImp(i.precio))} de lista.</span>
+                          <span className="rounded-xl bg-ok-suave px-2.5 py-1.5 text-ok">Bonificado {numImp(i.bonificacionPct)}%: se paga {pesos(precioEfectivo(i))} de los {pesos(numImp(i.precio))} de lista.</span>
                         ) : null}
                         {numImp(i.unidadesPorBulto) > 1 && (
-                          <span className="rounded-xl bg-info-suave px-2 py-1 text-info">📦 Viene por caja de <b>{Math.round(numImp(i.unidadesPorBulto))}</b>: {numImp(i.cantidad)} caja(s) = <b>{numImp(i.cantidad) * Math.round(numImp(i.unidadesPorBulto))}</b> unidades a <b>{pesos(numImp(i.precio) / Math.round(numImp(i.unidadesPorBulto)))}</b>.
-                            <button onClick={() => pasarAUnidad(idx)} className="ml-2 rounded-full bg-sky-700 px-2.5 py-0.5 text-xs font-semibold text-white hover:bg-sky-800">Pasar a unidades</button>
+                          <span className="rounded-xl bg-info-suave px-2.5 py-1.5 text-info">Viene por caja de <b>{Math.round(numImp(i.unidadesPorBulto))}</b>: {numImp(i.cantidad)} caja(s) = <b>{numImp(i.cantidad) * Math.round(numImp(i.unidadesPorBulto))}</b> unidades a <b>{pesos(numImp(i.precio) / Math.round(numImp(i.unidadesPorBulto)))}</b>.
+                            <Boton tamano="chico" variante="secundario" onClick={() => pasarAUnidad(idx)} className="ml-2 align-middle">Pasar a unidades</Boton>
                             <span className="ml-1 text-info/80">(dejalo así solo si el producto es la caja)</span>
                           </span>
                         )}
                         {i.importeConIvaLeido != null && (
-                          <span className="text-info">🧾 El importe leído ({pesos(Math.abs(numImp(i.importeConIvaLeido)))}) traía el IVA adentro: se toma el neto <b>{pesos(Math.abs(numImp(i.importe)))}</b>.</span>
+                          <span className="text-info">El importe leído ({pesos(Math.abs(numImp(i.importeConIvaLeido)))}) traía el IVA adentro: se toma el neto <b>{pesos(Math.abs(numImp(i.importe)))}</b>.</span>
                         )}
                         {numImp(i.envaseAplicado) > 1 && (
-                          <span className="text-info">📦 La factura trae unidades sueltas: {numImp(i.cantidad) * Math.round(numImp(i.envaseAplicado))} u. = <b>{numImp(i.cantidad)} caja(s) de {Math.round(numImp(i.envaseAplicado))}</b> a {pesos(numImp(i.precio))} cada una.
-                            <button onClick={() => deshacerEnvases(idx)} className="ml-2 text-tinta/60 underline hover:text-marca">deshacer</button>
+                          <span className="text-info">La factura trae unidades sueltas: {numImp(i.cantidad) * Math.round(numImp(i.envaseAplicado))} u. = <b>{numImp(i.cantidad)} caja(s) de {Math.round(numImp(i.envaseAplicado))}</b> a {pesos(numImp(i.precio))} cada una.
+                            <button onClick={() => deshacerEnvases(idx)} className={unir(ENLACE, 'ml-2 text-tinta/70 hover:text-marca-hondo')}>deshacer</button>
                           </span>
                         )}
                         {numImp(i.paqueteAplicado) > 0 && (
-                          <span className="text-info">📦 Facturado por kilo: entran <b>{numImp(i.cantidad)} paquete(s) de {Math.round(numImp(i.paqueteAplicado))} g</b> a {pesos(numImp(i.precio))} cada uno.
-                            <button onClick={() => deshacerPaquetes(idx)} className="ml-2 text-tinta/60 underline hover:text-marca">deshacer</button>
+                          <span className="text-info">Facturado por kilo: entran <b>{numImp(i.cantidad)} paquete(s) de {Math.round(numImp(i.paqueteAplicado))} g</b> a {pesos(numImp(i.precio))} cada uno.
+                            <button onClick={() => deshacerPaquetes(idx)} className={unir(ENLACE, 'ml-2 text-tinta/70 hover:text-marca-hondo')}>deshacer</button>
                           </span>
                         )}
                         {(() => {
                           const c = sugerirConversion(i);
                           if (!c) return null;
                           return (
-                            <span className="rounded-xl bg-info-suave px-2 py-1 text-info">
-                              📦 {c.tipo === 'kilo_a_paquete'
+                            <span className="rounded-xl bg-info-suave px-2.5 py-1.5 text-info">
+                              {c.tipo === 'kilo_a_paquete'
                                 ? <>La factura cobra por kilo y el producto viene en paquetes de <b>{c.factor} g</b>: ¿son <b>{c.cantidadNueva} paquetes</b> a {pesos(c.precioNuevo)} cada uno?</>
                                 : <>El producto es la caja de <b>{c.factor}</b> y vienen {numImp(i.cantidad)} u.: ¿son <b>{c.cantidadNueva} cajas</b> a {pesos(c.precioNuevo)}?</>}
-                              <button
+                              <Boton
+                                tamano="chico"
+                                variante="secundario"
                                 onClick={() => (c.tipo === 'kilo_a_paquete'
                                   ? pasarAPaquetes(idx, c.factor, c.cantidadNueva, c.precioNuevo)
                                   : armarEnvases(idx, c.factor))}
-                                className="ml-2 rounded-full bg-sky-700 px-2.5 py-0.5 text-xs font-semibold text-white hover:bg-sky-800"
+                                className="ml-2 align-middle"
                               >
                                 {c.tipo === 'kilo_a_paquete' ? 'Pasar a paquetes' : 'Armar cajas'}
-                              </button>
+                              </Boton>
                               <span className="ml-1 text-info/80">(dejalo así si ya viene en la unidad de stock)</span>
                             </span>
                           );
                         })()}
                         {numImp(i.envaseAplicado) > 1 && (
-                          <span className="text-info">📦 La factura trae unidades sueltas: {numImp(i.cantidad) * Math.round(numImp(i.envaseAplicado))} u. = <b>{numImp(i.cantidad)} caja(s) de {Math.round(numImp(i.envaseAplicado))}</b> a {pesos(numImp(i.precio))} cada una.
-                            <button onClick={() => deshacerEnvases(idx)} className="ml-2 text-tinta/60 underline hover:text-marca">deshacer</button>
+                          <span className="text-info">La factura trae unidades sueltas: {numImp(i.cantidad) * Math.round(numImp(i.envaseAplicado))} u. = <b>{numImp(i.cantidad)} caja(s) de {Math.round(numImp(i.envaseAplicado))}</b> a {pesos(numImp(i.precio))} cada una.
+                            <button onClick={() => deshacerEnvases(idx)} className={unir(ENLACE, 'ml-2 text-tinta/70 hover:text-marca-hondo')}>deshacer</button>
                           </span>
                         )}
                         {numImp(i.bultoAplicado) > 1 && (
-                          <span className="text-info">📦 Convertido a unidades (caja de {Math.round(numImp(i.bultoAplicado))}).
-                            <button onClick={() => volverABulto(idx)} className="ml-2 text-tinta/60 underline hover:text-marca">deshacer</button>
+                          <span className="text-info">Convertido a unidades (caja de {Math.round(numImp(i.bultoAplicado))}).
+                            <button onClick={() => volverABulto(idx)} className={unir(ENLACE, 'ml-2 text-tinta/70 hover:text-marca-hondo')}>deshacer</button>
                           </span>
                         )}
                         {medidaVariable(i) && (
-                          <span className="rounded-xl bg-info-suave px-2 py-1 text-info">⚖️ Se factura por peso: el importe ({pesos(Math.abs(numImp(i.importe)))}) a {pesos(numImp(i.precio))} el kilo da <b>{pesoDelImporte(i).toFixed(3).replace('.', ',')} kg</b>, pero entra como {numImp(i.cantidad)} unidad(es).
-                            <button onClick={() => pasarAPeso(idx)} className="ml-2 rounded-full bg-sky-700 px-2.5 py-0.5 text-xs font-semibold text-white hover:bg-sky-800">Pasar a kilos</button>
+                          <span className="rounded-xl bg-info-suave px-2.5 py-1.5 text-info">Se factura por peso: el importe ({pesos(Math.abs(numImp(i.importe)))}) a {pesos(numImp(i.precio))} el kilo da <b>{pesoDelImporte(i).toFixed(3).replace('.', ',')} kg</b>, pero entra como {numImp(i.cantidad)} unidad(es).
+                            <Boton tamano="chico" variante="secundario" onClick={() => pasarAPeso(idx)} className="ml-2 align-middle">Pasar a kilos</Boton>
                             <span className="ml-1 text-info/80">(dejalo así solo si en stock va la horma entera)</span>
                           </span>
                         )}
                         {i.porPeso && numImp(i.cantidad) > 0 && !medidaVariable(i) && (
-                          <span className="text-info">⚖️ Por peso: {numImp(i.cantidad).toLocaleString('es-AR')} kg a {pesos(numImp(i.precio))} el kilo.
-                            <button onClick={() => deshacerPeso(idx)} className="ml-2 text-tinta/60 underline hover:text-marca">deshacer</button>
+                          <span className="text-info">Por peso: {numImp(i.cantidad).toLocaleString('es-AR')} kg a {pesos(numImp(i.precio))} el kilo.
+                            <button onClick={() => deshacerPeso(idx)} className={unir(ENLACE, 'ml-2 text-tinta/70 hover:text-marca-hondo')}>deshacer</button>
                           </span>
                         )}
                       </div>
@@ -2068,31 +2250,31 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
 
                   {/* buscador para vincular el producto a este renglón */}
                   {!i._esDescuento && vinculaIdx === idx && (
-                    <div className="relative mt-2 ml-6">
-                      <input autoFocus value={vinculaBusca} onChange={(e) => setVinculaBusca(e.target.value)} placeholder="Buscar por nombre, código o PLU…" className={input + ' w-full'} />
+                    <div className="relative mt-2 sm:ml-6">
+                      <input autoFocus value={vinculaBusca} onChange={(e) => setVinculaBusca(e.target.value)} placeholder="Buscar por nombre, código o PLU…" aria-label="Buscar el producto por nombre, código o PLU" className={input} />
                       {/* El vínculo puede estar mal y el producto correcto no existir todavía
                           (té Marolio vinculado al paté Marolio, 15/9/2026): el alta tiene que
                           estar acá también, no solo en los renglones sin vincular. */}
                       <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
                         <span className="text-tinta/60">¿No está en el catálogo?</span>
-                        <button onClick={() => abrirAlta(idx, i)} className="rounded-full border border-marca/50 px-3 py-0.5 font-medium text-marca-hondo hover:bg-marca-suave">Dar de alta un producto nuevo</button>
+                        <button onClick={() => abrirAlta(idx, i)} className={CHIP_ACCION}>Dar de alta un producto nuevo</button>
                         {i.sku && (
                           <button
                             onClick={() => { setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, sku: '', nombre: null, variacionPct: null, sugerido: false, motivoIa: null, incluir: false, alicuotaCatalogo: null } : x)); setVinculaIdx(null); }}
-                            className="text-tinta/60 underline hover:text-marca"
+                            className={unir(ENLACE, 'text-tinta/70 hover:text-marca-hondo')}
                           >
                             Quitar el vínculo
                           </button>
                         )}
-                        <button onClick={() => setVinculaIdx(null)} className="ml-auto text-tinta/60 underline">cerrar</button>
+                        <button onClick={() => setVinculaIdx(null)} className={unir(ENLACE, 'ml-auto text-tinta/70')}>cerrar</button>
                       </div>
                       {vinculaSug.length > 0 && (
-                        <div className="absolute z-20 mt-1 w-full rounded-xl bg-white shadow-flotante border border-black/[0.06] max-h-60 overflow-y-auto">
+                        <div className="absolute z-contenido mt-1 max-h-60 w-full overflow-y-auto rounded-xl border border-black/[0.06] bg-white shadow-flotante">
                           {vinculaSug.map((p: any) => (
-                            <button key={p.sku} onClick={() => vincularProducto(idx, p)} className="w-full text-left px-3 py-2 hover:bg-crema-claro border-b border-black/[0.06] last:border-0">
+                            <button key={p.sku} onClick={() => vincularProducto(idx, p)} className="min-h-11 w-full border-b border-black/[0.06] px-3 py-2 text-left last:border-0 hover:bg-crema-claro focus-visible:bg-crema-claro focus-visible:outline-none">
                               <div className="flex items-center justify-between gap-2">
                                 <span className="text-sm text-tinta min-w-0 break-words">{p.nombre}{p.marca ? <span className="text-tinta/60"> · {p.marca}</span> : null}</span>
-                                {p.precio != null && <span className="shrink-0 text-xs font-medium text-ok">{pesos(p.precio)}</span>}
+                                {p.precio != null && <span className="importe shrink-0 text-xs font-medium text-ok">{pesos(p.precio)}</span>}
                               </div>
                               <div className="text-xs text-tinta/60">{p.sku}{p.categoria ? ` · ${p.categoria}` : ''}</div>
                             </button>
@@ -2104,32 +2286,32 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
 
                   {/* alta ahí mismo: el producto no existe todavía en el catálogo */}
                   {altaIdx === idx && (
-                    <div className="mt-2 ml-6 rounded-xl border border-marca/30 bg-marca-suave p-3 space-y-2">
+                    <div className="mt-2 space-y-2 rounded-xl border border-marca/30 bg-marca-suave p-3 sm:ml-6">
                       <p className="text-xs font-semibold text-tinta">Dar de alta este producto</p>
                       <p className="text-xs text-tinta/60 -mt-1">
                         Queda creado y vinculado a este renglón. El costo sale de la factura ({pesos(costoFinal(i))}) y se guarda contra este proveedor, así la próxima factura lo reconoce sola.
                       </p>
-                      <input autoFocus value={altaForm.nombre} onChange={(e) => setAltaForm((x: any) => ({ ...x, nombre: e.target.value }))} placeholder="Nombre del producto" className={input} />
-                      <div className="grid grid-cols-3 gap-2">
-                        <input value={altaForm.rubro} onChange={(e) => setAltaForm((x: any) => ({ ...x, rubro: e.target.value }))} placeholder="Rubro" list="rubros-alta" className={input} />
+                      <input autoFocus value={altaForm.nombre} onChange={(e) => setAltaForm((x: any) => ({ ...x, nombre: e.target.value }))} placeholder="Nombre del producto" aria-label="Nombre del producto" className={CAMPO_BLANCO} />
+                      <div className="grid gap-2 sm:grid-cols-3">
+                        <input value={altaForm.rubro} onChange={(e) => setAltaForm((x: any) => ({ ...x, rubro: e.target.value }))} placeholder="Rubro" aria-label="Rubro" list="rubros-alta" className={CAMPO_BLANCO} />
                         <datalist id="rubros-alta">{categorias.map((c: any) => <option key={c.id} value={c.nombre} />)}</datalist>
-                        <input value={altaForm.marca} onChange={(e) => setAltaForm((x: any) => ({ ...x, marca: e.target.value }))} placeholder="Marca" className={input} />
-                        <input value={altaForm.codigoBarras} onChange={(e) => setAltaForm((x: any) => ({ ...x, codigoBarras: e.target.value }))} placeholder="Código de barras" className={input + ' font-mono'} />
+                        <input value={altaForm.marca} onChange={(e) => setAltaForm((x: any) => ({ ...x, marca: e.target.value }))} placeholder="Marca" aria-label="Marca" className={CAMPO_BLANCO} />
+                        <input value={altaForm.codigoBarras} onChange={(e) => setAltaForm((x: any) => ({ ...x, codigoBarras: e.target.value }))} placeholder="Código de barras" aria-label="Código de barras" className={unir(CAMPO_BLANCO, 'font-mono')} />
                       </div>
-                      {altaError && <p className="text-xs text-marca">{altaError}</p>}
-                      <div className="flex items-center justify-between">
-                        <a href="/productos/nuevo" target="_blank" rel="noreferrer" className="text-xs text-tinta/60 underline">
+                      {altaError && <p className="text-xs text-marca-hondo">{altaError}</p>}
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <a href="/productos/nuevo" target="_blank" rel="noreferrer" className={unir(ENLACE, 'text-xs text-tinta/70')}>
                           Cargar la ficha completa (se abre aparte)
                         </a>
-                        <span className="flex gap-2">
-                          <button onClick={() => setAltaIdx(null)} className="text-xs text-tinta/60 px-2">Cancelar</button>
-                          <button
+                        <span className="flex flex-wrap gap-2">
+                          <Boton tamano="chico" variante="secundario" onClick={() => setAltaIdx(null)}>Cancelar</Boton>
+                          <Boton
+                            tamano="chico"
                             onClick={() => crearDesdeFactura(idx, i)}
                             disabled={creandoProd || !altaForm.nombre.trim()}
-                            className="rounded-full bg-marca text-white text-xs font-medium px-4 py-1.5 disabled:opacity-50"
                           >
                             {creandoProd ? 'Creando…' : 'Crear y vincular'}
-                          </button>
+                          </Boton>
                         </span>
                       </div>
                     </div>
@@ -2140,53 +2322,53 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                 <p className="text-xs text-marca-hondo">Hay renglones tildados sin producto asignado: vinculalos o destildalos.</p>
               )}
               {fotoItems.some((i) => i.sugerido) && (
-                <p className="text-xs text-atencion">💡 La IA sugirió {fotoItems.filter((i) => i.sugerido).length} vínculo(s): confirmá “¿es este?” en los renglones amarillos para incluirlos.</p>
+                <p className="text-xs text-atencion"><IconoInfo className="mr-1 inline size-4 align-[-3px]" />La IA sugirió {fotoItems.filter((i) => i.sugerido).length} vínculo(s): confirmá “¿es este?” en los renglones amarillos para incluirlos.</p>
               )}
               <p className="text-xs text-tinta/60">Al confirmar, cada vínculo y su remarcación quedan guardados: la próxima compra de este proveedor los toma solos.</p>
 
-              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-tinta items-center">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-tinta">
                 {/* Con datos fiscales el costo se reconcilia solo (prorrateo); el checkbox
                     "Sumar IVA" queda solo para remitos sin pie. */}
                 {!hayDatosFiscales && foto.comprobante?.tipo === 'factura_a' && (
-                  <label className="flex items-center gap-1.5"><input type="checkbox" checked={sumarIva} onChange={(e) => setSumarIva(e.target.checked)} className="accent-marca" /> Sumar IVA al costo (precios netos)</label>
+                  <label className="flex min-h-9 items-center gap-2"><input type="checkbox" checked={sumarIva} onChange={(e) => setSumarIva(e.target.checked)} className="size-4 shrink-0 accent-marca" /> Sumar IVA al costo (precios netos)</label>
                 )}
                 {hayDatosFiscales && (
-                  <label className="flex items-center gap-1.5" title="Percepciones de IVA e IIBB adentro del costo">
-                    <input type="checkbox" checked={percepcionesAlCosto} onChange={(e) => setPercepcionesAlCosto(e.target.checked)} className="accent-marca" />
+                  <label className="flex min-h-9 items-center gap-2" title="Percepciones de IVA e IIBB adentro del costo">
+                    <input type="checkbox" checked={percepcionesAlCosto} onChange={(e) => setPercepcionesAlCosto(e.target.checked)} className="size-4 shrink-0 accent-marca" />
                     Percepciones al costo{percepciones > 0 ? ` (${pesos(percepciones)})` : ''}
                   </label>
                 )}
-                <label className="flex items-center gap-1.5"><input type="checkbox" checked={pagada} onChange={(e) => setPagada(e.target.checked)} className="accent-marca" /> Pagada (contado)</label>
-                <label className="flex items-center gap-1.5" title="Se aplica a todos los renglones de la factura">% remarcación general <input type="number" value={f.margenPct ?? ''} onChange={(e) => aplicarRemarcacionGeneral(e.target.value)} placeholder="a todos" className="w-16 rounded border border-black/15 px-1.5 py-0.5 text-right text-tinta" /></label>
+                <label className="flex min-h-9 items-center gap-2"><input type="checkbox" checked={pagada} onChange={(e) => setPagada(e.target.checked)} className="size-4 shrink-0 accent-marca" /> Pagada (contado)</label>
+                <label className="flex items-center gap-2" title="Se aplica a todos los renglones de la factura">% remarcación general <input type="number" value={f.margenPct ?? ''} onChange={(e) => aplicarRemarcacionGeneral(e.target.value)} placeholder="a todos" className={unir(CAMPO_FILA_BASE, CAMPO_FILA_COLOR, 'w-20')} /></label>
               </div>
 
               {/* Reconciliación del costo vs la mercadería de la factura */}
-              <div className={'rounded-xl px-3 py-2 text-xs ' + (excedeMerc || excedeTotal ? 'bg-marca-suave border border-marca text-marca-hondo' : subCosteo ? 'bg-atencion-suave border border-atencion/30 text-atencion' : 'bg-crema-claro text-tinta/70')}>
-                <p>Costo a stock (renglones tildados): <b>{pesos(sumaCostos)}</b>{valorConIva != null && <> · Mercadería c/IVA: <b>{pesos(valorConIva)}</b></>}{totalDoc != null && <> · Total factura: <b>{pesos(totalDoc)}</b></>}</p>
+              <div className={'rounded-xl px-3 py-2.5 text-xs ' + (excedeMerc || excedeTotal ? 'bg-marca-suave border border-marca text-marca-hondo' : subCosteo ? 'bg-atencion-suave border border-atencion/30 text-atencion' : 'bg-crema-claro text-tinta/70')}>
+                <p className="importe whitespace-normal">Costo a stock (renglones tildados): <b>{pesos(sumaCostos)}</b>{valorConIva != null && <> · Mercadería c/IVA: <b>{pesos(valorConIva)}</b></>}{totalDoc != null && <> · Total factura: <b>{pesos(totalDoc)}</b></>}</p>
                 {/* De dónde sale el costo de cada renglón, escrito. Sin esto, la
                     única forma de saber si falta un impuesto es sacar la cuenta
                     a mano y desconfiar del sistema. */}
                 {hayDatosFiscales && netoDoc != null && netoDoc > 0 && (
                   <div className="mt-1.5 flex flex-wrap gap-1.5 text-xs">
-                    <span className="rounded bg-white px-2 py-0.5 text-tinta/70">Neto <b className="text-tinta">{pesos(netoDoc)}</b></span>
-                    {ivaDoc != null && <span className="rounded bg-white px-2 py-0.5 text-tinta/70">+ IVA <b className="text-tinta">{pesos(ivaDoc)}</b> ({(ivaDoc / netoDoc * 100).toFixed(2).replace('.', ',')}%)</span>}
-                    {percIvaDoc > 0 && <span className={'rounded px-2 py-0.5 ' + (percepcionesAlCosto ? 'bg-white text-tinta/70' : 'bg-white/40 text-tinta/60 line-through')}>+ Percepción IVA <b>{pesos(percIvaDoc)}</b> ({(percIvaDoc / netoDoc * 100).toFixed(2).replace('.', ',')}%)</span>}
-                    {percIibbDoc > 0 && <span className={'rounded px-2 py-0.5 ' + (percepcionesAlCosto ? 'bg-white text-tinta/70' : 'bg-white/40 text-tinta/60 line-through')}>+ Percepción IIBB <b>{pesos(percIibbDoc)}</b> ({(percIibbDoc / netoDoc * 100).toFixed(2).replace('.', ',')}%)</span>}
-                    {impIntDoc > 0 && <span className="rounded bg-white px-2 py-0.5 text-tinta/70">+ Internos <b className="text-tinta">{pesos(impIntDoc)}</b></span>}
-                    {descuentoGlobalDoc > 0 && <span className="rounded bg-white px-2 py-0.5 text-tinta/70">Descuento del pie <b className="text-tinta">{pesos(descuentoGlobalDoc)}</b></span>}
-                    {totalDoc != null && <span className="rounded bg-tinta px-2 py-0.5 text-crema">= Total <b>{pesos(totalDoc)}</b></span>}
+                    <span className="importe rounded-full bg-white px-2.5 py-0.5 text-tinta/70">Neto <b className="text-tinta">{pesos(netoDoc)}</b></span>
+                    {ivaDoc != null && <span className="importe rounded-full bg-white px-2.5 py-0.5 text-tinta/70">+ IVA <b className="text-tinta">{pesos(ivaDoc)}</b> ({(ivaDoc / netoDoc * 100).toFixed(2).replace('.', ',')}%)</span>}
+                    {percIvaDoc > 0 && <span className={'importe rounded-full px-2.5 py-0.5 ' + (percepcionesAlCosto ? 'bg-white text-tinta/70' : 'bg-white/40 text-tinta/60 line-through')}>+ Percepción IVA <b>{pesos(percIvaDoc)}</b> ({(percIvaDoc / netoDoc * 100).toFixed(2).replace('.', ',')}%)</span>}
+                    {percIibbDoc > 0 && <span className={'importe rounded-full px-2.5 py-0.5 ' + (percepcionesAlCosto ? 'bg-white text-tinta/70' : 'bg-white/40 text-tinta/60 line-through')}>+ Percepción IIBB <b>{pesos(percIibbDoc)}</b> ({(percIibbDoc / netoDoc * 100).toFixed(2).replace('.', ',')}%)</span>}
+                    {impIntDoc > 0 && <span className="importe rounded-full bg-white px-2.5 py-0.5 text-tinta/70">+ Internos <b className="text-tinta">{pesos(impIntDoc)}</b></span>}
+                    {descuentoGlobalDoc > 0 && <span className="importe rounded-full bg-white px-2.5 py-0.5 text-tinta/70">Descuento del pie <b className="text-tinta">{pesos(descuentoGlobalDoc)}</b></span>}
+                    {totalDoc != null && <span className="importe rounded-full bg-tinta px-2.5 py-0.5 text-crema">= Total <b>{pesos(totalDoc)}</b></span>}
                   </div>
                 )}
                 {ivaFactura?.estado === 'cierra' && (
                   <p className="mt-1 text-ok">
-                    ✓ <b>IVA verificado:</b> cada renglón con su alícuota suma {pesos(ivaFactura.ivaCalculado)}, igual al IVA del pie.
+                    <IconoOk className="mr-1 inline size-4 align-[-3px]" /><b>IVA verificado:</b> cada renglón con su alícuota suma {pesos(ivaFactura.ivaCalculado)}, igual al IVA del pie.
                     {ivaFactura.cargaComunPct > 0 && <> Percepciones{impIntDoc > 0 ? ' e internos' : ''}: +{(ivaFactura.cargaComunPct * 100).toFixed(2).replace('.', ',')}% sobre el neto de cada renglón.</>}
                     {' '}<span className="text-tinta/60">Pasá el mouse por el precio c/IVA de un renglón para ver su cuenta.</span>
                   </p>
                 )}
                 {ivaFactura?.estado === 'no_cierra' && (
                   <div className="mt-1.5 rounded-xl border border-marca bg-marca-suave px-2.5 py-2 text-marca-hondo">
-                    <p className="font-semibold">⚠ El IVA no cierra: los renglones suman {pesos(ivaFactura.ivaCalculado)} de IVA y el pie dice {pesos(ivaFactura.ivaPie)}
+                    <p className="font-semibold"><IconoAtencion className="mr-1 inline size-4 align-[-3px]" />El IVA no cierra: los renglones suman {pesos(ivaFactura.ivaCalculado)} de IVA y el pie dice {pesos(ivaFactura.ivaPie)}
                       {' '}({ivaFactura.diferencia < 0 ? 'sobran' : 'faltan'} {pesos(Math.abs(ivaFactura.diferencia))}). No se puede registrar hasta que cierre.</p>
                     <p className="mt-0.5">
                       {ivaFactura.diferencia < 0
@@ -2198,14 +2380,14 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                       const nombres = sug.indices.map((k) => renglonesIva[k]?.i).map((it: any) => it?.nombre ?? it?.descripcion ?? '—');
                       return (
                         <p key={n} className="mt-1.5 flex flex-wrap items-center gap-2 text-tinta">
-                          <span>💡 Cierra al centavo si <b>{nombres.join(' y ')}</b> {sug.indices.length > 1 ? 'van' : 'va'} al <b>{String(sug.alicuota).replace('.', ',')}%</b>.</span>
-                          <button
-                            type="button"
+                          <span>Cierra al centavo si <b>{nombres.join(' y ')}</b> {sug.indices.length > 1 ? 'van' : 'va'} al <b>{String(sug.alicuota).replace('.', ',')}%</b>.</span>
+                          <Boton
+                            tamano="chico"
+                            variante="secundario"
                             onClick={() => elegirAlicuota(sug.indices.map((k) => renglonesIva[k].idx), sug.alicuota)}
-                            className="rounded-full bg-tinta px-2.5 py-0.5 text-xs font-semibold text-crema hover:bg-black/80"
                           >
                             Sí, aplicar {String(sug.alicuota).replace('.', ',')}%
-                          </button>
+                          </Boton>
                         </p>
                       );
                     })}
@@ -2213,12 +2395,12 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                 )}
                 {ivaFactura?.estado === 'falta_pie' && (
                   <p className="mt-1.5 rounded-xl border border-marca bg-marca-suave px-2.5 py-2 font-semibold text-marca-hondo">
-                    ⚠ {ivaFactura.motivo}: sin eso no hay contra qué verificar el IVA. Cargalo en el pie (arriba) para poder registrar.
+                    <IconoAtencion className="mr-1 inline size-4 align-[-3px]" />{ivaFactura.motivo}: sin eso no hay contra qué verificar el IVA. Cargalo en el pie (arriba) para poder registrar.
                   </p>
                 )}
                 {ivaFactura?.estado === 'alicuota_invalida' && (
                   <p className="mt-1.5 rounded-xl border border-marca bg-marca-suave px-2.5 py-2 font-semibold text-marca-hondo">
-                    ⚠ La lectura trajo una alícuota que no existe en {ivaFactura.indices.length === 1 ? 'un renglón' : `${ivaFactura.indices.length} renglones`}
+                    <IconoAtencion className="mr-1 inline size-4 align-[-3px]" />La lectura trajo una alícuota que no existe en {ivaFactura.indices.length === 1 ? 'un renglón' : `${ivaFactura.indices.length} renglones`}
                     {' '}({ivaFactura.indices.map((k) => renglonesIva[k]?.i?.descripcion).join(', ')}). Elegí la correcta en el recuadro IVA del renglón.
                   </p>
                 )}
@@ -2229,20 +2411,22 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                   </p>
                 )}
                 {(excedeMerc || excedeTotal) && (
-                  <p className="mt-1 font-semibold">⚠ El costo a stock supera el valor de la mercadería con IVA de la factura. Los precios ya incluyen impuestos: revisá el neto/IVA del pie. (No se puede registrar hasta corregirlo.)</p>
+                  <p className="mt-1 font-semibold"><IconoAtencion className="mr-1 inline size-4 align-[-3px]" />El costo a stock supera el valor de la mercadería con IVA de la factura. Los precios ya incluyen impuestos: revisá el neto/IVA del pie. (No se puede registrar hasta corregirlo.)</p>
                 )}
                 {hayRegalos && !prorrateoAut && (
-                  <div className="mt-1 rounded bg-atencion-suave px-2 py-1.5 text-atencion">
-                    <p>🎁 <b>Esta factura trae mercadería regalada.</b> Por ahora el regalo solo abarata a su propio producto.
+                  <div className="mt-1.5 rounded-xl bg-atencion-suave px-2.5 py-2 text-atencion">
+                    <p><b>Esta factura trae mercadería regalada.</b> Por ahora el regalo solo abarata a su propio producto.
                     Para repartirlo entre <b>todo el grupo del mismo precio de lista</b> (el 10+1 baja el costo de todos los varietales),
                     lo autoriza el dueño con su PIN:</p>
                     <span className="mt-1.5 flex flex-wrap items-center gap-2">
                       <input
                         type="password" inputMode="numeric" value={pinProrrateo} placeholder="PIN del dueño"
+                        aria-label="PIN del dueño"
                         onChange={(e) => setPinProrrateo(e.target.value)}
-                        className="w-32 rounded border border-black/15 px-2 py-1 text-sm text-tinta"
+                        className={unir(CAMPO_FILA_BASE, 'w-36 border-black/15 bg-white text-left')}
                       />
-                      <button
+                      <Boton
+                        tamano="chico"
                         onClick={async () => {
                           // fetch directo: el helper post() cierra el modal al
                           // terminar, y esto ocurre A MITAD de la carga
@@ -2258,22 +2442,22 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                           } catch { setErrorProrrateo('No se pudo verificar el PIN'); }
                         }}
                         disabled={!pinProrrateo.trim()}
-                        className="rounded-full bg-amber-700 px-3 py-1 text-xs font-semibold text-white disabled:opacity-40 hover:bg-amber-800">
+                      >
                         Autorizar prorrateo
-                      </button>
+                      </Boton>
                       {errorProrrateo && <span className="text-xs font-medium text-marca-hondo">{errorProrrateo}</span>}
                     </span>
                   </div>
                 )}
                 {hayRegalos && prorrateoAut && (
-                  <p className="mt-1 rounded bg-ok-suave px-2 py-1.5 text-ok">
-                    🎁 Prorrateo autorizado por <b>{prorrateoAut.nombre}</b>: el regalo se reparte entre todo el grupo del mismo precio.
-                    <button onClick={() => setProrrateoAut(null)} className="ml-2 text-tinta/60 underline hover:text-marca">deshacer</button>
+                  <p className="mt-1.5 rounded-xl bg-ok-suave px-2.5 py-2 text-ok">
+                    Prorrateo autorizado por <b>{prorrateoAut.nombre}</b>: el regalo se reparte entre todo el grupo del mismo precio.
+                    <button onClick={() => setProrrateoAut(null)} className={unir(ENLACE, 'ml-2 text-tinta/70 hover:text-marca-hondo')}>deshacer</button>
                   </p>
                 )}
                 {skusFusionados.length > 0 && (
-                  <div className="mt-1 rounded bg-ok-suave px-2 py-1.5 text-ok">
-                    <p>🎁 <b>{skusFusionados.length}</b> producto(s) con mercadería sin cargo o repetidos. {prorrateoAut ? 'El regalo se reparte entre todo el grupo del mismo precio:' : 'El regalo abarata solo a su propio producto (sin autorización de prorrateo):'}</p>
+                  <div className="mt-1.5 rounded-xl bg-ok-suave px-2.5 py-2 text-ok">
+                    <p><b>{skusFusionados.length}</b> producto(s) con mercadería sin cargo o repetidos. {prorrateoAut ? 'El regalo se reparte entre todo el grupo del mismo precio:' : 'El regalo abarata solo a su propio producto (sin autorización de prorrateo):'}</p>
                     {skusFusionados.map((i) => (
                       <p key={i.sku} className="mt-0.5">
                         · {i.nombre ?? i.descripcion}:{' '}
@@ -2286,28 +2470,28 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                   </div>
                 )}
                 {sinAtribuir.length > 0 && (
-                  <p className="mt-1 rounded bg-marca-suave px-2 py-1.5 font-medium text-marca-hondo">
-                    ⚠ Hay <b>{sinAtribuir.length}</b> rebaja(s) por <b>{pesos(sinAtribuir.reduce((a, x) => a + x.importe, 0))}</b> que no se pudo saber
+                  <p className="mt-1.5 rounded-xl bg-marca-suave px-2.5 py-2 font-medium text-marca-hondo">
+                    <IconoAtencion className="mr-1 inline size-4 align-[-3px]" />Hay <b>{sinAtribuir.length}</b> rebaja(s) por <b>{pesos(sinAtribuir.reduce((a, x) => a + x.importe, 0))}</b> que no se pudo saber
                     a qué renglón corresponden, así que no se aplicaron a ningún costo. Si son promociones de toda la factura, cargalas en
                     “Desc. del pie” y se reparten entre todos los renglones.
                   </p>
                 )}
                 {descuentosDesmedidos > 0 && (
-                  <p className="mt-1 rounded bg-marca-suave px-2 py-1.5 font-medium text-marca-hondo">
-                    ⚠ <b>{descuentosDesmedidos}</b> renglón/es tienen un descuento más grande que el renglón mismo, así que no se aplicó.
+                  <p className="mt-1.5 rounded-xl bg-marca-suave px-2.5 py-2 font-medium text-marca-hondo">
+                    <IconoAtencion className="mr-1 inline size-4 align-[-3px]" /><b>{descuentosDesmedidos}</b> renglón/es tienen un descuento más grande que el renglón mismo, así que no se aplicó.
                     Suele pasar cuando la rebaja cubre varios renglones o toda la factura y no uno solo. Revisá a qué corresponde antes de registrar:
                     si se aplicara entero a un renglón, ese producto entraría con el costo por el piso.
                   </p>
                 )}
                 {bultosSinResolver > 0 && (
-                  <p className="mt-1 rounded bg-info-suave px-2 py-1.5 text-info">
-                    📦 <b>{bultosSinResolver}</b> renglón/es vienen por bulto y todavía entran como bulto. Si el producto vinculado es la unidad suelta,
+                  <p className="mt-1.5 rounded-xl bg-info-suave px-2.5 py-2 text-info">
+                    <b>{bultosSinResolver}</b> renglón/es vienen por bulto y todavía entran como bulto. Si el producto vinculado es la unidad suelta,
                     tocá “Pasar a unidad” en cada uno: si no, el stock y el costo unitario quedan mal por el factor del pack.
                   </p>
                 )}
                 {columnaSospechosa && (
-                  <p className="mt-1 rounded bg-atencion-suave px-2 py-1.5 text-atencion">
-                    ⚠ Los renglones leídos suman <b>{pesos(sumaRenglones)}</b> y el pie espera <b>{pesos(netoEsperado ?? 0)}</b>
+                  <p className="mt-1.5 rounded-xl bg-atencion-suave px-2.5 py-2 text-atencion">
+                    <IconoAtencion className="mr-1 inline size-4 align-[-3px]" />Los renglones leídos suman <b>{pesos(sumaRenglones)}</b> y el pie espera <b>{pesos(netoEsperado ?? 0)}</b>
                     {descuentoGlobalDoc > 0 ? ` (neto ${pesos(netoDoc ?? 0)} + descuento del pie ${pesos(descuentoGlobalDoc)})` : ''}
                     {' '}({desvioRenglones! > 0 ? '+' : ''}{(desvioRenglones! * 100).toFixed(1).replace('.', ',')}%).
                     Si tendrían que coincidir, la IA leyó la columna equivocada (la de con IVA, o el total del renglón en vez del precio unitario).
@@ -2322,159 +2506,75 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                 )}
               </div>
 
-              {foto.notasManuscritas && <p className="text-xs text-tinta/60 italic">✍ Nota manuscrita: {foto.notasManuscritas}</p>}
+              {foto.notasManuscritas && <p className="break-words text-xs italic text-tinta/60">Nota manuscrita: {foto.notasManuscritas}</p>}
 
               {/* la mercadería ya entró por Recepción → solo factura + conciliación */}
               {foto.comprobante?.tipo?.startsWith('factura') && (
-                <label className="flex items-center gap-1.5 text-xs text-tinta">
-                  <input type="checkbox" checked={soloFactura} onChange={(e) => setSoloFactura(e.target.checked)} className="accent-marca" />
+                <label className="flex min-h-9 items-start gap-2 text-xs text-tinta">
+                  <input type="checkbox" checked={soloFactura} onChange={(e) => setSoloFactura(e.target.checked)} className="mt-px size-4 shrink-0 accent-marca" />
                   La mercadería ya fue recibida con la pistola — solo cargar la factura (va a Conciliación, no mueve stock)
                 </label>
               )}
 
-              {aviso && <p className="text-xs text-marca">{aviso}</p>}
-              {soloFactura ? (
-                <Acciones
-                  cerrar={cerrar}
-                  okLabel="Registrar factura para conciliar"
-                  disabled={!f.proveedorId || !(fotoImp?.total > 0) || lecturaIncompleta}
-                  onOk={() => post({
-                    accion: 'factura',
-                    proveedorId: f.proveedorId,
-                    sucursalId: f.sucursalId || undefined,
-                    tipo: 'factura',
-                    letra: foto.comprobante?.tipo?.split('_')[1]?.toUpperCase() || undefined,
-                    numero: foto.comprobante?.numero ?? 's/n',
-                    monto: Number(fotoImp.total),
-                    neto: fotoImp.neto, iva: fotoImp.iva,
-                    percepcionIva: Number(fotoImp.percepcionIva ?? 0),
-                    percepcionIibb: Number(fotoImp.percepcionIibb ?? 0),
-                    impuestosInternos: Number(fotoImp.impuestosInternos ?? 0),
-                    otros: Number(fotoImp.otros ?? 0),
-                    fechaEmision: normFechaIso(foto.comprobante?.fecha),
-                    condicionVenta: foto.comprobante?.condicionVenta || undefined,
-                    archivoUrl: foto.archivoUrl || undefined,
-                    pagada,
-                    // TODOS los renglones leídos (con o sin producto): son la base del cruce
-                    items: fotoItems.map((i) => ({ sku: i.sku || undefined, descripcion: i.descripcion, cantidad: Number(i.cantidad), precio: numImp(i.precio) })),
-                  })}
-                />
-              ) : (
-              <Acciones
-                cerrar={cerrar}
-                okLabel={`Registrar entrada${foto.comprobante?.tipo?.startsWith('factura') ? ' + factura' : ''}`}
-                disabled={!f.proveedorId || !f.sucursalId || !fotoItems.some((i) => i.incluir && i.sku) || fotoItems.some((i) => i.incluir && !i.sku) || costoBloquea}
-                onOk={() => post({
-                  accion: 'entradaDirecta',
-                  proveedorId: f.proveedorId,
-                  sucursalId: f.sucursalId,
-                  numeroRemito: foto.comprobante?.numero || f.numeroRemito,
-                  margenPct: f.margenPct ? Number(f.margenPct) : undefined,
-                  items: itemsFusionados.map((i) => ({ sku: i.sku, cantidad: Number(i.cantidad), costo: i.costoUnitario, precioLeido: numImp(i.precio), margenPct: i.margenPct === '' ? undefined : Number(i.margenPct), fijarMargen: !!fijarSku[i.sku], descripcionLeida: i.descripcion })),
-                  // el catálogo aprende el IVA que esta factura PROBÓ (cerró al centavo con el pie)
-                  ...(ivaFactura?.estado === 'cierra' ? {
-                    alicuotasVerificadas: renglonesIva
-                      .map(({ i }, k) => ({ sku: i.sku, alicuota: ivaFactura.alicuotas[k], origen: ivaFactura.origenes[k], incluir: i.incluir }))
-                      .filter((x) => x.incluir && x.sku && (x.origen === 'impresa' || x.origen === 'elegida'))
-                      .map(({ sku, alicuota, origen }) => ({ sku, alicuota, origen })),
-                  } : {}),
-                  ...(foto.comprobante?.tipo?.startsWith('factura') && fotoImp?.total > 0 ? {
-                    factura: {
-                      numero: foto.comprobante?.numero ?? 's/n',
-                      total: Number(fotoImp.total),
-                      neto: fotoImp.neto != null ? Number(fotoImp.neto) : undefined,
-                      iva: fotoImp.iva != null ? Number(fotoImp.iva) : undefined,
-                      percepcionIva: Number(fotoImp.percepcionIva ?? 0),
-                      percepcionIibb: Number(fotoImp.percepcionIibb ?? 0),
-                      impuestosInternos: Number(fotoImp.impuestosInternos ?? 0),
-                      otros: Number(fotoImp.otros ?? 0),
-                      letra: foto.comprobante?.tipo?.split('_')[1]?.toUpperCase() || undefined,
-                      fechaEmision: normFechaIso(foto.comprobante?.fecha),
-                      condicionVenta: foto.comprobante?.condicionVenta || undefined,
-                      archivoUrl: foto.archivoUrl || undefined,
-                      pagada,
-                    },
-                  } : {}),
-                })}
-              />
-              )}
+              {aviso && <Aviso tono="error">{aviso}</Aviso>}
               </div>
             </div>
           )}
         </>)}
 
-        {t === 'ocDetalle' && (
-          <OrdenDetalle
-            id={modal.ocId}
-            numero={modal.numero}
-            cerrar={cerrar}
-            verFactura={(facturaId: string) => setModal({ tipo: 'facturaDetalle', facturaId, volverA: { tipo: 'ocDetalle', ocId: modal.ocId, numero: modal.numero } })}
-          />
-        )}
-
-        {t === 'facturaDetalle' && (
-          <FacturaDetalle id={modal.facturaId} cerrar={modal.volverA ? () => setModal(modal.volverA) : cerrar} volviendo={!!modal.volverA} />
-        )}
-
         {t === 'proveedor' && (<>
-          <h2 className="font-semibold text-tinta text-lg">{modal.prov?.id ? 'Editar proveedor' : 'Nuevo proveedor'}</h2>
           {/* lo que le falta para poder comprarle (regla de la base: proveedor_faltantes, 1/10/2026) */}
           {modal.prov?.faltan?.length > 0 && (
-            <p className="rounded-xl bg-marca-suave px-3 py-2 text-xs text-marca-hondo">Para poder comprarle falta: {modal.prov.faltan.join(', ')}.</p>
+            <p className="rounded-xl border border-marca/20 bg-marca-suave px-3 py-2 text-sm text-marca-hondo">Para poder comprarle falta: {modal.prov.faltan.join(', ')}.</p>
           )}
-          <input value={f.razon_social ?? f.razonSocial ?? ''} onChange={(e) => set('razonSocial', e.target.value)} placeholder="Razón social" className={input} />
-          <div className="grid grid-cols-2 gap-3">
-            <input value={f.cuit ?? ''} onChange={(e) => set('cuit', e.target.value)} placeholder="CUIT (11 números)" className={input} />
-            <input value={f.condicion_pago ?? f.condicionPago ?? ''} onChange={(e) => set('condicionPago', e.target.value)} placeholder="Condición (30 días…)" className={input} />
-            <input value={f.telefono ?? ''} onChange={(e) => set('telefono', e.target.value)} placeholder="Teléfono / WhatsApp" className={input} />
-            <input value={f.email ?? ''} onChange={(e) => set('email', e.target.value)} placeholder="Email" className={input} />
-            <input type="number" value={f.lead_time_dias ?? f.leadTimeDias ?? ''} onChange={(e) => set('leadTimeDias', e.target.value)} placeholder="Días de entrega" className={input} />
-            <label className="flex items-center gap-2 text-xs text-tinta/70">
-              <input type="checkbox" checked={!!(f.leadTimeConfirmado ?? f.lead_time_confirmado)} onChange={(e) => set('leadTimeConfirmado', e.target.checked)} />
+          <input value={f.razon_social ?? f.razonSocial ?? ''} onChange={(e) => set('razonSocial', e.target.value)} placeholder="Razón social" aria-label="Razón social" className={input} />
+          <div className="grid gap-3 sm:grid-cols-2">
+            <input value={f.cuit ?? ''} onChange={(e) => set('cuit', e.target.value)} placeholder="CUIT (11 números)" aria-label="CUIT" className={input} />
+            <input value={f.condicion_pago ?? f.condicionPago ?? ''} onChange={(e) => set('condicionPago', e.target.value)} placeholder="Condición (30 días…)" aria-label="Condición de pago" className={input} />
+            <input value={f.telefono ?? ''} onChange={(e) => set('telefono', e.target.value)} placeholder="Teléfono / WhatsApp" aria-label="Teléfono / WhatsApp" className={input} />
+            <input value={f.email ?? ''} onChange={(e) => set('email', e.target.value)} placeholder="Email" aria-label="Email" className={input} />
+            <input type="number" value={f.lead_time_dias ?? f.leadTimeDias ?? ''} onChange={(e) => set('leadTimeDias', e.target.value)} placeholder="Días de entrega" aria-label="Días de entrega" className={input} />
+            <label className="flex min-h-11 items-center gap-2 text-sm text-tinta/70">
+              <input type="checkbox" className="size-5 shrink-0 accent-marca" checked={!!(f.leadTimeConfirmado ?? f.lead_time_confirmado)} onChange={(e) => set('leadTimeConfirmado', e.target.checked)} />
               Plazo confirmado con el proveedor
             </label>
           </div>
-          {aviso && <p className="text-xs text-marca">{aviso}</p>}
-          <Acciones cerrar={cerrar} okLabel="Guardar" onOk={() => post(modal.prov?.id ? { accion: 'editarProveedor', id: modal.prov.id, razonSocial: f.razonSocial ?? f.razon_social, cuit: f.cuit, condicionPago: f.condicionPago ?? f.condicion_pago, email: f.email, telefono: f.telefono, leadTimeDias: f.leadTimeDias ?? f.lead_time_dias, leadTimeConfirmado: !!(f.leadTimeConfirmado ?? f.lead_time_confirmado) } : { accion: 'crearProveedor', razonSocial: f.razonSocial, cuit: f.cuit, condicionPago: f.condicionPago, email: f.email, telefono: f.telefono, leadTimeDias: f.leadTimeDias, leadTimeConfirmado: !!f.leadTimeConfirmado })} />
+          {aviso && <Aviso tono="error">{aviso}</Aviso>}
         </>)}
 
         {t === 'factura' && (<>
-          <h2 className="font-semibold text-tinta text-lg">Registrar factura de proveedor</h2>
-          <select className={input + ' bg-white'} value={f.proveedorId ?? ''} onChange={(e) => set('proveedorId', e.target.value)}>
+          <select aria-label="Proveedor" className={input} value={f.proveedorId ?? ''} onChange={(e) => set('proveedorId', e.target.value)}>
             <option value="">Proveedor…</option>{proveedores.map((p: any) => <option key={p.id} value={p.id}>{p.razon_social}</option>)}
           </select>
           <div className="grid grid-cols-2 gap-3">
-            <input value={f.numero ?? ''} onChange={(e) => set('numero', e.target.value)} placeholder="N° de factura" className={input} />
-            <input type="number" value={f.monto ?? ''} onChange={(e) => set('monto', e.target.value)} placeholder="Monto $" className={input} />
+            <input value={f.numero ?? ''} onChange={(e) => set('numero', e.target.value)} placeholder="N° de factura" aria-label="N° de factura" className={input} />
+            <input type="number" value={f.monto ?? ''} onChange={(e) => set('monto', e.target.value)} placeholder="Monto $" aria-label="Monto" className={input} />
           </div>
-          <input type="date" value={f.vencimiento ?? ''} onChange={(e) => set('vencimiento', e.target.value)} className={input} />
-          {aviso && <p className="text-xs text-marca">{aviso}</p>}
-          <Acciones cerrar={cerrar} okLabel="Registrar" onOk={() => post({ accion: 'factura', proveedorId: f.proveedorId, numero: f.numero, monto: Number(f.monto), vencimiento: f.vencimiento })} />
+          <input type="date" value={f.vencimiento ?? ''} onChange={(e) => set('vencimiento', e.target.value)} aria-label="Vencimiento" className={input} />
+          {aviso && <Aviso tono="error">{aviso}</Aviso>}
         </>)}
 
         {t === 'pagar' && (<>
-          <h2 className="font-semibold text-tinta text-lg">Nueva orden de pago — {modal.prov.proveedor?.razon_social}</h2>
           <p className="text-xs text-tinta/60">Elegí las facturas. La OP queda <b>pendiente de aprobación del dueño</b> antes de pagarse.</p>
           {modal.prov.facturas.map((fa: any) => (
-            <label key={fa.id} className="flex items-center gap-2 text-sm text-tinta border-b border-black/[0.06] py-1.5">
-              <input type="checkbox" checked={facturasSel.includes(fa.id)} onChange={(e) => setFacturasSel((s) => e.target.checked ? [...s, fa.id] : s.filter((x) => x !== fa.id))} className="accent-marca" />
-              <span className="flex-1">Factura {fa.numero} {fa.vencimiento ? `· vence ${fecha(fa.vencimiento)}` : ''}</span>
-              <span className="font-medium">{pesos(fa.monto)}</span>
+            <label key={fa.id} className="flex min-h-11 items-center gap-3 border-b border-black/[0.06] py-1.5 text-sm text-tinta">
+              <input type="checkbox" checked={facturasSel.includes(fa.id)} onChange={(e) => setFacturasSel((s) => e.target.checked ? [...s, fa.id] : s.filter((x) => x !== fa.id))} className="size-5 shrink-0 accent-marca" />
+              <span className="min-w-0 flex-1 break-words">Factura {fa.numero} {fa.vencimiento ? `· vence ${fecha(fa.vencimiento)}` : ''}</span>
+              <span className="importe shrink-0 font-medium">{pesos(fa.monto ?? 0)}</span>
             </label>
           ))}
-          <div className="grid grid-cols-2 gap-3">
-            <select className={input + ' bg-white'} value={f.medioPago ?? 'transferencia'} onChange={(e) => set('medioPago', e.target.value)}>
+          <div className="grid grid-cols-2 items-end gap-3">
+            <select aria-label="Medio de pago" className={input} value={f.medioPago ?? 'transferencia'} onChange={(e) => set('medioPago', e.target.value)}>
               <option value="transferencia">Transferencia</option><option value="cheque">Cheque</option><option value="efectivo">Efectivo</option>
             </select>
-            <div><label className="text-xs text-tinta/60 block mb-0.5">Pago programado</label><input type="date" value={f.fechaProgramada ?? ''} onChange={(e) => set('fechaProgramada', e.target.value)} className={input} /></div>
+            <label className="min-w-0"><span className={ROTULO_CAMPO}>Pago programado</span><input type="date" value={f.fechaProgramada ?? ''} onChange={(e) => set('fechaProgramada', e.target.value)} className={input} /></label>
           </div>
-          <input value={f.observaciones ?? ''} onChange={(e) => set('observaciones', e.target.value)} placeholder="Observaciones (opcional)" className={input} />
-          {facturasSel.length > 0 && <p className="text-right text-sm font-semibold">Total OP: {pesos(modal.prov.facturas.filter((x: any) => facturasSel.includes(x.id)).reduce((s: number, x: any) => s + Number(x.monto), 0))}</p>}
-          {aviso && <p className="text-xs text-marca">{aviso}</p>}
-          <Acciones cerrar={cerrar} okLabel="Crear orden de pago" disabled={!facturasSel.length} onOk={() => post({ accion: 'crearOP', facturaIds: facturasSel, medioPago: f.medioPago ?? 'transferencia', fechaProgramada: f.fechaProgramada, observaciones: f.observaciones })} />
+          <input value={f.observaciones ?? ''} onChange={(e) => set('observaciones', e.target.value)} placeholder="Observaciones (opcional)" aria-label="Observaciones" className={input} />
+          {facturasSel.length > 0 && <p className="importe text-right text-sm font-semibold text-tinta">Total OP: {pesos(modal.prov.facturas.filter((x: any) => facturasSel.includes(x.id)).reduce((s: number, x: any) => s + Number(x.monto), 0))}</p>}
+          {aviso && <Aviso tono="error">{aviso}</Aviso>}
         </>)}
       </div>
-    </div>
+    </Ventana>
   );
 }
 
@@ -2495,12 +2595,28 @@ function OrdenDetalle({ id, numero, cerrar, verFactura }: { id: string; numero: 
   const ESTADO_FACT: Record<string, string> = { pendiente: 'pendiente de pago', pagada: 'pagada', en_pago: 'en pago', anulada: 'anulada' };
 
   return (
-    <>
-      <h2 className="font-semibold text-tinta text-lg">OC #{numero}{d?.proveedor?.razon_social ? ` · ${d.proveedor.razon_social}` : ''}</h2>
-      {!d && !err && <p className="text-sm text-tinta/60">Cargando…</p>}
-      {err && <p className="text-sm text-marca">{err}</p>}
+    <Ventana
+      abierto
+      onCerrar={cerrar}
+      titulo={<>OC #{numero}{d?.proveedor?.razon_social ? ` · ${d.proveedor.razon_social}` : ''}</>}
+      pie={<>
+        {/* El papel con folio: es el que se le manda al proveedor y el que
+            después respalda el reclamo si lo que llega no coincide. */}
+        <a
+          href={`/api/documento?tipo=oc&id=${id}`}
+          target="_blank"
+          rel="noreferrer"
+          className={clasesBoton({ variante: 'secundario' })}
+        >
+          Orden en PDF
+        </a>
+        <Boton variante="secundario" onClick={cerrar}>Cerrar</Boton>
+      </>}
+    >
+      {!d && !err && <Cargando />}
+      {err && <Aviso tono="error">{err}</Aviso>}
       {d && (
-        <div className="space-y-3">
+        <div className="space-y-4">
           <div className="rounded-xl bg-crema-claro px-3 py-2 text-sm text-tinta/80">
             <p className="text-xs text-tinta/70">
               {d.sucursal?.nombre} · {fecha(d.creado_en)}
@@ -2508,49 +2624,49 @@ function OrdenDetalle({ id, numero, cerrar, verFactura }: { id: string; numero: 
               {d.condicion_pago ? ` · ${d.condicion_pago}` : ''}
               {d.origen === 'directa' ? ' · entrada directa (sin OC previa)' : ''}
             </p>
-            {d.observaciones && <p className="text-xs text-tinta/60 italic mt-0.5">“{d.observaciones}”</p>}
+            {d.observaciones && <p className="mt-0.5 break-words text-xs italic text-tinta/60">“{d.observaciones}”</p>}
           </div>
 
-          <div className="rounded-xl border border-black/[0.06] divide-y divide-black/[0.06] max-h-64 overflow-y-auto">
-            <div className="flex items-center gap-2 px-3 py-1.5 text-xs uppercase tracking-wide text-tinta/60">
+          <div className="max-h-64 divide-y divide-black/[0.06] overflow-y-auto rounded-xl border border-black/[0.06]">
+            <div className="hidden items-center gap-2 px-3 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-tinta/60 sm:flex">
               <span className="flex-1">Producto</span><span className="w-20 text-right">Pedido</span><span className="w-20 text-right">Recibido</span><span className="w-24 text-right">Costo</span>
             </div>
             {(d.items ?? []).map((it: any, i: number) => {
               const falta = Number(it.cantidad_recibida ?? 0) < Number(it.cantidad);
               return (
-                <div key={i} className="flex items-center gap-2 px-3 py-1.5 text-sm">
-                  <span className="flex-1 min-w-0 break-words text-tinta">{it.producto?.nombre ?? '—'} <span className="text-xs text-tinta/60">{it.producto?.sku}</span></span>
-                  <span className="w-20 text-right tabular-nums text-tinta/70">{it.cantidad}</span>
-                  <span className={`w-20 text-right tabular-nums ${falta ? 'text-marca font-medium' : 'text-tinta/70'}`}>{it.cantidad_recibida ?? 0}</span>
-                  <span className="w-24 text-right tabular-nums text-tinta/70">{pesos(it.costo_unitario)}</span>
+                <div key={i} className="grid grid-cols-3 gap-x-2 gap-y-1 px-3 py-2 text-sm sm:flex sm:items-center">
+                  <span className="col-span-3 min-w-0 break-words text-tinta sm:flex-1">{it.producto?.nombre ?? '—'} <span className="text-xs text-tinta/60">{it.producto?.sku}</span></span>
+                  <span className="importe text-tinta/70 sm:w-20 sm:text-right"><span className="text-xs text-tinta/60 sm:hidden">Pedido </span>{it.cantidad}</span>
+                  <span className={`importe sm:w-20 sm:text-right ${falta ? 'font-medium text-marca-hondo' : 'text-tinta/70'}`}><span className="text-xs font-normal text-tinta/60 sm:hidden">Recibido </span>{it.cantidad_recibida ?? 0}</span>
+                  <span className="importe text-right text-tinta/70 sm:w-24">{pesos(it.costo_unitario ?? 0)}</span>
                 </div>
               );
             })}
-            <div className="flex justify-between px-3 py-1.5"><span className="font-semibold text-tinta text-sm">TOTAL</span><span className="font-semibold text-tinta tabular-nums">{pesos(d.total)}</span></div>
+            <div className="flex justify-between gap-2 px-3 py-2"><span className="text-sm font-semibold text-tinta">TOTAL</span><span className="importe font-semibold text-tinta">{pesos(d.total ?? 0)}</span></div>
           </div>
 
           {/* FACTURAS de esta compra: el motivo por el que esto es clickeable */}
           <div>
-            <p className="text-xs uppercase tracking-wide text-tinta/60 mb-1">Facturas de esta compra</p>
+            <p className="mb-1.5 text-xs font-semibold uppercase tracking-[0.08em] text-tinta/60">Facturas de esta compra</p>
             {d.facturas?.length > 0 ? (
-              <div className="rounded-xl border border-black/[0.06] divide-y divide-black/[0.06]">
+              <div className="divide-y divide-black/[0.06] overflow-hidden rounded-xl border border-black/[0.06]">
                 {d.facturas.map((f: any) => (
                   <button
                     key={f.id}
                     onClick={() => verFactura(f.id)}
-                    className="w-full text-left px-3 py-2 hover:bg-crema-claro flex items-center justify-between gap-2"
+                    className={unir('flex min-h-11 w-full items-center justify-between gap-2 px-3 py-2 text-left transition-colors hover:bg-crema-claro', FOCO_ADENTRO)}
                   >
                     <span className="min-w-0">
-                      <span className="text-sm text-tinta block min-w-0 break-words">
+                      <span className="block min-w-0 break-words text-sm text-tinta">
                         {f.letra ? `${String(f.tipo ?? 'factura').replace('_', ' ')} ${f.letra}` : 'Factura'} {f.numero}
-                        {f.tieneComprobante && <span className="ml-2 text-xs rounded-full bg-black/5 px-2 py-0.5 text-tinta/60">con comprobante</span>}
+                        {f.tieneComprobante && <Etiqueta className="ml-2 align-middle">con comprobante</Etiqueta>}
                       </span>
                       <span className="text-xs text-tinta/60">
                         {f.fecha_emision ? fecha(f.fecha_emision) : fecha(f.creado_en)} · {ESTADO_FACT[f.estado] ?? f.estado}
                         {f.cargador?.nombre ? ` · cargó ${f.cargador.nombre}` : ''}
                       </span>
                     </span>
-                    <span className="shrink-0 text-sm font-medium text-tinta tabular-nums">{pesos(f.monto)}</span>
+                    <span className="importe shrink-0 text-sm font-medium text-tinta">{pesos(f.monto ?? 0)}</span>
                   </button>
                 ))}
               </div>
@@ -2561,14 +2677,14 @@ function OrdenDetalle({ id, numero, cerrar, verFactura }: { id: string; numero: 
 
           {d.remitos?.length > 0 && (
             <div>
-              <p className="text-xs uppercase tracking-wide text-tinta/60 mb-1">Remitos</p>
-              <div className="rounded-xl border border-black/[0.06] divide-y divide-black/[0.06]">
+              <p className="mb-1.5 text-xs font-semibold uppercase tracking-[0.08em] text-tinta/60">Remitos</p>
+              <div className="divide-y divide-black/[0.06] rounded-xl border border-black/[0.06]">
                 {d.remitos.map((r: any) => (
-                  <div key={r.id} className="flex items-center justify-between gap-2 px-3 py-1.5 text-sm text-tinta/80">
+                  <div key={r.id} className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 px-3 py-2 text-sm text-tinta/80">
                     <span className="min-w-0 break-words">
                       {r.numero || 'sin número'} <span className="text-xs text-tinta/60">· {fecha(r.creado_en)} · {String(r.estado ?? '').replace(/_/g, ' ')}</span>
                     </span>
-                    <a href={`/api/documento?tipo=remito&id=${r.id}`} target="_blank" rel="noreferrer" className="shrink-0 text-xs text-marca underline">acta de recepción</a>
+                    <a href={`/api/documento?tipo=remito&id=${r.id}`} target="_blank" rel="noreferrer" className={unir('shrink-0 rounded-sm text-xs font-medium text-marca-hondo underline', FOCO)}>acta de recepción</a>
                   </div>
                 ))}
               </div>
@@ -2576,20 +2692,7 @@ function OrdenDetalle({ id, numero, cerrar, verFactura }: { id: string; numero: 
           )}
         </div>
       )}
-      <div className="flex justify-end gap-2 pt-1">
-        {/* El papel con folio: es el que se le manda al proveedor y el que
-            después respalda el reclamo si lo que llega no coincide. */}
-        <a
-          href={`/api/documento?tipo=oc&id=${id}`}
-          target="_blank"
-          rel="noreferrer"
-          className="rounded-full border border-black/15 px-4 py-2 text-sm font-medium text-tinta/80 hover:bg-black/5"
-        >
-          Orden en PDF
-        </a>
-        <button onClick={cerrar} className="rounded-full bg-black text-white text-sm font-medium px-5 py-2 hover:bg-black/80">Cerrar</button>
-      </div>
-    </>
+    </Ventana>
   );
 }
 
@@ -2604,30 +2707,34 @@ function FacturaDetalle({ id, cerrar, volviendo }: { id: string; cerrar: () => v
   }, [id]);
   const ESTADO: Record<string, string> = { pendiente: 'Pendiente de pago', pagada: 'Pagada', en_pago: 'En pago' };
   return (
-    <>
-      <h2 className="font-semibold text-tinta text-lg">Factura {d?.numero ?? ''}</h2>
-      {!d && !err && <p className="text-sm text-tinta/60">Cargando…</p>}
-      {err && <p className="text-sm text-marca">{err}</p>}
+    <Ventana
+      abierto
+      onCerrar={cerrar}
+      titulo={<>Factura {d?.numero ?? ''}</>}
+      pie={<Boton variante="secundario" onClick={cerrar}>{volviendo ? 'Volver a la compra' : 'Cerrar'}</Boton>}
+    >
+      {!d && !err && <Cargando />}
+      {err && <Aviso tono="error">{err}</Aviso>}
       {d && (
-        <div className="space-y-3">
+        <div className="space-y-4">
           <div className="rounded-xl bg-crema-claro px-3 py-2 text-sm text-tinta/80">
-            <p><b>{d.proveedor?.razon_social}</b>{d.proveedor?.cuit ? ` · CUIT ${d.proveedor.cuit}` : ''}</p>
+            <p className="break-words"><b>{d.proveedor?.razon_social}</b>{d.proveedor?.cuit ? ` · CUIT ${d.proveedor.cuit}` : ''}</p>
             <p className="text-xs text-tinta/70">{fecha(d.creado_en)} · {ESTADO[d.estado] ?? d.estado}{d.vencimiento ? ` · vence ${fecha(d.vencimiento)}` : ''}</p>
           </div>
-          <div className="rounded-xl border border-black/[0.06] p-2.5 space-y-1 text-sm">
+          <div className="space-y-1 rounded-xl border border-black/[0.06] p-3 text-sm">
             {[['Neto gravado', d.neto], ['IVA', d.iva], ['Percepción IVA', d.percepcion_iva], ['Percepción IIBB', d.percepcion_iibb], ['Impuestos internos', d.impuestos_internos], ['Otros impuestos', d.otros_impuestos]]
               .filter(([, v]: any) => v != null && Number(v) !== 0)
               .map(([l, v]: any) => (
-                <div key={l} className="flex justify-between"><span className="text-tinta/70">{l}</span><span className="text-tinta tabular-nums">{pesos(v)}</span></div>
+                <div key={l} className="flex justify-between gap-2"><span className="text-tinta/70">{l}</span><span className="importe text-tinta">{pesos(v)}</span></div>
               ))}
-            <div className="flex justify-between border-t border-black/[0.06] pt-1 mt-1"><span className="font-semibold text-tinta">TOTAL</span><span className="font-semibold text-tinta tabular-nums">{pesos(d.monto)}</span></div>
+            <div className="mt-1 flex justify-between gap-2 border-t border-black/[0.06] pt-1"><span className="font-semibold text-tinta">TOTAL</span><span className="importe font-semibold text-tinta">{pesos(d.monto ?? 0)}</span></div>
           </div>
           {d.items?.length > 0 ? (
-            <div className="rounded-xl border border-black/[0.06] divide-y divide-black/[0.06] max-h-56 overflow-y-auto">
+            <div className="max-h-56 divide-y divide-black/[0.06] overflow-y-auto rounded-xl border border-black/[0.06]">
               {d.items.map((it: any, i: number) => (
-                <div key={i} className="flex items-center justify-between gap-2 px-3 py-1.5 text-sm">
-                  <span className="text-tinta min-w-0 break-words">{it.cantidad}× {it.nombre}</span>
-                  {it.costo != null && <span className="shrink-0 text-tinta/60 text-xs tabular-nums">costo {pesos(it.costo)}</span>}
+                <div key={i} className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 px-3 py-2 text-sm">
+                  <span className="min-w-0 break-words text-tinta">{it.cantidad}× {it.nombre}</span>
+                  {it.costo != null && <span className="importe shrink-0 text-xs text-tinta/60">costo {pesos(it.costo)}</span>}
                 </div>
               ))}
             </div>
@@ -2639,17 +2746,18 @@ function FacturaDetalle({ id, cerrar, volviendo }: { id: string; cerrar: () => v
               es temporal (lo firma el API, el archivo no es público). */}
           {d.comprobanteUrl ? (
             <div>
-              <div className="flex items-center justify-between mb-1">
-                <p className="text-xs uppercase tracking-wide text-tinta/60">Comprobante</p>
-                <a href={d.comprobanteUrl} target="_blank" rel="noreferrer" className="text-xs font-medium text-marca hover:underline">Abrir en grande</a>
+              <div className="mb-1.5 flex items-center justify-between gap-2">
+                <p className="text-xs font-semibold uppercase tracking-[0.08em] text-tinta/60">Comprobante</p>
+                <a href={d.comprobanteUrl} target="_blank" rel="noreferrer" className={unir('rounded-sm text-xs font-medium text-marca-hondo hover:underline', FOCO)}>Abrir en grande</a>
               </div>
               {/pdf(\?|$)/i.test(d.archivo_url ?? d.comprobanteUrl) ? (
-                <a href={d.comprobanteUrl} target="_blank" rel="noreferrer" className="block rounded-xl border border-black/[0.06] bg-crema-claro px-3 py-4 text-center text-sm text-tinta/70 hover:border-black/30">
+                <a href={d.comprobanteUrl} target="_blank" rel="noreferrer" className={unir('block rounded-xl border border-black/[0.06] bg-crema-claro px-3 py-4 text-center text-sm text-tinta/70 hover:border-black/15', FOCO)}>
                   Abrir el comprobante (PDF)
                 </a>
               ) : (
-                <a href={d.comprobanteUrl} target="_blank" rel="noreferrer">
-                  <img src={d.comprobanteUrl} alt="Comprobante" className="w-full rounded-xl border border-black/[0.06] max-h-96 object-contain bg-white" />
+                <a href={d.comprobanteUrl} target="_blank" rel="noreferrer" className={unir('block rounded-xl', FOCO)}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={d.comprobanteUrl} alt="Comprobante" className="max-h-96 w-full rounded-xl border border-black/[0.06] bg-white object-contain" />
                 </a>
               )}
             </div>
@@ -2658,17 +2766,18 @@ function FacturaDetalle({ id, cerrar, volviendo }: { id: string; cerrar: () => v
           )}
         </div>
       )}
-      <div className="flex justify-end pt-1"><button onClick={cerrar} className="rounded-full bg-black text-white text-sm font-medium px-5 py-2 hover:bg-black/80">{volviendo ? 'Volver a la compra' : 'Cerrar'}</button></div>
-    </>
+    </Ventana>
   );
 }
 
-function Acciones({ cerrar, onOk, okLabel, disabled }: any) {
+// Cancelar + la acción de la ventana. Van sueltos: el pie de la ventana los
+// acomoda (en el celular se reparten el ancho). `variante` = 'peligro' en los rechazos.
+function Acciones({ cerrar, onOk, okLabel, disabled, variante = 'primario' }: any) {
   const [cargando, setCargando] = useState(false);
   return (
-    <div className="flex justify-end gap-3 pt-1">
-      <button onClick={cerrar} className="text-sm text-tinta/70 px-4 py-2 hover:text-tinta">Cancelar</button>
-      <button onClick={async () => { setCargando(true); try { await onOk(); } finally { setCargando(false); } }} disabled={disabled || cargando} className="rounded-full bg-marca text-white text-sm font-medium px-6 py-2.5 hover:bg-marca-hondo disabled:opacity-50">{cargando ? '…' : okLabel}</button>
-    </div>
+    <>
+      <Boton variante="secundario" onClick={cerrar}>Cancelar</Boton>
+      <Boton variante={variante} onClick={async () => { setCargando(true); try { await onOk(); } finally { setCargando(false); } }} disabled={disabled} cargando={cargando}>{okLabel}</Boton>
+    </>
   );
 }

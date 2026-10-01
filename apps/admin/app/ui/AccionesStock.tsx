@@ -2,6 +2,27 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import {
+  Aviso,
+  Boton,
+  Campo,
+  Entrada,
+  Etiqueta,
+  FOCO,
+  IconoCerrar,
+  Modal,
+  Selector,
+  Tarjeta,
+  TarjetaCabecera,
+  unir,
+  useConfirmar,
+} from './kit';
+
+// ✕ de quitar: 44 px de área para el dedo aunque el dibujo sea chico.
+const BOTON_QUITAR = unir(
+  'grid size-11 shrink-0 place-items-center rounded-full text-tinta/60 transition-colors hover:bg-tinta/5 hover:text-marca-hondo',
+  FOCO,
+);
 
 type Sucursal = { id: string; nombre: string };
 type Transferencia = {
@@ -33,27 +54,28 @@ function BuscadorProducto({ onElegir }: { onElegir: (p: any) => void }) {
   }, [texto]);
 
   return (
-    <div className="relative">
-      <input
+    <div>
+      <Entrada
         value={texto}
         onChange={(e) => setTexto(e.target.value)}
         placeholder="Buscar producto por nombre o SKU…"
-        className="w-full rounded-lg border border-black/15 px-3 py-2.5 text-sm text-black focus:border-[#B82D25] focus:outline-none"
+        aria-label="Buscar producto por nombre o SKU"
       />
       {sugerencias.length > 0 && (
-        <div className="absolute z-10 mt-1 w-full rounded-lg bg-white shadow-lg border border-black/10 max-h-56 overflow-y-auto">
+        <div className="mt-1 max-h-56 overflow-y-auto rounded-xl border border-black/[0.06] bg-white shadow-flotante">
           {sugerencias.map((p) => (
             <button
               key={p.sku}
+              type="button"
               onClick={() => {
                 onElegir(p);
                 setTexto('');
                 setSugerencias([]);
               }}
-              className="w-full text-left px-3 py-2 text-sm text-black hover:bg-[#F0EBE2] border-b border-black/5 last:border-0"
+              className="block min-h-11 w-full border-b border-black/[0.06] px-3.5 py-2 text-left text-sm text-tinta last:border-0 hover:bg-crema-claro focus-visible:bg-crema-claro focus-visible:outline-none"
             >
               <span className="font-medium">{p.nombre}</span>
-              <span className="text-xs text-black/40 ml-2">{p.sku} · stock {Math.round(p.stockTotal)}</span>
+              <span className="ml-2 text-xs text-tinta/60">{p.sku} · stock {Math.round(p.stockTotal)}</span>
             </button>
           ))}
         </div>
@@ -70,6 +92,7 @@ export function AccionesStock({
   transferencias: Transferencia[];
 }) {
   const router = useRouter();
+  const { pedirTexto, avisar, dialogo } = useConfirmar();
   const [modo, setModo] = useState<Modo>(null);
   const [producto, setProducto] = useState<any>(null);
   const [cantidad, setCantidad] = useState('');
@@ -160,7 +183,13 @@ export function AccionesStock({
   };
 
   const anular = async (id: string) => {
-    const motivoAnu = window.prompt('¿Anular la transferencia? El stock vuelve a la sucursal de origen.\nMotivo:');
+    const motivoAnu = await pedirTexto({
+      titulo: '¿Anular la transferencia?',
+      texto: 'El stock vuelve a la sucursal de origen.',
+      campo: { etiqueta: 'Motivo' },
+      variante: 'peligro',
+      textoConfirmar: 'Anular',
+    });
     if (motivoAnu === null) return;
     const res = await fetch('/api/stock', {
       method: 'POST',
@@ -169,7 +198,7 @@ export function AccionesStock({
     });
     if (!res.ok) {
       const d = await res.json().catch(() => ({}));
-      window.alert(d.message ?? 'No se pudo anular (requiere gerencia)');
+      await avisar({ titulo: 'No se pudo anular la transferencia', texto: d.message ?? 'No se pudo anular (requiere gerencia)' });
       return;
     }
     router.refresh();
@@ -178,224 +207,197 @@ export function AccionesStock({
   return (
     <div className="space-y-4">
       {/* acciones principales */}
-      <div className="flex flex-wrap gap-2 justify-end">
-        <button
-          onClick={() => abrir('ajuste')}
-          className="rounded-full bg-[#B82D25] text-white text-sm font-medium px-5 py-2.5 hover:bg-[#932A1F] shadow-sm"
-        >
+      <div className="flex flex-wrap gap-2 sm:justify-end">
+        <Boton onClick={() => abrir('ajuste')} className="grow sm:grow-0">
           + Ajustar stock
-        </button>
-        <button
-          onClick={() => abrir('merma')}
-          className="rounded-full bg-black text-white text-sm font-medium px-5 py-2.5 hover:bg-black/80 shadow-sm"
-        >
+        </Boton>
+        <Boton variante="secundario" onClick={() => abrir('merma')} className="grow sm:grow-0">
           Registrar merma
-        </button>
-        <button
-          onClick={() => abrir('transferencia')}
-          className="rounded-full bg-white text-black border border-black/15 text-sm font-medium px-5 py-2.5 hover:border-black/40 shadow-sm"
-        >
+        </Boton>
+        <Boton variante="secundario" onClick={() => abrir('transferencia')} className="grow sm:grow-0">
           Transferir entre sucursales
-        </button>
+        </Boton>
       </div>
 
       {/* transferencias en curso */}
       {transferencias.length > 0 && (
-        <section className="rounded-xl bg-white overflow-hidden">
-          <h2 className="px-4 py-3 border-b border-black/10 font-medium text-black text-sm">
-            Transferencias en curso
-          </h2>
-          {transferencias.map((t) => (
-            <div key={t.id} className="px-4 py-3 border-b border-black/5 last:border-0 flex items-center justify-between gap-3">
-              <div className="text-sm text-black">
-                <p className="font-medium">
-                  {t.origen?.nombre} → {t.destino?.nombre}
-                  <span className="ml-2 text-[11px] rounded-full bg-amber-100 text-amber-900 px-2 py-0.5">
-                    {t.estado === 'pendiente' ? 'En camino' : t.estado}
-                  </span>
-                </p>
-                <p className="text-xs text-black/50 mt-0.5">
-                  {t.items.map((i) => `${i.producto?.nombre} × ${Math.round(i.cantidad)}`).join(' · ')}
-                </p>
+        <Tarjeta relleno={false}>
+          <TarjetaCabecera titulo="Transferencias en curso" />
+          <div className="divide-y divide-black/[0.06]">
+            {transferencias.map((t) => (
+              <div key={t.id} className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+                <div className="min-w-0 text-sm text-tinta">
+                  <p className="flex flex-wrap items-center gap-x-2 gap-y-1 font-medium">
+                    <span className="min-w-0 break-words">{t.origen?.nombre} → {t.destino?.nombre}</span>
+                    <Etiqueta tono="atencion">
+                      {t.estado === 'pendiente' ? 'En camino' : t.estado}
+                    </Etiqueta>
+                  </p>
+                  <p className="mt-0.5 break-words text-xs text-tinta/60">
+                    {t.items.map((i) => `${i.producto?.nombre} × ${Math.round(i.cantidad)}`).join(' · ')}
+                  </p>
+                </div>
+                <div className="flex shrink-0 gap-2">
+                  <Boton
+                    variante="peligro"
+                    tamano="chico"
+                    onClick={() => anular(t.id)}
+                    title="La mercadería no llegó: vuelve al stock de origen"
+                    className="grow sm:grow-0"
+                  >
+                    Anular
+                  </Boton>
+                  <Boton tamano="chico" onClick={() => recibir(t.id)} className="grow sm:grow-0">
+                    Recibir
+                  </Boton>
+                </div>
               </div>
-              <div className="flex gap-2 items-center whitespace-nowrap">
-                <button
-                  onClick={() => anular(t.id)}
-                  className="rounded-full bg-white border border-[#B82D25]/40 text-[#932A1F] text-xs font-medium px-3 py-2 hover:bg-[#B82D25]/5"
-                  title="La mercadería no llegó: vuelve al stock de origen"
-                >
-                  Anular
-                </button>
-                <button
-                  onClick={() => recibir(t.id)}
-                  className="rounded-full bg-emerald-600 text-white text-xs font-medium px-4 py-2 hover:bg-emerald-700"
-                >
-                  Recibir ✓
-                </button>
-              </div>
-            </div>
-          ))}
-        </section>
+            ))}
+          </div>
+        </Tarjeta>
       )}
 
       {/* modal */}
-      {modo && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-[2px] flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl w-full max-w-lg p-6 space-y-3 shadow-2xl">
-            <div>
-              <h2 className="font-semibold text-black text-lg">
-                {modo === 'ajuste' ? 'Ajustar stock' : modo === 'merma' ? 'Registrar merma' : 'Transferencia entre sucursales'}
-              </h2>
-              <p className="text-xs text-black/45 mt-0.5">
-                {modo === 'ajuste'
-                  ? 'Corrige el stock con un movimiento auditado (positivo suma, negativo resta).'
-                  : modo === 'merma'
-                    ? 'Rotura, vencimiento o pérdida: descuenta stock y queda en el historial.'
-                    : 'La mercadería sale de origen ya; el stock entra a destino cuando la reciben.'}
-              </p>
-            </div>
-
-            {modo === 'transferencia' ? (
-              <>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-xs text-black/50">Origen</label>
-                    <select
-                      value={sucursalId}
-                      onChange={(e) => setSucursalId(e.target.value)}
-                      className="w-full mt-1 rounded-lg border border-black/15 px-3 py-2 text-sm text-black bg-white"
-                    >
-                      {sucursales.map((s) => (
-                        <option key={s.id} value={s.id}>{s.nombre}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="text-xs text-black/50">Destino</label>
-                    <select
-                      value={destinoId}
-                      onChange={(e) => setDestinoId(e.target.value)}
-                      className="w-full mt-1 rounded-lg border border-black/15 px-3 py-2 text-sm text-black bg-white"
-                    >
-                      {sucursales.filter((s) => s.id !== sucursalId).map((s) => (
-                        <option key={s.id} value={s.id}>{s.nombre}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-                <BuscadorProducto
-                  onElegir={(p) => setItems((xs) => [...xs.filter((x) => x.sku !== p.sku), { sku: p.sku, nombre: p.nombre, cantidad: 1 }])}
-                />
-                {items.map((i, idx) => (
-                  <div key={i.sku} className="flex items-center gap-2 text-sm text-black">
-                    <span className="flex-1 min-w-0 break-words">{i.nombre}</span>
-                    <input
+      <Modal
+        abierto={modo !== null}
+        onCerrar={() => setModo(null)}
+        cerrarAlTocarAfuera={false}
+        titulo={modo === 'ajuste' ? 'Ajustar stock' : modo === 'merma' ? 'Registrar merma' : 'Transferencia entre sucursales'}
+        descripcion={
+          modo === 'ajuste'
+            ? 'Corrige el stock con un movimiento auditado (positivo suma, negativo resta).'
+            : modo === 'merma'
+              ? 'Rotura, vencimiento o pérdida: descuenta stock y queda en el historial.'
+              : 'La mercadería sale de origen ya; el stock entra a destino cuando la reciben.'
+        }
+        pie={
+          <>
+            <Boton variante="secundario" onClick={() => setModo(null)}>
+              Cancelar
+            </Boton>
+            <Boton onClick={ejecutar} cargando={cargando}>
+              {cargando ? 'Registrando…' : modo === 'transferencia' ? 'Enviar transferencia' : 'Registrar'}
+            </Boton>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          {modo === 'transferencia' ? (
+            <>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Campo etiqueta="Origen">
+                  <Selector value={sucursalId} onChange={(e) => setSucursalId(e.target.value)}>
+                    {sucursales.map((s) => (
+                      <option key={s.id} value={s.id}>{s.nombre}</option>
+                    ))}
+                  </Selector>
+                </Campo>
+                <Campo etiqueta="Destino">
+                  <Selector value={destinoId} onChange={(e) => setDestinoId(e.target.value)}>
+                    {sucursales.filter((s) => s.id !== sucursalId).map((s) => (
+                      <option key={s.id} value={s.id}>{s.nombre}</option>
+                    ))}
+                  </Selector>
+                </Campo>
+              </div>
+              <BuscadorProducto
+                onElegir={(p) => setItems((xs) => [...xs.filter((x) => x.sku !== p.sku), { sku: p.sku, nombre: p.nombre, cantidad: 1 }])}
+              />
+              {items.map((i, idx) => (
+                <div key={i.sku} className="flex items-center gap-2 text-sm text-tinta">
+                  <span className="min-w-0 flex-1 break-words">{i.nombre}</span>
+                  {/* el ancho va en una caja: Entrada ya trae w-full */}
+                  <div className="w-24 shrink-0">
+                    <Entrada
                       type="number"
                       value={i.cantidad}
                       onChange={(e) =>
                         setItems((xs) => xs.map((x, j) => (j === idx ? { ...x, cantidad: Number(e.target.value) } : x)))
                       }
-                      className="w-20 rounded-lg border border-black/15 px-2 py-1.5 text-sm text-right"
-                    />
-                    <button onClick={() => setItems((xs) => xs.filter((_, j) => j !== idx))} className="text-black/40 hover:text-[#B82D25]">✕</button>
-                  </div>
-                ))}
-              </>
-            ) : (
-              <>
-                {producto ? (
-                  <div className="flex items-center justify-between rounded-lg bg-[#F0EBE2]/70 px-3 py-2.5 text-sm text-black">
-                    <span className="min-w-0 break-words">{producto.nombre} <span className="text-black/40 text-xs">({producto.sku})</span></span>
-                    <button onClick={() => setProducto(null)} className="text-black/40 hover:text-[#B82D25] ml-2">✕</button>
-                  </div>
-                ) : (
-                  <BuscadorProducto onElegir={setProducto} />
-                )}
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-xs text-black/50">Sucursal</label>
-                    <select
-                      value={sucursalId}
-                      onChange={(e) => setSucursalId(e.target.value)}
-                      className="w-full mt-1 rounded-lg border border-black/15 px-3 py-2 text-sm text-black bg-white"
-                    >
-                      {sucursales.map((s) => (
-                        <option key={s.id} value={s.id}>{s.nombre}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="text-xs text-black/50">
-                      {modo === 'merma' ? 'Cantidad perdida' : 'Cantidad (+ suma / − resta)'}
-                    </label>
-                    <input
-                      value={cantidad}
-                      onChange={(e) => setCantidad(e.target.value)}
-                      type="number"
-                      className="w-full mt-1 rounded-lg border border-black/15 px-3 py-2 text-sm text-black focus:border-[#B82D25] focus:outline-none"
+                      aria-label={`Cantidad de ${i.nombre}`}
+                      className="text-right"
                     />
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => setItems((xs) => xs.filter((_, j) => j !== idx))}
+                    aria-label={`Quitar ${i.nombre}`}
+                    className={BOTON_QUITAR}
+                  >
+                    <IconoCerrar className="size-5" />
+                  </button>
                 </div>
-                {modo === 'merma' ? (
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="text-xs text-black/50">Motivo</label>
-                      <select
-                        value={motivoTipo}
-                        onChange={(e) => setMotivoTipo(e.target.value)}
-                        className="w-full mt-1 rounded-lg border border-black/15 px-3 py-2 text-sm text-black bg-white"
-                      >
-                        {MOTIVOS_MERMA.map((m) => <option key={m} value={m}>{m}</option>)}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="text-xs text-black/50">Detalle (opcional)</label>
-                      <input
-                        value={motivo}
-                        onChange={(e) => setMotivo(e.target.value)}
-                        placeholder="ej: se cayó del palet"
-                        className="w-full mt-1 rounded-lg border border-black/15 px-3 py-2 text-sm text-black focus:border-[#B82D25] focus:outline-none"
-                      />
-                    </div>
-                  </div>
-                ) : (
-                  <input
-                    value={motivo}
-                    onChange={(e) => setMotivo(e.target.value)}
-                    placeholder="Motivo del ajuste (conteo, corrección…)"
-                    className="w-full rounded-lg border border-black/15 px-3 py-2.5 text-sm text-black focus:border-[#B82D25] focus:outline-none"
+              ))}
+            </>
+          ) : (
+            <>
+              {producto ? (
+                <div className="flex items-center justify-between gap-2 rounded-xl bg-crema-claro py-1 pl-3.5 pr-1 text-sm text-tinta">
+                  <span className="min-w-0 break-words">{producto.nombre} <span className="text-xs text-tinta/60">({producto.sku})</span></span>
+                  <button type="button" onClick={() => setProducto(null)} aria-label="Quitar el producto" className={BOTON_QUITAR}>
+                    <IconoCerrar className="size-5" />
+                  </button>
+                </div>
+              ) : (
+                <BuscadorProducto onElegir={setProducto} />
+              )}
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Campo etiqueta="Sucursal">
+                  <Selector value={sucursalId} onChange={(e) => setSucursalId(e.target.value)}>
+                    {sucursales.map((s) => (
+                      <option key={s.id} value={s.id}>{s.nombre}</option>
+                    ))}
+                  </Selector>
+                </Campo>
+                <Campo etiqueta={modo === 'merma' ? 'Cantidad perdida' : 'Cantidad (+ suma / − resta)'}>
+                  <Entrada
+                    value={cantidad}
+                    onChange={(e) => setCantidad(e.target.value)}
+                    type="number"
                   />
-                )}
-                {pidePin && (
-                  <input
-                    value={pin}
-                    onChange={(e) => setPin(e.target.value)}
-                    placeholder="PIN del supervisor (el monto supera el tope)"
-                    type="password"
-                    inputMode="numeric"
-                    className="w-full rounded-lg border-2 border-[#B82D25] px-3 py-2.5 text-sm text-black focus:outline-none"
-                  />
-                )}
-              </>
-            )}
+                </Campo>
+              </div>
+              {modo === 'merma' ? (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Campo etiqueta="Motivo">
+                    <Selector value={motivoTipo} onChange={(e) => setMotivoTipo(e.target.value)}>
+                      {MOTIVOS_MERMA.map((m) => <option key={m} value={m}>{m}</option>)}
+                    </Selector>
+                  </Campo>
+                  <Campo etiqueta="Detalle (opcional)">
+                    <Entrada
+                      value={motivo}
+                      onChange={(e) => setMotivo(e.target.value)}
+                      placeholder="ej: se cayó del palet"
+                    />
+                  </Campo>
+                </div>
+              ) : (
+                <Entrada
+                  value={motivo}
+                  onChange={(e) => setMotivo(e.target.value)}
+                  placeholder="Motivo del ajuste (conteo, corrección…)"
+                  aria-label="Motivo del ajuste"
+                />
+              )}
+              {pidePin && (
+                <Entrada
+                  value={pin}
+                  onChange={(e) => setPin(e.target.value)}
+                  placeholder="PIN del supervisor (el monto supera el tope)"
+                  aria-label="PIN del supervisor"
+                  type="password"
+                  inputMode="numeric"
+                />
+              )}
+            </>
+          )}
 
-            {error && <p className="text-xs text-[#B82D25] font-medium">{error}</p>}
-
-            <div className="flex justify-end gap-3 pt-1">
-              <button onClick={() => setModo(null)} className="text-sm text-black/60 px-4 py-2 hover:text-black">
-                Cancelar
-              </button>
-              <button
-                onClick={ejecutar}
-                disabled={cargando}
-                className="rounded-full bg-[#B82D25] text-white text-sm font-medium px-6 py-2.5 hover:bg-[#932A1F] disabled:opacity-50"
-              >
-                {cargando ? 'Registrando…' : modo === 'transferencia' ? 'Enviar transferencia' : 'Registrar'}
-              </button>
-            </div>
-          </div>
+          {error && <Aviso tono="error">{error}</Aviso>}
         </div>
-      )}
+      </Modal>
+
+      {dialogo}
     </div>
   );
 }

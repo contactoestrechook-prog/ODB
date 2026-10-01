@@ -1,9 +1,9 @@
-import { Header } from '../../../ui/Header';
 import { apiFetch } from '../../../../lib/api';
 import { RegistrarCobranza } from '../../../ui/RegistrarCobranza';
 import { BotonVolver } from '../../../ui/BotonVolver';
-
-const pesos = (n: number) => '$' + Math.round(n).toLocaleString('es-AR');
+import { Aviso, Monto, TablaResponsiva, Tarjeta, Vacio, unir } from '../../../ui/kit';
+import { Pantalla } from '../../../ui/kit/Pantalla';
+import { fecha, pesos } from '../../../lib/formato';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,10 +12,9 @@ export default async function CuentaCliente({ params }: { params: Promise<{ clie
   const res = await apiFetch(`/facturacion/cuentas/${clienteId}`);
   if (!res.ok) {
     return (
-      <main className="min-h-screen bg-[#F0EBE2] lg:pl-64">
-        <Header activo="/facturacion" />
-        <p className="max-w-3xl mx-auto p-6 text-sm text-[#932A1F]">No existe la cuenta.</p>
-      </main>
+      <Pantalla activo="/facturacion" ancho="angosto">
+        <Aviso tono="error">No existe la cuenta.</Aviso>
+      </Pantalla>
     );
   }
   const { cliente, saldo, movimientos } = await res.json();
@@ -29,59 +28,48 @@ export default async function CuentaCliente({ params }: { params: Promise<{ clie
   });
 
   return (
-    <main className="min-h-screen bg-[#F0EBE2] lg:pl-64">
-      <Header activo="/facturacion" />
-      <div className="max-w-4xl mx-auto p-6 space-y-5">
+    <Pantalla activo="/facturacion">
+      <div>
         <BotonVolver href="/facturacion/cuentas" label="Todas las cuentas" />
-
-        <section className="rounded-xl bg-white p-5 flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <h1 className="text-lg font-semibold text-black">{cliente.razon_social ?? cliente.nombre}</h1>
-            <p className="text-xs text-black/45 mt-0.5">
-              {cliente.cuit ?? cliente.dni} · {(cliente.condicion_iva ?? '').replaceAll('_', ' ')}
-              {cliente.telefono && ` · ${cliente.telefono}`}
-            </p>
-          </div>
-          <div className="flex items-center gap-5">
-            <div className="text-right">
-              <p className={`text-2xl font-semibold leading-none ${saldo > 0 ? 'text-[#B82D25]' : 'text-emerald-700'}`}>
-                {saldo > 0 ? pesos(saldo) : saldo < 0 ? `${pesos(-saldo)} a favor` : 'Al día'}
-              </p>
-              {saldo > 0 && <p className="text-xs text-black/45 mt-1">saldo deudor</p>}
-            </div>
-            <RegistrarCobranza clienteId={clienteId} nombre={cliente.razon_social ?? cliente.nombre} saldo={saldo} />
-          </div>
-        </section>
-
-        <section className="rounded-xl bg-white overflow-hidden">
-          <table className="w-full text-sm text-black">
-            <thead>
-              <tr className="border-b border-black/10 text-left text-xs text-black/50">
-                <th className="px-4 py-3 font-medium">Fecha</th>
-                <th className="px-4 py-3 font-medium">Concepto</th>
-                <th className="px-4 py-3 font-medium text-right">Debe</th>
-                <th className="px-4 py-3 font-medium text-right">Haber</th>
-                <th className="px-4 py-3 font-medium text-right">Saldo</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filas.map((m: any, i: number) => (
-                <tr key={i} className="border-b border-black/5 last:border-0">
-                  <td className="px-4 py-2.5 text-xs text-black/50 whitespace-nowrap">
-                    {new Date(m.creado_en).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: '2-digit' })}
-                  </td>
-                  <td className="px-4 py-2.5 text-xs">{m.concepto}</td>
-                  <td className="px-4 py-2.5 text-right">{Number(m.debe) > 0 ? pesos(m.debe) : ''}</td>
-                  <td className="px-4 py-2.5 text-right text-emerald-700">{Number(m.haber) > 0 ? pesos(m.haber) : ''}</td>
-                  <td className={`px-4 py-2.5 text-right font-medium ${m.saldo > 0 ? 'text-[#B82D25]' : 'text-black'}`}>
-                    {pesos(m.saldo)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </section>
       </div>
-    </main>
+
+      <Tarjeta className="flex flex-wrap items-center justify-between gap-4">
+        <div className="min-w-0 flex-1 basis-56">
+          <h2 className="break-words text-lg font-semibold text-tinta">{cliente.razon_social ?? cliente.nombre}</h2>
+          <p className="mt-0.5 text-xs text-tinta/60">
+            {cliente.cuit ?? cliente.dni} · {(cliente.condicion_iva ?? '').replaceAll('_', ' ')}
+            {cliente.telefono && ` · ${cliente.telefono}`}
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
+          <div className="sm:text-right">
+            <p className={unir('importe text-2xl font-semibold leading-none', saldo > 0 ? 'text-marca-hondo' : 'text-ok')}>
+              {saldo > 0 ? pesos(saldo) : saldo < 0 ? `${pesos(-saldo)} a favor` : 'Al día'}
+            </p>
+            {saldo > 0 && <p className="mt-1 text-xs text-tinta/60">saldo deudor</p>}
+          </div>
+          <RegistrarCobranza clienteId={clienteId} nombre={cliente.razon_social ?? cliente.nombre} saldo={saldo} />
+        </div>
+      </Tarjeta>
+
+      <TablaResponsiva
+        etiqueta="Movimientos de la cuenta corriente"
+        filas={filas}
+        claveFila={(_m, i) => i}
+        vacio={<Vacio titulo="Esta cuenta todavía no tiene movimientos." />}
+        columnas={[
+          { clave: 'fecha', titulo: 'Fecha', claseCelda: 'whitespace-nowrap text-tinta/60', celda: (m: any) => fecha(m.creado_en) },
+          { clave: 'concepto', titulo: 'Concepto', principal: true, celda: (m: any) => <span className="break-words">{m.concepto}</span> },
+          { clave: 'debe', titulo: 'Debe', importe: true, celda: (m: any) => (Number(m.debe) > 0 ? <Monto valor={m.debe} /> : '') },
+          { clave: 'haber', titulo: 'Haber', importe: true, celda: (m: any) => (Number(m.haber) > 0 ? <Monto valor={m.haber} className="text-ok" /> : '') },
+          {
+            clave: 'saldo',
+            titulo: 'Saldo',
+            importe: true,
+            celda: (m: any) => <Monto valor={m.saldo} className={unir('font-medium', m.saldo > 0 ? 'text-marca-hondo' : 'text-tinta')} />,
+          },
+        ]}
+      />
+    </Pantalla>
   );
 }

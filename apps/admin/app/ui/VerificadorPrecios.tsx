@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { conectarImpresora, hayBluetooth, imprimirEtiqueta, impresoraConectada } from '../lib/impresora-bt';
+import { Aviso, Boton, Entrada, Tarjeta, FOCO_ADENTRO, unir } from './kit';
+import { fecha, pesos } from '../lib/formato';
 
 // Verificador de precios para el salón. Pensado para un equipo de mano con
 // lector: se escanea y el precio aparece en letra grande, legible a un brazo de
@@ -27,8 +29,6 @@ type Producto = {
   stockPorSucursal: { sucursal_id: string; cantidad: number }[];
   codigosBarras: string[];
 };
-
-const pesos = (n: number | null) => (n == null || !Number.isFinite(Number(n)) ? '—' : '$' + Math.round(Number(n)).toLocaleString('es-AR'));
 
 export function VerificadorPrecios({ sucursales }: { sucursales: { id: string; nombre: string }[] }) {
   const [texto, setTexto] = useState('');
@@ -123,16 +123,19 @@ export function VerificadorPrecios({ sucursales }: { sucursales: { id: string; n
       setImprimiendo(false);
     }
   };
-  const hoy = new Date().toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const hoy = fecha(new Date(), 'completa');
 
   return (
-    <div className="max-w-3xl mx-auto p-4 sm:p-6">
-      {/* la etiqueta solo existe al imprimir: 58 mm de ancho, alto libre */}
+    <div className="space-y-4">
+      {/* la etiqueta solo existe al imprimir: 58 mm de ancho, alto libre.
+          Lo demás (menú, cabecera, la ficha) queda invisible y sin ocupar lugar. */}
       <style>{`
         @media print {
           body * { visibility: hidden !important; }
           #etiqueta, #etiqueta * { visibility: visible !important; }
-          #etiqueta { position: absolute; left: 0; top: 0; width: 54mm; }
+          /* display: block con !important: el display:none en línea de la etiqueta le gana a la clase print:block */
+          #etiqueta { display: block !important; position: absolute; left: 0; top: 0; width: 54mm; }
+          main { min-height: 0 !important; padding: 0 !important; }
           @page { size: 58mm auto; margin: 2mm; }
         }
       `}</style>
@@ -141,56 +144,62 @@ export function VerificadorPrecios({ sucursales }: { sucursales: { id: string; n
         onSubmit={(e) => { e.preventDefault(); buscar(texto); }}
         className="flex gap-2 print:hidden"
       >
-        <input
+        <Entrada
           value={texto}
           onChange={(e) => setTexto(e.target.value)}
           placeholder="Pasá el lector, o escribí nombre / código"
-          className="flex-1 rounded-xl border-2 border-[#B82D25] bg-white px-4 py-3 text-base text-black outline-none"
+          aria-label="Buscar producto"
+          className="min-w-0 flex-1"
           autoFocus
         />
-        <button type="submit" className="rounded-xl bg-[#B82D25] px-5 py-3 text-sm font-medium text-white">
+        <Boton type="submit" className="shrink-0">
           {buscando ? '…' : 'Buscar'}
-        </button>
+        </Boton>
       </form>
 
       {hayBluetooth() && (
-        <div className="mt-2 flex items-center justify-between text-xs print:hidden">
-          <span className={impresora ? 'text-emerald-700' : 'text-black/40'}>
+        <div className="flex flex-wrap items-center justify-between gap-x-3 text-xs print:hidden">
+          <span className={unir('min-w-0 break-words', impresora ? 'text-ok' : 'text-tinta/60')}>
             {impresora ? `Impresora: ${impresora}` : 'Impresora de etiquetas sin conectar'}
           </span>
-          <button onClick={vincularImpresora} className="text-[#B82D25] underline">
+          <Boton variante="fantasma" tamano="chico" onClick={vincularImpresora}>
             {impresora ? 'cambiar' : 'conectar impresora'}
-          </button>
+          </Boton>
         </div>
       )}
 
-      {aviso && <p className="mt-4 rounded-xl bg-white p-4 text-sm text-[#B82D25] print:hidden">{aviso}</p>}
+      {aviso && <Aviso tono="error" className="print:hidden">{aviso}</Aviso>}
 
       {opciones.length > 0 && (
-        <div className="mt-4 rounded-xl bg-white divide-y divide-black/5 print:hidden">
-          <p className="px-4 py-2 text-xs text-black/45">{opciones.length} coincidencias — tocá la que buscás</p>
+        <Tarjeta relleno={false} className="divide-y divide-black/[0.06] overflow-hidden print:hidden">
+          <p className="px-4 py-2 text-xs text-tinta/60">{opciones.length} coincidencias — tocá la que buscás</p>
           {opciones.map((p) => (
-            <button key={p.sku} onClick={() => { setProducto(p); setOpciones([]); }} className="w-full text-left px-4 py-3 hover:bg-[#F0EBE2]/60 flex items-center justify-between gap-3">
+            <button
+              key={p.sku}
+              type="button"
+              onClick={() => { setProducto(p); setOpciones([]); }}
+              className={unir('flex min-h-11 w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-crema-claro', FOCO_ADENTRO)}
+            >
               <span className="min-w-0">
-                <span className="block min-w-0 break-words text-sm text-black">{p.nombre}</span>
-                <span className="text-xs text-black/45">{p.sku}{p.marca ? ` · ${p.marca}` : ''}</span>
+                <span className="block min-w-0 break-words text-sm text-tinta">{p.nombre}</span>
+                <span className="text-xs text-tinta/60">{p.sku}{p.marca ? ` · ${p.marca}` : ''}</span>
               </span>
-              <span className="shrink-0 font-semibold text-black">{pesos(p.precio)}</span>
+              <span className="importe shrink-0 font-semibold text-tinta">{pesos(p.precio)}</span>
             </button>
           ))}
-        </div>
+        </Tarjeta>
       )}
 
       {producto && (
         <>
-          <div className="mt-4 rounded-2xl bg-white p-5 shadow-sm print:hidden">
+          <Tarjeta className="print:hidden">
             <div className="flex gap-4">
               {producto.imagenUrl && (
-                <img src={producto.imagenUrl} alt="" className="h-20 w-20 rounded-lg object-cover border border-black/10 shrink-0" />
+                <img src={producto.imagenUrl} alt="" className="size-20 shrink-0 rounded-xl border border-black/[0.06] object-cover" />
               )}
               <div className="min-w-0">
-                <p className="text-lg font-semibold text-black leading-tight">{producto.nombre}</p>
-                <p className="text-xs text-black/45 mt-0.5">
+                <p className="break-words text-lg font-semibold leading-tight text-tinta">{producto.nombre}</p>
+                <p className="mt-0.5 break-words text-xs text-tinta/60">
                   {producto.sku}
                   {producto.marca ? ` · ${producto.marca}` : ''}
                   {producto.categoria ? ` · ${producto.categoria}` : ''}
@@ -199,12 +208,13 @@ export function VerificadorPrecios({ sucursales }: { sucursales: { id: string; n
               </div>
             </div>
 
-            <div className="mt-4 rounded-xl bg-[#F0EBE2]/70 px-4 py-5 text-center">
+            <div className="mt-4 rounded-xl bg-crema-claro px-4 py-5 text-center">
               {producto.descuento && producto.precioLista != null && (
-                <p className="text-sm text-black/40 line-through">{pesos(producto.precioLista)}</p>
+                <p className="importe text-sm text-tinta/60 line-through">{pesos(producto.precioLista)}</p>
               )}
-              <p className="text-5xl font-bold text-black tabular-nums leading-none">{pesos(producto.precio)}</p>
-              {producto.descuento && <p className="mt-1 text-sm font-medium text-[#B82D25]">{producto.descuento}</p>}
+              {/* el precio se achica con la pantalla para no salirse en un equipo de mano angosto */}
+              <p className="importe text-[clamp(2.25rem,12vw,3rem)] font-bold leading-none tracking-tight text-tinta">{pesos(producto.precio)}</p>
+              {producto.descuento && <p className="mt-1 text-sm font-semibold text-marca-hondo">{producto.descuento}</p>}
             </div>
 
             <div className="mt-3 grid grid-cols-2 gap-2">
@@ -212,38 +222,52 @@ export function VerificadorPrecios({ sucursales }: { sucursales: { id: string; n
                 const st = producto.stockPorSucursal?.find((x) => x.sucursal_id === s.id);
                 const cant = Number(st?.cantidad ?? 0);
                 return (
-                  <div key={s.id} className="rounded-lg border border-black/10 px-3 py-2">
-                    <p className="text-[11px] text-black/45">{s.nombre}</p>
-                    <p className={`text-lg font-semibold tabular-nums ${cant > 0 ? 'text-black' : 'text-[#B82D25]'}`}>{cant}</p>
+                  <div key={s.id} className="min-w-0 rounded-xl border border-black/[0.06] px-3 py-2">
+                    <p className="truncate text-xs text-tinta/60">{s.nombre}</p>
+                    <p className={`importe text-lg font-semibold ${cant > 0 ? 'text-tinta' : 'text-marca-hondo'}`}>{cant}</p>
                   </div>
                 );
               })}
             </div>
 
             {producto.codigosBarras?.length > 0 && (
-              <p className="mt-2 text-[11px] font-mono text-black/35">{producto.codigosBarras.join(' · ')}</p>
+              <p className="mt-2 break-all font-mono text-xs text-tinta/60">{producto.codigosBarras.join(' · ')}</p>
             )}
 
-            <div className="mt-4 flex items-center gap-2">
-              <button
+            <div className="mt-4 grid grid-cols-[minmax(0,1fr)_auto] gap-2 sm:flex sm:items-center">
+              <Boton
                 onClick={imprimir}
                 disabled={imprimiendo}
-                className="flex-1 rounded-full bg-[#B82D25] px-5 py-3 text-sm font-medium text-white disabled:opacity-50"
+                className="col-span-2 sm:flex-1"
               >
                 {imprimiendo ? 'Imprimiendo…' : 'Imprimir etiqueta'}
-              </button>
+              </Boton>
               {/* cuántas etiquetas: reponer una góndola son varias del mismo */}
-              <div className="flex items-center rounded-full border border-black/15">
-                <button onClick={() => setCopias((c) => Math.max(1, c - 1))} className="px-3 py-3 text-black/50">−</button>
-                <span className="w-6 text-center text-sm tabular-nums text-black">{copias}</span>
-                <button onClick={() => setCopias((c) => Math.min(20, c + 1))} className="px-3 py-3 text-black/50">+</button>
+              <div className="flex items-center justify-self-start rounded-full border border-black/15 bg-white" role="group" aria-label="Cantidad de etiquetas">
+                <button
+                  type="button"
+                  onClick={() => setCopias((c) => Math.max(1, c - 1))}
+                  aria-label="Una etiqueta menos"
+                  className={unir('grid size-11 place-items-center rounded-full text-lg text-tinta/70 hover:text-tinta sm:size-10', FOCO_ADENTRO)}
+                >
+                  −
+                </button>
+                <span className="importe w-6 text-center text-sm text-tinta" aria-live="polite">{copias}</span>
+                <button
+                  type="button"
+                  onClick={() => setCopias((c) => Math.min(20, c + 1))}
+                  aria-label="Una etiqueta más"
+                  className={unir('grid size-11 place-items-center rounded-full text-lg text-tinta/70 hover:text-tinta sm:size-10', FOCO_ADENTRO)}
+                >
+                  +
+                </button>
               </div>
-              <button onClick={limpiar} className="rounded-full border border-black/15 px-5 py-3 text-sm text-black/70">
+              <Boton variante="secundario" onClick={limpiar}>
                 Otro
-              </button>
+              </Boton>
             </div>
-            {errorImp && <p className="mt-2 text-xs text-[#B82D25]">{errorImp}</p>}
-          </div>
+            {errorImp && <Aviso tono="error" className="mt-3">{errorImp}</Aviso>}
+          </Tarjeta>
 
           {/* Etiqueta: lo único que se ve al imprimir */}
           <div id="etiqueta" style={{ display: 'none' }} className="print:block">

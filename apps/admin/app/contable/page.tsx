@@ -1,6 +1,7 @@
-import { Header } from '../ui/Header';
 import { apiFetch } from '../../lib/api';
 import { ContableWorkspace } from '../ui/ContableWorkspace';
+import { Aviso } from '../ui/kit';
+import { Pantalla } from '../ui/kit/Pantalla';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,15 +17,12 @@ export default async function Contable() {
   }
 
   return (
-    <main className="min-h-screen bg-[#F0EBE2] lg:pl-64">
-      <Header activo="/contable" />
-      <div className="max-w-5xl mx-auto p-6">
-        {error ? (
-          <p className="rounded-lg bg-white p-4 text-sm text-[#932A1F]">No pude consultar la API ({error}).</p>
-        ) : (
-          <ContableWorkspace inicial={inicial} />
-        )}
-      </div>
-    </main>
+    <Pantalla activo="/contable">
+      {error ? (
+        <Aviso tono="error">No pude consultar la API ({error}).</Aviso>
+      ) : (
+        <ContableWorkspace inicial={inicial} />
+      )}
+    </Pantalla>
   );
 }

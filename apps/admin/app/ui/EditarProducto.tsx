@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { Aviso, Boton, Campo, Entrada, Modal } from './kit';
 
 type Opcion = { id: string; nombre: string };
 
@@ -77,141 +78,120 @@ export function EditarProducto({
     router.refresh();
   };
 
+  const CASILLA = 'flex min-h-11 items-center gap-2 text-sm text-tinta';
+  const CHECK = 'size-5 shrink-0 accent-marca';
+
   return (
     <>
-      <div className="flex gap-2">
-        <button
-          onClick={() => setAbierto(true)}
-          className="rounded-full bg-[#B82D25] text-white text-xs font-medium px-4 py-2 hover:bg-[#932A1F]"
-        >
+      <div className="flex flex-wrap gap-2">
+        <Boton tamano="chico" onClick={() => setAbierto(true)}>
           Editar producto
-        </button>
-        <button
-          onClick={alternarActivo}
-          className={`rounded-full text-xs font-medium px-4 py-2 ${
-            producto.activo
-              ? 'bg-black/5 text-black/60 hover:bg-black/10'
-              : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
-          }`}
-        >
+        </Boton>
+        <Boton variante="secundario" tamano="chico" onClick={alternarActivo}>
           {producto.activo ? 'Pausar venta' : 'Reactivar'}
-        </button>
+        </Boton>
       </div>
 
-      {abierto && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-[2px] flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl w-full max-w-lg p-6 space-y-3 shadow-2xl max-h-[90vh] overflow-y-auto">
-            <div>
-              <h2 className="font-semibold text-black text-lg">Editar {producto.sku}</h2>
-              <p className="text-xs text-black/45 mt-0.5">
-                El cambio de precio crea una vigencia nueva: el historial se conserva.
-              </p>
-            </div>
-
-            <input
-              value={form.nombre}
-              onChange={(e) => campo('nombre', e.target.value)}
-              className="w-full rounded-lg border border-black/15 px-3 py-2.5 text-sm text-black focus:border-[#B82D25] focus:outline-none"
-            />
-            <div className="grid grid-cols-2 gap-3">
-              <input
+      <Modal
+        abierto={abierto}
+        onCerrar={() => setAbierto(false)}
+        titulo={`Editar ${producto.sku}`}
+        descripcion="El cambio de precio crea una vigencia nueva: el historial se conserva."
+        cerrarAlTocarAfuera={false}
+        pie={
+          <>
+            <Boton variante="secundario" onClick={() => setAbierto(false)}>
+              Cancelar
+            </Boton>
+            <Boton onClick={guardar} disabled={cargando}>
+              {cargando ? 'Guardando…' : 'Guardar cambios'}
+            </Boton>
+          </>
+        }
+      >
+        <div className="space-y-3 text-left">
+          <Campo etiqueta="Nombre">
+            <Entrada value={form.nombre} onChange={(e) => campo('nombre', e.target.value)} />
+          </Campo>
+          <div className="grid grid-cols-2 gap-3">
+            <Campo etiqueta="Rubro">
+              <Entrada
                 value={form.rubro}
                 onChange={(e) => campo('rubro', e.target.value)}
                 placeholder="Rubro"
                 list="rubros-edicion"
-                className="rounded-lg border border-black/15 px-3 py-2.5 text-sm text-black focus:border-[#B82D25] focus:outline-none"
               />
-              <datalist id="rubros-edicion">
-                {rubros.map((r) => (
-                  <option key={r.id} value={r.nombre} />
-                ))}
-              </datalist>
-              <input
+            </Campo>
+            <datalist id="rubros-edicion">
+              {rubros.map((r) => (
+                <option key={r.id} value={r.nombre} />
+              ))}
+            </datalist>
+            <Campo etiqueta="Marca">
+              <Entrada
                 value={form.marca}
                 onChange={(e) => campo('marca', e.target.value)}
                 placeholder="Marca"
                 list="marcas-edicion"
-                className="rounded-lg border border-black/15 px-3 py-2.5 text-sm text-black focus:border-[#B82D25] focus:outline-none"
               />
-              <datalist id="marcas-edicion">
-                {marcas.map((m) => (
-                  <option key={m.id} value={m.nombre} />
-                ))}
-              </datalist>
-            </div>
-
-            <div className="rounded-xl bg-[#F0EBE2]/60 p-3 space-y-2">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs text-black/50">Costo de compra</label>
-                  <input
-                    value={form.costo}
-                    onChange={(e) => campo('costo', e.target.value)}
-                    type="number"
-                    className="w-full mt-1 rounded-lg border border-black/15 bg-white px-3 py-2 text-sm text-black focus:border-[#B82D25] focus:outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-black/50">Precio de venta</label>
-                  <input
-                    value={form.precio}
-                    onChange={(e) => campo('precio', e.target.value)}
-                    type="number"
-                    className="w-full mt-1 rounded-lg border border-black/15 bg-white px-3 py-2 text-sm text-black focus:border-[#B82D25] focus:outline-none"
-                  />
-                </div>
-              </div>
-              {margen != null && (
-                <p className={`text-xs font-medium ${margen < 10 ? 'text-[#B82D25]' : 'text-emerald-700'}`}>
-                  Margen: {margen} %
-                </p>
-              )}
-            </div>
-
-            <div className="grid grid-cols-2 gap-3 items-center">
-              <input
-                value={form.codigoBarras}
-                onChange={(e) => campo('codigoBarras', e.target.value)}
-                placeholder="Agregar código de barras"
-                inputMode="numeric"
-                className="rounded-lg border border-black/15 px-3 py-2.5 text-sm text-black focus:border-[#B82D25] focus:outline-none"
-              />
-              <label className="flex items-center gap-2 text-sm text-black px-1">
-                <input
-                  type="checkbox"
-                  checked={form.esAlcohol}
-                  onChange={(e) => campo('esAlcohol', e.target.checked)}
-                  className="accent-[#B82D25] w-4 h-4"
-                />
-                +18
-              </label>
-              <label className="flex items-center gap-2 text-sm text-black" title="La balanza manda gramos y el precio es por kilo">
-                <input type="checkbox" checked={!!form.vendidoPorPeso} onChange={(e) => campo('vendidoPorPeso', e.target.checked)} className="accent-[#B82D25] w-4 h-4" />
-                Se vende por peso (balanza)
-              </label>
-              <label className="flex items-center gap-2 text-sm text-black">
-                PLU balanza
-                <input value={form.plu ?? ''} onChange={(e) => campo('plu', e.target.value.replace(/\D/g, ''))} placeholder="ej: 3931" className="w-24 rounded border border-black/15 px-2 py-1 text-sm" />
-              </label>
-            </div>
-
-            {error && <p className="text-xs text-[#B82D25] font-medium">{error}</p>}
-
-            <div className="flex justify-end gap-3 pt-1">
-              <button onClick={() => setAbierto(false)} className="text-sm text-black/60 px-4 py-2 hover:text-black">
-                Cancelar
-              </button>
-              <button
-                onClick={guardar}
-                disabled={cargando}
-                className="rounded-full bg-[#B82D25] text-white text-sm font-medium px-6 py-2.5 hover:bg-[#932A1F] disabled:opacity-50"
-              >
-                {cargando ? 'Guardando…' : 'Guardar cambios'}
-              </button>
-            </div>
+            </Campo>
+            <datalist id="marcas-edicion">
+              {marcas.map((m) => (
+                <option key={m.id} value={m.nombre} />
+              ))}
+            </datalist>
           </div>
+
+          <div className="space-y-2 rounded-xl bg-crema-claro p-3">
+            <div className="grid grid-cols-2 gap-3">
+              <Campo etiqueta="Costo de compra">
+                <Entrada value={form.costo} onChange={(e) => campo('costo', e.target.value)} type="number" prefijo="$" />
+              </Campo>
+              <Campo etiqueta="Precio de venta">
+                <Entrada value={form.precio} onChange={(e) => campo('precio', e.target.value)} type="number" prefijo="$" />
+              </Campo>
+            </div>
+            {margen != null && (
+              <p className={`text-sm font-medium ${margen < 10 ? 'text-marca-hondo' : 'text-ok'}`}>
+                Margen: {margen} %
+              </p>
+            )}
+          </div>
+
+          <Campo etiqueta="Código de barras">
+            <Entrada
+              value={form.codigoBarras}
+              onChange={(e) => campo('codigoBarras', e.target.value)}
+              placeholder="Agregar código de barras"
+              inputMode="numeric"
+              className="font-mono"
+            />
+          </Campo>
+          <div className="flex flex-wrap gap-x-5 gap-y-1">
+            <label className={CASILLA}>
+              <input
+                type="checkbox"
+                checked={form.esAlcohol}
+                onChange={(e) => campo('esAlcohol', e.target.checked)}
+                className={CHECK}
+              />
+              +18
+            </label>
+            <label className={CASILLA} title="La balanza manda gramos y el precio es por kilo">
+              <input type="checkbox" checked={!!form.vendidoPorPeso} onChange={(e) => campo('vendidoPorPeso', e.target.checked)} className={CHECK} />
+              Se vende por peso (balanza)
+            </label>
+            <label className={CASILLA}>
+              PLU balanza
+              <span className="w-28">
+                <Entrada value={form.plu ?? ''} onChange={(e) => campo('plu', e.target.value.replace(/\D/g, ''))} placeholder="ej: 3931" inputMode="numeric" />
+              </span>
+            </label>
+          </div>
+
+          {error && <Aviso tono="error">{error}</Aviso>}
         </div>
-      )}
+      </Modal>
     </>
   );
 }

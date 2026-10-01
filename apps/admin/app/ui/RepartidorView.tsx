@@ -1,8 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-
-const pesos = (n: any) => '$' + Math.round(Number(n) || 0).toLocaleString('es-AR');
+import { Aviso, Boton, Etiqueta, Monto, Tarjeta, Vacio, clasesBoton, unir } from './kit';
 
 export function RepartidorView() {
   const [entregas, setEntregas] = useState<any[]>([]);
@@ -47,36 +46,41 @@ export function RepartidorView() {
   };
 
   return (
-    <div className="space-y-4 max-w-xl">
-      <div className={`rounded-xl p-4 ${compartiendo ? 'bg-green-600 text-white' : 'bg-white'}`}>
+    <div className="space-y-4">
+      <div
+        className={unir(
+          'rounded-2xl border p-4 shadow-tarjeta sm:p-5',
+          compartiendo ? 'border-ok/20 bg-ok-suave' : 'border-black/[0.06] bg-white',
+        )}
+      >
         <div className="flex items-center justify-between gap-3">
-          <div>
-            <p className={`text-sm font-semibold ${compartiendo ? 'text-white' : 'text-black'}`}>{compartiendo ? 'Compartiendo tu ubicación' : 'Compartir mi ubicación'}</p>
-            <p className={`text-xs ${compartiendo ? 'text-white/80' : 'text-black/50'}`}>{compartiendo ? (pos ? `${pos.lat.toFixed(5)}, ${pos.lng.toFixed(5)}` : 'Obteniendo señal…') : 'Activalo cuando salgas a repartir'}</p>
+          <div className="min-w-0">
+            <p className={`text-sm font-semibold ${compartiendo ? 'text-ok' : 'text-tinta'}`}>{compartiendo ? 'Compartiendo tu ubicación' : 'Compartir mi ubicación'}</p>
+            <p className="importe text-xs text-tinta/70">{compartiendo ? (pos ? `${pos.lat.toFixed(5)}, ${pos.lng.toFixed(5)}` : 'Obteniendo señal…') : 'Activalo cuando salgas a repartir'}</p>
           </div>
-          <button onClick={toggleCompartir} className={`rounded-full text-sm font-medium px-4 py-2 ${compartiendo ? 'bg-white text-green-700' : 'bg-[#B82D25] text-white hover:bg-[#932A1F]'}`}>{compartiendo ? 'Detener' : 'Compartir'}</button>
+          <Boton variante={compartiendo ? 'secundario' : 'primario'} onClick={toggleCompartir} className="shrink-0">{compartiendo ? 'Detener' : 'Compartir'}</Boton>
         </div>
       </div>
-      {error && <p className="text-sm text-[#932A1F]">{error}</p>}
+      {error && <Aviso tono="error">{error}</Aviso>}
 
       {entregas.length === 0 ? (
-        <p className="rounded-xl bg-white px-4 py-8 text-center text-black/40 text-sm">No tenés entregas asignadas.</p>
+        <Vacio titulo="No tenés entregas asignadas." />
       ) : entregas.map((e) => (
-        <div key={e.id} className="rounded-xl bg-white p-4">
+        <Tarjeta key={e.id}>
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <p className="text-sm font-semibold text-black">{e.cliente?.nombre ?? 'Cliente'} <span className="text-black/40 font-normal">· {pesos(e.total)}</span></p>
-              <p className="text-xs text-black/55 mt-0.5">{e.destino_direccion ?? 'Sin dirección'}</p>
-              {e.notas && <p className="text-xs text-amber-800 mt-0.5">Indicaciones: {e.notas}</p>}
+              <p className="break-words text-sm font-semibold text-tinta">{e.cliente?.nombre ?? 'Cliente'} <span className="font-normal text-tinta/60">· <Monto valor={e.total ?? 0} /></span></p>
+              <p className="mt-0.5 break-words text-xs text-tinta/70">{e.destino_direccion ?? 'Sin dirección'}</p>
+              {e.notas && <p className="mt-0.5 break-words text-xs text-atencion">Indicaciones: {e.notas}</p>}
             </div>
-            <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold ${e.estado === 'en_camino' ? 'bg-green-100 text-green-800' : 'bg-purple-100 text-purple-800'}`}>{e.estado === 'en_camino' ? 'En camino' : 'Listo'}</span>
+            <Etiqueta tono={e.estado === 'en_camino' ? 'info' : 'ok'} className="shrink-0">{e.estado === 'en_camino' ? 'En camino' : 'Listo'}</Etiqueta>
           </div>
-          <div className="flex gap-2 mt-3">
-            {e.estado === 'listo' && <button onClick={() => avanzar(e.id, 'en_camino')} className="rounded-full bg-[#B82D25] text-white text-sm font-medium px-4 py-2 hover:bg-[#932A1F]">Salí a entregar</button>}
-            {e.estado === 'en_camino' && <button onClick={() => avanzar(e.id, 'entregado')} className="rounded-full bg-black text-white text-sm font-medium px-4 py-2 hover:bg-black/80">Marcar entregado</button>}
-            {e.destino_direccion && <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(e.destino_direccion)}`} target="_blank" rel="noopener noreferrer" className="rounded-full border border-black/15 text-black text-sm font-medium px-4 py-2 hover:bg-black/[0.03]">Ver en mapa</a>}
+          <div className="mt-3 flex flex-wrap gap-2">
+            {e.estado === 'listo' && <Boton onClick={() => avanzar(e.id, 'en_camino')} className="grow sm:grow-0">Salí a entregar</Boton>}
+            {e.estado === 'en_camino' && <Boton onClick={() => avanzar(e.id, 'entregado')} className="grow sm:grow-0">Marcar entregado</Boton>}
+            {e.destino_direccion && <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(e.destino_direccion)}`} target="_blank" rel="noopener noreferrer" className={clasesBoton({ variante: 'secundario', className: 'grow sm:grow-0' })}>Ver en mapa</a>}
           </div>
-        </div>
+        </Tarjeta>
       ))}
     </div>
   );

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { Aviso, Boton, Etiqueta, Selector, TablaResponsiva, Tarjeta, clasesBoton, type TonoEtiqueta } from './kit';
 
 type Resultado = {
   procesados: number;
@@ -10,11 +11,13 @@ type Resultado = {
   detalle: { archivo: string; estado: string; sku?: string; motivo?: string }[];
 };
 
-const ETIQUETA: Record<string, { texto: string; clase: string }> = {
-  subida: { texto: 'Subida', clase: 'bg-emerald-50 text-emerald-800' },
-  rechazada_calidad: { texto: 'Rechazada (calidad)', clase: 'bg-amber-50 text-amber-800' },
-  sin_coincidencia: { texto: 'Sin coincidencia', clase: 'bg-black/5 text-black/50' },
-  error_subida: { texto: 'Error al subir', clase: 'bg-red-50 text-red-800' },
+type Detalle = Resultado['detalle'][number];
+
+const ETIQUETA: Record<string, { texto: string; tono: TonoEtiqueta }> = {
+  subida: { texto: 'Subida', tono: 'ok' },
+  rechazada_calidad: { texto: 'Rechazada (calidad)', tono: 'atencion' },
+  sin_coincidencia: { texto: 'Sin coincidencia', tono: 'neutro' },
+  error_subida: { texto: 'Error al subir', tono: 'error' },
 };
 
 // Pack de fotos que manda un proveedor: se suben varios archivos de una y el
@@ -59,73 +62,86 @@ export default function ImportarFotosProveedor() {
     }
   };
 
+  const etiquetaDe = (d: Detalle) => ETIQUETA[d.estado] ?? { texto: d.estado, tono: 'neutro' as const };
+
   return (
-    <section className="rounded-xl bg-white p-4 border border-black/[0.04] space-y-3">
+    <Tarjeta className="space-y-3">
       <div>
-        <p className="text-sm font-medium text-black">Pack de fotos de un proveedor</p>
-        <p className="text-[11px] text-black/40 mt-0.5">
+        <h2 className="text-base font-semibold text-tinta">Pack de fotos de un proveedor</h2>
+        <p className="mt-0.5 text-xs text-tinta/60">
           Subí las fotos tal como te las mandaron (por WhatsApp, mail o carpeta). Si el archivo se llama con el
           SKU, el código de barra o el código que ese proveedor usa para el producto, el sistema lo reconoce solo.
         </p>
       </div>
 
-      <div className="flex flex-col sm:flex-row gap-2">
-        <select
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+        <Selector
           value={proveedorId}
           onChange={(e) => setProveedorId(e.target.value)}
-          className="rounded-lg border border-black/15 px-3 py-2 text-sm sm:w-64"
+          aria-label="Proveedor"
+          className="sm:w-64"
         >
           <option value="">Proveedor (opcional, ayuda a matchear por su código)</option>
           {proveedores.map((p) => (
             <option key={p.id} value={p.id}>{p.razonSocial ?? p.razon_social}</option>
           ))}
-        </select>
-        <input
-          ref={inputRef}
-          type="file"
-          multiple
-          accept="image/jpeg,image/png"
-          onChange={(e) => setArchivos(Array.from(e.target.files ?? []))}
-          className="flex-1 text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-black file:text-white file:text-sm file:font-medium file:px-3 file:py-2 file:cursor-pointer"
-        />
-        <button
-          onClick={subir}
-          disabled={subiendo || !archivos.length}
-          className="rounded-lg bg-[#B82D25] text-white text-sm font-medium px-4 py-2 disabled:opacity-40 hover:bg-[#9e251e] whitespace-nowrap"
-        >
+        </Selector>
+        <label className={clasesBoton({ variante: 'secundario' })}>
+          {archivos.length ? `${archivos.length} ${archivos.length === 1 ? 'foto elegida' : 'fotos elegidas'}` : 'Elegir fotos'}
+          <input
+            ref={inputRef}
+            type="file"
+            multiple
+            accept="image/jpeg,image/png"
+            onChange={(e) => setArchivos(Array.from(e.target.files ?? []))}
+            className="sr-only"
+          />
+        </label>
+        <Boton onClick={subir} disabled={subiendo || !archivos.length}>
           {subiendo ? `Procesando ${archivos.length}…` : `Subir ${archivos.length || ''} foto${archivos.length === 1 ? '' : 's'}`}
-        </button>
+        </Boton>
       </div>
 
-      {error && <p className="text-sm text-[#932A1F]">{error}</p>}
+      {error && <Aviso tono="error">{error}</Aviso>}
 
       {resultado && (
         <div className="space-y-2">
-          <p className="text-sm text-black/70">
+          <p className="text-sm text-tinta/70">
             {resultado.subidos} subidas · {resultado.rechazadas_calidad} rechazadas por calidad · {resultado.sin_coincidencia} sin coincidencia
             {' '}(de {resultado.procesados}).
           </p>
-          <div className="max-h-64 overflow-y-auto rounded-lg border border-black/10">
-            <table className="w-full text-xs">
-              <tbody>
-                {resultado.detalle.map((d, i) => {
-                  const et = ETIQUETA[d.estado] ?? { texto: d.estado, clase: 'bg-black/5 text-black/50' };
-                  return (
-                    <tr key={i} className="border-b border-black/5 last:border-0">
-                      <td className="px-3 py-1.5 text-black/70">{d.archivo}</td>
-                      <td className="px-3 py-1.5 text-black/50">{d.sku ?? '—'}</td>
-                      <td className="px-3 py-1.5">
-                        <span className={`rounded-md px-2 py-0.5 ${et.clase}`}>{et.texto}</span>
-                      </td>
-                      <td className="px-3 py-1.5 text-black/40">{d.motivo ?? ''}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+          <div className="max-h-64 overflow-y-auto rounded-xl border border-black/[0.06]">
+            <TablaResponsiva
+              sinMarco
+              etiqueta="Resultado de las fotos"
+              filas={resultado.detalle}
+              claveFila={(_, i) => i}
+              vacio={<></>}
+              tarjetaMovil={(d) => (
+                <div className="space-y-1 text-xs">
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="min-w-0 break-all text-tinta/70">{d.archivo}</span>
+                    <Etiqueta tono={etiquetaDe(d).tono} className="shrink-0">{etiquetaDe(d).texto}</Etiqueta>
+                  </div>
+                  <p className="text-tinta/60">
+                    {d.sku ?? '—'}{d.motivo ? ` · ${d.motivo}` : ''}
+                  </p>
+                </div>
+              )}
+              columnas={[
+                { clave: 'archivo', titulo: 'Archivo', celda: (d) => <span className="break-all text-xs text-tinta/70">{d.archivo}</span> },
+                { clave: 'sku', titulo: 'SKU', celda: (d) => <span className="text-xs text-tinta/60">{d.sku ?? '—'}</span> },
+                {
+                  clave: 'estado',
+                  titulo: 'Estado',
+                  celda: (d) => <Etiqueta tono={etiquetaDe(d).tono}>{etiquetaDe(d).texto}</Etiqueta>,
+                },
+                { clave: 'motivo', titulo: 'Motivo', celda: (d) => <span className="text-xs text-tinta/60">{d.motivo ?? ''}</span> },
+              ]}
+            />
           </div>
         </div>
       )}
-    </section>
+    </Tarjeta>
   );
 }

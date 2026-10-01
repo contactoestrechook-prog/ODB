@@ -1,7 +1,8 @@
-import Link from 'next/link';
-import { Header } from '../ui/Header';
+import { Pantalla } from '../ui/kit/Pantalla';
+import { Aviso, Boton, BotonLink, Entrada, Etiqueta, Selector, TablaResponsiva, Vacio, unir } from '../ui/kit';
 import { FotosExternas } from '../ui/FotosExternas';
 import { apiFetch } from '../../lib/api';
+import { numero, pesos } from '../lib/formato';
 
 type Producto = {
   imagenUrl: string | null;
@@ -29,9 +30,6 @@ type Filtros = {
   marcas: { id: string; nombre: string }[];
 };
 
-const pesos = (n: number | null) =>
-  n == null ? '—' : '$' + Math.round(n).toLocaleString('es-AR');
-
 export const dynamic = 'force-dynamic';
 
 type Params = {
@@ -50,6 +48,41 @@ const qs = (p: Params, cambios: Partial<Params>) => {
     .map(([k, v]) => `${k}=${encodeURIComponent(v!)}`);
   return partes.length ? `?${partes.join('&')}` : '';
 };
+
+type Stock = Producto['stockPorSucursal'][number] | undefined;
+
+// La cantidad de una sucursal: en rojo suave si quedó en el mínimo o abajo.
+function CantidadStock({ s }: { s: Stock }) {
+  const bajo = s && Number(s.cantidad) <= Number(s.stock_minimo);
+  const texto = s ? Math.round(Number(s.cantidad)) : '—';
+  return bajo ? (
+    <Etiqueta tono="error" className="importe">{texto}</Etiqueta>
+  ) : (
+    <span className="importe text-tinta/70">{texto}</span>
+  );
+}
+
+function Foto({ p, chica = false }: { p: Producto; chica?: boolean }) {
+  const tam = chica ? 'size-10' : 'size-14';
+  return p.imagenUrl ? (
+    <img src={p.imagenUrl} alt="" className={unir(tam, 'shrink-0 rounded-xl object-cover')} />
+  ) : (
+    <span className={unir(tam, 'flex shrink-0 items-center justify-center rounded-xl bg-crema text-xs text-tinta/60')}>
+      foto
+    </span>
+  );
+}
+
+function Precio({ p }: { p: Producto }) {
+  return p.descuento ? (
+    <span className="inline-flex flex-col items-end">
+      <span className="importe text-xs text-tinta/60 line-through">{pesos(p.precioLista)}</span>
+      <span className="importe font-semibold text-marca-hondo" title={p.descuento}>{pesos(p.precio)}</span>
+    </span>
+  ) : (
+    <span className="importe font-semibold">{pesos(p.precio)}</span>
+  );
+}
 
 export default async function Productos({
   searchParams,
@@ -75,173 +108,152 @@ export default async function Productos({
     error = e instanceof Error ? e.message : 'Error desconocido';
   }
 
-  const select =
-    'rounded-lg border border-black/15 bg-white px-2.5 py-2 text-sm text-black outline-none focus:border-[#B82D25]';
+  const hayFiltros = Boolean(params.buscar || params.categoriaId || params.marcaId || params.filtro || params.orden);
 
   return (
-    <main className="min-h-screen bg-[#F0EBE2] lg:pl-64">
-      <Header activo="/productos" />
-      <div className="max-w-6xl mx-auto p-6">
-        <FotosExternas />
-        <form className="mb-4 flex flex-wrap items-center gap-2">
-          <input
-            type="search"
-            name="buscar"
-            defaultValue={params.buscar ?? ''}
-            placeholder="Nombre, SKU o código de barras…"
-            className="flex-1 min-w-48 rounded-full border border-[#B82D25] bg-white px-4 py-2 text-sm text-black outline-none focus:ring-2 focus:ring-[#B82D25]/40"
-          />
-          <select name="categoriaId" defaultValue={params.categoriaId ?? ''} className={select}>
-            <option value="">Categoría</option>
-            {filtros.categorias.map((c) => (
-              <option key={c.id} value={c.id}>{c.nombre}</option>
-            ))}
-          </select>
-          <select name="marcaId" defaultValue={params.marcaId ?? ''} className={select}>
-            <option value="">Marca</option>
-            {filtros.marcas.map((m) => (
-              <option key={m.id} value={m.id}>{m.nombre}</option>
-            ))}
-          </select>
-          <select name="filtro" defaultValue={params.filtro ?? ''} className={select}>
-            <option value="">Estado</option>
-            <option value="bajo_minimo">Bajo mínimo</option>
-            <option value="promo">En promoción</option>
-            <option value="sin_stock">Sin stock</option>
-          </select>
-          <select name="orden" defaultValue={params.orden ?? ''} className={select}>
-            <option value="">A → Z</option>
-            <option value="nombre_desc">Z → A</option>
-            <option value="recientes">Más nuevos</option>
-          </select>
-          <button
-            type="submit"
-            className="rounded-full bg-[#B82D25] px-5 py-2 text-sm font-medium text-white hover:bg-[#932A1F]"
-          >
+    <Pantalla activo="/productos" ancho="ancho">
+      <FotosExternas />
+
+      {/* filtros: en el celular, el buscador a lo ancho y los selectores de a dos */}
+      <form className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-[minmax(0,1fr)_repeat(4,minmax(0,9.5rem))_auto]">
+        <Entrada
+          type="search"
+          name="buscar"
+          defaultValue={params.buscar ?? ''}
+          placeholder="Nombre, SKU o código de barras…"
+          aria-label="Buscar producto"
+          className="col-span-2 sm:col-span-4 lg:col-span-1"
+        />
+        <Selector name="categoriaId" defaultValue={params.categoriaId ?? ''} aria-label="Categoría" vacio="Categoría">
+          {filtros.categorias.map((c) => (
+            <option key={c.id} value={c.id}>{c.nombre}</option>
+          ))}
+        </Selector>
+        <Selector name="marcaId" defaultValue={params.marcaId ?? ''} aria-label="Marca" vacio="Marca">
+          {filtros.marcas.map((m) => (
+            <option key={m.id} value={m.id}>{m.nombre}</option>
+          ))}
+        </Selector>
+        <Selector name="filtro" defaultValue={params.filtro ?? ''} aria-label="Estado" vacio="Estado">
+          <option value="bajo_minimo">Bajo mínimo</option>
+          <option value="promo">En promoción</option>
+          <option value="sin_stock">Sin stock</option>
+        </Selector>
+        <Selector name="orden" defaultValue={params.orden ?? ''} aria-label="Orden" vacio="A → Z">
+          <option value="nombre_desc">Z → A</option>
+          <option value="recientes">Más nuevos</option>
+        </Selector>
+        <div className="col-span-2 flex items-center gap-3 sm:col-span-4 lg:col-span-1">
+          <Boton type="submit" className="flex-1 lg:flex-none">
             Filtrar
-          </button>
-          {(params.buscar || params.categoriaId || params.marcaId || params.filtro || params.orden) && (
-            <Link href="/productos" className="text-xs text-black/50 underline">
+          </Boton>
+          {hayFiltros && (
+            <BotonLink href="/productos" variante="fantasma" tamano="chico">
               limpiar
-            </Link>
+            </BotonLink>
           )}
-        </form>
-
-        <div className="mb-4 -mt-1 flex justify-end">
-          <Link
-            href="/productos/nuevo"
-            className="rounded-full bg-[#B82D25] text-white text-sm font-medium px-5 py-2.5 hover:bg-[#932A1F] shadow-sm whitespace-nowrap"
-          >
-            + Nuevo producto
-          </Link>
         </div>
+      </form>
 
-        {error ? (
-          <p className="rounded-lg bg-white p-4 text-sm text-[#932A1F]">
-            No pude consultar la API ({error}).
-          </p>
-        ) : (
-          <>
-            <div className="overflow-hidden rounded-xl bg-white">
-              <table className="w-full text-sm text-black">
-                <thead>
-                  <tr className="border-b border-black/10 text-left text-xs text-black/50">
-                    <th className="px-4 py-3 font-medium">Producto</th>
-                    <th className="px-4 py-3 font-medium">Categoría</th>
-                    <th className="px-4 py-3 font-medium text-right">Precio</th>
-                    <th className="px-4 py-3 font-medium text-right">Stock S1</th>
-                    <th className="px-4 py-3 font-medium text-right">Stock S2</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {datos.items.map((p) => {
-                    const [s1, s2] = p.stockPorSucursal;
-                    return (
-                      <tr key={p.sku} className="border-b border-black/5 last:border-0 hover:bg-[#F0EBE2]/40">
-                        <td className="px-4 py-3">
-                          <Link href={`/productos/${p.sku}`} className="flex items-center gap-3">
-                            {p.imagenUrl ? (
-                              <img src={p.imagenUrl} alt="" className="h-10 w-10 rounded-lg object-cover shrink-0" />
-                            ) : (
-                              <span className="h-10 w-10 rounded-lg bg-[#F0EBE2] shrink-0 flex items-center justify-center text-black/30 text-xs">
-                                foto
-                              </span>
-                            )}
-                            <span>
-                            <p className="font-medium hover:text-[#932A1F]">{p.nombre}</p>
-                            <p className="text-xs text-black/50">
-                              {p.sku} {p.marca ? `· ${p.marca}` : ''}
-                              {p.esAlcohol && (
-                                <span className="ml-2 rounded-full bg-black px-2 py-0.5 text-[10px] text-white">+18</span>
-                              )}
-                            </p>
-                            </span>
-                          </Link>
-                        </td>
-                        <td className="px-4 py-3 text-black/70">{p.categoria ?? '—'}</td>
-                        <td className="px-4 py-3 text-right">
-                          {p.descuento ? (
-                            <>
-                              <p className="text-xs text-black/40 line-through">{pesos(p.precioLista)}</p>
-                              <p className="font-medium text-[#B82D25]" title={p.descuento}>{pesos(p.precio)}</p>
-                            </>
-                          ) : (
-                            <p className="font-medium">{pesos(p.precio)}</p>
-                          )}
-                        </td>
-                        {[s1, s2].map((s, i) => (
-                          <td key={i} className="px-4 py-3 text-right">
-                            <span
-                              className={
-                                s && Number(s.cantidad) <= Number(s.stock_minimo)
-                                  ? 'rounded-full bg-[#B82D25] px-2 py-0.5 text-xs font-medium text-white'
-                                  : 'text-black/70'
-                              }
-                            >
-                              {s ? Math.round(Number(s.cantidad)) : '—'}
-                            </span>
-                          </td>
-                        ))}
-                      </tr>
-                    );
-                  })}
-                  {datos.items.length === 0 && (
-                    <tr>
-                      <td colSpan={5} className="px-4 py-8 text-center text-black/50">
-                        Sin resultados con estos filtros
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-
-            <div className="mt-3 flex items-center justify-between text-sm">
-              <p className="text-xs text-black/40">
-                {datos.total.toLocaleString('es-AR')} productos · página {datos.pagina} de {datos.paginas}
-              </p>
-              <div className="flex gap-2">
-                {datos.pagina > 1 && (
-                  <Link
-                    href={`/productos${qs(params, { pagina: String(datos.pagina - 1) })}`}
-                    className="rounded-full border border-black/20 bg-white px-4 py-1.5 text-xs text-black hover:border-black"
-                  >
-                    ← Anterior
-                  </Link>
-                )}
-                {datos.pagina < datos.paginas && (
-                  <Link
-                    href={`/productos${qs(params, { pagina: String(datos.pagina + 1) })}`}
-                    className="rounded-full bg-black px-4 py-1.5 text-xs text-white"
-                  >
-                    Siguiente →
-                  </Link>
-                )}
-              </div>
-            </div>
-          </>
-        )}
+      <div className="flex justify-end">
+        <BotonLink href="/productos/nuevo" className="w-full sm:w-auto">
+          + Nuevo producto
+        </BotonLink>
       </div>
-    </main>
+
+      {error ? (
+        <Aviso tono="error">No pude consultar la API ({error}).</Aviso>
+      ) : (
+        <>
+          <TablaResponsiva
+            etiqueta="Productos"
+            filas={datos.items}
+            claveFila="sku"
+            hrefFila={(p) => `/productos/${p.sku}`}
+            vacio={
+              <Vacio
+                titulo="Sin resultados con estos filtros"
+                texto="Probá con otro nombre o código, o limpiá los filtros."
+                accion={hayFiltros ? <BotonLink href="/productos" variante="secundario">Limpiar filtros</BotonLink> : undefined}
+              />
+            }
+            tarjetaMovil={(p) => {
+              const [s1, s2] = p.stockPorSucursal;
+              return (
+                <div className="flex gap-3">
+                  <Foto p={p} />
+                  <div className="min-w-0 flex-1">
+                    <p className="break-words text-sm font-semibold leading-snug text-tinta">{p.nombre}</p>
+                    <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-tinta/60">
+                      <span className="min-w-0 break-words">
+                        {p.sku} {p.marca ? `· ${p.marca}` : ''}
+                      </span>
+                      {p.esAlcohol && <Etiqueta>+18</Etiqueta>}
+                    </p>
+                    {p.categoria && <p className="mt-0.5 break-words text-xs text-tinta/60">{p.categoria}</p>}
+                    <div className="mt-2 flex flex-wrap items-end justify-between gap-x-3 gap-y-1 text-sm">
+                      <span className="flex items-center gap-3 text-xs text-tinta/60">
+                        <span className="flex items-center gap-1">S1 <CantidadStock s={s1} /></span>
+                        <span className="flex items-center gap-1">S2 <CantidadStock s={s2} /></span>
+                      </span>
+                      <Precio p={p} />
+                    </div>
+                  </div>
+                </div>
+              );
+            }}
+            columnas={[
+              {
+                clave: 'producto',
+                titulo: 'Producto',
+                principal: true,
+                celda: (p) => (
+                  <span className="flex items-center gap-3">
+                    <Foto p={p} chica />
+                    <span className="min-w-0">
+                      <span className="block break-words font-medium">{p.nombre}</span>
+                      <span className="flex flex-wrap items-center gap-2 text-xs font-normal text-tinta/60">
+                        {p.sku} {p.marca ? `· ${p.marca}` : ''}
+                        {p.esAlcohol && <Etiqueta>+18</Etiqueta>}
+                      </span>
+                    </span>
+                  </span>
+                ),
+              },
+              { clave: 'categoria', titulo: 'Categoría', celda: (p) => <span className="text-tinta/70">{p.categoria ?? '—'}</span> },
+              { clave: 'precio', titulo: 'Precio', importe: true, celda: (p) => <Precio p={p} /> },
+              { clave: 's1', titulo: 'Stock S1', importe: true, celda: (p) => <CantidadStock s={p.stockPorSucursal[0]} /> },
+              { clave: 's2', titulo: 'Stock S2', importe: true, celda: (p) => <CantidadStock s={p.stockPorSucursal[1]} /> },
+            ]}
+          />
+
+          <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
+            <p className="text-xs text-tinta/60">
+              {numero(datos.total)} productos · página {datos.pagina} de {datos.paginas}
+            </p>
+            <div className="flex gap-2">
+              {datos.pagina > 1 && (
+                <BotonLink
+                  href={`/productos${qs(params, { pagina: String(datos.pagina - 1) })}`}
+                  variante="secundario"
+                  tamano="chico"
+                >
+                  ← Anterior
+                </BotonLink>
+              )}
+              {datos.pagina < datos.paginas && (
+                <BotonLink
+                  href={`/productos${qs(params, { pagina: String(datos.pagina + 1) })}`}
+                  variante="secundario"
+                  tamano="chico"
+                >
+                  Siguiente →
+                </BotonLink>
+              )}
+            </div>
+          </div>
+        </>
+      )}
+    </Pantalla>
   );
 }

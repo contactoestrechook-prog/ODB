@@ -2,6 +2,21 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import {
+  Aviso,
+  Boton,
+  Entrada,
+  FOCO,
+  FOCO_ADENTRO,
+  IconoCerrar,
+  IconoOk,
+  Selector,
+  TablaResponsiva,
+  Tarjeta,
+  TarjetaCabecera,
+  unir,
+  useConfirmar,
+} from './kit';
 
 // Conteo cíclico: se cuenta un sector (o todo), renglón por renglón con scanner
 // o buscador. Cada renglón guarda un snapshot del stock del sistema AL MOMENTO
@@ -25,10 +40,10 @@ type Conteo = {
   items: ItemConteo[];
 };
 
-const input = 'w-full rounded-lg border border-black/15 px-3 py-2.5 text-sm text-black focus:border-[#B82D25] focus:outline-none';
 
 export function ConteoWorkspace({ sucursales, conteosIniciales }: { sucursales: Sucursal[]; conteosIniciales: Conteo[] }) {
   const router = useRouter();
+  const { confirmar, dialogo } = useConfirmar();
   const [conteos, setConteos] = useState<Conteo[]>(conteosIniciales);
   const [activo, setActivo] = useState<Conteo | null>(null);
   const [sucursalId, setSucursalId] = useState(sucursales[0]?.id ?? '');
@@ -136,7 +151,7 @@ export function ConteoWorkspace({ sucursales, conteosIniciales }: { sucursales: 
 
   async function descartar() {
     if (!activo) return;
-    if (!window.confirm('¿Descartar este conteo? No se ajusta nada.')) return;
+    if (!(await confirmar({ titulo: '¿Descartar este conteo?', texto: 'No se ajusta nada.', variante: 'peligro', textoConfirmar: 'Descartar conteo' }))) return;
     try {
       await post({ accion: 'conteo-descartar', conteoId: activo.id });
       setActivo(null);
@@ -152,19 +167,22 @@ export function ConteoWorkspace({ sucursales, conteosIniciales }: { sucursales: 
   // ---- resultado del conteo aplicado ----
   if (resultado) {
     return (
-      <section className="rounded-xl bg-white p-6 space-y-3">
-        <h2 className="text-lg font-semibold text-black">✓ Conteo aplicado</h2>
-        <div className="grid grid-cols-3 gap-4 text-center">
+      <Tarjeta className="space-y-4">
+        <h2 className="flex items-center gap-2 text-lg font-semibold text-tinta">
+          <IconoOk className="size-6 shrink-0 text-ok" />
+          Conteo aplicado
+        </h2>
+        <div className="grid grid-cols-3 gap-2 text-center sm:gap-4">
           {[['Renglones contados', resultado.items_contados], ['Con diferencia', resultado.ajustados], ['Unidades ajustadas', resultado.unidades_ajustadas]].map(([l, v]: any) => (
-            <div key={l} className="rounded-lg bg-[#F0EBE2]/60 p-3">
-              <p className="text-2xl font-semibold text-black">{v}</p>
-              <p className="text-[11px] text-black/45">{l}</p>
+            <div key={l} className="min-w-0 rounded-xl bg-crema-claro p-3">
+              <p className="importe truncate text-xl font-bold text-tinta sm:text-2xl sm:font-semibold">{v}</p>
+              <p className="mt-1 text-xs text-tinta/60">{l}</p>
             </div>
           ))}
         </div>
-        <p className="text-xs text-black/50">Cada diferencia quedó como ajuste auditado en Movimientos (motivo &quot;Inventario: conteo…&quot;).</p>
-        <button onClick={() => setResultado(null)} className="rounded-full bg-black text-white text-sm font-medium px-5 py-2.5">Nuevo conteo</button>
-      </section>
+        <p className="text-sm text-tinta/60">Cada diferencia quedó como ajuste auditado en Movimientos (motivo &quot;Inventario: conteo…&quot;).</p>
+        <Boton onClick={() => setResultado(null)}>Nuevo conteo</Boton>
+      </Tarjeta>
     );
   }
 
@@ -172,34 +190,47 @@ export function ConteoWorkspace({ sucursales, conteosIniciales }: { sucursales: 
   if (!activo) {
     return (
       <div className="space-y-4">
-        <section className="rounded-xl bg-white p-5 space-y-3">
-          <h2 className="font-semibold text-black">Nuevo conteo</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <select value={sucursalId} onChange={(e) => setSucursalId(e.target.value)} className={input + ' bg-white'}>
+        <Tarjeta className="space-y-3">
+          <h2 className="text-base font-semibold text-tinta">Nuevo conteo</h2>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <Selector value={sucursalId} onChange={(e) => setSucursalId(e.target.value)} aria-label="Sucursal">
               {sucursales.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
-            </select>
-            <input value={sector} onChange={(e) => setSector(e.target.value)} placeholder="Sector (ej: góndola vinos) — opcional" className={input + ' sm:col-span-2'} />
+            </Selector>
+            <Entrada
+              value={sector}
+              onChange={(e) => setSector(e.target.value)}
+              placeholder="Sector (ej: góndola vinos) — opcional"
+              aria-label="Sector (opcional)"
+              className="sm:col-span-2"
+            />
           </div>
-          {error && <p className="text-xs text-[#B82D25]">{error}</p>}
-          <button onClick={crearConteo} disabled={!sucursalId} className="rounded-full bg-[#B82D25] text-white text-sm font-medium px-5 py-2.5 hover:bg-[#932A1F] disabled:opacity-50">
+          {error && <Aviso tono="error">{error}</Aviso>}
+          <Boton onClick={crearConteo} disabled={!sucursalId} className="w-full sm:w-auto">
             Empezar a contar
-          </button>
-        </section>
+          </Boton>
+        </Tarjeta>
 
         {conteos.length > 0 && (
-          <section className="rounded-xl bg-white overflow-hidden">
-            <h2 className="px-4 py-3 border-b border-black/10 font-medium text-black text-sm">Conteos abiertos</h2>
-            {conteos.map((c) => (
-              <button key={c.id} onClick={() => setActivo(c)} className="w-full px-4 py-3 border-b border-black/5 last:border-0 flex items-center justify-between text-left hover:bg-[#F0EBE2]/50">
-                <span className="text-sm text-black">
-                  <span className="font-medium">{c.sucursal?.nombre}</span>
-                  {c.sector ? ` · ${c.sector}` : ''} · {c.items.length} renglones
-                  {c.usuario?.nombre ? <span className="text-black/45"> · {c.usuario.nombre}</span> : null}
-                </span>
-                <span className="text-xs text-[#B82D25] font-medium">Retomar →</span>
-              </button>
-            ))}
-          </section>
+          <Tarjeta relleno={false} className="overflow-hidden">
+            <TarjetaCabecera titulo="Conteos abiertos" />
+            <div className="divide-y divide-black/[0.06]">
+              {conteos.map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => setActivo(c)}
+                  className={unir('flex min-h-11 w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-crema-claro sm:px-5', FOCO_ADENTRO)}
+                >
+                  <span className="min-w-0 break-words text-sm text-tinta">
+                    <span className="font-medium">{c.sucursal?.nombre}</span>
+                    {c.sector ? ` · ${c.sector}` : ''} · {c.items.length} renglones
+                    {c.usuario?.nombre ? <span className="text-tinta/60"> · {c.usuario.nombre}</span> : null}
+                  </span>
+                  <span className="shrink-0 text-sm font-semibold text-marca">Retomar →</span>
+                </button>
+              ))}
+            </div>
+          </Tarjeta>
         )}
       </div>
     );
@@ -208,52 +239,61 @@ export function ConteoWorkspace({ sucursales, conteosIniciales }: { sucursales: 
   // ---- contando ----
   return (
     <div className="space-y-4">
-      <section className="rounded-xl bg-white p-5 space-y-3">
-        <div className="flex items-center justify-between flex-wrap gap-2">
-          <h2 className="font-semibold text-black">
+      <Tarjeta className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="min-w-0 break-words text-base font-semibold text-tinta">
             Contando: {activo.sucursal?.nombre}{activo.sector ? ` · ${activo.sector}` : ''}
           </h2>
-          <span className="text-xs text-black/50">{activo.items.length} renglones · {conDiferencia} con diferencia</span>
+          <span className="text-xs text-tinta/60">{activo.items.length} renglones · {conDiferencia} con diferencia</span>
         </div>
 
         {/* scanner / buscador + cantidad */}
         {producto ? (
-          <div className="flex items-center gap-2">
-            <span className="flex-1 rounded-lg bg-[#F0EBE2]/70 px-3 py-2.5 text-sm text-black min-w-0 break-words">
-              {producto.nombre} <span className="text-black/40 text-xs">({producto.sku})</span>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="w-full min-w-0 break-words rounded-xl bg-crema-claro px-3.5 py-2.5 text-sm text-tinta sm:w-auto sm:flex-1">
+              {producto.nombre} <span className="text-xs text-tinta/60">({producto.sku})</span>
             </span>
-            <input
+            <Entrada
               ref={cantRef}
               value={cantidad}
               onChange={(e) => setCantidad(e.target.value.replace(/[^\d.]/g, ''))}
               onKeyDown={(e) => e.key === 'Enter' && cargarItem()}
               placeholder="Contado"
+              aria-label="Cantidad contada"
               inputMode="decimal"
               autoFocus
-              className="w-28 rounded-lg border-2 border-[#B82D25] px-3 py-2.5 text-sm text-black text-right focus:outline-none"
+              className="min-w-0 flex-1 text-right sm:w-28 sm:flex-none"
             />
-            <button onClick={cargarItem} className="rounded-lg bg-black text-white text-sm px-4 py-2.5">OK</button>
-            <button onClick={() => { setProducto(null); setCantidad(''); }} className="text-black/40 px-1">✕</button>
+            <Boton onClick={cargarItem}>OK</Boton>
+            <button
+              type="button"
+              onClick={() => { setProducto(null); setCantidad(''); }}
+              aria-label="Quitar el producto"
+              className={unir('grid size-11 shrink-0 place-items-center rounded-full text-tinta/60 transition-colors hover:bg-tinta/5 hover:text-marca-hondo', FOCO)}
+            >
+              <IconoCerrar className="size-5" />
+            </button>
           </div>
         ) : (
           <div className="relative">
-            <input
+            <Entrada
               ref={buscaRef}
               value={busca}
               onChange={(e) => setBusca(e.target.value)}
               placeholder="Escaneá o buscá el producto…"
+              aria-label="Escaneá o buscá el producto"
               autoFocus
-              className={input}
             />
             {sug.length > 0 && (
-              <div className="absolute z-10 mt-1 w-full rounded-lg bg-white shadow-lg border border-black/10 max-h-56 overflow-y-auto">
+              <div className="absolute z-contenido mt-1 max-h-56 w-full overflow-y-auto rounded-xl border border-black/[0.06] bg-white shadow-flotante">
                 {sug.map((p: any) => (
                   <button
                     key={p.sku}
+                    type="button"
                     onClick={() => { setProducto(p); setBusca(''); setSug([]); setTimeout(() => cantRef.current?.focus(), 50); }}
-                    className="w-full text-left px-3 py-2 text-sm text-black hover:bg-[#F0EBE2] border-b border-black/5 last:border-0"
+                    className="block min-h-11 w-full border-b border-black/[0.06] px-3.5 py-2 text-left text-sm text-tinta last:border-0 hover:bg-crema-claro focus-visible:bg-crema-claro focus-visible:outline-none"
                   >
-                    {p.nombre} <span className="text-xs text-black/40">{p.sku}</span>
+                    {p.nombre} <span className="text-xs text-tinta/60">{p.sku}</span>
                   </button>
                 ))}
               </div>
@@ -262,66 +302,71 @@ export function ConteoWorkspace({ sucursales, conteosIniciales }: { sucursales: 
         )}
 
         {ultimo && (
-          <p className={`rounded-lg px-3 py-2 text-sm ${ultimo.diferencia === 0 ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-900'}`}>
+          <Aviso tono={ultimo.diferencia === 0 ? 'ok' : 'atencion'}>
             {ultimo.nombre}: sistema {ultimo.sistema} → contado {ultimo.contado}
-            {ultimo.diferencia === 0 ? ' · sin diferencia ✓' : ` · diferencia ${ultimo.diferencia > 0 ? '+' : ''}${ultimo.diferencia}`}
-          </p>
+            {ultimo.diferencia === 0 ? ' · sin diferencia' : ` · diferencia ${ultimo.diferencia > 0 ? '+' : ''}${ultimo.diferencia}`}
+          </Aviso>
         )}
-        {error && <p className="text-xs text-[#B82D25]">{error}</p>}
-      </section>
+        {error && <Aviso tono="error">{error}</Aviso>}
+      </Tarjeta>
 
       {/* renglones contados (peores diferencias primero) */}
       {itemsOrdenados.length > 0 && (
-        <section className="rounded-xl bg-white overflow-hidden">
-          <table className="w-full text-sm text-black">
-            <thead><tr className="text-left text-xs text-black/50 border-b border-black/5">
-              <th className="px-4 py-2 font-medium">Producto</th>
-              <th className="px-4 py-2 font-medium text-right">Sistema</th>
-              <th className="px-4 py-2 font-medium text-right">Contado</th>
-              <th className="px-4 py-2 font-medium text-right">Dif.</th>
-            </tr></thead>
-            <tbody>
-              {itemsOrdenados.map((i) => {
+        <TablaResponsiva
+          etiqueta="Renglones contados"
+          filas={itemsOrdenados}
+          claveFila="producto_id"
+          columnas={[
+            {
+              clave: 'producto', titulo: 'Producto', principal: true,
+              celda: (i) => (
+                <div className="min-w-0">
+                  <p className="break-words font-medium text-tinta">{i.producto?.nombre ?? i.producto_id}</p>
+                  <p className="text-xs font-normal text-tinta/60">{i.producto?.sku}</p>
+                </div>
+              ),
+            },
+            { clave: 'sistema', titulo: 'Sistema', importe: true, celda: (i) => <span className="text-tinta/60">{Number(i.cantidad_sistema)}</span> },
+            { clave: 'contado', titulo: 'Contado', importe: true, celda: (i) => Number(i.cantidad_contada) },
+            {
+              clave: 'dif', titulo: 'Dif.', importe: true,
+              celda: (i) => {
                 const d = Number(i.cantidad_contada) - Number(i.cantidad_sistema);
-                return (
-                  <tr key={i.producto_id} className="border-b border-black/5 last:border-0">
-                    <td className="px-4 py-2"><p className="font-medium">{i.producto?.nombre ?? i.producto_id}</p><p className="text-xs text-black/40">{i.producto?.sku}</p></td>
-                    <td className="px-4 py-2 text-right text-black/60">{Number(i.cantidad_sistema)}</td>
-                    <td className="px-4 py-2 text-right">{Number(i.cantidad_contada)}</td>
-                    <td className={`px-4 py-2 text-right font-semibold ${d === 0 ? 'text-emerald-700' : 'text-[#B82D25]'}`}>{d > 0 ? `+${d}` : d}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </section>
+                return <span className={`font-semibold ${d === 0 ? 'text-ok' : 'text-marca-hondo'}`}>{d > 0 ? `+${d}` : d}</span>;
+              },
+            },
+          ]}
+        />
       )}
 
       {/* finalizar */}
-      <section className="rounded-xl bg-white p-5 space-y-3">
-        <p className="text-sm text-black/60">
+      <Tarjeta className="space-y-3">
+        <p className="text-sm text-tinta/70">
           Al finalizar, cada diferencia se ajusta con un movimiento auditado. Requiere el PIN de un supervisor.
         </p>
-        <div className="flex flex-wrap gap-2 items-center">
-          <input
+        <div className="grid gap-2 sm:flex sm:flex-wrap sm:items-center">
+          <Entrada
             value={pin}
             onChange={(e) => setPin(e.target.value)}
             placeholder="PIN del supervisor"
+            aria-label="PIN del supervisor"
             type="password"
             inputMode="numeric"
-            className="w-48 rounded-lg border border-black/15 px-3 py-2.5 text-sm text-black focus:border-[#B82D25] focus:outline-none"
+            className="sm:w-48"
           />
-          <button
+          <Boton
             onClick={finalizar}
-            disabled={finalizando || activo.items.length === 0}
-            className="rounded-full bg-[#B82D25] text-white text-sm font-medium px-6 py-2.5 hover:bg-[#932A1F] disabled:opacity-50"
+            disabled={activo.items.length === 0}
+            cargando={finalizando}
           >
             {finalizando ? 'Aplicando…' : `Finalizar y ajustar (${conDiferencia} dif.)`}
-          </button>
-          <button onClick={descartar} className="text-sm text-black/50 px-3 py-2 hover:text-[#B82D25]">Descartar conteo</button>
-          <button onClick={() => setActivo(null)} className="text-sm text-black/50 px-3 py-2 hover:text-black">Pausar (seguir después)</button>
+          </Boton>
+          <Boton variante="peligro" onClick={descartar}>Descartar conteo</Boton>
+          <Boton variante="fantasma" onClick={() => setActivo(null)}>Pausar (seguir después)</Boton>
         </div>
-      </section>
+      </Tarjeta>
+
+      {dialogo}
     </div>
   );
 }
