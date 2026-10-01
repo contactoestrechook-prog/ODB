@@ -55,6 +55,8 @@ import { cartelListaPrecios, cartelPedido, imagenEsperada, leerResumenDePedido, 
 // pedido mínimo para envío a domicilio (Leandro, 25/9/2026); ENVIO_MINIMO lo cambia sin tocar código
 const envioMinimo = () => Number(process.env.ENVIO_MINIMO ?? 70000) || 70000;
 const FALTA_VARIANTE = 'TODAVÍA NO COTICES: el cliente dijo que el pedido está completo, pero quedaron variantes sin elegir en tu lista (qué sabor, qué tamaño, cuál de las opciones). «Es todo» NO elige: preguntale en UNA línea solo lo que falta elegir, con las opciones, y recién con su elección cotizá. Nunca elijas por él.';
+// herramientas que solo leen: se pueden ejecutar en paralelo dentro de un turno
+const HERRAMIENTAS_DE_LECTURA = new Set(['buscar_productos', 'consultar_cava', 'identificar_cliente', 'estado_local', 'estado_pedido']);
 const TODAVIA_SIN_PRECIOS = 'TODAVÍA NO PASES PRECIOS (regla del dueño): primero confirmá que el pedido está completo. Respondé con la lista de lo que anotaste, un renglón por producto «• cantidad × producto puntual», SIN precios ni total, y la pregunta «¿Está completo el pedido o querés sumar algo?». Si algo no tiene stock o hay que elegir variante, decilo en esa lista. Recién cuando el cliente confirme que está completo, cotizar_pedido.';
 
 @Injectable()
@@ -831,6 +833,27 @@ export class BotService {
         for (const b of r.content) if (b.type === 'text' && b.text.trim()) textosDelTurno.push(b.text.trim());
         const resultados: Anthropic.ToolResultBlockParam[] = [];
         const vistos = new Map<string, Anthropic.ToolResultBlockParam>();
+        // LAS BÚSQUEDAS VAN EN PARALELO (1/10/2026: "tiene que responder en un
+        // minuto"). Una foto con 33 productos tardaba 166 s: el modelo pedía las
+        // 33 búsquedas de una, pero se ejecutaban una detrás de otra. Las que
+        // solo LEEN arrancan juntas (de a 8); las que tienen efecto (pedido,
+        // consulta, derivación) siguen de a una, en orden, como siempre.
+        const ctxHerr = { ultimoBot: ultimoDelBot, ultimosBot: ultimosDelBot, ultimosCliente: ultimosDelCliente, textoCliente: texto, fallos: fallosDelTurno, archivoUrl: dto.archivoUrl, fija: respuestaFija, salidas: salidasDelTurno };
+        const adelantadas = new Map<string, Promise<Anthropic.ToolResultBlockParam>>();
+        {
+          const lecturas = (r.content as any[]).filter((b) => b.type === 'tool_use' && HERRAMIENTAS_DE_LECTURA.has(b.name));
+          const unicas = new Map<string, any>();
+          for (const b of lecturas) { const k = `${b.name}:${JSON.stringify(b.input)}`; if (!unicas.has(k)) unicas.set(k, b); }
+          const cola = [...unicas.values()];
+          const enCurso: Promise<void>[] = [];
+          const lanzar = (b: any) => { const pr = this.ejecutarHerramienta(b, telefono, linea, ctxHerr); adelantadas.set(b.id, pr); return pr.then(() => undefined, () => undefined); };
+          for (const b of cola) {
+            if (enCurso.length >= 8) await Promise.race(enCurso);
+            const p = lanzar(b);
+            enCurso.push(p);
+            p.then(() => enCurso.splice(enCurso.indexOf(p), 1));
+          }
+        }
         for (const block of r.content) {
           if (block.type !== 'tool_use') continue;
           herramientasDelTurno.add(block.name);
@@ -847,7 +870,7 @@ export class BotService {
             resultados.push({ ...previo, tool_use_id: block.id });
             continue;
           }
-          const res = await this.ejecutarHerramienta(block, telefono, linea, { ultimoBot: ultimoDelBot, ultimosBot: ultimosDelBot, ultimosCliente: ultimosDelCliente, textoCliente: texto, fallos: fallosDelTurno, archivoUrl: dto.archivoUrl, fija: respuestaFija, salidas: salidasDelTurno });
+          const res = await (adelantadas.get(block.id) ?? this.ejecutarHerramienta(block, telefono, linea, ctxHerr));
           vistos.set(clave, res);
           resultados.push(res);
         }
