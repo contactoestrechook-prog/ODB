@@ -187,7 +187,7 @@ export function TablaResponsiva<T>({
                           {c.celda(f, i)}
                         </Link>
                       ) : c.acciones ? (
-                        <div className="inline-flex flex-wrap items-center justify-end gap-2">{c.celda(f, i)}</div>
+                        <div className="inline-flex items-center justify-end gap-2">{c.celda(f, i)}</div>
                       ) : (
                         c.celda(f, i)
                       )}

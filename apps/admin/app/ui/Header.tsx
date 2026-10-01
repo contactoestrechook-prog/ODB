@@ -192,24 +192,47 @@ const TITULOS: Record<string, { titulo: string; bajada: string }> = {
   '/fraccionar': { titulo: 'Fraccionar', bajada: 'Lo que se arma en el local (docenas, maples) para que la caja lo venda' },
 };
 
+// Sobre el negro del menú, el gris más apagado es white/55 (6,2:1 de
+// contraste); el /30 de antes daba 2,7:1 y no se leía.
 function Icono({ d, activo }: { d: string; activo: boolean }) {
   return (
     <svg
       viewBox="0 0 24 24"
-      className={`w-[18px] h-[18px] shrink-0 ${activo ? 'text-white' : 'text-white/40 group-hover:text-white/70'}`}
+      className={`size-[18px] shrink-0 ${activo ? 'text-white' : 'text-white/55 group-hover:text-white/80'}`}
       fill="none"
       stroke="currentColor"
       strokeWidth="1.7"
       strokeLinecap="round"
       strokeLinejoin="round"
+      aria-hidden="true"
     >
       <path d={d} />
     </svg>
   );
 }
 
-export async function Header({ activo, sinCabecera }: { activo: string; sinCabecera?: boolean }) {
-  const seccion = TITULOS[activo] ?? { titulo: 'O.D.B', bajada: '' };
+const ENLACE_PIE =
+  'group flex items-center gap-3 rounded-xl px-3 py-2 text-sm text-white/70 transition-colors hover:bg-white/[0.06] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50';
+
+/**
+ * Menú lateral (escritorio), barra y cajón (celular) y la cabecera blanca de
+ * la sección. `titulo`/`bajada` pisan los de TITULOS (fichas, sub-pantallas).
+ * En el celular el título va solo en la barra negra; la cabecera blanca queda
+ * para el buscador, a lo ancho.
+ */
+export async function Header({
+  activo,
+  sinCabecera,
+  titulo,
+  bajada,
+}: {
+  activo: string;
+  sinCabecera?: boolean;
+  titulo?: string;
+  bajada?: string;
+}) {
+  const base = TITULOS[activo] ?? { titulo: 'O.D.B', bajada: '' };
+  const seccion = { titulo: titulo ?? base.titulo, bajada: bajada ?? base.bajada };
   // el menú muestra solo lo que el rol puede abrir (backoffice ve Abastecimiento);
   // los roles sin restricción ven todo, como siempre
   const rol = rolDesdeToken((await cookies()).get('odb_token')?.value);
@@ -230,45 +253,44 @@ export async function Header({ activo, sinCabecera }: { activo: string; sinCabec
       }
     } catch { /* el menú nunca se cae por el contador */ }
   }
-  const pendientesDe = (href: string) =>
-    href === '/aprobaciones' ? porFirmar : href === '/clientes' ? cobrosPendientes : 0;
+  const pendientes: Record<string, number> = { '/aprobaciones': porFirmar, '/clientes': cobrosPendientes };
+  const pendientesDe = (href: string) => pendientes[href] ?? 0;
+
   return (
     <>
       {/* ---- barra lateral ---- */}
-      <aside className="fixed inset-y-0 left-0 w-64 bg-[#121212] text-white flex-col z-40 hidden lg:flex">
-        <div className="px-6 pt-7 pb-6 flex items-start justify-between">
+      <aside className="fixed inset-y-0 left-0 z-barra hidden w-64 flex-col bg-tinta text-white lg:flex">
+        <div className="flex items-start justify-between px-6 pt-7 pb-6">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/odb-logo-blanco.png" alt="O.D.B Premium Market" className="h-12 w-auto" />
           {/* avisos internos: proveedores que escribieron, pagos, derivaciones */}
           <CampanaAlertas />
         </div>
 
-        <nav className="flex-1 overflow-y-auto px-3 pb-4 space-y-5">
+        <nav aria-label="Secciones del sistema" className="flex-1 space-y-5 overflow-y-auto px-3 pb-4 [scrollbar-color:rgb(255_255_255/0.15)_transparent] [scrollbar-width:thin]">
           {grupos.map((g) => (
             <div key={g.titulo}>
-              <p className="px-3 mb-1.5 text-[10px] font-semibold tracking-[0.18em] text-white/30 uppercase">
-                {g.titulo}
-              </p>
+              <p className="mb-1.5 px-3 text-xs font-semibold uppercase tracking-[0.14em] text-white/55">{g.titulo}</p>
               {g.items.map((i) => {
                 const esActivo = i.href === activo;
+                const n = pendientesDe(i.href);
                 return (
                   <Link
                     key={i.href}
                     href={i.href}
-                    className={`group flex items-center gap-3 rounded-lg px-3 py-2 text-[13px] mb-0.5 transition-colors ${
-                      esActivo
-                        ? 'bg-[#B82D25] text-white font-medium'
-                        : 'text-white/60 hover:text-white hover:bg-white/5'
+                    aria-current={esActivo ? 'page' : undefined}
+                    className={`group mb-0.5 flex items-center gap-3 rounded-xl px-3 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50 ${
+                      esActivo ? 'bg-marca font-semibold text-white' : 'text-white/70 hover:bg-white/[0.06] hover:text-white'
                     }`}
                   >
                     <Icono d={ICONOS[i.icono]} activo={esActivo} />
-                    <span className="flex-1">{i.label}</span>
-                    {pendientesDe(i.href) > 0 && (
+                    <span className="min-w-0 flex-1 truncate">{i.label}</span>
+                    {n > 0 && (
                       <span
-                        className="rounded-full bg-[#B82D25] px-2 py-0.5 text-[11px] font-semibold text-white"
-                        title={`${pendientesDe(i.href)} esperando tu aprobación`}
+                        className={`importe rounded-full px-2 text-xs font-semibold leading-5 ${esActivo ? 'bg-white text-marca' : 'bg-marca text-white'}`}
+                        title={`${n} esperando tu aprobación`}
                       >
-                        {pendientesDe(i.href)}
+                        {n}
                       </span>
                     )}
                   </Link>
@@ -278,56 +300,43 @@ export async function Header({ activo, sinCabecera }: { activo: string; sinCabec
           ))}
         </nav>
 
-        <div className="px-3 py-4 border-t border-white/10 space-y-0.5">
+        <div className="space-y-0.5 border-t border-white/10 px-3 py-4">
           {/* El manual va en el pie y no en un grupo: lo puede abrir cualquiera
               que entre, sin importar el rol, y siempre está en el mismo lugar. */}
-          <Link
-            href="/manual"
-            className="flex items-center gap-3 rounded-lg px-3 py-2 text-[13px] text-white/50 hover:text-white hover:bg-white/5"
-          >
-            <svg viewBox="0 0 24 24" className="w-[18px] h-[18px]" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M4 5.5A1.5 1.5 0 015.5 4H10a2 2 0 012 2v13a2 2 0 00-2-2H5.5A1.5 1.5 0 014 15.5zM20 5.5A1.5 1.5 0 0018.5 4H14a2 2 0 00-2 2v13a2 2 0 012-2h4.5a1.5 1.5 0 001.5-1.5z" />
-            </svg>
+          <Link href="/manual" aria-current={activo === '/manual' ? 'page' : undefined} className={ENLACE_PIE}>
+            <Icono d={ICONOS.manual} activo={false} />
             Manual del sistema
           </Link>
-          <Link
-            href="/cambiar-clave"
-            className="flex items-center gap-3 rounded-lg px-3 py-2 text-[13px] text-white/50 hover:text-white hover:bg-white/5"
-          >
-            <svg viewBox="0 0 24 24" className="w-[18px] h-[18px]" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M7 11V7a5 5 0 0110 0v4M6 11h12v9H6zM12 15v2" />
-            </svg>
+          <Link href="/cambiar-clave" className={ENLACE_PIE}>
+            <Icono d={ICONOS.clave} activo={false} />
             Cambiar mi contraseña
           </Link>
           <InstalarApp />
-          <a
-            href="/api/salir"
-            className="flex items-center gap-3 rounded-lg px-3 py-2 text-[13px] text-white/50 hover:text-white hover:bg-white/5"
-          >
-            <svg viewBox="0 0 24 24" className="w-[18px] h-[18px]" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M10 4H4v16h6M14 8l4 4-4 4M8 12h10" />
-            </svg>
+          <a href="/api/salir" className={ENLACE_PIE}>
+            <Icono d={ICONOS.salir} activo={false} />
             Cerrar sesión
           </a>
         </div>
       </aside>
 
-      {/* ---- navegación móvil: hamburguesa + cajón ---- */}
-      <MobileMenu grupos={grupos} iconos={ICONOS} activo={activo} titulo={seccion.titulo} />
+      {/* ---- navegación móvil: barra negra + cajón ---- */}
+      <MobileMenu grupos={grupos} iconos={ICONOS} activo={activo} titulo={seccion.titulo} pendientes={pendientes} />
 
-      {/* ---- cabecera de sección ---- */}
+      {/* ---- cabecera de sección ----
+          celular: solo el buscador, a lo ancho (el título ya está en la barra negra)
+          escritorio: título + bajada a la izquierda, buscador y fecha a la derecha */}
       {!sinCabecera && (
-        <div className="bg-white border-b border-black/5">
-          <div className="px-6 lg:px-10 py-5 flex items-center justify-between gap-4">
-            <div className="shrink-0">
-              <h1 className="text-xl font-semibold text-black">{seccion.titulo}</h1>
-              {seccion.bajada && <p className="text-[13px] text-black/45 mt-0.5 hidden md:block">{seccion.bajada}</p>}
+        <div className="border-b border-black/[0.06] bg-white">
+          <div className="flex flex-col gap-3 px-4 py-3 sm:px-6 lg:flex-row lg:items-center lg:gap-6 lg:px-8 lg:py-5">
+            <div className="hidden min-w-0 flex-1 lg:block">
+              <h1 className="truncate text-xl font-bold tracking-tight text-tinta">{seccion.titulo}</h1>
+              {seccion.bajada && <p className="mt-0.5 text-sm text-tinta/60">{seccion.bajada}</p>}
             </div>
-            <div className="flex-1 flex justify-end max-w-md ml-auto">
+            <div className="w-full lg:w-80 lg:shrink-0 xl:w-md">
               <BuscadorGlobal />
             </div>
-            <p className="text-[13px] text-black/40 whitespace-nowrap hidden xl:block capitalize">
-              {new Date().toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' })}
+            <p className="hidden shrink-0 whitespace-nowrap text-sm text-tinta/60 first-letter:uppercase xl:block">
+              {fecha(new Date(), 'dia')}
             </p>
           </div>
         </div>

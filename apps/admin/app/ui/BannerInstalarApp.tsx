@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
+import { llevaFlotantes } from '../lib/rutas';
 
 // Cartel "Instalá la app del sistema". Tres caminos:
 // - Chrome/Edge (escritorio y Android): el navegador avisa que se puede instalar
@@ -96,8 +97,9 @@ export function BannerInstalarApp() {
     };
   }, []);
 
-  // en login / cambio de clave no molestamos
-  if (pathname === '/login' || pathname === '/cambiar-clave') return null;
+  // en las pantallas de acceso (login, recuperar o cambiar la clave) y en las
+  // que no son del panel no molestamos: la lista es una sola (app/lib/rutas.ts)
+  if (!llevaFlotantes(pathname)) return null;
   if (!visible) return null;
 
   const cerrar = () => {
@@ -113,30 +115,38 @@ export function BannerInstalarApp() {
     setVisible(false);
   };
 
+  // Capa de aviso (A7). Abajo respeta el gesto de inicio del iPhone y, si la
+  // pantalla tiene una BarraInferior, se para encima (--alto-barra-inferior).
+  // Se esconde mientras el menú del celular o un modal están abiertos.
   return (
-    <div className="fixed inset-x-3 bottom-3 z-[90] sm:inset-x-auto sm:right-5 sm:bottom-5 sm:w-[390px]">
-      <div className="rounded-2xl bg-black text-[#F0EBE2] shadow-[0_18px_50px_-15px_rgba(0,0,0,0.6)] border border-white/10 p-4">
+    <div className="flotante-ocultable fixed inset-x-3 bottom-[calc(0.75rem+env(safe-area-inset-bottom)+var(--alto-barra-inferior,0px))] z-aviso sm:inset-x-auto sm:right-5 sm:bottom-[calc(1.25rem+env(safe-area-inset-bottom)+var(--alto-barra-inferior,0px))] sm:w-96 print:hidden">
+      <div className="rounded-2xl border border-white/10 bg-tinta p-4 text-crema shadow-flotante">
         <div className="flex items-start gap-3">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/icon-192.png" alt="" className="h-11 w-11 rounded-xl shrink-0 border border-white/15" />
+          <img src="/icon-192.png" alt="" className="h-11 w-11 shrink-0 rounded-xl border border-white/15" />
           <div className="min-w-0 flex-1">
             <p className="text-sm font-semibold leading-tight">Instalá la app del sistema</p>
-            <p className="mt-0.5 text-xs text-white/60 leading-snug">
+            <p className="mt-0.5 text-xs leading-snug text-white/70">
               {esIos
                 ? 'Acceso directo en tu pantalla de inicio, a pantalla completa.'
                 : 'Se abre en su propia ventana, con ícono propio, como cualquier app.'}
             </p>
           </div>
-          <button onClick={cerrar} aria-label="Cerrar" className="shrink-0 -mt-1 -mr-1 h-8 w-8 grid place-items-center rounded-full text-white/50 hover:text-white hover:bg-white/10">
-            ✕
+          <button
+            type="button"
+            onClick={cerrar}
+            aria-label="Cerrar"
+            className="-mr-2 -mt-2 grid size-11 shrink-0 place-items-center rounded-full text-white/70 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
+          >
+            <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
           </button>
         </div>
 
         {esIos && pasosIos && (
-          <ol className="mt-3 space-y-1.5 text-xs text-white/80 list-decimal pl-4">
+          <ol className="mt-3 list-decimal space-y-1.5 pl-4 text-xs text-white/80">
             <li>
               Tocá el botón <b>Compartir</b>
-              <svg viewBox="0 0 24 24" className="inline-block w-3.5 h-3.5 mx-1 -mt-0.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12M8 7l4-4 4 4"/><path d="M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7"/></svg>
+              <svg viewBox="0 0 24 24" className="mx-1 -mt-0.5 inline-block size-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 3v12M8 7l4-4 4 4"/><path d="M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7"/></svg>
               (abajo en Safari, arriba en iPad)
             </li>
             <li>Elegí <b>“Agregar a pantalla de inicio”</b></li>
@@ -145,15 +155,15 @@ export function BannerInstalarApp() {
 
         <div className="mt-3 flex gap-2">
           {esIos ? (
-            <button onClick={() => setPasosIos((v) => !v)} className="flex-1 rounded-full bg-[#B82D25] py-2 text-xs font-semibold text-white hover:bg-[#932A1F]">
+            <button type="button" onClick={() => setPasosIos((v) => !v)} className="min-h-11 flex-1 rounded-full bg-marca px-4 text-sm font-semibold text-white transition-colors hover:bg-marca-hondo focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50 sm:min-h-10">
               {pasosIos ? 'Entendido' : 'Ver cómo instalarla'}
             </button>
           ) : (
-            <button onClick={instalar} className="flex-1 rounded-full bg-[#B82D25] py-2 text-xs font-semibold text-white hover:bg-[#932A1F]">
+            <button type="button" onClick={instalar} className="min-h-11 flex-1 rounded-full bg-marca px-4 text-sm font-semibold text-white transition-colors hover:bg-marca-hondo focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50 sm:min-h-10">
               Instalar ahora
             </button>
           )}
-          <button onClick={cerrar} className="rounded-full border border-white/20 px-4 py-2 text-xs text-white/70 hover:text-white">
+          <button type="button" onClick={cerrar} className="min-h-11 rounded-full border border-white/20 px-4 text-sm text-white/70 transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50 sm:min-h-10">
             Ahora no
           </button>
         </div>

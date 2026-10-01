@@ -43,7 +43,7 @@ export function Aviso({ tono = 'info', titulo, accion, className, children }: Pr
       <Icono className="mt-px size-5 shrink-0" />
       <div className="min-w-0 flex-1">
         {titulo && <p className="font-semibold leading-snug">{titulo}</p>}
-        {children && <div className={unir('leading-relaxed text-tinta/80', titulo && 'mt-0.5')}>{children}</div>}
+        {children && <div className={unir('leading-relaxed text-tinta/80', Boolean(titulo) && 'mt-0.5')}>{children}</div>}
         {accion && <div className="mt-2.5 flex flex-wrap gap-2">{accion}</div>}
       </div>
     </div>

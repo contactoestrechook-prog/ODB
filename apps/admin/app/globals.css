@@ -145,11 +145,13 @@
 }
 
 /* Flotantes (A7): el botón "Esto está mal" se esconde cuando la pantalla tiene
-   una BarraInferior (Cobrar, Guardar) y, como el cartel de instalar, cuando el
-   menú del celular está abierto. Los atributos los ponen BarraInferior y
-   MobileMenu en <html>. */
+   una BarraInferior (Cobrar, Guardar); todos los flotantes (ese botón, el
+   cartel de instalar y el aviso de actualización) se esconden mientras el menú
+   del celular o un modal están abiertos. Los atributos los ponen BarraInferior,
+   MobileMenu y Modal en <html>. */
 html[data-barra-inferior] .flotante-reportar,
-html[data-cajon-abierto] .flotante-ocultable {
+html[data-cajon-abierto] .flotante-ocultable,
+html[data-modal-abierto] .flotante-ocultable {
   display: none;
 }
 

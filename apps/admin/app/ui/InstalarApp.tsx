@@ -54,16 +54,17 @@ export function InstalarApp() {
     <>
       <button
         onClick={instalar}
-        className="w-full flex items-center gap-3 rounded-lg px-3 py-2 text-[13px] text-white/50 hover:text-white hover:bg-white/5 text-left"
+        type="button"
+        className="group flex min-h-11 w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm text-white/70 transition-colors hover:bg-white/[0.06] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50 lg:min-h-0"
       >
-        <svg viewBox="0 0 24 24" className="w-[18px] h-[18px] shrink-0" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+        <svg viewBox="0 0 24 24" className="size-[18px] shrink-0 text-white/55 group-hover:text-white/80" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <path d="M12 3v12M8 11l4 4 4-4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2" />
         </svg>
         Instalar la app
       </button>
 
       {pasos && !listo && (
-        <div className="mx-3 mb-2 rounded-lg bg-white/5 p-3 text-[11px] leading-relaxed text-white/70">
+        <div className="mx-3 mb-2 rounded-xl bg-white/[0.06] p-3 text-xs leading-relaxed text-white/70">
           {nav === 'safari' ? (
             <>
               En Safari: menú <b className="text-white/90">Archivo</b> →{' '}

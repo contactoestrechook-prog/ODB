@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { fecha } from '../lib/formato';
 
 // Aviso de actualización. Aparece por dos motivos:
 //
@@ -85,49 +86,55 @@ export function AvisoActualizacion() {
     setVersionNueva(null);
   }
 
+  // Capa de aviso (A7): arriba, debajo de la muesca/isla del iPhone
+  // (safe-area). Se esconde mientras el menú del celular o un modal están
+  // abiertos y vuelve a aparecer al cerrarlos.
   return (
-    <div className="fixed left-1/2 top-3 z-[60] w-[min(92vw,560px)] -translate-x-1/2">
-      <div className="rounded-xl bg-black text-[#F0EBE2] shadow-2xl ring-1 ring-white/10 overflow-hidden">
-        <div className="flex items-start gap-3 px-4 py-3">
-          <span className="mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#B82D25] text-sm">↻</span>
-          <div className="min-w-0 flex-1">
-            <p className="text-[10px] uppercase tracking-[0.18em] text-[#C9A96E] font-bold">Actualización del sistema</p>
-            <p className="text-sm font-semibold mt-0.5">{ultima?.titulo ?? 'Hay una versión nueva del sistema'}</p>
+    <div className="flotante-ocultable fixed left-1/2 top-[calc(0.75rem+env(safe-area-inset-top))] z-aviso w-[min(calc(100vw-1.5rem),35rem)] -translate-x-1/2 print:hidden">
+      <div className="overflow-hidden rounded-2xl bg-tinta text-crema shadow-flotante ring-1 ring-white/10">
+        <div className="flex flex-wrap items-start gap-3 px-4 py-3 sm:flex-nowrap">
+          <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-full bg-marca text-white" aria-hidden="true">
+            <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 11a8 8 0 10-2.3 5.7M20 4v7h-7" /></svg>
+          </span>
+          <div className="min-w-0 flex-1" role="status">
+            <p className="text-xs font-bold uppercase tracking-[0.14em] text-dorado">Actualización del sistema</p>
+            <p className="mt-0.5 text-sm font-semibold">{ultima?.titulo ?? 'Hay una versión nueva del sistema'}</p>
             {ultima && novedades.length > 1 && (
-              <p className="text-xs text-white/50 mt-0.5">y {novedades.length - 1} más desde tu última visita</p>
+              <p className="mt-0.5 text-xs text-white/70">y {novedades.length - 1} más desde tu última visita</p>
             )}
             {!ultima && (
-              <p className="text-xs text-white/50 mt-0.5">Actualizá para trabajar con la última versión.</p>
+              <p className="mt-0.5 text-xs text-white/70">Actualizá para trabajar con la última versión.</p>
             )}
             {ultima && (
-              <button onClick={() => setAbierto((v) => !v)} className="mt-1 text-xs text-white/60 underline">
+              <button type="button" onClick={() => setAbierto((v) => !v)} aria-expanded={abierto} className="mt-1 text-xs text-white/70 underline underline-offset-2 hover:text-white">
                 {abierto ? 'Ocultar el detalle' : '¿Qué incluye?'}
               </button>
             )}
           </div>
-          <div className="flex shrink-0 flex-col gap-1.5">
+          <div className="flex w-full shrink-0 gap-2 sm:w-auto sm:flex-col sm:gap-1.5">
             <button
+              type="button"
               onClick={actualizar}
               disabled={trabajando}
-              className="rounded-lg bg-[#B82D25] px-3.5 py-1.5 text-sm font-medium text-white active:scale-95 disabled:opacity-50"
+              className="min-h-11 flex-1 rounded-full bg-marca px-4 text-sm font-semibold text-white transition-colors hover:bg-marca-hondo active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50 disabled:opacity-50 sm:min-h-10 sm:flex-none"
             >
               {trabajando ? 'Actualizando…' : 'Actualizar ahora'}
             </button>
-            <button onClick={despues} className="text-xs text-white/45 hover:text-white/70">
+            <button type="button" onClick={despues} className="min-h-11 rounded-full px-4 text-xs text-white/70 transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50 sm:min-h-8">
               Ahora no
             </button>
           </div>
         </div>
 
         {abierto && ultima && (
-          <div className="border-t border-white/10 bg-white/5 px-4 py-3 max-h-[40vh] overflow-y-auto">
+          <div className="max-h-[40dvh] overflow-y-auto border-t border-white/10 bg-white/5 px-4 py-3">
             {novedades.map((n) => (
               <div key={n.id} className="mb-3 last:mb-0">
                 <p className="text-xs font-semibold text-white/85">
                   {n.titulo}
-                  <span className="ml-2 font-normal text-white/40">{new Date(n.publicada_en).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' })}</span>
+                  <span className="ml-2 font-normal text-white/60">{fecha(n.publicada_en, 'corta')}</span>
                 </p>
-                <ul className="mt-1 space-y-0.5 pl-4 text-xs text-white/70 list-disc">
+                <ul className="mt-1 list-disc space-y-0.5 pl-4 text-xs text-white/70">
                   {(n.detalle ?? []).map((d, i) => <li key={i}>{d}</li>)}
                 </ul>
               </div>
