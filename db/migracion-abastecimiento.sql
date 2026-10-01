@@ -349,3 +349,11 @@ revoke all on function public.abastecimiento(uuid, boolean, uuid, text, int) fro
 revoke all on function public.proveedor_faltantes(uuid) from public, anon, authenticated;
 grant execute on function public.abastecimiento(uuid, boolean, uuid, text, int) to service_role;
 grant execute on function public.proveedor_faltantes(uuid) to service_role;
+
+-- Lo que le falta a cada proveedor, para la lista de Compras (misma regla que proveedor_faltantes)
+create or replace function public.proveedores_faltantes() returns table (id uuid, faltan text[])
+language sql stable set search_path = public as $$
+  select p.id, public.proveedor_faltantes(p.id) from public.proveedores p
+$$;
+revoke all on function public.proveedores_faltantes() from public, anon, authenticated;
+grant execute on function public.proveedores_faltantes() to service_role;

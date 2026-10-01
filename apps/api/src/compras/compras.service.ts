@@ -80,13 +80,18 @@ export class ComprasService {
   constructor(@Inject(SUPABASE) private readonly db: SupabaseClient) {}
 
   async proveedores() {
-    const { data, error } = await this.db
-      .from('proveedores')
-      .select('id, razon_social, cuit, condicion_pago, lead_time_dias, email')
-      .eq('activo', true)
-      .order('razon_social');
+    const [{ data, error }, { data: faltantes }] = await Promise.all([
+      this.db
+        .from('proveedores')
+        .select('id, razon_social, cuit, condicion_pago, lead_time_dias, lead_time_confirmado, email, telefono')
+        .eq('activo', true)
+        .order('razon_social'),
+      // lo que le falta para poder comprarle (la regla vive en la base: proveedor_faltantes)
+      this.db.rpc('proveedores_faltantes'),
+    ]);
     if (error) throw new BadRequestException(error.message);
-    return data;
+    const falta = new Map(((faltantes ?? []) as any[]).map((f) => [f.id, f.faltan as string[]]));
+    return (data ?? []).map((p: any) => ({ ...p, faltan: falta.get(p.id) ?? [] }));
   }
 
   async sugerencias() {
@@ -579,6 +584,7 @@ export class ComprasService {
         cuit: dto.cuit || null,
         condicion_pago: dto.condicionPago || null,
         lead_time_dias: Number(dto.leadTimeDias) || 7,
+        lead_time_confirmado: dto.leadTimeConfirmado === true && Number(dto.leadTimeDias) > 0,
         email: dto.email || null,
         telefono: dto.telefono || null,
       })
@@ -595,11 +601,10 @@ export class ComprasService {
     if (dto.razonSocial !== undefined) cambios.razon_social = dto.razonSocial;
     if (dto.cuit !== undefined) cambios.cuit = dto.cuit || null;
     if (dto.condicionPago !== undefined) cambios.condicion_pago = dto.condicionPago;
-    if (dto.leadTimeDias !== undefined) {
-      cambios.lead_time_dias = Number(dto.leadTimeDias) || 7;
-      // lo cargó una persona: deja de ser el 7 por defecto (requisito para comprarle, 1/10/2026)
-      if (Number(dto.leadTimeDias) > 0) cambios.lead_time_confirmado = true;
-    }
+    if (dto.leadTimeDias !== undefined) cambios.lead_time_dias = Number(dto.leadTimeDias) || 7;
+    // "plazo confirmado con el proveedor" se tilda a mano: guardar el formulario
+    // no confirma solo el 7 por defecto (requisito para comprarle, 1/10/2026)
+    if (dto.leadTimeConfirmado !== undefined) cambios.lead_time_confirmado = dto.leadTimeConfirmado === true;
     if (dto.email !== undefined) cambios.email = dto.email;
     if (dto.telefono !== undefined) cambios.telefono = dto.telefono;
     if (dto.activo !== undefined) cambios.activo = dto.activo;
