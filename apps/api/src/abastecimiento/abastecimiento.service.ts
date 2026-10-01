@@ -164,7 +164,8 @@ Cómo trabajás:
 - Las propuestas de compra van SIEMPRE por proponer_compra: la pantalla las dibuja como nota de pedido para tildar, con stock, días que alcanza y costo, y el comprador la arma desde ahí. En tu texto NO repitas los productos ni sus números: una o dos líneas con lo que importa (qué es lo urgente, si el plazo es provisorio, qué le falta al proveedor).
 - armar_orden solo si el comprador te pide por escrito que la armes vos, con la propuesta exacta (proveedor, sucursal, productos y cantidades) ya acordada. Nunca armes una orden sin ese sí.
 - Proveedor bien cargado, sí o sí: para comprarle tiene que tener CUIT, razón social, teléfono o WhatsApp, condición de pago y plazo de entrega confirmado. Si le falta algo, decilo al proponer la compra. Si igual se arma la orden, queda a aprobar y frenada: administración ya recibe el pedido de completarlo y el sistema avisa cuando está.
-- Respuestas cortas y concretas, en castellano rioplatense, sin markdown pesado. Si hace falta una lista, guiones simples; nunca la lista de productos de una propuesta (esa la dibuja la pantalla).\n- El comprador te cuenta al principio de su mensaje cómo están las notas en pantalla (qué tildó, qué cantidades cambió, qué órdenes ya armó). Eso manda sobre lo que propusiste antes: no vuelvas a proponer ni a armar lo que ya está armado.
+- Respuestas cortas y concretas, en castellano rioplatense, sin markdown pesado. Si hace falta una lista, guiones simples; nunca la lista de productos de una propuesta (esa la dibuja la pantalla).
+- El comprador te cuenta al principio de su mensaje cómo están las notas en pantalla (qué tildó, qué cantidades cambió, qué órdenes ya armó). Eso manda sobre lo que propusiste antes: no vuelvas a proponer ni a armar lo que ya está armado.
 
 ${TONO_ODB}`;
 
@@ -382,17 +383,44 @@ export class AbastecimientoService {
       if (sku && cantidad) pedidos.set(sku, { cantidad, motivo: i?.motivo ? String(i.motivo).slice(0, 120) : null });
     }
     if (!pedidos.size) return { resultado: { error: 'La propuesta no tiene renglones con cantidad' } };
+    if (pedidos.size > 60) return { resultado: { error: `Son ${pedidos.size} renglones: partila en notas de hasta 60 (por rubro o por urgencia)` } };
 
     // lo habitual de ese proveedor; lo que no es suyo se busca uno por uno
     let filas = (await this.situacion({ proveedorId: provs[0].id, sucursalId, soloAlertas: false, limite: 2000 }))
       .filter((f) => pedidos.has(f.sku));
+    const propias = filas.length;
     const faltanSku = [...pedidos.keys()].filter((sku) => !filas.some((f) => f.sku === sku));
-    for (const sku of faltanSku.slice(0, 30)) {
+    for (const sku of faltanSku) {
       const hit = (await this.situacion({ sucursalId, soloAlertas: false, q: sku, limite: 5 })).find((f) => f.sku === sku);
       if (hit) filas.push(hit);
     }
-    // la nota es de ESTE proveedor aunque el producto se le compre a otro
-    filas = filas.map((f) => ({ ...f, proveedor_id: provs[0].id, proveedor: provs[0].razon_social }));
+    // Un producto que nunca tuvo stock ni ventas en esa sucursal no sale en
+    // abastecimiento(), pero existe y se puede pedir (es justo el caso de
+    // traerlo por primera vez): va con stock 0 y sin ritmo, no como "no existe".
+    const sinDatos = [...pedidos.keys()].filter((sku) => !filas.some((f) => f.sku === sku));
+    if (sinDatos.length) {
+      const prods = await enLotes<any>(sinDatos, (lote) =>
+        this.db.from('productos').select('id, sku, nombre, costo').in('sku', lote).eq('activo', true) as any,
+      );
+      const costos = await enLotes<any>(prods.map((p) => p.id), (lote) =>
+        this.db.from('proveedor_productos').select('producto_id, ultimo_costo').eq('proveedor_id', provs[0].id).in('producto_id', lote) as any,
+      ).catch(() => [] as any[]);
+      const sucNombre = (await this.sucursales()).find((x) => x.id === sucursalId)?.nombre ?? input?.sucursal;
+      for (const p of prods) {
+        const pp = costos.find((c) => c.producto_id === p.id);
+        filas.push({
+          producto_id: p.id, sku: p.sku, nombre: p.nombre, sucursal_id: sucursalId, sucursal: sucNombre,
+          stock: 0, en_camino: 0, ritmo_dia: 0, cobertura_dias: null, alerta: null, cantidad_sugerida: 0,
+          ultimo_costo: pp?.ultimo_costo ?? p.costo ?? null,
+        });
+      }
+    }
+    // la nota es de ESTE proveedor aunque el producto se le compre a otro; el
+    // plazo, el de este proveedor (si ningún renglón es suyo, el de su ficha)
+    const plazoPropio = propias
+      ? null
+      : { plazo_dias: provs[0].lead_time_dias ?? 7, plazo_fuente: provs[0].lead_time_confirmado ? 'declarado por el proveedor' : 'sin confirmar: 7 días por defecto' };
+    filas = filas.map((f) => ({ ...f, proveedor_id: provs[0].id, proveedor: provs[0].razon_social, ...(plazoPropio ?? {}) }));
     const [propuesta] = await this.propuestasDe(filas, pedidos);
     if (!propuesta) return { resultado: { error: `Ninguno de esos SKU existe en ${input?.sucursal}` } };
     const { data: faltan } = await this.db.rpc('proveedor_faltantes', { p_id: provs[0].id });
@@ -473,25 +501,48 @@ export class AbastecimientoService {
     const propuestas: Propuesta[] = [];
     let costo = 0;
     const limite = Date.now() + 170_000; // el proxy del panel corta a los 4,5 min
+    // lo que el agente escribe en cada vuelta: suele explicar ANTES de llamar a
+    // proponer_compra y cerrar sin texto después
+    const dichos: string[] = [];
+    const cierre = (motivo?: string) => {
+      const texto = dichos.join('\n\n').trim();
+      const aviso = ordenes.length
+        ? `La orden ${ordenes.map((n) => `#${n}`).join(', ')} ya quedó creada y está a aprobar: no la pidas de nuevo.`
+        : '';
+      const respuesta = motivo
+        ? [motivo, aviso, propuestas.length ? 'Te dejo abajo lo que alcancé a armar.' : ''].filter(Boolean).join(' ')
+        : texto || aviso || (propuestas.length ? 'Te dejé la propuesta abajo para tildar.' : 'No encontré nada para proponer con eso.');
+      return { respuesta: motivo && texto ? `${texto}\n\n${respuesta}` : respuesta, herramientas: usadas, ordenes, propuestas };
+    };
     for (let vuelta = 0; vuelta < 10; vuelta++) {
       const queda = limite - Date.now();
       if (queda < 10_000) break;
-      const res = await claude.messages.stream({
-        model: MODELO_ABASTECIMIENTO,
-        max_tokens: 16000,
-        thinking: { type: 'adaptive' },
-        output_config: { effort: (process.env.ABASTECIMIENTO_ESFUERZO ?? 'medium') as any },
-        system,
-        tools: HERRAMIENTAS,
-        messages: historial,
-      } as any, { signal: AbortSignal.timeout(queda) }).finalMessage();
+      let res: Anthropic.Message;
+      try {
+        res = await claude.messages.stream({
+          model: MODELO_ABASTECIMIENTO,
+          max_tokens: 16000,
+          thinking: { type: 'adaptive' },
+          output_config: { effort: (process.env.ABASTECIMIENTO_ESFUERZO ?? 'medium') as any },
+          system,
+          tools: HERRAMIENTAS,
+          messages: historial,
+        } as any, { signal: AbortSignal.timeout(queda) }).finalMessage();
+      } catch (e) {
+        // un corte a mitad de la charla no puede tirar lo que ya se armó: las
+        // órdenes creadas existen y las notas sirven igual
+        this.log.warn(`abastecimiento: se cortó la vuelta ${vuelta}: ${e instanceof Error ? e.message : String(e)}`);
+        if (!ordenes.length && !propuestas.length) throw new BadRequestException('El agente no pudo contestar. Probá de nuevo o pedile una tanda más chica (un proveedor o un rubro).');
+        return cierre('Se me cortó la respuesta antes de terminar.');
+      }
       costo += costoUSD(MODELO_ABASTECIMIENTO, usoDeRespuesta(res.usage));
       historial.push({ role: 'assistant', content: res.content });
       if (res.stop_reason === 'refusal') return { respuesta: 'No puedo ayudar con eso. Probá reformularlo.', herramientas: usadas, ordenes, propuestas };
+      const texto = res.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map((b) => b.text).join('\n').trim();
+      if (texto) dichos.push(texto);
       if (res.stop_reason !== 'tool_use') {
-        const texto = res.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map((b) => b.text).join('\n').trim();
         this.log.log(`abastecimiento: ${usadas.length} herramientas · ≈ USD ${costo.toFixed(3)}`);
-        return { respuesta: texto || 'Listo.', herramientas: usadas, ordenes, propuestas };
+        return cierre();
       }
       const resultados: Anthropic.ToolResultBlockParam[] = [];
       for (const b of res.content) {
@@ -501,7 +552,12 @@ export class AbastecimientoService {
         try {
           if (b.name === 'proponer_compra') {
             const r = await this.proponerCompra(b.input);
-            if (r.propuesta) propuestas.push(r.propuesta);
+            if (r.propuesta) {
+              // una sola nota por proveedor y sucursal: la nueva reemplaza a la anterior
+              const previa = propuestas.findIndex((p) => p.clave === r.propuesta!.clave);
+              if (previa >= 0) propuestas[previa] = r.propuesta;
+              else propuestas.push(r.propuesta);
+            }
             salida = r.resultado;
           } else {
             salida = await this.ejecutar(b.name, b.input, usuarioId);
@@ -514,7 +570,7 @@ export class AbastecimientoService {
       }
       historial.push({ role: 'user', content: resultados });
     }
-    return { respuesta: 'Se me fue el tiempo armando la respuesta. Pedime una tanda más chica (un proveedor o un rubro).', herramientas: usadas, ordenes, propuestas };
+    return cierre('Se me fue el tiempo armando la respuesta. Para seguir, pedime una tanda más chica (un proveedor o un rubro).');
   }
 
   // ---------- el aviso del día ----------

@@ -90,7 +90,8 @@ export function armarPropuestas(
     }
     const alerta = (f.alerta ?? null) as RenglonPropuesta['alerta'];
     const urgente = alerta === 'sin_stock' || alerta === 'no_llega';
-    const costo = f.ultimo_costo == null ? null : Math.round(Number(f.ultimo_costo));
+    // el costo va tal cual: redondear antes de multiplicar desvía el total de la orden
+    const costo = f.ultimo_costo == null || Number.isNaN(Number(f.ultimo_costo)) ? null : Number(f.ultimo_costo);
     // en la vista directa vienen tildados los urgentes; lo que solo bajó de 12
     // queda para que el comprador decida. Lo que propone el agente viene tildado.
     const tildado = pedido ? true : urgente;

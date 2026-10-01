@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 // La propuesta de compra de un proveedor, dibujada como la nota de pedido que
 // después le llega (misma franja negra y línea dorada que el PDF de la orden).
@@ -42,10 +42,21 @@ export type Propuesta = {
   total: number;
 };
 
-type Armada = { numero: number | null; total: number; renglones: number; faltan: string[] };
+export type Armada = { numero: number | null; total: number; renglones: number; faltan: string[]; pedidos?: { sku: string; cantidad: number }[] };
+
+// Cómo está la nota ahora (lo que tildó y corrigió el comprador): el agente no
+// ve la pantalla y tiene que saberlo para no proponer ni armar dos veces.
+export type EstadoNota = {
+  proveedor: string;
+  sucursal: string;
+  items: { sku: string; nombre: string; cantidad: number; tildado: boolean }[];
+  armadas: Armada[];
+};
 
 const pesos = (n: number) => '$ ' + Math.round(n || 0).toLocaleString('es-AR');
 const dec = (n: number) => n.toLocaleString('es-AR', { maximumFractionDigits: 1 });
+// un ritmo de 0,04 por día con un decimal se leería 'vende 0 por día'
+const ritmo = (n: number) => n.toLocaleString('es-AR', { maximumFractionDigits: n < 0.1 ? 2 : 1 });
 const VISIBLES = 12;
 
 const ETIQUETA: Record<string, { texto: string; clase: string }> = {
@@ -94,20 +105,49 @@ function Alcance({ cobertura, plazo, stock }: { cobertura: number | null; plazo:
   );
 }
 
-export function NotaDePedido({ propuesta }: { propuesta: Propuesta }) {
+export function NotaDePedido({
+  propuesta,
+  yaPedidos,
+  onArmada,
+  onCambio,
+}: {
+  propuesta: Propuesta;
+  // productos que otra nota ya pidió en esta pantalla ("sucursalId:sku"): salen de esta
+  yaPedidos?: Set<string>;
+  onArmada?: (orden: Armada & { proveedor: string; sucursal: string; sucursalId: string }) => void;
+  onCambio?: (estado: EstadoNota) => void;
+}) {
   const [items, setItems] = useState<RenglonPropuesta[]>(propuesta.items);
   const [verTodos, setVerTodos] = useState(false);
   const [armando, setArmando] = useState(false);
   const [error, setError] = useState('');
   const [armadas, setArmadas] = useState<Armada[]>([]);
 
-  const tildados = useMemo(() => items.filter((i) => i.tildado && i.cantidad > 0), [items]);
+  const vivos = useMemo(
+    () => (yaPedidos?.size ? items.filter((i) => !yaPedidos.has(`${propuesta.sucursalId}:${i.sku}`)) : items),
+    [items, yaPedidos, propuesta.sucursalId],
+  );
+  const tildados = useMemo(() => vivos.filter((i) => i.tildado && i.cantidad > 0), [vivos]);
   const total = tildados.reduce((s, i) => s + (i.costo ?? 0) * i.cantidad, 0);
   const unidades = tildados.reduce((s, i) => s + i.cantidad, 0);
   const sinCosto = tildados.some((i) => i.costo == null);
-  const todos = items.length > 0 && items.every((i) => i.tildado);
-  const visibles = verTodos ? items : items.slice(0, VISIBLES);
-  const restantes = items.length - visibles.length;
+  const todos = vivos.length > 0 && vivos.every((i) => i.tildado);
+  const urgentes = vivos.filter((i) => i.alerta === 'sin_stock' || i.alerta === 'no_llega').length;
+  const visibles = verTodos ? vivos : vivos.slice(0, VISIBLES);
+  const restantes = vivos.length - visibles.length;
+  // lo tildado que queda escondido: se compra igual, así que se dice
+  const tildadosOcultos = restantes > 0 ? vivos.slice(VISIBLES).filter((i) => i.tildado && i.cantidad > 0).length : 0;
+
+  const avisar = useRef(onCambio);
+  avisar.current = onCambio;
+  useEffect(() => {
+    avisar.current?.({
+      proveedor: propuesta.proveedor,
+      sucursal: propuesta.sucursal,
+      items: vivos.map((i) => ({ sku: i.sku, nombre: i.nombre, cantidad: i.cantidad, tildado: i.tildado })),
+      armadas,
+    });
+  }, [vivos, armadas, propuesta.proveedor, propuesta.sucursal]);
 
   const cambiar = (sku: string, cambio: Partial<RenglonPropuesta>) =>
     setItems((xs) => xs.map((x) => (x.sku === sku ? { ...x, ...cambio } : x)));
@@ -133,7 +173,9 @@ export function NotaDePedido({ propuesta }: { propuesta: Propuesta }) {
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j?.message ?? 'No se pudo armar el pedido');
-      setArmadas((a) => [...a, j as Armada]);
+      const armada: Armada = { ...(j as Armada), pedidos: tildados.map((i) => ({ sku: i.sku, cantidad: i.cantidad })) };
+      setArmadas((a) => [...a, armada]);
+      onArmada?.({ ...armada, proveedor: propuesta.proveedor, sucursal: propuesta.sucursal, sucursalId: propuesta.sucursalId });
       // lo pedido sale de la nota; lo que quedó sin tildar sigue para otra vez
       const pedidos = new Set(tildados.map((i) => i.sku));
       setItems((xs) => xs.filter((x) => !pedidos.has(x.sku)).map((x) => ({ ...x, tildado: false })));
@@ -153,8 +195,8 @@ export function NotaDePedido({ propuesta }: { propuesta: Propuesta }) {
           <p className="text-[10.5px] font-semibold uppercase tracking-[0.18em] text-[#C9A96E]">{propuesta.sucursal}</p>
         </div>
         <p className="mt-1 text-[11.5px] text-white/55">
-          {propuesta.items.length} sugerido{propuesta.items.length === 1 ? '' : 's'}
-          {propuesta.urgentes > 0 && <> · <span className="text-white/85">{propuesta.urgentes} urgente{propuesta.urgentes === 1 ? '' : 's'}</span></>}
+          {vivos.length} sugerido{vivos.length === 1 ? '' : 's'}
+          {urgentes > 0 && <> · <span className="text-white/85">{urgentes} urgente{urgentes === 1 ? '' : 's'}</span></>}
           {propuesta.plazoDias != null && <> · tarda {dec(propuesta.plazoDias)} días{/sin confirmar|por defecto/.test(propuesta.plazoFuente ?? '') ? ' (sin confirmar)' : ''}</>}
         </p>
       </header>
@@ -166,6 +208,7 @@ export function NotaDePedido({ propuesta }: { propuesta: Propuesta }) {
         </p>
       )}
 
+      <div aria-live="polite">
       {armadas.map((a, i) => (
         <div key={i} className="flex items-start gap-3 border-b border-black/[0.06] bg-[#FAF7F1] px-4 py-3 sm:px-5">
           <span className="mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full bg-[#C9A96E] text-white" aria-hidden>
