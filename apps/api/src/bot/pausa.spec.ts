@@ -1,4 +1,4 @@
-import { atiendeUnaPersona, decisionSesion, esperasParaAvisar, motivoDeSilencio, pideRespuesta } from './pausa';
+import { atiendeUnaPersona, avisoEsperaPorWhatsapp, decisionSesion, esperasParaAvisar, motivoDeSilencio, pideRespuesta } from './pausa';
 
 describe('¿el bot tiene que callar?', () => {
   it('línea apagada: silencio siempre (salvo el banco de pruebas)', () => {
@@ -98,3 +98,18 @@ describe('contactos silenciados', () => {
     expect(esSilenciado(null)).toBe(false);
   });
 });
+
+describe('aviso por WhatsApp de charlas pausadas (apagado desde el 1/10/2026)', () => {
+  it('sin la variable no se avisa por WhatsApp', () => {
+    expect(avisoEsperaPorWhatsapp({})).toBe(false);
+    expect(avisoEsperaPorWhatsapp({ ODB_AVISO_ESPERA_WHATSAPP: '' })).toBe(false);
+    expect(avisoEsperaPorWhatsapp({ ODB_AVISO_ESPERA_WHATSAPP: '0' })).toBe(false);
+    expect(avisoEsperaPorWhatsapp({ ODB_AVISO_ESPERA_WHATSAPP: 'no' })).toBe(false);
+  });
+  it('se vuelve a prender con la variable', () => {
+    expect(avisoEsperaPorWhatsapp({ ODB_AVISO_ESPERA_WHATSAPP: '1' })).toBe(true);
+    expect(avisoEsperaPorWhatsapp({ ODB_AVISO_ESPERA_WHATSAPP: 'sí' })).toBe(true);
+    expect(avisoEsperaPorWhatsapp({ ODB_AVISO_ESPERA_WHATSAPP: ' true ' })).toBe(true);
+  });
+});
+

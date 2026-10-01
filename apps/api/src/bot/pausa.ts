@@ -99,3 +99,12 @@ export function decisionSesion(status: string | null, fallosSeguidos: number): {
 export function esSilenciado(etiquetas: unknown): boolean {
   return Array.isArray(etiquetas) && etiquetas.some((e) => String(e).toLowerCase() === 'silenciado');
 }
+
+// ¿Las charlas pausadas que esperan respuesta avisan por WhatsApp a
+// administración? APAGADO desde el 1/10/2026, pedido del dueño: "desactivar
+// alertar por WhatsApp sobre las charlas que están pausadas". La espera igual
+// queda anotada en el panel. Se vuelve a prender sin tocar código con la
+// variable ODB_AVISO_ESPERA_WHATSAPP=1 en Railway.
+export function avisoEsperaPorWhatsapp(env: Record<string, string | undefined> = process.env): boolean {
+  return /^(1|si|sí|true)$/i.test(String(env.ODB_AVISO_ESPERA_WHATSAPP ?? '').trim());
+}

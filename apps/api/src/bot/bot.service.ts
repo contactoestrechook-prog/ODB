@@ -10,7 +10,7 @@ import { emprolijarListado, nombreLimpio, saludoSegunHora, saludarConBienvenida,
 import { controlDeFechas } from './fechas';
 import { desvioDeLoPedido } from './desvio';
 import { oggCompleto } from './ogg';
-import { atiendeUnaPersona, decisionSesion, esperasParaAvisar, motivoDeSilencio, pideRespuesta } from './pausa';
+import { atiendeUnaPersona, avisoEsperaPorWhatsapp, decisionSesion, esperasParaAvisar, motivoDeSilencio, pideRespuesta } from './pausa';
 import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
 import { Cron } from '@nestjs/schedule';
@@ -4182,8 +4182,9 @@ export class BotService {
 
   // NADIE SE QUEDA SIN RESPUESTA (19/9/2026). La charla pausada sigue pausada:
   // el bot no habla. Pero si el cliente escribió algo que pide respuesta y
-  // pasaron más de 20 minutos sin que nadie conteste, administración recibe un
-  // WhatsApp con el nombre y lo que dijo, UNA sola vez cada 6 horas por charla.
+  // pasaron más de 20 minutos sin que nadie conteste, queda una nota en el panel.
+  // El WhatsApp a administración con el nombre y lo que dijo está APAGADO desde
+  // el 1/10/2026 (pedido del dueño); se prende con ODB_AVISO_ESPERA_WHATSAPP=1.
   // Solo en horario de local (8 a 21) para no despertar a nadie.
   @Cron('20 */5 * * * *')
   async avisarEsperandoRespuesta() {
@@ -4227,6 +4228,8 @@ export class BotService {
       await this.db.from('bot_notas_equipo')
         .insert({ linea: c.linea, telefono: c.telefono, nota: `[esperando] ${texto.slice(0, 280)}` })
         .then(() => null, () => null);
+      // sin WhatsApp: queda la nota y se marca como avisada, así no se repite cada 5 min
+      if (!avisoEsperaPorWhatsapp()) { await marcarAvisado(); continue; }
       const env: any = admin ? await this.enviarPorWhatsapp({ to: admin, text: aviso, kind: 'aviso-interno' } as any).catch(() => ({ enviado: false })) : { enviado: false };
       this.log.warn(`charla en pausa sin atender: ${quien} hace ${minutos} min · aviso ${env?.enviado ? 'enviado' : 'NO salió'}`);
       // si el aviso no salió (WhatsApp caído), no se gasta: se reintenta en la próxima vuelta
