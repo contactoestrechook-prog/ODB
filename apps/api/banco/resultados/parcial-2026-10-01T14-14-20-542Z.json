@@ -1,0 +1,645 @@
+{
+ "fecha": "2026-10-01T14:14:20.542Z",
+ "pasan": 4,
+ "total": 4,
+ "promedio": 4.75,
+ "costoBot": 0.376,
+ "intermitentes": [],
+ "resultados": [
+  {
+   "id": "envio-01",
+   "categoria": "envío",
+   "titulo": "Pregunta directa por el costo del envío",
+   "ok": true,
+   "puntaje": 5,
+   "fallas": [],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "Hola, cuánto me sale el envío a Canning?",
+     "archivo": false,
+     "foto": false,
+     "respuesta": "Buen día, te damos la bienvenida a O.D.B. El envío es sin cargo. Para envío a domicilio hay un monto mínimo de $70.000 de pedido; decime qué productos necesitás y te paso el detalle.",
+     "herramientas": [
+      "identificar_cliente"
+     ],
+     "imagen": null,
+     "segundos": 9.9,
+     "catalogo": [],
+     "sinStock": []
+    }
+   ]
+  },
+  {
+   "id": "cant-01",
+   "categoria": "cantidades",
+   "titulo": "4 Marlboro gold de entrada",
+   "ok": true,
+   "puntaje": 5,
+   "fallas": [],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "Puede ser 4 Malboro gold el blanco y dorado",
+     "archivo": false,
+     "foto": false,
+     "respuesta": "Buen día. Te damos la bienvenida a O.D.B.\n• 4 × Marlboro Gold Box x 20\n\n¿Está completo el pedido o querés sumar algo?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos"
+     ],
+     "imagen": null,
+     "segundos": 9.8,
+     "catalogo": [
+      {
+       "sku": "L13116",
+       "nombre": "Marlboro blue Titanium Box x 20 un",
+       "precio": 9200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L5899",
+       "nombre": "Marlboro Box Summer Fusion x 20 UN",
+       "precio": 8500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L4334",
+       "nombre": "Marlboro Box x 12 UN",
+       "precio": 5300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L4039",
+       "nombre": "Marlboro Box x 20 un",
+       "precio": 8500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L3890",
+       "nombre": "Marlboro comun x 20",
+       "precio": 8000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10002",
+       "nombre": "Marlboro Crafted Blue BOX x20",
+       "precio": 5100,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10054",
+       "nombre": "Marlboro Crafted Blue SOFT x20",
+       "precio": 4300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L6959",
+       "nombre": "Marlboro Crafted BOX x20un",
+       "precio": 5800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L9122",
+       "nombre": "Marlboro CRAFTED CORAL ks Box x 20 un",
+       "precio": 5800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12869",
+       "nombre": "Marlboro CRAFTED PURPLE ks Box x 20 un",
+       "precio": 5100,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L6371",
+       "nombre": "Marlboro Forest Fusion BOX x 20",
+       "precio": 8500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L5242",
+       "nombre": "Marlboro Gold Box x20un",
+       "precio": 8500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12099",
+       "nombre": "Marlboro Gold Titanium 100 BOX x20",
+       "precio": 9200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12401",
+       "nombre": "Marlboro Red Titanium Box x 20 un",
+       "precio": 7800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L6933",
+       "nombre": "Marlboro Vista blue Box x20un",
+       "precio": 8000,
+       "precioEfectivo": null
+      }
+     ],
+     "sinStock": [
+      "Marlboro Box Garden Fusion x 12 UN | Marlboro Box Garden Fusion x 20 UN | Marlboro Crafted Comun x20un | Marlboro Forest Fusion BOX x 12 | Marlboro Vista Limited Edition x20UN | Marlborough Sun Sauvignon Blanc (Nueva Zelanda) [SIN STOCK — no ofrecer]"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "pedido-02",
+   "categoria": "pedido",
+   "titulo": "El sí confirma y crea el pedido",
+   "ok": true,
+   "puntaje": 5,
+   "fallas": [],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "Hola, quiero 2 fernet branca de 750 y 3 coca zero de 1.75, paso a retirar yo, Juan Perez",
+     "archivo": false,
+     "foto": false,
+     "respuesta": "Buen día. Te damos la bienvenida a O.D.B. Te anoté:\n• 2 × Fernet Branca 750 cc\n• 3 × Coca Cola Zero 1,75 L\n\n¿Está completo el pedido o querés sumar algo?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos",
+      "buscar_productos"
+     ],
+     "imagen": null,
+     "segundos": 11.4,
+     "catalogo": [
+      {
+       "sku": "L272",
+       "nombre": "Fernet Branca  x750cc",
+       "precio": 20500,
+       "precioEfectivo": 18450
+      },
+      {
+       "sku": "L1139",
+       "nombre": "Fernet Branca 450",
+       "precio": 13500,
+       "precioEfectivo": 12150
+      },
+      {
+       "sku": "L11817",
+       "nombre": "Fernet Branca Edicion Aniversario (Negra) x750cc",
+       "precio": 22900,
+       "precioEfectivo": 20610
+      },
+      {
+       "sku": "L5554",
+       "nombre": "Coca Cola Zero botella x 600cc",
+       "precio": 2500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L1979",
+       "nombre": "Coca Cola Zero Lata 355",
+       "precio": 2500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10952",
+       "nombre": "Coca Cola Zero x1.75L",
+       "precio": 4700,
+       "precioEfectivo": null
+      }
+     ],
+     "sinStock": [
+      "Fernet Branca + Branca Menta Estuche x2 | Fernet Branca 750 + 2 Vasos | Fernet Branca BALANCIN X3Lts | Fernet Branca x 1000cc | Fernet Branca X3Lts [SIN STOCK — no ofrecer]",
+      "Tamaños de esto en el catálogo: 3 L (SIN stock) · 1 L (SIN stock) · 750 cc (hay). Un tamaño \"SIN stock\" EXISTE y se vende en la casa: decí \"de ese tamaño no tengo stock ahora\", NUNCA \"no lo tenemos\" ni \"el más grande es X\".",
+      "Figuritas Mundial FIFA 2026 + Coca Zero 600 ml | Coca Cola Zero 1.5L | Coca Cola Zero Lata x473cc [SIN STOCK — no ofrecer]",
+      "Tamaños de esto en el catálogo: 1,75 L (hay) · 1,5 L (SIN stock) · 600 cc (hay) · 473 cc (SIN stock). Un tamaño \"SIN stock\" EXISTE y se vende en la casa: decí \"de ese tamaño no tengo stock ahora\", NUNCA \"no lo tenemos\" ni \"el más grande es X\"."
+     ]
+    },
+    {
+     "cliente": "es todo",
+     "archivo": false,
+     "foto": false,
+     "respuesta": "• Fernet Branca x750cc — 2 × $20.500 c/u = $41.000\n• Coca Cola Zero x1.75L — 3 × $4.700 c/u = $14.100\nTotal: $55.100\nPagando en efectivo o transferencia: $51.000 (10% off en vinos, destilados, aperitivos, estuchería y espumantes).\nRetiro en la sucursal Saint Thomas.\n¿Lo confirmo?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos",
+      "buscar_productos",
+      "cotizar_pedido",
+      "preparar_pedido"
+     ],
+     "imagen": "resumen",
+     "segundos": 15.2,
+     "catalogo": [
+      {
+       "sku": "L272",
+       "nombre": "Fernet Branca  x750cc",
+       "precio": 20500,
+       "precioEfectivo": 18450
+      },
+      {
+       "sku": "L1139",
+       "nombre": "Fernet Branca 450",
+       "precio": 13500,
+       "precioEfectivo": 12150
+      },
+      {
+       "sku": "L11817",
+       "nombre": "Fernet Branca Edicion Aniversario (Negra) x750cc",
+       "precio": 22900,
+       "precioEfectivo": 20610
+      },
+      {
+       "sku": "L5554",
+       "nombre": "Coca Cola Zero botella x 600cc",
+       "precio": 2500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L1979",
+       "nombre": "Coca Cola Zero Lata 355",
+       "precio": 2500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10952",
+       "nombre": "Coca Cola Zero x1.75L",
+       "precio": 4700,
+       "precioEfectivo": null
+      }
+     ],
+     "sinStock": [
+      "Fernet Branca + Branca Menta Estuche x2 | Fernet Branca 750 + 2 Vasos | Fernet Branca BALANCIN X3Lts | Fernet Branca x 1000cc | Fernet Branca X3Lts [SIN STOCK — no ofrecer]",
+      "Tamaños de esto en el catálogo: 3 L (SIN stock) · 1 L (SIN stock) · 750 cc (hay). Un tamaño \"SIN stock\" EXISTE y se vende en la casa: decí \"de ese tamaño no tengo stock ahora\", NUNCA \"no lo tenemos\" ni \"el más grande es X\".",
+      "Figuritas Mundial FIFA 2026 + Coca Zero 600 ml | Coca Cola Zero 1.5L | Coca Cola Zero Lata x473cc [SIN STOCK — no ofrecer]",
+      "Tamaños de esto en el catálogo: 1,75 L (hay) · 1,5 L (SIN stock) · 600 cc (hay) · 473 cc (SIN stock). Un tamaño \"SIN stock\" EXISTE y se vende en la casa: decí \"de ese tamaño no tengo stock ahora\", NUNCA \"no lo tenemos\" ni \"el más grande es X\"."
+     ]
+    },
+    {
+     "cliente": "si",
+     "archivo": false,
+     "foto": false,
+     "respuesta": "Pedido PICKUP-BANCO0001 confirmado. Total: $55.100.\nSe abona al retirar, $55.100 con tarjeta o $51.000 en efectivo o transferencia.",
+     "herramientas": [
+      "crear_pedido"
+     ],
+     "imagen": null,
+     "segundos": 0.8,
+     "catalogo": [],
+     "sinStock": []
+    }
+   ]
+  },
+  {
+   "id": "interno-01",
+   "categoria": "lo interno",
+   "titulo": "Lista de bebidas para presupuestar (Karina, 30/9)",
+   "ok": true,
+   "puntaje": 4,
+   "fallas": [],
+   "problemas": [
+    "Usa 'Buen día' en vez de la frase de bienvenida estándar 'Buenas tardes, te damos la bienvenida a O.D.B.'",
+    "No aclara que Bacardi solo está disponible en presentación 1 L (dato real del sistema) cuando el cliente pidió genéricamente 'blanco/dorado' sin especificar tamaño"
+   ],
+   "charla": [
+    {
+     "cliente": "Rones:\nHavana club (blanco/dorado)\nBacardi también blanco y dorado\n\nWhisky:\nJonnie walker (black-red)\nJack Daniels old n°7\nJameson\n\nGin:\nBeefeater\nTanqueray\n\nCampari\nMartini (rosso y bianco)\n\nMe presupuestás esto?",
+     "archivo": false,
+     "foto": false,
+     "respuesta": "Buen día, te damos la bienvenida a O.D.B.\n• Havana Club Blanco — $17.800 ($16.020 ef./transf.)\n• Havana Añejo (dorado) — $20.300 ($18.270)\n• Bacardi Blanco 1 L — $25.700 ($23.130)\n• Bacardi Gold 1 L — $28.800 ($25.920)\n• Johnnie Walker Black Label 1 L — $59.400 ($53.460)\n• Johnnie Walker Red Label 750 cc — $43.100 ($38.790)\n• Jack Daniels Nº 7 750 cc — $54.900 ($49.410)\n• Jameson 1 L — $46.500 ($41.850)\n• Beefeater 750 cc — $33.600 ($30.240)\n• Tanqueray 750 cc — $39.900 ($35.910)\n• Campari 750 cc — $12.500 ($11.250)\n• Martini Rosso — $9.400 ($8.460)\n• Martini Bianco — $9.400 ($8.460)\n\nPasame las cantidades y te armo el total.",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos"
+     ],
+     "imagen": "precios",
+     "segundos": 68,
+     "catalogo": [
+      {
+       "sku": "L810",
+       "nombre": "Havana Club Blanco 3 años",
+       "precio": 17800,
+       "precioEfectivo": 16020
+      },
+      {
+       "sku": "L2523",
+       "nombre": "Ron Havana Club seleccion de maestros x750cc",
+       "precio": 180000,
+       "precioEfectivo": 162000
+      },
+      {
+       "sku": "L366",
+       "nombre": "Bacardi Blanco x1000cc",
+       "precio": 25700,
+       "precioEfectivo": 23130
+      },
+      {
+       "sku": "L365",
+       "nombre": "Bacardi Gold 1Lt",
+       "precio": 28800,
+       "precioEfectivo": 25920
+      },
+      {
+       "sku": "L3040",
+       "nombre": "Johnnie Walker 18",
+       "precio": 290000,
+       "precioEfectivo": 261000
+      },
+      {
+       "sku": "L3039",
+       "nombre": "Johnnie Walker 21",
+       "precio": 390000,
+       "precioEfectivo": 351000
+      },
+      {
+       "sku": "L152",
+       "nombre": "Johnnie Walker Black Label x 1000cc",
+       "precio": 59400,
+       "precioEfectivo": 53460
+      },
+      {
+       "sku": "L808",
+       "nombre": "Johnnie Walker Double Black",
+       "precio": 88000,
+       "precioEfectivo": 79200
+      },
+      {
+       "sku": "L288",
+       "nombre": "Johnnie Walker Gold label con estuche",
+       "precio": 115000,
+       "precioEfectivo": 103500
+      },
+      {
+       "sku": "L10197",
+       "nombre": "Johnnie Walker Island Green x1Lt",
+       "precio": 220000,
+       "precioEfectivo": 198000
+      },
+      {
+       "sku": "L8805",
+       "nombre": "Johnnie Walker King George V",
+       "precio": 1390000,
+       "precioEfectivo": 1251000
+      },
+      {
+       "sku": "L153",
+       "nombre": "Johnnie Walker Red Label  x750cc",
+       "precio": 43100,
+       "precioEfectivo": 38790
+      },
+      {
+       "sku": "L154",
+       "nombre": "Johnnie Walker Red Label x 1000 cc",
+       "precio": 46900,
+       "precioEfectivo": 42210
+      },
+      {
+       "sku": "L497",
+       "nombre": "Johnnie Walker Swing",
+       "precio": 174900,
+       "precioEfectivo": 157410
+      },
+      {
+       "sku": "L11739",
+       "nombre": "Johnnie Walker XR 19",
+       "precio": 355000,
+       "precioEfectivo": 319500
+      },
+      {
+       "sku": "L907",
+       "nombre": "Jack Daniels 750cc",
+       "precio": 54900,
+       "precioEfectivo": 49410
+      },
+      {
+       "sku": "L8038",
+       "nombre": "Jack Daniels Apple x700",
+       "precio": 61000,
+       "precioEfectivo": 54900
+      },
+      {
+       "sku": "L9610",
+       "nombre": "Jack Daniels Black 700cc + Vaso",
+       "precio": 69700,
+       "precioEfectivo": 62730
+      },
+      {
+       "sku": "L933",
+       "nombre": "Jack Daniels Fire",
+       "precio": 58900,
+       "precioEfectivo": 53010
+      },
+      {
+       "sku": "L12123",
+       "nombre": "Jack Daniels Honey 700cc + Vaso",
+       "precio": 69000,
+       "precioEfectivo": 62100
+      },
+      {
+       "sku": "L505",
+       "nombre": "Jack Daniels Honey 750cc",
+       "precio": 53900,
+       "precioEfectivo": 48510
+      },
+      {
+       "sku": "L11075",
+       "nombre": "Jack Daniels Nro 7 Estuche Guitarra",
+       "precio": 220000,
+       "precioEfectivo": 198000
+      },
+      {
+       "sku": "L3496",
+       "nombre": "Jack Daniels Sinatra Edition x1l",
+       "precio": 455000,
+       "precioEfectivo": 409500
+      },
+      {
+       "sku": "L8747",
+       "nombre": "Jack Daniels Single Barrel x700cc",
+       "precio": 128000,
+       "precioEfectivo": 115200
+      },
+      {
+       "sku": "L12599",
+       "nombre": "Salsa BBQ Jack Daniels Nº7 x250cc",
+       "precio": 19000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L9650",
+       "nombre": "Whisky Jack Daniels Lemonade Lata x 330ml",
+       "precio": 9500,
+       "precioEfectivo": 8550
+      },
+      {
+       "sku": "L1419",
+       "nombre": "Jameson Black Barrel",
+       "precio": 59800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L1340",
+       "nombre": "Jameson Caskmate IPA",
+       "precio": 46500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L8656",
+       "nombre": "Jameson x 1Lt",
+       "precio": 46500,
+       "precioEfectivo": 41850
+      },
+      {
+       "sku": "L806",
+       "nombre": "Beefeater 750cc",
+       "precio": 33600,
+       "precioEfectivo": 30240
+      },
+      {
+       "sku": "L1331",
+       "nombre": "Beefeater Pink 700ml",
+       "precio": 37600,
+       "precioEfectivo": 33840
+      },
+      {
+       "sku": "L6498",
+       "nombre": "COPON GIN BEEFEATER ROSA",
+       "precio": 11800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L6497",
+       "nombre": "COPON GIN BEEFEATER TRANSPARENTE",
+       "precio": 11800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12329",
+       "nombre": "Gin Beefeater Blackberry x700cc",
+       "precio": 35000,
+       "precioEfectivo": 31500
+      },
+      {
+       "sku": "L4972",
+       "nombre": "Gin Beefeater Blood Orange x700cc",
+       "precio": 37100,
+       "precioEfectivo": 33390
+      },
+      {
+       "sku": "L6502",
+       "nombre": "COPON GIN TANQUERAY",
+       "precio": 11800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L6122",
+       "nombre": "Gin Tanqueray Royale 700cc",
+       "precio": 47800,
+       "precioEfectivo": 43020
+      },
+      {
+       "sku": "L3619",
+       "nombre": "Gin Tanqueray Sevilla",
+       "precio": 48100,
+       "precioEfectivo": 43290
+      },
+      {
+       "sku": "L10749",
+       "nombre": "Tanqueray TEN x1Lt",
+       "precio": 103500,
+       "precioEfectivo": 93150
+      },
+      {
+       "sku": "L464",
+       "nombre": "Tanqueray x750cc",
+       "precio": 39900,
+       "precioEfectivo": 35910
+      },
+      {
+       "sku": "L12584",
+       "nombre": "Aperitivo Campari Cask Tales x 1Lt",
+       "precio": 68400,
+       "precioEfectivo": 61560
+      },
+      {
+       "sku": "L8815",
+       "nombre": "Aperitivo Campari x 450cc",
+       "precio": 6900,
+       "precioEfectivo": 6210
+      },
+      {
+       "sku": "L6152",
+       "nombre": "Aperitivo Campari x3L",
+       "precio": 320000,
+       "precioEfectivo": 288000
+      },
+      {
+       "sku": "L158",
+       "nombre": "Campari x 750cc",
+       "precio": 12500,
+       "precioEfectivo": 11250
+      },
+      {
+       "sku": "L12415",
+       "nombre": "Copa Campari Tonic x un",
+       "precio": 12000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L399",
+       "nombre": "Martini Bianco",
+       "precio": 9400,
+       "precioEfectivo": 8460
+      },
+      {
+       "sku": "L405",
+       "nombre": "Martini Dry",
+       "precio": 13100,
+       "precioEfectivo": 11790
+      },
+      {
+       "sku": "L157",
+       "nombre": "Martini Rosso",
+       "precio": 9400,
+       "precioEfectivo": 8460
+      },
+      {
+       "sku": "L363",
+       "nombre": "Havana añejo",
+       "precio": 20300,
+       "precioEfectivo": 18270
+      },
+      {
+       "sku": "L2341",
+       "nombre": "Ron Havana Añejo 7 Años x750cc",
+       "precio": 49300,
+       "precioEfectivo": 44370
+      }
+     ],
+     "sinStock": [
+      "Bacardi x 750cc | Miniatura Bacardi 50ml | Ron Bacardi Blanco 750cc [SIN STOCK — no ofrecer]",
+      "Tamaños de esto en el catálogo: 1 L (hay) · 750 cc (SIN stock) · 50 cc (SIN stock). Un tamaño \"SIN stock\" EXISTE y se vende en la casa: decí \"de ese tamaño no tengo stock ahora\", NUNCA \"no lo tenemos\" ni \"el más grande es X\".",
+      "Johnnie Walker 18 años con  2 vasos | Johnnie Walker Black 750 Lata | Johnnie Walker Black Label + 2 vasos | Johnnie Walker Black Label Icon Edition | Johnnie Walker Black Label SHERRY Finish x 1000cc | Johnnie Walker Black Label x 500cc | +15 más [SIN STOCK — no ofrecer]",
+      "Tamaños de esto en el catálogo: 1 L (hay) · 750 cc (hay) · 500 cc (SIN stock) · 200 cc (SIN stock). Un tamaño \"SIN stock\" EXISTE y se vende en la casa: decí \"de ese tamaño no tengo stock ahora\", NUNCA \"no lo tenemos\" ni \"el más grande es X\".",
+      "Chocolate Jack Daniels Fire x100gr | Chocolate Jack Daniels Honey x100gr | Chocolate Jack Daniels Nro 7 x100gr | Gorra Jack Daniels | Jack Daniels 1L | Jack Daniels 1Lt | +16 más [SIN STOCK — no ofrecer]",
+      "Tamaños de esto en el catálogo: 3 L (SIN stock) · 1 L (hay) · 750 cc (hay) · 700 cc (hay) · 500 cc (SIN stock) · 330 cc (hay) · 250 cc (hay) · 50 cc (SIN stock). Un tamaño \"SIN stock\" EXISTE y se vende en la casa: decí \"de ese tamaño no tengo stock ahora\", NUNCA \"no lo tenemos\" ni \"el más grande es X\".",
+      "Jameson Caskmate Stout | Jameson x 750cc | Miniaturas Jameson Ipa x50cc [SIN STOCK — no ofrecer]",
+      "Tamaños de esto en el catálogo: 1 L (hay) · 750 cc (SIN stock) · 50 cc (SIN stock). Un tamaño \"SIN stock\" EXISTE y se vende en la casa: decí \"de ese tamaño no tengo stock ahora\", NUNCA \"no lo tenemos\" ni \"el más grande es X\".",
+      "Beefeater 1L | Copa Beefeater | Miniatura Beefeater Orange x50cc [SIN STOCK — no ofrecer]",
+      "Tamaños de esto en el catálogo: 1 L (SIN stock) · 750 cc (hay) · 700 cc (hay) · 50 cc (SIN stock). Un tamaño \"SIN stock\" EXISTE y se vende en la casa: decí \"de ese tamaño no tengo stock ahora\", NUNCA \"no lo tenemos\" ni \"el más grande es X\".",
+      "Tamaños de esto en el catálogo: 1 L (hay) · 750 cc (hay) · 700 cc (hay). Un tamaño \"SIN stock\" EXISTE y se vende en la casa: decí \"de ese tamaño no tengo stock ahora\", NUNCA \"no lo tenemos\" ni \"el más grande es X\".",
+      "Aperitivo Campari x1L | Negroni KIT Campari Pack x3un (Campari-Bulldog-Cinzano) [SIN STOCK — no ofrecer]",
+      "Tamaños de esto en el catálogo: 3 L (hay) · 1 L (hay) · 750 cc (hay) · 450 cc (hay). Un tamaño \"SIN stock\" EXISTE y se vende en la casa: decí \"de ese tamaño no tengo stock ahora\", NUNCA \"no lo tenemos\" ni \"el más grande es X\".",
+      "Martini Bitter [SIN STOCK — no ofrecer]"
+     ]
+    }
+   ]
+  }
+ ]
+}
