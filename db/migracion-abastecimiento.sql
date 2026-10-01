@@ -340,7 +340,7 @@ select c.producto_id, c.sku, c.nombre, c.categoria, c.sucursal_id, c.sucursal,
        c.ultimo_costo, c.ultima_compra, c.ultima_cantidad
 from c4 c
 where not $2 or c.alerta is not null
-order by 21 desc, c.ritmo desc, c.nombre
+order by 21 desc, c.ritmo desc, c.nombre, c.sucursal, c.producto_id
 limit greatest(1, least(coalesce($5, 200), 20000))
   $q$ using p_sucursal, p_solo_alertas, p_proveedor, p_q, p_limite;
 end $fn$;
