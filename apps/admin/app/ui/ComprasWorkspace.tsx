@@ -50,12 +50,15 @@ function normFechaIso(f?: string | null): string | undefined {
   return undefined;
 }
 
-export function ComprasWorkspace({ resumen, ordenes, proveedores, sugerencias, sucursales, categorias = [] }: {
+export function ComprasWorkspace({ resumen, ordenes, proveedores, sugerencias, sucursales, categorias = [], abrirProveedor }: {
   resumen: any; ordenes: any[]; proveedores: any[]; sugerencias: any[]; sucursales: any[]; categorias?: { id: string; nombre: string }[];
+  // /compras?proveedor=<id>: el aviso a administración abre directo la ficha a completar
+  abrirProveedor?: string;
 }) {
   const router = useRouter();
-  const [tab, setTab] = useState('ordenes');
-  const [modal, setModal] = useState<any>(null); // {tipo, ...}
+  const provAbrir = abrirProveedor ? proveedores.find((p) => p.id === abrirProveedor) : null;
+  const [tab, setTab] = useState(provAbrir ? 'proveedores' : 'ordenes');
+  const [modal, setModal] = useState<any>(provAbrir ? { tipo: 'proveedor', prov: provAbrir } : null); // {tipo, ...}
   const [deuda, setDeuda] = useState<any[] | null>(null);
   const [pagos, setPagos] = useState<any[] | null>(null);
   const [aviso, setAviso] = useState('');
@@ -218,10 +221,10 @@ export function ComprasWorkspace({ resumen, ordenes, proveedores, sugerencias, s
               <tbody>
                 {proveedores.map((p) => (
                   <tr key={p.id} className="border-b border-black/5 last:border-0">
-                    <td className="px-4 py-3"><p className="font-medium">{p.razon_social}</p><p className="text-xs text-black/45">{p.email ?? ''}</p></td>
+                    <td className="px-4 py-3"><p className="font-medium">{p.razon_social}</p><p className="text-xs text-black/45">{[p.telefono, p.email].filter(Boolean).join(' · ')}</p>{p.faltan?.length > 0 && <p className="text-xs text-[#932A1F]">Para comprarle falta: {p.faltan.join(', ')}</p>}</td>
                     <td className="px-4 py-3 text-black/70">{p.cuit ?? '—'}</td>
                     <td className="px-4 py-3 text-black/70">{p.condicion_pago ?? '—'}</td>
-                    <td className="px-4 py-3 text-right text-black/70">{p.lead_time_dias} días</td>
+                    <td className="px-4 py-3 text-right text-black/70">{p.lead_time_dias} días{p.lead_time_confirmado ? '' : ' ?'}</td>
                     <td className="px-4 py-3 text-right"><button onClick={() => setModal({ tipo: 'proveedor', prov: p })} className="text-xs text-[#B82D25] hover:underline">Editar</button></td>
                   </tr>
                 ))}
@@ -2415,15 +2418,24 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
 
         {t === 'proveedor' && (<>
           <h2 className="font-semibold text-black text-lg">{modal.prov?.id ? 'Editar proveedor' : 'Nuevo proveedor'}</h2>
+          {/* lo que le falta para poder comprarle (regla de la base: proveedor_faltantes, 1/10/2026) */}
+          {modal.prov?.faltan?.length > 0 && (
+            <p className="rounded-lg bg-[#B82D25]/10 px-3 py-2 text-xs text-[#932A1F]">Para poder comprarle falta: {modal.prov.faltan.join(', ')}.</p>
+          )}
           <input value={f.razon_social ?? f.razonSocial ?? ''} onChange={(e) => set('razonSocial', e.target.value)} placeholder="Razón social" className={input} />
           <div className="grid grid-cols-2 gap-3">
-            <input value={f.cuit ?? ''} onChange={(e) => set('cuit', e.target.value)} placeholder="CUIT" className={input} />
+            <input value={f.cuit ?? ''} onChange={(e) => set('cuit', e.target.value)} placeholder="CUIT (11 números)" className={input} />
             <input value={f.condicion_pago ?? f.condicionPago ?? ''} onChange={(e) => set('condicionPago', e.target.value)} placeholder="Condición (30 días…)" className={input} />
+            <input value={f.telefono ?? ''} onChange={(e) => set('telefono', e.target.value)} placeholder="Teléfono / WhatsApp" className={input} />
             <input value={f.email ?? ''} onChange={(e) => set('email', e.target.value)} placeholder="Email" className={input} />
             <input type="number" value={f.lead_time_dias ?? f.leadTimeDias ?? ''} onChange={(e) => set('leadTimeDias', e.target.value)} placeholder="Días de entrega" className={input} />
+            <label className="flex items-center gap-2 text-xs text-black/70">
+              <input type="checkbox" checked={!!(f.leadTimeConfirmado ?? f.lead_time_confirmado)} onChange={(e) => set('leadTimeConfirmado', e.target.checked)} />
+              Plazo confirmado con el proveedor
+            </label>
           </div>
           {aviso && <p className="text-xs text-[#B82D25]">{aviso}</p>}
-          <Acciones cerrar={cerrar} okLabel="Guardar" onOk={() => post(modal.prov?.id ? { accion: 'editarProveedor', id: modal.prov.id, razonSocial: f.razonSocial ?? f.razon_social, cuit: f.cuit, condicionPago: f.condicionPago ?? f.condicion_pago, email: f.email, leadTimeDias: f.leadTimeDias ?? f.lead_time_dias } : { accion: 'crearProveedor', razonSocial: f.razonSocial, cuit: f.cuit, condicionPago: f.condicionPago, email: f.email, leadTimeDias: f.leadTimeDias })} />
+          <Acciones cerrar={cerrar} okLabel="Guardar" onOk={() => post(modal.prov?.id ? { accion: 'editarProveedor', id: modal.prov.id, razonSocial: f.razonSocial ?? f.razon_social, cuit: f.cuit, condicionPago: f.condicionPago ?? f.condicion_pago, email: f.email, telefono: f.telefono, leadTimeDias: f.leadTimeDias ?? f.lead_time_dias, leadTimeConfirmado: !!(f.leadTimeConfirmado ?? f.lead_time_confirmado) } : { accion: 'crearProveedor', razonSocial: f.razonSocial, cuit: f.cuit, condicionPago: f.condicionPago, email: f.email, telefono: f.telefono, leadTimeDias: f.leadTimeDias, leadTimeConfirmado: !!f.leadTimeConfirmado })} />
         </>)}
 
         {t === 'factura' && (<>

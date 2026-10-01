@@ -4,7 +4,8 @@ import { ComprasWorkspace } from '../ui/ComprasWorkspace';
 
 export const dynamic = 'force-dynamic';
 
-export default async function Compras() {
+export default async function Compras({ searchParams }: { searchParams: Promise<{ proveedor?: string }> }) {
+  const { proveedor: abrirProveedor } = await searchParams;
   let resumen: any = {};
   let ordenes: any[] = [];
   let proveedores: any[] = [];
@@ -39,7 +40,7 @@ export default async function Compras() {
         {error ? (
           <p className="rounded-lg bg-white p-4 text-sm text-[#932A1F]">No pude consultar la API ({error}). ¿Está corriendo en {API}?</p>
         ) : (
-          <ComprasWorkspace resumen={resumen} ordenes={ordenes} proveedores={proveedores} sugerencias={sugerencias} sucursales={sucursales} categorias={categorias} />
+          <ComprasWorkspace resumen={resumen} ordenes={ordenes} proveedores={proveedores} sugerencias={sugerencias} sucursales={sucursales} categorias={categorias} abrirProveedor={abrirProveedor} />
         )}
       </div>
     </main>
