@@ -82,3 +82,13 @@ describe('confirmó completo y después eligió variantes, aunque la última pre
     expect(puedeCotizar('las clásicas de 134, el maní pelado y el hielo de 15 kg', bot, ['Necesito: …', 'sí, es todo'])).toBe(true);
   });
 });
+
+describe('la lista terminó en otra pregunta: "es todo" no la contesta', () => {
+  it('frena', () => {
+    const lista = 'Te anoto:\n• 2 × Fernet Branca 750 cc\n• 1 × Hielo (bolsa de 5 kg o de 15 kg)\n• 2 × Papas Lays (clásicas 134 g o 330 g)\n\n¿Me confirmás qué presentación querés en el hielo y las papas?';
+    expect(faltaElegirVariante('sí, es todo', [lista])).toBe(true);
+  });
+  it('si la última pregunta es la de completo, no frena', () => {
+    expect(faltaElegirVariante('sí, es todo', ['• 2 × Fernet\n• 6 × Coca Cola 1,75 L\n\n¿Está completo el pedido o querés sumar algo?'])).toBe(false);
+  });
+});

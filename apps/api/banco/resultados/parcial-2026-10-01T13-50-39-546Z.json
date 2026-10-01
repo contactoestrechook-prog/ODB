@@ -1,0 +1,1373 @@
+{
+ "fecha": "2026-10-01T13:50:39.546Z",
+ "pasan": 1,
+ "total": 3,
+ "promedio": 3.3333333333333335,
+ "costoBot": 0.609,
+ "intermitentes": [],
+ "resultados": [
+  {
+   "id": "cant-03",
+   "categoria": "cantidades",
+   "titulo": "10 packs de agua",
+   "ok": false,
+   "puntaje": 3,
+   "fallas": [],
+   "problemas": [
+    "Mezcló la pregunta de cuántas botellas con otra pregunta ('¿Está completo el pedido o querés sumar algo?'), violando la regla de hacer UNA sola pregunta sin combinarla con otra"
+   ],
+   "charla": [
+    {
+     "cliente": "10 pack de agua Villavicencio de 2 litros",
+     "archivo": false,
+     "foto": false,
+     "respuesta": "Buen día. Te damos la bienvenida a O.D.B.\n• 10 × Villavicencio sin gas 2 L (el de 2 litros se vende por botella, no por pack: ¿te anoto 10 botellas?) ¿Está completo el pedido o querés sumar algo?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos"
+     ],
+     "imagen": null,
+     "catalogo": [
+      {
+       "sku": "L487",
+       "nombre": "Villavicencio C/Gas 500cm3",
+       "precio": 1500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L356",
+       "nombre": "Villavicencio Con Gas Gas 1.5L x6un",
+       "precio": 2400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L260",
+       "nombre": "Villavicencio Sin Gas 1.5L x6un",
+       "precio": 2200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L133",
+       "nombre": "Villavicencio Sin Gas 500cm3",
+       "precio": 1500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L261",
+       "nombre": "Villavicencio sin gas x2lt",
+       "precio": 2400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L1839",
+       "nombre": "Villavicencio Sport x12",
+       "precio": 1600,
+       "precioEfectivo": null
+      }
+     ],
+     "sinStock": [
+      "Agua Mneral con  gas Villavicencio Premiun x500cc [SIN STOCK — no ofrecer]",
+      "Tamaños de esto en el catálogo: 2 L (hay) · 1,5 L (hay) · 500 cc (hay). Un tamaño \"SIN stock\" EXISTE y se vende en la casa: decí \"de ese tamaño no tengo stock ahora\", NUNCA \"no lo tenemos\" ni \"el más grande es X\"."
+     ]
+    }
+   ]
+  },
+  {
+   "id": "puntual-04",
+   "categoria": "producto puntual",
+   "titulo": "Vino por nombre coloquial",
+   "ok": true,
+   "puntaje": 5,
+   "fallas": [],
+   "problemas": [],
+   "charla": [
+    {
+     "cliente": "3 santa julia tinto dulce",
+     "archivo": false,
+     "foto": false,
+     "respuesta": "Buen día. Te damos la bienvenida a O.D.B. Anoté:\n• 3 × Santa Julia Tinto Dulce 750 cc\n\n¿Está completo el pedido o querés sumar algo?",
+     "herramientas": [
+      "identificar_cliente",
+      "consultar_cava"
+     ],
+     "imagen": null,
+     "catalogo": [
+      {
+       "sku": "L6588",
+       "nombre": "Santa Julia Tinto Dulce x750cc",
+       "precio": 8100,
+       "precioEfectivo": 7290
+      }
+     ],
+     "sinStock": []
+    },
+    {
+     "cliente": "si",
+     "archivo": false,
+     "foto": false,
+     "respuesta": "• Santa Julia Tinto Dulce x750cc — 3 × $8.100 c/u = $24.300\n\n*Total: $24.300* (o $21.870 en efectivo o transferencia) ¿Lo retirás por la sucursal Saint Thomas o te lo enviamos?",
+     "herramientas": [
+      "identificar_cliente",
+      "consultar_cava",
+      "cotizar_pedido",
+      "preparar_pedido(frenado)"
+     ],
+     "imagen": null,
+     "catalogo": [
+      {
+       "sku": "L6588",
+       "nombre": "Santa Julia Tinto Dulce x750cc",
+       "precio": 8100,
+       "precioEfectivo": 7290
+      }
+     ],
+     "sinStock": []
+    }
+   ]
+  },
+  {
+   "id": "pedido-05",
+   "categoria": "pedido",
+   "titulo": "Lista larga con renglones",
+   "ok": false,
+   "puntaje": 2,
+   "fallas": [
+    "turno 3: falta: /•/"
+   ],
+   "problemas": [
+    "Turno 2: ante \"es todo\" el bot eligió las presentaciones (papas y maní) en vez de preguntarlas, violando la instrucción explícita de no elegir por el cliente",
+    "Turno 2: afirmó que el hielo de 5 kg no estaba disponible sin tener un dato de sistema que lo respalde en ese turno (parece inventado)",
+    "Turno 3: contradice lo anterior ofreciendo el hielo de 5 kg como disponible a $6.900, generando una inconsistencia de stock no resuelta",
+    "Turno 3: no cotiza todos los renglones del pedido con viñeta y total como correspondía, solo menciona los dos ítems cambiados y da un total final sin desglose completo"
+   ],
+   "charla": [
+    {
+     "cliente": "Necesito:\n2 fernet branca 750\n6 coca cola 1.75\n1 hielo\n2 papas lays\n1 mani king",
+     "archivo": false,
+     "foto": false,
+     "respuesta": "Buen día. Te damos la bienvenida a O.D.B. Te anoto:\n\n• 2 × Fernet Branca 750 cc\n• 6 × Coca Cola 1.75 L\n• 1 × Hielo (bolsa de 5 kg o de 15 kg)\n• 2 × Papas Lays (clásicas de 134 g, 230 g o 330 g, o sabores de 77 g)\n• 1 × Mani King (con cáscara 400 g o pelado 350 g)\n\n¿Me confirmás qué presentación querés en el hielo, las papas y el maní?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos"
+     ],
+     "imagen": null,
+     "catalogo": [
+      {
+       "sku": "L272",
+       "nombre": "Fernet Branca  x750cc",
+       "precio": 20500,
+       "precioEfectivo": 18450
+      },
+      {
+       "sku": "L1139",
+       "nombre": "Fernet Branca 450",
+       "precio": 13500,
+       "precioEfectivo": 12150
+      },
+      {
+       "sku": "L11817",
+       "nombre": "Fernet Branca Edicion Aniversario (Negra) x750cc",
+       "precio": 22900,
+       "precioEfectivo": 20610
+      },
+      {
+       "sku": "L10953",
+       "nombre": "Coca Cola 1.75l",
+       "precio": 4700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L5295",
+       "nombre": "Coca Cola Botella x 600cc",
+       "precio": 2500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L341",
+       "nombre": "Coca Cola lata 354cc",
+       "precio": 2500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L5296",
+       "nombre": "Coca Cola Light botella x 600cc",
+       "precio": 2000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10886",
+       "nombre": "Coca Cola Ligth x 1.75L",
+       "precio": 4700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10956",
+       "nombre": "Coca Cola Vainilla x354cc",
+       "precio": 6800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L5554",
+       "nombre": "Coca Cola Zero botella x 600cc",
+       "precio": 2500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L1979",
+       "nombre": "Coca Cola Zero Lata 355",
+       "precio": 2500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10952",
+       "nombre": "Coca Cola Zero x1.75L",
+       "precio": 4700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L1063",
+       "nombre": "Hielo Bolsa 15KG",
+       "precio": 14000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L1062",
+       "nombre": "Hielo Bolsa 5KG",
+       "precio": 6900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10674",
+       "nombre": "Lays Ketchup x 77g",
+       "precio": 4400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L3600",
+       "nombre": "Papas Fritas clasicas Lays x 134 gr",
+       "precio": 7000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10035",
+       "nombre": "Papas Fritas Clasicas Lays x 230g",
+       "precio": 9700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7558",
+       "nombre": "Papas Fritas Clasicas Lays x 330g",
+       "precio": 12300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12715",
+       "nombre": "Papas Fritas Lays Asado x 77gr",
+       "precio": 4400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12716",
+       "nombre": "Papas Fritas Lays Barbacoa x 77gr",
+       "precio": 4400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7524",
+       "nombre": "Papas Fritas Lays Flaming HOT x70gr",
+       "precio": 4400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7726",
+       "nombre": "Papas Fritas Lays Jamon Serrano x 77g",
+       "precio": 4400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L8926",
+       "nombre": "Papas Fritas Lays provoleta 77gr",
+       "precio": 4400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L5889",
+       "nombre": "Papas Fritas Lays Queso crema y Cebolla 77g",
+       "precio": 4400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L6345",
+       "nombre": "Mani King con cascara x 400g",
+       "precio": 4200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12835",
+       "nombre": "Mani King pasta de mani natural x 485gr",
+       "precio": 5200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L8291",
+       "nombre": "Mani pelado Mani King  x 350g",
+       "precio": 5100,
+       "precioEfectivo": null
+      }
+     ],
+     "sinStock": [
+      "Fernet Branca + Branca Menta Estuche x2 | Fernet Branca 750 + 2 Vasos | Fernet Branca BALANCIN X3Lts | Fernet Branca x 1000cc | Fernet Branca X3Lts [SIN STOCK — no ofrecer]",
+      "Tamaños de esto en el catálogo: 3 L (SIN stock) · 1 L (SIN stock) · 750 cc (hay). Un tamaño \"SIN stock\" EXISTE y se vende en la casa: decí \"de ese tamaño no tengo stock ahora\", NUNCA \"no lo tenemos\" ni \"el más grande es X\".",
+      "Coca Cola 1.5L | Coca Cola Cherry 330ml | Coca cola Light 1.5L | Coca Cola Light 600cm3 | Coca Cola ligth lata 354cc | Coca Cola Lima | +4 más [SIN STOCK — no ofrecer]",
+      "Tamaños de esto en el catálogo: 1,75 L (hay) · 1,5 L (SIN stock) · 600 cc (hay) · 473 cc (SIN stock) · 354 cc (hay) · 330 cc (SIN stock). Un tamaño \"SIN stock\" EXISTE y se vende en la casa: decí \"de ese tamaño no tengo stock ahora\", NUNCA \"no lo tenemos\" ni \"el más grande es X\".",
+      "Combo Hielera + Moldes Para Hielo Chivas Regal | Hielo Bolsa 10KG | Hielo Bolsa 2KG [SIN STOCK — no ofrecer]",
+      "Lays Cebolla Caramelizada x 85g | Papas Fritas Clasicas Lays x 40g | Papas Fritas clasicas Lays x 85 gr | Papas Fritas Lays Flamin HOT x30gr | Papas Fritas Lays IMPORTADAS | Papas Fritas Lays mostaza y miel x 77gr | +2 más [SIN STOCK — no ofrecer]",
+      "Mani King Mani Tostado sin Piel sin Sal x100gr | Garrapiñada Mani King  x 80g | Mani King chef crema y cebolla x 80gr | Mani King chef panceta x 80gr | Mani King japones Crocante con jamon x 80g | Mani King mani crocante Pizza | +4 más [SIN STOCK — no ofrecer]"
+     ]
+    },
+    {
+     "cliente": "sí, es todo",
+     "archivo": false,
+     "foto": false,
+     "respuesta": "Te tomé las presentaciones más pedidas: papas clásicas de 134 g y maní con cáscara de 400 g.\n\n• Fernet Branca 750 cc — 2 × $20.500 c/u = $41.000\n• Coca Cola 1.75 L — 6 × $4.700 c/u = $28.200\n• Papas Fritas Clásicas Lays 134 g — 2 × $7.000 c/u = $14.000\n• Mani King con cáscara 400 g — 1 × $4.200 c/u = $4.200\n\nTotal: $87.400 (o $83.300 pagando en efectivo o transferencia, por el 10% en destilados)\n\nEl hielo en bolsa de 5 kg no lo tengo disponible ahora; la de 15 kg sale $14.000.\n\nPara avanzar, decime si lo retirás por la sucursal Saint Thomas o te lo enviamos (el envío es sin cargo).\n\nLo consulto y te confirmo por acá.",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "cotizar_pedido",
+      "cotizar_pedido",
+      "consultar_interno"
+     ],
+     "imagen": "resumen",
+     "catalogo": [
+      {
+       "sku": "L272",
+       "nombre": "Fernet Branca  x750cc",
+       "precio": 20500,
+       "precioEfectivo": 18450
+      },
+      {
+       "sku": "L1139",
+       "nombre": "Fernet Branca 450",
+       "precio": 13500,
+       "precioEfectivo": 12150
+      },
+      {
+       "sku": "L11817",
+       "nombre": "Fernet Branca Edicion Aniversario (Negra) x750cc",
+       "precio": 22900,
+       "precioEfectivo": 20610
+      },
+      {
+       "sku": "L10953",
+       "nombre": "Coca Cola 1.75l",
+       "precio": 4700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L5295",
+       "nombre": "Coca Cola Botella x 600cc",
+       "precio": 2500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L341",
+       "nombre": "Coca Cola lata 354cc",
+       "precio": 2500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L5296",
+       "nombre": "Coca Cola Light botella x 600cc",
+       "precio": 2000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10886",
+       "nombre": "Coca Cola Ligth x 1.75L",
+       "precio": 4700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10956",
+       "nombre": "Coca Cola Vainilla x354cc",
+       "precio": 6800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L5554",
+       "nombre": "Coca Cola Zero botella x 600cc",
+       "precio": 2500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L1979",
+       "nombre": "Coca Cola Zero Lata 355",
+       "precio": 2500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10952",
+       "nombre": "Coca Cola Zero x1.75L",
+       "precio": 4700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L1063",
+       "nombre": "Hielo Bolsa 15KG",
+       "precio": 14000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L1062",
+       "nombre": "Hielo Bolsa 5KG",
+       "precio": 6900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10674",
+       "nombre": "Lays Ketchup x 77g",
+       "precio": 4400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L3600",
+       "nombre": "Papas Fritas clasicas Lays x 134 gr",
+       "precio": 7000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10035",
+       "nombre": "Papas Fritas Clasicas Lays x 230g",
+       "precio": 9700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7558",
+       "nombre": "Papas Fritas Clasicas Lays x 330g",
+       "precio": 12300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12715",
+       "nombre": "Papas Fritas Lays Asado x 77gr",
+       "precio": 4400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12716",
+       "nombre": "Papas Fritas Lays Barbacoa x 77gr",
+       "precio": 4400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7524",
+       "nombre": "Papas Fritas Lays Flaming HOT x70gr",
+       "precio": 4400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7726",
+       "nombre": "Papas Fritas Lays Jamon Serrano x 77g",
+       "precio": 4400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L8926",
+       "nombre": "Papas Fritas Lays provoleta 77gr",
+       "precio": 4400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L5889",
+       "nombre": "Papas Fritas Lays Queso crema y Cebolla 77g",
+       "precio": 4400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L6345",
+       "nombre": "Mani King con cascara x 400g",
+       "precio": 4200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12835",
+       "nombre": "Mani King pasta de mani natural x 485gr",
+       "precio": 5200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L8291",
+       "nombre": "Mani pelado Mani King  x 350g",
+       "precio": 5100,
+       "precioEfectivo": null
+      }
+     ],
+     "sinStock": [
+      "Fernet Branca + Branca Menta Estuche x2 | Fernet Branca 750 + 2 Vasos | Fernet Branca BALANCIN X3Lts | Fernet Branca x 1000cc | Fernet Branca X3Lts [SIN STOCK — no ofrecer]",
+      "Tamaños de esto en el catálogo: 3 L (SIN stock) · 1 L (SIN stock) · 750 cc (hay). Un tamaño \"SIN stock\" EXISTE y se vende en la casa: decí \"de ese tamaño no tengo stock ahora\", NUNCA \"no lo tenemos\" ni \"el más grande es X\".",
+      "Coca Cola 1.5L | Coca Cola Cherry 330ml | Coca cola Light 1.5L | Coca Cola Light 600cm3 | Coca Cola ligth lata 354cc | Coca Cola Lima | +4 más [SIN STOCK — no ofrecer]",
+      "Tamaños de esto en el catálogo: 1,75 L (hay) · 1,5 L (SIN stock) · 600 cc (hay) · 473 cc (SIN stock) · 354 cc (hay) · 330 cc (SIN stock). Un tamaño \"SIN stock\" EXISTE y se vende en la casa: decí \"de ese tamaño no tengo stock ahora\", NUNCA \"no lo tenemos\" ni \"el más grande es X\".",
+      "Combo Hielera + Moldes Para Hielo Chivas Regal | Hielo Bolsa 10KG | Hielo Bolsa 2KG [SIN STOCK — no ofrecer]",
+      "Lays Cebolla Caramelizada x 85g | Papas Fritas Clasicas Lays x 40g | Papas Fritas clasicas Lays x 85 gr | Papas Fritas Lays Flamin HOT x30gr | Papas Fritas Lays IMPORTADAS | Papas Fritas Lays mostaza y miel x 77gr | +2 más [SIN STOCK — no ofrecer]",
+      "Mani King Mani Tostado sin Piel sin Sal x100gr | Garrapiñada Mani King  x 80g | Mani King chef crema y cebolla x 80gr | Mani King chef panceta x 80gr | Mani King japones Crocante con jamon x 80g | Mani King mani crocante Pizza | +4 más [SIN STOCK — no ofrecer]"
+     ]
+    },
+    {
+     "cliente": "las clásicas de 134, el maní pelado y el hielo de 15 kg",
+     "archivo": false,
+     "foto": false,
+     "respuesta": "La bolsa de 5 kg sí está disponible, a $6.900, por si preferís esa. Con la de 15 kg ($14.000) y el maní pelado Mani King 350 g ($5.100), el total queda en $102.300, o $98.200 en efectivo o transferencia. ¿Retiro o envío?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "cotizar_pedido"
+     ],
+     "imagen": "precios",
+     "catalogo": [
+      {
+       "sku": "L272",
+       "nombre": "Fernet Branca  x750cc",
+       "precio": 20500,
+       "precioEfectivo": 18450
+      },
+      {
+       "sku": "L1139",
+       "nombre": "Fernet Branca 450",
+       "precio": 13500,
+       "precioEfectivo": 12150
+      },
+      {
+       "sku": "L11817",
+       "nombre": "Fernet Branca Edicion Aniversario (Negra) x750cc",
+       "precio": 22900,
+       "precioEfectivo": 20610
+      },
+      {
+       "sku": "L10953",
+       "nombre": "Coca Cola 1.75l",
+       "precio": 4700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10886",
+       "nombre": "Coca Cola Ligth x 1.75L",
+       "precio": 4700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10952",
+       "nombre": "Coca Cola Zero x1.75L",
+       "precio": 4700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L2828",
+       "nombre": "Baño reposteria celeste x 150 gr",
+       "precio": 4800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12281",
+       "nombre": "Lotte Pepero Bañado en Almendras x 32g",
+       "precio": 6900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13338",
+       "nombre": "Chocolate Cofler Block max DP x 130g",
+       "precio": 6500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10938",
+       "nombre": "Kinder Maxi Barritas x10un",
+       "precio": 23100,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7193",
+       "nombre": "Reese´s Chocolate x42gr",
+       "precio": 5400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13225",
+       "nombre": "Licoritas Felfort x unidad",
+       "precio": 1400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L3102",
+       "nombre": "Tableta de Chocolate Aguila Familiar  x 100grs",
+       "precio": 8100,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13091",
+       "nombre": "Cofler extra doble mousse 165gr",
+       "precio": 7300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10941",
+       "nombre": "Tableta de Chocolate Milka Castañas con Caramelo x55Gr",
+       "precio": 5400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L4344",
+       "nombre": "Nutella x 350 gr",
+       "precio": 14800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L5184",
+       "nombre": "Snickers Chocolate x 48g",
+       "precio": 6200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7007",
+       "nombre": "Tableta de Chocolate  Milka con Oreo 300Gr",
+       "precio": 34300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7100",
+       "nombre": "M&M Peanut Butter con  pasta de mani 40 gr",
+       "precio": 5600,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13165",
+       "nombre": "Tableta de Chocolate Milka Mandel karamell x 300gr",
+       "precio": 31800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12642",
+       "nombre": "Tableta de Chocolate Cofler Blanco/Cookie x 55gr",
+       "precio": 4700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10943",
+       "nombre": "Tableta de Chocolate  Milka con Crema de Frutilla x100Gr",
+       "precio": 10900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10778",
+       "nombre": "Mantecol caramel x 111g",
+       "precio": 4100,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11016",
+       "nombre": "Tableta de chocolate Cadburry Frutilla x 82g",
+       "precio": 9200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L3751",
+       "nombre": "Tableta de Chocolate Block miti miti x 170 gr",
+       "precio": 10100,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L8922",
+       "nombre": "Tableta de Chocolate Milka dulce de leche x135gr",
+       "precio": 14200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L3582",
+       "nombre": "Mantecol x 110 gr",
+       "precio": 3700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L3545",
+       "nombre": "Nutella x 140 gr",
+       "precio": 6700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11590",
+       "nombre": "Reese´s Big Cup Chocolate 39 gr",
+       "precio": 5400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L5842",
+       "nombre": "M&M Mini Tubes 30grs",
+       "precio": 5400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7352",
+       "nombre": "Tableta de Chocolate Aguila Blanco x 100g",
+       "precio": 7300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L2826",
+       "nombre": "Baño reposteria leche AGUILA x 150 gr",
+       "precio": 5900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13251",
+       "nombre": "Caja BOB Bon o bon aguila x 18UN x 15 gr",
+       "precio": 13300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L5175",
+       "nombre": "Kinder Barrita 12grs",
+       "precio": 1500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7178",
+       "nombre": "Tableta de Chocolate Milka Choco Swing x 300g",
+       "precio": 36500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L5212",
+       "nombre": "M&M Mani con Chocolate x 49grs",
+       "precio": 6200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L3863",
+       "nombre": "Tableta de chocolate Cadbury yogurt frutilla x29gr",
+       "precio": 3100,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L6962",
+       "nombre": "Marroc Felfort x unidad",
+       "precio": 1100,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L3544",
+       "nombre": "Ferrero Rocher x 12 un",
+       "precio": 21200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10850",
+       "nombre": "Chocolate con Naranja Lacasa x125gr",
+       "precio": 13300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10937",
+       "nombre": "Kinder 4 Barritas x50gr",
+       "precio": 5400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10689",
+       "nombre": "Raffaelo x 3u",
+       "precio": 3900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12999",
+       "nombre": "Tableta de Chocolate amargo con naranja x 70gr",
+       "precio": 5800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10605",
+       "nombre": "Tableta de Chocolate Milka Avellanas y Caramelo x 300gr",
+       "precio": 35500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13337",
+       "nombre": "Chocolate Rocklets mani DP x 130g",
+       "precio": 6500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13249",
+       "nombre": "Caja BOB Bon o bon chocolinas x 18UN x 15 gr",
+       "precio": 15100,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L9138",
+       "nombre": "M&M Caramel x 40gr",
+       "precio": 5600,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7548",
+       "nombre": "Tableta de Chocolate Milka Leche Chocolate x 55Gr",
+       "precio": 5100,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13339",
+       "nombre": "Chocolate BOB Bites leche DP x 130g",
+       "precio": 6500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L4183",
+       "nombre": "Almendras con chocolate semi amargo x 100 gr",
+       "precio": 5500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7175",
+       "nombre": "Tofi chocolate Blanco con ddl x 27g",
+       "precio": 2600,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13005",
+       "nombre": "Cofler extra cookies y cream 46gr",
+       "precio": 2700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L2824",
+       "nombre": "Tableta de Chocolate TOFI con leche x 28gr",
+       "precio": 2600,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12891",
+       "nombre": "Kinder & Co",
+       "precio": 32000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12700",
+       "nombre": "Chocolate Kit Kat Senses Caramel x120gr",
+       "precio": 19900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L4184",
+       "nombre": "Almendras con chocolate blanco x 100 gr",
+       "precio": 5000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L5211",
+       "nombre": "M&M  Confite Chocolate x  48grs",
+       "precio": 6200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13087",
+       "nombre": "Full Mani chocolate x 150g",
+       "precio": 4800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L4182",
+       "nombre": "Almendras con chocolate con leche x 100 gr",
+       "precio": 5000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L3075",
+       "nombre": "Tableta de Chocolate Cofler Block 300 x 300g",
+       "precio": 16300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L8660",
+       "nombre": "Tableta de Chocolate Cofler extra fino 60% cacao con naranja x100gr",
+       "precio": 9000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L3752",
+       "nombre": "Relleno Untable Cofler Block x 290 gr sin TACC",
+       "precio": 8900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12577",
+       "nombre": "Tableta de chocolate Lindt Chocolate Blanco x 150g",
+       "precio": 62800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L9197",
+       "nombre": "Chocolate Chocman bañado con DDL x 35g",
+       "precio": 1200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11081",
+       "nombre": "Tableta de Chocolate Cofler Leche c/ Rocklets",
+       "precio": 4700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7758",
+       "nombre": "Snickers Chocolate x 22g",
+       "precio": 3000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13254",
+       "nombre": "Caja BOB Bon o bon dubai x 18UN x 15 gr",
+       "precio": 22300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12619",
+       "nombre": "Reese´s White Chocolate x 39gr",
+       "precio": 5400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L8921",
+       "nombre": "Tableta de Chocolate Milka Oreo Blanco x55gr",
+       "precio": 6400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12701",
+       "nombre": "Chocolate Kit Kat Senses Cookie Crumble x120gr",
+       "precio": 19900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12616",
+       "nombre": "BOB Supreme x 8 U 144gr",
+       "precio": 10200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10944",
+       "nombre": "Tableta de Chocolate Milka con Avellanas Enteras x100Gr",
+       "precio": 11500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L5540",
+       "nombre": "Baci Caja Original Dark x 175g",
+       "precio": 24700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L9137",
+       "nombre": "Nutella B-Ready x 1Un",
+       "precio": 2500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L5944",
+       "nombre": "Tableta de Chocolate Aguila Familiar x 150grs",
+       "precio": 10300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13088",
+       "nombre": "Full Mani chocolate x 110g",
+       "precio": 3200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L8659",
+       "nombre": "Tableta de Chocolate Cofler 60 % cacao cremoso x100gr",
+       "precio": 10600,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L8896",
+       "nombre": "Tableta de Chocolate Milka dulce de leche x67.5gr",
+       "precio": 7100,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12677",
+       "nombre": "Tableta de Chocolate Lindt Tokyo Style Matcha Strawberry",
+       "precio": 62800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7721",
+       "nombre": "Paraguitas Felfort x unidad",
+       "precio": 1200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L2825",
+       "nombre": "Tableta de Chocolate Cofler Block x 170 gr",
+       "precio": 10800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10777",
+       "nombre": "Mantecol Untable x 250g",
+       "precio": 4600,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10876",
+       "nombre": "Tableta Bon O Bon x 160g",
+       "precio": 9300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L3542",
+       "nombre": "Huevo Kinder sorpresa Chico",
+       "precio": 4000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13253",
+       "nombre": "Caja BOB Bon o bon cookies and cream x 18UN x 15 gr",
+       "precio": 13300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12466",
+       "nombre": "Chocolate Cofler Dubai x 45g",
+       "precio": 4500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L3689",
+       "nombre": "Relleno Untable Bon o Bon Relleno x 290g",
+       "precio": 8900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12967",
+       "nombre": "Monedas de chocolate Piratas",
+       "precio": 600,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L8640",
+       "nombre": "Tableta de Chocolate Milka Strawberry cheesecake x 300g",
+       "precio": 35500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10747",
+       "nombre": "Nutella & Go",
+       "precio": 12800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10942",
+       "nombre": "Tableta de Chocolate  Milka con Cookies x100Gr",
+       "precio": 11700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L4467",
+       "nombre": "Ferrero Rocher x 8 un",
+       "precio": 14100,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13092",
+       "nombre": "Cofler extra chocotorta 165gr",
+       "precio": 7300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12578",
+       "nombre": "Tableta de chocolate Lindt Chocolate Amargo x 150g",
+       "precio": 62800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10940",
+       "nombre": "Tableta de Chocolate Milka Chocolate Blanco x55Gr",
+       "precio": 6900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7484",
+       "nombre": "Ferrero Rocher x 24 unidades",
+       "precio": 38500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12995",
+       "nombre": "Cofler extra doble mousse 46gr",
+       "precio": 2100,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L6963",
+       "nombre": "Medallon Mentitas felfort x Unidad",
+       "precio": 900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13226",
+       "nombre": "Licorfort  x unidad",
+       "precio": 1300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L3543",
+       "nombre": "Ferrero Rocher x 3 un",
+       "precio": 4700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10987",
+       "nombre": "Kinder Bueno x43gr",
+       "precio": 4200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13006",
+       "nombre": "Cofler extra chocotorta 46gr",
+       "precio": 2700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L5155",
+       "nombre": "Tableta de Chocolate Milka ChocoPause OREO x45grs",
+       "precio": 2800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7488",
+       "nombre": "Tableta de Chocolate Milka Oreo Chocolate x100gr",
+       "precio": 11200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L4331",
+       "nombre": "Toblerone Leche x100gr",
+       "precio": 12200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12511",
+       "nombre": "Tableta de Chocolate Milka x 150g",
+       "precio": 11900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7487",
+       "nombre": "Tableta de Chocolate Milka Oreo Chocolate Blanco x155gr",
+       "precio": 12200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12993",
+       "nombre": "Tableta de chocolate Cadbury yogurt frutilla x 82gr",
+       "precio": 7800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11101",
+       "nombre": "Cadbury Tres Sueños x 82g",
+       "precio": 8000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10939",
+       "nombre": "Tableta de Chocolate Milka Almendras x55Gr",
+       "precio": 6400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11148",
+       "nombre": "Chocolate Dubai Meltz Pistacho",
+       "precio": 42800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12597",
+       "nombre": "Bauducco Brownie Snack x80gr",
+       "precio": 6200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12641",
+       "nombre": "Tableta de Chocolate Cofler AIR rell BOB 67gr",
+       "precio": 4900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12631",
+       "nombre": "Tableta de Chocolate Cofler Tres Placeres x55gr",
+       "precio": 4300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12644",
+       "nombre": "Tableta de Chocolate Cofler Almendras x 55gr",
+       "precio": 4400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12702",
+       "nombre": "Chocolate Kit Kat Senses Cookie Dough x120gr",
+       "precio": 19900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12643",
+       "nombre": "Bocadito Cabsha Caja Acrilica x18un",
+       "precio": 13200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12703",
+       "nombre": "Chocolate Kit Kat Senses Hazelnut Crunch x120gr",
+       "precio": 19900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12738",
+       "nombre": "Relleno Untable Cofler Marroc x 290 gr",
+       "precio": 7600,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13043",
+       "nombre": "Mantecol x 253 gr",
+       "precio": 8500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10523",
+       "nombre": "Chips de Chocolate x Fraccion",
+       "precio": 17300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12278",
+       "nombre": "Chiaverini crema de avellanas y cacao x 300gr",
+       "precio": 28000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L1063",
+       "nombre": "Hielo Bolsa 15KG",
+       "precio": 14000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L1062",
+       "nombre": "Hielo Bolsa 5KG",
+       "precio": 6900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10674",
+       "nombre": "Lays Ketchup x 77g",
+       "precio": 4400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L3600",
+       "nombre": "Papas Fritas clasicas Lays x 134 gr",
+       "precio": 7000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10035",
+       "nombre": "Papas Fritas Clasicas Lays x 230g",
+       "precio": 9700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7558",
+       "nombre": "Papas Fritas Clasicas Lays x 330g",
+       "precio": 12300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12715",
+       "nombre": "Papas Fritas Lays Asado x 77gr",
+       "precio": 4400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12716",
+       "nombre": "Papas Fritas Lays Barbacoa x 77gr",
+       "precio": 4400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7524",
+       "nombre": "Papas Fritas Lays Flaming HOT x70gr",
+       "precio": 4400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7726",
+       "nombre": "Papas Fritas Lays Jamon Serrano x 77g",
+       "precio": 4400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L8926",
+       "nombre": "Papas Fritas Lays provoleta 77gr",
+       "precio": 4400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L5889",
+       "nombre": "Papas Fritas Lays Queso crema y Cebolla 77g",
+       "precio": 4400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L6345",
+       "nombre": "Mani King con cascara x 400g",
+       "precio": 4200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12835",
+       "nombre": "Mani King pasta de mani natural x 485gr",
+       "precio": 5200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L8291",
+       "nombre": "Mani pelado Mani King  x 350g",
+       "precio": 5100,
+       "precioEfectivo": null
+      }
+     ],
+     "sinStock": [
+      "Fernet Branca + Branca Menta Estuche x2 | Fernet Branca 750 + 2 Vasos | Fernet Branca BALANCIN X3Lts | Fernet Branca x 1000cc | Fernet Branca X3Lts [SIN STOCK — no ofrecer]",
+      "Tamaños de esto en el catálogo: 3 L (SIN stock) · 1 L (SIN stock) · 750 cc (hay). Un tamaño \"SIN stock\" EXISTE y se vende en la casa: decí \"de ese tamaño no tengo stock ahora\", NUNCA \"no lo tenemos\" ni \"el más grande es X\".",
+      "Combo Hielera + Moldes Para Hielo Chivas Regal | Hielo Bolsa 10KG | Hielo Bolsa 2KG [SIN STOCK — no ofrecer]",
+      "Lays Cebolla Caramelizada x 85g | Papas Fritas Clasicas Lays x 40g | Papas Fritas clasicas Lays x 85 gr | Papas Fritas Lays Flamin HOT x30gr | Papas Fritas Lays IMPORTADAS | Papas Fritas Lays mostaza y miel x 77gr | +2 más [SIN STOCK — no ofrecer]",
+      "Mani King Mani Tostado sin Piel sin Sal x100gr | Garrapiñada Mani King  x 80g | Mani King chef crema y cebolla x 80gr | Mani King chef panceta x 80gr | Mani King japones Crocante con jamon x 80g | Mani King mani crocante Pizza | +4 más [SIN STOCK — no ofrecer]"
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -58,7 +58,12 @@ export function faltaElegirVariante(textoCliente: string, ultimosDelBot: string[
   const ultimo = ultimosDelBot[0] ?? '';
   // una lista de lo anotado (sin precios) con opciones abiertas, termine en la
   // pregunta de completo o en «¿qué papas te preparo?»
-  if (!/[×x]\s*\S/.test(ultimo) || /\$\s?\d/.test(ultimo) || !RE_VARIANTE_PENDIENTE.test(ultimo)) return false;
+  if (!/[×x]\s*\S/.test(ultimo) || /\$\s?\d/.test(ultimo)) return false;
+  // la lista terminó en OTRA pregunta («¿qué presentación querés?», «¿botellas o
+  // cajas?»): un "sí, es todo" no la contesta (banco 1/10/2026, el bot elegía)
+  const ultimaPregunta = ultimo.slice(ultimo.lastIndexOf('¿'));
+  const preguntaOtraCosa = ultimo.includes('¿') && !RE_PREGUNTA_COMPLETO.test(ultimaPregunta);
+  if (!preguntaOtraCosa && !RE_VARIANTE_PENDIENTE.test(ultimo)) return false;
   const t = String(textoCliente ?? '').trim();
   return diceQueEstaCompleto(t) && t.split(/\s+/).length <= 5;
 }
