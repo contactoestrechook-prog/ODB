@@ -289,8 +289,19 @@ export class ProductosAdminService {
   private async idCategoria(nombre?: string): Promise<string | null> {
     if (!nombre?.trim()) return null;
     const limpio = nombre.trim();
-    const { data } = await this.db.from('categorias').select('id').ilike('nombre', limpio).maybeSingle();
-    if (data) return data.id;
+    // Puede haber varias que coinciden sin mayúsculas ("Quesos" y "quesos"): con
+    // maybeSingle eso daba error, no encontraba ninguna y creaba OTRA más. Se usa
+    // la que tiene productos (1/10/2026: el bot no veía la levadura Mi Pan como
+    // alternativa porque quedó en otra categoría).
+    const { data: hay } = await this.db
+      .from('categorias')
+      .select('id, nombre, productos(count)')
+      .ilike('nombre', limpio.replace(/[\\%_]/g, '\\$&'));
+    if (hay?.length) {
+      const cuantos = (c: any) => Number(c.productos?.[0]?.count ?? 0);
+      const elegida = [...hay].sort((a: any, b: any) => cuantos(b) - cuantos(a) || Number(b.nombre === limpio) - Number(a.nombre === limpio))[0];
+      return (elegida as any).id;
+    }
     const { data: nueva, error } = await this.db
       .from('categorias')
       .insert({ nombre: limpio })
