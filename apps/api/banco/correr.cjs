@@ -150,7 +150,9 @@ async function juzgar(claude, caso, charla) {
   };
   bot.pedidos.obtener = async (id) => ({ id, qr_retiro: 'PICKUP-BANCO' + id.slice(-4), total: cotizaciones.get(id) ?? 0, estado: 'recibido' });
   const logReal = bot.log.log.bind(bot.log);
-  bot.log.log = (m, ...r) => { const c = /≈ USD ([\d.]+)/.exec(String(m)); if (c) costo += Number(c[1]); return undefined; };
+  // tiempo y vueltas del modelo por charla (1/10/2026: "tiene que responder en un minuto")
+  const vueltasPorTel = new Map();
+  bot.log.log = (m, ...r) => { const c = /≈ USD ([\d.]+)/.exec(String(m)); if (c) costo += Number(c[1]); const v = /^charla \w+\/(\d+):.*?(\d+) llamadas/.exec(String(m)); if (v) vueltasPorTel.set(v[1], Number(v[2])); return undefined; };
   bot.log.warn = () => undefined;
 
   const casos = CASOS.filter((c) => !soloIds.length || soloIds.includes(c.id));
@@ -166,10 +168,13 @@ async function juzgar(claude, caso, charla) {
       try {
         for (const [k, t] of caso.turnos.entries()) {
           registro.set(telefono, []);
+          const t0 = process.hrtime.bigint();
           const r = await bot.charla({ linea: 'pedidos', telefono, mensaje: t.cliente, ...(t.archivo ? { archivoBase64: pdfComprobante(), mimeType: 'application/pdf', archivoUrl: 'https://banco.invalid/comprobante.pdf' } : {}), ...(t.foto ? { archivoBase64: fs.readFileSync(path.resolve(t.foto)).toString('base64'), mimeType: 'image/jpeg', archivoUrl: 'https://banco.invalid/foto.jpeg' } : {}) });
           const resp = String(r?.respuesta ?? '');
           const herramientas = registro.get(telefono);
           const imagen = resp ? imagenDe(resp, r?.catalogo) : null;
+          const segundos = Math.round(Number(process.hrtime.bigint() - t0) / 1e8) / 10;
+          if (process.env.BANCO_TIEMPOS) process.stdout.write(`   ${caso.id} turno ${k + 1}: ${segundos} s · ${vueltasPorTel.get(telefono) ?? '?'} llamadas al modelo · ${registro.get(telefono).length} herramientas\n`);
           // BANCO_IMAGENES=carpeta guarda la imagen que le llegaría al cliente
           if (imagen && process.env.BANCO_IMAGENES) {
             const cp = require('../dist/comun/cartel-pedido.js');
@@ -177,7 +182,7 @@ async function juzgar(claude, caso, charla) {
             fs.mkdirSync(process.env.BANCO_IMAGENES, { recursive: true });
             fs.writeFileSync(path.join(process.env.BANCO_IMAGENES, `${caso.id}-turno${k + 1}.png`), png);
           }
-          charla.push({ cliente: t.cliente, archivo: !!t.archivo, foto: !!t.foto, respuesta: resp, herramientas, imagen, catalogo: r?.catalogo ?? [], sinStock: r?.sinStock ?? [] });
+          charla.push({ cliente: t.cliente, archivo: !!t.archivo, foto: !!t.foto, respuesta: resp, herramientas, imagen, segundos, catalogo: r?.catalogo ?? [], sinStock: r?.sinStock ?? [] });
           const f = [...(resp ? chequeosGenerales(resp, previa, imagen) : []), ...chequeosDelTurno(t.espera, resp, herramientas)];
           fallas.push(...f.map((x) => `turno ${k + 1}: ${x}`));
           if (resp) previa = resp;
