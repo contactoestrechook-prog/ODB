@@ -122,6 +122,8 @@ function chequeosGenerales(resp, previa, imagen) {
   // un resumen NUEVO (otro producto, mismo formato) no es repetir; el mismo texto sí
   const resumenNuevo = /¿lo confirmo\?/i.test(resp) && /¿lo confirmo\?/i.test(previa ?? '') && resp.trim() !== String(previa).trim();
   if (previa && !resumenNuevo && casiIgual(resp, previa)) f.push('repite el mensaje anterior');
+  // prohibido "lo consulto" (regla del dueño, 1/10/2026)
+  if (/\blo consulto|lo estoy consultando|lo voy a consultar|lo consultamos/i.test(resp)) f.push('dice "lo consulto" (prohibido)');
   // lo interno queda puertas adentro (regla del dueño, 1/10/2026)
   if (/\bquedan? \d|\d+ unidades|\ben (el )?sistema\b|\bme figura|(stock|hay|tengo)[^.\n]{0,30}en (la )?(sucursal |suc\.? )?(Saint Thomas|Santa In[eé]s)/i.test(resp)) f.push('dice algo interno (stock, sucursal o "el sistema")');
   return f;

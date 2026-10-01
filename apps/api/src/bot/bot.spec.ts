@@ -1400,7 +1400,7 @@ describe('Consulta pendiente: responder recién con el dato', () => {
     (s as any).claude = { messages: { create: crear } };
     const r: any = await s.charla({ linea: 'pedidos', telefono: '5491155512345', mensaje: '¿Cuántas unidades trae el kit?', mensajeId: 'consulta-nueva' });
     expect(consultar).toHaveBeenCalledTimes(1);
-    expect(r.respuesta).toMatch(/Lo consulto y te confirmo por acá\.$/);
+    expect(r.respuesta).toMatch(/Ya te confirmo por acá\.$/);
     expect(r.respuesta).not.toMatch(/vuelvo a vos/);
     expect(r.silencio).toBeFalsy();
   });

@@ -67,7 +67,7 @@ describe('Regresiones de auditoría: contrato comercial', () => {
     const s=servicio();let vuelta=0;(s as any).claude={messages:{create:jest.fn(async()=>respuesta(++vuelta===1?'No tengo ese dato.':'Ya te confirmo por acá.'))}};
     jest.spyOn(s,'consultarInterno').mockResolvedValue({consultado:true,area:'local',avisoPorWhatsapp:true,aviso:''});
     const r:any=await s.charla({linea:'pedidos',telefono:'5491155510022',mensaje:'¿Es cosecha 2020?'});
-    expect(r.respuesta).toMatch(/Lo consulto y te confirmo por acá\.$/);expect(r.respuesta).not.toMatch(/No tengo ese dato/);expect(s.consultarInterno).toHaveBeenCalledWith('pedidos','5491155510022','local','¿Es cosecha 2020?','',undefined);
+    expect(r.respuesta).toMatch(/Ya te confirmo por acá\.$/);expect(r.respuesta).not.toMatch(/No tengo ese dato/);expect(s.consultarInterno).toHaveBeenCalledWith('pedidos','5491155510022','local','¿Es cosecha 2020?','',undefined);
   });
   it('A10: una consulta simultánea no oculta el código de un pedido creado',async()=>{
     const db=dbSimulada({bot_conversaciones:{data:{mensajes:[{role:'assistant',content:'RESUMEN'}]}}});const s=servicio(db);
