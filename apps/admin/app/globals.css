@@ -155,20 +155,6 @@ html[data-modal-abierto] .flotante-ocultable {
   display: none;
 }
 
-/* PARCHE VIEJO — se borra cuando las 46 tablas pasen a <TablaResponsiva>, en
-   el mismo deploy (si se borra antes, las tablas anchas estiran la página).
-   En celular, las tablas anchas scrollean horizontal en vez de romper el
-   layout. Las tablas del kit (.tabla-kit) ya traen su propio scroll. */
-@media (max-width: 768px) {
-  main table:not(.tabla-kit) {
-    display: block;
-    overflow-x: auto;
-    white-space: nowrap;
-    max-width: 100%;
-    -webkit-overflow-scrolling: touch;
-  }
-}
-
 @media print {
   body { background: white; }
 }

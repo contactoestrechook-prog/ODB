@@ -365,7 +365,7 @@ ColumnaTabla<T> = { clave: string; titulo: ReactNode; celda: (fila, i) => ReactN
 />
 ```
 
-**El parche viejo de tablas** (`main table { display: block; white-space: nowrap }` en `globals.css`) **sigue vivo** para las tablas sin migrar; las del kit lo esquivan (`.tabla-kit`). Se borra en el mismo deploy en que se migre la última de las 46 tablas; si se borra antes, las tablas anchas estiran la página.
+**El parche viejo de tablas** (`main table { display: block; white-space: nowrap }` en `globals.css`) **ya no existe**: se borró el 1/10/2026, cuando la última tabla pasó al kit. Una `<table>` suelta nueva estira la página en el celular; usá `<TablaResponsiva>` o, si tiene que ser tabla de verdad (comprobante impreso), `className="tabla-kit"` dentro de un `overflow-x-auto`.
 
 ### `<Pestanas>`, `<Chips>`, `<Chip>`
 
@@ -516,8 +516,5 @@ IconoCerrar, IconoFlechaAbajo, IconoOk, IconoAtencion, IconoError, IconoInfo, Ic
 
 ## 4. Lo que todavía no está
 
-- El parche global de tablas (se borra con la última tabla migrada, ver arriba).
 - `<Icono nombre>` único (hoy los íconos del menú están en `ICONOS` de `Header.tsx` y los del kit en `kit/iconos.tsx`, exportados desde el índice).
 - Un mapa único medio de pago → tono para las `<Etiqueta>` (Getnet, Clover, Mercado Pago, efectivo).
-- `<PantallaAcceso>` para login, recuperar y cambiar la clave.
-- Inicio pasa a clara en otra etapa.
