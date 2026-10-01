@@ -1569,17 +1569,20 @@ export class BotService {
     // los productos con precio que el bot consultó en el turno: con ellos se
     // arma la imagen de precios, escriba como escriba la respuesta (1/10/2026)
     const catalogo: ProductoConPrecio[] = [];
+    const sinStockVistos: string[] = [];
     for (const raw of salidasDelTurno) {
       try {
         const o = JSON.parse(raw);
         for (const it of (Array.isArray(o?.items) ? o.items : [])) {
           if (it?.nombre && Number(it?.precio) > 0) catalogo.push({ sku: it.sku, nombre: String(it.nombre), precio: Number(it.precio), precioEfectivo: it.precioEfectivo ?? null });
         }
+        if (typeof o?.sinStock === 'string') sinStockVistos.push(o.sinStock);
+        if (o?.tamanos) sinStockVistos.push(typeof o.tamanos === 'string' ? o.tamanos : JSON.stringify(o.tamanos));
       } catch { /* salida sin JSON */ }
     }
     return respuestaFija.consultaPendiente && !respuesta
       ? { respuesta: null, silencio: true, motivo: 'consulta interna pendiente' } as any
-      : { respuesta, catalogo };
+      : { respuesta, catalogo, sinStock: sinStockVistos };
   }
 
   // Despacha cada tool_use del modelo a la implementación real. El `telefono`

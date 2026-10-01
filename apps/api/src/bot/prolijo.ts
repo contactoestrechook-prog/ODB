@@ -305,7 +305,8 @@ export function respuestaConConsulta(respuesta: string, ultimoDelBot: string | n
   const util = String(respuesta ?? '').split('\n').map((linea) =>
     linea.split(/(?<=[.!?])\s+/).filter((o) => !RE_PROMESA.test(o)).join(' ').trimEnd(),
   ).join('\n').replace(/\n{3,}/g, '\n\n').trim();
-  const yaAcuso = !!ultimoDelBot && casiIgual(String(ultimoDelBot), ACUSE_CONSULTA);
+  // ya lo dijo si el mensaje anterior ES el acuse o lo trae al final (1/10/2026)
+  const yaAcuso = !!ultimoDelBot && (casiIgual(String(ultimoDelBot), ACUSE_CONSULTA) || String(ultimoDelBot).includes(ACUSE_CONSULTA));
   if (!util) return yaAcuso ? '' : ACUSE_CONSULTA;
   return yaAcuso ? util : `${util}\n\n${ACUSE_CONSULTA}`;
 }

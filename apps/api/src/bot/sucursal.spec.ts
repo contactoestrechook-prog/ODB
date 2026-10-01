@@ -198,3 +198,10 @@ describe('retiro o envío, siempre las dos', () => {
     expect(retiroOEnvio(ok)).toBe(ok);
   });
 });
+
+describe('el acuse de consulta no se repite aunque viniera al final del mensaje anterior', () => {
+  it('no lo agrega otra vez', () => {
+    const anterior = 'Te anoto:\n• 6 × Quilmes 473 cc\n\n¿Está completo el pedido?\n\nLo consulto y te confirmo por acá.';
+    expect(respuestaConConsulta('El envío es sin cargo.', anterior)).toBe('El envío es sin cargo.');
+  });
+});

@@ -1,0 +1,3071 @@
+{
+ "fecha": "2026-10-01T13:23:59.046Z",
+ "pasan": 0,
+ "total": 1,
+ "promedio": 3,
+ "costoBot": 1.171,
+ "intermitentes": [],
+ "resultados": [
+  {
+   "id": "blanquita",
+   "categoria": "real",
+   "titulo": "Blanquita St 112: foto con un pedido (1/10)",
+   "ok": false,
+   "puntaje": 3,
+   "fallas": [],
+   "problemas": [
+    "No preguntó si el pedido está completo, pese a ser un requisito explícito de la modalidad",
+    "No detalló lo anotado en el mensaje, solo mencionó genéricamente 'varias presentaciones por definir' sin listar los ítems",
+    "Se centró en una sola duda (Baron B) en vez de presentar todas las dudas/opciones a resolver en el mismo mensaje"
+   ],
+   "charla": [
+    {
+     "cliente": "Buen día. ¿Te puedo pasar el pedido de la señora Fabiana? Ahí te mando la foto.",
+     "archivo": false,
+     "respuesta": "Buen día. Te damos la bienvenida a O.D.B. Tengo la lista completa anotada, con varias presentaciones por definir (marca y tamaño de agua, leche, manteca, café, limpieza y fiambres).\n\nArranquemos por el champán: ¿son 2 botellas o 2 cajas de Baron B?",
+     "herramientas": [
+      "identificar_cliente",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "buscar_productos",
+      "nota_interna"
+     ],
+     "imagen": null,
+     "catalogo": [
+      {
+       "sku": "L150",
+       "nombre": "Baron B Brut Nature",
+       "precio": 50500,
+       "precioEfectivo": 45450
+      },
+      {
+       "sku": "L151",
+       "nombre": "Baron B Brut Rose",
+       "precio": 50500,
+       "precioEfectivo": 45450
+      },
+      {
+       "sku": "L124",
+       "nombre": "Baron B Extra Brut",
+       "precio": 38900,
+       "precioEfectivo": 35010
+      },
+      {
+       "sku": "L3655",
+       "nombre": "Baron B Extra brut estuche",
+       "precio": 46900,
+       "precioEfectivo": 42210
+      },
+      {
+       "sku": "L1078",
+       "nombre": "Baron B Magnun 1.5L",
+       "precio": 79900,
+       "precioEfectivo": 71910
+      },
+      {
+       "sku": "L3758",
+       "nombre": "Agua Mineral Acqua Panna 750ml",
+       "precio": 8100,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L2316",
+       "nombre": "Agua Mineral Sin Gas Glaciar x2Lt",
+       "precio": 2500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L133",
+       "nombre": "Villavicencio Sin Gas 500cm3",
+       "precio": 1500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L3713",
+       "nombre": "Agua Saborizada Terma Limon x1.35L",
+       "precio": 2900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L2936",
+       "nombre": "Gatorade Fruta tropicales 500cc",
+       "precio": 2350,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L2941",
+       "nombre": "Gatorade Naranja 1250cc",
+       "precio": 4200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L2935",
+       "nombre": "Gatorade CoolBlue 500cc",
+       "precio": 2350,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L121",
+       "nombre": "Levite 1,5L Pomelo",
+       "precio": 2800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L6664",
+       "nombre": "Agua Saborizada Terma Serrano Cero x1.35L",
+       "precio": 2900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L2937",
+       "nombre": "Gatorade Naranja 500cc",
+       "precio": 2350,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10503",
+       "nombre": "Suerox sabor Frutos Rojos x 630ml",
+       "precio": 3600,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L2401",
+       "nombre": "Agua Saborizada Levite Cero Naranja 1.5 lt",
+       "precio": 2800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L447",
+       "nombre": "Levite Pera 1.5l",
+       "precio": 2800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L260",
+       "nombre": "Villavicencio Sin Gas 1.5L x6un",
+       "precio": 2200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L6277",
+       "nombre": "Agua Saborizada Aquarius Naranja 1.5l",
+       "precio": 3300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L487",
+       "nombre": "Villavicencio C/Gas 500cm3",
+       "precio": 1500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L2400",
+       "nombre": "Agua Saborizada Levite Cero Pomelo 1.5lt",
+       "precio": 2800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L2940",
+       "nombre": "Gatorade Manzana 1250cc",
+       "precio": 4000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10502",
+       "nombre": "Suerox sabor Manzana x 630ml",
+       "precio": 3600,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11207",
+       "nombre": "Mas+ Messi Berry copa Crush x 500ml",
+       "precio": 19900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10258",
+       "nombre": "Agua Saborizada Aquarius Uva x 1.5l",
+       "precio": 3300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10693",
+       "nombre": "Mas+ by Messi Miami Lima Limon x500cc",
+       "precio": 19900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L2938",
+       "nombre": "Gatorade Manzana 500cc",
+       "precio": 2350,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L249",
+       "nombre": "Levite Manzana x 1.5l",
+       "precio": 2800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L5362",
+       "nombre": "Agua Saborizada Aquarius Manzana 1.5l",
+       "precio": 3300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L3726",
+       "nombre": "Gatorade Cool Blue 1250cc",
+       "precio": 4200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L356",
+       "nombre": "Villavicencio Con Gas Gas 1.5L x6un",
+       "precio": 2400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L3711",
+       "nombre": "Agua Saborizada Terma Serrano x1.35L",
+       "precio": 2900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L9048",
+       "nombre": "Agua con Gas PERRIER x 330cc",
+       "precio": 2900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10692",
+       "nombre": "Mas+ by Messi Miami Punch x500cc",
+       "precio": 19900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11056",
+       "nombre": "Agua Saborizada PERRIER Lima & Jengibre x 330cc",
+       "precio": 4900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L5223",
+       "nombre": "Gatorade Uva 500cc",
+       "precio": 2400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11057",
+       "nombre": "Agua Saborizada PERRIER Citrus & Cherry x 330cc",
+       "precio": 5000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L3714",
+       "nombre": "Agua Saborizada Terma Limon Cero X1.35L",
+       "precio": 2900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L2820",
+       "nombre": "Bidon Villa del Sur 6,25 LT",
+       "precio": 4100,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11446",
+       "nombre": "KO agua x 1L",
+       "precio": 2000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L1367",
+       "nombre": "Levite Naranja 2Lt",
+       "precio": 2800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10691",
+       "nombre": "Mas+ by Messi Naranja",
+       "precio": 19900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7961",
+       "nombre": "Soda Torasso x 2,25LTs",
+       "precio": 1800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L5360",
+       "nombre": "Agua Saborizada Aquarius Pomelo 1.5l",
+       "precio": 3300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L5361",
+       "nombre": "Agua Saborizada Aquarius Pera 1.5l",
+       "precio": 3300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11445",
+       "nombre": "KO agua x 500ml",
+       "precio": 900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11448",
+       "nombre": "KO agua infusinada sabor Naranja y Frutilla x 500ml",
+       "precio": 1350,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11055",
+       "nombre": "Agua Saborizada PERRIER Rasberry & Rose  x 330cc",
+       "precio": 4900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L1839",
+       "nombre": "Villavicencio Sport x12",
+       "precio": 1600,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L3727",
+       "nombre": "Gatorade Frutas Tropicales 1.25L",
+       "precio": 4200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10725",
+       "nombre": "Mathienzo Tonic Lata x 354 ml",
+       "precio": 2600,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L2402",
+       "nombre": "Agua Saborizada Levite Cero Manzana 1.5 lt",
+       "precio": 2800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L261",
+       "nombre": "Villavicencio sin gas x2lt",
+       "precio": 2400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L3715",
+       "nombre": "Agua Saborizada Terma Cuyano Cero x1.35L",
+       "precio": 2900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13162",
+       "nombre": "SodaStream Botella Fizz&Go storm  900ml",
+       "precio": 36999,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11447",
+       "nombre": "KO agua infusionada sabor Limon y Menta x 500ml",
+       "precio": 1350,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L3712",
+       "nombre": "Agua Saborizada Terma Cuyano x1.35L",
+       "precio": 2900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L5554",
+       "nombre": "Coca Cola Zero botella x 600cc",
+       "precio": 2500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L1979",
+       "nombre": "Coca Cola Zero Lata 355",
+       "precio": 2500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10952",
+       "nombre": "Coca Cola Zero x1.75L",
+       "precio": 4700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L2720",
+       "nombre": "Mostaza Original Savora D/P x 250 gr",
+       "precio": 2200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12343",
+       "nombre": "Mostaza Original Savora Pomo x 200 gr",
+       "precio": 3800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10049",
+       "nombre": "Pan Bimbo Artesano Integral x 500 gr",
+       "precio": 9600,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10084",
+       "nombre": "Pan Bimbo Integral C/ lino x 420g",
+       "precio": 4900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L4956",
+       "nombre": "Leche en polvo LS descremada x 200 gr",
+       "precio": 4300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12953",
+       "nombre": "Leche en polvo LS descremada x 800 gr",
+       "precio": 15900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12684",
+       "nombre": "Leche Ilolay Descremada 1lts",
+       "precio": 3200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L5757",
+       "nombre": "Leche La Serenisima  1% descremada  SACHET x 1lt",
+       "precio": 2800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L2432",
+       "nombre": "Leche La Serenisima descremada 1%  botella x 1LT",
+       "precio": 3100,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L9123",
+       "nombre": "Leche La Serenisima descremada protein botella x 1L",
+       "precio": 3400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "40902",
+       "nombre": "CEREALITAS XL CACAO X243GE x1 un",
+       "precio": 3200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L4320",
+       "nombre": "Galletitas Cerealitas Arroz x 160g",
+       "precio": 4900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12212",
+       "nombre": "Galletitas Cerealitas Tripack x 636 gr",
+       "precio": 7800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L3562",
+       "nombre": "Galletitas Cerealitas x 200 gr",
+       "precio": 2600,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11910",
+       "nombre": "Budin Premium Zanahoria, Canela, Miel y Nueces x 500 grs",
+       "precio": 14300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11599",
+       "nombre": "Caramelos Arcor Rellenos de Miel x 80g",
+       "precio": 2000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13292",
+       "nombre": "Caramelos Halls miel con limon x 25.2gr",
+       "precio": 1300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L5424",
+       "nombre": "Cera para depilar Depimiel en lata natural",
+       "precio": 6800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10847",
+       "nombre": "Granola Crocante Granix de coco y miel x 350g",
+       "precio": 4600,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10539",
+       "nombre": "Menthoplus Miel  x 29.4g",
+       "precio": 1300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L2980",
+       "nombre": "Miel Aleluya Squezze x 250 gr",
+       "precio": 7000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13173",
+       "nombre": "Miel con coco Thank you x 250gr",
+       "precio": 5700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13175",
+       "nombre": "Miel con curcuma y pimienta Thank you x 250gr",
+       "precio": 5800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13176",
+       "nombre": "Miel con frutilla Thank you x 250gr",
+       "precio": 5700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13177",
+       "nombre": "Miel con jengibre y limon Thank you x 250gr",
+       "precio": 5700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13178",
+       "nombre": "Miel con menta jengibre y limon Thank you x 250gr",
+       "precio": 5700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13179",
+       "nombre": "Miel con naranja Thank you x 250gr",
+       "precio": 5700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11551",
+       "nombre": "Miel de uva Tahuainti con limon y Hojas de menta",
+       "precio": 11000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11549",
+       "nombre": "Miel de uva Tahuainti con Naranja, curcuma y pimienta",
+       "precio": 11000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L3158",
+       "nombre": "Miel Germa cremosa x 500 gr",
+       "precio": 9000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11768",
+       "nombre": "Miel Germa Cremosa x 900g",
+       "precio": 12500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L3159",
+       "nombre": "Miel Germa Liquida x 500 gr",
+       "precio": 7900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11391",
+       "nombre": "Miel Nectar de los Dioses Cremosa x 500g",
+       "precio": 8600,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7091",
+       "nombre": "Miel Nectar de los dioses en jarra x 500 gr",
+       "precio": 8200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7237",
+       "nombre": "Miel Nectar de los Dioses liquida en frasco x 500g",
+       "precio": 8000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7236",
+       "nombre": "Miel Nectar de los Dioses PANAL abeja x 340g",
+       "precio": 14000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7238",
+       "nombre": "Miel Nectar en panal x 170g",
+       "precio": 8400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13180",
+       "nombre": "Miel pura Thank you x 250gr",
+       "precio": 5400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L3591",
+       "nombre": "Mostaza Aritza a la miel x 360",
+       "precio": 9300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13237",
+       "nombre": "Mostaza con miel Aleluya x 200 gr",
+       "precio": 4700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10290",
+       "nombre": "Aceite Fritolim Manteca x 120g",
+       "precio": 5600,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12545",
+       "nombre": "Manteca Clarificada Beepure x 270g",
+       "precio": 15200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L6346",
+       "nombre": "Manteca La Paulina  x 100g",
+       "precio": 2800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L6347",
+       "nombre": "Manteca La Paulina  x 200g",
+       "precio": 5300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L2766",
+       "nombre": "Manteca La Serenisima 200 gr",
+       "precio": 5000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L3459",
+       "nombre": "Manteca La Serenisima x 100 gr",
+       "precio": 2800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L9125",
+       "nombre": "Manteca LS ligth x 200gr",
+       "precio": 5600,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L8150",
+       "nombre": "Papel manteca familiar",
+       "precio": 5300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12221",
+       "nombre": "Papel manteca Frozens x 5Mts",
+       "precio": 4400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12487",
+       "nombre": "Papel manteca Make x 5Mts",
+       "precio": 3500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12796",
+       "nombre": "Tostaditas Pan y Manteca Sabores Nuestros x 50g",
+       "precio": 1300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L2370",
+       "nombre": "Fideos Matarazzo  Mostachol x 500",
+       "precio": 2100,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12274",
+       "nombre": "Fideos Matarazzo Proteina Plus Mostachol x 400gr",
+       "precio": 5200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11407",
+       "nombre": "Queso Cremoso Cremon La Serenisma Doble Crema x fraccion",
+       "precio": 13900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L3625",
+       "nombre": "Queso Cremoso Cremon La Serenisma x fraccion",
+       "precio": 18600,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L6270",
+       "nombre": "Queso Cremoso Cremon LS  x 500g",
+       "precio": 10900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L3791",
+       "nombre": "Queso Cremoso Cremon LS Light x 500g",
+       "precio": 11800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L3856",
+       "nombre": "Fideos Matarazzo Rina Fusilli x 500",
+       "precio": 4200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L3328",
+       "nombre": "Fusilli Barilla n 98 x 500 gr",
+       "precio": 10100,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13037",
+       "nombre": "Fusilli con tinta de calamar San Giorgio x 500gr",
+       "precio": 11500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12820",
+       "nombre": "Fusilli N° 48 Rummo x 500grs",
+       "precio": 9600,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L3825",
+       "nombre": "Garofalo Fusilli Lunghi 500gr",
+       "precio": 9100,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10231",
+       "nombre": "Garofalo Fusilli x 500g",
+       "precio": 9100,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13160",
+       "nombre": "Jabon liquido Ala lavado a mano  DP x 800 ml",
+       "precio": 4100,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L2664",
+       "nombre": "Jabon liquido Tibu x 3 LT botella Pradera Verde",
+       "precio": 9200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10163",
+       "nombre": "Jabon de tocador Rexona Bamboo x 1Un",
+       "precio": 1900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7802",
+       "nombre": "Jabon Dove Exfoliacion Suave x 90gr",
+       "precio": 3500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13239",
+       "nombre": "Jabon liquido Algabo Citrus splash repuesto DP  x 300ml",
+       "precio": 2500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12826",
+       "nombre": "Jabón de glicerina Estilo Spa neutro x 120gr",
+       "precio": 2300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L6710",
+       "nombre": "Jabon liquido Algabo Frutos del Bosque Repuesto DP",
+       "precio": 2100,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L2659",
+       "nombre": "Quitamanchas Vanish DP x 400",
+       "precio": 3500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13322",
+       "nombre": "Jabon liquido Dove Antibacterial x 220 ml",
+       "precio": 6900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11649",
+       "nombre": "Jabon de tocador Rexona Cotton Fresh x 3Un",
+       "precio": 5700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12460",
+       "nombre": "Jabon Liquido concentrado SKIP Colores vibrantes DP 800ml (Cuid Act)",
+       "precio": 11200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L2887",
+       "nombre": "Jabon Liquido Skip Evolucion Fibercare DP x 800ml",
+       "precio": 5200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L6216",
+       "nombre": "Jabon Blanco Ala  Coco x 200g",
+       "precio": 2400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12690",
+       "nombre": "Jabon de tocador Rexona Cotton Fresh x 1Un",
+       "precio": 1900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L5093",
+       "nombre": "Quitamanchas Trenet Oxi Sachet x 400cc",
+       "precio": 3500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10131",
+       "nombre": "Jabon en polvo Ala Matic x 800g clasico eco lavado",
+       "precio": 3900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L4936",
+       "nombre": "QuitamanchasTrenet Oxi Gatillo x 500",
+       "precio": 6800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11036",
+       "nombre": "Jabon liquido Ala Matic c/ Vivere DP x 3 lt",
+       "precio": 13600,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L3862",
+       "nombre": "Jabon de tocador Dove original x 90gr",
+       "precio": 3200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13019",
+       "nombre": "Jabon liquido Ala Matic  DP x 800 ml",
+       "precio": 4400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12461",
+       "nombre": "Jabon Liquido concentrado SKIP x anti olores (Fresc. Act.) DP 800ml",
+       "precio": 11200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11520",
+       "nombre": "Vanish Quitamanchas Gatillo x500ml",
+       "precio": 7500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10103",
+       "nombre": "Jabon Liquido Frasco Algabo Antibacterial x300ml",
+       "precio": 4100,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11287",
+       "nombre": "Quitamanchas Ayudin Ropa Colores Vivos  x 700",
+       "precio": 6700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L2729",
+       "nombre": "Jabon liquido Woolite ropa oscura DP 450 cc",
+       "precio": 4500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12375",
+       "nombre": "Jabon Liquido concentrado SKIP x fragancia Extraordinaria (Limp Act)  DP 800ml",
+       "precio": 11200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12200",
+       "nombre": "Jabon Liquido para ropa Rino Pradera Verde 3L",
+       "precio": 6300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L2502",
+       "nombre": "Quitamanchas Ayudin Ropa Color Dp x 400ml",
+       "precio": 3500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10323",
+       "nombre": "Jabon de tocador Rexona Bamboo x 3un",
+       "precio": 4600,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12145",
+       "nombre": "QuitamanchasTrenet bolilla x 120ml",
+       "precio": 4400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13023",
+       "nombre": "Quitamanchas Ayudin ropa blanca x 450gm",
+       "precio": 12500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L2503",
+       "nombre": "Jabon liquido Skip Evolucion x 3 Lt Doypack",
+       "precio": 16400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L2511",
+       "nombre": "Jabon liquido Ala Matic  DP x 3 lt",
+       "precio": 15300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12514",
+       "nombre": "Jabon en Polvo Ala lavado a mano 3 Kg",
+       "precio": 15400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L5320",
+       "nombre": "Quitamanchas Vanish oxi Action x 120g",
+       "precio": 4800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11572",
+       "nombre": "Jabon Liquido concentrado SKIP Colores vibrantes 800ml (Cuidado Activo)",
+       "precio": 13200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13245",
+       "nombre": "Jabon en Polvo Ala  Lavada a Mano x 400gr",
+       "precio": 2200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13324",
+       "nombre": "Suavizante Vivere explosion floral  DP x 3 LT",
+       "precio": 18000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11875",
+       "nombre": "Jabón líquido Estilo Spa maracuyá x 300 ml",
+       "precio": 4200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13158",
+       "nombre": "Jabon con glicerina Lux lemongrass y flores blancas 3 x 90gr",
+       "precio": 6900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12016",
+       "nombre": "Jabon Liquido concentrado SKIP x anti olores (Fresc Act) 800ml",
+       "precio": 13200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12776",
+       "nombre": "Jabon Liquido Woolite ropa blanca DP 450 ml",
+       "precio": 4800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L2671",
+       "nombre": "Jabon Liquido Woolite bebe DP 450 ml",
+       "precio": 4700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11874",
+       "nombre": "Jabón líquido Estilo Spa orquídea dp x 320",
+       "precio": 1700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12178",
+       "nombre": "Jabon con glicerina Lux Flor de Vainilla 120gr",
+       "precio": 1500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12528",
+       "nombre": "Jabon liquido Algabo Green Tea Repuesto DP",
+       "precio": 2500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12534",
+       "nombre": "Jabón líquido Estilo Spa Antibacterial x 300 ml",
+       "precio": 4200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12535",
+       "nombre": "Jabón líquido Estilo Spa Orquideas x 300 ml",
+       "precio": 4200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12691",
+       "nombre": "Jabon de tocador Rexona Nutritive Orchid x 1Un",
+       "precio": 1900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L9876",
+       "nombre": "Jabon liquido Algabo Flower DP",
+       "precio": 2500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L9958",
+       "nombre": "Jabon Liquido Ala Camelito x DP x 450cc",
+       "precio": 4200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11650",
+       "nombre": "Jabon liquido Skip botella para diluir x 500ml",
+       "precio": 11700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12065",
+       "nombre": "Jabon en polvo Ariel Limpieza Profunda x 3 Kg",
+       "precio": 19900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L5837",
+       "nombre": "Jabon de tocador Rexona Futbol Fanatics x 3U",
+       "precio": 3900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L9671",
+       "nombre": "Jabon liquido Algabo Coconut Dream 300ml DP",
+       "precio": 2400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13343",
+       "nombre": "Enguaje bucal Colgate total clean mint x 250ml",
+       "precio": 7800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12674",
+       "nombre": "Enjuague Bucal Colgate plax  Infinity x 180ml",
+       "precio": 3900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13026",
+       "nombre": "Pasta Dental Colgate anticaries x 180G",
+       "precio": 6900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L6698",
+       "nombre": "Pasta dental Colgate Kids x 50g",
+       "precio": 5700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12097",
+       "nombre": "Pasta Dental Colgate Total prevencion activa x 90g",
+       "precio": 7700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10802",
+       "nombre": "Pasta dental Colgate Triple accion extra blancura x 90g",
+       "precio": 6000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13024",
+       "nombre": "Pasta Dental Colgate Triple accion x 70g",
+       "precio": 4700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13025",
+       "nombre": "Pasta dental Colgate ultra blanco x 90g",
+       "precio": 3600,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13160",
+       "nombre": "Jabon liquido Ala lavado a mano  DP x 800 ml",
+       "precio": 4100,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L2664",
+       "nombre": "Jabon liquido Tibu x 3 LT botella Pradera Verde",
+       "precio": 9200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10163",
+       "nombre": "Jabon de tocador Rexona Bamboo x 1Un",
+       "precio": 1900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7802",
+       "nombre": "Jabon Dove Exfoliacion Suave x 90gr",
+       "precio": 3500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13239",
+       "nombre": "Jabon liquido Algabo Citrus splash repuesto DP  x 300ml",
+       "precio": 2500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12826",
+       "nombre": "Jabón de glicerina Estilo Spa neutro x 120gr",
+       "precio": 2300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L6710",
+       "nombre": "Jabon liquido Algabo Frutos del Bosque Repuesto DP",
+       "precio": 2100,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L2659",
+       "nombre": "Quitamanchas Vanish DP x 400",
+       "precio": 3500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13322",
+       "nombre": "Jabon liquido Dove Antibacterial x 220 ml",
+       "precio": 6900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11649",
+       "nombre": "Jabon de tocador Rexona Cotton Fresh x 3Un",
+       "precio": 5700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12460",
+       "nombre": "Jabon Liquido concentrado SKIP Colores vibrantes DP 800ml (Cuid Act)",
+       "precio": 11200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L2887",
+       "nombre": "Jabon Liquido Skip Evolucion Fibercare DP x 800ml",
+       "precio": 5200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L6216",
+       "nombre": "Jabon Blanco Ala  Coco x 200g",
+       "precio": 2400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12690",
+       "nombre": "Jabon de tocador Rexona Cotton Fresh x 1Un",
+       "precio": 1900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L5093",
+       "nombre": "Quitamanchas Trenet Oxi Sachet x 400cc",
+       "precio": 3500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10131",
+       "nombre": "Jabon en polvo Ala Matic x 800g clasico eco lavado",
+       "precio": 3900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L4936",
+       "nombre": "QuitamanchasTrenet Oxi Gatillo x 500",
+       "precio": 6800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11036",
+       "nombre": "Jabon liquido Ala Matic c/ Vivere DP x 3 lt",
+       "precio": 13600,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L3862",
+       "nombre": "Jabon de tocador Dove original x 90gr",
+       "precio": 3200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13019",
+       "nombre": "Jabon liquido Ala Matic  DP x 800 ml",
+       "precio": 4400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12461",
+       "nombre": "Jabon Liquido concentrado SKIP x anti olores (Fresc. Act.) DP 800ml",
+       "precio": 11200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11520",
+       "nombre": "Vanish Quitamanchas Gatillo x500ml",
+       "precio": 7500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10103",
+       "nombre": "Jabon Liquido Frasco Algabo Antibacterial x300ml",
+       "precio": 4100,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11287",
+       "nombre": "Quitamanchas Ayudin Ropa Colores Vivos  x 700",
+       "precio": 6700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L2729",
+       "nombre": "Jabon liquido Woolite ropa oscura DP 450 cc",
+       "precio": 4500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12375",
+       "nombre": "Jabon Liquido concentrado SKIP x fragancia Extraordinaria (Limp Act)  DP 800ml",
+       "precio": 11200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12200",
+       "nombre": "Jabon Liquido para ropa Rino Pradera Verde 3L",
+       "precio": 6300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L2502",
+       "nombre": "Quitamanchas Ayudin Ropa Color Dp x 400ml",
+       "precio": 3500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10323",
+       "nombre": "Jabon de tocador Rexona Bamboo x 3un",
+       "precio": 4600,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12145",
+       "nombre": "QuitamanchasTrenet bolilla x 120ml",
+       "precio": 4400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13023",
+       "nombre": "Quitamanchas Ayudin ropa blanca x 450gm",
+       "precio": 12500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L2503",
+       "nombre": "Jabon liquido Skip Evolucion x 3 Lt Doypack",
+       "precio": 16400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L2511",
+       "nombre": "Jabon liquido Ala Matic  DP x 3 lt",
+       "precio": 15300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12514",
+       "nombre": "Jabon en Polvo Ala lavado a mano 3 Kg",
+       "precio": 15400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L5320",
+       "nombre": "Quitamanchas Vanish oxi Action x 120g",
+       "precio": 4800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11572",
+       "nombre": "Jabon Liquido concentrado SKIP Colores vibrantes 800ml (Cuidado Activo)",
+       "precio": 13200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13245",
+       "nombre": "Jabon en Polvo Ala  Lavada a Mano x 400gr",
+       "precio": 2200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13324",
+       "nombre": "Suavizante Vivere explosion floral  DP x 3 LT",
+       "precio": 18000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11875",
+       "nombre": "Jabón líquido Estilo Spa maracuyá x 300 ml",
+       "precio": 4200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13158",
+       "nombre": "Jabon con glicerina Lux lemongrass y flores blancas 3 x 90gr",
+       "precio": 6900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12016",
+       "nombre": "Jabon Liquido concentrado SKIP x anti olores (Fresc Act) 800ml",
+       "precio": 13200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12776",
+       "nombre": "Jabon Liquido Woolite ropa blanca DP 450 ml",
+       "precio": 4800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L2671",
+       "nombre": "Jabon Liquido Woolite bebe DP 450 ml",
+       "precio": 4700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11874",
+       "nombre": "Jabón líquido Estilo Spa orquídea dp x 320",
+       "precio": 1700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12178",
+       "nombre": "Jabon con glicerina Lux Flor de Vainilla 120gr",
+       "precio": 1500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12528",
+       "nombre": "Jabon liquido Algabo Green Tea Repuesto DP",
+       "precio": 2500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12534",
+       "nombre": "Jabón líquido Estilo Spa Antibacterial x 300 ml",
+       "precio": 4200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12535",
+       "nombre": "Jabón líquido Estilo Spa Orquideas x 300 ml",
+       "precio": 4200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12691",
+       "nombre": "Jabon de tocador Rexona Nutritive Orchid x 1Un",
+       "precio": 1900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L9876",
+       "nombre": "Jabon liquido Algabo Flower DP",
+       "precio": 2500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L9958",
+       "nombre": "Jabon Liquido Ala Camelito x DP x 450cc",
+       "precio": 4200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11650",
+       "nombre": "Jabon liquido Skip botella para diluir x 500ml",
+       "precio": 11700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12065",
+       "nombre": "Jabon en polvo Ariel Limpieza Profunda x 3 Kg",
+       "precio": 19900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L5837",
+       "nombre": "Jabon de tocador Rexona Futbol Fanatics x 3U",
+       "precio": 3900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L9671",
+       "nombre": "Jabon liquido Algabo Coconut Dream 300ml DP",
+       "precio": 2400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10029",
+       "nombre": "Toallitas Desinfectantes de superficies Ayudin x 36u",
+       "precio": 6900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7348",
+       "nombre": "Toallitas Estrella Humedas Cuidado x 50un",
+       "precio": 5900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L5927",
+       "nombre": "Toallitas Estrella Humedas Relajantes x 50u",
+       "precio": 5400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11686",
+       "nombre": "Cafe molido Illy lata x 125g",
+       "precio": 25400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L9359",
+       "nombre": "Cafe Molido la Planta de cafe x 125grs",
+       "precio": 4500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L5072",
+       "nombre": "Cafe Cabrales Brasil Tostado Molido x250grs",
+       "precio": 21000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7668",
+       "nombre": "Cafe Cabrales Colombia Tostado Molido x 250g",
+       "precio": 21000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13269",
+       "nombre": "Cafe Cabrales Happy Day tostado molido  x 190g",
+       "precio": 9500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L4595",
+       "nombre": "Cafe Cabrales Peru Tostado Molido x 250g",
+       "precio": 21000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7669",
+       "nombre": "Cafe Cabrales Super Tostado Molido x 250g",
+       "precio": 17300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12293",
+       "nombre": "Cafe descafeinado Cabrales tostado molido x 250g",
+       "precio": 21000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13270",
+       "nombre": "Cafe en Granos Cabrales Prestige tostado molido x 250gr",
+       "precio": 21300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L8943",
+       "nombre": "Cafe Juan Valdez Cumbre descafeinado molido x 250g",
+       "precio": 35000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L8307",
+       "nombre": "Cafe Starbucks House Blend tostado y molido x 250g",
+       "precio": 33900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7790",
+       "nombre": "Cafe Starbucks Torrado y molido Verona x 250g",
+       "precio": 32900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10722",
+       "nombre": "Cafe Tostado Molido Cabrales  Vita x 250GR",
+       "precio": 24800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13243",
+       "nombre": "Desinfectante CIF Aero Citrica x 360cc",
+       "precio": 5700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13244",
+       "nombre": "Desinfectante CIF Aero Lavanda x 360cc",
+       "precio": 5700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12563",
+       "nombre": "Desinfectantes de ambientes y sup CIF x 360cc aerosol",
+       "precio": 5700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12409",
+       "nombre": "Detergente Cif Activgel Limon x 500ml",
+       "precio": 6800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12858",
+       "nombre": "Detergente Cif Activgel Original x 500ml",
+       "precio": 6200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L6576",
+       "nombre": "Lavavajillas Cif  bioactive  Lima x 750ml",
+       "precio": 9500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12828",
+       "nombre": "Lavavajillas Cif  bioactive  Limon DP x 450ml",
+       "precio": 3400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L6575",
+       "nombre": "Lavavajillas Cif  bioactive  Limon x 750ml",
+       "precio": 9500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L5745",
+       "nombre": "Lavavajillas Cif Lima x 300ml",
+       "precio": 3300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L6643",
+       "nombre": "Lavavajillas Cif Lima x 500ml",
+       "precio": 4000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L3875",
+       "nombre": "Lavavajillas Cif Limon x 300ml",
+       "precio": 3300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L6644",
+       "nombre": "Lavavajillas Cif Limon x 500ml",
+       "precio": 4000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7362",
+       "nombre": "Limpiador Cif Crema Bioactive blanco x 375",
+       "precio": 3100,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L2510",
+       "nombre": "Limpiador Cif crema Bioactive rosas y jazmines x 375",
+       "precio": 3200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L2956",
+       "nombre": "Limpiador en Crema Cif Crema blanco 750",
+       "precio": 5700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12557",
+       "nombre": "Limpiador en Crema Cif Crema Rosas y Jazmines 750",
+       "precio": 5800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13128",
+       "nombre": "Limpiador en gel Cif con Lavadina x 513gr",
+       "precio": 5400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L8120",
+       "nombre": "Limpiador en gel Cif con Lavadina x 750cc",
+       "precio": 5800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10796",
+       "nombre": "Limpiador en Gel Cif Original x500gr",
+       "precio": 6900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L8353",
+       "nombre": "Limpiador liquido Cif Antigrasa Expert DP x 450g",
+       "precio": 3400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7985",
+       "nombre": "Limpiador liquido Cif Antigrasa expert gatillo x 500",
+       "precio": 5400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L8275",
+       "nombre": "Limpiador liquido Cif Baño Expert DP x 450 ml",
+       "precio": 3400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L8100",
+       "nombre": "Limpiador liquido Cif Baño Expert gatillo x 500 ml",
+       "precio": 6100,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L8135",
+       "nombre": "Limpiador liquido Cif Expert Vidrios DP x 450ml",
+       "precio": 3200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L2521",
+       "nombre": "Limpiador liquido Cif Expert Vidrios gatillo x 500",
+       "precio": 6200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13318",
+       "nombre": "Limpiador liquido Cif para pisos bioactive oxygel x 750ml botella",
+       "precio": 7200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7649",
+       "nombre": "Limpiador liquido Cif Ultra Brillo Citric GATILLO x 400ml",
+       "precio": 8000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7648",
+       "nombre": "Limpiador liquido Cif Ultra Brillo GATILLO x 400ml",
+       "precio": 7500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12611",
+       "nombre": "Lucifer Assemblage x750cc",
+       "precio": 44400,
+       "precioEfectivo": 39960
+      },
+      {
+       "sku": "L12409",
+       "nombre": "Detergente Cif Activgel Limon x 500ml",
+       "precio": 6800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12858",
+       "nombre": "Detergente Cif Activgel Original x 500ml",
+       "precio": 6200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13159",
+       "nombre": "Capsulas p/lavavajillas limon Sun x 240gr",
+       "precio": 22400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L6644",
+       "nombre": "Lavavajillas Cif Limon x 500ml",
+       "precio": 4000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L2730",
+       "nombre": "Polvo para Lavavajillas Finish  x 1KG DP",
+       "precio": 15000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L3491",
+       "nombre": "Abrillantador para  Lavavajillas Finish  x 400ml",
+       "precio": 17200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L6576",
+       "nombre": "Lavavajillas Cif  bioactive  Lima x 750ml",
+       "precio": 9500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7061",
+       "nombre": "Lavavajillas Ala cremoso Limon x 750ml",
+       "precio": 4000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L3492",
+       "nombre": "Sal para lavavajillas Finish DP x 1k",
+       "precio": 12500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L5745",
+       "nombre": "Lavavajillas Cif Lima x 300ml",
+       "precio": 3300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10024",
+       "nombre": "Polvo para Lavavajillas Finish Tabletas power x 30u",
+       "precio": 32400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L6643",
+       "nombre": "Lavavajillas Cif Lima x 500ml",
+       "precio": 4000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10776",
+       "nombre": "Lavavajillas Magistral Marina x 500ml",
+       "precio": 6200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13029",
+       "nombre": "Capsulas para lavado de lavavajillas Powerful x 20 cap",
+       "precio": 17600,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L3875",
+       "nombre": "Lavavajillas Cif Limon x 300ml",
+       "precio": 3300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12828",
+       "nombre": "Lavavajillas Cif  bioactive  Limon DP x 450ml",
+       "precio": 3400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L6575",
+       "nombre": "Lavavajillas Cif  bioactive  Limon x 750ml",
+       "precio": 9500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L2495",
+       "nombre": "Lavavajillas Magistral Limon x 300",
+       "precio": 3700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L2497",
+       "nombre": "Lavavajillas Magistral Limon x 500",
+       "precio": 5300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7214",
+       "nombre": "Esponja Virulana Ayudin  Cuadraditos x1",
+       "precio": 1200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L2508",
+       "nombre": "Lavandina Ayudin en gel 700 ml",
+       "precio": 5200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L6645",
+       "nombre": "Lavandina Ayudin Gel 500cc",
+       "precio": 4400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L2507",
+       "nombre": "Lavandina Ayudin original x 1 lt",
+       "precio": 1700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L4900",
+       "nombre": "Lavandina Ayudin Original x 2 LT",
+       "precio": 3900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L5603",
+       "nombre": "Lavandina Ayudin original x 4 lt",
+       "precio": 8000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L8205",
+       "nombre": "Lavandina Ayudin Ropa blanca Blanco Supremo x 700",
+       "precio": 6400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L2467",
+       "nombre": "Limpiador liquido Ayudin Baño DP x 450",
+       "precio": 3600,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13023",
+       "nombre": "Quitamanchas Ayudin ropa blanca x 450gm",
+       "precio": 12500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L2502",
+       "nombre": "Quitamanchas Ayudin Ropa Color Dp x 400ml",
+       "precio": 3500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11287",
+       "nombre": "Quitamanchas Ayudin Ropa Colores Vivos  x 700",
+       "precio": 6700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10029",
+       "nombre": "Toallitas Desinfectantes de superficies Ayudin x 36u",
+       "precio": 6900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12515",
+       "nombre": "Desinfectantes de ambientes Lysoform  Bebe x 360cc aerosol",
+       "precio": 6900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L4440",
+       "nombre": "Desinfectantes de ambientes Lysoform Lavanda x 360cc Aerosol",
+       "precio": 6900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12185",
+       "nombre": "Desinfectantes de ambientes Lysoform Original x 315cc aerosol",
+       "precio": 6100,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L4439",
+       "nombre": "Desinfectantes de ambientes Lysoform Original x 360cc aerosol",
+       "precio": 7100,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11036",
+       "nombre": "Jabon liquido Ala Matic c/ Vivere DP x 3 lt",
+       "precio": 13600,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L4007",
+       "nombre": "Suavizante Vivere  DP x 3 LT",
+       "precio": 18000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L2513",
+       "nombre": "Suavizante Vivere clasico x 900ml",
+       "precio": 5000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13324",
+       "nombre": "Suavizante Vivere explosion floral  DP x 3 LT",
+       "precio": 18000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L6639",
+       "nombre": "Suavizante Vivere Violetas Y Flores DP x 3 LT",
+       "precio": 16400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12314",
+       "nombre": "Vivere Plancha facil x 900ml",
+       "precio": 3800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L4556",
+       "nombre": "Limpia horno Mr Musculo AntiGrasa  x360cc",
+       "precio": 12500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L8353",
+       "nombre": "Limpiador liquido Cif Antigrasa Expert DP x 450g",
+       "precio": 3400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7985",
+       "nombre": "Limpiador liquido Cif Antigrasa expert gatillo x 500",
+       "precio": 5400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10301",
+       "nombre": "Arroz Gallo Largo Fino estuche x 1K",
+       "precio": 4800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L4898",
+       "nombre": "Arroz Gallo largo fino x 1 kg bolsa",
+       "precio": 3500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L5823",
+       "nombre": "Arroz Gallo largo fino x 500grs Bolsa",
+       "precio": 2000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7915",
+       "nombre": "Arroz Luccheti largo fino bolsa x 1K",
+       "precio": 2400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7914",
+       "nombre": "Arroz Lucchetti  largo fino x 500g",
+       "precio": 1300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11105",
+       "nombre": "Arroz Molinos Ala Largo Fino x 1kg",
+       "precio": 2600,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7433",
+       "nombre": "Arroz Molinos Ala Largo Fino x500gr",
+       "precio": 1400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L3252",
+       "nombre": "Jamon Cocido Bocatti Natural",
+       "precio": 34600,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L9475",
+       "nombre": "Jamon Cocido Las Dinas",
+       "precio": 35800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L4789",
+       "nombre": "Jamon Cocido Luvianka Natural",
+       "precio": 25700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L3297",
+       "nombre": "Jamon Cocido Paladini",
+       "precio": 24500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12958",
+       "nombre": "Jamon Cocido Sadia",
+       "precio": 18500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L4673",
+       "nombre": "Papel Higienico Elegante Doble hoja AZUL 4x30mts",
+       "precio": 4200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L2748",
+       "nombre": "Papel Higienico Elegante Violeta 4x30mts",
+       "precio": 2200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13044",
+       "nombre": "Papel Higienico Felpita hoja simple  x 4 x 30 mts",
+       "precio": 2500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L9906",
+       "nombre": "Papel Higienico Felpita Premium Doble Hoja 6 x 30mt",
+       "precio": 6000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L4300",
+       "nombre": "Papel Higienico Felpita x 80 mts x 4UN",
+       "precio": 5600,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11693",
+       "nombre": "Papel Higienico Higienol Doble hoja PLUS 4 x 30mt",
+       "precio": 4200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L2458",
+       "nombre": "Papel Higienico Higienol Max Panal 4 x 80 mts",
+       "precio": 5400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13046",
+       "nombre": "Papel higienico Suiza DH 4 X20mt",
+       "precio": 2300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13047",
+       "nombre": "Papel higienico Suiza HS X 4 X 80mt",
+       "precio": 4600,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L2768",
+       "nombre": "Queso Crema Casancrem descremado  verde 290 gr",
+       "precio": 8000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L9188",
+       "nombre": "Queso crema Casancrem Ligth Blanco x 290gr",
+       "precio": 7200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L5002",
+       "nombre": "Queso Cheddar La Serenisima Finlandia x Fraccion",
+       "precio": 26000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7336",
+       "nombre": "Queso Crema Finlandia BLANCO (Mas Liviano) x290gr",
+       "precio": 5900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L3762",
+       "nombre": "Queso Crema Finlandia Clasico x 290 gr",
+       "precio": 6100,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L3763",
+       "nombre": "Queso Crema Finlandia verde  Light x 290 gr",
+       "precio": 6100,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13326",
+       "nombre": "Queso Finlandia Light x 180 gr",
+       "precio": 4000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12433",
+       "nombre": "Queso La Serenisima Finlandia Chef Hebras 4 Quesos Light x130gr",
+       "precio": 5700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10754",
+       "nombre": "Queso La Serenisima Finlandia Chef Hebras 4 Quesos x130gr",
+       "precio": 5700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10732",
+       "nombre": "Queso La Serenisima Finlandia Chef Hebras Mozzarella Parmesano x130gr",
+       "precio": 5700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11094",
+       "nombre": "Queso La Serenisima Finlandia Danbo en Fetas x150gr",
+       "precio": 5400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L8391",
+       "nombre": "Aerosol Aromatizante Poett  Despertar de energia x 360gr",
+       "precio": 3600,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11415",
+       "nombre": "Aerosol Aromatizante Poett Alegra x 360gr",
+       "precio": 4600,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11413",
+       "nombre": "Aerosol Aromatizante Poett Espiritu Play x 360cc",
+       "precio": 4600,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L2504",
+       "nombre": "Aerosol Aromatizante Poett Lavanda x 360cc",
+       "precio": 5400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L2505",
+       "nombre": "Aerosol Aromatizante Poett Musica en primavera x 360cc",
+       "precio": 5400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10394",
+       "nombre": "Aerosol Aromatizante Poett Solo Para TI X 360cc",
+       "precio": 3600,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L8502",
+       "nombre": "Aromatizantes para inodoro Poett lavanda",
+       "precio": 2700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10609",
+       "nombre": "limpiador liquido arom. Poett  Flores de primavera X 900ML",
+       "precio": 3000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L5321",
+       "nombre": "limpiador liquido arom. Poett  Lavanda x 900ml",
+       "precio": 3100,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L5214",
+       "nombre": "limpiador liquido arom. Poett Despertar de energia x 900cc",
+       "precio": 2900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L2558",
+       "nombre": "limpiador liquido arom. Poett Musica de Primavera x 900 ml",
+       "precio": 2900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L9823",
+       "nombre": "limpiador liquido arom. Poett Solo para ti x 900ml",
+       "precio": 2900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7120",
+       "nombre": "limpiador liquido arom. Poett Suavidad de Algodon x 900ml",
+       "precio": 2900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11048",
+       "nombre": "limpiador liquido aromatizante Poett  Flores de primavera X 4L",
+       "precio": 13000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11047",
+       "nombre": "limpiador liquido aromatizante Poett  Lavanda X 4l",
+       "precio": 13900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12143",
+       "nombre": "limpiador liquido aromatizante Poett  Solo para ti X 4L",
+       "precio": 13000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L4193",
+       "nombre": "Limpiador liquido Aromatizante Poett Bebe x 1800ml",
+       "precio": 6200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L2957",
+       "nombre": "Limpiador liquido Aromatizante Poett lavanda x 1800",
+       "precio": 6000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L6224",
+       "nombre": "Limpiador liquido Aromatizante Poett Musica en privamera x 1800ml",
+       "precio": 6200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L2506",
+       "nombre": "Limpiador Liquido Aromatizante Poett Suavidad algodon x 1.8l",
+       "precio": 6000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11046",
+       "nombre": "limpiador liquido aromatizante Poett Suavidad de bebe x 4l",
+       "precio": 13700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12224",
+       "nombre": "Repuesto de Canasta Poett  27.5gr",
+       "precio": 3000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12780",
+       "nombre": "Protectores Carefree Proteccion x 60 un",
+       "precio": 13800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L2488",
+       "nombre": "Protectores diarios Carefree Sin Perfume x 20 un",
+       "precio": 4400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7858",
+       "nombre": "Protectores diarios Carefree Tanga x20un",
+       "precio": 5200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12315",
+       "nombre": "Protectores diarios Carefree Todos los dias x 20 un",
+       "precio": 4800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L2727",
+       "nombre": "Protectores Todos los Dias Carefree x 60 un",
+       "precio": 13500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L3410",
+       "nombre": "Queso Mar del Plata Barraza x fraccion",
+       "precio": 45600,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L5971",
+       "nombre": "Queso Muzzarella Barraza  x 1klg",
+       "precio": 30500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L3381",
+       "nombre": "Queso Muzzarella Barraza x fraccion",
+       "precio": 24900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11682",
+       "nombre": "Queso Port salud Barraza x fraccion",
+       "precio": 15300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L8427",
+       "nombre": "Queso Cheddar  fetas Milkaut x fraccion",
+       "precio": 37300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12299",
+       "nombre": "Brie Formagge 100gr",
+       "precio": 14500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L9665",
+       "nombre": "Morbier Fermier con cenizas x fraccion",
+       "precio": 33800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L9452",
+       "nombre": "Cabaña Piedras Blancas Chevrotin en cuña",
+       "precio": 101000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10332",
+       "nombre": "Messonier Queso Finas Hierbas",
+       "precio": 33600,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L9542",
+       "nombre": "Queso Saint Maureen Frances",
+       "precio": 49200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11250",
+       "nombre": "Queso Banquete Don Atilio x fraccion",
+       "precio": 26700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L3625",
+       "nombre": "Queso Cremoso Cremon La Serenisma x fraccion",
+       "precio": 18600,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13217",
+       "nombre": "Mascarpone Festa x 250g",
+       "precio": 6300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L9227",
+       "nombre": "Queso 4 esquinas Ventimiglia x fraccion",
+       "precio": 123000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L3255",
+       "nombre": "Queso Parmesano Vaquero x fraccion",
+       "precio": 41800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7880",
+       "nombre": "Cabaña Piedras Blancas Ligne noir en cuña x 200g",
+       "precio": 58300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13274",
+       "nombre": "Queso Pategras Santa Rosa Seleccion x fraccion",
+       "precio": 44600,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13304",
+       "nombre": "Queso Muzzarella  Rifka  x 1kg",
+       "precio": 14600,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L9509",
+       "nombre": "Gouda Santa Maria de los Toldos",
+       "precio": 26600,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L9666",
+       "nombre": "Raclette Fermier x fraccion",
+       "precio": 32200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12207",
+       "nombre": "Queso Fiambrin La Serenisima x Fraccion",
+       "precio": 26100,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L4722",
+       "nombre": "Queso Provoleta Santa Rosa Parrillera x fraccion",
+       "precio": 57200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7875",
+       "nombre": "Cabaña Piedras Blancas Brie x 160g",
+       "precio": 12500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L3254",
+       "nombre": "Queso Pategras de Campo x fraccion",
+       "precio": 38200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12673",
+       "nombre": "Queso Tybo La Paulina x fraccion",
+       "precio": 19800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12122",
+       "nombre": "Queso Azul Danes Extra Cremoso Castello 100gr",
+       "precio": 11400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L6250",
+       "nombre": "Queso Provoleta La Sorianita Queso parrillero",
+       "precio": 37800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10663",
+       "nombre": "Queso Azul Ahumado",
+       "precio": 42900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L6360",
+       "nombre": "Queso Cremoso La Paulina fraccionado",
+       "precio": 15800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L9468",
+       "nombre": "Queso Ahumado Fermier",
+       "precio": 27700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13081",
+       "nombre": "Caciocavallo Arrivata x 185gr",
+       "precio": 9900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12298",
+       "nombre": "Mozzarelle Formagge 250gr",
+       "precio": 10500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L3240",
+       "nombre": "Queso Muzzarella La Tarantela x fracccion",
+       "precio": 14100,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11443",
+       "nombre": "Messonier c/ ajo negro x Fraccion",
+       "precio": 35200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L9199",
+       "nombre": "Cabaña Piedras Blancas Mini Brie Noir",
+       "precio": 54900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L4286",
+       "nombre": "Queso Sangre Azul Ventimiglia x fraccion",
+       "precio": 55500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13070",
+       "nombre": "Gouda Don Atilio de Pistacho",
+       "precio": 29700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10902",
+       "nombre": "Queso Pepato Santa Maria x fraccion",
+       "precio": 34100,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L5002",
+       "nombre": "Queso Cheddar La Serenisima Finlandia x Fraccion",
+       "precio": 26000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10662",
+       "nombre": "Queso Capresse Santa Narcisa",
+       "precio": 28600,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12336",
+       "nombre": "Zanetti Queso Grana Padano x fraccion",
+       "precio": 95600,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L3747",
+       "nombre": "Queso Azul Santa Rosa",
+       "precio": 43700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11077",
+       "nombre": "Queso Azul Rosenborg x Fraccion",
+       "precio": 84000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L4042",
+       "nombre": "Queso Reggiano Vaquero x fraccion",
+       "precio": 39900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L9466",
+       "nombre": "Queso Danbo Frances Fermier",
+       "precio": 25800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12745",
+       "nombre": "Sardo Santa Rosa  x Fraccion",
+       "precio": 52300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L9641",
+       "nombre": "Queso port salut Salut ligth La Serenisima x Fraccion",
+       "precio": 26700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L4288",
+       "nombre": "Queso Patagonzola Ventimiglia x fraccion",
+       "precio": 61000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L9510",
+       "nombre": "Brie Prevert x peso",
+       "precio": 50000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10075",
+       "nombre": "Wapi Brie x Peso",
+       "precio": 35800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L4655",
+       "nombre": "Queso Danbo Punta del Agua x fraccion",
+       "precio": 18100,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10330",
+       "nombre": "Queso Azul Tres Leches Ventimiglia x Fraccion",
+       "precio": 83300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7879",
+       "nombre": "Cabaña Piedras Blancas Petit Camembert",
+       "precio": 60300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10500",
+       "nombre": "Cabaña Piedras Blancas  Gruyere",
+       "precio": 80300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13123",
+       "nombre": "Fondue de Queso Emmental Tirolez x 400gr",
+       "precio": 25300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L8187",
+       "nombre": "Queso azul bavaria clasico",
+       "precio": 36000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L4554",
+       "nombre": "Queso Provolone Santa Rosa x fraccion",
+       "precio": 59900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11249",
+       "nombre": "Gouda Saborizados en barra",
+       "precio": 31600,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L4468",
+       "nombre": "Queso Danbo La Serenisima x fraccion",
+       "precio": 30000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L9465",
+       "nombre": "Queso Fermier Tomme",
+       "precio": 25800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L4287",
+       "nombre": "Queso Rumel Ventimiglia",
+       "precio": 49900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11619",
+       "nombre": "Provoleta Nonna pia con cazuela",
+       "precio": 38000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L9996",
+       "nombre": "Queso Fontina Fermier x fraccion",
+       "precio": 32300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11141",
+       "nombre": "Cabaña Piedras Blancas  Queso Minibrie (torta)",
+       "precio": 54900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L9561",
+       "nombre": "Messonier Pesto",
+       "precio": 33600,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7874",
+       "nombre": "Cabaña Piedras Blancas queso Feta x 200g",
+       "precio": 99400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11581",
+       "nombre": "Sardo Vaquero x fraccion",
+       "precio": 35200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12395",
+       "nombre": "Barra Ahumada pimienta y Ajo",
+       "precio": 32200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L3472",
+       "nombre": "Queso Atuel Santa Rosa x fraccion",
+       "precio": 41800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L6733",
+       "nombre": "Queso Danbo Sancor x fraccion",
+       "precio": 37600,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12007",
+       "nombre": "Barra Danbo Tarantela  x fraccion",
+       "precio": 17500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10425",
+       "nombre": "Pan de Queso Pampeano x Fraccion",
+       "precio": 32400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10793",
+       "nombre": "Queso Mascarpone Sterilgarda x 200gr",
+       "precio": 11300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10137",
+       "nombre": "Gruyerito Don Atilio",
+       "precio": 25000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10421",
+       "nombre": "Sky Gouda x Fraccion",
+       "precio": 30600,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11222",
+       "nombre": "Messonier queso Don Angel x fraccion",
+       "precio": 35200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11114",
+       "nombre": "Reggianito Santa Rosa",
+       "precio": 51800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11407",
+       "nombre": "Queso Cremoso Cremon La Serenisma Doble Crema x fraccion",
+       "precio": 13900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10420",
+       "nombre": "Gouda Vitraux de la cava",
+       "precio": 28000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11762",
+       "nombre": "Queso Azul La Paulina x Fraccion",
+       "precio": 38600,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12564",
+       "nombre": "Gouda Vaquero x fraccion",
+       "precio": 26900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12954",
+       "nombre": "Criollo Don Atilio",
+       "precio": 28300,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L9345",
+       "nombre": "Queso Tybo Ahumado Melincue  x Fraccion",
+       "precio": 27600,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7863",
+       "nombre": "Mascarpone Zanetti Italiano x 250g",
+       "precio": 14200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L9305",
+       "nombre": "Queso Gouda Veronica x fraccion",
+       "precio": 30500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L6749",
+       "nombre": "Queso Port Salut La Paulina x fraccion",
+       "precio": 17700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L6635",
+       "nombre": "Queso Sardo Sancor",
+       "precio": 25600,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L4653",
+       "nombre": "Queso Berna Ventimiglia x fraccion",
+       "precio": 58400,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L9560",
+       "nombre": "Cheddar Ingles Ahumado Don Angel",
+       "precio": 28800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10423",
+       "nombre": "Queso Cheddar Trueno Verde x Fraccion",
+       "precio": 34200,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10424",
+       "nombre": "Queso Aquel Manzano, No florecio x Fraccion",
+       "precio": 33750,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13124",
+       "nombre": "Fynbo Tremblay x fraccion",
+       "precio": 27000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13355",
+       "nombre": "Queso Pategras Sorianita x fraccion",
+       "precio": 26800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13169",
+       "nombre": "Queso Fontina Don Atilio x fraccion",
+       "precio": 31700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L10350",
+       "nombre": "Cabaña Piedras Blancas Queso Crottin",
+       "precio": 93000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L9464",
+       "nombre": "Queso Azul Veronica x fraccion",
+       "precio": 34500,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7881",
+       "nombre": "Cabaña Piedras Blancas Sacre Coeur x 120g",
+       "precio": 87700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11441",
+       "nombre": "Tambitos Fermier Trozados x peso",
+       "precio": 27100,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11120",
+       "nombre": "Queso Blue Cooly Ventimiglia x fraccion",
+       "precio": 50900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11131",
+       "nombre": "Queso Gouda Ahumado Don Atilio",
+       "precio": 26900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L11801",
+       "nombre": "Cabaña Piedras Blancas Queso Crottin con Pimienta",
+       "precio": 86000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L12326",
+       "nombre": "Gouda Ahumado Migue",
+       "precio": 36900,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13072",
+       "nombre": "Barra tybo punta de agua x fraccion",
+       "precio": 17700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L13236",
+       "nombre": "Barra danbo Milkaut x fraccion",
+       "precio": 26800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7877",
+       "nombre": "Cabaña Piedras Blancas Queso Raclette",
+       "precio": 74100,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L7878",
+       "nombre": "Cabaña Piedras Blancas Pepato",
+       "precio": 54700,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L9466",
+       "nombre": "Queso Danbo Frances Fermier",
+       "precio": 25800,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L4468",
+       "nombre": "Queso Danbo La Serenisima x fraccion",
+       "precio": 30000,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L4655",
+       "nombre": "Queso Danbo Punta del Agua x fraccion",
+       "precio": 18100,
+       "precioEfectivo": null
+      },
+      {
+       "sku": "L6733",
+       "nombre": "Queso Danbo Sancor x fraccion",
+       "precio": 37600,
+       "precioEfectivo": null
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}
