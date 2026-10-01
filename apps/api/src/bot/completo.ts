@@ -67,3 +67,32 @@ export function faltaElegirVariante(textoCliente: string, ultimosDelBot: string[
   const t = String(textoCliente ?? '').trim();
   return diceQueEstaCompleto(t) && t.split(/\s+/).length <= 5;
 }
+
+/**
+ * El producto por defecto de una búsqueda: entre los que MEJOR coinciden con lo
+ * pedido (más palabras de la búsqueda en el nombre), el más vendido de los que
+ * hay en stock (1/10/2026). Sin coincidencias o sin ventas, no hay defecto: el
+ * bot pregunta. (Sin el filtro, "champaña baron b" elegía un Havana añejo.)
+ */
+export function elegirPorDefecto<T extends { sku?: string; nombre?: string }>(items: T[], vendidas: (sku: string) => number, busqueda = ''): T | null {
+  const norm = (x: string) => String(x ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const VACIAS = /^(de|del|la|las|el|los|con|sin|por|para|x|en|y|o|un|una|gr|grs|kg|cc|ml|lt|lts|litro|litros)$/;
+  const raiz = (w: string) => w.replace(/(es|s)$/, '');
+  const palabras = [...new Set(norm(busqueda).split(/[^a-z0-9]+/).filter((w) => w.length >= 3 && !VACIAS.test(w)).map(raiz))];
+  const cobertura = (it: T) => {
+    if (!palabras.length) return 1;
+    const nombre = norm(it?.nombre ?? '').split(/[^a-z0-9]+/).map(raiz);
+    return palabras.filter((w) => nombre.some((n) => n === w || (w.length >= 4 && n.startsWith(w)))).length;
+  };
+  const conCobertura = items.map((it) => ({ it, c: cobertura(it) }));
+  const maxC = Math.max(0, ...conCobertura.map((x) => x.c));
+  if (maxC === 0) return null;
+  let mejor: T | null = null;
+  let max = 0;
+  for (const { it, c } of conCobertura) {
+    if (c !== maxC) continue;
+    const v = it?.sku ? vendidas(it.sku) : 0;
+    if (v > max) { max = v; mejor = it; }
+  }
+  return mejor;
+}

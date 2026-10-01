@@ -1,4 +1,4 @@
-import { conPreguntaDeCompleto, diceQueEstaCompleto, faltaElegirVariante, puedeCotizar } from './completo';
+import { conPreguntaDeCompleto, diceQueEstaCompleto, elegirPorDefecto, faltaElegirVariante, puedeCotizar } from './completo';
 
 const PREGUNTA = '• 2 × Fernet Branca 750 cc\n• 6 × Coca Cola Zero 1,75 L\n\n¿Está completo el pedido o querés sumar algo?';
 
@@ -90,5 +90,35 @@ describe('la lista terminó en otra pregunta: "es todo" no la contesta', () => {
   });
   it('si la última pregunta es la de completo, no frena', () => {
     expect(faltaElegirVariante('sí, es todo', ['• 2 × Fernet\n• 6 × Coca Cola 1,75 L\n\n¿Está completo el pedido o querés sumar algo?'])).toBe(false);
+  });
+});
+
+describe('por defecto, el más vendido (Leandro, 1/10/2026)', () => {
+  const v: Record<string, number> = { L124: 83, L150: 6, L151: 5, L2720: 41, L12343: 9, L2766: 96, L3459: 72, L6347: 58 };
+  const vendidas = (sku: string) => v[sku] ?? 0;
+  it('Baron B → Extra Brut, Savora → 250 g, Manteca → La Serenísima 200 g', () => {
+    expect(elegirPorDefecto([{ sku: 'L150' }, { sku: 'L124' }, { sku: 'L151' }], vendidas)?.sku).toBe('L124');
+    expect(elegirPorDefecto([{ sku: 'L12343' }, { sku: 'L2720' }], vendidas)?.sku).toBe('L2720');
+    expect(elegirPorDefecto([{ sku: 'L6347' }, { sku: 'L3459' }, { sku: 'L2766' }], vendidas)?.sku).toBe('L2766');
+  });
+  it('sin ventas no hay defecto', () => {
+    expect(elegirPorDefecto([{ sku: 'X' }, { sku: 'Y' }], vendidas)).toBeNull();
+  });
+});
+
+describe('el por defecto coincide con lo pedido', () => {
+  const vend: Record<string, number> = { H: 500, B: 83, BN: 6, D: 900, C: 40, S: 300, L: 12 };
+  const v = (sku: string) => vend[sku] ?? 0;
+  it('"champaña baron b" no elige un Havana añejo aunque se venda más', () => {
+    const items = [{ sku: 'H', nombre: 'Havana añejo' }, { sku: 'B', nombre: 'Baron B Extra Brut' }, { sku: 'BN', nombre: 'Baron B Brut Nature' }];
+    expect(elegirPorDefecto(items, v, 'champaña baron b')?.sku).toBe('B');
+  });
+  it('"galletitas de arroz cerealitas" → Cerealitas, no Don Satur', () => {
+    const items = [{ sku: 'D', nombre: 'Galletitas Don Satur Bizcocho de Grasa x 200 gr' }, { sku: 'C', nombre: 'Galletitas de arroz Cerealitas x 100 gr' }];
+    expect(elegirPorDefecto(items, v, 'galletitas de arroz cerealitas')?.sku).toBe('C');
+  });
+  it('"lysoform aerosol" sin Lysoform en los resultados: no hay defecto', () => {
+    const items = [{ sku: 'S', nombre: 'Aromatizante Saphirus Difusor VARIOS' }];
+    expect(elegirPorDefecto(items, v, 'lysoform aerosol')?.sku ?? null).toBe(null);
   });
 });

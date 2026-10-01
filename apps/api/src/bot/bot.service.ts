@@ -1,6 +1,6 @@
 import { esperaRetiroOEnvio, eligeRetiroOEnvio, eligioModalidad } from './entrega';
 import { esContestadorAutomatico } from './contestador';
-import { conPreguntaDeCompleto, faltaElegirVariante, puedeCotizar } from './completo';
+import { conPreguntaDeCompleto, elegirPorDefecto, puedeCotizar } from './completo';
 import { conDescuentoEfectivo, porcentajeEfectivo, RUBROS_DESCUENTO_EFECTIVO, tieneDescuentoEfectivo } from './descuento-efectivo';
 import { esSilenciado } from './pausa';
 import { agruparItems, cantidadesIndividuales, centavos, confirmacionInequivoca, idWhatsappCorto, importesDeHerramienta, importesDelTexto, pesos, presentacionProducto } from './comercio';
@@ -55,7 +55,6 @@ import { cartelListaPrecios, cartelPedido, imagenEsperada, leerResumenDePedido, 
 
 // pedido mínimo para envío a domicilio (Leandro, 25/9/2026); ENVIO_MINIMO lo cambia sin tocar código
 const envioMinimo = () => Number(process.env.ENVIO_MINIMO ?? 70000) || 70000;
-const FALTA_VARIANTE = 'TODAVÍA NO COTICES: el cliente dijo que el pedido está completo, pero quedaron variantes sin elegir en tu lista (qué sabor, qué tamaño, cuál de las opciones). «Es todo» NO elige: preguntale en UNA línea solo lo que falta elegir, con las opciones, y recién con su elección cotizá. Nunca elijas por él.';
 // herramientas que solo leen: se pueden ejecutar en paralelo dentro de un turno
 const HERRAMIENTAS_DE_LECTURA = new Set(['buscar_productos', 'consultar_cava', 'identificar_cliente', 'estado_local', 'estado_pedido']);
 const TODAVIA_SIN_PRECIOS = 'TODAVÍA NO PASES PRECIOS (regla del dueño): primero confirmá que el pedido está completo. Respondé con la lista de lo que anotaste, un renglón por producto «• cantidad × producto puntual», SIN precios ni total, y la pregunta «¿Está completo el pedido o querés sumar algo?». Si algo no tiene stock o hay que elegir variante, decilo en esa lista. Recién cuando el cliente confirme que está completo, cotizar_pedido.';
@@ -1714,7 +1713,6 @@ export class BotService {
           for (const it of ((out as any)?.items ?? [])) if (it?.sku) skusVistosEnTurno.add(String(it.sku));
           break;
         case 'preparar_pedido': {
-          if (faltaElegirVariante(ctx.textoCliente ?? '', ctx.ultimosBot ?? [])) { out = { error: FALTA_VARIANTE }; break; }
           if (!puedeCotizar(ctx.textoCliente ?? '', ctx.ultimosBot ?? [], (ctx.ultimosCliente ?? []).slice(0, -1))) { out = { error: TODAVIA_SIN_PRECIOS }; break; }
           out = await this.prepararPedido(telefono, linea, input, ctx.textoCliente, ctx.ultimoBot, ctx.ultimosCliente);
           if (ctx.fija) { ctx.fija.texto = (out as any).resumen; ctx.fija.operacion = true; }
@@ -1742,7 +1740,6 @@ export class BotService {
           break;
         }
         case 'cotizar_pedido': {
-          if (faltaElegirVariante(ctx.textoCliente ?? '', ctx.ultimosBot ?? [])) { out = { error: FALTA_VARIANTE }; break; }
           if (!puedeCotizar(ctx.textoCliente ?? '', ctx.ultimosBot ?? [], (ctx.ultimosCliente ?? []).slice(0, -1))) {
             // frena los precios, pero avisa lo que no alcanza: sin cantidades de
             // stock a la vista, el bot no tenía cómo saberlo (500 Fernet, 1/10/2026)
@@ -1994,7 +1991,7 @@ export class BotService {
     // búsqueda de texto con otro límite: antes se cruzaban 40 filas de stock con
     // 8 de precio y quedaban productos "sin precio" que sí lo tenían (auditoría:
     // "el precio no me está tomando en el sistema" con un hielo cotizado 6 turnos antes).
-    const { data: prods } = await this.db.from('productos').select('id, sku, es_alcohol, unidades_pack, vendido_por_peso, categoria:categorias(nombre)').in('sku', stock.map((p: any) => p.sku));
+    const { data: prods } = await this.db.from('productos').select('id, sku, es_alcohol, unidades_pack, vendido_por_peso, unidades_vendidas, categoria:categorias(nombre)').in('sku', stock.map((p: any) => p.sku));
     const esMayorista = telefono ? (await this.identificarCliente(telefono).catch(() => null as any))?.mayorista === true : false;
     const idPorSku = new Map((prods ?? []).map((p: any) => [p.sku, p]));
     const precios = await this.preciosDelCliente((prods ?? []).map((p: any) => p.id), telefono);
@@ -2023,6 +2020,12 @@ export class BotService {
     // nombran explícitas. Si pidió un tamaño, las más grandes van primero.
     const tamano = pideTamano(t);
     if (tamano) items.sort((a: any, b: any) => (volumenMl(b.nombre) ?? 0) - (volumenMl(a.nombre) ?? 0));
+    // POR DEFECTO, EL MÁS VENDIDO (Leandro, 1/10/2026: "el sistema pregunta
+    // mucho; Baron B es extra brut, Savora es de 250, la manteca es La Serenísima
+    // por 200… y si algo está mal que lo cambie la persona"). Si el cliente no
+    // aclaró marca, tamaño o variante, va el más vendido de lo que hay en stock.
+    const porDefecto: any = !tamano ? elegirPorDefecto(items as any[], (sku: string) => Number(idPorSku.get(sku)?.unidades_vendidas ?? 0), t) : null;
+    if (porDefecto) { porDefecto.porDefecto = true; items.splice(items.indexOf(porDefecto), 1); items.unshift(porDefecto); }
     const grandes = items.filter((i: any) => (volumenMl(i.nombre) ?? 0) > 1000);
     const avisoGrandes = grandes.length
       ? `Formatos de MÁS de 1 litro con stock: ${grandes.map((i: any) => `${i.nombre} (${i.medida}) $${i.precio}`).join(' | ')}. Si el cliente pide "más de 1 litro", "2 o 3 litros", "grande" o para regalo, OFRECÉ ESTOS primero; nunca digas que 1 L es lo más grande.`
