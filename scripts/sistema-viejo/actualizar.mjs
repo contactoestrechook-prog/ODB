@@ -159,7 +159,7 @@ function resolver(renglones) {
 }
 
 // ---- precios
-const plan = { generado: new Date().toISOString(), lista_id: minorista.id, sucursal_id: SUC_ST, precios: [], stock: [] };
+const plan = { generado: new Date().toISOString(), lista_id: minorista.id, sucursal_id: SUC_ST, precios: [], stock: [], altas: [] };
 const hojaPrecios = [], hojaRevisar = [], hojaAltas = [], hojaStock = [];
 const cuenta = { precio_igual: 0, precio_cambia: 0, precio_revisar: 0, stock_igual: 0, stock_ajusta: 0, stock_revisar: 0 };
 for (const x of resolver(precios)) {
@@ -183,7 +183,7 @@ const enPlanilla = new Set();
 for (const x of resolver(stock)) {
   enPlanilla.add(x.codigo);
   const viejo = Number(x.r.cantidad);
-  if (x.estado === 'sin_producto') { const a = hojaAltas.find((h) => h.codigo === x.codigo); if (a) a.stock_st = viejo; else hojaAltas.push({ codigo: x.codigo, descripcion: x.r.descripcion, precio: null, stock_st: viejo }); continue; }
+  if (x.estado === 'sin_producto') { const a = hojaAltas.find((h) => h.codigo === x.codigo); if (a) { a.stock_st = viejo; a.rubro = x.r.rubro ?? ''; } else hojaAltas.push({ codigo: x.codigo, descripcion: x.r.descripcion, rubro: x.r.rubro ?? '', precio: null, stock_st: viejo }); continue; }
   const actual = stockActual.get(x.p.id) ?? 0;
   const objetivo = viejo < 0 ? 0 : viejo;               // ODB no admite stock negativo
   const base = { codigo: x.codigo, sku: x.p.sku, nombre_odb: x.p.nombre, nombre_planilla: x.r.descripcion, rubro: x.r.rubro ?? '', antes: pesos(actual), sistema_viejo: pesos(viejo), ahora: pesos(objetivo) };
@@ -229,6 +229,7 @@ hoja('Altas', hojaAltas);
 hoja('Fuera de la planilla', fuera);
 const xlsx = join(SALIDA, 'simulacion-sistema-viejo.xlsx');
 XLSX.writeFile(wb, xlsx);
+plan.altas = hojaAltas.map((a) => ({ codigo: a.codigo, nombre: String(a.descripcion).trim(), rubro: a.rubro ?? '', precio: a.precio, stock: a.stock_st == null ? 0 : Math.max(0, Number(a.stock_st)) }));
 writeFileSync(join(SALIDA, 'plan.json'), JSON.stringify(plan));
 console.log(JSON.stringify(resumen.map((r) => `${r.concepto}: ${r.cantidad}`), null, 1));
 console.log('informe →', xlsx);
