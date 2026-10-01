@@ -7,7 +7,10 @@ import { useEffect, useState } from 'react';
 // de pago"), pero cualquier módulo puede dejar una alerta acá.
 type Alerta = { id: string; tipo: string; titulo: string; detalle: string | null; referencia: any; creada_en: string };
 
-const ICONO: Record<string, string> = { proveedor_ofrece: '🚚', pago: '💸', derivacion: '🟡', nota_bot: '📝', bot_caido: '🔴', cambio_factura: '🧾', consulta: '❓', arreglo: '🛠️', reporte: '📊' };
+const ICONO: Record<string, string> = { proveedor_ofrece: '🚚', pago: '💸', derivacion: '🟡', nota_bot: '📝', bot_caido: '🔴', cambio_factura: '🧾', consulta: '❓', arreglo: '🛠️', reporte: '📊', abastecimiento: '📦', proveedor_incompleto: '🏷️', proveedor_completo: '✅' };
+// el texto del enlace según adónde lleva (antes decía "Ir a Aprobaciones" para todo)
+const destino = (link: string) =>
+  link.startsWith('/compras') ? 'Completar el proveedor' : link.startsWith('/mesa-compras') ? 'Ver qué comprar' : link.startsWith('/aprobaciones') ? 'Ir a Aprobaciones' : 'Abrir';
 const hace = (v: string) => {
   const m = Math.round((Date.now() - new Date(v).getTime()) / 60000);
   if (m < 1) return 'recién';
@@ -82,7 +85,7 @@ export function CampanaAlertas({ donde = 'lateral' }: { donde?: 'lateral' | 'mov
                         <a href={`/whatsapp`} className="text-[#B82D25] underline">Abrir la charla</a>
                       )}
                       {a.referencia?.link && (
-                        <a href={String(a.referencia.link)} className="text-[#B82D25] underline font-semibold">Ir a Aprobaciones</a>
+                        <a href={String(a.referencia.link)} className="text-[#B82D25] underline font-semibold">{destino(String(a.referencia.link))}</a>
                       )}
                       <button onClick={() => leida(a)} className="text-black/45 underline">Listo</button>
                     </div>

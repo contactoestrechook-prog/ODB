@@ -595,7 +595,11 @@ export class ComprasService {
     if (dto.razonSocial !== undefined) cambios.razon_social = dto.razonSocial;
     if (dto.cuit !== undefined) cambios.cuit = dto.cuit || null;
     if (dto.condicionPago !== undefined) cambios.condicion_pago = dto.condicionPago;
-    if (dto.leadTimeDias !== undefined) cambios.lead_time_dias = Number(dto.leadTimeDias) || 7;
+    if (dto.leadTimeDias !== undefined) {
+      cambios.lead_time_dias = Number(dto.leadTimeDias) || 7;
+      // lo cargó una persona: deja de ser el 7 por defecto (requisito para comprarle, 1/10/2026)
+      if (Number(dto.leadTimeDias) > 0) cambios.lead_time_confirmado = true;
+    }
     if (dto.email !== undefined) cambios.email = dto.email;
     if (dto.telefono !== undefined) cambios.telefono = dto.telefono;
     if (dto.activo !== undefined) cambios.activo = dto.activo;

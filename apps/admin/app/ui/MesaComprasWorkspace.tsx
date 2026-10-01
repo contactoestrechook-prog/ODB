@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { BotonMicrofono } from './BotonMicrofono';
 import { prepararComprobante } from './comprimirImagen';
+import { AbastecimientoPanel } from './AbastecimientoPanel';
 
 // Mesa de compras: el comprador negocia con el proveedor y acá saca el costo
 // real. El sistema hace las cuentas; el analista razona, pregunta y arma la
@@ -11,8 +12,9 @@ type Mensaje = { rol: 'usuario' | 'asistente'; texto: string; imagen?: string; m
 
 const pesos = (n: any) => (n == null || !Number.isFinite(Number(n)) ? '—' : '$' + Math.round(Number(n)).toLocaleString('es-AR'));
 
-export function MesaComprasWorkspace({ esDueno }: { esDueno: boolean }) {
-  const [tab, setTab] = useState<'costear' | 'aprobar'>('costear');
+export function MesaComprasWorkspace({ esDueno, tabInicial }: { esDueno: boolean; tabInicial?: string }) {
+  // "Qué comprar" (el agente de abastecimiento, 1/10/2026) va primero
+  const [tab, setTab] = useState<'abastecer' | 'costear' | 'aprobar'>(tabInicial === 'costear' || tabInicial === 'aprobar' ? tabInicial : 'abastecer');
   const [mensajes, setMensajes] = useState<Mensaje[]>([]);
   const [texto, setTexto] = useState('');
   const [foto, setFoto] = useState<{ base64: string; mimeType: string; nombre: string } | null>(null);
@@ -117,7 +119,7 @@ export function MesaComprasWorkspace({ esDueno }: { esDueno: boolean }) {
   return (
     <div className="space-y-4">
       <div className="flex gap-1.5 border-b border-black/10">
-        {([['costear', 'Costear una compra'], ['aprobar', `Para aprobar${propuestas.length ? ` (${propuestas.length})` : ''}`]] as const).map(([k, l]) => (
+        {([['abastecer', 'Qué comprar'], ['costear', 'Costear una compra'], ['aprobar', `Para aprobar${propuestas.length ? ` (${propuestas.length})` : ''}`]] as const).map(([k, l]) => (
           <button key={k} onClick={() => setTab(k)}
             className={`px-4 py-2 text-sm font-medium rounded-t-lg -mb-px border-b-2 ${tab === k ? 'border-[#B82D25] text-black' : 'border-transparent text-black/45 hover:text-black'}`}>
             {l}
@@ -126,6 +128,8 @@ export function MesaComprasWorkspace({ esDueno }: { esDueno: boolean }) {
       </div>
 
       {error && <p className="rounded-lg bg-[#B82D25]/10 border border-[#B82D25]/30 px-3 py-2 text-sm text-[#932A1F]">{error}</p>}
+
+      {tab === 'abastecer' && <AbastecimientoPanel />}
 
       {tab === 'costear' && (
         <div className="rounded-xl bg-white overflow-hidden">
