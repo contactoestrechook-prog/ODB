@@ -1,27 +1,13 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
-// RESPONDE · O.D.B — la app del empleado virtual, para el celular de quien
-// atiende. Charlas (pausar el bot, contestar, devolver), ficha y notas del
-// contacto, mensajes programados y difusiones. Un solo lugar, marca RESPONDE.
-type Conv = {
-  telefonoReal?: string | null; // número real detrás de un @lid (lo resuelve WAHA)
-  esEquipo?: boolean;
-  linea: string; telefono: string; nombre: string | null; actualizado_en: string;
-  ultimo: string; ultimoRol: string | null; pausada: boolean; derivada: boolean;
-  derivadaMotivo: string | null; sinLeer: boolean; turnos: number;
-};
-
-const hora = (v?: string | null) => (v ? new Date(v).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }) : '');
-const fechaCorta = (v?: string | null) => {
-  if (!v) return '';
-  const d = new Date(v); const hoy = new Date();
-  return d.toDateString() === hoy.toDateString() ? hora(v) : d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' });
-};
+// Difusiones · O.D.B — campañas por listas y mensajes programados de la línea
+// de WhatsApp. Hasta el 1/10/2026 esta pantalla se llamaba "RESPONDE · WhatsApp"
+// y tenía una pestaña Charlas que mezclaba las del simulador con las reales:
+// las conversaciones están en RESPONDE (/responde), una sola vez.
 const fechaHora = (v?: string | null) => (v ? new Date(v).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '');
 const bonito = (t: string) => (t.length === 13 && t.startsWith('549') ? `+54 9 ${t.slice(3, 5)} ${t.slice(5, 9)}-${t.slice(9)}` : `+${t}`);
-const pesos = (n: any) => '$' + Math.round(Number(n) || 0).toLocaleString('es-AR');
 
 async function post(body: any) {
   const r = await fetch('/api/responde', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -31,20 +17,13 @@ async function post(body: any) {
 
 // ============================================================================
 export function BandejaWhatsapp({ puedeApagarLinea }: { puedeApagarLinea: boolean }) {
-  const [tab, setTab] = useState<'chats' | 'programados' | 'difusiones'>('chats');
-  const [convs, setConvs] = useState<Conv[]>([]);
-  const [filtro, setFiltro] = useState<'todas' | 'pausadas' | 'sinleer'>('todas');
-  const [sel, setSel] = useState<Conv | null>(null);
+  const [tab, setTab] = useState<'difusiones' | 'programados'>('difusiones');
   const [linea, setLinea] = useState<any>({ bot_activo: true });
   const [ocupado, setOcupado] = useState(false);
 
   const cargar = useCallback(async () => {
     try {
-      const [rc, rl] = await Promise.all([
-        fetch('/api/responde?recurso=conversaciones', { cache: 'no-store' }),
-        fetch('/api/responde?recurso=linea&linea=pedidos', { cache: 'no-store' }),
-      ]);
-      if (rc.ok) setConvs(await rc.json());
+      const rl = await fetch('/api/responde?recurso=linea&linea=pedidos', { cache: 'no-store' });
       if (rl.ok) setLinea(await rl.json());
     } catch { /* sin red: mantiene lo que hay */ }
   }, []);
@@ -57,18 +36,12 @@ export function BandejaWhatsapp({ puedeApagarLinea }: { puedeApagarLinea: boolea
     try { await post({ accion: 'botLinea', linea: 'pedidos', activo }); await cargar(); } finally { setOcupado(false); }
   }
 
-  const lista = convs.filter((c) => filtro === 'todas' ? true : filtro === 'pausadas' ? c.pausada : c.sinLeer);
-  const nSinLeer = convs.filter((c) => c.sinLeer).length;
-  const nPausadas = convs.filter((c) => c.pausada).length;
-
-  if (sel) return <Charla conv={sel} onVolver={() => { setSel(null); cargar(); }} onCambio={cargar} />;
-
   return (
     <div className="flex h-[100dvh] flex-col bg-[#F0EBE2]">
       <header className="bg-black px-4 pb-2 pt-4 text-[#F0EBE2]">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-[10px] uppercase tracking-[0.3em] text-[#C9A96E] font-bold">RESPONDE<span className="text-[#E14A3C]">.</span> · O.D.B</p>
+            <p className="text-[10px] uppercase tracking-[0.3em] text-[#C9A96E] font-bold">Difusiones · O.D.B</p>
             <p className="text-lg font-black leading-tight">{linea?.numero_legible ?? '11 2281-2200'}</p>
           </div>
           <div className="text-right">
@@ -84,234 +57,15 @@ export function BandejaWhatsapp({ puedeApagarLinea }: { puedeApagarLinea: boolea
           </div>
         </div>
         <div className="mt-3 flex gap-1 border-b border-white/10">
-          {([['chats', 'Charlas'], ['programados', 'Programados'], ['difusiones', 'Difusiones']] as const).map(([k, l]) => (
+          {([['difusiones', 'Difusiones'], ['programados', 'Programados']] as const).map(([k, l]) => (
             <button key={k} onClick={() => setTab(k)}
               className={`px-3 py-1.5 text-sm font-medium -mb-px border-b-2 ${tab === k ? 'border-[#E14A3C] text-white' : 'border-transparent text-white/50'}`}>{l}</button>
           ))}
         </div>
       </header>
 
-      {tab === 'chats' && (
-        <>
-          <div className="flex gap-1.5 bg-black px-4 pb-3 pt-2">
-            {([['todas', `Todas (${convs.length})`], ['sinleer', `Sin leer (${nSinLeer})`], ['pausadas', `Pausadas (${nPausadas})`]] as const).map(([k, l]) => (
-              <button key={k} onClick={() => setFiltro(k)}
-                className={`rounded-full px-3 py-1 text-xs font-medium ${filtro === k ? 'bg-[#F0EBE2] text-black' : 'bg-white/10 text-white/70'}`}>{l}</button>
-            ))}
-          </div>
-          <div className="flex-1 overflow-y-auto">
-            {lista.length === 0 && (
-              <p className="px-6 py-14 text-center text-sm text-black/45">
-                {filtro === 'todas' ? 'Todavía no hay conversaciones.' : filtro === 'sinleer' ? 'Nada sin leer.' : 'Ninguna charla pausada.'}
-              </p>
-            )}
-            {lista.map((c) => (
-              <button key={c.linea + c.telefono} onClick={() => setSel(c)}
-                className="flex w-full items-start gap-3 border-b border-black/5 bg-white px-4 py-3 text-left active:bg-[#F0EBE2]">
-                <div className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${c.sinLeer ? 'bg-[#B82D25]' : 'bg-transparent'}`} />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-baseline justify-between gap-2">
-                    <p className={`min-w-0 break-words text-[15px] ${c.sinLeer ? 'font-bold text-black' : 'font-medium text-black/85'}`}>
-                      {c.nombre ?? bonito(c.telefonoReal ?? c.telefono)}
-                      {c.nombre && c.telefonoReal && <span className="ml-1.5 text-[11px] font-normal text-black/40">{bonito(c.telefonoReal)}</span>}
-                      {c.esEquipo && <span className="ml-1.5 rounded bg-black/10 px-1 text-[10px] font-medium text-black/60">casa</span>}
-                    </p>
-                    <span className="shrink-0 text-[11px] text-black/40">{fechaCorta(c.actualizado_en)}</span>
-                  </div>
-                  <p className="mt-0.5 truncate text-[13px] text-black/55">{c.ultimoRol === 'assistant' ? '🤖 ' : ''}{c.ultimo || '(sin mensajes)'}</p>
-                  {(c.pausada || c.derivada) && (
-                    <p className="mt-1 inline-block rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase text-amber-900">
-                      {c.pausada ? '⏸ pausado' : '🟡 derivada'}{c.derivadaMotivo ? ` · ${c.derivadaMotivo}` : ''}
-                    </p>
-                  )}
-                </div>
-              </button>
-            ))}
-          </div>
-        </>
-      )}
       {tab === 'programados' && <Programados />}
       {tab === 'difusiones' && <Difusiones puede={puedeApagarLinea} />}
-    </div>
-  );
-}
-
-// ============================================================================
-function Charla({ conv, onVolver, onCambio }: { conv: Conv; onVolver: () => void; onCambio: () => void }) {
-  const [c, setC] = useState<Conv>(conv);
-  const [detalle, setDetalle] = useState<any>(null);
-  const [texto, setTexto] = useState('');
-  const [enviando, setEnviando] = useState(false);
-  const [aviso, setAviso] = useState('');
-  const [ocupado, setOcupado] = useState(false);
-  const [panel, setPanel] = useState<'ficha' | 'programar' | null>(null);
-  const [ficha, setFicha] = useState<any>(null);
-  const [nota, setNota] = useState('');
-  const [progTexto, setProgTexto] = useState('');
-  const [progCuando, setProgCuando] = useState('');
-  const finRef = useRef<HTMLDivElement>(null);
-
-  const cargarDetalle = useCallback(async () => {
-    const r = await fetch(`/api/responde?recurso=detalle&linea=${c.linea}&telefono=${c.telefono}`, { cache: 'no-store' });
-    if (r.ok) setDetalle(await r.json());
-  }, [c.linea, c.telefono]);
-
-  useEffect(() => {
-    cargarDetalle();
-    post({ accion: 'leida', linea: c.linea, telefono: c.telefono }).catch(() => null);
-    const t = setInterval(cargarDetalle, 6000);
-    return () => clearInterval(t);
-  }, [cargarDetalle, c.linea, c.telefono]);
-  useEffect(() => { finRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [detalle]);
-
-  async function abrirFicha() {
-    setPanel(panel === 'ficha' ? null : 'ficha');
-    if (!ficha) {
-      const r = await fetch(`/api/responde?recurso=ficha&telefono=${c.telefono}`, { cache: 'no-store' });
-      if (r.ok) { const f = await r.json(); setFicha(f); setNota(f?.contacto?.notas_equipo ?? ''); }
-    }
-  }
-
-  async function accion(a: 'pausar' | 'devolver') {
-    if (ocupado) return;
-    setOcupado(true); setAviso('');
-    try {
-      const r = await post({ accion: a, linea: c.linea, telefono: c.telefono });
-      if (!r.ok) setAviso('No se pudo cambiar el estado');
-      setC((x) => ({ ...x, pausada: a === 'pausar' }));
-      onCambio();
-    } finally { setOcupado(false); }
-  }
-
-  async function responder() {
-    const t = texto.trim();
-    if (!t || enviando) return;
-    setEnviando(true); setAviso('');
-    try {
-      const r = await post({ linea: c.linea, telefono: c.telefono, texto: t });
-      if (!r.ok) { setAviso(r?.message ?? 'No se pudo enviar'); return; }
-      if (r?.enviado === false) setAviso(`Quedó en el hilo pero no salió (${r.motivo ?? 'sin conexión'}). Reintentá.`);
-      setTexto(''); setC((x) => ({ ...x, pausada: true }));
-      await cargarDetalle(); onCambio();
-    } catch { setAviso('No se pudo enviar'); }
-    finally { setEnviando(false); }
-  }
-
-  // "Es de la casa": WhatsApp dejó de mandar el teléfono y ahora manda un
-  // identificador, así que el bot no puede reconocer solo a la gente del local.
-  // Se marca una vez desde acá y no le contesta nunca más.
-  async function marcarEquipo(esEquipo: boolean) {
-    if (ocupado) return;
-    setOcupado(true); setAviso('');
-    try {
-      const r = await post({ accion: 'equipo', telefono: c.telefono, esEquipo });
-      setAviso(r.ok
-        ? (esEquipo ? 'Marcado como gente de la casa: el bot no le contesta más.' : 'Vuelve a tratarse como cliente.')
-        : 'No se pudo marcar');
-      if (r.ok) setFicha((f: any) => (f ? { ...f, contacto: { ...(f.contacto ?? {}), es_equipo: esEquipo } } : f));
-    } finally { setOcupado(false); }
-  }
-
-  async function guardarNota() {
-    const r = await post({ accion: 'nota', telefono: c.telefono, nota });
-    setAviso(r.ok ? 'Nota guardada' : 'No se pudo guardar la nota');
-  }
-
-  async function programar() {
-    if (!progTexto.trim() || !progCuando) return;
-    const r = await post({ accion: 'programar', linea: c.linea, telefono: c.telefono, texto: progTexto, enviarEn: new Date(progCuando).toISOString() });
-    if (r.ok) { setAviso(`Programado para ${fechaHora(r.enviar_en)}`); setProgTexto(''); setProgCuando(''); setPanel(null); }
-    else setAviso(r?.message ?? 'No se pudo programar');
-  }
-
-  return (
-    <div className="flex h-[100dvh] flex-col bg-[#ECE5DD]">
-      <header className="flex items-center gap-2 bg-black px-3 py-2.5 text-[#F0EBE2]">
-        <button onClick={onVolver} className="rounded-lg px-2 py-1 text-lg leading-none">‹</button>
-        <button onClick={abrirFicha} className="min-w-0 flex-1 text-left">
-          <p className="min-w-0 break-words text-sm font-semibold">{c.nombre ?? bonito(c.telefonoReal ?? c.telefono)}</p>
-          <p className="text-[11px] text-white/55">{c.nombre ? bonito(c.telefonoReal ?? c.telefono) : 'tocar para ver la ficha'}</p>
-        </button>
-        <button onClick={() => setPanel(panel === 'programar' ? null : 'programar')} title="Programar mensaje" className="rounded-lg px-2 py-1 text-base">🕒</button>
-        {c.pausada ? (
-          <button onClick={() => accion('devolver')} disabled={ocupado} className="rounded-full bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50">▶ Que siga</button>
-        ) : (
-          <button onClick={() => accion('pausar')} disabled={ocupado} className="rounded-full bg-[#B82D25] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50">⏸ Pausar</button>
-        )}
-      </header>
-
-      <div className={`px-3 py-1.5 text-center text-[11px] font-medium ${c.pausada ? 'bg-amber-100 text-amber-900' : 'bg-emerald-50 text-emerald-800'}`}>
-        {c.pausada ? 'RESPONDE está pausado en esta charla: la atendés vos.' : 'RESPONDE está atendiendo esta charla.'}
-      </div>
-
-      {panel === 'ficha' && (
-        <div className="border-b border-black/10 bg-white px-4 py-3 text-sm">
-          {!ficha ? <p className="text-black/45">Cargando ficha…</p> : (
-            <>
-              <div className="flex flex-wrap gap-x-4 gap-y-1 text-[13px]">
-                <span><b>Tipo:</b> {ficha.contacto?.tipo === 'proveedor' ? '🚚 Proveedor' : ficha.cliente ? '🛒 Cliente' : 'Sin identificar'}</span>
-                {ficha.cliente?.dni && <span><b>DNI:</b> {ficha.cliente.dni}</span>}
-                {ficha.cliente?.tipo && <span><b>Segmento:</b> {ficha.cliente.tipo}</span>}
-                {ficha.compras && <span><b>Compras:</b> {ficha.compras.cantidad} · {pesos(ficha.compras.gastado)}{ficha.compras.ultima ? ` · última ${fechaCorta(ficha.compras.ultima)}` : ''}</span>}
-                {ficha.contacto?.notas && <span className="basis-full text-black/60"><b>Dijo el bot:</b> {ficha.contacto.notas}</span>}
-              </div>
-              <textarea value={nota} onChange={(e) => setNota(e.target.value)} rows={2} placeholder="Notas del equipo sobre este contacto…"
-                className="mt-2 w-full resize-none rounded-lg border border-black/15 px-3 py-2 text-sm outline-none focus:border-[#B82D25]" />
-              <div className="mt-1 flex flex-wrap items-center gap-2">
-                <button onClick={guardarNota} className="rounded-lg bg-black px-3 py-1.5 text-xs font-medium text-white">Guardar nota</button>
-                {ficha.contacto?.es_equipo ? (
-                  <button onClick={() => marcarEquipo(false)} disabled={ocupado}
-                    className="rounded-lg border border-black/20 px-3 py-1.5 text-xs font-medium text-black/70 disabled:opacity-50">
-                    Es de la casa · tratarlo como cliente
-                  </button>
-                ) : (
-                  <button onClick={() => marcarEquipo(true)} disabled={ocupado}
-                    className="rounded-lg border border-black/20 px-3 py-1.5 text-xs font-medium text-black/70 disabled:opacity-50">
-                    Marcar como gente de la casa
-                  </button>
-                )}
-              </div>
-              <p className="mt-1 text-[11px] leading-relaxed text-black/45">
-                El bot no le contesta a la gente de la casa. Hay que marcarlo a mano: WhatsApp dejó de mandar el teléfono y
-                manda un identificador, así que no puede reconocerlos solo.
-              </p>
-            </>
-          )}
-        </div>
-      )}
-
-      {panel === 'programar' && (
-        <div className="border-b border-black/10 bg-white px-4 py-3 text-sm space-y-2">
-          <p className="text-xs font-semibold uppercase tracking-wide text-black/50">Programar un mensaje</p>
-          <textarea value={progTexto} onChange={(e) => setProgTexto(e.target.value)} rows={2} placeholder="Texto que le va a llegar…"
-            className="w-full resize-none rounded-lg border border-black/15 px-3 py-2 text-sm outline-none focus:border-[#B82D25]" />
-          <div className="flex items-center gap-2">
-            <input type="datetime-local" value={progCuando} onChange={(e) => setProgCuando(e.target.value)} className="rounded-lg border border-black/15 px-2 py-1.5 text-sm" />
-            <button onClick={programar} disabled={!progTexto.trim() || !progCuando} className="rounded-lg bg-[#B82D25] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40">Programar</button>
-          </div>
-        </div>
-      )}
-
-      <div className="flex-1 space-y-2 overflow-y-auto p-3">
-        {!detalle && <p className="py-10 text-center text-sm text-black/40">Cargando…</p>}
-        {detalle?.burbujas?.map((b: any, i: number) => (
-          <div key={i} className={`flex ${b.rol === 'user' ? 'justify-start' : 'justify-end'}`}>
-            <div className={`max-w-[84%] whitespace-pre-wrap rounded-xl px-3 py-2 text-[14px] leading-snug shadow-sm ${b.rol === 'user' ? 'rounded-bl-sm bg-white' : 'rounded-br-sm bg-[#DCF8C6]'}`}>{b.texto}</div>
-          </div>
-        ))}
-        <div ref={finRef} />
-      </div>
-
-      <div className="border-t border-black/10 bg-white p-2">
-        {aviso && <p className="mb-1 px-1 text-xs text-[#932A1F]">{aviso}</p>}
-        <div className="flex items-end gap-2">
-          <textarea value={texto} onChange={(e) => setTexto(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); responder(); } }}
-            rows={1} placeholder={c.pausada ? 'Escribí tu respuesta…' : 'Escribir pausa a RESPONDE en esta charla…'}
-            className="max-h-32 flex-1 resize-none rounded-2xl border border-black/15 px-3.5 py-2.5 text-[15px] text-black outline-none focus:border-[#B82D25]" />
-          <button onClick={responder} disabled={enviando || !texto.trim()} className="h-11 w-11 shrink-0 rounded-full bg-[#B82D25] text-white active:scale-95 disabled:opacity-40">➤</button>
-        </div>
-      </div>
     </div>
   );
 }

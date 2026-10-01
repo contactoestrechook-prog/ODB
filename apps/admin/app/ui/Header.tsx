@@ -102,9 +102,12 @@ const GRUPOS: Grupo[] = [
       { href: '/mensajes', label: 'Mensajes', icono: 'mensajes' },
       { href: '/eventos', label: 'Eventos', icono: 'eventos' },
       { href: '/sommelier', label: 'Somelier ODB', icono: 'somelier' },
-      { href: '/bandeja', label: 'RESPONDE · WhatsApp', icono: 'agente' },
+      // UN solo RESPONDE (1/10/2026): había tres entradas del bot y dos mostraban
+      // charlas mezcladas con las del simulador. Las conversaciones reales están en
+      // RESPONDE; las campañas, en Difusiones; probar el bot, aparte.
       { href: '/responde', label: 'RESPONDE', icono: 'agente' },
-      { href: '/bot', label: 'Bot WhatsApp', icono: 'agente' },
+      { href: '/bandeja', label: 'Difusiones', icono: 'mensajes' },
+      { href: '/bot', label: 'Probar el bot', icono: 'agente' },
     ],
   },
   {
@@ -165,8 +168,9 @@ const TITULOS: Record<string, { titulo: string; bajada: string }> = {
   '/mensajes': { titulo: 'Mensajes', bajada: 'Solicitudes de clientes, envíos y notificaciones automáticas' },
   '/eventos': { titulo: 'Eventos', bajada: 'Oportunidades de cumpleaños, casamientos y fiestas: armá propuestas' },
   '/sommelier': { titulo: 'Somelier ODB', bajada: 'El experto en vinos que atiende a tus clientes' },
-  '/bot': { titulo: 'Bot WhatsApp', bajada: 'Probá el bot que atiende por WhatsApp: mismo cerebro, catálogo y pedidos reales' },
-  '/responde': { titulo: 'RESPONDE', bajada: 'Tu empleado virtual: bandeja de conversaciones en vivo, métricas y prueba directa' },
+  '/bot': { titulo: 'Probar el bot', bajada: 'Probá el bot que atiende por WhatsApp: mismo cerebro, catálogo y pedidos reales' },
+  '/responde': { titulo: 'RESPONDE', bajada: 'Las conversaciones reales de WhatsApp: contestar, pausar el bot, notas, programados y difusión' },
+  '/bandeja': { titulo: 'Difusiones', bajada: 'Campañas por listas y mensajes programados de la línea de WhatsApp' },
   '/estadisticas': { titulo: 'Estadísticas', bajada: 'El negocio en números: 30 días de venta real' },
   '/conciliacion': { titulo: 'Conciliación', bajada: 'Acreditaciones de tarjeta y Mercado Pago: lo que te deben y las comisiones' },
   '/cheques': { titulo: 'Cheques', bajada: 'Cartera de valores: cheques de terceros y propios, depósitos, vencimientos y rechazos' },

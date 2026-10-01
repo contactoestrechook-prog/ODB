@@ -686,15 +686,15 @@ export const SECCIONES: Seccion[] = [
       {
         tipo: 'texto',
         texto:
-          'Las respuestas largas van con imagen de la marca: si pasa una lista de 4 productos o más, o confirma un pedido, además del texto manda un cartel con el isologo de O.D.B — los renglones, el total en la banda negra y, en los pedidos, el código de retiro bien grande para mostrar en el mostrador.',
+          'Las respuestas largas van con imagen de la marca: una lista de 3 productos o más sale como cartel con los precios; el resumen de un pedido, como tarjeta roja con los productos, el total y el recuadro de envío o retiro; y el pedido confirmado, con el código de retiro bien grande para mostrar en el mostrador. Lo que no entra en la imagen va como texto de la foto.',
       },
       {
         tipo: 'ojo',
         puntos: [
           'Todo lo que el bot cotiza sale de la lista de precios del sistema. Si un precio está mal en el sistema, el bot lo va a repetir mal.',
-          'Las conversaciones completas se ven en RESPONDE (app) o en la pantalla WhatsApp y difusiones, que además tiene menú para volver y las pestañas de mensajes programados y difusiones: las campañas se arman y se siguen desde ahí.',
+          'Las conversaciones se ven en RESPONDE (menú Clientes): es la app con la línea real de WhatsApp, donde se contesta, se pausa o se devuelve al bot cada charla y se dejan notas y mensajes programados. Las campañas por listas están en Difusiones. Para probar el bot sin escribirle a un cliente está Probar el bot (ojo: los pedidos que confirmes ahí son reales).',
           'Pausar el bot en UNA charla: abrila y tocá el botón de pausa (rojo). Desde ese momento el bot no contesta nada en esa conversación —ni un acuse—, los mensajes del cliente siguen entrando al hilo y la atendés vos, desde el panel o desde el teléfono. Cuando terminaste, "Devolver al bot". Contestar desde el panel también pausa la charla sola. El interruptor de arriba ("Pausar en todas") apaga la línea entera.',
-          'El bot se puede apagar desde la pantalla del Bot cuando conviene atender a mano.',
+          'Para apagar el bot en TODA la línea: en RESPONDE, arriba, "Pausar en todas" (y "Encender en todas" para volver). Para una sola charla, con la pausa de esa charla.',
         ],
       },
     ],

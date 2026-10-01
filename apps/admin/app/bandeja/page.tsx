@@ -18,7 +18,7 @@ export default async function PaginaBandeja() {
       <Header activo="/bandeja" />
       <div className="max-w-5xl mx-auto p-4">
         <div className="flex justify-end mb-2">
-          <a href="/whatsapp" className="text-xs text-neutral-500 hover:text-neutral-800 underline">Abrir la app completa de RESPONDE →</a>
+          <a href="/responde" className="text-xs text-neutral-500 hover:text-neutral-800 underline">Las conversaciones están en RESPONDE →</a>
         </div>
         <div className="bg-white rounded-xl border border-neutral-200 overflow-hidden flex flex-col" style={{ height: 'calc(100vh - 3rem)' }}>
           <BandejaWhatsapp puedeApagarLinea={puede} />
