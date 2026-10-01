@@ -75,3 +75,10 @@ describe('"(a elegir)" también es una variante pendiente (banco 1/10/2026)', ()
     expect(faltaElegirVariante('sí, es todo', [lista])).toBe(true);
   });
 });
+
+describe('confirmó completo y después eligió variantes, aunque la última pregunta fuera otra', () => {
+  it('se cotiza', () => {
+    const bot = ['Me falta una sola definición: qué Lays, qué maní y qué hielo.', 'Te anoto:\n• 2 × Fernet\n• 1 × Hielo (falta definir tamaño)\n\n¿Qué hielo preferís?'];
+    expect(puedeCotizar('las clásicas de 134, el maní pelado y el hielo de 15 kg', bot, ['Necesito: …', 'sí, es todo'])).toBe(true);
+  });
+});

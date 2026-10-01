@@ -25,7 +25,10 @@ export function puedeCotizar(textoCliente: string, ultimosDelBot: string[], ante
   if (RE_PREGUNTA_PRECIO.test(textoCliente)) return true;
   // ya lo confirmó antes y ahora solo define variantes ("las clásicas de 134"):
   // no se le vuelve a preguntar si está completo (banco 25/9/2026)
-  if (ultimosDelBot.some((m) => RE_PREGUNTA_COMPLETO.test(m)) && anterioresDelCliente.some(diceQueEstaCompleto)) return true;
+  // (alcanza con que lo haya dicho después de una lista de lo anotado, aunque la
+  // última pregunta del bot fuera otra: «¿qué hielo?»)
+  const huboLista = ultimosDelBot.some((m) => RE_PREGUNTA_COMPLETO.test(m) || (/\d\s*[×x]\s*[A-Za-zÁÉÍÓÚÑáéíóúñ]/.test(m) && !/\$\s?\d/.test(m)));
+  if (huboLista && anterioresDelCliente.some(diceQueEstaCompleto)) return true;
   if (diceQueEstaCompleto(textoCliente) && (RE_PREGUNTA_COMPLETO.test(ultimosDelBot[0] ?? '') || /\b(es todo|nada m[aá]s|completo)\b/i.test(textoCliente))) return true;
   return ultimosDelBot.some((m) => /\btotal\b[^\n]{0,20}\$|¿lo confirmo\?/i.test(m));
 }

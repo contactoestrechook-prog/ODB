@@ -1,4 +1,4 @@
-import { sinCocinaInterna, minimoConMonto, asegurarEnvioSinCargo, campoLimpio, casiIgual, emprolijarListado, esAlucinacionDeTranscripcion, respuestaConConsulta, esAutomaticoWhatsappBusiness, envioSinCargo, nombreSucursalCliente, saintThomas } from './prolijo';
+import { retiroOEnvio, sinCocinaInterna, minimoConMonto, asegurarEnvioSinCargo, campoLimpio, casiIgual, emprolijarListado, esAlucinacionDeTranscripcion, respuestaConConsulta, esAutomaticoWhatsappBusiness, envioSinCargo, nombreSucursalCliente, saintThomas } from './prolijo';
 
 describe('nombre de la sucursal ante el cliente', () => {
   it('Sant Thomas pasa a sucursal Saint Thomas', () => {
@@ -188,5 +188,13 @@ describe('lo interno queda puertas adentro (Karina, 30/9/2026)', () => {
   it('la entrega y los horarios no se tocan', () => {
     for (const t of ['Retiro en la sucursal Saint Thomas.', '¿Lo retirás por la sucursal Saint Thomas o te lo enviamos?', 'La sucursal Saint Thomas abre de 8 a 21.', '• Fernet Branca 750 cc — 2 × $20.500 c/u = $41.000'])
       expect(sinCocinaInterna(t)).toBe(t);
+  });
+});
+
+describe('retiro o envío, siempre las dos', () => {
+  it('completa la pregunta', () => {
+    expect(retiroOEnvio('Total: $53.800\n\n¿Lo retirás por la sucursal Saint Thomas, Castex 3601?')).toBe('Total: $53.800\n\n¿Lo retirás por la sucursal Saint Thomas o te lo enviamos?');
+    const ok = '¿Lo retirás por la sucursal Saint Thomas o te lo enviamos?';
+    expect(retiroOEnvio(ok)).toBe(ok);
   });
 });

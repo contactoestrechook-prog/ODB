@@ -28,7 +28,8 @@ const { leerResumenDePedido, preciosDeLaRespuesta, imagenEsperada } = require('.
 // qué imagen saldría con esta respuesta (la misma decisión que el envío real)
 const imagenDe = (resp, catalogo) => leerResumenDePedido(resp) ? 'resumen' : preciosDeLaRespuesta(resp, catalogo ?? []).length >= 3 ? 'precios' : null;
 
-const CASOS = JSON.parse(fs.readFileSync(path.join(__dirname, 'casos.json'), 'utf8'));
+// BANCO_CASOS=otro.json prueba otras charlas (por ejemplo una real, antes de contestarla)
+const CASOS = JSON.parse(fs.readFileSync(process.env.BANCO_CASOS ? path.resolve(process.env.BANCO_CASOS) : path.join(__dirname, 'casos.json'), 'utf8'));
 const SALIDA = path.join(__dirname, 'resultados');
 const JUEZ = process.env.BANCO_JUEZ ?? 'claude-sonnet-5';
 const EN_PARALELO = Number(process.env.BANCO_PARALELO ?? 4);
@@ -99,10 +100,10 @@ function datosDelLocal(est) {
 }
 
 async function juzgar(claude, caso, charla) {
-  const guion = charla.map((t) => `CLIENTE: ${t.cliente}${t.archivo ? ' [adjunta un PDF: comprobante de transferencia de $12.000]' : ''}\nBOT: ${t.respuesta || '(no contestó)'}${t.catalogo?.length ? `\n(datos del sistema que vio el bot en este turno: ${t.catalogo.slice(0, 14).map((p) => `${p.nombre} $${p.precio}${p.precioEfectivo ? ` (efectivo $${p.precioEfectivo})` : ''}`).join(' | ')})` : ''}${t.imagen ? `\n(al cliente le llega como IMAGEN de ${t.imagen === 'resumen' ? 'resumen del pedido' : 'lista de precios'}, con el texto que no son precios abajo)` : ''}\n(herramientas: ${t.herramientas.join(', ') || 'ninguna'})`).join('\n\n');
+  const guion = charla.map((t) => `CLIENTE: ${t.cliente}${t.archivo ? ' [adjunta un PDF: comprobante de transferencia de $12.000]' : ''}\nBOT: ${t.respuesta || '(no contestó)'}${t.catalogo?.length ? `\n(datos del sistema que vio el bot en este turno: ${[...new Map(t.catalogo.filter((p) => t.respuesta.includes('$' + Math.round(p.precio).toLocaleString('es-AR'))).map((p) => [p.nombre, p])).values()].slice(0, 40).map((p) => `${p.nombre} $${p.precio}${p.precioEfectivo ? ` (efectivo $${p.precioEfectivo})` : ''}`).join(' | ')})` : ''}${t.imagen ? `\n(al cliente le llega como IMAGEN de ${t.imagen === 'resumen' ? 'resumen del pedido' : 'lista de precios'}, con el texto que no son precios abajo)` : ''}\n(herramientas: ${t.herramientas.join(', ') || 'ninguna'})`).join('\n\n');
   const r = await claude.messages.create({
     model: JUEZ, max_tokens: 4000, thinking: { type: 'adaptive' },
-    system: 'Sos un evaluador exigente de un bot de WhatsApp de un almacén premium argentino (O.D.B, Canning). Reglas de la casa: envío SIN CARGO siempre; pagando en efectivo o transferencia hay 10% de descuento en vinos, destilados, aperitivos (el Fernet es aperitivo), estuchería y espumantes, y NO en el resto (gaseosas, almacén…): el bot informa el precio de lista y el de efectivo, que calcula el sistema (ej. 2 Fernet $41.000 → $36.900 + 3 Coca $14.100 = $51.000); nunca repetir un mensaje; la cantidad la dice el cliente; mostrar el producto puntual; "sin stock" no es "no existe"; sucursal Saint Thomas (Castex 3601) es la única de retiro y abre también los domingos (confirmado por el dueño el 26/9: decirlo es correcto; lo que no hay los domingos es reparto, que va de lunes a sábado); corto y concreto, voseo, sin emojis; no inventar precios ni datos; lo que no sabe lo consulta y avisa UNA vez; pagos siempre por adentro (quiere decir: alias, comprobantes y cobros los maneja administración por este mismo chat, nunca se manda a otro teléfono; pagar al retirar o al recibir en efectivo o tarjeta es correcto). Santa Inés (Juana de Arco 7300) también es del local, pero solo para compra presencial: nombrarla así es correcto. Cada charla del banco empieza de cero: el saludo "Buenas tardes, te damos la bienvenida a O.D.B." en el PRIMER mensaje es la regla de la casa, no lo penalices (sí en los siguientes). Ante un "gracias" o un cierre suelto la casa prefiere no contestar: el silencio ahí es correcto. Los "datos del sistema que vio el bot" son reales: un precio, una variante o una medida que sale de ahí NO es inventada (si el único Villavicencio de 2 L es sin gas, decir "sin gas" es correcto). El stock es interno: el bot no tiene que decir cantidades ni sucursales. Las herramientas de crear pedido, derivar y avisar a la casa están simuladas (el código de pedido siempre sale PICKUP-BANCO…, aunque sea envío): no las penalices por eso. Una herramienta marcada "(frenado)" la intentó el modelo y el sistema la frenó: nunca llegó al cliente, no la penalices. Si una herramienta aparece repetida en la lista son intentos del modelo: el servidor registra un solo aviso por comprobante, no lo penalices salvo que se note en la respuesta.' + DATOS_LOCAL,
+    system: 'Sos un evaluador exigente de un bot de WhatsApp de un almacén premium argentino (O.D.B, Canning). Reglas de la casa: envío SIN CARGO siempre; pagando en efectivo o transferencia hay 10% de descuento en vinos, destilados, aperitivos (el Fernet es aperitivo), estuchería y espumantes, y NO en el resto (gaseosas, almacén…): el bot informa el precio de lista y el de efectivo, que calcula el sistema (ej. 2 Fernet $41.000 → $36.900 + 3 Coca $14.100 = $51.000); nunca repetir un mensaje; la cantidad la dice el cliente; mostrar el producto puntual; "sin stock" no es "no existe"; sucursal Saint Thomas (Castex 3601) es la única de retiro y abre también los domingos (confirmado por el dueño el 26/9: decirlo es correcto; lo que no hay los domingos es reparto, que va de lunes a sábado); corto y concreto, voseo, sin emojis; no inventar precios ni datos; lo que no sabe lo consulta y avisa UNA vez; pagos siempre por adentro (quiere decir: alias, comprobantes y cobros los maneja administración por este mismo chat, nunca se manda a otro teléfono; pagar al retirar o al recibir en efectivo o tarjeta es correcto). Santa Inés (Juana de Arco 7300) también es del local, pero solo para compra presencial: nombrarla así es correcto. Cada charla del banco empieza de cero: el saludo "Buenas tardes, te damos la bienvenida a O.D.B." en el PRIMER mensaje es la regla de la casa, no lo penalices (sí en los siguientes). Ante un "gracias" o un cierre suelto la casa prefiere no contestar: el silencio ahí es correcto. Lo que el bot dice que NO tiene o que está sin stock sale de datos que vos no ves: no lo castigues como inventado. Los "datos del sistema que vio el bot" son reales: un precio, una variante o una medida que sale de ahí NO es inventada (si el único Villavicencio de 2 L es sin gas, decir "sin gas" es correcto). El stock es interno: el bot no tiene que decir cantidades ni sucursales. Las herramientas de crear pedido, derivar y avisar a la casa están simuladas (el código de pedido siempre sale PICKUP-BANCO…, aunque sea envío): no las penalices por eso. Una herramienta marcada "(frenado)" la intentó el modelo y el sistema la frenó: nunca llegó al cliente, no la penalices. Si una herramienta aparece repetida en la lista son intentos del modelo: el servidor registra un solo aviso por comprobante, no lo penalices salvo que se note en la respuesta.' + DATOS_LOCAL,
     messages: [{ role: 'user', content: `Qué tenía que hacer el bot: ${caso.juez}\n\nLa charla:\n${guion}\n\nPuntuá de 1 a 5 (5 = lo que haría el mejor vendedor del local; 4 = bien con detalles menores; 3 = cumple a medias; 1-2 = mal). Respondé SOLO un JSON: {"puntaje": n, "problemas": ["..."]}` }],
   });
   const txt = r.content.filter((b) => b.type === 'text').map((b) => b.text).join('');
@@ -165,10 +166,17 @@ async function juzgar(claude, caso, charla) {
       try {
         for (const [k, t] of caso.turnos.entries()) {
           registro.set(telefono, []);
-          const r = await bot.charla({ linea: 'pedidos', telefono, mensaje: t.cliente, ...(t.archivo ? { archivoBase64: pdfComprobante(), mimeType: 'application/pdf', archivoUrl: 'https://banco.invalid/comprobante.pdf' } : {}) });
+          const r = await bot.charla({ linea: 'pedidos', telefono, mensaje: t.cliente, ...(t.archivo ? { archivoBase64: pdfComprobante(), mimeType: 'application/pdf', archivoUrl: 'https://banco.invalid/comprobante.pdf' } : {}), ...(t.foto ? { archivoBase64: fs.readFileSync(path.resolve(t.foto)).toString('base64'), mimeType: 'image/jpeg', archivoUrl: 'https://banco.invalid/foto.jpeg' } : {}) });
           const resp = String(r?.respuesta ?? '');
           const herramientas = registro.get(telefono);
           const imagen = resp ? imagenDe(resp, r?.catalogo) : null;
+          // BANCO_IMAGENES=carpeta guarda la imagen que le llegaría al cliente
+          if (imagen && process.env.BANCO_IMAGENES) {
+            const cp = require('../dist/comun/cartel-pedido.js');
+            const png = imagen === 'resumen' ? await cp.cartelPedido(cp.leerResumenDePedido(resp)) : await cp.cartelListaPrecios(cp.preciosDeLaRespuesta(resp, r.catalogo), new Date().toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' }));
+            fs.mkdirSync(process.env.BANCO_IMAGENES, { recursive: true });
+            fs.writeFileSync(path.join(process.env.BANCO_IMAGENES, `${caso.id}-turno${k + 1}.png`), png);
+          }
           charla.push({ cliente: t.cliente, archivo: !!t.archivo, respuesta: resp, herramientas, imagen, catalogo: r?.catalogo ?? [] });
           const f = [...(resp ? chequeosGenerales(resp, previa, imagen) : []), ...chequeosDelTurno(t.espera, resp, herramientas)];
           fallas.push(...f.map((x) => `turno ${k + 1}: ${x}`));
@@ -197,7 +205,7 @@ async function juzgar(claude, caso, charla) {
   const previos = fs.readdirSync(SALIDA).filter((f) => f.endsWith('.json') && !f.startsWith('parcial-')).sort();
   const anterior = previos.length ? JSON.parse(fs.readFileSync(path.join(SALIDA, previos.at(-1)), 'utf8')) : null;
   const antes = new Map((anterior?.resultados ?? []).map((r) => [r.id, r.ok]));
-  const aRepetir = soloIds.length ? [] : resultados.filter((r) => antes.get(r.id) === true && !r.ok);
+  const aRepetir = soloIds.length || process.env.BANCO_CASOS ? [] : resultados.filter((r) => antes.get(r.id) === true && !r.ok);
   const intermitentes = [];
   if (aRepetir.length) {
     console.log(`\nSe repiten ${aRepetir.length} que andaban: ${aRepetir.map((r) => r.id).join(', ')}`);
@@ -215,7 +223,7 @@ async function juzgar(claude, caso, charla) {
   const pasan = resultados.filter((r) => r.ok).length;
   const promedio = resultados.reduce((s, r) => s + (r.puntaje || 0), 0) / (resultados.length || 1);
   const sello = new Date().toISOString().replace(/[:.]/g, '-');
-  fs.writeFileSync(path.join(SALIDA, `${soloIds.length ? 'parcial-' : ''}${sello}.json`), JSON.stringify({ fecha: new Date().toISOString(), pasan, total: resultados.length, promedio, costoBot: costo, intermitentes, resultados }, null, 1));
+  fs.writeFileSync(path.join(SALIDA, `${soloIds.length || process.env.BANCO_CASOS ? 'parcial-' : ''}${sello}.json`), JSON.stringify({ fecha: new Date().toISOString(), pasan, total: resultados.length, promedio, costoBot: costo, intermitentes, resultados }, null, 1));
 
   console.log(`\nPasan ${pasan} de ${resultados.length} · puntaje promedio ${promedio.toFixed(2)}/5 · costo del bot ≈ USD ${costo.toFixed(2)} (más el juez)`);
   if (anterior && !soloIds.length) {

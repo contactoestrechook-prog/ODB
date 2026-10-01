@@ -356,3 +356,9 @@ export function sinCocinaInterna(t: string): string {
     .replace(/ en (?:el )?sistema\b/gi, '');
   return r.replace(/[ \t]{2,}/g, ' ').replace(/ ([,.;:])/g, '$1').replace(/^(\s*)([a-záéíóúñ])/gm, (m, a, b) => a + b.toUpperCase()).trim();
 }
+
+// "¿Lo retirás por la sucursal Saint Thomas?" da el retiro por elegido: la
+// pregunta siempre ofrece las dos (banco 1/10/2026)
+export function retiroOEnvio(t: string): string {
+  return String(t ?? '').replace(/¿\s*Lo retir[aá]s (?:por|en) la sucursal Saint Thomas(?:,? \(?Castex 3601\)?)?\s*\?/gi, '¿Lo retirás por la sucursal Saint Thomas o te lo enviamos?');
+}
