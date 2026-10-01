@@ -151,7 +151,11 @@ describe('Entregas y archivos: fallos sin efectos ficticios', () => {
     await (servicio(db) as any).guardarAdjuntoPrivado('whatsapp/111/123.jpg',{base64:'AAAA',mime:'image/jpeg'});
     expect(db.storage.from).toHaveBeenCalledWith('bot-adjuntos');expect(firma).toHaveBeenCalledWith('whatsapp/111/123.jpg',3600);
   });
-  it.each(['../secreto','whatsapp/111/../../otro','publico/123.jpg','https://otro/archivo'])('renovación rechaza ruta %s',async ruta=>{
+  it.each(['whatsapp/111/123.jpg','whatsapp/11282929475750@lid/1790860035812.jpeg','whatsapp/11282929475750@lid/1790860049466.oga'])('renovación acepta la ruta %s (también las @lid de los contactos nuevos)',async ruta=>{
+    const db=dbSimulada();db.storage={from:jest.fn(()=>({createSignedUrl:jest.fn(async()=>({data:{signedUrl:'https://privado/firmado'}}))}))};
+    await expect(servicio(db).renovarAdjunto(ruta)).resolves.toBeTruthy();
+  });
+  it.each(['../secreto','whatsapp/111/../../otro','whatsapp/111@lid/../otro','whatsapp/111@otro/123.jpg','publico/123.jpg','https://otro/archivo'])('renovación rechaza ruta %s',async ruta=>{
     await expect(servicio().renovarAdjunto(ruta)).rejects.toThrow(/inválida/);
   });
   it('checkout de medio kilo conserva el importe y el vínculo con el pedido',async()=>{

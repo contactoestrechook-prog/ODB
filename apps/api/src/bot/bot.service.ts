@@ -3078,7 +3078,9 @@ export class BotService {
 
   // Acceso del staff autenticado: renueva únicamente rutas del archivo privado.
   async renovarAdjunto(ruta: string) {
-    if (!/^whatsapp\/[0-9]+\/(?:enviado-)?[0-9]+(?:\.[a-z0-9]{2,4})?$/.test(String(ruta ?? ''))) {
+    // los contactos nuevos de WhatsApp se guardan como "123…@lid": sin esto el panel
+    // no podía renovar sus fotos y audios (Blanquita, 1/10/2026)
+    if (!/^whatsapp\/[0-9]+(?:@lid)?\/(?:enviado-)?[0-9]+(?:\.[a-z0-9]{2,4})?$/.test(String(ruta ?? ''))) {
       throw new BadRequestException('Ruta de adjunto inválida');
     }
     const { data, error } = await this.db.storage.from('bot-adjuntos').createSignedUrl(ruta, 3600);
