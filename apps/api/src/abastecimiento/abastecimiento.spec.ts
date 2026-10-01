@@ -13,27 +13,38 @@ const fila = (x: any = {}) => ({
   cantidad_sugerida: 132, ultimo_costo: 1500.4, ultima_compra: null, ultima_cantidad: null, ...x,
 });
 
-function dbFalsa(t: { abastecimiento?: any[]; proveedores?: any[]; faltan?: string[]; oc?: any; conFoto?: { id: string }[] } = {}) {
+function dbFalsa(t: { abastecimiento?: any[]; proveedores?: any[]; faltan?: string[]; oc?: any; conFoto?: { id: string }[]; productos?: any[] } = {}) {
   const rpcs: any[] = [];
   const db: any = {
     rpcs,
-    rpc: jest.fn(async (nombre: string, args: any) => {
+    // como PostgREST: una función que devuelve filas llega cortada en 1.000
+    // salvo que se pida de a páginas con range()
+    rpc: jest.fn((nombre: string, args: any) => {
       rpcs.push({ nombre, args });
-      if (nombre === 'abastecimiento') return { data: t.abastecimiento ?? [], error: null };
-      if (nombre === 'proveedor_faltantes') return { data: t.faltan ?? [], error: null };
-      return { data: null, error: null };
+      const todas = nombre === 'abastecimiento' ? (t.abastecimiento ?? []) : null;
+      const res = (desde = 0, hasta = 999) =>
+        nombre === 'abastecimiento' ? { data: todas!.slice(desde, Math.min(hasta, desde + 999) + 1), error: null }
+        : nombre === 'proveedor_faltantes' ? { data: t.faltan ?? [], error: null }
+        : { data: null, error: null };
+      const q: any = {
+        range: (desde: number, hasta: number) => Promise.resolve(res(desde, hasta)),
+        then: (ok: any, err: any) => Promise.resolve(res()).then(ok, err),
+      };
+      return q;
     }),
     from(tabla: string) {
-      const res =
+      let columnas = '';
+      const res = () =>
         tabla === 'sucursales' ? { data: [{ id: 'st', nombre: 'Suc Sant Thomas' }, { id: 'si', nombre: 'Suc Santa Ines' }], error: null }
         : tabla === 'proveedores' ? { data: t.proveedores ?? [], error: null }
         : tabla === 'ordenes_compra' ? { data: t.oc ?? null, error: null }
-        : tabla === 'productos' ? { data: t.conFoto ?? [], error: null }
+        : tabla === 'productos' ? { data: columnas.includes('sku') ? (t.productos ?? []) : (t.conFoto ?? []), error: null }
+        : tabla === 'proveedor_productos' ? { data: [], error: null }
         : { data: null, error: null };
       const b: any = {
-        select: () => b, eq: () => b, ilike: () => b, in: () => b, order: () => b, limit: () => b, is: () => b,
-        maybeSingle: async () => res,
-        then: (ok: any, err: any) => Promise.resolve(res).then(ok, err),
+        select: (c: string) => { columnas = c ?? ''; return b; }, eq: () => b, ilike: () => b, in: () => b, order: () => b, limit: () => b, is: () => b,
+        maybeSingle: async () => res(),
+        then: (ok: any, err: any) => Promise.resolve(res()).then(ok, err),
       };
       return b;
     },
@@ -167,5 +178,42 @@ describe('abastecimiento: la propuesta para tildar', () => {
     expect(crear).toHaveBeenCalledWith(expect.objectContaining({ items: [{ sku: 'L1', cantidad: 3 }], usuarioId: 'u1' }));
     expect(r).toEqual({ id: 'oc9', numero: 57, total: 412000, renglones: 1, faltan: ['plazo de entrega'] });
     await expect(s.crearOrden({ proveedorId: 'pv1', sucursalId: 'st', items: [] })).rejects.toThrow(/Tildá al menos/);
+  });
+});
+
+describe('abastecimiento: lo que encontró la revisión antes de publicar', () => {
+  it('trae TODAS las filas aunque sean más de 1.000 (PostgREST corta sin avisar)', async () => {
+    const muchas = Array.from({ length: 2154 }, (_, i) => fila({ sku: `S${i}`, producto_id: `p${i}`, alerta: i < 300 ? 'sin_stock' : 'menos_de_12', cantidad_sugerida: 5 }));
+    const s = new AbastecimientoService(dbFalsa({ abastecimiento: muchas }), {} as any);
+    const r = await s.propuestas({ sucursal: 'Saint Thomas' });
+    expect(r.propuestas[0].items).toHaveLength(2154);
+    const resumen = await s.resumen();
+    expect(resumen.porSucursal['Saint Thomas']).toEqual({ sin_stock: 300, no_llega: 0, menos_de_12: 1854 });
+  });
+
+  it('proponer_compra: un producto que nunca tuvo stock ni ventas en la sucursal se puede proponer igual', async () => {
+    const db = dbFalsa({
+      abastecimiento: [],
+      proveedores: [{ id: 'pv1', razon_social: 'Luvik Mayorista', activo: true, lead_time_dias: 5, lead_time_confirmado: true }],
+      productos: [{ id: 'p9', sku: 'L3578', nombre: 'Aceite de Girasol Cañuelas x 1,5LT', costo: 3100 }],
+    });
+    const r = await new AbastecimientoService(db, {} as any).proponerCompra({ proveedor: 'Luvik', sucursal: 'Santa Inés', items: [{ sku: 'L3578', cantidad: 12 }] });
+    expect(r.resultado).toMatchObject({ mostrada: true, renglones: 1 });
+    const it = r.propuesta!.items[0];
+    expect(it).toMatchObject({ sku: 'L3578', stock: 0, cantidad: 12, costo: 3100, tildado: true, coberturaDias: null });
+    // el plazo es el de la ficha del proveedor, no el de otro
+    expect(r.propuesta!).toMatchObject({ plazoDias: 5, plazoFuente: 'declarado por el proveedor', sucursal: 'Santa Inés' });
+  });
+
+  it('proponer_compra pide partir las notas de más de 60 renglones', async () => {
+    const db = dbFalsa({ proveedores: [{ id: 'pv1', razon_social: 'Luvik Mayorista', activo: true }] });
+    const items = Array.from({ length: 61 }, (_, i) => ({ sku: `S${i}`, cantidad: 1 }));
+    const r = await new AbastecimientoService(db, {} as any).proponerCompra({ proveedor: 'Luvik', sucursal: 'Saint Thomas', items });
+    expect(String(r.resultado.error)).toMatch(/hasta 60/);
+  });
+
+  it('el total de la nota usa el costo sin redondear (coincide con la orden)', () => {
+    const [p] = armarPropuestas([fila({ ultimo_costo: 1500.4, cantidad_sugerida: 10, alerta: 'sin_stock' })]);
+    expect(p.total).toBeCloseTo(15004, 5);
   });
 });

@@ -24,12 +24,13 @@ async function reenviar(res: Response): Promise<NextResponse> {
   }
 }
 
-function caido(e: unknown): NextResponse {
+function caido(e: unknown, que: 'agente' | 'orden' = 'agente'): NextResponse {
   const porTiempo = e instanceof Error && (e.name === 'TimeoutError' || e.name === 'AbortError');
-  return NextResponse.json(
-    { message: porTiempo ? 'El agente tardó más de lo permitido. Pedile una tanda más chica.' : 'No pude conectarme con el servidor. Probá de nuevo.' },
-    { status: 504 },
-  );
+  const message = que === 'orden'
+    // la orden pudo haberse creado igual: antes de reintentar hay que mirar
+    ? 'No tuve respuesta del servidor al armar el pedido. Antes de reintentar, fijate en Aprobaciones si la orden ya quedó creada.'
+    : porTiempo ? 'El agente tardó más de lo permitido. Pedile una tanda más chica.' : 'No pude conectarme con el servidor. Probá de nuevo.';
+  return NextResponse.json({ message }, { status: 504 });
 }
 
 // ?que=resumen (default) | lista (&sucursal&alerta&q&limite) | propuestas (&sucursal)
@@ -61,9 +62,10 @@ export async function POST(req: Request) {
         body: JSON.stringify({ proveedorId: cuerpo?.proveedorId, sucursalId: cuerpo?.sucursalId, items: cuerpo?.items }),
         signal: AbortSignal.timeout(60_000),
       });
+      if (res.status >= 500) return caido(new Error(String(res.status)), 'orden');
       return await reenviar(res);
     } catch (e) {
-      return caido(e);
+      return caido(e, 'orden');
     }
   }
   const { mensajes } = cuerpo;

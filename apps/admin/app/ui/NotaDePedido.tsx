@@ -228,20 +228,24 @@ export function NotaDePedido({
           </div>
         </div>
       ))}
+      </div>
 
-      {items.length > 0 && (
+      {vivos.length > 0 && (
         <>
           <div className="flex items-center justify-between gap-3 px-4 pb-1 pt-3 sm:px-5">
             <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-black/40">Producto</p>
             <button
               type="button"
-              onClick={() => setItems((xs) => xs.map((x) => ({ ...x, tildado: !todos && x.cantidad > 0 })))}
+              disabled={armando}
+              onClick={() => setItems((xs) => xs.map((x) => (todos ? { ...x, tildado: false } : { ...x, tildado: true, cantidad: x.cantidad || x.sugerido || 1 })))}
               className="rounded text-[12px] font-medium text-[#B82D25] hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#B82D25]"
             >
               {todos ? 'Destildar todos' : 'Tildar todos'}
             </button>
           </div>
 
+          {/* mientras se arma la orden no se toca nada: lo que se mandó es lo que se ve */}
+          <fieldset disabled={armando} className="contents">
           <ul>
             {visibles.map((it) => {
               const etiqueta = it.alerta ? ETIQUETA[it.alerta] : null;
@@ -262,7 +266,7 @@ export function NotaDePedido({
                     <p className="mt-0.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11.5px] text-black/55">
                       {etiqueta && <span className={`rounded px-1.5 py-[1px] text-[10px] font-semibold uppercase tracking-wide ${etiqueta.clase}`}>{etiqueta.texto}</span>}
                       <span className="tabular-nums">stock {dec(it.stock)}</span>
-                      {it.ritmoDia > 0 && <span className="tabular-nums">vende {dec(it.ritmoDia)} por día</span>}
+                      {it.ritmoDia > 0 && <span className="tabular-nums">vende {ritmo(it.ritmoDia)} por día</span>}
                       {it.enCamino > 0 && <span className="tabular-nums">{dec(it.enCamino)} en camino</span>}
                     </p>
                     {it.motivo && <p className="mt-0.5 text-[11.5px] italic text-black/50">{it.motivo}</p>}
@@ -293,11 +297,13 @@ export function NotaDePedido({
               );
             })}
           </ul>
+          </fieldset>
 
           {restantes > 0 && (
             <button type="button" onClick={() => setVerTodos(true)}
               className="w-full border-t border-black/[0.06] px-4 py-2.5 text-[12.5px] font-medium text-black/55 hover:bg-black/[0.02] hover:text-black">
               Ver {restantes} producto{restantes === 1 ? '' : 's'} más
+              {tildadosOcultos > 0 && <span className="text-[#B82D25]"> · {tildadosOcultos} ya tildado{tildadosOcultos === 1 ? '' : 's'}</span>}
             </button>
           )}
 
@@ -314,7 +320,7 @@ export function NotaDePedido({
               {armando ? 'Armando el pedido…' : 'Armar pedido con lo tildado'}
             </button>
           </footer>
-          {error && <p className="border-t border-[#B82D25]/20 bg-[#B82D25]/[0.06] px-4 py-2.5 text-[12.5px] text-[#932A1F] sm:px-5">{error}</p>}
+          {error && <p role="alert" className="border-t border-[#B82D25]/20 bg-[#B82D25]/[0.06] px-4 py-2.5 text-[12.5px] text-[#932A1F] sm:px-5">{error}</p>}
         </>
       )}
     </article>

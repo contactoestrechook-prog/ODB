@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { BotonMicrofono } from './BotonMicrofono';
-import { NotaDePedido, type Propuesta } from './NotaDePedido';
+import { NotaDePedido, type Armada, type EstadoNota, type Propuesta } from './NotaDePedido';
 
 // "Qué comprar": la foto de lo que falta y el agente de abastecimiento.
 // La alerta no es un número fijo: cruza ritmo de venta, stock y plazo de
@@ -19,14 +19,23 @@ type Resumen = {
 const fecha = (v?: string | null) => (v ? new Date(v.length === 10 ? `${v}T12:00:00` : v).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '—');
 const miles = (n?: number) => (n ?? 0).toLocaleString('es-AR');
 
-// El agente no ve la pantalla: para que la charla siga ("sumale el aceite"),
-// lo que se le mostró como nota de pedido viaja como una línea de texto.
-const conPropuestas = (m: Mensaje) =>
-  m.propuestas?.length
-    ? `${m.texto}\n\n(Propuestas mostradas en pantalla: ${m.propuestas
-        .map((p) => `${p.proveedor} · ${p.sucursal}: ${p.items.map((i) => `${i.sku}×${i.cantidad}`).join(', ')}`)
-        .join(' | ')})`
-    : m.texto;
+// El agente no ve la pantalla. Al mensaje que se manda se le antepone cómo
+// están ahora las notas que él propuso (lo tildado y lo corregido) y las órdenes
+// que ya se armaron, para que no proponga ni arme dos veces.
+type OrdenArmada = Armada & { proveedor: string; sucursal: string };
+function contextoDeNotas(notas: EstadoNota[], ordenes: OrdenArmada[]): string {
+  const lineas: string[] = [];
+  for (const n of notas) {
+    const t = n.items.filter((i) => i.tildado && i.cantidad > 0).map((i) => `${i.sku}×${i.cantidad}`);
+    const sin = n.items.filter((i) => !(i.tildado && i.cantidad > 0)).map((i) => i.sku);
+    if (!t.length && !sin.length) continue;
+    lineas.push(`- Nota ${n.proveedor} · ${n.sucursal}: ${t.length ? `tildado ${t.join(', ')}` : 'nada tildado'}${sin.length ? `; sin tildar ${sin.join(', ')}` : ''}`);
+  }
+  for (const o of ordenes) {
+    lineas.push(`- Orden #${o.numero ?? '?'} YA ARMADA (a aprobar) para ${o.proveedor} · ${o.sucursal}: ${(o.pedidos ?? []).map((p) => `${p.sku}×${p.cantidad}`).join(', ')}`);
+  }
+  return lineas.length ? `[Cómo está la pantalla ahora — es contexto, no lo repitas]\n${lineas.join('\n')}\n\n` : '';
+}
 
 const SUCURSALES = ['Saint Thomas', 'Santa Inés'];
 const PROVEEDORES_VISIBLES = 6;
@@ -47,15 +56,28 @@ export function AbastecimientoPanel() {
   const [notas, setNotas] = useState<{ propuestas: Propuesta[]; sinProveedor: number } | null>(null);
   const [errorNotas, setErrorNotas] = useState('');
   const [verTodas, setVerTodas] = useState(false);
+  const [errorResumen, setErrorResumen] = useState(false);
+  // productos ya pedidos desde cualquier nota de esta pantalla ("sucursalId:sku")
+  const [yaPedidos, setYaPedidos] = useState<Set<string>>(new Set());
+  const ordenesRef = useRef<OrdenArmada[]>([]);
+  const notasChat = useRef(new Map<string, EstadoNota>());
   const finRef = useRef<HTMLDivElement>(null);
+
+  const alArmar = useCallback((o: OrdenArmada & { sucursalId: string }) => {
+    ordenesRef.current = [...ordenesRef.current, o];
+    setYaPedidos((s) => new Set([...s, ...(o.pedidos ?? []).map((p) => `${o.sucursalId}:${p.sku}`)]));
+  }, []);
 
   useEffect(() => {
     fetch('/api/abastecimiento?que=resumen', { cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : null))
-      .then((j) => j && setResumen(j))
-      .catch(() => null);
+      .then((j) => (j ? setResumen(j) : setErrorResumen(true)))
+      .catch(() => setErrorResumen(true));
   }, []);
+  const [recargar, setRecargar] = useState(0);
   useEffect(() => {
+    // si se cambia de sucursal antes de que llegue la respuesta, la vieja se descarta
+    let vigente = true;
     setNotas(null);
     setErrorNotas('');
     setVerTodas(false);
@@ -63,10 +85,11 @@ export function AbastecimientoPanel() {
       .then(async (r) => {
         const j = await r.json().catch(() => ({}));
         if (!r.ok) throw new Error(j?.message ?? 'No pude armar lo sugerido');
-        setNotas({ propuestas: j.propuestas ?? [], sinProveedor: j.sinProveedor ?? 0 });
+        if (vigente) setNotas({ propuestas: j.propuestas ?? [], sinProveedor: j.sinProveedor ?? 0 });
       })
-      .catch((e) => setErrorNotas(e instanceof Error ? e.message : 'No pude armar lo sugerido'));
-  }, [sucursal]);
+      .catch((e) => { if (vigente) setErrorNotas(e instanceof Error ? e.message : 'No pude armar lo sugerido'); });
+    return () => { vigente = false; };
+  }, [sucursal, recargar]);
   // al mandar un mensaje se baja hasta el final; no al abrir la pestaña
   useEffect(() => { if (mensajes.length) finRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }, [mensajes, pensando]);
 
@@ -84,7 +107,12 @@ export function AbastecimientoPanel() {
       const r = await fetch('/api/abastecimiento', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mensajes: conversacion.map((m) => ({ rol: m.rol, texto: conPropuestas(m) })) }),
+        body: JSON.stringify({
+          mensajes: conversacion.map((m, i) => ({
+            rol: m.rol,
+            texto: i === conversacion.length - 1 ? contextoDeNotas([...notasChat.current.values()], ordenesRef.current) + m.texto : m.texto,
+          })),
+        }),
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j?.message ?? 'El agente no pudo contestar');
@@ -111,7 +139,7 @@ export function AbastecimientoPanel() {
                   </p>
                 </div>
               ))
-            : <p className="text-sm text-black/45">Calculando…</p>}
+            : <p className="text-sm text-black/45">{errorResumen ? 'No pude calcular el resumen. Recargá la página para reintentar.' : 'Calculando…'}</p>}
         </div>
         {resumen && (
           <p className="text-xs text-black/55">
@@ -128,9 +156,9 @@ export function AbastecimientoPanel() {
             <h2 id="sugerido" className="text-lg font-semibold text-black">Sugerido para comprar</h2>
             <p className="text-[12.5px] text-black/55">Una nota de pedido por proveedor. Tildá lo que vas a pedir y ajustá las cantidades.</p>
           </div>
-          <div role="tablist" aria-label="Sucursal" className="flex rounded-full bg-white p-1 ring-1 ring-black/10">
+          <div role="group" aria-label="Sucursal" className="flex rounded-full bg-white p-1 ring-1 ring-black/10">
             {SUCURSALES.map((s) => (
-              <button key={s} role="tab" aria-selected={sucursal === s} onClick={() => setSucursal(s)}
+              <button key={s} aria-pressed={sucursal === s} onClick={() => setSucursal(s)}
                 className={`rounded-full px-3.5 py-1.5 text-[12.5px] font-medium transition-colors ${sucursal === s ? 'bg-[#141414] text-white' : 'text-black/55 hover:text-black'}`}>
                 {s}
               </button>
@@ -138,7 +166,12 @@ export function AbastecimientoPanel() {
           </div>
         </div>
 
-        {errorNotas && <p className="rounded-lg bg-[#B82D25]/10 border border-[#B82D25]/30 px-3 py-2 text-sm text-[#932A1F]">{errorNotas}</p>}
+        {errorNotas && (
+          <p className="rounded-lg bg-[#B82D25]/10 border border-[#B82D25]/30 px-3 py-2 text-sm text-[#932A1F]">
+            {errorNotas}{' '}
+            <button onClick={() => setRecargar((n) => n + 1)} className="font-medium underline underline-offset-2">Reintentar</button>
+          </p>
+        )}
         {!notas && !errorNotas && (
           <div className="space-y-3" aria-busy="true">
             {[0, 1].map((i) => (
@@ -152,7 +185,9 @@ export function AbastecimientoPanel() {
         {notas && notas.propuestas.length === 0 && (
           <p className="rounded-2xl bg-white px-5 py-6 text-sm text-black/55">No hay nada para reponer en {sucursal} con proveedor habitual. Si te falta algo puntual, preguntale al agente acá abajo.</p>
         )}
-        {notas?.propuestas.slice(0, verTodas ? undefined : PROVEEDORES_VISIBLES).map((p) => <NotaDePedido key={`${sucursal}:${p.clave}`} propuesta={p} />)}
+        {notas?.propuestas.slice(0, verTodas ? undefined : PROVEEDORES_VISIBLES).map((p) => (
+          <NotaDePedido key={`${sucursal}:${p.clave}`} propuesta={p} yaPedidos={yaPedidos} onArmada={alArmar} />
+        ))}
         {notas && notas.propuestas.length > PROVEEDORES_VISIBLES && !verTodas && (
           <button onClick={() => setVerTodas(true)}
             className="w-full rounded-2xl bg-white px-4 py-3 text-sm font-medium text-black/60 ring-1 ring-black/[0.06] hover:text-black">
@@ -196,7 +231,15 @@ export function AbastecimientoPanel() {
               </div>
               {m.propuestas && (
                 <div className="mt-2 w-full space-y-3">
-                  {m.propuestas.map((p) => <NotaDePedido key={p.clave} propuesta={p} />)}
+                  {m.propuestas.map((p) => (
+                    <NotaDePedido
+                      key={`${i}:${p.clave}`}
+                      propuesta={p}
+                      yaPedidos={yaPedidos}
+                      onArmada={alArmar}
+                      onCambio={(e) => notasChat.current.set(`${i}:${p.clave}`, e)}
+                    />
+                  ))}
                 </div>
               )}
             </div>
