@@ -2,41 +2,171 @@
 
 :root {
   --background: #ffffff;
-  --foreground: #171717;
+  --foreground: #141414;
   /* Los controles nativos (select, spinners, date) también en claro, sin importar
      el tema del SO. Sin esto, en modo oscuro salían con fondo oscuro y texto oscuro. */
   color-scheme: light;
+  /* Alto de la barra negra del celular (incluye el área segura de arriba). Lo
+     usan los elementos `sticky` que tienen que quedar DEBAJO de esa barra:
+     `top-(--alto-barra-movil) lg:top-0`. En escritorio no hay barra. */
+  --alto-barra-movil: calc(3.5rem + env(safe-area-inset-top, 0px));
 }
+
+@media (min-width: 1024px) {
+  :root { --alto-barra-movil: 0px; }
+}
+
+/* ------------------------------------------------------------------------
+   Sistema visual del panel (rediseño, octubre 2026)
+   La guía de uso está en app/ui/kit/LEEME.md. Regla: en las pantallas no se
+   escriben colores en hex ni tamaños text-[Npx]; se usan estos tokens.
+   ------------------------------------------------------------------------ */
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  /* Figtree la carga app/layout.tsx con next/font (variable --font-figtree) */
+  --font-sans: var(--font-figtree), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
-/* El panel es 100% claro (tarjetas blancas, texto negro). NO seguimos el modo
-   oscuro del celular: si lo hacíamos, cualquier texto/input que no fijaba color
-   propio heredaba un gris casi blanco y quedaba invisible sobre fondo blanco
-   (ej. los renglones de IVA de la entrada por foto). Fondo y texto fijos. */
-body {
-  background: #ffffff;
-  color: #171717;
-  font-family: Arial, Helvetica, sans-serif;
+@theme {
+  /* Marca: la acción principal, el foco y los errores */
+  --color-marca: #B82D25;
+  --color-marca-hondo: #932A1F;
+  --color-marca-suave: #F7E9E7;
+
+  /* El único negro del sistema (texto, menú, barra del celular) */
+  --color-tinta: #141414;
+  --color-tinta-2: #1F1B18;
+
+  /* Fondos */
+  --color-crema: #F0EBE2;
+  --color-crema-claro: #F7F4EE;
+  --color-crema-hondo: #E6DFD3;
+
+  /* Dorado: solo como acento sobre fondo oscuro; sobre claro, dorado-hondo */
+  --color-dorado: #C9A96E;
+  --color-dorado-hondo: #7A5E2E;
+
+  /* Estados */
+  --color-ok: #166B3E;
+  --color-ok-suave: #E8F3EC;
+  --color-atencion: #8F5F00;
+  --color-atencion-suave: #FBF1DC;
+  --color-info: #1F6F8B;
+  --color-info-suave: #E6F1F5;
+
+  /* Dos sombras nada más */
+  --shadow-tarjeta: 0 1px 2px rgb(20 20 20 / 0.04), 0 6px 20px -12px rgb(20 20 20 / 0.12);
+  --shadow-flotante: 0 18px 48px -16px rgb(20 20 20 / 0.35);
+
+  /* Movimientos del kit (hoja inferior, modal, cajón) */
+  --animate-hoja-sube: hoja-sube 0.24s cubic-bezier(0.2, 0.8, 0.2, 1);
+  --animate-aparece: aparece 0.16s ease-out;
+  --animate-cajon-entra: cajon-entra 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  @keyframes hoja-sube {
+    from { transform: translateY(24px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+  }
+  @keyframes aparece {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes cajon-entra {
+    from { transform: translateX(-100%); }
+    to { transform: translateX(0); }
+  }
 }
 
-/* Un <select> con opciones largas o un <input> dentro de una fila no pueden
-   medir más que su contenedor: en el celular estiraban la pantalla a 459 px y
-   Chrome "alejaba" todo el panel (listas, salida, 2026-09-09). */
-input, select, textarea { max-width: 100%; min-width: 0; }
+/* Escala de capas (A7). Una sola, para que ningún flotante tape a otro:
+   clases z-contenido, z-barra-inferior, z-barra, z-cajon, z-modal, z-aviso y
+   z-toast; y las variables --z-index-* para usar en style. `static` hace que
+   las variables existan aunque ninguna clase las use. */
+@theme static {
+  --z-index-contenido: 10;
+  --z-index-barra-inferior: 30; /* BarraInferior y el botón "Esto está mal" */
+  --z-index-barra: 40; /* barra negra del celular y barra lateral */
+  --z-index-cajon: 50; /* menú lateral del celular */
+  --z-index-modal: 60; /* Modal, Confirmar, hojas inferiores */
+  --z-index-aviso: 70; /* aviso de actualización y cartel de instalar */
+  --z-index-toast: 80;
+}
 
-/* En celular, las tablas anchas scrollean horizontal en vez de romper el layout */
+/* Cifras de plata: todas del mismo ancho (se alinean en columnas) y sin cortar
+   "$1.234.567" en dos renglones. */
+@utility importe {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+@layer base {
+  html {
+    /* el ancla de un enlace no queda escondida bajo la barra negra del celular */
+    scroll-padding-top: calc(var(--alto-barra-movil) + 0.5rem);
+  }
+
+  /* El panel es 100% claro (fondo crema, texto tinta). NO seguimos el modo
+     oscuro del celular: si lo hacíamos, cualquier texto/input que no fijaba
+     color propio heredaba un gris casi blanco y quedaba invisible sobre fondo
+     blanco (ej. los renglones de IVA de la entrada por foto). La letra es la
+     de --font-sans (Figtree); ya no se fuerza Arial. overflow-wrap corta los
+     mails, links, CUIT y códigos largos en vez de estirar la pantalla (A10). */
+  body {
+    background: var(--color-crema);
+    color: var(--color-tinta);
+    overflow-wrap: break-word;
+  }
+
+  /* Un <select> con opciones largas o un <input> dentro de una fila no pueden
+     medir más que su contenedor: en el celular estiraban la pantalla a 459 px y
+     Chrome "alejaba" todo el panel (listas, salida, 2026-09-09). Va en la capa
+     base (A5) para que las clases min-w-* de cada pantalla vuelvan a funcionar. */
+  input, select, textarea { max-width: 100%; min-width: 0; }
+}
+
+/* A1 — Campos a 16 px en el celular. Va FUERA de @layer a propósito: lo que no
+   está en una capa le gana a las clases de Tailwind (text-sm, text-[13px]).
+   Con menos de 16 px, Safari del iPhone agranda la página al tocar el campo y
+   la pantalla queda corrida. Dos reglas para no ACHICAR los campos grandes
+   (la cantidad de Caja está en text-2xl):
+   1. text-xs y text-sm leen estas variables: dentro de un campo miden 16 px.
+   2. Los campos sin tamaño propio o con un tamaño escrito a mano quedan en
+      16 px como mínimo (1em = la letra que heredan, si es más grande). */
+@media (max-width: 639px) {
+  :is(input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="color"], [type="hidden"]), select, textarea) {
+    --text-xs: 1rem;
+    --text-sm: 1rem;
+  }
+  :is(input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="color"], [type="hidden"]), select, textarea):not([class*="text-base"], [class*="text-lg"], [class*="text-xl"], [class*="text-2xl"], [class*="text-3xl"], [class*="text-4xl"], [class*="text-5xl"], [class*="text-6xl"], [class*="text-[clamp"]) {
+    font-size: max(16px, 1em);
+  }
+}
+
+/* Flotantes (A7): el botón "Esto está mal" se esconde cuando la pantalla tiene
+   una BarraInferior (Cobrar, Guardar) y, como el cartel de instalar, cuando el
+   menú del celular está abierto. Los atributos los ponen BarraInferior y
+   MobileMenu en <html>. */
+html[data-barra-inferior] .flotante-reportar,
+html[data-cajon-abierto] .flotante-ocultable {
+  display: none;
+}
+
+/* PARCHE VIEJO — se borra cuando las 46 tablas pasen a <TablaResponsiva>, en
+   el mismo deploy (si se borra antes, las tablas anchas estiran la página).
+   En celular, las tablas anchas scrollean horizontal en vez de romper el
+   layout. Las tablas del kit (.tabla-kit) ya traen su propio scroll. */
 @media (max-width: 768px) {
-  main table {
+  main table:not(.tabla-kit) {
     display: block;
     overflow-x: auto;
     white-space: nowrap;
     max-width: 100%;
     -webkit-overflow-scrolling: touch;
   }
+}
+
+@media print {
+  body { background: white; }
 }
