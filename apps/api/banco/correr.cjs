@@ -24,6 +24,9 @@ const Anthropic = require('@anthropic-ai/sdk').default;
 const { AppModule } = require('../dist/app.module.js');
 const { BotService } = require('../dist/bot/bot.service.js');
 const { casiIgual } = require('../dist/bot/prolijo.js');
+const { leerResumenDePedido, preciosDeLaRespuesta, imagenEsperada } = require('../dist/comun/cartel-pedido.js');
+// qué imagen saldría con esta respuesta (la misma decisión que el envío real)
+const imagenDe = (resp, catalogo) => leerResumenDePedido(resp) ? 'resumen' : preciosDeLaRespuesta(resp, catalogo ?? []).length >= 3 ? 'precios' : null;
 
 const CASOS = JSON.parse(fs.readFileSync(path.join(__dirname, 'casos.json'), 'utf8'));
 const SALIDA = path.join(__dirname, 'resultados');
@@ -52,8 +55,11 @@ function pdfComprobante() {
 }
 
 // reglas que valen para CUALQUIER respuesta del bot
-function chequeosGenerales(resp, previa) {
+function chequeosGenerales(resp, previa, imagen) {
   const f = [];
+  // un resumen de 2 renglones o más, o 3 precios o más, van con imagen (1/10/2026)
+  const esperada = imagenEsperada(resp);
+  if (esperada && imagen !== esperada) f.push(`le correspondía imagen de ${esperada} y ${imagen ? `salió ${imagen}` : 'no salió'}`);
   if (/\bSant Thomas\b/.test(resp)) f.push('dice "Sant Thomas" (es sucursal Saint Thomas)');
   if (/\busted\b/i.test(resp)) f.push('trata de usted'); // «ustedes» es el plural del voseo: está bien
   if (resp.split(/(?<=[.!?:])\s+|\n/).some((o) => /env[ií]o[^.\n]{0,40}(va aparte|no est[aá] incluid|se cobra|tiene un costo)|lo define (el sector de )?reparto/i.test(o) && !/sin cargo|no se cobra|sin costo|gratis/i.test(o))) f.push('cobra el envío');
@@ -62,6 +68,8 @@ function chequeosGenerales(resp, previa) {
   // un resumen NUEVO (otro producto, mismo formato) no es repetir; el mismo texto sí
   const resumenNuevo = /¿lo confirmo\?/i.test(resp) && /¿lo confirmo\?/i.test(previa ?? '') && resp.trim() !== String(previa).trim();
   if (previa && !resumenNuevo && casiIgual(resp, previa)) f.push('repite el mensaje anterior');
+  // lo interno queda puertas adentro (regla del dueño, 1/10/2026)
+  if (/\bquedan? \d|\d+ unidades|\ben (el )?sistema\b|\bme figura|(stock|hay|tengo)[^.\n]{0,30}en (la )?(sucursal |suc\.? )?(Saint Thomas|Santa In[eé]s)/i.test(resp)) f.push('dice algo interno (stock, sucursal o "el sistema")');
   return f;
 }
 
@@ -91,10 +99,10 @@ function datosDelLocal(est) {
 }
 
 async function juzgar(claude, caso, charla) {
-  const guion = charla.map((t) => `CLIENTE: ${t.cliente}${t.archivo ? ' [adjunta un PDF: comprobante de transferencia de $12.000]' : ''}\nBOT: ${t.respuesta || '(no contestó)'}\n(herramientas: ${t.herramientas.join(', ') || 'ninguna'})`).join('\n\n');
+  const guion = charla.map((t) => `CLIENTE: ${t.cliente}${t.archivo ? ' [adjunta un PDF: comprobante de transferencia de $12.000]' : ''}\nBOT: ${t.respuesta || '(no contestó)'}${t.catalogo?.length ? `\n(datos del sistema que vio el bot en este turno: ${t.catalogo.slice(0, 14).map((p) => `${p.nombre} $${p.precio}${p.precioEfectivo ? ` (efectivo $${p.precioEfectivo})` : ''}`).join(' | ')})` : ''}${t.imagen ? `\n(al cliente le llega como IMAGEN de ${t.imagen === 'resumen' ? 'resumen del pedido' : 'lista de precios'}, con el texto que no son precios abajo)` : ''}\n(herramientas: ${t.herramientas.join(', ') || 'ninguna'})`).join('\n\n');
   const r = await claude.messages.create({
     model: JUEZ, max_tokens: 4000, thinking: { type: 'adaptive' },
-    system: 'Sos un evaluador exigente de un bot de WhatsApp de un almacén premium argentino (O.D.B, Canning). Reglas de la casa: envío SIN CARGO siempre; pagando en efectivo o transferencia hay 10% de descuento en vinos, destilados, aperitivos (el Fernet es aperitivo), estuchería y espumantes, y NO en el resto (gaseosas, almacén…): el bot informa el precio de lista y el de efectivo, que calcula el sistema (ej. 2 Fernet $41.000 → $36.900 + 3 Coca $14.100 = $51.000); nunca repetir un mensaje; la cantidad la dice el cliente; mostrar el producto puntual; "sin stock" no es "no existe"; sucursal Saint Thomas (Castex 3601) es la única de retiro y abre también los domingos (confirmado por el dueño el 26/9: decirlo es correcto; lo que no hay los domingos es reparto, que va de lunes a sábado); corto y concreto, voseo, sin emojis; no inventar precios ni datos; lo que no sabe lo consulta y avisa UNA vez; pagos siempre por adentro (quiere decir: alias, comprobantes y cobros los maneja administración por este mismo chat, nunca se manda a otro teléfono; pagar al retirar o al recibir en efectivo o tarjeta es correcto). Santa Inés (Juana de Arco 7300) también es del local, pero solo para compra presencial: nombrarla así es correcto. Cada charla del banco empieza de cero: el saludo "Buenas tardes, te damos la bienvenida a O.D.B." en el PRIMER mensaje es la regla de la casa, no lo penalices (sí en los siguientes). Ante un "gracias" o un cierre suelto la casa prefiere no contestar: el silencio ahí es correcto. Las herramientas de crear pedido, derivar y avisar a la casa están simuladas (el código de pedido siempre sale PICKUP-BANCO…, aunque sea envío): no las penalices por eso. Una herramienta marcada "(frenado)" la intentó el modelo y el sistema la frenó: nunca llegó al cliente, no la penalices. Si una herramienta aparece repetida en la lista son intentos del modelo: el servidor registra un solo aviso por comprobante, no lo penalices salvo que se note en la respuesta.' + DATOS_LOCAL,
+    system: 'Sos un evaluador exigente de un bot de WhatsApp de un almacén premium argentino (O.D.B, Canning). Reglas de la casa: envío SIN CARGO siempre; pagando en efectivo o transferencia hay 10% de descuento en vinos, destilados, aperitivos (el Fernet es aperitivo), estuchería y espumantes, y NO en el resto (gaseosas, almacén…): el bot informa el precio de lista y el de efectivo, que calcula el sistema (ej. 2 Fernet $41.000 → $36.900 + 3 Coca $14.100 = $51.000); nunca repetir un mensaje; la cantidad la dice el cliente; mostrar el producto puntual; "sin stock" no es "no existe"; sucursal Saint Thomas (Castex 3601) es la única de retiro y abre también los domingos (confirmado por el dueño el 26/9: decirlo es correcto; lo que no hay los domingos es reparto, que va de lunes a sábado); corto y concreto, voseo, sin emojis; no inventar precios ni datos; lo que no sabe lo consulta y avisa UNA vez; pagos siempre por adentro (quiere decir: alias, comprobantes y cobros los maneja administración por este mismo chat, nunca se manda a otro teléfono; pagar al retirar o al recibir en efectivo o tarjeta es correcto). Santa Inés (Juana de Arco 7300) también es del local, pero solo para compra presencial: nombrarla así es correcto. Cada charla del banco empieza de cero: el saludo "Buenas tardes, te damos la bienvenida a O.D.B." en el PRIMER mensaje es la regla de la casa, no lo penalices (sí en los siguientes). Ante un "gracias" o un cierre suelto la casa prefiere no contestar: el silencio ahí es correcto. Los "datos del sistema que vio el bot" son reales: un precio, una variante o una medida que sale de ahí NO es inventada (si el único Villavicencio de 2 L es sin gas, decir "sin gas" es correcto). El stock es interno: el bot no tiene que decir cantidades ni sucursales. Las herramientas de crear pedido, derivar y avisar a la casa están simuladas (el código de pedido siempre sale PICKUP-BANCO…, aunque sea envío): no las penalices por eso. Una herramienta marcada "(frenado)" la intentó el modelo y el sistema la frenó: nunca llegó al cliente, no la penalices. Si una herramienta aparece repetida en la lista son intentos del modelo: el servidor registra un solo aviso por comprobante, no lo penalices salvo que se note en la respuesta.' + DATOS_LOCAL,
     messages: [{ role: 'user', content: `Qué tenía que hacer el bot: ${caso.juez}\n\nLa charla:\n${guion}\n\nPuntuá de 1 a 5 (5 = lo que haría el mejor vendedor del local; 4 = bien con detalles menores; 3 = cumple a medias; 1-2 = mal). Respondé SOLO un JSON: {"puntaje": n, "problemas": ["..."]}` }],
   });
   const txt = r.content.filter((b) => b.type === 'text').map((b) => b.text).join('');
@@ -160,8 +168,9 @@ async function juzgar(claude, caso, charla) {
           const r = await bot.charla({ linea: 'pedidos', telefono, mensaje: t.cliente, ...(t.archivo ? { archivoBase64: pdfComprobante(), mimeType: 'application/pdf', archivoUrl: 'https://banco.invalid/comprobante.pdf' } : {}) });
           const resp = String(r?.respuesta ?? '');
           const herramientas = registro.get(telefono);
-          charla.push({ cliente: t.cliente, archivo: !!t.archivo, respuesta: resp, herramientas });
-          const f = [...(resp ? chequeosGenerales(resp, previa) : []), ...chequeosDelTurno(t.espera, resp, herramientas)];
+          const imagen = resp ? imagenDe(resp, r?.catalogo) : null;
+          charla.push({ cliente: t.cliente, archivo: !!t.archivo, respuesta: resp, herramientas, imagen, catalogo: r?.catalogo ?? [] });
+          const f = [...(resp ? chequeosGenerales(resp, previa, imagen) : []), ...chequeosDelTurno(t.espera, resp, herramientas)];
           fallas.push(...f.map((x) => `turno ${k + 1}: ${x}`));
           if (resp) previa = resp;
         }

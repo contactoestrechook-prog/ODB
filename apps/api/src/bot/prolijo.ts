@@ -135,9 +135,11 @@ export function emprolijarListado(t: string): string {
   // ("= $15.000 *Total: $15.000* Es el total…"), se le saca la negrita y se
   // corta a renglón propio; la regla 5 lo vuelve a armar siempre igual
   r = r.replace(/\*[ \t]*(total[^:\n*]{0,30}:?[ \t]*\$\s?[\d.]+)[ \t]*\*/gi, '$1');
-  r = r.replace(/[ \t]+(?=total[^:\n]{0,30}:?[ \t]*\$)/gi, '\n');
+  // solo la etiqueta "Total:" (con dos puntos) baja a su renglón; "el total queda en
+  // $X" en mitad de una oración no se corta (1/10/2026)
+  r = r.replace(/[ \t]+(?=total[^:\n$]{0,30}:[ \t]*\$)/gi, '\n');
   // 5. el TOTAL en negrita de WhatsApp y en su propia línea
-  r = r.replace(/(?:^|\n)[ \t]*(?:•\s*)?(total[^:\n]{0,30}:?)[ \t]*(\$\s?[\d.]+)/gi,
+  r = r.replace(/(?:^|\n)[ \t]*(?:•\s*)?(total[^:\n$(]{0,30}:?)[ \t]*(\$\s?[\d.]+)/gi,
     (_m, etiqueta: string, monto: string) => `\n\n*${etiqueta.trim().replace(/:$/, '')}: ${monto.replace(/\s/g, '')}*`);
   // 5b. lo que sigue al total en su misma línea baja a renglón propio
   r = r.replace(/(\*total[^\n]{0,40}\$[\d.]+\*)[ \t]+(?=[¿A-ZÁÉÍÓÚÑ*])/gi, '$1\n\n');
@@ -329,4 +331,28 @@ export function minimoConMonto(t: string, minimo = 70000): string {
         ? o.replace(/\b(m[ií]nimo de compra)\b/i, `$1 de ${monto}`)
         : o.replace(/\b(m[ií]nimo)\b(?!\s+de\s+\$)/i, `$1 de ${monto}`))
       : o).join('')).join('\n');
+}
+
+// LO INTERNO QUEDA PUERTAS ADENTRO (Leandro, 1/10/2026): al cliente no se le
+// dice cuántas unidades hay, en qué sucursal hay stock ni "lo que figura en el
+// sistema". El bot lo escribía igual ("en la sucursal Saint Thomas hay:",
+// "queda 1 botella", "quedan 2", "sin stock en Saint Thomas"): acá se borra.
+// Lo que es de la entrega ("Retiro en la sucursal Saint Thomas") no se toca.
+export function sinCocinaInterna(t: string): string {
+  if (!t) return t;
+  let r = t
+    // "(quedan 2)", "(queda 1 botella)", "(hay 7)"
+    .replace(/\s*\((?:quedan?|hay|tengo) \d+(?: (?:botellas?|unidades?|u\.?))?\)/gi, '')
+    // ": queda 1 botella", ", quedan 2", ": quedan 7 unidades"
+    .replace(/[:,]?\s*quedan? (?:solo |sólo )?\d+(?: (?:botellas?|unidades?))?(?=[\s.,;)]|$)/gi, '')
+    // ", con 7 unidades en la sucursal Saint Thomas" / "con 7 unidades"
+    .replace(/,?\s*con \d+ unidades?(?: disponibles?)?(?: en (?:la )?(?:sucursal|suc\.?) [A-ZÁÉÍÓÚ][\wáéíóúñ]*(?: [A-ZÁÉÍÓÚ][\wáéíóúñ]*)*)?/gi, '')
+    // "en la sucursal Saint Thomas hay:" → "hay:" / "sin stock en Saint Thomas" → "sin stock"
+    .replace(/,?\s*en (?:la )?(?:sucursal |suc\.? )?Saint Thomas(?=,? (?:hay|tengo|tenemos|queda)\b)/gi, '')
+    .replace(/(sin stock|no (?:hay|tengo|tenemos) stock)(?: ahora)? en (?:la )?(?:sucursal |suc\.? )?(?:Saint Thomas|Santa In[eé]s)(?:, que es de donde salen los env[ií]os)?/gi, '$1')
+    // "En el sistema lo tengo cargado: X" / "me figuran sin stock en sistema"
+    .replace(/\ben (?:el )?sistema (?:lo |la |los |las )?(?:tengo|tenemos|est[aá]n?|figuran?) (?:cargad[oa]s?)?:?\s*/gi, '')
+    .replace(/\bme figuran? /gi, 'están ')
+    .replace(/ en (?:el )?sistema\b/gi, '');
+  return r.replace(/[ \t]{2,}/g, ' ').replace(/ ([,.;:])/g, '$1').replace(/^(\s*)([a-záéíóúñ])/gm, (m, a, b) => a + b.toUpperCase()).trim();
 }

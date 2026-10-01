@@ -68,3 +68,10 @@ describe('los dos escapes del banco del 30/9', () => {
     expect(faltaElegirVariante('sí, es todo', [lista])).toBe(true);
   });
 });
+
+describe('"(a elegir)" también es una variante pendiente (banco 1/10/2026)', () => {
+  it('frena el "es todo"', () => {
+    const lista = 'Te anoto:\n• 2 × Fernet Branca 750 cc\n• 2 × Papas Lays (a elegir)\n• 1 × Maní King (a elegir)\n\n¿Me confirmás las variantes de esos: papas (134 g o 330 g) y Maní King (con cáscara o pelado)?';
+    expect(faltaElegirVariante('sí, es todo', [lista])).toBe(true);
+  });
+});

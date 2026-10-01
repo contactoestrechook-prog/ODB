@@ -80,3 +80,13 @@ describe('renglón con precio en efectivo', () => {
     expect(r).toContain('• Hibiki 700 cc — $290.000, o $261.000 en efectivo o transferencia\n• Kamiki');
   });
 });
+
+describe('el total en mitad de una oración no se desarma (1/10/2026)', () => {
+  it('"el total queda en $X (en efectivo: $Y)" queda como está', () => {
+    const t = 'Con el maní pelado, el total queda en $88.300 (en efectivo o transferencia: $84.200). ¿Te sumo la de 5 kg?';
+    expect(emprolijarListado(t)).toBe(t);
+  });
+  it('la etiqueta Total sigue en su renglón y en negrita', () => {
+    expect(emprolijarListado('• A — 1 × $1.000 c/u = $1.000 Total: $1.000')).toContain('*Total: $1.000*');
+  });
+});

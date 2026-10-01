@@ -127,7 +127,8 @@ function partir(txt: string, px: number, ancho: number, max = 2): string[] {
   const cap = Math.floor(ancho / (px * 0.54));
   const out: string[] = [];
   let l = '';
-  for (const p of txt.split(' ')) {
+  // la medida no se parte ("750" en un renglón y "cc" en el otro): espacio duro
+  for (const p of txt.replace(/(\d) (cc|ml|L|kg|g)\b/g, '$1\u00a0$2').split(' ')) {
     if ((l + ' ' + p).trim().length > cap) { if (l.trim()) out.push(l.trim()); l = p; } else l += ' ' + p;
   }
   if (l.trim()) out.push(l.trim());
@@ -216,5 +217,129 @@ export async function cartelPedido(r: ResumenPedido): Promise<Buffer> {
     font: { loadSystemFonts: false, fontFiles: await tipografias(), defaultFontFamily: 'Inter' },
     fitTo: { mode: 'width', value: W },
   });
+  return Buffer.from(png.render().asPng());
+}
+
+// ============================================================================
+// LISTA DE PRECIOS COMO IMAGEN (1/10/2026). El bot pasaba los precios en un
+// párrafo corrido ("Havana Blanco $17.800, Havana Añejo $20.300, …") y la tarjeta
+// de listas solo salía con renglones con viñeta: no salía nunca. Ahora la
+// imagen se arma con los productos que el bot CONSULTÓ en el turno (nombre y
+// precio del sistema), los que nombró en la respuesta, escriba como escriba.
+// ============================================================================
+
+export type ProductoConPrecio = { sku?: string; nombre: string; precio: number; precioEfectivo?: number | null };
+
+const normal = (s: string) => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+const RE_PALABRA_VACIA = /^(cc|ml|lts?|litros?|kg|gr|x\d.*|\d.*|con|sin|de|del|la|el|los|las|y|o|en|por|para|blanco|tinto|clasico|clasica|botella|unidad)$/;
+
+/**
+ * Los productos consultados que el bot nombró en la respuesta, en el orden en
+ * que los nombró. Por cada precio del texto se elige el producto de ese precio
+ * cuyo nombre coincide MEJOR con lo escrito justo antes (desde el precio
+ * anterior): «Coca Cola 1.75l $4.700» es la Coca común, no la Zero ni la Light
+ * que cuestan lo mismo. Si empatan con el nombre completo («Martini Rosso y
+ * Bianco $9.400») van los dos.
+ */
+export function preciosDeLaRespuesta(respuesta: string, catalogo: ProductoConPrecio[]): ProductoConPrecio[] {
+  const texto = normal(respuesta);
+  // un resumen de pedido ("2 × $20.500 c/u = $41.000") tiene su propia tarjeta
+  if (/\d\s*[×x]\s*\$\s?\d/.test(texto)) return [];
+  // palabras propias del nombre y, también, su medida ("600" de "x600cc"): el bot
+  // abrevia ("la de 600 cc $2.500") y sin la medida no se reconocía el producto
+  const palabrasDe = (n: string) => [...new Set([
+    ...normal(n).split(/[^a-z0-9]+/).filter((w) => w.length >= 3 && !RE_PALABRA_VACIA.test(w)),
+    ...(normal(n).match(/\d{2,4}(?=\s*(?:cc|ml|g|gr|kg|l|lt)\b)/g) ?? []),
+  ])];
+  const elegidos: ProductoConPrecio[] = [];
+  const usados = new Set<string>();
+  const re = /\$\s?(\d{1,3}(?:\.\d{3})+|\d+)/g;
+  let previo = 0;
+  for (let m = re.exec(texto); m; m = re.exec(texto)) {
+    const monto = Number(m[1].replace(/\./g, ''));
+    // lo escrito entre el precio anterior (o el comienzo del renglón) y este
+    const desde = Math.max(previo, texto.lastIndexOf('\n', m.index) + 1, m.index - 160);
+    const ventana = texto.slice(desde, m.index);
+    previo = m.index + m[0].length;
+    // "$53.460 en efectivo" o "($16.020)" después de otro precio: no es otro producto
+    if (/^\s*(?:\(|,?\s*o)\s*$/.test(ventana) || /\b(?:total|subtotal|efectivo|transferencia)\b[^$]*$/.test(ventana) && !/[a-z]{4,}\s*[—–:-]?\s*$/.test(ventana.replace(/.*(efectivo|transferencia)/, ''))) continue;
+    const candidatos = catalogo
+      .filter((p) => p?.nombre && Math.round(p.precio) === monto && !usados.has(p.sku ?? p.nombre))
+      .map((p) => { const ws = palabrasDe(p.nombre); const hits = ws.filter((w) => ventana.includes(w)).length; return { p, hits, puntaje: ws.length ? hits / ws.length : 0 }; })
+      .filter((c) => c.hits > 0);
+    if (!candidatos.length) continue;
+    // gana el que coincide en más proporción y, a igualdad, en más palabras
+    const mejor = Math.max(...candidatos.map((c) => c.puntaje));
+    const masHits = Math.max(...candidatos.filter((c) => c.puntaje === mejor).map((c) => c.hits));
+    const ganadores = candidatos.filter((c) => c.puntaje === mejor && c.hits === masHits);
+    for (const c of mejor === 1 ? ganadores : ganadores.slice(0, 1)) { usados.add(c.p.sku ?? c.p.nombre); elegidos.push(c.p); }
+  }
+  return elegidos;
+}
+
+/**
+ * Qué imagen le corresponde a una respuesta, mirando SOLO el texto: un resumen
+ * con 2 renglones o más («• X — 2 × $… c/u = $…»), o una lista de precios con 3
+ * productos o más. Sirve para controlar que la imagen salga (banco de pruebas).
+ */
+export function imagenEsperada(respuesta: string): 'resumen' | 'precios' | null {
+  const t = String(respuesta ?? '');
+  if ((t.match(/^\s*•[^\n]*\d\s*[×x]\s*\$\s?[\d.]+[^\n]*=\s*\$/gm) ?? []).length >= 2) return 'resumen';
+  if (/\d\s*[×x]\s*\$/.test(t)) return null;
+  // precios de lista: sacando totales y los precios en efectivo que acompañan a otro
+  const limpio = t
+    .replace(/\b(?:sub)?total[^$\n]{0,40}\$\s?[\d.]+/gi, '')
+    .replace(/(?:\(|,?\s+o\s+)\$\s?[\d.]+[^)\n]{0,40}(?:\)|efectivo[^\n,;]*)/gi, '')
+    .replace(/\$\s?[\d.]+\s+en efectivo[^\n,;]*/gi, '');
+  return (limpio.match(/\$\s?\d/g) ?? []).length >= 3 ? 'precios' : null;
+}
+
+/** El texto que acompaña la imagen: lo que no son precios (la pregunta, una aclaración). */
+export function pieSinPrecios(respuesta: string): string {
+  return String(respuesta ?? '')
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l && !/^•/.test(l))
+    .flatMap((l) => l.split(/(?<=[.!?])\s+/))
+    .filter((o) => !/\$\s?\d/.test(o))
+    .join(' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+export async function cartelListaPrecios(productos: ProductoConPrecio[], fecha: string): Promise<Buffer> {
+  const W = 1080, M = 48, TOP = 250, SEP = 12;
+  const pesosN = (n: number) => '$' + Math.round(n).toLocaleString('es-AR');
+  const conEfectivo = productos.some((p) => p.precioEfectivo && p.precioEfectivo < p.precio);
+  const filas = productos.map((p) => ({ ...p, lineas: partir(nombreParaCartel(p.nombre), 32, 600, 2) }));
+  const altoFila = (f: { lineas: string[]; precioEfectivo?: number | null; precio: number }) =>
+    (f.lineas.length > 1 ? 40 : 0) + (f.precioEfectivo && f.precioEfectivo < f.precio ? 128 : 96);
+  const alto = TOP + filas.reduce((s, f) => s + altoFila(f) + SEP, 0) + (conEfectivo ? 150 : 90);
+  let y = TOP;
+  const cuerpo = filas.map((f) => {
+    const h = altoFila(f);
+    const efectivo = f.precioEfectivo && f.precioEfectivo < f.precio;
+    const s = `
+    <rect x="${M}" y="${y}" width="${W - 2 * M}" height="${h}" rx="18" fill="#FFFFFF" stroke="${LINEA}" stroke-width="2"/>
+    ${f.lineas.map((t, k) => `<text x="${M + 32}" y="${y + 56 + k * 38}" font-family="Inter" font-weight="600" font-size="32" fill="${NEGRO}">${esc(t)}</text>`).join('')}
+    ${efectivo ? `<text x="${M + 32}" y="${y + 56 + f.lineas.length * 38 + 6}" font-family="Inter" font-size="26" fill="${ROJO}">${esc(`${pesosN(f.precioEfectivo!)} en efectivo o transferencia`)}</text>` : ''}
+    <text x="${W - M - 32}" y="${y + 60}" font-family="Inter" font-weight="800" font-size="38" fill="${NEGRO}" text-anchor="end">${esc(pesosN(f.precio))}</text>`;
+    y += h + SEP;
+    return s;
+  }).join('');
+  const pie = conEfectivo
+    ? `<text x="${W / 2}" y="${y + 52}" font-family="Inter" font-weight="600" font-size="26" fill="${NEGRO}" text-anchor="middle">En rojo: pagando en efectivo o transferencia</text>
+       <text x="${W / 2}" y="${y + 96}" font-family="Inter" font-size="24" fill="${GRIS}" text-anchor="middle">Precios al ${esc(fecha)}</text>`
+    : `<text x="${W / 2}" y="${y + 52}" font-family="Inter" font-size="24" fill="${GRIS}" text-anchor="middle">Precios al ${esc(fecha)}</text>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${alto}" viewBox="0 0 ${W} ${alto}">
+  <rect width="${W}" height="${alto}" fill="${CREMA}"/>
+  <rect width="${W}" height="200" fill="${ROJO}"/>
+  <image x="${M}" y="40" width="190" height="${Math.round((190 * 74) / 121)}" href="data:image/png;base64,${LOGO_ODB_BLANCO}"/>
+  <text x="${W - M}" y="96" font-family="Montserrat" font-weight="800" font-size="42" fill="#FFFFFF" text-anchor="end">PRECIOS</text>
+  <text x="${W - M}" y="142" font-family="Inter" font-size="27" fill="#FFFFFF" fill-opacity="0.8" text-anchor="end">${productos.length} productos</text>
+  ${cuerpo}
+  ${pie}
+</svg>`;
+  const png = new Resvg(svg, { font: { loadSystemFonts: false, fontFiles: await tipografias(), defaultFontFamily: 'Inter' }, fitTo: { mode: 'width', value: W } });
   return Buffer.from(png.render().asPng());
 }

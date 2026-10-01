@@ -1,4 +1,4 @@
-import { minimoConMonto, asegurarEnvioSinCargo, campoLimpio, casiIgual, emprolijarListado, esAlucinacionDeTranscripcion, respuestaConConsulta, esAutomaticoWhatsappBusiness, envioSinCargo, nombreSucursalCliente, saintThomas } from './prolijo';
+import { sinCocinaInterna, minimoConMonto, asegurarEnvioSinCargo, campoLimpio, casiIgual, emprolijarListado, esAlucinacionDeTranscripcion, respuestaConConsulta, esAutomaticoWhatsappBusiness, envioSinCargo, nombreSucursalCliente, saintThomas } from './prolijo';
 
 describe('nombre de la sucursal ante el cliente', () => {
   it('Sant Thomas pasa a sucursal Saint Thomas', () => {
@@ -169,5 +169,24 @@ describe('el mínimo de envío con su monto', () => {
   it('no toca lo que ya tiene el monto ni otros mínimos', () => {
     expect(minimoConMonto('El envío es para pedidos desde $70.000.')).toBe('El envío es para pedidos desde $70.000.');
     expect(minimoConMonto('El mínimo de compra del vino es 6 botellas.')).toBe('El mínimo de compra del vino es 6 botellas.');
+  });
+});
+
+describe('lo interno queda puertas adentro (Karina, 30/9/2026)', () => {
+  it('sin cantidades ni sucursales del stock', () => {
+    expect(sinCocinaInterna('De tu lista, en la sucursal Saint Thomas hay:')).toBe('De tu lista hay:');
+    expect(sinCocinaInterna('• Grey Goose 750 cc: queda 1 botella; el de 1 L sin stock ahora')).toBe('• Grey Goose 750 cc; el de 1 L sin stock ahora');
+    expect(sinCocinaInterna('• Absolut Elyx 1 L: quedan 2. El Absolut clásico está sin stock en Saint Thomas; sí hay Citron')).toBe('• Absolut Elyx 1 L. El Absolut clásico está sin stock; sí hay Citron');
+    expect(sinCocinaInterna('• Negroni Restinga 500 cc (quedan 7)')).toBe('• Negroni Restinga 500 cc');
+    expect(sinCocinaInterna('Sí, tenemos difusor Saphirus a $7.900, con 7 unidades en la sucursal Saint Thomas.')).toBe('Sí, tenemos difusor Saphirus a $7.900.');
+    expect(sinCocinaInterna('De Quilmes clásica no tengo stock en la sucursal Saint Thomas, que es de donde salen los envíos; sí tengo IPA.')).toBe('De Quilmes clásica no tengo stock; sí tengo IPA.');
+  });
+  it('sin "el sistema"', () => {
+    expect(sinCocinaInterna('En el sistema lo tengo cargado: Johnnie Walker Black Label 1 L a $59.400.')).toBe('Johnnie Walker Black Label 1 L a $59.400.');
+    expect(sinCocinaInterna('Las picadas armadas hoy me figuran sin stock en sistema.')).toBe('Las picadas armadas hoy están sin stock.');
+  });
+  it('la entrega y los horarios no se tocan', () => {
+    for (const t of ['Retiro en la sucursal Saint Thomas.', '¿Lo retirás por la sucursal Saint Thomas o te lo enviamos?', 'La sucursal Saint Thomas abre de 8 a 21.', '• Fernet Branca 750 cc — 2 × $20.500 c/u = $41.000'])
+      expect(sinCocinaInterna(t)).toBe(t);
   });
 });

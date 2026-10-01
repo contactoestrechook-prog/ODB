@@ -6,7 +6,7 @@ import { esSilenciado } from './pausa';
 import { agruparItems, cantidadesIndividuales, centavos, confirmacionInequivoca, idWhatsappCorto, importesDeHerramienta, importesDelTexto, pesos, presentacionProducto } from './comercio';
 import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import { volumenMl, etiquetaVolumen, pideTamano, medidaPartida, resumenDeTamanos, cantidadesPedidas, PALABRA_GENERICA } from './formatos';
-import { emprolijarListado, nombreLimpio, saludoSegunHora, saludarConBienvenida, niegaPercepcion, respetuosoSinConfianza, saintThomas, envioSinCargo, asegurarEnvioSinCargo, casiIgual, campoLimpio, respuestaConConsulta, esAlucinacionDeTranscripcion, nombreSucursalCliente, esAutomaticoWhatsappBusiness, minimoConMonto } from './prolijo';
+import { emprolijarListado, nombreLimpio, saludoSegunHora, saludarConBienvenida, niegaPercepcion, respetuosoSinConfianza, saintThomas, envioSinCargo, asegurarEnvioSinCargo, casiIgual, campoLimpio, respuestaConConsulta, esAlucinacionDeTranscripcion, nombreSucursalCliente, esAutomaticoWhatsappBusiness, minimoConMonto, sinCocinaInterna } from './prolijo';
 import { controlDeFechas } from './fechas';
 import { desvioDeLoPedido } from './desvio';
 import { oggCompleto } from './ogg';
@@ -50,7 +50,7 @@ function bonitoTelefono(t: string): string {
   return d ? `+${d}` : '';
 }
 import { cartelPrecios } from '../comun/cartel-precios';
-import { cartelPedido, leerResumenDePedido } from '../comun/cartel-pedido';
+import { cartelListaPrecios, cartelPedido, imagenEsperada, leerResumenDePedido, pieSinPrecios, preciosDeLaRespuesta, ProductoConPrecio } from '../comun/cartel-pedido';
 
 // pedido mínimo para envío a domicilio (Leandro, 25/9/2026); ENVIO_MINIMO lo cambia sin tocar código
 const envioMinimo = () => Number(process.env.ENVIO_MINIMO ?? 70000) || 70000;
@@ -1525,6 +1525,8 @@ export class BotService {
     if (respuesta) respuesta = asegurarEnvioSinCargo(texto, respuesta);
     if (respuesta) respuesta = minimoConMonto(respuesta, envioMinimo());
     if (respuesta && !respuestaFija.operacion) respuesta = conPreguntaDeCompleto(respuesta);
+    // lo interno (stock, sucursales, "el sistema") no sale al cliente (1/10/2026)
+    if (respuesta) respuesta = sinCocinaInterna(respuesta);
 
     // 4) persistir memoria (solo los turnos de texto, recortada) + tokens acumulados
     const nuevoHistorial = [
@@ -1564,9 +1566,20 @@ export class BotService {
       await this.db.from('bot_mensajes').upsert({ linea, mensaje_id: mensajeId, telefono, respuesta });
     }
 
+    // los productos con precio que el bot consultó en el turno: con ellos se
+    // arma la imagen de precios, escriba como escriba la respuesta (1/10/2026)
+    const catalogo: ProductoConPrecio[] = [];
+    for (const raw of salidasDelTurno) {
+      try {
+        const o = JSON.parse(raw);
+        for (const it of (Array.isArray(o?.items) ? o.items : [])) {
+          if (it?.nombre && Number(it?.precio) > 0) catalogo.push({ sku: it.sku, nombre: String(it.nombre), precio: Number(it.precio), precioEfectivo: it.precioEfectivo ?? null });
+        }
+      } catch { /* salida sin JSON */ }
+    }
     return respuestaFija.consultaPendiente && !respuesta
       ? { respuesta: null, silencio: true, motivo: 'consulta interna pendiente' } as any
-      : { respuesta };
+      : { respuesta, catalogo };
   }
 
   // Despacha cada tool_use del modelo a la implementación real. El `telefono`
@@ -1703,7 +1716,17 @@ export class BotService {
         }
         case 'cotizar_pedido': {
           if (faltaElegirVariante(ctx.textoCliente ?? '', ctx.ultimosBot ?? [])) { out = { error: FALTA_VARIANTE }; break; }
-          if (!puedeCotizar(ctx.textoCliente ?? '', ctx.ultimosBot ?? [], (ctx.ultimosCliente ?? []).slice(0, -1))) { out = { error: TODAVIA_SIN_PRECIOS }; break; }
+          if (!puedeCotizar(ctx.textoCliente ?? '', ctx.ultimosBot ?? [], (ctx.ultimosCliente ?? []).slice(0, -1))) {
+            // frena los precios, pero avisa lo que no alcanza: sin cantidades de
+            // stock a la vista, el bot no tenía cómo saberlo (500 Fernet, 1/10/2026)
+            let faltan = '';
+            try {
+              const prueba: any = await this.cotizarPedido((input.items ?? []).map((i: any) => ({ sku: String(i.sku), cantidad: Number(i.cantidad) })), telefono);
+              const cortos = (prueba?.renglones ?? []).filter((r: any) => r.alcanzaElStock === false).map((r: any) => r.nombre);
+              if (cortos.length) faltan = ` OJO: de ${cortos.join(', ')} NO hay disponible la cantidad que pide. En esa misma lista decile que esa cantidad no la tenés disponible ahora (sin decir cuántas hay) y consultalo con el local (consultar_interno).`;
+            } catch { /* sin datos de stock: sigue la guarda */ }
+            out = { error: TODAVIA_SIN_PRECIOS + faltan }; break;
+          }
           out = await this.cotizarPedido(
             (input.items ?? []).map((i: any) => ({ sku: String(i.sku), cantidad: Number(i.cantidad) })),
             telefono,
@@ -1966,7 +1989,7 @@ export class BotService {
         alcohol: !!prod?.es_alcohol,
         ...presentacionProducto({ ...prod, nombre: p.nombre }),
         medida: etiquetaVolumen(volumenMl(p.nombre)),
-        stock: this.sucCompacta(p.sucursales) || String(Math.round(Number(p.total))),
+        disponible: true, // cantidades y sucursales no viajan: son internas (1/10/2026)
       });
     });
     // Tamaños: la medida viaja aparte y las botellas de MÁS de 1 litro se
@@ -2181,9 +2204,8 @@ export class BotService {
         subtotal,
         ...(conDescuento ? { subtotalEfectivo } : {}),
         stockDisponible: disponible,
-        stockEnOtraSucursal: Math.max(0, Number(p.stockTotal ?? 0) - disponible),
         alcanzaElStock: disponible >= cantidad,
-        ...(disponible < cantidad ? { aviso: `Stock insuficiente en ${sucPickNombre}: hay ${disponible} y el cliente pide ${cantidad}. Ofrecé esa cantidad o una alternativa; no prometas lo que no hay.` } : {}),
+        ...(disponible < cantidad ? { aviso: `No alcanza el stock para ${cantidad}. NO le digas al cliente cuántas hay ni dónde: decile que esa cantidad no la tenés disponible ahora y consultalo con el local (consultar_interno). No prometas lo que no hay.` } : {}),
       });
       if (disponible < cantidad) hayFaltantes = true;
     }
@@ -2200,7 +2222,7 @@ export class BotService {
       sucursalId: sucPickId,
       sucursalDeSalida: sucPickNombre,
       ...(renglones.some((r: any) => r.reemplazo_no_confirmado) ? { reemplazoSinConfirmar: 'HAY UN RENGLÓN QUE NO ES LO QUE EL CLIENTE PIDIÓ: no des ningún total ni pases a retiro/domicilio hasta que acepte el reemplazo.' } : {}),
-      aclaracion: `Este total lo calculó el sistema. Informalo tal cual, sin rehacer la cuenta. Cada precio es por UNIDAD DE VENTA del SKU. Respetá unidad, presentacion y unidadesPorVenta de cada renglón; no deduzcas el contenido de un envase por su nombre. Los renglones con error no están cotizados; el total es parcial y no permite confirmar el pedido completo. Cada renglón viene formateado en "renglon": usalo tal cual (2 × $20.500 c/u = $41.000). El stock que cuenta es el de ${sucPickNombre} (de ahí salen retiros y envíos).${hayFaltantes ? ' HAY RENGLONES SIN STOCK SUFICIENTE: avisale al cliente la cantidad real antes de seguir.' : ''} El envío es SIN CARGO: el total que informás es todo lo que paga, no agregues costo de entrega ni digas que "va aparte".`,
+      aclaracion: `Este total lo calculó el sistema. Informalo tal cual, sin rehacer la cuenta. Cada precio es por UNIDAD DE VENTA del SKU. Respetá unidad, presentacion y unidadesPorVenta de cada renglón; no deduzcas el contenido de un envase por su nombre. Los renglones con error no están cotizados; el total es parcial y no permite confirmar el pedido completo. Cada renglón viene formateado en "renglon": usalo tal cual (2 × $20.500 c/u = $41.000). El stock es interno: nunca le digas al cliente cantidades ni sucursales.${hayFaltantes ? ' HAY RENGLONES SIN STOCK SUFICIENTE: decile que esa cantidad no la tenés disponible ahora, sin decir cuántas hay.' : ''} El envío es SIN CARGO: el total que informás es todo lo que paga, no agregues costo de entrega ni digas que "va aparte".`,
     };
   }
 
@@ -3558,7 +3580,9 @@ export class BotService {
     // listado largo → cartel con pie de foto; si algo falla, va el texto igual
     // el resumen del pedido (cantidades, total, entrega) va con el diseño Placa
     // roja (25/9/2026); una lista de precios sin cantidades, con el cartel de siempre
-    const cartel = (await this.cartelDeResumen(r.respuesta)) ?? (await this.cartelDePedido(r.respuesta)) ?? (await this.cartelDeListado(r.respuesta));
+    const cartel = (await this.cartelDeResumen(r.respuesta)) ?? (await this.cartelDePedido(r.respuesta)) ?? (await this.cartelDePrecios(r.respuesta, r.catalogo ?? [])) ?? (await this.cartelDeListado(r.respuesta));
+    // si le correspondía imagen y no salió, que quede en el log (1/10/2026)
+    if (!cartel && imagenEsperada(r.respuesta)) this.log.warn(`le correspondía imagen de ${imagenEsperada(r.respuesta)} y no se armó (${identidad})`);
     let envio = cartel
       ? await this.enviarPorWhatsapp({ to: desde, imagenUrl: cartel.imagenUrl, text: cartel.pie, referencia: `waha/${identidad}` })
       : { enviado: false, motivo: 'sin cartel' } as any;
@@ -3597,6 +3621,27 @@ export class BotService {
   // guarda y muestra en el mostrador. Se dispara cuando la respuesta trae un
   // código de pedido y al menos un renglón con precio — a diferencia del
   // listado, acá UNA sola línea ya amerita la tarjeta.
+  // Lista de precios como imagen (1/10/2026): con los productos que el bot
+  // consultó y nombró en la respuesta, desde 3. El epígrafe se queda con lo que
+  // no son precios (la pregunta).
+  private async cartelDePrecios(respuesta: string, catalogo: ProductoConPrecio[]): Promise<{ imagenUrl: string; pie: string } | null> {
+    if (leerResumenDePedido(respuesta)) return null;
+    const productos = preciosDeLaRespuesta(respuesta, catalogo);
+    if (productos.length < 3) return null;
+    try {
+      const fecha = new Date().toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', timeZone: 'America/Argentina/Buenos_Aires' });
+      const png = await cartelListaPrecios(productos.slice(0, 18), fecha);
+      const ruta = `carteles/${new Date().toISOString().slice(0, 7)}/precios-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.png`;
+      const { error } = await this.db.storage.from('publico').upload(ruta, png, { contentType: 'image/png', upsert: true });
+      if (error) { this.log.warn(`no pude subir la lista de precios: ${error.message}`); return null; }
+      const imagenUrl = this.db.storage.from('publico').getPublicUrl(ruta).data.publicUrl;
+      return { imagenUrl, pie: pieSinPrecios(respuesta) || 'Te paso los precios.' };
+    } catch (e) {
+      this.log.warn(`lista de precios falló: ${e instanceof Error ? e.message : e}`);
+      return null;
+    }
+  }
+
   // Resumen de pedido como imagen (diseño Placa roja, elegido el 25/9/2026).
   // Solo si TODOS los renglones se leen y suman el total; si no, va el texto.
   private async cartelDeResumen(respuesta: string): Promise<{ imagenUrl: string; pie: string } | null> {
@@ -4506,7 +4551,7 @@ export class BotService {
           precio,
           precioEfectivo: precio > 0 && tieneDescuentoEfectivo(p.categoria) ? conDescuentoEfectivo(precio) : null,
           promo: pr?.descuento_nombre ? `${pr.descuento_nombre} (antes $${Math.round(pr.precio_lista)})` : null,
-          stock: this.sucCompacta(p.sucursales) || String(p.stockTotal),
+          disponible: true,
         }) as any;
       })
       .filter((p) => p.precio > 0 && p.precio >= min && p.precio <= max)

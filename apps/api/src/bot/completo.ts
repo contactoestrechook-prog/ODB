@@ -44,7 +44,7 @@ export function conPreguntaDeCompleto(respuesta: string): string {
 
 // en la lista quedó algo para elegir ("decime cuál: clásicas 134 g o 330 g",
 // "¿con cáscara o pelado?")
-const RE_VARIANTE_PENDIENTE = /a definir|decime cu[aá]l|¿\s*qu[eé] [^?]{0,60}(te preparo|quer[eé]s|prefer[ií]s)|¿\s*cu[aá]l(es)?\b|eleg[ií] (cu[aá]l|una|entre)|qu[eé] (sabor|variante|tama[nñ]o|marca)|—[^\n$]{0,80}\bo\b[^\n$]{0,60}(\?|$)/im;
+const RE_VARIANTE_PENDIENTE = /a (?:definir|elegir|confirmar)\b|las variantes|me confirm[aá]s (?:la|las|el|cu[aá]l)|decime cu[aá]l|¿\s*qu[eé] [^?]{0,60}(te preparo|quer[eé]s|prefer[ií]s)|¿\s*cu[aá]l(es)?\b|eleg[ií] (cu[aá]l|una|entre)|qu[eé] (sabor|variante|tama[nñ]o|marca)|—[^\n$]{0,80}\bo\b[^\n$]{0,60}(\?|$)/im;
 
 /**
  * "Es todo" NO elige variantes (30/9/2026, el modelo elegía papas y maní por el

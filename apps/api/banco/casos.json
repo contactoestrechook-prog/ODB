@@ -54,7 +54,7 @@
             "preparar_pedido"
           ],
           "debe": [
-            "complet|sumar algo|algo m[aá]s|agregar algo|(es|ser[ií]a|eso) todo|cerramos|queda as[ií]"
+            "complet|sumar algo|algo m[aá]s|agregar algo|(es|ser[ií]a|eso) todo|cerramos|queda as[ií]|variantes?|me confirm[aá]s"
           ]
         }
       },
@@ -110,7 +110,7 @@
             "preparar_pedido"
           ],
           "debe": [
-            "complet|sumar algo|algo m[aá]s|agregar algo|(es|ser[ií]a|eso) todo|cerramos|queda as[ií]",
+            "complet|sumar algo|algo m[aá]s|agregar algo|(es|ser[ií]a|eso) todo|cerramos|queda as[ií]|variantes?|me confirm[aá]s",
             "\\b4\\b"
           ]
         }
@@ -255,7 +255,7 @@
             "preparar_pedido"
           ],
           "debe": [
-            "complet|sumar algo|algo m[aá]s|agregar algo|(es|ser[ií]a|eso) todo|cerramos|queda as[ií]",
+            "complet|sumar algo|algo m[aá]s|agregar algo|(es|ser[ií]a|eso) todo|cerramos|queda as[ií]|variantes?|me confirm[aá]s",
             "santa julia"
           ]
         }
@@ -291,7 +291,7 @@
             "preparar_pedido"
           ],
           "debe": [
-            "complet|sumar algo|algo m[aá]s|agregar algo|(es|ser[ií]a|eso) todo|cerramos|queda as[ií]"
+            "complet|sumar algo|algo m[aá]s|agregar algo|(es|ser[ií]a|eso) todo|cerramos|queda as[ií]|variantes?|me confirm[aá]s"
           ]
         }
       },
@@ -402,7 +402,7 @@
             "preparar_pedido"
           ],
           "debe": [
-            "complet|sumar algo|algo m[aá]s|agregar algo|(es|ser[ií]a|eso) todo|cerramos|queda as[ií]",
+            "complet|sumar algo|algo m[aá]s|agregar algo|(es|ser[ií]a|eso) todo|cerramos|queda as[ií]|variantes?|me confirm[aá]s",
             "•"
           ]
         }
@@ -420,7 +420,7 @@
         }
       },
       {
-        "cliente": "las clásicas de 134 y el pelado",
+        "cliente": "las clásicas de 134, el maní pelado y el hielo de 15 kg",
         "espera": {
           "debe": [
             "•",
@@ -819,7 +819,7 @@
             "preparar_pedido"
           ],
           "debe": [
-            "complet|sumar algo|algo m[aá]s|agregar algo|(es|ser[ií]a|eso) todo|cerramos|queda as[ií]"
+            "complet|sumar algo|algo m[aá]s|agregar algo|(es|ser[ií]a|eso) todo|cerramos|queda as[ií]|variantes?|me confirm[aá]s"
           ]
         }
       },
@@ -835,7 +835,7 @@
             "preparar_pedido"
           ],
           "debe": [
-            "complet|sumar algo|algo m[aá]s|agregar algo|(es|ser[ií]a|eso) todo|cerramos|queda as[ií]",
+            "complet|sumar algo|algo m[aá]s|agregar algo|(es|ser[ií]a|eso) todo|cerramos|queda as[ií]|variantes?|me confirm[aá]s",
             "[Ss]mirnoff"
           ]
         }
@@ -901,16 +901,16 @@
       {
         "cliente": "quiero 500 fernet branca de 750",
         "espera": {
-          "herramientas": [
-            "buscar_productos"
-          ],
           "no_debe": [
-            "500 × \\$"
+            "500 × \\$",
+            "\\bhay \\d+",
+            "quedan? \\d",
+            "\\d+ unidades"
           ]
         }
       }
     ],
-    "juez": "No promete 500: dice cuántos Fernet Branca 750 hay en la sucursal Saint Thomas y ofrece esa cantidad (o lo consulta por ser cantidad mayorista), sin precio todavía o con precio solo de lo disponible."
+    "juez": "Regla del dueño (1/10): el stock es interno. No promete 500 ni dice cuántos hay ni en qué sucursal: dice que esa cantidad no la tiene disponible ahora y que lo consulta con el local, una sola vez y corto."
   },
   {
     "id": "mixto-01",
@@ -1008,5 +1008,24 @@
       }
     ],
     "juez": "Primero pregunta si el pedido está completo; después pasa el resumen con total de lista $55.100 y el total pagando en efectivo o transferencia (descuento solo en el Fernet, no en las Coca: $51.000). Pide confirmación."
+  },
+  {
+    "id": "interno-01",
+    "categoria": "lo interno",
+    "titulo": "Lista de bebidas para presupuestar (Karina, 30/9)",
+    "turnos": [
+      {
+        "cliente": "Rones:\nHavana club (blanco/dorado)\nBacardi también blanco y dorado\n\nWhisky:\nJonnie walker (black-red)\nJack Daniels old n°7\nJameson\n\nGin:\nBeefeater\nTanqueray\n\nCampari\nMartini (rosso y bianco)\n\nMe presupuestás esto?",
+        "espera": {
+          "no_debe": [
+            "\\bquedan? \\d",
+            "unidades",
+            "sistema",
+            "sucursal Saint Thomas (hay|tengo)"
+          ]
+        }
+      }
+    ],
+    "juez": "Pasa los precios de lo que hay de la lista (lista de precios, que al cliente le llega como imagen), corto y claro, y dice en una línea lo que no hay. NO dice cuántas unidades quedan, ni en qué sucursal hay stock, ni habla del sistema. Puede pedir cantidades al final."
   }
 ]
