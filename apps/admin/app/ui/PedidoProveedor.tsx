@@ -1,6 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Aviso, BarraInferior, Boton, Cargando, Chip, Entrada, FOCO, FOCO_ADENTRO, IconoFlechaAbajo, Selector, Tarjeta, unir } from './kit';
+import { pesos } from '../lib/formato';
 
 // Armar el pedido a un proveedor desde el teléfono, caminando el depósito.
 //
@@ -8,7 +10,12 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 // entera del proveedor (hay una de 1.400 renglones) sino lo que hace falta
 // reponer; y el producto que falta en la lista se puede agregar en el momento,
 // porque el momento en que uno se da cuenta es justo ese.
-const pesos = (n: any) => '$' + Math.round(Number(n) || 0).toLocaleString('es-AR');
+
+// los botones − y + de cada renglón: 44 px en el celular
+const PASO = unir(
+  'grid size-11 shrink-0 place-items-center rounded-full border border-black/15 bg-white text-lg leading-none transition-colors hover:bg-crema-claro active:scale-[0.98] disabled:opacity-30 sm:size-10',
+  FOCO,
+);
 
 type Item = {
   sku: string; nombre: string; unidadesPack: number; codigoProveedor: string | null;
@@ -126,139 +133,151 @@ export function PedidoProveedor({ sucursales }: { sucursales: { id: string; nomb
   // ---- paso 1: elegir proveedor ----
   if (!proveedor) {
     return (
-      <div className="mx-auto max-w-2xl space-y-4 p-4">
-        <div>
-          <h1 className="text-xl font-semibold text-black">Pedido a proveedor</h1>
-          <p className="text-xs text-black/50">Elegí a quién le vas a pedir. Después armás el pedido con su lista de productos.</p>
-        </div>
-        {error && <p className="rounded-xl bg-white p-4 text-sm text-[#B82D25]">{error}</p>}
-        <input
+      <div className="space-y-4">
+        <p className="text-sm text-tinta/60">Elegí a quién le vas a pedir. Después armás el pedido con su lista de productos.</p>
+        {error && <Aviso tono="error">{error}</Aviso>}
+        <Entrada
+          aria-label="Buscar proveedor"
           value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar proveedor"
-          className="w-full rounded-xl border border-black/10 bg-white px-4 py-3 text-base outline-none focus:border-black/30"
         />
-        <div className="divide-y divide-black/5 overflow-hidden rounded-2xl bg-white shadow-sm">
-          {proveedores
-            .filter((p) => p.razon_social.toLowerCase().includes(busca.toLowerCase()))
-            .map((p) => (
-              <button key={p.id} onClick={() => { setProveedor(p); setBusca(''); setVerTodo(false); }}
-                className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left active:bg-black/5">
-                <span className="min-w-0">
-                  <span className="block min-w-0 break-words text-sm font-medium text-black">{p.razon_social}</span>
-                  <span className="text-[11px] text-black/45">
-                    {p.productos > 0 ? `${p.productos} producto${p.productos === 1 ? '' : 's'} en su lista` : 'sin lista cargada todavía'}
+        <Tarjeta relleno={false} className="overflow-hidden">
+          <div className="divide-y divide-black/[0.06]">
+            {proveedores
+              .filter((p) => p.razon_social.toLowerCase().includes(busca.toLowerCase()))
+              .map((p) => (
+                <button key={p.id} type="button" onClick={() => { setProveedor(p); setBusca(''); setVerTodo(false); }}
+                  className={unir('flex min-h-14 w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-crema-claro active:bg-crema-claro', FOCO_ADENTRO)}>
+                  <span className="min-w-0">
+                    <span className="block min-w-0 break-words text-sm font-semibold text-tinta">{p.razon_social}</span>
+                    <span className="text-xs text-tinta/60">
+                      {p.productos > 0 ? `${p.productos} producto${p.productos === 1 ? '' : 's'} en su lista` : 'sin lista cargada todavía'}
+                    </span>
                   </span>
-                </span>
-                <span className="shrink-0 text-black/25">›</span>
-              </button>
-            ))}
-          {proveedores.length === 0 && <p className="px-4 py-6 text-sm text-black/40">Cargando proveedores…</p>}
-        </div>
+                  <IconoFlechaAbajo className="size-5 shrink-0 -rotate-90 text-tinta/40" />
+                </button>
+              ))}
+            {proveedores.length === 0 && <Cargando texto="Cargando proveedores…" bloque />}
+          </div>
+        </Tarjeta>
       </div>
     );
   }
 
   // ---- paso 2: armar el pedido ----
   return (
-    <div className="mx-auto max-w-2xl p-4 pb-32">
-      <div className="flex items-center gap-2">
-        <button onClick={() => { setProveedor(null); setItems([]); setCant({}); setBusca(''); setAviso(''); }}
-          className="rounded-full border border-black/15 px-3 py-1.5 text-xs text-black/60">‹ Proveedores</button>
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <Boton variante="secundario" tamano="chico" icono={<IconoFlechaAbajo className="size-4 rotate-90" />}
+          onClick={() => { setProveedor(null); setItems([]); setCant({}); setBusca(''); setAviso(''); }}>
+          Proveedores
+        </Boton>
         {sucursales.length > 1 && (
-          <select value={sucursalId} onChange={(e) => setSucursalId(e.target.value)}
-            className="rounded-full border border-black/15 bg-white px-3 py-1.5 text-xs text-black/70">
-            {sucursales.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
-          </select>
+          <Selector aria-label="Sucursal" value={sucursalId} onChange={(e) => setSucursalId(e.target.value)}
+            className="min-w-0 flex-1 sm:max-w-xs"
+            opciones={sucursales.map((s) => ({ valor: s.id, etiqueta: s.nombre }))} />
         )}
       </div>
 
-      <h1 className="mt-3 text-lg font-semibold text-black">{proveedor.razon_social}</h1>
-      <p className="text-[11px] text-black/45">
-        {verTodo || busca ? 'Toda su lista' : 'Solo lo que hace falta reponer'} · {meta.total} producto{meta.total === 1 ? '' : 's'}
-        {meta.recortado && ' (se muestran los primeros 300)'}
-        <br />El sugerido cubre 14 días según lo que se vendió en los últimos 30.
-      </p>
+      <div>
+        <h2 className="break-words text-lg font-semibold text-tinta">{proveedor.razon_social}</h2>
+        <p className="text-xs text-tinta/60">
+          {verTodo || busca ? 'Toda su lista' : 'Solo lo que hace falta reponer'} · {meta.total} producto{meta.total === 1 ? '' : 's'}
+          {meta.recortado && ' (se muestran los primeros 300)'}
+          <br />El sugerido cubre 14 días según lo que se vendió en los últimos 30.
+        </p>
+      </div>
 
-      {aviso && <p className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{aviso}</p>}
-      {error && <p className="mt-3 rounded-xl bg-white p-4 text-sm text-[#B82D25]">{error}</p>}
+      {aviso && <Aviso tono="ok">{aviso}</Aviso>}
+      {error && <Aviso tono="error">{error}</Aviso>}
 
-      <div className="sticky top-0 z-10 -mx-4 mt-3 bg-[#F0EBE2] px-4 pb-2 pt-1">
-        <input
+      <div className="sticky top-(--alto-barra-movil) z-contenido -mx-4 bg-crema px-4 pb-2 pt-2 lg:top-0">
+        <Entrada
+          aria-label="Buscar en su lista"
           value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar en su lista (nombre, SKU o código)"
-          className="w-full rounded-xl border border-black/10 bg-white px-4 py-3 text-base outline-none focus:border-black/30"
+          className="bg-white"
         />
-        <div className="mt-2 flex items-center gap-2">
-          <button onClick={() => setVerTodo((v) => !v)}
-            className={`rounded-full px-3 py-1 text-[11px] font-medium ${verTodo ? 'bg-black text-white' : 'bg-white text-black/60'}`}>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <Chip activo={verTodo} onClick={() => setVerTodo((v) => !v)}>
             {verTodo ? 'Viendo toda la lista' : 'Ver toda la lista'}
-          </button>
-          <button onClick={() => setAgregando((a) => !a)}
-            className="rounded-full bg-white px-3 py-1 text-[11px] font-medium text-black/60">
+          </Chip>
+          <Chip activo={agregando} onClick={() => setAgregando((a) => !a)}>
             + Producto que no está
-          </button>
+          </Chip>
         </div>
       </div>
 
       {agregando && (
-        <div className="mt-2 rounded-2xl bg-white p-3 shadow-sm">
-          <p className="text-[11px] text-black/50">
+        <Tarjeta>
+          <p className="text-xs text-tinta/60">
             Buscá en el catálogo completo y sumalo a la lista de {proveedor.razon_social}. Queda para siempre.
           </p>
-          <input
+          <Entrada
+            aria-label="Buscar en el catálogo completo"
             value={buscaCatalogo} onChange={(e) => buscarEnCatalogo(e.target.value)} placeholder="Nombre o código de barras"
-            className="mt-2 w-full rounded-xl border border-black/10 px-3 py-2.5 text-base outline-none focus:border-black/30"
+            className="mt-2"
           />
-          {resultados.map((p: any) => (
-            <button key={p.sku} onClick={() => sumarALista(p.sku)}
-              className="mt-1.5 flex w-full items-center justify-between gap-2 rounded-lg px-2 py-2 text-left hover:bg-black/5">
-              <span className="min-w-0 break-words text-sm text-black">{p.nombre} <span className="text-xs text-black/35">{p.sku}</span></span>
-              <span className="shrink-0 text-xs font-medium text-[#B82D25]">agregar</span>
-            </button>
-          ))}
-        </div>
+          {resultados.length > 0 && (
+            <div className="mt-2 divide-y divide-black/[0.06]">
+              {resultados.map((p: any) => (
+                <button key={p.sku} type="button" onClick={() => sumarALista(p.sku)}
+                  className={unir('flex min-h-11 w-full items-center justify-between gap-2 rounded-xl px-2 py-2 text-left transition-colors hover:bg-crema-claro', FOCO_ADENTRO)}>
+                  <span className="min-w-0 break-words text-sm text-tinta">{p.nombre} <span className="text-xs text-tinta/60">{p.sku}</span></span>
+                  <span className="shrink-0 text-sm font-semibold text-marca-hondo">agregar</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </Tarjeta>
       )}
 
-      {cargando && <p className="mt-4 text-sm text-black/40">Cargando…</p>}
+      {cargando && <Cargando />}
       {!cargando && meta.sinLista && (
-        <div className="mt-4 rounded-2xl bg-white p-5 text-sm text-black/60 shadow-sm">
-          Este proveedor todavía no tiene productos en su lista. Agregalos con “+ Producto que no está”, o van a cargarse solos
-          la próxima vez que se reciba mercadería suya.
-        </div>
+        <Tarjeta>
+          <p className="text-sm text-tinta/70">
+            Este proveedor todavía no tiene productos en su lista. Agregalos con “+ Producto que no está”, o van a cargarse solos
+            la próxima vez que se reciba mercadería suya.
+          </p>
+        </Tarjeta>
       )}
       {!cargando && !meta.sinLista && items.length === 0 && (
-        <p className="mt-4 rounded-2xl bg-white p-5 text-sm text-black/50 shadow-sm">
-          {busca ? 'Nada con esa búsqueda.' : 'No hay nada bajo mínimo de este proveedor. Tocá “Ver toda la lista”.'}
-        </p>
+        <Tarjeta>
+          <p className="text-sm text-tinta/60">
+            {busca ? 'Nada con esa búsqueda.' : 'No hay nada bajo mínimo de este proveedor. Tocá “Ver toda la lista”.'}
+          </p>
+        </Tarjeta>
       )}
 
-      <div className="mt-3 space-y-2">
+      <div className="space-y-2">
         {items.map((it) => {
           const puesto = cant[it.sku] ?? 0;
           return (
-            <div key={it.sku} className={`rounded-2xl bg-white p-3 shadow-sm ${puesto ? 'ring-2 ring-black' : ''}`}>
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-sm font-medium leading-snug text-black">{it.nombre}</p>
-                  <p className="text-[11px] text-black/45">
+            <div key={it.sku}
+              className={`rounded-2xl border bg-white p-3 shadow-tarjeta sm:p-4 ${puesto ? 'border-marca ring-1 ring-marca' : 'border-black/[0.06]'}`}>
+              <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+                <div className="min-w-0 basis-full sm:basis-auto sm:flex-1">
+                  <p className="break-words text-sm font-semibold leading-snug text-tinta">{it.nombre}</p>
+                  <p className="break-words text-xs text-tinta/60">
                     {it.sku}{it.codigoProveedor ? ` · cód. prov. ${it.codigoProveedor}` : ''}
                     {it.costo != null ? ` · ${pesos(it.costo)}` : ' · sin costo cargado'}
                   </p>
-                  <p className={`text-[11px] ${it.urgente ? 'font-medium text-[#B82D25]' : 'text-black/45'}`}>
+                  <p className={`text-xs ${it.urgente ? 'font-semibold text-marca-hondo' : 'text-tinta/60'}`}>
                     stock {it.stock}
                     {it.diasDeStock != null && ` · aguanta ${it.diasDeStock} día${it.diasDeStock === 1 ? '' : 's'}`}
                     {it.minimo > 0 && ` · mínimo ${it.minimo}`}
                     {it.sugerido > 0 && ` · sugerido ${it.sugerido}`}
                   </p>
                 </div>
-                <div className="flex shrink-0 items-center gap-1.5">
-                  <button onClick={() => poner(it.sku, puesto - 1)} disabled={!puesto}
-                    className="h-9 w-9 rounded-full border border-black/15 text-lg leading-none text-black/60 disabled:opacity-30">−</button>
+                <div className="ml-auto flex shrink-0 items-center gap-1.5">
+                  <button type="button" aria-label={`Restar uno de ${it.nombre}`} onClick={() => poner(it.sku, puesto - 1)} disabled={!puesto}
+                    className={unir(PASO, 'text-tinta/70')}>−</button>
                   <input
+                    aria-label={`Cantidad de ${it.nombre}`}
                     inputMode="numeric" value={puesto || ''} placeholder="0"
                     onChange={(e) => poner(it.sku, Number(e.target.value.replace(/\D/g, '')) || 0)}
-                    className="h-9 w-12 rounded-lg border border-black/15 text-center text-base tabular-nums outline-none focus:border-black"
+                    className="importe h-11 w-14 rounded-xl border border-black/15 bg-crema-claro text-center text-base text-tinta placeholder:text-tinta/40 focus:border-marca focus:bg-white focus:outline-none focus:ring-4 focus:ring-marca/15 sm:h-10"
                   />
-                  <button onClick={() => poner(it.sku, puesto ? puesto + 1 : Math.max(1, it.sugerido))}
-                    className="h-9 w-9 rounded-full bg-black text-lg leading-none text-white">+</button>
+                  <button type="button" aria-label={`Sumar uno de ${it.nombre}`} onClick={() => poner(it.sku, puesto ? puesto + 1 : Math.max(1, it.sugerido))}
+                    className={unir(PASO, 'text-tinta')}>+</button>
                 </div>
               </div>
             </div>
@@ -268,22 +287,23 @@ export function PedidoProveedor({ sucursales }: { sucursales: { id: string; nomb
 
       {/* barra fija: lo que llevás pedido y el botón de enviar */}
       {elegidos.length > 0 && (
-        <div className="fixed inset-x-0 bottom-0 z-20 border-t border-black/10 bg-white px-4 py-3 lg:pl-64">
-          <div className="mx-auto flex max-w-2xl items-center justify-between gap-3">
-            <div className="min-w-0">
-              <p className="text-sm font-semibold text-black">
-                {elegidos.length} producto{elegidos.length === 1 ? '' : 's'} · {pesos(totalPedido)}
+        <BarraInferior
+          etiqueta="Pedido"
+          resumen={
+            <>
+              <p className="truncate text-sm font-semibold text-tinta">
+                {elegidos.length} producto{elegidos.length === 1 ? '' : 's'} · <span className="importe">{pesos(totalPedido)}</span>
               </p>
-              <p className="min-w-0 break-words text-[11px] text-black/45">
+              <p className="min-w-0 break-words text-xs text-tinta/60">
                 {totalPedido === 0 ? 'sin costos cargados: el total lo confirma la factura' : 'estimado con el último costo conocido'}
               </p>
-            </div>
-            <button onClick={enviar} disabled={enviando}
-              className="shrink-0 rounded-full bg-black px-5 py-2.5 text-sm font-medium text-white disabled:opacity-50">
-              {enviando ? 'Enviando…' : 'Enviar a aprobación'}
-            </button>
-          </div>
-        </div>
+            </>
+          }
+        >
+          <Boton onClick={enviar} disabled={enviando} cargando={enviando}>
+            {enviando ? 'Enviando…' : 'Enviar a aprobación'}
+          </Boton>
+        </BarraInferior>
       )}
     </div>
   );

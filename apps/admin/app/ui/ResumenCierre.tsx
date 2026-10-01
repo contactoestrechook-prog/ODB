@@ -1,12 +1,12 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { Aviso, Boton, Cargando, IconoOk, ROTULO, unir } from './kit';
+import { fechaHora, pesos } from '../lib/formato';
 
 // Planilla de cierre de una sesión de caja. Con la caja ABIERTA dice cómo va
 // (qué tendría que haber en el cajón); CERRADA, cómo terminó: ventas, cada
 // medio de pago, el arqueo de efectivo y los movimientos. Se imprime tal cual.
-const pesos = (n: any) => (n == null || !Number.isFinite(Number(n)) ? '—' : '$' + Math.round(Number(n)).toLocaleString('es-AR'));
-const hora = (iso?: string | null) => (iso ? new Date(iso).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—');
 
 export type ResumenCierreDatos = {
   sesion: { id: string; caja: string | null; sucursal: string | null; cajero: string | null; abiertaEn: string; cerradaEn: string | null; cerrada: boolean };
@@ -39,7 +39,7 @@ function imprimirPlanilla(d: ResumenCierreDatos) {
 </style></head><body>
 <h1>${d.sesion.cerrada ? 'Cierre de caja' : 'Cómo va la caja'}</h1>
 <h2>${esc(d.sesion.caja ?? 'Caja')}${d.sesion.sucursal ? ' · ' + esc(d.sesion.sucursal) : ''}</h2>
-<p class="sub">${esc(d.sesion.cajero ?? '—')} · abierta ${hora(d.sesion.abiertaEn)}${d.sesion.cerrada ? ' · cerrada ' + hora(d.sesion.cerradaEn) : ''}</p>
+<p class="sub">${esc(d.sesion.cajero ?? '—')} · abierta ${fechaHora(d.sesion.abiertaEn)}${d.sesion.cerrada ? ' · cerrada ' + fechaHora(d.sesion.cerradaEn) : ''}</p>
 <table><tr><th>Ventas</th><th class="n">Total</th></tr>
 <tr><td>${d.ventas.cantidad} venta(s)${d.ventas.anuladas ? ' · ' + d.ventas.anuladas + ' anulada(s)' : ''}</td><td class="n">${pesos(d.ventas.total)}</td></tr></table>
 <table><tr><th>Cobrado por medio</th><th class="n">Cobros</th><th class="n">Monto</th></tr>
@@ -52,7 +52,7 @@ ${d.efectivo.ingresos ? `<tr><td>+ Ingresos de caja</td><td class="n">${pesos(d.
 ${d.efectivo.egresos ? `<tr><td>− Retiros de caja</td><td class="n">${pesos(d.efectivo.egresos)}</td></tr>` : ''}
 <tr class="tot"><td>${d.sesion.cerrada ? 'Tenía que haber' : 'Tiene que haber en el cajón'}</td><td class="n">${pesos(d.efectivo.esperado)}</td></tr>
 ${filaDif}</table>
-${d.movimientos.length ? `<table><tr><th>Movimientos de caja</th><th></th><th class="n"></th></tr>${d.movimientos.map((m) => `<tr><td class="small">${hora(m.creadoEn)}</td><td>${esc(m.motivo)}${m.usuario ? ' · ' + esc(m.usuario) : ''}</td><td class="n">${m.tipo === 'egreso' ? '−' : '+'}${pesos(m.monto)}</td></tr>`).join('')}</table>` : ''}
+${d.movimientos.length ? `<table><tr><th>Movimientos de caja</th><th></th><th class="n"></th></tr>${d.movimientos.map((m) => `<tr><td class="small">${fechaHora(m.creadoEn)}</td><td>${esc(m.motivo)}${m.usuario ? ' · ' + esc(m.usuario) : ''}</td><td class="n">${m.tipo === 'egreso' ? '−' : '+'}${pesos(m.monto)}</td></tr>`).join('')}</table>` : ''}
 <p class="small">Impreso ${new Date().toLocaleString('es-AR')}</p>
 <script>window.onload = function(){ window.print(); }</script>
 </body></html>`;
@@ -75,8 +75,8 @@ export function ResumenCierre({ sesionId, recargar = 0, imprimible = true }: { s
     return () => { vivo = false; };
   }, [sesionId, recargar]);
 
-  if (error) return <p className="rounded-lg bg-[#B82D25]/10 px-3 py-2 text-sm text-[#932A1F]">{error}</p>;
-  if (!d) return <p className="py-6 text-center text-sm text-black/40">Armando el cierre…</p>;
+  if (error) return <Aviso tono="error">{error}</Aviso>;
+  if (!d) return <Cargando bloque texto="Armando el cierre…" className="py-6" />;
 
   const dif = d.efectivo.diferencia;
   const filas: [string, string, string?][] = [
@@ -85,62 +85,64 @@ export function ResumenCierre({ sesionId, recargar = 0, imprimible = true }: { s
     ...(d.efectivo.ingresos ? [['+ Ingresos de caja', pesos(d.efectivo.ingresos)] as [string, string]] : []),
     ...(d.efectivo.egresos ? [['− Retiros de caja', pesos(d.efectivo.egresos)] as [string, string]] : []),
   ];
+  const cabeceraSeccion = 'bg-crema/70 px-3 py-1.5';
 
   return (
-    <div id="cierre-caja-print" className="space-y-4 text-[#141414]">
+    <div id="cierre-caja-print" className="min-w-0 space-y-4 text-tinta">
       <style>{`@media print { body * { visibility: hidden !important; } #cierre-caja-print, #cierre-caja-print * { visibility: visible !important; } #cierre-caja-print { position: absolute; left: 0; top: 0; width: 100%; padding: 16px; } .no-print { display: none !important; } }`}</style>
 
       {/* cabecera */}
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div>
-          <p className="text-[10px] uppercase tracking-[0.18em] text-black/45">{d.sesion.cerrada ? 'Cierre de caja' : 'Cómo va la caja'}</p>
-          <p className="text-lg font-semibold leading-tight">{d.sesion.caja ?? 'Caja'}{d.sesion.sucursal ? <span className="font-normal text-black/50"> · {d.sesion.sucursal}</span> : null}</p>
-          <p className="text-xs text-black/55">{d.sesion.cajero ?? '—'} · abierta {hora(d.sesion.abiertaEn)}{d.sesion.cerrada ? ` · cerrada ${hora(d.sesion.cerradaEn)}` : ''}</p>
+      <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+        <div className="min-w-0">
+          <p className={ROTULO}>{d.sesion.cerrada ? 'Cierre de caja' : 'Cómo va la caja'}</p>
+          <p className="break-words text-lg font-semibold leading-tight">{d.sesion.caja ?? 'Caja'}{d.sesion.sucursal ? <span className="font-normal text-tinta/60"> · {d.sesion.sucursal}</span> : null}</p>
+          <p className="text-xs text-tinta/70">{d.sesion.cajero ?? '—'} · abierta {fechaHora(d.sesion.abiertaEn)}{d.sesion.cerrada ? ` · cerrada ${fechaHora(d.sesion.cerradaEn)}` : ''}</p>
         </div>
         <div className="text-right">
-          <p className="text-[10px] uppercase tracking-[0.18em] text-black/45">Ventas</p>
-          <p className="text-2xl font-bold tabular-nums leading-tight">{pesos(d.ventas.total)}</p>
-          <p className="text-xs text-black/55">{d.ventas.cantidad} venta{d.ventas.cantidad === 1 ? '' : 's'}{d.ventas.anuladas ? ` · ${d.ventas.anuladas} anulada(s)` : ''}</p>
+          <p className={ROTULO}>Ventas</p>
+          <p className="importe text-2xl font-bold leading-tight">{pesos(d.ventas.total)}</p>
+          <p className="text-xs text-tinta/70">{d.ventas.cantidad} venta{d.ventas.cantidad === 1 ? '' : 's'}{d.ventas.anuladas ? ` · ${d.ventas.anuladas} anulada(s)` : ''}</p>
         </div>
       </div>
 
       {/* cómo terminó cada medio */}
-      <section className="rounded-xl border border-black/10 overflow-hidden">
-        <div className="flex items-baseline justify-between bg-[#F0EBE2]/70 px-3 py-1.5">
-          <p className="text-[10px] uppercase tracking-[0.18em] text-black/55">Cobrado por medio</p>
-          <p className="text-xs text-black/50">{pesos(d.cobrado)} en total</p>
+      <section className="overflow-hidden rounded-xl border border-black/[0.06]">
+        <div className={unir('flex flex-wrap items-baseline justify-between gap-x-3', cabeceraSeccion)}>
+          <p className={ROTULO}>Cobrado por medio</p>
+          <p className="importe text-xs text-tinta/70">{pesos(d.cobrado)} en total</p>
         </div>
         {d.medios.length === 0 ? (
-          <p className="px-3 py-3 text-sm text-black/45">Todavía no hay cobros en esta caja.</p>
+          <p className="px-3 py-3 text-sm text-tinta/60">Todavía no hay cobros en esta caja.</p>
         ) : (
-          <table className="w-full text-sm">
-            <tbody>
-              {d.medios.map((m) => (
-                <tr key={m.clave} className="border-t border-black/5">
-                  <td className="px-3 py-1.5">{m.etiqueta}<span className="ml-2 text-[11px] text-black/40">{m.pagos} cobro{m.pagos === 1 ? '' : 's'}</span></td>
-                  <td className="px-3 py-1.5 text-right tabular-nums font-medium">{pesos(m.monto)}</td>
-                  <td className="w-16 px-3 py-1.5 text-right text-[11px] tabular-nums text-black/40">{d.cobrado > 0 ? Math.round((m.monto / d.cobrado) * 100) : 0}%</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <ul className="text-sm">
+            {d.medios.map((m) => (
+              <li key={m.clave} className="flex items-baseline gap-3 border-t border-black/[0.06] px-3 py-2">
+                <div className="min-w-0 flex-1">
+                  <span className="break-words">{m.etiqueta}</span>
+                  <span className="ml-2 whitespace-nowrap text-xs text-tinta/60">{m.pagos} cobro{m.pagos === 1 ? '' : 's'}</span>
+                </div>
+                <span className="importe shrink-0 font-medium">{pesos(m.monto)}</span>
+                <span className="importe w-10 shrink-0 text-right text-xs text-tinta/60">{d.cobrado > 0 ? Math.round((m.monto / d.cobrado) * 100) : 0}%</span>
+              </li>
+            ))}
+          </ul>
         )}
       </section>
 
       {/* arqueo de efectivo */}
-      <section className="rounded-xl border border-black/10 overflow-hidden">
-        <p className="bg-[#F0EBE2]/70 px-3 py-1.5 text-[10px] uppercase tracking-[0.18em] text-black/55">Arqueo de efectivo</p>
+      <section className="overflow-hidden rounded-xl border border-black/[0.06]">
+        <p className={unir(ROTULO, cabeceraSeccion)}>Arqueo de efectivo</p>
         <div className="px-3 py-2 text-sm">
           {filas.map(([k, v]) => (
-            <p key={k} className="flex justify-between py-0.5"><span className="text-black/60">{k}</span><span className="tabular-nums">{v}</span></p>
+            <p key={k} className="flex justify-between gap-3 py-0.5"><span className="min-w-0 text-tinta/70">{k}</span><span className="importe shrink-0">{v}</span></p>
           ))}
-          <p className="mt-1 flex justify-between border-t border-black/10 pt-1.5 font-semibold"><span>{d.sesion.cerrada ? 'Tenía que haber' : 'Tiene que haber en el cajón'}</span><span className="tabular-nums">{pesos(d.efectivo.esperado)}</span></p>
+          <p className="mt-1 flex justify-between gap-3 border-t border-black/[0.06] pt-1.5 font-semibold"><span className="min-w-0">{d.sesion.cerrada ? 'Tenía que haber' : 'Tiene que haber en el cajón'}</span><span className="importe shrink-0">{pesos(d.efectivo.esperado)}</span></p>
           {d.sesion.cerrada && (
             <>
-              <p className="flex justify-between py-0.5"><span className="text-black/60">Contado</span><span className="tabular-nums">{pesos(d.efectivo.contado)}</span></p>
-              <p className={'mt-1 flex justify-between rounded-lg px-2 py-1.5 font-bold ' + (dif === 0 ? 'bg-emerald-50 text-emerald-800' : (dif ?? 0) < 0 ? 'bg-[#B82D25]/10 text-[#932A1F]' : 'bg-amber-50 text-amber-900')}>
-                <span>{dif === 0 ? 'Cerró justo ✓' : (dif ?? 0) < 0 ? 'Faltó efectivo' : 'Sobró efectivo'}</span>
-                <span className="tabular-nums">{dif === 0 ? '' : ((dif ?? 0) > 0 ? '+' : '') + pesos(dif)}</span>
+              <p className="flex justify-between gap-3 py-0.5"><span className="text-tinta/70">Contado</span><span className="importe shrink-0">{pesos(d.efectivo.contado)}</span></p>
+              <p className={'mt-1 flex justify-between gap-3 rounded-xl px-2 py-1.5 font-bold ' + (dif === 0 ? 'bg-ok-suave text-ok' : (dif ?? 0) < 0 ? 'bg-marca-suave text-marca-hondo' : 'bg-atencion-suave text-atencion')}>
+                <span className="inline-flex min-w-0 items-center gap-1">{dif === 0 ? <>Cerró justo <IconoOk className="size-4 shrink-0" /></> : (dif ?? 0) < 0 ? 'Faltó efectivo' : 'Sobró efectivo'}</span>
+                <span className="importe shrink-0">{dif === 0 ? '' : ((dif ?? 0) > 0 ? '+' : '') + pesos(dif)}</span>
               </p>
             </>
           )}
@@ -149,25 +151,25 @@ export function ResumenCierre({ sesionId, recargar = 0, imprimible = true }: { s
 
       {/* movimientos */}
       {d.movimientos.length > 0 && (
-        <section className="rounded-xl border border-black/10 overflow-hidden">
-          <p className="bg-[#F0EBE2]/70 px-3 py-1.5 text-[10px] uppercase tracking-[0.18em] text-black/55">Movimientos de caja</p>
-          <table className="w-full text-xs">
-            <tbody>
-              {d.movimientos.map((m, i) => (
-                <tr key={i} className="border-t border-black/5">
-                  <td className="px-3 py-1 text-black/45 whitespace-nowrap">{hora(m.creadoEn)}</td>
-                  <td className="px-3 py-1">{m.motivo}{m.usuario ? <span className="text-black/40"> · {m.usuario}</span> : null}</td>
-                  <td className={'px-3 py-1 text-right tabular-nums font-medium ' + (m.tipo === 'egreso' ? 'text-[#932A1F]' : 'text-emerald-800')}>{m.tipo === 'egreso' ? '−' : '+'}{pesos(m.monto)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <section className="overflow-hidden rounded-xl border border-black/[0.06]">
+          <p className={unir(ROTULO, cabeceraSeccion)}>Movimientos de caja</p>
+          <ul className="text-sm">
+            {d.movimientos.map((m, i) => (
+              <li key={i} className="flex items-baseline gap-3 border-t border-black/[0.06] px-3 py-2">
+                <div className="min-w-0 flex-1">
+                  <p className="break-words">{m.motivo}{m.usuario ? <span className="text-tinta/60"> · {m.usuario}</span> : null}</p>
+                  <p className="importe text-xs text-tinta/60">{fechaHora(m.creadoEn)}</p>
+                </div>
+                <span className={'importe shrink-0 font-medium ' + (m.tipo === 'egreso' ? 'text-marca-hondo' : 'text-ok')}>{m.tipo === 'egreso' ? '−' : '+'}{pesos(m.monto)}</span>
+              </li>
+            ))}
+          </ul>
         </section>
       )}
 
       {imprimible && (
         <div className="no-print flex justify-end">
-          <button type="button" onClick={() => imprimirPlanilla(d)} className="rounded-full border border-black/20 px-4 py-1.5 text-xs font-medium text-black/70 hover:border-black hover:text-black">🖨 Imprimir cierre</button>
+          <Boton variante="secundario" tamano="chico" onClick={() => imprimirPlanilla(d)}>Imprimir cierre</Boton>
         </div>
       )}
     </div>

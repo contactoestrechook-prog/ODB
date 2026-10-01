@@ -1,4 +1,4 @@
-import { Header } from '../ui/Header';
+import { Pantalla } from '../ui/kit/Pantalla';
 import { apiFetch } from '../../lib/api';
 import { PedidoProveedor } from '../ui/PedidoProveedor';
 
@@ -14,9 +14,8 @@ export default async function PedidoProveedorPage() {
   } catch { /* la pantalla igual abre: el API se reintenta desde el cliente */ }
 
   return (
-    <main className="min-h-screen bg-[#F0EBE2] lg:pl-64">
-      <Header activo="/pedido-proveedor" />
+    <Pantalla activo="/pedido-proveedor" ancho="angosto">
       <PedidoProveedor sucursales={sucursales} />
-    </main>
+    </Pantalla>
   );
 }

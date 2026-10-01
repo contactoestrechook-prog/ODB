@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { Boton } from './kit';
 
 // Candado liviano por PIN para las pantallas sensibles de plata (Mercado Pago,
 // ARCA). No reemplaza el login+rol del servidor: es un segundo cerrojo para que,
@@ -34,32 +35,31 @@ export function PinGate({ modulo, titulo, children }: { modulo: string; titulo: 
   if (abierto) return <>{children}</>;
 
   return (
-    <div className="min-h-[60vh] flex items-center justify-center p-6">
-      <div className="w-full max-w-xs rounded-2xl bg-white p-7 shadow-[0_20px_60px_-25px_rgba(0,0,0,0.35)] border border-black/5 text-center">
-        <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-[#F0EBE2]">
-          <svg viewBox="0 0 24 24" className="w-6 h-6 text-[#B82D25]" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+    <div className="flex min-h-[60dvh] items-center justify-center py-6">
+      <div className="w-full max-w-xs rounded-2xl border border-black/[0.06] bg-white p-6 text-center shadow-flotante sm:p-7">
+        <div className="mx-auto mb-3 flex size-12 items-center justify-center rounded-full bg-crema">
+          <svg viewBox="0 0 24 24" className="size-6 text-marca" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M7 11V7a5 5 0 0110 0v4M6 11h12v9H6zM12 15v2" />
           </svg>
         </div>
-        <h2 className="font-semibold text-black">{titulo}</h2>
-        <p className="text-xs text-black/50 mt-1 mb-4">Ingresá el PIN para ver esta sección.</p>
+        <h2 className="text-lg font-semibold text-tinta">{titulo}</h2>
+        <p className="mt-1 mb-4 text-sm text-tinta/60">Ingresá el PIN para ver esta sección.</p>
         <input
           type="password"
           inputMode="numeric"
           autoFocus
+          aria-label="PIN"
+          aria-invalid={error || undefined}
           value={pin}
           onChange={(e) => { setPin(e.target.value); setError(false); }}
           onKeyDown={(e) => e.key === 'Enter' && probar(pin)}
           placeholder="••••"
-          className={`w-full text-center tracking-[0.5em] text-lg rounded-lg border px-3 py-2.5 outline-none ${error ? 'border-[#B82D25]' : 'border-black/15 focus:border-[#B82D25]'}`}
+          className="block min-h-11 w-full rounded-xl border border-black/15 bg-crema-claro px-3.5 py-2 text-center text-lg tracking-[0.5em] text-tinta transition-[border-color,box-shadow,background-color] placeholder:text-tinta/40 focus:border-marca focus:bg-white focus:outline-none focus:ring-4 focus:ring-marca/15 aria-invalid:border-marca aria-invalid:bg-white"
         />
-        {error && <p className="text-xs text-[#B82D25] mt-2">PIN incorrecto</p>}
-        <button
-          onClick={() => probar(pin)}
-          className="mt-4 w-full rounded-full bg-[#B82D25] py-2.5 text-sm font-medium text-white hover:bg-[#932A1F]"
-        >
+        {error && <p role="alert" className="mt-2 text-sm text-marca-hondo">PIN incorrecto</p>}
+        <Boton onClick={() => probar(pin)} anchoCompleto className="mt-4">
           Entrar
-        </button>
+        </Boton>
       </div>
     </div>
   );

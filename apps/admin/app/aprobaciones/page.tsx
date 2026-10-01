@@ -1,5 +1,5 @@
 import { cookies } from 'next/headers';
-import { Header } from '../ui/Header';
+import { Pantalla } from '../ui/kit/Pantalla';
 import { Aprobaciones } from '../ui/Aprobaciones';
 import { rolDesdeToken } from '../lib/permisos';
 
@@ -10,9 +10,8 @@ export const dynamic = 'force-dynamic';
 export default async function AprobacionesPage() {
   const rol = rolDesdeToken((await cookies()).get('odb_token')?.value);
   return (
-    <main className="min-h-screen bg-[#F0EBE2] lg:pl-64">
-      <Header activo="/aprobaciones" />
+    <Pantalla activo="/aprobaciones" ancho="angosto">
       <Aprobaciones puedeFirmar={rol === 'dueno'} />
-    </main>
+    </Pantalla>
   );
 }

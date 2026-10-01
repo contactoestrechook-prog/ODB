@@ -2,16 +2,22 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { Boton, useConfirmar } from './kit';
+import { pesos } from '../lib/formato';
 
 export function BotonAnular({ ventaId, total }: { ventaId: string; total: number }) {
   const router = useRouter();
   const [estado, setEstado] = useState<'listo' | 'anulando' | 'error'>('listo');
+  const { confirmar, dialogo } = useConfirmar();
 
   async function anular() {
     if (
-      !window.confirm(
-        `¿Anular esta venta de $${Math.round(total).toLocaleString('es-AR')}? El stock vuelve y se emite nota de crédito.`,
-      )
+      !(await confirmar({
+        titulo: `¿Anular esta venta de ${pesos(Math.round(total))}?`,
+        texto: 'El stock vuelve y se emite nota de crédito.',
+        variante: 'peligro',
+        textoConfirmar: 'Anular',
+      }))
     )
       return;
     setEstado('anulando');
@@ -25,12 +31,11 @@ export function BotonAnular({ ventaId, total }: { ventaId: string; total: number
   }
 
   return (
-    <button
-      onClick={anular}
-      disabled={estado === 'anulando'}
-      className="rounded-full border border-black/15 px-3 py-1 text-xs text-black/50 hover:border-[#B82D25] hover:text-[#932A1F] disabled:opacity-50"
-    >
-      {estado === 'anulando' ? '…' : estado === 'error' ? 'error' : 'anular'}
-    </button>
+    <>
+      <Boton variante="peligro" tamano="chico" onClick={anular} cargando={estado === 'anulando'}>
+        {estado === 'error' ? 'Error' : 'Anular'}
+      </Boton>
+      {dialogo}
+    </>
   );
 }
