@@ -70,16 +70,19 @@ const TOPE_DIA = Number(process.env.BANCO_TOPE_USD_DIA ?? 10);
   const diaAR = (f) => new Date(f).toLocaleDateString('sv-SE', { timeZone: 'America/Argentina/Buenos_Aires' });
   const hoy = diaAR(Date.now());
   let gastadoHoy = 0;
-  const porCaso = [];
-  for (const f of fs.readdirSync(SALIDA).filter((x) => x.endsWith('.json')).sort()) {
+  const corridas = [];
+  for (const f of fs.readdirSync(SALIDA).filter((x) => x.endsWith('.json'))) {
     let d; try { d = JSON.parse(fs.readFileSync(path.join(SALIDA, f), 'utf8')); } catch { continue; }
     // las corridas de antes del 1/10 se registraron con la tarifa de Sonnet (x 5/3) y sin el juez
     const costo = d.costoTotal ?? Number(d.costoBot ?? 0) * 5 / 3;
-    if (d.total) porCaso.push(costo / d.total);
+    if (d.total) corridas.push({ fecha: String(d.fecha ?? ''), casos: d.total, costo });
     if (d.fecha && diaAR(d.fecha) === hoy) gastadoHoy += costo;
   }
-  const ultimos = porCaso.slice(-10).sort((a, b) => a - b);
-  const unCaso = ultimos.length ? ultimos[Math.floor(ultimos.length / 2)] : 0.15;
+  // costo por caso de las últimas 10 corridas por fecha, ponderado por casos (una
+  // charla real larga de un solo caso cuesta USD 2 y no representa al resto)
+  const ultimas = corridas.sort((a, b) => a.fecha.localeCompare(b.fecha)).slice(-10);
+  const casosUltimas = ultimas.reduce((s, c) => s + c.casos, 0);
+  const unCaso = casosUltimas ? ultimas.reduce((s, c) => s + c.costo, 0) / casosUltimas : 0.15;
   const cuantos = CASOS.filter((c) => !soloIds.length || soloIds.includes(c.id)).length;
   const estimado = cuantos * unCaso;
   console.log(`Banco: ${cuantos} casos · estimado ≈ USD ${estimado.toFixed(2)} · hoy ya van ≈ USD ${gastadoHoy.toFixed(2)} (tope USD ${TOPE_DIA}/día, clave de desarrollo)`);
