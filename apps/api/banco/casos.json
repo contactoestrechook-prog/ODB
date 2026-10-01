@@ -54,7 +54,7 @@
             "preparar_pedido"
           ],
           "debe": [
-            "complet|sumar algo|algo m[aá]s|agregar algo|(es|ser[ií]a|eso) todo|cerramos|queda as[ií]|variantes?|me confirm[aá]s"
+            "complet|sumar algo|algo m[aá]s|agregar algo|(es|ser[ií]a|eso) todo|cerramos|queda as[ií]|variantes?|me confirm[aá]s|eleg[ií]s|cu[aá]l(es)? (quer[eé]s|prefer[ií]s|eleg)"
           ]
         }
       },
@@ -110,7 +110,7 @@
             "preparar_pedido"
           ],
           "debe": [
-            "complet|sumar algo|algo m[aá]s|agregar algo|(es|ser[ií]a|eso) todo|cerramos|queda as[ií]|variantes?|me confirm[aá]s",
+            "complet|sumar algo|algo m[aá]s|agregar algo|(es|ser[ií]a|eso) todo|cerramos|queda as[ií]|variantes?|me confirm[aá]s|eleg[ií]s|cu[aá]l(es)? (quer[eé]s|prefer[ií]s|eleg)",
             "\\b4\\b"
           ]
         }
@@ -255,7 +255,7 @@
             "preparar_pedido"
           ],
           "debe": [
-            "complet|sumar algo|algo m[aá]s|agregar algo|(es|ser[ií]a|eso) todo|cerramos|queda as[ií]|variantes?|me confirm[aá]s",
+            "complet|sumar algo|algo m[aá]s|agregar algo|(es|ser[ií]a|eso) todo|cerramos|queda as[ií]|variantes?|me confirm[aá]s|eleg[ií]s|cu[aá]l(es)? (quer[eé]s|prefer[ií]s|eleg)",
             "santa julia"
           ]
         }
@@ -291,7 +291,7 @@
             "preparar_pedido"
           ],
           "debe": [
-            "complet|sumar algo|algo m[aá]s|agregar algo|(es|ser[ií]a|eso) todo|cerramos|queda as[ií]|variantes?|me confirm[aá]s"
+            "complet|sumar algo|algo m[aá]s|agregar algo|(es|ser[ií]a|eso) todo|cerramos|queda as[ií]|variantes?|me confirm[aá]s|eleg[ií]s|cu[aá]l(es)? (quer[eé]s|prefer[ií]s|eleg)"
           ]
         }
       },
@@ -402,7 +402,7 @@
             "preparar_pedido"
           ],
           "debe": [
-            "complet|sumar algo|algo m[aá]s|agregar algo|(es|ser[ií]a|eso) todo|cerramos|queda as[ií]|variantes?|me confirm[aá]s",
+            "complet|sumar algo|algo m[aá]s|agregar algo|(es|ser[ií]a|eso) todo|cerramos|queda as[ií]|variantes?|me confirm[aá]s|eleg[ií]s|cu[aá]l(es)? (quer[eé]s|prefer[ií]s|eleg)",
             "•"
           ]
         }
@@ -819,7 +819,7 @@
             "preparar_pedido"
           ],
           "debe": [
-            "complet|sumar algo|algo m[aá]s|agregar algo|(es|ser[ií]a|eso) todo|cerramos|queda as[ií]|variantes?|me confirm[aá]s"
+            "complet|sumar algo|algo m[aá]s|agregar algo|(es|ser[ií]a|eso) todo|cerramos|queda as[ií]|variantes?|me confirm[aá]s|eleg[ií]s|cu[aá]l(es)? (quer[eé]s|prefer[ií]s|eleg)"
           ]
         }
       },
@@ -835,7 +835,7 @@
             "preparar_pedido"
           ],
           "debe": [
-            "complet|sumar algo|algo m[aá]s|agregar algo|(es|ser[ií]a|eso) todo|cerramos|queda as[ií]|variantes?|me confirm[aá]s",
+            "complet|sumar algo|algo m[aá]s|agregar algo|(es|ser[ií]a|eso) todo|cerramos|queda as[ií]|variantes?|me confirm[aá]s|eleg[ií]s|cu[aá]l(es)? (quer[eé]s|prefer[ií]s|eleg)",
             "[Ss]mirnoff"
           ]
         }
@@ -926,8 +926,9 @@
           "debe": [
             "sin cargo"
           ],
-          "sin_herramientas": [
-            "consultar_interno"
+          "no_debe": [
+            "lo consulto",
+            "te confirmo"
           ]
         }
       }
