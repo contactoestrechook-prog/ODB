@@ -90,3 +90,13 @@ describe('el total en mitad de una oración no se desarma (1/10/2026)', () => {
     expect(emprolijarListado('• A — 1 × $1.000 c/u = $1.000 Total: $1.000')).toContain('*Total: $1.000*');
   });
 });
+
+describe('una pregunta adentro de un paréntesis no parte el renglón (banco 1/10/2026)', () => {
+  it('queda en su renglón', () => {
+    const t = '• 10 × Villavicencio sin gas 2 L (va por botella suelta, no por pack: ¿te anoto 10 botellas?)';
+    expect(emprolijarListado(t)).toBe(t);
+  });
+  it('la pregunta suelta al final del renglón sigue bajando', () => {
+    expect(emprolijarListado('• Hielo 15 kg (se compra en el mostrador) ¿Cuántas necesitás?')).toContain('\n\n¿Cuántas necesitás?');
+  });
+});
