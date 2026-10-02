@@ -36,7 +36,8 @@ export class AbastecimientoController {
   orden(@Body() b: { proveedorId: string; sucursalId: string; items: { sku: string; cantidad: number }[] }, @Req() req: any) {
     return this.abastecimiento.crearOrden({
       proveedorId: b?.proveedorId, sucursalId: b?.sucursalId, items: Array.isArray(b?.items) ? b.items : [],
-      usuarioId: req.usuario?.sub, observaciones: 'Armada desde Qué comprar',
+      // las observaciones viajan al proveedor: acá no va ninguna nota interna
+      usuarioId: req.usuario?.sub,
     });
   }
 

@@ -1,7 +1,7 @@
 const mockCartel = jest.fn(async (_n: any) => Buffer.from('png'));
 jest.mock('../comun/cartel-pedido', () => ({ cartelNotaDePedido: (n: any) => mockCartel(n) }));
 
-import { PedidosProveedorService, envioAutomaticoActivo, epigrafePedido, telefonoLegible, textoPedido } from './pedidos-proveedor.service';
+import { PedidosProveedorService, envioAutomaticoActivo, epigrafePedido, observacionParaProveedor, telefonoLegible, textoPedido } from './pedidos-proveedor.service';
 
 // El pedido le llega al proveedor por WhatsApp (2/10/2026). WAHA va simulado:
 // acá no sale ningún mensaje.
@@ -280,5 +280,22 @@ describe('pedido al proveedor: el envío', () => {
     const t = textoPedido({ folio: 'F', proveedor: 'X', sucursal: 'Santa Inés', items, conPdf: false });
     expect(t.match(/^• \d/gm)).toHaveLength(30);
     expect(t).not.toMatch(/PDF/);
+  });
+});
+
+describe('pedido al proveedor: lo interno no sale', () => {
+  it('las marcas internas de la orden no le llegan al proveedor (prueba del 2/10/2026)', async () => {
+    expect(observacionParaProveedor('Armada desde Qué comprar')).toBeNull();
+    expect(observacionParaProveedor('Armada con el agente de abastecimiento')).toBeNull();
+    expect(observacionParaProveedor('Traer en cajas cerradas')).toBe('Traer en cajas cerradas');
+    const db = dbFalsa({ oc: { observaciones: 'Armada desde Qué comprar' } });
+    await new PedidosProveedorService(db).enviar('oc1', {});
+    expect(llamadasWaha[0].cuerpo.caption).not.toMatch(/Qué comprar|Nota:/);
+  });
+
+  it('una observación del comprador sí viaja en el epígrafe', async () => {
+    const db = dbFalsa({ oc: { observaciones: 'Traer en cajas cerradas' } });
+    await new PedidosProveedorService(db).enviar('oc1', {});
+    expect(llamadasWaha[0].cuerpo.caption).toContain('Nota: Traer en cajas cerradas');
   });
 });

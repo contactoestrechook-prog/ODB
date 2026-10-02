@@ -322,7 +322,8 @@ export class AbastecimientoService {
     if (!items.length) return { error: 'La orden no tiene renglones con cantidad' };
     const oc = await this.crearOrden({
       proveedorId: provs[0].id, sucursalId, items, usuarioId,
-      observaciones: input?.observaciones ? String(input.observaciones) : 'Armada con el agente de abastecimiento',
+      // las observaciones viajan al proveedor en la nota de pedido: solo las que dictó el comprador
+      observaciones: input?.observaciones ? String(input.observaciones) : undefined,
     });
     const faltanLista = oc.faltan;
     return {

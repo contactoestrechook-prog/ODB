@@ -45,6 +45,15 @@ const fechaCorta = (d?: string | null) =>
 
 export type RenglonPedido = { nombre: string; cantidad: number; codigoProveedor?: string | null };
 
+// Las observaciones de la orden viajan al proveedor. Las marcas internas que
+// quedaron en órdenes armadas antes del 2/10/2026 ("Armada desde Qué comprar")
+// no son para él: en la prueba le llegaron como "Nota: …".
+export function observacionParaProveedor(obs?: string | null): string | null {
+  const t = String(obs ?? '').trim();
+  if (!t || /^armada (desde qu[eé] comprar|con el agente de abastecimiento)\.?$/i.test(t)) return null;
+  return t;
+}
+
 // El epígrafe de la tarjeta: el saludo y qué se le pide. Los productos van en
 // la tarjeta (la misma gráfica Placa roja de los pedidos, pedido de Leandro del
 // 2/10/2026) y el detalle completo en el PDF.
@@ -195,7 +204,7 @@ export class PedidosProveedorService {
       folio, emitidoEn: (doc as any).emitido_en, numeroInterno: oc.numero, fecha: oc.creado_en,
       proveedor: oc.proveedor ?? null, sucursal: [sucursal, oc.sucursal?.direccion].filter(Boolean).join(' · '),
       condicionPago: oc.condicion_pago ?? oc.proveedor?.condicion_pago ?? null, fechaEntrega: oc.fecha_entrega ?? null,
-      observaciones: oc.observaciones ?? null,
+      observaciones: observacionParaProveedor(oc.observaciones),
       items: renglones.map((r) => ({ nombre: r.nombre, codigoProveedor: r.codigoProveedor, cantidad: r.cantidad, costo_unitario: 0 })),
       total: 0, emitidaPor: firmas.get(oc.creada_por) ?? null, aprobadaPor: firmas.get(oc.aprobada_por) ?? null,
       sinPrecios: true,
@@ -293,8 +302,8 @@ export class PedidosProveedorService {
       this.log.warn(`OC #${oc.numero}: la tarjeta no se pudo armar, sale en texto: ${e instanceof Error ? e.message : e}`);
     }
     const r1 = tarjeta
-      ? await enviarImagenWhatsapp(this.db, chatId, tarjeta, epigrafePedido({ ...datos, observaciones: oc.observaciones ?? null }), 'pedido_proveedor')
-      : await enviarTextoWhatsapp(this.db, chatId, textoPedido({ ...datos, proveedor, observaciones: oc.observaciones ?? null, items: renglones }), 'pedido_proveedor');
+      ? await enviarImagenWhatsapp(this.db, chatId, tarjeta, epigrafePedido({ ...datos, observaciones: observacionParaProveedor(oc.observaciones) }), 'pedido_proveedor')
+      : await enviarTextoWhatsapp(this.db, chatId, textoPedido({ ...datos, proveedor, observaciones: observacionParaProveedor(oc.observaciones), items: renglones }), 'pedido_proveedor');
     if (!r1.enviado) {
       // un corte por tiempo o un error de WAHA no quiere decir que no salió: no
       // se reintenta solo (el proveedor podría recibir el pedido dos veces)
@@ -362,7 +371,7 @@ export class PedidosProveedorService {
     const ex = celularDe(oc.proveedor?.telefono ?? '');
     const texto = textoPedido({
       folio: (doc as any)?.folio ?? `OC #${oc.numero}`, proveedor: oc.proveedor?.razon_social ?? '', sucursal,
-      direccion: oc.sucursal?.direccion ?? null, fechaEntrega: oc.fecha_entrega ?? null, observaciones: oc.observaciones ?? null,
+      direccion: oc.sucursal?.direccion ?? null, fechaEntrega: oc.fecha_entrega ?? null, observaciones: observacionParaProveedor(oc.observaciones),
       items: renglones, conPdf: false,
     });
     return { texto, telefono: ex, enlace: ex ? `https://wa.me/${ex}?text=${encodeURIComponent(texto)}` : null };
