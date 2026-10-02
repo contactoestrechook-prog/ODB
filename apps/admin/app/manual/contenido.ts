@@ -465,6 +465,8 @@ export const SECCIONES: Seccion[] = [
         pasos: [
           'Elegí la sucursal arriba a la derecha (Saint Thomas o Santa Inés).',
           'Cada proveedor aparece como una nota de pedido con lo que conviene reponer. Arriba de todo, el que tiene más urgencias.',
+          'Para ir directo a uno, escribí su nombre en "Buscar proveedor" (no importan las tildes ni los errores de tipeo). Los filtros "Con urgentes" y "Les faltan datos" achican la lista.',
+          'Si querés pedirle algo que no está sugerido, o a un proveedor que hoy no tiene nota, buscalo y tocá "Pedirle algo": se abre su lista para armarle el pedido.',
           'Lo urgente (sin stock o que no llega a tiempo) viene tildado. Lo que solo bajó de 12 queda sin tildar para que decidas vos.',
           'Tildá o destildá cada producto y corregí la cantidad con − y +. Si cambiás la cantidad, el producto se tilda solo.',
           'Abajo ves el total de lo tildado. "Armar pedido con lo tildado" crea la orden de compra y la deja esperando la firma del dueño en Aprobaciones.',
@@ -499,7 +501,7 @@ export const SECCIONES: Seccion[] = [
       {
         tipo: 'pasos',
         pasos: [
-          'Abrí "Pedido a proveedor" y elegí a quién le vas a pedir.',
+          'Abrí "Pedido a proveedor" y elegí a quién le vas a pedir (o entrá desde Mesa de compras → Qué comprar → "Pedirle algo", que lo abre directo).',
           'Aparece la lista de productos de ese proveedor. Por defecto solo lo que hace falta reponer; con "Ver toda la lista" ves el resto.',
           'Cada renglón muestra el stock, cuántos días aguanta y cuánto conviene pedir. El sugerido se calcula con lo que se vendió en los últimos 30 días, para cubrir 14.',
           'Cargá las cantidades con los botones, o escribí el número.',
