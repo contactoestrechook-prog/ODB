@@ -6,6 +6,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { SUPABASE } from '../supabase.provider';
 import { normalizarFoto, anotarNormalizada } from './normalizar-foto';
 import { traerTodo } from '../comun/lotes';
+import { filtrarColumna, normalizarTexto } from '../comun/busqueda';
 
 const SELECT_PRODUCTO = `
   id, sku, nombre, descripcion, volumen_ml, unidades_pack, graduacion, es_alcohol, plu, vendido_por_peso, codigo_legacy, costo, activo, creado_en, alicuota_iva,
@@ -283,22 +284,13 @@ export class CatalogoService {
           .maybeSingle();
         query = query.eq('id', cb?.producto_id ?? '00000000-0000-0000-0000-000000000000');
       } else {
-        // busca en nombre (sin importar tildes ni mayúsculas) y SKU.
+        // Cada palabra tiene que estar, en cualquier orden y sin importar
+        // tildes, mayúsculas ni plurales, en el nombre, el alias o el SKU (la
+        // regla de comun/busqueda.ts, la misma que la caja y el bot).
         // se sacan los caracteres que PostgREST usa para parsear filtros (anti-inyección)
         const limpio = termino.replace(/[,()*:\\]/g, '');
-        const normalizado = limpio
-          .normalize('NFD')
-          .replace(/[̀-ͯ]/g, '')
-          .toLowerCase();
-        // Cada palabra tiene que estar (en cualquier orden): "leche sachet ls"
-        // encuentra "Leche LS clasica sachet". Antes se buscaba la frase entera
-        // pegada, así que con las palabras en otro orden no salía nada.
-        const palabras = normalizado.split(/\s+/).filter((w) => w.length >= 2).slice(0, 6);
-        if (palabras.length > 1) {
-          for (const w of palabras) query = query.ilike('nombre_normalizado', `%${w}%`);
-        } else {
-          query = query.or(`nombre_normalizado.ilike.%${normalizado}%,sku.ilike.%${limpio}%`);
-        }
+        const normalizado = normalizarTexto(limpio);
+        query = filtrarColumna(query, 'texto_busqueda', limpio);
         rankearPor = normalizado;
       }
     }
@@ -353,45 +345,33 @@ export class CatalogoService {
       else query = query.range((pagina - 1) * porPagina, pagina * porPagina - 1);
     }
 
-    const { data, count, error } = await query;
+    const { data, count: contados, error } = await query;
     if (error) throw new Error(error.message);
 
+    let count = contados;
     let items = (data ?? []) as any[];
-    // Red de seguridad: si pidiendo TODAS las palabras no hay nada, se prueba
-    // sacando UNA (y después dos). La factura abrevia ("LECHE LS SACHET") y el
-    // catálogo escribe "La Serenisima": esa palabra de más dejaba la pantalla
-    // vacía y el producto parecía no existir. Sacarlas todas no sirve: trae
-    // media base y lo bueno queda afuera del corte.
+    // Red de seguridad: si con TODAS las palabras no hay nada, la base prueba
+    // con errores de tipeo ("cabrlaes") y después con una palabra de menos
+    // ("LECHE LS SACHET": la factura abrevia y el catálogo dice "La
+    // Serenisima"). Se traen los 100 más parecidos.
     if (rankearPor && !items.length) {
-      const palabras = rankearPor.split(/\s+/).filter((w) => w.length >= 2).slice(0, 5);
-      const combinaciones: string[][] = [];
-      if (palabras.length > 1) {
-        for (let i = 0; i < palabras.length; i++) combinaciones.push(palabras.filter((_, k) => k !== i));
-        if (palabras.length > 2) {
-          for (let i = 0; i < palabras.length; i++)
-            for (let j = i + 1; j < palabras.length; j++)
-              combinaciones.push(palabras.filter((_, k) => k !== i && k !== j));
-        }
-      }
-      // Se prueban TODAS las combinaciones del mismo tamaño y se juntan los
-      // resultados: sacar "leche" de "leche ls sachet" traía yogures, sacar "ls"
-      // traía la leche. Junto todo, el orden por relevancia decide.
-      const porTamano = new Map<number, string[][]>();
-      for (const c of combinaciones) {
-        if (!porTamano.has(c.length)) porTamano.set(c.length, []);
-        porTamano.get(c.length)!.push(c);
-      }
-      for (const tamano of [...porTamano.keys()].sort((a, b) => b - a)) {
-        const juntos = new Map<string, any>();
-        for (const combo of porTamano.get(tamano)!) {
-          let alterna = this.db.from('productos').select(SELECT_PRODUCTO, { count: 'exact' }).eq('activo', true);
-          if (q.categoriaId) alterna = alterna.eq('categoria_id', q.categoriaId);
-          if (q.marcaId) alterna = alterna.eq('marca_id', q.marcaId);
-          for (const w of combo) alterna = alterna.ilike('nombre_normalizado', `%${w}%`);
-          const { data: dataAlt } = await alterna.order('nombre').range(0, TOPE_RANK - 1);
-          for (const fila of (dataAlt ?? []) as any[]) juntos.set(fila.id, fila);
-        }
-        if (juntos.size) { items = [...juntos.values()]; break; }
+      const { data: parecidos } = await this.db.rpc('buscar_productos', { p_q: termino, p_solo_activos: true });
+      const ids = ((parecidos ?? []) as any[])
+        .sort((a, b) => Number(b.parecido) - Number(a.parecido))
+        .slice(0, 100)
+        .map((r) => r.producto_id);
+      if (ids.length) {
+        let alterna = this.db.from('productos').select(SELECT_PRODUCTO, { count: 'exact' }).eq('activo', true).in('id', ids);
+        if (q.categoriaId) alterna = alterna.eq('categoria_id', q.categoriaId);
+        if (q.marcaId) alterna = alterna.eq('marca_id', q.marcaId);
+        const { data: dataAlt } = await alterna;
+        // en el orden de parecido que dio la base (la relevancia por palabra
+        // no sirve acá: justamente las palabras no coinciden)
+        const orden = new Map(ids.map((id, i) => [id, i]));
+        items = ((dataAlt ?? []) as any[]).sort((a, b) => (orden.get(a.id) ?? 0) - (orden.get(b.id) ?? 0));
+        count = items.length;
+        rankearPor = null;
+        items = items.slice((pagina - 1) * porPagina, pagina * porPagina);
       }
     }
     if (rankearPor) {

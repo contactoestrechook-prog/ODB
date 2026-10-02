@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Aviso, BarraInferior, Boton, Cargando, Chip, Entrada, FOCO, FOCO_ADENTRO, IconoFlechaAbajo, Selector, Tarjeta, unir } from './kit';
 import { pesos } from '../lib/formato';
+import { filtrarPorBusqueda } from '../lib/busqueda';
 
 // Armar el pedido a un proveedor desde el teléfono, caminando el depósito.
 //
@@ -23,10 +24,18 @@ type Item = {
   sugerido: number; urgente: boolean; porDia: number; diasDeStock: number | null;
 };
 
-export function PedidoProveedor({ sucursales }: { sucursales: { id: string; nombre: string }[] }) {
+export function PedidoProveedor({ sucursales, proveedorInicial, sucursalInicial }: {
+  sucursales: { id: string; nombre: string }[];
+  proveedorInicial?: string;
+  sucursalInicial?: string;
+}) {
   const [proveedores, setProveedores] = useState<any[]>([]);
   const [proveedor, setProveedor] = useState<any | null>(null);
-  const [sucursalId, setSucursalId] = useState(sucursales[0]?.id ?? '');
+  // la sucursal llega con el nombre corto de Mesa de compras ("Saint Thomas")
+  // y en la base se llama "Suc Sant Thomas": se busca con la regla de búsqueda
+  const [sucursalId, setSucursalId] = useState(
+    (sucursalInicial ? filtrarPorBusqueda(sucursales, sucursalInicial, (s) => s.nombre)[0]?.id : null) ?? sucursales[0]?.id ?? '',
+  );
   const [items, setItems] = useState<Item[]>([]);
   const [meta, setMeta] = useState<{ total: number; recortado?: boolean; sinLista?: boolean }>({ total: 0 });
   const [busca, setBusca] = useState('');
@@ -43,9 +52,15 @@ export function PedidoProveedor({ sucursales }: { sucursales: { id: string; nomb
   useEffect(() => {
     fetch('/api/compras?recurso=proveedores-lista')
       .then((r) => (r.ok ? r.json() : []))
-      .then((d) => setProveedores(Array.isArray(d) ? d : []))
+      .then((d) => {
+        const lista = Array.isArray(d) ? d : [];
+        setProveedores(lista);
+        // desde Mesa de compras ("Pedirle algo"): directo a la lista de ese proveedor
+        const elegido = proveedorInicial ? lista.find((p: any) => p.id === proveedorInicial) : null;
+        if (elegido) setProveedor(elegido);
+      })
       .catch(() => setError('No pude traer los proveedores'));
-  }, []);
+  }, [proveedorInicial]);
 
   const cargarCatalogo = useCallback(async (provId: string, q: string, todo: boolean, suc: string) => {
     setCargando(true);
@@ -142,8 +157,7 @@ export function PedidoProveedor({ sucursales }: { sucursales: { id: string; nomb
         />
         <Tarjeta relleno={false} className="overflow-hidden">
           <div className="divide-y divide-black/[0.06]">
-            {proveedores
-              .filter((p) => p.razon_social.toLowerCase().includes(busca.toLowerCase()))
+            {filtrarPorBusqueda(proveedores, busca, (p) => p.razon_social)
               .map((p) => (
                 <button key={p.id} type="button" onClick={() => { setProveedor(p); setBusca(''); setVerTodo(false); }}
                   className={unir('flex min-h-14 w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-crema-claro active:bg-crema-claro', FOCO_ADENTRO)}>

@@ -3,8 +3,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { BotonMicrofono } from './BotonMicrofono';
 import { NotaDePedido, type Armada, type EstadoNota, type Propuesta } from './NotaDePedido';
-import { Aviso, Boton, CLASES_ENTRADA, Cargando, Chips, FOCO, Tarjeta, TarjetaCabecera, Vacio, unir } from './kit';
+import { Aviso, Boton, BotonLink, CLASES_ENTRADA, Cargando, Chips, Entrada, Etiqueta, FOCO, Tarjeta, TarjetaCabecera, Vacio, unir } from './kit';
 import { fecha as fechaFmt, numero } from '../lib/formato';
+import { filtrarPorBusqueda } from '../lib/busqueda';
 
 // "Qué comprar": la foto de lo que falta y el agente de abastecimiento.
 // La alerta no es un número fijo: cruza ritmo de venta, stock y plazo de
@@ -42,6 +43,16 @@ function contextoDeNotas(notas: EstadoNota[], ordenes: OrdenArmada[]): string {
 const SUCURSALES = ['Saint Thomas', 'Santa Inés'];
 const PROVEEDORES_VISIBLES = 6;
 
+// Filtro de las notas por proveedor (pedido de Leandro, 2/10/2026: "que si
+// quiere pedirle algo a alguno lo pueda buscar directamente").
+type FiltroProveedor = 'todos' | 'urgentes' | 'faltan';
+const FILTROS_PROVEEDOR: { valor: FiltroProveedor; etiqueta: string }[] = [
+  { valor: 'todos', etiqueta: 'Todos' },
+  { valor: 'urgentes', etiqueta: 'Con urgentes' },
+  { valor: 'faltan', etiqueta: 'Les faltan datos' },
+];
+type ProveedorLista = { id: string; razon_social: string; cuit: string | null; productos: number };
+
 const SUGERENCIAS = [
   '¿Qué vinos se me terminan antes de que lleguen?',
   '¿Qué está sin stock y se vende todos los días?',
@@ -59,6 +70,11 @@ export function AbastecimientoPanel() {
   const [errorNotas, setErrorNotas] = useState('');
   const [verTodas, setVerTodas] = useState(false);
   const [errorResumen, setErrorResumen] = useState(false);
+  const [buscaProv, setBuscaProv] = useState('');
+  const [filtroProv, setFiltroProv] = useState<FiltroProveedor>('todos');
+  // todos los proveedores activos, para pedirle a uno que hoy no tiene nada
+  // sugerido; se traen recién cuando se busca
+  const [todosProv, setTodosProv] = useState<ProveedorLista[] | null>(null);
   // productos ya pedidos desde cualquier nota de esta pantalla ("sucursalId:sku")
   const [yaPedidos, setYaPedidos] = useState<Set<string>>(new Set());
   const ordenesRef = useRef<OrdenArmada[]>([]);
@@ -94,6 +110,26 @@ export function AbastecimientoPanel() {
   }, [sucursal, recargar]);
   // al mandar un mensaje se baja hasta el final; no al abrir la pestaña
   useEffect(() => { if (mensajes.length) finRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }, [mensajes, pensando]);
+
+  useEffect(() => {
+    if (!buscaProv.trim() || todosProv) return;
+    fetch('/api/compras?recurso=proveedores-lista', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((d) => setTodosProv(Array.isArray(d) ? d : []))
+      .catch(() => setTodosProv([]));
+  }, [buscaProv, todosProv]);
+
+  const buscando = buscaProv.trim() !== '' || filtroProv !== 'todos';
+  const notasFiltradas = notas
+    ? filtrarPorBusqueda(
+        notas.propuestas.filter((p) => filtroProv === 'todos' || (filtroProv === 'urgentes' ? p.urgentes > 0 : p.faltan.length > 0)),
+        buscaProv,
+        (p) => p.proveedor,
+      )
+    : [];
+  const notasVisibles = buscando || verTodas ? notasFiltradas : notasFiltradas.slice(0, PROVEEDORES_VISIBLES);
+  const conNota = new Set((notas?.propuestas ?? []).map((p) => p.proveedorId));
+  const proveedoresDirectos = buscaProv.trim() && todosProv ? filtrarPorBusqueda(todosProv, buscaProv, (p) => `${p.razon_social} ${p.cuit ?? ''}`).slice(0, 8) : [];
 
   const ventasViejas = resumen?.ventasHasta ? Date.now() - new Date(resumen.ventasHasta).getTime() > 30 * 86400_000 : true;
 
@@ -168,6 +204,64 @@ export function AbastecimientoPanel() {
           />
         </div>
 
+        <div className="space-y-2">
+          <Entrada
+            type="search"
+            value={buscaProv}
+            onChange={(e) => setBuscaProv(e.target.value)}
+            placeholder="Buscar proveedor"
+            aria-label="Buscar proveedor"
+            autoComplete="off"
+          />
+          <Chips
+            etiquetaAccesible="Filtrar proveedores"
+            valor={filtroProv}
+            onCambiar={setFiltroProv}
+            opciones={FILTROS_PROVEEDOR.map((f) => ({
+              ...f,
+              cuenta: notas && f.valor !== 'todos'
+                ? notas.propuestas.filter((p) => (f.valor === 'urgentes' ? p.urgentes > 0 : p.faltan.length > 0)).length
+                : undefined,
+            }))}
+          />
+        </div>
+
+        {buscaProv.trim() !== '' && (
+          <Tarjeta relleno={false} className="overflow-hidden">
+            <TarjetaCabecera
+              nivel={3}
+              titulo="Pedirle directamente"
+              sub="Abrí la lista del proveedor y armale el pedido con lo que quieras, aunque hoy no tenga nada sugerido."
+            />
+            {!todosProv ? (
+              <div className="p-4"><Cargando texto="Buscando proveedores…" /></div>
+            ) : proveedoresDirectos.length === 0 ? (
+              <p className="px-4 py-3 text-sm text-tinta/70 sm:px-5">No hay ningún proveedor activo que se llame «{buscaProv.trim()}».</p>
+            ) : (
+              <ul className="divide-y divide-black/[0.06]">
+                {proveedoresDirectos.map((p) => (
+                  <li key={p.id} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 py-3 sm:px-5">
+                    <span className="min-w-0">
+                      <span className="block break-words font-medium text-tinta">{p.razon_social}</span>
+                      <span className="flex flex-wrap items-center gap-2 text-xs text-tinta/60">
+                        {p.productos ? `${miles(p.productos)} productos en su lista` : 'Sin lista cargada'}
+                        {conNota.has(p.id) && <Etiqueta tono="info">tiene sugerido abajo</Etiqueta>}
+                      </span>
+                    </span>
+                    <BotonLink
+                      tamano="chico"
+                      variante="secundario"
+                      href={`/pedido-proveedor?proveedor=${encodeURIComponent(p.id)}&sucursal=${encodeURIComponent(sucursal)}`}
+                    >
+                      Pedirle algo
+                    </BotonLink>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Tarjeta>
+        )}
+
         {errorNotas && (
           <Aviso tono="error" accion={<Boton tamano="chico" variante="secundario" onClick={() => setRecargar((n) => n + 1)}>Reintentar</Boton>}>
             {errorNotas}
@@ -189,12 +283,18 @@ export function AbastecimientoPanel() {
             texto="Si te falta algo puntual, preguntale al agente acá abajo."
           />
         )}
-        {notas?.propuestas.slice(0, verTodas ? undefined : PROVEEDORES_VISIBLES).map((p) => (
+        {notas && notas.propuestas.length > 0 && buscando && notasFiltradas.length === 0 && (
+          <Vacio
+            titulo="Ningún proveedor con algo sugerido coincide."
+            texto={buscaProv.trim() ? 'Si querés pedirle igual, usá «Pedirle algo» arriba.' : 'Probá con otro filtro.'}
+          />
+        )}
+        {notasVisibles.map((p) => (
           <NotaDePedido key={`${sucursal}:${p.clave}`} propuesta={p} yaPedidos={yaPedidos} onArmada={alArmar} />
         ))}
-        {notas && notas.propuestas.length > PROVEEDORES_VISIBLES && !verTodas && (
+        {!buscando && notasFiltradas.length > PROVEEDORES_VISIBLES && !verTodas && (
           <Boton variante="secundario" anchoCompleto onClick={() => setVerTodas(true)}>
-            Ver {notas.propuestas.length - PROVEEDORES_VISIBLES} proveedor{notas.propuestas.length - PROVEEDORES_VISIBLES === 1 ? '' : 'es'} más
+            Ver {notasFiltradas.length - PROVEEDORES_VISIBLES} proveedor{notasFiltradas.length - PROVEEDORES_VISIBLES === 1 ? '' : 'es'} más
           </Boton>
         )}
         {notas && notas.sinProveedor > 0 && (

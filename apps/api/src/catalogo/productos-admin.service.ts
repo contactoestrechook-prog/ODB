@@ -1,6 +1,7 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
+import { terminosDeBusqueda } from '../comun/busqueda';
 import { CatalogoService } from './catalogo.service';
 
 export type CrearProductoDto = {
@@ -77,11 +78,12 @@ export class ProductosAdminService {
     const nombre = dto.nombre?.trim();
     if (nombre && nombre.length >= 3) {
       // las palabras cortas ("de", "x2") no distinguen nada: se buscan las
-      // significativas y TODAS tienen que aparecer, si no trae medio catálogo
-      const palabras = nombre.toLowerCase().split(/[\s,.]+/).filter((p) => p.length >= 3).slice(0, 3);
+      // significativas y TODAS tienen que aparecer, si no trae medio catálogo.
+      // Sin tildes ni plurales (comun/busqueda.ts): "Café" encuentra "Cafe".
+      const palabras = terminosDeBusqueda(nombre).filter((p) => p.length >= 3).slice(0, 3);
       if (palabras.length) {
         let q = this.db.from('productos').select('sku, nombre, activo, marcas(nombre)').limit(6);
-        for (const p of palabras) q = q.ilike('nombre', `%${p}%`);
+        for (const p of palabras) q = q.like('texto_busqueda', `%${p}%`);
         const { data } = await q;
         salida.parecidos = (data ?? []).map((x: any) => ({
           sku: x.sku, nombre: x.nombre, activo: x.activo, marca: x.marcas?.nombre ?? null,

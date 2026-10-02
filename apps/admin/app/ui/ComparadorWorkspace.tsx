@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AreaTexto, Aviso, Boton, Campo, Entrada, Etiqueta, IconoOk, Kpi, Monto, TablaResponsiva, Tarjeta, TarjetaCabecera, clasesBoton } from './kit';
 import { pesos } from '../lib/formato';
+import { coincideBusqueda } from '../lib/busqueda';
 
 // íconos de línea propios de esta pantalla (en lugar de 📎 y 🎤)
 function IconoClip({ className = 'size-4' }: { className?: string }) {
@@ -55,7 +56,7 @@ export function ComparadorWorkspace({ comparacion, directorio, stats }: { compar
   const factor = interpretacion?.factorCosto ?? 1;
   const aplicaA = (desc: string) =>
     interpretacion?.alcance === 'producto' && interpretacion?.productoMencionado
-      ? (desc || '').toLowerCase().includes(String(interpretacion.productoMencionado).toLowerCase())
+      ? coincideBusqueda(desc, interpretacion.productoMencionado)
       : true;
 
   const analizar = async () => {

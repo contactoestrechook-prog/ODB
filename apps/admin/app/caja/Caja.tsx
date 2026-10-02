@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { ResumenCierre } from '../ui/ResumenCierre';
 import { Aviso, BarraInferior, Boton, BotonLink, Entrada, IconoCerrar, IconoOk, Modal, Selector, unir, useConfirmar, FOCO, ROTULO } from '../ui/kit';
 import { hora, pesos } from '../lib/formato';
+import { coincideAproximado, terminosDeBusqueda } from '../lib/busqueda';
 import MiTurno from './MiTurno';
 
 type Producto = {
@@ -427,17 +428,20 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
     return () => { window.removeEventListener('offline', off); window.removeEventListener('online', on); };
   }, []);
 
+  // Sin red: la misma regla que la búsqueda del servidor (lib/busqueda.ts):
+  // todas las palabras en cualquier orden, sin tildes ni plurales; si no hay
+  // nada, con errores de tipeo.
   function filtrarLocal(t: string): Producto[] {
-    const n = norm(t);
+    const terminos = terminosDeBusqueda(t);
     const low = t.toLowerCase();
-    return catalogoLocal
-      .filter((p) =>
-        p.codigo === t ||
-        p._n?.includes(n) ||
-        p.sku?.toLowerCase().startsWith(low) ||
-        (p.codigosBarras ?? []).some((c: string) => c.includes(t)),
-      )
-      .slice(0, 8);
+    const exactos = catalogoLocal.filter((p) =>
+      p.codigo === t ||
+      (terminos.length > 0 && terminos.every((w) => p._n?.includes(w))) ||
+      p.sku?.toLowerCase().startsWith(low) ||
+      (p.codigosBarras ?? []).some((c: string) => c.includes(t)),
+    );
+    if (exactos.length) return exactos.slice(0, 8);
+    return catalogoLocal.filter((p) => coincideAproximado(p._n, t)).slice(0, 8);
   }
 
   // precio efectivo del renglón: mayorista si la venta es mayorista y el producto

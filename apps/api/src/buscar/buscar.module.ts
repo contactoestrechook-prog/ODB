@@ -1,6 +1,7 @@
 import { Controller, Get, Inject, Query, Module } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE, supabaseProvider } from '../supabase.provider';
+import { filtrarColumna } from '../comun/busqueda';
 
 const TIPOS_LABEL: Record<string, string> = {
   FA: 'Factura A', FB: 'Factura B', FC: 'Factura C',
@@ -18,24 +19,31 @@ export class BuscarController {
   async buscar(@Query('q') q?: string) {
     const t = (q ?? '').trim();
     if (t.length < 2) return { productos: [], clientes: [], comprobantes: [] };
-    const norm = t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
     const esNum = /^\d+$/.test(t);
-    // saca los caracteres que PostgREST usa para parsear filtros (anti-inyección)
-    const ts = t.replace(/[,()*:\\]/g, '');
-    const norms = norm.replace(/[,()*:\\]/g, '');
+
+    // Productos y clientes con la regla de comun/busqueda.ts: todas las
+    // palabras en cualquier orden, sin tildes ni plurales; los productos,
+    // además, con errores de tipeo si no hay nada (lo resuelve la base).
+    const productos = async () => {
+      const { data: ids } = await this.db
+        .rpc('buscar_productos', { p_q: t, p_solo_activos: true })
+        .order('nivel')
+        .order('en_nombre', { ascending: false })
+        .order('parecido', { ascending: false })
+        .limit(6);
+      const orden = ((ids ?? []) as any[]).map((r) => r.producto_id);
+      if (!orden.length) return { data: [] as any[] };
+      const { data } = await this.db.from('productos').select('id, sku, nombre, categoria:categorias(nombre)').in('id', orden);
+      return { data: ((data ?? []) as any[]).sort((a, b) => orden.indexOf(a.id) - orden.indexOf(b.id)) };
+    };
 
     const [prod, cli, comp] = await Promise.all([
-      this.db
-        .from('productos')
-        .select('sku, nombre, categoria:categorias(nombre)')
-        .eq('activo', true)
-        .or(`nombre_normalizado.ilike.%${norms}%,sku.ilike.%${ts}%`)
-        .limit(6),
-      this.db
-        .from('clientes')
-        .select('id, dni, nombre, razon_social, tipo, cta_cte_habilitada')
-        .or(`dni.ilike.%${ts}%,nombre.ilike.%${ts}%,razon_social.ilike.%${ts}%`)
-        .limit(6),
+      productos(),
+      filtrarColumna(
+        this.db.from('clientes').select('id, dni, nombre, razon_social, tipo, cta_cte_habilitada'),
+        'texto_busqueda',
+        t,
+      ).limit(6),
       esNum
         ? this.db
             .from('comprobantes')

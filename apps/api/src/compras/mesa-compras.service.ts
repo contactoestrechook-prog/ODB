@@ -3,6 +3,7 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
 import * as XLSX from 'xlsx';
 import { SUPABASE } from '../supabase.provider';
+import { filtrarPorBusqueda, normalizarTexto } from '../comun/busqueda';
 import { calcularCosto, compararOfertas, impactoEnPrecio, type OfertaCompra } from './costeo';
 import { margenAplicable } from './precio';
 import { TONO_ODB } from '../comun/tono-odb';
@@ -311,12 +312,22 @@ export class MesaComprasService {
   async buscarProducto(q: string) {
     const t = String(q ?? '').trim();
     if (t.length < 2) return { items: [] };
-    const { data } = await this.db
-      .from('productos')
-      .select('id, sku, nombre, costo, categoria_id, categorias(margen_sugerido)')
-      .or(`nombre.ilike.%${t}%,sku.ilike.%${t}%`)
-      .eq('activo', true)
+    // misma búsqueda que la caja y el agente de compras (sin tildes, plurales
+    // ni orden; con errores de tipeo si no hay nada): buscar_productos
+    const { data: ids } = await this.db
+      .rpc('buscar_productos', { p_q: t, p_solo_activos: true })
+      .order('nivel')
+      .order('en_nombre', { ascending: false })
+      .order('parecido', { ascending: false })
       .limit(8);
+    const orden = ((ids ?? []) as any[]).map((r) => r.producto_id);
+    const { data: filas } = orden.length
+      ? await this.db
+          .from('productos')
+          .select('id, sku, nombre, costo, categoria_id, categorias(margen_sugerido)')
+          .in('id', orden)
+      : { data: [] as any[] };
+    const data = ((filas ?? []) as any[]).sort((a, b) => orden.indexOf(a.id) - orden.indexOf(b.id));
 
     const items = await Promise.all(
       (data ?? []).map(async (p: any) => {
@@ -368,13 +379,11 @@ export class MesaComprasService {
 
     let proveedorId: string | null = null;
     if (input.proveedor) {
-      const { data } = await this.db
-        .from('proveedores')
-        .select('id')
-        .ilike('razon_social', `%${String(input.proveedor).trim()}%`)
-        .limit(1)
-        .maybeSingle();
-      proveedorId = data?.id ?? null;
+      const { data: provs } = await this.db.from('proveedores').select('id, razon_social').eq('activo', true);
+      const hits = filtrarPorBusqueda((provs ?? []) as any[], input.proveedor, (p) => p.razon_social);
+      // si hay varios, el que se llama exactamente así; si no, el primero (como antes)
+      const exacto = hits.find((p) => normalizarTexto(p.razon_social).trim() === normalizarTexto(input.proveedor).trim());
+      proveedorId = (exacto ?? hits[0])?.id ?? null;
     }
 
     const { data: prop, error } = await this.db

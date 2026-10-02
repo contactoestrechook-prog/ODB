@@ -3,6 +3,7 @@ import { Cron } from '@nestjs/schedule';
 import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
 import { SUPABASE } from '../supabase.provider';
+import { filtrarPorBusqueda, normalizarTexto } from '../comun/busqueda';
 import { ComprasService } from '../compras/compras.service';
 import { TONO_ODB } from '../comun/tono-odb';
 import { costoUSD, usoDeRespuesta } from '../bot/tarifas';
@@ -249,11 +250,14 @@ export class AbastecimientoService {
   private async buscarProveedor(nombre: string) {
     const t = String(nombre ?? '').trim();
     if (!t) throw new BadRequestException('Falta el nombre del proveedor');
+    // Son pocos (59): se traen todos y se filtran con la regla de
+    // comun/busqueda.ts (sin tildes, plurales ni orden; con errores de tipeo
+    // si no hay nada). Antes "cerveceria" no encontraba "Cervecería".
     const { data } = await this.db.from('proveedores')
       .select('id, razon_social, cuit, telefono, email, condicion_pago, lead_time_dias, lead_time_confirmado, activo')
-      .ilike('razon_social', `%${t.replace(/[%_]/g, '')}%`).eq('activo', true).limit(6);
-    const lista = (data ?? []) as any[];
-    const exacto = lista.filter((p) => p.razon_social.toLowerCase() === t.toLowerCase());
+      .eq('activo', true);
+    const lista = filtrarPorBusqueda((data ?? []) as any[], t, (p) => `${p.razon_social} ${p.cuit ?? ''}`).slice(0, 6);
+    const exacto = lista.filter((p) => normalizarTexto(p.razon_social).trim() === normalizarTexto(t));
     return exacto.length === 1 ? exacto : lista;
   }
 
@@ -269,10 +273,7 @@ export class AbastecimientoService {
     }
     let filas = await this.situacion({ sucursalId, proveedorId, limite: 20000 });
     if (input?.alerta && input.alerta !== 'todas') filas = filas.filter((f) => f.alerta === input.alerta);
-    if (input?.rubro) {
-      const r = String(input.rubro).toLowerCase();
-      filas = filas.filter((f) => String(f.categoria ?? '').toLowerCase().includes(r));
-    }
+    if (input?.rubro) filas = filtrarPorBusqueda(filas, input.rubro, (f) => f.categoria);
     const totales: Record<string, number> = {};
     for (const f of filas) totales[NOMBRE_ALERTA[f.alerta] ?? f.alerta] = (totales[NOMBRE_ALERTA[f.alerta] ?? f.alerta] ?? 0) + 1;
     const limite = Math.max(1, Math.min(60, Number(input?.limite) || 25));

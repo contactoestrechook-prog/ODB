@@ -1,6 +1,7 @@
 import { BadRequestException, Body, Controller, Get, Inject, Param, Patch, Query } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
+import { filtrarColumna } from '../comun/busqueda';
 import { Roles } from '../auth/decorators';
 
 @Controller('clientes')
@@ -139,10 +140,9 @@ export class ClientesController {
     if (tipo) query = query.eq('tipo', tipo);
     if (filtro === 'comunidad') query = query.eq('verificado', true);
     if (filtro === 'marketing') query = query.eq('acepta_marketing', true);
-    if (buscar?.trim()) {
-      const t = buscar.trim().replace(/[,()*:\\]/g, ''); // anti-inyección PostgREST
-      query = query.or(`dni.ilike.%${t}%,nombre.ilike.%${t}%`);
-    }
+    // nombre, razón social, DNI o CUIT; todas las palabras, sin tildes
+    // ("martin gomez" encuentra "Martín Gómez"): comun/busqueda.ts
+    if (buscar?.trim()) query = filtrarColumna(query, 'texto_busqueda', buscar);
     query = query
       .order('creado_en', { ascending: false })
       .range((pagina - 1) * porPagina, pagina * porPagina - 1);

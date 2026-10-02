@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { AREAS, SECCIONES, type Bloque, type Seccion } from '../manual/contenido';
+import { filtrarPorBusqueda } from '../lib/busqueda';
 import { Chips, Entrada, Etiqueta, FOCO_ADENTRO, IconoFlechaAbajo, ROTULO, Tarjeta, unir } from './kit';
 
 // El manual se abre casi siempre con una duda concreta y alguien esperando del
@@ -79,7 +80,7 @@ export function Manual({ rol }: { rol: string | null }) {
 
   const secciones = useMemo(() => {
     let xs = SECCIONES;
-    if (q) xs = xs.filter((s) => textoDe(s).includes(q));
+    if (q) xs = filtrarPorBusqueda(xs, q, textoDe);
     else if (area) xs = xs.filter((s) => s.area === area);
     // sin filtro, primero lo del área de quien entró
     if (!q && !area && rol) {
