@@ -166,7 +166,7 @@ function NombreTocable({ children, onClick, etiqueta, icono }: { children: React
 }
 
 // El renglón que abre el resto de los proveedores.
-function RenglonOtros({ cuantos, plata, onAbrir }: { cuantos: number; plata: number; onAbrir: () => void }): RenglonPlaca {
+function renglonOtros({ cuantos, plata, onAbrir }: { cuantos: number; plata: number; onAbrir: () => void }): RenglonPlaca {
   return {
     clave: 'otros',
     nombre: (
@@ -277,7 +277,7 @@ export function PlacaCompras({
       ),
     };
   });
-  if (cortar) renglones.push(RenglonOtros({ cuantos: ocultos.length, plata: ocultos.reduce((s, p) => s + n(p.plata), 0), onAbrir: () => setVerTodos(true) }));
+  if (cortar) renglones.push(renglonOtros({ cuantos: ocultos.length, plata: ocultos.reduce((s, p) => s + n(p.plata), 0), onAbrir: () => setVerTodos(true) }));
   if (!lista.length) {
     renglones.push({
       clave: 'nada',
@@ -310,7 +310,10 @@ export function PlacaCompras({
             {conFaltantes.length > 0 && (
               <p className="text-marca-hondo">
                 <b>
-                  A {conFaltantes.length === lista.length ? (lista.length === 1 ? 'este proveedor' : `los ${lista.length} proveedores`) : `${conFaltantes.length} de los ${lista.length} proveedores`} les falta cargar datos
+                  {conFaltantes.length === lista.length
+                    ? lista.length === 1 ? 'A este proveedor le falta' : `A los ${lista.length} proveedores les falta`
+                    : `A ${conFaltantes.length} de los ${lista.length} proveedores ${conFaltantes.length === 1 ? 'le' : 'les'} falta`}{' '}
+                  cargar datos
                 </b>
                 {camposFaltantes.length > 0 && ` (${enumerar(camposFaltantes)})`}: el pedido se arma igual y queda frenado hasta que administración los complete.
               </p>
@@ -449,7 +452,7 @@ export function PlacaParado({
       ),
     };
   });
-  if (cortar) renglones.push(RenglonOtros({ cuantos: ocultos.length, plata: ocultos.reduce((s, p) => s + plataDe(p), 0), onAbrir: () => setVerTodos(true) }));
+  if (cortar) renglones.push(renglonOtros({ cuantos: ocultos.length, plata: ocultos.reduce((s, p) => s + plataDe(p), 0), onAbrir: () => setVerTodos(true) }));
   if (!lista.length) renglones.push({ clave: 'nada', nombre: 'No hay plata parada con costo conocido' });
 
   const desde = datos.ventasHasta ? ` al ${fecha(datos.ventasHasta, 'corta')}` : '';

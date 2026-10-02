@@ -1,19 +1,13 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { BotonMicrofono } from '../ui/BotonMicrofono';
+import type { Armada } from '../ui/NotaDePedido';
+import { NotasDelAnalista, SUCURSALES_NOTAS, type NotasAnalista } from '../ui/NotasDelAnalista';
+import { PlacaCompras, PlacaParado, type ComentarioProveedor, type ProveedorCompra, type TableroAnalista } from '../ui/PlacaProveedores';
 import { Boton, Chip, Entrada, PlacaRoja, Tarjeta, unir, type DetallePlaca } from '../ui/kit';
-import { pesos as pesosFmt } from '../lib/formato';
+import { pesos } from '../lib/formato';
 
-type Item = { sku: string; cantidad: number; nombre?: string };
-type Orden = {
-  proveedor: string;
-  sucursal: string;
-  motivo: string;
-  items: Item[];
-  proveedorId: string;
-  sucursalId: string;
-};
 type Armado = {
   nombre: string;
   ocasion: string;
@@ -25,8 +19,29 @@ type Armado = {
   margenPct: number | null;
 };
 
-// detalle: los productos que el analista detalló, como Placa roja (el paquete gráfico de pedidos)
-type Mensaje = { rol: 'usuario' | 'analista'; texto: string; ordenes?: Orden[]; armados?: Armado[]; detalle?: DetallePlaca };
+// Qué piezas dibuja la pantalla debajo del veredicto. Lo elige el modelo según
+// la pregunta; los números de cada pieza los arma el sistema (abastecimiento()),
+// nunca el modelo.
+type Pieza = 'compras' | 'notas' | 'parado';
+const PIEZAS: Pieza[] = ['compras', 'notas', 'parado'];
+
+// 2/10/2026: la respuesta del analista pasó a ser un veredicto corto más las
+// piezas por proveedor (placa COMPRAS, notas de pedido, placa PLATA PARADA).
+// Se fueron las «órdenes propuestas» que el modelo armaba a mano y se creaban
+// por /api/oc: ahora se pide desde la nota de pedido, igual que en Qué comprar.
+// detalle: los productos que el analista nombró en el texto, como Placa roja.
+type Mensaje = {
+  rol: 'usuario' | 'analista';
+  texto: string;
+  armados?: Armado[];
+  detalle?: DetallePlaca;
+  tablero?: TableroAnalista;
+  comentarios?: ComentarioProveedor[];
+  mostrar?: Pieza[];
+  notas?: NotasAnalista | null;
+};
+
+type OrdenArmada = Armada & { proveedor: string; sucursal: string; sucursalId: string };
 
 const SUGERENCIAS = [
   '¿Qué compro esta semana?',
@@ -35,7 +50,95 @@ const SUGERENCIAS = [
   '¿Qué costos aumentaron?',
 ];
 
-const pesos = (n: number) => pesosFmt(n);
+// Lo que devuelve POST analista/charla, con cada campo revisado: un deploy
+// desfasado (API vieja con pantalla nueva) trae solo respuesta y detalle, y
+// tiene que verse la burbuja sola, sin romper.
+function respuestaDelAnalista(d: any): Mensaje {
+  return {
+    rol: 'analista',
+    texto: typeof d?.respuesta === 'string' ? d.respuesta : '',
+    detalle: d?.detalle ?? undefined,
+    tablero: d?.tablero?.datos ? d.tablero : undefined,
+    comentarios: Array.isArray(d?.comentarios) ? d.comentarios : [],
+    mostrar: Array.isArray(d?.mostrar) ? d.mostrar.filter((x: unknown): x is Pieza => PIEZAS.includes(x as Pieza)) : [],
+    notas: d?.notas && Array.isArray(d.notas.proveedorIds) ? d.notas : null,
+  };
+}
+
+// Sin animación para quien la tiene apagada en el sistema.
+const movimiento = (): ScrollBehavior =>
+  typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
+
+// Las piezas de una respuesta. Cada una guarda su estado (qué sucursal miran
+// las notas, a qué proveedor bajar): tocar un proveedor en la placa COMPRAS
+// abre su nota, aunque el analista no las haya mostrado.
+function PiezasDeLaRespuesta({
+  m,
+  onPreguntar,
+  yaPedidos,
+  onArmada,
+  desplazarA,
+}: {
+  m: Mensaje;
+  onPreguntar: (texto: string) => void;
+  yaPedidos: Set<string>;
+  onArmada: (o: OrdenArmada) => void;
+  desplazarA: (el: HTMLElement) => void;
+}) {
+  const mostrar = m.mostrar ?? [];
+  const datos = m.tablero?.datos;
+  const compras = mostrar.includes('compras') ? m.tablero?.compras : undefined;
+  const parado = mostrar.includes('parado') ? m.tablero?.parado : undefined;
+  const [verNotas, setVerNotas] = useState(mostrar.includes('notas'));
+  const [sucursal, setSucursal] = useState(() =>
+    m.notas?.sucursal && SUCURSALES_NOTAS.includes(m.notas.sucursal) ? m.notas.sucursal : SUCURSALES_NOTAS[0],
+  );
+  const [buscado, setBuscado] = useState<string | null>(null);
+  const terminarBusqueda = useCallback(() => setBuscado(null), []);
+
+  // Cada línea del analista se dibuja una sola vez: con las dos placas a la
+  // vista, la de liquidar va en PLATA PARADA y el resto en COMPRAS; las notas
+  // las muestran solo si no está la placa COMPRAS.
+  const comentarios = m.comentarios ?? [];
+  const ambas = !!compras && !!parado;
+  const deCompras = ambas ? comentarios.filter((c) => c.accion !== 'liquidar') : comentarios;
+  const deParado = ambas ? comentarios.filter((c) => c.accion === 'liquidar') : comentarios;
+
+  // La nota es por proveedor y sucursal: si el proveedor no tiene nada en la
+  // sucursal que se está mirando, se pasa a la que más plata le compra.
+  const verNota = (p: ProveedorCompra) => {
+    const donde = [...p.porSucursal].sort((a, b) => b.plata - a.plata).map((s) => s.sucursal).filter((s) => SUCURSALES_NOTAS.includes(s));
+    if (donde.length && !donde.includes(sucursal)) setSucursal(donde[0]);
+    setVerNotas(true);
+    setBuscado(p.proveedorId);
+  };
+
+  if (!datos && !verNotas) return null;
+  return (
+    <>
+      {datos && compras && (
+        <PlacaCompras className="mt-2 w-full" compras={compras} datos={datos} comentarios={deCompras} onVerNota={verNota} onPreguntar={onPreguntar} />
+      )}
+      {verNotas && (
+        <div className="mt-3 w-full min-w-0">
+          <NotasDelAnalista
+            notas={m.notas ?? null}
+            sucursal={sucursal}
+            onSucursal={setSucursal}
+            buscado={buscado}
+            onBuscado={terminarBusqueda}
+            yaPedidos={yaPedidos}
+            onArmada={onArmada}
+            comentarios={compras ? undefined : comentarios.filter((c) => c.accion !== 'liquidar')}
+            onPreguntar={compras ? undefined : onPreguntar}
+            desplazarA={desplazarA}
+          />
+        </div>
+      )}
+      {datos && parado && <PlacaParado className="mt-3 w-full" parado={parado} datos={datos} comentarios={deParado} onPreguntar={onPreguntar} />}
+    </>
+  );
+}
 
 export function ChatAnalista() {
   const [mensajes, setMensajes] = useState<Mensaje[]>([
@@ -47,13 +150,35 @@ export function ChatAnalista() {
   ]);
   const [texto, setTexto] = useState('');
   const [pensando, setPensando] = useState(false);
-  const [creando, setCreando] = useState<string | null>(null);
-  const [creadas, setCreadas] = useState<Record<string, string>>({});
-  const finRef = useRef<HTMLDivElement>(null);
+  // productos ya pedidos desde cualquier nota del chat ("sucursalId:sku"):
+  // salen de las demás notas, como en Qué comprar, para no pedirlos dos veces
+  const [yaPedidos, setYaPedidos] = useState<Set<string>>(() => new Set());
+  const cajaRef = useRef<HTMLDivElement>(null);
+  const ultimoRef = useRef<HTMLDivElement>(null);
 
+  const alArmar = useCallback((o: OrdenArmada) => {
+    setYaPedidos((s) => new Set([...s, ...(o.pedidos ?? []).map((p) => `${o.sucursalId}:${p.sku}`)]));
+  }, []);
+
+  // Se mueve solo la caja del chat (tiene scroll propio), no la página: con
+  // scrollIntoView la página entera subía y la cabecera quedaba afuera.
+  const desplazarA = useCallback((el: HTMLElement) => {
+    const caja = cajaRef.current;
+    if (!caja) return;
+    const arriba = el.getBoundingClientRect().top - caja.getBoundingClientRect().top + caja.scrollTop - 12;
+    caja.scrollTo({ top: Math.max(0, arriba), behavior: movimiento() });
+  }, []);
+
+  // Mientras piensa, al final (se ve el «cruzando ventas…»). Cuando contesta,
+  // al ARRANQUE de la respuesta: antes bajaba hasta el pie y, con las placas y
+  // las notas, el dueño caía debajo de todo sin ver el veredicto ni el gráfico.
   useEffect(() => {
-    finRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [mensajes, pensando]);
+    const caja = cajaRef.current;
+    if (!caja || (mensajes.length <= 1 && !pensando)) return;
+    const ultimo = mensajes[mensajes.length - 1];
+    if (!pensando && ultimo?.rol === 'analista' && ultimoRef.current) desplazarA(ultimoRef.current);
+    else caja.scrollTo({ top: caja.scrollHeight, behavior: movimiento() });
+  }, [mensajes, pensando, desplazarA]);
 
   async function pedirArmados() {
     setMensajes((m) => [...m, { rol: 'usuario', texto: 'Armame boxes para vender' }]);
@@ -97,43 +222,17 @@ export function ChatAnalista() {
           mensajes: nuevos.map(({ rol, texto }) => ({ rol, texto })),
         }),
       });
-      const datos = await res.json();
+      const datos = await res.json().catch(() => ({}));
       setMensajes((m) => [
         ...m,
         res.ok
-          ? { rol: 'analista', texto: datos.respuesta, ordenes: datos.ordenes, detalle: datos.detalle ?? undefined }
-          : { rol: 'analista', texto: `(${datos.message ?? 'No pude analizar, probá de nuevo'})` },
+          ? respuestaDelAnalista(datos)
+          : { rol: 'analista', texto: `(${datos?.message ?? 'No pude analizar, probá de nuevo'})` },
       ]);
     } catch {
       setMensajes((m) => [...m, { rol: 'analista', texto: '(Sin conexión con la API)' }]);
     }
     setPensando(false);
-  }
-
-  async function crearOc(orden: Orden, clave: string) {
-    setCreando(clave);
-    try {
-      const res = await fetch('/api/oc', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          proveedorId: orden.proveedorId,
-          sucursalId: orden.sucursalId,
-          items: orden.items,
-        }),
-      });
-      const datos = await res.json();
-      setCreadas((c) => ({
-        ...c,
-        [clave]: res.ok
-          ? 'Borrador creado: queda pendiente de firma en Compras'
-          : `Error: ${datos.message}`,
-      }));
-    } catch {
-      setCreadas((c) => ({ ...c, [clave]: 'Error: no se pudo conectar, reintentá' }));
-    } finally {
-      setCreando(null);
-    }
   }
 
   return (
@@ -152,17 +251,26 @@ export function ChatAnalista() {
         </div>
       </div>
 
-      <div className="flex-1 space-y-3 overflow-y-auto p-4" aria-live="polite">
+      <div ref={cajaRef} className="flex-1 space-y-3 overflow-y-auto overscroll-contain p-4" aria-live="polite">
         {mensajes.map((m, i) => (
-          <div key={i} className={'flex flex-col ' + (m.rol === 'usuario' ? 'items-end' : 'items-start')}>
-            <div
-              className={unir(
-                'max-w-[85%] whitespace-pre-wrap break-words rounded-2xl px-4 py-2.5 text-sm',
-                m.rol === 'usuario' ? 'rounded-br-md bg-tinta text-white' : 'rounded-bl-md bg-crema text-tinta',
-              )}
-            >
-              {m.texto}
-            </div>
+          <div
+            key={i}
+            ref={i === mensajes.length - 1 ? ultimoRef : undefined}
+            className={'flex min-w-0 flex-col ' + (m.rol === 'usuario' ? 'items-end' : 'items-start')}
+          >
+            {m.texto && (
+              <div
+                className={unir(
+                  'max-w-[85%] whitespace-pre-wrap break-words rounded-2xl px-4 py-2.5 text-sm',
+                  m.rol === 'usuario' ? 'rounded-br-md bg-tinta text-white' : 'rounded-bl-md bg-crema text-tinta',
+                )}
+              >
+                {m.texto}
+              </div>
+            )}
+            {m.rol === 'analista' && (
+              <PiezasDeLaRespuesta m={m} onPreguntar={enviar} yaPedidos={yaPedidos} onArmada={alArmar} desplazarA={desplazarA} />
+            )}
             {m.detalle && <PlacaRoja {...m.detalle} className="mt-2 w-full" />}
             {/* cada box, como Placa roja: los componentes con cantidad, su
                 precio de lista y el precio del box en la píldora */}
@@ -187,28 +295,6 @@ export function ChatAnalista() {
                 ))}
               </div>
             )}
-            {m.ordenes?.map((o, j) => {
-              const clave = `${i}-${j}`;
-              return (
-                <PlacaRoja
-                  key={clave}
-                  className="mt-2 w-full"
-                  titulo="Orden de compra propuesta"
-                  sub={`${o.proveedor} → ${o.sucursal}`}
-                  renglones={o.items.map((it) => ({ clave: it.sku, cantidad: it.cantidad, nombre: it.nombre ?? it.sku, detalle: it.sku }))}
-                  recuadro={o.motivo ? <span className="text-tinta/70">{o.motivo}</span> : undefined}
-                  acciones={
-                    creadas[clave] ? (
-                      <p className="text-sm font-medium text-tinta">{creadas[clave]}</p>
-                    ) : (
-                      <Boton tamano="chico" onClick={() => crearOc(o, clave)} cargando={creando === clave}>
-                        {creando === clave ? 'Creando…' : 'Crear borrador de OC'}
-                      </Boton>
-                    )
-                  }
-                />
-              );
-            })}
           </div>
         ))}
         {pensando && (
@@ -218,7 +304,6 @@ export function ChatAnalista() {
             </div>
           </div>
         )}
-        <div ref={finRef} />
       </div>
 
       {mensajes.length <= 1 && (
