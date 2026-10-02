@@ -9,7 +9,7 @@ import { volumenMl, etiquetaVolumen, pideTamano, medidaPartida, resumenDeTamanos
 import { emprolijarListado, nombreLimpio, saludoSegunHora, saludarConBienvenida, niegaPercepcion, respetuosoSinConfianza, saintThomas, envioSinCargo, asegurarEnvioSinCargo, casiIgual, campoLimpio, respuestaConConsulta, esAlucinacionDeTranscripcion, nombreSucursalCliente, esAutomaticoWhatsappBusiness, minimoConMonto, retiroOEnvio, sinCocinaInterna, sinLoConsulto } from './prolijo';
 import { controlDeFechas } from './fechas';
 import { desvioDeLoPedido } from './desvio';
-import { oggCompleto } from './ogg';
+import { audioDeclarado, estadoOgg } from './ogg';
 import { atiendeUnaPersona, avisoEsperaPorWhatsapp, decisionSesion, esperasParaAvisar, motivoDeSilencio, pideRespuesta } from './pausa';
 import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
@@ -3114,12 +3114,20 @@ export class BotService {
       const mimeCrudo = String(p?.media?.mimetype ?? '');
       const esAudioOgg = /audio\/(ogg|oga)|opus/.test(mimeCrudo) || /\.oga?$|\.ogg$/i.test(String(url));
       let buf: Buffer | null = null;
-      // WAHA convierte el audio EN EL MOMENTO: si se baja apenas llega el
-      // webhook, el archivo suele estar a medio escribir y queda cortado
-      // (2026-09-01: todos los audios guardados estaban truncados, se
-      // escuchaban por la mitad y la transcripción leía solo el principio).
-      // Se baja, se verifica el cierre del OGG y se reintenta hasta tenerlo
-      // completo; si nunca cierra, va la mejor versión que se consiguió.
+      // ¿Está entero? (ver ogg.ts). Hasta el 2/10/2026 se exigía la marca de
+      // fin del OGG, que las notas de WhatsApp NO traen: cada audio esperaba 7 s
+      // de reintentos y el log decía "puede estar cortado" aunque estaba entero
+      // (231 de 231 medidos). Ahora: mismo tamaño que declaró WhatsApp, o marca
+      // de fin, o páginas enteras hasta el último byte y tamaño estable entre
+      // dos bajadas. Solo si nada de eso se cumple se reintenta.
+      const declarado = audioDeclarado(p);
+      const entero = (b: Buffer, anterior: number | null) => {
+        if (declarado.bytes && b.length === declarado.bytes) return true;
+        const e = estadoOgg(b);
+        return e.eos || (e.paginasEnteras && anterior === b.length);
+      };
+      let anterior: number | null = null;
+      let completo = false;
       for (let intento = 1; intento <= 5; intento++) {
         const r = await fetch(String(url), { headers: { 'X-Api-Key': process.env.WAHA_API_KEY ?? '' }, signal: AbortSignal.timeout(12000) });
         if (!r.ok) {
@@ -3129,12 +3137,21 @@ export class BotService {
         }
         const intentoBuf = Buffer.from(await r.arrayBuffer());
         if (!buf || intentoBuf.length >= buf.length) buf = intentoBuf;
-        if (!esAudioOgg || oggCompleto(intentoBuf)) break;
-        this.log.warn(`audio todavía a medio escribir en WAHA (${intentoBuf.length} bytes, intento ${intento}): espero y reintento`);
+        if (!esAudioOgg || entero(intentoBuf, anterior)) { completo = true; break; }
+        anterior = intentoBuf.length;
+        if (intento === 5) break; // no se espera después del último intento
+        // con páginas enteras alcanza una segunda bajada para ver que no creció
+        if (!estadoOgg(intentoBuf).paginasEnteras) this.log.warn(`audio todavía a medio escribir en WAHA (${intentoBuf.length} bytes, intento ${intento}): espero y reintento`);
         await new Promise((res) => setTimeout(res, 1500));
       }
       if (!buf) return null;
-      if (esAudioOgg && !oggCompleto(buf)) this.log.warn(`audio quedó SIN cierre tras los reintentos (${buf.length} bytes): va igual, puede estar cortado`);
+      if (esAudioOgg) {
+        const e = estadoOgg(buf);
+        const dur = e.segundos != null ? `${e.segundos.toFixed(1)} s` : '?';
+        const dijo = declarado.segundos != null ? ` (WhatsApp dice ${declarado.segundos} s)` : '';
+        if (completo) this.log.log(`audio entero: ${buf.length} bytes · ${dur}${dijo}`);
+        else this.log.warn(`audio posiblemente cortado tras los reintentos: ${buf.length} bytes${declarado.bytes ? ` de ${declarado.bytes} declarados` : ''} · ${dur}${dijo}`);
+      }
       this.log.log(`archivo bajado de WAHA: ${buf.length} bytes · ${p?.media?.mimetype ?? '?'}`);
       if (buf.length > 4.5 * 1024 * 1024) { this.log.warn(`archivo demasiado grande (${buf.length} bytes): no va al modelo`); return null; }
       const mime = String(p?.media?.mimetype ?? 'application/octet-stream').split(';')[0];
@@ -3210,6 +3227,7 @@ export class BotService {
     const tipoMsg = String(p?.type ?? p?._data?.type ?? '').toLowerCase();
     const esMedia = !!p?.hasMedia || !!p?.media || ['ptt', 'audio', 'image', 'video', 'document', 'sticker'].includes(tipoMsg);
     let mediaSaliente: { tipo: 'image' | 'audio' | 'video' | 'document'; url: string } | null = null;
+    let epigrafeMedia = ''; // lo que la persona escribió junto a la foto/audio (si escribió algo)
     if (esMedia) {
       const media = await this.bajarMediaWaha(p).catch(() => null);
       const mime = media?.mime ?? String(p?.media?.mimetype ?? '');
@@ -3226,6 +3244,7 @@ export class BotService {
       }
       const rotulo = tipoMedia === 'image' ? '📷 Foto enviada' : tipoMedia === 'audio' ? '🎙️ Audio enviado' : tipoMedia === 'video' ? '🎬 Video enviado' : '📄 Archivo enviado';
       const epigrafe = String(p?.caption ?? p?._data?.caption ?? (/\.[a-z0-9]{2,5}$/i.test(texto) ? '' : texto)).trim();
+      epigrafeMedia = epigrafe;
       texto = epigrafe ? `${rotulo}: ${epigrafe}` : rotulo;
     }
     const { data: conv } = await this.db.from('bot_conversaciones').select('mensajes, bot_activo').eq('linea', 'pedidos').eq('telefono', identidad).maybeSingle();
@@ -3233,7 +3252,13 @@ export class BotService {
     // red de seguridad si el id no coincidió: lo que dijo el bot en sus últimos
     // turnos no es de una persona
     const dichoPorElBot = hist.filter((m) => m.role === 'assistant').slice(-5).map((m) => String(m.content ?? '').replace(/^\[acuse-archivo\] /, '').trim());
-    if (texto && dichoPorElBot.includes(texto)) return { ignorado: 'coincide con lo último del bot' };
+    // Con una foto/audio se compara SOLO lo que se escribió con ella: el rótulo
+    // ("🎙️ Audio enviado") es igual para todos los audios, así que el segundo
+    // audio de una persona al mismo cliente coincidía con el primero y se
+    // descartaba como si fuera del bot. 2/10/2026: faltaban en RESPONDE 33 de
+    // 69 audios del equipo en una semana, y esos tampoco pausaban el bot.
+    const paraComparar = esMedia ? epigrafeMedia : texto;
+    if (paraComparar && dichoPorElBot.includes(paraComparar)) return { ignorado: 'coincide con lo último del bot' };
     this.log.log(`una persona contestó desde el teléfono a ${identidad}: el bot queda pausado hasta que lo reactiven desde RESPONDE`);
     // Lo que se escribió desde el teléfono va también a RESPONDE: sin esto la
     // charla quedaba con los mensajes del cliente solos y no se entendía nada

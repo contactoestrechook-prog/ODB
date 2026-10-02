@@ -1483,3 +1483,36 @@ describe('Fotos: respuesta comercial directa', () => {
     expect(crear.mock.calls.some(([arg]) => JSON.stringify(arg.messages).includes('La cantidad visible NO es cantidad pedida'))).toBe(true);
   });
 });
+
+describe('audios mandados desde el teléfono: el rótulo no es eco del bot (2/10/2026)', () => {
+  // El rótulo "🎙️ Audio enviado" es igual para todos los audios: el segundo
+  // audio de una persona al mismo cliente coincidía con el primero (que quedó
+  // en el historial) y se descartaba como si fuera del bot. Faltaban en
+  // RESPONDE 33 de 69 audios del equipo en una semana y no pausaban el bot.
+  const armar = (historial: any[]) => {
+    const db = dbFalsa({ bot_envios: { data: null, error: null }, bot_conversaciones: { data: { mensajes: historial }, error: null } });
+    const { s } = servicio(db);
+    const registrar = jest.fn(async () => null);
+    (s as any).respondeRegistrar = registrar;
+    (s as any).resolverContactoWaha = jest.fn(async () => null);
+    (s as any).respondePausar = jest.fn(async () => null);
+    (s as any).limpiarEspera = jest.fn(async () => null);
+    (s as any).bajarMediaWaha = jest.fn(async () => ({ base64: 'AAAA', mime: 'audio/ogg', nombre: 'x.oga' }));
+    (s as any).guardarAdjuntoPrivado = jest.fn(async () => 'https://firmada/x.oga');
+    return { s, registrar };
+  };
+
+  it('un segundo audio sin texto se registra y pausa el bot aunque el anterior tenga el mismo rótulo', async () => {
+    const { s, registrar } = armar([{ role: 'assistant', content: '🎙️ Audio enviado' }]);
+    const r: any = await (s as any).mensajePropio({ fromMe: true, id: 'AUD2', to: '5491133344455@c.us', hasMedia: true, type: 'ptt', media: { mimetype: 'audio/ogg; codecs=opus' }, body: '', timestamp: Math.floor(Date.now() / 1000) }, '5491122812200');
+    expect(r.pausada).toBe(true);
+    expect(registrar).toHaveBeenCalledWith('5491133344455', null, '', '🎙️ Audio enviado', undefined, { tipo: 'audio', url: 'https://firmada/x.oga' }, { waMessageId: 'AUD2', humano: true });
+  }, 10000);
+
+  it('una foto cuyo epígrafe es lo que el bot acaba de decir sigue contando como eco del bot', async () => {
+    const { s, registrar } = armar([{ role: 'assistant', content: 'Así quedó tu pedido' }]);
+    const r: any = await (s as any).mensajePropio({ fromMe: true, id: 'IMG1', to: '5491133344455@c.us', hasMedia: true, type: 'image', media: { mimetype: 'image/jpeg' }, caption: 'Así quedó tu pedido', timestamp: Math.floor(Date.now() / 1000) }, '5491122812200');
+    expect(r.ignorado).toBe('coincide con lo último del bot');
+    expect(registrar).not.toHaveBeenCalled();
+  }, 10000);
+});
