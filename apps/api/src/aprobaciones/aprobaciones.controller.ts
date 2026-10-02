@@ -27,6 +27,8 @@ type Pendiente = {
   pidio: string | null;
   cuando: string;
   dias: number;
+  /** Los productos, cuando el pedido los detalla (devolución): el panel los dibuja en la Placa roja. */
+  productos?: { nombre: string; cantidad: number; precio: number }[];
 };
 
 const NOMBRE_TIPO: Record<Pendiente['tipo'], string> = {
@@ -134,6 +136,9 @@ export class AprobacionesController {
         titulo: `Devolución en caja · ${renglones || 'venta'}`,
         detalle: `${d.caja_nombre ?? 'Caja'}${d.sucursal?.nombre ? ' · ' + d.sucursal.nombre : ''} · ${d.reintegro === 'efectivo' ? 'reintegro en efectivo' : 'sin reintegro en efectivo'}${d.motivo ? ' · ' + d.motivo : ''} · al aprobar se repone stock y sale la nota de crédito`,
         monto: Number(d.monto ?? 0), pidio: d.cajero?.nombre ?? null, cuando: d.creada_en, dias: this.dias(d.creada_en),
+        // renglón por renglón para la Placa roja del panel (2/10/2026): antes
+        // solo viajaba el título "2× Fernet, 1× Coca" y no se veía qué costaba cada uno
+        productos: ((d.detalle ?? []) as any[]).map((x) => ({ nombre: String(x.nombre ?? ''), cantidad: Number(x.cantidad), precio: Number(x.precio ?? 0) })),
       });
     }
 

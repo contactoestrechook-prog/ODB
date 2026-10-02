@@ -1,3 +1,10 @@
+// la tarjeta Placa roja se simula: acá se controla QUÉ se dibuja, no el PNG
+const mockCartel = jest.fn(async (_r: any) => Buffer.from('png'));
+jest.mock('../comun/cartel-pedido', () => ({
+  ...jest.requireActual('../comun/cartel-pedido'),
+  cartelPedido: (r: any) => mockCartel(r),
+}));
+
 import { BadRequestException } from '@nestjs/common';
 import { VentasService } from './ventas.service';
 
@@ -297,5 +304,164 @@ describe('VentasService.cambiarMedioPago', () => {
     const rpc = llamadas.rpc.find(([fn]) => fn === 'cambiar_medio_pago_venta');
     expect(rpc![1].p_pagos).toEqual([{ medio: 'tarjeta', monto: 1400, terminal: 'getnet' }]);
     expect(rpc![1].p_motivo).toBe('el cliente pagó con tarjeta');
+  });
+});
+
+
+// ============================================================
+// DEVOLUCIÓN PEDIDA A DISTANCIA: EL AVISO POR WHATSAPP (2/10/2026)
+// Sale como tarjeta Placa roja "DEVOLUCIÓN" con el texto de siempre como
+// epígrafe. Si la tarjeta no se arma o WhatsApp no la acepta, va el texto
+// solo, como antes: el aviso al supervisor no se pierde nunca. WAHA va
+// simulado: acá no sale ningún mensaje.
+// ============================================================
+describe('VentasService.pedirDevolucion: el aviso por WhatsApp', () => {
+  const venta = {
+    id: 'v-1', sucursal_id: 'suc-1', estado: 'completada',
+    items: [
+      { cantidad: 3, precio_unitario: 20500, producto: { sku: 'FER-1', nombre: 'Fernet Branca x750cc' } },
+      { cantidad: 2, precio_unitario: 4700, producto: { sku: 'COC-1', nombre: 'Coca-Cola 1,5 L' } },
+    ],
+  };
+
+  function dbDevolucion(o: { supervisores?: any[]; errorSubida?: { message: string } } = {}) {
+    const log: any[] = [];
+    const db: any = {
+      from(tabla: string) {
+        const ops: any[] = [];
+        const q: any = {};
+        for (const m of ['select', 'eq', 'in', 'insert', 'update']) q[m] = (...a: any[]) => { ops.push([m, ...a]); return q; };
+        const uno = () => {
+          if (tabla === 'ventas') return venta;
+          // no hay otra esperando; el insert devuelve el pedido nuevo
+          if (tabla === 'devoluciones_pendientes') return ops.some(([m]) => m === 'insert') ? { id: 'dev-1' } : null;
+          if (tabla === 'sesiones_caja') return { caja: { nombre: 'Caja 1' } };
+          if (tabla === 'usuarios') return { nombre: 'Ana Gómez' };
+          if (tabla === 'sucursales') return { nombre: 'Saint Thomas' };
+          return null;
+        };
+        const lista = () => {
+          const upd = ops.find(([m]) => m === 'update');
+          if (upd) log.push({ update: tabla, datos: upd[1] });
+          const ins = ops.find(([m]) => m === 'insert');
+          if (ins) log.push({ insert: tabla, datos: ins[1] });
+          if (tabla === 'usuarios') return o.supervisores ?? [{ id: 'u-1', nombre: 'Juan Pablo', telefono: '11 2281-2200' }];
+          return null;
+        };
+        q.maybeSingle = async () => ({ data: uno(), error: null });
+        q.single = async () => ({ data: uno(), error: null });
+        q.then = (ok: any, err: any) => Promise.resolve({ data: lista(), error: null }).then(ok, err);
+        return q;
+      },
+      storage: {
+        from: (bucket: string) => ({
+          upload: async (ruta: string) => { log.push({ subido: `${bucket}/${ruta}` }); return { error: o.errorSubida ?? null }; },
+          getPublicUrl: (ruta: string) => ({ data: { publicUrl: `https://x.supabase.co/${bucket}/${ruta}` } }),
+        }),
+      },
+    };
+    return { db, log };
+  }
+
+  const pedir = (db: any) =>
+    new VentasService(db, facturacionFalsa() as any, cajaFalsa() as any, mpFalso() as any).pedirDevolucion('v-1', {
+      items: [{ sku: 'FER-1', cantidad: 2 }, { sku: 'COC-1', cantidad: 1 }],
+      reintegro: 'efectivo', sesionCajaId: 'ses-1', usuarioId: 'u-cajera',
+    });
+
+  // lo que le llega a WAHA, en orden
+  const waha: { ruta: string; cuerpo: any }[] = [];
+  let rechazaImagen = false;
+  const fetchOriginal = (global as any).fetch;
+  const ENTORNO = ['WAHA_URL', 'WAHA_API_KEY', 'ADMIN_URL'] as const;
+  const entornoOriginal = Object.fromEntries(ENTORNO.map((k) => [k, process.env[k]]));
+
+  beforeEach(() => {
+    waha.length = 0;
+    rechazaImagen = false;
+    mockCartel.mockReset();
+    mockCartel.mockImplementation(async () => Buffer.from('png'));
+    process.env.WAHA_URL = 'https://waha.prueba';
+    process.env.WAHA_API_KEY = 'k';
+    process.env.ADMIN_URL = 'https://panel.prueba';
+    (global as any).fetch = jest.fn(async (url: string, init: any) => {
+      const ruta = new URL(url).pathname;
+      waha.push({ ruta, cuerpo: JSON.parse(init.body) });
+      if (ruta === '/api/sendImage' && rechazaImagen) return { ok: false, status: 422, json: async () => ({}) };
+      return { ok: true, status: 201, json: async () => ({ id: { _serialized: `true_5491122812200@c.us_${waha.length}` } }) };
+    });
+  });
+
+  afterAll(() => {
+    (global as any).fetch = fetchOriginal;
+    for (const k of ENTORNO) {
+      if (entornoOriginal[k] === undefined) delete process.env[k];
+      else process.env[k] = entornoOriginal[k];
+    }
+  });
+
+  it('sale la tarjeta DEVOLUCIÓN, renglón por renglón, con el texto de siempre como epígrafe', async () => {
+    const { db, log } = dbDevolucion();
+    const r = await pedir(db);
+    expect(r.monto).toBe(45700);
+
+    expect(mockCartel).toHaveBeenCalledTimes(1);
+    expect(mockCartel.mock.calls[0][0]).toEqual({
+      titulo: 'DEVOLUCIÓN',
+      subtitulo: 'Caja 1 · Saint Thomas',
+      renglones: [
+        { nombre: 'Fernet Branca 750 cc', cantidad: 2, unitario: 20500, subtotal: 41000 },
+        { nombre: 'Coca-Cola 1,5 L', cantidad: 1, unitario: 4700, subtotal: 4700 },
+      ],
+      total: 45700,
+      entrega: { titulo: 'Pide Ana Gómez', detalle: 'Reintegro en efectivo' },
+      confirmar: false,
+      pie: '',
+      nota: 'Autorizala en Aprobaciones',
+    });
+    expect(log.find((x) => x.subido)?.subido).toMatch(/^publico\/carteles\/\d{4}-\d{2}\/devolucion-dev-1\.png$/);
+
+    expect(waha.map((w) => w.ruta)).toEqual(['/api/sendImage']);
+    const { cuerpo } = waha[0];
+    expect(cuerpo.chatId).toBe('5491122812200@c.us');
+    expect(cuerpo.file.url).toMatch(/^https:\/\/x\.supabase\.co\/publico\/carteles\/.+\/devolucion-dev-1\.png$/);
+    expect(cuerpo.caption).toContain('Devolución en caja: $45.700 esperando tu autorización');
+    expect(cuerpo.caption).toContain('pide devolver 2× Fernet Branca x750cc, 1× Coca-Cola 1,5 L, con reintegro en efectivo');
+    expect(cuerpo.caption).toContain('https://panel.prueba/aprobaciones');
+    expect(log).toContainEqual({ update: 'devoluciones_pendientes', datos: { avisos: [{ usuario: 'Juan Pablo', campanita: true, whatsapp: true }] } });
+  });
+
+  it('si WhatsApp no acepta la tarjeta, va el texto como antes', async () => {
+    rechazaImagen = true;
+    const { db, log } = dbDevolucion();
+    await pedir(db);
+    expect(waha.map((w) => w.ruta)).toEqual(['/api/sendImage', '/api/sendText']);
+    expect(waha[1].cuerpo.text).toBe(waha[0].cuerpo.caption);
+    expect(waha[1].cuerpo.text).toContain('pide devolver 2× Fernet Branca x750cc, 1× Coca-Cola 1,5 L');
+    expect(log).toContainEqual({ update: 'devoluciones_pendientes', datos: { avisos: [{ usuario: 'Juan Pablo', campanita: true, whatsapp: true }] } });
+  });
+
+  it('si la tarjeta no se puede dibujar, va el texto (y no se sube nada)', async () => {
+    mockCartel.mockRejectedValue(new Error('sin tipografías'));
+    const { db, log } = dbDevolucion();
+    await pedir(db);
+    expect(log.some((x) => x.subido)).toBe(false);
+    expect(waha.map((w) => w.ruta)).toEqual(['/api/sendText']);
+    expect(waha[0].cuerpo.text).toContain('Aprobala o rechazala acá: https://panel.prueba/aprobaciones');
+  });
+
+  it('si la tarjeta no se puede subir, va el texto', async () => {
+    const { db } = dbDevolucion({ errorSubida: { message: 'bucket lleno' } });
+    await pedir(db);
+    expect(waha.map((w) => w.ruta)).toEqual(['/api/sendText']);
+  });
+
+  it('si ningún supervisor tiene teléfono no se dibuja la tarjeta, pero la campanita sale igual', async () => {
+    const { db, log } = dbDevolucion({ supervisores: [{ id: 'u-1', nombre: 'Juan Pablo', telefono: null }] });
+    await pedir(db);
+    expect(mockCartel).not.toHaveBeenCalled();
+    expect(waha).toHaveLength(0);
+    expect(log).toContainEqual(expect.objectContaining({ insert: 'alertas_internas' }));
+    expect(log).toContainEqual({ update: 'devoluciones_pendientes', datos: { avisos: [{ usuario: 'Juan Pablo', campanita: true, whatsapp: false }] } });
   });
 });

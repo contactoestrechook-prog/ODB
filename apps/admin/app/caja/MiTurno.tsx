@@ -1,8 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Boton, Entrada, IconoCerrar, Selector, unir, FOCO, FOCO_ADENTRO, ROTULO } from '../ui/kit';
-import { hora, pesos } from '../lib/formato';
+import { Boton, Entrada, IconoCerrar, PlacaRoja, Selector, unir, FOCO, FOCO_ADENTRO, ROTULO } from '../ui/kit';
+import { hora, numero, pesos } from '../lib/formato';
 
 // ============================================================
 // "MI TURNO" — la caja deja de ser ciega (2026-09-12)
@@ -403,41 +403,54 @@ export default function MiTurno({
             </p>
           ) : (
             <>
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <p className={ROTULO}>Ticket #{detalle.ticket}</p>
-                  <p className="importe text-2xl font-bold leading-tight text-tinta">{pesos(detalle.total ?? 0)}</p>
-                  <p className="text-xs text-tinta/60">
-                    {hora(detalle.vendidaEn)}
-                    {detalle.descuento ? ` · descuento ${pesos(detalle.descuento)}` : ''}
-                    {detalle.cliente?.nombre ? ` · ${detalle.cliente.nombre}` : ''}
-                  </p>
-                </div>
-                <button type="button" onClick={() => setDetalle(null)} aria-label="Cerrar el detalle" className={unir('-mr-2 -mt-2 grid size-11 shrink-0 place-items-center rounded-full text-tinta/60 hover:bg-tinta/5 hover:text-tinta', FOCO)}>
+              <div className="-mt-2 mb-2 flex items-center justify-between gap-2">
+                <p className={ROTULO}>Ticket elegido</p>
+                <button type="button" onClick={() => setDetalle(null)} aria-label="Cerrar el detalle" className={unir('-mr-2 grid size-11 shrink-0 place-items-center rounded-full text-tinta/60 hover:bg-tinta/5 hover:text-tinta', FOCO)}>
                   <IconoCerrar className="size-5" />
                 </button>
               </div>
 
-              <div className="mt-4 rounded-xl bg-crema/60 p-3">
-                {detalle.items.map((i, n) => (
-                  <div key={`${i.sku}-${n}`} className="flex justify-between gap-2 py-0.5 text-sm">
-                    <span className="min-w-0 break-words text-tinta">
-                      <span className="importe text-tinta/60">{i.cantidad}×</span> {i.nombre}
-                    </span>
-                    <span className="importe shrink-0 text-tinta/70">{pesos(i.total ?? 0)}</span>
+              {/* El ticket en la Placa roja, el paquete gráfico de pedidos y
+                  listas de precios (2/10/2026, pedido de Leandro: "siempre que
+                  se detallen productos"). Antes era una lista gris "2× producto";
+                  ahora cada renglón lleva la cantidad en el círculo, cantidad ×
+                  unitario y su total. El cliente, el descuento y cómo se cobró
+                  van en el recuadro. El ticket impreso no cambia. */}
+              <PlacaRoja
+                titulo="Ticket"
+                sub={`#${detalle.ticket} · ${hora(detalle.vendidaEn)}`}
+                renglones={detalle.items.map((i, n) => ({
+                  clave: `${i.sku}-${n}`,
+                  cantidad: i.cantidad,
+                  nombre: i.nombre,
+                  detalle: `${numero(i.cantidad, 3)} × ${pesos(i.precioUnitario ?? 0)}`,
+                  importe: pesos(i.total ?? 0),
+                }))}
+                total={{ etiqueta: 'Total', valor: pesos(detalle.total ?? 0) }}
+                recuadro={
+                  <div className="grid gap-1">
+                    {detalle.cliente?.nombre && (
+                      <div className="flex flex-wrap justify-between gap-x-2">
+                        <span className="text-tinta/70">Cliente</span>
+                        <span className="min-w-0 break-words font-semibold text-tinta">{detalle.cliente.nombre}</span>
+                      </div>
+                    )}
+                    {detalle.descuento ? (
+                      <div className="flex flex-wrap justify-between gap-x-2">
+                        <span className="text-tinta/70">Descuento</span>
+                        <span className="importe font-semibold text-tinta">{pesos(detalle.descuento)}</span>
+                      </div>
+                    ) : null}
+                    <p className={unir(ROTULO, detalle.cliente?.nombre || detalle.descuento ? 'mt-2' : '')}>Cobrado con</p>
+                    {detalle.pagos.map((p) => (
+                      <div key={p.id} className="flex justify-between gap-2">
+                        <span className="min-w-0 break-words text-tinta">{p.etiqueta}</span>
+                        <span className="importe shrink-0 font-semibold text-tinta">{pesos(p.monto ?? 0)}</span>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-
-              <p className={unir(ROTULO, 'mt-4')}>Cobrado con</p>
-              <div className="mt-1 grid gap-1">
-                {detalle.pagos.map((p) => (
-                  <div key={p.id} className="flex justify-between gap-2 text-sm">
-                    <span className="min-w-0 break-words text-tinta">{p.etiqueta}</span>
-                    <span className="importe shrink-0 font-semibold text-tinta">{pesos(p.monto ?? 0)}</span>
-                  </div>
-                ))}
-              </div>
+                }
+              />
 
               {detalle.comprobantes.length > 0 && (
                 <>

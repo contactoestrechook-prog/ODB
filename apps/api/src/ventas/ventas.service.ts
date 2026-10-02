@@ -5,7 +5,8 @@ import { FacturacionService } from '../facturacion/facturacion.service';
 import { CajaService } from '../caja/caja.service';
 import { etiquetaMedio } from '../caja/cierre';
 import { MercadoPagoService } from '../mercadopago/mercadopago.service';
-import { enviarTextoWhatsapp } from '../comun/whatsapp';
+import { enviarImagenWhatsapp, enviarTextoWhatsapp } from '../comun/whatsapp';
+import { cartelPedido, nombreParaCartel } from '../comun/cartel-pedido';
 
 export type CrearVentaDto = {
   sucursalId: string;
@@ -322,6 +323,15 @@ export class VentasService {
     const titulo = `Devolución en caja: ${pesos} esperando tu autorización`;
     const texto = `${cajero?.nombre ?? 'La caja'} (${cajaNombre ?? 'caja'}${suc?.nombre ? ' · ' + suc.nombre : ''}) pide devolver ${renglones}${reintegro === 'efectivo' ? ', con reintegro en efectivo' : ''}.`;
     const link = `${(process.env.ADMIN_URL ?? 'https://odb-admin-production.up.railway.app').replace(/\/$/, '')}/aprobaciones`;
+    const mensaje = `ODB · ${titulo}\n${texto}\nAprobala o rechazala acá: ${link}`;
+    // Por WhatsApp la devolución va como tarjeta Placa roja (2/10/2026, pedido
+    // de Leandro: "siempre que se detallen productos vamos a usar el paquete
+    // gráfico de pedidos y lista de precio"). Antes llegaba "2× Fernet, 1× Coca"
+    // en una sola línea. Se dibuja una vez para todos los supervisores y el
+    // texto de siempre viaja como epígrafe: es lo que se lee en la notificación.
+    const tarjeta = ((sup ?? []) as any[]).some((u) => u.telefono)
+      ? await this.tarjetaDevolucion(pedido.id, { detalle, monto, reintegro, cajero: cajero?.nombre ?? null, caja: cajaNombre, sucursal: suc?.nombre ?? null })
+      : null;
     const avisos: any[] = [];
     for (const u of (sup ?? []) as any[]) {
       await this.db.from('alertas_internas').insert({
@@ -332,7 +342,17 @@ export class VentasService {
       let whatsapp = false;
       if (u.telefono) {
         try {
-          const r = await enviarTextoWhatsapp(this.db, u.telefono, `ODB · ${titulo}\n${texto}\nAprobala o rechazala acá: ${link}`, 'devolucion');
+          // si la tarjeta no se armó o no salió, va el texto como antes: el
+          // aviso no se pierde nunca. Un envío "incierto" de la imagen también
+          // cae al texto: a un supervisor le puede llegar dos veces, pero la
+          // cajera está esperando con el cliente adelante.
+          let r: { enviado: boolean; motivo?: string } | null = null;
+          if (tarjeta) {
+            r = await enviarImagenWhatsapp(this.db, u.telefono, tarjeta, mensaje, 'devolucion')
+              .catch((e) => ({ enviado: false, motivo: e instanceof Error ? e.message : String(e) }));
+            if (!r.enviado) this.log.warn(`la tarjeta de devolución a ${u.nombre} no salió (${r.motivo}): va el texto`);
+          }
+          if (!r?.enviado) r = await enviarTextoWhatsapp(this.db, u.telefono, mensaje, 'devolucion');
           whatsapp = !!r.enviado;
           if (!r.enviado) this.log.warn(`aviso de devolución a ${u.nombre} sin WhatsApp: ${r.motivo}`);
         } catch (e) { this.log.warn(`aviso de devolución a ${u.nombre} falló: ${e instanceof Error ? e.message : e}`); }
@@ -342,6 +362,41 @@ export class VentasService {
     await this.db.from('devoluciones_pendientes').update({ avisos }).eq('id', pedido.id);
     this.log.log(`devolución pedida a distancia: venta ${ventaId.slice(0, 8)} ${pesos} · avisados ${avisos.length}`);
     return { id: pedido.id, monto, avisados: ((sup ?? []) as any[]).map((u) => String(u.nombre).split(' ')[0]) };
+  }
+
+  // La devolución pedida como tarjeta Placa roja: un renglón por producto
+  // (cantidad, unitario y subtotal), lo que se devuelve en la píldora negra y,
+  // en el recuadro, quién la pide y cómo se reintegra. WAHA baja la imagen de
+  // una URL, así que va al bucket público (como las tarjetas del bot), con el
+  // id del pedido en el nombre. Si no se puede dibujar o subir, null: sale el texto.
+  private async tarjetaDevolucion(
+    id: string,
+    d: { detalle: { nombre: string; cantidad: number; precio: number }[]; monto: number; reintegro: 'efectivo' | 'otro'; cajero: string | null; caja: string | null; sucursal: string | null },
+  ): Promise<string | null> {
+    try {
+      const png = await cartelPedido({
+        titulo: 'DEVOLUCIÓN',
+        subtitulo: [d.caja ?? 'Caja', d.sucursal].filter(Boolean).join(' · '),
+        renglones: d.detalle.map((x) => ({
+          nombre: nombreParaCartel(x.nombre),
+          cantidad: x.cantidad,
+          unitario: x.precio,
+          subtotal: Math.round(x.cantidad * x.precio * 100) / 100,
+        })),
+        total: d.monto,
+        entrega: { titulo: `Pide ${d.cajero ?? 'la caja'}`, detalle: d.reintegro === 'efectivo' ? 'Reintegro en efectivo' : 'Sin reintegro en efectivo' },
+        confirmar: false,
+        pie: '',
+        nota: 'Autorizala en Aprobaciones',
+      });
+      const ruta = `carteles/${new Date().toISOString().slice(0, 7)}/devolucion-${id}.png`;
+      const { error } = await this.db.storage.from('publico').upload(ruta, png, { contentType: 'image/png', upsert: true });
+      if (error) throw new Error(`no pude subirla: ${error.message}`);
+      return this.db.storage.from('publico').getPublicUrl(ruta).data.publicUrl;
+    } catch (e) {
+      this.log.warn(`la tarjeta de la devolución ${id.slice(0, 8)} no se armó, el aviso va en texto: ${e instanceof Error ? e.message : e}`);
+      return null;
+    }
   }
 
   async estadoDevolucion(id: string) {

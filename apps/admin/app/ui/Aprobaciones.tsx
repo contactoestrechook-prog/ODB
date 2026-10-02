@@ -1,8 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Aviso, Boton, Cargando, Etiqueta, Monto, Tarjeta, useConfirmar } from './kit';
-import { fechaHora, pesos } from '../lib/formato';
+import { Aviso, Boton, Cargando, Etiqueta, Monto, PlacaRoja, Tarjeta, useConfirmar } from './kit';
+import { fechaHora, numero, pesos } from '../lib/formato';
 
 // La cola de firmas. Antes estaba repartida en cinco pantallas y lo que nadie
 // miraba se enteraba el proveedor antes que la dirección. Acá arriba va lo que
@@ -115,46 +115,80 @@ export function Aprobaciones({ puedeFirmar }: { puedeFirmar: boolean }) {
 
       {items.length > 0 && (
         <div className="space-y-3">
-          {items.map((it) => (
-            <Tarjeta key={`${it.tipo}-${it.id}`}>
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Etiqueta tono="neutro">{ETIQUETA[it.tipo] ?? it.tipo}</Etiqueta>
-                    {it.dias >= 2 && <Etiqueta tono="error">esperando hace {it.dias} días</Etiqueta>}
-                  </div>
-                  <p className="mt-2 break-words text-base font-semibold text-tinta sm:text-sm">{it.titulo}</p>
-                  <p className="mt-0.5 break-words text-xs text-tinta/60">
-                    {it.detalle}
-                    {it.pidio && ` · pidió ${it.pidio}`}
-                    {` · ${fechaHora(it.cuando)}`}
-                  </p>
-                  {PDF[it.tipo] && (
-                    <a href={`/api/documento?tipo=${PDF[it.tipo]}&id=${it.id}`} target="_blank" rel="noreferrer"
-                      className="mt-1 inline-flex min-h-11 items-center text-sm font-medium text-marca-hondo underline underline-offset-2 sm:min-h-0 sm:text-xs">
-                      ver el documento antes de firmar
-                    </a>
-                  )}
-                </div>
-
-                <div className="flex shrink-0 flex-col gap-2 sm:items-end">
-                  {it.monto != null && <Monto valor={it.monto} className="text-xl font-semibold text-tinta" />}
-                  {puedeFirmar ? (
-                    <div className="grid grid-cols-2 gap-2 sm:flex">
-                      <Boton variante="ok" onClick={() => resolver(it, 'aprobar')} disabled={trabajando === it.id} cargando={trabajando === it.id}>
-                        Aprobar
-                      </Boton>
-                      <Boton variante="peligro" onClick={() => resolver(it, 'rechazar')} disabled={trabajando === it.id}>
-                        Rechazar
-                      </Boton>
-                    </div>
-                  ) : (
-                    <span className="text-xs text-tinta/60">espera la firma del dueño</span>
-                  )}
-                </div>
+          {items.map((it) => {
+            const firma = puedeFirmar ? (
+              <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto">
+                <Boton variante="ok" onClick={() => resolver(it, 'aprobar')} disabled={trabajando === it.id} cargando={trabajando === it.id}>
+                  Aprobar
+                </Boton>
+                <Boton variante="peligro" onClick={() => resolver(it, 'rechazar')} disabled={trabajando === it.id}>
+                  Rechazar
+                </Boton>
               </div>
-            </Tarjeta>
-          ))}
+            ) : (
+              <span className="text-xs text-tinta/60">espera la firma del dueño</span>
+            );
+
+            // La devolución en caja detalla productos: va en la Placa roja, el
+            // paquete gráfico de pedidos y listas de precios (2/10/2026, pedido
+            // de Leandro). Antes era una línea "2× Fernet, 1× Coca" y no se veía
+            // qué costaba cada renglón. Un pedido viejo sin detalle sigue en tarjeta.
+            const productos = (it.tipo === 'devolucion' ? it.productos ?? [] : []) as { nombre: string; cantidad: number; precio: number }[];
+            if (productos.length > 0) {
+              return (
+                <PlacaRoja
+                  key={`${it.tipo}-${it.id}`}
+                  titulo="Devolución"
+                  sub={`${it.pidio ? `Pidió ${it.pidio} · ` : ''}${fechaHora(it.cuando)}`}
+                  renglones={productos.map((p, n) => ({
+                    clave: `${n}-${p.nombre}`,
+                    cantidad: p.cantidad,
+                    nombre: p.nombre,
+                    detalle: `${numero(p.cantidad, 3)} × ${pesos(p.precio)}`,
+                    importe: pesos(p.cantidad * p.precio),
+                  }))}
+                  total={{ etiqueta: 'A devolver', valor: pesos(it.monto ?? 0) }}
+                  recuadro={
+                    <div className="space-y-2">
+                      {it.dias >= 2 && <Etiqueta tono="error">esperando hace {it.dias} días</Etiqueta>}
+                      <p className="break-words text-tinta/70">{it.detalle}</p>
+                    </div>
+                  }
+                  acciones={firma}
+                />
+              );
+            }
+
+            return (
+              <Tarjeta key={`${it.tipo}-${it.id}`}>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Etiqueta tono="neutro">{ETIQUETA[it.tipo] ?? it.tipo}</Etiqueta>
+                      {it.dias >= 2 && <Etiqueta tono="error">esperando hace {it.dias} días</Etiqueta>}
+                    </div>
+                    <p className="mt-2 break-words text-base font-semibold text-tinta sm:text-sm">{it.titulo}</p>
+                    <p className="mt-0.5 break-words text-xs text-tinta/60">
+                      {it.detalle}
+                      {it.pidio && ` · pidió ${it.pidio}`}
+                      {` · ${fechaHora(it.cuando)}`}
+                    </p>
+                    {PDF[it.tipo] && (
+                      <a href={`/api/documento?tipo=${PDF[it.tipo]}&id=${it.id}`} target="_blank" rel="noreferrer"
+                        className="mt-1 inline-flex min-h-11 items-center text-sm font-medium text-marca-hondo underline underline-offset-2 sm:min-h-0 sm:text-xs">
+                        ver el documento antes de firmar
+                      </a>
+                    )}
+                  </div>
+
+                  <div className="flex shrink-0 flex-col gap-2 sm:items-end">
+                    {it.monto != null && <Monto valor={it.monto} className="text-xl font-semibold text-tinta" />}
+                    {firma}
+                  </div>
+                </div>
+              </Tarjeta>
+            );
+          })}
         </div>
       )}
       {dialogo}
