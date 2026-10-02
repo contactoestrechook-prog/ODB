@@ -12,11 +12,14 @@ import { tmpdir } from 'node:os';
 // muestra cantidad, producto, cantidad × unitario y subtotal por separado, el
 // total en una píldora negra y la entrega en su recuadro.
 
-const ROJO = '#B82D25';
-const CREMA = '#F0EBE2';
-const NEGRO = '#141414';
-const GRIS = '#6B6660';
-const LINEA = '#DDD5C8';
+// Exportados (2/10/2026) para que los PDF que detallan productos (documentos.ts,
+// presupuesto de eventos) usen la misma paleta: si la Placa roja cambia de
+// color, cambian todos juntos.
+export const ROJO = '#B82D25';
+export const CREMA = '#F0EBE2';
+export const NEGRO = '#141414';
+export const GRIS = '#6B6660';
+export const LINEA = '#DDD5C8';
 
 export type RenglonPedido = { nombre: string; cantidad: number; unitario: number; subtotal: number };
 export type ResumenPedido = {
