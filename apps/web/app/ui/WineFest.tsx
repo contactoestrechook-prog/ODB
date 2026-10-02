@@ -45,7 +45,7 @@ export function WineFest() {
     <section className="max-w-7xl mx-auto px-5 lg:px-8 mt-5">
       <div className="rounded-[28px] bg-rojo-osc text-white grid md:grid-cols-[1fr_auto] items-center gap-8 lg:gap-14 px-7 sm:px-12 py-10 sm:py-12">
         <div className="min-w-0 order-2 md:order-1">
-          <p className="text-[12px] font-bold tracking-[0.16em] uppercase text-white/70">Tercera edición · Jueves 30 de octubre</p>
+          <p className="text-[12px] font-bold tracking-[0.16em] uppercase text-white/70">Tercera edición · Viernes 30 de octubre</p>
           <h2 className="marca font-black leading-[1.02] tracking-[-0.02em] [text-wrap:balance] mt-4 text-[40px] sm:text-[56px]">
             ODB Wine Fest 2026
           </h2>
@@ -61,6 +61,8 @@ export function WineFest() {
               {sonido ? "Silenciar el video" : "Ver con sonido"}
             </button>
           </div>
+          {/* también se venden en el mostrador (pedido de Leandro, 2/10/2026) */}
+          <p className="mt-4 text-[14px] font-semibold text-white/75">También en nuestros locales de Saint Thomas y Santa Inés.</p>
         </div>
 
         <div className="order-1 md:order-2 justify-self-center">

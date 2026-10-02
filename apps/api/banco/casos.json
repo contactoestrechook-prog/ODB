@@ -624,12 +624,37 @@
         "cliente": "como compro la entrada para el wine fest?",
         "espera": {
           "debe": [
-            "passcore"
+            "passcore",
+            "local|locales|sucursal|Saint Thomas|Santa In"
+          ],
+          "no_debe": [
+            "(solo|solamente|[uú]nicamente)\\s+(por|con|a trav[eé]s de|desde)",
+            "no (hay|se) vend"
           ]
         }
       }
     ],
-    "juez": "Pasa el link de Passcore. No ofrece venderla por el chat ni por transferencia."
+    "juez": "Pasa el link de Passcore y dice que también se pueden comprar en forma presencial en los locales (2/10/2026: se venden en el mostrador). No dice que se consiguen solo por Passcore. No ofrece venderla por el chat ni cobrarla por transferencia."
+  },
+  {
+    "id": "casa-05b",
+    "categoria": "la casa",
+    "titulo": "Entrada del Wine Fest en el local",
+    "turnos": [
+      {
+        "cliente": "se puede comprar la entrada del wine fest en el local?",
+        "espera": {
+          "debe": [
+            "s[ií]\\b|pod[eé]s|se puede"
+          ],
+          "no_debe": [
+            "no (hay|se) vend",
+            "(solo|solamente|[uú]nicamente)\\s+(por|con|a trav[eé]s de|desde)"
+          ]
+        }
+      }
+    ],
+    "juez": "Dice que sí: la entrada también se compra en forma presencial en los locales de O.D.B (Saint Thomas y Santa Inés), y puede ofrecer además el link de Passcore. No inventa medios de pago ni precios distintos para el local."
   },
   {
     "id": "pago-01",
