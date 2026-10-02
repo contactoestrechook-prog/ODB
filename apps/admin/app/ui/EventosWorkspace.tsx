@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { fecha, pesos as pesosFmt } from '../lib/formato';
+import { fecha, numero, pesos as pesosFmt } from '../lib/formato';
 import {
   Aviso,
   Boton,
@@ -13,6 +13,7 @@ import {
   IconoCerrar,
   Kpi,
   Pestanas,
+  PlacaRoja,
   Selector,
   Tarjeta,
   Vacio,
@@ -240,51 +241,59 @@ function Detalle({ ev, onBack }: { ev: any; onBack: () => void }) {
         </div>
       </Tarjeta>
 
-      <Tarjeta className="space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className="text-base font-semibold text-tinta">Propuesta</h3>
-          <span className="importe text-lg font-semibold text-tinta">{pesos(total)}</span>
-        </div>
-        {items.length === 0 ? <p className="py-4 text-center text-sm text-tinta/60">Sin ítems. Usá la sugerencia de IA o agregá productos.</p> : (
-          <div className="divide-y divide-black/[0.06]">
-            {items.map((it, i) => (
-              <div key={i} className="flex flex-wrap items-center gap-x-3 gap-y-2 py-2.5 sm:flex-nowrap">
-                <span className="min-w-0 basis-full break-words text-sm text-tinta sm:basis-auto sm:flex-1">{it.descripcion}</span>
-                <div className="w-20 shrink-0">
+      {/* La propuesta de bebidas, como Placa roja (pedido de Leandro, 2/10/2026:
+          "siempre que se detallen productos vamos a usar el paquete gráfico de
+          pedidos y lista de precio"). La cantidad va en el círculo y se sigue
+          corrigiendo abajo de cada renglón; el total, en la píldora negra. */}
+      <PlacaRoja
+        titulo="Propuesta"
+        sub={ev.nombre}
+        renglones={items.map((it, i) => ({
+          cantidad: it.cantidad,
+          nombre: it.descripcion,
+          detalle: `${numero(it.cantidad, 2)} × ${pesos(it.precio_unitario)}`,
+          importe: pesos(Number(it.cantidad) * Number(it.precio_unitario)),
+          acciones: (
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="flex items-center gap-2 text-sm text-tinta/60">
+                Cantidad
+                <span className="w-24 shrink-0">
                   <Entrada type="number" inputMode="decimal" value={it.cantidad} onChange={(e) => editar(i, 'cantidad', Number(e.target.value))} aria-label={`Cantidad de ${it.descripcion}`} className="text-center" />
-                </div>
-                <span className="importe min-w-0 flex-1 truncate text-sm text-tinta/60 sm:w-24 sm:flex-none sm:text-right">
-                  <span className="sm:hidden">× </span>{pesos(it.precio_unitario)}
                 </span>
-                <span className="importe text-right text-sm font-medium text-tinta sm:w-28">{pesos(Number(it.cantidad) * Number(it.precio_unitario))}</span>
-                <button
-                  onClick={() => setItems((c) => c.filter((_, idx) => idx !== i))}
-                  aria-label={`Quitar ${it.descripcion}`}
-                  className={unir('flex size-11 shrink-0 items-center justify-center rounded-full text-tinta/60 hover:bg-marca-suave hover:text-marca-hondo', FOCO)}
-                >
-                  <IconoCerrar className="size-5" />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-        <div className="relative">
-          <Entrada value={q} onChange={(e) => setQ(e.target.value)} placeholder="+ Agregar producto…" aria-label="Agregar producto" />
-          {res.length > 0 && (
-            <div className="absolute z-contenido mt-1 w-full overflow-hidden rounded-xl border border-black/[0.06] bg-white shadow-flotante">
-              {res.map((p) => (
-                <button
-                  key={p.sku}
-                  onClick={() => agregar(p)}
-                  className="flex min-h-11 w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm text-tinta hover:bg-crema-claro focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-marca"
-                >
-                  <span className="min-w-0 break-words">{p.nombre}</span><span className="importe shrink-0 text-tinta/60">{pesos(p.precio)}</span>
-                </button>
-              ))}
+              </label>
+              <button
+                onClick={() => setItems((c) => c.filter((_, idx) => idx !== i))}
+                aria-label={`Quitar ${it.descripcion}`}
+                className={unir('ml-auto flex size-11 shrink-0 items-center justify-center rounded-full text-tinta/60 hover:bg-marca-suave hover:text-marca-hondo', FOCO)}
+              >
+                <IconoCerrar className="size-5" />
+              </button>
             </div>
-          )}
-        </div>
-      </Tarjeta>
+          ),
+        }))}
+        total={items.length > 0 ? { etiqueta: 'Total', valor: pesos(total) } : undefined}
+        pie={items.length === 0 ? 'Sin ítems. Usá la sugerencia de IA o agregá productos.' : undefined}
+        acciones={
+          // la placa recorta lo que se le sale (overflow-hidden por las puntas
+          // redondeadas): los resultados van debajo del campo, no flotando encima
+          <div className="w-full min-w-0 space-y-1">
+            <Entrada value={q} onChange={(e) => setQ(e.target.value)} placeholder="+ Agregar producto…" aria-label="Agregar producto" />
+            {res.length > 0 && (
+              <div className="overflow-hidden rounded-xl border border-black/[0.06] bg-white">
+                {res.map((p) => (
+                  <button
+                    key={p.sku}
+                    onClick={() => agregar(p)}
+                    className="flex min-h-11 w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm text-tinta hover:bg-crema-claro focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-marca"
+                  >
+                    <span className="min-w-0 break-words">{p.nombre}</span><span className="importe shrink-0 text-tinta/60">{pesos(p.precio)}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        }
+      />
 
       {msg && <Aviso tono={tonoMsg(msg)}>{sinTilde(msg)}</Aviso>}
       <div className="flex flex-wrap items-center gap-2">

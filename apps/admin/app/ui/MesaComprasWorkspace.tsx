@@ -4,8 +4,8 @@ import { useEffect, useRef, useState } from 'react';
 import { BotonMicrofono } from './BotonMicrofono';
 import { prepararComprobante } from './comprimirImagen';
 import { AbastecimientoPanel } from './AbastecimientoPanel';
-import { Aviso, Boton, CLASES_ENTRADA, Cargando, Etiqueta, FOCO, Pestanas, PlacaRoja, TablaResponsiva, Tarjeta, TarjetaCabecera, Vacio, unir, useConfirmar, type DetallePlaca } from './kit';
-import { pesos } from '../lib/formato';
+import { Aviso, Boton, CLASES_ENTRADA, Cargando, FOCO, Pestanas, PlacaRoja, Tarjeta, TarjetaCabecera, Vacio, unir, useConfirmar, type DetallePlaca } from './kit';
+import { numero, pesos } from '../lib/formato';
 
 // Mesa de compras: el comprador negocia con el proveedor y acá saca el costo
 // real. El sistema hace las cuentas; el analista razona, pregunta y arma la
@@ -215,79 +215,63 @@ export function MesaComprasWorkspace({ esDueno, tabInicial }: { esDueno: boolean
           {propuestas.length === 0 && (
             <Vacio titulo="No hay nada esperando aprobación." texto="Las propuestas que arme el analista de compras aparecen acá." />
           )}
+          {/* Cada propuesta, como Placa roja (pedido de Leandro, 2/10/2026:
+              "siempre que se detallen productos vamos a usar el paquete gráfico
+              de pedidos y lista de precio"). A la derecha va el precio que
+              quedaría en góndola; en gris, de dónde sale (costo y margen) y el
+              precio de antes; en rojo, lo que el dueño tiene que mirar antes
+              de aprobar. */}
           {propuestas.map((p) => (
-            <Tarjeta key={p.id} relleno={false} className="overflow-hidden">
-              <TarjetaCabecera
-                nivel={3}
-                titulo={p.titulo}
-                sub={`${p.proveedor?.razon_social ?? 'Sin proveedor'} · lo armó ${p.autor?.nombre ?? 'alguien'}`}
-              />
-              {p.notas && <p className="border-b border-black/[0.06] px-4 py-3 text-sm text-tinta/70 sm:px-5">{p.notas}</p>}
-
-              <TablaResponsiva
-                sinMarco
-                etiqueta={`Cambios de ${p.titulo}`}
-                filas={p.items ?? []}
-                claveFila={(i: any, n) => i.producto?.sku ?? n}
-                vacio={<></>}
-                columnas={[
-                  {
-                    clave: 'producto',
-                    titulo: 'Producto',
-                    principal: true,
-                    celda: (i: any) => (
-                      <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-                        <span className="min-w-0 break-words text-tinta">{i.producto?.nombre}<span className="text-xs font-normal text-tinta/60"> · {i.producto?.sku}</span></span>
-                        {i.detalle?.vendeBajoCosto && <Etiqueta tono="error">queda bajo costo</Etiqueta>}
+            <PlacaRoja
+              key={p.id}
+              titulo="Precios nuevos"
+              sub={
+                <>
+                  <span className="block">{p.titulo}</span>
+                  <span className="block">{p.proveedor?.razon_social ?? 'Sin proveedor'} · lo armó {p.autor?.nombre ?? 'alguien'}</span>
+                </>
+              }
+              renglones={(p.items ?? []).map((i: any, n: number) => {
+                const sube = Number(i.costo_nuevo) > Number(i.costo_anterior ?? 0);
+                const avisos = [!i.aplicar_precio && 'no se toca el precio', i.detalle?.vendeBajoCosto && 'queda bajo costo'].filter(Boolean);
+                return {
+                  clave: i.producto?.sku ?? String(n),
+                  nombre: (
+                    <>
+                      {i.producto?.nombre}{' '}
+                      <span className="whitespace-nowrap text-xs font-normal text-tinta/60">· {i.producto?.sku}</span>
+                    </>
+                  ),
+                  detalle: (
+                    <>
+                      <span className="block">
+                        costo {pesos(i.costo_anterior)} → <span className={sube ? 'font-medium text-marca-hondo' : 'font-medium text-ok'}>{pesos(i.costo_nuevo)}</span>
+                        {' · '}margen {numero(i.margen_pct, 2)} %
                       </span>
-                    ),
-                  },
-                  {
-                    clave: 'costo',
-                    titulo: 'Costo',
-                    importe: true,
-                    celda: (i: any) => {
-                      const sube = Number(i.costo_nuevo) > Number(i.costo_anterior ?? 0);
-                      return (
-                        <span className="importe">
-                          <span className="text-tinta/60">{pesos(i.costo_anterior)}</span>
-                          <span className="text-tinta/60"> → </span>
-                          <span className={sube ? 'font-medium text-marca-hondo' : 'font-medium text-ok'}>{pesos(i.costo_nuevo)}</span>
-                        </span>
-                      );
-                    },
-                  },
-                  {
-                    clave: 'precio',
-                    titulo: 'Precio de venta',
-                    importe: true,
-                    celda: (i: any) => (i.aplicar_precio ? (
-                      <span className="importe">
-                        <span className="text-tinta/60">{pesos(i.precio_anterior)}</span>
-                        <span className="text-tinta/60"> → </span>
-                        <span className="font-medium text-tinta">{pesos(i.precio_sugerido)}</span>
-                      </span>
-                    ) : (
-                      <span className="text-tinta/60">no se toca</span>
-                    )),
-                  },
-                  { clave: 'margen', titulo: 'Margen', importe: true, celda: (i: any) => <span className="text-tinta/70">{i.margen_pct}%</span> },
-                ]}
-              />
-
-              <div className="flex flex-wrap items-center justify-end gap-2 border-t border-black/[0.06] px-4 py-3 sm:px-5">
-                <Boton variante="peligro" onClick={() => decidir(p.id, 'rechazar')} disabled={!!trabajando}>
-                  Rechazar
-                </Boton>
-                {esDueno ? (
-                  <Boton onClick={() => decidir(p.id, 'aprobar')} disabled={!!trabajando}>
-                    {trabajando === p.id ? 'Aplicando…' : 'Aprobar y aplicar'}
+                      {i.aplicar_precio && <span className="block">antes {pesos(i.precio_anterior)}</span>}
+                    </>
+                  ),
+                  // si el precio no se toca no hay precio nuevo que mostrar: lo dice el renglón en rojo
+                  importe: i.aplicar_precio ? pesos(i.precio_sugerido) : undefined,
+                  destacado: avisos.length ? avisos.join(' · ') : undefined,
+                };
+              })}
+              recuadro={p.notas ? <span className="text-tinta/70">{p.notas}</span> : undefined}
+              acciones={
+                <>
+                  <Boton variante="peligro" onClick={() => decidir(p.id, 'rechazar')} disabled={!!trabajando}>
+                    Rechazar
                   </Boton>
-                ) : (
-                  <span className="text-xs text-tinta/60">Solo el dueño puede aprobar</span>
-                )}
-              </div>
-            </Tarjeta>
+                  {esDueno ? (
+                    <Boton variante="ok" onClick={() => decidir(p.id, 'aprobar')} disabled={!!trabajando}>
+                      {trabajando === p.id ? 'Aplicando…' : 'Aprobar y aplicar'}
+                    </Boton>
+                  ) : (
+                    <span className="text-xs text-tinta/60">Solo el dueño puede aprobar</span>
+                  )}
+                </>
+              }
+            />
           ))}
         </div>
       )}
