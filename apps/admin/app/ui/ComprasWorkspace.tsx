@@ -10,9 +10,10 @@ import { conversionSugerida } from '../lib/presentacion';
 import { PanelImpuestos } from './PanelImpuestos';
 import {
   Aviso, Boton, CLASES_ENTRADA, Cargando, Etiqueta, FOCO, FOCO_ADENTRO, Girador, IconoAtencion, IconoCerrar, IconoError, IconoInfo, IconoOk, Kpi, Modal as Ventana,
-  Pestanas, TablaResponsiva, Tarjeta, TarjetaCabecera, Vacio, clasesBoton, unir, type TonoEtiqueta,
+  Pestanas, PlacaRoja, TablaResponsiva, Tarjeta, TarjetaCabecera, Vacio, clasesBoton, unir, type TonoEtiqueta,
 } from './kit';
-import { fecha, pesos } from '../lib/formato';
+// `numero` se renombra: OrdenDetalle ya tiene una prop `numero` (el de la OC)
+import { fecha, numero as cifra, pesos } from '../lib/formato';
 
 // Mismo redondeo de góndola que aplica el servidor al guardar el precio
 // (apps/api/src/compras/precio.ts): a la centena, de 50 para arriba sube. Se
@@ -2627,23 +2628,32 @@ function OrdenDetalle({ id, numero, cerrar, verFactura }: { id: string; numero: 
             {d.observaciones && <p className="mt-0.5 break-words text-xs italic text-tinta/60">“{d.observaciones}”</p>}
           </div>
 
-          <div className="max-h-64 divide-y divide-black/[0.06] overflow-y-auto rounded-xl border border-black/[0.06]">
-            <div className="hidden items-center gap-2 px-3 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-tinta/60 sm:flex">
-              <span className="flex-1">Producto</span><span className="w-20 text-right">Pedido</span><span className="w-20 text-right">Recibido</span><span className="w-24 text-right">Costo</span>
-            </div>
-            {(d.items ?? []).map((it: any, i: number) => {
-              const falta = Number(it.cantidad_recibida ?? 0) < Number(it.cantidad);
-              return (
-                <div key={i} className="grid grid-cols-3 gap-x-2 gap-y-1 px-3 py-2 text-sm sm:flex sm:items-center">
-                  <span className="col-span-3 min-w-0 break-words text-tinta sm:flex-1">{it.producto?.nombre ?? '—'} <span className="text-xs text-tinta/60">{it.producto?.sku}</span></span>
-                  <span className="importe text-tinta/70 sm:w-20 sm:text-right"><span className="text-xs text-tinta/60 sm:hidden">Pedido </span>{it.cantidad}</span>
-                  <span className={`importe sm:w-20 sm:text-right ${falta ? 'font-medium text-marca-hondo' : 'text-tinta/70'}`}><span className="text-xs font-normal text-tinta/60 sm:hidden">Recibido </span>{it.cantidad_recibida ?? 0}</span>
-                  <span className="importe text-right text-tinta/70 sm:w-24">{pesos(it.costo_unitario ?? 0)}</span>
-                </div>
-              );
+          {/* Los productos de la orden, como Placa roja (el paquete gráfico de
+              pedidos y listas de precios). Pedido de Leandro (2/10/2026):
+              "siempre que se detallen productos vamos a usar el paquete gráfico
+              de pedidos". Lo pedido va en el círculo; lo que falta recibir, en
+              rojo (antes era el número de "Recibido" en rojo: misma regla).
+              Ya no tiene alto máximo propio: con una lista larga se desplaza la
+              ventana entera, no una caja adentro de otra. */}
+          <PlacaRoja
+            titulo="ORDEN DE COMPRA"
+            sub={<>OC #{numero}{d.proveedor?.razon_social ? ` · ${d.proveedor.razon_social}` : ''}</>}
+            renglones={(d.items ?? []).map((it: any, i: number) => {
+              const pedida = Number(it.cantidad ?? 0);
+              const recibida = Number(it.cantidad_recibida ?? 0);
+              const costo = Number(it.costo_unitario ?? 0);
+              const faltan = pedida - recibida;
+              return {
+                clave: String(i),
+                cantidad: pedida,
+                nombre: it.producto?.nombre ?? '—',
+                detalle: [it.producto?.sku, `${cifra(pedida, 2)} × ${pesos(costo)}`, `recibido ${cifra(recibida, 2)} de ${cifra(pedida, 2)}`].filter(Boolean).join(' · '),
+                destacado: recibida < pedida ? `Falta${faltan === 1 ? '' : 'n'} ${cifra(faltan, 2)} por recibir` : undefined,
+                importe: pesos(pedida * costo),
+              };
             })}
-            <div className="flex justify-between gap-2 px-3 py-2"><span className="text-sm font-semibold text-tinta">TOTAL</span><span className="importe font-semibold text-tinta">{pesos(d.total ?? 0)}</span></div>
-          </div>
+            total={{ etiqueta: 'TOTAL', valor: pesos(d.total ?? 0) }}
+          />
 
           {/* FACTURAS de esta compra: el motivo por el que esto es clickeable */}
           <div>
@@ -2721,26 +2731,40 @@ function FacturaDetalle({ id, cerrar, volviendo }: { id: string; cerrar: () => v
             <p className="break-words"><b>{d.proveedor?.razon_social}</b>{d.proveedor?.cuit ? ` · CUIT ${d.proveedor.cuit}` : ''}</p>
             <p className="text-xs text-tinta/70">{fecha(d.creado_en)} · {ESTADO[d.estado] ?? d.estado}{d.vencimiento ? ` · vence ${fecha(d.vencimiento)}` : ''}</p>
           </div>
-          <div className="space-y-1 rounded-xl border border-black/[0.06] p-3 text-sm">
-            {[['Neto gravado', d.neto], ['IVA', d.iva], ['Percepción IVA', d.percepcion_iva], ['Percepción IIBB', d.percepcion_iibb], ['Impuestos internos', d.impuestos_internos], ['Otros impuestos', d.otros_impuestos]]
-              .filter(([, v]: any) => v != null && Number(v) !== 0)
-              .map(([l, v]: any) => (
-                <div key={l} className="flex justify-between gap-2"><span className="text-tinta/70">{l}</span><span className="importe text-tinta">{pesos(v)}</span></div>
-              ))}
-            <div className="mt-1 flex justify-between gap-2 border-t border-black/[0.06] pt-1"><span className="font-semibold text-tinta">TOTAL</span><span className="importe font-semibold text-tinta">{pesos(d.monto ?? 0)}</span></div>
-          </div>
-          {d.items?.length > 0 ? (
-            <div className="max-h-56 divide-y divide-black/[0.06] overflow-y-auto rounded-xl border border-black/[0.06]">
-              {d.items.map((it: any, i: number) => (
-                <div key={i} className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 px-3 py-2 text-sm">
-                  <span className="min-w-0 break-words text-tinta">{it.cantidad}× {it.nombre}</span>
-                  {it.costo != null && <span className="importe shrink-0 text-xs text-tinta/60">costo {pesos(it.costo)}</span>}
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-xs text-tinta/60">Sin renglones asociados (factura cargada a mano).</p>
-          )}
+          {/* Los renglones de la factura, como Placa roja (pedido de Leandro,
+              2/10/2026: todo detalle de productos con el paquete gráfico de
+              pedidos). El total va en la píldora y el desglose fiscal (neto,
+              IVA, percepciones) en el recuadro de abajo. El costo de cada
+              renglón es el costo del producto en el sistema, no el renglón
+              facturado: por eso va en gris y no se multiplica como subtotal
+              (no sumaría el neto de la factura y confundiría). */}
+          <PlacaRoja
+            titulo={d.tipo === 'nota_credito' ? 'NOTA DE CRÉDITO' : d.tipo === 'nota_debito' ? 'NOTA DE DÉBITO' : 'FACTURA'}
+            sub={[[d.letra, d.numero].filter(Boolean).join(' '), d.proveedor?.razon_social].filter(Boolean).join(' · ') || undefined}
+            renglones={(d.items ?? []).map((it: any, i: number) => ({
+              clave: String(i),
+              cantidad: it.cantidad,
+              nombre: it.nombre,
+              detalle: [it.sku, it.costo != null ? `costo ${pesos(it.costo)}` : ''].filter(Boolean).join(' · ') || undefined,
+            }))}
+            total={{ etiqueta: 'TOTAL', valor: pesos(d.monto ?? 0) }}
+            recuadro={(() => {
+              const desglose = ([['Neto gravado', d.neto], ['IVA', d.iva], ['Percepción IVA', d.percepcion_iva], ['Percepción IIBB', d.percepcion_iibb], ['Impuestos internos', d.impuestos_internos], ['Otros impuestos', d.otros_impuestos]] as [string, any][])
+                .filter(([, v]) => v != null && Number(v) !== 0);
+              if (!desglose.length) return undefined;
+              return (
+                <dl className="space-y-1">
+                  {desglose.map(([l, v]) => (
+                    <div key={l} className="flex flex-wrap justify-between gap-x-2">
+                      <dt className="min-w-0 text-tinta/70">{l}</dt>
+                      <dd className="importe text-tinta">{pesos(v)}</dd>
+                    </div>
+                  ))}
+                </dl>
+              );
+            })()}
+            pie={d.items?.length > 0 ? undefined : 'Sin renglones asociados (factura cargada a mano).'}
+          />
 
           {/* El papel original. Es lo que se mira cuando hay una duda: el enlace
               es temporal (lo firma el API, el archivo no es público). */}
