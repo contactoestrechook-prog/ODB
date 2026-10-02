@@ -221,6 +221,92 @@ export async function cartelPedido(r: ResumenPedido): Promise<Buffer> {
 }
 
 // ============================================================================
+// NOTA DE PEDIDO AL PROVEEDOR COMO IMAGEN (2/10/2026). Pedido de Leandro: "que
+// usen la gráfica que venimos usando para los pedidos". Es la misma Placa roja
+// del resumen: cantidad en el círculo rojo, producto y su código del proveedor;
+// sin precios (el precio lo pone su factura) y, en lugar del total, el número
+// de pedido y a dónde se entrega.
+// ============================================================================
+
+export type NotaDePedidoCartel = {
+  folio: string;
+  renglones: { nombre: string; cantidad: number; codigoProveedor?: string | null }[];
+  sucursal: string;
+  direccion?: string | null;
+  fechaEntrega?: string | null; // ya legible ("viernes 9/10")
+};
+
+export const MAX_RENGLONES_CARTEL = 30;
+
+export async function cartelNotaDePedido(n: NotaDePedidoCartel): Promise<Buffer> {
+  const W = 1080, M = 48, TOP = 250, SEP = 14;
+  const visibles = n.renglones.slice(0, MAX_RENGLONES_CARTEL);
+  const resto = n.renglones.length - visibles.length;
+  const filas = visibles.map((x) => ({ ...x, lineas: partir(x.nombre, 33, 760, 2) }));
+  const tieneCodigo = (f: { codigoProveedor?: string | null }) => !!f.codigoProveedor;
+  const altoFila = (f: (typeof filas)[number]) => 56 + f.lineas.length * 38 + (tieneCodigo(f) ? 34 : 0) + 6;
+  const altoFilas = filas.reduce((s, f) => s + Math.max(112, altoFila(f)) + SEP, 0) + (resto > 0 ? 60 : 0);
+  const alto = TOP + altoFilas + 148 + 136 + 100;
+  const enteras = n.renglones.every((x) => Number.isInteger(x.cantidad));
+  const unidades = n.renglones.reduce((s, x) => s + x.cantidad, 0);
+  const sub = `${n.renglones.length} producto${n.renglones.length === 1 ? '' : 's'}${enteras ? ` · ${unidades.toLocaleString('es-AR')} unidades` : ''}`;
+  const cant = (v: number) => (Number.isInteger(v) ? v.toLocaleString('es-AR') : String(v).replace('.', ','));
+
+  let y = TOP;
+  const cuerpo = filas.map((f) => {
+    const h = Math.max(112, altoFila(f));
+    const cy = y + h / 2;
+    const c = cant(f.cantidad);
+    // el bloque de texto (nombre y código) va centrado en la fila
+    const bloque = f.lineas.length * 38 + (tieneCodigo(f) ? 38 : 0);
+    const base = y + (h - bloque) / 2 + 28;
+    const s = `
+    <rect x="${M}" y="${y}" width="${W - 2 * M}" height="${h}" rx="18" fill="#FFFFFF" stroke="${LINEA}" stroke-width="2"/>
+    <circle cx="${M + 66}" cy="${cy}" r="40" fill="${ROJO}"/>
+    <text x="${M + 66}" y="${cy + (c.length > 3 ? 9 : 14)}" font-family="Montserrat" font-weight="800" font-size="${c.length > 3 ? 22 : c.length > 2 ? 28 : 38}" fill="#FFFFFF" text-anchor="middle">${esc(c)}</text>
+    ${f.lineas.map((t, k) => `<text x="${M + 134}" y="${base + k * 38}" font-family="Inter" font-weight="600" font-size="33" fill="${NEGRO}">${esc(t)}</text>`).join('')}
+    ${tieneCodigo(f) ? `<text x="${M + 134}" y="${base + f.lineas.length * 38 + 2}" font-family="Inter" font-size="26" fill="${GRIS}">${esc(`Su código: ${f.codigoProveedor}`)}</text>` : ''}`;
+    y += h + SEP;
+    return s;
+  }).join('');
+  const masProductos = resto > 0
+    ? `<text x="${W / 2}" y="${y + 36}" font-family="Inter" font-weight="600" font-size="28" fill="${GRIS}" text-anchor="middle">${esc(`…y ${resto} producto${resto === 1 ? '' : 's'} más: están todos en el PDF`)}</text>`
+    : '';
+  if (resto > 0) y += 60;
+
+  const yE = y + 2;
+  const detalle = [n.direccion, n.fechaEntrega].filter(Boolean).join(' · ');
+  const entrega = `
+  <rect x="${M}" y="${yE}" width="${W - 2 * M}" height="120" rx="18" fill="#FFFFFF" stroke="${LINEA}" stroke-width="2"/>
+  <text x="${M + 36}" y="${yE + (detalle ? 50 : 70)}" font-family="Inter" font-weight="800" font-size="30" fill="${ROJO}">${esc(partir(`Entregar en ${n.sucursal}`, 30, W - 2 * M - 72, 1)[0])}</text>
+  ${detalle ? `<text x="${M + 36}" y="${yE + 92}" font-family="Inter" font-size="28" fill="${GRIS}">${esc(partir(detalle, 28, W - 2 * M - 72, 1)[0])}</text>` : ''}`;
+  const yP = yE + 148;
+  const pedido = `
+  <rect x="${M}" y="${yP}" width="${W - 2 * M}" height="120" rx="60" fill="${NEGRO}"/>
+  <text x="${M + 56}" y="${yP + 76}" font-family="Montserrat" font-weight="800" font-size="38" fill="#FFFFFF">PEDIDO</text>
+  <text x="${W - M - 56}" y="${yP + 78}" font-family="Inter" font-weight="800" font-size="46" fill="#FFFFFF" text-anchor="end">${esc(n.folio)}</text>`;
+  const confirmar = `<text x="${W / 2}" y="${yP + 120 + 58}" font-family="Inter" font-weight="600" font-size="28" fill="${NEGRO}" text-anchor="middle">Respondan este mensaje para confirmar</text>`;
+
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${alto}" viewBox="0 0 ${W} ${alto}">
+  <rect width="${W}" height="${alto}" fill="${CREMA}"/>
+  <rect width="${W}" height="200" fill="${ROJO}"/>
+  <image x="${M}" y="40" width="190" height="${Math.round((190 * 74) / 121)}" href="data:image/png;base64,${LOGO_ODB_BLANCO}"/>
+  <text x="${W - M}" y="96" font-family="Montserrat" font-weight="800" font-size="42" fill="#FFFFFF" text-anchor="end">NOTA DE PEDIDO</text>
+  <text x="${W - M}" y="142" font-family="Inter" font-size="27" fill="#FFFFFF" fill-opacity="0.8" text-anchor="end">${esc(sub)}</text>
+  ${cuerpo}
+  ${masProductos}
+  ${entrega}
+  ${pedido}
+  ${confirmar}
+</svg>`;
+  const png = new Resvg(svg, {
+    font: { loadSystemFonts: false, fontFiles: await tipografias(), defaultFontFamily: 'Inter' },
+    fitTo: { mode: 'width', value: W },
+  });
+  return Buffer.from(png.render().asPng());
+}
+
+// ============================================================================
 // LISTA DE PRECIOS COMO IMAGEN (1/10/2026). El bot pasaba los precios en un
 // párrafo corrido ("Havana Blanco $17.800, Havana Añejo $20.300, …") y la tarjeta
 // de listas solo salía con renglones con viñeta: no salía nunca. Ahora la

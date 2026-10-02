@@ -1,4 +1,7 @@
-import { PedidosProveedorService, envioAutomaticoActivo, textoPedido } from './pedidos-proveedor.service';
+const mockCartel = jest.fn(async (_n: any) => Buffer.from('png'));
+jest.mock('../comun/cartel-pedido', () => ({ cartelNotaDePedido: (n: any) => mockCartel(n) }));
+
+import { PedidosProveedorService, envioAutomaticoActivo, epigrafePedido, textoPedido } from './pedidos-proveedor.service';
 
 // El pedido le llega al proveedor por WhatsApp (2/10/2026). WAHA va simulado:
 // acá no sale ningún mensaje.
@@ -52,9 +55,10 @@ function dbFalsa(o: { tomada?: boolean; oc?: any; faltan?: string[]; enviadasHoy
       return q;
     },
     storage: {
-      from: () => ({
-        upload: jest.fn(async (ruta: string) => { log.push({ subido: ruta }); return { error: null }; }),
+      from: (bucket: string) => ({
+        upload: jest.fn(async (ruta: string) => { log.push({ subido: `${bucket}/${ruta}` }); return { error: null }; }),
         createSignedUrl: jest.fn(async () => ({ data: { signedUrl: 'https://x.supabase.co/firmado/OC-2026-00002.pdf?token=t' }, error: null })),
+        getPublicUrl: (ruta: string) => ({ data: { publicUrl: `https://x.supabase.co/publico/${ruta}` } }),
       }),
     },
   };
@@ -64,6 +68,8 @@ function dbFalsa(o: { tomada?: boolean; oc?: any; faltan?: string[]; enviadasHoy
 const llamadasWaha: any[] = [];
 beforeEach(() => {
   llamadasWaha.length = 0;
+  mockCartel.mockReset();
+  mockCartel.mockImplementation(async () => Buffer.from('png'));
   process.env.WAHA_URL = 'https://waha.prueba';
   process.env.WAHA_API_KEY = 'k';
   delete process.env.ODB_OC_WHATSAPP;
@@ -101,13 +107,20 @@ describe('pedido al proveedor: el mensaje', () => {
 });
 
 describe('pedido al proveedor: el envío', () => {
-  it('sale el texto y el PDF al celular del proveedor y la orden pasa a enviada', async () => {
+  it('sale la tarjeta Placa roja con el saludo y después el PDF; la orden pasa a enviada', async () => {
     const db = dbFalsa();
     const r = await new PedidosProveedorService(db).enviar('oc1', { usuarioId: 'u-duenio' });
     expect(r).toMatchObject({ enviado: true, estado: 'enviado', folio: 'OC-2026-00002', telefono: '+54 9 11 3319-5593' });
-    expect(llamadasWaha.map((l) => l.url)).toEqual(['https://waha.prueba/api/sendText', 'https://waha.prueba/api/sendFile']);
+    expect(llamadasWaha.map((l) => l.url)).toEqual(['https://waha.prueba/api/sendImage', 'https://waha.prueba/api/sendFile']);
     expect(llamadasWaha[0].cuerpo.chatId).toBe('5491133195593@c.us');
-    expect(llamadasWaha[0].cuerpo.text).toContain('• 12 × Jugo Baggio 1LT (cód. BAG1)');
+    expect(llamadasWaha[0].cuerpo.file.url).toMatch(/publico\/carteles\/.*nota-pedido-OC-2026-00002/);
+    expect(llamadasWaha[0].cuerpo.caption).toContain('*OC-2026-00002*');
+    // la tarjeta lleva los productos con su código, sin precios
+    expect(mockCartel.mock.calls[0][0]).toMatchObject({
+      folio: 'OC-2026-00002', sucursal: 'Saint Thomas',
+      renglones: expect.arrayContaining([{ nombre: 'Jugo Baggio 1LT', cantidad: 12, codigoProveedor: 'BAG1' }]),
+    });
+    expect(JSON.stringify(mockCartel.mock.calls[0][0])).not.toMatch(/costo|precio|100/);
     expect(llamadasWaha[1].cuerpo.file.filename).toBe('OC-2026-00002.pdf');
     const upd = db.log.filter((l: any) => l.update).pop().datos;
     expect(upd).toMatchObject({ estado: 'enviada', whatsapp_estado: 'enviado', whatsapp_telefono: '5491133195593', enviada_por: 'u-duenio', whatsapp_error: null });
@@ -115,7 +128,23 @@ describe('pedido al proveedor: el envío', () => {
     expect(db.log.filter((l: any) => l.insert === 'bot_envios')).toHaveLength(2);
     // contacto nuevo: queda como proveedor
     expect(db.log.find((l: any) => l.insert === 'bot_contactos').datos).toMatchObject({ tipo: 'proveedor', proveedor_id: 'pv1' });
-    expect(db.log.find((l: any) => l.subido)?.subido).toBe('notas-de-pedido/OC-2026-00002.pdf');
+    expect(db.log.filter((l: any) => l.subido).map((l: any) => l.subido)).toContain('comprobantes/notas-de-pedido/OC-2026-00002.pdf');
+  });
+
+  it('si la tarjeta no se puede dibujar, el pedido sale igual en texto', async () => {
+    mockCartel.mockImplementation(async () => { throw new Error('sin fuentes'); });
+    const db = dbFalsa();
+    const r = await new PedidosProveedorService(db).enviar('oc1', {});
+    expect(r.enviado).toBe(true);
+    expect(llamadasWaha.map((l) => l.url)).toEqual(['https://waha.prueba/api/sendText', 'https://waha.prueba/api/sendFile']);
+    expect(llamadasWaha[0].cuerpo.text).toContain('• 12 × Jugo Baggio 1LT (cód. BAG1)');
+  });
+
+  it('el epígrafe saluda, dice el número y a dónde, sin precios', () => {
+    const t = epigrafePedido({ folio: 'OC-2026-00002', sucursal: 'Santa Inés', direccion: null });
+    expect(t).toContain('*O.D.B Premium Market*');
+    expect(t).toContain('*OC-2026-00002* para entregar en *Santa Inés*');
+    expect(t).not.toMatch(/\$/);
   });
 
   it('un contacto que ya existe (puede ser un cliente o alguien de la casa) no se reclasifica', async () => {

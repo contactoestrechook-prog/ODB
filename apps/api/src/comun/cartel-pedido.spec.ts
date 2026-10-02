@@ -1,4 +1,4 @@
-import { cartelPedido, leerResumenDePedido, nombreParaCartel } from './cartel-pedido';
+import { cartelNotaDePedido, cartelPedido, leerResumenDePedido, nombreParaCartel } from './cartel-pedido';
 
 const RESUMEN = [
   '• Fernet Branca  x750cc — 2 × $20.500 c/u = $41.000',
@@ -176,5 +176,20 @@ describe('el bot abrevia el producto por su medida', () => {
     ];
     const r = preciosDeLaRespuesta('Coca Cola Zero 1,75 L $4.700, la de 600 cc $2.500 y la lata de 355 $2.500.', cat);
     expect(r.map((x) => x.sku)).toEqual(['G', 'S', 'L']);
+  });
+});
+
+describe('nota de pedido al proveedor (Placa roja)', () => {
+  it('dibuja un PNG con los productos, sin precios', async () => {
+    const png = await cartelNotaDePedido({
+      folio: 'OC-2026-00002', sucursal: 'Saint Thomas', direccion: 'Mariano Castex 3601', fechaEntrega: null,
+      renglones: [
+        { nombre: 'Jugo Baggio 1LT', cantidad: 36, codigoProveedor: 'BAG1' },
+        { nombre: 'Chips Maretti Tomate olivia Oregano x70gr', cantidad: 30 },
+        { nombre: 'Aceite de Girasol Cañuelas x 900cc con un nombre larguísimo para ver el corte', cantidad: 1500 },
+      ],
+    });
+    expect(png.subarray(1, 4).toString()).toBe('PNG');
+    if (process.env.GUARDAR_CARTEL) require('fs').writeFileSync(process.env.GUARDAR_CARTEL, png);
   });
 });

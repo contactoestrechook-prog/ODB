@@ -3,7 +3,8 @@ import { Cron } from '@nestjs/schedule';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
 import { ordenDeCompraPDF } from '../comun/documentos';
-import { celularWhatsapp, enviarArchivoWhatsapp, enviarTextoWhatsapp } from '../comun/whatsapp';
+import { celularWhatsapp, enviarArchivoWhatsapp, enviarImagenWhatsapp, enviarTextoWhatsapp } from '../comun/whatsapp';
+import { cartelNotaDePedido } from '../comun/cartel-pedido';
 
 // ============================================================
 // EL PEDIDO LE LLEGA AL PROVEEDOR (2/10/2026).
@@ -44,8 +45,23 @@ const fechaCorta = (d?: string | null) =>
 
 export type RenglonPedido = { nombre: string; cantidad: number; codigoProveedor?: string | null };
 
-// El mensaje que recibe el proveedor. Corto, en el idioma de un pedido por
-// WhatsApp: qué, cuánto y dónde. El detalle completo va en el PDF.
+// El epígrafe de la tarjeta: el saludo y qué se le pide. Los productos van en
+// la tarjeta (la misma gráfica Placa roja de los pedidos, pedido de Leandro del
+// 2/10/2026) y el detalle completo en el PDF.
+export function epigrafePedido(p: { folio: string; sucursal: string; direccion?: string | null; fechaEntrega?: string | null }): string {
+  const destino = `${p.sucursal}${p.direccion ? ` (${p.direccion})` : ''}`;
+  const cuando = fechaCorta(p.fechaEntrega);
+  return [
+    `Hola, ¿cómo están? Les escribimos de *O.D.B Premium Market* (Canning).`,
+    ``,
+    `Les pasamos el pedido *${p.folio}* para entregar en *${destino}*${cuando ? `, el ${cuando}` : ''}. Abajo va la nota de pedido en PDF.`,
+    ``,
+    `¿Nos confirman si pueden entregar todo? Si falta algo, avísennos qué, así lo sabemos antes. ¡Gracias!`,
+  ].join('\n');
+}
+
+// El pedido en texto: lo que sale si la tarjeta no se pudo armar, y lo que se
+// copia para mandarlo a mano desde un teléfono.
 export function textoPedido(p: {
   folio: string;
   proveedor: string;
@@ -215,11 +231,25 @@ export class PedidosProveedorService {
     const { data: firmado, error: eUrl } = await this.db.storage.from('comprobantes').createSignedUrl(ruta, 7 * 86_400);
     if (eUrl || !firmado?.signedUrl) throw new Error(`no pude armar el enlace del PDF: ${eUrl?.message ?? 'sin enlace'}`);
 
-    const texto = textoPedido({
-      folio, proveedor, sucursal, direccion: oc.sucursal?.direccion ?? null,
-      fechaEntrega: oc.fecha_entrega ?? null, observaciones: oc.observaciones ?? null, items: renglones,
-    });
-    const r1 = await enviarTextoWhatsapp(this.db, telefono, texto, 'pedido_proveedor');
+    // la tarjeta Placa roja (sin precios) con el saludo de epígrafe; si no se
+    // puede dibujar o subir, el pedido sale igual en texto
+    const datos = { folio, sucursal, direccion: oc.sucursal?.direccion ?? null, fechaEntrega: oc.fecha_entrega ?? null };
+    let tarjeta: string | null = null;
+    try {
+      const png = await cartelNotaDePedido({
+        ...datos, fechaEntrega: fechaCorta(oc.fecha_entrega),
+        renglones: renglones.map((r) => ({ nombre: r.nombre, cantidad: r.cantidad, codigoProveedor: r.codigoProveedor })),
+      });
+      const rutaPng = `carteles/${new Date().toISOString().slice(0, 7)}/nota-pedido-${folio}-${Date.now().toString(36)}.png`;
+      const { error: ePng } = await this.db.storage.from('publico').upload(rutaPng, png, { contentType: 'image/png', upsert: true });
+      if (ePng) throw new Error(ePng.message);
+      tarjeta = this.db.storage.from('publico').getPublicUrl(rutaPng).data.publicUrl;
+    } catch (e) {
+      this.log.warn(`OC #${oc.numero}: la tarjeta no se pudo armar, sale en texto: ${e instanceof Error ? e.message : e}`);
+    }
+    const r1 = tarjeta
+      ? await enviarImagenWhatsapp(this.db, telefono, tarjeta, epigrafePedido(datos), 'pedido_proveedor')
+      : await enviarTextoWhatsapp(this.db, telefono, textoPedido({ ...datos, proveedor, observaciones: oc.observaciones ?? null, items: renglones }), 'pedido_proveedor');
     if (!r1.enviado) return this.fallar(oc, `WhatsApp no lo aceptó (${r1.motivo ?? 'sin detalle'})`);
     // el texto ya salió: si el PDF falla, el pedido igual está hecho
     const r2 = await enviarArchivoWhatsapp(this.db, telefono, firmado.signedUrl, `${folio}.pdf`, '', 'pedido_proveedor');
