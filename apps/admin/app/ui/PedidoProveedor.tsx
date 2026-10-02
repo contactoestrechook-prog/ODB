@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Aviso, BarraInferior, Boton, Cargando, Chip, Entrada, FOCO, FOCO_ADENTRO, IconoFlechaAbajo, Selector, Tarjeta, unir } from './kit';
+import { Aviso, BarraInferior, Boton, Cargando, Chip, Entrada, FOCO, FOCO_ADENTRO, IconoFlechaAbajo, PlacaRoja, Selector, Tarjeta, unir } from './kit';
 import { pesos } from '../lib/formato';
 import { filtrarPorBusqueda } from '../lib/busqueda';
 
@@ -37,6 +37,11 @@ export function PedidoProveedor({ sucursales, proveedorInicial, sucursalInicial 
     (sucursalInicial ? filtrarPorBusqueda(sucursales, sucursalInicial, (s) => s.nombre)[0]?.id : null) ?? sucursales[0]?.id ?? '',
   );
   const [items, setItems] = useState<Item[]>([]);
+  // Todo lo que se vio de su lista, por SKU. Lo elegido se muestra en la nota
+  // de pedido de abajo aunque después se busque otra cosa y ya no esté en
+  // pantalla (2/10/2026: antes salía el SKU pelado y el total perdía el costo
+  // de lo que no se veía).
+  const [vistos, setVistos] = useState<Record<string, Item>>({});
   const [meta, setMeta] = useState<{ total: number; recortado?: boolean; sinLista?: boolean }>({ total: 0 });
   const [busca, setBusca] = useState('');
   const [verTodo, setVerTodo] = useState(false);
@@ -73,7 +78,13 @@ export function PedidoProveedor({ sucursales, proveedorInicial, sucursalInicial 
       const r = await fetch(`/api/compras?${p.toString()}`);
       const d = await r.json();
       if (!r.ok) { setError(d?.message ?? 'No pude traer la lista del proveedor'); return; }
-      setItems(d.items ?? []);
+      const lista: Item[] = d.items ?? [];
+      setItems(lista);
+      setVistos((v) => {
+        const copia = { ...v };
+        for (const it of lista) copia[it.sku] = it;
+        return copia;
+      });
       setMeta({ total: d.total ?? 0, recortado: d.recortado, sinLista: d.sinLista });
     } finally {
       setCargando(false);
@@ -97,12 +108,14 @@ export function PedidoProveedor({ sucursales, proveedorInicial, sucursalInicial 
 
   const elegidos = useMemo(
     () => Object.entries(cant).map(([sku, cantidad]) => {
-      const it = items.find((i) => i.sku === sku);
-      return { sku, cantidad, nombre: it?.nombre ?? sku, costo: it?.costo ?? null };
+      const it = vistos[sku];
+      return { sku, cantidad, nombre: it?.nombre ?? sku, costo: it?.costo ?? null, codigoProveedor: it?.codigoProveedor ?? null };
     }),
-    [cant, items],
+    [cant, vistos],
   );
   const totalPedido = elegidos.reduce((s, e) => s + (e.costo ?? 0) * e.cantidad, 0);
+  const notaTotal = totalPedido === 0 ? 'sin costos cargados: el total lo confirma la factura' : 'estimado con el último costo conocido';
+  const sucursalNombre = sucursales.find((s) => s.id === sucursalId)?.nombre;
 
   const buscarEnCatalogo = async (q: string) => {
     setBuscaCatalogo(q);
@@ -182,7 +195,7 @@ export function PedidoProveedor({ sucursales, proveedorInicial, sucursalInicial 
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
         <Boton variante="secundario" tamano="chico" icono={<IconoFlechaAbajo className="size-4 rotate-90" />}
-          onClick={() => { setProveedor(null); setItems([]); setCant({}); setBusca(''); setAviso(''); }}>
+          onClick={() => { setProveedor(null); setItems([]); setVistos({}); setCant({}); setBusca(''); setAviso(''); }}>
           Proveedores
         </Boton>
         {sucursales.length > 1 && (
@@ -299,6 +312,36 @@ export function PedidoProveedor({ sucursales, proveedorInicial, sucursalInicial 
         })}
       </div>
 
+      {/* Lo elegido, como la nota de pedido que le va a llegar al proveedor
+          (Placa roja, 2/10/2026: todo detalle de productos usa el paquete
+          gráfico de los pedidos). Se repasa acá, al final de la lista, antes
+          de mandarlo a aprobación con la barra de abajo. */}
+      {elegidos.length > 0 && (
+        <PlacaRoja
+          titulo="Nota de pedido"
+          sub={
+            <>
+              <span className="font-semibold text-white">{proveedor.razon_social}</span>
+              {sucursalNombre && ` · ${sucursalNombre}`}
+              <span className="block">{elegidos.length} producto{elegidos.length === 1 ? '' : 's'}</span>
+            </>
+          }
+          renglones={elegidos.map((e) => ({
+            clave: e.sku,
+            cantidad: e.cantidad,
+            nombre: e.nombre,
+            detalle: [
+              e.sku,
+              e.codigoProveedor && `cód. prov. ${e.codigoProveedor}`,
+              e.costo != null ? `${e.cantidad} × ${pesos(e.costo)}` : 'sin costo cargado',
+            ].filter(Boolean).join(' · '),
+            importe: e.costo != null ? pesos(e.costo * e.cantidad) : undefined,
+          }))}
+          total={{ etiqueta: 'Total', valor: pesos(totalPedido) }}
+          pie={notaTotal}
+        />
+      )}
+
       {/* barra fija: lo que llevás pedido y el botón de enviar */}
       {elegidos.length > 0 && (
         <BarraInferior
@@ -308,9 +351,7 @@ export function PedidoProveedor({ sucursales, proveedorInicial, sucursalInicial 
               <p className="truncate text-sm font-semibold text-tinta">
                 {elegidos.length} producto{elegidos.length === 1 ? '' : 's'} · <span className="importe">{pesos(totalPedido)}</span>
               </p>
-              <p className="min-w-0 break-words text-xs text-tinta/60">
-                {totalPedido === 0 ? 'sin costos cargados: el total lo confirma la factura' : 'estimado con el último costo conocido'}
-              </p>
+              <p className="min-w-0 break-words text-xs text-tinta/60">{notaTotal}</p>
             </>
           }
         >
