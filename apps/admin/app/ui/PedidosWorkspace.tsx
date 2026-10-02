@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { pesos as pesosFmt } from '../lib/formato';
-import { AreaTexto, Aviso, Boton, Chips, Entrada, Etiqueta, FOCO, IconoCerrar, Modal, Tarjeta, unir, type TonoEtiqueta } from './kit';
+import { numero, pesos as pesosFmt } from '../lib/formato';
+import { AreaTexto, Aviso, Boton, Chips, Entrada, Etiqueta, FOCO, IconoCerrar, Modal, PlacaRoja, Tarjeta, unir, type TonoEtiqueta } from './kit';
 
 const pesos = (n: any) => pesosFmt(Number(n) || 0);
 const CANALES: Record<string, { label: string; tono: TonoEtiqueta }> = {
@@ -16,6 +16,14 @@ const CANALES: Record<string, { label: string; tono: TonoEtiqueta }> = {
   mostrador: { label: 'Mostrador', tono: 'neutro' },
 };
 const canalDe = (p: any) => p.origen || p.canal;
+// Precio unitario de un renglón interpretado del WhatsApp. Hoy el análisis
+// (apps/api/src/pedidos › analizarWhatsApp) no lo manda: cuando mande `precio`
+// por renglón, la Placa roja muestra "2 × $1.500", el subtotal y el total.
+type RenglonWa = { cantidad?: unknown; precio?: unknown };
+const precioDe = (it: RenglonWa | null | undefined): number | null => {
+  const n = Number(it?.precio);
+  return it?.precio != null && it.precio !== '' && Number.isFinite(n) && n > 0 ? n : null;
+};
 const siguiente = (p: any): { estado: string; label: string } | null => {
   if (['recibido', 'pagado'].includes(p.estado)) return { estado: 'en_preparacion', label: 'Preparar' };
   if (p.estado === 'en_preparacion') return { estado: 'listo', label: 'Marcar listo' };
@@ -154,6 +162,11 @@ function ModalWhatsApp({ cerrar, post }: { cerrar: () => void; post: (b: any) =>
       setCargando(false);
     }
   };
+  // el total de la placa, solo si todos los renglones tienen precio: uno sin precio lo dejaría corto
+  const renglonesWa: RenglonWa[] = analisis?.items ?? [];
+  const totalConPrecios = renglonesWa.length > 0 && renglonesWa.every((it) => precioDe(it) != null)
+    ? renglonesWa.reduce((t, it) => t + (Number(it.cantidad) || 0) * (precioDe(it) ?? 0), 0)
+    : null;
 
   return (
     <Modal
@@ -199,26 +212,54 @@ function ModalWhatsApp({ cerrar, post }: { cerrar: () => void; post: (b: any) =>
         <AreaTexto value={texto} onChange={(e) => setTexto(e.target.value)} rows={4} placeholder="ej: Hola! me mandás 6 quilmes litro, 2 coca de 2.25 y un fernet? Para Av. Mate 123, pago en efectivo" aria-label="Mensaje del cliente" />
 
         {analisis && (
-          <div className="space-y-2 rounded-xl border border-black/[0.06] bg-crema-claro p-3">
-            {analisis.nombre && <p className="text-sm text-tinta"><b className="font-semibold">Cliente:</b> {analisis.nombre}</p>}
-            <p className="text-xs text-tinta/60">{analisis.items.length} producto(s) reconocido(s):</p>
-            {analisis.items.map((it: any, i: number) => (
-              <div key={i} className="flex items-center gap-2 text-sm">
-                <div className="w-20 shrink-0">
-                  <Entrada type="number" inputMode="decimal" value={it.cantidad} onChange={(e) => setAnalisis((a: any) => ({ ...a, items: a.items.map((x: any, j: number) => j === i ? { ...x, cantidad: Number(e.target.value) } : x) }))} aria-label={`Cantidad de ${it.match}`} className="text-right" />
-                </div>
-                <span className="min-w-0 flex-1 break-words text-tinta">{it.match} <span className="text-xs text-tinta/60">(pidió: {it.pedido})</span></span>
-                <button
-                  onClick={() => setAnalisis((a: any) => ({ ...a, items: a.items.filter((_: any, j: number) => j !== i) }))}
-                  aria-label={`Quitar ${it.match}`}
-                  className={unir('flex size-11 shrink-0 items-center justify-center rounded-full text-tinta/60 hover:bg-marca-suave hover:text-marca-hondo', FOCO)}
-                >
-                  <IconoCerrar className="size-5" />
-                </button>
+          <div className="space-y-3">
+            {analisis.items.length > 0 ? (
+              // Lo reconocido como Placa roja RESUMEN (2/10/2026): el mismo paquete
+              // gráfico de los pedidos del bot. La cantidad se sigue corrigiendo en
+              // cada renglón y el círculo rojo la acompaña mientras se escribe.
+              <PlacaRoja
+                titulo="RESUMEN"
+                sub={[
+                  analisis.nombre ? `Cliente: ${analisis.nombre}` : null,
+                  analisis.items.length === 1 ? '1 producto reconocido' : `${analisis.items.length} productos reconocidos`,
+                ].filter(Boolean).join(' · ')}
+                renglones={analisis.items.map((it: any, i: number) => {
+                  const cantidad = Number(it.cantidad) || 0;
+                  const unitario = precioDe(it);
+                  return {
+                    clave: String(i),
+                    cantidad,
+                    nombre: it.match,
+                    detalle: [`pidió: ${it.pedido}`, unitario != null ? `${numero(cantidad, 2)} × ${pesos(unitario)}` : null].filter(Boolean).join(' · '),
+                    importe: unitario != null ? pesos(cantidad * unitario) : undefined,
+                    acciones: (
+                      <div className="flex items-center gap-2">
+                        <div className="w-24 shrink-0">
+                          <Entrada type="number" inputMode="decimal" value={it.cantidad} onChange={(e) => setAnalisis((a: any) => ({ ...a, items: a.items.map((x: any, j: number) => j === i ? { ...x, cantidad: Number(e.target.value) } : x) }))} aria-label={`Cantidad de ${it.match}`} className="text-right" />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setAnalisis((a: any) => ({ ...a, items: a.items.filter((_: any, j: number) => j !== i) }))}
+                          aria-label={`Quitar ${it.match}`}
+                          className={unir('ml-auto flex size-11 shrink-0 items-center justify-center rounded-full text-tinta/60 hover:bg-marca-suave hover:text-marca-hondo', FOCO)}
+                        >
+                          <IconoCerrar className="size-5" />
+                        </button>
+                      </div>
+                    ),
+                  };
+                })}
+                total={totalConPrecios != null ? { etiqueta: 'Total', valor: pesos(totalConPrecios) } : undefined}
+                recuadro={analisis.notas ? <p className="break-words text-tinta/70"><b className="font-semibold text-tinta">Nota:</b> {analisis.notas}</p> : undefined}
+              />
+            ) : (
+              <div className="space-y-2 rounded-xl border border-black/[0.06] bg-crema-claro p-3">
+                {analisis.nombre && <p className="text-sm text-tinta"><b className="font-semibold">Cliente:</b> {analisis.nombre}</p>}
+                <p className="text-xs text-tinta/60">0 productos reconocidos.</p>
+                {analisis.notas && <p className="text-sm text-tinta/70"><b className="font-semibold">Nota:</b> {analisis.notas}</p>}
               </div>
-            ))}
+            )}
             {analisis.sinMatch?.length > 0 && <Aviso tono="atencion">No encontré en el catálogo: {analisis.sinMatch.join(', ')}</Aviso>}
-            {analisis.notas && <p className="text-sm text-tinta/70"><b className="font-semibold">Nota:</b> {analisis.notas}</p>}
             {aviso && <Aviso tono="error">{aviso}</Aviso>}
           </div>
         )}

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Aviso, Boton, Etiqueta, IconoAtencion, Monto, Tarjeta } from '../ui/kit';
+import { Aviso, Boton, Etiqueta, IconoAtencion, Monto, PlacaRoja, Tarjeta } from '../ui/kit';
 
 export function ControlSalida() {
   const [codigo, setCodigo] = useState('');
@@ -65,35 +65,39 @@ export function ControlSalida() {
       )}
 
       {datos && (
-        <Tarjeta>
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <span className="break-all font-mono text-lg font-medium tracking-widest text-tinta">{datos.codigo}</span>
-            {datos.yaValidada ? (
-              <Etiqueta tono="error">
-                <IconoAtencion className="-mt-0.5 mr-1 inline size-3.5" />
-                YA VALIDADA — posible doble salida
-              </Etiqueta>
-            ) : (
-              <Etiqueta tono="neutro">
-                pendiente de salida
-              </Etiqueta>
-            )}
-          </div>
-          <ul className="mb-3 space-y-1 text-sm text-tinta">
-            {datos.venta.items.map((i: any, j: number) => (
-              <li key={j} className="break-words">
-                {Math.round(Number(i.cantidad))}× {i.producto?.nombre}
-              </li>
-            ))}
-          </ul>
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-black/[0.06] pt-3">
-            <div className="min-w-0">
-              <p className="text-lg font-semibold text-tinta"><Monto valor={datos.venta.total} /></p>
-              <p className="text-xs text-tinta/60">
+        // Lo que lleva, como Placa roja RESUMEN (2/10/2026): el mismo paquete
+        // gráfico de los pedidos. El código va en la franja roja; el estado
+        // ("YA VALIDADA") en el recuadro, justo arriba de donde estaría "Validar
+        // salida": en la franja, a 375 px, la etiqueta no entra entera y se cortaría con "…".
+        <PlacaRoja
+          titulo="RESUMEN"
+          sub={<span className="break-all font-mono font-semibold tracking-widest text-white">{datos.codigo}</span>}
+          renglones={(datos.venta.items ?? []).map((i: any, j: number) => ({
+            clave: String(j),
+            // la cantidad tal cual (hasta 2 decimales): antes se redondeaba y 0,5 kg se leía "1×"
+            cantidad: Number.isFinite(Number(i.cantidad)) ? Number(i.cantidad) : 0,
+            nombre: i.producto?.nombre ?? '—',
+          }))}
+          total={{ etiqueta: 'Total', valor: <Monto valor={datos.venta.total} /> }}
+          recuadro={
+            <div className="space-y-1.5">
+              {datos.yaValidada ? (
+                <Etiqueta tono="error">
+                  <IconoAtencion className="-mt-0.5 mr-1 inline size-3.5" />
+                  YA VALIDADA — posible doble salida
+                </Etiqueta>
+              ) : (
+                <Etiqueta tono="neutro">
+                  pendiente de salida
+                </Etiqueta>
+              )}
+              <p className="break-words text-xs text-tinta/60">
                 DNI {datos.venta.cliente?.dni} · {datos.venta.cliente?.verificado ? 'identidad verificada ✓' : 'SIN verificar'}
               </p>
             </div>
-            {!datos.yaValidada && (
+          }
+          acciones={
+            !datos.yaValidada ? (
               <Boton
                 onClick={validar}
                 disabled={ocupado}
@@ -101,9 +105,9 @@ export function ControlSalida() {
               >
                 Validar salida
               </Boton>
-            )}
-          </div>
-        </Tarjeta>
+            ) : undefined
+          }
+        />
       )}
     </div>
   );
