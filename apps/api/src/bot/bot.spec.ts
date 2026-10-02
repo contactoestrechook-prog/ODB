@@ -834,13 +834,12 @@ describe('audios cortados: la bajada verifica el cierre del OGG y reintenta', ()
     expect(oggCompleto(Buffer.from('no soy un ogg'))).toBe(false);
   });
 
-  it('los tres audios reales truncados del 1/9 dan incompleto', () => {
-    const fs = require('fs');
-    for (const f of ['1788282041183', '1788284657605', '1788285291423']) {
-      const ruta = `/var/folders/jz/dxyzv5zn2pl6n7cwchpw51840000gn/T/audio-${f}.oga`;
-      if (!fs.existsSync(ruta)) continue; // solo corre en la máquina donde se bajaron
-      expect(oggCompleto(fs.readFileSync(ruta))).toBe(false);
-    }
+  it('un archivo cortado en el medio de una página no está entero (los archivos reales del 1/9 ya no existen)', () => {
+    const { estadoOgg } = require('./ogg');
+    const entero = Buffer.concat([pagina(0x02), pagina(0x00), pagina(0x00)]);
+    expect(estadoOgg(entero).paginasEnteras).toBe(true);
+    // cortado a mitad de la tabla de la última página
+    expect(estadoOgg(entero.subarray(0, entero.length - 3)).paginasEnteras).toBe(false);
   });
 
   it('bajarMediaWaha reintenta hasta que el OGG cierra y devuelve la versión completa', async () => {

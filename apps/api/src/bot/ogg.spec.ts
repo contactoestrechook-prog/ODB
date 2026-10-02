@@ -73,8 +73,31 @@ describe('bajarMediaWaha: no espera de más con un audio entero', () => {
   });
 
   it('sin tamaño declarado: páginas enteras y tamaño estable en la segunda bajada', async () => {
-    const { llamadas } = await bajar([entero, entero]);
+    const { r, llamadas } = await bajar([entero, entero]);
     expect(llamadas).toBe(2);
+    expect(Buffer.from(r.base64, 'base64').length).toBe(entero.length);
+  }, 10000);
+
+  it('cortado a mitad de página que no crece: nunca se da por entero (agota los intentos)', async () => {
+    const cortado = entero.subarray(0, entero.length - 5);
+    const { llamadas } = await bajar([cortado]);
+    expect(llamadas).toBe(5);
+  }, 15000);
+
+  it('un reintento que falla no tira la versión que ya se había bajado', async () => {
+    const cortado = entero.subarray(0, entero.length - 5);
+    const fetchViejo = global.fetch;
+    let n = 0;
+    global.fetch = jest.fn(async () => {
+      if (++n > 1) throw new Error('WAHA se reinició');
+      return { ok: true, arrayBuffer: async () => ab(cortado) };
+    }) as any;
+    try {
+      const r = await (BotService.prototype as any).bajarMediaWaha.call(falso, { media: { url: 'https://waha/api/files/x.oga', mimetype: 'audio/ogg; codecs=opus' } });
+      expect(Buffer.from(r.base64, 'base64').length).toBe(cortado.length);
+    } finally {
+      global.fetch = fetchViejo;
+    }
   }, 10000);
 
   it('si de verdad estaba a medio escribir, reintenta y se queda con la versión completa', async () => {

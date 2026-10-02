@@ -3129,13 +3129,19 @@ export class BotService {
       let anterior: number | null = null;
       let completo = false;
       for (let intento = 1; intento <= 5; intento++) {
-        const r = await fetch(String(url), { headers: { 'X-Api-Key': process.env.WAHA_API_KEY ?? '' }, signal: AbortSignal.timeout(12000) });
-        if (!r.ok) {
-          if (buf) break; // ya tenemos una versión: se usa esa
-          this.log.warn(`no pude bajar el archivo de WAHA (${r.status}): ${String(url).slice(0, 120)}`);
-          return null;
+        let intentoBuf: Buffer;
+        try {
+          const r = await fetch(String(url), { headers: { 'X-Api-Key': process.env.WAHA_API_KEY ?? '' }, signal: AbortSignal.timeout(12000) });
+          if (!r.ok) {
+            if (buf) break; // ya tenemos una versión: se usa esa
+            this.log.warn(`no pude bajar el archivo de WAHA (${r.status}): ${String(url).slice(0, 120)}`);
+            return null;
+          }
+          intentoBuf = Buffer.from(await r.arrayBuffer());
+        } catch (e) {
+          if (buf) break; // un reintento que falla no tira la versión que ya se bajó
+          throw e;
         }
-        const intentoBuf = Buffer.from(await r.arrayBuffer());
         if (!buf || intentoBuf.length >= buf.length) buf = intentoBuf;
         if (!esAudioOgg || entero(intentoBuf, anterior)) { completo = true; break; }
         anterior = intentoBuf.length;
