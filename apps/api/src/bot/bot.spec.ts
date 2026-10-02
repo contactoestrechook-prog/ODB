@@ -374,19 +374,19 @@ describe('BotService.ejecutarHerramienta · cierre de pedido (doble confirmació
   });
 });
 
-describe('BotService.cartelDePedido (tarjeta del pedido confirmado)', () => {
-  // La tarjeta se prueba sin red: el "storage" guarda en memoria y devuelve
-  // una URL fija. Lo que importa acá es el disparador y el parseo de renglones.
-  const conStorageFalso = () => {
+describe('BotService.cartelDePedido (tarjeta Placa roja del pedido confirmado)', () => {
+  // La tarjeta se prueba sin red: la base devuelve el pedido de memoria y el
+  // "storage" guarda en memoria. Desde el 2/10/2026 los renglones salen de la
+  // base (la confirmación no los trae en el texto) y la gráfica es la Placa roja.
+  const conBaseFalsa = (pedido: any, subida: { error: any } = { error: null }) => {
     const subidas: string[] = [];
+    const consulta: any = { select: () => consulta, eq: () => consulta, maybeSingle: async () => ({ data: pedido }) };
     const falso = {
       db: {
+        from: () => consulta,
         storage: {
           from: () => ({
-            upload: async (ruta: string) => {
-              subidas.push(ruta);
-              return { error: null };
-            },
+            upload: async (ruta: string) => { subidas.push(ruta); return subida; },
             getPublicUrl: () => ({ data: { publicUrl: 'https://publico/cartel.png' } }),
           }),
         },
@@ -395,55 +395,90 @@ describe('BotService.cartelDePedido (tarjeta del pedido confirmado)', () => {
     };
     return { falso, subidas };
   };
-  const cartel = (respuesta: string) => {
-    const { falso } = conStorageFalso();
-    return (BotService.prototype as any).cartelDePedido.call(falso, respuesta);
+  const PEDIDO = {
+    id: 'p1', destino_direccion: 'Los Robles 123, Canning',
+    pedidos_items: [
+      { cantidad: 2, precio_unitario: 20500, productos: { nombre: 'Fernet Branca x750cc' } },
+      { cantidad: 4, precio_unitario: 4700, productos: { nombre: 'Coca Cola 1.75l' } },
+    ],
   };
 
-  it('dispara con código de pedido y un renglón con precio, y arma el pie sin las viñetas', async () => {
-    const r = await cartel(
-      'Confirmado. Código de retiro: PICKUP-ABC123.\n• 2 × Fernet Branca 750 cc — $20.500 c/u = $41.000\n*Total: $41.000*\nSe abona al retirar.',
-    );
-    expect(r).not.toBeNull();
+  it('con el código, arma la tarjeta PEDIDO con los renglones de la base y el pie sin viñetas', async () => {
+    const espia = jest.spyOn(require('../comun/cartel-pedido'), 'cartelPedido').mockResolvedValue(Buffer.from('png'));
+    const { falso, subidas } = conBaseFalsa(PEDIDO);
+    const r = await (BotService.prototype as any).cartelDePedido.call(falso, 'Pedido DOM-XY99ZZ confirmado. Total: $59.800.\nEnvío sin cargo. Se abona al recibir.');
     expect(r.imagenUrl).toContain('https://');
-    expect(r.pie).toContain('PICKUP-ABC123');
-    expect(r.pie).not.toContain('•');
-  });
-
-  it('toma el importe final del renglón (el "= $X"), no el precio unitario', async () => {
-    const { falso } = conStorageFalso();
-    const espia = jest
-      .spyOn(require('../comun/cartel-precios'), 'cartelPrecios')
-      .mockResolvedValue(Buffer.from('png'));
-    await (BotService.prototype as any).cartelDePedido.call(
-      falso,
-      'Pedido DOM-XY99ZZ confirmado:\n• 3 × Coca Cola 1,75 L — $4.700 c/u = $14.100\n*Total: $14.100*',
-    );
-    const opciones = espia.mock.calls[0][0] as any;
-    expect(opciones.titulo).toBe('Pedido DOM-XY99ZZ');
-    expect(opciones.renglones).toEqual([{ nombre: '3 × Coca Cola 1,75 L', precio: '$14.100' }]);
-    expect(opciones.total).toBe('$14.100');
+    expect(r.pie).toContain('DOM-XY99ZZ');
+    expect(subidas[0]).toContain('pedido-DOM-XY99ZZ');
+    const tarjeta = espia.mock.calls[0][0] as any;
+    expect(tarjeta.titulo).toBe('PEDIDO');
+    expect(tarjeta.subtitulo).toBe('DOM-XY99ZZ');
+    expect(tarjeta.total).toBe(59800);
+    expect(tarjeta.renglones).toEqual([
+      { nombre: 'Fernet Branca 750 cc', cantidad: 2, unitario: 20500, subtotal: 41000 },
+      { nombre: 'Coca Cola 1.75l', cantidad: 4, unitario: 4700, subtotal: 18800 },
+    ]);
+    expect(tarjeta.entrega).toEqual({ titulo: 'Envío sin cargo', detalle: 'Los Robles 123, Canning' });
     espia.mockRestore();
   });
 
-  it('no dispara sin código de pedido, aunque haya renglones con precio', async () => {
-    expect(await cartel('Le paso precios:\n• Fernet Branca 750 — $20.500\n• Coca 1,75 — $4.700')).toBeNull();
+  it('un retiro lleva la sucursal y la nota del mostrador', async () => {
+    const espia = jest.spyOn(require('../comun/cartel-pedido'), 'cartelPedido').mockResolvedValue(Buffer.from('png'));
+    const { falso } = conBaseFalsa({ ...PEDIDO, destino_direccion: null });
+    await (BotService.prototype as any).cartelDePedido.call(falso, 'Pedido RET-AB12CD confirmado.');
+    const tarjeta = espia.mock.calls[0][0] as any;
+    expect(tarjeta.entrega.titulo).toBe('Retiro en la sucursal Saint Thomas');
+    expect(tarjeta.nota).toBe('Presentá este código al retirar.');
+    espia.mockRestore();
   });
 
-  it('no dispara con código pero sin ningún renglón con precio', async () => {
-    expect(await cartel('Su pedido RET-AB12CD está listo para retirar.')).toBeNull();
+  it('si el total del texto no coincide con la base, va el texto', async () => {
+    const { falso } = conBaseFalsa(PEDIDO);
+    expect(await (BotService.prototype as any).cartelDePedido.call(falso, 'Pedido DOM-XY99ZZ confirmado. Total: $70.000.')).toBeNull();
+  });
+
+  it('no dispara sin código de pedido, aunque haya renglones con precio', async () => {
+    const { falso } = conBaseFalsa(PEDIDO);
+    expect(await (BotService.prototype as any).cartelDePedido.call(falso, 'Le paso precios:\n• Fernet Branca 750 — $20.500\n• Coca 1,75 — $4.700')).toBeNull();
+  });
+
+  it('no dispara si el pedido no está en la base o no tiene renglones', async () => {
+    expect(await (BotService.prototype as any).cartelDePedido.call(conBaseFalsa(null).falso, 'Pedido RET-AB12CD confirmado.')).toBeNull();
+    expect(await (BotService.prototype as any).cartelDePedido.call(conBaseFalsa({ ...PEDIDO, pedidos_items: [] }).falso, 'Pedido RET-AB12CD confirmado.')).toBeNull();
+  });
+
+  it('solo al confirmar: el estado o la cancelación de un pedido van como texto', async () => {
+    const { falso } = conBaseFalsa(PEDIDO);
+    expect(await (BotService.prototype as any).cartelDePedido.call(falso, 'Tu pedido DOM-XY99ZZ está en camino.')).toBeNull();
+    expect(await (BotService.prototype as any).cartelDePedido.call(falso, 'El pedido DOM-XY99ZZ confirmado ayer quedó cancelado.')).toBeNull();
   });
 
   it('si la subida falla, devuelve null y el mensaje sale como texto normal', async () => {
-    const falso = {
-      db: { storage: { from: () => ({ upload: async () => ({ error: { message: 'sin permiso' } }), getPublicUrl: () => ({ data: { publicUrl: 'x' } }) }) } },
-      log: { warn: () => undefined },
-    };
-    const r = await (BotService.prototype as any).cartelDePedido.call(
-      falso,
-      'Confirmado RET-AB12CD.\n• 1 × Agua 500 — $900\n*Total: $900*',
-    );
-    expect(r).toBeNull();
+    const espia = jest.spyOn(require('../comun/cartel-pedido'), 'cartelPedido').mockResolvedValue(Buffer.from('png'));
+    const { falso } = conBaseFalsa(PEDIDO, { error: { message: 'sin permiso' } });
+    expect(await (BotService.prototype as any).cartelDePedido.call(falso, 'Pedido DOM-XY99ZZ confirmado.')).toBeNull();
+    espia.mockRestore();
+  });
+});
+
+describe('BotService.cartelDeListado (precios escritos a mano, Placa roja)', () => {
+  const falso = {
+    db: { storage: { from: () => ({ upload: async () => ({ error: null }), getPublicUrl: () => ({ data: { publicUrl: 'https://publico/x.png' } }) }) } },
+    log: { warn: () => undefined },
+  };
+  it('desde 2 productos, con el precio en efectivo entre paréntesis', async () => {
+    const espia = jest.spyOn(require('../comun/cartel-pedido'), 'cartelListaPrecios').mockResolvedValue(Buffer.from('png'));
+    const r = await (BotService.prototype as any).cartelDeListado.call(falso, 'Tenemos:\n• Fernet Branca 750 — $20.500 ($18.450 en efectivo)\n• Coca 1,75 — $4.700\n¿Cuál te llevás?');
+    expect(r.pie).toBe('Tenemos: ¿Cuál te llevás?');
+    expect(espia.mock.calls[0][0]).toEqual([
+      { nombre: 'Fernet Branca 750', precio: 20500, precioEfectivo: 18450 },
+      { nombre: 'Coca 1,75', precio: 4700, precioEfectivo: null },
+    ]);
+    espia.mockRestore();
+  });
+  it('un solo producto o un resumen de pedido no son un listado', async () => {
+    expect(await (BotService.prototype as any).cartelDeListado.call(falso, '• Fernet Branca 750 — $20.500')).toBeNull();
+    expect(await (BotService.prototype as any).cartelDeListado.call(falso, '• Fernet — 2 × $20.500 c/u = $41.000\nTotal: $41.000')).toBeNull();
   });
 });
 
@@ -491,24 +526,14 @@ describe('emprolijarListado (el total nunca queda pegado al renglón)', () => {
     expect(r).toMatch(/\n¿Lo confirmo\?$/);
   });
 
-  it('las líneas del pedido normalizadas las entiende la tarjeta gráfica', async () => {
+  it('las líneas del pedido normalizadas las entiende la tarjeta gráfica', () => {
     const respuesta = emprolijarListado(
-      'Confirmado, RET-AB12CD.\n• 2 × Fernet Branca 750 cc — $20.500 c/u = $41.000 *Total: $41.000* Se abona al retirar.',
+      'Confirmado, RET-AB12CD.\n• Fernet Branca 750 cc — 2 × $20.500 c/u = $41.000 *Total: $41.000* Se abona al retirar.',
     );
-    const espia = jest
-      .spyOn(require('../comun/cartel-precios'), 'cartelPrecios')
-      .mockResolvedValue(Buffer.from('png'));
-    const falso = {
-      db: { storage: { from: () => ({ upload: async () => ({ error: null }), getPublicUrl: () => ({ data: { publicUrl: 'https://publico/x.png' } }) }) } },
-      log: { warn: () => undefined },
-    };
-    const r = await (BotService.prototype as any).cartelDePedido.call(falso, respuesta);
-    expect(r).not.toBeNull();
-    expect((espia.mock.calls[0][0] as any).renglones).toEqual([
-      { nombre: '2 × Fernet Branca 750 cc', precio: '$41.000' },
-    ]);
-    expect((espia.mock.calls[0][0] as any).total).toBe('$41.000');
-    espia.mockRestore();
+    const { leerResumenDePedido } = require('../comun/cartel-pedido');
+    const r = leerResumenDePedido(respuesta);
+    expect(r.renglones).toEqual([{ nombre: 'Fernet Branca 750 cc', cantidad: 2, unitario: 20500, subtotal: 41000 }]);
+    expect(r.total).toBe(41000);
   });
 });
 

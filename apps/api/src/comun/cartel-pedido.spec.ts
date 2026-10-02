@@ -37,8 +37,13 @@ describe('cartel del pedido (diseño Placa roja)', () => {
     expect(r.entrega?.titulo).toBe('Retiro en la sucursal Saint Thomas');
   });
 
-  it('sin cartel: un solo producto, sin total, un renglón ilegible o cuentas que no cierran', () => {
-    expect(leerResumenDePedido('• Fernet Branca x750cc — 2 × $20.500 c/u = $41.000\nTotal: $41.000')).toBeNull();
+  it('un solo producto también es un pedido (2/10/2026: "siempre que se detallen productos")', () => {
+    const r = leerResumenDePedido('• Fernet Branca x750cc — 2 × $20.500 c/u = $41.000\nTotal: $41.000')!;
+    expect(r.renglones).toHaveLength(1);
+    expect(r.total).toBe(41000);
+  });
+
+  it('sin cartel: sin total, un renglón ilegible o cuentas que no cierran', () => {
     expect(leerResumenDePedido(RESUMEN.replace('*Total: $83.200*', ''))).toBeNull();
     expect(leerResumenDePedido(RESUMEN.replace('• Hielo Bolsa 15KG — 1 × $14.000 c/u = $14.000', '• Hielo: de 5 kg no tengo stock'))).toBeNull();
     expect(leerResumenDePedido(RESUMEN.replace('$83.200', '$90.000'))).toBeNull();
@@ -140,10 +145,10 @@ describe('la imagen correcta, con el producto correcto (banco 1/10/2026)', () =>
     { sku: 'C', nombre: 'Coca Cola 1.75l', precio: 4700 },
     { sku: 'L', nombre: 'Coca Cola Light x1.75L', precio: 4700 },
   ];
-  it('un resumen de un solo producto no arma lista de precios', () => {
+  it('un resumen de un solo producto no arma lista de precios: es un resumen', () => {
     const t = '• Coca Cola 1.75l — 4 × $4.700 c/u = $18.800\nTotal: $18.800\nRetiro en la sucursal Saint Thomas.\n¿Lo confirmo?';
     expect(preciosDeLaRespuesta(t, COCAS)).toEqual([]);
-    expect(imagenEsperada(t)).toBeNull();
+    expect(imagenEsperada(t)).toBe('resumen');
   });
   it('mismo precio: gana el nombre que coincide', () => {
     const r = preciosDeLaRespuesta('• Coca Cola Zero 1,75 L — $4.700\n• Fernet — $20.500', [...COCAS, { sku: 'F', nombre: 'Fernet Branca x750cc', precio: 20500 }]);

@@ -26,6 +26,12 @@ export type ResumenPedido = {
   confirmar: boolean;
   /** lo que no va en la imagen: viaja como epígrafe de la foto */
   pie: string;
+  /** En la franja roja (por defecto RESUMEN): PEDIDO, DEVOLUCIÓN, PRESUPUESTO… */
+  titulo?: string;
+  /** Debajo del título (por defecto, la cuenta de productos y unidades): el código del pedido, la fecha. */
+  subtitulo?: string;
+  /** Una línea al pie, dentro de la imagen ("Presentá este código al retirar"). */
+  nota?: string;
 };
 
 const numero = (s: string) => Number(String(s).replace(/\./g, '').replace(',', '.'));
@@ -109,7 +115,8 @@ export function leerResumenDePedido(texto: string): ResumenPedido | null {
     if (RE_RETIRO.test(l)) { entrega = { titulo: 'Retiro en la sucursal Saint Thomas', detalle: 'Castex 3601, Canning' }; continue; }
     resto.push(cruda);
   }
-  if (renglones.length < 2 || total === null) return null;
+  // desde un solo producto: "una caja de Fernet" también es un pedido (2/10/2026)
+  if (renglones.length < 1 || total === null) return null;
   // la entrega también se reconoce dicha dentro de una oración; ahí la frase se
   // queda en el epígrafe, porque suele traer más datos ("el reparto ya cerró")
   if (!entrega) entrega = entregaEnElTexto(texto);
@@ -163,10 +170,11 @@ export async function cartelPedido(r: ResumenPedido): Promise<Buffer> {
   const filas = r.renglones.map((x) => ({ ...x, lineas: partir(x.nombre, 33, 560, 2) }));
   const altoFila = (n: number) => (n > 1 ? 160 : 132);
   const altoFilas = filas.reduce((s, f) => s + altoFila(f.lineas.length) + SEP, 0);
-  const alto = TOP + altoFilas + 136 + (r.entrega ? 148 : 0) + (r.confirmar ? 100 : 40);
+  const alto = TOP + altoFilas + 136 + (r.entrega ? 148 : 0) + (r.confirmar || r.nota ? 100 : 40);
   const enteras = r.renglones.every((x) => Number.isInteger(x.cantidad));
   const unidades = r.renglones.reduce((s, x) => s + x.cantidad, 0);
-  const sub = `${r.renglones.length} productos${enteras ? ` · ${unidades} unidades` : ''}`;
+  const plural = (n: number, una: string, varias: string) => `${n} ${n === 1 ? una : varias}`;
+  const sub = r.subtitulo ?? `${plural(r.renglones.length, 'producto', 'productos')}${enteras ? ` · ${plural(unidades, 'unidad', 'unidades')}` : ''}`;
   const cant = (n: number) => (Number.isInteger(n) ? String(n) : String(n).replace('.', ','));
 
   let y = TOP;
@@ -198,15 +206,16 @@ export async function cartelPedido(r: ResumenPedido): Promise<Buffer> {
   ${r.entrega.detalle ? `<text x="${M + 36}" y="${yE + 92}" font-family="Inter" font-size="28" fill="${GRIS}">${esc(partir(r.entrega.detalle, 28, W - 2 * M - 72, 1)[0])}</text>` : ''}`
     : '';
   if (r.entrega) yE += 148;
-  const confirmar = r.confirmar
-    ? `<text x="${W / 2}" y="${yE + 42}" font-family="Inter" font-weight="600" font-size="28" fill="${NEGRO}" text-anchor="middle">Respondé SÍ y lo confirmamos</text>`
+  const textoAlPie = r.confirmar ? 'Respondé SÍ y lo confirmamos' : r.nota ? partir(r.nota, 28, W - 2 * M, 1)[0] : '';
+  const confirmar = textoAlPie
+    ? `<text x="${W / 2}" y="${yE + 42}" font-family="Inter" font-weight="600" font-size="28" fill="${NEGRO}" text-anchor="middle">${esc(textoAlPie)}</text>`
     : '';
 
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${alto}" viewBox="0 0 ${W} ${alto}">
   <rect width="${W}" height="${alto}" fill="${CREMA}"/>
   <rect width="${W}" height="200" fill="${ROJO}"/>
   <image x="${M}" y="40" width="190" height="${Math.round((190 * 74) / 121)}" href="data:image/png;base64,${LOGO_ODB_BLANCO}"/>
-  <text x="${W - M}" y="96" font-family="Montserrat" font-weight="800" font-size="42" fill="#FFFFFF" text-anchor="end">RESUMEN</text>
+  <text x="${W - M}" y="96" font-family="Montserrat" font-weight="800" font-size="42" fill="#FFFFFF" text-anchor="end">${esc((r.titulo ?? 'RESUMEN').toUpperCase())}</text>
   <text x="${W - M}" y="142" font-family="Inter" font-size="27" fill="#FFFFFF" fill-opacity="0.8" text-anchor="end">${esc(sub)}</text>
   ${cuerpo}
   ${total}
@@ -365,12 +374,12 @@ export function preciosDeLaRespuesta(respuesta: string, catalogo: ProductoConPre
 
 /**
  * Qué imagen le corresponde a una respuesta, mirando SOLO el texto: un resumen
- * con 2 renglones o más («• X — 2 × $… c/u = $…»), o una lista de precios con 3
- * productos o más. Sirve para controlar que la imagen salga (banco de pruebas).
+ * con un renglón o más («• X — 2 × $… c/u = $…») y su total, o una lista de
+ * precios con 2 productos o más. Sirve para controlar que la imagen salga (banco de pruebas).
  */
 export function imagenEsperada(respuesta: string): 'resumen' | 'precios' | null {
   const t = String(respuesta ?? '');
-  if ((t.match(/^\s*•[^\n]*\d\s*[×x]\s*\$\s?[\d.]+[^\n]*=\s*\$/gm) ?? []).length >= 2) return 'resumen';
+  if ((t.match(/^\s*•[^\n]*\d\s*[×x]\s*\$\s?[\d.]+[^\n]*=\s*\$/gm) ?? []).length >= 1 && /^\s*\*?\s*total[^:\n]{0,25}:\s*\$/im.test(t)) return 'resumen';
   if (/\d\s*[×x]\s*\$/.test(t)) return null;
   // precios de lista: sacando totales y los precios en efectivo que acompañan a otro
   const limpio = t

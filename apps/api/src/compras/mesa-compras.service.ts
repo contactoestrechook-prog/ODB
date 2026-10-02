@@ -4,6 +4,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import * as XLSX from 'xlsx';
 import { SUPABASE } from '../supabase.provider';
 import { filtrarPorBusqueda, normalizarTexto } from '../comun/busqueda';
+import { pesosPlaca, productosEnResultado, separarDetalle, type DetallePlaca, type ProductoVisto } from '../comun/detalle-productos';
 import { calcularCosto, compararOfertas, impactoEnPrecio, type OfertaCompra } from './costeo';
 import { margenAplicable } from './precio';
 import { TONO_ODB } from '../comun/tono-odb';
@@ -63,6 +64,44 @@ function planillaATexto(base64: string, nombre = 'planilla'): string {
     `El sistema recorre las ${filasTotales} filas solo.]\n` +
     partes.join('\n\n')
   );
+}
+
+// Los costeos y productos que el analista detalló, como Placa roja (ver
+// comun/detalle-productos.ts): a la derecha, el costo real por unidad (o el
+// precio vigente, si es un producto del catálogo sin costear).
+export function placaDeCostos(productos: ProductoVisto[]): DetallePlaca {
+  const renglones = productos.map((p) => {
+    const f = p.fila as any;
+    if (f.costoUnitarioReal != null) {
+      const partes = [
+        f.costoUnitarioContado != null && Math.abs(f.costoUnitarioContado - f.costoUnitarioReal) >= 1 ? `contado ${pesosPlaca(f.costoUnitarioContado)}` : '',
+        f.fletePorUnidad > 0 ? `flete ${pesosPlaca(f.fletePorUnidad)} por unidad` : '',
+        f.internosPorUnidad > 0 ? `internos ${pesosPlaca(f.internosPorUnidad)} por unidad` : '',
+      ].filter(Boolean);
+      return {
+        clave: p.sku,
+        cantidad: Number(f.unidadesRecibidas) > 0 ? Number(f.unidadesRecibidas) : null,
+        nombre: p.nombre,
+        detalle: partes.length ? partes.join(' · ') : undefined,
+        importe: pesosPlaca(f.costoUnitarioReal),
+      };
+    }
+    return {
+      clave: p.sku,
+      nombre: p.nombre,
+      detalle: [f.costoActual != null ? `costo actual ${pesosPlaca(f.costoActual)}` : '', f.margenDelRubro != null ? `margen del rubro ${f.margenDelRubro}%` : ''].filter(Boolean).join(' · ') || undefined,
+      importe: pesosPlaca(f.precioVigente),
+    };
+  });
+  const costeados = productos.some((p) => (p.fila as any).costoUnitarioReal != null);
+  return {
+    titulo: costeados ? 'COSTOS' : 'PRODUCTOS',
+    sub: `${renglones.length} ${costeados ? 'renglones' : 'productos'}`,
+    renglones,
+    pie: costeados
+      ? 'A la derecha, el costo real por unidad (con descuentos, flete, impuestos y plazo). En el círculo, las unidades que llegan.'
+      : 'A la derecha, el precio de venta vigente.',
+  };
 }
 
 const SYSTEM = `Sos el analista de compras de O.D.B Premium Market, un outlet de bebidas y almacén en Canning. Trabajás con el comprador de la casa mientras negocia con proveedores.
@@ -647,6 +686,13 @@ export class MesaComprasService {
     const contestar = (texto: string) => respuestaSinVueltas(texto, yaDicho).texto;
 
     const usados: string[] = [];
+    // los productos y costeos que devolvieron las herramientas: si la respuesta
+    // los lista, van a la Placa roja con los números del sistema
+    const vistos: ProductoVisto[] = [];
+    const responder = (texto: string) => {
+      const { respuesta, detalle } = separarDetalle(contestar(texto), vistos, placaDeCostos);
+      return { respuesta, detalle, herramientas: usados };
+    };
     // Cuando el modelo se queda sin espacio antes de escribir nada (le pasa si
     // arma una tanda gigante), se reintenta UNA vez con una nota que le dice que
     // corte en tandas de 25. Antes se devolvía un texto fijo pidiéndole al
@@ -669,7 +715,7 @@ export class MesaComprasService {
     let esfuerzo = (process.env.MESA_ESFUERZO ?? 'high') as 'low' | 'medium' | 'high';
     for (let vuelta = 0; vuelta < 8; vuelta++) {
       const queda = limite - Date.now();
-      if (queda < 15_000) return { respuesta: contestar(await this.cerrarConLoQueHay(claude, historial)), herramientas: usados };
+      if (queda < 15_000) return responder(await this.cerrarConLoQueHay(claude, historial));
       let res: Anthropic.Message;
       try {
         // En streaming: una charla con varias tandas de costeo pasa los minutos
@@ -708,7 +754,7 @@ export class MesaComprasService {
           continue;
         }
         if (porTiempo) {
-          return { respuesta: contestar(await this.cerrarConLoQueHay(claude, historial)), herramientas: usados };
+          return responder(await this.cerrarConLoQueHay(claude, historial));
         }
         // Que un error del modelo (sobrecarga, límite, timeout) no salga como un
         // 500 pelado: la pantalla tiene que poder decirle algo útil al comprador.
@@ -729,7 +775,7 @@ export class MesaComprasService {
           .map((b) => b.text)
           .join('\n')
           .trim();
-        if (texto) return { respuesta: contestar(texto), herramientas: usados };
+        if (texto) return responder(texto);
 
         // Sin texto. Si fue por falta de espacio, se lo decimos y sigue solo:
         // el comprador no tiene por qué arreglar un problema nuestro.
@@ -745,7 +791,7 @@ export class MesaComprasService {
           });
           continue;
         }
-        return { respuesta: contestar(salida.texto), herramientas: usados };
+        return responder(salida.texto);
       }
 
       historial.push({ role: 'assistant', content: res.content });
@@ -755,6 +801,7 @@ export class MesaComprasService {
         this.log.log(`herramienta ${p.name}`);
         try {
           const out = await this.ejecutar(p.name, p.input as any, usuarioId, planilla);
+          vistos.push(...productosEnResultado(out));
           resultados.push({ type: 'tool_result', tool_use_id: p.id, content: JSON.stringify(out) });
         } catch (e) {
           resultados.push({
@@ -767,7 +814,7 @@ export class MesaComprasService {
       }
       historial.push({ role: 'user', content: resultados });
     }
-    return { respuesta: contestar(await this.cerrarConLoQueHay(claude, historial)), herramientas: usados };
+    return responder(await this.cerrarConLoQueHay(claude, historial));
   }
 
   // Última llamada, sin herramientas y corta: que escriba el resultado de lo que

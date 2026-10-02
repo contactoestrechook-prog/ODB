@@ -49,9 +49,8 @@ function bonitoTelefono(t: string): string {
   if (d.length === 13 && d.startsWith('549')) return `${d.slice(3, 5)} ${d.slice(5, 9)}-${d.slice(9)}`;
   return d ? `+${d}` : '';
 }
-import { cartelPrecios } from '../comun/cartel-precios';
 import { costoUSD } from './tarifas';
-import { cartelListaPrecios, cartelPedido, imagenEsperada, leerResumenDePedido, pieSinPrecios, preciosDeLaRespuesta, ProductoConPrecio } from '../comun/cartel-pedido';
+import { cartelListaPrecios, cartelPedido, imagenEsperada, leerResumenDePedido, nombreParaCartel, pieSinPrecios, preciosDeLaRespuesta, ProductoConPrecio } from '../comun/cartel-pedido';
 
 // pedido mínimo para envío a domicilio (Leandro, 25/9/2026); ENVIO_MINIMO lo cambia sin tocar código
 const envioMinimo = () => Number(process.env.ENVIO_MINIMO ?? 70000) || 70000;
@@ -3463,7 +3462,7 @@ export class BotService {
           return { contestado: false, motivo: 'sin respuesta' };
         }
         await this.simularEscritura(desde, r.respuesta);
-        const env = await this.enviarPorWhatsapp({ to: desde, text: r.respuesta, referencia: `waha/${identidad}` });
+        const env = await this.enviarConTarjeta(desde, identidad, r);
         this.respondeRegistrar(waIdM, p.notifyName ?? null, etiqueta(`${rotulo}${epigrafe ? `: ${epigrafe}` : ''}`), r.respuesta, p.id ? String(p.id) : undefined, mediaReg).catch(() => null);
         return { contestado: env.enviado, motivo: esImagen ? 'foto mirada por el bot' : 'pdf leído por el bot' };
       }
@@ -3485,7 +3484,7 @@ export class BotService {
           }).catch(() => null);
           if (r?.respuesta) {
             await this.simularEscritura(desde, r.respuesta);
-            const env = await this.enviarPorWhatsapp({ to: desde, text: r.respuesta, referencia: `waha/${identidad}` });
+            const env = await this.enviarConTarjeta(desde, identidad, r);
             this.respondeRegistrar(waIdM, p.notifyName ?? null, etiqueta(`🎬 Video del cliente${epigrafe ? `: ${epigrafe}` : ''}`), r.respuesta, p.id ? String(p.id) : undefined, mediaReg).catch(() => null);
             return { contestado: env.enviado, motivo: 'video interpretado por su vista previa' };
           }
@@ -3509,7 +3508,7 @@ export class BotService {
             return { contestado: false, motivo: r?.derivada ? 'derivada a una persona' : 'sin respuesta' };
           }
           await this.simularEscritura(desde, r.respuesta);
-          const env = await this.enviarPorWhatsapp({ to: desde, text: r.respuesta, referencia: `waha/${identidad}` });
+          const env = await this.enviarConTarjeta(desde, identidad, r);
           this.respondeRegistrar(waIdM, p.notifyName ?? null, etiqueta(`🎙️ ${dicho}`), r.respuesta, p.id ? String(p.id) : undefined, mediaReg).catch(() => null);
           return { contestado: env.enviado, motivo: 'audio escuchado y contestado' };
         }
@@ -3630,16 +3629,7 @@ export class BotService {
     // listado largo → cartel con pie de foto; si algo falla, va el texto igual
     // el resumen del pedido (cantidades, total, entrega) va con el diseño Placa
     // roja (25/9/2026); una lista de precios sin cantidades, con el cartel de siempre
-    const cartel = (await this.cartelDeResumen(r.respuesta)) ?? (await this.cartelDePedido(r.respuesta)) ?? (await this.cartelDePrecios(r.respuesta, r.catalogo ?? [])) ?? (await this.cartelDeListado(r.respuesta));
-    // si le correspondía imagen y no salió, que quede en el log (1/10/2026)
-    if (!cartel && imagenEsperada(r.respuesta)) this.log.warn(`le correspondía imagen de ${imagenEsperada(r.respuesta)} y no se armó (${identidad})`);
-    let envio = cartel
-      ? await this.enviarPorWhatsapp({ to: desde, imagenUrl: cartel.imagenUrl, text: cartel.pie, referencia: `waha/${identidad}` })
-      : { enviado: false, motivo: 'sin cartel' } as any;
-    if (!envio.enviado) {
-      if (cartel) this.log.warn(`el cartel no se pudo enviar (${envio.motivo}): va como texto`);
-      envio = await this.enviarPorWhatsapp({ to: desde, text: r.respuesta, referencia: `waha/${identidad}` });
-    }
+    const envio = await this.enviarConTarjeta(desde, identidad, r);
     // el turno completo queda en RESPONDE (best-effort, no bloquea la respuesta)
     this.respondeRegistrar(waId, p.notifyName ?? null, texto, r.respuesta, p.id ? String(p.id) : undefined).catch(() => null);
     // SI NO SALIÓ, NO ESTÁ CONTESTADO (19/9/2026). Antes se registraba el turno
@@ -3655,6 +3645,25 @@ export class BotService {
       throw new Error(`WhatsApp no entregó la respuesta a ${clave}: ${envio.motivo ?? 'sin motivo'}`);
     }
     return { contestado: envio.enviado, ...envio };
+  }
+
+  // La respuesta del bot sale con su tarjeta Placa roja cuando detalla
+  // productos (resumen, pedido confirmado, precios); si la tarjeta no se arma o
+  // no sale, va el texto. Es el mismo camino para texto, foto, audio y video
+  // (2/10/2026: lo que contestaba a una foto o a un audio salía siempre como
+  // texto, y el pedido por foto es justo el que trae la lista larga).
+  private async enviarConTarjeta(desde: string, identidad: string, r: { respuesta: string; catalogo?: ProductoConPrecio[] }) {
+    const cartel = (await this.cartelDeResumen(r.respuesta)) ?? (await this.cartelDePedido(r.respuesta)) ?? (await this.cartelDePrecios(r.respuesta, r.catalogo ?? [])) ?? (await this.cartelDeListado(r.respuesta));
+    // si le correspondía imagen y no salió, que quede en el log (1/10/2026)
+    if (!cartel && imagenEsperada(r.respuesta)) this.log.warn(`le correspondía imagen de ${imagenEsperada(r.respuesta)} y no se armó (${identidad})`);
+    let envio = cartel
+      ? await this.enviarPorWhatsapp({ to: desde, imagenUrl: cartel.imagenUrl, text: cartel.pie, referencia: `waha/${identidad}` })
+      : { enviado: false, motivo: 'sin cartel' } as any;
+    if (!envio.enviado) {
+      if (cartel) this.log.warn(`el cartel no se pudo enviar (${envio.motivo}): va como texto`);
+      envio = await this.enviarPorWhatsapp({ to: desde, text: r.respuesta, referencia: `waha/${identidad}` });
+    }
+    return envio;
   }
 
   // "escribiendo…" en WhatsApp + pausa proporcional al texto (2 a 8 s). Si WAHA
@@ -3677,7 +3686,7 @@ export class BotService {
   private async cartelDePrecios(respuesta: string, catalogo: ProductoConPrecio[]): Promise<{ imagenUrl: string; pie: string } | null> {
     if (leerResumenDePedido(respuesta)) return null;
     const productos = preciosDeLaRespuesta(respuesta, catalogo);
-    if (productos.length < 3) return null;
+    if (productos.length < 2) return null;
     try {
       const fecha = new Date().toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', timeZone: 'America/Argentina/Buenos_Aires' });
       const png = await cartelListaPrecios(productos.slice(0, 18), fecha);
@@ -3710,88 +3719,86 @@ export class BotService {
     }
   }
 
+  // El pedido confirmado sale como tarjeta Placa roja "PEDIDO" con su código
+  // (2/10/2026; antes usaba la gráfica vieja y solo si el texto traía
+  // renglones, que la confirmación no trae: no salía nunca). Los renglones y el
+  // total salen de la base, no del texto; si no suman lo que dice el texto, va
+  // el texto. Es lo que el cliente guarda y muestra en el mostrador.
   private async cartelDePedido(respuesta: string): Promise<{ imagenUrl: string; pie: string } | null> {
     const codigo = respuesta.match(/\b(?:DOM|RET|PICKUP)-[A-Z0-9]{4,10}\b/)?.[0];
     if (!codigo) return null;
-
-    const lineas = respuesta.split('\n');
-    const renglones = lineas
-      .map((l) => l.trim())
-      .filter((l) => l.startsWith('•'))
-      .map((l) => {
-        const sinVineta = l.replace(/^•\s*/, '');
-        // "2 × Fernet Branca 750 cc — $20.500 c/u = $41.000" → nombre + importe final
-        const m = sinVineta.match(/^(.*?)[\s—:-]*\$\s?([\d.]+)(?:\s*c\/u)?(?:\s*=\s*\$\s?([\d.]+))?\s*$/);
-        if (!m) return null;
-        return { nombre: m[1].replace(/[—:-]\s*$/, '').trim(), precio: `$${m[3] ?? m[2]}` };
-      })
-      .filter((x): x is { nombre: string; precio: string } => !!x && !!x.precio);
-    if (!renglones.length) return null;
-
-    const total = respuesta.match(/\*?\s*total[^:\n]{0,20}:\s*(\$\s?[\d.]+)\s*\*?/i)?.[1]?.replace(/\s+/g, ' ') ?? null;
-
+    // solo al confirmarlo: "tu pedido DOM-… está en camino" o "…quedó cancelado"
+    // no llevan la tarjeta (diría "mostrá este código" de un pedido cancelado)
+    if (!/\bconfirmad[oa]\b/i.test(respuesta) || /\bcancelad[oa]\b/i.test(respuesta)) return null;
     try {
-      const png = await cartelPrecios({
-        titulo: `Pedido ${codigo}`,
+      const { data: ped } = await this.db.from('pedidos')
+        .select('id, destino_direccion, pedidos_items(cantidad, precio_unitario, productos(nombre))')
+        .eq('qr_retiro', codigo).maybeSingle();
+      const items = (((ped as any)?.pedidos_items ?? []) as any[]).filter((i) => Number(i.cantidad) > 0);
+      if (!items.length) return null;
+      const renglones = items.map((i) => ({
+        nombre: nombreParaCartel(i.productos?.nombre ?? 'Producto'),
+        cantidad: Number(i.cantidad),
+        unitario: Number(i.precio_unitario),
+        subtotal: Math.round(Number(i.cantidad) * Number(i.precio_unitario)),
+      }));
+      const suma = renglones.reduce((t, r) => t + r.subtotal, 0);
+      const dicho = respuesta.match(/total[^:\n]{0,20}:\s*\$\s?([\d.]+)/i)?.[1];
+      if (dicho && Math.abs(Number(dicho.replace(/\./g, '')) - suma) > 1) return null;
+      const domicilio = codigo.startsWith('DOM');
+      const direccion = (ped as any)?.destino_direccion as string | null;
+      const png = await cartelPedido({
         renglones,
-        total,
-        pie: 'Presentá este código al retirar o al recibir tu pedido.',
+        total: suma,
+        entrega: domicilio
+          ? { titulo: 'Envío sin cargo', detalle: direccion || null }
+          : { titulo: 'Retiro en la sucursal Saint Thomas', detalle: 'Castex 3601, Canning' },
+        confirmar: false,
+        pie: '',
+        titulo: 'PEDIDO',
+        subtitulo: codigo,
+        nota: domicilio ? 'Mostrá este código al recibir tu pedido.' : 'Presentá este código al retirar.',
       });
       const ruta = `carteles/${new Date().toISOString().slice(0, 7)}/pedido-${codigo}-${Date.now()}.png`;
-      const { error } = await this.db.storage.from('publico').upload(ruta, png, { contentType: 'image/png' });
-      if (error) return null;
+      const { error } = await this.db.storage.from('publico').upload(ruta, png, { contentType: 'image/png', upsert: true });
+      if (error) { this.log.warn(`no pude subir la tarjeta del pedido ${codigo}: ${error.message}`); return null; }
       const imagenUrl = this.db.storage.from('publico').getPublicUrl(ruta).data.publicUrl;
-      // el texto viaja como epígrafe de la tarjeta: lo que no son renglones
-      const pie = lineas.map((l) => l.trim()).filter((l) => l && !l.startsWith('•')).join(' ').replace(/\s{2,}/g, ' ').slice(0, 400);
+      // el texto viaja como epígrafe: lo que no son renglones
+      const pie = respuesta.split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('•')).join(' ').replace(/\s{2,}/g, ' ').slice(0, 400);
       return { imagenUrl, pie: pie || `Pedido confirmado: ${codigo}.` };
     } catch (e) {
-      this.log.warn(`cartel de pedido falló (${codigo}): ${e instanceof Error ? e.message : e}`);
+      this.log.warn(`tarjeta del pedido falló (${codigo}): ${e instanceof Error ? e.message : e}`);
       return null;
     }
   }
 
+  // Lista de precios escrita a mano por el bot ("• Producto — $precio"), cuando
+  // los productos no salen de lo que consultó en el turno: también Placa roja
+  // (2/10/2026; antes, la gráfica vieja). Desde 2 productos.
   private async cartelDeListado(respuesta: string): Promise<{ imagenUrl: string; pie: string } | null> {
-    const lineas = respuesta.split('\n');
-    const items = lineas
-      .map((l, i) => ({ l: l.trim(), i }))
-      .filter((x) => x.l.startsWith('•') && /\$\s?[\d.]+/.test(x.l));
-    if (items.length < 3) return null; // con uno o dos renglones el texto se lee mejor
-
-    const renglones = items.map((x) => {
-      const sinVineta = x.l.replace(/^•\s*/, '');
-      const m = sinVineta.match(/^(.*?)[\s—:-]*(\$\s?[\d.]+(?:\s*c\/u)?(?:\s*=\s*\$[\d.]+)?)\s*$/);
-      if (!m) return { nombre: sinVineta, precio: '' };
-      return { nombre: m[1].replace(/[—:-]\s*$/, '').trim(), precio: m[2].replace(/\s+/g, ' ').trim() };
-    }).filter((r) => r.precio);
-    if (renglones.length < 3) return null;
-
-    // título: la línea con ":" justo antes del listado ("Tenemos, por ejemplo:")
-    const antes = lineas.slice(0, items[0].i).map((l) => l.trim()).filter(Boolean);
-    const conDosPuntos = [...antes].reverse().find((l) => l.endsWith(':'));
-    let titulo = (conDosPuntos ?? 'Precios').replace(/:$/, '').trim();
-    if (titulo.length > 44 || titulo.length < 3) titulo = 'Precios';
-
-    const mTotal = respuesta.match(/\*?total[^:\n]{0,20}:\s*(\$\s?[\d.]+)\*?/i);
-    const hoy = new Date().toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', timeZone: 'America/Argentina/Buenos_Aires' });
-
+    if (leerResumenDePedido(respuesta)) return null;
+    const productos = respuesta.split('\n')
+      .map((l) => l.trim())
+      .filter((l) => l.startsWith('•') && /\$\s?[\d.]+/.test(l) && !/c\/u\s*=/.test(l))
+      .map((l): ProductoConPrecio | null => {
+        const m = l.replace(/^•\s*/, '').match(/^(.*?)[\s—–:-]*\$\s?([\d.]+)(?:[^$(\n]*\(\s*\$\s?([\d.]+)[^)]*\))?/);
+        if (!m) return null;
+        const precio = Number(m[2].replace(/\./g, ''));
+        const efectivo = m[3] ? Number(m[3].replace(/\./g, '')) : null;
+        return { nombre: m[1].replace(/[—–:-]\s*$/, '').trim(), precio, precioEfectivo: efectivo && efectivo < precio ? efectivo : null };
+      })
+      .filter((p): p is ProductoConPrecio => !!p && !!p.nombre && p.precio > 0);
+    if (productos.length < 2) return null;
     try {
-      const png = await cartelPrecios({
-        titulo,
-        renglones,
-        total: mTotal ? mTotal[1].replace(/\s/g, '') : null,
-        pie: `Precios al ${hoy} · Suc. Saint Thomas (ST), Castex 3601`,
-      });
-      const ruta = `carteles/${new Date().toISOString().slice(0, 7)}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.png`;
+      const fecha = new Date().toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', timeZone: 'America/Argentina/Buenos_Aires' });
+      const png = await cartelListaPrecios(productos.slice(0, 18), fecha);
+      const ruta = `carteles/${new Date().toISOString().slice(0, 7)}/precios-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.png`;
       const { error } = await this.db.storage.from('publico').upload(ruta, png, { contentType: 'image/png', upsert: true });
-      if (error) { this.log.warn(`no pude subir el cartel: ${error.message}`); return null; }
+      if (error) { this.log.warn(`no pude subir el listado: ${error.message}`); return null; }
       const imagenUrl = this.db.storage.from('publico').getPublicUrl(ruta).data.publicUrl;
-
-      // el pie de foto se queda con todo MENOS los renglones del listado
-      const descartar = new Set(items.map((x) => x.i));
-      const pie = lineas.filter((_l, i) => !descartar.has(i)).join('\n').replace(/\n{3,}/g, '\n\n').trim();
-      return { imagenUrl, pie: pie || 'Le dejo los precios.' };
-    } catch (e: any) {
-      this.log.warn(`no pude armar el cartel: ${e?.message ?? e}`);
+      return { imagenUrl, pie: pieSinPrecios(respuesta) || 'Te paso los precios.' };
+    } catch (e) {
+      this.log.warn(`no pude armar el listado: ${e instanceof Error ? e.message : e}`);
       return null;
     }
   }

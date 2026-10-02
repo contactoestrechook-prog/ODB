@@ -4,6 +4,7 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
 import { SUPABASE } from '../supabase.provider';
 import { filtrarPorBusqueda, normalizarTexto } from '../comun/busqueda';
+import { pesosPlaca, productosEnResultado, separarDetalle, type DetallePlaca, type ProductoVisto } from '../comun/detalle-productos';
 import { ComprasService } from '../compras/compras.service';
 import { TONO_ODB } from '../comun/tono-odb';
 import { costoUSD, usoDeRespuesta } from '../bot/tarifas';
@@ -39,6 +40,43 @@ const NOMBRE_ALERTA: Record<string, string> = {
 
 // Fila de abastecimiento() achicada a lo que el agente necesita leer: cada
 // campo viaja en cada vuelta del modelo.
+// Los productos que el agente detalló, como Placa roja (ver comun/detalle-productos.ts):
+// en el círculo, lo que conviene pedir; abajo, el stock y el ritmo de cada
+// sucursal; en rojo, la alerta; a la derecha, el último costo por unidad.
+export function placaDeAbastecimiento(productos: ProductoVisto[], todos: ProductoVisto[]): DetallePlaca {
+  const dec = (n: unknown) => Number(n ?? 0).toLocaleString('es-AR', { maximumFractionDigits: 1 });
+  const renglones = productos.map((p) => {
+    const filas = todos.filter((v) => v.sku === p.sku).map((v) => v.fila as any);
+    const varias = new Set(filas.map((f) => f.sucursal).filter(Boolean)).size > 1;
+    const sugerido = filas.reduce((s, f) => s + (Number(f.sugerido) || Number(f.cantidad) || 0), 0);
+    const detalle = filas
+      .filter((f) => f.stock != null || f.ritmo_dia != null)
+      .map((f) => [
+        varias && f.sucursal ? `${f.sucursal}:` : '',
+        f.stock != null ? `${dec(f.stock)} en stock` : '',
+        f.en_camino ? `+ ${dec(f.en_camino)} en camino` : '',
+        f.ritmo_dia != null ? `· vende ${dec(f.ritmo_dia)} por día` : '',
+      ].filter(Boolean).join(' '))
+      .join(' — ');
+    const alertas = [...new Set(filas.filter((f) => f.alerta).map((f) => (varias && f.sucursal ? `${f.alerta} en ${f.sucursal}` : String(f.alerta))))];
+    const costo = filas.map((f) => f.costo).find((c) => c != null);
+    return {
+      clave: p.sku,
+      cantidad: sugerido > 0 ? sugerido : null,
+      nombre: p.nombre,
+      detalle: detalle || undefined,
+      destacado: alertas.length ? alertas.join(' · ') : undefined,
+      importe: pesosPlaca(costo),
+    };
+  });
+  return {
+    titulo: 'PRODUCTOS',
+    sub: `${renglones.length} productos`,
+    renglones,
+    pie: 'En el círculo, lo que conviene pedir. A la derecha, el último costo por unidad.',
+  };
+}
+
 export function filaCorta(f: any) {
   const n = (v: any, d = 1) => (v == null ? null : Math.round(Number(v) * 10 ** d) / 10 ** d);
   return {
@@ -166,6 +204,7 @@ Cómo trabajás:
 - armar_orden solo si el comprador te pide por escrito que la armes vos, con la propuesta exacta (proveedor, sucursal, productos y cantidades) ya acordada. Nunca armes una orden sin ese sí.
 - Proveedor bien cargado, sí o sí: para comprarle tiene que tener CUIT, razón social, teléfono o WhatsApp, condición de pago y plazo de entrega confirmado. Si le falta algo, decilo al proponer la compra. Si igual se arma la orden, queda a aprobar y frenada: administración ya recibe el pedido de completarlo y el sistema avisa cuando está.
 - Respuestas cortas y concretas, en castellano rioplatense, sin markdown pesado. Si hace falta una lista, guiones simples; nunca la lista de productos de una propuesta (esa la dibuja la pantalla).
+- Cuando detalles varios productos, un renglón por producto: guion, el nombre como figura en el sistema y, después de dos puntos, lo que hay que hacer con él ("- Cafe Cabrales Brasil x 500g: pedir 12"). La pantalla dibuja esos renglones como tarjeta con el stock, el ritmo, la alerta y el costo de cada uno.
 - El comprador te cuenta al principio de su mensaje cómo están las notas en pantalla (qué tildó, qué cantidades cambió, qué órdenes ya armó). Eso manda sobre lo que propusiste antes: no vuelvas a proponer ni a armar lo que ya está armado.
 
 ${TONO_ODB}`;
@@ -501,6 +540,9 @@ export class AbastecimientoService {
     const usadas: string[] = [];
     let ordenes: number[] = [];
     const propuestas: Propuesta[] = [];
+    // los productos que devolvieron las herramientas: si la respuesta los lista,
+    // van a la Placa roja con los datos del sistema
+    const vistos: ProductoVisto[] = [];
     let costo = 0;
     const limite = Date.now() + 170_000; // el proxy del panel corta a los 4,5 min
     // lo que el agente escribe en cada vuelta: suele explicar ANTES de llamar a
@@ -514,7 +556,9 @@ export class AbastecimientoService {
       const respuesta = motivo
         ? [motivo, aviso, propuestas.length ? 'Te dejo abajo lo que alcancé a armar.' : ''].filter(Boolean).join(' ')
         : texto || aviso || (propuestas.length ? 'Te dejé la propuesta abajo para tildar.' : 'No encontré nada para proponer con eso.');
-      return { respuesta: motivo && texto ? `${texto}\n\n${respuesta}` : respuesta, herramientas: usadas, ordenes, propuestas };
+      const final = motivo && texto ? `${texto}\n\n${respuesta}` : respuesta;
+      const { respuesta: sinLista, detalle } = separarDetalle(final, vistos, (ps) => placaDeAbastecimiento(ps, vistos));
+      return { respuesta: sinLista, detalle, herramientas: usadas, ordenes, propuestas };
     };
     for (let vuelta = 0; vuelta < 10; vuelta++) {
       const queda = limite - Date.now();
@@ -568,6 +612,7 @@ export class AbastecimientoService {
         } catch (e) {
           salida = { error: e instanceof Error ? e.message : String(e) };
         }
+        vistos.push(...productosEnResultado(salida));
         resultados.push({ type: 'tool_result', tool_use_id: b.id, content: JSON.stringify(salida), is_error: !!(salida as any)?.error });
       }
       historial.push({ role: 'user', content: resultados });

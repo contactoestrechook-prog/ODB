@@ -4,13 +4,14 @@ import { useEffect, useRef, useState } from 'react';
 import { BotonMicrofono } from './BotonMicrofono';
 import { prepararComprobante } from './comprimirImagen';
 import { AbastecimientoPanel } from './AbastecimientoPanel';
-import { Aviso, Boton, CLASES_ENTRADA, Cargando, Etiqueta, FOCO, Pestanas, TablaResponsiva, Tarjeta, TarjetaCabecera, Vacio, unir, useConfirmar } from './kit';
+import { Aviso, Boton, CLASES_ENTRADA, Cargando, Etiqueta, FOCO, Pestanas, PlacaRoja, TablaResponsiva, Tarjeta, TarjetaCabecera, Vacio, unir, useConfirmar, type DetallePlaca } from './kit';
 import { pesos } from '../lib/formato';
 
 // Mesa de compras: el comprador negocia con el proveedor y acá saca el costo
 // real. El sistema hace las cuentas; el analista razona, pregunta y arma la
 // propuesta. Nada se aplica hasta que el dueño aprueba.
-type Mensaje = { rol: 'usuario' | 'asistente'; texto: string; imagen?: string; mimeType?: string; nombre?: string };
+// detalle: los costeos y productos que el analista detalló, como Placa roja
+type Mensaje = { rol: 'usuario' | 'asistente'; texto: string; imagen?: string; mimeType?: string; nombre?: string; detalle?: DetallePlaca };
 
 // el clip de los adjuntos (antes, el emoji 📎)
 function IconoClip({ className = 'size-4' }: { className?: string }) {
@@ -91,7 +92,7 @@ export function MesaComprasWorkspace({ esDueno, tabInicial }: { esDueno: boolean
       });
       const j = await r.json();
       if (!r.ok) { setError(j?.message ?? 'No pude procesar la consulta'); return; }
-      setMensajes((xs) => [...xs, { rol: 'asistente', texto: j.respuesta ?? '' }]);
+      setMensajes((xs) => [...xs, { rol: 'asistente', texto: j.respuesta ?? '', detalle: j.detalle ?? undefined }]);
       // si armó una propuesta, la bandeja del dueño cambió
       if ((j.herramientas ?? []).includes('crear_propuesta')) cargarPropuestas();
     } catch {
@@ -163,12 +164,13 @@ export function MesaComprasWorkspace({ esDueno, tabInicial }: { esDueno: boolean
               </div>
             )}
             {mensajes.map((m, i) => (
-              <div key={i} className={`flex ${m.rol === 'usuario' ? 'justify-end' : 'justify-start'}`}>
+              <div key={i} className={`flex flex-col ${m.rol === 'usuario' ? 'items-end' : 'items-start'}`}>
                 <div className={`max-w-[85%] min-w-0 whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${
                   m.rol === 'usuario' ? 'bg-tinta text-crema' : 'bg-crema text-tinta'}`}>
                   {m.imagen && <p className="mb-1 flex items-center gap-1 text-xs opacity-70"><IconoClip className="size-3.5 shrink-0" /><span className="min-w-0 break-words">{m.nombre ?? 'Adjunto'}</span></p>}
                   {m.texto}
                 </div>
+                {m.detalle && <PlacaRoja {...m.detalle} className="mt-2 w-full" />}
               </div>
             ))}
             {pensando && <Cargando texto="Sacando cuentas…" />}

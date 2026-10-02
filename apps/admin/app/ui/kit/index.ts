@@ -45,6 +45,8 @@ export { Vacio } from './Vacio';
 export { Cargando, Girador } from './Cargando';
 export { BarraInferior } from './BarraInferior';
 export { Monto } from './Monto';
+export { PlacaRoja } from './PlacaRoja';
+export type { RenglonPlaca, DetallePlaca } from './PlacaRoja';
 
 export { IconoAtencion, IconoCerrar, IconoError, IconoFlechaAbajo, IconoInfo, IconoOk, IconoVacio } from './iconos';
 

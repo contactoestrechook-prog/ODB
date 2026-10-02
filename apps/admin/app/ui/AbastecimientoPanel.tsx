@@ -3,14 +3,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { BotonMicrofono } from './BotonMicrofono';
 import { NotaDePedido, type Armada, type EstadoNota, type Propuesta } from './NotaDePedido';
-import { Aviso, Boton, BotonLink, CLASES_ENTRADA, Cargando, Chips, Entrada, Etiqueta, FOCO, Tarjeta, TarjetaCabecera, Vacio, unir } from './kit';
+import { Aviso, Boton, BotonLink, CLASES_ENTRADA, Cargando, Chips, Entrada, Etiqueta, FOCO, PlacaRoja, Tarjeta, TarjetaCabecera, Vacio, unir, type DetallePlaca } from './kit';
 import { fecha as fechaFmt, numero } from '../lib/formato';
 import { filtrarPorBusqueda } from '../lib/busqueda';
 
 // "Qué comprar": la foto de lo que falta y el agente de abastecimiento.
 // La alerta no es un número fijo: cruza ritmo de venta, stock y plazo de
 // entrega del proveedor (ver apps/api/src/abastecimiento).
-type Mensaje = { rol: 'usuario' | 'asistente'; texto: string; ordenes?: number[]; propuestas?: Propuesta[] };
+// detalle: los productos que el agente detalló, como Placa roja (el paquete gráfico de pedidos)
+type Mensaje = { rol: 'usuario' | 'asistente'; texto: string; ordenes?: number[]; propuestas?: Propuesta[]; detalle?: DetallePlaca };
 type Resumen = {
   porSucursal: Record<string, { sin_stock?: number; no_llega?: number; menos_de_12?: number }>;
   proveedoresUrgentes: { proveedor: string; urgentes: number; faltan: string[] }[];
@@ -154,7 +155,7 @@ export function AbastecimientoPanel() {
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j?.message ?? 'El agente no pudo contestar');
-      setMensajes([...conversacion, { rol: 'asistente', texto: j.respuesta, ordenes: j.ordenes?.length ? j.ordenes : undefined, propuestas: j.propuestas?.length ? j.propuestas : undefined }]);
+      setMensajes([...conversacion, { rol: 'asistente', texto: j.respuesta, ordenes: j.ordenes?.length ? j.ordenes : undefined, propuestas: j.propuestas?.length ? j.propuestas : undefined, detalle: j.detalle ?? undefined }]);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'El agente no pudo contestar');
     } finally {
@@ -330,6 +331,7 @@ export function AbastecimientoPanel() {
                   </a>
                 )}
               </div>
+              {m.detalle && <PlacaRoja {...m.detalle} className="mt-2 w-full" />}
               {m.propuestas && (
                 <div className="mt-2 w-full space-y-3">
                   {m.propuestas.map((p) => (
