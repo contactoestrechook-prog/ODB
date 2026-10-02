@@ -26,7 +26,8 @@ exception when duplicate_object then null; end $$;
 -- uno lo consigue, así el proveedor nunca recibe el pedido dos veces.
 --   · sin intento previo → sí
 --   · falló → sí si se fuerza (botón "Reenviar") o, solo, hasta 3 veces cada 10 min
---   · quedó "enviando" más de 5 min (se cortó el proceso) → sí
+--   · quedó "enviando" más de 5 min (se cortó el proceso) → NO se reenvía solo:
+--     si el primer mensaje salió queda enviada; si no se sabe, a revisión.
 create or replace function oc_tomar_envio(p_oc uuid, p_forzar boolean default false)
 returns boolean
 language plpgsql
@@ -35,6 +36,15 @@ set search_path = public
 as $$
 begin
   update ordenes_compra
+     set estado = case when whatsapp_msg_id is not null then 'enviada'::estado_oc else estado end,
+         whatsapp_estado = case when whatsapp_msg_id is not null then 'enviado' else 'error' end,
+         whatsapp_intentos = greatest(whatsapp_intentos, 3),
+         whatsapp_error = case when whatsapp_msg_id is null
+           then 'Se cortó mientras se mandaba: puede que le haya llegado. Revisá el chat con el proveedor antes de reenviar.'
+           else whatsapp_error end
+   where id = p_oc and whatsapp_estado = 'enviando' and whatsapp_intento_en < now() - interval '5 minutes';
+
+  update ordenes_compra
      set whatsapp_estado = 'enviando',
          whatsapp_intento_en = now(),
          whatsapp_intentos = whatsapp_intentos + 1
@@ -42,8 +52,7 @@ begin
      and estado = 'aprobada'
      and (whatsapp_estado is null
           or (whatsapp_estado = 'error'
-              and (p_forzar or (whatsapp_intentos < 3 and whatsapp_intento_en < now() - interval '10 minutes')))
-          or (whatsapp_estado = 'enviando' and whatsapp_intento_en < now() - interval '5 minutes'));
+              and (p_forzar or (whatsapp_intentos < 3 and whatsapp_intento_en < now() - interval '10 minutes'))));
   return found;
 end $$;
 

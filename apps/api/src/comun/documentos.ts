@@ -97,10 +97,12 @@ export function ordenDeCompraPDF(d: DatosOrdenCompra): Promise<Buffer> {
       ['Condición de pago', d.condicionPago ?? 'a convenir'],
     ];
     let yc = y;
+    const anchoV = R - dchaX - 110;
     for (const [k, v] of cond) {
       doc.fillColor(HUMO).font('Helvetica').fontSize(8).text(k, dchaX, yc, { width: 110 });
-      doc.fillColor(TINTA).font('Helvetica-Bold').fontSize(9).text(v, dchaX + 110, yc - 1, { width: R - dchaX - 110, align: 'right' });
-      yc += 15;
+      doc.fillColor(TINTA).font('Helvetica-Bold').fontSize(9).text(v, dchaX + 110, yc - 1, { width: anchoV, align: 'right' });
+      // un valor largo (sucursal y dirección) ocupa dos renglones: no se pisa con el siguiente
+      yc += Math.max(15, doc.heightOfString(v, { width: anchoV }) + 4);
     }
 
     // Renglones
@@ -122,9 +124,9 @@ export function ordenDeCompraPDF(d: DatosOrdenCompra): Promise<Buffer> {
       if (d.sinPrecios) {
         if (y > 690) { doc.addPage({ size: 'A4', margin: 0 }); y = 60; }
         doc.fillColor(TINTA).font('Helvetica').fontSize(9.5)
-          .text(it.nombre, L + 10, y + 6, { width: 315, ellipsis: true });
-        doc.fillColor(HUMO).text(it.codigoProveedor || '—', L + 330, y + 6, { width: 90, align: 'right' });
-        doc.fillColor(TINTA).font('Helvetica-Bold').text(String(it.cantidad), L + 430, y + 6, { width: R - L - 440, align: 'right' });
+          .text(it.nombre, L + 10, y + 6, { width: 315, height: 12, ellipsis: true, lineBreak: false });
+        doc.fillColor(HUMO).text(it.codigoProveedor || '—', L + 330, y + 6, { width: 90, height: 12, ellipsis: true, lineBreak: false, align: 'right' });
+        doc.fillColor(TINTA).font('Helvetica-Bold').text(Number(it.cantidad).toLocaleString('es-AR'), L + 430, y + 6, { width: R - L - 440, align: 'right' });
         y += 22;
         doc.moveTo(L, y).lineTo(R, y).lineWidth(0.5).strokeColor(LINEA).stroke();
         continue;
@@ -140,12 +142,18 @@ export function ordenDeCompraPDF(d: DatosOrdenCompra): Promise<Buffer> {
       doc.moveTo(L, y).lineTo(R, y).lineWidth(0.5).strokeColor(LINEA).stroke();
     }
 
+    // lo que viene después de los renglones tiene que entrar arriba del pie (760)
+    const altoObs = d.observaciones ? 16 + doc.font('Helvetica').fontSize(9).heightOfString(d.observaciones, { width: R - L }) : 0;
+    if (y + 12 + (d.sinPrecios ? 30 : 46) + altoObs + 24 > 752) { doc.addPage({ size: 'A4', margin: 0 }); y = 60; }
+
     // Total (en la nota de pedido no va: el precio lo pone la factura)
     y += 12;
     if (d.sinPrecios) {
+      // con productos por peso (cantidades con decimales) no se suman "unidades"
+      const enteras = d.items.every((it) => Number.isInteger(Number(it.cantidad)));
       const unidades = d.items.reduce((s, it) => s + Number(it.cantidad || 0), 0);
       doc.fillColor(HUMO).font('Helvetica').fontSize(9)
-        .text(`${d.items.length} producto${d.items.length === 1 ? '' : 's'} · ${unidades.toLocaleString('es-AR')} unidad${unidades === 1 ? '' : 'es'}. Precios según su lista vigente: se confirman con la factura.`, L, y, { width: R - L });
+        .text(`${d.items.length} producto${d.items.length === 1 ? '' : 's'}${enteras ? ` · ${unidades.toLocaleString('es-AR')} unidad${unidades === 1 ? '' : 'es'}` : ''}. Precios según su lista vigente: se confirman con la factura.`, L, y, { width: R - L });
       y += 30;
     } else {
       doc.rect(L + 300, y, R - L - 300, 34).fill(NEGRO);
@@ -157,7 +165,7 @@ export function ordenDeCompraPDF(d: DatosOrdenCompra): Promise<Buffer> {
     if (d.observaciones) {
       doc.fillColor(HUMO).font('Helvetica-Bold').fontSize(8).text('OBSERVACIONES', L, y, { characterSpacing: 1.2 });
       doc.fillColor(TINTA).font('Helvetica').fontSize(9).text(d.observaciones, L, y + 12, { width: R - L });
-      y += 40;
+      y += Math.max(40, altoObs);
     }
 
     // Responsables: es lo que convierte el papel en trazabilidad

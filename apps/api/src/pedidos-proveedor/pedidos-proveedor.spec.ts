@@ -1,7 +1,7 @@
 const mockCartel = jest.fn(async (_n: any) => Buffer.from('png'));
 jest.mock('../comun/cartel-pedido', () => ({ cartelNotaDePedido: (n: any) => mockCartel(n) }));
 
-import { PedidosProveedorService, envioAutomaticoActivo, epigrafePedido, textoPedido } from './pedidos-proveedor.service';
+import { PedidosProveedorService, envioAutomaticoActivo, epigrafePedido, telefonoLegible, textoPedido } from './pedidos-proveedor.service';
 
 // El pedido le llega al proveedor por WhatsApp (2/10/2026). WAHA va simulado:
 // acá no sale ningún mensaje.
@@ -18,7 +18,7 @@ const ocBase = {
   ],
 };
 
-function dbFalsa(o: { tomada?: boolean; oc?: any; faltan?: string[]; enviadasHoy?: number; contactoExiste?: boolean; estadoActual?: any } = {}) {
+function dbFalsa(o: { tomada?: boolean; oc?: any; faltan?: string[]; enviadasHoy?: number; contactoExiste?: boolean; esDeLaCasa?: boolean; estadoActual?: any } = {}) {
   const log: any[] = [];
   const oc = { ...ocBase, ...(o.oc ?? {}) };
   const db: any = {
@@ -41,13 +41,14 @@ function dbFalsa(o: { tomada?: boolean; oc?: any; faltan?: string[]; enviadasHoy
         if (tabla === 'ordenes_compra' && q.ops.some((x: any) => x[0] === 'select' && x[2]?.head)) return { data: null, count: o.enviadasHoy ?? 0, error: null };
         if (tabla === 'ordenes_compra') return { data: o.estadoActual ?? oc, error: null };
         if (tabla === 'proveedor_productos') return { data: [{ producto_id: 'p1', codigo_proveedor: 'BAG1' }], error: null };
+        if (tabla === 'usuarios' && q.ops.some((x: any) => x[0] === 'eq' && x[1] === 'telefono')) return { data: o.esDeLaCasa ? [{ id: 'u-duenio' }] : [], error: null };
         if (tabla === 'usuarios') return { data: [{ id: 'u-comprador', nombre: 'Anabella' }, { id: 'u-duenio', nombre: 'Juan Pablo' }], error: null };
         if (tabla === 'bot_contactos' && op.includes('insert')) { log.push({ insert: tabla, datos: q.ops.find((x: any) => x[0] === 'insert')[1] }); return { data: null, error: null }; }
-        if (tabla === 'bot_contactos') return { data: o.contactoExiste ? { telefono: '5491133195593' } : null, error: null };
+        if (tabla === 'bot_contactos') return { data: o.contactoExiste ? [{ telefono: '117269803880579' }] : [], error: null };
         if (tabla === 'alertas_internas' || tabla === 'bot_envios') { log.push({ insert: tabla, datos: q.ops.find((x: any) => x[0] === 'insert')?.[1] }); return { data: null, error: null }; }
         return { data: null, error: null };
       };
-      for (const m of ['select', 'eq', 'in', 'gte', 'or', 'order', 'limit', 'update', 'insert']) {
+      for (const m of ['select', 'eq', 'in', 'gte', 'or', 'order', 'limit', 'update', 'insert', 'neq', 'is']) {
         q[m] = (...a: any[]) => { q.ops.push([m, ...a]); return q; };
       }
       q.maybeSingle = async () => resultado();
@@ -66,17 +67,28 @@ function dbFalsa(o: { tomada?: boolean; oc?: any; faltan?: string[]; enviadasHoy
 }
 
 const llamadasWaha: any[] = [];
+// qué números "tienen WhatsApp" para la consulta check-exists de WAHA
+let conWhatsapp = new Set(['5491133195593']);
+function fetchFalso(envio?: (url: string) => any) {
+  return jest.fn(async (url: string, init?: any) => {
+    if (String(url).includes('/api/contacts/check-exists')) {
+      const tel = new URL(url).searchParams.get('phone')!;
+      return { ok: true, status: 200, json: async () => ({ numberExists: conWhatsapp.has(tel), chatId: `${tel}@c.us` }) };
+    }
+    llamadasWaha.push({ url, cuerpo: JSON.parse(init.body) });
+    if (envio) return envio(url);
+    return { ok: true, status: 201, json: async () => ({ id: { _serialized: `true_5491133195593@c.us_${llamadasWaha.length}` } }) };
+  });
+}
 beforeEach(() => {
+  conWhatsapp = new Set(['5491133195593']);
   llamadasWaha.length = 0;
   mockCartel.mockReset();
   mockCartel.mockImplementation(async () => Buffer.from('png'));
   process.env.WAHA_URL = 'https://waha.prueba';
   process.env.WAHA_API_KEY = 'k';
   delete process.env.ODB_OC_WHATSAPP;
-  (global as any).fetch = jest.fn(async (url: string, init: any) => {
-    llamadasWaha.push({ url, cuerpo: JSON.parse(init.body) });
-    return { ok: true, status: 201, json: async () => ({ id: { _serialized: `true_5491133195593@c.us_${llamadasWaha.length}` } }) };
-  });
+  (global as any).fetch = fetchFalso();
 });
 
 describe('pedido al proveedor: el mensaje', () => {
@@ -147,10 +159,57 @@ describe('pedido al proveedor: el envío', () => {
     expect(t).not.toMatch(/\$/);
   });
 
-  it('un contacto que ya existe (puede ser un cliente o alguien de la casa) no se reclasifica', async () => {
+  it('un contacto que ya existe (puede ser un cliente) no se reclasifica, aunque esté guardado por su @lid', async () => {
     const db = dbFalsa({ contactoExiste: true });
     await new PedidosProveedorService(db).enviar('oc1', {});
     expect(db.log.find((l: any) => l.insert === 'bot_contactos')).toBeUndefined();
+  });
+
+  it('alguien de la casa (un usuario con ese teléfono) nunca queda marcado como proveedor', async () => {
+    const db = dbFalsa({ esDeLaCasa: true });
+    const r = await new PedidosProveedorService(db).enviar('oc1', {});
+    expect(r.enviado).toBe(true);
+    expect(db.log.find((l: any) => l.insert === 'bot_contactos')).toBeUndefined();
+  });
+
+  it('un número sin WhatsApp (un fijo) no recibe nada y no se reintenta solo', async () => {
+    conWhatsapp = new Set();
+    const db = dbFalsa();
+    const r = await new PedidosProveedorService(db).enviar('oc1', {});
+    expect(r.estado).toBe('error');
+    expect(r.mensaje).toMatch(/no tiene WhatsApp/);
+    expect(llamadasWaha).toHaveLength(0);
+    expect(db.log.filter((l: any) => l.update).pop().datos).toMatchObject({ whatsapp_estado: 'error', whatsapp_intentos: 3 });
+  });
+
+  it('el WhatsApp Business de un fijo (54 sin el 9) se encuentra y se usa', async () => {
+    conWhatsapp = new Set(['541143025555']);
+    const db = dbFalsa({ oc: { proveedor: { ...ocBase.proveedor, telefono: '011 4302-5555' } } });
+    const r = await new PedidosProveedorService(db).enviar('oc1', {});
+    expect(r).toMatchObject({ enviado: true, telefono: '+54 11 4302-5555' });
+    expect(llamadasWaha[0].cuerpo.chatId).toBe('541143025555@c.us');
+    expect(db.log.filter((l: any) => l.update).pop().datos).toMatchObject({ whatsapp_telefono: '541143025555' });
+  });
+
+  it('si WhatsApp no contesta a tiempo NO se reintenta solo (el pedido podría haber llegado)', async () => {
+    (global as any).fetch = fetchFalso(() => { throw Object.assign(new Error('This operation was aborted'), { name: 'AbortError' }); });
+    const db = dbFalsa();
+    const r = await new PedidosProveedorService(db).enviar('oc1', {});
+    expect(r.estado).toBe('error');
+    expect(r.mensaje).toMatch(/puede que le haya llegado/);
+    expect(db.log.filter((l: any) => l.update).pop().datos).toMatchObject({ whatsapp_estado: 'error', whatsapp_intentos: 3 });
+  });
+
+  it('apenas sale el primer mensaje queda anotado (por si algo se corta antes de terminar)', async () => {
+    const db = dbFalsa();
+    await new PedidosProveedorService(db).enviar('oc1', {});
+    const updates = db.log.filter((l: any) => l.update).map((l: any) => l.datos);
+    expect(updates[0]).toMatchObject({ whatsapp_msg_id: 'true_5491133195593@c.us_1', whatsapp_telefono: '5491133195593' });
+  });
+
+  it('teléfono legible para celular y para fijo', () => {
+    expect(telefonoLegible('5491133195593')).toBe('+54 9 11 3319-5593');
+    expect(telefonoLegible('541143025555')).toBe('+54 11 4302-5555');
   });
 
   it('si otro ya lo está mandando o ya salió, no lo manda dos veces', async () => {
@@ -169,11 +228,12 @@ describe('pedido al proveedor: el envío', () => {
     expect(db.log.find((l: any) => l.insert === 'alertas_internas').datos).toMatchObject({ para_usuario: 'u-comprador', tipo: 'oc_no_salio' });
   });
 
-  it('un teléfono fijo o sin código de área no se usa', async () => {
+  it('un teléfono sin código de área no se usa', async () => {
+    conWhatsapp = new Set(['42221234']);
     const db = dbFalsa({ oc: { proveedor: { ...ocBase.proveedor, telefono: '4222-1234' } } });
     const r = await new PedidosProveedorService(db).enviar('oc1', {});
     expect(r.estado).toBe('error');
-    expect(r.mensaje).toMatch(/no es un celular/);
+    expect(r.mensaje).toMatch(/no es argentino con código de área/);
     expect(llamadasWaha).toHaveLength(0);
   });
 
@@ -184,8 +244,8 @@ describe('pedido al proveedor: el envío', () => {
     expect(llamadasWaha).toHaveLength(0);
   });
 
-  it('si WhatsApp rechaza el texto, la orden queda aprobada con el motivo', async () => {
-    (global as any).fetch = jest.fn(async () => ({ ok: false, status: 500, json: async () => ({}) }));
+  it('si WhatsApp rechaza el envío (4xx), la orden queda aprobada con el motivo y se reintenta', async () => {
+    (global as any).fetch = fetchFalso(() => ({ ok: false, status: 422, json: async () => ({}) }));
     const db = dbFalsa();
     const r = await new PedidosProveedorService(db).enviar('oc1', {});
     expect(r.estado).toBe('error');
@@ -196,7 +256,7 @@ describe('pedido al proveedor: el envío', () => {
 
   it('si sale el texto pero no el PDF, el pedido igual cuenta como enviado y se avisa', async () => {
     let n = 0;
-    (global as any).fetch = jest.fn(async () => (++n === 1
+    (global as any).fetch = fetchFalso(() => (++n === 1
       ? { ok: true, status: 201, json: async () => ({ id: 'm1' }) }
       : { ok: false, status: 500, json: async () => ({}) }));
     const db = dbFalsa();
@@ -206,11 +266,19 @@ describe('pedido al proveedor: el envío', () => {
     expect(db.log.filter((l: any) => l.update).pop().datos).toMatchObject({ estado: 'enviada', whatsapp_error: expect.stringMatching(/PDF no salió/) });
   });
 
-  it('apagado: lo automático no sale ni toma la orden', async () => {
+  it('apagado: lo automático no sale ni toma la orden, y queda marcada para que el cron no la mande al prender', async () => {
     process.env.ODB_OC_WHATSAPP = '0';
     const db = dbFalsa();
     const r = await new PedidosProveedorService(db).enviar('oc1', { automatico: true });
     expect(r.estado).toBe('apagado');
     expect(db.rpc).not.toHaveBeenCalled();
+    expect(db.log.filter((l: any) => l.update).pop().datos).toMatchObject({ whatsapp_estado: 'error', whatsapp_intentos: 3 });
+  });
+
+  it('el texto para mandar a mano lista todo y no promete un PDF', () => {
+    const items = Array.from({ length: 30 }, (_, i) => ({ nombre: `P${i}`, cantidad: 1 }));
+    const t = textoPedido({ folio: 'F', proveedor: 'X', sucursal: 'Santa Inés', items, conPdf: false });
+    expect(t.match(/^• \d/gm)).toHaveLength(30);
+    expect(t).not.toMatch(/PDF/);
   });
 });

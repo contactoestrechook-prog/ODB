@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Req } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Req, Res } from '@nestjs/common';
 import { Roles } from '../auth/decorators';
 import { PedidosProveedorService } from './pedidos-proveedor.service';
 
@@ -12,6 +12,15 @@ export class PedidosProveedorController {
   @Post('ordenes/:id/enviar')
   enviar(@Param('id') id: string, @Body() b: { forzar?: boolean }, @Req() req: any) {
     return this.pedidos.enviar(id, { usuarioId: req.usuario?.sub ?? null, forzar: b?.forzar !== false });
+  }
+
+  // La nota de pedido sin precios (la que recibe el proveedor), para bajarla
+  @Roles('comprador', 'gerente', 'dueno')
+  @Get('ordenes/:id/nota')
+  async nota(@Param('id') id: string, @Req() req: any, @Res() res: any) {
+    const { folio, pdf } = await this.pedidos.notaPDF(id, req.usuario?.sub ?? null);
+    res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `inline; filename="nota-de-pedido-${folio}.pdf"` });
+    res.send(pdf);
   }
 
   @Roles('comprador', 'gerente', 'dueno')
