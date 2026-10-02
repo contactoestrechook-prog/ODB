@@ -51,8 +51,10 @@ type PropsPlaca = {
   className?: string;
 };
 
+// Hasta 3 decimales: un fiambre de 1,235 kg tiene que decir lo mismo en el
+// círculo y en "1,235 × $89.990" (con 2 decimales el círculo decía "1,24").
 const formatoCantidad = (c: number | string) =>
-  typeof c === 'number' ? (Number.isInteger(c) ? String(c) : c.toLocaleString('es-AR', { maximumFractionDigits: 2 })) : c;
+  typeof c === 'number' ? (Number.isInteger(c) ? String(c) : c.toLocaleString('es-AR', { maximumFractionDigits: 3 })) : c;
 
 export function PlacaRoja({ titulo, sub, renglones, total, recuadro, pie, acciones, className }: PropsPlaca) {
   return (
