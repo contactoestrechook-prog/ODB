@@ -4,7 +4,7 @@ import { apiJson } from "../../lib/api";
 import { sesion } from "../../lib/sesion";
 import { pesos } from "../../lib/tipos";
 import { IcoDesplegar, IcoFlecha, IcoLocal, IcoMoto } from "../ui/Iconos";
-import { PlacaPedido, type EntregaPlaca } from "../ui/PlacaPedido";
+import { PlacaPedido, renglonConPrecio, type EntregaPlaca } from "../ui/PlacaPedido";
 
 export const dynamic = "force-dynamic";
 
@@ -86,10 +86,10 @@ export default async function Cuenta() {
         ) : (
           // Cada compra es una línea breve ("2× X · 1× Y") que se toca para ver el
           // detalle en la Placa roja (2/10/2026). Es un <details> nativo: abre
-          // sin JavaScript y con el teclado. /mi/compras trae cantidad y nombre
-          // de cada renglón pero no el precio que se pagó (el "producto" que
-          // viene es la tarjeta de HOY, para recomprar): por eso los renglones
-          // van sin importe y la placa muestra solo el total de la compra.
+          // sin JavaScript y con el teclado. Cada renglón lleva lo que se pagó
+          // (precioUnitario de /mi/compras; el "producto" que viene es la
+          // tarjeta de HOY, para recomprar). Una compra vieja sin ese dato va
+          // con cantidad y nombre, y el total de la compra.
           <div className="divide-y divide-linea border-y border-linea">
             {compras.map((c: any) => {
               const items: any[] = c.items ?? [];
@@ -109,7 +109,7 @@ export default async function Cuenta() {
                     como="h3"
                     titulo={c.tipo === "pedido" ? "Pedido" : "Compra"}
                     sub={fechaLarga(c.fecha)}
-                    renglones={items.map((i: any, k: number) => ({ clave: `${i.sku ?? "renglon"}-${k}`, cantidad: Number(i.cantidad), nombre: i.nombre ?? "Producto" }))}
+                    renglones={items.map((i: any, k: number) => renglonConPrecio({ clave: `${i.sku ?? "renglon"}-${k}`, cantidad: Number(i.cantidad), nombre: i.nombre ?? "Producto", unitario: i.precioUnitario }))}
                     total={{ valor: pesos(c.total) }}
                     entrega={entregaDe(c)}
                     pie={items.length === 0 ? "Esta compra no tiene el detalle de productos." : null}

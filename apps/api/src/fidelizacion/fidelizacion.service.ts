@@ -45,13 +45,13 @@ export class FidelizacionService {
       this.perfil(clienteId),
       this.db
         .from('pedidos')
-        .select('id, estado, total, canal, creado_en, items:pedidos_items(cantidad, producto:productos(id, sku, nombre))')
+        .select('id, estado, total, canal, creado_en, items:pedidos_items(cantidad, precio_unitario, producto:productos(id, sku, nombre))')
         .eq('cliente_id', clienteId)
         .order('creado_en', { ascending: false })
         .limit(20),
       this.db
         .from('ventas')
-        .select('id, estado, total, canal, vendida_en, items:ventas_items(cantidad, producto:productos(id, sku, nombre))')
+        .select('id, estado, total, canal, vendida_en, items:ventas_items(cantidad, precio_unitario, producto:productos(id, sku, nombre))')
         .eq('cliente_id', clienteId)
         .eq('estado', 'completada')
         .order('vendida_en', { ascending: false })
@@ -71,6 +71,9 @@ export class FidelizacionService {
         sku: i.producto?.sku,
         nombre: i.producto?.nombre ?? 'Producto',
         cantidad: Number(i.cantidad),
+        // lo que se pagó (la tarjeta de abajo tiene el precio de HOY): para la
+        // Placa roja de "Tus compras" en la tienda (2/10/2026)
+        precioUnitario: i.precio_unitario != null ? Number(i.precio_unitario) : null,
         producto: cardPorId.get(i.producto?.id) ?? null, // tarjeta actual para recomprar
       }));
 
