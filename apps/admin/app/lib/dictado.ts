@@ -18,9 +18,39 @@ const limpiar = (t: string) => String(t ?? '').replace(/\s+/g, ' ').trim();
 const palabras = (t: string) =>
   limpiar(t).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[.,;:!?¡¿"()]/g, '').split(' ').filter(Boolean);
 
+// Cuántas palabras de `a` aparecen en `b` en el mismo orden (subsecuencia común).
+function enOrden(a: string[], b: string[]): number {
+  const fila = new Array(b.length + 1).fill(0);
+  for (let i = 1; i <= a.length; i++) {
+    let diag = 0;
+    for (let j = 1; j <= b.length; j++) {
+      const arriba = fila[j];
+      fila[j] = a[i - 1] === b[j - 1] ? diag + 1 : Math.max(fila[j], fila[j - 1]);
+      diag = arriba;
+    }
+  }
+  return fila[b.length];
+}
+
+// ¿`nuevo` es una versión ampliada (y quizás corregida) de `previo`? Chrome de
+// Android, con escucha continua, manda en cada resultado TODO lo dicho en la
+// sesión, y al hacerlo corrige palabras ("necesita" → "necesito", "dos" → "2",
+// "ola" → "hola"). Revisión del 2/10: con una comparación exacta, cada
+// corrección duplicaba la frase y la bola crecía. Ahora se acepta como la misma
+// frase si arranca igual y conserva casi todas las palabras en orden.
+export function esAmpliacion(previo: string, nuevo: string): boolean {
+  const pa = palabras(previo);
+  const pb = palabras(nuevo);
+  if (!pa.length) return true;
+  if (pb.length < pa.length - 1 || pa[0] !== pb[0]) return false;
+  const comunes = enOrden(pa, pb.slice(0, pa.length + 2));
+  return pa.length <= 3 ? comunes >= pa.length - 1 : comunes >= Math.ceil(pa.length * 0.7);
+}
+
 // Suma un pedazo nuevo a lo que ya hay sin repetirlo (palabra por palabra):
-// si lo nuevo empieza con todo lo anterior (Android: "hola" → "hola necesito"),
-// queda lo nuevo; si lo anterior ya termina con lo nuevo, no se agrega.
+// si lo nuevo es lo anterior ampliado (Android: "hola" → "hola necesito"),
+// queda lo nuevo; si lo anterior ya termina con lo nuevo (3 palabras o más,
+// para no comerse un "dos" que se dijo dos veces), no se agrega.
 export function sumarDictado(previo: string, nuevo: string): string {
   const a = limpiar(previo);
   const b = limpiar(nuevo);
@@ -29,8 +59,20 @@ export function sumarDictado(previo: string, nuevo: string): string {
   const pa = palabras(a);
   const pb = palabras(b);
   if (pb.length >= pa.length && pa.every((w, i) => pb[i] === w)) return b;
-  if (pa.length >= pb.length && pb.every((w, i) => pa[pa.length - pb.length + i] === w)) return a;
+  if (pb.length >= 3 && pa.length >= pb.length && pb.every((w, i) => pa[pa.length - pb.length + i] === w)) return a;
   return `${a} ${b}`;
+}
+
+// Dentro de UNA sesión: un final nuevo que es la sesión ampliada o corregida
+// (modo acumulado de Android) reemplaza; si no, se suma (Chrome de escritorio
+// manda cada pausa como un final aparte).
+function sumarEnSesion(sesion: string, final: string): string {
+  const a = limpiar(sesion);
+  const b = limpiar(final);
+  if (!b) return a;
+  if (!a) return b;
+  if (palabras(b).length >= palabras(a).length && esAmpliacion(a, b)) return b;
+  return sumarDictado(a, b);
 }
 
 type Resultado = { isFinal: boolean; 0: { transcript: string } };
@@ -47,7 +89,7 @@ export function procesarResultados(
   for (let i = Math.max(0, desde); i < resultados.length; i++) {
     const r = resultados[i];
     const t = r?.[0]?.transcript ?? '';
-    if (r?.isFinal) conf = sumarDictado(conf, t);
+    if (r?.isFinal) conf = sumarEnSesion(conf, t);
     else parcial = sumarDictado(parcial, t);
   }
   return { sesion: conf, parcial };
