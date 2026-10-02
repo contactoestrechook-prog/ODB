@@ -16,9 +16,9 @@ const CANALES: Record<string, { label: string; tono: TonoEtiqueta }> = {
   mostrador: { label: 'Mostrador', tono: 'neutro' },
 };
 const canalDe = (p: any) => p.origen || p.canal;
-// Precio unitario de un renglón interpretado del WhatsApp. Hoy el análisis
-// (apps/api/src/pedidos › analizarWhatsApp) no lo manda: cuando mande `precio`
-// por renglón, la Placa roja muestra "2 × $1.500", el subtotal y el total.
+// Precio unitario de un renglón interpretado del WhatsApp: el análisis
+// (apps/api/src/pedidos › analizarWhatsApp) manda el `precio` vigente de cada
+// renglón y la Placa roja muestra "2 × $1.500", el subtotal y el total.
 type RenglonWa = { cantidad?: unknown; precio?: unknown };
 const precioDe = (it: RenglonWa | null | undefined): number | null => {
   const n = Number(it?.precio);

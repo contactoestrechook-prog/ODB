@@ -245,6 +245,18 @@ export class PedidosService {
       if (prod) matched.push({ producto_id: prod.id, cantidad: Number(item.quantity) || 1, pedido: item.name, match: prod.nombre, sku: prod.sku });
       else sinMatch.push(item.name);
     }
+    // el precio vigente de cada renglón, para la Placa roja de la vista previa
+    // (2/10/2026: sin precio la placa no podía mostrar subtotal ni total)
+    const ids = [...new Set(matched.map((m) => m.producto_id))];
+    if (ids.length) {
+      const { data: precios } = await this.db.rpc('catalogo_precios', { p_ids: ids });
+      const precioDe = new Map(((precios ?? []) as any[]).map((r) => [r.producto_id ?? r.id, r]));
+      for (const m of matched) {
+        const pr: any = precioDe.get(m.producto_id);
+        const precio = pr?.precio_final ?? pr?.precio_lista ?? null;
+        m.precio = precio != null && Number.isFinite(Number(precio)) ? Number(precio) : null;
+      }
+    }
     return { matched, sinMatch };
   }
 

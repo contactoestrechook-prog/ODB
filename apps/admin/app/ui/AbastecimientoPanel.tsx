@@ -272,7 +272,7 @@ export function AbastecimientoPanel() {
           <div className="space-y-3" aria-busy="true">
             {[0, 1].map((i) => (
               <div key={i} className="overflow-hidden rounded-2xl border border-black/[0.06] bg-white shadow-tarjeta">
-                <div className="h-[62px] bg-tinta" /><div className="h-[3px] bg-dorado" />
+                <div className="h-[62px] bg-marca" />
                 <div className="space-y-3 p-5">{[0, 1, 2].map((j) => <div key={j} className="h-9 rounded-xl bg-black/[0.04] motion-safe:animate-pulse" />)}</div>
               </div>
             ))}

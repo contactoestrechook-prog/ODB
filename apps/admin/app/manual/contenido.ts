@@ -477,7 +477,7 @@ export const SECCIONES: Seccion[] = [
         titulo: 'Qué dice cada renglón',
         filas: [
           ['Sin stock / No llega / Menos de 12', 'Por qué se sugiere. "No llega" es que se termina antes de que el proveedor pueda entregar.'],
-          ['La barrita', 'Cuántos días le alcanza el stock. La marca dorada es lo que tarda el proveedor: si la barra no llega a la marca, se queda sin stock antes de que llegue el pedido.'],
+          ['La barrita', 'Cuántos días le alcanza el stock. La marca negra es lo que tarda el proveedor: si la barra no llega a la marca, se queda sin stock antes de que llegue el pedido.'],
           ['Sugerido', 'La cantidad que cubre el plazo de entrega, un margen y 14 días más, según lo que se vende.'],
         ],
       },
@@ -505,6 +505,7 @@ export const SECCIONES: Seccion[] = [
           'Aparece la lista de productos de ese proveedor. Por defecto solo lo que hace falta reponer; con "Ver toda la lista" ves el resto.',
           'Cada renglón muestra el stock, cuántos días aguanta y cuánto conviene pedir. El sugerido se calcula con lo que se vendió en los últimos 30 días, para cubrir 14.',
           'Cargá las cantidades con los botones, o escribí el número.',
+          'Al final ves la nota de pedido con lo elegido (la tarjeta roja): cantidad, producto, costo y total. Es lo que va a recibir el proveedor.',
           'Si un producto no está en la lista del proveedor, tocá "+ Producto que no está", buscalo y agregalo. Queda cargado para siempre.',
           '"Enviar a aprobación". El pedido queda esperando la firma del dueño.',
         ],
@@ -730,7 +731,7 @@ export const SECCIONES: Seccion[] = [
         tipo: 'ojo',
         puntos: [
           'Todo lo que el bot cotiza sale de la lista de precios del sistema. Si un precio está mal en el sistema, el bot lo va a repetir mal.',
-          'Las conversaciones se ven en RESPONDE (menú Clientes): es la app con la línea real de WhatsApp, donde se contesta, se pausa o se devuelve al bot cada charla y se dejan notas y mensajes programados. Las campañas por listas están en Difusiones. Para probar el bot sin escribirle a un cliente está Probar el bot (ojo: los pedidos que confirmes ahí son reales).',
+          'Las conversaciones se ven en RESPONDE (menú Clientes): es la app con la línea real de WhatsApp, donde se contesta, se pausa o se devuelve al bot cada charla y se dejan notas y mensajes programados. Las campañas por listas están en Difusiones. Para probar el bot sin escribirle a un cliente está Probar el bot (ojo: los pedidos que confirmes ahí son reales). Ahí se ve también la tarjeta roja que le llegaría al cliente (resumen, precios o pedido) con su epígrafe.',
           'Pausar el bot en UNA charla: abrila y tocá el botón de pausa (rojo). Desde ese momento el bot no contesta nada en esa conversación —ni un acuse—, los mensajes del cliente siguen entrando al hilo y la atendés vos, desde el panel o desde el teléfono. Cuando terminaste, "Devolver al bot". Contestar desde el panel también pausa la charla sola. El interruptor de arriba ("Pausar en todas") apaga la línea entera.',
           'Para apagar el bot en TODA la línea: en RESPONDE, arriba, "Pausar en todas" (y "Encender en todas" para volver). Para una sola charla, con la pausa de esa charla.',
         ],
