@@ -482,6 +482,26 @@ describe('BotService.cartelDeListado (precios escritos a mano, Placa roja)', () 
   });
 });
 
+describe('BotService.tarjetaDeLaRespuesta (el simulador del panel ve la tarjeta del cliente, 2/10/2026)', () => {
+  const subidas: string[] = [];
+  const servicio = () => Object.assign(Object.create(BotService.prototype), {
+    db: { storage: { from: () => ({ upload: async (ruta: string) => { subidas.push(ruta); return { error: null }; }, getPublicUrl: (ruta: string) => ({ data: { publicUrl: `https://publico/${ruta}` } }) }) } },
+    log: { warn: () => undefined },
+  });
+  it('una lista de precios: la misma imagen y el mismo epígrafe que van por WhatsApp', async () => {
+    const espia = jest.spyOn(require('../comun/cartel-pedido'), 'cartelListaPrecios').mockResolvedValue(Buffer.from('png'));
+    const r = await servicio().tarjetaDeLaRespuesta({ respuesta: 'Tenemos:\n• Fernet Branca 750 — $20.500\n• Coca 1,75 — $4.700\n¿Cuál te llevás?', catalogo: [] });
+    expect(r).toEqual({ imagenUrl: `https://publico/${subidas[subidas.length - 1]}`, pie: 'Tenemos: ¿Cuál te llevás?' });
+    expect(subidas[subidas.length - 1]).toMatch(/^carteles\/\d{4}-\d{2}\/precios-/);
+    espia.mockRestore();
+  });
+  it('sin productos o sin respuesta (bot pausado), no hay tarjeta: va el texto', async () => {
+    expect(await servicio().tarjetaDeLaRespuesta({ respuesta: 'Hola, ¿en qué te ayudo?' })).toBeNull();
+    expect(await servicio().tarjetaDeLaRespuesta({ respuesta: null })).toBeNull();
+    expect(await servicio().tarjetaDeLaRespuesta(null)).toBeNull();
+  });
+});
+
 describe('emprolijarListado (el total nunca queda pegado al renglón)', () => {
   const { emprolijarListado } = require('./prolijo');
 

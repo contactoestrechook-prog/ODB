@@ -3653,7 +3653,7 @@ export class BotService {
   // (2/10/2026: lo que contestaba a una foto o a un audio salía siempre como
   // texto, y el pedido por foto es justo el que trae la lista larga).
   private async enviarConTarjeta(desde: string, identidad: string, r: { respuesta: string; catalogo?: ProductoConPrecio[] }) {
-    const cartel = (await this.cartelDeResumen(r.respuesta)) ?? (await this.cartelDePedido(r.respuesta)) ?? (await this.cartelDePrecios(r.respuesta, r.catalogo ?? [])) ?? (await this.cartelDeListado(r.respuesta));
+    const cartel = await this.armarTarjeta(r);
     // si le correspondía imagen y no salió, que quede en el log (1/10/2026)
     if (!cartel && imagenEsperada(r.respuesta)) this.log.warn(`le correspondía imagen de ${imagenEsperada(r.respuesta)} y no se armó (${identidad})`);
     let envio = cartel
@@ -3664,6 +3664,22 @@ export class BotService {
       envio = await this.enviarPorWhatsapp({ to: desde, text: r.respuesta, referencia: `waha/${identidad}` });
     }
     return envio;
+  }
+
+  // Qué tarjeta le toca a la respuesta, en este orden: el resumen del pedido,
+  // el pedido confirmado, los precios de lo que consultó y la lista escrita a
+  // mano. null: va el texto solo.
+  private async armarTarjeta(r: { respuesta: string; catalogo?: ProductoConPrecio[] }): Promise<{ imagenUrl: string; pie: string } | null> {
+    return (await this.cartelDeResumen(r.respuesta)) ?? (await this.cartelDePedido(r.respuesta)) ?? (await this.cartelDePrecios(r.respuesta, r.catalogo ?? [])) ?? (await this.cartelDeListado(r.respuesta));
+  }
+
+  // Para "Probar el bot" del panel (2/10/2026): la misma tarjeta que le llega al
+  // cliente, armada con la misma regla que enviarConTarjeta, para que el
+  // simulador muestre la imagen y su epígrafe en vez del texto. No manda nada
+  // por WhatsApp; la imagen queda en el storage público, como la de un envío.
+  async tarjetaDeLaRespuesta(r: { respuesta?: string | null; catalogo?: ProductoConPrecio[] } | null | undefined): Promise<{ imagenUrl: string; pie: string } | null> {
+    if (!r?.respuesta) return null;
+    return this.armarTarjeta({ respuesta: r.respuesta, catalogo: r.catalogo });
   }
 
   // "escribiendo…" en WhatsApp + pausa proporcional al texto (2 a 8 s). Si WAHA

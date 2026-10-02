@@ -214,15 +214,21 @@ export class BotPruebaController {
     return this.bot.resumenResponde();
   }
 
+  // El simulador muestra lo que recibe el cliente (2/10/2026): si la respuesta
+  // sale con tarjeta Placa roja (resumen, pedido, precios), viaja también la
+  // imagen con su epígrafe. La respuesta en texto sigue igual. Si la tarjeta no
+  // se arma, el simulador muestra el texto, como le llegaría al cliente.
   @Post('probar')
-  probar(@Body() body: {
+  async probar(@Body() body: {
     linea: 'pedidos' | 'proveedores';
     telefono: string;
     mensaje?: string;
     archivoBase64?: string;
     mimeType?: string;
   }) {
-    return this.bot.charla(body);
+    const r: any = await this.bot.charla(body);
+    const tarjeta = await this.bot.tarjetaDeLaRespuesta(r).catch(() => null);
+    return { ...r, tarjeta };
   }
 
   // "Nueva conversación" del simulador: borra la memoria de ese teléfono

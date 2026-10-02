@@ -4,7 +4,10 @@ import { useEffect, useRef, useState } from 'react';
 import { BotonMicrofono } from './BotonMicrofono';
 import { Boton, Chips, Entrada, FOCO, Tarjeta, unir } from './kit';
 
-type Turno = { de: 'cliente' | 'bot'; texto: string; hora: string };
+// La tarjeta Placa roja que acompaña la respuesta (resumen, pedido, precios):
+// la misma imagen y el mismo epígrafe que le llegan al cliente por WhatsApp.
+type TarjetaWhatsapp = { imagenUrl: string; pie: string };
+type Turno = { de: 'cliente' | 'bot'; texto: string; hora: string; tarjeta?: TarjetaWhatsapp | null };
 
 const telAlAzar = () => `11${Math.floor(10000000 + Math.random() * 89999999)}`;
 const hora = () => new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
@@ -41,7 +44,8 @@ export default function BotSimulador() {
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.message ?? 'El bot no pudo responder');
-      setTurnos((t) => [...t, { de: 'bot', texto: d.respuesta, hora: hora() }]);
+      const tarjeta: TarjetaWhatsapp | null = d.tarjeta?.imagenUrl ? { imagenUrl: String(d.tarjeta.imagenUrl), pie: String(d.tarjeta.pie ?? '') } : null;
+      setTurnos((t) => [...t, { de: 'bot', texto: d.respuesta, hora: hora(), tarjeta }]);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'El bot no pudo responder');
     } finally {
@@ -111,15 +115,40 @@ export default function BotSimulador() {
           )}
           {turnos.map((t, i) => (
             <div key={i} className={`flex ${t.de === 'cliente' ? 'justify-end' : 'justify-start'}`}>
-              <div
-                className={unir(
-                  'max-w-[85%] whitespace-pre-wrap break-words rounded-2xl px-3 py-2 text-base leading-snug text-tinta shadow-tarjeta sm:max-w-[80%]',
-                  t.de === 'cliente' ? 'rounded-br-md bg-ok-suave' : 'rounded-bl-md bg-white',
-                )}
-              >
-                {t.texto}
-                <span className="mt-1 block text-right text-xs text-tinta/60">{t.hora}</span>
-              </div>
+              {t.tarjeta ? (
+                // Como le llega al cliente (2/10/2026): la tarjeta Placa roja con su
+                // epígrafe, no el texto. El texto que escribió el bot queda a mano
+                // para revisarlo.
+                <div className="w-80 max-w-[85%] rounded-2xl rounded-bl-md bg-white p-1 text-base leading-snug text-tinta shadow-tarjeta">
+                  <a href={t.tarjeta.imagenUrl} target="_blank" rel="noopener noreferrer" className={unir('block overflow-hidden rounded-xl', FOCO)}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={t.tarjeta.imagenUrl}
+                      alt="Tarjeta que recibe el cliente por WhatsApp (abrir en grande)"
+                      className="block h-auto w-full"
+                      onLoad={() => i === turnos.length - 1 && finRef.current?.scrollIntoView({ behavior: 'smooth' })}
+                    />
+                  </a>
+                  <div className="px-2 pb-1 pt-1.5">
+                    {t.tarjeta.pie && <p className="whitespace-pre-wrap break-words">{t.tarjeta.pie}</p>}
+                    <details className="mt-1">
+                      <summary className={unir('cursor-pointer text-xs font-medium text-tinta/60', FOCO)}>Texto que escribió el bot</summary>
+                      <p className="mt-1 whitespace-pre-wrap break-words text-sm text-tinta/70">{t.texto}</p>
+                    </details>
+                    <span className="mt-1 block text-right text-xs text-tinta/60">{t.hora}</span>
+                  </div>
+                </div>
+              ) : (
+                <div
+                  className={unir(
+                    'max-w-[85%] whitespace-pre-wrap break-words rounded-2xl px-3 py-2 text-base leading-snug text-tinta shadow-tarjeta sm:max-w-[80%]',
+                    t.de === 'cliente' ? 'rounded-br-md bg-ok-suave' : 'rounded-bl-md bg-white',
+                  )}
+                >
+                  {t.texto}
+                  <span className="mt-1 block text-right text-xs text-tinta/60">{t.hora}</span>
+                </div>
+              )}
             </div>
           ))}
           {pensando && (

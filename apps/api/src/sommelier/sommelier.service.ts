@@ -3,6 +3,7 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
 import { SUPABASE } from '../supabase.provider';
 import { TONO_ODB } from '../comun/tono-odb';
+import { lineaDeLaCava, vinosDeLaRespuesta, type VinoDeLaCava } from './vinos-recomendados';
 
 export type MensajeChat = { rol: 'usuario' | 'somelier'; texto: string };
 
@@ -81,7 +82,7 @@ export class SommelierService {
       system: [
         {
           type: 'text',
-          text: `${PERSONALIDAD}\n\nCava de ODB disponible ahora (sku · etiqueta (TIPO REAL entre paréntesis) · precio final · stock · descripción si hay):\n${cava}`,
+          text: `${PERSONALIDAD}\n\nCava de ODB disponible ahora (sku · etiqueta (TIPO REAL entre paréntesis) · precio final · stock · descripción si hay):\n${cava.map(lineaDeLaCava).join('\n')}`,
           // la cava cambia poco entre mensajes de una charla: cacheable
           cache_control: { type: 'ephemeral' },
         },
@@ -96,8 +97,13 @@ export class SommelierService {
       })),
     });
 
-    const texto = respuesta.content.find((b) => b.type === 'text');
-    return { respuesta: texto && 'text' in texto ? texto.text : '' };
+    const bloque = respuesta.content.find((b) => b.type === 'text');
+    const texto = bloque && 'text' in bloque ? bloque.text : '';
+    // `respuesta` sigue siendo el texto entero (la app de clientes muestra eso).
+    // Los vinos recomendados viajan además estructurados, con los precios de la
+    // cava, para que el panel los dibuje en la Placa roja; `introduccion` y
+    // `cierre` son el texto sin esos renglones (2/10/2026).
+    return { respuesta: texto, ...vinosDeLaRespuesta(texto, cava) };
   }
 
   // Decide la estrategia del somelier: si el cliente tiene historial, recomienda
@@ -141,7 +147,10 @@ export class SommelierService {
     }
   }
 
-  private async cava(): Promise<string> {
+  // La cava sale como datos (2/10/2026): el modelo la lee en texto
+  // (lineaDeLaCava, el mismo renglón de siempre) y con los mismos datos se
+  // arman los vinos que recomendó, con su precio, promo y efectivo.
+  private async cava(): Promise<VinoDeLaCava[]> {
     // el catálogo real divide los vinos en muchos rubros: matchea por prefijo
     const { data, error } = await this.db
       .from('productos')
@@ -166,20 +175,22 @@ export class SommelierService {
     });
     const precioPor = new Map<string, any>((precios ?? []).map((r: any) => [r.producto_id, r]));
 
-    return conStock
-      .map((p: any) => {
-        const pr = precioPor.get(p.id);
-        const stockTotal = (p.stock ?? []).reduce((s: number, r: any) => s + Number(r.cantidad), 0);
-        const promo = pr?.descuento_nombre
-          ? ` · PROMO "${pr.descuento_nombre}" (antes $${Math.round(pr.precio_lista)})`
-          : '';
+    return conStock.map((p: any): VinoDeLaCava => {
+      const pr = precioPor.get(p.id);
+      const stockTotal = (p.stock ?? []).reduce((s: number, r: any) => s + Number(r.cantidad), 0);
+      return {
+        id: p.id,
+        sku: p.sku,
+        nombre: p.nombre,
         // la categoría entre paréntesis es la ÚNICA fuente de verdad del tipo de
         // bebida (tinto/blanco/rosado/espumante/champagne) — el nombre de fantasía
         // no alcanza para saberlo con certeza. La descripción (si hay) suma matiz.
-        const cat = p.categoria?.nombre ? ` (${p.categoria.nombre})` : '';
-        const desc = p.descripcion ? ` — ${p.descripcion}` : '';
-        return `${p.sku} · ${p.nombre}${cat} · $${Math.round(pr?.precio_final ?? 0)}${promo} · stock ${Math.round(stockTotal)}${desc}`;
-      })
-      .join('\n');
+        categoria: p.categoria?.nombre || null,
+        descripcion: p.descripcion || null,
+        stock: Math.round(stockTotal),
+        precio: Math.round(pr?.precio_final ?? 0),
+        promo: pr?.descuento_nombre ? { nombre: String(pr.descuento_nombre), antes: Math.round(pr.precio_lista) } : null,
+      };
+    });
   }
 }
