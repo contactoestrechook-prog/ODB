@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { NotaDePedido, type Armada, type Propuesta } from './NotaDePedido';
-import { comentarioDe, type ComentarioProveedor } from './PlacaProveedores';
+import { ACCIONES_COMPRA, comentarioDe, type ComentarioProveedor } from './PlacaProveedores';
 import { Aviso, Boton, Chips, FOCO, Vacio, unir } from './kit';
 import { numero } from '../lib/formato';
 
@@ -147,7 +147,7 @@ export function NotasDelAnalista({
       )}
 
       {visibles.map((p) => {
-        const c = comentarios ? comentarioDe(comentarios, p.proveedorId) : undefined;
+        const c = comentarios ? comentarioDe(comentarios, p.proveedorId, ACCIONES_COMPRA) : undefined;
         return (
           <div key={`${sucursal}:${p.clave}`} data-proveedor={p.proveedorId} className="min-w-0 space-y-1.5">
             {c?.comentario?.trim() && (

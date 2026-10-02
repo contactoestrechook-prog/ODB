@@ -140,8 +140,23 @@ function Comentario({ c }: { c?: ComentarioProveedor }) {
   );
 }
 
-export function comentarioDe(comentarios: ComentarioProveedor[] | undefined, proveedorId: string | null): ComentarioProveedor | undefined {
-  return comentarios?.find((c) => c.proveedorId === proveedorId);
+// Qué líneas del analista tienen sentido en cada pieza, en orden de
+// preferencia: un mismo proveedor puede traer «comprar» y «liquidar», y en
+// PLATA PARADA no va el «pedí primero lo que está sin stock».
+export const ACCIONES_COMPRA: AccionProveedor[] = ['comprar', 'revisar_datos', 'completar_datos', 'esperar'];
+export const ACCIONES_PARADO: AccionProveedor[] = ['liquidar', 'esperar', 'revisar_datos'];
+
+export function comentarioDe(
+  comentarios: ComentarioProveedor[] | undefined,
+  proveedorId: string | null,
+  acciones: AccionProveedor[],
+): ComentarioProveedor | undefined {
+  const suyos = (comentarios ?? []).filter((c) => c.proveedorId === proveedorId && c.comentario?.trim());
+  for (const a of acciones) {
+    const c = suyos.find((x) => x.accion === a);
+    if (c) return c;
+  }
+  return undefined;
 }
 
 // El nombre del proveedor como botón: va dentro del <p> de la placa (un
@@ -219,7 +234,7 @@ export function PlacaCompras({
   const aRevisar = lista.reduce((s, p) => s + n(p.aRevisar), 0);
   const urgente = n(compras.totalUrgente);
   const puedeEsperar = Math.max(0, n(compras.total) - urgente);
-  const comentarioSinProveedor = comentarioDe(comentarios, null);
+  const comentarioSinProveedor = comentarioDe(comentarios, null, ACCIONES_COMPRA);
 
   const renglones: RenglonPlaca[] = visibles.map((p) => {
     const plata = n(p.plata);
@@ -272,7 +287,7 @@ export function PlacaCompras({
               </span>
             )}
           </span>
-          <Comentario c={comentarioDe(comentarios, p.proveedorId)} />
+          <Comentario c={comentarioDe(comentarios, p.proveedorId, ACCIONES_COMPRA)} />
         </span>
       ),
     };
@@ -447,7 +462,7 @@ export function PlacaParado({
               el más caro: {p.masCaro.nombre} <span className="importe whitespace-nowrap">{pesosCorto(p.masCaro.plata)}</span>
             </span>
           )}
-          <Comentario c={comentarioDe(comentarios, p.proveedorId)} />
+          <Comentario c={comentarioDe(comentarios, p.proveedorId, ACCIONES_PARADO)} />
         </span>
       ),
     };
