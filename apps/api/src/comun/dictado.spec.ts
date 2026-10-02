@@ -50,6 +50,24 @@ describe('dictado por voz del panel', () => {
     expect(previo).toBe('hola necesito seis cajas de quilmes');
   });
 
+  it('Android corrigiendo palabras dentro de la sesión: reemplaza, no duplica (verificación 2/10)', () => {
+    let s = '';
+    ({ sesion: s } = procesarResultados(s, [r('hola')], 0));
+    ({ sesion: s } = procesarResultados(s, [r('hola'), r('hola necesita')], 1));
+    ({ sesion: s } = procesarResultados(s, [r('hola'), r('hola necesita'), r('hola necesito dos cajas')], 2));
+    ({ sesion: s } = procesarResultados(s, [r('hola'), r('hola necesita'), r('hola necesito dos cajas'), r('hola necesito 2 cajas de Quilmes')], 3));
+    expect(s).toBe('hola necesito 2 cajas de Quilmes');
+  });
+
+  it('Chrome de escritorio: cada pausa es un final aparte y se suman', () => {
+    let s = '';
+    ({ sesion: s } = procesarResultados(s, [r('dame seis Quilmes')], 0));
+    ({ sesion: s } = procesarResultados(s, [r('dame seis Quilmes'), r('y dos fernet')], 1));
+    ({ sesion: s } = procesarResultados(s, [r('dame seis Quilmes'), r('y dos fernet'), r('dos')], 2));
+    // un "dos" que se dijo de nuevo no se come
+    expect(s).toBe('dame seis Quilmes y dos fernet dos');
+  });
+
   it('el parcial que quedó sin confirmar al cortar la sesión no se pierde', () => {
     expect(cerrarSesion('tres cajas', '', 'de agua sin gas')).toBe('tres cajas de agua sin gas');
   });
@@ -57,7 +75,8 @@ describe('dictado por voz del panel', () => {
   it('compara palabras enteras, no letras', () => {
     expect(sumarDictado('pedido', 'pedidos de vino')).toBe('pedido pedidos de vino');
     expect(sumarDictado('dame la manteca', 'ca')).toBe('dame la manteca ca');
-    expect(sumarDictado('pedido de', 'de')).toBe('pedido de');
+    expect(sumarDictado('pedido de vino tinto', 'de vino tinto')).toBe('pedido de vino tinto');
+    expect(sumarDictado('pedido de', 'de')).toBe('pedido de de');
     expect(sumarDictado('  hola  ', '')).toBe('hola');
     expect(sumarDictado('', '  che ')).toBe('che');
   });
@@ -65,13 +84,18 @@ describe('dictado por voz del panel', () => {
   it('respeta los renglones de lo que ya estaba escrito', () => {
     expect(textoDictado('6 Quilmes\n2 Fernet\n', '', 'y una coca', '')).toBe('6 Quilmes\n2 Fernet\ny una coca');
     expect(textoDictado('6 Quilmes\n2 Fernet', '', 'y una coca', '')).toBe('6 Quilmes\n2 Fernet y una coca');
+    expect(textoDictado('Pedido\n\n', '', 'seis Quilmes', '')).toBe('Pedido\n\nseis Quilmes');
   });
 
-  it('detecta cuando la caja cambió desde afuera (se envió o se escribió a mano)', () => {
-    const emitidos = ['qué compro', 'qué compro esta semana'];
-    expect(cambioExterno('qué compro esta semana', emitidos)).toBe(false); // lo puso el dictado
-    expect(cambioExterno('qué compro', emitidos)).toBe(false); // React todavía muestra uno anterior
-    expect(cambioExterno('', emitidos)).toBe(true); // se envió y se vació
-    expect(cambioExterno('qué compro esta semana y 2 fernet', emitidos)).toBe(true); // escrito a mano
+  it('detecta cuando la caja cambió desde afuera (se envió, se escribió o se borró a mano)', () => {
+    const emitidos = [{ t: 'qué compro', n: 1 }, { t: 'qué compro esta semana', n: 2 }];
+    // React se saltea el 1 y muestra directo el 2: es del dictado
+    expect(cambioExterno('qué compro esta semana', emitidos, 0)).toEqual({ externo: false, visto: 2 });
+    // React todavía muestra el 1 (atrasado): también es del dictado
+    expect(cambioExterno('qué compro', emitidos, 0)).toEqual({ externo: false, visto: 1 });
+    // ya se vio el 2 y la caja VUELVE al 1: la persona borró lo último dictado
+    expect(cambioExterno('qué compro', emitidos, 2).externo).toBe(true);
+    expect(cambioExterno('', emitidos, 2).externo).toBe(true); // se envió y se vació
+    expect(cambioExterno('qué compro esta semana y 2 fernet', emitidos, 2).externo).toBe(true); // escrito a mano
   });
 });

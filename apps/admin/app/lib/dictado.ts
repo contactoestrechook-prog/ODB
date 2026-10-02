@@ -84,7 +84,10 @@ export function procesarResultados(
   resultados: ArrayLike<Resultado>,
   desde: number,
 ): { sesion: string; parcial: string } {
-  let conf = sesion;
+  // si el navegador vuelve a mandar la lista entera desde el principio
+  // (resultIndex 0 con varios resultados), se recuenta la sesión desde cero en
+  // vez de volver a sumar lo que ya estaba
+  let conf = desde <= 0 && resultados.length > 1 ? '' : sesion;
   let parcial = '';
   for (let i = Math.max(0, desde); i < resultados.length; i++) {
     const r = resultados[i];
@@ -108,15 +111,24 @@ export function cerrarSesion(previo: string, sesion: string, parcial: string): s
 // sesión actual y lo que se está diciendo ahora.
 export function textoDictado(base: string, previo: string, sesion: string, parcial: string): string {
   const dicho = [limpiar(previo), sumarDictado(sesion, parcial)].filter(Boolean).join(' ');
-  const b = String(base ?? '').replace(/\s+$/, '');
+  // la base se respeta: solo se sacan espacios/tabs del final (no los renglones)
+  const b = String(base ?? '').replace(/[ \t]+$/, '');
   if (!dicho) return b;
-  if (!b) return dicho;
-  return `${b}${/\n$/.test(String(base ?? '')) ? '\n' : ' '}${dicho}`;
+  if (!b.trim()) return dicho;
+  return `${b}${/\n$/.test(b) ? '' : ' '}${dicho}`;
 }
 
 // ¿La caja cambió desde afuera mientras se dictaba? (se envió y se vació, o la
-// persona escribió a mano). `emitidos` son los últimos textos que puso el
-// propio dictado: React puede mostrar uno anterior antes de actualizarse.
-export function cambioExterno(textoActual: string, emitidos: readonly string[]): boolean {
-  return !emitidos.includes(String(textoActual ?? ''));
+// persona escribió o borró a mano). `emitidos` son los últimos textos que puso
+// el propio dictado, numerados en orden; `visto` es el número del último que ya
+// apareció en la caja. React puede saltearse alguno (muestra solo el último),
+// pero nunca vuelve para atrás: volver a un texto anterior es una persona que
+// borró lo último dictado.
+export type Emitido = { t: string; n: number };
+export function cambioExterno(textoActual: string, emitidos: readonly Emitido[], visto: number): { externo: boolean; visto: number } {
+  const texto = String(textoActual ?? '');
+  let n = -1;
+  for (const e of emitidos) if (e.t === texto && e.n > n) n = e.n;
+  if (n < 0 || n < visto) return { externo: true, visto };
+  return { externo: false, visto: n };
 }

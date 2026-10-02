@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { FOCO, unir } from './kit';
-import { cambioExterno, cerrarSesion, procesarResultados, textoDictado } from '../lib/dictado';
+import { cambioExterno, cerrarSesion, procesarResultados, textoDictado, type Emitido } from '../lib/dictado';
 
 // Botón de dictado por voz (Web Speech API del navegador, en español rioplatense).
 // Mientras la persona habla, va llenando el input vía onTexto con el texto
@@ -41,13 +41,18 @@ export function BotonMicrofono({
   const previoRef = useRef(''); // lo dictado en sesiones anteriores (antes de un reinicio)
   const sesionRef = useRef(''); // lo confirmado en la sesión actual
   const parcialRef = useRef(''); // lo que se está diciendo y todavía no se confirmó
-  const emitidosRef = useRef<string[]>([]); // lo último que el dictado puso en la caja
+  const emitidosRef = useRef<Emitido[]>([]); // lo último que el dictado puso en la caja, numerado
+  const numeroRef = useRef(0);
+  const vistoRef = useRef(0); // número del último emitido que ya apareció en la caja
   const pararRef = useRef(false); // la persona tocó «terminar», o la caja cambió, o hubo un error
   const activoRef = useRef(false); // hay un dictado en curso (incluido el arranque)
   const desmontadoRef = useRef(false);
   const inicioRef = useRef(0);
   const silenciosRef = useRef(0);
   const relojRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const textoActualRef = useRef(textoActual); // siempre el valor de la caja de este render
+  textoActualRef.current = textoActual;
+  const huboVozRef = useRef(false); // la sesión actual entregó algo dicho
   const onTextoRef = useRef(onTexto);
   const onFinRef = useRef(onFin);
   onTextoRef.current = onTexto;
@@ -61,16 +66,27 @@ export function BotonMicrofono({
     const hay = typeof window !== 'undefined' && ((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition);
     // Necesita contexto seguro (HTTPS) y el navegador tiene que soportar la API.
     setSoportado(!!hay && (typeof window === 'undefined' || window.isSecureContext !== false));
+    // StrictMode (y Fast Refresh) montan, limpian y vuelven a montar con los
+    // mismos refs: sin esto el micrófono quedaba "desmontado" para siempre
+    desmontadoRef.current = false;
     // al salir de la pantalla, el micrófono se cierra
     return () => {
       desmontadoRef.current = true;
       pararRef.current = true;
+      activoRef.current = false;
       pararReloj();
       const rec = recRef.current;
       recRef.current = null;
       try { rec?.abort(); } catch { /* ya estaba cerrado */ }
     };
   }, []);
+
+  // el aviso de error se va solo a los 6 s (antes quedaba fijo arriba)
+  useEffect(() => {
+    if (!error) return;
+    const t = setTimeout(() => setError(''), 6000);
+    return () => clearTimeout(t);
+  }, [error]);
 
   const MENSAJE_ERROR: Record<string, string> = {
     'not-allowed': 'Sin permiso de micrófono: habilitalo en el candado del navegador y volvé a tocar.',
@@ -83,9 +99,11 @@ export function BotonMicrofono({
   const emitioRef = useRef(false);
   const mostrar = () => {
     const t = textoDictado(baseRef.current, previoRef.current, sesionRef.current, parcialRef.current);
+    if (!emitioRef.current && !t.trim()) return; // un primer resultado vacío no se toma como propio
     // la base cuenta como "nuestra" solo hasta lo primero dictado: después, si
     // la caja vuelve a quedar vacía es porque se envió el mensaje
-    emitidosRef.current = emitioRef.current ? [...emitidosRef.current.slice(-5), t] : [t];
+    const e = { t, n: ++numeroRef.current };
+    emitidosRef.current = emitioRef.current ? [...emitidosRef.current.slice(-5), e] : [e];
     emitioRef.current = true;
     onTextoRef.current(t);
   };
@@ -112,7 +130,9 @@ export function BotonMicrofono({
   // persona escribió a mano. Se corta el dictado y la caja queda como la dejaron.
   useEffect(() => {
     if (!escuchando || !activoRef.current) return;
-    if (cambioExterno(textoActual ?? '', emitidosRef.current)) cortar();
+    const r = cambioExterno(textoActual ?? '', emitidosRef.current, vistoRef.current);
+    vistoRef.current = r.visto;
+    if (r.externo) cortar();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [textoActual, escuchando]);
 
@@ -128,26 +148,31 @@ export function BotonMicrofono({
     recRef.current = rec;
     sesionRef.current = '';
     parcialRef.current = '';
+    huboVozRef.current = false;
     rec.onresult = (e: any) => {
       // de un reconocimiento viejo o cortado (cortar() lo saca de recRef). Al
       // tocar «terminar» sí se aceptan las últimas palabras que entrega stop().
       if (rec !== recRef.current) return;
-      silenciosRef.current = 0;
       const { sesion, parcial } = procesarResultados(sesionRef.current, e.results, e.resultIndex ?? 0);
       sesionRef.current = sesion;
       parcialRef.current = parcial;
+      if ((sesion + parcial).trim()) { huboVozRef.current = true; silenciosRef.current = 0; }
       mostrar();
     };
     rec.onerror = (e: any) => {
       if (rec !== recRef.current) return;
       const tipo = String(e?.error ?? '');
-      if (tipo === 'no-speech') { silenciosRef.current++; return; } // onend decide si sigue
+      if (tipo === 'no-speech') return; // cuenta como silencio en onend, que decide si sigue
       if (tipo === 'aborted') return;
       pararRef.current = true;
       setError(MENSAJE_ERROR[tipo] ?? 'No pude escuchar, probá de nuevo.');
     };
+    // "no reconocí nada" llega como onnomatch en Chrome, no como error
+    rec.onnomatch = () => undefined;
     rec.onend = () => {
       if (rec !== recRef.current) return; // ya hay otro vigente, o se cortó a propósito
+      // una sesión que termina sin nada dicho (no-speech, nomatch o sin evento) es un silencio
+      if (!huboVozRef.current) silenciosRef.current++;
       previoRef.current = cerrarSesion(previoRef.current, sesionRef.current, parcialRef.current);
       sesionRef.current = '';
       parcialRef.current = '';
@@ -186,9 +211,11 @@ export function BotonMicrofono({
     if (desmontadoRef.current) { activoRef.current = false; return; } // se cerró la pantalla mientras pedía permiso
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SR) { activoRef.current = false; setError('Este navegador no tiene dictado por voz.'); return; }
-    baseRef.current = textoActual ?? '';
+    baseRef.current = textoActualRef.current ?? '';
     previoRef.current = '';
-    emitidosRef.current = [baseRef.current];
+    numeroRef.current = 0;
+    vistoRef.current = 0;
+    emitidosRef.current = [{ t: baseRef.current, n: 0 }];
     emitioRef.current = false;
     pararRef.current = false;
     silenciosRef.current = 0;
