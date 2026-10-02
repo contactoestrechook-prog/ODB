@@ -3,6 +3,7 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
 import { SUPABASE } from '../supabase.provider';
 import { TONO_ODB } from '../comun/tono-odb';
+import { pesosPlaca, separarDetalle, type DetallePlaca, type ProductoVisto } from '../comun/detalle-productos';
 
 export type MensajeChat = { rol: 'usuario' | 'analista'; texto: string };
 
@@ -76,6 +77,44 @@ Reglas estrictas:
 - Máximo ~200 palabras en "respuesta".
 
 ${TONO_ODB}`;
+
+const ESTADO_LEGIBLE: Record<FilaAnalisis['estado'], string | null> = {
+  quiebre_inminente: 'Se queda sin stock antes de que llegue',
+  reponer: 'Hay que reponer',
+  sobrestock: 'Sobra stock',
+  muerto: 'No se vende',
+  ok: null,
+};
+
+// Placa roja de los productos que detalló el analista: en el círculo, lo
+// sugerido para comprar; abajo, stock, ritmo y cobertura de cada sucursal; en
+// rojo, el estado; a la derecha, el costo.
+export function placaDelAnalista(productos: ProductoVisto[], todos: ProductoVisto[]): DetallePlaca {
+  const dec = (n: unknown) => Number(n ?? 0).toLocaleString('es-AR', { maximumFractionDigits: 1 });
+  const renglones = productos.map((p) => {
+    const filas = todos.filter((v) => v.sku === p.sku).map((v) => v.fila as unknown as FilaAnalisis);
+    const varias = new Set(filas.map((f) => f.sucursal)).size > 1;
+    const sugerido = filas.reduce((s, f) => s + (Number(f.sugerido) || 0), 0);
+    const detalle = filas
+      .map((f) => `${varias ? `${f.sucursal}: ` : ''}${dec(f.stock)} en stock · vende ${dec(f.ventasDia30)} por día${f.diasDeStock != null ? ` · alcanza ${dec(f.diasDeStock)} días` : ''}`)
+      .join(' — ');
+    const estados = [...new Set(filas.map((f) => ESTADO_LEGIBLE[f.estado]).filter(Boolean))];
+    return {
+      clave: p.sku,
+      cantidad: sugerido > 0 ? sugerido : null,
+      nombre: p.nombre,
+      detalle,
+      destacado: estados.length ? estados.join(' · ') : undefined,
+      importe: pesosPlaca(filas.find((f) => f.costo != null)?.costo),
+    };
+  });
+  return {
+    titulo: 'PRODUCTOS',
+    sub: `${renglones.length} productos`,
+    renglones,
+    pie: 'En el círculo, lo sugerido para comprar. A la derecha, el costo por unidad.',
+  };
+}
 
 @Injectable()
 export class AnalistaService {
@@ -293,7 +332,17 @@ export class AnalistaService {
       }))
       .filter((o: any) => o.proveedorId && o.sucursalId && o.items?.length);
 
-    return { respuesta: datos.respuesta, ordenes };
+    // Los productos que el analista detalla en la respuesta van como Placa roja
+    // (el paquete gráfico de pedidos, 2/10/2026), con los números de la tabla.
+    const vistos: ProductoVisto[] = filas.map((f) => ({ sku: f.sku, nombre: f.producto, fila: f as any }));
+    const { respuesta: texto2, detalle } = separarDetalle(String(datos.respuesta ?? ''), vistos, (ps) => placaDelAnalista(ps, vistos));
+    // la orden propuesta lleva el nombre de cada producto (antes se veía solo el SKU)
+    const nombreDe = new Map(todasFilas.map((f) => [f.sku, f.producto]));
+    const conNombres = ordenes.map((o: any) => ({
+      ...o,
+      items: (o.items ?? []).map((it: any) => ({ ...it, nombre: nombreDe.get(it.sku) ?? it.sku })),
+    }));
+    return { respuesta: texto2, detalle, ordenes: conNombres };
   }
 
   // Propone boxes/armados combinando bebidas y fiambrería, con contexto comercial

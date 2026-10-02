@@ -2,10 +2,10 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { BotonMicrofono } from '../ui/BotonMicrofono';
-import { Boton, Chip, Entrada, Tarjeta, unir } from '../ui/kit';
+import { Boton, Chip, Entrada, PlacaRoja, Tarjeta, unir, type DetallePlaca } from '../ui/kit';
 import { pesos as pesosFmt } from '../lib/formato';
 
-type Item = { sku: string; cantidad: number };
+type Item = { sku: string; cantidad: number; nombre?: string };
 type Orden = {
   proveedor: string;
   sucursal: string;
@@ -25,7 +25,8 @@ type Armado = {
   margenPct: number | null;
 };
 
-type Mensaje = { rol: 'usuario' | 'analista'; texto: string; ordenes?: Orden[]; armados?: Armado[] };
+// detalle: los productos que el analista detalló, como Placa roja (el paquete gráfico de pedidos)
+type Mensaje = { rol: 'usuario' | 'analista'; texto: string; ordenes?: Orden[]; armados?: Armado[]; detalle?: DetallePlaca };
 
 const SUGERENCIAS = [
   '¿Qué compro esta semana?',
@@ -100,7 +101,7 @@ export function ChatAnalista() {
       setMensajes((m) => [
         ...m,
         res.ok
-          ? { rol: 'analista', texto: datos.respuesta, ordenes: datos.ordenes }
+          ? { rol: 'analista', texto: datos.respuesta, ordenes: datos.ordenes, detalle: datos.detalle ?? undefined }
           : { rol: 'analista', texto: `(${datos.message ?? 'No pude analizar, probá de nuevo'})` },
       ]);
     } catch {
@@ -162,63 +163,50 @@ export function ChatAnalista() {
             >
               {m.texto}
             </div>
+            {m.detalle && <PlacaRoja {...m.detalle} className="mt-2 w-full" />}
+            {/* cada box, como Placa roja: los componentes con cantidad, su
+                precio de lista y el precio del box en la píldora */}
             {m.armados && (
-              <div className="mt-2 grid w-full max-w-[95%] gap-2 sm:grid-cols-2">
+              <div className="mt-2 grid w-full gap-3 lg:grid-cols-2">
                 {m.armados.map((a, j) => (
-                  <div key={j} className="flex min-w-0 flex-col rounded-xl border border-black/[0.06] bg-white p-3 shadow-tarjeta">
-                    <p className="break-words text-sm font-semibold text-tinta">{a.nombre}</p>
-                    <p className="text-xs font-medium text-marca-hondo">{a.ocasion}</p>
-                    <p className="mt-1 text-xs text-tinta/70">{a.descripcion}</p>
-                    <ul className="mt-2 space-y-0.5 text-xs text-tinta/70">
-                      {a.items.map((it) => (
-                        <li key={it.sku}>
-                          {it.cantidad}× {it.nombre}
-                        </li>
-                      ))}
-                    </ul>
-                    <div className="mt-auto flex flex-wrap items-baseline justify-between gap-2 pt-2">
-                      <div>
-                        <p className="importe text-xs text-tinta/60 line-through">{pesos(a.sumaLista)}</p>
-                        <p className="importe text-lg font-semibold text-tinta">{pesos(a.precioBox)}</p>
-                      </div>
-                      <div className="text-right text-xs">
-                        <p className="font-medium text-marca-hondo">ahorra <span className="importe">{pesos(a.ahorro)}</span></p>
-                        {a.margenPct != null && <p className="text-tinta/60">margen {a.margenPct} %</p>}
-                      </div>
-                    </div>
-                  </div>
+                  <PlacaRoja
+                    key={j}
+                    titulo={a.nombre}
+                    sub={a.ocasion}
+                    renglones={a.items.map((it) => ({
+                      clave: it.sku,
+                      cantidad: it.cantidad,
+                      nombre: it.nombre,
+                      detalle: `${it.cantidad} × ${pesos(it.precioUnitario)}`,
+                      importe: pesos(it.cantidad * it.precioUnitario),
+                    }))}
+                    total={{ etiqueta: 'Precio del box', valor: pesos(a.precioBox) }}
+                    recuadro={<span className="text-tinta/70">{a.descripcion}</span>}
+                    pie={`Suelto ${pesos(a.sumaLista)} · ahorra ${pesos(a.ahorro)}${a.margenPct != null ? ` · margen ${a.margenPct} %` : ''}`}
+                  />
                 ))}
               </div>
             )}
             {m.ordenes?.map((o, j) => {
               const clave = `${i}-${j}`;
               return (
-                <div key={clave} className="mt-2 w-full max-w-[85%] rounded-xl border-2 border-marca bg-white p-3">
-                  <p className="mb-1 text-xs font-semibold text-marca-hondo">
-                    Orden de compra propuesta
-                  </p>
-                  <p className="break-words text-sm font-medium text-tinta">
-                    {o.proveedor} → {o.sucursal}
-                  </p>
-                  <p className="mb-2 text-xs text-tinta/60">{o.motivo}</p>
-                  <p className="break-words text-sm text-tinta/80">
-                    {o.items.map((it) => `${it.sku} × ${it.cantidad}`).join(' · ')}
-                  </p>
-                  {creadas[clave] ? (
-                    <p className="mt-2 rounded-xl bg-crema px-3 py-2 text-xs font-medium text-tinta">
-                      {creadas[clave]}
-                    </p>
-                  ) : (
-                    <Boton
-                      tamano="chico"
-                      className="mt-2"
-                      onClick={() => crearOc(o, clave)}
-                      cargando={creando === clave}
-                    >
-                      {creando === clave ? 'Creando…' : 'Crear borrador de OC'}
-                    </Boton>
-                  )}
-                </div>
+                <PlacaRoja
+                  key={clave}
+                  className="mt-2 w-full"
+                  titulo="Orden de compra propuesta"
+                  sub={`${o.proveedor} → ${o.sucursal}`}
+                  renglones={o.items.map((it) => ({ clave: it.sku, cantidad: it.cantidad, nombre: it.nombre ?? it.sku, detalle: it.sku }))}
+                  recuadro={o.motivo ? <span className="text-tinta/70">{o.motivo}</span> : undefined}
+                  acciones={
+                    creadas[clave] ? (
+                      <p className="text-sm font-medium text-tinta">{creadas[clave]}</p>
+                    ) : (
+                      <Boton tamano="chico" onClick={() => crearOc(o, clave)} cargando={creando === clave}>
+                        {creando === clave ? 'Creando…' : 'Crear borrador de OC'}
+                      </Boton>
+                    )
+                  }
+                />
               );
             })}
           </div>
