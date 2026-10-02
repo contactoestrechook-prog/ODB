@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { BotonMicrofono } from './BotonMicrofono';
 import { AreaTexto, Aviso, Boton, Campo, Entrada, Etiqueta, IconoOk, Kpi, Monto, TablaResponsiva, Tarjeta, TarjetaCabecera, clasesBoton } from './kit';
 import { pesos } from '../lib/formato';
 import { coincideBusqueda } from '../lib/busqueda';
@@ -47,7 +48,6 @@ export function ComparadorWorkspace({ comparacion, directorio, stats }: { compar
   const [aplicado, setAplicado] = useState(false);
   // aclaración por voz/texto (bonificaciones)
   const [aclaracion, setAclaracion] = useState('');
-  const [escuchando, setEscuchando] = useState(false);
   const [interpretacion, setInterpretacion] = useState<any>(null);
 
   const masBaratoEn: Record<string, number> = {};
@@ -100,17 +100,6 @@ export function ComparadorWorkspace({ comparacion, directorio, stats }: { compar
     if (res.ok) router.refresh();
   };
 
-  const dictar = () => {
-    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SR) { setAviso('Tu navegador no soporta dictado por voz. Escribí la aclaración a mano.'); return; }
-    const rec = new SR();
-    rec.lang = 'es-AR'; rec.interimResults = true; rec.continuous = false;
-    setEscuchando(true);
-    rec.onresult = (e: any) => setAclaracion(Array.from(e.results).map((r: any) => r[0].transcript).join(' '));
-    rec.onerror = () => setEscuchando(false);
-    rec.onend = () => setEscuchando(false);
-    rec.start();
-  };
   const interpretar = async () => {
     if (!aclaracion.trim()) return;
     setCargando(true); setAviso('');
@@ -227,11 +216,7 @@ export function ComparadorWorkspace({ comparacion, directorio, stats }: { compar
                 <p className="mb-1 flex items-center gap-1.5 text-sm font-semibold text-tinta"><IconoMicrofono className="size-4 shrink-0" /> Aclaración del proveedor (voz o texto)</p>
                 <p className="mb-2 text-xs text-tinta/60">Ej.: “si compro 6 cajas me regala 2”, “2x1 en cerveza”, “10% pagando en efectivo”. La IA la interpreta y recalcula los costos de arriba.</p>
                 <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
-                  <Boton variante={escuchando ? 'primario' : 'secundario'} tamano="chico" onClick={dictar} disabled={escuchando}
-                    icono={<IconoMicrofono className="size-4" />}
-                    className={escuchando ? 'animate-pulse motion-reduce:animate-none' : undefined}>
-                    {escuchando ? 'Escuchando…' : 'Dictar'}
-                  </Boton>
+                  <BotonMicrofono textoActual={aclaracion} onTexto={setAclaracion} titulo="Dictar la aclaración" />
                   <Entrada aria-label="Aclaración del proveedor" value={aclaracion} onChange={(e) => setAclaracion(e.target.value)} placeholder="…o escribí la aclaración"
                     className="order-first col-span-2 sm:order-none sm:min-w-0 sm:flex-1" />
                   <Boton variante="secundario" tamano="chico" onClick={interpretar} disabled={cargando || !aclaracion.trim()}>Interpretar</Boton>

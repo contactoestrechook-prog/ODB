@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { numero, pesos as pesosFmt } from '../lib/formato';
+import { BotonMicrofono } from './BotonMicrofono';
 import { AreaTexto, Aviso, Boton, Chips, Entrada, Etiqueta, FOCO, IconoCerrar, Modal, PlacaRoja, Tarjeta, unir, type TonoEtiqueta } from './kit';
 
 const pesos = (n: any) => pesosFmt(Number(n) || 0);
@@ -125,20 +126,10 @@ export function PedidosWorkspace({ inicial }: { inicial: any[] }) {
 
 function ModalWhatsApp({ cerrar, post }: { cerrar: () => void; post: (b: any) => Promise<any> }) {
   const [texto, setTexto] = useState('');
-  const [escuchando, setEscuchando] = useState(false);
   const [analisis, setAnalisis] = useState<any>(null);
   const [cargando, setCargando] = useState(false);
   const [aviso, setAviso] = useState('');
 
-  const dictar = () => {
-    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SR) { setAviso('Tu navegador no soporta dictado. Pegá el mensaje.'); return; }
-    const rec = new SR(); rec.lang = 'es-AR'; rec.interimResults = true; rec.continuous = false;
-    setEscuchando(true);
-    rec.onresult = (e: any) => setTexto(Array.from(e.results).map((r: any) => r[0].transcript).join(' '));
-    rec.onerror = () => setEscuchando(false); rec.onend = () => setEscuchando(false);
-    rec.start();
-  };
   const analizar = async () => {
     if (!texto.trim()) return;
     setCargando(true); setAviso('');
@@ -192,22 +183,9 @@ function ModalWhatsApp({ cerrar, post }: { cerrar: () => void; post: (b: any) =>
     >
       <div className="space-y-3">
         <div className="flex flex-wrap items-center gap-2">
-          <Boton
-            variante={escuchando ? 'primario' : 'secundario'}
-            tamano="chico"
-            onClick={dictar}
-            disabled={escuchando}
-            className={escuchando ? 'animate-pulse motion-reduce:animate-none' : undefined}
-            icono={
-              <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <rect x="9" y="3" width="6" height="11" rx="3" />
-                <path d="M5 11a7 7 0 0014 0M12 18v3" />
-              </svg>
-            }
-          >
-            {escuchando ? 'Escuchando…' : 'Dictar'}
-          </Boton>
-          <span className="text-xs text-tinta/60">o pegá abajo</span>
+          {/* dictado de corrido que suma a lo escrito (BotonMicrofono, 2/10/2026) */}
+          <BotonMicrofono textoActual={texto} onTexto={setTexto} titulo="Dictar el pedido" />
+          <span className="text-xs text-tinta/60">Dictalo o pegalo abajo</span>
         </div>
         <AreaTexto value={texto} onChange={(e) => setTexto(e.target.value)} rows={4} placeholder="ej: Hola! me mandás 6 quilmes litro, 2 coca de 2.25 y un fernet? Para Av. Mate 123, pago en efectivo" aria-label="Mensaje del cliente" />
 
