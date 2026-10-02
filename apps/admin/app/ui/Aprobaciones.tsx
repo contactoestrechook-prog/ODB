@@ -88,8 +88,11 @@ export function Aprobaciones({ puedeFirmar }: { puedeFirmar: boolean }) {
       });
       const d = await r.json();
       if (!r.ok) { setError(d?.message ?? 'No se pudo resolver'); return; }
-      setError('');
-      setAviso(decision === 'aprobar' ? `${ETIQUETA[it.tipo]} aprobada.` : `${ETIQUETA[it.tipo]} rechazada.`);
+      // una orden de compra firmada sale sola al proveedor por WhatsApp: se dice
+      // si llegó o por qué no (la firma vale igual)
+      const envio = d?.envio as { enviado?: boolean; mensaje?: string } | undefined;
+      setError(envio && !envio.enviado ? `${ETIQUETA[it.tipo]} aprobada, pero ${String(envio.mensaje ?? '').replace(/^El pedido/, 'el pedido')}` : '');
+      setAviso(decision === 'aprobar' ? `${ETIQUETA[it.tipo]} aprobada.${envio?.enviado ? ` ${envio.mensaje}` : ''}` : `${ETIQUETA[it.tipo]} rechazada.`);
       setItems((xs) => xs.filter((x) => !(x.id === it.id && x.tipo === it.tipo)));
     } finally {
       setTrabajando(null);

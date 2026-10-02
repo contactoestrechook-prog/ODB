@@ -527,7 +527,7 @@ export const SECCIONES: Seccion[] = [
         tipo: 'pasos',
         pasos: [
           'Orden de compra: qué se le pide al proveedor. Sale en PDF con número propio, para mandársela.',
-          'Aprobación: la firma el dueño. Sin firma, la orden no se manda.',
+          'Aprobación: la firma el dueño en Aprobaciones. Apenas la firma, la orden sale sola por WhatsApp al proveedor: un mensaje con el pedido y la nota de pedido en PDF, con su número y sin precios. Al aprobar, la pantalla dice a qué número salió o por qué no salió.',
           'Recepción: el depósito escanea lo que llega. Sale el acta de recepción, con lo pedido contra lo recibido.',
           'Factura: administración la carga con el desglose fiscal.',
           'Conciliación: se cruza la factura contra el remito. Es el paso que verifica que te facturaron lo que efectivamente entró.',

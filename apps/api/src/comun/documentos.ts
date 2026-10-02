@@ -58,10 +58,15 @@ export type DatosOrdenCompra = {
   condicionPago?: string | null;
   fechaEntrega?: string | null;
   observaciones?: string | null;
-  items: { nombre: string; sku?: string | null; cantidad: number; costo_unitario: number }[];
+  items: { nombre: string; sku?: string | null; codigoProveedor?: string | null; cantidad: number; costo_unitario: number }[];
   total: number;
   emitidaPor?: string | null;
   aprobadaPor?: string | null;
+  // La copia que se le manda al proveedor: "NOTA DE PEDIDO", sin costos ni total.
+  // El costo que tenemos puede ser viejo o estar en cero, y un número mal en el
+  // papel que recibe el proveedor termina usándose como referencia de precio.
+  // El precio lo confirma su factura.
+  sinPrecios?: boolean;
 };
 
 export function ordenDeCompraPDF(d: DatosOrdenCompra): Promise<Buffer> {
@@ -72,7 +77,7 @@ export function ordenDeCompraPDF(d: DatosOrdenCompra): Promise<Buffer> {
     doc.on('end', () => resolve(Buffer.concat(trozos)));
     doc.on('error', reject);
 
-    encabezado(doc, 'ORDEN DE COMPRA', d.folio, d.emitidoEn);
+    encabezado(doc, d.sinPrecios ? 'NOTA DE PEDIDO' : 'ORDEN DE COMPRA', d.folio, d.emitidoEn);
 
     // A quién se le compra
     let y = 126;
@@ -103,12 +108,27 @@ export function ordenDeCompraPDF(d: DatosOrdenCompra): Promise<Buffer> {
     doc.rect(L, y, R - L, 22).fill('#F3EFE7');
     doc.fillColor(HUMO).font('Helvetica-Bold').fontSize(8);
     doc.text('PRODUCTO', L + 10, y + 7);
-    doc.text('CANT.', L + 300, y + 7, { width: 50, align: 'right' });
-    doc.text('COSTO UNIT.', L + 355, y + 7, { width: 70, align: 'right' });
-    doc.text('SUBTOTAL', L + 430, y + 7, { width: R - L - 440, align: 'right' });
+    if (d.sinPrecios) {
+      doc.text('SU CÓDIGO', L + 330, y + 7, { width: 90, align: 'right' });
+      doc.text('CANTIDAD', L + 430, y + 7, { width: R - L - 440, align: 'right' });
+    } else {
+      doc.text('CANT.', L + 300, y + 7, { width: 50, align: 'right' });
+      doc.text('COSTO UNIT.', L + 355, y + 7, { width: 70, align: 'right' });
+      doc.text('SUBTOTAL', L + 430, y + 7, { width: R - L - 440, align: 'right' });
+    }
     y += 22;
 
     for (const it of d.items) {
+      if (d.sinPrecios) {
+        if (y > 690) { doc.addPage({ size: 'A4', margin: 0 }); y = 60; }
+        doc.fillColor(TINTA).font('Helvetica').fontSize(9.5)
+          .text(it.nombre, L + 10, y + 6, { width: 315, ellipsis: true });
+        doc.fillColor(HUMO).text(it.codigoProveedor || '—', L + 330, y + 6, { width: 90, align: 'right' });
+        doc.fillColor(TINTA).font('Helvetica-Bold').text(String(it.cantidad), L + 430, y + 6, { width: R - L - 440, align: 'right' });
+        y += 22;
+        doc.moveTo(L, y).lineTo(R, y).lineWidth(0.5).strokeColor(LINEA).stroke();
+        continue;
+      }
       if (y > 690) { doc.addPage({ size: 'A4', margin: 0 }); y = 60; }
       const sub = Number(it.cantidad) * Number(it.costo_unitario);
       doc.fillColor(TINTA).font('Helvetica').fontSize(9.5)
@@ -120,12 +140,19 @@ export function ordenDeCompraPDF(d: DatosOrdenCompra): Promise<Buffer> {
       doc.moveTo(L, y).lineTo(R, y).lineWidth(0.5).strokeColor(LINEA).stroke();
     }
 
-    // Total
+    // Total (en la nota de pedido no va: el precio lo pone la factura)
     y += 12;
-    doc.rect(L + 300, y, R - L - 300, 34).fill(NEGRO);
-    doc.fillColor('#FFFFFF').font('Helvetica-Bold').fontSize(10).text('TOTAL', L + 312, y + 12);
-    doc.fontSize(14).text(pesos(d.total), L + 300, y + 9, { width: R - L - 312, align: 'right' });
-    y += 46;
+    if (d.sinPrecios) {
+      const unidades = d.items.reduce((s, it) => s + Number(it.cantidad || 0), 0);
+      doc.fillColor(HUMO).font('Helvetica').fontSize(9)
+        .text(`${d.items.length} producto${d.items.length === 1 ? '' : 's'} · ${unidades.toLocaleString('es-AR')} unidad${unidades === 1 ? '' : 'es'}. Precios según su lista vigente: se confirman con la factura.`, L, y, { width: R - L });
+      y += 30;
+    } else {
+      doc.rect(L + 300, y, R - L - 300, 34).fill(NEGRO);
+      doc.fillColor('#FFFFFF').font('Helvetica-Bold').fontSize(10).text('TOTAL', L + 312, y + 12);
+      doc.fontSize(14).text(pesos(d.total), L + 300, y + 9, { width: R - L - 312, align: 'right' });
+      y += 46;
+    }
 
     if (d.observaciones) {
       doc.fillColor(HUMO).font('Helvetica-Bold').fontSize(8).text('OBSERVACIONES', L, y, { characterSpacing: 1.2 });
@@ -139,7 +166,9 @@ export function ordenDeCompraPDF(d: DatosOrdenCompra): Promise<Buffer> {
       .text(`Emitida por: ${d.emitidaPor ?? '—'}`, L, y, { width: 240 });
     doc.text(`Aprobada por: ${d.aprobadaPor ?? 'pendiente de aprobación'}`, L + 250, y, { width: R - L - 250, align: 'right' });
 
-    pie(doc, 760, 'Este documento acredita el pedido de la mercadería detallada. La recepción se confirma contra remito.');
+    pie(doc, 760, d.sinPrecios
+      ? 'Por favor, confirmen por WhatsApp si pueden entregar todo. La recepción se controla contra este pedido y su remito.'
+      : 'Este documento acredita el pedido de la mercadería detallada. La recepción se confirma contra remito.');
     doc.end();
   });
 }

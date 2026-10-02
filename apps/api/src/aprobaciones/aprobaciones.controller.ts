@@ -5,6 +5,7 @@ import { Roles } from '../auth/decorators';
 import { ComprasService } from '../compras/compras.service';
 import { MesaComprasService } from '../compras/mesa-compras.service';
 import { VentasService } from '../ventas/ventas.service';
+import { PedidosProveedorService } from '../pedidos-proveedor/pedidos-proveedor.service';
 
 // Todo lo que espera la firma del dueño, en una sola bandeja.
 //
@@ -44,6 +45,7 @@ export class AprobacionesController {
     private readonly compras: ComprasService,
     private readonly mesa: MesaComprasService,
     private readonly ventas: VentasService,
+    private readonly pedidos: PedidosProveedorService,
   ) {}
 
   private dias(s: string) {
@@ -85,7 +87,7 @@ export class AprobacionesController {
       items.push({
         tipo: 'orden_compra', id: o.id,
         titulo: `OC #${o.numero} · ${o.proveedor?.razon_social ?? 'sin proveedor'}`,
-        detalle: 'Sin aprobar no se le puede mandar el pedido al proveedor.',
+        detalle: 'Al firmarla sale sola por WhatsApp al proveedor, con la nota de pedido en PDF.',
         monto: Number(o.total ?? 0), pidio: o.autor?.nombre ?? null, cuando: o.creado_en, dias: this.dias(o.creado_en),
       });
     }
@@ -167,6 +169,9 @@ export class AprobacionesController {
         resultado = aprueba
           ? await this.compras.aprobar(id, { usuarioId })
           : await this.compras.rechazar(id, { usuarioId, motivo });
+        // firmada, sale sola al proveedor por WhatsApp. Si no sale, la firma
+        // vale igual: la orden queda aprobada, el cron reintenta y se avisa.
+        if (aprueba) resultado = { ...resultado, envio: await this.pedidos.enviar(id, { usuarioId, automatico: true }) };
         break;
       case 'orden_pago':
         resultado = aprueba

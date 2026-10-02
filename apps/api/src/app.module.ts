@@ -11,6 +11,7 @@ import { StockModule } from './stock/stock.module';
 import { DescuentosModule } from './descuentos/descuentos.module';
 import { ComprasModule } from './compras/compras.module';
 import { AbastecimientoModule } from './abastecimiento/abastecimiento.module';
+import { PedidosProveedorModule } from './pedidos-proveedor/pedidos-proveedor.module';
 import { VentasModule } from './ventas/ventas.module';
 import { AuthModule } from './auth/auth.module';
 import { ListasModule } from './listas/listas.module';
@@ -67,6 +68,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     DescuentosModule,
     ComprasModule,
     AbastecimientoModule,
+    PedidosProveedorModule,
     VentasModule,
     AuthModule,
     ListasModule,
