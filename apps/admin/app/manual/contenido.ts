@@ -491,6 +491,66 @@ export const SECCIONES: Seccion[] = [
       },
     ],
   },
+  // 2/10/2026: el Analista ODB decía «no hay nada que comprar» porque calculaba
+  // el ritmo solo con las ventas de la caja de ODB. Pasó al mismo cálculo de
+  // Qué comprar y contesta por proveedor, con la Placa roja.
+  {
+    id: 'analista-odb',
+    titulo: 'El Analista ODB: qué comprar y dónde hay plata parada',
+    area: 'Compras',
+    roles: ['comprador', 'gerente', 'dueno'],
+    bajada: 'Menú → Analista ODB. Preguntás con tus palabras y te contesta con el veredicto y la cuenta por proveedor.',
+    bloques: [
+      {
+        tipo: 'texto',
+        texto:
+          'Es un chat. Preguntale como le preguntarías a alguien de compras: "¿Qué compro esta semana?", "¿Dónde tengo plata inmovilizada?". Arriba te contesta en dos o tres renglones qué es lo urgente y con quién; abajo te lo muestra por proveedor, con las mismas tarjetas rojas de los pedidos.',
+      },
+      {
+        tipo: 'campos',
+        titulo: 'Cómo leer la placa COMPRAS',
+        filas: [
+          ['El círculo rojo', 'Cuántos productos hay que pedirle a ese proveedor.'],
+          ['La plata de la derecha', 'Lo sugerido para ese proveedor, al último costo conocido ("$8,1M"; dejando el dedo o el mouse encima se ve el número completo).'],
+          ['La barra', 'Es esa misma plata partida en dos. El tramo rojo es lo urgente (sin stock o que se termina antes de que llegue el pedido); el gris, lo que puede esperar. La barra más larga es la del proveedor al que más hay que comprarle.'],
+          ['Debajo de la barra', 'Cuántos productos urgentes tiene, cuánto va a cada sucursal y cuántos días tarda en entregar.'],
+          ['En cursiva', 'Lo que dice el analista de ese proveedor: comprar, esperar, revisar datos o completarlos.'],
+          ['"N costos a revisar"', 'Productos con un costo de menos de $100 o sin costo: no suman en la plata hasta que se corrija la lista de ese proveedor.'],
+          ['La píldora negra', 'El total a comprar entre todos los proveedores. Al pie, cuánto de eso es urgente y cuánto puede esperar.'],
+        ],
+      },
+      {
+        tipo: 'pasos',
+        titulo: 'Pedir desde el chat',
+        pasos: [
+          'Tocá el nombre de un proveedor en la placa COMPRAS: el chat baja a su nota de pedido.',
+          'Las notas son las mismas de Mesa de compras → Qué comprar: arriba elegís la sucursal, se ven tres y "Ver N notas más" abre el resto.',
+          'Tildá, corregí las cantidades y tocá "Armar pedido con lo tildado". La orden queda esperando la firma del dueño en Aprobaciones (frenada, si al proveedor le faltan datos).',
+          'Lo que ya pediste desde una nota desaparece de las demás notas del chat, para no pedirlo dos veces.',
+        ],
+      },
+      {
+        tipo: 'campos',
+        titulo: 'La placa PLATA PARADA',
+        filas: [
+          ['Tramo oscuro', 'Productos con stock que no se vendieron en el período de ventas que hay cargado.'],
+          ['Tramo claro', 'Lo que sobra por encima de 90 días de stock, al ritmo de venta.'],
+          ['"El más caro"', 'El producto de ese proveedor que más plata tiene parada.'],
+          ['Tocar un proveedor', 'Le pregunta al analista qué liquidar de ese proveedor.'],
+        ],
+      },
+      {
+        tipo: 'ojo',
+        puntos: [
+          'Los números los calcula el sistema, con el mismo cálculo de Qué comprar; no la IA. El analista solo escribe el veredicto y la línea de cada proveedor.',
+          'Al pie de cada placa dice hasta qué fecha hay ventas cargadas. Si es un dato viejo (lo marca en rojo), las cantidades son orientativas hasta que se cargue el reporte de ventas reciente.',
+          'Mientras el plazo de entrega de un proveedor no esté confirmado, se calcula con uno provisorio (7 días si no hay otro dato). La placa avisa cuando ningún plazo está confirmado.',
+          'Lo que no tiene proveedor habitual no entra en la plata: la placa dice cuántos productos son y te deja preguntarle al analista a quién comprárselos.',
+          'Si el analista dice que no tiene ventas cargadas, no quiere decir que no haga falta comprar: falta el dato para calcularlo.',
+        ],
+      },
+    ],
+  },
   {
     id: 'compras-pedido',
     titulo: 'Armar un pedido a un proveedor',
