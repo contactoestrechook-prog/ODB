@@ -177,7 +177,7 @@ export default function BotSimulador() {
             autoFocus
             className="min-w-0 flex-1"
           />
-          <BotonMicrofono onTexto={setTexto} titulo="Hablar" />
+          <BotonMicrofono textoActual={texto} onTexto={setTexto} titulo="Hablar" />
           <button
             onClick={enviar}
             disabled={pensando || !texto.trim()}

@@ -143,7 +143,7 @@ export function ChatSommelier() {
           aria-label="Pregunta para el somelier"
           className="min-w-0 flex-1"
         />
-        <BotonMicrofono onTexto={setTexto} titulo="Hablarle al somelier" />
+        <BotonMicrofono textoActual={texto} onTexto={setTexto} titulo="Hablarle al somelier" />
         <Boton type="submit" disabled={pensando || !texto.trim()} className="shrink-0">
           Enviar
         </Boton>

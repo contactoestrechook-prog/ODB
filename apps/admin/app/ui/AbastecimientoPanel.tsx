@@ -361,7 +361,7 @@ export function AbastecimientoPanel() {
               aria-label="Mensaje para el agente de compras"
               className={unir(CLASES_ENTRADA, 'order-first basis-full resize-none sm:order-none sm:basis-0 sm:flex-1')}
             />
-            <span className="sm:order-first"><BotonMicrofono onTexto={setTexto} titulo="Dictarle al agente" /></span>
+            <span className="sm:order-first"><BotonMicrofono textoActual={texto} onTexto={setTexto} titulo="Dictarle al agente" /></span>
             <Boton onClick={() => enviar()} disabled={pensando || !texto.trim()} className="ml-auto sm:ml-0">
               Enviar
             </Boton>

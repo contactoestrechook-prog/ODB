@@ -201,7 +201,7 @@ export function MesaComprasWorkspace({ esDueno, tabInicial }: { esDueno: boolean
                 className={unir('grid size-11 shrink-0 place-items-center rounded-full border border-black/15 bg-white text-tinta/70 transition-colors hover:bg-crema-claro hover:text-tinta sm:order-first', FOCO)}>
                 <IconoClip className="size-5" />
               </button>
-              <span className="sm:order-first"><BotonMicrofono onTexto={setTexto} titulo="Dictarle al analista" /></span>
+              <span className="sm:order-first"><BotonMicrofono textoActual={texto} onTexto={setTexto} titulo="Dictarle al analista" /></span>
               <Boton onClick={() => enviar()} disabled={pensando || (!texto.trim() && !foto)} className="ml-auto sm:ml-0">
                 Enviar
               </Boton>

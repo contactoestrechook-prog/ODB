@@ -245,7 +245,7 @@ export function ChatAnalista() {
           aria-label="Pregunta para el analista"
           className="min-w-0 flex-1"
         />
-        <BotonMicrofono onTexto={setTexto} titulo="Hablarle al analista" />
+        <BotonMicrofono textoActual={texto} onTexto={setTexto} titulo="Hablarle al analista" />
         <Boton type="submit" disabled={pensando || !texto.trim()} className="shrink-0">
           Enviar
         </Boton>
