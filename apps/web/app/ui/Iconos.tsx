@@ -43,3 +43,7 @@ export const IcoMenos = ({ className, size }: P) => (
 export const IcoUva = ({ className, size }: P) => (
   <svg {...base(size)} className={className}><path d="M12 3v3M10.5 5.5h3" /><circle cx="9" cy="11" r="2" /><circle cx="15" cy="11" r="2" /><circle cx="12" cy="14.5" r="2" /><circle cx="9" cy="18" r="2" /><circle cx="15" cy="18" r="2" /></svg>
 );
+// Flecha chica para desplegar (Tus compras › el detalle en la Placa roja, 2/10/2026).
+export const IcoDesplegar = ({ className, size }: P) => (
+  <svg {...base(size)} className={className}><path d="M6 9l6 6 6-6" /></svg>
+);

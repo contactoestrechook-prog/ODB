@@ -27,5 +27,19 @@ export async function POST(req: Request) {
     }
   } catch {}
 
-  return NextResponse.json({ pedidoId: pedido.id, qr: pedido.qr_retiro ?? null, pagoUrl });
+  // El detalle tal como lo registró el sistema: POST /app/pedidos ya devuelve el
+  // pedido con sus renglones (precio_unitario de la base) y el total. Antes se
+  // tiraba y "¡Pedido recibido!" mostraba solo el código; ahora la pantalla lo
+  // dibuja en la Placa roja (2/10/2026). Sin llamadas nuevas a la API.
+  const renglones = Array.isArray(pedido.items)
+    ? pedido.items.map((i: any) => ({
+        sku: i.producto?.sku ?? null,
+        nombre: i.producto?.nombre ?? "Producto",
+        cantidad: Number(i.cantidad),
+        unitario: i.precio_unitario == null ? null : Number(i.precio_unitario),
+      }))
+    : null;
+  const total = pedido.total == null ? null : Number(pedido.total);
+
+  return NextResponse.json({ pedidoId: pedido.id, qr: pedido.qr_retiro ?? null, pagoUrl, total, renglones });
 }

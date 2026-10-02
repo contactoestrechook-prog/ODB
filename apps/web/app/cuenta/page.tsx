@@ -3,12 +3,40 @@ import { redirect } from "next/navigation";
 import { apiJson } from "../../lib/api";
 import { sesion } from "../../lib/sesion";
 import { pesos } from "../../lib/tipos";
-import { IcoFlecha, IcoLocal, IcoMoto } from "../ui/Iconos";
+import { IcoDesplegar, IcoFlecha, IcoLocal, IcoMoto } from "../ui/Iconos";
+import { PlacaPedido, type EntregaPlaca } from "../ui/PlacaPedido";
 
 export const dynamic = "force-dynamic";
 
-const fecha = (s: string) => (s ? new Date(s).toLocaleDateString("es-AR", { day: "2-digit", month: "short" }) : "—");
+// La página se arma en el servidor, que puede estar en UTC: sin fijar la zona,
+// una compra de las 22 h saldría con la fecha del día siguiente.
+const ZONA = "America/Argentina/Buenos_Aires";
+const fecha = (s: string) => (s ? new Date(s).toLocaleDateString("es-AR", { day: "2-digit", month: "short", timeZone: ZONA }) : "—");
+const fechaLarga = (s: string) => (s ? new Date(s).toLocaleDateString("es-AR", { day: "numeric", month: "long", year: "numeric", timeZone: ZONA }) : null);
 const CANAL: Record<string, string> = { pickup: "Retiro", domicilio: "Envío", self_checkout: "Comprá Fácil", mostrador: "En el local", web: "Web" };
+
+// El recuadro de la entrega en la placa: cómo se llevó la compra y, si es un
+// pedido, en qué está. No se nombra la sucursal: una compra en el local pudo
+// ser en Saint Thomas o en Santa Inés y el historial no lo dice.
+const ENTREGA: Record<string, string> = {
+  pickup: "Retiro en el local",
+  domicilio: "Envío a domicilio",
+  self_checkout: "Comprá Fácil",
+  mostrador: "Compra en el local",
+};
+const ESTADO: Record<string, string> = {
+  recibido: "Recibido",
+  pagado: "Pagado",
+  en_preparacion: "En preparación",
+  listo: "Listo",
+  en_camino: "En camino",
+  entregado: "Entregado",
+  cancelado: "Cancelado",
+};
+const entregaDe = (c: any): EntregaPlaca => ({
+  titulo: ENTREGA[c.canal] ?? CANAL[c.canal] ?? "Compra",
+  detalle: c.tipo === "pedido" && c.estado ? `Estado: ${ESTADO[c.estado] ?? String(c.estado).replace(/_/g, " ")}` : null,
+});
 
 export default async function Cuenta() {
   const cliente = await sesion();
@@ -56,17 +84,39 @@ export default async function Cuenta() {
             <Link href="/catalogo" className="inline-flex items-center gap-1.5 mt-3 text-sm font-semibold text-ink hover:text-rojo transition-colors">Empezá por el catálogo <IcoFlecha size={15} /></Link>
           </div>
         ) : (
+          // Cada compra es una línea breve ("2× X · 1× Y") que se toca para ver el
+          // detalle en la Placa roja (2/10/2026). Es un <details> nativo: abre
+          // sin JavaScript y con el teclado. /mi/compras trae cantidad y nombre
+          // de cada renglón pero no el precio que se pagó (el "producto" que
+          // viene es la tarjeta de HOY, para recomprar): por eso los renglones
+          // van sin importe y la placa muestra solo el total de la compra.
           <div className="divide-y divide-linea border-y border-linea">
-            {compras.map((c: any) => (
-              <div key={c.tipo + c.id} className="flex items-center gap-4 py-4">
-                <span className="text-dorado">{c.canal === "domicilio" ? <IcoMoto size={20} /> : <IcoLocal size={20} />}</span>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-ink">{CANAL[c.canal] ?? "Compra"} · {fecha(c.fecha)}</p>
-                  <p className="text-xs text-humo mt-0.5 truncate">{(c.items ?? []).map((i: any) => `${i.cantidad}× ${i.nombre}`).join(" · ")}</p>
-                </div>
-                <p className="display text-lg font-semibold text-ink">{pesos(c.total)}</p>
-              </div>
-            ))}
+            {compras.map((c: any) => {
+              const items: any[] = c.items ?? [];
+              return (
+                <details key={c.tipo + c.id} className="group">
+                  <summary className="flex cursor-pointer list-none items-center gap-4 py-4 [&::-webkit-details-marker]:hidden">
+                    <span className="text-dorado shrink-0">{c.canal === "domicilio" ? <IcoMoto size={20} /> : <IcoLocal size={20} />}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-ink truncate">{CANAL[c.canal] ?? "Compra"} · {fecha(c.fecha)}</p>
+                      <p className="text-xs text-humo mt-0.5 truncate">{items.map((i: any) => `${i.cantidad}× ${i.nombre}`).join(" · ")}</p>
+                    </div>
+                    <p className="display text-lg font-semibold text-ink whitespace-nowrap">{pesos(c.total)}</p>
+                    <IcoDesplegar size={18} className="shrink-0 text-humo transition-transform group-open:rotate-180" />
+                  </summary>
+                  <PlacaPedido
+                    className="mb-5"
+                    como="h3"
+                    titulo={c.tipo === "pedido" ? "Pedido" : "Compra"}
+                    sub={fechaLarga(c.fecha)}
+                    renglones={items.map((i: any, k: number) => ({ clave: `${i.sku ?? "renglon"}-${k}`, cantidad: Number(i.cantidad), nombre: i.nombre ?? "Producto" }))}
+                    total={{ valor: pesos(c.total) }}
+                    entrega={entregaDe(c)}
+                    pie={items.length === 0 ? "Esta compra no tiene el detalle de productos." : null}
+                  />
+                </details>
+              );
+            })}
           </div>
         )}
       </div>
