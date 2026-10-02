@@ -1,5 +1,5 @@
 const mockCartel = jest.fn(async (_n: any) => Buffer.from('png'));
-jest.mock('../comun/cartel-pedido', () => ({ cartelNotaDePedido: (n: any) => mockCartel(n) }));
+jest.mock('../comun/cartel-pedido', () => ({ ...jest.requireActual('../comun/cartel-pedido'), cartelNotaDePedido: (n: any) => mockCartel(n) }));
 
 import { PedidosProveedorService, envioAutomaticoActivo, epigrafePedido, observacionParaProveedor, telefonoLegible, textoPedido } from './pedidos-proveedor.service';
 
