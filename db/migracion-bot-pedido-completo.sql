@@ -67,6 +67,11 @@ begin
 end;
 $function$;
 
+-- los mismos permisos que la anterior: solo el servidor (service_role) la
+-- ejecuta; una función nueva queda abierta a todos si no se cierra
+revoke all on function public.confirmar_cotizacion_bot(uuid, text, text, text, text) from public, anon, authenticated;
+grant execute on function public.confirmar_cotizacion_bot(uuid, text, text, text, text) to service_role;
+
 -- Productos que se arman a pedido (picadas): el bot pregunta a nombre de quién
 -- se retiran. Se marcan las picadas que hay hoy; el dueño puede marcar más.
 alter table public.productos add column if not exists se_arma_a_pedido boolean not null default false;

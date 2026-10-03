@@ -197,9 +197,33 @@ function repartir(renglones: Bloque[], pie: Bloque[], s: number): Bloque[][] {
     const ultimo = actual.pop()!;
     grupos.push(actual);
     actual = [ultimo];
-  } else if (actual.length === 1 && usado + SEP_PIE + altoPie > lugar && grupos.length === 0) {
-    // un solo renglón enorme: va igual con el pie (se ve achicado)
   }
   grupos.push(actual);
-  return grupos;
+  return parejo(grupos, pie, s) ?? grupos;
+}
+
+/**
+ * Las mismas páginas, con los renglones repartidos parejo (3 y 3 en vez de 5
+ * y 1): una última página con un solo producto y medio cuadrado vacío se ve
+ * descuidada. Lo que sobra va en las primeras (la última lleva el pie). null
+ * si el reparto parejo no entra.
+ */
+function parejo(grupos: Bloque[][], pie: Bloque[], s: number): Bloque[][] | null {
+  const n = grupos.length;
+  if (n < 2) return null;
+  const todos = grupos.flat();
+  const base = Math.floor(todos.length / n);
+  const extra = todos.length % n;
+  const salida: Bloque[][] = [];
+  let i = 0;
+  for (let p = 0; p < n; p++) {
+    const cuantos = base + (p < extra ? 1 : 0);
+    const g = todos.slice(i, i + cuantos);
+    i += cuantos;
+    const lugar = (FIN - (p === 0 ? INICIO : INICIO_CHICA)) / s;
+    const alto = alturaDe(g, SEP) + (p === n - 1 ? SEP_PIE + alturaDe(pie, SEP_PIE) : 0);
+    if (!g.length || alto > lugar) return null;
+    salida.push(g);
+  }
+  return salida;
 }

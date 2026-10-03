@@ -785,7 +785,17 @@ export const SECCIONES: Seccion[] = [
       {
         tipo: 'texto',
         texto:
-          'Las respuestas largas van con imagen de la marca: una lista de 3 productos o más sale como cartel con los precios; el resumen de un pedido, como tarjeta roja con los productos, el total y el recuadro de envío o retiro; y el pedido confirmado, con el código de retiro bien grande para mostrar en el mostrador. Lo que no entra en la imagen va como texto de la foto.',
+          'Las respuestas largas van con imagen de la marca: una lista de 2 productos o más sale como cartel con los precios; el resumen de un pedido, como tarjeta roja con los productos, el total y el recuadro de envío o retiro; y el pedido confirmado, con el código de retiro bien grande para mostrar en el mostrador. Lo que no entra en la imagen va como texto de la foto. Las tarjetas son cuadradas, para que el celular las muestre enteras en la charla sin recortarlas; si son muchos productos, salen dos o tres imágenes seguidas ("PEDIDO · 2/3").',
+      },
+      {
+        tipo: 'pasos',
+        titulo: 'Cómo toma un pedido',
+        pasos: [
+          'El cliente pide: el bot anota la lista, sin precios, y pregunta "¿Está completo el pedido o querés sumar algo?".',
+          'Cuando el cliente cierra la lista ("nada más", "es todo", "solo eso", o "sí" a esa pregunta) y ya se sabe si lo retira o se lo enviamos, el pedido queda confirmado en ese mismo mensaje, con el código y el total. No se le vuelve a preguntar "¿Lo confirmo?". Si falta un dato (retiro o envío, la dirección, quién recibe), pregunta solo ese y, con la respuesta, confirma.',
+          'Si el cliente cambia algo después de cerrar la lista, o lo que se cotizó no es exactamente lo que vio anotado, el bot vuelve a mostrar el resumen y pregunta "¿Lo confirmo?".',
+          'Picadas para retirar: al confirmar, el bot pregunta "¿A nombre de quién lo retiran?". El nombre queda en las notas del pedido como "Retira: Juan Pérez", para que el mostrador sepa a quién entregarlo. Lo mismo para cualquier producto marcado "se arma a pedido".',
+        ],
       },
       {
         tipo: 'ojo',

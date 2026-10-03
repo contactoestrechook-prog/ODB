@@ -300,90 +300,121 @@
         "espera": {
           "debe": [
             "55\\.100",
+            "PICKUP-|confirmad"
+          ],
+          "no_debe": [
             "¿Lo confirmo\\?"
           ],
           "herramientas": [
-            "preparar_pedido"
+            "preparar_pedido",
+            "crear_pedido"
           ]
         }
       }
     ],
-    "juez": "Turno 1: anota el pedido sin precios y pregunta si está completo. Turno 2: arma el resumen final (2 Fernet, 3 Coca Zero, total $55.100, retiro en sucursal Saint Thomas) y pregunta ¿Lo confirmo?."
+    "juez": "Turno 1: anota el pedido sin precios y pregunta si está completo. Turno 2: con \"eso es todo\" el pedido queda CONFIRMADO sin volver a preguntar (regla del dueño, 3/10/2026: el «nada más» confirma): código de retiro, total $55.100 y retiro en la sucursal Saint Thomas. Prohibido \"¿Lo confirmo?\"."
   },
   {
     "id": "pedido-02",
     "categoria": "pedido",
-    "titulo": "El sí confirma y crea el pedido",
+    "titulo": "El «es todo» confirma y crea el pedido",
     "turnos": [
       {
         "cliente": "Hola, quiero 2 fernet branca de 750 y 3 coca zero de 1.75, paso a retirar yo, Juan Perez"
       },
       {
-        "cliente": "es todo"
-      },
-      {
-        "cliente": "si",
+        "cliente": "es todo",
         "espera": {
           "herramientas": [
             "crear_pedido"
           ],
           "debe": [
-            "PICKUP-|c[oó]digo|confirmad"
+            "PICKUP-|confirmad"
+          ],
+          "no_debe": [
+            "¿Lo confirmo\\?"
           ]
+        }
+      },
+      {
+        "cliente": "si",
+        "espera": {
+          "silencio": true
         }
       }
     ],
-    "juez": "Pregunta si está completo, con \"es todo\" pasa el resumen con ¿Lo confirmo?, y con el \"si\" crea el pedido y pasa código y total. No repite mensajes."
+    "juez": "Pregunta si está completo; con \"es todo\" el pedido queda confirmado en el acto (código y total), sin \"¿Lo confirmo?\". El \"si\" de después es un acuse: no se contesta. No repite mensajes."
   },
   {
     "id": "pedido-03",
     "categoria": "pedido",
-    "titulo": "Sí después de un mensaje intermedio (Catalina)",
+    "titulo": "Envío con la lista cerrada (Catalina)",
     "turnos": [
       {
         "cliente": "Quiero 16 coca zero de 1.75 para envío a Los Talas 15, recibe Catalina"
       },
       {
-        "cliente": "sí, nada más"
-      },
-      {
-        "cliente": "efectivo"
-      },
-      {
-        "cliente": "si",
+        "cliente": "sí, nada más",
         "espera": {
           "herramientas": [
             "crear_pedido"
+          ],
+          "debe": [
+            "confirmad",
+            "75\\.200"
+          ],
+          "no_debe": [
+            "¿Lo confirmo\\?"
+          ]
+        }
+      },
+      {
+        "cliente": "efectivo",
+        "espera": {
+          "no_debe": [
+            "¿Lo confirmo\\?"
           ]
         }
       }
     ],
-    "juez": "Pregunta si está completo; después pasa el resumen (16 Coca Zero, $75.200, supera el mínimo de envío); toma \"efectivo\" como forma de pago; al \"si\" final crea el pedido. Nunca repite el mismo mensaje dos veces seguidas."
+    "juez": "Pregunta si está completo; con \"sí, nada más\" el pedido queda confirmado sin volver a preguntar (16 Coca Zero, $75.200, supera el mínimo de envío, envío sin cargo a Los Talas 15). \"efectivo\" se toma como forma de pago, sin rehacer el pedido ni pedir confirmación. Nunca repite el mismo mensaje dos veces seguidas."
   },
   {
     "id": "pedido-04",
     "categoria": "pedido",
-    "titulo": "Cambio de producto en el resumen",
+    "titulo": "Cambio de producto antes de cerrar la lista",
     "turnos": [
       {
         "cliente": "Quiero 4 coca cola de 1.75 para retirar, soy Ana"
       },
       {
-        "cliente": "es todo"
-      },
-      {
         "cliente": "reemplazalas por coca zero",
         "espera": {
           "debe": [
-            "zero"
+            "[Zz]ero"
           ],
           "no_debe": [
-            "^El envío es sin cargo\\.?$"
+            "^El envío es sin cargo\\.?$",
+            "\\$\\s?\\d"
+          ]
+        }
+      },
+      {
+        "cliente": "es todo",
+        "espera": {
+          "herramientas": [
+            "crear_pedido"
+          ],
+          "debe": [
+            "confirmad"
+          ],
+          "no_debe": [
+            "¿Lo confirmo\\?"
           ]
         }
       }
     ],
-    "juez": "Tras confirmar que está completo pasa el resumen; al pedir el cambio actualiza a 4 Coca Zero 1,75 L con el nuevo total y pide confirmación. No responde solo con una frase suelta."
+    "juez": "Anota sin precios y pregunta si está completo; al pedir el cambio actualiza la lista a 4 Coca Zero 1,75 L (sin precios) y vuelve a preguntar si está completo; con \"es todo\" confirma el pedido de las Coca Zero (código y total) sin \"¿Lo confirmo?\"."
   },
   {
     "id": "pedido-05",
@@ -443,16 +474,30 @@
         "cliente": "3 coca zero 1.75 para retirar, Pedro"
       },
       {
-        "cliente": "si"
+        "cliente": "si",
+        "espera": {
+          "herramientas": [
+            "crear_pedido"
+          ],
+          "no_debe": [
+            "¿Lo confirmo\\?"
+          ]
+        }
       },
       {
-        "cliente": "si"
+        "cliente": "si",
+        "espera": {
+          "silencio": true
+        }
       },
       {
-        "cliente": "si"
+        "cliente": "si",
+        "espera": {
+          "silencio": true
+        }
       }
     ],
-    "juez": "Pregunta si está completo, pasa el resumen con ¿Lo confirmo?, crea el pedido al sí siguiente y el último sí no reenvía nada. Nunca manda dos veces el mismo mensaje."
+    "juez": "Pregunta si está completo; con el \"si\" confirma el pedido en el acto (código y total, sin \"¿Lo confirmo?\"); los \"si\" siguientes no reenvían nada. Nunca manda dos veces el mismo mensaje."
   },
   {
     "id": "rep-02",
@@ -1025,7 +1070,11 @@
         "espera": {
           "debe": [
             "55\\.100",
-            "efectivo|transferencia"
+            "efectivo|transferencia",
+            "confirmad"
+          ],
+          "no_debe": [
+            "¿Lo confirmo\\?"
           ],
           "herramientas": [
             "preparar_pedido"
@@ -1033,7 +1082,7 @@
         }
       }
     ],
-    "juez": "Primero pregunta si el pedido está completo; después pasa el resumen con total de lista $55.100 y el total pagando en efectivo o transferencia (descuento solo en el Fernet, no en las Coca: $51.000). Pide confirmación."
+    "juez": "Primero pregunta si el pedido está completo; con \"sí, es todo\" el pedido queda confirmado sin volver a preguntar, con el total de lista $55.100 y el total pagando en efectivo o transferencia (descuento solo en el Fernet, no en las Coca: $51.000)."
   },
   {
     "id": "interno-01",
@@ -1053,5 +1102,47 @@
       }
     ],
     "juez": "Pasa los precios de lo que hay de la lista (lista de precios, que al cliente le llega como imagen), corto y claro, y dice en una línea lo que no hay. NO dice cuántas unidades quedan, ni en qué sucursal hay stock, ni habla del sistema. Puede pedir cantidades al final."
+  },
+  {
+    "id": "picada-01",
+    "categoria": "pedido",
+    "titulo": "Picada para retirar: el nada más confirma y pregunta a nombre de quién",
+    "turnos": [
+      {
+        "cliente": "Hola, te encargo 1 combo picada box para retirar mañana a la mañana",
+        "espera": {
+          "no_debe": [
+            "\\$\\s?\\d"
+          ],
+          "debe": [
+            "complet|sumar algo|algo m[aá]s|agregar algo|(es|ser[ií]a|eso) todo|cerramos|queda as[ií]|variantes?|me confirm[aá]s|eleg[ií]s|cu[aá]l(es)? (quer[eé]s|prefer[ií]s|eleg)"
+          ]
+        }
+      },
+      {
+        "cliente": "Solo eso…",
+        "espera": {
+          "herramientas": [
+            "crear_pedido"
+          ],
+          "debe": [
+            "confirmad",
+            "¿A nombre de quién lo retiran\\?"
+          ],
+          "no_debe": [
+            "¿Lo confirmo\\?"
+          ]
+        }
+      },
+      {
+        "cliente": "Juan Pérez",
+        "espera": {
+          "debe": [
+            "Juan Pérez"
+          ]
+        }
+      }
+    ],
+    "juez": "Anota la picada sin precio y pregunta si está completo. Con \"Solo eso…\" confirma el pedido en el acto (código, total, retiro en la sucursal Saint Thomas mañana a la mañana) y al final pregunta \"¿A nombre de quién lo retiran?\". Con el nombre, contesta corto que queda a nombre de Juan Pérez. Nunca \"¿Lo confirmo?\"."
   }
 ]
