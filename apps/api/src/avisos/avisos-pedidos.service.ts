@@ -46,6 +46,8 @@ type FilaAviso = {
   waha_id: string | null;
   /** lo que ya salió de este aviso (una tarjeta que quedó a medias) */
   waha_ids?: string[] | null;
+  /** -1: WhatsApp no pudo entregar el envío anterior (el reenvío va como texto) */
+  ack?: number | null;
 };
 
 type Envio = { enviado: boolean; id?: string | null; motivo?: string; incierto?: boolean };
@@ -59,8 +61,9 @@ export class AvisosPedidosService {
   private vigilando = false;
   /** Al arrancar (un deploy, o después de una caída) primero se manda lo pendiente: el vigía espera un minuto. */
   private readonly arranque = Date.now();
-  /** El estado de la sesión de WhatsApp en la última vuelta ('WORKING', 'FAILED'…; null si no se pudo saber). */
+  /** El estado de la sesión de WhatsApp en la última vuelta ('WORKING', 'FAILED'…; 'SIN RESPUESTA' si WAHA no contesta dos veces seguidas). */
   estadoWhatsapp: string | null = null;
+  private sinRespuesta = 0;
 
   constructor(@Inject(SUPABASE) private readonly db: SupabaseClient) {}
 
@@ -80,7 +83,10 @@ export class AvisosPedidosService {
       const { data: faltantes, error: e1 } = await this.db.rpc('encolar_avisos_faltantes');
       if (e1) this.log.error(`no pude revisar pedidos sin aviso: ${e1.message}`);
       else if (Number(faltantes) > 0) this.log.error(`${faltantes} aviso(s) de pedidos faltaban (¿falló el trigger?): encolados ahora`);
-      this.estadoWhatsapp = await this.sesionWhatsapp();
+      const sesion = await this.sesionWhatsapp();
+      this.sinRespuesta = sesion ? 0 : this.sinRespuesta + 1;
+      this.estadoWhatsapp = sesion ?? (this.sinRespuesta >= 2 ? 'SIN RESPUESTA' : this.estadoWhatsapp);
+      if (!sesion) return;
       // con la sesión caída (o sin poder saberlo) no se toma nada: no suma
       // intentos ni espera, y si sigue así lo ve el vigía y lo escala
       if (this.estadoWhatsapp !== 'WORKING') return;
@@ -178,8 +184,19 @@ export class AvisosPedidosService {
       if (!pedido) return this.fallo(a, 'no encontré el pedido', false);
       cabeza = encabezado(a.tipo, codigoDe(pedido));
       if (a.tipo === 'pedido_nuevo') {
-        if (pedido.estado === 'cancelado') return this.omitir(a, 'el pedido se canceló antes de avisar');
-        if (pedido.esDelBot && esTelefonoDePrueba(pedido.telefonoDelBot)) return this.omitir(a, 'pedido de prueba del simulador del panel');
+        if (pedido.estado === 'cancelado' || pedido.estado === 'entregado') {
+          // el alta pudo haber salido sin quedar anotada (envío incierto, deploy,
+          // tarjeta a medias): si salió, se marca y la base encola la BAJA; si no, se omite
+          const parciales = (a.waha_ids ?? []).filter(Boolean);
+          const hallado = parciales.length ? { id: parciales[0], conImagen: false } : (a.intentos > 1 || a.incierto) ? await this.buscarEnElChat(chatId, cabeza) : null;
+          if (hallado && pedido.estado === 'cancelado') {
+            await this.enviado(a, destino, parciales.length ? parciales : [hallado.id], 'el alta había salido; el pedido se canceló después');
+            await this.db.rpc('encolar_avisos_faltantes').then(() => null, () => null);
+            return;
+          }
+          return this.omitir(a, pedido.estado === 'cancelado' ? 'el pedido se canceló antes de avisar' : 'el pedido ya se entregó antes de avisar');
+        }
+        if (pedido.esDelBot && esTelefonoDePrueba(pedido.telefonoDelBot) && !(await this.esChatReal(pedido.telefonoDelBot))) return this.omitir(a, 'pedido de prueba del simulador del panel');
         const antesSinCargar = await this.antesSinCargar(pedido);
         texto = textoDelAviso(pedido, { conRenglones: true, antesSinCargar });
         if (pedido.items.length) tarjeta = { pedido, epigrafe: textoDelAviso(pedido, { conRenglones: false, antesSinCargar }) };
@@ -210,7 +227,7 @@ export class AvisosPedidosService {
     const ids: string[] = [];
     let completo = false;
     let ultimo: Envio | null = null;
-    if (tarjeta) {
+    if (tarjeta && a.ack !== -1) {
       try {
         const urls = await this.subirTarjeta(tarjeta.pedido, codigoDe(tarjeta.pedido));
         if (urls?.length) {
@@ -254,6 +271,14 @@ export class AvisosPedidosService {
     const r = await enviarTextoWhatsapp(this.db, destino, texto, 'aviso-pedido');
     if (r.enviado && r.id) return this.enviado(a, destino, [hallado.id, String(r.id)], `${nota}; se completó con el texto`);
     return this.fallo(a, r.motivo ?? 'WhatsApp no devolvió el id del mensaje', r.incierto ?? !r.enviado, [hallado.id]);
+  }
+
+  /** ¿Ese teléfono escribió alguna vez de verdad por WhatsApp? (el simulador del panel nunca pasa por bot_entrantes) */
+  private async esChatReal(telefono: string | null | undefined): Promise<boolean> {
+    const t = String(telefono ?? '').replace(/\D/g, '');
+    if (!t) return false;
+    const { data, error } = await this.db.from('bot_entrantes').select('waha_id').like('chat', `${t}@%`).limit(1);
+    return !!error || !!(data ?? []).length; // sin poder saberlo, se avisa
   }
 
   /** ¿El chat de un pedido "sin cargar" terminó teniendo su pedido? Devuelve el código. */
@@ -372,14 +397,14 @@ export class AvisosPedidosService {
     const msjs = await this.getWaha(`/api/{sesion}/chats/${encodeURIComponent(chatId)}/messages?limit=50&downloadMedia=false`);
     // un mensaje que WhatsApp marcó con error de entrega (ack -1) no cuenta: si
     // no, el reenvío lo encontraba a él y el aviso daba vueltas sin salir nunca
-    const hallado = (Array.isArray(msjs) ? msjs : []).find((m: any) => m?.fromMe && m?.ack !== -1 && String(m?.body ?? m?.caption ?? '').trim().startsWith(cabeza));
+    const hallado = (Array.isArray(msjs) ? msjs : []).find((m: any) => m?.fromMe && m?.ack !== -1 && String(m?.body ?? m?.caption ?? '').trim().split('\n')[0].trim() === cabeza);
     const id = hallado ? String(hallado.id?._serialized ?? hallado.id ?? '') : '';
     return id ? { id, conImagen: !!hallado.hasMedia } : null;
   }
 
   /** Pregunta a WhatsApp si los avisos enviados llegaron al teléfono (ack 2 o más). */
   private async verificarEntregas() {
-    const { data } = await this.db.from('avisos_pedidos').select('id, pedido_id, destino, waha_id, enviado_en, ultimo_error')
+    const { data } = await this.db.from('avisos_pedidos').select('id, pedido_id, destino, waha_id, enviado_en, creado_en, pendiente_desde, intentos')
       .eq('estado', 'enviado').lte('proximo_intento', new Date().toISOString())
       .gte('enviado_en', new Date(Date.now() - 48 * 3600_000).toISOString()).limit(10);
     for (const a of (data ?? []) as any[]) {
@@ -391,12 +416,18 @@ export class AvisosPedidosService {
         await this.actualizar(a.id, { estado: 'entregado', ack, entregado_en: new Date().toISOString() });
         this.log.log(`aviso ${a.id} ENTREGADO en el teléfono de administración (ack ${ack})`);
       } else if (ack === -1) {
-        // WhatsApp dice que no lo pudo entregar: se vuelve a mandar. Los 3
-        // minutos sin salir se cuentan desde el PRIMER error de entrega, no
+        // WhatsApp dice que no lo pudo entregar: se vuelve a mandar, como texto.
+        // Los 3 minutos sin salir se cuentan desde el PRIMER error de entrega
+        // (pendiente_desde solo se toca esa vez: nace igual a creado_en), no
         // desde cada uno: si sigue fallando, escala.
         const ahora = new Date().toISOString();
-        const primera = !String(a.ultimo_error ?? '').includes('ack -1');
-        await this.actualizar(a.id, { estado: 'pendiente', ack, incierto: false, ultimo_error: 'WhatsApp marcó error de entrega (ack -1): se reenvía', proximo_intento: ahora, waha_ids: [], ...(primera ? { pendiente_desde: ahora } : {}) });
+        const primera = new Date(a.pendiente_desde).getTime() === new Date(a.creado_en).getTime();
+        await this.actualizar(a.id, {
+          estado: 'pendiente', ack, incierto: false, waha_ids: [],
+          ultimo_error: 'WhatsApp marcó error de entrega (ack -1): se reenvía',
+          proximo_intento: new Date(Date.now() + esperaParaReintentar(Number(a.intentos ?? 1))).toISOString(),
+          ...(primera ? { pendiente_desde: ahora } : {}),
+        });
         this.log.error(`aviso ${a.id}: WhatsApp marcó error de entrega; se reenvía`);
       } else {
         await this.actualizar(a.id, { ack, proximo_intento: new Date(Date.now() + 60_000).toISOString() });
@@ -457,10 +488,12 @@ export class AvisosPedidosService {
         return 'fallo' as const;
       });
       await this.actualizar(p.avisoId, r === 'escalado'
-        ? { [columna]: new Date().toISOString(), escalar_proximo: null }
+        ? { [columna]: new Date().toISOString(), escalar_proximo: null, escalar_intentos: 0 }
         : r === 'resuelto'
-          ? { escalar_proximo: null }
-          : { escalar_intentos: intentos + 1, escalar_proximo: new Date(Date.now() + esperaParaEscalar(intentos)).toISOString() });
+          ? { escalar_proximo: null, escalar_intentos: 0 }
+          : r === 'postergado'
+            ? { escalar_proximo: new Date(Date.now() + 60_000).toISOString() }
+            : { escalar_intentos: intentos + 1, escalar_proximo: new Date(Date.now() + esperaParaEscalar(intentos)).toISOString() });
     }
   }
 
@@ -475,10 +508,10 @@ export class AvisosPedidosService {
   }
 
   /** 'escalado' si a algún dueño le salió el WhatsApp; 'resuelto' si el aviso salió (o llegó) mientras tanto. La campanita, una sola vez por problema. */
-  private async escalar(p: ProblemaDeAviso, primeraVez: boolean): Promise<'escalado' | 'fallo' | 'resuelto'> {
+  private async escalar(p: ProblemaDeAviso, primeraVez: boolean): Promise<'escalado' | 'fallo' | 'resuelto' | 'postergado'> {
     // justo antes de avisar a los dueños, se vuelve a mirar: si mientras tanto
     // salió (o llegó), no hay nada que escalar
-    const { data: ahora } = await this.db.from('avisos_pedidos').select('estado').eq('id', p.avisoId).maybeSingle();
+    const { data: ahora } = await this.db.from('avisos_pedidos').select('estado, tomado_hasta').eq('id', p.avisoId).maybeSingle();
     const sigue = p.problema === 'no_salio' ? (ahora as any)?.estado === 'pendiente' : (ahora as any)?.estado === 'enviado';
     if (!sigue) {
       this.log.log(`el aviso de ${p.codigo} se resolvió solo (${(ahora as any)?.estado ?? 'sin datos'}): no se escala`);
@@ -495,6 +528,13 @@ export class AvisosPedidosService {
         if (ya.conImagen && p.tipo === 'pedido_nuevo') await this.actualizar(p.avisoId, { waha_ids: [ya.id], proximo_intento: new Date().toISOString(), tomado_hasta: null });
         else await this.enviado({ id: p.avisoId, tipo: p.tipo, pedido_id: p.pedidoId } as FilaAviso, admin, [ya.id], 'estaba en el chat aunque no había quedado anotado');
         return 'resuelto';
+      }
+      // lo tiene tomado un proceso que ya no está (un deploy lo cortó): se
+      // libera para que se reintente ya, y se escala recién si tampoco sale
+      if ((ahora as any)?.tomado_hasta && new Date((ahora as any).tomado_hasta).getTime() > Date.now()) {
+        await this.actualizar(p.avisoId, { tomado_hasta: null, proximo_intento: new Date().toISOString() });
+        this.log.warn(`el aviso de ${p.codigo} estaba tomado por un proceso que no terminó: se reintenta antes de escalar`);
+        return 'postergado';
       }
     }
     const titulo = p.problema === 'no_salio'

@@ -818,8 +818,10 @@ export class BotService {
     const fallosDelTurno = new Map<string, number>();
     // una herramienta puede fijar la respuesta del turno ("Recibido." ante un comprobante)
     const respuestaFija: { texto?: string; consultaPendiente?: boolean; operacion?: boolean; derivada?: boolean } = {};
-    // la casa le prometió al cliente avisar al sector por un pedido (ver al final: sale a administración)
+    // la casa le prometió al cliente avisar al sector por un pedido, o el bot dijo
+    // "confirmado" sin código en este turno (ver al final: sale a administración)
     let prometioAvisoDePedido = false;
+    let dijoCargadoSinCodigo = false;
     let vueltasTrasConsulta = 0;
     // todo lo que devolvieron las herramientas en este turno: los únicos
     // números que el bot tiene permitido decir
@@ -1098,6 +1100,7 @@ export class BotService {
     const diceCargado = /(pedido (queda|quedó|ya está|está|ya quedó) (confirmado|cargado|registrado|armado|tomado)|confirmo (el|su) pedido|queda(n)? (cargado|registrado|confirmado)s? (el|su) pedido|ya está registrado|pedido confirmado|queda(n)?[^.]{0,40}\b(en|al) (el |su )?pedido\b|agregad[oa] al pedido)/i;
     const pedidoCreadoEnTurno = fallosDelTurno.get('__pedido_creado__') === 1 || /\b(DOM|RET|PICKUP)-[A-Z0-9]{4,12}\b/.test(respuesta);
     if (diceCargado.test(respuesta) && !pedidoCreadoEnTurno && vueltasReintento < 2) {
+      dijoCargadoSinCodigo = true;
       this.log.warn(`dice pedido cargado sin crear_pedido exitoso para ${telefono}: regenero`);
       messages.push({ role: 'assistant', content: respuesta });
       messages.push({ role: 'user', content: '[nota interna: dijiste que el pedido está confirmado/cargado/registrado, pero en este turno crear_pedido NO devolvió ningún código: el pedido NO existe. Reescribí la respuesta diciendo la verdad: si faltó un dato, pedilo; si la herramienta falló y ya quedó la nota, decí que tomás el pedido y que das aviso al sector correspondiente para que lo dejen confirmado. Nunca digas "confirmado" ni "cargado" sin código DOM-/RET-.]' });
@@ -1166,7 +1169,8 @@ export class BotService {
         // palabras propias del mensaje del cliente: si la oración las nombra, contesta algo
         const palabrasCliente = texto.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').split(/\s+/).filter((w) => w.length >= 5 && !/^(cuando|donde|cuanto|puedo|quiero|tienen|tenes|hasta|entonces|tambien|porque|ustedes)$/.test(w));
         const traeDato = (o: string) => {
-          if (/\$\s?\d|\d{1,2}[:.]\d{2}|\bno (llega|hay|tenemos|figura)\b|no lo tengo|no est[aá] cargad|cobertura|costo del env[ií]o|castex|juana de arco/i.test(o)) return true;
+          // "no quedó cargado: doy aviso…" es la promesa por un pedido: nunca se poda (3/10/2026)
+          if (/\$\s?\d|\d{1,2}[:.]\d{2}|\bno (llega|hay|tenemos|figura)\b|no lo tengo|no est[aá] cargad|no qued[oó] cargad|para (?:que lo dejen|dejarlo) confirmado|cobertura|costo del env[ií]o|castex|juana de arco/i.test(o)) return true;
           const no = o.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
           return palabrasCliente.some((w) => no.includes(w));
         };
@@ -1607,9 +1611,10 @@ export class BotService {
     // CONFIRMADO SIN CARGAR (3/10/2026). Solo con hechos: la frase la puso el
     // sistema, o crear_pedido falló en este turno; y no si el chat ya tiene un
     // pedido confirmado en las últimas horas (entonces preguntaba por ese).
-    if (linea === 'pedidos' && respuesta && fallosDelTurno.get('__pedido_creado__') !== 1
-        && /aviso al sector correspondiente para (?:que lo dejen|dejarlo) confirmado/i.test(respuesta)
-        && (prometioAvisoDePedido || (fallosDelTurno.get('crear_pedido') ?? 0) >= 1)) {
+    if (linea === 'pedidos' && fallosDelTurno.get('__pedido_creado__') !== 1
+        && (prometioAvisoDePedido
+          || (/aviso al sector correspondiente para (?:que lo dejen|dejarlo) confirmado/i.test(respuesta ?? '')
+            && ((fallosDelTurno.get('crear_pedido') ?? 0) >= 1 || dijoCargadoSinCodigo)))) {
       await this.encolarPedidoSinCargar(linea, telefono, `El bot le dijo al cliente: «${respuesta.slice(0, 300)}». Último mensaje del cliente: «${texto.slice(0, 300)}».`, { salvoPedidoReciente: true });
     }
 
@@ -2492,12 +2497,20 @@ export class BotService {
    */
   private async encolarPedidoSinCargar(linea: string, telefono: string, nota: string, opciones: { salvoPedidoReciente?: boolean } = {}) {
     // el banco de pruebas y "Probar el bot" del panel no le escriben a administración
-    if (/^54911000000\d{1,3}$/.test(telefono) || /^11\d{8}$/.test(telefono)) return;
+    // (el simulador usa 11 + 8 dígitos y nunca pasa por bot_entrantes: así no se
+    // confunde con un chat real que tenga esa forma)
+    if (/^54911000000\d{1,3}$/.test(telefono)) return;
+    if (/^11\d{8}$/.test(telefono)) {
+      const { data: real } = await this.db.from('bot_entrantes').select('waha_id').like('chat', `${telefono}@%`).limit(1);
+      if (!(real ?? []).length) return;
+    }
     try {
       if (opciones.salvoPedidoReciente) {
-        const { data: reciente } = await this.db.from('bot_cotizaciones').select('id').eq('telefono', telefono).not('pedido_id', 'is', null)
-          .gte('confirmada_en', new Date(Date.now() - 6 * 3600_000).toISOString()).limit(1).maybeSingle();
-        if (reciente) return;
+        // si la ÚLTIMA cotización del chat ya tiene pedido, hablaba de ese; si hay
+        // una más nueva sin confirmar, es otro pedido y el aviso sale
+        const { data: ultima } = await this.db.from('bot_cotizaciones').select('pedido_id')
+          .eq('telefono', telefono).eq('linea', linea).order('creada_en', { ascending: false }).limit(1).maybeSingle();
+        if ((ultima as any)?.pedido_id) return;
       }
       const { data: prev } = await this.db.from('avisos_pedidos').select('id').eq('tipo', 'pedido_sin_cargar')
         .eq('detalle->>telefono', telefono).gte('creado_en', new Date(Date.now() - 10 * 60_000).toISOString()).limit(1).maybeSingle();
@@ -3082,7 +3095,14 @@ export class BotService {
       if (citado) {
         const { data: envio } = await this.db.from('bot_envios').select('waha_id')
           .in('origen', ['aviso-pedido', 'aviso-pedido-escalado']).ilike('waha_id', `%${citado}`).limit(1);
-        if ((envio ?? []).length) return { contestado: false, motivo: 'acuse de un aviso de pedido' };
+        if ((envio ?? []).length) {
+          // un acuse ("ok", 👍) no se contesta; algo más largo puede ser para el
+          // cliente ("ya lo cargué, avisale"): se le aclara que así no le llega
+          if (!/^(ok|okey|oka|dale|listo|recibido|visto|gracias|perfecto|joya|genial|s[ií]|👍|✅|👌|\s|[.,!])+$/iu.test(String(p.body ?? '').trim())) {
+            await this.enviarPorWhatsapp({ to: admin, text: 'Eso no le llega al cliente: responder un aviso de PEDIDO no se lo manda a nadie. Para escribirle, hacelo desde RESPONDE.', kind: 'aviso-interno' }).catch(() => null);
+          }
+          return { contestado: false, motivo: 'acuse de un aviso de pedido' };
+        }
       }
       const { count, error: eAvisos } = await this.db.from('avisos_pedidos').select('id', { count: 'exact', head: true })
         .in('estado', ['enviado', 'entregado']).gte('enviado_en', new Date(Date.now() - 24 * 3600_000).toISOString());

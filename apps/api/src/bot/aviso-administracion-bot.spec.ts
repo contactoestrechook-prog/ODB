@@ -12,7 +12,7 @@ function baseFalsa(r: Record<string, any> = {}) {
     from(tabla: string) {
       let op = 'select';
       const b: any = {};
-      for (const k of ['select', 'eq', 'in', 'is', 'gte', 'lte', 'order', 'limit', 'range', 'ilike', 'not', 'or']) b[k] = () => b;
+      for (const k of ['select', 'eq', 'in', 'is', 'gte', 'lte', 'order', 'limit', 'range', 'ilike', 'not', 'or', 'like']) b[k] = () => b;
       b.update = (f: any) => { op = 'update'; escrituras.push({ tabla, op, fila: f }); return b; };
       b.insert = (f: any) => { op = 'insert'; escrituras.push({ tabla, op, fila: f }); return b; };
       b.upsert = (f: any) => { op = 'upsert'; escrituras.push({ tabla, op, fila: f }); return b; };
@@ -36,11 +36,21 @@ describe('el pedido confirmado SIN cargar sale a administración', () => {
     expect(conPrevio.escrituras).toEqual([]);
   });
 
-  it('por la frase (no por el freno), si el chat ya tiene un pedido confirmado reciente, no se avisa: preguntaba por ese', async () => {
-    const db = baseFalsa({ bot_cotizaciones: { data: { id: 'cot-confirmada' } } });
-    await (servicio(db) as any).encolarPedidoSinCargar('pedidos', '230566779732018', 'frase', { salvoPedidoReciente: true });
-    expect(db.escrituras).toEqual([]);
-    await (servicio(db) as any).encolarPedidoSinCargar('pedidos', '230566779732018', 'freno');
+  it('por la frase: si la ÚLTIMA cotización del chat ya tiene pedido, hablaba de ese; si es otra sin confirmar, el aviso sale', async () => {
+    const conPedido = baseFalsa({ bot_cotizaciones: { data: { pedido_id: 'ped-1' } } });
+    await (servicio(conPedido) as any).encolarPedidoSinCargar('pedidos', '230566779732018', 'frase', { salvoPedidoReciente: true });
+    expect(conPedido.escrituras).toEqual([]);
+    // el freno avisa siempre
+    await (servicio(conPedido) as any).encolarPedidoSinCargar('pedidos', '230566779732018', 'freno');
+    expect(conPedido.escrituras).toHaveLength(1);
+    const otra = baseFalsa({ bot_cotizaciones: { data: { pedido_id: null } } });
+    await (servicio(otra) as any).encolarPedidoSinCargar('pedidos', '230566779732018', 'segundo pedido', { salvoPedidoReciente: true });
+    expect(otra.escrituras).toHaveLength(1);
+  });
+
+  it('un teléfono con forma de simulador que escribió de verdad sí avisa', async () => {
+    const db = baseFalsa({ bot_entrantes: { data: [{ waha_id: 'x' }] } });
+    await (servicio(db) as any).encolarPedidoSinCargar('pedidos', '1154872210', 'real');
     expect(db.escrituras).toHaveLength(1);
   });
 
@@ -70,6 +80,14 @@ describe('lo que administración contesta a un aviso de pedido no va a ningún c
     expect(r).toEqual({ contestado: false, motivo: 'acuse de un aviso de pedido' });
     expect(s.enviarPorWhatsapp).not.toHaveBeenCalled();
     expect(s.llevarRespuestaDeConsulta).not.toHaveBeenCalled();
+  });
+
+  it('citando un aviso de pedido con un texto para el cliente: se le aclara a administración que así no le llega', async () => {
+    const { s } = armar({ bot_envios: { data: [{ waha_id: '3EB0AVISO' }] } });
+    const r = await s.respuestaDeAdministracion('5491125213601', { body: 'Ya lo cargué, avisale que lo retira a las 10', replyTo: 'true_5491125213601@c.us_3EB0AVISO' });
+    expect(r).toEqual({ contestado: false, motivo: 'acuse de un aviso de pedido' });
+    expect(s.enviarPorWhatsapp).toHaveBeenCalledTimes(1);
+    expect(s.enviarPorWhatsapp.mock.calls[0][0]).toMatchObject({ to: '5491125213601', text: expect.stringMatching(/^Eso no le llega al cliente/) });
   });
 
   it('sin cita, con un aviso de pedido del día y un pago pendiente: se pide citar (el "ok" no le llega al cliente del pago)', async () => {
