@@ -337,11 +337,21 @@ describe('AvisosPedidosService: el aviso sale a administración', () => {
     expect(db.escrituras.filter((w: any) => w.tabla === 'bot_envios').map((w: any) => w.fila.waha_id)).toEqual(['true_x_IMG', 'true_x_TXT']);
   });
 
-  it('PEDIDO PAGADO no se repite solo si el texto del alta que SALIÓ decía "Ya está pagado."', async () => {
-    const db = baseFalsa({ ...TABLAS, pedidos: { data: { ...PEDIDO_DB, pagado_en: '2026-10-03T13:11:00Z' } }, avisos_pedidos: { data: { detalle: { dijo_pagado: true } } } });
+  it('PEDIDO PAGADO no se repite solo si el texto del alta que LLEGÓ decía "Ya está pagado."', async () => {
+    const db = baseFalsa({ ...TABLAS, pedidos: { data: { ...PEDIDO_DB, pagado_en: '2026-10-03T13:11:00Z' } }, avisos_pedidos: { data: { detalle: { dijo_pagado: true }, estado: 'entregado' } } });
     await enviar(new AvisosPedidosService(db), { ...FILA, tipo: 'pedido_pagado' });
     expect(texto).not.toHaveBeenCalled();
     expect(ultimaActualizacion(db)).toMatchObject({ estado: 'omitido' });
+  });
+
+  it('si el alta que lo dijo está apenas enviada (puede volver con error), el pago espera un minuto, sin contar como falla', async () => {
+    const db = baseFalsa({ ...TABLAS, pedidos: { data: { ...PEDIDO_DB, pagado_en: '2026-10-03T13:11:00Z' } }, avisos_pedidos: { data: { detalle: { dijo_pagado: true }, estado: 'enviado' } } });
+    await enviar(new AvisosPedidosService(db), { ...FILA, tipo: 'pedido_pagado' });
+    expect(texto).not.toHaveBeenCalled();
+    const f = ultimaActualizacion(db);
+    expect(f).toMatchObject({ tomado_hasta: null });
+    expect(f.estado).toBeUndefined();
+    expect(f.ultimo_error).toBeUndefined();
   });
 
   it('un alta anotada después del pago pero que decía "Se cobra al retirar": el PEDIDO PAGADO sale igual', async () => {
@@ -471,6 +481,15 @@ describe('AvisosPedidosService: que llegue y, si no, que se enteren los dueños'
     const f = ultimaActualizacion(db);
     expect(f.proximo_intento).not.toBe('infinity');
     expect(f).toMatchObject({ estado: 'pendiente', escalado_en: null });
+  });
+
+  it('ack -1 del alta: lo que decía su texto deja de contar, y "Ya avisé al local" no corta el primer reenvío', async () => {
+    jest.spyOn(global, 'fetch' as any).mockResolvedValue({ ok: true, json: async () => ({ ack: -1 }) } as any);
+    const db = baseFalsa({ avisos_pedidos: { data: [{ ...enviado[0], visto_en: new Date().toISOString(), detalle: { dijo_pagado: true } }] } });
+    await (new AvisosPedidosService(db) as any).verificarEntregas();
+    const f = ultimaActualizacion(db);
+    expect(f.proximo_intento).not.toBe('infinity');
+    expect(f.detalle).toEqual({ dijo_pagado: false });
   });
 
   it('el primer ack -1 rearma el escalamiento; los siguientes no', async () => {

@@ -216,8 +216,16 @@ export class AvisosPedidosService {
       } else {
         if (a.tipo === 'pedido_pagado' && pedido.pagado_en) {
           // solo si el texto del alta que SALIÓ decía "Ya está pagado." (ante la duda, el pago sale: repetido no hace daño)
-          const { data: alta } = await this.db.from('avisos_pedidos').select('detalle').eq('pedido_id', pedido.id).eq('tipo', 'pedido_nuevo').maybeSingle();
-          if ((alta as any)?.detalle?.dijo_pagado === true) return this.omitir(a, 'el alta ya salió diciendo que estaba pagado');
+          // y solo si ese texto LLEGÓ (entregado): si está apenas enviado, el pago
+          // espera un minuto (WhatsApp todavía puede marcarlo con error de entrega)
+          const { data: alta } = await this.db.from('avisos_pedidos').select('detalle, estado').eq('pedido_id', pedido.id).eq('tipo', 'pedido_nuevo').maybeSingle();
+          if ((alta as any)?.detalle?.dijo_pagado === true) {
+            if ((alta as any)?.estado === 'entregado') return this.omitir(a, 'el alta ya llegó diciendo que estaba pagado');
+            if ((alta as any)?.estado === 'enviado') {
+              await this.actualizar(a.id, { tomado_hasta: null, proximo_intento: new Date(Date.now() + 60_000).toISOString() });
+              return;
+            }
+          }
         }
         texto = a.tipo === 'pedido_cancelado' ? textoDeCancelado(pedido) : textoDePagado(pedido);
       }
@@ -434,7 +442,7 @@ export class AvisosPedidosService {
 
   /** Pregunta a WhatsApp si los avisos enviados llegaron al teléfono (ack 2 o más). */
   private async verificarEntregas() {
-    const { data } = await this.db.from('avisos_pedidos').select('id, pedido_id, destino, waha_id, enviado_en, creado_en, pendiente_desde, intentos, visto_en')
+    const { data } = await this.db.from('avisos_pedidos').select('id, pedido_id, destino, waha_id, enviado_en, creado_en, pendiente_desde, intentos, visto_en, detalle')
       .eq('estado', 'enviado').lte('proximo_intento', new Date().toISOString())
       .gte('enviado_en', new Date(Date.now() - 48 * 3600_000).toISOString()).limit(10);
     for (const a of (data ?? []) as any[]) {
@@ -456,10 +464,13 @@ export class AvisosPedidosService {
         // avisaron por otro medio, o pasadas 48 horas, no se reenvía más (queda
         // pendiente, a la vista en la franja, y escalado). Seguir mandando a un
         // número que WhatsApp no entrega solo le suma riesgo a la línea.
-        const basta = !!a.visto_en || (!primera && (Date.now() - new Date(a.creado_en).getTime() > 48 * 3600_000
-          || Date.now() - new Date(a.pendiente_desde).getTime() > 30 * 60_000));
+        // el primer error siempre tiene un reenvío (como texto); después, el tope
+        const basta = !primera && (!!a.visto_en || Date.now() - new Date(a.creado_en).getTime() > 48 * 3600_000
+          || Date.now() - new Date(a.pendiente_desde).getTime() > 30 * 60_000);
         await this.actualizar(a.id, {
           estado: 'pendiente', ack, incierto: false, waha_ids: [],
+          // lo que decía el texto que no llegó no cuenta (el PEDIDO PAGADO no se omite por él)
+          detalle: { ...((a as any).detalle ?? {}), dijo_pagado: false },
           ultimo_error: basta
             ? 'WhatsApp marcó error de entrega (ack -1) repetidas veces: no se reenvía más; avisen por otro medio'
             : 'WhatsApp marcó error de entrega (ack -1): se reenvía',

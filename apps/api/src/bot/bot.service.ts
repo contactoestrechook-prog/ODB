@@ -1615,7 +1615,9 @@ export class BotService {
     // ANTES de la pregunta de completo que agrega el sistema (3/10/2026)
     const respuestaDelBot = respuesta;
     const prometeAvisoAlSector = /aviso al (?:sector|local|equipo)/i.test(respuesta ?? '');
-    if (respuesta && !respuestaFija.operacion && !cierreDeLista) { if (!prometioAvisoDePedido && !prometeAvisoAlSector) respuesta = conPreguntaDeCompleto(respuesta); }
+    const prometePedido = /aviso al sector correspondiente para (?:que lo dejen|dejarlo) confirmado|\btomo (?:tu|su|el) pedido\b|aviso al (?:sector|local|equipo)[^.\n]{0,80}?para (?:que lo dejen|dejarlo) (?:confirmad|cargad|armad)/i.test(respuestaDelBot ?? '');
+    const huboIntentoDePedido = herramientasDelTurno.has('crear_pedido') || (fallosDelTurno.get('crear_pedido') ?? 0) >= 1 || dijoCargadoSinCodigo || /¿[^?]{0,30}\bconfirm\w*[^?]{0,60}\?|lo dejo cargad/i.test(String(ultimoDelBot));
+    if (respuesta && !respuestaFija.operacion && !cierreDeLista) { if (!prometioAvisoDePedido && !prometeAvisoAlSector && !(prometePedido && huboIntentoDePedido)) respuesta = conPreguntaDeCompleto(respuesta); }
     // si el bot todavía pide confirmación, o el sistema le agregó "¿Está completo…?"
     // (es una lista en armado), no hay un pedido confirmado que avisar
     const sigueEnCurso = /¿\s*lo confirmo\?|¿[^?]*(?:est[aá] completo|sumar algo)[^?]*\?/i.test(respuestaDelBot ?? '') || respuesta !== respuestaDelBot;
@@ -1627,8 +1629,6 @@ export class BotService {
     // CONFIRMADO SIN CARGAR (3/10/2026). Solo con hechos: la frase la puso el
     // sistema, o crear_pedido falló en este turno; y no si el chat ya tiene un
     // pedido confirmado en las últimas horas (entonces preguntaba por ese).
-    const prometePedido = /aviso al sector correspondiente para (?:que lo dejen|dejarlo) confirmado|\btomo (?:tu|su|el) pedido\b|aviso al (?:sector|local|equipo)[^.\n]{0,80}?para (?:que lo dejen|dejarlo) (?:confirmad|cargad|armad)/i.test(respuesta ?? '');
-    const huboIntentoDePedido = herramientasDelTurno.has('crear_pedido') || (fallosDelTurno.get('crear_pedido') ?? 0) >= 1 || dijoCargadoSinCodigo || /¿[^?]{0,30}\bconfirm\w*[^?]{0,60}\?|lo dejo cargad/i.test(String(ultimoDelBot));
     // si la respuesta todavía pide confirmación, no hay pedido confirmado que avisar
     if (linea === 'pedidos' && fallosDelTurno.get('__pedido_creado__') !== 1 && !sigueEnCurso
         && (prometioAvisoDePedido || (prometePedido && huboIntentoDePedido))) {
