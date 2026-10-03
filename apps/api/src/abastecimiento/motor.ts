@@ -20,10 +20,12 @@ const MEMO_MS = 60_000;
 
 let memo: { en: number; filas: any[] } | null = null;
 let enVuelo: Promise<any[]> | null = null;
+let generacion = 0; // sube al invalidar: una lectura empezada antes no se guarda ni se reparte
 
 export async function leerAbastecimiento(db: SupabaseClient): Promise<any[]> {
   if (memo && Date.now() - memo.en < MEMO_MS) return memo.filas;
   if (enVuelo) return enVuelo;
+  const gen = generacion;
   const args = { p_sucursal: null, p_solo_alertas: false, p_proveedor: null, p_q: null, p_limite: TOPE };
   enVuelo = (async () => {
     // PostgREST corta las funciones en 1.000 filas sin avisar: de a páginas
@@ -31,13 +33,14 @@ export async function leerAbastecimiento(db: SupabaseClient): Promise<any[]> {
     if (filas.length >= TOPE) {
       throw new Error(`El motor de abastecimiento devolvió ${filas.length} renglones (su tope): faltan datos, no se puede analizar a medias`);
     }
-    memo = { en: Date.now(), filas };
+    if (gen === generacion) memo = { en: Date.now(), filas };
     return filas;
   })();
+  const esta = enVuelo;
   try {
-    return await enVuelo;
+    return await esta;
   } finally {
-    enVuelo = null;
+    if (enVuelo === esta) enVuelo = null;
   }
 }
 
@@ -58,6 +61,8 @@ export async function leerCostos(db: SupabaseClient): Promise<Map<string, number
 // la cobertura, la alerta y el sugerido): la próxima lectura va a la base.
 export function invalidarAbastecimiento() {
   memo = null;
+  enVuelo = null;
+  generacion++;
 }
 
 // Solo para las pruebas.

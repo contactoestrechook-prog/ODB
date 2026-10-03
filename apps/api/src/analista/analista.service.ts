@@ -6,7 +6,8 @@ import { TONO_ODB } from '../comun/tono-odb';
 import { pesosPlaca, separarDetalle, type DetallePlaca, type ProductoVisto } from '../comun/detalle-productos';
 import { normalizarTexto } from '../comun/busqueda';
 import { leerAbastecimiento, leerCostos } from '../abastecimiento/motor';
-import { armarTablero, costoDe, estadoDe, type Tablero } from '../abastecimiento/tablero';
+import { traerTodo } from '../comun/lotes';
+import { armarTablero, costoDe, estadoDe, sinVentasMedidas, type Tablero } from '../abastecimiento/tablero';
 import { cantidadPedible, nombreSucursal } from '../abastecimiento/propuesta';
 
 export type MensajeChat = { rol: 'usuario' | 'analista'; texto: string };
@@ -120,7 +121,7 @@ export function placaDelAnalista(productos: ProductoVisto[], todos: ProductoVist
     const varias = new Set(filas.map((f) => f.sucursal)).size > 1;
     const sugerido = filas.reduce((s, f) => s + (Number(f.sugerido) || 0), 0);
     const detalle = filas
-      .map((f) => `${varias ? `${f.sucursal}: ` : ''}${dec(f.stock)} en stock · vende ${dec(f.ventasDia30)} por día${f.diasDeStock != null ? ` · alcanza ${dec(f.diasDeStock)} días` : ''}`)
+      .map((f) => `${varias ? `${nombreSucursal(f.sucursal)}: ` : ''}${dec(f.stock)} en stock · vende ${dec(f.ventasDia30)} por día${f.diasDeStock != null ? ` · alcanza ${dec(f.diasDeStock)} días` : ''}`)
       .join(' — ');
     const estados = [...new Set(filas.map((f) => ESTADO_LEGIBLE[f.estado]).filter(Boolean))];
     return {
@@ -258,17 +259,19 @@ export class AnalistaService {
     // detalle: los urgentes con proveedor y los sin proveedor que más venden,
     // por si el comprador pregunta por un producto
     const detalle = [
-      ...filas.filter((f) => f.proveedor_id && (f.alerta === 'sin_stock' || f.alerta === 'no_llega')).sort((a, b) => Number(b.urgencia ?? 0) - Number(a.urgencia ?? 0)).slice(0, 28),
-      ...filas.filter((f) => !f.proveedor_id && f.alerta && cantidadPedible(f.cantidad_sugerida) > 0).sort((a, b) => Number(b.ritmo_dia ?? 0) - Number(a.ritmo_dia ?? 0)).slice(0, 12),
+      ...filas.filter((f) => f.proveedor_id && (f.alerta === 'sin_stock' || f.alerta === 'no_llega')).sort((a, b) => Number(b.urgencia ?? 0) - Number(a.urgencia ?? 0)).slice(0, 20),
+      ...filas.filter((f) => !f.proveedor_id && f.alerta && cantidadPedible(f.cantidad_sugerida) > 0).sort((a, b) => Number(b.ritmo_dia ?? 0) - Number(a.ritmo_dia ?? 0)).slice(0, 8),
       // lo parado de más plata de los primeros proveedores de PLATA PARADA
-      ...parado.proveedores.slice(0, 8).flatMap((p) => {
+      ...parado.proveedores.slice(0, 6).flatMap((p) => {
         const valor = (f: any) => Number(f.stock ?? 0) * Number(costoDe(f, costos) ?? 0);
         return filas
           .filter((f) => (f.proveedor_id ?? null) === p.proveedorId && ['muerto', 'sobrestock'].includes(estadoDe(f)))
           .sort((a, b) => valor(b) - valor(a))
-          .slice(0, 5);
+          .slice(0, 3);
       }),
     ];
+    const nuevos = filas.filter((f) => Number(f.stock) > 0 && Number(f.ritmo_dia) === 0 && sinVentasMedidas(f)).length;
+    if (nuevos) lineas.push(`(${nuevos} productos con stock entraron después del último reporte de ventas: no se sabe todavía si se venden; NO están en plata parada y no se recomienda liquidarlos)`);
     lineas.push('DETALLE (los más urgentes):');
     for (const f of detalle) {
       const costo = costoDe(f, costos);
@@ -276,27 +279,46 @@ export class AnalistaService {
     }
 
     const claude = new Anthropic();
-    const respuesta = await claude.messages.create({
+    const pedido: any = {
       model: 'claude-opus-4-8',
-      max_tokens: 8000,
+      max_tokens: 16000,
       thinking: { type: 'adaptive' },
       // lo fijo va primero y con caché; la foto del día cambia en cada consulta
       system: [
         { type: 'text', text: PERSONALIDAD, cache_control: { type: 'ephemeral' } },
         { type: 'text', text: `Foto del día (${new Date().toLocaleDateString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' })}):\n${lineas.join('\n')}\n\nAumentos de costo en los últimos 45 días:\n${aumentos}` },
       ],
-      output_config: { format: { type: 'json_schema', schema: esquemaConClaves([...claves.keys()]) as any } },
+      // esfuerzo medio: piensa lo necesario sin comerse el lugar del JSON
+      output_config: { effort: 'medium', format: { type: 'json_schema', schema: esquemaConClaves([...claves.keys()]) as any } },
       // Anthropic rechaza un turno vacío (un veredicto que quedó en blanco)
       messages: mensajes.slice(-10).map((m) => ({
         role: m.rol === 'usuario' ? ('user' as const) : ('assistant' as const),
         content: String(m.texto ?? '').trim() || '(sin texto)',
       })),
-    } as any);
+    };
+    let respuesta: any;
+    try {
+      respuesta = await claude.messages.create(pedido);
+    } catch (e: any) {
+      // si la API rechaza la combinación (razonamiento + esfuerzo + formato), un
+      // reintento con lo de siempre: que el dueño no se quede sin análisis
+      if (e?.status !== 400) throw e;
+      console.warn(`Analista ODB: la API rechazó el pedido (${e?.message ?? e}); reintento sin razonamiento`);
+      const { thinking, ...resto } = pedido;
+      respuesta = await claude.messages.create({ ...resto, max_tokens: 4000, output_config: { format: pedido.output_config.format } });
+    }
 
     const bloque = respuesta.content.find((b) => b.type === 'text');
     let salida: any = {};
-    try { salida = JSON.parse(bloque && 'text' in bloque ? bloque.text : '{}'); } catch { salida = {}; }
-    let veredicto = String(salida.respuesta ?? '').trim();
+    let leido = false;
+    if (respuesta.stop_reason !== 'max_tokens' && respuesta.stop_reason !== 'refusal') {
+      try { salida = JSON.parse(bloque && 'text' in bloque ? bloque.text : ''); leido = true; } catch { salida = {}; }
+    }
+    // si el modelo se cortó o no devolvió el JSON, las cifras igual se muestran
+    // con un veredicto de respaldo (antes quedaba una burbuja vacía)
+    let veredicto = leido ? String(salida.respuesta ?? '').trim() : '';
+    if (!leido) console.warn(`Analista ODB: respuesta sin leer (stop_reason ${respuesta.stop_reason})`);
+    if (!veredicto) veredicto = 'No llegué a escribir el análisis esta vez. Abajo están las cifras del día por proveedor; si querés, preguntame de nuevo.';
     // sin ventas no se puede decir que no hay nada que comprar: faltan datos
     if (!hayVentas) {
       veredicto = `No tengo ventas cargadas para calcular el ritmo: falta el reporte de ventas del sistema viejo. ${veredicto.replace(/[^.]*nada que comprar[^.]*\.?/gi, '').trim()}`.trim();
@@ -497,13 +519,17 @@ Armá 3 o 4 boxes vendibles combinando SOLO productos del catálogo de abajo (SK
   private async aumentosRecientes(): Promise<string> {
     const hace45 = new Date(Date.now() - 45 * 86400_000).toISOString();
     const hace120 = new Date(Date.now() - 120 * 86400_000).toISOString();
-    const { data } = await this.db
-      .from('costos_historial')
-      .select('costo, creado_en, producto_id, proveedor_id, producto:productos(sku, nombre), proveedor:proveedores(razon_social)')
-      .gte('creado_en', hace120)
-      .order('creado_en', { ascending: true })
-      .limit(5000);
-    if (!data?.length) return '(sin cambios de costo registrados)';
+    // PostgREST corta en 1.000 filas: de a páginas y con orden estable (revisión
+    // del 2/10: con .limit llegaban las 1.000 más viejas y ningún aumento reciente)
+    const data = await traerTodo<any>((desde, hasta) =>
+      this.db
+        .from('costos_historial')
+        .select('id, costo, creado_en, producto_id, proveedor_id, producto:productos(sku, nombre), proveedor:proveedores(razon_social)')
+        .gte('creado_en', hace120)
+        .order('creado_en', { ascending: true })
+        .order('id', { ascending: true })
+        .range(desde, hasta) as any);
+    if (!data.length) return '(sin cambios de costo registrados)';
 
     const previo = new Map<string, number>();
     const aumentos: { pct: number; linea: string }[] = [];

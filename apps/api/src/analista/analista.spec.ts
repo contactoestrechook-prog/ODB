@@ -4,7 +4,7 @@ const crear = jest.fn();
 jest.mock('@anthropic-ai/sdk', () => ({ __esModule: true, default: jest.fn().mockImplementation(() => ({ messages: { create: crear } })) }));
 
 import { AnalistaService } from './analista.service';
-import { olvidarLecturas } from '../abastecimiento/motor';
+import { invalidarAbastecimiento, leerAbastecimiento, olvidarLecturas } from '../abastecimiento/motor';
 
 process.env.ANTHROPIC_API_KEY ??= 'test';
 
@@ -15,7 +15,7 @@ const fila = (i: number, x: any = {}) => ({
   alerta: 'sin_stock', urgencia: 1000 - i, cantidad_sugerida: 10, ultimo_costo: 1000, ...x,
 });
 
-function dbFalsa(filas: any[]) {
+function dbFalsa(filas: any[], tablas: Record<string, any[]> = {}) {
   const llamadas: any[] = [];
   const db: any = {
     llamadas,
@@ -28,10 +28,10 @@ function dbFalsa(filas: any[]) {
       }
       return Promise.resolve({ data: [], error: null }); // catalogo_precios
     }),
-    from() {
+    from(tabla: string) {
       const b: any = {
         select: () => b, eq: () => b, gt: () => b, gte: () => b, order: () => b, limit: () => b,
-        range: () => Promise.resolve({ data: [], error: null }),
+        range: (d: number, h: number) => Promise.resolve({ data: (tablas[tabla] ?? []).slice(d, h + 1), error: null }),
         then: (ok: any, err: any) => Promise.resolve({ data: [], error: null }).then(ok, err),
       };
       return b;
@@ -74,6 +74,14 @@ describe('metricas() sobre el motor de abastecimiento', () => {
     expect(db.llamadas.length).toBe(1);
   });
 
+  it('invalidar después de crear una orden hace que la próxima lectura vaya a la base', async () => {
+    const db = dbFalsa([fila(1)]);
+    await leerAbastecimiento(db);
+    invalidarAbastecimiento();
+    await leerAbastecimiento(db);
+    expect(db.llamadas.length).toBe(2);
+  });
+
   it('si el motor llega a su tope (20.000), avisa en vez de analizar a medias', async () => {
     const db = dbFalsa(Array.from({ length: 20000 }, (_, i) => fila(i)));
     await expect(new AnalistaService(db).metricas()).rejects.toThrow(/tope/);
@@ -112,6 +120,42 @@ describe('charlar(): veredicto del modelo + cifras del sistema, por proveedor', 
     // el modelo responde con las claves de ESTA foto, no con nombres
     expect(pedido.output_config.format.schema.properties.proveedores.items.properties.proveedor.enum).toEqual(['P01', 'P02', 'SIN_PROVEEDOR']);
     expect(pedido.system[1].text).toContain('[P01] LUVIK S.A.');
+  });
+
+  it('si la API rechaza el pedido (400), reintenta una vez sin razonamiento', async () => {
+    const db = dbFalsa([fila(1)]);
+    crear
+      .mockRejectedValueOnce(Object.assign(new Error('invalid'), { status: 400 }))
+      .mockResolvedValueOnce({ stop_reason: 'end_turn', content: [{ type: 'text', text: JSON.stringify({ respuesta: 'Pedí a Luvik.', mostrar: ['compras'], proveedores: [] }) }] });
+    const r: any = await new AnalistaService(db).charlar([{ rol: 'usuario', texto: '¿Qué compro?' }]);
+    expect(r.respuesta).toBe('Pedí a Luvik.');
+    expect(crear.mock.calls[1][0].thinking).toBeUndefined();
+    expect(crear.mock.calls[1][0].output_config.format.type).toBe('json_schema');
+  });
+
+  it('si el modelo se corta, las cifras igual salen con un veredicto de respaldo', async () => {
+    const db = dbFalsa([fila(1)]);
+    crear.mockResolvedValue({ stop_reason: 'max_tokens', content: [{ type: 'text', text: '{"respuesta":"Lo urg' }] });
+    const r: any = await new AnalistaService(db).charlar([{ rol: 'usuario', texto: '¿Qué compro?' }]);
+    expect(r.respuesta).toMatch(/No llegué a escribir el análisis/);
+    expect(r.tablero.compras.proveedores).toHaveLength(1);
+  });
+
+  it('los aumentos de costo se leen enteros (más de 1.000 filas) y solo los reales', async () => {
+    const hoy = new Date().toISOString();
+    const viejo = new Date(Date.now() - 100 * 86400_000).toISOString();
+    const historial = [
+      ...Array.from({ length: 1200 }, (_, i) => ({ id: i, costo: 100, creado_en: viejo, producto_id: `x${i}`, proveedor_id: 'pv', producto: { sku: `X${i}`, nombre: 'Relleno' } })),
+      { id: 5000, costo: 1000, creado_en: viejo, producto_id: 'malbec', proveedor_id: 'pv', producto: { sku: 'L9', nombre: 'Malbec' }, proveedor: { razon_social: 'Cepas' } },
+      { id: 5001, costo: 1000, creado_en: hoy, producto_id: 'malbec2', proveedor_id: 'pv', producto: { sku: 'L8', nombre: 'Sin cambio' } },
+      { id: 5002, costo: 1200, creado_en: hoy, producto_id: 'malbec', proveedor_id: 'pv', producto: { sku: 'L9', nombre: 'Malbec' }, proveedor: { razon_social: 'Cepas' } },
+    ];
+    const db = dbFalsa([fila(1)], { costos_historial: historial });
+    crear.mockResolvedValue({ stop_reason: 'end_turn', content: [{ type: 'text', text: JSON.stringify({ respuesta: 'ok', mostrar: ['compras'], proveedores: [] }) }] });
+    await new AnalistaService(db).charlar([{ rol: 'usuario', texto: '¿Hubo aumentos?' }]);
+    const foto = crear.mock.calls[0][0].system[1].text;
+    expect(foto).toContain('L9 Malbec: +20%');
+    expect(foto).not.toContain('Sin cambio');
   });
 
   it('sin ventas cargadas nunca dice que no hay nada que comprar', async () => {

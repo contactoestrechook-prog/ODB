@@ -85,6 +85,16 @@ describe('tablero: un producto no está a la vez en COMPRAS y en PLATA PARADA', 
   });
 });
 
+describe('tablero: lo comprado después del último reporte de ventas', () => {
+  it('con ritmo 0 no se sabe si se vende: no va a plata parada (192 Red Bull recibidos el 2/10)', () => {
+    const t = armarTablero([fila({ stock: 192, ritmo_dia: 0, alerta: null, cantidad_sugerida: 0, ultimo_costo: 2521, ultima_compra: '2026-10-02' })], new Map(), AHORA);
+    expect(t.parado.totalQuieto).toBe(0);
+    expect(estadoDe(fila({ stock: 192, ritmo_dia: 0, alerta: null, cantidad_sugerida: 0, ultima_compra: '2026-10-02' }))).toBe('ok');
+    // comprado ANTES del reporte y sin ventas en el período: sí está parado
+    expect(estadoDe(fila({ stock: 5, ritmo_dia: 0, alerta: null, cantidad_sugerida: 0, ultima_compra: '2026-06-01' }))).toBe('muerto');
+  });
+});
+
 describe('estado de cada renglón (la forma de siempre del Analista)', () => {
   it('urgente → quiebre; menos de 12 o con sugerido → reponer; sin ventas con stock → muerto; más de 90 días → sobrestock', () => {
     expect(estadoDe(fila())).toBe('quiebre_inminente');

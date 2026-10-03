@@ -120,13 +120,14 @@ export function armarTablero(filas: any[], costos: Map<string, number> = new Map
     p.productos++;
     if (urgente) p.urgentes++;
     const costo = f?.ultimo_costo == null ? null : Number(f.ultimo_costo);
+    const suc = nombreSucursal(f.sucursal);
     if (costo == null || !Number.isFinite(costo) || costo < COSTO_MINIMO) {
       p.aRevisar++;
+      p._suc.set(suc, p._suc.get(suc) ?? 0); // la sucursal figura aunque no sume
     } else {
       const plata = costo * cantidad;
       p.plata += plata;
       if (urgente) p.plataUrgente += plata;
-      const suc = nombreSucursal(f.sucursal);
       p._suc.set(suc, (p._suc.get(suc) ?? 0) + plata);
     }
     p._top.push(f);
@@ -193,11 +194,18 @@ export function armarTablero(filas: any[], costos: Map<string, number> = new Map
 // siempre, para no romper el informe diario, Promociones ni Estadísticas.
 export type EstadoAnalisis = 'quiebre_inminente' | 'reponer' | 'sobrestock' | 'muerto' | 'ok';
 
+// Comprado DESPUÉS del último reporte de ventas: con ritmo 0 no se sabe si se
+// vende o no (revisión del 2/10/2026: 192 Red Bull recibidos ese día figuraban
+// como "no se vende" y Promociones proponía liquidarlos).
+export function sinVentasMedidas(f: any): boolean {
+  return !!f?.ultima_compra && !!f?.ritmo_hasta && String(f.ultima_compra).slice(0, 10) > String(f.ritmo_hasta).slice(0, 10);
+}
+
 export function estadoDe(f: any): EstadoAnalisis {
   const ritmo = n(f?.ritmo_dia);
   if (URGENTE.has(f?.alerta)) return 'quiebre_inminente';
   if (f?.alerta === 'menos_de_12' || cantidadPedible(f?.cantidad_sugerida) > 0) return 'reponer';
-  if (n(f?.stock) > 0 && ritmo === 0) return 'muerto';
+  if (n(f?.stock) > 0 && ritmo === 0) return sinVentasMedidas(f) ? 'ok' : 'muerto';
   if (ritmo > 0 && f?.cobertura_dias != null && n(f.cobertura_dias) > DIAS_SOBRESTOCK) return 'sobrestock';
   return 'ok';
 }

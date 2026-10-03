@@ -265,6 +265,7 @@ export class ComprasService {
       .update({ estado: 'cancelada', rechazo_motivo: dto.motivo || 'Rechazada por dirección', aprobada_por: dto.usuarioId ?? null, aprobada_en: new Date().toISOString() })
       .eq('id', id);
     if (error) throw new BadRequestException(error.message);
+    invalidarAbastecimiento(); // deja de contar como "en camino"
     return { rechazada: true };
   }
 
@@ -380,6 +381,7 @@ export class ComprasService {
       p_items_precio: itemsPrecio,
     });
     if (error) throw new BadRequestException(this.traducirError(error.message));
+    invalidarAbastecimiento(); // entró mercadería sin orden previa
     const resultado = data as any;
 
     // Aprende el vínculo renglón→producto y la remarcación, para que la próxima
