@@ -792,9 +792,19 @@ export const SECCIONES: Seccion[] = [
         titulo: 'Cómo toma un pedido',
         pasos: [
           'El cliente pide: el bot anota la lista, sin precios, y pregunta "¿Está completo el pedido o querés sumar algo?".',
-          'Cuando el cliente cierra la lista ("nada más", "es todo", "solo eso", o "sí" a esa pregunta) y ya se sabe si lo retira o se lo enviamos, el pedido queda confirmado en ese mismo mensaje, con el código y el total. No se le vuelve a preguntar "¿Lo confirmo?". Si falta un dato (retiro o envío, la dirección, quién recibe), pregunta solo ese y, con la respuesta, confirma.',
-          'Si el cliente cambia algo después de cerrar la lista, o lo que se cotizó no es exactamente lo que vio anotado, el bot vuelve a mostrar el resumen y pregunta "¿Lo confirmo?".',
-          'Picadas para retirar: al confirmar, el bot pregunta "¿A nombre de quién lo retiran?". El nombre queda en las notas del pedido como "Retira: Juan Pérez", para que el mostrador sepa a quién entregarlo. Lo mismo para cualquier producto marcado "se arma a pedido".',
+          'Cuando el cliente dice que está completo, el bot pasa los precios y el total, pregunta si lo retira por la sucursal Saint Thomas o se lo enviamos y muestra el resumen con "¿Lo confirmo?".',
+          'Con el "sí" del cliente el pedido queda confirmado, con su código, y le llega la tarjeta del pedido.',
+          'Apenas se confirma, sale un WhatsApp al teléfono de administración con la tarjeta del pedido (ver abajo).',
+        ],
+      },
+      {
+        tipo: 'ojo',
+        titulo: 'Cada pedido le llega a administración',
+        puntos: [
+          'Todo pedido nuevo (del bot, la tienda web, la app, PedidosYa o Tiendanube) sale solo por WhatsApp al teléfono de administración —el mismo de pagos y consultas— con la tarjeta del pedido: código, productos, total, retiro o envío, día y cliente. Si después se cancela llega "PEDIDO CANCELADO"; si se paga por Mercado Pago, "PEDIDO PAGADO".',
+          'Si un cliente confirmó y el pedido no se pudo cargar, llega "PEDIDO CONFIRMADO SIN CARGAR" con lo que pidió: hay que cargarlo a mano y confirmarle por el chat.',
+          'El sistema verifica que el mensaje llegó al teléfono. Si no sale o no llega en unos minutos, les escribe a los dueños y aparece una franja roja arriba de todas las pantallas. Cuando ya avisaron al local por otro medio, se toca "Ya avisé al local".',
+          'Al aviso no hace falta contestarle. Si se contesta, que sea citándolo: así no se confunde con la respuesta a un pago o una consulta.',
         ],
       },
       {
