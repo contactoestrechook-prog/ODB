@@ -44,6 +44,8 @@ type FilaAviso = {
   incierto: boolean;
   destino: string | null;
   waha_id: string | null;
+  /** lo que ya salió de este aviso (una tarjeta que quedó a medias) */
+  waha_ids?: string[] | null;
 };
 
 type Envio = { enviado: boolean; id?: string | null; motivo?: string; incierto?: boolean };
@@ -145,13 +147,13 @@ export class AvisosPedidosService {
   }
 
   /** Lo de un pedido que no se pudo cargar: el teléfono, la nota y lo último que se le cotizó. */
-  private async sinCargar(detalle: any): Promise<SinCargar> {
+  private async sinCargar(detalle: any, aviso: string | null = null): Promise<SinCargar> {
     const telefono = String(detalle?.telefono ?? '');
     const { data: cot } = telefono
       ? await this.db.from('bot_cotizaciones').select('resumen, creada_en').eq('telefono', telefono).is('pedido_id', null)
           .gte('creada_en', new Date(Date.now() - 6 * 3600_000).toISOString()).order('creada_en', { ascending: false }).limit(1).maybeSingle()
       : { data: null };
-    return { telefono, telefonoReal: await this.telefonoReal(telefono), nota: String(detalle?.nota ?? ''), resumen: (cot as any)?.resumen ?? null };
+    return { telefono, telefonoReal: await this.telefonoReal(telefono), nota: String(detalle?.nota ?? ''), resumen: (cot as any)?.resumen ?? null, aviso };
   }
 
   private async enviar(a: FilaAviso) {
@@ -164,7 +166,7 @@ export class AvisosPedidosService {
     let tarjeta: { pedido: PedidoParaAviso; epigrafe: string } | null = null;
     let texto: string;
     if (a.tipo === 'pedido_sin_cargar') {
-      const s = await this.sinCargar(a.detalle);
+      const s = await this.sinCargar(a.detalle, a.id);
       texto = textoDeSinCargar(s);
       cabeza = texto.split('\n')[0];
     } else {
@@ -179,6 +181,16 @@ export class AvisosPedidosService {
       } else {
         texto = a.tipo === 'pedido_cancelado' ? textoDeCancelado(pedido) : textoDePagado(pedido);
       }
+    }
+
+    // Una tarjeta que quedó a medias en un intento anterior: va el texto completo
+    // con los productos (lo que ya salió no alcanza, y buscar el encabezado
+    // encontraría la primera página y lo daría por enviado)
+    const previos = (a.waha_ids ?? []).filter(Boolean);
+    if (previos.length) {
+      const r = await enviarTextoWhatsapp(this.db, destino, texto, 'aviso-pedido');
+      if (r.enviado && r.id) return this.enviado(a, destino, [...previos, String(r.id)], 'se completó con el texto');
+      return this.fallo(a, r.motivo ?? 'WhatsApp no devolvió el id del mensaje', r.incierto ?? !r.enviado, previos);
     }
 
     // Un reintento (o un intento anterior que no sabemos si salió): antes de
@@ -216,7 +228,7 @@ export class AvisosPedidosService {
       }
       ultimo = await enviarTextoWhatsapp(this.db, destino, texto, 'aviso-pedido');
       if (ultimo.enviado && ultimo.id) ids.push(String(ultimo.id));
-      else return this.fallo(a, ultimo.motivo ?? 'WhatsApp no devolvió el id del mensaje', ultimo.incierto ?? !ultimo.enviado);
+      else return this.fallo(a, ultimo.motivo ?? 'WhatsApp no devolvió el id del mensaje', ultimo.incierto ?? !ultimo.enviado, ids);
     }
     await this.enviado(a, destino, ids);
     // si mientras tanto el pedido se canceló o se pagó, la base encola la baja o el pago
@@ -277,12 +289,14 @@ export class AvisosPedidosService {
     this.log.log(`aviso ${a.tipo} ${a.pedido_id ?? ''} omitido: ${motivo}`);
   }
 
-  private async fallo(a: FilaAviso, motivo: string, incierto: boolean) {
+  private async fallo(a: FilaAviso, motivo: string, incierto: boolean, yaSalieron: string[] = []) {
     const espera = esperaParaReintentar(a.intentos);
     this.log.error(`aviso ${a.tipo} ${a.pedido_id ?? ''} NO salió (intento ${a.intentos}): ${motivo}. Reintento en ${Math.round(espera / 1000)} s`);
     await this.actualizar(a.id, {
       ultimo_error: motivo.slice(0, 500), incierto, tomado_hasta: null,
       proximo_intento: new Date(Date.now() + espera).toISOString(),
+      // si una parte ya salió (páginas de la tarjeta), queda anotada: el reintento completa con el texto
+      ...(yaSalieron.length ? { waha_ids: yaSalieron } : {}),
     });
   }
 
@@ -316,13 +330,15 @@ export class AvisosPedidosService {
   /** ¿Ya hay en el chat de administración un mensaje nuestro que empieza con este encabezado? Devuelve su id. */
   private async buscarEnElChat(chatId: string, cabeza: string): Promise<string | null> {
     const msjs = await this.getWaha(`/api/{sesion}/chats/${encodeURIComponent(chatId)}/messages?limit=50&downloadMedia=false`);
-    const hallado = (Array.isArray(msjs) ? msjs : []).find((m: any) => m?.fromMe && String(m?.body ?? m?.caption ?? '').trim().startsWith(cabeza));
+    // un mensaje que WhatsApp marcó con error de entrega (ack -1) no cuenta: si
+    // no, el reenvío lo encontraba a él y el aviso daba vueltas sin salir nunca
+    const hallado = (Array.isArray(msjs) ? msjs : []).find((m: any) => m?.fromMe && m?.ack !== -1 && String(m?.body ?? m?.caption ?? '').trim().startsWith(cabeza));
     return hallado ? String(hallado.id?._serialized ?? hallado.id ?? '') || null : null;
   }
 
   /** Pregunta a WhatsApp si los avisos enviados llegaron al teléfono (ack 2 o más). */
   private async verificarEntregas() {
-    const { data } = await this.db.from('avisos_pedidos').select('id, pedido_id, destino, waha_id, enviado_en')
+    const { data } = await this.db.from('avisos_pedidos').select('id, pedido_id, destino, waha_id, enviado_en, ultimo_error')
       .eq('estado', 'enviado').lte('proximo_intento', new Date().toISOString())
       .gte('enviado_en', new Date(Date.now() - 48 * 3600_000).toISOString()).limit(10);
     for (const a of (data ?? []) as any[]) {
@@ -334,10 +350,12 @@ export class AvisosPedidosService {
         await this.actualizar(a.id, { estado: 'entregado', ack, entregado_en: new Date().toISOString() });
         this.log.log(`aviso ${a.id} ENTREGADO en el teléfono de administración (ack ${ack})`);
       } else if (ack === -1) {
-        // WhatsApp dice que no lo pudo entregar: se vuelve a mandar (y los 3
-        // minutos sin salir se cuentan desde ahora)
+        // WhatsApp dice que no lo pudo entregar: se vuelve a mandar. Los 3
+        // minutos sin salir se cuentan desde el PRIMER error de entrega, no
+        // desde cada uno: si sigue fallando, escala.
         const ahora = new Date().toISOString();
-        await this.actualizar(a.id, { estado: 'pendiente', ack, incierto: false, ultimo_error: 'WhatsApp marcó error de entrega (ack -1): se reenvía', proximo_intento: ahora, pendiente_desde: ahora });
+        const primera = !String(a.ultimo_error ?? '').includes('ack -1');
+        await this.actualizar(a.id, { estado: 'pendiente', ack, incierto: false, ultimo_error: 'WhatsApp marcó error de entrega (ack -1): se reenvía', proximo_intento: ahora, waha_ids: [], ...(primera ? { pendiente_desde: ahora } : {}) });
         this.log.error(`aviso ${a.id}: WhatsApp marcó error de entrega; se reenvía`);
       } else {
         await this.actualizar(a.id, { ack, proximo_intento: new Date(Date.now() + 60_000).toISOString() });
@@ -405,6 +423,16 @@ export class AvisosPedidosService {
     }
   }
 
+  /** El encabezado con que empieza el aviso (para buscarlo en el chat). */
+  private async cabezaDelAviso(p: ProblemaDeAviso): Promise<string | null> {
+    if (p.tipo === 'pedido_sin_cargar') {
+      const { data: fila } = await this.db.from('avisos_pedidos').select('detalle').eq('id', p.avisoId).maybeSingle();
+      return textoDeSinCargar(await this.sinCargar((fila as any)?.detalle, p.avisoId)).split('\n')[0];
+    }
+    const { data: ped } = p.pedidoId ? await this.db.from('pedidos').select('id, qr_retiro').eq('id', p.pedidoId).maybeSingle() : { data: null };
+    return ped ? encabezado(p.tipo, codigoDe(ped as any)) : null;
+  }
+
   /** 'escalado' si a algún dueño le salió el WhatsApp; 'resuelto' si el aviso salió (o llegó) mientras tanto. La campanita, una sola vez por problema. */
   private async escalar(p: ProblemaDeAviso, primeraVez: boolean): Promise<'escalado' | 'fallo' | 'resuelto'> {
     // justo antes de avisar a los dueños, se vuelve a mirar: si mientras tanto
@@ -416,6 +444,16 @@ export class AvisosPedidosService {
       return 'resuelto';
     }
     const admin = await this.telefonoAdministracion();
+    // "no salió", pero puede haber salido sin que quedara anotado (un deploy
+    // cortó el proceso con el envío en vuelo): se mira el chat antes de alarmar
+    if (p.problema === 'no_salio' && admin) {
+      const cabeza = await this.cabezaDelAviso(p);
+      const ya = cabeza ? await this.buscarEnElChat(`${admin}@c.us`, cabeza) : null;
+      if (ya) {
+        await this.enviado({ id: p.avisoId, tipo: p.tipo, pedido_id: p.pedidoId } as FilaAviso, admin, [ya], 'estaba en el chat aunque no había quedado anotado');
+        return 'resuelto';
+      }
+    }
     const titulo = p.problema === 'no_salio'
       ? `El aviso ${p.tipo === 'pedido_nuevo' ? 'del pedido' : 'de'} ${p.codigo} NO SALIÓ a administración`
       : `El aviso ${p.tipo === 'pedido_nuevo' ? 'del pedido' : 'de'} ${p.codigo} no le LLEGÓ a administración`;
@@ -430,7 +468,7 @@ export class AvisosPedidosService {
     let cuerpo = '';
     if (p.tipo === 'pedido_sin_cargar') {
       const { data: fila } = await this.db.from('avisos_pedidos').select('detalle').eq('id', p.avisoId).maybeSingle();
-      cuerpo = textoDeSinCargar(await this.sinCargar((fila as any)?.detalle));
+      cuerpo = textoDeSinCargar(await this.sinCargar((fila as any)?.detalle, p.avisoId));
     } else if (p.pedidoId) {
       const pedido = await this.pedidoParaAviso(p.pedidoId);
       if (pedido) cuerpo = p.tipo === 'pedido_nuevo' ? textoDelAviso(pedido, { conRenglones: true }) : p.tipo === 'pedido_cancelado' ? textoDeCancelado(pedido) : textoDePagado(pedido);

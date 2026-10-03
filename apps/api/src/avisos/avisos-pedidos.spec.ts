@@ -223,6 +223,31 @@ describe('AvisosPedidosService: el aviso sale a administración', () => {
     expect(imagen).not.toHaveBeenCalled();
   });
 
+  it('un mensaje que WhatsApp marcó con error (ack -1) no cuenta como enviado: se reenvía', async () => {
+    chatConMensajes([{ fromMe: true, ack: -1, body: 'PEDIDO NUEVO · PICKUP-5F2451C6C111\nEntró por…', id: 'true_x_FALLIDO' }]);
+    imagen.mockResolvedValue({ enviado: true, id: 'REENVIO' });
+    const db = baseFalsa(TABLAS);
+    await enviar(new AvisosPedidosService(db), { ...FILA, intentos: 2 });
+    expect(imagen).toHaveBeenCalled();
+    expect(ultimaActualizacion(db)).toMatchObject({ estado: 'enviado', waha_id: 'REENVIO' });
+  });
+
+  it('una tarjeta que quedó a medias: el fallo anota lo que salió y el reintento completa con el texto (sin buscar ni repetir la tarjeta)', async () => {
+    carteles.mockResolvedValue([Buffer.from('1'), Buffer.from('2')]);
+    imagen.mockResolvedValueOnce({ enviado: true, id: 'P1' }).mockResolvedValueOnce({ enviado: false, motivo: 'WAHA sendImage 500', incierto: true });
+    texto.mockResolvedValueOnce({ enviado: false, motivo: 'WAHA sendText 500', incierto: true });
+    const db = baseFalsa(TABLAS);
+    await enviar(new AvisosPedidosService(db));
+    expect(ultimaActualizacion(db)).toMatchObject({ waha_ids: ['P1'], ultimo_error: 'WAHA sendText 500' });
+    imagen.mockClear();
+    texto.mockResolvedValueOnce({ enviado: true, id: 'T1' });
+    const db2 = baseFalsa(TABLAS);
+    await enviar(new AvisosPedidosService(db2), { ...FILA, intentos: 2, incierto: true, waha_ids: ['P1'] });
+    expect(imagen).not.toHaveBeenCalled();
+    expect(texto.mock.calls.at(-1)[2]).toMatch(/• 3 × Combo Picada Box/);
+    expect(ultimaActualizacion(db2)).toMatchObject({ estado: 'enviado', waha_ids: ['P1', 'T1'] });
+  });
+
   it('la baja y el pago salen como texto, con su encabezado', async () => {
     texto.mockResolvedValue({ enviado: true, id: 'B1' });
     const db = baseFalsa({ ...TABLAS, pedidos: { data: { ...PEDIDO_DB, estado: 'cancelado' } } });
@@ -236,7 +261,8 @@ describe('AvisosPedidosService: el aviso sale a administración', () => {
     texto.mockResolvedValue({ enviado: true, id: 'S1' });
     const db = baseFalsa({ ...TABLAS, bot_cotizaciones: { data: { resumen: '• Combo Picada Box — 3 × $44.500\nTotal: $133.500\n¿Lo confirmo?' } } });
     await enviar(new AvisosPedidosService(db), { ...FILA, pedido_id: null, tipo: 'pedido_sin_cargar', detalle: { telefono: '230566779732018', nota: 'PEDIDO NO CARGADO (falló crear_pedido)' } });
-    expect(texto.mock.calls[0][2]).toMatch(/^PEDIDO CONFIRMADO SIN CARGAR · \+54 9 11 3590-1236\n/);
+    // el encabezado lleva el número propio del aviso: dos pedidos sin cargar del mismo chat no se confunden
+    expect(texto.mock.calls[0][2]).toMatch(/^PEDIDO CONFIRMADO SIN CARGAR · \+54 9 11 3590-1236 · #AVISO1\n/);
     expect(texto.mock.calls[0][2]).toMatch(/Combo Picada Box/);
     expect(ultimaActualizacion(db)).toMatchObject({ estado: 'enviado', waha_id: 'S1' });
   });
@@ -295,6 +321,15 @@ describe('AvisosPedidosService: que llegue y, si no, que se enteren los dueños'
     const f = ultimaActualizacion(db);
     expect(f).toMatchObject({ estado: 'pendiente', ack: -1 });
     expect(Math.abs(new Date(f.pendiente_desde).getTime() - Date.now())).toBeLessThan(5_000);
+  });
+
+  it('un segundo ack -1 no vuelve a arrancar el reloj: si sigue sin llegar, escala', async () => {
+    jest.spyOn(global, 'fetch' as any).mockResolvedValue({ ok: true, json: async () => ({ ack: -1 }) } as any);
+    const db = baseFalsa({ avisos_pedidos: { data: [{ ...enviado[0], ultimo_error: 'WhatsApp marcó error de entrega (ack -1): se reenvía' }] } });
+    await (new AvisosPedidosService(db) as any).verificarEntregas();
+    const f = ultimaActualizacion(db);
+    expect(f).toMatchObject({ estado: 'pendiente', ack: -1 });
+    expect(f.pendiente_desde).toBeUndefined();
   });
 
   it('un tilde solo: se vuelve a preguntar en un minuto', async () => {
@@ -383,6 +418,18 @@ describe('AvisosPedidosService: que llegue y, si no, que se enteren los dueños'
     expect(texto).not.toHaveBeenCalled();
     const f = ultimaActualizacion(db);
     expect(f).toEqual({ escalar_proximo: null });
+  });
+
+  it('"no salió" pero está en el chat (el proceso se cortó con el envío en vuelo): se marca enviado y no se alarma a los dueños', async () => {
+    const texto = jest.spyOn(require('../comun/whatsapp'), 'enviarTextoWhatsapp');
+    jest.spyOn(global, 'fetch' as any).mockResolvedValue({ ok: true, json: async () => [{ fromMe: true, ack: 3, body: 'PEDIDO NUEVO · PICKUP-5F2451C6C111\n…', id: 'true_x_ENVUELO' }] } as any);
+    const db = baseFalsa({ ...TABLAS, usuarios: DUENOS, avisos_pedidos: { data: { estado: 'pendiente' } }, pedidos: { data: { id: PEDIDO.id, qr_retiro: 'PICKUP-5F2451C6C111' } } });
+    const s = new AvisosPedidosService(db);
+    (s as any).arranque = 0;
+    jest.spyOn(s, 'problemas').mockResolvedValue([PROBLEMA]);
+    await (s as any).vigilar();
+    expect(texto).not.toHaveBeenCalled();
+    expect(db.escrituras.filter((w: any) => w.tabla === 'avisos_pedidos' && w.op === 'update').map((w: any) => w.fila)).toContainEqual(expect.objectContaining({ estado: 'enviado', waha_id: 'true_x_ENVUELO' }));
   });
 
   it('recién arrancado (un deploy) el vigía espera un minuto: primero sale lo pendiente', async () => {

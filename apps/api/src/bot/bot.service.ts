@@ -1893,9 +1893,6 @@ export class BotService {
           if (repetida) { out = { ok: false, duplicada: true, aviso: 'Esa consulta YA estaba anotada de antes: NO se guardó nada nuevo. No digas "queda anotado" otra vez; si el cliente insiste, decile que ya está anotada y seguí con lo suyo.' }; break; }
           if (nota) {
             await this.db.from('bot_notas_equipo').insert({ linea, telefono, nota });
-            // y sale por WhatsApp a administración (regla del 3/10/2026): es el
-            // caso en que más falta hace avisar
-            await this.encolarPedidoSinCargar(linea, telefono, nota);
             const { data: cfg } = await this.db.from('lineas_whatsapp').select('avisar_proveedores_a').eq('linea', linea).eq('activa', true).limit(1).maybeSingle();
             await this.db.from('alertas_internas').insert({ para_usuario: cfg?.avisar_proveedores_a ?? null, tipo: 'nota_bot', titulo: `Consulta de +${telefono}`, detalle: nota, referencia: { linea, telefono } });
           }
@@ -1950,6 +1947,10 @@ export class BotService {
             const { data: cfg } = await this.db.from('lineas_whatsapp').select('avisar_proveedores_a').eq('linea', linea).eq('activa', true).limit(1).maybeSingle();
             await this.db.from('alertas_internas').insert({ para_usuario: cfg?.avisar_proveedores_a ?? null, tipo: 'derivacion', titulo: `Pedido confirmado SIN cargar de +${telefono}`, detalle: nota, referencia: { linea, telefono } });
           }
+          // y sale por WhatsApp a administración (regla del 3/10/2026), sin
+          // depender de cómo redacte el bot la respuesta: es el caso en que más
+          // falta hace avisar (encolar ya descarta repetidos por chat)
+          await this.encolarPedidoSinCargar(linea, telefono, nota);
           freno += ' Ya quedó una nota para el local con todos los datos del pedido (ítems, modalidad, dirección, quien recibe). Decile al cliente, con estas palabras o parecidas: "Tuve un inconveniente para cargar el pedido; tomo su pedido con todos los datos y doy aviso al sector correspondiente para que lo dejen confirmado." NO digas que el pedido está confirmado ni cargado, y no le vuelvas a pedir confirmación.';
         } catch (e2: any) { this.log.warn(`no pude dejar la nota del pedido no cargado: ${e2?.message ?? e2}`); }
       }
@@ -2484,6 +2485,8 @@ export class BotService {
    * circuito que los pedidos nuevos). Uno por chat cada 10 minutos.
    */
   private async encolarPedidoSinCargar(linea: string, telefono: string, nota: string) {
+    // el banco de pruebas y "Probar el bot" del panel no le escriben a administración
+    if (/^54911000000\d{1,3}$/.test(telefono) || /^11\d{8}$/.test(telefono)) return;
     try {
       const { data: prev } = await this.db.from('avisos_pedidos').select('id').eq('tipo', 'pedido_sin_cargar')
         .eq('detalle->>telefono', telefono).gte('creado_en', new Date(Date.now() - 10 * 60_000).toISOString()).limit(1).maybeSingle();
@@ -3070,9 +3073,10 @@ export class BotService {
           .in('origen', ['aviso-pedido', 'aviso-pedido-escalado']).ilike('waha_id', `%${citado}`).limit(1);
         if ((envio ?? []).length) return { contestado: false, motivo: 'acuse de un aviso de pedido' };
       }
-      const { count } = await this.db.from('avisos_pedidos').select('id', { count: 'exact', head: true })
+      const { count, error: eAvisos } = await this.db.from('avisos_pedidos').select('id', { count: 'exact', head: true })
         .in('estado', ['enviado', 'entregado']).gte('enviado_en', new Date(Date.now() - 24 * 3600_000).toISOString());
-      avisosDelDia = Number(count ?? 0);
+      // si no se puede saber, se supone que hubo: mejor pedir que cite que llevarle a un cliente algo que no era para él
+      avisosDelDia = eAvisos ? 1 : Number(count ?? 0);
     }
     // Sin ventana de 24h ni límite global: una cita vieja sigue identificando su consulta.
     const consultasTodas = await this.pendientesPaginados('bot_consultas_internas', 'respondido_en');

@@ -35,6 +35,13 @@ describe('el pedido confirmado SIN cargar sale a administración', () => {
     await (servicio(conPrevio) as any).encolarPedidoSinCargar('pedidos', '230566779732018', 'otra vez');
     expect(conPrevio.escrituras).toEqual([]);
   });
+
+  it('el banco de pruebas y "Probar el bot" del panel no le escriben a administración', async () => {
+    const db = baseFalsa();
+    await (servicio(db) as any).encolarPedidoSinCargar('pedidos', '54911000000101', 'banco');
+    await (servicio(db) as any).encolarPedidoSinCargar('pedidos', '1154872210', 'simulador');
+    expect(db.escrituras).toEqual([]);
+  });
 });
 
 describe('lo que administración contesta a un aviso de pedido no va a ningún cliente', () => {

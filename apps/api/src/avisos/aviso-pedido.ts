@@ -152,13 +152,16 @@ export function textoDePagado(p: PedidoParaAviso): string {
   ].join('\n');
 }
 
-export type SinCargar = { telefono: string; telefonoReal: string | null; nota: string; resumen: string | null };
+export type SinCargar = { telefono: string; telefonoReal: string | null; nota: string; resumen: string | null; aviso?: string | null };
 
 /** El cliente confirmó por WhatsApp y el pedido no se pudo cargar: hay que cargarlo a mano. */
 export function textoDeSinCargar(s: SinCargar): string {
   const tel = telefonoLegible(s.telefonoReal) ?? telefonoLegible(s.telefono) ?? 'ver el chat en RESPONDE';
+  // el encabezado lleva un número propio de cada aviso: con el teléfono solo,
+  // el reintento de un segundo pedido sin cargar del mismo chat encontraba el primero
+  const numero = s.aviso ? ` · #${s.aviso.replace(/-/g, '').slice(0, 6).toUpperCase()}` : '';
   return [
-    encabezado('pedido_sin_cargar', tel),
+    encabezado('pedido_sin_cargar', `${tel}${numero}`),
     'El cliente confirmó un pedido por WhatsApp y el sistema NO lo pudo cargar. Hay que cargarlo a mano y confirmarle por el chat.',
     s.resumen ? `Lo último que se le cotizó:\n${s.resumen.replace(/\n?¿Lo confirmo\?\s*$/i, '').trim()}` : null,
     `Detalle: ${s.nota.slice(0, 600)}`,
