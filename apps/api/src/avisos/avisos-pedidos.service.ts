@@ -211,6 +211,10 @@ export class AvisosPedidosService {
         texto = textoDelAviso(pedido, { conRenglones: true, antesSinCargar });
         if (pedido.items.length) tarjeta = { pedido, epigrafe: textoDelAviso(pedido, { conRenglones: false, antesSinCargar }) };
       } else {
+        if (a.tipo === 'pedido_pagado' && pedido.pagado_en) {
+          const { data: alta } = await this.db.from('avisos_pedidos').select('enviado_en').eq('pedido_id', pedido.id).eq('tipo', 'pedido_nuevo').maybeSingle();
+          if ((alta as any)?.enviado_en && new Date((alta as any).enviado_en).getTime() >= new Date(pedido.pagado_en).getTime()) return this.omitir(a, 'el alta ya salió diciendo que estaba pagado');
+        }
         texto = a.tipo === 'pedido_cancelado' ? textoDeCancelado(pedido) : textoDePagado(pedido);
       }
     }
@@ -220,6 +224,8 @@ export class AvisosPedidosService {
     // encontraría la primera página y lo daría por enviado)
     const previos = (a.waha_ids ?? []).filter(Boolean);
     if (previos.length) {
+      const yaTexto = await this.buscarEnElChat(chatId, cabeza);
+      if (yaTexto && !yaTexto.conImagen) return this.enviado(a, destino, [...previos, yaTexto.id], 'el texto ya había salido (se encontró en el chat)');
       const r = await enviarTextoWhatsapp(this.db, destino, texto, 'aviso-pedido');
       if (r.enviado && r.id) return this.enviado(a, destino, [...previos, String(r.id)], 'se completó con el texto');
       return this.fallo(a, r.motivo ?? 'WhatsApp no devolvió el id del mensaje', r.incierto ?? !r.enviado, previos);
@@ -352,6 +358,9 @@ export class AvisosPedidosService {
   }
 
   private async enviado(a: FilaAviso, destino: string, ids: string[], nota?: string) {
+    for (const id of ids) {
+      try { await this.db.from('bot_envios').upsert({ waha_id: id, telefono: destino, origen: 'aviso-pedido' }, { onConflict: 'waha_id' }); } catch { /* el registro del eco no frena el aviso */ }
+    }
     await this.actualizar(a.id, {
       estado: 'enviado', destino, waha_id: ids[0], waha_ids: ids, enviado_en: new Date().toISOString(), tomado_hasta: null,
       incierto: false, ultimo_error: null, proximo_intento: new Date(Date.now() + 20_000).toISOString(),
@@ -409,14 +418,16 @@ export class AvisosPedidosService {
     const msjs = await this.getWaha(`/api/{sesion}/chats/${encodeURIComponent(chatId)}/messages?limit=50&downloadMedia=false`);
     // un mensaje que WhatsApp marcó con error de entrega (ack -1) no cuenta: si
     // no, el reenvío lo encontraba a él y el aviso daba vueltas sin salir nunca
-    const hallado = (Array.isArray(msjs) ? msjs : []).find((m: any) => m?.fromMe && m?.ack !== -1 && String(m?.body ?? m?.caption ?? '').trim().split('\n')[0].trim() === cabeza);
+    const iguales = (Array.isArray(msjs) ? msjs : []).filter((m: any) => m?.fromMe && m?.ack !== -1 && String(m?.body ?? m?.caption ?? '').trim().split('\n')[0].trim() === cabeza);
+    // el texto con ese encabezado es el aviso completo; la imagen puede ser solo la página 1
+    const hallado = iguales.find((m: any) => !m?.hasMedia) ?? iguales[0];
     const id = hallado ? String(hallado.id?._serialized ?? hallado.id ?? '') : '';
     return id ? { id, conImagen: !!hallado.hasMedia } : null;
   }
 
   /** Pregunta a WhatsApp si los avisos enviados llegaron al teléfono (ack 2 o más). */
   private async verificarEntregas() {
-    const { data } = await this.db.from('avisos_pedidos').select('id, pedido_id, destino, waha_id, enviado_en, creado_en, pendiente_desde, intentos')
+    const { data } = await this.db.from('avisos_pedidos').select('id, pedido_id, destino, waha_id, enviado_en, creado_en, pendiente_desde, intentos, visto_en')
       .eq('estado', 'enviado').lte('proximo_intento', new Date().toISOString())
       .gte('enviado_en', new Date(Date.now() - 48 * 3600_000).toISOString()).limit(10);
     for (const a of (data ?? []) as any[]) {
@@ -434,11 +445,20 @@ export class AvisosPedidosService {
         // desde cada uno: si sigue fallando, escala.
         const ahora = new Date().toISOString();
         const primera = new Date(a.pendiente_desde).getTime() === new Date(a.creado_en).getTime();
+        // Tope: con errores de entrega repetidos durante 30 minutos, o si ya
+        // avisaron por otro medio, o pasadas 48 horas, no se reenvía más (queda
+        // pendiente, a la vista en la franja, y escalado). Seguir mandando a un
+        // número que WhatsApp no entrega solo le suma riesgo a la línea.
+        const basta = !!a.visto_en || Date.now() - new Date(a.creado_en).getTime() > 48 * 3600_000
+          || (!primera && Date.now() - new Date(a.pendiente_desde).getTime() > 30 * 60_000);
         await this.actualizar(a.id, {
-          estado: 'pendiente', ack, incierto: false, waha_ids: [], escalar_intentos: 0, escalar_proximo: null, escalado_en: null,
-          ultimo_error: 'WhatsApp marcó error de entrega (ack -1): se reenvía',
-          proximo_intento: new Date(Date.now() + esperaParaReintentar(Number(a.intentos ?? 1))).toISOString(),
-          ...(primera ? { pendiente_desde: ahora } : {}),
+          estado: 'pendiente', ack, incierto: false, waha_ids: [],
+          ultimo_error: basta
+            ? 'WhatsApp marcó error de entrega (ack -1) repetidas veces: no se reenvía más; avisen por otro medio'
+            : 'WhatsApp marcó error de entrega (ack -1): se reenvía',
+          proximo_intento: basta ? 'infinity' : new Date(Date.now() + esperaParaReintentar(Number(a.intentos ?? 1))).toISOString(),
+          // el escalamiento se rearma solo con el PRIMER error: no un WhatsApp a los dueños por cada reenvío
+          ...(primera ? { pendiente_desde: ahora, escalado_en: null, escalar_intentos: 0, escalar_proximo: null } : {}),
         });
         this.log.error(`aviso ${a.id}: WhatsApp marcó error de entrega; se reenvía`);
       } else {

@@ -1611,7 +1611,11 @@ export class BotService {
     respuesta = asegurarEnvioSinCargo(texto, respuesta ?? '');
     if (respuesta) respuesta = minimoConMonto(respuesta, envioMinimo());
     // con la lista ya cerrada no se vuelve a preguntar si está completa
-    if (respuesta && !respuestaFija.operacion && !cierreDeLista) respuesta = conPreguntaDeCompleto(respuesta);
+    // la promesa de avisar por un pedido se decide sobre lo que escribió el bot,
+    // ANTES de la pregunta de completo que agrega el sistema (3/10/2026)
+    const sigueEnCurso = /¿\s*lo confirmo\?|¿[^?]*(?:est[aá] completo|sumar algo)[^?]*\?/i.test(respuesta ?? '');
+    const prometeAvisoAlSector = /aviso al (?:sector|local|equipo)/i.test(respuesta ?? '');
+    if (respuesta && !respuestaFija.operacion && !cierreDeLista) { if (!prometioAvisoDePedido && !prometeAvisoAlSector) respuesta = conPreguntaDeCompleto(respuesta); }
     // lo interno (stock, sucursales, "el sistema") no sale al cliente (1/10/2026)
     if (respuesta) respuesta = sinLoConsulto(retiroOEnvio(sinCocinaInterna(respuesta)));
 
@@ -1620,10 +1624,9 @@ export class BotService {
     // CONFIRMADO SIN CARGAR (3/10/2026). Solo con hechos: la frase la puso el
     // sistema, o crear_pedido falló en este turno; y no si el chat ya tiene un
     // pedido confirmado en las últimas horas (entonces preguntaba por ese).
-    const prometePedido = /aviso al sector correspondiente para (?:que lo dejen|dejarlo) confirmado|\btomo (?:tu|su|el) pedido\b|aviso al (?:sector|local|equipo)[^.\n]{0,80}?\b(?:confirm|carg|arm)/i.test(respuesta ?? '');
+    const prometePedido = /aviso al sector correspondiente para (?:que lo dejen|dejarlo) confirmado|\btomo (?:tu|su|el) pedido\b|aviso al (?:sector|local|equipo)[^.\n]{0,80}?para (?:que lo dejen|dejarlo) (?:confirmad|cargad|armad)/i.test(respuesta ?? '');
     const huboIntentoDePedido = herramientasDelTurno.has('crear_pedido') || (fallosDelTurno.get('crear_pedido') ?? 0) >= 1 || dijoCargadoSinCodigo || /¿[^?]{0,30}\bconfirm\w*[^?]{0,60}\?|lo dejo cargad/i.test(String(ultimoDelBot));
     // si la respuesta todavía pide confirmación, no hay pedido confirmado que avisar
-    const sigueEnCurso = /¿\s*lo confirmo\?|¿[^?]*(?:est[aá] completo|sumar algo)[^?]*\?/i.test(respuesta ?? '');
     if (linea === 'pedidos' && fallosDelTurno.get('__pedido_creado__') !== 1 && !sigueEnCurso
         && (prometioAvisoDePedido || (prometePedido && huboIntentoDePedido))) {
       await this.encolarPedidoSinCargar(linea, telefono, `El bot le dijo al cliente: «${respuesta.slice(0, 300)}». Último mensaje del cliente: «${texto.slice(0, 300)}».`, { salvoPedidoReciente: true });
@@ -2547,7 +2550,12 @@ export class BotService {
         .eq('detalle->>telefono', telefono).gte('creado_en', new Date(Date.now() - 10 * 60_000).toISOString()).limit(1).maybeSingle();
       if (prev) return;
       const { error } = await this.db.from('avisos_pedidos').insert({ tipo: 'pedido_sin_cargar', detalle: { linea, telefono, nota: nota.slice(0, 1000) } });
-      if (error) this.log.error(`no pude encolar el aviso de pedido sin cargar de ${telefono}: ${error.message}`);
+      if (error) {
+        this.log.error(`no pude encolar el aviso de pedido sin cargar de ${telefono}: ${error.message}`);
+        // que al menos quede la nota y la campanita
+        await this.db.from('bot_notas_equipo').insert({ linea, telefono, nota: `PEDIDO SIN CARGAR (no salió el aviso a administración): ${nota.slice(0, 900)}` }).then(() => null, () => null);
+        await this.db.from('alertas_internas').insert({ para_usuario: null, tipo: 'pedido_sin_aviso', titulo: `Pedido sin cargar de +${telefono}: no salió el aviso a administración`, detalle: nota.slice(0, 900), referencia: { linea, telefono } }).then(() => null, () => null);
+      }
       else this.log.error(`pedido confirmado SIN cargar de ${telefono}: sale a administración`);
     } catch (e: any) {
       this.log.error(`no pude encolar el aviso de pedido sin cargar de ${telefono}: ${e?.message ?? e}`);

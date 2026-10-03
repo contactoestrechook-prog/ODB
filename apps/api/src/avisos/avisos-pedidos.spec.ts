@@ -325,6 +325,25 @@ describe('AvisosPedidosService: el aviso sale a administración', () => {
     expect(ultimaActualizacion(db)).toMatchObject({ estado: 'enviado', waha_id: 'R1' });
   });
 
+  it('en el chat están la imagen y el texto del aviso: cuenta el texto (es el completo) y no se repite nada', async () => {
+    chatConMensajes([
+      { fromMe: true, hasMedia: true, ack: 3, body: 'PEDIDO NUEVO · PICKUP-5F2451C6C111\n…', id: 'true_x_IMG' },
+      { fromMe: true, hasMedia: false, ack: 3, body: 'PEDIDO NUEVO · PICKUP-5F2451C6C111\n• 3 × Combo…', id: 'true_x_TXT' },
+    ]);
+    const db = baseFalsa(TABLAS);
+    await enviar(new AvisosPedidosService(db), { ...FILA, intentos: 2, waha_ids: ['true_x_IMG'] });
+    expect(texto).not.toHaveBeenCalled();
+    expect(ultimaActualizacion(db)).toMatchObject({ estado: 'enviado', waha_ids: ['true_x_IMG', 'true_x_TXT'] });
+    expect(db.escrituras.filter((w: any) => w.tabla === 'bot_envios').map((w: any) => w.fila.waha_id)).toEqual(['true_x_IMG', 'true_x_TXT']);
+  });
+
+  it('PEDIDO PAGADO no se repite si el alta ya salió diciendo que estaba pagado', async () => {
+    const db = baseFalsa({ ...TABLAS, pedidos: { data: { ...PEDIDO_DB, pagado_en: '2026-10-03T13:11:00Z' } }, avisos_pedidos: { data: { enviado_en: '2026-10-03T13:12:00Z' } } });
+    await enviar(new AvisosPedidosService(db), { ...FILA, tipo: 'pedido_pagado' });
+    expect(texto).not.toHaveBeenCalled();
+    expect(ultimaActualizacion(db)).toMatchObject({ estado: 'omitido' });
+  });
+
   it('la baja y el pago salen como texto, con su encabezado', async () => {
     texto.mockResolvedValue({ enviado: true, id: 'B1' });
     const db = baseFalsa({ ...TABLAS, pedidos: { data: { ...PEDIDO_DB, estado: 'cancelado' } } });
@@ -418,6 +437,25 @@ describe('AvisosPedidosService: que llegue y, si no, que se enteren los dueños'
     const f = ultimaActualizacion(db);
     expect(f).toMatchObject({ estado: 'pendiente', ack: -1 });
     expect(f.pendiente_desde).toBeUndefined();
+  });
+
+  it('ack -1 una y otra vez por más de 30 minutos: no se reenvía más (queda a la vista) y no se rearma el escalamiento', async () => {
+    jest.spyOn(global, 'fetch' as any).mockResolvedValue({ ok: true, json: async () => ({ ack: -1 }) } as any);
+    const db = baseFalsa({ avisos_pedidos: { data: [{ ...enviado[0], intentos: 9, pendiente_desde: new Date(Date.now() - 40 * 60_000).toISOString() }] } });
+    await (new AvisosPedidosService(db) as any).verificarEntregas();
+    const f = ultimaActualizacion(db);
+    expect(f).toMatchObject({ estado: 'pendiente', proximo_intento: 'infinity', ultimo_error: expect.stringMatching(/no se reenvía más/) });
+    expect(f).not.toHaveProperty('escalado_en');
+  });
+
+  it('el primer ack -1 rearma el escalamiento; los siguientes no', async () => {
+    jest.spyOn(global, 'fetch' as any).mockResolvedValue({ ok: true, json: async () => ({ ack: -1 }) } as any);
+    const primero = baseFalsa({ avisos_pedidos: { data: enviado } });
+    await (new AvisosPedidosService(primero) as any).verificarEntregas();
+    expect(ultimaActualizacion(primero)).toMatchObject({ escalado_en: null, escalar_intentos: 0 });
+    const segundo = baseFalsa({ avisos_pedidos: { data: [{ ...enviado[0], intentos: 3, pendiente_desde: new Date(Date.now() - 5 * 60_000).toISOString() }] } });
+    await (new AvisosPedidosService(segundo) as any).verificarEntregas();
+    expect(ultimaActualizacion(segundo)).not.toHaveProperty('escalado_en');
   });
 
   it('un tilde solo: se vuelve a preguntar en un minuto', async () => {
