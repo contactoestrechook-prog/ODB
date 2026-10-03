@@ -100,6 +100,7 @@ function baseFalsa(r: Record<string, any> = {}) {
       for (const k of ['select', 'eq', 'in', 'is', 'gte', 'lte', 'order', 'limit', 'not', 'or', 'ilike']) b[k] = (...a: any[]) => { if (k !== 'select') filtros.push([k, ...a]); return b; };
       b.update = (f: any) => { op = 'update'; escrituras.push({ tabla, op, fila: f, filtros }); return b; };
       b.insert = (f: any) => { op = 'insert'; escrituras.push({ tabla, op, fila: f, filtros }); return b; };
+      b.upsert = (f: any) => { op = 'upsert'; escrituras.push({ tabla, op, fila: f, filtros }); return b; };
       const res = () => (op === 'select' ? r[tabla] : r[`${tabla}:${op}`]) ?? { data: op === 'update' ? [{ escalar_intentos: 0 }] : null, error: null };
       b.maybeSingle = b.single = async () => res();
       b.then = (ok: any, err: any) => Promise.resolve(res()).then(ok, err);
@@ -248,6 +249,34 @@ describe('AvisosPedidosService: el aviso sale a administración', () => {
     expect(ultimaActualizacion(db2)).toMatchObject({ estado: 'enviado', waha_ids: ['P1', 'T1'] });
   });
 
+  it('si lo encontrado en el chat es la imagen de la tarjeta (puede ser solo la página 1), se completa con el texto', async () => {
+    chatConMensajes([{ fromMe: true, hasMedia: true, ack: 3, body: 'PEDIDO NUEVO · PICKUP-5F2451C6C111\nEntró por…', id: 'true_x_PAG1' }]);
+    texto.mockResolvedValue({ enviado: true, id: 'T1' });
+    const db = baseFalsa(TABLAS);
+    await enviar(new AvisosPedidosService(db), { ...FILA, intentos: 2 });
+    expect(imagen).not.toHaveBeenCalled();
+    expect(texto.mock.calls[0][2]).toMatch(/• 3 × Combo Picada Box/);
+    expect(ultimaActualizacion(db)).toMatchObject({ estado: 'enviado', waha_ids: ['true_x_PAG1', 'T1'] });
+    expect(db.escrituras).toContainEqual(expect.objectContaining({ tabla: 'bot_envios', op: 'upsert' }));
+  });
+
+  it('un "sin cargar" cuyo pedido se cargó después no sale (llega el PEDIDO NUEVO)', async () => {
+    const db = baseFalsa({ ...TABLAS, bot_cotizaciones: { data: { pedido_id: 'p9', confirmada_en: '2026-10-03T13:12:00Z', pedidos: { qr_retiro: 'PICKUP-ABC' } } } });
+    await enviar(new AvisosPedidosService(db), { ...FILA, pedido_id: null, tipo: 'pedido_sin_cargar', detalle: { telefono: '230566779732018', nota: 'x' } });
+    expect(texto).not.toHaveBeenCalled();
+    expect(ultimaActualizacion(db)).toMatchObject({ estado: 'omitido', motivo: expect.stringContaining('PICKUP-ABC') });
+  });
+
+  it('un chat sin teléfono conocido: el aviso sin cargar dice el chat como lo muestra RESPONDE', () => {
+    const t = textoDeSinCargar({ telefono: '230566779732018', telefonoReal: null, nombre: 'Marta', nota: 'n', resumen: null, aviso: 'abc12345' });
+    expect(t).toMatch(/^PEDIDO CONFIRMADO SIN CARGAR · chat \+230566779732018 · #ABC123\n/);
+    expect(t).toMatch(/\nCliente: Marta\n/);
+  });
+
+  it('el alta de un pedido que antes llegó como "sin cargar" lo aclara', () => {
+    expect(textoDelAviso(PEDIDO, { conRenglones: false, ahora: AHORA, antesSinCargar: true })).toMatch(/^PEDIDO NUEVO · PICKUP-5F2451C6C111\nEs el pedido que antes llegó como CONFIRMADO SIN CARGAR: ya quedó cargado, NO lo carguen a mano\./);
+  });
+
   it('la baja y el pago salen como texto, con su encabezado', async () => {
     texto.mockResolvedValue({ enviado: true, id: 'B1' });
     const db = baseFalsa({ ...TABLAS, pedidos: { data: { ...PEDIDO_DB, estado: 'cancelado' } } });
@@ -265,6 +294,15 @@ describe('AvisosPedidosService: el aviso sale a administración', () => {
     expect(texto.mock.calls[0][2]).toMatch(/^PEDIDO CONFIRMADO SIN CARGAR · \+54 9 11 3590-1236 · #AVISO1\n/);
     expect(texto.mock.calls[0][2]).toMatch(/Combo Picada Box/);
     expect(ultimaActualizacion(db)).toMatchObject({ estado: 'enviado', waha_id: 'S1' });
+  });
+});
+
+describe('el endpoint del cartel es solo para el personal', () => {
+  it('lleva @Roles sin "cliente"', () => {
+    const { AvisosController } = require('./avisos.controller');
+    const roles: string[] = Reflect.getMetadata('roles', AvisosController) ?? [];
+    expect(roles).toEqual(expect.arrayContaining(['dueno', 'administrativo', 'cajero']));
+    expect(roles).not.toContain('cliente');
   });
 });
 

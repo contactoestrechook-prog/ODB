@@ -1,9 +1,12 @@
 import { BadRequestException, Controller, Get, Param, Post, Req } from '@nestjs/common';
+import { Roles } from '../auth/decorators';
 import { AvisosPedidosService } from './avisos-pedidos.service';
 
 // El panel pregunta acá si hay avisos a administración que no salieron o no
 // llegaron: si hay, muestra la franja roja arriba de todo (3/10/2026). "Ya
 // avisé al local" la saca y deja quién y cuándo.
+// solo el personal: un token de cliente (la app, la web) no ve ni apaga nada
+@Roles('dueno', 'gerente', 'cajero', 'deposito', 'comprador', 'administrativo', 'repartidor')
 @Controller('avisos')
 export class AvisosController {
   constructor(private readonly avisos: AvisosPedidosService) {}

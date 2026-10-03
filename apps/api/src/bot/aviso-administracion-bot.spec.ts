@@ -36,6 +36,14 @@ describe('el pedido confirmado SIN cargar sale a administración', () => {
     expect(conPrevio.escrituras).toEqual([]);
   });
 
+  it('por la frase (no por el freno), si el chat ya tiene un pedido confirmado reciente, no se avisa: preguntaba por ese', async () => {
+    const db = baseFalsa({ bot_cotizaciones: { data: { id: 'cot-confirmada' } } });
+    await (servicio(db) as any).encolarPedidoSinCargar('pedidos', '230566779732018', 'frase', { salvoPedidoReciente: true });
+    expect(db.escrituras).toEqual([]);
+    await (servicio(db) as any).encolarPedidoSinCargar('pedidos', '230566779732018', 'freno');
+    expect(db.escrituras).toHaveLength(1);
+  });
+
   it('el banco de pruebas y "Probar el bot" del panel no le escriben a administración', async () => {
     const db = baseFalsa();
     await (servicio(db) as any).encolarPedidoSinCargar('pedidos', '54911000000101', 'banco');
@@ -69,6 +77,7 @@ describe('lo que administración contesta a un aviso de pedido no va a ningún c
     const r = await s.respuestaDeAdministracion('5491125213601', { body: 'ok' });
     expect(r).toEqual({ contestado: false, motivo: 'falta referencia inequívoca' });
     expect(s.enviarPorWhatsapp).toHaveBeenCalledTimes(1);
-    expect(s.enviarPorWhatsapp.mock.calls[0][0]).toMatchObject({ to: '5491125213601', text: expect.stringMatching(/^Respondé CITANDO/) });
+    // con avisos de pedidos del día, el texto aclara que un "ok" a un pedido no necesita respuesta
+    expect(s.enviarPorWhatsapp.mock.calls[0][0]).toMatchObject({ to: '5491125213601', text: expect.stringMatching(/^Si es por un PEDIDO, no hace falta responder\. Si es por un pago o una consulta, respondé CITANDO ese aviso\.$/) });
   });
 });

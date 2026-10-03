@@ -818,6 +818,8 @@ export class BotService {
     const fallosDelTurno = new Map<string, number>();
     // una herramienta puede fijar la respuesta del turno ("Recibido." ante un comprobante)
     const respuestaFija: { texto?: string; consultaPendiente?: boolean; operacion?: boolean; derivada?: boolean } = {};
+    // la casa le prometió al cliente avisar al sector por un pedido (ver al final: sale a administración)
+    let prometioAvisoDePedido = false;
     let vueltasTrasConsulta = 0;
     // todo lo que devolvieron las herramientas en este turno: los únicos
     // números que el bot tiene permitido decir
@@ -1112,6 +1114,7 @@ export class BotService {
           .join(' ')
           .replace(/\s{2,}/g, ' ')
           .trim();
+        prometioAvisoDePedido = true;
         respuesta = [sinMentira, 'El pedido todavía no quedó cargado: doy aviso al sector correspondiente para dejarlo confirmado.']
           .filter(Boolean)
           .join(' ');
@@ -1601,10 +1604,13 @@ export class BotService {
 
     // "doy aviso al sector correspondiente para dejarlo confirmado" es una
     // promesa al cliente: que se cumpla. Sale a administración como PEDIDO
-    // CONFIRMADO SIN CARGAR (3/10/2026; antes solo quedaba una nota que nadie veía).
+    // CONFIRMADO SIN CARGAR (3/10/2026). Solo con hechos: la frase la puso el
+    // sistema, o crear_pedido falló en este turno; y no si el chat ya tiene un
+    // pedido confirmado en las últimas horas (entonces preguntaba por ese).
     if (linea === 'pedidos' && respuesta && fallosDelTurno.get('__pedido_creado__') !== 1
-        && /aviso al sector correspondiente para (?:que lo dejen|dejarlo) confirmado/i.test(respuesta)) {
-      await this.encolarPedidoSinCargar(linea, telefono, `El bot le dijo al cliente: «${respuesta.slice(0, 300)}». Último mensaje del cliente: «${texto.slice(0, 300)}».`);
+        && /aviso al sector correspondiente para (?:que lo dejen|dejarlo) confirmado/i.test(respuesta)
+        && (prometioAvisoDePedido || (fallosDelTurno.get('crear_pedido') ?? 0) >= 1)) {
+      await this.encolarPedidoSinCargar(linea, telefono, `El bot le dijo al cliente: «${respuesta.slice(0, 300)}». Último mensaje del cliente: «${texto.slice(0, 300)}».`, { salvoPedidoReciente: true });
     }
 
     // 4) persistir memoria (solo los turnos de texto, recortada) + tokens acumulados
@@ -2484,10 +2490,15 @@ export class BotService {
    * (avisos_pedidos, tipo pedido_sin_cargar: lo manda y lo vigila el mismo
    * circuito que los pedidos nuevos). Uno por chat cada 10 minutos.
    */
-  private async encolarPedidoSinCargar(linea: string, telefono: string, nota: string) {
+  private async encolarPedidoSinCargar(linea: string, telefono: string, nota: string, opciones: { salvoPedidoReciente?: boolean } = {}) {
     // el banco de pruebas y "Probar el bot" del panel no le escriben a administración
     if (/^54911000000\d{1,3}$/.test(telefono) || /^11\d{8}$/.test(telefono)) return;
     try {
+      if (opciones.salvoPedidoReciente) {
+        const { data: reciente } = await this.db.from('bot_cotizaciones').select('id').eq('telefono', telefono).not('pedido_id', 'is', null)
+          .gte('confirmada_en', new Date(Date.now() - 6 * 3600_000).toISOString()).limit(1).maybeSingle();
+        if (reciente) return;
+      }
       const { data: prev } = await this.db.from('avisos_pedidos').select('id').eq('tipo', 'pedido_sin_cargar')
         .eq('detalle->>telefono', telefono).gte('creado_en', new Date(Date.now() - 10 * 60_000).toISOString()).limit(1).maybeSingle();
       if (prev) return;
@@ -3085,7 +3096,9 @@ export class BotService {
     const consultaCitada = citado ? consultas.find(c => idWhatsappCorto(c.waha_msg_id) === citado) : null;
     const pagoCitado = citado ? lista.find(c => idWhatsappCorto(c.waha_msg_id) === citado) : null;
     const pedirReferencia = async () => {
-      await this.enviarPorWhatsapp({ to: admin, text: 'Respondé CITANDO el aviso exacto de la consulta o del pago. No pude identificar una única referencia.', kind: 'aviso-interno' }).catch(() => null);
+      // con avisos de pedidos del día, el "ok" puede haber sido para un pedido: que no haga falta contestar
+      const pedido = avisosDelDia ? 'Si es por un PEDIDO, no hace falta responder. Si es por un pago o una consulta, respondé CITANDO ese aviso.' : 'Respondé CITANDO el aviso exacto de la consulta o del pago. No pude identificar una única referencia.';
+      await this.enviarPorWhatsapp({ to: admin, text: pedido, kind: 'aviso-interno' }).catch(() => null);
       return { contestado: false, motivo: 'falta referencia inequívoca' };
     };
     if (citado) {

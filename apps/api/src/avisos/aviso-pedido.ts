@@ -122,10 +122,12 @@ function cobroDe(p: PedidoParaAviso): string {
 }
 
 /** El aviso de un pedido nuevo. Con `conRenglones`, también los productos (cuando no va la tarjeta). */
-export function textoDelAviso(p: PedidoParaAviso, opciones: { conRenglones: boolean; ahora?: Date }): string {
+export function textoDelAviso(p: PedidoParaAviso, opciones: { conRenglones: boolean; ahora?: Date; antesSinCargar?: boolean }): string {
   const cliente = clienteDe(p);
   return [
     encabezado('pedido_nuevo', codigoDe(p)),
+    // el mismo pedido ya había llegado como PEDIDO CONFIRMADO SIN CARGAR: que no lo carguen dos veces
+    opciones.antesSinCargar ? 'Es el pedido que antes llegó como CONFIRMADO SIN CARGAR: ya quedó cargado, NO lo carguen a mano.' : null,
     `Entró por ${NOMBRE_ORIGEN[origenDelPedido(p)]} ${cuandoFue(p.creado_en, opciones.ahora)}.`,
     entregaDe(p),
     `Cliente: ${cliente || 'sin datos (compra sin cuenta)'}`,
@@ -152,17 +154,19 @@ export function textoDePagado(p: PedidoParaAviso): string {
   ].join('\n');
 }
 
-export type SinCargar = { telefono: string; telefonoReal: string | null; nota: string; resumen: string | null; aviso?: string | null };
+export type SinCargar = { telefono: string; telefonoReal: string | null; nombre?: string | null; nota: string; resumen: string | null; aviso?: string | null };
 
 /** El cliente confirmó por WhatsApp y el pedido no se pudo cargar: hay que cargarlo a mano. */
 export function textoDeSinCargar(s: SinCargar): string {
-  const tel = telefonoLegible(s.telefonoReal) ?? telefonoLegible(s.telefono) ?? 'ver el chat en RESPONDE';
+  // un chat @lid sin teléfono conocido: el id tal como lo muestra RESPONDE, para encontrarlo
+  const tel = telefonoLegible(s.telefonoReal) ?? telefonoLegible(s.telefono) ?? `chat +${String(s.telefono).replace(/\D/g, '')}`;
   // el encabezado lleva un número propio de cada aviso: con el teléfono solo,
   // el reintento de un segundo pedido sin cargar del mismo chat encontraba el primero
   const numero = s.aviso ? ` · #${s.aviso.replace(/-/g, '').slice(0, 6).toUpperCase()}` : '';
   return [
     encabezado('pedido_sin_cargar', `${tel}${numero}`),
     'El cliente confirmó un pedido por WhatsApp y el sistema NO lo pudo cargar. Hay que cargarlo a mano y confirmarle por el chat.',
+    s.nombre?.trim() ? `Cliente: ${s.nombre.trim()}` : null,
     s.resumen ? `Lo último que se le cotizó:\n${s.resumen.replace(/\n?¿Lo confirmo\?\s*$/i, '').trim()}` : null,
     `Detalle: ${s.nota.slice(0, 600)}`,
   ].filter(Boolean).join('\n');

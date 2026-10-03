@@ -81,8 +81,9 @@ export class AvisosPedidosService {
       if (e1) this.log.error(`no pude revisar pedidos sin aviso: ${e1.message}`);
       else if (Number(faltantes) > 0) this.log.error(`${faltantes} aviso(s) de pedidos faltaban (¿falló el trigger?): encolados ahora`);
       this.estadoWhatsapp = await this.sesionWhatsapp();
-      // con la sesión caída no se toma nada: lo ve el vigía y lo escala
-      if (this.estadoWhatsapp !== null && this.estadoWhatsapp !== 'WORKING') return;
+      // con la sesión caída (o sin poder saberlo) no se toma nada: no suma
+      // intentos ni espera, y si sigue así lo ve el vigía y lo escala
+      if (this.estadoWhatsapp !== 'WORKING') return;
       // de a uno, hasta 5 por vuelta o 50 segundos
       for (let i = 0; i < 5 && Date.now() - inicio < 50_000; i++) {
         const { data, error } = await this.db.rpc('tomar_avisos_pedidos', { p_limite: 1 });
@@ -153,7 +154,8 @@ export class AvisosPedidosService {
       ? await this.db.from('bot_cotizaciones').select('resumen, creada_en').eq('telefono', telefono).is('pedido_id', null)
           .gte('creada_en', new Date(Date.now() - 6 * 3600_000).toISOString()).order('creada_en', { ascending: false }).limit(1).maybeSingle()
       : { data: null };
-    return { telefono, telefonoReal: await this.telefonoReal(telefono), nota: String(detalle?.nota ?? ''), resumen: (cot as any)?.resumen ?? null, aviso };
+    const { data: k } = telefono ? await this.db.from('bot_contactos').select('nombre, nombre_wa').eq('telefono', telefono.replace(/\D/g, '')).maybeSingle() : { data: null };
+    return { telefono, telefonoReal: await this.telefonoReal(telefono), nombre: (k as any)?.nombre ?? (k as any)?.nombre_wa ?? null, nota: String(detalle?.nota ?? ''), resumen: (cot as any)?.resumen ?? null, aviso };
   }
 
   private async enviar(a: FilaAviso) {
@@ -166,6 +168,8 @@ export class AvisosPedidosService {
     let tarjeta: { pedido: PedidoParaAviso; epigrafe: string } | null = null;
     let texto: string;
     if (a.tipo === 'pedido_sin_cargar') {
+      const cargado = await this.pedidoCargadoDespues(String(a.detalle?.telefono ?? ''), a.creado_en);
+      if (cargado) return this.omitir(a, `el pedido se cargó después (${cargado}): sale como PEDIDO NUEVO`);
       const s = await this.sinCargar(a.detalle, a.id);
       texto = textoDeSinCargar(s);
       cabeza = texto.split('\n')[0];
@@ -176,8 +180,9 @@ export class AvisosPedidosService {
       if (a.tipo === 'pedido_nuevo') {
         if (pedido.estado === 'cancelado') return this.omitir(a, 'el pedido se canceló antes de avisar');
         if (pedido.esDelBot && esTelefonoDePrueba(pedido.telefonoDelBot)) return this.omitir(a, 'pedido de prueba del simulador del panel');
-        texto = textoDelAviso(pedido, { conRenglones: true });
-        if (pedido.items.length) tarjeta = { pedido, epigrafe: textoDelAviso(pedido, { conRenglones: false }) };
+        const antesSinCargar = await this.antesSinCargar(pedido);
+        texto = textoDelAviso(pedido, { conRenglones: true, antesSinCargar });
+        if (pedido.items.length) tarjeta = { pedido, epigrafe: textoDelAviso(pedido, { conRenglones: false, antesSinCargar }) };
       } else {
         texto = a.tipo === 'pedido_cancelado' ? textoDeCancelado(pedido) : textoDePagado(pedido);
       }
@@ -197,7 +202,7 @@ export class AvisosPedidosService {
     // repetir, se busca en el chat el encabezado exacto de este aviso.
     if (a.intentos > 1 || a.incierto) {
       const ya = await this.buscarEnElChat(chatId, cabeza);
-      if (ya) return this.enviado(a, destino, [ya], 'ya había salido (se encontró en el chat)');
+      if (ya) return this.yaEstaba(a, destino, ya, texto, 'ya había salido (se encontró en el chat)');
     }
 
     // 1) la tarjeta Placa roja (regla: todo detalle de productos va en la
@@ -224,7 +229,7 @@ export class AvisosPedidosService {
     if (!completo) {
       if (!ids.length && ultimo?.incierto) {
         const ya = await this.buscarEnElChat(chatId, cabeza);
-        if (ya) return this.enviado(a, destino, [ya], 'la tarjeta salió aunque WhatsApp no contestó');
+        if (ya) return this.yaEstaba(a, destino, ya, texto, 'la tarjeta salió aunque WhatsApp no contestó');
       }
       ultimo = await enviarTextoWhatsapp(this.db, destino, texto, 'aviso-pedido');
       if (ultimo.enviado && ultimo.id) ids.push(String(ultimo.id));
@@ -233,6 +238,41 @@ export class AvisosPedidosService {
     await this.enviado(a, destino, ids);
     // si mientras tanto el pedido se canceló o se pagó, la base encola la baja o el pago
     if (a.tipo === 'pedido_nuevo') await this.db.rpc('encolar_avisos_faltantes').then(() => null, () => null);
+  }
+
+  /**
+   * Lo encontrado en el chat ya salió. Si es la imagen de la tarjeta, puede ser
+   * solo la primera página: se completa con el texto con los productos (mejor
+   * repetido que con productos de menos). Queda anotado en bot_envios para que
+   * su eco y una respuesta citándolo se reconozcan.
+   */
+  private async yaEstaba(a: FilaAviso, destino: string, hallado: { id: string; conImagen: boolean }, texto: string, nota: string) {
+    try {
+      await this.db.from('bot_envios').upsert({ waha_id: hallado.id, telefono: destino, origen: 'aviso-pedido' }, { onConflict: 'waha_id' });
+    } catch { /* el registro del eco no puede frenar el aviso */ }
+    if (!hallado.conImagen || a.tipo !== 'pedido_nuevo') return this.enviado(a, destino, [hallado.id], nota);
+    const r = await enviarTextoWhatsapp(this.db, destino, texto, 'aviso-pedido');
+    if (r.enviado && r.id) return this.enviado(a, destino, [hallado.id, String(r.id)], `${nota}; se completó con el texto`);
+    return this.fallo(a, r.motivo ?? 'WhatsApp no devolvió el id del mensaje', r.incierto ?? !r.enviado, [hallado.id]);
+  }
+
+  /** ¿El chat de un pedido "sin cargar" terminó teniendo su pedido? Devuelve el código. */
+  private async pedidoCargadoDespues(telefono: string, desde: string): Promise<string | null> {
+    if (!telefono) return null;
+    const { data } = await this.db.from('bot_cotizaciones').select('pedido_id, confirmada_en, pedidos(qr_retiro)')
+      .eq('telefono', telefono).not('pedido_id', 'is', null)
+      .gte('confirmada_en', new Date(new Date(desde).getTime() - 60_000).toISOString())
+      .order('confirmada_en', { ascending: true }).limit(1).maybeSingle();
+    return (data as any)?.pedido_id ? String((data as any)?.pedidos?.qr_retiro ?? (data as any).pedido_id) : null;
+  }
+
+  /** ¿Este pedido del bot llegó antes como "sin cargar" (aviso enviado del mismo chat en las 2 horas previas)? */
+  private async antesSinCargar(p: PedidoParaAviso & { telefonoDelBot?: string | null }): Promise<boolean> {
+    if (!p.esDelBot || !p.telefonoDelBot) return false;
+    const { data } = await this.db.from('avisos_pedidos').select('id').eq('tipo', 'pedido_sin_cargar')
+      .eq('detalle->>telefono', p.telefonoDelBot).in('estado', ['enviado', 'entregado'])
+      .gte('creado_en', new Date(new Date(p.creado_en).getTime() - 2 * 3600_000).toISOString()).limit(1).maybeSingle();
+    return !!data;
   }
 
   /** La tarjeta del pedido, subida al storage público (WAHA la baja de ahí). null si no se pudo. */
@@ -327,13 +367,14 @@ export class AvisosPedidosService {
     return s?.status ? String(s.status) : null;
   }
 
-  /** ¿Ya hay en el chat de administración un mensaje nuestro que empieza con este encabezado? Devuelve su id. */
-  private async buscarEnElChat(chatId: string, cabeza: string): Promise<string | null> {
+  /** ¿Ya hay en el chat de administración un mensaje nuestro que empieza con este encabezado? Devuelve su id y si es una imagen. */
+  private async buscarEnElChat(chatId: string, cabeza: string): Promise<{ id: string; conImagen: boolean } | null> {
     const msjs = await this.getWaha(`/api/{sesion}/chats/${encodeURIComponent(chatId)}/messages?limit=50&downloadMedia=false`);
     // un mensaje que WhatsApp marcó con error de entrega (ack -1) no cuenta: si
     // no, el reenvío lo encontraba a él y el aviso daba vueltas sin salir nunca
     const hallado = (Array.isArray(msjs) ? msjs : []).find((m: any) => m?.fromMe && m?.ack !== -1 && String(m?.body ?? m?.caption ?? '').trim().startsWith(cabeza));
-    return hallado ? String(hallado.id?._serialized ?? hallado.id ?? '') || null : null;
+    const id = hallado ? String(hallado.id?._serialized ?? hallado.id ?? '') : '';
+    return id ? { id, conImagen: !!hallado.hasMedia } : null;
   }
 
   /** Pregunta a WhatsApp si los avisos enviados llegaron al teléfono (ack 2 o más). */
@@ -450,7 +491,9 @@ export class AvisosPedidosService {
       const cabeza = await this.cabezaDelAviso(p);
       const ya = cabeza ? await this.buscarEnElChat(`${admin}@c.us`, cabeza) : null;
       if (ya) {
-        await this.enviado({ id: p.avisoId, tipo: p.tipo, pedido_id: p.pedidoId } as FilaAviso, admin, [ya], 'estaba en el chat aunque no había quedado anotado');
+        // si es la imagen de la tarjeta, el envío lo completa con el texto en la próxima vuelta
+        if (ya.conImagen && p.tipo === 'pedido_nuevo') await this.actualizar(p.avisoId, { waha_ids: [ya.id], proximo_intento: new Date().toISOString(), tomado_hasta: null });
+        else await this.enviado({ id: p.avisoId, tipo: p.tipo, pedido_id: p.pedidoId } as FilaAviso, admin, [ya.id], 'estaba en el chat aunque no había quedado anotado');
         return 'resuelto';
       }
     }
