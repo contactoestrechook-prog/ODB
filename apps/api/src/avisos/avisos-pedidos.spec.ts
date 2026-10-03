@@ -335,8 +335,9 @@ describe('AvisosPedidosService: que llegue y, si no, que se enteren los dueños'
 
   it('escala a los dueños (no al mismo teléfono de administración), con campanita, y lo marca porque SALIÓ', async () => {
     const texto = jest.spyOn(require('../comun/whatsapp'), 'enviarTextoWhatsapp').mockResolvedValue({ enviado: true, id: 'Z' });
-    const db = baseFalsa({ ...TABLAS, usuarios: DUENOS });
+    const db = baseFalsa({ ...TABLAS, usuarios: DUENOS, avisos_pedidos: { data: { estado: 'pendiente' } } });
     const s = new AvisosPedidosService(db);
+    (s as any).arranque = 0;
     jest.spyOn(s, 'problemas').mockResolvedValue([PROBLEMA]);
     await (s as any).vigilar();
     expect(texto.mock.calls.map((c) => c[1])).toEqual(['5491126600320', '5491124862295']);
@@ -348,8 +349,9 @@ describe('AvisosPedidosService: que llegue y, si no, que se enteren los dueños'
 
   it('si el aviso a los dueños TAMBIÉN falla, no se da por escalado: se reintenta con espera (sin repetir la campanita)', async () => {
     jest.spyOn(require('../comun/whatsapp'), 'enviarTextoWhatsapp').mockResolvedValue({ enviado: false, motivo: 'ECONNREFUSED' });
-    const db = baseFalsa({ ...TABLAS, usuarios: DUENOS, 'avisos_pedidos:update': { data: [{ escalar_intentos: 2 }] } });
+    const db = baseFalsa({ ...TABLAS, usuarios: DUENOS, avisos_pedidos: { data: { estado: 'pendiente' } }, 'avisos_pedidos:update': { data: [{ escalar_intentos: 2 }] } });
     const s = new AvisosPedidosService(db);
+    (s as any).arranque = 0;
     jest.spyOn(s, 'problemas').mockResolvedValue([PROBLEMA]);
     await (s as any).vigilar();
     const f = ultimaActualizacion(db);
@@ -363,8 +365,39 @@ describe('AvisosPedidosService: que llegue y, si no, que se enteren los dueños'
     const texto = jest.spyOn(require('../comun/whatsapp'), 'enviarTextoWhatsapp');
     const db = baseFalsa({ ...TABLAS, usuarios: DUENOS, 'avisos_pedidos:update': { data: [] } });
     const s = new AvisosPedidosService(db);
+    (s as any).arranque = 0;
     jest.spyOn(s, 'problemas').mockResolvedValue([PROBLEMA]);
     await (s as any).vigilar();
     expect(texto).not.toHaveBeenCalled();
+  });
+
+  // 3/10/2026, en producción: el aviso pendiente salió en el segundo 36 y los
+  // dueños recibieron "NO SALIÓ" en el 39
+  it('si el aviso salió mientras se preparaba el escalamiento, no se les escribe a los dueños', async () => {
+    const texto = jest.spyOn(require('../comun/whatsapp'), 'enviarTextoWhatsapp');
+    const db = baseFalsa({ ...TABLAS, usuarios: DUENOS, avisos_pedidos: { data: { estado: 'enviado' } } });
+    const s = new AvisosPedidosService(db);
+    (s as any).arranque = 0;
+    jest.spyOn(s, 'problemas').mockResolvedValue([PROBLEMA]);
+    await (s as any).vigilar();
+    expect(texto).not.toHaveBeenCalled();
+    const f = ultimaActualizacion(db);
+    expect(f).toEqual({ escalar_proximo: null });
+  });
+
+  it('recién arrancado (un deploy) el vigía espera un minuto: primero sale lo pendiente', async () => {
+    const db = baseFalsa();
+    const s = new AvisosPedidosService(db);
+    const problemas = jest.spyOn(s, 'problemas');
+    await (s as any).vigilar();
+    expect(problemas).not.toHaveBeenCalled();
+  });
+
+  it('un aviso que se está mandando ahora mismo no cuenta como "no salió"', async () => {
+    const hace = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
+    const db = baseFalsa({ avisos_pedidos: { data: [
+      { id: 'a', pedido_id: 'pa', tipo: 'pedido_nuevo', pendiente_desde: hace(60), estado: 'pendiente', enviado_en: null, ultimo_error: null, ack: null, visto_en: null, tomado_hasta: new Date(Date.now() + 4.5 * 60_000).toISOString(), pedidos: { qr_retiro: 'PICKUP-A', estado: 'recibido' } },
+    ] } });
+    expect(await new AvisosPedidosService(db).problemas()).toEqual([]);
   });
 });

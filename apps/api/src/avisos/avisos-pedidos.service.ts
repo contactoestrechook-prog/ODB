@@ -55,6 +55,8 @@ export class AvisosPedidosService {
   private readonly log = new Logger(AvisosPedidosService.name);
   private enviando = false;
   private vigilando = false;
+  /** Al arrancar (un deploy, o después de una caída) primero se manda lo pendiente: el vigía espera un minuto. */
+  private readonly arranque = Date.now();
   /** El estado de la sesión de WhatsApp en la última vuelta ('WORKING', 'FAILED'…; null si no se pudo saber). */
   estadoWhatsapp: string | null = null;
 
@@ -347,7 +349,7 @@ export class AvisosPedidosService {
   async problemas(): Promise<ProblemaDeAviso[]> {
     const desde = new Date(Date.now() - 48 * 3600_000).toISOString();
     const { data, error } = await this.db.from('avisos_pedidos')
-      .select('id, pedido_id, tipo, detalle, pendiente_desde, estado, enviado_en, ultimo_error, ack, visto_en, pedidos(qr_retiro, estado)')
+      .select('id, pedido_id, tipo, detalle, pendiente_desde, estado, enviado_en, ultimo_error, ack, visto_en, tomado_hasta, pedidos(qr_retiro, estado)')
       .in('estado', ['pendiente', 'enviado']).gte('creado_en', desde);
     if (error) throw new Error(`no pude consultar los avisos de pedidos: ${error.message}`);
     const ahora = Date.now();
@@ -357,6 +359,8 @@ export class AvisosPedidosService {
       if (a.tipo === 'pedido_nuevo' && ['cancelado', 'entregado'].includes(String(a.pedidos?.estado ?? ''))) continue;
       const codigo = a.pedidos?.qr_retiro ? String(a.pedidos.qr_retiro) : a.detalle?.telefono ? `chat ${telefonoLegible(a.detalle.telefono) ?? a.detalle.telefono}` : String(a.id).slice(0, 8);
       if (a.estado === 'pendiente') {
+        // se está mandando ahora mismo (tomado hace menos de 2 minutos): todavía no es un problema
+        if (a.tomado_hasta && new Date(a.tomado_hasta).getTime() - ahora > 3 * 60_000) continue;
         const min = Math.floor((ahora - new Date(a.pendiente_desde).getTime()) / 60_000);
         if (min >= MINUTOS_SIN_SALIR) salida.push({ avisoId: a.id, pedidoId: a.pedido_id, tipo: a.tipo, codigo, problema: 'no_salio', minutos: min, motivo: a.ultimo_error ?? (this.estadoWhatsapp && this.estadoWhatsapp !== 'WORKING' ? `el WhatsApp de la casa está desconectado (${this.estadoWhatsapp})` : null) });
       } else if (a.enviado_en) {
@@ -376,6 +380,9 @@ export class AvisosPedidosService {
 
   /** Si un aviso no salió o no llegó, los dueños se enteran. Se marca solo cuando el aviso a los dueños SALIÓ; si no, se reintenta. */
   private async vigilar() {
+    // 3/10/2026: al arrancar, el aviso pendiente desde hacía una hora salió en el
+    // segundo 21 y el vigía ya había escalado "NO SALIÓ" a los dueños en el 20
+    if (Date.now() - this.arranque < 60_000) return;
     for (const p of await this.problemas()) {
       const columna = p.problema === 'no_salio' ? 'escalado_en' : 'escalado_entrega_en';
       // se toma el escalamiento (dos procesos durante un deploy no lo mandan dos veces)
@@ -386,18 +393,28 @@ export class AvisosPedidosService {
         .select('escalar_intentos');
       if (!tomada?.length) continue;
       const intentos = Number((tomada[0] as any).escalar_intentos ?? 0);
-      const salio = await this.escalar(p, intentos === 0).catch((e) => {
+      const r = await this.escalar(p, intentos === 0).catch((e) => {
         this.log.error(`no pude escalar el aviso de ${p.codigo}: ${e instanceof Error ? e.message : e}`);
-        return false;
+        return 'fallo' as const;
       });
-      await this.actualizar(p.avisoId, salio
+      await this.actualizar(p.avisoId, r === 'escalado'
         ? { [columna]: new Date().toISOString(), escalar_proximo: null }
-        : { escalar_intentos: intentos + 1, escalar_proximo: new Date(Date.now() + esperaParaEscalar(intentos)).toISOString() });
+        : r === 'resuelto'
+          ? { escalar_proximo: null }
+          : { escalar_intentos: intentos + 1, escalar_proximo: new Date(Date.now() + esperaParaEscalar(intentos)).toISOString() });
     }
   }
 
-  /** Devuelve true si a algún dueño le salió el WhatsApp. La campanita, una sola vez por problema. */
-  private async escalar(p: ProblemaDeAviso, primeraVez: boolean): Promise<boolean> {
+  /** 'escalado' si a algún dueño le salió el WhatsApp; 'resuelto' si el aviso salió (o llegó) mientras tanto. La campanita, una sola vez por problema. */
+  private async escalar(p: ProblemaDeAviso, primeraVez: boolean): Promise<'escalado' | 'fallo' | 'resuelto'> {
+    // justo antes de avisar a los dueños, se vuelve a mirar: si mientras tanto
+    // salió (o llegó), no hay nada que escalar
+    const { data: ahora } = await this.db.from('avisos_pedidos').select('estado').eq('id', p.avisoId).maybeSingle();
+    const sigue = p.problema === 'no_salio' ? (ahora as any)?.estado === 'pendiente' : (ahora as any)?.estado === 'enviado';
+    if (!sigue) {
+      this.log.log(`el aviso de ${p.codigo} se resolvió solo (${(ahora as any)?.estado ?? 'sin datos'}): no se escala`);
+      return 'resuelto';
+    }
     const admin = await this.telefonoAdministracion();
     const titulo = p.problema === 'no_salio'
       ? `El aviso ${p.tipo === 'pedido_nuevo' ? 'del pedido' : 'de'} ${p.codigo} NO SALIÓ a administración`
@@ -429,6 +446,6 @@ export class AvisosPedidosService {
       if (r.enviado && r.id) salio = true;
       else this.log.error(`tampoco salió el aviso a ${t}: ${r.motivo}`);
     }
-    return salio;
+    return salio ? 'escalado' : 'fallo';
   }
 }
