@@ -1599,6 +1599,14 @@ export class BotService {
     // lo interno (stock, sucursales, "el sistema") no sale al cliente (1/10/2026)
     if (respuesta) respuesta = sinLoConsulto(retiroOEnvio(sinCocinaInterna(respuesta)));
 
+    // "doy aviso al sector correspondiente para dejarlo confirmado" es una
+    // promesa al cliente: que se cumpla. Sale a administración como PEDIDO
+    // CONFIRMADO SIN CARGAR (3/10/2026; antes solo quedaba una nota que nadie veía).
+    if (linea === 'pedidos' && respuesta && fallosDelTurno.get('__pedido_creado__') !== 1
+        && /aviso al sector correspondiente para (?:que lo dejen|dejarlo) confirmado/i.test(respuesta)) {
+      await this.encolarPedidoSinCargar(linea, telefono, `El bot le dijo al cliente: «${respuesta.slice(0, 300)}». Último mensaje del cliente: «${texto.slice(0, 300)}».`);
+    }
+
     // 4) persistir memoria (solo los turnos de texto, recortada) + tokens acumulados
     const nuevoHistorial = [
       ...historial,
@@ -1885,6 +1893,9 @@ export class BotService {
           if (repetida) { out = { ok: false, duplicada: true, aviso: 'Esa consulta YA estaba anotada de antes: NO se guardó nada nuevo. No digas "queda anotado" otra vez; si el cliente insiste, decile que ya está anotada y seguí con lo suyo.' }; break; }
           if (nota) {
             await this.db.from('bot_notas_equipo').insert({ linea, telefono, nota });
+            // y sale por WhatsApp a administración (regla del 3/10/2026): es el
+            // caso en que más falta hace avisar
+            await this.encolarPedidoSinCargar(linea, telefono, nota);
             const { data: cfg } = await this.db.from('lineas_whatsapp').select('avisar_proveedores_a').eq('linea', linea).eq('activa', true).limit(1).maybeSingle();
             await this.db.from('alertas_internas').insert({ para_usuario: cfg?.avisar_proveedores_a ?? null, tipo: 'nota_bot', titulo: `Consulta de +${telefono}`, detalle: nota, referencia: { linea, telefono } });
           }
@@ -2467,6 +2478,24 @@ export class BotService {
     return { pedidoId: id, codigoRetiro: ped.qr_retiro, total: Number(ped.total), estado: ped.estado, respuesta };
   }
 
+  /**
+   * Un pedido que el cliente confirmó y no se pudo cargar sale a administración
+   * (avisos_pedidos, tipo pedido_sin_cargar: lo manda y lo vigila el mismo
+   * circuito que los pedidos nuevos). Uno por chat cada 10 minutos.
+   */
+  private async encolarPedidoSinCargar(linea: string, telefono: string, nota: string) {
+    try {
+      const { data: prev } = await this.db.from('avisos_pedidos').select('id').eq('tipo', 'pedido_sin_cargar')
+        .eq('detalle->>telefono', telefono).gte('creado_en', new Date(Date.now() - 10 * 60_000).toISOString()).limit(1).maybeSingle();
+      if (prev) return;
+      const { error } = await this.db.from('avisos_pedidos').insert({ tipo: 'pedido_sin_cargar', detalle: { linea, telefono, nota: nota.slice(0, 1000) } });
+      if (error) this.log.error(`no pude encolar el aviso de pedido sin cargar de ${telefono}: ${error.message}`);
+      else this.log.error(`pedido confirmado SIN cargar de ${telefono}: sale a administración`);
+    } catch (e: any) {
+      this.log.error(`no pude encolar el aviso de pedido sin cargar de ${telefono}: ${e?.message ?? e}`);
+    }
+  }
+
   /** ¿Hay en el pedido algo que se arma a pedido (las picadas)? */
   private async seArmaAPedido(items: unknown): Promise<boolean> {
     const lista = (Array.isArray(items) ? items : []) as any[];
@@ -3029,16 +3058,22 @@ export class BotService {
     const texto = String(p.body ?? '').trim();
     if (!texto) return { contestado: false, motivo: 'equipo: sin texto' };
     const citado = idWhatsappCorto(typeof p.replyTo === 'object' ? p.replyTo?.id : p.replyTo);
-    // Los avisos de PEDIDO NUEVO (3/10/2026) también llegan a este chat. Citando
-    // uno, la respuesta es un acuse del pedido: no se lleva a ningún cliente. Sin
-    // cita, si hubo un aviso de pedido en la última hora, un "ok" puede ser para
-    // el pedido: cuenta como un pendiente más (con más de uno, se pide citar).
-    const { data: avisosPedido } = esAdministracion
-      ? await this.db.from('avisos_pedidos').select('waha_id').in('estado', ['enviado', 'entregado'])
-          .gte('enviado_en', new Date(Date.now() - 60 * 60_000).toISOString()).limit(20)
-      : { data: [] as any[] };
-    const avisosRecientes = ((avisosPedido ?? []) as any[]).filter((a) => a?.waha_id);
-    if (citado && avisosRecientes.some((a) => idWhatsappCorto(a.waha_id) === citado)) return { contestado: false, motivo: 'acuse de un aviso de pedido nuevo' };
+    // Los avisos de PEDIDOS (3/10/2026) también llegan a este chat. Una respuesta
+    // que cita uno (cualquier página de la tarjeta, de cualquier día) es un acuse:
+    // no se lleva a ningún cliente. Sin cita, con avisos de pedidos del día, un
+    // "ok" puede ser para el pedido: cuenta como un pendiente más (con más de
+    // uno, se pide citar), así nunca le llega a un cliente lo que era para el pedido.
+    let avisosDelDia = 0;
+    if (esAdministracion) {
+      if (citado) {
+        const { data: envio } = await this.db.from('bot_envios').select('waha_id')
+          .in('origen', ['aviso-pedido', 'aviso-pedido-escalado']).ilike('waha_id', `%${citado}`).limit(1);
+        if ((envio ?? []).length) return { contestado: false, motivo: 'acuse de un aviso de pedido' };
+      }
+      const { count } = await this.db.from('avisos_pedidos').select('id', { count: 'exact', head: true })
+        .in('estado', ['enviado', 'entregado']).gte('enviado_en', new Date(Date.now() - 24 * 3600_000).toISOString());
+      avisosDelDia = Number(count ?? 0);
+    }
     // Sin ventana de 24h ni límite global: una cita vieja sigue identificando su consulta.
     const consultasTodas = await this.pendientesPaginados('bot_consultas_internas', 'respondido_en');
     const consultas = consultasTodas.filter(c => soloDigitos(String(c.enviado_a ?? '')) === admin || (!c.enviado_a && esAdministracion));
@@ -3053,7 +3088,7 @@ export class BotService {
       if (consultaCitada && !pagoCitado) return this.llevarRespuestaDeConsulta(consultaCitada, texto, admin, cfg?.bot_activo !== false);
       if (!pagoCitado || consultaCitada) return pedirReferencia();
     } else {
-      if (consultas.length + lista.length + (avisosRecientes.length ? 1 : 0) > 1) return pedirReferencia();
+      if (consultas.length + lista.length + (avisosDelDia ? 1 : 0) > 1) return pedirReferencia();
       if (consultas.length === 1) return this.llevarRespuestaDeConsulta(consultas[0], texto, admin, cfg?.bot_activo !== false);
       if (!lista.length) return { contestado: false, motivo: 'sin consultas o pagos pendientes' };
     }

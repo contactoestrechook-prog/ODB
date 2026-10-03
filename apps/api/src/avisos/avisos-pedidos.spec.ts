@@ -1,9 +1,15 @@
 import { AvisosPedidosService } from './avisos-pedidos.service';
-import { esperaParaReintentar, idLargoDeMensaje, origenDelPedido, telefonoLegible, textoDelAviso, type PedidoParaAviso } from './aviso-pedido';
+import {
+  cuandoFue, encabezado, esperaParaEscalar, esperaParaReintentar, idLargoDeMensaje, origenDelPedido, telefonoLegible,
+  textoDeCancelado, textoDelAviso, textoDePagado, textoDeSinCargar, type PedidoParaAviso,
+} from './aviso-pedido';
 
 // REGLA (Leandro, 3/10/2026): toda confirmación de pedido sale al teléfono de
-// administración. El 3/10 el bot confirmó PICKUP-5F2451C6C111 y no se avisó a nadie.
+// administración. El 3/10 el bot confirmó PICKUP-5F2451C6C111 y no se avisó a
+// nadie. Estas pruebas incluyen cada falla que encontraron los agentes que
+// atacaron la primera versión.
 
+const AHORA = new Date('2026-10-03T13:11:00Z');
 const PEDIDO: PedidoParaAviso = {
   id: '500e1312-3e5c-43f2-84e1-6ff5987c7acc', qr_retiro: 'PICKUP-5F2451C6C111', canal: 'pickup', estado: 'recibido',
   total: 133500, creado_en: '2026-10-03T13:10:13Z', notas: 'Retira mañana antes del mediodía en sucursal Saint Thomas.',
@@ -12,9 +18,9 @@ const PEDIDO: PedidoParaAviso = {
   items: [{ nombre: 'Combo Picada Box', cantidad: 3, precio_unitario: 44500 }], esDelBot: true,
 };
 
-describe('el texto del aviso a administración', () => {
+describe('los textos de los avisos', () => {
   it('el pedido de las picadas: código, por dónde entró, cuándo se retira, el cliente y el total', () => {
-    expect(textoDelAviso(PEDIDO, { conRenglones: true })).toBe([
+    expect(textoDelAviso(PEDIDO, { conRenglones: true, ahora: AHORA })).toBe([
       'PEDIDO NUEVO · PICKUP-5F2451C6C111',
       'Entró por el WhatsApp de la casa (bot) a las 10:10.',
       'Retiro en la sucursal Saint Thomas, el domingo 4/10 por la mañana.',
@@ -24,35 +30,58 @@ describe('el texto del aviso a administración', () => {
       'Notas: Retira mañana antes del mediodía en sucursal Saint Thomas.',
     ].join('\n'));
     // con la tarjeta, los productos van en la imagen
-    expect(textoDelAviso(PEDIDO, { conRenglones: false })).not.toMatch(/Combo Picada Box/);
+    expect(textoDelAviso(PEDIDO, { conRenglones: false, ahora: AHORA })).not.toMatch(/Combo Picada Box/);
   });
 
-  it('un envío sin dirección lo dice en vez de callarlo, y una compra sin cuenta también', () => {
-    const t = textoDelAviso({ ...PEDIDO, canal: 'domicilio', qr_retiro: 'DOM-AB12CD', esDelBot: false, cliente: null, telefonoReal: null, entrega_fecha: null, entrega_franja: null }, { conRenglones: true });
+  it('la web o la app: no afirma "se cobra al retirar" (puede estar pagando por Mercado Pago)', () => {
+    const t = textoDelAviso({ ...PEDIDO, canal: 'domicilio', qr_retiro: 'DOM-AB12CD', esDelBot: false, cliente: null, telefonoReal: null, entrega_fecha: null, entrega_franja: null }, { conRenglones: true, ahora: AHORA });
     expect(t).toMatch(/Entró por la tienda web o la app/);
     expect(t).toMatch(/Envío a DIRECCIÓN SIN CARGAR \(revisar\)\./);
     expect(t).toMatch(/Cliente: sin datos \(compra sin cuenta\)/);
-    expect(t).toMatch(/Se cobra al recibir\./);
+    expect(t).toMatch(/Todavía no figura pagado: puede estar pagándolo por Mercado Pago/);
+    expect(t).not.toMatch(/Se cobra al/);
+    expect(textoDelAviso({ ...PEDIDO, esDelBot: false, qr_retiro: 'PICKUP-AB12CD', pagado_en: '2026-10-03T13:11:00Z' }, { conRenglones: false, ahora: AHORA })).toMatch(/Ya está pagado\./);
   });
 
-  it('el chat @lid no se muestra como teléfono; un pedido sin renglones se avisa igual', () => {
-    const t = textoDelAviso({ ...PEDIDO, telefonoReal: null, items: [] }, { conRenglones: true });
+  it('PedidosYa y Tiendanube dicen lo suyo; un retiro sin día dice "lo antes posible"', () => {
+    const py = textoDelAviso({ ...PEDIDO, esDelBot: false, qr_retiro: 'PY-123456', canal: 'web' }, { conRenglones: false, ahora: AHORA });
+    expect(py).toMatch(/Lo retira el repartidor de PedidosYa\./);
+    expect(py).toMatch(/Lo cobra PedidosYa\./);
+    const tn = textoDelAviso({ ...PEDIDO, esDelBot: false, qr_retiro: 'TN-99', canal: 'web' }, { conRenglones: false, ahora: AHORA });
+    expect(tn).toMatch(/Tiendanube/);
+    expect(textoDelAviso({ ...PEDIDO, entrega_fecha: null, entrega_franja: null }, { conRenglones: false, ahora: AHORA })).toMatch(/sin día pedido \(lo antes posible\)/);
+  });
+
+  it('un chat @lid sin teléfono real no se muestra como teléfono; un pedido sin renglones se avisa igual', () => {
+    const t = textoDelAviso({ ...PEDIDO, telefonoReal: null, items: [] }, { conRenglones: true, ahora: AHORA });
     expect(t).toMatch(/Cliente: sin datos/);
     expect(t).toMatch(/sin productos cargados: revisar/);
   });
 
-  it('por dónde entró', () => {
-    expect(origenDelPedido({ qr_retiro: 'PY-123456', canal: 'web', esDelBot: false })).toBe('PedidosYa');
-    expect(origenDelPedido({ qr_retiro: 'TN-99', canal: 'web', esDelBot: false })).toBe('Tiendanube');
-    expect(origenDelPedido({ qr_retiro: 'WA-1', canal: 'whatsapp', esDelBot: false })).toMatch(/panel/);
+  it('la hora lleva el día si no es de hoy', () => {
+    expect(cuandoFue('2026-10-03T13:10:13Z', AHORA)).toBe('a las 10:10');
+    expect(cuandoFue('2026-10-03T02:50:00Z', AHORA)).toBe('ayer a las 23:50');
+    expect(cuandoFue('2026-10-01T21:51:00Z', AHORA)).toMatch(/^el jue 1\/10 a las 18:51$/);
   });
 
-  it('teléfonos, ids y esperas', () => {
+  it('baja, pago y pedido sin cargar', () => {
+    expect(textoDeCancelado(PEDIDO)).toMatch(/^PEDIDO CANCELADO · PICKUP-5F2451C6C111\nEl pedido se canceló: no lo preparen/);
+    expect(textoDePagado({ ...PEDIDO, pagado_en: '2026-10-03T13:20:00Z' })).toMatch(/^PEDIDO PAGADO · PICKUP-5F2451C6C111\nSe pagó .* por Mercado Pago: no hay que cobrarlo al retirar\./);
+    const s = textoDeSinCargar({ telefono: '230566779732018', telefonoReal: '5491135901236', nota: 'PEDIDO NO CARGADO (falló crear_pedido: Stock insuficiente)', resumen: '• Combo Picada Box — 3 × $44.500\nTotal: $133.500\n¿Lo confirmo?' });
+    expect(s).toMatch(/^PEDIDO CONFIRMADO SIN CARGAR · \+54 9 11 3590-1236\nEl cliente confirmó un pedido por WhatsApp y el sistema NO lo pudo cargar/);
+    expect(s).toMatch(/Lo último que se le cotizó:\n• Combo Picada Box — 3 × \$44\.500\nTotal: \$133\.500\nDetalle:/);
+  });
+
+  it('teléfonos, ids, esperas y orígenes', () => {
     expect(telefonoLegible('5491125213601')).toBe('+54 9 11 2521-3601');
     expect(telefonoLegible('5492214567890')).toBe('+54 9 221 456-7890');
+    expect(telefonoLegible('230566779732018')).toBeNull();
     expect(idLargoDeMensaje('5491125213601@c.us', '3EB0AA')).toBe('true_5491125213601@c.us_3EB0AA');
     expect(idLargoDeMensaje('x@c.us', 'true_x@c.us_3EB0AA')).toBe('true_x@c.us_3EB0AA');
     expect([1, 2, 3, 6, 20].map(esperaParaReintentar)).toEqual([15_000, 30_000, 60_000, 480_000, 600_000]);
+    expect([0, 1, 2, 10].map(esperaParaEscalar)).toEqual([60_000, 120_000, 240_000, 1_800_000]);
+    expect(origenDelPedido({ qr_retiro: 'WA-1', canal: 'whatsapp', esDelBot: false })).toBe('panel');
+    expect(encabezado('pedido_nuevo', 'X')).toBe('PEDIDO NUEVO · X');
   });
 });
 
@@ -66,13 +95,12 @@ function baseFalsa(r: Record<string, any> = {}) {
     storage: { from: () => ({ upload: async () => r['storage:upload'] ?? { error: null }, getPublicUrl: (ruta: string) => ({ data: { publicUrl: `https://publico/${ruta}` } }) }) },
     from(tabla: string) {
       let op = 'select';
-      let fila: any = null;
       const filtros: any[] = [];
       const b: any = {};
-      for (const k of ['select', 'eq', 'in', 'is', 'gte', 'lte', 'order', 'limit', 'not']) b[k] = (...a: any[]) => { if (k !== 'select') filtros.push([k, ...a]); return b; };
-      b.update = (f: any) => { op = 'update'; fila = f; escrituras.push({ tabla, op, fila, filtros }); return b; };
-      b.insert = (f: any) => { op = 'insert'; fila = f; escrituras.push({ tabla, op, fila, filtros }); return b; };
-      const res = () => (op === 'select' ? r[tabla] : r[`${tabla}:${op}`]) ?? { data: op === 'update' ? [{ pedido_id: 'x' }] : null, error: null };
+      for (const k of ['select', 'eq', 'in', 'is', 'gte', 'lte', 'order', 'limit', 'not', 'or', 'ilike']) b[k] = (...a: any[]) => { if (k !== 'select') filtros.push([k, ...a]); return b; };
+      b.update = (f: any) => { op = 'update'; escrituras.push({ tabla, op, fila: f, filtros }); return b; };
+      b.insert = (f: any) => { op = 'insert'; escrituras.push({ tabla, op, fila: f, filtros }); return b; };
+      const res = () => (op === 'select' ? r[tabla] : r[`${tabla}:${op}`]) ?? { data: op === 'update' ? [{ escalar_intentos: 0 }] : null, error: null };
       b.maybeSingle = b.single = async () => res();
       b.then = (ok: any, err: any) => Promise.resolve(res()).then(ok, err);
       return b;
@@ -90,61 +118,63 @@ const TABLAS = {
   lineas_whatsapp: { data: { derivar_pagos_a: '5491125213601' } },
   pedidos: { data: PEDIDO_DB },
   clientes: { data: { nombre: null, telefono: '230566779732018' } },
-  bot_cotizaciones: { data: { id: 'cot-1' } },
+  bot_cotizaciones: { data: { telefono: '230566779732018' } },
   bot_contactos: { data: { telefono_real: '5491135901236' } },
 };
-const FILA = { pedido_id: PEDIDO.id, creado_en: '2026-10-03T13:10:13Z', estado: 'pendiente', intentos: 1, incierto: false, destino: null, waha_id: null, enviado_en: null, ultimo_error: null, escalado_en: null, escalado_entrega_en: null };
+const FILA = { id: 'aviso-1', pedido_id: PEDIDO.id, tipo: 'pedido_nuevo' as const, detalle: null, creado_en: '2026-10-03T13:10:13Z', pendiente_desde: '2026-10-03T13:10:13Z', estado: 'pendiente', intentos: 1, incierto: false, destino: null, waha_id: null };
+const ultimaActualizacion = (db: any) => db.escrituras.filter((w: any) => w.tabla === 'avisos_pedidos' && w.op === 'update').pop()?.fila;
+const chatConMensajes = (mensajes: any[]) => jest.spyOn(global, 'fetch' as any).mockResolvedValue({ ok: true, json: async () => mensajes } as any);
 
 describe('AvisosPedidosService: el aviso sale a administración', () => {
   const wsp = require('../comun/whatsapp');
   const tarjeta = require('../comun/cartel-pedido');
   let imagen: jest.SpyInstance; let texto: jest.SpyInstance; let carteles: jest.SpyInstance;
   beforeEach(() => {
+    process.env.WAHA_URL = 'https://waha'; process.env.WAHA_API_KEY = 'k';
     imagen = jest.spyOn(wsp, 'enviarImagenWhatsapp');
     texto = jest.spyOn(wsp, 'enviarTextoWhatsapp');
     carteles = jest.spyOn(tarjeta, 'cartelesPedido').mockResolvedValue([Buffer.from('png')]);
   });
   afterEach(() => jest.restoreAllMocks());
-  const enviar = (s: AvisosPedidosService, f = FILA) => (s as any).enviar(f);
-  const actualizacion = (db: any) => db.escrituras.filter((w: any) => w.tabla === 'avisos_pedidos' && w.op === 'update').pop()?.fila;
+  const enviar = (s: AvisosPedidosService, f: any = FILA) => (s as any).enviar(f);
 
-  it('manda la tarjeta PEDIDO NUEVO al teléfono de administración, con el texto como epígrafe, y lo marca enviado con el id', async () => {
-    imagen.mockResolvedValue({ enviado: true, id: 'true_5491125213601@c.us_3EB0AA' });
+  it('manda la tarjeta PEDIDO NUEVO con el texto como epígrafe de la primera página y lo marca enviado con el id', async () => {
+    imagen.mockResolvedValue({ enviado: true, id: '3EB0AA' });
     const db = baseFalsa(TABLAS);
     await enviar(new AvisosPedidosService(db));
-    expect(imagen).toHaveBeenCalledWith(db, '5491125213601', expect.stringContaining('aviso-PICKUP-5F2451C6C111'), expect.stringContaining('PEDIDO NUEVO · PICKUP-5F2451C6C111'), 'aviso-pedido');
-    expect(carteles.mock.calls[0][0]).toMatchObject({ titulo: 'PEDIDO NUEVO', subtitulo: 'PICKUP-5F2451C6C111', total: 133500 });
+    expect(imagen).toHaveBeenCalledWith(db, '5491125213601', expect.stringContaining('aviso-PICKUP-5F2451C6C111'), expect.stringMatching(/^PEDIDO NUEVO · PICKUP-5F2451C6C111\n/), 'aviso-pedido');
+    expect(carteles.mock.calls[0][0]).toMatchObject({ titulo: 'PEDIDO NUEVO', subtitulo: 'PICKUP-5F2451C6C111', total: 133500, entrega: { detalle: 'domingo 4/10 por la mañana' } });
     expect(texto).not.toHaveBeenCalled();
-    expect(actualizacion(db)).toMatchObject({ estado: 'enviado', destino: '5491125213601', waha_id: 'true_5491125213601@c.us_3EB0AA' });
+    expect(ultimaActualizacion(db)).toMatchObject({ estado: 'enviado', destino: '5491125213601', waha_id: '3EB0AA', waha_ids: ['3EB0AA'] });
   });
 
-  it('si la tarjeta no sale, va el texto con los productos', async () => {
-    imagen.mockResolvedValue({ enviado: false, motivo: 'WAHA sendImage 400' });
-    texto.mockResolvedValue({ enviado: true, id: 'true_5491125213601@c.us_3EB0BB' });
+  it('tarjeta de dos páginas: si la segunda no sale, va también el texto completo, y quedan los ids de todo lo que salió', async () => {
+    carteles.mockResolvedValue([Buffer.from('1'), Buffer.from('2')]);
+    imagen.mockResolvedValueOnce({ enviado: true, id: 'P1' }).mockResolvedValueOnce({ enviado: false, motivo: 'WAHA sendImage 400' });
+    texto.mockResolvedValue({ enviado: true, id: 'T1' });
     const db = baseFalsa(TABLAS);
     await enviar(new AvisosPedidosService(db));
+    expect(imagen.mock.calls[1][3]).toBe(''); // la segunda página sin epígrafe
     expect(texto.mock.calls[0][2]).toMatch(/• 3 × Combo Picada Box — \$133\.500/);
-    expect(actualizacion(db)).toMatchObject({ estado: 'enviado', waha_id: 'true_5491125213601@c.us_3EB0BB' });
+    expect(ultimaActualizacion(db)).toMatchObject({ estado: 'enviado', waha_id: 'P1', waha_ids: ['P1', 'T1'] });
   });
 
-  it('si la tarjeta no se puede armar, va el texto igual', async () => {
+  it('si la tarjeta no se puede armar, va el texto', async () => {
     carteles.mockRejectedValue(new Error('sin fuentes'));
     texto.mockResolvedValue({ enviado: true, id: 'X1' });
     const db = baseFalsa(TABLAS);
     await enviar(new AvisosPedidosService(db));
     expect(imagen).not.toHaveBeenCalled();
-    expect(actualizacion(db)).toMatchObject({ estado: 'enviado', waha_id: 'X1' });
+    expect(ultimaActualizacion(db)).toMatchObject({ estado: 'enviado', waha_id: 'X1' });
   });
 
   it('si no sale nada, queda pendiente con el motivo y el próximo intento', async () => {
     imagen.mockResolvedValue({ enviado: false, motivo: 'WAHA sendImage 500', incierto: true });
     texto.mockResolvedValue({ enviado: false, motivo: 'WAHA sendText 400' });
-    const db = baseFalsa({ ...TABLAS, 'avisos_pedidos:update': { data: [] } });
-    // el incierto de la imagen: antes del texto se mira en el chat (no está)
-    jest.spyOn(global, 'fetch' as any).mockResolvedValue({ ok: true, json: async () => [] } as any);
-    process.env.WAHA_URL = 'https://waha'; process.env.WAHA_API_KEY = 'k';
+    chatConMensajes([]);
+    const db = baseFalsa(TABLAS);
     await enviar(new AvisosPedidosService(db));
-    const f = actualizacion(db);
+    const f = ultimaActualizacion(db);
     expect(f.estado).toBeUndefined();
     expect(f.ultimo_error).toBe('WAHA sendText 400');
     expect(new Date(f.proximo_intento).getTime()).toBeGreaterThan(Date.now());
@@ -155,94 +185,186 @@ describe('AvisosPedidosService: el aviso sale a administración', () => {
     texto.mockResolvedValue({ enviado: true, id: null });
     const db = baseFalsa(TABLAS);
     await enviar(new AvisosPedidosService(db));
-    expect(actualizacion(db).estado).toBeUndefined();
-    expect(actualizacion(db).ultimo_error).toMatch(/no devolvió el id/);
+    expect(ultimaActualizacion(db).estado).toBeUndefined();
+    expect(ultimaActualizacion(db).ultimo_error).toMatch(/no devolvió el id/);
   });
 
-  it('sin teléfono de administración cargado, no se da por enviado: queda la falla a la vista', async () => {
+  it('sin teléfono de administración cargado, no se da por enviado', async () => {
     const db = baseFalsa({ ...TABLAS, lineas_whatsapp: { data: { derivar_pagos_a: null } } });
     await enviar(new AvisosPedidosService(db));
     expect(imagen).not.toHaveBeenCalled();
-    expect(actualizacion(db).ultimo_error).toMatch(/no hay teléfono de administración/);
+    expect(ultimaActualizacion(db).ultimo_error).toMatch(/no hay teléfono de administración/);
   });
 
-  it('un intento anterior incierto: si el mensaje ya está en el chat, no se manda de nuevo', async () => {
-    process.env.WAHA_URL = 'https://waha'; process.env.WAHA_API_KEY = 'k';
-    jest.spyOn(global, 'fetch' as any).mockResolvedValue({ ok: true, json: async () => [{ fromMe: true, body: 'PEDIDO NUEVO · PICKUP-5F2451C6C111', id: { _serialized: 'true_5491125213601@c.us_3EB0CC' } }] } as any);
+  it('todo reintento mira el chat: si el aviso ya está (mismo encabezado), no se manda de nuevo', async () => {
+    chatConMensajes([{ fromMe: true, body: 'PEDIDO NUEVO · PICKUP-5F2451C6C111\nEntró por…', id: { _serialized: 'true_5491125213601@c.us_3EB0CC' } }]);
     const db = baseFalsa(TABLAS);
-    await enviar(new AvisosPedidosService(db), { ...FILA, incierto: true });
+    await enviar(new AvisosPedidosService(db), { ...FILA, intentos: 2 });
     expect(imagen).not.toHaveBeenCalled();
-    expect(actualizacion(db)).toMatchObject({ estado: 'enviado', waha_id: 'true_5491125213601@c.us_3EB0CC' });
+    expect(ultimaActualizacion(db)).toMatchObject({ estado: 'enviado', waha_id: 'true_5491125213601@c.us_3EB0CC' });
+  });
+
+  it('un mensaje de pago que nombra el mismo código NO cuenta como el aviso', async () => {
+    chatConMensajes([{ fromMe: true, body: '💳 Consulta de pago: quiere transferir el pedido PICKUP-5F2451C6C111', id: 'true_x_PAGO' }]);
+    imagen.mockResolvedValue({ enviado: true, id: 'NUEVO' });
+    const db = baseFalsa(TABLAS);
+    await enviar(new AvisosPedidosService(db), { ...FILA, intentos: 3, incierto: true });
+    expect(imagen).toHaveBeenCalled();
+    expect(ultimaActualizacion(db)).toMatchObject({ estado: 'enviado', waha_id: 'NUEVO' });
+  });
+
+  it('un pedido cancelado antes de avisar, o de prueba del simulador del panel, se omite', async () => {
+    const cancelado = baseFalsa({ ...TABLAS, pedidos: { data: { ...PEDIDO_DB, estado: 'cancelado' } } });
+    await enviar(new AvisosPedidosService(cancelado));
+    expect(ultimaActualizacion(cancelado)).toMatchObject({ estado: 'omitido', motivo: 'el pedido se canceló antes de avisar' });
+    const prueba = baseFalsa({ ...TABLAS, bot_cotizaciones: { data: { telefono: '1154872210' } } });
+    await enviar(new AvisosPedidosService(prueba));
+    expect(ultimaActualizacion(prueba)).toMatchObject({ estado: 'omitido' });
+    expect(imagen).not.toHaveBeenCalled();
+  });
+
+  it('la baja y el pago salen como texto, con su encabezado', async () => {
+    texto.mockResolvedValue({ enviado: true, id: 'B1' });
+    const db = baseFalsa({ ...TABLAS, pedidos: { data: { ...PEDIDO_DB, estado: 'cancelado' } } });
+    await enviar(new AvisosPedidosService(db), { ...FILA, tipo: 'pedido_cancelado' });
+    expect(texto.mock.calls[0][2]).toMatch(/^PEDIDO CANCELADO · PICKUP-5F2451C6C111/);
+    expect(imagen).not.toHaveBeenCalled();
+    expect(ultimaActualizacion(db)).toMatchObject({ estado: 'enviado', waha_id: 'B1' });
+  });
+
+  it('el pedido confirmado SIN cargar sale con el teléfono real y lo último que se le cotizó', async () => {
+    texto.mockResolvedValue({ enviado: true, id: 'S1' });
+    const db = baseFalsa({ ...TABLAS, bot_cotizaciones: { data: { resumen: '• Combo Picada Box — 3 × $44.500\nTotal: $133.500\n¿Lo confirmo?' } } });
+    await enviar(new AvisosPedidosService(db), { ...FILA, pedido_id: null, tipo: 'pedido_sin_cargar', detalle: { telefono: '230566779732018', nota: 'PEDIDO NO CARGADO (falló crear_pedido)' } });
+    expect(texto.mock.calls[0][2]).toMatch(/^PEDIDO CONFIRMADO SIN CARGAR · \+54 9 11 3590-1236\n/);
+    expect(texto.mock.calls[0][2]).toMatch(/Combo Picada Box/);
+    expect(ultimaActualizacion(db)).toMatchObject({ estado: 'enviado', waha_id: 'S1' });
+  });
+});
+
+describe('AvisosPedidosService: dónde corre', () => {
+  afterEach(() => { delete process.env.RAILWAY_ENVIRONMENT_NAME; delete process.env.ODB_AVISOS_PEDIDOS; jest.restoreAllMocks(); });
+
+  it('en una máquina de desarrollo (sin Railway) o sin WhatsApp NO toma avisos: no se los roba a producción', async () => {
+    process.env.WAHA_URL = 'https://waha'; process.env.WAHA_API_KEY = 'k';
+    const db = baseFalsa();
+    const s = new AvisosPedidosService(db);
+    await s.vueltaDeEnvio();
+    await s.vueltaDeVigia();
+    expect(db.rpc).not.toHaveBeenCalled();
+    expect(db.escrituras).toEqual([]);
+    process.env.RAILWAY_ENVIRONMENT_NAME = 'production';
+    delete process.env.WAHA_API_KEY;
+    await s.vueltaDeEnvio();
+    expect(db.rpc).not.toHaveBeenCalled();
+  });
+
+  it('en Railway: encola los faltantes y toma de a uno; con la sesión de WhatsApp caída no toma', async () => {
+    process.env.WAHA_URL = 'https://waha'; process.env.WAHA_API_KEY = 'k'; process.env.RAILWAY_ENVIRONMENT_NAME = 'production';
+    jest.spyOn(global, 'fetch' as any).mockResolvedValue({ ok: true, json: async () => ({ status: 'WORKING' }) } as any);
+    const db = baseFalsa({ 'rpc:encolar_avisos_faltantes': { data: 0 }, 'rpc:tomar_avisos_pedidos': { data: [] } });
+    const s = new AvisosPedidosService(db);
+    await s.vueltaDeEnvio();
+    expect(db.rpc).toHaveBeenCalledWith('encolar_avisos_faltantes');
+    expect(db.rpc).toHaveBeenCalledWith('tomar_avisos_pedidos', { p_limite: 1 });
+    (global.fetch as any).mockResolvedValue({ ok: true, json: async () => ({ status: 'SCAN_QR_CODE' }) });
+    db.rpc.mockClear();
+    await s.vueltaDeEnvio();
+    expect(db.rpc).not.toHaveBeenCalledWith('tomar_avisos_pedidos', expect.anything());
+    expect(s.estadoWhatsapp).toBe('SCAN_QR_CODE');
   });
 });
 
 describe('AvisosPedidosService: que llegue y, si no, que se enteren los dueños', () => {
   afterEach(() => jest.restoreAllMocks());
   beforeEach(() => { process.env.WAHA_URL = 'https://waha'; process.env.WAHA_API_KEY = 'k'; delete process.env.AVISOS_ESCALAR_A; });
+  const enviado = [{ id: 'a1', pedido_id: 'p1', destino: '5491125213601', waha_id: '3EB0AA', enviado_en: new Date().toISOString() }];
 
-  it.each([[3, 'entregado'], [2, 'entregado'], [-1, 'pendiente']])('ack %s → %s', async (ack, estado) => {
+  it.each([[3, 'entregado'], [2, 'entregado']])('ack %s → %s', async (ack, estado) => {
     jest.spyOn(global, 'fetch' as any).mockResolvedValue({ ok: true, json: async () => ({ ack }) } as any);
-    const db = baseFalsa({ avisos_pedidos: { data: [{ pedido_id: 'p1', destino: '5491125213601', waha_id: '3EB0AA', enviado_en: new Date().toISOString() }] } });
+    const db = baseFalsa({ avisos_pedidos: { data: enviado } });
     await (new AvisosPedidosService(db) as any).verificarEntregas();
     expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining('/messages/true_5491125213601%40c.us_3EB0AA'), expect.anything());
-    expect(db.escrituras.pop().fila).toMatchObject({ estado, ack });
+    expect(ultimaActualizacion(db)).toMatchObject({ estado, ack });
+  });
+
+  it('ack -1: se reenvía y los 3 minutos sin salir se cuentan desde ahora (no escala de inmediato)', async () => {
+    jest.spyOn(global, 'fetch' as any).mockResolvedValue({ ok: true, json: async () => ({ ack: -1 }) } as any);
+    const db = baseFalsa({ avisos_pedidos: { data: enviado } });
+    await (new AvisosPedidosService(db) as any).verificarEntregas();
+    const f = ultimaActualizacion(db);
+    expect(f).toMatchObject({ estado: 'pendiente', ack: -1 });
+    expect(Math.abs(new Date(f.pendiente_desde).getTime() - Date.now())).toBeLessThan(5_000);
   });
 
   it('un tilde solo: se vuelve a preguntar en un minuto', async () => {
     jest.spyOn(global, 'fetch' as any).mockResolvedValue({ ok: true, json: async () => ({ ack: 1 }) } as any);
-    const db = baseFalsa({ avisos_pedidos: { data: [{ pedido_id: 'p1', destino: '5491125213601', waha_id: '3EB0AA', enviado_en: new Date().toISOString() }] } });
+    const db = baseFalsa({ avisos_pedidos: { data: enviado } });
     await (new AvisosPedidosService(db) as any).verificarEntregas();
-    const f = db.escrituras.pop().fila;
+    const f = ultimaActualizacion(db);
     expect(f.estado).toBeUndefined();
     expect(new Date(f.proximo_intento).getTime()).toBeGreaterThan(Date.now() + 50_000);
   });
 
-  it('problemas: lo que no salió en 3 minutos y lo que no llegó en 15, sin los pedidos cancelados', async () => {
+  it('problemas: lo que no salió en 3 minutos (desde que quedó pendiente) y lo que no llegó en 15; sin cancelados ni "ya avisé"', async () => {
     const hace = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
     const db = baseFalsa({ avisos_pedidos: { data: [
-      { pedido_id: 'a', creado_en: hace(5), estado: 'pendiente', enviado_en: null, ultimo_error: 'WAHA 500', ack: null, pedidos: { qr_retiro: 'PICKUP-A', estado: 'recibido' } },
-      { pedido_id: 'b', creado_en: hace(1), estado: 'pendiente', enviado_en: null, ultimo_error: null, ack: null, pedidos: { qr_retiro: 'PICKUP-B', estado: 'recibido' } },
-      { pedido_id: 'c', creado_en: hace(30), estado: 'enviado', enviado_en: hace(20), ultimo_error: null, ack: 1, pedidos: { qr_retiro: 'DOM-C', estado: 'recibido' } },
-      { pedido_id: 'd', creado_en: hace(30), estado: 'pendiente', enviado_en: null, ultimo_error: null, ack: null, pedidos: { qr_retiro: 'PICKUP-D', estado: 'cancelado' } },
+      { id: 'a', pedido_id: 'pa', tipo: 'pedido_nuevo', pendiente_desde: hace(5), estado: 'pendiente', enviado_en: null, ultimo_error: 'WAHA 500', ack: null, visto_en: null, pedidos: { qr_retiro: 'PICKUP-A', estado: 'recibido' } },
+      { id: 'b', pedido_id: 'pb', tipo: 'pedido_nuevo', pendiente_desde: hace(1), estado: 'pendiente', enviado_en: null, ultimo_error: null, ack: null, visto_en: null, pedidos: { qr_retiro: 'PICKUP-B', estado: 'recibido' } },
+      { id: 'c', pedido_id: 'pc', tipo: 'pedido_nuevo', pendiente_desde: hace(30), estado: 'enviado', enviado_en: hace(20), ultimo_error: null, ack: 1, visto_en: null, pedidos: { qr_retiro: 'DOM-C', estado: 'recibido' } },
+      { id: 'd', pedido_id: 'pd', tipo: 'pedido_nuevo', pendiente_desde: hace(30), estado: 'pendiente', enviado_en: null, ultimo_error: null, ack: null, visto_en: null, pedidos: { qr_retiro: 'PICKUP-D', estado: 'cancelado' } },
+      { id: 'e', pedido_id: 'pe', tipo: 'pedido_nuevo', pendiente_desde: hace(30), estado: 'pendiente', enviado_en: null, ultimo_error: null, ack: null, visto_en: hace(2), pedidos: { qr_retiro: 'PICKUP-E', estado: 'recibido' } },
+      { id: 'f', pedido_id: null, tipo: 'pedido_sin_cargar', detalle: { telefono: '5491135901236' }, pendiente_desde: hace(4), estado: 'pendiente', enviado_en: null, ultimo_error: null, ack: null, visto_en: null, pedidos: null },
     ] } });
     const p = await new AvisosPedidosService(db).problemas();
-    expect(p.map((x) => [x.codigo, x.problema])).toEqual([['PICKUP-A', 'no_salio'], ['DOM-C', 'no_llego']]);
+    expect(p.map((x) => [x.codigo, x.problema])).toEqual([['PICKUP-A', 'no_salio'], ['DOM-C', 'no_llego'], ['chat +54 9 11 3590-1236', 'no_salio']]);
     expect(p[1].motivo).toMatch(/un solo tilde/);
   });
 
-  it('escala UNA vez: WhatsApp a los dueños (no al mismo teléfono de administración) y campanita', async () => {
+  it('si la consulta falla, problemas() tira (la franja no puede quedar vacía en silencio)', async () => {
+    const db = baseFalsa({ avisos_pedidos: { data: null, error: { message: 'timeout' } } });
+    await expect(new AvisosPedidosService(db).problemas()).rejects.toThrow(/timeout/);
+  });
+
+  const DUENOS = { data: [
+    { id: 'u1', nombre: 'Leandro', telefono: '11 2660-0320' },
+    { id: 'u2', nombre: 'Jaqueline', telefono: '5491124862295' },
+    { id: 'u3', nombre: 'Admin', telefono: '5491125213601' },
+  ] };
+  const PROBLEMA = { avisoId: 'aviso-1', pedidoId: PEDIDO.id, tipo: 'pedido_nuevo' as const, codigo: 'PICKUP-5F2451C6C111', problema: 'no_salio' as const, minutos: 4, motivo: 'WAHA 500' };
+
+  it('escala a los dueños (no al mismo teléfono de administración), con campanita, y lo marca porque SALIÓ', async () => {
     const texto = jest.spyOn(require('../comun/whatsapp'), 'enviarTextoWhatsapp').mockResolvedValue({ enviado: true, id: 'Z' });
-    const db = baseFalsa({ ...TABLAS, usuarios: { data: [
-      { id: 'u1', nombre: 'Leandro', telefono: '11 2660-0320' },
-      { id: 'u2', nombre: 'Jaqueline', telefono: '5491124862295' },
-      { id: 'u3', nombre: 'Admin', telefono: '5491125213601' },
-    ] } });
+    const db = baseFalsa({ ...TABLAS, usuarios: DUENOS });
     const s = new AvisosPedidosService(db);
-    jest.spyOn(s, 'problemas').mockResolvedValue([{ pedidoId: PEDIDO.id, codigo: 'PICKUP-5F2451C6C111', problema: 'no_salio', minutos: 4, motivo: 'WAHA 500' }]);
+    jest.spyOn(s, 'problemas').mockResolvedValue([PROBLEMA]);
     await (s as any).vigilar();
     expect(texto.mock.calls.map((c) => c[1])).toEqual(['5491126600320', '5491124862295']);
     expect(texto.mock.calls[0][2]).toMatch(/^ATENCIÓN: El aviso del pedido PICKUP-5F2451C6C111 NO SALIÓ a administración/);
     expect(texto.mock.calls[0][2]).toMatch(/• 3 × Combo Picada Box/);
     expect(db.escrituras.filter((w: any) => w.tabla === 'alertas_internas')).toHaveLength(3);
-    // ya marcado por otro proceso (la marca no se pudo poner): no se repite
-    texto.mockClear();
-    const db2 = baseFalsa({ ...TABLAS, 'avisos_pedidos:update': { data: [] } });
-    const s2 = new AvisosPedidosService(db2);
-    jest.spyOn(s2, 'problemas').mockResolvedValue([{ pedidoId: PEDIDO.id, codigo: 'PICKUP-5F2451C6C111', problema: 'no_salio', minutos: 4, motivo: null }]);
-    await (s2 as any).vigilar();
-    expect(texto).not.toHaveBeenCalled();
+    expect(ultimaActualizacion(db)).toMatchObject({ escalado_en: expect.any(String), escalar_proximo: null });
   });
 
-  it('la vuelta encola los faltantes, toma y manda; el interruptor de desarrollo la apaga', async () => {
-    const db = baseFalsa({ 'rpc:encolar_avisos_faltantes': { data: 0 }, 'rpc:tomar_avisos_pedidos': { data: [] }, avisos_pedidos: { data: [] } });
+  it('si el aviso a los dueños TAMBIÉN falla, no se da por escalado: se reintenta con espera (sin repetir la campanita)', async () => {
+    jest.spyOn(require('../comun/whatsapp'), 'enviarTextoWhatsapp').mockResolvedValue({ enviado: false, motivo: 'ECONNREFUSED' });
+    const db = baseFalsa({ ...TABLAS, usuarios: DUENOS, 'avisos_pedidos:update': { data: [{ escalar_intentos: 2 }] } });
     const s = new AvisosPedidosService(db);
-    await s.vuelta();
-    expect(db.rpc).toHaveBeenCalledWith('encolar_avisos_faltantes');
-    expect(db.rpc).toHaveBeenCalledWith('tomar_avisos_pedidos', { p_limite: 5 });
-    db.rpc.mockClear();
-    process.env.ODB_AVISOS_PEDIDOS = '0';
-    await s.vuelta();
-    expect(db.rpc).not.toHaveBeenCalled();
-    delete process.env.ODB_AVISOS_PEDIDOS;
+    jest.spyOn(s, 'problemas').mockResolvedValue([PROBLEMA]);
+    await (s as any).vigilar();
+    const f = ultimaActualizacion(db);
+    expect(f.escalado_en).toBeUndefined();
+    expect(f.escalar_intentos).toBe(3);
+    expect(new Date(f.escalar_proximo).getTime()).toBeGreaterThan(Date.now() + 200_000);
+    expect(db.escrituras.filter((w: any) => w.tabla === 'alertas_internas')).toHaveLength(0);
+  });
+
+  it('si otro proceso ya tomó el escalamiento, no se repite', async () => {
+    const texto = jest.spyOn(require('../comun/whatsapp'), 'enviarTextoWhatsapp');
+    const db = baseFalsa({ ...TABLAS, usuarios: DUENOS, 'avisos_pedidos:update': { data: [] } });
+    const s = new AvisosPedidosService(db);
+    jest.spyOn(s, 'problemas').mockResolvedValue([PROBLEMA]);
+    await (s as any).vigilar();
+    expect(texto).not.toHaveBeenCalled();
   });
 });
