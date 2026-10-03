@@ -96,13 +96,12 @@ function PiezasDeLaRespuesta({
   const [buscado, setBuscado] = useState<string | null>(null);
   const terminarBusqueda = useCallback(() => setBuscado(null), []);
 
-  // Cada línea del analista se dibuja una sola vez: con las dos placas a la
-  // vista, la de liquidar va en PLATA PARADA y el resto en COMPRAS; las notas
-  // las muestran solo si no está la placa COMPRAS.
+  // Cada línea del analista se dibuja una sola vez. Cada pieza toma las que le
+  // corresponden (PlacaProveedores: ACCIONES_COMPRA y ACCIONES_PARADO); con las
+  // dos placas a la vista, PLATA PARADA se queda solo con las de liquidar, y
+  // las notas las muestran solo si no está la placa COMPRAS.
   const comentarios = m.comentarios ?? [];
-  const ambas = !!compras && !!parado;
-  const deCompras = ambas ? comentarios.filter((c) => c.accion !== 'liquidar') : comentarios;
-  const deParado = ambas ? comentarios.filter((c) => c.accion === 'liquidar') : comentarios;
+  const deParado = compras ? comentarios.filter((c) => c.accion === 'liquidar') : comentarios;
 
   // La nota es por proveedor y sucursal: si el proveedor no tiene nada en la
   // sucursal que se está mirando, se pasa a la que más plata le compra.
@@ -117,7 +116,7 @@ function PiezasDeLaRespuesta({
   return (
     <>
       {datos && compras && (
-        <PlacaCompras className="mt-2 w-full" compras={compras} datos={datos} comentarios={deCompras} onVerNota={verNota} onPreguntar={onPreguntar} />
+        <PlacaCompras className="mt-2 w-full" compras={compras} datos={datos} comentarios={comentarios} onVerNota={verNota} onPreguntar={onPreguntar} />
       )}
       {verNotas && (
         <div className="mt-3 w-full min-w-0">
@@ -129,7 +128,7 @@ function PiezasDeLaRespuesta({
             onBuscado={terminarBusqueda}
             yaPedidos={yaPedidos}
             onArmada={onArmada}
-            comentarios={compras ? undefined : comentarios.filter((c) => c.accion !== 'liquidar')}
+            comentarios={compras ? undefined : comentarios}
             onPreguntar={compras ? undefined : onPreguntar}
             desplazarA={desplazarA}
           />
