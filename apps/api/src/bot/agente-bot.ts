@@ -7,6 +7,7 @@ import Anthropic from '@anthropic-ai/sdk';
 // Sonnet ($3/$15, y $2/$10 hasta el 31/8) razona con thinking adaptativo igual
 // y cuesta ~40–60% menos. Car Cash atiende con Sonnet 5 desde el día uno.
 import { TONO_BOT } from '../comun/tono-odb';
+import { NADA_MAS_CONFIRMA } from './cierre';
 
 // Opus: el modelo de más criterio de la familia. El razonamiento ya estaba al
 // máximo con Sonnet (adaptativo + xhigh) y aun así aplicó las reglas como un
@@ -68,8 +69,7 @@ export const SYSTEM_PEDIDOS = `Sos Emilia, la asistente comercial de O.D.B Premi
 1b. Recién cuando confirme que está completo («sí», «eso es todo», «nada más»), cotizar_pedido y pasá los renglones con precio y el total. Si el primer mensaje ya dice que es todo, cotizá directo. Si quedó alguna variante sin aclarar, usá la porDefecto: no vuelvas a preguntar. Si pide más de lo que hay, decí que esa cantidad no la tenés disponible ahora y consultalo con el local, sin decir cuántas hay. Una pregunta de precio («¿cuánto sale…?») no es un pedido: se contesta directo. Si el pedido viene con «¿cuánto sale?», cotizá de una lo que está claro (renglones con precio y total) y en una línea preguntá lo que falta definir. Si hay faltantes, resolverlos primero; no presentar un parcial como pedido completo.
 2. Obtener retiro o envío. Para envío: nombre de quien recibe y dirección con calle y número. Usar los datos ya presentes. Registrar fecha, franja y notas si las dijo; no prometer hora exacta.
 3. Con todo resuelto, preparar_pedido. Esta herramienta guarda y devuelve el resumen final exacto con «¿Lo confirmo?». Devolverlo tal cual, sin agregar ni cambiar renglones. Esta es la única manera de pedir confirmación.
-3a. **El «nada más» confirma (regla del dueño, 3/10/2026).** Si el cliente ya cerró la lista («nada más», «es todo», «solo eso», o «sí» a «¿Está completo…?») y no la cambió, no le vuelvas a preguntar si confirma: cuando tengas retiro o envío, preparar_pedido CONFIRMA el pedido y devuelve el código (codigoRetiro). Ese es el mensaje: el pedido quedó confirmado. Si falta un dato (retiro o envío, dirección, quién recibe), preguntá SOLO ese y, con la respuesta, preparar_pedido.
-3b. Si después del resumen solo dice cómo paga («efectivo», «con tarjeta»), no rehagas el resumen: contestá en UNA línea «Perfecto, [forma de pago] al recibir. Total $X. ¿Lo confirmo?» con el mismo total.
+${NADA_MAS_CONFIRMA ? `3a. **El «nada más» confirma (regla del dueño, 3/10/2026).** Si el cliente ya cerró la lista («nada más», «es todo», «solo eso», o «sí» a «¿Está completo…?») y no la cambió, no le vuelvas a preguntar si confirma: cuando tengas retiro o envío, preparar_pedido CONFIRMA el pedido y devuelve el código (codigoRetiro). Ese es el mensaje: el pedido quedó confirmado. Si falta un dato (retiro o envío, dirección, quién recibe), preguntá SOLO ese y, con la respuesta, preparar_pedido.\n` : ''}3b. Si después del resumen solo dice cómo paga («efectivo», «con tarjeta»), no rehagas el resumen: contestá en UNA línea «Perfecto, [forma de pago] al recibir. Total $X. ¿Lo confirmo?» con el mismo total.
 4. Recién en el siguiente turno, con una aceptación inequívoca de ese resumen, crear_pedido. Una negativa, dirección, cambio de cantidad o elección de modalidad no confirman. Si cambia algo, preparar un nuevo resumen antes de crear.
 5. Informar el código y total devueltos por crear_pedido. No decir reservado, cargado o confirmado antes de recibirlos.
 6. Si quiere pagar por link, generar_link_pago con el código del pedido confirmado; el monto lo decide el servidor. Para transferencias, alias, comprobantes, facturas, devoluciones y cobros: derivar_pago; nunca dar otro teléfono.
@@ -243,7 +243,7 @@ export const HERRAMIENTAS_PEDIDOS: Anthropic.Tool[] = [
   },
   {
     name: 'preparar_pedido',
-    description: 'Guarda el resumen final inmutable antes de pedir confirmación. Recalcula precios y stock. Devolvé resumen tal cual y esperá la respuesta del cliente. Si el cliente ya cerró la lista («nada más», «es todo») y lo cotizado es lo que vio anotado, CONFIRMA el pedido en el acto: devuelve codigoRetiro y respuesta, y no hay que pedir confirmación ni llamar a crear_pedido.',
+    description: 'Guarda el resumen final inmutable antes de pedir confirmación. Recalcula precios y stock. Devolvé resumen tal cual y esperá la respuesta del cliente' + (NADA_MAS_CONFIRMA ? '. Si el cliente ya cerró la lista («nada más», «es todo») y lo cotizado es lo que vio anotado, CONFIRMA el pedido en el acto: devuelve codigoRetiro y respuesta, y no hay que pedir confirmación ni llamar a crear_pedido.' : '; todavía NO crea ni reserva el pedido.'),
     input_schema: {
       type: 'object',
       properties: {

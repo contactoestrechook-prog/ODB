@@ -91,6 +91,9 @@ describe('preparar_pedido con la lista cerrada confirma el pedido', () => {
 });
 
 describe('crearPedido en modo completo', () => {
+  // la pregunta del nombre va con el interruptor del flujo nuevo (apagado por defecto)
+  beforeEach(() => { process.env.ODB_NADA_MAS_CONFIRMA = '1'; });
+  afterEach(() => { delete process.env.ODB_NADA_MAS_CONFIRMA; });
   const cotizacion = (extra: any = {}) => ({
     id: 'cot-1', resumen: 'RESUMEN', tipo: 'pickup', total: 133500, notas: null, creada_en: new Date().toISOString(),
     confirmada_en: null, entrega_fecha: '2026-10-04', entrega_franja: 'mañana',
@@ -123,6 +126,8 @@ describe('crearPedido en modo completo', () => {
 });
 
 describe('a nombre de quién se retira', () => {
+  beforeEach(() => { process.env.ODB_NADA_MAS_CONFIRMA = '1'; });
+  afterEach(() => { delete process.env.ODB_NADA_MAS_CONFIRMA; });
   const cotizacion = (extra: any = {}) => ({
     id: 'q', resumen: 'RESUMEN', tipo: 'pickup', total: 20500, notas: null, creada_en: new Date().toISOString(), confirmada_en: null,
     items: [{ producto_id: 'p1', nombre: 'Fernet Branca 750 cc', cantidad: 1, subtotal: 20500 }], ...extra,
@@ -137,6 +142,12 @@ describe('a nombre de quién se retira', () => {
     const r = await crear(baseFalsa({ bot_cotizaciones: { data: cotizacion() }, productos: { data: [] } }));
     expect(r.respuesta).not.toMatch(/a nombre de/i);
     expect(r.respuesta).toBe('Pedido PICKUP-1 confirmado. Total: $20.500.\nRetiro en la sucursal Saint Thomas. Se abona al retirar, en efectivo o tarjeta.');
+  });
+
+  it('con el interruptor apagado (como está publicado), no se pregunta el nombre', async () => {
+    delete process.env.ODB_NADA_MAS_CONFIRMA;
+    const r = await crear(baseFalsa({ bot_cotizaciones: { data: cotizacion({ items: [{ producto_id: 'p1', nombre: 'Picada ODB XL', cantidad: 1, subtotal: 20500 }] }) } }));
+    expect(r.respuesta).not.toMatch(/a nombre de/i);
   });
 
   it('un producto marcado "se arma a pedido" también lleva la pregunta', async () => {

@@ -1,7 +1,7 @@
 import { esperaRetiroOEnvio, eligeRetiroOEnvio, eligioModalidad } from './entrega';
 import { esContestadorAutomatico } from './contestador';
 import { conPreguntaDeCompleto, elegirPorDefecto, puedeCotizar } from './completo';
-import { cierraLaLista, coincideConLoAnotado, cuandoLegible, esConfirmacionDePedido, listaCerrada, nombreDeQuienRetira, PREGUNTA_NOMBRE_RETIRO, RE_ARMADO_A_PEDIDO, RE_PREGUNTA_NOMBRE_RETIRO, ultimaListaAnotada } from './cierre';
+import { cierraLaLista, coincideConLoAnotado, cuandoLegible, esConfirmacionDePedido, listaCerrada, nadaMasConfirma, nombreDeQuienRetira, PREGUNTA_NOMBRE_RETIRO, RE_ARMADO_A_PEDIDO, RE_PREGUNTA_NOMBRE_RETIRO, ultimaListaAnotada } from './cierre';
 import { conDescuentoEfectivo, porcentajeEfectivo, RUBROS_DESCUENTO_EFECTIVO, tieneDescuentoEfectivo } from './descuento-efectivo';
 import { esSilenciado } from './pausa';
 import { agruparItems, cantidadesIndividuales, centavos, confirmacionInequivoca, idWhatsappCorto, importesDeHerramienta, importesDelTexto, pesos, presentacionProducto } from './comercio';
@@ -511,7 +511,7 @@ export class BotService {
       // cierres, y cualquier cierre sin pregunta pendiente, no se responden.
       // "Perfecto" o 👍 a "¿Está completo el pedido…?" cierran la lista: pasan
       // (3/10/2026; antes el pedido quedaba sin respuesta)
-      if (!(botDejoPregunta && RE_SI_NO.test(texto.trim())) && !cierraLaLista(texto, String(ultimoMsgBot))) return callar('cierre de la charla');
+      if (!(botDejoPregunta && RE_SI_NO.test(texto.trim())) && !(nadaMasConfirma() && cierraLaLista(texto, String(ultimoMsgBot)))) return callar('cierre de la charla');
     }
     // "hola" suelto MIENTRAS la charla sigue viva: están por escribir lo que
     // quieren, y contestarles "¿en qué puedo ayudarlo?" es pisarlos.
@@ -568,7 +568,7 @@ export class BotService {
     // modelo. Si lo que contestó no es un nombre, sigue la charla normal.
     // Solo contestando la confirmación ("Pedido PICKUP-… confirmado. … ¿A nombre
     // de quién lo retiran?") y en el pedido de ESE código.
-    const codigoConfirmado = esConfirmacionDePedido(ultimoMsgBot) && RE_PREGUNTA_NOMBRE_RETIRO.test(String(ultimoMsgBot))
+    const codigoConfirmado = nadaMasConfirma() && esConfirmacionDePedido(ultimoMsgBot) && RE_PREGUNTA_NOMBRE_RETIRO.test(String(ultimoMsgBot))
       ? String(ultimoMsgBot).match(/\b(?:DOM|RET|PICKUP)-[A-Z0-9]{4,}\b/)?.[0] ?? null
       : null;
     if (!traeArchivo && codigoConfirmado) {
@@ -720,7 +720,7 @@ export class BotService {
     // última lista que el bot le mostró sin precios: lo que se cotiza con la
     // lista cerrada tiene que ser eso mismo (ver cierre.ts).
     const anotadoSinPrecios = ultimaListaAnotada(historial as any[]);
-    const cierreDeLista = linea === 'pedidos' && anotadoSinPrecios.length
+    const cierreDeLista = nadaMasConfirma() && linea === 'pedidos' && anotadoSinPrecios.length
       ? listaCerrada(historial as any[], texto, { soloEsteMensaje: desdeElUltimoMensaje > 3 * 3600_000 })
       : null;
     const estado: string[] = [];
@@ -2462,7 +2462,7 @@ export class BotService {
     const entrega = q.tipo === 'domicilio'
       ? `Envío sin cargo${q.direccion ? ` a ${q.direccion}` : ''}${cuando ? `, ${cuando}` : ''}. Se abona al recibir, ${cobro}.`
       : `Retiro en la sucursal Saint Thomas${cuando ? `, ${cuando}` : ''}. Se abona al retirar, ${cobro}.`;
-    const preguntaNombre = q.tipo !== 'domicilio' && !/\bRetira:/i.test(notas) && await this.seArmaAPedido(q.items);
+    const preguntaNombre = nadaMasConfirma() && q.tipo !== 'domicilio' && !/\bRetira:/i.test(notas) && await this.seArmaAPedido(q.items);
     const respuesta = `Pedido ${ped.qr_retiro} confirmado. Total: $${pesos(totalLista)}.\n${entrega}${preguntaNombre ? `\n\n${PREGUNTA_NOMBRE_RETIRO}` : ''}`;
     return { pedidoId: id, codigoRetiro: ped.qr_retiro, total: Number(ped.total), estado: ped.estado, respuesta };
   }
@@ -3029,6 +3029,16 @@ export class BotService {
     const texto = String(p.body ?? '').trim();
     if (!texto) return { contestado: false, motivo: 'equipo: sin texto' };
     const citado = idWhatsappCorto(typeof p.replyTo === 'object' ? p.replyTo?.id : p.replyTo);
+    // Los avisos de PEDIDO NUEVO (3/10/2026) también llegan a este chat. Citando
+    // uno, la respuesta es un acuse del pedido: no se lleva a ningún cliente. Sin
+    // cita, si hubo un aviso de pedido en la última hora, un "ok" puede ser para
+    // el pedido: cuenta como un pendiente más (con más de uno, se pide citar).
+    const { data: avisosPedido } = esAdministracion
+      ? await this.db.from('avisos_pedidos').select('waha_id').in('estado', ['enviado', 'entregado'])
+          .gte('enviado_en', new Date(Date.now() - 60 * 60_000).toISOString()).limit(20)
+      : { data: [] as any[] };
+    const avisosRecientes = ((avisosPedido ?? []) as any[]).filter((a) => a?.waha_id);
+    if (citado && avisosRecientes.some((a) => idWhatsappCorto(a.waha_id) === citado)) return { contestado: false, motivo: 'acuse de un aviso de pedido nuevo' };
     // Sin ventana de 24h ni límite global: una cita vieja sigue identificando su consulta.
     const consultasTodas = await this.pendientesPaginados('bot_consultas_internas', 'respondido_en');
     const consultas = consultasTodas.filter(c => soloDigitos(String(c.enviado_a ?? '')) === admin || (!c.enviado_a && esAdministracion));
@@ -3043,7 +3053,7 @@ export class BotService {
       if (consultaCitada && !pagoCitado) return this.llevarRespuestaDeConsulta(consultaCitada, texto, admin, cfg?.bot_activo !== false);
       if (!pagoCitado || consultaCitada) return pedirReferencia();
     } else {
-      if (consultas.length + lista.length > 1) return pedirReferencia();
+      if (consultas.length + lista.length + (avisosRecientes.length ? 1 : 0) > 1) return pedirReferencia();
       if (consultas.length === 1) return this.llevarRespuestaDeConsulta(consultas[0], texto, admin, cfg?.bot_activo !== false);
       if (!lista.length) return { contestado: false, motivo: 'sin consultas o pagos pendientes' };
     }

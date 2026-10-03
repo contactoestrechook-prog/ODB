@@ -87,7 +87,7 @@ export class PedidosController {
         ],
       },
     ];
-    return this.pedidos.recibirDePedidosYa(ejemplos[Math.floor(Math.random() * ejemplos.length)]);
+    return this.pedidos.recibirDePedidosYa(ejemplos[Math.floor(Math.random() * ejemplos.length)], { simulado: true });
   }
 
   // Pedido por WhatsApp: la IA interpreta el mensaje del cliente → preview → crear

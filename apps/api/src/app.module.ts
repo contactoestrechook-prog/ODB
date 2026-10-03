@@ -48,6 +48,7 @@ import { BotModule } from './bot/bot.module';
 import { DocumentosModule } from './documentos/documentos.module';
 import { AprobacionesModule } from './aprobaciones/aprobaciones.module';
 import { ReportesModule } from './reportes/reportes.module';
+import { AvisosModule } from './avisos/avisos.module';
 import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
@@ -107,6 +108,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     DocumentosModule,
     AprobacionesModule,
     ReportesModule,
+    AvisosModule,
   ],
 })
 export class AppModule {}

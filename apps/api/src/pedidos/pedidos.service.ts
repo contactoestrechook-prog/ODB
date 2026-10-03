@@ -148,7 +148,7 @@ export class PedidosService {
   }
 
   // --- Recepción desde PedidosYa (webhook o simulador) ---
-  async recibirDePedidosYa(payload: PedidoYaPayload) {
+  async recibirDePedidosYa(payload: PedidoYaPayload, opciones: { simulado?: boolean } = {}) {
     const referencia = `PY-${payload.orderId}`;
     const { data: existente } = await this.db
       .from('pedidos')
@@ -210,6 +210,11 @@ export class PedidosService {
         .join(' · '),
       reservar: false,
     });
+    // El simulador del panel es una prueba: no se le avisa a administración
+    // (la base deja el aviso pendiente y se toma recién a los 10 segundos).
+    if (opciones.simulado) {
+      await this.db.from('avisos_pedidos').update({ estado: 'omitido', motivo: 'simulador de PedidosYa (prueba)' }).eq('pedido_id', pedidoId).then(() => null, () => null);
+    }
     return { pedidoId, renglones: items.length, sinMatch };
   }
 
@@ -310,7 +315,15 @@ export class PedidosService {
       const m = error.message ?? '';
       throw new BadRequestException(m.includes('Stock insuficiente') ? `Sin stock disponible: ${m}` : m);
     }
-    return (data as any).pedido_id as string;
+    const pedidoId = (data as any).pedido_id as string;
+    // crear_pedido no recibe las notas (nombre del cliente, "SIN MATCHEAR", lo
+    // que pidió): se perdían. Van acá, antes de que salga el aviso a
+    // administración, que se arma 10 segundos después con el pedido completo.
+    if (p.notas?.trim()) {
+      const { error: eNotas } = await this.db.from('pedidos').update({ notas: p.notas.trim().slice(0, 1000) }).eq('id', pedidoId);
+      if (eNotas) this.log.warn(`no pude guardar las notas del pedido ${pedidoId}: ${eNotas.message}`);
+    }
+    return pedidoId;
   }
 
   // --- Pedidos desde la app del cliente (pick-up) ---

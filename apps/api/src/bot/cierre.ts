@@ -19,6 +19,16 @@ import { RE_PREGUNTA_COMPLETO } from './completo';
 import { cantidadesPedidas } from './formatos';
 import { nombreLimpio } from './prolijo';
 
+/**
+ * Interruptor del "nada más confirma" y de la pregunta "¿A nombre de quién lo
+ * retiran?" (3/10/2026). APAGADO: la verificación encontró caminos que podían
+ * crear un pedido que el cliente no quiso (un "Si" seguido de "y 2 hielos", un
+ * "Cancelalo" tomado como nombre…). Se prende con ODB_NADA_MAS_CONFIRMA=1 cuando
+ * estén corregidos y medidos con el banco de pruebas.
+ */
+export const nadaMasConfirma = () => process.env.ODB_NADA_MAS_CONFIRMA === '1';
+export const NADA_MAS_CONFIRMA = nadaMasConfirma();
+
 const norm = (s: unknown) => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
 const FIN = '(?=$|[\\s,.!…])';
 
@@ -199,11 +209,5 @@ export function nombreDeQuienRetira(texto: string): string | null {
   return palabras.map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 }
 
-/** "2026-10-04" + "mañana" → "el domingo 4/10 por la mañana" (null sin fecha). */
-export function cuandoLegible(fecha: string | null | undefined, franja: string | null | undefined): string | null {
-  if (!fecha || !/^\d{4}-\d{2}-\d{2}$/.test(fecha)) return franja ? `por la ${franja}` : null;
-  const d = new Date(`${fecha}T12:00:00-03:00`);
-  const zona = { timeZone: 'America/Argentina/Buenos_Aires' } as const;
-  const dia = `${d.toLocaleDateString('es-AR', { weekday: 'long', ...zona })} ${d.toLocaleDateString('es-AR', { day: 'numeric', month: 'numeric', ...zona })}`;
-  return `el ${dia}${franja ? ` por la ${franja}` : ''}`;
-}
+// cuándo, en palabras: vive en comun/ (lo usa también el aviso a administración)
+export { cuandoLegible } from '../comun/cuando';
