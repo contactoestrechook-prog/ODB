@@ -378,3 +378,28 @@ export function sinLoConsulto(t: string): string {
   if (saco && !r.includes(ACUSE_CONSULTA)) r = r ? `${r}\n\n${ACUSE_CONSULTA}` : ACUSE_CONSULTA;
   return r;
 }
+
+/**
+ * Quita las oraciones que `quitar` marca SIN aplanar el mensaje: cada renglón
+ * sigue en su renglón (3/10/2026). Antes se partía por oración y renglón y se
+ * volvía a unir con espacios, y el pedido llegaba como "• 3 × Combo Picada Box
+ * Si algo no es lo que buscás…" aunque no se hubiera quitado nada.
+ * Devuelve el texto y cuántas oraciones se quitaron; con 0, el texto original.
+ */
+export function quitarOraciones(texto: string, quitar: (oracion: string) => boolean): { texto: string; quitadas: number } {
+  const original = String(texto ?? '');
+  let quitadas = 0;
+  const lineas = original.split('\n').map((l) => {
+    const partes = l.split(/(?<=[.!?])\s+/);
+    const quedan = partes.filter((o) => {
+      if (!o.trim() || !quitar(o)) return true;
+      quitadas++;
+      return false;
+    });
+    // un renglón que se vació entero se marca para sacarlo (no queda un hueco)
+    return quedan.length ? quedan.join(' ') : partes.length && l.trim() ? null : l;
+  });
+  if (!quitadas) return { texto: original, quitadas: 0 };
+  const r = lineas.filter((l): l is string => l !== null).join('\n').replace(/[ \t]{2,}/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+  return { texto: r, quitadas };
+}

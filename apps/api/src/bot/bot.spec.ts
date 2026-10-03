@@ -392,6 +392,7 @@ describe('BotService.cartelDePedido (tarjeta Placa roja del pedido confirmado)',
         },
       },
       log: { warn: () => undefined },
+      subirPaginas: (BotService.prototype as any).subirPaginas,
     };
     return { falso, subidas };
   };
@@ -404,11 +405,13 @@ describe('BotService.cartelDePedido (tarjeta Placa roja del pedido confirmado)',
   };
 
   it('con el código, arma la tarjeta PEDIDO con los renglones de la base y el pie sin viñetas', async () => {
-    const espia = jest.spyOn(require('../comun/cartel-pedido'), 'cartelPedido').mockResolvedValue(Buffer.from('png'));
+    const espia = jest.spyOn(require('../comun/cartel-pedido'), 'cartelesPedido').mockResolvedValue([Buffer.from('png')]);
     const { falso, subidas } = conBaseFalsa(PEDIDO);
     const r = await (BotService.prototype as any).cartelDePedido.call(falso, 'Pedido DOM-XY99ZZ confirmado. Total: $59.800.\nEnvío sin cargo. Se abona al recibir.');
     expect(r.imagenUrl).toContain('https://');
-    expect(r.pie).toContain('DOM-XY99ZZ');
+    expect(r.imagenes).toEqual([r.imagenUrl]);
+    // el código, el total y la entrega están en la tarjeta: el epígrafe no los repite
+    expect(r.pie).toBe('Pedido confirmado. Se abona al recibir.');
     expect(subidas[0]).toContain('pedido-DOM-XY99ZZ');
     const tarjeta = espia.mock.calls[0][0] as any;
     expect(tarjeta.titulo).toBe('PEDIDO');
@@ -423,7 +426,7 @@ describe('BotService.cartelDePedido (tarjeta Placa roja del pedido confirmado)',
   });
 
   it('un retiro lleva la sucursal y la nota del mostrador', async () => {
-    const espia = jest.spyOn(require('../comun/cartel-pedido'), 'cartelPedido').mockResolvedValue(Buffer.from('png'));
+    const espia = jest.spyOn(require('../comun/cartel-pedido'), 'cartelesPedido').mockResolvedValue([Buffer.from('png')]);
     const { falso } = conBaseFalsa({ ...PEDIDO, destino_direccion: null });
     await (BotService.prototype as any).cartelDePedido.call(falso, 'Pedido RET-AB12CD confirmado.');
     const tarjeta = espia.mock.calls[0][0] as any;
@@ -454,7 +457,7 @@ describe('BotService.cartelDePedido (tarjeta Placa roja del pedido confirmado)',
   });
 
   it('si la subida falla, devuelve null y el mensaje sale como texto normal', async () => {
-    const espia = jest.spyOn(require('../comun/cartel-pedido'), 'cartelPedido').mockResolvedValue(Buffer.from('png'));
+    const espia = jest.spyOn(require('../comun/cartel-pedido'), 'cartelesPedido').mockResolvedValue([Buffer.from('png')]);
     const { falso } = conBaseFalsa(PEDIDO, { error: { message: 'sin permiso' } });
     expect(await (BotService.prototype as any).cartelDePedido.call(falso, 'Pedido DOM-XY99ZZ confirmado.')).toBeNull();
     espia.mockRestore();
@@ -465,9 +468,10 @@ describe('BotService.cartelDeListado (precios escritos a mano, Placa roja)', () 
   const falso = {
     db: { storage: { from: () => ({ upload: async () => ({ error: null }), getPublicUrl: () => ({ data: { publicUrl: 'https://publico/x.png' } }) }) } },
     log: { warn: () => undefined },
+    subirPaginas: (BotService.prototype as any).subirPaginas,
   };
   it('desde 2 productos, con el precio en efectivo entre paréntesis', async () => {
-    const espia = jest.spyOn(require('../comun/cartel-pedido'), 'cartelListaPrecios').mockResolvedValue(Buffer.from('png'));
+    const espia = jest.spyOn(require('../comun/cartel-pedido'), 'cartelesListaPrecios').mockResolvedValue([Buffer.from('png')]);
     const r = await (BotService.prototype as any).cartelDeListado.call(falso, 'Tenemos:\n• Fernet Branca 750 — $20.500 ($18.450 en efectivo)\n• Coca 1,75 — $4.700\n¿Cuál te llevás?');
     expect(r.pie).toBe('Tenemos: ¿Cuál te llevás?');
     expect(espia.mock.calls[0][0]).toEqual([
@@ -489,9 +493,10 @@ describe('BotService.tarjetaDeLaRespuesta (el simulador del panel ve la tarjeta 
     log: { warn: () => undefined },
   });
   it('una lista de precios: la misma imagen y el mismo epígrafe que van por WhatsApp', async () => {
-    const espia = jest.spyOn(require('../comun/cartel-pedido'), 'cartelListaPrecios').mockResolvedValue(Buffer.from('png'));
+    const espia = jest.spyOn(require('../comun/cartel-pedido'), 'cartelesListaPrecios').mockResolvedValue([Buffer.from('png')]);
     const r = await servicio().tarjetaDeLaRespuesta({ respuesta: 'Tenemos:\n• Fernet Branca 750 — $20.500\n• Coca 1,75 — $4.700\n¿Cuál te llevás?', catalogo: [] });
-    expect(r).toEqual({ imagenUrl: `https://publico/${subidas[subidas.length - 1]}`, pie: 'Tenemos: ¿Cuál te llevás?' });
+    const url = `https://publico/${subidas[subidas.length - 1]}`;
+    expect(r).toEqual({ imagenUrl: url, imagenes: [url], pie: 'Tenemos: ¿Cuál te llevás?' });
     expect(subidas[subidas.length - 1]).toMatch(/^carteles\/\d{4}-\d{2}\/precios-/);
     espia.mockRestore();
   });

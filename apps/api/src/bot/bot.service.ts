@@ -1,12 +1,13 @@
 import { esperaRetiroOEnvio, eligeRetiroOEnvio, eligioModalidad } from './entrega';
 import { esContestadorAutomatico } from './contestador';
 import { conPreguntaDeCompleto, elegirPorDefecto, puedeCotizar } from './completo';
+import { cierraLaLista, coincideConLoAnotado, cuandoLegible, listaCerrada, loAnotado, nombreDeQuienRetira, PREGUNTA_NOMBRE_RETIRO, RE_ARMADO_A_PEDIDO, RE_PREGUNTA_NOMBRE_RETIRO } from './cierre';
 import { conDescuentoEfectivo, porcentajeEfectivo, RUBROS_DESCUENTO_EFECTIVO, tieneDescuentoEfectivo } from './descuento-efectivo';
 import { esSilenciado } from './pausa';
 import { agruparItems, cantidadesIndividuales, centavos, confirmacionInequivoca, idWhatsappCorto, importesDeHerramienta, importesDelTexto, pesos, presentacionProducto } from './comercio';
 import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import { volumenMl, etiquetaVolumen, pideTamano, medidaPartida, resumenDeTamanos, cantidadesPedidas, PALABRA_GENERICA } from './formatos';
-import { emprolijarListado, nombreLimpio, saludoSegunHora, saludarConBienvenida, niegaPercepcion, respetuosoSinConfianza, saintThomas, envioSinCargo, asegurarEnvioSinCargo, casiIgual, campoLimpio, respuestaConConsulta, esAlucinacionDeTranscripcion, nombreSucursalCliente, esAutomaticoWhatsappBusiness, minimoConMonto, retiroOEnvio, sinCocinaInterna, sinLoConsulto } from './prolijo';
+import { emprolijarListado, nombreLimpio, saludoSegunHora, saludarConBienvenida, niegaPercepcion, respetuosoSinConfianza, saintThomas, envioSinCargo, asegurarEnvioSinCargo, casiIgual, campoLimpio, quitarOraciones, respuestaConConsulta, esAlucinacionDeTranscripcion, nombreSucursalCliente, esAutomaticoWhatsappBusiness, minimoConMonto, retiroOEnvio, sinCocinaInterna, sinLoConsulto } from './prolijo';
 import { controlDeFechas } from './fechas';
 import { desvioDeLoPedido } from './desvio';
 import { audioDeclarado, estadoOgg } from './ogg';
@@ -508,7 +509,9 @@ export class BotService {
     if (!traeArchivo && RE_CIERRE.test(texto.trim())) {
       // "sí" / "dale" / "ok" CONTESTAN una pregunta del bot: esos pasan. Los demás
       // cierres, y cualquier cierre sin pregunta pendiente, no se responden.
-      if (!(botDejoPregunta && RE_SI_NO.test(texto.trim()))) return callar('cierre de la charla');
+      // "Perfecto" o 👍 a "¿Está completo el pedido…?" cierran la lista: pasan
+      // (3/10/2026; antes el pedido quedaba sin respuesta)
+      if (!(botDejoPregunta && RE_SI_NO.test(texto.trim())) && !cierraLaLista(texto, String(ultimoMsgBot))) return callar('cierre de la charla');
     }
     // "hola" suelto MIENTRAS la charla sigue viva: están por escribir lo que
     // quieren, y contestarles "¿en qué puedo ayudarlo?" es pisarlos.
@@ -555,6 +558,28 @@ export class BotService {
           if (mensajeId) await this.db.from('bot_mensajes').upsert({ linea, mensaje_id: mensajeId, telefono, respuesta: hit.respuesta }).then(() => null, () => null);
           return { respuesta: hit.respuesta };
         }
+      }
+    }
+
+    // A NOMBRE DE QUIÉN SE RETIRA (3/10/2026). Las picadas se arman a pedido:
+    // al confirmar un retiro con picadas el bot pregunta "¿A nombre de quién lo
+    // retiran?". La respuesta queda en las notas del pedido ("Retira: Juan
+    // Pérez") para que el mostrador sepa a quién entregarlo, sin pasar por el
+    // modelo. Si lo que contestó no es un nombre, sigue la charla normal.
+    if (!traeArchivo && RE_PREGUNTA_NOMBRE_RETIRO.test(String(ultimoMsgBot))) {
+      const nombre = nombreDeQuienRetira(texto);
+      const anotado = nombre
+        ? await this.anotarQuienRetira(telefono, linea, nombre).catch((e: any) => { this.log.warn(`no pude anotar quién retira (${telefono}): ${e?.message ?? e}`); return false; })
+        : false;
+      if (nombre && anotado) {
+        const resp = `Listo, queda a nombre de ${nombre}.`;
+        await this.db.from('bot_conversaciones').upsert({
+          linea, telefono,
+          mensajes: [...historial, { role: 'user', content: texto }, { role: 'assistant', content: resp }].slice(-MAX_HISTORIAL),
+          actualizado_en: new Date().toISOString(),
+        }, { onConflict: 'linea,telefono' });
+        if (mensajeId) await this.db.from('bot_mensajes').upsert({ linea, mensaje_id: mensajeId, telefono, respuesta: resp }).then(() => null, () => null);
+        return { respuesta: resp };
       }
     }
 
@@ -682,6 +707,10 @@ export class BotService {
     const vecesPidioDireccion = cuenta(/(direcci[oó]n|calle y n[uú]mero)/i);
     const vecesDijoPersonaResponde = cuenta(/doy aviso al sector|aviso al sector correspondiente/i);
     const preguntasDelCliente = (texto.match(/\?/g) ?? []).length + (/\b(cu[aá]nto|cu[aá]ndo|d[oó]nde|qu[eé] tal|hasta qu[eé] hora|tienen|ten[eé]s|hay|se puede|me pod[eé]s|a qu[eé] hora)\b/i.test(texto) && !/\?/.test(texto) ? 1 : 0);
+    // EL "NADA MÁS" CONFIRMA (3/10/2026): si el cliente cerró la lista ("solo
+    // eso", "nada más", un "sí" a "¿Está completo?") y no la cambió después, el
+    // pedido se confirma en el turno en que queda preparado, sin "¿Lo confirmo?".
+    const cierreDeLista = linea === 'pedidos' ? listaCerrada(historial as any[], texto) : null;
     const estado: string[] = [];
     estado.push(yaSaludo ? 'ya saludaste en esta charla: NO vuelvas a saludar ni a presentarte' : `primer mensaje de la charla: corresponde saludar una vez, con bienvenida: "${saludo}, te damos la bienvenida a O.D.B."`);
     if (vecesOfrecioArmar >= 1) estado.push(`ya ofreciste armar/cotizar el pedido ${vecesOfrecioArmar} vez/veces: no lo vuelvas a ofrecer; contestá y esperá`);
@@ -692,7 +721,8 @@ export class BotService {
     // preguntas (hoy: cinco preguntas con opciones → "MALÍSIMA, cancelo").
     const preguntasDelBotAntes = (String(ultimoMsgBot).match(/¿/g) ?? []).length;
     const impaciente = preguntasDelBotAntes >= 1 && (texto.trim().length <= 25 || /\b(mand[aá]me|mandalo|env[ií]ame|dale|listo|eh+\??|ya est[aá]|as[ií] nom[aá]s|lo que tengas)\b|[😬🙄😤]/i.test(texto));
-    if (impaciente && esProveedor === false) estado.push('el cliente ya no quiere más preguntas: NO preguntes nada más; asumí la opción más común de cada ítem que falte, mostrá el resumen con el total y cerrá con un único "¿Lo confirmo?"');
+    if (cierreDeLista) estado.push(`el cliente YA cerró la lista ("${cierreDeLista.slice(0, 60)}"): no le preguntes si está completo ni "¿Lo confirmo?". Si ya sabés si retira o se lo enviamos (y para envío, quién recibe y la dirección), llamá preparar_pedido: con la lista cerrada CONFIRMA el pedido. Si falta uno de esos datos, preguntá SOLO ese`);
+    else if (impaciente && esProveedor === false) estado.push('el cliente ya no quiere más preguntas: NO preguntes nada más; asumí la opción más común de cada ítem que falte, mostrá el resumen con el total y cerrá con un único "¿Lo confirmo?"');
     if (preguntasDelCliente >= 2) estado.push(`este mensaje trae ${preguntasDelCliente} preguntas: contestá CADA una en una línea, en el orden en que las hizo; si un dato no lo tenés, decilo en su línea`);
     const contenidoDelTurno = (t: string): any => (bloquesPendientes.length
       ? [
@@ -773,6 +803,17 @@ export class BotService {
     const ultimoDelBot = [...historial].reverse().find((m) => m.role === 'assistant')?.content ?? '';
     const ultimosDelBot = [...historial].reverse().filter((m) => m.role === 'assistant').slice(0, 3).map((m) => String(m.content));
     const ultimosDelCliente = [...[...historial].reverse().filter((m) => m.role === 'user').slice(0, 6).map((m) => String(m.content)).reverse(), texto];
+    // `anotadoSinPrecios` es la última lista que el bot le mostró sin precios: lo
+    // que se cotiza con la lista cerrada tiene que ser eso mismo (ver cierre.ts)
+    const anotadoSinPrecios = (() => {
+      for (const m of [...historial].reverse().filter((x) => x.role === 'assistant').slice(0, 8)) {
+        const c = String(m.content ?? '');
+        if (/^Pedido \S+ confirmado\./.test(c.trim())) return [];
+        const l = loAnotado(c);
+        if (l.length) return l;
+      }
+      return [];
+    })();
     const fallosDelTurno = new Map<string, number>();
     // una herramienta puede fijar la respuesta del turno ("Recibido." ante un comprobante)
     const respuestaFija: { texto?: string; consultaPendiente?: boolean; operacion?: boolean; derivada?: boolean } = {};
@@ -839,7 +880,7 @@ export class BotService {
         // 33 búsquedas de una, pero se ejecutaban una detrás de otra. Las que
         // solo LEEN arrancan juntas (de a 8); las que tienen efecto (pedido,
         // consulta, derivación) siguen de a una, en orden, como siempre.
-        const ctxHerr = { ultimoBot: ultimoDelBot, ultimosBot: ultimosDelBot, ultimosCliente: ultimosDelCliente, textoCliente: texto, fallos: fallosDelTurno, archivoUrl: dto.archivoUrl, fija: respuestaFija, salidas: salidasDelTurno };
+        const ctxHerr = { ultimoBot: ultimoDelBot, ultimosBot: ultimosDelBot, ultimosCliente: ultimosDelCliente, textoCliente: texto, fallos: fallosDelTurno, archivoUrl: dto.archivoUrl, fija: respuestaFija, salidas: salidasDelTurno, cierre: cierreDeLista, anotado: anotadoSinPrecios };
         const adelantadas = new Map<string, Promise<Anthropic.ToolResultBlockParam>>();
         {
           const lecturas = (r.content as any[]).filter((b) => b.type === 'tool_use' && HERRAMIENTAS_DE_LECTURA.has(b.name));
@@ -948,7 +989,7 @@ export class BotService {
       if (r3.stop_reason === 'tool_use') {
         messages.push({ role: 'assistant', content: r3.content });
         const res3: Anthropic.ToolResultBlockParam[] = [];
-        for (const b of r3.content) if (b.type === 'tool_use') { herramientasDelTurno.add(b.name); res3.push(await this.ejecutarHerramienta(b, telefono, linea, { ultimoBot: ultimoDelBot, ultimosBot: ultimosDelBot, ultimosCliente: ultimosDelCliente, textoCliente: texto, fallos: fallosDelTurno, archivoUrl: dto.archivoUrl, fija: respuestaFija, salidas: salidasDelTurno })); }
+        for (const b of r3.content) if (b.type === 'tool_use') { herramientasDelTurno.add(b.name); res3.push(await this.ejecutarHerramienta(b, telefono, linea, { ultimoBot: ultimoDelBot, ultimosBot: ultimosDelBot, ultimosCliente: ultimosDelCliente, textoCliente: texto, fallos: fallosDelTurno, archivoUrl: dto.archivoUrl, fija: respuestaFija, salidas: salidasDelTurno, cierre: cierreDeLista, anotado: anotadoSinPrecios })); }
         messages.push({ role: 'user', content: res3 });
         const t4 = await this.regenerar(system, messages, 2048, sumarUso).catch(() => null);
         if (t4) respuesta = t4;
@@ -1027,7 +1068,7 @@ export class BotService {
         if (r5.stop_reason === 'tool_use') {
           messages.push({ role: 'assistant', content: r5.content });
           const res5: Anthropic.ToolResultBlockParam[] = [];
-          for (const b of r5.content) if (b.type === 'tool_use') { herramientasDelTurno.add(b.name); res5.push(await this.ejecutarHerramienta(b, telefono, linea, { ultimoBot: ultimoDelBot, ultimosBot: ultimosDelBot, ultimosCliente: ultimosDelCliente, textoCliente: texto, fallos: fallosDelTurno, archivoUrl: dto.archivoUrl, fija: respuestaFija, salidas: salidasDelTurno })); }
+          for (const b of r5.content) if (b.type === 'tool_use') { herramientasDelTurno.add(b.name); res5.push(await this.ejecutarHerramienta(b, telefono, linea, { ultimoBot: ultimoDelBot, ultimosBot: ultimosDelBot, ultimosCliente: ultimosDelCliente, textoCliente: texto, fallos: fallosDelTurno, archivoUrl: dto.archivoUrl, fija: respuestaFija, salidas: salidasDelTurno, cierre: cierreDeLista, anotado: anotadoSinPrecios })); }
           messages.push({ role: 'user', content: res5 });
           const t6 = await this.regenerar(system, messages, 2048, sumarUso);
           if (t6) respuesta = t6;
@@ -1083,18 +1124,16 @@ export class BotService {
     {
       const normO = (o: string) => norm(o).replace(/[^a-záéíóúñ0-9 ¿?]/g, '').trim();
       const previas = new Set(ultimosDelBot.flatMap((t) => t.split(/(?<=[.!?])\s+|\n+/).map(normO)).filter((o) => o.length >= 12));
-      const partes = respuesta.split(/(?<=[.!?])\s+|\n/);
-      const filtradas = partes.filter((o) => {
+      // por renglón: antes se volvía a unir todo con espacios y la lista del
+      // pedido llegaba en una sola línea aunque no se quitara nada (3/10/2026)
+      const { texto: nueva, quitadas } = quitarOraciones(respuesta, (o) => {
         const n = normO(o);
-        if (!n) return true;
-        if (/lo confirmo\?/.test(n)) return true;
+        if (!n || /lo confirmo\?/.test(n)) return false;
         const esPregunta = /\?$/.test(n);
-        const repetida = previas.has(n) && (n.length >= 30 || (esPregunta && n.length >= 12));
-        return !repetida;
+        return previas.has(n) && (n.length >= 30 || (esPregunta && n.length >= 12));
       });
-      const nueva = filtradas.join(' ').replace(/\s{2,}/g, ' ').trim();
-      if (nueva && nueva !== respuesta.trim() && nueva.length >= 20) {
-        this.log.log(`oraciones repetidas quitadas para ${telefono}: ${partes.length - filtradas.length}`);
+      if (quitadas && nueva.length >= 20) {
+        this.log.log(`oraciones repetidas quitadas para ${telefono}: ${quitadas}`);
         respuesta = nueva;
       }
     }
@@ -1103,7 +1142,7 @@ export class BotService {
     // edad en 3 mensajes seguidos, la del reparto ×5): si ya se dijeron, la
     // oración que las repite se quita. Determinístico, sin llamada al modelo.
     const dichoAntes = (re: RegExp) => dichoPorElBot.some((t) => re.test(t));
-    const quitarOracion = (t: string, re: RegExp) => t.split(/(?<=[.!?])\s+|\n/).filter((o) => !re.test(o)).join(' ').replace(/\s{2,}/g, ' ').trim();
+    const quitarOracion = (t: string, re: RegExp) => quitarOraciones(t, (o) => re.test(o)).texto;
     const RE_EDAD = /verifica(mos|n)?\s+(la\s+)?edad|mayor(es)? de (18|edad)/i;
     if (RE_EDAD.test(respuesta) && dichoAntes(RE_EDAD)) respuesta = quitarOracion(respuesta, RE_EDAD) || respuesta;
     // frases-marca de la casa: se dicen una vez y no vuelven (ronda 10: "coordina
@@ -1127,8 +1166,8 @@ export class BotService {
           const no = o.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
           return palabrasCliente.some((w) => no.includes(w));
         };
-        const podado = respuesta.split(/(?<=[.!?])\s+|\n/).filter((o) => !(re.test(o) && !traeDato(o))).join(' ').replace(/\s{2,}/g, ' ').trim();
-        if (podado.length >= 25 && podado !== respuesta) respuesta = podado;
+        const { texto: podado, quitadas } = quitarOraciones(respuesta, (o) => re.test(o) && !traeDato(o));
+        if (quitadas && podado.length >= 25) respuesta = podado;
       }
     }
 
@@ -1695,7 +1734,7 @@ export class BotService {
     block: Anthropic.ToolUseBlock,
     telefono: string,
     linea: 'pedidos' | 'proveedores' = 'pedidos',
-    ctx: { ultimoBot?: string; ultimosBot?: string[]; ultimosCliente?: string[]; textoCliente?: string; fallos?: Map<string, number>; archivoUrl?: string; fija?: { texto?: string; consultaPendiente?: boolean; operacion?: boolean; derivada?: boolean }; salidas?: string[] } = {},
+    ctx: { ultimoBot?: string; ultimosBot?: string[]; ultimosCliente?: string[]; textoCliente?: string; fallos?: Map<string, number>; archivoUrl?: string; fija?: { texto?: string; consultaPendiente?: boolean; operacion?: boolean; derivada?: boolean }; salidas?: string[]; cierre?: string | null; anotado?: { cantidad: number; nombre: string }[] } = {},
   ): Promise<Anthropic.ToolResultBlockParam> {
     const input: any = block.input;
     const skusVistosEnTurno = this.skusDe(telefono);
@@ -1714,9 +1753,30 @@ export class BotService {
           for (const it of ((out as any)?.items ?? [])) if (it?.sku) skusVistosEnTurno.add(String(it.sku));
           break;
         case 'preparar_pedido': {
+          // ya se confirmó un pedido en este turno (por el cierre de la lista):
+          // otro preparar_pedido armaría un segundo pedido igual
+          if (ctx.fallos?.get('__pedido_creado__') === 1) { out = { error: 'El pedido ya quedó confirmado en este turno: no prepares otro. Contestale con la confirmación.' }; break; }
           if (!puedeCotizar(ctx.textoCliente ?? '', ctx.ultimosBot ?? [], (ctx.ultimosCliente ?? []).slice(0, -1))) { out = { error: TODAVIA_SIN_PRECIOS }; break; }
           out = await this.prepararPedido(telefono, linea, input, ctx.textoCliente, ctx.ultimoBot, ctx.ultimosCliente);
           if (ctx.fija) { ctx.fija.texto = (out as any).resumen; ctx.fija.operacion = true; }
+          // EL "NADA MÁS" CONFIRMA (3/10/2026). Si el cliente ya cerró la lista y
+          // lo cotizado es lo mismo que vio anotado, el pedido se confirma acá y la
+          // respuesta es la confirmación, sin "¿Lo confirmo?". Si algo no cierra
+          // (una fecha corregida, el modelo cambió un producto o una cantidad, la
+          // base lo rechaza), queda el resumen con "¿Lo confirmo?" como siempre.
+          const prep: any = out;
+          const cotizado = ((prep?.renglones ?? []) as any[]).map((r) => ({ cantidad: Number(r.cantidad), nombre: String(r.nombre ?? '') }));
+          if (ctx.cierre && prep?.cotizacionId && !prep.avisoFecha && coincideConLoAnotado(ctx.anotado ?? [], cotizado)) {
+            try {
+              const creado = await this.crearPedido({ telefono, linea, confirmacion: ctx.cierre, modo: 'completo', cotizacionId: prep.cotizacionId });
+              this.log.log(`pedido ${creado.codigoRetiro} confirmado por el cierre de la lista ("${ctx.cierre.slice(0, 40)}") de ${telefono}`);
+              ctx.fallos?.set('__pedido_creado__', 1);
+              out = { ...creado, aviso: `El cliente ya había cerrado la lista ("${ctx.cierre.slice(0, 60)}"): el pedido QUEDÓ CONFIRMADO con el código ${creado.codigoRetiro}. No llames a crear_pedido ni le pidas confirmación.` };
+              if (ctx.fija) { ctx.fija.texto = creado.respuesta; ctx.fija.operacion = true; }
+            } catch (e: any) {
+              this.log.warn(`el cierre de la lista de ${telefono} no alcanzó para confirmar directo (${e?.message ?? e}); queda el "¿Lo confirmo?"`);
+            }
+          }
           break;
         }
         case 'crear_pedido': {
@@ -2317,19 +2377,25 @@ export class BotService {
       fecha = '';
     }
     const franja = ['mañana','tarde'].includes(input.entrega_franja) ? input.entrega_franja : null;
+    // para retirar, si el cliente dijo a nombre de quién, queda "Retira: X" en
+    // las notas (y no se le vuelve a preguntar al confirmar). Solo si el nombre
+    // lo escribió el cliente: el modelo no lo completa con el de su perfil.
+    const sinTildes = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    const retira = tipo === 'pickup' && nombre && sinTildes((dichoPorElCliente ?? []).join(' ')).includes(sinTildes(nombre)) ? nombre : null;
+    const notas = [String(input.notas ?? '').trim(), retira ? `Retira: ${retira}` : ''].filter(Boolean).join(' · ').slice(0, 300) || null;
     const resumen = [
       ...cot.renglones.map(r => `• ${r.nombre} — ${r.renglon}`),
       `Total: $${pesos(cot.total)}`,
       (cot as any).totalEfectivo ? `Pagando en efectivo o transferencia: $${pesos((cot as any).totalEfectivo)} (${porcentajeEfectivo()}% off en ${RUBROS_DESCUENTO_EFECTIVO}).` : null,
-      tipo === 'domicilio' ? `Envío sin cargo a ${direccion}. Recibe ${nombre}.` : 'Retiro en la sucursal Saint Thomas.',
-      fecha ? `Entrega: ${fecha}${franja ? ' por la ' + franja : ''}.` : null,
+      tipo === 'domicilio' ? `Envío sin cargo a ${direccion}. Recibe ${nombre}.` : `Retiro en la sucursal Saint Thomas.${retira ? ` Retira ${retira}.` : ''}`,
+      fecha || franja ? `${tipo === 'domicilio' ? 'Entrega' : 'Retiro'}: ${cuandoLegible(fecha, franja)}.` : null,
       input.notas ? `Indicaciones: ${String(input.notas).slice(0,300)}` : null,
       '¿Lo confirmo?',
     ].filter(Boolean).join('\n');
     const { data, error } = await this.db.from('bot_cotizaciones').insert({
       linea, telefono, cliente_id: ident.clienteId ?? null, sucursal_id: cot.sucursalId,
       items: cot.renglones, total: cot.total, tipo, direccion: tipo === 'domicilio' ? direccion : null,
-      nombre, notas: String(input.notas ?? '').slice(0,300) || null,
+      nombre, notas,
       entrega_fecha: fecha || null, entrega_franja: franja, resumen,
     }).select('id').single();
     if (error || !data?.id) {
@@ -2339,10 +2405,14 @@ export class BotService {
     return { cotizacionId: data.id, resumen, total: cot.total, renglones: cot.renglones, ...(avisoFecha ? { avisoFecha } : {}) };
   }
 
-  async crearPedido(dto: { telefono: string; linea?: string; confirmacion?: string; resumenPresentado?: string; items?: {sku:string;cantidad:number}[]; tipo?: string }) {
+  async crearPedido(dto: { telefono: string; linea?: string; confirmacion?: string; resumenPresentado?: string; items?: {sku:string;cantidad:number}[]; tipo?: string; modo?: 'si' | 'completo'; cotizacionId?: string }) {
     // Se conserva la firma antigua sólo para rechazar clientes desactualizados.
     if (dto.items && (dto.items.length > maxRenglonesBot() || dto.items.reduce((n,i)=>n+i.cantidad,0)>maxUnidadesBot())) throw new BadRequestException('El pedido supera el máximo del canal WhatsApp');
-    if (!confirmacionInequivoca(dto.confirmacion ?? '')) throw new BadRequestException('NO se creó el pedido: falta confirmación inequívoca');
+    // modo 'completo' (3/10/2026): el cliente cerró la lista ("solo eso") y la
+    // cotización se acaba de guardar en este mismo turno. La frase la vuelve a
+    // controlar la base (confirmar_cotizacion_bot con p_modo 'completo').
+    const completo = dto.modo === 'completo';
+    if (completo ? !dto.cotizacionId || !String(dto.confirmacion ?? '').trim() : !confirmacionInequivoca(dto.confirmacion ?? '')) throw new BadRequestException('NO se creó el pedido: falta confirmación inequívoca');
     const { data: q, error } = await this.db.from('bot_cotizaciones').select('*')
       .eq('telefono', dto.telefono).eq('linea', dto.linea ?? 'pedidos').order('creada_en', { ascending: false }).limit(1).maybeSingle();
     // EL BUCLE DEL "¿LO CONFIRMO?" (Catalina, 21/9/2026). Antes se exigía que el
@@ -2358,8 +2428,12 @@ export class BotService {
     const fresca = !!q && !q.confirmada_en && Date.now() - new Date(q.creada_en).getTime() < 3 * 3600_000;
     const coincideResumen = !!q && !!ultimo && q.resumen === ultimo;
     const preguntaConMismoTotal = fresca && /¿lo confirmo\?/i.test(ultimo) && !!totalTxt && ultimo.includes(totalTxt);
-    if (error || !q || !(coincideResumen || preguntaConMismoTotal)) throw new BadRequestException('NO se creó el pedido: usá preparar_pedido para mostrar un resumen verificable y esperá confirmación');
-    const { data: id, error: e } = await this.db.rpc('confirmar_cotizacion_bot', { p_id: q.id, p_telefono: dto.telefono, p_linea: dto.linea ?? 'pedidos', p_confirmacion: dto.confirmacion });
+    // la recién guardada, sin confirmar, de hace menos de 2 minutos
+    const recienPreparada = !!q && q.id === dto.cotizacionId && !q.confirmada_en && Date.now() - new Date(q.creada_en).getTime() < 2 * 60_000;
+    if (error || !q || !(completo ? recienPreparada : coincideResumen || preguntaConMismoTotal)) throw new BadRequestException('NO se creó el pedido: usá preparar_pedido para mostrar un resumen verificable y esperá confirmación');
+    const { data: id, error: e } = await this.db.rpc('confirmar_cotizacion_bot', completo
+      ? { p_id: q.id, p_telefono: dto.telefono, p_linea: dto.linea ?? 'pedidos', p_confirmacion: dto.confirmacion, p_modo: 'completo' }
+      : { p_id: q.id, p_telefono: dto.telefono, p_linea: dto.linea ?? 'pedidos', p_confirmacion: dto.confirmacion });
     if (e || !id) throw new BadRequestException(e?.message ?? 'No se pudo confirmar el pedido');
     const ped: any = await this.pedidos.obtener(id);
     // si ya dijo cómo paga, se repite eso y no "efectivo o tarjeta" (25/9/2026)
@@ -2372,8 +2446,43 @@ export class BotService {
     const cobro = hayDescuento
       ? (paga === 'efectivo' ? `en efectivo: $${pesos(totalEfectivo)}` : paga === 'tarjeta' ? `con tarjeta: $${pesos(totalLista)}` : `$${pesos(totalLista)} con tarjeta o $${pesos(totalEfectivo)} en efectivo o transferencia`)
       : (paga === 'efectivo' ? 'en efectivo' : paga === 'tarjeta' ? 'con tarjeta' : 'en efectivo o tarjeta');
-    const respuesta = `Pedido ${ped.qr_retiro} confirmado. Total: $${pesos(totalLista)}.\n${q.tipo === 'domicilio' ? 'Envío sin cargo. Se abona al recibir' : 'Se abona al retirar'}, ${cobro}.`;
+    // cuándo y dónde, en palabras ("el domingo 4/10 por la mañana"), y para un
+    // retiro con picadas, a nombre de quién (se arman a pedido)
+    const cuando = cuandoLegible(q.entrega_fecha, q.entrega_franja);
+    const entrega = q.tipo === 'domicilio'
+      ? `Envío sin cargo${q.direccion ? ` a ${q.direccion}` : ''}${cuando ? `, ${cuando}` : ''}. Se abona al recibir, ${cobro}.`
+      : `Retiro en la sucursal Saint Thomas${cuando ? `, ${cuando}` : ''}. Se abona al retirar, ${cobro}.`;
+    const preguntaNombre = q.tipo !== 'domicilio' && !/\bRetira:/i.test(notas) && await this.seArmaAPedido(q.items);
+    const respuesta = `Pedido ${ped.qr_retiro} confirmado. Total: $${pesos(totalLista)}.\n${entrega}${preguntaNombre ? `\n\n${PREGUNTA_NOMBRE_RETIRO}` : ''}`;
     return { pedidoId: id, codigoRetiro: ped.qr_retiro, total: Number(ped.total), estado: ped.estado, respuesta };
+  }
+
+  /** ¿Hay en el pedido algo que se arma a pedido (las picadas)? */
+  private async seArmaAPedido(items: unknown): Promise<boolean> {
+    const lista = (Array.isArray(items) ? items : []) as any[];
+    if (lista.some((r) => RE_ARMADO_A_PEDIDO.test(String(r?.nombre ?? '')))) return true;
+    const ids = lista.map((r) => r?.producto_id).filter(Boolean);
+    if (!ids.length) return false;
+    const { data, error } = await this.db.from('productos').select('id').in('id', ids).eq('se_arma_a_pedido', true);
+    return !error && (data ?? []).length > 0;
+  }
+
+  /**
+   * "Retira: Juan Pérez" en las notas del último pedido que confirmó el bot en
+   * este chat (de las últimas 24 horas). false si no hay a qué pedido anotarlo.
+   */
+  private async anotarQuienRetira(telefono: string, linea: string, nombre: string): Promise<boolean> {
+    const { data: q } = await this.db.from('bot_cotizaciones').select('pedido_id, confirmada_en')
+      .eq('telefono', telefono).eq('linea', linea).not('pedido_id', 'is', null)
+      .order('confirmada_en', { ascending: false }).limit(1).maybeSingle();
+    if (!q?.pedido_id || !q.confirmada_en || Date.now() - new Date(q.confirmada_en).getTime() > 24 * 3600_000) return false;
+    const { data: ped } = await this.db.from('pedidos').select('id, notas, estado').eq('id', q.pedido_id).maybeSingle();
+    if (!ped || ['cancelado', 'entregado'].includes(String(ped.estado))) return false;
+    const previas = String(ped.notas ?? '').split(' · ').map((s) => s.trim()).filter((s) => s && !/^Retira:/i.test(s));
+    const { error } = await this.db.from('pedidos').update({ notas: [...previas, `Retira: ${nombre}`].join(' · ').slice(0, 500) }).eq('id', ped.id);
+    if (error) throw new Error(error.message);
+    this.log.log(`pedido ${ped.id}: retira ${nombre} (${telefono})`);
+    return true;
   }
 
   private async linkDelPedido(telefono: string, codigo: string) {
@@ -3832,10 +3941,14 @@ export class BotService {
       const imagenes = await this.subirPaginas(pngs, `pedido-${codigo}`);
       if (!imagenes) return null;
       // el texto viaja como epígrafe, sin lo que ya está en la tarjeta (los
-      // renglones y la primera oración con el código y el total)
-      const pie = respuesta.split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('•')).join('\n')
+      // renglones, el código, el total y dónde y cuándo): queda "Pedido
+      // confirmado." y lo que no está en la imagen (cómo se paga, a nombre de
+      // quién lo retiran)
+      const resto = respuesta.split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('•')).join('\n')
         .replace(/^Pedido\s+\S+\s+confirmado\.\s*(?:Total:\s*\$\s?[\d.]+\.?)?\s*/i, '')
-        .replace(/[ \t]{2,}/g, ' ').trim().slice(0, 400);
+        .replace(/^(?:Retiro en la sucursal Saint Thomas|Envío sin cargo)[\s\S]*?(?=Se abona\b)/i, '')
+        .replace(/[ \t]{2,}/g, ' ').trim();
+      const pie = `Pedido confirmado.${resto ? (/^¿/.test(resto) ? '\n\n' : ' ') + resto : ''}`.slice(0, 400);
       return { imagenUrl: imagenes[0], imagenes, pie };
     } catch (e) {
       this.log.warn(`tarjeta del pedido falló (${codigo}): ${e instanceof Error ? e.message : e}`);
@@ -3862,7 +3975,7 @@ export class BotService {
     if (productos.length < 2) return null;
     try {
       const fecha = new Date().toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', timeZone: 'America/Argentina/Buenos_Aires' });
-      const imagenes = await this.subirPaginas(await cartelesListaPrecios(productos.slice(0, 18), fecha), 'listado');
+      const imagenes = await this.subirPaginas(await cartelesListaPrecios(productos.slice(0, 18), fecha), 'precios');
       if (!imagenes) return null;
       return { imagenUrl: imagenes[0], imagenes, pie: pieSinPrecios(respuesta) || 'Te paso los precios.' };
     } catch (e) {
