@@ -172,6 +172,8 @@ export class AvisosPedidosService {
     // qué se manda
     let cabeza: string;
     let tarjeta: { pedido: PedidoParaAviso; epigrafe: string } | null = null;
+    // el texto del alta que se arma ahora dice "Ya está pagado."
+    let pagadoAlArmar = false;
     let texto: string;
     if (a.tipo === 'pedido_sin_cargar') {
       const cargado = await this.pedidoCargadoDespues(String(a.detalle?.telefono ?? ''), a.creado_en);
@@ -207,13 +209,15 @@ export class AvisosPedidosService {
           return this.omitir(a, pedido.estado === 'cancelado' ? 'el pedido se canceló antes de avisar' : 'el pedido ya se entregó antes de avisar');
         }
         if (pedido.esDelBot && esTelefonoDePrueba(pedido.telefonoDelBot) && !(await this.esChatReal(pedido.telefonoDelBot))) return this.omitir(a, 'pedido de prueba del simulador del panel');
+        pagadoAlArmar = !!pedido.pagado_en;
         const antesSinCargar = await this.antesSinCargar(pedido);
         texto = textoDelAviso(pedido, { conRenglones: true, antesSinCargar });
         if (pedido.items.length) tarjeta = { pedido, epigrafe: textoDelAviso(pedido, { conRenglones: false, antesSinCargar }) };
       } else {
         if (a.tipo === 'pedido_pagado' && pedido.pagado_en) {
-          const { data: alta } = await this.db.from('avisos_pedidos').select('enviado_en').eq('pedido_id', pedido.id).eq('tipo', 'pedido_nuevo').maybeSingle();
-          if ((alta as any)?.enviado_en && new Date((alta as any).enviado_en).getTime() >= new Date(pedido.pagado_en).getTime()) return this.omitir(a, 'el alta ya salió diciendo que estaba pagado');
+          // solo si el texto del alta que SALIÓ decía "Ya está pagado." (ante la duda, el pago sale: repetido no hace daño)
+          const { data: alta } = await this.db.from('avisos_pedidos').select('detalle').eq('pedido_id', pedido.id).eq('tipo', 'pedido_nuevo').maybeSingle();
+          if ((alta as any)?.detalle?.dijo_pagado === true) return this.omitir(a, 'el alta ya salió diciendo que estaba pagado');
         }
         texto = a.tipo === 'pedido_cancelado' ? textoDeCancelado(pedido) : textoDePagado(pedido);
       }
@@ -268,7 +272,9 @@ export class AvisosPedidosService {
       if (ultimo.enviado && ultimo.id) ids.push(String(ultimo.id));
       else return this.fallo(a, ultimo.motivo ?? 'WhatsApp no devolvió el id del mensaje', ultimo.incierto ?? !ultimo.enviado, ids);
     }
-    await this.enviado(a, destino, ids);
+    // el texto que salió decía "Ya está pagado.": el PEDIDO PAGADO se puede omitir después
+    const dijoPagado = a.tipo === 'pedido_nuevo' && pagadoAlArmar;
+    await this.enviado(a, destino, ids, undefined, dijoPagado ? { detalle: { ...(a.detalle ?? {}), dijo_pagado: true } } : {});
     // si mientras tanto el pedido se canceló o se pagó, la base encola la baja o el pago
     if (a.tipo === 'pedido_nuevo') await this.db.rpc('encolar_avisos_faltantes').then(() => null, () => null);
   }
@@ -357,7 +363,7 @@ export class AvisosPedidosService {
     }
   }
 
-  private async enviado(a: FilaAviso, destino: string, ids: string[], nota?: string) {
+  private async enviado(a: FilaAviso, destino: string, ids: string[], nota?: string, extra: Record<string, unknown> = {}) {
     for (const id of ids) {
       try { await this.db.from('bot_envios').upsert({ waha_id: id, telefono: destino, origen: 'aviso-pedido' }, { onConflict: 'waha_id' }); } catch { /* el registro del eco no frena el aviso */ }
     }
@@ -366,6 +372,7 @@ export class AvisosPedidosService {
       incierto: false, ultimo_error: null, proximo_intento: new Date(Date.now() + 20_000).toISOString(),
       // problema nuevo, reloj nuevo: lo que se esperó para escalar "no salió" no atrasa "no llegó"
       ack: null, escalar_intentos: 0, escalar_proximo: null,
+      ...extra,
     });
     this.log.log(`aviso ${a.tipo} ${a.pedido_id ?? ''} enviado a administración (${destino})${nota ? `: ${nota}` : ''}`);
   }
@@ -449,8 +456,8 @@ export class AvisosPedidosService {
         // avisaron por otro medio, o pasadas 48 horas, no se reenvía más (queda
         // pendiente, a la vista en la franja, y escalado). Seguir mandando a un
         // número que WhatsApp no entrega solo le suma riesgo a la línea.
-        const basta = !!a.visto_en || Date.now() - new Date(a.creado_en).getTime() > 48 * 3600_000
-          || (!primera && Date.now() - new Date(a.pendiente_desde).getTime() > 30 * 60_000);
+        const basta = !!a.visto_en || (!primera && (Date.now() - new Date(a.creado_en).getTime() > 48 * 3600_000
+          || Date.now() - new Date(a.pendiente_desde).getTime() > 30 * 60_000));
         await this.actualizar(a.id, {
           estado: 'pendiente', ack, incierto: false, waha_ids: [],
           ultimo_error: basta

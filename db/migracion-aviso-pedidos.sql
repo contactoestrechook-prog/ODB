@@ -176,3 +176,20 @@ insert into public.avisos_pedidos(pedido_id, tipo)
 select id, 'pedido_nuevo' from public.pedidos
 where creado_en > now() - interval '3 days' and estado not in ('entregado', 'cancelado')
 on conflict (pedido_id, tipo) where pedido_id is not null do nothing;
+
+-- Versión 3 (3/10/2026, tras la verificación de la v8 del API): la BAJA y el
+-- PAGO se avisan también si el alta quedó pendiente pero alguien ya se enteró
+-- por otro medio (se escaló a los dueños, marcaron "Ya avisé al local", o se
+-- cortaron los reenvíos por errores de entrega). Antes, con el alta cortada, una
+-- cancelación posterior no le llegaba a nadie y el local preparaba un pedido cancelado.
+create or replace function public.alta_avisada(p_pedido uuid)
+ returns boolean language sql stable security definer set search_path to 'public'
+as $function$
+  select exists (select 1 from avisos_pedidos a where a.pedido_id = p_pedido and a.tipo = 'pedido_nuevo'
+    and (a.estado in ('enviado', 'entregado')
+      or (a.estado = 'pendiente' and (a.escalado_en is not null or a.visto_en is not null or a.proximo_intento = 'infinity'))));
+$function$;
+revoke all on function public.alta_avisada(uuid) from public, anon, authenticated;
+-- encolar_aviso_pedido() y encolar_avisos_faltantes() usan alta_avisada(id) en
+-- lugar de "estado in ('enviado', 'entregado')" (aplicado como migración
+-- aviso_pedidos_alta_avisada; el cuerpo completo está en la base).

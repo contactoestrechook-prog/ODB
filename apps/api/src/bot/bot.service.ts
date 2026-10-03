@@ -1613,9 +1613,12 @@ export class BotService {
     // con la lista ya cerrada no se vuelve a preguntar si está completa
     // la promesa de avisar por un pedido se decide sobre lo que escribió el bot,
     // ANTES de la pregunta de completo que agrega el sistema (3/10/2026)
-    const sigueEnCurso = /¿\s*lo confirmo\?|¿[^?]*(?:est[aá] completo|sumar algo)[^?]*\?/i.test(respuesta ?? '');
+    const respuestaDelBot = respuesta;
     const prometeAvisoAlSector = /aviso al (?:sector|local|equipo)/i.test(respuesta ?? '');
     if (respuesta && !respuestaFija.operacion && !cierreDeLista) { if (!prometioAvisoDePedido && !prometeAvisoAlSector) respuesta = conPreguntaDeCompleto(respuesta); }
+    // si el bot todavía pide confirmación, o el sistema le agregó "¿Está completo…?"
+    // (es una lista en armado), no hay un pedido confirmado que avisar
+    const sigueEnCurso = /¿\s*lo confirmo\?|¿[^?]*(?:est[aá] completo|sumar algo)[^?]*\?/i.test(respuestaDelBot ?? '') || respuesta !== respuestaDelBot;
     // lo interno (stock, sucursales, "el sistema") no sale al cliente (1/10/2026)
     if (respuesta) respuesta = sinLoConsulto(retiroOEnvio(sinCocinaInterna(respuesta)));
 

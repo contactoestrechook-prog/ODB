@@ -337,11 +337,26 @@ describe('AvisosPedidosService: el aviso sale a administración', () => {
     expect(db.escrituras.filter((w: any) => w.tabla === 'bot_envios').map((w: any) => w.fila.waha_id)).toEqual(['true_x_IMG', 'true_x_TXT']);
   });
 
-  it('PEDIDO PAGADO no se repite si el alta ya salió diciendo que estaba pagado', async () => {
-    const db = baseFalsa({ ...TABLAS, pedidos: { data: { ...PEDIDO_DB, pagado_en: '2026-10-03T13:11:00Z' } }, avisos_pedidos: { data: { enviado_en: '2026-10-03T13:12:00Z' } } });
+  it('PEDIDO PAGADO no se repite solo si el texto del alta que SALIÓ decía "Ya está pagado."', async () => {
+    const db = baseFalsa({ ...TABLAS, pedidos: { data: { ...PEDIDO_DB, pagado_en: '2026-10-03T13:11:00Z' } }, avisos_pedidos: { data: { detalle: { dijo_pagado: true } } } });
     await enviar(new AvisosPedidosService(db), { ...FILA, tipo: 'pedido_pagado' });
     expect(texto).not.toHaveBeenCalled();
     expect(ultimaActualizacion(db)).toMatchObject({ estado: 'omitido' });
+  });
+
+  it('un alta anotada después del pago pero que decía "Se cobra al retirar": el PEDIDO PAGADO sale igual', async () => {
+    texto.mockResolvedValue({ enviado: true, id: 'PG' });
+    const db = baseFalsa({ ...TABLAS, pedidos: { data: { ...PEDIDO_DB, pagado_en: '2026-10-03T13:11:00Z' } }, avisos_pedidos: { data: { detalle: null, enviado_en: '2026-10-03T13:20:00Z' } } });
+    await enviar(new AvisosPedidosService(db), { ...FILA, tipo: 'pedido_pagado' });
+    expect(texto.mock.calls[0][2]).toMatch(/^PEDIDO PAGADO · PICKUP-5F2451C6C111/);
+  });
+
+  it('el alta armada con el pedido ya pagado anota que lo dijo', async () => {
+    imagen.mockResolvedValue({ enviado: true, id: 'A1' });
+    const db = baseFalsa({ ...TABLAS, pedidos: { data: { ...PEDIDO_DB, pagado_en: '2026-10-03T13:11:00Z' } } });
+    await enviar(new AvisosPedidosService(db));
+    expect(imagen.mock.calls[0][3]).toMatch(/Ya está pagado\./);
+    expect(ultimaActualizacion(db)).toMatchObject({ estado: 'enviado', detalle: { dijo_pagado: true } });
   });
 
   it('la baja y el pago salen como texto, con su encabezado', async () => {
@@ -446,6 +461,16 @@ describe('AvisosPedidosService: que llegue y, si no, que se enteren los dueños'
     const f = ultimaActualizacion(db);
     expect(f).toMatchObject({ estado: 'pendiente', proximo_intento: 'infinity', ultimo_error: expect.stringMatching(/no se reenvía más/) });
     expect(f).not.toHaveProperty('escalado_en');
+  });
+
+  it('el primer ack -1 de un aviso de hace más de 48 h no lo corta: se reenvía', async () => {
+    jest.spyOn(global, 'fetch' as any).mockResolvedValue({ ok: true, json: async () => ({ ack: -1 }) } as any);
+    const viejo = '2026-09-30T10:00:00.000Z';
+    const db = baseFalsa({ avisos_pedidos: { data: [{ ...enviado[0], creado_en: viejo, pendiente_desde: viejo }] } });
+    await (new AvisosPedidosService(db) as any).verificarEntregas();
+    const f = ultimaActualizacion(db);
+    expect(f.proximo_intento).not.toBe('infinity');
+    expect(f).toMatchObject({ estado: 'pendiente', escalado_en: null });
   });
 
   it('el primer ack -1 rearma el escalamiento; los siguientes no', async () => {
