@@ -435,7 +435,7 @@ export class AvisosPedidosService {
         const ahora = new Date().toISOString();
         const primera = new Date(a.pendiente_desde).getTime() === new Date(a.creado_en).getTime();
         await this.actualizar(a.id, {
-          estado: 'pendiente', ack, incierto: false, waha_ids: [], escalar_intentos: 0, escalar_proximo: null,
+          estado: 'pendiente', ack, incierto: false, waha_ids: [], escalar_intentos: 0, escalar_proximo: null, escalado_en: null,
           ultimo_error: 'WhatsApp marcó error de entrega (ack -1): se reenvía',
           proximo_intento: new Date(Date.now() + esperaParaReintentar(Number(a.intentos ?? 1))).toISOString(),
           ...(primera ? { pendiente_desde: ahora } : {}),
@@ -495,7 +495,7 @@ export class AvisosPedidosService {
         .select('escalar_intentos');
       if (!tomada?.length) continue;
       const intentos = Number((tomada[0] as any).escalar_intentos ?? 0);
-      const r = await this.escalar(p, intentos === 0).catch((e) => {
+      const r = await this.escalar(p, intentos).catch((e) => {
         this.log.error(`no pude escalar el aviso de ${p.codigo}: ${e instanceof Error ? e.message : e}`);
         return 'fallo' as const;
       });
@@ -504,7 +504,8 @@ export class AvisosPedidosService {
         : r === 'resuelto'
           ? { escalar_proximo: null, escalar_intentos: 0 }
           : r === 'postergado'
-            ? { escalar_proximo: new Date(Date.now() + 60_000).toISOString() }
+            // se cuenta: si se posterga otra vez (el proceso se cae cada vez que lo toma), se escala
+            ? { escalar_proximo: new Date(Date.now() + 60_000).toISOString(), escalar_intentos: intentos + 1 }
             : { escalar_intentos: intentos + 1, escalar_proximo: new Date(Date.now() + esperaParaEscalar(intentos)).toISOString() });
     }
   }
@@ -520,10 +521,12 @@ export class AvisosPedidosService {
   }
 
   /** 'escalado' si a algún dueño le salió el WhatsApp; 'resuelto' si el aviso salió (o llegó) mientras tanto. La campanita, una sola vez por problema. */
-  private async escalar(p: ProblemaDeAviso, primeraVez: boolean): Promise<'escalado' | 'fallo' | 'resuelto' | 'postergado'> {
+  private async escalar(p: ProblemaDeAviso, intentos: number): Promise<'escalado' | 'fallo' | 'resuelto' | 'postergado'> {
+    const primeraVez = intentos === 0;
     // justo antes de avisar a los dueños, se vuelve a mirar: si mientras tanto
     // salió (o llegó), no hay nada que escalar
-    const { data: ahora } = await this.db.from('avisos_pedidos').select('estado, tomado_hasta').eq('id', p.avisoId).maybeSingle();
+    const { data: ahora } = await this.db.from('avisos_pedidos').select('estado, tomado_hasta, waha_ids').eq('id', p.avisoId).maybeSingle();
+    const tomadoAhora = !!(ahora as any)?.tomado_hasta && new Date((ahora as any).tomado_hasta).getTime() > Date.now();
     const sigue = p.problema === 'no_salio' ? (ahora as any)?.estado === 'pendiente' : (ahora as any)?.estado === 'enviado';
     if (!sigue) {
       this.log.log(`el aviso de ${p.codigo} se resolvió solo (${(ahora as any)?.estado ?? 'sin datos'}): no se escala`);
@@ -535,15 +538,23 @@ export class AvisosPedidosService {
     if (p.problema === 'no_salio' && admin) {
       const cabeza = await this.cabezaDelAviso(p);
       const ya = cabeza ? await this.buscarEnElChat(`${admin}@c.us`, cabeza) : null;
-      if (ya) {
-        // si es la imagen de la tarjeta, el envío lo completa con el texto en la próxima vuelta
-        if (ya.conImagen && p.tipo === 'pedido_nuevo') await this.actualizar(p.avisoId, { waha_ids: [ya.id], proximo_intento: new Date().toISOString(), tomado_hasta: null });
-        else await this.enviado({ id: p.avisoId, tipo: p.tipo, pedido_id: p.pedidoId } as FilaAviso, admin, [ya.id], 'estaba en el chat aunque no había quedado anotado');
+      if (ya && !(ya.conImagen && p.tipo === 'pedido_nuevo')) {
+        await this.enviado({ id: p.avisoId, tipo: p.tipo, pedido_id: p.pedidoId } as FilaAviso, admin, [ya.id], 'estaba en el chat aunque no había quedado anotado');
+        return 'resuelto';
+      }
+      // la imagen de la tarjeta puede ser solo la página 1: la primera vez se
+      // deja que el envío la complete con el texto (sin pisar a un proceso que
+      // la está mandando); si ya se sabía y el texto sigue sin salir, se escala
+      if (ya && !((ahora as any)?.waha_ids ?? []).filter(Boolean).length) {
+        if (tomadoAhora) return 'postergado';
+        await this.actualizar(p.avisoId, { waha_ids: [ya.id], proximo_intento: new Date().toISOString(), tomado_hasta: null });
+        this.log.warn(`el aviso de ${p.codigo}: la tarjeta está en el chat pero puede estar a medias; se completa con el texto antes de escalar`);
         return 'resuelto';
       }
       // lo tiene tomado un proceso que ya no está (un deploy lo cortó): se
       // libera para que se reintente ya, y se escala recién si tampoco sale
-      if ((ahora as any)?.tomado_hasta && new Date((ahora as any).tomado_hasta).getTime() > Date.now()) {
+      // (una sola vez: si vuelve a pasar, se escala)
+      if (!ya && tomadoAhora && intentos < 1) {
         await this.actualizar(p.avisoId, { tomado_hasta: null, proximo_intento: new Date().toISOString() });
         this.log.warn(`el aviso de ${p.codigo} estaba tomado por un proceso que no terminó: se reintenta antes de escalar`);
         return 'postergado';
@@ -560,13 +571,19 @@ export class AvisosPedidosService {
         await this.db.from('alertas_internas').insert({ para_usuario: u.id, tipo: 'pedido_sin_aviso', titulo, detalle, referencia: { pedido_id: p.pedidoId, aviso_id: p.avisoId, link: '/pedidos' } }).then(() => null, () => null);
       }
     }
+    // el detalle del pedido es un agregado: si no se puede armar, el aviso a
+    // los dueños sale igual con el título
     let cuerpo = '';
-    if (p.tipo === 'pedido_sin_cargar') {
-      const { data: fila } = await this.db.from('avisos_pedidos').select('detalle').eq('id', p.avisoId).maybeSingle();
-      cuerpo = textoDeSinCargar(await this.sinCargar((fila as any)?.detalle, p.avisoId));
-    } else if (p.pedidoId) {
-      const pedido = await this.pedidoParaAviso(p.pedidoId);
-      if (pedido) cuerpo = p.tipo === 'pedido_nuevo' ? textoDelAviso(pedido, { conRenglones: true }) : p.tipo === 'pedido_cancelado' ? textoDeCancelado(pedido) : textoDePagado(pedido);
+    try {
+      if (p.tipo === 'pedido_sin_cargar') {
+        const { data: fila } = await this.db.from('avisos_pedidos').select('detalle').eq('id', p.avisoId).maybeSingle();
+        cuerpo = textoDeSinCargar(await this.sinCargar((fila as any)?.detalle, p.avisoId));
+      } else if (p.pedidoId) {
+        const pedido = await this.pedidoParaAviso(p.pedidoId);
+        if (pedido) cuerpo = p.tipo === 'pedido_nuevo' ? textoDelAviso(pedido, { conRenglones: true }) : p.tipo === 'pedido_cancelado' ? textoDeCancelado(pedido) : textoDePagado(pedido);
+      }
+    } catch (e) {
+      this.log.warn(`no pude armar el detalle del escalamiento de ${p.codigo}: ${e instanceof Error ? e.message : e}`);
     }
     const texto = `ATENCIÓN: ${titulo}.\n${detalle}${cuerpo ? `\n\n${cuerpo}` : ''}`;
     const telefonos = (process.env.AVISOS_ESCALAR_A

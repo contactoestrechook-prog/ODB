@@ -37,7 +37,7 @@ describe('el pedido confirmado SIN cargar sale a administración', () => {
   });
 
   it('por la frase: si la ÚLTIMA cotización del chat ya tiene pedido, hablaba de ese; si es otra sin confirmar, el aviso sale', async () => {
-    const conPedido = baseFalsa({ bot_cotizaciones: { data: { pedido_id: 'ped-1' } } });
+    const conPedido = baseFalsa({ bot_cotizaciones: { data: { pedido_id: 'ped-1', confirmada_en: new Date().toISOString() } } });
     await (servicio(conPedido) as any).encolarPedidoSinCargar('pedidos', '230566779732018', 'frase', { salvoPedidoReciente: true });
     expect(conPedido.escrituras).toEqual([]);
     // el freno avisa siempre
@@ -46,6 +46,24 @@ describe('el pedido confirmado SIN cargar sale a administración', () => {
     const otra = baseFalsa({ bot_cotizaciones: { data: { pedido_id: null } } });
     await (servicio(otra) as any).encolarPedidoSinCargar('pedidos', '230566779732018', 'segundo pedido', { salvoPedidoReciente: true });
     expect(otra.escrituras).toHaveLength(1);
+  });
+
+  it('por la frase: un pedido confirmado hace días no calla el aviso de uno nuevo', async () => {
+    const vieja = baseFalsa({ bot_cotizaciones: { data: { pedido_id: 'ped-viejo', confirmada_en: new Date(Date.now() - 3 * 86400_000).toISOString() } } });
+    await (servicio(vieja) as any).encolarPedidoSinCargar('pedidos', '230566779732018', 'frase', { salvoPedidoReciente: true });
+    expect(vieja.escrituras).toHaveLength(1);
+  });
+
+  it('un pedido grande (supera el máximo del canal) sale a administración apenas se rechaza', async () => {
+    const db = baseFalsa();
+    const s: any = servicio(db);
+    jest.spyOn(s, 'prepararPedido').mockRejectedValue(new Error('El pedido supera el máximo del canal WhatsApp; debe tomarlo el equipo'));
+    s.puedeCotizarIgual = true;
+    const ctx = { ultimoBot: 'Te anoto:\n• 80 × Agua\n\n¿Está completo el pedido o querés sumar algo?', ultimosBot: ['Te anoto:\n• 80 × Agua\n\n¿Está completo el pedido o querés sumar algo?'], ultimosCliente: ['80 aguas', 'es todo'], textoCliente: 'es todo', fallos: new Map<string, number>(), fija: {} as any };
+    const r = await s.ejecutarHerramienta({ type: 'tool_use', id: 't', name: 'preparar_pedido', input: { tipo: 'pickup', items: [{ sku: 'AGUA', cantidad: 80 }], nombre: 'Ana', direccion: '', notas: '', entrega_fecha: '', entrega_franja: '' } }, '5491133344455', 'pedidos', ctx);
+    expect(String(r.content)).toMatch(/Por el tamaño, este pedido lo carga una persona del local/);
+    expect(db.escrituras).toContainEqual(expect.objectContaining({ tabla: 'avisos_pedidos', op: 'insert', fila: expect.objectContaining({ tipo: 'pedido_sin_cargar' }) }));
+    await new Promise((r) => setImmediate(r));
   });
 
   it('un teléfono con forma de simulador que escribió de verdad sí avisa', async () => {

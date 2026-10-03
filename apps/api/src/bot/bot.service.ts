@@ -1621,8 +1621,10 @@ export class BotService {
     // sistema, o crear_pedido falló en este turno; y no si el chat ya tiene un
     // pedido confirmado en las últimas horas (entonces preguntaba por ese).
     const prometePedido = /aviso al sector correspondiente para (?:que lo dejen|dejarlo) confirmado|\btomo (?:tu|su|el) pedido\b|aviso al (?:sector|local|equipo)[^.\n]{0,80}?\b(?:confirm|carg|arm)/i.test(respuesta ?? '');
-    const huboIntentoDePedido = herramientasDelTurno.has('crear_pedido') || (fallosDelTurno.get('crear_pedido') ?? 0) >= 1 || dijoCargadoSinCodigo || /¿\s*lo confirmo\?/i.test(String(ultimoDelBot));
-    if (linea === 'pedidos' && fallosDelTurno.get('__pedido_creado__') !== 1
+    const huboIntentoDePedido = herramientasDelTurno.has('crear_pedido') || (fallosDelTurno.get('crear_pedido') ?? 0) >= 1 || dijoCargadoSinCodigo || /¿[^?]{0,30}\bconfirm\w*[^?]{0,60}\?|lo dejo cargad/i.test(String(ultimoDelBot));
+    // si la respuesta todavía pide confirmación, no hay pedido confirmado que avisar
+    const sigueEnCurso = /¿\s*lo confirmo\?|¿[^?]*(?:est[aá] completo|sumar algo)[^?]*\?/i.test(respuesta ?? '');
+    if (linea === 'pedidos' && fallosDelTurno.get('__pedido_creado__') !== 1 && !sigueEnCurso
         && (prometioAvisoDePedido || (prometePedido && huboIntentoDePedido))) {
       await this.encolarPedidoSinCargar(linea, telefono, `El bot le dijo al cliente: «${respuesta.slice(0, 300)}». Último mensaje del cliente: «${texto.slice(0, 300)}».`, { salvoPedidoReciente: true });
     }
@@ -1953,6 +1955,25 @@ export class BotService {
       const n = (ctx.fallos?.get(block.name) ?? 0) + 1;
       ctx.fallos?.set(block.name, n);
       let freno = n >= 2 ? ` YA FALLÓ ${n} VECES EN ESTE TURNO: no vuelvas a llamar a ${block.name} ahora. Contestale al cliente pidiendo exactamente el dato que falta (o explicando qué no se puede), y recién en el próximo mensaje volvé a intentar.` : '';
+      // PEDIDO GRANDE (3/10/2026): supera el máximo del canal y "debe tomarlo el
+      // equipo". Con los datos completos (el tope se revisa después de modalidad,
+      // nombre y dirección), sale a administración en el acto, con nota y campanita.
+      if (block.name === 'preparar_pedido' && linea === 'pedidos' && /supera el m[aá]ximo del canal/i.test(msg)) {
+        try {
+          const items = Array.isArray(input?.items) ? input.items : [];
+          const unidades = items.reduce((n: number, i: any) => n + (Number(i?.cantidad) || 0), 0);
+          const nota = `PEDIDO GRANDE NO CARGADO (supera el máximo del canal WhatsApp: ${items.length} renglones / ${unidades} u). Ítems: ${items.map((i: any) => `${i.cantidad}x ${i.sku}`).join(', ') || '(sin ítems)'}. Modalidad: ${input?.tipo ?? '?'}. Dirección: ${input?.direccion ?? '-'}. Recibe: ${input?.nombre ?? '-'}. Notas: ${input?.notas ?? '-'}. Hay que cargarlo a mano y avisarle por este chat.`;
+          const hace10 = new Date(Date.now() - 10 * 60_000).toISOString();
+          const { data: prev } = await this.db.from('bot_notas_equipo').select('id').eq('telefono', telefono).like('nota', 'PEDIDO GRANDE NO CARGADO%').gte('creada_en', hace10).limit(1).maybeSingle();
+          if (!prev) {
+            await this.db.from('bot_notas_equipo').insert({ linea, telefono, nota });
+            const { data: cfg } = await this.db.from('lineas_whatsapp').select('avisar_proveedores_a').eq('linea', linea).eq('activa', true).limit(1).maybeSingle();
+            await this.db.from('alertas_internas').insert({ para_usuario: cfg?.avisar_proveedores_a ?? null, tipo: 'derivacion', titulo: `Pedido grande de +${telefono} para cargar a mano`, detalle: nota, referencia: { linea, telefono } });
+          }
+          await this.encolarPedidoSinCargar(linea, telefono, nota);
+          freno += ' Por el tamaño, este pedido lo carga una persona del local: la nota y el aviso a administración YA salieron con todos los datos. NO pidas confirmación, NO digas confirmado ni cargado y NO vuelvas a llamar a preparar_pedido. Decile al cliente, con estas palabras o parecidas: "Por el tamaño del pedido, tomo su pedido con todos los datos y doy aviso al sector correspondiente para que lo dejen confirmado."';
+        } catch (e2: any) { this.log.warn(`no pude dejar la nota del pedido grande: ${e2?.message ?? e2}`); }
+      }
       // crear_pedido atascado con el cliente ya confirmado (ronda 8: 25 rechazos,
       // 4 confirmaciones, 0 pedidos): el carrito NO se pierde. Queda una nota
       // estructurada para el local y el cliente recibe una salida honesta.
@@ -2517,9 +2538,10 @@ export class BotService {
       if (opciones.salvoPedidoReciente) {
         // si la ÚLTIMA cotización del chat ya tiene pedido, hablaba de ese; si hay
         // una más nueva sin confirmar, es otro pedido y el aviso sale
-        const { data: ultima } = await this.db.from('bot_cotizaciones').select('pedido_id')
+        const { data: ultima } = await this.db.from('bot_cotizaciones').select('pedido_id, confirmada_en')
           .eq('telefono', telefono).eq('linea', linea).order('creada_en', { ascending: false }).limit(1).maybeSingle();
-        if ((ultima as any)?.pedido_id) return;
+        const confirmada = (ultima as any)?.pedido_id && (ultima as any)?.confirmada_en ? new Date((ultima as any).confirmada_en).getTime() : 0;
+        if (confirmada && Date.now() - confirmada < 6 * 3600_000) return;
       }
       const { data: prev } = await this.db.from('avisos_pedidos').select('id').eq('tipo', 'pedido_sin_cargar')
         .eq('detalle->>telefono', telefono).gte('creado_en', new Date(Date.now() - 10 * 60_000).toISOString()).limit(1).maybeSingle();

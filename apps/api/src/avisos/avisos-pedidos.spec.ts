@@ -406,7 +406,7 @@ describe('AvisosPedidosService: que llegue y, si no, que se enteren los dueños'
     const db = baseFalsa({ avisos_pedidos: { data: enviado } });
     await (new AvisosPedidosService(db) as any).verificarEntregas();
     const f = ultimaActualizacion(db);
-    expect(f).toMatchObject({ estado: 'pendiente', ack: -1 });
+    expect(f).toMatchObject({ estado: 'pendiente', ack: -1, escalado_en: null });
     expect(Math.abs(new Date(f.pendiente_desde).getTime() - Date.now())).toBeLessThan(5_000);
   });
 
@@ -532,6 +532,33 @@ describe('AvisosPedidosService: que llegue y, si no, que se enteren los dueños'
     const filas = db.escrituras.filter((w: any) => w.tabla === 'avisos_pedidos' && w.op === 'update').map((w: any) => w.fila);
     expect(filas).toContainEqual(expect.objectContaining({ tomado_hasta: null }));
     expect(new Date(filas.at(-1).escalar_proximo).getTime()).toBeGreaterThan(Date.now() + 50_000);
+  });
+
+  it('tarjeta a medias cuyo texto no sale: la primera vez se completa, la segunda se escala a los dueños', async () => {
+    const texto = jest.spyOn(require('../comun/whatsapp'), 'enviarTextoWhatsapp').mockResolvedValue({ enviado: true, id: 'D1' });
+    jest.spyOn(global, 'fetch' as any).mockResolvedValue({ ok: true, json: async () => [{ fromMe: true, hasMedia: true, ack: 3, body: 'PEDIDO NUEVO · PICKUP-5F2451C6C111\n…', id: 'true_x_PAG1' }] } as any);
+    const primera = baseFalsa({ ...TABLAS, usuarios: DUENOS, avisos_pedidos: { data: { estado: 'pendiente', tomado_hasta: null, waha_ids: [] } }, pedidos: { data: { id: PEDIDO.id, qr_retiro: 'PICKUP-5F2451C6C111' } } });
+    const s1 = new AvisosPedidosService(primera); (s1 as any).arranque = 0;
+    jest.spyOn(s1, 'problemas').mockResolvedValue([PROBLEMA]);
+    await (s1 as any).vigilar();
+    expect(texto).not.toHaveBeenCalled();
+    expect(primera.escrituras.map((w: any) => w.fila)).toContainEqual(expect.objectContaining({ waha_ids: ['true_x_PAG1'] }));
+    const segunda = baseFalsa({ ...TABLAS, usuarios: DUENOS, avisos_pedidos: { data: { estado: 'pendiente', tomado_hasta: null, waha_ids: ['true_x_PAG1'] } }, pedidos: { data: { id: PEDIDO.id, qr_retiro: 'PICKUP-5F2451C6C111' } } });
+    const s2 = new AvisosPedidosService(segunda); (s2 as any).arranque = 0;
+    jest.spyOn(s2, 'problemas').mockResolvedValue([PROBLEMA]);
+    await (s2 as any).vigilar();
+    expect(texto).toHaveBeenCalled();
+    expect(ultimaActualizacion(segunda)).toMatchObject({ escalado_en: expect.any(String) });
+  });
+
+  it('postergar por un proceso caído es una sola vez: la segunda, escala', async () => {
+    const texto = jest.spyOn(require('../comun/whatsapp'), 'enviarTextoWhatsapp').mockResolvedValue({ enviado: true, id: 'D1' });
+    jest.spyOn(global, 'fetch' as any).mockResolvedValue({ ok: true, json: async () => [] } as any);
+    const db = baseFalsa({ ...TABLAS, usuarios: DUENOS, avisos_pedidos: { data: { estado: 'pendiente', tomado_hasta: new Date(Date.now() + 60_000).toISOString() } }, 'avisos_pedidos:update': { data: [{ escalar_intentos: 1 }] }, pedidos: { data: { id: PEDIDO.id, qr_retiro: 'PICKUP-5F2451C6C111' } } });
+    const s = new AvisosPedidosService(db); (s as any).arranque = 0;
+    jest.spyOn(s, 'problemas').mockResolvedValue([PROBLEMA]);
+    await (s as any).vigilar();
+    expect(texto).toHaveBeenCalled();
   });
 
   it('recién arrancado (un deploy) el vigía espera un minuto: primero sale lo pendiente', async () => {
