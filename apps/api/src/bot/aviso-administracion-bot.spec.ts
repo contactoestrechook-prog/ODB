@@ -90,6 +90,13 @@ describe('lo que administración contesta a un aviso de pedido no va a ningún c
     expect(s.enviarPorWhatsapp.mock.calls[0][0]).toMatchObject({ to: '5491125213601', text: expect.stringMatching(/^Eso no le llega al cliente/) });
   });
 
+  it('un acuse con emoji y tono de piel (👍🏻) a un aviso de pedido no recibe ninguna aclaración', async () => {
+    const { s } = armar({ bot_envios: { data: [{ waha_id: '3EB0AVISO' }] } });
+    await s.respuestaDeAdministracion('5491125213601', { body: '👍🏻', replyTo: 'true_5491125213601@c.us_3EB0AVISO' });
+    await s.respuestaDeAdministracion('5491125213601', { body: 'Okk gracias 🙏', replyTo: 'true_5491125213601@c.us_3EB0AVISO' });
+    expect(s.enviarPorWhatsapp).not.toHaveBeenCalled();
+  });
+
   it('sin cita, con un aviso de pedido del día y un pago pendiente: se pide citar (el "ok" no le llega al cliente del pago)', async () => {
     const { s } = armar({ avisos_pedidos: { data: null, count: 1 } });
     const r = await s.respuestaDeAdministracion('5491125213601', { body: 'ok' });

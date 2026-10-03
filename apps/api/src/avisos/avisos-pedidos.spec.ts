@@ -296,6 +296,22 @@ describe('AvisosPedidosService: el aviso sale a administración', () => {
     expect(imagen).not.toHaveBeenCalled();
   });
 
+  it('cancelado, con un intento anterior que pudo haber llegado y no se ve en el chat: se manda la BAJA por las dudas', async () => {
+    chatConMensajes([]);
+    const db = baseFalsa({ ...TABLAS, pedidos: { data: { ...PEDIDO_DB, estado: 'cancelado' } } });
+    await enviar(new AvisosPedidosService(db), { ...FILA, intentos: 2, incierto: true });
+    expect(db.escrituras).toContainEqual(expect.objectContaining({ tabla: 'avisos_pedidos', op: 'insert', fila: { pedido_id: PEDIDO.id, tipo: 'pedido_cancelado' } }));
+    expect(db.escrituras.filter((w: any) => w.op === 'update').pop().fila).toMatchObject({ estado: 'omitido' });
+    expect(imagen).not.toHaveBeenCalled();
+  });
+
+  it('enviado deja en cero el reloj del escalamiento y el ack (problema nuevo, reloj nuevo)', async () => {
+    imagen.mockResolvedValue({ enviado: true, id: 'Z1' });
+    const db = baseFalsa(TABLAS);
+    await enviar(new AvisosPedidosService(db));
+    expect(ultimaActualizacion(db)).toMatchObject({ estado: 'enviado', ack: null, escalar_intentos: 0, escalar_proximo: null });
+  });
+
   it('un pedido ya entregado antes de avisar no sale como PEDIDO NUEVO', async () => {
     const db = baseFalsa({ ...TABLAS, pedidos: { data: { ...PEDIDO_DB, estado: 'entregado' } } });
     await enviar(new AvisosPedidosService(db));

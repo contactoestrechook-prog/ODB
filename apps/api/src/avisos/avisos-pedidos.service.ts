@@ -194,6 +194,16 @@ export class AvisosPedidosService {
             await this.db.rpc('encolar_avisos_faltantes').then(() => null, () => null);
             return;
           }
+          // Un intento anterior pudo haber llegado aunque no aparezca (WhatsApp
+          // no dejó leer el chat, o todavía lo estaba mandando): la BAJA sale
+          // igual. Una baja de un alta que no llegó no hace daño; una baja que
+          // falta, sí (preparan un pedido cancelado).
+          if (pedido.estado === 'cancelado' && (a.intentos > 1 || a.incierto)) {
+            await this.omitir(a, 'el pedido se canceló; el alta pudo haber salido: se manda la baja por las dudas');
+            const { error } = await this.db.from('avisos_pedidos').insert({ pedido_id: pedido.id, tipo: 'pedido_cancelado' });
+            if (error && (error as any).code !== '23505') this.log.error(`no pude encolar la baja de ${cabeza}: ${error.message}`);
+            return;
+          }
           return this.omitir(a, pedido.estado === 'cancelado' ? 'el pedido se canceló antes de avisar' : 'el pedido ya se entregó antes de avisar');
         }
         if (pedido.esDelBot && esTelefonoDePrueba(pedido.telefonoDelBot) && !(await this.esChatReal(pedido.telefonoDelBot))) return this.omitir(a, 'pedido de prueba del simulador del panel');
@@ -286,7 +296,7 @@ export class AvisosPedidosService {
     if (!telefono) return null;
     const { data } = await this.db.from('bot_cotizaciones').select('pedido_id, confirmada_en, pedidos(qr_retiro)')
       .eq('telefono', telefono).not('pedido_id', 'is', null)
-      .gte('confirmada_en', new Date(new Date(desde).getTime() - 60_000).toISOString())
+      .gte('confirmada_en', new Date(desde).toISOString())
       .order('confirmada_en', { ascending: true }).limit(1).maybeSingle();
     return (data as any)?.pedido_id ? String((data as any)?.pedidos?.qr_retiro ?? (data as any).pedido_id) : null;
   }
@@ -345,6 +355,8 @@ export class AvisosPedidosService {
     await this.actualizar(a.id, {
       estado: 'enviado', destino, waha_id: ids[0], waha_ids: ids, enviado_en: new Date().toISOString(), tomado_hasta: null,
       incierto: false, ultimo_error: null, proximo_intento: new Date(Date.now() + 20_000).toISOString(),
+      // problema nuevo, reloj nuevo: lo que se esperó para escalar "no salió" no atrasa "no llegó"
+      ack: null, escalar_intentos: 0, escalar_proximo: null,
     });
     this.log.log(`aviso ${a.tipo} ${a.pedido_id ?? ''} enviado a administración (${destino})${nota ? `: ${nota}` : ''}`);
   }
@@ -423,7 +435,7 @@ export class AvisosPedidosService {
         const ahora = new Date().toISOString();
         const primera = new Date(a.pendiente_desde).getTime() === new Date(a.creado_en).getTime();
         await this.actualizar(a.id, {
-          estado: 'pendiente', ack, incierto: false, waha_ids: [],
+          estado: 'pendiente', ack, incierto: false, waha_ids: [], escalar_intentos: 0, escalar_proximo: null,
           ultimo_error: 'WhatsApp marcó error de entrega (ack -1): se reenvía',
           proximo_intento: new Date(Date.now() + esperaParaReintentar(Number(a.intentos ?? 1))).toISOString(),
           ...(primera ? { pendiente_desde: ahora } : {}),

@@ -61,6 +61,15 @@ const envioMinimo = () => Number(process.env.ENVIO_MINIMO ?? 70000) || 70000;
 const HERRAMIENTAS_DE_LECTURA = new Set(['buscar_productos', 'consultar_cava', 'identificar_cliente', 'estado_local', 'estado_pedido']);
 const TODAVIA_SIN_PRECIOS = 'TODAVÍA NO PASES PRECIOS (regla del dueño): primero confirmá que el pedido está completo. Respondé con la lista de lo que anotaste, un renglón por producto «• cantidad × producto puntual», SIN precios ni total, y la pregunta «¿Está completo el pedido o querés sumar algo?». Si algo no tiene stock o hay que elegir variante, decilo en esa lista. Recién cuando el cliente confirme que está completo, cotizar_pedido.';
 
+/**
+ * ¿Es un acuse corto ("ok", "listo", "Okk", 👍🏻, 🙏)? Lo que administración
+ * contesta así a un aviso de pedido no es para nadie (3/10/2026).
+ */
+function esAcuse(texto: string): boolean {
+  const t = String(texto ?? '').replace(/[\u{1F3FB}-\u{1F3FF}\uFE0F]/gu, '').trim();
+  return !!t && /^(?:ok+[iy]*s?|okey|oka+|dale|listo|recibido|visto|gracias|perfecto|joya|genial|s[ií]+|\p{Extended_Pictographic}|[\s.,!])+$/iu.test(t);
+}
+
 @Injectable()
 export class BotService {
   private readonly claude = new Anthropic();
@@ -1611,10 +1620,10 @@ export class BotService {
     // CONFIRMADO SIN CARGAR (3/10/2026). Solo con hechos: la frase la puso el
     // sistema, o crear_pedido falló en este turno; y no si el chat ya tiene un
     // pedido confirmado en las últimas horas (entonces preguntaba por ese).
+    const prometePedido = /aviso al sector correspondiente para (?:que lo dejen|dejarlo) confirmado|\btomo (?:tu|su|el) pedido\b|aviso al (?:sector|local|equipo)[^.\n]{0,80}?\b(?:confirm|carg|arm)/i.test(respuesta ?? '');
+    const huboIntentoDePedido = herramientasDelTurno.has('crear_pedido') || (fallosDelTurno.get('crear_pedido') ?? 0) >= 1 || dijoCargadoSinCodigo || /¿\s*lo confirmo\?/i.test(String(ultimoDelBot));
     if (linea === 'pedidos' && fallosDelTurno.get('__pedido_creado__') !== 1
-        && (prometioAvisoDePedido
-          || (/aviso al sector correspondiente para (?:que lo dejen|dejarlo) confirmado/i.test(respuesta ?? '')
-            && ((fallosDelTurno.get('crear_pedido') ?? 0) >= 1 || dijoCargadoSinCodigo)))) {
+        && (prometioAvisoDePedido || (prometePedido && huboIntentoDePedido))) {
       await this.encolarPedidoSinCargar(linea, telefono, `El bot le dijo al cliente: «${respuesta.slice(0, 300)}». Último mensaje del cliente: «${texto.slice(0, 300)}».`, { salvoPedidoReciente: true });
     }
 
@@ -3098,16 +3107,20 @@ export class BotService {
         if ((envio ?? []).length) {
           // un acuse ("ok", 👍) no se contesta; algo más largo puede ser para el
           // cliente ("ya lo cargué, avisale"): se le aclara que así no le llega
-          if (!/^(ok|okey|oka|dale|listo|recibido|visto|gracias|perfecto|joya|genial|s[ií]|👍|✅|👌|\s|[.,!])+$/iu.test(String(p.body ?? '').trim())) {
+          if (!esAcuse(String(p.body ?? ''))) {
             await this.enviarPorWhatsapp({ to: admin, text: 'Eso no le llega al cliente: responder un aviso de PEDIDO no se lo manda a nadie. Para escribirle, hacelo desde RESPONDE.', kind: 'aviso-interno' }).catch(() => null);
           }
           return { contestado: false, motivo: 'acuse de un aviso de pedido' };
         }
       }
-      const { count, error: eAvisos } = await this.db.from('avisos_pedidos').select('id', { count: 'exact', head: true })
-        .in('estado', ['enviado', 'entregado']).gte('enviado_en', new Date(Date.now() - 24 * 3600_000).toISOString());
-      // si no se puede saber, se supone que hubo: mejor pedir que cite que llevarle a un cliente algo que no era para él
-      avisosDelDia = eAvisos ? 1 : Number(count ?? 0);
+      // solo un acuse corto ("ok", 👍) puede ser para un pedido: una respuesta con
+      // contenido sigue yendo a su consulta o pago como siempre
+      if (esAcuse(texto)) {
+        const { count, error: eAvisos } = await this.db.from('avisos_pedidos').select('id', { count: 'exact', head: true })
+          .in('estado', ['enviado', 'entregado']).gte('enviado_en', new Date(Date.now() - 24 * 3600_000).toISOString());
+        // si no se puede saber, se supone que hubo: mejor pedir que cite que llevarle a un cliente algo que no era para él
+        avisosDelDia = eAvisos ? 1 : Number(count ?? 0);
+      }
     }
     // Sin ventana de 24h ni límite global: una cita vieja sigue identificando su consulta.
     const consultasTodas = await this.pendientesPaginados('bot_consultas_internas', 'respondido_en');
