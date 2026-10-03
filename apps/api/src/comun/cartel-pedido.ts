@@ -40,6 +40,24 @@ export type ResumenPedido = {
 const numero = (s: string) => Number(String(s).replace(/\./g, '').replace(',', '.'));
 const pesos = (n: number) => '$' + Math.round(n).toLocaleString('es-AR');
 
+/** "2026-10-04" → "domingo 4/10", en hora de Buenos Aires (null si no es una fecha). */
+export function fechaLegible(d?: string | null): string | null {
+  if (!d) return null;
+  const f = new Date(/^\d{4}-\d{2}-\d{2}$/.test(d) ? `${d}T12:00:00-03:00` : d);
+  if (isNaN(f.getTime())) return null;
+  const zona = { timeZone: 'America/Argentina/Buenos_Aires' } as const;
+  return `${f.toLocaleDateString('es-AR', { weekday: 'long', ...zona })} ${f.toLocaleDateString('es-AR', { day: 'numeric', month: 'numeric', ...zona })}`;
+}
+
+/** El epígrafe sin "¿Lo confirmo?": la tarjeta ya dice "Respondé SÍ y lo confirmamos". */
+export function sinPreguntaDeConfirmar(pie: string): string {
+  return String(pie ?? '')
+    .replace(/\s*¿\s*lo confirmo\s*\?\s*/gi, ' ')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/ *\n */g, '\n')
+    .trim();
+}
+
 /** El nombre como se lee: sin dobles espacios y con la medida escrita bien ("x750cc" → "750 cc"). */
 export function nombreParaCartel(n: string): string {
   return String(n ?? '')

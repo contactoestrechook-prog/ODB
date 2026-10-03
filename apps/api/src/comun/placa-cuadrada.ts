@@ -29,6 +29,8 @@ const FIN = LADO - 40;
 const SEP = 14; // entre renglones
 const SEP_PIE = 26; // entre bloques del pie
 const ESCALA_MAX = 1.35;
+const ESCALA_MIN_UNA = 0.8; // más chico ya no se lee en el globo
+const ESCALA_MIN_VARIAS = 0.85;
 
 export type Bloque = { alto: number; dibujar: (y: number, ancho: number) => string };
 
@@ -100,32 +102,28 @@ export function lineaCentrada(texto: string, color: string, tamano = 28, alto = 
  * varias (o una cortada, con unaSola).
  */
 export function paginasCuadradas(o: OpcionesPlaca): string[] {
-  // 1) ¿Entra todo en una página? Se prueba de la escala más grande a 1.
-  for (let s = ESCALA_MAX; s >= 1 - 1e-9; s -= 0.05) {
+  // 1) ¿Entra todo en una página? Se prueba de la escala más grande a la más
+  //    chica que todavía se lee (0,8): con 3 o 4 productos, una sola imagen es
+  //    mejor que dos.
+  for (let s = ESCALA_MAX; s >= ESCALA_MIN_UNA - 1e-9; s -= 0.05) {
     const ancho = ANCHO_UTIL / s;
     const r = o.renglones(ancho);
     const p = o.pie(ancho);
     const alto = alturaDe(r, SEP) + (r.length && p.length ? SEP_PIE : 0) + alturaDe(p, SEP_PIE);
     if (INICIO + alto * s <= FIN) {
-      const y0 = INICIO + (FIN - INICIO - alto * s) / 2;
-      const a = pila(r, SEP, ancho);
-      const b = pila(p, SEP_PIE, ancho);
-      const cuerpo = `<g transform="translate(${M} ${y0.toFixed(1)}) scale(${s.toFixed(3)})">
-    ${a.svg}
-    <g transform="translate(0 ${a.alto + (r.length && p.length ? SEP_PIE : 0)})">${b.svg}</g>
-  </g>`;
-      return [pagina(o, franjaCompleta(o, o.sub), cuerpo)];
+      return [pagina(o, franjaCompleta(o, o.sub), cuerpoCentrado(r, p, ancho, s, INICIO))];
     }
   }
-
-  const renglones = o.renglones(ANCHO_UTIL);
-  const pie = o.pie(ANCHO_UTIL);
-  const altoPie = alturaDe(pie, SEP_PIE);
 
   // 2) Una sola página, cortada: entran los renglones que quepan junto con el
   //    pie y la línea de "…y N más".
   if (o.unaSola) {
-    const lugar = FIN - INICIO - altoPie - SEP_PIE;
+    // a 0,85, para que entren más renglones antes del "…y N más"
+    const s = ESCALA_MIN_VARIAS;
+    const anchoCorte = ANCHO_UTIL / s;
+    const renglones = o.renglones(anchoCorte);
+    const pie = o.pie(anchoCorte);
+    const lugar = (FIN - INICIO) / s - alturaDe(pie, SEP_PIE) - SEP_PIE;
     const entran: Bloque[] = [];
     let usado = 0;
     for (let i = 0; i < renglones.length; i++) {
@@ -138,50 +136,70 @@ export function paginasCuadradas(o: OpcionesPlaca): string[] {
     }
     const fuera = renglones.length - entran.length;
     const lista = fuera > 0 ? [...entran, lineaCentrada(o.unaSola.masTexto(fuera), o.gris)] : entran;
-    const a = pila(lista, SEP, ANCHO_UTIL);
-    const b = pila(pie, SEP_PIE, ANCHO_UTIL);
-    const cuerpo = `<g transform="translate(${M} ${INICIO})">${a.svg}<g transform="translate(0 ${a.alto + SEP_PIE})">${b.svg}</g></g>`;
-    return [pagina(o, franjaCompleta(o, o.sub), cuerpo)];
+    return [pagina(o, franjaCompleta(o, o.sub), cuerpoCentrado(lista, pie, anchoCorte, s, INICIO))];
   }
 
-  // 3) Varias páginas: se llena cada una con renglones; el pie va entero en
-  //    la última, con al menos un renglón para que no quede solo.
+  // 3) Varias páginas: la menor cantidad posible (achicando hasta 0,85 si con
+  //    eso se ahorra una), cada una con su contenido centrado y el pie entero
+  //    en la última.
+  let mejor: { s: number; grupos: Bloque[][]; pie: Bloque[]; ancho: number } | null = null;
+  for (let s = 1; s >= ESCALA_MIN_VARIAS - 1e-9; s -= 0.05) {
+    const ancho = ANCHO_UTIL / s;
+    const grupos = repartir(o.renglones(ancho), o.pie(ancho), s);
+    if (!mejor || grupos.length < mejor.grupos.length) mejor = { s, grupos, pie: o.pie(ancho), ancho };
+  }
+  const { s, grupos, pie, ancho } = mejor!;
+  const total = grupos.length;
+  return grupos.map((g, i) => {
+    const primera = i === 0;
+    const ultima = i === total - 1;
+    const cabecera = primera ? franjaCompleta(o, `${o.sub} · 1/${total}`) : franjaChica(o, i + 1, total);
+    return pagina(o, cabecera, cuerpoCentrado(g, ultima ? pie : [], ancho, s, primera ? INICIO : INICIO_CHICA));
+  });
+}
+
+/** Renglones y pie, escalados y centrados entre `inicio` y el final de la página. */
+function cuerpoCentrado(r: Bloque[], p: Bloque[], ancho: number, s: number, inicio: number): string {
+  const a = pila(r, SEP, ancho);
+  const b = pila(p, SEP_PIE, ancho);
+  const entre = r.length && p.length ? SEP_PIE : 0;
+  const alto = a.alto + entre + b.alto;
+  const y0 = inicio + Math.max(0, (FIN - inicio - alto * s) / 2);
+  return `<g transform="translate(${M} ${y0.toFixed(1)}) scale(${s.toFixed(3)})">
+    ${a.svg}
+    ${p.length ? `<g transform="translate(0 ${a.alto + entre})">${b.svg}</g>` : ''}
+  </g>`;
+}
+
+/** Reparte los renglones en páginas a escala s; el pie va en la última, con al menos un renglón. */
+function repartir(renglones: Bloque[], pie: Bloque[], s: number): Bloque[][] {
+  const altoPie = alturaDe(pie, SEP_PIE);
+  const lugarPrimera = (FIN - INICIO) / s;
+  const lugarOtras = (FIN - INICIO_CHICA) / s;
   const grupos: Bloque[][] = [];
   let actual: Bloque[] = [];
   let usado = 0;
-  let lugar = FIN - INICIO;
+  let lugar = lugarPrimera;
   for (const r of renglones) {
     const necesita = usado + (actual.length ? SEP : 0) + r.alto;
     if (necesita > lugar && actual.length) {
       grupos.push(actual);
       actual = [];
       usado = 0;
-      lugar = FIN - INICIO_CHICA;
+      lugar = lugarOtras;
     }
     usado += (actual.length ? SEP : 0) + r.alto;
     actual.push(r);
   }
-  // ¿entra el pie en la última?
-  while (actual.length && usado + SEP_PIE + altoPie > lugar) {
-    // se pasa el último renglón a una página nueva, junto con el pie
+  // si el pie no entra en la última, el último renglón pasa a una página
+  // nueva junto con el pie
+  if (actual.length > 1 && usado + SEP_PIE + altoPie > lugar) {
     const ultimo = actual.pop()!;
-    if (!actual.length) { actual.push(ultimo); break; }
     grupos.push(actual);
     actual = [ultimo];
-    usado = ultimo.alto;
-    lugar = FIN - INICIO_CHICA;
+  } else if (actual.length === 1 && usado + SEP_PIE + altoPie > lugar && grupos.length === 0) {
+    // un solo renglón enorme: va igual con el pie (se ve achicado)
   }
   grupos.push(actual);
-
-  const total = grupos.length;
-  return grupos.map((g, i) => {
-    const primera = i === 0;
-    const ultima = i === total - 1;
-    const inicio = primera ? INICIO : INICIO_CHICA;
-    const a = pila(g, SEP, ANCHO_UTIL);
-    const b = ultima ? pila(pie, SEP_PIE, ANCHO_UTIL) : null;
-    const cuerpo = `<g transform="translate(${M} ${inicio})">${a.svg}${b ? `<g transform="translate(0 ${a.alto + SEP_PIE})">${b.svg}</g>` : ''}</g>`;
-    const cabecera = primera ? franjaCompleta(o, `${o.sub} · 1/${total}`) : franjaChica(o, i + 1, total);
-    return pagina(o, cabecera, cuerpo);
-  });
+  return grupos;
 }

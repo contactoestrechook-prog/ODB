@@ -50,7 +50,9 @@ function bonitoTelefono(t: string): string {
   return d ? `+${d}` : '';
 }
 import { costoUSD } from './tarifas';
-import { cartelListaPrecios, cartelPedido, imagenEsperada, leerResumenDePedido, nombreParaCartel, pieSinPrecios, preciosDeLaRespuesta, ProductoConPrecio } from '../comun/cartel-pedido';
+import { cartelesListaPrecios, cartelesPedido, fechaLegible, imagenEsperada, leerResumenDePedido, nombreParaCartel, pieSinPrecios, preciosDeLaRespuesta, sinPreguntaDeConfirmar, ProductoConPrecio } from '../comun/cartel-pedido';
+/** La tarjeta de una respuesta: una o más páginas cuadradas y el texto que va al pie de la última. */
+export type Tarjeta = { imagenUrl: string; imagenes: string[]; pie: string };
 
 // pedido mínimo para envío a domicilio (Leandro, 25/9/2026); ENVIO_MINIMO lo cambia sin tocar código
 const envioMinimo = () => Number(process.env.ENVIO_MINIMO ?? 70000) || 70000;
@@ -3687,9 +3689,15 @@ export class BotService {
     const cartel = await this.armarTarjeta(r);
     // si le correspondía imagen y no salió, que quede en el log (1/10/2026)
     if (!cartel && imagenEsperada(r.respuesta)) this.log.warn(`le correspondía imagen de ${imagenEsperada(r.respuesta)} y no se armó (${identidad})`);
-    let envio = cartel
-      ? await this.enviarPorWhatsapp({ to: desde, imagenUrl: cartel.imagenUrl, text: cartel.pie, referencia: `waha/${identidad}` })
-      : { enviado: false, motivo: 'sin cartel' } as any;
+    // una o más páginas cuadradas (3/10/2026): el texto va al pie de la última
+    let envio: any = { enviado: false, motivo: 'sin cartel' };
+    if (cartel) {
+      for (let i = 0; i < cartel.imagenes.length; i++) {
+        const ultima = i === cartel.imagenes.length - 1;
+        envio = await this.enviarPorWhatsapp({ to: desde, imagenUrl: cartel.imagenes[i], text: ultima ? cartel.pie : '', referencia: `waha/${identidad}` });
+        if (!envio.enviado) break;
+      }
+    }
     if (!envio.enviado) {
       if (cartel) this.log.warn(`el cartel no se pudo enviar (${envio.motivo}): va como texto`);
       envio = await this.enviarPorWhatsapp({ to: desde, text: r.respuesta, referencia: `waha/${identidad}` });
@@ -3697,10 +3705,25 @@ export class BotService {
     return envio;
   }
 
+  // Sube las páginas de una tarjeta al storage público y devuelve sus URL
+  // (null si falla alguna: va el texto).
+  private async subirPaginas(pngs: Buffer[], nombre: string): Promise<string[] | null> {
+    const mes = new Date().toISOString().slice(0, 7);
+    const base = `${nombre}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const urls: string[] = [];
+    for (let i = 0; i < pngs.length; i++) {
+      const ruta = `carteles/${mes}/${base}${pngs.length > 1 ? `-${i + 1}` : ''}.png`;
+      const { error } = await this.db.storage.from('publico').upload(ruta, pngs[i], { contentType: 'image/png', upsert: true });
+      if (error) { this.log.warn(`no pude subir la tarjeta ${nombre}: ${error.message}`); return null; }
+      urls.push(this.db.storage.from('publico').getPublicUrl(ruta).data.publicUrl);
+    }
+    return urls;
+  }
+
   // Qué tarjeta le toca a la respuesta, en este orden: el resumen del pedido,
   // el pedido confirmado, los precios de lo que consultó y la lista escrita a
   // mano. null: va el texto solo.
-  private async armarTarjeta(r: { respuesta: string; catalogo?: ProductoConPrecio[] }): Promise<{ imagenUrl: string; pie: string } | null> {
+  private async armarTarjeta(r: { respuesta: string; catalogo?: ProductoConPrecio[] }): Promise<Tarjeta | null> {
     return (await this.cartelDeResumen(r.respuesta)) ?? (await this.cartelDePedido(r.respuesta)) ?? (await this.cartelDePrecios(r.respuesta, r.catalogo ?? [])) ?? (await this.cartelDeListado(r.respuesta));
   }
 
@@ -3708,7 +3731,7 @@ export class BotService {
   // cliente, armada con la misma regla que enviarConTarjeta, para que el
   // simulador muestre la imagen y su epígrafe en vez del texto. No manda nada
   // por WhatsApp; la imagen queda en el storage público, como la de un envío.
-  async tarjetaDeLaRespuesta(r: { respuesta?: string | null; catalogo?: ProductoConPrecio[] } | null | undefined): Promise<{ imagenUrl: string; pie: string } | null> {
+  async tarjetaDeLaRespuesta(r: { respuesta?: string | null; catalogo?: ProductoConPrecio[] } | null | undefined): Promise<Tarjeta | null> {
     if (!r?.respuesta) return null;
     return this.armarTarjeta({ respuesta: r.respuesta, catalogo: r.catalogo });
   }
@@ -3730,18 +3753,15 @@ export class BotService {
   // Lista de precios como imagen (1/10/2026): con los productos que el bot
   // consultó y nombró en la respuesta, desde 3. El epígrafe se queda con lo que
   // no son precios (la pregunta).
-  private async cartelDePrecios(respuesta: string, catalogo: ProductoConPrecio[]): Promise<{ imagenUrl: string; pie: string } | null> {
+  private async cartelDePrecios(respuesta: string, catalogo: ProductoConPrecio[]): Promise<Tarjeta | null> {
     if (leerResumenDePedido(respuesta)) return null;
     const productos = preciosDeLaRespuesta(respuesta, catalogo);
     if (productos.length < 2) return null;
     try {
       const fecha = new Date().toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', timeZone: 'America/Argentina/Buenos_Aires' });
-      const png = await cartelListaPrecios(productos.slice(0, 18), fecha);
-      const ruta = `carteles/${new Date().toISOString().slice(0, 7)}/precios-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.png`;
-      const { error } = await this.db.storage.from('publico').upload(ruta, png, { contentType: 'image/png', upsert: true });
-      if (error) { this.log.warn(`no pude subir la lista de precios: ${error.message}`); return null; }
-      const imagenUrl = this.db.storage.from('publico').getPublicUrl(ruta).data.publicUrl;
-      return { imagenUrl, pie: pieSinPrecios(respuesta) || 'Te paso los precios.' };
+      const imagenes = await this.subirPaginas(await cartelesListaPrecios(productos.slice(0, 18), fecha), 'precios');
+      if (!imagenes) return null;
+      return { imagenUrl: imagenes[0], imagenes, pie: pieSinPrecios(respuesta) || 'Te paso los precios.' };
     } catch (e) {
       this.log.warn(`lista de precios falló: ${e instanceof Error ? e.message : e}`);
       return null;
@@ -3750,16 +3770,16 @@ export class BotService {
 
   // Resumen de pedido como imagen (diseño Placa roja, elegido el 25/9/2026).
   // Solo si TODOS los renglones se leen y suman el total; si no, va el texto.
-  private async cartelDeResumen(respuesta: string): Promise<{ imagenUrl: string; pie: string } | null> {
+  private async cartelDeResumen(respuesta: string): Promise<Tarjeta | null> {
     const resumen = leerResumenDePedido(respuesta);
     if (!resumen) return null;
     try {
-      const png = await cartelPedido(resumen);
-      const ruta = `carteles/${new Date().toISOString().slice(0, 7)}/resumen-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.png`;
-      const { error } = await this.db.storage.from('publico').upload(ruta, png, { contentType: 'image/png', upsert: true });
-      if (error) { this.log.warn(`no pude subir el resumen: ${error.message}`); return null; }
-      const imagenUrl = this.db.storage.from('publico').getPublicUrl(ruta).data.publicUrl;
-      return { imagenUrl, pie: resumen.pie || (resumen.confirmar ? '¿Lo confirmo?' : 'Te paso el resumen.') };
+      const imagenes = await this.subirPaginas(await cartelesPedido(resumen), 'resumen');
+      if (!imagenes) return null;
+      // la tarjeta ya dice "Respondé SÍ y lo confirmamos": el epígrafe no lo
+      // vuelve a preguntar (3/10/2026: se pedía confirmación dos veces)
+      const pie = resumen.confirmar ? sinPreguntaDeConfirmar(resumen.pie) : resumen.pie;
+      return { imagenUrl: imagenes[0], imagenes, pie };
     } catch (e) {
       this.log.warn(`cartel de resumen falló: ${e instanceof Error ? e.message : e}`);
       return null;
@@ -3771,15 +3791,17 @@ export class BotService {
   // renglones, que la confirmación no trae: no salía nunca). Los renglones y el
   // total salen de la base, no del texto; si no suman lo que dice el texto, va
   // el texto. Es lo que el cliente guarda y muestra en el mostrador.
-  private async cartelDePedido(respuesta: string): Promise<{ imagenUrl: string; pie: string } | null> {
-    const codigo = respuesta.match(/\b(?:DOM|RET|PICKUP)-[A-Z0-9]{4,10}\b/)?.[0];
+  private async cartelDePedido(respuesta: string): Promise<Tarjeta | null> {
+    // el código real tiene 12 caracteres ("PICKUP-5F2451C6C111"): con {4,10}
+    // la tarjeta no salía nunca (3/10/2026)
+    const codigo = respuesta.match(/\b(?:DOM|RET|PICKUP)-[A-Z0-9]{4,12}\b/)?.[0];
     if (!codigo) return null;
     // solo al confirmarlo: "tu pedido DOM-… está en camino" o "…quedó cancelado"
     // no llevan la tarjeta (diría "mostrá este código" de un pedido cancelado)
     if (!/\bconfirmad[oa]\b/i.test(respuesta) || /\bcancelad[oa]\b/i.test(respuesta)) return null;
     try {
       const { data: ped } = await this.db.from('pedidos')
-        .select('id, destino_direccion, pedidos_items(cantidad, precio_unitario, productos(nombre))')
+        .select('id, destino_direccion, entrega_fecha, entrega_franja, pedidos_items(cantidad, precio_unitario, productos(nombre))')
         .eq('qr_retiro', codigo).maybeSingle();
       const items = (((ped as any)?.pedidos_items ?? []) as any[]).filter((i) => Number(i.cantidad) > 0);
       if (!items.length) return null;
@@ -3794,25 +3816,27 @@ export class BotService {
       if (dicho && Math.abs(Number(dicho.replace(/\./g, '')) - suma) > 1) return null;
       const domicilio = codigo.startsWith('DOM');
       const direccion = (ped as any)?.destino_direccion as string | null;
-      const png = await cartelPedido({
+      const cuando = [fechaLegible((ped as any)?.entrega_fecha), (ped as any)?.entrega_franja].filter(Boolean).join(', ');
+      const pngs = await cartelesPedido({
         renglones,
         total: suma,
         entrega: domicilio
-          ? { titulo: 'Envío sin cargo', detalle: direccion || null }
-          : { titulo: 'Retiro en la sucursal Saint Thomas', detalle: 'Castex 3601, Canning' },
+          ? { titulo: 'Envío sin cargo', detalle: [direccion, cuando].filter(Boolean).join(' · ') || null }
+          : { titulo: 'Retiro en la sucursal Saint Thomas', detalle: ['Castex 3601, Canning', cuando].filter(Boolean).join(' · ') },
         confirmar: false,
         pie: '',
         titulo: 'PEDIDO',
         subtitulo: codigo,
         nota: domicilio ? 'Mostrá este código al recibir tu pedido.' : 'Presentá este código al retirar.',
       });
-      const ruta = `carteles/${new Date().toISOString().slice(0, 7)}/pedido-${codigo}-${Date.now()}.png`;
-      const { error } = await this.db.storage.from('publico').upload(ruta, png, { contentType: 'image/png', upsert: true });
-      if (error) { this.log.warn(`no pude subir la tarjeta del pedido ${codigo}: ${error.message}`); return null; }
-      const imagenUrl = this.db.storage.from('publico').getPublicUrl(ruta).data.publicUrl;
-      // el texto viaja como epígrafe: lo que no son renglones
-      const pie = respuesta.split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('•')).join(' ').replace(/\s{2,}/g, ' ').slice(0, 400);
-      return { imagenUrl, pie: pie || `Pedido confirmado: ${codigo}.` };
+      const imagenes = await this.subirPaginas(pngs, `pedido-${codigo}`);
+      if (!imagenes) return null;
+      // el texto viaja como epígrafe, sin lo que ya está en la tarjeta (los
+      // renglones y la primera oración con el código y el total)
+      const pie = respuesta.split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('•')).join('\n')
+        .replace(/^Pedido\s+\S+\s+confirmado\.\s*(?:Total:\s*\$\s?[\d.]+\.?)?\s*/i, '')
+        .replace(/[ \t]{2,}/g, ' ').trim().slice(0, 400);
+      return { imagenUrl: imagenes[0], imagenes, pie };
     } catch (e) {
       this.log.warn(`tarjeta del pedido falló (${codigo}): ${e instanceof Error ? e.message : e}`);
       return null;
@@ -3822,7 +3846,7 @@ export class BotService {
   // Lista de precios escrita a mano por el bot ("• Producto — $precio"), cuando
   // los productos no salen de lo que consultó en el turno: también Placa roja
   // (2/10/2026; antes, la gráfica vieja). Desde 2 productos.
-  private async cartelDeListado(respuesta: string): Promise<{ imagenUrl: string; pie: string } | null> {
+  private async cartelDeListado(respuesta: string): Promise<Tarjeta | null> {
     if (leerResumenDePedido(respuesta)) return null;
     const productos = respuesta.split('\n')
       .map((l) => l.trim())
@@ -3838,12 +3862,9 @@ export class BotService {
     if (productos.length < 2) return null;
     try {
       const fecha = new Date().toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', timeZone: 'America/Argentina/Buenos_Aires' });
-      const png = await cartelListaPrecios(productos.slice(0, 18), fecha);
-      const ruta = `carteles/${new Date().toISOString().slice(0, 7)}/precios-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.png`;
-      const { error } = await this.db.storage.from('publico').upload(ruta, png, { contentType: 'image/png', upsert: true });
-      if (error) { this.log.warn(`no pude subir el listado: ${error.message}`); return null; }
-      const imagenUrl = this.db.storage.from('publico').getPublicUrl(ruta).data.publicUrl;
-      return { imagenUrl, pie: pieSinPrecios(respuesta) || 'Te paso los precios.' };
+      const imagenes = await this.subirPaginas(await cartelesListaPrecios(productos.slice(0, 18), fecha), 'listado');
+      if (!imagenes) return null;
+      return { imagenUrl: imagenes[0], imagenes, pie: pieSinPrecios(respuesta) || 'Te paso los precios.' };
     } catch (e) {
       this.log.warn(`no pude armar el listado: ${e instanceof Error ? e.message : e}`);
       return null;

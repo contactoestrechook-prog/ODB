@@ -6,7 +6,8 @@ import { Boton, Chips, Entrada, FOCO, Tarjeta, unir } from './kit';
 
 // La tarjeta Placa roja que acompaña la respuesta (resumen, pedido, precios):
 // la misma imagen y el mismo epígrafe que le llegan al cliente por WhatsApp.
-type TarjetaWhatsapp = { imagenUrl: string; pie: string };
+// Desde el 3/10/2026 son páginas cuadradas: una, o varias si el pedido es largo.
+type TarjetaWhatsapp = { imagenes: string[]; pie: string };
 type Turno = { de: 'cliente' | 'bot'; texto: string; hora: string; tarjeta?: TarjetaWhatsapp | null };
 
 const telAlAzar = () => `11${Math.floor(10000000 + Math.random() * 89999999)}`;
@@ -44,7 +45,10 @@ export default function BotSimulador() {
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.message ?? 'El bot no pudo responder');
-      const tarjeta: TarjetaWhatsapp | null = d.tarjeta?.imagenUrl ? { imagenUrl: String(d.tarjeta.imagenUrl), pie: String(d.tarjeta.pie ?? '') } : null;
+      const imagenes: string[] = Array.isArray(d.tarjeta?.imagenes) && d.tarjeta.imagenes.length
+        ? d.tarjeta.imagenes.map(String)
+        : d.tarjeta?.imagenUrl ? [String(d.tarjeta.imagenUrl)] : [];
+      const tarjeta: TarjetaWhatsapp | null = imagenes.length ? { imagenes, pie: String(d.tarjeta.pie ?? '') } : null;
       setTurnos((t) => [...t, { de: 'bot', texto: d.respuesta, hora: hora(), tarjeta }]);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'El bot no pudo responder');
@@ -120,15 +124,19 @@ export default function BotSimulador() {
                 // epígrafe, no el texto. El texto que escribió el bot queda a mano
                 // para revisarlo.
                 <div className="w-80 max-w-[85%] rounded-2xl rounded-bl-md bg-white p-1 text-base leading-snug text-tinta shadow-tarjeta">
-                  <a href={t.tarjeta.imagenUrl} target="_blank" rel="noopener noreferrer" className={unir('block overflow-hidden rounded-xl', FOCO)}>
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={t.tarjeta.imagenUrl}
-                      alt="Tarjeta que recibe el cliente por WhatsApp (abrir en grande)"
-                      className="block h-auto w-full"
-                      onLoad={() => i === turnos.length - 1 && finRef.current?.scrollIntoView({ behavior: 'smooth' })}
-                    />
-                  </a>
+                  {t.tarjeta.imagenes.map((url, k) => (
+                    <a key={url} href={url} target="_blank" rel="noopener noreferrer" className={unir('block overflow-hidden rounded-xl', k > 0 && 'mt-1', FOCO)}>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={url}
+                        alt={t.tarjeta!.imagenes.length > 1
+                          ? `Tarjeta que recibe el cliente por WhatsApp, página ${k + 1} de ${t.tarjeta!.imagenes.length} (abrir en grande)`
+                          : 'Tarjeta que recibe el cliente por WhatsApp (abrir en grande)'}
+                        className="block h-auto w-full"
+                        onLoad={() => i === turnos.length - 1 && finRef.current?.scrollIntoView({ behavior: 'smooth' })}
+                      />
+                    </a>
+                  ))}
                   <div className="px-2 pb-1 pt-1.5">
                     {t.tarjeta.pie && <p className="whitespace-pre-wrap break-words">{t.tarjeta.pie}</p>}
                     <details className="mt-1">
