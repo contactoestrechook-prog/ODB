@@ -1616,8 +1616,10 @@ export class BotService {
     const respuestaDelBot = respuesta;
     const prometeAvisoAlSector = /aviso al (?:sector|local|equipo)/i.test(respuesta ?? '');
     const prometePedido = /aviso al sector correspondiente para (?:que lo dejen|dejarlo) confirmado|\btomo (?:tu|su|el) pedido\b|aviso al (?:sector|local|equipo)[^.\n]{0,80}?para (?:que lo dejen|dejarlo) (?:confirmad|cargad|armad)/i.test(respuestaDelBot ?? '');
+    // un intento de pedido en ESTE turno (no alcanza con la pregunta del mensaje anterior)
+    const huboIntentoEnElTurno = herramientasDelTurno.has('crear_pedido') || (fallosDelTurno.get('crear_pedido') ?? 0) >= 1 || dijoCargadoSinCodigo;
     const huboIntentoDePedido = herramientasDelTurno.has('crear_pedido') || (fallosDelTurno.get('crear_pedido') ?? 0) >= 1 || dijoCargadoSinCodigo || /¿[^?]{0,30}\bconfirm\w*[^?]{0,60}\?|lo dejo cargad/i.test(String(ultimoDelBot));
-    if (respuesta && !respuestaFija.operacion && !cierreDeLista) { if (!prometioAvisoDePedido && !prometeAvisoAlSector && !(prometePedido && huboIntentoDePedido)) respuesta = conPreguntaDeCompleto(respuesta); }
+    if (respuesta && !respuestaFija.operacion && !cierreDeLista) { if (!prometioAvisoDePedido && !prometeAvisoAlSector && !(prometePedido && huboIntentoEnElTurno)) respuesta = conPreguntaDeCompleto(respuesta); }
     // si el bot todavía pide confirmación, o el sistema le agregó "¿Está completo…?"
     // (es una lista en armado), no hay un pedido confirmado que avisar
     const sigueEnCurso = /¿\s*lo confirmo\?|¿[^?]*(?:est[aá] completo|sumar algo)[^?]*\?/i.test(respuestaDelBot ?? '') || respuesta !== respuestaDelBot;

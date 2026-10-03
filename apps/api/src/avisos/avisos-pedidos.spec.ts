@@ -345,13 +345,19 @@ describe('AvisosPedidosService: el aviso sale a administración', () => {
   });
 
   it('si el alta que lo dijo está apenas enviada (puede volver con error), el pago espera un minuto, sin contar como falla', async () => {
-    const db = baseFalsa({ ...TABLAS, pedidos: { data: { ...PEDIDO_DB, pagado_en: '2026-10-03T13:11:00Z' } }, avisos_pedidos: { data: { detalle: { dijo_pagado: true }, estado: 'enviado' } } });
+    const db = baseFalsa({ ...TABLAS, pedidos: { data: { ...PEDIDO_DB, pagado_en: '2026-10-03T13:11:00Z' } }, avisos_pedidos: { data: { detalle: { dijo_pagado: true }, estado: 'enviado', enviado_en: new Date(Date.now() - 60_000).toISOString() } } });
     await enviar(new AvisosPedidosService(db), { ...FILA, tipo: 'pedido_pagado' });
     expect(texto).not.toHaveBeenCalled();
     const f = ultimaActualizacion(db);
-    expect(f).toMatchObject({ tomado_hasta: null });
+    expect(f).toMatchObject({ tomado_hasta: null, ultimo_error: expect.stringMatching(/espera que llegue el alta/) });
     expect(f.estado).toBeUndefined();
-    expect(f.ultimo_error).toBeUndefined();
+  });
+
+  it('con tope: si el alta que dice "pagado" no llega en 15 minutos, el pago sale igual', async () => {
+    texto.mockResolvedValue({ enviado: true, id: 'PG2' });
+    const db = baseFalsa({ ...TABLAS, pedidos: { data: { ...PEDIDO_DB, pagado_en: '2026-10-03T13:11:00Z' } }, avisos_pedidos: { data: { detalle: { dijo_pagado: true }, estado: 'enviado', enviado_en: new Date(Date.now() - 20 * 60_000).toISOString() } } });
+    await enviar(new AvisosPedidosService(db), { ...FILA, tipo: 'pedido_pagado' });
+    expect(texto.mock.calls[0][2]).toMatch(/^PEDIDO PAGADO · /);
   });
 
   it('un alta anotada después del pago pero que decía "Se cobra al retirar": el PEDIDO PAGADO sale igual', async () => {
@@ -641,6 +647,23 @@ describe('AvisosPedidosService: que llegue y, si no, que se enteren los dueños'
     jest.spyOn(s, 'problemas').mockResolvedValue([PROBLEMA]);
     await (s as any).vigilar();
     expect(texto).toHaveBeenCalled();
+  });
+
+  it('un PEDIDO PAGADO retenido porque el alta que dice "pagado" está en camino no alarma a los dueños', async () => {
+    const texto = jest.spyOn(require('../comun/whatsapp'), 'enviarTextoWhatsapp');
+    const db = baseFalsa({ ...TABLAS, usuarios: DUENOS, avisos_pedidos: { data: { estado: 'pendiente', detalle: { dijo_pagado: true } } } });
+    const s = new AvisosPedidosService(db); (s as any).arranque = 0;
+    jest.spyOn(s, 'problemas').mockResolvedValue([{ ...PROBLEMA, tipo: 'pedido_pagado' }]);
+    // la misma fila sirve de pago (pendiente) y de alta (detalle dijo_pagado): para el alta se mira su estado
+    (db as any).from = ((orig: any) => (t: string) => {
+      const b = orig.call(db, t);
+      if (t !== 'avisos_pedidos') return b;
+      const eq = b.eq;
+      b.eq = (k: string, v: any) => { if (k === 'tipo' && v === 'pedido_nuevo') { b.maybeSingle = async () => ({ data: { detalle: { dijo_pagado: true }, estado: 'enviado' } }); } return eq(k, v); };
+      return b;
+    })(db.from);
+    await (s as any).vigilar();
+    expect(texto).not.toHaveBeenCalled();
   });
 
   it('recién arrancado (un deploy) el vigía espera un minuto: primero sale lo pendiente', async () => {

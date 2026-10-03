@@ -218,11 +218,13 @@ export class AvisosPedidosService {
           // solo si el texto del alta que SALIÓ decía "Ya está pagado." (ante la duda, el pago sale: repetido no hace daño)
           // y solo si ese texto LLEGÓ (entregado): si está apenas enviado, el pago
           // espera un minuto (WhatsApp todavía puede marcarlo con error de entrega)
-          const { data: alta } = await this.db.from('avisos_pedidos').select('detalle, estado').eq('pedido_id', pedido.id).eq('tipo', 'pedido_nuevo').maybeSingle();
+          const { data: alta } = await this.db.from('avisos_pedidos').select('detalle, estado, enviado_en').eq('pedido_id', pedido.id).eq('tipo', 'pedido_nuevo').maybeSingle();
           if ((alta as any)?.detalle?.dijo_pagado === true) {
             if ((alta as any)?.estado === 'entregado') return this.omitir(a, 'el alta ya llegó diciendo que estaba pagado');
-            if ((alta as any)?.estado === 'enviado') {
-              await this.actualizar(a.id, { tomado_hasta: null, proximo_intento: new Date(Date.now() + 60_000).toISOString() });
+            // con tope: si el alta no llega en 15 minutos, el pago sale igual (repetido no hace daño)
+            const esperando = (alta as any)?.enviado_en ? Date.now() - new Date((alta as any).enviado_en).getTime() : Infinity;
+            if ((alta as any)?.estado === 'enviado' && esperando < MINUTOS_SIN_LLEGAR * 60_000) {
+              await this.actualizar(a.id, { tomado_hasta: null, ultimo_error: 'espera que llegue el alta, que ya dice que está pagado', proximo_intento: new Date(Date.now() + 60_000).toISOString() });
               return;
             }
           }
@@ -569,6 +571,12 @@ export class AvisosPedidosService {
     if (!sigue) {
       this.log.log(`el aviso de ${p.codigo} se resolvió solo (${(ahora as any)?.estado ?? 'sin datos'}): no se escala`);
       return 'resuelto';
+    }
+    // un PEDIDO PAGADO retenido a propósito (el alta que ya dice "pagado" está
+    // en camino) no es "no salió": si el alta no llega, la escala el vigía por ella
+    if (p.tipo === 'pedido_pagado' && p.problema === 'no_salio' && p.pedidoId) {
+      const { data: alta } = await this.db.from('avisos_pedidos').select('detalle, estado').eq('pedido_id', p.pedidoId).eq('tipo', 'pedido_nuevo').maybeSingle();
+      if ((alta as any)?.detalle?.dijo_pagado === true && ['enviado', 'entregado'].includes(String((alta as any)?.estado))) return 'resuelto';
     }
     const admin = await this.telefonoAdministracion();
     // "no salió", pero puede haber salido sin que quedara anotado (un deploy
