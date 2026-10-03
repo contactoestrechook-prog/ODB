@@ -349,7 +349,7 @@ describe('AvisosPedidosService: el aviso sale a administración', () => {
     await enviar(new AvisosPedidosService(db), { ...FILA, tipo: 'pedido_pagado' });
     expect(texto).not.toHaveBeenCalled();
     const f = ultimaActualizacion(db);
-    expect(f).toMatchObject({ tomado_hasta: null, ultimo_error: expect.stringMatching(/espera que llegue el alta/) });
+    expect(f).toMatchObject({ tomado_hasta: null, ultimo_error: null });
     expect(f.estado).toBeUndefined();
   });
 
@@ -659,11 +659,28 @@ describe('AvisosPedidosService: que llegue y, si no, que se enteren los dueños'
       const b = orig.call(db, t);
       if (t !== 'avisos_pedidos') return b;
       const eq = b.eq;
-      b.eq = (k: string, v: any) => { if (k === 'tipo' && v === 'pedido_nuevo') { b.maybeSingle = async () => ({ data: { detalle: { dijo_pagado: true }, estado: 'enviado' } }); } return eq(k, v); };
+      b.eq = (k: string, v: any) => { if (k === 'tipo' && v === 'pedido_nuevo') { b.maybeSingle = async () => ({ data: { detalle: { dijo_pagado: true }, estado: 'enviado', enviado_en: new Date(Date.now() - 60_000).toISOString(), visto_en: null } }); } return eq(k, v); };
       return b;
     })(db.from);
     await (s as any).vigilar();
     expect(texto).not.toHaveBeenCalled();
+  });
+
+  it('pero si el alta tiene "Ya avisé al local" (nadie la vigila), el pago que no sale SÍ se escala', async () => {
+    const texto = jest.spyOn(require('../comun/whatsapp'), 'enviarTextoWhatsapp').mockResolvedValue({ enviado: true, id: 'D' });
+    jest.spyOn(global, 'fetch' as any).mockResolvedValue({ ok: true, json: async () => [] } as any);
+    const db = baseFalsa({ ...TABLAS, usuarios: DUENOS, avisos_pedidos: { data: { estado: 'pendiente', detalle: { dijo_pagado: true } } } });
+    const s = new AvisosPedidosService(db); (s as any).arranque = 0;
+    jest.spyOn(s, 'problemas').mockResolvedValue([{ ...PROBLEMA, tipo: 'pedido_pagado' }]);
+    (db as any).from = ((orig: any) => (t: string) => {
+      const b = orig.call(db, t);
+      if (t !== 'avisos_pedidos') return b;
+      const eq = b.eq;
+      b.eq = (k: string, v: any) => { if (k === 'tipo' && v === 'pedido_nuevo') { b.maybeSingle = async () => ({ data: { detalle: { dijo_pagado: true }, estado: 'enviado', enviado_en: new Date(Date.now() - 60_000).toISOString(), visto_en: new Date().toISOString() } }); } return eq(k, v); };
+      return b;
+    })(db.from);
+    await (s as any).vigilar();
+    expect(texto).toHaveBeenCalled();
   });
 
   it('recién arrancado (un deploy) el vigía espera un minuto: primero sale lo pendiente', async () => {

@@ -218,15 +218,12 @@ export class AvisosPedidosService {
           // solo si el texto del alta que SALIÓ decía "Ya está pagado." (ante la duda, el pago sale: repetido no hace daño)
           // y solo si ese texto LLEGÓ (entregado): si está apenas enviado, el pago
           // espera un minuto (WhatsApp todavía puede marcarlo con error de entrega)
-          const { data: alta } = await this.db.from('avisos_pedidos').select('detalle, estado, enviado_en').eq('pedido_id', pedido.id).eq('tipo', 'pedido_nuevo').maybeSingle();
-          if ((alta as any)?.detalle?.dijo_pagado === true) {
-            if ((alta as any)?.estado === 'entregado') return this.omitir(a, 'el alta ya llegó diciendo que estaba pagado');
-            // con tope: si el alta no llega en 15 minutos, el pago sale igual (repetido no hace daño)
-            const esperando = (alta as any)?.enviado_en ? Date.now() - new Date((alta as any).enviado_en).getTime() : Infinity;
-            if ((alta as any)?.estado === 'enviado' && esperando < MINUTOS_SIN_LLEGAR * 60_000) {
-              await this.actualizar(a.id, { tomado_hasta: null, ultimo_error: 'espera que llegue el alta, que ya dice que está pagado', proximo_intento: new Date(Date.now() + 60_000).toISOString() });
-              return;
-            }
+          const segun = await this.pagoSegunElAlta(pedido.id);
+          if (segun === 'omitir') return this.omitir(a, 'el alta ya llegó diciendo que estaba pagado');
+          if (segun === 'retener') {
+            // con tope (15 minutos): si el alta no llega, el pago sale igual (repetido no hace daño)
+            await this.actualizar(a.id, { tomado_hasta: null, ultimo_error: null, proximo_intento: new Date(Date.now() + 60_000).toISOString() });
+            return;
           }
         }
         texto = a.tipo === 'pedido_cancelado' ? textoDeCancelado(pedido) : textoDePagado(pedido);
@@ -311,6 +308,21 @@ export class AvisosPedidosService {
     if (!t) return false;
     const { data, error } = await this.db.from('bot_entrantes').select('waha_id').like('chat', `${t}@%`).limit(1);
     return !!error || !!(data ?? []).length; // sin poder saberlo, se avisa
+  }
+
+  /**
+   * Qué hacer con el PEDIDO PAGADO según el alta (una sola regla para el envío,
+   * el vigía y la franja): 'omitir' si el alta que LLEGÓ ya decía "Ya está
+   * pagado."; 'retener' si esa alta está en camino (enviada hace menos de 15
+   * minutos y sin "Ya avisé al local"); null en cualquier otro caso: el pago sale
+   * y se vigila como cualquier aviso.
+   */
+  private async pagoSegunElAlta(pedidoId: string): Promise<'omitir' | 'retener' | null> {
+    const { data: alta } = await this.db.from('avisos_pedidos').select('detalle, estado, enviado_en, visto_en').eq('pedido_id', pedidoId).eq('tipo', 'pedido_nuevo').maybeSingle();
+    if ((alta as any)?.detalle?.dijo_pagado !== true) return null;
+    if ((alta as any).estado === 'entregado') return 'omitir';
+    const esperando = (alta as any).enviado_en ? Date.now() - new Date((alta as any).enviado_en).getTime() : Infinity;
+    return (alta as any).estado === 'enviado' && !(alta as any).visto_en && esperando < MINUTOS_SIN_LLEGAR * 60_000 ? 'retener' : null;
   }
 
   /** ¿El chat de un pedido "sin cargar" terminó teniendo su pedido? Devuelve el código. */
@@ -501,6 +513,8 @@ export class AvisosPedidosService {
       if (a.tipo === 'pedido_nuevo' && ['cancelado', 'entregado'].includes(String(a.pedidos?.estado ?? ''))) continue;
       const codigo = a.pedidos?.qr_retiro ? String(a.pedidos.qr_retiro) : a.detalle?.telefono ? `chat ${telefonoLegible(a.detalle.telefono) ?? a.detalle.telefono}` : String(a.id).slice(0, 8);
       if (a.estado === 'pendiente') {
+        // un PEDIDO PAGADO retenido a propósito (el alta que ya dice "pagado" está en camino) no es un problema
+        if (a.tipo === 'pedido_pagado' && a.pedido_id && (await this.pagoSegunElAlta(a.pedido_id))) continue;
         // se está mandando ahora mismo (tomado hace menos de 2 minutos): todavía no es un problema
         if (a.tomado_hasta && new Date(a.tomado_hasta).getTime() - ahora > 3 * 60_000) continue;
         const min = Math.floor((ahora - new Date(a.pendiente_desde).getTime()) / 60_000);
@@ -574,10 +588,7 @@ export class AvisosPedidosService {
     }
     // un PEDIDO PAGADO retenido a propósito (el alta que ya dice "pagado" está
     // en camino) no es "no salió": si el alta no llega, la escala el vigía por ella
-    if (p.tipo === 'pedido_pagado' && p.problema === 'no_salio' && p.pedidoId) {
-      const { data: alta } = await this.db.from('avisos_pedidos').select('detalle, estado').eq('pedido_id', p.pedidoId).eq('tipo', 'pedido_nuevo').maybeSingle();
-      if ((alta as any)?.detalle?.dijo_pagado === true && ['enviado', 'entregado'].includes(String((alta as any)?.estado))) return 'resuelto';
-    }
+    if (p.tipo === 'pedido_pagado' && p.problema === 'no_salio' && p.pedidoId && (await this.pagoSegunElAlta(p.pedidoId))) return 'resuelto';
     const admin = await this.telefonoAdministracion();
     // "no salió", pero puede haber salido sin que quedara anotado (un deploy
     // cortó el proceso con el envío en vuelo): se mira el chat antes de alarmar
