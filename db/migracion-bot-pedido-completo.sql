@@ -24,9 +24,9 @@ begin
  if not found then raise exception 'Cotizacion no encontrada para este chat'; end if;
  if coalesce(p_modo,'si') = 'completo' then
    -- "no, nada más" cierra: el "no" del principio se saca antes de buscar cambios
-   resto := regexp_replace(coalesce(p_confirmacion,''), '^\s*no\M[\s,.!]*', '', 'i');
+   resto := regexp_replace(coalesce(p_confirmacion,''), '^\s*nop?\M[\s,.!]*', '', 'i');
    if p_confirmacion is null or p_confirmacion ~ '\?'
-      or resto !~* '^\s*(es todo|eso es todo|eso nom[aá]s|eso solo|s[oó]lo eso|nada m[aá]s|con eso (est[aá]|alcanza|estamos|va)|por ahora eso|ya est[aá]|est[aá] completo|completo|as[ií] est[aá] bien|as[ií] nom[aá]s|s[ií]|dale|ok|okey|listo|perfecto|genial|b[aá]rbaro|joya|de una|confirmo|confirmalo|👍|👌)(\M|[\s,.!…]|$)'
+      or resto !~* '^\s*(es todo|eso es todo|eso nom[aá]s|eso nada m[aá]s|eso solo|s[oó]lo eso|nada m[aá]s|por ahora nada m[aá]s|por ahora eso|por ahora es todo|con eso (est[aá]|alcanza|estamos|va|estoy)|ya est[aá]|est[aá] completo|completo|as[ií] est[aá] bien|est[aá] bien as[ií]|as[ií] nom[aá]s|s[ií]\s?s[ií]|s[ií]+|dale|ok|okey|listo|perfecto|genial|b[aá]rbaro|joya|de una|confirmo|confirmalo|👍|👌)(\M|[\s,.!…]|$)'
       or resto ~* '\m(no|falta\w*|pero|tambi[eé]n|sum\w*|agreg\w*|cambi\w*|saca\w*|quita\w*|mejor|otr[oa]s?|despu[eé]s|todav[ií]a|espera\w*|pienso|veo|cancel\w*)\M|en vez|te (confirmo|aviso)'
    then raise exception 'El cliente no cerro la lista'; end if;
  elsif p_confirmacion is null or p_confirmacion !~* '^\s*(sí|si|dale|ok|listo|confirmo|confirmalo|confirmame|de acuerdo|hacelo|armalo|cerralo|perfecto)(\M|[,.!])'

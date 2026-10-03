@@ -1,7 +1,7 @@
 import { esperaRetiroOEnvio, eligeRetiroOEnvio, eligioModalidad } from './entrega';
 import { esContestadorAutomatico } from './contestador';
 import { conPreguntaDeCompleto, elegirPorDefecto, puedeCotizar } from './completo';
-import { cierraLaLista, coincideConLoAnotado, cuandoLegible, listaCerrada, loAnotado, nombreDeQuienRetira, PREGUNTA_NOMBRE_RETIRO, RE_ARMADO_A_PEDIDO, RE_PREGUNTA_NOMBRE_RETIRO } from './cierre';
+import { cierraLaLista, coincideConLoAnotado, cuandoLegible, esConfirmacionDePedido, listaCerrada, nombreDeQuienRetira, PREGUNTA_NOMBRE_RETIRO, RE_ARMADO_A_PEDIDO, RE_PREGUNTA_NOMBRE_RETIRO, ultimaListaAnotada } from './cierre';
 import { conDescuentoEfectivo, porcentajeEfectivo, RUBROS_DESCUENTO_EFECTIVO, tieneDescuentoEfectivo } from './descuento-efectivo';
 import { esSilenciado } from './pausa';
 import { agruparItems, cantidadesIndividuales, centavos, confirmacionInequivoca, idWhatsappCorto, importesDeHerramienta, importesDelTexto, pesos, presentacionProducto } from './comercio';
@@ -566,10 +566,15 @@ export class BotService {
     // retiran?". La respuesta queda en las notas del pedido ("Retira: Juan
     // Pérez") para que el mostrador sepa a quién entregarlo, sin pasar por el
     // modelo. Si lo que contestó no es un nombre, sigue la charla normal.
-    if (!traeArchivo && RE_PREGUNTA_NOMBRE_RETIRO.test(String(ultimoMsgBot))) {
+    // Solo contestando la confirmación ("Pedido PICKUP-… confirmado. … ¿A nombre
+    // de quién lo retiran?") y en el pedido de ESE código.
+    const codigoConfirmado = esConfirmacionDePedido(ultimoMsgBot) && RE_PREGUNTA_NOMBRE_RETIRO.test(String(ultimoMsgBot))
+      ? String(ultimoMsgBot).match(/\b(?:DOM|RET|PICKUP)-[A-Z0-9]{4,}\b/)?.[0] ?? null
+      : null;
+    if (!traeArchivo && codigoConfirmado) {
       const nombre = nombreDeQuienRetira(texto);
       const anotado = nombre
-        ? await this.anotarQuienRetira(telefono, linea, nombre).catch((e: any) => { this.log.warn(`no pude anotar quién retira (${telefono}): ${e?.message ?? e}`); return false; })
+        ? await this.anotarQuienRetira(telefono, linea, codigoConfirmado, nombre).catch((e: any) => { this.log.warn(`no pude anotar quién retira (${telefono}): ${e?.message ?? e}`); return false; })
         : false;
       if (nombre && anotado) {
         const resp = `Listo, queda a nombre de ${nombre}.`;
@@ -710,7 +715,14 @@ export class BotService {
     // EL "NADA MÁS" CONFIRMA (3/10/2026): si el cliente cerró la lista ("solo
     // eso", "nada más", un "sí" a "¿Está completo?") y no la cambió después, el
     // pedido se confirma en el turno en que queda preparado, sin "¿Lo confirmo?".
-    const cierreDeLista = linea === 'pedidos' ? listaCerrada(historial as any[], texto) : null;
+    // Con la charla quieta más de 3 horas, solo cuenta un cierre en este mismo
+    // mensaje: un "nada más" de ayer no confirma hoy. `anotadoSinPrecios` es la
+    // última lista que el bot le mostró sin precios: lo que se cotiza con la
+    // lista cerrada tiene que ser eso mismo (ver cierre.ts).
+    const anotadoSinPrecios = ultimaListaAnotada(historial as any[]);
+    const cierreDeLista = linea === 'pedidos' && anotadoSinPrecios.length
+      ? listaCerrada(historial as any[], texto, { soloEsteMensaje: desdeElUltimoMensaje > 3 * 3600_000 })
+      : null;
     const estado: string[] = [];
     estado.push(yaSaludo ? 'ya saludaste en esta charla: NO vuelvas a saludar ni a presentarte' : `primer mensaje de la charla: corresponde saludar una vez, con bienvenida: "${saludo}, te damos la bienvenida a O.D.B."`);
     if (vecesOfrecioArmar >= 1) estado.push(`ya ofreciste armar/cotizar el pedido ${vecesOfrecioArmar} vez/veces: no lo vuelvas a ofrecer; contestá y esperá`);
@@ -803,17 +815,6 @@ export class BotService {
     const ultimoDelBot = [...historial].reverse().find((m) => m.role === 'assistant')?.content ?? '';
     const ultimosDelBot = [...historial].reverse().filter((m) => m.role === 'assistant').slice(0, 3).map((m) => String(m.content));
     const ultimosDelCliente = [...[...historial].reverse().filter((m) => m.role === 'user').slice(0, 6).map((m) => String(m.content)).reverse(), texto];
-    // `anotadoSinPrecios` es la última lista que el bot le mostró sin precios: lo
-    // que se cotiza con la lista cerrada tiene que ser eso mismo (ver cierre.ts)
-    const anotadoSinPrecios = (() => {
-      for (const m of [...historial].reverse().filter((x) => x.role === 'assistant').slice(0, 8)) {
-        const c = String(m.content ?? '');
-        if (/^Pedido \S+ confirmado\./.test(c.trim())) return [];
-        const l = loAnotado(c);
-        if (l.length) return l;
-      }
-      return [];
-    })();
     const fallosDelTurno = new Map<string, number>();
     // una herramienta puede fijar la respuesta del turno ("Recibido." ante un comprobante)
     const respuestaFija: { texto?: string; consultaPendiente?: boolean; operacion?: boolean; derivada?: boolean } = {};
@@ -1593,7 +1594,8 @@ export class BotService {
     // respuesta nunca (banco 1/10/2026: silencio)
     respuesta = asegurarEnvioSinCargo(texto, respuesta ?? '');
     if (respuesta) respuesta = minimoConMonto(respuesta, envioMinimo());
-    if (respuesta && !respuestaFija.operacion) respuesta = conPreguntaDeCompleto(respuesta);
+    // con la lista ya cerrada no se vuelve a preguntar si está completa
+    if (respuesta && !respuestaFija.operacion && !cierreDeLista) respuesta = conPreguntaDeCompleto(respuesta);
     // lo interno (stock, sucursales, "el sistema") no sale al cliente (1/10/2026)
     if (respuesta) respuesta = sinLoConsulto(retiroOEnvio(sinCocinaInterna(respuesta)));
 
@@ -1766,7 +1768,15 @@ export class BotService {
           // base lo rechaza), queda el resumen con "¿Lo confirmo?" como siempre.
           const prep: any = out;
           const cotizado = ((prep?.renglones ?? []) as any[]).map((r) => ({ cantidad: Number(r.cantidad), nombre: String(r.nombre ?? '') }));
-          if (ctx.cierre && prep?.cotizacionId && !prep.avisoFecha && coincideConLoAnotado(ctx.anotado ?? [], cotizado)) {
+          // Un pedido de este chat confirmado hace menos de 15 minutos: puede ser
+          // un reintento del mismo mensaje (el proceso se cayó antes de guardar
+          // la charla). No se crea otro sin preguntar: queda el "¿Lo confirmo?".
+          const confirmadoHacePoco = ctx.cierre
+            ? !!(await this.db.from('bot_cotizaciones').select('id').eq('telefono', telefono).eq('linea', linea)
+                .gte('confirmada_en', new Date(Date.now() - 15 * 60_000).toISOString()).limit(1).maybeSingle()).data
+            : false;
+          if (confirmadoHacePoco) this.log.warn(`lista cerrada de ${telefono}, pero hay un pedido confirmado hace menos de 15 min: se pide confirmación`);
+          if (ctx.cierre && !confirmadoHacePoco && prep?.cotizacionId && !prep.avisoFecha && coincideConLoAnotado(ctx.anotado ?? [], cotizado)) {
             try {
               const creado = await this.crearPedido({ telefono, linea, confirmacion: ctx.cierre, modo: 'completo', cotizacionId: prep.cotizacionId });
               this.log.log(`pedido ${creado.codigoRetiro} confirmado por el cierre de la lista ("${ctx.cierre.slice(0, 40)}") de ${telefono}`);
@@ -2468,16 +2478,16 @@ export class BotService {
   }
 
   /**
-   * "Retira: Juan Pérez" en las notas del último pedido que confirmó el bot en
-   * este chat (de las últimas 24 horas). false si no hay a qué pedido anotarlo.
+   * "Retira: Juan Pérez" en las notas del pedido `codigo`, si lo confirmó el
+   * bot en ESTE chat. false si no hay a qué pedido anotarlo.
    */
-  private async anotarQuienRetira(telefono: string, linea: string, nombre: string): Promise<boolean> {
-    const { data: q } = await this.db.from('bot_cotizaciones').select('pedido_id, confirmada_en')
-      .eq('telefono', telefono).eq('linea', linea).not('pedido_id', 'is', null)
-      .order('confirmada_en', { ascending: false }).limit(1).maybeSingle();
-    if (!q?.pedido_id || !q.confirmada_en || Date.now() - new Date(q.confirmada_en).getTime() > 24 * 3600_000) return false;
-    const { data: ped } = await this.db.from('pedidos').select('id, notas, estado').eq('id', q.pedido_id).maybeSingle();
+  private async anotarQuienRetira(telefono: string, linea: string, codigo: string, nombre: string): Promise<boolean> {
+    const { data: ped } = await this.db.from('pedidos').select('id, notas, estado').eq('qr_retiro', codigo).maybeSingle();
     if (!ped || ['cancelado', 'entregado'].includes(String(ped.estado))) return false;
+    // el pedido tiene que ser de este chat: lo confirmó una cotización de este teléfono
+    const { data: q } = await this.db.from('bot_cotizaciones').select('id')
+      .eq('telefono', telefono).eq('linea', linea).eq('pedido_id', ped.id).limit(1).maybeSingle();
+    if (!q) return false;
     const previas = String(ped.notas ?? '').split(' · ').map((s) => s.trim()).filter((s) => s && !/^Retira:/i.test(s));
     const { error } = await this.db.from('pedidos').update({ notas: [...previas, `Retira: ${nombre}`].join(' · ').slice(0, 500) }).eq('id', ped.id);
     if (error) throw new Error(error.message);

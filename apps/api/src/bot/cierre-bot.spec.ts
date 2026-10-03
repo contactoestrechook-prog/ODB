@@ -152,23 +152,31 @@ describe('a nombre de quién se retira', () => {
     expect(dicho.respuesta).not.toMatch(/a nombre de/i);
   });
 
-  it('la respuesta queda en las notas del pedido, sin pisar las que había', async () => {
+  it('la respuesta queda en las notas del pedido del código, sin pisar las que había', async () => {
     const db = baseFalsa({
-      bot_cotizaciones: { data: { pedido_id: 'ped-1', confirmada_en: new Date().toISOString() } },
+      bot_cotizaciones: { data: { id: 'cot-1' } },
       pedidos: { data: { id: 'ped-1', notas: 'Paga con efectivo · Retira: otro', estado: 'recibido' } },
     });
-    expect(await (servicio(db) as any).anotarQuienRetira('111', 'pedidos', 'Juan Pérez')).toBe(true);
+    expect(await (servicio(db) as any).anotarQuienRetira('111', 'pedidos', 'PICKUP-ABC123ABC123', 'Juan Pérez')).toBe(true);
     expect(db.escrituras).toContainEqual({ tabla: 'pedidos', operacion: 'update', fila: { notas: 'Paga con efectivo · Retira: Juan Pérez' } });
   });
 
-  it('sin pedido confirmado reciente, o con el pedido cancelado, no anota', async () => {
-    const vieja = baseFalsa({ bot_cotizaciones: { data: { pedido_id: 'ped-1', confirmada_en: new Date(Date.now() - 2 * 86400_000).toISOString() } } });
-    expect(await (servicio(vieja) as any).anotarQuienRetira('111', 'pedidos', 'Juan')).toBe(false);
-    const cancelado = baseFalsa({
-      bot_cotizaciones: { data: { pedido_id: 'ped-1', confirmada_en: new Date().toISOString() } },
-      pedidos: { data: { id: 'ped-1', notas: null, estado: 'cancelado' } },
-    });
-    expect(await (servicio(cancelado) as any).anotarQuienRetira('111', 'pedidos', 'Juan')).toBe(false);
+  it('un pedido de otro chat, o cancelado, no se anota', async () => {
+    const ajeno = baseFalsa({ bot_cotizaciones: { data: null }, pedidos: { data: { id: 'ped-1', notas: null, estado: 'recibido' } } });
+    expect(await (servicio(ajeno) as any).anotarQuienRetira('111', 'pedidos', 'PICKUP-ABC123ABC123', 'Juan')).toBe(false);
+    expect(ajeno.escrituras).toEqual([]);
+    const cancelado = baseFalsa({ bot_cotizaciones: { data: { id: 'cot-1' } }, pedidos: { data: { id: 'ped-1', notas: null, estado: 'cancelado' } } });
+    expect(await (servicio(cancelado) as any).anotarQuienRetira('111', 'pedidos', 'PICKUP-ABC123ABC123', 'Juan')).toBe(false);
     expect(cancelado.escrituras).toEqual([]);
+  });
+
+  it('con un pedido de este chat confirmado hace minutos (un reintento), no confirma otro: queda el "¿Lo confirmo?"', async () => {
+    const s = servicio(baseFalsa({ bot_cotizaciones: { data: { id: 'cot-0' } } }));
+    jest.spyOn(s, 'prepararPedido').mockResolvedValue(PREPARADO as any);
+    const crear = jest.spyOn(s, 'crearPedido');
+    const ctx = { ultimoBot: LISTA, ultimosBot: [LISTA], ultimosCliente: ['3 picadas', 'Solo eso…'], textoCliente: 'Solo eso…', fallos: new Map<string, number>(), fija: {} as any, cierre: 'Solo eso…', anotado: [{ cantidad: 3, nombre: 'Combo Picada Box' }] };
+    await (s as any).ejecutarHerramienta(preparar, '5491100000000', 'pedidos', ctx);
+    expect(crear).not.toHaveBeenCalled();
+    expect(ctx.fija.texto).toMatch(/¿Lo confirmo\?$/);
   });
 });
