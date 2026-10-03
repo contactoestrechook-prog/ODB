@@ -4,6 +4,10 @@ import Anthropic from '@anthropic-ai/sdk';
 import { SUPABASE } from '../supabase.provider';
 import { TONO_ODB } from '../comun/tono-odb';
 import { pesosPlaca, separarDetalle, type DetallePlaca, type ProductoVisto } from '../comun/detalle-productos';
+import { normalizarTexto } from '../comun/busqueda';
+import { leerAbastecimiento, leerCostos } from '../abastecimiento/motor';
+import { armarTablero, costoDe, estadoDe, type Tablero } from '../abastecimiento/tablero';
+import { cantidadPedible, nombreSucursal } from '../abastecimiento/propuesta';
 
 export type MensajeChat = { rol: 'usuario' | 'analista'; texto: string };
 
@@ -24,57 +28,77 @@ export type FilaAnalisis = {
   margenPct: number | null;
   estado: 'quiebre_inminente' | 'reponer' | 'sobrestock' | 'muerto' | 'ok';
   sugerido: number;
+  // desde el 2/10/2026 los renglones salen del motor de abastecimiento
+  productoId?: string;
+  alerta?: string | null;
+  urgencia?: number;
+  ritmoHasta?: string | null;
+  plazoFuente?: string | null;
+  proveedorFaltan?: string[];
 };
 
+// 2/10/2026: el modelo ya no calcula ni lista productos. Escribe el veredicto y
+// una línea por proveedor; las cifras las arma el código (abastecimiento/
+// tablero.ts) y la pantalla las dibuja por proveedor, en Placa roja.
+const ACCIONES = ['comprar', 'liquidar', 'completar_datos', 'revisar_datos', 'esperar'] as const;
 const ESQUEMA_RESPUESTA = {
   type: 'object',
   properties: {
     respuesta: {
       type: 'string',
-      description: 'Análisis o respuesta para el comprador, en texto plano sin markdown',
+      description: 'El veredicto en 2 o 3 renglones, texto plano: qué es lo urgente y con quién. Sin listar productos ni repetir las cifras que dibuja la pantalla.',
     },
-    ordenes: {
+    mostrar: {
       type: 'array',
-      description: 'Borradores de orden de compra concretos, solo si la respuesta propone comprar',
+      description: "Qué dibuja la pantalla: '¿qué compro?' → compras + notas; '¿dónde tengo plata parada?' → parado; un resumen general → las tres",
+      items: { type: 'string', enum: ['compras', 'notas', 'parado'] },
+    },
+    proveedores: {
+      type: 'array',
+      description: 'Hasta 8 proveedores con algo para hacer, en el orden en que conviene encararlos',
       items: {
         type: 'object',
         properties: {
-          proveedor: { type: 'string', description: 'Razón social exacta del proveedor' },
-          sucursal: { type: 'string', description: 'Nombre exacto de la sucursal destino' },
-          motivo: { type: 'string', description: 'Una línea: por qué esta compra' },
-          items: {
-            type: 'array',
-            items: {
-              type: 'object',
-              properties: {
-                sku: { type: 'string' },
-                cantidad: { type: 'number' },
-              },
-              required: ['sku', 'cantidad'],
-              additionalProperties: false,
-            },
-          },
+          proveedor: { type: 'string', description: 'La clave del proveedor en la foto del día (P01, P02…) o SIN_PROVEEDOR' },
+          accion: { type: 'string', enum: [...ACCIONES] },
+          comentario: { type: 'string', description: 'Una línea de hasta ~120 caracteres, sin repetir la plata ni los conteos' },
         },
-        required: ['proveedor', 'sucursal', 'motivo', 'items'],
+        required: ['proveedor', 'accion', 'comentario'],
         additionalProperties: false,
       },
     },
   },
-  required: ['respuesta', 'ordenes'],
+  required: ['respuesta', 'mostrar', 'proveedores'],
   additionalProperties: false,
 } as const;
 
-const PERSONALIDAD = `Sos el Analista ODB, el asesor de compras y abastecimiento de O.D.B Premium Market (outlet de bebidas, 2 sucursales, Argentina). Le hablás al comprador y al dueño: directo, ejecutivo, respetuoso (de usted), en español rioplatense, sin vueltas ni markdown.
+// El mismo esquema, con el proveedor limitado a las claves de la foto del día.
+function esquemaConClaves(claves: string[]) {
+  const e: any = JSON.parse(JSON.stringify(ESQUEMA_RESPUESTA));
+  e.properties.proveedores.items.properties.proveedor = {
+    type: 'string',
+    enum: claves,
+    description: 'La clave entre corchetes del proveedor en la foto del día (P01, P02…) o SIN_PROVEEDOR',
+  };
+  return e;
+}
 
-Reglas estrictas:
-- Trabajás SOLO con los números de la tabla de abajo: nunca inventes cifras, productos ni proveedores. Citá los números al recomendar (stock, días de cobertura, ritmo de venta).
-- Prioridad 1: quiebres inminentes (días de stock <= plazo de entrega del proveedor). Eso es venta perdida.
-- Prioridad 2: reposiciones normales. Prioridad 3: alertas de sobrestock y productos muertos (capital inmovilizado: sugerir liquidación con promo).
-- Las cantidades sugeridas ya vienen calculadas (cobertura = plazo de entrega + 14 días). Podés ajustarlas con criterio comercial redondeando a bultos razonables, explicando por qué.
-- Mencioná los aumentos de costos recientes cuando afecten la decisión (¿conviene stockearse antes del próximo aumento?).
-- Si proponés una compra concreta, completá el campo "ordenes" agrupando por proveedor y sucursal, con los SKU exactos de la tabla.
-- Si te preguntan algo que los datos no responden, decilo y pedí el dato.
-- Máximo ~200 palabras en "respuesta".
+const PERSONALIDAD = `Sos el Analista ODB, el asesor de compras y abastecimiento de O.D.B Premium Market (almacén y vinoteca premium, 2 sucursales: Saint Thomas y Santa Inés, Canning). Le hablás al comprador y al dueño: directo, ejecutivo, respetuoso (de usted), en español rioplatense, sin vueltas ni markdown.
+
+Cómo trabajás:
+- Los números los calcula el sistema y la pantalla los dibuja por proveedor (barras, plata, notas de pedido para tildar). Vos das el veredicto y ordenás la acción: NO repitas cifras ni listes productos en "respuesta"; 2 o 3 renglones.
+- Trabajás SOLO con la foto del día: nunca inventes proveedores, productos ni números.
+- Prioridad: 1) lo urgente (sin stock o que no llega a tiempo, lo que es venta perdida); 2) reponer lo que se vende; 3) la plata parada (lo que no se vende o sobra): liquidar con promo.
+- En "proveedores", una línea por proveedor con algo para hacer (hasta 8), en el orden en que conviene encararlos. En "proveedor" va la clave entre corchetes de la foto del día (P01, P02… o SIN_PROVEEDOR), nunca el nombre:
+  - comprar: hay urgencias o reposición con datos confiables;
+  - completar_datos: le faltan datos para comprarle (CUIT, teléfono, condición de pago, plazo) o son productos sin proveedor habitual (proveedor: 'Sin proveedor habitual'): pedí que se asigne;
+  - revisar_datos: costos a revisar, o el proveedor no parece el que vende eso (por ejemplo cigarrillos en una bodega);
+  - liquidar: plata parada de ese proveedor;
+  - esperar: lo que bajó de 12 pero no se vende.
+- Decí UNA vez, si corresponde: que el ritmo de venta es del reporte del sistema viejo de la fecha que figura y que si es viejo las cantidades son orientativas; que el plazo de entrega de 7 días es provisorio hasta que administración lo confirme.
+- La plata es estimada al último costo; lo que tiene costo a revisar no suma.
+- Si no hay ventas cargadas, NUNCA digas que no hay nada que comprar: decí que faltan los datos de ventas.
+- Mencioná los aumentos de costo recientes solo si cambian la decisión.
 
 ${TONO_ODB}`;
 
@@ -120,151 +144,70 @@ export function placaDelAnalista(productos: ProductoVisto[], todos: ProductoVist
 export class AnalistaService {
   constructor(@Inject(SUPABASE) private readonly db: SupabaseClient) {}
 
-  // PostgREST devuelve máx. 1000 filas por consulta: con el catálogo real
-  // (9.000+ artículos) los análisis se leen paginando
-  private async todas<T = any>(
-    crear: (desde: number, hasta: number) => PromiseLike<{ data: any; error: any }>,
-  ): Promise<T[]> {
-    const filas: T[] = [];
-    for (let tanda = 0; ; tanda++) {
-      const paginas = await Promise.all(
-        Array.from({ length: 8 }, (_, i) => crear((tanda * 8 + i) * 1000, (tanda * 8 + i) * 1000 + 999)),
-      );
-      let corta = false;
-      for (const { data, error } of paginas) {
-        if (error) throw new BadRequestException(error.message ?? String(error));
-        filas.push(...(data ?? []));
-        if (!data || data.length < 1000) corta = true;
-      }
-      if (corta) break;
-    }
-    return filas;
+  // 2/10/2026: los renglones salen del motor de abastecimiento (la misma fuente
+  // que "Qué comprar" y el agente de compras), con la forma de siempre para el
+  // informe de las 7, Promociones y Estadísticas. Antes el ritmo salía solo de
+  // las ventas de la caja de ODB de 30 días (casi vacías) y todo daba "sin
+  // rotación": el Analista decía "no hay nada que comprar".
+  async metricas(): Promise<FilaAnalisis[]> {
+    const [filas, costos] = await Promise.all([leerAbastecimiento(this.db), leerCostos(this.db)]);
+    // precios para el margen (Promociones filtra por margen >= 25%): solo los
+    // productos que aparecen, de a 500 ids (la URL del RPC tiene límite)
+    const ids = [...new Set(filas.map((f) => f.producto_id).filter(Boolean))];
+    const precioPor = new Map<string, any>();
+    const tandas: string[][] = [];
+    for (let i = 0; i < ids.length; i += 500) tandas.push(ids.slice(i, i + 500));
+    const respuestas = await Promise.all(tandas.map((t) => this.db.rpc('catalogo_precios', { p_ids: t })));
+    for (const { data } of respuestas) for (const r of (data ?? []) as any[]) precioPor.set(r.producto_id, r);
+
+    const salida = filas.map((f) => this.aFila(f, costos, precioPor));
+    const orden = { quiebre_inminente: 0, reponer: 1, sobrestock: 2, muerto: 3, ok: 4 };
+    const capital = (x: FilaAnalisis) => x.stock * Number(x.costo ?? 0);
+    salida.sort((a, b) =>
+      orden[a.estado] - orden[b.estado]
+      || (a.estado === 'quiebre_inminente' || a.estado === 'reponer' ? (b.urgencia ?? 0) - (a.urgencia ?? 0) : capital(b) - capital(a)));
+    return salida;
   }
 
-  async metricas(): Promise<FilaAnalisis[]> {
-    const hace30 = new Date(Date.now() - 30 * 86400_000).toISOString();
-    const hace7 = new Date(Date.now() - 7 * 86400_000).toISOString();
+  // Un renglón del motor como FilaAnalisis (la forma que leen el informe,
+  // Promociones, Estadísticas y la placa del Analista).
+  private aFila(f: any, costos: Map<string, number>, precioPor?: Map<string, any>): FilaAnalisis {
+    const r2 = (v: any) => Math.round(Number(v ?? 0) * 100) / 100;
+    const costoCatalogo = costos.get(f.producto_id) ?? null;
+    const pr = precioPor?.get(f.producto_id);
+    return {
+      sku: f.sku,
+      producto: f.nombre,
+      sucursal: f.sucursal, // crudo ("Suc Sant Thomas"): hay consumidores que comparan por nombre
+      sucursalId: f.sucursal_id,
+      stock: r2(f.stock),
+      enTransito: Math.round(Number(f.en_camino ?? 0)),
+      ventasDia7: 0, // el motor no lo trae y nadie lo usa
+      ventasDia30: r2(f.ritmo_dia),
+      diasDeStock: f.cobertura_dias == null ? null : Number(f.cobertura_dias),
+      proveedor: f.proveedor ?? null,
+      proveedorId: f.proveedor_id ?? null,
+      leadTimeDias: f.plazo_dias == null ? null : Number(f.plazo_dias),
+      costo: costoDe(f, costos),
+      margenPct: pr && costoCatalogo
+        ? Math.round(((Number(pr.precio_final) - costoCatalogo) / costoCatalogo) * 1000) / 10
+        : null,
+      estado: estadoDe(f),
+      sugerido: cantidadPedible(f.cantidad_sugerida),
+      productoId: f.producto_id,
+      alerta: f.alerta ?? null,
+      urgencia: Number(f.urgencia ?? 0),
+      ritmoHasta: f.ritmo_hasta ?? null,
+      plazoFuente: f.plazo_fuente ?? null,
+      proveedorFaltan: Array.isArray(f.proveedor_faltan) ? f.proveedor_faltan : [],
+    };
+  }
 
-    const [productosD, stockD, ventasD, transitoR] = await Promise.all([
-      this.todas((d, h) =>
-        this.db.from('productos').select('id, sku, nombre, costo, activo').eq('activo', true).range(d, h),
-      ),
-      this.todas((d, h) =>
-        this.db
-          .from('stock')
-          .select('producto_id, sucursal_id, cantidad, punto_reposicion, sucursal:sucursales(nombre)')
-          .range(d, h),
-      ),
-      this.todas((d, h) =>
-        this.db
-          .from('ventas_items')
-          .select('producto_id, cantidad, venta:ventas!inner(sucursal_id, vendida_en, estado)')
-          .gte('venta.vendida_en', hace30)
-          .eq('venta.estado', 'completada')
-          .range(d, h),
-      ),
-      this.db
-        .from('ordenes_compra_items')
-        .select('producto_id, cantidad, cantidad_recibida, oc:ordenes_compra!inner(sucursal_id, estado)')
-        .in('oc.estado', ['aprobada', 'enviada', 'recibida_parcial']),
-    ]);
-    const productosR = { data: productosD, error: null };
-    const stockR = { data: stockD };
-    const ventasR = { data: ventasD };
-
-    const productos = productosR.data ?? [];
-    // precios en tandas de 500 ids (la URL del RPC tiene límite)
-    const precioPor = new Map<string, any>();
-    const ids = productos.map((p: any) => p.id);
-    for (let i = 0; i < ids.length; i += 500) {
-      const { data: precios } = await this.db.rpc('catalogo_precios', { p_ids: ids.slice(i, i + 500) });
-      for (const r of precios ?? []) precioPor.set(r.producto_id, r);
-    }
-
-    // mejor proveedor (menor costo) por producto
-    const { data: provs } = await this.db
-      .from('proveedor_productos')
-      .select('producto_id, ultimo_costo, proveedor:proveedores(id, razon_social, lead_time_dias)');
-    const mejorProv = new Map<string, any>();
-    for (const r of (provs ?? []) as any[]) {
-      const previo = mejorProv.get(r.producto_id);
-      if (!previo || Number(r.ultimo_costo ?? Infinity) < Number(previo.ultimo_costo ?? Infinity)) {
-        mejorProv.set(r.producto_id, r);
-      }
-    }
-
-    // ventas agregadas por producto×sucursal
-    const vendidas = new Map<string, { u7: number; u30: number }>();
-    for (const r of (ventasR.data ?? []) as any[]) {
-      const clave = `${r.producto_id}|${r.venta.sucursal_id}`;
-      const acumulado = vendidas.get(clave) ?? { u7: 0, u30: 0 };
-      acumulado.u30 += Number(r.cantidad);
-      if (r.venta.vendida_en >= hace7) acumulado.u7 += Number(r.cantidad);
-      vendidas.set(clave, acumulado);
-    }
-
-    const transito = new Map<string, number>();
-    for (const r of (transitoR.data ?? []) as any[]) {
-      const clave = `${r.producto_id}|${r.oc.sucursal_id}`;
-      transito.set(clave, (transito.get(clave) ?? 0) + Number(r.cantidad) - Number(r.cantidad_recibida));
-    }
-
-    const productoPor = new Map(productos.map((p: any) => [p.id, p]));
-    const filas: FilaAnalisis[] = [];
-    for (const st of (stockR.data ?? []) as any[]) {
-      const p = productoPor.get(st.producto_id);
-      if (!p) continue;
-      const clave = `${st.producto_id}|${st.sucursal_id}`;
-      const v = vendidas.get(clave) ?? { u7: 0, u30: 0 };
-      const vd30 = v.u30 / 30;
-      const vd7 = v.u7 / 7;
-      const stock = Number(st.cantidad);
-      const enTransito = transito.get(clave) ?? 0;
-      const prov = mejorProv.get(st.producto_id);
-      const lead = prov?.proveedor?.lead_time_dias ?? null;
-      const diasDeStock = vd30 > 0 ? Math.round((stock / vd30) * 10) / 10 : null;
-      const pr = precioPor.get(st.producto_id);
-      const margenPct =
-        pr && p.costo
-          ? Math.round(((Number(pr.precio_final) - Number(p.costo)) / Number(p.costo)) * 1000) / 10
-          : null;
-
-      let estado: FilaAnalisis['estado'] = 'ok';
-      // 'muerto' solo si hay capital parado; sin ventas y sin stock no es alerta
-      if (vd30 === 0 && stock > 0) estado = 'muerto';
-      else if (vd30 === 0) estado = 'ok';
-      else if (lead != null && diasDeStock != null && diasDeStock <= lead) estado = 'quiebre_inminente';
-      else if (stock + enTransito <= Number(st.punto_reposicion)) estado = 'reponer';
-      else if (diasDeStock != null && diasDeStock > 60) estado = 'sobrestock';
-
-      const sugerido =
-        estado === 'quiebre_inminente' || estado === 'reponer'
-          ? Math.max(Math.ceil(vd30 * ((lead ?? 7) + 14) - stock - enTransito), 0)
-          : 0;
-
-      filas.push({
-        sku: p.sku,
-        producto: p.nombre,
-        sucursal: st.sucursal?.nombre ?? '—',
-        sucursalId: st.sucursal_id,
-        stock: Math.round(stock),
-        enTransito: Math.round(enTransito),
-        ventasDia7: Math.round(vd7 * 100) / 100,
-        ventasDia30: Math.round(vd30 * 100) / 100,
-        diasDeStock,
-        proveedor: prov?.proveedor?.razon_social ?? null,
-        proveedorId: prov?.proveedor?.id ?? null,
-        leadTimeDias: lead,
-        costo: p.costo != null ? Number(p.costo) : null,
-        margenPct,
-        estado,
-        sugerido,
-      });
-    }
-
-    const orden = { quiebre_inminente: 0, reponer: 1, sobrestock: 2, muerto: 3, ok: 4 };
-    filas.sort((a, b) => orden[a.estado] - orden[b.estado] || (a.diasDeStock ?? 999) - (b.diasDeStock ?? 999));
-    return filas;
+  // Lo que hay que comprar y lo que está parado, por proveedor (abastecimiento/
+  // tablero.ts). Lo usan la charla y el informe de las 7.
+  async tablero(): Promise<Tablero> {
+    const [filas, costos] = await Promise.all([leerAbastecimiento(this.db), leerCostos(this.db)]);
+    return armarTablero(filas, costos);
   }
 
   async charlar(mensajes: MensajeChat[]) {
@@ -275,74 +218,151 @@ export class AnalistaService {
       throw new BadRequestException('El último mensaje debe ser del usuario');
     }
 
-    const [todasFilas, aumentos] = await Promise.all([this.metricas(), this.aumentosRecientes()]);
-    // con 9.000+ artículos solo van al modelo las alertas accionables:
-    // todo lo urgente + los muertos con más capital parado + un resumen global
-    const urgentes = todasFilas.filter((f) =>
-      ['quiebre_inminente', 'reponer', 'sobrestock'].includes(f.estado),
-    );
-    const muertos = todasFilas
-      .filter((f) => f.estado === 'muerto')
-      .sort((a, b) => b.stock * Number(b.costo ?? 0) - a.stock * Number(a.costo ?? 0))
-      .slice(0, 25);
-    const conteo = todasFilas.reduce(
-      (acc: Record<string, number>, f) => ((acc[f.estado] = (acc[f.estado] ?? 0) + 1), acc),
-      {},
-    );
-    const filas = [...urgentes, ...muertos].slice(0, 180);
-    const resumen = `RESUMEN GLOBAL (${todasFilas.length} renglones producto×sucursal): quiebres inminentes ${conteo.quiebre_inminente ?? 0} · a reponer ${conteo.reponer ?? 0} · sobrestock ${conteo.sobrestock ?? 0} · sin rotación con stock ${conteo.muerto ?? 0} (se listan los 25 con más capital) · ok ${conteo.ok ?? 0}`;
-    const tabla = resumen + '\n' + filas
-      .map(
-        (f) =>
-          `${f.sku} · ${f.producto} · ${f.sucursal} · stock ${f.stock}${f.enTransito ? ` (+${f.enTransito} en tránsito)` : ''} · vende ${f.ventasDia30}/día (últ.7d: ${f.ventasDia7}/día) · cobertura ${f.diasDeStock ?? '∞'} días · prov: ${f.proveedor ?? 'sin asignar'} (entrega ${f.leadTimeDias ?? '?'}d, costo $${f.costo ?? '?'}) · margen ${f.margenPct ?? '?'}% · estado: ${f.estado.toUpperCase()}${f.sugerido ? ` · sugerido comprar ${f.sugerido}u` : ''}`,
-      )
-      .join('\n');
+    const [tablero, aumentos, filas, costos] = await Promise.all([
+      this.tablero(), this.aumentosRecientes(), leerAbastecimiento(this.db), leerCostos(this.db),
+    ]);
+    const { datos, compras, parado } = tablero;
+    const hayVentas = filas.some((f) => Number(f.ritmo_dia) > 0);
+    const plata = (v: number) => `$${Math.round(v).toLocaleString('es-AR')}`;
+    const fecha = (v: string | null) => (v ? new Date(`${v}T12:00:00`).toLocaleDateString('es-AR') : '—');
+
+    // ---- la foto del día, armada por código (unas 100 líneas: nada de miles de filas)
+    // Cada proveedor va con una clave corta (P01, P02…) y el modelo responde con
+    // la clave: hay razones sociales repetidas (dos "CLAUDIO RAMA") y el modelo
+    // las acorta ("Luvik" por "Luvik Mayorista"). Revisión del 2/10/2026.
+    const claves = new Map<string, { id: string | null; nombre: string }>();
+    const claveDe = new Map<string, string>();
+    const asignar = (id: string, nombre: string) => {
+      if (claveDe.has(id)) return claveDe.get(id)!;
+      const k = `P${String(claves.size + 1).padStart(2, '0')}`;
+      claves.set(k, { id, nombre });
+      claveDe.set(id, k);
+      return k;
+    };
+    for (const p of compras.proveedores) asignar(p.proveedorId, p.proveedor);
+    for (const p of parado.proveedores) if (p.proveedorId) asignar(p.proveedorId, p.proveedor);
+    claves.set('SIN_PROVEEDOR', { id: null, nombre: 'Sin proveedor habitual' });
+
+    const lineas: string[] = [];
+    lineas.push(`DATOS: ritmo de venta: ${datos.ritmoFuente}; ventas hasta ${fecha(datos.ventasHasta)}${datos.datoViejo ? ' (DATO VIEJO: cantidades orientativas)' : ''}${hayVentas ? '' : ' — NO HAY VENTAS CARGADAS'}; plazo de entrega provisorio (7 días por defecto) en ${datos.plazosProvisorios.provisorios} de ${datos.plazosProvisorios.total} proveedores.`);
+    lineas.push(`COMPRAS SUGERIDAS (estimadas al último costo): total ${plata(compras.total)}, urgente ${plata(compras.totalUrgente)}, ${compras.proveedores.length} proveedores.`);
+    for (const p of compras.proveedores) {
+      const top = (p.top3 ?? []).map((t) => `${t.nombre} (${t.sucursal}${t.alerta ? `, ${t.alerta}` : ''}, sugerido ${t.sugerido})`).join('; ');
+      lineas.push(`- [${claveDe.get(p.proveedorId)}] ${p.proveedor}: ${p.productos} productos (${p.urgentes} urgentes) · ${plata(p.plata)} (${plata(p.plataUrgente)} urgente) · ${p.porSucursal.map((x) => `${x.sucursal} ${plata(x.plata)}`).join(', ') || 'sin costos'} · plazo ${p.plazoDias} días${p.plazoProvisorio ? ' (provisorio)' : ''}${p.aRevisar ? ` · ${p.aRevisar} costos a revisar` : ''}${p.faltan.length ? ` · le falta: ${p.faltan.join(', ')}` : ''}${top ? ` · más urgentes: ${top}` : ''}`);
+    }
+    lineas.push(`- [SIN_PROVEEDOR] Sin proveedor habitual: ${compras.sinProveedor.productos} productos para reponer (${compras.sinProveedor.urgentes} urgentes), sin costo: no suman a la plata.`);
+    lineas.push(`PLATA PARADA: no se vende ${plata(parado.totalQuieto)}, sobra (más de 90 días de stock) ${plata(parado.totalSobra)}; ${parado.sinValorizar} productos parados sin costo (no se pueden valorizar).`);
+    for (const p of parado.proveedores.slice(0, 8)) {
+      lineas.push(`- [${p.proveedorId ? claveDe.get(p.proveedorId) : 'SIN_PROVEEDOR'}] ${p.proveedor}: ${p.quietos} sin ventas (${plata(p.plataQuieta)}), ${p.sobran} sobran (${plata(p.plataSobra)})${p.masCaro ? ` · el más caro: ${p.masCaro.nombre} ${plata(p.masCaro.plata)}` : ''}`);
+    }
+    // detalle: los urgentes con proveedor y los sin proveedor que más venden,
+    // por si el comprador pregunta por un producto
+    const detalle = [
+      ...filas.filter((f) => f.proveedor_id && (f.alerta === 'sin_stock' || f.alerta === 'no_llega')).sort((a, b) => Number(b.urgencia ?? 0) - Number(a.urgencia ?? 0)).slice(0, 28),
+      ...filas.filter((f) => !f.proveedor_id && f.alerta && cantidadPedible(f.cantidad_sugerida) > 0).sort((a, b) => Number(b.ritmo_dia ?? 0) - Number(a.ritmo_dia ?? 0)).slice(0, 12),
+      // lo parado de más plata de los primeros proveedores de PLATA PARADA
+      ...parado.proveedores.slice(0, 8).flatMap((p) => {
+        const valor = (f: any) => Number(f.stock ?? 0) * Number(costoDe(f, costos) ?? 0);
+        return filas
+          .filter((f) => (f.proveedor_id ?? null) === p.proveedorId && ['muerto', 'sobrestock'].includes(estadoDe(f)))
+          .sort((a, b) => valor(b) - valor(a))
+          .slice(0, 5);
+      }),
+    ];
+    lineas.push('DETALLE (los más urgentes):');
+    for (const f of detalle) {
+      const costo = costoDe(f, costos);
+      lineas.push(`${f.sku} · ${f.nombre} · ${nombreSucursal(f.sucursal)} · stock ${Number(f.stock)} · vende ${Number(f.ritmo_dia)}/día · alcanza ${f.cobertura_dias ?? '—'} días · ${f.proveedor ?? 'sin proveedor'} · ${f.alerta ?? estadoDe(f)} · sugerido ${cantidadPedible(f.cantidad_sugerida)}${costo ? ` · costo ${plata(costo)}` : ''}`);
+    }
 
     const claude = new Anthropic();
     const respuesta = await claude.messages.create({
       model: 'claude-opus-4-8',
-      max_tokens: 3000,
+      max_tokens: 8000,
+      thinking: { type: 'adaptive' },
+      // lo fijo va primero y con caché; la foto del día cambia en cada consulta
       system: [
-        {
-          type: 'text',
-          text: `${PERSONALIDAD}\n\nTabla de abastecimiento (producto × sucursal), ordenada por urgencia:\n${tabla}\n\nAumentos de costo en los últimos 45 días:\n${aumentos}`,
-          cache_control: { type: 'ephemeral' },
-        },
+        { type: 'text', text: PERSONALIDAD, cache_control: { type: 'ephemeral' } },
+        { type: 'text', text: `Foto del día (${new Date().toLocaleDateString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' })}):\n${lineas.join('\n')}\n\nAumentos de costo en los últimos 45 días:\n${aumentos}` },
       ],
-      output_config: { format: { type: 'json_schema', schema: ESQUEMA_RESPUESTA as any } },
+      output_config: { format: { type: 'json_schema', schema: esquemaConClaves([...claves.keys()]) as any } },
+      // Anthropic rechaza un turno vacío (un veredicto que quedó en blanco)
       messages: mensajes.slice(-10).map((m) => ({
         role: m.rol === 'usuario' ? ('user' as const) : ('assistant' as const),
-        content: m.texto,
+        content: String(m.texto ?? '').trim() || '(sin texto)',
       })),
-    });
+    } as any);
 
-    const texto = respuesta.content.find((b) => b.type === 'text');
-    const datos = JSON.parse(texto && 'text' in texto ? texto.text : '{"respuesta":"","ordenes":[]}');
+    const bloque = respuesta.content.find((b) => b.type === 'text');
+    let salida: any = {};
+    try { salida = JSON.parse(bloque && 'text' in bloque ? bloque.text : '{}'); } catch { salida = {}; }
+    let veredicto = String(salida.respuesta ?? '').trim();
+    // sin ventas no se puede decir que no hay nada que comprar: faltan datos
+    if (!hayVentas) {
+      veredicto = `No tengo ventas cargadas para calcular el ritmo: falta el reporte de ventas del sistema viejo. ${veredicto.replace(/[^.]*nada que comprar[^.]*\.?/gi, '').trim()}`.trim();
+    }
+    const mostrar = [...new Set((Array.isArray(salida.mostrar) ? salida.mostrar : []).filter((m: any) => ['compras', 'notas', 'parado'].includes(m)))];
+    if (!mostrar.length) mostrar.push('compras', 'notas');
 
-    // Resuelvo nombres → ids para que la UI pueda crear las OC con un click
-    const [{ data: provs }, { data: sucs }] = await Promise.all([
-      this.db.from('proveedores').select('id, razon_social'),
-      this.db.from('sucursales').select('id, nombre'),
-    ]);
-    const ordenes = (datos.ordenes ?? [])
-      .map((o: any) => ({
-        ...o,
-        proveedorId: (provs ?? []).find((p) => p.razon_social === o.proveedor)?.id ?? null,
-        sucursalId: (sucs ?? []).find((s) => s.nombre === o.sucursal)?.id ?? null,
-      }))
-      .filter((o: any) => o.proveedorId && o.sucursalId && o.items?.length);
+    // cada proveedor que nombró el modelo, resuelto contra el tablero (por
+    // nombre normalizado: "Luvik" = "LUVIK S.A."); lo que no existe se descarta
+    const candidatos = [
+      ...compras.proveedores.map((p) => ({ id: p.proveedorId as string | null, nombre: p.proveedor })),
+      ...parado.proveedores.filter((p) => p.proveedorId).map((p) => ({ id: p.proveedorId, nombre: p.proveedor })),
+    ];
+    const resolver = (nombre: string): { id: string | null; nombre: string } | null => {
+      const porClave = claves.get(String(nombre ?? '').trim().toUpperCase());
+      if (porClave) return porClave;
+      const k = normalizarTexto(nombre);
+      if (!k) return null;
+      if (k.includes('sin proveedor')) return { id: null, nombre: 'Sin proveedor habitual' };
+      return candidatos.find((c) => normalizarTexto(c.nombre) === k)
+        ?? candidatos.find((c) => normalizarTexto(c.nombre).includes(k) || k.includes(normalizarTexto(c.nombre)))
+        ?? null;
+    };
+    const vistosIds = new Set<string>();
+    const comentarios = (Array.isArray(salida.proveedores) ? salida.proveedores : [])
+      .map((c: any) => {
+        const r = resolver(String(c?.proveedor ?? ''));
+        if (!r || !ACCIONES.includes(c?.accion)) return null;
+        const clave = `${r.id ?? 'sin'}:${c.accion}`;
+        if (vistosIds.has(clave)) return null;
+        vistosIds.add(clave);
+        return { proveedorId: r.id, proveedor: r.nombre, accion: c.accion, comentario: String(c?.comentario ?? '').trim().slice(0, 200) };
+      })
+      .filter(Boolean)
+      .slice(0, 8) as { proveedorId: string | null; proveedor: string; accion: string; comentario: string }[];
 
-    // Los productos que el analista detalla en la respuesta van como Placa roja
-    // (el paquete gráfico de pedidos, 2/10/2026), con los números de la tabla.
-    const vistos: ProductoVisto[] = filas.map((f) => ({ sku: f.sku, nombre: f.producto, fila: f as any }));
-    const { respuesta: texto2, detalle } = separarDetalle(String(datos.respuesta ?? ''), vistos, (ps) => placaDelAnalista(ps, vistos));
-    // la orden propuesta lleva el nombre de cada producto (antes se veía solo el SKU)
-    const nombreDe = new Map(todasFilas.map((f) => [f.sku, f.producto]));
-    const conNombres = ordenes.map((o: any) => ({
-      ...o,
-      items: (o.items ?? []).map((it: any) => ({ ...it, nombre: nombreDe.get(it.sku) ?? it.sku })),
-    }));
-    return { respuesta: texto2, detalle, ordenes: conNombres };
+    // las notas de pedido arrancan en la sucursal con más plata a comprar y con
+    // los proveedores que el modelo marcó para comprar (si no marcó, los 3 más urgentes)
+    const porSucursal = new Map<string, number>();
+    for (const p of compras.proveedores) for (const x of p.porSucursal) porSucursal.set(x.sucursal, (porSucursal.get(x.sucursal) ?? 0) + x.plata);
+    const sucursalNotas = [...porSucursal.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+    const marcados = comentarios.filter((c) => c.accion === 'comprar' && c.proveedorId).map((c) => c.proveedorId as string);
+    const notas = compras.proveedores.length
+      ? {
+          sucursal: (sucursalNotas === 'Santa Inés' ? 'Santa Inés' : 'Saint Thomas') as 'Saint Thomas' | 'Santa Inés',
+          proveedorIds: marcados.length ? marcados : [...compras.proveedores].sort((a, b) => b.plataUrgente - a.plataUrgente).slice(0, 3).map((p) => p.proveedorId),
+        }
+      : null;
+
+    // si el texto igual nombra productos del detalle, van como Placa roja
+    const vistos: ProductoVisto[] = detalle.map((f) => ({ sku: f.sku, nombre: f.nombre, fila: this.aFila(f, costos) as any }));
+    const { respuesta: texto, detalle: placa } = separarDetalle(veredicto, vistos, (ps) => placaDelAnalista(ps, vistos));
+
+    return {
+      respuesta: texto,
+      detalle: placa,
+      mostrar,
+      tablero: {
+        datos,
+        // top3 es solo para el modelo
+        compras: { ...compras, proveedores: compras.proveedores.map(({ top3, ...p }) => p) },
+        parado,
+      },
+      comentarios,
+      notas,
+    };
   }
 
   // Propone boxes/armados combinando bebidas y fiambrería, con contexto comercial
@@ -470,28 +490,36 @@ Armá 3 o 4 boxes vendibles combinando SOLO productos del catálogo de abajo (SK
     return { armados };
   }
 
+  // Solo los AUMENTOS reales de los últimos 45 días: costo mayor al registro
+  // anterior del mismo producto y proveedor, ordenados por porcentaje (hasta 15).
+  // Revisión del 2/10/2026: cargar una lista de precios registra una fila por
+  // producto aunque el costo no cambie, y todas viajaban como "costo nuevo".
   private async aumentosRecientes(): Promise<string> {
     const hace45 = new Date(Date.now() - 45 * 86400_000).toISOString();
+    const hace120 = new Date(Date.now() - 120 * 86400_000).toISOString();
     const { data } = await this.db
       .from('costos_historial')
-      .select('costo, creado_en, producto:productos(sku, nombre), proveedor:proveedores(razon_social)')
-      .gte('creado_en', hace45)
-      .order('creado_en', { ascending: true });
+      .select('costo, creado_en, producto_id, proveedor_id, producto:productos(sku, nombre), proveedor:proveedores(razon_social)')
+      .gte('creado_en', hace120)
+      .order('creado_en', { ascending: true })
+      .limit(5000);
     if (!data?.length) return '(sin cambios de costo registrados)';
 
-    const porProducto = new Map<string, any[]>();
+    const previo = new Map<string, number>();
+    const aumentos: { pct: number; linea: string }[] = [];
     for (const r of data as any[]) {
-      const sku = r.producto?.sku;
-      if (!sku) continue;
-      porProducto.set(sku, [...(porProducto.get(sku) ?? []), r]);
+      const clave = `${r.producto_id}|${r.proveedor_id ?? ''}`;
+      const costo = Number(r.costo);
+      const antes = previo.get(clave);
+      previo.set(clave, costo);
+      if (antes == null || !(antes > 0) || !(costo > antes) || r.creado_en < hace45) continue;
+      const pct = Math.round(((costo - antes) / antes) * 1000) / 10;
+      aumentos.push({
+        pct,
+        linea: `${r.producto?.sku ?? '?'} ${r.producto?.nombre ?? ''}: +${pct}% ($${Math.round(antes)} → $${Math.round(costo)}, ${String(r.creado_en).slice(0, 10)}, ${r.proveedor?.razon_social ?? '?'})`,
+      });
     }
-    const lineas: string[] = [];
-    for (const [sku, regs] of porProducto) {
-      const ultimo = regs[regs.length - 1];
-      lineas.push(
-        `${sku} ${ultimo.producto.nombre}: costo nuevo $${Math.round(ultimo.costo)} (${ultimo.proveedor?.razon_social ?? '?'})`,
-      );
-    }
-    return lineas.join('\n');
+    if (!aumentos.length) return '(sin aumentos de costo en los últimos 45 días)';
+    return aumentos.sort((a, b) => b.pct - a.pct).slice(0, 15).map((a) => a.linea).join('\n');
   }
 }

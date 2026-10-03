@@ -250,7 +250,13 @@ export function ChatAnalista() {
         </div>
       </div>
 
-      <div ref={cajaRef} className="flex-1 space-y-3 overflow-y-auto overscroll-contain p-4" aria-live="polite">
+      {/* el lector de pantalla anuncia solo el veredicto nuevo: la caja tiene
+          adentro notas de pedido interactivas y placas, y con aria-live en el
+          contenedor anunciaba cada cambio (revisión del 2/10/2026) */}
+      <p className="sr-only" aria-live="polite">
+        {[...mensajes].reverse().find((m) => m.rol === 'analista')?.texto ?? ''}
+      </p>
+      <div ref={cajaRef} className="flex-1 space-y-3 overflow-y-auto overscroll-contain p-4">
         {mensajes.map((m, i) => (
           <div
             key={i}

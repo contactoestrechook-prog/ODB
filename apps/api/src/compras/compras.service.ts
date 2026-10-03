@@ -15,6 +15,7 @@ const DIAS_URGENTE = 5;
 const TOPE_CATALOGO = 300;
 import { precioDesdeCosto, margenAplicable } from './precio';
 import { normalizarAlias } from '../listas/listas.service';
+import { invalidarAbastecimiento } from '../abastecimiento/motor';
 
 export type CrearOcDto = {
   proveedorId: string;
@@ -244,6 +245,7 @@ export class ComprasService {
     if (dto.vencimientoPago) detalle.vencimiento_pago = dto.vencimientoPago;
     if (dto.observaciones) detalle.observaciones = dto.observaciones;
     if (Object.keys(detalle).length) await this.db.from('ordenes_compra').update(detalle).eq('id', ordenCompraId);
+    invalidarAbastecimiento(); // lo pedido ya cuenta como "en camino" para el Analista
     return { ordenCompraId };
   }
 
@@ -285,6 +287,7 @@ export class ComprasService {
       p_usuario: dto.usuarioId ?? null,
     });
     if (error) throw new BadRequestException(this.traducirError(error.message));
+    invalidarAbastecimiento(); // entró mercadería: cambia stock y "en camino" para el Analista
 
     // recibir por OC también deja aprendida la remarcación de cada producto:
     // antes solo la aprendía la entrada directa, así que la misma mercadería

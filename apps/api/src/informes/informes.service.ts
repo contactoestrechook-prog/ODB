@@ -63,7 +63,7 @@ export class InformesService {
     const hasta = new Date(`${dia}T24:00:00-03:00`).toISOString();
     const desde30 = new Date(new Date(desde).getTime() - 30 * 86400_000).toISOString();
 
-    const [ventas, items, pagos, ventas30, alertas, vencimientos] = await Promise.all([
+    const [ventas, items, pagos, ventas30, alertas, vencimientos, tablero] = await Promise.all([
       this.todas((d, h) =>
         this.db
           .from('ventas')
@@ -105,6 +105,8 @@ export class InformesService {
         .from('lotes')
         .select('vencimiento, cantidad, producto:productos(sku, nombre)')
         .gt('cantidad', 0),
+      // compras y plata parada por proveedor (la misma cuenta que el Analista)
+      this.analista.tablero(),
     ]);
 
     const facturado = ventas.reduce((s, v) => s + Number(v.total), 0);
@@ -174,6 +176,17 @@ export class InformesService {
           diasDeStock: f.diasDeStock,
           sugerido: f.sugerido,
         })),
+        // 2/10/2026: desde el motor de abastecimiento (antes el ritmo salía solo
+        // de la caja de ODB y el informe decía 0 quiebres)
+        sinCosto: muertos.filter((f) => f.costo == null).length,
+        sobrestock: tablero.parado.proveedores.reduce((s, p) => s + p.sobran, 0),
+        capitalSobra: tablero.parado.totalSobra,
+        plataAComprar: tablero.compras.total,
+        plataUrgente: tablero.compras.totalUrgente,
+        proveedores: tablero.compras.proveedores.slice(0, 5).map((p) => ({ proveedor: p.proveedor, urgentes: p.urgentes, plata: p.plata })),
+        sinProveedor: tablero.compras.sinProveedor,
+        ventasHasta: tablero.datos.ventasHasta,
+        datoViejo: tablero.datos.datoViejo,
       },
       porVencer,
     };
@@ -189,7 +202,7 @@ export class InformesService {
     const respuesta = await claude.messages.create({
       model: 'claude-opus-4-8',
       max_tokens: 1000,
-      system: `Sos el Analista ODB y escribís el parte matutino para el dueño de O.D.B Premium Market (outlet de bebidas, 2 sucursales, Argentina). Español rioplatense, texto plano sin markdown, máximo 150 palabras. Estructura: 1) cómo vino la venta de ayer (comparada con el promedio), 2) lo más urgente de hoy (quiebres, vencimientos), 3) una recomendación concreta. Trabajás SOLO con los números del JSON: no inventes nada. Montos en pesos argentinos redondeados (ej: $12,4M). ${TONO_ODB}`,
+      system: `Sos el Analista ODB y escribís el parte matutino para el dueño de O.D.B Premium Market (outlet de bebidas, 2 sucursales, Argentina). Español rioplatense, texto plano sin markdown, máximo 150 palabras. Estructura: 1) cómo vino la venta de ayer (comparada con el promedio), 2) lo más urgente de hoy (quiebres, vencimientos), 3) una recomendación concreta. Trabajás SOLO con los números del JSON: no inventes nada. Montos en pesos argentinos redondeados (ej: $12,4M). En abastecimiento: nombrá el proveedor más urgente; si datoViejo es true, decí UNA vez hasta qué fecha son las ventas (ventasHasta) y que las cantidades son orientativas; nunca digas que no hay nada que comprar si plataAComprar es mayor a cero. ${TONO_ODB}`,
       messages: [
         {
           role: 'user',
