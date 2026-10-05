@@ -1,3 +1,7 @@
+-- ¡NO VOLVER A CORRER! (5/10/2026) confirmar_cotizacion_bot ya tiene la firma
+-- nueva (uuid,text,text,text,text,numeric) con p_modo y p_monto; correr esto
+-- crearía otra vez la de 5 argumentos y las llamadas quedarían ambiguas.
+
 -- El "nada más" confirma el pedido (3/10/2026). Pedido de Leandro: "una vez
 -- que ya dijo nada más no tiene que preguntar todo el tiempo si lo confirma".
 -- Hasta ahora confirmar_cotizacion_bot exigía un "sí" explícito al "¿Lo
