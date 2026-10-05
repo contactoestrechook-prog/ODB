@@ -29,6 +29,11 @@ export type PedidoParaAviso = {
   items: { nombre: string; cantidad: number; precio_unitario: number }[];
   /** lo confirmó el bot de WhatsApp (tiene cotización del bot) */
   esDelBot: boolean;
+  /**
+   * el bot lo confirmó por el comprobante de una transferencia: lo que quedó en
+   * bot_cotizaciones.confirmacion («comprobante: $285.390»). null si no.
+   */
+  confirmadoPorComprobante?: string | null;
 };
 
 const ZONA = 'America/Argentina/Buenos_Aires';
@@ -115,6 +120,14 @@ function entregaDe(p: PedidoParaAviso): string {
 function cobroDe(p: PedidoParaAviso): string {
   const origen = origenDelPedido(p);
   if (p.pagado_en) return 'Ya está pagado.';
+  // EL QUE YA TRANSFIRIÓ NO PAGA DOS VECES (5/10/2026, revisión): el pedido que
+  // confirmó el comprobante decía «Se cobra al retirar» y la nota «se cobra
+  // $285.390»; el cajero le volvía a cobrar a Pablo, que ya había transferido.
+  const comprobante = /^comprobante:\s*(\$\s?[\d.,]+)/i.exec(String(p.confirmadoPorComprobante ?? ''));
+  if (origen === 'bot' && comprobante) {
+    const momento = p.canal === 'domicilio' ? 'recibir' : 'retirar';
+    return `YA TRANSFIRIÓ ${comprobante[1]} por WhatsApp (a confirmar por administración): si está acreditada NO se cobra nada al ${momento}; si no, se cobran ${comprobante[1]}.`;
+  }
   if (origen === 'pedidosya') return 'Lo cobra PedidosYa.';
   if (origen === 'tiendanube') return 'El pago figura en Tiendanube: revisalo antes de cobrar.';
   if (origen === 'bot' || origen === 'panel') return `Se cobra al ${p.canal === 'domicilio' ? 'recibir' : 'retirar'}.`;

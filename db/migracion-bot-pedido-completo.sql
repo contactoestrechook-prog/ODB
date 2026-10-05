@@ -1,3 +1,4 @@
+-- YA ESTÁ APLICADA (3/10/2026) y NO se vuelve a correr: la última versión de confirmar_cotizacion_bot es db/migracion-bot-pedido-comprobante.sql (5/10/2026, firma uuid,text,text,text,text,numeric, con los modos 'si', 'completo' y 'comprobante'); correr esta otra vez crea la firma de 5 argumentos al lado y las llamadas quedan ambiguas (PGRST203).
 -- El "nada más" confirma el pedido (3/10/2026). Pedido de Leandro: "una vez
 -- que ya dijo nada más no tiene que preguntar todo el tiempo si lo confirma".
 -- Hasta ahora confirmar_cotizacion_bot exigía un "sí" explícito al "¿Lo

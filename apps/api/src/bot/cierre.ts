@@ -13,7 +13,9 @@
 //
 // Lo que acá es "cierra la lista" tiene su espejo en SQL (la RPC
 // confirmar_cotizacion_bot con p_modo 'completo', db/migracion-bot-pedido-completo.sql):
-// si se toca una, se toca la otra.
+// si se toca una, se toca la otra. Desde el 5/10/2026 la RPC vigente es la de
+// db/migracion-bot-pedido-comprobante.sql (trae el mismo modo 'completo'): un
+// cambio va en una migración nueva sobre esa, nunca volviendo a correr la del 3/10.
 
 import { RE_PREGUNTA_COMPLETO } from './completo';
 import { cantidadesPedidas } from './formatos';

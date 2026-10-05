@@ -14,7 +14,10 @@ export function diceQueEstaCompleto(texto: string): boolean {
   return /^(si+|sisi|dale|ok(ey)?|listo|perfecto|asi (esta )?bien|todo bien|correcto|exacto)\b[\s!.,]*(,?\s*(gracias|es todo|eso))?[\s!.]*$/.test(t);
 }
 
-const RE_PREGUNTA_PRECIO = /\b(cu[aá]nto|precio|sale|salen|cuesta|cuestan|presupuesto|total)\b/i;
+// «Decime los valores» y «Me gustaría saber los precios» también preguntan el
+// precio (Pablo, 5/10/2026: \bprecio\b no tomaba «precios» y nunca le llegó el
+// total). Más directo: el que pide precios, los recibe.
+export const RE_PREGUNTA_PRECIO = /\b(cu[aá]nto|precios?|valor(?:es)?|sale|salen|cuesta|cuestan|presupuesto|total)\b/i;
 
 /**
  * ¿Ya se pueden pasar precios de este pedido? Sí si: el cliente pregunta un

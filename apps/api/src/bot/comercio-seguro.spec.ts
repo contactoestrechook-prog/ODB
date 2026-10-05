@@ -60,14 +60,19 @@ describe('Regresiones de auditoría: contrato comercial', () => {
     const s=servicio();let vuelta=0;(s as any).claude={messages:{create:jest.fn(async()=>respuesta(++vuelta===1?'Veo dos botellas. ¿Querés el precio?':'Cuesta $999.999.'))}};
     jest.spyOn(s,'consultarInterno').mockResolvedValue({consultado:true,area:'local',avisoPorWhatsapp:true,aviso:''});
     const r:any=await s.charla({linea:'pedidos',telefono:'5491155510011',archivoBase64:'aW1hZ2Vu',mimeType:'image/jpeg'});
-    // 23/9/2026: sin precio inventado, pero el cliente recibe el acuse (antes: silencio)
+    // 23/9/2026: sin precio inventado, pero el cliente recibe el aviso (antes: silencio).
+    // 5/10/2026: la consulta de respaldo no tiene tema → el genérico; mandó solo la
+    // foto (nada más que contestar), así que el aviso va solo y una vez
     expect(r.respuesta).toBe('Ya te confirmo por acá.');expect(s.consultarInterno).toHaveBeenCalledTimes(1);
   });
-  it('A12: una promesa sin herramienta se convierte en consulta real y un solo acuse',async()=>{
+  // 5/10/2026: la promesa del modelo se saca y el aviso lo pone el código, una vez
+  it('A12: una promesa sin herramienta se convierte en consulta real y un solo aviso',async()=>{
     const s=servicio();let vuelta=0;(s as any).claude={messages:{create:jest.fn(async()=>respuesta(++vuelta===1?'No tengo ese dato.':'Ya te confirmo por acá.'))}};
     jest.spyOn(s,'consultarInterno').mockResolvedValue({consultado:true,area:'local',avisoPorWhatsapp:true,aviso:''});
     const r:any=await s.charla({linea:'pedidos',telefono:'5491155510022',mensaje:'¿Es cosecha 2020?'});
-    expect(r.respuesta).toMatch(/Ya te confirmo por acá\.$/);expect(r.respuesta).not.toMatch(/No tengo ese dato/);expect(s.consultarInterno).toHaveBeenCalledWith('pedidos','5491155510022','local','¿Es cosecha 2020?','',undefined);
+    // primer mensaje de la charla: el saludo y el aviso, una sola vez y al final
+    expect(r.respuesta).toMatch(/^(Buen día|Buenas tardes|Buenas noches), te damos la bienvenida a O\.D\.B\.\n\nYa te confirmo por acá\.$/);expect(r.respuesta.match(/confirmo por acá/g)).toHaveLength(1);
+    expect(r.respuesta).not.toMatch(/No tengo ese dato/);expect(s.consultarInterno).toHaveBeenCalledWith('pedidos','5491155510022','local','¿Es cosecha 2020?','',undefined,'');
   });
   it('A10: una consulta simultánea no oculta el código de un pedido creado',async()=>{
     const db=dbSimulada({bot_conversaciones:{data:{mensajes:[{role:'assistant',content:'RESUMEN'}]}}});const s=servicio(db);

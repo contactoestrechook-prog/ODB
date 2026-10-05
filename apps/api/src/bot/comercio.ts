@@ -20,6 +20,14 @@ export function confirmacionInequivoca(texto: string): boolean {
   const t = String(texto ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
   // Una modificación o negación requiere otro resumen; no excepciones por la palabra confirmo.
   if (/\b(no|para|espera|todavia|despues|pero|cambia\w*|agrega\w*|saca\w*|quita\w*|mejor|otra?\w*|en vez|cancel\w*)\b/.test(t)) return false;
+  // EL «SI» CONDICIONAL NO ES UN SÍ (5/10/2026): «Si queres pásame el total y a
+  // donde puedo hacerte l transferencia» (Pablo) daba true; con un «¿Lo
+  // confirmo?» a la vista, creaba el pedido sin modelo. Espejo en la RPC
+  // confirmar_cotizacion_bot (db/migracion-bot-pedido-comprobante.sql).
+  // Solo lo que de verdad es condicional (5/10/2026, revisión): «si querés…»,
+  // «si podés…», «si tenés…», «si hay…», «si me pasás…», «si te parece…».
+  // «Si es correcto», «Si te confirmo» o «Si son esos» son síes sin tilde.
+  if (/^si\s+(?:qui?er\w*|quisier\w*|p(?:o|ue)d\w*|t(?:e|ie)n(?:es|e|en|emos)\b|hay|sale\w*|necesit\w*|prefer\w*|fuera|era|vos|usted|me\s+(?:pas\w*|mand\w*|dec\w*|das|dej\w*)|te\s+(?:parece|sirve|queda|va|viene|conviene))\b/.test(t)) return false;
   return /^(?:si|dale|ok(?:ey)?|listo|confirmo|confirmalo|confirmame|de acuerdo|hacelo|armalo|cerralo|perfecto)(?:\b|[,.!\s])/.test(t);
 }
 
