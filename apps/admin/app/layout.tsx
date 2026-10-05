@@ -4,6 +4,7 @@ import "./globals.css";
 import { BannerInstalarApp } from "./ui/BannerInstalarApp";
 import { AvisoActualizacion } from "./ui/AvisoActualizacion";
 import { ReportarProblema } from "./ui/ReportarProblema";
+import { AvisoPedidosSinAviso } from "./ui/AvisoPedidosSinAviso";
 
 // La letra del panel (decisión del dueño, octubre 2026): más suave que Arial y
 // angosta, así no aparecen desbordes nuevos. next/font la sirve desde el mismo
@@ -48,6 +49,7 @@ export default function RootLayout({
   return (
     <html lang="es" className={`${figtree.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col">
+        <AvisoPedidosSinAviso />
         {children}
         <AvisoActualizacion />
         <BannerInstalarApp />

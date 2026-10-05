@@ -789,6 +789,16 @@ export const SECCIONES: Seccion[] = [
       },
       {
         tipo: 'ojo',
+        titulo: 'Cada pedido le llega a administración',
+        puntos: [
+          'Todo pedido nuevo (del bot, la tienda web, la app, PedidosYa o Tiendanube) sale solo por WhatsApp al teléfono de administración —el mismo de pagos y consultas— con la tarjeta del pedido: código, productos, total, retiro o envío, día y cliente. Si después se cancela llega "PEDIDO CANCELADO"; si se paga por Mercado Pago, "PEDIDO PAGADO".',
+          'Si un cliente confirmó y el pedido no se pudo cargar, llega "PEDIDO CONFIRMADO SIN CARGAR" con lo que pidió: hay que cargarlo a mano y confirmarle por el chat.',
+          'El sistema verifica que el mensaje llegó al teléfono. Si no sale o no llega en unos minutos, les escribe a los dueños y aparece una franja roja arriba de todas las pantallas. Cuando ya avisaron al local por otro medio, se toca "Ya avisé al local".',
+          'Al aviso no hace falta contestarle. Si se contesta, que sea citándolo: así no se confunde con la respuesta a un pago o una consulta.',
+        ],
+      },
+      {
+        tipo: 'ojo',
         puntos: [
           'Todo lo que el bot cotiza sale de la lista de precios del sistema. Si un precio está mal en el sistema, el bot lo va a repetir mal.',
           'Las conversaciones se ven en RESPONDE (menú Clientes): es la app con la línea real de WhatsApp, donde se contesta, se pausa o se devuelve al bot cada charla y se dejan notas y mensajes programados. Las campañas por listas están en Difusiones. Para probar el bot sin escribirle a un cliente está Probar el bot (ojo: los pedidos que confirmes ahí son reales). Ahí se ve también la tarjeta roja que le llegaría al cliente (resumen, precios o pedido) con su epígrafe.',
