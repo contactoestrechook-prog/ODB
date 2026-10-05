@@ -6,7 +6,8 @@
 // prueba lo que aparece recién cuando están las dos cosas.
 import { BotService } from './bot.service';
 import { sinLoConsulto } from './prolijo';
-import { sinPedirConfirmo } from './pago-confirma';
+import { confirmacionConDatosDePago, sinPedirConfirmo } from './pago-confirma';
+import { retiraElMismoCliente } from './cierre';
 
 // base falsa por operación (como la de pago-confirma.spec.ts)
 type Consulta = { op: string; terminal: string; filtros: any[][] };
@@ -48,15 +49,17 @@ const COT = {
 const tu = (id: string, name: string, input: any) => ({ type: 'tool_use', id, name, input });
 const resp = (content: any[], stop = 'tool_use') => ({ stop_reason: stop, content, usage: { input_tokens: 1, output_tokens: 1 } });
 
-function armar(o: { cotizacion?: any; conversacion?: any[] } = {}) {
+function armar(o: { cotizacion?: any; conversacion?: any[]; pagosAbiertos?: any[]; pedido?: any } = {}) {
   const cot = o.cotizacion === undefined ? COT : o.cotizacion;
   const db = dbPorOperacion({
     lineas_whatsapp: { select: { data: CFG } },
     alertas_internas: { select: { data: null } },
     bot_contactos: { select: { data: { nombre: 'Pablo' } } },
-    bot_cotizaciones: { select: (q: Consulta) => (q.terminal === 'then' ? { data: cot ? [cot] : [] } : { data: cot }) },
-    bot_pagos_en_confirmacion: { select: { data: [] } },
+    // «confirmada hace poco» (gte confirmada_en) solo si la cotización está confirmada
+    bot_cotizaciones: { select: (q: Consulta) => (q.terminal === 'then' ? { data: cot ? [cot] : [] } : q.filtros.some((f) => f[0] === 'gte' && f[1] === 'confirmada_en') && !cot?.confirmada_en ? { data: null } : { data: cot }) },
+    bot_pagos_en_confirmacion: { select: { data: o.pagosAbiertos ?? [] } },
     productos: { select: { data: [] } },
+    pedidos: { select: { data: o.pedido ?? null } },
     bot_conversaciones: { select: { data: o.conversacion ? { mensajes: o.conversacion, bot_activo: true, actualizado_en: new Date(Date.now() - 60_000).toISOString(), importes_verificados: [] } : null } },
   });
   const pedidos = { obtener: jest.fn(async () => ({ qr_retiro: 'PICKUP-00D163566DEF', total: 133500, estado: 'recibido' })) };
@@ -105,18 +108,38 @@ describe('crearPedido con los tres modos', () => {
 });
 
 describe('el «nada más» con el alias pedido en el mismo turno', () => {
-  it('la confirmación lleva los datos de pago abajo (el alias no se pierde)', async () => {
+  // la respuesta real de crearPedido con el interruptor prendido: un retiro con picadas termina preguntando el nombre
+  const CONFIRMACION = 'Pedido PICKUP-ABC123ABC123 confirmado. Total: $133.500.\nRetiro en la sucursal Saint Thomas. Se abona al retirar, en efectivo o tarjeta.\n\n¿A nombre de quién lo retiran?';
+  const conAliasYPregunta = (orden: string[]) => async () => {
     const { s } = armar({ cotizacion: null });
     jest.spyOn(s, 'prepararPedido').mockResolvedValue({ cotizacionId: 'cot-1', resumen: '• Combo Picada Box — 3 × $44.500 = $133.500\nTotal: $133.500\nRetiro en la sucursal Saint Thomas.\n¿Lo confirmo?', total: 133500, renglones: [{ cantidad: 3, nombre: 'Combo Picada Box' }] } as any);
-    jest.spyOn(s, 'crearPedido').mockResolvedValue({ pedidoId: 'x', codigoRetiro: 'PICKUP-ABC123ABC123', total: 133500, estado: 'recibido', respuesta: 'Pedido PICKUP-ABC123ABC123 confirmado. Total: $133.500.\nRetiro en la sucursal Saint Thomas. Se abona al retirar, en efectivo o tarjeta.' } as any);
+    jest.spyOn(s, 'crearPedido').mockResolvedValue({ pedidoId: 'x', codigoRetiro: 'PICKUP-ABC123ABC123', total: 133500, estado: 'recibido', respuesta: CONFIRMACION } as any);
     const lista = 'Te anoto:\n• 3 × Combo Picada Box\n\n¿Está completo el pedido o querés sumar algo?';
     const c: any = { ultimoBot: lista, ultimosBot: [lista], ultimosCliente: ['3 picadas', 'Solo eso, pasame el alias'], textoCliente: 'Solo eso, pasame el alias', fallos: new Map(), fija: {}, cierre: 'Solo eso', anotado: [{ cantidad: 3, nombre: 'Combo Picada Box' }] };
-    await (s as any).ejecutarHerramienta(tu('d', 'derivar_pago', { tipo: 'quiere_pagar', motivo: 'pide alias', monto: 0 }), TEL, 'pedidos', c);
-    await (s as any).ejecutarHerramienta(tu('p', 'preparar_pedido', { tipo: 'pickup', items: [] }), TEL, 'pedidos', c);
-    expect(c.fija.texto).toMatch(/^Pedido PICKUP-ABC123ABC123 confirmado\./);
-    expect(c.fija.texto).toContain('Alias: outlet.de.bebidas');
-    expect(c.fija.texto).not.toMatch(/¿Lo confirmo\?/);
+    const herramientas: Record<string, any> = {
+      d: tu('d', 'derivar_pago', { tipo: 'quiere_pagar', motivo: 'pide alias', monto: 0 }),
+      p: tu('p', 'preparar_pedido', { tipo: 'pickup', items: [] }),
+    };
+    for (const h of orden) await (s as any).ejecutarHerramienta(herramientas[h], TEL, 'pedidos', c);
+    const t: string = c.fija.texto;
+    expect(t).toMatch(/^Pedido PICKUP-ABC123ABC123 confirmado\./);
+    expect(t).toContain('Alias: outlet.de.bebidas');
+    expect(t).not.toMatch(/¿Lo confirmo\?/);
+    // los datos de pago van abajo de la confirmación y la pregunta del nombre queda última, una sola vez
+    expect(t.indexOf('Se abona al retirar')).toBeLessThan(t.indexOf('Alias: outlet.de.bebidas'));
+    expect(t.trim().endsWith('¿A nombre de quién lo retiran?')).toBe(true);
+    expect(t.match(/¿A nombre de quién lo retiran\?/g)).toHaveLength(1);
+    expect(t.match(/outlet\.de\.bebidas/g)).toHaveLength(1);
     expect(c.fallos.get('__pedido_creado__')).toBe(1);
+  };
+
+  it('la confirmación lleva los datos de pago abajo y la pregunta del nombre queda última (derivar_pago → preparar_pedido)', conAliasYPregunta(['d', 'p']));
+  it('lo mismo con preparar_pedido → derivar_pago', conAliasYPregunta(['p', 'd']));
+
+  it('sin la pregunta del nombre, los datos van abajo de todo, como antes', () => {
+    const conf = 'Pedido PICKUP-ABC123ABC123 confirmado. Total: $133.500.\nRetiro en la sucursal Saint Thomas. Se abona al retirar, en efectivo o tarjeta.';
+    expect(confirmacionConDatosDePago(conf, 'Alias: a.\nCuando transfieras, mandame el comprobante por acá.')).toBe(`${conf}\n\nAlias: a.\nCuando transfieras, mandame el comprobante por acá.`);
+    expect(confirmacionConDatosDePago(conf, '')).toBe(conf);
   });
 
   it('con un comprobante en el turno, el «nada más» no confirma: va «Recibido.»', async () => {
@@ -127,6 +150,130 @@ describe('el «nada más» con el alias pedido en el mismo turno', () => {
     await (s as any).ejecutarHerramienta(tu('p', 'preparar_pedido', { tipo: 'pickup', items: [] }), TEL, 'pedidos', c);
     expect(crear).not.toHaveBeenCalled();
     expect(c.fija.texto).toBe('Recibido.');
+  });
+});
+
+describe('el «nada más» con el comprobante en el turno: el resultado no depende del orden', () => {
+  // Lista anotada → «Nada más» → el bot dio el total y preguntó retiro o envío
+  // (sin «¿Lo confirmo?»: la lista está cerrada) → el cliente manda el PDF de la
+  // transferencia con «Retiro, ahí va la transferencia».
+  const LISTA = 'Te anoto:\n• 3 × Combo Picada Box\n\n¿Está completo el pedido o querés sumar algo?';
+  const COTIZO = 'Son $133.500 en total. ¿Lo retirás en la sucursal o te lo enviamos?';
+  const PDF_TXT = 'Retiro, ahí va la transferencia';
+  const HIST = [
+    { role: 'user', content: '3 picadas' }, { role: 'assistant', content: LISTA },
+    { role: 'user', content: 'Nada más' }, { role: 'assistant', content: COTIZO },
+  ];
+  const PREP = { cotizacionId: COT.id, resumen: '• Combo Picada Box — 3 × $44.500 = $133.500\nTotal: $133.500\nRetiro en la sucursal Saint Thomas.\n¿Lo confirmo?', total: 133500, renglones: [{ cantidad: 3, nombre: 'Combo Picada Box' }] };
+  const ctxPdf = (): any => ({
+    ultimoBot: COTIZO, ultimosBot: [COTIZO, LISTA], ultimosCliente: ['3 picadas', 'Nada más', PDF_TXT], textoCliente: PDF_TXT,
+    archivoUrl: 'https://publico/comprobante.pdf', archivo: { base64: 'JVBERi0xLjQK', mime: 'application/pdf' }, historial: HIST,
+    fallos: new Map(), fija: {}, salidas: [], cierre: 'Nada más', anotado: [{ cantidad: 3, nombre: 'Combo Picada Box' }],
+  });
+  const herramientas: Record<string, any> = {
+    preparar_pedido: tu('p', 'preparar_pedido', { tipo: 'pickup', items: [] }),
+    derivar_pago: tu('d', 'derivar_pago', { tipo: 'comprobante_enviado', monto: 133500, motivo: 'Transfirió $133.500 por las picadas', de_quien: 'Pablo' }),
+  };
+
+  it.each([
+    ['preparar_pedido → derivar_pago', ['preparar_pedido', 'derivar_pago']],
+    ['derivar_pago → preparar_pedido', ['derivar_pago', 'preparar_pedido']],
+  ])('%s: no se crea el pedido en modo completo, va «Recibido.» y administración recibe el comprobante una vez', async (_n, orden) => {
+    process.env.ODB_NADA_MAS_CONFIRMA = '1';
+    // la cotización recién guardada: el modo 'completo' la aceptaría
+    const { s, db } = armar({ cotizacion: { ...COT, creada_en: new Date().toISOString() } });
+    jest.spyOn(s, 'prepararPedido').mockResolvedValue(PREP as any);
+    const crear = jest.spyOn(s, 'crearPedido');
+    const c = ctxPdf();
+    for (const h of orden as string[]) await (s as any).ejecutarHerramienta(herramientas[h], TEL, 'pedidos', c);
+    expect(crear).not.toHaveBeenCalledWith(expect.objectContaining({ modo: 'completo' }));
+    expect(db.rpc).not.toHaveBeenCalledWith('confirmar_cotizacion_bot', expect.anything());
+    expect(c.fija.texto).toBe('Recibido.');
+    expect(c.fallos.get('__pedido_creado__')).toBeUndefined();
+    const avisos = ((s as any).enviarPorWhatsapp as jest.Mock).mock.calls.map((x: any[]) => x[0]);
+    expect(avisos).toHaveLength(1);
+    expect(avisos[0].text).toMatch(/Comprobante recibido/);
+    expect(avisos[0].text).not.toMatch(/Se cobra al retirar/);
+  });
+
+  it('un archivo en el turno (aunque no haya derivar_pago) tampoco confirma por el «nada más»: queda el «¿Lo confirmo?»', async () => {
+    const { s } = armar({ cotizacion: { ...COT, creada_en: new Date().toISOString() } });
+    jest.spyOn(s, 'prepararPedido').mockResolvedValue(PREP as any);
+    const crear = jest.spyOn(s, 'crearPedido');
+    const c = ctxPdf();
+    await (s as any).ejecutarHerramienta(herramientas.preparar_pedido, TEL, 'pedidos', c);
+    expect(crear).not.toHaveBeenCalled();
+    expect(c.fija.texto).toMatch(/¿Lo confirmo\?$/);
+  });
+
+  it('en un turno siguiente, con el comprobante abierto en administración, el «nada más» no confirma con «Se abona al retirar»', async () => {
+    const abierto = { id: 'pago-1', monto: 133500, creado_en: new Date(Date.now() - 5 * 60_000).toISOString(), confirmado_en: null };
+    const { s } = armar({ cotizacion: { ...COT, creada_en: new Date().toISOString() }, pagosAbiertos: [abierto] });
+    jest.spyOn(s, 'prepararPedido').mockResolvedValue(PREP as any);
+    const crear = jest.spyOn(s, 'crearPedido');
+    const c: any = { ...ctxPdf(), archivo: undefined, archivoUrl: undefined, ultimoBot: 'Recibido.', ultimosBot: ['Recibido.', COTIZO, LISTA], textoCliente: 'Lo paso a buscar a las 18' };
+    await (s as any).ejecutarHerramienta(herramientas.preparar_pedido, TEL, 'pedidos', c);
+    expect(crear).not.toHaveBeenCalled();
+    expect(c.fija.texto).toMatch(/¿Lo confirmo\?$/);
+    expect(c.fija.texto).not.toMatch(/Se abona/);
+  });
+
+  it('sin archivo ni comprobante abierto, el «nada más» sigue confirmando como en main', async () => {
+    const { s } = armar({ cotizacion: { ...COT, creada_en: new Date().toISOString() } });
+    jest.spyOn(s, 'prepararPedido').mockResolvedValue(PREP as any);
+    const c: any = { ...ctxPdf(), archivo: undefined, archivoUrl: undefined, textoCliente: 'Lo retiro' };
+    await (s as any).ejecutarHerramienta(herramientas.preparar_pedido, TEL, 'pedidos', c);
+    expect(c.fija.texto).toMatch(/^Pedido PICKUP-00D163566DEF confirmado\./);
+  });
+});
+
+describe('«¿A nombre de quién lo retiran?» después de confirmar: el cliente que la contesta no queda mudo', () => {
+  const CONF = 'Recibido. Tu pedido PICKUP-00D163566DEF quedó confirmado para retirar en la sucursal Saint Thomas.\n\n¿A nombre de quién lo retiran?';
+  const PEDIDO = { id: 'pedido-1', notas: 'YA TRANSFIRIÓ $133.500 por WhatsApp', estado: 'recibido' };
+
+  it.each(['Sí, a mi nombre', 'Sí, yo mismo', 'Si, a nombre mío', 'Dale, lo retiro yo', 'A mi nombre', 'Yo'])('«%s»: queda a nombre del contacto y se le contesta', async (dicho) => {
+    process.env.ODB_NADA_MAS_CONFIRMA = '1';
+    const { s, db, create } = armar({ conversacion: [{ role: 'user', content: '[el cliente mandó este PDF]' }, { role: 'assistant', content: CONF }], pedido: PEDIDO });
+    const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: dicho });
+    expect(r.respuesta).toBe('Listo, queda a tu nombre.');
+    expect(create).not.toHaveBeenCalled();
+    const nota = db.escrituras.find((e: any) => e.tabla === 'pedidos' && e.op === 'update');
+    expect(nota.fila.notas).toBe('YA TRANSFIRIÓ $133.500 por WhatsApp · Retira: Pablo (el mismo cliente)');
+  });
+
+  it('con un nombre, como en main', async () => {
+    process.env.ODB_NADA_MAS_CONFIRMA = '1';
+    const { s } = armar({ conversacion: [{ role: 'user', content: 'Sí' }, { role: 'assistant', content: CONF }], pedido: PEDIDO });
+    const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Ok, a nombre de Juan Pérez' });
+    expect(r.respuesta).toBe('Listo, queda a nombre de Juan Pérez.');
+  });
+
+  it('«Sí, lo retira mi hijo» no se calla: contesta el modelo, avisado de que el pedido ya está confirmado', async () => {
+    process.env.ODB_NADA_MAS_CONFIRMA = '1';
+    const { s, create, db } = armar({ conversacion: [{ role: 'user', content: 'Sí' }, { role: 'assistant', content: CONF }], pedido: PEDIDO });
+    create.mockResolvedValue(resp([{ type: 'text', text: 'Perfecto, lo retira tu hijo con el código del pedido.' }], 'end_turn'));
+    const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Sí, lo retira mi hijo' });
+    expect(create).toHaveBeenCalled();
+    expect(r.respuesta).toBeTruthy();
+    expect(JSON.stringify((create.mock.calls[0] as any[])[0])).toContain('PICKUP-00D163566DEF YA QUEDÓ CONFIRMADO');
+    expect(db.rpc).not.toHaveBeenCalledWith('confirmar_cotizacion_bot', expect.anything());
+  });
+
+  it('y preparar_pedido no arma otro pedido por ese «sí» (sí, si trae un cambio)', async () => {
+    const { s } = armar();
+    const preparar = jest.spyOn(s, 'prepararPedido').mockResolvedValue({ cotizacionId: 'cot-2', resumen: 'Total: $133.500\n¿Lo confirmo?', total: 133500, renglones: [] } as any);
+    const ctx = (texto: string): any => ({ ultimoBot: CONF, ultimosBot: [CONF], ultimosCliente: ['[el cliente mandó este PDF]', texto], textoCliente: texto, fallos: new Map(), fija: {} });
+    const r: any = await (s as any).ejecutarHerramienta(tu('p', 'preparar_pedido', { tipo: 'pickup', items: [] }), TEL, 'pedidos', ctx('Dale'));
+    expect(preparar).not.toHaveBeenCalled();
+    expect(String(r.content)).toMatch(/ya quedó confirmado/);
+    // con un cambio no lo frena esta guarda (sigue el camino de siempre)
+    const r2: any = await (s as any).ejecutarHerramienta(tu('p', 'preparar_pedido', { tipo: 'pickup', items: [] }), TEL, 'pedidos', ctx('Sí, y sumame 2 hielos'));
+    expect(String(r2.content)).not.toMatch(/ya quedó confirmado/);
+  });
+
+  it('retiraElMismoCliente es estricto', () => {
+    for (const t of ['Sí, a mi nombre', 'Sí, yo mismo', 'Si, a nombre mío', 'Dale, lo retiro yo', 'yo misma', 'Lo retiro yo, gracias', 'A mi nombre nomás']) expect(retiraElMismoCliente(t)).toBe(true);
+    for (const t of ['Sí', 'Juan', 'A nombre de Juan', 'Lo retiro mañana', 'Yo no, mi hijo', 'Sí, gracias', 'no']) expect(retiraElMismoCliente(t)).toBe(false);
   });
 });
 
@@ -145,14 +292,54 @@ describe('el «sí» de más después de una confirmación', () => {
 });
 
 describe('la tarjeta del pedido confirmado por el comprobante', () => {
-  const falso = () => {
-    const consulta: any = { select: () => consulta, eq: () => consulta, maybeSingle: async () => ({ data: { id: 'p1', destino_direccion: null, entrega_fecha: null, entrega_franja: null, pedidos_items: [{ cantidad: 3, precio_unitario: 44500, productos: { nombre: 'Combo Picada Box' } }] } }) };
+  // pedidos: los renglones a precio de lista; bot_cotizaciones: lo que dejó la base al confirmar («comprobante: $X»)
+  const falso = (o: { items?: any[]; confirmacion?: string | null } = {}) => {
+    const consulta = (data: any): any => { const c: any = { select: () => c, eq: () => c, limit: () => c, maybeSingle: async () => ({ data }) }; return c; };
+    const pedido = { id: 'p1', destino_direccion: null, entrega_fecha: null, entrega_franja: null, pedidos_items: o.items ?? [{ cantidad: 3, precio_unitario: 44500, productos: { nombre: 'Combo Picada Box' } }] };
+    const confirmacion = o.confirmacion === undefined ? 'comprobante: $133.500' : o.confirmacion;
     return {
-      db: { from: () => consulta, storage: { from: () => ({ upload: async () => ({ error: null }), getPublicUrl: () => ({ data: { publicUrl: 'https://publico/cartel.png' } }) }) } },
+      db: {
+        from: (t: string) => consulta(t === 'bot_cotizaciones' ? (confirmacion === null ? null : { confirmacion }) : pedido),
+        storage: { from: () => ({ upload: async () => ({ error: null }), getPublicUrl: () => ({ data: { publicUrl: 'https://publico/cartel.png' } }) }) },
+      },
       log: { warn: () => undefined },
       subirPaginas: (BotService.prototype as any).subirPaginas,
     };
   };
+
+  it('el que transfirió el total con descuento lo ve al pie (Pablo: $285.390 de $317.100), sin «pagado» ni «acreditado»', async () => {
+    const espia = jest.spyOn(require('../comun/cartel-pedido'), 'cartelesPedido').mockResolvedValue([Buffer.from('png')]);
+    const f = falso({ items: [{ cantidad: 3, precio_unitario: 105700, productos: { nombre: 'Judas Malbec 750 cc' } }], confirmacion: 'comprobante: $285.390' });
+    const conf = 'Recibido. Tu pedido PICKUP-00D163566DEF quedó confirmado para retirar en la sucursal Saint Thomas.';
+    const r = await (BotService.prototype as any).cartelDePedido.call(f, conf);
+    // la tarjeta es la del pedido (los renglones a precio de lista y su total)…
+    expect((espia.mock.calls[0][0] as any).total).toBe(317100);
+    // …y el pie dice el total con descuento por transferencia
+    expect(r.pie).toBe('Recibido. Tu pedido quedó confirmado. Total con descuento por transferencia: $285.390.');
+    expect(r.pie).not.toMatch(/pagad|acreditad/i);
+    // con la pregunta del nombre, la pregunta sigue última
+    const r2 = await (BotService.prototype as any).cartelDePedido.call(f, `${conf}\n\n¿A nombre de quién lo retiran?`);
+    expect(r2.pie).toBe('Recibido. Tu pedido quedó confirmado. Total con descuento por transferencia: $285.390.\n\n¿A nombre de quién lo retiran?');
+    espia.mockRestore();
+  });
+
+  it('con «El envío es sin cargo.» adelante, el pie igual dice de qué confirmación se trata', async () => {
+    const espia = jest.spyOn(require('../comun/cartel-pedido'), 'cartelesPedido').mockResolvedValue([Buffer.from('png')]);
+    const f = falso({ items: [{ cantidad: 3, precio_unitario: 105700, productos: { nombre: 'Judas Malbec 750 cc' } }], confirmacion: 'comprobante: $285.390' });
+    const r = await (BotService.prototype as any).cartelDePedido.call(f, 'El envío es sin cargo. Recibido. Tu pedido PICKUP-00D163566DEF quedó confirmado para retirar en la sucursal Saint Thomas.');
+    expect(r.pie).toBe('El envío es sin cargo. Recibido. Tu pedido quedó confirmado. Total con descuento por transferencia: $285.390.');
+    const r2 = await (BotService.prototype as any).cartelDePedido.call(falso(), 'El envío es sin cargo. Pedido PICKUP-00D163566DEF confirmado. Total: $133.500.\nRetiro en la sucursal Saint Thomas. Se abona al retirar, en efectivo o tarjeta.');
+    expect(r2.pie).toBe('El envío es sin cargo. Pedido confirmado. Se abona al retirar, en efectivo o tarjeta.');
+    espia.mockRestore();
+  });
+
+  it('si no se puede leer lo que transfirió, no hay tarjeta: va el texto, como en producción', async () => {
+    const espia = jest.spyOn(require('../comun/cartel-pedido'), 'cartelesPedido').mockResolvedValue([Buffer.from('png')]);
+    const r = await (BotService.prototype as any).cartelDePedido.call(falso({ confirmacion: null }), 'Recibido. Tu pedido PICKUP-00D163566DEF quedó confirmado para retirar en la sucursal Saint Thomas.');
+    expect(r).toBeNull();
+    expect(espia).not.toHaveBeenCalled();
+    espia.mockRestore();
+  });
 
   it('el pie no repite «Pedido confirmado.» ni el código: «Recibido. Tu pedido quedó confirmado.»', async () => {
     const espia = jest.spyOn(require('../comun/cartel-pedido'), 'cartelesPedido').mockResolvedValue([Buffer.from('png')]);

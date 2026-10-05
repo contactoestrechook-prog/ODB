@@ -1,7 +1,7 @@
 import { esperaRetiroOEnvio, eligeRetiroOEnvio, eligioModalidad } from './entrega';
 import { esContestadorAutomatico } from './contestador';
 import { conPreguntaDeCompleto, elegirPorDefecto, puedeCotizar } from './completo';
-import { cierraLaLista, coincideConLoAnotado, cuandoLegible, esConfirmacionDePedido, listaCerrada, nadaMasConfirma, nombreDeQuienRetira, PREGUNTA_NOMBRE_RETIRO, RE_ARMADO_A_PEDIDO, RE_PREGUNTA_NOMBRE_RETIRO, ultimaListaAnotada } from './cierre';
+import { cambiaElContenido, cierraLaLista, coincideConLoAnotado, cuandoLegible, esConfirmacionDePedido, listaCerrada, nadaMasConfirma, nombreDeQuienRetira, PREGUNTA_NOMBRE_RETIRO, RE_ARMADO_A_PEDIDO, RE_PREGUNTA_NOMBRE_RETIRO, retiraElMismoCliente, terminaPreguntandoQuienRetira, ultimaListaAnotada } from './cierre';
 import { conDescuentoEfectivo, porcentajeEfectivo, RUBROS_DESCUENTO_EFECTIVO, tieneDescuentoEfectivo } from './descuento-efectivo';
 import { esSilenciado } from './pausa';
 import { agruparItems, cantidadesIndividuales, centavos, confirmacionInequivoca, idWhatsappCorto, importesDeHerramienta, importesDelTexto, pesos, presentacionProducto } from './comercio';
@@ -13,7 +13,7 @@ import { controlDeFechas } from './fechas';
 import { desvioDeLoPedido } from './desvio';
 import { audioDeclarado, estadoOgg } from './ogg';
 import { atiendeUnaPersona, avisoEsperaPorWhatsapp, decisionSesion, esperasParaAvisar, motivoDeSilencio, pideRespuesta } from './pausa';
-import { type ArchivoDelTurno, comprobanteYaRegistrado, conDatosDePago, datosDePagoParaResumen, leerImporteDelComprobante, type MensajeDeCharla, notasSinPagado, pedidoPorComprobante, respuestaAlComprobanteRepetido, respuestaPedidoPorComprobante, RE_LO_CONFIRMO, sinPedirConfirmo } from './pago-confirma';
+import { type ArchivoDelTurno, comprobanteYaRegistrado, confirmacionConDatosDePago, conDatosDePago, datosDePagoParaResumen, leerImporteDelComprobante, type MensajeDeCharla, notasSinPagado, pedidoPorComprobante, respuestaAlComprobanteRepetido, respuestaPedidoPorComprobante, RE_LO_CONFIRMO, sinPedirConfirmo } from './pago-confirma';
 import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
 import { Cron } from '@nestjs/schedule';
@@ -619,11 +619,16 @@ export class BotService {
       : null;
     if (!traeArchivo && codigoConfirmado) {
       const nombre = nombreDeQuienRetira(texto);
-      const anotado = nombre
-        ? await this.anotarQuienRetira(telefono, linea, codigoConfirmado, nombre).catch((e: any) => { this.log.warn(`no pude anotar quién retira (${telefono}): ${e?.message ?? e}`); return false; })
+      // «A MI NOMBRE», «YO MISMO», «LO RETIRO YO» (5/10/2026, revisión): no es un
+      // nombre, pero contesta la pregunta. Queda a nombre del contacto (el de la
+      // agenda o el de WhatsApp) y se le dice que queda a su nombre; antes el
+      // freno de abajo lo callaba y el cliente quedaba sin respuesta.
+      const aNombreDe = nombre ?? (retiraElMismoCliente(texto) ? await this.elMismoCliente(telefono) : null);
+      const anotado = aNombreDe
+        ? await this.anotarQuienRetira(telefono, linea, codigoConfirmado, aNombreDe).catch((e: any) => { this.log.warn(`no pude anotar quién retira (${telefono}): ${e?.message ?? e}`); return false; })
         : false;
-      if (nombre && anotado) {
-        const resp = `Listo, queda a nombre de ${nombre}.`;
+      if (aNombreDe && anotado) {
+        const resp = nombre ? `Listo, queda a nombre de ${nombre}.` : 'Listo, queda a tu nombre.';
         await this.db.from('bot_conversaciones').upsert({
           linea, telefono,
           mensajes: [...historial, { role: 'user', content: texto }, { role: 'assistant', content: resp }].slice(-MAX_HISTORIAL),
@@ -639,7 +644,12 @@ export class BotService {
     // el modelo lo tomaba como pedido nuevo y armaba el mismo pedido otra vez.
     // También después de la confirmación por comprobante («Recibido. Tu pedido X
     // quedó confirmado…», 5/10/2026, revisión): un «Sí, gracias» iba al modelo.
-    if (!traeArchivo && RE_PEDIDO_CONFIRMADO.test(String(ultimoMsgBot).trim()) && (confirmacionInequivoca(texto) || RE_SI_NO.test(texto.trim()))) {
+    // Salvo que la confirmación termine preguntando «¿A nombre de quién lo
+    // retiran?» (5/10/2026, revisión): «Sí, lo retira mi hijo» o un «Dale» a esa
+    // pregunta la contestan, no son un acuse, y callarlos dejaba mudo al cliente
+    // al que el bot le acababa de preguntar algo. Contesta el modelo, avisado de
+    // que el pedido ya está confirmado; preparar_pedido no arma otro por eso.
+    if (!traeArchivo && RE_PEDIDO_CONFIRMADO.test(String(ultimoMsgBot).trim()) && !terminaPreguntandoQuienRetira(ultimoMsgBot) && (confirmacionInequivoca(texto) || RE_SI_NO.test(texto.trim()))) {
       return callar('acuse de un pedido ya confirmado');
     }
 
@@ -781,8 +791,15 @@ export class BotService {
     // preguntas (hoy: cinco preguntas con opciones → "MALÍSIMA, cancelo").
     const preguntasDelBotAntes = (String(ultimoMsgBot).match(/¿/g) ?? []).length;
     const impaciente = preguntasDelBotAntes >= 1 && (texto.trim().length <= 25 || /\b(mand[aá]me|mandalo|env[ií]ame|dale|listo|eh+\??|ya est[aá]|as[ií] nom[aá]s|lo que tengas)\b|[😬🙄😤]/i.test(texto));
+    // la confirmación preguntó a nombre de quién lo retiran y la respuesta no fue
+    // un nombre (el freno del «sí» de más la deja pasar): que no arme otro pedido
+    const codigoConPregunta = RE_PEDIDO_CONFIRMADO.test(String(ultimoMsgBot).trim()) && terminaPreguntandoQuienRetira(ultimoMsgBot)
+      ? String(ultimoMsgBot).match(/\b(?:DOM|RET|PICKUP)-[A-Z0-9]{4,}\b/)?.[0] ?? null
+      : null;
+    if (codigoConPregunta) estado.push(`el pedido ${codigoConPregunta} YA QUEDÓ CONFIRMADO y le preguntaste a nombre de quién lo retiran: NO armes otro pedido ni repitas el resumen. Si te dijo quién lo retira, dejalo con nota_interna ("Retira: …, pedido ${codigoConPregunta}") y decile que queda anotado; si no, contestá corto lo suyo, sin volver a preguntarle el nombre`);
     if (cierreDeLista) estado.push(`el cliente YA cerró la lista ("${cierreDeLista.slice(0, 60)}"): no le preguntes si está completo ni "¿Lo confirmo?". Si ya sabés si retira o se lo enviamos (y para envío, quién recibe y la dirección), llamá preparar_pedido: con la lista cerrada CONFIRMA el pedido. Si falta uno de esos datos, preguntá SOLO ese`);
-    else if (impaciente && esProveedor === false) estado.push('el cliente ya no quiere más preguntas: NO preguntes nada más; asumí la opción más común de cada ítem que falte, mostrá el resumen con el total y cerrá con un único "¿Lo confirmo?"');
+    // (con el pedido recién confirmado no se le pide mostrar otro resumen)
+    else if (impaciente && esProveedor === false && !codigoConPregunta) estado.push('el cliente ya no quiere más preguntas: NO preguntes nada más; asumí la opción más común de cada ítem que falte, mostrá el resumen con el total y cerrá con un único "¿Lo confirmo?"');
     if (preguntasDelCliente >= 2) estado.push(`este mensaje trae ${preguntasDelCliente} preguntas: contestá CADA una en una línea, en el orden en que las hizo; si un dato no lo tenés, decilo en su línea`);
     // LAS CONSULTAS QUE YA ESTÁN ABIERTAS (5/10/2026). El historial guarda solo
     // texto: del mensaje 8 de Pablo el modelo veía «Ya te confirmo por acá», no
@@ -1978,6 +1995,18 @@ export class BotService {
           // ya se confirmó un pedido en este turno (por el cierre de la lista o por
           // el comprobante): otro preparar_pedido armaría un segundo pedido igual
           if (ctx.fallos?.get('__pedido_creado__') === 1) { out = { error: 'El pedido ya quedó confirmado en este turno: no prepares otro. La respuesta al cliente la arma el sistema.' }; break; }
+          // UN «SÍ» A «¿A NOMBRE DE QUIÉN LO RETIRAN?» NO ES OTRO PEDIDO (5/10/2026,
+          // revisión): ese mensaje ya no se calla (lo contesta el modelo), pero no
+          // arma el mismo pedido otra vez, que es lo que frenaba el «sí» de más.
+          // Si trae un cambio («y sumame 2 hielos»), sí se prepara.
+          {
+            const t = String(ctx.textoCliente ?? '').trim();
+            if (RE_PEDIDO_CONFIRMADO.test(String(ctx.ultimoBot ?? '').trim()) && terminaPreguntandoQuienRetira(ctx.ultimoBot)
+                && (confirmacionInequivoca(t) || /^(s[ií]+|sisi|si si|no|nop|dale|ok|listo|bueno)\b[\s!.]*$/i.test(t)) && !cambiaElContenido(t)) {
+              out = { error: 'El pedido ya quedó confirmado y el cliente está contestando a nombre de quién lo retiran: no prepares otro pedido ni repitas el resumen. Contestá corto lo suyo.' };
+              break;
+            }
+          }
           if (!puedeCotizar(ctx.textoCliente ?? '', ctx.ultimosBot ?? [], (ctx.ultimosCliente ?? []).slice(0, -1))) { out = { error: TODAVIA_SIN_PRECIOS }; break; }
           // las notas salen en el resumen que lee el cliente: nunca «pagado» (5/10/2026)
           if (input && typeof input.notas === 'string') input.notas = notasSinPagado(input.notas);
@@ -2002,19 +2031,39 @@ export class BotService {
           // Un pedido de este chat confirmado hace menos de 15 minutos: puede ser
           // un reintento del mismo mensaje (el proceso se cayó antes de guardar
           // la charla). No se crea otro sin preguntar: queda el "¿Lo confirmo?".
-          const confirmadoHacePoco = ctx.cierre
+          // UN TURNO CON ARCHIVO NO CONFIRMA POR EL «NADA MÁS» (5/10/2026, revisión),
+          // igual que crear_pedido con el «sí»: con el PDF de la transferencia y
+          // preparar_pedido antes que derivar_pago, el pedido salía en modo
+          // 'completo', sin controlar el monto, sin la nota «YA TRANSFIRIÓ» y
+          // diciéndole «Se abona al retirar» al que acababa de pagar; en el orden
+          // inverso iba «Recibido.» sin pedido. Ahora los dos órdenes dan lo
+          // mismo: el resumen queda guardado y al cliente le va «Recibido.» (lo
+          // pone derivar_pago), y administración recibe el comprobante.
+          const conArchivo = linea === 'pedidos' && !!(ctx.archivo || ctx.archivoUrl);
+          // Y UN COMPROBANTE ABIERTO DEL CHAT (5/10/2026, revisión): la lista sigue
+          // cerrada en los turnos siguientes (un «Recibido.» no la cierra ni la
+          // anula). Si el cliente mandó un comprobante hace poco y administración
+          // todavía no lo confirmó, el «nada más» no confirma con «Se abona al
+          // retirar»: queda el resumen con «¿Lo confirmo?», el lado seguro.
+          const pagoAbierto = ctx.cierre && !conArchivo
+            ? await comprobanteYaRegistrado(this.db, linea, telefono, 0).catch(() => true)
+            : false;
+          const confirmadoHacePoco = ctx.cierre && !conArchivo && !pagoAbierto
             ? !!(await this.db.from('bot_cotizaciones').select('id').eq('telefono', telefono).eq('linea', linea)
                 .gte('confirmada_en', new Date(Date.now() - 15 * 60_000).toISOString()).limit(1).maybeSingle()).data
             : false;
+          if (ctx.cierre && conArchivo) this.log.warn(`lista cerrada de ${telefono}, pero el turno trae un archivo: no confirma por el cierre`);
+          if (pagoAbierto) this.log.warn(`lista cerrada de ${telefono}, pero hay un comprobante abierto del chat: se pide confirmación`);
           if (confirmadoHacePoco) this.log.warn(`lista cerrada de ${telefono}, pero hay un pedido confirmado hace menos de 15 min: se pide confirmación`);
-          if (ctx.cierre && !confirmadoHacePoco && prep?.cotizacionId && !prep.avisoFecha && coincideConLoAnotado(ctx.anotado ?? [], cotizado)) {
+          if (ctx.cierre && !conArchivo && !pagoAbierto && !confirmadoHacePoco && prep?.cotizacionId && !prep.avisoFecha && coincideConLoAnotado(ctx.anotado ?? [], cotizado)) {
             try {
               const creado = await this.crearPedido({ telefono, linea, confirmacion: ctx.cierre, modo: 'completo', cotizacionId: prep.cotizacionId });
               this.log.log(`pedido ${creado.codigoRetiro} confirmado por el cierre de la lista ("${ctx.cierre.slice(0, 40)}") de ${telefono}`);
               ctx.fallos?.set('__pedido_creado__', 1);
               out = { ...creado, aviso: `El cliente ya había cerrado la lista ("${ctx.cierre.slice(0, 60)}"): el pedido QUEDÓ CONFIRMADO con el código ${creado.codigoRetiro}. No llames a crear_pedido ni le pidas confirmación.` };
-              // el alias pedido en el mismo turno no se pierde: va después de la confirmación
-              if (ctx.fija) { ctx.fija.texto = ctx.fija.datosPago ? `${creado.respuesta}\n\n${ctx.fija.datosPago}` : creado.respuesta; ctx.fija.operacion = true; }
+              // el alias pedido en el mismo turno no se pierde: va después de la
+              // confirmación y antes de «¿A nombre de quién lo retiran?», que queda última
+              if (ctx.fija) { ctx.fija.texto = confirmacionConDatosDePago(creado.respuesta, ctx.fija.datosPago); ctx.fija.operacion = true; }
             } catch (e: any) {
               this.log.warn(`el cierre de la lista de ${telefono} no alcanzó para confirmar directo (${e?.message ?? e}); queda el "¿Lo confirmo?"`);
             }
@@ -2176,7 +2225,9 @@ export class BotService {
             const datos = datosDePagoParaResumen(out as any);
             ctx.fija.datosPago = datos;
             if (ctx.fija.operacion && ctx.fija.texto && RE_LO_CONFIRMO.test(ctx.fija.texto)) ctx.fija.texto = conDatosDePago(ctx.fija.texto, datos);
-            else if (ctx.fallos?.get('__pedido_creado__') === 1 && ctx.fija.texto) ctx.fija.texto = `${ctx.fija.texto}\n\n${String((out as any).respuestaFija)}`;
+            // con el pedido ya confirmado en el turno, abajo de la confirmación y
+            // antes de su pregunta final («¿A nombre de quién lo retiran?»)
+            else if (ctx.fallos?.get('__pedido_creado__') === 1 && ctx.fija.texto) ctx.fija.texto = confirmacionConDatosDePago(ctx.fija.texto, String((out as any).respuestaFija));
             else ctx.fija.texto = String((out as any).respuestaFija);
           }
           break;
@@ -2875,6 +2926,16 @@ export class BotService {
     if (!ids.length) return false;
     const { data, error } = await this.db.from('productos').select('id').in('id', ids).eq('se_arma_a_pedido', true);
     return !error && (data ?? []).length > 0;
+  }
+
+  /**
+   * Para «a mi nombre» / «yo mismo»: lo que va en «Retira:» es el nombre del
+   * contacto (agenda o WhatsApp) marcado como el mismo cliente; si no hay
+   * nombre, «el mismo cliente» con el teléfono, para que el mostrador sepa.
+   */
+  private async elMismoCliente(telefono: string): Promise<string> {
+    const quien = await this.nombreDeContacto(telefono).then((n) => String(n ?? '').trim(), () => '');
+    return /\p{L}/u.test(quien) && !/\d/.test(quien) ? `${quien} (el mismo cliente)` : `el mismo cliente${quien ? ` (${quien})` : ''}`;
   }
 
   /**
@@ -4469,6 +4530,30 @@ export class BotService {
       const suma = renglones.reduce((t, r) => t + r.subtotal, 0);
       const dicho = respuesta.match(/total[^:\n]{0,20}:\s*\$\s?([\d.]+)/i)?.[1];
       if (dicho && Math.abs(Number(dicho.replace(/\./g, '')) - suma) > 1) return null;
+      // «El envío es sin cargo.» adelante (asegurarEnvioSinCargo, si preguntó por
+      // el costo del envío) no esconde de qué confirmación se trata: se aparta y
+      // vuelve al principio del pie (5/10/2026, revisión)
+      const sinCargo = /^El envío es sin cargo\.\s+/i.exec(respuesta.trim())?.[0] ?? '';
+      const confirmacion = respuesta.trim().slice(sinCargo.length);
+      // EL QUE CONFIRMÓ CON EL COMPROBANTE (5/10/2026, al juntar la tarjeta con
+      // el cierre por comprobante): «Recibido. Tu pedido X quedó confirmado…».
+      const porComprobante = /^Recibido\.\s+Tu pedido\s+\S+\s+quedó confirmado\b/i.test(confirmacion);
+      // LO QUE TRANSFIRIÓ, SI FUE EL TOTAL CON DESCUENTO (5/10/2026, revisión): la
+      // pastilla TOTAL es la suma a precio de lista, y al que transfirió el total
+      // con descuento (Pablo: $285.390 de $317.100) le parecía que le faltaban
+      // $31.710. El monto lo dejó la base en la cotización («comprobante: $X»);
+      // va al pie como el total con descuento, nunca como «pagado» ni
+      // «acreditado» (la plata la confirma administración). Si no se puede leer,
+      // no hay tarjeta: va el texto, como antes de la tarjeta.
+      let totalTransferencia = '';
+      if (porComprobante) {
+        const { data: cq } = await this.db.from('bot_cotizaciones').select('confirmacion').eq('pedido_id', (ped as any)?.id).limit(1).maybeSingle();
+        const leido = /^comprobante:\s*\$\s?([\d.]+)/i.exec(String((cq as any)?.confirmacion ?? ''))?.[1];
+        if (!leido) return null;
+        const transferido = Number(leido.replace(/\./g, ''));
+        if (!(transferido > 0)) return null;
+        if (Math.abs(transferido - suma) >= 1) totalTransferencia = ` Total con descuento por transferencia: $${pesos(transferido)}.`;
+      }
       const domicilio = codigo.startsWith('DOM');
       const direccion = (ped as any)?.destino_direccion as string | null;
       const cuando = [fechaLegible((ped as any)?.entrega_fecha), (ped as any)?.entrega_franja].filter(Boolean).join(', ');
@@ -4490,18 +4575,17 @@ export class BotService {
       // renglones, el código, el total y dónde y cuándo): queda "Pedido
       // confirmado." y lo que no está en la imagen (cómo se paga, a nombre de
       // quién lo retiran)
-      // EL QUE CONFIRMÓ CON EL COMPROBANTE (5/10/2026, al juntar la tarjeta con
-      // el cierre por comprobante): «Recibido. Tu pedido X quedó confirmado
-      // para retirar…» salía al pie como «Pedido confirmado. Recibido. Tu pedido
-      // X quedó confirmado…». El código y dónde ya están en la tarjeta: queda
-      // «Recibido. Tu pedido quedó confirmado.», sin «se abona» (ya transfirió).
-      const porComprobante = /^Recibido\.\s+Tu pedido\s+\S+\s+quedó confirmado\b/i.test(respuesta.trim());
-      const resto = respuesta.split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('•')).join('\n')
+      // Con el comprobante, «Recibido. Tu pedido X quedó confirmado para
+      // retirar…» salía al pie como «Pedido confirmado. Recibido. Tu pedido X
+      // quedó confirmado…». El código y dónde ya están en la tarjeta: queda
+      // «Recibido. Tu pedido quedó confirmado.», sin «se abona» (ya transfirió),
+      // y el total con descuento si transfirió ese.
+      const resto = confirmacion.split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('•')).join('\n')
         .replace(/^Pedido\s+\S+\s+confirmado\.\s*(?:Total:\s*\$\s?[\d.]+\.?)?\s*/i, '')
         .replace(/^Recibido\.\s+Tu pedido\s+\S+\s+quedó confirmado[^.\n]*\.\s*/i, '')
         .replace(/^(?:Retiro en la sucursal Saint Thomas|Envío sin cargo)[\s\S]*?(?=Se abona\b)/i, '')
         .replace(/[ \t]{2,}/g, ' ').trim();
-      const pie = `${porComprobante ? 'Recibido. Tu pedido quedó confirmado.' : 'Pedido confirmado.'}${resto ? (/^¿/.test(resto) ? '\n\n' : ' ') + resto : ''}`.slice(0, 400);
+      const pie = `${sinCargo ? 'El envío es sin cargo. ' : ''}${porComprobante ? `Recibido. Tu pedido quedó confirmado.${totalTransferencia}` : 'Pedido confirmado.'}${resto ? (/^¿/.test(resto) ? '\n\n' : ' ') + resto : ''}`.slice(0, 400);
       return { imagenUrl: imagenes[0], imagenes, pie };
     } catch (e) {
       this.log.warn(`tarjeta del pedido falló (${codigo}): ${e instanceof Error ? e.message : e}`);

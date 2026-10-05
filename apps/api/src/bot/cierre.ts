@@ -185,6 +185,26 @@ export const RE_ARMADO_A_PEDIDO = /\bpicadas?\b/i;
 export const PREGUNTA_NOMBRE_RETIRO = '¿A nombre de quién lo retiran?';
 export const RE_PREGUNTA_NOMBRE_RETIRO = /¿\s*a nombre de qui[eé]n lo retir/i;
 
+/** ¿El mensaje del bot TERMINA preguntando a nombre de quién lo retiran? (la pregunta sigue abierta) */
+export function terminaPreguntandoQuienRetira(texto: unknown): boolean {
+  return /¿\s*a nombre de qui[eé]n lo retir[^?]*\?\s*$/i.test(String(texto ?? '').trim());
+}
+
+/**
+ * «A mi nombre», «yo mismo», «lo retiro yo» (5/10/2026, revisión): la respuesta
+ * a «¿A nombre de quién lo retiran?» es el mismo cliente. nombreDeQuienRetira
+ * no lo toma («mi», «yo» no son un nombre) y el freno del «sí» de más lo
+ * callaba: el bot hacía una pregunta y dejaba mudo al que la contestaba.
+ * Estricto: solo eso, con un «sí», «dale» u «ok» adelante y un «gracias» atrás.
+ */
+export function retiraElMismoCliente(texto: string): boolean {
+  let t = norm(texto).replace(/[.!¡,;:]+/g, ' ').replace(/\s+/g, ' ').trim();
+  t = t.replace(/^(?:(?:si+|dale|ok|okey|listo|bueno|claro|perfecto|de una)\s+)+/, '');
+  t = t.replace(/(?:\s+(?:gracias|muchas gracias|nomas|por favor|porfa))+$/, '');
+  return /^(?:(?:a|al|con)\s+)?(?:mi nombre|nombre mio|mi mismo nombre)$/.test(t)
+    || /^(?:yo|yo mism[oa]|soy yo|el mismo|la misma|(?:lo|la|los|las) (?:retiro|busco|paso a buscar)(?: yo(?: mism[oa])?)?|yo (?:lo|la|los|las) (?:retiro|busco|paso a buscar)|(?:voy|paso) yo)$/.test(t);
+}
+
 /** Palabras que no son parte de un nombre: si aparece una, no se anota nada. */
 const NO_ES_NOMBRE = new Set(('a al la el los las lo le con de del en por para mi mis tu su nombre mismo misma mismos yo vos ' +
   'pago pagar pagamos tarjeta efectivo transferencia debito credito mercadopago alias ' +

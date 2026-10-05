@@ -14,7 +14,7 @@
 // las engancha en derivar_pago, preparar_pedido y crearPedido.
 
 import { pesos } from './comercio';
-import { casiIgual, quitarOraciones, SUCURSAL_CENTRAL } from './prolijo';
+import { casiIgual, conAviso, quitarOraciones, SUCURSAL_CENTRAL } from './prolijo';
 
 export type ArchivoDelTurno = { base64: string; mime: string };
 export type MensajeDeCharla = { role: string; content: unknown };
@@ -120,6 +120,20 @@ export function conDatosDePago(resumen: string, datosPago?: string | null): stri
   if (!m) return resumen;
   if (r.includes(datos)) return resumen;
   return `${r.slice(0, m.index).trimEnd()}\n${datos}\n${r.slice(m.index)}`;
+}
+
+/**
+ * Los datos de pago pedidos en el mismo turno en que el pedido quedó confirmado
+ * (el «nada más» o el comprobante) van abajo de la confirmación, pero ANTES de
+ * la pregunta del final («¿A nombre de quién lo retiran?»), que sigue siendo la
+ * última línea (5/10/2026, revisión: quedaba en el medio del mensaje). Sin
+ * pregunta al final, abajo de todo, como antes.
+ */
+export function confirmacionConDatosDePago(confirmacion: string, datosPago?: string | null): string {
+  const c = String(confirmacion ?? '').trim();
+  const datos = String(datosPago ?? '').trim();
+  if (!datos || c.includes(datos)) return c;
+  return conAviso(c, datos);
 }
 
 /** Los datos de pago para meter en el resumen: alias/CBU/titular y el pedido del comprobante, en dos renglones. */
