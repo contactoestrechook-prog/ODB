@@ -7,11 +7,12 @@ import { agruparItems, cantidadesIndividuales, centavos, confirmacionInequivoca,
 import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import { volumenMl, etiquetaVolumen, pideTamano, medidaPartida, resumenDeTamanos, cantidadesPedidas, PALABRA_GENERICA } from './formatos';
 import { emprolijarListado, nombreLimpio, saludoSegunHora, saludarConBienvenida, niegaPercepcion, respetuosoSinConfianza, saintThomas, envioSinCargo, asegurarEnvioSinCargo, casiIgual, campoLimpio, respuestaConConsulta, esAlucinacionDeTranscripcion, nombreSucursalCliente, esAutomaticoWhatsappBusiness, minimoConMonto, retiroOEnvio, sinCocinaInterna, sinLoConsulto } from './prolijo';
-import { acuseDe, mismaConsulta, prometeConsultar, sinPromesas, temaDeConsulta, todaviaNoLoTengo } from './prolijo';
+import { acuseDe, mismaConsulta, prometeConsultar, sinPromesas, temaDeConsulta, textoFijoConConsulta, todaviaNoLoTengo } from './prolijo';
 import { controlDeFechas } from './fechas';
 import { desvioDeLoPedido } from './desvio';
 import { audioDeclarado, estadoOgg } from './ogg';
 import { atiendeUnaPersona, avisoEsperaPorWhatsapp, decisionSesion, esperasParaAvisar, motivoDeSilencio, pideRespuesta } from './pausa';
+import { type ArchivoDelTurno, comprobanteYaRegistrado, conDatosDePago, datosDePagoParaResumen, leerImporteDelComprobante, type MensajeDeCharla, notasSinPagado, pedidoPorComprobante, respuestaAlComprobanteRepetido, respuestaPedidoPorComprobante, RE_LO_CONFIRMO, sinPedirConfirmo } from './pago-confirma';
 import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
 import { Cron } from '@nestjs/schedule';
@@ -846,6 +847,9 @@ export class BotService {
     // la mitad ("Mientras tanto, puedo…"). Se junta el texto de todas las vueltas.
     const textosDelTurno: string[] = [];
     const herramientasDelTurno = new Set<string>();
+    // el archivo de ESTE turno: un comprobante se vuelve a leer aparte, sin la
+    // charla, antes de que confirme un pedido (5/10/2026, pago-confirma.ts)
+    const archivoDelTurno: ArchivoDelTurno | undefined = imagenDelTurno ?? (documentoDelTurno ? { base64: documentoDelTurno.base64, mime: 'application/pdf' } : undefined);
     let vueltasReintento = 0;
     for (let vuelta = 0; vuelta < MAX_VUELTAS; vuelta++) {
       // si una herramienta ya falló 3 veces en este turno, la siguiente vuelta va
@@ -885,7 +889,7 @@ export class BotService {
         // 33 búsquedas de una, pero se ejecutaban una detrás de otra. Las que
         // solo LEEN arrancan juntas (de a 8); las que tienen efecto (pedido,
         // consulta, derivación) siguen de a una, en orden, como siempre.
-        const ctxHerr = { ultimoBot: ultimoDelBot, ultimosBot: ultimosDelBot, ultimosCliente: ultimosDelCliente, textoCliente: texto, fallos: fallosDelTurno, archivoUrl: dto.archivoUrl, fija: respuestaFija, salidas: salidasDelTurno };
+        const ctxHerr = { ultimoBot: ultimoDelBot, ultimosBot: ultimosDelBot, ultimosCliente: ultimosDelCliente, textoCliente: texto, fallos: fallosDelTurno, archivoUrl: dto.archivoUrl, fija: respuestaFija, salidas: salidasDelTurno, archivo: archivoDelTurno, historial };
         const adelantadas = new Map<string, Promise<Anthropic.ToolResultBlockParam>>();
         {
           const lecturas = (r.content as any[]).filter((b) => b.type === 'tool_use' && HERRAMIENTAS_DE_LECTURA.has(b.name));
@@ -990,7 +994,9 @@ export class BotService {
     // G2: "el total se lo confirmo en un momento" es una promesa prohibida — el total
     // sale de cotizar_pedido EN este mensaje. Si lo prometió para después y no cotizó,
     // se regenera con la orden de cotizar ahora.
-    if (/total[^.]{0,40}(en un momento|en breve|despu[eé]s|m[aá]s tarde|se lo (confirmo|paso))|se lo confirmo en un momento/i.test(respuesta)
+    // también con voseo: «¿Cierro con esos tres y te paso el total?» (Pablo,
+    // 5/10/2026) es la misma promesa; si el total ya va en el mensaje, no lo es
+    if (/total[^.]{0,40}(en un momento|en breve|despu[eé]s|m[aá]s tarde|(?:se|te) lo (confirmo|paso)|te (?:confirmo|paso)\b)|(?:se|te) lo confirmo en un momento|\b(?:se lo|te lo|te) (?:paso|confirmo) el total(?!\s*(?:es|de|:)?\s*\$)/i.test(respuesta)
         && !herramientasDelTurno.has('cotizar_pedido') && vueltasReintento === 0) {
       this.log.warn(`total prometido sin cotizar para ${telefono}: regenero cotizando`);
       messages.push({ role: 'assistant', content: respuesta });
@@ -1000,7 +1006,7 @@ export class BotService {
       if (r3.stop_reason === 'tool_use') {
         messages.push({ role: 'assistant', content: r3.content });
         const res3: Anthropic.ToolResultBlockParam[] = [];
-        for (const b of r3.content) if (b.type === 'tool_use') { herramientasDelTurno.add(b.name); res3.push(await this.ejecutarHerramienta(b, telefono, linea, { ultimoBot: ultimoDelBot, ultimosBot: ultimosDelBot, ultimosCliente: ultimosDelCliente, textoCliente: texto, fallos: fallosDelTurno, archivoUrl: dto.archivoUrl, fija: respuestaFija, salidas: salidasDelTurno })); }
+        for (const b of r3.content) if (b.type === 'tool_use') { herramientasDelTurno.add(b.name); res3.push(await this.ejecutarHerramienta(b, telefono, linea, { ultimoBot: ultimoDelBot, ultimosBot: ultimosDelBot, ultimosCliente: ultimosDelCliente, textoCliente: texto, fallos: fallosDelTurno, archivoUrl: dto.archivoUrl, fija: respuestaFija, salidas: salidasDelTurno, archivo: archivoDelTurno, historial })); }
         messages.push({ role: 'user', content: res3 });
         const t4 = await this.regenerar(system, messages, 2048, sumarUso).catch(() => null);
         if (t4) respuesta = t4;
@@ -1079,7 +1085,7 @@ export class BotService {
         if (r5.stop_reason === 'tool_use') {
           messages.push({ role: 'assistant', content: r5.content });
           const res5: Anthropic.ToolResultBlockParam[] = [];
-          for (const b of r5.content) if (b.type === 'tool_use') { herramientasDelTurno.add(b.name); res5.push(await this.ejecutarHerramienta(b, telefono, linea, { ultimoBot: ultimoDelBot, ultimosBot: ultimosDelBot, ultimosCliente: ultimosDelCliente, textoCliente: texto, fallos: fallosDelTurno, archivoUrl: dto.archivoUrl, fija: respuestaFija, salidas: salidasDelTurno })); }
+          for (const b of r5.content) if (b.type === 'tool_use') { herramientasDelTurno.add(b.name); res5.push(await this.ejecutarHerramienta(b, telefono, linea, { ultimoBot: ultimoDelBot, ultimosBot: ultimosDelBot, ultimosCliente: ultimosDelCliente, textoCliente: texto, fallos: fallosDelTurno, archivoUrl: dto.archivoUrl, fija: respuestaFija, salidas: salidasDelTurno, archivo: archivoDelTurno, historial })); }
           messages.push({ role: 'user', content: res5 });
           const t6 = await this.regenerar(system, messages, 2048, sumarUso);
           if (t6) respuesta = t6;
@@ -1633,8 +1639,20 @@ export class BotService {
       return ultimosDelBot[0] && casiIgual(ultimosDelBot[0], pendiente) ? todaviaNoLoTengo(yaAbiertos[0], true) : pendiente;
     };
 
-    if (respuestaFija.operacion && respuestaFija.texto) respuesta = respuestaFija.texto;
-    else if (respuestaFija.consultaPendiente) respuesta = await armarConConsulta(respuesta);
+    // EL TEXTO FIJO Y EL AVISO DE LA CONSULTA EN EL MISMO TURNO (5/10/2026, al
+    // juntar el aviso con el cierre por comprobante). El texto que fija una
+    // herramienta (el resumen con «¿Lo confirmo?», la confirmación del pedido,
+    // el alias, «Recibido.») gana sobre lo que escribió el modelo, también con
+    // una consulta en el turno: antes la consulta se lo salteaba y al cliente le
+    // llegaba el texto del modelo en vez de «Recibido.». La consulta NUEVA suma
+    // su aviso una vez, antes de la pregunta final; antes, con una operación, se
+    // perdía. Ante un comprobante que no creó el pedido va «Recibido.» y nada
+    // más (regla del dueño, 23/9/2026): la consulta queda registrada y el dato
+    // le llega igual cuando el área responde.
+    const soloRecibido = !respuestaFija.operacion && fallosDelTurno.get('__comprobante__') === 1;
+    if (respuestaFija.texto && (respuestaFija.operacion || respuestaFija.consultaPendiente)) {
+      respuesta = soloRecibido ? respuestaFija.texto : textoFijoConConsulta(respuestaFija.texto, temasDelTurno(respuestaFija).nuevos);
+    } else if (respuestaFija.consultaPendiente) respuesta = await armarConConsulta(respuesta);
     else {
       const importeSinFuente = importesDelTexto(respuesta).some(n => !hechos.has(n));
       // una promesa del modelo siempre registra la consulta (5/10/2026: también
@@ -1657,13 +1675,8 @@ export class BotService {
       }
     }
 
-    // si preguntó cuánto sale el envío, la respuesta lo dice SIEMPRE, también
-    // cuando la validación de importes de arriba reemplazó el texto por el acuse
-    // de consulta (banco 25/9/2026: "¿cuánto es el flete?" → "Lo consulto…")
-    // también si quedó vacía (acuse ya dicho): "¿cuánto es el flete?" no queda sin
-    // respuesta nunca (banco 1/10/2026: silencio)
-    respuesta = asegurarEnvioSinCargo(texto, respuesta ?? '');
-    if (respuesta) respuesta = minimoConMonto(respuesta, envioMinimo());
+    // al cliente nunca se le pide que escriba «confirmo»: el comprobante confirma (5/10/2026)
+    if (respuesta) respuesta = sinPedirConfirmo(respuesta, texto);
     // la promesa de avisar por un pedido se decide sobre lo que escribió el bot,
     // ANTES de la pregunta de completo que agrega el sistema (3/10/2026)
     const respuestaDelBot = respuesta;
@@ -1684,6 +1697,16 @@ export class BotService {
       if (!limpia) this.log.warn(`la respuesta a ${telefono} era solo "lo consulto": sale el aviso`);
       respuesta = limpia || acuseDe('');
     }
+    // si preguntó cuánto sale el envío, la respuesta lo dice SIEMPRE, también
+    // cuando la validación de importes de arriba reemplazó el texto por el acuse
+    // de consulta (banco 25/9/2026: "¿cuánto es el flete?" → "Lo consulto…")
+    // también si quedó vacía (acuse ya dicho): "¿cuánto es el flete?" no queda sin
+    // respuesta nunca (banco 1/10/2026: silencio)
+    // AL FINAL (5/10/2026): antes iba primero y sinPedirConfirmo o sinLoConsulto
+    // podían llevarse la oración del envío («El envío es sin cargo, decime
+    // «confirmo»…»). La frase va adelante: la pregunta final sigue última.
+    respuesta = asegurarEnvioSinCargo(texto, respuesta ?? '');
+    if (respuesta) respuesta = minimoConMonto(respuesta, envioMinimo());
 
     // "doy aviso al sector correspondiente para dejarlo confirmado" es una
     // promesa al cliente: que se cumpla. Sale a administración como PEDIDO
@@ -1833,7 +1856,7 @@ export class BotService {
     block: Anthropic.ToolUseBlock,
     telefono: string,
     linea: 'pedidos' | 'proveedores' = 'pedidos',
-    ctx: { ultimoBot?: string; ultimosBot?: string[]; ultimosCliente?: string[]; textoCliente?: string; fallos?: Map<string, number>; archivoUrl?: string; fija?: { texto?: string; consultaPendiente?: boolean; operacion?: boolean; derivada?: boolean }; salidas?: string[] } = {},
+    ctx: { ultimoBot?: string; ultimosBot?: string[]; ultimosCliente?: string[]; textoCliente?: string; fallos?: Map<string, number>; archivoUrl?: string; fija?: { texto?: string; consultaPendiente?: boolean; operacion?: boolean; derivada?: boolean; datosPago?: string }; salidas?: string[]; archivo?: ArchivoDelTurno; historial?: MensajeDeCharla[] } = {},
   ): Promise<Anthropic.ToolResultBlockParam> {
     const input: any = block.input;
     const skusVistosEnTurno = this.skusDe(telefono);
@@ -1852,12 +1875,26 @@ export class BotService {
           for (const it of ((out as any)?.items ?? [])) if (it?.sku) skusVistosEnTurno.add(String(it.sku));
           break;
         case 'preparar_pedido': {
+          // el comprobante ya creó el pedido en este turno: otro resumen armaría un segundo pedido
+          if (ctx.fallos?.get('__pedido_creado__') === 1) { out = { error: 'El pedido ya quedó confirmado en este turno: no prepares otro. La respuesta al cliente la arma el sistema.' }; break; }
           if (!puedeCotizar(ctx.textoCliente ?? '', ctx.ultimosBot ?? [], (ctx.ultimosCliente ?? []).slice(0, -1))) { out = { error: TODAVIA_SIN_PRECIOS }; break; }
+          // las notas salen en el resumen que lee el cliente: nunca «pagado» (5/10/2026)
+          if (input && typeof input.notas === 'string') input.notas = notasSinPagado(input.notas);
           out = await this.prepararPedido(telefono, linea, input, ctx.textoCliente, ctx.ultimoBot, ctx.ultimosCliente);
-          if (ctx.fija) { ctx.fija.texto = (out as any).resumen; ctx.fija.operacion = true; }
+          ctx.fallos?.set('__preparado__', 1);
+          // «RECIBIDO.» NO SE PISA (5/10/2026, mensaje 22 de Pablo): con un
+          // comprobante registrado en este turno, el resumen se guarda pero al
+          // cliente le va «Recibido.»; antes le volvía el resumen con «¿Lo confirmo?»
+          if (ctx.fallos?.get('__comprobante__')) {
+            out = { ...(out as any), aviso: 'Ya llegó un comprobante en este turno: el resumen quedó guardado, pero al cliente NO se lo muestres. La respuesta es exactamente "Recibido."' };
+            break;
+          }
+          // el alias pedido en el mismo turno va dentro del resumen, antes de «¿Lo confirmo?»
+          if (ctx.fija) { ctx.fija.texto = conDatosDePago((out as any).resumen, ctx.fija.datosPago); ctx.fija.operacion = true; }
           break;
         }
         case 'crear_pedido': {
+          if (ctx.fallos?.get('__pedido_creado__') === 1) { out = { error: 'El pedido ya quedó confirmado en este turno: no crees otro. La respuesta al cliente la arma el sistema.' }; break; }
           if (!confirmacionInequivoca(ctx.textoCliente ?? '')) {
             out = { error: 'NO se creó el pedido: falta confirmación inequívoca al resumen. Usá preparar_pedido y esperá la aceptación del cliente.' };
             break;
@@ -1914,6 +1951,18 @@ export class BotService {
           // un tema de pago ya derivado en esta conversación no se vuelve a derivar: se repite el número
           const monto = Number(input.monto) || 0;
           const tipoPago = String(input.tipo ?? 'consulta');
+          // EL MISMO COMPROBANTE, AVISADO DE NUEVO (5/10/2026, Pablo: «Ahí te pase
+          // el comprobante de tranfernacia» sin archivo). Si ya hay un pago abierto
+          // de este chat (mismo monto si lo hay, últimas 2 h), no se registra otra
+          // fila ni sale otro WhatsApp a administración. Un archivo nuevo siempre se registra.
+          if (tipoPago === 'comprobante_enviado' && !ctx.archivoUrl && await comprobanteYaRegistrado(this.db, linea, telefono, monto)) {
+            out = { derivado: true, yaRegistrado: true, aviso: 'Ese comprobante ya está en administración. Respondé exactamente "Recibido."' };
+            if (ctx.fija && ctx.fallos?.get('__pedido_creado__') !== 1) ctx.fija.texto = await respuestaAlComprobanteRepetido(this.db, linea, telefono, ctx.ultimoBot ?? ctx.ultimosBot?.[0] ?? '');
+            // también es un turno de comprobante: un preparar_pedido después no
+            // pisa el «Recibido.» con el resumen de nuevo (5/10/2026)
+            ctx.fallos?.set('__comprobante__', 1);
+            break;
+          }
           const { data: yaDeriv } = await this.db.from('alertas_internas').select('id').eq('tipo', 'pago').filter('referencia->>telefono', 'eq', telefono).gte('creada_en', new Date(Date.now() - 10 * 60_000).toISOString()).limit(1).maybeSingle();
           // un comprobante nuevo siempre se registra aunque el tema ya esté avisado;
           // una consulta repetida no se vuelve a anunciar
@@ -1926,14 +1975,56 @@ export class BotService {
           // avisos repetidos del mismo pago (banco de pruebas, 23/9/2026)
           if (tipoPago === 'comprobante_enviado' && ctx.fallos?.get('__comprobante__')) {
             out = { derivado: true, aviso: 'Este comprobante ya quedó registrado y avisado en este turno. No llames más derivar_pago. Respondé exactamente "Recibido."' };
-            if (ctx.fija) ctx.fija.texto = 'Recibido.';
+            // si el comprobante ya creó el pedido, su confirmación no se pisa
+            if (ctx.fija && ctx.fallos?.get('__pedido_creado__') !== 1) ctx.fija.texto = 'Recibido.';
             break;
           }
           if (tipoPago === 'comprobante_enviado') ctx.fallos?.set('__comprobante__', 1);
-          out = await this.derivarPago(linea, telefono, motivo, { monto, tipo: tipoPago, comprobanteUrl: ctx.archivoUrl, dichoPorElCliente: ctx.textoCliente, deQuien: input.de_quien ? String(input.de_quien).slice(0, 120) : undefined });
-          // un comprobante se contesta con una palabra, y la pone el código
-          if (tipoPago === 'comprobante_enviado' && ctx.fija) ctx.fija.texto = 'Recibido.';
-          if ((out as any)?.respuestaFija && ctx.fija) ctx.fija.texto = String((out as any).respuestaFija);
+          // EL COMPROBANTE CONFIRMA EL PEDIDO (decisión de Leandro, 5/10/2026): el
+          // archivo vino en ESTE turno y es de un resumen que el cliente vio con
+          // «¿Lo confirmo?», por el total de lista o el de efectivo. Las guardas
+          // están en pago-confirma.ts; si alguna falla, todo sigue como siempre.
+          const porComprobante = tipoPago === 'comprobante_enviado' && linea === 'pedidos' && !!ctx.archivoUrl && ctx.fallos?.get('__pedido_creado__') !== 1
+            ? await pedidoPorComprobante({
+                db: this.db, telefono, linea, montoDelModelo: monto,
+                ultimosBot: ctx.ultimosBot ?? (ctx.ultimoBot ? [ctx.ultimoBot] : []), historial: ctx.historial, textoCliente: ctx.textoCliente ?? '',
+                preparoEnElTurno: ctx.fallos?.get('__preparado__') === 1,
+                leerImporte: () => (ctx.archivo ? leerImporteDelComprobante(this.claude, MODELO_BOT, ctx.archivo) : Promise.resolve(null)),
+                crear: (d) => this.crearPedido({ telefono, linea, confirmacion: ctx.textoCliente ?? '', modo: 'comprobante', monto: d.monto, cotizacionId: d.cotizacionId }),
+                log: this.log,
+              }).catch((e: any) => { this.log.warn(`pedido por comprobante de ${telefono} falló: ${e?.message ?? e}`); return null; })
+            : null;
+          if (porComprobante?.creado) {
+            ctx.fallos?.set('__pedido_creado__', 1);
+            if (ctx.fija) { ctx.fija.texto = porComprobante.creado.respuesta; ctx.fija.operacion = true; }
+          }
+          // el aviso a administración sale igual, UNA vez, y dice si el monto coincide con el pedido
+          const motivoParaAdministracion = porComprobante?.nota ? `${porComprobante.nota} ${motivo}` : motivo;
+          try {
+            out = await this.derivarPago(linea, telefono, motivoParaAdministracion, { monto, tipo: tipoPago, comprobanteUrl: ctx.archivoUrl, dichoPorElCliente: ctx.textoCliente, deQuien: input.de_quien ? String(input.de_quien).slice(0, 120) : undefined });
+          } catch (e: any) {
+            // con el pedido ya creado, su confirmación llega al cliente igual
+            if (!porComprobante?.creado) throw e;
+            this.log.error(`el pedido ${porComprobante.creado.codigo} se creó por el comprobante de ${telefono}, pero el aviso a administración falló: ${e?.message ?? e}`);
+            out = { derivado: false };
+          }
+          if (porComprobante?.creado) {
+            out = { ...(out as any), pedidoCreado: porComprobante.creado.codigo, aviso: `El comprobante coincide con el resumen: el pedido ${porComprobante.creado.codigo} quedó confirmado y la respuesta al cliente la arma el sistema. No llames preparar_pedido ni crear_pedido.` };
+          }
+          // un comprobante se contesta con una palabra, y la pone el código (si
+          // el pedido quedó creado en este turno, va su confirmación)
+          if (tipoPago === 'comprobante_enviado' && ctx.fija && ctx.fallos?.get('__pedido_creado__') !== 1) ctx.fija.texto = 'Recibido.';
+          if ((out as any)?.respuestaFija && ctx.fija) {
+            // EL ALIAS Y EL TOTAL JUNTOS (5/10/2026, mensaje 16 de Pablo): con un
+            // resumen en el turno, los datos de pago van adentro, antes de «¿Lo
+            // confirmo?»; sin resumen, como siempre. Si después llega el
+            // resumen, preparar_pedido los mete (ctx.fija.datosPago).
+            const datos = datosDePagoParaResumen(out as any);
+            ctx.fija.datosPago = datos;
+            if (ctx.fija.operacion && ctx.fija.texto && RE_LO_CONFIRMO.test(ctx.fija.texto)) ctx.fija.texto = conDatosDePago(ctx.fija.texto, datos);
+            else if (ctx.fallos?.get('__pedido_creado__') === 1 && ctx.fija.texto) ctx.fija.texto = `${ctx.fija.texto}\n\n${String((out as any).respuestaFija)}`;
+            else ctx.fija.texto = String((out as any).respuestaFija);
+          }
           break;
         }
         case 'consultar_interno': {
@@ -2506,10 +2597,16 @@ export class BotService {
     return { cotizacionId: data.id, resumen, total: cot.total, renglones: cot.renglones, ...(avisoFecha ? { avisoFecha } : {}) };
   }
 
-  async crearPedido(dto: { telefono: string; linea?: string; confirmacion?: string; resumenPresentado?: string; items?: {sku:string;cantidad:number}[]; tipo?: string }) {
+  async crearPedido(dto: { telefono: string; linea?: string; confirmacion?: string; resumenPresentado?: string; items?: {sku:string;cantidad:number}[]; tipo?: string; modo?: 'si' | 'comprobante'; cotizacionId?: string; monto?: number }) {
     // Se conserva la firma antigua sólo para rechazar clientes desactualizados.
     if (dto.items && (dto.items.length > maxRenglonesBot() || dto.items.reduce((n,i)=>n+i.cantidad,0)>maxUnidadesBot())) throw new BadRequestException('El pedido supera el máximo del canal WhatsApp');
-    if (!confirmacionInequivoca(dto.confirmacion ?? '')) throw new BadRequestException('NO se creó el pedido: falta confirmación inequívoca');
+    // modo 'comprobante' (decisión de Leandro, 5/10/2026): el cliente mandó el
+    // comprobante del resumen que vio, por el total de lista o el de efectivo.
+    // No hace falta el «sí»: lo reemplaza el pago, y el monto lo vuelve a
+    // controlar la base (confirmar_cotizacion_bot con p_modo 'comprobante').
+    // Las guardas de la charla están en pago-confirma.ts › pedidoPorComprobante.
+    const porComprobante = dto.modo === 'comprobante';
+    if (porComprobante ? !dto.cotizacionId || !(Number(dto.monto) > 0) : !confirmacionInequivoca(dto.confirmacion ?? '')) throw new BadRequestException('NO se creó el pedido: falta confirmación inequívoca');
     const { data: q, error } = await this.db.from('bot_cotizaciones').select('*')
       .eq('telefono', dto.telefono).eq('linea', dto.linea ?? 'pedidos').order('creada_en', { ascending: false }).limit(1).maybeSingle();
     // EL BUCLE DEL "¿LO CONFIRMO?" (Catalina, 21/9/2026). Antes se exigía que el
@@ -2525,8 +2622,13 @@ export class BotService {
     const fresca = !!q && !q.confirmada_en && Date.now() - new Date(q.creada_en).getTime() < 3 * 3600_000;
     const coincideResumen = !!q && !!ultimo && q.resumen === ultimo;
     const preguntaConMismoTotal = fresca && /¿lo confirmo\?/i.test(ultimo) && !!totalTxt && ultimo.includes(totalTxt);
-    if (error || !q || !(coincideResumen || preguntaConMismoTotal)) throw new BadRequestException('NO se creó el pedido: usá preparar_pedido para mostrar un resumen verificable y esperá confirmación');
-    const { data: id, error: e } = await this.db.rpc('confirmar_cotizacion_bot', { p_id: q.id, p_telefono: dto.telefono, p_linea: dto.linea ?? 'pedidos', p_confirmacion: dto.confirmacion });
+    // por comprobante: la cotización que se evaluó tiene que seguir siendo la última, sin pedido y fresca
+    const laDelComprobante = porComprobante && !!q && q.id === dto.cotizacionId && !q.pedido_id && fresca;
+    if (error || !q || !(porComprobante ? laDelComprobante : coincideResumen || preguntaConMismoTotal)) throw new BadRequestException('NO se creó el pedido: usá preparar_pedido para mostrar un resumen verificable y esperá confirmación');
+    // p_monto viaja solo en el modo 'comprobante'; los otros modos llaman igual que siempre
+    const { data: id, error: e } = await this.db.rpc('confirmar_cotizacion_bot', porComprobante
+      ? { p_id: q.id, p_telefono: dto.telefono, p_linea: dto.linea ?? 'pedidos', p_confirmacion: String(dto.confirmacion ?? '').slice(0, 300), p_modo: 'comprobante', p_monto: Number(dto.monto) }
+      : { p_id: q.id, p_telefono: dto.telefono, p_linea: dto.linea ?? 'pedidos', p_confirmacion: dto.confirmacion });
     if (e || !id) throw new BadRequestException(e?.message ?? 'No se pudo confirmar el pedido');
     const ped: any = await this.pedidos.obtener(id);
     // si ya dijo cómo paga, se repite eso y no "efectivo o tarjeta" (25/9/2026)
@@ -2539,7 +2641,10 @@ export class BotService {
     const cobro = hayDescuento
       ? (paga === 'efectivo' ? `en efectivo: $${pesos(totalEfectivo)}` : paga === 'tarjeta' ? `con tarjeta: $${pesos(totalLista)}` : `$${pesos(totalLista)} con tarjeta o $${pesos(totalEfectivo)} en efectivo o transferencia`)
       : (paga === 'efectivo' ? 'en efectivo' : paga === 'tarjeta' ? 'con tarjeta' : 'en efectivo o tarjeta');
-    const respuesta = `Pedido ${ped.qr_retiro} confirmado. Total: $${pesos(totalLista)}.\n${q.tipo === 'domicilio' ? 'Envío sin cargo. Se abona al recibir' : 'Se abona al retirar'}, ${cobro}.`;
+    // por comprobante: «Recibido. Tu pedido X quedó confirmado…», sin «se abona» (ya transfirió)
+    const respuesta = porComprobante
+      ? respuestaPedidoPorComprobante({ codigo: ped.qr_retiro, tipo: q.tipo, direccion: q.direccion })
+      : `Pedido ${ped.qr_retiro} confirmado. Total: $${pesos(totalLista)}.\n${q.tipo === 'domicilio' ? 'Envío sin cargo. Se abona al recibir' : 'Se abona al retirar'}, ${cobro}.`;
     return { pedidoId: id, codigoRetiro: ped.qr_retiro, total: Number(ped.total), estado: ped.estado, respuesta };
   }
 

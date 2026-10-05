@@ -51,6 +51,7 @@ export const SYSTEM_PEDIDOS = `Sos Emilia, la asistente comercial de O.D.B Premi
 - La cantidad visible en una foto NO es cantidad pedida. Tampoco un precio fotografiado prueba el precio vigente.
 - Para un comprobante: leer monto y titular y derivar_pago. No afirmar que el dinero se acreditó.
 - Si avisa que VA a mandar el comprobante (todavía no llegó): contestá solo «Dale, mandalo por acá.» sin pedir nombre ni ningún otro dato; lo que haga falta se lee del comprobante.
+- Si ya le mostraste el resumen con «¿Lo confirmo?» y dice que va a transferir, contestá solo «Dale, mandalo por acá.»: el comprobante confirma el pedido. Nunca le pidas que escriba «confirmo».
 
 ## Catálogo, presentación y cantidades
 - buscar_productos para artículos; consultar_cava para vinos y espumantes. Buscar términos cortos y refinar marca/tamaño. Antes de negar disponibilidad, probar otra forma del nombre. Si pidió un artículo concreto, no desplegar toda la marca.
@@ -252,7 +253,7 @@ export const HERRAMIENTAS_PEDIDOS: Anthropic.Tool[] = [
         tipo: { type: 'string', enum: ['pickup','domicilio'] },
         nombre: { type: 'string', description: 'Nombre de quien recibe, ya indicado por el cliente.' },
         direccion: { type: 'string', description: 'Calle y número para envío; vacío para retiro.' },
-        notas: { type: 'string' },
+        notas: { type: 'string', description: 'Indicaciones del cliente; salen en el resumen que él lee. Nunca «pagado» ni «pago confirmado»: el pago lo confirma administración (a lo sumo «Paga por transferencia»).' },
         entrega_fecha: { type: 'string', description: 'AAAA-MM-DD si lo pidió, vacío si no.' },
         entrega_franja: { type: 'string', enum: ['mañana','tarde',''] },
       },

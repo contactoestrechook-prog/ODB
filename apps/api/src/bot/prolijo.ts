@@ -434,6 +434,17 @@ export function respuestaConConsulta(respuesta: string, temasNuevos: string[] = 
   return conAviso(sinPromesas(respuesta), avisoDeConsultas(temasNuevos));
 }
 
+/**
+ * Un texto fijo del sistema (el resumen con «¿Lo confirmo?», la confirmación
+ * del pedido, los datos de pago) con el aviso de las consultas NUEVAS del turno
+ * (5/10/2026, unión del aviso con el cierre por comprobante). El texto no pasa
+ * por sinPromesas: lo escribió el sistema, no el modelo. El aviso va antes de
+ * «¿Lo confirmo?», que sigue siendo la última línea.
+ */
+export function textoFijoConConsulta(texto: string, temasNuevos: string[] = []): string {
+  return conAviso(texto, avisoDeConsultas(temasNuevos));
+}
+
 // Una promesa del modelo sin herramienta ("te lo confirmo por acá", "voy a
 // consultar") tiene que quedar registrada como consulta: si no, es una promesa
 // vacía. Reconoce también lo que saca sinLoConsulto (5/10/2026).
