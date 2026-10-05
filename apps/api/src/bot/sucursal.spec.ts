@@ -1,4 +1,5 @@
 import { sinLoConsulto, retiroOEnvio, sinCocinaInterna, minimoConMonto, asegurarEnvioSinCargo, campoLimpio, casiIgual, emprolijarListado, esAlucinacionDeTranscripcion, respuestaConConsulta, esAutomaticoWhatsappBusiness, envioSinCargo, nombreSucursalCliente, saintThomas } from './prolijo';
+import { acuseDe, conAviso, mismaConsulta, prometeConsultar, sinPromesas, temaDeConsulta, todaviaNoLoTengo } from './prolijo';
 
 describe('nombre de la sucursal ante el cliente', () => {
   it('Sant Thomas pasa a sucursal Saint Thomas', () => {
@@ -115,24 +116,123 @@ describe('campos de herramienta sin basura', () => {
 });
 
 describe('consulta interna sin dejar mudo al cliente', () => {
-  it('manda lo que sabe y el acuse una vez', () => {
-    const r = respuestaConConsulta('Coca Cola Zero 1,75 L a $4.700 y chips a $1.200. Las picadas las consulto y te confirmo por acá.', 'Buen día, ¿qué necesitás?');
-    expect(r).toBe('Coca Cola Zero 1,75 L a $4.700 y chips a $1.200.\n\nYa te confirmo por acá.');
+  // 5/10/2026: el segundo argumento son los temas de las consultas NUEVAS del
+  // turno (antes era el último mensaje del bot); '' = consulta sin tema
+  it('manda lo que sabe y el aviso una vez, con el tema', () => {
+    const r = respuestaConConsulta('Coca Cola Zero 1,75 L a $4.700 y chips a $1.200. Las picadas las consulto y te confirmo por acá.', ['las picadas armadas']);
+    expect(r).toBe('Coca Cola Zero 1,75 L a $4.700 y chips a $1.200.\n\nLo de las picadas armadas te lo confirmo por acá.');
   });
   it('conserva la lista renglón por renglón', () => {
-    const r = respuestaConConsulta('• 10 × Coca Cola Zero 1,75 L = $47.000\n• 4 × Papas Lays 330 g = $49.200\nTotal: $96.200\nLas picadas las consulto y te confirmo por acá.', null);
+    const r = respuestaConConsulta('• 10 × Coca Cola Zero 1,75 L = $47.000\n• 4 × Papas Lays 330 g = $49.200\nTotal: $96.200\nLas picadas las consulto y te confirmo por acá.', ['']);
     expect(r).toBe('• 10 × Coca Cola Zero 1,75 L = $47.000\n• 4 × Papas Lays 330 g = $49.200\nTotal: $96.200\n\nYa te confirmo por acá.');
   });
-  it('sin nada útil: solo el acuse', () => {
-    expect(respuestaConConsulta('', null)).toBe('Ya te confirmo por acá.');
-    expect(respuestaConConsulta('Lo estoy consultando y te aviso en breve.', null)).toBe('Ya te confirmo por acá.');
+  it('sin nada útil: solo el aviso (sin tema, el genérico)', () => {
+    expect(respuestaConConsulta('', [''])).toBe('Ya te confirmo por acá.');
+    expect(respuestaConConsulta('Lo estoy consultando y te aviso en breve.', [''])).toBe('Ya te confirmo por acá.');
+    expect(respuestaConConsulta('Lo consulto y vuelvo a vos.', ['el contenido del kit'])).toBe('Lo del contenido del kit te lo confirmo por acá.');
   });
-  it('el acuse sale una sola vez aunque el modelo lo diga con otras palabras (tono-02, 23/9/2026)', () => {
-    expect(respuestaConConsulta('Queda registrada la consulta. En cuanto tenga la respuesta, te la paso por acá.', null)).toBe('Ya te confirmo por acá.');
+  it('el aviso sale una sola vez aunque el modelo lo diga con otras palabras (tono-02, 23/9/2026)', () => {
+    expect(respuestaConConsulta('Queda registrada la consulta. En cuanto tenga la respuesta, te la paso por acá.', [''])).toBe('Ya te confirmo por acá.');
+    // el modelo escribió su propio aviso: se saca y va el del sistema, una vez (antes salían los dos)
+    const m8 = 'Podés llevar una de cada una o tres iguales, el precio por botella es el mismo.';
+    expect(respuestaConConsulta(`${m8} Lo de las cajas individuales te lo confirmo por acá.`, ['la caja para viajar']))
+      .toBe(`${m8}\n\nLo de la caja para viajar te lo confirmo por acá.`);
   });
-  it('no repite el acuse si ya lo dijo', () => {
-    expect(respuestaConConsulta('', 'Ya te confirmo por acá.')).toBe('');
-    expect(respuestaConConsulta('El fernet está a $20.500.', 'Ya te confirmo por acá.')).toBe('El fernet está a $20.500.');
+  it('si la consulta ya estaba abierta y avisada, no hay aviso', () => {
+    expect(respuestaConConsulta('', [])).toBe('');
+    expect(respuestaConConsulta('El fernet está a $20.500.', [])).toBe('El fernet está a $20.500.');
+    expect(respuestaConConsulta('El fernet está a $20.500. Ya te confirmo por acá lo del otro.', [])).toBe('El fernet está a $20.500.');
+  });
+});
+
+describe('el aviso dice de qué se trata (Leandro, 5/10/2026: "que sea más directo")', () => {
+  it('«Lo de <tema> te lo confirmo por acá.», con la contracción del', () => {
+    expect(acuseDe('la caja para viajar')).toBe('Lo de la caja para viajar te lo confirmo por acá.');
+    expect(acuseDe('el PerSe Inseparable')).toBe('Lo del PerSe Inseparable te lo confirmo por acá.');
+    expect(acuseDe('El PerSe Inseparable.')).toBe('Lo del PerSe Inseparable te lo confirmo por acá.');
+    expect(acuseDe('lo de la caja')).toBe('Lo de la caja te lo confirmo por acá.');
+    expect(acuseDe('«las cajas individuales»')).toBe('Lo de las cajas individuales te lo confirmo por acá.');
+  });
+  it('sin tema, o con algo interno, el genérico', () => {
+    expect(acuseDe('')).toBe('Ya te confirmo por acá.');
+    expect(acuseDe(null)).toBe('Ya te confirmo por acá.');
+    expect(acuseDe('el stock de la sucursal Saint Thomas')).toBe('Ya te confirmo por acá.');
+    expect(acuseDe('si hay 6 unidades')).toBe('Ya te confirmo por acá.');
+    expect(acuseDe('lo que diga compras del Raquis')).toBe('Ya te confirmo por acá.');
+    expect(acuseDe('una frase larguísima que no es un tema sino una explicación entera de todo')).toBe('Ya te confirmo por acá.');
+    expect(temaDeConsulta('la caja para viajar')).toBe('la caja para viajar');
+  });
+  it('si la consulta ya estaba abierta, no se repite el aviso: todavía no está', () => {
+    expect(todaviaNoLoTengo('la caja para viajar')).toBe('Lo de la caja para viajar todavía no lo tengo.');
+    expect(todaviaNoLoTengo('el PerSe Inseparable', true)).toBe('Lo del PerSe Inseparable sigue pendiente.');
+    expect(todaviaNoLoTengo('')).toBe('Eso todavía no lo tengo.');
+  });
+});
+
+describe('el aviso va antes de la pregunta al cliente (mensaje 2 de Pablo, 5/10/2026)', () => {
+  const M2 = 'Del PerSe Inseparable no tengo ahora, ya te confirmo por acá si entra. En esa misma línea de Gualtallary sí tengo:\n• Adrianna River Malbec 750 cc — $182.000, o $163.800 en efectivo o transferencia\n\nPor ahora quedan anotados:\n• 1 × Judas Malbec 750 cc\n• 1 × Catena Zapata Malbec Argentino 750 cc\n• 1 × Bressia Conjuro 750 cc\n\n¿Está completo el pedido o querés sumar algo?';
+  it('lista + «¿Está completo…?» + consulta nueva del PerSe: el aviso una vez, antes de la pregunta', () => {
+    const r = respuestaConConsulta(M2, ['el PerSe Inseparable']);
+    const aviso = 'Lo del PerSe Inseparable te lo confirmo por acá.';
+    expect(r.split(aviso)).toHaveLength(2);
+    expect(r.trim().endsWith(`${aviso}\n\n¿Está completo el pedido o querés sumar algo?`)).toBe(true);
+    // la información de la oración mixta no se pierde
+    expect(r.startsWith('Del PerSe Inseparable no tengo ahora. En esa misma línea')).toBe(true);
+    expect(r).not.toMatch(/ya te confirmo/i);
+    expect(r).toContain('• 1 × Bressia Conjuro 750 cc');
+  });
+  it('«¿Lo confirmo?» sigue siendo la última línea', () => {
+    const resumen = '• Judas Malbec — 2 × $79.900 c/u = $159.800\nTotal: $159.800\nRetiro en la sucursal Saint Thomas.\n¿Lo confirmo?';
+    expect(conAviso(resumen, 'Lo de la caja te lo confirmo por acá.'))
+      .toBe('• Judas Malbec — 2 × $79.900 c/u = $159.800\nTotal: $159.800\nRetiro en la sucursal Saint Thomas.\n\nLo de la caja te lo confirmo por acá.\n\n¿Lo confirmo?');
+  });
+  it('una pregunta al final de un párrafo: el aviso entra justo antes, en el mismo renglón', () => {
+    expect(conAviso('Dale, Pablo, te los dejo a tu nombre. ¿Los retirás hoy?', 'Lo de la caja te lo confirmo por acá.'))
+      .toBe('Dale, Pablo, te los dejo a tu nombre. Lo de la caja te lo confirmo por acá. ¿Los retirás hoy?');
+    expect(conAviso('Tengo el Judas, ¿te lo reservo?', 'Lo de la caja te lo confirmo por acá.'))
+      .toBe('Lo de la caja te lo confirmo por acá.\n\nTengo el Judas, ¿te lo reservo?');
+  });
+  it('sin pregunta al final, el aviso va al final', () => {
+    expect(conAviso('El Judas está a $79.900.', 'Lo de la caja te lo confirmo por acá.')).toBe('El Judas está a $79.900.\n\nLo de la caja te lo confirmo por acá.');
+  });
+});
+
+describe('las promesas del modelo salen sin comerse lo útil (5/10/2026)', () => {
+  it('saca solo la parte que promete', () => {
+    expect(sinPromesas('Del PerSe no tengo ahora, ya te confirmo si entra.')).toBe('Del PerSe no tengo ahora.');
+    expect(sinPromesas('Dale, Pablo, te las dejo a tu nombre para retirar en un rato y lo de la caja te lo confirmo por acá.'))
+      .toBe('Dale, Pablo, te las dejo a tu nombre para retirar en un rato.');
+    expect(sinPromesas('Si entra el PerSe, te confirmo por acá.')).toBe('');
+    expect(sinPromesas('Sobre la caja, ya te confirmo por acá.')).toBe('');
+    expect(sinPromesas('Perfecto, Pablo. Lo de la caja para llevarlas en la valija te lo confirmo por acá.')).toBe('Perfecto, Pablo.');
+    expect(sinPromesas('Coca Zero a $4.700, y chips a $1.200, lo de las picadas te lo confirmo por acá.')).toBe('Coca Zero a $4.700, y chips a $1.200.');
+  });
+  it('no toca las preguntas al cliente ni lo que no promete', () => {
+    expect(sinPromesas('Total: $159.800\n¿Lo confirmo?')).toBe('Total: $159.800\n¿Lo confirmo?');
+    expect(sinPromesas('¿Te lo confirmo así?')).toBe('¿Te lo confirmo así?');
+    expect(sinPromesas('Te anoto 2 Judas para retirar en un rato.')).toBe('Te anoto 2 Judas para retirar en un rato.');
+  });
+  it('una promesa sin herramienta se reconoce también en las formas que saca sinLoConsulto', () => {
+    for (const t of ['Voy a consultar si entra.', 'Lo consultamos y te digo.', 'Lo verifico con el local.', 'Te lo confirmo por acá.', 'Ya te confirmo.'])
+      expect(prometeConsultar(t)).toBe(true);
+    for (const t of ['¿Lo confirmo?', 'El envío es sin cargo.', 'Pedido PICKUP-AB12 confirmado.', '¿Te lo confirmo así?'])
+      expect(prometeConsultar(t)).toBe(false);
+  });
+});
+
+describe('la misma consulta no se hace dos veces (caja de Pablo, 16:02 y 16:17)', () => {
+  const caja1602 = 'Cliente viaja a España: ¿Judas Malbec 750, Catena Zapata Malbec Argentino 750 y Conjuro Bressia 750 vienen en caja/estuche individual? ¿Tenemos embalaje para llevar en avión?';
+  const caja1617 = 'Cliente Pablo retira en un rato 4 botellas y las lleva a España en valija: ¿tenemos caja o embalaje de protección para darle?';
+  it('las dos preguntas por la caja son la misma (parecidas() daba 0,43)', () => {
+    expect(mismaConsulta({ consulta: caja1617 }, { consulta: caja1602 })).toBe(true);
+  });
+  it('mismo tema, aunque las palabras cambien', () => {
+    expect(mismaConsulta({ consulta: '¿Tenés algo para protegerlas?', tema: 'la caja para viajar' }, { consulta: caja1602, tema: 'La caja para viajar.' })).toBe(true);
+  });
+  it('dos cosas distintas siguen separadas', () => {
+    expect(mismaConsulta({ consulta: 'Cliente Pablo pregunta si entra el Raquis Monasterio 750 cc', tema: 'el Raquis Monasterio' }, { consulta: caja1602, tema: 'la caja para viajar' })).toBe(false);
+    expect(mismaConsulta({ consulta: '¿Hay stock de Raquis?' }, { consulta: '¿Hay stock del PerSe?' })).toBe(false);
+    expect(mismaConsulta({ consulta: 'Cliente Pablo pregunta si entra el PerSe Inseparable' }, { consulta: 'Cliente Pablo pregunta si entra el Raquis Monasterio' })).toBe(false);
   });
 });
 
@@ -199,26 +299,25 @@ describe('retiro o envío, siempre las dos', () => {
   });
 });
 
-describe('el acuse de consulta no se repite aunque viniera al final del mensaje anterior', () => {
-  it('no lo agrega otra vez', () => {
-    const anterior = 'Te anoto:\n• 6 × Quilmes 473 cc\n\n¿Está completo el pedido?\n\nYa te confirmo por acá.';
-    expect(respuestaConConsulta('El envío es sin cargo.', anterior)).toBe('El envío es sin cargo.');
+describe('el aviso de una consulta ya abierta no se repite (5/10/2026: por consulta, no por mensaje)', () => {
+  it('sin consultas nuevas en el turno, no se agrega', () => {
+    expect(respuestaConConsulta('El envío es sin cargo.', [])).toBe('El envío es sin cargo.');
   });
 });
 
 describe('el flete se contesta aunque haya una consulta pendiente', () => {
-  it('acuse ya dicho + pregunta por el flete = "El envío es sin cargo."', () => {
-    const anterior = 'Te anoto:\n• 6 × Quilmes 473 cc\n\nYa te confirmo por acá.';
-    const vacia = respuestaConConsulta('', anterior);
+  it('consulta ya avisada + pregunta por el flete = "El envío es sin cargo."', () => {
+    const vacia = respuestaConConsulta('', []);
     expect(vacia).toBe('');
     expect(asegurarEnvioSinCargo('Cuanto es el flete? me cobran el reparto aparte no?', vacia)).toBe('El envío es sin cargo.');
   });
 });
 
 describe('prohibido "lo consulto" (Leandro, 1/10/2026)', () => {
-  it('se saca la oración y queda el acuse una vez', () => {
+  it('se saca la oración; el aviso ya no lo pega acá (lo arma un solo lugar, 5/10/2026)', () => {
     expect(sinLoConsulto('El precio vigente es $4.700.\n\nYa te confirmo por acá.')).toBe('El precio vigente es $4.700.\n\nYa te confirmo por acá.');
-    expect(sinLoConsulto('Por ser una cantidad grande, lo estoy consultando con el local. ¿Está completo el pedido?')).toBe('¿Está completo el pedido?\n\nYa te confirmo por acá.');
+    // antes: '¿Está completo el pedido?\n\nYa te confirmo por acá.' (el aviso abajo de la pregunta)
+    expect(sinLoConsulto('Por ser una cantidad grande, lo estoy consultando con el local. ¿Está completo el pedido?')).toBe('¿Está completo el pedido?');
     expect(sinLoConsulto('Ya te confirmo por acá.')).toBe('Ya te confirmo por acá.');
   });
   it('no toca lo que no habla de consultar', () => {

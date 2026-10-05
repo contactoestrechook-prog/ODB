@@ -7,6 +7,7 @@ import { agruparItems, cantidadesIndividuales, centavos, confirmacionInequivoca,
 import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import { volumenMl, etiquetaVolumen, pideTamano, medidaPartida, resumenDeTamanos, cantidadesPedidas, PALABRA_GENERICA } from './formatos';
 import { emprolijarListado, nombreLimpio, saludoSegunHora, saludarConBienvenida, niegaPercepcion, respetuosoSinConfianza, saintThomas, envioSinCargo, asegurarEnvioSinCargo, casiIgual, campoLimpio, respuestaConConsulta, esAlucinacionDeTranscripcion, nombreSucursalCliente, esAutomaticoWhatsappBusiness, minimoConMonto, retiroOEnvio, sinCocinaInterna, sinLoConsulto } from './prolijo';
+import { acuseDe, mismaConsulta, prometeConsultar, sinPromesas, temaDeConsulta, todaviaNoLoTengo } from './prolijo';
 import { controlDeFechas } from './fechas';
 import { desvioDeLoPedido } from './desvio';
 import { audioDeclarado, estadoOgg } from './ogg';
@@ -67,6 +68,26 @@ function esAcuse(texto: string): boolean {
   return !!t && /^(?:ok+[iy]*s?|okey|oka+|dale|listo|recibido|visto|gracias|perfecto|joya|genial|s[ií]+|\p{Extended_Pictographic}|[\s.,!])+$/iu.test(t);
 }
 
+// LOS TEMAS DE LAS CONSULTAS DEL TURNO (5/10/2026). El aviso al cliente («Lo de
+// la caja te lo confirmo por acá.») va solo por las consultas NUEVAS; la que ya
+// estaba abierta (se le sumó el dato) no se vuelve a avisar. Viajan colgados de
+// la respuesta fija del turno, que ya pasa por todas las herramientas.
+type TemasDelTurno = { temasNuevos?: string[]; temasYaAbiertos?: string[] };
+function anotarTemaDeConsulta(fija: object, r: { yaEstaba?: boolean; tema?: string | null }) {
+  const f = fija as TemasDelTurno;
+  (r.yaEstaba ? (f.temasYaAbiertos ??= []) : (f.temasNuevos ??= [])).push(String(r.tema ?? ''));
+}
+function temasDelTurno(fija: object): { nuevos: string[]; yaAbiertos: string[] } {
+  const f = fija as TemasDelTurno;
+  return { nuevos: f.temasNuevos ?? [], yaAbiertos: f.temasYaAbiertos ?? [] };
+}
+/** Lo que el modelo escribió en el turno, sin repetir (un texto largo de la última vuelta ya trae lo anterior). */
+function textoRescatado(textos: string[]): string {
+  const unicos = [...new Set(textos.map((t) => t.trim()).filter(Boolean))];
+  const ultimo = unicos[unicos.length - 1] ?? '';
+  return ultimo.length >= 60 ? ultimo : unicos.join('\n\n');
+}
+
 @Injectable()
 export class BotService {
   private readonly claude = new Anthropic();
@@ -100,6 +121,7 @@ export class BotService {
     mimeType?: string;
     archivoUrl?: string; // copia pública del archivo (comprobantes): va al aviso interno
     vistaPreviaDeVideo?: boolean; // el adjunto es el primer cuadro de un video, no una foto
+    deAudio?: boolean; // el mensaje es una nota de voz transcripta (5/10/2026: un audio trae más que una pregunta)
   }) {
     // Patrón MetoGroup: el puente manda el número al que LLEGÓ el mensaje y el
     // sistema resuelve la línea. Así un mismo flujo de n8n sirve para cualquier
@@ -341,7 +363,7 @@ export class BotService {
   private async charlaInterna(
     linea: 'pedidos' | 'proveedores',
     telefono: string,
-    dto: { mensaje?: string; mensajeId?: string; archivoBase64?: string; mimeType?: string; archivoUrl?: string; vistaPreviaDeVideo?: boolean },
+    dto: { mensaje?: string; mensajeId?: string; archivoBase64?: string; mimeType?: string; archivoUrl?: string; vistaPreviaDeVideo?: boolean; deAudio?: boolean },
   ) {
     // idempotencia: si Meta/n8n reintentan el mismo mensaje, devolver la misma
     // respuesta sin volver a procesar (clave = id del mensaje de WhatsApp)
@@ -701,6 +723,19 @@ export class BotService {
     const impaciente = preguntasDelBotAntes >= 1 && (texto.trim().length <= 25 || /\b(mand[aá]me|mandalo|env[ií]ame|dale|listo|eh+\??|ya est[aá]|as[ií] nom[aá]s|lo que tengas)\b|[😬🙄😤]/i.test(texto));
     if (impaciente && esProveedor === false) estado.push('el cliente ya no quiere más preguntas: NO preguntes nada más; asumí la opción más común de cada ítem que falte, mostrá el resumen con el total y cerrá con un único "¿Lo confirmo?"');
     if (preguntasDelCliente >= 2) estado.push(`este mensaje trae ${preguntasDelCliente} preguntas: contestá CADA una en una línea, en el orden en que las hizo; si un dato no lo tenés, decilo en su línea`);
+    // LAS CONSULTAS QUE YA ESTÁN ABIERTAS (5/10/2026). El historial guarda solo
+    // texto: del mensaje 8 de Pablo el modelo veía «Ya te confirmo por acá», no
+    // qué se había preguntado adentro, y a los 15 minutos volvió a consultar lo
+    // mismo de la caja. Una sola lectura por turno.
+    const consultasAbiertas = linea === 'pedidos' ? await this.consultasAbiertas(linea, telefono, 24) : [];
+    if (consultasAbiertas.length) {
+      // por su tema; las de antes del tema, por sus preguntas (o el arranque del texto)
+      const deQueTrata = (c: any) => {
+        const t = String(c.consulta ?? '').replace(/\s+/g, ' ').trim();
+        return temaDeConsulta(c.tema) || (t.match(/¿[^?]+\?/g)?.join(' ') ?? t).slice(0, 120);
+      };
+      estado.push(`Consultas internas abiertas (el cliente ya fue avisado; no las repitas ni las vuelvas a consultar): ${consultasAbiertas.slice(0, 5).map((c) => `«${deQueTrata(c)}»`).join(', ')}`);
+    }
     const contenidoDelTurno = (t: string): any => (bloquesPendientes.length
       ? [
           ...bloquesPendientes,
@@ -874,7 +909,7 @@ export class BotService {
           // una consulta interna por turno: si el modelo la vuelve a pedir en la
           // vuelta siguiente, no se manda de nuevo a la casa (23/9/2026)
           if (block.name === 'consultar_interno' && respuestaFija.consultaPendiente) {
-            resultados.push({ type: 'tool_result', tool_use_id: block.id, content: JSON.stringify({ consultado: true, aviso: 'Ya consultaste en este turno. No consultes de nuevo: escribí ahora la respuesta al cliente con lo que sí sabés.' }) });
+            resultados.push({ type: 'tool_result', tool_use_id: block.id, content: JSON.stringify({ consultado: true, aviso: 'Ya consultaste en este turno. No consultes de nuevo: escribí ahora la respuesta al cliente con todo lo demás de su mensaje, sin prometer nada ni mencionar la consulta.' }) });
             continue;
           }
           if (previo) {
@@ -890,7 +925,13 @@ export class BotService {
         // tras consultar_interno el modelo SIGUE una vuelta más para contestar lo
         // que sí sabe (23/9/2026); si insiste con herramientas, se corta ahí
         if (respuestaFija.operacion) break;
-        if (respuestaFija.consultaPendiente) { vueltasTrasConsulta++; if (vueltasTrasConsulta > 1) break; }
+        if (respuestaFija.consultaPendiente) {
+          vueltasTrasConsulta++;
+          // el corte no tira lo que el modelo ya escribió en el turno (5/10/2026):
+          // antes la respuesta quedaba vacía y al audio de Pablo, con nombre y
+          // retiro, le llegó solo el acuse
+          if (vueltasTrasConsulta > 1) { respuesta = textoRescatado(textosDelTurno); break; }
+        }
         continue;
       }
 
@@ -1153,7 +1194,12 @@ export class BotService {
       try {
         const chk = await this.claude.messages.create({
           model: 'claude-haiku-4-5',
-          max_tokens: 300,
+          // RAZONAMIENTO SIEMPRE ENCENDIDO (regla fija de Leandro, 9/9/2026): este
+          // verificador iba sin thinking (5/10/2026). Haiku 4.5 no tiene adaptive:
+          // va con presupuesto (mínimo 1024) y max_tokens por encima. La respuesta
+          // se lee del bloque de texto, no de content[0] (el primero es el pensamiento).
+          max_tokens: 2048,
+          thinking: { type: 'enabled', budget_tokens: 1024 },
           system: 'Sos un verificador. Te dan el mensaje de un cliente de WhatsApp y la respuesta de un asistente. Listá las preguntas o pedidos concretos del cliente que la respuesta NO atiende: ni con el dato, ni diciendo explícitamente que no lo tiene o que lo ve una persona. Si todas están atendidas, devolvé una lista vacía. Sé estricto pero justo: una pregunta contestada con "no lo tengo cargado" cuenta como atendida.',
           messages: [{ role: 'user', content: `MENSAJE DEL CLIENTE:\n${texto}\n\nRESPUESTA DEL ASISTENTE:\n${respuesta}` }],
           output_config: { format: { type: 'json_schema', schema: { type: 'object', properties: { sin_responder: { type: 'array', items: { type: 'string' } } }, required: ['sin_responder'], additionalProperties: false } } },
@@ -1545,18 +1591,68 @@ export class BotService {
       try { for (const n of importesDeHerramienta(JSON.parse(raw))) hechos.add(n); } catch { /* error de herramienta sin datos */ }
     }
     for (const n of importesDelTexto(infoVigente)) hechos.add(n);
+
+    // EL AVISO DE LA CONSULTA, UNA VEZ, Y CONTESTANDO LO DEMÁS (5/10/2026). Al
+    // audio de Pablo («En un ratito los puedo pasar a buscar, y si tenés alguna
+    // caja… a nombre de Pablo») le llegó SOLO «Ya te confirmo por acá.»: el
+    // modelo no escribió nada más y la caja ya se le había avisado antes. Ahora:
+    // lo que escribió el modelo sin sus promesas; si no queda nada y el cliente
+    // dijo algo más que lo consultado, UNA reescritura sin herramientas (con
+    // razonamiento) para contestar eso; el aviso solo por las consultas nuevas;
+    // y nunca silencio frente a un mensaje con contenido.
+    const textoDelCliente = texto.replace(/\[[^\]]*\]/g, ' ').trim();
+    const mensajeConContenido = /[a-z0-9áéíóúñ]/i.test(textoDelCliente) && !RE_CIERRE.test(textoDelCliente);
+    const traeMasQueLoConsultado = textoDelCliente.split(/\s+/).filter(Boolean).length > 10
+      || !!dto.deAudio
+      || preguntasDelCliente >= 2
+      || cantidadesPedidas(textoDelCliente).length > 0
+      || /\b(?:a nombre de|me llamo|mi nombre es)\b/i.test(textoDelCliente) || /\b[Ss]oy [A-ZÁÉÍÓÚÑ][a-záéíóúñ]+/.test(textoDelCliente)
+      || /\b(?:retir\w*|(?:paso|pasar|pasamos|pasan|voy|vamos) a buscar|buscarl[oa]s?|env[ií](?:o|os|a|ar|alo|amelo|en)\b|domicilio|direcci[oó]n|delivery)/i.test(textoDelCliente);
+    const armarConConsulta = async (borrador: string): Promise<string> => {
+      const { nuevos, yaAbiertos } = temasDelTurno(respuestaFija);
+      let util = sinPromesas(borrador);
+      // el saludo del primer mensaje solo no contesta nada
+      const soloSaludo = /^(?:buen d[ií]a|buenas tardes|buenas noches)\b[^.?\n]*\.?$/i.test(util);
+      if (!util || soloSaludo) {
+        // diagnóstico: qué escribió el modelo en el turno (lo del 14 de Pablo no se pudo ver)
+        this.log.warn(`turno con consulta sin texto útil del modelo para ${telefono}; textos del turno: «${textosDelTurno.join(' | ').slice(0, 300)}»`);
+        if (traeMasQueLoConsultado) {
+          const tema = [...nuevos, ...yaAbiertos].map(temaDeConsulta).find(Boolean);
+          try {
+            messages.push({ role: 'user', content: `[nota interna: La consulta${tema ? ` sobre ${tema}` : ''} ya quedó registrada y el sistema le avisa al cliente aparte. Escribí ahora la respuesta a todo lo demás del mensaje, sin prometer nada ni mencionar la consulta. Solo importes que te hayan devuelto las herramientas.]` });
+            const otra = sinPromesas(await this.regenerar(system, messages, 2048, sumarUso));
+            if (otra && importesDelTexto(otra).some((n) => !hechos.has(n))) this.log.warn(`la reescritura tras la consulta traía importes sin fuente para ${telefono}: descartada`);
+            else if (otra) util = soloSaludo ? saludarConBienvenida(otra, saludo) : otra;
+          } catch (e: any) { this.log.warn(`reescritura tras la consulta falló: ${e?.message ?? e}`); }
+        }
+      }
+      if (util || nuevos.length) return respuestaConConsulta(util, nuevos);
+      if (!mensajeConContenido) return '';
+      // la consulta ya estaba abierta y avisada: sin repetir el aviso
+      const pendiente = todaviaNoLoTengo(yaAbiertos[0]);
+      return ultimosDelBot[0] && casiIgual(ultimosDelBot[0], pendiente) ? todaviaNoLoTengo(yaAbiertos[0], true) : pendiente;
+    };
+
     if (respuestaFija.operacion && respuestaFija.texto) respuesta = respuestaFija.texto;
-    else if (respuestaFija.consultaPendiente) respuesta = respuestaConConsulta(respuesta, ultimosDelBot[0]);
+    else if (respuestaFija.consultaPendiente) respuesta = await armarConConsulta(respuesta);
     else {
       const importeSinFuente = importesDelTexto(respuesta).some(n => !hechos.has(n));
-      const prometeConsultar = /\b(lo consulto|[tl]e confirm(?:o|amos) por ac[aá]|vuelvo a vos|lo verifico con|no (?:lo |la )?tengo (?:ese |el |este |esa |la )?(?:dato|info(?:rmaci[oó]n)?|cargad)|no cuento con (?:ese|esa|el|la) (?:dato|informaci[oó]n)|lo revisa alguien)\b/i.test(respuesta);
-      if (importeSinFuente || prometeConsultar) {
+      // una promesa del modelo siempre registra la consulta (5/10/2026: también
+      // "voy a consultar", "consultamos", "lo verifico con", "te lo confirmo")
+      const promete = prometeConsultar(respuesta);
+      if (importeSinFuente || promete) {
+        let consulta: any = null;
         try {
-          const consulta = await this.consultarInterno(linea, telefono, 'local', texto || 'Revisar el adjunto enviado por el cliente', '', dto.archivoUrl);
-          if (consulta.consultado) { respuestaFija.consultaPendiente = true; respuesta = respuestaConConsulta(importeSinFuente ? '' : respuesta, ultimosDelBot[0]); }
+          consulta = await this.consultarInterno(linea, telefono, 'local', texto || 'Revisar el adjunto enviado por el cliente', '', dto.archivoUrl);
         } catch {
           await this.derivarAHumano(linea, telefono, `Revisar consulta no resuelta: ${texto.slice(0,500)}`, true);
           respuesta = 'Tomo tu consulta y doy aviso al equipo.';
+        }
+        if (consulta?.consultado) {
+          respuestaFija.consultaPendiente = true;
+          // sin tema: aviso genérico; si ya estaba abierta, ningún aviso
+          anotarTemaDeConsulta(respuestaFija, consulta);
+          respuesta = await armarConConsulta(importeSinFuente ? '' : respuesta);
         }
       }
     }
@@ -1581,7 +1677,13 @@ export class BotService {
     // (es una lista en armado), no hay un pedido confirmado que avisar
     const sigueEnCurso = /¿\s*lo confirmo\?|¿[^?]*(?:est[aá] completo|sumar algo)[^?]*\?/i.test(respuestaDelBot ?? '') || respuesta !== respuestaDelBot;
     // lo interno (stock, sucursales, "el sistema") no sale al cliente (1/10/2026)
-    if (respuesta) respuesta = sinLoConsulto(retiroOEnvio(sinCocinaInterna(respuesta)));
+    if (respuesta) {
+      const limpia = sinLoConsulto(retiroOEnvio(sinCocinaInterna(respuesta)));
+      // sinLoConsulto ya no pega el acuse (5/10/2026): si se llevó todo, la
+      // consulta quedó registrada por la red de arriba y va el aviso, nunca silencio
+      if (!limpia) this.log.warn(`la respuesta a ${telefono} era solo "lo consulto": sale el aviso`);
+      respuesta = limpia || acuseDe('');
+    }
 
     // "doy aviso al sector correspondiente para dejarlo confirmado" es una
     // promesa al cliente: que se cumpla. Sale a administración como PEDIDO
@@ -1784,7 +1886,7 @@ export class BotService {
             try {
               const prueba: any = await this.cotizarPedido((input.items ?? []).map((i: any) => ({ sku: String(i.sku), cantidad: Number(i.cantidad) })), telefono);
               const cortos = (prueba?.renglones ?? []).filter((r: any) => r.alcanzaElStock === false).map((r: any) => r.nombre);
-              if (cortos.length) faltan = ` OJO: de ${cortos.join(', ')} NO hay disponible la cantidad que pide. En esa misma lista decile que esa cantidad no la tenés disponible ahora (sin decir cuántas hay) y consultalo con el local (consultar_interno).`;
+              if (cortos.length) faltan = ` OJO: de ${cortos.join(', ')} NO hay disponible la cantidad que pide. En esa misma lista decile que esa cantidad no la tenés disponible ahora (sin decir cuántas hay) y llamá consultar_interno (sin decirle que lo consultás: el aviso lo agrega el sistema).`;
             } catch { /* sin datos de stock: sigue la guarda */ }
             out = { error: TODAVIA_SIN_PRECIOS + faltan }; break;
           }
@@ -1838,9 +1940,15 @@ export class BotService {
           const area = String(input.area ?? 'local');
           const consulta = String(input.consulta ?? '').trim();
           const direccion = String(input.direccion ?? '').trim();
+          // de qué se trata para el cliente: arma el aviso «Lo de <tema> te lo confirmo por acá.» (5/10/2026)
+          const tema = String(input.tema ?? '').trim();
           if (!consulta) { out = { error: 'consultar_interno necesita la consulta concreta.' }; break; }
-          out = await this.consultarInterno(linea, telefono, area, consulta, direccion, ctx.archivoUrl);
-          if ((out as any)?.consultado && ctx.fija) ctx.fija.consultaPendiente = true;
+          out = await this.consultarInterno(linea, telefono, area, consulta, direccion, ctx.archivoUrl, tema);
+          if ((out as any)?.consultado && ctx.fija) {
+            ctx.fija.consultaPendiente = true;
+            // la nueva lleva aviso; la que ya estaba abierta (se le sumó el dato), no
+            anotarTemaDeConsulta(ctx.fija, out as any);
+          }
           break;
         }
         case 'nota_interna': {
@@ -2295,7 +2403,7 @@ export class BotService {
         ...(conDescuento ? { subtotalEfectivo } : {}),
         stockDisponible: disponible,
         alcanzaElStock: disponible >= cantidad,
-        ...(disponible < cantidad ? { aviso: `No alcanza el stock para ${cantidad}. NO le digas al cliente cuántas hay ni dónde: decile que esa cantidad no la tenés disponible ahora y consultalo con el local (consultar_interno). No prometas lo que no hay.` } : {}),
+        ...(disponible < cantidad ? { aviso: `No alcanza el stock para ${cantidad}. NO le digas al cliente cuántas hay ni dónde: decile que esa cantidad no la tenés disponible ahora y llamá consultar_interno (sin decirle que lo consultás: el aviso lo agrega el sistema). No prometas lo que no hay.` } : {}),
       });
       if (disponible < cantidad) hayFaltantes = true;
     }
@@ -2664,11 +2772,32 @@ export class BotService {
     };
   }
 
+  // Las consultas internas de un teléfono que siguen sin respuesta (5/10/2026).
+  // Se leen con eq/is/gte/order/limit; si la columna tema todavía no está en la
+  // base (db/migracion-consultas-tema.sql sin aplicar), se leen sin ella. Ante
+  // cualquier falla, ninguna: la consulta sigue como antes.
+  private async consultasAbiertas(linea: string, telefono: string, horas: number): Promise<any[]> {
+    const desde = new Date(Date.now() - horas * 3600_000).toISOString();
+    const leer = async (columnas: string): Promise<{ data: any; error: any }> => await this.db.from('bot_consultas_internas').select(columnas)
+      .eq('linea', linea).eq('telefono_cliente', telefono).is('respondido_en', null)
+      .gte('creado_en', desde).order('creado_en', { ascending: false }).limit(10);
+    try {
+      let r = await leer('id, area, consulta, tema, waha_msg_id, respuesta_admin, creado_en');
+      if (r?.error) r = await leer('id, area, consulta, waha_msg_id, respuesta_admin, creado_en');
+      return Array.isArray(r?.data) ? r.data : [];
+    } catch {
+      return [];
+    }
+  }
+
   // Registra la pregunta, avisa al área y espera el dato sin promesas al cliente.
-  async consultarInterno(linea: 'pedidos' | 'proveedores', telefono: string, area: string, consulta: string, direccion = '', archivoUrl?: string) {
+  async consultarInterno(linea: 'pedidos' | 'proveedores', telefono: string, area: string, consulta: string, direccion = '', archivoUrl?: string, tema?: string)
+    : Promise<{ consultado: boolean; yaEstaba?: boolean; consulta_id?: string; tema?: string; area: string; avisoPorWhatsapp: boolean; aviso: string }> {
     consulta = String(consulta).replace(/<[^>]*>/g, '').trim().slice(0,1000);
     direccion = /[<>]/.test(direccion) ? '' : direccion.slice(0,300);
     if (!consulta) throw new BadRequestException('Falta la consulta concreta');
+    // de qué se trata, para el cliente ("la caja para viajar"); sin nada interno
+    const temaCliente = temaDeConsulta(tema);
     const { data: cfg } = await this.db
       .from('lineas_whatsapp').select('derivar_pagos_a, avisar_proveedores_a, whatsapp_reparto, whatsapp_compras').eq('linea', linea).eq('activa', true).limit(1).maybeSingle();
     const numeroDe: Record<string, string> = {
@@ -2681,17 +2810,81 @@ export class BotService {
     const ident = await this.identificarCliente(telefono).catch(() => null as any);
     const nombre = ident?.nombre ?? null;
     const etiqueta = area === 'reparto' ? '🚚 Reparto' : area === 'compras' ? '🛒 Compras' : area === 'administracion' ? '💳 Administración' : '🏪 Local';
+    const esPrueba = /^54911000000\d{1,3}$/.test(telefono);
+    // el WhatsApp al área; se responde citándolo, así que el id del mensaje queda guardado
+    const avisarPorWhatsapp = async (areaAviso: string, consultaId: string, textoConsulta: string): Promise<boolean> => {
+      const destinoAviso = (numeroDe[areaAviso] ?? numeroDe.local).replace(/\D/g, '');
+      if (destinoAviso.length < 10 || esPrueba) return false;
+      const texto = [
+        `Consulta de un cliente (${areaAviso})`,
+        `De: ${nombre ?? 'sin identificar'} · +${telefono}`,
+        textoConsulta,
+        direccion ? `Dirección: ${direccion}` : null,
+        archivoUrl ? `Adjunto del cliente (acceso temporal): ${archivoUrl}` : null,
+        'Respondé CITANDO este mensaje con el texto para el cliente, sin notas internas.',
+      ].filter(Boolean).join('\n');
+      try {
+        const env: any = await this.enviarPorWhatsapp({ to: destinoAviso, text: texto, kind: 'aviso-interno' } as any);
+        if (consultaId && env?.id) await this.db.from('bot_consultas_internas')
+          .update({ waha_msg_id: String(env.id) }).eq('id', consultaId);
+        return !!env?.enviado;
+      } catch (e: any) {
+        this.log.warn(`consulta registrada, aviso a ${areaAviso} falló: ${e?.message ?? e}`);
+        return false;
+      }
+    };
+
+    // LA MISMA CONSULTA NO SE HACE DOS VECES (5/10/2026). Pablo preguntó por la
+    // caja a las 16:02 y otra vez, con otras palabras, en un audio de las 16:17:
+    // dos filas, dos WhatsApp a administración, dos avisos y el acuse suelto.
+    // Si hay una abierta del mismo teléfono (últimas 6 h, sin respuesta del
+    // área) sobre lo mismo, el dato nuevo se le SUMA y no sale otro WhatsApp. El
+    // waha_msg_id original no se toca: la respuesta del área se encuentra por la
+    // cita. Solo si la original nunca salió, sale ahora completa.
+    if (!esPrueba) {
+      const abiertas = await this.consultasAbiertas(linea, telefono, 6);
+      const misma = abiertas.find((c) => c?.id && !c.respuesta_admin && mismaConsulta({ consulta, tema: temaCliente }, c, nombre));
+      if (misma) {
+        const previa = String(misma.consulta ?? '');
+        const norm = (t: string) => t.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9ñ]+/g, ' ').trim();
+        const agrega = !norm(previa).includes(norm(consulta)) && !casiIgual(previa, consulta);
+        const completa = agrega ? `${previa}\n+ ${consulta}`.slice(0, 2000) : previa;
+        if (agrega) {
+          await this.db.from('bot_consultas_internas').update({ consulta: completa }).eq('id', misma.id).then(() => null, () => null);
+          // el aviso de la campanita (el que lleva el id de la consulta) muestra la consulta entera
+          await this.db.from('alertas_internas').update({ detalle: completa })
+            .eq('tipo', 'consulta').eq('referencia->>consulta_id', misma.id).then(() => null, () => null);
+        }
+        // la abierta no tenía tema (es de antes): queda el de ahora
+        if (temaCliente && 'tema' in misma && !misma.tema) {
+          await this.db.from('bot_consultas_internas').update({ tema: temaCliente }).eq('id', misma.id).then(() => null, () => null);
+        }
+        const enviada = misma.waha_msg_id ? false : await avisarPorWhatsapp(String(misma.area ?? area), misma.id, completa);
+        this.log.log(`consulta de ${telefono} igual a la abierta ${misma.id}: ${agrega ? 'se le suma el dato' : 'no agrega nada'}, sin otro aviso`);
+        return {
+          consultado: true,
+          yaEstaba: true,
+          consulta_id: misma.id,
+          tema: temaDeConsulta(misma.tema) || temaCliente,
+          area: String(misma.area ?? area),
+          avisoPorWhatsapp: enviada,
+          aviso: 'Esa consulta ya estaba abierta y se le sumó el dato; el cliente ya fue avisado. No la vuelvas a prometer. Contestá lo demás.',
+        };
+      }
+    }
 
     await this.db.from('bot_notas_equipo').insert({ linea, telefono, nota: `[${area}] ${consulta}${direccion ? ` · ${direccion}` : ''}` }).then(() => null, () => null);
 
     // Registrar antes del envío: la consulta no se pierde si WhatsApp falla.
-    const esPrueba = /^54911000000\d{1,3}$/.test(telefono);
-    const { data: pendiente, error } = await this.db.from('bot_consultas_internas').insert({
+    const fila: Record<string, unknown> = {
       linea, telefono_cliente: telefono, nombre, area, consulta: consulta.slice(0, 1000), gestion_version: 2,
       direccion: direccion || null,
       enviado_a: esPrueba ? 'banco-de-pruebas' : destino || null,
       ...(esPrueba ? { respondido_en: new Date().toISOString() } : {}),
-    }).select('id').maybeSingle();
+    };
+    let { data: pendiente, error } = await this.db.from('bot_consultas_internas').insert(temaCliente ? { ...fila, tema: temaCliente } : fila).select('id').maybeSingle();
+    // sin la columna tema en la base todavía (migración sin aplicar), se registra igual sin ella
+    if (error && temaCliente) ({ data: pendiente, error } = await this.db.from('bot_consultas_internas').insert(fila).select('id').maybeSingle());
     // El aviso lleva el id de la consulta: así el recordatorio sabe que ya hay
     // uno y, cuando el área responde, se cierra solo (1/10/2026: la campanita
     // tenía 1.260 avisos de consulta sin leer, uno nuevo cada 6 h por consulta).
@@ -2703,30 +2896,18 @@ export class BotService {
       referencia: { linea, telefono, area, direccion: direccion || null, consulta_id: pendiente?.id ?? null },
     }).then(() => null, () => null);
     if (error || !pendiente?.id) throw new Error('No se pudo registrar la consulta interna');
-    let enviada = false;
-    if (destino.length >= 10 && !esPrueba) {
-      const texto = [
-        `Consulta de un cliente (${area})`,
-        `De: ${nombre ?? 'sin identificar'} · +${telefono}`,
-        consulta,
-        direccion ? `Dirección: ${direccion}` : null,
-        archivoUrl ? `Adjunto del cliente (acceso temporal): ${archivoUrl}` : null,
-        'Respondé CITANDO este mensaje con el texto para el cliente, sin notas internas.',
-      ].filter(Boolean).join('\n');
-      try {
-        const env: any = await this.enviarPorWhatsapp({ to: destino, text: texto, kind: 'aviso-interno' } as any);
-        enviada = !!env?.enviado;
-        if (pendiente?.id && env?.id) await this.db.from('bot_consultas_internas')
-          .update({ waha_msg_id: String(env.id) }).eq('id', pendiente.id);
-      } catch (e: any) {
-        this.log.warn(`consulta registrada, aviso a ${area} falló: ${e?.message ?? e}`);
-      }
-    }
+    const enviada = await avisarPorWhatsapp(area, pendiente.id, consulta);
     return {
       consultado: true,
+      yaEstaba: false,
+      consulta_id: pendiente.id,
+      tema: temaCliente,
       area,
       avisoPorWhatsapp: enviada,
-      aviso: 'Consulta registrada. NO envíes mensaje al cliente: ni acuse, ni lo consulto, ni vuelvo a vos. La respuesta se enviará cuando el área aporte el dato.',
+      // 5/10/2026: decía "NO envíes mensaje al cliente" (de cuando la regla era
+      // callar, 22/9) y el modelo cerraba sin texto: al cliente le llegaba el
+      // acuse solo. El aviso lo pone el sistema; el modelo contesta lo demás.
+      aviso: `Consulta registrada${temaCliente ? ` (tema: ${temaCliente})` : ''}. No escribas el aviso ni prometas nada: el sistema le avisa al cliente. Contestá ahora todo lo demás del mensaje del cliente (nombre, retiro, cantidades, precios).`,
     };
   }
 
@@ -3663,7 +3844,7 @@ export class BotService {
             await this.anotarEsperaEnPausa('pedidos', clave, `🎙️ ${dicho}`);
             return { contestado: false, motivo: 'RESPONDE: atiende una persona' };
           }
-          const r: any = await this.charla({ numeroLinea, telefono: clave, mensaje: dicho, mensajeId: p.id ? String(p.id) : undefined });
+          const r: any = await this.charla({ numeroLinea, telefono: clave, mensaje: dicho, mensajeId: p.id ? String(p.id) : undefined, deAudio: true });
           if (!r?.respuesta) {
             await this.respondeRegistrar(waIdM, p.notifyName ?? null, etiqueta(`🎙️ ${dicho}`), null, p.id ? String(p.id) : undefined, mediaReg).catch(() => null);
             return { contestado: false, motivo: r?.derivada ? 'derivada a una persona' : 'sin respuesta' };

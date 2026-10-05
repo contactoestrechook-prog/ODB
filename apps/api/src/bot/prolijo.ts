@@ -295,22 +295,189 @@ export function campoLimpio(v: unknown): string {
 // Cuando el bot consultaba algo por adentro, vaciaba la respuesta: el cliente
 // que pedía "2 picadas, 10 coca zero y 4 chips" no recibía NADA, ni siquiera el
 // precio de las cocas. 48 clientes quedaron así en 14 días. Ahora se manda lo
-// que sí se sabe, sin las promesas sueltas del modelo, y el acuse va una sola
-// vez (si el último mensaje del bot ya era el acuse, no se repite).
+// que sí se sabe, sin las promesas sueltas del modelo, y el aviso va una sola
+// vez.
+//
+// EL AVISO DICE DE QUÉ SE TRATA Y VA UNA VEZ POR COSA PENDIENTE (Leandro,
+// 5/10/2026: "basta de repetir ya confirmo por acá, que sea más directo"). Con
+// Pablo (vinos a España) el genérico «Ya te confirmo por acá.» salió pegado
+// abajo de «¿Está completo el pedido…?» (parecía que se confirmaba el pedido),
+// y después SOLO, como respuesta a un audio que traía nombre, retiro y la misma
+// pregunta por la caja. El "una vez" miraba el último mensaje del bot, no la
+// consulta. Ahora: «Lo de <tema> te lo confirmo por acá.», solo para las
+// consultas NUEVAS del turno (una que ya estaba abierta no se vuelve a
+// avisar), antes de la pregunta final al cliente, y lo escribe SOLO el código:
+// las promesas que escriba el modelo se sacan.
 // ============================================================
-// "Lo consulto" quedó prohibido (Leandro, 1/10/2026): el acuse es este
+// "Lo consulto" quedó prohibido (Leandro, 1/10/2026): el aviso sin tema es este
 export const ACUSE_CONSULTA = 'Ya te confirmo por acá.';
-const RE_PROMESA = /\b(ya te confirmo|queda registrad[ao] la consulta|consult(?:o|ando|ar(?:lo|la)?|amos)\b|en cuanto tenga (?:la )?respuesta|lo consulto|lo estoy consultando|lo estoy viendo|lo veo con|te confirmo|le confirmo|vuelvo a vos|lo verifico|lo reviso|te aviso|en breve|en un momento|no (?:lo |la )?tengo (?:ese |el |este |esa |la )?(?:dato|info(?:rmaci[oó]n)?)|no cuento con (?:ese|esa|el|la) (?:dato|informaci[oó]n))\b/i;
+// la promesa del modelo, en cualquiera de sus formas. "¿Te lo confirmo?" es una
+// pregunta al cliente (no una promesa): el (?<!¿\s?) la deja pasar (5/10/2026)
+const RE_PROMESA = /\b(ya te confirm\w*|queda registrad[ao] la consulta|consult(?:o|ando|ar(?:lo|la)?|amos)\b|en cuanto (?:tenga|sepa)\b|lo consulto|lo estoy consultando|lo estoy viendo|lo veo con|(?<!¿\s?)(?:te|le|se) (?:lo |la |los |las )?confirm(?:o|amos|an)\b|(?:te|le) (?:lo |la |los |las )?(?:paso|mando|digo|cuento|aviso|escribo)\b[^.?!\n]{0,25}\bpor ac[aá](?![a-záéíóúñ])|vuelvo a vos|lo verifico|lo reviso|lo averiguo|lo chequeo|te aviso|apenas (?:lo )?(?:tenga|sepa)\b|ni bien (?:lo )?(?:tenga|sepa)\b|en breve|en un momento|no (?:lo |la )?tengo (?:ese |el |este |esa |la )?(?:dato|info(?:rmaci[oó]n)?)|no cuento con (?:ese|esa|el|la) (?:dato|informaci[oó]n))/i;
+// lo que queda de una oración mixta tiene que sostenerse solo: "Sobre la caja,"
+// o "Si entra el PerSe," sin la promesa no dicen nada ("y chips a $1.200" sí)
+const RE_FRAGMENTO = /^(?:si|cuando|apenas|ni bien|en cuanto|mientras|sobre|respecto|con respecto|lo de|lo del|en lo de|por lo de|para lo de)\b/i;
 
-export function respuestaConConsulta(respuesta: string, ultimoDelBot: string | null | undefined): string {
+/**
+ * La oración sin la parte que promete. "Del PerSe no tengo ahora, ya te confirmo
+ * por acá si entra." → "Del PerSe no tengo ahora.": antes se borraba la oración
+ * entera y con ella el dato (5/10/2026).
+ */
+function sinPromesaEnLaOracion(oracion: string): string {
+  if (!RE_PROMESA.test(oracion)) return oracion;
+  const o = oracion.trim();
+  const fin = /([.!?…])\s*$/.exec(o)?.[1] ?? '';
+  const cuerpo = o.replace(/[.!?…]+\s*$/, '');
+  const trozos = cuerpo.split(/\s*[,;:]\s+|\s+[—–-]\s+|\s+(?=(?:y|e|pero)\s+(?:ya\s+)?(?:te|le|lo|la|los|las|vuelvo|en cuanto|apenas|ni bien)\b)/i)
+    .map((t) => t.trim()).filter(Boolean);
+  const quedan = trozos.filter((t) => !RE_PROMESA.test(t) && !RE_FRAGMENTO.test(t));
+  // la promesa no se pudo separar (cruza los cortes): se saca la oración entera
+  if (quedan.length === trozos.length) return '';
+  const r = quedan.join(', ').trim();
+  if (!r || r.split(/\s+/).length < 3) return '';
+  return `${r}${r.includes('¿') ? '?' : fin === '?' || fin === '!' || !fin ? '.' : fin}`;
+}
+
+/** La respuesta sin promesas de consultar ni de confirmar después: el aviso lo pone el código. */
+export function sinPromesas(respuesta: string | null | undefined): string {
   // renglón por renglón, para no aplastar la lista del pedido en una sola línea
-  const util = String(respuesta ?? '').split('\n').map((linea) =>
-    linea.split(/(?<=[.!?])\s+/).filter((o) => !RE_PROMESA.test(o)).join(' ').trimEnd(),
+  return String(respuesta ?? '').split('\n').map((linea) =>
+    linea.split(/(?<=[.!?])\s+/).map(sinPromesaEnLaOracion).filter((o) => o.trim()).join(' ').trimEnd(),
   ).join('\n').replace(/\n{3,}/g, '\n\n').trim();
-  // ya lo dijo si el mensaje anterior ES el acuse o lo trae al final (1/10/2026)
-  const yaAcuso = !!ultimoDelBot && (casiIgual(String(ultimoDelBot), ACUSE_CONSULTA) || String(ultimoDelBot).includes(ACUSE_CONSULTA));
-  if (!util) return yaAcuso ? '' : ACUSE_CONSULTA;
-  return yaAcuso ? util : `${util}\n\n${ACUSE_CONSULTA}`;
+}
+
+// El tema lo escribe el modelo: lo interno no sale al cliente (1/10/2026). Si
+// trae stock, unidades, la sucursal donde hay, el local, compras o la consulta
+// misma, no sirve y va el aviso genérico.
+const RE_TEMA_INTERNO = /\b(stock|unidad(?:es)?|sucursal(?:es)?|local|compras|sistema|dep[oó]sito|administraci[oó]n|reparto|consult\w*|cargad[oa]s?|figura\w*|quedan?|hay)\b/i;
+
+/** El tema de una consulta, listo para decírselo al cliente ("la caja para viajar"), o '' si no sirve. */
+export function temaDeConsulta(tema: string | null | undefined): string {
+  const original = String(tema ?? '').trim();
+  if (!original) return '';
+  let t = sinCocinaInterna(original)
+    .replace(/[«»"“”'‘’¿?¡!()[\]{}*_]/g, ' ')
+    .replace(/[.,;:…]+/g, ' ')
+    .replace(/\s+/g, ' ').trim();
+  // "lo de la caja" / "lo del PerSe": el "lo de" lo pone el aviso
+  t = t.replace(/^lo\s+del\s+/i, 'el ').replace(/^lo\s+de\s+/i, '').replace(/^del\s+/i, 'el ');
+  // sinCocinaInterna sube la primera letra: se respeta la del modelo
+  if (t && /^[a-záéíóúñ]/.test(original)) t = t[0].toLowerCase() + t.slice(1);
+  t = t.replace(/^(El|La|Los|Las|Un|Una|Unos|Unas)\b/, (a) => a.toLowerCase());
+  const palabras = t.split(' ').filter(Boolean).length;
+  if (!/[a-záéíóúñ0-9]/i.test(t) || palabras > 8 || t.length > 60 || RE_TEMA_INTERNO.test(t)) return '';
+  return t;
+}
+
+/** "la caja" → "Lo de la caja"; "el PerSe" → "Lo del PerSe". */
+function loDe(tema: string): string {
+  return /^el\s/i.test(tema) ? `Lo del ${tema.slice(3)}` : `Lo de ${tema}`;
+}
+
+/** El aviso de una consulta nueva: «Lo de la caja para viajar te lo confirmo por acá.» (5/10/2026). */
+export function acuseDe(tema?: string | null): string {
+  const t = temaDeConsulta(tema);
+  return t ? `${loDe(t)} te lo confirmo por acá.` : ACUSE_CONSULTA;
+}
+
+/**
+ * La consulta ya estaba abierta y avisada, y el cliente vuelve a preguntar por
+ * eso: no se repite el aviso, se le dice que todavía no está (5/10/2026).
+ */
+export function todaviaNoLoTengo(tema?: string | null, yaLoDijo = false): string {
+  const t = temaDeConsulta(tema);
+  if (yaLoDijo) return t ? `${loDe(t)} sigue pendiente.` : 'Eso sigue pendiente.';
+  return t ? `${loDe(t)} todavía no lo tengo.` : 'Eso todavía no lo tengo.';
+}
+
+/** Los avisos de las consultas nuevas del turno, una vez cada uno. */
+function avisoDeConsultas(temasNuevos: string[]): string {
+  if (!temasNuevos.length) return '';
+  const conTema = [...new Set(temasNuevos.map(temaDeConsulta).filter(Boolean))];
+  return conTema.length ? conTema.map(acuseDe).join(' ') : ACUSE_CONSULTA;
+}
+
+/**
+ * Pone el aviso UNA vez: si el mensaje termina en una pregunta al cliente
+ * («¿Está completo el pedido…?», «¿Lo confirmo?»), va antes de esa pregunta,
+ * que sigue siendo la última línea; si no, al final.
+ */
+export function conAviso(texto: string, aviso: string): string {
+  const t = String(texto ?? '').trim();
+  if (!aviso) return t;
+  if (!t) return aviso;
+  if (!/\?\s*$/.test(t)) return `${t}\n\n${aviso}`;
+  const lineas = t.split('\n');
+  const ultima = lineas[lineas.length - 1];
+  // dónde arranca la oración de la pregunta final dentro del último renglón
+  const abre = ultima.lastIndexOf('¿');
+  const antesDeLaPregunta = ultima.slice(0, abre >= 0 ? abre : Math.max(0, ultima.length - 1));
+  const cortes = [...antesDeLaPregunta.matchAll(/[.!?…:]\s+/g)];
+  const ultimoCorte = cortes[cortes.length - 1];
+  const desde = ultimoCorte ? (ultimoCorte.index ?? 0) + ultimoCorte[0].length : 0;
+  const antes = ultima.slice(0, desde).trimEnd();
+  const pregunta = ultima.slice(desde).trim();
+  if (!antes) {
+    const arriba = lineas.slice(0, -1).join('\n').trimEnd();
+    return arriba ? `${arriba}\n\n${aviso}\n\n${pregunta}` : `${aviso}\n\n${pregunta}`;
+  }
+  lineas[lineas.length - 1] = `${antes} ${aviso} ${pregunta}`;
+  return lineas.join('\n');
+}
+
+/**
+ * La respuesta de un turno con consulta interna: lo que el modelo sabía, sin
+ * sus promesas, y el aviso de las consultas NUEVAS del turno (5/10/2026). Sin
+ * consultas nuevas (todas ya estaban abiertas y avisadas), sin aviso.
+ */
+export function respuestaConConsulta(respuesta: string, temasNuevos: string[] = []): string {
+  return conAviso(sinPromesas(respuesta), avisoDeConsultas(temasNuevos));
+}
+
+// Una promesa del modelo sin herramienta ("te lo confirmo por acá", "voy a
+// consultar") tiene que quedar registrada como consulta: si no, es una promesa
+// vacía. Reconoce también lo que saca sinLoConsulto (5/10/2026).
+const RE_PROMETE_CONSULTAR = /\b(lo consulto|[tl]e confirm(?:o|amos) por ac[aá]|ya te confirm\w*|(?<!¿\s?)te (?:lo|la|los|las) confirm(?:o|amos)\b|vuelvo a vos|lo verifico con|en cuanto (?:tenga|sepa)\b|apenas (?:lo )?(?:tenga|sepa)\b|no (?:lo |la )?tengo (?:ese |el |este |esa |la )?(?:dato|info(?:rmaci[oó]n)?|cargad)|no cuento con (?:ese|esa|el|la) (?:dato|informaci[oó]n)|lo revisa alguien)/i;
+export function prometeConsultar(t: string | null | undefined): boolean {
+  const s = String(t ?? '');
+  return RE_PROMETE_CONSULTAR.test(s) || RE_CONSULTO.test(s);
+}
+
+// LA MISMA CONSULTA NO SE HACE DOS VECES (5/10/2026). Pablo preguntó por la caja
+// a las 16:02 y, en un audio de las 16:17, de nuevo con otras palabras: salieron
+// dos WhatsApp a administración, dos avisos y el acuse repetido. En 14 días, 38
+// de 97 consultas repetían una anterior todavía abierta del mismo teléfono.
+// Son "la misma" si tienen el mismo tema, o si comparten las palabras que
+// importan (sin las de todos los días: cliente, tenemos, para, pide…).
+const PALABRAS_COMUNES = new Set(('cliente clienta clientes senor senora tenemos tienen tiene tenes tener para pide pidio pregunta preguntan quiere queria consulta consulto ' +
+  'sucursal pedido pedidos stock precio precios retira retirar retiro manana saber puede pueden podemos puedo podes botella botellas unidad unidades cuantas cuantos cuanto ' +
+  'entra entran llega llegan favor gracias ahora tambien esta estan este esto esos esas como cual cuales donde cuando tipo algo alguna alguno algun otro otra otros otras ' +
+  'sobre desde hasta entre porque pero solo mismo misma igual dato datos local compras reparto administracion viene vienen trae traen hacer llevar lleva llevan darle dame ' +
+  'necesita necesito busca buscar rato hola buenas quiero queremos seria serian habria hace hacen').split(/\s+/));
+
+function palabrasQueImportan(texto: string, nombre?: string | null): Set<string> {
+  const sinNombre = String(texto ?? '')
+    // "Cliente Pablo pregunta…": el nombre del cliente está en todas sus consultas
+    .replace(/\b(?:[Cc]liente|[Cc]lienta|[Ss]eñor|[Ss]eñora|[Ss]ra?\.?)\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+/g, ' ');
+  const delCliente = new Set(String(nombre ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').split(/\s+/).filter(Boolean));
+  return new Set(sinNombre.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9ñ\s]/g, ' ')
+    .split(/\s+/).filter((w) => w.length > 3 && !PALABRAS_COMUNES.has(w) && !delCliente.has(w)));
+}
+const temaNormal = (t: string | null | undefined) => temaDeConsulta(t).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  .replace(/^(el|la|los|las|un|una|unos|unas)\s+/, '').trim();
+
+/** ¿La consulta nueva es la misma que una abierta? (mismo tema, o las mismas palabras que importan) */
+export function mismaConsulta(nueva: { consulta: string; tema?: string | null }, abierta: { consulta?: string | null; tema?: string | null }, nombre?: string | null): boolean {
+  const ta = temaNormal(nueva.tema), tb = temaNormal(abierta.tema);
+  if (ta && ta === tb) return true;
+  const A = palabrasQueImportan(`${nueva.tema ?? ''} ${nueva.consulta}`, nombre);
+  const B = palabrasQueImportan(`${abierta.tema ?? ''} ${abierta.consulta ?? ''}`, nombre);
+  if (!A.size || !B.size) return false;
+  let comunes = 0;
+  for (const w of A) if (B.has(w)) comunes++;
+  // tres palabras que importan en común, o la mitad del más corto (con dos como
+  // mínimo: "Raquis" solo no junta un "¿hay otro Raquis?" con otra pregunta)
+  return comunes >= 3 || (comunes >= 2 && comunes / Math.min(A.size, B.size) >= 0.5);
 }
 
 // Frases que Whisper inventa ante un audio mudo o con ruido (créditos de
@@ -368,13 +535,12 @@ export function retiroOEnvio(t: string): string {
 
 // PROHIBIDO "LO CONSULTO" (Leandro, 1/10/2026). Cualquier oración que diga que el
 // bot consulta ("lo consulto", "lo estoy consultando con el local", "lo voy a
-// consultar") se saca; si se sacó alguna, queda el acuse una sola vez.
+// consultar") se saca. Desde el 5/10/2026 NO pega el acuse: el aviso lo arma un
+// solo lugar (respuestaConConsulta), con el tema y una vez por consulta; antes
+// esto lo volvía a pegar abajo de «¿Está completo el pedido?».
 const RE_CONSULTO = /\b(?:lo |la |los |las |te )?(?:consulto|estoy consultando|voy a consultar|vamos a consultar|consultamos|consultarlo|consultarla|consultar con)\b|\blo verifico con\b/i;
 export function sinLoConsulto(t: string): string {
   if (!t || !RE_CONSULTO.test(t)) return t;
-  let saco = false;
-  const lineas = t.split('\n').map((l) => l.split(/(?<=[.!?])\s+/).filter((o) => { const malo = RE_CONSULTO.test(o); if (malo) saco = true; return !malo; }).join(' '));
-  let r = lineas.join('\n').replace(/\n{3,}/g, '\n\n').trim();
-  if (saco && !r.includes(ACUSE_CONSULTA)) r = r ? `${r}\n\n${ACUSE_CONSULTA}` : ACUSE_CONSULTA;
-  return r;
+  const lineas = t.split('\n').map((l) => l.split(/(?<=[.!?])\s+/).filter((o) => !RE_CONSULTO.test(o)).join(' '));
+  return lineas.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }

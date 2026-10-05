@@ -896,8 +896,11 @@ describe('regla del dueño: las derivaciones viven adentro; las consultas se le 
     const pendiente = db.llamadas.insert.find((i: any) => i.tabla === 'bot_consultas_internas');
     expect(db.llamadas.update.some((u: any) => u.tabla === 'bot_consultas_internas' && u.fila.waha_msg_id === 'CONS1')).toBe(true);
     expect(pendiente.fila.telefono_cliente).toBe('5491133344455');
-    // al cliente no se le dice a quién se consultó
-    expect(r.aviso).toContain('NO envíes mensaje al cliente');
+    // 5/10/2026: el aviso al modelo ya no le ordena callarse (el cliente recibía
+    // el acuse solo): el aviso lo pone el sistema y el modelo contesta lo demás
+    expect(r.aviso).not.toMatch(/NO envíes mensaje al cliente/);
+    expect(r.aviso).toMatch(/Contestá ahora todo lo demás/);
+    expect(r.yaEstaba).toBe(false);
   });
 });
 
@@ -1432,8 +1435,10 @@ describe('Envases ambiguos del catálogo real', () => {
 describe('Consulta pendiente: responder recién con el dato', () => {
   // 23/9/2026: la regla cambió. Antes, tras consultar, silencio total (48
   // clientes quedaron sin una sola línea). Ahora el cliente recibe UNA vez el
-  // acuse "Lo consulto y te confirmo por acá", sin las promesas sueltas del modelo.
-  it('registra la consulta y el cliente recibe el acuse una sola vez', async () => {
+  // aviso, sin las promesas sueltas del modelo. 5/10/2026: sin tema (la
+  // consulta simulada no lo trae) es el genérico; el cliente solo preguntó eso,
+  // así que va el aviso solo.
+  it('registra la consulta y el cliente recibe el aviso una sola vez', async () => {
     process.env.ANTHROPIC_API_KEY = 'test';
     const { s, db } = servicio();
     const consultar = jest.spyOn(s, 'consultarInterno').mockResolvedValue({ consultado: true, area: 'local', avisoPorWhatsapp: true, aviso: 'Esperar' });

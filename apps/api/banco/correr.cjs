@@ -189,7 +189,8 @@ async function juzgar(claude, caso, charla) {
   // el "sí" puede crear el pedido directo desde el servidor, sin la herramienta
   const crearReal = bot.crearPedido.bind(bot);
   bot.crearPedido = async (dto) => { const r = await crearReal(dto); const l = registro.get(dto.telefono); if (l && !l.includes('crear_pedido')) l.push('crear_pedido'); return r; };
-  bot.consultarInterno = async (_l, _t, area) => ({ consultado: true, area, avisoPorWhatsapp: true, aviso: '' });
+  // con el tema, como la real: el aviso al cliente sale «Lo de <tema> te lo confirmo por acá.» (5/10/2026)
+  bot.consultarInterno = async (_l, _t, area, _c, _d, _u, tema) => ({ consultado: true, yaEstaba: false, tema: tema ?? '', area, avisoPorWhatsapp: true, aviso: 'Consulta registrada. No escribas el aviso ni prometas nada: el sistema le avisa al cliente. Contestá ahora todo lo demás del mensaje del cliente (nombre, retiro, cantidades, precios).' });
   bot.derivarAHumano = async () => ({ derivada: true, aviso: 'El equipo ya fue notificado por el sistema' });
   // derivarPago corre el real (da el alias, fija "Recibido."): su WhatsApp a
   // administración sale por enviarPorWhatsapp, que está simulado; lo que anota se limpia abajo
