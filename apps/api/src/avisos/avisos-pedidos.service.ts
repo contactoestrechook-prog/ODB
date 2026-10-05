@@ -140,7 +140,7 @@ export class AvisosPedidosService {
     if (error || !p) return null;
     const [cli, bot] = await Promise.all([
       (p as any).cliente_id ? this.db.from('clientes').select('nombre, telefono').eq('id', (p as any).cliente_id).maybeSingle() : Promise.resolve({ data: null } as any),
-      this.db.from('bot_cotizaciones').select('telefono').eq('pedido_id', pedidoId).limit(1).maybeSingle(),
+      this.db.from('bot_cotizaciones').select('telefono, confirmacion').eq('pedido_id', pedidoId).limit(1).maybeSingle(),
     ]);
     const cliente = (cli as any)?.data ?? null;
     return {
@@ -149,6 +149,8 @@ export class AvisosPedidosService {
       destino_direccion: (p as any).destino_direccion, entrega_fecha: (p as any).entrega_fecha, entrega_franja: (p as any).entrega_franja,
       pagado_en: (p as any).pagado_en, cliente, telefonoReal: await this.telefonoReal(cliente?.telefono), esDelBot: !!(bot as any)?.data,
       telefonoDelBot: (bot as any)?.data?.telefono ?? null,
+      // confirmado por el comprobante de una transferencia: el aviso no dice «Se cobra al retirar» (5/10/2026)
+      confirmadoPorComprobante: /^comprobante:/i.test(String((bot as any)?.data?.confirmacion ?? '')) ? String((bot as any).data.confirmacion) : null,
       items: (((p as any).pedidos_items ?? []) as any[]).map((i) => ({ nombre: String(i.productos?.nombre ?? 'Producto'), cantidad: Number(i.cantidad), precio_unitario: Number(i.precio_unitario) })),
     };
   }

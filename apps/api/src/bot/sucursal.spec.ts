@@ -1,5 +1,5 @@
 import { sinLoConsulto, retiroOEnvio, sinCocinaInterna, minimoConMonto, asegurarEnvioSinCargo, campoLimpio, casiIgual, emprolijarListado, esAlucinacionDeTranscripcion, respuestaConConsulta, esAutomaticoWhatsappBusiness, envioSinCargo, nombreSucursalCliente, saintThomas } from './prolijo';
-import { acuseDe, conAviso, mismaConsulta, prometeConsultar, sinPromesas, temaDeConsulta, todaviaNoLoTengo } from './prolijo';
+import { acuseDe, conAviso, consultaAbiertaQueNombra, consultaSinRepetir, juntarConsulta, mismaConsulta, mismoTema, prometeConsultar, sinPromesas, temaDeConsulta, temaDeLaPromesa, todaviaNoLoTengo } from './prolijo';
 
 describe('nombre de la sucursal ante el cliente', () => {
   it('Sant Thomas pasa a sucursal Saint Thomas', () => {
@@ -324,5 +324,107 @@ describe('prohibido "lo consulto" (Leandro, 1/10/2026)', () => {
     const t = 'Recibido.';
     expect(sinLoConsulto(t)).toBe(t);
     expect(sinLoConsulto('Tomo tu consulta y doy aviso al equipo.')).toBe('Tomo tu consulta y doy aviso al equipo.');
+  });
+});
+
+// REVISIÓN DEL 5/10/2026: los casos que encontraron los revisores
+describe('revisión del aviso (5/10/2026): lo que promete y lo que no', () => {
+  it('«te lo confirmo» que afirma un dato, en pasado o como pregunta no es promesa y sale tal cual', () => {
+    for (const t of [
+      'Sí, te lo confirmo: $317.100.',
+      'Sí, te lo confirmo: el domingo abrimos de 10 a 14.',
+      'Sí, te lo confirmo, el retiro es en la sucursal Saint Thomas, Castex 3601.',
+      // un «sí» delante: contesta «¿me confirmás que…?», no promete nada
+      'Sí, te lo confirmo.',
+      'Si te lo confirmo!',
+      'Ya te confirmé el pedido PICKUP-AB12.',
+      'Sí, ya te confirmamos el pedido PICKUP-AB12.',
+      'Te confirmo que el envío es sin cargo.',
+      'Podés consultar con tu banco.',
+      'Te consulto, ¿es para retirar?',
+    ]) {
+      expect(prometeConsultar(t)).toBe(false);
+      expect(sinPromesas(t)).toBe(t);
+    }
+    expect(sinLoConsulto('Te consulto, ¿es para retirar?')).toBe('Te consulto, ¿es para retirar?');
+    expect(sinLoConsulto('Podés consultar con tu banco.')).toBe('Podés consultar con tu banco.');
+  });
+  it('con una marca de después, cerrando la oración o con «ya» delante, sí promete', () => {
+    for (const t of ['Lo de la caja te lo confirmo por acá.', 'Lo de la caja te lo confirmo.', 'Ya te confirmo.', 'Ya te confirmo el horario.', 'Te confirmo si entra.', 'Te lo confirmo apenas lo tenga.', 'Te lo confirmo más tarde.', 'Recibido, le confirmo por acá.', 'Te lo confirman por acá.', 'Lo tengo que consultar.', 'Dejame consultarlo.', 'Sí, te lo confirmo por acá.', 'Sí, ya te confirmo.'])
+      expect(prometeConsultar(t)).toBe(true);
+    expect(sinPromesas('Lo consultamos y te digo.')).toBe('');
+  });
+  it('el tema de lo prometido sale de la oración', () => {
+    expect(temaDeLaPromesa('Dale, Pablo, te los dejo a tu nombre. La caja te la confirmo por acá.')).toBe('la caja');
+    expect(temaDeLaPromesa('Lo de la caja para viajar te lo confirmo por acá.')).toBe('la caja para viajar');
+    expect(temaDeLaPromesa('Te confirmo por acá lo del Catena.')).toBe('el Catena');
+    expect(temaDeLaPromesa('Sobre la caja, ya te confirmo por acá.')).toBe('la caja');
+    expect(temaDeLaPromesa('Ya te confirmo por acá.')).toBe('');
+    expect(temaDeLaPromesa('Sí, te lo confirmo: $317.100.')).toBe('');
+  });
+});
+
+describe('revisión del aviso (5/10/2026): el tema no deja pasar basura ni lo interno', () => {
+  it.each(['N/A', 'ninguno', 'undefined', '</parameter>', '<b>la caja</b>', 'las 2 botellas de Santa Inés', 'el Rutini en Saint Thomas', 'las 3 disponibles del Rutini', 'la caja, te la confirmo', 'lo que tenemos del Rutini'])('«%s» → el genérico', (t) => {
+    expect(acuseDe(t)).toBe('Ya te confirmo por acá.');
+    expect(temaDeConsulta(t)).toBe('');
+  });
+});
+
+describe('revisión del aviso (5/10/2026): nunca pegado abajo de una pregunta', () => {
+  const aviso = 'Lo de la caja te lo confirmo por acá.';
+  it('dos preguntas al final, en renglones seguidos: el aviso va antes de la primera', () => {
+    expect(conAviso('Te anoté el Judas.\n¿Te sirve el Adrianna River?\n¿Está completo el pedido o querés sumar algo?', aviso))
+      .toBe(`Te anoté el Judas.\n\n${aviso}\n\n¿Te sirve el Adrianna River?\n¿Está completo el pedido o querés sumar algo?`);
+  });
+  it('dos preguntas en el mismo renglón: el aviso entra antes de la primera', () => {
+    expect(respuestaConConsulta('Dale. ¿Retirás hoy? ¿A nombre de quién?', ['la caja'])).toBe(`Dale. ${aviso} ¿Retirás hoy? ¿A nombre de quién?`);
+  });
+  it('un importe con punto o unos puntos suspensivos no cortan la oración', () => {
+    expect(conAviso('Hola... ¿qué tal? El precio es $4.700. ¿Te lo anoto?', 'AVISO.')).toBe('Hola... ¿qué tal? El precio es $4.700. AVISO. ¿Te lo anoto?');
+  });
+});
+
+describe('revisión del aviso (5/10/2026): la misma consulta, sin juntar de más', () => {
+  const caja1602 = 'Cliente viaja a España: ¿Judas Malbec 750, Catena Zapata Malbec Argentino 750 y Conjuro Bressia 750 vienen en caja/estuche individual? ¿Tenemos embalaje para llevar en avión?';
+  it('dos temas propios distintos son dos cosas, aunque compartan la marca', () => {
+    expect(mismaConsulta({ consulta: '¿Tenemos Catena Zapata Malbec Argentino en magnum 1,5 L?', tema: 'el Catena Zapata en magnum' }, { consulta: caja1602, tema: 'la caja para viajar' })).toBe(false);
+    expect(mismaConsulta({ consulta: '¿El Rutini Cabernet Malbec viene con estuche?', tema: 'el estuche del Rutini' }, { consulta: '¿Entra el Rutini Cabernet Malbec 750 esta semana?', tema: 'el Rutini Cabernet Malbec' })).toBe(false);
+  });
+  it('un tema genérico («el envío») no alcanza: la dirección nueva corta la coincidencia', () => {
+    expect(mismaConsulta({ consulta: '¿Llegamos a Barrio El Carmen, lote 45, Berazategui el sábado?', tema: 'el envío' }, { consulta: '¿Llegamos a Ruta 52 km 30, Canning el sábado?', tema: 'el envío' })).toBe(false);
+  });
+  it('otro producto de la misma bodega no es la misma consulta', () => {
+    expect(mismaConsulta({ consulta: '¿Hay Catena Zapata Adrianna Vineyard?' }, { consulta: '¿Hay Catena Zapata Malbec Argentino?' })).toBe(false);
+  });
+  it('el mismo tema con un dato nuevo sí (el dato le llega al área aparte)', () => {
+    expect(mismaConsulta({ consulta: 'Si no hay Casancrem, que mandemos el descremado', tema: 'el Casancrem' }, { consulta: '¿Hay Casancrem tapa roja?', tema: 'el Casancrem' })).toBe(true);
+    expect(mismoTema('la caja', 'la caja para viajar')).toBe(true);
+    expect(mismoTema('el envío', 'el envío')).toBe(false);
+  });
+  it('la red de respaldo reconoce la abierta por lo prometido o porque el cliente no trae nada nuevo; un archivo nuevo es nuevo', () => {
+    const abiertas = [{ id: 'f7', consulta: caja1602, tema: null }];
+    expect(consultaAbiertaQueNombra({ textoCliente: '¿Y lo de la caja?', prometio: true }, abiertas)?.id).toBe('f7');
+    expect(consultaAbiertaQueNombra({ temaPrometido: 'la caja', textoCliente: 'En un ratito los paso a buscar, a nombre de Pablo', prometio: true }, abiertas)?.id).toBe('f7');
+    expect(consultaAbiertaQueNombra({ textoCliente: '¿Tenés el Catena en magnum?', prometio: true }, abiertas)).toBeNull();
+    expect(consultaAbiertaQueNombra({ textoCliente: '', conArchivo: true }, abiertas)).toBeNull();
+    expect(consultaAbiertaQueNombra({ textoCliente: '¿cuánto sale?', prometio: false }, abiertas)).toBeNull();
+  });
+});
+
+describe('revisión del aviso (5/10/2026): sumar sin perder lo último y sin repetir', () => {
+  it('pasado el tope se conserva la pregunta original y la suma más nueva', () => {
+    const sumas = Array.from({ length: 9 }, (_, i) => `suma ${i} ${'x'.repeat(200)}`);
+    let t = 'ORIGINAL: ¿hay Café Cabrales molido?';
+    for (const s of sumas) t = juntarConsulta(t, s);
+    expect(t.length).toBeLessThanOrEqual(2000);
+    expect(t.startsWith('ORIGINAL: ¿hay Café Cabrales molido?')).toBe(true);
+    expect(t).toContain('suma 8');
+    expect(juntarConsulta('a', 'b')).toBe('a\n+ b');
+  });
+  it('lo armado con el aviso no repite el último mensaje del bot', () => {
+    expect(consultaSinRepetir('Ya te confirmo por acá.', 'Ya te confirmo por acá.', [''])).toBe('Eso también te lo confirmo por acá.');
+    expect(consultaSinRepetir('Lo de la caja para viajar todavía no lo tengo.', 'Lo de la caja para viajar todavía no lo tengo.', [], ['la caja para viajar'])).toBe('Lo de la caja para viajar sigue pendiente.');
+    expect(consultaSinRepetir('El Judas está a $79.900.', 'Otra cosa.', [''])).toBe('El Judas está a $79.900.');
   });
 });

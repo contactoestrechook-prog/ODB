@@ -72,7 +72,7 @@ describe('Regresiones de auditoría: contrato comercial', () => {
     const r:any=await s.charla({linea:'pedidos',telefono:'5491155510022',mensaje:'¿Es cosecha 2020?'});
     // primer mensaje de la charla: el saludo y el aviso, una sola vez y al final
     expect(r.respuesta).toMatch(/^(Buen día|Buenas tardes|Buenas noches), te damos la bienvenida a O\.D\.B\.\n\nYa te confirmo por acá\.$/);expect(r.respuesta.match(/confirmo por acá/g)).toHaveLength(1);
-    expect(r.respuesta).not.toMatch(/No tengo ese dato/);expect(s.consultarInterno).toHaveBeenCalledWith('pedidos','5491155510022','local','¿Es cosecha 2020?','',undefined);
+    expect(r.respuesta).not.toMatch(/No tengo ese dato/);expect(s.consultarInterno).toHaveBeenCalledWith('pedidos','5491155510022','local','¿Es cosecha 2020?','',undefined,'');
   });
   it('A10: una consulta simultánea no oculta el código de un pedido creado',async()=>{
     const db=dbSimulada({bot_conversaciones:{data:{mensajes:[{role:'assistant',content:'RESUMEN'}]}}});const s=servicio(db);

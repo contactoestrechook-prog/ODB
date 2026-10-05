@@ -15,10 +15,17 @@
 -- El envío es sin cargo: el monto esperado nunca suma envío. En este modo el
 -- vencimiento de 30 min (vence_en) se reemplaza por 3 h desde creada_en, la
 -- misma ventana que usa el servidor: el precio de cada renglón y el total se
--- siguen revalidando igual. En las notas del pedido queda la transferencia «a
--- confirmar por administración» (y, si pagó el total con descuento, que se
--- cobra ese monto y no el de lista); confirmacion = 'comprobante: $X'. No se
--- toca pagado_en: la plata la confirma administración.
+-- siguen revalidando igual. En las notas del pedido queda, primero, que ya
+-- transfirió y que lo confirma administración (ver abajo); confirmacion =
+-- 'comprobante: $X'. No se toca pagado_en: la plata la confirma administración.
+--
+-- LA NOTA DEL PAGO VA PRIMERO Y DICE QUÉ HACER EN EL LOCAL (5/10/2026, revisión):
+-- iba al final de las notas (el aviso de PEDIDO NUEVO las corta a 300
+-- caracteres y se perdía) y decía «se cobra $285.390», que el cajero leía como
+-- una orden de cobrar otra vez al que ya transfirió. Ahora arranca con «YA
+-- TRANSFIRIÓ $X … si está acreditada NO se cobra nada al retirar; si no, se
+-- cobran $X». El aviso de PEDIDO NUEVO (avisos/aviso-pedido.ts › cobroDe) ya no
+-- dice «Se cobra al retirar» para un pedido confirmado por comprobante.
 --
 -- De paso, en el modo 'si' (espejo de comercio.ts › confirmacionInequivoca):
 -- el «si» condicional NO es un sí. «Si queres pásame el total y a donde puedo
@@ -27,6 +34,15 @@
 -- Los modos 'si' y 'completo' quedan como estaban (salvo el «si» condicional).
 -- Compatibilidad: p_modo y p_monto tienen default, así que el código que llama
 -- con 4 parámetros (producción) o con p_modo (main) sigue andando igual.
+--
+-- ORDEN (5/10/2026, revisión): esta migración va ANTES del deploy del código
+-- (el código nuevo llama con p_monto; sin esta función, cada comprobante que
+-- coincide le avisaría a administración «hubo un error al confirmar el
+-- pedido»). Es la ÚLTIMA versión de confirmar_cotizacion_bot: después de esta
+-- no se aplica ninguna otra. En particular, db/migracion-bot-pedido-completo.sql
+-- (3/10/2026) YA ESTÁ APLICADA y NO se vuelve a correr: crearía otra vez la
+-- firma de 5 argumentos al lado de esta, las llamadas serían ambiguas
+-- (PGRST203) y no se confirmaría ningún pedido.
 -- NO APLICAR sin revisión: la aplica la sesión principal.
 
 begin;
@@ -64,7 +80,9 @@ begin
  -- podés…», «si me pasás…» es un si condicional, no un sí
  elsif p_confirmacion is null or p_confirmacion !~* '^\s*(sí|si|dale|ok|listo|confirmo|confirmalo|confirmame|de acuerdo|hacelo|armalo|cerralo|perfecto)(\M|[,.!])'
  or p_confirmacion ~* '\m(no|par[aá]|espera|todav[ií]a|despu[eé]s|pero|cambia\w*|agrega\w*|saca\w*|quita\w*|mejor|otra?\w*|cancel\w*)\M'
- or p_confirmacion ~* '^\s*s[ií]\s+(qui?er\w*|p(o|ue)d\w*|t(e|ie)n\w*|hay|me|te|le|les|sale\w*|es|son|era|fuera|necesit\w*|prefer\w*|vos|usted)\M'
+ -- 5/10/2026 (revisión): solo lo de verdad condicional; «si es correcto», «si te
+ -- confirmo» o «si son esos» son síes sin tilde (espejo de comercio.ts)
+ or p_confirmacion ~* '^\s*s[ií]\s+(qui?er\w*|quisier\w*|p(o|ue)d\w*|t(e|ie)n(es|és|e|en|emos)|hay|sale\w*|necesit\w*|prefer\w*|fuera|era|vos|usted|me\s+(pas\w*|mand\w*|dec\w*|das|dás|dej\w*)|te\s+(parece|sirve|queda|va|viene|conviene))\M'
  then raise exception 'Falta confirmacion inequivoca'; end if;
  if q.pedido_id is not null then return q.pedido_id; end if;
  if v_modo = 'comprobante' then
@@ -88,12 +106,14 @@ begin
  if v_modo = 'comprobante' then
    -- «$285.390»: miles con punto, como lo lee el local
    v_monto_txt := '$' || replace(to_char(round(p_monto), 'FM999,999,999,990'), ',', '.');
-   v_nota_pago := 'Transferencia de ' || v_monto_txt || ' por WhatsApp: a confirmar por administración';
-   -- pagó el total con descuento: en el local se cobra eso, no la diferencia con el de lista
-   if abs(p_monto - q.total) >= 1 then
-     v_nota_pago := v_nota_pago || ' (es el total con descuento por efectivo o transferencia: se cobra ' || v_monto_txt
-       || ', no el total de lista $' || replace(to_char(round(q.total), 'FM999,999,999,990'), ',', '.') || ')';
-   end if;
+   -- lo primero que se lee en el local: ya transfirió, y qué hacer según administración
+   v_nota_pago := 'YA TRANSFIRIÓ ' || v_monto_txt
+     || (case when abs(p_monto - q.total) >= 1
+          then ' (total con descuento por transferencia; el de lista es $' || replace(to_char(round(q.total), 'FM999,999,999,990'), ',', '.') || ')'
+          else '' end)
+     || ' por WhatsApp, a confirmar por administración: si está acreditada NO se cobra nada al '
+     || (case when q.tipo = 'domicilio' then 'recibir' else 'retirar' end)
+     || '; si no, se cobran ' || v_monto_txt;
  end if;
  cliente:=q.cliente_id;
  if cliente is null then
@@ -103,7 +123,8 @@ begin
  end if;
  insert into pedidos(canal,sucursal_id,cliente_id,estado,total,qr_retiro,reserva_stock,destino_direccion,notas,entrega_fecha,entrega_franja)
  values(q.tipo::canal_venta,q.sucursal_id,cliente,'recibido',q.total,(case when q.tipo='domicilio' then 'DOM-' else 'PICKUP-' end)||upper(substr(replace(q.id::text,'-',''),1,12)),true,q.direccion,
-   (case when v_modo='comprobante' then concat_ws(' · ', nullif(trim(q.notas),''), v_nota_pago) else q.notas end),
+   -- la nota del pago va PRIMERO: el aviso corta las notas a 300 caracteres
+   (case when v_modo='comprobante' then concat_ws(' · ', v_nota_pago, nullif(trim(q.notas),'')) else q.notas end),
    q.entrega_fecha,q.entrega_franja) returning id into pedido;
  for item in select x from jsonb_array_elements(q.items) x order by x->>'producto_id' loop
   insert into pedidos_items(pedido_id,producto_id,cantidad,precio_unitario) values(pedido,(item->>'producto_id')::uuid,(item->>'cantidad')::numeric,(item->>'precioUnitario')::numeric);

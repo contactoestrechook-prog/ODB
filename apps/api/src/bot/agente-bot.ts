@@ -111,7 +111,7 @@ export const HERRAMIENTAS_PEDIDOS: Anthropic.Tool[] = [
     name: 'consultar_interno',
     description:
       'Le pregunta a un área de la casa algo que vos no sabés, por WhatsApp interno y alerta en el panel: reparto (¿llegamos a esta dirección? ¿cuándo? — el costo NO se consulta: el envío es sin cargo), compras (¿entra tal producto?), administracion (facturas, condiciones) o local. ' +
-      'No escribas el aviso al cliente ni promesas («ya te confirmo», «te lo confirmo por acá»): el sistema agrega «Lo de <tema> te lo confirmo por acá.» una sola vez. Contestá en el mismo mensaje todo lo demás. No la uses si lo que pidió ya tiene una respuesta final (no lo hay, con alternativa) ni para repetir algo que ya figura en las consultas abiertas (si el cliente suma un dato sobre eso, se agrega a la misma consulta). El cliente recibe el dato solo cuando responde el área.',
+      'No escribas el aviso al cliente ni promesas («ya te confirmo», «te lo confirmo por acá»): el sistema agrega «Lo de <tema> te lo confirmo por acá.» una sola vez. Contestá en el mismo mensaje todo lo demás. No la uses si lo que pidió ya tiene una respuesta final (no lo hay, con alternativa) ni para repetir algo que ya figura en las consultas abiertas (si el cliente suma un dato sobre eso, llamala con el MISMO tema que figura ahí y se agrega a esa consulta). El cliente recibe el dato solo cuando responde el área.',
     input_schema: {
       type: 'object' as const,
       properties: {

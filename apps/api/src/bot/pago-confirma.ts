@@ -54,7 +54,9 @@ const totalesDe = (total: number, efectivo: number) =>
 export function cambiaElPedido(texto: string): boolean {
   const t = sinTildes(texto);
   if (!t.trim()) return false;
-  if (/\b(sac\w*|quit\w*|cambi\w*|agreg\w*|suma(?:le|me|lo|la|les|r|ria)|pone(?:le|me|lo|la)|cancel\w*|anul\w*|reemplaz\w*|olvidate|me arrepenti\w*|en vez de|en lugar de|que sean|ya no (?:lo |la |los |las )?(?:quiero|necesito|va)|no (?:lo |la |los |las )?quiero|todavia no|esper\w*|dejalo|dejala|dejamelo|sin (?:el|la|los|las))\b/.test(t)) return true;
+  // «en vez del Malbec», «en lugar del…» y «que sea X» también (5/10/2026, revisión:
+  // el \b de «en vez de» no tomaba «del»)
+  if (/\b(sac\w*|quit\w*|cambi\w*|agreg\w*|suma(?:le|me|lo|la|les|r|ria)|pone(?:le|me|lo|la)|cancel\w*|anul\w*|reemplaz\w*|olvidate|me arrepenti\w*|(?:en vez|en lugar) del?|que sean?|ya no (?:lo |la |los |las )?(?:quiero|necesito|va)|no (?:lo |la |los |las )?quiero|todavia no|esper\w*|dejalo|dejala|dejamelo|sin (?:el|la|los|las))\b/.test(t)) return true;
   // otro producto o más unidades: «otro judas», «uno más», «y un judas más»
   if (/\botr[oa]s?\b/.test(t)) return true;
   if (/\b(?:un[oa]?|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|docena)\s+(?:\w+\s+)?mas\b/.test(t)) return true;
@@ -72,6 +74,36 @@ export function cambiaElPedido(texto: string): boolean {
     .replace(/\b\d{1,3}\s*(?:minutos?|mins?|horas?|hs?|segundos?|dias?|semanas?|meses|cuotas?|de (?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre))\b/g, ' ');
   return /(?:^|[^\d.,])(?:x\s?)?\d{1,3}\s*(?:x\s*)?(?:[a-zñ]{3,}|mas\b)/.test(sinTiempos);
 }
+
+/**
+ * ¿Lo que escribió el cliente cambia la ENTREGA? (5/10/2026, revisión). Como el
+ * envío es sin cargo, retiro y envío tienen el mismo total: «¿Me lo podés
+ * mandar a casa?» o «Lo retiro el sábado» después del resumen no cambian el
+ * monto, pero el pedido ya no es el que vio. Envío, dirección, calle con
+ * número o un día: el comprobante no confirma. «Retiro en un rato» o «hoy» no
+ * cambian nada.
+ */
+export function cambiaLaEntrega(texto: string): boolean {
+  const t = sinTildes(texto);
+  if (!t.trim()) return false;
+  // pedir que se lo manden («envialo», «mandámelo a…», «con envío», «a casa»).
+  // «Te envío el comprobante», «transferencia enviada» o «te lo mando» hablan
+  // del pago, no de la entrega: con un «envi\w*» suelto, el epígrafe más común
+  // de un comprobante dejaba sin efecto la decisión de Leandro (5/10/2026)
+  if (/\b(?:envi[ae](?:lo|la|los|las|melo|mela|melos|melas|me|n(?:lo|la|los|las)?)\b|(?:con|por|el|un|de|hac\w*)\s+(?:el\s+)?envio\b|mand[ae](?:lo|la|los|las|melo|mela|melos|melas)\b|mand(?:a|ame|en)\s+(?:a|al|para)\b|me\s+(?:lo|la|los|las)\s+(?:mand|envi|tra[ei])\w*|tra(?:e|i)(?:melo|mela|melos|melas|lo|la|los|las)\b|a\s+(?:mi\s+|la\s+)?casa\b|domicilio|direccion|delivery|reparto|recibe\b|lo\s+recibo)/.test(t)) return true;
+  if (/\b(?:av(?:enida)?\.?|calle|ruta|barrio|lote|km)\s+[a-z0-9]/.test(t)) return true;
+  // una calle con número: «Hipólito Yrigoyen 8250», «Mitre 1200». Sin los
+  // importes ni los números del comprobante («operación 12345», «total 2000»)
+  const sinNumerosDelPago = t
+    .replace(/\$\s?[\d.,]+/g, ' ')
+    .replace(/\b\d{1,3}(?:\.\d{3})+\b/g, ' ')
+    .replace(/\b(?:operacion|comprobante|transferencia|nro|numero|n|op|cuit|cuil|cbu|cvu|dni|codigo|ref|referencia|id|total|monto|importe|pago|pesos)\s*[:#°º]?\s*\d+/g, ' ');
+  if (/\b[a-zñ]{3,}\s+\d{3,5}\b/.test(sinNumerosDelPago)) return true;
+  return /\b(lunes|martes|miercoles|jueves|viernes|sabado|domingo|manana|pasado manana|la semana que viene|otro dia)\b/.test(t);
+}
+
+/** ¿El bot le pidió un dato después del resumen (la dirección, a nombre de quién)? Entonces el pedido no está cerrado. */
+const RE_PIDE_DATO = /(?:¿[^?]*\b(?:direcci[oó]n|calle|a nombre de qui[eé]n|qui[eé]n (?:lo )?(?:recibe|retira)|tu nombre)\b[^?]*\?|\bpas(?:a|á)me (?:la direcci[oó]n|tu nombre|el nombre)|\bdecime (?:la direcci[oó]n|tu nombre|el nombre|a nombre de))/i;
 
 /**
  * EL ALIAS Y EL TOTAL JUNTOS (5/10/2026, mensaje 16 de Pablo): el cliente pidió
@@ -101,8 +133,18 @@ export function datosDePagoParaResumen(out: { datosDePago?: unknown; respuestaFi
 // comprobante confirma el pedido, al cliente nunca se le pide la palabra
 const RE_PIDE_CONFIRMO = /dec[ií]me\s*[«"“'‘]?\s*confirmo/i;
 
+/** El total del último resumen con «¿Lo confirmo?» que vio el cliente, o ''. */
+function totalDelResumen(ultimosBot: string[] = []): string {
+  for (const m of ultimosBot) {
+    if (!RE_LO_CONFIRMO.test(String(m ?? ''))) continue;
+    const t = /\bTotal:?\s*(\$\s?\d{1,3}(?:\.\d{3})*(?:,\d{1,2})?)/i.exec(String(m));
+    if (t) return t[1].replace(/\s/g, '');
+  }
+  return '';
+}
+
 /** Saca la oración que le pide al cliente que escriba «confirmo». */
-export function sinPedirConfirmo(texto: string, textoCliente = ''): string {
+export function sinPedirConfirmo(texto: string, textoCliente = '', ultimosBot: string[] = []): string {
   const t = String(texto ?? '');
   if (!RE_PIDE_CONFIRMO.test(t)) return t;
   const limpio = t
@@ -113,8 +155,12 @@ export function sinPedirConfirmo(texto: string, textoCliente = ''): string {
     .replace(/\n{3,}/g, '\n\n')
     .trim();
   if (limpio) return limpio;
-  // no quedó nada: si habla de pagar, la respuesta de siempre; si no, la pregunta del resumen
-  return /transfer|pag[oóa]|abon|comprobante|alias|cbu/i.test(textoCliente) ? 'Dale, mandalo por acá.' : '¿Lo confirmo?';
+  // no quedó nada: si habla de pagar, la respuesta de siempre; si no, la pregunta
+  // del resumen CON SU TOTAL (regla 3b del prompt): un «¿Lo confirmo?» suelto no
+  // lo acepta el «sí» y el bot volvía a armar el resumen (5/10/2026, revisión)
+  if (/transfer|pag[oóa]|abon|comprobante|alias|cbu/i.test(textoCliente)) return 'Dale, mandalo por acá.';
+  const total = totalDelResumen(ultimosBot);
+  return total ? `Total ${total}. ¿Lo confirmo?` : '¿Lo confirmo?';
 }
 
 /**
@@ -227,7 +273,9 @@ export async function leerImporteDelComprobante(claude: ClienteClaude, modelo: s
 /**
  * ¿Este comprobante ya está en administración? Una fila abierta (sin
  * confirmar) del mismo chat, con el mismo monto si lo hay, de las últimas 2 h.
- * Una fila sin fecha de creación no cuenta como reciente.
+ * Una fila sin fecha de creación no cuenta como reciente. Sin monto, solo una
+ * fila con monto (de un comprobante): una «consulta de pago» abierta no alcanza
+ * para callar un comprobante (5/10/2026, revisión).
  */
 export async function comprobanteYaRegistrado(db: any, linea: string, telefono: string, monto: number): Promise<boolean> {
   const desde = Date.now() - 2 * 3600_000;
@@ -238,7 +286,8 @@ export async function comprobanteYaRegistrado(db: any, linea: string, telefono: 
   return filas.some((f) => {
     const creado = f?.creado_en ? new Date(f.creado_en).getTime() : NaN;
     if (f?.confirmado_en || !Number.isFinite(creado) || creado < desde) return false;
-    return !(monto > 0) || Math.abs(Number(f?.monto ?? 0) - monto) < 1;
+    // sin monto, solo cuenta un comprobante con monto (no una consulta de pago abierta)
+    return monto > 0 ? Math.abs(Number(f?.monto ?? 0) - monto) < 1 : Number(f?.monto ?? 0) > 0;
   });
 }
 
@@ -262,6 +311,11 @@ export async function respuestaAlComprobanteRepetido(db: any, linea: string, tel
   return ultimoDelBot && casiIgual(texto, ultimoDelBot) ? 'Sí, ya lo tengo.' : texto;
 }
 
+/** El código del pedido de una cotización confirmada, como lo arma confirmar_cotizacion_bot: PICKUP-/DOM- + 12 del id. */
+export function codigoDelPedido(q: { id?: string | null; tipo?: string | null }): string {
+  return `${q?.tipo === 'domicilio' ? 'DOM-' : 'PICKUP-'}${String(q?.id ?? '').replace(/-/g, '').slice(0, 12).toUpperCase()}`;
+}
+
 export type PedidoPorComprobante = {
   /** el pedido que se creó (código y respuesta al cliente), o null */
   creado: { codigo: string; respuesta: string } | null;
@@ -279,7 +333,9 @@ export type PedidoPorComprobante = {
  *  · el cliente la vio: uno de los últimos mensajes del bot trae «¿Lo
  *    confirmo?» con el total de esa cotización, y no se preparó otra en este turno;
  *  · nada de lo que escribió después de ese resumen cambia el pedido;
- *  · no hay un pedido del chat confirmado hace menos de 15 min (un reintento);
+ *  · nada de lo que escribió cambia la entrega (envío, dirección, día) y el bot
+ *    no le pidió un dato después del resumen;
+ *  · no hay un pedido del chat confirmado en las últimas 6 h (puede ser su pago);
  *  · el monto que pasó el modelo Y una lectura aparte del archivo coinciden con
  *    el total de lista o con el de efectivo (diferencia < $1).
  * Si algo no da, no se crea nada y el turno sigue como siempre («Recibido.»).
@@ -312,8 +368,16 @@ export async function pedidoPorComprobante(p: {
   if (!q?.id) return no('no hay ningún resumen guardado');
   if (q.pedido_id || q.confirmada_en) return no('el último resumen ya tiene pedido');
   if (!(Date.now() - new Date(q.creada_en).getTime() < 3 * 3600_000)) return no('el último resumen tiene más de 3 h');
-  if (filas.some((f) => f?.confirmada_en && Date.now() - new Date(f.confirmada_en).getTime() < 15 * 60_000)) {
-    return no('hay un pedido del chat confirmado hace menos de 15 min');
+  // UN PEDIDO DEL CHAT DE LAS ÚLTIMAS HORAS (5/10/2026, revisión): antes
+  // frenaba solo uno de hace menos de 15 min. «Pasame el total y el alias»
+  // después de confirmar armaba otro resumen igual, y el PDF del pago del
+  // primero creaba un SEGUNDO pedido (dos reservas de stock por una compra).
+  // Con un pedido de las últimas 6 h no se crea nada: administración sabe que
+  // puede ser el pago de ese pedido.
+  const reciente = filas.find((f) => f?.confirmada_en && Date.now() - new Date(f.confirmada_en).getTime() < 6 * 3600_000);
+  if (reciente) {
+    const codigo = codigoDelPedido(reciente);
+    return no(`hay un pedido del chat confirmado hace menos de 6 h (${codigo})`, `Puede ser el pago del pedido ${codigo}, confirmado hace un rato: no se creó otro pedido.`);
   }
 
   const total = Number(q.total);
@@ -328,8 +392,11 @@ export async function pedidoPorComprobante(p: {
   while (i >= 0 && !(historial[i]?.role === 'assistant' && esElResumen(historial[i]?.content))) i--;
   if (i < 0) return no('no encuentro el resumen en la charla');
   const despues = [...historial.slice(i + 1).filter((m) => m?.role === 'user').map((m) => String(m.content ?? '')), p.textoCliente ?? ''];
-  const cambio = despues.find((t) => cambiaElPedido(t));
+  const cambio = despues.find((t) => cambiaElPedido(t) || cambiaLaEntrega(t));
   if (cambio !== undefined) return no(`después del resumen el cliente cambió el pedido («${cambio.slice(0, 60)}»)`);
+  // y si después del resumen el bot le pidió un dato (la dirección, a nombre de
+  // quién), el pedido todavía no estaba cerrado (5/10/2026, revisión)
+  if (historial.slice(i + 1).some((m) => m?.role === 'assistant' && RE_PIDE_DATO.test(String(m.content ?? '')))) return no('después del resumen el bot le pidió un dato');
   // y si después del resumen el bot volvió a anotar una lista («• 2 × …», «¿Está
   // completo…?»), el pedido se estaba cambiando aunque las palabras no lo digan
   const listaNueva = historial.slice(i + 1).some((m) => m?.role === 'assistant' && /\d\s*×\s*\S|¿[^?]*(?:est[aá] completo|sumar algo|agregar algo)[^?]*\?/i.test(String(m.content ?? '')));

@@ -7,7 +7,7 @@ import { agruparItems, cantidadesIndividuales, centavos, confirmacionInequivoca,
 import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import { volumenMl, etiquetaVolumen, pideTamano, medidaPartida, resumenDeTamanos, cantidadesPedidas, PALABRA_GENERICA } from './formatos';
 import { emprolijarListado, nombreLimpio, saludoSegunHora, saludarConBienvenida, niegaPercepcion, respetuosoSinConfianza, saintThomas, envioSinCargo, asegurarEnvioSinCargo, casiIgual, campoLimpio, respuestaConConsulta, esAlucinacionDeTranscripcion, nombreSucursalCliente, esAutomaticoWhatsappBusiness, minimoConMonto, retiroOEnvio, sinCocinaInterna, sinLoConsulto } from './prolijo';
-import { acuseDe, mismaConsulta, prometeConsultar, sinPromesas, temaDeConsulta, textoFijoConConsulta, todaviaNoLoTengo } from './prolijo';
+import { acuseDe, consultaAbiertaQueNombra, consultaSinRepetir, datoNuevo, juntarConsulta, mismaConsulta, mismoTema, prometeConsultar, sinPromesas, temaDeConsulta, temaDeLaPromesa, textoFijoConConsulta, todaviaNoLoTengo } from './prolijo';
 import { controlDeFechas } from './fechas';
 import { desvioDeLoPedido } from './desvio';
 import { audioDeclarado, estadoOgg } from './ogg';
@@ -68,6 +68,17 @@ function esAcuse(texto: string): boolean {
   const t = String(texto ?? '').replace(/[\u{1F3FB}-\u{1F3FF}\uFE0F]/gu, '').trim();
   return !!t && /^(?:ok+[iy]*s?|okey|oka+|dale|listo|recibido|visto|gracias|perfecto|joya|genial|s[ií]+|\p{Extended_Pictographic}|[\s.,!])+$/iu.test(t);
 }
+
+// UNA SOLA VENTANA PARA "CONSULTA ABIERTA" (5/10/2026, revisión): el estado de
+// la charla le mostraba al modelo las de 24 h («no las vuelvas a consultar») y
+// el freno de repetidas buscaba en 6 h. Entre las 6 y las 24 h el modelo creía
+// que estaba abierta, la herramienta no la encontraba y salía otra fila, otro
+// WhatsApp y el mismo aviso. Ahora las dos miran lo mismo; pasadas las 6 h, una
+// consulta sin respuesta se puede volver a hacer (le sirve de recordatorio al área).
+const HORAS_CONSULTA_ABIERTA = 6;
+
+// el mensaje con que el bot confirma un pedido: por el «sí» o por el comprobante
+const RE_PEDIDO_CONFIRMADO = /^(?:Pedido \S+ confirmado\.|Recibido\.\s+Tu pedido \S+ quedó confirmado)/;
 
 // LOS TEMAS DE LAS CONSULTAS DEL TURNO (5/10/2026). El aviso al cliente («Lo de
 // la caja te lo confirmo por acá.») va solo por las consultas NUEVAS; la que ya
@@ -591,7 +602,9 @@ export class BotService {
     // UN "SÍ" DE MÁS DESPUÉS DE CONFIRMAR (23/9/2026). Si el último mensaje del
     // bot ya fue "Pedido X confirmado", otro "si"/"dale"/"ok" es un acuse:
     // el modelo lo tomaba como pedido nuevo y armaba el mismo pedido otra vez.
-    if (!traeArchivo && /^Pedido \S+ confirmado\./.test(String(ultimoMsgBot).trim()) && (confirmacionInequivoca(texto) || RE_SI_NO.test(texto.trim()))) {
+    // También después de la confirmación por comprobante («Recibido. Tu pedido X
+    // quedó confirmado…», 5/10/2026, revisión): un «Sí, gracias» iba al modelo.
+    if (!traeArchivo && RE_PEDIDO_CONFIRMADO.test(String(ultimoMsgBot).trim()) && (confirmacionInequivoca(texto) || RE_SI_NO.test(texto.trim()))) {
       return callar('acuse de un pedido ya confirmado');
     }
 
@@ -728,14 +741,14 @@ export class BotService {
     // texto: del mensaje 8 de Pablo el modelo veía «Ya te confirmo por acá», no
     // qué se había preguntado adentro, y a los 15 minutos volvió a consultar lo
     // mismo de la caja. Una sola lectura por turno.
-    const consultasAbiertas = linea === 'pedidos' ? await this.consultasAbiertas(linea, telefono, 24) : [];
+    const consultasAbiertas = linea === 'pedidos' ? await this.consultasAbiertas(linea, telefono, HORAS_CONSULTA_ABIERTA) : [];
     if (consultasAbiertas.length) {
       // por su tema; las de antes del tema, por sus preguntas (o el arranque del texto)
       const deQueTrata = (c: any) => {
         const t = String(c.consulta ?? '').replace(/\s+/g, ' ').trim();
         return temaDeConsulta(c.tema) || (t.match(/¿[^?]+\?/g)?.join(' ') ?? t).slice(0, 120);
       };
-      estado.push(`Consultas internas abiertas (el cliente ya fue avisado; no las repitas ni las vuelvas a consultar): ${consultasAbiertas.slice(0, 5).map((c) => `«${deQueTrata(c)}»`).join(', ')}`);
+      estado.push(`Consultas internas abiertas (el cliente ya fue avisado; no las repitas ni las vuelvas a consultar; si suma un dato sobre una, consultar_interno con ese MISMO tema y se le agrega): ${consultasAbiertas.slice(0, 5).map((c) => `«${deQueTrata(c)}»`).join(', ')}`);
     }
     const contenidoDelTurno = (t: string): any => (bloquesPendientes.length
       ? [
@@ -1470,12 +1483,26 @@ export class BotService {
     if (RE_DISPUTA.test(texto) && RE_REAFIRMA.test(respuesta) && vueltasReintento < 3) {
       const yaDiscutio = dichoPorElBot.some((t) => RE_REAFIRMA.test(t));
       this.log.warn(`disputa de precio/cantidad para ${telefono} (${yaDiscutio ? 'segunda' : 'primera'} vez): no se discute`);
+      // LA SEGUNDA VEZ, LA CONSULTA LA HACE EL CÓDIGO (5/10/2026, revisión): la
+      // nota le pedía al modelo llamar consultar_interno y decir «Lo verifico con
+      // el local y le confirmo por acá.», pero esta vuelta va SIN herramientas y
+      // «lo verifico con…» está prohibido (1/10/2026). Salía una consulta de
+      // respaldo sin tema y el aviso genérico. Ahora se registra acá, con tema,
+      // y el aviso «Lo del precio te lo confirmo por acá.» lo pone el sistema.
+      let disputaConsultada = false;
+      if (yaDiscutio) {
+        try {
+          const c = await this.consultarInterno(linea, telefono, 'local', `El cliente discute el precio o la cantidad otra vez: «${texto.slice(0, 400)}». Lo último que le dijimos: «${String(ultimoDelBot).slice(0, 300)}».`, '', dto.archivoUrl, 'el precio');
+          if (c?.consultado) { respuestaFija.consultaPendiente = true; anotarTemaDeConsulta(respuestaFija, c); disputaConsultada = true; }
+        } catch (e: any) { this.log.warn(`consulta por la disputa de ${telefono} falló: ${e?.message ?? e}`); }
+      }
       messages.push({ role: 'assistant', content: respuesta });
       messages.push({ role: 'user', content: yaDiscutio
-        ? '[nota interna: el cliente ya discutió el precio o la cantidad más de una vez. No vuelvas a decirle que está correcto. Llamá a consultar_interno (area "local") con el detalle de lo que dice el cliente y respondé en una línea: "Lo verifico con el local y le confirmo por acá."]'
+        ? `[nota interna: el cliente ya discutió el precio o la cantidad más de una vez. No vuelvas a decirle que está correcto ni discutas. ${disputaConsultada ? 'La revisión ya quedó registrada adentro y el sistema le avisa al cliente: no escribas aviso ni promesa. Contestá en una línea solo lo demás que haya preguntado; si no preguntó otra cosa, no escribas nada.' : 'Decile en una línea que lo revisamos, sin prometer plazos.'}]`
         : '[nota interna: el cliente discute el precio o la cantidad. Verificá la presentación real con unidadesPorVenta; no asumas que todos los artículos se venden sueltos ni que un x6 en el nombre define el precio. Volvé a cotizar con cotizar_pedido usando la cantidad de UNIDADES que dijo el cliente (si dijo 18 botellas, son 18) y mostrale el total nuevo en dos líneas, sin justificar el anterior.]' });
       const t18 = await this.regenerar(system, messages, 2048, sumarUso);
-      if (t18) respuesta = t18;
+      // con la revisión registrada, lo que reafirmaba el precio no sale aunque la vuelta venga vacía
+      if (t18 || disputaConsultada) respuesta = t18 ?? '';
       vueltasReintento++;
     }
 
@@ -1607,7 +1634,10 @@ export class BotService {
     // razonamiento) para contestar eso; el aviso solo por las consultas nuevas;
     // y nunca silencio frente a un mensaje con contenido.
     const textoDelCliente = texto.replace(/\[[^\]]*\]/g, ' ').trim();
-    const mensajeConContenido = /[a-z0-9áéíóúñ]/i.test(textoDelCliente) && !RE_CIERRE.test(textoDelCliente);
+    // una foto o un PDF sin texto también es un mensaje con contenido: antes,
+    // con la consulta ya abierta, la foto nueva se contestaba con silencio
+    // (5/10/2026, revisión)
+    const mensajeConContenido = (/[a-z0-9áéíóúñ]/i.test(textoDelCliente) && !RE_CIERRE.test(textoDelCliente)) || !!imagenDelTurno || !!documentoDelTurno;
     const traeMasQueLoConsultado = textoDelCliente.split(/\s+/).filter(Boolean).length > 10
       || !!dto.deAudio
       || preguntasDelCliente >= 2
@@ -1628,15 +1658,19 @@ export class BotService {
             messages.push({ role: 'user', content: `[nota interna: La consulta${tema ? ` sobre ${tema}` : ''} ya quedó registrada y el sistema le avisa al cliente aparte. Escribí ahora la respuesta a todo lo demás del mensaje, sin prometer nada ni mencionar la consulta. Solo importes que te hayan devuelto las herramientas.]` });
             const otra = sinPromesas(await this.regenerar(system, messages, 2048, sumarUso));
             if (otra && importesDelTexto(otra).some((n) => !hechos.has(n))) this.log.warn(`la reescritura tras la consulta traía importes sin fuente para ${telefono}: descartada`);
+            // la reescritura que devuelve el mensaje anterior tal cual no sirve (nunca el mismo mensaje dos veces)
+            else if (otra && ultimosDelBot[0] && casiIgual(otra, ultimosDelBot[0])) this.log.warn(`la reescritura tras la consulta repetía el mensaje anterior a ${telefono}: descartada`);
             else if (otra) util = soloSaludo ? saludarConBienvenida(otra, saludo) : otra;
           } catch (e: any) { this.log.warn(`reescritura tras la consulta falló: ${e?.message ?? e}`); }
         }
       }
-      if (util || nuevos.length) return respuestaConConsulta(util, nuevos);
-      if (!mensajeConContenido) return '';
-      // la consulta ya estaba abierta y avisada: sin repetir el aviso
-      const pendiente = todaviaNoLoTengo(yaAbiertos[0]);
-      return ultimosDelBot[0] && casiIgual(ultimosDelBot[0], pendiente) ? todaviaNoLoTengo(yaAbiertos[0], true) : pendiente;
+      let armado = '';
+      if (util || nuevos.length) armado = respuestaConConsulta(util, nuevos);
+      else if (mensajeConContenido) armado = todaviaNoLoTengo(yaAbiertos[0]);
+      // NUNCA EL MISMO MENSAJE DOS VECES, también lo ya armado con el aviso
+      // (5/10/2026, revisión): el control de siempre mira el texto del modelo
+      // antes de esto; «Ya te confirmo por acá.» salía dos veces seguidas
+      return consultaSinRepetir(armado, ultimosDelBot[0], nuevos, yaAbiertos);
     };
 
     // EL TEXTO FIJO Y EL AVISO DE LA CONSULTA EN EL MISMO TURNO (5/10/2026, al
@@ -1652,19 +1686,38 @@ export class BotService {
     const soloRecibido = !respuestaFija.operacion && fallosDelTurno.get('__comprobante__') === 1;
     if (respuestaFija.texto && (respuestaFija.operacion || respuestaFija.consultaPendiente)) {
       respuesta = soloRecibido ? respuestaFija.texto : textoFijoConConsulta(respuestaFija.texto, temasDelTurno(respuestaFija).nuevos);
-    } else if (respuestaFija.consultaPendiente) respuesta = await armarConConsulta(respuesta);
-    else {
+    } else if (respuestaFija.consultaPendiente || temasDelTurno(respuestaFija).nuevos.length) respuesta = await armarConConsulta(respuesta);
+    // un texto fijado por una herramienta («Recibido.», el alias) no es una
+    // promesa del modelo: la red de respaldo no lo toma (5/10/2026, revisión)
+    else if (!respuestaFija.texto) {
       const importeSinFuente = importesDelTexto(respuesta).some(n => !hechos.has(n));
       // una promesa del modelo siempre registra la consulta (5/10/2026: también
-      // "voy a consultar", "consultamos", "lo verifico con", "te lo confirmo")
+      // "voy a consultar", "consultamos", "lo verifico con", "te lo confirmo por acá")
       const promete = prometeConsultar(respuesta);
       if (importeSinFuente || promete) {
+        // ¿YA ESTÁ CONSULTADO? (5/10/2026, revisión). La red llamaba a
+        // consultarInterno con el texto crudo del cliente y sin tema: «¿Y lo de
+        // la caja?» no se reconocía como la consulta abierta y salían otra fila,
+        // otro WhatsApp y el aviso genérico, la frase de la queja. Ahora, si lo
+        // prometido nombra una consulta abierta o el cliente no trae nada que no
+        // esté en una, no se consulta de nuevo ni se avisa; y si es nueva, el
+        // aviso dice de qué se trata (el tema sale de la oración prometida).
+        const temaPrometido = promete ? temaDeLaPromesa(respuesta) : '';
+        const conArchivo = !!(imagenDelTurno || documentoDelTurno);
+        const yaAbierta = consultaAbiertaQueNombra({ temaPrometido, textoCliente: textoDelCliente, conArchivo, prometio: promete }, consultasAbiertas);
         let consulta: any = null;
-        try {
-          consulta = await this.consultarInterno(linea, telefono, 'local', texto || 'Revisar el adjunto enviado por el cliente', '', dto.archivoUrl);
-        } catch {
-          await this.derivarAHumano(linea, telefono, `Revisar consulta no resuelta: ${texto.slice(0,500)}`, true);
-          respuesta = 'Tomo tu consulta y doy aviso al equipo.';
+        if (yaAbierta) {
+          this.log.log(`promesa o importe sin herramienta para ${telefono}: es la consulta abierta ${yaAbierta.id}, no se repite`);
+          consulta = { consultado: true, yaEstaba: true, tema: temaDeConsulta(yaAbierta.tema) || temaPrometido };
+        } else {
+          try {
+            // la foto o el PDF sin texto: no se guarda el marcador entre corchetes como si fuera la pregunta
+            const queConsultar = textoDelCliente || (imagenDelTurno ? 'Revisar la foto que mandó el cliente' : documentoDelTurno ? 'Revisar el PDF que mandó el cliente' : 'Revisar el adjunto enviado por el cliente');
+            consulta = await this.consultarInterno(linea, telefono, 'local', queConsultar, '', dto.archivoUrl, temaPrometido);
+          } catch {
+            await this.derivarAHumano(linea, telefono, `Revisar consulta no resuelta: ${texto.slice(0,500)}`, true);
+            respuesta = 'Tomo tu consulta y doy aviso al equipo.';
+          }
         }
         if (consulta?.consultado) {
           respuestaFija.consultaPendiente = true;
@@ -1676,7 +1729,8 @@ export class BotService {
     }
 
     // al cliente nunca se le pide que escriba «confirmo»: el comprobante confirma (5/10/2026)
-    if (respuesta) respuesta = sinPedirConfirmo(respuesta, texto);
+    // (si no queda nada, «Total $X. ¿Lo confirmo?» con el total del resumen que vio, nunca un «¿Lo confirmo?» suelto)
+    if (respuesta) respuesta = sinPedirConfirmo(respuesta, texto, ultimosDelBot);
     // la promesa de avisar por un pedido se decide sobre lo que escribió el bot,
     // ANTES de la pregunta de completo que agrega el sistema (3/10/2026)
     const respuestaDelBot = respuesta;
@@ -1895,6 +1949,12 @@ export class BotService {
         }
         case 'crear_pedido': {
           if (ctx.fallos?.get('__pedido_creado__') === 1) { out = { error: 'El pedido ya quedó confirmado en este turno: no crees otro. La respuesta al cliente la arma el sistema.' }; break; }
+          // UN TURNO CON ARCHIVO NO CREA POR EL «SÍ» (5/10/2026, revisión): un PDF
+          // con «Sí, ahí va la transferencia» creaba el pedido por el modo 'si',
+          // sin la nota de la transferencia y diciéndole «Se abona al retirar» al
+          // que acababa de pagar; y uno que no coincide no tiene que crear nada
+          // (decisión de Leandro). Lo crea derivar_pago, si el monto coincide.
+          if (ctx.archivo && linea === 'pedidos') { out = { error: 'NO se creó el pedido: este mensaje trae un archivo. Si es el comprobante del pago, llamá derivar_pago (comprobante_enviado): si el monto coincide con el resumen, el sistema confirma el pedido solo. No llames crear_pedido en este turno.' }; break; }
           if (!confirmacionInequivoca(ctx.textoCliente ?? '')) {
             out = { error: 'NO se creó el pedido: falta confirmación inequívoca al resumen. Usá preparar_pedido y esperá la aceptación del cliente.' };
             break;
@@ -1955,7 +2015,10 @@ export class BotService {
           // el comprobante de tranfernacia» sin archivo). Si ya hay un pago abierto
           // de este chat (mismo monto si lo hay, últimas 2 h), no se registra otra
           // fila ni sale otro WhatsApp a administración. Un archivo nuevo siempre se registra.
-          if (tipoPago === 'comprobante_enviado' && !ctx.archivoUrl && await comprobanteYaRegistrado(this.db, linea, telefono, monto)) {
+          // «llegó un archivo» se decide por el archivo del turno, no por su copia
+          // pública: si guardarla falló, el comprobante nuevo igual se registra
+          // (5/10/2026, revisión)
+          if (tipoPago === 'comprobante_enviado' && !ctx.archivo && !ctx.archivoUrl && await comprobanteYaRegistrado(this.db, linea, telefono, monto)) {
             out = { derivado: true, yaRegistrado: true, aviso: 'Ese comprobante ya está en administración. Respondé exactamente "Recibido."' };
             if (ctx.fija && ctx.fallos?.get('__pedido_creado__') !== 1) ctx.fija.texto = await respuestaAlComprobanteRepetido(this.db, linea, telefono, ctx.ultimoBot ?? ctx.ultimosBot?.[0] ?? '');
             // también es un turno de comprobante: un preparar_pedido después no
@@ -1984,7 +2047,10 @@ export class BotService {
           // archivo vino en ESTE turno y es de un resumen que el cliente vio con
           // «¿Lo confirmo?», por el total de lista o el de efectivo. Las guardas
           // están en pago-confirma.ts; si alguna falla, todo sigue como siempre.
-          const porComprobante = tipoPago === 'comprobante_enviado' && linea === 'pedidos' && !!ctx.archivoUrl && ctx.fallos?.get('__pedido_creado__') !== 1
+          const candidatoAPedido = tipoPago === 'comprobante_enviado' && linea === 'pedidos' && !!ctx.archivo && ctx.fallos?.get('__pedido_creado__') !== 1;
+          // ¿ya era cliente ANTES de que la RPC lo cree con el pedido? (ver sinCobranza, abajo)
+          const eraCliente = candidatoAPedido ? await this.identificarCliente(telefono).then((i: any) => !!i?.existe, () => true) : true;
+          const porComprobante = candidatoAPedido
             ? await pedidoPorComprobante({
                 db: this.db, telefono, linea, montoDelModelo: monto,
                 ultimosBot: ctx.ultimosBot ?? (ctx.ultimoBot ? [ctx.ultimoBot] : []), historial: ctx.historial, textoCliente: ctx.textoCliente ?? '',
@@ -1998,10 +2064,14 @@ export class BotService {
             ctx.fallos?.set('__pedido_creado__', 1);
             if (ctx.fija) { ctx.fija.texto = porComprobante.creado.respuesta; ctx.fija.operacion = true; }
           }
+          // el cliente que no existía lo acaba de crear la RPC con el pedido: el
+          // pago va con el pedido, no a «Cobros a ingresar» (si se aprobaba, le
+          // quedaba saldo a favor y el pedido seguía por cobrar; 5/10/2026, revisión)
+          const sinCobranza = !!porComprobante?.creado && !eraCliente;
           // el aviso a administración sale igual, UNA vez, y dice si el monto coincide con el pedido
           const motivoParaAdministracion = porComprobante?.nota ? `${porComprobante.nota} ${motivo}` : motivo;
           try {
-            out = await this.derivarPago(linea, telefono, motivoParaAdministracion, { monto, tipo: tipoPago, comprobanteUrl: ctx.archivoUrl, dichoPorElCliente: ctx.textoCliente, deQuien: input.de_quien ? String(input.de_quien).slice(0, 120) : undefined });
+            out = await this.derivarPago(linea, telefono, motivoParaAdministracion, { monto, tipo: tipoPago, comprobanteUrl: ctx.archivoUrl, dichoPorElCliente: ctx.textoCliente, deQuien: input.de_quien ? String(input.de_quien).slice(0, 120) : undefined, sinCobranza });
           } catch (e: any) {
             // con el pedido ya creado, su confirmación llega al cliente igual
             if (!porComprobante?.creado) throw e;
@@ -2014,6 +2084,16 @@ export class BotService {
           // un comprobante se contesta con una palabra, y la pone el código (si
           // el pedido quedó creado en este turno, va su confirmación)
           if (tipoPago === 'comprobante_enviado' && ctx.fija && ctx.fallos?.get('__pedido_creado__') !== 1) ctx.fija.texto = 'Recibido.';
+          // CONSULTA O RECLAMO DE UN PAGO (5/10/2026, revisión): derivarPago le
+          // pedía al modelo «Recibido, le confirmo por acá.», que la red de
+          // respaldo tomaba como promesa: abría OTRA consulta al local (otro
+          // WhatsApp por lo mismo) y salía el genérico. Administración ya quedó
+          // avisada: el aviso con tema lo pone el sistema al final del turno. No
+          // cuenta como «la» consulta interna del turno: si el cliente pregunta
+          // otra cosa que hay que consultar, se consulta igual.
+          if ((out as any)?.derivado && ctx.fija && ['consulta', 'reclamo_pago', 'proveedor_factura'].includes(tipoPago)) {
+            anotarTemaDeConsulta(ctx.fija, { yaEstaba: false, tema: tipoPago === 'proveedor_factura' ? 'la factura' : 'el pago' });
+          }
           if ((out as any)?.respuestaFija && ctx.fija) {
             // EL ALIAS Y EL TOTAL JUNTOS (5/10/2026, mensaje 16 de Pablo): con un
             // resumen en el turno, los datos de pago van adentro, antes de «¿Lo
@@ -2753,7 +2833,7 @@ export class BotService {
     linea: 'pedidos' | 'proveedores',
     telefono: string,
     motivo: string,
-    extra: { monto?: number; tipo?: string; comprobanteUrl?: string; dichoPorElCliente?: string; deQuien?: string } = {},
+    extra: { monto?: number; tipo?: string; comprobanteUrl?: string; dichoPorElCliente?: string; deQuien?: string; sinCobranza?: boolean } = {},
   ) {
     const { data: cfg } = await this.db
       .from('lineas_whatsapp').select('derivar_pagos_a, avisar_proveedores_a, alias_pago, titular_pago, banco_pago, cbu_pago').eq('linea', linea).eq('activa', true).limit(1).maybeSingle();
@@ -2802,7 +2882,7 @@ export class BotService {
 
     // 1) el comprobante entra al circuito de aprobación del dueño
     let cobranzaId: string | null = null;
-    if (esComprobante && ident?.existe && ident.clienteId) {
+    if (esComprobante && ident?.existe && ident.clienteId && !extra.sinCobranza) {
       const { data: cob } = await this.db.from('cobranzas_pendientes').insert({
         cliente_id: ident.clienteId, monto, medio: 'transferencia',
         nota: `WhatsApp +${telefono}: ${motivo}${extra.comprobanteUrl ? ` · comprobante: ${extra.comprobanteUrl}` : ''}`,
@@ -2869,7 +2949,9 @@ export class BotService {
       ? 'Respondé exactamente "Recibido." y nada más.'
       : tipo === 'quiere_pagar'
         ? 'Respondé en una línea corta: "Le paso los datos por acá en un rato." NO inventes alias ni CBU.'
-        : 'Respondé corto: "Recibido, le confirmo por acá."';
+        // 5/10/2026 (revisión): «Recibido, le confirmo por acá.» lo tomaba la red de
+        // respaldo como promesa y abría otra consulta; el aviso lo pone el sistema
+        : 'No escribas aviso ni promesa («le confirmo por acá», «lo verifico»): el sistema le avisa al cliente que lo del pago se lo confirmamos por acá. Contestá solo lo demás de su mensaje, si hay algo más.';
     return {
       derivado: true,
       cobranzaRegistrada: !!cobranzaId,
@@ -2942,30 +3024,61 @@ export class BotService {
     // LA MISMA CONSULTA NO SE HACE DOS VECES (5/10/2026). Pablo preguntó por la
     // caja a las 16:02 y otra vez, con otras palabras, en un audio de las 16:17:
     // dos filas, dos WhatsApp a administración, dos avisos y el acuse suelto.
-    // Si hay una abierta del mismo teléfono (últimas 6 h, sin respuesta del
-    // área) sobre lo mismo, el dato nuevo se le SUMA y no sale otro WhatsApp. El
+    // Si hay una abierta del mismo teléfono y la MISMA ÁREA (sin respuesta del
+    // área, dentro de la ventana) sobre lo mismo, el dato nuevo se le SUMA. El
     // waha_msg_id original no se toca: la respuesta del área se encuentra por la
-    // cita. Solo si la original nunca salió, sale ahora completa.
+    // cita. Si la original nunca salió, sale ahora completa.
+    //
+    // LO SUMADO TAMBIÉN LE LLEGA AL ÁREA (5/10/2026, revisión): antes quedaba
+    // solo en la fila y en una alerta que podía estar leída; si el área
+    // contestaba la original, lo agregado se perdía. Si trae algo que la abierta
+    // no tenía (otra palabra que importa, o un archivo), sale un WhatsApp corto
+    // de «dato nuevo» (sin guardar su id) y la alerta vuelve a quedar sin leer.
     if (!esPrueba) {
-      const abiertas = await this.consultasAbiertas(linea, telefono, 6);
-      const misma = abiertas.find((c) => c?.id && !c.respuesta_admin && mismaConsulta({ consulta, tema: temaCliente }, c, nombre));
+      const abiertas = await this.consultasAbiertas(linea, telefono, HORAS_CONSULTA_ABIERTA);
+      const misma = abiertas.find((c) => c?.id && !c.respuesta_admin && String(c.area ?? area) === area && mismaConsulta({ consulta, tema: temaCliente }, c, nombre));
       if (misma) {
         const previa = String(misma.consulta ?? '');
         const norm = (t: string) => t.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9ñ]+/g, ' ').trim();
         const agrega = !norm(previa).includes(norm(consulta)) && !casiIgual(previa, consulta);
-        const completa = agrega ? `${previa}\n+ ${consulta}`.slice(0, 2000) : previa;
+        // si no entra, se conserva la pregunta original y las sumas más nuevas
+        const completa = agrega ? juntarConsulta(previa, consulta) : previa;
         if (agrega) {
           await this.db.from('bot_consultas_internas').update({ consulta: completa }).eq('id', misma.id).then(() => null, () => null);
-          // el aviso de la campanita (el que lleva el id de la consulta) muestra la consulta entera
-          await this.db.from('alertas_internas').update({ detalle: completa })
+          // el aviso de la campanita (el que lleva el id de la consulta) muestra la consulta entera y vuelve a quedar sin leer
+          await this.db.from('alertas_internas').update({ detalle: completa, leida_en: null })
             .eq('tipo', 'consulta').eq('referencia->>consulta_id', misma.id).then(() => null, () => null);
         }
         // la abierta no tenía tema (es de antes): queda el de ahora
         if (temaCliente && 'tema' in misma && !misma.tema) {
           await this.db.from('bot_consultas_internas').update({ tema: temaCliente }).eq('id', misma.id).then(() => null, () => null);
         }
-        const enviada = misma.waha_msg_id ? false : await avisarPorWhatsapp(String(misma.area ?? area), misma.id, completa);
-        this.log.log(`consulta de ${telefono} igual a la abierta ${misma.id}: ${agrega ? 'se le suma el dato' : 'no agrega nada'}, sin otro aviso`);
+        // el dato nuevo le llega al área cuando el modelo la nombró por su tema para
+        // sumarle algo que no tenía (o con un archivo); una consulta que solo se
+        // parece por las palabras es la misma pregunta dicha de nuevo: sin otro WhatsApp
+        const nuevo = agrega && mismoTema(temaCliente, misma.tema) ? datoNuevo(consulta, previa, nombre) : [];
+        let enviada = false;
+        if (!misma.waha_msg_id) enviada = await avisarPorWhatsapp(area, misma.id, completa);
+        else if (nuevo.length || archivoUrl) {
+          const destinoAviso = (numeroDe[area] ?? numeroDe.local).replace(/\D/g, '');
+          if (destinoAviso.length >= 10) {
+            const texto = [
+              `Dato nuevo para una consulta que sigue sin respuesta (${area})`,
+              `De: ${nombre ?? 'sin identificar'} · +${telefono}`,
+              consulta,
+              direccion ? `Dirección: ${direccion}` : null,
+              archivoUrl ? `Adjunto del cliente (acceso temporal): ${archivoUrl}` : null,
+              'Para contestarle al cliente, citá el mensaje de la consulta original (no este).',
+            ].filter(Boolean).join('\n');
+            try {
+              const env: any = await this.enviarPorWhatsapp({ to: destinoAviso, text: texto, kind: 'aviso-interno' } as any);
+              enviada = !!env?.enviado;
+            } catch (e: any) {
+              this.log.warn(`dato nuevo de la consulta ${misma.id}: el aviso a ${area} falló: ${e?.message ?? e}`);
+            }
+          }
+        }
+        this.log.log(`consulta de ${telefono} igual a la abierta ${misma.id}: ${agrega ? 'se le suma el dato' : 'no agrega nada'}${enviada ? ', avisado al área' : ', sin otro aviso'}`);
         return {
           consultado: true,
           yaEstaba: true,

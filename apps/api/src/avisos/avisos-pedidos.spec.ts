@@ -699,3 +699,38 @@ describe('AvisosPedidosService: que llegue y, si no, que se enteren los dueños'
     expect(await new AvisosPedidosService(db).problemas()).toEqual([]);
   });
 });
+
+// REVISIÓN DEL 5/10/2026: el pedido que confirmó el comprobante de una
+// transferencia no se vuelve a cobrar en el local
+describe('el pedido confirmado por comprobante (5/10/2026)', () => {
+  const NOTAS_REALES = 'Retira en un rato. Pidió embalaje/caja para transportar las botellas en valija a España. Paga por transferencia.';
+  it('el aviso dice que ya transfirió y que NO se cobra si está acreditada, en vez de «Se cobra al retirar»', () => {
+    const t = textoDelAviso({ ...PEDIDO, total: 317100, notas: NOTAS_REALES, confirmadoPorComprobante: 'comprobante: $285.390' }, { conRenglones: false, ahora: AHORA });
+    expect(t).toContain('Total: $317.100. YA TRANSFIRIÓ $285.390 por WhatsApp (a confirmar por administración): si está acreditada NO se cobra nada al retirar; si no, se cobran $285.390.');
+    expect(t).not.toMatch(/Se cobra al retirar/);
+    // para envío, al recibir
+    expect(textoDelAviso({ ...PEDIDO, canal: 'domicilio', destino_direccion: 'Mitre 1200', confirmadoPorComprobante: 'comprobante: $285.390' }, { conRenglones: false, ahora: AHORA })).toMatch(/NO se cobra nada al recibir/);
+    // un pedido del bot por el «sí», como siempre
+    expect(textoDelAviso({ ...PEDIDO, confirmadoPorComprobante: null }, { conRenglones: false, ahora: AHORA })).toMatch(/Se cobra al retirar\./);
+  });
+
+  it('la RPC pone la nota del pago PRIMERO (el aviso corta las notas a 300) y sin «se cobra $X» suelto', () => {
+    const sql = require('fs').readFileSync(require('path').join(__dirname, '../../../../db/migracion-bot-pedido-comprobante.sql'), 'utf8');
+    expect(sql).toMatch(/concat_ws\(' · ', v_nota_pago, nullif\(trim\(q\.notas\),''\)\)/);
+    expect(sql).not.toMatch(/concat_ws\(' · ', nullif\(trim\(q\.notas\),''\), v_nota_pago\)/);
+    expect(sql).toMatch(/'YA TRANSFIRIÓ '/);
+    expect(sql).toMatch(/si está acreditada NO se cobra nada al/);
+  });
+
+  it('pedidoParaAviso trae cómo se confirmó (la confirmación de la cotización)', async () => {
+    const tablas: Record<string, any> = {
+      pedidos: { data: { id: 'p1', qr_retiro: 'PICKUP-00D163566DEF', canal: 'pickup', estado: 'recibido', total: 317100, creado_en: '2026-10-05T20:05:00Z', notas: null, destino_direccion: null, entrega_fecha: null, entrega_franja: null, pagado_en: null, cliente_id: null, pedidos_items: [] }, error: null },
+      bot_cotizaciones: { data: { telefono: '137091732230271', confirmacion: 'comprobante: $285.390' }, error: null },
+      bot_contactos: { data: null, error: null },
+    };
+    const db: any = { from: (t: string) => { const b: any = new Proxy({}, { get: (_x, k) => (k === 'maybeSingle' ? async () => tablas[t] : k === 'then' ? undefined : () => b) }); return b; } };
+    const svc = new AvisosPedidosService(db);
+    const p = await svc.pedidoParaAviso('p1');
+    expect(p?.confirmadoPorComprobante).toBe('comprobante: $285.390');
+  });
+});

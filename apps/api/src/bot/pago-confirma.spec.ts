@@ -5,7 +5,7 @@ import { MODELO_BOT } from './agente-bot';
 import { confirmacionInequivoca } from './comercio';
 import { puedeCotizar } from './completo';
 import {
-  cambiaElPedido, conDatosDePago, montoDelPedido, notasSinPagado, razonamientoPara,
+  cambiaElPedido, cambiaLaEntrega, comprobanteYaRegistrado, conDatosDePago, montoDelPedido, notasSinPagado, razonamientoPara,
   respuestaPedidoPorComprobante, sinPedirConfirmo, totalEfectivoDe,
 } from './pago-confirma';
 
@@ -458,4 +458,171 @@ describe('piezas: «si» condicional, precios, «confirmo», notas y cambios', (
     ['y un fernet', true],
     ['sumá un hielo', true],
   ])('cambiaElPedido(«%s») = %s', (t, esperado) => expect(cambiaElPedido(t as string)).toBe(esperado));
+});
+
+// REVISIÓN DEL 5/10/2026: lo que encontraron los revisores sobre la plata
+describe('revisión de la plata (5/10/2026)', () => {
+  it('el PDF que paga un pedido YA confirmado hace 40 min no crea un segundo pedido; administración sabe de cuál puede ser', async () => {
+    // A confirmado a las 10:00; B, el mismo resumen armado otra vez a las 10:20 con el alias
+    const A = { ...COT, id: 'aaaaaaaa-1111-2222-3333-444444444444', confirmada_en: new Date(Date.now() - 40 * 60_000).toISOString(), pedido_id: 'p-A', creada_en: new Date(Date.now() - 60 * 60_000).toISOString() };
+    const B = { ...COT, id: 'bbbbbbbb-1111-2222-3333-444444444444', creada_en: new Date(Date.now() - 10 * 60_000).toISOString() };
+    const db = dbPorOperacion({
+      lineas_whatsapp: { select: { data: CFG } },
+      bot_cotizaciones: { select: (q: Consulta) => (q.terminal === 'then' ? { data: [B, A] } : { data: B }) },
+    });
+    db.rpc.mockImplementation(async () => ({ data: 'pedido-B', error: null }));
+    const s = new BotService(db, { obtener: jest.fn(async () => ({ qr_retiro: 'PICKUP-BBBBBBBB1111', total: 317100 })) } as any, {} as any, {} as any, {} as any);
+    const envios: any[] = [];
+    (s as any).enviarPorWhatsapp = jest.fn(async (p: any) => (envios.push(p), { enviado: true, id: 'W' }));
+    (s as any).identificarCliente = jest.fn(async () => ({ existe: false }));
+    (s as any).claude = { messages: { create: jest.fn(async () => lectura(285390)) } };
+    const c = ctxComprobante();
+    await (s as any).ejecutarHerramienta(derivarComprobante(285390), TEL, 'pedidos', c);
+    expect(db.rpc).not.toHaveBeenCalledWith('confirmar_cotizacion_bot', expect.anything());
+    expect(c.fija.texto).toBe('Recibido.');
+    expect(envios[0].text).toContain('Puede ser el pago del pedido PICKUP-AAAAAAAA1111');
+  });
+
+  it('después de «Recibido. Tu pedido X quedó confirmado…», un «Sí, gracias» se calla (no va al modelo)', async () => {
+    const conf = 'Recibido. Tu pedido PICKUP-00D163566DEF quedó confirmado para retirar en la sucursal Saint Thomas.';
+    for (const dicho of ['Sí, gracias', 'Si']) {
+      const { s, create } = armar({ conversacion: [...HIST, { role: 'user', content: PDF }, { role: 'assistant', content: conf }] });
+      const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: dicho });
+      expect(r.respuesta ?? null).toBeNull();
+      expect(create).not.toHaveBeenCalled();
+    }
+  });
+
+  it.each([
+    ['¿Me lo podés mandar a casa?'],
+    ['Mandámelo a Av. Mitre 1200'],
+    ['Envialo a mi casa'],
+    ['Lo retiro el sábado'],
+  ])('si después del resumen el cliente cambió la entrega («%s»), el comprobante no confirma', async (dicho) => {
+    const { s, db } = armar();
+    const historial = [...HIST.slice(0, 4), { role: 'user', content: dicho }, { role: 'assistant', content: 'Dale.' }];
+    const c = ctxComprobante({ historial });
+    await (s as any).ejecutarHerramienta(derivarComprobante(285390), TEL, 'pedidos', c);
+    expect(db.rpc).not.toHaveBeenCalledWith('confirmar_cotizacion_bot', expect.anything());
+    expect(c.fija.texto).toBe('Recibido.');
+  });
+
+  it('una dirección en el epígrafe del PDF, o el bot que pidió la dirección, tampoco confirman', async () => {
+    const a = armar();
+    const c1 = ctxComprobante({ textoCliente: 'Av. Hipólito Yrigoyen 8250, Lomas. Recibe Pablo' });
+    await (a.s as any).ejecutarHerramienta(derivarComprobante(285390), TEL, 'pedidos', c1);
+    expect(a.db.rpc).not.toHaveBeenCalledWith('confirmar_cotizacion_bot', expect.anything());
+    const b = armar();
+    const historial = [...HIST.slice(0, 4), { role: 'user', content: 'Al final prefiero que me lo traigan' }, { role: 'assistant', content: 'Pasame la dirección con calle y número.' }];
+    await (b.s as any).ejecutarHerramienta(derivarComprobante(285390), TEL, 'pedidos', ctxComprobante({ historial }));
+    expect(b.db.rpc).not.toHaveBeenCalledWith('confirmar_cotizacion_bot', expect.anything());
+  });
+
+  it.each([
+    ['En vez del Malbec, el Cabernet', true],
+    ['en lugar del Catena, otro Judas', true],
+    ['que sea Cabernet', true],
+    ['Lo paso a buscar en un rato', false],
+    ['Hoy a la tarde lo retiro', false],
+  ])('cambiaElPedido o cambiaLaEntrega(«%s») = %s', (t, esperado) => expect(cambiaElPedido(t as string) || cambiaLaEntrega(t as string)).toBe(esperado));
+
+  it('un PDF con «Sí, ahí va la transferencia»: crear_pedido no crea por el «sí»; lo decide el comprobante', async () => {
+    const { s, db } = armar();
+    const c = ctxComprobante({ textoCliente: 'Sí, ahí va la transferencia', ultimoBot: M18, ultimosBot: [M18, M12] });
+    const r = await (s as any).ejecutarHerramienta(tu('c', 'crear_pedido', {}), TEL, 'pedidos', c);
+    expect(db.rpc).not.toHaveBeenCalled();
+    expect(String(r.content)).toMatch(/derivar_pago/);
+    // y después derivar_pago lo crea por el comprobante, con la nota de la transferencia
+    await (s as any).ejecutarHerramienta(derivarComprobante(285390), TEL, 'pedidos', c);
+    expect(db.rpc).toHaveBeenCalledWith('confirmar_cotizacion_bot', expect.objectContaining({ p_modo: 'comprobante' }));
+    expect(c.fija.texto).not.toMatch(/Se abona al retirar/);
+  });
+
+  it('un cliente nuevo (lo crea la RPC con el pedido): el pago no va a «Cobros a ingresar»', async () => {
+    const { s, db } = armar();
+    // antes del pedido no existía; después del pedido, sí (lo creó la RPC)
+    (s as any).identificarCliente = jest.fn(async () => (db.rpc.mock.calls.length ? { existe: true, clienteId: 'cli-nuevo', nombre: 'Pablo' } : { existe: false }));
+    await (s as any).ejecutarHerramienta(derivarComprobante(285390), TEL, 'pedidos', ctxComprobante());
+    expect(db.rpc).toHaveBeenCalledWith('confirmar_cotizacion_bot', expect.anything());
+    expect(filasInsertadas(db, 'cobranzas_pendientes')).toHaveLength(0);
+  });
+
+  it('un cliente que ya existía sigue cargando la cobranza como siempre', async () => {
+    const { s, db } = armar();
+    (s as any).identificarCliente = jest.fn(async () => ({ existe: true, clienteId: 'cli-1', nombre: 'Pablo' }));
+    await (s as any).ejecutarHerramienta(derivarComprobante(285390), TEL, 'pedidos', ctxComprobante());
+    expect(filasInsertadas(db, 'cobranzas_pendientes')).toHaveLength(1);
+  });
+
+  it('el archivo del turno cuenta aunque su copia pública haya fallado: un comprobante nuevo se registra', async () => {
+    const previo = { id: 'c1', monto: 150000, confirmado_en: null, creado_en: new Date(Date.now() - 40 * 60_000).toISOString() };
+    const { s, db, envios } = armar({ pagosAbiertos: [previo], cotizacion: null });
+    const c = ctxComprobante({ archivoUrl: '' });
+    await (s as any).ejecutarHerramienta(derivarComprobante(150000), TEL, 'pedidos', c);
+    expect(envios).toHaveLength(1);
+    expect(filasInsertadas(db, 'bot_pagos_en_confirmacion')).toHaveLength(1);
+  });
+
+  it('sin monto, una consulta de pago abierta (sin monto) no calla un comprobante', async () => {
+    const consultaDePago = { id: 'q1', monto: null, confirmado_en: null, creado_en: new Date(Date.now() - 10 * 60_000).toISOString() };
+    const db = dbPorOperacion({ bot_pagos_en_confirmacion: { select: { data: [consultaDePago] } } });
+    expect(await comprobanteYaRegistrado(db, 'pedidos', TEL, 0)).toBe(false);
+    const db2 = dbPorOperacion({ bot_pagos_en_confirmacion: { select: { data: [{ ...consultaDePago, monto: 285390 }] } } });
+    expect(await comprobanteYaRegistrado(db2, 'pedidos', TEL, 0)).toBe(true);
+  });
+
+  it('la lectura de pagos abiertos filtra por línea, teléfono, sin confirmar y ventana de 2 h', async () => {
+    let filtros: any[][] = [];
+    const db = dbPorOperacion({ bot_pagos_en_confirmacion: { select: (q: Consulta) => { filtros = q.filtros; return { data: [] }; } } });
+    await comprobanteYaRegistrado(db, 'pedidos', TEL, 285390);
+    expect(filtros).toContainEqual(['eq', 'linea', 'pedidos']);
+    expect(filtros).toContainEqual(['eq', 'telefono_cliente', TEL]);
+    expect(filtros).toContainEqual(['is', 'confirmado_en', null]);
+    expect(filtros.some((f) => f[0] === 'gte' && f[1] === 'creado_en')).toBe(true);
+  });
+
+  it('«Decime confirmo» solo, sin hablar de pagar: «Total $X. ¿Lo confirmo?» con el total del resumen, nunca un «¿Lo confirmo?» suelto', () => {
+    expect(sinPedirConfirmo('Decime «confirmo» y lo dejo listo.', 'Perfecto, lo retiro a la tarde', [M18, M12])).toBe('Total $317.100. ¿Lo confirmo?');
+    expect(sinPedirConfirmo('Decime «confirmo» y lo dejo listo.', 'Perfecto', [])).toBe('¿Lo confirmo?');
+  });
+
+  // el epígrafe más común de un comprobante habla del pago, no de la entrega:
+  // con un «envi\w*» suelto, «Te envío el comprobante» dejaba sin pedido al que pagó
+  it.each(['Te envío el comprobante', 'Transferencia enviada', 'Ya te la envié', 'Ahí te mando la transferencia', 'Envío comprobante', 'Ahí va, operación 12345', 'Comprobante n° 4567'])(
+    'el epígrafe «%s» no cambia la entrega', (t) => expect(cambiaElPedido(t) || cambiaLaEntrega(t)).toBe(false));
+  it.each(['¿Hacen envío a Lomas?', 'mejor con envío', 'me lo mandás a Mitre 1200?', 'Traémelo a casa', 'Enviámelo', 'Que me lo envíen a Canning'])(
+    '«%s» sí cambia la entrega', (t) => expect(cambiaLaEntrega(t)).toBe(true));
+
+  it('un PDF con «Te envío el comprobante» por el total con descuento crea el pedido igual', async () => {
+    const { s, db } = armar();
+    const c = ctxComprobante({ textoCliente: 'Te envío el comprobante' });
+    await (s as any).ejecutarHerramienta(derivarComprobante(285390), TEL, 'pedidos', c);
+    expect(db.rpc).toHaveBeenCalledWith('confirmar_cotizacion_bot', expect.objectContaining({ p_modo: 'comprobante', p_monto: 285390 }));
+    expect(c.fija.texto).toMatch(/^Recibido\. Tu pedido PICKUP-00D163566DEF quedó confirmado/);
+  });
+
+  it.each(['Si es correcto', 'Sí te confirmo', 'si te lo confirmo', 'Si me lo preparas', 'Si son esos'])('«%s» sigue confirmando (el «si» sin tilde)', (t) => expect(confirmacionInequivoca(t)).toBe(true));
+  it.each(['si me pasás el total', 'si tenés el alias pasámelo', 'si hay, dale', 'Si te parece bien'])('«%s» es condicional', (t) => expect(confirmacionInequivoca(t)).toBe(false));
+
+  // EL ESPEJO Y EL ORDEN DE LA RPC (5/10/2026, revisión): el «si» condicional se
+  // cambia igual en el código y en la base, y la migración del comprobante es la
+  // última versión de confirmar_cotizacion_bot (la de 'completo' ya está aplicada
+  // y no se vuelve a correr: dejaría dos sobrecargas y ningún pedido se confirmaría)
+  it('la migración del comprobante: una sola firma, permisos cerrados, el orden escrito y el mismo «si» condicional que el código', () => {
+    const sql: string = require('fs').readFileSync(require('path').join(__dirname, '../../../../db/migracion-bot-pedido-comprobante.sql'), 'utf8');
+    expect(sql).toMatch(/drop function if exists public\.confirmar_cotizacion_bot\(uuid, text, text, text, text\);/);
+    expect(sql).toMatch(/revoke all on function public\.confirmar_cotizacion_bot\(uuid, text, text, text, text, numeric\) from public, anon, authenticated;/);
+    expect(sql).toMatch(/grant execute on function public\.confirmar_cotizacion_bot\(uuid, text, text, text, text, numeric\) to service_role;/);
+    expect(sql).toMatch(/va ANTES del deploy/);
+    expect(sql).toMatch(/migracion-bot-pedido-completo\.sql[\s\S]{0,80}YA ESTÁ APLICADA y NO se vuelve a correr/);
+    // el regex del «si» condicional de la base, leído con las reglas de JS: en la
+    // base \w toma las letras con tilde y \M es el fin de palabra
+    const linea = /p_confirmacion ~\* '(\^\\s\*s\[ií\]\\s\+[^']+)'/.exec(sql)?.[1] ?? '';
+    expect(linea).not.toBe('');
+    const condicionalEnLaBase = new RegExp(linea.replace(/\\w/g, '[\\wáéíóúñ]').replace(/\\M/g, '(?![\\wáéíóúñ])'), 'i');
+    for (const t of ['si querés pasame el total', 'Si podés', 'si tenés el alias', 'si hay, dale', 'si me pasás el total', 'Si te parece bien', 'si vos querés'])
+      expect([t, condicionalEnLaBase.test(t), confirmacionInequivoca(t)]).toEqual([t, true, false]);
+    for (const t of ['Si es correcto', 'Sí te confirmo', 'si te lo confirmo', 'Si son esos', 'Si me lo preparas', 'si dale'])
+      expect([t, condicionalEnLaBase.test(t), confirmacionInequivoca(t)]).toEqual([t, false, true]);
+  });
 });
