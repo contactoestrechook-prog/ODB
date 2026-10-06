@@ -43,6 +43,16 @@ const MEDIOS = [
   { valor: 'transferencia', etiqueta: 'Transferencia' },
 ];
 
+// "mar 6/10 · 09:54" (toLocaleString daba "mar 6-10, 09:54")
+const ZONA = 'America/Argentina/Buenos_Aires';
+function cuandoFue(iso: string): string {
+  const d = new Date(iso);
+  const dia = d.toLocaleDateString('es-AR', { weekday: 'short', timeZone: ZONA }).replace(/[.,]/g, '');
+  const [a, m, dd] = new Intl.DateTimeFormat('en-CA', { timeZone: ZONA }).format(d).split('-').map(Number);
+  const hora = d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: ZONA });
+  return `${dia} ${dd}/${m}${a !== new Date().getFullYear() ? `/${a}` : ''} · ${hora}`;
+}
+
 type LineaHistorial = { cuando: string; que: string; quien: string | null; tono: 'neutro' | 'ok' | 'atencion' | 'error' | 'info'; reconstruido?: boolean };
 
 // PEDIDOS: quién lo recibió y quién hizo cada paso (Leandro, 6/10/2026: "llega
@@ -160,9 +170,9 @@ export function PedidosWorkspace({ inicial, puedeSimular = false }: { inicial: P
             <div key={o}><p className="importe text-xl font-bold leading-none text-tinta">{n}</p><p className="mt-1 text-xs text-tinta/60">{origenDe({ origen: o, canal: o }).label}</p></div>
           ))}
         </div>
-        <div className="flex w-full flex-wrap gap-2 sm:w-auto">
-          <Boton onClick={() => setWa(true)} className="flex-1 sm:flex-none">Pedido por WhatsApp</Boton>
-          {puedeSimular && <Boton variante="secundario" onClick={() => post({ simular: true })} className="flex-1 sm:flex-none">Simular PedidosYa</Boton>}
+        <div className="grid w-full gap-2 sm:flex sm:w-auto">
+          <Boton onClick={() => setWa(true)}>Pedido por WhatsApp</Boton>
+          {puedeSimular && <Boton variante="secundario" onClick={() => post({ simular: true })}>Simular PedidosYa</Boton>}
         </div>
       </div>
 
@@ -273,7 +283,7 @@ function TarjetaPedido({ p, trabajando, onTomar, onAvanzar, onAbrir }: {
       </div>
       <button type="button" onClick={onAbrir} className={unir('mt-2 block w-full min-w-0 rounded-lg text-left', FOCO)}>
         <p className="importe text-sm font-semibold text-tinta">{codigoDe(p)}</p>
-        <p className="mt-0.5 break-words text-sm text-tinta">{p.clienteNombre || (p.cliente?.dni ? `Cliente ${p.cliente.dni}` : 'Cliente sin nombre')}{tel && <span className="text-tinta/70"> · {tel}</span>}</p>
+        <p className="mt-0.5 break-words text-sm text-tinta">{p.clienteNombre || (p.cliente?.dni ? `Cliente ${p.cliente.dni}` : 'Cliente sin nombre')}{tel && <span className="whitespace-nowrap text-tinta/70"> · {tel}</span>}</p>
         <p className="mt-0.5 break-words text-xs text-tinta/70">{entregaDe(p)}</p>
         <p className="mt-1.5 break-words text-sm leading-snug text-tinta/70">
           {(p.items ?? []).slice(0, 3).map((it) => `${cantidadLegible(it.cantidad)}× ${it.producto?.nombre ?? ''}`).join(' · ')}
@@ -342,17 +352,17 @@ function DetallePedido({ p, trabajando, onCerrar, onTomar, onAvanzar, onCancelar
       }
     >
       <div className="space-y-4">
-        <dl className="grid gap-x-4 gap-y-2 text-sm sm:grid-cols-2">
+        <dl className="grid grid-cols-2 gap-x-4 gap-y-2.5 text-sm">
           <div className="min-w-0"><dt className="text-xs text-tinta/60">Cliente</dt><dd className="break-words text-tinta">{p.clienteNombre || (p.cliente?.dni ? `DNI ${p.cliente.dni}` : 'Sin nombre')}</dd></div>
           <div className="min-w-0">
             <dt className="text-xs text-tinta/60">WhatsApp</dt>
             <dd className="break-words text-tinta">{tel ? (wa ? <a href={wa} target="_blank" rel="noreferrer" className={unir('font-semibold text-marca underline-offset-2 hover:underline', FOCO)}>{tel}</a> : tel) : 'No lo dejó'}</dd>
           </div>
-          <div className="min-w-0 sm:col-span-2"><dt className="text-xs text-tinta/60">Entrega</dt><dd className="break-words text-tinta">{entregaDe(p)}</dd></div>
+          <div className="col-span-2 min-w-0"><dt className="text-xs text-tinta/60">Entrega</dt><dd className="break-words text-tinta">{entregaDe(p)}</dd></div>
           <div className="min-w-0"><dt className="text-xs text-tinta/60">Pago</dt><dd className="text-tinta">{p.pagado_en ? 'Pagado por Mercado Pago' : String(p.qr_retiro ?? '').startsWith('PY-') ? 'Lo cobra PedidosYa' : 'A cobrar al entregar'}</dd></div>
           <div className="min-w-0"><dt className="text-xs text-tinta/60">Quién lo tiene</dt><dd className="text-tinta">{p.tomadoPorNombre ?? (sinTomar(p) ? 'Nadie todavía' : '—')}</dd></div>
           {p.repartidorNombre && <div className="min-w-0"><dt className="text-xs text-tinta/60">Repartidor</dt><dd className="text-tinta">{p.repartidorNombre}</dd></div>}
-          {p.notas?.trim() && <div className="min-w-0 sm:col-span-2"><dt className="text-xs text-tinta/60">Notas</dt><dd className="whitespace-pre-wrap break-words text-tinta">{p.notas.trim()}</dd></div>}
+          {p.notas?.trim() && <div className="col-span-2 min-w-0"><dt className="text-xs text-tinta/60">Notas</dt><dd className="whitespace-pre-wrap break-words text-tinta">{p.notas.trim()}</dd></div>}
         </dl>
 
         {items.length > 0 && (
@@ -392,7 +402,7 @@ function DetallePedido({ p, trabajando, onCerrar, onTomar, onAvanzar, onCancelar
                     {h.quien && <> · <b className="font-semibold">{h.quien}</b></>}
                   </p>
                   <p className="text-xs text-tinta/60">
-                    {new Date(h.cuando).toLocaleString('es-AR', { weekday: 'short', day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'America/Argentina/Buenos_Aires' })}
+                    {cuandoFue(h.cuando)}
                     {h.reconstruido && ' · dato de antes del 6/10 (sin nombre)'}
                   </p>
                 </li>

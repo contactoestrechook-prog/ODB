@@ -150,9 +150,9 @@ export function ActividadWorkspace() {
                       <p className="break-words text-sm text-tinta">
                         <b className="font-semibold">{f.quien}</b> · {f.accion}
                       </p>
-                      <p className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-2 text-xs text-tinta/60">
-                        <span>{f.area}</span>
-                        {f.detalle && <span className="min-w-0 break-words">· {f.detalle}</span>}
+                      <p className="mt-0.5 min-w-0 break-words text-xs text-tinta/60">
+                        {f.area}
+                        {f.detalle && <> · {f.detalle.replace(/\$-/g, '-$')}</>}
                       </p>
                     </div>
                     {f.link && (
