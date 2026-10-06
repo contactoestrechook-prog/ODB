@@ -5,7 +5,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import * as XLSX from 'xlsx';
 import { SUPABASE } from '../supabase.provider';
 import { elegirProveedor } from '../compras/proveedor-match';
-import { unidadesPorBulto, esRenglonDeDescuento, porcentajeDeDescuento, puedeVendersePorPeso, unidadesDeLaPresentacion, variacionPorUnidad } from '../compras/bultos';
+import { bultoDelRenglon, esRenglonDeDescuento, porcentajeDeDescuento, puedeVendersePorPeso, unidadesDeLaPresentacion, variacionPorUnidad, variacionDelRenglon } from '../compras/bultos';
 
 export type ItemExtraido = { codigo: string | null; descripcion: string; precio: number };
 // pedido exportado del portal del proveedor: igual que la lista pero con cantidad
@@ -73,8 +73,8 @@ const ESQUEMA_COMPROBANTE = {
         properties: {
           codigo: { type: ['string', 'null'], description: 'Código del artículo del proveedor' },
           descripcion: { type: 'string' },
-          cantidad: { type: 'number', description: 'Si no es legible, omití este campo; nunca inventes 1. La cantidad tal cual figura en la columna CANT. Si el renglón se factura por bulto/caja/pack, esta es la cantidad de BULTOS, no de unidades sueltas.' },
-          precio: { type: 'number', description: 'Si no es legible, omití este campo; cero solo si está impreso. Importe unitario de la columna PRE.UNIT tal cual impreso. NO uses PRE.VTA.PUBLICO (PVP) ni la columna IMPORTE. La relación con neto/IVA/total se resuelve en el pie; NO asumas que es neto+21% (en cigarrillos el precio ya trae impuestos internos y percepción IIBB embebidos). Si el renglón se factura por bulto, este es el precio DEL BULTO.' },
+          cantidad: { type: 'number', description: 'Si no es legible, omití este campo; nunca inventes 1. La cantidad tal cual figura en la columna CANT, sin multiplicar ni dividir: si el papel factura por bulto son bultos, si factura por unidad son unidades. Si el papel solo trae columnas BULTOS y UNIDADES y ninguna de cantidad total, poné la cantidad en la misma unidad que el precio unitario (la que hace que cantidad × precio dé el importe).' },
+          precio: { type: 'number', description: 'Si no es legible, omití este campo; cero solo si está impreso. Importe unitario de la columna PRE.UNIT tal cual impreso. NO uses PRE.VTA.PUBLICO (PVP) ni la columna IMPORTE. La relación con neto/IVA/total se resuelve en el pie; NO asumas que es neto+21% (en cigarrillos el precio ya trae impuestos internos y percepción IIBB embebidos). Si el papel cobra por bulto es el precio DEL BULTO; si cobra por unidad, el de la unidad: no lo dividas ni lo multipliques.' },
           alicuotaIva: {
             type: 'number',
             description: 'El % de IVA impreso EN ESE RENGLÓN (columna IVA/Alic.: 21, 10.5 o 27). Muchas facturas mezclan productos al 21% con alimentos al 10,5%, y este dato es lo único que permite costear cada renglón con SU IVA. Poné 0 si el comprobante no imprime el IVA por renglón.',
@@ -93,7 +93,19 @@ const ESQUEMA_COMPROBANTE = {
           },
           unidadesPorBulto: {
             type: 'number',
-            description: 'Cuántas unidades sueltas trae cada bulto de ESTE renglón, si la descripción o la columna de unidad lo dicen: "CORONA 355 X 24B" → 24; "PACK X 6" → 6; "CAJA X 12" → 12; "CJ x 6" → 6; "x24u" → 24. Si el renglón se vende por unidad suelta, o no hay forma de saberlo, poné 0. NO lo deduzcas del tamaño del envase (355cc no es 355 unidades) ni lo inventes.',
+            description: 'Cuántas unidades sueltas trae cada bulto de ESTE renglón, si la descripción o la columna de unidad lo dicen: "CORONA 355 X 24B" → 24; "PACK X 6" → 6; "CAJA X 12" → 12; "CJ x 6" → 6; "x24u" → 24. Es la PRESENTACIÓN de la caja: NO quiere decir que la cantidad del renglón esté en cajas (el sistema decide si hay que convertir). Si no hay forma de saberlo, poné 0. NO lo deduzcas del tamaño del envase (355cc no es 355 unidades) ni de la cantidad, ni lo inventes.',
+          },
+          // Mapaca (6/10/2026): "2 bultos, 0 unidades, cantidad 28" probaba
+          // que los 28 ya eran unidades, y el esquema no tenía dónde guardarlo.
+          // Números opcionales SIN unión de tipos: el esquema ya está en el
+          // tope de 16 propiedades con unión (ver el comentario de abajo).
+          bultos: {
+            type: 'number',
+            description: 'Solo si el comprobante tiene una columna propia de BULTOS / CAJAS / BULT. (aparte de la cantidad): el número de esa columna en ESTE renglón, tal cual (0 si dice 0). Si no existe esa columna, omití este campo.',
+          },
+          unidadesSueltas: {
+            type: 'number',
+            description: 'Solo si el comprobante tiene una columna propia de UNIDADES sueltas al lado de la de BULTOS: el número de esa columna en ESTE renglón, tal cual (0 si dice 0). Si no existe esa columna, omití este campo.',
           },
           kg: {
             type: ['number', 'null'],
@@ -492,13 +504,19 @@ export class ListasService {
       i.cantidad = numeroLeido(i.cantidad);
       i.precio = numeroLeido(i.precio);
       i.importe = numeroLeido(i.importe);
+      // el detector de bultos también se corrige (el "12 x" de Arcor): gana el
+      // texto. Lo que el texto no dice es del modelo (o de un detector viejo).
+      const bulto = bultoDelRenglon(String(i.descripcion ?? ''), i.unidadesPorBulto);
       i.interpretado = interpretarLecturaSegura({
         descripcion: String(i.descripcion ?? ''),
         cantidad: numeroLeido(i.cantidad),
         precio: numeroLeido(i.precio),
         importe: numeroLeido(i.importe),
-        // el detector de bultos también se corrige (el "12 x" de Arcor): gana el texto
-        unidadesPorBulto: unidadesPorBulto(String(i.descripcion ?? '')) ?? (Number(i.unidadesPorBulto) > 1 ? Number(i.unidadesPorBulto) : null),
+        unidadesPorBulto: bulto.unidadesPorBulto,
+        bultoOrigen: bulto.origen,
+        // las lecturas de antes del 6/10/2026 no tienen estas columnas
+        bultos: numeroLeido(i.bultos),
+        unidadesSueltas: numeroLeido(i.unidadesSueltas),
         bonificacionPct: Math.abs(Number(i.bonificacionPct)) > 0 ? Math.min(100, Math.abs(Number(i.bonificacionPct))) : null,
         esDescuento: !!i.esDescuento,
         kg: Number(i.kg) > 0 ? Number(i.kg) : null,
@@ -506,7 +524,10 @@ export class ListasService {
         // la presentación del producto vinculado se recalcula (el detector mejora)
         unidadesDelCatalogo: (i.match?.nombre ? unidadesDeLaPresentacion(String(i.match.nombre)) : null) ?? (Number(i.unidadesDelCatalogo) > 1 ? Number(i.unidadesDelCatalogo) : null),
         costoCatalogo: i.match?.costoActual ?? null,
+        vinculoSugerido: !!i.match?.sugerido,
       });
+      // la variación se rehace con la unidad decidida HOY (los Doritos salían −93,9%)
+      if (i.match) i.match.variacionPct = variacionDelRenglon(i.precio, i.interpretado, i.match.costoActual) ?? i.match.variacionPct ?? null;
     }
     const skus = [...new Set(items.map((i: any) => i?.match?.sku).filter(Boolean))] as string[];
     if (skus.length) {
@@ -558,7 +579,7 @@ export class ListasService {
           'PASO 1 QUATER — Renglones de descuento. Muchas facturas traen, JUSTO DEBAJO del renglón de mercadería, otro renglón que es una rebaja sobre ese: "Desc. 42.86% - MANOS NEGRAS Malbec CJ x6", con importe NEGATIVO. Marcá esos con esDescuento=true y copiá el importe como viene, en negativo. NO son mercadería y NO entran al stock. Repetí la descripción completa tal cual, incluyendo el nombre del producto que descuentan, porque es lo único que permite saber a qué renglón se aplica. Un renglón de mercadería con precio 0,00 NO es un descuento: es mercadería sin cargo (bonificada).\n\n' +
           'PASO 1 QUATER-BIS — Descuentos de GRUPO. Algunos proveedores (Coca-Cola y otras distribuidoras) ponen un renglón de descuento que NO nombra un producto sino que aplica a TODO un grupo de renglones de arriba a la vez, y trae su porcentaje en el texto: "Px mágico $12.000 MP = 17.2%" (aplica a todos los packs de 600ml y 354ml de arriba), "ZA 1 AQ 1.5L= 24.3% Trasl" (aplica a todas las Aquarius 1.5L de arriba). Igual: esDescuento=true, importe NEGATIVO tal cual, y transcribí la descripción COMPLETA con su porcentaje. Ese renglón va SIEMPRE justo después del grupo al que corresponde; no lo muevas ni lo fusiones con la mercadería.\n\n' +
           'PASO 1 TER — Bonificaciones. Es MUY común que el mismo producto aparezca DOS veces: un renglón con cargo y otro sin cargo (bonificado). Si hay columna BONIF / % BON / DTO, copiá su valor en bonificacionPct del renglón; 100 significa que ese renglón no se paga. El precio de lista suele estar impreso igual en los dos renglones, así que sin la bonificación es imposible distinguirlos: no la omitas.\n\n' +
-          'PASO 1 BIS — Bultos. Muchos renglones se facturan POR BULTO (caja, pack, display) y no por unidad suelta. Es la diferencia entre cargar 84 cajones y cargar 2.016 botellas. Si la descripción o alguna columna dice cuántas unidades trae el bulto —"CORONA 355 X 24B" son 24, "PACK X 6" son 6, "CAJA X 12" son 12, "CJ x 6" son 6, "CJx12" son 12, "BOX X 6" son 6— ponelo en unidadesPorBulto de ESE renglón. Si el renglón es por unidad suelta, o no se puede saber, poné null y NO lo adivines: el tamaño del envase (355cc, 750cc, 1,5L) NUNCA es la cantidad de unidades del bulto.\n\n' +
+          'PASO 1 BIS — Bultos. Muchos renglones se facturan POR BULTO (caja, pack, display) y no por unidad suelta. Es la diferencia entre cargar 84 cajones y cargar 2.016 botellas. Si la descripción o alguna columna dice cuántas unidades trae el bulto —"CORONA 355 X 24B" son 24, "PACK X 6" son 6, "CAJA X 12" son 12, "CJ x 6" son 6, "CJx12" son 12, "BOX X 6" son 6— ponelo en unidadesPorBulto de ESE renglón. Si no se puede saber, poné 0 y NO lo adivines: el tamaño del envase (355cc, 750cc, 1,5L) NUNCA es la cantidad de unidades del bulto, y la cantidad del renglón tampoco. unidadesPorBulto es lo que trae la caja, NO la unidad de la cantidad: la cantidad y el precio se copian siempre tal cual están en el papel, y el sistema decide si hay que convertir. Si el papel trae columnas separadas de BULTOS y UNIDADES (ej. "2 bultos, 0 unidades" de una caja de 14), copialas en bultos y unidadesSueltas de ese renglón: es lo que prueba si la cantidad son cajas o unidades.\n\n' +
           'PASO 1 SEXTIES — Productos por PESO. En fiambrería, quesería, carnicería y verdulería a granel el renglón se factura por kilo: la columna CANT dice 1 (una horma, una pieza) pero hay una columna KG / KILOS / PESO con el peso real (ej 5,44) y el precio unitario es el precio POR KILO. Cuando veas esa columna de peso, copiá el peso en "kg" del renglón, dejá el "precio" como el $/kilo y el "importe" como el total del renglón (peso × precio). Si el producto NO se vende por peso, kg va en null.\n\n' +
           'PASO 2 — Transcribí el PIE literal en pieLiteral, ANTES de mapear nada. Leé el pie y listá CADA etiqueta con el número que tiene al lado, exactamente como aparece, sin reordenar y sin interpretar. Ej: "SUB TOTAL = 758055.34", "I.V.A INSC. = 48158.83", "PER. DE IVA = 43075.45", "PER. DE IIBB = 205121.18", "DESCUENTO = -0.58", "TOTAL = 1054410.80". Si una etiqueta repite el MISMO valor que otra ya listada (ej "IMPUESTOS" con el mismo número que "SUB TOTAL"), transcribila igual y marcala eco=true.\n\n' +
           'PASO 3 — Mapeá cada etiqueta a su campo por el SIGNIFICADO del texto en español, NUNCA por su posición ni por el orden. Guardá en "etiquetas" la etiqueta literal que usaste para cada campo.\n' +
@@ -716,10 +737,12 @@ export class ListasService {
     // aparezca; acá se reconoce la FORMA y queda cubierto con tests. Lo que
     // haya leído el modelo se conserva solo cuando el parser no encuentra nada.
     const items = (datos.items ?? []).map((i: any) => {
-      const delTexto = unidadesPorBulto(String(i.descripcion ?? ''));
+      // el bulto y DE DÓNDE salió: un 14 que puso solo el modelo no pesa lo
+      // mismo que un "CAJA X 14" escrito en el papel (6/10/2026)
+      const bulto = bultoDelRenglon(String(i.descripcion ?? ''), i.unidadesPorBulto);
       const delModelo = Number(i.unidadesPorBulto) > 1 ? Math.round(Number(i.unidadesPorBulto)) : null;
-      if (delTexto && delModelo && delTexto !== delModelo) {
-        this.log.warn(`bulto discordante en "${String(i.descripcion ?? '').slice(0, 60)}": texto=${delTexto} modelo=${delModelo} · gana el texto`);
+      if (bulto.origen !== 'modelo' && bulto.unidadesPorBulto && delModelo && bulto.unidadesPorBulto !== delModelo) {
+        this.log.warn(`bulto discordante en "${String(i.descripcion ?? '').slice(0, 60)}": texto=${bulto.unidadesPorBulto} modelo=${delModelo} · gana el texto`);
       }
       // Toda la interpretación del renglón (bulto, bonificación, peso,
       // corrección de cantidad, descuento) sale de UNA función con la
@@ -730,7 +753,11 @@ export class ListasService {
         cantidad: numeroLeido(i.cantidad),
         precio: numeroLeido(i.precio),
         importe: numeroLeido(i.importe),
-        unidadesPorBulto: delTexto ?? delModelo ?? null,
+        unidadesPorBulto: bulto.unidadesPorBulto,
+        bultoOrigen: bulto.origen,
+        // las columnas BULTOS / UNIDADES del papel, si las tiene
+        bultos: numeroLeido(i.bultos),
+        unidadesSueltas: numeroLeido(i.unidadesSueltas),
         bonificacionPct: Math.abs(Number(i.bonificacionPct)) > 0 ? Math.min(100, Math.abs(Number(i.bonificacionPct))) : null,
         esDescuento: esRenglonDeDescuento({ descripcion: i.descripcion, precio: Number(i.precio) || 0 }) || !!i.esDescuento,
         // OJO: la columna KG estaba en el esquema pero este mapeo no la
@@ -780,15 +807,25 @@ export class ListasService {
     // sueltas), el precio impreso es el de cada unidad de adentro y la cantidad
     // de la factura ya está en unidades de stock. Sin este paso, "1 blíster"
     // entraba al stock como "2 unidades" que no existen sueltas.
+    //
+    // Y SIEMPRE con el costo del producto vinculado (6/10/2026): es lo que
+    // prueba si un renglón con «×N» ya viene en unidades. Antes se rehacía
+    // solo con envase en el catálogo, así que los Doritos de Mapaca nunca se
+    // compararon contra su costo y quedaban como 28 cajas.
     for (const i of propuesta as any[]) {
       const lectura = i._lectura;
       if (!lectura) continue;
       const nombreCatalogo = i.match?.nombre ?? null;
       const internas = nombreCatalogo ? unidadesDeLaPresentacion(String(nombreCatalogo)) : null;
-      if (internas && internas > 1) {
-        i.interpretado = interpretarLecturaSegura({ ...lectura, unidadesDelCatalogo: internas, costoCatalogo: i.match?.costoActual ?? null });
-        i.unidadesDelCatalogo = internas;
-      }
+      i.interpretado = interpretarLecturaSegura({
+        ...lectura,
+        unidadesDelCatalogo: internas && internas > 1 ? internas : null,
+        costoCatalogo: i.match?.costoActual ?? null,
+        vinculoSugerido: !!i.match?.sugerido,
+      });
+      if (internas && internas > 1) i.unidadesDelCatalogo = internas;
+      // la variación, con la unidad que quedó decidida
+      if (i.match) i.match.variacionPct = variacionDelRenglon(lectura.precio, i.interpretado, i.match.costoActual) ?? i.match.variacionPct ?? null;
       delete i._lectura;
     }
 

@@ -7,10 +7,14 @@ import { useRouter } from 'next/navigation';
 import { prepararComprobante } from './comprimirImagen';
 import { ALICUOTAS_IVA, repartirIva } from '../lib/iva-compras';
 import { conversionSugerida } from '../lib/presentacion';
+import {
+  alCambiarVinculo, conversionBajaDeMas, dejarEnCajas, estadoDelBulto, opcionesDelBulto, pasarAUnidades,
+  variacionDeCosto, volverABulto as volverABultoRenglon, volverAPendiente, yaEnUnidades,
+} from '../lib/bultos-compras';
 import { PanelImpuestos } from './PanelImpuestos';
 import {
   Aviso, Boton, CLASES_ENTRADA, Cargando, Etiqueta, FOCO, FOCO_ADENTRO, Girador, IconoAtencion, IconoCerrar, IconoError, IconoInfo, IconoOk, Kpi, Modal as Ventana,
-  Pestanas, PlacaRoja, TablaResponsiva, Tarjeta, TarjetaCabecera, Vacio, clasesBoton, unir, type TonoEtiqueta,
+  Pestanas, PlacaRoja, TablaResponsiva, Tarjeta, TarjetaCabecera, Vacio, clasesBoton, unir, useConfirmar, type TonoEtiqueta,
 } from './kit';
 // `numero` se renombra: OrdenDetalle ya tiene una prop `numero` (el de la OC)
 import { fecha, numero as cifra, pesos } from '../lib/formato';
@@ -398,6 +402,8 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   // renglones donde el % editado pasa a ser el HABITUAL. Por defecto no: un %
   // distinto al de siempre es una promoción y vale solo para esta entrada.
   const [fijarSku, setFijarSku] = useState<Record<string, boolean>>({});
+  // para preguntar antes de una conversión que deja el costo por el piso (6/10/2026)
+  const { confirmar, dialogo } = useConfirmar();
 
   const traerRemarcacion = useCallback(async (proveedorId: string, skus: string[]) => {
     const faltan = skus.filter((sku) => sku && !(sku in remarca));
@@ -609,6 +615,14 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
           // objeto nuevo, así que un campo que no se copie acá no existe para la
           // pantalla por más que la API lo mande.
           unidadesPorBulto: r.unidadesPorBulto ?? null,
+          // El «×N» que el lector NO aplicó porque la evidencia probó que la
+          // cantidad ya está en la unidad de stock (o que el producto es la
+          // caja), con su porqué; y, si quedó pendiente, qué sugiere la
+          // evidencia (6/10/2026: los Doritos de Mapaca).
+          bultoDescartado: Number(r.bultoDescartado) > 1 ? Number(r.bultoDescartado) : null,
+          bultoDescartadoComo: Number(r.bultoDescartado) > 1 ? (r.razonBulto?.sugerencia === 'caja' ? 'caja' : 'unidades') : null,
+          bultoAuto: Number(r.bultoDescartado) > 1,
+          razonBulto: r.razonBulto ?? null,
           // la del papel, o la que el servidor dedujo del importe (columna "Dto" no leída)
           bonificacionPct: r.bonificacionPct ?? i.bonificacionPct ?? null,
           // si la lectura tomó el importe CON IVA, se usa el neto que dedujo el servidor
@@ -718,35 +732,36 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   // unidades a $55.000 en vez de 2.016 a $2.292 — y ese costo pasa derecho al
   // precio de venta. La conversión NO se hace sola: el renglón podría estar
   // vinculado al bulto y ahí multiplicar sería el error al revés.
-  const pasarAUnidad = (idx: number) =>
-    setFotoItems((xs) => xs.map((x, j) => {
-      if (j !== idx) return x;
-      const n = Math.round(numImp(x.unidadesPorBulto));
-      if (!(n > 1)) return x;
-      return {
-        ...x,
-        cantidad: numImp(x.cantidad) * n,
-        precio: Math.round((numImp(x.precio) / n) * 100) / 100,
-        // se guarda para poder volver atrás y para dejar dicho qué se hizo
-        bultoAplicado: n,
-        unidadesPorBulto: null,
-      };
-    }));
-
-  const volverABulto = (idx: number) =>
-    setFotoItems((xs) => xs.map((x, j) => {
-      if (j !== idx) return x;
-      const n = Math.round(numImp(x.bultoAplicado));
-      if (!(n > 1)) return x;
-      return {
-        ...x,
-        cantidad: numImp(x.cantidad) / n,
-        precio: Math.round(numImp(x.precio) * n * 100) / 100,
-        bultoAplicado: null,
-        unidadesPorBulto: x.bultoManual ? null : n,
-        bultoManual: false,
-      };
-    }));
+  //
+  // Y el «×N» tampoco quiere decir que la cantidad sean cajas (6/10/2026): los
+  // 28 Doritos de Mapaca ya eran unidades. Por eso hay tres salidas —ya vienen
+  // en unidades, pasar a unidades, dejar en cajas— y la cuenta de cada una está
+  // en app/lib/bultos-compras.ts, con tests.
+  type RenglonFoto = Record<string, unknown>;
+  const cambiarRenglon = (idx: number, f: (x: RenglonFoto) => RenglonFoto) =>
+    setFotoItems((xs) => xs.map((x, j) => (j === idx ? f(x) : x)));
+  const pasarAUnidad = async (idx: number) => {
+    // Nada frenaba convertir un renglón que ya estaba en unidades: el total, el
+    // IVA y el techo de mercadería dan igual, y el producto quedaba con el
+    // costo dividido por N. Si la cuenta deja el costo por el piso contra el
+    // catálogo, se pregunta (no se bloquea).
+    const x = itemsCalc[idx];
+    const n = Math.round(numImp(x?.unidadesPorBulto));
+    if (x && conversionBajaDeMas(costoFinal(x, idx), n, x.costoCatalogo)) {
+      const seguro = await confirmar({
+        titulo: `¿Los ${numImp(x.cantidad).toLocaleString('es-AR')} del papel son cajas?`,
+        texto: `Al pasarlos a unidades, el costo baja de ${pesos(costoFinal(x, idx))} a ${pesos(costoFinal(x, idx) / n)} por unidad, y el producto en el catálogo cuesta ${pesos(numImp(x.costoCatalogo))}. Si ya vienen en unidades, cancelá y tocá «Ya vienen en unidades».`,
+        textoConfirmar: 'Sí, son cajas',
+        textoCancelar: 'Cancelar',
+      });
+      if (!seguro) return;
+    }
+    cambiarRenglon(idx, pasarAUnidades);
+  };
+  const volverABulto = (idx: number) => cambiarRenglon(idx, volverABultoRenglon);
+  const marcarYaEnUnidades = (idx: number) => cambiarRenglon(idx, yaEnUnidades);
+  const marcarEnCajas = (idx: number) => cambiarRenglon(idx, dejarEnCajas);
+  const deshacerBultoDescartado = (idx: number) => cambiarRenglon(idx, volverAPendiente);
   const discriminaIva = foto?.comprobante?.tipo === 'factura_a';
   // Lo que de verdad se paga por el renglón. Una bonificación del 100% deja el
   // renglón en cero: la mercadería llega igual, pero no se paga. Sin esto, los
@@ -810,7 +825,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
     // cantidad × precio, y lo explica MEJOR que el peso. Un vino bonificado al
     // 50% deja importe ÷ precio = 0,5, que leído como peso es "medio kilo".
     if (numImp(i.bonificacionPct) > 0) return false;
-    if (numImp(i.unidadesPorBulto) > 1 || numImp(i.bultoAplicado) > 1) return false; // eso es bulto, no peso
+    if (numImp(i.unidadesPorBulto) > 1 || numImp(i.bultoAplicado) > 1 || numImp(i.bultoDescartado) > 1) return false; // eso es bulto, no peso
     const imp = Math.abs(numImp(i.importe));
     const cant = numImp(i.cantidad);
     const p = Math.abs(numImp(i.precio));
@@ -904,7 +919,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   // app/lib/presentacion.ts, con tests; acá solo se ofrece.
   const sugerirConversion = (i: any) => {
     if (!i.sku || i._esDescuento || i.porPeso || numImp(i.envaseAplicado) > 1 || numImp(i.paqueteAplicado) > 0
-      || numImp(i.bultoAplicado) > 1 || numImp(i.unidadesPorBulto) > 1) return null;
+      || numImp(i.bultoAplicado) > 1 || numImp(i.unidadesPorBulto) > 1 || numImp(i.bultoDescartado) > 1) return null;
     return conversionSugerida({
       descripcion: i.descripcion,
       nombreCatalogo: i.nombre,
@@ -1169,6 +1184,15 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   const costoFinal = (i: any, idx?: number) =>
     Math.round(precioEfectivo(i) * factorDe(i, idx ?? itemsCalc.indexOf(i)) * 100) / 100;
   const hayDatosFiscales = baseCosto != null;
+  // La variación contra el costo del catálogo, con lo que el renglón dice AHORA
+  // (la salida elegida para el «×N», la alícuota, el pie): costo final contra
+  // costo final. Antes era un número fijo de la API —precio neto ÷ el «×N» del
+  // lector contra un costo con IVA— y los Doritos salían "−93,9%" cuando en
+  // realidad subían un 10,6% (6/10/2026).
+  const variacionCosto = (i: Parameters<typeof costoFinal>[0], idx: number): number | null => {
+    if (i.porPeso || !(numImp(i.cantidad) > 0) || !(numImp(i.costoCatalogo) > 0)) return i.variacionPct ?? null;
+    return variacionDeCosto(costoFinal(i, idx), i.costoCatalogo);
+  };
   // Reconciliación: el costo a stock nunca puede superar el valor de la mercadería
   // con IVA (ni el total). Si lo hace, hay un error y se bloquea Registrar.
   const inclItems = itemsCalc.filter((i: any) => i.incluir && !i._esDescuento);
@@ -1198,8 +1222,9 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   const columnaSospechosa = desvioRenglones != null && Math.abs(desvioRenglones) > 0.02;
   // Renglones que la IA leyó como bulto y siguen sin convertir. No bloquea
   // —puede que el producto vinculado sea el bulto— pero tiene que estar a la
-  // vista antes de apretar Registrar.
-  const bultosSinResolver = inclItems.filter((i) => numImp(i.unidadesPorBulto) > 1).length;
+  // vista antes de apretar Registrar. Los resueltos (ya en unidades, pasados a
+  // unidades o dejados en cajas) no cuentan (6/10/2026).
+  const bultosSinResolver = inclItems.filter((i) => estadoDelBulto(i) === 'pendiente').length;
   const descuentosDesmedidos = inclItems.filter((i: any) => descuentoDesmedido(i)).length;
 
   // El mismo producto puede venir en DOS renglones: el que se paga y el
@@ -1332,7 +1357,12 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
 
   // vincula un producto a un renglón leído (y lo tilda para incluirlo)
   const vincularProducto = (idx: number, p: any) => {
-    setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, sku: p.sku, nombre: p.nombre, variacionPct: null, sugerido: false, motivoIa: null, incluir: true, alicuotaCatalogo: p.alicuotaIva != null ? Number(p.alicuotaIva) : null, costoCatalogo: p.costo ?? null } : x));
+    setFotoItems((xs) => xs.map((x, j) => {
+      if (j !== idx) return x;
+      const nuevo = { ...x, sku: p.sku, nombre: p.nombre, variacionPct: null, sugerido: false, motivoIa: null, incluir: true, alicuotaCatalogo: p.alicuotaIva != null ? Number(p.alicuotaIva) : null, costoCatalogo: p.costo ?? null };
+      // otro producto: lo que el lector decidió del «×N» con el costo del anterior ya no vale
+      return x.sku === p.sku ? nuevo : alCambiarVinculo(nuevo);
+    }));
     setVinculaIdx(null); setVinculaBusca(''); setVinculaSug([]);
   };
 
@@ -1378,7 +1408,9 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
       });
       const d = await r.json();
       if (!r.ok) { setAltaError(d?.message ?? 'No se pudo crear el producto'); return; }
-      setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, sku: d.sku, nombre: altaForm.nombre.trim(), variacionPct: null, sugerido: false, motivoIa: null, incluir: true } : x));
+      // el producto nuevo no tiene costo anterior con qué comparar: sin
+      // costoCatalogo, si no quedaba el del producto vinculado antes
+      setFotoItems((xs) => xs.map((x, j) => j === idx ? alCambiarVinculo({ ...x, sku: d.sku, nombre: altaForm.nombre.trim(), variacionPct: null, sugerido: false, motivoIa: null, incluir: true, costoCatalogo: null }) : x));
       setAltaIdx(null);
     } catch {
       setAltaError('No se pudo crear el producto. Probá de nuevo.');
@@ -1394,7 +1426,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
 
   // "no, no es ese" → descarta la sugerencia y abre la búsqueda manual
   const rechazarSugerencia = (idx: number) => {
-    setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, sku: '', nombre: null, variacionPct: null, sugerido: false, motivoIa: null, incluir: false } : x));
+    setFotoItems((xs) => xs.map((x, j) => j === idx ? alCambiarVinculo({ ...x, sku: '', nombre: null, variacionPct: null, sugerido: false, motivoIa: null, incluir: false, costoCatalogo: null }) : x));
     setVinculaIdx(idx); setVinculaBusca('');
   };
 
@@ -1935,8 +1967,10 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                           {numImp(i.cantidad).toLocaleString('es-AR')} × {pesos(numImp(i.precio))}
                           {i.importe != null && i.importe !== '' ? <> = <b className="text-tinta/70">{pesos(Math.abs(numImp(i.importe)))}</b></> : null}
                         </span>
-                        {numImp(i.unidadesPorBulto) > 1 && <Sello tono="info">caja ×{Math.round(numImp(i.unidadesPorBulto))}</Sello>}
+                        {numImp(i.unidadesPorBulto) > 1 && <Sello tono="oro">×{Math.round(numImp(i.unidadesPorBulto))}: ¿cajas o unidades?</Sello>}
                         {numImp(i.bultoAplicado) > 1 && <Sello tono="info">×{Math.round(numImp(i.bultoAplicado))} → unidades</Sello>}
+                        {estadoDelBulto(i) === 'ya_en_unidades' && <Sello tono="ok">×{Math.round(numImp(i.bultoDescartado))} · ya en unidades</Sello>}
+                        {estadoDelBulto(i) === 'caja' && <Sello tono="info">caja ×{Math.round(numImp(i.bultoDescartado))}</Sello>}
                         {numImp(i.envaseAplicado) > 1 && <Sello tono="info">u. → cajas ×{Math.round(numImp(i.envaseAplicado))}</Sello>}
                         {numImp(i.paqueteAplicado) > 0 && <Sello tono="info">kg → paq. {Math.round(numImp(i.paqueteAplicado))} g</Sello>}
                         {esSinCargo(i) ? <Sello tono="ok">sin cargo</Sello> : numImp(i.bonificacionPct) > 0 ? <Sello tono="ok">bonif. {numImp(i.bonificacionPct)}%</Sello> : null}
@@ -1990,11 +2024,16 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                               {/* el nombre entero (baja de renglón si hace falta): es lo que se mira
                                   para confirmar que el vínculo es el correcto sin entrar a "cambiar" */}
                               <span className="min-w-0 break-words text-ok" title={i.nombre}>→ <b>{i.nombre}</b></span>
-                              {i.variacionPct != null && (numImp(i.unidadesPorBulto) > 1 && Math.abs(i.variacionPct) > 300
-                                ? <span className="text-tinta/60">precio de caja vs. unidad</span>
-                                : <span className={Math.abs(i.variacionPct) > 25 ? 'text-marca-hondo' : 'text-tinta/60'}>costo {i.variacionPct > 0 ? '+' : ''}{i.variacionPct}%</span>)}
+                              {(() => {
+                                // con lo que el renglón dice AHORA: cambia con cada botón (6/10/2026)
+                                const v = variacionCosto(i, idx);
+                                if (v == null) return null;
+                                return numImp(i.unidadesPorBulto) > 1 && Math.abs(v) > 300
+                                  ? <span className="text-tinta/60">precio de caja vs. unidad</span>
+                                  : <span className={Math.abs(v) > 25 ? 'text-marca-hondo' : 'text-tinta/60'} title="Costo final de este renglón contra el costo del producto en el catálogo">costo {v > 0 ? '+' : ''}{String(v).replace('.', ',')}%</span>;
+                              })()}
                               <button onClick={() => setVinculaIdx(idx)} className={unir(ENLACE, 'text-tinta/70 hover:text-marca-hondo')}>cambiar</button>
-                              {!i.porPeso && !medidaVariable(i) && !(numImp(i.bultoAplicado) > 1) && !(numImp(i.unidadesPorBulto) > 1) && !(numImp(i.envaseAplicado) > 1) && !(numImp(i.paqueteAplicado) > 0) && (
+                              {!i.porPeso && !medidaVariable(i) && !(numImp(i.bultoAplicado) > 1) && !(numImp(i.unidadesPorBulto) > 1) && !(numImp(i.bultoDescartado) > 1) && !(numImp(i.envaseAplicado) > 1) && !(numImp(i.paqueteAplicado) > 0) && (
                                 <>
                                   <button
                                     onClick={() => void abrirPesoEdit(idx, i.sku)}
@@ -2166,7 +2205,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                       </div>
 
                       {/* 3 · una nota por situación, una línea y un solo botón */}
-                      {(numImp(i._descuento) < 0 || numImp(i.cantidadCorregida) > 0 || correccionRenglon(i)?.seguro === false || esSinCargo(i) || numImp(i.bonificacionPct) > 0 || numImp(i.unidadesPorBulto) > 1 || numImp(i.bultoAplicado) > 1 || numImp(i.envaseAplicado) > 1 || numImp(i.paqueteAplicado) > 0 || !!sugerirConversion(i) || i.importeConIvaLeido != null || medidaVariable(i) || (i.porPeso && numImp(i.cantidad) > 0 && !medidaVariable(i))) && (
+                      {(numImp(i._descuento) < 0 || numImp(i.cantidadCorregida) > 0 || correccionRenglon(i)?.seguro === false || esSinCargo(i) || numImp(i.bonificacionPct) > 0 || numImp(i.unidadesPorBulto) > 1 || numImp(i.bultoAplicado) > 1 || numImp(i.bultoDescartado) > 1 || numImp(i.envaseAplicado) > 1 || numImp(i.paqueteAplicado) > 0 || !!sugerirConversion(i) || i.importeConIvaLeido != null || medidaVariable(i) || (i.porPeso && numImp(i.cantidad) > 0 && !medidaVariable(i))) && (
                       <div className="flex flex-col gap-1 text-xs leading-snug">
                         {numImp(i._descuento) < 0 && (descuentoDesmedido(i) ? (
                           <span className="rounded-xl bg-marca-suave px-2.5 py-1.5 text-marca-hondo"><IconoAtencion className="mr-1 inline size-4 align-[-3px]" />El descuento ({pesos(Math.abs(numImp(i._descuento)))}) supera al renglón ({pesos(Math.abs(baseUnitaria(i) * (numImp(i.cantidad) || 1)))}): no se aplicó. Suele ser de varios renglones o de toda la factura; revisalo antes de registrar.</span>
@@ -2190,10 +2229,48 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                         ) : numImp(i.bonificacionPct) > 0 ? (
                           <span className="rounded-xl bg-ok-suave px-2.5 py-1.5 text-ok">Bonificado {numImp(i.bonificacionPct)}%: se paga {pesos(precioEfectivo(i))} de los {pesos(numImp(i.precio))} de lista.</span>
                         ) : null}
-                        {numImp(i.unidadesPorBulto) > 1 && (
-                          <span className="rounded-xl bg-info-suave px-2.5 py-1.5 text-info">Viene por caja de <b>{Math.round(numImp(i.unidadesPorBulto))}</b>: {numImp(i.cantidad)} caja(s) = <b>{numImp(i.cantidad) * Math.round(numImp(i.unidadesPorBulto))}</b> unidades a <b>{pesos(numImp(i.precio) / Math.round(numImp(i.unidadesPorBulto)))}</b>.
-                            <Boton tamano="chico" variante="secundario" onClick={() => pasarAUnidad(idx)} className="ml-2 align-middle">Pasar a unidades</Boton>
-                            <span className="ml-1 text-info/80">(dejalo así solo si el producto es la caja)</span>
+                        {(() => {
+                          // «×N» sin resolver: la pregunta, la evidencia y las TRES salidas
+                          // (6/10/2026). Antes afirmaba "28 caja(s) = 392 unidades" y el
+                          // único botón multiplicaba, aunque los 28 ya fueran unidades.
+                          const o = opcionesDelBulto(i);
+                          if (!o) return null;
+                          const cant = (n: number) => n.toLocaleString('es-AR');
+                          const marca = (s: 'unidades' | 'convertir' | 'caja') => (o.sugerida === s ? <span className="ml-1 font-semibold">· sugerido</span> : null);
+                          const salidas = [
+                            { clave: 'unidades' as const, boton: <Boton key="u" tamano="chico" variante="secundario" onClick={() => marcarYaEnUnidades(idx)}>Ya vienen en unidades{marca('unidades')}</Boton>, cuenta: <>{cant(o.talCual.cantidad)} a {pesos(o.talCual.precio)}</> },
+                            { clave: 'convertir' as const, boton: <Boton key="c" tamano="chico" variante="secundario" onClick={() => void pasarAUnidad(idx)}>Pasar a unidades{marca('convertir')}</Boton>, cuenta: <>{cant(o.convertido.cantidad)} a {pesos(o.convertido.precio)}</> },
+                            { clave: 'caja' as const, boton: <Boton key="k" tamano="chico" variante="secundario" onClick={() => marcarEnCajas(idx)}>Dejar en cajas{marca('caja')}</Boton>, cuenta: <>el producto es la caja</> },
+                          ];
+                          // la sugerida primero; sin sugerencia, en el orden de siempre
+                          if (o.sugerida) salidas.sort((a, b) => Number(b.clave === o.sugerida) - Number(a.clave === o.sugerida));
+                          return (
+                            <span className="flex flex-col gap-1.5 rounded-xl bg-info-suave px-2.5 py-2 text-info">
+                              <span>
+                                La descripción dice <b>×{o.n}</b> (lo que trae cada caja). ¿Los <b>{cant(o.talCual.cantidad)}</b> del papel son cajas o unidades?
+                                {o.motivo && <span className="block text-info/80">{o.sugerida === 'convertir' ? 'Parecen cajas' : o.sugerida === 'unidades' ? 'Parecen unidades' : o.sugerida === 'caja' ? 'Parece que el producto es la caja' : 'Ojo'}: {o.motivo}.</span>}
+                              </span>
+                              <span className="flex flex-wrap gap-x-3 gap-y-1.5">
+                                {salidas.map((s) => (
+                                  <span key={s.clave} className="inline-flex flex-wrap items-center gap-1.5">
+                                    {s.boton}
+                                    <span className="text-info/80">{s.cuenta}</span>
+                                  </span>
+                                ))}
+                              </span>
+                            </span>
+                          );
+                        })()}
+                        {estadoDelBulto(i) === 'ya_en_unidades' && (
+                          <span className="text-ok">Entran <b>{numImp(i.cantidad).toLocaleString('es-AR')}</b> a {pesos(numImp(i.precio))}, como dice el papel: el ×{Math.round(numImp(i.bultoDescartado))} es lo que trae cada caja, no la cantidad.
+                            {i.bultoAuto && i.razonBulto?.motivo && <span className="text-tinta/70"> Lo decidió el lector: {i.razonBulto.motivo}.</span>}
+                            <button onClick={() => deshacerBultoDescartado(idx)} className={unir(ENLACE, 'ml-2 text-tinta/70 hover:text-marca-hondo')}>{i.bultoAuto ? 'no, son cajas' : 'deshacer'}</button>
+                          </span>
+                        )}
+                        {estadoDelBulto(i) === 'caja' && (
+                          <span className="text-info">Entran <b>{numImp(i.cantidad).toLocaleString('es-AR')} caja(s) de {Math.round(numImp(i.bultoDescartado))}</b> a {pesos(numImp(i.precio))}: el producto es la caja.
+                            {i.bultoAuto && i.razonBulto?.motivo && <span className="text-tinta/70"> Lo decidió el lector: {i.razonBulto.motivo}.</span>}
+                            <button onClick={() => deshacerBultoDescartado(idx)} className={unir(ENLACE, 'ml-2 text-tinta/70 hover:text-marca-hondo')}>deshacer</button>
                           </span>
                         )}
                         {i.importeConIvaLeido != null && (
@@ -2231,11 +2308,6 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                             </span>
                           );
                         })()}
-                        {numImp(i.envaseAplicado) > 1 && (
-                          <span className="text-info">La factura trae unidades sueltas: {numImp(i.cantidad) * Math.round(numImp(i.envaseAplicado))} u. = <b>{numImp(i.cantidad)} caja(s) de {Math.round(numImp(i.envaseAplicado))}</b> a {pesos(numImp(i.precio))} cada una.
-                            <button onClick={() => deshacerEnvases(idx)} className={unir(ENLACE, 'ml-2 text-tinta/70 hover:text-marca-hondo')}>deshacer</button>
-                          </span>
-                        )}
                         {numImp(i.bultoAplicado) > 1 && (
                           <span className="text-info">Convertido a unidades (caja de {Math.round(numImp(i.bultoAplicado))}).
                             <button onClick={() => volverABulto(idx)} className={unir(ENLACE, 'ml-2 text-tinta/70 hover:text-marca-hondo')}>deshacer</button>
@@ -2270,7 +2342,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                         <button onClick={() => abrirAlta(idx, i)} className={CHIP_ACCION}>Dar de alta un producto nuevo</button>
                         {i.sku && (
                           <button
-                            onClick={() => { setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, sku: '', nombre: null, variacionPct: null, sugerido: false, motivoIa: null, incluir: false, alicuotaCatalogo: null } : x)); setVinculaIdx(null); }}
+                            onClick={() => { setFotoItems((xs) => xs.map((x, j) => j === idx ? alCambiarVinculo({ ...x, sku: '', nombre: null, variacionPct: null, sugerido: false, motivoIa: null, incluir: false, alicuotaCatalogo: null, costoCatalogo: null }) : x)); setVinculaIdx(null); }}
                             className={unir(ENLACE, 'text-tinta/70 hover:text-marca-hondo')}
                           >
                             Quitar el vínculo
@@ -2495,8 +2567,10 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                 )}
                 {bultosSinResolver > 0 && (
                   <p className="mt-1.5 rounded-xl bg-info-suave px-2.5 py-2 text-info">
-                    <b>{bultosSinResolver}</b> renglón/es vienen por bulto y todavía entran como bulto. Si el producto vinculado es la unidad suelta,
-                    tocá “Pasar a unidad” en cada uno: si no, el stock y el costo unitario quedan mal por el factor del pack.
+                    {/* No afirma que "queda mal": dejar la cantidad del papel es lo correcto
+                        cuando ya viene en unidades (6/10/2026). */}
+                    <b>{bultosSinResolver}</b> renglón/es dicen ×N en la descripción y falta elegir si la cantidad es de cajas o de unidades.
+                    En cada uno tocá «Ya vienen en unidades», «Pasar a unidades» o «Dejar en cajas». Si registrás así, entran con la cantidad y el precio del papel.
                   </p>
                 )}
                 {columnaSospechosa && (
@@ -2584,6 +2658,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
           {aviso && <Aviso tono="error">{aviso}</Aviso>}
         </>)}
       </div>
+      {dialogo}
     </Ventana>
   );
 }
