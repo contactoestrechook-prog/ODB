@@ -6,6 +6,7 @@ import { recorrerConRitmo } from './ritmo';
 import { pareceElMismoProducto } from './parecido';
 import { normalizarFoto, anotarNormalizada } from './normalizar-foto';
 import { traerTodo } from '../comun/lotes';
+import { loteWebVieja } from './fotos-web-vieja';
 
 // Fotos de producto por código de barras desde EZ Catalog (Huggian), 2026-09-09.
 // Pedido de Leandro: «con los códigos de barra nos dan las fotos de los productos».
@@ -221,8 +222,36 @@ export class FotosExternasService {
     return { sku: p.sku, nombre: (p as any).nombre, ...ultimo };
   }
 
-  private registrar(productoId: string, sku: string, ean: string, resultado: Resultado['resultado'], p?: Externo | null, detalle?: string) {
-    return this.db.from('fotos_externas').insert({ producto_id: productoId, sku, ean, resultado, nombre_externo: p?.nombre ?? null, marca_externa: p?.marca ?? null, url_externa: p?.imagenUrl ?? null, detalle: detalle ?? null }).then(() => null, () => null);
+  private registrar(productoId: string, sku: string, ean: string, resultado: Resultado['resultado'], p?: Externo | null, detalle?: string, fuente = 'ez-catalog') {
+    return this.db.from('fotos_externas').insert({ producto_id: productoId, sku, ean, fuente, resultado, nombre_externo: p?.nombre ?? null, marca_externa: p?.marca ?? null, url_externa: p?.imagenUrl ?? null, detalle: detalle ?? null }).then(() => null, () => null);
+  }
+
+  // Fotos del sitio viejo www.odbpremiummarket.com.ar (6/10/2026). Llega la
+  // lista SKU de ODB → foto (de a 100 como máximo) y va por el mismo camino que
+  // EZ Catalog: si el nombre no se parece queda 'dudoso' para revisar a mano en
+  // Productos, la foto se normaliza y va a productos/{sku}.jpg. Nunca pisa una
+  // foto que ya está (salvo reemplazar=true) ni la de un producto inactivo.
+  async importarDeWebVieja(items: unknown, reemplazar = false) {
+    const { validos, descartados } = loteWebVieja(items, 100);
+    const cuenta: Record<string, number> = { foto: 0, dudoso: 0, error: 0, ya_tenia: 0, sin_producto: 0, inactivo: 0, descartados };
+    if (!validos.length) return cuenta;
+    const { data: prods, error } = await this.db.from('productos').select('id, sku, nombre, activo, tiene_foto').in('sku', validos.map((v) => v.sku));
+    if (error) throw new BadRequestException(error.message);
+    const porSku = new Map(((prods ?? []) as any[]).map((p) => [String(p.sku), p]));
+    const aGuardar = validos.filter((v) => {
+      const p = porSku.get(v.sku);
+      if (!p) { cuenta.sin_producto++; return false; }
+      if (p.activo === false) { cuenta.inactivo++; return false; }
+      if (p.tiene_foto && !reemplazar) { cuenta.ya_tenia++; return false; }
+      return true;
+    });
+    await recorrerConRitmo(aGuardar, { paralelo: PARALELO, espaciadoMs: 0 }, async (v) => {
+      const p = porSku.get(v.sku);
+      const externo: Externo = { nombre: v.nombre ?? null, marca: null, imagenUrl: v.url, presentacion: null, verificado: false };
+      const r = await this.guardarFoto(p.id, v.sku, `WEB-${v.sku}`, externo, String(p.nombre ?? ''), 'web-vieja');
+      cuenta[r.resultado] = (cuenta[r.resultado] ?? 0) + 1;
+    });
+    return cuenta;
   }
 
   private async traerPara(productoId: string, sku: string, ean: string, nombreNuestro: string): Promise<Resultado> {
@@ -241,8 +270,8 @@ export class FotosExternasService {
 
   // Bajar la imagen y guardarla en Storage. Va contra images.huggian.com y
   // Supabase (no contra la API con tope), así que esto sí se puede hacer de a varias.
-  private async guardarFoto(productoId: string, sku: string, ean: string, p: Externo, nombreNuestro: string): Promise<Resultado> {
-    const registrar = (resultado: Resultado['resultado'], q?: Externo | null, detalle?: string) => this.registrar(productoId, sku, ean, resultado, q, detalle);
+  private async guardarFoto(productoId: string, sku: string, ean: string, p: Externo, nombreNuestro: string, fuente = 'ez-catalog'): Promise<Resultado> {
+    const registrar = (resultado: Resultado['resultado'], q?: Externo | null, detalle?: string) => this.registrar(productoId, sku, ean, resultado, q, detalle, fuente);
     // El catálogo a veces devuelve la ficha de otro producto con NUESTRO código
     // (a un vino, pintura; a una sal, creatina). Si el nombre no se parece en
     // nada, la foto no se guarda sola: queda para que una persona la mire.
@@ -251,11 +280,11 @@ export class FotosExternasService {
       await registrar('dudoso', p, v.motivo);
       return { resultado: 'dudoso', nombreExterno: p.nombre, marcaExterna: p.marca, detalle: v.motivo };
     }
-    return this.guardarFotoSinControl(productoId, sku, ean, p);
+    return this.guardarFotoSinControl(productoId, sku, ean, p, fuente);
   }
 
-  private async guardarFotoSinControl(productoId: string, sku: string, ean: string, p: Externo): Promise<Resultado> {
-    const registrar = (resultado: Resultado['resultado'], q?: Externo | null, detalle?: string) => this.registrar(productoId, sku, ean, resultado, q, detalle);
+  private async guardarFotoSinControl(productoId: string, sku: string, ean: string, p: Externo, fuente = 'ez-catalog'): Promise<Resultado> {
+    const registrar = (resultado: Resultado['resultado'], q?: Externo | null, detalle?: string) => this.registrar(productoId, sku, ean, resultado, q, detalle, fuente);
     try {
       const ctrl = new AbortController(); const reloj = setTimeout(() => ctrl.abort(), 25_000);
       const img = await fetch(p.imagenUrl ?? '', { signal: ctrl.signal }).finally(() => clearTimeout(reloj));
