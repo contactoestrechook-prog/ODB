@@ -10,6 +10,7 @@ import { TONO_ODB } from '../comun/tono-odb';
 import { costoUSD, usoDeRespuesta } from '../bot/tarifas';
 import { enLotes, traerTodo } from '../comun/lotes';
 import { armarPropuestas, cantidadPedible, type Propuesta } from './propuesta';
+import { esfuerzo, MODELO_PRINCIPAL, RAZONAMIENTO } from '../comun/modelos';
 
 // ============================================================
 // ABASTECIMIENTO (1/10/2026): el agente de la mesa de compras.
@@ -30,7 +31,9 @@ import { armarPropuestas, cantidadPedible, type Propuesta } from './propuesta';
 
 export type MensajeAbastecimiento = { rol: 'usuario' | 'asistente'; texto: string };
 
-export const MODELO_ABASTECIMIENTO = process.env.ABASTECIMIENTO_MODELO ?? 'claude-opus-5-5';
+// el modelo de todas las funciones vive en comun/modelos.ts (6/10/2026);
+// ABASTECIMIENTO_MODELO sigue mandando
+export const MODELO_ABASTECIMIENTO = process.env.ABASTECIMIENTO_MODELO ?? MODELO_PRINCIPAL;
 
 const NOMBRE_ALERTA: Record<string, string> = {
   sin_stock: 'sin stock',
@@ -206,8 +209,14 @@ Cómo trabajás:
 - Respuestas cortas y concretas, en castellano rioplatense, sin markdown pesado. Si hace falta una lista, guiones simples; nunca la lista de productos de una propuesta (esa la dibuja la pantalla).
 - Cuando detalles varios productos, un renglón por producto: guion, el nombre como figura en el sistema y, después de dos puntos, lo que hay que hacer con él ("- Cafe Cabrales Brasil x 500g: pedir 12"). La pantalla dibuja esos renglones como tarjeta con el stock, el ritmo, la alerta y el costo de cada uno.
 - El comprador te cuenta al principio de su mensaje cómo están las notas en pantalla (qué tildó, qué cantidades cambió, qué órdenes ya armó). Eso manda sobre lo que propusiste antes: no vuelvas a proponer ni a armar lo que ya está armado.
+- Lo que el comprador lee es tu ÚLTIMO mensaje, después de la última herramienta: lo que escribas antes de llamar una herramienta no le llega. La explicación (qué es lo urgente, si el plazo es provisorio, qué le falta al proveedor) va ahí, al final.
 
 ${TONO_ODB}`;
+// 6/10/2026 (Opus 5.5): lo que el agente escribe ENTRE herramientas («lo urgente
+// es Luvik…» y después proponer_compra) ya no vuelve como texto sino dentro de un
+// bloque de razonamiento, vacío. El cierre juntaba esos textos (dichos) y, sin
+// ellos, caía en «Te dejé la propuesta abajo para tildar». Pasaba desde que este
+// agente está en 5.5: el prompt pide la explicación en el último mensaje.
 
 @Injectable()
 export class AbastecimientoService {
@@ -568,11 +577,15 @@ export class AbastecimientoService {
         res = await claude.messages.stream({
           model: MODELO_ABASTECIMIENTO,
           max_tokens: 16000,
-          thinking: { type: 'adaptive' },
-          output_config: { effort: (process.env.ABASTECIMIENTO_ESFUERZO ?? 'medium') as any },
+          thinking: RAZONAMIENTO,
+          output_config: { effort: esfuerzo('ABASTECIMIENTO_ESFUERZO') },
           system,
           tools: HERRAMIENTAS,
           messages: historial,
+          // caché sobre la charla (6/10/2026): hasta 10 vueltas que reenviaban
+          // enteros los resultados de las herramientas; con la marca automática al
+          // final, cada vuelta lee lo anterior de la caché (0,05× en Opus 5.5)
+          cache_control: { type: 'ephemeral' },
         } as any, { signal: AbortSignal.timeout(queda) }).finalMessage();
       } catch (e) {
         // un corte a mitad de la charla no puede tirar lo que ya se armó: las

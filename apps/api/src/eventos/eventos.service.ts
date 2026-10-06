@@ -4,6 +4,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { SUPABASE } from '../supabase.provider';
 import { NotificarService } from '../mensajes/notificar.service';
 import { generarPresupuesto } from './presupuesto';
+import { esfuerzo, jsonDe, MODELO_PRINCIPAL, RAZONAMIENTO } from '../comun/modelos';
 
 const pesos = (n: any) => '$' + Math.round(Number(n) || 0).toLocaleString('es-AR');
 const TIPO_LABEL: Record<string, string> = {
@@ -135,28 +136,52 @@ export class EventosService {
 
     const lista = catalogo.map((p) => `${p.sku} · ${p.nombre} · $${p.precio} · stock ${p.stock}`).join('\n');
     const claude = new Anthropic();
+    // 6/10/2026: Opus 5.5 (comun/modelos.ts). Iba sin razonamiento (en 4.8,
+    // omitirlo lo apaga: contra la regla del 9/9), con 1500 de tope (en 5.5 el
+    // razonamiento sale de ese tope) y con el JSON recortado del texto a mano.
+    // Ahora la forma la garantiza la salida estructurada ({items: […]}) y un
+    // rechazo o un corte dan un error claro.
     const resp = await claude.messages.create({
-      model: 'claude-opus-4-8',
-      max_tokens: 1500,
+      model: MODELO_PRINCIPAL,
+      max_tokens: 8000,
+      thinking: RAZONAMIENTO,
+      output_config: {
+        effort: esfuerzo('EVENTOS_ESFUERZO'),
+        format: {
+          type: 'json_schema',
+          schema: {
+            type: 'object',
+            properties: {
+              items: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: { sku: { type: 'string' }, cantidad: { type: 'number' }, motivo: { type: 'string' } },
+                  required: ['sku', 'cantidad', 'motivo'],
+                  additionalProperties: false,
+                },
+              },
+            },
+            required: ['items'],
+            additionalProperties: false,
+          },
+        },
+      } as any,
       system: `Sos el organizador de eventos de O.D.B Premium Market. Armás propuestas de bebidas equilibradas y realistas para eventos en Argentina. Registro respetuoso y sobrio, de usted, sin emojis ni exclamaciones.
 Reglas:
 - Usá SOLO productos de la lista que te paso (por SKU). Nunca inventes.
 - Calculá cantidades razonables para la cantidad de invitados (regla práctica: ~1 bebida cada 1,5 horas por persona; mezclá categorías: espumante para brindis, vino, cerveza, gaseosas/agua sin alcohol, y algún destilado si corresponde).
 - No superes el stock disponible de cada producto.
-- Respondé SOLO con un JSON array, sin texto adicional, con esta forma exacta:
-[{"sku":"123","cantidad":24,"motivo":"brindis"}]`,
+- Devolvé la propuesta en "items", un renglón por producto: {"sku":"123","cantidad":24,"motivo":"brindis"}.`,
       messages: [
         {
           role: 'user',
-          content: `Evento: ${tipo}. Invitados: ${invitados}.\n\nBebidas disponibles (sku · nombre · precio · stock):\n${lista}\n\nArmá la propuesta. Solo el JSON array.`,
+          content: `Evento: ${tipo}. Invitados: ${invitados}.\n\nBebidas disponibles (sku · nombre · precio · stock):\n${lista}\n\nArmá la propuesta.`,
         },
       ],
     });
-    const texto = resp.content.find((b) => b.type === 'text');
-    const raw = texto && 'text' in texto ? texto.text : '[]';
-    const json = raw.slice(raw.indexOf('['), raw.lastIndexOf(']') + 1);
-    let sugeridos: { sku: string; cantidad: number }[] = [];
-    try { sugeridos = JSON.parse(json); } catch { throw new BadRequestException('No pude interpretar la sugerencia, probá de nuevo'); }
+    const leida = jsonDe<{ items?: { sku: string; cantidad: number }[] }>(resp, 'La sugerencia de bebidas');
+    const sugeridos: { sku: string; cantidad: number }[] = Array.isArray(leida?.items) ? leida.items : [];
 
     const porSku = new Map(catalogo.map((p) => [String(p.sku), p]));
     const items: ItemPropuesta[] = [];

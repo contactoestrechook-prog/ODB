@@ -169,6 +169,9 @@ describe('el comprobante confirma el pedido (decisión de Leandro, 5/10/2026)', 
     expect(lecturas).toHaveLength(1);
     expect(lecturas[0].model).toBe(MODELO_BOT);
     expect(lecturas[0].thinking).toEqual(razonamientoPara(MODELO_BOT));
+    // 6/10/2026: el bot va en Opus 5.5 y la lectura lleva el esfuerzo explícito
+    expect(MODELO_BOT).toBe('claude-opus-5-5');
+    expect(lecturas[0].output_config.effort).toBe('medium');
     expect(lecturas[0].messages).toHaveLength(1);
     expect(lecturas[0].messages[0].content[0]).toEqual({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: ARCHIVO.base64 } });
     expect(JSON.stringify(lecturas[0].messages)).not.toContain('Judas');

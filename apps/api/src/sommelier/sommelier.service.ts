@@ -78,7 +78,11 @@ export class SommelierService {
 
     const respuesta = await claude.messages.create({
       model: 'claude-sonnet-5',
-      max_tokens: 1024,
+      // 6/10/2026: Sonnet 5 razona aunque no se lo pida y el razonamiento sale de
+      // este mismo tope: con 1024 la recomendación se podía cortar o salir vacía
+      // (guía de Anthropic, «Migrating to Claude Sonnet 5»). Se paga lo que se usa.
+      max_tokens: 8000,
+      thinking: { type: 'adaptive' },
       system: [
         {
           type: 'text',

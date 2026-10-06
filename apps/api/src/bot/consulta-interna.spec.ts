@@ -154,7 +154,7 @@ describe('la charla de Pablo: consulta silenciosa (6/10/2026)', () => {
       .mockResolvedValueOnce(conHerramientas(herramienta('c1', 'consultar_interno', { area: 'local', consulta: CAJA_1617, tema: 'la caja para viajar', direccion: '' })))
       // el modelo cierra solo con la promesa (así terminó el 14 real)
       .mockResolvedValueOnce(texto('Te confirmo por acá lo de la caja.'))
-      // la reescritura (solo con herramientas de lectura y de cotizar) contesta lo demás
+      // la reescritura (puede buscar y cotizar) contesta lo demás
       .mockResolvedValueOnce(texto(dale));
     s.claude = { messages: { create: crear } };
     const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: AUDIO_14, deAudio: true });
@@ -170,13 +170,17 @@ describe('la charla de Pablo: consulta silenciosa (6/10/2026)', () => {
     // contesta nombre y retiro, y nada de la caja
     expect(r.respuesta).toBe(dale);
     expect(r.respuesta).not.toMatch(/caja|confirm|pendiente/i);
-    // la reescritura fue UNA, con razonamiento, y solo con herramientas que leen o
-    // cotizan (6/10/2026, revisión: sin herramientas no podía cotizar y un total
-    // armado a mano se descartaba entero): nada que consulte, derive o cree un pedido
+    // la reescritura fue UNA, con razonamiento, y puede buscar y cotizar (6/10/2026,
+    // revisión: sin herramientas no podía cotizar y un total armado a mano se
+    // descartaba entero). Desde el cambio a Opus 5.5 ve la MISMA lista de
+    // herramientas que el bucle (achicarla invalida el razonamiento guardado y la
+    // caché): lo que no puede usar lo frena el código (ver la prueba de abajo)
     expect(crear).toHaveBeenCalledTimes(3);
-    const nombres = (crear.mock.calls[2][0].tools ?? []).map((t: any) => t.name).sort();
-    expect(nombres).toEqual(['buscar_productos', 'consultar_cava', 'cotizar_pedido', 'estado_local', 'estado_pedido', 'identificar_cliente', 'preparar_pedido']);
+    const nombres = (crear.mock.calls[2][0].tools ?? []).map((t: any) => t.name);
+    expect(nombres).toEqual((crear.mock.calls[0][0].tools ?? []).map((t: any) => t.name));
+    expect(crear.mock.calls[2][0].tool_choice).toBeUndefined();
     expect(crear.mock.calls[2][0].thinking).toEqual({ type: 'adaptive' });
+    expect(crear.mock.calls[2][0].output_config).toEqual(crear.mock.calls[0][0].output_config);
     // el modelo vio desde el arranque que la caja ya estaba consultada
     const primero = crear.mock.calls[0][0].messages.at(-1).content;
     const textoPrimero = typeof primero === 'string' ? primero : primero.map((b: any) => b.text ?? '').join(' ');
@@ -196,8 +200,13 @@ describe('la charla de Pablo: consulta silenciosa (6/10/2026)', () => {
     const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: '¿Cuántas unidades trae el kit?' });
     expect(r.respuesta).toBeNull();
     expect(r.silencio).toBe(true);
-    // sin reescritura: no había nada más que contestar
-    expect(crear).toHaveBeenCalledTimes(2);
+    // sin reescritura: no había nada más que contestar. Insistió con herramientas
+    // tras la consulta, así que la tercera vuelta (6/10/2026) va con las mismas
+    // herramientas y tool_choice none para que escriba; el mock la ignora y el
+    // corte rescata lo escrito, que es solo la mención de la consulta
+    expect(crear).toHaveBeenCalledTimes(3);
+    expect(crear.mock.calls[2][0].tool_choice).toEqual({ type: 'none' });
+    expect(crear.mock.calls[2][0].tools).toEqual(crear.mock.calls[0][0].tools);
     expect(insertsDe(db, 'bot_consultas_internas')).toHaveLength(1);
   });
 
@@ -208,12 +217,39 @@ describe('la charla de Pablo: consulta silenciosa (6/10/2026)', () => {
     });
     const { s } = servicio(db);
     const dale = 'Dale, Pablo: te los dejo a tu nombre para retirar en la sucursal Saint Thomas.';
-    const crear = jest.fn().mockResolvedValue(conHerramientas({ type: 'text', text: dale }, herramienta('c1', 'consultar_interno', { area: 'local', consulta: CAJA_1617, tema: 'la caja para viajar', direccion: '' })));
+    // la forma de Opus 5: el texto antes de la herramienta viene como texto, y la
+    // vuelta obligada a escribir (tool_choice none) vuelve vacía: se rescata lo escrito
+    const insiste = conHerramientas({ type: 'text', text: dale }, herramienta('c1', 'consultar_interno', { area: 'local', consulta: CAJA_1617, tema: 'la caja para viajar', direccion: '' }));
+    const crear = jest.fn(async (p: any) => (p.tool_choice?.type === 'none' ? texto('') : insiste));
     s.claude = { messages: { create: crear } };
     const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: AUDIO_14, deAudio: true });
     // primer mensaje de la charla: con el saludo de la hora, y nada de la caja
     expect(r.respuesta).toMatch(new RegExp(`^(?:Buen día|Buenas tardes|Buenas noches), te damos la bienvenida a O\\.D\\.B\\. ${dale}$`));
-    expect(crear).toHaveBeenCalledTimes(2);
+    expect(crear).toHaveBeenCalledTimes(3);
+  });
+
+  it('Opus 5.5: lo escrito entre herramientas viene vacío (en el razonamiento); la vuelta con tool_choice none escribe nombre y retiro', async () => {
+    const db = baseFalsa({
+      lineas_whatsapp: { select: { data: CFG, error: null } },
+      bot_consultas_internas: { select: { data: [], error: null }, insert: { data: { id: 'q-caja' }, error: null } },
+    });
+    const { s } = servicio(db);
+    const dale = 'Dale, Pablo: te los dejo a tu nombre para retirar en la sucursal Saint Thomas.';
+    // la forma de Opus 5.5: razonamiento vacío (display omitido) y la herramienta, sin texto
+    const insiste = conHerramientas({ type: 'thinking', thinking: '', signature: 'firma-1' }, herramienta('c1', 'consultar_interno', { area: 'local', consulta: CAJA_1617, tema: 'la caja para viajar', direccion: '' }));
+    const crear = jest.fn(async (p: any) => (p.tool_choice?.type === 'none'
+      ? { stop_reason: 'end_turn', content: [{ type: 'thinking', thinking: '', signature: 'firma-2' }, { type: 'text', text: dale }], usage }
+      : insiste));
+    s.claude = { messages: { create: crear } };
+    const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: AUDIO_14, deAudio: true });
+    expect(r.respuesta).toMatch(new RegExp(`${dale}$`));
+    expect(r.respuesta).not.toMatch(/caja|confirm/i);
+    expect(crear).toHaveBeenCalledTimes(3);
+    // los bloques de razonamiento vuelven tal cual, en orden, con su firma
+    const ultima = crear.mock.calls[2][0];
+    const firmas = ultima.messages.flatMap((m: any) => (Array.isArray(m.content) ? m.content : [])).filter((b: any) => b.type === 'thinking').map((b: any) => b.signature);
+    expect(firmas).toEqual(['firma-1', 'firma-1']);
+    expect(insertsDe(db, 'bot_consultas_internas')).toHaveLength(1);
   });
 
   it('la caja ya consultada y el cliente vuelve a preguntar solo eso: no le sale nada (ni «todavía no lo tengo»), ni se consulta de nuevo', async () => {

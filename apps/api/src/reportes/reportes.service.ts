@@ -3,6 +3,7 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
 import { SUPABASE } from '../supabase.provider';
 import { enviarTextoWhatsapp } from '../comun/whatsapp';
+import { esfuerzo, MODELO_PRINCIPAL, RAZONAMIENTO } from '../comun/modelos';
 
 // "Esto está mal" (2026-09-09): cualquier persona del equipo reporta desde la
 // pantalla donde está, con el contexto adjunto solo. La IA clasifica en el acto:
@@ -19,7 +20,9 @@ export type CrearReporteDto = {
 
 // Esta clasificación decide si algo es un error del sistema o un dato mal cargado:
 // va con el modelo más capaz y razonamiento adaptativo (pedido de Leandro).
-const MODELO = process.env.REPORTES_MODELO || 'claude-opus-4-8';
+// 6/10/2026: Opus 5.5 (comun/modelos.ts), 20 % más barato por token que el 4.8;
+// REPORTES_MODELO sigue mandando.
+const MODELO = process.env.REPORTES_MODELO || MODELO_PRINCIPAL;
 
 @Injectable()
 export class ReportesService {
@@ -67,11 +70,16 @@ export class ReportesService {
 - "duda": es una pregunta de cómo se usa algo.
 Respondé SOLO un JSON: {"tipo":"dato|sistema|duda","resumen":"una línea técnica y concreta para el programador, en rioplatense","pasos":["pasos concretos para reproducir o para que la persona lo resuelva"],"respuesta_usuario":"lo que le decís a la persona: cálido, rioplatense, máximo 3 oraciones, sin emojis; si es dato, decile exactamente qué tocar; si es sistema, decile que le llega a Leandro y que le avisamos por la campanita al resolverlo"}`;
       const r = await claude.messages.create({
-        model: MODELO, max_tokens: 2000, system,
-        thinking: { type: 'adaptive' } as any,
-        output_config: { effort: 'high' } as any,
+        // 6/10/2026: esfuerzo medium (el de Opus 5.5, que en medium rinde como Opus
+        // 5 en high; REPORTES_ESFUERZO lo sube) y 8000 de tope: el razonamiento sale
+        // del mismo presupuesto y con 2000 el JSON se podía cortar
+        model: MODELO, max_tokens: 8000, system,
+        thinking: RAZONAMIENTO,
+        output_config: { effort: esfuerzo('REPORTES_ESFUERZO') },
         messages: [{ role: 'user', content: `Pantalla: ${pantalla}\nRol de quien reporta: ${rol ?? '?'}\nMensaje: ${mensaje}\n\nTexto visible de la pantalla (recortado):\n${String(contexto.texto ?? '').slice(0, 3500)}` }],
       });
+      // un rechazo o un corte van al valor por defecto (6/10/2026)
+      if (r.stop_reason === 'refusal' || r.stop_reason === 'max_tokens') return porDefecto;
       const texto = r.content.filter((c: any) => c.type === 'text').map((c: any) => c.text).join('\n');
       const m = texto.match(/\{[\s\S]*\}/);
       const j = m ? JSON.parse(m[0]) : null;

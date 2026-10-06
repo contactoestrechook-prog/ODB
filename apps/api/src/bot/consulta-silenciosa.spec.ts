@@ -175,7 +175,7 @@ describe('la charla de Pablo con la consulta silenciosa (6/10/2026)', () => {
     expect(textoPrimero).toContain('ya en manos de administración (al cliente NO le menciones nada de eso');
   });
 
-  it('(3b) si el modelo solo escribió lo de la caja, UNA reescritura con razonamiento (y solo herramientas de lectura y de cotizar) contesta lo demás', async () => {
+  it('(3b) si el modelo solo escribió lo de la caja, UNA reescritura con razonamiento (que solo puede leer y cotizar) contesta lo demás', async () => {
     const db = baseFalsa({
       bot_conversaciones: { select: conv(h(['user', 'Me llevo los 3 y un judas más.'], ['assistant', M12])) },
       lineas_whatsapp: { select: { data: CFG, error: null } },
@@ -191,17 +191,47 @@ describe('la charla de Pablo con la consulta silenciosa (6/10/2026)', () => {
     s.claude = { messages: { create: crear } };
     const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: AUDIO_14, deAudio: true });
     expect(r.respuesta).toBe(dale);
-    const reescritura = crear.mock.calls.map((c: any[]) => c[0]).filter((p: any) => p.model !== 'claude-haiku-4-5')[2];
-    // nada que consulte, derive o cree un pedido (revisión del 6/10/2026)
-    const nombres = (reescritura.tools ?? []).map((t: any) => t.name);
-    expect(nombres).toEqual(expect.arrayContaining(['cotizar_pedido', 'buscar_productos']));
-    expect(nombres).not.toEqual(expect.arrayContaining(['consultar_interno']));
-    for (const n of ['consultar_interno', 'crear_pedido', 'derivar_pago', 'derivar_a_humano', 'nota_interna', 'cancelar_pedido']) expect(nombres).not.toContain(n);
+    const principales = crear.mock.calls.map((c: any[]) => c[0]).filter((p: any) => p.model !== 'claude-haiku-4-5');
+    const reescritura = principales[2];
+    // 6/10/2026 (Opus 5.5): la reescritura ve la MISMA lista de herramientas que el
+    // bucle (achicarla invalida el razonamiento guardado y la caché); nada que
+    // consulte, derive o cree un pedido se EJECUTA (ver la prueba siguiente)
+    expect(reescritura.tools).toEqual(principales[0].tools);
+    expect(reescritura.tool_choice).toBeUndefined();
     expect(reescritura.thinking).toEqual({ type: 'adaptive' });
+    expect(reescritura.output_config).toEqual(principales[0].output_config);
     const ultimo = reescritura.messages.at(-1).content;
     const nota = typeof ultimo === 'string' ? ultimo : ultimo.map((x: any) => x.text ?? '').join(' ');
     expect(nota).toMatch(/Al cliente NO le menciones nada de eso/);
     expect(nota).toMatch(/Si no hay nada más que contestar, no escribas nada/);
+    expect(nota).toMatch(/solo podés buscar, cotizar o preparar el pedido/);
+  });
+
+  it('(3c) en la reescritura, lo que no puede usar no se ejecuta: consultar o derivar contestan «no disponible» y no cuentan como hechos', async () => {
+    const db = baseFalsa({
+      bot_conversaciones: { select: conv(h(['user', 'Me llevo los 3 y un judas más.'], ['assistant', M12])) },
+      lineas_whatsapp: { select: { data: CFG, error: null } },
+      bot_consultas_internas: { select: { data: [abiertaCaja()], error: null }, insert: { data: { id: 'NO-DEBERIA' }, error: null } },
+    });
+    const { s } = servicio(db);
+    const derivar = jest.spyOn(s, 'derivarAHumano').mockResolvedValue({ derivado: true } as any);
+    const dale = 'Dale, Pablo: te los dejo a tu nombre para retirar en la sucursal Saint Thomas.';
+    const crear = claudeCon(
+      conHerramientas(herramienta('c1', 'consultar_interno', { area: 'administracion', consulta: CAJA_1617, tema: 'la caja para viajar', direccion: '' })),
+      texto('Te confirmo por acá lo de la caja.'),
+      // en la reescritura intenta consultar otra cosa y derivar: no se ejecuta ninguna
+      conHerramientas({ type: 'thinking', thinking: '', signature: 's1' }, herramienta('c2', 'consultar_interno', { area: 'administracion', consulta: '¿Tienen bolsas térmicas?', tema: 'las bolsas térmicas', direccion: '' }), herramienta('d2', 'derivar_a_humano', { motivo: 'caja' })),
+      texto(dale),
+    );
+    s.claude = { messages: { create: crear } };
+    const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: AUDIO_14, deAudio: true });
+    expect(r.respuesta).toBe(dale);
+    expect(insertsDe(db, 'bot_consultas_internas')).toHaveLength(0);
+    expect(derivar).not.toHaveBeenCalled();
+    const principales = crear.mock.calls.map((c: any[]) => c[0]).filter((p: any) => p.model !== 'claude-haiku-4-5');
+    const resultados = principales[3].messages.flatMap((m: any) => (Array.isArray(m.content) ? m.content : [])).filter((b: any) => b.type === 'tool_result' && ['c2', 'd2'].includes(b.tool_use_id));
+    expect(resultados).toHaveLength(2);
+    for (const x of resultados) { expect(x.is_error).toBe(true); expect(String(x.content)).toMatch(/No disponible en esta vuelta/); }
   });
 
   it('(4) administración contesta la consulta de la caja → al cliente le llega un mensaje que se entiende solo, sin «te confirmo» ni «como te dije»', async () => {

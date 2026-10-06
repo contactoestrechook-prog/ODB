@@ -334,7 +334,11 @@ export class AgenteService {
     try {
       const r = await this.claude.messages.create({
         model: 'claude-sonnet-5',
-        max_tokens: 300,
+        // 6/10/2026: Sonnet 5 razona aunque no se lo pida y el razonamiento sale de
+        // este mismo tope: con 300 se cortaba antes del JSON y TODA foto salía como
+        // «error evaluando calidad» (guía de Anthropic, «Migrating to Claude Sonnet 5»).
+        max_tokens: 4000,
+        thinking: { type: 'adaptive' },
         messages: [{
           role: 'user',
           content: [

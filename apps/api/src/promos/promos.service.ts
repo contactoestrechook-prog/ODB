@@ -3,6 +3,7 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
 import { SUPABASE } from '../supabase.provider';
 import { AnalistaService } from '../analista/analista.service';
+import { esfuerzo, jsonDe, MODELO_PRINCIPAL, RAZONAMIENTO } from '../comun/modelos';
 
 // Borrador de promo que la UI puede crear con un click (POST /descuentos)
 const ESQUEMA_PROPUESTAS = {
@@ -311,13 +312,16 @@ Devolvé: un titular de hasta 8 palabras, un cuerpo de 2 a 3 líneas, un llamado
 
   private async claude(prompt: string, schema: any): Promise<any> {
     const claude = new Anthropic();
+    // 6/10/2026: Opus 5.5 (comun/modelos.ts). Iba sin razonamiento (en 4.8,
+    // omitirlo lo apaga: contra la regla del 9/9) y con 3000 de tope, que en 5.5
+    // comparte con el razonamiento. Un rechazo o un corte dan un error claro.
     const respuesta = await claude.messages.create({
-      model: 'claude-opus-4-8',
-      max_tokens: 3000,
+      model: MODELO_PRINCIPAL,
+      max_tokens: 16000,
+      thinking: RAZONAMIENTO,
       messages: [{ role: 'user', content: prompt }],
-      output_config: { format: { type: 'json_schema', schema } } as any,
+      output_config: { effort: esfuerzo('PROMOS_ESFUERZO'), format: { type: 'json_schema', schema } } as any,
     });
-    const texto = respuesta.content.find((b) => b.type === 'text');
-    return JSON.parse(texto && 'text' in texto ? texto.text : '{}');
+    return jsonDe(respuesta, 'La propuesta de promociones');
   }
 }

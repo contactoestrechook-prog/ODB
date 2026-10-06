@@ -2,6 +2,7 @@ import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
 import { SUPABASE } from '../supabase.provider';
+import { esfuerzo, jsonDe, MODELO_PRINCIPAL, RAZONAMIENTO } from '../comun/modelos';
 
 const ESQUEMA = {
   type: 'object',
@@ -282,11 +283,14 @@ Reglas de cálculo:
 - Si NO afecta el costo (es solo un comentario), factorCosto = 1.
 Si menciona un producto puntual, poné su nombre en productoMencionado y alcance="producto"; si aplica a toda la compra, alcance="lista" y productoMencionado=null.
 factorCosto entre 0 y 1 (1 = sin cambio). equivaleADescuentoPct = round((1-factorCosto)*100). explicacion = una frase clara en español explicando la cuenta.`;
+    // 6/10/2026: Opus 5.5 (comun/modelos.ts). Iba sin razonamiento (en 4.8,
+    // omitirlo lo apaga: contra la regla del 9/9) y con 1024 de tope, que en 5.5
+    // comparte con el razonamiento: el JSON se cortaba. Un rechazo o un corte
+    // dan un error claro, no un JSON.parse roto.
     const r = await this.claude.messages
-      .stream({ model: 'claude-opus-4-8', max_tokens: 1024, output_config: { format: { type: 'json_schema', schema: ESQ } } as any, messages: [{ role: 'user', content: [{ type: 'text', text: `Aclaración del proveedor: "${b.texto.trim()}"` }, { type: 'text', text: PROMPT }] }] })
+      .stream({ model: MODELO_PRINCIPAL, max_tokens: 8000, thinking: RAZONAMIENTO, output_config: { effort: esfuerzo('COMPARADOR_ESFUERZO'), format: { type: 'json_schema', schema: ESQ } } as any, messages: [{ role: 'user', content: [{ type: 'text', text: `Aclaración del proveedor: "${b.texto.trim()}"` }, { type: 'text', text: PROMPT }] }] })
       .finalMessage();
-    const bloque = (r.content as any[]).find((x) => x.type === 'text');
-    const out = JSON.parse(bloque?.text ?? '{}');
+    const out = jsonDe<any>(r, 'La lectura de la aclaración');
     let f = Number(out.factorCosto);
     if (!Number.isFinite(f) || f <= 0 || f > 1) f = 1;
     return {

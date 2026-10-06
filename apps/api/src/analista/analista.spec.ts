@@ -122,15 +122,28 @@ describe('charlar(): veredicto del modelo + cifras del sistema, por proveedor', 
     expect(pedido.system[1].text).toContain('[P01] LUVIK S.A.');
   });
 
-  it('si la API rechaza el pedido (400), reintenta una vez sin razonamiento', async () => {
+  // 6/10/2026: el reintento SIN razonamiento iba contra la regla del 9/9 y en
+  // Opus 5.5 apagarlo es otro 400. Ahora no se reintenta: salen las cifras con el
+  // veredicto de respaldo
+  it('si la API rechaza el pedido (400), no reintenta sin razonamiento: las cifras salen con el veredicto de respaldo', async () => {
     const db = dbFalsa([fila(1)]);
-    crear
-      .mockRejectedValueOnce(Object.assign(new Error('invalid'), { status: 400 }))
-      .mockResolvedValueOnce({ stop_reason: 'end_turn', content: [{ type: 'text', text: JSON.stringify({ respuesta: 'Pedí a Luvik.', mostrar: ['compras'], proveedores: [] }) }] });
+    crear.mockRejectedValueOnce(Object.assign(new Error('invalid'), { status: 400 }));
+    const r: any = await new AnalistaService(db).charlar([{ rol: 'usuario', texto: '¿Qué compro?' }]);
+    expect(crear).toHaveBeenCalledTimes(1);
+    expect(r.respuesta).toMatch(/No llegué a escribir el análisis/);
+    expect(r.tablero.compras.proveedores).toHaveLength(1);
+  });
+
+  it('va a Opus 5.5 con razonamiento, esfuerzo explícito y lugar para pensar', async () => {
+    const db = dbFalsa([fila(1)]);
+    crear.mockResolvedValueOnce({ stop_reason: 'end_turn', content: [{ type: 'thinking', thinking: '', signature: 'x' }, { type: 'text', text: JSON.stringify({ respuesta: 'Pedí a Luvik.', mostrar: ['compras'], proveedores: [] }) }] });
     const r: any = await new AnalistaService(db).charlar([{ rol: 'usuario', texto: '¿Qué compro?' }]);
     expect(r.respuesta).toBe('Pedí a Luvik.');
-    expect(crear.mock.calls[1][0].thinking).toBeUndefined();
-    expect(crear.mock.calls[1][0].output_config.format.type).toBe('json_schema');
+    const pedido = crear.mock.calls[0][0];
+    expect(pedido.model).toBe('claude-opus-5-5');
+    expect(pedido.thinking).toEqual({ type: 'adaptive' });
+    expect(pedido.output_config.effort).toBe('medium');
+    expect(pedido.max_tokens).toBeGreaterThanOrEqual(16000);
   });
 
   it('si el modelo se corta, las cifras igual salen con un veredicto de respaldo', async () => {

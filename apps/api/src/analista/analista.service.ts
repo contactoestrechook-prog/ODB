@@ -3,6 +3,7 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
 import { SUPABASE } from '../supabase.provider';
 import { TONO_ODB } from '../comun/tono-odb';
+import { esfuerzo, jsonDe, MODELO_PRINCIPAL, RAZONAMIENTO } from '../comun/modelos';
 import { pesosPlaca, separarDetalle, type DetallePlaca, type ProductoVisto } from '../comun/detalle-productos';
 import { normalizarTexto } from '../comun/busqueda';
 import { leerAbastecimiento, leerCostos } from '../abastecimiento/motor';
@@ -280,16 +281,18 @@ export class AnalistaService {
 
     const claude = new Anthropic();
     const pedido: any = {
-      model: 'claude-opus-4-8',
+      // Opus 5.5 desde el 6/10/2026 (comun/modelos.ts): era Opus 4.8, 20 % más caro por token
+      model: MODELO_PRINCIPAL,
       max_tokens: 16000,
-      thinking: { type: 'adaptive' },
+      thinking: RAZONAMIENTO,
       // lo fijo va primero y con caché; la foto del día cambia en cada consulta
       system: [
         { type: 'text', text: PERSONALIDAD, cache_control: { type: 'ephemeral' } },
         { type: 'text', text: `Foto del día (${new Date().toLocaleDateString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' })}):\n${lineas.join('\n')}\n\nAumentos de costo en los últimos 45 días:\n${aumentos}` },
       ],
       // esfuerzo medio: piensa lo necesario sin comerse el lugar del JSON
-      output_config: { effort: 'medium', format: { type: 'json_schema', schema: esquemaConClaves([...claves.keys()]) as any } },
+      // (ANALISTA_ESFUERZO lo cambia sin tocar código, 6/10/2026)
+      output_config: { effort: esfuerzo('ANALISTA_ESFUERZO'), format: { type: 'json_schema', schema: esquemaConClaves([...claves.keys()]) as any } },
       // Anthropic rechaza un turno vacío (un veredicto que quedó en blanco)
       messages: mensajes.slice(-10).map((m) => ({
         role: m.rol === 'usuario' ? ('user' as const) : ('assistant' as const),
@@ -300,12 +303,13 @@ export class AnalistaService {
     try {
       respuesta = await claude.messages.create(pedido);
     } catch (e: any) {
-      // si la API rechaza la combinación (razonamiento + esfuerzo + formato), un
-      // reintento con lo de siempre: que el dueño no se quede sin análisis
+      // 6/10/2026: el reintento SIN razonamiento se sacó. Iba contra la regla del
+      // 9/9 (razonamiento siempre encendido) y en Opus 5.5 apagarlo es otro 400.
+      // Un 400 acá es un error del pedido: el dueño no se queda sin nada, las
+      // cifras del día salen igual con el veredicto de respaldo de abajo.
       if (e?.status !== 400) throw e;
-      console.warn(`Analista ODB: la API rechazó el pedido (${e?.message ?? e}); reintento sin razonamiento`);
-      const { thinking, ...resto } = pedido;
-      respuesta = await claude.messages.create({ ...resto, max_tokens: 4000, output_config: { format: pedido.output_config.format } });
+      console.warn(`Analista ODB: la API rechazó el pedido (${e?.message ?? e}); salen las cifras con el veredicto de respaldo`);
+      respuesta = { stop_reason: 'error', content: [] };
     }
 
     const bloque = respuesta.content.find((b) => b.type === 'text');
@@ -442,8 +446,12 @@ export class AnalistaService {
 
     const claude = new Anthropic();
     const respuesta = await claude.messages.create({
-      model: 'claude-opus-4-8',
-      max_tokens: 4000,
+      // Opus 5.5 desde el 6/10/2026 (comun/modelos.ts). Iba sin razonamiento (en
+      // 4.8, omitirlo lo apaga: contra la regla del 9/9) y con 4000 de tope; en 5.5
+      // el razonamiento sale del mismo presupuesto y se corta: 16000.
+      model: MODELO_PRINCIPAL,
+      max_tokens: 16000,
+      thinking: RAZONAMIENTO,
       system: [
         {
           type: 'text',
@@ -458,7 +466,7 @@ Armá 3 o 4 boxes vendibles combinando SOLO productos del catálogo de abajo (SK
         },
         { type: 'text', text: `Catálogo con stock:\n${catalogo}` },
       ],
-      output_config: { format: { type: 'json_schema', schema: esquema as any } },
+      output_config: { effort: esfuerzo('ANALISTA_ESFUERZO'), format: { type: 'json_schema', schema: esquema as any } },
       messages: [
         {
           role: 'user',
@@ -469,8 +477,8 @@ Armá 3 o 4 boxes vendibles combinando SOLO productos del catálogo de abajo (SK
       ],
     });
 
-    const texto = respuesta.content.find((b) => b.type === 'text');
-    const datos = JSON.parse(texto && 'text' in texto ? texto.text : '{"armados":[]}');
+    // un rechazo o un corte por el tope dan un error claro, no un JSON.parse roto (6/10/2026)
+    const datos = jsonDe<any>(respuesta, 'El armador de combos');
 
     // Recalculo los números reales (la IA propone, los precios los valida el sistema)
     const skuPor = new Map(conStock.map((p: any) => [p.sku, p]));

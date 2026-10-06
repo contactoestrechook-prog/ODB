@@ -3,6 +3,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { CatalogoService } from '../catalogo/catalogo.service';
 import { respuestaSinVueltas } from '../comun/sin-vueltas';
 import { armarRespuesta, grupoDeRespaldo, type PropuestaModelo } from './armar-respuesta';
+import { esfuerzo, MODELO_PRINCIPAL, RAZONAMIENTO } from '../comun/modelos';
 
 // Asistente de compras de la tienda online (11/9/2026). Pedido de Leandro:
 // «que tenga un botón y ahí empezar a usar la inteligencia artificial: que le
@@ -13,7 +14,9 @@ import { armarRespuesta, grupoDeRespaldo, type PropuestaModelo } from './armar-r
 // Busca con el MISMO buscador de la tienda (CatalogoService): mismos precios,
 // mismas fotos, mismo carrito. El modelo no puede mostrar nada que no haya
 // salido de una búsqueda de esta charla (armar-respuesta.ts lo controla).
-const MODELO = process.env.ASISTENTE_MODELO ?? 'claude-opus-4-8';
+// 6/10/2026: Opus 5.5 (comun/modelos.ts), 20 % más barato por token que el 4.8;
+// ASISTENTE_MODELO sigue mandando.
+const MODELO = process.env.ASISTENTE_MODELO ?? MODELO_PRINCIPAL;
 
 const SYSTEM = `Sos el asistente de compras de la tienda online de O.D.B Premium Market, un premium market de Canning: almacén gourmet, fiambrería, quesos, bebidas, bodega, dulces y regalería, unos 10.000 productos. Envío a domicilio, retiro en el local y pick-up al auto.
 
@@ -114,13 +117,22 @@ export class AsistenteService {
         res = await claude.messages.create(
           {
             model: MODELO,
-            max_tokens: 2500,
+            // 6/10/2026 (Opus 5.5): el razonamiento ya no se puede apagar (en 4.8 iba
+            // apagado por omisión, contra la regla del 9/9) y sale del mismo tope:
+            // 8000 para que no corte la respuesta. Se paga lo que se usa.
+            max_tokens: 8000,
+            thinking: RAZONAMIENTO,
             // Una compra guiada tiene que contestar rápido: esfuerzo bajo. Las
             // cuentas y los precios no los hace el modelo, salen del catálogo.
-            output_config: { effort: 'low' as any },
+            // (ASISTENTE_ESFUERZO lo cambia; ojo con el tope de 50 s de la charla)
+            output_config: { effort: esfuerzo('ASISTENTE_ESFUERZO', 'low') },
             system: [{ type: 'text', text: SYSTEM, cache_control: { type: 'ephemeral' } }],
             tools: HERRAMIENTAS,
             messages: historial,
+            // caché sobre la charla (6/10/2026): cada vuelta reenviaba entera la
+            // charla con los resultados de las búsquedas; con la marca automática al
+            // final, la vuelta siguiente lee todo eso a 0,05× en vez de pagarlo entero
+            cache_control: { type: 'ephemeral' },
           },
           { signal: AbortSignal.timeout(queda) },
         );

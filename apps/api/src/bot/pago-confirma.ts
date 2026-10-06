@@ -15,6 +15,7 @@
 
 import { pesos } from './comercio';
 import { casiIgual, SUCURSAL_CENTRAL } from './prolijo';
+import { esfuerzo } from '../comun/modelos';
 
 export type ArchivoDelTurno = { base64: string; mime: string };
 export type MensajeDeCharla = { role: string; content: unknown };
@@ -240,10 +241,11 @@ export async function leerImporteDelComprobante(claude: ClienteClaude, modelo: s
   const bloque = esPdf
     ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: archivo.base64 } }
     : { type: 'image', source: { type: 'base64', media_type: /^image\/(jpeg|png|gif|webp)$/.test(mime) ? mime : 'image/jpeg', data: archivo.base64 } };
+  const razonamiento = razonamientoPara(modelo);
   const r = await claude.messages.create({
     model: modelo,
     max_tokens: 8192, // el razonamiento sale del mismo presupuesto: con poco, la respuesta viene vacía
-    thinking: razonamientoPara(modelo),
+    thinking: razonamiento,
     system: 'Leés comprobantes de transferencias y pagos bancarios de Argentina. Devolvés solo el importe transferido, en pesos.',
     messages: [{
       role: 'user',
@@ -253,6 +255,9 @@ export async function leerImporteDelComprobante(claude: ClienteClaude, modelo: s
       ],
     }],
     output_config: {
+      // esfuerzo explícito (6/10/2026, Opus 5.5): su valor por defecto bajó de high
+      // a medium y se fija a la vista; en los modelos viejos (budget_tokens) no va
+      ...(razonamiento.type === 'adaptive' ? { effort: esfuerzo() } : {}),
       format: {
         type: 'json_schema',
         schema: { type: 'object', properties: { importe: { anyOf: [{ type: 'number' }, { type: 'null' }] } }, required: ['importe'], additionalProperties: false },

@@ -53,7 +53,8 @@ function bonitoTelefono(t: string): string {
   if (d.length === 13 && d.startsWith('549')) return `${d.slice(3, 5)} ${d.slice(5, 9)}-${d.slice(9)}`;
   return d ? `+${d}` : '';
 }
-import { costoUSD } from './tarifas';
+import { costoUSD, usoDeRespuesta } from './tarifas';
+import { esfuerzo, RAZONAMIENTO } from '../comun/modelos';
 import { cartelListaPrecios, cartelPedido, imagenEsperada, leerResumenDePedido, nombreParaCartel, pieSinPrecios, preciosDeLaRespuesta, ProductoConPrecio } from '../comun/cartel-pedido';
 import { etiquetaDeFila, Lineas, sesionPrincipal } from '../comun/lineas';
 import { cierraLaRafaga, esperaDeRafaga, juntarRafaga, msHastaContestar, type MensajeDeRafaga } from './espera-rafaga';
@@ -62,7 +63,45 @@ import { cierraLaRafaga, esperaDeRafaga, juntarRafaga, msHastaContestar, type Me
 const envioMinimo = () => Number(process.env.ENVIO_MINIMO ?? 70000) || 70000;
 // herramientas que solo leen: se pueden ejecutar en paralelo dentro de un turno
 const HERRAMIENTAS_DE_LECTURA = new Set(['buscar_productos', 'consultar_cava', 'identificar_cliente', 'estado_local', 'estado_pedido']);
+// el tope de cada llamada del bot a Opus (6/10/2026; ver pedidoBot)
+const MAX_TOKENS_BOT = 16000;
+// lo que se le suma a la consigna de una regeneración (6/10/2026; ver regenerar)
+const AVISO_SIN_HERRAMIENTAS = '[nota interna: en esta vuelta no uses herramientas: escribí directamente el mensaje para el cliente.]';
+// la caché del prompt fijo (6/10/2026; ver prefijoEnUso): se renueva si pasaron
+// 4 minutos sin llamadas (vive 5), mientras haya habido movimiento en la última hora
+const PREFIJO_REFRESCO_MS = 4 * 60_000;
+const PREFIJO_VIVO_MS = 60 * 60_000;
+/** La marca de caché del prompt fijo: 5 minutos, o 1 hora con ODB_BOT_CACHE_PREFIJO=1h (6/10/2026). */
+function marcaDelPrefijo(): Anthropic.CacheControlEphemeral {
+  return process.env.ODB_BOT_CACHE_PREFIJO === '1h' ? { type: 'ephemeral', ttl: '1h' } : { type: 'ephemeral' };
+}
 const TODAVIA_SIN_PRECIOS = 'TODAVÍA NO PASES PRECIOS (regla del dueño): primero confirmá que el pedido está completo. Respondé con la lista de lo que anotaste, un renglón por producto «• cantidad × producto puntual», SIN precios ni total, y la pregunta «¿Está completo el pedido o querés sumar algo?». Si algo no tiene stock o hay que elegir variante, decilo en esa lista. Recién cuando el cliente confirme que está completo, cotizar_pedido.';
+
+/**
+ * TOPE DE LA BÚSQUEDA DEL BOT (6/10/2026, ODB_BOT_TOPE_BUSQUEDA; apagado por
+ * defecto). Medido del 2 al 6/10: «queso» devolvía 144 productos y «tita» 119,
+ * cada uno con su ficha, y en un pedido largo cada vuelta vuelve a escribir todo
+ * eso en la caché (los turnos de 4 o más llamadas, 19 % de las charlas, se
+ * llevaron el 55 % del gasto). Con un tope (por ejemplo 20) van las fichas del
+ * producto por defecto y de los más vendidos, en el orden de la búsqueda, y del
+ * resto solo el nombre: el modelo sabe que existen y los busca por nombre si el
+ * cliente los quiere. Apagado porque cambia lo que ve el bot (con 10 decía
+ * «tenemos tres» cuando había quince): primero hay que probarlo con el banco.
+ */
+export function recortarBusqueda<T extends { sku?: string; nombre?: string; porDefecto?: boolean }>(items: T[], vendidas: (sku: string) => number, tope: number): { visibles: T[]; otrosConStock: string | null } {
+  if (!(tope > 0) || items.length <= tope) return { visibles: items, otrosConStock: null };
+  const ranking = items
+    .map((it, i) => ({ it, i }))
+    .sort((a, b) => Number(!!b.it.porDefecto) - Number(!!a.it.porDefecto) || vendidas(String(b.it.sku ?? '')) - vendidas(String(a.it.sku ?? '')) || a.i - b.i);
+  const quedan = new Set(ranking.slice(0, tope).map((x) => x.i));
+  const visibles = items.filter((_, i) => quedan.has(i));
+  const fuera = items.filter((_, i) => !quedan.has(i));
+  const nombres = fuera.slice(0, 60).map((x) => String(x.nombre ?? '')).join(' | ');
+  return {
+    visibles,
+    otrosConStock: `${fuera.length} productos más con stock en esta búsqueda, acá solo por nombre (si el cliente quiere alguno, buscalo por su nombre para ver el precio): ${nombres}${fuera.length > 60 ? ` | +${fuera.length - 60} más` : ''}`,
+  };
+}
 
 /**
  * ¿Es un acuse corto ("ok", "listo", "Okk", 👍🏻, 🙏)? Lo que administración
@@ -868,18 +907,24 @@ export class BotService {
       : documentoDelTurno
       ? [{ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: documentoDelTurno.base64 } }, { type: 'text', text: t }]
       : t);
-    const messages: Anthropic.MessageParam[] = [
-      ...historial,
-      { role: 'user', content: contenidoDelTurno(`${texto}\n\n[metadatos: telefono del chat = ${telefono}${quien}; ahora es ${ahoraBA} (hora de Buenos Aires); si corresponde saludar, el saludo correcto es "${saludo}". Estado de la charla: ${estado.join(' · ')}${bloquesPendientes.length ? `. OJO: el cliente mandó ${bloquesPendientes.length} archivo(s) ANTES (cuando no se podían abrir) y ahora los tenés adjuntos en este turno: leelos y usalos para responder; NO preguntes nada que esos archivos ya respondan` : ''}${imagenDelTurno ? (dto.vistaPreviaDeVideo ? '. El cliente mandó un VIDEO y lo que ves es su vista previa (el primer cuadro). Usá la vista previa para entender el requerimiento, sin describir la imagen. Si falta un dato, ejecutá consultar_interno (area administracion) y al cliente no le digas nada de eso: si no hay otra cosa que contestar, no escribas nada. Jamás digas que no podés ver videos' : '. El cliente mandó una FOTO: usala como información para resolver su requerimiento. NO describas la imagen, no enumeres lo visible, no digas "veo dos botellas" ni "recibí la foto". La cantidad visible NO es cantidad pedida. Respondé directamente al pedido del texto o del historial. Si falta intención, una sola pregunta concreta. Si es un producto, buscalo en el catálogo por lo que leas en la etiqueta; si es un comprobante de pago, leé el MONTO y el NOMBRE o razón social del titular que transfirió, y llamá derivar_pago con tipo "comprobante_enviado", ese monto y de_quien; si no se entiende, pedí que la saque de nuevo más nítida') : documentoDelTurno ? '. El cliente mandó un PDF: usalo para resolver su requerimiento, sin resumir el archivo salvo que lo pida. Si pregunta por productos de una lista, contestá con los del catálogo nuestro; si es un comprobante de pago, leé el MONTO y el NOMBRE o razón social del titular que transfirió, y llamá derivar_pago con tipo "comprobante_enviado", ese monto y de_quien; si no se puede leer, pedí que lo reenvíe' : ''}]`) },
-    ];
-
     // 3) loop del agente: Opus razona, pide herramientas, las ejecutamos y sigue
     const tools = tipoLinea === 'pedidos' ? HERRAMIENTAS_PEDIDOS : HERRAMIENTAS_PROVEEDORES;
+    // EL HILO SE REUSA ENTRE TURNOS (6/10/2026, ODB_BOT_CACHE_HILO=1; apagado por
+    // defecto hasta probarlo con el banco). Medido del 2 al 6/10: el historial de
+    // la charla nunca se leía de la caché, se volvía a escribir entero en cada
+    // turno (1,25× la entrada) aunque el 90 % de las respuestas del mismo cliente
+    // llegan antes de 5 minutos. Lo impedían el reloj con minutos dentro del
+    // system (cambia todo el tiempo y todo lo que va después se invalida), los
+    // avisos de cada mensaje también en el system, y que no había marca de caché
+    // al final del historial. Con la variable: el system lleva solo la fecha (la
+    // hora ya va en los metadatos del mensaje), los avisos del mensaje van al final
+    // del mensaje del cliente, y el último mensaje del historial lleva su marca.
+    const hiloEstable = process.env.ODB_BOT_CACHE_HILO === '1';
     const system: Anthropic.TextBlockParam[] = [
       {
         type: 'text',
         text: tipoLinea === 'pedidos' ? SYSTEM_PEDIDOS : SYSTEM_PROVEEDORES,
-        cache_control: { type: 'ephemeral' },
+        cache_control: marcaDelPrefijo(),
       },
     ];
     // El modelo NO tiene reloj: sin esto inventaba fechas de entrega pasadas y
@@ -890,7 +935,9 @@ export class BotService {
     const fechaIso = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }).format(reloj);
     const horaReloj = reloj.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Argentina/Buenos_Aires' });
     const manianaIso = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }).format(new Date(reloj.getTime() + 86400_000));
-    system.push({ type: 'text', text: `HOY ES ${fechaLarga}, ${horaReloj} hs (Buenos Aires). En formato AAAA-MM-DD: hoy ${fechaIso}, mañana ${manianaIso}. Una fecha de entrega solo se pasa si el cliente pidió un día; si no, entrega_fecha va vacío.` });
+    system.push({ type: 'text', text: hiloEstable
+      ? `HOY ES ${fechaLarga} (Buenos Aires; la hora exacta va en los metadatos de cada mensaje). En formato AAAA-MM-DD: hoy ${fechaIso}, mañana ${manianaIso}. Una fecha de entrega solo se pasa si el cliente pidió un día; si no, entrega_fecha va vacío.`
+      : `HOY ES ${fechaLarga}, ${horaReloj} hs (Buenos Aires). En formato AAAA-MM-DD: hoy ${fechaIso}, mañana ${manianaIso}. Una fecha de entrega solo se pasa si el cliente pidió un día; si no, entrega_fecha va vacío.` });
 
     // Información vigente de la línea (campañas, eventos, avisos del momento):
     // la carga la dirección en las notas de la línea y Emilia la conoce sin
@@ -905,30 +952,40 @@ export class BotService {
       });
     }
 
+    // los avisos que valen solo para este mensaje: en el system (como siempre) o,
+    // con ODB_BOT_CACHE_HILO, al final del mensaje del cliente (6/10/2026)
+    const avisosDelMensaje: string[] = [];
+    const avisar = (t: string) => { if (hiloEstable) avisosDelMensaje.push(t); else system.push({ type: 'text', text: t }); };
+
     // "coca de 2 litros 25" es 2,25 L, no 25 unidades de 2 L: la medida partida
     // la resuelve el sistema y se la dice al modelo (18/9/2026).
     const mlPartida = medidaPartida(texto);
     if (mlPartida) {
-      system.push({
-        type: 'text',
-        text: `MEDIDA QUE ESCRIBIÓ EL CLIENTE: "${texto.slice(0, 80)}" significa ${String(mlPartida / 1000).replace('.', ',')} L (la medida viene partida, NO es una cantidad). Buscá ese tamaño (por ejemplo "${String(mlPartida / 1000).replace('.', ',')}") antes de contestar.`,
-      });
+      avisar(`MEDIDA QUE ESCRIBIÓ EL CLIENTE: "${texto.slice(0, 80)}" significa ${String(mlPartida / 1000).replace('.', ',')} L (la medida viene partida, NO es una cantidad). Buscá ese tamaño (por ejemplo "${String(mlPartida / 1000).replace('.', ',')}") antes de contestar.`);
     }
 
     // CUÁNTO pidió de cada cosa, leído por el sistema. "Puede ser 4 Malboro gold"
     // son cuatro: el bot cotizó uno y el cliente tuvo que pedirlo dos veces más
     // UN "?" SUELTO (23/9/2026): el bot repetía los precios que acababa de dar.
     if (/^\s*[?¿]+\s*$/.test(texto)) {
-      system.push({ type: 'text', text: 'El cliente mandó solo un signo de pregunta: no entendió lo último o espera algo más. PROHIBIDO repetir nada de lo que ya le dijiste (ni precios ni productos) y no llames herramientas. Preguntale en UNA línea corta qué necesita saber.' });
+      avisar('El cliente mandó solo un signo de pregunta: no entendió lo último o espera algo más. PROHIBIDO repetir nada de lo que ya le dijiste (ni precios ni productos) y no llames herramientas. Preguntale en UNA línea corta qué necesita saber.');
     }
     // (18/9/2026). El modelo ve la cuenta ya hecha y no tiene que deducirla.
     const pedidas = cantidadesPedidas(texto);
     if (pedidas.length) {
-      system.push({
-        type: 'text',
-        text: `CANTIDADES QUE PIDIÓ EL CLIENTE EN ESTE MENSAJE (las leyó el sistema, son firmes): ${pedidas.map((x) => `${x.cantidad} × ${x.que}`).join(' · ')}. Anotá ESAS cantidades de una, sin volver a preguntar cuántas, y nombrando el producto puntual que pidió (no la lista de la marca).`,
-      });
+      avisar(`CANTIDADES QUE PIDIÓ EL CLIENTE EN ESTE MENSAJE (las leyó el sistema, son firmes): ${pedidas.map((x) => `${x.cantidad} × ${x.que}`).join(' · ')}. Anotá ESAS cantidades de una, sin volver a preguntar cuántas, y nombrando el producto puntual que pidió (no la lista de la marca).`);
     }
+
+    const ultimoDelHilo = historial[historial.length - 1];
+    const messages: Anthropic.MessageParam[] = [
+      // con ODB_BOT_CACHE_HILO, el último mensaje del historial lleva la marca de
+      // caché: el turno siguiente lee de ahí para atrás (una copia: el historial
+      // que se guarda no cambia)
+      ...(hiloEstable && ultimoDelHilo && typeof ultimoDelHilo.content === 'string' && ultimoDelHilo.content.trim()
+        ? [...historial.slice(0, -1), { role: ultimoDelHilo.role, content: [{ type: 'text' as const, text: ultimoDelHilo.content, cache_control: { type: 'ephemeral' as const } }] }]
+        : historial),
+      { role: 'user', content: contenidoDelTurno(`${texto}\n\n[metadatos: telefono del chat = ${telefono}${quien}; ahora es ${ahoraBA} (hora de Buenos Aires); si corresponde saludar, el saludo correcto es "${saludo}". Estado de la charla: ${estado.join(' · ')}${bloquesPendientes.length ? `. OJO: el cliente mandó ${bloquesPendientes.length} archivo(s) ANTES (cuando no se podían abrir) y ahora los tenés adjuntos en este turno: leelos y usalos para responder; NO preguntes nada que esos archivos ya respondan` : ''}${imagenDelTurno ? (dto.vistaPreviaDeVideo ? '. El cliente mandó un VIDEO y lo que ves es su vista previa (el primer cuadro). Usá la vista previa para entender el requerimiento, sin describir la imagen. Si falta un dato, ejecutá consultar_interno (area administracion) y al cliente no le digas nada de eso: si no hay otra cosa que contestar, no escribas nada. Jamás digas que no podés ver videos' : '. El cliente mandó una FOTO: usala como información para resolver su requerimiento. NO describas la imagen, no enumeres lo visible, no digas "veo dos botellas" ni "recibí la foto". La cantidad visible NO es cantidad pedida. Respondé directamente al pedido del texto o del historial. Si falta intención, una sola pregunta concreta. Si es un producto, buscalo en el catálogo por lo que leas en la etiqueta; si es un comprobante de pago, leé el MONTO y el NOMBRE o razón social del titular que transfirió, y llamá derivar_pago con tipo "comprobante_enviado", ese monto y de_quien; si no se entiende, pedí que la saque de nuevo más nítida') : documentoDelTurno ? '. El cliente mandó un PDF: usalo para resolver su requerimiento, sin resumir el archivo salvo que lo pida. Si pregunta por productos de una lista, contestá con los del catálogo nuestro; si es un comprobante de pago, leé el MONTO y el NOMBRE o razón social del titular que transfirió, y llamá derivar_pago con tipo "comprobante_enviado", ese monto y de_quien; si no se puede leer, pedí que lo reenvíe' : ''}]${avisosDelMensaje.length ? `\n\n[AVISOS DEL SISTEMA PARA ESTE MENSAJE: ${avisosDelMensaje.join(' · ')}]` : ''}`) },
+    ];
 
     // lo último que dijo el bot antes de este mensaje: las guardas de crear_pedido
     // lo usan para saber si ya mostró el total y pidió confirmación
@@ -956,16 +1013,19 @@ export class BotService {
     let respuesta = '';
     let tokens = 0; // costo del mensaje (entrada+salida, todas las vueltas)
     // desglose para saber en qué se va la plata: entrada fresca ($), caché leída
-    // (1/10), caché escrita (1,25x) y salida (5x la entrada). Va al log por turno.
-    const uso = { entrada: 0, cacheLeida: 0, cacheEscrita: 0, salida: 0, llamadas: 0 };
+    // (1/20 de la entrada en Opus 5.5; era 1/10 en Opus 5), caché escrita (1,25x;
+    // 2x la de 1 hora) y salida (5x la entrada). Va al log por turno.
+    const uso = { entrada: 0, cacheLeida: 0, cacheEscrita: 0, cacheEscrita1h: 0, salida: 0, llamadas: 0 };
     const sumarUso = (u: any) => {
       if (!u) return;
-      uso.entrada += u.input_tokens ?? 0;
-      uso.cacheLeida += u.cache_read_input_tokens ?? 0;
-      uso.cacheEscrita += u.cache_creation_input_tokens ?? 0;
-      uso.salida += u.output_tokens ?? 0;
+      const x = usoDeRespuesta(u);
+      uso.entrada += x.entrada;
+      uso.cacheLeida += x.cacheLeida;
+      uso.cacheEscrita += x.cacheEscrita;
+      uso.cacheEscrita1h += x.cacheEscrita1h ?? 0;
+      uso.salida += x.salida;
       uso.llamadas += 1;
-      tokens += (u.input_tokens ?? 0) + (u.output_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0);
+      tokens += x.entrada + x.salida + x.cacheEscrita + (x.cacheEscrita1h ?? 0) + x.cacheLeida;
     };
     // El modelo a veces escribe algo, DESPUÉS pide una herramienta, y recién en la
     // siguiente vuelta termina. Si solo se toma el texto de la última vuelta, lo
@@ -977,27 +1037,41 @@ export class BotService {
     // charla, antes de que confirme un pedido (5/10/2026, pago-confirma.ts)
     const archivoDelTurno: ArchivoDelTurno | undefined = imagenDelTurno ?? (documentoDelTurno ? { base64: documentoDelTurno.base64, mime: 'application/pdf' } : undefined);
     let vueltasReintento = 0;
-    for (let vuelta = 0; vuelta < MAX_VUELTAS; vuelta++) {
-      // si una herramienta ya falló 3 veces en este turno, la siguiente vuelta va
-      // SIN herramientas: tiene que contestarle al cliente con palabras
+    // lo que necesita cada herramienta del turno (el bucle, las correcciones y la
+    // reescritura tras una consulta usan el mismo)
+    const ctxHerr = { ultimoBot: ultimoDelBot, ultimosBot: ultimosDelBot, ultimosCliente: ultimosDelCliente, textoCliente: texto, fallos: fallosDelTurno, archivoUrl: dto.archivoUrl, fija: respuestaFija, salidas: salidasDelTurno, archivo: archivoDelTurno, historial };
+    const ejecutarEnElTurno = (b: Anthropic.ToolUseBlock) => { herramientasDelTurno.add(b.name); return this.ejecutarHerramienta(b, telefono, linea, ctxHerr); };
+    // tras una consulta el modelo siguió pidiendo herramientas: la vuelta que sigue
+    // no puede usarlas y tiene que escribir (6/10/2026, ver más abajo)
+    let cerrarConTexto = false;
+    // la API rechazó el turno por seguridad (ver más abajo)
+    let rechazado = false;
+    for (let vuelta = 0; vuelta < MAX_VUELTAS + (cerrarConTexto ? 1 : 0); vuelta++) {
+      // si una herramienta ya falló 3 veces en este turno, la siguiente vuelta no
+      // puede usar herramientas: tiene que contestarle al cliente con palabras.
+      // 6/10/2026 (Opus 5.5): antes iba SIN la lista de herramientas; en 5.5 eso
+      // invalida el razonamiento que ya está en la charla (400 en las cuentas
+      // nuevas). Va la misma lista con tool_choice none (pedidoBot).
+      // Desde el 6/10/2026 el modelo, el esfuerzo (medium, el de Opus 5.5; antes
+      // xhigh) y el tope (16000) salen de pedidoBot, iguales en todo el turno.
       const atascado = [...fallosDelTurno.values()].some((n) => n >= 3);
-      const r = await this.claude.messages.create({
-        model: MODELO_BOT,
-        // el pensamiento consume el mismo presupuesto que la respuesta: con
-        // effort alto y 4096 la contestación salía vacía (probado). Con 8192
-        // le sobra lugar para razonar Y escribir.
-        max_tokens: 8192,
-        thinking: { type: 'adaptive' },
-        // Que piense antes de contestar: 'xhigh' es el escalón por encima del
-        // default para trabajo con herramientas. Atender a un cliente con plata
-        // y stock de por medio merece que razone, no que dispare la primera
-        // respuesta. Se paga en tokens de salida, no en tiempo de nadie.
-        output_config: { effort: 'xhigh' },
-        system,
-        tools: tools.length && !atascado ? tools : undefined,
-        messages: this.conCache(messages),
-      });
+      const r = await this.claude.messages.create(this.pedidoBot(system, tools, messages, { sinHerramientas: atascado || cerrarConTexto }));
       sumarUso(r.usage);
+
+      // UN RECHAZO DE SEGURIDAD NO ES UNA RESPUESTA VACÍA (6/10/2026). Opus 5.5
+      // suma clasificadores (biología y «extraer el razonamiento») a los de
+      // ciberseguridad de Opus 5: el rechazo llega como stop_reason 'refusal', sin
+      // texto útil. Antes caía en las regeneraciones (que se rechazan igual y se
+      // pagan) y en «Disculpe, no pude procesar su mensaje». Ahora es algo que el
+      // bot no pudo contestar: se consulta en silencio con administración, como
+      // todo lo que no sabe, y al cliente no se le dice nada.
+      if (r.stop_reason === 'refusal') {
+        rechazado = true;
+        consultarEnSilencio = true;
+        this.log.warn(`la IA rechazó el turno de ${telefono} (${(r as any).stop_details?.category ?? 'sin categoría'}): se consulta en silencio`);
+        respuesta = '';
+        break;
+      }
 
       if (r.stop_reason === 'tool_use') {
         // ejecutar TODAS las herramientas pedidas y devolver los resultados juntos.
@@ -1015,7 +1089,6 @@ export class BotService {
         // 33 búsquedas de una, pero se ejecutaban una detrás de otra. Las que
         // solo LEEN arrancan juntas (de a 8); las que tienen efecto (pedido,
         // consulta, derivación) siguen de a una, en orden, como siempre.
-        const ctxHerr = { ultimoBot: ultimoDelBot, ultimosBot: ultimosDelBot, ultimosCliente: ultimosDelCliente, textoCliente: texto, fallos: fallosDelTurno, archivoUrl: dto.archivoUrl, fija: respuestaFija, salidas: salidasDelTurno, archivo: archivoDelTurno, historial };
         const adelantadas = new Map<string, Promise<Anthropic.ToolResultBlockParam>>();
         {
           const lecturas = (r.content as any[]).filter((b) => b.type === 'tool_use' && HERRAMIENTAS_DE_LECTURA.has(b.name));
@@ -1076,13 +1149,25 @@ export class BotService {
           vueltasTrasConsulta++;
           // el corte no tira lo que el modelo ya escribió en el turno (5/10/2026):
           // antes la respuesta quedaba vacía y al audio de Pablo, con nombre y
-          // retiro, le llegó solo el acuse
-          if (vueltasTrasConsulta > 1) { respuesta = textoRescatado(textosDelTurno); break; }
+          // retiro, le llegó solo el acuse.
+          // 6/10/2026 (Opus 5.5): lo que escribe ENTRE herramientas ahora vuelve
+          // vacío, dentro del razonamiento, así que rescatarlo ya no alcanza. Si
+          // insiste con herramientas, va una vuelta más con las mismas herramientas
+          // y tool_choice none: no puede usarlas y tiene que escribir el mensaje.
+          if (vueltasTrasConsulta > 1) {
+            if (cerrarConTexto) { respuesta = textoRescatado(textosDelTurno); break; }
+            cerrarConTexto = true;
+          }
         }
         continue;
       }
 
-      const final = r.content
+      // CORTADA POR EL TOPE (6/10/2026): el razonamiento sale del mismo
+      // presupuesto que la respuesta, y una respuesta cortada termina a mitad de
+      // frase. No sale así: se toma como vacía y el cierre de abajo la vuelve a pedir.
+      const cortada = r.stop_reason === 'max_tokens';
+      if (cortada) this.log.warn(`respuesta cortada por el tope de tokens para ${telefono}: no sale a medias`);
+      const final = cortada ? '' : r.content
         .filter((b): b is Anthropic.TextBlock => b.type === 'text')
         .map((b) => b.text)
         .join('\n')
@@ -1098,7 +1183,8 @@ export class BotService {
       } else if (final && previos) {
         respuesta = `${previos}\n\n${final}`;
       } else {
-        respuesta = previos;
+        // la vuelta obligada a escribir volvió vacía: lo que haya escrito antes, sin repetir
+        respuesta = cerrarConTexto ? textoRescatado(textosDelTurno) : previos;
       }
       break;
     }
@@ -1139,7 +1225,9 @@ export class BotService {
     // las guardas no corren en un turno con consulta ni con una operación (abajo se mira qué quedó sin control)
     const guardasCorrieron = !respuestaFija.consultaPendiente && !respuestaFija.operacion;
     if (guardasCorrieron) {
-    if (!respuesta && !calloPorPago) {
+    // (un rechazo de seguridad no se vuelve a pedir: se rechaza igual y se paga; va
+    // a la consulta silenciosa de la red de respaldo, 6/10/2026)
+    if (!respuesta && !calloPorPago && !rechazado) {
       // Ronda 9: "Disculpe, no pude procesar su mensaje" a "¿qué pedidos tengo?" —
       // el loop terminó sin texto (tope de vueltas o el modelo se quedó en
       // herramientas). Antes del genérico, una vuelta más sin herramientas para
@@ -1148,11 +1236,11 @@ export class BotService {
         // 6/10/2026 (revisión): sin «decilo con claridad y qué sigue», que pedía
         // justamente el anuncio; lo que no sabe va con la frase fija que consulta en silencio
         messages.push({ role: 'user', content: '[nota interna: ya no hay más herramientas disponibles en este turno. Con la información que tenés (resultados anteriores e historial), contestale al cliente ahora, en texto, de forma completa y concreta. Si un dato no lo tenés, escribí en su línea solo «No tengo ese dato.» (el sistema lo consulta con administración y esa frase no le llega al cliente). Nunca digas que lo consultás, que lo confirma alguien ni que le vas a avisar.]' });
-        const tFin = await this.regenerar(system, messages, 2048, sumarUso);
+        const tFin = await this.regenerar(system, messages, tools, sumarUso);
         if (tFin) respuesta = tFin;
       } catch (e: any) { this.log.warn(`cierre sin herramientas falló: ${e?.message ?? e}`); }
     }
-    if (!respuesta && !calloPorPago) {
+    if (!respuesta && !calloPorPago && !rechazado) {
       respuesta = 'Disculpe, no pude procesar su mensaje. ¿Me lo repite, por favor?';
     }
 
@@ -1169,7 +1257,7 @@ export class BotService {
       messages.push({ role: 'assistant', content: respuesta });
       // 6/10/2026: lo que no sabe no se le dice al cliente; la frase fija la toma la red de respaldo y lo consulta en silencio
       messages.push({ role: 'user', content: '[nota interna: acabás de repetir textualmente tu mensaje anterior. Releé el ÚLTIMO mensaje del cliente, enumerá cada pregunta que hizo y contestá cada una; si un dato no lo tenés, escribí en su línea solo «No tengo ese dato.» (el sistema lo consulta con administración y esa frase no le llega al cliente). No repitas el pedido de dato ni la sugerencia anterior.]' });
-      const t2 = await this.regenerar(system, messages, 2048, sumarUso).catch(() => null);
+      const t2 = await this.regenerar(system, messages, tools, sumarUso).catch(() => null);
       if (t2) respuesta = t2;
       vueltasReintento++;
     }
@@ -1183,19 +1271,11 @@ export class BotService {
       this.log.warn(`total prometido sin cotizar para ${telefono}: regenero cotizando`);
       messages.push({ role: 'assistant', content: respuesta });
       messages.push({ role: 'user', content: '[nota interna: prometiste el total para después. Eso está prohibido. Llamá a cotizar_pedido AHORA con los renglones que el cliente pidió y decí el total en este mismo mensaje. Si te falta la cantidad de algo, preguntá solo eso.]' });
-      const r3 = await this.claude.messages.create({ model: MODELO_BOT, max_tokens: 3000, thinking: { type: 'adaptive' }, system, tools: tools.length ? tools : undefined, messages: this.conCache(messages) });
-      sumarUso(r3.usage);
-      if (r3.stop_reason === 'tool_use') {
-        messages.push({ role: 'assistant', content: r3.content });
-        const res3: Anthropic.ToolResultBlockParam[] = [];
-        for (const b of r3.content) if (b.type === 'tool_use') { herramientasDelTurno.add(b.name); res3.push(await this.ejecutarHerramienta(b, telefono, linea, { ultimoBot: ultimoDelBot, ultimosBot: ultimosDelBot, ultimosCliente: ultimosDelCliente, textoCliente: texto, fallos: fallosDelTurno, archivoUrl: dto.archivoUrl, fija: respuestaFija, salidas: salidasDelTurno, archivo: archivoDelTurno, historial })); }
-        messages.push({ role: 'user', content: res3 });
-        const t4 = await this.regenerar(system, messages, 2048, sumarUso).catch(() => null);
-        if (t4) respuesta = t4;
-      } else {
-        const t3 = this.textoFinal(r3);
-        if (t3 && !this.tieneMeta(t3)) respuesta = t3;
-      }
+      // (6/10/2026: con la misma forma que el bucle, ver regenerarConHerramientas)
+      try {
+        const { texto: t3 } = await this.regenerarConHerramientas(system, tools, messages, sumarUso, ejecutarEnElTurno);
+        if (t3) respuesta = t3;
+      } catch (e: any) { this.log.warn(`regeneración por el total prometido falló: ${e?.message ?? e}`); }
       vueltasReintento++;
     }
     // G5-bis (ronda 6): oraciones repetidas textualmente de los últimos 3 mensajes
@@ -1210,7 +1290,7 @@ export class BotService {
       messages.push({ role: 'assistant', content: respuesta });
       messages.push({ role: 'user', content: `[nota interna: repetiste textualmente ${repetidas.length === 1 ? 'una oración' : repetidas.length + ' oraciones'} que ya dijiste en tus últimos mensajes: ${repetidas.map((o) => `"${o.slice(0, 80)}"`).join(' · ')}. Reescribí la respuesta diciendo solo lo NUEVO para este mensaje del cliente. Lo que ya le dijiste (dónde se retira, que se verifica la edad, quién confirma el envío, qué dato necesitás) no lo repitas; si el cliente no te dio un dato que ya pediste dos veces, no lo vuelvas a pedir: contestá lo que preguntó con lo que tenés, o derivá. Una sola pregunta como máximo.]` });
       try {
-        const t8 = await this.regenerar(system, messages, 2048, sumarUso);
+        const t8 = await this.regenerar(system, messages, tools, sumarUso);
         if (t8) respuesta = t8;
       } catch (e: any) { this.log.warn(`regeneración por repetición falló: ${e?.message ?? e}`); }
       vueltasReintento++;
@@ -1254,7 +1334,7 @@ export class BotService {
       messages.push({ role: 'assistant', content: respuesta });
       messages.push({ role: 'user', content: '[nota interna: escribiste una promesa de plazo o de iniciativa propia ("en breve", "apenas lo tenga le aviso", "¿prefiere que le avise?"). Vos no escribís por tu cuenta ni sabés cuándo responde el equipo. Reescribí la respuesta sin esa promesa y sin mencionar consultas ni avisos: decí solo lo que es cierto ahora; si un dato no lo tenés, escribí en su línea solo «No tengo ese dato.» (el sistema lo consulta con administración y esa frase no le llega al cliente). Cerrá con una sola pregunta útil o sin pregunta.]' });
       try {
-        const t7 = await this.regenerar(system, messages, 2048, sumarUso);
+        const t7 = await this.regenerar(system, messages, tools, sumarUso);
         if (t7) respuesta = t7;
         else respuesta = respuesta.replace(/[^.\n]*\b(en breve|en un momento|en unos minutos|enseguida|apenas (lo|la) (tenga|sepa|confirme)|apenas se resuelva|ni bien|le aviso (cuando|apenas|en cuanto)|le escribo (cuando|apenas|en cuanto)|(prefiere|quiere) que le avise|en cuanto pueda volver a consultar)\b[^.\n]*[.?!]?/gi, '').replace(/\n{3,}/g, '\n\n').trim() || respuesta;
       } catch (e: any) { this.log.warn(`regeneración por plazo falló: ${e?.message ?? e}`); }
@@ -1267,19 +1347,8 @@ export class BotService {
       // silencio; en cualquier caso la respuesta va sin la promesa
       messages.push({ role: 'user', content: '[nota interna: en tu respuesta prometiste que algo "queda anotado / se lo trasladás / se lo confirman / le responden", pero en este turno NO llamaste a ninguna herramienta que lo haga. Si el cliente espera un dato que no tenés, llamá AHORA a consultar_interno (area administracion); si es algo que el equipo tiene que ver, nota_interna (o derivar_a_humano si corresponde). Después reescribí la respuesta SIN esa promesa y sin mencionar consultas ni avisos: solo lo que es cierto y lo demás que pidió. Nunca digas que algo quedó registrado si no llamaste la herramienta en este mismo turno.]' });
       try {
-        const r5 = await this.claude.messages.create({ model: MODELO_BOT, max_tokens: 3000, thinking: { type: 'adaptive' }, system, tools: tools.length ? tools : undefined, messages: this.conCache(messages) });
-        sumarUso(r5.usage);
-        if (r5.stop_reason === 'tool_use') {
-          messages.push({ role: 'assistant', content: r5.content });
-          const res5: Anthropic.ToolResultBlockParam[] = [];
-          for (const b of r5.content) if (b.type === 'tool_use') { herramientasDelTurno.add(b.name); res5.push(await this.ejecutarHerramienta(b, telefono, linea, { ultimoBot: ultimoDelBot, ultimosBot: ultimosDelBot, ultimosCliente: ultimosDelCliente, textoCliente: texto, fallos: fallosDelTurno, archivoUrl: dto.archivoUrl, fija: respuestaFija, salidas: salidasDelTurno, archivo: archivoDelTurno, historial })); }
-          messages.push({ role: 'user', content: res5 });
-          const t6 = await this.regenerar(system, messages, 2048, sumarUso);
-          if (t6) respuesta = t6;
-        } else {
-          const t5 = this.textoFinal(r5);
-          if (t5 && !this.tieneMeta(t5)) respuesta = t5;
-        }
+        const { texto: t5 } = await this.regenerarConHerramientas(system, tools, messages, sumarUso, ejecutarEnElTurno);
+        if (t5) respuesta = t5;
       } catch (e: any) {
         this.log.warn(`regeneración por promesa falló: ${e?.message ?? e}`);
       }
@@ -1307,7 +1376,7 @@ export class BotService {
       // 6/10/2026: sin «doy aviso al sector»; la frase nueva la reconoce
       // RE_PEDIDO_A_ADMINISTRACION y el pedido sale a administración igual
       messages.push({ role: 'user', content: `[nota interna: dijiste que el pedido está confirmado/cargado/registrado, pero en este turno crear_pedido NO devolvió ningún código: el pedido NO existe. Reescribí la respuesta diciendo la verdad: si faltó un dato, pedilo; si el cliente ya confirmó y no se pudo cargar, decí exactamente «${TEXTO.PEDIDO_SIN_CARGAR}». Nunca digas "confirmado" ni "cargado" sin código DOM-/RET-, ni que avisás, consultás o le van a confirmar.]` });
-      const t10 = await this.regenerar(system, messages, 2048, sumarUso);
+      const t10 = await this.regenerar(system, messages, tools, sumarUso);
       if (t10) respuesta = t10;
       else {
         // OJO: no reemplazar la frase EN MEDIO de la oración. Hacerlo dejaba
@@ -1414,7 +1483,7 @@ export class BotService {
           messages.push({ role: 'assistant', content: respuesta });
           // 6/10/2026: lo que no tiene no se le dice al cliente ni se le promete; la frase fija dispara la consulta en silencio
           messages.push({ role: 'user', content: `[nota interna: en tu respuesta quedaron sin contestar estas preguntas del cliente: ${faltan.map((f) => `"${f}"`).join(', ')}. Reescribí la respuesta completa contestando CADA una en su orden, antes de cualquier resumen o "¿lo confirmo?": con el dato si lo tenés por herramienta (precio, total, franja de reparto, horario); si un dato no lo tenés, escribí en su línea solo «No tengo ese dato.» (el sistema lo consulta con administración y esa frase no le llega al cliente). Nunca digas que lo consultás, que lo confirma alguien ni que le vas a avisar. Mantené lo que ya estaba bien. Sin ofrecer cerrar el pedido mientras haya preguntas abiertas.]` });
-          const t9 = await this.regenerar(system, messages, 2048, sumarUso);
+          const t9 = await this.regenerar(system, messages, tools, sumarUso);
           if (t9) respuesta = t9;
           vueltasReintento++;
         }
@@ -1510,7 +1579,7 @@ export class BotService {
           messages.push({ role: 'assistant', content: respuesta });
           // 6/10/2026: sin «tomo tu consulta y doy aviso al sector»
           messages.push({ role: 'user', content: '[nota interna: el cliente pidió hablar con una persona y la derivación YA quedó hecha. Reescribí el mensaje completo, coherente con eso: primero decí que sos el asistente automático si te lo preguntó, y después, en una línea, que lo pasás con una persona de la casa («Te paso con una persona de la casa.»), sin prometer cuándo ni decir que avisás a nadie o que le van a responder. No ofrezcas seguir atendiéndolo vos ni preguntes "¿en qué puedo ayudarlo?".]' });
-          const tD = await this.regenerar(system, messages, 1024, sumarUso);
+          const tD = await this.regenerar(system, messages, tools, sumarUso);
           respuesta = tD ?? TEXTO.DERIVACION_PEDIDA;
           respuestaFija.derivada = true;
         }
@@ -1526,7 +1595,7 @@ export class BotService {
       this.log.warn(`superlativo sin búsqueda para ${telefono}: regenero`);
       messages.push({ role: 'assistant', content: respuesta });
       messages.push({ role: 'user', content: '[nota interna: usaste un superlativo ("el más barato", "la más accesible") sin haber buscado la categoría en este turno, así que no podés saberlo. Reescribí la respuesta sin el superlativo: nombrá el producto con su precio, sin rankearlo. Si el cliente quiere lo más barato de una categoría, buscá la categoría primero.]' });
-      const t11 = await this.regenerar(system, messages, 2048, sumarUso);
+      const t11 = await this.regenerar(system, messages, tools, sumarUso);
       if (t11) respuesta = t11;
       vueltasReintento++;
     }
@@ -1542,7 +1611,7 @@ export class BotService {
       this.log.warn(`preguntó cliente-o-proveedor a alguien que ofrece mercadería (${telefono}): regenero`);
       messages.push({ role: 'assistant', content: respuesta });
       messages.push({ role: 'user', content: '[nota interna: quien escribe dijo que ÉL nos manda/lleva mercadería, así que es un PROVEEDOR: ya está claro y preguntarle si es cliente o proveedor sobra. Reescribí la respuesta saludando y preguntando lo único que falta saber: de qué empresa escribe (y si ya dijo la empresa, qué trae y para cuándo). No le des precios nuestros ni le cotices nada.]' });
-      const t14 = await this.regenerar(system, messages, 2048, sumarUso);
+      const t14 = await this.regenerar(system, messages, tools, sumarUso);
       if (t14) respuesta = t14;
       vueltasReintento++;
     }
@@ -1558,7 +1627,7 @@ export class BotService {
       this.log.warn(`el bot dijo que no puede escuchar/ver para ${telefono}: regenero`);
       messages.push({ role: 'assistant', content: respuesta });
       messages.push({ role: 'user', content: '[nota interna: dijiste que no podés escuchar, ver o abrir lo que mandó el cliente. Eso no se dice NUNCA: lo que manda el cliente se atiende, y si hace falta lo abre una persona de la casa. Reescribí la respuesta sin ninguna mención a lo que podés o no podés procesar; contestá lo que el cliente necesita, y si no tenés el contenido, pedile en una línea que te escriba lo que necesita (sin decirle que alguien lo revisa ni que le vas a avisar).]' });
-      const t13 = await this.regenerar(system, messages, 2048, sumarUso);
+      const t13 = await this.regenerar(system, messages, tools, sumarUso);
       if (t13) respuesta = t13;
       vueltasReintento++;
     }
@@ -1622,7 +1691,7 @@ export class BotService {
       this.log.warn(`${(respuesta.match(/¿/g) ?? []).length} preguntas en un mensaje para ${telefono}: regenero`);
       messages.push({ role: 'assistant', content: respuesta });
       messages.push({ role: 'user', content: '[nota interna: hiciste tres o más preguntas en un solo mensaje. Reescribilo con UNA sola pregunta, la más importante; no asumas presentaciones ni cantidades para los demás artículos. Si el cliente ya dio todo lo necesario, no preguntes nada: mostrá el resumen con el total y "¿Lo confirmo?".]' });
-      const t15 = await this.regenerar(system, messages, 2048, sumarUso);
+      const t15 = await this.regenerar(system, messages, tools, sumarUso);
       if (t15) respuesta = t15;
       vueltasReintento++;
     }
@@ -1639,20 +1708,10 @@ export class BotService {
       messages.push({ role: 'assistant', content: respuesta });
       messages.push({ role: 'user', content: '[nota interna: dijiste que no podés confirmar / no sabés si el reparto llega. Eso no se le dice al cliente. Si todavía no tenés la dirección exacta (calle y número), pedísela en una línea. Si ya la tenés, llamá AHORA a consultar_interno con area "reparto", la dirección, la consulta y el tema, y al cliente no le digas nada de eso (ni que lo consultás, ni que le vas a confirmar): contestale solo lo demás de su mensaje, y si no hay nada más, no escribas nada. Sin "no sé", sin "no puedo confirmar", sin plazos.]' });
       try {
-        const r16 = await this.claude.messages.create({ model: MODELO_BOT, max_tokens: 3000, thinking: { type: 'adaptive' }, system, tools: tools.length ? tools : undefined, messages: this.conCache(messages) });
-        sumarUso(r16.usage);
-        if (r16.stop_reason === 'tool_use') {
-          messages.push({ role: 'assistant', content: r16.content });
-          const res16: Anthropic.ToolResultBlockParam[] = [];
-          for (const b of r16.content) if (b.type === 'tool_use') { herramientasDelTurno.add(b.name); res16.push(await this.ejecutarHerramienta(b, telefono, linea, { ultimoBot: ultimoDelBot, ultimosBot: ultimosDelBot, ultimosCliente: ultimosDelCliente, textoCliente: texto, fallos: fallosDelTurno, archivoUrl: dto.archivoUrl, fija: respuestaFija, salidas: salidasDelTurno, archivo: archivoDelTurno, historial })); }
-          messages.push({ role: 'user', content: res16 });
-          // con la consulta hecha, una respuesta vacía es válida: la arma la consulta silenciosa de abajo
-          const t16 = await this.regenerar(system, messages, 2048, sumarUso);
-          respuesta = t16 ?? (respuestaFija.consultaPendiente ? '' : respuesta);
-        } else {
-          const t16 = this.textoFinal(r16);
-          if (t16 && !this.tieneMeta(t16)) respuesta = t16;
-        }
+        const { texto: t16, usoHerramientas } = await this.regenerarConHerramientas(system, tools, messages, sumarUso, ejecutarEnElTurno);
+        // con la consulta hecha, una respuesta vacía es válida: la arma la consulta silenciosa de abajo
+        if (usoHerramientas) respuesta = t16 ?? (respuestaFija.consultaPendiente ? '' : respuesta);
+        else if (t16) respuesta = t16;
       } catch (e: any) { this.log.warn(`regeneración por el envío falló: ${e?.message ?? e}`); }
       vueltasReintento++;
     }
@@ -1668,7 +1727,7 @@ export class BotService {
       this.log.warn(`${oraciones} oraciones sin cotización (${telefono}): regenero más corto`);
       messages.push({ role: 'assistant', content: respuesta });
       messages.push({ role: 'user', content: '[nota interna: demasiado largo. Conservá exactamente los datos verificados, importes y enlaces necesarios. Reescribilo en dos o tres líneas como máximo: el dato o la respuesta concreta, y a lo sumo una pregunta. Sin explicaciones de lo que podés o no podés hacer.]' });
-      const t17 = await this.regenerar(system, messages, 1024, sumarUso);
+      const t17 = await this.regenerar(system, messages, tools, sumarUso);
       if (t17) respuesta = t17;
       vueltasReintento++;
     }
@@ -1694,7 +1753,7 @@ export class BotService {
       this.log.warn(`ofreció productos que no pidieron (${telefono}): regenero`);
       messages.push({ role: 'assistant', content: respuesta });
       messages.push({ role: 'user', content: '[nota interna: el cliente preguntó por algo puntual. Contestá SOLO eso (si lo hay, precio y disponibilidad) y a lo sumo una pregunta para avanzar. No ofrezcas otros productos que no pidió.]' });
-      const t21 = await this.regenerar(system, messages, 1024, sumarUso);
+      const t21 = await this.regenerar(system, messages, tools, sumarUso);
       if (t21) respuesta = t21;
       vueltasReintento++;
     }
@@ -1726,7 +1785,11 @@ export class BotService {
       messages.push({ role: 'user', content: yaDiscutio
         ? `[nota interna: el cliente ya discutió el precio o la cantidad más de una vez. No vuelvas a decirle que está correcto ni discutas. ${disputaConsultada ? 'La revisión ya quedó en manos de administración: al cliente no le digas nada de eso (ni que lo revisan, ni que le van a confirmar). Contestá en una línea solo lo demás que haya preguntado; si no preguntó otra cosa, no escribas nada.' : 'Contestá en una línea solo lo demás que haya preguntado, sin decirle que lo revisan ni prometer nada.'}]`
         : '[nota interna: el cliente discute el precio o la cantidad. Verificá la presentación real con unidadesPorVenta; no asumas que todos los artículos se venden sueltos ni que un x6 en el nombre define el precio. Volvé a cotizar con cotizar_pedido usando la cantidad de UNIDADES que dijo el cliente (si dijo 18 botellas, son 18) y mostrale el total nuevo en dos líneas, sin justificar el anterior.]' });
-      const t18 = await this.regenerar(system, messages, 2048, sumarUso);
+      // la primera vez la nota pide volver a cotizar: la vuelta puede usar
+      // herramientas (iba sin ellas y cotizar_pedido no se podía llamar, 6/10/2026)
+      const t18 = yaDiscutio
+        ? await this.regenerar(system, messages, tools, sumarUso)
+        : (await this.regenerarConHerramientas(system, tools, messages, sumarUso, ejecutarEnElTurno)).texto;
       // con la revisión registrada, lo que reafirmaba el precio no sale aunque la vuelta venga vacía
       if (t18 || disputaConsultada) respuesta = t18 ?? '';
       vueltasReintento++;
@@ -1753,7 +1816,9 @@ export class BotService {
       this.log.warn(`importes sin origen para ${telefono}: ${inventados.join(', ')} → regenero`);
       messages.push({ role: 'assistant', content: respuesta });
       messages.push({ role: 'user', content: `[nota interna: escribiste importes que el sistema no produjo (${inventados.map((n) => '$' + n).join(', ')}). No hagas cuentas: usá exactamente los precios, subtotales y totales que devolvieron buscar_productos / cotizar_pedido, y si necesitás un total nuevo, llamá a cotizar_pedido otra vez.]` });
-      const t19 = await this.regenerar(system, messages, 2048, sumarUso);
+      // la nota le pide volver a llamar a cotizar_pedido si necesita un total: la
+      // vuelta puede usar herramientas (iba sin ellas, 6/10/2026)
+      const t19 = (await this.regenerarConHerramientas(system, tools, messages, sumarUso, ejecutarEnElTurno)).texto;
       if (t19) respuesta = t19;
       vueltasReintento++;
     }
@@ -1811,7 +1876,7 @@ export class BotService {
         && /\b(veo|se (?:ve|ven|observa|observan)|en la (?:foto|imagen) (?:hay|aparece|se ve)|recib[ií] (?:la|tu) foto)\b/i.test(respuesta)) {
       messages.push({ role: 'assistant', content: respuesta });
       messages.push({ role: 'user', content: '[nota interna: no describas la foto ni acuses recibo. Respondé directamente al requerimiento comercial usando SOLO los datos verificados. No asumas que la cantidad visible es la pedida. Si falta intención, hacé una sola pregunta útil. Conservá los importes verificados sin agregar otros.]' });
-      const directa = await this.regenerar(system, messages, 1024, sumarUso);
+      const directa = await this.regenerar(system, messages, tools, sumarUso);
       if (directa) respuesta = directa;
     }
 
@@ -1839,7 +1904,7 @@ export class BotService {
       messages.push({ role: 'assistant', content: respuesta });
       messages.push({ role: 'user', content: `[nota interna: ese mensaje es casi idéntico al último que le mandaste, y el cliente ya lo leyó y contestó "${texto.slice(0, 120)}". Prohibido repetirlo. Si contestó que sí a "¿Lo confirmo?", el pedido está confirmado: llamá a crear_pedido AHORA. Si dio un dato (forma de pago, quién recibe, dirección), tomalo y avanzá al paso siguiente sin volver a resumir. Si no sabés cómo seguir, derivá a una persona con derivar_a_humano. Respondé distinto y corto.]` });
       let otra: string | null = null;
-      try { otra = await this.regenerar(system, messages, 1024, sumarUso); } catch (e: any) { this.log.warn(`reescritura anti-repetición falló: ${e?.message ?? e}`); }
+      try { otra = await this.regenerar(system, messages, tools, sumarUso); } catch (e: any) { this.log.warn(`reescritura anti-repetición falló: ${e?.message ?? e}`); }
       if (otra && !casiIgual(otra, ultimosDelBot[0]) && !casiIgual(otra, respuesta)) {
         respuesta = otra;
       } else {
@@ -1907,7 +1972,8 @@ export class BotService {
       let util = loQueSirve(sinImportesSinFuente(borrador));
       // la disculpa sola no contesta nada si no hay un pago que acusar («Recibido.»)
       if (util && !respuestaFija.pagoEnAdministracion && soloDisculpa(util)) util = '';
-      if (!util && traeMasQueLoConsultado) {
+      // (tras un rechazo de seguridad no se reescribe: se rechazaría igual, 6/10/2026)
+      if (!util && traeMasQueLoConsultado && !rechazado) {
         // diagnóstico: qué escribió el modelo en el turno (lo del 14 de Pablo no se pudo ver)
         this.log.warn(`turno con consulta sin texto útil del modelo para ${telefono}; textos del turno: «${textosDelTurno.join(' | ').slice(0, 300)}»`);
         const temas = [...new Set([...nuevos, ...yaAbiertos].map(temaDeConsulta).filter(Boolean))];
@@ -1917,9 +1983,15 @@ export class BotService {
           // fuente, se descartaba y al cliente no le llegaba nada de su pedido. Solo
           // las de lectura, cotizar_pedido y preparar_pedido: nada que consulte,
           // derive o cree un pedido. Razonamiento encendido, como siempre.
-          messages.push({ role: 'user', content: `[nota interna: lo que no sabías${temas.length ? ` (${temas.join(', ')})` : ''} ya quedó consultado con administración y la respuesta le llega al cliente cuando la den. Al cliente NO le menciones nada de eso: ni que consultás, ni que no lo sabés, ni que le vas a confirmar o avisar, ni que está pendiente. Escribí ahora la respuesta SOLO a lo demás de su mensaje (nombre, retiro, cantidades, precios). Si necesitás un precio o un total, buscalo o cotizalo con las herramientas; nunca hagas cuentas. Si no hay nada más que contestar, no escribas nada.]` });
-          const permitidas = tools.filter((t: any) => HERRAMIENTAS_DE_LECTURA.has(t.name) || t.name === 'cotizar_pedido' || t.name === 'preparar_pedido');
-          const rA = await this.claude.messages.create({ model: MODELO_BOT, max_tokens: 3000, thinking: { type: 'adaptive' }, system, tools: permitidas.length ? permitidas : undefined, messages: this.conCache(messages) });
+          // 6/10/2026 (Opus 5.5): el modelo ve la lista COMPLETA de herramientas, la
+          // misma del bucle. Achicarla a mitad del turno invalida el razonamiento ya
+          // guardado (400 en las cuentas nuevas, que el catch se tragaba) y obliga a
+          // escribir el prompt entero en la caché. La restricción la pone el código:
+          // lo que no está permitido no se ejecuta y contesta «no disponible», y no
+          // cuenta como usado (un derivar_a_humano frenado no es una derivación).
+          messages.push({ role: 'user', content: `[nota interna: lo que no sabías${temas.length ? ` (${temas.join(', ')})` : ''} ya quedó consultado con administración y la respuesta le llega al cliente cuando la den. Al cliente NO le menciones nada de eso: ni que consultás, ni que no lo sabés, ni que le vas a confirmar o avisar, ni que está pendiente. Escribí ahora la respuesta SOLO a lo demás de su mensaje (nombre, retiro, cantidades, precios). Si necesitás un precio o un total, buscalo o cotizalo con las herramientas (en esta vuelta solo podés buscar, cotizar o preparar el pedido); nunca hagas cuentas. Si no hay nada más que contestar, no escribas nada.]` });
+          const permitida = (nombre: string) => HERRAMIENTAS_DE_LECTURA.has(nombre) || nombre === 'cotizar_pedido' || nombre === 'preparar_pedido';
+          const rA = await this.claude.messages.create(this.pedidoBot(system, tools, messages));
           sumarUso(rA.usage);
           let otra: string | null;
           if (rA.stop_reason === 'tool_use') {
@@ -1927,16 +1999,17 @@ export class BotService {
             const resA: Anthropic.ToolResultBlockParam[] = [];
             for (const b of rA.content) {
               if (b.type !== 'tool_use') continue;
-              herramientasDelTurno.add(b.name);
-              resA.push(permitidas.some((t: any) => t.name === b.name)
-                ? await this.ejecutarHerramienta(b, telefono, linea, { ultimoBot: ultimoDelBot, ultimosBot: ultimosDelBot, ultimosCliente: ultimosDelCliente, textoCliente: texto, fallos: fallosDelTurno, archivoUrl: dto.archivoUrl, fija: respuestaFija, salidas: salidasDelTurno, archivo: archivoDelTurno, historial })
+              resA.push(permitida(b.name)
+                ? await ejecutarEnElTurno(b)
                 : { type: 'tool_result', tool_use_id: b.id, content: 'No disponible en esta vuelta: contestá con lo que ya tenés.', is_error: true });
             }
             messages.push({ role: 'user', content: resA });
             sumarHechos();
             // preparar_pedido armó el resumen: ese es el mensaje (como en cualquier turno)
             if (respuestaFija.operacion && respuestaFija.texto) return respuestaFija.texto;
-            otra = await this.regenerar(system, messages, 2048, sumarUso);
+            otra = await this.regenerar(system, messages, tools, sumarUso);
+          } else if (rA.stop_reason === 'refusal' || rA.stop_reason === 'max_tokens') {
+            otra = null;
           } else {
             const t = this.textoFinal(rA);
             otra = t && !this.tieneMeta(t) ? t : null;
@@ -2127,9 +2200,11 @@ export class BotService {
       // si en el turno se consultó o se derivó, el cliente sigue esperando a una persona
       ...(respuestaFija.consultaPendiente || respuestaFija.derivada ? {} : { esperando_desde: null, esperando_texto: null, esperando_aviso_en: null, esperando_avisos: 0 }),
     });
-    // la tarifa vive en tarifas.ts (la misma que usa el banco de pruebas)
+    // la tarifa vive en tarifas.ts (la misma que usa el banco de pruebas). Al final
+    // de la línea van la caché de 1 hora (si hubo) y el modelo, para medir el cambio
+    // a Opus 5.5 con los mismos registros (6/10/2026); el resto del formato no cambia.
     const costo = costoUSD(MODELO_BOT, uso);
-    this.log.log(`charla ${linea}/${telefono}: ${tokens} tokens · ${uso.llamadas} llamadas · entrada ${uso.entrada} · caché leída ${uso.cacheLeida} · caché escrita ${uso.cacheEscrita} · salida ${uso.salida} · ≈ USD ${costo.toFixed(3)}`);
+    this.log.log(`charla ${linea}/${telefono}: ${tokens} tokens · ${uso.llamadas} llamadas · entrada ${uso.entrada} · caché leída ${uso.cacheLeida} · caché escrita ${uso.cacheEscrita} · salida ${uso.salida} · ≈ USD ${costo.toFixed(3)}${uso.cacheEscrita1h ? ` · caché escrita 1 h ${uso.cacheEscrita1h}` : ''} · ${MODELO_BOT}`);
 
     // 5) marcar el mensaje como procesado (idempotencia ante reintentos)
     if (mensajeId) {
@@ -2222,11 +2297,62 @@ export class BotService {
   private textoFinal(r: Anthropic.Message): string {
     return r.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map((b) => b.text).join('\n').trim();
   }
-  // regeneración "limpia": con thinking (el razonamiento va al bloque de
-  // pensamiento, no al texto) y sin marcas internas; si las trae, devuelve null
-  private async regenerar(system: Anthropic.TextBlockParam[], messages: Anthropic.MessageParam[], maxTokens: number, sumarUso: (u: any) => void): Promise<string | null> {
-    const r = await this.claude.messages.create({ model: MODELO_BOT, max_tokens: maxTokens, thinking: { type: 'adaptive' }, system, messages: this.conCache(messages) });
+  // UNA SOLA FORMA PARA TODAS LAS LLAMADAS DEL TURNO (6/10/2026, Opus 5.5 y
+  // «bajemos el gasto de ODB»). El bucle, las correcciones y las reescrituras
+  // mandan el MISMO modelo, system, lista de herramientas, razonamiento y
+  // esfuerzo; la charla solo se agrega al final. Dos motivos:
+  //  · Opus 5.5 ata los bloques de razonamiento a la conversación que los
+  //    produjo: si una llamada saca o achica las herramientas (las regeneraciones
+  //    iban sin ellas), en las cuentas creadas desde el 31/8/2026 la API devuelve
+  //    un 400 que los catch se tragaban (respuesta vacía o «no pude procesar»).
+  //  · La caché: cambiar herramientas o esfuerzo entre llamadas obliga a escribir
+  //    todo el prompt de nuevo (1,25× la entrada). Medido del 2 al 6/10: las
+  //    correcciones sin herramientas y sin esfuerzo eran ~20 % de lo escrito.
+  // Para que no use herramientas, se lo dice la consigna (regenerar).
+  // tool_choice none solo donde hay que asegurarlo: cambiar tool_choice no toca
+  // el razonamiento, pero sí pierde la caché de los mensajes.
+  // El tope (16000) no se cobra: se paga lo que el modelo usa. En Opus 5.5 el
+  // razonamiento sale del mismo presupuesto y con 2048 una corrección podía
+  // volver vacía.
+  private pedidoBot(system: Anthropic.TextBlockParam[], tools: Anthropic.Tool[], messages: Anthropic.MessageParam[], o: { sinHerramientas?: boolean } = {}): Anthropic.MessageCreateParamsNonStreaming {
+    const pedido: Anthropic.MessageCreateParamsNonStreaming = {
+      model: MODELO_BOT,
+      max_tokens: MAX_TOKENS_BOT,
+      thinking: RAZONAMIENTO,
+      // medium, el valor de Opus 5.5 (antes xhigh): según la guía de Anthropic,
+      // 5.5 en medium rinde igual o más que Opus 5 en high, y a igual nivel piensa
+      // más que 5. Se sube con ODB_BOT_ESFUERZO sin tocar código.
+      output_config: { effort: esfuerzo('ODB_BOT_ESFUERZO') },
+      system,
+      ...(tools.length ? { tools, ...(o.sinHerramientas ? { tool_choice: { type: 'none' as const } } : {}) } : {}),
+      messages: this.conCache(messages),
+    };
+    this.prefijoEnUso(pedido);
+    return pedido;
+  }
+
+  // REGENERACIÓN «LIMPIA»: con razonamiento (va al bloque de pensamiento, no al
+  // texto) y sin marcas internas; si las trae, devuelve null.
+  // 6/10/2026: va con la forma del bucle (pedidoBot), con la lista completa de
+  // herramientas, y a la consigna se le suma que en esta vuelta no las use. Si
+  // igual pide una, no se ejecuta: se le contesta «no disponible» y va una vuelta
+  // con tool_choice none, que no las puede usar. Un rechazo de seguridad o una
+  // respuesta cortada por el tope no se toman como texto.
+  private async regenerar(system: Anthropic.TextBlockParam[], messages: Anthropic.MessageParam[], tools: Anthropic.Tool[], sumarUso: (u: any) => void): Promise<string | null> {
+    if (tools.length) this.sinHerramientasEnLaConsigna(messages);
+    let r = await this.claude.messages.create(this.pedidoBot(system, tools, messages));
     sumarUso(r.usage);
+    if (r.stop_reason === 'tool_use') {
+      this.log.warn('regeneración: pidió herramientas en una vuelta sin ellas; se le contesta «no disponible» y escribe');
+      messages.push({ role: 'assistant', content: r.content });
+      messages.push({ role: 'user', content: r.content.filter((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use').map((b) => ({ type: 'tool_result' as const, tool_use_id: b.id, content: 'No disponible en esta vuelta: escribí ahora el mensaje para el cliente con lo que ya tenés.', is_error: true })) });
+      r = await this.claude.messages.create(this.pedidoBot(system, tools, messages, { sinHerramientas: true }));
+      sumarUso(r.usage);
+    }
+    if (r.stop_reason === 'refusal' || r.stop_reason === 'max_tokens') {
+      this.log.warn(`regeneración sin texto utilizable (${r.stop_reason})`);
+      return null;
+    }
     let t = this.textoFinal(r);
     if (!t) return null;
     if (this.tieneMeta(t)) {
@@ -2236,6 +2362,106 @@ export class BotService {
       return null;
     }
     return t;
+  }
+
+  // La consigna de una regeneración es el último mensaje, todavía sin mandar: se
+  // le suma que en esta vuelta no use herramientas (6/10/2026). Va al final del
+  // mismo mensaje (después de los resultados de herramientas, si los hay), que es
+  // lo que la guía de Anthropic indica para no tocar nada de lo ya mandado.
+  private sinHerramientasEnLaConsigna(messages: Anthropic.MessageParam[]): void {
+    const i = messages.length - 1;
+    const ult = messages[i];
+    if (!ult || ult.role !== 'user') return;
+    const aviso = AVISO_SIN_HERRAMIENTAS;
+    if (typeof ult.content === 'string') {
+      if (!ult.content.includes(aviso)) messages[i] = { ...ult, content: `${ult.content}\n${aviso}` };
+      return;
+    }
+    if (ult.content.some((b: any) => b?.type === 'text' && String(b.text).includes(aviso))) return;
+    messages[i] = { ...ult, content: [...ult.content, { type: 'text', text: aviso }] };
+  }
+
+  // REGENERACIÓN QUE PUEDE USAR HERRAMIENTAS (6/10/2026): para las consignas que
+  // piden cotizar de nuevo, consultar en silencio o dejar una nota. Misma forma
+  // que el bucle (pedidoBot); si pide herramientas se ejecutan y el texto sale de
+  // una regeneración común. Antes había tres copias de esto (r3, r5, r16) y dos
+  // consignas que pedían cotizar_pedido iban por una regeneración sin herramientas.
+  private async regenerarConHerramientas(
+    system: Anthropic.TextBlockParam[],
+    tools: Anthropic.Tool[],
+    messages: Anthropic.MessageParam[],
+    sumarUso: (u: any) => void,
+    ejecutar: (b: Anthropic.ToolUseBlock) => Promise<Anthropic.ToolResultBlockParam>,
+  ): Promise<{ texto: string | null; usoHerramientas: boolean }> {
+    const r = await this.claude.messages.create(this.pedidoBot(system, tools, messages));
+    sumarUso(r.usage);
+    if (r.stop_reason === 'tool_use') {
+      messages.push({ role: 'assistant', content: r.content });
+      const res: Anthropic.ToolResultBlockParam[] = [];
+      for (const b of r.content) if (b.type === 'tool_use') res.push(await ejecutar(b));
+      messages.push({ role: 'user', content: res });
+      return { texto: await this.regenerar(system, messages, tools, sumarUso), usoHerramientas: true };
+    }
+    if (r.stop_reason === 'refusal' || r.stop_reason === 'max_tokens') return { texto: null, usoHerramientas: false };
+    const t = this.textoFinal(r);
+    return { texto: t && !this.tieneMeta(t) ? t : null, usoHerramientas: false };
+  }
+
+  // MANTENER CALIENTE EL PROMPT FIJO (6/10/2026, ODB_BOT_CACHE_PREFIJO=mantener;
+  // apagado por defecto). El prompt fijo con las herramientas (~11.500 tokens) se
+  // guarda en la caché 5 minutos. Medido del 2 al 6/10: 22 turnos llegaron tras
+  // un hueco de 5 a 60 minutos y lo volvieron a escribir entero (1,25× la
+  // entrada). Mientras la línea tuvo movimiento en la última hora, cada ~4
+  // minutos sin llamadas sale un pedido con max_tokens 0: no genera nada, solo
+  // lee el prefijo (0,05× en Opus 5.5) y le renueva los 5 minutos. Estimado con el
+  // tráfico del 2 al 6/10 a precios de Opus 5.5: evita ~USD 1,5 de escrituras y
+  // cuesta ~0,35 en lecturas. La alternativa, ODB_BOT_CACHE_PREFIJO=1h, guarda
+  // el prompt fijo una hora (la escritura cuesta 2× en vez de 1,25×): ahorra
+  // menos (~0,45 en el mismo período) pero no hace pedidos de más.
+  // El pedido repite modelo, razonamiento, esfuerzo, herramientas y el bloque
+  // fijo del system (el que lleva la marca): si alguno cambia, la caché no coincide.
+  private readonly prefijosVivos = new Map<string, { pedido: Anthropic.MessageCreateParamsNonStreaming; ultimaActividad: number; ultimoRefresco: number; enCurso: boolean; timer?: ReturnType<typeof setInterval> }>();
+  private prefijoEnUso(pedido: Anthropic.MessageCreateParamsNonStreaming): void {
+    if (process.env.ODB_BOT_CACHE_PREFIJO !== 'mantener') return;
+    const fijo = Array.isArray(pedido.system) ? pedido.system[0] : null;
+    if (!fijo?.cache_control) return;
+    const clave = fijo.text;
+    const ahora = Date.now();
+    const ping: Anthropic.MessageCreateParamsNonStreaming = {
+      model: pedido.model,
+      max_tokens: 0,
+      thinking: pedido.thinking,
+      output_config: { effort: pedido.output_config?.effort },
+      system: [fijo],
+      ...(pedido.tools ? { tools: pedido.tools } : {}),
+      messages: [{ role: 'user', content: 'mantener' }],
+    };
+    const previo = this.prefijosVivos.get(clave);
+    if (previo) {
+      Object.assign(previo, { pedido: ping, ultimaActividad: ahora, ultimoRefresco: ahora });
+      return;
+    }
+    const estado: { pedido: Anthropic.MessageCreateParamsNonStreaming; ultimaActividad: number; ultimoRefresco: number; enCurso: boolean; timer?: ReturnType<typeof setInterval> } = { pedido: ping, ultimaActividad: ahora, ultimoRefresco: ahora, enCurso: false };
+    estado.timer = setInterval(() => {
+      const t = Date.now();
+      if (t - estado.ultimaActividad > PREFIJO_VIVO_MS) {
+        clearInterval(estado.timer);
+        this.prefijosVivos.delete(clave);
+        return;
+      }
+      if (estado.enCurso || t - estado.ultimoRefresco < PREFIJO_REFRESCO_MS) return;
+      estado.enCurso = true;
+      estado.ultimoRefresco = t;
+      this.claude.messages.create(estado.pedido)
+        .then((r) => {
+          const u = usoDeRespuesta(r?.usage);
+          this.log.log(`caché del prompt fijo renovada: leída ${u.cacheLeida} · escrita ${u.cacheEscrita + (u.cacheEscrita1h ?? 0)} · ≈ USD ${costoUSD(String(estado.pedido.model), u).toFixed(4)}`);
+        })
+        .catch((e: any) => this.log.warn(`no se pudo renovar la caché del prompt fijo: ${e?.message ?? e}`))
+        .finally(() => { estado.enCurso = false; });
+    }, 30_000);
+    (estado.timer as any)?.unref?.();
+    this.prefijosVivos.set(clave, estado);
   }
 
   private async ejecutarHerramienta(

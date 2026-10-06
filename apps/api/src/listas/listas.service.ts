@@ -6,6 +6,7 @@ import * as XLSX from 'xlsx';
 import { SUPABASE } from '../supabase.provider';
 import { elegirProveedor } from '../compras/proveedor-match';
 import { bultoDelRenglon, esRenglonDeDescuento, porcentajeDeDescuento, puedeVendersePorPeso, unidadesDeLaPresentacion, variacionPorUnidad, variacionDelRenglon } from '../compras/bultos';
+import { esfuerzo, jsonDe, MODELO_PRINCIPAL, RAZONAMIENTO } from '../comun/modelos';
 
 export type ItemExtraido = { codigo: string | null; descripcion: string; precio: number };
 // pedido exportado del portal del proveedor: igual que la lista pero con cantidad
@@ -1014,18 +1015,23 @@ export class ListasService {
       text: 'Este es un PEDIDO (carrito/orden exportada del portal de un proveedor). Extraé TODOS los renglones con su código (si existe), descripción, CANTIDAD pedida y precio unitario en pesos (0 si no figura). Ignorá encabezados, totales, condiciones y texto decorativo.',
     });
 
+    // 6/10/2026: Opus 5.5 (comun/modelos.ts). Iba sin razonamiento (en 4.8,
+    // omitirlo lo apaga: contra la regla del 9/9). Esfuerzo medium: con low se
+    // cruzaban las filas, como pasó con las facturas (ver el lector de arriba).
+    // Un corte por el tope o un rechazo dan un error claro, no una lista vacía
+    // que parece «el pedido no tenía nada».
     const respuesta = await claude.messages
       .stream({
-        model: 'claude-opus-4-8',
+        model: MODELO_PRINCIPAL,
         max_tokens: 64000,
-        output_config: { format: { type: 'json_schema', schema: ESQUEMA_PEDIDO as any } },
+        thinking: RAZONAMIENTO,
+        output_config: { effort: esfuerzo('LISTAS_ESFUERZO'), format: { type: 'json_schema', schema: ESQUEMA_PEDIDO as any } },
         messages: [{ role: 'user', content: contenido }],
       })
       .finalMessage();
 
-    const texto = respuesta.content.find((b) => b.type === 'text');
-    const datos = JSON.parse(texto && 'text' in texto ? texto.text : '{"items":[]}');
-    return datos.items as ItemPedidoExtraido[];
+    const datos = jsonDe<any>(respuesta, 'La lectura del pedido');
+    return (datos.items ?? []) as ItemPedidoExtraido[];
   }
 
   // --- Extracción con Claude para PDFs y Excels con formato libre ---
@@ -1055,18 +1061,20 @@ export class ListasService {
     contenido.push({ type: 'text', text: INSTRUCCION_EXTRACCION });
 
     // streaming: los catálogos largos generan salidas grandes
+    // 6/10/2026: Opus 5.5 con razonamiento y esfuerzo medium, y el control de
+    // corte y de respuesta vacía (ver extraerPedidoConIA)
     const respuesta = await claude.messages
       .stream({
-        model: 'claude-opus-4-8',
+        model: MODELO_PRINCIPAL,
         max_tokens: 64000,
-        output_config: { format: { type: 'json_schema', schema: ESQUEMA_EXTRACCION as any } },
+        thinking: RAZONAMIENTO,
+        output_config: { effort: esfuerzo('LISTAS_ESFUERZO'), format: { type: 'json_schema', schema: ESQUEMA_EXTRACCION as any } },
         messages: [{ role: 'user', content: contenido }],
       })
       .finalMessage();
 
-    const texto = respuesta.content.find((b) => b.type === 'text');
-    const datos = JSON.parse(texto && 'text' in texto ? texto.text : '{"items":[]}');
-    return datos.items as ItemExtraido[];
+    const datos = jsonDe<any>(respuesta, 'La lectura de la lista');
+    return (datos.items ?? []) as ItemExtraido[];
   }
 
   // --- Catálogos grandes en texto: tandas de ~55k caracteres por página ---

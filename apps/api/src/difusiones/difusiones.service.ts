@@ -2,6 +2,7 @@ import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
 import { SUPABASE } from '../supabase.provider';
+import { esfuerzo, MODELO_PRINCIPAL, RAZONAMIENTO, textoUtil } from '../comun/modelos';
 
 // Difusiones de WhatsApp con cumplimiento: SOLO a clientes con opt-in y teléfono.
 // El envío real usa la API oficial de WhatsApp Business (Cloud API) con
@@ -47,16 +48,21 @@ export class DifusionesService {
     if (!process.env.ANTHROPIC_API_KEY) throw new BadRequestException('Falta la ANTHROPIC_API_KEY');
     const claude = new Anthropic();
     const r = await claude.messages.create({
-      model: 'claude-opus-4-8',
-      max_tokens: 600,
+      // Opus 5.5 desde el 6/10/2026 (comun/modelos.ts). Iba sin razonamiento (en
+      // 4.8, omitirlo lo apaga: contra la regla del 9/9) y con 600 de tope: en 5.5
+      // el razonamiento sale de ese mismo tope y el mensaje salía vacío.
+      model: MODELO_PRINCIPAL,
+      max_tokens: 8000,
+      thinking: RAZONAMIENTO,
+      output_config: { effort: esfuerzo('DIFUSIONES_ESFUERZO') },
       messages: [{
         role: 'user',
         content: `Escribí un mensaje de difusión de WhatsApp para los clientes de O.D.B Premium Market (outlet de bebidas y almacén, Argentina; registro respetuoso, de usted, sobrio: nada amistoso ni confianzudo). Contexto: "${contexto || 'novedades y ofertas de la semana'}".
 Reglas: breve (máx 4 líneas), sin emojis ni signos de exclamación, con un llamado a la acción claro y cortés. NO inventar precios. Terminá SIEMPRE con la línea de baja: "Responda BAJA para no recibir más mensajes." Devolvé solo el texto del mensaje, sin comillas.`,
       }],
     });
-    const t = r.content.find((b) => b.type === 'text');
-    return { mensaje: t && 'text' in t ? t.text.trim() : '' };
+    // un rechazo, un corte o una respuesta vacía dan un error claro (6/10/2026)
+    return { mensaje: textoUtil(r, 'La redacción de la difusión') };
   }
 
   async listar() {

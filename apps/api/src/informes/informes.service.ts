@@ -5,6 +5,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { SUPABASE } from '../supabase.provider';
 import { AnalistaService } from '../analista/analista.service';
 import { TONO_ODB } from '../comun/tono-odb';
+import { esfuerzo, MODELO_PRINCIPAL, RAZONAMIENTO, textoDe } from '../comun/modelos';
 
 const TZ = 'America/Argentina/Buenos_Aires';
 
@@ -200,8 +201,13 @@ export class InformesService {
     }
     const claude = new Anthropic();
     const respuesta = await claude.messages.create({
-      model: 'claude-opus-4-8',
-      max_tokens: 1000,
+      // Opus 5.5 desde el 6/10/2026 (comun/modelos.ts). Iba sin razonamiento (en
+      // 4.8, omitirlo lo apaga: contra la regla del 9/9) y con 1000 de tope: en 5.5
+      // el razonamiento sale de ese mismo tope y el parte podía salir vacío.
+      model: MODELO_PRINCIPAL,
+      max_tokens: 8000,
+      thinking: RAZONAMIENTO,
+      output_config: { effort: esfuerzo('INFORMES_ESFUERZO') },
       system: `Sos el Analista ODB y escribís el parte matutino para el dueño de O.D.B Premium Market (outlet de bebidas, 2 sucursales, Argentina). Español rioplatense, texto plano sin markdown, máximo 150 palabras. Estructura: 1) cómo vino la venta de ayer (comparada con el promedio), 2) lo más urgente de hoy (quiebres, vencimientos), 3) una recomendación concreta. Trabajás SOLO con los números del JSON: no inventes nada. Montos en pesos argentinos redondeados (ej: $12,4M). En abastecimiento: nombrá el proveedor más urgente; si datoViejo es true, decí UNA vez hasta qué fecha son las ventas (ventasHasta) y que las cantidades son orientativas; nunca digas que no hay nada que comprar si plataAComprar es mayor a cero. ${TONO_ODB}`,
       messages: [
         {
@@ -210,8 +216,11 @@ export class InformesService {
         },
       ],
     });
-    const texto = respuesta.content.find((b) => b.type === 'text');
-    return texto && 'text' in texto ? texto.text : '';
+    // un rechazo o un corte no salen como parte (6/10/2026): mejor sin relato que a medias
+    if (respuesta.stop_reason === 'refusal' || respuesta.stop_reason === 'max_tokens') {
+      return `(Relato no disponible: la IA ${respuesta.stop_reason === 'refusal' ? 'no quiso escribirlo' : 'se cortó antes de terminar'})`;
+    }
+    return textoDe(respuesta);
   }
 
   // PostgREST corta en 1000 filas: paginación en tandas paralelas de 8

@@ -15,10 +15,20 @@ import { TONO_BOT } from '../comun/tono-odb';
 // justamente en lo que las reglas no cubren. Cuesta ~70% más por turno (de
 // ~USD 0,01–0,03 a ~0,02–0,05): en atención al público, ese margen es barato.
 // Se puede volver a Sonnet con ODB_BOT_MODELO en Railway, sin deploy.
-export const MODELO_BOT = process.env.ODB_BOT_MODELO ?? 'claude-opus-5';
+// 6/10/2026 («bajemos el gasto de ODB»): de Opus 5 a Opus 5.5, que cuesta un 20 %
+// menos por token (60 % menos la caché leída). El modelo se define en
+// comun/modelos.ts, junto con el de las otras funciones; ODB_BOT_MODELO sigue
+// mandando sobre el bot.
+export { MODELO_BOT } from '../comun/modelos';
 export const MAX_VUELTAS = 8; // tope de iteraciones herramienta→respuesta por mensaje
 export const MAX_HISTORIAL = 24; // turnos de memoria por conversación
 
+// 6/10/2026 (Opus 5.5): lo que el modelo escribe ENTRE herramientas («dale, te
+// anoto a nombre de Pablo» y después busca) ya no vuelve como texto sino dentro
+// de un bloque de razonamiento, vacío. El bot juntaba ese texto (textosDelTurno)
+// y lo rescataba si la última vuelta venía corta: en 5.5 eso se pierde y vuelve
+// el caso del audio de Pablo (nombre y retiro sin contestar). Por eso el prompt
+// pide el mensaje entero al final, después de la última herramienta.
 export const SYSTEM_PEDIDOS = `Sos Emilia, la asistente comercial de O.D.B Premium Market, en Canning. Tu trabajo es resolver el requerimiento, tomar el pedido o llevar al equipo aquello que necesita intervención humana.
 
 ## Respuesta directa
@@ -31,6 +41,7 @@ export const SYSTEM_PEDIDOS = `Sos Emilia, la asistente comercial de O.D.B Premi
 - Si reclama un precio («antes estaba a 3000»), decí el precio vigente del sistema (buscar_productos) sin discutir; recién si insiste en que hay un error, consultar_interno (area administracion), sin decírselo.
 - Si pide más de lo que hay, no digas cuántas hay: decí que esa cantidad no la tenés disponible ahora y llamá consultar_interno (sin decir que lo consultás).
 - No narres tu razonamiento, tus herramientas ni lo que podés hacer. No hagas introducciones o cierres automáticos. Saludá una sola vez, brevemente, con la hora de los metadatos.
+- El mensaje al cliente va COMPLETO en tu última respuesta, después de la última herramienta: lo que escribas antes de llamar una herramienta el cliente no lo ve. Si ya le contestaste algo (su nombre, el retiro, un precio) y después llamaste una herramienta, repetilo en el mensaje final.
 - Un pedido puede ocupar más líneas: un artículo por renglón, cada uno empezando con «• » y con este formato: «• Nombre — 2 × $4.800 c/u = $9.600». Después «Total: $X» en su renglón y el siguiente paso. Con esa forma el sistema arma el cartel gráfico de la lista. No ocultes renglones ni repitas lo mismo arriba y abajo.
 - Usá texto plano, sin tablas ni emojis. Trato de vos, respetuoso. No discutas con el cliente: verificá la discrepancia.
 
@@ -102,6 +113,7 @@ REGLAS:
 - No confirmás pagos ni recepciones de mercadería: eso lo hace el equipo desde el sistema. Consultas de pago → "lo derivo al equipo de compras y te responden a la brevedad".
 - Si mandan una lista de precios, agradecé y avisá que el equipo de compras la carga.
 - Consultas fuera de tema: breve y amable, derivá al equipo.
+- El mensaje al proveedor va completo en tu última respuesta: lo que escribas antes de llamar una herramienta no le llega.
 
 ${TONO_BOT}`;
 
