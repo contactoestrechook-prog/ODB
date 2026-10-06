@@ -1,5 +1,6 @@
 import { BotService } from './bot.service';
-import { MARGEN_SIN_RECORTE, NOMBRES_DEL_RESTO, recortarBusqueda, TOPE_BUSQUEDA_POR_DEFECTO, topeDeBusqueda } from './tope-busqueda';
+import { importesDeHerramienta, importesDelTexto } from './comercio';
+import { MARGEN_SIN_RECORTE, MAS_BARATAS, NOMBRES_DEL_RESTO, recortarBusqueda, TOPE_BUSQUEDA_POR_DEFECTO, topeDeBusqueda } from './tope-busqueda';
 
 // TOPE DE LA BÚSQUEDA DEL BOT (Leandro, 6/10/2026: «sí, arreglalo»). La charla
 // de Jimena costó USD 4,70: «queso» devolvía 144 fichas y «tita» 119, y cada
@@ -9,7 +10,7 @@ import { MARGEN_SIN_RECORTE, NOMBRES_DEL_RESTO, recortarBusqueda, TOPE_BUSQUEDA_
 
 process.env.ANTHROPIC_API_KEY ??= 'test';
 
-type Prod = { sku: string; nombre: string; vendidas: number; categoria?: string; codigo?: string; porDefecto?: boolean };
+type Prod = { sku: string; nombre: string; vendidas: number; categoria?: string; codigo?: string; porDefecto?: boolean; precio?: number };
 
 // 144 con «queso» (como el 6/10): 40 los trae stock_consulta (orden alfabético,
 // tope 40) y el resto la categoría «quesos»
@@ -202,12 +203,14 @@ describe('buscarProductos con el tope (la búsqueda del bot de punta a punta)', 
     .filter((p) => p.nombre.toLowerCase().includes(q.toLowerCase().replace(/%/g, ' ').trim()) || p.sku.toLowerCase() === q.toLowerCase() || p.codigo === q)
     .sort((a, b) => a.nombre.localeCompare(b.nombre));
 
-  it('«queso» (144 con stock): 20 fichas, la nota con los demás y bastante menos texto para la caché', async () => {
+  it('«queso» (144 con stock): 20 fichas más las 2 más baratas, la nota con los demás y bastante menos texto para la caché', async () => {
     delete process.env.ODB_BOT_TOPE_BUSQUEDA;
     const { s } = servicioConCatalogo(productos, porNombre);
     const r: any = await s.buscarProductos('queso');
-    expect(r.items).toHaveLength(20);
-    expect(r.otros).toMatch(/^Hay 124 productos más con stock en esta búsqueda/);
+    expect(r.items).toHaveLength(20 + MAS_BARATAS);
+    // las 2 más baratas de todo «queso» (Q0 y Q1 en este catálogo de mentira) van con ficha
+    expect(r.items.map((x: any) => x.sku)).toEqual(expect.arrayContaining(['Q0', 'Q1']));
+    expect(r.otros).toMatch(/^Hay 122 productos más con stock en esta búsqueda/);
     expect(r.otros).toMatch(/buscá con más precisión \(marca, tamaño, sabor\)/);
     // las fichas siguen completas (precio, presentación, medida…)
     expect(r.items[0]).toEqual(expect.objectContaining({ sku: expect.any(String), nombre: expect.any(String), precio: expect.any(Number), disponible: true }));
@@ -259,8 +262,187 @@ describe('buscarProductos con el tope (la búsqueda del bot de punta a punta)', 
     const { s } = servicioConCatalogo(productos, porNombre);
     const out: any = await s.ejecutarHerramienta({ type: 'tool_use', id: 'b1', name: 'buscar_productos', input: { q: 'queso' } }, '5491100000000');
     const r = JSON.parse(String(out.content));
-    expect(r.items).toHaveLength(20);
-    expect(r.otros).toMatch(/^Hay 124 productos más/);
-    expect(s.skusDe('5491100000000').size).toBe(20);
+    expect(r.items).toHaveLength(20 + MAS_BARATAS);
+    expect(r.otros).toMatch(/^Hay 122 productos más/);
+    expect(s.skusDe('5491100000000').size).toBe(20 + MAS_BARATAS);
+  });
+});
+
+// ---- Revisión del 6/10/2026: lo que la medición con la base mostró mal ----
+
+// marcas con letras («Marca ab»): un número en el nombre no cuenta como palabra,
+// y «Cerveza Marca7 473» sería «se llama igual que lo buscado» (fija)
+const marca = (i: number) => `Marca ${String.fromCharCode(97 + Math.floor(i / 26))}${String.fromCharCode(97 + (i % 26))}`;
+
+describe('revisión del tope: marcas que no se llaman como la categoría, plurales en «e» y lo más barato', () => {
+  const vendidasDe = (items: Prod[]) => (sku: string) => items.find((x) => x.sku === sku)?.vendidas ?? 0;
+  const categoriaDe = (items: Prod[]) => (sku: string) => items.find((x) => x.sku === sku)?.categoria;
+
+  it('«cerveza»: la Brahma y la Quilmes (de «Cervezas Lata») van primero por ventas, no detrás de todo lo que se llama «Cerveza …»', () => {
+    // la base del 6/10/2026: la Brahma (280 vendidas) quedaba 44ª y la Quilmes 45ª
+    const items: Prod[] = [
+      ...Array.from({ length: 40 }, (_, i) => ({ sku: `C${i}`, nombre: `Cerveza ${marca(i)} 473`, vendidas: i, categoria: 'Cervezas', precio: 2200 + i })),
+      { sku: 'L5000', nombre: 'Brahma 473cc x 24un', vendidas: 280, categoria: 'Cervezas Lata', precio: 2500 },
+      { sku: 'L5001', nombre: 'Quilmes Clasica x473', vendidas: 128, categoria: 'Cervezas Lata', precio: 1990 },
+    ];
+    const r = recortarBusqueda(items, 'cerveza', vendidasDe(items), 20, { categoria: categoriaDe(items) });
+    expect(r.visibles.slice(0, 2).map((x) => x.sku)).toEqual(['L5000', 'L5001']);
+  });
+
+  it('«agua»: los Villavicencio y el bidón (de «Aguas Minerales») antes que las saborizadas que se venden menos', () => {
+    const items: Prod[] = [
+      ...Array.from({ length: 40 }, (_, i) => ({ sku: `S${i}`, nombre: `Agua Saborizada ${marca(i)} 1.5l`, vendidas: 10 + i, categoria: 'Aguas Saborizadas' })),
+      { sku: 'L261', nombre: 'Villavicencio sin gas x2lt', vendidas: 397, categoria: 'Aguas Minerales' },
+      { sku: 'L262', nombre: 'Villavicencio 1.5 L x6', vendidas: 341, categoria: 'Aguas Minerales' },
+      { sku: 'L2820', nombre: 'Bidon Villa del Sur 6.25 L', vendidas: 150, categoria: 'Aguas Minerales' },
+    ];
+    const r = recortarBusqueda(items, 'agua', vendidasDe(items), 20, { categoria: categoriaDe(items) });
+    expect(r.visibles.slice(0, 3).map((x) => x.sku)).toEqual(['L261', 'L262', 'L2820']);
+  });
+
+  it('«aperitivo»: el Fernet Branca (de «Aperitivos») primero', () => {
+    const items: Prod[] = [
+      ...Array.from({ length: 30 }, (_, i) => ({ sku: `A${i}`, nombre: `Aperitivo ${marca(i)} 750`, vendidas: i, categoria: 'Aperitivos' })),
+      { sku: 'L272', nombre: 'Fernet Branca 750cc', vendidas: 92, categoria: 'Aperitivos' },
+    ];
+    expect(recortarBusqueda(items, 'aperitivo', vendidasDe(items), 20, { categoria: categoriaDe(items) }).visibles[0].sku).toBe('L272');
+  });
+
+  it('«espumante» (en singular) cubre la categoría «Espumantes Extra Brut»: el Baron B sale primero', () => {
+    // la base del 6/10/2026: Baron B (83 vendidas, el ejemplo de la regla 1a) quedaba entre el 40 y el 45
+    const items: Prod[] = [
+      ...Array.from({ length: 40 }, (_, i) => ({ sku: `E${i}`, nombre: `Espumante ${marca(i)} 750`, vendidas: i % 9, categoria: 'Espumantes' })),
+      { sku: 'L124', nombre: 'Baron B Extra Brut 750', vendidas: 83, categoria: 'Espumantes Extra Brut' },
+    ];
+    expect(recortarBusqueda(items, 'espumante', vendidasDe(items), 20, { categoria: categoriaDe(items) }).visibles[0].sku).toBe('L124');
+    // y «chocolate» a «Chocolates»
+    const chocos: Prod[] = [
+      ...Array.from({ length: 40 }, (_, i) => ({ sku: `H${i}`, nombre: `Chocolate ${marca(i)} 100 gr`, vendidas: i % 7, categoria: 'Chocolates' })),
+      { sku: 'L777', nombre: 'Kinder Barrita x 4', vendidas: 80, categoria: 'Chocolates' },
+    ];
+    expect(recortarBusqueda(chocos, 'chocolate', vendidasDe(chocos), 20, { categoria: categoriaDe(chocos) }).visibles[0].sku).toBe('L777');
+  });
+
+  it('el singular y el plural en «e» no se estiran: «aceite» no cubre «Aceitunas» ni «leche» «Lechuga»', () => {
+    const items: Prod[] = [
+      ...Array.from({ length: 30 }, (_, i) => ({ sku: `T${i}`, nombre: `Aceitunas Verdes ${marca(i)}`, vendidas: 500 + i, categoria: 'Aceitunas' })),
+      { sku: 'F1', nombre: 'Fritolim Girasol 900 ml', vendidas: 3, categoria: 'Aceites' },
+      { sku: 'F2', nombre: 'Aceite de Oliva Marca 500 ml', vendidas: 2, categoria: 'Aceites' },
+    ];
+    const r = recortarBusqueda(items, 'aceite', vendidasDe(items), 20, { categoria: categoriaDe(items) });
+    expect(r.visibles.slice(0, 2).map((x) => x.sku).sort()).toEqual(['F1', 'F2']);
+    const verdes: Prod[] = [
+      ...Array.from({ length: 30 }, (_, i) => ({ sku: `V${i}`, nombre: `Lechuga ${marca(i)}`, vendidas: 500 + i, categoria: 'Verduras' })),
+      { sku: 'M1', nombre: 'Leche Entera La Serenisima 1 L', vendidas: 3, categoria: 'Leches - Lacteos' },
+    ];
+    expect(recortarBusqueda(verdes, 'leche', vendidasDe(verdes), 20, { categoria: categoriaDe(verdes) }).visibles[0].sku).toBe('M1');
+  });
+
+  it('las 2 más baratas de lo que mejor coincide siempre van con ficha (para «¿cuál es la más barata?»), aunque no se vendan', () => {
+    const items: Prod[] = [
+      ...Array.from({ length: 40 }, (_, i) => ({ sku: `C${i}`, nombre: `Cerveza ${marca(i)} 473`, vendidas: 100 + i, precio: 2200 + i })),
+      { sku: 'Q473', nombre: 'Cerveza Quilmes x473', vendidas: 0, precio: 1990 },
+    ];
+    const r = recortarBusqueda(items, 'cerveza', vendidasDe(items), 20);
+    expect(r.visibles).toHaveLength(20 + MAS_BARATAS);
+    expect(r.visibles.map((x) => x.sku)).toEqual(expect.arrayContaining(['Q473', 'C0']));
+    // las baratas van al final, en su lugar del orden; las primeras siguen siendo las más vendidas
+    expect(r.visibles[0].sku).toBe('C39');
+    expect(r.otros).toMatch(/para lo más caro o un presupuesto/);
+    // «cerveza lata»: la más barata de las latas, no la botella más barata que tiene una sola palabra
+    const latas: Prod[] = [
+      ...Array.from({ length: 30 }, (_, i) => ({ sku: `T${i}`, nombre: `Cerveza Lata ${marca(i)}`, vendidas: 100 + i, precio: 2500 + i })),
+      { sku: 'B1', nombre: 'Cerveza Botella Barata', vendidas: 0, precio: 1000 },
+      { sku: 'T99', nombre: 'Cerveza Lata Economica', vendidas: 0, precio: 2100 },
+    ];
+    const z = recortarBusqueda(latas, 'cerveza lata', vendidasDe(latas), 20);
+    expect(z.visibles.map((x) => x.sku)).toContain('T99');
+    expect(z.visibles.map((x) => x.sku)).not.toContain('B1');
+    // «queso»: el queso más barato, no la empanada de jamón y queso (la base del 6/10/2026)
+    const quesos: Prod[] = [
+      ...Array.from({ length: 30 }, (_, i) => ({ sku: `Q${i}`, nombre: `Queso ${marca(i)} x fraccion`, vendidas: 100 + i, categoria: 'quesos', precio: 15000 + i })),
+      { sku: 'QR', nombre: 'Queso Rallado Sobre 40 gr', vendidas: 0, categoria: 'quesos', precio: 2500 },
+      { sku: 'EMP', nombre: 'Empanadas de jamon y queso', vendidas: 0, categoria: 'PIZZAS Y EMPANADAS', precio: 1200 },
+    ];
+    const q = recortarBusqueda(quesos, 'queso', vendidasDe(quesos), 20, { categoria: categoriaDe(quesos) });
+    expect(q.visibles.map((x) => x.sku)).toContain('QR');
+    expect(q.visibles.map((x) => x.sku)).not.toContain('EMP');
+  });
+});
+
+describe('revisión del tope: buscarProductos', () => {
+  const guardada = process.env.ODB_BOT_TOPE_BUSQUEDA;
+  afterEach(() => { if (guardada === undefined) delete process.env.ODB_BOT_TOPE_BUSQUEDA; else process.env.ODB_BOT_TOPE_BUSQUEDA = guardada; });
+
+  it('formatosGrandes: todo precio que nombra es de una ficha (el control de importes no lo borra); los grandes sin ficha van por nombre', async () => {
+    delete process.env.ODB_BOT_TOPE_BUSQUEDA;
+    // 30 saborizadas chicas que se venden y 4 bidones grandes que no: quedan fuera de las 20 fichas
+    const productos: Prod[] = [
+      ...Array.from({ length: 30 }, (_, i) => ({ sku: `S${i}`, nombre: `Agua Saborizada ${marca(i)} 500cc`, vendidas: 100 + i })),
+      ...Array.from({ length: 4 }, (_, i) => ({ sku: `G900${i}`, nombre: `Agua Mineral Bidon ${marca(i)} 6.25 L`, vendidas: 0 })),
+    ];
+    const { s } = servicioConCatalogo(productos, (q) => productos.filter((p) => p.nombre.toLowerCase().includes(q.toLowerCase())));
+    const r: any = await s.buscarProductos('agua');
+    expect(r.otros).toBeDefined();
+    const conFicha = new Set(r.items.map((x: any) => x.sku));
+    expect(['G9000', 'G9001', 'G9002', 'G9003'].some((sku) => conFicha.has(sku))).toBe(false);
+    expect(r.formatosGrandes).toMatch(/sin ficha \(buscalos por nombre para ver el precio\): Agua Mineral Bidon Marca aa 6\.25 L/);
+    // cada «$N» de formatosGrandes está entre los importes que el control final reconoce
+    const hechos = new Set(importesDeHerramienta(r));
+    for (const n of importesDelTexto(r.formatosGrandes)) expect(hechos.has(n)).toBe(true);
+    expect(r.formatosGrandes).not.toMatch(/\$\d/);
+  });
+
+  it('sin recorte, formatosGrandes es el de siempre (con precio)', async () => {
+    delete process.env.ODB_BOT_TOPE_BUSQUEDA;
+    const productos: Prod[] = [
+      { sku: 'S1', nombre: 'Agua Saborizada Marca1 500cc', vendidas: 10 },
+      { sku: 'G9001', nombre: 'Agua Mineral Bidon Marca1 6.25 L', vendidas: 0 },
+    ];
+    const { s } = servicioConCatalogo(productos, (q) => productos.filter((p) => p.nombre.toLowerCase().includes(q.toLowerCase())));
+    const r: any = await s.buscarProductos('agua');
+    expect(r.otros).toBeUndefined();
+    expect(r.formatosGrandes).toMatch(/^Formatos de MÁS de 1 litro con stock: Agua Mineral Bidon Marca1 6.25 L \(.+\) \$10001\. /);
+  });
+
+  it('las alternativas de la categoría no llevan cantidades ni sucursales (regla del 1/10/2026)', async () => {
+    delete process.env.ODB_BOT_TOPE_BUSQUEDA;
+    const alternativas = Array.from({ length: 4 }, (_, i) => ({ id: `id-B${i}`, sku: `B${i}`, nombre: `Brahma ${i}`, es_alcohol: true, unidades_pack: 1, vendido_por_peso: false, stock: [{ cantidad: 30, sucursal: { nombre: 'Suc Sant Thomas' } }, { cantidad: 4, sucursal: { nombre: 'Suc Santa Ines' } }] }));
+    const db: any = {
+      rpc: jest.fn(async (_fn: string, args: any) => ({ data: (args.p_ids ?? []).map((id: string) => ({ producto_id: id, precio_final: 2000, precio_lista: 2000 })), error: null })),
+      from(tabla: string) {
+        const filtros: any[] = [];
+        const res = () => {
+          if (tabla === 'categorias') return { data: [], error: null };
+          if (tabla === 'sucursales') return { data: { nombre: 'Suc Sant Thomas' }, error: null };
+          if (tabla === 'productos') {
+            if (filtros.some((f) => f[0] === 'eq' && f[1] === 'sku')) return { data: { categoria_id: 'c-cerv', categoria: { nombre: 'Cervezas' } }, error: null };
+            if (filtros.some((f) => f[0] === 'eq' && f[1] === 'categoria_id')) return { data: alternativas, error: null };
+            if (filtros.some((f) => f[0] === 'in' && f[1] === 'sku')) return { data: [{ id: 'id-Q1', sku: 'Q1', es_alcohol: true, unidades_pack: 1, vendido_por_peso: false, unidades_vendidas: 5, categoria: { nombre: 'Cervezas' } }], error: null };
+          }
+          return { data: null, error: null };
+        };
+        const b: any = new Proxy({}, {
+          get(_t, k) {
+            if (k === 'then') return (ok: any, err: any) => Promise.resolve(res()).then(ok, err);
+            if (k === 'maybeSingle' || k === 'single') return async () => res();
+            if (k === 'select') return () => b;
+            return (...args: any[]) => { filtros.push([String(k), ...args]); return b; };
+          },
+        });
+        return b;
+      },
+    };
+    // lo pedido (Quilmes Clásica) no tiene stock: el sistema trae las alternativas
+    const catalogo: any = { consultarStock: jest.fn(async () => ({ items: [{ sku: 'Q1', nombre: 'Quilmes Clasica 473', total: 0, sucursales: [] }] })) };
+    const s: any = new BotService(db, {} as any, catalogo, {} as any, {} as any);
+    s.identificarCliente = jest.fn(async () => ({ existe: false }));
+    const r: any = await s.buscarProductos('quilmes clasica');
+    expect(r.alternativasDeLaCategoria).toHaveLength(4);
+    for (const a of r.alternativasDeLaCategoria) {
+      expect(a.stock).toBeUndefined();
+      expect(a.disponible).toBe(true);
+    }
+    expect(JSON.stringify(r.alternativasDeLaCategoria)).not.toMatch(/Santa Ines|Saint Thomas|: 30/);
   });
 });

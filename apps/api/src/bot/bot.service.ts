@@ -2619,10 +2619,6 @@ export class BotService {
     // aclaró marca, tamaño o variante, va el más vendido de lo que hay en stock.
     const porDefecto: any = !tamano ? elegirPorDefecto(items as any[], (sku: string) => Number(idPorSku.get(sku)?.unidades_vendidas ?? 0), t) : null;
     if (porDefecto) { porDefecto.porDefecto = true; items.splice(items.indexOf(porDefecto), 1); items.unshift(porDefecto); }
-    const grandes = items.filter((i: any) => (volumenMl(i.nombre) ?? 0) > 1000);
-    const avisoGrandes = grandes.length
-      ? `Formatos de MÁS de 1 litro con stock: ${grandes.map((i: any) => `${i.nombre} (${i.medida}) $${i.precio}`).join(' | ')}. Si el cliente pide "más de 1 litro", "2 o 3 litros", "grande" o para regalo, OFRECÉ ESTOS primero; nunca digas que 1 L es lo más grande.`
-      : tamano?.grande ? 'En esta búsqueda no hay botellas de más de 1 litro con stock. Antes de decírselo al cliente, buscá también "balancin" y la categoría sola.' : null;
     // Ronda 7 (CRÍTICA, reincidente): "no tenemos Quilmes clásica ni una lager
     // parecida" cuando había Brahma, Imperial, Andes… El bot buscaba por marca y
     // con cero stock se rendía. Si lo buscado no tiene stock, el sistema mismo
@@ -2667,7 +2663,11 @@ export class BotService {
                 ...presentacionProducto(p),
                 alcohol: !!p.es_alcohol,
                 medida: etiquetaVolumen(volumenMl(p.nombre)),
-                stock: (p.stock ?? []).filter((r: any) => Number(r.cantidad) > 0).map((r: any) => `${String(r.sucursal?.nombre ?? '').replace(/^Suc /, '').replace(/^Sant Thomas/, 'Saint Thomas')}: ${Number(r.cantidad)}`).join(' · '),
+                // sin `stock` (6/10/2026, revisión del tope): las cantidades y las
+                // sucursales no viajan al modelo (regla del dueño del 1/10/2026, que
+                // en las fichas ya se cumplía) y ya se filtró lo que se puede pedir
+                // en la sucursal de retiro; eran ~12 renglones de texto por búsqueda
+                disponible: true,
               }))
               .filter((p) => p.precio)
               .sort((a, b) => (Number(esMismaMarca(b.nombre)) - Number(esMismaMarca(a.nombre))) || (Number(a.precio) - Number(b.precio)))
@@ -2696,6 +2696,24 @@ export class BotService {
     const tope = topeDeBusqueda();
     const { visibles, otros } = recortarBusqueda(items as any[], t, (sku: string) => Number(idPorSku.get(sku)?.unidades_vendidas ?? 0), tope, { exactos, categoria: (sku: string) => (idPorSku.get(sku) as any)?.categoria?.nombre });
     if (otros) this.log.log(`búsqueda "${t}": ${items.length} con stock, ${visibles.length} con ficha (tope ${tope})`);
+    // FORMATOS GRANDES, DESPUÉS DEL TOPE (6/10/2026, revisión): se armaban con
+    // TODO lo que hay y con precio en el texto, pero el control final de importes
+    // solo toma los precios de las fichas (importesDeHerramienta). Un grande que
+    // quedó sin ficha («agua»: el Villavicencio x6 y el bidón de 6,25 L) salía
+    // ofrecido con un precio «sin fuente»: se abría una consulta a administración
+    // y se borraba el renglón. Ahora llevan precio solo los que tienen ficha; los
+    // demás van por nombre, para buscarlos. Sin recorte, el texto es el de siempre.
+    const conFicha = new Set<any>(visibles);
+    const grandes = items.filter((i: any) => (volumenMl(i.nombre) ?? 0) > 1000);
+    const grandesConFicha = grandes.filter((i: any) => conFicha.has(i));
+    const grandesSinFicha = grandes.filter((i: any) => !conFicha.has(i));
+    const listaGrandes = [
+      ...grandesConFicha.map((i: any) => `${i.nombre} (${i.medida}) $${i.precio}`),
+      ...(grandesSinFicha.length ? [`sin ficha (buscalos por nombre para ver el precio): ${grandesSinFicha.map((i: any) => `${i.nombre} (${i.medida})`).join(' | ')}`] : []),
+    ].join(' | ');
+    const avisoGrandes = grandes.length
+      ? `Formatos de MÁS de 1 litro con stock: ${listaGrandes}. Si el cliente pide "más de 1 litro", "2 o 3 litros", "grande" o para regalo, OFRECÉ ESTOS primero; nunca digas que 1 L es lo más grande.`
+      : tamano?.grande ? 'En esta búsqueda no hay botellas de más de 1 litro con stock. Antes de decírselo al cliente, buscá también "balancin" y la categoría sola.' : null;
     return {
       items: visibles,
       ...(otros ? { otros } : {}),

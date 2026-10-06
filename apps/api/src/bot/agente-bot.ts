@@ -231,8 +231,12 @@ export const HERRAMIENTAS_PEDIDOS: Anthropic.Tool[] = [
   },
   {
     name: 'buscar_productos',
+    // 6/10/2026 (tope de la búsqueda): la búsqueda trae con ficha las 20 más
+    // relevantes y el resto en `otros`; la descripción decía que traía todo lo
+    // disponible y la regla 1a manda «(no lo tengo: …)» si algo no aparece.
+    // Cambia el prefijo cacheado una sola vez (junto con el «hasta 20» de la cava).
     description:
-      'Busca productos en el catálogo real por nombre o marca. Devuelve sku, nombre, precio y si es alcohol; solo trae lo que está disponible (lo que no, viene en sinStock). El stock es interno: nunca digas cantidades ni sucursales. ÚNICA fuente válida de precios y stock — llamala cada vez que necesites datos de un producto. Buscá términos cortos ("coca", "fernet", "queso") y refiná. El campo `tamanos` dice qué medidas existen y cuáles están sin stock: un tamaño sin stock EXISTE (decí "de ese tamaño no tengo stock ahora", jamás "no lo tenemos" ni "el más grande es X"). Cada item trae su medida; si el cliente pide un tamaño ("más de 1 litro", "2 o 3 litros", "grande"), poné el tamaño en la búsqueda ("whisky 3 litros") y leé formatosGrandes antes de decir que no hay ese tamaño.',
+      'Busca productos en el catálogo real por nombre o marca. Devuelve sku, nombre, precio y si es alcohol; solo trae lo que está disponible (lo que no, viene en sinStock). El stock es interno: nunca digas cantidades ni sucursales. ÚNICA fuente válida de precios y stock — llamala cada vez que necesites datos de un producto. Buscá términos cortos ("coca", "fernet", "queso") y refiná. El campo `tamanos` dice qué medidas existen y cuáles están sin stock: un tamaño sin stock EXISTE (decí "de ese tamaño no tengo stock ahora", jamás "no lo tenemos" ni "el más grande es X"). Cada item trae su medida; si el cliente pide un tamaño ("más de 1 litro", "2 o 3 litros", "grande"), poné el tamaño en la búsqueda ("whisky 3 litros") y leé formatosGrandes antes de decir que no hay ese tamaño. Si el resultado trae `otros`, hay más productos con stock que no vinieron con ficha: antes de decir que no hay algo, buscalo por su nombre o con más precisión (marca, tamaño, sabor).',
     strict: true,
     input_schema: {
       type: 'object',
@@ -297,7 +301,7 @@ export const HERRAMIENTAS_PEDIDOS: Anthropic.Tool[] = [
   {
     name: 'consultar_cava',
     description:
-      'La cava real de ODB (~1500 etiquetas de vinos y espumantes con stock). Filtra por tipo, cepa y presupuesto y devuelve etiquetas con precio y stock. Usala para TODA consulta de vinos/espumantes (recomendaciones, maridajes, regalos) en vez de buscar_productos. Devuelve hasta 25 etiquetas ordenadas de mayor a menor precio dentro del rango.',
+      'La cava real de ODB (~1500 etiquetas de vinos y espumantes con stock). Filtra por tipo, cepa y presupuesto y devuelve etiquetas con precio y stock. Usala para TODA consulta de vinos/espumantes (recomendaciones, maridajes, regalos) en vez de buscar_productos. Devuelve hasta 20 etiquetas ordenadas de mayor a menor precio dentro del rango.',
     strict: true,
     input_schema: {
       type: 'object',

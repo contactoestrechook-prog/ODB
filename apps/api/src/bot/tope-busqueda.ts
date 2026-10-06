@@ -23,6 +23,24 @@
 // más vendido. Nunca quedan afuera el producto por defecto (el más vendido de
 // lo que pidió), el que tiene ese SKU o código, ni el que se llama igual que lo
 // buscado (en el tamaño pedido, si lo pidió).
+//
+// Revisión del 6/10/2026 (medida de nuevo sobre la base, ver el commit):
+// - «empieza por lo pedido» mira también la categoría: buscando «cerveza», la
+//   Brahma («Cervezas Lata») y la Quilmes quedaban 44ª y 45ª detrás de todo lo
+//   que se llama «Cerveza …», y lo más vendido salía sin ficha.
+// - singular y plural de las palabras terminadas en «e»: «espumante» no cubría
+//   «Espumantes» (Baron B quedaba 40º), ni «chocolate» a «Chocolates».
+// - las 2 más baratas de lo que mejor coincide van siempre con ficha: «¿cuál es
+//   la cerveza más barata?» contestaba con la más barata de las 20 fichas y la
+//   Quilmes a $1.990 estaba en el puesto 45, sin precio.
+// Con estos cambios, en la base: «cerveza» → Brahma 2ª y Quilmes 3ª; «agua» →
+// Villavicencio 2 L 3º, el x6 4º y el bidón 6º; «aperitivo» → Fernet Branca 2º;
+// «espumante» → Baron B 2º. Recall con una sola palabra, N=10/15/20/25:
+// 87,6/93,3/93,3/95,5 % (98,9 % entre fichas y nombres); con las palabras del
+// cliente o el nombre corto, 100 % desde N=15: sigue N=20. Lo que perdió
+// lugar son productos de poca venta de la misma categoría (fideos moños 18º →
+// 28º, nombrado en `otros`). Las 2 baratas y la nota más larga suman ~4,5 %:
+// 17 búsquedas comunes, 350.762 caracteres sin tope → 109.856 → 114.812.
 // ============================================================
 import { pideTamano, volumenMl } from './formatos';
 
@@ -32,6 +50,8 @@ export const TOPE_BUSQUEDA_POR_DEFECTO = 20;
 export const MARGEN_SIN_RECORTE = 5;
 /** Nombres del resto que se listan (más allá, solo la cantidad). */
 export const NOMBRES_DEL_RESTO = 40;
+/** Las más baratas de lo que mejor coincide que van siempre con ficha, aunque pasen el tope. */
+export const MAS_BARATAS = 2;
 
 /** El tope vigente: ODB_BOT_TOPE_BUSQUEDA (0 = sin tope); vacío o inválido, el de por defecto. */
 export function topeDeBusqueda(valor: string | undefined = process.env.ODB_BOT_TOPE_BUSQUEDA): number {
@@ -62,9 +82,22 @@ function palabrasClave(texto: unknown): string[] {
   return out;
 }
 
-/** «queso» cubre «Quesos»; «serenisima» cubre «Serenísima»; desde 4 letras vale el comienzo («sere»). */
+const sinE = (w: string) => w.replace(/e$/, '');
+/**
+ * La palabra buscada `w` coincide con la palabra `n` del nombre o la categoría:
+ * igual, o desde 4 letras el comienzo («sere» → «serenisima»), o el singular y
+ * el plural de las terminadas en «e» (6/10/2026: raiz deja «espumantes» en
+ * «espumant» y «espumante» entero, y no se encontraban; con el comienzo solo,
+ * «aceite» tampoco cubría «Aceites»). La «e» se iguala solo palabra contra
+ * palabra: así «aceite» no cubre «aceitunas» ni «leche» «lechuga».
+ */
+function coincide(w: string, n: string): boolean {
+  return n === w || (w.length >= 4 && n.startsWith(w)) || (w.length >= 5 && n.length >= 4 && sinE(n) === sinE(w));
+}
+
+/** «queso» cubre «Quesos»; «serenisima» cubre «Serenísima»; «espumante», «Espumantes». */
 function cubre(w: string, tokens: string[]): boolean {
-  return tokens.some((n) => n === w || (w.length >= 4 && n.startsWith(w)));
+  return tokens.some((n) => coincide(w, n));
 }
 
 export type RecorteDeBusqueda<T> = { visibles: T[]; otros: string | null };
@@ -79,11 +112,13 @@ export type RecorteDeBusqueda<T> = { visibles: T[]; otros: string | null };
  * tienen más palabras de la búsqueda, en el nombre o en la categoría («agua»
  * es también el Villavicencio, que está en «Aguas Minerales» aunque su nombre
  * no lo diga); (3) las del tamaño pedido; (4) entre las que tienen todas las
- * palabras, las que empiezan por la primera («Leche La Serenísima» antes que
- * «Dulce de leche La Serenísima»); (5) las más vendidas; (6) el orden en que
- * vinieron.
+ * palabras, las que empiezan por la primera, en el nombre o en la categoría
+ * («Leche La Serenísima» antes que «Dulce de leche La Serenísima»; la Brahma
+ * de «Cervezas Lata» junto con las que se llaman «Cerveza …»); (5) las más
+ * vendidas; (6) el orden en que vinieron. Además, las 2 más baratas de lo que
+ * mejor coincide van con ficha aunque pasen el tope (para «lo más barato»).
  */
-export function recortarBusqueda<T extends { sku?: string; nombre?: string; porDefecto?: boolean }>(
+export function recortarBusqueda<T extends { sku?: string; nombre?: string; porDefecto?: boolean; precio?: number }>(
   items: T[],
   busqueda: string,
   vendidas: (sku: string) => number,
@@ -102,6 +137,7 @@ export function recortarBusqueda<T extends { sku?: string; nombre?: string; porD
     const sku = String(it.sku ?? '');
     const tokens = norm(nombre).split(/[^a-z0-9]+/).map(raiz);
     const deLaCategoria = norm(o.categoria?.(sku) ?? '').split(/[^a-z0-9]+/).map(raiz);
+    const primerDeCat = deLaCategoria.find((x) => x) ?? '';
     const ml = volumenMl(nombre);
     const enElNombre = palabras.filter((w) => cubre(w, tokens)).length;
     const tiene = palabras.filter((w) => cubre(w, tokens) || cubre(w, deLaCategoria)).length;
@@ -112,7 +148,9 @@ export function recortarBusqueda<T extends { sku?: string; nombre?: string; porD
     const fija = !!it.porDefecto || mismoNombre || (!!sku && (!!o.exactos?.has(sku) || norm(sku) === skuBuscado));
     const talle = !!tamano && (tamano.ml ? ml === tamano.ml : (ml ?? 0) > 1000);
     const primerToken = tokens.find((x) => x) ?? '';
-    const empieza = palabras.length > 0 && tiene === palabras.length && (primerToken === primera || (primera.length >= 4 && primerToken.startsWith(primera)));
+    // empieza por lo pedido el nombre o la categoría (6/10/2026, revisión: la
+    // Brahma no se llama «Cerveza …» pero es de «Cervezas Lata»)
+    const empieza = palabras.length > 0 && tiene === palabras.length && [primerToken, primerDeCat].some((t0) => !!t0 && coincide(primera, t0));
     return { it, i, fija, tiene, talle, empieza, vendidas: Number(vendidas(sku)) || 0 };
   });
   ranking.sort((a, b) =>
@@ -124,13 +162,30 @@ export function recortarBusqueda<T extends { sku?: string; nombre?: string; porD
     || a.i - b.i);
 
   // las fijas nunca quedan afuera, aunque fueran más que el tope
-  const visibles = ranking.filter((x, k) => k < tope || x.fija);
-  const fuera = ranking.filter((x, k) => !(k < tope || x.fija));
+  const dentro = new Set(ranking.filter((x, k) => k < tope || x.fija));
+  // LAS MÁS BARATAS (6/10/2026, revisión): las fichas se eligen por relevancia y
+  // ventas, y del resto no viaja el precio. «¿Cuál es la cerveza más barata?»
+  // salía con la más barata de las 20 fichas y la Quilmes a $1.990 quedaba 45ª.
+  // Van con ficha las 2 más baratas de lo que mejor coincide (si pidió «cerveza
+  // lata», de las latas; si hay de las que empiezan por lo pedido, de esas: en
+  // «queso» las más baratas eran una empanada de jamón y queso y un arroz
+  // preparado, medido en la base); quedan al final, en su lugar del orden.
+  const precio = (x: { it: T }) => Number(x.it.precio);
+  const maxTiene = Math.max(0, ...ranking.map((x) => x.tiene));
+  const mejores = ranking.filter((x) => x.tiene === maxTiene);
+  const grupo = mejores.some((x) => x.empieza) ? mejores.filter((x) => x.empieza) : mejores;
+  grupo
+    .filter((x) => Number.isFinite(precio(x)) && precio(x) > 0)
+    .sort((a, b) => precio(a) - precio(b) || a.i - b.i)
+    .slice(0, MAS_BARATAS)
+    .forEach((x) => dentro.add(x));
+  const visibles = ranking.filter((x) => dentro.has(x));
+  const fuera = ranking.filter((x) => !dentro.has(x));
   if (!fuera.length) return { visibles: items, otros: null };
   const nombres = fuera.slice(0, NOMBRES_DEL_RESTO).map((x) => String(x.it.nombre ?? '')).join(' | ');
   const resto = fuera.length > NOMBRES_DEL_RESTO ? ` | +${fuera.length - NOMBRES_DEL_RESTO} más` : '';
   return {
     visibles: visibles.map((x) => x.it),
-    otros: `Hay ${fuera.length} productos más con stock en esta búsqueda que no van con ficha; acá solo el nombre, sin precio: ${nombres}${resto}. Que no estén en items NO quiere decir que no los tengamos: si lo que pidió el cliente no está en items, buscá con más precisión (marca, tamaño, sabor) o por el nombre de esta lista para ver precio y presentación. Nunca digas que no hay algo sin buscarlo así.`,
+    otros: `Hay ${fuera.length} productos más con stock en esta búsqueda que no van con ficha; acá solo el nombre, sin precio: ${nombres}${resto}. Que no estén en items NO quiere decir que no los tengamos: si lo que pidió el cliente no está en items, buscá con más precisión (marca, tamaño, sabor) o por el nombre de esta lista para ver precio y presentación. Nunca digas que no hay algo sin buscarlo así. Las más baratas de lo que mejor coincide van con ficha; para lo más caro o un presupuesto, buscá con más precisión antes de comparar.`,
   };
 }

@@ -62,9 +62,11 @@ estilo del sommelier, editar la sección "SOS TAMBIÉN EL SOMMELIER" en
   `ODB_BOT_MAX_UNIDADES` (60); lo que supere se deriva a un humano (evita
   reservas de stock maliciosas).
 - **Tope de la búsqueda** (6/10/2026): `ODB_BOT_TOPE_BUSQUEDA` (20) fichas
-  por `buscar_productos`, las más relevantes; del resto van solo los nombres
-  (hasta 40) y la nota de que hay más (`otros`). `0` = sin tope. Lo midió
-  `apps/api/scripts/medir-tope-busqueda.sql` (solo lectura).
+  por `buscar_productos`, las más relevantes (palabras en el nombre o la
+  categoría, después lo más vendido), más las 2 más baratas de lo que mejor
+  coincide; del resto van solo los nombres (hasta 40) y la nota de que hay más
+  (`otros`). `formatosGrandes` lleva precio solo de lo que tiene ficha. `0` =
+  sin tope. Lo midió `apps/api/scripts/medir-tope-busqueda.sql` (solo lectura).
 - **Costo visible**: cada conversación acumula sus tokens en
   `bot_conversaciones.tokens` (+ log por mensaje).
 - Los workflows de n8n ya mandan `mensajeId` y usan la BOT_API_KEY fuerte

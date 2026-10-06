@@ -10,6 +10,14 @@
 -- genérico y el bot eligió, y 'corto' (se arma solo) con una sola palabra.
 -- Diferencia conocida: la categoría entera se trae con limit 200 sin orden (como
 -- en el código), así que en «vino» la muestra puede variar entre corridas.
+-- Revisión del 6/10/2026: «empieza» mira también la primera palabra de la
+-- categoría, singular y plural de las terminadas en «e» se igualan («espumante»
+-- ↔ «Espumantes»), y las 2 más baratas de lo que mejor coincide van con ficha
+-- (precio de catalogo_precios_bot, que es stable: solo lee).
+-- Coincide (palabra buscada w contra palabra del producto tk), igual que
+-- coincide() en tope-busqueda.ts:
+--   tk = w or (length(w) >= 4 and tk like w || '%')
+--   or (length(w) >= 5 and length(tk) >= 4 and regexp_replace(tk, 'e$', '') = regexp_replace(w, 'e$', ''))
 with params0(id, q, obj, clase) as (values
 (1,'smirnoff','L102','esp'),
 (2,'coca light','L10886','esp'),
@@ -261,6 +269,8 @@ it as (
   from todo left join productos pr on pr.sku = todo.sku left join categorias cat on cat.id = pr.categoria_id
   where todo.total > 0
 ),
+-- precios de lista del bot (sin cliente), una sola llamada para todos
+prc as (select b.producto_id, b.precio_final from public.catalogo_precios_bot((select array_agg(distinct pid) from it where pid is not null), null) b),
 pt as (
   select p2.id,
     p2.nt ~ '\y(grandes?|balancin(es)?|magnum|galon(es)?|mas de|mayor(es)? a|de mas)\y' grande,
@@ -297,9 +307,10 @@ itt as (
 itc as (
   select itt.*,
     (select count(*) from wpd where wpd.id = itt.id and exists (select 1 from unnest(itt.toks) tk where tk = wpd.w or (length(wpd.w) >= 4 and tk like wpd.w || '%'))) cobpd,
-    (select count(*) from wr where wr.id = itt.id and exists (select 1 from unnest(itt.toks) tk where tk = wr.w or (length(wr.w) >= 4 and tk like wr.w || '%'))) c_nom,
-    (select count(*) from wr where wr.id = itt.id and exists (select 1 from unnest(itt.toks || itt.ctoks) tk where tk = wr.w or (length(wr.w) >= 4 and tk like wr.w || '%'))) c,
-    (select tk from unnest(itt.toks) with ordinality u(tk, o) where tk <> '' order by o limit 1) tok0
+    (select count(*) from wr where wr.id = itt.id and exists (select 1 from unnest(itt.toks) tk where (tk = wr.w or (length(wr.w) >= 4 and tk like wr.w || '%') or (length(wr.w) >= 5 and length(tk) >= 4 and regexp_replace(tk, 'e$', '') = regexp_replace(wr.w, 'e$', ''))))) c_nom,
+    (select count(*) from wr where wr.id = itt.id and exists (select 1 from unnest(itt.toks || itt.ctoks) tk where (tk = wr.w or (length(wr.w) >= 4 and tk like wr.w || '%') or (length(wr.w) >= 5 and length(tk) >= 4 and regexp_replace(tk, 'e$', '') = regexp_replace(wr.w, 'e$', ''))))) c,
+    (select tk from unnest(itt.toks) with ordinality u(tk, o) where tk <> '' order by o limit 1) tok0,
+    (select tk from unnest(itt.ctoks) with ordinality u(tk, o) where tk <> '' order by o limit 1) ctok0
   from itt
 ),
 pd as (
@@ -309,25 +320,40 @@ pd as (
 rk as (
   select i.*, qb.k, qb.base_q,
     (pd.sku is not null) por_defecto,
-    (lower(i.sku) = lower(p2.t) or (i.codigo is not null and i.codigo = p2.t) or (qb.k > 0 and i.c_nom = qb.k and (pt2.ml is null or i.vol = pt2.ml) and not exists (select 1 from unnest(i.kw) n where n !~ '^(fraccion|fraccionado|fraccionada|botella|botellita|lata|sachet|tetra|pack|caja|estuche|bolsa|frasco|pote|doypack|porron|vidrio|pet|descartable|retornable|unidad|granel|suelto|suelta)$' and not exists (select 1 from wr where wr.id = i.id and (n = wr.w or (length(wr.w) >= 4 and n like wr.w || '%'))))) or (p2.t ~ '^\d{6,}$' and i.ord = 1)) exacta,
+    (lower(i.sku) = lower(p2.t) or (i.codigo is not null and i.codigo = p2.t) or (qb.k > 0 and i.c_nom = qb.k and (pt2.ml is null or i.vol = pt2.ml) and not exists (select 1 from unnest(i.kw) n where n !~ '^(fraccion|fraccionado|fraccionada|botella|botellita|lata|sachet|tetra|pack|caja|estuche|bolsa|frasco|pote|doypack|porron|vidrio|pet|descartable|retornable|unidad|granel|suelto|suelta)$' and not exists (select 1 from wr where wr.id = i.id and (n = wr.w or (length(wr.w) >= 4 and n like wr.w || '%') or (length(wr.w) >= 5 and length(n) >= 4 and regexp_replace(n, 'e$', '') = regexp_replace(wr.w, 'e$', '')))))) or (p2.t ~ '^\d{6,}$' and i.ord = 1)) exacta,
     coalesce(case when pt2.ml is not null then i.vol = pt2.ml when pt2.grande then i.vol > 1000 else false end, false) talle,
-    coalesce(qb.w0 is not null and (i.tok0 = qb.w0 or (length(qb.w0) >= 4 and i.tok0 like qb.w0 || '%')), false) empieza
+    coalesce(qb.w0 is not null and ((i.tok0 = qb.w0 or (length(qb.w0) >= 4 and i.tok0 like qb.w0 || '%') or (length(qb.w0) >= 5 and length(i.tok0) >= 4 and regexp_replace(i.tok0, 'e$', '') = regexp_replace(qb.w0, 'e$', ''))) or (i.ctok0 = qb.w0 or (length(qb.w0) >= 4 and i.ctok0 like qb.w0 || '%') or (length(qb.w0) >= 5 and length(i.ctok0) >= 4 and regexp_replace(i.ctok0, 'e$', '') = regexp_replace(qb.w0, 'e$', '')))), false) empieza,
+    pr.precio_final precio
   from itc i join p2 using (id) join qb using (id) join pt2 using (id) left join pd on pd.id = i.id and pd.sku = i.sku
+  left join prc pr on pr.producto_id = i.pid
 ),
 rk2 as (
   select rk.*,
     row_number() over (partition by id order by (por_defecto or exacta) desc, c desc, talle desc, (empieza and c = k) desc, vend desc, ord) rank_a,
-    count(*) over (partition by id) n_items
+    count(*) over (partition by id) n_items,
+    max(c) over (partition by id) max_c
   from rk
+),
+-- las 2 más baratas de lo que mejor coincide (c = max_c y, si hay, de las que
+-- empiezan por lo pedido), con precio
+rk2b as (select rk2.*, bool_or(empieza and c = k and c = max_c) over (partition by id) hay_emp from rk2),
+rk3 as (
+  select rk2b.*, case when cand then row_number() over (partition by id, cand order by precio, ord) end barata
+  from (select rk2b.*, (c = max_c and coalesce(precio, 0) > 0 and (not hay_emp or (empieza and c = k))) cand from rk2b) rk2b
 )
 , res as (
-  select p.id, p.q, p.clase, p.obj, coalesce(max(rk2.n_items), 0) n, min(rk2.rank_a) filter (where rk2.sku = p.obj) puesto
-  from p left join rk2 using (id) group by p.id, p.q, p.clase, p.obj
+  select p.id, p.q, p.clase, p.obj, coalesce(max(rk3.n_items), 0) n, min(rk3.rank_a) filter (where rk3.sku = p.obj) puesto,
+    coalesce(bool_or(rk3.barata <= 2) filter (where rk3.sku = p.obj), false) barata
+  from p left join rk3 using (id) group by p.id, p.q, p.clase, p.obj
 )
 -- puesto = lugar del producto cotizado en el orden nuevo (null: hoy no aparece
 -- con stock en esa búsqueda, queda fuera de la cuenta). Con tope N y el margen
--- de 5, queda con ficha si n <= N + 5 o puesto <= N; nombrado si puesto <= N + 40.
-select id, q, clase, obj, n, puesto from res order by id;
+-- de 5, queda con ficha si n <= N + 5, puesto <= N o es de las 2 más baratas;
+-- nombrado si puesto <= N + 40.
+-- Resumen por clase y N (6/10/2026, revisión): cambiar este select por
+--   select clase, count(*) casos, round(100.0 * count(*) filter (where n <= 10 + 5 or puesto <= 10 or barata) / count(*), 1) n10, … (igual con 15, 20, 25)
+--   from res where puesto is not null group by clase;
+select id, q, clase, obj, n, puesto, barata from res order by id;
 
 -- TAMAÑO (caracteres de las fichas): cambiar params0 por las búsquedas comunes
 -- (clase 'tam') y este select final por la suma de
