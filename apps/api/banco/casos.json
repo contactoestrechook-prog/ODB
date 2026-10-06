@@ -236,7 +236,7 @@
         }
       }
     ],
-    "juez": "Busca antes de responder. Si no lo encuentra, no inventa precio ni stock: lo dice o consulta una sola vez."
+    "juez": "Busca antes de responder. Si no lo encuentra, no inventa precio ni stock: lo dice como hecho («de eso no tengo ahora») o lo consulta por adentro sin decírselo (consulta silenciosa, 6/10/2026)."
   },
   {
     "id": "puntual-04",
@@ -477,13 +477,21 @@
         "cliente": "necesito 2 picadas XL para 10 personas, 10 coca zero de 1.75 y 4 papas lays grandes. Cuanto sale?",
         "espera": {
           "debe": [
-            "4[.]?700|47\\.000",
-            "(consulto|confirmo)"
+            "4[.]?700|47\\.000"
+          ],
+          "no_debe": [
+            "\\bconsult",
+            "confirmo por ac",
+            "ya te confirmo",
+            "te aviso",
+            "pendiente",
+            "no tengo (ese|el) dato",
+            "no tengo (esa|la) informaci"
           ]
         }
       }
     ],
-    "juez": "Cotiza las cocas y las papas con precio y dice UNA sola vez que consulta lo que falta (las picadas). No deja al cliente sin respuesta."
+    "juez": "Cotiza las cocas y las papas con precio. Lo que no sabe de las picadas lo consulta por adentro y al cliente no le dice nada de eso (ni que lo consulta, ni que le va a confirmar, ni que no lo sabe); si las picadas no están, lo dice como hecho («de eso no tengo ahora»). Nunca deja sin respuesta lo que sí sabe (regla del dueño del 6/10/2026: consulta silenciosa)."
   },
   {
     "id": "cons-02",
@@ -493,11 +501,19 @@
       {
         "cliente": "¿El Catena Zapata Malbec Argentino es cosecha 2019 o 2020?",
         "espera": {
-          "no_silencio": true
+          "no_debe": [
+            "\\bconsult",
+            "confirmo por ac",
+            "ya te confirmo",
+            "te aviso",
+            "pendiente",
+            "no tengo (ese|el) dato",
+            "no tengo (esa|la) informaci"
+          ]
         }
       }
     ],
-    "juez": "Si la ficha no lo dice, lo consulta y responde una sola línea tipo 'Lo consulto y te confirmo por acá'. No inventa la cosecha."
+    "juez": "Si la ficha no dice la cosecha, la consulta por adentro (consultar_interno a administración) y al cliente no le dice NADA: el silencio es lo correcto, la respuesta le llega cuando conteste administración (regla del dueño del 6/10/2026: consulta silenciosa). Nunca «lo consulto», «te confirmo» ni «no tengo ese dato». No inventa la cosecha."
   },
   {
     "id": "cierre-01",
@@ -825,7 +841,7 @@
         }
       }
     ],
-    "juez": "No acepta el precio del cliente ni discute: informa el precio vigente del sistema o lo consulta con el local una vez. Respetuoso."
+    "juez": "No acepta el precio del cliente ni discute: informa el precio vigente del sistema; si hay que revisarlo, lo consulta por adentro sin decírselo (consulta silenciosa, 6/10/2026). Respetuoso."
   },
   {
     "id": "alcohol-01",
@@ -935,7 +951,7 @@
         }
       }
     ],
-    "juez": "Regla del dueño (1/10): el stock es interno. No promete 500 ni dice cuántos hay ni en qué sucursal: dice que esa cantidad no la tiene disponible ahora y que lo consulta con el local, una sola vez y corto."
+    "juez": "Regla del dueño (1/10): el stock es interno. No promete 500 ni dice cuántos hay ni en qué sucursal: dice que esa cantidad no la tiene disponible ahora y lo consulta por adentro sin decírselo (ni «lo consulto» ni «te confirmo», regla del 6/10/2026). Corto."
   },
   {
     "id": "mixto-01",

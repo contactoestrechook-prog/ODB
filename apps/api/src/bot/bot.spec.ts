@@ -84,7 +84,8 @@ describe('BotService.charla (robustez del agente)', () => {
     await s.charla({ linea: 'pedidos', telefono: '111', mensaje: 'a' });
     await s.charla({ linea: 'pedidos', telefono: '111', mensaje: 'b' });
     const r3 = await s.charla({ linea: 'pedidos', telefono: '111', mensaje: 'c' });
-    expect(r3.respuesta).toContain('doy aviso al sector');
+    // 6/10/2026: sin «tomo tu consulta y doy aviso al sector» (no se avisaba a nadie)
+    expect(r3.respuesta).toBe('Recibimos muchos mensajes tuyos en la última hora. Gracias por la paciencia.');
     expect(crear).toHaveBeenCalledTimes(2); // el 3ro no gastó tokens
   });
 
@@ -193,7 +194,9 @@ describe('BotService.charla (robustez del agente)', () => {
     (s as any).regenerar = jest.fn().mockResolvedValue(null);
     const r: any = await s.charla({ linea: 'pedidos', telefono: '1010', mensaje: 'dale confirmalo' });
     expect(r.respuesta).not.toMatch(/Le el pedido/);
-    expect(r.respuesta).toMatch(/todavía no quedó cargado/);
+    // 6/10/2026: honesto y sin anunciar ningún aviso (el aviso a administración sale igual)
+    expect(r.respuesta).toMatch(/Tuve un problema para cargar el pedido; ya quedó con todos los datos para el local\./);
+    expect(r.respuesta).not.toMatch(/aviso al sector|confirmado/);
   });
 
   // WhatsApp dejó de mandar el teléfono (llega un @lid), así que comparar contra
@@ -896,10 +899,12 @@ describe('regla del dueño: las derivaciones viven adentro; las consultas se le 
     const pendiente = db.llamadas.insert.find((i: any) => i.tabla === 'bot_consultas_internas');
     expect(db.llamadas.update.some((u: any) => u.tabla === 'bot_consultas_internas' && u.fila.waha_msg_id === 'CONS1')).toBe(true);
     expect(pendiente.fila.telefono_cliente).toBe('5491133344455');
-    // 5/10/2026: el aviso al modelo ya no le ordena callarse (el cliente recibía
-    // el acuse solo): el aviso lo pone el sistema y el modelo contesta lo demás
-    expect(r.aviso).not.toMatch(/NO envíes mensaje al cliente/);
-    expect(r.aviso).toMatch(/Contestá ahora todo lo demás/);
+    // 6/10/2026 (consulta silenciosa): el modelo contesta lo demás y al cliente no
+    // le dice nada de la consulta; si no hay nada más, no escribe
+    expect(r.aviso).toMatch(/Al cliente NO le menciones nada de eso/);
+    expect(r.aviso).toMatch(/Si no hay nada más que contestar, no escribas nada/);
+    // el área sabe que al cliente no se le avisó: su respuesta tiene que entenderse sola
+    expect(envios[0].text).toContain('tiene que entenderse sola');
     expect(r.yaEstaba).toBe(false);
   });
 });
@@ -995,7 +1000,7 @@ describe('el circuito del pago lo cierra el bot: administración contesta y el c
     const r: any = await (s as any).respuestaDeAdministracion('5491125213601', { body: 'recibido ok' });
     expect(r.contestado).toBe(true);
     const alCliente = envios.find((e) => e.to === '5491133344455');
-    expect(alCliente.text).toBe('Te confirmamos que recibimos tu pago de $85.000. Muchas gracias.');
+    expect(alCliente.text).toBe('Recibimos tu pago de $85.000. Muchas gracias.');
     const ackAdmin = envios.find((e) => e.to === '5491125213601');
     expect(ackAdmin.text).toContain('le confirmé a Distribuidora Norte SRL');
     expect(db.llamadas.update.some((u: any) => u.tabla === 'bot_pagos_en_confirmacion' && u.fila.confirmado_en)).toBe(true);
@@ -1171,7 +1176,8 @@ describe('consultas a administración: la respuesta vuelve al cliente (16/9/2026
       lineas_whatsapp: { data: { bot_activo: o.botActivo ?? true, derivar_pagos_a: '5491125213601' }, error: null },
       bot_consultas_internas: { data: o.consultas ?? [consulta], error: null },
       bot_pagos_en_confirmacion: { data: o.pagos ?? [], error: null },
-      bot_conversaciones: { data: { mensajes: [] }, error: null },
+      // la charla ya tiene un mensaje del bot (si no, la respuesta va con el saludo del primer mensaje)
+      bot_conversaciones: { data: { mensajes: [{ role: 'user', content: '¿Llegan a Terra 812 hoy?' }, { role: 'assistant', content: 'Te anoto la dirección.' }] }, error: null },
     });
     const { s } = servicio(db);
     const envios: any[] = [];
@@ -1433,12 +1439,12 @@ describe('Envases ambiguos del catálogo real', () => {
 
 
 describe('Consulta pendiente: responder recién con el dato', () => {
-  // 23/9/2026: la regla cambió. Antes, tras consultar, silencio total (48
-  // clientes quedaron sin una sola línea). Ahora el cliente recibe UNA vez el
-  // aviso, sin las promesas sueltas del modelo. 5/10/2026: sin tema (la
-  // consulta simulada no lo trae) es el genérico; el cliente solo preguntó eso,
-  // así que va el aviso solo.
-  it('registra la consulta y el cliente recibe el aviso una sola vez', async () => {
+  // 23/9/2026: antes, tras consultar, silencio total (48 clientes quedaron sin una
+  // sola línea aunque hubieran preguntado otras cosas) y se pasó a un aviso. El
+  // 6/10/2026 Leandro: CONSULTA SILENCIOSA. Lo demás del mensaje se contesta
+  // siempre; si el cliente preguntó solo lo que se consulta, no se le manda nada
+  // y la respuesta le llega cuando conteste el área.
+  it('registra la consulta y, si el cliente preguntó solo eso, no le sale nada', async () => {
     process.env.ANTHROPIC_API_KEY = 'test';
     const { s, db } = servicio();
     const consultar = jest.spyOn(s, 'consultarInterno').mockResolvedValue({ consultado: true, area: 'local', avisoPorWhatsapp: true, aviso: 'Esperar' });
@@ -1449,9 +1455,8 @@ describe('Consulta pendiente: responder recién con el dato', () => {
     (s as any).claude = { messages: { create: crear } };
     const r: any = await s.charla({ linea: 'pedidos', telefono: '5491155512345', mensaje: '¿Cuántas unidades trae el kit?', mensajeId: 'consulta-nueva' });
     expect(consultar).toHaveBeenCalledTimes(1);
-    expect(r.respuesta).toMatch(/Ya te confirmo por acá\.$/);
-    expect(r.respuesta).not.toMatch(/vuelvo a vos/);
-    expect(r.silencio).toBeFalsy();
+    expect(r.respuesta).toBeNull();
+    expect(r.silencio).toBe(true);
   });
   it('un reintento de un mensaje silencioso no vuelve a generar alertas', async () => {
     const { s } = servicio(dbFalsa({ bot_mensajes: { data: { respuesta: '' } } }));

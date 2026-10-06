@@ -1,9 +1,9 @@
 // EL PAGO Y LA CONSULTA EN EL MISMO TURNO (5/10/2026). Los dos arreglos de la
 // charla de Pablo (vinos a España) se tocan en el armado final de la respuesta:
-// el aviso de la consulta («Lo de <tema> te lo confirmo por acá.», una vez por
-// cosa pendiente) y el cierre por comprobante («Recibido.» que no se pisa, el
-// pedido que crea el comprobante, el alias con el total). Estas pruebas fijan
-// qué le llega al cliente cuando pasan las dos cosas juntas.
+// la consulta (desde el 6/10/2026 SILENCIOSA: al cliente no se le dice nada de
+// ella) y el cierre por comprobante («Recibido.» que no se pisa, el pedido que
+// crea el comprobante, el alias con el total). Estas pruebas fijan qué le llega
+// al cliente cuando pasan las dos cosas juntas: el texto fijo tal cual.
 import { BotService } from './bot.service';
 
 process.env.ANTHROPIC_API_KEY ??= 'test';
@@ -64,7 +64,6 @@ const HIST = [
   { role: 'assistant', content: M20 },
 ];
 const CAJA = 'Cliente Pablo lleva 4 botellas a España en valija: ¿tenemos caja o embalaje de protección para darle?';
-const AVISO_CAJA = 'Lo de la caja para viajar te lo confirmo por acá.';
 const tu = (id: string, name: string, input: any) => ({ type: 'tool_use', id, name, input });
 const resp = (content: any[], stop = 'tool_use') => ({ stop_reason: stop, content, usage: { input_tokens: 1, output_tokens: 1 } });
 const consultarCaja = (id = 'c') => tu(id, 'consultar_interno', { area: 'local', consulta: CAJA, tema: 'la caja para viajar', direccion: '' });
@@ -111,11 +110,11 @@ describe('el comprobante y la consulta en el mismo turno', () => {
     expect(db.rpc).not.toHaveBeenCalledWith('confirmar_cotizacion_bot', expect.anything());
   });
 
-  it('PDF que coincide + consulta nueva: la confirmación del pedido y, abajo, el aviso una vez', async () => {
+  it('PDF que coincide + consulta nueva: la confirmación del pedido tal cual, sin nada de la consulta', async () => {
     const { s, db, principal } = armar();
     principal.push(resp([tu('d', 'derivar_pago', { tipo: 'comprobante_enviado', monto: 285390, motivo: 'Transfirió $285.390', de_quien: 'Pablo' }), consultarCaja()]));
     const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: '¿Y lo del embalaje para el avión?', archivoBase64: PDF64, mimeType: 'application/pdf', archivoUrl: URL_PDF });
-    expect(r.respuesta).toBe(`Recibido. Tu pedido PICKUP-00D163566DEF quedó confirmado para retirar en la sucursal Saint Thomas.\n\n${AVISO_CAJA}`);
+    expect(r.respuesta).toBe('Recibido. Tu pedido PICKUP-00D163566DEF quedó confirmado para retirar en la sucursal Saint Thomas.');
     expect(db.rpc).toHaveBeenCalledWith('confirmar_cotizacion_bot', expect.objectContaining({ p_modo: 'comprobante', p_monto: 285390 }));
     expect(insertsDe(db, 'bot_consultas_internas')).toHaveLength(1);
   });
@@ -134,18 +133,16 @@ describe('el comprobante y la consulta en el mismo turno', () => {
 });
 
 describe('el texto fijo de una operación y la consulta en el mismo turno', () => {
-  it('preparar_pedido + consulta nueva: el resumen con el aviso antes de «¿Lo confirmo?», que sigue última', async () => {
+  it('preparar_pedido + consulta nueva: el resumen tal cual, con «¿Lo confirmo?» última y nada de la consulta', async () => {
     const { s, principal } = armar({ conversacion: HIST.slice(0, 2) });
     jest.spyOn(s, 'prepararPedido').mockResolvedValue(PREP as any);
     principal.push(resp([consultarCaja(), tu('p', 'preparar_pedido', { tipo: 'pickup', items: [] })]));
     const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Pasame el total. ¿Y tienen caja para llevarlas en la valija?' });
-    expect(r.respuesta.trim().endsWith(`${AVISO_CAJA}\n\n¿Lo confirmo?`)).toBe(true);
-    expect(r.respuesta.startsWith('• Judas Malbec')).toBe(true);
-    expect(r.respuesta.match(/te lo confirmo por acá/g)).toHaveLength(1);
+    expect(r.respuesta).toBe(M18);
     expect(r.respuesta.match(/¿Lo confirmo\?/g)).toHaveLength(1);
   });
 
-  it('preparar_pedido + la misma consulta ya abierta: el resumen tal cual, sin aviso', async () => {
+  it('preparar_pedido + la misma consulta ya abierta: el resumen tal cual, sin otra consulta', async () => {
     const abierta = { id: 'q-vieja', area: 'local', consulta: CAJA, tema: 'la caja para viajar', waha_msg_id: 'W-1602', respuesta_admin: null, creado_en: new Date(Date.now() - 15 * 60_000).toISOString() };
     const { s, db, envios, principal } = armar({ conversacion: HIST.slice(0, 2), consultasAbiertas: [abierta] });
     jest.spyOn(s, 'prepararPedido').mockResolvedValue(PREP as any);
@@ -156,12 +153,12 @@ describe('el texto fijo de una operación y la consulta en el mismo turno', () =
     expect(envios).toHaveLength(0);
   });
 
-  it('el alias + consulta nueva (sin resumen): los datos de pago y el aviso; no el texto del modelo', async () => {
+  it('el alias + consulta nueva (sin resumen): los datos de pago, sin nada de la consulta ni el texto del modelo', async () => {
     const { s, principal } = armar({ conversacion: HIST.slice(0, 4) });
     principal.push(resp([tu('d', 'derivar_pago', { tipo: 'quiere_pagar', motivo: 'pide alias', monto: 0 }), consultarCaja()]));
     principal.push(resp([{ type: 'text', text: 'Ahí te paso los datos para transferir.' }], 'end_turn'));
     const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: '¿A dónde te transfiero? ¿Y tienen caja para llevarlas en la valija?' });
-    expect(r.respuesta).toBe(`Alias: outlet.de.bebidas · CBU: 0720000000000000000000 · Titular: Chinvenguencha SRL (Santander). Cuando transfieras, mandame el comprobante por acá.\n\n${AVISO_CAJA}`);
+    expect(r.respuesta).toBe('Alias: outlet.de.bebidas · CBU: 0720000000000000000000 · Titular: Chinvenguencha SRL (Santander). Cuando transfieras, mandame el comprobante por acá.');
   });
 });
 
