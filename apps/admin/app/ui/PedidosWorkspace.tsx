@@ -83,7 +83,12 @@ export function PedidosWorkspace({ inicial, puedeSimular = false }: { inicial: P
     setTerminados((t) => t ?? []);
     return [] as PedidoCola[];
   }, []);
-  useEffect(() => { timer.current = setInterval(recargar, 8000); return () => clearInterval(timer.current); }, [recargar]);
+  useEffect(() => {
+    timer.current = setInterval(recargar, 8000);
+    // "Lo tomo" en la ventana emergente: la lista se entera en el momento
+    window.addEventListener('odb-pedidos-cambio', recargar);
+    return () => { clearInterval(timer.current); window.removeEventListener('odb-pedidos-cambio', recargar); };
+  }, [recargar]);
   useEffect(() => { if (vista === 'terminados') cargarTerminados(); }, [vista, cargarTerminados]);
 
   // ?pedido=<id>: el link del WhatsApp a administración y el "Ver" de la ventana emergente

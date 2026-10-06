@@ -68,8 +68,10 @@ export const SECCIONES: Seccion[] = [
         titulo: 'La campanita de avisos',
         pasos: [
           'En la computadora está arriba del menú lateral; en el celular, en la barra negra de arriba, al lado del logo. El número rojo es la cantidad de avisos sin leer.',
-          'Ahí llegan los avisos que el sistema deja para vos: un proveedor que escribió, un pago para revisar, un arreglo que se hizo en tu área.',
-          'Tocá "Listo" en cada aviso cuando lo hayas visto; desaparece de tu lista (no del historial).',
+          'Ahí llegan los avisos que el sistema deja para vos: un proveedor que escribió, un pago para revisar, un pedido que nadie tomó, un arreglo que se hizo en tu área.',
+          'Los avisos del WhatsApp de la casa (pagos, consultas, derivaciones) les llegan a los tres dueños. El primero que toca "Listo" lo cierra para todos y queda su nombre.',
+          'La pestaña "Atendidos" muestra quién cerró cada aviso en las últimas 48 horas.',
+          'Muchos avisos se cierran solos cuando el tema se resuelve: el cobro que se aprobó, el pedido que alguien tomó, el WhatsApp que finalmente llegó.',
         ],
       },
       {
@@ -183,6 +185,10 @@ export const SECCIONES: Seccion[] = [
     bajada: 'Lo tomás vos, pero la deuda baja recién cuando lo aprueba el dueño.',
     bloques: [
       {
+        tipo: 'texto',
+        texto: 'Quien cargó el cobro recibe un aviso en la campanita cuando el dueño lo aprueba (con el saldo nuevo del cliente) o lo rechaza (con el motivo).',
+      },
+      {
         tipo: 'pasos',
         pasos: [
           'En la caja, "Dejó un pago". Cargá el monto y con qué pagó.',
@@ -208,6 +214,10 @@ export const SECCIONES: Seccion[] = [
     bajada: 'Contar lo que hay contra lo que el sistema dice que tendría que haber.',
     bloques: [
       {
+        tipo: 'texto',
+        texto: 'Queda quién cerró la caja (columna "Cerró" en Cierres). Un cierre con diferencia le avisa a la dirección por la campanita, con lo que tenía que haber y lo que se contó.',
+      },
+      {
         tipo: 'pasos',
         pasos: [
           '"Cerrar caja · arqueo" al terminar el turno.',
@@ -228,6 +238,47 @@ export const SECCIONES: Seccion[] = [
   },
 
   // --------------------------------------------------------------- depósito
+  {
+    id: 'pedido-llega',
+    titulo: 'Llega un pedido: quién se entera, quién lo toma y dónde queda',
+    area: 'Salón y caja',
+    roles: ['dueno', 'gerente', 'cajero', 'deposito', 'administrativo'],
+    bajada: 'El recorrido completo, del WhatsApp del cliente a la entrega, con el nombre de quien hizo cada paso.',
+    bloques: [
+      {
+        tipo: 'pasos',
+        titulo: 'Cómo llega y cómo se recibe',
+        pasos: [
+          'Un pedido entra por el WhatsApp de la casa (el bot), la tienda web, la app, PedidosYa, Tiendanube o cargado a mano en Pedidos ("Pedido por WhatsApp").',
+          'Al teléfono de administración le llega en el acto un WhatsApp con la tarjeta del pedido y el link "Tomalo acá".',
+          'En el panel, a quien atiende pedidos (dueños, caja y depósito) le aparece la ventana "Llegó un pedido", con sonido, en cualquier pantalla.',
+          'El que lo va a atender toca "Lo tomo" (en la ventana, en Pedidos o desde el link del WhatsApp). Queda su nombre y la ventana se va para todos.',
+          'Si a los 15 minutos (en horario de 8 a 21) nadie lo tomó, sale UN reclamo por WhatsApp a administración y un aviso a los dueños. Se cierran solos cuando alguien lo toma.',
+        ],
+      },
+      {
+        tipo: 'campos',
+        titulo: 'Cada paso y dónde queda registrado',
+        filas: [
+          ['Entra', 'Pedidos › Detalle › "Quién hizo cada cosa": por dónde entró y, si lo cargó alguien, quién.'],
+          ['Aviso a administración', 'Cuándo salió el WhatsApp y cuándo le llegó al teléfono.'],
+          ['Lo tomo', 'Quién lo tomó y a qué hora. En la tarjeta dice "Lo tiene …".'],
+          ['Preparar / Marcar listo', 'Quién y cuándo. Preparar un pedido que nadie tomó, lo toma.'],
+          ['Despachar / Repartidor', 'Quién lo despachó y quién le asignó repartidor.'],
+          ['Entregado', 'Quién lo entregó y cómo pagó (efectivo, tarjeta o transferencia). El efectivo entra en la caja abierta.'],
+          ['Cancelar', 'Quién lo canceló. Se devuelve el stock y le llega la baja a administración.'],
+        ],
+      },
+      {
+        tipo: 'ojo',
+        puntos: [
+          '"Más tarde" (la X de la ventana) la esconde 10 minutos en tu pantalla, nada más: el pedido sigue sin tomar y el reclamo sale igual.',
+          'Los entregados y cancelados de la última semana están en Pedidos › "Terminados (7 días)".',
+          'Al cliente le llega un WhatsApp cuando su pedido está listo, sale y se entrega. Por eso la web y la app ahora le piden su WhatsApp.',
+        ],
+      },
+    ],
+  },
   {
     id: 'deposito-pedidos',
     titulo: 'Preparar pedidos',
@@ -260,6 +311,10 @@ export const SECCIONES: Seccion[] = [
     bajada: 'Lo que baja del camión se cuenta escaneando, y eso es lo que entra al stock.',
     bloques: [
       {
+        tipo: 'texto',
+        texto: 'Si el proveedor tiene una orden esperando, elegí "Recibir contra la orden #N": esa orden queda recibida (o recibida en parte) y el remito queda listo para cruzarlo con la factura. Lo que no está en la orden o vino de más se recibe aparte, sin orden. Queda tu nombre como quien recibió.',
+      },
+      {
         tipo: 'pasos',
         pasos: [
           'Elegí el proveedor y la sucursal.',
@@ -284,6 +339,10 @@ export const SECCIONES: Seccion[] = [
     roles: ['deposito', 'administrativo', 'gerente', 'dueno'],
     bajada: 'Cómo se corrige el stock sin romper el número.',
     bloques: [
+      {
+        tipo: 'texto',
+        texto: 'Al mandar una transferencia le llega un aviso a depósito y gerencia de la sucursal que la recibe. Queda quién la mandó, quién la recibió y cuándo. En Movimientos se ve quién hizo cada movimiento.',
+      },
       {
         tipo: 'campos',
         titulo: 'Qué es cada cosa',
@@ -696,6 +755,34 @@ export const SECCIONES: Seccion[] = [
 
   // -------------------------------------------------------------- dirección
   {
+    id: 'direccion-actividad',
+    titulo: 'Quién hizo qué: Actividad del equipo',
+    area: 'Dirección',
+    roles: ['dueno', 'gerente'],
+    bajada: 'Todo lo que tiene nombre en el sistema, en una sola lista.',
+    bloques: [
+      {
+        tipo: 'texto',
+        texto: 'En Dirección › Actividad del equipo está, día por día, quién hizo cada cosa: tomó, preparó, entregó o canceló un pedido; creó, aprobó, rechazó o envió una orden; cargó o pagó una factura; recibió mercadería; abrió o cerró la caja (y con qué diferencia); mandó o recibió una transferencia; aprobó un cobro; atendió un aviso.',
+      },
+      {
+        tipo: 'pasos',
+        pasos: [
+          'Elegí el período (hoy, 7, 30 o 90 días), una persona o un área.',
+          'Arriba, cuántas cosas hizo cada uno en el período.',
+          '"Ver" lleva a la pantalla donde está eso (el pedido, la orden, el cierre).',
+        ],
+      },
+      {
+        tipo: 'ojo',
+        puntos: [
+          'Lo que hace el sistema solo (un pago de Mercado Pago, un aviso automático) no aparece: acá está lo que hizo una persona.',
+          'Lo de antes del 6/10/2026 aparece solo donde ya se guardaba el nombre (compras, facturas, caja). Los pasos de pedidos tienen nombre desde ese día.',
+        ],
+      },
+    ],
+  },
+  {
     id: 'aprobaciones',
     titulo: 'Aprobaciones: la cola de firmas',
     area: 'Dirección',
@@ -717,6 +804,8 @@ export const SECCIONES: Seccion[] = [
         tipo: 'ojo',
         puntos: [
           'Arriba va lo que más días lleva esperando, no lo más caro: lo urgente es lo que está frenando a alguien.',
+          'Las órdenes de pago aparecen acá y en el número del menú desde el 6/10/2026 (antes se quedaban afuera sin avisar).',
+          'Un rechazo queda con el nombre de quien rechazó y el motivo: en Trazabilidad y en el PDF dice "Rechazada por …", nunca "Autorizada".',
           'Antes de firmar una orden de compra o de pago se puede abrir el documento desde la misma fila.',
           'Firma solo el dueño. Gerencia ve la cola pero no firma. Quien firma queda registrado con su usuario.',
         ],

@@ -144,6 +144,8 @@ export function AvisoPedidoNuevo() {
       const d = await r.json().catch(() => ({}));
       if (!r.ok) { setError(d?.message ?? 'No se pudo tomar el pedido. Probá de nuevo.'); return; }
       setPedidos((xs) => xs.filter((x) => x.id !== p.id));
+      // la pantalla de Pedidos (si está abierta) se actualiza en el momento
+      window.dispatchEvent(new CustomEvent('odb-pedidos-cambio'));
       setResultado(d?.tomado
         ? { id: p.id, texto: `Tomaste el pedido ${codigoDe(p)}. Queda a tu nombre.`, tono: 'ok' }
         : { id: p.id, texto: `El pedido ${codigoDe(p)} ya lo tomó ${d?.nombre ?? 'otra persona'}.`, tono: 'neutro' });
@@ -178,9 +180,10 @@ export function AvisoPedidoNuevo() {
       aria-live="polite"
       className={unir(
         'flotante-ocultable fixed z-aviso flex flex-col gap-2',
-        // celular: baja debajo de la barra negra, a lo ancho; escritorio: arriba a la derecha
+        // celular: baja debajo de la barra negra, a lo ancho; escritorio: abajo a la
+        // derecha (arriba tapaba los botones de cada pantalla, como "Pedido por WhatsApp")
         'inset-x-0 top-(--alto-barra-movil) px-3 pt-2',
-        'lg:inset-x-auto lg:right-4 lg:top-4 lg:w-[21rem] lg:px-0 lg:pt-0',
+        'lg:inset-x-auto lg:bottom-4 lg:right-4 lg:top-auto lg:w-[21rem] lg:px-0 lg:pt-0',
       )}
     >
       {resultado && (
