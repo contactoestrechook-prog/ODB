@@ -169,7 +169,9 @@ export function AvisoPedidoNuevo() {
 
   if (!llevaFlotantes(ruta) || (!visibles.length && !resultado)) return null;
   const [primero, segundo] = visibles;
-  const resto = visibles.length - 2;
+  // en el celular va una sola ventana (dos tapaban la pantalla entera); en escritorio, dos
+  const restoMovil = visibles.length - 1;
+  const restoEscritorio = visibles.length - 2;
 
   return (
     <div
@@ -198,14 +200,21 @@ export function AvisoPedidoNuevo() {
         />
       )}
       {segundo && (
-        <TarjetaPedido key={segundo.id} p={segundo} compacta tomando={tomando === segundo.id} onTomar={() => tomar(segundo)} onPosponer={() => posponer(segundo)} />
+        <div className="hidden lg:block">
+          <TarjetaPedido key={segundo.id} p={segundo} compacta tomando={tomando === segundo.id} onTomar={() => tomar(segundo)} onPosponer={() => posponer(segundo)} />
+        </div>
       )}
-      {resto > 0 && (
-        <Link href="/pedidos" className={unir('rounded-2xl bg-tinta px-4 py-3 text-center text-sm font-semibold text-white shadow-flotante hover:bg-tinta-2', FOCO)}>
-          {resto === 1 ? 'Y 1 pedido más sin tomar' : `Y ${resto} pedidos más sin tomar`} · Ver pedidos
-        </Link>
-      )}
+      {restoMovil > 0 && <MasSinTomar n={restoMovil} className="lg:hidden" />}
+      {restoEscritorio > 0 && <MasSinTomar n={restoEscritorio} className="hidden lg:block" />}
     </div>
+  );
+}
+
+function MasSinTomar({ n, className }: { n: number; className?: string }) {
+  return (
+    <Link href="/pedidos" className={unir('rounded-2xl bg-tinta px-4 py-2.5 text-center text-sm font-semibold text-white shadow-flotante hover:bg-tinta-2', FOCO, className)}>
+      {n === 1 ? 'Y 1 pedido más sin tomar' : `Y ${n} pedidos más sin tomar`} · Ver pedidos
+    </Link>
   );
 }
 
@@ -236,7 +245,7 @@ function TarjetaPedido({
         <span className={unir('importe shrink-0 text-xs', minutos >= 15 ? 'font-bold' : 'text-white/80')}>{haceCuanto(p.creado_en)}</span>
       </div>
 
-      <div className="space-y-2 px-4 py-3">
+      <div className="space-y-1.5 px-4 py-3 lg:space-y-2">
         <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
           <span className="importe text-base font-bold text-tinta">{codigoDe(p)}</span>
           <Etiqueta tono={origen.tono}>{origen.label}</Etiqueta>
@@ -246,11 +255,11 @@ function TarjetaPedido({
           <>
             <p className="min-w-0 break-words text-sm text-tinta">
               {p.clienteNombre || 'Cliente sin nombre'}
-              {tel && <span className="text-tinta/70"> · {tel}</span>}
+              {tel && <span className="whitespace-nowrap text-tinta/70"> · {tel}</span>}
             </p>
             <p className="min-w-0 break-words text-sm text-tinta/70">{entregaDe(p)}</p>
             {items.length > 0 && (
-              <ul className="space-y-0.5 text-sm text-tinta/70">
+              <ul className="hidden space-y-0.5 text-sm text-tinta/70 lg:block">
                 {items.slice(0, 3).map((it, i) => (
                   <li key={i} className="flex min-w-0 gap-1.5">
                     <span className="importe shrink-0 font-semibold text-marca">{cantidadLegible(it.cantidad)}×</span>
@@ -262,11 +271,14 @@ function TarjetaPedido({
             )}
           </>
         )}
-        <p className="importe text-base font-semibold text-tinta">{pesos(Number(p.total) || 0)}</p>
+        <p className="importe text-base font-semibold text-tinta">
+          {pesos(Number(p.total) || 0)}
+          {items.length > 0 && <span className="ml-2 text-xs font-normal text-tinta/60 lg:hidden">{items.length === 1 ? '1 producto' : `${items.length} productos`}</span>}
+        </p>
         {error && <p role="alert" className="text-sm text-marca-hondo">{error}</p>}
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 border-t border-black/[0.06] px-4 py-3">
+      <div className="flex flex-wrap items-center gap-2 border-t border-black/[0.06] px-4 py-2.5 lg:py-3">
         <Boton tamano="chico" onClick={onTomar} cargando={tomando} className="flex-1">Lo tomo</Boton>
         <Link
           href={`/pedidos?pedido=${p.id}`}

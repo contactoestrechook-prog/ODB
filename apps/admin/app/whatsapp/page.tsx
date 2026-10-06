@@ -34,7 +34,7 @@ export default async function RespondeApp() {
   return (
     <>
       <iframe
-        src={`/responde-app.html?embed=1&token=${encodeURIComponent(token)}`}
+        src={`/responde-app.html?embed=1&conector=odb&token=${encodeURIComponent(token)}`}
         title="RESPONDE · O.D.B"
         className="fixed inset-0 h-full w-full border-0 bg-tinta"
         allow="microphone; camera"

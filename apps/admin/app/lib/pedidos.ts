@@ -98,7 +98,7 @@ export function cantidadLegible(c: number | string): string {
 
 export type Paso = { estado: string; label: string };
 export function siguientePaso(p: PedidoCola): Paso | null {
-  if (['recibido', 'pagado'].includes(p.estado)) return { estado: 'en_preparacion', label: 'Empezar a preparar' };
+  if (['recibido', 'pagado'].includes(p.estado)) return { estado: 'en_preparacion', label: 'Preparar' };
   if (p.estado === 'en_preparacion') return { estado: 'listo', label: 'Marcar listo' };
   if (p.estado === 'listo') return esDomicilio(p) ? { estado: 'en_camino', label: 'Despachar' } : { estado: 'entregado', label: 'Entregado' };
   if (p.estado === 'en_camino') return { estado: 'entregado', label: 'Entregado' };
