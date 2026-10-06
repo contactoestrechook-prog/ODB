@@ -11,6 +11,7 @@ import { consultaAbiertaQueNombra, datoNuevo, diceQueNoSabe, esSoloSaludo, salud
 import * as TEXTO from './textos-fijos';
 import { controlDeFechas } from './fechas';
 import { desvioDeLoPedido } from './desvio';
+import { recortarBusqueda, topeDeBusqueda } from './tope-busqueda';
 import { audioDeclarado, estadoOgg } from './ogg';
 import { atiendeUnaPersona, avisoEsperaPorWhatsapp, decisionSesion, esperasParaAvisar, motivoDeSilencio, pideRespuesta } from './pausa';
 import { type ArchivoDelTurno, comprobanteYaRegistrado, conDatosDePago, datosDePagoParaResumen, leerImporteDelComprobante, type MensajeDeCharla, notasSinPagado, pedidoPorComprobante, respuestaAlComprobanteRepetido, respuestaPedidoPorComprobante, RE_LO_CONFIRMO, sinPedirConfirmo } from './pago-confirma';
@@ -2681,8 +2682,23 @@ export class BotService {
     // tenemos" o "el formato más grande es X" cuando el tamaño existe y solo
     // falta stock (18/9/2026: Coca 2,25 L, que la casa sí vende).
     const tamanos = resumenDeTamanos(items.map((i: any) => String(i.nombre ?? '')), sinStock.map((p: any) => String(p.nombre ?? '')));
+    // TOPE DE FICHAS (Leandro, 6/10/2026: «sí, arreglalo»; ver tope-busqueda.ts):
+    // «queso» devolvía 135 fichas y cada vuelta del modelo las volvía a escribir
+    // en la caché (la charla de Jimena: USD 4,70). Van con ficha las 20 más
+    // relevantes (ODB_BOT_TOPE_BUSQUEDA; 0 = sin tope) y del resto, los nombres
+    // con la nota de que hay más. Los tamaños, los formatos grandes y las
+    // alternativas se siguen calculando con TODO lo que hay.
+    // Lo que nunca se recorta: el SKU o el código buscado (stock_consulta pone
+    // primero la coincidencia con un código de barras)
+    const tNorm = t.toLowerCase();
+    const exactos = new Set<string>(conStock.filter((p: any) => String(p.sku ?? '').toLowerCase() === tNorm || (p.codigo != null && String(p.codigo).trim().toLowerCase() === tNorm)).map((p: any) => String(p.sku)));
+    if (/^\d{6,}$/.test(t) && stock[0] && Number(stock[0].total) > 0) exactos.add(String(stock[0].sku));
+    const tope = topeDeBusqueda();
+    const { visibles, otros } = recortarBusqueda(items as any[], t, (sku: string) => Number(idPorSku.get(sku)?.unidades_vendidas ?? 0), tope, { exactos, categoria: (sku: string) => (idPorSku.get(sku) as any)?.categoria?.nombre });
+    if (otros) this.log.log(`búsqueda "${t}": ${items.length} con stock, ${visibles.length} con ficha (tope ${tope})`);
     return {
-      items,
+      items: visibles,
+      ...(otros ? { otros } : {}),
       ...(tamanos ? { tamanos } : {}),
       ...(avisoGrandes ? { formatosGrandes: avisoGrandes } : {}),
       ...(sinStock.length
