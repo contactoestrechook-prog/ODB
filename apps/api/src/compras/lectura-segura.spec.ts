@@ -62,6 +62,8 @@ describe('reabrir una lectura con «×N» (Doritos de Mapaca, 6/10/2026)', () =>
     expect(r.items[0].interpretado.razonBulto).toMatchObject({ sugerencia: 'unidades', evidencia: 'costo' });
     // ya no el −93,9% de comparar $350 contra $5.714
     expect(r.items[0].match.variacionPct).toBeCloseTo(-14.3, 1);
+    // el panel sabe que el 14 no está escrito como bulto en la descripción
+    expect(r.items[0].bultoOrigen).toBe('modelo');
   });
 
   it('si el producto es solo una sugerencia de la IA, queda la pregunta con la sugerencia', async () => {

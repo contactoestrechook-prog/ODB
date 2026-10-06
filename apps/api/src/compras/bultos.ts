@@ -531,13 +531,32 @@ export function unidadesDeLaPresentacion(nombre: string): number | null {
 //      son unidades; al revés, son cajas; las dos adentro, se sugiere la más
 //      cercana; las dos afuera (costo mal cargado), no se opina.
 //
-// Lo que se decide solo es NO multiplicar, y solo con evidencia firme: la
-// columna, el catálogo, o el costo cuando el «×N» no lo escribió el papel con
-// palabra de caja ("CJ x 6") y el vínculo no es una sugerencia de la IA.
+// Lo que se decide solo es NO multiplicar, y solo con evidencia firme y sin
+// contradicciones (revisión del 6/10/2026, la misma tarde):
+//   · la columna, si el costo no dice lo contrario (una sola lectura mal de
+//     "0 bultos, 15 unidades" multiplicaba el costo de la lata por seis);
+//   · el catálogo, si además el PRECIO prueba que es la caja (el Ferrero T8
+//     a $823 contra la caja de 8 con costo 0 entraba como 12 cajas);
+//   · el costo, solo cuando el «×N» lo puso el modelo y el papel no lo dice
+//     (los Doritos de Mapaca). Con "X 24B" escrito, el costo con que se
+//     compara puede ser el de la última compra de ese mismo renglón: si esa
+//     vez la caja entró como unidad, la regla confirmaba el error en cada
+//     factura y ya no avisaba. Ahí el costo solo sugiere.
 // Convertir sigue siendo siempre decisión de una persona: acá se le deja la
 // sugerencia y la cuenta.
 const BANDA_COSTO_MIN = 0.5;
 const BANDA_COSTO_MAX = 2;
+const enBanda = (r: number) => Number.isFinite(r) && r >= BANDA_COSTO_MIN && r <= BANDA_COSTO_MAX;
+
+/**
+ * ¿El papel dice que el precio es de la unidad suelta? "Bocadito Ferrero T8
+ * UNIDAD", "… UN." Un "10 un" con el número adelante es la presentación de la
+ * caja ("X 10 UN"), no "por unidad".
+ */
+const dicePorUnidad = (descripcion: string | null | undefined) => {
+  const t = normalizar(descripcion ?? '');
+  return /\b(?:unidad|unid)\b/.test(t) || /(?<!\d\s*)\bun\b/.test(t);
+};
 
 const plata = (n: number) =>
   '$' + (Math.round(n * 100) / 100).toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
@@ -549,7 +568,7 @@ const numeroONull = (v: unknown): number | null => {
 };
 
 export function evaluarBulto(
-  l: Pick<LecturaRenglon, 'bultos' | 'unidadesSueltas' | 'unidadesDelCatalogo' | 'costoCatalogo' | 'bultoOrigen' | 'vinculoSugerido'>,
+  l: Pick<LecturaRenglon, 'bultos' | 'unidadesSueltas' | 'unidadesDelCatalogo' | 'costoCatalogo' | 'bultoOrigen' | 'vinculoSugerido'> & { descripcion?: string | null },
   cantidad: number,
   precio: number,
   n: number,
@@ -563,6 +582,16 @@ export function evaluarBulto(
   const columnaDiceUnidades = bultos != null && bultos >= 0 && Math.abs(bultos * n + sueltas - cantidad) < 0.01 && Math.abs(bultos - cantidad) > 0.01;
   const columnaDiceCajas = bultos != null && bultos > 0 && sueltas === 0 && Math.abs(bultos - cantidad) < 0.01;
 
+  // Lo que dice el precio contra el costo (la prueba c) se calcula primero:
+  // la columna y el catálogo se cruzan con eso antes de decidir. Una evidencia
+  // que contradice a la otra no alcanza para decidir solo (6/10/2026).
+  const costo = Number(l.costoCatalogo) || 0;
+  const conCosto = costo > 0 && precio > 0;
+  const rUnidad = conCosto ? precio / costo : NaN;
+  const rCaja = conCosto ? precio / n / costo : NaN;
+  const costoDiceUnidades = conCosto && enBanda(rUnidad) && !enBanda(rCaja);
+  const costoDiceCajas = conCosto && enBanda(rCaja) && !enBanda(rUnidad);
+
   // b) el producto del catálogo ya es la caja de N
   const internas = Number(l.unidadesDelCatalogo) > 1 ? Math.round(Number(l.unidadesDelCatalogo)) : null;
   if (internas === n) {
@@ -571,36 +600,70 @@ export function evaluarBulto(
       // cajas (eso lo resuelve la regla 4 TER cuando la cuenta es exacta)
       return { sugerencia: null, evidencia: 'columna', firme: false, motivo: `el papel trae ${cantidad} unidades sueltas y el producto del catálogo es la caja de ${n}: revisá en qué unidad entra` };
     }
-    return { sugerencia: 'caja', evidencia: 'catalogo', firme: !l.vinculoSugerido, motivo: `el producto del catálogo ya es el envase de ${n}: entra como viene` };
+    // Que el producto sea la caja de N no prueba que el precio sea el de la
+    // caja: "Bocadito Ferrero Rocher T8 UNIDAD" 12 × $823,05 contra "Ferrero
+    // Rocher x 8 un" son 12 bocaditos sueltos (1,5 cajas), no 12 cajas. Se
+    // decide solo si el precio cuadra con el costo de la caja (6/10/2026).
+    const rSuelta = conCosto ? (precio * n) / costo : NaN;
+    if (enBanda(rSuelta) && !enBanda(rUnidad)) {
+      const enteras = Number.isInteger(cantidad / n);
+      return {
+        sugerencia: null, evidencia: 'costo', firme: false,
+        motivo: `${plata(precio)} es precio de unidad suelta (× ${n} = ${plata(precio * n)}, y la caja de ${n} del catálogo cuesta ${plata(costo)})`
+          + (enteras
+            ? `: son ${cantidad / n} caja(s); elegí «Ya vienen en unidades» y después «Armar cajas»`
+            : `: ${cantidad} unidades no arman cajas enteras de ${n}, revisá la cantidad o el producto`),
+      };
+    }
+    const precioEsLaCaja = enBanda(rUnidad) && !enBanda(rSuelta);
+    const firme = precioEsLaCaja && !l.vinculoSugerido && !dicePorUnidad(l.descripcion);
+    return {
+      sugerencia: 'caja', evidencia: 'catalogo', firme,
+      motivo: precioEsLaCaja
+        ? `el producto del catálogo ya es el envase de ${n} y ${plata(precio)} cuadra con su costo (${plata(costo)}): entra como viene`
+        : `el producto del catálogo ya es el envase de ${n}${conCosto ? `, pero ${plata(precio)} no cuadra con su costo (${plata(costo)})` : ' y no tiene costo cargado para comprobar el precio'}`,
+    };
   }
 
   if (columnaDiceUnidades) {
     const cuenta = `${bultos} × ${n}${sueltas > 0 ? ` + ${sueltas}` : ''} = ${cantidad}`;
-    return {
-      sugerencia: 'unidades', evidencia: 'columna', firme: true,
-      motivo: `el papel dice ${bultos} bulto(s) de ${n}${sueltas > 0 ? ` y ${sueltas} suelta(s)` : ''} (${cuenta}): la cantidad ya está en unidades`,
-    };
+    const dichoDelPapel = `el papel dice ${bultos} bulto(s) de ${n}${sueltas > 0 ? ` y ${sueltas} suelta(s)` : ''} (${cuenta})`;
+    // Coca de Noria: "CC Lata 354 x 6" 15 × $8.760,92 con la lata a $1.663,52.
+    // Si el lector devolviera "0 bultos, 15 sueltas", la columna sola dejaba
+    // 15 latas a $8.760 (el costo × 6). Columna y costo en contra: pregunta.
+    if (costoDiceCajas) {
+      return {
+        sugerencia: null, evidencia: 'costo', firme: false,
+        motivo: `${dichoDelPapel}, pero ${plata(precio)} ÷ ${n} = ${plata(precio / n)} es lo que cuadra con el costo de catálogo (${plata(costo)}): revisá si la cantidad son cajas`,
+      };
+    }
+    return { sugerencia: 'unidades', evidencia: 'columna', firme: true, motivo: `${dichoDelPapel}: la cantidad ya está en unidades` };
   }
   if (columnaDiceCajas) {
+    if (costoDiceUnidades) {
+      return {
+        sugerencia: null, evidencia: 'costo', firme: false,
+        motivo: `el papel dice ${bultos} bulto(s) y esa es la cantidad, pero ${plata(precio)} cuadra con el costo de catálogo (${plata(costo)}) de la unidad: revisá si son cajas o unidades`,
+      };
+    }
     return { sugerencia: 'convertir', evidencia: 'columna', firme: false, motivo: `el papel dice ${bultos} bulto(s) y esa es la cantidad: son cajas de ${n}` };
   }
 
   // c) el precio contra el costo del producto vinculado
-  const costo = Number(l.costoCatalogo) || 0;
-  if (costo > 0 && precio > 0) {
-    const rUnidad = precio / costo;
-    const rCaja = precio / n / costo;
-    const enBanda = (r: number) => r >= BANDA_COSTO_MIN && r <= BANDA_COSTO_MAX;
-    // con "CJ x 6" escrito en el papel, o un vínculo que todavía es "¿es este?",
-    // el costo solo SUGIERE: lo confirma una persona
-    const puedeDecidir = l.bultoOrigen !== 'palabra' && !l.vinculoSugerido;
-    if (enBanda(rUnidad) && !enBanda(rCaja)) {
+  if (conCosto) {
+    // Decide solo cuando el «×N» lo puso el modelo y el papel no lo dice (los
+    // Doritos de Mapaca, "200GX14"). Con el bulto escrito en el papel ("CJ x 6",
+    // "X 24B") o un vínculo que todavía es "¿es este?", el costo solo SUGIERE:
+    // ese costo puede venir de la compra anterior del mismo renglón, y si esa
+    // vez la caja entró como unidad, decidir solo repetía el error sin avisar.
+    const puedeDecidir = l.bultoOrigen === 'modelo' && !l.vinculoSugerido;
+    if (costoDiceUnidades) {
       return {
         sugerencia: 'unidades', evidencia: 'costo', firme: puedeDecidir,
         motivo: `${plata(precio)} cuadra con el costo de catálogo (${plata(costo)}); dividido por ${n} daría ${plata(precio / n)}`,
       };
     }
-    if (enBanda(rCaja) && !enBanda(rUnidad)) {
+    if (costoDiceCajas) {
       return {
         sugerencia: 'convertir', evidencia: 'costo', firme: false,
         motivo: `${plata(precio)} ÷ ${n} = ${plata(precio / n)}, que cuadra con el costo de catálogo (${plata(costo)}) de la unidad`,
@@ -749,8 +812,12 @@ export function interpretarRenglon(l: LecturaRenglon): RenglonInterpretado {
       // sueltas, cantidad 24" con el catálogo en cajas de 12 (6/10/2026)
       const bultosCol = numeroONull(l.bultos);
       const sueltasCol = numeroONull(l.unidadesSueltas) ?? 0;
+      // …salvo que el costo diga lo contrario: el precio cuadra con la caja y
+      // no con la unidad suelta. Ahí la columna se leyó mal (o es de otra
+      // fila) y armar cajas multiplicaba el costo por N (6/10/2026).
+      const costoDiceCaja = costo > 0 && enBanda(precio / costo) && !enBanda((precio * internasCatalogo) / costo);
       const columnaLoPrueba = bultosCol != null && bultosCol > 0 && sueltasCol === 0
-        && Math.abs(bultosCol * internasCatalogo - cantidad) < 0.01;
+        && Math.abs(bultosCol * internasCatalogo - cantidad) < 0.01 && !costoDiceCaja;
       const porUnidad = columnaLoPrueba || (costo > 0
         ? Math.abs(precio * internasCatalogo - costo) < Math.abs(precio - costo)
         : /\b(unidad|unid|un|u)\b/.test(normalizar(l.descripcion)));

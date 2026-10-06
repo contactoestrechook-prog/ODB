@@ -614,6 +614,9 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
           bultoDescartadoComo: Number(r.bultoDescartado) > 1 ? (r.razonBulto?.sugerencia === 'caja' ? 'caja' : 'unidades') : null,
           bultoAuto: Number(r.bultoDescartado) > 1,
           razonBulto: r.razonBulto ?? null,
+          // de dónde salió el «×N»: la tarjeta dice "la descripción dice ×14"
+          // solo si la descripción lo dice (6/10/2026)
+          bultoOrigen: i.bultoOrigen ?? null,
           // la del papel, o la que el servidor dedujo del importe (columna "Dto" no leída)
           bonificacionPct: r.bonificacionPct ?? i.bonificacionPct ?? null,
           // si la lectura tomó el importe CON IVA, se usa el neto que dedujo el servidor
@@ -726,7 +729,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   //
   // Y el «×N» tampoco quiere decir que la cantidad sean cajas (6/10/2026): los
   // 28 Doritos de Mapaca ya eran unidades. Por eso hay tres salidas —ya vienen
-  // en unidades, pasar a unidades, dejar en cajas— y la cuenta de cada una está
+  // en unidades, multiplicar ×N, dejar en cajas— y la cuenta de cada una está
   // en app/lib/bultos-compras.ts, con tests.
   type RenglonFoto = Record<string, unknown>;
   const cambiarRenglon = (idx: number, f: (x: RenglonFoto) => RenglonFoto) =>
@@ -739,10 +742,11 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
     const x = itemsCalc[idx];
     const n = Math.round(numImp(x?.unidadesPorBulto));
     if (x && conversionBajaDeMas(costoFinal(x, idx), n, x.costoCatalogo)) {
+      const cantidadPapel = numImp(x.cantidad);
       const seguro = await confirmar({
-        titulo: `¿Los ${numImp(x.cantidad).toLocaleString('es-AR')} del papel son cajas?`,
-        texto: `Al pasarlos a unidades, el costo baja de ${pesos(costoFinal(x, idx))} a ${pesos(costoFinal(x, idx) / n)} por unidad, y el producto en el catálogo cuesta ${pesos(numImp(x.costoCatalogo))}. Si ya vienen en unidades, cancelá y tocá «Ya vienen en unidades».`,
-        textoConfirmar: 'Sí, son cajas',
+        titulo: cantidadPapel === 1 ? `¿El 1 del papel es una caja de ${n}?` : `¿Los ${cantidadPapel.toLocaleString('es-AR')} del papel son cajas de ${n}?`,
+        texto: `Al multiplicar por ${n}, el costo baja de ${pesos(costoFinal(x, idx))} a ${pesos(costoFinal(x, idx) / n)} por unidad, y el producto en el catálogo cuesta ${pesos(numImp(x.costoCatalogo))}. Si ya vienen en unidades, cancelá y tocá «Ya vienen en unidades».`,
+        textoConfirmar: `Sí, multiplicar ×${n}`,
         textoCancelar: 'Cancelar',
       });
       if (!seguro) return;
@@ -908,15 +912,21 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   // ¿La factura viene en otra unidad que la del stock? (cajas de Ferrero,
   // congelados por kilo empaquetados de 250 g). La cuenta está en
   // app/lib/presentacion.ts, con tests; acá solo se ofrece.
+  // Un renglón "ya en unidades" (el «×N» era lo que trae la caja) también
+  // entra: es justo cuando la cantidad son unidades sueltas, y si el producto
+  // vinculado es la caja de N hay que armar cajas. Antes se apagaba y los 28
+  // Doritos vinculados a la caja de 14 entraban como 28 cajas sin ningún botón
+  // para arreglarlo (6/10/2026). "Dejar en cajas" sí queda afuera.
   const sugerirConversion = (i: any) => {
     if (!i.sku || i._esDescuento || i.porPeso || numImp(i.envaseAplicado) > 1 || numImp(i.paqueteAplicado) > 0
-      || numImp(i.bultoAplicado) > 1 || numImp(i.unidadesPorBulto) > 1 || numImp(i.bultoDescartado) > 1) return null;
+      || numImp(i.bultoAplicado) > 1 || numImp(i.unidadesPorBulto) > 1 || estadoDelBulto(i) === 'caja') return null;
     return conversionSugerida({
       descripcion: i.descripcion,
       nombreCatalogo: i.nombre,
       cantidad: numImp(i.cantidad),
       precio: numImp(i.precio),
       costoCatalogo: i.costoCatalogo,
+      cantidadEnUnidades: estadoDelBulto(i) === 'ya_en_unidades',
     });
   };
   // kilos facturados → paquetes de N gramos (y su vuelta atrás)
@@ -1216,6 +1226,8 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   // vista antes de apretar Registrar. Los resueltos (ya en unidades, pasados a
   // unidades o dejados en cajas) no cuentan (6/10/2026).
   const bultosSinResolver = inclItems.filter((i) => estadoDelBulto(i) === 'pendiente').length;
+  // el aviso nombra las presentaciones (×14, ×24) en vez de decir "×N"
+  const presentacionesSinResolver = [...new Set(inclItems.filter((i) => estadoDelBulto(i) === 'pendiente').map((i) => Math.round(numImp(i.unidadesPorBulto))))];
   const descuentosDesmedidos = inclItems.filter((i: any) => descuentoDesmedido(i)).length;
 
   // El mismo producto puede venir en DOS renglones: el que se paga y el
@@ -2115,7 +2127,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                                     disabled={!(Number(bultoEdit.unidades) > 1)}
                                     onClick={() => { pasarABultoManual(idx, Number(bultoEdit.unidades)); setBultoEdit(null); }}
                                   >
-                                    Pasar a unidades
+                                    Multiplicar{Number(bultoEdit.unidades) > 1 ? ` ×${bultoEdit.unidades}` : ''}
                                   </Boton>
                                   {Number(bultoEdit.unidades) > 1 && Number.isInteger(numImp(i.cantidad) / Number(bultoEdit.unidades)) && (
                                     <span className="flex basis-full flex-wrap items-center gap-2">
@@ -2230,7 +2242,10 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                           const marca = (s: 'unidades' | 'convertir' | 'caja') => (o.sugerida === s ? <span className="ml-1 font-semibold">· sugerido</span> : null);
                           const salidas = [
                             { clave: 'unidades' as const, boton: <Boton key="u" tamano="chico" variante="secundario" onClick={() => marcarYaEnUnidades(idx)}>Ya vienen en unidades{marca('unidades')}</Boton>, cuenta: <>{cant(o.talCual.cantidad)} a {pesos(o.talCual.precio)}</> },
-                            { clave: 'convertir' as const, boton: <Boton key="c" tamano="chico" variante="secundario" onClick={() => void pasarAUnidad(idx)}>Pasar a unidades{marca('convertir')}</Boton>, cuenta: <>{cant(o.convertido.cantidad)} a {pesos(o.convertido.precio)}</> },
+                            // "Multiplicar", no "Pasar a unidades": al lado de "Ya vienen en
+                            // unidades" eran dos botones con "unidades" que hacían lo opuesto
+                            // (Ana: "si yo pongo pasar a unidades me toma 28 cajas")
+                            { clave: 'convertir' as const, boton: <Boton key="c" tamano="chico" variante="secundario" onClick={() => void pasarAUnidad(idx)}>Multiplicar ×{o.n}{marca('convertir')}</Boton>, cuenta: <>{cant(o.convertido.cantidad)} a {pesos(o.convertido.precio)}</> },
                             { clave: 'caja' as const, boton: <Boton key="k" tamano="chico" variante="secundario" onClick={() => marcarEnCajas(idx)}>Dejar en cajas{marca('caja')}</Boton>, cuenta: <>el producto es la caja</> },
                           ];
                           // la sugerida primero; sin sugerencia, en el orden de siempre
@@ -2238,8 +2253,8 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                           return (
                             <span className="flex flex-col gap-1.5 rounded-xl bg-info-suave px-2.5 py-2 text-info">
                               <span>
-                                La descripción dice <b>×{o.n}</b> (lo que trae cada caja). ¿Los <b>{cant(o.talCual.cantidad)}</b> del papel son cajas o unidades?
-                                {o.motivo && <span className="block text-info/80">{o.sugerida === 'convertir' ? 'Parecen cajas' : o.sugerida === 'unidades' ? 'Parecen unidades' : o.sugerida === 'caja' ? 'Parece que el producto es la caja' : 'Ojo'}: {o.motivo}.</span>}
+                                {o.dice} <b>×{o.n}</b> (lo que trae cada caja). {o.pregunta}
+                                {o.motivo && <span className="block text-info/80">{o.rechazada ? 'El lector lo había resuelto así' : o.sugerida === 'convertir' ? 'Parecen cajas' : o.sugerida === 'unidades' ? 'Parecen unidades' : o.sugerida === 'caja' ? 'Parece que el producto es la caja' : 'Ojo'}: {o.motivo}.</span>}
                               </span>
                               <span className="flex flex-wrap gap-x-3 gap-y-1.5">
                                 {salidas.map((s) => (
@@ -2253,15 +2268,17 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                           );
                         })()}
                         {estadoDelBulto(i) === 'ya_en_unidades' && (
-                          <span className="text-ok">Entran <b>{numImp(i.cantidad).toLocaleString('es-AR')}</b> a {pesos(numImp(i.precio))}, como dice el papel: el ×{Math.round(numImp(i.bultoDescartado))} es lo que trae cada caja, no la cantidad.
+                          // a lo que factura el renglón (el importe), igual que las cuentas de los botones
+                          <span className="text-ok">Entran <b>{numImp(i.cantidad).toLocaleString('es-AR')}</b> a {pesos(baseUnitaria(i))}, como dice el papel: el ×{Math.round(numImp(i.bultoDescartado))} es lo que trae cada caja, no la cantidad.
                             {i.bultoAuto && i.razonBulto?.motivo && <span className="text-tinta/70"> Lo decidió el lector: {i.razonBulto.motivo}.</span>}
-                            <button onClick={() => deshacerBultoDescartado(idx)} className={unir(ENLACE, 'ml-2 text-tinta/70 hover:text-marca-hondo')}>{i.bultoAuto ? 'no, son cajas' : 'deshacer'}</button>
+                            {/* "cambiar", no "no, son cajas": vuelve a la pregunta, no deja nada en cajas */}
+                            <button onClick={() => deshacerBultoDescartado(idx)} className={unir(ENLACE, 'ml-2 text-tinta/70 hover:text-marca-hondo')}>{i.bultoAuto ? 'cambiar' : 'deshacer'}</button>
                           </span>
                         )}
                         {estadoDelBulto(i) === 'caja' && (
-                          <span className="text-info">Entran <b>{numImp(i.cantidad).toLocaleString('es-AR')} caja(s) de {Math.round(numImp(i.bultoDescartado))}</b> a {pesos(numImp(i.precio))}: el producto es la caja.
+                          <span className="text-info">Entran <b>{numImp(i.cantidad).toLocaleString('es-AR')} caja(s) de {Math.round(numImp(i.bultoDescartado))}</b> a {pesos(baseUnitaria(i))}: el producto es la caja.
                             {i.bultoAuto && i.razonBulto?.motivo && <span className="text-tinta/70"> Lo decidió el lector: {i.razonBulto.motivo}.</span>}
-                            <button onClick={() => deshacerBultoDescartado(idx)} className={unir(ENLACE, 'ml-2 text-tinta/70 hover:text-marca-hondo')}>deshacer</button>
+                            <button onClick={() => deshacerBultoDescartado(idx)} className={unir(ENLACE, 'ml-2 text-tinta/70 hover:text-marca-hondo')}>{i.bultoAuto ? 'cambiar' : 'deshacer'}</button>
                           </span>
                         )}
                         {i.importeConIvaLeido != null && (
@@ -2560,8 +2577,9 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                   <p className="mt-1.5 rounded-xl bg-info-suave px-2.5 py-2 text-info">
                     {/* No afirma que "queda mal": dejar la cantidad del papel es lo correcto
                         cuando ya viene en unidades (6/10/2026). */}
-                    <b>{bultosSinResolver}</b> renglón/es dicen ×N en la descripción y falta elegir si la cantidad es de cajas o de unidades.
-                    En cada uno tocá «Ya vienen en unidades», «Pasar a unidades» o «Dejar en cajas». Si registrás así, entran con la cantidad y el precio del papel.
+                    {bultosSinResolver === 1 ? <><b>1</b> renglón trae</> : <><b>{bultosSinResolver}</b> renglones traen</>} cuántas unidades tiene la caja ({presentacionesSinResolver.map((n) => `×${n}`).join(', ')})
+                    y falta elegir si la cantidad del papel son cajas o unidades. En cada uno tocá «Ya vienen en unidades», «Multiplicar» o «Dejar en cajas».
+                    Si registrás así, entran con la cantidad y el precio del papel.
                   </p>
                 )}
                 {columnaSospechosa && (

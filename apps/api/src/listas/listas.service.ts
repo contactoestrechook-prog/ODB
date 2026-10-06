@@ -507,6 +507,9 @@ export class ListasService {
       // el detector de bultos también se corrige (el "12 x" de Arcor): gana el
       // texto. Lo que el texto no dice es del modelo (o de un detector viejo).
       const bulto = bultoDelRenglon(String(i.descripcion ?? ''), i.unidadesPorBulto);
+      // el panel dice "la descripción dice ×14" solo si el texto lo dice
+      // (6/10/2026); las lecturas guardadas antes no traen el origen
+      i.bultoOrigen = bulto.origen;
       i.interpretado = interpretarLecturaSegura({
         descripcion: String(i.descripcion ?? ''),
         cantidad: numeroLeido(i.cantidad),

@@ -803,10 +803,13 @@ describe('¿los «×N» son cajas o ya unidades? (Mapaca, 6/10/2026)', () => {
       expect(r.razonBulto).toBeNull();
     });
 
-    it('Grido: "BOMBON ESCOCES X 8" 3 × $9.338,84 contra la caja a $11.300 → entra como viene', () => {
+    it('Grido: "BOMBON ESCOCES X 8" 3 × $9.338,84 contra la caja a $11.300 → sugiere "ya en unidades", no decide', () => {
+      // el "X 8" está escrito en el papel: el costo solo sugiere (revisión del
+      // 6/10/2026, ver "un costo contaminado" más abajo)
       const r = leer({ descripcion: 'BOMBON ESCOCES X 8', cantidad: 3, precio: 9338.84, importe: 28016.53, unidadesPorBulto: 8, bultoOrigen: 'texto', costoCatalogo: 11300 });
-      expect(r.decision).toBe('ya_en_unidades');
+      expect(r.decision).toBe('bulto_pendiente');
       expect(r.cantidad).toBe(3);
+      expect(r.razonBulto).toMatchObject({ sugerencia: 'unidades', evidencia: 'costo' });
     });
 
     it('Grido: el producto del catálogo ya es la caja ("Palito Bombon X 10") → caja, sin multiplicar', () => {
@@ -917,6 +920,115 @@ describe('¿los «×N» son cajas o ya unidades? (Mapaca, 6/10/2026)', () => {
     it('Ferrero armado en cajas: el precio de la caja contra el costo de la caja', () => {
       const r = leer({ descripcion: 'Bocadito Ferrero Rocher T12 UNIDAD x12.5grs', cantidad: 60, precio: 827.49, importe: 49649.4, unidadesDelCatalogo: 12, costoCatalogo: 9500 });
       expect(variacionDelRenglon(827.49, r, 9500)).toBeCloseTo(4.5, 1);
+    });
+  });
+});
+
+// Revisión de la tarde del 6/10/2026 sobre el arreglo de Mapaca: la regla nueva
+// decidía sola ("ya en unidades", "es la caja") con UNA evidencia aunque otra
+// dijera lo contrario, y ahí no quedaba ningún aviso. Ahora decide solo cuando
+// nada la contradice; si no, queda la pregunta con las dos cuentas.
+describe('el lector no decide solo con evidencia contradictoria (revisión del 6/10/2026)', () => {
+  const leer = (o: any) => interpretarRenglon({
+    descripcion: '', cantidad: 1, precio: 0, importe: null, kg: null, puedePorPeso: false,
+    unidadesPorBulto: null, bonificacionPct: null, esDescuento: false, ...o,
+  });
+
+  describe('el producto del catálogo es la caja de N: además tiene que cuadrar el precio', () => {
+    // renglón real de la lectura 6e7b62ef: "Bocadito Ferrero Rocher T8 UNIDAD x
+    // 12.5grs." 12 × $823,05. Con el 8 del "T8" y el vínculo a "Ferrero Rocher
+    // x 8 un" (costo 0 en la base) entraban 12 CAJAS, cuando eran 1,5.
+    const FERRERO_T8 = { descripcion: 'Bocadito Ferrero Rocher T8 UNIDAD x 12.5grs.', cantidad: 12, precio: 823.05, importe: 9876.6, unidadesPorBulto: 8, bultoOrigen: 'modelo', unidadesDelCatalogo: 8 };
+
+    it('Ferrero T8 sin costo en el catálogo: queda la pregunta (sugiere la caja, no decide)', () => {
+      const r = leer({ ...FERRERO_T8, costoCatalogo: 0 });
+      expect(r.decision).toBe('bulto_pendiente');
+      expect(r.unidadesPorBulto).toBe(8);
+      expect(r.bultoDescartado).toBeNull();
+      expect(r.razonBulto).toMatchObject({ sugerencia: 'caja', evidencia: 'catalogo' });
+      expect(r.razonBulto?.motivo).toContain('no tiene costo cargado');
+    });
+
+    it('Ferrero T8 con la caja a $7.900: $823 es precio de bocadito → pregunta y dice por qué', () => {
+      const r = leer({ ...FERRERO_T8, costoCatalogo: 7900 });
+      expect(r.decision).toBe('bulto_pendiente');
+      expect(r.bultoDescartado).toBeNull();
+      expect(r.razonBulto?.sugerencia).toBeNull();
+      expect(r.razonBulto?.motivo).toContain('$6.584,4'); // 823,05 × 8
+      expect(r.razonBulto?.motivo).toContain('no arman cajas enteras de 8');
+    });
+
+    it('Palito Bombón: el precio cuadra con la caja → se decide solo, como antes', () => {
+      const r = leer({ descripcion: 'PALITO BOMBON X 10', cantidad: 2, precio: 5041.32, importe: 10082.64, unidadesPorBulto: 10, bultoOrigen: 'texto', unidadesDelCatalogo: 10, costoCatalogo: 6100 });
+      expect(r).toMatchObject({ decision: 'ya_en_unidades', bultoDescartado: 10, razonBulto: { sugerencia: 'caja', evidencia: 'catalogo' } });
+      // "X 10 UN" es la presentación de la caja, no "por unidad"
+      expect(leer({ descripcion: 'PALITO BOMBON X 10 UN', cantidad: 2, precio: 5041.32, importe: 10082.64, unidadesPorBulto: 10, bultoOrigen: 'texto', unidadesDelCatalogo: 10, costoCatalogo: 6100 }).decision).toBe('ya_en_unidades');
+    });
+
+    it('Palito Bombón sin costo, o con "UNIDAD" en el papel: pregunta con la sugerencia de la caja', () => {
+      const base = { descripcion: 'PALITO BOMBON X 10', cantidad: 2, precio: 5041.32, importe: 10082.64, unidadesPorBulto: 10, bultoOrigen: 'texto', unidadesDelCatalogo: 10 };
+      expect(leer(base)).toMatchObject({ decision: 'bulto_pendiente', razonBulto: { sugerencia: 'caja' } });
+      expect(leer({ ...base, descripcion: 'PALITO BOMBON X 10 UNIDAD', costoCatalogo: 6100 })).toMatchObject({ decision: 'bulto_pendiente', razonBulto: { sugerencia: 'caja' } });
+    });
+  });
+
+  describe('un costo contaminado no confirma el error de la compra anterior', () => {
+    // proveedor_productos.ultimo_costo es lo que se registró la vez anterior
+    // para ese renglón: si la caja entró como unidad, la caja "cuadra".
+    it.each([
+      ['CORONA 355 X 24B', 3, 55000, 165000, 24, 66000],
+      ['FERNET 750 X 6', 2, 60000, 120000, 6, 72000],
+    ])('%s contra un costo de caja: sugiere, pero queda pendiente y cuenta en el aviso', (descripcion, cantidad, precio, importe, n, costo) => {
+      const r = leer({ descripcion, cantidad, precio, importe, unidadesPorBulto: n, bultoOrigen: 'texto', costoCatalogo: costo });
+      expect(r.decision).toBe('bulto_pendiente');
+      expect(r.unidadesPorBulto).toBe(n);
+      expect(r.bultoDescartado).toBeNull();
+      expect(r.razonBulto).toMatchObject({ sugerencia: 'unidades', evidencia: 'costo' });
+    });
+
+    it('sin saber de dónde salió el «×N», tampoco decide', () => {
+      const r = leer({ descripcion: 'DORITOS QUESO 200GX14', cantidad: 28, precio: 4899.65, importe: 137190.2, unidadesPorBulto: 14, costoCatalogo: 5714.29 });
+      expect(r).toMatchObject({ decision: 'bulto_pendiente', razonBulto: { sugerencia: 'unidades' } });
+    });
+
+    it('el «×N» que puso el modelo (Doritos de Mapaca) sí se decide con el costo', () => {
+      const r = leer({ descripcion: 'DORITOS QUESO 200GX14', cantidad: 28, precio: 4899.65, importe: 137190.2, unidadesPorBulto: 14, bultoOrigen: 'modelo', costoCatalogo: 5714.29 });
+      expect(r.decision).toBe('ya_en_unidades');
+    });
+  });
+
+  describe('la columna BULTOS/UNIDADES se cruza con el costo', () => {
+    // Coca de Noria: si el lector devolviera "0 bultos, 15 sueltas" (los campos
+    // son nuevos y no se probaron contra Claude), entraban 15 latas a $8.760.
+    const COCA = { descripcion: 'CC Lata 354 x 6', cantidad: 15, precio: 8760.92, importe: 131413.8, unidadesPorBulto: 6, bultoOrigen: 'texto', costoCatalogo: 1663.52 };
+
+    it('la columna dice unidades y el costo dice cajas: pregunta, con los dos motivos', () => {
+      const r = leer({ ...COCA, bultos: 0, unidadesSueltas: 15 });
+      expect(r.decision).toBe('bulto_pendiente');
+      expect(r.unidadesPorBulto).toBe(6);
+      expect(r.bultoDescartado).toBeNull();
+      expect(r.razonBulto?.sugerencia).toBeNull();
+      expect(r.razonBulto?.motivo).toContain('0 × 6 + 15 = 15');
+      expect(r.razonBulto?.motivo).toContain('$1.663,52');
+    });
+
+    it('la columna dice cajas y el costo dice unidades: tampoco sugiere convertir', () => {
+      const r = leer({ descripcion: 'DORITOS QUESO 200GX14', cantidad: 28, precio: 4899.65, importe: 137190.2, unidadesPorBulto: 14, bultoOrigen: 'modelo', costoCatalogo: 5714.29, bultos: 28, unidadesSueltas: 0 });
+      expect(r.decision).toBe('bulto_pendiente');
+      expect(r.razonBulto?.sugerencia).toBeNull();
+    });
+
+    it('columna y costo de acuerdo (Doritos: 2 × 14 = 28 y $4.899 contra $5.714): decide solo', () => {
+      const r = leer({ descripcion: 'DORITOS QUESO 200GX14', cantidad: 28, precio: 4899.65, importe: 137190.2, unidadesPorBulto: 14, bultoOrigen: 'modelo', costoCatalogo: 5714.29, bultos: 2, unidadesSueltas: 0 });
+      expect(r).toMatchObject({ decision: 'ya_en_unidades', razonBulto: { sugerencia: 'unidades', evidencia: 'columna' } });
+    });
+
+    it('4 TER: "2 bultos × 12 = 24" no arma cajas si el precio es el de la caja', () => {
+      // 24 × $9.929,88 con la caja de 12 a $9.500: el importe son 24 cajas; si
+      // se armaran, quedarían 2 a $119.158 (el costo × 12)
+      const r = leer({ descripcion: 'BOCADITO FERRERO', cantidad: 24, precio: 9929.88, importe: 238317.12, unidadesDelCatalogo: 12, costoCatalogo: 9500, bultos: 2, unidadesSueltas: 0 });
+      expect(r.decision).not.toBe('unidades_a_envase');
+      expect(r.cantidad).toBe(24);
     });
   });
 });
