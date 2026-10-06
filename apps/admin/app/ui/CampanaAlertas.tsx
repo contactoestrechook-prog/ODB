@@ -169,6 +169,10 @@ export function CampanaAlertas({ donde = 'lateral', esDuenio = true }: { donde?:
                     <IconoAviso tipo={a.tipo} />
                     <div className="min-w-0 flex-1">
                       <p className="break-words text-sm font-semibold leading-snug">{a.titulo}</p>
+                      {/* con más de un número de WhatsApp, a cuál escribió el cliente (6/10/2026) */}
+                      {a.referencia?.lineaNombre && (
+                        <span className="mt-0.5 inline-block rounded-full bg-info-suave px-2 py-0.5 text-[11px] font-semibold text-info">{String(a.referencia.lineaNombre)}</span>
+                      )}
                       {a.detalle && <p className="mt-0.5 line-clamp-4 whitespace-pre-wrap break-words text-xs text-tinta/70">{a.detalle}</p>}
                       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs">
                         <span className="text-tinta/60">{hace(a.creada_en)}</span>

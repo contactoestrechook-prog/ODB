@@ -905,6 +905,20 @@ export const SECCIONES: Seccion[] = [
           'Para apagar el bot en TODA la línea: en RESPONDE, arriba, "Pausar en todas" (y "Encender en todas" para volver). Para una sola charla, con la pausa de esa charla.',
         ],
       },
+      {
+        tipo: 'ojo',
+        titulo: 'Si hay más de un número de WhatsApp',
+        puntos: [
+          'Cada número (por ejemplo, la línea general y la de otro sector del local) atiende con el mismo bot y la misma configuración: alias y CBU, a quién se derivan los pagos y las consultas, la información vigente y las reglas. Lo único propio de cada uno es el número.',
+          'A cada cliente se le contesta por el número al que escribió. Si el mismo cliente escribe a los dos, son dos charlas distintas.',
+          'Los avisos a administración (pagos, consultas, pedidos nuevos o sin cargar) siguen llegando por el número de siempre y dicen de qué línea es la charla: "WhatsApp: Línea …". En la campanita, cada aviso muestra su línea.',
+          'En RESPONDE y en Difusiones hay una tarjeta por número, cada una con su "Pausar esta línea": apaga el bot SOLO en ese número. Lo que contestás desde RESPONDE sale por el número de esa charla. En Difusiones se elige por qué número sale cada campaña, y en Probar el bot, qué línea probar.',
+          'Si el WhatsApp de una línea se desvincula, su tarjeta lo dice en rojo y llega un aviso a la campanita con el nombre de la línea: hay que volver a escanear el QR con el teléfono de ese número.',
+          'Pausar una charla en un número no la pausa en el otro, ni reactivarla. En el número nuevo la pausa se maneja desde el teléfono, desde el panel o desde RESPONDE dentro del panel; el interruptor de la app de RESPONDE por fuera del panel solo vale para el número de siempre.',
+          'Para que administración confirme un pago o conteste una consulta, tiene que responder el aviso en el chat del número de siempre (el que manda los avisos). Lo que administración, reparto o compras le escriben al otro número no le llega a ningún cliente y el bot no les contesta. Tampoco se contestan entre sí los dos números de la casa.',
+          'Al encender el bot en el número nuevo, las charlas que alguien venía atendiendo desde ese teléfono en las últimas 24 horas quedan en pausa: el bot no se mete en medio. Si el teléfono todavía no está vinculado, no se puede encender.',
+        ],
+      },
     ],
   },
 ];

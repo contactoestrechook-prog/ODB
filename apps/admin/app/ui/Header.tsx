@@ -177,7 +177,7 @@ const TITULOS: Record<string, { titulo: string; bajada: string }> = {
   '/sommelier': { titulo: 'Somelier ODB', bajada: 'El experto en vinos que atiende a tus clientes' },
   '/bot': { titulo: 'Probar el bot', bajada: 'Probá el bot que atiende por WhatsApp: mismo cerebro, catálogo y pedidos reales' },
   '/responde': { titulo: 'RESPONDE', bajada: 'Las conversaciones reales de WhatsApp: contestar, pausar el bot, notas, programados y difusión' },
-  '/bandeja': { titulo: 'Difusiones', bajada: 'Campañas por listas y mensajes programados de la línea de WhatsApp' },
+  '/bandeja': { titulo: 'Difusiones', bajada: 'Campañas por listas y mensajes programados de WhatsApp' },
   '/estadisticas': { titulo: 'Estadísticas', bajada: 'El negocio en números: 30 días de venta real' },
   '/conciliacion': { titulo: 'Conciliación', bajada: 'Acreditaciones de tarjeta y Mercado Pago: lo que te deben y las comisiones' },
   '/cheques': { titulo: 'Cheques', bajada: 'Cartera de valores: cheques de terceros y propios, depósitos, vencimientos y rechazos' },

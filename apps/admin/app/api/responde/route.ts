@@ -13,6 +13,8 @@ export async function GET(req: Request) {
   else if (recurso === 'detalle') {
     ruta = `/bot/conversaciones/detalle?linea=${encodeURIComponent(url.searchParams.get('linea') ?? '')}&telefono=${encodeURIComponent(url.searchParams.get('telefono') ?? '')}`;
   } else if (recurso === 'resumen') ruta = '/bot/responde/resumen';
+  // las líneas de WhatsApp: una tarjeta por número (6/10/2026)
+  else if (recurso === 'lineas') ruta = '/bot/lineas';
   else if (recurso === 'linea') ruta = `/bot/linea/estado?linea=${encodeURIComponent(url.searchParams.get('linea') ?? 'pedidos')}`;
   else if (recurso === 'ficha') ruta = `/bot/contactos/ficha?telefono=${encodeURIComponent(url.searchParams.get('telefono') ?? '')}`;
   else if (recurso === 'programados') ruta = `/bot/programados${url.searchParams.get('telefono') ? `?telefono=${encodeURIComponent(url.searchParams.get('telefono')!)}` : ''}`;
