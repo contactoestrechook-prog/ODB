@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Boton, Etiqueta, ROTULO, Tarjeta, useConfirmar } from './kit';
+import { Aviso, Boton, Etiqueta, ROTULO, Tarjeta, useConfirmar } from './kit';
 
 // LAS LÍNEAS DE WHATSAPP EN EL PANEL (6/10/2026). Leandro: «necesitamos
 // automatizar una nueva línea de ODB, mismo todo pero otra línea». Cada número
@@ -87,6 +87,10 @@ export function TarjetasDeLineas({
   verbo?: 'Pausar' | 'Apagar';
 }) {
   const [ocupada, setOcupada] = useState<string | null>(null);
+  // lo que contestó el interruptor: al prender una línea que no es la general,
+  // cuántas charlas quedaron pausadas porque las atendía una persona desde el
+  // teléfono, o por qué no se prendió (revisión 6/10/2026)
+  const [resultado, setResultado] = useState<{ tono: 'ok' | 'error'; texto: string } | null>(null);
   const { confirmar, dialogo } = useConfirmar();
   const varias = hayVarias(lineas);
   const lista = lineas ? deClientes(lineas) : null;
@@ -107,8 +111,14 @@ export function TarjetasDeLineas({
           textoConfirmar: `${verbo} en todas`,
         }))) return;
     setOcupada(l.linea);
+    setResultado(null);
     try {
-      await fetch('/api/responde', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'botLinea', linea: l.linea, activo }) });
+      const r = await fetch('/api/responde', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'botLinea', linea: l.linea, activo }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) setResultado({ tono: 'error', texto: String(j?.message ?? 'No se pudo cambiar el bot de esta línea.') });
+      else if (activo && Number(j?.pausadas) > 0) {
+        setResultado({ tono: 'ok', texto: `Quedaron en pausa ${j.pausadas} ${Number(j.pausadas) === 1 ? 'charla' : 'charlas'} de la ${l.etiqueta} que se venían atendiendo desde el teléfono: el bot no les habla hasta que alguien las reactive.` });
+      }
       await cargar();
     } finally {
       setOcupada(null);
@@ -163,6 +173,7 @@ export function TarjetasDeLineas({
           );
         })}
       </div>
+      {resultado && <Aviso tono={resultado.tono} className="mt-3">{resultado.texto}</Aviso>}
       {dialogo}
     </>
   );

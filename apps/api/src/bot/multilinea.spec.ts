@@ -2,6 +2,9 @@ import { BotService } from './bot.service';
 import { AvisosPedidosService } from '../avisos/avisos-pedidos.service';
 import { textoDelAviso, textoDeSinCargar } from '../avisos/aviso-pedido';
 import { etiquetaDeFila, Lineas, sesionPrincipal, tipoDeLinea } from '../comun/lineas';
+import { HERRAMIENTAS_PEDIDOS, SYSTEM_PEDIDOS } from './agente-bot';
+import { readFileSync, readdirSync, statSync } from 'fs';
+import { join, relative } from 'path';
 
 // VARIAS LÍNEAS DE WHATSAPP CON EL MISMO BOT (Leandro, 6/10/2026): «necesitamos
 // automatizar una nueva línea de ODB, mismo todo pero otra línea» y «comparte
@@ -588,5 +591,439 @@ describe('5. Con UNA sola línea cargada no cambia nada', () => {
     await s.vigilarSesionWhatsapp();
     await s.recuperarEntrantesPerdidos();
     expect(waha.llamadas.map((l) => l.url)).toEqual(['https://waha.test/api/sessions/odb', 'https://waha.test/api/odb/chats?limit=30&sortBy=conversationTimestamp&sortOrder=desc']);
+  });
+});
+
+// ===========================================================================
+// REVISIÓN DE LA MULTILÍNEA (6/10/2026). Lo que encontró la revisión: el equipo
+// escribiéndole a la otra línea, las dos líneas hablándose entre sí, la pausa de
+// RESPONDE pasando de una línea a la otra, la sesión de la general cargada en la
+// fila nueva, una lectura fallida de las líneas, las charlas que se venían
+// atendiendo a mano en el teléfono nuevo, la migración que no se podía correr
+// dos veces y las ramas que vuelven a preguntar «¿es 'pedidos'?».
+// ===========================================================================
+const OTRO_SECTOR = LOCAL.numero_e164; // 5491155551234
+const GENERAL_NUM = GENERAL.numero_e164; // 5491122812200
+const haceMin = (m: number) => new Date(Date.now() - m * 60_000).toISOString();
+const pagoPendiente = { id: 'p1', linea: 'pedidos', telefono_cliente: CLIENTE, nombre: 'Pablo', monto: 50000, waha_msg_id: `true_${ADMIN}@c.us_P1`, confirmado_en: null, creado_en: haceMin(10) };
+const consultaAbierta = (id: string) => ({
+  id, linea: 'pedidos', telefono_cliente: CLIENTE, nombre: 'Pablo', area: 'administracion', consulta: '¿Hay caja?', tema: 'la caja',
+  waha_msg_id: `true_${ADMIN}@c.us_${id}`, enviado_a: ADMIN, respondido_en: null, gestion_version: 2, creado_en: haceMin(15),
+});
+
+describe('Revisión 1 y 5: lo que administración le escribe a la otra línea no es una respuesta a un aviso', () => {
+  it('«Sí, ya lo tengo listo» por la línea local con un pago pendiente: el cliente no recibe nada y el pago sigue pendiente', async () => {
+    const waha = wahaFalso();
+    const db = baseEnMemoria({
+      lineas_whatsapp: [GENERAL, LOCAL],
+      bot_pagos_en_confirmacion: [pagoPendiente],
+      bot_conversaciones: [{ linea: 'pedidos', telefono: CLIENTE, mensajes: [], bot_activo: true }],
+    }, { tomar_aviso_pago_bot: () => ({ data: [{ id: 'p1' }], error: null }) });
+    const s = servicio(db);
+    const r: any = await s.webhookWaha(mensajeDe('odb-local', ADMIN, 'Sí, ya lo tengo listo', 'false_AD1'));
+    expect(r).toMatchObject({ contestado: false, motivo: 'número del equipo' });
+    expect(waha.envios()).toHaveLength(0);
+    expect(db.tablas.bot_pagos_en_confirmacion[0].confirmado_en).toBeNull();
+    expect(db.rpc).not.toHaveBeenCalledWith('tomar_aviso_pago_bot', expect.anything());
+    expect(s.claude.messages.create).not.toHaveBeenCalled();
+    // queda en la charla de la línea local, como cualquier mensaje del equipo (sin bot)
+    expect(db.tablas.bot_conversaciones.find((c: any) => c.linea === 'local')).toMatchObject({ telefono: ADMIN });
+    // por la línea general, que es la que manda los avisos, el mismo mensaje confirma como siempre
+    const r2: any = await s.webhookWaha(mensajeDe('odb', ADMIN, 'Sí, ya lo tengo listo', 'false_AD2'));
+    expect(r2.contestado).toBe(true);
+    expect(db.tablas.bot_pagos_en_confirmacion[0].confirmado_en).toBeTruthy();
+    expect(waha.envios().find((e) => e.cuerpo.chatId === `${CLIENTE}@c.us`)!.cuerpo.session).toBe('odb');
+  });
+
+  it('con UNA consulta abierta, lo que administración le escribe a la línea local no le llega al cliente como respuesta del área', async () => {
+    const waha = wahaFalso();
+    const db = baseEnMemoria({
+      lineas_whatsapp: [GENERAL, LOCAL],
+      bot_consultas_internas: [consultaAbierta('c1')],
+      bot_conversaciones: [{ linea: 'pedidos', telefono: CLIENTE, mensajes: [], bot_activo: true }],
+    }, { tomar_entrega_consulta_bot: () => ({ data: [{ id: 'c1', envio_iniciado_en: null }], error: null }) });
+    const s = servicio(db);
+    await s.webhookWaha(mensajeDe('odb-local', ADMIN, 'dale, listo, mandame 2 cajas a la tarde', 'false_AD3'));
+    expect(waha.envios()).toHaveLength(0);
+    expect(db.tablas.bot_consultas_internas[0]).toMatchObject({ respondido_en: null });
+    expect(db.tablas.bot_consultas_internas[0].respuesta_admin).toBeUndefined();
+  });
+
+  it('con VARIAS abiertas, a administración no le contesta la general «Respondé CITANDO…» cada vez que le escribe al otro sector', async () => {
+    const waha = wahaFalso();
+    const db = baseEnMemoria({
+      lineas_whatsapp: [GENERAL, LOCAL],
+      bot_consultas_internas: ['c1', 'c2', 'c3', 'c4', 'c5'].map(consultaAbierta),
+    });
+    const s = servicio(db);
+    const r: any = await s.webhookWaha(mensajeDe('odb-local', ADMIN, '¿me separás 2 cajas para mañana?', 'false_AD4'));
+    expect(r.motivo).toBe('número del equipo');
+    expect(waha.envios()).toHaveLength(0);
+    expect(s.claude.messages.create).not.toHaveBeenCalled();
+  });
+
+  it('reparto (whatsapp_reparto de la configuración compartida) escribiéndole a la línea local tampoco se atiende', async () => {
+    const waha = wahaFalso();
+    const REPARTO = '5491144440000';
+    const db = baseEnMemoria({ lineas_whatsapp: [{ ...GENERAL, whatsapp_reparto: REPARTO }, LOCAL], bot_consultas_internas: [{ ...consultaAbierta('c1'), area: 'reparto', enviado_a: REPARTO }] });
+    const s = servicio(db);
+    const r: any = await s.webhookWaha(mensajeDe('odb-local', REPARTO, 'llego en 10 min', 'false_RE1'));
+    expect(r.motivo).toBe('número del equipo');
+    expect(waha.envios()).toHaveLength(0);
+    expect(db.tablas.bot_consultas_internas[0].respondido_en).toBeNull();
+  });
+});
+
+describe('Revisión 3 y 6: las líneas de la casa no se atienden entre sí', () => {
+  it('el teléfono del otro sector le escribe a la general: no hay respuesta, ni consulta, ni charla', async () => {
+    const waha = wahaFalso();
+    const db = baseEnMemoria({ lineas_whatsapp: [GENERAL, LOCAL] });
+    const s = servicio(db);
+    const r: any = await s.webhookWaha(mensajeDe('odb', OTRO_SECTOR, '¿tienen Fernet 750 en el depósito?', 'false_L2G'));
+    expect(r).toMatchObject({ contestado: false, motivo: 'otra línea de la casa' });
+    expect(waha.envios()).toHaveLength(0);
+    expect(s.claude.messages.create).not.toHaveBeenCalled();
+    expect(db.tablas.bot_conversaciones ?? []).toHaveLength(0);
+    expect(db.tablas.bot_consultas_internas ?? []).toHaveLength(0);
+  });
+
+  it('la general le escribe al otro sector (con @lid y el teléfono aprendido, o con un audio): la línea local tampoco contesta', async () => {
+    const waha = wahaFalso();
+    const LID = '170806604746941';
+    const db = baseEnMemoria({ lineas_whatsapp: [GENERAL, LOCAL], bot_contactos: [{ telefono: LID, telefono_real: GENERAL_NUM }] });
+    const s = servicio(db);
+    const r1: any = await s.webhookWaha({ event: 'message', session: 'odb-local', payload: { id: 'false_G2L', from: `${LID}@lid`, body: '¿te quedan cajas de Fernet?', timestamp: ahoraSeg() } });
+    expect(r1.motivo).toBe('otra línea de la casa');
+    // un audio de la otra línea no se baja, no se acusa y no se deriva
+    const r2: any = await s.webhookWaha({ event: 'message', session: 'odb-local', payload: { id: 'false_G2L2', from: `${GENERAL_NUM}@c.us`, hasMedia: true, type: 'ptt', media: { url: 'https://waha.test/api/files/x.ogg', mimetype: 'audio/ogg' }, timestamp: ahoraSeg() } });
+    expect(r2.motivo).toBe('otra línea de la casa');
+    expect(waha.envios()).toHaveLength(0);
+    expect(waha.llamadas.some((l) => l.url.includes('/api/files/'))).toBe(false);
+    expect(db.tablas.alertas_internas ?? []).toHaveLength(0);
+    expect(s.claude.messages.create).not.toHaveBeenCalled();
+  });
+
+  it('el bot de una línea no le contesta al de la otra: un mensaje del bot general al otro sector termina ahí (no hay ronda)', async () => {
+    const waha = wahaFalso();
+    const db = baseEnMemoria({ lineas_whatsapp: [GENERAL, LOCAL] });
+    const s = servicio(db);
+    // p. ej. una respuesta de consulta o un programado de la general que llega al número local
+    await s.webhookWaha(mensajeDe('odb-local', GENERAL_NUM, 'Perfecto, dale. ¿Te lo confirmo?', 'false_R1'));
+    await s.webhookWaha(mensajeDe('odb', OTRO_SECTOR, 'Perfecto, dale.', 'false_R2'));
+    expect(waha.envios()).toHaveLength(0);
+    expect(db.tablas.bot_cotizaciones ?? []).toHaveLength(0);
+  });
+
+  it('lo que alguien teclea desde el teléfono local a la general no pausa ninguna «charla» ni la deja esperando', async () => {
+    wahaFalso();
+    const db = baseEnMemoria({ lineas_whatsapp: [GENERAL, LOCAL] });
+    const s = servicio(db);
+    jest.spyOn(global, 'setTimeout').mockImplementation(((fn: any) => { fn(); return 0 as any; }) as any);
+    const r: any = await s.webhookWaha({ event: 'message.any', session: 'odb-local', payload: { fromMe: true, id: 'true_Y', to: `${GENERAL_NUM}@c.us`, body: '¿Me pasás el stock de Malbec?', timestamp: ahoraSeg() } });
+    expect(r.ignorado).toBe('chat con otra línea de la casa');
+    expect(db.tablas.bot_conversaciones ?? []).toHaveLength(0);
+  });
+
+  it('el simulador y charla() también callan a las líneas de la casa y a las áreas', async () => {
+    const s = servicio(baseEnMemoria({ lineas_whatsapp: [GENERAL, LOCAL] }));
+    expect(await s.esNumeroDelEquipo(OTRO_SECTOR)).toBe(true);
+    expect(await s.esNumeroDelEquipo(GENERAL_NUM)).toBe(true);
+    expect(await s.esNumeroDelEquipo(ADMIN)).toBe(true);
+    expect(await s.esNumeroDelEquipo(CLIENTE)).toBe(false);
+  });
+
+  it('una difusión no sale a los números de las líneas de la casa', async () => {
+    wahaFalso();
+    const db = baseEnMemoria({ lineas_whatsapp: [GENERAL, LOCAL] });
+    const s = servicio(db);
+    jest.spyOn(s, 'despacharDifusion').mockResolvedValue(undefined);
+    const r: any = await s.crearDifusion({ linea: 'pedidos', texto: 'Llegó el Malbec', telefonos: [CLIENTE, GENERAL_NUM, OTRO_SECTOR] });
+    expect(r.total).toBe(1);
+    expect(db.tablas.responde_difusiones_destinatarios.map((d: any) => d.telefono)).toEqual([CLIENTE]);
+  });
+});
+
+// RESPONDE simulado: UN contacto por teléfono (un solo tenant), con su interruptor
+function respondeFalso(s: any, inicial: Record<string, boolean> = {}) {
+  const humano = new Map<string, boolean>(Object.entries(inicial));
+  const llamadas: { fn: string; args: any }[] = [];
+  s.respondeRpc = jest.fn(async (fn: string, args: any) => {
+    llamadas.push({ fn, args });
+    const id = String(args?.p_whatsapp_id ?? '');
+    if (fn === 'odb_estado_contacto') return { existe: true, modo_humano: humano.get(id) === true, bloqueado: false };
+    if (fn === 'odb_pausar_contacto') { humano.set(id, true); return { ok: true }; }
+    if (fn === 'odb_reactivar_contacto') { humano.set(id, false); return { ok: true }; }
+    return { ok: true };
+  });
+  return { humano, llamadas, de: (fn: string) => llamadas.filter((l) => l.fn === fn) };
+}
+
+describe('Revisión 2 y 8: el interruptor de RESPONDE (un contacto para las dos líneas) es solo el de la general', () => {
+  it('alguien del otro sector contesta desde su teléfono: se pausa SOLO la charla local y la general sigue atendiendo', async () => {
+    const waha = wahaFalso();
+    const db = baseEnMemoria({
+      lineas_whatsapp: [GENERAL, LOCAL],
+      bot_conversaciones: [
+        { linea: 'pedidos', telefono: CLIENTE, mensajes: [], bot_activo: true },
+        { linea: 'local', telefono: CLIENTE, mensajes: [], bot_activo: true },
+      ],
+    });
+    const s = servicio(db);
+    const responde = respondeFalso(s);
+    jest.spyOn(global, 'setTimeout').mockImplementation(((fn: any) => { fn(); return 0 as any; }) as any);
+    await s.webhookWaha({ event: 'message.any', session: 'odb-local', payload: { fromMe: true, id: 'true_Z', to: `${CLIENTE}@c.us`, body: 'Hola Pablo, te lo separo yo', timestamp: ahoraSeg() } });
+    expect(db.tablas.bot_conversaciones.find((c: any) => c.linea === 'local').bot_activo).toBe(false);
+    // la pausa de la local no se copia al contacto único de RESPONDE
+    expect(responde.de('odb_pausar_contacto')).toHaveLength(0);
+    // el cliente le escribe a la general: lo atiende el bot, por la general
+    const r: any = await s.webhookWaha(mensajeDe('odb', CLIENTE, '¿La entrada del wine fest incluye el copón?', 'false_GX'));
+    expect(r.contestado).toBe(true);
+    expect(waha.envios().at(-1)!.cuerpo.session).toBe('odb');
+    expect(db.tablas.bot_conversaciones.find((c: any) => c.linea === 'pedidos').bot_activo).toBe(true);
+  });
+
+  it('reactivar al cliente en la general no hace que el bot local le hable encima a la persona que lo atiende desde el teléfono', async () => {
+    const waha = wahaFalso();
+    const db = baseEnMemoria({
+      lineas_whatsapp: [GENERAL, LOCAL],
+      bot_conversaciones: [
+        { linea: 'pedidos', telefono: CLIENTE, mensajes: [], bot_activo: false, derivada_motivo: 'Pausado desde la bandeja' },
+        { linea: 'local', telefono: CLIENTE, mensajes: [], bot_activo: false, derivada_motivo: 'Atendida desde el teléfono' },
+      ],
+    });
+    const s = servicio(db);
+    const responde = respondeFalso(s, { [CLIENTE]: true });
+    await s.devolverAlBot('pedidos', CLIENTE);
+    // desde la general sí se reactiva en RESPONDE (como siempre)
+    expect(responde.de('odb_reactivar_contacto')).toHaveLength(1);
+    expect(responde.humano.get(CLIENTE)).toBe(false);
+    // el cliente le escribe a la local: sigue pausada, el bot no habla
+    const r: any = await s.webhookWaha(mensajeDe('odb-local', CLIENTE, '¿entonces me lo mandás?', 'false_LX'));
+    expect(r.contestado).toBe(false);
+    expect(waha.envios()).toHaveLength(0);
+    expect(db.tablas.bot_conversaciones.find((c: any) => c.linea === 'local')).toMatchObject({ bot_activo: false, derivada_motivo: 'Atendida desde el teléfono' });
+  });
+
+  it('pausar o reactivar en la local (panel o app embebida) no toca RESPONDE; en la general, sí', async () => {
+    wahaFalso();
+    const db = baseEnMemoria({ lineas_whatsapp: [GENERAL, LOCAL], bot_conversaciones: [{ linea: 'local', telefono: CLIENTE, mensajes: [], bot_activo: true }] });
+    const s = servicio(db);
+    const responde = respondeFalso(s);
+    await s.pausarBot('local', CLIENTE);
+    await s.devolverAlBot('local', CLIENTE);
+    expect(responde.de('odb_pausar_contacto')).toHaveLength(0);
+    expect(responde.de('odb_reactivar_contacto')).toHaveLength(0);
+    await s.pausarBot('pedidos', CLIENTE);
+    expect(responde.de('odb_pausar_contacto')).toHaveLength(1);
+  });
+
+  it('el «atendés vos» de RESPONDE (el de la general) no calla al bot local, ni lo pausa', async () => {
+    const waha = wahaFalso();
+    const db = baseEnMemoria({ lineas_whatsapp: [GENERAL, LOCAL] });
+    const s = servicio(db);
+    respondeFalso(s, { [CLIENTE]: true });
+    const r: any = await s.webhookWaha(mensajeDe('odb-local', CLIENTE, '¿La entrada del wine fest incluye el copón?', 'false_LY'));
+    expect(r.contestado).toBe(true);
+    expect(waha.envios()[0].cuerpo.session).toBe('odb-local');
+    expect(db.tablas.bot_conversaciones.find((c: any) => c.linea === 'local').bot_activo).not.toBe(false);
+    // y en la general sí manda, como siempre
+    const r2: any = await s.webhookWaha(mensajeDe('odb', CLIENTE, '¿y el sábado?', 'false_GY'));
+    expect(r2).toMatchObject({ contestado: false, motivo: 'RESPONDE: atiende una persona' });
+  });
+});
+
+describe('Revisión 4 y 9: la sesión de la línea general no se la queda otra fila', () => {
+  // la fila nueva cargada por error con la sesión de WAHA_SESSION ('odb' en estas pruebas)
+  const LOCAL_MAL = { ...LOCAL, waha_sesion: 'odb' };
+
+  it('la general sin sesión propia sigue siendo la principal y la dueña de esa sesión', async () => {
+    const l = new Lineas(baseEnMemoria({ lineas_whatsapp: [GENERAL, LOCAL_MAL] }));
+    expect(await l.principal()).toBe('pedidos');
+    expect(await l.deEntrada({ sesion: 'odb' })).toMatchObject({ linea: 'pedidos' });
+    expect((await l.sesionEnConflicto()).map((f) => f.linea)).toEqual(['local']);
+    // sin conflicto no hay nada que avisar
+    expect(await new Lineas(baseEnMemoria({ lineas_whatsapp: [GENERAL, LOCAL] })).sesionEnConflicto()).toEqual([]);
+    // si la general tiene su sesión fijada, el índice único es el que frena: no hay conflicto en el código
+    expect(await new Lineas(baseEnMemoria({ lineas_whatsapp: [{ ...GENERAL, waha_sesion: 'odb' }, { ...LOCAL, waha_sesion: 'odb-local' }] })).principal()).toBe('pedidos');
+  });
+
+  it('lo que entra por esa sesión va a las charlas de la general, y el vigilante deja UNA alerta para corregir la fila', async () => {
+    const waha = wahaFalso({ '/api/sessions/odb': { status: 'WORKING' } });
+    const db = baseEnMemoria({ lineas_whatsapp: [GENERAL, LOCAL_MAL], bot_conversaciones: [{ linea: 'pedidos', telefono: CLIENTE, mensajes: [{ role: 'assistant', content: 'Buenas tardes' }], bot_activo: true }] });
+    const s = servicio(db);
+    const r: any = await s.webhookWaha(mensajeDe('odb', CLIENTE, '¿La entrada del wine fest incluye el copón?', 'false_C1'));
+    expect(r.contestado).toBe(true);
+    expect([...new Set(db.tablas.bot_conversaciones.map((c: any) => c.linea))]).toEqual(['pedidos']);
+    expect(waha.envios()[0].cuerpo.session).toBe('odb');
+    await s.vigilarSesionWhatsapp();
+    // la base de verdad completa creada_en con now(); la de memoria no
+    for (const a of db.tablas.alertas_internas) a.creada_en ??= new Date().toISOString();
+    await s.vigilarSesionWhatsapp();
+    const alertas = db.tablas.alertas_internas.filter((a: any) => a.referencia?.conflicto);
+    expect(alertas).toHaveLength(1);
+    expect(alertas[0]).toMatchObject({ tipo: 'whatsapp_caido', referencia: { conflicto: 'local' } });
+    expect(alertas[0].referencia).not.toHaveProperty('sesion');
+    // la sesión se vigila una sola vez (la de la general)
+    expect(waha.llamadas.filter((l) => l.url.endsWith('/api/sessions/odb'))).toHaveLength(2);
+  });
+});
+
+describe('Revisión 12: si falla la lectura de las líneas, no se pierde la línea nueva', () => {
+  // una base que a pedido falla al leer lineas_whatsapp (un corte de Supabase)
+  function conCorte(db: any) {
+    const original = db.from.bind(db);
+    const estado = { falla: false };
+    const conError = (): any => new Proxy({}, {
+      get: (_t, k) => k === 'then'
+        ? (ok: any, err: any) => Promise.resolve({ data: null, error: { message: 'corte' } }).then(ok, err)
+        : k === 'maybeSingle' || k === 'single' ? async () => ({ data: null, error: { message: 'corte' } }) : () => conError(),
+    });
+    db.from = (t: string) => (t === 'lineas_whatsapp' && estado.falla ? conError() : original(t));
+    return estado;
+  }
+
+  it('con algo ya leído, se sigue con eso y se reintenta a los 5 s', async () => {
+    const db = baseEnMemoria({ lineas_whatsapp: [GENERAL, LOCAL] });
+    const corte = conCorte(db);
+    const l = new Lineas(db);
+    expect((await l.deEntrada({ sesion: 'odb-local' })).linea).toBe('local');
+    (l as any).cache.hasta = 0; // venció la memoria
+    corte.falla = true;
+    expect((await l.deEntrada({ sesion: 'odb-local' })).linea).toBe('local');
+    expect((l as any).cache.hasta - Date.now()).toBeLessThanOrEqual(5_000);
+  });
+
+  it('sin nada leído, el mensaje no se contesta ni deja una alerta falsa: lo levanta el barrido', async () => {
+    const waha = wahaFalso();
+    const db = baseEnMemoria({ lineas_whatsapp: [GENERAL, LOCAL] });
+    const corte = conCorte(db);
+    corte.falla = true;
+    const s = servicio(db);
+    const r: any = await s.webhookWaha(mensajeDe('odb-local', CLIENTE, 'hola', 'false_K1'));
+    expect(r.ignorado).toMatch(/no pude leer las líneas/);
+    expect(waha.envios()).toHaveLength(0);
+    expect(db.tablas.alertas_internas ?? []).toHaveLength(0);
+    // no quedó anotado como recibido: el barrido lo encuentra como perdido y lo procesa por su línea
+    expect(db.tablas.bot_entrantes ?? []).toHaveLength(0);
+    // vuelve la base: el mismo mensaje entra por la línea local
+    corte.falla = false;
+    (s.lineas as any).cache.hasta = 0;
+    const r2: any = await s.webhookWaha(mensajeDe('odb-local', CLIENTE, '¿La entrada del wine fest incluye el copón?', 'false_K2'));
+    expect(r2.contestado).toBe(true);
+    expect(waha.envios()[0].cuerpo.session).toBe('odb-local');
+  });
+});
+
+describe('Revisión 10: al prender la línea nueva, lo que se venía atendiendo a mano en ese teléfono queda en pausa', () => {
+  const CLIENTE2 = '5491177778888';
+  const CLIENTE3 = '5491177779999';
+  const CLIENTE4 = '5491177770000';
+  const chat = (t: string) => `${t}@c.us`;
+  const mensajes = (t: string) => `/api/odb-local/chats/${encodeURIComponent(chat(t))}/messages`;
+
+  it('pausa la charla que una persona contestó desde el teléfono; no toca la que solo escribió el cliente, ni la del bot, ni la reactivada después', async () => {
+    const ahora = ahoraSeg();
+    const waha = wahaFalso({
+      '/api/odb-local/chats?': [CLIENTE, CLIENTE2, CLIENTE3, CLIENTE4, GENERAL_NUM].map((t) => ({ id: chat(t), conversationTimestamp: ahora - 300 })),
+      // una persona le contestó desde el teléfono antes de vincularlo
+      [mensajes(CLIENTE)]: [{ id: 'false_a', fromMe: false, body: 'hola, ¿tienen Malbec?', timestamp: ahora - 3600 }, { id: 'true_PERS1', fromMe: true, body: 'Sí, te lo separo', timestamp: ahora - 3000 }],
+      // solo escribió el cliente: el bot lo puede atender
+      [mensajes(CLIENTE2)]: [{ id: 'false_b', fromMe: false, body: 'hola', timestamp: ahora - 600 }],
+      // lo que salió lo mandó el sistema (está en bot_envios)
+      [mensajes(CLIENTE3)]: [{ id: `true_${CLIENTE3}@c.us_BOT1`, fromMe: true, body: 'Hola, ¿en qué te ayudo?', timestamp: ahora - 600 }],
+      // una persona escribió, pero después la reactivaron a mano
+      [mensajes(CLIENTE4)]: [{ id: 'true_PERS4', fromMe: true, body: 'Te llamo', timestamp: ahora - 7200 }],
+      [mensajes(GENERAL_NUM)]: [{ id: 'true_PERS5', fromMe: true, body: '¿me pasás el stock?', timestamp: ahora - 600 }],
+    });
+    const db = baseEnMemoria({
+      lineas_whatsapp: [GENERAL, { ...LOCAL, bot_activo: false }],
+      bot_envios: [{ waha_id: 'BOT1', telefono: CLIENTE3 }],
+      bot_conversaciones: [{ linea: 'local', telefono: CLIENTE4, mensajes: [], bot_activo: true, resuelta_en: new Date((ahora - 3600) * 1000).toISOString() }],
+    });
+    const s = servicio(db);
+    const r: any = await s.setBotLinea('local', true);
+    expect(r).toMatchObject({ ok: true, botActivo: true, pausadas: 1 });
+    const charla = (t: string) => db.tablas.bot_conversaciones.find((c: any) => c.linea === 'local' && c.telefono === t);
+    expect(charla(CLIENTE)).toMatchObject({ bot_activo: false, derivada_motivo: 'Atendida desde el teléfono' });
+    expect(charla(CLIENTE2)).toBeUndefined();
+    expect(charla(CLIENTE3)).toBeUndefined();
+    expect(charla(CLIENTE4).bot_activo).toBe(true);
+    expect(charla(GENERAL_NUM)).toBeUndefined();
+    expect(db.tablas.lineas_whatsapp.find((f: any) => f.linea === 'local').bot_activo).toBe(true);
+    // y el cliente que venían atendiendo, cuando escribe, no recibe la bienvenida
+    const r2: any = await s.webhookWaha(mensajeDe('odb-local', CLIENTE, '¿entonces me lo mandás?', 'false_E1'));
+    expect(r2.contestado).toBe(false);
+    expect(waha.envios()).toHaveLength(0);
+  });
+
+  it('si no se puede revisar el teléfono (WAHA no contesta), la línea NO se prende', async () => {
+    wahaFalso(); // /api/odb-local/chats da 404
+    const db = baseEnMemoria({ lineas_whatsapp: [GENERAL, { ...LOCAL, bot_activo: false }] });
+    const s = servicio(db);
+    await expect(s.setBotLinea('local', true)).rejects.toThrow(/El bot sigue apagado/);
+    expect(db.tablas.lineas_whatsapp.find((f: any) => f.linea === 'local').bot_activo).toBe(false);
+  });
+
+  it('la general se prende como siempre, sin pasar por WAHA', async () => {
+    const waha = wahaFalso();
+    const db = baseEnMemoria({ lineas_whatsapp: [{ ...GENERAL, bot_activo: false }, LOCAL] });
+    const s = servicio(db);
+    expect(await s.setBotLinea('pedidos', true)).toEqual({ ok: true, botActivo: true });
+    expect(waha.llamadas).toHaveLength(0);
+  });
+});
+
+describe('Revisión 7: la línea nueva es de pedidos para el modelo, y nadie vuelve a preguntar «¿es pedidos?»', () => {
+  it('la llamada al modelo de la línea local lleva el prompt y las herramientas de pedidos', async () => {
+    wahaFalso();
+    const db = baseEnMemoria({ lineas_whatsapp: [GENERAL, LOCAL] });
+    const s = servicio(db);
+    await s.webhookWaha(mensajeDe('odb-local', CLIENTE, '¿La entrada del wine fest incluye el copón?', 'false_M1'));
+    const llamada = s.claude.messages.create.mock.calls.find((c: any[]) => c[0].model !== 'claude-haiku-4-5')[0];
+    expect(llamada.system[0].text).toBe(SYSTEM_PEDIDOS);
+    expect((llamada.tools ?? []).map((t: any) => t.name)).toEqual(HERRAMIENTAS_PEDIDOS.map((t) => t.name));
+  });
+
+  it('en el código del API no hay «linea === \'pedidos\'» ni «?? \'pedidos\'»: el comportamiento sale del tipo (al integrar otras ramas)', () => {
+    // las ramas arreglo-acuse y arreglo-jimena traen chequeos así (tools/system,
+    // lista en curso, packs, identificar cliente): un merge los mete sin conflicto
+    // y la línea nueva se comporta distinto sin que falle nada. Se pasan a tipoLinea.
+    const raiz = join(__dirname, '..');
+    const archivos: string[] = [];
+    const recorrer = (d: string) => {
+      for (const n of readdirSync(d)) {
+        const p = join(d, n);
+        if (statSync(p).isDirectory()) recorrer(p);
+        else if (/\.ts$/.test(n) && !/\.spec\.ts$/.test(n)) archivos.push(p);
+      }
+    };
+    recorrer(raiz);
+    const RE = /\blinea\s*[!=]==?\s*'pedidos'|'pedidos'\s*[!=]==?\s*[\w.]*\blinea\b|\?\?\s*'pedidos'|\|\|\s*'pedidos'/;
+    const hallados: string[] = [];
+    for (const a of archivos) {
+      // lineas.ts es el que define los dos nombres históricos
+      if (relative(raiz, a) === join('comun', 'lineas.ts')) continue;
+      readFileSync(a, 'utf8').split('\n').forEach((renglon, i) => {
+        if (/^\s*(\/\/|\*)/.test(renglon)) return;
+        if (RE.test(renglon)) hallados.push(`${relative(raiz, a)}:${i + 1}: ${renglon.trim().slice(0, 120)}`);
+      });
+    }
+    expect(hallados).toEqual([]);
+  });
+});
+
+describe('Revisión 11: la migración se puede correr dos veces', () => {
+  it('la FK que depende de la unique (linea) se borra antes que la unique', () => {
+    const sql = readFileSync(join(__dirname, '..', '..', '..', '..', 'db', 'migracion-multilinea.sql'), 'utf8')
+      .split('\n').filter((r) => !/^\s*--/.test(r)).join('\n');
+    const dropFk = sql.indexOf('drop constraint if exists lineas_whatsapp_comparte_config_de_fkey');
+    const dropUnique = sql.indexOf('drop constraint if exists lineas_whatsapp_linea_key');
+    const addUnique = sql.indexOf('add constraint lineas_whatsapp_linea_key unique (linea)');
+    const addFk = sql.indexOf('add constraint lineas_whatsapp_comparte_config_de_fkey');
+    expect(dropFk).toBeGreaterThan(-1);
+    expect(dropFk).toBeLessThan(dropUnique);
+    expect(addUnique).toBeLessThan(addFk);
+    // una sola vez cada drop de la FK (el de abajo era el que llegaba tarde)
+    expect(sql.split('drop constraint if exists lineas_whatsapp_comparte_config_de_fkey').length).toBe(2);
   });
 });

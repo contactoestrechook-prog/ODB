@@ -292,14 +292,59 @@ export class BotService {
       }
       this.equipoCache = { hasta: Date.now() + 10 * 60_000, tels };
     }
-    // Un móvil argentino en E.164 tiene 13 dígitos (54 9 11 XXXX XXXX); un @lid
-    // tiene más. Sin ese tope, los últimos 10 dígitos de un @lid podrían
-    // coincidir con el teléfono de alguien de la casa y callar a un cliente.
-    const candidatos = [telefonoReal, (contacto as any)?.telefono_real, identidad]
+    const candidatos = this.candidatosDeTelefono(identidad, telefonoReal, (contacto as any)?.telefono_real);
+    if (candidatos.some((d) => this.equipoCache!.tels.has(d))) return true;
+    // las líneas de la casa y las áreas también son de la casa (revisión 6/10/2026)
+    const casa = await this.numerosDeLaCasa();
+    return candidatos.some((d) => casa.lineas.has(d) || casa.areas.has(d));
+  }
+
+  // Un móvil argentino en E.164 tiene 13 dígitos (54 9 11 XXXX XXXX); un @lid
+  // tiene más. Sin ese tope, los últimos 10 dígitos de un @lid podrían
+  // coincidir con el teléfono de alguien de la casa y callar a un cliente.
+  /** Con qué teléfonos se reconoce a quien escribe: el real de la carga, el aprendido para su @lid y el identificador (últimos 10). */
+  private candidatosDeTelefono(identidad: string, ...reales: unknown[]): string[] {
+    return [...reales, identidad]
       .map((t) => String(t ?? '').replace(/\D/g, ''))
       .filter((d) => d.length >= 10 && d.length <= 13)
       .map((d) => d.slice(-10));
-    return candidatos.some((d) => this.equipoCache!.tels.has(d));
+  }
+
+  // LOS NÚMEROS DE LA CASA QUE NO SON UNA PERSONA DEL EQUIPO (revisión
+  // 6/10/2026). Con una sola línea no existía el caso; con dos sectores de la
+  // misma sucursal, que un teléfono le escriba al otro es normal (y también
+  // probar la línea nueva escribiéndole desde el de la general). Sin esto el
+  // bot de cada línea atendía a la otra como a un cliente: cotizaba, consultaba
+  // a administración «De: +54 9 11 …» y, si el otro bot contestaba, se hablaban
+  // entre ellos hasta el tope de 30 por hora. Son el número de cada línea
+  // (prendida o no) y los de las áreas a las que el bot les avisa
+  // (administración, reparto, compras: la configuración que comparten todas).
+  // En la base, el 11 2281-2200 figura en bot_contactos sin es_equipo y ningún
+  // usuario lo tiene: nada lo reconocía. Últimos 10 dígitos.
+  private async numerosDeLaCasa(conAreas = true): Promise<{ lineas: Set<string>; areas: Set<string> }> {
+    const diez = (v: unknown) => { const d = soloDigitos(String(v ?? '')); return d.length >= 10 ? d.slice(-10) : ''; };
+    const lineas = new Set((await this.lineas.todas()).map((f) => diez(f.numero_e164)).filter(Boolean));
+    // la configuración se lee sin memoria: solo si hace falta
+    const cfg = conAreas ? await this.lineas.config(await this.lineas.principal()).catch(() => null) : null;
+    const areas = new Set([cfg?.derivar_pagos_a, cfg?.whatsapp_reparto, cfg?.whatsapp_compras].map(diez).filter(Boolean));
+    return { lineas, areas };
+  }
+
+  /**
+   * ¿Quien escribe es otra línea de la casa o (con `conAreas`) un área? Devuelve
+   * el motivo para callar, o null. Mira el identificador, el teléfono real de la
+   * carga y el aprendido para su @lid.
+   */
+  private async remitenteDeLaCasa(identidad: string, telefonoReal: string | null | undefined, conAreas: boolean): Promise<string | null> {
+    const clave = String(identidad ?? '').replace(/\D/g, '');
+    if (!clave) return null;
+    const { data: contacto } = await this.db.from('bot_contactos').select('telefono_real').eq('telefono', clave).maybeSingle();
+    const candidatos = this.candidatosDeTelefono(clave, telefonoReal, (contacto as any)?.telefono_real);
+    if (!candidatos.length) return null;
+    const casa = await this.numerosDeLaCasa(conAreas);
+    if (candidatos.some((d) => casa.lineas.has(d))) return 'otra línea de la casa';
+    if (conAreas && candidatos.some((d) => casa.areas.has(d))) return 'número del equipo';
+    return null;
   }
 
   // El teléfono marcable, cuando la carga del mensaje lo trae. Según la versión
@@ -3510,7 +3555,7 @@ export class BotService {
       referencia: { linea, telefono, urgente },
     }).then(() => null, () => null);
 
-    await this.respondePausar(telefono);
+    await this.respondePausar(telefono, null, linea);
     return { derivada: true, aviso: 'El equipo ya fue notificado por el sistema' };
   }
 
@@ -3522,13 +3567,26 @@ export class BotService {
   //
   // MULTILÍNEA (6/10/2026), primera etapa: RESPONDE tiene UN tenant de ODB y
   // guarda los contactos por whatsapp_id, sin línea. Las charlas de todas las
-  // líneas se ven ahí (si no, las de la línea nueva no las vería nadie), lo que
+  // líneas se ven ahí (si no, las de la línea nueva no las vería nadie) y lo que
   // se contesta desde la app sale por la línea de la charla (ver
-  // RespondeAppController) y la pausa que viene de RESPONDE se aplica a la
-  // charla de la línea por la que entró el mensaje. Lo que queda compartido: un
-  // mismo cliente que escribe a los dos números es UN contacto allá, y pausarlo
-  // allá calla al bot en los dos (falla del lado seguro: el bot no habla encima
-  // de nadie). Separarlo del todo es un tenant por línea en RESPONDE.
+  // RespondeAppController).
+  //
+  // EL INTERRUPTOR DE RESPONDE ES DE LA LÍNEA PRINCIPAL (revisión 6/10/2026).
+  // Un cliente que escribe a los dos números es UN contacto allá, con UN
+  // interruptor. Se copiaba a la charla de la línea por la que entraba cada
+  // mensaje, y así la pausa y la reactivación de una línea pasaban a la otra:
+  // alguien del otro sector contestaba desde su teléfono y la general quedaba
+  // muda para ese cliente («Pausado desde RESPONDE», sin que nadie de la general
+  // se enterara); y al revés, reactivar al cliente en la general hacía que el
+  // bot del otro sector le hablara encima a la persona que lo estaba atendiendo
+  // desde el teléfono. La regla del dueño es que la pausa se respeta SIEMPRE.
+  // Ahora el interruptor de RESPONDE va y viene solo con la charla de la línea
+  // principal (como antes de la multilínea). En las otras líneas la pausa vive
+  // solo en ODB: el teléfono, el panel, la derivación y la acción «bot» de la
+  // app embebida (que llama a pausarBot/devolverAlBot con su línea). Costo: el
+  // interruptor directo de la app de RESPONDE no toca las otras líneas. Lo que
+  // sí vale en todas es el contacto BLOQUEADO allá (es de la persona, no de una
+  // charla). Separarlo del todo es un tenant por línea en RESPONDE.
   private respondeCfg() {
     const url = process.env.RESPONDE_URL, key = process.env.RESPONDE_ANON_KEY, clave = process.env.RESPONDE_PUENTE_CLAVE;
     return url && key && clave ? { url: url.replace(/\/$/, ''), key, clave } : null;
@@ -3562,15 +3620,25 @@ export class BotService {
   // pausaron, acá queda pausada. Si RESPONDE no contesta, no se toca nada.
   async respondeModoHumano(whatsappId: string, linea?: string): Promise<boolean> {
     const r = await this.respondeRpc('odb_estado_contacto', { p_whatsapp_id: whatsappId });
+    // en otra línea solo cuenta el bloqueo: el «atendés vos» de allá es el de la
+    // charla de la principal (revisión 6/10/2026)
+    if (!(await this.respondeMandaEn(linea))) return r?.bloqueado === true;
     const humano = r?.modo_humano === true || r?.bloqueado === true;
     if (r && r.existe === true) await this.sincronizarPausa(whatsappId, humano, linea).catch(() => null);
     return humano;
   }
 
-  // la charla que se alinea es la de la línea por la que entró el mensaje (6/10/2026: era siempre 'pedidos')
+  /** ¿El interruptor de RESPONDE es el de esta línea? Solo el de la principal (sin línea = la principal). */
+  private async respondeMandaEn(linea: string | null | undefined): Promise<boolean> {
+    return this.lineas.esPrincipal(linea);
+  }
+
+  // la charla que se alinea es la de la línea principal: en las otras la pausa
+  // vive solo en ODB (revisión 6/10/2026, ver arriba)
   private async sincronizarPausa(whatsappId: string, humano: boolean, lineaDada?: string) {
     const telefono = String(whatsappId).split('@')[0].replace(/\D/g, '');
     if (!telefono) return;
+    if (!(await this.respondeMandaEn(lineaDada))) return;
     const linea = lineaDada || (await this.lineas.principal());
     const { data: conv } = await this.db.from('bot_conversaciones').select('bot_activo, derivada_motivo').eq('linea', linea).eq('telefono', telefono).maybeSingle();
     if (!conv) return;
@@ -3592,7 +3660,10 @@ export class BotService {
   // Pone la charla en "atendés vos" en RESPONDE (la crea si no existe). Se usa
   // en cada pausa que nace en ODB, para que la app muestre el estado real y la
   // reactivación sea desde ahí.
-  async respondePausar(telefonoOWaId: string, nombre?: string | null) {
+  async respondePausar(telefonoOWaId: string, nombre?: string | null, linea?: string | null) {
+    // la pausa de otra línea no se copia al contacto único de RESPONDE: callaría
+    // al bot de la principal para ese cliente (revisión 6/10/2026)
+    if (!(await this.respondeMandaEn(linea))) return;
     const ident = await this.identidadResponde(telefonoOWaId, nombre);
     const waId = ident.waId;
     if (/^54911000000\d{1,3}$/.test(waId)) return; // banco de pruebas
@@ -4157,6 +4228,11 @@ export class BotService {
     this.resolverContactoWaha(identidad, chat.endsWith('@lid'), linea).catch(() => null);
     const propios = [numeroLinea, (await this.lineas.fila(linea))?.numero_e164].map((n) => String(n ?? '').replace(/\D/g, '')).filter(Boolean);
     if (propios.includes(identidad)) return { ignorado: 'chat con uno mismo' };
+    // UN TELÉFONO DE LA CASA ESCRIBIÉNDOLE A OTRO (revisión 6/10/2026): lo que
+    // alguien teclea desde el teléfono de una línea a la otra no es atender a un
+    // cliente. Antes pausaba una «charla» con el número de la otra línea, la
+    // pausaba en RESPONDE y la dejaba esperando respuesta para el cron.
+    if (await this.remitenteDeLaCasa(identidad, null, false).catch(() => null)) return { ignorado: 'chat con otra línea de la casa' };
     let texto = String(p?.body ?? p?.caption ?? '').trim();
     // FOTO/AUDIO/ARCHIVO mandado desde el teléfono (16/9/2026): antes solo se
     // registraba el texto y en RESPONDE no aparecía nada. Se baja YA (WAHA borra
@@ -4212,7 +4288,7 @@ export class BotService {
       bot_activo: false, derivada_en: new Date().toISOString(), derivada_motivo: 'Atendida desde el teléfono',
       atendida_por: null, derivacion_vence_en: null, acuse_derivacion_en: null,
     }, { onConflict: 'linea,telefono' }).then(() => null, () => null);
-    await this.respondePausar(chat.endsWith('@lid') ? `${identidad}@lid` : identidad);
+    await this.respondePausar(chat.endsWith('@lid') ? `${identidad}@lid` : identidad, null, linea);
     await this.limpiarEspera(linea, identidad); // ya la atendieron: deja de esperar
     return { pausada: true, motivo: 'una persona contestó desde el teléfono' };
   }
@@ -4237,6 +4313,12 @@ export class BotService {
     if (!linea) {
       const r = await this.lineas.deEntrada({ sesion: evento?.session, me: evento?.me?.id, numero: numeroLinea });
       if (!r.linea) {
+        // si lo que falló fue leer lineas_whatsapp, no es una sesión de nadie:
+        // sin alerta, y el barrido de cada minuto lo levanta (revisión 6/10/2026)
+        if (r.sinDatos) {
+          this.log.warn(`WAHA: ${r.por}`);
+          return { ignorado: r.por };
+        }
         this.log.error(`WAHA: evento de una sesión que no es de ninguna línea (${r.por}): no se atiende`);
         await this.avisarSesionDesconocida(String(evento?.session ?? '')).catch(() => null);
         return { ignorado: r.por };
@@ -4382,6 +4464,29 @@ export class BotService {
     }
   }
 
+  /**
+   * Un mensaje de la casa que entró por una línea (revisión 6/10/2026). El de un
+   * área queda en la charla de esa línea, como cualquier mensaje del equipo
+   * (callar('número del equipo') en charla()), para que se vea en el panel; el
+   * de otra línea de la casa no abre charla: es un chat entre dos teléfonos de
+   * la sucursal, no una charla del bot. Ninguno va a RESPONDE.
+   */
+  private async anotarDeLaCasa(linea: string, telefono: string, p: any, motivo: string) {
+    const archivo = !!p?.hasMedia || !!p?.media;
+    const texto = String(p?.body ?? p?.caption ?? '').trim();
+    this.log.log(`silencio (${motivo}) para ${linea}/${telefono}: "${texto.slice(0, 60)}"`);
+    if (motivo === 'otra línea de la casa') return { contestado: false, silencio: true, motivo };
+    const contenido = archivo ? `[mandó un archivo]${texto ? ` ${texto}` : ''}` : texto || '[mensaje sin texto]';
+    const { data: conv } = await this.db.from('bot_conversaciones').select('mensajes').eq('linea', linea).eq('telefono', telefono).maybeSingle();
+    const hist: any[] = Array.isArray((conv as any)?.mensajes) ? (conv as any).mensajes : [];
+    await this.db.from('bot_conversaciones').upsert({
+      linea, telefono,
+      mensajes: [...hist, { role: 'user', content: contenido }].slice(-MAX_HISTORIAL),
+      actualizado_en: new Date().toISOString(),
+    }, { onConflict: 'linea,telefono' }).then(() => null, () => null);
+    return { contestado: false, silencio: true, motivo };
+  }
+
   private async procesarEntrante(p: any, numeroLinea?: string, lineaDada?: string) {
     // LA LÍNEA DEL MENSAJE (6/10/2026): todo lo de acá (la charla, la pausa, la
     // espera, las notas, la respuesta) es de la línea por la que entró, y la
@@ -4434,11 +4539,31 @@ export class BotService {
     // ¿Es ADMINISTRACIÓN contestando un aviso de pago? El circuito lo cierra
     // el bot (regla del dueño, 2026-09-01): administración dice "recibido" en
     // su chat y el bot le confirma al cliente. Todo pasa por el bot.
-    const rAdmin = await this.respuestaDeAdministracion(identidad, p).catch((e) => {
-      this.log.warn(`respuesta de administración: ${e?.message ?? e}`);
-      return null;
-    });
-    if (rAdmin) return rAdmin;
+    // SOLO POR LA LÍNEA PRINCIPAL (revisión 6/10/2026): los avisos a
+    // administración, reparto y compras salen por la principal y se citan en ESE
+    // chat. Con una sola línea era el único chat del equipo con el bot; ahora la
+    // otra línea es «otro lado de la sucursal» y el equipo le puede escribir por
+    // cualquier cosa. Si un «sí, ya lo tengo listo» de administración a la otra
+    // línea se tomaba como respuesta, al cliente del único pago pendiente le
+    // llegaba «recibimos tu pago»; con una sola consulta abierta, el texto le
+    // llegaba al cliente como respuesta del área; y con varias, a administración
+    // le contestaba la general «Respondé CITANDO el aviso…» y su mensaje se perdía.
+    const esLaPrincipal = await this.lineas.esPrincipal(linea);
+    if (esLaPrincipal) {
+      const rAdmin = await this.respuestaDeAdministracion(identidad, p).catch((e) => {
+        this.log.warn(`respuesta de administración: ${e?.message ?? e}`);
+        return null;
+      });
+      if (rAdmin) return rAdmin;
+    }
+
+    // DE LA CASA (revisión 6/10/2026): otra línea de la casa (en cualquier
+    // línea) o un área escribiéndole a una línea que no es la principal. No se
+    // contesta, no se reenvía a nadie y no abre consulta, ni con un archivo
+    // (antes de abrirlo: un audio se acusaba y se derivaba). Va antes de todo
+    // lo demás, como la respuesta de administración en la principal.
+    const deLaCasa = await this.remitenteDeLaCasa(clave, real?.numero, !esLaPrincipal).catch(() => null);
+    if (deLaCasa) return this.anotarDeLaCasa(linea, clave, p, deLaCasa);
 
     let texto = String(p.body ?? '').trim();
     const tipo = String(p.type ?? p._data?.type ?? '').toLowerCase();
@@ -5134,7 +5259,7 @@ export class BotService {
       { onConflict: 'linea,telefono' },
     );
 
-    await this.respondePausar(telefono);
+    await this.respondePausar(telefono, null, linea);
     await this.limpiarEspera(linea, telefono); // la atendió una persona desde el panel
     // sale por la línea de la charla, no por la principal (6/10/2026)
     const envio = await this.enviarPorWhatsapp({ to: telefono, text: mensaje, referencia: `${linea}/${telefono}`, linea });
@@ -5154,7 +5279,7 @@ export class BotService {
     if (!tocadas?.length) {
       await this.db.from('bot_conversaciones').insert({ linea, telefono, mensajes: [], actualizado_en: new Date().toISOString(), ...marca });
     }
-    await this.respondePausar(telefono);
+    await this.respondePausar(telefono, null, linea);
     return { ok: true, botActivo: false };
   }
 
@@ -5176,6 +5301,21 @@ export class BotService {
   }
 
   async setBotLinea(linea: string, activo: boolean, usuarioId?: string) {
+    // AL PRENDER UNA LÍNEA QUE NO ES LA PRINCIPAL (revisión 6/10/2026): si el
+    // teléfono del otro sector ya se usaba con clientes, las charlas que venían
+    // atendiendo a mano no tienen fila en bot_conversaciones (lo que se tecleó
+    // antes de vincularlo, o hace más de 2 minutos, no pausó nada) y el bot le
+    // contestaría la bienvenida a un cliente en medio de la atención. Antes de
+    // prender se pausan, como si recién las hubieran contestado desde el
+    // teléfono. Si no se puede revisar, NO se prende: la pausa se respeta siempre.
+    let pausadas = 0;
+    if (activo && !(await this.lineas.esPrincipal(linea))) {
+      try {
+        pausadas = await this.pausarLoQueAtiendeElTelefono(linea);
+      } catch (e: any) {
+        throw new BadRequestException(`No pude revisar qué charlas se vienen atendiendo desde el teléfono de esta línea (${e?.message ?? e}). El bot sigue apagado: si el teléfono todavía no está vinculado, vinculalo primero y probá de nuevo.`);
+      }
+    }
     const { error } = await this.db.from('lineas_whatsapp')
       .update({ bot_activo: activo, bot_pausado_por: activo ? null : (usuarioId ?? null), bot_pausado_en: activo ? null : new Date().toISOString() })
       .eq('linea', linea).eq('activa', true);
@@ -5183,9 +5323,68 @@ export class BotService {
     this.lineas.olvidar();
     await this.db.from('auditoria').insert({
       usuario_id: usuarioId ?? null, accion: activo ? 'bot_linea_encendido' : 'bot_linea_apagado',
-      entidad: 'lineas_whatsapp', entidad_id: linea, datos_despues: { activo },
+      entidad: 'lineas_whatsapp', entidad_id: linea, datos_despues: { activo, ...(pausadas ? { pausadas } : {}) },
     });
-    return { ok: true, botActivo: activo };
+    return { ok: true, botActivo: activo, ...(pausadas ? { pausadas } : {}) };
+  }
+
+  /**
+   * Las charlas del teléfono de una línea que una PERSONA atendió en las últimas
+   * 24 h (algo que salió del teléfono y no lo mandó el sistema) quedan pausadas
+   * como «Atendida desde el teléfono», salvo que ya lo estén o que alguien las
+   * haya reactivado a mano después de ese mensaje (resuelta_en). Devuelve
+   * cuántas pausó. Tira error si WAHA no contesta (revisión 6/10/2026).
+   */
+  async pausarLoQueAtiendeElTelefono(linea: string, horas = 24): Promise<number> {
+    const url = process.env.WAHA_URL, key = process.env.WAHA_API_KEY;
+    if (!url || !key) throw new Error('sin WAHA configurado');
+    const base = `${url.replace(/\/$/, '')}/api/${encodeURIComponent(await this.lineas.sesion(linea))}`;
+    const pedir = async (ruta: string): Promise<any[]> => {
+      const r = await fetch(`${base}${ruta}`, { headers: { 'X-Api-Key': key }, signal: AbortSignal.timeout(15000) });
+      if (!r.ok) throw new Error(`WAHA respondió ${r.status}`);
+      const j = await r.json();
+      return Array.isArray(j) ? j : [];
+    };
+    const desde = Date.now() - horas * 3600_000;
+    const chats = (await pedir('/chats?limit=100&sortBy=conversationTimestamp&sortOrder=desc'))
+      .filter((c) => Number(c.conversationTimestamp) * 1000 >= desde)
+      .map((c) => String(c?.id?._serialized ?? c?.id ?? ''))
+      .filter((id) => id && !/@g\.us$|@newsletter$|@broadcast$/.test(id));
+    let pausadas = 0;
+    for (const chat of chats) {
+      const telefono = chat.split('@')[0].replace(/\D/g, '');
+      if (!telefono || /^54911000000\d{1,3}$/.test(telefono)) continue;
+      // un chat con otra línea de la casa no es una charla con un cliente
+      if (await this.remitenteDeLaCasa(telefono, null, false).catch(() => null)) continue;
+      const propios = (await pedir(`/chats/${encodeURIComponent(chat)}/messages?limit=20&downloadMedia=false`))
+        .filter((m) => m?.fromMe && Number(m.timestamp) * 1000 >= desde && !esAutomaticoWhatsappBusiness(m.body));
+      if (!propios.length) continue;
+      // lo que mandó el sistema (bot, avisos, respuestas desde el panel) no es una persona en el teléfono
+      const ids = propios.flatMap((m) => { const id = String(m.id?._serialized ?? m.id ?? ''); return id ? [id, id.includes('_') ? id.split('_').pop()! : id] : []; });
+      const { data: nuestros, error } = ids.length ? await this.db.from('bot_envios').select('waha_id').in('waha_id', [...new Set(ids)]) : { data: [], error: null } as any;
+      if (error) throw new Error(`no pude leer el registro de envíos: ${error.message}`);
+      const delSistema = new Set(((nuestros ?? []) as any[]).map((x) => String(x.waha_id)));
+      const deUnaPersona = propios.filter((m) => {
+        const id = String(m.id?._serialized ?? m.id ?? '');
+        const corto = id.includes('_') ? id.split('_').pop()! : id;
+        return !delSistema.has(id) && !delSistema.has(corto);
+      });
+      if (!deUnaPersona.length) continue;
+      const ultima = Math.max(...deUnaPersona.map((m) => Number(m.timestamp) * 1000));
+      const { data: conv } = await this.db.from('bot_conversaciones').select('bot_activo, resuelta_en').eq('linea', linea).eq('telefono', telefono).maybeSingle();
+      if ((conv as any)?.bot_activo === false) continue;
+      if ((conv as any)?.resuelta_en && new Date((conv as any).resuelta_en).getTime() >= ultima) continue;
+      const ahora = new Date().toISOString();
+      const { error: e2 } = await this.db.from('bot_conversaciones').upsert({
+        linea, telefono, actualizado_en: ahora,
+        bot_activo: false, derivada_en: ahora, derivada_motivo: 'Atendida desde el teléfono',
+        atendida_por: null, derivacion_vence_en: null, acuse_derivacion_en: null, resuelta_en: null,
+      }, { onConflict: 'linea,telefono' });
+      if (e2) throw new Error(`no pude pausar la charla de ${telefono}: ${e2.message}`);
+      pausadas++;
+    }
+    if (pausadas) this.log.log(`línea ${linea}: ${pausadas} charla(s) que se venían atendiendo desde el teléfono quedaron pausadas antes de prender el bot`);
+    return pausadas;
   }
 
   // ---- RESPONDE · gestión: notas, programados, difusiones ----
@@ -5327,6 +5526,30 @@ export class BotService {
     for (const l of await this.lineasParaBarrer()) {
       await this.vigilarSesion(url.replace(/\/$/, ''), key, l.linea, l.sesion).catch((e) => this.log.warn(`vigilante de la sesión ${l.sesion}: ${e?.message ?? e}`));
     }
+    await this.avisarSesionEnConflicto().catch((e) => this.log.warn(`vigilante (sesión en conflicto): ${e?.message ?? e}`));
+  }
+
+  // UNA FILA CON LA SESIÓN DE LA LÍNEA GENERAL (revisión 6/10/2026). Si al
+  // cargar la línea nueva se pone en waha_sesion el valor de WAHA_SESSION, el
+  // índice único no lo frena ('pedidos' tiene NULL). El código ya le da la
+  // sesión a la general (Lineas.enConflictoCon) y la otra fila no recibe nada;
+  // esta alerta, una cada 2 h por fila, es para que alguien lo corrija.
+  private async avisarSesionEnConflicto() {
+    for (const f of await this.lineas.sesionEnConflicto()) {
+      const hace2h = new Date(Date.now() - 2 * 3600_000).toISOString();
+      const { data: prev } = await this.db.from('alertas_internas').select('id').eq('tipo', 'whatsapp_caido').filter('referencia->>conflicto', 'eq', f.linea).gte('creada_en', hace2h).limit(1).maybeSingle();
+      if (prev) continue;
+      const cfg = await this.lineas.config(await this.lineas.principal());
+      await this.insertarAlerta({
+        para_usuario: (cfg as any)?.avisar_proveedores_a ?? null,
+        tipo: 'whatsapp_caido',
+        titulo: `La ${etiquetaDeFila(f.linea, f)} tiene cargada la sesión de WhatsApp de la línea general`,
+        detalle: 'Se la ignora: todo lo que entra por esa sesión sigue siendo de la línea general, y esa línea no recibe nada. Hay que corregir waha_sesion de esa fila en lineas_whatsapp con el nombre de SU sesión en WAHA (nunca el de WAHA_SESSION).',
+        // sin `sesion` en la referencia: la alerta de caída de la general se
+        // deduplica por referencia->>sesion y esta no la puede tapar
+        referencia: { conflicto: f.linea, linea: f.linea },
+      }).then(() => null, () => null);
+    }
   }
 
   private async vigilarSesion(base: string, key: string, linea: string, sesion: string) {
@@ -5452,7 +5675,10 @@ export class BotService {
   // (WhatsApp corta números que disparan en ráfaga) y queda registro por
   // destinatario. Solo a quien dio permiso, salvo que se pida explícitamente.
   async crearDifusion(dto: { linea?: string; titulo?: string; texto: string; imagenUrl?: string; telefonos: string[]; usuarioId?: string; programadaPara?: string }) {
-    const tels = Array.from(new Set((dto.telefonos ?? []).map((t) => String(t).replace(/\D/g, '')).filter((t) => t.length >= 10)));
+    // los números de las líneas de la casa no reciben difusiones: una línea le
+    // escribiría a la otra (revisión 6/10/2026; igual la que recibe ya no contesta)
+    const deLaCasa = (await this.numerosDeLaCasa(false).catch(() => ({ lineas: new Set<string>() }))).lineas;
+    const tels = Array.from(new Set((dto.telefonos ?? []).map((t) => String(t).replace(/\D/g, '')).filter((t) => t.length >= 10 && !deLaCasa.has(t.slice(-10)))));
     if (!tels.length) throw new BadRequestException('No hay destinatarios');
     // Tope de tanda: WhatsApp corta números que disparan masivo. Las campañas
     // grandes salen en tandas de hasta 300 por día — la pantalla filtra "sin
@@ -5558,9 +5784,14 @@ export class BotService {
       .eq('linea', linea)
       .eq('telefono', telefono);
     if (error) throw new BadRequestException(error.message);
-    // RESPONDE queda igual: si no, al próximo mensaje la volvería a pausar
-    const waId = telefono.replace(/\D/g, '').length >= 14 ? `${telefono.replace(/\D/g, '')}@lid` : telefono.replace(/\D/g, '');
-    await this.respondeRpc('odb_reactivar_contacto', { p_whatsapp_id: waId });
+    // RESPONDE queda igual: si no, al próximo mensaje la volvería a pausar.
+    // Solo desde la principal: el contacto de allá es uno para todas las líneas
+    // y reactivarlo desde otra hacía que, en la principal, el bot le hablara
+    // encima a la persona que atendía (revisión 6/10/2026)
+    if (await this.respondeMandaEn(linea)) {
+      const waId = telefono.replace(/\D/g, '').length >= 14 ? `${telefono.replace(/\D/g, '')}@lid` : telefono.replace(/\D/g, '');
+      await this.respondeRpc('odb_reactivar_contacto', { p_whatsapp_id: waId });
+    }
     await this.limpiarEspera(linea, String(telefono).replace(/\D/g, ''));
     // reactivar desde el panel también saca el silencio del contacto
     const { data: k } = await this.db.from('bot_contactos').select('etiquetas').eq('telefono', String(telefono).replace(/\D/g, '')).maybeSingle();

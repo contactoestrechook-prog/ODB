@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 // VARIAS LÍNEAS DE WHATSAPP CON EL MISMO BOT (Leandro, 6/10/2026): «necesitamos
@@ -78,16 +79,31 @@ export function tipoDeLinea(linea: string, fila?: Partial<FilaLinea> | null): Ti
 const digitos = (s: unknown) => String(s ?? '').split('@')[0].replace(/\D/g, '');
 // la base devuelve una fila; algunas bases de prueba devuelven la lista entera
 const una = (d: any) => (Array.isArray(d) ? (d[0] ?? null) : (d ?? null));
+/** La sesión propia de una fila ('' = sin sesión propia: la de WAHA_SESSION). */
+const sesionDe = (f: Partial<FilaLinea> | null | undefined) => String(f?.waha_sesion ?? '').trim();
 
 export class Lineas {
   private cache: { hasta: number; filas: FilaLinea[] } | null = null;
+  /** ¿Falló la última lectura de lineas_whatsapp? (revisión 6/10/2026) */
+  private lecturaFallida = false;
+  private readonly log = new Logger('Lineas');
 
   constructor(private readonly db: SupabaseClient) {}
 
-  /** Todas las filas de lineas_whatsapp (activas o no). Memoria de 60 s: se lee en cada mensaje. */
+  /**
+   * Todas las filas de lineas_whatsapp (activas o no). Memoria de 60 s: se lee en cada mensaje.
+   *
+   * SI LA LECTURA FALLA (revisión 6/10/2026): antes se guardaba una lista VACÍA
+   * por 60 s. Un corte de un segundo en Supabase justo al vencer la memoria
+   * dejaba un minuto entero sin la línea nueva: sus mensajes se descartaban como
+   * «sesión desconocida» y quedaba una alerta falsa en la campanita. Ahora se
+   * sigue con lo último que se leyó bien y se reintenta a los 5 s; sin nada
+   * leído antes, la lista vacía dura solo esos 5 s y queda marcado que falló
+   * (deEntrada no confunde «no pude leer» con «esa sesión no es de nadie»).
+   */
   async todas(): Promise<FilaLinea[]> {
     if (this.cache && this.cache.hasta > Date.now()) return this.cache.filas;
-    let filas: FilaLinea[] = [];
+    let filas: FilaLinea[] | null = null;
     try {
       const { data, error } = await (this.db.from('lineas_whatsapp').select('*') as any);
       if (!error) {
@@ -95,14 +111,49 @@ export class Lineas {
         // una fila sin `linea` no se puede usar para elegir línea (bases de prueba viejas)
         filas = crudas.filter((f: any) => f && nombreDeLineaValido(f.linea));
       }
-    } catch { /* sin base: como si hubiera una sola línea */ }
+    } catch { /* sin base: abajo */ }
+    if (!filas) {
+      this.lecturaFallida = true;
+      const previas = this.cache?.filas ?? [];
+      this.cache = { hasta: Date.now() + 5_000, filas: previas };
+      this.log.warn(`no pude leer lineas_whatsapp: sigo con lo último que leí (${previas.length} líneas) y reintento en 5 s`);
+      return previas;
+    }
+    this.lecturaFallida = false;
     this.cache = { hasta: Date.now() + 60_000, filas };
+    for (const f of this.enConflictoCon(filas)) {
+      this.log.error(`la línea «${f.linea}» tiene waha_sesion = WAHA_SESSION, que es la de la línea general: se ignora esa fila y todo lo de esa sesión sigue siendo de «${LINEA_GENERAL}». Corregir waha_sesion en lineas_whatsapp.`);
+    }
     return filas;
   }
 
   /** Después de cambiar una fila (el interruptor del panel), que no espere el minuto. */
   olvidar() {
     this.cache = null;
+  }
+
+  /**
+   * LA SESIÓN DE LA LÍNEA GENERAL NO SE LA QUEDA OTRA FILA (revisión 6/10/2026).
+   * 'pedidos' tiene waha_sesion NULL (= WAHA_SESSION) y el índice único de la
+   * migración compara coalesce(waha_sesion, ''): una fila nueva cargada por error
+   * con waha_sesion = el valor de WAHA_SESSION (p. ej. 'default') pasaba el
+   * índice y le ganaba a la general en principal() y en deEntrada(). Todo lo del
+   * 11 2281-2200 pasaba a ser de la línea nueva: 584 charlas sin memoria, los
+   * avisos con otro rótulo y el interruptor de una línea apagada. Mientras la
+   * general esté activa sin sesión propia, esa sesión es SUYA; la otra fila queda
+   * en conflicto (log y alerta en la campanita desde el vigilante).
+   */
+  private enConflictoCon(filas: FilaLinea[]): FilaLinea[] {
+    const env = sesionPrincipal();
+    const activas = filas.filter((f) => f.activa !== false);
+    const general = activas.find((f) => f.linea === LINEA_GENERAL && !sesionDe(f));
+    if (!general) return [];
+    return activas.filter((f) => f.linea !== LINEA_GENERAL && sesionDe(f) === env);
+  }
+
+  /** Las filas que reclaman la sesión de la línea general (para la alerta del vigilante). */
+  async sesionEnConflicto(): Promise<FilaLinea[]> {
+    return this.enConflictoCon(await this.todas());
   }
 
   async fila(linea: string | null | undefined): Promise<FilaLinea | null> {
@@ -138,10 +189,12 @@ export class Lineas {
   async principal(): Promise<string> {
     const filas = await this.activas('pedidos');
     const env = sesionPrincipal();
+    // la general sin sesión propia ES la de WAHA_SESSION: gana aunque otra fila
+    // diga tener esa misma sesión (revisión 6/10/2026, ver enConflictoCon)
     return (
-      filas.find((f) => f.waha_sesion === env)
-      ?? filas.find((f) => !f.waha_sesion && f.linea === LINEA_GENERAL)
-      ?? filas.find((f) => !f.waha_sesion)
+      filas.find((f) => !sesionDe(f) && f.linea === LINEA_GENERAL)
+      ?? filas.find((f) => sesionDe(f) === env)
+      ?? filas.find((f) => !sesionDe(f))
     )?.linea ?? LINEA_GENERAL;
   }
 
@@ -168,14 +221,20 @@ export class Lineas {
    * nada: sus eventos traen la sesión de WAHA_SESSION, la misma con la que se
    * manda todo (si no coincidiera, el bot no podría mandar nada).
    */
-  async deEntrada(o: { sesion?: string | null; me?: string | null; numero?: string | null }): Promise<{ linea: string | null; por: string }> {
+  async deEntrada(o: { sesion?: string | null; me?: string | null; numero?: string | null }): Promise<{ linea: string | null; por: string; sinDatos?: boolean }> {
     const filas = (await this.todas()).filter((f) => f.activa !== false);
     const principal = await this.principal();
     const ses = String(o.sesion ?? '').trim();
     if (ses) {
-      const f = filas.find((x) => String(x.waha_sesion ?? '').trim() === ses);
-      if (f) return { linea: f.linea, por: 'sesión' };
+      // la sesión de WAHA_SESSION es de la principal, aunque otra fila la
+      // reclame por error (revisión 6/10/2026, ver enConflictoCon)
       if (ses === sesionPrincipal()) return { linea: principal, por: 'sesión principal' };
+      const f = filas.find((x) => sesionDe(x) === ses);
+      if (f) return { linea: f.linea, por: 'sesión' };
+      // no se pudo leer la tabla: no es «una sesión de nadie». El mensaje no se
+      // contesta ahora (sería por otro número) y lo levanta el barrido de cada
+      // minuto, sin alerta falsa (revisión 6/10/2026)
+      if (this.lecturaFallida) return { linea: null, por: `no pude leer las líneas para la sesión ${ses}: lo levanta el barrido`, sinDatos: true };
       return { linea: null, por: `sesión de WAHA desconocida (${ses})` };
     }
     for (const n of [o.me, o.numero].map(digitos).filter((d) => d.length >= 8)) {

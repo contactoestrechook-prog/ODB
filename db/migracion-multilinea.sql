@@ -42,8 +42,12 @@
 -- tiene UN tenant de ODB y guarda los contactos por whatsapp_id, sin línea.
 -- Las charlas de las dos líneas se ven ahí y lo que se contesta desde la app
 -- sale por la línea de la charla (RespondeAppController), pero un cliente que
--- escribe a los dos números es UN contacto allá y pausarlo allá calla al bot en
--- los dos. Separarlo del todo es un tenant por línea en RESPONDE (fase 2).
+-- escribe a los dos números es UN contacto allá, con UN interruptor. Por eso
+-- (revisión 6/10/2026) ese interruptor es solo el de la charla de la línea
+-- general: la pausa de una línea no pasa a la otra, ni la reactivación. En la
+-- línea nueva la pausa vive en ODB (teléfono, panel, acción «bot» de la app
+-- embebida); el interruptor directo de la app de RESPONDE no la toca. Separarlo
+-- del todo es un tenant por línea en RESPONDE (fase 2).
 
 begin;
 
@@ -78,6 +82,11 @@ alter table public.lineas_whatsapp add constraint lineas_whatsapp_linea_check
 
 -- Una fila por línea: el código hace .eq('linea', x).maybeSingle(), y con dos
 -- filas iguales el interruptor apagaría las dos. Y hace falta para la FK de abajo.
+-- La FK comparte_config_de depende de esta unique: se borra ANTES, o la segunda
+-- corrida de esta migración falla con «cannot drop constraint
+-- lineas_whatsapp_linea_key … because other objects depend on it» y se
+-- revierte entera (revisión 6/10/2026: se puede correr dos veces).
+alter table public.lineas_whatsapp drop constraint if exists lineas_whatsapp_comparte_config_de_fkey;
 alter table public.lineas_whatsapp drop constraint if exists lineas_whatsapp_linea_key;
 alter table public.lineas_whatsapp add constraint lineas_whatsapp_linea_key unique (linea);
 
@@ -89,11 +98,16 @@ alter table public.lineas_whatsapp add constraint lineas_whatsapp_waha_sesion_ch
 -- Dos líneas activas nunca por la misma sesión (contestarían por el número
 -- equivocado). NULL cuenta como «la de WAHA_SESSION»: una sola línea activa
 -- puede quedar sin sesión propia, la de siempre.
+-- OJO (revisión 6/10/2026): con 'pedidos' en NULL, este índice NO frena una
+-- fila nueva cargada con waha_sesion = el valor de WAHA_SESSION ('' ≠
+-- 'default'). Eso lo ataja el código: la general sin sesión propia se queda con
+-- esa sesión, la otra fila no recibe nada y queda una alerta en la campanita
+-- (Lineas.enConflictoCon). Ver la sección 4.
 drop index if exists public.lineas_whatsapp_waha_sesion_activa;
 create unique index lineas_whatsapp_waha_sesion_activa
   on public.lineas_whatsapp ((coalesce(waha_sesion, ''))) where activa;
 
-alter table public.lineas_whatsapp drop constraint if exists lineas_whatsapp_comparte_config_de_fkey;
+-- (su drop va arriba, antes de la unique de la que depende)
 alter table public.lineas_whatsapp add constraint lineas_whatsapp_comparte_config_de_fkey
   foreign key (comparte_config_de) references public.lineas_whatsapp (linea) on update cascade;
 
@@ -154,6 +168,24 @@ commit;
 -- Mientras el teléfono no esté vinculado, el vigilante avisa «WhatsApp
 -- desvinculado: hay que escanear el QR» para esta línea: es lo esperado.
 --
+-- <SESIÓN> NUNCA puede ser el valor de WAHA_SESSION (ni 'default' si esa
+-- variable está vacía): es la sesión de la línea general. Si igual se carga
+-- así, el código la ignora (todo sigue siendo de la general), la línea nueva no
+-- recibe nada y la campanita avisa «tiene cargada la sesión de WhatsApp de la
+-- línea general» (revisión 6/10/2026).
+--
+-- Al encender la línea desde el panel, ANTES de prender el bot se pausan las
+-- charlas que una persona atendió desde ese teléfono en las últimas 24 h
+-- («Atendida desde el teléfono»): si el teléfono del otro sector ya se usaba con
+-- clientes, el bot no les contesta la bienvenida en medio de la atención. Si
+-- WAHA no contesta, la línea NO se prende (revisión 6/10/2026).
+--
+-- Los números de las dos líneas y los de administración, reparto y compras ya
+-- se reconocen solos como de la casa (el bot no les contesta y administración
+-- solo «responde avisos» por la línea general). Un número del equipo que
+-- escribe con @lid se reconoce por bot_contactos.telefono_real: verificar que
+-- el de administración esté aprendido (al 6/10 lo está).
+--
 -- insert into public.lineas_whatsapp
 --   (linea, tipo, nombre, numero_legible, numero_e164, waha_sesion, comparte_config_de, activa, bot_activo)
 -- values
@@ -163,8 +195,9 @@ commit;
 --    '<SESIÓN>',          -- el nombre de la sesión en WAHA (distinto del de WAHA_SESSION)
 --    'pedidos', true, false);
 --
--- Después de la prueba:
---   update public.lineas_whatsapp set bot_activo = true where linea = 'local';
+-- Después de la prueba se prende DESDE EL PANEL («Encender esta línea»), no con
+-- un update a mano: el panel primero pausa lo que se venía atendiendo desde ese
+-- teléfono, y un update directo se lo saltea (revisión 6/10/2026).
 
 -- ---------------------------------------------------------------------------
 -- Si el WAHA de ODB NO admite una segunda sesión (WAHA Core trae solo 'default')
