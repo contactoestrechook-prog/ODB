@@ -64,6 +64,13 @@ export type Renglon = {
   precio: number;
   /** costo actual del producto en el catálogo, en SU unidad de stock */
   costoCatalogo?: number | null;
+  /**
+   * La cantidad ya se sabe que son unidades sueltas: el renglón traía «×N» y
+   * quedó "ya en unidades" (lo probó el papel o lo eligió una persona). Si el
+   * producto es la caja de N, hay que armar cajas aunque el precio no lo
+   * confirme (el costo puede estar en 0), y no son kilos (6/10/2026).
+   */
+  cantidadEnUnidades?: boolean;
 };
 
 export type Conversion = {
@@ -91,9 +98,9 @@ export function conversionSugerida(r: Renglon): Conversion | null {
   // 1 — la factura trae unidades sueltas y el catálogo es un envase de N
   const unidades = unidadesDeEnvase(r.nombreCatalogo);
   if (unidades && cantidad >= unidades && Number.isInteger(cantidad / unidades)) {
-    const pareceUnidad = costo > 0
+    const pareceUnidad = r.cantidadEnUnidades || (costo > 0
       ? Math.abs(precio * unidades - costo) < Math.abs(precio - costo)
-      : /\b(unidad|unid|un|u)\b/.test(papel);
+      : /\b(unidad|unid|un|u)\b/.test(papel));
     if (pareceUnidad) {
       return {
         tipo: 'unidades_a_envase',
@@ -104,6 +111,11 @@ export function conversionSugerida(r: Renglon): Conversion | null {
       };
     }
   }
+
+  // unidades sueltas probadas: no hay kilos que pasar a paquetes (sin esto,
+  // "Doritos de Queso 200g" sin costo propondría 140 paquetes de 200 g por
+  // las 28 bolsas)
+  if (r.cantidadEnUnidades) return null;
 
   // 2 — la factura cobra por KILO y el producto va empaquetado (congelados,
   //     fiambres porcionados). El precio por kilo es el de varios paquetes

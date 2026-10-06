@@ -27,11 +27,12 @@ describe('las tres salidas de un renglón con «×N»', () => {
     expect(estadoDelBulto(r)).toBe('ya_en_unidades');
   });
 
-  it('«Pasar a unidades»: × 14 la cantidad, ÷ 14 el precio (el importe no cambia)', () => {
+  it('«Multiplicar ×14»: × 14 la cantidad, ÷ 14 el precio (el importe no cambia)', () => {
     const r = pasarAUnidades(DORITOS);
     expect(r).toMatchObject({ cantidad: 392, precio: 349.98, importe: 137190.2, bultoAplicado: 14, unidadesPorBulto: null });
     expect(estadoDelBulto(r)).toBe('convertido');
-    expect(volverABulto(r)).toMatchObject({ cantidad: 28, precio: 4899.72, unidadesPorBulto: 14, bultoAplicado: null });
+    // deshacer devuelve el precio del papel tal cual (antes, 349,98 × 14 = 4.899,72)
+    expect(volverABulto(r)).toMatchObject({ cantidad: 28, precio: 4899.65, unidadesPorBulto: 14, bultoAplicado: null });
   });
 
   it('«Dejar en cajas»: el producto es la caja; tampoco se multiplica', () => {
@@ -108,5 +109,93 @@ describe('pedir confirmación antes de una conversión que deja el costo por el 
   });
   it('sin costo de catálogo no pregunta', () => {
     expect(conversionBajaDeMas(6320.7, 14, null)).toBe(false);
+  });
+});
+
+// Revisión del 6/10/2026 (la misma tarde): lo que la tarjeta muestra y hace.
+describe('las cuentas salen de lo que factura el renglón, no del precio del papel', () => {
+  // Distri Sur: "Tostadas Gruesas Tosti Clásicas 12x200 Grs" 1 × $828,10 =
+  // $9.639,07 (12 × 828,10 con 3% off). La API deja pendiente con "convertir"
+  // (evidencia: el importe). Antes la tarjeta decía "12 a $69" y "1 a $828".
+  const TOSTADAS = {
+    descripcion: 'Tostadas Gruesas Tosti Clásicas 12x200 Grs', cantidad: 1, precio: 828.1, importe: 9639.07, bonificacionPct: 3,
+    unidadesPorBulto: 12, bultoOrigen: 'texto', razonBulto: { sugerencia: 'convertir', evidencia: 'importe', motivo: 'el importe solo cierra contando las 12 de cada caja (con 3% de descuento)' },
+  };
+
+  it('tostadas: «Multiplicar» deja 12 a $803 y «Ya vienen en unidades» 1 a $9.639', () => {
+    expect(opcionesDelBulto(TOSTADAS)).toMatchObject({
+      sugerida: 'convertir', talCual: { cantidad: 1, precio: 9639.07 }, convertido: { cantidad: 12, precio: 803.26 },
+    });
+  });
+
+  it('tostadas: multiplicar no divide un precio que ya era de la unidad, y deshacer vuelve igual', () => {
+    const r = pasarAUnidades(TOSTADAS);
+    expect(r).toMatchObject({ cantidad: 12, precio: 828.1, importe: 9639.07, bonificacionPct: 3, bultoAplicado: 12 });
+    expect(volverABulto(r)).toMatchObject({ cantidad: 1, precio: 828.1, unidadesPorBulto: 12 });
+  });
+
+  it('Doritos: las cuentas no cambian (el importe es 28 × el precio)', () => {
+    expect(opcionesDelBulto(DORITOS)).toMatchObject({ talCual: { cantidad: 28, precio: 4899.65 }, convertido: { cantidad: 392, precio: 349.98 } });
+  });
+
+  it('sin importe: el precio menos la bonificación', () => {
+    expect(opcionesDelBulto({ cantidad: 3, precio: 55000, importe: null, bonificacionPct: 10, unidadesPorBulto: 24 })).toMatchObject({
+      talCual: { cantidad: 3, precio: 49500 }, convertido: { cantidad: 72, precio: 2062.5 },
+    });
+  });
+});
+
+describe('la pregunta dice lo que dice el papel', () => {
+  it('"la descripción dice" solo si el «×N» está en la descripción', () => {
+    expect(opcionesDelBulto({ ...DORITOS, bultoOrigen: 'texto' })?.dice).toBe('La descripción dice');
+    expect(opcionesDelBulto({ ...DORITOS, bultoOrigen: 'palabra' })?.dice).toBe('La descripción dice');
+    // el 12 de una columna "U×B" (origen modelo) o de una lectura vieja
+    expect(opcionesDelBulto({ ...DORITOS, bultoOrigen: 'modelo' })?.dice).toBe('El papel dice');
+    expect(opcionesDelBulto(DORITOS)?.dice).toBe('El papel dice');
+  });
+  it('singular con 1, plural con más', () => {
+    expect(opcionesDelBulto({ ...DORITOS, cantidad: 1, importe: 4899.65 })?.pregunta).toBe('¿El 1 del papel es una caja o una unidad?');
+    expect(opcionesDelBulto(DORITOS)?.pregunta).toBe('¿Los 28 del papel son cajas o unidades?');
+    expect(opcionesDelBulto({ ...DORITOS, cantidad: 1200, importe: 5879580 })?.pregunta).toBe('¿Los 1.200 del papel son cajas o unidades?');
+  });
+});
+
+describe('«cambiar» lo que resolvió el lector', () => {
+  const resueltoPorElLector = { ...yaEnUnidades(DORITOS), bultoAuto: true, razonBulto: { sugerencia: 'unidades', evidencia: 'costo', motivo: '$4.899,65 cuadra con el costo' } };
+  it('vuelve a preguntar sin volver a sugerir en negrita lo que la persona acaba de negar', () => {
+    const r = volverAPendiente(resueltoPorElLector);
+    expect(estadoDelBulto(r)).toBe('pendiente');
+    expect(r.razonBulto).toMatchObject({ sugerencia: null, rechazada: true, motivo: '$4.899,65 cuadra con el costo' });
+    expect(opcionesDelBulto(r)).toMatchObject({ sugerida: null, rechazada: true });
+  });
+  it('lo que eligió una persona se deshace sin tocar la sugerencia', () => {
+    const aMano = yaEnUnidades({ ...DORITOS, razonBulto: { sugerencia: 'unidades', evidencia: 'costo', motivo: 'x' } });
+    expect(volverAPendiente(aMano).razonBulto).toMatchObject({ sugerencia: 'unidades' });
+    expect((volverAPendiente(aMano).razonBulto as any).rechazada).toBeUndefined();
+  });
+});
+
+describe('«ya en unidades» con el producto que es la caja: armar cajas', () => {
+  const { conversionSugerida } = require('../../../admin/app/lib/presentacion');
+  // Doritos leídos con la columna (2 bultos, 0 unidades = 28 sueltas) y
+  // vinculados después a la caja de 14, sin costo cargado
+  const DORITOS_CAJA = { descripcion: 'DORITOS QUESO 200GX14', nombreCatalogo: 'Doritos Queso 200g x14', cantidad: 28, precio: 4899.65, costoCatalogo: null };
+
+  it('con la cantidad ya en unidades, ofrece 2 cajas aunque no haya costo con qué comprobarlo', () => {
+    // sin saberlo no arma cajas (sin costo, y el papel no dice "unidad")
+    expect(conversionSugerida(DORITOS_CAJA)?.tipo).not.toBe('unidades_a_envase');
+    expect(conversionSugerida({ ...DORITOS_CAJA, cantidadEnUnidades: true })).toMatchObject({ tipo: 'unidades_a_envase', factor: 14, cantidadNueva: 2, precioNuevo: 68595.1 });
+  });
+
+  it('unidades sueltas no son kilos: "Doritos de Queso 200g" no se ofrece en paquetes de 200 g', () => {
+    const suelto = { ...DORITOS_CAJA, nombreCatalogo: 'Doritos de Queso 200g' };
+    expect(conversionSugerida(suelto)?.tipo).toBe('kilo_a_paquete'); // lo que pasaría sin la marca
+    expect(conversionSugerida({ ...suelto, cantidadEnUnidades: true })).toBeNull();
+  });
+
+  it('con las cajas armadas, el renglón deja de decir "como dice el papel"; al deshacerlas, vuelve', () => {
+    const decidido = { ...yaEnUnidades(DORITOS), bultoAuto: true };
+    expect(estadoDelBulto({ ...decidido, cantidad: 2, precio: 68595.1, envaseAplicado: 14 })).toBeNull();
+    expect(estadoDelBulto({ ...decidido, envaseAplicado: null })).toBe('ya_en_unidades');
   });
 });
