@@ -57,6 +57,11 @@ export class FotosExternasController {
   @Post('calidad/revisar')
   calidadRevisar(@Body() b: { limite?: number }) { return this.calidad.revisar(b?.limite ?? 40); }
 
+  // Fotos del sitio viejo www.odbpremiummarket.com.ar: lote SKU → foto (6/10/2026)
+  @Roles('gerente', 'dueno')
+  @Post('web-vieja')
+  webVieja(@Body() b: { items?: unknown; reemplazar?: boolean }) { return this.fotos.importarDeWebVieja(b?.items, b?.reemplazar === true); }
+
   @Roles('comprador', 'gerente', 'dueno')
   @Post('producto/:sku')
   producto(@Param('sku') sku: string) { return this.fotos.paraSku(sku); }
