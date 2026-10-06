@@ -41,6 +41,30 @@ const plausible = (n: number) => Number.isFinite(n) && n >= MIN_BULTO && n <= MA
  * es tan caro como no multiplicar.
  */
 export function unidadesPorBulto(descripcion: string): number | null {
+  return detectarBulto(descripcion)?.n ?? null;
+}
+
+/**
+ * De dónde salió el «×N» de un renglón (6/10/2026). No pesan lo mismo:
+ *  · 'palabra': la descripción lo dice con una palabra de caja ("CJ x 6",
+ *    "PACK X 12"). Es lo más explícito que hay.
+ *  · 'texto':   la descripción tiene la forma de un bulto ("x 24B", "6x750").
+ *  · 'modelo':  la descripción no lo dice y lo puso solo el lector de la IA,
+ *    casi siempre copiado de la columna de bultos del papel. Los Doritos de
+ *    Mapaca ("200GX14") quedaron así: 28 UNIDADES marcadas como 28 cajas de 14.
+ * Antes se guardaba solo el número y un 14 del modelo pesaba lo mismo que un
+ * "CAJA X 14" escrito en el papel.
+ */
+export type OrigenBulto = 'palabra' | 'texto' | 'modelo';
+
+export function bultoDelRenglon(descripcion: string, delModelo: unknown): { unidadesPorBulto: number | null; origen: OrigenBulto | null } {
+  const delTexto = detectarBulto(descripcion);
+  if (delTexto) return { unidadesPorBulto: delTexto.n, origen: delTexto.conPalabra ? 'palabra' : 'texto' };
+  const m = Number(delModelo);
+  return m > 1 && Number.isFinite(m) ? { unidadesPorBulto: Math.round(m), origen: 'modelo' } : { unidadesPorBulto: null, origen: null };
+}
+
+function detectarBulto(descripcion: string): { n: number; conPalabra: boolean } | null {
   const t = normalizar(descripcion);
   if (!t) return null;
 
@@ -51,13 +75,13 @@ export function unidadesPorBulto(descripcion: string): number | null {
   const porPalabra = t.match(
     /\b(?:cajon(?:es)?|cajas?|cja|cj|packs?|box|bultos?|display|bandejas?|bdj|estuche)\s*x?\s*(\d{1,3})\b/,
   );
-  if (porPalabra && plausible(Number(porPalabra[1]))) return Number(porPalabra[1]);
+  if (porPalabra && plausible(Number(porPalabra[1]))) return { n: Number(porPalabra[1]), conPalabra: true };
 
   // 2) Número + x + número de CONTENIDO: "8 x 50 sobres", "3 x 25 saquitos".
   //    El primero es el bulto; el segundo es lo que trae adentro cada unidad.
   const porContenido = t.match(/\b(\d{1,3})\s*x\s*(\d{1,4})\s*([a-z]+)\b/);
   if (porContenido && RE_CONTENIDO.test(porContenido[3]) && plausible(Number(porContenido[1]))) {
-    return Number(porContenido[1]);
+    return { n: Number(porContenido[1]), conPalabra: false };
   }
 
   // 3) Número + x + número de envase: "6x750", "12 x 1000cc".
@@ -66,7 +90,7 @@ export function unidadesPorBulto(descripcion: string): number | null {
   //    dispararse (la agarra la 3).
   const porEnvase = t.match(/\b(\d{1,2})\s*x\s*(\d{3,4})\s*(?:cc|ml|cm3|l|lt|lts|litros?)?\b/);
   if (porEnvase && plausible(Number(porEnvase[1])) && ES_TAMANO(Number(porEnvase[2]))) {
-    return Number(porEnvase[1]);
+    return { n: Number(porEnvase[1]), conPalabra: false };
   }
 
   // 4) "x" + número, sin más. Es la forma más común y la que no se puede
@@ -97,7 +121,7 @@ export function unidadesPorBulto(descripcion: string): number | null {
     // "x 50 sobres" sin un número de bulto adelante: la caja de 50 sobres ES la
     // unidad que se vende. No son 50 unidades sueltas.
     if (RE_CONTENIDO.test(sufijo)) continue;
-    return n;
+    return { n, conPalabra: false };
   }
 
   // 5) Número + x AL FINAL del texto: "HWN DISPLAY MOGUL COLMILLO 12 x".
@@ -106,7 +130,7 @@ export function unidadesPorBulto(descripcion: string): number | null {
   //    $5.237). Lo que venía después —el gramaje— se perdió, pero "12 x" sigue
   //    siendo cuántas unidades trae el bulto.
   const alFinal = t.match(/\b(\d{1,3})\s*x\s*$/);
-  if (alFinal && plausible(Number(alFinal[1]))) return Number(alFinal[1]);
+  if (alFinal && plausible(Number(alFinal[1]))) return { n: Number(alFinal[1]), conPalabra: false };
 
   return null;
 }
@@ -337,7 +361,10 @@ export function resolverCantidadYBulto(renglon: {
 //   3. PESO con columna .. la factura trae los kilos escritos y cierran.
 //   4. CIERRA ............ cantidad × precio ≈ importe: no hay nada que
 //                          interpretar; si hay bulto, queda PENDIENTE del
-//                          operador ("Pasar a unidad").
+//                          operador ("Pasar a unidad")… salvo que la
+//                          evidencia pruebe que la cantidad YA está en la
+//                          unidad de stock (YA_EN_UNIDADES, 6/10/2026: ver
+//                          evaluarBulto).
 //   5. CANTIDAD .......... importe ÷ precio da un ENTERO ≠ cantidad: esa es la
 //                          cantidad real, en la unidad del precio, y consume
 //                          cualquier bulto (la corrección ES la conversión).
@@ -371,6 +398,37 @@ export type LecturaRenglon = {
    * que cuesta $9.900 es precio de bocadito, no de caja.
    */
   costoCatalogo?: number | null;
+  /** de dónde salió unidadesPorBulto (ver OrigenBulto) */
+  bultoOrigen?: OrigenBulto | null;
+  /**
+   * Las columnas BULTOS y UNIDADES (sueltas) del papel, cuando existen.
+   * Mapaca (6/10/2026): "2 bultos, 0 unidades, cantidad 28" prueba que los 28
+   * ya son unidades (2 × 14 + 0 = 28). Sin estas columnas esa prueba se perdía.
+   */
+  bultos?: number | null;
+  unidadesSueltas?: number | null;
+  /**
+   * El producto vinculado es una SUGERENCIA de la IA ("¿es este?"), no un
+   * vínculo firme: ni su costo ni su presentación alcanzan para decidir solo.
+   */
+  vinculoSugerido?: boolean;
+};
+
+/**
+ * Por qué un renglón con «×N» se convierte, no se convierte o queda para que
+ * decida una persona (6/10/2026). Va a la pantalla tal cual.
+ */
+export type RazonBulto = {
+  /**
+   * 'unidades':  la cantidad del papel ya está en la unidad de stock (no se multiplica).
+   * 'caja':      el producto del catálogo ES la caja de N (no se multiplica).
+   * 'convertir': son cajas y el producto es la unidad suelta (× N).
+   * null:        no hay con qué decidirlo.
+   */
+  sugerencia: 'unidades' | 'caja' | 'convertir' | null;
+  evidencia: 'columna' | 'catalogo' | 'costo' | 'importe' | null;
+  /** la cuenta que lo prueba, en castellano, para mostrar en el renglón */
+  motivo: string;
 };
 
 export type RenglonInterpretado = {
@@ -380,6 +438,7 @@ export type RenglonInterpretado = {
     | 'peso_columna'
     | 'cierra'
     | 'bulto_pendiente'
+    | 'ya_en_unidades'
     | 'cantidad_corregida'
     | 'precio_por_unidad_interna'
     | 'unidades_a_envase'
@@ -390,6 +449,14 @@ export type RenglonInterpretado = {
   porPeso: boolean;
   /** solo cuando la decisión quedó en manos del operador */
   unidadesPorBulto: number | null;
+  /**
+   * El «×N» que se leyó pero NO se aplica porque la evidencia probó que la
+   * cantidad ya está en la unidad de stock (o que el producto es la caja).
+   * Se conserva para que la pantalla lo muestre y se pueda deshacer.
+   */
+  bultoDescartado: number | null;
+  /** por qué quedó así el bulto (pendiente con sugerencia, o descartado) */
+  razonBulto: RazonBulto | null;
   cantidadOriginal: number | null;
   bultoConsumido: number | null;
   /** cuando no cierra: el unitario que SÍ daría el importe */
@@ -436,6 +503,140 @@ export function unidadesDeLaPresentacion(nombre: string): number | null {
   const porUnidades = t.match(/\b(\d{1,3})\s*(?:u|un|uni|unid|unidades?)\b/);
   if (porUnidades && plausible(Number(porUnidades[1]))) return Number(porUnidades[1]);
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// ¿LOS «×N» SON CAJAS O YA SON UNIDADES? (6/10/2026)
+// ---------------------------------------------------------------------------
+//
+// Queja de Ana (administración): "en la fc dice 2 bultos en unidades marca 0 y
+// la app no lo toma". MARINA MAPACA 0001-00281024: "DORITOS QUESO 200GX14"
+// 28 × $4.899,65 = $137.190,20. El papel trae 2 bultos de 14 = 28 UNIDADES al
+// precio de la unidad; el lector puso el 14 y la pantalla dio por hecho que
+// los 28 eran cajas: ofrecía "Pasar a unidades" (392 a $350, mal) y no había
+// forma de decir "ya vienen en unidades". La factura no se registró.
+//
+// El «×N» dice cuántas trae la caja; NO dice en qué unidad viene la cantidad.
+// Eso lo prueba otra cosa, y acá se junta la evidencia, de la más dura a la
+// más blanda. Siempre con el renglón que CIERRA (cantidad × precio = importe):
+// el precio está en la misma unidad que la cantidad.
+//
+//   a) COLUMNA: bultos × N + sueltas = cantidad (y bultos ≠ cantidad) → la
+//      cantidad ya son unidades. Si bultos = cantidad → la cantidad son cajas.
+//   b) CATÁLOGO: el producto vinculado ya es el envase de N ("Palito Bombón
+//      X 10") → la casa stockea la caja: no hay nada que convertir.
+//   c) COSTO: el precio contra el costo del producto vinculado. Ese costo trae
+//      IVA y percepciones (el neto cae cerca de 0,8), así que la banda es
+//      ancha: 0,5 a 2. Si el precio tal cual cae adentro y el precio ÷ N no,
+//      son unidades; al revés, son cajas; las dos adentro, se sugiere la más
+//      cercana; las dos afuera (costo mal cargado), no se opina.
+//
+// Lo que se decide solo es NO multiplicar, y solo con evidencia firme: la
+// columna, el catálogo, o el costo cuando el «×N» no lo escribió el papel con
+// palabra de caja ("CJ x 6") y el vínculo no es una sugerencia de la IA.
+// Convertir sigue siendo siempre decisión de una persona: acá se le deja la
+// sugerencia y la cuenta.
+const BANDA_COSTO_MIN = 0.5;
+const BANDA_COSTO_MAX = 2;
+
+const plata = (n: number) =>
+  '$' + (Math.round(n * 100) / 100).toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+
+const numeroONull = (v: unknown): number | null => {
+  if (v == null || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+};
+
+export function evaluarBulto(
+  l: Pick<LecturaRenglon, 'bultos' | 'unidadesSueltas' | 'unidadesDelCatalogo' | 'costoCatalogo' | 'bultoOrigen' | 'vinculoSugerido'>,
+  cantidad: number,
+  precio: number,
+  n: number,
+): (RazonBulto & { firme: boolean }) | null {
+  if (!(n > 1) || !(cantidad > 0)) return null;
+
+  // a) la columna de bultos del papel
+  const bultos = numeroONull(l.bultos);
+  const sueltasLeidas = numeroONull(l.unidadesSueltas);
+  const sueltas = sueltasLeidas != null && sueltasLeidas > 0 ? sueltasLeidas : 0;
+  const columnaDiceUnidades = bultos != null && bultos >= 0 && Math.abs(bultos * n + sueltas - cantidad) < 0.01 && Math.abs(bultos - cantidad) > 0.01;
+  const columnaDiceCajas = bultos != null && bultos > 0 && sueltas === 0 && Math.abs(bultos - cantidad) < 0.01;
+
+  // b) el producto del catálogo ya es la caja de N
+  const internas = Number(l.unidadesDelCatalogo) > 1 ? Math.round(Number(l.unidadesDelCatalogo)) : null;
+  if (internas === n) {
+    if (columnaDiceUnidades) {
+      // el papel trae unidades sueltas y la casa vende la caja: hay que armar
+      // cajas (eso lo resuelve la regla 4 TER cuando la cuenta es exacta)
+      return { sugerencia: null, evidencia: 'columna', firme: false, motivo: `el papel trae ${cantidad} unidades sueltas y el producto del catálogo es la caja de ${n}: revisá en qué unidad entra` };
+    }
+    return { sugerencia: 'caja', evidencia: 'catalogo', firme: !l.vinculoSugerido, motivo: `el producto del catálogo ya es el envase de ${n}: entra como viene` };
+  }
+
+  if (columnaDiceUnidades) {
+    const cuenta = `${bultos} × ${n}${sueltas > 0 ? ` + ${sueltas}` : ''} = ${cantidad}`;
+    return {
+      sugerencia: 'unidades', evidencia: 'columna', firme: true,
+      motivo: `el papel dice ${bultos} bulto(s) de ${n}${sueltas > 0 ? ` y ${sueltas} suelta(s)` : ''} (${cuenta}): la cantidad ya está en unidades`,
+    };
+  }
+  if (columnaDiceCajas) {
+    return { sugerencia: 'convertir', evidencia: 'columna', firme: false, motivo: `el papel dice ${bultos} bulto(s) y esa es la cantidad: son cajas de ${n}` };
+  }
+
+  // c) el precio contra el costo del producto vinculado
+  const costo = Number(l.costoCatalogo) || 0;
+  if (costo > 0 && precio > 0) {
+    const rUnidad = precio / costo;
+    const rCaja = precio / n / costo;
+    const enBanda = (r: number) => r >= BANDA_COSTO_MIN && r <= BANDA_COSTO_MAX;
+    // con "CJ x 6" escrito en el papel, o un vínculo que todavía es "¿es este?",
+    // el costo solo SUGIERE: lo confirma una persona
+    const puedeDecidir = l.bultoOrigen !== 'palabra' && !l.vinculoSugerido;
+    if (enBanda(rUnidad) && !enBanda(rCaja)) {
+      return {
+        sugerencia: 'unidades', evidencia: 'costo', firme: puedeDecidir,
+        motivo: `${plata(precio)} cuadra con el costo de catálogo (${plata(costo)}); dividido por ${n} daría ${plata(precio / n)}`,
+      };
+    }
+    if (enBanda(rCaja) && !enBanda(rUnidad)) {
+      return {
+        sugerencia: 'convertir', evidencia: 'costo', firme: false,
+        motivo: `${plata(precio)} ÷ ${n} = ${plata(precio / n)}, que cuadra con el costo de catálogo (${plata(costo)}) de la unidad`,
+      };
+    }
+    if (enBanda(rUnidad) && enBanda(rCaja)) {
+      const masCercaUnidad = Math.abs(Math.log(rUnidad)) <= Math.abs(Math.log(rCaja));
+      return {
+        sugerencia: masCercaUnidad ? 'unidades' : 'convertir', evidencia: 'costo', firme: false,
+        motivo: `con el costo de catálogo (${plata(costo)}) podrían ser las dos; se parece más a ${masCercaUnidad ? `${plata(precio)} la unidad` : `${plata(precio / n)} la unidad (cajas de ${n})`}`,
+      };
+    }
+  }
+  return null;
+}
+
+/**
+ * Aplica la evidencia a un renglón con «×N»: con evidencia firme de que no hay
+ * que multiplicar, el bulto queda DESCARTADO (a la vista, con su porqué y
+ * deshacer en la pantalla); si no, queda pendiente con la sugerencia.
+ */
+function conBulto(
+  base: RenglonInterpretado,
+  l: LecturaRenglon,
+  cantidad: number,
+  precio: number,
+  n: number,
+  siFirme: RenglonInterpretado['decision'],
+  siPendiente: RenglonInterpretado['decision'],
+): RenglonInterpretado {
+  const ev = evaluarBulto(l, cantidad, precio, n);
+  const razon: RazonBulto | null = ev ? { sugerencia: ev.sugerencia, evidencia: ev.evidencia, motivo: ev.motivo } : null;
+  if (ev?.firme && (ev.sugerencia === 'unidades' || ev.sugerencia === 'caja')) {
+    return { ...base, decision: siFirme, unidadesPorBulto: null, bultoDescartado: n, razonBulto: razon };
+  }
+  return { ...base, decision: siPendiente, unidadesPorBulto: n, razonBulto: razon };
 }
 
 export function interpretarRenglon(l: LecturaRenglon): RenglonInterpretado {
@@ -486,6 +687,8 @@ export function interpretarRenglon(l: LecturaRenglon): RenglonInterpretado {
     cantidad,
     porPeso: false,
     unidadesPorBulto: bulto,
+    bultoDescartado: null,
+    razonBulto: null,
     cantidadOriginal: null,
     bultoConsumido: null,
     precioPropuesto: null,
@@ -500,8 +703,16 @@ export function interpretarRenglon(l: LecturaRenglon): RenglonInterpretado {
   }
 
   // 2 — la bonificación de la fila ya explica el descuadre; el bulto (si hay)
-  //     sigue siendo decisión del operador: una caja regalada sigue siendo caja
+  //     sigue siendo decisión del operador: una caja regalada sigue siendo caja.
+  //     Si el importe cierra con la bonificación, la cantidad y el precio están
+  //     en la misma unidad y vale la misma evidencia que en la regla 4
+  //     (6/10/2026: 28 Doritos sin cargo siguen siendo 28 unidades).
   if (bonif > 0) {
+    if (bulto && precio > 0 && cantidad > 0 && importe != null) {
+      const lista = cantidad * precio;
+      const cierraConBonif = Math.abs(importe - lista * (1 - bonif / 100)) <= Math.max(0.05, lista * TOLERANCIA_CIERRE);
+      if (cierraConBonif) return conBulto(base, l, cantidad, precio, bulto, 'bonificado', 'bonificado');
+    }
     return { ...base, decision: 'bonificado' };
   }
 
@@ -534,9 +745,15 @@ export function interpretarRenglon(l: LecturaRenglon): RenglonInterpretado {
     //     pantalla ofrece "armar cajas" a mano.
     if (internasCatalogo && cantidad >= internasCatalogo && Number.isInteger(cantidad / internasCatalogo)) {
       const costo = Number(l.costoCatalogo) || 0;
-      const porUnidad = costo > 0
+      // la columna de bultos del papel también lo prueba: "2 bultos, 0
+      // sueltas, cantidad 24" con el catálogo en cajas de 12 (6/10/2026)
+      const bultosCol = numeroONull(l.bultos);
+      const sueltasCol = numeroONull(l.unidadesSueltas) ?? 0;
+      const columnaLoPrueba = bultosCol != null && bultosCol > 0 && sueltasCol === 0
+        && Math.abs(bultosCol * internasCatalogo - cantidad) < 0.01;
+      const porUnidad = columnaLoPrueba || (costo > 0
         ? Math.abs(precio * internasCatalogo - costo) < Math.abs(precio - costo)
-        : /\b(unidad|unid|un|u)\b/.test(normalizar(l.descripcion));
+        : /\b(unidad|unid|un|u)\b/.test(normalizar(l.descripcion)));
       if (porUnidad) {
         return {
           ...base,
@@ -548,7 +765,8 @@ export function interpretarRenglon(l: LecturaRenglon): RenglonInterpretado {
         };
       }
     }
-    return bulto ? { ...base, decision: 'bulto_pendiente' } : base;
+    // 4 QUATER — «×N» con la cuenta cerrada: ¿cajas o ya unidades? (6/10/2026)
+    return bulto ? conBulto(base, l, cantidad, precio, bulto, 'ya_en_unidades', 'bulto_pendiente') : base;
   }
 
   const q = importe / precio;
@@ -605,7 +823,21 @@ export function interpretarRenglon(l: LecturaRenglon): RenglonInterpretado {
       const pct = (1 - importe / lista) * 100;
       const redondo = Math.round(pct * 2) / 2;
       if (redondo >= 1 && redondo <= 50 && Math.abs(lista * (1 - redondo / 100) - importe) <= Math.max(0.05, lista * 0.0002)) {
-        return { ...base, decision: 'bonificado', bonificacionPct: redondo, unidadesPorBulto: u === unidades ? bulto : null };
+        const conDescuento = { ...base, decision: 'bonificado' as const, bonificacionPct: redondo };
+        if (!bulto) return { ...conDescuento, unidadesPorBulto: null };
+        // el importe solo cierra contando las N de cada caja: la cantidad son
+        // cajas, eso lo prueba el papel (las tostadas de a 12)
+        if (u === unidades) {
+          return {
+            ...conDescuento,
+            unidadesPorBulto: bulto,
+            razonBulto: { sugerencia: 'convertir', evidencia: 'importe', motivo: `el importe solo cierra contando las ${bulto} de cada caja (con ${redondo}% de descuento)` },
+          };
+        }
+        // cierra con la cantidad tal cual: precio y cantidad en la misma
+        // unidad. Antes el bulto se borraba sin avisar; ahora se juzga igual
+        // que en la regla 4 (6/10/2026)
+        return conBulto(conDescuento, l, cantidad, precio, bulto, 'bonificado', 'bonificado');
       }
     }
     return null;
@@ -722,4 +954,28 @@ export function variacionPorUnidad(precioLeido: number, unidadesPorBulto: number
   const porUnidad = bulto > 1 ? Number(precioLeido) / bulto : Number(precioLeido);
   if (!Number.isFinite(porUnidad)) return null;
   return Math.round(((porUnidad - costo) / costo) * 1000) / 10;
+}
+
+/**
+ * La variación del renglón con la interpretación DEFINITIVA (6/10/2026).
+ *
+ * Antes se calculaba una sola vez, al vincular, con el «×N» que puso el lector:
+ * los 28 Doritos que ya eran unidades salían "costo −93,9%" ($4.899,65 ÷ 14 =
+ * $350 contra $5.714) y la tarjeta gritaba en rojo algo falso. Se divide por N
+ * solo si el bulto sigue pendiente y nada dice que ya son unidades; con el
+ * envase armado (Ferrero) se compara el precio del envase.
+ */
+export function variacionDelRenglon(
+  precioLeido: number | null | undefined,
+  r: Pick<RenglonInterpretado, 'decision' | 'unidadesPorBulto' | 'precioPropuesto'> & { razonBulto?: RazonBulto | null },
+  costoActual: number | null | undefined,
+): number | null {
+  const precio = Number(precioLeido);
+  if (!(precio > 0)) return null;
+  const sugiereNoConvertir = r.razonBulto?.sugerencia === 'unidades' || r.razonBulto?.sugerencia === 'caja';
+  const bulto = Number(r.unidadesPorBulto) > 1 && !sugiereNoConvertir ? Number(r.unidadesPorBulto) : null;
+  const precioFinal = (r.decision === 'unidades_a_envase' || r.decision === 'precio_por_unidad_interna') && Number(r.precioPropuesto) > 0
+    ? Number(r.precioPropuesto)
+    : precio;
+  return variacionPorUnidad(precioFinal, bulto, costoActual);
 }

@@ -31,6 +31,49 @@ describe('lectura segura de comprobantes', () => {
   });
 });
 
+// Mapaca (6/10/2026): la lectura del 2/10 quedó guardada con el ×14 del modelo.
+// Al reabrirla se rehace con las reglas de hoy: los 28 Doritos ya son unidades.
+describe('reabrir una lectura con «×N» (Doritos de Mapaca, 6/10/2026)', () => {
+  const DORITOS = { descripcion: 'DORITOS QUESO 200GX14', cantidad: 28, precio: 4899.65, importe: 137190.2, unidadesPorBulto: 14, bonificacionPct: null, esDescuento: false, kg: null, puedePorPeso: false };
+
+  it('con el costo del producto vinculado: 28 unidades, sin bulto pendiente', () => {
+    expect(interpretarLecturaSegura({ ...DORITOS, bultoOrigen: 'modelo', costoCatalogo: 5714.29 })).toMatchObject({
+      decision: 'ya_en_unidades', cantidad: 28, unidadesPorBulto: null, bultoDescartado: 14, faltantes: [],
+    });
+  });
+
+  it('una lectura incompleta no inventa la decisión del bulto', () => {
+    expect(interpretarLecturaSegura({ ...DORITOS, importe: null, costoCatalogo: 5714.29 })).toMatchObject({
+      decision: 'incompleto', unidadesPorBulto: 14, bultoDescartado: null, razonBulto: null,
+    });
+  });
+
+  it('reabierta desde la bandeja: decide con las reglas de hoy y rehace la variación', async () => {
+    const db = { from: () => ({ select: () => ({ in: async () => ({ data: [{ sku: 'L5248', alicuota_iva: 21 }] }) }) }) };
+    const service = new ListasService(db as any);
+    const guardada = {
+      items: [{
+        codigo: null, ...DORITOS,
+        match: { sku: 'L5248', nombre: 'Doritos de Queso 200g', costoActual: 5714.29, variacionPct: -93.9, metodo: 'alias', margenPct: 65 },
+      }],
+    };
+    const r = await (service as any).actualizarLectura(guardada);
+    expect(r.items[0].interpretado).toMatchObject({ decision: 'ya_en_unidades', cantidad: 28, unidadesPorBulto: null, bultoDescartado: 14 });
+    expect(r.items[0].interpretado.razonBulto).toMatchObject({ sugerencia: 'unidades', evidencia: 'costo' });
+    // ya no el −93,9% de comparar $350 contra $5.714
+    expect(r.items[0].match.variacionPct).toBeCloseTo(-14.3, 1);
+  });
+
+  it('si el producto es solo una sugerencia de la IA, queda la pregunta con la sugerencia', async () => {
+    const db = { from: () => ({ select: () => ({ in: async () => ({ data: [] }) }) }) };
+    const service = new ListasService(db as any);
+    const r = await (service as any).actualizarLectura({
+      items: [{ codigo: null, ...DORITOS, match: { sku: 'L5248', nombre: 'Doritos de Queso 200g', costoActual: 5714.29, variacionPct: null, metodo: 'ia', sugerido: true } }],
+    });
+    expect(r.items[0].interpretado).toMatchObject({ decision: 'bulto_pendiente', unidadesPorBulto: 14, razonBulto: { sugerencia: 'unidades' } });
+  });
+});
+
 describe('confirmación en administración', () => {
   const { camposDeLecturaIncompletos } = require('../../../admin/app/lib/lectura-compras');
   it.each([

@@ -25,7 +25,7 @@ export function interpretarLecturaSegura(l: Lectura) {
   if (importe == null) faltantes.push('importe');
   if (faltantes.length || cantidad == null || precio == null) return {
     decision: 'incompleto' as const, cantidad, porPeso: false,
-    unidadesPorBulto: l.unidadesPorBulto, cantidadOriginal: null,
+    unidadesPorBulto: l.unidadesPorBulto, bultoDescartado: null, razonBulto: null, cantidadOriginal: null,
     bultoConsumido: null, precioPropuesto: null, bonificacionPct: l.bonificacionPct,
     importeNeto: null, alicuotaDeducida: null, faltantes,
   };
