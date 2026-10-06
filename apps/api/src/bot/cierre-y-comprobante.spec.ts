@@ -5,7 +5,7 @@
 // pedido, el alias junto con el total y la limpieza de las promesas. Acá se
 // prueba lo que aparece recién cuando están las dos cosas.
 import { BotService } from './bot.service';
-import { sinLoConsulto } from './prolijo';
+import { sinMencionDeConsulta } from './prolijo';
 import { confirmacionConDatosDePago, sinPedirConfirmo } from './pago-confirma';
 import { retiraElMismoCliente } from './cierre';
 
@@ -361,10 +361,11 @@ describe('la tarjeta del pedido confirmado por el comprobante', () => {
 });
 
 describe('la limpieza final sin aplanar ni dejar huecos (quitarOraciones)', () => {
-  it('sinLoConsulto saca el renglón entero y la lista queda en sus renglones', () => {
-    expect(sinLoConsulto('Te anoto:\n• 2 × Judas Malbec 750 cc\nLo consulto con el local.\n\n¿Está completo el pedido o querés sumar algo?'))
+  // 6/10/2026: sinLoConsulto pasó a ser sinMencionDeConsulta (consulta silenciosa)
+  it('sinMencionDeConsulta saca el renglón entero y la lista queda en sus renglones', () => {
+    expect(sinMencionDeConsulta('Te anoto:\n• 2 × Judas Malbec 750 cc\nLo consulto con el local.\n\n¿Está completo el pedido o querés sumar algo?'))
       .toBe('Te anoto:\n• 2 × Judas Malbec 750 cc\n\n¿Está completo el pedido o querés sumar algo?');
-    expect(sinLoConsulto('Del Catena no tengo ahora. Lo consulto. ¿Te sirve el Judas?')).toBe('Del Catena no tengo ahora. ¿Te sirve el Judas?');
+    expect(sinMencionDeConsulta('Del Catena no tengo ahora. Lo consulto. ¿Te sirve el Judas?')).toBe('Del Catena no tengo ahora. ¿Te sirve el Judas?');
   });
 
   it('sinPedirConfirmo tampoco deja un renglón vacío en el medio', () => {
