@@ -5,10 +5,11 @@ import { sesion } from "../../lib/sesion";
 import { pesos } from "../../lib/tipos";
 import { estadoAbierto, etiquetaEstado } from "../../lib/estados";
 import { IcoDesplegar, IcoFlecha, IcoLocal, IcoMoto } from "../ui/Iconos";
-import { PlacaPedido, renglonConPrecio, type EntregaPlaca } from "../ui/PlacaPedido";
+import { PlacaPedido, cantidadLegible, renglonConPrecio, type EntregaPlaca } from "../ui/PlacaPedido";
 import { ROTULO, Titulo } from "../ui/Titulo";
 
 export const dynamic = "force-dynamic";
+export const metadata = { title: "Mi cuenta — O.D.B Premium Market" };
 
 // La página se arma en el servidor, que puede estar en UTC: sin fijar la zona,
 // una compra de las 22 h saldría con la fecha del día siguiente.
@@ -60,7 +61,7 @@ export default async function Cuenta() {
           <p className={`${ROTULO} text-rojo-claro`}>Tus puntos</p>
           <span className="border border-rojo-claro/50 text-rojo-claro text-[11px] font-semibold tracking-wide rounded-full px-3 py-1">{puntos.nivel?.nombre ?? "Bronce"}</span>
         </div>
-        <p className="marca text-5xl font-extrabold mt-3 tabular-nums [overflow-wrap:anywhere]">{Number(puntos.saldo ?? 0).toLocaleString("es-AR")}</p>
+        <p className="marca text-[36px] sm:text-5xl font-extrabold leading-none mt-3 tabular-nums [overflow-wrap:anywhere]">{Number(puntos.saldo ?? 0).toLocaleString("es-AR")}</p>
         <p className="text-crema/55 text-sm mt-2">Sumás 1 punto por cada $100 de compra. Canjealos por recompensas desde la app.</p>
         {!cliente.verificado && (
           <div className="mt-5 rounded-lg border border-rojo-claro/25 bg-rojo/5 p-3.5 text-sm text-crema/75">
@@ -96,11 +97,12 @@ export default async function Cuenta() {
                   <summary className="flex cursor-pointer list-none items-center gap-3 sm:gap-4 py-4 [&::-webkit-details-marker]:hidden">
                     <span className="text-rojo shrink-0">{c.canal === "domicilio" ? <IcoMoto size={20} /> : <IcoLocal size={20} />}</span>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-ink truncate">
-                        {CANAL[c.canal] ?? "Compra"} · {fecha(c.fecha)}
-                        {esPedido && c.estado && <> · <span className={estadoAbierto(c.estado) ? "font-bold text-rojo" : "text-humo"}>{etiquetaEstado(c.estado, c.canal)}</span></>}
-                      </p>
-                      <p className="text-xs text-humo mt-0.5 truncate">{items.map((i: any) => `${i.cantidad}× ${i.nombre}`).join(" · ")}</p>
+                      <p className="text-sm font-medium text-ink truncate">{CANAL[c.canal] ?? "Compra"} · {fecha(c.fecha)}</p>
+                      {/* el estado en su propia línea: al lado de la fecha, en celular se cortaba */}
+                      {esPedido && c.estado && (
+                        <p className={`text-xs mt-0.5 truncate ${estadoAbierto(c.estado) ? "font-bold text-rojo" : "font-semibold text-tinta/60"}`}>{etiquetaEstado(c.estado, c.canal)}</p>
+                      )}
+                      <p className="text-xs text-humo mt-0.5 truncate">{items.map((i: any) => `${cantidadLegible(Number(i.cantidad))}× ${i.nombre}`).join(" · ")}</p>
                     </div>
                     <p className="marca text-base sm:text-lg font-extrabold text-ink whitespace-nowrap">{pesos(c.total)}</p>
                     <IcoDesplegar size={18} className="shrink-0 text-humo transition-transform group-open:rotate-180" />

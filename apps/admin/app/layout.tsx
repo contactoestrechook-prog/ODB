@@ -5,6 +5,13 @@ import { BannerInstalarApp } from "./ui/BannerInstalarApp";
 import { AvisoActualizacion } from "./ui/AvisoActualizacion";
 import { ReportarProblema } from "./ui/ReportarProblema";
 import { AvisoPedidosSinAviso } from "./ui/AvisoPedidosSinAviso";
+import { AvisoPedidoNuevo } from "./ui/AvisoPedidoNuevo";
+import { cookies } from "next/headers";
+import { rolDesdeToken } from "./lib/permisos";
+
+// Quién ve la ventana de "Llegó un pedido" (6/10/2026): los que pueden tomarlo
+// y prepararlo. Administración lo recibe por WhatsApp, con el link para tomarlo.
+const ATIENDEN_PEDIDOS = ["dueno", "gerente", "cajero", "deposito"];
 
 // La letra del panel (decisión del dueño, octubre 2026): más suave que Arial y
 // angosta, así no aparecen desbordes nuevos. next/font la sirve desde el mismo
@@ -41,16 +48,18 @@ export const viewport: Viewport = {
   viewportFit: "cover",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const rol = rolDesdeToken((await cookies()).get("odb_token")?.value);
   return (
     <html lang="es" className={`${figtree.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col">
         <AvisoPedidosSinAviso />
         {children}
+        {rol && ATIENDEN_PEDIDOS.includes(rol) && <AvisoPedidoNuevo />}
         <AvisoActualizacion />
         <BannerInstalarApp />
         <ReportarProblema />

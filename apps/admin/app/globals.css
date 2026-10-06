@@ -65,6 +65,8 @@
   --animate-hoja-sube: hoja-sube 0.24s cubic-bezier(0.2, 0.8, 0.2, 1);
   --animate-aparece: aparece 0.16s ease-out;
   --animate-cajon-entra: cajon-entra 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+  /* la ventana de "Llegó un pedido": baja y se asienta (6/10/2026) */
+  --animate-entra-aviso: entra-aviso 0.36s cubic-bezier(0.2, 0.8, 0.2, 1);
 
   @keyframes hoja-sube {
     from { transform: translateY(24px); opacity: 0; }
@@ -77,6 +79,10 @@
   @keyframes cajon-entra {
     from { transform: translateX(-100%); }
     to { transform: translateX(0); }
+  }
+  @keyframes entra-aviso {
+    from { transform: translateY(-16px) scale(0.98); opacity: 0; }
+    to { transform: translateY(0) scale(1); opacity: 1; }
   }
 }
 

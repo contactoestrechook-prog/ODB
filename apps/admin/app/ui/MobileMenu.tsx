@@ -43,6 +43,7 @@ export function MobileMenu({
   activo,
   titulo,
   pendientes = {},
+  esDuenio = false,
 }: {
   grupos: Grupo[];
   iconos: Record<string, string>;
@@ -50,6 +51,8 @@ export function MobileMenu({
   titulo: string;
   /** Números de lo que espera firma, por ruta ('/aprobaciones': 3). */
   pendientes?: Record<string, number>;
+  /** "Abrir la charla" de la campanita (RESPONDE es solo del dueño). */
+  esDuenio?: boolean;
 }) {
   const [abierto, setAbierto] = useState(false);
   const botonMenu = useRef<HTMLButtonElement>(null);
@@ -130,7 +133,7 @@ export function MobileMenu({
           </button>
           <h1 className="min-w-0 flex-1 truncate text-base font-semibold tracking-tight">{titulo}</h1>
           {/* avisos internos: en el celular el panel se abre a lo ancho de la pantalla */}
-          <CampanaAlertas donde="movil" />
+          <CampanaAlertas donde="movil" esDuenio={esDuenio} />
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/odb-logo-blanco.png" alt="O.D.B Premium Market" className="ml-1 h-7 w-auto shrink-0" />
         </div>
