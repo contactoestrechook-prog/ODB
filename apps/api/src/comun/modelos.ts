@@ -23,29 +23,65 @@ export const MODELO_BOT = process.env.ODB_BOT_MODELO ?? 'claude-opus-5-5';
 //
 // Cada función tiene su variable (ODB_BOT_ESFUERZO, MESA_ESFUERZO…); si no está,
 // manda ODB_ESFUERZO para todas; si tampoco, el valor por defecto de la función.
+// Las que corren contra un reloj (el asistente de la tienda, 50 s; el cierre de
+// la mesa de compras, 55 s) NO leen ODB_ESFUERZO: un «subile el esfuerzo a
+// todo» las dejaba sin tiempo y contestaban vacío (6/10/2026, revisión).
 //
 // Las variables, todas opcionales (sin cargar, queda lo de arriba):
 //   ODB_MODELO, ODB_BOT_MODELO            el modelo (todas las funciones / el bot)
-//   ODB_ESFUERZO                          el esfuerzo de todas las funciones
-//   ODB_BOT_ESFUERZO, ANALISTA_ESFUERZO, DIFUSIONES_ESFUERZO, EVENTOS_ESFUERZO,
-//   INFORMES_ESFUERZO, PROMOS_ESFUERZO, REPORTES_ESFUERZO, COMPARADOR_ESFUERZO,
-//   LISTAS_ESFUERZO, MESA_ESFUERZO, ABASTECIMIENTO_ESFUERZO      medium por defecto
+//   ODB_ESFUERZO                          el esfuerzo de todas las funciones (menos
+//                                         el asistente y el cierre de la mesa)
+//   ODB_BOT_ESFUERZO (el bot y la lectura del comprobante), ANALISTA_ESFUERZO,
+//   DIFUSIONES_ESFUERZO, EVENTOS_ESFUERZO, INFORMES_ESFUERZO, PROMOS_ESFUERZO,
+//   REPORTES_ESFUERZO, COMPARADOR_ESFUERZO, LISTAS_ESFUERZO, MESA_ESFUERZO,
+//   ABASTECIMIENTO_ESFUERZO                                      medium por defecto
 //   ASISTENTE_ESFUERZO                    low por defecto (la tienda contesta en 50 s)
+//   MESA_CIERRE_ESFUERZO                  low por defecto (el cierre tiene 55 s)
 // Y tres del bot para gastar menos en caché, APAGADAS hasta probarlas con el
 // banco (ver bot.service.ts):
-//   ODB_BOT_CACHE_PREFIJO=mantener | 1h   el prompt fijo no se enfría entre charlas
+//   ODB_BOT_CACHE_PREFIJO=1h | mantener   el prompt fijo no se enfría entre charlas
 //   ODB_BOT_CACHE_HILO=1                  el historial de la charla se lee de la caché
 //   ODB_BOT_TOPE_BUSQUEDA=20              fichas por búsqueda (el resto, solo nombres)
 export type Esfuerzo = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 const ESFUERZOS: readonly Esfuerzo[] = ['low', 'medium', 'high', 'xhigh', 'max'];
 export const ESFUERZO_POR_DEFECTO: Esfuerzo = 'medium';
 
-export function esfuerzo(variable?: string, porDefecto: Esfuerzo = ESFUERZO_POR_DEFECTO): Esfuerzo {
+/**
+ * El esfuerzo de una función: su variable, después ODB_ESFUERZO (salvo
+ * `{ general: false }`, para las que tienen un reloj encima) y después su valor
+ * por defecto.
+ */
+export function esfuerzo(variable?: string, porDefecto: Esfuerzo = ESFUERZO_POR_DEFECTO, o: { general?: boolean } = {}): Esfuerzo {
   const valido = (v: unknown): Esfuerzo | null => {
     const t = String(v ?? '').trim().toLowerCase();
     return (ESFUERZOS as readonly string[]).includes(t) ? (t as Esfuerzo) : null;
   };
-  return (variable ? valido(process.env[variable]) : null) ?? valido(process.env.ODB_ESFUERZO) ?? porDefecto;
+  return (variable ? valido(process.env[variable]) : null) ?? (o.general === false ? null : valido(process.env.ODB_ESFUERZO)) ?? porDefecto;
+}
+
+/** ¿Piensa más que medium? (la correa de tiempo de la mesa de compras, 6/10/2026) */
+export function esfuerzoAlto(e: Esfuerzo): boolean {
+  return e === 'high' || e === 'xhigh' || e === 'max';
+}
+
+// RAZONAMIENTO EN HAIKU 4.5 (regla fija de Leandro, 9/9/2026: ninguna llamada
+// sin razonamiento). Haiku 4.5 no tiene el adaptativo: va con presupuesto, el
+// mínimo (1024), y el tope de la llamada tiene que quedar por encima con lugar
+// para la respuesta. Se lee el texto por tipo de bloque (el primero es el
+// razonamiento). Es la forma que ya usa el verificador de preguntas del bot.
+export const RAZONAMIENTO_HAIKU = { type: 'enabled', budget_tokens: 1024 } as const;
+
+/**
+ * Razonamiento siempre encendido (regla fija del 9/9/2026): adaptive en los
+ * modelos 4.6 en adelante y en los 5; los viejos (Haiku 4.5, Sonnet y Opus 4.5
+ * o anteriores) piensan con budget_tokens, que tiene que ser menor que max_tokens.
+ */
+export function razonamientoPara(modelo: string): { type: 'adaptive' } | { type: 'enabled'; budget_tokens: number } {
+  const m = /claude-(?:opus|sonnet|haiku|fable|mythos)-(\d+)(?:[-.](\d+))?/i.exec(String(modelo ?? ''));
+  if (!m) return /claude-[123]\b|claude-[123]-/i.test(String(modelo ?? '')) ? { type: 'enabled', budget_tokens: 2048 } : { type: 'adaptive' };
+  const mayor = Number(m[1]);
+  const menor = m[2] && m[2].length <= 2 ? Number(m[2]) : 0; // «-20250514» es una fecha, no la versión
+  return mayor > 4 || (mayor === 4 && menor >= 6) ? { type: 'adaptive' } : { type: 'enabled', budget_tokens: 2048 };
 }
 
 // RAZONAMIENTO SIEMPRE ENCENDIDO (regla fija de Leandro, 9/9/2026). En Opus 5.5

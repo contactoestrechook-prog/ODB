@@ -1,6 +1,7 @@
 import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
+import { RAZONAMIENTO_HAIKU } from '../comun/modelos';
 import { SUPABASE } from '../supabase.provider';
 import { NotificarService } from '../mensajes/notificar.service';
 import { transicionValida } from './transiciones';
@@ -271,8 +272,9 @@ export class PedidosService {
       additionalProperties: false,
     };
     const PROMPT = `Sos quien toma pedidos por WhatsApp de un comercio de bebidas, fiambrería y almacén en Argentina. Del mensaje del cliente extraé: items (cada PRODUCTO pedido: name = lo que pidió tal cual, quantity = cantidad; si no aclara cantidad poné 1; "una docena"=12, "un cajón/caja"=1), nombre del cliente si aparece, y notas (aclaraciones de entrega, dirección, horario, forma de pago). Ignorá saludos y charla. Si pide algo sin cantidad clara igual incluilo con quantity 1.`;
+    // razonamiento encendido (regla del 9/9; iba sin él, revisión del 6/10/2026): Haiku 4.5 va con presupuesto, el mínimo, y el tope queda por encima
     const r = await this.claude.messages
-      .stream({ model: 'claude-haiku-4-5', max_tokens: 2048, output_config: { format: { type: 'json_schema', schema: ESQ } } as any, messages: [{ role: 'user', content: [{ type: 'text', text: `Mensaje del cliente: "${texto.trim()}"` }, { type: 'text', text: PROMPT }] }] })
+      .stream({ model: 'claude-haiku-4-5', max_tokens: 4096, thinking: RAZONAMIENTO_HAIKU, output_config: { format: { type: 'json_schema', schema: ESQ } } as any, messages: [{ role: 'user', content: [{ type: 'text', text: `Mensaje del cliente: "${texto.trim()}"` }, { type: 'text', text: PROMPT }] }] })
       .finalMessage();
     return JSON.parse(((r.content as any[]).find((b) => b.type === 'text')?.text) ?? '{"items":[],"nombre":null,"notas":null}');
   }

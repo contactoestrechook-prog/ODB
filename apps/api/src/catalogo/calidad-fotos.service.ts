@@ -1,6 +1,7 @@
 import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
+import { RAZONAMIENTO_HAIKU, razonamientoPara } from '../comun/modelos';
 import { SUPABASE } from '../supabase.provider';
 import { CatalogoService } from './catalogo.service';
 import { traerTodo } from '../comun/lotes';
@@ -11,6 +12,10 @@ import { INSTRUCCION, leerVeredicto, tipoDeImagen } from './calidad-fotos';
 // que no sirve se saca. Una foto casera (mesa de madera, una mano sosteniendo,
 // la góndola de fondo) queda peor que no tener foto.
 const MODELO = process.env.CALIDAD_FOTOS_MODELO ?? 'claude-haiku-4-5';
+// razonamiento encendido (regla del 9/9; iba sin él, revisión del 6/10/2026): en
+// Haiku 4.5 con el presupuesto mínimo (1024); con CALIDAD_FOTOS_MODELO en un
+// modelo nuevo (Opus o Sonnet 4.6 en adelante), el adaptativo
+const PIENSA = ((r) => (r.type === 'enabled' ? RAZONAMIENTO_HAIKU : r))(razonamientoPara(MODELO));
 const PARALELO = Math.max(1, Math.min(Number(process.env.CALIDAD_FOTOS_PARALELO ?? 6), 16));
 
 @Injectable()
@@ -89,7 +94,10 @@ export class CalidadFotosService {
     try {
       const r = await this.ia().messages.create({
         model: MODELO,
-        max_tokens: 150,
+        // con razonamiento (ver PIENSA): el tope tiene que quedar por encima del
+        // presupuesto y dejar lugar al veredicto (era 150, revisión del 6/10/2026)
+        max_tokens: 2048,
+        thinking: PIENSA,
         messages: [{
           role: 'user',
           content: [

@@ -1,6 +1,7 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
+import { RAZONAMIENTO_HAIKU } from '../comun/modelos';
 import { SUPABASE } from '../supabase.provider';
 import { HERRAMIENTAS_SCHEMAS, ejecutarHerramienta } from './herramientas';
 import { validarEnriquecimiento, esPorPeso } from './confianza';
@@ -62,7 +63,12 @@ export class AgenteService {
       for (let paso = 0; paso < 6; paso++) {
         const resp = await this.claude.messages.create({
           model: 'claude-haiku-4-5',
-          max_tokens: 1024,
+          // razonamiento encendido (regla del 9/9; iba sin él, revisión del
+          // 6/10/2026): presupuesto mínimo y el tope por encima (era 1024, igual al
+          // presupuesto). Los bloques de razonamiento vuelven tal cual con
+          // resp.content en el ida y vuelta de herramientas.
+          max_tokens: 4096,
+          thinking: RAZONAMIENTO_HAIKU,
           system: SISTEMA,
           tools: HERRAMIENTAS_SCHEMAS as any,
           messages,
@@ -148,7 +154,9 @@ export class AgenteService {
       try {
         const r = await this.claude.messages.create({
           model: 'claude-haiku-4-5',
-          max_tokens: 3500,
+          // razonamiento encendido (regla del 9/9; iba sin él, revisión del 6/10/2026)
+          max_tokens: 5000,
+          thinking: RAZONAMIENTO_HAIKU,
           messages: [{ role: 'user', content: `${PROMPT_ENRIQUECER}\n\nProductos:\n${JSON.stringify(grupo.map((p) => ({ sku: p.sku, nombre: p.nombre })))}` }],
         });
         const txt = r.content.filter((c: any) => c.type === 'text').map((c: any) => c.text).join('');

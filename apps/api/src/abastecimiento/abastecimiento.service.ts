@@ -11,6 +11,7 @@ import { costoUSD, usoDeRespuesta } from '../bot/tarifas';
 import { enLotes, traerTodo } from '../comun/lotes';
 import { armarPropuestas, cantidadPedible, type Propuesta } from './propuesta';
 import { esfuerzo, MODELO_PRINCIPAL, RAZONAMIENTO } from '../comun/modelos';
+import { unirConLoDicho } from '../comun/sin-repetir';
 
 // ============================================================
 // ABASTECIMIENTO (1/10/2026): el agente de la mesa de compras.
@@ -557,8 +558,17 @@ export class AbastecimientoService {
     // lo que el agente escribe en cada vuelta: suele explicar ANTES de llamar a
     // proponer_compra y cerrar sin texto después
     const dichos: string[] = [];
+    // el texto de la ÚLTIMA vuelta (revisión del 6/10/2026): el prompt pide la
+    // explicación al final, y pegarle todo lo dicho antes repetía la frase corta
+    // que el agente había escrito antes de proponer_compra. Va la última; de lo
+    // de antes, solo lo que ella no dice (unirConLoDicho, el mismo criterio que el
+    // bot); sin texto en la última vuelta, todo lo dicho, como siempre. En un
+    // corte (motivo) no hay mensaje final: va todo lo dicho.
+    let ultimoDicho = '';
     const cierre = (motivo?: string) => {
-      const texto = dichos.join('\n\n').trim();
+      const texto = motivo || !ultimoDicho
+        ? dichos.join('\n\n').trim()
+        : unirConLoDicho(dichos.slice(0, -1), ultimoDicho);
       const aviso = ordenes.length
         ? `La orden ${ordenes.map((n) => `#${n}`).join(', ')} ya quedó creada y está a aprobar: no la pidas de nuevo.`
         : '';
@@ -599,6 +609,7 @@ export class AbastecimientoService {
       if (res.stop_reason === 'refusal') return { respuesta: 'No puedo ayudar con eso. Probá reformularlo.', herramientas: usadas, ordenes, propuestas };
       const texto = res.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map((b) => b.text).join('\n').trim();
       if (texto) dichos.push(texto);
+      ultimoDicho = texto;
       if (res.stop_reason !== 'tool_use') {
         this.log.log(`abastecimiento: ${usadas.length} herramientas · ≈ USD ${costo.toFixed(3)}`);
         return cierre();

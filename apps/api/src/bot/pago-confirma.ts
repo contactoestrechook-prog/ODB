@@ -15,7 +15,7 @@
 
 import { pesos } from './comercio';
 import { casiIgual, SUCURSAL_CENTRAL } from './prolijo';
-import { esfuerzo } from '../comun/modelos';
+import { esfuerzo, razonamientoPara } from '../comun/modelos';
 
 export type ArchivoDelTurno = { base64: string; mime: string };
 export type MensajeDeCharla = { role: string; content: unknown };
@@ -215,18 +215,9 @@ export function respuestaPedidoPorComprobante(p: { codigo: string; tipo?: string
     : `Recibido. Tu pedido ${p.codigo} quedó confirmado para retirar en la ${SUCURSAL_CENTRAL}.`;
 }
 
-/**
- * Razonamiento siempre encendido (regla fija del 9/9/2026): adaptive en los
- * modelos 4.6 en adelante y en los 5; los viejos (Haiku 4.5, Sonnet y Opus 4.5
- * o anteriores) piensan con budget_tokens, que tiene que ser menor que max_tokens.
- */
-export function razonamientoPara(modelo: string): { type: 'adaptive' } | { type: 'enabled'; budget_tokens: number } {
-  const m = /claude-(?:opus|sonnet|haiku|fable|mythos)-(\d+)(?:[-.](\d+))?/i.exec(String(modelo ?? ''));
-  if (!m) return /claude-[123]\b|claude-[123]-/i.test(String(modelo ?? '')) ? { type: 'enabled', budget_tokens: 2048 } : { type: 'adaptive' };
-  const mayor = Number(m[1]);
-  const menor = m[2] && m[2].length <= 2 ? Number(m[2]) : 0; // «-20250514» es una fecha, no la versión
-  return mayor > 4 || (mayor === 4 && menor >= 6) ? { type: 'adaptive' } : { type: 'enabled', budget_tokens: 2048 };
-}
+// razonamientoPara vive en comun/modelos.ts desde el 6/10/2026 (lo usa también
+// el control de calidad de las fotos); se sigue exportando desde acá
+export { razonamientoPara };
 
 type ClienteClaude = { messages: { create: (params: any) => Promise<any> } };
 
@@ -256,8 +247,9 @@ export async function leerImporteDelComprobante(claude: ClienteClaude, modelo: s
     }],
     output_config: {
       // esfuerzo explícito (6/10/2026, Opus 5.5): su valor por defecto bajó de high
-      // a medium y se fija a la vista; en los modelos viejos (budget_tokens) no va
-      ...(razonamiento.type === 'adaptive' ? { effort: esfuerzo() } : {}),
+      // a medium y se fija a la vista; en los modelos viejos (budget_tokens) no va.
+      // Es parte del bot: ODB_BOT_ESFUERZO lo sube junto con él (revisión del 6/10)
+      ...(razonamiento.type === 'adaptive' ? { effort: esfuerzo('ODB_BOT_ESFUERZO') } : {}),
       format: {
         type: 'json_schema',
         schema: { type: 'object', properties: { importe: { anyOf: [{ type: 'number' }, { type: 'null' }] } }, required: ['importe'], additionalProperties: false },

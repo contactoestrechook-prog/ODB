@@ -124,8 +124,10 @@ export class AsistenteService {
             thinking: RAZONAMIENTO,
             // Una compra guiada tiene que contestar rápido: esfuerzo bajo. Las
             // cuentas y los precios no los hace el modelo, salen del catálogo.
-            // (ASISTENTE_ESFUERZO lo cambia; ojo con el tope de 50 s de la charla)
-            output_config: { effort: esfuerzo('ASISTENTE_ESFUERZO', 'low') },
+            // (ASISTENTE_ESFUERZO lo cambia; ojo con el tope de 50 s de la charla).
+            // ODB_ESFUERZO no lo toca (6/10/2026, revisión): subirle el esfuerzo a
+            // todo dejaba a la tienda sin tiempo y contestaba vacío.
+            output_config: { effort: esfuerzo('ASISTENTE_ESFUERZO', 'low', { general: false }) },
             system: [{ type: 'text', text: SYSTEM, cache_control: { type: 'ephemeral' } }],
             tools: HERRAMIENTAS,
             messages: historial,

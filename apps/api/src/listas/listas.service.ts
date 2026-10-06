@@ -6,7 +6,11 @@ import * as XLSX from 'xlsx';
 import { SUPABASE } from '../supabase.provider';
 import { elegirProveedor } from '../compras/proveedor-match';
 import { bultoDelRenglon, esRenglonDeDescuento, porcentajeDeDescuento, puedeVendersePorPeso, unidadesDeLaPresentacion, variacionPorUnidad, variacionDelRenglon } from '../compras/bultos';
-import { esfuerzo, jsonDe, MODELO_PRINCIPAL, RAZONAMIENTO } from '../comun/modelos';
+import { esfuerzo, jsonDe, MODELO_PRINCIPAL, RAZONAMIENTO, RAZONAMIENTO_HAIKU } from '../comun/modelos';
+
+// el tope de las lecturas de PDF y Excel con Opus (6/10/2026, revisión): la
+// salida máxima de Opus 5.5, porque el razonamiento sale del mismo tope
+export const MAX_TOKENS_LECTURA = 128000;
 
 export type ItemExtraido = { codigo: string | null; descripcion: string; precio: number };
 // pedido exportado del portal del proveedor: igual que la lista pero con cantidad
@@ -1020,10 +1024,14 @@ export class ListasService {
     // cruzaban las filas, como pasó con las facturas (ver el lector de arriba).
     // Un corte por el tope o un rechazo dan un error claro, no una lista vacía
     // que parece «el pedido no tenía nada».
+    // Tope 128000 (revisión del 6/10/2026): el razonamiento sale del mismo tope y
+    // antes no había (iban sin él); con 64000 un pedido largo que antes entraba
+    // podía cortarse. Opus 5.5 admite 128K de salida, va en streaming y se paga
+    // lo que se usa, no el tope.
     const respuesta = await claude.messages
       .stream({
         model: MODELO_PRINCIPAL,
-        max_tokens: 64000,
+        max_tokens: MAX_TOKENS_LECTURA,
         thinking: RAZONAMIENTO,
         output_config: { effort: esfuerzo('LISTAS_ESFUERZO'), format: { type: 'json_schema', schema: ESQUEMA_PEDIDO as any } },
         messages: [{ role: 'user', content: contenido }],
@@ -1062,11 +1070,13 @@ export class ListasService {
 
     // streaming: los catálogos largos generan salidas grandes
     // 6/10/2026: Opus 5.5 con razonamiento y esfuerzo medium, y el control de
-    // corte y de respuesta vacía (ver extraerPedidoConIA)
+    // corte y de respuesta vacía (ver extraerPedidoConIA). Tope 128000 (revisión
+    // del 6/10): una lista de ~2.000 renglones (55 a 60 mil tokens de JSON) entraba
+    // en 64000 sin razonamiento; con él sumado se cortaba.
     const respuesta = await claude.messages
       .stream({
         model: MODELO_PRINCIPAL,
-        max_tokens: 64000,
+        max_tokens: MAX_TOKENS_LECTURA,
         thinking: RAZONAMIENTO,
         output_config: { effort: esfuerzo('LISTAS_ESFUERZO'), format: { type: 'json_schema', schema: ESQUEMA_EXTRACCION as any } },
         messages: [{ role: 'user', content: contenido }],
@@ -1102,6 +1112,9 @@ export class ListasService {
           // catálogos masivos: extracción mecánica → Haiku (~10× más barato)
           model: 'claude-haiku-4-5',
           max_tokens: 64000,
+          // con razonamiento (regla del 9/9; iba sin él, revisión del 6/10/2026):
+          // el presupuesto mínimo, y el tope de Haiku (64K) queda muy por encima
+          thinking: RAZONAMIENTO_HAIKU,
           output_config: { format: { type: 'json_schema', schema: ESQUEMA_EXTRACCION as any } },
           messages: [
             {

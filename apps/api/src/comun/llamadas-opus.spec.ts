@@ -154,7 +154,11 @@ describe('el asistente de la tienda', () => {
       { stop_reason: 'tool_use', content: [pensar, { type: 'tool_use', id: 't1', name: 'buscar', input: { q: 'brie' } }], usage: uso },
       { stop_reason: 'tool_use', content: [pensar, { type: 'tool_use', id: 't2', name: 'responder', input: { mensaje: 'Te muestro brie.', grupos: [{ titulo: 'Quesos', skus: ['Q1'] }], sugerencias: [] } }], usage: uso },
     );
-    const r: any = await s.charlar([{ rol: 'usuario', texto: 'quiero brie' }]);
+    // ODB_ESFUERZO no lo toca: la tienda contesta en 50 s (revisión del 6/10/2026)
+    const antes = process.env.ODB_ESFUERZO;
+    process.env.ODB_ESFUERZO = 'high';
+    let r: any;
+    try { r = await s.charlar([{ rol: 'usuario', texto: 'quiero brie' }]); } finally { if (antes === undefined) delete process.env.ODB_ESFUERZO; else process.env.ODB_ESFUERZO = antes; }
     expect(r.mensaje).toBe('Te muestro brie.');
     expect(mockPedidos).toHaveLength(2);
     for (const p of mockPedidos) {
@@ -175,8 +179,13 @@ describe('listas: lectura de PDF y Excel', () => {
     const s: any = new ListasService({} as any);
     mockCola.push(conTexto(JSON.stringify({ items: [{ codigo: 'A1', descripcion: 'Vino', precio: 1000 }] })));
     expect(await s.extraerConIA(archivo, 'pdf')).toEqual([{ codigo: 'A1', descripcion: 'Vino', precio: 1000 }]);
-    opus55(mockPedidos[0], 64000);
+    // 128000 (revisión del 6/10/2026): el razonamiento sale del mismo tope y con
+    // 64000 una lista de ~2.000 renglones que antes entraba se cortaba
+    opus55(mockPedidos[0], 128000);
     expect(mockPedidos[0].output_config.effort).toBe('medium');
+    mockCola.push(conTexto(JSON.stringify({ items: [] })));
+    await s.extraerPedidoConIA(archivo, 'pdf');
+    opus55(mockPedidos[1], 128000);
   });
 
   it('cortada por el tope: un error que lo dice, no una lista vacía que parece «no había nada»', async () => {
@@ -189,20 +198,28 @@ describe('listas: lectura de PDF y Excel', () => {
 });
 
 describe('mesa de compras', () => {
-  it('el cierre por tiempo lleva las MISMAS herramientas con tool_choice none y razonamiento (iba sin ninguna de las dos cosas)', async () => {
+  it('el cierre por tiempo lleva las MISMAS herramientas con tool_choice none y razonamiento (iba sin ninguna de las dos cosas), a esfuerzo low', async () => {
     const s: any = new MesaComprasService({} as any);
     const historial = [
       { role: 'user', content: [{ type: 'text', text: 'costeame esto' }] },
       { role: 'assistant', content: [pensar, { type: 'tool_use', id: 'c1', name: 'calcular_costo', input: {} }] },
       { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'c1', content: '{"costo":100}' }] },
     ];
+    // revisión del 6/10/2026: corre cuando el esfuerzo del bucle ya se quedó sin
+    // tiempo y tiene 55 s: va en low, aunque ODB_ESFUERZO pida más
+    const antes = process.env.ODB_ESFUERZO;
+    process.env.ODB_ESFUERZO = 'high';
     mockCola.push(conTexto('El costo es $100.'));
-    expect(await s.cerrarConLoQueHay(new Anthropic(), historial, 'medium')).toBe('El costo es $100.');
+    try {
+      expect(await s.cerrarConLoQueHay(new Anthropic(), historial)).toBe('El costo es $100.');
+    } finally {
+      if (antes === undefined) delete process.env.ODB_ESFUERZO; else process.env.ODB_ESFUERZO = antes;
+    }
     const p = mockPedidos[0];
     opus55(p, 8000);
     expect(p.tool_choice).toEqual({ type: 'none' });
     expect(p.tools.length).toBeGreaterThan(0);
-    expect(p.output_config.effort).toBe('medium');
+    expect(p.output_config.effort).toBe('low');
     // la charla de antes va tal cual, con su razonamiento, y la nota se agrega al final
     expect(p.messages.slice(0, 3)).toEqual(historial);
   });

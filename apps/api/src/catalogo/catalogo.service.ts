@@ -3,6 +3,7 @@ import { ordenarPorRelevancia } from './relevancia';
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
+import { RAZONAMIENTO_HAIKU } from '../comun/modelos';
 import { SUPABASE } from '../supabase.provider';
 import { normalizarFoto, anotarNormalizada } from './normalizar-foto';
 import { traerTodo } from '../comun/lotes';
@@ -519,7 +520,10 @@ export class CatalogoService {
       const claude = new Anthropic();
       const r = await claude.messages.create({
         model: 'claude-haiku-4-5-20251001',
-        max_tokens: 400,
+        // razonamiento encendido (regla del 9/9; iba sin él, revisión del
+        // 6/10/2026): presupuesto mínimo y el tope por encima (era 400)
+        max_tokens: 2048,
+        thinking: RAZONAMIENTO_HAIKU,
         system:
           'Sos el Somelier ODB de O.D.B Premium Market. Escribís en español rioplatense, claro, respetuoso y sin esnobismo; sin emojis ni exclamaciones. Para el producto dado generás una nota de cata breve (2-3 oraciones, sin puntajes ni premios inventados) y una sugerencia de maridaje (1 oración con 2-3 ideas concretas). Texto plano. Si no tenés datos suficientes, hacé una nota honesta y general del estilo. Respondé SOLO un JSON válido: {"nota":"...","maridaje":"..."}.',
         messages: [

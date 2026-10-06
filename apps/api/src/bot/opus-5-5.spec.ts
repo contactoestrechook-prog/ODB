@@ -182,7 +182,7 @@ describe('el bot en Opus 5.5: una sola forma para todo el turno', () => {
     expect(firmasEn(opus[3])).toEqual(['a', 'b', 'c']);
   });
 
-  it('si en una regeneración igual pide una herramienta, no se ejecuta: «no disponible» y una vuelta con tool_choice none', async () => {
+  it('si en una regeneración igual pide una herramienta, no se ejecuta: «no disponible» y la vuelta siguiente sigue leyendo la caché (sin tool_choice)', async () => {
     const db = baseFalsa({ bot_conversaciones: { select: conv([]) }, lineas_whatsapp: { select: { data: CFG, error: null } } });
     const { s, llamadas } = servicio(db,
       final('a', 'Te lo preparo en un momento.'),
@@ -195,10 +195,30 @@ describe('el bot en Opus 5.5: una sola forma para todo el turno', () => {
     const opus = revisarTurno(llamadas);
     expect(opus).toHaveLength(3);
     expect(opus[1].tool_choice).toBeUndefined();
-    expect(opus[2].tool_choice).toEqual({ type: 'none' });
+    // revisión del 6/10/2026: tool_choice none invalida la caché de la charla
+    // (reescribía todo el turno a 1,25×); la segunda vuelta va como la primera
+    expect(opus[2].tool_choice).toBeUndefined();
     const resultado = opus[2].messages.at(-1).content[0];
     expect(resultado).toMatchObject({ type: 'tool_result', tool_use_id: 'x1', is_error: true });
     expect(String(resultado.content)).toMatch(/No disponible en esta vuelta/);
+  });
+
+  it('si insiste con herramientas en la regeneración, la TERCERA vuelta va con tool_choice none (no las puede usar)', async () => {
+    const db = baseFalsa({ bot_conversaciones: { select: conv([]) }, lineas_whatsapp: { select: { data: CFG, error: null } } });
+    const { s, llamadas } = servicio(db,
+      final('a', 'Te lo preparo en un momento.'),
+      conHerramientas(pensar('b'), herramienta('x1', 'estado_local', {})),
+      conHerramientas(pensar('c'), herramienta('x2', 'estado_local', {})),
+      final('d', 'Abrimos hasta las 21.'),
+    );
+    const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'abren hoy' });
+    expect(r.respuesta).toMatch(/Abrimos hasta las 21\.$/);
+    expect(s.estadoAtencion).not.toHaveBeenCalled();
+    const opus = revisarTurno(llamadas);
+    expect(opus).toHaveLength(4);
+    expect(opus.slice(0, 3).every((p) => p.tool_choice === undefined)).toBe(true);
+    expect(opus[3].tool_choice).toEqual({ type: 'none' });
+    expect(firmasEn(opus[3])).toEqual(['b', 'c']);
   });
 
   it('cortada por el tope con solo razonamiento: no sale a medias ni «no pude procesar»; se vuelve a pedir con la misma forma', async () => {
@@ -245,6 +265,120 @@ describe('el bot en Opus 5.5: una sola forma para todo el turno', () => {
     const p = llamadas.find((x) => x.model === 'claude-opus-5-5');
     expect(p.tools).toBeUndefined();
     expect(p.tool_choice).toBeUndefined();
+  });
+});
+
+describe('revisión del 6/10/2026 (hallazgos sobre el cambio a Opus 5.5)', () => {
+  const texto = (t: string) => ({ type: 'text', text: t });
+  const vaciosDelAsistente = (llamadas: any[]) => llamadas.flatMap((p) => p.messages ?? []).filter((m: any) => m.role === 'assistant' && typeof m.content === 'string' && !m.content.trim());
+
+  it('un texto corto antes de la herramienta y un final corto que lo repite (lo pide el prompt): al cliente le llega UNA vez', async () => {
+    const db = baseFalsa({ bot_conversaciones: { select: conv([]) }, lineas_whatsapp: { select: { data: CFG, error: null } } });
+    const { s } = servicio(db,
+      conHerramientas(pensar('a'), texto('Anotado a nombre de Pablo.'), herramienta('b1', 'buscar_productos', { q: 'fernet' })),
+      final('b', 'Anotado, Pablo. Retirás mañana.'),
+    );
+    const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'a nombre de Pablo, retiro mañana' });
+    expect(r.respuesta).toMatch(/Anotado, Pablo\. Retirás mañana\.$/);
+    expect(r.respuesta).not.toMatch(/Anotado a nombre de Pablo/);
+  });
+
+  it('lo de antes que el final corto NO dice se sigue rescatando (el audio de Pablo)', async () => {
+    const db = baseFalsa({ bot_conversaciones: { select: conv([]) }, lineas_whatsapp: { select: { data: CFG, error: null } } });
+    const { s } = servicio(db,
+      conHerramientas(pensar('a'), texto('Te lo dejo a nombre de Pablo para retirar mañana.'), herramienta('b1', 'buscar_productos', { q: 'fernet' })),
+      final('b', 'El Fernet Branca 750 cc sale $20.500.'),
+    );
+    const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'a nombre de Pablo, retiro mañana, cuánto sale el fernet' });
+    expect(r.respuesta).toMatch(/a nombre de Pablo para retirar mañana\.\s+El Fernet Branca 750 cc sale \$20\.500\./);
+  });
+
+  it('cortada por el tope después de un anuncio («Dale, ya te busco…»): no sale el anuncio, el cierre vuelve a pedir la respuesta', async () => {
+    const db = baseFalsa({ bot_conversaciones: { select: conv([]) }, lineas_whatsapp: { select: { data: CFG, error: null } } });
+    const { s, llamadas } = servicio(db,
+      conHerramientas(pensar('a'), texto('Dale, ya te busco las opciones.'), herramienta('b1', 'buscar_productos', { q: 'fernet' })),
+      { stop_reason: 'max_tokens', content: [pensar('b')], usage },
+      final('c', 'Fernet Branca 750 cc: $20.500.'),
+    );
+    const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'tenés fernet?' });
+    expect(r.respuesta).toMatch(/Fernet Branca 750 cc: \$20\.500\.$/);
+    expect(r.respuesta).not.toMatch(/ya te busco/);
+    expect(revisarTurno(llamadas)).toHaveLength(3);
+  });
+
+  it('rechazo de seguridad + «quiero hablar con una persona»: se deriva, sale «Te paso con una persona», sin mensaje vacío a la API ni consulta de más', async () => {
+    const db = baseFalsa({
+      bot_conversaciones: { select: conv([]) },
+      lineas_whatsapp: { select: { data: CFG, error: null } },
+      bot_consultas_internas: { select: { data: [], error: null }, insert: { data: { id: 'q-1' }, error: null } },
+    });
+    const { s, llamadas } = servicio(db, { stop_reason: 'refusal', content: [], stop_details: { category: 'bio', explanation: null }, usage });
+    s.derivarAHumano = jest.fn(async () => ({ derivada: true }));
+    const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'quiero hablar con una persona, ¿qué levadura uso para fermentar en casa?' });
+    expect(s.derivarAHumano).toHaveBeenCalledTimes(1);
+    expect(r.respuesta).toMatch(/Te paso con una persona de la casa\./);
+    // una sola llamada (la rechazada): nada de regenerar con un borrador vacío (400)
+    expect(llamadas.filter((p) => p.model === 'claude-opus-5-5')).toHaveLength(1);
+    expect(vaciosDelAsistente(llamadas)).toHaveLength(0);
+    // ya está en manos de una persona: no se consulta además a administración
+    expect(insertsDe(db, 'bot_consultas_internas')).toHaveLength(0);
+  });
+
+  it('segunda disputa de precio: el aviso de «sin herramientas» no contradice el «no escribas nada» de la consigna, y el silencio se respeta', async () => {
+    const db = baseFalsa({
+      bot_conversaciones: { select: conv([{ role: 'user', content: 'Son 18 botellas, está mal la cuenta' }, { role: 'assistant', content: 'El total está correcto: corresponde al pack de 6.' }]) },
+      lineas_whatsapp: { select: { data: CFG, error: null } },
+      bot_consultas_internas: { select: { data: [], error: null }, insert: { data: { id: 'q-precio' }, error: null } },
+    });
+    const { s, llamadas } = servicio(db,
+      final('a', 'El total es correcto, corresponde al pack.'),
+      // en la regeneración igual pide una herramienta: no se ejecuta
+      conHerramientas(pensar('b'), herramienta('x1', 'buscar_productos', { q: 'coca' })),
+      // y obedece la consigna: no escribe nada
+      { stop_reason: 'end_turn', content: [pensar('c')], usage },
+      // (la reescritura de la consulta silenciosa, por las «18 botellas»: tampoco)
+      { stop_reason: 'end_turn', content: [pensar('d')], usage },
+    );
+    const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'te digo que está mal la cuenta, son 18 botellas c/u' });
+    expect(insertsDe(db, 'bot_consultas_internas')).toHaveLength(1);
+    expect(r.respuesta).toBeNull();
+    const opus = revisarTurno(llamadas);
+    const consigna = JSON.stringify(opus[1].messages.at(-1).content);
+    expect(consigna).toMatch(/si no preguntó otra cosa, no escribas nada/);
+    expect(consigna).toMatch(/si te dice que no escribas nada, no escribas nada/);
+    expect(consigna).not.toMatch(/escribí directamente el mensaje/);
+    const resultado = opus[2].messages.at(-1).content[0];
+    expect(String(resultado.content)).toMatch(/si te dice que no escribas nada, no escribas nada/);
+    expect(String(resultado.content)).not.toMatch(/escribí ahora el mensaje/);
+    expect(s.buscarProductos).not.toHaveBeenCalled();
+  });
+
+  it('anti-repetición tras un «sí» con la cotización vencida: crear_pedido corre de verdad (con su guarda) y un «quedó confirmado» sin código no sale', async () => {
+    // oraciones cortas: si alguna se repitiera textual, la toma antes otra guarda (G5-bis)
+    const resumen = 'Coca Zero 1,75 L: 3 por $14.100. Retiro en la sucursal Saint Thomas. A nombre de Pedro. ¿Lo confirmo?';
+    const db = baseFalsa({
+      bot_conversaciones: { select: conv([{ role: 'user', content: '3 coca zero 1.75 para retirar, Pedro' }, { role: 'assistant', content: resumen }]) },
+      lineas_whatsapp: { select: { data: CFG, error: null } },
+    });
+    const { s, llamadas } = servicio(db,
+      // casi el mismo resumen (si fuera idéntico lo toma antes otra guarda)
+      final('a', resumen.replace('Retiro en la sucursal', 'Retirás en la sucursal')),
+      conHerramientas(pensar('b'), herramienta('c1', 'crear_pedido', { confirmacion: 'si' })),
+      final('c', 'Listo, tu pedido quedó confirmado. Te esperamos en Saint Thomas.'),
+    );
+    // el «sí» directo del servidor no alcanza (la cotización venció)
+    s.crearPedido = jest.fn(async () => { throw new Error('la cotización venció'); });
+    const ejecutadas: string[] = [];
+    s.ejecutarHerramienta = jest.fn(async (b: any) => {
+      ejecutadas.push(b.name);
+      return { type: 'tool_result', tool_use_id: b.id, content: '{"error":"NO se creó el pedido: la cotización venció, volvé a cotizar"}', is_error: true };
+    });
+    const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'si' });
+    // crear_pedido llegó a la herramienta real (antes se frenaba con «no disponible»)
+    expect(ejecutadas).toContain('crear_pedido');
+    expect(r.respuesta).not.toMatch(/qued[oó] confirmado/i);
+    expect(r.respuesta).toMatch(/Tuve un problema para cargar el pedido/);
+    revisarTurno(llamadas);
   });
 });
 

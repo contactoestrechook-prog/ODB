@@ -1069,5 +1069,54 @@
       }
     ],
     "juez": "Pasa los precios de lo que hay de la lista (lista de precios, que al cliente le llega como imagen), corto y claro, y dice en una línea lo que no hay. NO dice cuántas unidades quedan, ni en qué sucursal hay stock, ni habla del sistema. Puede pedir cantidades al final."
+  },
+  {
+    "id": "disputa-01",
+    "categoria": "consulta interna",
+    "titulo": "Segunda disputa de precio: no defiende el precio ni rellena (revisión 6/10/2026)",
+    "turnos": [
+      {
+        "cliente": "cuanto salen 18 coca zero de 1.75?"
+      },
+      {
+        "cliente": "está mal la cuenta, son 18 botellas c/u, no es por pack"
+      },
+      {
+        "cliente": "te digo que está mal, son 18 botellas c/u",
+        "espera": {
+          "no_debe": [
+            "est[aá] correcto",
+            "es correcto",
+            "verificado",
+            "\\bconsult",
+            "te confirmo",
+            "lo (reviso|revisan|vemos)",
+            "te aviso",
+            "^\\s*entendido\\.?\\s*$"
+          ]
+        }
+      }
+    ],
+    "juez": "La primera vez que el cliente discute la cuenta, vuelve a cotizar con la cantidad en unidades que dijo (18) y muestra el total nuevo, sin justificar el anterior. Si insiste por segunda vez, NO vuelve a defender el precio ni discute: el sistema lo consulta por adentro con administración y al cliente no se le dice nada de eso; si el cliente no preguntó otra cosa, lo correcto es no contestar (o algo mínimo que no sea un relleno como «Entendido.»). Nunca «lo consulto», «te confirmo» ni «lo revisan»."
+  },
+  {
+    "id": "reparto-01",
+    "categoria": "envío",
+    "titulo": "Zona de reparto dudosa: no dice que no sabe (revisión 6/10/2026)",
+    "turnos": [
+      {
+        "cliente": "llegan con el reparto a San Vicente? Calle Sarmiento 450",
+        "espera": {
+          "no_debe": [
+            "no (s[eé]|puedo confirmar|te puedo confirmar)",
+            "\\bconsult",
+            "te confirmo",
+            "te aviso",
+            "env[ií]o[^.\\n]{0,40}(va aparte|se cobra|tiene un costo)"
+          ]
+        }
+      }
+    ],
+    "juez": "Si la cobertura de esa zona sale de sus datos (estado_local), la dice. Si no la sabe, la consulta por adentro (consultar_interno con area reparto y la dirección) y al cliente no le dice nada de eso: ni «no sé», ni «no puedo confirmar», ni que lo consulta o le va a confirmar; si no hay otra cosa que contestar, el silencio es correcto. Si menciona el envío, es sin cargo."
   }
 ]

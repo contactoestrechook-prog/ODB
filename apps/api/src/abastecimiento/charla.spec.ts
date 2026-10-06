@@ -53,6 +53,24 @@ describe('abastecimiento en Opus 5.5 (6/10/2026)', () => {
     expect(mockLlamadas[1][1].content[0]).toEqual({ type: 'thinking', thinking: '', signature: 'a' });
   });
 
+  it('una frase corta antes de proponer_compra y la explicación al final (que la repite): sale la explicación, una sola vez (revisión del 6/10/2026)', async () => {
+    mockRespuestas.push(
+      { stop_reason: 'tool_use', usage: uso, content: [{ type: 'thinking', thinking: '', signature: 'a' }, texto('Lo urgente es Luvik.'), herramienta('a', { items: [{ sku: 'L1', cantidad: 1 }] })] },
+      { stop_reason: 'end_turn', usage: uso, content: [{ type: 'thinking', thinking: '', signature: 'b' }, texto('Lo urgente es Luvik: el plazo de entrega es provisorio y falta el mínimo del proveedor.')] },
+    );
+    const r: any = await servicio().charlar([{ rol: 'usuario', texto: '¿qué le pido a Luvik?' }]);
+    expect(r.respuesta).toBe('Lo urgente es Luvik: el plazo de entrega es provisorio y falta el mínimo del proveedor.');
+  });
+
+  it('un cierre corto que no dice lo de antes lo sigue llevando adelante', async () => {
+    mockRespuestas.push(
+      { stop_reason: 'tool_use', usage: uso, content: [texto('Lo urgente es Luvik.'), herramienta('a', { items: [{ sku: 'L1', cantidad: 1 }] })] },
+      { stop_reason: 'end_turn', usage: uso, content: [texto('Te dejé la nota abajo.')] },
+    );
+    const r: any = await servicio().charlar([{ rol: 'usuario', texto: '¿qué le pido a Luvik?' }]);
+    expect(r.respuesta).toBe('Lo urgente es Luvik.\n\nTe dejé la nota abajo.');
+  });
+
   it('va a Opus 5.5 con razonamiento, esfuerzo medium, caché sobre la charla y el prompt pide la explicación al final', async () => {
     mockRespuestas.push({ stop_reason: 'end_turn', usage: uso, content: [texto('ok')] });
     await servicio().charlar([{ rol: 'usuario', texto: 'hola' }]);

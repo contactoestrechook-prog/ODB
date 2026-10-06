@@ -2,7 +2,7 @@ import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
 import { SUPABASE } from '../supabase.provider';
-import { esfuerzo, jsonDe, MODELO_PRINCIPAL, RAZONAMIENTO } from '../comun/modelos';
+import { esfuerzo, jsonDe, MODELO_PRINCIPAL, RAZONAMIENTO, RAZONAMIENTO_HAIKU } from '../comun/modelos';
 
 const ESQUEMA = {
   type: 'object',
@@ -137,8 +137,9 @@ export class ComparadorService {
     }
     if (!content.length) throw new BadRequestException('Pegá el texto de la lista o subí un archivo (PDF/imagen).');
     content.push({ type: 'text', text: INSTRUCCION });
+    // razonamiento encendido (regla del 9/9; iba sin él, revisión del 6/10/2026): Haiku 4.5 va con presupuesto, el mínimo, y el tope queda por encima
     const r = await this.claude.messages
-      .stream({ model: 'claude-haiku-4-5', max_tokens: 32000, output_config: { format: { type: 'json_schema', schema: ESQUEMA } } as any, messages: [{ role: 'user', content }] })
+      .stream({ model: 'claude-haiku-4-5', max_tokens: 32000, thinking: RAZONAMIENTO_HAIKU, output_config: { format: { type: 'json_schema', schema: ESQUEMA } } as any, messages: [{ role: 'user', content }] })
       .finalMessage();
     const bloque = (r.content as any[]).find((b) => b.type === 'text');
     let items = (JSON.parse(bloque?.text ?? '{"items":[]}').items ?? [])

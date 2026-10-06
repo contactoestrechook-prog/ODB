@@ -5,7 +5,7 @@ import { MODELO_BOT } from './agente-bot';
 import { confirmacionInequivoca } from './comercio';
 import { puedeCotizar } from './completo';
 import {
-  cambiaElPedido, cambiaLaEntrega, comprobanteYaRegistrado, conDatosDePago, montoDelPedido, notasSinPagado, razonamientoPara,
+  cambiaElPedido, cambiaLaEntrega, comprobanteYaRegistrado, conDatosDePago, leerImporteDelComprobante, montoDelPedido, notasSinPagado, razonamientoPara,
   respuestaPedidoPorComprobante, sinPedirConfirmo, totalEfectivoDe,
 } from './pago-confirma';
 
@@ -627,5 +627,23 @@ describe('revisión de la plata (5/10/2026)', () => {
       expect([t, condicionalEnLaBase.test(t), confirmacionInequivoca(t)]).toEqual([t, true, false]);
     for (const t of ['Si es correcto', 'Sí te confirmo', 'si te lo confirmo', 'Si son esos', 'Si me lo preparas', 'si dale'])
       expect([t, condicionalEnLaBase.test(t), confirmacionInequivoca(t)]).toEqual([t, false, true]);
+  });
+});
+
+describe('la lectura del comprobante es parte del bot (revisión del 6/10/2026)', () => {
+  const antes = { bot: process.env.ODB_BOT_ESFUERZO, general: process.env.ODB_ESFUERZO };
+  afterEach(() => {
+    if (antes.bot === undefined) delete process.env.ODB_BOT_ESFUERZO; else process.env.ODB_BOT_ESFUERZO = antes.bot;
+    if (antes.general === undefined) delete process.env.ODB_ESFUERZO; else process.env.ODB_ESFUERZO = antes.general;
+  });
+
+  it('ODB_BOT_ESFUERZO la alcanza (antes leía solo ODB_ESFUERZO y quedaba en medium con el bot en high)', async () => {
+    delete process.env.ODB_ESFUERZO;
+    process.env.ODB_BOT_ESFUERZO = 'high';
+    const pedidos: any[] = [];
+    const claude = { messages: { create: async (p: any) => { pedidos.push(p); return { stop_reason: 'end_turn', content: [{ type: 'thinking', thinking: '', signature: 'x' }, { type: 'text', text: '{"importe":12000}' }] }; } } };
+    expect(await leerImporteDelComprobante(claude, 'claude-opus-5-5', { base64: 'JVBERi0=', mime: 'application/pdf' })).toBe(12000);
+    expect(pedidos[0].output_config.effort).toBe('high');
+    expect(pedidos[0].thinking).toEqual({ type: 'adaptive' });
   });
 });

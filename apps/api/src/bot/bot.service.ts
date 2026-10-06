@@ -55,6 +55,7 @@ function bonitoTelefono(t: string): string {
 }
 import { costoUSD, usoDeRespuesta } from './tarifas';
 import { esfuerzo, RAZONAMIENTO } from '../comun/modelos';
+import { unirConLoDicho } from '../comun/sin-repetir';
 import { cartelListaPrecios, cartelPedido, imagenEsperada, leerResumenDePedido, nombreParaCartel, pieSinPrecios, preciosDeLaRespuesta, ProductoConPrecio } from '../comun/cartel-pedido';
 import { etiquetaDeFila, Lineas, sesionPrincipal } from '../comun/lineas';
 import { cierraLaRafaga, esperaDeRafaga, juntarRafaga, msHastaContestar, type MensajeDeRafaga } from './espera-rafaga';
@@ -65,8 +66,18 @@ const envioMinimo = () => Number(process.env.ENVIO_MINIMO ?? 70000) || 70000;
 const HERRAMIENTAS_DE_LECTURA = new Set(['buscar_productos', 'consultar_cava', 'identificar_cliente', 'estado_local', 'estado_pedido']);
 // el tope de cada llamada del bot a Opus (6/10/2026; ver pedidoBot)
 const MAX_TOKENS_BOT = 16000;
-// lo que se le suma a la consigna de una regeneración (6/10/2026; ver regenerar)
-const AVISO_SIN_HERRAMIENTAS = '[nota interna: en esta vuelta no uses herramientas: escribí directamente el mensaje para el cliente.]';
+// lo que se le suma a la consigna de una regeneración (6/10/2026; ver regenerar).
+// NEUTRO (revisión del 6/10/2026): decía «escribí directamente el mensaje para el
+// cliente» y era la última línea de consignas que piden justo lo contrario («si
+// no hay nada más que contestar, no escribas nada»: la segunda disputa de
+// precio, la reescritura tras consultar por el reparto o tras una consulta). El
+// modelo obedecía a la última y al cliente le llegaba un «Entendido.» de relleno
+// donde la consulta silenciosa pide silencio. Ahora solo dice que no use
+// herramientas y que mande la nota de arriba, también cuando pide callar.
+const AVISO_SIN_HERRAMIENTAS = '[nota interna: en esta vuelta no uses herramientas: respondé solo con texto y seguí la nota anterior; si te dice que no escribas nada, no escribas nada.]';
+// lo que recibe una herramienta pedida en una vuelta que no las puede usar (con
+// el mismo criterio que el aviso: no fuerza a escribir lo que se pidió callar)
+const NO_DISPONIBLE = 'No disponible en esta vuelta: no uses herramientas; seguí la nota interna anterior con lo que ya tenés (si te dice que no escribas nada, no escribas nada).';
 // la caché del prompt fijo (6/10/2026; ver prefijoEnUso): se renueva si pasaron
 // 4 minutos sin llamadas (vive 5), mientras haya habido movimiento en la última hora
 const PREFIJO_REFRESCO_MS = 4 * 60_000;
@@ -1066,8 +1077,9 @@ export class BotService {
       // bot no pudo contestar: se consulta en silencio con administración, como
       // todo lo que no sabe, y al cliente no se le dice nada.
       if (r.stop_reason === 'refusal') {
+        // (la consulta la hace la red de respaldo, abajo, si el turno no terminó
+        // derivado a una persona: revisión del 6/10/2026)
         rechazado = true;
-        consultarEnSilencio = true;
         this.log.warn(`la IA rechazó el turno de ${telefono} (${(r as any).stop_details?.category ?? 'sin categoría'}): se consulta en silencio`);
         respuesta = '';
         break;
@@ -1177,11 +1189,16 @@ export class BotService {
       // incluido), y concatenar duplica todo. El texto pre-herramienta se rescata
       // SOLO si la última vuelta vino vacía o es un cierre muy corto que no se
       // sostiene solo ("Mientras tanto, puedo…" sin antecedente).
+      // Revisión del 6/10/2026: el prompt ahora pide repetir al final lo que ya le
+      // contestó, así que del texto de antes va solo lo que el final NO dice
+      // (unirConLoDicho); si no, al cliente le llegaba lo mismo dos veces.
+      // Y una respuesta CORTADA no sale con el anuncio de antes («Dale, ya te busco
+      // las opciones.»): queda vacía y el cierre de abajo la vuelve a pedir.
       const previos = textosDelTurno.join('\n\n').trim();
-      if (final && (final.length >= 60 || !previos)) {
-        respuesta = final;
-      } else if (final && previos) {
-        respuesta = `${previos}\n\n${final}`;
+      if (cortada) {
+        respuesta = '';
+      } else if (final) {
+        respuesta = unirConLoDicho(textosDelTurno, final);
       } else {
         // la vuelta obligada a escribir volvió vacía: lo que haya escrito antes, sin repetir
         respuesta = cerrarConTexto ? textoRescatado(textosDelTurno) : previos;
@@ -1573,14 +1590,23 @@ export class BotService {
           if ((r as any)?.derivado) respuestaFija.pagoEnAdministracion = true;
         } else {
           await this.derivarAHumano(linea, telefono, motivo, false);
-          // no se pega la frase al final: el mensaje quedaba contradictorio
-          // ("por este canal lo atiendo yo" + "ya lo paso con una persona").
-          // Se regenera sabiendo que la derivación YA está hecha.
-          messages.push({ role: 'assistant', content: respuesta });
-          // 6/10/2026: sin «tomo tu consulta y doy aviso al sector»
-          messages.push({ role: 'user', content: '[nota interna: el cliente pidió hablar con una persona y la derivación YA quedó hecha. Reescribí el mensaje completo, coherente con eso: primero decí que sos el asistente automático si te lo preguntó, y después, en una línea, que lo pasás con una persona de la casa («Te paso con una persona de la casa.»), sin prometer cuándo ni decir que avisás a nadie o que le van a responder. No ofrezcas seguir atendiéndolo vos ni preguntes "¿en qué puedo ayudarlo?".]' });
-          const tD = await this.regenerar(system, messages, tools, sumarUso);
-          respuesta = tD ?? TEXTO.DERIVACION_PEDIDA;
+          // SIN BORRADOR NO HAY QUÉ REESCRIBIR (revisión del 6/10/2026). Tras un
+          // rechazo de seguridad (o un pago en manos de administración) la
+          // respuesta está vacía: un mensaje del asistente vacío es un 400 de la
+          // API, el catch se lo tragaba, el cliente no recibía «Te paso con una
+          // persona» y la derivación quedaba sin marcar. Va la frase fija.
+          if (!respuesta.trim()) {
+            respuesta = TEXTO.DERIVACION_PEDIDA;
+          } else {
+            // no se pega la frase al final: el mensaje quedaba contradictorio
+            // ("por este canal lo atiendo yo" + "ya lo paso con una persona").
+            // Se regenera sabiendo que la derivación YA está hecha.
+            messages.push({ role: 'assistant', content: respuesta });
+            // 6/10/2026: sin «tomo tu consulta y doy aviso al sector»
+            messages.push({ role: 'user', content: '[nota interna: el cliente pidió hablar con una persona y la derivación YA quedó hecha. Reescribí el mensaje completo, coherente con eso: primero decí que sos el asistente automático si te lo preguntó, y después, en una línea, que lo pasás con una persona de la casa («Te paso con una persona de la casa.»), sin prometer cuándo ni decir que avisás a nadie o que le van a responder. No ofrezcas seguir atendiéndolo vos ni preguntes "¿en qué puedo ayudarlo?".]' });
+            const tD = await this.regenerar(system, messages, tools, sumarUso);
+            respuesta = tD ?? TEXTO.DERIVACION_PEDIDA;
+          }
           respuestaFija.derivada = true;
         }
         this.log.log(`derivación automática para ${telefono}: ${PIDE_HUMANO.test(texto) ? 'pidió humano' : 'reclamo de plata'}`);
@@ -1899,14 +1925,30 @@ export class BotService {
     // está por salir es casi igual al último mensaje del bot, el cliente ya lo
     // leyó y ya contestó: se reescribe una vez diciendo algo que AVANCE; si
     // vuelve a salir igual, la charla pasa a una persona en vez de repetir.
+    let reescritoPorRepeticion = false;
     if (respuesta && !respuestaFija.operacion && ultimosDelBot[0] && casiIgual(respuesta, ultimosDelBot[0])) {
       this.log.warn(`iba a repetir el mismo mensaje a ${telefono}: reescribo`);
       messages.push({ role: 'assistant', content: respuesta });
       messages.push({ role: 'user', content: `[nota interna: ese mensaje es casi idéntico al último que le mandaste, y el cliente ya lo leyó y contestó "${texto.slice(0, 120)}". Prohibido repetirlo. Si contestó que sí a "¿Lo confirmo?", el pedido está confirmado: llamá a crear_pedido AHORA. Si dio un dato (forma de pago, quién recibe, dirección), tomalo y avanzá al paso siguiente sin volver a resumir. Si no sabés cómo seguir, derivá a una persona con derivar_a_humano. Respondé distinto y corto.]` });
+      // LA NOTA PIDE crear_pedido O derivar_a_humano: la vuelta puede usarlas
+      // (revisión del 6/10/2026). Iba por una regeneración sin herramientas: con
+      // la lista a la vista el modelo pedía crear_pedido, se le contestaba «no
+      // disponible» y escribía «tu pedido quedó confirmado» sin código, sin pedido
+      // y sin que administración se enterara. Ahora crear_pedido corre con sus
+      // guardas reales (como la disputa de precio y los importes sin fuente), y lo
+      // que diga de «confirmado» se revisa abajo (reescritoPorRepeticion).
       let otra: string | null = null;
-      try { otra = await this.regenerar(system, messages, tools, sumarUso); } catch (e: any) { this.log.warn(`reescritura anti-repetición falló: ${e?.message ?? e}`); }
-      if (otra && !casiIgual(otra, ultimosDelBot[0]) && !casiIgual(otra, respuesta)) {
+      try { otra = (await this.regenerarConHerramientas(system, tools, messages, sumarUso, ejecutarEnElTurno)).texto; } catch (e: any) { this.log.warn(`reescritura anti-repetición falló: ${e?.message ?? e}`); }
+      reescritoPorRepeticion = true;
+      if (respuestaFija.operacion) {
+        // creó (o preparó) el pedido: sale el texto fijo de la herramienta (abajo)
+        if (otra) respuesta = otra;
+      } else if (otra && !casiIgual(otra, ultimosDelBot[0]) && !casiIgual(otra, respuesta)) {
         respuesta = otra;
+      } else if (herramientasDelTurno.has('derivar_a_humano') || respuestaFija.derivada) {
+        // la reescritura ya lo derivó: no se deriva dos veces
+        respuesta = TEXTO.PASA_A_UNA_PERSONA;
+        respuestaFija.derivada = true;
       } else {
         this.log.error(`el bot iba a repetir dos veces el mismo mensaje a ${telefono}: pasa a una persona`);
         await this.derivarAHumano(linea, telefono, `El bot iba a repetir el mismo mensaje. Último del cliente: ${texto.slice(0, 200)}`, true).catch(() => null);
@@ -2001,7 +2043,7 @@ export class BotService {
               if (b.type !== 'tool_use') continue;
               resA.push(permitida(b.name)
                 ? await ejecutarEnElTurno(b)
-                : { type: 'tool_result', tool_use_id: b.id, content: 'No disponible en esta vuelta: contestá con lo que ya tenés.', is_error: true });
+                : { type: 'tool_result', tool_use_id: b.id, content: NO_DISPONIBLE, is_error: true });
             }
             messages.push({ role: 'user', content: resA });
             sumarHechos();
@@ -2051,11 +2093,13 @@ export class BotService {
     // quedó confirmado» y a administración no le llegaba nada. Acá, sin regenerar:
     // fuera la frase; si hubo intento de pedido, la de ahora y el aviso PEDIDO
     // CONFIRMADO SIN CARGAR (prometioAvisoDePedido, como el reemplazo de arriba).
-    if (!guardasCorrieron && !respuestaFija.operacion && respuesta && RE_DICE_CARGADO.test(respuesta)
+    // (también después de la reescritura anti-repetición, que corre tras las
+    // guardas y puede decir «quedó confirmado» sin código: revisión del 6/10/2026)
+    if ((!guardasCorrieron || reescritoPorRepeticion) && !respuestaFija.operacion && respuesta && RE_DICE_CARGADO.test(respuesta)
         && fallosDelTurno.get('__pedido_creado__') !== 1 && !/\b(DOM|RET|PICKUP)-[A-Z0-9]{4,12}\b/.test(respuesta)) {
       const sinMentira = respuesta.split(/(?<=[.!?])\s+|\n/).filter((o) => !RE_DICE_CARGADO.test(o)).join(' ').replace(/\s{2,}/g, ' ').trim();
       const intento = huboIntentoEnElTurno || (confirmacionInequivoca(texto) && /¿lo confirmo\?/i.test(String(ultimoDelBot)));
-      this.log.warn(`turno con consulta: dijo pedido confirmado sin código a ${telefono}${intento ? ': sale a administración' : ''}`);
+      this.log.warn(`${guardasCorrieron ? 'reescritura anti-repetición' : 'turno con consulta'}: dijo pedido confirmado sin código a ${telefono}${intento ? ': sale a administración' : ''}`);
       if (intento) {
         prometioAvisoDePedido = true;
         respuesta = [sinMentira, TEXTO.PEDIDO_SIN_CARGAR].filter(Boolean).join(' ');
@@ -2124,7 +2168,11 @@ export class BotService {
       // Lo del pedido que no se pudo cargar y una derivación tienen su propio camino.
       const importeSinFuente = conImporteSinFuente(respuesta);
       const menciona = mencionaConsulta(respuesta) && !porElPedido() && !derivoEnElTurno();
-      if (importeSinFuente || menciona || consultarEnSilencio) {
+      // un rechazo de seguridad es algo que el bot no pudo contestar: se consulta
+      // en silencio, salvo que el turno ya haya quedado en manos de una persona
+      // (la derivación automática; revisión del 6/10/2026)
+      const porRechazo = rechazado && !derivoEnElTurno();
+      if (importeSinFuente || menciona || consultarEnSilencio || porRechazo) {
         await consultarLoQueNoSabia(menciona, importeSinFuente);
         // lo que trae el importe sin fuente no sale (armarConConsulta saca esas oraciones)
         if (respuestaFija.consultaPendiente) respuesta = await armarConConsulta(respuesta);
@@ -2335,20 +2383,33 @@ export class BotService {
   // texto) y sin marcas internas; si las trae, devuelve null.
   // 6/10/2026: va con la forma del bucle (pedidoBot), con la lista completa de
   // herramientas, y a la consigna se le suma que en esta vuelta no las use. Si
-  // igual pide una, no se ejecuta: se le contesta «no disponible» y va una vuelta
-  // con tool_choice none, que no las puede usar. Un rechazo de seguridad o una
-  // respuesta cortada por el tope no se toman como texto.
+  // igual pide una, no se ejecuta: se le contesta «no disponible». Un rechazo de
+  // seguridad o una respuesta cortada por el tope no se toman como texto.
+  // LA SEGUNDA VUELTA LEE LA CACHÉ (revisión del 6/10/2026): iba directo con
+  // tool_choice none, que según la guía de caché de Anthropic invalida la de los
+  // mensajes y reescribía a 1,25× todo el turno, búsquedas incluidas (con
+  // «queso», 15 a 30 mil tokens: USD 0,08 a 0,15 cada vez). Ahora la segunda va
+  // igual que la primera (tool_choice auto, leída a 0,05×) con el «no disponible»,
+  // y tool_choice none queda para una tercera, si todavía insiste.
   private async regenerar(system: Anthropic.TextBlockParam[], messages: Anthropic.MessageParam[], tools: Anthropic.Tool[], sumarUso: (u: any) => void): Promise<string | null> {
+    // un borrador vacío en la charla es un 400 de la API: no hay qué reescribir
+    // (revisión del 6/10/2026; cada guarda tiene su texto de respaldo)
+    const borrador = messages[messages.length - 2];
+    if (borrador?.role === 'assistant' && typeof borrador.content === 'string' && !borrador.content.trim()) {
+      this.log.warn('regeneración sin borrador (mensaje vacío del asistente): no se manda');
+      return null;
+    }
     if (tools.length) this.sinHerramientasEnLaConsigna(messages);
     let r = await this.claude.messages.create(this.pedidoBot(system, tools, messages));
     sumarUso(r.usage);
-    if (r.stop_reason === 'tool_use') {
-      this.log.warn('regeneración: pidió herramientas en una vuelta sin ellas; se le contesta «no disponible» y escribe');
+    for (let intento = 1; r.stop_reason === 'tool_use' && intento <= 2; intento++) {
+      this.log.warn(`regeneración: pidió herramientas en una vuelta sin ellas (intento ${intento}); se le contesta «no disponible»${intento === 2 ? ' y va con tool_choice none' : ''}`);
       messages.push({ role: 'assistant', content: r.content });
-      messages.push({ role: 'user', content: r.content.filter((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use').map((b) => ({ type: 'tool_result' as const, tool_use_id: b.id, content: 'No disponible en esta vuelta: escribí ahora el mensaje para el cliente con lo que ya tenés.', is_error: true })) });
-      r = await this.claude.messages.create(this.pedidoBot(system, tools, messages, { sinHerramientas: true }));
+      messages.push({ role: 'user', content: r.content.filter((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use').map((b) => ({ type: 'tool_result' as const, tool_use_id: b.id, content: NO_DISPONIBLE, is_error: true })) });
+      r = await this.claude.messages.create(this.pedidoBot(system, tools, messages, { sinHerramientas: intento === 2 }));
       sumarUso(r.usage);
     }
+    if (r.stop_reason === 'tool_use') return null;
     if (r.stop_reason === 'refusal' || r.stop_reason === 'max_tokens') {
       this.log.warn(`regeneración sin texto utilizable (${r.stop_reason})`);
       return null;
@@ -2409,15 +2470,20 @@ export class BotService {
 
   // MANTENER CALIENTE EL PROMPT FIJO (6/10/2026, ODB_BOT_CACHE_PREFIJO=mantener;
   // apagado por defecto). El prompt fijo con las herramientas (~11.500 tokens) se
-  // guarda en la caché 5 minutos. Medido del 2 al 6/10: 22 turnos llegaron tras
-  // un hueco de 5 a 60 minutos y lo volvieron a escribir entero (1,25× la
-  // entrada). Mientras la línea tuvo movimiento en la última hora, cada ~4
-  // minutos sin llamadas sale un pedido con max_tokens 0: no genera nada, solo
-  // lee el prefijo (0,05× en Opus 5.5) y le renueva los 5 minutos. Estimado con el
-  // tráfico del 2 al 6/10 a precios de Opus 5.5: evita ~USD 1,5 de escrituras y
-  // cuesta ~0,35 en lecturas. La alternativa, ODB_BOT_CACHE_PREFIJO=1h, guarda
-  // el prompt fijo una hora (la escritura cuesta 2× en vez de 1,25×): ahorra
-  // menos (~0,45 en el mismo período) pero no hace pedidos de más.
+  // guarda en la caché 5 minutos. Mientras la línea tuvo movimiento en la última
+  // hora, cada ~4 minutos sin llamadas sale un pedido con max_tokens 0: no genera
+  // nada, solo lee el prefijo (0,05× en Opus 5.5) y le renueva los 5 minutos.
+  // CUENTAS CORREGIDAS (revisión del 6/10/2026, con las horas de bot_mensajes del
+  // 2 al 6/10, línea pedidos: 140 turnos; 23 huecos de 5 a 60 minutos y 20 de más
+  // de una hora). Cada hueco suma pedidos cada ~4 minutos hasta una hora, también
+  // los que terminan fríos igual: salen ~400 a 440 pedidos, no ~150. Leer 11.500
+  // tokens a USD 0,20 por millón cuesta ~USD 0,9 a 1,0 y evita ~1,3 de escrituras
+  // (23 × 11.500 a USD 5 por millón, la escritura de 5.5; el «~1,5» de antes
+  // estaba hecho con la de Opus 5): neto ~USD −0,3 en el período, y suma ~90
+  // pedidos por día POR CADA instancia de Railway. ODB_BOT_CACHE_PREFIJO=1h ahorra
+  // más (~USD −0,55: los 23 huecos pasan a lectura y se pagan ~0,7 de más en las
+  // escrituras a 2× de los 20 huecos largos) sin pedidos de más: si se prende
+  // alguna, que sea 1h. Medirlo con «caché escrita 1 h» en el registro del turno.
   // El pedido repite modelo, razonamiento, esfuerzo, herramientas y el bloque
   // fijo del system (el que lleva la marca): si alguno cambia, la caché no coincide.
   private readonly prefijosVivos = new Map<string, { pedido: Anthropic.MessageCreateParamsNonStreaming; ultimaActividad: number; ultimoRefresco: number; enCurso: boolean; timer?: ReturnType<typeof setInterval> }>();

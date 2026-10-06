@@ -11,7 +11,7 @@ import { TONO_ODB } from '../comun/tono-odb';
 import { respuestaSinVueltas } from '../comun/sin-vueltas';
 import { unidadesPorBulto } from './bultos';
 import { HistorialComprasService } from './historial-compras.service';
-import { esfuerzo as esfuerzoDe, MODELO_PRINCIPAL, RAZONAMIENTO, type Esfuerzo } from '../comun/modelos';
+import { esfuerzo as esfuerzoDe, esfuerzoAlto, MODELO_PRINCIPAL, RAZONAMIENTO, type Esfuerzo } from '../comun/modelos';
 
 export type MensajeMesa = {
   rol: 'usuario' | 'asistente';
@@ -767,11 +767,13 @@ export class MesaComprasService {
     // esfuerzo alto se pasa de 100 s, se corta y se sigue con esfuerzo medio.
     // 6/10/2026 (Opus 5.5): por defecto medium, el valor de 5.5, que según la guía
     // de Anthropic rinde como Opus 5 en high y a igual nivel piensa más. Con
-    // MESA_ESFUERZO=high vuelve la correa de abajo (si se pasa de 100 s, medium).
+    // MESA_ESFUERZO (u ODB_ESFUERZO) en high, xhigh o max vuelve la correa de
+    // abajo (si se pasa de 100 s, medium); antes solo valía para high y con
+    // xhigh una vuelta se comía los 170 s (revisión del 6/10).
     let esfuerzo: Esfuerzo = esfuerzoDe('MESA_ESFUERZO');
     for (let vuelta = 0; vuelta < 8; vuelta++) {
       const queda = limite - Date.now();
-      if (queda < 15_000) return responder(await this.cerrarConLoQueHay(claude, historial, esfuerzo));
+      if (queda < 15_000) return responder(await this.cerrarConLoQueHay(claude, historial));
       let res: Anthropic.Message;
       try {
         // En streaming: una charla con varias tandas de costeo pasa los minutos
@@ -795,7 +797,7 @@ export class MesaComprasService {
             // planillas, fotos y PDF del comprador; con la marca automática al final,
             // la vuelta siguiente los lee de la caché (0,05× en Opus 5.5)
             cache_control: { type: 'ephemeral' },
-          }, { signal: AbortSignal.timeout(esfuerzo === 'high' ? Math.min(queda, 100_000) : queda) })
+          }, { signal: AbortSignal.timeout(esfuerzoAlto(esfuerzo) ? Math.min(queda, 100_000) : queda) })
           .finalMessage();
       } catch (e) {
         // Si se acabó el tiempo de esta pasada, no es un error para el
@@ -804,7 +806,7 @@ export class MesaComprasService {
         // haya, aunque todavía no se haya calculado nada. Un 400 en la pantalla
         // con la planilla cargada es la peor salida posible.
         const porTiempo = e instanceof Error && /abort|timeout/i.test(e.name + ' ' + e.message);
-        if (porTiempo && esfuerzo === 'high' && limite - Date.now() > 50_000) {
+        if (porTiempo && esfuerzoAlto(esfuerzo) && limite - Date.now() > 50_000) {
           // Se fue en pensar: segunda vuelta con esfuerzo medio y la orden de
           // usar la calculadora ya, en vez de mostrarle al comprador un "no llegué".
           esfuerzo = 'medium';
@@ -815,7 +817,7 @@ export class MesaComprasService {
           continue;
         }
         if (porTiempo) {
-          return responder(await this.cerrarConLoQueHay(claude, historial, esfuerzo));
+          return responder(await this.cerrarConLoQueHay(claude, historial));
         }
         // Que un error del modelo (sobrecarga, límite, timeout) no salga como un
         // 500 pelado: la pantalla tiene que poder decirle algo útil al comprador.
@@ -875,7 +877,7 @@ export class MesaComprasService {
       }
       historial.push({ role: 'user', content: resultados });
     }
-    return responder(await this.cerrarConLoQueHay(claude, historial, esfuerzo));
+    return responder(await this.cerrarConLoQueHay(claude, historial));
   }
 
   // Última llamada, sin herramientas y corta: que escriba el resultado de lo que
@@ -886,11 +888,17 @@ export class MesaComprasService {
   // la charla invalida ese razonamiento (400 en las cuentas nuevas, y el comprador
   // veía «no llegué a escribirla») y apagar el razonamiento es otro 400. Ahora va
   // con las mismas herramientas y tool_choice none (no las puede usar: es la
-  // única vuelta que tiene que escribir sí o sí), con razonamiento y el mismo
-  // esfuerzo del bucle. tool_choice none vuelve a escribir la charla en la caché
-  // (el prompt fijo y las herramientas se leen igual); es una vuelta rara, la del
-  // corte por tiempo, y acá importa más que escriba que lo que cuesta.
-  private async cerrarConLoQueHay(claude: Anthropic, historial: Anthropic.MessageParam[], esfuerzo: Esfuerzo = esfuerzoDe('MESA_ESFUERZO')) {
+  // única vuelta que tiene que escribir sí o sí) y con razonamiento.
+  // ESFUERZO LOW (revisión del 6/10/2026): es la vuelta que corre cuando el
+  // esfuerzo del bucle ya se quedó sin tiempo, y tiene 55 s para escribir lo
+  // calculado. Con el del bucle (medium, o high) no llegaba y el comprador veía
+  // «no llegué a escribirla»: lo que este cierre existe para evitar. Mantener el
+  // esfuerzo no salvaba la caché: tool_choice none ya invalida la de la charla
+  // (guía de caché de Anthropic); con low se pierde además, como mucho, la del
+  // prompt fijo y las herramientas, que es chica. En Opus 5.5 low igual piensa
+  // (no se puede apagar: regla del 9/9 cumplida). MESA_CIERRE_ESFUERZO lo
+  // cambia; ODB_ESFUERZO no (es una vuelta con reloj).
+  private async cerrarConLoQueHay(claude: Anthropic, historial: Anthropic.MessageParam[], esfuerzo: Esfuerzo = esfuerzoDe('MESA_CIERRE_ESFUERZO', 'low', { general: false })) {
     try {
       const res = await claude.messages
         .stream({
