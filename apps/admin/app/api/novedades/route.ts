@@ -13,9 +13,11 @@ export async function GET(req: Request) {
   const headers = await auth();
   if (!headers.Authorization) return NextResponse.json([]);
   const que = new URL(req.url).searchParams.get('que') ?? 'novedades';
-  const ruta = que === 'alertas' ? '/novedades/alertas' : '/novedades/pendientes';
+  const ruta = que === 'alertas' ? '/novedades/alertas' : que === 'atendidas' ? '/novedades/alertas/atendidas' : '/novedades/pendientes';
   const res = await fetch(`${API}${ruta}`, { headers, cache: 'no-store' });
-  if (!res.ok) return NextResponse.json([]);
+  // la campanita distingue "nada pendiente" de "no pude consultar" (antes decía
+  // "Nada pendiente" aunque la API estuviera caída)
+  if (!res.ok) return NextResponse.json(que === 'novedades' ? [] : { error: true }, { status: que === 'novedades' ? 200 : 502 });
   return NextResponse.json(await res.json());
 }
 

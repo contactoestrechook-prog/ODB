@@ -206,10 +206,11 @@ export function Trazabilidad() {
                       <b>{p.paso}</b>
                       {p.folio && <Etiqueta tono="neutro">{p.folio}</Etiqueta>}
                     </p>
-                    <p className="break-words text-xs text-tinta/60">
+                    {/* un rechazo ya trae "Rechazada por X el …" armado: no se repite quién y cuándo */}
+                    <p className={`break-words text-xs ${p.estado === 'rechazado' ? 'text-marca-hondo' : 'text-tinta/60'}`}>
                       {p.detalle}
-                      {p.quien && ` · ${p.quien}`}
-                      {p.cuando && ` · ${cuando(p.cuando)}`}
+                      {p.estado !== 'rechazado' && p.quien && ` · ${p.quien}`}
+                      {p.estado !== 'rechazado' && p.cuando && ` · ${cuando(p.cuando)}`}
                     </p>
                     <div className="flex flex-wrap gap-x-4">
                       {p.paso === 'Orden de compra' && (

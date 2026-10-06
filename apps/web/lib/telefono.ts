@@ -42,12 +42,15 @@ export const normalizarWhatsapp = (entrada: string): string | null => {
   return r.ok ? r.numero : null;
 };
 
+// el ejemplo con espacios duros: en celular no se parte "11 2345 / 6789"
+const EJEMPLO = "11 2345 6789";
+
 /** Qué decirle al cliente cuando el número no sirve. */
 export function errorDeWhatsapp(r: ResultadoWhatsapp): string | null {
   if (r.ok) return null;
   if (r.motivo === "vacio") return "Escribí tu WhatsApp para avisarte cuando el pedido esté listo.";
-  if (r.motivo === "sin-caracteristica") return "Falta la característica: escribilo como 11 2345 6789.";
-  return "Revisá el número: son 10 dígitos con la característica, por ejemplo 11 2345 6789.";
+  if (r.motivo === "sin-caracteristica") return `Falta la característica: escribilo como ${EJEMPLO}.`;
+  return `Revisá el número: son 10 dígitos con la característica, por ejemplo ${EJEMPLO}.`;
 }
 
 /** Para leerlo: "11 2345-6789", "221 456-7890", "2954 12-3456". */
@@ -56,5 +59,5 @@ export function whatsappLegible(numero: string): string {
   if (d.length !== 10) return numero;
   const c = largoCaracteristica(d);
   const resto = d.slice(c);
-  return `${d.slice(0, c)} ${resto.slice(0, resto.length - 4)}-${resto.slice(-4)}`;
+  return `${d.slice(0, c)} ${resto.slice(0, resto.length - 4)}-${resto.slice(-4)}`;
 }

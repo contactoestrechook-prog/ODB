@@ -219,7 +219,11 @@ export function ComprasWorkspace({ resumen, ordenes, proveedores, sugerencias, s
                     {o.firmadaPor && ` · aprobó ${o.firmadaPor}`}
                   </p>
                   {o.observaciones && <p className="mt-0.5 break-words text-xs italic text-tinta/60">“{o.observaciones}”</p>}
-                  {o.estado === 'cancelada' && o.rechazo_motivo && <p className="mt-0.5 text-xs text-marca-hondo">Rechazada: {o.rechazo_motivo}</p>}
+                  {o.estado === 'cancelada' && o.rechazo_motivo && (
+                    <p className="mt-0.5 text-xs text-marca-hondo">
+                      Rechazada{o.rechazador?.nombre ? ` por ${o.rechazador.nombre}` : ''}{o.rechazada_en ? ` el ${fecha(o.rechazada_en)}` : ''}: {o.rechazo_motivo}
+                    </p>
+                  )}
                 </div>
                 <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 sm:flex-col sm:items-end">
                   <p className="importe font-semibold text-tinta">{pesos(o.total ?? 0)}</p>
@@ -309,6 +313,11 @@ export function ComprasWorkspace({ resumen, ordenes, proveedores, sugerencias, s
                     <span className="break-words text-tinta">OP #{p.numero} · {p.proveedor?.razon_social}</span>
                     <Etiqueta tono={OP_TONO[p.estado] ?? 'neutro'} className="ml-2 align-middle">{OP_LABEL[p.estado] ?? p.estado}</Etiqueta>
                     <p className="text-xs text-tinta/60">{p.medio_pago}{p.vencimiento ? ` · vence ${fecha(p.vencimiento)}` : ''}{p.pagada_en ? ` · pagada ${fecha(p.pagada_en)}` : ''}</p>
+                    {p.estado === 'rechazada' && (
+                      <p className="text-xs text-marca-hondo">
+                        Rechazada{p.rechazador?.nombre ? ` por ${p.rechazador.nombre}` : ''}{p.rechazada_en ? ` el ${fecha(p.rechazada_en)}` : ''}{p.rechazo_motivo ? `: ${p.rechazo_motivo}` : ''}
+                      </p>
+                    )}
                   </div>
                   <div className="flex flex-wrap items-center gap-2 sm:flex-col sm:items-end">
                     <p className="importe font-medium text-tinta">{pesos(p.total ?? 0)}</p>

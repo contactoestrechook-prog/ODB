@@ -71,9 +71,6 @@ export default function Carrito() {
       scroll.current?.scrollTo({ y: Math.max(0, y - 40), animated: true });
     }, Platform.OS === 'ios' ? 320 : 150);
   }
-  const medir = (campo: Campo) => (e: { nativeEvent: { layout: { y: number } } }) => {
-    yCampo.current[campo] = e.nativeEvent.layout.y;
-  };
 
   async function usarMiUbicacion() {
     if (ubicando) return;
@@ -227,7 +224,7 @@ export default function Carrito() {
               <Ionicons name="car-sport-outline" size={18} color={C.humo} />
             </View>
           ) : (
-            <View onLayout={medir('direccion')}>
+            <View onLayout={(e) => { yCampo.current.direccion = e.nativeEvent.layout.y; }}>
               <Text style={est.pieLabel}>Enviar a</Text>
               <View style={est.campo}>
                 <Ionicons name="location" size={16} color={C.rojo} />
@@ -253,7 +250,7 @@ export default function Carrito() {
           )}
 
           <Text style={[est.tarjetaTitulo, { marginTop: 6 }]}>¿A quién le avisamos?</Text>
-          <View style={est.campo} onLayout={medir('nombre')}>
+          <View style={est.campo} onLayout={(e) => { yCampo.current.nombre = e.nativeEvent.layout.y; }}>
             <Ionicons name="person-outline" size={16} color={C.rojo} />
             <TextInput
               ref={refNombre}
@@ -270,7 +267,7 @@ export default function Carrito() {
               style={est.campoInput}
             />
           </View>
-          <View style={est.campo} onLayout={medir('telefono')}>
+          <View style={est.campo} onLayout={(e) => { yCampo.current.telefono = e.nativeEvent.layout.y; }}>
             <Ionicons name="logo-whatsapp" size={16} color={C.rojo} />
             <TextInput
               ref={refTelefono}
