@@ -8,7 +8,7 @@ import { Producto } from "../../ui/Producto";
 import { IcoLocal, IcoMoto, IcoTarjeta } from "../../ui/Iconos";
 import { FotoProducto } from "../../ui/FotoProducto";
 import { fotosCandidatas } from "../../../lib/fotos";
-import { Titulo } from "../../ui/Titulo";
+import { ROTULO, Titulo } from "../../ui/Titulo";
 
 export const dynamic = "force-dynamic";
 
@@ -58,10 +58,12 @@ export default async function ProductoPage({ params }: { params: Promise<{ sku: 
             <span className="inline-block mt-4 bg-white text-rojo ring-1 ring-rojo/30 text-[12px] font-extrabold rounded-full px-3 py-1">Precio socio · Comunidad ODB</span>
           )}
 
-          <div className="mt-6 flex items-end gap-3">
-            <span className="marca text-[40px] font-extrabold text-ink leading-none">{pesos(prod.precio)}</span>
-            {porKilo(prod) && <span className="text-[15px] font-bold text-humo mb-1">por kilo · se pide por peso</span>}
-            {pct != null && <span className="text-lg text-humo line-through mb-1">{pesos(prod.precioLista)}</span>}
+          {/* flex-wrap: en celular el precio de 40 px, "por kilo" y el tachado no
+              entran en una fila; lo que no entra baja, nada se sale */}
+          <div className="mt-6 flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
+            <span className="marca text-[34px] sm:text-[40px] font-extrabold text-ink leading-none whitespace-nowrap">{pesos(prod.precio)}</span>
+            {pct != null && <span className="text-lg text-humo line-through whitespace-nowrap">{pesos(prod.precioLista)}</span>}
+            {porKilo(prod) && <span className="text-[15px] font-bold text-humo">por kilo · se pide por peso</span>}
           </div>
 
           {prod.descripcion && <p className="mt-5 text-[15px] text-tinta/75 leading-relaxed max-w-md">{prod.descripcion}</p>}
@@ -82,9 +84,10 @@ export default async function ProductoPage({ params }: { params: Promise<{ sku: 
           )}
 
           <ul className="mt-8 space-y-3.5 text-sm text-tinta/75 max-w-md">
-            <li className="flex items-center gap-3"><IcoMoto size={19} className="text-dorado shrink-0" /> Envío a domicilio desde Suc Sant Thomas</li>
-            <li className="flex items-center gap-3"><IcoLocal size={19} className="text-dorado shrink-0" /> Retiro en el local (pick-up)</li>
-            <li className="flex items-center gap-3"><IcoTarjeta size={19} className="text-dorado shrink-0" /> Pago seguro con Mercado Pago</li>
+            {/* la sucursal se escribe como en la Placa roja: "Saint Thomas" (ver PlacaPedido.tsx) */}
+            <li className="flex items-center gap-3"><IcoMoto size={19} className="text-rojo shrink-0" /> Envío a domicilio desde la sucursal Saint Thomas</li>
+            <li className="flex items-center gap-3"><IcoLocal size={19} className="text-rojo shrink-0" /> Retiro en el local (pick-up)</li>
+            <li className="flex items-center gap-3"><IcoTarjeta size={19} className="text-rojo shrink-0" /> Pago seguro con Mercado Pago</li>
           </ul>
         </div>
       </div>
