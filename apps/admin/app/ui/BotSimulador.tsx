@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { BotonMicrofono } from './BotonMicrofono';
 import { Boton, Chips, Entrada, FOCO, Tarjeta, unir } from './kit';
+import { deClientes, hayVarias, useLineasWhatsapp } from './LineasWhatsapp';
 
 // La tarjeta Placa roja que acompaña la respuesta (resumen, pedido, precios):
 // la misma imagen y el mismo epígrafe que le llegan al cliente por WhatsApp.
@@ -16,7 +17,19 @@ const hora = () => new Date().toLocaleTimeString('es-AR', { hour: '2-digit', min
 // clientes (Opus + herramientas + memoria). Ojo: los pedidos que confirmes acá
 // son pedidos REALES en el sistema.
 export default function BotSimulador() {
-  const [linea, setLinea] = useState<'pedidos' | 'proveedores'>('pedidos');
+  // MULTILÍNEA (6/10/2026): se elige qué línea probar (cada número de clientes
+  // y la de proveedores). Sirve para probar la línea nueva antes de prenderla.
+  const [linea, setLinea] = useState<string>('pedidos');
+  const { lineas } = useLineasWhatsapp(60000);
+  const varias = hayVarias(lineas);
+  const deLaCasa = deClientes(lineas);
+  const opcionesLinea = [
+    ...(deLaCasa.length ? deLaCasa : [{ linea: 'pedidos', nombre: 'Línea pedidos' }]).map((l) => ({ valor: l.linea, etiqueta: varias ? l.nombre : 'Línea pedidos' })),
+    { valor: 'proveedores', etiqueta: 'Línea proveedores' },
+  ];
+  // el comportamiento sale del TIPO de la línea, no de su nombre
+  const tipo = linea === 'proveedores' ? 'proveedores' : ((lineas ?? []).find((l) => l.linea === linea)?.tipo ?? 'pedidos');
+  const nombreLinea = (lineas ?? []).find((l) => l.linea === linea)?.nombre;
   const [telefono, setTelefono] = useState(telAlAzar());
   const [turnos, setTurnos] = useState<Turno[]>([]);
   const [texto, setTexto] = useState('');
@@ -71,7 +84,7 @@ export default function BotSimulador() {
           etiquetaAccesible="Línea del bot"
           valor={linea}
           onCambiar={(l) => { setLinea(l); setTurnos([]); setTelefono(telAlAzar()); }}
-          opciones={(['pedidos', 'proveedores'] as const).map((l) => ({ valor: l, etiqueta: <span className="capitalize">Línea {l}</span> }))}
+          opciones={opcionesLinea}
         />
         <label className="flex items-center gap-2 text-sm text-tinta/70">
           Teléfono simulado
@@ -89,6 +102,12 @@ export default function BotSimulador() {
         </Boton>
       </div>
       <p className="text-sm font-medium text-atencion">Los pedidos confirmados acá son reales.</p>
+      {(lineas ?? []).find((l) => l.linea === linea)?.bot_activo === false && (
+        // una línea recién cargada entra pausada: se prueba con el banco de pruebas antes de prenderla (6/10/2026)
+        <p className="text-sm text-tinta/70">
+          Esta línea está pausada: el bot no le contesta a nadie. Para probarla igual, poné un teléfono del banco de pruebas (5491100000001 a 5491100000009).
+        </p>
+      )}
 
       {/* el "teléfono" */}
       <Tarjeta relleno={false} className="overflow-hidden">
@@ -98,7 +117,7 @@ export default function BotSimulador() {
           </div>
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold leading-tight">
-              O.D.B {linea === 'pedidos' ? 'Pedidos' : 'Proveedores'}
+              O.D.B {tipo === 'pedidos' ? (varias && nombreLinea ? nombreLinea : 'Pedidos') : 'Proveedores'}
             </p>
             <p className="text-xs text-white/70">{pensando ? 'escribiendo…' : 'en línea'}</p>
           </div>
@@ -107,8 +126,8 @@ export default function BotSimulador() {
         <div className="h-[52dvh] min-h-72 space-y-2 overflow-y-auto bg-crema p-3 sm:p-4" aria-live="polite">
           {turnos.length === 0 && !pensando && (
             <p className="px-2 pt-16 text-center text-sm text-tinta/60">
-              Escribile como si fueras un {linea === 'pedidos' ? 'cliente' : 'proveedor'} —
-              {linea === 'pedidos'
+              Escribile como si fueras un {tipo === 'pedidos' ? 'cliente' : 'proveedor'} —
+              {tipo === 'pedidos'
                 ? ' probá "hola, ¿qué fernet tenés?" o "recomendame un vino para un asado"'
                 : ' probá "hola, les mando la factura de esta semana"'}
             </p>

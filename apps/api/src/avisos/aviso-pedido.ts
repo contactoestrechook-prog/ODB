@@ -40,7 +40,16 @@ export type PedidoParaAviso = {
    * bot_cotizaciones.confirmacion («comprobante: $285.390»). null si no.
    */
   confirmadoPorComprobante?: string | null;
+  /**
+   * Con más de una línea de WhatsApp de clientes, a cuál escribió el cliente
+   * («Línea local (11 5555-1234)», 6/10/2026). Vacío con una sola línea: el
+   * aviso sale igual que siempre.
+   */
+  lineaWhatsapp?: string | null;
 };
+
+/** El renglón «WhatsApp: Línea local (11 5555-1234)» de los avisos; null si hay una sola línea. */
+const renglonDeLinea = (etiqueta?: string | null) => (etiqueta?.trim() ? `WhatsApp: ${etiqueta.trim()}` : null);
 
 const ZONA = 'America/Argentina/Buenos_Aires';
 const pesos = (n: number) => Math.round(Number(n) || 0).toLocaleString('es-AR');
@@ -158,6 +167,7 @@ export function textoDelAviso(p: PedidoParaAviso, opciones: { conRenglones: bool
     // el mismo pedido ya había llegado como PEDIDO CONFIRMADO SIN CARGAR: que no lo carguen dos veces
     opciones.antesSinCargar ? 'Es el pedido que antes llegó como CONFIRMADO SIN CARGAR: ya quedó cargado, NO lo carguen a mano.' : null,
     `Entró por ${NOMBRE_ORIGEN[origenDelPedido(p)]} ${cuandoFue(p.creado_en, opciones.ahora)}.`,
+    renglonDeLinea(p.lineaWhatsapp),
     entregaDe(p),
     `Cliente: ${cliente || 'sin datos (compra sin cuenta)'}`,
     ...(opciones.conRenglones ? renglonesDe(p) : []),
@@ -175,6 +185,7 @@ export function textoDeSinTomar(p: PedidoParaAviso, ahora = new Date()): string 
   return [
     encabezado('pedido_sin_tomar', codigoDe(p)),
     `Entró ${cuandoFue(p.creado_en, ahora)} (${hace}) y nadie lo tomó todavía.`,
+    renglonDeLinea(p.lineaWhatsapp),
     entregaDe(p),
     clienteDe(p) ? `Cliente: ${clienteDe(p)}` : null,
     `Total: $${pesos(p.total)}.`,
@@ -199,7 +210,7 @@ export function textoDePagado(p: PedidoParaAviso): string {
   ].join('\n');
 }
 
-export type SinCargar = { telefono: string; telefonoReal: string | null; nombre?: string | null; nota: string; resumen: string | null; aviso?: string | null };
+export type SinCargar = { telefono: string; telefonoReal: string | null; nombre?: string | null; nota: string; resumen: string | null; aviso?: string | null; lineaWhatsapp?: string | null };
 
 /** El cliente confirmó por WhatsApp y el pedido no se pudo cargar: hay que cargarlo a mano. */
 export function textoDeSinCargar(s: SinCargar): string {
@@ -211,6 +222,7 @@ export function textoDeSinCargar(s: SinCargar): string {
   return [
     encabezado('pedido_sin_cargar', `${tel}${numero}`),
     'El cliente confirmó un pedido por WhatsApp y el sistema NO lo pudo cargar. Hay que cargarlo a mano y confirmarle por el chat.',
+    renglonDeLinea(s.lineaWhatsapp),
     s.nombre?.trim() ? `Cliente: ${s.nombre.trim()}` : null,
     s.resumen ? `Lo último que se le cotizó:\n${s.resumen.replace(/\n?¿Lo confirmo\?\s*$/i, '').trim()}` : null,
     `Detalle: ${s.nota.slice(0, 600)}`,

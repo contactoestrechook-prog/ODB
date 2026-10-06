@@ -5,6 +5,7 @@ import { SUPABASE } from '../supabase.provider';
 import { celularWhatsapp, enviarImagenWhatsapp, enviarTextoWhatsapp } from '../comun/whatsapp';
 import { cartelesPedido, nombreParaCartel } from '../comun/cartel-pedido-cuadrado';
 import { cuandoLegible } from '../comun/cuando';
+import { Lineas, sesionPrincipal } from '../comun/lineas';
 import {
   codigoDe, encabezado, esperaParaEscalar, esperaParaReintentar, esTelefonoDePrueba, idLargoDeMensaje, LLEGO,
   MINUTOS_SIN_LLEGAR, MINUTOS_SIN_SALIR, type PedidoParaAviso, type SinCargar, telefonoLegible, textoDeCancelado,
@@ -65,7 +66,13 @@ export class AvisosPedidosService {
   estadoWhatsapp: string | null = null;
   private sinRespuesta = 0;
 
-  constructor(@Inject(SUPABASE) private readonly db: SupabaseClient) {}
+  // las líneas de WhatsApp (6/10/2026): de qué línea vino el pedido del bot y
+  // dónde está la configuración que comparten. Los avisos siguen saliendo por la
+  // sesión principal, como siempre.
+  private readonly lineas: Lineas;
+  constructor(@Inject(SUPABASE) private readonly db: SupabaseClient) {
+    this.lineas = new Lineas(db);
+  }
 
   /** Solo en producción (Railway) y con WhatsApp configurado. ODB_AVISOS_PEDIDOS=1 lo fuerza; =0 lo apaga. */
   puedeMandar(): boolean {
@@ -122,9 +129,9 @@ export class AvisosPedidosService {
     }
   }
 
-  /** El teléfono de administración: lineas_whatsapp.derivar_pagos_a de la línea de pedidos. */
+  /** El teléfono de administración: lineas_whatsapp.derivar_pagos_a de la línea principal (la configuración que comparten todas). */
   async telefonoAdministracion(): Promise<string | null> {
-    const { data } = await this.db.from('lineas_whatsapp').select('derivar_pagos_a').eq('linea', 'pedidos').eq('activa', true).limit(1).maybeSingle();
+    const data = await this.lineas.config(await this.lineas.principal());
     const n = celularWhatsapp(String((data as any)?.derivar_pagos_a ?? ''));
     return n.length >= 10 ? n : null;
   }
@@ -143,9 +150,11 @@ export class AvisosPedidosService {
     if (error || !p) return null;
     const [cli, bot] = await Promise.all([
       (p as any).cliente_id ? this.db.from('clientes').select('nombre, telefono').eq('id', (p as any).cliente_id).maybeSingle() : Promise.resolve({ data: null } as any),
-      this.db.from('bot_cotizaciones').select('telefono, confirmacion').eq('pedido_id', pedidoId).limit(1).maybeSingle(),
+      this.db.from('bot_cotizaciones').select('telefono, confirmacion, linea').eq('pedido_id', pedidoId).limit(1).maybeSingle(),
     ]);
     const cliente = (cli as any)?.data ?? null;
+    // con más de una línea, el aviso dice a qué número escribió el cliente (6/10/2026)
+    const lineaWhatsapp = (bot as any)?.data?.linea ? await this.lineas.etiqueta(String((bot as any).data.linea)).catch(() => '') : '';
     return {
       id: (p as any).id, qr_retiro: (p as any).qr_retiro, canal: String((p as any).canal), estado: String((p as any).estado),
       total: Number((p as any).total), creado_en: (p as any).creado_en, notas: (p as any).notas,
@@ -157,6 +166,7 @@ export class AvisosPedidosService {
       telefonoDelBot: (bot as any)?.data?.telefono ?? null,
       // confirmado por el comprobante de una transferencia: el aviso no dice «Se cobra al retirar» (5/10/2026)
       confirmadoPorComprobante: /^comprobante:/i.test(String((bot as any)?.data?.confirmacion ?? '')) ? String((bot as any).data.confirmacion) : null,
+      lineaWhatsapp: lineaWhatsapp || null,
       items: (((p as any).pedidos_items ?? []) as any[]).map((i) => ({ nombre: String(i.productos?.nombre ?? 'Producto'), cantidad: Number(i.cantidad), precio_unitario: Number(i.precio_unitario) })),
     };
   }
@@ -164,12 +174,16 @@ export class AvisosPedidosService {
   /** Lo de un pedido que no se pudo cargar: el teléfono, la nota y lo último que se le cotizó. */
   private async sinCargar(detalle: any, aviso: string | null = null): Promise<SinCargar> {
     const telefono = String(detalle?.telefono ?? '');
-    const { data: cot } = telefono
-      ? await this.db.from('bot_cotizaciones').select('resumen, creada_en').eq('telefono', telefono).is('pedido_id', null)
-          .gte('creada_en', new Date(Date.now() - 6 * 3600_000).toISOString()).order('creada_en', { ascending: false }).limit(1).maybeSingle()
+    // la cotización de la charla de ESA línea: el mismo cliente puede tener otra en la otra línea (6/10/2026)
+    const linea = String(detalle?.linea ?? '').trim();
+    let q: any = telefono ? this.db.from('bot_cotizaciones').select('resumen, creada_en').eq('telefono', telefono) : null;
+    if (q && linea) q = q.eq('linea', linea);
+    const { data: cot } = q
+      ? await q.is('pedido_id', null).gte('creada_en', new Date(Date.now() - 6 * 3600_000).toISOString()).order('creada_en', { ascending: false }).limit(1).maybeSingle()
       : { data: null };
+    const lineaWhatsapp = linea ? await this.lineas.etiqueta(linea).catch(() => '') : '';
     const { data: k } = telefono ? await this.db.from('bot_contactos').select('nombre, nombre_wa').eq('telefono', telefono.replace(/\D/g, '')).maybeSingle() : { data: null };
-    return { telefono, telefonoReal: await this.telefonoReal(telefono), nombre: (k as any)?.nombre ?? (k as any)?.nombre_wa ?? null, nota: String(detalle?.nota ?? ''), resumen: (cot as any)?.resumen ?? null, aviso };
+    return { telefono, telefonoReal: await this.telefonoReal(telefono), nombre: (k as any)?.nombre ?? (k as any)?.nombre_wa ?? null, nota: String(detalle?.nota ?? ''), resumen: (cot as any)?.resumen ?? null, aviso, lineaWhatsapp: lineaWhatsapp || null };
   }
 
   private async enviar(a: FilaAviso) {
@@ -184,7 +198,7 @@ export class AvisosPedidosService {
     let pagadoAlArmar = false;
     let texto: string;
     if (a.tipo === 'pedido_sin_cargar') {
-      const cargado = await this.pedidoCargadoDespues(String(a.detalle?.telefono ?? ''), a.creado_en);
+      const cargado = await this.pedidoCargadoDespues(String(a.detalle?.telefono ?? ''), a.creado_en, a.detalle?.linea);
       if (cargado) return this.omitir(a, `el pedido se cargó después (${cargado}): sale como PEDIDO NUEVO`);
       const s = await this.sinCargar(a.detalle, a.id);
       texto = textoDeSinCargar(s);
@@ -341,10 +355,12 @@ export class AvisosPedidosService {
   }
 
   /** ¿El chat de un pedido "sin cargar" terminó teniendo su pedido? Devuelve el código. */
-  private async pedidoCargadoDespues(telefono: string, desde: string): Promise<string | null> {
+  private async pedidoCargadoDespues(telefono: string, desde: string, linea?: string | null): Promise<string | null> {
     if (!telefono) return null;
-    const { data } = await this.db.from('bot_cotizaciones').select('pedido_id, confirmada_en, pedidos(qr_retiro)')
-      .eq('telefono', telefono).not('pedido_id', 'is', null)
+    // solo un pedido de la MISMA línea cuenta como «se cargó después» (6/10/2026)
+    let q: any = this.db.from('bot_cotizaciones').select('pedido_id, confirmada_en, pedidos(qr_retiro)').eq('telefono', telefono);
+    if (linea) q = q.eq('linea', String(linea));
+    const { data } = await q.not('pedido_id', 'is', null)
       .gte('confirmada_en', new Date(desde).toISOString())
       .order('confirmada_en', { ascending: true }).limit(1).maybeSingle();
     return (data as any)?.pedido_id ? String((data as any)?.pedidos?.qr_retiro ?? (data as any).pedido_id) : null;
@@ -433,7 +449,8 @@ export class AvisosPedidosService {
   private wahaBase() {
     const url = process.env.WAHA_URL;
     const key = process.env.WAHA_API_KEY;
-    return url && key ? { base: url.replace(/\/$/, ''), key, sesion: process.env.WAHA_SESSION || 'default' } : null;
+    // los avisos salen por la línea principal, como siempre (6/10/2026)
+    return url && key ? { base: url.replace(/\/$/, ''), key, sesion: sesionPrincipal() } : null;
   }
 
   private async getWaha(ruta: string): Promise<any> {

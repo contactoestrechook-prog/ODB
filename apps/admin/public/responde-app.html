@@ -771,7 +771,8 @@ function _contactoSel() { try { return (datos.contacts || []).find(x => x.id ===
 async function _enviarPorODB(body) {
   const c = _contactoSel();
   const r = await fetch('/api/responde-panel', { method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ ...body, whatsapp_id: (c && c.whatsapp_id) || '' }) });
+    // la línea de WhatsApp (6/10/2026): si el panel abrió la app para una línea, lo que se manda sale por ella; si no, por la de la charla
+    body: JSON.stringify({ ...body, whatsapp_id: (c && c.whatsapp_id) || '', linea: _qs.get('linea') || '' }) });
   const j = await r.json().catch(() => ({ ok: false, error: 'respuesta inválida' }));
   if (j && j.ok) {
     // igual que el envío nativo: la charla pasa a "atendés vos"

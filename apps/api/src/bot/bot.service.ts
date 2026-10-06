@@ -54,6 +54,7 @@ function bonitoTelefono(t: string): string {
 }
 import { costoUSD } from './tarifas';
 import { cartelListaPrecios, cartelPedido, imagenEsperada, leerResumenDePedido, nombreParaCartel, pieSinPrecios, preciosDeLaRespuesta, ProductoConPrecio } from '../comun/cartel-pedido';
+import { etiquetaDeFila, Lineas, sesionPrincipal } from '../comun/lineas';
 
 // pedido mínimo para envío a domicilio (Leandro, 25/9/2026); ENVIO_MINIMO lo cambia sin tocar código
 const envioMinimo = () => Number(process.env.ENVIO_MINIMO ?? 70000) || 70000;
@@ -117,13 +118,19 @@ export class BotService {
   private readonly colas = new Map<string, Promise<unknown>>();
   // ventana deslizante de llegadas por teléfono para el límite horario
   private readonly llegadas = new Map<string, number[]>();
+  // Las líneas de WhatsApp (6/10/2026): tipo, sesión de WAHA, configuración
+  // compartida y rótulo de cada número. Se arma acá adentro (no por inyección)
+  // para que los `new BotService(db, …)` de las pruebas sigan andando.
+  readonly lineas: Lineas;
   constructor(
     @Inject(SUPABASE) private readonly db: SupabaseClient,
     private readonly pedidos: PedidosService,
     private readonly catalogo: CatalogoService,
     private readonly listas: ListasService,
     private readonly mercadopago: MercadoPagoService,
-  ) {}
+  ) {
+    this.lineas = new Lineas(db);
+  }
 
   // --- El agente conversacional (cerebro de las dos líneas) ---
   //
@@ -131,7 +138,8 @@ export class BotService {
   // Acá corre Opus con razonamiento adaptativo y el loop de herramientas,
   // con memoria por (línea, teléfono) persistida en bot_conversaciones.
   async charla(dto: {
-    linea?: 'pedidos' | 'proveedores';
+    /** el ID de la línea (lineas_whatsapp.linea): 'pedidos', 'proveedores' o una línea nueva */
+    linea?: string;
     /** número del negocio al que llegó el mensaje (E.164). Resuelve la línea solo. */
     numeroLinea?: string;
     telefono: string;
@@ -146,10 +154,18 @@ export class BotService {
     // Patrón MetoGroup: el puente manda el número al que LLEGÓ el mensaje y el
     // sistema resuelve la línea. Así un mismo flujo de n8n sirve para cualquier
     // número sin tener la lógica del negocio adentro.
-    let linea: 'pedidos' | 'proveedores' = dto.linea === 'proveedores' ? 'proveedores' : 'pedidos';
+    // MULTILÍNEA (6/10/2026): cualquier línea cargada vale, no solo 'pedidos' y
+    // 'proveedores'. Antes una línea con otro nombre caía en 'pedidos' y el
+    // cliente de la línea 2 quedaba en la charla de la línea 1. Una línea que no
+    // existe va a la principal, como antes iba a 'pedidos'.
+    let linea: string = dto.linea === 'proveedores' ? 'proveedores' : await this.lineas.principal();
+    if (dto.linea && dto.linea !== 'proveedores') {
+      if (await this.lineas.existe(dto.linea)) linea = dto.linea;
+      else this.log.warn(`Línea desconocida: ${dto.linea} (se usa ${linea})`);
+    }
     if (dto.numeroLinea) {
       const { data: resuelta } = await this.db.rpc('linea_de_numero', { p_numero: String(dto.numeroLinea) });
-      if (resuelta === 'proveedores' || resuelta === 'pedidos') linea = resuelta;
+      if (typeof resuelta === 'string' && (await this.lineas.existe(resuelta))) linea = resuelta;
       else this.log.warn(`Número de línea desconocido: ${dto.numeroLinea} (se usa ${linea})`);
     }
     const telefono = (dto.telefono ?? '').replace(/\D/g, '');
@@ -197,8 +213,8 @@ export class BotService {
         const hace10 = new Date(Date.now() - 10 * 60_000).toISOString();
         const { data: prev } = await this.db.from('alertas_internas').select('id').eq('tipo', 'bot_caido').gte('creada_en', hace10).limit(1).maybeSingle();
         if (!prev) {
-          const { data: cfg } = await this.db.from('lineas_whatsapp').select('avisar_proveedores_a').eq('linea', linea).eq('activa', true).limit(1).maybeSingle();
-          await this.db.from('alertas_internas').insert({
+          const cfg = await this.lineas.config(linea);
+          await this.insertarAlerta({
             para_usuario: cfg?.avisar_proveedores_a ?? null,
             tipo: 'bot_caido',
             titulo: 'El bot de WhatsApp no puede responder',
@@ -223,6 +239,30 @@ export class BotService {
     } finally {
       if (this.colas.get(clave) === actual) this.colas.delete(clave);
     }
+  }
+
+  // LA LÍNEA EN LOS AVISOS DE LA CAMPANITA (6/10/2026). Toda alerta que sale de
+  // una charla lleva la línea (referencia.linea) y, cuando hay más de una línea
+  // de clientes, su rótulo (referencia.lineaNombre): «Consulta de pago de Juan»
+  // no decía a qué número escribió Juan, y quien atiende podía contestarle por
+  // el otro. Con una sola línea la fila sale igual que antes.
+  private async insertarAlerta(fila: { referencia?: any; [k: string]: any }): Promise<{ error: any }> {
+    const ref = fila.referencia;
+    const etq = ref?.linea ? await this.lineas.etiqueta(String(ref.linea)).catch(() => '') : '';
+    const lista = etq ? { ...fila, referencia: { ...ref, lineaNombre: etq } } : fila;
+    return (await this.db.from('alertas_internas').insert(lista)) as any;
+  }
+
+  /** « de la Línea local (11 5555-1234)» para pegar después del nombre del cliente; '' con una sola línea. */
+  private async deLaLinea(linea: string | null | undefined): Promise<string> {
+    const etq = await this.lineas.etiqueta(linea).catch(() => '');
+    return etq ? ` de la ${etq}` : '';
+  }
+
+  /** «WhatsApp: Línea local (11 5555-1234)», un renglón para un aviso interno; null con una sola línea. */
+  private async renglonDeLinea(linea: string | null | undefined): Promise<string | null> {
+    const etq = await this.lineas.etiqueta(linea).catch(() => '');
+    return etq ? `WhatsApp: ${etq}` : null;
   }
 
   // Los teléfonos del equipo (dueños, backoffice) no se atienden: si alguien de
@@ -270,15 +310,16 @@ export class BotService {
   // teléfono del local tiene agendado al contacto. Sin esto la bandeja mostraba
   // "+191169078280330@lid" y nadie reconocía a nadie (2026-09-08).
   private contactosResueltos = new Map<string, number>();
-  async resolverContactoWaha(claveContacto: string, esLid: boolean) {
+  async resolverContactoWaha(claveContacto: string, esLid: boolean, linea?: string) {
     const base = (process.env.WAHA_URL ?? '').replace(/\/$/, '');
     const key = process.env.WAHA_API_KEY ?? '';
-    const sesion = process.env.WAHA_SESSION ?? 'odb';
     if (!base || !key || !claveContacto) return null;
     const ahora = Date.now();
     const previo = this.contactosResueltos.get(claveContacto);
     if (previo && ahora - previo < 6 * 3600_000) return null;
     this.contactosResueltos.set(claveContacto, ahora);
+    // el @lid y la agenda se preguntan al teléfono por el que escribió (6/10/2026)
+    const sesion = await this.lineas.sesion(linea);
     const opts = { headers: { 'X-Api-Key': key }, signal: AbortSignal.timeout(6000) } as any;
     let telefonoReal: string | null = null;
     const lid = esLid ? `${claveContacto}@lid` : null;
@@ -381,7 +422,7 @@ export class BotService {
   }
 
   private async charlaInterna(
-    linea: 'pedidos' | 'proveedores',
+    linea: string,
     telefono: string,
     dto: { mensaje?: string; mensajeId?: string; archivoBase64?: string; mimeType?: string; archivoUrl?: string; vistaPreviaDeVideo?: boolean; deAudio?: boolean },
   ) {
@@ -400,13 +441,18 @@ export class BotService {
         : { respuesta: null, silencio: true, motivo: 'mensaje ya procesado sin respuesta' } as any;
     }
 
+    // QUÉ HACE LA LÍNEA (6/10/2026): el comportamiento depende del tipo, no del
+    // nombre. La línea nueva se llama distinto y es de pedidos: tiene que tener
+    // las mismas herramientas, el mismo prompt y todas las reglas fijas.
+    const tipoLinea = await this.lineas.tipo(linea);
+
     // 1) armar el texto del turno del usuario. Si vino un adjunto (factura),
     //    se procesa ACÁ (nunca pasa base64 por el modelo) y se inyecta el resultado.
     let texto = (dto.mensaje ?? '').trim();
     let imagenDelTurno: { base64: string; mime: string } | null = null;
     let documentoDelTurno: { base64: string } | null = null;
     if (dto.archivoBase64) {
-      if (linea === 'proveedores') {
+      if (tipoLinea === 'proveedores') {
         try {
           const r = await this.recibirFactura({ telefono, archivoBase64: dto.archivoBase64, mimeType: dto.mimeType ?? 'image/jpeg' });
           texto += `\n[El proveedor envió un comprobante. El sistema lo procesó y quedó en la cola de revisión: proveedor "${r.proveedor}"${r.proveedorEnSistema ? '' : ' (NO reconocido en el sistema)'}, comprobante ${r.comprobante ?? 'sin número'}, total $${r.total ?? '?'}, ${r.renglones} renglones (${r.conMatch} matcheados).]`;
@@ -451,13 +497,9 @@ export class BotService {
 
     // Interruptor GENERAL de la línea (emergencia): si el bot está apagado para
     // toda la línea, se guarda el mensaje y no se contesta nada.
-    const { data: lineaCfg } = await this.db
-      .from('lineas_whatsapp')
-      .select('bot_activo, notas')
-      .eq('linea', linea)
-      .eq('activa', true)
-      .limit(1)
-      .maybeSingle();
+    // bot_activo es el de ESTA línea (cada número tiene su interruptor); las
+    // notas vigentes, las de la configuración compartida (comparte todo).
+    const lineaCfg = await this.lineas.config(linea);
     // Banco de pruebas: los números 549110000000x están reservados para
     // auditar el cerebro con la línea APAGADA. Nunca son clientes reales, esta
     // ruta no envía WhatsApp, y sin esto la única forma de auditar era prender
@@ -751,7 +793,7 @@ export class BotService {
     // 6/10/2026 al cliente no se le avisó nada de ellas (consulta silenciosa): el
     // modelo no las menciona, y si el cliente pregunta solo por eso, no se le
     // contesta nada (la respuesta le llega cuando conteste el área).
-    const consultasAbiertas = linea === 'pedidos' ? await this.consultasAbiertas(linea, telefono, HORAS_CONSULTA_ABIERTA) : [];
+    const consultasAbiertas = tipoLinea === 'pedidos' ? await this.consultasAbiertas(linea, telefono, HORAS_CONSULTA_ABIERTA) : [];
     if (consultasAbiertas.length) {
       // por su tema; las de antes del tema, por sus preguntas (o el arranque del texto)
       const deQueTrata = (c: any) => {
@@ -778,11 +820,11 @@ export class BotService {
     ];
 
     // 3) loop del agente: Opus razona, pide herramientas, las ejecutamos y sigue
-    const tools = linea === 'pedidos' ? HERRAMIENTAS_PEDIDOS : HERRAMIENTAS_PROVEEDORES;
+    const tools = tipoLinea === 'pedidos' ? HERRAMIENTAS_PEDIDOS : HERRAMIENTAS_PROVEEDORES;
     const system: Anthropic.TextBlockParam[] = [
       {
         type: 'text',
-        text: linea === 'pedidos' ? SYSTEM_PEDIDOS : SYSTEM_PROVEEDORES,
+        text: tipoLinea === 'pedidos' ? SYSTEM_PEDIDOS : SYSTEM_PROVEEDORES,
         cache_control: { type: 'ephemeral' },
       },
     ];
@@ -1195,8 +1237,8 @@ export class BotService {
       this.log.warn(`promesa sin respaldo para ${telefono} (tras reintento): creo la nota interna`);
       const { data: autoPrev } = await this.db.from('bot_notas_equipo').select('id').eq('telefono', telefono).like('nota', '[auto]%').gte('creada_en', new Date(Date.now() - 10 * 60_000).toISOString()).limit(1).maybeSingle();
       if (!autoPrev) await this.db.from('bot_notas_equipo').insert({ linea, telefono, nota: `[auto] El bot prometió respuesta del equipo sin registrar nota. Último mensaje del cliente: ${texto.slice(0, 300)}` });
-      const { data: cfg } = await this.db.from('lineas_whatsapp').select('avisar_proveedores_a').eq('linea', linea).eq('activa', true).limit(1).maybeSingle();
-      await this.db.from('alertas_internas').insert({ para_usuario: cfg?.avisar_proveedores_a ?? null, tipo: 'nota_bot', titulo: `Consulta pendiente de +${telefono}`, detalle: texto.slice(0, 300), referencia: { linea, telefono } });
+      const cfg = await this.lineas.config(linea);
+      await this.insertarAlerta({ para_usuario: cfg?.avisar_proveedores_a ?? null, tipo: 'nota_bot', titulo: `Consulta pendiente de +${telefono}`, detalle: texto.slice(0, 300), referencia: { linea, telefono } });
     }
 
     // A (ronda 8): "confirmo el pedido / queda cargado / ya está registrado" sin
@@ -1386,7 +1428,7 @@ export class BotService {
     // la factura sola, en la línea de clientes, no es plata: es un pedido a
     // administración y su respuesta tiene que llegarle al cliente (por las
     // consultas; en el circuito de pagos un «listo» salía como «Recibimos tu pago»)
-    const soloFactura = linea === 'pedidos' && reclamaPlata && !RECLAMO_PLATA.test(sinPreguntasDeMedio.replace(/\bfactura\w*/gi, ' '));
+    const soloFactura = tipoLinea === 'pedidos' && reclamaPlata && !RECLAMO_PLATA.test(sinPreguntasDeMedio.replace(/\bfactura\w*/gi, ' '));
     const yaDerivo = herramientasDelTurno.has('derivar_a_humano') || herramientasDelTurno.has('derivar_pago');
     // basta con que el mensaje sea de plata: un proveedor reclamando una factura
     // no dice "vergüenza" ni "faltante", y en la ronda 12 se fue sin escalar
@@ -1979,7 +2021,7 @@ export class BotService {
     // consulta, que confirma o avisa después, que no lo tiene, que está pendiente)
     if (respuesta) {
       const limpia = sinMencionDeConsulta(retiroOEnvio(sinCocinaInterna(respuesta)));
-      if (limpia !== respuesta && porElPedido() && linea === 'pedidos') {
+      if (limpia !== respuesta && porElPedido() && tipoLinea === 'pedidos') {
         // se llevó la frase vieja del pedido sin cargar: va la de ahora, entera
         respuesta = [limpia.split(/(?<=[.!?])\s+/).filter((o) => !TEXTO.RE_PEDIDO_A_ADMINISTRACION.test(o)).join(' ').trim(), TEXTO.PEDIDO_SIN_CARGAR].filter(Boolean).join(' ');
       } else if (!limpia && derivoEnElTurno()) {
@@ -2003,7 +2045,7 @@ export class BotService {
     // intento de pedido; y no si el chat ya tiene un pedido confirmado en las
     // últimas horas (entonces hablaba de ese). Si la respuesta todavía pide
     // confirmación, no hay pedido confirmado que avisar.
-    if (linea === 'pedidos' && fallosDelTurno.get('__pedido_creado__') !== 1 && !sigueEnCurso
+    if (tipoLinea === 'pedidos' && fallosDelTurno.get('__pedido_creado__') !== 1 && !sigueEnCurso
         && (prometioAvisoDePedido || (prometePedido && huboIntentoDePedido))) {
       await this.encolarPedidoSinCargar(linea, telefono, `El bot le dijo al cliente: «${respuesta.slice(0, 300)}». Último mensaje del cliente: «${texto.slice(0, 300)}».`, { salvoPedidoReciente: true });
     }
@@ -2145,7 +2187,7 @@ export class BotService {
   private async ejecutarHerramienta(
     block: Anthropic.ToolUseBlock,
     telefono: string,
-    linea: 'pedidos' | 'proveedores' = 'pedidos',
+    linea: string = 'pedidos', // todos los llamados del servicio pasan la línea del turno
     ctx: { ultimoBot?: string; ultimosBot?: string[]; ultimosCliente?: string[]; textoCliente?: string; fallos?: Map<string, number>; archivoUrl?: string; fija?: { texto?: string; consultaPendiente?: boolean; operacion?: boolean; derivada?: boolean; datosPago?: string; pagoEnAdministracion?: boolean }; salidas?: string[]; archivo?: ArchivoDelTurno; historial?: MensajeDeCharla[] } = {},
   ): Promise<Anthropic.ToolResultBlockParam> {
     const input: any = block.input;
@@ -2154,6 +2196,9 @@ export class BotService {
     // queda registrado qué herramienta usó: sirve para auditar que el bot
     // consulta el sistema en vez de improvisar (sobre todo precios y horarios)
     this.log.log(`herramienta ${block.name} · ${linea}/${telefono}`);
+    // los frenos de pedido (comprobante que crea el pedido, no crear pedidos no
+    // pedidos, pedido grande) son de las líneas de PEDIDOS, se llamen como se llamen (6/10/2026)
+    const tipoLinea = await this.lineas.tipo(linea);
     try {
       let out: unknown;
       switch (block.name) {
@@ -2190,7 +2235,7 @@ export class BotService {
           // sin la nota de la transferencia y diciéndole «Se abona al retirar» al
           // que acababa de pagar; y uno que no coincide no tiene que crear nada
           // (decisión de Leandro). Lo crea derivar_pago, si el monto coincide.
-          if (ctx.archivo && linea === 'pedidos') { out = { error: 'NO se creó el pedido: este mensaje trae un archivo. Si es el comprobante del pago, llamá derivar_pago (comprobante_enviado): si el monto coincide con el resumen, el sistema confirma el pedido solo. No llames crear_pedido en este turno.' }; break; }
+          if (ctx.archivo && tipoLinea === 'pedidos') { out = { error: 'NO se creó el pedido: este mensaje trae un archivo. Si es el comprobante del pago, llamá derivar_pago (comprobante_enviado): si el monto coincide con el resumen, el sistema confirma el pedido solo. No llames crear_pedido en este turno.' }; break; }
           if (!confirmacionInequivoca(ctx.textoCliente ?? '')) {
             out = { error: 'NO se creó el pedido: falta confirmación inequívoca al resumen. Usá preparar_pedido y esperá la aceptación del cliente.' };
             break;
@@ -2204,7 +2249,7 @@ export class BotService {
           out = await this.estadoPedido(String(input.codigo ?? input.id ?? ''), telefono);
           break;
         case 'cancelar_pedido':
-          out = await this.cancelarPedidoDelCliente(telefono, String(input.codigo ?? input.id ?? ''));
+          out = await this.cancelarPedidoDelCliente(telefono, String(input.codigo ?? input.id ?? ''), linea);
           break;
         case 'estado_local': {
           const est: any = await this.estadoAtencion();
@@ -2288,7 +2333,7 @@ export class BotService {
           // archivo vino en ESTE turno y es de un resumen que el cliente vio con
           // «¿Lo confirmo?», por el total de lista o el de efectivo. Las guardas
           // están en pago-confirma.ts; si alguna falla, todo sigue como siempre.
-          const candidatoAPedido = tipoPago === 'comprobante_enviado' && linea === 'pedidos' && !!ctx.archivo && ctx.fallos?.get('__pedido_creado__') !== 1;
+          const candidatoAPedido = tipoPago === 'comprobante_enviado' && tipoLinea === 'pedidos' && !!ctx.archivo && ctx.fallos?.get('__pedido_creado__') !== 1;
           // ¿ya era cliente ANTES de que la RPC lo cree con el pedido? (ver sinCobranza, abajo)
           const eraCliente = candidatoAPedido ? await this.identificarCliente(telefono).then((i: any) => !!i?.existe, () => true) : true;
           const porComprobante = candidatoAPedido
@@ -2381,8 +2426,8 @@ export class BotService {
           if (repetida) { out = { ok: false, duplicada: true, aviso: 'Esa nota YA estaba anotada de antes: NO se guardó nada nuevo. Al cliente no le digas que quedó anotada ni que el equipo lo va a ver: seguí con lo suyo. Si espera un dato que no tenés, eso va por consultar_interno, sin decírselo.' }; break; }
           if (nota) {
             await this.db.from('bot_notas_equipo').insert({ linea, telefono, nota });
-            const { data: cfg } = await this.db.from('lineas_whatsapp').select('avisar_proveedores_a').eq('linea', linea).eq('activa', true).limit(1).maybeSingle();
-            await this.db.from('alertas_internas').insert({ para_usuario: cfg?.avisar_proveedores_a ?? null, tipo: 'nota_bot', titulo: `Consulta de +${telefono}`, detalle: nota, referencia: { linea, telefono } });
+            const cfg = await this.lineas.config(linea);
+            await this.insertarAlerta({ para_usuario: cfg?.avisar_proveedores_a ?? null, tipo: 'nota_bot', titulo: `Consulta de +${telefono}`, detalle: nota, referencia: { linea, telefono } });
           }
           out = { ok: !!nota, guardada: !!nota, aviso: nota ? 'Nota registrada para el equipo. Al cliente no le digas que quedó anotada, que avisaste ni que el equipo lo va a ver: vos seguís atendiendo lo suyo. Si el cliente espera un dato que no tenés, la nota no alcanza: llamá consultar_interno (area administracion) y al cliente no le digas nada de eso.' : 'NO se guardó nada: la nota venía vacía. No digas que quedó anotado.' };
           break;
@@ -2424,7 +2469,7 @@ export class BotService {
       // PEDIDO GRANDE (3/10/2026): supera el máximo del canal y "debe tomarlo el
       // equipo". Con los datos completos (el tope se revisa después de modalidad,
       // nombre y dirección), sale a administración en el acto, con nota y campanita.
-      if (block.name === 'preparar_pedido' && linea === 'pedidos' && /supera el m[aá]ximo del canal/i.test(msg)) {
+      if (block.name === 'preparar_pedido' && tipoLinea === 'pedidos' && /supera el m[aá]ximo del canal/i.test(msg)) {
         try {
           const items = Array.isArray(input?.items) ? input.items : [];
           const unidades = items.reduce((n: number, i: any) => n + (Number(i?.cantidad) || 0), 0);
@@ -2433,8 +2478,8 @@ export class BotService {
           const { data: prev } = await this.db.from('bot_notas_equipo').select('id').eq('telefono', telefono).like('nota', 'PEDIDO GRANDE NO CARGADO%').gte('creada_en', hace10).limit(1).maybeSingle();
           if (!prev) {
             await this.db.from('bot_notas_equipo').insert({ linea, telefono, nota });
-            const { data: cfg } = await this.db.from('lineas_whatsapp').select('avisar_proveedores_a').eq('linea', linea).eq('activa', true).limit(1).maybeSingle();
-            await this.db.from('alertas_internas').insert({ para_usuario: cfg?.avisar_proveedores_a ?? null, tipo: 'derivacion', titulo: `Pedido grande de +${telefono} para cargar a mano`, detalle: nota, referencia: { linea, telefono } });
+            const cfg = await this.lineas.config(linea);
+            await this.insertarAlerta({ para_usuario: cfg?.avisar_proveedores_a ?? null, tipo: 'derivacion', titulo: `Pedido grande de +${telefono} para cargar a mano`, detalle: nota, referencia: { linea, telefono } });
           }
           await this.encolarPedidoSinCargar(linea, telefono, nota);
           // 6/10/2026: sin «doy aviso al sector correspondiente»; el aviso ya salió (encolarPedidoSinCargar, arriba)
@@ -2444,7 +2489,7 @@ export class BotService {
       // crear_pedido atascado con el cliente ya confirmado (ronda 8: 25 rechazos,
       // 4 confirmaciones, 0 pedidos): el carrito NO se pierde. Queda una nota
       // estructurada para el local y el cliente recibe una salida honesta.
-      if (block.name === 'crear_pedido' && n === 2 && linea === 'pedidos') {
+      if (block.name === 'crear_pedido' && n === 2 && tipoLinea === 'pedidos') {
         try {
           const items = Array.isArray(input?.items) ? input.items.map((i: any) => `${i.cantidad}x ${i.sku}`).join(', ') : '(sin ítems)';
           const nota = `PEDIDO NO CARGADO (falló crear_pedido: ${msg.slice(0, 120)}). Cliente confirmó. Ítems: ${items}. Modalidad: ${input?.tipo ?? '?'}. Dirección: ${input?.direccion ?? '-'}. Recibe: ${input?.nombre ?? '-'}. Notas: ${input?.notas ?? '-'}. Hay que cargarlo a mano y avisarle por este chat.`;
@@ -2452,8 +2497,8 @@ export class BotService {
           const { data: prev } = await this.db.from('bot_notas_equipo').select('id').eq('telefono', telefono).like('nota', 'PEDIDO NO CARGADO%').gte('creada_en', hace10).limit(1).maybeSingle();
           if (!prev) {
             await this.db.from('bot_notas_equipo').insert({ linea, telefono, nota });
-            const { data: cfg } = await this.db.from('lineas_whatsapp').select('avisar_proveedores_a').eq('linea', linea).eq('activa', true).limit(1).maybeSingle();
-            await this.db.from('alertas_internas').insert({ para_usuario: cfg?.avisar_proveedores_a ?? null, tipo: 'derivacion', titulo: `Pedido confirmado SIN cargar de +${telefono}`, detalle: nota, referencia: { linea, telefono } });
+            const cfg = await this.lineas.config(linea);
+            await this.insertarAlerta({ para_usuario: cfg?.avisar_proveedores_a ?? null, tipo: 'derivacion', titulo: `Pedido confirmado SIN cargar de +${telefono}`, detalle: nota, referencia: { linea, telefono } });
           }
           // y sale por WhatsApp a administración (regla del 3/10/2026), sin
           // depender de cómo redacte el bot la respuesta: es el caso en que más
@@ -2852,7 +2897,7 @@ export class BotService {
   // estén "recibido" (nadie los empezó a preparar). Usa la misma RPC que el
   // panel (lock de fila, idempotente, devuelve la reserva de stock). Si el
   // pedido ya avanzó, no se cancela acá: se deriva y se dice la verdad.
-  async cancelarPedidoDelCliente(telefono: string, codigoOId: string) {
+  async cancelarPedidoDelCliente(telefono: string, codigoOId: string, linea = 'pedidos') {
     const ref = String(codigoOId ?? '').trim();
     if (!ref) return { error: 'Falta el código del pedido (ej. DOM-XXXXXX) o su id.' };
     const ident = await this.identificarCliente(telefono);
@@ -2868,7 +2913,8 @@ export class BotService {
     }
     const { error } = await this.db.rpc('cancelar_pedido', { p_pedido: ped.id, p_usuario: null });
     if (error) return { error: `No pude cancelar el pedido: ${error.message}. Derivá a un humano con el código ${ped.qr_retiro}.` };
-    await this.db.from('bot_notas_equipo').insert({ linea: 'pedidos', telefono, nota: `Pedido ${ped.qr_retiro} cancelado a pedido del cliente desde el chat (total ${ped.total}). El stock volvió a quedar disponible.` }).then(() => null, () => null);
+    // la nota va a la charla de la línea por la que lo pidió (6/10/2026)
+    await this.db.from('bot_notas_equipo').insert({ linea, telefono, nota: `Pedido ${ped.qr_retiro} cancelado a pedido del cliente desde el chat (total ${ped.total}). El stock volvió a quedar disponible.` }).then(() => null, () => null);
     this.log.log(`pedido ${ped.qr_retiro} cancelado por el cliente vía bot · ${telefono}`);
     return { ok: true, codigo: ped.qr_retiro, estado: 'cancelado', total: Number(ped.total), mensaje: 'Pedido cancelado; el stock volvió a quedar disponible.' };
   }
@@ -2940,9 +2986,11 @@ export class BotService {
     // controlar la base (confirmar_cotizacion_bot con p_modo 'comprobante').
     // Las guardas de la charla están en pago-confirma.ts › pedidoPorComprobante.
     const porComprobante = dto.modo === 'comprobante';
+    // la cotización se busca en la charla de SU línea: sin línea, la principal (6/10/2026)
+    const lineaDelPedido = dto.linea || (await this.lineas.principal());
     if (porComprobante ? !dto.cotizacionId || !(Number(dto.monto) > 0) : !confirmacionInequivoca(dto.confirmacion ?? '')) throw new BadRequestException('NO se creó el pedido: falta confirmación inequívoca');
     const { data: q, error } = await this.db.from('bot_cotizaciones').select('*')
-      .eq('telefono', dto.telefono).eq('linea', dto.linea ?? 'pedidos').order('creada_en', { ascending: false }).limit(1).maybeSingle();
+      .eq('telefono', dto.telefono).eq('linea', lineaDelPedido).order('creada_en', { ascending: false }).limit(1).maybeSingle();
     // EL BUCLE DEL "¿LO CONFIRMO?" (Catalina, 21/9/2026). Antes se exigía que el
     // último mensaje del bot fuera IDÉNTICO al resumen de preparar_pedido. Pero
     // entre el resumen y el "sí" el cliente contesta cosas ("efectivo", "recibe
@@ -2961,8 +3009,8 @@ export class BotService {
     if (error || !q || !(porComprobante ? laDelComprobante : coincideResumen || preguntaConMismoTotal)) throw new BadRequestException('NO se creó el pedido: usá preparar_pedido para mostrar un resumen verificable y esperá confirmación');
     // p_monto viaja solo en el modo 'comprobante'; los otros modos llaman igual que siempre
     const { data: id, error: e } = await this.db.rpc('confirmar_cotizacion_bot', porComprobante
-      ? { p_id: q.id, p_telefono: dto.telefono, p_linea: dto.linea ?? 'pedidos', p_confirmacion: String(dto.confirmacion ?? '').slice(0, 300), p_modo: 'comprobante', p_monto: Number(dto.monto) }
-      : { p_id: q.id, p_telefono: dto.telefono, p_linea: dto.linea ?? 'pedidos', p_confirmacion: dto.confirmacion });
+      ? { p_id: q.id, p_telefono: dto.telefono, p_linea: lineaDelPedido, p_confirmacion: String(dto.confirmacion ?? '').slice(0, 300), p_modo: 'comprobante', p_monto: Number(dto.monto) }
+      : { p_id: q.id, p_telefono: dto.telefono, p_linea: lineaDelPedido, p_confirmacion: dto.confirmacion });
     if (e || !id) throw new BadRequestException(e?.message ?? 'No se pudo confirmar el pedido');
     const ped: any = await this.pedidos.obtener(id);
     // si ya dijo cómo paga, se repite eso y no "efectivo o tarjeta" (25/9/2026)
@@ -3038,7 +3086,7 @@ export class BotService {
   // Un proveedor escribió ofreciendo algo o preguntando por reposición: queda
   // registrado como proveedor (la próxima vez el bot ya sabe quién es) y la
   // encargada de compras recibe la alerta en su usuario del panel.
-  async registrarProveedor(linea: 'pedidos' | 'proveedores', telefono: string, dto: { nombre?: string; oferta: string; urgente?: boolean }) {
+  async registrarProveedor(linea: string, telefono: string, dto: { nombre?: string; oferta: string; urgente?: boolean }) {
     // Una alerta por proveedor por día: si vuelve a llamarla en la misma charla,
     // se actualiza la existente en vez de llenar la campanita de duplicados.
     const { data: reciente } = await this.db.from('alertas_internas').select('id, detalle')
@@ -3061,12 +3109,11 @@ export class BotService {
       { onConflict: 'telefono' },
     );
 
-    // ¿a quién se le avisa? lo dice la configuración de la línea
-    const { data: cfg } = await this.db
-      .from('lineas_whatsapp').select('avisar_proveedores_a').eq('linea', linea).eq('activa', true).limit(1).maybeSingle();
+    // ¿a quién se le avisa? lo dice la configuración de la línea (la compartida, 6/10/2026)
+    const cfg = await this.lineas.config(linea);
 
     const titulo = `${dto.urgente ? '🔴 ' : ''}Proveedor por WhatsApp: ${dto.nombre || bonitoTelefono(telefono)}`;
-    await this.db.from('alertas_internas').insert({
+    await this.insertarAlerta({
       para_usuario: cfg?.avisar_proveedores_a ?? null,
       tipo: 'proveedor_ofrece',
       titulo,
@@ -3084,13 +3131,15 @@ export class BotService {
   // que transfirió $631.717 pidió el alias dos veces y dos veces lo mandamos a
   // otro teléfono.
   async derivarPago(
-    linea: 'pedidos' | 'proveedores',
+    linea: string,
     telefono: string,
     motivo: string,
     extra: { monto?: number; tipo?: string; comprobanteUrl?: string; dichoPorElCliente?: string; deQuien?: string; sinCobranza?: boolean } = {},
   ) {
-    const { data: cfg } = await this.db
-      .from('lineas_whatsapp').select('derivar_pagos_a, avisar_proveedores_a, alias_pago, titular_pago, banco_pago, cbu_pago').eq('linea', linea).eq('activa', true).limit(1).maybeSingle();
+    // alias, CBU y a quién se deriva: los de la configuración compartida. La
+    // línea nueva no tiene los suyos (comparte todo, 6/10/2026): sin esto no
+    // daba el alias y pasaba todo a consulta.
+    const cfg = await this.lineas.config(linea);
     const adminWsp = String(cfg?.derivar_pagos_a ?? '').replace(/\D/g, '');
     const monto = Number(extra.monto) || 0;
     const tipo = extra.tipo ?? 'consulta';
@@ -3160,7 +3209,7 @@ export class BotService {
     }
 
     // 2) alerta en el panel
-    await this.db.from('alertas_internas').insert({
+    await this.insertarAlerta({
       para_usuario: cfg?.avisar_proveedores_a ?? null,
       tipo: 'pago',
       titulo: esComprobante ? `Comprobante de $${Math.round(monto).toLocaleString('es-AR')} de ${nombre ?? bonitoTelefono(telefono)}` : `Consulta de pago de ${nombre ?? bonitoTelefono(telefono)}`,
@@ -3168,9 +3217,11 @@ export class BotService {
       referencia: { linea, telefono, monto: monto || null, cobranzaId, comprobanteUrl: extra.comprobanteUrl ?? null },
     });
 
-    // 3) WhatsApp interno a administración, desde la línea del bot
+    // 3) WhatsApp interno a administración, desde la línea principal (como
+    // siempre): con más de una línea, dice de cuál viene la charla (6/10/2026)
     let avisado = false;
     if (adminWsp.length >= 10) {
+      const deLinea = await this.lineas.etiqueta(linea).catch(() => '');
       const lineas = [
         esComprobante ? `💳 Comprobante recibido por WhatsApp` : tipo === 'proveedor_factura' ? `🧾 Proveedor por una factura` : `💳 Consulta de pago`,
         `De: ${nombre ?? 'sin identificar'} · +${telefono}`,
@@ -3178,7 +3229,7 @@ export class BotService {
         motivo,
         extra.dichoPorElCliente && extra.dichoPorElCliente.trim() && extra.dichoPorElCliente.trim() !== motivo ? `El cliente escribió: "${extra.dichoPorElCliente.trim().slice(0, 300)}"` : null,
         cobranzaId ? `Quedó en Clientes → Cobros a ingresar para aprobar.` : null,
-        `Respondele al cliente por RESPONDE (la charla está en la línea ${bonitoTelefono(telefono) ? 'de pedidos' : ''}).`,
+        `Respondele al cliente por RESPONDE (la charla está en la ${deLinea || `línea ${bonitoTelefono(telefono) ? 'de pedidos' : ''}`}).`,
       ].filter(Boolean).join('\n');
       // el comprobante viaja como lo mandó el cliente (la foto o el PDF), no
       // como un link: administración lo abre directo en el chat
@@ -3245,15 +3296,17 @@ export class BotService {
   // Registra la pregunta, avisa al área y espera el dato. Al cliente no se le
   // dice nada (consulta silenciosa, 6/10/2026): lo que conteste el área le llega
   // como respuesta final (llevarRespuestaDeConsulta).
-  async consultarInterno(linea: 'pedidos' | 'proveedores', telefono: string, area: string, consulta: string, direccion = '', archivoUrl?: string, tema?: string)
+  async consultarInterno(linea: string, telefono: string, area: string, consulta: string, direccion = '', archivoUrl?: string, tema?: string)
     : Promise<{ consultado: boolean; yaEstaba?: boolean; consulta_id?: string; tema?: string; area: string; avisoPorWhatsapp: boolean; aviso: string }> {
     consulta = String(consulta).replace(/<[^>]*>/g, '').trim().slice(0,1000);
     direccion = /[<>]/.test(direccion) ? '' : direccion.slice(0,300);
     if (!consulta) throw new BadRequestException('Falta la consulta concreta');
     // de qué se trata ("la caja para viajar"); sin nada interno: encabeza la respuesta del área
     const temaCliente = temaDeConsulta(tema);
-    const { data: cfg } = await this.db
-      .from('lineas_whatsapp').select('derivar_pagos_a, avisar_proveedores_a, whatsapp_reparto, whatsapp_compras').eq('linea', linea).eq('activa', true).limit(1).maybeSingle();
+    // las áreas y sus teléfonos: los de la configuración compartida (6/10/2026)
+    const cfg = await this.lineas.config(linea);
+    // con más de una línea, el aviso al área dice de qué número es el cliente
+    const renglonLinea = await this.renglonDeLinea(linea);
     const numeroDe: Record<string, string> = {
       reparto: String((cfg as any)?.whatsapp_reparto ?? cfg?.derivar_pagos_a ?? ''),
       compras: String((cfg as any)?.whatsapp_compras ?? cfg?.derivar_pagos_a ?? ''),
@@ -3272,6 +3325,7 @@ export class BotService {
       const texto = [
         `Consulta de un cliente (${areaAviso})`,
         `De: ${nombre ?? 'sin identificar'} · +${telefono}`,
+        renglonLinea,
         textoConsulta,
         direccion ? `Dirección: ${direccion}` : null,
         archivoUrl ? `Adjunto del cliente (acceso temporal): ${archivoUrl}` : null,
@@ -3333,6 +3387,7 @@ export class BotService {
             const texto = [
               `Dato nuevo para una consulta que sigue sin respuesta (${area})`,
               `De: ${nombre ?? 'sin identificar'} · +${telefono}`,
+              renglonLinea,
               consulta,
               direccion ? `Dirección: ${direccion}` : null,
               archivoUrl ? `Adjunto del cliente (acceso temporal): ${archivoUrl}` : null,
@@ -3374,7 +3429,7 @@ export class BotService {
     // El aviso lleva el id de la consulta: así el recordatorio sabe que ya hay
     // uno y, cuando el área responde, se cierra solo (1/10/2026: la campanita
     // tenía 1.260 avisos de consulta sin leer, uno nuevo cada 6 h por consulta).
-    if (!esPrueba) await this.db.from('alertas_internas').insert({
+    if (!esPrueba) await this.insertarAlerta({
       para_usuario: cfg?.avisar_proveedores_a ?? null,
       tipo: 'consulta',
       titulo: `${etiqueta}: ${nombre ?? bonitoTelefono(telefono)}`,
@@ -3408,7 +3463,7 @@ export class BotService {
       || ((k as any)?.telefono_real ? bonitoTelefono((k as any).telefono_real) : bonitoTelefono(telefono));
   }
 
-  async derivarAHumano(linea: 'pedidos' | 'proveedores', telefono: string, motivo: string, urgente = false) {
+  async derivarAHumano(linea: string, telefono: string, motivo: string, urgente = false) {
     // la derivación entra al vigilante de esperas (23/9/2026): antes quedaba en
     // una alerta que nadie leía (147 sin leer) y el cliente esperaba días. El
     // texto del aviso es genérico: el motivo puede traer el detalle de un pedido
@@ -3446,9 +3501,8 @@ export class BotService {
     // REGLA DEL DUEÑO (2026-09-01): las derivaciones (que muchas veces llevan el
     // detalle de un pedido) NO salen por WhatsApp: quedan en la campanita del
     // panel. El WhatsApp interno es solo para pagos.
-    const { data: cfgAviso } = await this.db
-      .from('lineas_whatsapp').select('avisar_proveedores_a').eq('linea', linea).eq('activa', true).limit(1).maybeSingle();
-    await this.db.from('alertas_internas').insert({
+    const cfgAviso = await this.lineas.config(linea);
+    await this.insertarAlerta({
       para_usuario: cfgAviso?.avisar_proveedores_a ?? null,
       tipo: 'derivacion',
       titulo: `${urgente ? '🔴' : '🟡'} Conversación derivada: ${await this.nombreDeContacto(telefono)}`,
@@ -3465,6 +3519,16 @@ export class BotService {
   // que la app la muestre y la controle como a cualquier otro cliente. Y el
   // interruptor "bot activo / atendés vos" de RESPONDE manda: si Jackie pausa
   // desde la app, acá el bot se calla.
+  //
+  // MULTILÍNEA (6/10/2026), primera etapa: RESPONDE tiene UN tenant de ODB y
+  // guarda los contactos por whatsapp_id, sin línea. Las charlas de todas las
+  // líneas se ven ahí (si no, las de la línea nueva no las vería nadie), lo que
+  // se contesta desde la app sale por la línea de la charla (ver
+  // RespondeAppController) y la pausa que viene de RESPONDE se aplica a la
+  // charla de la línea por la que entró el mensaje. Lo que queda compartido: un
+  // mismo cliente que escribe a los dos números es UN contacto allá, y pausarlo
+  // allá calla al bot en los dos (falla del lado seguro: el bot no habla encima
+  // de nadie). Separarlo del todo es un tenant por línea en RESPONDE.
   private respondeCfg() {
     const url = process.env.RESPONDE_URL, key = process.env.RESPONDE_ANON_KEY, clave = process.env.RESPONDE_PUENTE_CLAVE;
     return url && key && clave ? { url: url.replace(/\/$/, ''), key, clave } : null;
@@ -3496,30 +3560,32 @@ export class BotService {
   // RESPONDE es el interruptor de cada charla. Cuando se pregunta el estado, ODB
   // se alinea: si allá la reactivaron a mano, acá el bot retoma; si allá la
   // pausaron, acá queda pausada. Si RESPONDE no contesta, no se toca nada.
-  async respondeModoHumano(whatsappId: string): Promise<boolean> {
+  async respondeModoHumano(whatsappId: string, linea?: string): Promise<boolean> {
     const r = await this.respondeRpc('odb_estado_contacto', { p_whatsapp_id: whatsappId });
     const humano = r?.modo_humano === true || r?.bloqueado === true;
-    if (r && r.existe === true) await this.sincronizarPausa(whatsappId, humano).catch(() => null);
+    if (r && r.existe === true) await this.sincronizarPausa(whatsappId, humano, linea).catch(() => null);
     return humano;
   }
 
-  private async sincronizarPausa(whatsappId: string, humano: boolean) {
+  // la charla que se alinea es la de la línea por la que entró el mensaje (6/10/2026: era siempre 'pedidos')
+  private async sincronizarPausa(whatsappId: string, humano: boolean, lineaDada?: string) {
     const telefono = String(whatsappId).split('@')[0].replace(/\D/g, '');
     if (!telefono) return;
-    const { data: conv } = await this.db.from('bot_conversaciones').select('bot_activo, derivada_motivo').eq('linea', 'pedidos').eq('telefono', telefono).maybeSingle();
+    const linea = lineaDada || (await this.lineas.principal());
+    const { data: conv } = await this.db.from('bot_conversaciones').select('bot_activo, derivada_motivo').eq('linea', linea).eq('telefono', telefono).maybeSingle();
     if (!conv) return;
     const ahora = new Date().toISOString();
     if (!humano && conv.bot_activo === false) {
       await this.db.from('bot_conversaciones').update({
         bot_activo: true, resuelta_en: ahora, derivacion_vence_en: null, atendida_por: null,
         derivada_motivo: `${conv.derivada_motivo ?? ''} · reactivada desde RESPONDE`.replace(/^ · /, ''),
-      }).eq('linea', 'pedidos').eq('telefono', telefono);
+      }).eq('linea', linea).eq('telefono', telefono);
       this.log.log(`charla ${telefono} reactivada desde RESPONDE: el bot retoma`);
-      await this.limpiarEspera('pedidos', telefono);
+      await this.limpiarEspera(linea, telefono);
     } else if (humano && conv.bot_activo !== false) {
       await this.db.from('bot_conversaciones').update({
         bot_activo: false, derivada_en: ahora, derivada_motivo: 'Pausado desde RESPONDE', derivacion_vence_en: null, resuelta_en: null,
-      }).eq('linea', 'pedidos').eq('telefono', telefono);
+      }).eq('linea', linea).eq('telefono', telefono);
     }
   }
 
@@ -3541,7 +3607,7 @@ export class BotService {
   // reactiven) y la charla queda marcada como esperando respuesta. Si nadie
   // contesta, el cron avisaEsperandoRespuesta() le escribe a administración.
   // 19/9/2026: un pedido de un cliente estuvo 4 horas sin que nadie lo viera.
-  private async anotarEsperaEnPausa(linea: 'pedidos' | 'proveedores', telefono: string, texto: string) {
+  private async anotarEsperaEnPausa(linea: string, telefono: string, texto: string) {
     const limpio = String(texto ?? '').trim();
     if (!limpio || /^54911000000\d{1,3}$/.test(telefono)) return;
     try {
@@ -3563,7 +3629,7 @@ export class BotService {
   }
 
   /** Alguien de la casa atendió (o el bot volvió): la charla deja de esperar. */
-  private async limpiarEspera(linea: 'pedidos' | 'proveedores', telefono: string) {
+  private async limpiarEspera(linea: string, telefono: string) {
     await this.db.from('bot_conversaciones')
       .update({ esperando_desde: null, esperando_texto: null, esperando_aviso_en: null, esperando_avisos: 0 })
       .eq('linea', linea).eq('telefono', telefono).then(() => null, () => null);
@@ -3661,8 +3727,12 @@ export class BotService {
   // único pendiente inequívoco. Devuelve null si el mensaje no es de
   // administración: sigue el camino normal.
   private async respuestaDeAdministracion(identidad: string, p: any) {
-    const { data: cfg } = await this.db.from('lineas_whatsapp')
-      .select('bot_activo, derivar_pagos_a, whatsapp_reparto, whatsapp_compras').eq('linea', 'pedidos').eq('activa', true).limit(1).maybeSingle();
+    // los teléfonos del equipo salen de la configuración de la línea principal
+    // (la que comparten todas). El interruptor del bot que cuenta es el de la
+    // línea de cada consulta o pago, no el de la principal (6/10/2026).
+    const cfg = await this.lineas.config(await this.lineas.principal());
+    const botActivoEn = async (linea: string | null | undefined) =>
+      !linea || linea === cfg?.linea ? cfg?.bot_activo !== false : (await this.lineas.config(linea))?.bot_activo !== false;
     const destinos = [cfg?.derivar_pagos_a, cfg?.whatsapp_reparto, cfg?.whatsapp_compras].map(v => soloDigitos(String(v ?? ''))).filter(Boolean);
     let quien = soloDigitos(identidad);
     if (String(identidad).includes('@lid')) {
@@ -3716,11 +3786,11 @@ export class BotService {
       return { contestado: false, motivo: 'falta referencia inequívoca' };
     };
     if (citado) {
-      if (consultaCitada && !pagoCitado) return this.llevarRespuestaDeConsulta(consultaCitada, texto, admin, cfg?.bot_activo !== false);
+      if (consultaCitada && !pagoCitado) return this.llevarRespuestaDeConsulta(consultaCitada, texto, admin, await botActivoEn(consultaCitada.linea));
       if (!pagoCitado || consultaCitada) return pedirReferencia();
     } else {
       if (consultas.length + lista.length + (avisosDelDia ? 1 : 0) > 1) return pedirReferencia();
-      if (consultas.length === 1) return this.llevarRespuestaDeConsulta(consultas[0], texto, admin, cfg?.bot_activo !== false);
+      if (consultas.length === 1) return this.llevarRespuestaDeConsulta(consultas[0], texto, admin, await botActivoEn(consultas[0].linea));
       if (!lista.length) return { contestado: false, motivo: 'sin consultas o pagos pendientes' };
     }
     const fila = pagoCitado ?? lista[0];
@@ -3731,12 +3801,13 @@ export class BotService {
     const SI = /\b(recibido|recib[ií]|ok|okey|oka|confirmado|confirmo|lleg[oó]|acreditad[oa]|est[aá] bien|correcto|perfecto|listo|dale|s[ií])\b/i;
 
     const avisarCliente = async (msj: string) => {
-      if (cfg?.bot_activo === false) return false;
+      if (!(await botActivoEn(fila.linea))) return false;
       const { data: estado } = await this.db.from('bot_conversaciones').select('bot_activo').eq('linea', fila.linea).eq('telefono', String(fila.telefono_cliente)).maybeSingle();
       if (estado?.bot_activo === false) return false;
       const { data: claim, error } = await this.db.rpc('tomar_aviso_pago_bot', { p_id: fila.id });
       if (error || !(Array.isArray(claim) ? claim.length : claim)) return false;
-      const env: any = await this.enviarPorWhatsapp({ to: destinoCliente, text: msj, referencia: `pago-confirmado/${fila.id}` }).catch(() => ({ enviado: false }));
+      // al cliente, por la línea por la que mandó el pago (6/10/2026)
+      const env: any = await this.enviarPorWhatsapp({ to: destinoCliente, text: msj, referencia: `pago-confirmado/${fila.id}`, linea: fila.linea }).catch(() => ({ enviado: false }));
       if (!env?.enviado) {
         await this.db.from('bot_pagos_en_confirmacion').update({ ultimo_error: 'Entrega no confirmada; revisar antes de repetir', ...(env?.reintentable === true ? { envio_iniciado_en: null } : {}) }).eq('id',fila.id);
         return false;
@@ -3755,7 +3826,7 @@ export class BotService {
     if (NO.test(texto)) {
       await this.db.from('bot_pagos_en_confirmacion').update({ respuesta_admin: texto.slice(0, 300) }).eq('id', fila.id).then(() => null, () => null);
       const ok = await avisarCliente(TEXTO.pagoNoFigura(montoTexto));
-      await this.enviarPorWhatsapp({ to: admin, text: ok ? `Listo, le avisé a ${fila.nombre ?? '+' + fila.telefono_cliente} que todavía no figura y le pedí el comprobante de nuevo.` : `Respuesta guardada; la entrega al cliente sigue pendiente. Revisá el estado del bot y del envío.`, kind: 'aviso-interno' } as any).catch(() => null);
+      await this.enviarPorWhatsapp({ to: admin, text: ok ? `Listo, le avisé a ${fila.nombre ?? '+' + fila.telefono_cliente}${await this.deLaLinea(fila.linea)} que todavía no figura y le pedí el comprobante de nuevo.` : `Respuesta guardada; la entrega al cliente sigue pendiente. Revisá el estado del bot y del envío.`, kind: 'aviso-interno' } as any).catch(() => null);
       this.log.log(`administración respondió "no figura" para ${fila.telefono_cliente}: relayado=${ok}`);
       if (ok) await this.db.from('bot_pagos_en_confirmacion').update({ confirmado_en: new Date().toISOString(), ultimo_error: null }).eq('id', fila.id);
       return { contestado: ok, motivo: ok ? 'administración: no figura, cliente avisado' : 'respuesta guardada, envío pendiente' };
@@ -3767,7 +3838,7 @@ export class BotService {
 
     await this.db.from('bot_pagos_en_confirmacion').update({ respuesta_admin: texto.slice(0, 300) }).eq('id', fila.id).then(() => null, () => null);
     const ok = await avisarCliente(TEXTO.pagoRecibido(montoTexto));
-    await this.enviarPorWhatsapp({ to: admin, text: ok ? `Listo: le confirmé a ${fila.nombre ?? '+' + fila.telefono_cliente} que su pago${montoTexto} quedó recibido.` : `Confirmación guardada; la entrega al cliente sigue pendiente. Revisá el estado del bot y del envío.`, kind: 'aviso-interno' } as any).catch(() => null);
+    await this.enviarPorWhatsapp({ to: admin, text: ok ? `Listo: le confirmé a ${fila.nombre ?? '+' + fila.telefono_cliente}${await this.deLaLinea(fila.linea)} que su pago${montoTexto} quedó recibido.` : `Confirmación guardada; la entrega al cliente sigue pendiente. Revisá el estado del bot y del envío.`, kind: 'aviso-interno' } as any).catch(() => null);
     if (ok) await this.db.from('bot_pagos_en_confirmacion').update({ confirmado_en: new Date().toISOString() }).eq('id', fila.id);
     this.log.log(`pago${montoTexto} de ${fila.telefono_cliente} confirmado por administración: cliente avisado=${ok}`);
     return { contestado: ok, motivo: ok ? 'pago confirmado por administración, cliente avisado' : 'pago confirmado por administración, envío pendiente' };
@@ -3821,7 +3892,9 @@ export class BotService {
     const { error: eInicio } = await this.db.from('bot_consultas_internas').update({ mensaje_cliente: mensaje, envio_iniciado_en: new Date().toISOString() }).eq('id', c.id);
     if (eInicio) throw new Error('No se pudo registrar el intento de envío');
     let env: any;
-    try { env = await this.enviarPorWhatsapp({ to: destino, text: mensaje, referencia: `consulta/${c.id}` }); }
+    // la respuesta del área le llega por la línea por la que preguntó, aunque
+    // administración la haya contestado en el chat de la principal (6/10/2026)
+    try { env = await this.enviarPorWhatsapp({ to: destino, text: mensaje, referencia: `consulta/${c.id}`, linea: c.linea }); }
     catch { env = { enviado: false, motivo: 'resultado de transporte incierto' }; }
     const ok = env?.enviado === true;
     if (!ok) {
@@ -3872,7 +3945,7 @@ export class BotService {
         .eq('tipo', 'consulta').filter('referencia->>consulta_id', 'eq', c.id).is('leida_en', null);
     } catch { /* la campanita no frena nada */ }
     if (soloDigitos(admin).length >= 10) {
-      await this.enviarPorWhatsapp({ to: admin, text: `No le llegó al cliente (${c.nombre ?? '+' + c.telefono_cliente}): ${porque}. Pasale vos la respuesta desde RESPONDE; quedó anotada en su charla.`, kind: 'aviso-interno' } as any).catch(() => null);
+      await this.enviarPorWhatsapp({ to: admin, text: `No le llegó al cliente (${c.nombre ?? '+' + c.telefono_cliente})${await this.deLaLinea(c.linea)}: ${porque}. Pasale vos la respuesta desde RESPONDE; quedó anotada en su charla.`, kind: 'aviso-interno' } as any).catch(() => null);
     }
     this.log.log(`respuesta de la consulta ${c.id} retenida (${porque}): nota en el hilo y WhatsApp al área`);
     return { contestado: false, motivo: `respuesta guardada como nota; ${porque}: se le avisó al área` };
@@ -3882,20 +3955,33 @@ export class BotService {
   // histórico: pudo haberse atendido manualmente y requiere conciliación.
   @Cron('10 */5 * * * *')
   async seguirConsultasPendientes() {
-    const { data: cfg } = await this.db.from('lineas_whatsapp').select('bot_activo,derivar_pagos_a').eq('linea','pedidos').eq('activa',true).maybeSingle();
-    if (!cfg?.bot_activo) return;
+    // MULTILÍNEA (6/10/2026): antes, con el bot de 'pedidos' apagado no se
+    // entregaba ninguna consulta. Ahora cuenta el interruptor de la línea de
+    // cada consulta (una línea apagada no frena a la otra).
+    const principal = await this.lineas.principal();
+    const cfgPorLinea = new Map<string, any>();
+    const cfgDe = async (l?: string | null) => {
+      const k = l || principal;
+      if (!cfgPorLinea.has(k)) cfgPorLinea.set(k, await this.lineas.config(k));
+      return cfgPorLinea.get(k);
+    };
+    const cfg = await cfgDe(principal);
+    const otrasPrendidas = (await this.lineas.activas('pedidos')).some((f) => f.linea !== principal && f.bot_activo !== false);
+    if (!cfg?.bot_activo && !otrasPrendidas) return;
     const todos = await this.pendientesPaginados('bot_consultas_internas','respondido_en');
     const porEntregar = (x: any) => x.respuesta_admin && !x.envio_iniciado_en && Number(x.intentos ?? 0) < 3;
     // Solo las que tienen algo por hacer: con 50 consultas viejas sin cerrar, el
     // slice dejaba afuera a las nuevas (sin recordatorio ni reintento de entrega).
     for (const c of todos.filter(x => x.gestion_version === 2 && x.enviado_a !== 'banco-de-pruebas' && (porEntregar(x) || !x.aviso_recordatorio_en)).reverse().slice(0,50)) {
+      const cfgC = await cfgDe(c.linea);
+      if (!cfgC?.bot_activo) continue;
       if (porEntregar(c) && (!c.proximo_intento_en || Date.parse(c.proximo_intento_en) <= Date.now())) {
         // una respuesta que nunca se intentó mandar (quedó retenida por una pausa,
         // antes del 6/10/2026) y tiene más de un día no sale sola: va como nota y aviso al área
         const vieja = !c.proximo_intento_en && !c.ultimo_error && Date.now() - Date.parse(c.creado_en) > 24 * 3600_000;
         const entrega = vieja
-          ? await this.retenerRespuestaDeConsulta(c, String(c.respuesta_admin), c.enviado_a ?? cfg.derivar_pagos_a, 'pasó más de un día y la respuesta no se había mandado').catch(e=>{ this.log.warn(e.message); return null; })
-          : await this.llevarRespuestaDeConsulta(c,c.respuesta_admin,c.enviado_a ?? cfg.derivar_pagos_a,true).catch(e=>{ this.log.warn(e.message); return null; });
+          ? await this.retenerRespuestaDeConsulta(c, String(c.respuesta_admin), c.enviado_a ?? cfgC.derivar_pagos_a, 'pasó más de un día y la respuesta no se había mandado').catch(e=>{ this.log.warn(e.message); return null; })
+          : await this.llevarRespuestaDeConsulta(c,c.respuesta_admin,c.enviado_a ?? cfgC.derivar_pagos_a,true).catch(e=>{ this.log.warn(e.message); return null; });
         if (entrega?.contestado || vieja) continue;
       }
       // Un solo recordatorio por consulta, a los 20 min: después queda en la
@@ -3905,7 +3991,8 @@ export class BotService {
       if (c.aviso_recordatorio_en || Date.now()-Date.parse(c.creado_en)<20*60_000) continue;
       const { data: tomada } = await this.db.from('bot_consultas_internas').update({aviso_recordatorio_en:new Date().toISOString()}).eq('id',c.id).is('aviso_recordatorio_en',null).select('id');
       if (!tomada?.length) continue;
-      const { error } = await this.db.from('alertas_internas').insert({ tipo:'consulta', titulo:'Consulta pendiente de atención', detalle:String(c.consulta).slice(0,500), referencia:{consulta_id:c.id,telefono:c.telefono_cliente,area:c.area,recordatorio:true} });
+      // con la línea, como el aviso original (6/10/2026: el recordatorio no la llevaba)
+      const { error } = await this.insertarAlerta({ tipo:'consulta', titulo:'Consulta pendiente de atención', detalle:String(c.consulta).slice(0,500), referencia:{consulta_id:c.id,telefono:c.telefono_cliente,area:c.area,recordatorio:true,linea:c.linea ?? principal} });
       if (error) await this.db.from('bot_consultas_internas').update({aviso_recordatorio_en:null}).eq('id',c.id);
     }
   }
@@ -4019,7 +4106,10 @@ export class BotService {
   // Si no, lo tecleó una PERSONA desde el teléfono: el bot se pausa 6 h en esa
   // charla para no pisarla y lo escrito queda en el hilo. Vence solo: si nadie
   // sigue, el bot vuelve con una nota interna.
-  private async mensajePropio(p: any, numeroLinea?: string) {
+  private async mensajePropio(p: any, numeroLinea?: string, lineaDada?: string) {
+    // la persona escribió desde el teléfono de ESTA línea: se pausa la charla de
+    // esta línea, no la de la otra (6/10/2026)
+    const linea = lineaDada ?? (await this.lineas.deEntrada({ numero: numeroLinea })).linea ?? (await this.lineas.principal());
     // Al re-vincular, WhatsApp sincroniza el historial y reenvía mensajes VIEJOS
     // como si salieran ahora: respuestas del bot anteriores al registro de
     // envíos parecerían "una persona tecleando" y pausarían charlas en masa
@@ -4064,9 +4154,9 @@ export class BotService {
     // aparecía dos veces en la bandeja (2026-09-08).
     const identidad = chat.split('@')[0].replace(/\D/g, '');
     if (!identidad) return { ignorado: 'fromMe sin destinatario' };
-    this.resolverContactoWaha(identidad, chat.endsWith('@lid')).catch(() => null);
-    const propio = String(numeroLinea ?? '').replace(/\D/g, '');
-    if (propio && identidad === propio) return { ignorado: 'chat con uno mismo' };
+    this.resolverContactoWaha(identidad, chat.endsWith('@lid'), linea).catch(() => null);
+    const propios = [numeroLinea, (await this.lineas.fila(linea))?.numero_e164].map((n) => String(n ?? '').replace(/\D/g, '')).filter(Boolean);
+    if (propios.includes(identidad)) return { ignorado: 'chat con uno mismo' };
     let texto = String(p?.body ?? p?.caption ?? '').trim();
     // FOTO/AUDIO/ARCHIVO mandado desde el teléfono (16/9/2026): antes solo se
     // registraba el texto y en RESPONDE no aparecía nada. Se baja YA (WAHA borra
@@ -4094,7 +4184,7 @@ export class BotService {
       epigrafeMedia = epigrafe;
       texto = epigrafe ? `${rotulo}: ${epigrafe}` : rotulo;
     }
-    const { data: conv } = await this.db.from('bot_conversaciones').select('mensajes, bot_activo').eq('linea', 'pedidos').eq('telefono', identidad).maybeSingle();
+    const { data: conv } = await this.db.from('bot_conversaciones').select('mensajes, bot_activo').eq('linea', linea).eq('telefono', identidad).maybeSingle();
     const hist: any[] = Array.isArray(conv?.mensajes) ? conv!.mensajes : [];
     // red de seguridad si el id no coincidió: lo que dijo el bot en sus últimos
     // turnos no es de una persona
@@ -4116,48 +4206,89 @@ export class BotService {
       this.respondeRegistrar(waId, null, '', texto, undefined, mediaSaliente, { waMessageId: id || undefined, humano: true }).catch(() => null);
     }
     await this.db.from('bot_conversaciones').upsert({
-      linea: 'pedidos', telefono: identidad,
+      linea, telefono: identidad,
       mensajes: [...hist, ...(texto ? [{ role: 'assistant', content: texto }] : [])].slice(-40),
       actualizado_en: new Date().toISOString(),
       bot_activo: false, derivada_en: new Date().toISOString(), derivada_motivo: 'Atendida desde el teléfono',
       atendida_por: null, derivacion_vence_en: null, acuse_derivacion_en: null,
     }, { onConflict: 'linea,telefono' }).then(() => null, () => null);
     await this.respondePausar(chat.endsWith('@lid') ? `${identidad}@lid` : identidad);
-    await this.limpiarEspera('pedidos', identidad); // ya la atendieron: deja de esperar
+    await this.limpiarEspera(linea, identidad); // ya la atendieron: deja de esperar
     return { pausada: true, motivo: 'una persona contestó desde el teléfono' };
   }
 
-  async webhookWaha(evento: any, numeroLinea?: string, origen: 'webhook' | 'barrido' = 'webhook') {
+  async webhookWaha(evento: any, numeroLinea?: string, origen: 'webhook' | 'barrido' = 'webhook', lineaDada?: string) {
     // mensajes entrantes de personas ('message') y lo que sale de este número ('message.any' con fromMe)
     if (evento?.event !== 'message' && evento?.event !== 'message.any') return { ignorado: 'no es un mensaje' };
     const p = evento.payload ?? {};
-    if (p.fromMe === true) return this.mensajePropio(p, numeroLinea);
-    if (evento.event === 'message.any') return { ignorado: 'entrante por message.any: lo procesa el evento message' };
+    // lo que no hay que atender se descarta antes de buscar la línea (no toca la base)
+    if (p.fromMe !== true) {
+      if (evento.event === 'message.any') return { ignorado: 'entrante por message.any: lo procesa el evento message' };
+      // canales, estados y grupos no son una persona: nada que contestar ni que anotar
+      // (16/9/2026 el bot le contestó dos veces a un canal de YouTube)
+      if (/@newsletter$|@broadcast$|@g\.us$/.test(String(p.from ?? ''))) return { ignorado: 'canal, estado o grupo' };
+    }
+    // POR QUÉ LÍNEA ENTRÓ (6/10/2026). WAHA manda en cada evento la sesión
+    // (`session`) y el número propio (`me.id`); antes no se leían y todo caía en
+    // 'pedidos'. Con dos números, el mensaje de la línea 2 entraba a la charla de
+    // la línea 1 y se contestaba por la sesión de la línea 1. Una sesión que no
+    // es de ninguna línea no se atiende: nunca se contesta por otro número.
+    let linea = lineaDada ?? null;
+    if (!linea) {
+      const r = await this.lineas.deEntrada({ sesion: evento?.session, me: evento?.me?.id, numero: numeroLinea });
+      if (!r.linea) {
+        this.log.error(`WAHA: evento de una sesión que no es de ninguna línea (${r.por}): no se atiende`);
+        await this.avisarSesionDesconocida(String(evento?.session ?? '')).catch(() => null);
+        return { ignorado: r.por };
+      }
+      linea = r.linea;
+    }
+    if (p.fromMe === true) return this.mensajePropio(p, numeroLinea, linea);
 
     // Cada entrante queda anotado ANTES de procesarse y se marca terminado al
     // final. Así un aviso repetido no se contesta dos veces y el barrido de
     // cada minuto (recuperarEntrantesPerdidos) encuentra lo que nunca llegó o
     // quedó a medias por un reinicio. 16/9/2026: un deploy devolvió 502 a n8n
     // y el pedido de una clienta se perdió sin rastro.
-    // canales, estados y grupos no son una persona: nada que contestar ni que anotar
-    // (16/9/2026 el bot le contestó dos veces a un canal de YouTube)
-    if (/@newsletter$|@broadcast$|@g\.us$/.test(String(p.from ?? ''))) return { ignorado: 'canal, estado o grupo' };
     const idEntrante = String(p.id ?? '').trim();
     if (idEntrante) {
+      // la línea queda anotada solo si NO es la principal: NULL = la principal
+      // (así este alta no depende de que la columna ya exista en la base)
+      const deOtraLinea = !(await this.lineas.esPrincipal(linea));
       const alta = await this.db.from('bot_entrantes').insert({
         waha_id: idEntrante, chat: String(p.from ?? ''), origen,
         mensaje_ts: Number(p.timestamp) > 0 ? new Date(Number(p.timestamp) * 1000).toISOString() : null,
+        ...(deOtraLinea ? { linea } : {}),
       }).then((r: any) => r, () => null);
       if (alta?.error?.code === '23505' && origen === 'webhook') return { ignorado: 'mensaje ya recibido' };
     }
     try {
-      const r = await this.procesarEntrante(p, numeroLinea);
+      const r = await this.procesarEntrante(p, numeroLinea, linea);
       if (idEntrante) await this.db.from('bot_entrantes').update({ terminado_en: new Date().toISOString() }).eq('waha_id', idEntrante).then(() => null, () => null);
       return r;
     } catch (e) {
       this.log.error(`entrante ${idEntrante || '?'} falló: ${(e as any)?.message ?? e} (el barrido lo reintenta)`);
       throw e;
     }
+  }
+
+  // UNA SESIÓN QUE NO ES DE NINGUNA LÍNEA (6/10/2026): sus mensajes no se
+  // contestan (sería desde otro número). Para que no quede en silencio, una
+  // alerta en la campanita cada 2 h por sesión: típico de vincular el teléfono
+  // nuevo antes de cargar su fila en lineas_whatsapp.
+  private sesionesDesconocidas = new Map<string, number>();
+  private async avisarSesionDesconocida(sesion: string) {
+    const antes = this.sesionesDesconocidas.get(sesion) ?? 0;
+    if (Date.now() - antes < 2 * 3600_000) return;
+    this.sesionesDesconocidas.set(sesion, Date.now());
+    const cfg = await this.lineas.config(await this.lineas.principal());
+    await this.insertarAlerta({
+      para_usuario: (cfg as any)?.avisar_proveedores_a ?? null,
+      tipo: 'whatsapp_caido',
+      titulo: `Llegan mensajes de WhatsApp de una sesión sin línea («${sesion.slice(0, 40)}»)`,
+      detalle: 'Esos mensajes NO se contestan: el bot no sabe de qué número son. Hay que cargar la línea en lineas_whatsapp con esa sesión (waha_sesion) o desvincular esa sesión en WAHA. Mientras tanto, atendé desde ese teléfono.',
+      referencia: { sesion, desconocida: true },
+    });
   }
 
   // Barrido de seguridad: cada minuto mira las charlas con movimiento reciente
@@ -4177,45 +4308,16 @@ export class BotService {
         if (!data) return;
         this.registroDesde = new Date((data as any).recibido_en).getTime();
       }
-      const base = `${url.replace(/\/$/, '')}/api/${process.env.WAHA_SESSION || 'odb'}`;
-      const pedir = async (ruta: string) => {
-        const r = await fetch(`${base}${ruta}`, { headers: { 'X-Api-Key': key }, signal: AbortSignal.timeout(15000) });
-        return r.ok ? r.json() : [];
-      };
+      // MULTILÍNEA (6/10/2026): se barre CADA línea con su sesión, y lo que se
+      // recupera se procesa (y se contesta) por esa línea. Antes había una sola
+      // sesión ('odb' por defecto acá, 'default' para mandar).
       const ahora = Date.now();
       const desde = Math.max(this.registroDesde, ahora - 20 * 60_000);
-      const chats = ((await pedir('/chats?limit=30&sortBy=conversationTimestamp&sortOrder=desc')) as any[])
-        .filter((c) => Number(c.conversationTimestamp) * 1000 >= desde)
-        .map((c) => String(c.id ?? ''))
-        .filter((id) => id && !/@g\.us$|@newsletter$|^status@broadcast$/.test(id));
-      for (const chat of chats) {
-        const lista = async (media: boolean) => ((await pedir(`/chats/${encodeURIComponent(chat)}/messages?limit=12&downloadMedia=${media}`)) as any[]) ?? [];
-        let msgs = (await lista(false)).filter((m) => !m.fromMe && m.id && Number(m.timestamp) * 1000 >= desde && Number(m.timestamp) * 1000 <= ahora - 90_000);
-        if (!msgs.length) continue;
-        const { data: vistos } = await this.db.from('bot_entrantes').select('waha_id, terminado_en, intentos, recibido_en').in('waha_id', msgs.map((m) => String(m.id)));
-        const porId = new Map(((vistos ?? []) as any[]).map((v) => [v.waha_id, v]));
-        const pendientes = msgs.filter((m) => {
-          const v = porId.get(String(m.id));
-          return !v || (!v.terminado_en && v.intentos < 3 && ahora - new Date(v.recibido_en).getTime() > 6 * 60_000);
-        });
-        if (!pendientes.length) continue;
-        if (pendientes.some((m) => m.hasMedia)) {
-          const conMedia = new Map((await lista(true)).map((m) => [String(m.id), m]));
-          msgs = pendientes.map((m) => conMedia.get(String(m.id)) ?? m);
-        } else msgs = pendientes;
-        msgs.sort((a, b) => Number(a.timestamp) - Number(b.timestamp));
-        for (const m of msgs) {
-          const v = porId.get(String(m.id));
-          this.log.warn(`barrido: entrante ${v ? 'sin terminar' : 'PERDIDO'} de ${chat} (${String(m.body ?? '').slice(0, 40)}): lo proceso ahora`);
-          try {
-            if (v) {
-              await this.db.from('bot_entrantes').update({ intentos: v.intentos + 1, origen: 'barrido' }).eq('waha_id', String(m.id));
-              await this.procesarEntrante(m, process.env.WAHA_NUMERO_LINEA || '5491122812200');
-              await this.db.from('bot_entrantes').update({ terminado_en: new Date().toISOString() }).eq('waha_id', String(m.id));
-            } else {
-              await this.webhookWaha({ event: 'message', payload: m }, process.env.WAHA_NUMERO_LINEA || '5491122812200', 'barrido');
-            }
-          } catch (e: any) { this.log.warn(`barrido: no pude procesar ${m.id}: ${e?.message ?? e}`); }
+      for (const l of await this.lineasParaBarrer()) {
+        try {
+          await this.barrerLinea(url, key, l, desde, ahora);
+        } catch (e: any) {
+          this.log.warn(`barrido de entrantes (${l.linea}): ${e?.message ?? e}`);
         }
       }
     } catch (e: any) {
@@ -4225,7 +4327,66 @@ export class BotService {
     }
   }
 
-  private async procesarEntrante(p: any, numeroLinea?: string) {
+  /** Las líneas que barre el barrido de entrantes perdidos: cada sesión una vez, con su número. */
+  private async lineasParaBarrer(): Promise<{ linea: string; sesion: string; numero: string }[]> {
+    const principal = await this.lineas.principal();
+    const filaP = await this.lineas.fila(principal);
+    const lista = [{ linea: principal, sesion: sesionPrincipal(), numero: process.env.WAHA_NUMERO_LINEA || String(filaP?.numero_e164 ?? '') || '5491122812200' }];
+    for (const f of await this.lineas.activas()) {
+      const ses = String(f.waha_sesion ?? '').trim();
+      if (!ses || lista.some((x) => x.sesion === ses || x.linea === f.linea)) continue;
+      lista.push({ linea: f.linea, sesion: ses, numero: String(f.numero_e164 ?? '') });
+    }
+    return lista;
+  }
+
+  private async barrerLinea(url: string, key: string, l: { linea: string; sesion: string; numero: string }, desde: number, ahora: number) {
+    const base = `${url.replace(/\/$/, '')}/api/${encodeURIComponent(l.sesion)}`;
+    const pedir = async (ruta: string) => {
+      const r = await fetch(`${base}${ruta}`, { headers: { 'X-Api-Key': key }, signal: AbortSignal.timeout(15000) });
+      return r.ok ? r.json() : [];
+    };
+    const chats = ((await pedir('/chats?limit=30&sortBy=conversationTimestamp&sortOrder=desc')) as any[])
+      .filter((c) => Number(c.conversationTimestamp) * 1000 >= desde)
+      .map((c) => String(c.id ?? ''))
+      .filter((id) => id && !/@g\.us$|@newsletter$|^status@broadcast$/.test(id));
+    for (const chat of chats) {
+      const lista = async (media: boolean) => ((await pedir(`/chats/${encodeURIComponent(chat)}/messages?limit=12&downloadMedia=${media}`)) as any[]) ?? [];
+      let msgs = (await lista(false)).filter((m) => !m.fromMe && m.id && Number(m.timestamp) * 1000 >= desde && Number(m.timestamp) * 1000 <= ahora - 90_000);
+      if (!msgs.length) continue;
+      const { data: vistos } = await this.db.from('bot_entrantes').select('waha_id, terminado_en, intentos, recibido_en').in('waha_id', msgs.map((m) => String(m.id)));
+      const porId = new Map(((vistos ?? []) as any[]).map((v) => [v.waha_id, v]));
+      const pendientes = msgs.filter((m) => {
+        const v = porId.get(String(m.id));
+        return !v || (!v.terminado_en && v.intentos < 3 && ahora - new Date(v.recibido_en).getTime() > 6 * 60_000);
+      });
+      if (!pendientes.length) continue;
+      if (pendientes.some((m) => m.hasMedia)) {
+        const conMedia = new Map((await lista(true)).map((m) => [String(m.id), m]));
+        msgs = pendientes.map((m) => conMedia.get(String(m.id)) ?? m);
+      } else msgs = pendientes;
+      msgs.sort((a, b) => Number(a.timestamp) - Number(b.timestamp));
+      for (const m of msgs) {
+        const v = porId.get(String(m.id));
+        this.log.warn(`barrido: entrante ${v ? 'sin terminar' : 'PERDIDO'} de ${chat} (${String(m.body ?? '').slice(0, 40)}): lo proceso ahora`);
+        try {
+          if (v) {
+            await this.db.from('bot_entrantes').update({ intentos: v.intentos + 1, origen: 'barrido' }).eq('waha_id', String(m.id));
+            await this.procesarEntrante(m, l.numero, l.linea);
+            await this.db.from('bot_entrantes').update({ terminado_en: new Date().toISOString() }).eq('waha_id', String(m.id));
+          } else {
+            await this.webhookWaha({ event: 'message', payload: m }, l.numero, 'barrido', l.linea);
+          }
+        } catch (e: any) { this.log.warn(`barrido: no pude procesar ${m.id}: ${e?.message ?? e}`); }
+      }
+    }
+  }
+
+  private async procesarEntrante(p: any, numeroLinea?: string, lineaDada?: string) {
+    // LA LÍNEA DEL MENSAJE (6/10/2026): todo lo de acá (la charla, la pausa, la
+    // espera, las notas, la respuesta) es de la línea por la que entró, y la
+    // respuesta sale por esa misma sesión de WhatsApp.
+    const linea = lineaDada ?? (await this.lineas.deEntrada({ numero: numeroLinea })).linea ?? (await this.lineas.principal());
 
     const desde = String(p.from ?? '');
     if (!desde) return { ignorado: 'sin remitente' };
@@ -4253,7 +4414,7 @@ export class BotService {
     // encuentra nunca.
     const claveContacto = identidad.replace(/\D/g, '');
     // número real y nombre de agenda vía WAHA (con memoria: no pega por cada mensaje)
-    this.resolverContactoWaha(claveContacto, esLid).catch(() => null);
+    this.resolverContactoWaha(claveContacto, esLid, linea).catch(() => null);
     if (real && esLid && claveContacto) {
       const { data: yaEsta } = await this.db
         .from('bot_contactos').select('telefono_real').eq('telefono', claveContacto).maybeSingle();
@@ -4317,13 +4478,13 @@ export class BotService {
       const esPdf = (media?.mime === 'application/pdf' || /\.pdf$/i.test(media?.nombre ?? '')) && (media?.base64.length ?? Infinity) < 20_000_000;
       if ((esImagen || esPdf) && media) {
         const rotulo = esImagen ? '📷 Foto del cliente' : '📄 PDF del cliente';
-        if (await this.respondeModoHumano(waIdM).catch(() => false)) {
+        if (await this.respondeModoHumano(waIdM, linea).catch(() => false)) {
           await this.respondeRegistrar(waIdM, p._data?.notifyName ?? p.notifyName ?? null, etiqueta(rotulo), null, p.id ? String(p.id) : undefined, mediaReg).catch(() => null);
-          await this.anotarEsperaEnPausa('pedidos', clave, etiqueta(rotulo));
+          await this.anotarEsperaEnPausa(linea, clave, etiqueta(rotulo));
           return { contestado: false, motivo: 'RESPONDE: atiende una persona' };
         }
         const r: any = await this.charla({
-          numeroLinea, telefono: clave,
+          linea, telefono: clave,
           mensaje: epigrafe,
           archivoBase64: media.base64, mimeType: esPdf && !esImagen ? 'application/pdf' : media.mime,
           archivoUrl: enlacePublico || undefined,
@@ -4333,8 +4494,8 @@ export class BotService {
           await this.respondeRegistrar(waIdM, p.notifyName ?? null, etiqueta(rotulo), null, p.id ? String(p.id) : undefined, mediaReg).catch(() => null);
           return { contestado: false, motivo: 'sin respuesta' };
         }
-        await this.simularEscritura(desde, r.respuesta);
-        const env = await this.enviarConTarjeta(desde, identidad, r);
+        await this.simularEscritura(desde, r.respuesta, linea);
+        const env = await this.enviarConTarjeta(desde, identidad, r, linea);
         this.respondeRegistrar(waIdM, p.notifyName ?? null, etiqueta(`${rotulo}${epigrafe ? `: ${epigrafe}` : ''}`), r.respuesta, p.id ? String(p.id) : undefined, mediaReg).catch(() => null);
         return { contestado: env.enviado, motivo: esImagen ? 'foto mirada por el bot' : 'pdf leído por el bot' };
       }
@@ -4346,17 +4507,17 @@ export class BotService {
       if (esVideo) {
         const miniatura = [p._data?.jpegThumbnail, p._data?.message?.videoMessage?.jpegThumbnail, p.media?.preview]
           .find((x: any) => typeof x === 'string' && x.length > 100);
-        if (miniatura && !(await this.respondeModoHumano(waIdM).catch(() => false))) {
+        if (miniatura && !(await this.respondeModoHumano(waIdM, linea).catch(() => false))) {
           const r: any = await this.charla({
-            numeroLinea, telefono: clave,
+            linea, telefono: clave,
             mensaje: epigrafe,
             archivoBase64: miniatura, mimeType: 'image/jpeg', vistaPreviaDeVideo: true,
             archivoUrl: enlacePublico || undefined,
             mensajeId: p.id ? String(p.id) : undefined,
           }).catch(() => null);
           if (r?.respuesta) {
-            await this.simularEscritura(desde, r.respuesta);
-            const env = await this.enviarConTarjeta(desde, identidad, r);
+            await this.simularEscritura(desde, r.respuesta, linea);
+            const env = await this.enviarConTarjeta(desde, identidad, r, linea);
             this.respondeRegistrar(waIdM, p.notifyName ?? null, etiqueta(`🎬 Video del cliente${epigrafe ? `: ${epigrafe}` : ''}`), r.respuesta, p.id ? String(p.id) : undefined, mediaReg).catch(() => null);
             return { contestado: env.enviado, motivo: 'video interpretado por su vista previa' };
           }
@@ -4378,18 +4539,18 @@ export class BotService {
         const dicho = await this.transcribirAudio(media.base64, media.mime);
         if (dicho) {
           this.log.log(`audio transcripto de ${identidad}: "${dicho.slice(0, 80)}"`);
-          if (await this.respondeModoHumano(waIdM).catch(() => false)) {
+          if (await this.respondeModoHumano(waIdM, linea).catch(() => false)) {
             await this.respondeRegistrar(waIdM, p._data?.notifyName ?? p.notifyName ?? null, etiqueta(`🎙️ ${dicho}`), null, p.id ? String(p.id) : undefined, mediaReg).catch(() => null);
-            await this.anotarEsperaEnPausa('pedidos', clave, `🎙️ ${dicho}`);
+            await this.anotarEsperaEnPausa(linea, clave, `🎙️ ${dicho}`);
             return { contestado: false, motivo: 'RESPONDE: atiende una persona' };
           }
-          const r: any = await this.charla({ numeroLinea, telefono: clave, mensaje: dicho, mensajeId: p.id ? String(p.id) : undefined, deAudio: true });
+          const r: any = await this.charla({ linea, telefono: clave, mensaje: dicho, mensajeId: p.id ? String(p.id) : undefined, deAudio: true });
           if (!r?.respuesta) {
             await this.respondeRegistrar(waIdM, p.notifyName ?? null, etiqueta(`🎙️ ${dicho}`), null, p.id ? String(p.id) : undefined, mediaReg).catch(() => null);
             return { contestado: false, motivo: r?.derivada ? 'derivada a una persona' : 'sin respuesta' };
           }
-          await this.simularEscritura(desde, r.respuesta);
-          const env = await this.enviarConTarjeta(desde, identidad, r);
+          await this.simularEscritura(desde, r.respuesta, linea);
+          const env = await this.enviarConTarjeta(desde, identidad, r, linea);
           this.respondeRegistrar(waIdM, p.notifyName ?? null, etiqueta(`🎙️ ${dicho}`), r.respuesta, p.id ? String(p.id) : undefined, mediaReg).catch(() => null);
           return { contestado: env.enviado, motivo: 'audio escuchado y contestado' };
         }
@@ -4405,13 +4566,13 @@ export class BotService {
       // guarda el archivo en el hilo con su enlace —para leerlo al retomar— y
       // no se manda acuse ni se toca la pausa de la persona.
       {
-        const { data: lineaCfg } = await this.db.from('lineas_whatsapp').select('bot_activo').eq('linea', 'pedidos').eq('activa', true).limit(1).maybeSingle();
-        const { data: convPrev } = await this.db.from('bot_conversaciones').select('mensajes, bot_activo, atendida_por, derivada_motivo').eq('linea', 'pedidos').eq('telefono', clave).maybeSingle();
+        const lineaCfg = await this.lineas.config(linea);
+        const { data: convPrev } = await this.db.from('bot_conversaciones').select('mensajes, bot_activo, atendida_por, derivada_motivo').eq('linea', linea).eq('telefono', clave).maybeSingle();
         const silencio = motivoDeSilencio(lineaCfg as any, convPrev as any, /^54911000000\d{1,3}$/.test(identidad));
         if (silencio) {
           const hist: any[] = Array.isArray((convPrev as any)?.mensajes) ? (convPrev as any).mensajes : [];
           await this.db.from('bot_conversaciones').upsert({
-            linea: 'pedidos', telefono: clave,
+            linea, telefono: clave,
             mensajes: [...hist, { role: 'user', content: `[el cliente mandó ${queEs}]${enlace ? ` [adjunto sin leer: ${enlace}]` : ''}` }].slice(-40),
             actualizado_en: new Date().toISOString(),
             esperando_desde: (convPrev as any)?.esperando_desde ?? new Date().toISOString(),
@@ -4424,13 +4585,13 @@ export class BotService {
       }
       const icono = esAudio ? '🎙️ Audio del cliente' : tipo === 'video' ? '🎬 Video del cliente' : `📄 ${media?.nombre || 'Archivo'} del cliente`;
       await this.respondeRegistrar(waIdM, p._data?.notifyName ?? p.notifyName ?? null, etiqueta(icono), null, p.id ? String(p.id) : undefined, mediaReg).catch(() => null);
-      if (await this.respondeModoHumano(waIdM).catch(() => false)) return { contestado: false, motivo: 'RESPONDE: atiende una persona' };
+      if (await this.respondeModoHumano(waIdM, linea).catch(() => false)) return { contestado: false, motivo: 'RESPONDE: atiende una persona' };
 
-      await this.db.from('bot_notas_equipo').insert({ linea: 'pedidos', telefono: clave, nota: `El cliente mandó ${queEs} por WhatsApp. Hay que escucharlo/abrirlo y responderle.${enlace ? ` Archivo: ${enlace}` : ''}` }).then(() => null, () => null);
-      const { data: cfg } = await this.db.from('lineas_whatsapp').select('avisar_proveedores_a').eq('linea', 'pedidos').eq('activa', true).limit(1).maybeSingle();
-      await this.db.from('alertas_internas').insert({ para_usuario: cfg?.avisar_proveedores_a ?? null, tipo: 'derivacion', titulo: `Mensaje de voz de +${identidad}`, detalle: `El cliente mandó ${queEs}. Escuchalo y respondele por WhatsApp.${enlace ? ` ${enlace}` : ''}`, referencia: { linea: 'pedidos', telefono: clave, enlace } }).then(() => null, () => null);
+      await this.db.from('bot_notas_equipo').insert({ linea, telefono: clave, nota: `El cliente mandó ${queEs} por WhatsApp. Hay que escucharlo/abrirlo y responderle.${enlace ? ` Archivo: ${enlace}` : ''}` }).then(() => null, () => null);
+      const cfg = await this.lineas.config(linea);
+      await this.insertarAlerta({ para_usuario: cfg?.avisar_proveedores_a ?? null, tipo: 'derivacion', titulo: `Mensaje de voz de +${identidad}`, detalle: `El cliente mandó ${queEs}. Escuchalo y respondele por WhatsApp.${enlace ? ` ${enlace}` : ''}`, referencia: { linea, telefono: clave, enlace } }).then(() => null, () => null);
 
-      const { data: conv } = await this.db.from('bot_conversaciones').select('mensajes').eq('linea', 'pedidos').eq('telefono', clave).maybeSingle();
+      const { data: conv } = await this.db.from('bot_conversaciones').select('mensajes').eq('linea', linea).eq('telefono', clave).maybeSingle();
       const hist: any[] = Array.isArray(conv?.mensajes) ? conv!.mensajes : [];
       // marca fija en el historial: chequear por palabras fallaba y el cliente
       // recibía el mismo acuse por cada archivo que mandaba
@@ -4442,7 +4603,7 @@ export class BotService {
       // escuchen». En el historial queda lo que se le dijo de verdad.
       const aviso = esAudio ? TEXTO.AUDIO_SIN_TRANSCRIBIR : TEXTO.ARCHIVO_SIN_ABRIR;
       await this.db.from('bot_conversaciones').upsert({
-        linea: 'pedidos', telefono: clave,
+        linea, telefono: clave,
         mensajes: [...hist, { role: 'user', content: `[el cliente mandó ${queEs}]` }, ...(yaAviso ? [] : [{ role: 'assistant', content: MARCA + aviso }]),
         ].slice(-40),
         actualizado_en: new Date().toISOString(), bot_activo: false,
@@ -4452,8 +4613,8 @@ export class BotService {
         atendida_por: null, derivacion_vence_en: new Date(Date.now() + 4 * 3600_000).toISOString(),
       }, { onConflict: 'linea,telefono' }).then(() => null, () => null);
       if (yaAviso) return { contestado: false, motivo: `${queEs}: ya avisado, derivado` };
-      await this.simularEscritura(desde, aviso);
-      const env = await this.enviarPorWhatsapp({ to: desde, text: aviso, referencia: `waha/${identidad}` });
+      await this.simularEscritura(desde, aviso, linea);
+      const env = await this.enviarPorWhatsapp({ to: desde, text: aviso, referencia: `waha/${identidad}`, linea });
       this.respondeRegistrar(waIdM, p.notifyName ?? null, etiqueta(icono), aviso, undefined, mediaReg).catch(() => null);
       return { contestado: env.enviado, motivo: `${queEs}: derivado a una persona` };
     }
@@ -4473,9 +4634,9 @@ export class BotService {
       const waIdSinTexto = esLid ? desde : identidad;
       await this.respondeRegistrar(waIdSinTexto, p._data?.notifyName ?? p.notifyName ?? null, texto, null, p.id ? String(p.id) : undefined).catch(() => null);
       await this.db.from('bot_notas_equipo')
-        .insert({ linea: 'pedidos', telefono: clave, nota: `${texto} Hay que mirarlo y contestarle.` })
+        .insert({ linea, telefono: clave, nota: `${texto} Hay que mirarlo y contestarle.` })
         .then(() => null, () => null);
-      await this.anotarEsperaEnPausa('pedidos', clave, texto);
+      await this.anotarEsperaEnPausa(linea, clave, texto);
       return { contestado: false, motivo: 'mensaje sin texto: derivado a una persona' };
     }
 
@@ -4485,14 +4646,14 @@ export class BotService {
 
     // Si en RESPONDE la charla está en "atendés vos", el bot se calla: el mensaje
     // igual queda registrado allá para que la persona lo vea.
-    if (await this.respondeModoHumano(waId)) {
+    if (await this.respondeModoHumano(waId, linea)) {
       await this.respondeRegistrar(waId, p._data?.notifyName ?? p.notifyName ?? null, texto, null, p.id ? String(p.id) : undefined);
-      await this.anotarEsperaEnPausa('pedidos', clave, texto);
+      await this.anotarEsperaEnPausa(linea, clave, texto);
       return { contestado: false, motivo: 'RESPONDE: atiende una persona' };
     }
 
     const r: any = await this.charla({
-      numeroLinea,
+      linea,
       telefono: identidad,
       mensaje: texto,
       mensajeId: p.id ? String(p.id) : undefined,
@@ -4508,11 +4669,11 @@ export class BotService {
     // "escribiendo…" y se espera un tiempo proporcional al largo de la respuesta
     // (entre 2 y 8 segundos) antes de despachar. Un bot instantáneo se siente
     // como bot; uno que "escribe" se siente atendido.
-    await this.simularEscritura(desde, r.respuesta);
+    await this.simularEscritura(desde, r.respuesta, linea);
     // listado largo → cartel con pie de foto; si algo falla, va el texto igual
     // el resumen del pedido (cantidades, total, entrega) va con el diseño Placa
     // roja (25/9/2026); una lista de precios sin cantidades, con el cartel de siempre
-    const envio = await this.enviarConTarjeta(desde, identidad, r);
+    const envio = await this.enviarConTarjeta(desde, identidad, r, linea);
     // el turno completo queda en RESPONDE (best-effort, no bloquea la respuesta)
     this.respondeRegistrar(waId, p.notifyName ?? null, texto, r.respuesta, p.id ? String(p.id) : undefined).catch(() => null);
     // SI NO SALIÓ, NO ESTÁ CONTESTADO (19/9/2026). Antes se registraba el turno
@@ -4521,9 +4682,9 @@ export class BotService {
     // marcado como esperando, con nota, y el barrido lo reintenta (la excepción
     // evita que el entrante se marque como terminado).
     if (!envio.enviado) {
-      await this.anotarEsperaEnPausa('pedidos', clave, `${texto} [el bot contestó pero WhatsApp no lo entregó]`);
+      await this.anotarEsperaEnPausa(linea, clave, `${texto} [el bot contestó pero WhatsApp no lo entregó]`);
       await this.db.from('bot_notas_equipo')
-        .insert({ linea: 'pedidos', telefono: clave, nota: `[no entregado] La respuesta del bot no salió (${envio.motivo ?? 'sin motivo'}). El cliente sigue esperando: ${texto.slice(0, 200)}` })
+        .insert({ linea, telefono: clave, nota: `[no entregado] La respuesta del bot no salió (${envio.motivo ?? 'sin motivo'}). El cliente sigue esperando: ${texto.slice(0, 200)}` })
         .then(() => null, () => null);
       throw new Error(`WhatsApp no entregó la respuesta a ${clave}: ${envio.motivo ?? 'sin motivo'}`);
     }
@@ -4535,16 +4696,16 @@ export class BotService {
   // no sale, va el texto. Es el mismo camino para texto, foto, audio y video
   // (2/10/2026: lo que contestaba a una foto o a un audio salía siempre como
   // texto, y el pedido por foto es justo el que trae la lista larga).
-  private async enviarConTarjeta(desde: string, identidad: string, r: { respuesta: string; catalogo?: ProductoConPrecio[] }) {
+  private async enviarConTarjeta(desde: string, identidad: string, r: { respuesta: string; catalogo?: ProductoConPrecio[] }, linea?: string) {
     const cartel = await this.armarTarjeta(r);
     // si le correspondía imagen y no salió, que quede en el log (1/10/2026)
     if (!cartel && imagenEsperada(r.respuesta)) this.log.warn(`le correspondía imagen de ${imagenEsperada(r.respuesta)} y no se armó (${identidad})`);
     let envio = cartel
-      ? await this.enviarPorWhatsapp({ to: desde, imagenUrl: cartel.imagenUrl, text: cartel.pie, referencia: `waha/${identidad}` })
+      ? await this.enviarPorWhatsapp({ to: desde, imagenUrl: cartel.imagenUrl, text: cartel.pie, referencia: `waha/${identidad}`, linea })
       : { enviado: false, motivo: 'sin cartel' } as any;
     if (!envio.enviado) {
       if (cartel) this.log.warn(`el cartel no se pudo enviar (${envio.motivo}): va como texto`);
-      envio = await this.enviarPorWhatsapp({ to: desde, text: r.respuesta, referencia: `waha/${identidad}` });
+      envio = await this.enviarPorWhatsapp({ to: desde, text: r.respuesta, referencia: `waha/${identidad}`, linea });
     }
     return envio;
   }
@@ -4702,14 +4863,15 @@ export class BotService {
     }
   }
 
-  private async simularEscritura(to: string, texto: string) {
+  private async simularEscritura(to: string, texto: string, linea?: string) {
     const wahaUrl = process.env.WAHA_URL, wahaKey = process.env.WAHA_API_KEY;
-    const sesion = process.env.WAHA_SESSION || 'default';
     const crudo = String(to ?? ''); const digitos = crudo.replace(/\D/g, '');
     const chatId = crudo.includes('@') ? crudo.split(':')[0] : digitos ? `${digitos}@c.us` : null;
     // ~40 caracteres por segundo, con piso y techo
     const ms = Math.min(2000, Math.max(0, Number(process.env.ODB_BOT_PAUSA_ESCRITURA_MS ?? 0)));
     if (!ms) return;
+    // el «escribiendo…» se ve en el chat de la línea que va a contestar (6/10/2026)
+    const sesion = await this.lineas.sesion(linea);
     const post = async (ruta: string) => {
       if (!wahaUrl || !wahaKey || !chatId) return;
       try {
@@ -4752,10 +4914,16 @@ export class BotService {
     documentoUrl?: string | null; // un PDF u otro archivo: viaja como documento adjunto
     kind?: string;
     referencia?: string | null;
+    /**
+     * La línea de la charla (lineas_whatsapp.linea): lo que va a un cliente sale
+     * por la sesión de SU línea, la misma por la que escribió (6/10/2026). Sin
+     * línea, o con kind 'aviso-interno', sale por la principal, como siempre.
+     */
+    linea?: string | null;
   }) {
     const wahaUrl = process.env.WAHA_URL;
     const wahaKey = process.env.WAHA_API_KEY;
-    const sesion = process.env.WAHA_SESSION || 'default';
+    const sesion = payload.linea && payload.kind !== 'aviso-interno' ? await this.lineas.sesion(payload.linea) : sesionPrincipal();
 
     // ÚLTIMA PUERTA: el envío en ODB es SIN CARGO y por acá sale TODO lo que la
     // casa manda por WhatsApp (bot, cierres de pedido, avisos, difusiones,
@@ -4774,7 +4942,8 @@ export class BotService {
     // historial, así que salían 9 respuestas iguales seguidas (Distribuidora
     // Porti, 23/9/2026). Lo mismo al mismo chat dentro de 3 minutos no sale dos veces.
     if (payload.text && !payload.imagenUrl && !payload.audioUrl && !payload.documentoUrl && payload.kind !== 'aviso-interno') {
-      const k = String(payload.to ?? '').replace(/\D/g, '');
+      // por sesión: el mismo texto al mismo cliente por la OTRA línea no es una ráfaga (6/10/2026)
+      const k = `${sesion}:${String(payload.to ?? '').replace(/\D/g, '')}`;
       const prev = this.ultimoEnviado.get(k);
       if (prev && Date.now() - prev.en < 180_000 && casiIgual(prev.texto, String(payload.text))) {
         this.log.warn(`mensaje repetido a ${k} dentro de 3 min: no se manda de nuevo`);
@@ -4938,7 +5107,7 @@ export class BotService {
 
   // Respuesta escrita por una persona desde la bandeja: se guarda en el hilo y
   // sale por el puente. Mientras haya alguien atendiendo, el bot sigue callado.
-  async responderComoHumano(linea: 'pedidos' | 'proveedores', telefono: string, texto: string, usuarioId?: string) {
+  async responderComoHumano(linea: string, telefono: string, texto: string, usuarioId?: string) {
     const mensaje = String(texto ?? '').trim();
     if (!mensaje) throw new BadRequestException('El mensaje está vacío');
 
@@ -4967,7 +5136,8 @@ export class BotService {
 
     await this.respondePausar(telefono);
     await this.limpiarEspera(linea, telefono); // la atendió una persona desde el panel
-    const envio = await this.enviarPorWhatsapp({ to: telefono, text: mensaje, referencia: `${linea}/${telefono}` });
+    // sale por la línea de la charla, no por la principal (6/10/2026)
+    const envio = await this.enviarPorWhatsapp({ to: telefono, text: mensaje, referencia: `${linea}/${telefono}`, linea });
     // el mensaje de la persona queda también en el hilo de RESPONDE, así la
     // burbuja aparece en la app apenas refresca
     this.respondeRegistrar(telefono, null, '', mensaje).catch(() => null);
@@ -4976,7 +5146,7 @@ export class BotService {
 
   // Pausar el bot en UNA charla sin tener que escribir nada (la persona va a
   // atender por el teléfono, o quiere leer tranquila antes de responder).
-  async pausarBot(linea: 'pedidos' | 'proveedores', telefono: string, usuarioId?: string) {
+  async pausarBot(linea: string, telefono: string, usuarioId?: string) {
     const marca = { bot_activo: false, derivada_en: new Date().toISOString(), derivada_motivo: 'Pausado desde la bandeja', resuelta_en: null, atendida_por: usuarioId ?? null, derivacion_vence_en: null, acuse_derivacion_en: null };
     const { data: tocadas, error } = await this.db
       .from('bot_conversaciones').update(marca).eq('linea', linea).eq('telefono', telefono).select('telefono');
@@ -4989,26 +5159,28 @@ export class BotService {
   }
 
   // Marca que alguien del equipo leyó la charla (saca el "sin leer")
-  async marcarLeida(linea: 'pedidos' | 'proveedores', telefono: string, usuarioId?: string) {
+  async marcarLeida(linea: string, telefono: string, usuarioId?: string) {
     await this.db.from('bot_conversaciones')
       .update({ leida_en: new Date().toISOString(), leida_por: usuarioId ?? null })
       .eq('linea', linea).eq('telefono', telefono);
     return { ok: true };
   }
 
-  // Interruptor general de la línea (emergencia)
-  async estadoLinea(linea: 'pedidos' | 'proveedores') {
+  // Interruptor general de la línea (emergencia). Es POR LÍNEA: cada número
+  // tiene el suyo (6/10/2026); el panel muestra una tarjeta por línea.
+  async estadoLinea(linea: string) {
     const { data } = await this.db.from('lineas_whatsapp')
       .select('linea, numero_legible, bot_activo, bot_pausado_en')
       .eq('linea', linea).eq('activa', true).limit(1).maybeSingle();
     return data ?? { linea, bot_activo: true };
   }
 
-  async setBotLinea(linea: 'pedidos' | 'proveedores', activo: boolean, usuarioId?: string) {
+  async setBotLinea(linea: string, activo: boolean, usuarioId?: string) {
     const { error } = await this.db.from('lineas_whatsapp')
       .update({ bot_activo: activo, bot_pausado_por: activo ? null : (usuarioId ?? null), bot_pausado_en: activo ? null : new Date().toISOString() })
       .eq('linea', linea).eq('activa', true);
     if (error) throw new BadRequestException(error.message);
+    this.lineas.olvidar();
     await this.db.from('auditoria').insert({
       usuario_id: usuarioId ?? null, accion: activo ? 'bot_linea_encendido' : 'bot_linea_apagado',
       entidad: 'lineas_whatsapp', entidad_id: linea, datos_despues: { activo },
@@ -5043,13 +5215,80 @@ export class BotService {
     return { ok: true };
   }
 
+  // ---- Las líneas, para el panel (6/10/2026) ----
+
+  /**
+   * La línea que pide el panel, validada. Sin línea, la principal (los
+   * clientes viejos del panel no la mandan). Una que no existe es un error: antes
+   * se pasaba a 'pedidos' en silencio y la acción caía en la charla de otra línea.
+   */
+  async lineaDelPanel(linea?: string | null): Promise<string> {
+    const l = String(linea ?? '').trim();
+    if (!l) return this.lineas.principal();
+    if (!(await this.lineas.existe(l))) throw new BadRequestException(`La línea «${l}» no existe`);
+    return l;
+  }
+
+  /**
+   * Por qué línea se le contesta a un contacto desde RESPONDE: la que diga la
+   * app (si la manda) o la de su charla más reciente entre las líneas de
+   * clientes. RESPONDE tiene un solo tenant para ODB y no sabe de líneas: sin
+   * esto la respuesta salía siempre por la principal.
+   */
+  async lineaParaResponder(telefono: string, pedida?: string | null): Promise<string> {
+    if (String(pedida ?? '').trim()) return this.lineaDelPanel(pedida);
+    const principal = await this.lineas.principal();
+    const deClientes = (await this.lineas.activas('pedidos')).map((f) => f.linea);
+    if (deClientes.length <= 1) return principal;
+    const tel = String(telefono ?? '').split('@')[0].replace(/\D/g, '');
+    if (!tel) return principal;
+    const { data } = await this.db.from('bot_conversaciones').select('linea, actualizado_en')
+      .eq('telefono', tel).in('linea', deClientes).order('actualizado_en', { ascending: false }).limit(1);
+    const ultima = Array.isArray(data) ? data[0] : data;
+    return (ultima as any)?.linea && deClientes.includes((ultima as any).linea) ? String((ultima as any).linea) : principal;
+  }
+
+  /**
+   * Las líneas para el panel: número, nombre, tipo, interruptor y el estado de
+   * la sesión de WhatsApp que vio el vigilante (sin pegarle a WAHA de nuevo).
+   */
+  async listarLineas() {
+    // el panel ve lo último (acaban de tocar un interruptor), no la memoria de 60 s
+    this.lineas.olvidar();
+    const filas = await this.lineas.todas();
+    const principal = await this.lineas.principal();
+    const lista = filas.length ? filas : [{ linea: principal, activa: true, bot_activo: true } as any];
+    const varias = lista.filter((f) => f.activa !== false && (f.tipo ?? (f.linea === 'proveedores' ? 'proveedores' : 'pedidos')) === 'pedidos').length > 1;
+    return lista.map((f) => {
+      const sesion = String(f.waha_sesion ?? '').trim() || (f.linea === principal ? sesionPrincipal() : '');
+      const est = sesion ? this.estadoSesiones.get(sesion) : undefined;
+      return {
+        linea: f.linea,
+        tipo: f.tipo ?? (f.linea === 'proveedores' ? 'proveedores' : 'pedidos'),
+        nombre: etiquetaDeFila(f.linea, { ...f, numero_legible: null }),
+        etiqueta: etiquetaDeFila(f.linea, f),
+        numero_legible: f.numero_legible ?? null,
+        activa: f.activa !== false,
+        bot_activo: f.bot_activo !== false,
+        bot_pausado_en: f.bot_pausado_en ?? null,
+        principal: f.linea === principal,
+        comparte_config_de: f.comparte_config_de ?? null,
+        // el estado que leyó el vigilante de cada 5 minutos ('WORKING', 'SCAN_QR_CODE'…)
+        whatsapp: est ? { estado: est.status, visto_en: new Date(est.en).toISOString() } : null,
+        varias,
+      };
+    });
+  }
+
   // Programar un mensaje para más tarde (lo despacha el cron de programados)
   async programarMensaje(dto: { linea?: string; telefono: string; texto: string; enviarEn: string; usuarioId?: string }) {
     const cuando = new Date(dto.enviarEn);
     if (isNaN(cuando.getTime()) || cuando.getTime() < Date.now() - 60_000) throw new BadRequestException('La fecha tiene que ser futura');
     if (!dto.texto?.trim()) throw new BadRequestException('El mensaje está vacío');
+    // sale por la línea que se pidió (6/10/2026; antes todo lo que no era 'proveedores' era 'pedidos')
+    const linea = await this.lineaDelPanel(dto.linea);
     const { data, error } = await this.db.from('mensajes_programados').insert({
-      linea: dto.linea === 'proveedores' ? 'proveedores' : 'pedidos',
+      linea,
       telefono: dto.telefono, texto: dto.texto.trim(), enviar_en: cuando.toISOString(), creado_por: dto.usuarioId ?? null,
     }).select('id, enviar_en').single();
     if (error) throw new BadRequestException(error.message);
@@ -5074,38 +5313,50 @@ export class BotService {
   // días sin que nadie se enterara. Cada 5 minutos se mira el estado: si falla
   // dos veces seguidas se reinicia UNA vez y queda la alerta en la campanita del
   // panel (no por WhatsApp: justamente es lo que está caído).
-  private fallosSesion = 0;
+  // MULTILÍNEA (6/10/2026): se vigila la sesión de CADA línea, con su propia
+  // cuenta de fallos y su propia alerta (que dice de qué línea es). Si no, la
+  // sesión de la línea nueva se podía caer sin que nadie se enterara (lo del 21/9).
+  private fallosPorSesion = new Map<string, number>();
+  /** Lo último que vio el vigilante de cada sesión: el panel lo muestra en la tarjeta de la línea. */
+  private estadoSesiones = new Map<string, { status: string | null; en: number }>();
   private ultimoEnviado = new Map<string, { texto: string; en: number }>();
   @Cron('40 */5 * * * *')
   async vigilarSesionWhatsapp() {
     const url = process.env.WAHA_URL, key = process.env.WAHA_API_KEY;
     if (!url || !key) return;
-    const sesion = process.env.WAHA_SESSION || 'odb';
-    const base = url.replace(/\/$/, '');
+    for (const l of await this.lineasParaBarrer()) {
+      await this.vigilarSesion(url.replace(/\/$/, ''), key, l.linea, l.sesion).catch((e) => this.log.warn(`vigilante de la sesión ${l.sesion}: ${e?.message ?? e}`));
+    }
+  }
+
+  private async vigilarSesion(base: string, key: string, linea: string, sesion: string) {
     let status: string | null = null;
     try {
-      const r = await fetch(`${base}/api/sessions/${sesion}`, { headers: { 'X-Api-Key': key }, signal: AbortSignal.timeout(15000) });
+      const r = await fetch(`${base}/api/sessions/${encodeURIComponent(sesion)}`, { headers: { 'X-Api-Key': key }, signal: AbortSignal.timeout(15000) });
       status = r.ok ? String(((await r.json()) as any)?.status ?? '') || null : null;
     } catch { status = null; }
-    const d = decisionSesion(status, this.fallosSesion);
-    this.fallosSesion = d.fallos;
+    this.estadoSesiones.set(sesion, { status, en: Date.now() });
+    const d = decisionSesion(status, this.fallosPorSesion.get(sesion) ?? 0);
+    this.fallosPorSesion.set(sesion, d.fallos);
     if (!d.alertar && !d.reiniciar) return;
-    this.log.error(`WhatsApp: la sesión "${sesion}" está ${status ?? 'sin respuesta'} (${d.fallos} lecturas seguidas)${d.reiniciar ? ': la reinicio' : ''}`);
+    this.log.error(`WhatsApp: la sesión "${sesion}" (${linea}) está ${status ?? 'sin respuesta'} (${d.fallos} lecturas seguidas)${d.reiniciar ? ': la reinicio' : ''}`);
     if (d.reiniciar) {
-      await fetch(`${base}/api/sessions/${sesion}/restart`, { method: 'POST', headers: { 'X-Api-Key': key }, signal: AbortSignal.timeout(60000) }).catch(() => null);
+      await fetch(`${base}/api/sessions/${encodeURIComponent(sesion)}/restart`, { method: 'POST', headers: { 'X-Api-Key': key }, signal: AbortSignal.timeout(60000) }).catch(() => null);
     }
+    // una alerta cada 2 h POR SESIÓN: la caída de una línea no tapa la de la otra
     const hace2h = new Date(Date.now() - 2 * 3600_000).toISOString();
-    const { data: prev } = await this.db.from('alertas_internas').select('id').eq('tipo', 'whatsapp_caido').gte('creada_en', hace2h).limit(1).maybeSingle();
+    const { data: prev } = await this.db.from('alertas_internas').select('id').eq('tipo', 'whatsapp_caido').filter('referencia->>sesion', 'eq', sesion).gte('creada_en', hace2h).limit(1).maybeSingle();
     if (prev) return;
-    const { data: cfg } = await this.db.from('lineas_whatsapp').select('avisar_proveedores_a').eq('linea', 'pedidos').eq('activa', true).limit(1).maybeSingle();
-    await this.db.from('alertas_internas').insert({
+    const cfg = await this.lineas.config(linea);
+    const deLinea = await this.lineas.etiqueta(linea).catch(() => '');
+    await this.insertarAlerta({
       para_usuario: (cfg as any)?.avisar_proveedores_a ?? null,
       tipo: 'whatsapp_caido',
-      titulo: status === 'SCAN_QR_CODE' ? 'WhatsApp desvinculado: hay que escanear el QR' : 'La línea de WhatsApp no recibe mensajes',
+      titulo: `${status === 'SCAN_QR_CODE' ? 'WhatsApp desvinculado: hay que escanear el QR' : 'La línea de WhatsApp no recibe mensajes'}${deLinea ? ` · ${deLinea}` : ''}`,
       detalle: status === 'SCAN_QR_CODE'
         ? 'El teléfono de la línea se desvinculó del sistema. Hasta escanear el QR de nuevo, el bot no recibe ni manda nada: atendé desde el teléfono.'
         : `La sesión de WhatsApp está ${status ?? 'sin respuesta'}. ${d.reiniciar ? 'Ya se intentó reiniciar sola.' : 'Sigue caída después del reinicio.'} Mientras tanto los clientes escriben y el bot no los ve: atendé desde el teléfono.`,
-      referencia: { sesion, status },
+      referencia: { sesion, status, linea },
     }).then(() => null, () => null);
   }
 
@@ -5131,8 +5382,8 @@ export class BotService {
     const pendientes = esperasParaAvisar(((esperando ?? []) as any[]).filter((e) => !callados.has(String(e.telefono))), Date.now());
     if (!pendientes.length) return;
 
-    const { data: cfg } = await this.db
-      .from('lineas_whatsapp').select('derivar_pagos_a').eq('linea', 'pedidos').eq('activa', true).limit(1).maybeSingle();
+    // administración, la de la configuración que comparten todas las líneas (6/10/2026)
+    const cfg = await this.lineas.config(await this.lineas.principal());
     const admin = String((cfg as any)?.derivar_pagos_a ?? '').replace(/\D/g, '');
 
     for (const c of pendientes) {
@@ -5153,7 +5404,9 @@ export class BotService {
         : (conv as any)?.atendida_por ? 'La charla la tomó una persona desde el panel' : 'La charla está en pausa';
       const quien = String((k as any)?.nombre ?? (k as any)?.nombre_wa ?? '').trim()
         || ((k as any)?.telefono_real ? `+${(k as any).telefono_real}` : c.telefono);
-      const aviso = `⏳ ${quien} escribió hace ${minutos >= 60 ? `${Math.round(minutos / 60)} h` : `${minutos} min`} y nadie contestó. ${porque}, así que el bot no habla.\n\nDice: "${texto.slice(0, 200)}"\n\nContestale vos, o reactivá el bot desde el panel de ODB → WhatsApp → REACTIVAR BOT.${Number(c.esperando_avisos ?? 0) >= 2 ? '\n(Último aviso por esta charla.)' : ''}`;
+      // con más de una línea, el aviso dice a qué número escribió (6/10/2026)
+      const deLinea = await this.deLaLinea(c.linea);
+      const aviso = `⏳ ${quien}${deLinea} escribió hace ${minutos >= 60 ? `${Math.round(minutos / 60)} h` : `${minutos} min`} y nadie contestó. ${porque}, así que el bot no habla.\n\nDice: "${texto.slice(0, 200)}"\n\nContestale vos, o reactivá el bot desde el panel de ODB → WhatsApp → REACTIVAR BOT.${Number(c.esperando_avisos ?? 0) >= 2 ? '\n(Último aviso por esta charla.)' : ''}`;
       await this.db.from('bot_notas_equipo')
         .insert({ linea: c.linea, telefono: c.telefono, nota: `[esperando] ${texto.slice(0, 280)}` })
         .then(() => null, () => null);
@@ -5187,7 +5440,8 @@ export class BotService {
       .is('enviado_en', null).is('cancelado_en', null).lte('enviar_en', new Date().toISOString()).limit(50);
     let ok = 0, mal = 0;
     for (const m of (pend ?? []) as any[]) {
-      const r = await this.enviarPorWhatsapp({ to: m.telefono, text: m.texto, referencia: `programado/${m.id}` });
+      // por la línea en que se programó (6/10/2026: salía siempre por la principal)
+      const r = await this.enviarPorWhatsapp({ to: m.telefono, text: m.texto, referencia: `programado/${m.id}`, linea: m.linea });
       if (r.enviado) { ok++; await this.db.from('mensajes_programados').update({ enviado_en: new Date().toISOString() }).eq('id', m.id); }
       else { mal++; await this.db.from('mensajes_programados').update({ error: r.motivo ?? 'no se pudo enviar' }).eq('id', m.id); }
     }
@@ -5214,8 +5468,10 @@ export class BotService {
     if (programada && isNaN(programada.getTime())) throw new BadRequestException('La fecha programada no se entiende');
     const esFutura = !!programada && programada.getTime() > Date.now() + 60_000;
 
+    // la difusión sale por la línea elegida en el panel; sin elegir, la principal (6/10/2026)
+    const linea = await this.lineaDelPanel(dto.linea);
     const { data: d, error } = await this.db.from('responde_difusiones').insert({
-      linea: dto.linea === 'proveedores' ? 'proveedores' : 'pedidos', titulo: dto.titulo ?? null,
+      linea, titulo: dto.titulo ?? null,
       texto: dto.texto ?? '', imagen_url: dto.imagenUrl ?? null, creado_por: dto.usuarioId ?? null, total: tels.length,
       programada_para: esFutura ? programada!.toISOString() : null,
       despachada_en: esFutura ? null : new Date().toISOString(),
@@ -5233,7 +5489,7 @@ export class BotService {
     const { data: dest } = await this.db.from('responde_difusiones_destinatarios').select('telefono').eq('difusion_id', id).eq('estado', 'pendiente');
     let ok = 0, mal = 0;
     for (const x of (dest ?? []) as any[]) {
-      const r = await this.enviarPorWhatsapp({ to: x.telefono, text: d.texto || null, imagenUrl: d.imagen_url ?? null, referencia: `difusion/${id}` });
+      const r = await this.enviarPorWhatsapp({ to: x.telefono, text: d.texto || null, imagenUrl: d.imagen_url ?? null, referencia: `difusion/${id}`, linea: d.linea });
       if (r.enviado) { ok++; await this.db.from('responde_difusiones_destinatarios').update({ estado: 'enviado', enviado_en: new Date().toISOString() }).eq('difusion_id', id).eq('telefono', x.telefono); }
       else { mal++; await this.db.from('responde_difusiones_destinatarios').update({ estado: 'fallido', error: r.motivo ?? null }).eq('difusion_id', id).eq('telefono', x.telefono); }
       await this.db.from('responde_difusiones').update({ enviados: ok, fallidos: mal }).eq('id', id);
@@ -5295,7 +5551,7 @@ export class BotService {
   }
 
   // Volver a manos del bot (el tema se resolvió)
-  async devolverAlBot(linea: 'pedidos' | 'proveedores', telefono: string, usuarioId?: string) {
+  async devolverAlBot(linea: string, telefono: string, usuarioId?: string) {
     const { error } = await this.db
       .from('bot_conversaciones')
       .update({ bot_activo: true, resuelta_en: new Date().toISOString(), atendida_por: usuarioId ?? null, derivacion_vence_en: null })
@@ -5314,7 +5570,7 @@ export class BotService {
     return { ok: true, botActivo: true };
   }
 
-  async borrarConversacion(linea: 'pedidos' | 'proveedores', telefono: string) {
+  async borrarConversacion(linea: string, telefono: string) {
     const tel = (telefono ?? '').replace(/\D/g, '');
     if (!tel) throw new BadRequestException('Falta el teléfono');
     await this.db.from('bot_conversaciones').delete().eq('linea', linea).eq('telefono', tel);

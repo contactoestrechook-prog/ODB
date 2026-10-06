@@ -806,6 +806,17 @@ export const SECCIONES: Seccion[] = [
           'Para apagar el bot en TODA la línea: en RESPONDE, arriba, "Pausar en todas" (y "Encender en todas" para volver). Para una sola charla, con la pausa de esa charla.',
         ],
       },
+      {
+        tipo: 'ojo',
+        titulo: 'Si hay más de un número de WhatsApp',
+        puntos: [
+          'Cada número (por ejemplo, la línea general y la de otro sector del local) atiende con el mismo bot y la misma configuración: alias y CBU, a quién se derivan los pagos y las consultas, la información vigente y las reglas. Lo único propio de cada uno es el número.',
+          'A cada cliente se le contesta por el número al que escribió. Si el mismo cliente escribe a los dos, son dos charlas distintas.',
+          'Los avisos a administración (pagos, consultas, pedidos nuevos o sin cargar) siguen llegando por el número de siempre y dicen de qué línea es la charla: "WhatsApp: Línea …". En la campanita, cada aviso muestra su línea.',
+          'En RESPONDE y en Difusiones hay una tarjeta por número, cada una con su "Pausar esta línea": apaga el bot SOLO en ese número. Lo que contestás desde RESPONDE sale por el número de esa charla. En Difusiones se elige por qué número sale cada campaña, y en Probar el bot, qué línea probar.',
+          'Si el WhatsApp de una línea se desvincula, su tarjeta lo dice en rojo y llega un aviso a la campanita con el nombre de la línea: hay que volver a escanear el QR con el teléfono de ese número.',
+        ],
+      },
     ],
   },
 ];

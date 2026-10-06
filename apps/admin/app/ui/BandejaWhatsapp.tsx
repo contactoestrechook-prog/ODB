@@ -9,15 +9,14 @@ import {
   Campo,
   Chips,
   Entrada,
-  Etiqueta,
   Pestanas,
-  ROTULO,
   Selector,
   Tarjeta,
   Vacio,
   unir,
   useConfirmar,
 } from './kit';
+import { ChipLinea, deClientes, hayVarias, type LineaWhatsapp, TarjetasDeLineas, useLineasWhatsapp } from './LineasWhatsapp';
 
 // Difusiones · O.D.B — campañas por listas y mensajes programados de la línea
 // de WhatsApp. Hasta el 1/10/2026 esta pantalla se llamaba "RESPONDE · WhatsApp"
@@ -36,59 +35,16 @@ async function post(body: any) {
 const OPCION = 'flex min-h-11 cursor-pointer items-center gap-2 text-sm text-tinta/80';
 
 // ============================================================================
+// MULTILÍNEA (6/10/2026): una tarjeta por número, cada una con su interruptor;
+// cada programado y cada difusión dicen por qué número salen, y la difusión
+// nueva elige el número (arranca en la principal). Con una sola línea, igual que antes.
 export function BandejaWhatsapp({ puedeApagarLinea }: { puedeApagarLinea: boolean }) {
   const [tab, setTab] = useState<'difusiones' | 'programados'>('difusiones');
-  const [linea, setLinea] = useState<any>({ bot_activo: true });
-  const [ocupado, setOcupado] = useState(false);
-  const { confirmar, dialogo } = useConfirmar();
-
-  const cargar = useCallback(async () => {
-    try {
-      const rl = await fetch('/api/responde?recurso=linea&linea=pedidos', { cache: 'no-store' });
-      if (rl.ok) setLinea(await rl.json());
-    } catch { /* sin red: mantiene lo que hay */ }
-  }, []);
-  useEffect(() => { cargar(); const t = setInterval(cargar, 8000); return () => clearInterval(t); }, [cargar]);
-
-  async function botLinea(activo: boolean) {
-    if (ocupado) return;
-    if (!activo && !(await confirmar({
-      titulo: '¿Apagar RESPONDE en TODAS las conversaciones?',
-      texto: 'Nadie recibe respuesta automática hasta que lo vuelvas a encender.',
-      variante: 'peligro',
-      textoConfirmar: 'Apagar en todas',
-    }))) return;
-    setOcupado(true);
-    try { await post({ accion: 'botLinea', linea: 'pedidos', activo }); await cargar(); } finally { setOcupado(false); }
-  }
-
-  const pausada = linea?.bot_activo === false;
+  const { lineas, cargar } = useLineasWhatsapp(8000);
 
   return (
     <div className="space-y-4">
-      <Tarjeta>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="min-w-0">
-            <p className={ROTULO}>Difusiones · O.D.B</p>
-            <p className="importe mt-0.5 text-xl font-bold text-tinta">{linea?.numero_legible ?? '11 2281-2200'}</p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Etiqueta tono={pausada ? 'atencion' : 'ok'} punto>
-              {pausada ? 'Pausado en todas' : 'Atendiendo'}
-            </Etiqueta>
-            {puedeApagarLinea && (
-              <Boton
-                variante={pausada ? 'primario' : 'peligro'}
-                tamano="chico"
-                onClick={() => botLinea(linea?.bot_activo === false)}
-                disabled={ocupado}
-              >
-                {pausada ? 'Encender en todas' : 'Pausar en todas'}
-              </Boton>
-            )}
-          </div>
-        </div>
-      </Tarjeta>
+      <TarjetasDeLineas lineas={lineas} cargar={cargar} rotulo="Difusiones · O.D.B" puedeApagar={puedeApagarLinea} verbo="Apagar" />
 
       <Pestanas
         etiquetaAccesible="Difusiones y programados"
@@ -97,16 +53,29 @@ export function BandejaWhatsapp({ puedeApagarLinea }: { puedeApagarLinea: boolea
         opciones={[{ valor: 'difusiones', etiqueta: 'Difusiones' }, { valor: 'programados', etiqueta: 'Programados' }]}
       />
 
-      {tab === 'programados' && <Programados />}
-      {tab === 'difusiones' && <Difusiones puede={puedeApagarLinea} />}
-      {dialogo}
+      {tab === 'programados' && <Programados lineas={lineas} />}
+      {tab === 'difusiones' && <Difusiones puede={puedeApagarLinea} lineas={lineas} />}
     </div>
   );
 }
 
+/** Con más de una línea: «Todas · Línea general · Línea local», para filtrar una lista. */
+function FiltroDeLinea({ lineas, valor, onCambiar }: { lineas: LineaWhatsapp[] | null; valor: string; onCambiar: (v: string) => void }) {
+  if (!hayVarias(lineas)) return null;
+  return (
+    <Chips
+      etiquetaAccesible="Línea de WhatsApp"
+      valor={valor}
+      onCambiar={onCambiar}
+      opciones={[{ valor: '', etiqueta: 'Todas las líneas' }, ...deClientes(lineas).map((l) => ({ valor: l.linea, etiqueta: l.nombre }))]}
+    />
+  );
+}
+
 // ============================================================================
-function Programados() {
+function Programados({ lineas }: { lineas: LineaWhatsapp[] | null }) {
   const [items, setItems] = useState<any[]>([]);
+  const [filtro, setFiltro] = useState('');
   const { confirmar, dialogo } = useConfirmar();
   const cargar = useCallback(async () => {
     const r = await fetch('/api/responde?recurso=programados', { cache: 'no-store' });
@@ -117,15 +86,17 @@ function Programados() {
     if (!(await confirmar({ titulo: '¿Cancelar este mensaje programado?', variante: 'peligro', textoConfirmar: 'Cancelar el mensaje', textoCancelar: 'Volver' }))) return;
     await post({ accion: 'cancelarProgramado', id }); cargar();
   }
+  const visibles = filtro ? items.filter((m) => m.linea === filtro) : items;
   return (
     <>
-      {items.length === 0 && <Vacio titulo="No hay mensajes programados." texto="Desde una charla, el reloj 🕒 programa uno." />}
-      {items.length > 0 && (
+      {items.length > 0 && <FiltroDeLinea lineas={lineas} valor={filtro} onCambiar={setFiltro} />}
+      {visibles.length === 0 && <Vacio titulo="No hay mensajes programados." texto="Desde una charla, el reloj 🕒 programa uno." />}
+      {visibles.length > 0 && (
         <Tarjeta relleno={false} className="divide-y divide-black/[0.06] overflow-hidden">
-          {items.map((m) => (
+          {visibles.map((m) => (
             <div key={m.id} className="px-4 py-3 sm:px-5">
               <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5">
-                <p className="importe text-sm font-medium text-tinta">{bonito(m.telefono)}</p>
+                <p className="importe flex flex-wrap items-center gap-2 text-sm font-medium text-tinta">{bonito(m.telefono)}<ChipLinea linea={m.linea} lineas={lineas} /></p>
                 <span className="importe text-xs font-semibold text-atencion">{fechaHora(m.enviar_en)}</span>
               </div>
               <p className="mt-0.5 whitespace-pre-wrap break-words text-sm text-tinta/70">{m.texto}</p>
@@ -141,8 +112,13 @@ function Programados() {
 }
 
 // ============================================================================
-function Difusiones({ puede }: { puede: boolean }) {
+function Difusiones({ puede, lineas }: { puede: boolean; lineas: LineaWhatsapp[] | null }) {
   const [hist, setHist] = useState<any[]>([]);
+  // por qué número sale la difusión nueva ('' = la principal) y qué historial se mira
+  const [saleLinea, setSaleLinea] = useState('');
+  const [filtro, setFiltro] = useState('');
+  const varias = hayVarias(lineas);
+  const principal = deClientes(lineas).find((l) => l.principal)?.linea ?? '';
   const [base, setBase] = useState<any[]>([]);
   const [armando, setArmando] = useState(false);
   const [texto, setTexto] = useState('');
@@ -196,7 +172,7 @@ function Difusiones({ puede }: { puede: boolean }) {
       textoConfirmar: 'Enviar',
     }))) return;
     setEnviando(true); setAviso('');
-    const r = await post({ accion: 'difusion', linea: 'pedidos', titulo, texto, telefonos: destinatarios.map((d) => d.telefono_wa), ...(programarPara ? { programadaPara: new Date(programarPara).toISOString() } : {}) });
+    const r = await post({ accion: 'difusion', ...(varias ? { linea: saleLinea || principal || undefined } : {}), titulo, texto, telefonos: destinatarios.map((d) => d.telefono_wa), ...(programarPara ? { programadaPara: new Date(programarPara).toISOString() } : {}) });
     if (r.ok) { setAviso(r.programadaPara ? `Difusión programada: ${r.total} destinatarios.` : `Difusión en marcha: ${r.total} destinatarios.`); setTexto(''); setTitulo(''); setProgramarPara(''); setArmando(false); cargar(); }
     else setAviso(r?.message ?? 'No se pudo crear la difusión');
     setEnviando(false);
@@ -219,6 +195,13 @@ function Difusiones({ puede }: { puede: boolean }) {
           <div className="space-y-3">
             <Entrada value={titulo} onChange={(e) => setTitulo(e.target.value)} placeholder="Título interno (ej: Oferta vinos agosto)" aria-label="Título interno" />
             <AreaTexto value={texto} onChange={(e) => setTexto(e.target.value)} rows={4} placeholder="El mensaje que van a recibir…" aria-label="Mensaje" />
+            {varias && (
+              <Campo etiqueta="Sale por" ayuda="El número desde el que la reciben. Cada número tiene su propio tope de 300 por tanda.">
+                <Selector value={saleLinea || principal} onChange={(e) => setSaleLinea(e.target.value)} className="sm:max-w-sm">
+                  {deClientes(lineas).map((l) => <option key={l.linea} value={l.linea}>{l.etiqueta}</option>)}
+                </Selector>
+              </Campo>
+            )}
             <Campo etiqueta="Lista" ayuda={listaId && telsLista === null ? 'cargando lista…' : undefined}>
               <Selector value={listaId} onChange={(e) => setListaId(e.target.value)} className="sm:max-w-sm">
                 <option value="">toda la base</option>
@@ -272,7 +255,7 @@ function Difusiones({ puede }: { puede: boolean }) {
                 <Entrada type="datetime-local" value={programarPara} onChange={(e) => setProgramarPara(e.target.value)} aria-label="Fecha y hora de envío" className="sm:w-auto" />
               )}
             </div>
-            <p className="text-xs text-tinta/60">Solo a quien dio permiso. Sale de a uno con pausa para cuidar el número; el tope es 300 por tanda — mañana el filtro trae a los que faltan.</p>
+            <p className="text-xs text-tinta/60">Solo a quien dio permiso. Sale de a uno con pausa para cuidar el número; el tope es 300 por tanda{varias ? ' y por número' : ''} — mañana el filtro trae a los que faltan.</p>
             <div className="flex gap-2">
               <Boton onClick={enviar} cargando={enviando} disabled={enviando || !texto.trim() || !destinatarios.length} className="flex-1">{enviando ? 'Enviando…' : 'Enviar'}</Boton>
               <Boton variante="secundario" onClick={() => setArmando(false)}>Cancelar</Boton>
@@ -282,12 +265,13 @@ function Difusiones({ puede }: { puede: boolean }) {
         {aviso && <Aviso tono="info" className="mt-3">{aviso}</Aviso>}
       </Tarjeta>
 
+      {hist.length > 0 && <FiltroDeLinea lineas={lineas} valor={filtro} onCambiar={setFiltro} />}
       {hist.length > 0 && (
         <Tarjeta relleno={false} className="divide-y divide-black/[0.06] overflow-hidden">
-          {hist.map((d: any) => d.programada_para && !d.despachada_en ? (
+          {(filtro ? hist.filter((d: any) => d.linea === filtro) : hist).map((d: any) => d.programada_para && !d.despachada_en ? (
             <div key={d.id} className="bg-atencion-suave/60 px-4 py-3 sm:px-5">
               <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5">
-                <p className="min-w-0 break-words text-sm font-semibold text-tinta">{d.titulo || 'Difusión programada'}</p>
+                <p className="flex min-w-0 flex-wrap items-center gap-2 break-words text-sm font-semibold text-tinta">{d.titulo || 'Difusión programada'}<ChipLinea linea={d.linea} lineas={lineas} /></p>
                 <span className="importe text-xs font-medium text-atencion">
                   programada · {fechaHora(d.programada_para)} hs
                 </span>
@@ -301,7 +285,7 @@ function Difusiones({ puede }: { puede: boolean }) {
           ) : (
             <div key={d.id} className="px-4 py-3 sm:px-5">
               <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5">
-                <p className="min-w-0 break-words text-sm font-medium text-tinta">{d.titulo || '(sin título)'}</p>
+                <p className="flex min-w-0 flex-wrap items-center gap-2 break-words text-sm font-medium text-tinta">{d.titulo || '(sin título)'}<ChipLinea linea={d.linea} lineas={lineas} /></p>
                 <span className="importe text-xs text-tinta/60">{fechaHora(d.creado_en)}</span>
               </div>
               <p className="mt-0.5 line-clamp-2 break-words text-sm text-tinta/70">{d.texto}</p>

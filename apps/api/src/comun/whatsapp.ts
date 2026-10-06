@@ -1,4 +1,5 @@
 import { SupabaseClient } from '@supabase/supabase-js';
+import { sesionPrincipal } from './lineas';
 
 // Aviso interno por WhatsApp (a un supervisor, no a un cliente) por la línea de
 // la casa en WAHA. Se registra en bot_envios para que el bot sepa que el
@@ -43,7 +44,7 @@ function chatDe(to: string): { chatId: string; digitos: string } | null {
 // tiempo o un error del servidor NO quiere decir que no salió: WAHA sigue
 // trabajando y el mensaje puede llegar igual. Quien llama no tiene que
 // reintentar solo un envío incierto (el proveedor recibiría el pedido dos veces).
-async function postWaha(db: SupabaseClient, ruta: string, cuerpo: Record<string, unknown>, digitos: string, origen: string, ms: number): Promise<ResultadoWaha> {
+async function postWaha(db: SupabaseClient, ruta: string, cuerpo: Record<string, unknown>, digitos: string, origen: string, ms: number, sesion?: string): Promise<ResultadoWaha> {
   const wahaUrl = process.env.WAHA_URL;
   const wahaKey = process.env.WAHA_API_KEY;
   if (!wahaUrl || !wahaKey) return { enviado: false, motivo: 'WAHA sin configurar' };
@@ -53,7 +54,9 @@ async function postWaha(db: SupabaseClient, ruta: string, cuerpo: Record<string,
     const r = await fetch(`${wahaUrl.replace(/\/$/, '')}${ruta}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Api-Key': wahaKey },
-      body: JSON.stringify({ session: process.env.WAHA_SESSION || 'default', ...cuerpo }),
+      // los avisos internos salen por la línea principal (6/10/2026: el nombre de la sesión vive en comun/lineas.ts)
+      // sin sesión, la de la línea principal; un aviso a un cliente puede pedir la de su línea (6/10/2026)
+      body: JSON.stringify({ session: sesion || sesionPrincipal(), ...cuerpo }),
       signal: ctrl.signal,
     });
     const res: any = await r.json().catch(() => ({}));
@@ -69,10 +72,10 @@ async function postWaha(db: SupabaseClient, ruta: string, cuerpo: Record<string,
   }
 }
 
-export async function enviarTextoWhatsapp(db: SupabaseClient, to: string, text: string, origen = 'aviso_interno'): Promise<ResultadoWaha> {
+export async function enviarTextoWhatsapp(db: SupabaseClient, to: string, text: string, origen = 'aviso_interno', sesion?: string): Promise<ResultadoWaha> {
   const c = chatDe(to);
   if (!c) return { enviado: false, motivo: 'Número inválido' };
-  return postWaha(db, '/api/sendText', { chatId: c.chatId, text }, c.digitos, origen, 15_000);
+  return postWaha(db, '/api/sendText', { chatId: c.chatId, text }, c.digitos, origen, 15_000, sesion);
 }
 
 // Un archivo (PDF). WAHA lo baja de la URL: tiene que ser accesible desde
@@ -106,7 +109,7 @@ export async function existeEnWhatsapp(numero: string): Promise<{ existe: boolea
     const ctrl = new AbortController();
     const reloj = setTimeout(() => ctrl.abort(), 15_000);
     try {
-      const q = new URLSearchParams({ phone: n, session: process.env.WAHA_SESSION || 'default' });
+      const q = new URLSearchParams({ phone: n, session: sesionPrincipal() });
       const r = await fetch(`${wahaUrl.replace(/\/$/, '')}/api/contacts/check-exists?${q}`, { headers: { 'X-Api-Key': wahaKey }, signal: ctrl.signal });
       // la versión de WAHA no tiene la consulta: no se puede verificar, se usa el celular
       if (r.status === 404 || r.status === 501) return { existe: true, chatId: `${celular}@c.us`, verificado: false };

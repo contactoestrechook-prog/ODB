@@ -19,7 +19,12 @@ import { BotService } from './bot.service';
 //   POST accion: enviar | enviar_media | bot | nota | analizar | programar |
 //                cancelar_programado | importar | difusion
 
-const LINEA = 'pedidos';
+// MULTILÍNEA (6/10/2026): antes había una constante LINEA = 'pedidos' y todo lo
+// que se contestaba desde la app salía por la principal. Ahora cada acción va a
+// la línea de la charla: la que mande la app (body.linea, o «tel~linea» en el
+// contact_id) o, si no la manda, la de la charla más reciente de ese contacto.
+// RESPONDE tiene un solo tenant de ODB: el contacto es uno solo para las líneas.
+const SEPARADOR_LINEA = '~';
 
 @Roles('dueno')
 @Controller('responde-app')
@@ -34,8 +39,11 @@ export class RespondeAppController {
   async datos(@Query('data') data?: string) {
     if (data !== '1') return { ok: true, servicio: 'responde-odb' };
 
+    // las charlas de todas las líneas de clientes; las de la principal con el id de siempre
+    const principal = await this.bot.lineas.principal();
+    const deClientes = [...new Set([principal, ...(await this.bot.lineas.activas('pedidos')).map((f) => f.linea)])];
     const [{ data: convs }, { data: contactos }, { data: clientes }, { data: progs }] = await Promise.all([
-      this.db.from('bot_conversaciones').select('linea, telefono, mensajes, actualizado_en, bot_activo, derivada_en, derivada_motivo, resuelta_en').eq('linea', LINEA).order('actualizado_en', { ascending: false }).limit(300),
+      this.db.from('bot_conversaciones').select('linea, telefono, mensajes, actualizado_en, bot_activo, derivada_en, derivada_motivo, resuelta_en').in('linea', deClientes).order('actualizado_en', { ascending: false }).limit(300),
       this.db.from('bot_contactos').select('telefono, tipo, nombre, notas, notas_equipo, etiquetas, nombre_wa'),
       this.db.from('clientes').select('telefono, nombre, tipo').not('telefono', 'is', null),
       this.db.from('mensajes_programados').select('id, telefono, texto, enviar_en').is('enviado_en', null).is('cancelado_en', null).order('enviar_en'),
@@ -53,9 +61,13 @@ export class RespondeAppController {
       const ct = porTel.get(tel);
       const cli = cliPorTel.get(tel);
       const msjs: any[] = Array.isArray(cv.mensajes) ? cv.mensajes : [];
-      // el id del contacto ES el teléfono: es estable y la app solo lo usa como clave
+      // el id del contacto ES el teléfono: es estable y la app solo lo usa como
+      // clave. El de otra línea lleva la línea pegada (el mismo cliente en dos
+      // líneas son dos charlas)
+      const id = cv.linea === principal ? tel : `${tel}${SEPARADOR_LINEA}${cv.linea}`;
       contacts.push({
-        id: tel,
+        id,
+        linea: cv.linea,
         nombre: ct?.nombre ?? cli?.nombre ?? ct?.nombre_wa ?? null,
         // un @lid (número oculto por privacidad) va tal cual; un teléfono, como chat id
         whatsapp_id: tel.includes('@') ? tel : /^549\d{10}$/.test(tel) ? `${tel}@c.us` : `${tel}@lid`,
@@ -76,7 +88,7 @@ export class RespondeAppController {
       msjs.forEach((m, i) => {
         const texto = typeof m.content === 'string' ? m.content : Array.isArray(m.content) ? (m.content.find((b: any) => b.type === 'text')?.text ?? '') : '';
         messages.push({
-          contact_id: tel,
+          contact_id: id,
           role: m.role === 'user' ? 'user' : 'assistant',
           content: texto,
           created_at: new Date(base - (msjs.length - 1 - i) * 1000).toISOString(),
@@ -103,12 +115,17 @@ export class RespondeAppController {
     // La app embebida manda el whatsapp_id del contacto (los @lid van ENTEROS:
     // triturarlos a dígitos rompe el envío). Si no viene, se cae al contrato
     // viejo, donde contact_id era el teléfono.
-    const crudo = String(b?.whatsapp_id ?? b?.contact_id ?? '');
+    const [contacto, lineaDelId] = String(b?.contact_id ?? '').split(SEPARADOR_LINEA);
+    // mismo criterio de siempre: whatsapp_id manda aunque venga vacío (el
+    // contact_id de la app es el id de RESPONDE, no un teléfono)
+    const crudo = String(b?.whatsapp_id ?? (b?.contact_id != null ? contacto : ''));
     const tel = crudo.includes('@') ? crudo : crudo.replace(/\D/g, '');
+    // por qué línea: la que mande la app, la del id del contacto, o la de su charla más reciente
+    const linea = () => this.bot.lineaParaResponder(tel, b?.linea || lineaDelId || null);
     switch (b?.accion) {
       case 'enviar': {
         if (!tel) throw new BadRequestException('Falta el contacto');
-        return this.bot.responderComoHumano(LINEA, tel, String(b.texto ?? ''), usuarioId);
+        return this.bot.responderComoHumano(await linea(), tel, String(b.texto ?? ''), usuarioId);
       }
       case 'enviar_media': {
         // la app manda el archivo en base64; se despacha por WAHA como imagen o archivo
@@ -120,13 +137,14 @@ export class RespondeAppController {
         const { error: eUp } = await this.db.storage.from('publico').upload(ruta, Buffer.from(String(b.data_b64 ?? ''), 'base64'), { contentType: mime, upsert: true });
         if (eUp) throw new BadRequestException(`No pude subir la imagen: ${eUp.message}`);
         const { data: pub } = this.db.storage.from('publico').getPublicUrl(ruta);
-        const r = await this.bot.enviarPorWhatsapp({ to: tel, text: b.caption ?? '', imagenUrl: pub.publicUrl, referencia: `responde-app/${tel}` });
+        const r = await this.bot.enviarPorWhatsapp({ to: tel, text: b.caption ?? '', imagenUrl: pub.publicUrl, referencia: `responde-app/${tel}`, linea: await linea() });
         return { ok: r.enviado, ...r };
       }
       case 'bot': {
         // activar=true → vuelve el bot; activar=false → atendés vos
         if (!tel) throw new BadRequestException('Falta el contacto');
-        return b.activar ? this.bot.devolverAlBot(LINEA, tel, usuarioId) : this.bot.pausarBot(LINEA, tel, usuarioId);
+        const l = await linea();
+        return b.activar ? this.bot.devolverAlBot(l, tel, usuarioId) : this.bot.pausarBot(l, tel, usuarioId);
       }
       case 'nota':
         if (!tel) throw new BadRequestException('Falta el contacto');
@@ -135,7 +153,7 @@ export class RespondeAppController {
         // el análisis por IA de la app: acá se resuelve con la ficha (compras, tipo)
         return { ok: true, analisis: await this.bot.fichaContacto(tel) };
       case 'programar':
-        return this.bot.programarMensaje({ linea: LINEA, telefono: tel, texto: String(b.texto ?? ''), enviarEn: String(b.enviar_at ?? ''), usuarioId });
+        return this.bot.programarMensaje({ linea: await linea(), telefono: tel, texto: String(b.texto ?? ''), enviarEn: String(b.enviar_at ?? ''), usuarioId });
       case 'cancelar_programado':
         return this.bot.cancelarProgramado(String(b.id ?? ''));
       case 'importar': {
@@ -152,8 +170,9 @@ export class RespondeAppController {
       }
       case 'difusion': {
         if (!['gerente', 'dueno'].includes(req.usuario?.rol)) throw new BadRequestException('Las difusiones las manda gerencia');
-        const ids: string[] = Array.isArray(b.contact_ids) ? b.contact_ids : [];
-        return this.bot.crearDifusion({ linea: LINEA, titulo: b.titulo, texto: String(b.texto ?? ''), imagenUrl: b.imagen_url, telefonos: ids, usuarioId });
+        const ids: string[] = (Array.isArray(b.contact_ids) ? b.contact_ids : []).map((x: any) => String(x).split(SEPARADOR_LINEA)[0]);
+        // una difusión sale por UNA línea: la que pida la app; si no, la principal
+        return this.bot.crearDifusion({ linea: await this.bot.lineaDelPanel(b?.linea), titulo: b.titulo, texto: String(b.texto ?? ''), imagenUrl: b.imagen_url, telefonos: ids, usuarioId });
       }
       case 'logout':
         return { ok: true };

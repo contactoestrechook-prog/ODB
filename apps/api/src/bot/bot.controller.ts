@@ -15,7 +15,7 @@ export class BotController {
   // Cerebro server-side: Opus + razonamiento adaptativo + herramientas + memoria.
   @Post('charla')
   charla(@Body() body: {
-    linea?: 'pedidos' | 'proveedores';
+    linea?: string; // el ID de la línea; sin línea (o una que no existe), la principal
     numeroLinea?: string; // número del negocio al que llegó el mensaje
     telefono: string;
     mensaje?: string;
@@ -28,6 +28,9 @@ export class BotController {
 
   // WAHA postea acá cada mensaje entrante (webhook de la sesión). Se protege con
   // la misma API key en un header propio, configurado en la sesión de WAHA.
+  // Todas las sesiones (una por línea) usan este mismo webhook: la línea sale
+  // de la sesión que trae cada evento (6/10/2026). ?linea= es el número de la
+  // línea, por compatibilidad y como segundo dato.
   @Post('waha')
   waha(@Body() evento: any, @Query('linea') numeroLinea?: string) {
     return this.bot.webhookWaha(evento, numeroLinea);
@@ -96,9 +99,12 @@ export class BotPruebaController {
   // La persona contesta desde la bandeja: el mensaje sale por el puente (n8n)
   // con el número del local, y el bot queda callado en esa conversación.
   @Post('conversaciones/responder')
-  responder(@Body() b: { linea?: string; telefono: string; texto: string }, @Req() req: any) {
+  async responder(@Body() b: { linea?: string; telefono: string; texto: string }, @Req() req: any) {
+    // MULTILÍNEA (6/10/2026): la línea se valida y se usa tal cual. Antes todo lo
+    // que no era 'proveedores' se volvía 'pedidos' y la acción caía en la charla
+    // de la otra línea del mismo cliente.
     return this.bot.responderComoHumano(
-      b.linea === 'proveedores' ? 'proveedores' : 'pedidos',
+      await this.bot.lineaDelPanel(b.linea),
       String(b.telefono ?? '').replace(/\D/g, ''),
       b.texto,
       req.usuario?.sub,
@@ -107,9 +113,9 @@ export class BotPruebaController {
 
   // Tema resuelto: la conversación vuelve al bot
   @Post('conversaciones/devolver')
-  devolver(@Body() b: { linea?: string; telefono: string }, @Req() req: any) {
+  async devolver(@Body() b: { linea?: string; telefono: string }, @Req() req: any) {
     return this.bot.devolverAlBot(
-      b.linea === 'proveedores' ? 'proveedores' : 'pedidos',
+      await this.bot.lineaDelPanel(b.linea),
       String(b.telefono ?? '').replace(/\D/g, ''),
       req.usuario?.sub,
     );
@@ -117,8 +123,8 @@ export class BotPruebaController {
 
   // Pausar el bot en una charla sin escribir (la persona atiende por el teléfono)
   @Post('conversaciones/pausar')
-  pausar(@Body() b: { linea?: string; telefono: string }, @Req() req: any) {
-    return this.bot.pausarBot(b.linea === 'proveedores' ? 'proveedores' : 'pedidos', String(b.telefono ?? '').replace(/\D/g, ''), req.usuario?.sub);
+  async pausar(@Body() b: { linea?: string; telefono: string }, @Req() req: any) {
+    return this.bot.pausarBot(await this.bot.lineaDelPanel(b.linea), String(b.telefono ?? '').replace(/\D/g, ''), req.usuario?.sub);
   }
 
   // "Este número es de la casa": el bot deja de contestarle. Hace falta a mano
@@ -130,20 +136,28 @@ export class BotPruebaController {
 
   // El equipo abrió la charla: deja de figurar como sin leer
   @Post('conversaciones/leida')
-  leida(@Body() b: { linea?: string; telefono: string }, @Req() req: any) {
-    return this.bot.marcarLeida(b.linea === 'proveedores' ? 'proveedores' : 'pedidos', String(b.telefono ?? '').replace(/\D/g, ''), req.usuario?.sub);
+  async leida(@Body() b: { linea?: string; telefono: string }, @Req() req: any) {
+    return this.bot.marcarLeida(await this.bot.lineaDelPanel(b.linea), String(b.telefono ?? '').replace(/\D/g, ''), req.usuario?.sub);
+  }
+
+  // Las líneas de WhatsApp (6/10/2026): una tarjeta por número en el panel,
+  // con su interruptor y el estado de su sesión.
+  @Get('lineas')
+  lineas() {
+    return this.bot.listarLineas();
   }
 
   // Interruptor general de la línea: apagar/encender el bot en TODAS las charlas
+  // de ESA línea (cada número tiene el suyo)
   @Get('linea/estado')
-  estadoLinea(@Query('linea') linea?: string) {
-    return this.bot.estadoLinea(linea === 'proveedores' ? 'proveedores' : 'pedidos');
+  async estadoLinea(@Query('linea') linea?: string) {
+    return this.bot.estadoLinea(await this.bot.lineaDelPanel(linea));
   }
 
   @Roles('gerente', 'dueno')
   @Post('linea/bot')
-  setBotLinea(@Body() b: { linea?: string; activo: boolean }, @Req() req: any) {
-    return this.bot.setBotLinea(b.linea === 'proveedores' ? 'proveedores' : 'pedidos', b.activo !== false, req.usuario?.sub);
+  async setBotLinea(@Body() b: { linea?: string; activo: boolean }, @Req() req: any) {
+    return this.bot.setBotLinea(await this.bot.lineaDelPanel(b.linea), b.activo !== false, req.usuario?.sub);
   }
 
   // ---- RESPONDE · gestión ----
@@ -220,7 +234,7 @@ export class BotPruebaController {
   // se arma, el simulador muestra el texto, como le llegaría al cliente.
   @Post('probar')
   async probar(@Body() body: {
-    linea: 'pedidos' | 'proveedores';
+    linea: string; // cualquier línea cargada: el simulador prueba la línea nueva antes de prenderla
     telefono: string;
     mensaje?: string;
     archivoBase64?: string;
@@ -233,7 +247,7 @@ export class BotPruebaController {
 
   // "Nueva conversación" del simulador: borra la memoria de ese teléfono
   @Delete('probar')
-  reiniciar(@Query('linea') linea: string, @Query('telefono') telefono: string) {
-    return this.bot.borrarConversacion(linea === 'proveedores' ? 'proveedores' : 'pedidos', telefono ?? '');
+  async reiniciar(@Query('linea') linea: string, @Query('telefono') telefono: string) {
+    return this.bot.borrarConversacion(await this.bot.lineaDelPanel(linea), telefono ?? '');
   }
 }

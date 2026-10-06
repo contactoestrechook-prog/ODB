@@ -7,7 +7,7 @@ import { useEffect, useState } from 'react';
 // de pago"), pero cualquier módulo puede dejar una alerta acá.
 type Alerta = { id: string; tipo: string; titulo: string; detalle: string | null; referencia: any; creada_en: string };
 
-const ICONO: Record<string, string> = { proveedor_ofrece: '🚚', pago: '💸', derivacion: '🟡', nota_bot: '📝', bot_caido: '🔴', cambio_factura: '🧾', consulta: '❓', arreglo: '🛠️', reporte: '📊', abastecimiento: '📦', proveedor_incompleto: '🏷️', proveedor_completo: '✅' };
+const ICONO: Record<string, string> = { whatsapp_caido: '📵', proveedor_ofrece: '🚚', pago: '💸', derivacion: '🟡', nota_bot: '📝', bot_caido: '🔴', cambio_factura: '🧾', consulta: '❓', arreglo: '🛠️', reporte: '📊', abastecimiento: '📦', proveedor_incompleto: '🏷️', proveedor_completo: '✅' };
 // el texto del enlace según adónde lleva (antes decía "Ir a Aprobaciones" para todo)
 const destino = (link: string) =>
   link.startsWith('/compras') ? 'Completar el proveedor' : link.startsWith('/mesa-compras') ? 'Ver qué comprar' : link.startsWith('/aprobaciones') ? 'Ir a Aprobaciones' : 'Abrir';
@@ -78,6 +78,10 @@ export function CampanaAlertas({ donde = 'lateral' }: { donde?: 'lateral' | 'mov
                   <span className="text-base leading-none">{ICONO[a.tipo] ?? '•'}</span>
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-medium leading-snug">{a.titulo}</p>
+                    {/* con más de un número de WhatsApp, a cuál escribió el cliente (6/10/2026) */}
+                    {a.referencia?.lineaNombre && (
+                      <span className="mt-0.5 inline-block rounded-full bg-info-suave px-2 py-0.5 text-[11px] font-semibold text-info">{String(a.referencia.lineaNombre)}</span>
+                    )}
                     {a.detalle && <p className="mt-0.5 whitespace-pre-wrap text-xs text-black/65">{a.detalle}</p>}
                     <div className="mt-1.5 flex items-center gap-3 text-[11px]">
                       <span className="text-black/40">{hace(a.creada_en)}</span>

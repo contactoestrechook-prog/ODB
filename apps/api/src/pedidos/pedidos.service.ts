@@ -7,6 +7,7 @@ import { transicionValida } from './transiciones';
 import { verificarFirmaMercadoPago } from '../comun/firmas';
 import { fetchConTimeout } from '../comun/http';
 import { celularWhatsapp, enviarTextoWhatsapp } from '../comun/whatsapp';
+import { Lineas } from '../comun/lineas';
 
 // Radio (m) para considerar que el cliente "está llegando" y asignarle estacionamiento.
 const GEOFENCE_M = 400;
@@ -843,7 +844,11 @@ export class PedidosService {
     // administración. n8n queda solo si WAHA no está configurado: antes el
     // aviso dependía de un webhook que nadie verificaba.
     if (process.env.WAHA_URL && process.env.WAHA_API_KEY) {
-      const r = await enviarTextoWhatsapp(this.db, String(telefono), avisables[estado], 'aviso-cliente-pedido');
+      // un pedido del bot le avisa al cliente por la línea por la que lo pidió
+      // (6/10/2026); el resto, por la principal como siempre
+      const { data: cot } = await this.db.from('bot_cotizaciones').select('linea').eq('pedido_id', pedido.id).limit(1).maybeSingle();
+      const sesion = (cot as any)?.linea ? await new Lineas(this.db).sesion(String((cot as any).linea)) : undefined;
+      const r = await enviarTextoWhatsapp(this.db, String(telefono), avisables[estado], 'aviso-cliente-pedido', sesion);
       if (!r.enviado) this.log.warn(`aviso al cliente del pedido ${pedido.id} (${estado}) no salió: ${r.motivo ?? 'sin motivo'}`);
       return;
     }
