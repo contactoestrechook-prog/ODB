@@ -1,11 +1,17 @@
 import { Tabs } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEstado } from '../../lib/estado';
 import { C } from '../../lib/ui';
 
 export default function TabsLayout() {
   const { carrito, notif } = useEstado();
   const unidades = carrito.reduce((s, r) => s + r.cantidad, 0);
+  // Un alto fijo en tabBarStyle anula el margen que la barra suma sola para el
+  // indicador de inicio del iPhone: se lo sumamos a mano. Sin indicador (Android,
+  // iPhone con botón, web) queda como antes: 64 de alto y 8 abajo.
+  const { bottom } = useSafeAreaInsets();
+  const abajo = Math.max(bottom, 8);
 
   type IcoName = keyof typeof Ionicons.glyphMap;
   const icono = (on: IcoName, off: IcoName) =>
@@ -17,7 +23,7 @@ export default function TabsLayout() {
         headerStyle: { backgroundColor: C.negro },
         headerTintColor: '#fff',
         headerTitleStyle: { letterSpacing: 1, fontWeight: '700' },
-        tabBarStyle: { backgroundColor: C.negro, borderTopColor: 'transparent', height: 64, paddingTop: 6, paddingBottom: 8 },
+        tabBarStyle: { backgroundColor: C.negro, borderTopColor: 'transparent', height: 56 + abajo, paddingTop: 6, paddingBottom: abajo },
         tabBarActiveTintColor: '#fff',
         tabBarInactiveTintColor: 'rgba(255,255,255,0.45)',
         tabBarLabelStyle: { fontSize: 10.5, fontWeight: '600' },

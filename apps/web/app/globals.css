@@ -7,15 +7,14 @@
   --color-ink: #000000;          /* negro de marca: estructura / premium */
   --color-negro: #000000;
   --color-vino: #932a1f;         /* no hay "vino" en la marca → rojo oscuro */
-  --color-dorado: #b82d25;       /* sin dorado: los acentos van en rojo */
-  --color-dorado-claro: #d23b30; /* rojo algo más claro, legible sobre negro */
+  --color-rojo-claro: #d23b30;   /* rojo algo más claro, legible sobre negro */
+  /* sin dorado (6/10/2026): los tokens "dorado" se borraron; los acentos van en rojo */
   --color-papel: #ffffff;        /* base blanca */
   --color-crema: #f0ebe2;        /* crema de marca */
   --color-crema-prof: #e7ded0;   /* crema más profunda (placeholders) */
   --color-humo: #8a8178;
   --color-tinta: #1a1a1a;        /* texto casi negro */
   --color-linea: #e7ded0;
-  --font-display: var(--font-fraunces);
   --font-sans: var(--font-manrope);
 }
 
@@ -31,10 +30,10 @@ body {
 }
 ::selection { background: #b82d25; color: #fff; }
 
-.display { font-family: var(--font-fraunces), Georgia, serif; font-optical-sizing: auto; }
+/* Tipografía de marca (Montserrat). La serif Fraunces (.display), el script
+   Kaushan (.script) y el "kicker" dorado se sacaron el 6/10/2026: títulos y
+   rótulos van en .marca (ver app/ui/Titulo.tsx). */
 .marca { font-family: var(--font-marca), "Trebuchet MS", sans-serif; }
-.script { font-family: var(--font-script), cursive; }
-.kicker { font-size: 0.6875rem; letter-spacing: 0.22em; text-transform: uppercase; font-weight: 600; }
 .rule { height: 1px; background: linear-gradient(90deg, transparent, rgba(184,45,37,0.45), transparent); }
 
 @keyframes subir { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }

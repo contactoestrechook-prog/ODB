@@ -19,7 +19,8 @@ export function Nav({ cliente }: { cliente: Cliente | null }) {
       <div className="max-w-7xl mx-auto px-5 lg:px-8">
         <div className="flex items-center gap-4 lg:gap-6 h-[72px]">
           <Link href="/" className="shrink-0" aria-label="Inicio">
-            <img src="/odb-logo.png" alt="O.D.B Premium Market" className="h-10 w-auto" />
+            {/* ancho y alto reservan el lugar antes de que cargue (el logo es 519×319) */}
+            <img src="/odb-logo.png" alt="O.D.B Premium Market" width={65} height={40} className="h-10 w-auto" />
           </Link>
 
           <nav className="hidden lg:flex items-center gap-1 text-[14px] font-semibold text-ink">

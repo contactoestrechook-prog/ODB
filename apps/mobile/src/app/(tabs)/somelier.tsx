@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import {
   FlatList, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
 } from 'react-native';
+import { useHeaderHeight } from 'expo-router/react-navigation';
 import { useEstado } from '../../lib/estado';
 import { apiPost } from '../../lib/api';
 import { C, LinearGradient, Ionicons, sombra, toque } from '../../lib/ui';
@@ -28,6 +29,9 @@ export default function Somelier() {
   const [texto, setTexto] = useState('');
   const [pensando, setPensando] = useState(false);
   const lista = useRef<FlatList>(null);
+  // el KeyboardAvoidingView mide su posición sin contar el encabezado de la
+  // pestaña: sin este corrimiento la barra de texto quedaba tapada por el teclado
+  const altoEncabezado = useHeaderHeight();
 
   async function enviar(t: string) {
     const limpio = t.trim();
@@ -52,7 +56,11 @@ export default function Somelier() {
   const soloSaludo = mensajes.length <= 1 && !pensando;
 
   return (
-    <KeyboardAvoidingView style={est.pantalla} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <KeyboardAvoidingView
+      style={est.pantalla}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      keyboardVerticalOffset={altoEncabezado}
+    >
       {soloSaludo ? (
         <ScrollView contentContainerStyle={est.heroWrap}>
           <SomelierAvatar size={210}><SomelierLottie size={172} /></SomelierAvatar>

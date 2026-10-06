@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, FlatList, StyleSheet, Text, View } from 'react-native';
 import { useEstado, type Producto } from '../lib/estado';
 import { apiGet } from '../lib/api';
-import { C, TarjetaProducto, Ionicons } from '../lib/ui';
+import { C, FILA_GRILLA, TarjetaProducto, Ionicons } from '../lib/ui';
 
 export default function Favoritos() {
   const { cliente, favoritos } = useEstado();
@@ -36,7 +36,7 @@ export default function Favoritos() {
     <FlatList
       style={est.pantalla}
       data={visibles} key="fav-2" numColumns={2} keyExtractor={(p) => p.sku}
-      columnWrapperStyle={{ gap: 12, paddingHorizontal: 16 }}
+      columnWrapperStyle={FILA_GRILLA}
       contentContainerStyle={{ paddingVertical: 14, gap: 12 }}
       renderItem={({ item }) => <TarjetaProducto p={item} grid />}
     />

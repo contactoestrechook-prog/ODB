@@ -51,7 +51,7 @@ export default async function ProductoPage({ params }: { params: Promise<{ sku: 
 
         {/* info */}
         <div className="md:py-2">
-          {prod.marca && <p className="kicker text-dorado">{prod.marca}</p>}
+          {prod.marca && <p className={`${ROTULO} text-rojo`}>{prod.marca}</p>}
           <h1 className="marca text-[32px] sm:text-[44px] font-extrabold text-ink mt-2 leading-[1] tracking-[-0.015em] [text-wrap:balance] [overflow-wrap:anywhere]">{prod.nombre}</h1>
 
           {prod.descuentoComunidad && (

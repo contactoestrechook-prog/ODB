@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { FlatList, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { pesos, useEstado, type Producto } from '../../lib/estado';
 import { apiGet, apiPost } from '../../lib/api';
 import { abrirVerificacion } from '../../lib/navegador';
@@ -34,6 +35,9 @@ function isoNacimiento(v: string): string | undefined {
 export default function Inicio() {
   const { cliente, setCliente, cuenta, notif, sesionExpirada, limpiarAvisoSesion } = useEstado();
   const router = useRouter();
+  // la pestaña va sin encabezado: el aire de arriba sale del notch / isla real
+  // del equipo (antes era fijo, 72 y 64, y en algunos iPhone quedaba corto)
+  const { top } = useSafeAreaInsets();
   const [modo, setModo] = useState<'login' | 'registro'>('login');
   const [dni, setDni] = useState('');
   const [nombre, setNombre] = useState('');
@@ -103,7 +107,7 @@ export default function Inicio() {
   if (!cliente) {
     return (
       <ScrollView style={{ flex: 1, backgroundColor: C.crema }} contentContainerStyle={{ flexGrow: 1 }}>
-        <LinearGradient colors={[C.negro, C.rojo]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={est.loginHero}>
+        <LinearGradient colors={[C.negro, C.rojo]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[est.loginHero, { paddingTop: top + 40 }]}>
           <Image source={require('../../assets/odb-logo-blanco.png')} style={est.loginLogoImg} resizeMode="contain" />
           <Text style={est.loginTagline}>Bebidas, fiambrería y almacén.{'\n'}Tu pedido, a un toque.</Text>
         </LinearGradient>
@@ -142,7 +146,7 @@ export default function Inicio() {
   // ---------- HOME ----------
   return (
     <ScrollView style={{ flex: 1, backgroundColor: C.crema }} showsVerticalScrollIndicator={false}>
-      <LinearGradient colors={[C.negro, C.vino]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={est.hero}>
+      <LinearGradient colors={[C.negro, C.vino]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[est.hero, { paddingTop: top + 18 }]}>
         <View style={est.heroTop}>
           <View>
             <View style={est.heroNombreRow}>
@@ -236,7 +240,7 @@ function Campo({ icono, value, onChange, placeholder, keyboard, secure }: any) {
 }
 
 const est = StyleSheet.create({
-  loginHero: { paddingTop: 72, paddingBottom: 48, paddingHorizontal: 28, alignItems: 'center', borderBottomLeftRadius: 32, borderBottomRightRadius: 32 },
+  loginHero: { paddingBottom: 48, paddingHorizontal: 28, alignItems: 'center', borderBottomLeftRadius: 32, borderBottomRightRadius: 32 },
   loginLogoImg: { width: 210, height: 132 },
   loginTagline: { color: 'rgba(255,255,255,0.8)', textAlign: 'center', marginTop: 18, lineHeight: 21, fontSize: 14 },
   loginCard: { margin: 20, marginTop: -28, backgroundColor: '#fff', borderRadius: 24, padding: 22 },
@@ -253,7 +257,7 @@ const est = StyleSheet.create({
   botonPrimarioTexto: { color: '#fff', fontWeight: '800', fontSize: 15 },
   link: { textAlign: 'center', color: C.humo, fontSize: 13, marginTop: 16, fontWeight: '600' },
 
-  hero: { paddingTop: 64, paddingBottom: 22, paddingHorizontal: 18, borderBottomLeftRadius: 28, borderBottomRightRadius: 28 },
+  hero: { paddingBottom: 22, paddingHorizontal: 18, borderBottomLeftRadius: 28, borderBottomRightRadius: 28 },
   heroTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   heroNombreRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   heroHola: { color: '#fff', fontSize: 23, fontWeight: '800', letterSpacing: -0.3 },

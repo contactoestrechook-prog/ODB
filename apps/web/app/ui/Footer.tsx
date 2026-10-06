@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ROTULO } from "./Titulo";
 
 export function Footer() {
   return (
@@ -6,14 +7,14 @@ export function Footer() {
       <div className="max-w-7xl mx-auto px-5 lg:px-8 py-16">
         <div className="grid gap-12 md:grid-cols-[1.3fr_1fr_1fr_1.2fr]">
           <div>
-            <img src="/odb-logo-blanco.png" alt="O.D.B Premium Market" className="h-16 w-auto" />
+            <img src="/odb-logo-blanco.png" alt="O.D.B Premium Market" width={104} height={64} className="h-16 w-auto" />
             <p className="mt-5 text-sm leading-relaxed text-crema/45 max-w-xs">
               Vinos, destilados, fiambrería de autor y almacén selecto. Curado con criterio, entregado con cuidado.
             </p>
           </div>
 
           <div>
-            <p className="kicker text-crema/40 mb-4">Comprar</p>
+            <p className={`${ROTULO} text-crema/50 mb-4`}>Comprar</p>
             <ul className="space-y-2.5 text-sm">
               <li><Link href="/catalogo" className="hover:text-crema transition-colors">Catálogo completo</Link></li>
               <li><Link href="/catalogo?filtro=promo" className="hover:text-crema transition-colors">Ofertas</Link></li>
@@ -22,7 +23,7 @@ export function Footer() {
           </div>
 
           <div>
-            <p className="kicker text-crema/40 mb-4">Cómo recibís</p>
+            <p className={`${ROTULO} text-crema/50 mb-4`}>Cómo recibís</p>
             <ul className="space-y-2.5 text-sm">
               <li><Link href="/#como-comprar" className="hover:text-crema transition-colors">Envío a domicilio</Link></li>
               <li><Link href="/#como-comprar" className="hover:text-crema transition-colors">Pick-up: te lo llevamos al auto</Link></li>
@@ -33,11 +34,11 @@ export function Footer() {
           </div>
 
           <div>
-            <p className="kicker text-crema/40 mb-4">Comunidad ODB</p>
+            <p className={`${ROTULO} text-crema/50 mb-4`}>Comunidad ODB</p>
             <p className="text-sm leading-relaxed text-crema/45">
               Verificá tu identidad y accedé a precios de socio, prioridad en envíos y puntos en cada compra.
             </p>
-            <Link href="/ingresar" className="inline-flex items-center gap-2 mt-4 text-sm text-dorado-claro hover:text-dorado transition-colors">
+            <Link href="/ingresar" className="inline-flex items-center gap-2 mt-4 text-sm font-semibold text-rojo-claro hover:text-crema transition-colors">
               Sumarme <span aria-hidden>→</span>
             </Link>
           </div>
