@@ -4,6 +4,7 @@ import { useRouter } from 'expo-router';
 import { pesos, useEstado, type Producto } from '../lib/estado';
 import { apiGet } from '../lib/api';
 import { C, TarjetaProducto, Ionicons, sombra, toque } from '../lib/ui';
+import { cantidadLegible, etiquetaEstado } from '../lib/formato';
 
 const fecha = (iso: string) =>
   new Date(iso).toLocaleDateString('es-AR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
@@ -72,7 +73,12 @@ export default function Compras() {
       )}
 
       {compras.map((c) => (
-        <View key={c.tipo + c.id} style={[est.card, sombra(0)]}>
+        // los pedidos de la app abren su seguimiento; las compras en el local no tienen
+        <Pressable
+          key={c.tipo + c.id}
+          onPress={c.tipo === 'pedido' ? () => { toque(); router.push(`/pedido/${c.id}`); } : undefined}
+          style={({ pressed }) => [est.card, sombra(0), pressed && c.tipo === 'pedido' && { opacity: 0.9 }]}
+        >
           <View style={est.cardTop}>
             <View style={est.cardIcono}>
               <Ionicons name={c.canal === 'domicilio' ? 'bicycle' : c.canal === 'self_checkout' ? 'scan' : 'storefront'} size={16} color={C.rojo} />
@@ -83,19 +89,22 @@ export default function Compras() {
             </View>
             <View style={{ alignItems: 'flex-end' }}>
               <Text style={est.cardTotal}>{pesos(c.total)}</Text>
-              {c.tipo === 'pedido' && <Text style={est.estado}>{c.estado}</Text>}
+              {c.tipo === 'pedido' && (
+                <Text style={[est.estado, c.estado === 'cancelado' && { color: C.rojoOscuro }]}>{etiquetaEstado(c.estado)}</Text>
+              )}
             </View>
+            {c.tipo === 'pedido' && <Ionicons name="chevron-forward" size={16} color={C.humo} />}
           </View>
 
           <Text numberOfLines={2} style={est.items}>
-            {c.items.map((i) => `${i.cantidad}× ${i.nombre}`).join(' · ')}
+            {c.items.map((i) => `${cantidadLegible(i.cantidad)}× ${i.nombre}`).join(' · ')}
           </Text>
 
           <Pressable onPress={() => recomprar(c.items)} style={est.recomprar}>
             <Ionicons name="refresh" size={15} color={C.rojo} />
             <Text style={est.recomprarTxt}>Volver a comprar</Text>
           </Pressable>
-        </View>
+        </Pressable>
       ))}
     </ScrollView>
   );
@@ -114,7 +123,7 @@ const est = StyleSheet.create({
   cardCanal: { fontSize: 14, fontWeight: '700', color: C.tinta },
   cardFecha: { fontSize: 11.5, color: C.humo, marginTop: 2 },
   cardTotal: { fontSize: 15.5, fontWeight: '800', color: C.tinta },
-  estado: { fontSize: 11, color: C.humo, marginTop: 2, textTransform: 'capitalize' },
+  estado: { fontSize: 11, color: C.humo, marginTop: 2 },
   items: { fontSize: 12.5, color: '#5f554d', marginTop: 11, lineHeight: 18 },
   recomprar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, marginTop: 13, borderWidth: 1.3, borderColor: C.rojo, borderRadius: 12, paddingVertical: 9 },
   recomprarTxt: { color: C.rojo, fontSize: 13.5, fontWeight: '800' },

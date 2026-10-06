@@ -68,7 +68,8 @@ export default function Inicio() {
           ? { dni, clave }
           : { dni, nombre, clave, fechaNacimiento: isoNacimiento(nacimiento), codigoReferido: codigoReferido.trim() || undefined },
         { auth: false });
-      setCliente({ dni: datos.cliente.dni, tipo: datos.cliente.tipo, nombre: datos.cliente.nombre, puntos: datos.cliente.puntos, verificado: datos.cliente.verificado, token: datos.token });
+      // telefono: si el login lo manda, precarga el WhatsApp del carrito
+      setCliente({ dni: datos.cliente.dni, tipo: datos.cliente.tipo, nombre: datos.cliente.nombre, telefono: datos.cliente.telefono ?? null, puntos: datos.cliente.puntos, verificado: datos.cliente.verificado, token: datos.token });
       cargarSecciones(datos.cliente.tipo, datos.token);
     } catch (e) { setError(e instanceof Error ? e.message : 'Error'); }
     setCargando(false);

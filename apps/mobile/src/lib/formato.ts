@@ -39,7 +39,8 @@ export const ETIQUETA_ESTADO: Record<string, string> = {
 
 export function etiquetaEstado(estado?: string | null): string {
   if (!estado) return '';
-  if (ETIQUETA_ESTADO[estado]) return ETIQUETA_ESTADO[estado];
+  const conocido = ETIQUETA_ESTADO[estado.toLowerCase()];
+  if (conocido) return conocido;
   // estado nuevo que la app todavía no conoce: al menos sin guiones bajos
   const t = estado.replace(/_/g, ' ');
   return t.charAt(0).toUpperCase() + t.slice(1);
