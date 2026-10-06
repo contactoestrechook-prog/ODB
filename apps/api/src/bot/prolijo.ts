@@ -77,6 +77,9 @@ export function saludarConBienvenida(respuesta: string, saludo: string): string 
   // se quita el saludo que haya puesto el modelo (con la hora que imaginó)
   r = r.replace(/^¡?(buen d[ií]a|buen[oa]s d[ií]as|buenas tardes|buenas noches|hola)[!.,]?\s*/i, '');
   const yaDaBienvenida = /bienvenid/i.test(r);
+  // ya venía con la bienvenida de la casa («…, te damos la bienvenida a O.D.B. …»):
+  // se le cambia solo el saludo, sin partirla en «Buen día. Te damos…» (6/10/2026)
+  if (/^te damos la bienvenida\b/i.test(r)) return `${saludo}, t${r.slice(1)}`.trim();
   if (r) r = r[0].toUpperCase() + r.slice(1);
   const arranque = yaDaBienvenida ? `${saludo}. ` : `${saludo}, te damos la bienvenida a O.D.B. `;
   return (arranque + (r || '¿En qué te puedo ayudar?')).trim();
@@ -326,6 +329,26 @@ const CONFIRMO_PROMESA = String.raw`(?<!¿\s?)(?:\bya\s+(?:te|le|se)\s+(?:(?:lo|
 // retirar?» le pregunta al cliente y «Podés consultar con tu banco» no promete
 // nada: no cuentan (5/10/2026, revisión)
 const CONSULTO = String.raw`(?:\b(?:lo|la|los|las)\s+)?(?<!\bte\s)\bconsulto\b|\b(?:estoy|estamos)\s+consultando\b|\b(?:voy|vamos)\s+a\s+consultar\w*|\b(?:tengo|tenemos|hay)\s+que\s+consultar\w*|\bd[eé]jame\s+consultar\w*|\bconsultamos\b|\blo\s+verifico\s+con\b`;
+// lo que el bot diría que hace después (6/10/2026, revisión): «te digo», «te comento», «te contesto»…
+const VERBOS_DESPUES = String.raw`(?:digo|decimos|confirmo|confirmamos|aviso|avisamos|paso|pasamos|escribo|escribimos|contesto|contestamos|comento|comentamos|respondo|respondemos|cuento|contamos)`;
+
+// QUE NO LO SABE (6/10/2026; la parte de MENCIONES que dice que no tiene un dato,
+// no las promesas). «Ese dato no lo tengo» es la propuesta que Leandro rechazó.
+// Un hecho del catálogo no es esto: «De Raquis Monasterio no tengo ahora» se
+// queda. En un turno de pago en manos de administración una promesa habla del
+// pago (ya avisado), pero esto es OTRA cosa que el bot no sabía y se consulta
+// aparte (revisión del 6/10/2026, diceQueNoSabe).
+const NO_SABE = [
+  String.raw`\bno\s+(?:lo\s+|la\s+)?tengo\s+(?:ese\s+|el\s+|este\s+|esa\s+|la\s+)?(?:dato|info(?:rmaci[oó]n)?)\b|\b(?:ese|el|este)\s+dato\s+no\s+(?:lo\s+)?tengo\b|\b(?:esa|la|esta)\s+info(?:rmaci[oó]n)?\s+no\s+(?:la\s+)?tengo\b|\bno\s+cuento\s+con\s+(?:ese|esa|el|la)\s+(?:dato|informaci[oó]n)\b|\bno\s+(?:lo\s+|la\s+)?tengo\s+cargad|\bno\s+lo\s+s[eé](?![a-záéíóúñ])`,
+  // revisión 6/10/2026, lo que se escapaba: que no lo sabe («No sé si vienen en caja», «No sabría decirte», «No te puedo confirmar si…»).
+  // «No sé si preferís retirar» le pregunta al cliente: no cuenta
+  String.raw`\bno\s+(?:la|los|las)\s+s[eé](?![a-záéíóúñ])|\bno\s+s[eé]\s+si\b(?!\s+(?:prefer|quer|necesit|te\s|le\s))|\bno\s+sabr[ií]a\b|\bdesconozco\b|\bno\s+dispongo\s+de\s+(?:es[ae]|esta|este|la|el)\s+(?:dato|info\w*)`,
+  String.raw`\bno\s+(?:te|le)\s+(?:lo\s+|la\s+)?(?:puedo|podr[ií]a)\s+(?:confirmar|asegurar|decir|precisar)\s+(?:si|cu[aá]ndo|cu[aá]nto|qu[eé]|c[oó]mo|d[oó]nde)\b|\bno\s+(?:puedo|podr[ií]a)\s+(?:confirmar|asegurar|decir|precisar)(?:te|le)\s+(?:si|cu[aá]ndo|cu[aá]nto|qu[eé]|c[oó]mo|d[oó]nde)\b`,
+  String.raw`\bno\s+tengo\s+(?:datos|informaci[oó]n|info|novedad(?:es)?)\s+(?:de|del|sobre|acerca|respecto)\b|\beso\s+no\s+lo\s+(?:tengo|s[eé])(?![a-záéíóúñ])(?!\s+(?:en\s+stock|ahora|disponible))`,
+  // que todavía no lo tiene («Todavía no lo tengo.», «Aún no tengo novedades»). «De
+  // Raquis Monasterio no tengo ahora» (sin stock) es un hecho del catálogo y se queda
+  String.raw`\b(?:todav[ií]a|a[uú]n)\s+no\s+(?:lo|la|los|las)\s+(?:tengo|s[eé])(?![a-záéíóúñ])(?=\s*(?:[.!…,;]|$))|\b(?:todav[ií]a|a[uú]n|por\s+ahora|de\s+momento)\s+no\s+(?:tengo|s[eé]|hay)\s+(?:novedad(?:es)?|respuesta|el\s+dato|ese\s+dato|esa\s+info\w*|nada\s+(?:de|sobre))\b|\bsin\s+novedades\b`,
+].join('|');
 
 // LO QUE AL CLIENTE NO SE LE DICE NUNCA (6/10/2026), una familia por renglón. Vale
 // para cualquier respuesta del bot, haya consulta en el turno o no: la red de
@@ -349,18 +372,48 @@ const MENCIONES = [
   String.raw`\b(?:doy|damos|di|dimos)\s+aviso\b|\b(?:aviso|avis[eé]|avisamos)\s+al?\s+(?:sector|local|equipo|[aá]rea|administraci[oó]n|compras|reparto)\b|\btomo\s+(?:tu|su|la)\s+consulta\b|\b(?:queda|qued[oó])\s+registrad[ao]\s+(?:la|tu|su)\s+consulta\b|\b(?:la|tu|su)\s+consulta\s+(?:queda|qued[oó])\s+registrad\w*`,
   String.raw`\b(?:lo|la|los|las)\s+revisan?\s+(?:alguien|una\s+persona|el\s+equipo|el\s+local|administraci[oó]n)\b|\balguien\s+de\s+la\s+casa\s+lo\s+(?:revisa|escucha|ve|mira)\b`,
   String.raw`\b(?:te|le)\s+(?:responde|responden|contesta|contestan|escribe|escriben|confirma|confirman)\b[^.?!\n]{0,30}?\bpor\s+(?:ac[aá](?![a-záéíóúñ])|este\s+(?:mismo\s+)?(?:chat|medio))|\b(?:te|le)\s+va(?:n)?\s+a\s+(?:responder|contestar|escribir|confirmar|avisar)\b`,
-  // que no lo tiene o no lo sabe («ese dato no lo tengo», la propuesta que Leandro rechazó).
-  // Un hecho del catálogo no es esto: «De Raquis Monasterio no tengo ahora» se queda.
-  String.raw`\bno\s+(?:lo\s+|la\s+)?tengo\s+(?:ese\s+|el\s+|este\s+|esa\s+|la\s+)?(?:dato|info(?:rmaci[oó]n)?)\b|\b(?:ese|el|este)\s+dato\s+no\s+(?:lo\s+)?tengo\b|\b(?:esa|la|esta)\s+info(?:rmaci[oó]n)?\s+no\s+(?:la\s+)?tengo\b|\bno\s+cuento\s+con\s+(?:ese|esa|el|la)\s+(?:dato|informaci[oó]n)\b|\bno\s+(?:lo\s+|la\s+)?tengo\s+cargad|\bno\s+lo\s+s[eé](?![a-záéíóúñ])`,
+  // que no lo tiene o no lo sabe (NO_SABE, arriba)
+  NO_SABE,
   // que está pendiente («Lo de la caja sigue pendiente», «Eso todavía no lo tengo»)
   String.raw`(?:\blo\s+del?\s+[^.?!\n,]{1,60}?|\beso|\bla\s+consulta|\bla\s+respuesta)\s+(?:todav[ií]a\s+)?(?:sigue|est[aá]|queda)\s+pendiente\b|(?:\blo\s+del?\s+[^.?!\n,]{1,60}?|\beso)\s+todav[ií]a\s+no\s+(?:lo\s+)?tengo\b|\btodav[ií]a\s+no\s+(?:tengo|me\s+(?:lleg[oó]|dieron|confirmaron|contestaron|respondieron|pasaron))\s+(?:la\s+|una\s+|el\s+)?(?:respuesta|novedad(?:es)?|confirmaci[oó]n|dato)\b`,
+  // ---- 6/10/2026 (revisión): lo que se escapaba. Con charla() y sin consulta en
+  // el turno salían tal cual, sin ningún WhatsApp a administración: «Te aviso.»,
+  // «Mañana te digo.», «Te confirmo a la tarde.», «Te lo confirman en el local.»,
+  // «No sé si vienen en caja.», «Aún no tengo novedades de la caja.», «Ya lo pasé
+  // a administración.», «Lo están revisando.», «Desconozco ese dato.»…
+  // que avisa, aunque no diga cuándo («Te aviso.», «Después te aviso.»); «Te aviso
+  // que los domingos no hay reparto» es un dato y se queda
+  String.raw`\b(?:te|le)\s+(?:lo\s+|la\s+)?(?:aviso|avisamos)\b(?=\s*(?:[.!…]|$))`,
+  // que le dice, confirma o contesta más tarde («Mañana te digo.», «En breve te
+  // respondo.», «Te confirmo a la tarde.»). Con dos puntos detrás es una lista
+  // («Hoy te paso los precios:») y con «que» es un dato («Hoy te cuento que…»)
+  String.raw`\b(?:ma[nñ]ana|despu[eé]s|luego|m[aá]s\s+tarde|a\s+la\s+tarde|hoy|en\s+un\s+rat\w*|en\s+breve|enseguida|en\s+el\s+d[ií]a)\s+(?:te|le)\s+(?:lo\s+|la\s+|los\s+|las\s+)?${VERBOS_DESPUES}\b(?!\s+que\b)(?![^.?!\n]*:)`,
+  String.raw`\b(?:te|le)\s+(?:lo\s+|la\s+|los\s+|las\s+)?${VERBOS_DESPUES}\s+(?:ma[nñ]ana|m[aá]s\s+tarde|a\s+la\s+tarde|por\s+la\s+(?:tarde|ma[nñ]ana|noche)|en\s+el\s+d[ií]a|luego|despu[eé]s|hoy|en\s+un\s+rat\w*|en\s+breve|a\s+la\s+brevedad|enseguida|en\s+un\s+momento|cuando|apenas|ni\s+bien|en\s+cuanto)\b(?![^.?!\n]*:)`,
+  // «Te confirmo lo de la caja.», «Te aviso lo del Catena.» (con dos puntos detrás
+  // ya es la respuesta: «Te confirmo lo de la caja: sí, vienen en estuche.»)
+  String.raw`\b(?:te|le)\s+(?:lo\s+|la\s+)?${VERBOS_DESPUES}\s+(?:lo\s+del?|sobre|respecto\s+(?:de|a))\b(?![^.?!\n]*:)`,
+  String.raw`\b(?:vuelvo\s+a\s+escribir(?:te|le)?|(?:te|le)\s+vuelvo\s+a\s+escribir|(?:te|le)\s+(?:contacto|contactamos|contactan))\b`,
+  String.raw`\bcuando\s+(?:lo\s+|la\s+)?(?:tenga|tengamos|sepa|sepamos)\b|\b(?:apenas|ni\s+bien|en\s+cuanto|cuando)\s+(?:me\s+|nos\s+|lo\s+|la\s+)?(?:confirmen|digan|contesten|respondan|avisen|pasen|verifiquen|revisen)\b`,
+  // que se lo confirma otro («Eso te lo confirma administración», «Te lo van a confirmar en el local»)
+  String.raw`\b(?:te|le|se)\s+(?:lo|la|los|las)\s+(?:van?\s+a\s+(?:confirmar|decir|avisar)|confirm(?:a|an))\b|\b(?:te|le)\s+(?:escriben|contestan|responden|avisan|confirman)\b`,
+  // que lo pasó a alguien o que alguien lo está viendo («Ya lo pasé a
+  // administración», «Lo están revisando», «en manos de administración»)
+  String.raw`\b(?:lo|la|los|las|eso)\s+est[aá]n?\s+(?:viendo|revisando|chequeando|verificando|averiguando)\b|\ben\s+manos\s+de\s+(?:administraci[oó]n|el\s+local|compras|reparto|el\s+equipo|la\s+casa)\b|\badministraci[oó]n\s+ya\s+(?:lo|la|los|las)\s+tiene\b|\b(?:ya\s+)?(?:lo|la)\s+tiene\s+administraci[oó]n\b|\badministraci[oó]n\s+(?:ya\s+)?tiene\s+(?:tu|su|la)\s+(?:consulta|pregunta)\b`,
+  String.raw`\b(?:lo|la|tu\s+consulta|su\s+consulta|tu\s+pregunta)\s+(?:pas[eé]|pasamos|deriv[eé]|derivamos|elev[eé]|elevamos)\s+(?:a|al)\s+(?:administraci[oó]n|el\s+local|local|compras|reparto|equipo|el\s+equipo|[aá]rea|sector|una\s+persona)\b|\b(?:le|te)\s+paso\s+(?:tu|su|la)\s+(?:consulta|pregunta)\b`,
+  // «Quedó anotada tu consulta», «quedó anotado para el equipo» (no «Por ahora quedan anotados:», la lista del pedido)
+  String.raw`\b(?:qued[oó]|est[aá]|queda)\s+anotad[oa]\s+(?:tu|su|la)\s+consulta\b|\b(?:tu|su|la)\s+consulta\s+(?:qued[oó]|est[aá]|queda)\s+anotad\w*|\b(?:qued[oó]|queda|est[aá])\s+anotad[oa]\s+para\s+(?:el\s+equipo|administraci[oó]n|el\s+local|compras|reparto)\b`,
+  // que pregunta o averigua («Le pregunto a administración y te digo», «Dejame averiguarlo»,
+  // «Lo vemos con el local»). «Te pregunto: ¿es para retirar?» le habla al cliente
+  String.raw`\b(?:le|les)\s+pregunto\s+(?:a|al)\s+|\b(?:lo\s+|la\s+)?pregunto\s+(?:a|al|en|con)\s+(?:administraci[oó]n|el\s+local|compras|reparto|el\s+equipo|la\s+casa)\b|\b(?:lo\s+|la\s+)?pregunto\s+y\s+(?:te|le)\b`,
+  String.raw`\bd[eé]jame\s+(?:que\s+)?(?:lo\s+|la\s+)?(?:averigu|verific|cheque|confirm|consult|revis|pregunt|fij)\w*|\b(?:voy|vamos)\s+a\s+(?:averigu|pregunt|cheque)\w*|\b(?:voy|vamos)\s+a\s+(?:revis|verific)ar(?:lo|la|los|las)\b|\b(?:tengo|tenemos)\s+que\s+(?:averigu|verific|cheque|revis|pregunt|confirm)\w*|\b(?:lo|la)\s+(?:averiguamos|chequeamos|preguntamos)\b|\blo\s+(?:vemos|vamos\s+a\s+ver|veo|revisamos|chequeamos)\s+con\s+(?:el\s+local|administraci[oó]n|compras|reparto|el\s+equipo)\b`,
 ].join('|');
 const RE_MENCION = new RegExp(MENCIONES, 'i');
 // En un turno con consulta, además, los plazos y los avisos sueltos del modelo
 // («en breve», «te aviso», «lo reviso»): ahí la consulta ya está hecha y nada de
-// eso le sirve al cliente. Fuera de ese turno no se tocan («Te aviso que los
-// domingos no hay reparto» es un dato).
-const RE_PROMESA = new RegExp(String.raw`${MENCIONES}|\ben\s+breve\b|\ben\s+un\s+momento\b|\blo\s+veo\s+con\b|\blo\s+(?:verifico|reviso|chequeo)\b|\bte\s+aviso\b`, 'i');
+// eso le sirve al cliente. «Te aviso que los domingos no hay reparto» es un dato
+// y se queda también en ese turno (6/10/2026, revisión: se borraba y con él lo
+// del domingo).
+const RE_PROMESA = new RegExp(String.raw`${MENCIONES}|\ben\s+breve\b|\ben\s+un\s+momento\b|\blo\s+(?:veo|vemos)\s+con\b|\blo\s+(?:verifico|reviso|chequeo)\b|\bte\s+aviso\b(?!\s+que\b)`, 'i');
 // lo que queda de una oración mixta tiene que sostenerse solo: "Sobre la caja,"
 // o "Si entra el PerSe," sin la promesa no dicen nada ("y chips a $1.200" sí)
 // ("y te digo" tampoco: es la cola de "Lo consultamos y te digo", 5/10/2026)
@@ -419,6 +472,43 @@ export function sinMencionDeConsulta(respuesta: string | null | undefined): stri
  */
 export function mencionaConsulta(t: string | null | undefined): boolean {
   return RE_MENCION.test(String(t ?? ''));
+}
+
+const RE_NO_SABE = new RegExp(NO_SABE, 'i');
+/**
+ * ¿Dice que no sabe o no tiene un dato («No tengo ese dato.», «No sé si…»)? Es la
+ * parte de mencionaConsulta que no es una promesa (6/10/2026, revisión). En un
+ * turno con un pago en manos de administración, una promesa habla del pago (ya
+ * avisado por adentro); esto es otra cosa que el bot no sabía: se consulta aparte.
+ */
+export function diceQueNoSabe(t: string | null | undefined): boolean {
+  return RE_NO_SABE.test(String(t ?? ''));
+}
+
+// EL SALUDO SOLO NO CONTESTA NADA (6/10/2026, revisión). La versión anterior, en
+// bot.service.ts, cambiaba «O.D.B.» por «ODB» comiéndose el punto que cierra el
+// saludo y después se tragaba todo el renglón: «Buenas tardes, te damos la
+// bienvenida a O.D.B. Te dejo los 3 Judas a tu nombre…» contaba como «solo
+// saludo», se descartaba y al cliente no le llegaba nada. Ahora se saca el saludo
+// (de la hora u «hola» con un nombre a lo sumo) y la bienvenida, y tiene que no
+// quedar nada.
+// sin la bandera i: el nombre («Hola Pablo») va con mayúscula y no se confunde con «Hola, te…»
+const RE_SALUDO_DEL_ARRANQUE = /^\s*¡?(?:[Hh]ola|HOLA|[Bb]uen\s+d[ií]a|[Bb]uen[oa]s\s+d[ií]as|[Bb]uenas\s+tardes|[Bb]uenas\s+noches|[Bb]uenas)(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)?\s*[!.,]*\s*/;
+const RE_BIENVENIDA = /^\s*(?:te\s+damos\s+la\s+)?bienvenid[oa]s?\s+a\s+O\.?\s?D\.?\s?B\.?\s*[!.,]*\s*/i;
+export function esSoloSaludo(t: string | null | undefined): boolean {
+  let r = String(t ?? '').trim();
+  if (!r) return true;
+  // «Hola, buen día.» son dos saludos seguidos
+  r = r.replace(RE_SALUDO_DEL_ARRANQUE, '').replace(RE_SALUDO_DEL_ARRANQUE, '');
+  r = r.replace(RE_BIENVENIDA, '');
+  return !r.replace(/[\s.!,;:¡¿?]+/g, '');
+}
+/** ¿Arranca con un saludo («Hola Pablo!», «Buenas tardes,»)? Devuelve ese saludo y lo que sigue. */
+export function saludoDelArranque(t: string | null | undefined): { saludo: string; resto: string } | null {
+  const s = String(t ?? '').trim();
+  const m = RE_SALUDO_DEL_ARRANQUE.exec(s);
+  if (!m || !m[0].trim()) return null;
+  return { saludo: m[0].trim(), resto: s.slice(m[0].length).trim() };
 }
 
 // El tema lo escribe el modelo y es de USO INTERNO desde el 6/10/2026: reconoce
@@ -604,7 +694,7 @@ export function juntarConsulta(previa: string, nueva: string, tope = 2000): stri
 }
 
 // palabras con que suele arrancar una respuesta del área y que, detrás de «Sobre X:», van en minúscula
-const ARRANQUE_COMUN = /^(?:s[ií]|no|tenemos|tengo|hay|entra|entran|llega|llegan|llegamos|viene|vienen|sale|salen|es|son|est[aá]|est[aá]n|ya|todav[ií]a|reci[eé]n|ma[nñ]ana|hoy|solo|s[oó]lo|claro|queda|quedan|va|van|se|lo|la|los|las|el|por|para|con|en|de|a|podemos|puede|pueden)$/i;
+const ARRANQUE_COMUN = /^(?:s[ií]|no|tenemos|tengo|hay|entra|entran|llega|llegan|llegamos|viene|vienen|sale|salen|es|son|est[aá]|est[aá]n|ya|todav[ií]a|reci[eé]n|ma[nñ]ana|hoy|solo|s[oó]lo|claro|queda|quedan|va|van|se|lo|la|los|las|el|por|para|con|en|de|a|podemos|puede|pueden|te|le|les|nos|tambi[eé]n)$/i;
 
 /**
  * LA RESPUESTA DEL ÁREA ES LA RESPUESTA FINAL (6/10/2026). Al cliente no se le
@@ -618,14 +708,62 @@ export function respuestaDelAreaParaCliente(tema: string | null | undefined, res
   const t = String(respuesta ?? '').trim();
   const tm = temaDeConsulta(tema);
   if (!t || !tm) return t;
+  // «Hola Pablo! Te confirmo que sí…»: el encabezado va DESPUÉS del saludo de la
+  // persona del área, no delante (6/10/2026, revisión: salía «Sobre la caja para
+  // viajar: Hola Pablo! …»)
+  const s = saludoDelArranque(t);
+  if (s && !s.resto) return t;
+  const texto = s ? s.resto : t;
   const delTema = palabrasQueImportan(tm);
   const nombraElTema = delTema.size
-    ? [...delTema].some((w) => palabrasQueImportan(t).has(w))
-    : contiene(sinArticulo(t).replace(/[^a-z0-9ñ ]+/g, ' ').replace(/\s+/g, ' '), sinArticulo(tm));
+    ? [...delTema].some((w) => palabrasQueImportan(texto).has(w))
+    : contiene(sinArticulo(texto).replace(/[^a-z0-9ñ ]+/g, ' ').replace(/\s+/g, ' '), sinArticulo(tm));
   if (nombraElTema) return t;
-  const primera = /^[^\s,.:;]+/.exec(t)?.[0] ?? '';
-  const cuerpo = ARRANQUE_COMUN.test(primera) ? t[0].toLowerCase() + t.slice(1) : t;
-  return `Sobre ${tm}: ${cuerpo}`;
+  const primera = /^[^\s,.:;]+/.exec(texto)?.[0] ?? '';
+  const cuerpo = ARRANQUE_COMUN.test(primera) ? texto[0].toLowerCase() + texto.slice(1) : texto;
+  const conTema = `Sobre ${tm}: ${cuerpo}`;
+  return s ? `${s.saludo.replace(/,$/, '.')} ${conTema}` : conTema;
+}
+
+/**
+ * Mete un texto (los datos de pago, por ejemplo) UNA vez y antes de las preguntas
+ * con que termina el mensaje («¿Lo confirmo?», «¿A nombre de quién lo retiran?»),
+ * que siguen siendo lo último; sin preguntas al final, abajo de todo. Ya no lleva
+ * ningún aviso de consulta (6/10/2026): queda porque main la usa para los datos de
+ * pago de la confirmación (pago-confirma.ts, confirmacionConDatosDePago) y, sin
+ * ella, la unión con main no compilaba (revisión del 6/10/2026).
+ */
+export function conAviso(texto: string, aviso: string): string {
+  const t = String(texto ?? '').trim();
+  if (!aviso) return t;
+  if (!t) return aviso;
+  if (!/\?\s*$/.test(t)) return `${t}\n\n${aviso}`;
+  const desde = inicioDeLasPreguntasFinales(t);
+  const antes = t.slice(0, desde).trimEnd();
+  const preguntas = t.slice(desde).trim();
+  if (!antes) return `${aviso}\n\n${preguntas}`;
+  return /\n\s*$/.test(t.slice(0, desde)) ? `${antes}\n\n${aviso}\n\n${preguntas}` : `${antes} ${aviso} ${preguntas}`;
+}
+
+/** Dónde arranca la tanda de preguntas seguidas con que termina el texto (oraciones o renglones que cierran en «?»). */
+function inicioDeLasPreguntasFinales(t: string): number {
+  const oraciones: { desde: number; texto: string }[] = [];
+  let inicio = 0;
+  for (let k = 0; k <= t.length; k++) {
+    const c = t[k] ?? '';
+    const finDeRenglon = k === t.length || c === '\n';
+    // ". " o "? " cierra la oración; "$4.700" o "..." en el medio, no
+    const finDeOracion = /[.!?…]/.test(c) && (k + 1 >= t.length || /\s/.test(t[k + 1]));
+    if (!finDeRenglon && !finDeOracion) continue;
+    const fin = finDeRenglon ? k : k + 1;
+    const trozo = t.slice(inicio, fin);
+    if (trozo.trim()) oraciones.push({ desde: inicio + (trozo.length - trozo.trimStart().length), texto: trozo.trim() });
+    inicio = k + 1;
+  }
+  let i = oraciones.length;
+  while (i > 0 && /\?\s*$/.test(oraciones[i - 1].texto)) i--;
+  // "Tengo el Judas, ¿te lo reservo?" es una sola oración: la pregunta es toda
+  return i < oraciones.length ? oraciones[i].desde : t.length;
 }
 
 // Frases que Whisper inventa ante un audio mudo o con ruido (créditos de

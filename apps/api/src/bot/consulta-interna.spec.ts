@@ -94,8 +94,12 @@ function servicio(db: any) {
 describe('la charla de Pablo: consulta silenciosa (6/10/2026)', () => {
   it('(i) mensaje 2: lista + «¿Está completo…?» + consulta nueva del PerSe → la lista y la pregunta, sin nada de la consulta', async () => {
     const hist = h(['user', 'Quiero 1 Judas Malbec, 1 Catena Zapata Malbec Argentino y 1 PerSe Inseparable para retirar'], ['assistant', 'Sumé el Bressia Conjuro 750 cc a la lista. Decime si cerramos así.']);
+    // los precios del Adrianna River salieron de la cava (importes verificados, en
+    // centavos): desde la revisión del 6/10/2026 un importe sin fuente no sale
+    // tampoco en un turno con consulta
+    const conPrecios = { data: { ...conv(hist).data, importes_verificados: [18200000, 16380000] }, error: null };
     const db = baseFalsa({
-      bot_conversaciones: { select: conv(hist) }, lineas_whatsapp: { select: { data: CFG, error: null } },
+      bot_conversaciones: { select: conPrecios }, lineas_whatsapp: { select: { data: CFG, error: null } },
       bot_consultas_internas: { select: { data: [], error: null }, insert: { data: { id: 'q-perse' }, error: null } },
     });
     const { s, wsp } = servicio(db);
@@ -150,7 +154,7 @@ describe('la charla de Pablo: consulta silenciosa (6/10/2026)', () => {
       .mockResolvedValueOnce(conHerramientas(herramienta('c1', 'consultar_interno', { area: 'local', consulta: CAJA_1617, tema: 'la caja para viajar', direccion: '' })))
       // el modelo cierra solo con la promesa (así terminó el 14 real)
       .mockResolvedValueOnce(texto('Te confirmo por acá lo de la caja.'))
-      // la reescritura sin herramientas contesta lo demás
+      // la reescritura (solo con herramientas de lectura y de cotizar) contesta lo demás
       .mockResolvedValueOnce(texto(dale));
     s.claude = { messages: { create: crear } };
     const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: AUDIO_14, deAudio: true });
@@ -166,9 +170,12 @@ describe('la charla de Pablo: consulta silenciosa (6/10/2026)', () => {
     // contesta nombre y retiro, y nada de la caja
     expect(r.respuesta).toBe(dale);
     expect(r.respuesta).not.toMatch(/caja|confirm|pendiente/i);
-    // la reescritura fue UNA, sin herramientas y con razonamiento
+    // la reescritura fue UNA, con razonamiento, y solo con herramientas que leen o
+    // cotizan (6/10/2026, revisión: sin herramientas no podía cotizar y un total
+    // armado a mano se descartaba entero): nada que consulte, derive o cree un pedido
     expect(crear).toHaveBeenCalledTimes(3);
-    expect(crear.mock.calls[2][0].tools).toBeUndefined();
+    const nombres = (crear.mock.calls[2][0].tools ?? []).map((t: any) => t.name).sort();
+    expect(nombres).toEqual(['buscar_productos', 'consultar_cava', 'cotizar_pedido', 'estado_local', 'estado_pedido', 'identificar_cliente', 'preparar_pedido']);
     expect(crear.mock.calls[2][0].thinking).toEqual({ type: 'adaptive' });
     // el modelo vio desde el arranque que la caja ya estaba consultada
     const primero = crear.mock.calls[0][0].messages.at(-1).content;

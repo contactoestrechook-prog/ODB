@@ -25,9 +25,14 @@ export const SIN_MODELO = 'Recibí tu mensaje.';
 export const CANDADO_CON_ARCHIVO = RECIBIDO;
 export const CANDADO_SIN_ARCHIVO = 'Recibido. Contame qué necesitás y lo vemos.';
 
-/** Un audio sin transcripción o un archivo que el bot no abre: lo abre una persona, sin anunciarlo. */
-export const AUDIO_SIN_TRANSCRIBIR = 'Recibí tu audio. Si te queda más cómodo, escribime lo que necesitás y te lo resuelvo ahora.';
-export const ARCHIVO_SIN_ABRIR = 'Recibí tu archivo. Si te queda más cómodo, escribime lo que necesitás y te lo resuelvo ahora.';
+/**
+ * Un audio sin transcripción o un archivo que el bot no abre: lo abre una persona,
+ * sin anunciarlo. Sin «escribime lo que necesitás y te lo resuelvo ahora»
+ * (6/10/2026, revisión): en ese camino la charla queda pausada (16/9/2026, se
+ * reactiva solo a mano) y lo que escribiera después no lo contestaba nadie.
+ */
+export const AUDIO_SIN_TRANSCRIBIR = 'Recibí tu audio.';
+export const ARCHIVO_SIN_ABRIR = 'Recibí tu archivo.';
 
 /** El cliente pidió hablar con una persona y la derivación ya quedó hecha (si la reescritura no sale). */
 export const DERIVACION_PEDIDA = 'Soy Emilia, la asistente de O.D.B. Te paso con una persona de la casa.';

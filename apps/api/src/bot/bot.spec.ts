@@ -1231,8 +1231,10 @@ describe('consultas a administración: la respuesta vuelve al cliente (16/9/2026
     const r: any = await (s as any).respuestaDeAdministracion('5491125213601', { body: 'sí', replyTo: { id: 'CONS1' } });
     expect(r.contestado).toBe(false);
     expect(charla).not.toHaveBeenCalled();
-    expect(r.motivo).toContain('bot apagado');
+    expect(r.motivo).toContain('bot está apagado');
     expect(envios.some((e) => e.to === '5491133344455')).toBe(false);
+    // y el área se entera de que no le llegó (6/10/2026, revisión: antes, nadie)
+    expect(envios.find((e) => e.to === '5491125213601')?.text).toMatch(/^No le llegó al cliente/);
   });
 });
 

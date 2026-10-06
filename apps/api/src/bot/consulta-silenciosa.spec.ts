@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { BotService } from './bot.service';
-import { mencionaConsulta, sinMencionDeConsulta, sinPromesas } from './prolijo';
+import { conAviso, diceQueNoSabe, esSoloSaludo, mencionaConsulta, respuestaDelAreaParaCliente, sinMencionDeConsulta, sinPromesas } from './prolijo';
 import { datosDePagoParaResumen, respuestaPedidoPorComprobante, sinPedirConfirmo } from './pago-confirma';
 import * as TEXTO from './textos-fijos';
 
@@ -175,7 +175,7 @@ describe('la charla de Pablo con la consulta silenciosa (6/10/2026)', () => {
     expect(textoPrimero).toContain('ya en manos de administración (al cliente NO le menciones nada de eso');
   });
 
-  it('(3b) si el modelo solo escribió lo de la caja, una reescritura sin herramientas y con razonamiento contesta lo demás', async () => {
+  it('(3b) si el modelo solo escribió lo de la caja, UNA reescritura con razonamiento (y solo herramientas de lectura y de cotizar) contesta lo demás', async () => {
     const db = baseFalsa({
       bot_conversaciones: { select: conv(h(['user', 'Me llevo los 3 y un judas más.'], ['assistant', M12])) },
       lineas_whatsapp: { select: { data: CFG, error: null } },
@@ -192,7 +192,11 @@ describe('la charla de Pablo con la consulta silenciosa (6/10/2026)', () => {
     const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: AUDIO_14, deAudio: true });
     expect(r.respuesta).toBe(dale);
     const reescritura = crear.mock.calls.map((c: any[]) => c[0]).filter((p: any) => p.model !== 'claude-haiku-4-5')[2];
-    expect(reescritura.tools).toBeUndefined();
+    // nada que consulte, derive o cree un pedido (revisión del 6/10/2026)
+    const nombres = (reescritura.tools ?? []).map((t: any) => t.name);
+    expect(nombres).toEqual(expect.arrayContaining(['cotizar_pedido', 'buscar_productos']));
+    expect(nombres).not.toEqual(expect.arrayContaining(['consultar_interno']));
+    for (const n of ['consultar_interno', 'crear_pedido', 'derivar_pago', 'derivar_a_humano', 'nota_interna', 'cancelar_pedido']) expect(nombres).not.toContain(n);
     expect(reescritura.thinking).toEqual({ type: 'adaptive' });
     const ultimo = reescritura.messages.at(-1).content;
     const nota = typeof ultimo === 'string' ? ultimo : ultimo.map((x: any) => x.text ?? '').join(' ');
@@ -406,5 +410,398 @@ describe('otros caminos de la consulta silenciosa', () => {
     const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Me cobraron dos veces' });
     // la disculpa del reclamo (ronda 10) y «Recibido.» (23/9), sin nada de lo que hace administración
     expect(r.respuesta).toBe('Lamento el inconveniente. Recibido.');
+  });
+});
+
+// ============================================================
+// REVISIÓN DEL 6/10/2026 (consulta silenciosa). Lo que encontraron los revisores
+// sobre el commit de la mañana, probado con la charla entera.
+// ============================================================
+const principales = (crear: jest.Mock) => crear.mock.calls.map((c: any[]) => c[0]).filter((p: any) => p.model !== 'claude-haiku-4-5');
+const NUNCA_AL_CLIENTE = /no pude procesar|qué sigue|administración (?:ya )?(?:lo|la) tiene|en manos de|apenas lo verifiquen/i;
+const HOLA = h(['user', 'Hola'], ['assistant', 'Buenas tardes, ¿en qué te ayudo?']);
+
+describe('revisión (6/10/2026): lo que se le pidió callar no se fuerza', () => {
+  it('(K) consulta de pago y el modelo obedece y no escribe → «Recibido.», sin el cierre que pedía «qué sigue» ni el «no pude procesar»', async () => {
+    const db = baseFalsa({
+      bot_conversaciones: { select: conv(HOLA) },
+      lineas_whatsapp: { select: { data: CFG, error: null } },
+      alertas_internas: { select: { data: null, error: null } },
+    });
+    const { s } = servicio(db);
+    s.identificarCliente = jest.fn(async () => ({ existe: true, nombre: 'Pablo' }));
+    const crear = claudeCon(conHerramientas(herramienta('d1', 'derivar_pago', { tipo: 'consulta', monto: 0, motivo: 'Pregunta si llegó la transferencia de ayer', de_quien: 'Pablo' })), { stop_reason: 'end_turn', content: [], usage });
+    s.claude = { messages: { create: crear } };
+    const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: '¿Les llegó la transferencia de ayer?' });
+    expect(r.respuesta).toBe(TEXTO.RECIBIDO);
+    // ninguna vuelta más pidiéndole texto al modelo
+    expect(principales(crear)).toHaveLength(2);
+    expect(insertsDe(db, 'bot_pagos_en_confirmacion')).toHaveLength(1);
+    expect(insertsDe(db, 'bot_consultas_internas')).toHaveLength(0);
+  });
+
+  it('(J) a los 5 minutos de una alerta de pago, «pasame el alias» → el alias cargado (quiere_pagar ya no lo corta el aviso reciente)', async () => {
+    const db = baseFalsa({
+      bot_conversaciones: { select: conv(HOLA) },
+      lineas_whatsapp: { select: { data: { ...CFG, alias_pago: 'outlet.de.bebidas', titular_pago: 'Chinvenguencha SRL' }, error: null } },
+      alertas_internas: { select: { data: [{ id: 'a-pago', tipo: 'pago' }], error: null } },
+    });
+    const { s } = servicio(db);
+    const crear = claudeCon(conHerramientas(herramienta('d1', 'derivar_pago', { tipo: 'quiere_pagar', monto: 0, motivo: 'Pide el alias para transferir lo que falta' })), texto(''));
+    s.claude = { messages: { create: crear } };
+    const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Pasame el alias así te transfiero lo que falta' });
+    expect(r.respuesta).toContain('Alias: outlet.de.bebidas');
+    expect(r.respuesta).not.toMatch(NUNCA_AL_CLIENTE);
+  });
+
+  it('(A) con la caja consultada, «¿Y lo de las cajas?» y el modelo no escribe → nada al cliente, ni otra consulta, ni el «no pude procesar»', async () => {
+    const db = baseFalsa({
+      bot_conversaciones: { select: conv(h(['user', 'Me llevo los 3'], ['assistant', M12])) },
+      lineas_whatsapp: { select: { data: CFG, error: null } },
+      bot_consultas_internas: { select: { data: [abiertaCaja()], error: null }, insert: { data: { id: 'NO-DEBERIA' }, error: null } },
+    });
+    const { s, wsp } = servicio(db);
+    const crear = claudeCon(texto(''));
+    s.claude = { messages: { create: crear } };
+    const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: '¿Y lo de las cajas?' });
+    expect(r.respuesta).toBeNull();
+    expect(r.silencio).toBe(true);
+    expect(principales(crear)).toHaveLength(1);
+    expect(insertsDe(db, 'bot_consultas_internas')).toHaveLength(0);
+    expect(wsp).not.toHaveBeenCalled();
+  });
+
+  it('(A3) «¿Saben algo?» sin herramientas ni texto, con la caja abierta → es esa consulta: nada al cliente; y si pide una persona, se deriva igual', async () => {
+    const armar = () => {
+      const db = baseFalsa({
+        bot_conversaciones: { select: conv(h(['user', 'Me llevo los 3'], ['assistant', M12])) },
+        lineas_whatsapp: { select: { data: CFG, error: null } },
+        bot_consultas_internas: { select: { data: [abiertaCaja()], error: null }, insert: { data: { id: 'NO-DEBERIA' }, error: null } },
+      });
+      const { s } = servicio(db);
+      s.derivarAHumano = jest.fn(async () => ({ derivado: true }));
+      s.claude = { messages: { create: claudeCon(texto('')) } };
+      return { db, s };
+    };
+    const a = armar();
+    const r1: any = await a.s.charla({ linea: 'pedidos', telefono: TEL, mensaje: '¿Saben algo?' });
+    expect(r1.respuesta).toBeNull();
+    expect(insertsDe(a.db, 'bot_consultas_internas')).toHaveLength(0);
+    const b = armar();
+    const r2: any = await b.s.charla({ linea: 'pedidos', telefono: TEL, mensaje: '¿Y lo de la caja? Quiero hablar con alguien' });
+    expect(b.s.derivarAHumano).toHaveBeenCalled();
+    expect(r2.respuesta).toBe(TEXTO.DERIVACION_PEDIDA);
+  });
+
+  it('(A2) y si el modelo igual escribe «Lo de las cajas todavía está en manos de administración.», no sale', async () => {
+    const db = baseFalsa({
+      bot_conversaciones: { select: conv(h(['user', 'Me llevo los 3'], ['assistant', M12])) },
+      lineas_whatsapp: { select: { data: CFG, error: null } },
+      bot_consultas_internas: { select: { data: [abiertaCaja()], error: null }, insert: { data: { id: 'NO-DEBERIA' }, error: null } },
+    });
+    const { s, wsp } = servicio(db);
+    s.claude = { messages: { create: claudeCon(texto('Lo de las cajas todavía está en manos de administración.')) } };
+    const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: '¿Y lo de las cajas?' });
+    expect(r.respuesta).toBeNull();
+    expect(insertsDe(db, 'bot_consultas_internas')).toHaveLength(0);
+    expect(wsp).not.toHaveBeenCalled();
+  });
+});
+
+describe('revisión (6/10/2026): las formas que se escapaban', () => {
+  const SACAR = [
+    'La añada del Judas todavía no la tengo, mañana te digo.', 'Eso te lo confirma administración.', 'No sé si vienen en caja.',
+    'No te puedo confirmar si vienen en estuche.', 'Todavía no lo tengo.', 'Te aviso.', 'Después te aviso.', 'Cuando me confirmen te aviso.', 'Le aviso.',
+    'Te confirmo mañana lo de la caja.', 'Le confirmo mañana.', 'Te confirmo a la tarde.', 'Te lo confirmo en el día.', 'Te lo van a confirmar en el local.',
+    'Te lo confirman en el local.', 'Mañana te digo.', 'Te comento en un rato.', 'Te contesto en un rato.', 'Cuando tenga la respuesta te escribo.',
+    'Le pregunto a administración y te digo.', 'Dejame averiguarlo.', 'Ya lo pasé a administración.', 'Le paso tu consulta al equipo.', 'Lo están revisando.',
+    'No sabría decirte.', 'Desconozco ese dato.', 'No dispongo de esa información.', 'No tengo datos de la caja.', 'Eso no lo tengo.', 'En breve te respondo.',
+    'Ya quedó anotado para el equipo.', 'Ya está anotada tu consulta.', 'Lo vemos con el local.', 'Te confirmo lo de la caja.',
+    'Lo de las cajas todavía está en manos de administración.', 'Administración ya lo tiene; apenas lo verifiquen te escriben.',
+  ];
+  it.each(SACAR.map((t) => [t]))('«%s» se reconoce (dispara la consulta silenciosa) y no sale', (t) => {
+    expect(mencionaConsulta(t)).toBe(true);
+    expect(sinMencionDeConsulta(t)).toBe('');
+  });
+  const QUEDAN = [
+    'Sí, te lo confirmo: $317.100.', 'De Raquis Monasterio no tengo ahora.', 'Te paso por acá los precios:', 'Ya te confirmé el pedido RET-ABC123.',
+    'Te aviso que los domingos no hay reparto.', 'Estoy viendo que pediste 2 Fernet.', 'Por ahora quedan anotados:', 'Te lo mandamos mañana entre las 14 y las 18.',
+    'Hoy te paso los precios:', 'Hoy te cuento que tenemos promo.', 'No sé si preferís retirar o que te lo enviemos.', 'La edad la verificamos al retirar.',
+    'Te confirmo lo de la caja: sí, vienen en estuche.', 'Sí, te confirmo que abrimos el domingo.', 'Cuando confirmes, te lo dejo listo.',
+  ];
+  it.each(QUEDAN.map((t) => [t]))('«%s» es un dato o una pregunta: se queda', (t) => {
+    expect(mencionaConsulta(t)).toBe(false);
+  });
+  it('«Abrimos hasta las 21. Aún no tengo novedades de la caja.» → queda el horario', () => {
+    expect(sinMencionDeConsulta('Abrimos hasta las 21. Aún no tengo novedades de la caja.')).toBe('Abrimos hasta las 21.');
+  });
+  it('en un turno con consulta, «Te aviso que los domingos no hay reparto.» es un dato y se queda; «Lo vemos con el local y te confirmamos.» se va entero', () => {
+    expect(sinPromesas('Te aviso que los domingos no hay reparto.')).toBe('Te aviso que los domingos no hay reparto.');
+    expect(sinPromesas('Lo vemos con el local y te confirmamos.')).toBe('');
+  });
+  it('diceQueNoSabe: lo que no sabe, no las promesas', () => {
+    expect(diceQueNoSabe('No tengo ese dato.')).toBe(true);
+    expect(diceQueNoSabe('No sé si vienen en caja.')).toBe(true);
+    expect(diceQueNoSabe('Lo reviso con administración y te confirmo por acá.')).toBe(false);
+  });
+
+  it('sin consulta en el turno, «Abrimos hasta las 21. Aún no tengo novedades de la caja.» → el horario al cliente y la caja a administración', async () => {
+    const db = baseFalsa({
+      bot_conversaciones: { select: conv(HOLA) },
+      lineas_whatsapp: { select: { data: CFG, error: null } },
+      bot_consultas_internas: { select: { data: [], error: null }, insert: { data: { id: 'q-caja' }, error: null } },
+    });
+    const { s, wsp } = servicio(db);
+    s.claude = { messages: { create: claudeCon(texto('Abrimos hasta las 21. Aún no tengo novedades de la caja.')) } };
+    const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: '¿Hasta qué hora abren? ¿Vienen en caja?' });
+    expect(r.respuesta).toBe('Abrimos hasta las 21.');
+    expect(insertsDe(db, 'bot_consultas_internas')).toHaveLength(1);
+    expect((wsp.mock.calls[0] as any[])[0].to).toBe(ADMIN);
+  });
+
+  it('nota_interna ya no autoriza «quedó anotada» y el aviso de stock no menciona un aviso del sistema que ya no existe', async () => {
+    const db = baseFalsa({ bot_notas_equipo: { select: { data: [], error: null } }, lineas_whatsapp: { select: { data: CFG, error: null } } });
+    const { s } = servicio(db);
+    const r = await s.ejecutarHerramienta({ type: 'tool_use', id: 'n', name: 'nota_interna', input: { nota: 'Pregunta por la añada del Judas' } }, TEL, 'pedidos', {});
+    const out = JSON.parse(String(r.content));
+    expect(out.aviso).not.toMatch(/ya podés decir que quedó anotada/);
+    expect(out.aviso).toMatch(/no le digas que quedó anotada/);
+    expect(fs.readFileSync(path.join(__dirname, 'bot.service.ts'), 'utf8')).not.toContain('el aviso lo agrega el sistema');
+  });
+});
+
+describe('revisión (6/10/2026): pagos, facturas e importes', () => {
+  it('«¿Me pueden hacer factura A a nombre de mi empresa?» + «No tengo ese dato.» → se consulta (no va al circuito de pagos) y no sale «Recibido.»', async () => {
+    const db = baseFalsa({
+      bot_conversaciones: { select: conv(HOLA) },
+      lineas_whatsapp: { select: { data: CFG, error: null } },
+      bot_consultas_internas: { select: { data: [], error: null }, insert: { data: { id: 'q-fact' }, error: null } },
+    });
+    const { s, wsp } = servicio(db);
+    s.identificarCliente = jest.fn(async () => ({ existe: true, nombre: 'Pablo' }));
+    s.claude = { messages: { create: claudeCon(texto('No tengo ese dato.')) } };
+    const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: '¿Me pueden hacer factura A a nombre de mi empresa?' });
+    expect(r.respuesta).toBeNull();
+    expect(insertsDe(db, 'bot_pagos_en_confirmacion')).toHaveLength(0);
+    expect(insertsDe(db, 'bot_consultas_internas')).toHaveLength(1);
+    expect((wsp.mock.calls as any[]).some((c) => /^Consulta de un cliente/.test(c[0].text))).toBe(true);
+    expect((wsp.mock.calls as any[]).some((c) => /Consulta de pago/.test(c[0].text))).toBe(false);
+  });
+
+  it('«Necesito la factura A de la compra de ayer» → consulta a administración por la factura (su respuesta le llega al cliente), no el circuito de pagos', async () => {
+    const db = baseFalsa({
+      bot_conversaciones: { select: conv(HOLA) },
+      lineas_whatsapp: { select: { data: CFG, error: null } },
+      bot_consultas_internas: { select: { data: [], error: null }, insert: { data: { id: 'q-fact' }, error: null } },
+    });
+    const { s } = servicio(db);
+    s.identificarCliente = jest.fn(async () => ({ existe: true, nombre: 'Pablo' }));
+    s.claude = { messages: { create: claudeCon(texto('Te la paso por acá en un rato.')) } };
+    const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Necesito la factura A de la compra de ayer' });
+    expect(r.respuesta).toBeNull();
+    expect(insertsDe(db, 'bot_pagos_en_confirmacion')).toHaveLength(0);
+    expect(insertsDe(db, 'bot_consultas_internas')).toHaveLength(1);
+    expect(insertsDe(db, 'bot_consultas_internas')[0].fila).toMatchObject({ area: 'administracion', tema: 'la factura' });
+  });
+
+  it('un pago en manos de administración no tapa lo que no sabía: «No tengo ese dato.» (la factura) se consulta aparte y al cliente «Recibido.»', async () => {
+    const db = baseFalsa({
+      bot_conversaciones: { select: conv(HOLA) },
+      lineas_whatsapp: { select: { data: CFG, error: null } },
+      alertas_internas: { select: { data: null, error: null } },
+      bot_consultas_internas: { select: { data: [], error: null }, insert: { data: { id: 'q-fact' }, error: null } },
+    });
+    const { s } = servicio(db);
+    s.identificarCliente = jest.fn(async () => ({ existe: true, nombre: 'Pablo' }));
+    s.claude = { messages: { create: claudeCon(conHerramientas(herramienta('d1', 'derivar_pago', { tipo: 'consulta', monto: 0, motivo: 'Pregunta si llegó la transferencia de ayer', de_quien: 'Pablo' })), texto('No tengo ese dato.')) } };
+    const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Les transferí ayer, ¿les llegó? ¿Y hacen factura A?' });
+    expect(r.respuesta).toBe(TEXTO.RECIBIDO);
+    expect(insertsDe(db, 'bot_pagos_en_confirmacion')).toHaveLength(1);
+    expect(insertsDe(db, 'bot_consultas_internas')).toHaveLength(1);
+  });
+
+  it('reclamo de plata con la derivación automática y un importe inventado → el monto no sale: «Lamento el inconveniente. Recibido.»', async () => {
+    const db = baseFalsa({
+      bot_conversaciones: { select: conv(HOLA) },
+      lineas_whatsapp: { select: { data: CFG, error: null } },
+      bot_consultas_internas: { select: { data: [], error: null }, insert: { data: { id: 'NO-DEBERIA' }, error: null } },
+    });
+    const { s } = servicio(db);
+    s.identificarCliente = jest.fn(async () => ({ existe: true, nombre: 'Pablo' }));
+    s.claude = { messages: { create: claudeCon(texto('La diferencia que te corresponde es de $5.000, la transferimos hoy al mismo CBU.')) } };
+    const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Me cobraron de más en la transferencia de ayer, quiero que me devuelvan la diferencia' });
+    expect(r.respuesta).toBe('Lamento el inconveniente. Recibido.');
+    expect(r.respuesta).not.toContain('5.000');
+    expect(insertsDe(db, 'bot_pagos_en_confirmacion')).toHaveLength(1);
+  });
+});
+
+describe('revisión (6/10/2026): el turno con consulta y lo demás del mensaje', () => {
+  it('primer mensaje, saludo y dato en el mismo renglón → el dato sale (antes «solo saludo» lo descartaba)', async () => {
+    const db = baseFalsa({
+      bot_conversaciones: { select: conv([]) },
+      lineas_whatsapp: { select: { data: CFG, error: null } },
+      bot_consultas_internas: { select: { data: [], error: null }, insert: { data: { id: 'q-est' }, error: null } },
+    });
+    const { s } = servicio(db);
+    s.claude = { messages: { create: claudeCon(
+      conHerramientas(herramienta('c1', 'consultar_interno', { area: 'administracion', consulta: '¿El Judas Malbec viene con estuche?', tema: 'el estuche', direccion: '' })),
+      texto('Buenas tardes, te damos la bienvenida a O.D.B. Sí, tenemos Judas Malbec para retirar hoy.'),
+    ) } };
+    const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: '¿Tienen Judas Malbec y viene con estuche?' });
+    expect(r.respuesta).toMatch(/te damos la bienvenida a O\.D\.B\. Sí, tenemos Judas Malbec para retirar hoy\.$/);
+    expect(esSoloSaludo('Buenas tardes, te damos la bienvenida a O.D.B.')).toBe(true);
+    expect(esSoloSaludo('Hola Pablo, el Judas Malbec lo tenemos para retirar hoy en Saint Thomas.')).toBe(false);
+    expect(esSoloSaludo('Hola, sí: tenemos Judas Malbec 750 cc disponible')).toBe(false);
+  });
+
+  it('la reescritura puede buscar el precio: «Me llevo 3 Fernet… ¿vienen en caja?» → el pedido con el precio de la herramienta, nada de la caja', async () => {
+    const db = baseFalsa({
+      bot_conversaciones: { select: conv(HOLA) },
+      lineas_whatsapp: { select: { data: CFG, error: null } },
+      bot_consultas_internas: { select: { data: [], error: null }, insert: { data: { id: 'q-caja' }, error: null } },
+    });
+    const { s } = servicio(db);
+    s.buscarProductos = jest.fn(async () => ({ items: [{ sku: 'F750', nombre: 'Fernet Branca 750 cc', precio: 20500 }] }));
+    const crear = claudeCon(
+      conHerramientas(herramienta('c1', 'consultar_interno', { area: 'administracion', consulta: '¿Vienen en caja para viajar?', tema: 'la caja para viajar', direccion: '' })),
+      texto('Lo de la caja te lo confirmo por acá.'),
+      conHerramientas(herramienta('b1', 'buscar_productos', { q: 'fernet' })),
+      texto('Te anoto 3 × Fernet Branca 750 cc a $20.500 c/u para retirar hoy.'),
+    );
+    s.claude = { messages: { create: crear } };
+    const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Me llevo 3 Fernet para retirar hoy. ¿Vienen en caja para viajar?' });
+    expect(r.respuesta).toContain('Te anoto 3 × Fernet Branca 750 cc a $20.500 c/u para retirar hoy.');
+    expect(r.respuesta).not.toMatch(/caja|confirm/i);
+    expect(s.buscarProductos).toHaveBeenCalled();
+  });
+
+  it('si la reescritura igual trae un total sin fuente, se saca esa oración y no el resto', async () => {
+    const db = baseFalsa({
+      bot_conversaciones: { select: conv(HOLA) },
+      lineas_whatsapp: { select: { data: CFG, error: null } },
+      bot_consultas_internas: { select: { data: [], error: null }, insert: { data: { id: 'q-caja' }, error: null } },
+    });
+    const { s } = servicio(db);
+    s.claude = { messages: { create: claudeCon(
+      conHerramientas(herramienta('c1', 'consultar_interno', { area: 'administracion', consulta: '¿Vienen en caja para viajar?', tema: 'la caja para viajar', direccion: '' })),
+      texto('Lo de la caja te lo confirmo por acá.'),
+      texto('Te anoto 3 × Fernet Branca 750 cc para retirar hoy. El total es $61.500.'),
+    ) } };
+    const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Me llevo 3 Fernet para retirar hoy. ¿Vienen en caja para viajar?' });
+    expect(r.respuesta).toContain('Te anoto 3 × Fernet Branca 750 cc para retirar hoy.');
+    expect(r.respuesta).not.toContain('61.500');
+  });
+
+  it('«confirmado» sin código en un turno con consulta → la frase de ahora y el aviso PEDIDO CONFIRMADO SIN CARGAR', async () => {
+    const resumen = '• Fernet Branca 750 cc — 1 × $20.500 c/u = $20.500\nTotal: $20.500\nRetiro en la sucursal Saint Thomas.\n¿Lo confirmo?';
+    const db = baseFalsa({
+      bot_conversaciones: { select: conv(h(['user', '1 fernet para retirar, es todo'], ['assistant', resumen])) },
+      lineas_whatsapp: { select: { data: CFG, error: null } },
+      bot_consultas_internas: { select: { data: [], error: null }, insert: { data: { id: 'q-caja' }, error: null } },
+    });
+    const { s } = servicio(db);
+    s.crearPedido = jest.fn().mockRejectedValue(new Error('la cotización venció'));
+    s.claude = { messages: { create: claudeCon(
+      conHerramientas(herramienta('p1', 'crear_pedido', {}), herramienta('c1', 'consultar_interno', { area: 'administracion', consulta: '¿Viene en caja?', tema: 'la caja', direccion: '' })),
+      texto('Listo, tu pedido quedó confirmado para retirar en la sucursal Saint Thomas.'),
+    ) } };
+    const r: any = await s.charla({ linea: 'pedidos', telefono: '5491155566690', mensaje: 'Sí, confirmalo. ¿Viene en caja?' });
+    expect(r.respuesta).toBe(TEXTO.PEDIDO_SIN_CARGAR);
+    expect(insertsDe(db, 'avisos_pedidos').filter((e: Escritura) => e.fila?.tipo === 'pedido_sin_cargar')).toHaveLength(1);
+  });
+
+  it('dos cosas distintas y la segunda con un tema que no sirve («el estacionamiento del local») → se consultan las dos', async () => {
+    const db = baseFalsa({
+      bot_conversaciones: { select: conv(HOLA) },
+      lineas_whatsapp: { select: { data: CFG, error: null } },
+      bot_consultas_internas: { select: { data: [], error: null }, insert: { data: { id: 'q' }, error: null } },
+    });
+    const { s } = servicio(db);
+    s.claude = { messages: { create: claudeCon(conHerramientas(
+      herramienta('c1', 'consultar_interno', { area: 'administracion', consulta: '¿Los vinos vienen en estuche individual?', tema: 'la caja para viajar', direccion: '' }),
+      herramienta('c2', 'consultar_interno', { area: 'administracion', consulta: '¿Tienen estacionamiento para clientes?', tema: 'el estacionamiento del local', direccion: '' }),
+    ), texto('')) } };
+    await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: '¿Vienen en caja? ¿Y tienen estacionamiento?' });
+    expect(insertsDe(db, 'bot_consultas_internas').map((e: Escritura) => e.fila.consulta)).toEqual(['¿Los vinos vienen en estuche individual?', '¿Tienen estacionamiento para clientes?']);
+  });
+
+  it('video con vista previa y consulta silenciosa → termina ahí: sin acuse de archivo, sin pausar la charla', async () => {
+    const db = baseFalsa({});
+    const { s, wsp } = servicio(db);
+    s.respuestaDeAdministracion = jest.fn(async () => null);
+    s.resolverContactoWaha = jest.fn(async () => null);
+    s.bajarMediaWaha = jest.fn(async () => ({ base64: 'AAAA', mime: 'video/mp4', nombre: 'v.mp4' }));
+    s.guardarAdjuntoPrivado = jest.fn(async () => 'https://x/v.mp4');
+    s.respondeModoHumano = jest.fn(async () => false);
+    s.charla = jest.fn(async () => ({ respuesta: null, silencio: true, motivo: 'consulta interna pendiente: al cliente no se le dice nada' }));
+    const r: any = await s.procesarEntrante({ from: `${TEL}@lid`, id: 'V1', type: 'video', hasMedia: true, body: '', _data: { jpegThumbnail: 'x'.repeat(200) } }, '5491122812200');
+    expect(s.charla).toHaveBeenCalledWith(expect.objectContaining({ vistaPreviaDeVideo: true }));
+    expect(r.contestado).toBe(false);
+    expect(r.motivo).toMatch(/^video: consulta interna pendiente/);
+    expect(wsp).not.toHaveBeenCalled();
+    expect(db.escrituras.some((e: Escritura) => e.tabla === 'bot_conversaciones' && e.fila?.bot_activo === false)).toBe(false);
+    expect(insertsDe(db, 'alertas_internas')).toHaveLength(0);
+  });
+});
+
+describe('revisión (6/10/2026): la respuesta del área', () => {
+  it('con la charla pausada no se guarda a escondidas: nota en el hilo, la consulta se cierra y el área se entera de que no le llegó', async () => {
+    const db = baseFalsa({
+      lineas_whatsapp: { select: { data: CFG, error: null } },
+      bot_consultas_internas: { select: { data: [abiertaCaja()], error: null } },
+      bot_pagos_en_confirmacion: { select: { data: [], error: null } },
+      bot_conversaciones: { select: { data: { mensajes: h(['user', 'quiero hablar con una persona']), bot_activo: false }, error: null } },
+    });
+    const { s, wsp } = servicio(db);
+    const r: any = await s.respuestaDeAdministracion(ADMIN, { body: 'Sí, vienen en estuche individual de cartón.', replyTo: { id: 'true_5491125213601@c.us_W-CAJA' } });
+    expect(r.contestado).toBe(false);
+    expect((wsp.mock.calls as any[]).some((c) => c[0].to === `${TEL}@lid`)).toBe(false);
+    expect((wsp.mock.calls as any[]).find((c) => c[0].to === ADMIN)?.[0].text).toMatch(/^No le llegó al cliente \(Pablo\): la charla la atiende una persona/);
+    expect(insertsDe(db, 'bot_notas_equipo')[0].fila.nota).toContain('Sobre la caja para viajar: Sí, vienen en estuche individual de cartón.');
+    const cierre = db.escrituras.find((e: Escritura) => e.tabla === 'bot_consultas_internas' && e.op === 'update' && e.fila.respondido_en);
+    expect(cierre.fila.ultimo_error).toMatch(/No se le mandó al cliente/);
+  });
+
+  it('el cron no manda sola una respuesta retenida de hace días: va como nota y aviso al área', async () => {
+    const vieja = abiertaCaja({ respuesta_admin: 'Sí, vienen en estuche.', gestion_version: 2, creado_en: new Date(Date.now() - 3 * 86400_000).toISOString(), aviso_recordatorio_en: new Date().toISOString() });
+    const db = baseFalsa({
+      lineas_whatsapp: { select: { data: CFG, error: null } },
+      bot_consultas_internas: { select: { data: [vieja], error: null } },
+      bot_conversaciones: { select: conv(HOLA) },
+    });
+    db.rpc.mockImplementation(async (fn: string) => (fn === 'tomar_entrega_consulta_bot' ? { data: [{ id: 'q-caja' }], error: null } : { data: null, error: null }));
+    const { s, wsp } = servicio(db);
+    await s.seguirConsultasPendientes();
+    expect((wsp.mock.calls as any[]).some((c) => c[0].to === `${TEL}@lid`)).toBe(false);
+    expect((wsp.mock.calls as any[]).find((c) => c[0].to === ADMIN)?.[0].text).toMatch(/^No le llegó al cliente/);
+    expect(insertsDe(db, 'bot_notas_equipo')).toHaveLength(1);
+  });
+
+  it('si la persona del área saludó, «Sobre …:» va después del saludo y no se le suma la bienvenida', async () => {
+    expect(respuestaDelAreaParaCliente('la caja para viajar', 'Hola Pablo! Te confirmo que sí, vienen con estuche.')).toBe('Hola Pablo! Sobre la caja para viajar: te confirmo que sí, vienen con estuche.');
+    expect(respuestaDelAreaParaCliente('la caja para viajar', 'Buenas tardes, sí vienen con estuche.')).toBe('Buenas tardes. Sobre la caja para viajar: sí vienen con estuche.');
+    const db = baseFalsa({
+      lineas_whatsapp: { select: { data: CFG, error: null } },
+      bot_consultas_internas: { select: { data: [abiertaCaja()], error: null } },
+      bot_pagos_en_confirmacion: { select: { data: [], error: null } },
+      bot_conversaciones: { select: conv(h(['user', 'Son para llevar a España, vienen en cajas individuales?'])) },
+    });
+    db.rpc.mockImplementation(async (fn: string) => (fn === 'tomar_entrega_consulta_bot' ? { data: [{ id: 'q-caja' }], error: null } : { data: null, error: null }));
+    const { s, wsp } = servicio(db);
+    await s.respuestaDeAdministracion(ADMIN, { body: 'Hola Pablo! Te confirmo que sí, vienen con estuche.', replyTo: { id: 'true_5491125213601@c.us_W-CAJA' } });
+    const alCliente = (wsp.mock.calls as any[]).map((c) => c[0]).find((p) => p.to === `${TEL}@lid`);
+    expect(alCliente.text).toBe('Hola Pablo! Sobre la caja para viajar: te confirmo que sí, vienen con estuche.');
+  });
+});
+
+describe('revisión (6/10/2026): textos fijos y lo que necesita main', () => {
+  it('el acuse del audio o del archivo no promete «te lo resuelvo ahora» (la charla queda pausada)', () => {
+    expect(TEXTO.AUDIO_SIN_TRANSCRIBIR).toBe('Recibí tu audio.');
+    expect(TEXTO.ARCHIVO_SIN_ABRIR).toBe('Recibí tu archivo.');
+  });
+  it('conAviso (la usa main para los datos de pago) mete el texto antes de las preguntas del final', () => {
+    expect(conAviso('Pedido RET-1 confirmado.\n¿A nombre de quién lo retiran?', 'Alias: outlet.de.bebidas')).toBe('Pedido RET-1 confirmado.\n\nAlias: outlet.de.bebidas\n\n¿A nombre de quién lo retiran?');
+    expect(conAviso('Pedido RET-1 confirmado.', 'Alias: x')).toBe('Pedido RET-1 confirmado.\n\nAlias: x');
   });
 });
