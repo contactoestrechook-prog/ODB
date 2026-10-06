@@ -3,6 +3,7 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
 import { Roles } from '../auth/decorators';
 import { reciboCobranzaPDF } from '../comun/documentos';
+import { aprobarCobranza, rechazarCobranza } from './cobranzas.circuito';
 
 // Pagos a cuenta con autorización del dueño. El circuito que pidió Juan Pablo:
 // el cliente de cuenta corriente deja un pago en la caja, el cajero lo TOMA
@@ -100,30 +101,12 @@ export class CobranzasController {
     }));
   }
 
-  // SOLO el dueño aplica el pago a la cuenta
+  // SOLO el dueño aplica el pago a la cuenta. La lógica (recibo con folio y
+  // aviso a quien lo cargó) es la misma que usa la bandeja de Aprobaciones.
   @Roles('dueno')
   @Post(':id/aprobar')
   async aprobar(@Param('id') id: string, @Body() dto: { respuesta?: string }, @Req() req: any) {
-    const { data, error } = await this.db.rpc('aprobar_cobranza', {
-      p_id: id, p_usuario: req.usuario?.sub ?? null, p_respuesta: dto?.respuesta ?? null,
-    });
-    if (error) throw new BadRequestException(error.message);
-
-    // El recibo se emite ACÁ, en el momento en que el pago realmente entra a la
-    // cuenta. Los saldos quedan guardados en el documento: si mañana el cliente
-    // pide el papel de nuevo, sale idéntico al del día que pagó, aunque desde
-    // entonces haya comprado diez veces más.
-    const saldoNuevo = Number((data as any)?.saldoNuevo ?? 0);
-    const monto = Number((data as any)?.monto ?? 0);
-    await this.db.rpc('emitir_documento', {
-      p_tipo: 'recibo_cobranza',
-      p_entidad: 'cobranzas_pendientes',
-      p_entidad_id: id,
-      p_usuario: req.usuario?.sub ?? null,
-      p_datos: { monto, saldo_anterior: saldoNuevo + monto, saldo_nuevo: saldoNuevo },
-    }).then(() => null, () => null);
-
-    return data;
+    return aprobarCobranza(this.db, id, req.usuario?.sub, dto?.respuesta ?? null);
   }
 
   // El recibo en papel: lo descarga el dueño para dárselo al cliente, o el
@@ -169,25 +152,8 @@ export class CobranzasController {
   @Roles('dueno')
   @Post(':id/rechazar')
   async rechazar(@Param('id') id: string, @Body() dto: { respuesta?: string }, @Req() req: any) {
-    const { data: c } = await this.db.from('cobranzas_pendientes').select('estado, cargada_por, monto, cliente:clientes(nombre, razon_social)').eq('id', id).maybeSingle();
-    if (!c) throw new BadRequestException('No existe esa cobranza');
-    if (c.estado !== 'pendiente') throw new BadRequestException(`Esa cobranza ya fue ${c.estado}`);
-    const { error } = await this.db
-      .from('cobranzas_pendientes')
-      .update({ estado: 'rechazada', resuelta_por: req.usuario?.sub ?? null, resuelta_en: new Date().toISOString(), respuesta: dto?.respuesta?.trim() || null })
-      .eq('id', id);
-    if (error) throw new BadRequestException(error.message);
-    // aviso a quien lo cargó: el pago NO se aplicó, que lo revise con el cliente
-    if (c.cargada_por) {
-      const nombre = (c as any).cliente?.razon_social || (c as any).cliente?.nombre || 'el cliente';
-      await this.db.from('alertas_internas').insert({
-        para_usuario: c.cargada_por,
-        tipo: 'cobranza',
-        titulo: `Cobro rechazado: ${nombre}`,
-        detalle: `El pago de $${Math.round(Number(c.monto)).toLocaleString('es-AR')} no se aplicó.${dto?.respuesta ? ` Motivo: ${dto.respuesta}` : ''}`,
-        referencia: { cobranzaId: id },
-      }).then(() => null, () => null);
-    }
+    // valida que siga pendiente y le avisa a quien lo cargó (mismo circuito que Aprobaciones)
+    await rechazarCobranza(this.db, id, req.usuario?.sub, dto?.respuesta ?? null);
     return { ok: true };
   }
 }

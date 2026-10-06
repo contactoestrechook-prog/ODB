@@ -1,0 +1,21 @@
+-- LIMPIEZA DE COLAS (Leandro, 6/10/2026: "Archivar todo"). APLICADA el 6/10 como
+-- migración limpieza_colas_2026_10_06. Queda acá para saber qué se hizo y cómo
+-- se deshace. Nada se borró:
+--   134 consultas internas sin respuesta → respondido_en (SIN respuesta)
+--   302 derivaciones sin abrir          → leida_en (la charla sigue como estaba)
+--   1.015 notas del bot sin atender      → atendida_en
+--   21 pagos sin confirmar               → confirmado_en (SIN confirmar; el cobro sigue en Cobros a ingresar)
+--   280 avisos de la campanita           → leida_en (registro en alertas_limpiezas)
+-- Quedaron vivas las de las últimas 2 horas (podían estar atendiéndose).
+-- Además: lineas_whatsapp.avisar_proveedores_a = null → los avisos del bot les
+-- llegan a los tres dueños, no solo a Jaqueline (decisión de Leandro).
+--
+-- Deshacer una tabla:
+--   update <tabla> set <columna> = null
+--    where id::text in (select clave from colas_archivadas where limpieza = 'colas-2026-10-06' and tabla = '<tabla>');
+-- (bot_conversaciones: la clave es linea || ':' || telefono)
+-- Deshacer la campanita:
+--   update alertas_internas set leida_en = null where id in (select alerta_id from alertas_limpiezas where limpieza = 'colas-2026-10-06');
+-- Volver los avisos a Jaqueline:
+--   update lineas_whatsapp l set avisar_proveedores_a = c.valor_anterior::uuid
+--     from colas_archivadas c where c.limpieza = 'colas-2026-10-06' and c.tabla = 'lineas_whatsapp' and c.clave = l.linea;

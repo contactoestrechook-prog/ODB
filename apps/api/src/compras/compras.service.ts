@@ -29,6 +29,13 @@ export type CrearOcDto = {
   observaciones?: string;
 };
 
+// La OP nace 'pendiente_aprobacion' (crear_orden_pago) y aprobar_op_panel solo
+// firma ese estado. La bandeja de Aprobaciones la buscaba como 'pendiente' y
+// no aparecía nunca.
+export const ESTADO_OP_A_FIRMAR = 'pendiente_aprobacion';
+// Órdenes contra las que todavía se puede recibir mercadería (recibir_orden_compra).
+export const ESTADOS_OC_RECIBIBLES = ['enviada', 'aprobada', 'recibida_parcial'];
+
 export type AprobarDto = { usuarioId?: string; pin?: string };
 export type RecibirDto = {
   // costo opcional por renglón = costo REAL de esta entrada (si falta, usa el de la OC)
@@ -107,11 +114,12 @@ export class ComprasService {
     const { data, error } = await this.db
       .from('ordenes_compra')
       .select(
-        `numero, id, estado, total, origen, creado_en, fecha_entrega, condicion_pago, vencimiento_pago, observaciones, descuento, aprobada_en, rechazo_motivo, proveedor_id,
+        `numero, id, estado, total, origen, creado_en, fecha_entrega, condicion_pago, vencimiento_pago, observaciones, descuento, aprobada_en, rechazo_motivo, rechazada_en, proveedor_id,
          proveedor:proveedores(razon_social),
          sucursal:sucursales(nombre),
          items:ordenes_compra_items(cantidad, cantidad_recibida, costo_unitario, producto:productos(sku, nombre)),
-         creador:usuarios!ordenes_compra_creada_por_fkey(nombre)`,
+         creador:usuarios!ordenes_compra_creada_por_fkey(nombre),
+         rechazador:usuarios!ordenes_compra_rechazada_por_fkey(nombre)`,
       )
       .order('numero', { ascending: false });
     if (error) throw new BadRequestException(error.message);
@@ -257,14 +265,18 @@ export class ComprasService {
     return { aprobada: true };
   }
 
+  // Rechazo: queda con SU autor (rechazada_por / rechazada_en). Antes se
+  // escribía en aprobada_por / aprobada_en y la trazabilidad mostraba la orden
+  // rechazada como aprobada por quien la había frenado. RPC atómica: estado,
+  // autor y auditoría juntos (rechazar_oc_panel valida que esté a aprobar).
   async rechazar(id: string, dto: { usuarioId?: string; motivo?: string }) {
-    const { data: oc } = await this.db.from('ordenes_compra').select('estado').eq('id', id).maybeSingle();
-    if (!oc) throw new BadRequestException('No existe la orden de compra');
-    if (!['pendiente_aprobacion', 'borrador'].includes(oc.estado)) throw new BadRequestException(`No se puede rechazar una orden "${oc.estado}"`);
-    const { error } = await this.db.from('ordenes_compra')
-      .update({ estado: 'cancelada', rechazo_motivo: dto.motivo || 'Rechazada por dirección', aprobada_por: dto.usuarioId ?? null, aprobada_en: new Date().toISOString() })
-      .eq('id', id);
-    if (error) throw new BadRequestException(error.message);
+    if (!dto.usuarioId) throw new BadRequestException('No pude identificar quién rechaza');
+    const { error } = await this.db.rpc('rechazar_oc_panel', {
+      p_oc: id,
+      p_usuario: dto.usuarioId,
+      p_motivo: dto.motivo?.trim() || null,
+    });
+    if (error) throw new BadRequestException(this.traducirError(error.message));
     invalidarAbastecimiento(); // deja de contar como "en camino"
     return { rechazada: true };
   }
@@ -1142,7 +1154,9 @@ export class ComprasService {
   // El depósito escanea lo que baja del camión: el remito digital nace con lo
   // REALMENTE ingresado (mueve stock, sin tocar precios) y queda en la bandeja
   // de administración esperando la factura para el cruce.
-  async recepcionPistola(dto: { proveedorId: string; sucursalId: string; numeroRemito?: string; items: { sku: string; cantidad: number; lote?: string; vencimiento?: string }[]; usuarioId?: string }) {
+  async recepcionPistola(dto: { proveedorId: string; sucursalId: string; ocId?: string; numeroRemito?: string; items: { sku: string; cantidad: number; lote?: string; vencimiento?: string }[]; usuarioId?: string }) {
+    // llegó por una orden que ya estaba enviada: se recibe CONTRA esa orden
+    if (dto.ocId) return this.recepcionContraOrden({ ...dto, ocId: dto.ocId });
     if (!dto.proveedorId || !dto.sucursalId) throw new BadRequestException('Faltan proveedor o sucursal');
     const resultado: any = await this.entradaDirecta({
       proveedorId: dto.proveedorId,
@@ -1156,6 +1170,72 @@ export class ComprasService {
       await this.db.from('remitos').update({ estado: 'pendiente_conciliar' }).eq('id', resultado.remito_id);
     }
     return { ok: true, remitoId: resultado?.remito_id, ocId: resultado?.oc_id };
+  }
+
+  // Órdenes de un proveedor que esperan mercadería, con lo que falta de cada
+  // renglón. La pantalla de recepción las ofrece para "recibir contra la orden".
+  async ordenesParaRecibir(proveedorId: string) {
+    if (!proveedorId) throw new BadRequestException('Falta el proveedor');
+    const { data, error } = await this.db
+      .from('ordenes_compra')
+      .select('id, numero, estado, creado_en, enviada_en, sucursal_id, sucursal:sucursales(nombre), items:ordenes_compra_items(cantidad, cantidad_recibida, producto:productos(sku, nombre))')
+      .eq('proveedor_id', proveedorId)
+      .in('estado', ESTADOS_OC_RECIBIBLES)
+      .order('creado_en', { ascending: false })
+      .limit(20);
+    if (error) throw new BadRequestException(error.message);
+    return ((data ?? []) as any[])
+      .map((o) => ({
+        id: o.id,
+        numero: o.numero,
+        estado: o.estado,
+        creadoEn: o.creado_en,
+        enviadaEn: o.enviada_en ?? null,
+        sucursalId: o.sucursal_id,
+        sucursal: o.sucursal?.nombre ?? null,
+        items: ((o.items ?? []) as any[]).map((i) => ({
+          sku: i.producto?.sku ?? null,
+          nombre: i.producto?.nombre ?? '—',
+          pedido: Number(i.cantidad),
+          recibido: Number(i.cantidad_recibida ?? 0),
+          falta: Math.max(Number(i.cantidad) - Number(i.cantidad_recibida ?? 0), 0),
+        })),
+      }))
+      .filter((o) => o.items.some((i) => i.falta > 0));
+  }
+
+  // Recepción con pistola CONTRA una orden: antes la pistola siempre creaba
+  // otra OC "directa" y la orden enviada al proveedor quedaba 'enviada' para
+  // siempre (el Analista la seguía contando "en camino" y el plazo real del
+  // proveedor nunca se aprendía). Ahora cierra la orden original (recibida o
+  // recibida en parte) y deja el remito para la conciliación con la factura.
+  // Lo que no está en la orden o vino de más NO entra: la RPC lo nombra y el
+  // depósito lo recibe aparte, sin orden.
+  async recepcionContraOrden(dto: { proveedorId: string; ocId: string; numeroRemito?: string; items: { sku: string; cantidad: number }[]; usuarioId?: string }) {
+    if (!dto.usuarioId) throw new BadRequestException('No pude identificar quién recibe');
+    if (!dto.proveedorId) throw new BadRequestException('Falta el proveedor');
+    if (!dto.items?.length) throw new BadRequestException('La recepción no tiene renglones');
+    const malos = dto.items.filter((i) => !i.sku || !Number.isFinite(Number(i.cantidad)) || Number(i.cantidad) <= 0);
+    if (malos.length) throw new BadRequestException('Hay renglones sin producto o con cantidad inválida');
+
+    // el mismo producto escaneado en dos renglones va junto
+    const porSku = new Map<string, number>();
+    for (const i of dto.items) porSku.set(String(i.sku), (porSku.get(String(i.sku)) ?? 0) + Number(i.cantidad));
+    const items = await Promise.all(
+      [...porSku.entries()].map(async ([sku, cantidad]) => ({ producto_id: await this.productoIdPorSku(sku), cantidad })),
+    );
+
+    const { data, error } = await this.db.rpc('recibir_oc_pistola', {
+      p_oc: dto.ocId,
+      p_proveedor: dto.proveedorId,
+      p_items: items,
+      p_numero_remito: dto.numeroRemito?.trim() || null,
+      p_usuario: dto.usuarioId,
+    });
+    if (error) throw new BadRequestException(this.traducirError(error.message));
+    invalidarAbastecimiento(); // la orden deja de estar "en camino"
+    const r = data as any;
+    return { ok: true, remitoId: r?.remito_id, ocId: r?.oc_id ?? dto.ocId, numeroOc: r?.numero ?? null, estadoOc: r?.estado ?? null };
   }
 
   // Lookup del escáner: código de barras → producto
@@ -1405,7 +1485,7 @@ export class ComprasService {
   async documentoOrdenPago(id: string, usuarioId?: string) {
     const { data: op } = await this.db
       .from('ordenes_pago')
-      .select('id, numero, total, medio_pago, vencimiento, observaciones, pagada_en, creada_por, aprobada_por, proveedor:proveedores(razon_social)')
+      .select('id, numero, total, estado, medio_pago, vencimiento, observaciones, pagada_en, creada_por, aprobada_por, rechazada_por, rechazada_en, rechazo_motivo, proveedor:proveedores(razon_social)')
       .eq('id', id)
       .maybeSingle();
     if (!op) throw new BadRequestException('No existe esa orden de pago');
@@ -1421,7 +1501,7 @@ export class ComprasService {
     });
     if (error) throw new BadRequestException(error.message);
 
-    const ids = [(op as any).creada_por, (op as any).aprobada_por].filter(Boolean);
+    const ids = [(op as any).creada_por, (op as any).aprobada_por, (op as any).rechazada_por].filter(Boolean);
     const { data: gente } = ids.length
       ? await this.db.from('usuarios').select('id, nombre').in('id', ids)
       : { data: [] as any[] };
@@ -1445,20 +1525,27 @@ export class ComprasService {
       total: Number((op as any).total ?? 0),
       pedidaPor: nombre((op as any).creada_por),
       aprobadaPor: nombre((op as any).aprobada_por),
+      estado: (op as any).estado ?? null,
+      rechazadaPor: nombre((op as any).rechazada_por),
+      rechazadaEn: (op as any).rechazada_en ?? null,
+      rechazoMotivo: (op as any).rechazo_motivo ?? null,
     });
   }
 
-  // 3) Rechazar OP — devuelve las facturas a pendiente.
+  // 3) Rechazar OP — solo si está pendiente de aprobación; devuelve las
+  // facturas a su estado real. Antes no validaba nada (se podía "rechazar" una
+  // OP ya aprobada), escribía el rechazo en aprobada_por (el PDF decía
+  // "Autorizada por" quien la había rechazado) y no dejaba auditoría. Ahora es
+  // una RPC atómica: estado, autor, facturas y auditoría juntos.
   async rechazarOrdenPago(id: string, dto: { usuarioId?: string; motivo?: string }) {
-    const { data: items } = await this.db.from('ordenes_pago_items').select('factura_id').eq('orden_pago_id', id);
-    await this.db.from('ordenes_pago').update({ estado: 'rechazada', rechazo_motivo: dto.motivo || 'Rechazada por dirección', aprobada_por: dto.usuarioId ?? null, aprobada_en: new Date().toISOString() }).eq('id', id);
-    const fids = (items ?? []).map((i: any) => i.factura_id);
-    if (fids.length) {
-      // vuelven a su estado real: 'parcial' si ya tenían pagos, si no 'pendiente'
-      await this.db.from('facturas_proveedor').update({ estado: 'pendiente' }).in('id', fids).eq('monto_pagado', 0);
-      await this.db.from('facturas_proveedor').update({ estado: 'parcial' }).in('id', fids).gt('monto_pagado', 0);
-    }
-    return { rechazada: true };
+    if (!dto.usuarioId) throw new BadRequestException('No pude identificar quién rechaza');
+    const { data, error } = await this.db.rpc('rechazar_op_panel', {
+      p_op: id,
+      p_usuario: dto.usuarioId,
+      p_motivo: dto.motivo?.trim() || null,
+    });
+    if (error) throw new BadRequestException(this.traducirError(error.message));
+    return { rechazada: true, facturasLiberadas: Number((data as any)?.facturas ?? 0) };
   }
 
   // 4) Pagar OP — sólo si está aprobada por el dueño.
@@ -1492,7 +1579,7 @@ export class ComprasService {
   async ordenesPago() {
     const { data, error } = await this.db
       .from('ordenes_pago')
-      .select('id, numero, total, medio_pago, estado, vencimiento, fecha_programada, observaciones, aprobada_en, pagada_en, creado_en, proveedor:proveedores(razon_social)')
+      .select('id, numero, total, medio_pago, estado, vencimiento, fecha_programada, observaciones, aprobada_en, pagada_en, creado_en, rechazo_motivo, rechazada_en, proveedor:proveedores(razon_social), rechazador:usuarios!ordenes_pago_rechazada_por_fkey(nombre)')
       .order('numero', { ascending: false })
       .limit(80);
     if (error) throw new BadRequestException(error.message);

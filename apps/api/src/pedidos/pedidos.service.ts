@@ -6,6 +6,7 @@ import { NotificarService } from '../mensajes/notificar.service';
 import { transicionValida } from './transiciones';
 import { verificarFirmaMercadoPago } from '../comun/firmas';
 import { fetchConTimeout } from '../comun/http';
+import { celularWhatsapp, enviarTextoWhatsapp } from '../comun/whatsapp';
 
 // Radio (m) para considerar que el cliente "está llegando" y asignarle estacionamiento.
 const GEOFENCE_M = 400;
@@ -38,6 +39,44 @@ export type PedidoYaPayload = {
 
 // Velocidad urbana promedio para estimar el ETA del repartidor (~22 km/h)
 const METROS_POR_MIN = 360;
+
+// Por dónde entró un pedido (6/10/2026). Los nuevos lo traen en pedidos.origen;
+// los viejos se deducen del código (PY-, TN-, WA-) como hacía la cola.
+export type OrigenPedido = 'bot' | 'web' | 'app' | 'panel' | 'pedidosya' | 'tiendanube';
+export function origenDe(p: { origen?: string | null; qr_retiro?: string | null; canal?: string | null }): string {
+  if (p.origen) return p.origen;
+  const qr = String(p.qr_retiro ?? '');
+  if (qr.startsWith('PY-')) return 'pedidosya';
+  if (qr.startsWith('TN-')) return 'tiendanube';
+  if (qr.startsWith('WA-') || p.canal === 'whatsapp') return 'panel';
+  return String(p.canal ?? 'otro');
+}
+
+const NOMBRE_ORIGEN: Record<string, string> = {
+  bot: 'el WhatsApp de la casa (bot)',
+  web: 'la tienda web',
+  app: 'la app',
+  panel: 'el panel (cargado a mano)',
+  pedidosya: 'PedidosYa',
+  tiendanube: 'Tiendanube',
+  pickup: 'la tienda web o la app',
+  domicilio: 'la tienda web o la app',
+};
+export const ETIQUETA_ESTADO: Record<string, string> = {
+  recibido: 'Recibido',
+  pagado: 'Pagado',
+  en_preparacion: 'Empezó a prepararlo',
+  listo: 'Lo marcó listo',
+  en_camino: 'Salió a entregarlo',
+  entregado: 'Entregado',
+  cancelado: 'Cancelado',
+};
+
+/** El WhatsApp que deja quien compra sin cuenta: 10 dígitos argentinos (con o sin 0, 15 o +54). null si no sirve. */
+export function telefonoDeContacto(crudo: unknown): string | null {
+  const d = celularWhatsapp(String(crudo ?? ''));
+  return /^549\d{10}$/.test(d) ? d : null;
+}
 
 @Injectable()
 export class PedidosService {
@@ -274,7 +313,7 @@ export class PedidosService {
   }
 
   // Confirmar: crea el pedido (canal whatsapp) con los ítems ya matcheados/editados.
-  async recibirWhatsApp(p: { items: { producto_id: string; cantidad: number }[]; nombre?: string; notas?: string; dni?: string }) {
+  async recibirWhatsApp(p: { items: { producto_id: string; cantidad: number }[]; nombre?: string; notas?: string; dni?: string }, usuarioId?: string) {
     if (!p.items?.length) throw new BadRequestException('No hay ítems para crear el pedido');
     const { data: suc } = await this.db.from('sucursales').select('id').order('nombre').limit(1).single();
     const pedidoId = await this.crear({
@@ -286,6 +325,14 @@ export class PedidosService {
       notas: [p.nombre, p.notas].filter(Boolean).join(' · ') || undefined,
       reservar: false, // pedido "a pedido": no bloquea por stock
     });
+    // quién lo cargó (6/10/2026): el alta del historial queda a su nombre y,
+    // como lo cargó, ya lo tiene tomado
+    const ahora = new Date().toISOString();
+    await this.db.from('pedidos').update({
+      origen: 'panel',
+      contacto_nombre: p.nombre?.trim() || null,
+      ...(usuarioId ? { creado_por: usuarioId, tomado_por: usuarioId, tomado_en: ahora, cambio_por: usuarioId, cambio_en: ahora } : {}),
+    }).eq('id', pedidoId).then(({ error }) => { if (error) this.log.warn(`no pude anotar quién cargó ${pedidoId}: ${error.message}`); });
     return { pedidoId, renglones: p.items.length };
   }
 
@@ -333,8 +380,16 @@ export class PedidosService {
     dni?: string;
     clienteId?: string;
     destino?: { direccion?: string; lat?: number; lng?: number };
+    origen?: string;
+    contacto?: { nombre?: string; telefono?: string };
   }) {
     if (!p.items?.length) throw new BadRequestException('El pedido está vacío');
+    // el WhatsApp de quien compra (6/10/2026): sin él no había a quién avisarle
+    // que el pedido estaba listo ni a quién llamar desde el local
+    const telefonoContacto = p.contacto?.telefono ? telefonoDeContacto(p.contacto.telefono) : null;
+    if (p.contacto?.telefono && !telefonoContacto) {
+      throw new BadRequestException('Revisá el WhatsApp: tiene que ser un celular con código de área (ej. 11 2345-6789)');
+    }
     // tope del canal self-checkout: es venta minorista, no mayorista — un
     // pedido "real" de un cliente no necesita cientos de renglones ni miles
     // de unidades de un mismo producto (endpoint público, sin login).
@@ -369,19 +424,25 @@ export class PedidosService {
       clienteId: p.clienteId,
       referencia,
     });
-    if (domicilio) {
-      await this.db.from('pedidos').update({
-        destino_direccion: p.destino!.direccion!.trim(),
-        destino_lat: p.destino?.lat ?? null,
-        destino_lng: p.destino?.lng ?? null,
-      }).eq('id', pedidoId);
-    }
+    // dirección, origen y contacto en una sola escritura, antes de que salga el
+    // aviso a administración (se arma 10 segundos después con el pedido completo)
+    const origen = p.origen === 'web' || p.origen === 'app' ? p.origen : 'app';
+    await this.db.from('pedidos').update({
+      origen,
+      contacto_nombre: p.contacto?.nombre?.trim().slice(0, 120) || null,
+      contacto_telefono: telefonoContacto,
+      ...(domicilio
+        ? { destino_direccion: p.destino!.direccion!.trim(), destino_lat: p.destino?.lat ?? null, destino_lng: p.destino?.lng ?? null }
+        : {}),
+    }).eq('id', pedidoId);
     return this.obtener(pedidoId);
   }
 
   // --- Delivery a domicilio ---
-  async asignarRepartidor(pedidoId: string, repartidorId: string) {
-    const { error } = await this.db.from('pedidos').update({ repartidor_id: repartidorId }).eq('id', pedidoId);
+  async asignarRepartidor(pedidoId: string, repartidorId: string, usuarioId?: string) {
+    const { error } = await this.db.from('pedidos')
+      .update({ repartidor_id: repartidorId, ...(usuarioId ? { cambio_por: usuarioId, cambio_en: new Date().toISOString() } : {}) })
+      .eq('id', pedidoId);
     if (error) throw new BadRequestException(error.message);
     return { ok: true };
   }
@@ -467,7 +528,10 @@ export class PedidosService {
       body: JSON.stringify({
         items,
         external_reference: pedidoId,
-        back_urls: { success: `${base}/pago/ok`, pending: `${base}/pago/ok`, failure: `${base}/pago/ok` },
+        // la web vuelve a su pantalla de seguimiento; la app, a la página de la API
+        back_urls: ped.origen === 'web'
+          ? Object.fromEntries(['success', 'pending', 'failure'].map((k) => [k, `${(process.env.WEB_PUBLIC_URL ?? 'https://odb-web-production.up.railway.app').replace(/\/$/, '')}/pedido/${pedidoId}`]))
+          : { success: `${base}/pago/ok`, pending: `${base}/pago/ok`, failure: `${base}/pago/ok` },
         auto_return: 'approved',
         notification_url: `${base}/mercadopago/webhook`,
         statement_descriptor: 'O.D.B',
@@ -585,7 +649,7 @@ export class PedidosService {
     const { data, error } = await this.db
       .from('pedidos')
       .select(
-        `id, canal, estado, total, qr_retiro, creado_en, listo_en, pagado_en,
+        `id, canal, estado, total, qr_retiro, creado_en, listo_en, pagado_en, en_camino_en, entregado_en, origen, destino_direccion,
          sucursal:sucursales(nombre, direccion),
          items:pedidos_items(cantidad, precio_unitario, producto:productos(sku, nombre))`,
       )
@@ -596,19 +660,28 @@ export class PedidosService {
   }
 
   // --- Cola del depósito ---
-  async cola() {
-    const { data, error } = await this.db
+  // Los nombres del equipo (id → nombre) para mostrar quién tomó o hizo cada cosa.
+  private async nombresDelEquipo(): Promise<Map<string, string>> {
+    const { data } = await this.db.from('usuarios').select('id, nombre');
+    return new Map(((data ?? []) as any[]).map((u) => [String(u.id), String(u.nombre ?? '')]));
+  }
+
+  async cola(estados: string[] = ['recibido', 'pagado', 'en_preparacion', 'listo'], desde?: string) {
+    let q = this.db
       .from('pedidos')
       .select(
-        `id, canal, estado, total, qr_retiro, creado_en, listo_en, pagado_en, notas, entrega_fecha, entrega_franja,
+        `id, canal, estado, total, qr_retiro, creado_en, listo_en, pagado_en, en_camino_en, entregado_en, notas, entrega_fecha, entrega_franja,
+         destino_direccion, origen, contacto_nombre, contacto_telefono, tomado_por, tomado_en, repartidor_id,
          sucursal:sucursales(nombre),
-         cliente:clientes(dni, tipo),
+         cliente:clientes(dni, tipo, nombre, telefono),
          items:pedidos_items(cantidad, precio_unitario, producto:productos(sku, nombre))`,
       )
-      .in('estado', ['recibido', 'pagado', 'en_preparacion', 'listo'])
-      .order('creado_en');
+      .in('estado', estados);
+    if (desde) q = q.gte('creado_en', desde);
+    const [{ data, error }, nombres] = await Promise.all([q.order('creado_en', { ascending: !desde }).limit(desde ? 200 : 1000), this.nombresDelEquipo()]);
     if (error) throw new BadRequestException(error.message);
-    const hoy = new Date().toISOString().slice(0, 10);
+    // "hoy" en Buenos Aires: después de las 21 h, toISOString() ya da mañana
+    const hoy = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }).format(new Date());
     return (data ?? []).map((p: any) => ({
       ...p,
       // programado = tiene fecha y NO es para hoy: depósito lo ve aparte y no
@@ -617,15 +690,71 @@ export class PedidosService {
       entregaEtiqueta: p.entrega_fecha
         ? `${p.entrega_fecha === hoy ? 'HOY' : new Date(`${p.entrega_fecha}T00:00:00`).toLocaleDateString('es-AR', { weekday: 'long', day: '2-digit', month: '2-digit' })}${p.entrega_franja ? ` · ${p.entrega_franja}` : ''}`
         : null,
-      origen: p.qr_retiro?.startsWith('PY-')
-        ? 'pedidosya'
-        : p.qr_retiro?.startsWith('WEB-')
-          ? 'web'
-          : p.qr_retiro?.startsWith('TN-')
-            ? 'tiendanube'
-            : p.canal,
+      origen: origenDe(p),
+      // quién es el cliente: la ficha, o lo que dejó al comprar sin cuenta
+      clienteNombre: p.cliente?.nombre?.trim() || p.contacto_nombre?.trim() || null,
+      clienteTelefono: p.cliente?.telefono || p.contacto_telefono || null,
+      tomadoPorNombre: p.tomado_por ? nombres.get(String(p.tomado_por)) ?? 'alguien del equipo' : null,
+      repartidorNombre: p.repartidor_id ? nombres.get(String(p.repartidor_id)) ?? null : null,
       minutos: Math.round((Date.now() - new Date(p.creado_en).getTime()) / 60000),
     }));
+  }
+
+  // Entregados y cancelados de los últimos días: el panel no tenía dónde verlos.
+  async terminados(dias = 7) {
+    const d = Math.min(Math.max(Math.round(Number(dias) || 7), 1), 60);
+    return this.cola(['entregado', 'cancelado', 'en_camino'], new Date(Date.now() - d * 86400_000).toISOString());
+  }
+
+  // "Lo tomo": queda el nombre de quien recibió el pedido. El primero gana; el
+  // segundo ve quién lo tiene (tomar_pedido es atómica en la base).
+  async tomar(pedidoId: string, usuarioId: string) {
+    if (!usuarioId) throw new BadRequestException('No sé quién sos: volvé a entrar al sistema');
+    const { data, error } = await this.db.rpc('tomar_pedido', { p_pedido: pedidoId, p_usuario: usuarioId });
+    if (error) throw new BadRequestException(error.message);
+    return data;
+  }
+
+  // Todo lo que pasó con un pedido, con quién y cuándo: el historial de la base
+  // (cada cambio de estado, quién lo tomó, el repartidor, el pago) más los
+  // WhatsApp a administración (cuándo salió, cuándo llegó, quién marcó "Ya avisé").
+  async historial(pedidoId: string) {
+    const [{ data: pasos, error }, { data: avisos }, nombres, { data: pedido }] = await Promise.all([
+      this.db.from('pedidos_historial').select('evento, estado_antes, estado_despues, usuario_id, detalle, creado_en').eq('pedido_id', pedidoId).order('creado_en'),
+      this.db.from('avisos_pedidos').select('tipo, estado, enviado_en, entregado_en, visto_en, visto_por, escalado_en, motivo').eq('pedido_id', pedidoId),
+      this.nombresDelEquipo(),
+      this.db.from('pedidos').select('origen, qr_retiro, canal').eq('id', pedidoId).maybeSingle(),
+    ]);
+    if (error) throw new BadRequestException(error.message);
+    const origenPedido = pedido ? origenDe(pedido as any) : null;
+    const quien = (id: unknown) => (id ? nombres.get(String(id)) ?? 'alguien del equipo' : null);
+    const lineas: { cuando: string; que: string; quien: string | null; tono: 'neutro' | 'ok' | 'atencion' | 'error' | 'info'; reconstruido?: boolean }[] = [];
+    for (const h of (pasos ?? []) as any[]) {
+      const reconstruido = !!h.detalle?.reconstruido;
+      if (h.evento === 'alta') {
+        lineas.push({ cuando: h.creado_en, que: `Entró por ${NOMBRE_ORIGEN[String(h.detalle?.origen ?? origenPedido ?? '')] ?? 'otro canal'}`, quien: quien(h.usuario_id), tono: 'info', reconstruido });
+      } else if (h.evento === 'tomado') {
+        lineas.push({ cuando: h.creado_en, que: 'Lo tomó', quien: quien(h.usuario_id), tono: 'ok' });
+      } else if (h.evento === 'estado') {
+        // el pago por Mercado Pago ya tiene su línea (evento 'pago')
+        if (h.estado_despues === 'pagado') continue;
+        lineas.push({ cuando: h.creado_en, que: ETIQUETA_ESTADO[String(h.estado_despues)] ?? String(h.estado_despues), quien: quien(h.usuario_id) ?? (h.estado_despues === 'pagado' ? 'Mercado Pago' : null), tono: h.estado_despues === 'cancelado' ? 'error' : h.estado_despues === 'entregado' ? 'ok' : 'neutro', reconstruido });
+      } else if (h.evento === 'repartidor') {
+        lineas.push({ cuando: h.creado_en, que: h.detalle?.repartidor ? `Repartidor: ${h.detalle.repartidor}` : 'Se sacó el repartidor', quien: quien(h.usuario_id), tono: 'neutro' });
+      } else if (h.evento === 'pago') {
+        lineas.push({ cuando: h.creado_en, que: 'Pagado por Mercado Pago', quien: null, tono: 'ok' });
+      }
+    }
+    const TIPO_AVISO: Record<string, string> = { pedido_nuevo: 'el pedido', pedido_cancelado: 'la cancelación', pedido_pagado: 'el pago', pedido_sin_tomar: 'el reclamo (nadie lo había tomado)' };
+    for (const a of (avisos ?? []) as any[]) {
+      const de = TIPO_AVISO[String(a.tipo)] ?? 'un aviso';
+      if (a.entregado_en) lineas.push({ cuando: a.entregado_en, que: `Le llegó a administración el WhatsApp con ${de}`, quien: null, tono: 'neutro' });
+      else if (a.enviado_en) lineas.push({ cuando: a.enviado_en, que: `Salió el WhatsApp a administración con ${de}`, quien: null, tono: 'neutro' });
+      if (a.escalado_en) lineas.push({ cuando: a.escalado_en, que: `El WhatsApp con ${de} no llegaba: se avisó a los dueños`, quien: null, tono: 'atencion' });
+      if (a.visto_en) lineas.push({ cuando: a.visto_en, que: 'Marcó «Ya avisé al local»', quien: quien(a.visto_por), tono: 'neutro' });
+    }
+    lineas.sort((x, y) => Date.parse(x.cuando) - Date.parse(y.cuando));
+    return lineas;
   }
 
   // --- Avance de estados (al entregar: libera reserva y registra la venta) ---
@@ -672,6 +801,10 @@ export class PedidosService {
         .from('pedidos')
         .update({
           estado,
+          // quién hizo este paso (queda en pedidos_historial por el trigger)
+          ...(usuarioId ? { cambio_por: usuarioId, cambio_en: ahora } : {}),
+          // preparar un pedido que nadie había tomado, lo toma
+          ...(usuarioId && !pedido.tomado_por && estado === 'en_preparacion' ? { tomado_por: usuarioId, tomado_en: ahora } : {}),
           // cronometraje + responsable de cada etapa (eficiencia por empleado)
           preparacion_en: estado === 'en_preparacion' ? ahora : pedido.preparacion_en,
           preparado_por: estado === 'en_preparacion' ? (usuarioId ?? pedido.preparado_por) : pedido.preparado_por,
@@ -697,14 +830,24 @@ export class PedidosService {
   // / entregado". Fire-and-forget: si n8n no responde, NO rompe el cambio de estado.
   private async notificarWhatsApp(pedido: any, estado: string) {
     const url = process.env.N8N_PEDIDOS_WEBHOOK_URL;
-    const telefono = pedido.cliente?.telefono;
+    // la ficha del cliente o el WhatsApp que dejó al comprar sin cuenta (6/10/2026)
+    const telefono = pedido.cliente?.telefono || pedido.contacto_telefono;
     // solo estados que le importan al cliente y solo si tenemos su teléfono
     const avisables: Record<string, string> = {
       listo: `Su pedido de O.D.B está listo para retirar.${pedido.qr_retiro ? ` Código: ${pedido.qr_retiro}.` : ''} Lo esperamos en la sucursal Saint Thomas (Castex 3601).`,
-      en_camino: 'Su pedido de O.D.B salió y está en camino a su domicilio.',
-      entregado: 'Su pedido de O.D.B fue entregado. Gracias por su compra.',
+      en_camino: `Su pedido de O.D.B${pedido.qr_retiro ? ` (${pedido.qr_retiro})` : ''} salió y está en camino a su domicilio.`,
+      entregado: `Su pedido de O.D.B${pedido.qr_retiro ? ` (${pedido.qr_retiro})` : ''} fue entregado. Gracias por su compra.`,
     };
-    if (!url || !telefono || !avisables[estado]) return;
+    if (!telefono || !avisables[estado]) return;
+    // Sale por el WhatsApp de la casa (WAHA), igual que los avisos a
+    // administración. n8n queda solo si WAHA no está configurado: antes el
+    // aviso dependía de un webhook que nadie verificaba.
+    if (process.env.WAHA_URL && process.env.WAHA_API_KEY) {
+      const r = await enviarTextoWhatsapp(this.db, String(telefono), avisables[estado], 'aviso-cliente-pedido');
+      if (!r.enviado) this.log.warn(`aviso al cliente del pedido ${pedido.id} (${estado}) no salió: ${r.motivo ?? 'sin motivo'}`);
+      return;
+    }
+    if (!url) return;
 
     const payload = {
       pedidoId: pedido.id,

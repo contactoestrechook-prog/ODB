@@ -1,10 +1,31 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
 import { agruparPorMedio, etiquetaMedio } from './cierre';
 
+const pesos = (n: unknown) => `$${Math.round(Math.abs(Number(n) || 0)).toLocaleString('es-AR')}`;
+
+// El aviso de un cierre con diferencia: "Caja 1 (Saint Thomas) cerró con un
+// faltante de $3.200". Suelto para poder probarlo sin base.
+export function textoDiferenciaCaja(d: {
+  caja: string; sucursal?: string | null; cerro: string; cajero?: string | null;
+  diferencia: number; esperado?: number | null; contado?: number | null;
+}): { titulo: string; detalle: string } {
+  const falta = d.diferencia < 0;
+  const donde = `${d.caja}${d.sucursal ? ` (${d.sucursal})` : ''}`;
+  const titulo = `${donde} cerró con ${falta ? 'un faltante' : 'un sobrante'} de ${pesos(d.diferencia)}`;
+  const partes = [
+    `Cerró ${d.cerro}${d.cajero && d.cajero !== d.cerro ? ` (la caja era de ${d.cajero})` : ''}.`,
+    d.esperado != null && d.contado != null ? `Tenía que haber ${pesos(d.esperado)} y se contaron ${pesos(d.contado)}.` : null,
+    'El detalle está en Cierres → Diferencias.',
+  ].filter(Boolean);
+  return { titulo, detalle: partes.join(' ') };
+}
+
 @Injectable()
 export class CajaService {
+  private readonly log = new Logger(CajaService.name);
+
   constructor(@Inject(SUPABASE) private readonly db: SupabaseClient) {}
 
   async cajas() {
@@ -50,7 +71,59 @@ export class CajaService {
       p_monto_cierre: montoCierre,
     });
     if (error) throw new BadRequestException(this.traducirError(error.message));
+
+    // Quién cerró: cerrar_sesion_caja no lo recibe y la columna quedaba vacía
+    // siempre (cuando cierra un supervisor, no es el cajero de la sesión). La
+    // caja ya está cerrada: si esto falla se registra, pero no se le tira un
+    // error al cajero (reintentar diría "la sesión ya está cerrada").
+    if (usuarioId) {
+      const { error: errCierre } = await this.db
+        .from('sesiones_caja')
+        .update({ cerrada_por: usuarioId })
+        .eq('id', sesionId)
+        .is('cerrada_por', null);
+      if (errCierre) this.log.warn(`no pude guardar quién cerró la sesión ${sesionId}: ${errCierre.message}`);
+    }
+
+    const diferencia = Number((data as any)?.diferencia ?? 0);
+    if (Number.isFinite(diferencia) && Math.round(diferencia * 100) !== 0) {
+      await this.avisarDiferencia(sesionId, data as any, usuarioId).catch((e) =>
+        this.log.warn(`aviso de diferencia de caja ${sesionId} no salió: ${e instanceof Error ? e.message : e}`),
+      );
+    }
     return data;
+  }
+
+  // Un cierre con faltante o sobrante va a la campanita de la dirección (sin
+  // destinatario: la ven dueños y gerentes) con la caja, el monto y quién cerró.
+  private async avisarDiferencia(sesionId: string, arqueo: { diferencia?: number; esperado?: number; contado?: number }, usuarioId?: string) {
+    const [{ data: sesion }, { data: quien }] = await Promise.all([
+      this.db
+        .from('sesiones_caja')
+        .select('caja:cajas(nombre, sucursal:sucursales(nombre)), usuario:usuarios!sesiones_caja_usuario_id_fkey(nombre)')
+        .eq('id', sesionId)
+        .maybeSingle(),
+      usuarioId ? this.db.from('usuarios').select('nombre').eq('id', usuarioId).maybeSingle() : Promise.resolve({ data: null as any }),
+    ]);
+    const s = (sesion ?? {}) as any;
+    const caja = s.caja?.nombre ?? 'Caja';
+    const sucursal = s.caja?.sucursal?.nombre;
+    const cerro = (quien as any)?.nombre ?? 'alguien sin identificar';
+    const cajero = s.usuario?.nombre;
+    const { titulo, detalle } = textoDiferenciaCaja({
+      caja, sucursal, cerro, cajero,
+      diferencia: Number(arqueo.diferencia ?? 0),
+      esperado: arqueo.esperado,
+      contado: arqueo.contado,
+    });
+    const { error } = await this.db.from('alertas_internas').insert({
+      para_usuario: null,
+      tipo: 'caja_diferencia',
+      titulo,
+      detalle,
+      referencia: { sesionId, diferencia: Number(arqueo.diferencia ?? 0), link: '/cierres' },
+    });
+    if (error) throw new Error(error.message);
   }
 
   // Ingresos/retiros de efectivo de la sesión (cambio, retiro a tesorería,
@@ -244,7 +317,8 @@ export class CajaService {
       .select(
         `id, monto_inicial, monto_cierre, diferencia, abierta_en, cerrada_en,
          caja:cajas(nombre, sucursal:sucursales(nombre)),
-         usuario:usuarios!sesiones_caja_usuario_id_fkey(nombre)`,
+         usuario:usuarios!sesiones_caja_usuario_id_fkey(nombre),
+         cerrador:usuarios!sesiones_caja_cerrada_por_fkey(nombre)`,
       )
       .order('abierta_en', { ascending: false })
       .limit(Math.min(limite, 100));

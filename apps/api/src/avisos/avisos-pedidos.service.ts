@@ -8,7 +8,7 @@ import { cuandoLegible } from '../comun/cuando';
 import {
   codigoDe, encabezado, esperaParaEscalar, esperaParaReintentar, esTelefonoDePrueba, idLargoDeMensaje, LLEGO,
   MINUTOS_SIN_LLEGAR, MINUTOS_SIN_SALIR, type PedidoParaAviso, type SinCargar, telefonoLegible, textoDeCancelado,
-  textoDelAviso, textoDePagado, textoDeSinCargar, type TipoAviso,
+  textoDelAviso, textoDePagado, textoDeSinCargar, textoDeSinTomar, type TipoAviso,
 } from './aviso-pedido';
 
 // TODA CONFIRMACIÓN DE PEDIDO SALE AL TELÉFONO DE ADMINISTRACIÓN (regla de
@@ -83,6 +83,9 @@ export class AvisosPedidosService {
       const { data: faltantes, error: e1 } = await this.db.rpc('encolar_avisos_faltantes');
       if (e1) this.log.error(`no pude revisar pedidos sin aviso: ${e1.message}`);
       else if (Number(faltantes) > 0) this.log.error(`${faltantes} aviso(s) de pedidos faltaban (¿falló el trigger?): encolados ahora`);
+      // el reclamo del pedido que nadie tomó a los 15 min de horario de atención (6/10/2026)
+      const { error: e2 } = await this.db.rpc('encolar_reclamos_sin_tomar');
+      if (e2) this.log.error(`no pude revisar pedidos sin tomar: ${e2.message}`);
       const sesion = await this.sesionWhatsapp();
       this.sinRespuesta = sesion ? 0 : this.sinRespuesta + 1;
       this.estadoWhatsapp = sesion ?? (this.sinRespuesta >= 2 ? 'SIN RESPUESTA' : this.estadoWhatsapp);
@@ -135,7 +138,7 @@ export class AvisosPedidosService {
 
   async pedidoParaAviso(pedidoId: string): Promise<(PedidoParaAviso & { telefonoDelBot: string | null }) | null> {
     const { data: p, error } = await this.db.from('pedidos')
-      .select('id, qr_retiro, canal, estado, total, creado_en, notas, destino_direccion, entrega_fecha, entrega_franja, pagado_en, cliente_id, pedidos_items(cantidad, precio_unitario, productos(nombre))')
+      .select('id, qr_retiro, canal, estado, total, creado_en, notas, destino_direccion, entrega_fecha, entrega_franja, pagado_en, cliente_id, origen, contacto_nombre, contacto_telefono, tomado_por, pedidos_items(cantidad, precio_unitario, productos(nombre))')
       .eq('id', pedidoId).maybeSingle();
     if (error || !p) return null;
     const [cli, bot] = await Promise.all([
@@ -148,6 +151,9 @@ export class AvisosPedidosService {
       total: Number((p as any).total), creado_en: (p as any).creado_en, notas: (p as any).notas,
       destino_direccion: (p as any).destino_direccion, entrega_fecha: (p as any).entrega_fecha, entrega_franja: (p as any).entrega_franja,
       pagado_en: (p as any).pagado_en, cliente, telefonoReal: await this.telefonoReal(cliente?.telefono), esDelBot: !!(bot as any)?.data,
+      contacto: (p as any).contacto_nombre || (p as any).contacto_telefono ? { nombre: (p as any).contacto_nombre ?? null, telefono: (p as any).contacto_telefono ?? null } : null,
+      origen: (p as any).origen ?? null,
+      tomadoPor: (p as any).tomado_por ?? null,
       telefonoDelBot: (bot as any)?.data?.telefono ?? null,
       // confirmado por el comprobante de una transferencia: el aviso no dice «Se cobra al retirar» (5/10/2026)
       confirmadoPorComprobante: /^comprobante:/i.test(String((bot as any)?.data?.confirmacion ?? '')) ? String((bot as any).data.confirmacion) : null,
@@ -228,7 +234,14 @@ export class AvisosPedidosService {
             return;
           }
         }
-        texto = a.tipo === 'pedido_cancelado' ? textoDeCancelado(pedido) : textoDePagado(pedido);
+        if (a.tipo === 'pedido_sin_tomar') {
+          // entre que se encoló y que sale, alguien lo pudo haber tomado, cancelado o entregado
+          if (pedido.tomadoPor) return this.omitir(a, 'el pedido se tomó antes del reclamo');
+          if (!['recibido', 'pagado'].includes(pedido.estado)) return this.omitir(a, `el pedido ya está ${pedido.estado}`);
+          texto = textoDeSinTomar(pedido);
+        } else {
+          texto = a.tipo === 'pedido_cancelado' ? textoDeCancelado(pedido) : textoDePagado(pedido);
+        }
       }
     }
 

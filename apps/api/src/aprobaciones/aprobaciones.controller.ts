@@ -2,7 +2,8 @@ import { BadRequestException, Body, Controller, Get, Inject, Param, Post, Req } 
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
 import { Roles } from '../auth/decorators';
-import { ComprasService } from '../compras/compras.service';
+import { ComprasService, ESTADO_OP_A_FIRMAR } from '../compras/compras.service';
+import { aprobarCobranza, rechazarCobranza } from '../clientes/cobranzas.circuito';
 import { MesaComprasService } from '../compras/mesa-compras.service';
 import { VentasService } from '../ventas/ventas.service';
 import { PedidosProveedorService } from '../pedidos-proveedor/pedidos-proveedor.service';
@@ -63,7 +64,9 @@ export class AprobacionesController {
         .eq('estado', 'pendiente_aprobacion').order('creado_en'),
       this.db.from('ordenes_pago')
         .select('id, numero, total, medio_pago, vencimiento, creado_en, proveedor:proveedores(razon_social), autor:usuarios!ordenes_pago_creada_por_fkey(nombre)')
-        .eq('estado', 'pendiente').order('creado_en'),
+        // nacen 'pendiente_aprobacion' (crear_orden_pago): con 'pendiente' no
+        // aparecía ninguna, ni en la bandeja ni en el contador del menú
+        .eq('estado', ESTADO_OP_A_FIRMAR).order('creado_en'),
       this.db.from('cobranzas_pendientes')
         .select('id, monto, medio, nota, cargada_en, cliente:clientes(nombre, razon_social), cargador:usuarios!cobranzas_pendientes_cargada_por_fkey(nombre)')
         .eq('estado', 'pendiente').order('cargada_en'),
@@ -183,28 +186,13 @@ export class AprobacionesController {
           ? await this.compras.aprobarOrdenPago(id, { usuarioId })
           : await this.compras.rechazarOrdenPago(id, { usuarioId, motivo });
         break;
-      case 'cobranza': {
-        if (aprueba) {
-          const { data, error } = await this.db.rpc('aprobar_cobranza', { p_id: id, p_usuario: usuarioId ?? null, p_respuesta: motivo ?? null });
-          if (error) throw new BadRequestException(error.message);
-          resultado = data;
-          // el recibo nace con el pago aplicado, no cuando alguien se acuerda
-          const saldoNuevo = Number((data as any)?.saldoNuevo ?? 0);
-          const monto = Number((data as any)?.monto ?? 0);
-          await this.db.rpc('emitir_documento', {
-            p_tipo: 'recibo_cobranza', p_entidad: 'cobranzas_pendientes', p_entidad_id: id,
-            p_usuario: usuarioId ?? null,
-            p_datos: { monto, saldo_anterior: saldoNuevo + monto, saldo_nuevo: saldoNuevo },
-          }).then(() => null, () => null);
-        } else {
-          const { error } = await this.db.from('cobranzas_pendientes')
-            .update({ estado: 'rechazada', resuelta_por: usuarioId ?? null, resuelta_en: new Date().toISOString(), respuesta: motivo ?? null })
-            .eq('id', id).eq('estado', 'pendiente');
-          if (error) throw new BadRequestException(error.message);
-          resultado = { rechazada: true };
-        }
+      case 'cobranza':
+        // mismo circuito que Clientes → Cobros a ingresar: recibo con folio y
+        // aviso a quien lo cargó, aprobado o rechazado
+        resultado = aprueba
+          ? await aprobarCobranza(this.db, id, usuarioId, motivo ?? null)
+          : await rechazarCobranza(this.db, id, usuarioId, motivo ?? null);
         break;
-      }
       case 'cambio_factura':
         resultado = await this.compras.resolverCambioFactura(id, aprueba ? 'aprobar' : 'rechazar', motivo, usuarioId);
         break;
