@@ -9,7 +9,7 @@
 
 import { cuandoLegible } from '../comun/cuando';
 
-export type TipoAviso = 'pedido_nuevo' | 'pedido_cancelado' | 'pedido_pagado' | 'pedido_sin_cargar';
+export type TipoAviso = 'pedido_nuevo' | 'pedido_cancelado' | 'pedido_pagado' | 'pedido_sin_cargar' | 'pedido_sin_tomar';
 
 export type PedidoParaAviso = {
   id: string;
@@ -24,6 +24,12 @@ export type PedidoParaAviso = {
   entrega_franja: string | null;
   pagado_en: string | null;
   cliente: { nombre: string | null; telefono: string | null } | null;
+  /** lo que dejó quien compró sin cuenta en la web o la app (6/10/2026) */
+  contacto?: { nombre: string | null; telefono: string | null } | null;
+  /** por dónde entró, si el pedido lo tiene grabado (web/app se distinguen recién desde el 6/10/2026) */
+  origen?: string | null;
+  /** quién lo tomó en el panel ("Lo tomo") */
+  tomadoPor?: string | null;
   /** el teléfono real del cliente (si el chat es un @lid de WhatsApp) */
   telefonoReal: string | null;
   items: { nombre: string; cantidad: number; precio_unitario: number }[];
@@ -52,13 +58,15 @@ export function cuandoFue(iso: string, ahora = new Date()): string {
 }
 
 /** Por dónde entró: el canal solo no alcanza ('web' es PedidosYa o Tiendanube). */
-export function origenDelPedido(p: Pick<PedidoParaAviso, 'qr_retiro' | 'canal' | 'esDelBot'>): 'bot' | 'pedidosya' | 'tiendanube' | 'panel' | 'web' | 'otro' {
+export function origenDelPedido(p: Pick<PedidoParaAviso, 'qr_retiro' | 'canal' | 'esDelBot'> & { origen?: string | null }): 'bot' | 'pedidosya' | 'tiendanube' | 'panel' | 'web' | 'app' | 'tienda' | 'otro' {
   const qr = String(p.qr_retiro ?? '');
   if (p.esDelBot) return 'bot';
+  if (p.origen === 'web' || p.origen === 'app') return p.origen;
   if (qr.startsWith('PY-')) return 'pedidosya';
   if (qr.startsWith('TN-')) return 'tiendanube';
   if (qr.startsWith('WA-') || p.canal === 'whatsapp') return 'panel';
-  if (/^(PICKUP|DOM)-/.test(qr)) return 'web';
+  // sin origen grabado (pedidos de antes del 6/10/2026) no se sabe si fue la web o la app
+  if (/^(PICKUP|DOM)-/.test(qr)) return 'tienda';
   return 'otro';
 }
 
@@ -67,7 +75,9 @@ const NOMBRE_ORIGEN: Record<ReturnType<typeof origenDelPedido>, string> = {
   pedidosya: 'PedidosYa',
   tiendanube: 'Tiendanube',
   panel: 'el panel (pedido por WhatsApp cargado a mano)',
-  web: 'la tienda web o la app',
+  web: 'la tienda web',
+  app: 'la app',
+  tienda: 'la tienda web o la app',
   otro: 'otro canal',
 };
 
@@ -88,7 +98,13 @@ const TITULOS: Record<TipoAviso, string> = {
   pedido_cancelado: 'PEDIDO CANCELADO',
   pedido_pagado: 'PEDIDO PAGADO',
   pedido_sin_cargar: 'PEDIDO CONFIRMADO SIN CARGAR',
+  pedido_sin_tomar: 'PEDIDO SIN TOMAR',
 };
+
+/** El link al pedido en el panel: tocándolo desde el WhatsApp se abre con el botón "Lo tomo". */
+export function linkDelPedido(id: string): string {
+  return `${(process.env.ADMIN_URL ?? 'https://odb-admin-production.up.railway.app').replace(/\/$/, '')}/pedidos?pedido=${id}`;
+}
 
 /** El encabezado fijo con que empieza cada aviso ("PEDIDO NUEVO · PICKUP-…"). */
 export function encabezado(tipo: TipoAviso, referencia: string): string {
@@ -96,8 +112,8 @@ export function encabezado(tipo: TipoAviso, referencia: string): string {
 }
 
 function clienteDe(p: PedidoParaAviso): string {
-  const tel = telefonoLegible(p.telefonoReal) ?? telefonoLegible(p.cliente?.telefono);
-  return [p.cliente?.nombre?.trim(), tel].filter(Boolean).join(' · ');
+  const tel = telefonoLegible(p.telefonoReal) ?? telefonoLegible(p.cliente?.telefono) ?? telefonoLegible(p.contacto?.telefono);
+  return [p.cliente?.nombre?.trim() || p.contacto?.nombre?.trim(), tel].filter(Boolean).join(' · ');
 }
 
 function renglonesDe(p: PedidoParaAviso): string[] {
@@ -147,6 +163,22 @@ export function textoDelAviso(p: PedidoParaAviso, opciones: { conRenglones: bool
     ...(opciones.conRenglones ? renglonesDe(p) : []),
     `Total: $${pesos(p.total)}. ${cobroDe(p)}`,
     p.notas?.trim() ? `Notas: ${p.notas.trim().slice(0, 300)}` : null,
+    // quién lo recibe queda anotado (6/10/2026): el link abre el pedido en el panel con "Lo tomo"
+    `Tomalo acá: ${linkDelPedido(p.id)}`,
+  ].filter(Boolean).join('\n');
+}
+
+/** A los 15 minutos (de horario de atención) nadie lo tomó: UN reclamo, nunca más. */
+export function textoDeSinTomar(p: PedidoParaAviso, ahora = new Date()): string {
+  const minutos = Math.max(1, Math.round((ahora.getTime() - Date.parse(p.creado_en)) / 60000));
+  const hace = minutos < 90 ? `hace ${minutos} min` : `hace ${Math.round(minutos / 60)} h`;
+  return [
+    encabezado('pedido_sin_tomar', codigoDe(p)),
+    `Entró ${cuandoFue(p.creado_en, ahora)} (${hace}) y nadie lo tomó todavía.`,
+    entregaDe(p),
+    clienteDe(p) ? `Cliente: ${clienteDe(p)}` : null,
+    `Total: $${pesos(p.total)}.`,
+    `Tomalo acá: ${linkDelPedido(p.id)}`,
   ].filter(Boolean).join('\n');
 }
 

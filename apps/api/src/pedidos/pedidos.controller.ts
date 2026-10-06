@@ -99,8 +99,8 @@ export class PedidosController {
 
   @Roles('cajero', 'gerente', 'dueno', 'deposito')
   @Post('pedidos/whatsapp')
-  crearWa(@Body() b: { items: any[]; nombre?: string; notas?: string; dni?: string }) {
-    return this.pedidos.recibirWhatsApp(b);
+  crearWa(@Body() b: { items: any[]; nombre?: string; notas?: string; dni?: string }, @Req() req: any) {
+    return this.pedidos.recibirWhatsApp(b, req.usuario?.sub);
   }
 
   @Roles('deposito', 'cajero', 'gerente', 'dueno')
@@ -109,13 +109,34 @@ export class PedidosController {
     return this.pedidos.cola();
   }
 
+  // Entregados, en camino y cancelados de los últimos días (6/10/2026: el panel no tenía historial).
+  @Roles('deposito', 'cajero', 'gerente', 'dueno')
+  @Get('pedidos/terminados')
+  terminados(@Query('dias') dias?: string) {
+    return this.pedidos.terminados(Number(dias) || 7);
+  }
+
+  // "Lo tomo": queda quién recibió el pedido (6/10/2026).
+  @Roles('deposito', 'cajero', 'gerente', 'dueno')
+  @Post('pedidos/:id/tomar')
+  tomar(@Param('id') id: string, @Req() req: any) {
+    return this.pedidos.tomar(id, req.usuario?.sub);
+  }
+
+  // Quién hizo cada cosa con el pedido, y cuándo.
+  @Roles('deposito', 'cajero', 'gerente', 'dueno')
+  @Get('pedidos/:id/historial')
+  historial(@Param('id') id: string) {
+    return this.pedidos.historial(id);
+  }
+
   // --- Endpoints públicos para la app del cliente ---
   // Guest checkout intencional (sin login obligatorio); el límite por IP es
   // la defensa contra bombardeo automatizado que reserve stock ajeno.
   @Publico()
   @Post('app/pedidos')
   async crearDesdeApp(
-    @Body() body: { tipo?: 'pickup' | 'domicilio'; items: { sku: string; cantidad: number }[]; dni?: string; destino?: any },
+    @Body() body: { tipo?: 'pickup' | 'domicilio'; items: { sku: string; cantidad: number }[]; dni?: string; destino?: any; origen?: string; contacto?: { nombre?: string; telefono?: string } },
     @Headers('authorization') auth?: string,
     @Req() req?: any,
   ) {
@@ -186,8 +207,8 @@ export class PedidosController {
   // --- Delivery a domicilio ---
   @Roles('deposito', 'cajero', 'gerente', 'dueno')
   @Patch('pedidos/:id/repartidor')
-  asignarRepartidor(@Param('id') id: string, @Body() body: { repartidorId: string }) {
-    return this.pedidos.asignarRepartidor(id, body.repartidorId);
+  asignarRepartidor(@Param('id') id: string, @Body() body: { repartidorId: string }, @Req() req: any) {
+    return this.pedidos.asignarRepartidor(id, body.repartidorId, req.usuario?.sub);
   }
 
   @Roles('repartidor', 'gerente', 'dueno')

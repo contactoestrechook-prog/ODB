@@ -2,6 +2,29 @@ import { BadRequestException, Controller, Get, Inject, Param, Query } from '@nes
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
 import { Roles } from '../auth/decorators';
+import { leyendaRechazo } from '../comun/rechazo';
+
+// El paso "Aprobación" de la cadena. Un rechazo tiene su propio autor
+// (rechazada_por / rechazada_en): antes se guardaba en las columnas de la
+// aprobación, así que la orden rechazada se veía APROBADA por quien la frenó.
+// Además se preguntaba por un estado 'rechazada' que las OC no tienen (al
+// rechazarlas quedan 'cancelada').
+export function pasoAprobacion(
+  oc: { estado?: string | null; aprobada_por?: string | null; aprobada_en?: string | null; rechazada_por?: string | null; rechazada_en?: string | null; rechazo_motivo?: string | null },
+  nombre: (id?: string | null) => string | null,
+) {
+  if (oc.rechazada_en || oc.estado === 'cancelada') {
+    const quien = nombre(oc.rechazada_por);
+    return {
+      paso: 'Aprobación', estado: 'rechazado', cuando: oc.rechazada_en ?? null, quien,
+      detalle: leyendaRechazo(quien === '—' ? null : quien, oc.rechazada_en, oc.rechazo_motivo),
+    };
+  }
+  if (oc.aprobada_en) {
+    return { paso: 'Aprobación', estado: 'hecho', cuando: oc.aprobada_en, quien: nombre(oc.aprobada_por), detalle: 'Autorizada para enviar al proveedor' };
+  }
+  return { paso: 'Aprobación', estado: 'falta', cuando: null, quien: null, detalle: 'Nadie la aprobó todavía' };
+}
 
 // Trazabilidad de administración, al estilo de una ISO 9001: para cada compra
 // tiene que poder reconstruirse la cadena entera —quién pidió, quién aprobó,
@@ -49,7 +72,7 @@ export class DocumentosController {
   async cadena(@Param('ocId') ocId: string) {
     const { data: oc } = await this.db
       .from('ordenes_compra')
-      .select('id, numero, estado, total, creado_en, creada_por, aprobada_por, aprobada_en, rechazo_motivo, proveedor:proveedores(razon_social)')
+      .select('id, numero, estado, total, creado_en, creada_por, aprobada_por, aprobada_en, rechazada_por, rechazada_en, rechazo_motivo, proveedor:proveedores(razon_social)')
       .eq('id', ocId)
       .maybeSingle();
     if (!oc) throw new BadRequestException('No existe esa orden');
@@ -71,7 +94,7 @@ export class DocumentosController {
       : { data: [] as any[] };
 
     const nombre = await this.quien([
-      (oc as any).creada_por, (oc as any).aprobada_por,
+      (oc as any).creada_por, (oc as any).aprobada_por, (oc as any).rechazada_por,
       ...((remitos ?? []) as any[]).flatMap((r) => [r.confirmado_por, r.conciliado_por]),
       ...((facturas ?? []) as any[]).map((f) => f.cargada_por),
       ...((pagos ?? []) as any[]).map((p) => p.usuario_id),
@@ -86,13 +109,7 @@ export class DocumentosController {
       paso: 'Orden de compra', estado: 'hecho', cuando: (oc as any).creado_en,
       quien: nombre((oc as any).creada_por), detalle: `Orden interna #${(oc as any).numero}`, folio: folioDe(ocId),
     });
-    pasos.push(
-      (oc as any).aprobada_en
-        ? { paso: 'Aprobación', estado: 'hecho', cuando: (oc as any).aprobada_en, quien: nombre((oc as any).aprobada_por), detalle: 'Autorizada para enviar al proveedor' }
-        : (oc as any).estado === 'rechazada'
-          ? { paso: 'Aprobación', estado: 'rechazado', cuando: null, quien: nombre((oc as any).aprobada_por), detalle: (oc as any).rechazo_motivo ?? 'Rechazada' }
-          : { paso: 'Aprobación', estado: 'falta', cuando: null, quien: null, detalle: 'Nadie la aprobó todavía' },
-    );
+    pasos.push(pasoAprobacion(oc as any, nombre));
 
     if (!(remitos ?? []).length) {
       pasos.push({ paso: 'Recepción', estado: 'falta', cuando: null, quien: null, detalle: 'No se recibió mercadería contra esta orden' });

@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
 import { CajaService } from '../caja/caja.service';
@@ -22,6 +22,8 @@ export type TransferenciaDto = {
 
 @Injectable()
 export class StockService {
+  private readonly log = new Logger(StockService.name);
+
   constructor(
     @Inject(SUPABASE) private readonly db: SupabaseClient,
     private readonly caja: CajaService,
@@ -37,7 +39,8 @@ export class StockService {
     let query = this.db
       .from('movimientos_stock')
       .select(
-        'id, tipo, cantidad, motivo, referencia_tipo, creado_en, producto:productos!inner(sku, nombre), sucursal:sucursales(nombre)',
+        // usuario: quién hizo el movimiento (el dato estaba en usuario_id y no se traía)
+        'id, tipo, cantidad, motivo, referencia_tipo, creado_en, producto:productos!inner(sku, nombre), sucursal:sucursales(nombre), usuario:usuarios!movimientos_stock_usuario_id_fkey(nombre)',
       )
       .order('id', { ascending: false })
       .limit(Math.min(filtros.limite ?? 50, 300));
@@ -209,6 +212,7 @@ export class StockService {
       p_motivo: motivo ?? null,
     });
     if (error) throw new BadRequestException(this.traducirError(error.message));
+    await this.cerrarAvisosTransferencia(id);
     return data;
   }
 
@@ -275,6 +279,7 @@ export class StockService {
     const { data, error } = await this.db
       .from('transferencias')
       .select(`id, estado, creado_en,
+        creador:usuarios!transferencias_creada_por_fkey(nombre),
         origen:sucursales!transferencias_sucursal_origen_id_fkey(nombre),
         destino:sucursales!transferencias_sucursal_destino_id_fkey(nombre),
         items:transferencias_items(cantidad, producto:productos(sku, nombre))`)
@@ -285,28 +290,81 @@ export class StockService {
     return data ?? [];
   }
 
-  async crearTransferencia(dto: TransferenciaDto) {
+  // Quién manda y quién recibe sale del token: antes la API no le pasaba el
+  // usuario a la base y creada_por / recibida_por quedaban vacíos siempre.
+  async crearTransferencia(dto: TransferenciaDto, usuarioId?: string) {
+    const porSku = new Map<string, number>();
     const items = await Promise.all(
-      (dto.items ?? []).map(async (i) => ({
-        producto_id: await this.productoIdPorSku(i.sku),
-        cantidad: Number(i.cantidad),
-      })),
+      (dto.items ?? []).map(async (i) => {
+        porSku.set(i.sku, (porSku.get(i.sku) ?? 0) + Number(i.cantidad));
+        return { producto_id: await this.productoIdPorSku(i.sku), cantidad: Number(i.cantidad) };
+      }),
     );
     const { data, error } = await this.db.rpc('crear_transferencia', {
       p_origen: dto.origenId,
       p_destino: dto.destinoId,
       p_items: items,
+      p_usuario_id: usuarioId ?? null,
     });
     if (error) throw new BadRequestException(this.traducirError(error.message));
+    // la transferencia ya salió: si el aviso falla, no se deshace nada
+    await this.avisarTransferencia(String(data), dto, porSku, usuarioId).catch((e) =>
+      this.log.warn(`aviso de transferencia ${data} no salió: ${e instanceof Error ? e.message : e}`),
+    );
     return { transferenciaId: data };
   }
 
-  async recibirTransferencia(id: string) {
+  // Campanita a los que la tienen que recibir: depósito y gerencia ACTIVOS de
+  // la sucursal destino (menos el que la mandó). Si en esa sucursal no hay
+  // nadie así cargado, el aviso va sin destinatario y lo ven los dueños.
+  private async avisarTransferencia(transferenciaId: string, dto: TransferenciaDto, porSku: Map<string, number>, usuarioId?: string) {
+    const skus = [...porSku.keys()];
+    const [{ data: sucs }, { data: gente }, { data: prods }, { data: quien }] = await Promise.all([
+      this.db.from('sucursales').select('id, nombre').in('id', [dto.origenId, dto.destinoId]),
+      this.db.from('usuarios').select('id').eq('activo', true).eq('sucursal_id', dto.destinoId).in('rol', ['deposito', 'gerente']),
+      skus.length ? this.db.from('productos').select('sku, nombre').in('sku', skus) : Promise.resolve({ data: [] as any[] }),
+      usuarioId ? this.db.from('usuarios').select('nombre').eq('id', usuarioId).maybeSingle() : Promise.resolve({ data: null as any }),
+    ]);
+    const suc = (id: string) => ((sucs ?? []) as any[]).find((s) => s.id === id)?.nombre ?? 'otra sucursal';
+    const nombreDe = new Map<string, string>(((prods ?? []) as any[]).map((p) => [p.sku, p.nombre]));
+    const renglones = skus.map((sku) => `${nombreDe.get(sku) ?? sku} × ${Number(porSku.get(sku)).toLocaleString('es-AR')}`);
+    const lista = renglones.slice(0, 4).join(', ') + (renglones.length > 4 ? ` y ${renglones.length - 4} más` : '');
+    const origen = suc(dto.origenId);
+    const destino = suc(dto.destinoId);
+    const aviso = {
+      tipo: 'transferencia',
+      titulo: `Mercadería en camino a ${destino}`,
+      detalle: `${origen} → ${destino}: ${lista}.${(quien as any)?.nombre ? ` La mandó ${(quien as any).nombre}.` : ''} Cuando llegue, contala y recibila en Stock.`,
+      referencia: { transferenciaId, link: '/stock' },
+    };
+    const destinatarios = ((gente ?? []) as any[]).map((u) => u.id as string).filter((id) => id !== usuarioId);
+    const filas: (typeof aviso & { para_usuario: string | null })[] = destinatarios.length
+      ? destinatarios.map((para_usuario) => ({ ...aviso, para_usuario }))
+      : [{ ...aviso, para_usuario: null }];
+    const { error } = await this.db.from('alertas_internas').insert(filas);
+    if (error) throw new Error(error.message);
+  }
+
+  async recibirTransferencia(id: string, usuarioId?: string) {
     const { error } = await this.db.rpc('recibir_transferencia', {
       p_transferencia: id,
+      p_usuario_id: usuarioId ?? null,
     });
     if (error) throw new BadRequestException(this.traducirError(error.message));
+    await this.cerrarAvisosTransferencia(id);
     return { recibida: true };
+  }
+
+  // Recibida o anulada, el "Mercadería en camino" ya no tiene nada que hacer
+  // en la campanita de nadie: se cierra solo. Si falla, queda abierto (nada más).
+  private async cerrarAvisosTransferencia(id: string) {
+    const { error } = await this.db
+      .from('alertas_internas')
+      .update({ leida_en: new Date().toISOString() })
+      .eq('tipo', 'transferencia')
+      .filter('referencia->>transferenciaId', 'eq', id)
+      .is('leida_en', null);
+    if (error) this.log.warn(`no pude cerrar los avisos de la transferencia ${id}: ${error.message}`);
   }
 
   private async productoIdPorSku(sku: string): Promise<string> {

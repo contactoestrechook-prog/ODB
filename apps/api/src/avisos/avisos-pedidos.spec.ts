@@ -1,7 +1,7 @@
 import { AvisosPedidosService } from './avisos-pedidos.service';
 import {
   cuandoFue, encabezado, esperaParaEscalar, esperaParaReintentar, idLargoDeMensaje, origenDelPedido, telefonoLegible,
-  textoDeCancelado, textoDelAviso, textoDePagado, textoDeSinCargar, type PedidoParaAviso,
+  textoDeCancelado, textoDelAviso, textoDePagado, textoDeSinCargar, textoDeSinTomar, type PedidoParaAviso,
 } from './aviso-pedido';
 
 // REGLA (Leandro, 3/10/2026): toda confirmación de pedido sale al teléfono de
@@ -28,6 +28,7 @@ describe('los textos de los avisos', () => {
       '• 3 × Combo Picada Box — $133.500',
       'Total: $133.500. Se cobra al retirar.',
       'Notas: Retira mañana antes del mediodía en sucursal Saint Thomas.',
+      'Tomalo acá: https://odb-admin-production.up.railway.app/pedidos?pedido=500e1312-3e5c-43f2-84e1-6ff5987c7acc',
     ].join('\n'));
     // con la tarjeta, los productos van en la imagen
     expect(textoDelAviso(PEDIDO, { conRenglones: false, ahora: AHORA })).not.toMatch(/Combo Picada Box/);
@@ -81,7 +82,26 @@ describe('los textos de los avisos', () => {
     expect([1, 2, 3, 6, 20].map(esperaParaReintentar)).toEqual([15_000, 30_000, 60_000, 480_000, 600_000]);
     expect([0, 1, 2, 10].map(esperaParaEscalar)).toEqual([60_000, 120_000, 240_000, 1_800_000]);
     expect(origenDelPedido({ qr_retiro: 'WA-1', canal: 'whatsapp', esDelBot: false })).toBe('panel');
+    // desde el 6/10/2026 la web y la app se distinguen; los de antes, no
+    expect(origenDelPedido({ qr_retiro: 'PICKUP-AB12CD', canal: 'pickup', esDelBot: false, origen: 'app' })).toBe('app');
+    expect(origenDelPedido({ qr_retiro: 'PICKUP-AB12CD', canal: 'pickup', esDelBot: false, origen: 'web' })).toBe('web');
+    expect(origenDelPedido({ qr_retiro: 'PICKUP-AB12CD', canal: 'pickup', esDelBot: false })).toBe('tienda');
     expect(encabezado('pedido_nuevo', 'X')).toBe('PEDIDO NUEVO · X');
+  });
+});
+
+describe('el circuito entre áreas (6/10/2026)', () => {
+  it('el reclamo del pedido sin tomar: un solo mensaje con el link para tomarlo', () => {
+    const t = textoDeSinTomar(PEDIDO, new Date(Date.parse(PEDIDO.creado_en) + 16 * 60_000));
+    expect(t.split('\n')[0]).toBe('PEDIDO SIN TOMAR · PICKUP-5F2451C6C111');
+    expect(t).toMatch(/\(hace 16 min\) y nadie lo tomó todavía\./);
+    expect(t).toMatch(/Tomalo acá: https:\/\/odb-admin-production\.up\.railway\.app\/pedidos\?pedido=500e1312/);
+    expect(encabezado('pedido_sin_tomar', 'X')).toBe('PEDIDO SIN TOMAR · X');
+  });
+  it('quien compra sin cuenta deja su WhatsApp: el aviso lo muestra en vez de "sin datos"', () => {
+    const t = textoDelAviso({ ...PEDIDO, esDelBot: false, origen: 'web', cliente: null, telefonoReal: null, contacto: { nombre: 'Ana', telefono: '5491123456789' } }, { conRenglones: false, ahora: AHORA });
+    expect(t).toMatch(/Entró por la tienda web/);
+    expect(t).toMatch(/Cliente: Ana · \+54 9 11 2345-6789/);
   });
 });
 

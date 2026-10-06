@@ -231,7 +231,16 @@ export class ComprasController {
   @Roles('deposito', 'comprador', 'gerente', 'dueno')
   @Post('compras/recepcion')
   recepcionPistola(@Body() dto: any, @Req() req: any) {
-    return this.compras.recepcionPistola({ ...dto, usuarioId: dto.usuarioId ?? req.usuario?.sub });
+    // quién recibe sale del token (el cuerpo solo por compatibilidad)
+    return this.compras.recepcionPistola({ ...dto, usuarioId: req.usuario?.sub ?? dto.usuarioId });
+  }
+
+  // Órdenes del proveedor que esperan mercadería: la recepción ofrece
+  // "recibir contra la orden #N" en vez de crear otra orden directa
+  @Roles('deposito', 'comprador', 'gerente', 'dueno')
+  @Get('compras/recepcion/ordenes')
+  ordenesParaRecibir(@Query('proveedorId') proveedorId: string) {
+    return this.compras.ordenesParaRecibir(proveedorId);
   }
 
   @Roles('deposito', 'comprador', 'gerente', 'dueno')
@@ -397,8 +406,9 @@ export class ComprasController {
 
   @Roles('deposito', 'gerente', 'dueno')
   @Post('compras/ordenes/:id/recibir')
-  recibir(@Param('id') id: string, @Body() dto: RecibirDto) {
-    return this.compras.recibir(id, dto);
+  recibir(@Param('id') id: string, @Body() dto: RecibirDto, @Req() req: any) {
+    // el movimiento de stock queda a nombre de quien recibió (token, no cuerpo)
+    return this.compras.recibir(id, { ...dto, usuarioId: req.usuario?.sub ?? dto.usuarioId });
   }
 
   // Llegó mercadería sin OC previa (compra directa / remito del reparto):

@@ -136,14 +136,16 @@ export class StockController {
 
   @Roles('deposito', 'gerente', 'dueno')
   @Post('transferencias')
-  transferencia(@Body() dto: TransferenciaDto) {
-    return this.stock.crearTransferencia(dto);
+  transferencia(@Body() dto: TransferenciaDto, @Req() req: any) {
+    // quién la manda sale del token (antes quedaba sin autor)
+    return this.stock.crearTransferencia(dto, req.usuario?.sub);
   }
 
   @Roles('deposito', 'gerente', 'dueno')
   @Post('transferencias/:id/recibir')
-  recibir(@Param('id') id: string) {
-    return this.stock.recibirTransferencia(id);
+  recibir(@Param('id') id: string, @Req() req: any) {
+    // quién la recibe sale del token; la fecha la pone la base (recibida_en)
+    return this.stock.recibirTransferencia(id, req.usuario?.sub);
   }
 
   // anular devuelve el stock al origen: solo gerencia (queda auditado)

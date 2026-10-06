@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { decompress } from 'wawoff2';
 import { LOGO_ODB_BLANCO } from './logo-odb';
 import { ROJO, NEGRO, CREMA, GRIS, LINEA as BORDE } from './cartel-pedido';
+import { leyendaRechazo } from './rechazo';
 
 // Documentos formales de administración: orden de compra (la que se le manda
 // al proveedor) y recibo de cobranza (el que se le da al cliente).
@@ -722,7 +723,38 @@ export type DatosOrdenPago = {
   pedidaPor?: string | null;
   aprobadaPor?: string | null;
   pagadaEn?: string | null;
+  /** estado de la OP en la base: 'pendiente_aprobacion' | 'aprobada' | 'pagada' | 'rechazada' */
+  estado?: string | null;
+  rechazadaPor?: string | null;
+  rechazadaEn?: string | null;
+  rechazoMotivo?: string | null;
 };
+
+// Lo que el papel dice del estado y de la firma. Antes decía "autorizada, sin
+// pagar" aunque nadie la hubiera firmado, y una OP rechazada salía "Autorizada
+// por" el que la rechazó (el rechazo se guardaba en las columnas de la firma).
+export function textosOrdenPago(d: DatosOrdenPago): { estado: string; firma: string; nota: string; rechazada: boolean } {
+  const rechazada = d.estado === 'rechazada' || !!d.rechazadaEn;
+  if (rechazada) {
+    return {
+      rechazada,
+      estado: 'rechazada',
+      firma: leyendaRechazo(d.rechazadaPor, d.rechazadaEn, d.rechazoMotivo),
+      nota: 'Orden rechazada: no habilita ningún pago.',
+    };
+  }
+  const estado = d.pagadaEn
+    ? `pagada ${fecha(d.pagadaEn)}`
+    : d.aprobadaPor || d.estado === 'aprobada'
+      ? 'autorizada, sin pagar'
+      : 'pendiente de autorización';
+  return {
+    rechazada,
+    estado,
+    firma: `Autorizada por: ${d.aprobadaPor ?? 'SIN AUTORIZAR'}`,
+    nota: 'Sin la firma de autorización esta orden no habilita ningún pago.',
+  };
+}
 
 // Orden de pago: la autorización escrita para que salga plata de la casa.
 // Es el documento que más importa de los cuatro, porque es el único que mueve
@@ -742,12 +774,13 @@ export function ordenDePagoPDF(d: DatosOrdenPago): Promise<Buffer> {
     doc.fillColor(HUMO).font('Helvetica-Bold').fontSize(8).text('PAGAR A', L, y, { characterSpacing: 1.5 });
     doc.fillColor(TINTA).font('Helvetica-Bold').fontSize(13).text(d.proveedor ?? 'Varios proveedores', L, y + 13);
 
+    const textos = textosOrdenPago(d);
     const dchaX = 340;
     const cond: [string, string][] = [
       ['Orden interna', `#${d.numeroInterno}`],
       ['Medio de pago', d.medioPago ?? 'transferencia'],
       ['Vencimiento', d.vencimiento ? fecha(d.vencimiento) : '—'],
-      ['Estado', d.pagadaEn ? `pagada ${fecha(d.pagadaEn)}` : 'autorizada, sin pagar'],
+      ['Estado', textos.estado],
     ];
     let yc = y;
     for (const [k, v] of cond) {
@@ -792,9 +825,11 @@ export function ordenDePagoPDF(d: DatosOrdenPago): Promise<Buffer> {
     y += 10;
     doc.fillColor(HUMO).font('Helvetica').fontSize(8.5)
       .text(`Solicitada por: ${d.pedidaPor ?? '—'}`, L, y, { width: 240 });
-    doc.text(`Autorizada por: ${d.aprobadaPor ?? 'SIN AUTORIZAR'}`, L + 250, y, { width: R - L - 250, align: 'right' });
+    // rechazada: en rojo y con quién, cuándo y por qué
+    if (textos.rechazada) doc.fillColor(ROJO).font('Helvetica-Bold');
+    doc.text(textos.firma, L + 250, y, { width: R - L - 250, align: 'right' });
 
-    pie(doc, 760, 'Sin la firma de autorización esta orden no habilita ningún pago.');
+    pie(doc, 760, textos.nota);
     doc.end();
   });
 }
