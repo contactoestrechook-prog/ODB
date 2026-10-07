@@ -190,28 +190,83 @@ export class ComprasService {
         `numero, id, estado, total, origen, creado_en, fecha_entrega, condicion_pago, vencimiento_pago, observaciones, descuento, rechazo_motivo,
          proveedor:proveedores(razon_social, cuit),
          sucursal:sucursales(nombre),
-         items:ordenes_compra_items(cantidad, cantidad_recibida, costo_unitario, producto:productos(sku, nombre)),
+         items:ordenes_compra_items(producto_id, cantidad, cantidad_recibida, costo_unitario, producto:productos(sku, nombre)),
          creador:usuarios!ordenes_compra_creada_por_fkey(nombre)`,
       )
       .eq('id', id)
       .single();
     if (error) throw new BadRequestException(error.message);
 
-    const [{ data: remitos }, { data: facturas }] = await Promise.all([
+    const [{ data: remitos }, { data: facturas }, { data: correcciones }] = await Promise.all([
       this.db.from('remitos').select('id, numero, estado, creado_en').eq('oc_id', id).order('creado_en'),
       this.db
         .from('facturas_proveedor')
         .select('id, numero, letra, tipo, monto, monto_pagado, estado, fecha_emision, creado_en, archivo_url, cargador:usuarios!facturas_proveedor_cargada_por_fkey(nombre)')
         .eq('oc_id', id)
         .order('creado_en'),
+      // las correcciones del ingreso (7/10/2026): quién, cuándo, por qué y qué cambió
+      this.db
+        .from('auditoria')
+        .select('creado_en, datos_antes, datos_despues, usuario:usuarios(nombre)')
+        .eq('entidad', 'orden_compra').eq('entidad_id', id).eq('accion', 'correccion_ingreso')
+        .order('creado_en'),
     ]);
 
     return {
       ...oc,
       remitos: remitos ?? [],
+      correcciones: ((correcciones ?? []) as any[]).map((c) => ({
+        en: c.creado_en,
+        por: c.usuario?.nombre ?? null,
+        motivo: c.datos_despues?.motivo ?? '',
+        antes: c.datos_antes?.renglones ?? [],
+        despues: c.datos_despues?.renglones ?? [],
+      })),
       // tieneComprobante: si hay imagen o PDF escaneado para mirar
       facturas: ((facturas ?? []) as any[]).map(({ archivo_url, ...f }) => ({ ...f, tieneComprobante: !!archivo_url })),
     };
+  }
+
+  // CORREGIR UN INGRESO YA RECIBIDO (7/10/2026, OC #58: el Merlot entró como
+  // 2 cajas a $114.000 en vez de 12 botellas a $19.000). La base hace todo en
+  // una transacción (corregir_ingreso_oc): ajuste de stock con el motivo,
+  // renglón y total de la orden, costo y precio si este ingreso era el último
+  // costo, y auditoría. Acá solo se calcula el precio de venta nuevo con la
+  // misma regla que al recibir: el % de este proveedor para ese producto, si no
+  // el del rubro, si no el de siempre.
+  async corregirIngreso(id: string, dto: { renglones: { productoId: string; cantidad: number; costo: number }[]; motivo: string; usuarioId?: string }) {
+    const motivo = String(dto.motivo ?? '').trim();
+    if (!motivo) throw new BadRequestException('Contá por qué se corrige (por ejemplo: «eran 2 cajas de 6»)');
+    const renglones = (dto.renglones ?? []).filter((r) => r?.productoId);
+    if (!renglones.length) throw new BadRequestException('No hay renglones para corregir');
+
+    const { data: oc, error } = await this.db.from('ordenes_compra').select('proveedor_id').eq('id', id).single();
+    if (error || !oc) throw new BadRequestException('Orden no encontrada');
+    const ids = renglones.map((r) => r.productoId);
+    const [{ data: prods }, { data: margenes }] = await Promise.all([
+      this.db.from('productos').select('id, categoria:categorias(margen_sugerido)').in('id', ids),
+      this.db.from('proveedor_productos').select('producto_id, margen_pct').eq('proveedor_id', (oc as any).proveedor_id).in('producto_id', ids),
+    ]);
+    const rubro = new Map(((prods ?? []) as any[]).map((p) => [p.id, p.categoria?.margen_sugerido ?? null]));
+    const delProveedor = new Map(((margenes ?? []) as any[]).map((m) => [m.producto_id, m.margen_pct ?? null]));
+
+    const { data, error: e2 } = await this.db.rpc('corregir_ingreso_oc', {
+      p_oc: id,
+      p_renglones: renglones.map((r) => {
+        const costo = Number(r.costo);
+        return {
+          producto_id: r.productoId,
+          cantidad: Number(r.cantidad),
+          costo,
+          precio: precioDesdeCosto(costo, margenAplicable(delProveedor.get(r.productoId), rubro.get(r.productoId))),
+        };
+      }),
+      p_motivo: motivo,
+      p_usuario: dto.usuarioId ?? null,
+    });
+    if (e2) throw new BadRequestException(e2.message);
+    invalidarAbastecimiento(); // cambió el stock y quizás el costo: el Analista vuelve a leer
+    return data;
   }
 
   async crear(dto: CrearOcDto) {
