@@ -73,7 +73,7 @@ function totalDelRenglon(i: Renglon): number {
  * cantidad no tiene que dividir el precio: quedaba "12 × $69 = $9.639" y la
  * nota decía "se paga $803 de los $69 de lista" (6/10/2026).
  */
-function precioYaEsDeLaUnidad(i: Renglon, n: number): boolean {
+export function precioYaEsDeLaUnidad(i: Renglon, n: number): boolean {
   const importe = i.importe == null || i.importe === '' ? 0 : Math.abs(num(i.importe));
   const precio = num(i.precio);
   if (!(importe > 0) || !(precio > 0)) return false;

@@ -8,7 +8,7 @@ import { prepararComprobante } from './comprimirImagen';
 import { ALICUOTAS_IVA, repartirIva } from '../lib/iva-compras';
 import { conversionSugerida } from '../lib/presentacion';
 import {
-  alCambiarVinculo, conversionBajaDeMas, dejarEnCajas, estadoDelBulto, opcionesDelBulto, pasarAUnidades,
+  alCambiarVinculo, conversionBajaDeMas, dejarEnCajas, estadoDelBulto, opcionesDelBulto, pasarAUnidades, precioYaEsDeLaUnidad,
   variacionDeCosto, volverABulto as volverABultoRenglon, volverAPendiente, yaEnUnidades,
 } from '../lib/bultos-compras';
 import { PanelImpuestos } from './PanelImpuestos';
@@ -2230,7 +2230,14 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                         {esSinCargo(i) ? (
                           <span className="rounded-xl bg-ok-suave px-2.5 py-1.5 text-ok">Sin cargo: entran {numImp(i.cantidad)} que no se pagan. Con el PIN del dueño (abajo) se reparten en el grupo del mismo precio; sin él, solo abaratan este producto.</span>
                         ) : numImp(i.bonificacionPct) > 0 ? (
-                          <span className="rounded-xl bg-ok-suave px-2.5 py-1.5 text-ok">Bonificado {numImp(i.bonificacionPct)}%: se paga {pesos(precioEfectivo(i))} de los {pesos(numImp(i.precio))} de lista.</span>
+                          <span className="rounded-xl bg-ok-suave px-2.5 py-1.5 text-ok">Bonificado {numImp(i.bonificacionPct)}%: {
+                            // Con el bulto sin decidir y el precio del papel por unidad (Oxxon, 7/10/2026:
+                            // 3 cajas × 10 × $3.950,89), lo pagado se compara por UNIDAD; antes decía
+                            // "se paga $35.558 (la caja) de los $3.951 (la unidad) de lista".
+                            numImp(i.unidadesPorBulto) > 1 && precioYaEsDeLaUnidad(i, Math.round(numImp(i.unidadesPorBulto)))
+                              ? <>se paga {pesos(precioEfectivo(i) / Math.round(numImp(i.unidadesPorBulto)))} por unidad de los {pesos(numImp(i.precio))} de lista.</>
+                              : <>se paga {pesos(precioEfectivo(i))} de los {pesos(numImp(i.precio))} de lista.</>
+                          }</span>
                         ) : null}
                         {(() => {
                           // «×N» sin resolver: la pregunta, la evidencia y las TRES salidas

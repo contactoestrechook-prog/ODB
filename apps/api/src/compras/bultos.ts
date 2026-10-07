@@ -775,6 +775,40 @@ export function interpretarRenglon(l: LecturaRenglon): RenglonInterpretado {
       const lista = cantidad * precio;
       const cierraConBonif = Math.abs(importe - lista * (1 - bonif / 100)) <= Math.max(0.05, lista * TOLERANCIA_CIERRE);
       if (cierraConBonif) return conBulto(base, l, cantidad, precio, bulto, 'bonificado', 'bonificado');
+      // 2 BIS — la cuenta solo cierra contando las N de cada caja, con la
+      //     bonificación del papel. Oxxon (7/10/2026): "SD-TIRITAS DE POLLO X
+      //     (300 GRS)" 1 bulto × 12 × $3.598,93 − 10% = $38.868,42; "BCT- FUET"
+      //     3 × 10 × $3.950,89 − 10% = $106.674,17. Es la misma evidencia dura
+      //     que la regla 5 sin bonificación (Vienissima 1 → 20 en la misma
+      //     factura), así que se corrige igual: entran 12 y 30 unidades al precio
+      //     del papel. Antes quedaban «1 caja» y el botón dividía por 12 un precio
+      //     que ya era de la unidad ("12 unidades a $300"). Solo con la
+      //     bonificación leída del papel; si se dedujo del importe, pregunta.
+      const unidades = cantidad * bulto;
+      const listaUnidades = unidades * precio;
+      const cierraConLasDeAdentro = Math.abs(importe - listaUnidades * (1 - bonif / 100)) <= Math.max(0.05, listaUnidades * 0.001);
+      if (cierraConLasDeAdentro) {
+        const internas = Number(l.unidadesDelCatalogo) > 1 ? Math.round(Number(l.unidadesDelCatalogo)) : null;
+        // la casa vende la caja de N: la cantidad ya son cajas (como la regla 4 BIS)
+        if (internas === bulto) {
+          return {
+            ...base,
+            decision: 'precio_por_unidad_interna',
+            unidadesPorBulto: null,
+            bonificacionPct: bonif,
+            precioPropuesto: Math.round((importe / cantidad) * 100) / 100,
+          };
+        }
+        return {
+          ...base,
+          decision: 'cantidad_corregida',
+          cantidad: unidades,
+          unidadesPorBulto: null,
+          cantidadOriginal: cantidad,
+          bultoConsumido: bulto,
+          bonificacionPct: bonif,
+        };
+      }
     }
     return { ...base, decision: 'bonificado' };
   }
