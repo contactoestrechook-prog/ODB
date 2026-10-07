@@ -411,6 +411,14 @@ export class ComprasController {
     return this.compras.recibir(id, { ...dto, usuarioId: req.usuario?.sub ?? dto.usuarioId });
   }
 
+  // Corregir un ingreso ya recibido (7/10/2026): los mismos roles que reciben o
+  // cargan entradas directas; queda a nombre de quien corrige (token).
+  @Roles('deposito', 'comprador', 'gerente', 'dueno')
+  @Post('compras/ordenes/:id/corregir-ingreso')
+  corregirIngreso(@Param('id') id: string, @Body() dto: any, @Req() req: any) {
+    return this.compras.corregirIngreso(id, { renglones: dto?.renglones ?? [], motivo: dto?.motivo ?? '', usuarioId: req.usuario?.sub });
+  }
+
   // Llegó mercadería sin OC previa (compra directa / remito del reparto):
   // se registra igual, con OC retroactiva trazable y regla de oro.
   @Roles('deposito', 'comprador', 'gerente', 'dueno')

@@ -2586,12 +2586,66 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
 function OrdenDetalle({ id, numero, cerrar, verFactura }: { id: string; numero: number; cerrar: () => void; verFactura: (facturaId: string) => void }) {
   const [d, setD] = useState<any>(null);
   const [err, setErr] = useState('');
-  useEffect(() => {
+  // CORREGIR INGRESO (7/10/2026, OC #58: el Merlot entró como 2 cajas a
+  // $114.000 en vez de 12 botellas a $19.000). Cantidad y costo por renglón,
+  // con motivo; la base ajusta stock, costo, precio y deja el registro.
+  const [corrigiendo, setCorrigiendo] = useState(false);
+  const [cambios, setCambios] = useState<Record<string, { cantidad: string; costo: string }>>({});
+  const [motivo, setMotivo] = useState('');
+  const [guardando, setGuardando] = useState(false);
+  const [msgCorr, setMsgCorr] = useState('');
+  const cargar = useCallback(() => {
     fetch(`/api/compras?recurso=orden&id=${id}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(r)))
       .then(setD)
       .catch(() => setErr('No se pudo cargar el detalle de la compra'));
   }, [id]);
+  useEffect(() => { cargar(); }, [cargar]);
+
+  const corregible = !!d && ['recibida', 'recibida_parcial'].includes(String(d.estado));
+  const empezarCorreccion = () => {
+    const ini: Record<string, { cantidad: string; costo: string }> = {};
+    for (const it of d?.items ?? []) ini[it.producto_id] = { cantidad: String(Number(it.cantidad_recibida ?? 0)), costo: String(Number(it.costo_unitario ?? 0)) };
+    setCambios(ini); setMotivo(''); setMsgCorr(''); setCorrigiendo(true);
+  };
+  const renglonesCambiados = (d?.items ?? []).filter((it: any) => {
+    const c = cambios[it.producto_id];
+    return c && (Number(c.cantidad) !== Number(it.cantidad_recibida ?? 0) || Number(c.costo) !== Number(it.costo_unitario ?? 0));
+  });
+  const totalNuevo = (d?.items ?? []).reduce((s: number, it: any) => {
+    const c = cambios[it.producto_id];
+    const cant = c ? Number(c.cantidad) : Number(it.cantidad_recibida ?? 0);
+    const costo = c ? Number(c.costo) : Number(it.costo_unitario ?? 0);
+    return s + (Number.isFinite(cant) ? cant : 0) * (Number.isFinite(costo) ? costo : 0);
+  }, 0);
+  const cambiaTotal = corrigiendo && Math.abs(totalNuevo - Number(d?.total ?? 0)) >= 1;
+  const conFactura = (d?.facturas ?? []).some((f: any) => f.estado !== 'anulada');
+  const guardarCorreccion = async () => {
+    setGuardando(true); setMsgCorr('');
+    try {
+      const r = await fetch('/api/compras', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accion: 'corregirIngreso', id, motivo, renglones: renglonesCambiados.map((it: any) => ({ productoId: it.producto_id, cantidad: Number(cambios[it.producto_id].cantidad), costo: Number(cambios[it.producto_id].costo) })) }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { setMsgCorr(String(j?.message ?? 'No se pudo guardar la corrección')); return; }
+      setCorrigiendo(false); cargar();
+    } finally { setGuardando(false); }
+  };
+  // ¿el costo de un renglón es N veces el de otro de la misma compra? → caja contada como unidad
+  const sugerenciaCaja = (it: any) => {
+    const c = cambios[it.producto_id]; if (!c) return null;
+    const costo = Number(c.costo), cant = Number(c.cantidad);
+    if (!(costo > 0 && cant > 0)) return null;
+    for (const otro of d?.items ?? []) {
+      if (otro.producto_id === it.producto_id) continue;
+      const ref = Number(cambios[otro.producto_id]?.costo ?? otro.costo_unitario ?? 0);
+      if (!(ref > 0)) continue;
+      const n = Math.round(costo / ref);
+      if (n >= 2 && n <= 48 && Math.abs(costo / ref - n) < 0.02) return { n, cantidad: cant * n, costo: Math.round((costo / n) * 100) / 100 };
+    }
+    return null;
+  };
 
   const ESTADO_FACT: Record<string, string> = { pendiente: 'pendiente de pago', pagada: 'pagada', en_pago: 'en pago', anulada: 'anulada' };
 
@@ -2611,7 +2665,14 @@ function OrdenDetalle({ id, numero, cerrar, verFactura }: { id: string; numero: 
         >
           Orden en PDF
         </a>
-        <Boton variante="secundario" onClick={cerrar}>Cerrar</Boton>
+        {corregible && !corrigiendo && <Boton variante="secundario" onClick={empezarCorreccion}>Corregir ingreso</Boton>}
+        {corrigiendo && <Boton variante="secundario" onClick={() => setCorrigiendo(false)} disabled={guardando}>Cancelar corrección</Boton>}
+        {corrigiendo && (
+          <Boton onClick={guardarCorreccion} cargando={guardando} disabled={guardando || !motivo.trim() || renglonesCambiados.length === 0 || (cambiaTotal && conFactura)}>
+            Guardar corrección
+          </Boton>
+        )}
+        {!corrigiendo && <Boton variante="secundario" onClick={cerrar}>Cerrar</Boton>}
       </>}
     >
       {!d && !err && <Cargando />}
@@ -2654,6 +2715,67 @@ function OrdenDetalle({ id, numero, cerrar, verFactura }: { id: string; numero: 
             })}
             total={{ etiqueta: 'TOTAL', valor: pesos(d.total ?? 0) }}
           />
+
+          {corrigiendo && (
+            <div className="space-y-3 rounded-xl border border-marca/30 bg-white p-3">
+              <p className="text-sm font-semibold text-tinta">Corregir lo que entró</p>
+              <p className="text-xs text-tinta/70">Cambiá lo que llegó de verdad y a qué costo por unidad. El stock se ajusta por la diferencia; si este ingreso era el último costo del producto, también se corrigen el costo y el precio de venta. La factura no se toca.</p>
+              {(d.items ?? []).map((it: any) => {
+                const c = cambios[it.producto_id] ?? { cantidad: '', costo: '' };
+                const antesCant = Number(it.cantidad_recibida ?? 0), antesCosto = Number(it.costo_unitario ?? 0);
+                const dif = Number(c.cantidad) - antesCant;
+                const sug = sugerenciaCaja(it);
+                const poner = (campo: 'cantidad' | 'costo', v: string) => setCambios((x) => ({ ...x, [it.producto_id]: { ...c, [campo]: v } }));
+                return (
+                  <div key={it.producto_id} className="rounded-xl bg-crema-claro p-2.5">
+                    <p className="break-words text-sm font-medium text-tinta">{it.producto?.nombre ?? '—'}</p>
+                    <p className="text-xs text-tinta/60">entró {cifra(antesCant, 2)} × {pesos(antesCosto)} = {pesos(antesCant * antesCosto)}</p>
+                    <div className="mt-2 grid grid-cols-2 gap-2">
+                      <label className="block"><span className={ROTULO_CAMPO}>Llegaron</span>
+                        <input inputMode="decimal" value={c.cantidad} onChange={(e) => poner('cantidad', e.target.value)} className={unir(CAMPO_FILA, CAMPO_FILA_COLOR)} />
+                      </label>
+                      <label className="block"><span className={ROTULO_CAMPO}>Costo por unidad $</span>
+                        <input inputMode="decimal" value={c.costo} onChange={(e) => poner('costo', e.target.value)} className={unir(CAMPO_FILA, CAMPO_FILA_COLOR)} />
+                      </label>
+                    </div>
+                    {Number.isFinite(dif) && dif !== 0 && (
+                      <p className="mt-1.5 text-xs text-tinta/70">Stock {dif > 0 ? '+' : ''}{cifra(dif, 2)} · ahora {cifra(Number(c.cantidad), 2)} × {pesos(Number(c.costo))} = {pesos(Number(c.cantidad) * Number(c.costo))}</p>
+                    )}
+                    {sug && (
+                      <p className="mt-1.5 rounded-xl bg-info-suave px-2.5 py-1.5 text-xs text-info">
+                        ¿Eran cajas de {sug.n}? → {cifra(sug.cantidad, 2)} unidades a {pesos(sug.costo)} (mismo subtotal).
+                        <Boton tamano="chico" variante="secundario" className="ml-2 align-middle" onClick={() => setCambios((x) => ({ ...x, [it.producto_id]: { cantidad: String(sug.cantidad), costo: String(sug.costo) } }))}>Pasar a {cifra(sug.cantidad, 2)} unidades</Boton>
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
+              <label className="block"><span className={ROTULO_CAMPO}>Motivo (obligatorio)</span>
+                <textarea value={motivo} onChange={(e) => setMotivo(e.target.value)} rows={2} placeholder="Ej.: eran 2 cajas de 6, se cargó la caja como botella" className={CAMPO_BLANCO} />
+              </label>
+              <p className="text-xs text-tinta/70">Total de la orden: {pesos(Number(d.total ?? 0))}{cambiaTotal ? ` → ${pesos(totalNuevo)}` : ' (no cambia)'}</p>
+              {cambiaTotal && conFactura && <Aviso tono="error">El total cambia y esta compra ya tiene factura cargada: corregí primero la factura (Facturas de compra → Pedir cambio).</Aviso>}
+              {msgCorr && <Aviso tono="error">{msgCorr}</Aviso>}
+            </div>
+          )}
+
+          {d.correcciones?.length > 0 && (
+            <div>
+              <p className="mb-1.5 text-xs font-semibold uppercase tracking-[0.08em] text-tinta/60">Correcciones del ingreso</p>
+              <div className="divide-y divide-black/[0.06] rounded-xl border border-black/[0.06]">
+                {d.correcciones.map((c: any, i: number) => (
+                  <div key={i} className="px-3 py-2 text-sm text-tinta/80">
+                    <p className="text-xs text-tinta/60">{c.por ? `Corrigió ${c.por}` : 'Corregido'} · {fecha(c.en)}{c.motivo ? ` · “${c.motivo}”` : ''}</p>
+                    {(c.despues ?? []).map((r: any, j: number) => {
+                      const a = (c.antes ?? []).find((x: any) => x.producto_id === r.producto_id) ?? {};
+                      const nombre = (d.items ?? []).find((x: any) => x.producto_id === r.producto_id)?.producto?.nombre ?? 'Producto';
+                      return <p key={j} className="break-words text-xs">{nombre}: {cifra(Number(a.cantidad ?? 0), 2)} × {pesos(Number(a.costo ?? 0))} → {cifra(Number(r.cantidad), 2)} × {pesos(Number(r.costo))}{Number(r.stock) ? ` · stock ${Number(r.stock) > 0 ? '+' : ''}${cifra(Number(r.stock), 2)}` : ''}</p>;
+                    })}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* FACTURAS de esta compra: el motivo por el que esto es clickeable */}
           <div>
