@@ -629,7 +629,13 @@ export class ListasService {
       try {
         const respuesta = await claude.messages
           .stream({
-            model: 'claude-sonnet-5',
+            // Sonnet 5.5 desde el 7/10/2026 (decisión de Leandro). Medido con tres
+            // facturas reales de Distri Sur: lee 21–33 s contra 54–127 s de
+            // Sonnet 5, cuesta ≈ USD 0,05 por factura (≈ 0,12 antes), deja
+            // números, pie e IVA perfectos y lee la columna %Des. que Sonnet 5
+            // se salteó el 15/9. Flojo en algún dígito de los códigos de
+            // artículo (9094UU → 3094UU): Opus 5.5 los leyó todos.
+            model: 'claude-sonnet-5-5',
             // caché de UNA HORA: las facturas se cargan salteadas a lo largo de la
             // mañana y con los 5 minutos por defecto casi nunca se aprovechaba
             system: [{ type: 'text', text: instrucciones, cache_control: { type: 'ephemeral', ttl: '1h' } }],
@@ -1272,7 +1278,7 @@ export class ListasService {
       const claude = new Anthropic();
       const respuesta = await claude.messages
         .stream({
-          model: 'claude-sonnet-5',
+          model: 'claude-sonnet-5-5', // el mismo que lee la factura (7/10/2026)
           max_tokens: 32000, // comprobante largo con muchos renglones sin match: que no se trunque el JSON
           // Elegir el candidato correcto de una lista corta no necesita
           // razonamiento profundo, y la sugerencia SIEMPRE pasa por el "¿es
