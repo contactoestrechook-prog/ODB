@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState, type KeyboardEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { prepararComprobante } from './comprimirImagen';
 import { ALICUOTAS_IVA, repartirIva } from '../lib/iva-compras';
+import { atribuirDescuentos, esRenglonDescuento } from '../lib/descuentos-compras';
 import { conversionSugerida } from '../lib/presentacion';
 import { PanelImpuestos } from './PanelImpuestos';
 import {
@@ -985,76 +986,10 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   // producto, y aceptar esa sugerencia habría cargado 7 unidades a -$22.630.
   // Peor: como la rebaja no se aplicaba, el Malbec entraba a precio de lista,
   // un 43% más caro de lo que se pagó, y ese costo va al precio de venta.
-  const esRenglonDescuento = (i: any) => !!i.esDescuento || numImp(i.precio) < 0;
-  const soloTexto = (t: any) => String(t ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
-  // Reparte cada renglón de descuento sobre la mercadería que le corresponde.
-  // Tres formas, en orden: (1) el descuento NOMBRA un renglón y la cuenta cierra
-  // con él; (2) es un descuento de GRUPO (típico de Coca/distribuidores: "Px
-  // mágico = 17,2%", "AQ 1.5L = 24,3%") que aplica a TODOS los renglones desde
-  // el descuento anterior hasta este, y se reparte proporcional al importe de
-  // cada uno; (3) no se puede atribuir → no se aplica y se avisa. El reparto por
-  // grupo nunca deja un costo en negativo (cada renglón recibe una fracción de
-  // lo suyo) y cierra con el pie por construcción.
-  const sinAtribuir: { descripcion: string; importe: number }[] = [];
-  const grupoDeDescuento = new Map<number, { n: number; pct: number | null; importe: number }>();
-  const base = (x: any) => {
-    const cant = numImp(x.cantidad) || 1;
-    return x.importe != null && x.importe !== '' ? Math.abs(numImp(x.importe)) : Math.abs(numImp(x.precio) * cant);
-  };
-  const descuentoPorIdx = (() => {
-    const m = new Map<number, number>();
-    let ventanaInicio = 0; // primer índice de mercadería de la ventana en curso
-    fotoItems.forEach((d: any, j: number) => {
-      if (!esRenglonDescuento(d)) return;
-      const cerrarVentana = () => { ventanaInicio = j + 1; };
-      // El operador decidió no aplicar esta rebaja: la mercadería queda a precio
-      // de lista y lo pagado de menos se reparte solo en la reconciliación.
-      if (d.noAplicar) return cerrarVentana();
-      const importe = d.importe != null && d.importe !== '' && numImp(d.importe) !== 0
-        ? numImp(d.importe) : numImp(d.cantidad) * numImp(d.precio);
-      if (!importe) return cerrarVentana();
-      const abs = Math.abs(importe);
-      const textoDesc = soloTexto(d.descripcion);
-      const pct = d.descuentoPct != null ? numImp(d.descuentoPct) : null;
-
-      // 1) NOMBRA un renglón puntual (dentro de la ventana) y cierra con él
-      let destino = -1;
-      for (let k = j - 1; k >= ventanaInicio; k--) {
-        if (esRenglonDescuento(fotoItems[k])) continue;
-        const nombre = soloTexto(fotoItems[k].descripcion);
-        const linea = base(fotoItems[k]);
-        // Tolerancia de redondeo: el maní se factura a $760,585, el papel
-        // imprime 760,58 y el importe 1.521,17 — una rebaja del 100% "superaba"
-        // a la línea por un centavo y quedaba sin atribuir (2026-09-08).
-        const cierraUno = linea > 0 && (pct != null ? Math.abs((abs / linea) * 100 - pct) <= 1.5 : abs <= linea + Math.max(0.05, linea * 0.001));
-        if (nombre && textoDesc.includes(nombre) && cierraUno) { destino = k; break; }
-      }
-      if (destino >= 0) { m.set(destino, (m.get(destino) ?? 0) + importe); return cerrarVentana(); }
-
-      // 2) descuento de GRUPO: los renglones de mercadería de la ventana
-      const grupo: number[] = [];
-      let sumaG = 0;
-      for (let k = ventanaInicio; k < j; k++) {
-        if (esRenglonDescuento(fotoItems[k])) continue;
-        const b = base(fotoItems[k]);
-        if (b > 0) { grupo.push(k); sumaG += b; }
-      }
-      // Se acepta si el descuento es una fracción del grupo y —cuando el papel
-      // trae el %— ese % cierra con la suma del grupo (tolerancia amplia para no
-      // depender de si la IA leyó la columna con o sin IVA).
-      const pctCierra = pct == null || Math.abs(sumaG * (pct / 100) - abs) / abs < 0.06;
-      if (grupo.length > 0 && sumaG > 0 && abs < sumaG * 0.999 && pctCierra) {
-        for (const k of grupo) m.set(k, (m.get(k) ?? 0) + importe * (base(fotoItems[k]) / sumaG));
-        grupoDeDescuento.set(j, { n: grupo.length, pct, importe: abs });
-        return cerrarVentana();
-      }
-
-      // 3) no se pudo atribuir con certeza
-      sinAtribuir.push({ descripcion: d.descripcion, importe: abs });
-      cerrarVentana();
-    });
-    return m;
-  })();
+  // Qué es rebaja y a qué renglón va cada una —el que nombra, el regalo de
+  // arriba, el grupo o ninguno— se decide en app/lib/descuentos-compras.ts,
+  // con tests.
+  const { porIdx: descuentoPorIdx, destinos: destinoDeDescuento, grupos: grupoDeDescuento, sinAtribuir } = atribuirDescuentos(fotoItems);
   // La lista con la que se calcula y se dibuja: cada renglón ya sabe qué
   // descuento le corresponde.
   const itemsCalc = fotoItems.map((i: any, idx: number) => ({
@@ -1918,7 +1853,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                             <>Se reparte entre los {grupoDeDescuento.get(idx)!.n} renglones de arriba{grupoDeDescuento.get(idx)!.pct ? ` (${grupoDeDescuento.get(idx)!.pct}%)` : ''}, proporcional a cada uno.
                               <button onClick={() => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, noAplicar: true } : x))} className={CHIP_ACCION}>No aplicar</button></>
                           ) : (
-                            <>Se descuenta del renglón que nombra.
+                            <>{destinoDeDescuento.get(idx)?.motivo === 'regalo' ? 'Va sin cargo: se descuenta entero del renglón de arriba.' : 'Se descuenta del renglón que nombra.'}
                               <button onClick={() => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, noAplicar: true } : x))} className={CHIP_ACCION}>No aplicar</button></>
                           )}
                         </div>
