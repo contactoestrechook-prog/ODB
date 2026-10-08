@@ -51,6 +51,9 @@ export async function GET(req: Request) {
     params.delete('recurso');
     if (usuarioId) params.set('cargadaPor', usuarioId);
     ruta = `/compras/facturas?${params.toString()}`;
+  } else if (recurso === 'historial-proveedor' && url.searchParams.get('id')) {
+    // lo que nos vende ese proveedor, sacado de sus facturas (mesa de compras, 8/10/2026)
+    ruta = `/compras/proveedores/${encodeURIComponent(url.searchParams.get('id')!)}/historial`;
   } else if (recurso === 'proveedores-lista') {
     // proveedores con cuántos productos tiene cargados cada uno
     ruta = '/compras/proveedores-lista';

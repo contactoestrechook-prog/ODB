@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { BotonMicrofono } from './BotonMicrofono';
 import { prepararComprobante } from './comprimirImagen';
 import { AbastecimientoPanel } from './AbastecimientoPanel';
+import { HistorialProveedor } from './HistorialProveedor';
 import { Aviso, Boton, CLASES_ENTRADA, Cargando, FOCO, Pestanas, PlacaRoja, Tarjeta, TarjetaCabecera, Vacio, unir, useConfirmar, type DetallePlaca } from './kit';
 import { numero, pesos } from '../lib/formato';
 
@@ -24,7 +25,7 @@ function IconoClip({ className = 'size-4' }: { className?: string }) {
 
 export function MesaComprasWorkspace({ esDueno, tabInicial }: { esDueno: boolean; tabInicial?: string }) {
   // "Qué comprar" (el agente de abastecimiento, 1/10/2026) va primero
-  const [tab, setTab] = useState<'abastecer' | 'costear' | 'aprobar'>(tabInicial === 'costear' || tabInicial === 'aprobar' ? tabInicial : 'abastecer');
+  const [tab, setTab] = useState<'abastecer' | 'costear' | 'aprobar' | 'proveedores'>(tabInicial === 'costear' || tabInicial === 'aprobar' || tabInicial === 'proveedores' ? tabInicial : 'abastecer');
   const [mensajes, setMensajes] = useState<Mensaje[]>([]);
   const [texto, setTexto] = useState('');
   const [foto, setFoto] = useState<{ base64: string; mimeType: string; nombre: string } | null>(null);
@@ -137,6 +138,7 @@ export function MesaComprasWorkspace({ esDueno, tabInicial }: { esDueno: boolean
         opciones={[
           { valor: 'abastecer', etiqueta: 'Qué comprar' },
           { valor: 'costear', etiqueta: 'Costear una compra' },
+          { valor: 'proveedores', etiqueta: 'Proveedores' },
           { valor: 'aprobar', etiqueta: 'Para aprobar', cuenta: propuestas.length || undefined },
         ]}
       />
@@ -144,6 +146,8 @@ export function MesaComprasWorkspace({ esDueno, tabInicial }: { esDueno: boolean
       {error && <Aviso tono="error">{error}</Aviso>}
 
       {tab === 'abastecer' && <AbastecimientoPanel />}
+
+      {tab === 'proveedores' && <HistorialProveedor />}
 
       {tab === 'costear' && (
         <Tarjeta relleno={false} className="overflow-hidden">

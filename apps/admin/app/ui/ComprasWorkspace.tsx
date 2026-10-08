@@ -1246,8 +1246,41 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
     descuentosSinDestino: sinAtribuir.map((x) => x.descripcion),
   });
   // al registrar: la constancia de quién cambió qué (si no hubo cambios, nada)
+  // y TODOS los renglones de la factura para el historial del proveedor (8/10/2026)
+  const renglonesParaHistorial = () => itemsCalc.map((i: any, idx: number) => {
+    const p = i.papel as Papel | null;
+    const entra = p ? entraDeRenglon(i, p) : null;
+    return {
+      renglon: idx + 1,
+      sku: i.sku || null,
+      codigoProveedor: i.codigo ?? null,
+      descripcion: i.descripcion,
+      bultos: p?.bultos ?? null, unidadesPorBulto: p?.uxb ?? null, sueltas: p?.sueltas ?? null,
+      unidades: p ? cuentaDelPapel(p).unidades : numImp(i.cantidad) || null,
+      precio: p?.precio ?? (numImp(i.precio) || null),
+      bonificacionPct: p?.desc ?? (i.bonificacionPct != null ? numImp(i.bonificacionPct) : null),
+      alicuotaIva: p?.iva ?? (i.alicuotaIva != null ? numImp(i.alicuotaIva) : null),
+      importe: p?.importe ?? (i.importe != null && i.importe !== '' ? numImp(i.importe) : null),
+      entraComo: i.porPeso ? 'peso' : entra?.como ?? null,
+      cantidadStock: numImp(i.cantidad) || null,
+      costoUnitario: !i._esDescuento && i.sku ? costoFinal(i, idx) : null,
+      incluido: !!(i.incluir && i.sku),
+      esDescuento: !!i._esDescuento,
+    };
+  });
   const registrarConConstancia = async (body: any) => {
+    const renglones = renglonesParaHistorial();
     const d = await post(body);
+    if (d && f.proveedorId) {
+      fetch('/api/entrada-foto', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          accion: 'historial', id: foto?.lecturaId ?? 'sin-lectura', proveedorId: f.proveedorId,
+          numero: foto?.comprobante?.numero ?? null, fecha: normFechaIso(foto?.comprobante?.fecha) ?? null, renglones,
+        }),
+      }).catch(() => {});
+    }
     const vigentes = cambiosFactura.filter((c) => !c.deshecho);
     if (d && foto?.lecturaId && vigentes.length) {
       fetch('/api/entrada-foto', {
