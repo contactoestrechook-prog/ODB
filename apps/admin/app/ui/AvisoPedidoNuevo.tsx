@@ -7,6 +7,7 @@ import { pesos } from '../lib/formato';
 import { cantidadLegible, codigoDe, entregaDe, haceCuanto, origenDe, sinTomar, telefonoLegible, type PedidoCola } from '../lib/pedidos';
 import { llevaFlotantes } from '../lib/rutas';
 import { Boton, Etiqueta, FOCO, IconoCerrar, unir } from './kit';
+import { conCodigo } from '../lib/codigo-producto';
 
 // LLEGÓ UN PEDIDO (Leandro, 6/10/2026: "necesito ventanas slides emergentes
 // avisando que llegó un pedido"). En todas las pantallas del panel, a quien
@@ -266,7 +267,7 @@ function TarjetaPedido({
                 {items.slice(0, 3).map((it, i) => (
                   <li key={i} className="flex min-w-0 gap-1.5">
                     <span className="importe shrink-0 font-semibold text-marca">{cantidadLegible(it.cantidad)}×</span>
-                    <span className="min-w-0 truncate">{it.producto?.nombre ?? 'Producto'}</span>
+                    <span className="min-w-0 truncate">{conCodigo(it.producto?.nombre ?? 'Producto', it.producto)}</span>
                   </li>
                 ))}
                 {items.length > 3 && <li className="text-tinta/60">y {items.length - 3} más</li>}

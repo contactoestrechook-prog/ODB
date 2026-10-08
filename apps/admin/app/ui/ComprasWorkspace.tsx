@@ -14,6 +14,7 @@ import {
 } from '../lib/bultos-compras';
 import { PanelImpuestos } from './PanelImpuestos';
 import { TablaFactura } from './TablaFactura';
+import { conCodigo } from '../lib/codigo-producto';
 import { AsistenteFactura, describirCambio, type CambioHecho } from './AsistenteFactura';
 import { aplicarCambiosIA, aplicarPapel, cuentaDelPapel, entraDeRenglon, papelDeLectura, tablaParaIA, type EntraComo, type Papel } from '../lib/tabla-factura';
 import {
@@ -1721,7 +1722,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
           <div className="relative">
             <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Agregar producto…" aria-label="Agregar producto" className={input} />
             {sug.length > 0 && <div className="absolute z-contenido mt-1 max-h-48 w-full overflow-y-auto rounded-xl border border-black/[0.06] bg-white shadow-flotante">
-              {sug.map((p: any) => <button key={p.sku} onClick={() => { setItems((xs) => [...xs, { sku: p.sku, nombre: p.nombre, cantidad: 1, costoUnitario: p.costo ?? 0 }]); setBusca(''); setSug([]); }} className="min-h-11 w-full border-b border-black/[0.06] px-3 py-2 text-left text-sm text-tinta last:border-0 hover:bg-crema-claro focus-visible:bg-crema-claro focus-visible:outline-none">{p.nombre} <span className="text-xs text-tinta/60">{p.sku}</span></button>)}
+              {sug.map((p: any) => <button key={p.sku} onClick={() => { setItems((xs) => [...xs, { sku: p.sku, nombre: p.nombre, cantidad: 1, costoUnitario: p.costo ?? 0 }]); setBusca(''); setSug([]); }} className="min-h-11 w-full border-b border-black/[0.06] px-3 py-2 text-left text-sm text-tinta last:border-0 hover:bg-crema-claro focus-visible:bg-crema-claro focus-visible:outline-none">{conCodigo(p.nombre, p)} <span className="text-xs text-tinta/60">{p.sku}</span></button>)}
             </div>}
           </div>
           {items.length > 0 && (
@@ -1731,7 +1732,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
           )}
           {items.map((i, idx) => (
             <div key={idx} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-end gap-x-3 gap-y-1 border-b border-black/[0.06] pb-3 text-sm last:border-0 md:flex md:items-center md:gap-2 md:border-0 md:pb-0">
-              <span className="col-span-2 min-w-0 self-center break-words text-tinta md:flex-1">{i.nombre}</span>
+              <span className="col-span-2 min-w-0 self-center break-words text-tinta md:flex-1">{conCodigo(i.nombre, i)}</span>
               <div className="col-start-1 md:w-16"><span className={ROTULO_FILA}>Cant.</span><input type="number" aria-label={`Cantidad de ${i.nombre}`} value={i.cantidad} onChange={(e) => setItems((xs) => xs.map((x, j) => j === idx ? { ...x, cantidad: Number(e.target.value) } : x))} className={unir(CAMPO_FILA, CAMPO_FILA_COLOR)} /></div>
               <div className="col-start-2 md:w-24"><span className={ROTULO_FILA}>Costo $</span><input type="number" aria-label={`Costo de ${i.nombre}`} value={i.costoUnitario} onChange={(e) => setItems((xs) => xs.map((x, j) => j === idx ? { ...x, costoUnitario: Number(e.target.value) } : x))} className={unir(CAMPO_FILA, CAMPO_FILA_COLOR)} placeholder="costo" /></div>
               <button onClick={() => setItems((xs) => xs.filter((_, j) => j !== idx))} aria-label={`Quitar ${i.nombre}`} title="Quitar" className={unir(BOTON_QUITAR, 'col-start-3 row-start-1 justify-self-end')}><IconoCerrar className="size-4" /></button>
@@ -1807,7 +1808,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
           <div className="relative">
             <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Agregar producto…" aria-label="Agregar producto" className={input} />
             {sug.length > 0 && <div className="absolute z-contenido mt-1 max-h-48 w-full overflow-y-auto rounded-xl border border-black/[0.06] bg-white shadow-flotante">
-              {sug.map((p: any) => <button key={p.sku} onClick={() => { setItems((xs) => [...xs, { sku: p.sku, nombre: p.nombre, cantidad: 1, costo: p.costo ?? 0, vencimiento: '' }]); setBusca(''); setSug([]); }} className="min-h-11 w-full border-b border-black/[0.06] px-3 py-2 text-left text-sm text-tinta last:border-0 hover:bg-crema-claro focus-visible:bg-crema-claro focus-visible:outline-none">{p.nombre} <span className="text-xs text-tinta/60">{p.sku}</span></button>)}
+              {sug.map((p: any) => <button key={p.sku} onClick={() => { setItems((xs) => [...xs, { sku: p.sku, nombre: p.nombre, cantidad: 1, costo: p.costo ?? 0, vencimiento: '' }]); setBusca(''); setSug([]); }} className="min-h-11 w-full border-b border-black/[0.06] px-3 py-2 text-left text-sm text-tinta last:border-0 hover:bg-crema-claro focus-visible:bg-crema-claro focus-visible:outline-none">{conCodigo(p.nombre, p)} <span className="text-xs text-tinta/60">{p.sku}</span></button>)}
             </div>}
           </div>
           {items.length > 0 && (
@@ -1822,7 +1823,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
             return (
               <div key={idx} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-start gap-x-3 gap-y-1 border-b border-black/[0.06] pb-3 text-sm last:border-0 md:flex md:items-start md:gap-2 md:border-0 md:pb-0">
                 <span className="col-span-2 min-w-0 self-center break-words text-tinta md:flex-1 md:self-start md:pt-2">
-                  {i.nombre}
+                  {conCodigo(i.nombre, i)}
                   {venta != null && <span className="ml-2 text-xs text-tinta/60">vende {pesos(venta)}</span>}
                 </span>
                 <div className="col-start-1 md:w-16"><span className={ROTULO_FILA}>Cant.</span><input type="number" aria-label={`Cantidad de ${i.nombre}`} value={i.cantidad} onChange={(e) => setItems((xs) => xs.map((x, j) => j === idx ? { ...x, cantidad: Number(e.target.value) } : x))} className={unir(CAMPO_FILA, CAMPO_FILA_COLOR)} /></div>
@@ -2114,7 +2115,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                         <div className="col-span-full @min-[46rem]:col-span-1 min-w-0 text-xs leading-snug">
                           {i.sugerido && i.nombre ? (
                             <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                              <span className="text-dorado-hondo">¿Es <b className="text-tinta">{i.nombre}</b>?</span>
+                              <span className="text-dorado-hondo">¿Es <b className="text-tinta">{conCodigo(i.nombre, i)}</b>?</span>
                               <Boton tamano="chico" variante="secundario" onClick={() => confirmarSugerencia(idx)}>Sí, es este</Boton>
                               <button onClick={() => rechazarSugerencia(idx)} className={CHIP_ACCION}>Buscar otro</button>
                               {i.motivoIa && <span className="basis-full text-xs text-tinta/60">{String(i.motivoIa).replace(/\s*:\s*puede ser otro producto.*$/i, '').slice(0, 110)}</span>}
@@ -2123,7 +2124,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                             <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                               {/* el nombre entero (baja de renglón si hace falta): es lo que se mira
                                   para confirmar que el vínculo es el correcto sin entrar a "cambiar" */}
-                              <span className="min-w-0 break-words text-ok" title={i.nombre}>→ <b>{i.nombre}</b></span>
+                              <span className="min-w-0 break-words text-ok" title={i.nombre}>→ <b>{conCodigo(i.nombre, i)}</b></span>
                               {(() => {
                                 // con lo que el renglón dice AHORA: cambia con cada botón (6/10/2026)
                                 const v = variacionCosto(i, idx);
@@ -2467,7 +2468,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                           {vinculaSug.map((p: any) => (
                             <button key={p.sku} onClick={() => vincularProducto(idx, p)} className="min-h-11 w-full border-b border-black/[0.06] px-3 py-2 text-left last:border-0 hover:bg-crema-claro focus-visible:bg-crema-claro focus-visible:outline-none">
                               <div className="flex items-center justify-between gap-2">
-                                <span className="text-sm text-tinta min-w-0 break-words">{p.nombre}{p.marca ? <span className="text-tinta/60"> · {p.marca}</span> : null}</span>
+                                <span className="text-sm text-tinta min-w-0 break-words">{conCodigo(p.nombre, p)}{p.marca ? <span className="text-tinta/60"> · {p.marca}</span> : null}</span>
                                 {p.precio != null && <span className="importe shrink-0 text-xs font-medium text-ok">{pesos(p.precio)}</span>}
                               </div>
                               <div className="text-xs text-tinta/60">{p.sku}{p.categoria ? ` · ${p.categoria}` : ''}</div>

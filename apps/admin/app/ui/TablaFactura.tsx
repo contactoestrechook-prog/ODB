@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { pesos } from '../lib/formato';
 import { cuentaDelPapel, entraDeRenglon, papelDeLectura, unidadesDelPapel, type CampoPapel, type EntraComo, type Papel } from '../lib/tabla-factura';
 import { FOCO, ROTULO, unir } from './kit/clases';
+import { conCodigo } from '../lib/codigo-producto';
 
 // ============================================================
 // LA FACTURA COMO TABLA (8/10/2026). Cada renglón con las columnas del papel,
@@ -169,7 +170,7 @@ export function TablaFactura({ items, costoFinal, destinoDescuento, onCambiarPap
                     <p className="break-words font-medium leading-snug text-tinta">
                       {i.codigo ? <span className="mr-1.5 font-mono text-xs text-tinta/60">{i.codigo}</span> : null}{i.descripcion}
                     </p>
-                    <p className={unir('break-words text-xs', i.nombre ? 'text-ok' : 'text-atencion')}>{i.nombre ? `→ ${i.nombre}` : 'Sin vincular al catálogo (abajo)'}</p>
+                    <p className={unir('break-words text-xs', i.nombre ? 'text-ok' : 'text-atencion')}>{i.nombre ? `→ ${conCodigo(i.nombre, i)}` : 'Sin vincular al catálogo (abajo)'}</p>
                   </div>
                   <div className="min-w-0 max-w-full text-right">
                     <p className={unir('importe text-sm font-semibold', c.cierra ? 'text-ok' : 'text-marca-hondo')}>{c.cierra ? 'Cierra' : 'No cierra'} · {pesos(c.cuenta)}</p>

@@ -11,6 +11,7 @@ import {
   AreaTexto, Aviso, Boton, Cargando, Chips, Entrada, Etiqueta, FOCO, IconoCerrar, Modal, Pestanas, PlacaRoja, TablaResponsiva, Tarjeta, unir,
   useConfirmar, Vacio,
 } from './kit';
+import { conCodigo } from '../lib/codigo-producto';
 
 const pesos = (n: any) => pesosFmt(Number(n) || 0);
 // Precio unitario de un renglón interpretado del WhatsApp: el análisis
@@ -291,7 +292,7 @@ function TarjetaPedido({ p, trabajando, onTomar, onAvanzar, onAbrir }: {
         <p className="mt-0.5 break-words text-sm text-tinta">{p.clienteNombre || (p.cliente?.dni ? `Cliente ${p.cliente.dni}` : 'Cliente sin nombre')}{tel && <span className="whitespace-nowrap text-tinta/70"> · {tel}</span>}</p>
         <p className="mt-0.5 break-words text-xs text-tinta/70">{entregaDe(p)}</p>
         <p className="mt-1.5 break-words text-sm leading-snug text-tinta/70">
-          {(p.items ?? []).slice(0, 3).map((it) => `${cantidadLegible(it.cantidad)}× ${it.producto?.nombre ?? ''}`).join(' · ')}
+          {(p.items ?? []).slice(0, 3).map((it) => `${cantidadLegible(it.cantidad)}× ${conCodigo(it.producto?.nombre ?? '', it.producto)}`).join(' · ')}
           {(p.items ?? []).length > 3 && ` +${(p.items ?? []).length - 3}`}
         </p>
       </button>
@@ -380,7 +381,7 @@ function DetallePedido({ p, trabajando, onCerrar, onTomar, onAvanzar, onCancelar
               return {
                 clave: String(i),
                 cantidad: cant,
-                nombre: it.producto?.nombre ?? 'Producto',
+                nombre: conCodigo(it.producto?.nombre ?? 'Producto', it.producto),
                 detalle: Number.isFinite(unit) && unit > 0 ? `${cantidadLegible(cant)} × ${pesos(unit)}` : it.producto?.sku,
                 importe: Number.isFinite(unit) && unit > 0 ? pesos(cant * unit) : undefined,
               };
