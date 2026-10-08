@@ -56,6 +56,7 @@ function bonitoTelefono(t: string): string {
 import { costoUSD } from './tarifas';
 import { cartelListaPrecios, cartelPedido, imagenEsperada, leerResumenDePedido, nombreParaCartel, pieSinPrecios, preciosDeLaRespuesta, ProductoConPrecio } from '../comun/cartel-pedido';
 import { etiquetaDeFila, Lineas, sesionPrincipal } from '../comun/lineas';
+import { cierraLaRafaga, esperaDeRafaga, juntarRafaga, msHastaContestar, type MensajeDeRafaga } from './espera-rafaga';
 
 // pedido mínimo para envío a domicilio (Leandro, 25/9/2026); ENVIO_MINIMO lo cambia sin tocar código
 const envioMinimo = () => Number(process.env.ENVIO_MINIMO ?? 70000) || 70000;
@@ -117,6 +118,13 @@ export class BotService {
   // serializa los mensajes de un mismo teléfono (WhatsApp manda ráfagas y si
   // corren en paralelo se pisan la memoria de conversación entre sí)
   private readonly colas = new Map<string, Promise<unknown>>();
+  // mensajes de WhatsApp que esperan para contestarse juntos (ver charlaWhatsapp)
+  private readonly rafagas = new Map<string, {
+    pendientes: MensajeDeRafaga[];
+    esperan: { ok: (r: any) => void; mal: (e: any) => void }[];
+    primero: number;
+    timer: ReturnType<typeof setTimeout> | null;
+  }>();
   // ventana deslizante de llegadas por teléfono para el límite horario
   private readonly llegadas = new Map<string, number[]>();
   // Las líneas de WhatsApp (6/10/2026): tipo, sesión de WAHA, configuración
@@ -4379,7 +4387,9 @@ export class BotService {
       if (alta?.error?.code === '23505' && origen === 'webhook') return { ignorado: 'mensaje ya recibido' };
     }
     try {
-      const r = await this.procesarEntrante(p, numeroLinea, linea);
+      // lo que llega en vivo espera a juntarse con los mensajes que siguen; lo que
+      // recupera el barrido se contesta en el momento (ver charlaWhatsapp)
+      const r = await this.procesarEntrante(p, numeroLinea, linea, origen === 'webhook');
       if (idEntrante) await this.db.from('bot_entrantes').update({ terminado_en: new Date().toISOString() }).eq('waha_id', idEntrante).then(() => null, () => null);
       return r;
     } catch (e) {
@@ -4521,7 +4531,62 @@ export class BotService {
     return { contestado: false, silencio: true, motivo };
   }
 
-  private async procesarEntrante(p: any, numeroLinea?: string, lineaDada?: string) {
+  // RÁFAGAS (8/10/2026, Leandro: «tiene que esperar entre un minuto, un minuto
+  // y medio antes de contestar de último»). Los Talas Lote 15 mandó 5 mensajes
+  // en 14 s y la cola por conversación contestó cada uno: 5 respuestas que
+  // repetían el pedido y volvían a pedir el nombre, y al cliente le parecía que
+  // el bot le escribía sin que él contestara. Ahora cada mensaje que entra por
+  // WhatsApp espera ODB_BOT_ESPERA_SEG (60) desde el último de ese chat, sin
+  // pasar ODB_BOT_ESPERA_MAX_SEG (90) desde el primero, y charla() corre UNA vez
+  // con los textos juntos (espera-rafaga.ts). Los anteriores de la ráfaga
+  // devuelven respuesta null (quedan en el panel como mensajes del cliente) y el
+  // último lleva la respuesta. charla() no cambia: el simulador, /bot/charla y el
+  // banco siguen contestando al instante, y el barrido (agrupar = false) también.
+  // Si el servidor se reinicia en la espera, ningún mensaje quedó terminado y el
+  // barrido los retoma a los 6 minutos.
+  private charlaWhatsapp(dto: MensajeDeRafaga, agrupar: boolean): Promise<any> {
+    const { esperaMs, topeMs } = esperaDeRafaga();
+    if (!agrupar || esperaMs <= 0) return this.charla(dto);
+    const clave = `${dto.linea ?? ''}:${String(dto.telefono ?? '').replace(/\D/g, '')}`;
+    let r = this.rafagas.get(clave);
+    if (r && cierraLaRafaga(r.pendientes, dto)) {
+      this.soltarRafaga(clave);
+      r = undefined;
+    }
+    if (!r) {
+      r = { pendientes: [], esperan: [], primero: Date.now(), timer: null };
+      this.rafagas.set(clave, r);
+    }
+    const rafaga = r;
+    rafaga.pendientes.push(dto);
+    const promesa = new Promise<any>((ok, mal) => rafaga.esperan.push({ ok, mal }));
+    if (rafaga.timer) clearTimeout(rafaga.timer);
+    rafaga.timer = setTimeout(() => this.soltarRafaga(clave), msHastaContestar(rafaga.primero, Date.now(), esperaMs, topeMs));
+    return promesa;
+  }
+
+  private soltarRafaga(clave: string) {
+    const r = this.rafagas.get(clave);
+    if (!r) return;
+    this.rafagas.delete(clave);
+    if (r.timer) clearTimeout(r.timer);
+    const ultimo = r.esperan.length - 1;
+    const juntado = { respuesta: null, silencio: true, agrupado: true, motivo: 'contestado junto con el mensaje siguiente' };
+    if (r.pendientes.length > 1) this.log.log(`ráfaga de ${r.pendientes.length} mensajes de ${clave}: una sola respuesta`);
+    let dto: MensajeDeRafaga;
+    try {
+      dto = juntarRafaga(r.pendientes);
+    } catch (e) {
+      r.esperan.forEach((x) => x.mal(e));
+      return;
+    }
+    this.charla(dto).then(
+      (res) => r.esperan.forEach((x, i) => x.ok(i === ultimo ? res : juntado)),
+      (err) => r.esperan.forEach((x, i) => (i === ultimo ? x.mal(err) : x.ok(juntado))),
+    );
+  }
+
+  private async procesarEntrante(p: any, numeroLinea?: string, lineaDada?: string, agrupar = false) {
     // LA LÍNEA DEL MENSAJE (6/10/2026): todo lo de acá (la charla, la pausa, la
     // espera, las notas, la respuesta) es de la línea por la que entró, y la
     // respuesta sale por esa misma sesión de WhatsApp.
@@ -4642,13 +4707,13 @@ export class BotService {
           await this.anotarEsperaEnPausa(linea, clave, etiqueta(rotulo));
           return { contestado: false, motivo: 'RESPONDE: atiende una persona' };
         }
-        const r: any = await this.charla({
+        const r: any = await this.charlaWhatsapp({
           linea, telefono: clave,
           mensaje: epigrafe,
           archivoBase64: media.base64, mimeType: esPdf && !esImagen ? 'application/pdf' : media.mime,
           archivoUrl: enlacePublico || undefined,
           mensajeId: p.id ? String(p.id) : undefined,
-        });
+        }, agrupar);
         if (!r?.respuesta) {
           await this.respondeRegistrar(waIdM, p.notifyName ?? null, etiqueta(rotulo), null, p.id ? String(p.id) : undefined, mediaReg).catch(() => null);
           return { contestado: false, motivo: 'sin respuesta' };
@@ -4667,13 +4732,13 @@ export class BotService {
         const miniatura = [p._data?.jpegThumbnail, p._data?.message?.videoMessage?.jpegThumbnail, p.media?.preview]
           .find((x: any) => typeof x === 'string' && x.length > 100);
         if (miniatura && !(await this.respondeModoHumano(waIdM, linea).catch(() => false))) {
-          const r: any = await this.charla({
+          const r: any = await this.charlaWhatsapp({
             linea, telefono: clave,
             mensaje: epigrafe,
             archivoBase64: miniatura, mimeType: 'image/jpeg', vistaPreviaDeVideo: true,
             archivoUrl: enlacePublico || undefined,
             mensajeId: p.id ? String(p.id) : undefined,
-          }).catch(() => null);
+          }, agrupar).catch(() => null);
           if (r?.respuesta) {
             await this.simularEscritura(desde, r.respuesta, linea);
             const env = await this.enviarConTarjeta(desde, identidad, r, linea);
@@ -4703,7 +4768,7 @@ export class BotService {
             await this.anotarEsperaEnPausa(linea, clave, `🎙️ ${dicho}`);
             return { contestado: false, motivo: 'RESPONDE: atiende una persona' };
           }
-          const r: any = await this.charla({ linea, telefono: clave, mensaje: dicho, mensajeId: p.id ? String(p.id) : undefined, deAudio: true });
+          const r: any = await this.charlaWhatsapp({ linea, telefono: clave, mensaje: dicho, mensajeId: p.id ? String(p.id) : undefined, deAudio: true }, agrupar);
           if (!r?.respuesta) {
             await this.respondeRegistrar(waIdM, p.notifyName ?? null, etiqueta(`🎙️ ${dicho}`), null, p.id ? String(p.id) : undefined, mediaReg).catch(() => null);
             return { contestado: false, motivo: r?.derivada ? 'derivada a una persona' : 'sin respuesta' };
@@ -4811,12 +4876,12 @@ export class BotService {
       return { contestado: false, motivo: 'RESPONDE: atiende una persona' };
     }
 
-    const r: any = await this.charla({
+    const r: any = await this.charlaWhatsapp({
       linea,
       telefono: identidad,
       mensaje: texto,
       mensajeId: p.id ? String(p.id) : undefined,
-    });
+    }, agrupar);
 
     // La conversación puede estar en manos de una persona: ahí el bot se calla.
     if (!r?.respuesta) {

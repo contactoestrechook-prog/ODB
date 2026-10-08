@@ -182,7 +182,7 @@ function wahaFalso(respuestas: Record<string, any> = {}) {
   return { llamadas, envios };
 }
 
-const ENV = ['WAHA_URL', 'WAHA_API_KEY', 'WAHA_SESSION', 'WAHA_NUMERO_LINEA', 'RESPONDE_URL', 'ODB_BOT_PAUSA_ESCRITURA_MS'];
+const ENV = ['WAHA_URL', 'WAHA_API_KEY', 'WAHA_SESSION', 'WAHA_NUMERO_LINEA', 'RESPONDE_URL', 'ODB_BOT_PAUSA_ESCRITURA_MS', 'ODB_BOT_ESPERA_SEG'];
 let envAntes: Record<string, string | undefined> = {};
 beforeEach(() => {
   envAntes = Object.fromEntries(ENV.map((k) => [k, process.env[k]]));
@@ -192,6 +192,9 @@ beforeEach(() => {
   delete process.env.WAHA_NUMERO_LINEA;
   delete process.env.RESPONDE_URL;
   delete process.env.ODB_BOT_PAUSA_ESCRITURA_MS;
+  // estas pruebas miran por qué línea entra y sale cada mensaje, no la espera
+  // de las ráfagas (8/10/2026), que se prueba en espera-rafaga.spec.ts
+  process.env.ODB_BOT_ESPERA_SEG = '0';
 });
 afterEach(() => {
   for (const k of ENV) { if (envAntes[k] === undefined) delete process.env[k]; else process.env[k] = envAntes[k]; }
