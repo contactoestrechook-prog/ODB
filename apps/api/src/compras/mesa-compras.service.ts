@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
 import * as XLSX from 'xlsx';
@@ -10,6 +10,7 @@ import { margenAplicable } from './precio';
 import { TONO_ODB } from '../comun/tono-odb';
 import { respuestaSinVueltas } from '../comun/sin-vueltas';
 import { unidadesPorBulto } from './bultos';
+import { HistorialComprasService } from './historial-compras.service';
 
 export type MensajeMesa = {
   rol: 'usuario' | 'asistente';
@@ -132,6 +133,8 @@ Cuando el comprador te describe una oferta (por texto, dictada, en una foto o PD
 - Mostrá el costo real por unidad y el paso a paso, en criollo. El comprador tiene que poder explicárselo al dueño.
 - Si hay más de una oferta del mismo producto, comparalas: es donde más plata se gana, porque a ojo no se comparan.
 - Después mostrá qué pasa con el precio de venta: usá impacto_en_precio. Si el precio vigente queda por debajo del costo nuevo, avisalo fuerte y primero.
+
+Cuando el comprador trae una oferta de un proveedor, mirá primero historial_proveedor: compará lo que ofrece contra el último precio que se le pagó y su bonificación habitual, y decí si sube, baja o se mantiene. Para un producto puntual, historial_producto te dice quién más lo vendió y a cuánto.
 
 Cuando los números están cerrados y el comprador quiere aplicarlos, usá crear_propuesta. Eso NO cambia nada todavía: deja la propuesta esperando la aprobación del dueño. Decíselo con esas palabras, para que nadie crea que ya está aplicado.
 
@@ -277,6 +280,25 @@ const HERRAMIENTAS: Anthropic.Tool[] = [
     },
   },
   {
+    name: 'historial_proveedor',
+    description:
+      'Lo que ya le compramos a un proveedor, sacado de sus facturas: cada producto con el último precio pagado (neto de bonificación) y su fecha, el precio anterior y cuánto cambió, cada cuántos días y cuánto se compra, la bonificación y las unidades por bulto; y los renglones que nunca se vincularon a un producto de la casa. Usala apenas el comprador nombra a un proveedor o trae una oferta suya: es la base para saber si lo que ofrece ahora es caro o barato.',
+    input_schema: {
+      type: 'object',
+      properties: { proveedor: { type: 'string', description: 'Nombre del proveedor (o parte) o su id.' } },
+      required: ['proveedor'],
+    },
+  },
+  {
+    name: 'historial_producto',
+    description: 'Quién nos vendió un producto y a cuánto: por proveedor, el último precio pagado, la fecha, cuántas veces y los últimos precios. Usala para comparar una oferta contra lo que ya se pagó, propio o de otro proveedor.',
+    input_schema: {
+      type: 'object',
+      properties: { sku: { type: 'string' } },
+      required: ['sku'],
+    },
+  },
+  {
     name: 'impacto_en_precio',
     description: 'Dado un costo nuevo y un sku, muestra el precio sugerido por la regla de la casa, cuánto varía el costo y si el precio vigente quedaría por debajo del costo.',
     input_schema: {
@@ -321,7 +343,11 @@ const HERRAMIENTAS: Anthropic.Tool[] = [
 @Injectable()
 export class MesaComprasService {
   private readonly log = new Logger('MesaCompras');
-  constructor(@Inject(SUPABASE) private readonly db: SupabaseClient) {}
+  constructor(
+    @Inject(SUPABASE) private readonly db: SupabaseClient,
+    // lo que nos vende cada proveedor (8/10/2026); opcional para las pruebas
+    @Optional() private readonly historial?: HistorialComprasService,
+  ) {}
 
   // ---- herramientas ----
 
@@ -625,11 +651,37 @@ export class MesaComprasService {
         return this.buscarProducto(String(input.q ?? ''));
       case 'impacto_en_precio':
         return this.impactoDeSku(String(input.sku), Number(input.costoNuevo), input.margenPct);
+      case 'historial_proveedor':
+        return this.historialParaAnalista(String(input.proveedor ?? ''));
+      case 'historial_producto':
+        return this.historial ? this.historial.porProducto(String(input.sku ?? '')) : { error: 'Historial no disponible' };
       case 'crear_propuesta':
         return this.crearPropuesta(input, usuarioId);
       default:
         return { error: `Herramienta desconocida: ${nombre}` };
     }
+  }
+
+  // El historial completo de un proveedor grande son cientos de productos: al
+  // modelo le van los 60 más recientes y los 20 sin vincular, con lo justo.
+  private async historialParaAnalista(proveedor: string) {
+    if (!this.historial) return { error: 'Historial no disponible' };
+    const r: any = await this.historial.buscarProveedor(proveedor);
+    if (!r?.productos) return r;
+    const comprados = r.productos.filter((p: any) => !p.soloVinculo);
+    return {
+      proveedor: r.proveedor,
+      comprobantes: r.comprobantes, primeraCompra: r.primeraCompra, ultimaCompra: r.ultimaCompra, netoComprado: r.netoComprado,
+      productos: comprados.slice(0, 60).map((p: any) => ({
+        sku: p.sku, codigo: p.codigo, nombre: p.nombre, codigoProveedor: p.codigoProveedor,
+        compras: p.compras, ultimaCompra: p.ultimaCompra, ultimoPrecioNeto: p.ultimoPrecio, precioAnterior: p.precioAnterior,
+        variacionPct: p.variacionPct, bonificacionPct: p.bonificacionPct, unidadesPorBulto: p.unidadesPorBulto,
+        promedioPorCompra: p.promedioPorCompra, cadaCuantosDias: p.cadaCuantosDias, costoFinalUnitario: p.costoUnitario,
+      })),
+      productosQueTambienTrabaja: r.productos.length - comprados.length,
+      sinVincular: r.sinVincular.slice(0, 20),
+      nota: comprados.length > 60 ? `Mostrando los 60 más recientes de ${comprados.length}.` : undefined,
+    };
   }
 
   // ---- la charla ----
