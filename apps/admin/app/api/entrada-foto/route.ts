@@ -14,16 +14,24 @@ export async function POST(req: Request) {
   const ct = req.headers.get('content-type') ?? '';
   if (ct.includes('application/json')) {
     const b = await req.json().catch(() => ({}) as any);
+    // la factura editable (8/10/2026): chat con IA, constancia de cambios y
+    // reglas del proveedor; llevan el cuerpo entero
+    const conCuerpo = ['chat', 'revision', 'regla'].includes(b?.accion);
+    const id = encodeURIComponent(String(b?.id ?? 'sin-lectura'));
     const ruta =
-      b?.accion === 'releer' ? `/compras/entrada-foto/${encodeURIComponent(b.id)}/releer`
-      : b?.accion === 'abrir' ? `/compras/entrada-foto/${encodeURIComponent(b.id)}/abrir`
-      : b?.accion === 'descartar' ? `/compras/entrada-foto/${encodeURIComponent(b.id)}/descartar`
+      b?.accion === 'releer' ? `/compras/entrada-foto/${id}/releer`
+      : b?.accion === 'abrir' ? `/compras/entrada-foto/${id}/abrir`
+      : b?.accion === 'descartar' ? `/compras/entrada-foto/${id}/descartar`
+      : b?.accion === 'chat' ? `/compras/entrada-foto/${id}/chat`
+      : b?.accion === 'revision' ? `/compras/entrada-foto/${id}/revision`
+      : b?.accion === 'regla' ? `/compras/proveedores/${encodeURIComponent(String(b?.proveedorId ?? ''))}/reglas-lectura`
+      : b?.accion === 'quitarRegla' ? `/compras/reglas-lectura/${id}/desactivar`
       : null;
     if (!ruta) return NextResponse.json({ message: 'Acción inválida' }, { status: 400 });
     const res = await fetch(`${API}${ruta}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...auth },
-      body: JSON.stringify({ aclaraciones: b.aclaraciones ?? '' }),
+      body: JSON.stringify(conCuerpo ? b : { aclaraciones: b.aclaraciones ?? '' }),
     });
     return NextResponse.json(await res.json().catch(() => ({})), { status: res.status });
   }
@@ -38,6 +46,8 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const ruta = url.searchParams.get('bandeja')
     ? '/compras/lecturas'
+    : url.searchParams.get('reglas')
+    ? `/compras/proveedores/${encodeURIComponent(url.searchParams.get('reglas') ?? '')}/reglas-lectura`
     : url.searchParams.get('original')
     ? `/compras/entrada-foto/${encodeURIComponent(url.searchParams.get('original') ?? '')}/original`
     : `/compras/entrada-foto/${encodeURIComponent(url.searchParams.get('id') ?? '')}`;
