@@ -84,11 +84,13 @@ const COLUMNAS: ColumnaTabla<Producto>[] = [
 export function HistorialProveedor() {
   const [proveedores, setProveedores] = useState<{ id: string; razon_social: string; productos: number }[]>([]);
   const [provId, setProvId] = useState('');
-  const [datos, setDatos] = useState<Resumen | null>(null);
+  const [datosDe, setDatos] = useState<Resumen | null>(null);
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState('');
   const [busca, setBusca] = useState('');
   const [vista, setVista] = useState<'comprados' | 'todo' | 'sinVincular'>('comprados');
+  // los datos solo valen para el proveedor elegido
+  const datos = datosDe && datosDe.proveedor.id === provId ? datosDe : null;
 
   useEffect(() => {
     fetch('/api/compras?recurso=proveedores-lista', { cache: 'no-store' })
@@ -98,7 +100,7 @@ export function HistorialProveedor() {
   }, []);
 
   useEffect(() => {
-    if (!provId) { setDatos(null); return; }
+    if (!provId) return;
     let vigente = true;
     setCargando(true); setError(''); setBusca('');
     fetch(`/api/compras?recurso=historial-proveedor&id=${encodeURIComponent(provId)}`, { cache: 'no-store' })

@@ -13,7 +13,7 @@ import {
   variacionDeCosto, volverABulto as volverABultoRenglon, volverAPendiente, yaEnUnidades,
 } from '../lib/bultos-compras';
 import { PanelImpuestos } from './PanelImpuestos';
-import { TablaFactura } from './TablaFactura';
+import { CabeceraFactura, PapelDelRenglon } from './TablaFactura';
 import { conCodigo } from '../lib/codigo-producto';
 import { AsistenteFactura, describirCambio, type CambioHecho } from './AsistenteFactura';
 import { aplicarCambiosIA, aplicarPapel, cuentaDelPapel, entraDeRenglon, papelDeLectura, tablaParaIA, type EntraComo, type Papel } from '../lib/tabla-factura';
@@ -2022,18 +2022,9 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
               )}
               {provAviso && <p className="text-xs text-marca-hondo">{provAviso}</p>}
 
-              {/* LA FACTURA EDITABLE (8/10/2026): la tabla con la cuenta en vivo y el
-                  chat con la IA. Las tarjetas de abajo quedan para lo que la tabla
-                  no hace: vincular el producto, la remarcación y el precio de venta. */}
-              <TablaFactura
-                items={itemsCalc}
-                costoFinal={(i, idx) => costoFinal(i, idx)}
-                destinoDescuento={textoDestino}
-                onCambiarPapel={cambiarPapel}
-                onNoAplicar={noAplicarDescuento}
-                marcados={marcados}
-                alicuotaDe={alicDe}
-              />
+              {/* LA FACTURA EDITABLE (8/10/2026): el chat con la IA y, en cada tarjeta de
+                  abajo, los números del papel editables con la cuenta en vivo. Una sola
+                  lista (Leandro: «sale dos veces la factura, arriba y abajo»). */}
               <AsistenteFactura
                 lecturaId={foto.lecturaId ?? null}
                 proveedorId={f.proveedorId || null}
@@ -2047,21 +2038,18 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                 onDeshacer={deshacerCambio}
                 sugerencias={sugerenciasChat}
               />
-              <div className="pt-2">
-                <h3 className="text-sm font-semibold text-tinta">Productos del sistema y precio de venta</h3>
-                <p className="text-xs text-tinta/60">Vinculá cada renglón con su producto y revisá la remarcación y el precio de venta. Las cantidades, los precios y los descuentos se corrigen en la tabla de arriba.</p>
-              </div>
+              <CabeceraFactura items={itemsCalc} />
 
               {/* renglones: cada uno editable — vincular producto, cantidad, remarcación y precio */}
               <div className="@container">
               <div className="hidden @min-[49rem]:grid grid-cols-[26px_minmax(11rem,1fr)_72px_290px_64px_92px] items-end gap-2 px-3 pt-1 text-xs font-semibold uppercase tracking-[0.08em] text-tinta/60">
                 <span /><span>Renglón del papel → producto en el sistema</span>
-                <span className="text-right">Cant.</span><span className="text-right">Costo papel → c/IVA → total</span>
+                <span className="text-right">Entra</span><span className="text-right">Costo c/IVA → total</span>
                 <span className="text-right">Remar. %</span><span className="text-right">P. venta</span>
               </div>
               </div>
               {itemsCalc.map((i: any, idx: number) => (
-                <div key={idx} className={'rounded-xl border px-3 py-2.5 ' + (i.sugerido ? 'border-dorado bg-crema-claro' : i.incluir ? 'border-black/[0.06] bg-white' : 'border-transparent bg-crema-claro')}>
+                <div key={idx} className={'rounded-xl border px-3 py-2.5 ' + (i.sugerido ? 'border-dorado bg-crema-claro' : i.incluir ? 'border-black/[0.06] bg-white' : 'border-transparent bg-crema-claro') + (marcados.includes(idx) ? ' ring-2 ring-info' : '')}>
                   {i._esDescuento ? (
                     <div className={'flex items-start gap-2.5' + (i.noAplicar ? ' opacity-60' : '')}>
                       <IconoRebaja className="mt-0.5 size-4 shrink-0 text-tinta/60" />
@@ -2077,15 +2065,15 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                         <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-tinta/70">
                           {i.noAplicar ? (
                             <>La mercadería queda a precio de lista; lo pagado de menos se reparte en el costo general.
-                              <button onClick={() => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, noAplicar: false } : x))} className={unir(ENLACE, 'text-tinta/70 hover:text-marca-hondo')}>Aplicar de nuevo</button></>
+                              <button onClick={() => noAplicarDescuento(idx, false)} className={unir(ENLACE, 'text-tinta/70 hover:text-marca-hondo')}>Aplicar de nuevo</button></>
                           ) : sinAtribuir.some((x) => x.descripcion === i.descripcion) ? (
                             <span className="text-marca-hondo">No se sabe a qué renglón corresponde{numImp(i.descuentoPct) > 0 ? ` (dice ${numImp(i.descuentoPct)}% y no cierra con ninguno)` : ''}: no se descontó de ningún costo. Si es de toda la factura, cargala en “Desc. del pie”.</span>
                           ) : grupoDeDescuento.has(idx) ? (
                             <>Se reparte entre los {grupoDeDescuento.get(idx)!.n} renglones de arriba{grupoDeDescuento.get(idx)!.pct ? ` (${grupoDeDescuento.get(idx)!.pct}%)` : ''}, proporcional a cada uno.
-                              <button onClick={() => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, noAplicar: true } : x))} className={CHIP_ACCION}>No aplicar</button></>
+                              <button onClick={() => noAplicarDescuento(idx, true)} className={CHIP_ACCION}>No aplicar</button></>
                           ) : (
                             <>{destinoDeDescuento.get(idx)?.motivo === 'regalo' ? 'Va sin cargo: se descuenta entero del renglón de arriba.' : 'Se descuenta del renglón que nombra.'}
-                              <button onClick={() => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, noAplicar: true } : x))} className={CHIP_ACCION}>No aplicar</button></>
+                              <button onClick={() => noAplicarDescuento(idx, true)} className={CHIP_ACCION}>No aplicar</button></>
                           )}
                         </div>
                       </div>
@@ -2097,10 +2085,12 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                       {/* 1 · lo que dice el papel, tal cual, con sus sellos */}
                       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                         <span className="min-w-0 font-mono text-sm leading-snug text-tinta [overflow-wrap:anywhere]">{i.descripcion}</span>
-                        <span className="font-mono text-xs tabular-nums text-tinta/60">
-                          {numImp(i.cantidad).toLocaleString('es-AR')} × {pesos(numImp(i.precio))}
-                          {i.importe != null && i.importe !== '' ? <> = <b className="text-tinta/70">{pesos(Math.abs(numImp(i.importe)))}</b></> : null}
-                        </span>
+                        {(!i.papel || i.porPeso) && (
+                          <span className="font-mono text-xs tabular-nums text-tinta/60">
+                            {numImp(i.cantidad).toLocaleString('es-AR')} × {pesos(numImp(i.precio))}
+                            {i.importe != null && i.importe !== '' ? <> = <b className="text-tinta/70">{pesos(Math.abs(numImp(i.importe)))}</b></> : null}
+                          </span>
+                        )}
                         {numImp(i.unidadesPorBulto) > 1 && <Sello tono="oro">×{Math.round(numImp(i.unidadesPorBulto))}: ¿cajas o unidades?</Sello>}
                         {numImp(i.bultoAplicado) > 1 && <Sello tono="info">×{Math.round(numImp(i.bultoAplicado))} → unidades</Sello>}
                         {estadoDelBulto(i) === 'ya_en_unidades' && <Sello tono="ok">×{Math.round(numImp(i.bultoDescartado))} · ya en unidades</Sello>}
@@ -2138,6 +2128,9 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                           </label>
                         )}
                       </div>
+
+                      {/* 1 bis · los números del papel, editables, con la cuenta en vivo (8/10/2026) */}
+                      {i.papel && !i.porPeso && <PapelDelRenglon i={i} idx={idx} onCambiarPapel={cambiarPapel} />}
 
                       {/* 2 · lo que entra al sistema: producto y números, en columnas fijas */}
                       {/* Se adapta al ancho de la TARJETA (container query), no al de la ventana:
@@ -2291,10 +2284,14 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                             </span>
                           )}
                         </div>
-                        <input type="number" step="any" min="0" value={i.cantidad} onChange={(e) => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, cantidad: Number(e.target.value) } : x))} aria-label="Cantidad" className={unir(CAMPO_FILA, CAMPO_FILA_COLOR, 'importe')} />
+                        {i.papel && !i.porPeso ? (
+                          <span className="importe text-right text-sm font-semibold text-tinta" title="Lo que entra al stock: se corrige con los números del papel">{numImp(i.cantidad).toLocaleString('es-AR', { maximumFractionDigits: 3 })}</span>
+                        ) : (
+                          <input type="number" step="any" min="0" value={i.cantidad} onChange={(e) => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, cantidad: Number(e.target.value) } : x))} aria-label="Cantidad" className={unir(CAMPO_FILA, CAMPO_FILA_COLOR, 'importe')} />
+                        )}
                         {/* costo: el precio del papel (corregible) → el costo final que queda en stock, en la misma línea */}
                         <div className="col-span-1 flex flex-wrap items-center justify-end gap-1.5 tabular-nums">
-                          <input
+                          {(!i.papel || i.porPeso) && <input
                             type="number" step="any" min="0" value={i.precio}
                             onChange={(e) => setFotoItems((xs) => xs.map((x, j) => {
                               if (j !== idx) return x;
@@ -2304,8 +2301,8 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                             title="Precio unitario tal como está en el papel (sin IVA): corregilo si la lectura falló"
                             aria-label="Precio del papel"
                             className={unir(CAMPO_FILA_BASE, CAMPO_FILA_COLOR, 'importe w-[78px] px-1.5')}
-                          />
-                          {Math.abs(costoFinal(i, idx) - precioEfectivo(i)) > 0.5 ? (
+                          />}
+                          {(i.papel && !i.porPeso) || Math.abs(costoFinal(i, idx) - precioEfectivo(i)) > 0.5 ? (
                             <span
                               className="whitespace-nowrap text-right leading-none"
                               title={desgloseCosto(i, idx)}
