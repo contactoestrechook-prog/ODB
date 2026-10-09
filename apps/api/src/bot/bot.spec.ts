@@ -325,7 +325,7 @@ describe('BotService.ejecutarHerramienta (seguridad: no confía en el teléfono 
       'pedidos',
       CIERRE_OK.ctx,
     );
-    expect(crear).toHaveBeenCalledWith(expect.objectContaining({ telefono: '5491199990000' }));
+    expect(crear).toHaveBeenCalledWith(expect.objectContaining({ telefono: '5491199990000' }), expect.anything());
   });
 });
 
@@ -373,7 +373,7 @@ describe('BotService.ejecutarHerramienta · cierre de pedido (doble confirmació
     const { s } = servicio();
     const crear = jest.spyOn(s, 'crearPedido');
     const r = await (s as any).ejecutarHerramienta({ ...base, input: { ...input, items: [{ sku: 'INVENTADO', cantidad: 1 }], confirmacion_del_cliente: 'sí' } }, tel, 'pedidos', { ultimoBot: 'Total: 20.500. ¿Lo confirmo?', textoCliente: 'sí' });
-    expect(crear).toHaveBeenCalledWith({ telefono: tel, linea: 'pedidos', confirmacion: 'sí', resumenPresentado: 'Total: 20.500. ¿Lo confirmo?' });
+    expect(crear).toHaveBeenCalledWith({ telefono: tel, linea: 'pedidos', confirmacion: 'sí', resumenPresentado: 'Total: 20.500. ¿Lo confirmo?' }, expect.anything());
     expect(String(r.content)).toMatch(/cotización|resumen/i);
   });
 });

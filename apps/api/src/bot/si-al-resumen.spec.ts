@@ -19,7 +19,15 @@ function baseFalsa(config: Record<string, any> = {}) {
   const escrituras: { tabla: string; op: string; fila: any }[] = [];
   const db: any = {
     escrituras,
-    rpc: jest.fn(async (nombre: string) => (nombre === 'confirmar_cotizacion_bot' ? { data: 'pedido-1', error: null } : { data: null, error: null })),
+    // como la base: el modo 'si' rechaza la cotización vencida (vence_en) y el 'dato', la de más de 10 min
+    rpc: jest.fn(async (nombre: string, a: any) => {
+      if (nombre !== 'confirmar_cotizacion_bot') return { data: null, error: null };
+      const q = (config.bot_cotizaciones?.filas ?? []).find((f: any) => f.id === a.p_id);
+      if (!q) return { data: null, error: { message: 'Cotizacion no encontrada para este chat' } };
+      if (a.p_modo === 'dato' && Date.now() - new Date(q.creada_en).getTime() >= 10 * 60_000) return { data: null, error: { message: 'El dato no confirma el pedido' } };
+      if (!a.p_modo && new Date(q.vence_en).getTime() < Date.now()) return { data: null, error: { message: 'La cotizacion vencio: volver a cotizar' } };
+      return { data: 'pedido-1', error: null };
+    }),
     from(tabla: string) {
       let op = 'select';
       const filtros: any[] = [];
@@ -37,6 +45,12 @@ function baseFalsa(config: Record<string, any> = {}) {
         return fs ? { data: fs[0] ?? null, error: null } : (config[tabla]?.select ?? { data: null, error: null });
       };
       const todos = () => {
+        if (op === 'update' && config[tabla]?.filas) {
+          const fila = escrituras.filter((e) => e.tabla === tabla && e.op === 'update').slice(-1)[0]?.fila ?? {};
+          const fs = (config[tabla].filas as any[]).filter((f) => cumple(f, filtros));
+          for (const f of fs) Object.assign(f, fila);
+          return { data: fs.map((f) => ({ id: f.id })), error: null };
+        }
         if (op !== 'select') return { data: null, error: null };
         const fs = lista();
         return fs ? { data: fs, error: null } : (config[tabla]?.select ?? { data: null, error: null });
@@ -83,12 +97,14 @@ const HIST = [
   { role: 'assistant', content: M24 },
 ];
 
-function armar(o: { cotizaciones?: any[]; totalNuevo?: number; hist?: any[]; actualizado?: string } = {}) {
-  const filas = [...(o.cotizaciones ?? [VIEJA])];
+function armar(o: { cotizaciones?: any[]; totalNuevo?: number; hist?: any[]; actualizado?: string; renglonesNuevos?: any[]; tablas?: Record<string, any> } = {}) {
+  // copias: la toma atómica marca la fila (recotizada_en) y no tiene que pasar a la prueba siguiente
+  const filas = (o.cotizaciones ?? [VIEJA]).map((f) => ({ ...f }));
   const db = baseFalsa({
     bot_cotizaciones: { filas },
     bot_conversaciones: { select: { data: { mensajes: o.hist ?? HIST, bot_activo: true, actualizado_en: o.actualizado ?? hace(1), importes_verificados: [] }, error: null } },
     lineas_whatsapp: { select: { data: { derivar_pagos_a: null, avisar_proveedores_a: null, bot_activo: true }, error: null } },
+    ...(o.tablas ?? {}),
   });
   const pedidos = { obtener: jest.fn(async () => ({ qr_retiro: 'PICKUP-E9D52964B0BA', total: 128200, estado: 'recibido' })) };
   const s: any = new BotService(db, pedidos as any, {} as any, {} as any, {} as any);
@@ -100,7 +116,7 @@ function armar(o: { cotizaciones?: any[]; totalNuevo?: number; hist?: any[]; act
     const total = o.totalNuevo ?? 128200;
     const resumen = RESUMEN.replace('$128.200', `$${total.toLocaleString('es-AR')}`);
     filas.push({ ...VIEJA, id: 'cot-nueva', creada_en: new Date().toISOString(), vence_en: new Date(Date.now() + 30 * 60_000).toISOString(), total, resumen });
-    return { cotizacionId: 'cot-nueva', total, resumen, renglones };
+    return { cotizacionId: 'cot-nueva', total, resumen, renglones: o.renglonesNuevos ?? renglones };
   });
   const create = jest.fn(async () => ({ stop_reason: 'end_turn', content: [{ type: 'text', text: 'NO DEBERÍA LLAMARSE AL MODELO' }], usage: { input_tokens: 1, output_tokens: 1 } }));
   s.claude = { messages: { create } };
@@ -111,7 +127,7 @@ const confirmaciones = (db: any) => db.rpc.mock.calls.filter((c: any[]) => c[0] 
 describe('crearPedido: el «sí» al «¿Lo confirmo?» confirma si nada cambió', () => {
   it('22:43 «Sí» al mensaje 24, con la cotización vencida: se recotiza igual y queda confirmado', async () => {
     const { s, db, preparar } = armar();
-    const r = await s.crearPedido({ telefono: TEL, linea: 'pedidos', confirmacion: 'Sí', resumenPresentado: M24 });
+    const r = await s.crearPedido({ telefono: TEL, linea: 'pedidos', confirmacion: 'Sí', resumenPresentado: M24 }, { recienPreguntado: true });
     expect(preparar).toHaveBeenCalledTimes(1);
     expect(preparar.mock.calls[0][2]).toMatchObject({ tipo: 'pickup', nombre: 'Leandro', items: renglones.map((x) => ({ sku: x.sku, cantidad: x.cantidad })) });
     expect(confirmaciones(db)).toEqual([{ p_id: 'cot-nueva', p_telefono: TEL, p_linea: 'pedidos', p_confirmacion: 'Sí' }]);
@@ -121,14 +137,14 @@ describe('crearPedido: el «sí» al «¿Lo confirmo?» confirma si nada cambió
 
   it('«A nombre de leandro» al «¿Lo confirmo?» es un sí: se confirma por el modo dato (la base vuelve a controlar el nombre)', async () => {
     const { s, db } = armar();
-    const r = await s.crearPedido({ telefono: TEL, linea: 'pedidos', confirmacion: 'A nombre de leandro', resumenPresentado: M24 });
+    const r = await s.crearPedido({ telefono: TEL, linea: 'pedidos', confirmacion: 'A nombre de leandro', resumenPresentado: M24 }, { recienPreguntado: true });
     expect(confirmaciones(db)).toEqual([{ p_id: 'cot-nueva', p_telefono: TEL, p_linea: 'pedidos', p_confirmacion: 'A nombre de leandro', p_modo: 'dato' }]);
     expect(r.respuesta).toMatch(/^Pedido PICKUP-E9D52964B0BA confirmado a nombre de Leandro\./);
   });
 
   it('si al recotizar cambió el precio, va el resumen nuevo (una vez) y no se crea nada', async () => {
     const { s, db } = armar({ totalNuevo: 130500 });
-    const r = await s.crearPedido({ telefono: TEL, linea: 'pedidos', confirmacion: 'Sí', resumenPresentado: M24 });
+    const r = await s.crearPedido({ telefono: TEL, linea: 'pedidos', confirmacion: 'Sí', resumenPresentado: M24 }, { recienPreguntado: true });
     expect(r.recotizado).toBe(true);
     expect(r.respuesta).toMatch(/Total: \$130\.500/);
     expect(r.respuesta).toMatch(/¿Lo confirmo\?$/);
@@ -207,5 +223,157 @@ describe('charla de Leandro (22:43): sin el modelo', () => {
     const r = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Hola' });
     expect(create).not.toHaveBeenCalled();
     expect(r.respuesta ?? null).toBeNull();
+  });
+});
+
+// ============================================================
+// Revisión del 9/10 (noche): lo que NO tiene que crear un pedido, y los «sí» que
+// el bot no entendía. Uno por hallazgo.
+// ============================================================
+const FRESCA = { ...VIEJA, id: 'cot-fresca', creada_en: hace(5), vence_en: new Date(Date.now() + 25 * 60_000).toISOString() };
+const HIST_FRESCA = [{ role: 'user', content: 'Leandro, para retirar' }, { role: 'assistant', content: RESUMEN }];
+
+describe('revisión del 9/10: lo que no es aceptar', () => {
+  it('un «sí» dos días después no recotiza ni confirma: decide el modelo', async () => {
+    const vieja = { ...VIEJA, creada_en: hace(2 * 24 * 60), vence_en: hace(2 * 24 * 60 - 30) };
+    for (const t of ['Sí', 'Dale', 'Perfecto, gracias por todo']) {
+      const { s, db, preparar, create } = armar({ cotizaciones: [vieja], hist: HIST_FRESCA, actualizado: hace(2 * 24 * 60) });
+      await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: t });
+      expect([t, preparar.mock.calls.length]).toEqual([t, 0]);
+      expect(confirmaciones(db).filter((c: any) => c.p_id === 'cot-nueva')).toHaveLength(0);
+      if (t !== 'Perfecto, gracias por todo') expect(create).toHaveBeenCalled();
+    }
+  });
+
+  it('«Hola, soy Leandro», «Soy Leandro», «Es Leandro» al «¿Lo confirmo?» no son aceptar', async () => {
+    for (const t of ['Hola, soy Leandro', 'Soy Leandro', 'Es Leandro', 'Buenas, soy Leandro']) {
+      const { s, preparar, db } = armar();
+      await expect(s.crearPedido({ telefono: TEL, linea: 'pedidos', confirmacion: t, resumenPresentado: M24 }, { recienPreguntado: true })).rejects.toThrow(/falta confirmación inequívoca/);
+      expect(preparar).not.toHaveBeenCalled();
+      expect(confirmaciones(db)).toHaveLength(0);
+    }
+  });
+
+  it('crear_pedido después de armar otro resumen en el mismo turno: «Ana» no confirma lo que el cliente no vio', async () => {
+    const { s } = armar({ cotizaciones: [FRESCA] });
+    const crear = jest.spyOn(s, 'crearPedido');
+    const ctx = { ultimoBot: RESUMEN, textoCliente: 'Ana', historial: HIST_FRESCA, fallos: new Map([['__preparado__', 1]]), fija: {} as any, salidas: [] };
+    const r = await s.ejecutarHerramienta({ type: 'tool_use', id: 't', name: 'crear_pedido', input: {} }, TEL, 'pedidos', ctx);
+    expect(crear).not.toHaveBeenCalled();
+    expect(String(r.content)).toMatch(/NO se creó el pedido/);
+  });
+
+  it('«Sí, sumale una coca», «Si y 2 hielos», «Sí, también un fernet» no confirman sin lo que agregó', async () => {
+    for (const t of ['Sí, sumale una coca', 'Si y 2 hielos', 'Sí, también un fernet']) {
+      const { s, preparar, db } = armar();
+      await expect(s.crearPedido({ telefono: TEL, linea: 'pedidos', confirmacion: t, resumenPresentado: M24 }, { recienPreguntado: true })).rejects.toThrow(/falta confirmación inequívoca/);
+      expect(preparar).not.toHaveBeenCalled();
+      expect(confirmaciones(db)).toHaveLength(0);
+    }
+  });
+
+  it('al recotizar, el mismo total pero otro precio en efectivo: va el resumen nuevo, no se confirma', async () => {
+    const { s, db } = armar({ renglonesNuevos: renglones.map((r, i) => (i === 1 ? { ...r, subtotal: 45400, subtotalEfectivo: 43000 } : r)) });
+    const r = await s.crearPedido({ telefono: TEL, linea: 'pedidos', confirmacion: 'Sí', resumenPresentado: M24 }, { recienPreguntado: true });
+    expect(r.recotizado).toBe(true);
+    expect(confirmaciones(db)).toHaveLength(0);
+  });
+
+  it('con la fecha de entrega ya pasada no se recotiza (la base la rechaza y el modelo pide otra fecha)', async () => {
+    const conFecha = { ...VIEJA, creada_en: hace(60), vence_en: hace(30), entrega_fecha: '2020-01-01' };
+    const { s, preparar } = armar({ cotizaciones: [conFecha] });
+    await expect(s.crearPedido({ telefono: TEL, linea: 'pedidos', confirmacion: 'Sí', resumenPresentado: RESUMEN }, { recienPreguntado: true })).rejects.toThrow(/vencio/);
+    expect(preparar).not.toHaveBeenCalled();
+  });
+
+  it('dos mensajes a la vez: una sola recotización, un solo pedido', async () => {
+    const { s, db, preparar } = armar();
+    const rs = await Promise.allSettled([
+      s.crearPedido({ telefono: TEL, linea: 'pedidos', confirmacion: 'Sí', resumenPresentado: M24 }, { recienPreguntado: true }),
+      s.crearPedido({ telefono: TEL, linea: 'pedidos', confirmacion: 'A nombre de Leandro', resumenPresentado: M24 }, { recienPreguntado: true }),
+    ]);
+    expect(preparar).toHaveBeenCalledTimes(1);
+    expect(rs.filter((x) => x.status === 'fulfilled')).toHaveLength(1);
+    expect(confirmaciones(db).filter((c: any) => c.p_id === 'cot-nueva')).toHaveLength(1);
+  });
+
+  it('después del resumen le llegó una difusión: el «sí» no confirma sin el modelo', async () => {
+    const { s, db } = armar({ cotizaciones: [FRESCA], tablas: { bot_envios: { filas: [{ waha_id: 'D1', telefono: TEL, origen: 'difusion', creado_en: new Date().toISOString() }] } } });
+    await expect(s.crearPedido({ telefono: TEL, linea: 'pedidos', confirmacion: 'Sí', resumenPresentado: RESUMEN })).rejects.toThrow(/difusión/);
+    expect(confirmaciones(db)).toHaveLength(0);
+  });
+});
+
+describe('revisión del 9/10: los «sí» que el bot no entendía', () => {
+  it('«Sii», «Sisi», «¡Sí!», «Hola, sí», «Bueno, sí, confirmalo», «Confirmado», «Sí, para retirar»: confirman', async () => {
+    for (const t of ['Sii', 'Sisi', '¡Sí!', 'Hola, sí', 'Bueno, sí, confirmalo', 'Confirmado', 'Sí, para retirar', 'Si porfa']) {
+      const { s, db } = armar({ cotizaciones: [FRESCA] });
+      await s.crearPedido({ telefono: TEL, linea: 'pedidos', confirmacion: t, resumenPresentado: RESUMEN });
+      const c = confirmaciones(db);
+      expect([t, c.length]).toEqual([t, 1]);
+      expect(c[0].p_confirmacion).toMatch(/^(si|sí|dale|ok|confirmo|confirmalo|bueno)/i);
+    }
+  });
+
+  it('«Sí, para retirar» con un envío no se toma como sí (cambia la modalidad)', async () => {
+    const { s } = armar({ cotizaciones: [{ ...FRESCA, tipo: 'domicilio', direccion: 'Mitre 1234', nombre: 'Leandro' }] });
+    await expect(s.crearPedido({ telefono: TEL, linea: 'pedidos', confirmacion: 'Sí, para retirar', resumenPresentado: RESUMEN })).rejects.toThrow(/falta confirmación inequívoca/);
+  });
+
+  it('«Perfecto», «👍», «Dale gracias», «Joya» al «¿Lo confirmo?»: confirman sin el modelo (antes el bot se callaba)', async () => {
+    for (const t of ['Perfecto', '👍', 'Dale gracias', 'Joya']) {
+      const { s, db, create } = armar({ cotizaciones: [FRESCA], hist: HIST_FRESCA });
+      const r = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: t });
+      expect([t, create.mock.calls.length, confirmaciones(db).length]).toEqual([t, 0, 1]);
+      expect(r.respuesta).toMatch(/^Pedido PICKUP-E9D52964B0BA confirmado/);
+    }
+  });
+
+  it('con una respuesta del bot en el medio («Hasta las 21 h.»), «Dale, confirmalo» confirma', async () => {
+    const hist = [...HIST_FRESCA, { role: 'user', content: '¿Hasta qué hora puedo pasar?' }, { role: 'assistant', content: 'Hasta las 21 h.' }];
+    const { s, db, create } = armar({ cotizaciones: [FRESCA], hist });
+    const r = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Dale, confirmalo' });
+    expect(create).not.toHaveBeenCalled();
+    expect(confirmaciones(db)).toHaveLength(1);
+    expect(r.respuesta).toMatch(/^Pedido PICKUP-E9D52964B0BA confirmado/);
+  });
+
+  it('pasado el saludo de charla nueva, solo «confirmalo» vuelve al resumen; un «Sí» suelto va al modelo', async () => {
+    const hist = [...HIST_FRESCA, { role: 'user', content: 'Hola' }, { role: 'assistant', content: 'Buenas noches. ¿Qué necesitás?' }];
+    {
+      const { s, db, create } = armar({ cotizaciones: [FRESCA], hist });
+      await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Sí, confirmalo' });
+      expect(create).not.toHaveBeenCalled();
+      expect(confirmaciones(db)).toHaveLength(1);
+    }
+    {
+      const { s, db, create } = armar({ cotizaciones: [FRESCA], hist });
+      await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Sí' });
+      expect(create).toHaveBeenCalled();
+      expect(confirmaciones(db)).toHaveLength(0);
+    }
+  });
+});
+
+describe('revisión del 9/10: el saludo tardío', () => {
+  it('«Hola, buenas noches», «Buenos días», «Holaa 👋» y la ráfaga «Hola / Buenas noches»: el saludo y nada más', async () => {
+    for (const t of ['Hola, buenas noches', 'Buenos días', 'Holaa 👋', 'Hola\nBuenas noches', 'buenas']) {
+      const { s, create, preparar } = armar({ hist: HIST.slice(0, 7), actualizado: hace(300) });
+      const r = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: t });
+      expect([t, create.mock.calls.length, preparar.mock.calls.length]).toEqual([t, 0, 0]);
+      expect(r.respuesta).toMatch(/^(Buen día|Buenas tardes|Buenas noches)\. ¿Qué necesitás\?$/);
+    }
+  });
+
+  it('si lo último fue del cliente (espera una respuesta), el saludo va al modelo', async () => {
+    const { s, create } = armar({ hist: [...HIST.slice(0, 7), { role: 'user', content: '¿Tienen hielo de 5 kg?' }], actualizado: hace(300) });
+    await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Hola' });
+    expect(create).toHaveBeenCalled();
+  });
+
+  it('un proveedor que saluda no recibe el «¿Qué necesitás?» de cliente', async () => {
+    const { s, create } = armar({ hist: HIST.slice(0, 7), actualizado: hace(300), tablas: { bot_contactos: { select: { data: { tipo: 'proveedor', nombre: 'Distri Sur' }, error: null } } } });
+    await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Buen día' });
+    expect(create).toHaveBeenCalled();
   });
 });
