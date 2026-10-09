@@ -145,7 +145,7 @@ describe('BotService.charla (robustez del agente)', () => {
     expect(r.respuesta ?? '').toBe('');
   });
 
-  it('SÍ contesta un "hola" cuando la última charla quedó vieja', async () => {
+  it('SÍ contesta un "hola" cuando la última charla quedó vieja: el saludo y nada más, sin el modelo (9/10/2026)', async () => {
     const db = dbFalsa({
       bot_conversaciones: {
         data: {
@@ -158,8 +158,9 @@ describe('BotService.charla (robustez del agente)', () => {
     const { s } = servicio(db);
     const crear = jest.fn().mockResolvedValue(respuestaClaude('Buenas tardes. ¿En qué te puedo ayudar?'));
     (s as any).claude = { messages: { create: crear } };
-    await s.charla({ linea: 'pedidos', telefono: '888', mensaje: 'Hola' });
-    expect(crear).toHaveBeenCalled();
+    const r: any = await s.charla({ linea: 'pedidos', telefono: '888', mensaje: 'Hola' });
+    expect(crear).not.toHaveBeenCalled();
+    expect(r.respuesta).toMatch(/^(Buen día|Buenas tardes|Buenas noches)\. ¿Qué necesitás\?$/);
   });
 
   it('contesta el segundo "hola" seguido: ya nos callamos una vez', async () => {

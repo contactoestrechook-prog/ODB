@@ -122,14 +122,43 @@ export function cierraConElDato(p: {
     if (!linea) return no(`el renglón «${r.nombre}» no es el que vio el cliente`);
   }
 
-  // 3) el mensaje es solo el dato
+  // 3) y 4) el mensaje es SOLO el dato, y es el que quedó en la cotización
+  return soloElDato(texto, q);
+}
+
+/** ¿El texto trae este monto («$128.200», sin más dígitos pegados)? */
+export function contieneMonto(texto: string, total: number): boolean {
+  if (!(Number(total) > 0)) return false;
+  const m = pesos(Number(total)).replace(/\./g, '\\.');
+  return new RegExp(`\\$\\s?${m}(?![\\d.,]\\d)`).test(String(texto ?? ''));
+}
+
+/**
+ * ¿El mensaje es SOLO el nombre de quien retira (o la dirección del envío) que
+ * ya tiene la cotización, y nada más? Sirve para el dato que faltaba y para
+ * contestar «A nombre de Leandro» a un «¿Lo confirmo?» (9/10/2026).
+ */
+/** La forma de un dato suelto: corto, una línea, sin emojis, sin dudas, esperas ni cambios. */
+export function pareceSoloElDato(textoCliente: string): { ok: boolean; motivo: string } {
+  const no = (motivo: string) => ({ ok: false, motivo });
+  const texto = String(textoCliente ?? '').trim();
+  if (!texto) return no('el mensaje está vacío');
   if (texto.length > 80 || texto.includes('\n')) return no('el mensaje es largo o tiene varias líneas');
   if (!RE_SOLO_TEXTO.test(texto)) return no('el mensaje trae emojis o símbolos');
-  // un «Sí,» / «Dale,» adelante es parte de la respuesta («Sí, a nombre de Leandro»); un «si» en el medio no
-  const sinElSi = norm(texto).replace(/^(?:hola|buenas|dale|ok|listo|si)[\s,.!]+/, '');
-  if (RE_NO_ES_SOLO_EL_DATO.test(sinElSi)) return no('el mensaje trae algo más que el dato');
+  if (RE_NO_ES_SOLO_EL_DATO.test(sinElSiDe(texto))) return no('el mensaje trae algo más que el dato');
+  return { ok: true, motivo: '' };
+}
+// un «Sí,» / «Dale,» adelante es parte de la respuesta («Sí, a nombre de Leandro»); un «si» en el medio no
+const sinElSiDe = (texto: string) => norm(texto).replace(/^(?:hola|buenas|dale|ok|listo|si)[\s,.!]+/, '');
 
-  // 4) el dato es el que quedó en la cotización
+export function soloElDato(textoCliente: string, q: { tipo?: string; nombre?: string | null; direccion?: string | null }): { ok: boolean; motivo: string } {
+  const no = (motivo: string) => ({ ok: false, motivo });
+  const texto = String(textoCliente ?? '').trim();
+  const forma = pareceSoloElDato(texto);
+  if (!forma.ok) return forma;
+  const sinElSi = sinElSiDe(texto);
+
+  // el dato es el que quedó en la cotización
   const palabras = (t: string) => norm(t).replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(Boolean);
   if (q.tipo === 'domicilio') {
     // la dirección entera (todos sus números) y NADA más que la dirección y quien recibe

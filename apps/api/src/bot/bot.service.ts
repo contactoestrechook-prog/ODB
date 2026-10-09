@@ -10,7 +10,7 @@ import { emprolijarListado, nombreLimpio, saludoSegunHora, saludarConBienvenida,
 import { consultaAbiertaQueNombra, datoNuevo, diceQueNoSabe, esSoloSaludo, saludoDelArranque, juntarConsulta, mencionaConsulta, mismaConsulta, mismoTema, respuestaDelAreaParaCliente, sinMencionDeConsulta, sinPromesas, temaDeConsulta, temaDeLaPromesa } from './prolijo';
 import * as TEXTO from './textos-fijos';
 import { sinOracionesRepetidas, totalConSuLista } from './candados';
-import { cierraConElDato } from './cierre-con-dato';
+import { cierraConElDato, soloElDato, contieneMonto, pareceSoloElDato } from './cierre-con-dato';
 import { controlDeFechas } from './fechas';
 import { desvioDeLoPedido } from './desvio';
 import { recortarBusqueda, topeDeBusqueda } from './tope-busqueda';
@@ -706,6 +706,21 @@ export class BotService {
     if (RE_SALUDO_SUELTO.test(texto.trim()) && historial.length > 0 && charlaViva && !saludoSinRespuesta) {
       return callar('saludo en charla ya abierta');
     }
+    // UN «HOLA» DESPUÉS DE UN RATO LARGO EMPIEZA OTRA CHARLA (Leandro, 9/10/2026,
+    // noche): el bot retomaba el pedido de la tarde, sin confirmar, con el precio de
+    // entonces y otra vez «¿Lo confirmo?». Al saludo suelto, el saludo y nada más.
+    if (RE_SALUDO_SUELTO.test(texto.trim()) && historial.length > 0 && !charlaViva && !traeArchivo) {
+      const hora = Number(new Date().toLocaleString('en-US', { timeZone: 'America/Argentina/Buenos_Aires', hour: '2-digit', hour12: false })) % 24;
+      const resp = saludarConBienvenida('', saludoSegunHora(hora));
+      this.log.log(`saludo suelto de ${telefono} después de un rato largo: se contesta el saludo, sin retomar lo anterior`);
+      await this.db.from('bot_conversaciones').upsert({
+        linea, telefono,
+        mensajes: [...historial, { role: 'user', content: texto }, { role: 'assistant', content: resp }].slice(-MAX_HISTORIAL),
+        actualizado_en: new Date().toISOString(),
+      }, { onConflict: 'linea,telefono' }).then(() => null, () => null);
+      if (mensajeId) await this.db.from('bot_mensajes').upsert({ linea, mensaje_id: mensajeId, telefono, respuesta: resp }).then(() => null, () => null);
+      return { respuesta: resp };
+    }
 
     // RESPUESTAS CLAVE (campañas): si el mensaje ES la palabra clave de una
     // campaña activa ("ENTRADA" tras una difusión), la respuesta sale fija e
@@ -777,10 +792,13 @@ export class BotService {
     // resumen con "¿Lo confirmo?" no necesita al modelo: lo confirma el servidor
     // con las mismas guardas de crear_pedido (cotización fresca, mismo total).
     // Si la guarda lo rechaza, sigue el camino de siempre.
-    if (!traeArchivo && confirmacionInequivoca(texto) && /¿lo confirmo\?/i.test(String(ultimoMsgBot))) {
+    // 9/10/2026: también el mismo nombre o dirección del resumen («A nombre de Leandro»),
+    // y con la cotización vencida se recotiza (crearPedido): si cambió el precio, va el resumen nuevo.
+    if (!traeArchivo && /¿lo confirmo\?/i.test(String(ultimoMsgBot)) && (confirmacionInequivoca(texto) || pareceSoloElDato(texto).ok)) {
       try {
         const creado = await this.crearPedido({ telefono, linea, confirmacion: texto, resumenPresentado: String(ultimoMsgBot) });
-        this.log.log(`pedido ${creado.codigoRetiro} confirmado por el "sí" de ${telefono} (sin modelo)`);
+        if (creado?.recotizado) this.log.log(`el "sí" de ${telefono} llegó con la cotización vencida y otro precio: va el resumen nuevo (sin modelo)`);
+        else this.log.log(`pedido ${creado.codigoRetiro} confirmado por el "sí" de ${telefono} (sin modelo)`);
         await this.db.from('bot_conversaciones').upsert({
           linea, telefono,
           mensajes: [...historial, { role: 'user', content: texto }, { role: 'assistant', content: creado.respuesta }].slice(-MAX_HISTORIAL),
@@ -790,7 +808,7 @@ export class BotService {
         if (mensajeId) await this.db.from('bot_mensajes').upsert({ linea, mensaje_id: mensajeId, telefono, respuesta: creado.respuesta }).then(() => null, () => null);
         return { respuesta: creado.respuesta };
       } catch (e: any) {
-        this.log.warn(`el "sí" de ${telefono} no alcanzó para confirmar directo (${e?.message ?? e}); decide el modelo`);
+        if (confirmacionInequivoca(texto)) this.log.warn(`el "sí" de ${telefono} no alcanzó para confirmar directo (${e?.message ?? e}); decide el modelo`);
       }
     }
 
@@ -2613,11 +2631,24 @@ export class BotService {
           // que acababa de pagar; y uno que no coincide no tiene que crear nada
           // (decisión de Leandro). Lo crea derivar_pago, si el monto coincide.
           if (ctx.archivo && tipoLinea === 'pedidos') { out = { error: 'NO se creó el pedido: este mensaje trae un archivo. Si es el comprobante del pago, llamá derivar_pago (comprobante_enviado): si el monto coincide con el resumen, el sistema confirma el pedido solo. No llames crear_pedido en este turno.' }; break; }
-          if (!confirmacionInequivoca(ctx.textoCliente ?? '')) {
+          // el sí inequívoco, o el mismo nombre o dirección que ya tiene el resumen (9/10/2026):
+          // acá la forma; que sea el MISMO dato del resumen lo verifica crearPedido
+          if (!confirmacionInequivoca(ctx.textoCliente ?? '') && !(RE_LO_CONFIRMO.test(ctx.ultimoBot ?? '') && pareceSoloElDato(ctx.textoCliente ?? '').ok)) {
             out = { error: 'NO se creó el pedido: falta confirmación inequívoca al resumen. Usá preparar_pedido y esperá la aceptación del cliente.' };
             break;
           }
-          out = await this.crearPedido({ telefono, linea, confirmacion: ctx.textoCliente!, resumenPresentado: ctx.ultimoBot ?? '' });
+          try {
+            out = await this.crearPedido({ telefono, linea, confirmacion: ctx.textoCliente ?? '', resumenPresentado: ctx.ultimoBot ?? '' });
+          } catch (e: any) {
+            if (/falta confirmación inequívoca/.test(String(e?.message ?? ''))) { out = { error: 'NO se creó el pedido: falta confirmación inequívoca al resumen. Usá preparar_pedido y esperá la aceptación del cliente.' }; break; }
+            throw e;
+          }
+          // la cotización había vencido y al recotizar cambió el precio: va el resumen nuevo, una vez
+          if ((out as any)?.recotizado) {
+            out = { ...(out as any), aviso: 'La cotización había vencido y el precio cambió: al cliente le va el resumen nuevo con «¿Lo confirmo?». No crees el pedido en este turno.' };
+            if (ctx.fija) { ctx.fija.texto = (out as any).respuesta; ctx.fija.operacion = true; }
+            break;
+          }
           ctx.fallos?.set('__pedido_creado__', 1);
           if (ctx.fija) { ctx.fija.texto = (out as any).respuesta; ctx.fija.operacion = true; }
           break;
@@ -3410,9 +3441,41 @@ export class BotService {
     const porDato = dto.modo === 'dato';
     // la cotización se busca en la charla de SU línea: sin línea, la principal (6/10/2026)
     const lineaDelPedido = dto.linea || (await this.lineas.principal());
-    if (porComprobante ? !dto.cotizacionId || !(Number(dto.monto) > 0) : porDato ? !dto.cotizacionId || !String(dto.confirmacion ?? '').trim() : !confirmacionInequivoca(dto.confirmacion ?? '')) throw new BadRequestException('NO se creó el pedido: falta confirmación inequívoca');
-    const { data: q, error } = await this.db.from('bot_cotizaciones').select('*')
+    if (porComprobante ? !dto.cotizacionId || !(Number(dto.monto) > 0) : !String(dto.confirmacion ?? '').trim() || (porDato && !dto.cotizacionId)) throw new BadRequestException('NO se creó el pedido: falta confirmación inequívoca');
+    let { data: q, error } = await this.db.from('bot_cotizaciones').select('*')
       .eq('telefono', dto.telefono).eq('linea', lineaDelPedido).order('creada_en', { ascending: false }).limit(1).maybeSingle();
+    // EL «SÍ» AL «¿LO CONFIRMO?» CONFIRMA SI NADA CAMBIÓ (Leandro, 9/10/2026, noche:
+    // «te ha dicho que sí, a nombre de Leandro… ¿para qué me vuelve a preguntar?»).
+    //  - Acepta un sí inequívoco, o el MISMO dato que ya tiene el resumen
+    //    («A nombre de Leandro» con el pedido a nombre de Leandro): soloElDato.
+    //  - La base le da 30 minutos a una cotización y el servidor 3 horas: pasado
+    //    eso, el «sí» se rechazaba, el bot volvía a armar el resumen y preguntaba
+    //    otra vez «¿Lo confirmo?». Ahora, si el cliente acepta el total que vio y
+    //    la cotización venció, se recotiza lo mismo en silencio: si da el mismo
+    //    total, se confirma; si cambió el precio, se le muestra el nuevo una vez.
+    const ultimo = String(dto.resumenPresentado ?? '');
+    let aceptaConElDato = false;
+    if (!porComprobante && !porDato) {
+      const pideConfirmo = !!q && RE_LO_CONFIRMO.test(ultimo) && contieneMonto(ultimo, Number(q.total));
+      aceptaConElDato = !confirmacionInequivoca(dto.confirmacion ?? '') && pideConfirmo && soloElDato(dto.confirmacion ?? '', q).ok;
+      if (!confirmacionInequivoca(dto.confirmacion ?? '') && !aceptaConElDato) throw new BadRequestException('NO se creó el pedido: falta confirmación inequívoca');
+      const edad = q ? Date.now() - new Date(q.creada_en).getTime() : Infinity;
+      const vencida = !!q && !q.confirmada_en && !q.pedido_id
+        && ((!!q.vence_en && new Date(q.vence_en).getTime() <= Date.now()) || edad >= 3 * 3600_000 || (aceptaConElDato && edad >= 10 * 60_000));
+      if (!error && vencida && pideConfirmo) {
+        const nueva: any = await this.prepararPedido(dto.telefono, lineaDelPedido, {
+          tipo: q.tipo, nombre: q.nombre ?? '', direccion: q.direccion ?? '', notas: q.notas ?? '',
+          entrega_fecha: q.entrega_fecha ?? '', entrega_franja: q.entrega_franja ?? '',
+          items: ((q.items ?? []) as any[]).map((r) => ({ sku: String(r.sku), cantidad: Number(r.cantidad) })),
+        });
+        if (Math.round(Number(nueva.total)) !== Math.round(Number(q.total)) || nueva.avisoFecha) {
+          this.log.warn(`la cotización de ${dto.telefono} venció y al recotizar cambió (${pesos(Number(q.total))} → ${pesos(Number(nueva.total))}): se muestra el resumen nuevo`);
+          return { recotizado: true, cotizacionId: nueva.cotizacionId, total: Number(nueva.total), respuesta: nueva.resumen } as any;
+        }
+        this.log.log(`la cotización de ${dto.telefono} había vencido: recotizada igual ($${pesos(Number(q.total))}), se confirma`);
+        ({ data: q, error } = await this.db.from('bot_cotizaciones').select('*').eq('id', nueva.cotizacionId).maybeSingle());
+      }
+    }
     // EL BUCLE DEL "¿LO CONFIRMO?" (Catalina, 21/9/2026). Antes se exigía que el
     // último mensaje del bot fuera IDÉNTICO al resumen de preparar_pedido. Pero
     // entre el resumen y el "sí" el cliente contesta cosas ("efectivo", "recibe
@@ -3421,7 +3484,6 @@ export class BotService {
     // el bot volvía a preguntar, y así tres veces. Ahora también vale que el
     // último mensaje del bot pregunte "¿Lo confirmo?" con el MISMO total de la
     // cotización vigente (misma plata, misma charla, cotización fresca).
-    const ultimo = String(dto.resumenPresentado ?? '');
     const totalTxt = q ? `$${pesos(Number(q.total))}` : '';
     const fresca = !!q && !q.confirmada_en && Date.now() - new Date(q.creada_en).getTime() < 3 * 3600_000;
     const coincideResumen = !!q && !!ultimo && q.resumen === ultimo;
@@ -3434,7 +3496,7 @@ export class BotService {
     // p_monto viaja solo en el modo 'comprobante'; los otros modos llaman igual que siempre
     const { data: id, error: e } = await this.db.rpc('confirmar_cotizacion_bot', porComprobante
       ? { p_id: q.id, p_telefono: dto.telefono, p_linea: lineaDelPedido, p_confirmacion: String(dto.confirmacion ?? '').slice(0, 300), p_modo: 'comprobante', p_monto: Number(dto.monto) }
-      : porDato
+      : porDato || aceptaConElDato
         ? { p_id: q.id, p_telefono: dto.telefono, p_linea: lineaDelPedido, p_confirmacion: String(dto.confirmacion ?? '').slice(0, 300), p_modo: 'dato' }
         : { p_id: q.id, p_telefono: dto.telefono, p_linea: lineaDelPedido, p_confirmacion: dto.confirmacion });
     if (e || !id) throw new BadRequestException(e?.message ?? 'No se pudo confirmar el pedido');
