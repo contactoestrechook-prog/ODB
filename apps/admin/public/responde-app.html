@@ -5,6 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow">
 <meta name="theme-color" content="#0F1012">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icono-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>RESPONDE</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -67,7 +72,7 @@ kbd { font: 11px var(--f-mono); color: var(--muted); border: 1px solid var(--lin
 .app.con-ficha .col-ficha { display: block; }
 
 /* ===== Lista ===== */
-.lista-cab { padding: 16px 16px 10px; display: flex; flex-direction: column; gap: 12px; }
+.lista-cab { padding: calc(16px + env(safe-area-inset-top)) 16px 10px; display: flex; flex-direction: column; gap: 12px; }
 .marca { display: flex; align-items: center; gap: 10px; }
 .marca-nombre { font-weight: 700; letter-spacing: .16em; font-size: 13px; }
 .marca-de { color: var(--faint); font-size: 11.5px; letter-spacing: .02em; }
@@ -82,6 +87,14 @@ kbd { font: 11px var(--f-mono); color: var(--muted); border: 1px solid var(--lin
 .buscar input { border: 0; outline: 0; background: transparent; flex: 1; min-width: 0; }
 .fila-sel { display: flex; gap: 8px; }
 select.sel { flex: 1; min-width: 0; height: 34px; border-radius: 10px; border: 1px solid var(--line); background: var(--raised); padding: 0 10px; }
+.lineas { display: none; margin: 0 12px 10px; padding: 3px; border-radius: 12px; background: var(--raised); border: 1px solid var(--line); gap: 3px; }
+.lineas.on { display: flex; }
+.lineas button { flex: 1; min-width: 0; padding: 7px 8px; border-radius: 9px; display: flex; flex-direction: column; align-items: center; gap: 1px; color: var(--muted); }
+.lineas button b { font-weight: 600; font-size: 13.5px; display: inline-flex; align-items: center; gap: 6px; }
+.lineas button > span { font: 10.5px var(--f-mono); color: var(--faint); }
+.lineas button.on { background: var(--text); color: var(--panel); }
+.lineas button.on > span { color: color-mix(in srgb, var(--panel) 65%, transparent); }
+.lineas .badge { min-width: 18px; height: 18px; line-height: 18px; font-size: 10.5px; }
 .filtros { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; padding: 0 12px 10px; border-bottom: 1px solid var(--line); }
 .filtros::-webkit-scrollbar { display: none; }
 .filtros button { white-space: nowrap; padding: 6px 10px; border-radius: 999px; font-size: 12.5px; color: var(--muted); display: inline-flex; gap: 6px; align-items: center; }
@@ -340,7 +353,7 @@ body.embed .marca { display: none; }
   .app.abierta .col-lista { display: none; }
   .app.abierta .col-charla { display: flex; }
   .ch-volver { display: grid; }
-  .ch-cab { padding: 8px 8px; gap: 6px; }
+  .ch-cab { padding: calc(8px + env(safe-area-inset-top)) 8px 8px; gap: 6px; }
   .ch-nombre { font-size: 17px; }
   .voz-desc { display: none; }
   .voz-pista { width: 104px; }
@@ -404,6 +417,8 @@ body.embed .marca { display: none; }
             <button data-op="equipo"><svg class="ico"><use href="#i-equipo"/></svg><span>Equipo</span></button>
             <button data-op="atajos"><svg class="ico"><use href="#i-teclado"/></svg><span>Atajos de teclado</span><span class="der">?</span></button>
             <div class="menu-sep"></div>
+            <button data-op="push" id="opPush"><span>Notificaciones en este celular</span><span class="der" id="opPushTxt">—</span></button>
+            <button data-op="instalar" id="opInstalar" class="oculto"><span>Instalar la app en este dispositivo</span></button>
             <button data-op="sonido"><span>Sonido de mensajes nuevos</span><span class="der" id="opSonido">activado</span></button>
             <button data-op="avisos"><span>Avisos del navegador</span><span class="der" id="opAvisos">—</span></button>
             <button data-op="tema"><span>Tema</span><span class="der" id="opTema">automático</span></button>
@@ -424,6 +439,7 @@ body.embed .marca { display: none; }
         <kbd>/</kbd>
       </label>
     </div>
+    <div class="lineas" id="lineas" role="tablist" aria-label="Línea de WhatsApp"></div>
     <nav class="filtros" id="filtros">
       <button data-f="todas" class="on">Todas <span class="n"></span></button>
       <button data-f="noleidas">Sin leer <span class="n"></span></button>
@@ -540,6 +556,10 @@ const PANEL_CLASICO = 'https://resonant-kitten-438588.netlify.app/clasico/';
 const PANEL_CLASICO_META = 'https://metogroup.ar/panel-mg-9t3kx-clasico.html';
 const TZ = 'America/Argentina/Buenos_Aires';
 
+// Configuración por sitio: la versión de una empresa (p. ej. la app de ODB) la define en
+// window.RESPONDE_CFG = { empresa: 'odb', marca: 'O.D.B', logo: 'icono-192.png' } antes de este script.
+const CFG = window.RESPONDE_CFG || {};
+const VAPID_PUBLICA = 'BAYt0TnOUkovcAF3_vf-GDpAQewWBnZLP910iyLvMDiQaOu0VOixqTGPJlPPS3L95zedM-Q9Xb0v-ftN8mbNzSA';
 const qs = new URLSearchParams(location.search);
 const KEY = qs.get('key') || '';
 const EMBED = qs.get('embed') === '1';
@@ -562,7 +582,7 @@ const S = {
   yo: null, tenants: [], tenantSel: leer('rsp.tenant') || '',
   empresas: new Map(), // tenant_id -> { equipo, rapidas, etiquetas, canal }
   filas: new Map(), desde: null,
-  filtro: 'todas', busca: '', etiqueta: '',
+  filtro: 'todas', busca: '', etiqueta: '', linea: '',
   abierto: null, charla: null, msgs: [], porId: new Map(), notas: [], programados: [], hayMas: false, cargandoMas: false,
   acks: {}, fichaOn: leer('rsp.ficha') === '1', modo: 'msg', cita: null,
   bloqueo: new Map(), // id -> hasta (ms): el delta no pisa un cambio recién hecho
@@ -691,6 +711,8 @@ function pintarOpciones() {
   $('#opAvisos').textContent = !('Notification' in window) ? 'no disponible' : Notification.permission === 'granted' ? 'activados' : Notification.permission === 'denied' ? 'bloqueados' : 'activar';
   $('#opQuien').textContent = S.yo ? 'Entraste como ' + (S.yo.nombre || 'administrador') : '';
   $('#opPassword').classList.toggle('oculto', !(S.yo && S.yo.user_id));
+  $('#opPushTxt').textContent = { todas: 'todas', mias: 'las que atiendo', ninguna: 'apagadas' }[leer('rsp.push')] || 'activar';
+  $('#opInstalar').classList.toggle('oculto', !(eventoInstalar || (esIOS() && !esInstalada())));
 }
 
 // ===== Datos de la empresa: equipo, respuestas rápidas, etiquetas =====
@@ -698,8 +720,8 @@ async function cargarEmpresa(tid, forzar) {
   if (!tid || (S.empresas.has(tid) && !forzar)) return emp(tid);
   try {
     const r = await rpc('responde_app_empresa', { p_tenant: tid });
-    S.empresas.set(tid, { equipo: r.equipo || [], rapidas: r.rapidas || [], etiquetas: r.etiquetas || [], plantillas: r.plantillas || [], canal: r.canal });
-    pintarSelEtiquetas();
+    S.empresas.set(tid, { equipo: r.equipo || [], rapidas: r.rapidas || [], etiquetas: r.etiquetas || [], plantillas: r.plantillas || [], canal: r.canal, slug: r.slug, nombre: r.nombre, lineas: r.lineas || [] });
+    pintarSelEtiquetas(); pintarLista();
   } catch (e) { if (e instanceof NoAutorizado) salir(true); }
   return emp(tid);
 }
@@ -733,7 +755,8 @@ async function tick() {
     const primera = !S.desde;
     S.yo = r.yo;
     if (r.tenants) pintarEmpresas(r.tenants);
-    if (primera) prepararSegunUsuario();
+    if (gen !== genTenant) return; // cambió la empresa (p. ej. la app de una sola empresa): se vuelve a cargar
+    if (primera) { prepararSegunUsuario(); if (abrirAlEntrar && !S.abierto) setTimeout(() => abrir(abrirAlEntrar), 0); }
     mezclarFilas(r.filas || [], primera);
     if (S.charla && S.abierto) {
       let cambio = false;
@@ -757,6 +780,10 @@ function programarTick() {
 document.addEventListener('visibilitychange', () => { if (!document.hidden) { tick(); if (S.abierto) pedirAcks(); } });
 
 function prepararSegunUsuario() {
+  // La app de una sola empresa no deja entrar a usuarios de otra.
+  if (CFG.empresa && S.yo && S.yo.rol === 'cliente') cargarEmpresa(S.yo.tenant_id).then((e) => {
+    if (e.slug && e.slug !== CFG.empresa) { salir(true).then(() => { $('#loginErr').textContent = 'Ese usuario no es de ' + (CFG.marca || CFG.empresa) + '.'; }); }
+  });
   $('#filtroMias').classList.toggle('oculto', !(S.yo && S.yo.user_id));
   if (S.yo && S.yo.rol === 'cliente' && S.yo.tenant_id) cargarEmpresa(S.yo.tenant_id);
   else if (S.tenantSel) cargarEmpresa(S.tenantSel);
@@ -792,6 +819,11 @@ function mezclarFilas(filas, inicial) {
 
 function pintarEmpresas(ts) {
   S.tenants = ts || [];
+  if (CFG.empresa) {
+    const t = S.tenants.find((x) => x.slug === CFG.empresa);
+    if (t && S.tenantSel !== t.id) { S.tenantSel = t.id; S.desde = null; genTenant++; S.filas.clear(); nodosFila.clear(); $('#lista').innerHTML = ''; }
+    return;
+  }
   const sel = $('#selEmpresa');
   if (S.yo && S.yo.rol === 'admin' && S.tenants.length > 1) {
     sel.innerHTML = '<option value="">Todas las empresas</option>' + S.tenants.map((t) => '<option value="' + t.id + '">' + esc(t.nombre) + '</option>').join('');
@@ -800,11 +832,37 @@ function pintarEmpresas(ts) {
 }
 $('#selEmpresa').addEventListener('change', (e) => {
   S.tenantSel = e.target.value; guardar('rsp.tenant', S.tenantSel || null);
-  genTenant++; S.desde = null; S.etiqueta = ''; cerrarCharla(); $('#lista').innerHTML = ''; nodosFila.clear(); S.filas.clear(); tick();
+  genTenant++; S.desde = null; S.etiqueta = ''; S.linea = ''; cerrarCharla(); $('#lista').innerHTML = ''; nodosFila.clear(); S.filas.clear(); tick();
 });
 
 // ===== Lista (render con claves: solo se toca lo que cambió) =====
+// Empresas con varias líneas de WhatsApp (ODB: Pedidos y Local): una solapa por línea.
+function lineasVista() {
+  const tid = (S.yo && S.yo.rol === 'cliente' && S.yo.tenant_id) || S.tenantSel;
+  if (!tid) return null;
+  const ls = emp(tid).lineas || [];
+  return ls.length > 1 ? { tid, ls } : null;
+}
+const principal = (ls) => (ls.find((l) => l.principal) || ls[0]).id;
+function lineaDe(f, ls) { return f.linea || principal(ls); }
+function pintarLineas() {
+  const v = lineasVista(), cont = $('#lineas');
+  if (!v) { cont.classList.remove('on'); S.linea = ''; return; }
+  if (!S.linea || !v.ls.some((l) => l.id === S.linea)) S.linea = leer('rsp.linea.' + v.tid) || principal(v.ls);
+  const nl = {}; for (const l of v.ls) nl[l.id] = 0;
+  for (const f of S.filas.values()) if (f.no_leidos > 0) nl[lineaDe(f, v.ls)] = (nl[lineaDe(f, v.ls)] || 0) + 1;
+  const html = v.ls.map((l) => '<button role="tab" data-linea="' + esc(l.id) + '" class="' + (S.linea === l.id ? 'on' : '') + '" aria-selected="' + (S.linea === l.id) + '"><b>' + esc(l.nombre) + (nl[l.id] ? '<span class="badge">' + nl[l.id] + '</span>' : '') + '</b><span>' + esc(l.numero || '') + '</span></button>').join('');
+  if (cont._html !== html) { cont.innerHTML = html; cont._html = html; }
+  cont.classList.add('on');
+}
+$('#lineas').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-linea]'); if (!b) return;
+  const v = lineasVista(); S.linea = b.dataset.linea; if (v) guardar('rsp.linea.' + v.tid, S.linea);
+  pintarLista();
+});
 function pasaFiltro(f) {
+  const lv = lineasVista();
+  if (lv && S.linea && lineaDe(f, lv.ls) !== S.linea) return false;
   if (S.etiqueta && !(f.tags || []).includes(S.etiqueta)) return false;
   switch (S.filtro) {
     case 'noleidas': return f.no_leidos > 0;
@@ -849,8 +907,11 @@ function pintarLista() {
   const todas = ordenadas();
   const yoId = S.yo && S.yo.user_id;
   const cuenta = { todas: 0, noleidas: 0, mias: 0, sinasignar: 0, vos: 0, ia: 0, derivadas: 0 };
+  pintarLineas();
+  const lvC = lineasVista();
   for (const f of todas) {
     if (S.etiqueta && !(f.tags || []).includes(S.etiqueta)) continue;
+    if (lvC && S.linea && lineaDe(f, lvC.ls) !== S.linea) continue;
     cuenta.todas++;
     if (f.no_leidos > 0) cuenta.noleidas++;
     if (yoId && f.asignado_a === yoId) cuenta.mias++;
@@ -881,7 +942,8 @@ function pintarLista() {
     if (!vacio) { vacio = document.createElement('div'); vacio.className = 'lista-vacia'; lista.appendChild(vacio); }
     vacio.textContent = S.busca ? 'Ninguna conversación coincide con «' + S.busca + '».' : S.filtro === 'noleidas' ? 'Leíste todo. Los mensajes nuevos aparecen acá al instante.' : S.filtro === 'mias' ? 'No tenés conversaciones asignadas. Asignate una desde el menú ⋯ de la charla.' : 'No hay conversaciones en esta vista.';
   } else if (vacio) vacio.remove();
-  document.title = (cuenta.noleidas ? '(' + cuenta.noleidas + ') ' : '') + 'RESPONDE';
+  document.title = (cuenta.noleidas ? '(' + cuenta.noleidas + ') ' : '') + (CFG.marca ? CFG.marca + ' · Chats' : 'RESPONDE');
+  if ('setAppBadge' in navigator) { try { cuenta.noleidas ? navigator.setAppBadge(cuenta.noleidas) : navigator.clearAppBadge(); } catch (e) {} }
 }
 function pintarResumen() {
   const hoy = fmtDia(Date.now());
@@ -1138,11 +1200,12 @@ async function renovarAdjuntosOdb() {
 }
 async function firmarPendientes() {
   renovarAdjuntosOdb();
-  const ids = S.msgs.filter((m) => m.metadata && m.metadata.media_path && !m.metadata.media_url).map((m) => m.id);
+  const ids = S.msgs.filter((m) => m.metadata && ((m.metadata.media_path && !m.metadata.media_url) || (!ODB && !m._renovado && String(m.metadata.media_url || '').includes('/sign/bot-adjuntos/')))).map((m) => m.id);
   if (!ids.length) return;
   try {
     const r = await fn('firmar', { contact_id: S.abierto, ids });
     let hubo = false;
+    for (const id of ids) { const m = S.porId.get(id); if (m) m._renovado = true; }
     for (const [id, u] of Object.entries(r.urls || {})) { const m = S.porId.get(id); if (m) { m.metadata = { ...m.metadata, media_url: u }; hubo = true; } }
     if (hubo) repintarConScroll();
   } catch (e) {}
@@ -1186,6 +1249,8 @@ function pintarCabecera(c) {
   if ((c.nombre || '').trim() && !String(c.whatsapp_id).includes('@lid')) datos.push('<span class="mono">' + esc(tel) + '</span>');
   if (verTodas()) datos.push(esc(nombreEmpresa(c.tenant_id)));
   if (c.etapa && etapas[c.etapa]) datos.push(etapas[c.etapa]);
+  const lsC = emp(c.tenant_id).lineas || [];
+  if (lsC.length > 1) { const l = lsC.find((x) => x.id === (c.linea || principal(lsC))); if (l) datos.unshift('<b style="color:var(--text);font-weight:600">' + esc(l.nombre) + '</b>'); }
   if (datos.length) partes.push('<span>' + datos.join(' <span class="sep">·</span> ') + '</span>');
   const asig = miembro(c.tenant_id, c.asignado_a);
   partes.push('<button class="chip" id="chAsig" title="Asignar">' + (asig ? '<span class="av mini" style="background:' + colorAv(asig.id) + '">' + esc(iniciales(asig.nombre)) + '</span>' + esc(asig.nombre) : '<svg class="ico chico"><use href="#i-persona"/></svg>Sin asignar') + '</button>');
@@ -1233,7 +1298,8 @@ $('#vozVos').onclick = (e) => {
   if (!S.charla) return;
   cerrarMenus('#menuPausa');
   $('#hasta1').textContent = 'hasta ' + horaEn(1); $('#hasta4').textContent = 'hasta ' + horaEn(4);
-  for (const b of document.querySelectorAll('#menuPausa [data-p]')) b.classList.toggle('oculto', ODB && b.dataset.p !== 'siempre');
+  const sinVencer = ODB || emp(S.charla.tenant_id).slug === 'odb';
+  for (const b of document.querySelectorAll('#menuPausa [data-p]')) b.classList.toggle('oculto', sinVencer && b.dataset.p !== 'siempre');
   $('#menuPausa').classList.toggle('on');
 };
 $('#vozIA').onclick = () => { if (S.charla && S.charla.modo_humano) cambiarVoz(true); };
@@ -1712,7 +1778,7 @@ async function enviar() {
   texto.value = ''; borradores.delete(id); ajustarTexto(); S.cita = null; pintarCita(); cerrarPops();
   const m = { id: tmpId(), _tmp: true, role: 'assistant', content: t, tipo: 'text', created_at: new Date().toISOString(), metadata: { humano: true, app: true, autor: (S.yo && S.yo.nombre) || 'Vos', ...(cita ? { cita } : {}) } };
   ponerEnviado(m);
-  await mandar(m, () => ODB ? enviarPorOdb({ accion: 'enviar', contact_id: id, texto: t }) : fn('enviar', { contact_id: id, texto: t, cita }));
+  await mandar(m, () => porOdb() ? enviarPorOdb({ accion: 'enviar', contact_id: id, texto: t }) : fn('enviar', { contact_id: id, texto: t, cita }));
 }
 async function enviarNota() {
   const id = S.abierto, t = texto.value.trim(); if (!t) return;
@@ -1790,6 +1856,13 @@ colCh.addEventListener('dragenter', (e) => { if (!S.abierto || !e.dataTransfer.t
 colCh.addEventListener('dragleave', () => { if (--arrastre <= 0) { arrastre = 0; $('#soltar').classList.remove('on'); } });
 colCh.addEventListener('dragover', (e) => { if (S.abierto) e.preventDefault(); });
 colCh.addEventListener('drop', (e) => { e.preventDefault(); arrastre = 0; $('#soltar').classList.remove('on'); const f = e.dataTransfer.files[0]; if (f && S.abierto) ponerAdj(f); });
+// La API de ODB envía siempre por el número de Pedidos: las charlas de otra línea (Local)
+// salen por la función de RESPONDE, que usa el número de esa línea.
+function porOdb() {
+  if (!ODB || !S.charla) return ODB;
+  const ls = emp(S.charla.tenant_id).lineas || [];
+  return !ls.length || (S.charla.linea || principal(ls)) === principal(ls);
+}
 // En ODB los mensajes salen por su API (quedan en su sistema) y la charla pasa a "atendés vos" en RESPONDE.
 async function enviarPorOdb(cuerpo) {
   const c = S.filas.get(cuerpo.contact_id) || S.charla || {};
@@ -1802,14 +1875,14 @@ async function enviarPorOdb(cuerpo) {
 }
 async function enviarArchivo() {
   const id = S.abierto, f = adj, cap = texto.value.trim();
-  if (ODB && !(f.type || '').startsWith('image/')) { toast('Desde el panel de ODB por ahora solo se envían fotos.'); return; }
+  if (porOdb() && !(f.type || '').startsWith('image/')) { toast('Desde el panel de ODB por ahora solo se envían fotos.'); return; }
   quitarAdj(); texto.value = ''; ajustarTexto();
   const tipo = f.type.startsWith('image/') ? 'image' : f.type.startsWith('audio/') ? 'audio' : f.type.startsWith('video/') ? 'video' : 'document';
   const m = { id: tmpId(), _tmp: true, _archivo: true, role: 'assistant', tipo, content: (cap || f.name), created_at: new Date().toISOString(), metadata: { humano: true, app: true, autor: (S.yo && S.yo.nombre) || 'Vos', media_url: URL.createObjectURL(f), filename: f.name, caption: cap || null } };
   ponerEnviado(m);
   const b64 = await new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(String(fr.result).split(',')[1]); fr.onerror = rej; fr.readAsDataURL(f); });
   const cuerpo = { contact_id: id, filename: f.name, mime: f.type || 'application/octet-stream', data_b64: b64, caption: cap };
-  await mandar(m, () => ODB ? enviarPorOdb({ accion: 'enviar_media', ...cuerpo }) : fn('enviar_media', cuerpo));
+  await mandar(m, () => porOdb() ? enviarPorOdb({ accion: 'enviar_media', ...cuerpo }) : fn('enviar_media', cuerpo));
 }
 
 // ===== Ficha =====
@@ -1890,6 +1963,8 @@ for (const b of document.querySelectorAll('#menuOpc button')) b.onclick = async 
     else toast('Los avisos ya están activados.');
   }
   if (op === 'tema') { S.tema = { auto: 'light', light: 'dark', dark: 'auto' }[S.tema]; guardar('rsp.tema', S.tema); aplicarTema(); }
+  if (op === 'push') { cerrarMenus(); return ventanaPush(); }
+  if (op === 'instalar') { cerrarMenus(); return instalarApp(); }
   if (op === 'rapidas') { cerrarMenus(); return ventanaRapidas(); }
   if (op === 'equipo') { cerrarMenus(); return ventanaEquipo(); }
   if (op === 'atajos') { cerrarMenus(); return ventanaAtajos(); }
@@ -1898,6 +1973,58 @@ for (const b of document.querySelectorAll('#menuOpc button')) b.onclick = async 
   if (op === 'salir') return salir(false);
   pintarOpciones();
 };
+
+// ===== App instalable y notificaciones push =====
+let registroSW = null, eventoInstalar = null;
+const esIOS = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const esInstalada = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+if ('serviceWorker' in navigator && location.protocol === 'https:') {
+  navigator.serviceWorker.register('sw.js').then((r) => { registroSW = r; }).catch(() => {});
+  navigator.serviceWorker.addEventListener('message', (e) => { if (e.data && e.data.abrir) abrir(e.data.abrir); });
+}
+addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); eventoInstalar = e; });
+async function instalarApp() {
+  if (eventoInstalar) { eventoInstalar.prompt(); await eventoInstalar.userChoice.catch(() => {}); eventoInstalar = null; return; }
+  if (esIOS()) ventana('Instalar en el iPhone', '<p class="ayuda">1. Abrí esta página en <b>Safari</b>.<br>2. Tocá el botón <b>Compartir</b> (el cuadrado con la flecha).<br>3. Elegí <b>Agregar a inicio</b>.<br><br>Después abrí la app desde el ícono y activá las notificaciones desde Opciones.</p>');
+}
+function b64aBytes(b) { const p = '='.repeat((4 - b.length % 4) % 4); const s = atob((b + p).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from(s, (c) => c.charCodeAt(0)); }
+function ventanaPush() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
+    if (esIOS() && !esInstalada()) return ventana('Notificaciones', '<p class="ayuda">En el iPhone las notificaciones funcionan con la app instalada. Tocá <b>Compartir → Agregar a inicio</b>, abrila desde el ícono y activalas desde Opciones.</p>');
+    return ventana('Notificaciones', '<p class="ayuda">Este navegador no permite notificaciones. Probá con Chrome en Android o con la app instalada en el iPhone.</p>');
+  }
+  const actual = leer('rsp.push') || '';
+  const op = (v, t, d) => '<button class="fila-v" data-modo="' + v + '" style="width:100%;text-align:left"><div class="fv-txt"><b>' + t + (actual === v ? ' ✓' : '') + '</b><span>' + d + '</span></div></button>';
+  ventana('Notificaciones en este celular',
+    '<p class="ayuda">Te avisamos al instante cuando escribe un cliente, aunque la app esté cerrada. Tocá el aviso y se abre esa conversación.</p>' +
+    op('todas', 'Todos los mensajes', 'Cada vez que escribe un cliente.') +
+    op('mias', 'Solo las que atiendo yo', 'Las conversaciones que tomaste (la IA en pausa) o que tenés asignadas.') +
+    op('ninguna', 'Apagadas', 'No llega ningún aviso a este celular.') + '<div class="err-v" id="pushErr"></div>');
+  $('#vCuerpo').onclick = async (e) => {
+    const b = e.target.closest('[data-modo]'); if (!b) return;
+    $('#pushErr').textContent = 'Guardando…';
+    try { await suscribirPush(b.dataset.modo); cerrarVentana(); toast(b.dataset.modo === 'ninguna' ? 'Notificaciones apagadas en este celular.' : 'Listo: te van a llegar los avisos a este celular.'); }
+    catch (err) { $('#pushErr').textContent = err.message; }
+  };
+}
+async function suscribirPush(modo) {
+  const reg = registroSW || await navigator.serviceWorker.ready;
+  let sub = await reg.pushManager.getSubscription();
+  if (modo === 'ninguna') {
+    if (sub) { await rpc('responde_app_push', { p_tenant: null, p_sub: sub.toJSON(), p_baja: true }).catch(() => {}); await sub.unsubscribe().catch(() => {}); }
+    guardar('rsp.push', 'ninguna'); return;
+  }
+  const permiso = await Notification.requestPermission();
+  if (permiso !== 'granted') throw new Error('El celular no dio permiso para avisos. Habilitalo en la configuración del navegador o de la app.');
+  if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64aBytes(VAPID_PUBLICA) });
+  const tid = (S.yo && S.yo.tenant_id) || S.tenantSel || (S.charla && S.charla.tenant_id) || null;
+  if (!tid) throw new Error('Elegí una empresa arriba de la lista: los avisos son de una empresa.');
+  const disp = (esIOS() ? 'iPhone' : /Android/.test(navigator.userAgent) ? 'Android' : 'Navegador') + (esInstalada() ? ' (app)' : '');
+  await rpc('responde_app_push', { p_tenant: tid, p_sub: sub.toJSON(), p_modo: modo, p_baja: false, p_dispositivo: disp });
+  guardar('rsp.push', modo);
+}
+// Abrir la conversación que pidió la notificación (?c=<contacto>)
+const abrirAlEntrar = qs.get('c');
 
 // ===== Atajos =====
 document.addEventListener('keydown', (e) => {
@@ -1936,7 +2063,10 @@ $('#loginForm').onsubmit = async (e) => {
   e.preventDefault();
   const b = $('#loginBtn'); b.disabled = true; b.textContent = 'Entrando…'; $('#loginErr').textContent = '';
   try {
-    const r = await fetch(FN_VIEJA, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ accion: 'login', email: $('#loginEmail').value.trim(), password: $('#loginPass').value }) });
+    // En la app de ODB se entra con el mismo usuario y clave del sistema de ODB.
+    const r = CFG.login === 'odb'
+      ? await fetch(FN, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ accion: 'login_odb', email: $('#loginEmail').value.trim(), clave: $('#loginPass').value }) })
+      : await fetch(FN_VIEJA, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ accion: 'login', email: $('#loginEmail').value.trim(), password: $('#loginPass').value }) });
     const j = await r.json();
     if (!j.ok) throw new Error(j.error || 'Correo o contraseña incorrectos.');
     TOKEN = j.token; guardar('rsp.token', TOKEN);
@@ -1955,6 +2085,15 @@ async function salir(vencida) {
   $('#login').classList.add('on'); setTimeout(() => $('#loginEmail').focus(), 50);
 }
 function arrancar() { S.desde = null; tick(); }
+if (CFG.marca) {
+  document.title = CFG.marca + ' · Chats';
+  $('.marca-nombre').textContent = CFG.marca; $('#marcaDe').textContent = 'Chats · con RESPONDE';
+  $('#login .marca-nombre').innerHTML = (CFG.logo ? '<img src="' + CFG.logo + '" alt="" style="width:56px;height:56px;border-radius:14px;display:block;margin-bottom:14px">' : '') + esc(CFG.marca);
+  $('#login h1').textContent = 'Los chats de ' + CFG.marca + ', en tu celular.';
+  $('#login p').textContent = CFG.login === 'odb' ? 'Entrá con el mismo correo y clave que usás en el sistema de ODB.' : 'Entrá una sola vez con tu correo y contraseña de RESPONDE.';
+  if (CFG.login === 'odb') { $('#loginPass').placeholder = 'Clave de ODB'; if (CFG.recuperar) $('#loginErr').insertAdjacentHTML('afterend', '<a href="' + CFG.recuperar + '" target="_blank" rel="noopener" style="font-size:13px;color:var(--muted)">¿Olvidaste la clave? Recuperala en ODB</a>'); }
+}
+if (CFG.login === 'odb') { const b = document.querySelector('#menuOpc [data-op="password"]'); if (b) b.remove(); }
 if (ODB) for (const op of ['clasico', 'salir', 'password']) { const b = document.querySelector('#menuOpc [data-op="' + op + '"]'); if (b) b.remove(); }
 
 aplicarTema();
