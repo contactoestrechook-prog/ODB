@@ -88,31 +88,6 @@ function marcaDelPrefijo(): Anthropic.CacheControlEphemeral {
 }
 const TODAVIA_SIN_PRECIOS = 'TODAVÍA NO PASES PRECIOS (regla del dueño): primero confirmá que el pedido está completo. Respondé con la lista de lo que anotaste, un renglón por producto «• cantidad × producto puntual», SIN precios ni total, y la pregunta «¿Está completo el pedido o querés sumar algo?». Si algo no tiene stock o hay que elegir variante, decilo en esa lista. Recién cuando el cliente confirme que está completo, cotizar_pedido.';
 
-/**
- * TOPE DE LA BÚSQUEDA DEL BOT (6/10/2026, ODB_BOT_TOPE_BUSQUEDA; apagado por
- * defecto). Medido del 2 al 6/10: «queso» devolvía 144 productos y «tita» 119,
- * cada uno con su ficha, y en un pedido largo cada vuelta vuelve a escribir todo
- * eso en la caché (los turnos de 4 o más llamadas, 19 % de las charlas, se
- * llevaron el 55 % del gasto). Con un tope (por ejemplo 20) van las fichas del
- * producto por defecto y de los más vendidos, en el orden de la búsqueda, y del
- * resto solo el nombre: el modelo sabe que existen y los busca por nombre si el
- * cliente los quiere. Apagado porque cambia lo que ve el bot (con 10 decía
- * «tenemos tres» cuando había quince): primero hay que probarlo con el banco.
- */
-export function recortarBusqueda<T extends { sku?: string; nombre?: string; porDefecto?: boolean }>(items: T[], vendidas: (sku: string) => number, tope: number): { visibles: T[]; otrosConStock: string | null } {
-  if (!(tope > 0) || items.length <= tope) return { visibles: items, otrosConStock: null };
-  const ranking = items
-    .map((it, i) => ({ it, i }))
-    .sort((a, b) => Number(!!b.it.porDefecto) - Number(!!a.it.porDefecto) || vendidas(String(b.it.sku ?? '')) - vendidas(String(a.it.sku ?? '')) || a.i - b.i);
-  const quedan = new Set(ranking.slice(0, tope).map((x) => x.i));
-  const visibles = items.filter((_, i) => quedan.has(i));
-  const fuera = items.filter((_, i) => !quedan.has(i));
-  const nombres = fuera.slice(0, 60).map((x) => String(x.nombre ?? '')).join(' | ');
-  return {
-    visibles,
-    otrosConStock: `${fuera.length} productos más con stock en esta búsqueda, acá solo por nombre (si el cliente quiere alguno, buscalo por su nombre para ver el precio): ${nombres}${fuera.length > 60 ? ` | +${fuera.length - 60} más` : ''}`,
-  };
-}
 
 /**
  * ¿Es un acuse corto ("ok", "listo", "Okk", 👍🏻, 🙏)? Lo que administración

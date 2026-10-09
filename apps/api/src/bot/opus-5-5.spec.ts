@@ -12,7 +12,7 @@
 // Con ODB_VOLCAR_TURNO=<archivo.jsonl> las llamadas de cada turno se guardan
 // para pasarlas por prefix_diff.py (la verificación offline de la guía).
 import { appendFileSync } from 'fs';
-import { BotService, recortarBusqueda } from './bot.service';
+import { BotService } from './bot.service';
 import { HERRAMIENTAS_PEDIDOS, SYSTEM_PEDIDOS } from './agente-bot';
 
 process.env.ANTHROPIC_API_KEY ??= 'test';
@@ -470,20 +470,4 @@ describe('la caché del bot (variables apagadas por defecto)', () => {
   });
 });
 
-describe('el tope de la búsqueda (ODB_BOT_TOPE_BUSQUEDA, apagado por defecto)', () => {
-  const items = Array.from({ length: 30 }, (_, i) => ({ sku: `Q${i}`, nombre: `Queso ${i}`, ...(i === 5 ? { porDefecto: true } : {}) }));
-  const vendidas = (sku: string) => Number(sku.slice(1)); // Q29 es el más vendido
-
-  it('sin tope (0 o sin la variable) van todos', () => {
-    expect(recortarBusqueda(items, vendidas, 0)).toEqual({ visibles: items, otrosConStock: null });
-    expect(recortarBusqueda(items, vendidas, NaN).visibles).toHaveLength(30);
-  });
-
-  it('con tope: el de por defecto y los más vendidos, en el orden de la búsqueda; el resto solo por nombre', () => {
-    const r = recortarBusqueda(items, vendidas, 5);
-    expect(r.visibles.map((x) => x.sku)).toEqual(['Q5', 'Q26', 'Q27', 'Q28', 'Q29']);
-    expect(r.otrosConStock).toMatch(/^25 productos más con stock/);
-    expect(r.otrosConStock).toContain('Queso 0 | Queso 1');
-    expect(r.otrosConStock).not.toContain('Queso 29');
-  });
-});
+// (el tope de la búsqueda se prueba en tope-busqueda.spec.ts: es la versión que está en producción)
