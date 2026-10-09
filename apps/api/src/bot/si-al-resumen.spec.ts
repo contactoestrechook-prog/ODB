@@ -10,6 +10,8 @@ function cumple(fila: any, filtros: any[]): boolean {
   return filtros.every(([k, col, val]) => {
     if (k === 'eq') return !(col in fila) || String(fila[col]) === String(val);
     if (k === 'is') return (fila[col] ?? null) === val;
+    if (k === 'gte') return !(col in fila) || String(fila[col]) >= String(val);
+    if (k === 'in') return !(col in fila) || (val as any[]).map(String).includes(String(fila[col]));
     return true;
   });
 }
@@ -375,5 +377,156 @@ describe('revisión del 9/10: el saludo tardío', () => {
     const { s, create } = armar({ hist: HIST.slice(0, 7), actualizado: hace(300), tablas: { bot_contactos: { select: { data: { tipo: 'proveedor', nombre: 'Distri Sur' }, error: null } } } });
     await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Buen día' });
     expect(create).toHaveBeenCalled();
+  });
+});
+
+// ============================================================
+// Segunda revisión del 9/10: la lista cerrada del sí y el «¿Lo confirmo?» de antes
+// ============================================================
+const conHist = (...medio: { role: string; content: string }[]) => [...HIST_FRESCA, ...medio];
+const u = (content: string) => ({ role: 'user', content });
+const b = (content: string) => ({ role: 'assistant', content });
+
+describe('segunda revisión: un sí a otra cosa no confirma el resumen de antes', () => {
+  it('después de otra respuesta, «Sí, mandame una bolsa», «Sí, dale», «Sii» van al modelo', async () => {
+    const casos: [any[], string][] = [
+      [conHist(u('¿Tienen hielo de 5 kg?'), b('Sobre el hielo de 5 kg: sí, tenemos.')), 'Sí, mandame una bolsa'],
+      [conHist(u('¿Me lo pueden mandar a casa?'), b('Sí, el envío es sin cargo.')), 'Sí, dale'],
+      [conHist(u('¿Lo puedo retirar el sábado?'), b('Sí, el sábado abrimos de 9 a 13 h.')), 'Sii'],
+      [conHist(u('¿Tienen hielo de 5 kg?'), b('Sobre el hielo de 5 kg: sí, tenemos.')), 'Dale, confirmalo'],
+      [conHist(u('Mejor la de litro'), b('Anotado.')), 'Confirmalo'],
+    ];
+    for (const [hist, t] of casos) {
+      const { s, db, create } = armar({ cotizaciones: [FRESCA], hist });
+      await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: t });
+      expect([t, confirmaciones(db).length]).toEqual([t, 0]);
+      expect(create).toHaveBeenCalled();
+    }
+  });
+
+  it('«Mmm bueno…», «Eh bueno», «Bueno, gracias», «Bueno», «Ah, perfecto» al «¿Lo confirmo?» no confirman', async () => {
+    for (const t of ['Mmm bueno...', 'Eh bueno', 'Bueno, gracias', 'Bueno', 'Ah, perfecto']) {
+      const { s, db } = armar({ cotizaciones: [FRESCA], hist: HIST_FRESCA });
+      await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: t });
+      expect([t, confirmaciones(db).length]).toEqual([t, 0]);
+    }
+  });
+
+  it('un sí con algo más (postergar, agregar, preguntar) no confirma: «Bueno, dale, mañana te confirmo», «Sí, con hielo», «Sí, x2»…', async () => {
+    for (const t of ['Bueno, dale, mañana te confirmo', 'Sí, más una coca', 'Sí, con hielo', 'Sí, x2', 'Si, cuánto sale el hielo?', 'Okis, lo veo con mi señora', 'Sí, la coca light']) {
+      const { s, db } = armar({ cotizaciones: [FRESCA], hist: HIST_FRESCA });
+      await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: t });
+      expect([t, confirmaciones(db).length]).toEqual([t, 0]);
+    }
+  });
+
+  it('un sí que cambia la modalidad no confirma la modalidad vieja', async () => {
+    const dom = { ...FRESCA, tipo: 'domicilio', direccion: 'Mitre 1234', nombre: 'Leandro' };
+    for (const [cot, t] of [[FRESCA, 'Sí, mandámelo a Mitre 1234'], [FRESCA, 'Dale, envialo a casa'], [dom, 'Sí, lo paso a buscar yo'], [dom, 'Dale, lo retiro en el local'], [dom, 'Sí, para retirar']] as const) {
+      const { s, db } = armar({ cotizaciones: [cot], hist: HIST_FRESCA });
+      await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: t });
+      expect([t, confirmaciones(db).length]).toEqual([t, 0]);
+    }
+    // con un envío y sin el dato habilitado, la regla igual conoce el tipo
+    const { s } = armar({ cotizaciones: [dom] });
+    await expect(s.crearPedido({ telefono: TEL, linea: 'pedidos', confirmacion: 'Sí, para retirar', resumenPresentado: RESUMEN }, { aceptaDato: false })).rejects.toThrow(/falta confirmación inequívoca/);
+  });
+
+  it('«Confirmame si abren hasta las 20» después del saludo de charla nueva no confirma', async () => {
+    const { s, db } = armar({ cotizaciones: [{ ...FRESCA, creada_en: hace(60), vence_en: hace(30) }], hist: conHist(u('Hola'), b('Buenas tardes. ¿Qué necesitás?')) });
+    await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Confirmame si abren hasta las 20' });
+    expect(confirmaciones(db)).toHaveLength(0);
+  });
+
+  it('un «Sip» o «Hola, sí» después de «Recibido. Tu pedido … quedó confirmado» no vuelve a confirmar', async () => {
+    const hecha = { ...FRESCA, pedido_id: 'ped-1', confirmada_en: hace(2) };
+    for (const t of ['Sip', 'Hola, sí', 'Sii, gracias']) {
+      const { s, db } = armar({ cotizaciones: [hecha], hist: conHist(u('📷 Foto del cliente'), b('Recibido. Tu pedido PICKUP-E9D52964B0BA quedó confirmado para retirar en la sucursal Saint Thomas.')) });
+      const r = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: t });
+      expect([t, confirmaciones(db).length]).toEqual([t, 0]);
+      expect(r.respuesta ?? null).toBeNull();
+    }
+    const { s } = armar({ cotizaciones: [hecha] });
+    await expect(s.crearPedido({ telefono: TEL, linea: 'pedidos', confirmacion: 'Sí', resumenPresentado: RESUMEN })).rejects.toThrow(/ya está confirmado/);
+  });
+
+  it('un «Gracias» callado no hace «recién preguntado» a un resumen de hace dos días', async () => {
+    const vieja = { ...VIEJA, creada_en: hace(2 * 24 * 60), vence_en: hace(2 * 24 * 60 - 30) };
+    const { s, db, preparar } = armar({ cotizaciones: [vieja], hist: [...HIST_FRESCA, u('Gracias!')], actualizado: hace(2) });
+    await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Sí' });
+    expect(preparar).not.toHaveBeenCalled();
+    expect(confirmaciones(db).filter((c: any) => c.p_id === 'cot-nueva')).toHaveLength(0);
+  });
+
+  it('crear_pedido después de armar otro resumen en el mismo turno: tampoco con un «Sí»', async () => {
+    const { s } = armar({ cotizaciones: [FRESCA] });
+    const crear = jest.spyOn(s, 'crearPedido');
+    const ctx = { ultimoBot: RESUMEN, textoCliente: 'Sí', historial: HIST_FRESCA, fallos: new Map([['__preparado__', 1]]), fija: {} as any, salidas: [] };
+    const r = await s.ejecutarHerramienta({ type: 'tool_use', id: 't', name: 'crear_pedido', input: {} }, TEL, 'pedidos', ctx);
+    expect(crear).not.toHaveBeenCalled();
+    expect(String(r.content)).toMatch(/todavía no lo vio/);
+  });
+});
+
+describe('segunda revisión: las difusiones', () => {
+  it('si la consulta de difusiones falla, no se confirma', async () => {
+    const { s, db } = armar({ cotizaciones: [FRESCA], tablas: { bot_envios: { select: { data: null, error: { message: 'timeout' } } } } });
+    await expect(s.crearPedido({ telefono: TEL, linea: 'pedidos', confirmacion: 'Sí!', resumenPresentado: RESUMEN })).rejects.toThrow(/difusión/);
+    expect(confirmaciones(db)).toHaveLength(0);
+  });
+
+  it('una difusión ANTES de que el bot volviera a preguntar no traba el sí a esa pregunta', async () => {
+    const { s, db } = armar({ cotizaciones: [FRESCA], tablas: { bot_envios: { filas: [{ waha_id: 'D1', telefono: TEL, origen: 'difusion', creado_en: hace(3) }] } } });
+    await s.crearPedido({ telefono: TEL, linea: 'pedidos', confirmacion: 'Sí', resumenPresentado: M24 }, { presentadoEn: hace(1) });
+    expect(confirmaciones(db)).toHaveLength(1);
+  });
+});
+
+describe('segunda revisión: los sí que faltaban y el saludo con «¿qué tal?»', () => {
+  it('«Genial, dale», «Joya, sí», «Dalee», «Listoo», «Está bien», «Ok, gracias», «👍🏻» confirman', async () => {
+    for (const t of ['Genial, dale', 'Joya, dale', 'Joya, sí', 'Dalee', 'Listoo', 'Está bien', 'Ok, gracias', '👍🏻', 'Sí, en efectivo']) {
+      const { s, db, create } = armar({ cotizaciones: [FRESCA], hist: HIST_FRESCA });
+      const r = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: t });
+      expect([t, create.mock.calls.length, confirmaciones(db).length]).toEqual([t, 0, 1]);
+      expect(r.respuesta).toMatch(/^Pedido PICKUP-E9D52964B0BA confirmado/);
+      // a la base le llega lo que escribió, con un sí que ella conoce adelante
+      expect(confirmaciones(db)[0].p_confirmacion).toMatch(/^(?:dale · |s[ií]|ok|listo|perfecto|confirm)/i);
+    }
+  });
+
+  it('«Hola, ¿qué tal?», «Hola, ¿cómo estás?», «Buenas, ¿cómo andan?» tarde: el saludo y nada más', async () => {
+    for (const t of ['Hola, ¿qué tal?', 'Hola, ¿cómo estás?', 'Buenas, ¿cómo andan?']) {
+      const { s, create } = armar({ hist: HIST.slice(0, 7), actualizado: hace(300) });
+      const r = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: t });
+      expect([t, create.mock.calls.length]).toEqual([t, 0]);
+      expect(r.respuesta).toMatch(/^(Buen día|Buenas tardes|Buenas noches)\. ¿Qué necesitás\?$/);
+    }
+  });
+
+  it('el saludo tardío no le contesta «¿Qué necesitás?» al que espera la confirmación de su pago', async () => {
+    const { s, create } = armar({ hist: HIST.slice(0, 7), actualizado: hace(60), tablas: { bot_pagos_en_confirmacion: { filas: [{ id: 'p1', linea: 'pedidos', telefono_cliente: TEL, confirmado_en: null, creado_en: hace(50) }] } } });
+    await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Hola' });
+    expect(create).toHaveBeenCalled();
+  });
+});
+
+describe('segunda revisión: cuando el modelo pide crear el pedido (herramienta crear_pedido)', () => {
+  const herramienta = async (texto: string, cot: any = FRESCA) => {
+    const { s, db } = armar({ cotizaciones: [cot] });
+    const ctx = { ultimoBot: RESUMEN, textoCliente: texto, historial: HIST_FRESCA, fallos: new Map(), fija: {} as any, salidas: [] };
+    const r = await s.ejecutarHerramienta({ type: 'tool_use', id: 't', name: 'crear_pedido', input: {} }, TEL, 'pedidos', ctx);
+    return { r, db, ctx };
+  };
+  it('«Sí, confirmo. ¿Hay estacionamiento?»: el modelo lo leyó, se crea (la pregunta la contesta aparte)', async () => {
+    const { db, ctx } = await herramienta('Sí, confirmo. ¿Hay estacionamiento?');
+    expect(confirmaciones(db)).toHaveLength(1);
+    expect(ctx.fija.texto).toMatch(/^Pedido PICKUP-E9D52964B0BA confirmado/);
+  });
+  it('aunque el modelo lo pida, no se crea con «Sí, mañana te confirmo», «Sí, con hielo», «Dale, envialo a casa», «Sí, más una coca»', async () => {
+    for (const t of ['Sí, mañana te confirmo', 'Sí, con hielo', 'Dale, envialo a casa', 'Sí, más una coca', 'Sí, x2']) {
+      const { db, r } = await herramienta(t);
+      expect([t, confirmaciones(db).length]).toEqual([t, 0]);
+      expect(String(r.content)).toMatch(/NO se creó el pedido/);
+    }
   });
 });

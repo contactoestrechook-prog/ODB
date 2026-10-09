@@ -716,12 +716,17 @@ export class BotService {
     // clientes, con lo último de la charla dicho por el bot, sin adjuntos sin leer ni
     // consultas abiertas: el que espera una respuesta no recibe «¿Qué necesitás?»)
     const SALUDO = '(?:hola+s?|holis|holu|buenas+|buen dia|buenos dias|buenas (?:tardes|noches)|buen dia)';
-    const esSaludoSuelto = (t: string) => new RegExp(`^${SALUDO}(?: ${SALUDO})*$`).test(
+    const CORTESIA_SALUDO = '(?:que tal|como (?:estas|estan|esta|andas|andan|anda|va|te va|les va|le va)|todo bien|como va todo)';
+    const esSaludoSuelto = (t: string) => new RegExp(`^${SALUDO}(?: (?:${SALUDO}|${CORTESIA_SALUDO}))*$`).test(
       String(t ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
         .replace(/[\p{Extended_Pictographic}\u{1F3FB}-\u{1F3FF}\u200d\ufe0f]/gu, ' ').replace(/[\s!.,;:¡¿?]+/g, ' ').trim());
     const esperaAlgo = async () => historial[historial.length - 1]?.role !== 'assistant'
       || historial.some((m) => m.role === 'user' && String(m.content).includes('[adjunto sin leer'))
       || (await this.consultasAbiertas(linea, telefono, HORAS_CONSULTA_ABIERTA)).length > 0
+      // un comprobante o una consulta de pago en manos de administración; si la base no contesta, cuenta como que espera
+      || await this.db.from('bot_pagos_en_confirmacion').select('id').eq('linea', linea).eq('telefono_cliente', telefono).is('confirmado_en', null)
+        .gte('creado_en', new Date(Date.now() - HORAS_CONSULTA_ABIERTA * 3600_000).toISOString()).limit(1)
+        .then((r: any) => !!r?.error || (Array.isArray(r?.data) ? r.data.length > 0 : !!r?.data), () => true)
       || (await this.db.from('bot_contactos').select('tipo').eq('telefono', telefono).maybeSingle())?.data?.tipo === 'proveedor';
     if (esSaludoSuelto(texto) && historial.length > 0 && !charlaViva && !traeArchivo && tipoLinea === 'pedidos' && !(await esperaAlgo())) {
       const hora = Number(new Date().toLocaleString('en-US', { timeZone: 'America/Argentina/Buenos_Aires', hour: '2-digit', hour12: false })) % 24;
@@ -765,7 +770,7 @@ export class BotService {
     // el modelo lo tomaba como pedido nuevo y armaba el mismo pedido otra vez.
     // También después de la confirmación por comprobante («Recibido. Tu pedido X
     // quedó confirmado…», 5/10/2026, revisión): un «Sí, gracias» iba al modelo.
-    if (!traeArchivo && RE_PEDIDO_CONFIRMADO.test(String(ultimoMsgBot).trim()) && (confirmacionInequivoca(texto) || RE_SI_NO.test(texto.trim()))) {
+    if (!traeArchivo && RE_PEDIDO_CONFIRMADO.test(String(ultimoMsgBot).trim()) && (confirmacionInequivoca(texto) || RE_SI_NO.test(texto.trim()) || aceptaElResumen(texto).modo === 'si')) {
       return callar('acuse de un pedido ya confirmado');
     }
 
@@ -815,8 +820,10 @@ export class BotService {
     const aceptaSi = aceptaElResumen(texto).modo === 'si';
     if (!traeArchivo && presentado && (aceptaSi || (esUltimoLoConfirmo && pareceAceptacion(texto)))) {
       try {
+        const loUltimoEsElBot = historial[historial.length - 1]?.role === 'assistant';
         const creado = await this.crearPedido({ telefono, linea, confirmacion: texto, resumenPresentado: presentado },
-          { recienPreguntado: esUltimoLoConfirmo && charlaViva, aceptaDato: esUltimoLoConfirmo });
+          { recienPreguntado: esUltimoLoConfirmo && charlaViva && loUltimoEsElBot, aceptaDato: esUltimoLoConfirmo,
+            presentadoEn: esUltimoLoConfirmo && loUltimoEsElBot && conv?.actualizado_en ? String(conv.actualizado_en) : undefined });
         if (creado?.recotizado) this.log.log(`el "sí" de ${telefono} llegó con la cotización vencida y otro precio: va el resumen nuevo (sin modelo)`);
         else this.log.log(`pedido ${creado.codigoRetiro} confirmado por el "sí" de ${telefono} (sin modelo)`);
         await this.db.from('bot_conversaciones').upsert({
@@ -1071,7 +1078,7 @@ export class BotService {
     let vueltasReintento = 0;
     // lo que necesita cada herramienta del turno (el bucle, las correcciones y la
     // reescritura tras una consulta usan el mismo)
-    const ctxHerr: { cotizacion?: any } & Record<string, any> = { charlaViva, ultimoBot: ultimoDelBot, ultimosBot: ultimosDelBot, ultimosCliente: ultimosDelCliente, textoCliente: texto, fallos: fallosDelTurno, archivoUrl: dto.archivoUrl, fija: respuestaFija, salidas: salidasDelTurno, archivo: archivoDelTurno, historial, cotizacion: undefined };
+    const ctxHerr: { cotizacion?: any } & Record<string, any> = { charlaViva, convActualizadoEn: conv?.actualizado_en ? String(conv.actualizado_en) : undefined, ultimoBot: ultimoDelBot, ultimosBot: ultimosDelBot, ultimosCliente: ultimosDelCliente, textoCliente: texto, fallos: fallosDelTurno, archivoUrl: dto.archivoUrl, fija: respuestaFija, salidas: salidasDelTurno, archivo: archivoDelTurno, historial, cotizacion: undefined };
     const ejecutarEnElTurno = (b: Anthropic.ToolUseBlock) => { herramientasDelTurno.add(b.name); return this.ejecutarHerramienta(b, telefono, linea, ctxHerr); };
     // tras una consulta el modelo siguió pidiendo herramientas: la vuelta que sigue
     // no puede usarlas y tiene que escribir (6/10/2026, ver más abajo)
@@ -2566,7 +2573,7 @@ export class BotService {
     block: Anthropic.ToolUseBlock,
     telefono: string,
     linea: string = 'pedidos', // todos los llamados del servicio pasan la línea del turno
-    ctx: { ultimoBot?: string; ultimosBot?: string[]; ultimosCliente?: string[]; textoCliente?: string; fallos?: Map<string, number>; archivoUrl?: string; fija?: { texto?: string; consultaPendiente?: boolean; operacion?: boolean; derivada?: boolean; datosPago?: string; pagoEnAdministracion?: boolean }; salidas?: string[]; archivo?: ArchivoDelTurno; historial?: MensajeDeCharla[]; cotizacion?: any; charlaViva?: boolean } = {},
+    ctx: { ultimoBot?: string; ultimosBot?: string[]; ultimosCliente?: string[]; textoCliente?: string; fallos?: Map<string, number>; archivoUrl?: string; fija?: { texto?: string; consultaPendiente?: boolean; operacion?: boolean; derivada?: boolean; datosPago?: string; pagoEnAdministracion?: boolean }; salidas?: string[]; archivo?: ArchivoDelTurno; historial?: MensajeDeCharla[]; cotizacion?: any; charlaViva?: boolean; convActualizadoEn?: string } = {},
   ): Promise<Anthropic.ToolResultBlockParam> {
     const input: any = block.input;
     const skusVistosEnTurno = this.skusDe(telefono);
@@ -2656,16 +2663,19 @@ export class BotService {
           // el sí al resumen, o el mismo nombre o dirección que ya tiene (9/10/2026; la regla única
           // de cierre-con-dato.ts). El dato solo vale contestando el último «¿Lo confirmo?» y si en
           // este turno no se armó otro resumen: ese el cliente todavía no lo vio.
+          // el resumen que se armó en ESTE turno el cliente todavía no lo vio: ni un sí ni el dato lo confirman
+          if (ctx.fallos?.get('__preparado__') === 1) { out = { error: 'NO se creó el pedido: en este turno armaste otro resumen y el cliente todavía no lo vio. Le va ese resumen con «¿Lo confirmo?»; esperá su respuesta.' }; break; }
           const ultimoEsLoConfirmo = RE_LO_CONFIRMO.test(ctx.ultimoBot ?? '');
-          const puedeDato = ultimoEsLoConfirmo && ctx.fallos?.get('__preparado__') !== 1 && pareceAceptacion(ctx.textoCliente ?? '');
-          if (aceptaElResumen(ctx.textoCliente ?? '').modo !== 'si' && !puedeDato) {
+          const puedeDato = ultimoEsLoConfirmo && pareceAceptacion(ctx.textoCliente ?? '');
+          if (aceptaElResumen(ctx.textoCliente ?? '', null, { estricto: false }).modo !== 'si' && !puedeDato) {
             out = { error: 'NO se creó el pedido: falta confirmación inequívoca al resumen. Usá preparar_pedido y esperá la aceptación del cliente.' };
             break;
           }
           const presentadoAlCliente = ultimoEsLoConfirmo ? (ctx.ultimoBot ?? '') : (loConfirmoVigente(ctx.historial ?? [], ctx.textoCliente ?? '') || (ctx.ultimoBot ?? ''));
           try {
             out = await this.crearPedido({ telefono, linea, confirmacion: ctx.textoCliente ?? '', resumenPresentado: presentadoAlCliente },
-              { recienPreguntado: ultimoEsLoConfirmo && ctx.charlaViva === true, aceptaDato: puedeDato });
+              { estricto: false, recienPreguntado: ultimoEsLoConfirmo && ctx.charlaViva === true && (ctx.historial ?? []).slice(-1)[0]?.role === 'assistant', aceptaDato: puedeDato,
+                presentadoEn: ultimoEsLoConfirmo && (ctx.historial ?? []).slice(-1)[0]?.role === 'assistant' ? ctx.convActualizadoEn : undefined });
           } catch (e: any) {
             if (/falta confirmación inequívoca/.test(String(e?.message ?? ''))) { out = { error: 'NO se creó el pedido: falta confirmación inequívoca al resumen. Usá preparar_pedido y esperá la aceptación del cliente.' }; break; }
             throw e;
@@ -3459,7 +3469,9 @@ export class BotService {
     // recienPreguntado: el «¿Lo confirmo?» es el último mensaje del bot y la charla sigue viva
     // (deja recotizar aunque la cotización tenga más de 3 h). aceptaDato: vale el mismo
     // nombre o dirección como un sí. El endpoint POST bot/pedidos/crear no pasa nada.
-    opciones: { recienPreguntado?: boolean; aceptaDato?: boolean } = {},
+    // presentadoEn: cuándo se le mostró ese «¿Lo confirmo?» (el freno de las difusiones mira desde ahí)
+    // estricto: false solo cuando el modelo ya leyó el mensaje y pidió crear el pedido (herramienta crear_pedido)
+    opciones: { recienPreguntado?: boolean; aceptaDato?: boolean; presentadoEn?: string; estricto?: boolean } = {},
   ) {
     // Se conserva la firma antigua sólo para rechazar clientes desactualizados.
     if (dto.items && (dto.items.length > maxRenglonesBot() || dto.items.reduce((n,i)=>n+i.cantidad,0)>maxUnidadesBot())) throw new BadRequestException('El pedido supera el máximo del canal WhatsApp');
@@ -3496,15 +3508,19 @@ export class BotService {
     let confirmacionParaLaBase = String(dto.confirmacion ?? '');
     if (!porComprobante && !porDato) {
       const pideConfirmo = !!q && RE_LO_CONFIRMO.test(ultimo) && contieneMonto(ultimo, Number(q.total));
-      const acepta = aceptaElResumen(dto.confirmacion ?? '', opciones.aceptaDato === false ? null : q);
-      aceptaConElDato = acepta.modo === 'dato' && pideConfirmo;
+      // un pedido ya confirmado no se vuelve a confirmar (un «Sip» después de «Recibido. Tu pedido… quedó confirmado»)
+      if (q && (q.pedido_id || q.confirmada_en)) throw new BadRequestException('NO se creó el pedido: ese pedido ya está confirmado');
+      const acepta = aceptaElResumen(dto.confirmacion ?? '', q, { estricto: opciones.estricto !== false });
+      aceptaConElDato = acepta.modo === 'dato' && pideConfirmo && opciones.aceptaDato !== false;
       if (acepta.modo !== 'si' && !aceptaConElDato) throw new BadRequestException('NO se creó el pedido: falta confirmación inequívoca');
-      // a la base le llega el sí en su forma de siempre («Sii» → «si», «👍» → «dale»)
-      if (acepta.modo === 'si' && !confirmacionInequivoca(confirmacionParaLaBase)) confirmacionParaLaBase = acepta.canon;
-      if (q && !error && !q.pedido_id && !q.confirmada_en) {
-        const { data: difusion } = await this.db.from('bot_envios').select('waha_id').eq('telefono', dto.telefono)
-          .in('origen', ['difusion', 'programado']).gte('creado_en', String(q.creada_en)).limit(1);
-        if (Array.isArray(difusion) ? difusion.length : difusion) throw new BadRequestException('NO se creó el pedido: después del resumen le llegó una difusión o un mensaje programado; el «sí» puede ser a eso. Preguntale si confirma el pedido.');
+      // a la base le llega lo que escribió el cliente («dale · Joya, sí» si no empieza con un sí que ella conozca)
+      if (acepta.modo === 'si') confirmacionParaLaBase = acepta.paraLaBase;
+      if (q && !error) {
+        // desde que se le presentó el «¿Lo confirmo?» (o desde la cotización); si la base no contesta, no se confirma
+        const corte = [String(q.creada_en), opciones.presentadoEn].filter(Boolean).sort().pop() as string;
+        const { data: difusion, error: eDifusion } = await this.db.from('bot_envios').select('waha_id').eq('telefono', dto.telefono)
+          .in('origen', ['difusion', 'programado']).gte('creado_en', corte).limit(1);
+        if (eDifusion || (Array.isArray(difusion) ? difusion.length : difusion)) throw new BadRequestException('NO se creó el pedido: después del resumen le llegó una difusión o un mensaje programado (o no se pudo verificar); el «sí» puede ser a eso. Preguntale si confirma el pedido.');
       }
       const edad = q ? Date.now() - new Date(q.creada_en).getTime() : Infinity;
       const hoyBA = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }).format(new Date());

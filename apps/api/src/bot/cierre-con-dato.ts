@@ -27,7 +27,7 @@
 
 import { nombreLimpio } from './prolijo';
 import { confirmacionInequivoca, pesos } from './comercio';
-import { cambiaElPedido } from './pago-confirma';
+import { cambiaElPedido, cambiaLaEntrega } from './pago-confirma';
 
 const norm = (t: string) => String(t ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
@@ -182,60 +182,78 @@ export function soloElDato(textoCliente: string, q: { tipo?: string; nombre?: st
 // ============================================================
 // EL CLIENTE ACEPTÓ EL RESUMEN QUE VIO (9/10/2026, noche). Una sola regla para el
 // atajo sin modelo, la herramienta crear_pedido y crearPedido. Leandro: «te ha
-// dicho que sí, a nombre de Leandro… ¿para qué me vuelve a preguntar?». La
-// revisión del 9/10 mostró los «sí» que el bot no entendía («Sii», «👍»,
-// «Hola, sí», «Perfecto», «Sí, para retirar») y los que no son un sí («Hola,
-// soy Leandro», «Sí, sumale una coca»).
+// dicho que sí, a nombre de Leandro… ¿para qué me vuelve a preguntar?».
+// LISTA CERRADA (segunda revisión del 9/10): confirma un sí y nada más que cortesía
+// («Sí», «Sii», «Dale gracias», «Perfecto», «👍», «Joya, sí», «Ok, gracias», «Sí, en
+// efectivo», «Sí, para retirar» en un retiro), o el MISMO nombre o dirección del
+// resumen. Todo lo demás («Mmm bueno…», «Sí, con hielo», «Sí, mañana te confirmo»,
+// «Hola, soy Leandro», «Dale, envialo a casa») lo decide el modelo.
 // ============================================================
 
-// «para retirar» repite lo que el resumen ya dice: «Sí, para retirar en la sucursal»
+const SI_SOLO = String.raw`(?:si|dale|ok|listo|confirmo|confirmalo|confirmame|confirma|confirmado|de acuerdo|hacelo|armalo|cerralo|perfecto|joya|genial|barbaro|de una|buenisimo|claro|correcto|es correcto|exacto|esta bien|👍|👌)`;
+const CORTESIA = String.raw`(?:si|dale|ok|listo|confirmo|confirmalo|confirmame|confirma|confirmado|de acuerdo|hacelo|armalo|cerralo|perfecto|joya|genial|barbaro|de una|buenisimo|claro|correcto|es correcto|exacto|esta bien|👍|👌|bueno|gracias+|muchas gracias|mil gracias|porfa|por favor|nomas|el pedido|(?:en )?efectivo|con tarjeta|(?:por |con )?transferencia)`;
+const RE_SI_LIMPIO = new RegExp(String.raw`^(?:bueno[\s,.!]+)?${SI_SOLO}(?:[\s,.!]+${CORTESIA})*[\s,.!]*$`, 'u');
+// «para retirar» repite lo que el resumen de un retiro ya dice
 const RE_COLA_RETIRO = /[\s,]+(?:es\s+)?para\s+(?:retirar|retiro|pasar\s+a\s+buscar)(?:\s+(?:en\s+)?(?:la\s+)?(?:sucursal|el\s+local)(?:\s+saint\s+thomas)?)?[\s.!]*$/;
 
 /**
- * El «sí» llevado a su forma de siempre: «¡Sí!» → «si!», «Hola, sí» → «si»,
- * «Sii»/«Sisi»/«Sip» → «si», «Okey» → «ok», «Confirmado» → «confirmo», y un
- * pulgar o «joya/genial/bárbaro/de una/buenísimo/bueno/perfecto» solos → «dale».
- * Lo demás queda como estaba (sin tildes y en minúsculas).
+ * Las formas escritas del mismo sí: «¡Sí!» → «si», «Hola, sí» → «si», «Sii»/«Sisi»/
+ * «Sip» → «si», «Okey» → «ok», «Dalee» → «dale», «Listoo» → «listo», «👍🏻» → «👍»;
+ * en un retiro, sin la cola «para retirar». Sin tildes y en minúsculas.
  */
 export function normalizarSi(texto: string, tipo?: string): string {
-  let t = norm(String(texto ?? '')).trim();
-  if (/^[\s👍👌🏻🏼🏽🏾🏿]+$/u.test(t) && /[👍👌]/u.test(t)) return 'dale';
+  let t = norm(String(texto ?? '')).replace(/[\u{1F3FB}-\u{1F3FF}‍️]/gu, '').trim();
   t = t.replace(/^[¡!\s]+/, '');
-  t = t.replace(/^(?:hola+|buenas|eh+|ah+|mm+)[\s,.!]+(?=\S)/, '');
-  if (/^(?:joya|genial|barbaro|de una|buenisimo|bueno|perfecto)(?:[\s,.!]+(?:gracias+|muchas gracias|mil gracias))?[\s!.]*$/.test(t)) return 'dale';
-  t = t.replace(/^bueno[\s,.!]+(?=\S)/, '');
-  t = t.replace(/^s+i+(?:\s?s+i+)*p?(?=$|[\s,.!])/, 'si');
-  t = t.replace(/^(?:okey|oka|okis|ok+)(?=$|[\s,.!])/, 'ok');
-  t = t.replace(/^confirmado(?=$|[\s,.!])/, 'confirmo');
-  if (tipo !== 'domicilio') t = t.replace(RE_COLA_RETIRO, '');
-  return t.trim();
+  t = t.replace(/^(?:hola+|buenas)[\s,.!]+(?=\S)/, '');
+  t = t.replace(/\bs+i+(?:\s?s+i+)*p?(?=$|[\s,.!])/g, 'si');
+  t = t.replace(/\b(?:okey|oka|okis|ok+)(?=$|[\s,.!])/g, 'ok');
+  t = t.replace(/\bdal+e+(?=$|[\s,.!])/g, 'dale').replace(/\blist+o+(?=$|[\s,.!])/g, 'listo');
+  if (tipo === 'pickup' || tipo === 'retiro') t = t.replace(RE_COLA_RETIRO, '');
+  return t.replace(/\s+/g, ' ').trim();
 }
 
-/** ¿El «sí» trae algo más? («Sí, sumale una coca», «Si y 2 hielos», «Si, también un fernet») */
+/** ¿El «sí» trae algo más? («Sí, sumale una coca», «Si y 2 hielos», «Sí, con hielo», «Sí, x2», «Dale, doble») */
 export function siConAgregado(texto: string): boolean {
   const t = norm(String(texto ?? ''));
-  return cambiaElPedido(t) || /\b(?:sum\w*|agreg\w*|tambien|ademas)\b/.test(t) || /\by\s+(?:un[oa]?s?|dos|tres|cuatro|cinco|seis|\d{1,3})\b/.test(t);
+  return cambiaElPedido(t) || /\b(?:sum\w*|agreg\w*|tambien|ademas|doble|falta\w*)\b/.test(t)
+    || /\by\s+(?:un[oa]?s?|dos|tres|cuatro|cinco|seis|\d{1,3})\b/.test(t) || /\bmas\s+(?:un[oa]?s?|dos|tres|\d)/.test(t)
+    || /(?:^|[\s,])(?:x\s?\d|\+)/.test(t) || /\bcon\s+(?!tarjeta|efectivo|transferencia|mercado\s?pago|debito|credito|gusto)[a-z]/.test(t);
 }
+
+// «mañana te confirmo», «lo pienso», «lo consulto y te aviso», «lo veo con mi señora»: todavía no
+const RE_POSTERGA = /\b(?:te (?:aviso|confirmo|digo)|manana|lo pienso|lo veo|lo consulto|despues|mas tarde|ahora no|todavia)\b/;
+// un sí que cambia la modalidad: en un retiro, que se lo manden; en un envío, que lo pasa a buscar
+const RE_PIDE_RETIRO = /\b(?:retir\w*|pas\w*\s+a\s+buscar\w*|(?:lo|la|los|las)\s+busc\w*|busc\w*(?:lo|la|los|las)|local|sucursal)\b/;
+const cambiaLaModalidad = (texto: string, tipo?: string) => (tipo === 'domicilio' ? RE_PIDE_RETIRO.test(norm(texto)) : cambiaLaEntrega(texto));
 
 // al «¿Lo confirmo?», saludar o presentarse no es aceptar («Hola, soy Leandro», «Es Leandro»)
 const RE_SE_PRESENTA = /^(?:(?:dale|ok|listo|si)[\s,.!]+)?(?:hola+|buenas+|buen dia|soy|es|me llamo|mi nombre es|habla|te habla)\b/;
 
 /**
- * ¿El mensaje acepta el resumen con «¿Lo confirmo?»? 'si' (con `canon`, la forma
- * que se le pasa a la base) o 'dato' (el MISMO nombre o dirección que ya tiene
- * la cotización: «A nombre de Leandro»). null si no es una aceptación limpia.
+ * ¿El mensaje acepta el resumen con «¿Lo confirmo?»? 'si' (con `paraLaBase`, el
+ * texto que va a confirmar_cotizacion_bot: el del cliente, con «dale · » adelante si
+ * no empieza con un sí que la base conozca) o 'dato' (el MISMO nombre o dirección
+ * de la cotización: «A nombre de Leandro»). null si no es una aceptación limpia.
  */
-export function aceptaElResumen(textoCliente: string, q?: { tipo?: string; nombre?: string | null; direccion?: string | null } | null): { modo: 'si' | 'dato' | null; canon: string; motivo: string } {
+export function aceptaElResumen(
+  textoCliente: string,
+  q?: { tipo?: string; nombre?: string | null; direccion?: string | null } | null,
+  // estricto (el servidor sin el modelo): solo el sí y cortesía. Sin estricto (el modelo ya leyó el
+  // mensaje y pidió crear el pedido, como «Sí, confirmo. ¿Hay estacionamiento?»): un sí inequívoco
+  // sin agregados, sin cambio de modalidad y sin postergar
+  opciones: { estricto?: boolean } = {},
+): { modo: 'si' | 'dato' | null; paraLaBase: string; motivo: string } {
   const texto = String(textoCliente ?? '').trim();
   const canon = normalizarSi(texto, q?.tipo);
-  if (canon && confirmacionInequivoca(canon)) {
-    if (siConAgregado(texto)) return { modo: null, canon, motivo: 'el sí trae algo más (otro producto o un cambio)' };
-    return { modo: 'si', canon, motivo: 'sí al resumen' };
+  const paraLaBase = confirmacionInequivoca(texto) ? texto : `dale · ${texto}`.slice(0, 300);
+  if (canon && RE_SI_LIMPIO.test(canon)) return { modo: 'si', paraLaBase, motivo: 'sí al resumen' };
+  if (opciones.estricto === false && canon && confirmacionInequivoca(canon) && !siConAgregado(texto) && !RE_POSTERGA.test(norm(texto)) && !cambiaLaModalidad(texto, q?.tipo)) {
+    return { modo: 'si', paraLaBase, motivo: 'sí al resumen (lo leyó el modelo)' };
   }
-  if (!q) return { modo: null, canon, motivo: 'no es un sí' };
-  if (RE_SE_PRESENTA.test(norm(texto))) return { modo: null, canon, motivo: 'saluda o se presenta: no es aceptar el resumen' };
+  if (!q) return { modo: null, paraLaBase: texto, motivo: 'no es un sí limpio' };
+  if (RE_SE_PRESENTA.test(norm(texto))) return { modo: null, paraLaBase: texto, motivo: 'saluda o se presenta: no es aceptar el resumen' };
   const dato = soloElDato(texto, q);
-  return dato.ok ? { modo: 'dato', canon: texto, motivo: dato.motivo } : { modo: null, canon, motivo: dato.motivo };
+  return dato.ok ? { modo: 'dato', paraLaBase: texto, motivo: dato.motivo } : { modo: null, paraLaBase: texto, motivo: dato.motivo };
 }
 
 /** La forma de una aceptación, sin la cotización a mano (el atajo y la herramienta; crearPedido decide). */
@@ -244,25 +262,32 @@ export function pareceAceptacion(textoCliente: string): boolean {
   return aceptaElResumen(t).modo === 'si' || (pareceSoloElDato(t).ok && !RE_SE_PRESENTA.test(norm(t)));
 }
 
+// «Confirmalo», «Dale, confirmalo», «Sí, confirmá el pedido»: el pedido nombrado, entero y solo
+const RE_CONFIRMA_EXPLICITO = /^(?:(?:si|dale|ok|bueno|listo)[\s,.!]+)?(?:confirmalo|confirmo|confirmame(?: el pedido)?|confirma(?:me)? el pedido|confirmalo nomas)(?:[\s,.!]+(?:porfa|por favor|gracias))?[\s.!]*$/;
+// el circuito del pago corta: alias, comprobante, «Recibido.», «Recibimos tu pago»
+const RE_PAGO = /\b(?:alias|cbu|cvu|comprobante|transfer\w*|recibido|recibimos|pag(?:o|ue|ar|aste|ado))\b/;
+
 /**
- * El «¿Lo confirmo?» que el «sí» contesta. El último mensaje del bot, o uno de
- * los anteriores si en el medio solo hubo cosas que no cambian el pedido: una
- * respuesta del bot sin pregunta ni importes («Hasta las 21 h.»), lo que escribió
- * el local desde el teléfono («ok») o el saludo de una charla nueva, y preguntas
- * del cliente que no cambian nada. Si en el medio hubo otro total, otra pregunta
- * del bot, un archivo o un cambio del cliente, no hay «¿Lo confirmo?» vigente.
+ * El «¿Lo confirmo?» que contesta un «Confirmalo» explícito cuando el último mensaje
+ * del bot es otra cosa (contestó una pregunta: «Hasta las 21 h.», o el saludo de una
+ * charla nueva). Solo con «confirmalo» entero y solo: un «sí» suelto contesta el
+ * último mensaje del bot, nunca un resumen de antes (segunda revisión del 9/10). Corta
+ * ante otro total, otra pregunta del bot, el pago, un archivo, un cambio del cliente
+ * (productos, entrega, «mejor…») o una pregunta por otro producto.
  */
 export function loConfirmoVigente(historial: { role: string; content: unknown }[], textoCliente = '', max = 6): string {
+  if (!RE_CONFIRMA_EXPLICITO.test(normalizarSi(textoCliente))) return '';
   const ms = (historial ?? []).slice(-max);
   for (let i = ms.length - 1; i >= 0; i--) {
     const t = String(ms[i]?.content ?? '');
+    const n = norm(t);
     if (ms[i]?.role === 'assistant') {
       if (RE_LO_CONFIRMO.test(t)) return t;
-      // pasado el saludo de una charla nueva, solo un «confirmalo» explícito vuelve al resumen de antes
+      if (RE_PAGO.test(n)) return '';
       const saludoNuevo = /^(?:Buen día|Buenas tardes|Buenas noches)\. ¿Qué necesitás\?$/.test(t.trim());
-      if (saludoNuevo && !/\bconfirm\w*/i.test(norm(textoCliente))) return '';
       if (!saludoNuevo && (/[?¿]/.test(t) || /\$\s?\d|\btotal\b/i.test(t))) return '';
-    } else if (/^[📷🎙️📎]|\[adjunto/u.test(t) || cambiaElPedido(t) || siConAgregado(t)) {
+    } else if (/^[📷🎙️📎]|\[adjunto|^\[el cliente mand/u.test(t) || RE_PAGO.test(n) || cambiaElPedido(t) || siConAgregado(t) || cambiaLaEntrega(t)
+      || /\bmejor\b/.test(n) || /\b(?:tienen|tenes|hay|venden|quedan?)\b/.test(n)) {
       return '';
     }
   }
