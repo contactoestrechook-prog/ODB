@@ -382,14 +382,15 @@ describe('revisión del 6/10/2026 (hallazgos sobre el cambio a Opus 5.5)', () =>
   });
 });
 
-describe('la caché del bot (variables apagadas por defecto)', () => {
+describe('la caché del bot (9/10/2026: el hilo se reusa por defecto)', () => {
   const guardadas: Record<string, string | undefined> = {};
   beforeEach(() => { for (const k of ['ODB_BOT_CACHE_PREFIJO', 'ODB_BOT_CACHE_HILO']) { guardadas[k] = process.env[k]; delete process.env[k]; } });
   afterEach(() => { for (const [k, v] of Object.entries(guardadas)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; } jest.useRealTimers(); });
 
   const hist = [{ role: 'user', content: 'Hola, ¿tienen fernet?' }, { role: 'assistant', content: 'Sí: Fernet Branca 750 cc a $20.500.' }];
 
-  it('sin variables: como siempre (5 minutos, la hora en el system, los avisos del mensaje en el system)', async () => {
+  it('ODB_BOT_CACHE_HILO=0: como antes (5 minutos, la hora en el system, los avisos del mensaje en el system)', async () => {
+    process.env.ODB_BOT_CACHE_HILO = '0';
     const db = baseFalsa({ bot_conversaciones: { select: conv(hist) }, lineas_whatsapp: { select: { data: CFG, error: null } } });
     const { s, llamadas } = servicio(db, final('a', 'Anotado.'));
     await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'quiero 2 fernet' });

@@ -575,7 +575,7 @@ describe('nombreLimpio (un nombre es un nombre o no es nada)', () => {
   });
 });
 
-describe('saludo universal con bienvenida (según la hora de Buenos Aires)', () => {
+describe('saludo universal corto (según la hora de Buenos Aires)', () => {
   const { saludoSegunHora, saludarConBienvenida } = require('./prolijo');
 
   it('el saludo acompaña el reloj: día hasta las 13, tarde hasta las 20, noche después', () => {
@@ -587,31 +587,27 @@ describe('saludo universal con bienvenida (según la hora de Buenos Aires)', () 
     expect(saludoSegunHora(23)).toBe('Buenas noches');
   });
 
-  it('corrige el saludo del modelo cuando imaginó otra hora y suma la bienvenida', () => {
+  // 9/10/2026 (Leandro: «más seca la charla»): el saludo es corto, sin bienvenida ni presentación
+  it('corrige el saludo del modelo cuando imaginó otra hora', () => {
     const r = saludarConBienvenida('Buen día. El Fernet Branca de 750 cc está $20.500. ¿Cuántas botellas necesita?', 'Buenas noches');
-    expect(r).toBe('Buenas noches, te damos la bienvenida a O.D.B. El Fernet Branca de 750 cc está $20.500. ¿Cuántas botellas necesita?');
+    expect(r).toBe('Buenas noches. El Fernet Branca de 750 cc está $20.500. ¿Cuántas botellas necesita?');
   });
 
-  it('si el modelo no saludó, el saludo y la bienvenida se anteponen', () => {
-    const r = saludarConBienvenida('El local abre a las 9.', 'Buenas tardes');
-    expect(r).toBe('Buenas tardes, te damos la bienvenida a O.D.B. El local abre a las 9.');
+  it('si el modelo no saludó, el saludo corto se antepone', () => {
+    expect(saludarConBienvenida('El local abre a las 9.', 'Buenas tardes')).toBe('Buenas tardes. El local abre a las 9.');
   });
 
-  it('no duplica la bienvenida si el modelo ya la dio', () => {
-    const r = saludarConBienvenida('Buenas tardes, bienvenido a O.D.B. ¿Qué necesita?', 'Buenas tardes');
-    expect(r).toBe('Buenas tardes. Bienvenido a O.D.B. ¿Qué necesita?');
-    expect((r.match(/bienvenid/gi) ?? []).length).toBe(1);
+  it('la bienvenida y la presentación que escriba el modelo se sacan', () => {
+    expect(saludarConBienvenida('Buenas tardes, bienvenido a O.D.B. ¿Qué necesita?', 'Buenas tardes')).toBe('Buenas tardes. ¿Qué necesita?');
+    expect(saludarConBienvenida('Buen día, te damos la bienvenida a O.D.B. Soy Emilia, la asistente de la casa. Te anoto 2 Coca.', 'Buen día')).toBe('Buen día. Te anoto 2 Coca.');
   });
 
   it('"Hola, buen día" no queda duplicado ni suelto', () => {
-    const r = saludarConBienvenida('Hola, buen día, ¿cómo le va? Todo bien por acá.', 'Buen día');
-    expect(r).toBe('Buen día, te damos la bienvenida a O.D.B. ¿cómo le va? Todo bien por acá.');
+    expect(saludarConBienvenida('Hola, buen día, ¿cómo le va? Todo bien por acá.', 'Buen día')).toBe('Buen día. ¿cómo le va? Todo bien por acá.');
   });
 
-  it('un saludo solo se completa con el ofrecimiento de ayuda', () => {
-    expect(saludarConBienvenida('Buenas tardes.', 'Buenas noches')).toBe(
-      'Buenas noches, te damos la bienvenida a O.D.B. ¿En qué te puedo ayudar?',
-    );
+  it('un saludo solo va con una pregunta corta', () => {
+    expect(saludarConBienvenida('Buenas tardes.', 'Buenas noches')).toBe('Buenas noches. ¿Qué necesitás?');
   });
 });
 

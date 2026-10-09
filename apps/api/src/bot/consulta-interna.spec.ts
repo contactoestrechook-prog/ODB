@@ -224,7 +224,7 @@ describe('la charla de Pablo: consulta silenciosa (6/10/2026)', () => {
     s.claude = { messages: { create: crear } };
     const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: AUDIO_14, deAudio: true });
     // primer mensaje de la charla: con el saludo de la hora, y nada de la caja
-    expect(r.respuesta).toMatch(new RegExp(`^(?:Buen día|Buenas tardes|Buenas noches), te damos la bienvenida a O\\.D\\.B\\. ${dale}$`));
+    expect(r.respuesta).toMatch(new RegExp(`^(?:Buen día|Buenas tardes|Buenas noches)\\. ${dale}$`));
     expect(crear).toHaveBeenCalledTimes(3);
   });
 

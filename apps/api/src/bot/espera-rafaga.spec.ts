@@ -1,11 +1,11 @@
 // Ráfagas de WhatsApp (8/10/2026): el bot espera 60 s desde el último mensaje
-// (tope 90 s desde el primero) y contesta UNA vez con todo junto.
+// (tope 3 minutos desde el primero) y contesta UNA vez con todo junto.
 import { esperaDeRafaga, msHastaContestar, cierraLaRafaga, juntarRafaga } from './espera-rafaga';
 import { BotService } from './bot.service';
 
 describe('espera-rafaga: cuentas', () => {
-  it('por defecto espera 60 s con tope de 90 s', () => {
-    expect(esperaDeRafaga({})).toEqual({ esperaMs: 60_000, topeMs: 90_000 });
+  it('por defecto espera 60 s con tope de 3 minutos (9/10/2026: con 90 s contestaba mientras el cliente seguía escribiendo)', () => {
+    expect(esperaDeRafaga({})).toEqual({ esperaMs: 60_000, topeMs: 180_000 });
   });
   it('se regula por variables, y 0 vuelve a contestar al instante', () => {
     expect(esperaDeRafaga({ ODB_BOT_ESPERA_SEG: '45', ODB_BOT_ESPERA_MAX_SEG: '120' })).toEqual({ esperaMs: 45_000, topeMs: 120_000 });
@@ -77,14 +77,20 @@ describe('charlaWhatsapp: una sola respuesta por ráfaga', () => {
     expect(r[4].respuesta).toContain('6 BIDONES DE AGUA');
   });
 
-  it('si el cliente sigue escribiendo, contesta a los 90 s del primero', async () => {
+  it('si el cliente sigue escribiendo, contesta recién a los 3 minutos del primero', async () => {
     const bot = armar();
     const p: Promise<any>[] = [];
     for (let s = 0; s <= 80; s += 20) {
       p.push(bot.charlaWhatsapp({ linea: 'pedidos', telefono: '111', mensaje: `msj ${s}` }, true));
       jest.advanceTimersByTime(20_000);
     }
-    // van 100 s: el tope de 90 s ya disparó
+    // van 100 s escribiendo: antes (tope de 90 s) ya le había contestado
+    expect(bot.charla).toHaveBeenCalledTimes(0);
+    for (let s = 100; s <= 160; s += 20) {
+      p.push(bot.charlaWhatsapp({ linea: 'pedidos', telefono: '111', mensaje: `msj ${s}` }, true));
+      jest.advanceTimersByTime(20_000);
+    }
+    // van 180 s: el tope de 3 minutos disparó
     expect(bot.charla).toHaveBeenCalledTimes(1);
     await Promise.all(p);
   });

@@ -198,3 +198,34 @@ describe('nota de pedido al proveedor (Placa roja)', () => {
     if (process.env.GUARDAR_CARTEL) require('fs').writeFileSync(process.env.GUARDAR_CARTEL, png);
   });
 });
+
+// 9/10/2026 (Leandro: «que no pase esas listas larguísimas sin gráfica»)
+import { cartelLista, leerListaDePedido } from './cartel-pedido';
+
+describe('toda lista de productos sale con placa', () => {
+  it('lista sin precios desde 3 renglones: cantidades, pesos y packs; la oración pegada va al epígrafe', () => {
+    const l = leerListaDePedido('Te anoto:\n• 12 × Villavicencio Sin Gas 500 cc\n• 250 g de Jamón cocido Paladini\n• 1 pack × Leche Cindor 200 ml\n• 1 × Leche La Serenísima descremada 1% botella 1 L Las gaseosas van por botella de 1,75 L.\n¿Está completo el pedido o querés sumar algo?')!;
+    expect(l.renglones).toEqual([
+      { nombre: 'Villavicencio Sin Gas 500 cc', cantidad: 12 },
+      { nombre: 'Jamón cocido Paladini', cantidad: null, etiqueta: '250 g' },
+      { nombre: 'Leche Cindor 200 ml', cantidad: null, etiqueta: '1 pack' },
+      { nombre: 'Leche La Serenísima descremada 1% botella 1 L', cantidad: 1 },
+    ]);
+    expect(l.pie).toBe('Las gaseosas van por botella de 1,75 L.\nTe anoto:\n¿Está completo el pedido o querés sumar algo?');
+  });
+  it('menos de 3 renglones, o con precios, no es una lista sin precios', () => {
+    expect(leerListaDePedido('• 2 × Fernet\n• 1 × Coca')).toBeNull();
+    expect(leerListaDePedido('• Fernet — $20.500\n• Coca — $4.700\n• Hielo — $3.000')).toBeNull();
+  });
+  it('el resumen cuyo total no da (el bot sumó el fiambre que se pesa): para el bot sale igual, con el total de lo listado', () => {
+    const t = '• A — 1 × $1.000 c/u = $1.000\n• B — 2 × $500 c/u = $1.000\nTotal: $2.500\nAparte va el jamón, que se pesa en el local.';
+    expect(leerResumenDePedido(t)).toBeNull();
+    const r = leerResumenDePedido(t, { aceptarDiferencia: true })!;
+    expect(r).toMatchObject({ total: 2000, nota: 'Total de los productos de la lista' });
+    expect(r.pie).toContain('Aparte va el jamón');
+  });
+  it('la placa de la lista se dibuja', async () => {
+    const png = await cartelLista(leerListaDePedido('• 12 × Villavicencio 500 cc\n• 250 g de Jamón\n• 1 pack × Cindor')!.renglones);
+    expect(png.subarray(1, 4).toString()).toBe('PNG');
+  });
+});

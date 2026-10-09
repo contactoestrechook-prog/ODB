@@ -26,7 +26,13 @@ export type MensajeDeRafaga = {
   deAudio?: boolean;
 };
 
-/** La espera configurada: ODB_BOT_ESPERA_SEG (60) y ODB_BOT_ESPERA_MAX_SEG (90). 0 = contestar al instante, como antes. */
+/**
+ * La espera configurada: ODB_BOT_ESPERA_SEG (60) y ODB_BOT_ESPERA_MAX_SEG (180). 0 = contestar al instante, como antes.
+ * 9/10/2026: el tope era 90 s desde el PRIMER mensaje, y con un cliente que
+ * seguía escribiendo el bot le contestaba a los 0–17 s de su último mensaje
+ * (Leandro: «que no responda al segundo»). Ahora el tope es de 3 minutos: en
+ * la práctica siempre espera un minuto de silencio.
+ */
 export function esperaDeRafaga(env: Record<string, string | undefined> = process.env): { esperaMs: number; topeMs: number } {
   const seg = (v: unknown, def: number) => {
     if (v == null || String(v).trim() === '') return def;
@@ -34,7 +40,7 @@ export function esperaDeRafaga(env: Record<string, string | undefined> = process
     return Number.isFinite(n) && n >= 0 ? n : def;
   };
   const espera = seg(env.ODB_BOT_ESPERA_SEG, 60);
-  const tope = Math.max(espera, seg(env.ODB_BOT_ESPERA_MAX_SEG, 90));
+  const tope = Math.max(espera, seg(env.ODB_BOT_ESPERA_MAX_SEG, 180));
   return { esperaMs: espera * 1000, topeMs: tope * 1000 };
 }
 

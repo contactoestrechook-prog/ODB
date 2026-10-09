@@ -35,7 +35,8 @@ export const AUDIO_SIN_TRANSCRIBIR = 'Recibí tu audio.';
 export const ARCHIVO_SIN_ABRIR = 'Recibí tu archivo.';
 
 /** El cliente pidió hablar con una persona y la derivación ya quedó hecha (si la reescritura no sale). */
-export const DERIVACION_PEDIDA = 'Soy Emilia, la asistente de O.D.B. Te paso con una persona de la casa.';
+// 9/10/2026 («más seca la charla»): sin presentarse
+export const DERIVACION_PEDIDA = 'Te paso con una persona de la casa.';
 /** El bot iba a repetir dos veces el mismo mensaje: la charla pasa a una persona. */
 export const PASA_A_UNA_PERSONA = 'Te paso con una persona del local.';
 

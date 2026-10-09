@@ -67,22 +67,23 @@ export function saludoSegunHora(hora: number): string {
 }
 
 // Primer mensaje de una charla: arranca SIEMPRE con el saludo correcto para la
-// hora y la bienvenida a la casa, diga lo que diga el modelo. Si el modelo ya
-// saludó con otra hora, se corrige; si no saludó, se antepone; la bienvenida
-// no se duplica si ya la puso él.
+// hora, diga lo que diga el modelo. Si el modelo ya saludó con otra hora, se
+// corrige; si no saludó, se antepone.
+// 9/10/2026 (Leandro: «más seca la charla», «no tiene sentido hablar siempre lo
+// mismo»): el saludo es corto, «Buenas tardes.», sin «te damos la bienvenida a
+// O.D.B.» ni presentación. Si el modelo la escribió igual, se saca.
 export function saludarConBienvenida(respuesta: string, saludo: string): string {
   let r = respuesta.trim();
   // "Hola, buen día" → el hola sobra si ya viene el saludo horario
   r = r.replace(/^¡?hola[.,!]?\s+(?=¡?buen)/i, '');
   // se quita el saludo que haya puesto el modelo (con la hora que imaginó)
   r = r.replace(/^¡?(buen d[ií]a|buen[oa]s d[ií]as|buenas tardes|buenas noches|hola)[!.,]?\s*/i, '');
-  const yaDaBienvenida = /bienvenid/i.test(r);
-  // ya venía con la bienvenida de la casa («…, te damos la bienvenida a O.D.B. …»):
-  // se le cambia solo el saludo, sin partirla en «Buen día. Te damos…» (6/10/2026)
-  if (/^te damos la bienvenida\b/i.test(r)) return `${saludo}, t${r.slice(1)}`.trim();
+  // la bienvenida y la presentación de arranque sobran
+  r = r.replace(/^(?:te damos la bienvenida a o\.?d\.?b\.?|bienvenid[oa]s? a o\.?d\.?b\.?)[.,!]?\s*/i, '');
+  r = r.replace(/^(?:soy emilia|te atiende emilia)[^.!?]*[.!]\s*/i, '');
   if (r) r = r[0].toUpperCase() + r.slice(1);
-  const arranque = yaDaBienvenida ? `${saludo}. ` : `${saludo}, te damos la bienvenida a O.D.B. `;
-  return (arranque + (r || '¿En qué te puedo ayudar?')).trim();
+  // si el cliente solo saludó, una pregunta corta para que diga qué necesita
+  return r ? `${saludo}. ${r}` : `${saludo}. ¿Qué necesitás?`;
 }
 
 // Un nombre de cliente es un nombre o no es nada: en producción llegó a

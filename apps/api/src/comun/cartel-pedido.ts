@@ -87,7 +87,13 @@ function entregaEnElTexto(texto: string): ResumenPedido['entrega'] {
  * renglones y total, o si algún renglón con viñeta no se puede leer: en ese
  * caso va el texto tal cual (la imagen nunca esconde un renglón).
  */
-export function leerResumenDePedido(texto: string): ResumenPedido | null {
+/**
+ * `aceptarDiferencia` (9/10/2026, el bot): si los renglones no suman el total
+ * escrito (el bot sumó algo que no está en la lista, como el fiambre que se
+ * pesa en el local), la placa sale igual con el total DE LO LISTADO, en vez de
+ * mandar la lista larga como texto. Sin la opción, como siempre: null.
+ */
+export function leerResumenDePedido(texto: string, opciones: { aceptarDiferencia?: boolean } = {}): ResumenPedido | null {
   const lineas = String(texto ?? '').split('\n');
   const renglones: RenglonPedido[] = [];
   const resto: string[] = [];
@@ -124,9 +130,60 @@ export function leerResumenDePedido(texto: string): ResumenPedido | null {
   // queda en el epígrafe, porque suele traer más datos ("el reparto ya cerró")
   if (!entrega) entrega = entregaEnElTexto(texto);
   // si los renglones no suman el total, algo se leyó mal: mejor el texto
-  if (Math.abs(renglones.reduce((s, r) => s + r.subtotal, 0) - total) > 1) return null;
+  const suma = renglones.reduce((s, r) => s + r.subtotal, 0);
+  const difiere = Math.abs(suma - total) > 1;
+  if (difiere && !opciones.aceptarDiferencia) return null;
   const pie = resto.join('\n').replace(/\n{3,}/g, '\n\n').trim();
-  return { renglones, total, entrega, confirmar: /¿lo confirmo\?/i.test(texto), pie };
+  return {
+    renglones, total: difiere ? suma : total, entrega, confirmar: /¿lo confirmo\?/i.test(texto), pie,
+    ...(difiere ? { nota: 'Total de los productos de la lista' } : {}),
+  };
+}
+
+// ============================================================================
+// LISTA SIN PRECIOS COMO IMAGEN (9/10/2026). Leandro: «que no pase esas listas
+// larguísimas sin gráfica». «Te anoto: • 12 × Villavicencio … • 250 g de jamón …»
+// iba como texto: solo había placa para listas con precio. Desde 3 renglones,
+// sale con la placa sin precios (la de la nota de pedido al proveedor).
+// ============================================================================
+
+export type RenglonLista = { nombre: string; cantidad: number | null; etiqueta?: string };
+
+const RE_LISTA_CANT = /^(\d+(?:[.,]\d+)?)\s*(?:(pack|packs|cajas?|bultos?|docenas?|unidades?|u\.?|botellas?|latas?|bolsas?|paquetes?)\s*)?[×x]\s*(.+)$/i;
+const RE_LISTA_PESO = /^(\d+(?:[.,]\d+)?\s*(?:g|gr|grs|kg|kilos?|gramos?))\s+(?:de\s+)?(.+)$/i;
+
+/** Una lista de productos sin precios («• 12 × Villavicencio 500 cc»), desde 3 renglones. Con precios, null: van las otras placas. */
+export function leerListaDePedido(texto: string): { renglones: RenglonLista[]; pie: string } | null {
+  const lineas = String(texto ?? '').split('\n').map((l) => l.trim());
+  const vinetas = lineas.filter((l) => l.startsWith('•'));
+  if (vinetas.length < 3 || vinetas.some((l) => /\$\s?\d/.test(l))) return null;
+  // una oración pegada al último renglón («…botella 1 L Las gaseosas van…») va al epígrafe
+  const sueltas: string[] = [];
+  const renglones = vinetas.map((l): RenglonLista => {
+    let t = l.replace(/^•\s*/, '').trim();
+    const corte = /\s(?=(?:Las|Los|La|El|Te|Si|Decime|Aparte|Para|Hoy|Mañana|Ese|Esa|Esos|Esas|No|Queda|Quedan)\s)/.exec(t.slice(20));
+    if (corte) { sueltas.push(t.slice(20 + corte.index).trim()); t = t.slice(0, 20 + corte.index).trim(); }
+    const c = RE_LISTA_CANT.exec(t);
+    if (c) {
+      const n = numero(c[1]);
+      const unidad = c[2] && !/^(unidades?|u\.?)$/i.test(c[2]) ? c[2] : '';
+      return unidad ? { nombre: nombreParaCartel(c[3]), cantidad: null, etiqueta: `${c[1]} ${unidad}` } : { nombre: nombreParaCartel(c[3]), cantidad: n };
+    }
+    const w = RE_LISTA_PESO.exec(t);
+    if (w) return { nombre: nombreParaCartel(w[2]), cantidad: null, etiqueta: w[1].replace(/\s+/g, ' ') };
+    return { nombre: nombreParaCartel(t), cantidad: null };
+  });
+  for (const r of renglones) r.nombre = r.nombre.replace(/\(\s+/g, '(');
+  const pie = [...sueltas, ...lineas.filter((l) => l && !l.startsWith('•'))].join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  return { renglones, pie };
+}
+
+/** La lista del cliente con la misma placa que la nota de pedido, sin entrega ni folio. */
+export async function cartelLista(renglones: RenglonLista[], titulo = 'TU PEDIDO'): Promise<Buffer> {
+  return cartelNotaDePedido({
+    titulo,
+    renglones: renglones.map((r) => ({ nombre: r.nombre, cantidad: r.cantidad ?? 0, etiqueta: r.cantidad == null ? (r.etiqueta ?? '') : undefined })),
+  });
 }
 
 const esc = (s: string) =>
@@ -241,9 +298,14 @@ export async function cartelPedido(r: ResumenPedido): Promise<Buffer> {
 // ============================================================================
 
 export type NotaDePedidoCartel = {
-  folio: string;
-  renglones: { nombre: string; cantidad: number; codigoProveedor?: string | null }[];
-  sucursal: string;
+  /** sin folio no va la píldora de PEDIDO ni el «Respondan…» (la lista del cliente, 9/10/2026) */
+  folio?: string;
+  /** en la franja roja; por defecto NOTA DE PEDIDO */
+  titulo?: string;
+  /** `etiqueta` va en el círculo en lugar del número («250 g», «1 pack»; vacía: sin número) */
+  renglones: { nombre: string; cantidad: number; codigoProveedor?: string | null; etiqueta?: string }[];
+  /** sin sucursal no va el recuadro de entrega */
+  sucursal?: string;
   direccion?: string | null;
   fechaEntrega?: string | null; // ya legible ("viernes 9/10")
 };
@@ -258,8 +320,8 @@ export async function cartelNotaDePedido(n: NotaDePedidoCartel): Promise<Buffer>
   const tieneCodigo = (f: { codigoProveedor?: string | null }) => !!f.codigoProveedor;
   const altoFila = (f: (typeof filas)[number]) => 56 + f.lineas.length * 38 + (tieneCodigo(f) ? 34 : 0) + 6;
   const altoFilas = filas.reduce((s, f) => s + Math.max(112, altoFila(f)) + SEP, 0) + (resto > 0 ? 60 : 0);
-  const alto = TOP + altoFilas + 148 + 136 + 100;
-  const enteras = n.renglones.every((x) => Number.isInteger(x.cantidad));
+  const alto = TOP + altoFilas + (n.sucursal ? 148 : 0) + (n.folio ? 136 + 100 : 40);
+  const enteras = n.renglones.every((x) => x.etiqueta == null && Number.isInteger(x.cantidad));
   const unidades = n.renglones.reduce((s, x) => s + x.cantidad, 0);
   const sub = `${n.renglones.length} producto${n.renglones.length === 1 ? '' : 's'}${enteras ? ` · ${unidades.toLocaleString('es-AR')} unidades` : ''}`;
   const cant = (v: number) => (Number.isInteger(v) ? v.toLocaleString('es-AR') : String(v).replace('.', ','));
@@ -268,14 +330,14 @@ export async function cartelNotaDePedido(n: NotaDePedidoCartel): Promise<Buffer>
   const cuerpo = filas.map((f) => {
     const h = Math.max(112, altoFila(f));
     const cy = y + h / 2;
-    const c = cant(f.cantidad);
+    const c = f.etiqueta != null ? f.etiqueta : cant(f.cantidad);
     // el bloque de texto (nombre y código) va centrado en la fila
     const bloque = f.lineas.length * 38 + (tieneCodigo(f) ? 38 : 0);
     const base = y + (h - bloque) / 2 + 28;
     const s = `
     <rect x="${M}" y="${y}" width="${W - 2 * M}" height="${h}" rx="18" fill="#FFFFFF" stroke="${LINEA}" stroke-width="2"/>
-    <circle cx="${M + 66}" cy="${cy}" r="40" fill="${ROJO}"/>
-    <text x="${M + 66}" y="${cy + (c.length > 3 ? 9 : 14)}" font-family="Montserrat" font-weight="800" font-size="${c.length > 3 ? 22 : c.length > 2 ? 28 : 38}" fill="#FFFFFF" text-anchor="middle">${esc(c)}</text>
+    <circle cx="${M + 66}" cy="${cy}" r="${c ? 40 : 12}" fill="${ROJO}"/>
+    ${c ? `<text x="${M + 66}" y="${cy + (c.length > 3 ? 9 : 14)}" font-family="Montserrat" font-weight="800" font-size="${c.length > 5 ? 17 : c.length > 3 ? 22 : c.length > 2 ? 28 : 38}" fill="#FFFFFF" text-anchor="middle">${esc(c)}</text>` : ''}
     ${f.lineas.map((t, k) => `<text x="${M + 134}" y="${base + k * 38}" font-family="Inter" font-weight="600" font-size="33" fill="${NEGRO}">${esc(t)}</text>`).join('')}
     ${tieneCodigo(f) ? `<text x="${M + 134}" y="${base + f.lineas.length * 38 + 2}" font-family="Inter" font-size="26" fill="${GRIS}">${esc(`Su código: ${f.codigoProveedor}`)}</text>` : ''}`;
     y += h + SEP;
@@ -288,22 +350,22 @@ export async function cartelNotaDePedido(n: NotaDePedidoCartel): Promise<Buffer>
 
   const yE = y + 2;
   const detalle = [n.direccion, n.fechaEntrega].filter(Boolean).join(' · ');
-  const entrega = `
+  const entrega = !n.sucursal ? '' : `
   <rect x="${M}" y="${yE}" width="${W - 2 * M}" height="120" rx="18" fill="#FFFFFF" stroke="${LINEA}" stroke-width="2"/>
   <text x="${M + 36}" y="${yE + (detalle ? 50 : 70)}" font-family="Inter" font-weight="800" font-size="30" fill="${ROJO}">${esc(partir(`Entregar en ${n.sucursal}`, 30, W - 2 * M - 72, 1)[0])}</text>
   ${detalle ? `<text x="${M + 36}" y="${yE + 92}" font-family="Inter" font-size="28" fill="${GRIS}">${esc(partir(detalle, 28, W - 2 * M - 72, 1)[0])}</text>` : ''}`;
-  const yP = yE + 148;
-  const pedido = `
+  const yP = yE + (n.sucursal ? 148 : 0);
+  const pedido = !n.folio ? '' : `
   <rect x="${M}" y="${yP}" width="${W - 2 * M}" height="120" rx="60" fill="${NEGRO}"/>
   <text x="${M + 56}" y="${yP + 76}" font-family="Montserrat" font-weight="800" font-size="38" fill="#FFFFFF">PEDIDO</text>
   <text x="${W - M - 56}" y="${yP + 78}" font-family="Inter" font-weight="800" font-size="46" fill="#FFFFFF" text-anchor="end">${esc(n.folio)}</text>`;
-  const confirmar = `<text x="${W / 2}" y="${yP + 120 + 58}" font-family="Inter" font-weight="600" font-size="28" fill="${NEGRO}" text-anchor="middle">Respondan este mensaje para confirmar</text>`;
+  const confirmar = !n.folio ? '' : `<text x="${W / 2}" y="${yP + 120 + 58}" font-family="Inter" font-weight="600" font-size="28" fill="${NEGRO}" text-anchor="middle">Respondan este mensaje para confirmar</text>`;
 
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${alto}" viewBox="0 0 ${W} ${alto}">
   <rect width="${W}" height="${alto}" fill="${CREMA}"/>
   <rect width="${W}" height="200" fill="${ROJO}"/>
   <image x="${M}" y="40" width="190" height="${Math.round((190 * 74) / 121)}" href="data:image/png;base64,${LOGO_ODB_BLANCO}"/>
-  <text x="${W - M}" y="96" font-family="Montserrat" font-weight="800" font-size="42" fill="#FFFFFF" text-anchor="end">NOTA DE PEDIDO</text>
+  <text x="${W - M}" y="96" font-family="Montserrat" font-weight="800" font-size="42" fill="#FFFFFF" text-anchor="end">${esc(n.titulo ?? 'NOTA DE PEDIDO')}</text>
   <text x="${W - M}" y="142" font-family="Inter" font-size="27" fill="#FFFFFF" fill-opacity="0.8" text-anchor="end">${esc(sub)}</text>
   ${cuerpo}
   ${masProductos}

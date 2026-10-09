@@ -269,7 +269,7 @@ describe('la charla de Pablo con la consulta silenciosa (6/10/2026)', () => {
     const { s, wsp } = servicio(db);
     await s.respuestaDeAdministracion(ADMIN, { body: 'Sí, vienen en estuche individual de cartón.', replyTo: { id: 'true_5491125213601@c.us_W-CAJA' } });
     const alCliente = (wsp.mock.calls as any[]).map((c) => c[0]).find((p) => p.to === `${TEL}@lid`);
-    expect(alCliente.text).toMatch(/^(?:Buen día|Buenas tardes|Buenas noches), te damos la bienvenida a O\.D\.B\. Sobre la caja para viajar: sí, vienen en estuche individual de cartón\.$/);
+    expect(alCliente.text).toMatch(/^(?:Buen día|Buenas tardes|Buenas noches)\. Sobre la caja para viajar: sí, vienen en estuche individual de cartón\.$/);
   });
 
   it('(4c) el WhatsApp al área le dice que al cliente no se le avisó: su respuesta tiene que entenderse sola', async () => {
@@ -679,7 +679,7 @@ describe('revisión (6/10/2026): el turno con consulta y lo demás del mensaje',
       texto('Buenas tardes, te damos la bienvenida a O.D.B. Sí, tenemos Judas Malbec para retirar hoy.'),
     ) } };
     const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: '¿Tienen Judas Malbec y viene con estuche?' });
-    expect(r.respuesta).toMatch(/te damos la bienvenida a O\.D\.B\. Sí, tenemos Judas Malbec para retirar hoy\.$/);
+    expect(r.respuesta).toMatch(/(?:Buen día|Buenas tardes|Buenas noches)\. Sí, tenemos Judas Malbec para retirar hoy\.$/);
     expect(esSoloSaludo('Buenas tardes, te damos la bienvenida a O.D.B.')).toBe(true);
     expect(esSoloSaludo('Hola Pablo, el Judas Malbec lo tenemos para retirar hoy en Saint Thomas.')).toBe(false);
     expect(esSoloSaludo('Hola, sí: tenemos Judas Malbec 750 cc disponible')).toBe(false);

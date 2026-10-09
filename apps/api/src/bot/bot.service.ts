@@ -1,6 +1,6 @@
 import { esperaRetiroOEnvio, eligeRetiroOEnvio, eligioModalidad } from './entrega';
 import { esContestadorAutomatico } from './contestador';
-import { conPreguntaDeCompleto, elegirPorDefecto, puedeCotizar } from './completo';
+import { elegirPorDefecto, puedeCotizar } from './completo';
 import { conDescuentoEfectivo, porcentajeEfectivo, RUBROS_DESCUENTO_EFECTIVO, tieneDescuentoEfectivo } from './descuento-efectivo';
 import { esSilenciado } from './pausa';
 import { agruparItems, cantidadesIndividuales, centavos, confirmacionInequivoca, idWhatsappCorto, importesDeHerramienta, importesDelTexto, pesos, presentacionProducto } from './comercio';
@@ -56,7 +56,7 @@ function bonitoTelefono(t: string): string {
 import { costoUSD, usoDeRespuesta } from './tarifas';
 import { esfuerzo, RAZONAMIENTO } from '../comun/modelos';
 import { unirConLoDicho } from '../comun/sin-repetir';
-import { cartelListaPrecios, cartelPedido, imagenEsperada, leerResumenDePedido, nombreParaCartel, pieSinPrecios, preciosDeLaRespuesta, ProductoConPrecio } from '../comun/cartel-pedido';
+import { cartelLista, cartelListaPrecios, cartelPedido, imagenEsperada, leerListaDePedido, leerResumenDePedido, MAX_RENGLONES_CARTEL, nombreParaCartel, pieSinPrecios, preciosDeLaRespuesta, ProductoConPrecio } from '../comun/cartel-pedido';
 import { etiquetaDeFila, Lineas, sesionPrincipal } from '../comun/lineas';
 import { cierraLaRafaga, esperaDeRafaga, juntarRafaga, msHastaContestar, type MensajeDeRafaga } from './espera-rafaga';
 
@@ -855,7 +855,7 @@ export class BotService {
     const vecesPidioDireccion = cuenta(/(direcci[oó]n|calle y n[uú]mero)/i);
     const preguntasDelCliente = (texto.match(/\?/g) ?? []).length + (/\b(cu[aá]nto|cu[aá]ndo|d[oó]nde|qu[eé] tal|hasta qu[eé] hora|tienen|ten[eé]s|hay|se puede|me pod[eé]s|a qu[eé] hora)\b/i.test(texto) && !/\?/.test(texto) ? 1 : 0);
     const estado: string[] = [];
-    estado.push(yaSaludo ? 'ya saludaste en esta charla: NO vuelvas a saludar ni a presentarte' : `primer mensaje de la charla: corresponde saludar una vez, con bienvenida: "${saludo}, te damos la bienvenida a O.D.B."`);
+    estado.push(yaSaludo ? 'ya saludaste en esta charla: NO vuelvas a saludar ni a presentarte' : `primer mensaje de la charla: saludá solo con "${saludo}." y andá directo a lo que pidió (sin bienvenida ni presentación)`);
     if (vecesOfrecioArmar >= 1) estado.push(`ya ofreciste armar/cotizar el pedido ${vecesOfrecioArmar} vez/veces: no lo vuelvas a ofrecer; contestá y esperá`);
     if (vecesPidioDireccion >= 1) estado.push(`ya pediste la dirección ${vecesPidioDireccion} vez/veces: si no la dio, no la vuelvas a pedir en este mensaje salvo que él quiera cerrar`);
     // El cliente que contesta con una palabra, manda la dirección o dice
@@ -905,7 +905,11 @@ export class BotService {
     // al final del historial. Con la variable: el system lleva solo la fecha (la
     // hora ya va en los metadatos del mensaje), los avisos del mensaje van al final
     // del mensaje del cliente, y el último mensaje del historial lleva su marca.
-    const hiloEstable = process.env.ODB_BOT_CACHE_HILO === '1';
+    // 9/10/2026 (Leandro: «gasté más de 500 dólares en este bot»): encendido por
+    // defecto. El 70 % de cada respuesta era volver a escribir la charla en la
+    // caché (23.000 tokens por respuesta, 0,15 de los 0,21 dólares). Se apaga con
+    // ODB_BOT_CACHE_HILO=0.
+    const hiloEstable = process.env.ODB_BOT_CACHE_HILO !== '0';
     const system: Anthropic.TextBlockParam[] = [
       {
         type: 'text',
@@ -1486,12 +1490,9 @@ export class BotService {
     // cerraba los pedidos con "el total es de la mercadería; el envío va
     // aparte" y le cobró de más, de palabra, a un cliente con un pedido de
     // $176.000. Si igual se le escapa, acá se corrige el texto ya escrito.
-    // preguntó por el costo del envío: la respuesta la tenemos, no se consulta
-    const conDato = asegurarEnvioSinCargo(texto, respuesta);
-    if (conDato !== respuesta) {
-      respuesta = conDato;
-      this.log.warn(`preguntó por el costo del envío y la respuesta no lo decía (${telefono}): se antepuso "sin cargo"`);
-    }
+    // (si preguntó cuánto sale el envío y la respuesta no lo dice, se agrega UNA
+    // vez, al final del armado: asegurarEnvioSinCargo, más abajo. 9/10/2026:
+    // estaba también acá, dos veces por respuesta)
     const conEnvio = envioSinCargo(respuesta);
     if (conEnvio !== respuesta) {
       respuesta = conEnvio;
@@ -2160,9 +2161,9 @@ export class BotService {
     // la pregunta de completo que agrega el sistema se decide sobre lo que escribió el bot (3/10/2026)
     const respuestaDelBot = respuesta;
     const prometePedido = TEXTO.RE_PEDIDO_A_ADMINISTRACION.test(textoDelModelo) || TEXTO.RE_PEDIDO_A_ADMINISTRACION.test(respuestaDelBot ?? '');
-    // si ya dice lo del pedido que no se pudo cargar (o el aviso viejo), no va «¿Está completo…?»
-    const diceLoDelPedido = /aviso al (?:sector|local|equipo)/i.test(respuesta ?? '') || TEXTO.RE_PEDIDO_SIN_CARGAR.test(respuesta ?? '');
-    if (respuesta && !respuestaFija.operacion) { if (!prometioAvisoDePedido && !diceLoDelPedido && !(prometePedido && huboIntentoEnElTurno)) respuesta = conPreguntaDeCompleto(respuesta); }
+    // 9/10/2026: el sistema ya NO agrega «¿Está completo el pedido o querés sumar
+    // algo?» al final (salía hasta 4 veces en la misma charla). La pregunta la
+    // hace el bot una sola vez, con la primera lista (SYSTEM_PEDIDOS, paso 1).
     // si el bot todavía pide confirmación, o el sistema le agregó "¿Está completo…?"
     // (es una lista en armado), no hay un pedido confirmado que avisar
     const sigueEnCurso = /¿\s*lo confirmo\?|¿[^?]*(?:est[aá] completo|sumar algo)[^?]*\?/i.test(respuestaDelBot ?? '') || respuesta !== respuestaDelBot;
@@ -5205,7 +5206,10 @@ export class BotService {
   // el pedido confirmado, los precios de lo que consultó y la lista escrita a
   // mano. null: va el texto solo.
   private async armarTarjeta(r: { respuesta: string; catalogo?: ProductoConPrecio[] }): Promise<{ imagenUrl: string; pie: string } | null> {
-    return (await this.cartelDeResumen(r.respuesta)) ?? (await this.cartelDePedido(r.respuesta)) ?? (await this.cartelDePrecios(r.respuesta, r.catalogo ?? [])) ?? (await this.cartelDeListado(r.respuesta));
+    // una sola regla (9/10/2026): toda lista de productos sale con placa —con
+    // precios, de precios, o sin precios desde 3 renglones—; el texto queda de
+    // epígrafe. Si ninguna placa se arma, va el texto.
+    return (await this.cartelDeResumen(r.respuesta)) ?? (await this.cartelDePedido(r.respuesta)) ?? (await this.cartelDePrecios(r.respuesta, r.catalogo ?? [])) ?? (await this.cartelDeListado(r.respuesta)) ?? (await this.cartelDeLista(r.respuesta));
   }
 
   // Para "Probar el bot" del panel (2/10/2026): la misma tarjeta que le llega al
@@ -5255,7 +5259,10 @@ export class BotService {
   // Resumen de pedido como imagen (diseño Placa roja, elegido el 25/9/2026).
   // Solo si TODOS los renglones se leen y suman el total; si no, va el texto.
   private async cartelDeResumen(respuesta: string): Promise<{ imagenUrl: string; pie: string } | null> {
-    const resumen = leerResumenDePedido(respuesta);
+    // si los renglones no suman el total escrito, la placa sale igual con el
+    // total de lo listado (9/10/2026: el pedido de 12 productos de las 9:22 iba
+    // como texto porque el bot había sumado el fiambre que se pesa en el local)
+    const resumen = leerResumenDePedido(respuesta, { aceptarDiferencia: true });
     if (!resumen) return null;
     try {
       const png = await cartelPedido(resumen);
@@ -5350,6 +5357,24 @@ export class BotService {
       return { imagenUrl, pie: pieSinPrecios(respuesta) || 'Te paso los precios.' };
     } catch (e) {
       this.log.warn(`no pude armar el listado: ${e instanceof Error ? e.message : e}`);
+      return null;
+    }
+  }
+
+  // Lista sin precios (9/10/2026): «Te anoto: • 12 × Villavicencio …». Antes iba
+  // siempre como texto, larguísima. Desde 3 renglones, Placa roja sin precios.
+  private async cartelDeLista(respuesta: string): Promise<{ imagenUrl: string; pie: string } | null> {
+    const lista = leerListaDePedido(respuesta);
+    if (!lista) return null;
+    try {
+      const png = await cartelLista(lista.renglones.slice(0, MAX_RENGLONES_CARTEL));
+      const ruta = `carteles/${new Date().toISOString().slice(0, 7)}/lista-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.png`;
+      const { error } = await this.db.storage.from('publico').upload(ruta, png, { contentType: 'image/png', upsert: true });
+      if (error) { this.log.warn(`no pude subir la lista: ${error.message}`); return null; }
+      const imagenUrl = this.db.storage.from('publico').getPublicUrl(ruta).data.publicUrl;
+      return { imagenUrl, pie: lista.pie || 'Te paso la lista.' };
+    } catch (e) {
+      this.log.warn(`no pude armar la lista: ${e instanceof Error ? e.message : e}`);
       return null;
     }
   }
