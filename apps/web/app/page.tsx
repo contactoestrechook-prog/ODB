@@ -5,7 +5,7 @@ import { Hero } from "./ui/Hero";
 import { WineFest } from "./ui/WineFest";
 import { ComoComprar } from "./ui/ComoComprar";
 import { SeccionApp } from "./ui/SeccionApp";
-import { Titulo } from "./ui/Titulo";
+import { ROTULO, Titulo } from "./ui/Titulo";
 import { IcoUva, IcoMoto, IcoMedalla, IcoFlecha, IcoTarjeta } from "./ui/Iconos";
 
 export const dynamic = "force-dynamic";
@@ -117,7 +117,7 @@ export default async function Home() {
       <section className="max-w-7xl mx-auto px-5 lg:px-8 mt-16">
         <div className="rounded-[28px] bg-ink text-crema px-7 sm:px-12 py-12 grid lg:grid-cols-2 gap-10 items-center">
           <div className="min-w-0">
-            <p className="text-[12px] font-bold tracking-[0.16em] uppercase text-dorado-claro">Club de clientes</p>
+            <p className={`${ROTULO} text-rojo-claro`}>Club de clientes</p>
             <Titulo tono="oscuro" a="Sumate a la" b="Comunidad ODB" className="mt-3 text-[36px] sm:text-[52px]" />
             <p className="mt-5 text-crema/70 max-w-[46ch] leading-relaxed">
               Verificá tu identidad una sola vez y comprá con precios de socio, prioridad en los envíos y puntos en cada compra.
@@ -134,7 +134,7 @@ export default async function Home() {
               [<IcoUva key="u" size={20} />, "Etiquetas para socios", "Selección exclusiva"],
             ].map(([ico, t, s], i) => (
               <div key={i} className="rounded-[18px] bg-white/[0.06] ring-1 ring-white/10 p-5 min-w-0">
-                <span className="text-dorado-claro">{ico}</span>
+                <span className="text-rojo-claro">{ico}</span>
                 <p className="mt-3 text-[15px] font-bold text-crema">{t}</p>
                 <p className="text-[13px] text-crema/60 mt-0.5">{s}</p>
               </div>

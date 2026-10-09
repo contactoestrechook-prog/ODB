@@ -2,16 +2,21 @@
 
 import { camposDeLecturaIncompletos } from '../lib/lectura-compras';
 import { Dictado } from './Dictado';
-import { useCallback, useEffect, useState, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { prepararComprobante } from './comprimirImagen';
 import { ALICUOTAS_IVA, repartirIva } from '../lib/iva-compras';
+import { atribuirDescuentos, esRenglonDescuento } from '../lib/descuentos-compras';
 import { conversionSugerida } from '../lib/presentacion';
 import {
   alCambiarVinculo, conversionBajaDeMas, dejarEnCajas, estadoDelBulto, opcionesDelBulto, pasarAUnidades, precioYaEsDeLaUnidad,
   variacionDeCosto, volverABulto as volverABultoRenglon, volverAPendiente, yaEnUnidades,
 } from '../lib/bultos-compras';
 import { PanelImpuestos } from './PanelImpuestos';
+import { CabeceraFactura, PapelDelRenglon } from './TablaFactura';
+import { conCodigo } from '../lib/codigo-producto';
+import { AsistenteFactura, describirCambio, type CambioHecho } from './AsistenteFactura';
+import { aplicarCambiosIA, aplicarPapel, cuentaDelPapel, entraDeRenglon, papelDeLectura, tablaParaIA, type EntraComo, type Papel } from '../lib/tabla-factura';
 import {
   Aviso, Boton, CLASES_ENTRADA, Cargando, Etiqueta, FOCO, FOCO_ADENTRO, Girador, IconoAtencion, IconoCerrar, IconoError, IconoInfo, IconoOk, Kpi, Modal as Ventana,
   Pestanas, PlacaRoja, TablaResponsiva, Tarjeta, TarjetaCabecera, Vacio, clasesBoton, unir, useConfirmar, type TonoEtiqueta,
@@ -223,7 +228,11 @@ export function ComprasWorkspace({ resumen, ordenes, proveedores, sugerencias, s
                     {o.firmadaPor && ` · aprobó ${o.firmadaPor}`}
                   </p>
                   {o.observaciones && <p className="mt-0.5 break-words text-xs italic text-tinta/60">“{o.observaciones}”</p>}
-                  {o.estado === 'cancelada' && o.rechazo_motivo && <p className="mt-0.5 text-xs text-marca-hondo">Rechazada: {o.rechazo_motivo}</p>}
+                  {o.estado === 'cancelada' && o.rechazo_motivo && (
+                    <p className="mt-0.5 text-xs text-marca-hondo">
+                      Rechazada{o.rechazador?.nombre ? ` por ${o.rechazador.nombre}` : ''}{o.rechazada_en ? ` el ${fecha(o.rechazada_en)}` : ''}: {o.rechazo_motivo}
+                    </p>
+                  )}
                 </div>
                 <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 sm:flex-col sm:items-end">
                   <p className="importe font-semibold text-tinta">{pesos(o.total ?? 0)}</p>
@@ -313,6 +322,11 @@ export function ComprasWorkspace({ resumen, ordenes, proveedores, sugerencias, s
                     <span className="break-words text-tinta">OP #{p.numero} · {p.proveedor?.razon_social}</span>
                     <Etiqueta tono={OP_TONO[p.estado] ?? 'neutro'} className="ml-2 align-middle">{OP_LABEL[p.estado] ?? p.estado}</Etiqueta>
                     <p className="text-xs text-tinta/60">{p.medio_pago}{p.vencimiento ? ` · vence ${fecha(p.vencimiento)}` : ''}{p.pagada_en ? ` · pagada ${fecha(p.pagada_en)}` : ''}</p>
+                    {p.estado === 'rechazada' && (
+                      <p className="text-xs text-marca-hondo">
+                        Rechazada{p.rechazador?.nombre ? ` por ${p.rechazador.nombre}` : ''}{p.rechazada_en ? ` el ${fecha(p.rechazada_en)}` : ''}{p.rechazo_motivo ? `: ${p.rechazo_motivo}` : ''}
+                      </p>
+                    )}
                   </div>
                   <div className="flex flex-wrap items-center gap-2 sm:flex-col sm:items-end">
                     <p className="importe font-medium text-tinta">{pesos(p.total ?? 0)}</p>
@@ -477,6 +491,10 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   const [aclaraciones, setAclaraciones] = useState(''); // respuestas del operador a las dudas de la IA
   const [fotoItems, setFotoItems] = useState<any[]>([]); // renglones editables
   const [fotoImp, setFotoImp] = useState<any>({});
+  // la factura editable (8/10/2026): cada cambio en la tabla, de la persona o
+  // de la IA, con su hora; se puede deshacer y al registrar queda la constancia
+  const [cambiosFactura, setCambiosFactura] = useState<CambioHecho[]>([]);
+  const [marcados, setMarcados] = useState<number[]>([]); // renglones que acaba de tocar la IA
   const [leyendoFoto, setLeyendoFoto] = useState(false);
   const [segundosLeyendo, setSegundosLeyendo] = useState(0);
   const [avisoFoto, setAvisoFoto] = useState<string | null>(null); // foto chica (comprimida por WhatsApp)
@@ -554,6 +572,8 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
         numeroRemito: d.comprobante?.numero ?? '',
       }));
       setFotoImp({ ...(d.impuestos ?? {}) });
+      setCambiosFactura([]);
+      setMarcados([]);
       // "Sumar IVA" (solo relevante como fallback cuando no hay pie): arranca en ON
       // únicamente si los renglones parecen NETOS (su suma ≈ el neto gravado), el IVA
       // no es sospechoso y no es régimen especial. En cigarrillos → OFF.
@@ -634,6 +654,8 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
           // las sugerencias de IA NO se incluyen hasta que el operador confirme "¿es este?"
           // y una rebaja no se incluye NUNCA: no es mercadería
           incluir: !i.esDescuento && !!i.match && !sugerido,
+          // la factura editable: lo que dice el papel, tal cual
+          papel: i.esDescuento || porPeso ? null : papelDeLectura({ ...i, unidadesDelCatalogo: i.unidadesDelCatalogo ?? null }),
         };
       }));
   }
@@ -1001,76 +1023,10 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   // producto, y aceptar esa sugerencia habría cargado 7 unidades a -$22.630.
   // Peor: como la rebaja no se aplicaba, el Malbec entraba a precio de lista,
   // un 43% más caro de lo que se pagó, y ese costo va al precio de venta.
-  const esRenglonDescuento = (i: any) => !!i.esDescuento || numImp(i.precio) < 0;
-  const soloTexto = (t: any) => String(t ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
-  // Reparte cada renglón de descuento sobre la mercadería que le corresponde.
-  // Tres formas, en orden: (1) el descuento NOMBRA un renglón y la cuenta cierra
-  // con él; (2) es un descuento de GRUPO (típico de Coca/distribuidores: "Px
-  // mágico = 17,2%", "AQ 1.5L = 24,3%") que aplica a TODOS los renglones desde
-  // el descuento anterior hasta este, y se reparte proporcional al importe de
-  // cada uno; (3) no se puede atribuir → no se aplica y se avisa. El reparto por
-  // grupo nunca deja un costo en negativo (cada renglón recibe una fracción de
-  // lo suyo) y cierra con el pie por construcción.
-  const sinAtribuir: { descripcion: string; importe: number }[] = [];
-  const grupoDeDescuento = new Map<number, { n: number; pct: number | null; importe: number }>();
-  const base = (x: any) => {
-    const cant = numImp(x.cantidad) || 1;
-    return x.importe != null && x.importe !== '' ? Math.abs(numImp(x.importe)) : Math.abs(numImp(x.precio) * cant);
-  };
-  const descuentoPorIdx = (() => {
-    const m = new Map<number, number>();
-    let ventanaInicio = 0; // primer índice de mercadería de la ventana en curso
-    fotoItems.forEach((d: any, j: number) => {
-      if (!esRenglonDescuento(d)) return;
-      const cerrarVentana = () => { ventanaInicio = j + 1; };
-      // El operador decidió no aplicar esta rebaja: la mercadería queda a precio
-      // de lista y lo pagado de menos se reparte solo en la reconciliación.
-      if (d.noAplicar) return cerrarVentana();
-      const importe = d.importe != null && d.importe !== '' && numImp(d.importe) !== 0
-        ? numImp(d.importe) : numImp(d.cantidad) * numImp(d.precio);
-      if (!importe) return cerrarVentana();
-      const abs = Math.abs(importe);
-      const textoDesc = soloTexto(d.descripcion);
-      const pct = d.descuentoPct != null ? numImp(d.descuentoPct) : null;
-
-      // 1) NOMBRA un renglón puntual (dentro de la ventana) y cierra con él
-      let destino = -1;
-      for (let k = j - 1; k >= ventanaInicio; k--) {
-        if (esRenglonDescuento(fotoItems[k])) continue;
-        const nombre = soloTexto(fotoItems[k].descripcion);
-        const linea = base(fotoItems[k]);
-        // Tolerancia de redondeo: el maní se factura a $760,585, el papel
-        // imprime 760,58 y el importe 1.521,17 — una rebaja del 100% "superaba"
-        // a la línea por un centavo y quedaba sin atribuir (2026-09-08).
-        const cierraUno = linea > 0 && (pct != null ? Math.abs((abs / linea) * 100 - pct) <= 1.5 : abs <= linea + Math.max(0.05, linea * 0.001));
-        if (nombre && textoDesc.includes(nombre) && cierraUno) { destino = k; break; }
-      }
-      if (destino >= 0) { m.set(destino, (m.get(destino) ?? 0) + importe); return cerrarVentana(); }
-
-      // 2) descuento de GRUPO: los renglones de mercadería de la ventana
-      const grupo: number[] = [];
-      let sumaG = 0;
-      for (let k = ventanaInicio; k < j; k++) {
-        if (esRenglonDescuento(fotoItems[k])) continue;
-        const b = base(fotoItems[k]);
-        if (b > 0) { grupo.push(k); sumaG += b; }
-      }
-      // Se acepta si el descuento es una fracción del grupo y —cuando el papel
-      // trae el %— ese % cierra con la suma del grupo (tolerancia amplia para no
-      // depender de si la IA leyó la columna con o sin IVA).
-      const pctCierra = pct == null || Math.abs(sumaG * (pct / 100) - abs) / abs < 0.06;
-      if (grupo.length > 0 && sumaG > 0 && abs < sumaG * 0.999 && pctCierra) {
-        for (const k of grupo) m.set(k, (m.get(k) ?? 0) + importe * (base(fotoItems[k]) / sumaG));
-        grupoDeDescuento.set(j, { n: grupo.length, pct, importe: abs });
-        return cerrarVentana();
-      }
-
-      // 3) no se pudo atribuir con certeza
-      sinAtribuir.push({ descripcion: d.descripcion, importe: abs });
-      cerrarVentana();
-    });
-    return m;
-  })();
+  // Qué es rebaja y a qué renglón va cada una —el que nombra, el regalo de
+  // arriba, el grupo o ninguno— se decide en app/lib/descuentos-compras.ts,
+  // con tests.
+  const { porIdx: descuentoPorIdx, destinos: destinoDeDescuento, grupos: grupoDeDescuento, sinAtribuir } = atribuirDescuentos(fotoItems);
   // La lista con la que se calcula y se dibuja: cada renglón ya sabe qué
   // descuento le corresponde.
   const itemsCalc = fotoItems.map((i: any, idx: number) => ({
@@ -1194,6 +1150,151 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
     if (i.porPeso || !(numImp(i.cantidad) > 0) || !(numImp(i.costoCatalogo) > 0)) return i.variacionPct ?? null;
     return variacionDeCosto(costoFinal(i, idx), i.costoCatalogo);
   };
+  // ============================================================
+  // LA FACTURA EDITABLE (8/10/2026). La tabla de arriba corrige lo que dice el
+  // papel (bultos, unidades por bulto, precio, descuento, IVA, importe) y cómo
+  // entra al stock; el chat le pide a la IA que lo corrija. Las dos cambian los
+  // MISMOS renglones que usan las tarjetas y Registrar (lib/tabla-factura.ts,
+  // con tests). Cada cambio queda anotado con quién y cuándo, se puede
+  // deshacer, y al registrar se guarda la constancia (compras_revisiones).
+  // ============================================================
+  const fotoItemsVivos = useRef(fotoItems);
+  fotoItemsVivos.current = fotoItems;
+  const fotoImpVivo = useRef(fotoImp);
+  fotoImpVivo.current = fotoImp;
+  const anotar = (quien: string, registros: { renglon: number | null; campo: string; antes: unknown; despues: unknown; motivo?: string }[]) => {
+    if (!registros.length) return;
+    const cuando = new Date().toISOString();
+    const base = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    setCambiosFactura((xs) => [...registros.map((r, k) => ({ id: `${base}-${k}`, quien, cuando, renglon: r.renglon, campo: r.campo, antes: r.antes, despues: r.despues, motivo: r.motivo ?? '' })), ...xs]);
+  };
+  // lo cambió una persona en la tabla. El IVA de la tabla manda sobre el que se
+  // eligió antes en la tarjeta: es el mismo dato y no puede haber dos.
+  const cambiarPapel = (idx: number, papel: Papel, entra: EntraComo, campo: string, antes: unknown, despues: unknown) => {
+    setFotoItems((xs) => xs.map((x, j) => (j === idx ? { ...aplicarPapel(x, papel, entra), ...(campo === 'iva' ? { alicuotaElegida: null } : {}) } : x)));
+    anotar('Vos', [{ renglon: idx + 1, campo, antes, despues }]);
+  };
+  const noAplicarDescuento = (idx: number, valor: boolean) => {
+    setFotoItems((xs) => xs.map((x, j) => (j === idx ? { ...x, noAplicar: valor } : x)));
+    anotar('Vos', [{ renglon: idx + 1, campo: 'noAplicar', antes: !valor, despues: valor }]);
+  };
+  const CAMPOS_PIE = ['neto', 'iva', 'percepcionIva', 'percepcionIibb', 'impuestosInternos', 'otros', 'total'];
+  // lo que devolvió el chat, sobre los renglones de AHORA (la persona pudo
+  // seguir editando mientras la IA pensaba)
+  const aplicarIA = (cambios: any[], cambiosPie: any[]) => {
+    const r = aplicarCambiosIA(fotoItemsVivos.current, cambios, esRenglonDescuento);
+    const pie = (cambiosPie ?? [])
+      .filter((c: any) => CAMPOS_PIE.includes(c?.campo) && (c.valor == null || (Number.isFinite(Number(c.valor)) && Number(c.valor) >= 0)))
+      .map((c: any) => ({ renglon: null, campo: String(c.campo), antes: fotoImpVivo.current?.[c.campo] ?? null, despues: c.valor == null ? null : Number(c.valor), motivo: String(c.motivo ?? '').slice(0, 300) }));
+    if (r.registros.length) {
+      const conIva = new Set(r.registros.filter((g) => g.campo === 'iva').map((g) => g.renglon - 1));
+      setFotoItems(r.items.map((x, j) => (conIva.has(j) ? { ...x, alicuotaElegida: null } : x)));
+    }
+    if (pie.length) setFotoImp((x: any) => { const y = { ...x }; for (const c of pie) y[c.campo] = c.despues; return y; });
+    const todos = [...r.registros, ...pie];
+    anotar('IA', todos);
+    const tocados = [...new Set(r.registros.map((g) => g.renglon - 1))];
+    setMarcados(tocados);
+    if (tocados.length) setTimeout(() => setMarcados([]), 5000);
+    return { aplicados: todos.map((c) => describirCambio(c)) };
+  };
+  // deshace UN cambio: vuelve ese dato a como estaba (los demás quedan)
+  const deshacerCambio = (c: CambioHecho) => {
+    if (c.renglon == null) {
+      setFotoImp((x: any) => ({ ...x, [c.campo]: c.antes }));
+    } else {
+      const k = c.renglon - 1;
+      setFotoItems((xs) => xs.map((x, j) => {
+        if (j !== k) return x;
+        if (c.campo === 'noAplicar') return { ...x, noAplicar: !!c.antes };
+        const papel: Papel = { ...(x.papel ?? papelDeLectura(x)) };
+        if (c.campo === 'entraComo') {
+          const de = Number(papel.uxb);
+          const entra: EntraComo = c.antes === 'cajas' && de > 1 ? { como: 'cajas', de } : c.antes === 'abiertas' && de > 1 ? { como: 'abiertas', de } : c.antes === 'unidades' ? { como: 'unidades' } : null;
+          return aplicarPapel(x, papel, entra);
+        }
+        (papel as any)[c.campo] = c.antes == null || c.antes === '' ? null : Number(c.antes);
+        return aplicarPapel(x, papel, entraDeRenglon(x, papel));
+      }));
+    }
+    setCambiosFactura((xs) => xs.map((y) => (y.id === c.id ? { ...y, deshecho: true } : y)));
+  };
+  // a dónde va cada renglón de descuento, en palabras (para la tabla y la IA)
+  const textoDestino = (idx: number) => {
+    const g = grupoDeDescuento.get(idx);
+    if (g) return `repartido en ${g.n} renglones${g.pct ? ` (${g.pct}%)` : ''}`;
+    const d = destinoDeDescuento.get(idx);
+    if (d) return d.motivo === 'regalo' ? `regalo: renglón ${d.renglon + 1} sin cargo` : `al renglón ${d.renglon + 1}`;
+    return 'sin destino';
+  };
+  const noCierranTabla = itemsCalc
+    .map((i: any, idx: number) => ({ i, idx }))
+    .filter(({ i }) => !i._esDescuento && !i.porPeso && i.papel && !cuentaDelPapel(i.papel).cierra);
+  const sugerenciasChat = [
+    ...(noCierranTabla.length ? [`¿Por qué no cierra el renglón ${noCierranTabla[0].idx + 1}?`] : []),
+    ...(itemsCalc.some((i: any) => !i._esDescuento && i.papel && entraDeRenglon(i, i.papel) === null) ? ['Los bultos de esta factura entran en unidades'] : []),
+    ...(ivaFactura && ivaFactura.estado === 'no_cierra' ? ['El IVA no me da con el pie, revisalo'] : []),
+    'Revisá la factura entera contra el papel',
+  ];
+  const controlesParaIA = () => ({
+    sumaRenglones: Math.round(sumaRenglones * 100) / 100,
+    netoDelPie: netoDoc,
+    ivaDelPie: ivaDoc,
+    totalDelPie: totalDoc,
+    iva: ivaFactura ? (ivaFactura.estado === 'cierra' || ivaFactura.estado === 'no_cierra' ? { estado: ivaFactura.estado, diferencia: ivaFactura.diferencia } : { estado: ivaFactura.estado }) : 'no discrimina IVA',
+    renglonesQueNoCierran: noCierranTabla.map(({ idx }) => idx + 1),
+    descuentosSinDestino: sinAtribuir.map((x) => x.descripcion),
+  });
+  // al registrar: la constancia de quién cambió qué (si no hubo cambios, nada)
+  // y TODOS los renglones de la factura para el historial del proveedor (8/10/2026)
+  const renglonesParaHistorial = () => itemsCalc.map((i: any, idx: number) => {
+    const p = i.papel as Papel | null;
+    const entra = p ? entraDeRenglon(i, p) : null;
+    return {
+      renglon: idx + 1,
+      sku: i.sku || null,
+      codigoProveedor: i.codigo ?? null,
+      descripcion: i.descripcion,
+      bultos: p?.bultos ?? null, unidadesPorBulto: p?.uxb ?? null, sueltas: p?.sueltas ?? null,
+      unidades: p ? cuentaDelPapel(p).unidades : numImp(i.cantidad) || null,
+      precio: p?.precio ?? (numImp(i.precio) || null),
+      bonificacionPct: p?.desc ?? (i.bonificacionPct != null ? numImp(i.bonificacionPct) : null),
+      alicuotaIva: p?.iva ?? (i.alicuotaIva != null ? numImp(i.alicuotaIva) : null),
+      importe: p?.importe ?? (i.importe != null && i.importe !== '' ? numImp(i.importe) : null),
+      entraComo: i.porPeso ? 'peso' : entra?.como ?? null,
+      cantidadStock: numImp(i.cantidad) || null,
+      costoUnitario: !i._esDescuento && i.sku ? costoFinal(i, idx) : null,
+      incluido: !!(i.incluir && i.sku),
+      esDescuento: !!i._esDescuento,
+    };
+  });
+  const registrarConConstancia = async (body: any) => {
+    const renglones = renglonesParaHistorial();
+    const d = await post(body);
+    if (d && f.proveedorId) {
+      fetch('/api/entrada-foto', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          accion: 'historial', id: foto?.lecturaId ?? 'sin-lectura', proveedorId: f.proveedorId,
+          numero: foto?.comprobante?.numero ?? null, fecha: normFechaIso(foto?.comprobante?.fecha) ?? null, renglones,
+        }),
+      }).catch(() => {});
+    }
+    const vigentes = cambiosFactura.filter((c) => !c.deshecho);
+    if (d && foto?.lecturaId && vigentes.length) {
+      fetch('/api/entrada-foto', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          accion: 'revision', id: foto.lecturaId, proveedorId: f.proveedorId || undefined, numero: foto.comprobante?.numero ?? undefined,
+          cambios: vigentes.map(({ quien, cuando, renglon, campo, antes, despues, motivo }) => ({ quien, cuando, renglon, campo, antes, despues, motivo })),
+        }),
+      }).catch(() => {});
+    }
+    return d;
+  };
+
   // Reconciliación: el costo a stock nunca puede superar el valor de la mercadería
   // con IVA (ni el total). Si lo hace, hay un error y se bloquea Registrar.
   const inclItems = itemsCalc.filter((i: any) => i.incluir && !i._esDescuento);
@@ -1483,7 +1584,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   // revisión usaba max-w-6xl. Si el kit suma un ancho mayor, va acá.
   // Recibir y entrada directa también van anchas: su fila (cantidad, costo, %,
   // vencimiento) no entra en 512 px sin dejar el nombre del producto en cero.
-  const modalAncho = (t === 'entradaFoto' && foto && !foto.error) || t === 'recibir' || t === 'entradaDirecta' ? 'ancho' : 'normal';
+  const modalAncho = t === 'entradaFoto' && foto && !foto.error ? 'completo' : t === 'recibir' || t === 'entradaDirecta' ? 'ancho' : 'normal';
 
   // el título de cada ventana (antes, el <h2> de cada rama)
   const titulo =
@@ -1521,7 +1622,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
             cerrar={cerrar}
             okLabel="Registrar factura para conciliar"
             disabled={!f.proveedorId || !(fotoImp?.total > 0) || lecturaIncompleta}
-            onOk={() => post({
+            onOk={() => registrarConConstancia({
               accion: 'factura',
               proveedorId: f.proveedorId,
               sucursalId: f.sucursalId || undefined,
@@ -1547,7 +1648,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
           cerrar={cerrar}
           okLabel={`Registrar entrada${foto.comprobante?.tipo?.startsWith('factura') ? ' + factura' : ''}`}
           disabled={!f.proveedorId || !f.sucursalId || !fotoItems.some((i) => i.incluir && i.sku) || fotoItems.some((i) => i.incluir && !i.sku) || costoBloquea}
-          onOk={() => post({
+          onOk={() => registrarConConstancia({
             accion: 'entradaDirecta',
             proveedorId: f.proveedorId,
             sucursalId: f.sucursalId,
@@ -1654,7 +1755,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
           <div className="relative">
             <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Agregar producto…" aria-label="Agregar producto" className={input} />
             {sug.length > 0 && <div className="absolute z-contenido mt-1 max-h-48 w-full overflow-y-auto rounded-xl border border-black/[0.06] bg-white shadow-flotante">
-              {sug.map((p: any) => <button key={p.sku} onClick={() => { setItems((xs) => [...xs, { sku: p.sku, nombre: p.nombre, cantidad: 1, costoUnitario: p.costo ?? 0 }]); setBusca(''); setSug([]); }} className="min-h-11 w-full border-b border-black/[0.06] px-3 py-2 text-left text-sm text-tinta last:border-0 hover:bg-crema-claro focus-visible:bg-crema-claro focus-visible:outline-none">{p.nombre} <span className="text-xs text-tinta/60">{p.sku}</span></button>)}
+              {sug.map((p: any) => <button key={p.sku} onClick={() => { setItems((xs) => [...xs, { sku: p.sku, nombre: p.nombre, cantidad: 1, costoUnitario: p.costo ?? 0 }]); setBusca(''); setSug([]); }} className="min-h-11 w-full border-b border-black/[0.06] px-3 py-2 text-left text-sm text-tinta last:border-0 hover:bg-crema-claro focus-visible:bg-crema-claro focus-visible:outline-none">{conCodigo(p.nombre, p)} <span className="text-xs text-tinta/60">{p.sku}</span></button>)}
             </div>}
           </div>
           {items.length > 0 && (
@@ -1664,7 +1765,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
           )}
           {items.map((i, idx) => (
             <div key={idx} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-end gap-x-3 gap-y-1 border-b border-black/[0.06] pb-3 text-sm last:border-0 md:flex md:items-center md:gap-2 md:border-0 md:pb-0">
-              <span className="col-span-2 min-w-0 self-center break-words text-tinta md:flex-1">{i.nombre}</span>
+              <span className="col-span-2 min-w-0 self-center break-words text-tinta md:flex-1">{conCodigo(i.nombre, i)}</span>
               <div className="col-start-1 md:w-16"><span className={ROTULO_FILA}>Cant.</span><input type="number" aria-label={`Cantidad de ${i.nombre}`} value={i.cantidad} onChange={(e) => setItems((xs) => xs.map((x, j) => j === idx ? { ...x, cantidad: Number(e.target.value) } : x))} className={unir(CAMPO_FILA, CAMPO_FILA_COLOR)} /></div>
               <div className="col-start-2 md:w-24"><span className={ROTULO_FILA}>Costo $</span><input type="number" aria-label={`Costo de ${i.nombre}`} value={i.costoUnitario} onChange={(e) => setItems((xs) => xs.map((x, j) => j === idx ? { ...x, costoUnitario: Number(e.target.value) } : x))} className={unir(CAMPO_FILA, CAMPO_FILA_COLOR)} placeholder="costo" /></div>
               <button onClick={() => setItems((xs) => xs.filter((_, j) => j !== idx))} aria-label={`Quitar ${i.nombre}`} title="Quitar" className={unir(BOTON_QUITAR, 'col-start-3 row-start-1 justify-self-end')}><IconoCerrar className="size-4" /></button>
@@ -1740,7 +1841,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
           <div className="relative">
             <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Agregar producto…" aria-label="Agregar producto" className={input} />
             {sug.length > 0 && <div className="absolute z-contenido mt-1 max-h-48 w-full overflow-y-auto rounded-xl border border-black/[0.06] bg-white shadow-flotante">
-              {sug.map((p: any) => <button key={p.sku} onClick={() => { setItems((xs) => [...xs, { sku: p.sku, nombre: p.nombre, cantidad: 1, costo: p.costo ?? 0, vencimiento: '' }]); setBusca(''); setSug([]); }} className="min-h-11 w-full border-b border-black/[0.06] px-3 py-2 text-left text-sm text-tinta last:border-0 hover:bg-crema-claro focus-visible:bg-crema-claro focus-visible:outline-none">{p.nombre} <span className="text-xs text-tinta/60">{p.sku}</span></button>)}
+              {sug.map((p: any) => <button key={p.sku} onClick={() => { setItems((xs) => [...xs, { sku: p.sku, nombre: p.nombre, cantidad: 1, costo: p.costo ?? 0, vencimiento: '' }]); setBusca(''); setSug([]); }} className="min-h-11 w-full border-b border-black/[0.06] px-3 py-2 text-left text-sm text-tinta last:border-0 hover:bg-crema-claro focus-visible:bg-crema-claro focus-visible:outline-none">{conCodigo(p.nombre, p)} <span className="text-xs text-tinta/60">{p.sku}</span></button>)}
             </div>}
           </div>
           {items.length > 0 && (
@@ -1755,7 +1856,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
             return (
               <div key={idx} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-start gap-x-3 gap-y-1 border-b border-black/[0.06] pb-3 text-sm last:border-0 md:flex md:items-start md:gap-2 md:border-0 md:pb-0">
                 <span className="col-span-2 min-w-0 self-center break-words text-tinta md:flex-1 md:self-start md:pt-2">
-                  {i.nombre}
+                  {conCodigo(i.nombre, i)}
                   {venta != null && <span className="ml-2 text-xs text-tinta/60">vende {pesos(venta)}</span>}
                 </span>
                 <div className="col-start-1 md:w-16"><span className={ROTULO_FILA}>Cant.</span><input type="number" aria-label={`Cantidad de ${i.nombre}`} value={i.cantidad} onChange={(e) => setItems((xs) => xs.map((x, j) => j === idx ? { ...x, cantidad: Number(e.target.value) } : x))} className={unir(CAMPO_FILA, CAMPO_FILA_COLOR)} /></div>
@@ -1921,16 +2022,34 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
               )}
               {provAviso && <p className="text-xs text-marca-hondo">{provAviso}</p>}
 
+              {/* LA FACTURA EDITABLE (8/10/2026): el chat con la IA y, en cada tarjeta de
+                  abajo, los números del papel editables con la cuenta en vivo. Una sola
+                  lista (Leandro: «sale dos veces la factura, arriba y abajo»). */}
+              <AsistenteFactura
+                lecturaId={foto.lecturaId ?? null}
+                proveedorId={f.proveedorId || null}
+                proveedorNombre={provList.find((p: any) => p.id === f.proveedorId)?.razon_social ?? foto.proveedor?.detectado?.nombre ?? null}
+                comprobante={foto.comprobante ?? null}
+                tabla={() => tablaParaIA(fotoItemsVivos.current, esRenglonDescuento, textoDestino)}
+                pie={fotoImp}
+                controles={controlesParaIA()}
+                onAplicar={aplicarIA}
+                cambios={cambiosFactura}
+                onDeshacer={deshacerCambio}
+                sugerencias={sugerenciasChat}
+              />
+              <CabeceraFactura items={itemsCalc} />
+
               {/* renglones: cada uno editable — vincular producto, cantidad, remarcación y precio */}
               <div className="@container">
               <div className="hidden @min-[49rem]:grid grid-cols-[26px_minmax(11rem,1fr)_72px_290px_64px_92px] items-end gap-2 px-3 pt-1 text-xs font-semibold uppercase tracking-[0.08em] text-tinta/60">
                 <span /><span>Renglón del papel → producto en el sistema</span>
-                <span className="text-right">Cant.</span><span className="text-right">Costo papel → c/IVA → total</span>
+                <span className="text-right">Entra</span><span className="text-right">Costo c/IVA → total</span>
                 <span className="text-right">Remar. %</span><span className="text-right">P. venta</span>
               </div>
               </div>
               {itemsCalc.map((i: any, idx: number) => (
-                <div key={idx} className={'rounded-xl border px-3 py-2.5 ' + (i.sugerido ? 'border-dorado bg-crema-claro' : i.incluir ? 'border-black/[0.06] bg-white' : 'border-transparent bg-crema-claro')}>
+                <div key={idx} className={'rounded-xl border px-3 py-2.5 ' + (i.sugerido ? 'border-dorado bg-crema-claro' : i.incluir ? 'border-black/[0.06] bg-white' : 'border-transparent bg-crema-claro') + (marcados.includes(idx) ? ' ring-2 ring-info' : '')}>
                   {i._esDescuento ? (
                     <div className={'flex items-start gap-2.5' + (i.noAplicar ? ' opacity-60' : '')}>
                       <IconoRebaja className="mt-0.5 size-4 shrink-0 text-tinta/60" />
@@ -1946,15 +2065,15 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                         <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-tinta/70">
                           {i.noAplicar ? (
                             <>La mercadería queda a precio de lista; lo pagado de menos se reparte en el costo general.
-                              <button onClick={() => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, noAplicar: false } : x))} className={unir(ENLACE, 'text-tinta/70 hover:text-marca-hondo')}>Aplicar de nuevo</button></>
+                              <button onClick={() => noAplicarDescuento(idx, false)} className={unir(ENLACE, 'text-tinta/70 hover:text-marca-hondo')}>Aplicar de nuevo</button></>
                           ) : sinAtribuir.some((x) => x.descripcion === i.descripcion) ? (
                             <span className="text-marca-hondo">No se sabe a qué renglón corresponde{numImp(i.descuentoPct) > 0 ? ` (dice ${numImp(i.descuentoPct)}% y no cierra con ninguno)` : ''}: no se descontó de ningún costo. Si es de toda la factura, cargala en “Desc. del pie”.</span>
                           ) : grupoDeDescuento.has(idx) ? (
                             <>Se reparte entre los {grupoDeDescuento.get(idx)!.n} renglones de arriba{grupoDeDescuento.get(idx)!.pct ? ` (${grupoDeDescuento.get(idx)!.pct}%)` : ''}, proporcional a cada uno.
-                              <button onClick={() => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, noAplicar: true } : x))} className={CHIP_ACCION}>No aplicar</button></>
+                              <button onClick={() => noAplicarDescuento(idx, true)} className={CHIP_ACCION}>No aplicar</button></>
                           ) : (
-                            <>Se descuenta del renglón que nombra.
-                              <button onClick={() => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, noAplicar: true } : x))} className={CHIP_ACCION}>No aplicar</button></>
+                            <>{destinoDeDescuento.get(idx)?.motivo === 'regalo' ? 'Va sin cargo: se descuenta entero del renglón de arriba.' : 'Se descuenta del renglón que nombra.'}
+                              <button onClick={() => noAplicarDescuento(idx, true)} className={CHIP_ACCION}>No aplicar</button></>
                           )}
                         </div>
                       </div>
@@ -1966,10 +2085,12 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                       {/* 1 · lo que dice el papel, tal cual, con sus sellos */}
                       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                         <span className="min-w-0 font-mono text-sm leading-snug text-tinta [overflow-wrap:anywhere]">{i.descripcion}</span>
-                        <span className="font-mono text-xs tabular-nums text-tinta/60">
-                          {numImp(i.cantidad).toLocaleString('es-AR')} × {pesos(numImp(i.precio))}
-                          {i.importe != null && i.importe !== '' ? <> = <b className="text-tinta/70">{pesos(Math.abs(numImp(i.importe)))}</b></> : null}
-                        </span>
+                        {(!i.papel || i.porPeso) && (
+                          <span className="font-mono text-xs tabular-nums text-tinta/60">
+                            {numImp(i.cantidad).toLocaleString('es-AR')} × {pesos(numImp(i.precio))}
+                            {i.importe != null && i.importe !== '' ? <> = <b className="text-tinta/70">{pesos(Math.abs(numImp(i.importe)))}</b></> : null}
+                          </span>
+                        )}
                         {numImp(i.unidadesPorBulto) > 1 && <Sello tono="oro">×{Math.round(numImp(i.unidadesPorBulto))}: ¿cajas o unidades?</Sello>}
                         {numImp(i.bultoAplicado) > 1 && <Sello tono="info">×{Math.round(numImp(i.bultoAplicado))} → unidades</Sello>}
                         {estadoDelBulto(i) === 'ya_en_unidades' && <Sello tono="ok">×{Math.round(numImp(i.bultoDescartado))} · ya en unidades</Sello>}
@@ -2008,6 +2129,9 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                         )}
                       </div>
 
+                      {/* 1 bis · los números del papel, editables, con la cuenta en vivo (8/10/2026) */}
+                      {i.papel && !i.porPeso && <PapelDelRenglon i={i} idx={idx} onCambiarPapel={cambiarPapel} />}
+
                       {/* 2 · lo que entra al sistema: producto y números, en columnas fijas */}
                       {/* Se adapta al ancho de la TARJETA (container query), no al de la ventana:
                           con el documento original abierto al lado, la columna del nombre quedaba
@@ -2017,7 +2141,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                         <div className="col-span-full @min-[46rem]:col-span-1 min-w-0 text-xs leading-snug">
                           {i.sugerido && i.nombre ? (
                             <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                              <span className="text-dorado-hondo">¿Es <b className="text-tinta">{i.nombre}</b>?</span>
+                              <span className="text-dorado-hondo">¿Es <b className="text-tinta">{conCodigo(i.nombre, i)}</b>?</span>
                               <Boton tamano="chico" variante="secundario" onClick={() => confirmarSugerencia(idx)}>Sí, es este</Boton>
                               <button onClick={() => rechazarSugerencia(idx)} className={CHIP_ACCION}>Buscar otro</button>
                               {i.motivoIa && <span className="basis-full text-xs text-tinta/60">{String(i.motivoIa).replace(/\s*:\s*puede ser otro producto.*$/i, '').slice(0, 110)}</span>}
@@ -2026,7 +2150,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                             <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                               {/* el nombre entero (baja de renglón si hace falta): es lo que se mira
                                   para confirmar que el vínculo es el correcto sin entrar a "cambiar" */}
-                              <span className="min-w-0 break-words text-ok" title={i.nombre}>→ <b>{i.nombre}</b></span>
+                              <span className="min-w-0 break-words text-ok" title={i.nombre}>→ <b>{conCodigo(i.nombre, i)}</b></span>
                               {(() => {
                                 // con lo que el renglón dice AHORA: cambia con cada botón (6/10/2026)
                                 const v = variacionCosto(i, idx);
@@ -2160,10 +2284,14 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                             </span>
                           )}
                         </div>
-                        <input type="number" step="any" min="0" value={i.cantidad} onChange={(e) => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, cantidad: Number(e.target.value) } : x))} aria-label="Cantidad" className={unir(CAMPO_FILA, CAMPO_FILA_COLOR, 'importe')} />
+                        {i.papel && !i.porPeso ? (
+                          <span className="importe text-right text-sm font-semibold text-tinta" title="Lo que entra al stock: se corrige con los números del papel">{numImp(i.cantidad).toLocaleString('es-AR', { maximumFractionDigits: 3 })}</span>
+                        ) : (
+                          <input type="number" step="any" min="0" value={i.cantidad} onChange={(e) => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, cantidad: Number(e.target.value) } : x))} aria-label="Cantidad" className={unir(CAMPO_FILA, CAMPO_FILA_COLOR, 'importe')} />
+                        )}
                         {/* costo: el precio del papel (corregible) → el costo final que queda en stock, en la misma línea */}
                         <div className="col-span-1 flex flex-wrap items-center justify-end gap-1.5 tabular-nums">
-                          <input
+                          {(!i.papel || i.porPeso) && <input
                             type="number" step="any" min="0" value={i.precio}
                             onChange={(e) => setFotoItems((xs) => xs.map((x, j) => {
                               if (j !== idx) return x;
@@ -2173,8 +2301,8 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                             title="Precio unitario tal como está en el papel (sin IVA): corregilo si la lectura falló"
                             aria-label="Precio del papel"
                             className={unir(CAMPO_FILA_BASE, CAMPO_FILA_COLOR, 'importe w-[78px] px-1.5')}
-                          />
-                          {Math.abs(costoFinal(i, idx) - precioEfectivo(i)) > 0.5 ? (
+                          />}
+                          {(i.papel && !i.porPeso) || Math.abs(costoFinal(i, idx) - precioEfectivo(i)) > 0.5 ? (
                             <span
                               className="whitespace-nowrap text-right leading-none"
                               title={desgloseCosto(i, idx)}
@@ -2370,7 +2498,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                           {vinculaSug.map((p: any) => (
                             <button key={p.sku} onClick={() => vincularProducto(idx, p)} className="min-h-11 w-full border-b border-black/[0.06] px-3 py-2 text-left last:border-0 hover:bg-crema-claro focus-visible:bg-crema-claro focus-visible:outline-none">
                               <div className="flex items-center justify-between gap-2">
-                                <span className="text-sm text-tinta min-w-0 break-words">{p.nombre}{p.marca ? <span className="text-tinta/60"> · {p.marca}</span> : null}</span>
+                                <span className="text-sm text-tinta min-w-0 break-words">{conCodigo(p.nombre, p)}{p.marca ? <span className="text-tinta/60"> · {p.marca}</span> : null}</span>
                                 {p.precio != null && <span className="importe shrink-0 text-xs font-medium text-ok">{pesos(p.precio)}</span>}
                               </div>
                               <div className="text-xs text-tinta/60">{p.sku}{p.categoria ? ` · ${p.categoria}` : ''}</div>

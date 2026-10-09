@@ -1,13 +1,16 @@
 import { useEffect, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEstado, type Producto } from '../../lib/estado';
 import { apiGet } from '../../lib/api';
-import { C, TarjetaProducto, Ionicons, sombra } from '../../lib/ui';
+import { C, FILA_GRILLA, TarjetaProducto, Ionicons, sombra } from '../../lib/ui';
 
 type Cat = { id: string; nombre: string };
 
 export default function Catalogo() {
   const { cliente } = useEstado();
+  // la pestaña va sin encabezado: el buscador arranca debajo del notch / isla
+  const insets = useSafeAreaInsets();
   const [buscar, setBuscar] = useState('');
   const [productos, setProductos] = useState<Producto[]>([]);
   const [cats, setCats] = useState<Cat[]>([]);
@@ -37,7 +40,7 @@ export default function Catalogo() {
   return (
     <View style={est.pantalla}>
       {/* buscador */}
-      <View style={est.barra}>
+      <View style={[est.barra, { paddingTop: insets.top + 14 }]}>
         <View style={[est.buscador, sombra(0)]}>
           <Ionicons name="search" size={18} color={C.humo} />
           <TextInput value={buscar} onChangeText={setBuscar} placeholder="Buscar bebidas, fiambres, almacén…" placeholderTextColor={C.humo} style={est.input} />
@@ -67,7 +70,8 @@ export default function Catalogo() {
       {/* grilla */}
       <FlatList
         data={productos} key="grid-2" numColumns={2} keyExtractor={(p) => p.sku}
-        columnWrapperStyle={{ gap: 12, paddingHorizontal: 16 }}
+        columnWrapperStyle={FILA_GRILLA}
+        keyboardShouldPersistTaps="handled"
         contentContainerStyle={{ paddingBottom: 24, paddingTop: 6, gap: 12 }}
         renderItem={({ item }) => <TarjetaProducto p={item} grid />}
         ListEmptyComponent={<Text style={est.vacio}>{cargando ? 'Buscando…' : 'Sin resultados.'}</Text>}

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { leerJson, SIN_CONEXION } from "../../lib/respuesta";
 
 export default function Ingresar() {
   const router = useRouter();
@@ -20,31 +21,39 @@ export default function Ingresar() {
     setError(null);
     const ruta = modo === "login" ? "/api/ingresar" : "/api/registro";
     const body = modo === "login" ? { email, clave } : { email, nombre, clave, codigoReferido: codigo.trim() || undefined };
+    // Si la tienda no contesta o contesta algo que no es JSON, mensaje humano
+    // (antes salía "Unexpected token…" o "Failed to fetch").
+    let r: Response;
     try {
-      const r = await fetch(ruta, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.message ?? "No se pudo continuar");
-      router.push("/");
-      router.refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Error");
+      r = await fetch(ruta, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    } catch {
+      setError(SIN_CONEXION);
       setCargando(false);
+      return;
     }
+    const d = await leerJson(r);
+    if (!r.ok) {
+      setError(d?.message ?? SIN_CONEXION);
+      setCargando(false);
+      return;
+    }
+    router.push("/");
+    router.refresh();
   }
 
-  const input = "w-full bg-transparent border-b border-tinta/20 focus:border-dorado transition-colors px-0 py-3 text-[15px] outline-none placeholder:text-humo/70";
+  const input = "w-full min-w-0 bg-transparent border-b border-tinta/20 focus:border-rojo transition-colors px-0 py-3 text-[15px] outline-none placeholder:text-humo/70";
 
   return (
     <div className="min-h-[78vh] grid place-items-center px-5 py-12">
       <div className="w-full max-w-md">
         <div className="flex justify-center mb-9">
-          <img src="/odb-logo.png" alt="O.D.B Premium Market" className="h-20 w-auto" />
+          <img src="/odb-logo.png" alt="O.D.B Premium Market" width={130} height={80} className="h-20 w-auto" />
         </div>
 
         <div className="bg-crema border border-linea rounded-xl p-7 sm:p-9">
           <div className="flex gap-7 justify-center mb-8 text-sm">
             {(["login", "registro"] as const).map((m) => (
-              <button key={m} onClick={() => { setModo(m); setError(null); }} className={`pb-1 transition-colors ${modo === m ? "text-ink font-semibold border-b-2 border-dorado" : "text-humo hover:text-tinta"}`}>
+              <button key={m} type="button" onClick={() => { setModo(m); setError(null); }} className={`pb-1 transition-colors ${modo === m ? "text-ink font-semibold border-b-2 border-rojo" : "text-humo hover:text-tinta"}`}>
                 {m === "login" ? "Ingresar" : "Crear cuenta"}
               </button>
             ))}

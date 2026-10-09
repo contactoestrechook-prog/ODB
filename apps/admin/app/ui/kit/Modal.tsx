@@ -5,12 +5,14 @@ import { createPortal } from 'react-dom';
 import { FOCO, unir } from './clases';
 import { IconoCerrar } from './iconos';
 
-export type AnchoModal = 'chico' | 'normal' | 'ancho';
+export type AnchoModal = 'chico' | 'normal' | 'ancho' | 'completo';
 
 const ANCHOS: Record<AnchoModal, string> = {
   chico: 'sm:max-w-md',
   normal: 'sm:max-w-lg',
   ancho: 'sm:max-w-3xl',
+  // la factura editable: el original al lado de la tabla (8/10/2026)
+  completo: 'sm:max-w-[min(96vw,92rem)]',
 };
 
 type PropsModal = {

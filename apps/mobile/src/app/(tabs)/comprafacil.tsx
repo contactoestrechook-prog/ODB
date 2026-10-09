@@ -239,7 +239,7 @@ export default function CompraFacil() {
         renderItem={({ item: r }) => (
           <View style={[est.fila, sombra(0)]}>
             {r.imagenUrl ? (
-              <Image source={{ uri: r.imagenUrl }} style={est.thumb} contentFit="cover" transition={150} />
+              <Image source={{ uri: r.imagenUrl }} style={est.thumb} contentFit="contain" transition={150} />
             ) : (
               <View style={[est.thumb, est.thumbVacio]}><Text style={est.thumbInicial}>{(r.nombre ?? '?')[0]}</Text></View>
             )}
@@ -309,8 +309,9 @@ const est = StyleSheet.create({
   vacioWrap: { alignItems: 'center', gap: 10, marginTop: 30 },
   vacio: { textAlign: 'center', color: C.humo, fontSize: 13.5 },
   fila: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: 14, padding: 10, marginBottom: 8, gap: 11 },
-  thumb: { width: 46, height: 46, borderRadius: 11, backgroundColor: C.cremaProf },
-  thumbVacio: { alignItems: 'center', justifyContent: 'center' },
+  // contain + fondo blanco: la botella entera, sin franjas de otro color
+  thumb: { width: 46, height: 46, borderRadius: 11, backgroundColor: C.blanco },
+  thumbVacio: { alignItems: 'center', justifyContent: 'center', backgroundColor: C.cremaProf },
   thumbInicial: { fontSize: 20, fontWeight: '800', color: '#cabfae' },
   filaNombre: { fontSize: 13.5, color: C.tinta, fontWeight: '600' },
   filaUnit: { fontSize: 12, color: C.humo, marginTop: 2 },

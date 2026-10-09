@@ -3,6 +3,7 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from
 import { useEstado } from '../lib/estado';
 import { apiGet, apiPost } from '../lib/api';
 import { C, LinearGradient, Ionicons, sombra, toque } from '../lib/ui';
+import { SUCURSAL_RETIRO } from '../lib/formato';
 
 const fecha = (iso: string) => new Date(iso).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' });
 
@@ -71,7 +72,7 @@ export default function Puntos() {
           <Text style={est.codigoTitulo}>¡Canje confirmado!</Text>
           <Text style={est.codigoSub}>{ultimo.recompensa}</Text>
           <View style={est.codigoBox}><Text style={est.codigoTxt}>{ultimo.codigo}</Text></View>
-          <Text style={est.codigoNota}>Mostrá este código en Suc Sant Thomas</Text>
+          <Text style={est.codigoNota}>Mostrá este código en la sucursal {SUCURSAL_RETIRO.nombre}</Text>
         </View>
       )}
       {error && <Text style={est.error}>{error}</Text>}

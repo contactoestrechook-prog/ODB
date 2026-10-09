@@ -51,6 +51,9 @@ export async function GET(req: Request) {
     params.delete('recurso');
     if (usuarioId) params.set('cargadaPor', usuarioId);
     ruta = `/compras/facturas?${params.toString()}`;
+  } else if (recurso === 'historial-proveedor' && url.searchParams.get('id')) {
+    // lo que nos vende ese proveedor, sacado de sus facturas (mesa de compras, 8/10/2026)
+    ruta = `/compras/proveedores/${encodeURIComponent(url.searchParams.get('id')!)}/historial`;
   } else if (recurso === 'proveedores-lista') {
     // proveedores con cuántos productos tiene cargados cada uno
     ruta = '/compras/proveedores-lista';
@@ -67,6 +70,9 @@ export async function GET(req: Request) {
     ruta = `/compras/conciliacion/cruce?facturaId=${encodeURIComponent(url.searchParams.get('facturaId') ?? '')}&remitos=${encodeURIComponent(url.searchParams.get('remitos') ?? '')}`;
   } else if (recurso === 'codigo') {
     ruta = `/compras/recepcion/codigo/${encodeURIComponent(url.searchParams.get('codigo') ?? '')}`;
+  } else if (recurso === 'recepcion-ordenes' && url.searchParams.get('proveedorId')) {
+    // órdenes del proveedor que esperan mercadería (recibir contra la orden)
+    ruta = `/compras/recepcion/ordenes?proveedorId=${encodeURIComponent(url.searchParams.get('proveedorId')!)}`;
   } else {
     ruta = GET_RECURSOS[recurso];
   }

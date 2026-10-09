@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Aviso, Boton, Etiqueta, FOCO, IconoCerrar, Monto, PlacaRoja, unir, type TonoEtiqueta } from '../ui/kit';
 import { numero, pesos as formatoPesos } from '../lib/formato';
+import { conCodigo } from '../lib/codigo-producto';
 
 type Pedido = {
   id: string;
@@ -31,7 +32,7 @@ const cantidadDe = (v: unknown) => {
 
 // Vista breve de la tarjeta cerrada: los primeros tres productos en una línea.
 function resumenItems(items: Pedido['items']): string {
-  const primeros = items.slice(0, 3).map((i) => `${numero(cantidadDe(i.cantidad), 2)}× ${i.producto?.nombre ?? '—'}`);
+  const primeros = items.slice(0, 3).map((i) => `${numero(cantidadDe(i.cantidad), 2)}× ${conCodigo(i.producto?.nombre ?? '—', i.producto)}`);
   const resto = items.length - primeros.length;
   return primeros.join(' · ') + (resto > 0 ? ` +${resto} más` : '');
 }
@@ -206,7 +207,7 @@ export function ColaDeposito() {
                           return {
                             clave: String(j),
                             cantidad,
-                            nombre: i.producto?.nombre ?? '—',
+                            nombre: conCodigo(i.producto?.nombre ?? '—', i.producto),
                             detalle: conPrecio ? `${numero(cantidad, 2)} × ${pesos(unitario)}` : undefined,
                             importe: conPrecio ? pesos(cantidad * unitario) : undefined,
                           };

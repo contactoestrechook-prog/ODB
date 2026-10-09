@@ -6,22 +6,16 @@ import * as Haptics from 'expo-haptics';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { pesos, useEstado, type Producto } from './estado';
 import { apiPost } from './api';
+import { C } from './paleta';
 
-// Paleta premium ODB
-export const C = {
-  rojo: '#B82D25',
-  rojoOscuro: '#932A1F',
-  vino: '#5A1A16',
-  negro: '#1A1412',
-  tinta: '#2A201C',
-  blanco: '#FFFFFF',
-  crema: '#F4EEE4',
-  cremaProf: '#EBE3D6',
-  humo: '#9B9088',
-  linea: '#ECE4D7',
-  dorado: '#C9A96E',
-  verde: '#2F7A4F',
-};
+// Paleta premium ODB: vive en paleta.ts (única fuente, también la usa estado.tsx).
+export { C };
+
+// Fila de una grilla de 2 columnas de TarjetaProducto (FlatList numColumns=2,
+// prop `grid`). Cada tarjeta va en una celda de media fila con 6 px de aire a
+// cada lado: entre tarjetas quedan 12 px y contra el borde 10 + 6 = 16 px. Así
+// la última tarjeta de una cantidad impar conserva el ancho de media columna.
+export const FILA_GRILLA = { paddingHorizontal: 10 } as const;
 
 export const sombra = (n = 1) => ({
   shadowColor: '#3a2a14',
@@ -58,11 +52,12 @@ export function TarjetaProducto({ p, ancho = 168, grid = false }: { p: Producto;
     } catch {}
   };
 
-  return (
-    <View style={[est.card, grid ? { flex: 1, marginRight: 0 } : { width: ancho }, sombra(1)]}>
+  const tarjeta = (
+    <View style={[est.card, grid ? est.cardGrilla : { width: ancho }, sombra(1)]}>
       <View style={est.imgWrap}>
         {p.imagenUrl ? (
-          <Image source={{ uri: p.imagenUrl }} style={est.img} contentFit="cover" transition={200} />
+          // contain: la botella entera (con cover se cortaban picos y bases)
+          <Image source={{ uri: p.imagenUrl }} style={est.img} contentFit="contain" transition={200} />
         ) : (
           <View style={[est.img, est.imgVacia]}>
             <Text style={est.imgInicial}>{(p.nombre ?? '?')[0]}</Text>
@@ -108,6 +103,9 @@ export function TarjetaProducto({ p, ancho = 168, grid = false }: { p: Producto;
       </View>
     </View>
   );
+
+  // en grilla, la celda fija el ancho de media columna (ver FILA_GRILLA)
+  return grid ? <View style={est.celdaGrilla}>{tarjeta}</View> : tarjeta;
 }
 
 // ---- Encabezado de sección ----
@@ -134,9 +132,14 @@ export { LinearGradient, Ionicons, toque };
 
 const est = StyleSheet.create({
   card: { backgroundColor: C.blanco, borderRadius: 20, marginRight: 12, overflow: 'hidden' },
+  celdaGrilla: { flex: 1, maxWidth: '50%', paddingHorizontal: 6 },
+  // flexGrow (no flex: 1): crece hasta el alto de la fila sin colapsar a 0
+  cardGrilla: { flexGrow: 1, marginRight: 0 },
   imgWrap: { position: 'relative' },
-  img: { width: '100%', height: 130, backgroundColor: C.cremaProf },
-  imgVacia: { alignItems: 'center', justifyContent: 'center' },
+  // fondo blanco: con contain la foto (casi siempre sobre blanco) no deja
+  // franjas de otro color a los costados
+  img: { width: '100%', height: 130, backgroundColor: C.blanco },
+  imgVacia: { alignItems: 'center', justifyContent: 'center', backgroundColor: C.cremaProf },
   imgInicial: { fontSize: 38, fontWeight: '800', color: '#cabfae' },
   badgeOff: { position: 'absolute', top: 8, left: 8, backgroundColor: C.rojo, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3 },
   badgeOffTxt: { color: '#fff', fontSize: 12, fontWeight: '800' },
@@ -150,7 +153,8 @@ const est = StyleSheet.create({
   cardBody: { padding: 12, paddingTop: 18 },
   cardNombre: { fontSize: 13, color: C.tinta, fontWeight: '600', minHeight: 34, lineHeight: 17 },
   precio: { fontSize: 17, fontWeight: '800', color: C.tinta, marginTop: 6 },
-  precioRow: { marginTop: 6, flexDirection: 'row', alignItems: 'baseline', gap: 6 },
+  // flexWrap: en tarjetas angostas (150 px) el tachado baja de renglón en vez de cortarse
+  precioRow: { marginTop: 6, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'baseline', columnGap: 6, rowGap: 0 },
   precioPromo: { fontSize: 17, fontWeight: '800', color: C.rojo },
   precioTach: { fontSize: 12, color: C.humo, textDecorationLine: 'line-through' },
   seccion: { paddingHorizontal: 18, marginTop: 22, marginBottom: 10 },

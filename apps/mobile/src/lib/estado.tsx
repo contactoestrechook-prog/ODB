@@ -4,6 +4,7 @@ import * as SecureStore from 'expo-secure-store';
 import { API } from './config';
 import { configurarApi, apiGet, apiPost } from './api';
 import { registrarPush } from './push';
+import { C } from './paleta';
 
 export { API };
 
@@ -44,13 +45,25 @@ const tokenVigente = (token?: string) => {
   try { const p = JSON.parse(globalThis.atob(token.split('.')[1])); return !p.exp || p.exp * 1000 > Date.now(); } catch { return true; }
 };
 
-export const COLORES = {
-  rojo: '#B82D25',
-  rojoOscuro: '#932A1F',
-  negro: '#000000',
-  blanco: '#FFFFFF',
-  crema: '#F0EBE2',
-};
+// Alias histórico de la paleta única (src/lib/paleta.ts, mismos valores que `C`
+// de ui.tsx). No definir colores acá.
+export const COLORES = C;
+
+// Último nombre y WhatsApp que el cliente usó para un pedido en este equipo:
+// sirve para precargar el carrito también cuando compra sin cuenta.
+export type Contacto = { nombre: string; telefono: string };
+const contactoStore = almacen('odb_contacto');
+export async function leerContacto(): Promise<Contacto | null> {
+  const raw = await contactoStore.get();
+  if (!raw) return null;
+  try {
+    const c = JSON.parse(raw);
+    return c && typeof c === 'object' ? { nombre: String(c.nombre ?? ''), telefono: String(c.telefono ?? '') } : null;
+  } catch {
+    return null;
+  }
+}
+export const guardarContacto = (c: Contacto) => contactoStore.set(JSON.stringify(c));
 
 export type Producto = {
   id?: string;
@@ -70,6 +83,8 @@ type Cliente = {
   dni: string;
   tipo: string;
   nombre?: string | null;
+  /** WhatsApp del perfil, si la API lo manda en el login (precarga el carrito). */
+  telefono?: string | null;
   puntos?: number;
   token?: string;
   verificado?: boolean;

@@ -4,6 +4,11 @@
 // texto en dos partes, pero se pintan igual.
 type Tono = "claro" | "rojo" | "oscuro";
 
+// El rótulo chico en mayúsculas que va arriba de un título ("Mi cuenta",
+// "Último paso"). Antes era un "kicker" dorado; desde el 6/10/2026 va en la
+// tipografía de marca y el color se elige aparte (text-rojo, text-humo…).
+export const ROTULO = "marca text-[12px] font-extrabold uppercase leading-tight tracking-[0.14em] [overflow-wrap:anywhere]";
+
 const COLOR: Record<Tono, string> = {
   claro: "text-ink",
   rojo: "text-white",

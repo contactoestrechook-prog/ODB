@@ -17,6 +17,7 @@ import {
   unir,
   useConfirmar,
 } from './kit';
+import { fechaHora } from '../lib/formato';
 
 // ✕ de quitar: 44 px de área para el dedo aunque el dibujo sea chico.
 const BOTON_QUITAR = unir(
@@ -31,6 +32,8 @@ type Transferencia = {
   creado_en: string;
   origen: { nombre: string } | null;
   destino: { nombre: string } | null;
+  /** quién la mandó (null en las de antes de oct/2026: no se guardaba) */
+  creador?: { nombre: string } | null;
   items: { cantidad: number; producto: { sku: string; nombre: string } | null }[];
 };
 
@@ -235,6 +238,9 @@ export function AccionesStock({
                   </p>
                   <p className="mt-0.5 break-words text-xs text-tinta/60">
                     {t.items.map((i) => `${i.producto?.nombre} × ${Math.round(i.cantidad)}`).join(' · ')}
+                  </p>
+                  <p className="mt-0.5 text-xs text-tinta/60">
+                    Salió {fechaHora(t.creado_en)}{t.creador?.nombre ? ` · la mandó ${t.creador.nombre}` : ''}
                   </p>
                 </div>
                 <div className="flex shrink-0 gap-2">

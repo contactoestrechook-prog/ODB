@@ -366,6 +366,9 @@ export function StockWorkspace({
                 },
                 { clave: 'sucursal', titulo: 'Sucursal', celda: (m: any) => <span className="text-xs text-tinta/70">{m.sucursal?.nombre}</span> },
                 { clave: 'tipo', titulo: 'Tipo', celda: (m: any) => <span className="text-xs">{MOV_LABEL[m.tipo] ?? m.tipo}</span> },
+                // quién lo hizo. Sin nombre: venta web o del bot, o un movimiento
+                // viejo de antes de que se guardara el autor (transferencias hasta oct/2026)
+                { clave: 'quien', titulo: 'Quién', celda: (m: any) => <span className="text-xs text-tinta/70">{m.usuario?.nombre ?? '—'}</span> },
                 {
                   clave: 'cantidad', titulo: 'Cantidad', importe: true,
                   celda: (m: any) => {

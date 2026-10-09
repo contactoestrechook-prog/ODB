@@ -2,23 +2,32 @@ import { useEffect, useState } from 'react';
 import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import * as Location from 'expo-location';
-import { COLORES, pesos } from '../../lib/estado';
-import { apiGet, apiPost } from '../../lib/api';
+import { pesos } from '../../lib/estado';
+import { ApiError, apiGet, apiPost } from '../../lib/api';
 import { C, LinearGradient, Ionicons, sombra } from '../../lib/ui';
+import { cantidadLegible, nombreSucursal } from '../../lib/formato';
 import MapaEntrega from '../../lib/MapaEntrega';
 
-const PASOS_PICKUP = [
-  { estado: 'recibido', label: 'Pedido recibido' },
-  { estado: 'en_preparacion', label: 'Preparando tu pedido' },
-  { estado: 'listo', label: 'Listo para retirar' },
-  { estado: 'entregado', label: 'Entregado · ¡gracias!' },
+// Línea de tiempo. Cada paso lista los estados de la API que lo marcan como el
+// actual: `pagado` (lo pone Mercado Pago sobre un pedido recibido) cuenta como
+// "recibido + pagado", y en domicilio `listo` es el paso entre la preparación y
+// la salida del repartidor. Sin eso, esos estados dejaban la línea toda gris.
+type Paso = { clave: string; estados: string[]; label: string };
+const PASOS_PICKUP: Paso[] = [
+  { clave: 'recibido', estados: ['recibido', 'pagado'], label: 'Pedido recibido' },
+  { clave: 'en_preparacion', estados: ['en_preparacion'], label: 'Preparando tu pedido' },
+  { clave: 'listo', estados: ['listo'], label: 'Listo para retirar' },
+  { clave: 'entregado', estados: ['entregado'], label: 'Entregado · ¡gracias!' },
 ];
-const PASOS_DOM = [
-  { estado: 'recibido', label: 'Pedido recibido' },
-  { estado: 'en_preparacion', label: 'Preparando tu pedido' },
-  { estado: 'en_camino', label: 'En camino a tu casa' },
-  { estado: 'entregado', label: 'Entregado · ¡gracias!' },
+const PASOS_DOM: Paso[] = [
+  { clave: 'recibido', estados: ['recibido', 'pagado'], label: 'Pedido recibido' },
+  { clave: 'en_preparacion', estados: ['en_preparacion'], label: 'Preparando tu pedido' },
+  { clave: 'listo', estados: ['listo'], label: 'Listo, esperando al repartidor' },
+  { clave: 'en_camino', estados: ['en_camino'], label: 'En camino a tu casa' },
+  { clave: 'entregado', estados: ['entregado'], label: 'Entregado · ¡gracias!' },
 ];
+// Estados en los que la API acepta generar un cobro (crearPreferenciaMP)
+const ADMITE_COBRO = ['recibido', 'en_preparacion', 'listo'];
 
 const distTexto = (m: number) => (m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${m} m`);
 
@@ -28,17 +37,28 @@ export default function EstadoPedido() {
   const [track, setTrack] = useState<any>(null);
   const [sinPermiso, setSinPermiso] = useState(false);
   const [gpsActivo, setGpsActivo] = useState(true);
+  const [noExiste, setNoExiste] = useState(false);
 
   useEffect(() => {
     let activo = true;
     let intervalo: any = null;
     async function cargar() {
       try {
+        let inexistente = false;
         const [p, s] = await Promise.all([
-          apiGet(`/app/pedidos/${id}`, { auth: false }).catch(() => null),
+          apiGet(`/app/pedidos/${id}`, { auth: false }).catch((e) => {
+            // la API contesta 4xx cuando el pedido no existe (link viejo o mal copiado)
+            if (e instanceof ApiError && e.status >= 400 && e.status < 500) inexistente = true;
+            return null;
+          }),
           apiGet(`/app/pedidos/${id}/seguimiento`, { auth: false }).catch(() => null),
         ]);
         if (!activo) return;
+        if (inexistente) {
+          setNoExiste(true);
+          if (intervalo) { clearInterval(intervalo); intervalo = null; }
+          return;
+        }
         if (p) setPedido(p);
         if (s) setTrack((t: any) => ({ ...(t ?? {}), ...s }));
         // estado terminal → dejamos de pollear (el pedido ya no cambia)
@@ -82,8 +102,16 @@ export default function EstadoPedido() {
 
   if (!pedido) {
     return (
-      <View style={[est.pantalla, { justifyContent: 'center' }]}>
-        <Text style={{ textAlign: 'center', color: '#888' }}>Cargando tu pedido…</Text>
+      <View style={[est.pantalla, est.centro]}>
+        {noExiste ? (
+          <>
+            <Ionicons name="receipt-outline" size={34} color={C.humo} />
+            <Text style={est.noExisteT}>No encontramos este pedido</Text>
+            <Text style={est.noExisteS}>Revisá el link o buscalo en Mi cuenta › Mis compras.</Text>
+          </>
+        ) : (
+          <Text style={est.noExisteS}>Cargando tu pedido…</Text>
+        )}
       </View>
     );
   }
@@ -97,8 +125,13 @@ export default function EstadoPedido() {
 
   const esDom = pedido.canal === 'domicilio';
   const pasos = esDom ? PASOS_DOM : PASOS_PICKUP;
-  const indiceActual = pasos.findIndex((p) => p.estado === pedido.estado);
+  const indiceActual = pasos.findIndex((p) => p.estados.includes(pedido.estado));
   const activo = !['entregado', 'cancelado'].includes(pedido.estado);
+  // "Pago confirmado" solo con la marca real del cobro (pagado_en); antes salía
+  // en cualquier estado distinto de recibido aunque nadie hubiera pagado
+  const pagado = !!pedido.pagado_en;
+  const puedePagar = activo && !pagado && ADMITE_COBRO.includes(pedido.estado);
+  const sucursal = nombreSucursal(pedido.sucursal?.nombre ?? track?.sucursal?.nombre);
 
   return (
     <ScrollView style={est.pantalla} contentContainerStyle={{ padding: 16 }}>
@@ -157,7 +190,7 @@ export default function EstadoPedido() {
         <View style={[est.llegando, sombra(1)]}>
           <Ionicons name="location" size={22} color={C.rojo} />
           <View style={{ flex: 1 }}>
-            <Text style={est.llegandoT}>A {distTexto(track.distancia_m)} de {track.sucursal?.nombre ?? 'la sucursal'}</Text>
+            <Text style={est.llegandoT}>A {distTexto(track.distancia_m)} de la sucursal {sucursal}</Text>
             <Text style={est.llegandoS}>Cuando llegues te asignamos un estacionamiento.</Text>
           </View>
         </View>
@@ -183,39 +216,41 @@ export default function EstadoPedido() {
         <View style={est.tarjeta}>
           <Text style={est.envioLabel}>Envío a domicilio</Text>
           <Text style={est.envioDir}>{pedido.destino_direccion ?? track?.destino?.direccion ?? 'Tu dirección'}</Text>
-          <Text style={est.envioDesde}>Sale de {track?.sucursal?.nombre ?? 'Suc Sant Thomas'}</Text>
+          <Text style={est.envioDesde}>Sale de la sucursal {sucursal}</Text>
         </View>
       ) : (
         <View style={est.tarjetaQr}>
           <Text style={est.qrLabel}>Mostrá este código al retirar</Text>
           <Text style={est.qr}>{pedido.qr_retiro}</Text>
           <Text style={est.sucursal}>
-            {pedido.sucursal?.nombre}
+            Sucursal {sucursal}
             {pedido.sucursal?.direccion ? ` · ${pedido.sucursal.direccion}` : ''}
           </Text>
         </View>
       )}
 
-      {activo && (pedido.estado === 'recibido' ? (
-        <Pressable onPress={pagar} style={est.pagarBtn}>
-          <Ionicons name="card" size={18} color="#fff" />
-          <Text style={est.pagarTxt}>Pagar con Mercado Pago</Text>
-        </Pressable>
-      ) : (
+      {pagado && pedido.estado !== 'cancelado' ? (
         <View style={est.pagado}>
           <Ionicons name="checkmark-circle" size={18} color={C.verde} />
           <Text style={est.pagadoTxt}>Pago confirmado</Text>
         </View>
-      ))}
+      ) : puedePagar ? (
+        <Pressable onPress={pagar} style={est.pagarBtn}>
+          <Ionicons name="card" size={18} color="#fff" />
+          <Text style={est.pagarTxt}>Pagar con Mercado Pago</Text>
+        </Pressable>
+      ) : null}
 
       <View style={est.tarjeta}>
         {pedido.estado === 'cancelado' ? (
           <Text style={est.cancelado}>Pedido cancelado</Text>
         ) : (
           pasos.map((paso, i) => (
-            <View key={paso.estado} style={est.paso}>
+            <View key={paso.clave} style={est.paso}>
               <View style={[est.punto, i <= indiceActual ? est.puntoActivo : null, i === indiceActual ? est.puntoActual : null]} />
-              <Text style={[est.pasoTexto, i <= indiceActual ? est.pasoTextoActivo : null]}>{paso.label}</Text>
+              <Text style={[est.pasoTexto, i <= indiceActual ? est.pasoTextoActivo : null]}>
+                {i === 0 && (pagado || pedido.estado === 'pagado') ? 'Pedido recibido y pagado' : paso.label}
+              </Text>
             </View>
           ))
         )}
@@ -224,7 +259,8 @@ export default function EstadoPedido() {
       <View style={est.tarjeta}>
         {pedido.items?.map((i: any, j: number) => (
           <View key={j} style={est.itemFila}>
-            <Text style={est.itemTexto}>{Math.round(Number(i.cantidad))}× {i.producto?.nombre}</Text>
+            {/* por peso va con coma ("1,5×"): Math.round lo mostraba como "2×" */}
+            <Text style={est.itemTexto}>{cantidadLegible(i.cantidad)}× {i.producto?.nombre}</Text>
             <Text style={est.itemPrecio}>{pesos(Number(i.cantidad) * Number(i.precio_unitario))}</Text>
           </View>
         ))}
@@ -238,7 +274,10 @@ export default function EstadoPedido() {
 }
 
 const est = StyleSheet.create({
-  pantalla: { flex: 1, backgroundColor: COLORES.crema },
+  pantalla: { flex: 1, backgroundColor: C.crema },
+  centro: { justifyContent: 'center', alignItems: 'center', padding: 32, gap: 8 },
+  noExisteT: { fontSize: 17, fontWeight: '800', color: C.tinta, textAlign: 'center' },
+  noExisteS: { fontSize: 13.5, color: C.humo, textAlign: 'center', lineHeight: 20 },
   estac: { borderRadius: 20, padding: 22, alignItems: 'center', marginBottom: 12 },
   estacLabel: { color: 'rgba(255,255,255,0.85)', fontSize: 13, marginTop: 6 },
   estacNum: { color: '#fff', fontSize: 46, fontWeight: '800', letterSpacing: 1, marginTop: 2 },
@@ -257,10 +296,10 @@ const est = StyleSheet.create({
   llegandoS: { fontSize: 12.5, color: C.humo, marginTop: 2, flex: 1, lineHeight: 17 },
   gpsToggle: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 8, marginBottom: 12 },
   gpsToggleTxt: { fontSize: 12.5, color: C.humo, fontWeight: '600' },
-  tarjetaQr: { backgroundColor: COLORES.negro, borderRadius: 18, padding: 20, alignItems: 'center', marginBottom: 12 },
+  tarjetaQr: { backgroundColor: C.negro, borderRadius: 18, padding: 20, alignItems: 'center', marginBottom: 12 },
   qrLabel: { color: '#aaa', fontSize: 12 },
-  qr: { color: COLORES.blanco, fontSize: 22, fontWeight: '700', letterSpacing: 2, marginVertical: 8 },
-  sucursal: { color: COLORES.crema, fontSize: 12 },
+  qr: { color: C.blanco, fontSize: 22, fontWeight: '700', letterSpacing: 2, marginVertical: 8 },
+  sucursal: { color: C.crema, fontSize: 12 },
   envioLabel: { color: C.humo, fontSize: 12, fontWeight: '700' },
   envioDir: { color: C.tinta, fontSize: 16, fontWeight: '800', marginTop: 3 },
   envioDesde: { color: C.humo, fontSize: 12, marginTop: 3 },
@@ -268,17 +307,17 @@ const est = StyleSheet.create({
   pagarTxt: { color: '#fff', fontWeight: '800', fontSize: 15 },
   pagado: { flexDirection: 'row', gap: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: '#E6F2EC', borderRadius: 16, padding: 13, marginBottom: 12 },
   pagadoTxt: { color: C.verde, fontWeight: '800', fontSize: 14 },
-  tarjeta: { backgroundColor: COLORES.blanco, borderRadius: 18, padding: 18, marginBottom: 12 },
+  tarjeta: { backgroundColor: C.blanco, borderRadius: 18, padding: 18, marginBottom: 12 },
   paso: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 8 },
   punto: { width: 14, height: 14, borderRadius: 7, backgroundColor: '#ddd' },
-  puntoActivo: { backgroundColor: COLORES.negro },
-  puntoActual: { backgroundColor: COLORES.rojo, transform: [{ scale: 1.25 }] },
+  puntoActivo: { backgroundColor: C.negro },
+  puntoActual: { backgroundColor: C.rojo, transform: [{ scale: 1.25 }] },
   pasoTexto: { color: '#999', fontSize: 14 },
-  pasoTextoActivo: { color: COLORES.negro, fontWeight: '600' },
-  cancelado: { color: COLORES.rojoOscuro, fontWeight: '600', textAlign: 'center' },
-  itemFila: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 },
-  itemTexto: { color: COLORES.negro, fontSize: 13, flex: 1 },
-  itemPrecio: { color: COLORES.negro, fontSize: 13, fontWeight: '600' },
+  pasoTextoActivo: { color: C.negro, fontWeight: '600' },
+  cancelado: { color: C.rojoOscuro, fontWeight: '600', textAlign: 'center' },
+  itemFila: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4, gap: 10 },
+  itemTexto: { color: C.negro, fontSize: 13, flex: 1 },
+  itemPrecio: { color: C.negro, fontSize: 13, fontWeight: '600' },
   totalFila: { borderTopWidth: 1, borderTopColor: '#eee', marginTop: 8, paddingTop: 10 },
-  totalTexto: { fontSize: 16, fontWeight: '700', color: COLORES.negro },
+  totalTexto: { fontSize: 16, fontWeight: '700', color: C.negro },
 });

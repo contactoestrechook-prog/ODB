@@ -30,7 +30,7 @@ export function RespondeWorkspace({ tokenResponde }: { tokenResponde?: string | 
         {/* embed + token del tenant: entra derecho, sin pedir clave (el mismo
             camino que usa /whatsapp, la versión a pantalla completa) */}
         <iframe
-          src={tokenResponde ? `/responde-app.html?embed=1&token=${encodeURIComponent(tokenResponde)}` : '/responde-app.html'}
+          src={tokenResponde ? `/responde-app.html?embed=1&conector=odb&token=${encodeURIComponent(tokenResponde)}` : '/responde-app.html?conector=odb'}
           title="RESPONDE · MetoGroup"
           className="block h-[calc(100dvh-13rem)] min-h-[32rem] w-full border-0"
         />

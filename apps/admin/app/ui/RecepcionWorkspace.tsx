@@ -1,8 +1,23 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Aviso, Etiqueta, Selector } from './kit';
+import { fecha, numero } from '../lib/formato';
 
 const input = 'w-full rounded-lg border border-black/15 bg-white px-3 py-2.5 text-sm text-black focus:border-[#B82D25] focus:outline-none';
+
+// Orden del proveedor que espera mercadería (GET /compras/recepcion/ordenes)
+type OrdenAbierta = {
+  id: string;
+  numero: number;
+  estado: string;
+  creadoEn: string;
+  enviadaEn: string | null;
+  sucursalId: string;
+  sucursal: string | null;
+  items: { sku: string | null; nombre: string; pedido: number; recibido: number; falta: number }[];
+};
+const ESTADO_ORDEN: Record<string, string> = { enviada: 'enviada', aprobada: 'aprobada', recibida_parcial: 'llegó en parte' };
 
 // Recepción con pistola: llega el camión, el depósito escanea lo que baja y el
 // remito digital nace con lo REALMENTE ingresado. Mueve stock al confirmar y
@@ -23,6 +38,12 @@ export function RecepcionWorkspace({ proveedores, sucursales }: { proveedores: a
   const [vinculando, setVinculando] = useState(false);
   const [confirmando, setConfirmando] = useState(false);
   const [listo, setListo] = useState<any>(null);
+  // Recibir contra una orden: antes la pistola SIEMPRE creaba otra orden
+  // "directa" y la que se le había mandado al proveedor quedaba 'enviada' para
+  // siempre (el Analista la seguía contando en camino). '' = sin orden.
+  const [ordenes, setOrdenes] = useState<OrdenAbierta[]>([]);
+  const [ocId, setOcId] = useState('');
+  const [recarga, setRecarga] = useState(0);
   const bufferRef = useRef('');
   const timerRef = useRef<any>(null);
   const itemsRef = useRef(items);
@@ -125,10 +146,51 @@ export function RecepcionWorkspace({ proveedores, sucursales }: { proveedores: a
     return () => clearTimeout(t);
   }, [busca]);
 
+  // órdenes de este proveedor que esperan mercadería
+  useEffect(() => {
+    setOcId('');
+    setOrdenes([]);
+    if (!proveedorId) return;
+    let vigente = true;
+    (async () => {
+      try {
+        const r = await fetch(`/api/compras?recurso=recepcion-ordenes&proveedorId=${encodeURIComponent(proveedorId)}`);
+        if (!r.ok) return;
+        const d = await r.json();
+        if (vigente && Array.isArray(d)) setOrdenes(d);
+      } catch {
+        // sin la lista se recibe sin orden, como siempre
+      }
+    })();
+    return () => { vigente = false; };
+  }, [proveedorId, recarga]);
+
+  const orden = ordenes.find((o) => o.id === ocId) ?? null;
+  // la mercadería entra en la sucursal de la orden
+  const elegirOrden = (id: string) => {
+    setOcId(id);
+    const o = ordenes.find((x) => x.id === id);
+    if (o?.sucursalId) setSucursalId(o.sucursalId);
+  };
+  // contra la orden: cada renglón tiene que estar en ella y entrar en lo que falta
+  const faltaPorSku = new Map((orden?.items ?? []).filter((i) => i.sku).map((i) => [i.sku as string, i.falta]));
+  const problemaDe = (i: any): string | null => {
+    if (!orden || !(Number(i.cantidad) > 0)) return null;
+    const falta = faltaPorSku.get(i.sku);
+    if (falta == null) return 'No está en la orden';
+    if (Number(i.cantidad) > falta) return `De más: faltaban ${numero(falta)}`;
+    return null;
+  };
+  const fueraDeOrden = orden ? items.filter((i) => problemaDe(i)) : [];
+  const sinLlegar = orden
+    ? orden.items.filter((oi) => oi.falta > 0 && !items.some((i) => i.sku === oi.sku && Number(i.cantidad) > 0))
+    : [];
+
   const totalUnidades = items.reduce((s, i) => s + Number(i.cantidad || 0), 0);
 
   const confirmar = async () => {
     if (!proveedorId || !sucursalId || !items.length) return;
+    if (orden && fueraDeOrden.length) return;
     setConfirmando(true);
     setAviso('');
     try {
@@ -140,12 +202,13 @@ export function RecepcionWorkspace({ proveedores, sucursales }: { proveedores: a
           proveedorId,
           sucursalId,
           numeroRemito: numeroRemito || undefined,
+          ocId: orden?.id,
           items: items.filter((i) => Number(i.cantidad) > 0).map((i) => ({ sku: i.sku, cantidad: Number(i.cantidad) })),
         }),
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.message ?? 'No se pudo registrar la recepción');
-      setListo({ remitoId: d.remitoId, unidades: totalUnidades, renglones: items.length });
+      setListo({ remitoId: d.remitoId, unidades: totalUnidades, renglones: items.length, numeroOc: d.numeroOc ?? null, estadoOc: d.estadoOc ?? null });
     } catch (e: any) {
       setAviso(e.message);
     } finally {
@@ -162,10 +225,17 @@ export function RecepcionWorkspace({ proveedores, sucursales }: { proveedores: a
           {listo.renglones} producto{listo.renglones === 1 ? '' : 's'} · {listo.unidades} unidad{listo.unidades === 1 ? '' : 'es'}.
           El stock ya está actualizado{numeroRemito ? ` (remito ${numeroRemito})` : ''}.
         </p>
+        {listo.numeroOc != null && (
+          <p className="text-sm font-medium text-tinta">
+            {listo.estadoOc === 'recibida'
+              ? `La orden #${listo.numeroOc} quedó recibida completa.`
+              : `La orden #${listo.numeroOc} quedó recibida en parte: lo que falta sigue esperando.`}
+          </p>
+        )}
         <p className="rounded-lg bg-[#F0EBE2] px-4 py-3 text-xs text-black/60">
           El remito quedó en <b>Administración → Facturas de compra → Conciliación</b>, esperando la factura del proveedor para el cruce.
         </p>
-        <button onClick={() => { setListo(null); setItems([]); setNumeroRemito(''); setUltimo(null); }} className="rounded-full bg-[#B82D25] px-6 py-2.5 text-sm font-medium text-white hover:bg-[#932A1F]">
+        <button onClick={() => { setListo(null); setItems([]); setNumeroRemito(''); setUltimo(null); setRecarga((n) => n + 1); }} className="rounded-full bg-[#B82D25] px-6 py-2.5 text-sm font-medium text-white hover:bg-[#932A1F]">
           Recibir otro camión
         </button>
       </div>
@@ -179,12 +249,50 @@ export function RecepcionWorkspace({ proveedores, sucursales }: { proveedores: a
           <option value="">¿De qué proveedor llegó?</option>
           {proveedores.map((p: any) => <option key={p.id} value={p.id}>{p.razon_social}</option>)}
         </select>
-        <select value={sucursalId} onChange={(e) => setSucursalId(e.target.value)} className={input}>
+        <select
+          value={sucursalId}
+          onChange={(e) => setSucursalId(e.target.value)}
+          disabled={!!orden}
+          title={orden ? 'Entra en la sucursal de la orden' : undefined}
+          className={`${input} disabled:opacity-60`}
+        >
           <option value="">Sucursal…</option>
           {sucursales.map((s: any) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
         </select>
         <input value={numeroRemito} onChange={(e) => setNumeroRemito(e.target.value)} placeholder="N° del remito de papel (opcional)" className={input} />
       </div>
+
+      {/* el proveedor tiene órdenes esperando: se ofrece recibir contra una */}
+      {ordenes.length > 0 && (
+        <Aviso
+          tono={orden ? 'ok' : 'info'}
+          titulo={
+            ordenes.length === 1
+              ? `Este proveedor tiene la orden #${ordenes[0].numero} esperando mercadería`
+              : `Este proveedor tiene ${ordenes.length} órdenes esperando mercadería`
+          }
+        >
+          <p>¿Lo que llegó es de una orden? Recibilo contra ella: la orden se cierra y deja de figurar “en camino”.</p>
+          <Selector
+            className="mt-2"
+            aria-label="Contra qué orden se recibe"
+            value={ocId}
+            onChange={(e) => elegirOrden(e.target.value)}
+            opciones={[
+              { valor: '', etiqueta: 'Sin orden (entrada directa)' },
+              ...ordenes.map((o) => ({
+                valor: o.id,
+                etiqueta: `Recibir contra la orden #${o.numero} · ${ESTADO_ORDEN[o.estado] ?? o.estado} ${fecha(o.enviadaEn ?? o.creadoEn, 'corta')} · ${o.items.filter((i) => i.falta > 0).length} productos${o.sucursal ? ` · ${o.sucursal}` : ''}`,
+              })),
+            ]}
+          />
+          {orden && (
+            <p className="mt-2">
+              Entra en {orden.sucursal ?? 'la sucursal de la orden'}. Faltan llegar: {orden.items.filter((i) => i.falta > 0).map((i) => `${i.nombre} × ${numero(i.falta)}`).join(' · ')}.
+            </p>
+          )}
+        </Aviso>
+      )}
 
       {/* estado del escáner */}
       <div className={`rounded-2xl p-6 text-center ${ultimo ? 'bg-emerald-600 text-white' : 'bg-black text-[#F0EBE2]'}`}>
@@ -277,6 +385,16 @@ export function RecepcionWorkspace({ proveedores, sucursales }: { proveedores: a
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-black min-w-0 break-words">{i.nombre}</p>
               <p className="text-[11px] text-black/40">{i.sku}</p>
+              {/* contra una orden: si el renglón está en ella y cuánto faltaba */}
+              {orden && (() => {
+                const problema = problemaDe(i);
+                const falta = faltaPorSku.get(i.sku);
+                return problema
+                  ? <Etiqueta tono="error" className="mt-1">{problema}</Etiqueta>
+                  : falta != null
+                    ? <Etiqueta tono="ok" className="mt-1">De la orden · faltaban {numero(falta)}</Etiqueta>
+                    : null;
+              })()}
             </div>
             <div className="flex items-center gap-1.5">
               <button onClick={() => setItems((xs) => xs.map((x, j) => j === idx ? { ...x, cantidad: Math.max(Number(x.cantidad) - 1, 0) } : x))} className="h-9 w-9 rounded-lg border border-black/15 text-black text-lg leading-none">−</button>
@@ -293,12 +411,31 @@ export function RecepcionWorkspace({ proveedores, sucursales }: { proveedores: a
         ))}
       </div>
 
+      {/* contra una orden no entra nada que no coincida: se nombra y se resuelve antes */}
+      {orden && fueraDeOrden.length > 0 && (
+        <Aviso
+          tono="error"
+          titulo={`${fueraDeOrden.length === 1 ? 'Un producto no coincide' : `${fueraDeOrden.length} productos no coinciden`} con la orden #${orden.numero}`}
+        >
+          {fueraDeOrden.map((i) => `${i.nombre} (${(problemaDe(i) ?? '').toLowerCase()})`).join(' · ')}. Sacalos de la lista y recibilos después sin orden, o elegí «Sin orden» para recibir todo junto.
+        </Aviso>
+      )}
+      {orden && fueraDeOrden.length === 0 && items.length > 0 && sinLlegar.length > 0 && (
+        <Aviso tono="atencion">
+          De la orden #{orden.numero} todavía no llegaron: {sinLlegar.map((i) => i.nombre).join(', ')}. La orden queda «llegó en parte» hasta que entren.
+        </Aviso>
+      )}
+
       <button
         onClick={confirmar}
-        disabled={confirmando || !proveedorId || !sucursalId || !items.length || items.some((i) => i.cantidad === '' || Number(i.cantidad) < 0)}
+        disabled={confirmando || !proveedorId || !sucursalId || !items.length || items.some((i) => i.cantidad === '' || Number(i.cantidad) < 0) || (!!orden && fueraDeOrden.length > 0)}
         className="w-full rounded-xl bg-[#B82D25] py-4 text-base font-semibold text-white hover:bg-[#932A1F] disabled:opacity-40"
       >
-        {confirmando ? 'Ingresando…' : `Confirmar ingreso (${totalUnidades} unidades)`}
+        {confirmando
+          ? 'Ingresando…'
+          : orden
+            ? `Recibir contra la orden #${orden.numero} (${totalUnidades} unidades)`
+            : `Confirmar ingreso (${totalUnidades} unidades)`}
       </button>
       <p className="text-center text-[11px] text-black/40">Al confirmar se suma el stock y el remito pasa a Administración para el cruce con la factura.</p>
     </div>

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { IcoUva } from "./Iconos";
+import { ROTULO } from "./Titulo";
 
 export function NotaCata({ sku, esAlcohol }: { sku: string; esAlcohol?: boolean }) {
   const [data, setData] = useState<{ nota: string | null; maridaje: string | null } | null>(null);
@@ -27,17 +28,18 @@ export function NotaCata({ sku, esAlcohol }: { sku: string; esAlcohol?: boolean 
       style={{ backgroundImage: "radial-gradient(110% 90% at 100% 0%, rgba(147,42,31,0.6), transparent 55%)" }}
     >
       <div className="flex items-center gap-2.5">
-        <IcoUva size={20} className="text-dorado" />
-        <p className="kicker text-dorado">Nota del Somelier ODB</p>
+        <IcoUva size={20} className="text-rojo-claro shrink-0" />
+        <p className={`${ROTULO} text-rojo-claro`}>Nota del Somelier ODB</p>
       </div>
       {cargando ? (
         <p className="mt-5 text-crema/40 text-sm animate-pulse">El Somelier está probando esta etiqueta…</p>
       ) : (
         <>
-          <p className="display text-xl sm:text-[26px] mt-5 leading-relaxed text-crema/90 italic">“{data!.nota}”</p>
+          {/* la nota va en la tipografía de marca (antes, Fraunces itálica) */}
+          <p className="marca font-bold text-lg sm:text-[22px] mt-5 leading-snug text-crema/90 [overflow-wrap:anywhere]">“{data!.nota}”</p>
           {data!.maridaje && (
-            <p className="mt-6 text-sm text-crema/60 max-w-2xl">
-              <span className="kicker text-dorado-claro mr-2">Marida con</span>
+            <p className="mt-6 text-sm text-crema/60 max-w-2xl [overflow-wrap:anywhere]">
+              <span className={`${ROTULO} text-rojo-claro mr-2`}>Marida con</span>
               {data!.maridaje}
             </p>
           )}

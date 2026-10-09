@@ -100,6 +100,8 @@ export function CierresWorkspace({ resumen, cajas, sesiones, arca, empleados = [
           columnas={[
             { clave: 'caja', titulo: 'Caja', principal: true, celda: (s: any) => <><p className="font-semibold">{s.caja?.nombre}</p><p className="text-xs font-normal text-tinta/60">{s.caja?.sucursal?.nombre}</p></> },
             { clave: 'cajero', titulo: 'Cajero', celda: (s: any) => <span className="text-tinta/70">{s.usuario?.nombre ?? '—'}</span> },
+            // quién contó y cerró (puede ser un supervisor); en los cierres viejos no se guardaba
+            { clave: 'cerro', titulo: 'Cerró', celda: (s: any) => <span className="text-tinta/70">{s.cerrador?.nombre ?? '—'}</span> },
             { clave: 'cerrada', titulo: 'Cerrada', celda: (s: any) => <span className="importe text-xs text-tinta/70">{fechaHora(s.cerrada_en)}</span> },
             { clave: 'esperado', titulo: 'Esperado', importe: true, celda: (s: any) => <span className="text-tinta/70">{pesos(Number(s.monto_cierre) - Number(s.diferencia))}</span> },
             { clave: 'dif', titulo: 'Diferencia', importe: true, celda: (s: any) => <span className={`font-semibold ${Number(s.diferencia) < 0 ? 'text-marca-hondo' : 'text-ok'}`}>{Number(s.diferencia) > 0 ? '+' : ''}{pesos(s.diferencia)}</span> },
@@ -113,6 +115,7 @@ export function CierresWorkspace({ resumen, cajas, sesiones, arca, empleados = [
           columnas={[
             { clave: 'caja', titulo: 'Caja', principal: true, celda: (s: any) => <><p className="font-semibold">{s.caja?.nombre}</p><p className="text-xs font-normal text-tinta/60">{s.caja?.sucursal?.nombre}</p></> },
             { clave: 'cajero', titulo: 'Cajero', celda: (s: any) => <span className="text-xs text-tinta/70">{s.usuario?.nombre ?? '—'}</span> },
+            { clave: 'cerro', titulo: 'Cerró', ocultarEnMovil: true, celda: (s: any) => <span className="text-xs text-tinta/70">{s.cerrador?.nombre ?? '—'}</span> },
             { clave: 'abierta', titulo: 'Abierta', celda: (s: any) => <span className="importe text-xs text-tinta/70">{fechaHora(s.abierta_en)}</span> },
             { clave: 'cerrada', titulo: 'Cerrada', celda: (s: any) => <span className="importe text-xs text-tinta/70">{fechaHora(s.cerrada_en)}</span> },
             { clave: 'cierre', titulo: 'Cierre', importe: true, celda: (s: any) => pesos(s.monto_cierre) },

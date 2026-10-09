@@ -120,6 +120,8 @@ const GRUPOS: Grupo[] = [
     items: [
       // Primero de la lista a propósito: es la cola que frena a todo el resto.
       { href: '/aprobaciones', label: 'Aprobaciones', icono: 'conciliacion' },
+      // quién hizo qué en todo el sistema (6/10/2026)
+      { href: '/actividad', label: 'Actividad del equipo', icono: 'usuarios' },
       { href: '/estadisticas', label: 'Estadísticas', icono: 'estadisticas' },
       { href: '/mercadopago', label: 'Mercado Pago', icono: 'mercadopago' },
       { href: '/tarjetas', label: 'Tarjetas', icono: 'tarjetas' },
@@ -183,6 +185,7 @@ const TITULOS: Record<string, { titulo: string; bajada: string }> = {
   '/informes': { titulo: 'Informe diario', bajada: 'El parte matutino del Analista, todos los días a las 7:00' },
   '/eficiencia': { titulo: 'Eficiencia', bajada: 'Productividad por empleado: tiempos por cliente y de preparación' },
   '/usuarios': { titulo: 'Usuarios', bajada: 'Equipo, roles y permisos de firma' },
+  '/actividad': { titulo: 'Actividad del equipo', bajada: 'Quién hizo cada cosa: pedidos, compras, caja, stock, cobros y avisos' },
   '/reportes': { titulo: 'Reportes del equipo', bajada: 'Lo que marcaron con "Esto está mal", clasificado por la IA' },
   // Las cinco que faltaban: decían "O.D.B" en la barra y repetían un título propio.
   '/manual': { titulo: 'Manual del sistema', bajada: 'Cómo funciona cada área: buscá por lo que necesitás resolver' },
@@ -264,7 +267,7 @@ export async function Header({
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/odb-logo-blanco.png" alt="O.D.B Premium Market" className="h-12 w-auto" />
           {/* avisos internos: proveedores que escribieron, pagos, derivaciones */}
-          <CampanaAlertas />
+          <CampanaAlertas esDuenio={rol === 'dueno'} />
         </div>
 
         <nav aria-label="Secciones del sistema" className="flex-1 space-y-5 overflow-y-auto px-3 pb-4 [scrollbar-color:rgb(255_255_255/0.15)_transparent] [scrollbar-width:thin]">
@@ -320,7 +323,7 @@ export async function Header({
       </aside>
 
       {/* ---- navegación móvil: barra negra + cajón ---- */}
-      <MobileMenu grupos={grupos} iconos={ICONOS} activo={activo} titulo={seccion.titulo} pendientes={pendientes} />
+      <MobileMenu grupos={grupos} iconos={ICONOS} activo={activo} titulo={seccion.titulo} pendientes={pendientes} esDuenio={rol === 'dueno'} />
 
       {/* ---- cabecera de sección ----
           celular: solo el buscador, a lo ancho (el título ya está en la barra negra)
