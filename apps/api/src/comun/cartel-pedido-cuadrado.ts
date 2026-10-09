@@ -124,6 +124,11 @@ export function leerResumenDePedido(texto: string): ResumenPedido | null {
       total = numero(t[1]);
       const cola = (t[2] ?? '').replace(/^[\s*)\]]+/, '')
         .replace(/^\(\s*env[ií]o\s+sin\s+cargo\s*\)\s*/i, '')          // ya está en el recuadro de la tarjeta
+        // «*Total: $102.900*, o $98.360 en efectivo o transferencia ¿Lo retirás…?» →
+        // «En efectivo o transferencia: $98.360. ¿Lo retirás…?» (9/10/2026: el
+        // epígrafe arrancaba con «, o $98.360…», sin decir de qué)
+        .replace(/^[,;]?\s*(?:o|y)\s+(\$\s?[\d.]+)\s+en\s+efectivo(\s+o\s+transferencia)?\.?\s*/i, (_m, monto: string, transf?: string) => `En efectivo${transf ? ' o transferencia' : ''}: ${monto.replace(/\s/g, '')}. `)
+        .replace(/^[,;]\s*/, '')
         .trim();                                                       // lo que sigue al monto
       if (cola) resto.push(cola);
       continue;

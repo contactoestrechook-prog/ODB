@@ -270,3 +270,10 @@ describe('el precio nunca sale sin placa', () => {
     expect(r?.total).toBe(41600);
   });
 });
+
+describe('el epígrafe del total con precio en efectivo (9/10/2026)', () => {
+  it('«*Total: $X*, o $Y en efectivo o transferencia ¿…?» → «En efectivo o transferencia: $Y. ¿…?»', () => {
+    const r = leerResumenDePedido('• A — 2 × $22.700 c/u = $45.400 ($40.860 en efectivo o transferencia)\n• B — 1 × $2.300 c/u = $2.300\n\n*Total: $47.700*, o $43.160 en efectivo o transferencia ¿Lo retirás en la sucursal Saint Thomas o te lo enviamos?')!;
+    expect(r.pie).toBe('En efectivo o transferencia: $43.160. ¿Lo retirás en la sucursal Saint Thomas o te lo enviamos?');
+  });
+});
