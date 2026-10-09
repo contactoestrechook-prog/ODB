@@ -229,3 +229,44 @@ describe('toda lista de productos sale con placa', () => {
     expect(png.subarray(1, 4).toString()).toBe('PNG');
   });
 });
+
+// 9/10/2026, Odb Jackie 14:37 (Leandro: «otra vez pasa el precio sin la
+// gráfica… que no lo envíe nunca más»): un renglón con el precio en efectivo al
+// final tiraba la placa entera y el resumen salía como texto.
+describe('el precio nunca sale sin placa', () => {
+  const real = [
+    '• Coca Cola Zero 1,75 L — 8 × $4.700 c/u = $37.600',
+    '• Chandon Extra Brut 750 cc — 2 × $22.700 c/u = $45.400 ($40.860 en efectivo o transferencia)',
+    '• Patitas de Pollo Granja del Sol 400 g — 1 × $10.800 c/u = $10.800',
+    '• Azúcar Ledesma común 1 kg — 1 × $2.300 c/u = $2.300',
+    '• Sal Celusal entrefina parrillera 1 kg — 1 × $2.800 c/u = $2.800',
+    '• Agua KO 1 L — 2 × $2.000 c/u = $4.000',
+    '',
+    '*Total: $102.900*, o $98.360 en efectivo o transferencia ¿Lo retirás en la sucursal Saint Thomas o te lo enviamos?',
+  ].join('\n');
+
+  it('el resumen real de la captura se lee entero, sin la cola de efectivo en el pie', () => {
+    const r = leerResumenDePedido(real, { aceptarDiferencia: true });
+    expect(r).not.toBeNull();
+    expect(r!.renglones).toHaveLength(6);
+    expect(r!.renglones[1]).toMatchObject({ cantidad: 2, unitario: 22700, subtotal: 45400 });
+    expect(r!.total).toBe(102900);
+    expect(r!.pie).not.toMatch(/40\.860/);
+  });
+
+  it('acepta las viñetas · - * y deja una viñeta sin precio en el pie', () => {
+    const r = leerResumenDePedido('· Agua KO 1 L — 2 × $2.000 c/u = $4.000\n- Coca Zero: no hay pack cerrado\nTotal: $4.000', {});
+    expect(r?.renglones).toHaveLength(1);
+    expect(r?.pie).toMatch(/no hay pack cerrado/);
+  });
+
+  it('una viñeta con precio que no se lee sigue frenando la placa normal (nunca se esconde un importe)…', () => {
+    expect(leerResumenDePedido('• Agua KO 1 L: $2.000 cada una, llevás 2\nTotal: $4.000', {})).toBeNull();
+  });
+
+  it('…pero la red final (laxo) arma la placa con cualquier renglón «N × $X = $Y», aunque no haya «Total:»', () => {
+    const r = leerResumenDePedido('Coca Cola Zero 1,75 L: 8 × $4.700 c/u = $37.600\nAgua KO 1 L 2 × $2.000 = $4.000', { aceptarDiferencia: true, laxo: true });
+    expect(r?.renglones.map((x) => x.nombre)).toEqual([expect.stringMatching(/Coca Cola Zero/), expect.stringMatching(/Agua KO/)]);
+    expect(r?.total).toBe(41600);
+  });
+});

@@ -54,7 +54,18 @@ export function nombreParaCartel(n: string): string {
 }
 
 // "• Fernet Branca x750cc — 2 × $20.500 c/u = $41.000"
-const RE_RENGLON = /^•\s*(.+?)\s+[—–-]\s+(\d+(?:[.,]\d+)?)\s*[×x]\s*\$\s?([\d.]+)(?:\s*c\/u)?\s*=\s*\$\s?([\d.]+)\s*$/i;
+// 9/10/2026 (Leandro: «otra vez pasa el precio sin la gráfica… que no lo envíe
+// nunca más»): el renglón «• Chandon Extra Brut 750 cc — 2 × $22.700 c/u =
+// $45.400 ($40.860 en efectivo o transferencia)» no se leía porque se exigía
+// que la línea terminara en el subtotal, y un solo renglón ilegible tiraba la
+// placa entera. Ahora se acepta lo que venga después del subtotal (el precio en
+// efectivo va al pie solo si no es eso) y las viñetas · - * además de •.
+const RE_RENGLON = /^[•·*-]\s*(.+?)\s+[—–-]\s+(\d+(?:[.,]\d+)?)\s*[×x]\s*\$\s?([\d.]+?)(?:\s*c\/u)?\s*=\s*\$\s?(\d[\d.]*\d|\d)(?:[.,;]?\s*(.*))?$/i;
+// la red final (laxo): cualquier renglón con «N × $X … = $Y», con o sin viñeta
+const RE_RENGLON_LAXO = /^\s*(?:[•·*-]\s*)?(.+?)\s*(?:[—–:-]\s*)?(\d+(?:[.,]\d+)?)\s*[×x]\s*\$\s?([\d.]+?)(?:\s*c\/u)?\s*=\s*\$\s?(\d[\d.]*\d|\d)(?:[.,;]?\s*(.*))?$/i;
+// lo que sigue al subtotal y no hace falta repetir en el pie
+const RE_COLA_EFECTIVO = /^\(?\s*\$\s?[\d.]+\s+en\s+efectivo[^)]*\)?\.?$/i;
+const VINETA = /^[•·*-]\s/;
 // El total puede venir con texto pegado en el mismo renglón: el bot escribe
 // "*Total: $18.200* (envío sin cargo) El reparto de hoy ya cerró...". Antes se
 // exigía que la línea terminara en el monto y la tarjeta no salía nunca
@@ -93,7 +104,7 @@ function entregaEnElTexto(texto: string): ResumenPedido['entrega'] {
  * pesa en el local), la placa sale igual con el total DE LO LISTADO, en vez de
  * mandar la lista larga como texto. Sin la opción, como siempre: null.
  */
-export function leerResumenDePedido(texto: string, opciones: { aceptarDiferencia?: boolean } = {}): ResumenPedido | null {
+export function leerResumenDePedido(texto: string, opciones: { aceptarDiferencia?: boolean; laxo?: boolean } = {}): ResumenPedido | null {
   const lineas = String(texto ?? '').split('\n');
   const renglones: RenglonPedido[] = [];
   const resto: string[] = [];
@@ -101,12 +112,20 @@ export function leerResumenDePedido(texto: string, opciones: { aceptarDiferencia
   let entrega: ResumenPedido['entrega'] = null;
   for (const cruda of lineas) {
     const l = cruda.trim();
-    const r = RE_RENGLON.exec(l);
+    const r = (opciones.laxo ? RE_RENGLON_LAXO : RE_RENGLON).exec(l);
     if (r) {
-      renglones.push({ nombre: nombreParaCartel(r[1]), cantidad: numero(r[2]), unitario: numero(r[3]), subtotal: numero(r[4]) });
+      renglones.push({ nombre: nombreParaCartel(r[1].replace(/^[•·*-]\s*/, '').replace(/[\s—–:-]+$/, '')), cantidad: numero(r[2]), unitario: numero(r[3]), subtotal: numero(r[4]) });
+      const cola = String(r[5] ?? '').trim();
+      if (cola && !RE_COLA_EFECTIVO.test(cola)) resto.push(cola);
       continue;
     }
-    if (l.startsWith('•')) return null;
+    // una viñeta que no se lee: si tiene precio, mejor el texto (la imagen nunca
+    // esconde un importe); si no («• Coca Zero: no hay pack cerrado»), va al pie
+    if (VINETA.test(l) || l.startsWith('•')) {
+      if (/\$\s?\d/.test(l) && !opciones.laxo) return null;
+      resto.push(cruda);
+      continue;
+    }
     const t = RE_TOTAL.exec(l);
     if (t) {
       total = numero(t[1]);
@@ -124,6 +143,8 @@ export function leerResumenDePedido(texto: string, opciones: { aceptarDiferencia
     if (RE_RETIRO.test(l)) { entrega = { titulo: 'Retiro en la sucursal Saint Thomas', detalle: 'Castex 3601, Canning' }; continue; }
     resto.push(cruda);
   }
+  // la red final sin «Total:» escrito: el total es lo listado
+  if (opciones.laxo && renglones.length && total === null) total = renglones.reduce((s, r) => s + r.subtotal, 0);
   // desde un solo producto: "una caja de Fernet" también es un pedido (2/10/2026)
   if (renglones.length < 1 || total === null) return null;
   // la entrega también se reconoce dicha dentro de una oración; ahí la frase se

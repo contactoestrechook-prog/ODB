@@ -5209,7 +5209,10 @@ export class BotService {
     // una sola regla (9/10/2026): toda lista de productos sale con placa —con
     // precios, de precios, o sin precios desde 3 renglones—; el texto queda de
     // epígrafe. Si ninguna placa se arma, va el texto.
-    return (await this.cartelDeResumen(r.respuesta)) ?? (await this.cartelDePedido(r.respuesta)) ?? (await this.cartelDePrecios(r.respuesta, r.catalogo ?? [])) ?? (await this.cartelDeListado(r.respuesta)) ?? (await this.cartelDeLista(r.respuesta));
+    // red final (9/10/2026, «que no lo envíe nunca más»): si la respuesta trae
+    // renglones con precio («N × $X = $Y») y ninguna placa se armó, se arma igual
+    // leyéndolos sin exigir formato: los precios NUNCA salen como texto suelto
+    return (await this.cartelDeResumen(r.respuesta)) ?? (await this.cartelDePedido(r.respuesta)) ?? (await this.cartelDePrecios(r.respuesta, r.catalogo ?? [])) ?? (await this.cartelDeListado(r.respuesta)) ?? (await this.cartelDeLista(r.respuesta)) ?? (await this.cartelDeResumen(r.respuesta, true));
   }
 
   // Para "Probar el bot" del panel (2/10/2026): la misma tarjeta que le llega al
@@ -5258,12 +5261,13 @@ export class BotService {
 
   // Resumen de pedido como imagen (diseño Placa roja, elegido el 25/9/2026).
   // Solo si TODOS los renglones se leen y suman el total; si no, va el texto.
-  private async cartelDeResumen(respuesta: string): Promise<{ imagenUrl: string; pie: string } | null> {
+  private async cartelDeResumen(respuesta: string, laxo = false): Promise<{ imagenUrl: string; pie: string } | null> {
     // si los renglones no suman el total escrito, la placa sale igual con el
     // total de lo listado (9/10/2026: el pedido de 12 productos de las 9:22 iba
     // como texto porque el bot había sumado el fiambre que se pesa en el local)
-    const resumen = leerResumenDePedido(respuesta, { aceptarDiferencia: true });
+    const resumen = leerResumenDePedido(respuesta, { aceptarDiferencia: true, laxo });
     if (!resumen) return null;
+    if (laxo) this.log.warn(`placa por la red final (el resumen no se leyó con el formato de siempre): ${resumen.renglones.length} renglones`);
     try {
       const png = await cartelPedido(resumen);
       const ruta = `carteles/${new Date().toISOString().slice(0, 7)}/resumen-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.png`;
