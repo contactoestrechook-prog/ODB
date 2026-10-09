@@ -9,6 +9,8 @@ import { volumenMl, etiquetaVolumen, pideTamano, medidaPartida, resumenDeTamanos
 import { emprolijarListado, nombreLimpio, saludoSegunHora, saludarConBienvenida, niegaPercepcion, respetuosoSinConfianza, saintThomas, envioSinCargo, asegurarEnvioSinCargo, casiIgual, campoLimpio, esAlucinacionDeTranscripcion, nombreSucursalCliente, esAutomaticoWhatsappBusiness, minimoConMonto, retiroOEnvio, sinCocinaInterna } from './prolijo';
 import { consultaAbiertaQueNombra, datoNuevo, diceQueNoSabe, esSoloSaludo, saludoDelArranque, juntarConsulta, mencionaConsulta, mismaConsulta, mismoTema, respuestaDelAreaParaCliente, sinMencionDeConsulta, sinPromesas, temaDeConsulta, temaDeLaPromesa } from './prolijo';
 import * as TEXTO from './textos-fijos';
+import { sinOracionesRepetidas, totalConSuLista } from './candados';
+import { cierraConElDato } from './cierre-con-dato';
 import { controlDeFechas } from './fechas';
 import { desvioDeLoPedido } from './desvio';
 import { recortarBusqueda, topeDeBusqueda } from './tope-busqueda';
@@ -863,7 +865,7 @@ export class BotService {
     // preguntas (hoy: cinco preguntas con opciones → "MALÍSIMA, cancelo").
     const preguntasDelBotAntes = (String(ultimoMsgBot).match(/¿/g) ?? []).length;
     const impaciente = preguntasDelBotAntes >= 1 && (texto.trim().length <= 25 || /\b(mand[aá]me|mandalo|env[ií]ame|dale|listo|eh+\??|ya est[aá]|as[ií] nom[aá]s|lo que tengas)\b|[😬🙄😤]/i.test(texto));
-    if (impaciente && esProveedor === false) estado.push('el cliente ya no quiere más preguntas: NO preguntes nada más; asumí la opción más común de cada ítem que falte, mostrá el resumen con el total y cerrá con un único "¿Lo confirmo?"');
+    if (impaciente && esProveedor === false) estado.push('el cliente ya no quiere más preguntas: NO preguntes nada más; asumí la opción más común de cada ítem que falte, mostrá el resumen con el total y cerrá con un único "¿Lo confirmo?" (si ya vio la lista con el total y solo faltaba su nombre o la dirección, llamá preparar_pedido con ese dato: el sistema confirma el pedido)');
     // 6/10/2026: lo que no sabe se consulta en silencio, no se le dice «no lo tengo» en su línea
     if (preguntasDelCliente >= 2) estado.push(`este mensaje trae ${preguntasDelCliente} preguntas: contestá CADA una que sepas en una línea, en el orden en que las hizo; la que no sepas, consultala con consultar_interno y al cliente no le digas nada de ella`);
     // LAS CONSULTAS QUE YA ESTÁN ABIERTAS (5/10/2026). El historial guarda solo
@@ -1029,7 +1031,7 @@ export class BotService {
     let vueltasReintento = 0;
     // lo que necesita cada herramienta del turno (el bucle, las correcciones y la
     // reescritura tras una consulta usan el mismo)
-    const ctxHerr = { ultimoBot: ultimoDelBot, ultimosBot: ultimosDelBot, ultimosCliente: ultimosDelCliente, textoCliente: texto, fallos: fallosDelTurno, archivoUrl: dto.archivoUrl, fija: respuestaFija, salidas: salidasDelTurno, archivo: archivoDelTurno, historial };
+    const ctxHerr: { cotizacion?: any } & Record<string, any> = { ultimoBot: ultimoDelBot, ultimosBot: ultimosDelBot, ultimosCliente: ultimosDelCliente, textoCliente: texto, fallos: fallosDelTurno, archivoUrl: dto.archivoUrl, fija: respuestaFija, salidas: salidasDelTurno, archivo: archivoDelTurno, historial, cotizacion: undefined };
     const ejecutarEnElTurno = (b: Anthropic.ToolUseBlock) => { herramientasDelTurno.add(b.name); return this.ejecutarHerramienta(b, telefono, linea, ctxHerr); };
     // tras una consulta el modelo siguió pidiendo herramientas: la vuelta que sigue
     // no puede usarlas y tiene que escribir (6/10/2026, ver más abajo)
@@ -2190,6 +2192,19 @@ export class BotService {
     respuesta = asegurarEnvioSinCargo(texto, respuesta ?? '');
     if (respuesta) respuesta = minimoConMonto(respuesta, envioMinimo());
 
+    // CANDADOS (9/10/2026, candados.ts): no dependen de que el modelo obedezca.
+    // 1) un total nunca sale sin su lista: se arma con la cotización del turno
+    //    (salvo el resumen exacto de preparar_pedido o un pedido ya confirmado)
+    if (respuesta && tipoLinea === 'pedidos' && !respuestaFija.operacion && ctxHerr.cotizacion) {
+      const conLista = totalConSuLista(respuesta, ctxHerr.cotizacion);
+      if (conLista !== respuesta) { this.log.warn(`candado: un total sin su lista para ${telefono}: la lista sale de la cotización`); respuesta = conLista; }
+    }
+    // 2) nunca la misma oración dos veces en la charla
+    if (respuesta) {
+      const sinRepetir = sinOracionesRepetidas(respuesta, ultimosDelBot);
+      if (sinRepetir !== respuesta) { this.log.log(`candado: oraciones ya dichas sacadas para ${telefono}`); respuesta = sinRepetir; }
+    }
+
     // El pedido que el cliente confirmó y no se pudo cargar sale a administración
     // como PEDIDO CONFIRMADO SIN CARGAR (3/10/2026). Solo con hechos: la marca la
     // puso el sistema (prometioAvisoDePedido), o el bot lo dijo en un turno con un
@@ -2510,7 +2525,7 @@ export class BotService {
     block: Anthropic.ToolUseBlock,
     telefono: string,
     linea: string = 'pedidos', // todos los llamados del servicio pasan la línea del turno
-    ctx: { ultimoBot?: string; ultimosBot?: string[]; ultimosCliente?: string[]; textoCliente?: string; fallos?: Map<string, number>; archivoUrl?: string; fija?: { texto?: string; consultaPendiente?: boolean; operacion?: boolean; derivada?: boolean; datosPago?: string; pagoEnAdministracion?: boolean }; salidas?: string[]; archivo?: ArchivoDelTurno; historial?: MensajeDeCharla[] } = {},
+    ctx: { ultimoBot?: string; ultimosBot?: string[]; ultimosCliente?: string[]; textoCliente?: string; fallos?: Map<string, number>; archivoUrl?: string; fija?: { texto?: string; consultaPendiente?: boolean; operacion?: boolean; derivada?: boolean; datosPago?: string; pagoEnAdministracion?: boolean }; salidas?: string[]; archivo?: ArchivoDelTurno; historial?: MensajeDeCharla[]; cotizacion?: any } = {},
   ): Promise<Anthropic.ToolResultBlockParam> {
     const input: any = block.input;
     const skusVistosEnTurno = this.skusDe(telefono);
@@ -2545,6 +2560,38 @@ export class BotService {
           if (ctx.fallos?.get('__comprobante__')) {
             out = { ...(out as any), aviso: 'Ya llegó un comprobante en este turno: el resumen quedó guardado, pero al cliente NO se lo muestres. La respuesta es exactamente "Recibido."' };
             break;
+          }
+          // EL DATO QUE FALTABA CONFIRMA (9/10/2026, cierre-con-dato.ts): si el cliente ya
+          // vio esta misma lista con el total y solo faltaba el nombre o la dirección,
+          // con ese dato el pedido queda confirmado acá, sin otro «¿Lo confirmo?».
+          // Estricto; si algo no cumple o la base lo rechaza, sigue el resumen de siempre.
+          const prep: any = out;
+          if (prep?.cotizacionId && !ctx.archivo && !ctx.archivoUrl && !ctx.fija?.datosPago) {
+            const cierre = cierraConElDato({
+              textoCliente: ctx.textoCliente ?? '', ultimoBot: ctx.ultimoBot ?? '', ultimosBot: ctx.ultimosBot ?? [],
+              cotizacion: { total: Number(prep.total), renglones: prep.renglones ?? [], tipo: input?.tipo, nombre: input?.nombre, direccion: input?.direccion, avisoFecha: prep.avisoFecha, hayFaltantes: prep.hayFaltantes },
+            });
+            if (cierre.ok) {
+              const pagoAbierto = await comprobanteYaRegistrado(this.db, linea, telefono, 0).catch(() => true);
+              const confirmadoHacePoco = !pagoAbierto && !!(await this.db.from('bot_cotizaciones').select('id').eq('telefono', telefono).eq('linea', linea)
+                .gte('confirmada_en', new Date(Date.now() - 15 * 60_000).toISOString()).limit(1).maybeSingle()).data;
+              if (pagoAbierto || confirmadoHacePoco) {
+                this.log.warn(`el dato de ${telefono} cerraría el pedido, pero ${pagoAbierto ? 'hay un comprobante abierto' : 'hay un pedido confirmado hace menos de 15 min'}: queda el «¿Lo confirmo?»`);
+              } else {
+                try {
+                  const creado = await this.crearPedido({ telefono, linea, confirmacion: ctx.textoCliente ?? '', modo: 'dato', cotizacionId: prep.cotizacionId });
+                  this.log.log(`pedido ${creado.codigoRetiro} confirmado con el dato que faltaba (${cierre.motivo}) de ${telefono}`);
+                  ctx.fallos?.set('__pedido_creado__', 1);
+                  out = { ...creado, aviso: `El cliente ya había visto la lista con el total y dio el dato que faltaba: el pedido QUEDÓ CONFIRMADO con el código ${creado.codigoRetiro}. No llames a crear_pedido ni le pidas confirmación.` };
+                  if (ctx.fija) { ctx.fija.texto = creado.respuesta; ctx.fija.operacion = true; }
+                  break;
+                } catch (e: any) {
+                  this.log.warn(`el dato de ${telefono} no alcanzó para confirmar directo (${e?.message ?? e}): queda el «¿Lo confirmo?»`);
+                }
+              }
+            } else if (/nombre|direcci/i.test(String(ctx.ultimoBot ?? ''))) {
+              this.log.log(`preparar_pedido de ${telefono} sin cierre por el dato: ${cierre.motivo}`);
+            }
           }
           // el alias pedido en el mismo turno va dentro del resumen, antes de «¿Lo confirmo?»
           if (ctx.fija) { ctx.fija.texto = conDatosDePago((out as any).resumen, ctx.fija.datosPago); ctx.fija.operacion = true; }
@@ -2599,6 +2646,8 @@ export class BotService {
             { textoCliente: (ctx.ultimosCliente ?? []).slice(-1)[0] ?? ctx.textoCliente ?? '', ultimosBot: ctx.ultimosBot },
           );
           for (const it of ((out as any)?.renglones ?? [])) if (it?.sku && !it.error) skusVistosEnTurno.add(String(it.sku));
+          // la última cotización del turno: con ella el candado arma la lista si la respuesta da un total sin ella
+          if (!(out as any)?.error) ctx.cotizacion = out;
           break;
         }
         case 'registrar_proveedor':
@@ -3332,7 +3381,7 @@ export class BotService {
     return { cotizacionId: data.id, resumen, total: cot.total, renglones: cot.renglones, ...(avisoFecha ? { avisoFecha } : {}) };
   }
 
-  async crearPedido(dto: { telefono: string; linea?: string; confirmacion?: string; resumenPresentado?: string; items?: {sku:string;cantidad:number}[]; tipo?: string; modo?: 'si' | 'comprobante'; cotizacionId?: string; monto?: number }) {
+  async crearPedido(dto: { telefono: string; linea?: string; confirmacion?: string; resumenPresentado?: string; items?: {sku:string;cantidad:number}[]; tipo?: string; modo?: 'si' | 'comprobante' | 'dato'; cotizacionId?: string; monto?: number }) {
     // Se conserva la firma antigua sólo para rechazar clientes desactualizados.
     if (dto.items && (dto.items.length > maxRenglonesBot() || dto.items.reduce((n,i)=>n+i.cantidad,0)>maxUnidadesBot())) throw new BadRequestException('El pedido supera el máximo del canal WhatsApp');
     // modo 'comprobante' (decisión de Leandro, 5/10/2026): el cliente mandó el
@@ -3341,9 +3390,13 @@ export class BotService {
     // controlar la base (confirmar_cotizacion_bot con p_modo 'comprobante').
     // Las guardas de la charla están en pago-confirma.ts › pedidoPorComprobante.
     const porComprobante = dto.modo === 'comprobante';
+    // modo 'dato' (9/10/2026, cierre-con-dato.ts): el cliente vio la lista con el
+    // total y dio el nombre o la dirección que faltaba. Lo decide el handler de
+    // preparar_pedido con la cotización recién creada; la base lo vuelve a controlar.
+    const porDato = dto.modo === 'dato';
     // la cotización se busca en la charla de SU línea: sin línea, la principal (6/10/2026)
     const lineaDelPedido = dto.linea || (await this.lineas.principal());
-    if (porComprobante ? !dto.cotizacionId || !(Number(dto.monto) > 0) : !confirmacionInequivoca(dto.confirmacion ?? '')) throw new BadRequestException('NO se creó el pedido: falta confirmación inequívoca');
+    if (porComprobante ? !dto.cotizacionId || !(Number(dto.monto) > 0) : porDato ? !dto.cotizacionId || !String(dto.confirmacion ?? '').trim() : !confirmacionInequivoca(dto.confirmacion ?? '')) throw new BadRequestException('NO se creó el pedido: falta confirmación inequívoca');
     const { data: q, error } = await this.db.from('bot_cotizaciones').select('*')
       .eq('telefono', dto.telefono).eq('linea', lineaDelPedido).order('creada_en', { ascending: false }).limit(1).maybeSingle();
     // EL BUCLE DEL "¿LO CONFIRMO?" (Catalina, 21/9/2026). Antes se exigía que el
@@ -3361,11 +3414,15 @@ export class BotService {
     const preguntaConMismoTotal = fresca && /¿lo confirmo\?/i.test(ultimo) && !!totalTxt && ultimo.includes(totalTxt);
     // por comprobante: la cotización que se evaluó tiene que seguir siendo la última, sin pedido y fresca
     const laDelComprobante = porComprobante && !!q && q.id === dto.cotizacionId && !q.pedido_id && fresca;
-    if (error || !q || !(porComprobante ? laDelComprobante : coincideResumen || preguntaConMismoTotal)) throw new BadRequestException('NO se creó el pedido: usá preparar_pedido para mostrar un resumen verificable y esperá confirmación');
+    // por el dato: la cotización tiene que ser la recién creada en este turno (menos de 10 min), sin pedido
+    const laDelDato = porDato && !!q && q.id === dto.cotizacionId && !q.pedido_id && !q.confirmada_en && Date.now() - new Date(q.creada_en).getTime() < 10 * 60_000;
+    if (error || !q || !(porComprobante ? laDelComprobante : porDato ? laDelDato : coincideResumen || preguntaConMismoTotal)) throw new BadRequestException('NO se creó el pedido: usá preparar_pedido para mostrar un resumen verificable y esperá confirmación');
     // p_monto viaja solo en el modo 'comprobante'; los otros modos llaman igual que siempre
     const { data: id, error: e } = await this.db.rpc('confirmar_cotizacion_bot', porComprobante
       ? { p_id: q.id, p_telefono: dto.telefono, p_linea: lineaDelPedido, p_confirmacion: String(dto.confirmacion ?? '').slice(0, 300), p_modo: 'comprobante', p_monto: Number(dto.monto) }
-      : { p_id: q.id, p_telefono: dto.telefono, p_linea: lineaDelPedido, p_confirmacion: dto.confirmacion });
+      : porDato
+        ? { p_id: q.id, p_telefono: dto.telefono, p_linea: lineaDelPedido, p_confirmacion: String(dto.confirmacion ?? '').slice(0, 300), p_modo: 'dato' }
+        : { p_id: q.id, p_telefono: dto.telefono, p_linea: lineaDelPedido, p_confirmacion: dto.confirmacion });
     if (e || !id) throw new BadRequestException(e?.message ?? 'No se pudo confirmar el pedido');
     const ped: any = await this.pedidos.obtener(id);
     // si ya dijo cómo paga, se repite eso y no "efectivo o tarjeta" (25/9/2026)
@@ -3381,7 +3438,7 @@ export class BotService {
     // por comprobante: «Recibido. Tu pedido X quedó confirmado…», sin «se abona» (ya transfirió)
     const respuesta = porComprobante
       ? respuestaPedidoPorComprobante({ codigo: ped.qr_retiro, tipo: q.tipo, direccion: q.direccion })
-      : `Pedido ${ped.qr_retiro} confirmado. Total: $${pesos(totalLista)}.\n${q.tipo === 'domicilio' ? 'Envío sin cargo. Se abona al recibir' : 'Se abona al retirar'}, ${cobro}.`;
+      : `Pedido ${ped.qr_retiro} confirmado${q.tipo !== 'domicilio' && q.nombre ? ` a nombre de ${q.nombre}` : ''}. Total: $${pesos(totalLista)}.\n${q.tipo === 'domicilio' ? 'Envío sin cargo. Se abona al recibir' : 'Se abona al retirar'}, ${cobro}.`;
     return { pedidoId: id, codigoRetiro: ped.qr_retiro, total: Number(ped.total), estado: ped.estado, respuesta };
   }
 
@@ -5287,7 +5344,8 @@ export class BotService {
   // total salen de la base, no del texto; si no suman lo que dice el texto, va
   // el texto. Es lo que el cliente guarda y muestra en el mostrador.
   private async cartelDePedido(respuesta: string): Promise<{ imagenUrl: string; pie: string } | null> {
-    const codigo = respuesta.match(/\b(?:DOM|RET|PICKUP)-[A-Z0-9]{4,10}\b/)?.[0];
+    // los códigos reales tienen 12 caracteres (PICKUP- + 12): con {4,10} la tarjeta no salía nunca (9/10/2026)
+    const codigo = respuesta.match(/\b(?:DOM|RET|PICKUP)-[A-Z0-9]{4,16}\b/)?.[0];
     if (!codigo) return null;
     // solo al confirmarlo: "tu pedido DOM-… está en camino" o "…quedó cancelado"
     // no llevan la tarjeta (diría "mostrá este código" de un pedido cancelado)
