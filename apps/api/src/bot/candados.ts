@@ -50,10 +50,15 @@ export function totalConSuLista(respuesta: string, cot: Cotizacion): string {
   const montos = [cot.total, cot.totalEfectivo, ...renglones.flatMap((x) => [x.subtotal, x.subtotalEfectivo])]
     .filter((n): n is number => Number(n) > 0).map((n) => `$${pesos(Number(n))}`);
   const reemplazada = (o: string) => !/\?\s*$/.test(o) && (/^\*?\s*total\b/i.test(o) || /\d\s*[×x]\s|c\/u/i.test(o) || montos.some((m) => new RegExp(`${m.replace(/[$.]/g, (c) => `\\${c}`)}(?!\\d)`).test(o)));
+  // la frase que presentaba la lista («Así queda el pedido:») queda colgada: se va (9/10/2026,
+  // charla de Leandro: «Así queda el pedido: El envío es sin cargo. ¿Lo retirás…?»)
+  const RE_PRESENTA_LISTA = /^(?:as[ií] (?:queda|quedar[ií]a)(?: (?:el|tu) pedido)?|(?:el |tu )?pedido (?:queda|quedar[ií]a)(?: as[ií])?|qued(?:a|ar[ií]a) as[ií]|te paso (?:la lista|el detalle|el resumen|c[oó]mo queda)|(?:el )?(?:detalle|resumen)(?: del pedido)?|la lista(?: queda)?)\s*:\s*/i;
   const resto = lineas
     .filter((l) => !esRenglonDeLista(l))
     .flatMap(oraciones)
-    .filter((o) => !reemplazada(o))
+    .map((o) => o.replace(RE_PRESENTA_LISTA, ''))
+    .filter((o) => o.trim() && !reemplazada(o))
+    .map((o) => o[0].toUpperCase() + o.slice(1))
     .join(' ')
     .trim();
   return [lista.join('\n'), total, resto].filter(Boolean).join('\n\n');

@@ -53,6 +53,15 @@ describe('candado 1, revisión del 9/10', () => {
   });
 });
 
+describe('candado 1: la frase que presentaba la lista no queda colgada', () => {
+  it('«Así queda el pedido: El envío es sin cargo. ¿Lo retirás…?» (charla de Leandro, 9/10 23:34)', () => {
+    const r = totalConSuLista('Así queda el pedido:\n• Coca Cola Zero — 8 × $4.700\nTotal: $120.500\nEl envío es sin cargo. ¿Lo retirás hoy en la sucursal Saint Thomas antes de las 21:00 o te lo enviamos mañana?', cot);
+    expect(r).not.toMatch(/Así queda el pedido/);
+    expect(r).toMatch(/\n\nEl envío es sin cargo\. ¿Lo retirás hoy en la sucursal Saint Thomas antes de las 21:00 o te lo enviamos mañana\?$/);
+    expect(totalConSuLista('Te paso el detalle: Total: $1. ¿Lo retirás o te lo enviamos?', cot)).toMatch(/\n\n¿Lo retirás o te lo enviamos\?$/);
+  });
+});
+
 describe('candado 2: nunca la misma oración dos veces', () => {
   it('14:51 repetía «Saco la sal y sumo…» de las 14:49: sale solo lo nuevo', () => {
     const antes = ['Saco la sal y sumo 1 × Absolut vodka clásico: $33.500, o $30.150 en efectivo o transferencia. ¿Lo retirás en la sucursal Saint Thomas o te lo enviamos?'];
