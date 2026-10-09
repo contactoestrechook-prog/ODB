@@ -18,8 +18,8 @@
 
 import { pesos } from './comercio';
 
-type RenglonCotizado = { nombre?: string; renglon?: string; subtotal?: number; subtotalEfectivo?: number; error?: string };
-export type Cotizacion = { renglones?: RenglonCotizado[]; total?: number; totalEfectivo?: number } | null | undefined;
+type RenglonCotizado = { nombre?: string; renglon?: string; subtotal?: number; subtotalEfectivo?: number; error?: string; reemplazo_no_confirmado?: boolean; alcanzaElStock?: boolean };
+export type Cotizacion = { renglones?: RenglonCotizado[]; total?: number; totalEfectivo?: number; hayFaltantes?: boolean; reemplazoSinConfirmar?: unknown } | null | undefined;
 
 const normal = (t: string) => String(t ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9$ ]+/g, ' ').replace(/\s+/g, ' ').trim();
 const esRenglonDeLista = (l: string) => /^\s*[•·*-]\s/.test(l);
@@ -29,8 +29,12 @@ const oraciones = (t: string) => t.split(/(?<=[.!?])\s+/).map((o) => o.trim()).f
 /** Candado 1: un total siempre viaja con su lista completa, armada desde la cotización del turno. */
 export function totalConSuLista(respuesta: string, cot: Cotizacion): string {
   const r = String(respuesta ?? '');
-  const renglones = (cot?.renglones ?? []).filter((x) => !x.error && x.renglon && x.nombre);
-  if (!cot || !renglones.length || !(Number(cot.total) > 0)) return r;
+  // solo con una cotización COMPLETA: con faltantes, un reemplazo sin aceptar o un renglón con
+  // error el total es parcial, y armar la lista le mostraría al cliente algo que no se puede confirmar
+  const todos = cot?.renglones ?? [];
+  if (!cot || cot.hayFaltantes || cot.reemplazoSinConfirmar || todos.some((x) => x.error || x.reemplazo_no_confirmado || x.alcanzaElStock === false || !x.renglon || !x.nombre)) return r;
+  const renglones = todos;
+  if (!renglones.length || !(Number(cot.total) > 0)) return r;
   // ¿la respuesta da un total o un monto? sin plata en el texto, no hay nada que proteger
   if (!/\btotal\b|\$\s?\d/i.test(r)) return r;
   // ¿ya trae todos los renglones como lista? entonces está bien
@@ -41,12 +45,15 @@ export function totalConSuLista(respuesta: string, cot: Cotizacion): string {
 
   const lista = renglones.map((x) => `• ${x.nombre} — ${x.renglon}${x.subtotalEfectivo != null && x.subtotal != null && x.subtotalEfectivo < x.subtotal ? ` ($${pesos(x.subtotalEfectivo)} en efectivo o transferencia)` : ''}`);
   const total = `Total: $${pesos(Number(cot.total))}${cot.totalEfectivo != null && cot.totalEfectivo < Number(cot.total) ? `, o $${pesos(cot.totalEfectivo)} en efectivo o transferencia` : ''}`;
-  // de lo que escribió el modelo queda lo que no es lista ni plata (la pregunta, el retiro)
-  // (del renglón del total se va solo lo que tiene montos: la pregunta que lo sigue queda)
+  // de lo que escribió el modelo se va SOLO lo que la lista reemplaza: renglones (cantidad × precio)
+  // y los montos del total o de los renglones. Quedan las preguntas, el mínimo, el envío y el retiro.
+  const montos = [cot.total, cot.totalEfectivo, ...renglones.flatMap((x) => [x.subtotal, x.subtotalEfectivo])]
+    .filter((n): n is number => Number(n) > 0).map((n) => `$${pesos(Number(n))}`);
+  const reemplazada = (o: string) => !/\?\s*$/.test(o) && (/^\*?\s*total\b/i.test(o) || /\d\s*[×x]\s|c\/u/i.test(o) || montos.some((m) => new RegExp(`${m.replace(/[$.]/g, (c) => `\\${c}`)}(?!\\d)`).test(o)));
   const resto = lineas
     .filter((l) => !esRenglonDeLista(l))
     .flatMap(oraciones)
-    .filter((o) => !/\$\s?\d/.test(o) && !/\d\s*[×x]\s/.test(o))
+    .filter((o) => !reemplazada(o))
     .join(' ')
     .trim();
   return [lista.join('\n'), total, resto].filter(Boolean).join('\n\n');
@@ -65,7 +72,8 @@ export function sinOracionesRepetidas(respuesta: string, dichoAntes: string[]): 
   if (!ya.size) return r;
   const salida = r.split('\n').map((l) => {
     if (esRenglonDeLista(l) || esLineaDeTotal(l) || !l.trim()) return l;
-    return oraciones(l).filter((o) => !ya.has(normal(o))).join(' ');
+    // una pregunta nunca se saca: si sigue pendiente, el cliente tiene que verla
+    return oraciones(l).filter((o) => /\?\s*$/.test(o) || !ya.has(normal(o))).join(' ');
   });
   const limpia = salida.join('\n').replace(/\n{3,}/g, '\n\n').trim();
   // si todo ya estaba dicho, no se manda un mensaje vacío: va lo que había

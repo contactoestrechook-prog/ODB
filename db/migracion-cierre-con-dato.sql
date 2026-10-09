@@ -4,13 +4,18 @@
 -- confirmar_cotizacion_bot suma el modo 'dato': el cliente vio la lista con
 -- el total y contestó con el nombre de quien retira o recibe (o la dirección),
 -- que era lo único que faltaba. El servidor lo decide (cierre-con-dato.ts);
--- acá, como segunda barrera:
---   - el texto no puede traer una pregunta, una negativa, una espera ni un
---     cambio (sumar, sacar, cambiar, otro, más…);
---   - la cotización tiene que ser de los últimos 10 minutos (la del turno).
--- Además, para retiro el nombre queda en las notas del pedido («Retira: X»):
--- hasta hoy se guardaba en la cotización y el local no lo veía.
--- Mismo nombre y firma (create or replace): los otros modos no cambian.
+-- acá, como segunda barrera, se controla EN POSITIVO (revisión del 9/10):
+--   - el mensaje es corto, de una línea, sin pregunta, sin emojis ni símbolos,
+--     sin negativas, esperas, condiciones ni cambios;
+--   - retiro: cada palabra del mensaje (sacando «a nombre de», «lo retira»…)
+--     es una palabra del nombre que quedó en la cotización;
+--   - envío: están todos los números de la dirección de la cotización y no
+--     hay ninguna palabra que no sea de la dirección o de quien recibe;
+--   - la cotización es de los últimos 10 minutos (la del turno).
+-- En el modo 'dato', para retiro, quién lo pasa a buscar queda AL FINAL de
+-- las notas del pedido («Retira: X»). Los otros modos no cambian en nada
+-- (mismas notas que antes, byte por byte).
+-- Base: la función de producción del 9/10/2026 (md5 9bee9d84…).
 -- ============================================================
 CREATE OR REPLACE FUNCTION public.confirmar_cotizacion_bot(p_id uuid, p_telefono text, p_linea text, p_confirmacion text, p_modo text DEFAULT 'si'::text, p_monto numeric DEFAULT NULL::numeric)
  RETURNS uuid
@@ -20,6 +25,7 @@ CREATE OR REPLACE FUNCTION public.confirmar_cotizacion_bot(p_id uuid, p_telefono
 AS $function$
 declare q bot_cotizaciones%rowtype; item jsonb; prod productos%rowtype; actual numeric; importe numeric:=0; cantidad numeric; pedido uuid; cliente uuid; resto text;
  v_modo text := coalesce(p_modo,'si'); v_efectivo numeric; v_monto_txt text; v_nota_pago text; v_retira text;
+ v_txt text; v_pal text[]; v_nom text[]; v_dir text[];
 begin
  select * into q from bot_cotizaciones where id=p_id and telefono=p_telefono and linea=p_linea for update;
  if not found then raise exception 'Cotizacion no encontrada para este chat'; end if;
@@ -32,11 +38,29 @@ begin
       or not (abs(p_monto - q.total) < 1 or (v_efectivo > 0 and abs(p_monto - v_efectivo) < 1))
    then raise exception 'El monto del comprobante no coincide con el pedido'; end if;
  elsif v_modo = 'dato' then
-   -- 9/10/2026: el dato que faltaba (nombre o dirección), después de ver el total
-   if p_confirmacion is null or btrim(p_confirmacion) = '' or p_confirmacion ~ '\?' or length(p_confirmacion) > 120
-      or p_confirmacion ~* '\m(no|pero|tambi[eé]n|sum\w*|agreg\w*|cambi\w*|saca\w*|quita\w*|mejor|otr[oa]s?|despu[eé]s|todav[ií]a|espera\w*|cancel\w*|anul\w*|m[aá]s)\M'
+   -- 9/10/2026 (revisada): el dato que faltaba y NADA más, después de ver el total
+   v_txt := lower(translate(coalesce(p_confirmacion,''), 'ÁÉÍÓÚÜÑáéíóúüñ', 'AEIOUUNaeiouun'));
+   -- un «Sí,» / «Dale,» adelante es parte de la respuesta; un «si» en el medio, no
+   v_txt := btrim(regexp_replace(v_txt, '^\s*(hola|buenas|dale|ok|listo|si)[\s,.!]+', ''));
+   if v_txt = '' or length(p_confirmacion) > 80 or p_confirmacion ~ '[?\n]'
+      or p_confirmacion ~ '[^a-zA-Z0-9ÁÉÍÓÚÜÑáéíóúüñ[:space:].,''’°º#-]'
+      or v_txt ~ '\m(no|pero|tambien|sum\w*|agreg\w*|cambi\w*|saca\w*|quita\w*|mejor|otr[oa]s?|despues|todavia|espera\w*|cancel\w*|anul\w*|mas|y|sin|menos|quiero|queres|dej\w*|olvid\w*|nah|nop|ni|tampoco|pienso|veo|si|manana|hielo\w*)\M|\mte (aviso|confirmo|digo)\M'
       or q.creada_en is null or q.creada_en <= now() - interval '10 minutes'
    then raise exception 'El dato no confirma el pedido'; end if;
+   v_pal := array_remove(regexp_split_to_array(regexp_replace(
+              regexp_replace(v_txt, '^(a nombre de|lo (retira|retiro|retiramos|busca)|la retira|retira|soy|me llamo|mi nombre es|es|para)\s+', ''),
+              '[^a-z0-9]+', ' ', 'g'), ' '), '');
+   v_nom := array_remove(regexp_split_to_array(regexp_replace(lower(translate(coalesce(q.nombre,''), 'ÁÉÍÓÚÜÑáéíóúüñ', 'AEIOUUNaeiouun')), '[^a-z0-9]+', ' ', 'g'), ' '), '');
+   if coalesce(array_length(v_pal,1),0) = 0 then raise exception 'El dato no confirma el pedido'; end if;
+   if q.tipo = 'domicilio' then
+     v_dir := array_remove(regexp_split_to_array(regexp_replace(lower(translate(coalesce(q.direccion,''), 'ÁÉÍÓÚÜÑáéíóúüñ', 'AEIOUUNaeiouun')), '[^a-z0-9]+', ' ', 'g'), ' '), '');
+     if not exists (select 1 from unnest(v_dir) w where w ~ '[0-9]')
+        or exists (select 1 from unnest(v_dir) w where w ~ '[0-9]' and not (w = any(v_pal)))
+        or not (v_pal <@ (v_dir || v_nom || array['recibe','a','al','en','calle','av','avenida','nro','n','numero','piso','depto','dto','lote','barrio','casa']))
+     then raise exception 'El dato no es la direccion de la cotizacion'; end if;
+   elsif coalesce(array_length(v_nom,1),0) = 0 or not (v_pal <@ v_nom) then
+     raise exception 'El dato no es el nombre de la cotizacion';
+   end if;
  elsif v_modo = 'completo' then
    -- "no, nada más" cierra: el "no" del principio se saca antes de buscar cambios
    resto := regexp_replace(coalesce(p_confirmacion,''), '^\s*nop?\M[\s,.!]*', '', 'i');
@@ -83,8 +107,8 @@ begin
      || (case when q.tipo = 'domicilio' then 'recibir' else 'retirar' end)
      || '; si no, se cobran ' || v_monto_txt;
  end if;
- -- 9/10/2026: para retiro, quién lo pasa a buscar queda a la vista del local
- v_retira := case when q.tipo <> 'domicilio' and coalesce(trim(q.nombre),'') <> '' then 'Retira: ' || trim(q.nombre) end;
+ -- 9/10/2026: en el modo 'dato', para retiro, quién lo pasa a buscar queda a la vista del local
+ v_retira := case when v_modo = 'dato' and q.tipo <> 'domicilio' and coalesce(trim(q.nombre),'') <> '' then 'Retira: ' || trim(q.nombre) end;
  cliente:=q.cliente_id;
  if cliente is null then
   perform pg_advisory_xact_lock(hashtextextended('bot-cliente/'||p_telefono,0));
@@ -94,7 +118,9 @@ begin
  insert into pedidos(canal,sucursal_id,cliente_id,estado,total,qr_retiro,reserva_stock,destino_direccion,notas,entrega_fecha,entrega_franja)
  values(q.tipo::canal_venta,q.sucursal_id,cliente,'recibido',q.total,(case when q.tipo='domicilio' then 'DOM-' else 'PICKUP-' end)||upper(substr(replace(q.id::text,'-',''),1,12)),true,q.direccion,
    -- la nota del pago va PRIMERO: el aviso corta las notas a 300 caracteres
-   nullif(concat_ws(' · ', (case when v_modo='comprobante' then v_nota_pago end), v_retira, nullif(trim(q.notas),'')), ''),
+   (case when v_modo='comprobante' then concat_ws(' · ', v_nota_pago, nullif(trim(q.notas),''))
+         when v_modo='dato' and v_retira is not null then concat_ws(' · ', nullif(trim(q.notas),''), v_retira)
+         else q.notas end),
    q.entrega_fecha,q.entrega_franja) returning id into pedido;
  for item in select x from jsonb_array_elements(q.items) x order by x->>'producto_id' loop
   insert into pedidos_items(pedido_id,producto_id,cantidad,precio_unitario) values(pedido,(item->>'producto_id')::uuid,(item->>'cantidad')::numeric,(item->>'precioUnitario')::numeric);

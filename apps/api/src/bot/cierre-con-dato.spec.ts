@@ -28,7 +28,8 @@ describe('el dato que faltaba confirma', () => {
   it('17:02 «A nombre de leandro» después de ver la lista con el total → confirma', () => {
     expect(cierraConElDato({ ...base, textoCliente: 'A nombre de leandro' })).toMatchObject({ ok: true });
     expect(cierraConElDato({ ...base, textoCliente: 'Leandro' })).toMatchObject({ ok: true });
-    expect(cierraConElDato({ ...base, textoCliente: 'Para Leandro Alonso.' })).toMatchObject({ ok: true });
+    expect(cierraConElDato({ ...base, textoCliente: 'Sí, a nombre de Leandro' })).toMatchObject({ ok: true });
+    expect(cierraConElDato({ ...base, textoCliente: 'Para Leandro Alonso.', cotizacion: { ...base.cotizacion, nombre: 'Leandro Alonso' } })).toMatchObject({ ok: true });
   });
   it('lo que pasó el 3/10 no confirma: «Cancelalo», el nombre con otro producto, una pregunta, una espera', () => {
     for (const t of ['Cancelalo', 'Leandro y 2 hielos', 'Leandro, sumame un hielo', 'Leandro, ¿hay estacionamiento?', 'Leandro pero esperá', 'No, a nombre de Ana', 'Leandro, mejor sacá el Absolut']) {
@@ -52,6 +53,38 @@ describe('el dato que faltaba confirma', () => {
     const q = { ...base.cotizacion, tipo: 'domicilio', nombre: 'Leandro', direccion: 'Mitre 123, Canning' };
     expect(cierraConElDato({ ...base, ultimoBot: conEnvio, ultimosBot: [conEnvio], textoCliente: 'Mitre 123, Canning', cotizacion: q }).ok).toBe(true);
     expect(cierraConElDato({ ...base, ultimoBot: conEnvio, ultimosBot: [conEnvio], textoCliente: 'Belgrano 450', cotizacion: q }).ok).toBe(false);
+  });
+});
+
+describe('revisión del 9/10: lo que NO tiene que crear el pedido', () => {
+  it('retiro: el nombre entero tiene que ser el de la cotización; dudas, esperas, otro producto o emojis no confirman', () => {
+    const juan = { ...base, cotizacion: { ...base.cotizacion, nombre: 'Juan' } };
+    for (const t of ['Juan te aviso', 'Juan ahí te aviso', 'Juan dejame ver', 'Juan te confirmo', 'Juan hay estacionamiento', 'Juan tenes sprite', 'Juan y una coca', 'Juan y dos cocas', 'Juan 👍', 'Dejalo', 'Olvidate', 'Nah', 'Nop', 'Tampoco', 'Chau']) {
+      expect([t, cierraConElDato({ ...juan, textoCliente: t }).ok]).toEqual([t, false]);
+    }
+    // el modelo anotó «Leandro» y el cliente escribió otro apellido: en la duda, «¿Lo confirmo?»
+    expect(cierraConElDato({ ...base, textoCliente: 'Para Leandro Alonso.' }).ok).toBe(false);
+  });
+  it('envío: la dirección entera y nada más', () => {
+    const conEnvio = visto.replace('Es para retirar en la sucursal Saint Thomas. ¿A nombre de quién lo preparo?', '¿A qué dirección te lo enviamos, calle y número?');
+    const q = { ...base.cotizacion, tipo: 'domicilio', nombre: 'Leandro', direccion: 'Mitre 1234, Canning' };
+    const env = { ...base, ultimoBot: conEnvio, ultimosBot: [conEnvio], cotizacion: q };
+    for (const t of ['Mitre 1234, lo pienso y te aviso', 'Mitre 1234, mañana te confirmo', 'Mitre 1234, nah dejalo', 'Mitre 1234, olvidate', 'Mitre 1234 + 2 cocas', 'Mitre 1234, y una coca', 'Mitre 1234 🤔', 'Mitre 1234, Canning, si podés que llegue antes de las ocho.', 'Mitre 12', 'Mitre 1234 piso 3']) {
+      expect([t, cierraConElDato({ ...env, textoCliente: t }).ok]).toEqual([t, false]);
+    }
+    expect(cierraConElDato({ ...env, textoCliente: 'Mitre 1234' }).ok).toBe(true);
+    expect(cierraConElDato({ ...env, textoCliente: 'Sí, Mitre 1234, Canning' }).ok).toBe(true);
+  });
+  it('mismo precio pero otro producto: no es la lista que vio', () => {
+    const otra = { ...base.cotizacion, renglones: renglones.map((r, i) => (i === 0 ? { ...r, nombre: 'Coca Cola Original x1.75L' } : r)) };
+    expect(cierraConElDato({ ...base, textoCliente: 'Leandro', cotizacion: otra }).ok).toBe(false);
+  });
+  it('cuenta solo la ÚLTIMA lista con total: una vieja de antes de un cambio no sirve', () => {
+    const nueva = visto.replace('*Total: $128.200*', '*Total: $130.500*').replace('• Absolut — 1 × $33.500 c/u = $33.500', '• Absolut — 1 × $35.800 c/u = $35.800');
+    // el cliente vio la de $128.200 hace dos mensajes, pero lo último que vio es la de $130.500
+    expect(cierraConElDato({ ...base, textoCliente: 'Leandro', ultimoBot: '¿A nombre de quién lo preparo?', ultimosBot: ['¿A nombre de quién lo preparo?', nueva, visto] }).ok).toBe(false);
+    // con la vieja como última lista, sí
+    expect(cierraConElDato({ ...base, textoCliente: 'Leandro', ultimoBot: '¿A nombre de quién lo preparo?', ultimosBot: ['¿A nombre de quién lo preparo?', visto, nueva] }).ok).toBe(true);
   });
 });
 

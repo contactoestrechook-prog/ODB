@@ -115,7 +115,7 @@ const RE_RECLAMO_PLATA = /\b(devol|reintegro|me cobraron|cobro doble|doble d[eé
 const RE_DICE_CARGADO = /(pedido (queda|quedó|ya está|está|ya quedó) (confirmado|cargado|registrado|armado|tomado)|confirmo (el|su) pedido|queda(n)? (cargado|registrado|confirmado)s? (el|su) pedido|ya está registrado|pedido confirmado|queda(n)?[^.]{0,40}\b(en|al) (el |su )?pedido\b|agregad[oa] al pedido)/i;
 
 // el mensaje con que el bot confirma un pedido: por el «sí» o por el comprobante
-const RE_PEDIDO_CONFIRMADO = /^(?:Pedido \S+ confirmado\.|Recibido\.\s+Tu pedido \S+ quedó confirmado)/;
+export const RE_PEDIDO_CONFIRMADO = /^(?:Pedido \S+ confirmado(?: a nombre de [^.\n]+)?\.|Recibido\.\s+Tu pedido \S+ quedó confirmado)/;
 
 // LOS TEMAS DE LAS CONSULTAS DEL TURNO (5/10/2026). Desde el 6/10/2026 al cliente
 // no se le avisa nada (consulta silenciosa): sirven para decirle al modelo qué
@@ -2199,8 +2199,9 @@ export class BotService {
       const conLista = totalConSuLista(respuesta, ctxHerr.cotizacion);
       if (conLista !== respuesta) { this.log.warn(`candado: un total sin su lista para ${telefono}: la lista sale de la cotización`); respuesta = conLista; }
     }
-    // 2) nunca la misma oración dos veces en la charla
-    if (respuesta) {
+    // 2) nunca la misma oración dos veces en la charla (los textos fijos del sistema no se tocan:
+    //    el resumen o la confirmación pierden la dirección o las indicaciones)
+    if (respuesta && !respuestaFija.operacion && !respuestaFija.texto) {
       const sinRepetir = sinOracionesRepetidas(respuesta, ultimosDelBot);
       if (sinRepetir !== respuesta) { this.log.log(`candado: oraciones ya dichas sacadas para ${telefono}`); respuesta = sinRepetir; }
     }
@@ -2572,11 +2573,18 @@ export class BotService {
               cotizacion: { total: Number(prep.total), renglones: prep.renglones ?? [], tipo: input?.tipo, nombre: input?.nombre, direccion: input?.direccion, avisoFecha: prep.avisoFecha, hayFaltantes: prep.hayFaltantes },
             });
             if (cierre.ok) {
-              const pagoAbierto = await comprobanteYaRegistrado(this.db, linea, telefono, 0).catch(() => true);
-              const confirmadoHacePoco = !pagoAbierto && !!(await this.db.from('bot_cotizaciones').select('id').eq('telefono', telefono).eq('linea', linea)
-                .gte('confirmada_en', new Date(Date.now() - 15 * 60_000).toISOString()).limit(1).maybeSingle()).data;
-              if (pagoAbierto || confirmadoHacePoco) {
-                this.log.warn(`el dato de ${telefono} cerraría el pedido, pero ${pagoAbierto ? 'hay un comprobante abierto' : 'hay un pedido confirmado hace menos de 15 min'}: queda el «¿Lo confirmo?»`);
+              // cualquier pago o consulta de pago abierta de este chat (6 h), o un pedido confirmado hace
+              // menos de 15 min, frena el cierre; si la base no contesta, también (nunca se confirma a ciegas)
+              const desde6h = new Date(Date.now() - 6 * 3600_000).toISOString();
+              const pagos = await this.db.from('bot_pagos_en_confirmacion').select('id').eq('linea', linea).eq('telefono_cliente', telefono)
+                .is('confirmado_en', null).gte('creado_en', desde6h).limit(1).then((r: any) => r, () => ({ error: true }));
+              const recientes = await this.db.from('bot_cotizaciones').select('id').eq('telefono', telefono).eq('linea', linea)
+                .gte('confirmada_en', new Date(Date.now() - 15 * 60_000).toISOString()).limit(1).maybeSingle().then((r: any) => r, () => ({ error: true }));
+              const freno = pagos?.error || recientes?.error ? 'la base no contestó'
+                : (Array.isArray(pagos?.data) ? pagos.data.length : pagos?.data ? 1 : 0) > 0 ? 'hay un pago abierto'
+                  : recientes?.data ? 'hay un pedido confirmado hace menos de 15 min' : '';
+              if (freno) {
+                this.log.warn(`el dato de ${telefono} cerraría el pedido, pero ${freno}: queda el «¿Lo confirmo?»`);
               } else {
                 try {
                   const creado = await this.crearPedido({ telefono, linea, confirmacion: ctx.textoCliente ?? '', modo: 'dato', cotizacionId: prep.cotizacionId });
@@ -2646,8 +2654,14 @@ export class BotService {
             { textoCliente: (ctx.ultimosCliente ?? []).slice(-1)[0] ?? ctx.textoCliente ?? '', ultimosBot: ctx.ultimosBot },
           );
           for (const it of ((out as any)?.renglones ?? [])) if (it?.sku && !it.error) skusVistosEnTurno.add(String(it.sku));
-          // la última cotización del turno: con ella el candado arma la lista si la respuesta da un total sin ella
-          if (!(out as any)?.error) ctx.cotizacion = out;
+          // la última cotización del turno: con ella el candado arma la lista si la respuesta da un total sin ella.
+          // Solo si está COMPLETA: con faltantes o un reemplazo sin aceptar, el total es parcial y no se arma nada
+          {
+            const cot: any = out;
+            const completa = !!cot && !cot.error && !cot.hayFaltantes && !cot.reemplazoSinConfirmar && Array.isArray(cot.renglones) && cot.renglones.length > 0
+              && cot.renglones.every((r: any) => !r?.error && !r?.reemplazo_no_confirmado && r?.alcanzaElStock !== false && r?.renglon);
+            ctx.cotizacion = completa ? cot : undefined;
+          }
           break;
         }
         case 'registrar_proveedor':
@@ -3438,7 +3452,7 @@ export class BotService {
     // por comprobante: «Recibido. Tu pedido X quedó confirmado…», sin «se abona» (ya transfirió)
     const respuesta = porComprobante
       ? respuestaPedidoPorComprobante({ codigo: ped.qr_retiro, tipo: q.tipo, direccion: q.direccion })
-      : `Pedido ${ped.qr_retiro} confirmado${q.tipo !== 'domicilio' && q.nombre ? ` a nombre de ${q.nombre}` : ''}. Total: $${pesos(totalLista)}.\n${q.tipo === 'domicilio' ? 'Envío sin cargo. Se abona al recibir' : 'Se abona al retirar'}, ${cobro}.`;
+      : `Pedido ${ped.qr_retiro} confirmado${q.tipo !== 'domicilio' && q.nombre ? ` a nombre de ${q.nombre}` : ''}. Total: $${pesos(totalLista)}.\n${q.tipo === 'domicilio' ? `Envío sin cargo${q.direccion ? ` a ${String(q.direccion).trim().replace(/\.$/, '')}` : ''}. Se abona al recibir` : 'Se abona al retirar'}, ${cobro}.`;
     return { pedidoId: id, codigoRetiro: ped.qr_retiro, total: Number(ped.total), estado: ped.estado, respuesta };
   }
 

@@ -40,7 +40,9 @@ const NO_ES_NOMBRE = new Set(('a al la el los las lo le con de del en por para m
   ['todavia', 'no', 'se', 'si', 'ok', 'dale', 'gracias', 'listo', 'perfecto', 'bueno', 'que', 'cuando', 'como', 'donde', 'cual'].join(' ') + ' ' +
   'hijo hija esposa esposo marido mujer mama papa hermano hermana amigo amiga ' +
   // 9/10/2026: lo que NO es un nombre aunque sean letras sueltas
-  'cancelalo cancela cancelar cancelo anulalo anula espera esperame mas tambien otro otra hielo hielos sumame agregame sacame cambialo').split(' ').map(norm));
+  'cancelalo cancela cancelar cancelo anulalo anula espera esperame mas tambien otro otra hielo hielos sumame agregame sacame cambialo ' +
+  // revisión del 9/10/2026: lo que convertía «Juan te aviso» o «Juan y una coca» en un nombre
+  'y e sin menos quiero queres dejalo deja dejame olvidate olvida nah nop ni ninguno nadie tampoco chau frena aguarda aviso digo veo ver hay tenes tienen cuanto una uno dos tres coca te').split(' ').map(norm));
 
 /**
  * El nombre en la respuesta a «¿A nombre de quién lo preparo?»: «Juan Pérez»,
@@ -65,7 +67,13 @@ const RE_LO_CONFIRMO = /¿\s*lo confirmo\s*\?/i;
 // «¿Lo retirás o te lo enviamos?»: una pregunta con las DOS opciones (pedir la dirección del envío no es esto)
 const RE_RETIRO_O_ENVIO = /¿[^?]*\bretir\w*[^?]*\bo\b[^?]*\b(?:env[ií]\w*|mand\w*|llev\w*)[^?]*\?|¿[^?]*\b(?:env[ií]\w*|mand\w*|llev\w*)[^?]*\bo\b[^?]*\b(?:retir\w*|pas\w* a buscar)[^?]*\?/i;
 // lo que delata que el mensaje NO es solo el dato
-const RE_NO_ES_SOLO_EL_DATO = /\?|\b(no|pero|tambi[eé]n|sum[aá]\w*|agreg\w*|cambi\w*|sac[aá]\w*|quit\w*|mejor|otr[oa]s?|despu[eé]s|todav[ií]a|esper\w*|cancel\w*|anul\w*|m[aá]s|hielo\w*|y\s+\d|\d+\s*(?:x|×|unidades?|botellas?|packs?|cajas?))\b/i;
+const RE_NO_ES_SOLO_EL_DATO = /\?|\b(no|pero|tambi[eé]n|sum[aá]\w*|agreg\w*|cambi\w*|sac[aá]\w*|quit\w*|mejor|otr[oa]s?|despu[eé]s|todav[ií]a|esper\w*|cancel\w*|anul\w*|m[aá]s|hielo\w*|y|sin|menos|quiero|quer[eé]s|dej\w*|olvid\w*|nah|nop|ni|tampoco|pienso|veo|si|ma[nñ]ana|te (?:aviso|confirmo|digo)|y\s+\d|\d+\s*(?:x|×|unidades?|botellas?|packs?|cajas?))\b/i;
+// solo letras, números y la puntuación de un nombre o una dirección (nada de emojis ni símbolos)
+const RE_SOLO_TEXTO = /^[\p{L}\p{N}\s.,'’°º#-]+$/u;
+// las palabras que cuentan de un nombre de producto: sin medidas, números ni conectores
+const MEDIDAS = new Set('x de del la el los las con sin y en cc ml l lt lts litro litros kg kgs g gr grs gramos un unid unidades u pack packs caja cajas botella botellas lata latas'.split(' '));
+const palabrasDeProducto = (t: string) => new Set(norm(t).replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter((w) => w.length >= 2 && !/\d/.test(w) && !MEDIDAS.has(w)));
+const mismas = (a: Set<string>, b: Set<string>) => a.size > 0 && a.size === b.size && [...a].every((w) => b.has(w));
 
 export type CotizacionPreparada = {
   total: number;
@@ -102,25 +110,42 @@ export function cierraConElDato(p: {
   const totalTxt = `$${pesos(Number(q.total))}`;
   const renglones = q.renglones.map((r) => String(r.renglon ?? '').trim()).filter(Boolean);
   if (renglones.length !== q.renglones.length) return no('renglones sin formato');
-  const vio = (p.ultimosBot ?? []).some((m) => {
-    const t = String(m ?? '');
-    return new RegExp(`\\btotal\\b[^\\n$]{0,25}${totalTxt.replace(/[$.]/g, (c) => `\\${c}`)}(?!\\d)`, 'i').test(t) && renglones.every((r) => t.includes(r));
-  });
-  if (!vio) return no('el cliente no vio esta misma lista con este total');
+  // la ÚLTIMA lista con «Total» que le mostró el bot (no una vieja de antes de un cambio)
+  const vista = String([p.ultimoBot, ...(p.ultimosBot ?? [])].find((m) => /\btotal\b[^\n$]{0,25}\$\s?\d/i.test(String(m ?? ''))) ?? '');
+  if (!vista) return no('el cliente no vio una lista con total');
+  if (!new RegExp(`\\btotal\\b[^\\n$]{0,25}${totalTxt.replace(/[$.]/g, (c) => `\\${c}`)}(?!\\d)`, 'i').test(vista)) return no('el total no es el que vio el cliente');
+  const lineasVistas = vista.split('\n').map((l) => l.trim()).filter((l) => /^[•·*-]\s/.test(l));
+  if (lineasVistas.length !== q.renglones.length) return no('la lista que vio tiene otra cantidad de renglones');
+  for (const r of q.renglones) {
+    // cada renglón: la misma cuenta Y el mismo producto (una Coca común no es la Zero aunque cueste lo mismo)
+    const linea = lineasVistas.find((l) => l.includes(String(r.renglon)) && mismas(palabrasDeProducto(l.replace(/^[•·*-]\s*/, '').split(/\s+[—–-]\s+/)[0]), palabrasDeProducto(String(r.nombre ?? ''))));
+    if (!linea) return no(`el renglón «${r.nombre}» no es el que vio el cliente`);
+  }
 
   // 3) el mensaje es solo el dato
   if (texto.length > 80 || texto.includes('\n')) return no('el mensaje es largo o tiene varias líneas');
-  if (RE_NO_ES_SOLO_EL_DATO.test(norm(texto))) return no('el mensaje trae algo más que el dato');
+  if (!RE_SOLO_TEXTO.test(texto)) return no('el mensaje trae emojis o símbolos');
+  // un «Sí,» / «Dale,» adelante es parte de la respuesta («Sí, a nombre de Leandro»); un «si» en el medio no
+  const sinElSi = norm(texto).replace(/^(?:hola|buenas|dale|ok|listo|si)[\s,.!]+/, '');
+  if (RE_NO_ES_SOLO_EL_DATO.test(sinElSi)) return no('el mensaje trae algo más que el dato');
 
   // 4) el dato es el que quedó en la cotización
+  const palabras = (t: string) => norm(t).replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(Boolean);
   if (q.tipo === 'domicilio') {
-    const dir = norm(String(q.direccion ?? '')).replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
-    const t = norm(texto).replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
-    if (!dir || !/\d/.test(dir) || !t.includes(dir.split(' ').slice(0, 2).join(' '))) return no('la dirección del mensaje no es la de la cotización');
+    // la dirección entera (todos sus números) y NADA más que la dirección y quien recibe
+    const dir = palabras(String(q.direccion ?? ''));
+    if (!dir.some((w) => /\d/.test(w))) return no('la cotización no tiene una dirección con número');
+    const enTexto = palabras(sinElSi);
+    if (!dir.filter((w) => /\d/.test(w)).every((w) => enTexto.includes(w))) return no('la dirección del mensaje no es la de la cotización');
+    const permitidas = new Set([...dir, ...palabras(String(q.nombre ?? '')), 'recibe', 'a', 'al', 'en', 'calle', 'av', 'avenida', 'nro', 'n', 'numero', 'piso', 'depto', 'dto', 'lote', 'barrio', 'casa']);
+    const sobra = enTexto.filter((w) => !permitidas.has(w));
+    if (sobra.length) return no(`el mensaje trae algo más que la dirección (${sobra.slice(0, 3).join(' ')})`);
     return { ok: true, motivo: 'dio la dirección' };
   }
   const nombre = nombreDeQuienRetira(texto);
   if (!nombre) return no('el mensaje no es un nombre');
-  if (!q.nombre || norm(String(q.nombre)).split(/\s+/)[0] !== norm(nombre).split(/\s+/)[0]) return no('el nombre no es el de la cotización');
+  // el nombre ENTERO es el de la cotización («Juan Te Aviso» no es «Juan»)
+  const delPedido = new Set(palabras(String(q.nombre ?? '')));
+  if (!delPedido.size || !palabras(nombre).every((w) => delPedido.has(w))) return no('el nombre no es el de la cotización');
   return { ok: true, motivo: `dio el nombre (${nombre})` };
 }

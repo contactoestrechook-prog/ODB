@@ -1,7 +1,7 @@
 // El dato que faltaba confirma, de punta a punta en la herramienta
 // preparar_pedido (9/10/2026): la charla de Leandro de las 17:02 y lo que NO
 // tiene que crear pedido. Misma base falsa por operación que pago-confirma.spec.ts.
-import { BotService } from './bot.service';
+import { BotService, RE_PEDIDO_CONFIRMADO } from './bot.service';
 
 type Consulta = { op: string; terminal: string; filtros: any[][] };
 function dbPorOperacion(config: Record<string, any> = {}) {
@@ -51,10 +51,10 @@ const RESUMEN = `${renglones.map((r) => `• ${r.nombre} — ${r.renglon}`).join
 const COT = { id: 'cot-dato', total: 128200, tipo: 'pickup', nombre: 'Leandro', direccion: null, notas: '', resumen: RESUMEN, creada_en: new Date().toISOString(), confirmada_en: null, pedido_id: null, items: [] };
 const tu = (id: string, name: string, input: any) => ({ type: 'tool_use', id, name, input });
 
-function armar(o: { confirmadoHacePoco?: boolean; pagosAbiertos?: any[] } = {}) {
+function armar(o: { confirmadoHacePoco?: boolean; pagosAbiertos?: any[]; pagosConError?: boolean; cot?: any } = {}) {
   const db = dbPorOperacion({
-    bot_cotizaciones: { select: (q: Consulta) => (q.filtros.some((f) => f[0] === 'gte') ? { data: o.confirmadoHacePoco ? { id: 'otra' } : null } : { data: COT }) },
-    bot_pagos_en_confirmacion: { select: { data: o.pagosAbiertos ?? [] } },
+    bot_cotizaciones: { select: (q: Consulta) => (q.filtros.some((f) => f[0] === 'gte') ? { data: o.confirmadoHacePoco ? { id: 'otra' } : null } : { data: o.cot ?? COT }) },
+    bot_pagos_en_confirmacion: { select: o.pagosConError ? { data: null, error: { message: 'timeout' } } : { data: o.pagosAbiertos ?? [] } },
   });
   db.rpc.mockImplementation(async (nombre: string) => (nombre === 'confirmar_cotizacion_bot' ? { data: 'pedido-1', error: null } : { data: null, error: null }));
   const pedidos = { obtener: jest.fn(async () => ({ qr_retiro: 'PICKUP-0C1E9A12B3D4', total: 128200, estado: 'recibido' })) };
@@ -100,6 +100,34 @@ describe('preparar_pedido con el dato que faltaba', () => {
       await (s as any).ejecutarHerramienta(preparar, TEL, 'pedidos', c);
       expect(llamadasDato(db)).toHaveLength(0);
     }
+  });
+
+  it('revisión del 9/10: si la base no contesta, o hay cualquier pago o consulta de pago abierta, no se crea', async () => {
+    for (const o of [{ pagosConError: true }, { pagosAbiertos: [{ id: 'consulta', monto: null, creado_en: new Date().toISOString() }] }]) {
+      const { s, db } = armar(o);
+      const c = ctx('Leandro');
+      await (s as any).ejecutarHerramienta(preparar, TEL, 'pedidos', c);
+      expect(llamadasDato(db)).toHaveLength(0);
+      expect(c.fija.texto).toMatch(/¿Lo confirmo\?$/);
+    }
+  });
+
+  it('envío: la confirmación dice a dónde va', async () => {
+    const cot = { ...COT, tipo: 'domicilio', direccion: 'Mitre 1234, Canning' };
+    const { s, db } = armar({ cot });
+    (s as any).pedidos.obtener = jest.fn(async () => ({ qr_retiro: 'DOM-0C1E9A12B3D4', total: 128200, estado: 'recibido' }));
+    const conEnvio = VISTO.replace('Es para retirar en la sucursal Saint Thomas. ¿A nombre de quién lo preparo?', '¿A qué dirección te lo enviamos, calle y número?');
+    const c = ctx('Mitre 1234, Canning', { ultimoBot: conEnvio, ultimosBot: [conEnvio] });
+    await (s as any).ejecutarHerramienta(tu('p', 'preparar_pedido', { tipo: 'domicilio', nombre: 'Leandro', direccion: 'Mitre 1234, Canning', items: [], notas: '', entrega_fecha: '', entrega_franja: '' }), TEL, 'pedidos', c);
+    expect(llamadasDato(db)).toHaveLength(1);
+    expect(c.fija.texto).toMatch(/^Pedido DOM-0C1E9A12B3D4 confirmado\. Total: \$128\.200\.\nEnvío sin cargo a Mitre 1234, Canning\. Se abona al recibir/);
+  });
+
+  it('el freno del «sí» de más después de confirmar reconoce «confirmado a nombre de X»', () => {
+    expect(RE_PEDIDO_CONFIRMADO.test('Pedido PICKUP-0C1E9A12B3D4 confirmado a nombre de Leandro. Total: $128.200.')).toBe(true);
+    expect(RE_PEDIDO_CONFIRMADO.test('Pedido DOM-0C1E9A12B3D4 confirmado. Total: $128.200.')).toBe(true);
+    expect(RE_PEDIDO_CONFIRMADO.test('Recibido. Tu pedido DOM-0C1E9A12B3D4 quedó confirmado.')).toBe(true);
+    expect(RE_PEDIDO_CONFIRMADO.test('• Absolut — 1 × $33.500\nTotal: $128.200\n¿Lo confirmo?')).toBe(false);
   });
 
   it('si la base lo rechaza, no rompe: queda el resumen con «¿Lo confirmo?»', async () => {

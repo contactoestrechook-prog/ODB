@@ -36,6 +36,23 @@ describe('candado 1: un total nunca sale sin su lista', () => {
   });
 });
 
+describe('candado 1, revisión del 9/10', () => {
+  it('con una cotización parcial (sin stock, reemplazo sin aceptar o renglón con error) no arma nada', () => {
+    const r = 'La de Zero no la tengo; ¿le cotizo la común a $4.500? Total: $120.500';
+    expect(totalConSuLista(r, { ...cot, hayFaltantes: true })).toBe(r);
+    expect(totalConSuLista(r, { ...cot, reemplazoSinConfirmar: 'x' })).toBe(r);
+    expect(totalConSuLista(r, { ...cot, renglones: [...cot.renglones, { nombre: 'Hielo', error: 'sin precio' }] })).toBe(r);
+    expect(totalConSuLista(r, { ...cot, renglones: cot.renglones.map((x, i) => (i ? x : { ...x, alcanzaElStock: false })) })).toBe(r);
+  });
+  it('se queda con el mínimo de envío y con la pregunta aunque tenga un monto; se va un total mal hecho', () => {
+    const r = totalConSuLista('Sumo el agua. Total: $119.000. El envío es sin cargo desde $70.000. ¿Te lo mando a Mitre 1234 o pasás por la sucursal?', cot);
+    expect(r).toContain('Total: $120.500, o $110.510 en efectivo o transferencia');
+    expect(r).not.toContain('$119.000');
+    expect(r).toContain('El envío es sin cargo desde $70.000.');
+    expect(r).toMatch(/¿Te lo mando a Mitre 1234 o pasás por la sucursal\?$/);
+  });
+});
+
 describe('candado 2: nunca la misma oración dos veces', () => {
   it('14:51 repetía «Saco la sal y sumo…» de las 14:49: sale solo lo nuevo', () => {
     const antes = ['Saco la sal y sumo 1 × Absolut vodka clásico: $33.500, o $30.150 en efectivo o transferencia. ¿Lo retirás en la sucursal Saint Thomas o te lo enviamos?'];
@@ -45,6 +62,10 @@ describe('candado 2: nunca la misma oración dos veces', () => {
   it('los renglones de una lista y el total se pueden repetir (es la lista actualizada)', () => {
     const lista = '• 2 × Fernet Branca 750 cc\n• 1 × Coca Cola 1,75 L\nTotal: $45.000';
     expect(sinOracionesRepetidas(lista, [lista])).toBe(lista);
+  });
+  it('una pregunta pendiente no se saca aunque ya se haya hecho («¿A nombre de quién lo preparo?»)', () => {
+    expect(sinOracionesRepetidas('Te faltó el nombre. ¿A nombre de quién lo preparo?', ['Total: $45.000. ¿A nombre de quién lo preparo?']))
+      .toBe('Te faltó el nombre. ¿A nombre de quién lo preparo?');
   });
   it('si todo ya estaba dicho, no queda vacío', () => {
     expect(sinOracionesRepetidas('Te esperamos en la sucursal.', ['Te esperamos en la sucursal.'])).toBe('Te esperamos en la sucursal.');
