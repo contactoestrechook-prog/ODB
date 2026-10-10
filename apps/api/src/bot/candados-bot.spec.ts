@@ -281,6 +281,28 @@ describe('lo que queda de las capas viejas (10/10/2026)', () => {
   });
 });
 
+// (10/10/2026, revisión de la tanda 1) «otro teléfono» cortaba por oraciones a través de los
+// renglones: la oración con el número arrastraba la lista entera de arriba
+describe('otro teléfono: se va solo el renglón o la oración que lo trae', () => {
+  it('la lista con «Recibe Ana (11 5555-1234)…» abajo: la lista queda en renglones, con su pregunta', async () => {
+    const db = baseFalsa({ bot_conversaciones: { select: conv([{ role: 'assistant', content: 'Buenas noches. ¿Qué necesitás?' }]) }, lineas_whatsapp: { select: { data: CFG, error: null } }, bot_consultas_internas: CONSULTAS });
+    const lista = 'Te anoto:\n• 2 × Fernet Branca 750 cc\n• 6 × Coca Cola 1,75 L\n• 1 × Hielo 2 kg';
+    const { s } = servicio(db, final('a', `${lista}\nRecibe Ana (11 5555-1234) en Mitre 1234.\n¿Está completo el pedido o querés sumar algo?`));
+    const r = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Mandame 2 fernet, 6 coca 1,75 y 1 hielo. Recibe Ana, 11 5555-1234, Mitre 1234' });
+    expect(r.respuesta).toBe(`${lista}\n¿Está completo el pedido o querés sumar algo?`);
+  });
+
+  it('un renglón «• Consultas: 11 2521-3601» se va solo; una oración suelta con un número ajeno se saca y se consulta en silencio', async () => {
+    const a = baseFalsa({ bot_conversaciones: { select: conv([{ role: 'assistant', content: 'Buenas noches. ¿Qué necesitás?' }]) }, lineas_whatsapp: { select: { data: CFG, error: null } }, bot_consultas_internas: CONSULTAS });
+    const sa = servicio(a, final('a', 'Abrimos de 10 a 21:\n• Saint Thomas\n• Consultas: 11 2521-3601\n¿Querés retirar hoy?')).s;
+    expect((await sa.charla({ linea: 'pedidos', telefono: TEL, mensaje: '¿Hasta qué hora abren?' })).respuesta).toBe('Abrimos de 10 a 21:\n• Saint Thomas\n¿Querés retirar hoy?');
+    const b = baseFalsa({ bot_conversaciones: { select: conv([{ role: 'assistant', content: 'Buenas noches. ¿Qué necesitás?' }]) }, lineas_whatsapp: { select: { data: CFG, error: null } }, bot_consultas_internas: CONSULTAS });
+    const sb = servicio(b, final('a', 'Para eso escribí al 11 2521-3601. ¿Algo más?')).s;
+    expect((await sb.charla({ linea: 'pedidos', telefono: TEL, mensaje: '¿Hacen eventos?' })).respuesta).toBe('¿Algo más?');
+    expect(insertsDe(b, 'bot_consultas_internas')).toHaveLength(1);
+  });
+});
+
 describe('C9: el mínimo del envío es un dato de la casa (10/10/2026)', () => {
   it('«El envío es sin cargo en pedidos desde $70.000» sale tal cual y no abre una consulta falsa', async () => {
     const db = baseFalsa({ bot_conversaciones: { select: conv([{ role: 'assistant', content: 'Buenas noches. ¿Qué necesitás?' }]) }, lineas_whatsapp: { select: { data: CFG, error: null } }, bot_consultas_internas: CONSULTAS });

@@ -1448,9 +1448,11 @@ export class BotService {
     // se reemplazaba por «Administración te responde por este mismo chat.», una
     // promesa; desde el 6/10/2026 lo que mandaba a preguntar afuera se consulta en
     // silencio (red de respaldo, abajo) y al cliente no se le anuncia.
+    // (10/10/2026, revisión de la tanda 1) renglón por renglón: los renglones «• » no terminan en
+    // punto, y cortar por oraciones se llevaba la lista entera de arriba junto con el teléfono
     const RE_OTRO_TEL = /\b(?:11|15)\s?\d{4}[\s-]?\d{4}\b/;
     if (RE_OTRO_TEL.test(respuesta)) {
-      respuesta = respuesta.split(/(?<=[.!?])\s+/).filter((o) => !RE_OTRO_TEL.test(o)).join(' ').trim();
+      respuesta = sinOraciones(respuesta, (o) => RE_OTRO_TEL.test(o));
       consultarEnSilencio = true;
       this.log.warn(`el bot dio un teléfono al cliente (${telefono}): oración sacada, se consulta en silencio`);
     }
