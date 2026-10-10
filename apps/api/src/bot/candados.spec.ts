@@ -62,3 +62,28 @@ describe('candado 1: la frase que presentaba la lista no queda colgada', () => {
   });
 });
 
+
+// (10/10/2026, revisión de la tanda 1) al rearmar, se tiraban las viñetas que no son de la
+// cotización y la prosa se pegaba en un renglón: se perdía lo que no hay («de esa no tengo ahora»)
+describe('candado 1: lo que no reemplaza la lista queda, renglón por renglón', () => {
+  it('«Coca Zero» abreviado → se rearma la lista, y quedan la viñeta sin precio, el dato y la pregunta, cada uno en su renglón', () => {
+    const cot2 = {
+      renglones: [
+        { nombre: 'Coca Cola Zero 1,75 L', renglon: '8 × $4.700 c/u = $37.600', subtotal: 37600 },
+        { nombre: 'Hielo 2 kg', renglon: '2 × $2.500 c/u = $5.000', subtotal: 5000 },
+      ],
+      total: 42600,
+    };
+    const r = totalConSuLista('• Coca Zero 1,75 L — 8 × $4.700 c/u = $37.600\n• Hielo 2 kg (de 5 kg no tengo ahora) — 2 × $2.500 c/u = $5.000\n• Coca Light: de esa no tengo ahora\n*Total: $42.600*\nEl de 5 kg vuelve el lunes.\n¿Lo retirás o te lo enviamos?', cot2);
+    expect(r).toBe([
+      '• Coca Cola Zero 1,75 L — 8 × $4.700 c/u = $37.600',
+      '• Hielo 2 kg — 2 × $2.500 c/u = $5.000',
+      '',
+      'Total: $42.600',
+      '',
+      '• Coca Light: de esa no tengo ahora',
+      'El de 5 kg vuelve el lunes.',
+      '¿Lo retirás o te lo enviamos?',
+    ].join('\n'));
+  });
+});

@@ -52,13 +52,18 @@ export function totalConSuLista(respuesta: string, cot: Cotizacion): string {
   // la frase que presentaba la lista («Así queda el pedido:») queda colgada: se va (9/10/2026,
   // charla de Leandro: «Así queda el pedido: El envío es sin cargo. ¿Lo retirás…?»)
   const RE_PRESENTA_LISTA = /^(?:as[ií] (?:queda|quedar[ií]a)(?: (?:el|tu) pedido)?|(?:el |tu )?pedido (?:queda|quedar[ií]a)(?: as[ií])?|qued(?:a|ar[ií]a) as[ií]|te paso (?:la lista|el detalle|el resumen|c[oó]mo queda)|(?:el )?(?:detalle|resumen)(?: del pedido)?|la lista(?: queda)?)\s*:\s*/i;
+  // (10/10/2026, revisión de la tanda 1) renglón por renglón, y las viñetas sin precio ni «N ×»
+  // («• Coca Light: de esa no tengo ahora») se quedan: antes se tiraban todas las viñetas y la
+  // prosa se pegaba en un solo renglón (justo lo que el paso 1 del prompt pide decir en la lista)
   const resto = lineas
-    .filter((l) => !esRenglonDeLista(l))
-    .flatMap(oraciones)
-    .map((o) => o.replace(RE_PRESENTA_LISTA, ''))
-    .filter((o) => o.trim() && !reemplazada(o))
-    .map((o) => o[0].toUpperCase() + o.slice(1))
-    .join(' ')
+    .filter((l) => !esRenglonDeLista(l) || !/\$\s?\d|\d\s*[×x]\s/.test(l))
+    .map((l) => oraciones(l)
+      .map((o) => o.replace(RE_PRESENTA_LISTA, ''))
+      .filter((o) => o.trim() && !reemplazada(o))
+      .map((o) => o[0].toUpperCase() + o.slice(1))
+      .join(' '))
+    .filter(Boolean)
+    .join('\n')
     .trim();
   return [lista.join('\n'), total, resto].filter(Boolean).join('\n\n');
 }
