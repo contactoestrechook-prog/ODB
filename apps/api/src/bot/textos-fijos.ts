@@ -34,10 +34,10 @@ export const CANDADO_SIN_ARCHIVO = 'Recibido. Contame qué necesitás y lo vemos
 export const AUDIO_SIN_TRANSCRIBIR = 'Recibí tu audio.';
 export const ARCHIVO_SIN_ABRIR = 'Recibí tu archivo.';
 
-/** El cliente pidió hablar con una persona y la derivación ya quedó hecha (si la reescritura no sale). */
+/** El cliente pidió hablar con una persona y la derivación ya quedó hecha (siempre la frase fija, sin reescribir: 10/10/2026). */
 // 9/10/2026 («más seca la charla»): sin presentarse
 export const DERIVACION_PEDIDA = 'Te paso con una persona de la casa.';
-/** El bot iba a repetir dos veces el mismo mensaje: la charla pasa a una persona. */
+/** En el turno se derivó a una persona y la limpieza final dejó la respuesta vacía. */
 export const PASA_A_UNA_PERSONA = 'Te paso con una persona del local.';
 
 /**

@@ -833,3 +833,109 @@ describe('revisión (6/10/2026): textos fijos y lo que necesita main', () => {
     expect(conAviso('Pedido RET-1 confirmado.', 'Alias: x')).toBe('Pedido RET-1 confirmado.\n\nAlias: x');
   });
 });
+
+// ============================================================
+// PAGOS Y DERIVACIÓN (10/10/2026, tanda 1 de «basta de capas viejas»: C2 y C3). Lo que
+// hoy podía decirle al cliente «Recibimos tu pago» sin pago, o perder un comprobante.
+// ============================================================
+describe('C2: pide una persona o reclama plata', () => {
+  const armar = (o: { modelo: any[]; cliente?: any } = { modelo: [] }) => {
+    const db = baseFalsa({
+      bot_conversaciones: { select: conv(HOLA) },
+      lineas_whatsapp: { select: { data: CFG, error: null } },
+      alertas_internas: { select: { data: null, error: null } },
+      bot_consultas_internas: { select: { data: [], error: null }, insert: { data: { id: 'q-1' }, error: null } },
+    });
+    const { s, wsp } = servicio(db);
+    if (o.cliente) s.identificarCliente = jest.fn(async () => o.cliente);
+    s.derivarAHumano = jest.fn(async () => ({ derivado: true }));
+    const create = claudeCon(...o.modelo);
+    s.claude = { messages: { create } };
+    return { db, s, wsp, create };
+  };
+
+  it('«Hola, ¿con quién hablo?» no deriva ni apaga el bot: lo contesta el modelo', async () => {
+    const { s, db } = armar({ modelo: [texto('Soy Emilia, la asistente de O.D.B. ¿Qué necesitás?')] });
+    const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Hola, ¿con quién hablo?' });
+    expect(s.derivarAHumano).not.toHaveBeenCalled();
+    expect(r.respuesta).toBe('Soy Emilia, la asistente de O.D.B. ¿Qué necesitás?');
+    expect(insertsDe(db, 'bot_pagos_en_confirmacion')).toHaveLength(0);
+  });
+
+  it('«¿con quién puedo hablar?» sí deriva', async () => {
+    const { s } = armar({ modelo: [texto('')] });
+    const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: '¿Con quién puedo hablar por un pedido grande?' });
+    expect(s.derivarAHumano).toHaveBeenCalledTimes(1);
+    expect(r.respuesta).toBe(TEXTO.DERIVACION_PEDIDA);
+  });
+
+  it('un cliente conocido escribe «hago la transferencia»: no abre un pago en administración (su «ok» le llegaba como «Recibimos tu pago»)', async () => {
+    const { s, db, wsp } = armar({ modelo: [texto('Dale, mandalo por acá.')], cliente: { existe: true, nombre: 'Pablo', clienteId: 'c-1' } });
+    const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'En 10 minutos llego a la compu y hago la transferencia' });
+    expect(r.respuesta).toBe('Dale, mandalo por acá.');
+    expect(insertsDe(db, 'bot_pagos_en_confirmacion')).toHaveLength(0);
+    expect(insertsDe(db, 'alertas_internas')).toHaveLength(0);
+    expect(wsp).not.toHaveBeenCalled();
+  });
+
+  it('pide una persona con un borrador: la frase fija, sin reescribir (una sola llamada al modelo)', async () => {
+    const { s, create } = armar({ modelo: [texto('El Fernet Branca 750 cc sale $20.500.')] });
+    const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: '¿Tenés fernet? Quiero hablar con alguien' });
+    expect(s.derivarAHumano).toHaveBeenCalledTimes(1);
+    expect(r.respuesta).toBe(TEXTO.DERIVACION_PEDIDA);
+    expect(create).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('C3: el comprobante no se pierde', () => {
+  const armar = (modelo: any[]) => {
+    const db = baseFalsa({
+      bot_conversaciones: { select: conv(HOLA) },
+      lineas_whatsapp: { select: { data: CFG, error: null } },
+      alertas_internas: { select: { data: null, error: null } },
+      bot_pagos_en_confirmacion: { select: { data: [], error: null } },
+      bot_consultas_internas: { select: { data: [], error: null }, insert: { data: { id: 'q-1' }, error: null } },
+    });
+    const { s, wsp } = servicio(db);
+    s.claude = { messages: { create: claudeCon(...modelo) } };
+    return { db, s, wsp };
+  };
+  const PREGUNTA = '¿A nombre de quién figura la transferencia?';
+
+  it('comprobante sin nombre (no se pudo registrar): no sale «Recibido.»; sale la pregunta del modelo', async () => {
+    const { s, db } = armar([
+      conHerramientas(herramienta('d1', 'derivar_pago', { tipo: 'comprobante_enviado', monto: 50000, motivo: 'Dice que transfirió $50.000' })),
+      texto(PREGUNTA),
+    ]);
+    const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Ya te pasé el comprobante de $50.000' });
+    expect(r.respuesta).toBe(PREGUNTA);
+    expect(r.respuesta).not.toBe(TEXTO.RECIBIDO);
+    expect(insertsDe(db, 'bot_pagos_en_confirmacion')).toHaveLength(0);
+  });
+
+  it('el reintento con de_quien en el mismo turno SÍ se registra (la marca va después de registrarlo) y entonces «Recibido.»', async () => {
+    const { s, db, wsp } = armar([
+      conHerramientas(herramienta('d1', 'derivar_pago', { tipo: 'comprobante_enviado', monto: 50000, motivo: 'Transfirió $50.000' })),
+      conHerramientas(herramienta('d2', 'derivar_pago', { tipo: 'comprobante_enviado', monto: 50000, motivo: 'Transfirió $50.000', de_quien: 'Pablo Gómez' })),
+      texto(''),
+    ]);
+    const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Ya te pasé el comprobante de $50.000, a nombre de Pablo Gómez' });
+    expect(r.respuesta).toBe(TEXTO.RECIBIDO);
+    expect(insertsDe(db, 'bot_pagos_en_confirmacion')).toHaveLength(1);
+    expect(wsp.mock.calls.some(([p]: any[]) => p.to === ADMIN && /Pablo Gómez/.test(String(p.text)))).toBe(true);
+  });
+
+  it('comprobante con el monto ilegible: igual le llega a administración con el archivo, y al cliente «Recibido.»', async () => {
+    const { s, db, wsp } = armar([
+      conHerramientas(herramienta('d1', 'derivar_pago', { tipo: 'comprobante_enviado', monto: 0, motivo: 'Mandó un comprobante; no se lee el monto' })),
+      texto(''),
+    ]);
+    const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: '', archivoBase64: 'aW1hZ2Vu', mimeType: 'image/jpeg', archivoUrl: 'https://x.supabase.co/publico/whatsapp/1/comprobante.jpg' });
+    expect(r.respuesta).toBe(TEXTO.RECIBIDO);
+    const alArea = wsp.mock.calls.map(([p]: any[]) => p).find((p: any) => p.to === ADMIN);
+    expect(alArea).toBeTruthy();
+    expect(alArea.imagenUrl).toBe('https://x.supabase.co/publico/whatsapp/1/comprobante.jpg');
+    expect(alArea.text).toMatch(/Comprobante recibido/);
+    expect(insertsDe(db, 'bot_pagos_en_confirmacion')).toHaveLength(1);
+  });
+});

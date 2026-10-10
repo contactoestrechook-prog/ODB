@@ -1311,8 +1311,10 @@ export class BotService {
     // C (ronda 11): la derivación no puede depender del criterio del modelo — en
     // 5 de 8 charlas no derivó cuando correspondía. Si el cliente pide hablar con
     // alguien o reclama plata/faltante/factura y el turno no derivó, se deriva acá.
-    const PIDE_HUMANO = RE_PIDE_HUMANO;
-    const RECLAMO_PLATA = RE_RECLAMO_PLATA;
+    // (10/10/2026) «¿con quién hablo?» pregunta quién atiende, no pide una persona: lo
+    // contesta el modelo («Soy Emilia…») y el bot no se apaga. Siguen derivando «con quién
+    // puedo hablar», «quiero hablar con…», «pasame con…».
+    const pideHumano = RE_PIDE_HUMANO.test(texto.replace(/con qui[eé]n hablo\b/gi, ' '));
     // PREGUNTAR NO ES RECLAMAR (6/10/2026, revisión). «¿Me pueden hacer factura A
     // a nombre de mi empresa?» o «¿Puedo pagar por transferencia?» nombran la
     // palabra pero no son un reclamo de plata: iban al circuito de pagos, el «No
@@ -1320,24 +1322,27 @@ export class BotService {
     // factura A» de administración le llegaba al cliente como «Recibimos tu pago».
     // Esas preguntas las contesta el modelo (o las consulta en silencio).
     const PREGUNTA_DE_MEDIO = /\b(?:hacen|hac[eé]s|emiten|emit[ií]s|dan|entregan|aceptan|acept[aá]s|toman|reciben|tienen|trabajan\s+con|puedo\s+(?:pagar|abonar)|se\s+puede\s+(?:pagar|abonar)|(?:pagar|pago|abonar|abono)\s+(?:con|por|en)|(?:me\s+)?(?:pueden|pod[eé]s|podr[ií]an|podr[ií]as)\s+(?:hacer|emitir|dar|mandar|enviar))\b[^.?!\n]{0,40}\b(?:factura\w*|transferencia)\b/gi;
-    const sinPreguntasDeMedio = texto.replace(PREGUNTA_DE_MEDIO, ' ');
-    const reclamaPlata = RECLAMO_PLATA.test(sinPreguntasDeMedio);
+    // «transferencia» sola tampoco es un reclamo (10/10/2026): «hago la transferencia» abría
+    // un pago en administración y su «ok» le llegaba al cliente como «Recibimos tu pago» sin
+    // haber pagado. Las transferencias las deriva el modelo con derivar_pago (prompt, paso 6).
+    const sinPreguntasDeMedio = texto.replace(PREGUNTA_DE_MEDIO, ' ').replace(/\btransferencias?\b/gi, ' ');
+    const reclamaPlata = RE_RECLAMO_PLATA.test(sinPreguntasDeMedio);
     // la factura sola, en la línea de clientes, no es plata: es un pedido a
     // administración y su respuesta tiene que llegarle al cliente (por las
     // consultas; en el circuito de pagos un «listo» salía como «Recibimos tu pago»)
-    const soloFactura = tipoLinea === 'pedidos' && reclamaPlata && !RECLAMO_PLATA.test(sinPreguntasDeMedio.replace(/\bfactura\w*/gi, ' '));
+    const soloFactura = tipoLinea === 'pedidos' && reclamaPlata && !RE_RECLAMO_PLATA.test(sinPreguntasDeMedio.replace(/\bfactura\w*/gi, ' '));
     const yaDerivo = herramientasDelTurno.has('derivar_a_humano') || herramientasDelTurno.has('derivar_pago');
     // basta con que el mensaje sea de plata: un proveedor reclamando una factura
     // no dice "vergüenza" ni "faltante", y en la ronda 12 se fue sin escalar
-    if (!yaDerivo && soloFactura && !PIDE_HUMANO.test(texto) && !respuestaFija.consultaPendiente) {
+    if (!yaDerivo && soloFactura && !pideHumano && !respuestaFija.consultaPendiente) {
       try {
         const c = await this.consultarInterno(linea, telefono, 'administracion', `El cliente pide por una factura: «${texto.slice(0, 400)}»`, '', dto.archivoUrl, 'la factura');
         if (c?.consultado) { respuestaFija.consultaPendiente = true; anotarTemaDeConsulta(respuestaFija, c); }
         this.log.log(`pedido de factura de ${telefono}: consultado en silencio a administración`);
       } catch (e: any) { this.log.warn(`consulta por la factura de ${telefono} falló: ${e?.message ?? e}`); }
-    } else if (!yaDerivo && (PIDE_HUMANO.test(texto) || reclamaPlata)) {
+    } else if (!yaDerivo && (pideHumano || reclamaPlata)) {
       try {
-        const motivo = `${PIDE_HUMANO.test(texto) ? 'El cliente pide hablar con una persona' : 'Reclamo de dinero'}: "${texto.slice(0, 200)}"`;
+        const motivo = `${pideHumano ? 'El cliente pide hablar con una persona' : 'Reclamo de dinero'}: "${texto.slice(0, 200)}"`;
         if (reclamaPlata) {
           // administración queda avisada por adentro y al cliente no se le
           // anuncia (6/10/2026): si no queda nada más que decir, «Recibido.». Antes
@@ -1347,26 +1352,14 @@ export class BotService {
           if ((r as any)?.derivado) respuestaFija.pagoEnAdministracion = true;
         } else {
           await this.derivarAHumano(linea, telefono, motivo, false);
-          // SIN BORRADOR NO HAY QUÉ REESCRIBIR (revisión del 6/10/2026). Tras un
-          // rechazo de seguridad (o un pago en manos de administración) la
-          // respuesta está vacía: un mensaje del asistente vacío es un 400 de la
-          // API, el catch se lo tragaba, el cliente no recibía «Te paso con una
-          // persona» y la derivación quedaba sin marcar. Va la frase fija.
-          if (!respuesta.trim()) {
-            respuesta = TEXTO.DERIVACION_PEDIDA;
-          } else {
-            // no se pega la frase al final: el mensaje quedaba contradictorio
-            // ("por este canal lo atiendo yo" + "ya lo paso con una persona").
-            // Se regenera sabiendo que la derivación YA está hecha.
-            messages.push({ role: 'assistant', content: respuesta });
-            // 6/10/2026: sin «tomo tu consulta y doy aviso al sector»
-            messages.push({ role: 'user', content: '[nota interna: el cliente pidió hablar con una persona y la derivación YA quedó hecha. Reescribí el mensaje completo, coherente con eso: primero decí que sos el asistente automático si te lo preguntó, y después, en una línea, que lo pasás con una persona de la casa («Te paso con una persona de la casa.»), sin prometer cuándo ni decir que avisás a nadie o que le van a responder. No ofrezcas seguir atendiéndolo vos ni preguntes "¿en qué puedo ayudarlo?".]' });
-            const tD = await this.regenerar(system, messages, tools, sumarUso);
-            respuesta = tD ?? TEXTO.DERIVACION_PEDIDA;
-          }
+          // LA FRASE FIJA, SIN REESCRIBIR (10/10/2026). Antes, con borrador, se le pedía al
+          // modelo reescribir «sabiendo que la derivación ya está hecha» (y que dijera que era
+          // el asistente automático); sin borrador, tras un rechazo, iba la frase fija. Ahora
+          // va siempre la frase fija: la persona que toma la charla ve el resto en RESPONDE.
+          respuesta = TEXTO.DERIVACION_PEDIDA;
           respuestaFija.derivada = true;
         }
-        this.log.log(`derivación automática para ${telefono}: ${PIDE_HUMANO.test(texto) ? 'pidió humano' : 'reclamo de plata'}`);
+        this.log.log(`derivación automática para ${telefono}: ${pideHumano ? 'pidió humano' : 'reclamo de plata'}`);
       } catch (e: any) { this.log.warn(`derivación automática falló: ${e?.message ?? e}`); }
     }
 
@@ -2281,7 +2274,8 @@ export class BotService {
           // quiere_pagar no se corta acá (6/10/2026, revisión): el alias es un dato de
           // la casa, y si no está cargado se pide en silencio (derivarPago); antes, a
           // los 5 min de «¿les llegó la transferencia?», «pasame el alias» quedaba sin alias
-          if (yaDeriv && tipoPago !== 'quiere_pagar' && !(tipoPago === 'comprobante_enviado' && monto > 0)) {
+          // (un comprobante con archivo es nuevo aunque no se lea el monto, 10/10/2026)
+          if (yaDeriv && tipoPago !== 'quiere_pagar' && !(tipoPago === 'comprobante_enviado' && (monto > 0 || !!ctx.archivo || !!ctx.archivoUrl))) {
             // 6/10/2026: sin «decile que administración le confirma por acá»; si no queda nada más, «Recibido.»
             out = { derivado: true, aviso: 'Administración ya tiene este mismo tema desde hace un momento. Al cliente no le digas nada de eso (ni que avisaste, ni que le van a confirmar) ni le des ningún número: contestá solo lo nuevo de su mensaje; si no hay nada nuevo, el sistema le contesta «Recibido.».' };
             if (ctx.fija) ctx.fija.pagoEnAdministracion = true;
@@ -2296,7 +2290,9 @@ export class BotService {
             if (ctx.fija && ctx.fallos?.get('__pedido_creado__') !== 1) ctx.fija.texto = 'Recibido.';
             break;
           }
-          if (tipoPago === 'comprobante_enviado') ctx.fallos?.set('__comprobante__', 1);
+          // (la marca de «comprobante ya registrado en el turno» se pone DESPUÉS de registrarlo,
+          // abajo: puesta antes, si faltaba el nombre, el reintento con de_quien se tomaba como
+          // repetido y el pago no llegaba nunca a administración; 10/10/2026)
           // EL COMPROBANTE CONFIRMA EL PEDIDO (decisión de Leandro, 5/10/2026): el
           // archivo vino en ESTE turno y es de un resumen que el cliente vio con
           // «¿Lo confirmo?», por el total de lista o el de efectivo. Las guardas
@@ -2335,9 +2331,12 @@ export class BotService {
           if (porComprobante?.creado) {
             out = { ...(out as any), pedidoCreado: porComprobante.creado.codigo, aviso: `El comprobante coincide con el resumen: el pedido ${porComprobante.creado.codigo} quedó confirmado y la respuesta al cliente la arma el sistema. No llames preparar_pedido ni crear_pedido.` };
           }
+          if (tipoPago === 'comprobante_enviado' && ((out as any)?.derivado || porComprobante?.creado)) ctx.fallos?.set('__comprobante__', 1);
           // un comprobante se contesta con una palabra, y la pone el código (si
-          // el pedido quedó creado en este turno, va su confirmación)
-          if (tipoPago === 'comprobante_enviado' && ctx.fija && ctx.fallos?.get('__pedido_creado__') !== 1) ctx.fija.texto = 'Recibido.';
+          // el pedido quedó creado en este turno, va su confirmación). Si no se pudo
+          // registrar porque falta de quién es el pago, no hay «Recibido.»: va la
+          // pregunta del modelo («¿A nombre de quién figura la transferencia?», 10/10/2026)
+          if (tipoPago === 'comprobante_enviado' && ctx.fija && !(out as any)?.faltaIdentidad && ctx.fallos?.get('__pedido_creado__') !== 1) ctx.fija.texto = 'Recibido.';
           // CONSULTA O RECLAMO DE UN PAGO (5/10/2026, revisión): derivarPago le
           // pedía al modelo «Recibido, le confirmo por acá.», que la red de
           // respaldo tomaba como promesa y abría OTRA consulta. Administración ya
@@ -3264,7 +3263,9 @@ export class BotService {
     // "Recibido." y nada más): el archivo mismo dice quién transfirió y le llega
     // adjunto a administración, así que no es un teléfono pelado. Va con el
     // nombre de WhatsApp si no hay otro.
-    const conArchivo = esComprobante && !!extra.comprobanteUrl;
+    // (10/10/2026) un comprobante con el monto ilegible igual va, con el archivo adjunto:
+    // antes pedía monto > 0 y ese pago no le llegaba a nadie
+    const conArchivo = tipo === 'comprobante_enviado' && !!extra.comprobanteUrl;
     if (!nombre && conArchivo) nombre = extra.deQuien = `${await this.nombreDeContacto(telefono)} (ver comprobante adjunto)`;
     if (!nombre && !conArchivo) {
       return {
@@ -3289,7 +3290,7 @@ export class BotService {
     await this.insertarAlerta({
       para_usuario: cfg?.avisar_proveedores_a ?? null,
       tipo: 'pago',
-      titulo: esComprobante ? `Comprobante de $${Math.round(monto).toLocaleString('es-AR')} de ${nombre ?? bonitoTelefono(telefono)}` : `Consulta de pago de ${nombre ?? bonitoTelefono(telefono)}`,
+      titulo: esComprobante ? `Comprobante de $${Math.round(monto).toLocaleString('es-AR')} de ${nombre ?? bonitoTelefono(telefono)}` : conArchivo ? `Comprobante (monto sin leer) de ${nombre ?? bonitoTelefono(telefono)}` : `Consulta de pago de ${nombre ?? bonitoTelefono(telefono)}`,
       detalle: `${motivo}${extra.comprobanteUrl ? ` · ${extra.comprobanteUrl}` : ''}${cobranzaId ? ' · quedó en Cobros a ingresar' : ''}`,
       referencia: { linea, telefono, monto: monto || null, cobranzaId, comprobanteUrl: extra.comprobanteUrl ?? null },
     });
@@ -3300,7 +3301,7 @@ export class BotService {
     if (adminWsp.length >= 10) {
       const deLinea = await this.lineas.etiqueta(linea).catch(() => '');
       const lineas = [
-        esComprobante ? `💳 Comprobante recibido por WhatsApp` : tipo === 'proveedor_factura' ? `🧾 Proveedor por una factura` : `💳 Consulta de pago`,
+        esComprobante || conArchivo ? `💳 Comprobante recibido por WhatsApp` : tipo === 'proveedor_factura' ? `🧾 Proveedor por una factura` : `💳 Consulta de pago`,
         `De: ${nombre ?? 'sin identificar'} · +${telefono}`,
         monto > 0 ? `Monto: $${Math.round(monto).toLocaleString('es-AR')}` : null,
         motivo,
@@ -3341,7 +3342,7 @@ export class BotService {
       await this.derivarAHumano(linea, telefono, `Tema de pago: ${motivo}`, true);
     }
 
-    const queDecir = esComprobante
+    const queDecir = esComprobante || conArchivo
       ? 'Respondé exactamente "Recibido." y nada más.'
       // 6/10/2026 (consulta silenciosa): al cliente no se le anuncia que administración lo tiene
       : 'Al cliente no le digas nada de esto (ni que avisaste, ni que lo verifican, ni que le van a confirmar): contestá solo lo demás de su mensaje, si hay algo más; si no, el sistema le contesta «Recibido.».';
