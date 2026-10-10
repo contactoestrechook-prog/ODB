@@ -3317,25 +3317,11 @@ export class BotService {
         hayFaltantes = true;
         continue;
       }
-      // ¿es lo que el cliente pidió, o un reemplazo que nunca anunció?
+      // ¿es lo que el cliente pidió? Si es otra medida o variedad, se cotiza igual y el
+      // bot lo aclara en el renglón, SIN preguntar (Leandro, 10/10/2026: «que no pregunte
+      // tanto, que resuelva; si no encuentra de un litro le ponemos dos de 500»). Antes
+      // esto bloqueaba el precio hasta que el cliente aceptara el reemplazo.
       const desvio = ctxCliente?.textoCliente ? desvioDeLoPedido(p.nombre, ctxCliente.textoCliente) : null;
-      if (desvio) {
-        // ¿el bot ya avisó del reemplazo? Se compara por MARCA (la palabra
-        // significativa del nombre), no por un prefijo fijo de 18 caracteres:
-        // "cerveza amstel lag" nunca matcheaba lo que el bot había escrito.
-        const normT = (t: string) => t.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-        const marcaProd = normT(String(p.nombre)).split(/\s+/).find((w) => w.length >= 4 && !/^(cerveza|vino|agua|gaseosa|fernet|whisky|vodka|licor|espumante|jugo|lata|botella)$/.test(w)) ?? '';
-        const yaLoAnuncio = (ctxCliente?.ultimosBot ?? []).some((b) => {
-          const nb = normT(b);
-          return (!!marcaProd && nb.includes(marcaProd)) && /(no (la|lo|las|los)? ?tengo|no tenemos|no hay|en su lugar|le cotizo|alternativa|reemplaz|le sirve|le ofrezco|¿va\?)/.test(nb);
-        });
-        const acepto = /\b(dale|si|sí|ok|va|bueno|perfecto|esa|ese|listo|sirve|me sirve)\b/i.test(String(ctxCliente?.textoCliente ?? '')) && yaLoAnuncio;
-        if (!acepto) {
-          renglones.push({ sku, nombre: p.nombre, cantidad, reemplazo_no_confirmado: true, error: `NO cotices esto todavía: ${desvio}. Decíselo en la primera línea ("la de X no la tengo; ¿le cotizo la de Y a $Z?") y esperá que acepte. Recién después pedí el total.` });
-          hayFaltantes = true;
-          continue;
-        }
-      }
       const subtotal = Math.round(unitario * cantidad * 100) / 100;
       total += subtotal;
       const conDescuento = !mayorista && tieneDescuentoEfectivo((prod as any)?.categoria?.nombre);
@@ -3356,6 +3342,7 @@ export class BotService {
         stockDisponible: disponible,
         alcanzaElStock: disponible >= cantidad,
         ...(disponible < cantidad ? { aviso: `No alcanza el stock para ${cantidad}. NO le digas al cliente cuántas hay ni dónde: decile que esa cantidad no la tenés disponible ahora y llamá consultar_interno, sin decirle nada de eso al cliente (ni que lo consultás, ni que le vas a confirmar). No prometas lo que no hay.` } : {}),
+        ...(desvio ? { reemplazo: `Es un reemplazo (${desvio}): aclaralo en su renglón, sin preguntar («no hay de 1 L»). Si es otra medida, la cantidad tiene que llegar a lo que pidió (1 L = 2 × 500 ml).` } : {}),
       });
       if (disponible < cantidad) hayFaltantes = true;
     }
@@ -3371,7 +3358,6 @@ export class BotService {
       hayFaltantes,
       sucursalId: sucPickId,
       sucursalDeSalida: sucPickNombre,
-      ...(renglones.some((r: any) => r.reemplazo_no_confirmado) ? { reemplazoSinConfirmar: 'HAY UN RENGLÓN QUE NO ES LO QUE EL CLIENTE PIDIÓ: no des ningún total ni pases a retiro/domicilio hasta que acepte el reemplazo.' } : {}),
       aclaracion: `Este total lo calculó el sistema. Informalo tal cual, sin rehacer la cuenta. Cada precio es por UNIDAD DE VENTA del SKU. Respetá unidad, presentacion y unidadesPorVenta de cada renglón; no deduzcas el contenido de un envase por su nombre. Los renglones con error no están cotizados; el total es parcial y no permite confirmar el pedido completo. Cada renglón viene formateado en "renglon": usalo tal cual (2 × $20.500 c/u = $41.000). El stock es interno: nunca le digas al cliente cantidades ni sucursales.${hayFaltantes ? ' HAY RENGLONES SIN STOCK SUFICIENTE: decile que esa cantidad no la tenés disponible ahora, sin decir cuántas hay.' : ''} El envío es SIN CARGO: el total que informás es todo lo que paga, no agregues costo de entrega ni digas que "va aparte".`,
     };
   }
