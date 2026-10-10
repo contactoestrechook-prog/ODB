@@ -139,3 +139,13 @@ describe('contestar el cierre es dar el pedido por completo (Leandro, 10/10/2026
     expect(puedeCotizar('Leandro', ['¿A nombre de quién lo preparo?'], [])).toBe(false);
   });
 });
+
+describe('la forma de pago va en la primera pregunta (Leandro, 10/10/2026)', () => {
+  const LISTA = '• 2 × Fernet Branca 750 cc\n• 6 × Coca Cola 1,75 L\n\n¿Querés sumar algo y cómo lo pagás: efectivo, transferencia o tarjeta?';
+  it('«efectivo», «transferencia», «con tarjeta» a esa pregunta: ya se puede cotizar', () => {
+    for (const t of ['efectivo', 'transferencia', 'con tarjeta', 'en efectivo, gracias']) expect([t, puedeCotizar(t, [LISTA], [])]).toEqual([t, true]);
+  });
+  it('si suma algo al contestar, todavía no', () => {
+    expect(puedeCotizar('efectivo, y sumame 2 hielos', [LISTA], [])).toBe(false);
+  });
+});

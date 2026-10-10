@@ -94,7 +94,7 @@ const PREFIJO_VIVO_MS = 60 * 60_000;
 function marcaDelPrefijo(): Anthropic.CacheControlEphemeral {
   return process.env.ODB_BOT_CACHE_PREFIJO === '1h' ? { type: 'ephemeral', ttl: '1h' } : { type: 'ephemeral' };
 }
-const TODAVIA_SIN_PRECIOS = 'TODAVÍA NO PASES PRECIOS (regla del dueño): primero confirmá que el pedido está completo. Respondé con la lista de lo que anotaste, un renglón por producto «• cantidad × producto puntual», SIN precios ni total, y la pregunta «¿Está completo el pedido o querés sumar algo?». Si algo no tiene stock o hay que elegir variante, decilo en esa lista. Recién cuando el cliente confirme que está completo, cotizar_pedido.';
+const TODAVIA_SIN_PRECIOS = 'TODAVÍA NO PASES PRECIOS (regla del dueño): primero confirmá que el pedido está completo. Respondé con la lista de lo que anotaste, un renglón por producto «• cantidad × producto puntual», SIN precios ni total, y una sola pregunta: «¿Querés sumar algo y cómo lo pagás: efectivo, transferencia o tarjeta?» (si ya dijo cómo paga, solo «¿Querés sumar algo?»). Si algo no tiene stock o hay que elegir variante, decilo en esa lista. Recién cuando el cliente confirme que está completo, cotizar_pedido.';
 
 
 /**
