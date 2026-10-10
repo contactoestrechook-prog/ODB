@@ -220,9 +220,10 @@ function trozosDeTexto(texto: string): string[] {
   return out;
 }
 
-export function envioSinCargo(t: string): string {
+export function envioSinCargo(t: string, minimo = 70000): string {
   const texto = String(t ?? '');
   if (!RE_ENVIO.test(texto)) return texto;
+  const monto = '$' + minimo.toLocaleString('es-AR');
   // se corta en frases y cláusulas CONSERVANDO el separador (antes el join se
   // comía los espacios y salía "El envío es sin cargo.Recibe Catalina.")
   const trozos = trozosDeTexto(texto);
@@ -241,12 +242,31 @@ export function envioSinCargo(t: string): string {
     yaLoDijo = true;
     return `El envío es sin cargo.${espacio}`;
   });
-  if (!cambio) return texto;
-  return salida.join('')
+  if (!cambio) return conElMinimo(texto, monto);
+  return conElMinimo(salida.join('')
     .replace(/(?:^|(?<=[.\n]\s))(?:este\s+)?es\s+el\s+total\s+de\s+la\s+mercader[ií]a\s*[;,:]?\s*(?=El envío es sin cargo)/gi, '')
     .replace(/([;,])\s*El envío es sin cargo\./g, '$1 el envío es sin cargo.')
     .replace(/[ \t]{2,}/g, ' ').replace(/ +\n/g, '\n').replace(/\n +/g, '\n')
-    .trim();
+    .trim(), monto);
+}
+
+// SIN CARGO, DESDE EL MÍNIMO (Leandro, 9/10/2026: «la compra mínima para el envío sin
+// cargo son 70.000 pesos»; el bot contestó «Sí, el envío es siempre sin cargo»). Lo que
+// diga que el envío es sin cargo lleva el mínimo, y nunca «siempre». No se toca el
+// resumen ni la confirmación de un envío («Envío sin cargo a Mitre 1234»): ya lo pasa.
+function conElMinimo(t: string, monto: string): string {
+  if (!t || t.includes(monto) || /\bsin cargo a\s+\S/i.test(t)) return t;
+  // un pedido que ya pasa el mínimo (su total está en el mensaje): no hace falta aclararlo
+  const minimo = Number(monto.replace(/\D/g, ''));
+  const montos = [...t.matchAll(/\$\s?(\d{1,3}(?:\.\d{3})+|\d+)/g)].map((m) => Number(m[1].replace(/\./g, '')));
+  if (montos.some((n) => n >= minimo)) return t;
+  let hecho = false;
+  return t.split('\n').map((linea) => linea.split(/(?<=[.!?])(\s+)/).map((o) => {
+    if (hecho || !/\b(?:env[ií]os?|reparto|delivery)\b/i.test(o) || !/\b(?:sin cargo|gratis|sin costo|no tiene costo|no se cobra)\b/i.test(o)) return o;
+    hecho = true;
+    return o.replace(/\bsiempre\s+/i, '').replace(/\s+siempre\b/i, '')
+      .replace(/\b(sin cargo|gratis|sin costo|no tiene costo|no se cobra)\b/i, `$1 en pedidos desde ${monto}`);
+  }).join('')).join('\n');
 }
 
 // Si el cliente PREGUNTA por el costo del envío, la respuesta es un dato que la

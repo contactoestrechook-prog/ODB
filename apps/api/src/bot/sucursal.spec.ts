@@ -28,8 +28,8 @@ describe('el envío en ODB es sin cargo', () => {
     expect(envioSinCargo('*Total: $176.000*\n\nEs el total de la mercadería; el envío va aparte.'))
       .toBe('*Total: $176.000*\n\nEl envío es sin cargo.');
     expect(envioSinCargo('El total de $13.650 corresponde a la mercadería; el costo del envío lo define el sector de reparto, ya avisado.'))
-      .toBe('El total de $13.650 corresponde a la mercadería; el envío es sin cargo.');
-    expect(envioSinCargo('El costo del envío no está incluido: lo define el sector de reparto.')).toBe('El envío es sin cargo.');
+      .toBe('El total de $13.650 corresponde a la mercadería; el envío es sin cargo en pedidos desde $70.000.');
+    expect(envioSinCargo('El costo del envío no está incluido: lo define el sector de reparto.')).toBe('El envío es sin cargo en pedidos desde $70.000.');
     for (const frase of [
       'El envío tiene un costo de $3.500.',
       'El envío sale $4.000 según la zona.',
@@ -38,19 +38,22 @@ describe('el envío en ODB es sin cargo', () => {
       'La entrega tiene un recargo.',
       'El envío no está incluido en el total.',
     ]) {
-      expect(envioSinCargo(frase)).toBe('El envío es sin cargo.');
+      expect(envioSinCargo(frase)).toBe('El envío es sin cargo en pedidos desde $70.000.');
     }
   });
   it('no toca lo que ya está bien ni la forma de pago', () => {
     for (const frase of [
-      'Total: $13.650. El envío es sin cargo. ¿Lo confirmo?',
       'Te lo enviamos mañana a la mañana.',
       'Se abona al recibir el envío, en efectivo o con tarjeta.',
       'El envío sale hoy después de las 18.',
-      'El envío es gratis.',
+      'Total: $99.300. El envío es sin cargo. ¿Lo retirás o te lo enviamos?',
+      'Envío sin cargo a Mitre 1234. Recibe Leandro.',
     ]) {
       expect(envioSinCargo(frase)).toBe(frase);
     }
+    // sin un total que ya pase el mínimo, el mínimo se dice (9/10/2026)
+    expect(envioSinCargo('Total: $13.650. El envío es sin cargo. ¿Lo confirmo?')).toBe('Total: $13.650. El envío es sin cargo en pedidos desde $70.000. ¿Lo confirmo?');
+    expect(envioSinCargo('El envío es gratis.')).toBe('El envío es gratis en pedidos desde $70.000.');
   });
   it('NO toca la oración del total ni la del reemplazo (Catalina, 21/9/2026)', () => {
     for (const frase of [
@@ -62,15 +65,15 @@ describe('el envío en ODB es sin cargo', () => {
   });
   it('conserva los espacios y no repite la frase', () => {
     expect(envioSinCargo('El envío es sin cargo. Recibe Catalina. El envío va aparte. ¿Lo confirmo?'))
-      .toBe('El envío es sin cargo. Recibe Catalina. ¿Lo confirmo?');
+      .toBe('El envío es sin cargo en pedidos desde $70.000. Recibe Catalina. ¿Lo confirmo?');
     expect(envioSinCargo('Recibe Catalina. El envío tiene un costo de $3.500. ¿Lo confirmo?'))
-      .toBe('Recibe Catalina. El envío es sin cargo. ¿Lo confirmo?');
+      .toBe('Recibe Catalina. El envío es sin cargo en pedidos desde $70.000. ¿Lo confirmo?');
   });
   it('en un mensaje largo corrige solo la oración del costo', () => {
     const t = 'Pedido confirmado, código DOM-YD5GNY. El total de $13.650 corresponde a la mercadería; el costo del envío lo define el sector de reparto. Se abona al recibir, en efectivo o con tarjeta.';
     const r = envioSinCargo(t);
     expect(r).toMatch(/^Pedido confirmado, código DOM-YD5GNY\./);
-    expect(r).toMatch(/el envío es sin cargo\./);
+    expect(r).toMatch(/el envío es sin cargo en pedidos desde \$70\.000\./);
     expect(r).toMatch(/Se abona al recibir, en efectivo o con tarjeta\.$/);
     expect(r).not.toMatch(/sector de reparto/);
   });
@@ -391,5 +394,20 @@ describe('revisión del aviso (5/10/2026): sumar sin perder lo último y sin rep
     expect(t.startsWith('ORIGINAL: ¿hay Café Cabrales molido?')).toBe(true);
     expect(t).toContain('suma 8');
     expect(juntarConsulta('a', 'b')).toBe('a\n+ b');
+  });
+});
+
+describe('sin cargo, desde el mínimo (Leandro, 9/10/2026: «la compra mínima para el envío sin cargo son 70.000 pesos»)', () => {
+  it('22:21 «¿Siempre es sin cargo el envío?» → nunca «siempre»: con el mínimo', () => {
+    expect(envioSinCargo('Sí, el envío es siempre sin cargo.')).toBe('Sí, el envío es sin cargo en pedidos desde $70.000.');
+  });
+  it('22:15 «El envío es sin cargo. Si querés que te lo mandemos…» → con el mínimo, una sola vez', () => {
+    expect(envioSinCargo('El envío es sin cargo. Si querés que te lo mandemos, pasame el nombre de quien recibe y la dirección con calle y número.'))
+      .toBe('El envío es sin cargo en pedidos desde $70.000. Si querés que te lo mandemos, pasame el nombre de quien recibe y la dirección con calle y número.');
+  });
+  it('no toca lo que ya dice el mínimo, ni el resumen o la confirmación de un envío', () => {
+    for (const t of ['El envío es sin cargo en pedidos desde $70.000.', 'El envío a domicilio es para pedidos desde $70.000 y este suma $45.000.', 'Pedido DOM-ABC confirmado. Total: $80.000.\nEnvío sin cargo a Mitre 1234. Se abona al recibir, en efectivo.']) {
+      expect(envioSinCargo(t)).toBe(t);
+    }
   });
 });

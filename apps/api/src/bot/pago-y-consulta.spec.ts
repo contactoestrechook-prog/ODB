@@ -168,7 +168,7 @@ describe('el orden de la limpieza final', () => {
     principal.push(resp([{ type: 'text', text: 'El envío es sin cargo, decime «confirmo» y avanzamos.' }], 'end_turn'));
     const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: '¿Cuánto me cobran el envío a Palermo?' });
     expect(r.respuesta).not.toMatch(/dec[ií]me\s*«?confirmo/i);
-    expect(r.respuesta).toMatch(/^El envío es sin cargo\./);
+    expect(r.respuesta).toMatch(/^El envío es sin cargo en pedidos desde \$70\.000\./);
   });
 
   it('ninguna llamada a Claude del turno va sin razonamiento', async () => {

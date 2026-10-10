@@ -1444,27 +1444,10 @@ export class BotService {
       vueltasReintento++;
     }
 
-    // E (ronda 9): post-proceso determinístico — una oración (≥30 caracteres) o
-    // una pregunta de cierre (≥12) que ya apareció textual en los últimos 3
-    // mensajes del bot se quita, salvo "¿Lo confirmo?" y salvo que sea todo el mensaje.
-    {
-      const normO = (o: string) => norm(o).replace(/[^a-záéíóúñ0-9 ¿?]/g, '').trim();
-      const previas = new Set(ultimosDelBot.flatMap((t) => t.split(/(?<=[.!?])\s+|\n+/).map(normO)).filter((o) => o.length >= 12));
-      const partes = respuesta.split(/(?<=[.!?])\s+|\n/);
-      const filtradas = partes.filter((o) => {
-        const n = normO(o);
-        if (!n) return true;
-        if (/lo confirmo\?/.test(n)) return true;
-        const esPregunta = /\?$/.test(n);
-        const repetida = previas.has(n) && (n.length >= 30 || (esPregunta && n.length >= 12));
-        return !repetida;
-      });
-      const nueva = filtradas.join(' ').replace(/\s{2,}/g, ' ').trim();
-      if (nueva && nueva !== respuesta.trim() && nueva.length >= 20) {
-        this.log.log(`oraciones repetidas quitadas para ${telefono}: ${partes.length - filtradas.length}`);
-        respuesta = nueva;
-      }
-    }
+    // (E, ronda 9 — las oraciones repetidas — se sacó el 9/10/2026: partía el mensaje
+    // también por renglones y lo volvía a pegar con espacios AUNQUE no sacara nada, así
+    // que toda lista con «•» quedaba en un párrafo y sin placa: «Anoté 4 Gatorade…» de
+    // las 21:15. Lo hace el candado 2, sinOracionesRepetidas, al final, renglón por renglón.)
 
     // Fórmulas fijas que se dicen UNA vez por conversación (ronda 8: el aviso de
     // edad en 3 mensajes seguidos, la del reparto ×5): si ya se dijeron, la
@@ -1542,7 +1525,7 @@ export class BotService {
     // (si preguntó cuánto sale el envío y la respuesta no lo dice, se agrega UNA
     // vez, al final del armado: asegurarEnvioSinCargo, más abajo. 9/10/2026:
     // estaba también acá, dos veces por respuesta)
-    const conEnvio = envioSinCargo(respuesta);
+    const conEnvio = envioSinCargo(respuesta, envioMinimo());
     if (conEnvio !== respuesta) {
       respuesta = conEnvio;
       this.log.warn(`decía que el envío iba aparte a ${telefono}: corregido a "sin cargo"`);
@@ -1776,10 +1759,19 @@ export class BotService {
     const oraciones = prosa.split(/(?<=[.!?])\s+/).filter((o) => o.trim().length > 0).length;
     if ((oraciones > 4 || prosa.length > 600) && !herramientasDelTurno.has('cotizar_pedido') && !herramientasDelTurno.has('crear_pedido') && vueltasReintento < 3) {
       this.log.warn(`${oraciones} oraciones sin cotización (${telefono}): regenero más corto`);
+      // LA LISTA NO SE ACHICA (9/10/2026, 21:15: «Anoté 4 Gatorade…, 4 aguas… y 2 Sprite
+      // Zero» en un párrafo, sin placa). Con «dos o tres líneas» el modelo aplastaba los
+      // renglones en prosa. Ahora la lista queda como estaba y solo se acorta el texto.
+      const renglonesAntes = respuesta.split('\n').filter((l) => /^\s*•/.test(l));
       messages.push({ role: 'assistant', content: respuesta });
-      messages.push({ role: 'user', content: '[nota interna: demasiado largo. Conservá exactamente los datos verificados, importes y enlaces necesarios. Reescribilo en dos o tres líneas como máximo: el dato o la respuesta concreta, y a lo sumo una pregunta. Sin explicaciones de lo que podés o no podés hacer.]' });
+      messages.push({ role: 'user', content: renglonesAntes.length >= 2
+        ? '[nota interna: el texto fuera de la lista es demasiado largo. Devolvé SOLO ese texto (la lista de renglones con «•» la pone el sistema tal cual: no la repitas ni la resumas), en dos líneas como máximo y con una sola pregunta. Las opciones para elegir, en una línea con dos puntos: «Franui: Leche, Pink Frambuesa, Pink Chocolate Amargo o Free sin azúcar.». Conservá exactamente los datos verificados, importes y enlaces.]'
+        : '[nota interna: demasiado largo. Conservá exactamente los datos verificados, importes y enlaces necesarios. Reescribilo en dos o tres líneas como máximo: el dato o la respuesta concreta, y a lo sumo una pregunta. Una lista de productos va un renglón por producto con «• », nunca en un párrafo. Sin explicaciones de lo que podés o no podés hacer.]' });
       const t17 = await this.regenerar(system, messages, tools, sumarUso);
-      if (t17) respuesta = t17;
+      if (t17 && renglonesAntes.length >= 2) {
+        const texto17 = t17.split('\n').filter((l) => !/^\s*•/.test(l)).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+        respuesta = [renglonesAntes.join('\n'), texto17].filter(Boolean).join('\n\n');
+      } else if (t17) respuesta = t17;
       vueltasReintento++;
     }
 
@@ -2236,7 +2228,7 @@ export class BotService {
     // "¿cuánto es el flete?" → "Lo consulto…" o silencio). AL FINAL (5/10/2026):
     // antes iba primero y sinPedirConfirmo o la limpieza podían llevarse la
     // oración del envío. La frase va adelante: la pregunta final sigue última.
-    respuesta = asegurarEnvioSinCargo(texto, respuesta ?? '');
+    respuesta = envioSinCargo(asegurarEnvioSinCargo(texto, respuesta ?? ''), envioMinimo());
     if (respuesta) respuesta = minimoConMonto(respuesta, envioMinimo());
 
     // CANDADOS (9/10/2026, candados.ts): no dependen de que el modelo obedezca.
@@ -4477,7 +4469,7 @@ export class BotService {
       const hora = Number(new Date().toLocaleString('en-US', { timeZone: 'America/Argentina/Buenos_Aires', hour: '2-digit', hour12: false }));
       paraElCliente = saludarConBienvenida(paraElCliente, saludoSegunHora(hora));
     }
-    const mensaje = envioSinCargo(paraElCliente); // aplica la política comercial también al texto que se registra
+    const mensaje = envioSinCargo(paraElCliente, envioMinimo()); // aplica la política comercial también al texto que se registra
     const { error: eInicio } = await this.db.from('bot_consultas_internas').update({ mensaje_cliente: mensaje, envio_iniciado_en: new Date().toISOString() }).eq('id', c.id);
     if (eInicio) throw new Error('No se pudo registrar el intento de envío');
     let env: any;
@@ -5662,7 +5654,7 @@ export class BotService {
     // digas esa parte". Si algún texto todavía dice que el envío se cobra, se
     // corrige acá, aunque venga de un camino que nadie revisó.
     if (payload.text) {
-      const limpio = envioSinCargo(String(payload.text));
+      const limpio = envioSinCargo(String(payload.text), envioMinimo());
       if (limpio !== payload.text) {
         this.log.warn(`salía un mensaje diciendo que el envío se cobra (${payload.referencia ?? payload.kind ?? 'sin referencia'}): corregido a "sin cargo"`);
         payload = { ...payload, text: limpio };

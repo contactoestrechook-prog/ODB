@@ -116,3 +116,21 @@ describe('candados conectados al bot', () => {
     expect(r.respuesta).not.toContain('Saco la sal y sumo');
   });
 });
+
+describe('la capa que acorta no aplasta la lista (21:15 del 9/10)', () => {
+  it('con mucho texto, se acorta solo el texto: la lista queda en renglones y sale primero', async () => {
+    const LISTA = '• 4 × Gatorade Frutas Tropicales 500 cc (el rojo)\n• 4 × Agua Glaciar sin gas 2 L\n• 2 × Sprite Zero 1,75 L';
+    const db = baseFalsa({ bot_conversaciones: { select: conv([{ role: 'assistant', content: 'Buenas noches. ¿Qué necesitás?' }]) }, lineas_whatsapp: { select: { data: CFG, error: null } } });
+    const { s } = servicio(db,
+      final('a', `${LISTA}\n\nDe Franui hay cuatro gustos. El de leche es el clásico. El Pink Frambuesa es frutal. El Pink Chocolate Amargo es intenso. El Free es sin azúcar. De helado hay pintas Freddo, tabletas Freddo, paletas Lucciano's y Frigor. ¿Qué gustos y cuántos querés de cada uno?`),
+      // el texto acortado (la lista la pone el sistema tal cual)
+      final('b', "Franui: Leche, Pink Frambuesa, Pink Chocolate Amargo o Free sin azúcar. Helado: pintas Freddo, tabletas Freddo, paletas Lucciano's o Frigor.\n¿Qué gustos y cuántos querés de cada uno?"),
+    );
+    const r = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Quiero 4 Gatorade rojos, 4 aguas minerales, 2 Sprite Zero, Franui y helado: ¿qué gustos tenés?' });
+    expect(r.respuesta.startsWith(LISTA.split('\n')[0])).toBe(true);
+    for (const l of LISTA.split('\n')) expect(r.respuesta).toContain(l);
+    // y los renglones siguen siendo renglones (antes «E, ronda 9» los pegaba en un párrafo)
+    expect(r.respuesta.split('\n').filter((l: string) => l.startsWith('• '))).toHaveLength(3);
+    expect(r.respuesta).toMatch(/Franui: Leche, Pink Frambuesa, Pink Chocolate Amargo o Free sin azúcar\./);
+  });
+});

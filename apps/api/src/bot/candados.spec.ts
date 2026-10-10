@@ -80,3 +80,4 @@ describe('candado 2: nunca la misma oración dos veces', () => {
     expect(sinOracionesRepetidas('Te esperamos en la sucursal.', ['Te esperamos en la sucursal.'])).toBe('Te esperamos en la sucursal.');
   });
 });
+

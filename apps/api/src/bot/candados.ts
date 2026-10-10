@@ -84,3 +84,4 @@ export function sinOracionesRepetidas(respuesta: string, dichoAntes: string[]): 
   // si todo ya estaba dicho, no se manda un mensaje vacío: va lo que había
   return limpia || r;
 }
+
