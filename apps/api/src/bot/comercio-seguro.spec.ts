@@ -40,6 +40,14 @@ describe('Regresiones de auditoría: contrato comercial', () => {
     const r=await servicio(db).cotizarPedido([{sku:'X',cantidad:6},{sku:'X',cantidad:6}]);
     expect(r.hayFaltantes).toBe(true);expect(r.renglones).toHaveLength(1);expect(r.renglones[0].cantidad).toBe(12);
   });
+  it('10/10/2026: lo que no alcanza queda en su renglón pero fuera del total (el bot derivaba por «total parcial»)', async () => {
+    const db=dbSimulada({sucursales:{data:{id:'st',nombre:'ST'}},productos:{data:{id:'p',sku:'X',nombre:'Agua',activo:true,unidades_pack:1,stock:[{sucursal_id:'st',cantidad:10}]}}});
+    db.rpc.mockResolvedValue({data:[{precio_final:100}],error:null});
+    const r=await servicio(db).cotizarPedido([{sku:'X',cantidad:12}]);
+    expect(r.renglones[0].alcanzaElStock).toBe(false);
+    expect(r.total).toBe(0);
+    expect(r.aclaracion).toMatch(/nunca lo pases a una persona por falta de stock/);
+  });
   it.each(['Agua 1.5L x6','Kit x3','Alfajores caja x6un','Vino x12'])('A04: %s requiere verificar contenido', nombre=>expect(presentacionProducto({nombre,unidades_pack:1}).presentacion).toBe('requiere_verificacion'));
   it.each(['Agua x500ml','Aceite x1.5L','Arroz x1kg'])('no confunde %s con pack', nombre=>expect(presentacionProducto({nombre,unidades_pack:1}).presentacion).toBe('catalogada'));
   it('A07: medio kilo se conserva al crear y no se admite en un artículo indivisible', async()=>{

@@ -2900,10 +2900,12 @@ export class BotService {
       // esto bloqueaba el precio hasta que el cliente aceptara el reemplazo.
       const desvio = ctxCliente?.textoCliente ? desvioDeLoPedido(p.nombre, ctxCliente.textoCliente) : null;
       const subtotal = Math.round(unitario * cantidad * 100) / 100;
-      total += subtotal;
       const conDescuento = !mayorista && tieneDescuentoEfectivo((prod as any)?.categoria?.nombre);
       const subtotalEfectivo = conDescuento ? conDescuentoEfectivo(subtotal) : subtotal;
-      totalEfectivo += subtotalEfectivo;
+      // EL TOTAL ES DE LO QUE HAY (Leandro, 10/10/2026: «si dale» y el bot lo pasó a una
+      // persona porque el total sumaba tres productos sin stock y decía «parcial, no permite
+      // confirmar»). Lo que no alcanza queda en su renglón, marcado, pero fuera del total.
+      if (disponible >= cantidad) { total += subtotal; totalEfectivo += subtotalEfectivo; }
       renglones.push({
         sku,
         producto_id: prod.id,
@@ -2935,7 +2937,7 @@ export class BotService {
       hayFaltantes,
       sucursalId: sucPickId,
       sucursalDeSalida: sucPickNombre,
-      aclaracion: `Este total lo calculó el sistema. Informalo tal cual, sin rehacer la cuenta. Cada precio es por UNIDAD DE VENTA del SKU. Respetá unidad, presentacion y unidadesPorVenta de cada renglón; no deduzcas el contenido de un envase por su nombre. Los renglones con error no están cotizados; el total es parcial y no permite confirmar el pedido completo. Cada renglón viene formateado en "renglon": usalo tal cual (2 × $20.500 c/u = $41.000). El stock es interno: nunca le digas al cliente cantidades ni sucursales.${hayFaltantes ? ' HAY RENGLONES SIN STOCK SUFICIENTE: si todavía no se lo dijiste, decile una vez que esa cantidad no la tenés disponible ahora, sin decir cuántas hay. Si ya se lo dijiste en la charla, NO lo repitas (ni «este total no incluye…»): el total va con lo que hay, sin enumerar lo que falta (Leandro, 10/10/2026).' : ''} El envío es SIN CARGO: el total que informás es todo lo que paga, no agregues costo de entrega ni digas que "va aparte".`,
+      aclaracion: `Este total lo calculó el sistema. Informalo tal cual, sin rehacer la cuenta. Cada precio es por UNIDAD DE VENTA del SKU. Respetá unidad, presentacion y unidadesPorVenta de cada renglón; no deduzcas el contenido de un envase por su nombre. El total es SOLO de lo que hay: los renglones con error o sin stock suficiente (alcanzaElStock false) quedan afuera del total y del pedido. Pasale ese total y seguí con el cierre (retiro o envío, nombre); nunca lo pases a una persona por falta de stock. Cada renglón viene formateado en "renglon": usalo tal cual (2 × $20.500 c/u = $41.000). El stock es interno: nunca le digas al cliente cantidades ni sucursales.${hayFaltantes ? ' HAY RENGLONES SIN STOCK SUFICIENTE: si todavía no se lo dijiste, decile una vez que esa cantidad no la tenés disponible ahora, sin decir cuántas hay. Si ya se lo dijiste en la charla, NO lo repitas (ni «este total no incluye…»): el total va con lo que hay, sin enumerar lo que falta (Leandro, 10/10/2026).' : ''} El envío es SIN CARGO: el total que informás es todo lo que paga, no agregues costo de entrega ni digas que "va aparte".`,
     };
   }
 
