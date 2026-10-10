@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { BotService } from './bot.service';
-import { conAviso, diceQueNoSabe, esSoloSaludo, mencionaConsulta, mencionaConsultaSinElPase, respuestaDelAreaParaCliente, sinMencionDeConsulta, sinPromesas } from './prolijo';
+import { casiIgual, conAviso, diceQueNoSabe, esSoloSaludo, mencionaConsulta, mencionaConsultaSinElPase, mismasPalabras, respuestaDelAreaParaCliente, sinMencionDeConsulta, sinPromesas } from './prolijo';
 import { datosDePagoParaResumen, respuestaPedidoPorComprobante } from './pago-confirma';
 import * as TEXTO from './textos-fijos';
 
@@ -890,6 +890,47 @@ describe('revisión (6/10/2026): el turno con consulta y lo demás del mensaje',
     const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Me llevo 3 Fernet para retirar hoy. ¿Vienen en caja para viajar?' });
     expect(r.respuesta).toContain('Te anoto 3 × Fernet Branca 750 cc para retirar hoy.');
     expect(r.respuesta).not.toContain('61.500');
+  });
+
+  // (10/10/2026, revisión de la tanda 1) loQueSirve usaba casiIgual (85 % de las palabras, sin los
+  // números de una cifra): la lista con una cantidad cambiada se tomaba como repetida, se pedía
+  // una reescritura, se volvía a descartar y al cliente no le llegaban ni la lista ni el total
+  it('lista con una cantidad cambiada + una pregunta que se consulta en silencio → la lista sale entera, sin reescritura', async () => {
+    const ANTES = '• 2 × Fernet Branca 750 cc — $41.000\n• 4 × Coca Cola 1,75 L — $18.000\n• 2 × Hielo 2 kg — $5.000\n• 1 × Gancia 950 cc — $13.200\nTotal: $77.200\n¿Lo retirás o te lo enviamos?';
+    const AHORA = '• 3 × Fernet Branca 750 cc — $61.500\n• 4 × Coca Cola 1,75 L — $18.000\n• 2 × Hielo 2 kg — $5.000\n• 1 × Gancia 950 cc — $13.200\nTotal: $97.700\n¿Lo retirás o te lo enviamos?';
+    expect(casiIgual(AHORA, ANTES)).toBe(true);
+    expect(mismasPalabras(AHORA, ANTES)).toBe(false);
+    const db = baseFalsa({
+      bot_conversaciones: { select: { data: { mensajes: h(['user', '2 fernet, 4 coca, 2 hielo y un gancia'], ['assistant', ANTES]), bot_activo: true, actualizado_en: new Date(Date.now() - 60_000).toISOString(), importes_verificados: [4100000, 1800000, 500000, 1320000, 7720000, 6150000, 9770000] }, error: null } },
+      lineas_whatsapp: { select: { data: CFG, error: null } },
+      bot_consultas_internas: { select: { data: [], error: null }, insert: { data: { id: 'q-vaso' }, error: null } },
+    });
+    const { s } = servicio(db);
+    const crear = claudeCon(
+      conHerramientas(herramienta('c1', 'consultar_interno', { area: 'administracion', consulta: '¿El fernet viene con vaso de regalo?', tema: 'el vaso de regalo', direccion: '' })),
+      texto(AHORA),
+    );
+    s.claude = { messages: { create: crear } };
+    const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Mejor 3 fernet en vez de 2. ¿El fernet viene con vaso de regalo?' });
+    expect(r.respuesta).toBe(AHORA);
+    expect(principales(crear)).toHaveLength(2);
+    expect(insertsDe(db, 'bot_consultas_internas')).toHaveLength(1);
+  });
+
+  it('lo idéntico al mensaje anterior, después de sacar la promesa, sigue sin salir', async () => {
+    const ANTES = 'Te anoto:\n• 2 × Fernet Branca 750 cc\n\n¿Está completo el pedido o querés sumar algo?';
+    const db = baseFalsa({
+      bot_conversaciones: { select: conv(h(['user', '2 fernet'], ['assistant', ANTES])) },
+      lineas_whatsapp: { select: { data: CFG, error: null } },
+      bot_consultas_internas: { select: { data: [], error: null }, insert: { data: { id: 'q-vaso' }, error: null } },
+    });
+    const { s } = servicio(db);
+    s.claude = { messages: { create: claudeCon(
+      conHerramientas(herramienta('c1', 'consultar_interno', { area: 'administracion', consulta: '¿El fernet viene con vaso de regalo?', tema: 'el vaso de regalo', direccion: '' })),
+      texto(`Lo del vaso te lo confirmo por acá.\n\n${ANTES}`),
+    ) } };
+    const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: '¿El fernet viene con vaso de regalo?' });
+    expect(r.respuesta).toBeNull();
   });
 
   it('«confirmado» sin código en un turno con consulta → la frase de ahora y el aviso PEDIDO CONFIRMADO SIN CARGAR', async () => {

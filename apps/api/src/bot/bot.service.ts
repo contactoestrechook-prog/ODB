@@ -1543,7 +1543,9 @@ export class BotService {
       const u = sinPromesas(t);
       // el saludo solo no contesta nada (esSoloSaludo: revisión del 6/10/2026)
       if (!u || esSoloSaludo(u)) return '';
-      if (ultimosDelBot[0] && casiIgual(u, ultimosDelBot[0])) { this.log.warn(`turno con consulta: lo que quedaba repetía el mensaje anterior a ${telefono}`); return ''; }
+      // (10/10/2026, revisión de la tanda 1) idéntico, como F9, y no el 85 % de las palabras: la lista
+      // actualizada donde solo cambió una cantidad no salía, ni con su total nuevo
+      if (ultimosDelBot[0] && mismasPalabras(u, ultimosDelBot[0])) { this.log.warn(`turno con consulta: lo que quedaba repetía el mensaje anterior a ${telefono}`); return ''; }
       return u;
     };
     const armarConConsulta = async (borrador: string): Promise<string> => {
