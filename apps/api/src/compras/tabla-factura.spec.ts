@@ -163,3 +163,22 @@ describe('cómo está entrando hoy: Oxxon 0006-00295763 (7/10/2026)', () => {
     expect(r.registros[0]).toMatchObject({ antes: null, despues: 'abiertas' });
   });
 });
+
+describe('se vende en paquetes (Ana, 10/10/2026: las Rodesias vienen por 36 y se venden de a 3)', () => {
+  it('2 cajas × 36 a $929,44 por unidad → entran 24 paquetes de 3 a $2.788,32 cada uno; la cuenta del papel no cambia', () => {
+    const fila: any = { descripcion: 'RODESIA X36', cantidad: 2, precio: 33459.84, importe: 66919.68 };
+    const papel = { bultos: 2, uxb: 36, sueltas: null, precio: 929.44, desc: null, iva: 21, importe: 66919.68 };
+    const conPapel = { ...fila, papel };
+    const r = aplicarCambiosIA([conPapel], [{ renglon: 1, campo: 'unidadesPorVenta', valor: 3, motivo: 'se venden de a 3' }], () => false);
+    expect(r.descartados).toHaveLength(0);
+    expect(r.items[0].cantidad).toBe(24);
+    expect(r.items[0].precio).toBeCloseTo(2788.32, 2);
+    expect(cuentaDelPapel(r.items[0].papel).cuenta).toBeCloseTo(66919.68, 1);
+    // si después se corrige otra cosa del renglón, sigue entrando en paquetes de 3
+    expect(entraDeRenglon(r.items[0], r.items[0].papel)).toEqual({ como: 'cajas', de: 3 });
+  });
+  it('un valor que no sirve (1, 0, texto) se descarta', () => {
+    const fila: any = { descripcion: 'RODESIA X36', cantidad: 2, precio: 1, importe: 72, papel: { bultos: 2, uxb: 36, sueltas: null, precio: 1, desc: null, iva: 21, importe: 72 } };
+    for (const v of [1, 0, 'tres']) expect(aplicarCambiosIA([fila], [{ renglon: 1, campo: 'unidadesPorVenta', valor: v as any, motivo: '' }], () => false).descartados).toHaveLength(1);
+  });
+});

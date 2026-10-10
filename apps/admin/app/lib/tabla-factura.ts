@@ -227,6 +227,16 @@ export function aplicarCambiosIA<T extends Record<string, any>>(
       nuevos[k] = aplicarPapel(fila, papel, nuevo);
       continue;
     }
+    // se vende en paquetes de N (las Rodesias: caja de 36, paquetes de 3): entra en paquetes
+    // y el costo es el de un paquete (10/10/2026)
+    if (c.campo === 'unidadesPorVenta') {
+      const n = num(c.valor);
+      if (n == null || n <= 1 || !Number.isFinite(n)) { descartados.push(c); continue; }
+      const nuevo: EntraComo = { como: 'cajas', de: n };
+      registros.push({ renglon: k + 1, campo: 'entraComo', antes: entraDeRenglon(fila, papel)?.como ?? null, despues: `paquetes de ${n}`, motivo });
+      nuevos[k] = aplicarPapel(fila, papel, nuevo);
+      continue;
+    }
     const campo = CAMPO_IA[c.campo];
     const valor = c.valor == null ? null : num(c.valor);
     if (!campo || (c.valor != null && valor == null) || (valor != null && valor < 0)) { descartados.push(c); continue; }
@@ -254,6 +264,8 @@ export function tablaParaIA(items: any[], esDescuento: (fila: any) => boolean, d
       precio: p.precio, descuentoPct: p.desc, alicuotaIva: p.iva, importe: p.importe,
       unidades: c.unidades, cuenta: c.cuenta, cierra: c.cierra,
       entraComo: entraDeRenglon(fila, p)?.como ?? 'por decidir',
+      entraDe: (entraDeRenglon(fila, p) as any)?.de ?? null,
+      entraAlStock: { cantidad: num(fila.cantidad), costo: num(fila.precio) },
     };
   });
 }
