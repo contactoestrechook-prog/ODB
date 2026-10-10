@@ -27,7 +27,8 @@ const r = (nombre: string, cant: number, precio: number, extra: any = {}) => ({ 
 describe('preparar_pedido arma el resumen con lo que hay', () => {
   it('los que no alcanzan quedan afuera, el total es el de lo que queda y no se deriva', async () => {
     const { s, inserts } = armar([r('Yerba La Mañanita 1 kg', 1, 7200), r('Té verde Twinings x 10', 10, 1500, { alcanzaElStock: false }), r('Manteca La Serenísima 200 g', 2, 5000)]);
-    const out = await s.prepararPedido('111', 'pedidos', { tipo: 'pickup', nombre: 'Leandro', items: [{ sku: 'a', cantidad: 1 }] });
+    // (ya se le había dicho que el té no está: no se repite)
+    const out = await s.prepararPedido('111', 'pedidos', { tipo: 'pickup', nombre: 'Leandro', items: [{ sku: 'a', cantidad: 1 }] }, undefined, undefined, undefined, ['El té verde Twinings no lo tengo disponible ahora en esa cantidad.']);
     expect(out.total).toBe(17200);
     expect(out.renglones.map((x: any) => x.nombre)).toEqual(['Yerba La Mañanita 1 kg', 'Manteca La Serenísima 200 g']);
     expect(out.resumen).not.toMatch(/Twinings/);

@@ -46,6 +46,10 @@ const mensajesHora = () => Number(process.env.ODB_BOT_MENSAJES_HORA ?? 30);
 // Cuánto dura "la charla en curso". Pasado esto, un saludo abre una charla
 // nueva y se contesta como corresponde.
 const VENTANA_CHARLA_VIVA = 40 * 60_000;
+// Las notas del resumen sin la forma de pago («Paga en efectivo»): queda anotada para el local,
+// pero al cliente no se le repite lo que él mismo dijo (Leandro, 10/10/2026).
+const notasParaElCliente = (notas: unknown) => String(notas ?? '').split(/\s*[.·;]\s*/).map((x) => x.trim())
+  .filter((x) => x && !/^paga\s+(?:en|con)\s+(?:efectivo|tarjeta|transferencia|d[eé]bito|cr[eé]dito|mercado\s?pago)/i.test(x)).join('. ').slice(0, 300);
 const maxRenglonesBot = () => Number(process.env.ODB_BOT_MAX_RENGLONES ?? 15);
 const maxUnidadesBot = () => Number(process.env.ODB_BOT_MAX_UNIDADES ?? 60);
 
@@ -2166,7 +2170,7 @@ export class BotService {
           if (!puedeCotizar(ctx.textoCliente ?? '', ctx.ultimosBot ?? [], (ctx.ultimosCliente ?? []).slice(0, -1))) { out = { error: TODAVIA_SIN_PRECIOS }; break; }
           // las notas salen en el resumen que lee el cliente: nunca «pagado» (5/10/2026)
           if (input && typeof input.notas === 'string') input.notas = notasSinPagado(input.notas);
-          out = await this.prepararPedido(telefono, linea, input, ctx.textoCliente, ctx.ultimoBot, ctx.ultimosCliente);
+          out = await this.prepararPedido(telefono, linea, input, ctx.textoCliente, ctx.ultimoBot, ctx.ultimosCliente, ctx.ultimosBot);
           ctx.fallos?.set('__preparado__', 1);
           // «RECIBIDO.» NO SE PISA (5/10/2026, mensaje 22 de Pablo): con un
           // comprobante registrado en este turno, el resumen se guarda pero al
@@ -2967,7 +2971,7 @@ export class BotService {
     return { ok: true, codigo: ped.qr_retiro, estado: 'cancelado', total: Number(ped.total), mensaje: 'Pedido cancelado; el stock volvió a quedar disponible.' };
   }
 
-  async prepararPedido(telefono: string, linea: string, input: any, textoCliente?: string, ultimoBot?: string, dichoPorElCliente?: string[]) {
+  async prepararPedido(telefono: string, linea: string, input: any, textoCliente?: string, ultimoBot?: string, dichoPorElCliente?: string[], ultimosDichos?: string[]) {
     const tipo = input.tipo;
     if (!['pickup', 'domicilio'].includes(tipo)) throw new BadRequestException('Falta elegir retiro o envío');
     // RETIRO O ENVÍO LO ELIGE EL CLIENTE (23/9/2026). Si el bot acaba de
@@ -2988,13 +2992,23 @@ export class BotService {
     // una persona porque en la lista había dos productos sin stock suficiente, que ya le había
     // dicho que no tenía). Lo que no alcanza, no tiene precio o no tiene la presentación
     // verificada queda afuera del resumen, sin volver a nombrarlo; si no queda nada, como antes.
-    const sirve = (r: any) => !r.error && r.presentacion !== 'requiere_verificacion' && r.alcanzaElStock !== false;
+    // (10/10/2026, a la tarde: también sacaba lo «a verificar» —Criollitas pack x 3, té x 10— que el
+    // cliente ya había visto con precio, y el resumen perdía 7 productos sin decirlo. Afuera queda
+    // solo lo que no tiene stock o no tiene precio.)
+    const sirve = (r: any) => !r.error && r.alcanzaElStock !== false;
     const quedan = todo.renglones.filter(sirve);
     const afuera = todo.renglones.filter((r: any) => !sirve(r)).map((r: any) => String(r.nombre ?? r.sku));
     if (!quedan.length || !todo.sucursalId) throw new BadRequestException('No se puede confirmar: falta stock, precio o un dato de la presentación');
     const redondo = (n: number) => Math.round(n * 100) / 100;
     const totalQuedan = redondo(quedan.reduce((t: number, r: any) => t + Number(r.subtotal ?? 0), 0));
     const efectivoQuedan = redondo(quedan.reduce((t: number, r: any) => t + Number(r.subtotalEfectivo ?? r.subtotal ?? 0), 0));
+    // lo que queda afuera y el cliente no sabe: se dice una vez en el resumen (lo que ya se le dijo, no)
+    const dicho = (ultimosDichos ?? []).join('\n').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    const yaLoSabe = (nombre: string) => {
+      const palabras = nombre.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 4 && !/^\d/.test(w));
+      return palabras.slice(0, 2).every((w) => dicho.includes(w)) && /no (?:lo |la |los |las )?tengo|no hay|sin stock|no .{0,20}disponible/.test(dicho);
+    };
+    const sinDecir = afuera.filter((n: string) => !yaLoSabe(n));
     const cot: any = afuera.length
       ? { ...todo, renglones: quedan, hayFaltantes: false, total: totalQuedan, ...(Math.round(efectivoQuedan) < Math.round(totalQuedan) ? { totalEfectivo: efectivoQuedan } : { totalEfectivo: undefined }) }
       : todo;
@@ -3022,7 +3036,9 @@ export class BotService {
       (cot as any).totalEfectivo ? `Pagando en efectivo o transferencia: $${pesos((cot as any).totalEfectivo)} (${porcentajeEfectivo()}% off en ${RUBROS_DESCUENTO_EFECTIVO}).` : null,
       tipo === 'domicilio' ? `Envío sin cargo a ${direccion}. Recibe ${nombre}.` : 'Retiro en la sucursal Saint Thomas.',
       fecha ? `Entrega: ${fecha}${franja ? ' por la ' + franja : ''}.` : null,
-      input.notas ? `Indicaciones: ${String(input.notas).slice(0,300)}` : null,
+      // la forma de pago queda en las notas para el local, pero no se le repite al cliente (10/10/2026)
+      notasParaElCliente(input.notas) ? `Indicaciones: ${notasParaElCliente(input.notas)}` : null,
+      sinDecir.length ? `Sin: ${sinDecir.join(', ')} (no hay ahora).` : null,
       '¿Lo confirmo?',
     ].filter(Boolean).join('\n');
     const { data, error } = await this.db.from('bot_cotizaciones').insert({

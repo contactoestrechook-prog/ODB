@@ -116,7 +116,9 @@ export function cierraConElDato(p: {
   if (!vista) return no('el cliente no vio una lista con total');
   if (!new RegExp(`\\btotal\\b[^\\n$]{0,25}${totalTxt.replace(/[$.]/g, (c) => `\\${c}`)}(?!\\d)`, 'i').test(vista)) return no('el total no es el que vio el cliente');
   const lineasVistas = vista.split('\n').map((l) => l.trim()).filter((l) => /^[•·*-]\s/.test(l));
-  if (lineasVistas.length !== q.renglones.length) return no('la lista que vio tiene otra cantidad de renglones');
+  // (10/10/2026: la lista que vio puede tener además renglones sin stock que no entran al pedido;
+  // alcanza con el mismo total y que cada renglón del pedido esté en lo que vio)
+  if (lineasVistas.length < q.renglones.length) return no('la lista que vio tiene menos renglones que el pedido');
   for (const r of q.renglones) {
     // cada renglón: la misma cuenta Y el mismo producto (una Coca común no es la Zero aunque cueste lo mismo)
     const linea = lineasVistas.find((l) => l.includes(String(r.renglon)) && mismas(palabrasDeProducto(l.replace(/^[•·*-]\s*/, '').split(/\s+[—–-]\s+/)[0]), palabrasDeProducto(String(r.nombre ?? ''))));
