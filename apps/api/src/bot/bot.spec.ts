@@ -983,6 +983,38 @@ describe('el circuito del pago lo cierra el bot: administración contesta y el c
     expect(alCliente.text).toContain('reenviás el comprobante');
   });
 
+  // LAS TILDES Y LAS NEGACIONES (10/10/2026): con \b, «no está» y «llegó» no se reconocían y un
+  // «Ok, no está acreditado» le mandaba al cliente «Recibimos tu pago»
+  it('«Ok, no está acreditado» NO confirma el pago', async () => {
+    const { s, envios } = armar();
+    await (s as any).respuestaDeAdministracion('5491125213601', { body: 'Ok, no está acreditado' });
+    const alCliente = envios.find((e) => e.to === '5491133344455');
+    expect(alCliente?.text ?? '').not.toMatch(/Recibimos tu pago/);
+    expect(envios.some((e) => /le confirmé/.test(String(e.text)))).toBe(false);
+  });
+
+  it('«No llegó» → al cliente se le avisa que todavía no figura', async () => {
+    const { s, envios } = armar();
+    const r: any = await (s as any).respuestaDeAdministracion('5491125213601', { body: 'No llegó' });
+    expect(r.contestado).toBe(true);
+    const alCliente = envios.find((e) => e.to === '5491133344455');
+    expect(alCliente.text).toContain('todavía no la encontramos acreditada');
+  });
+
+  it('«sí, llegó» confirma el pago', async () => {
+    const { s, envios } = armar();
+    const r: any = await (s as any).respuestaDeAdministracion('5491125213601', { body: 'sí, llegó' });
+    expect(r.contestado).toBe(true);
+    expect(envios.find((e) => e.to === '5491133344455').text).toBe('Recibimos tu pago de $85.000. Muchas gracias.');
+  });
+
+  it.each(['ok, lo reviso', 'dale, me fijo y te digo', 'todavía no', 'listo? no sé'])('«%s» no confirma ni le llega nada al cliente', async (body) => {
+    const { s, envios } = armar();
+    const r: any = await (s as any).respuestaDeAdministracion('5491125213601', { body });
+    expect(r.contestado).toBe(false);
+    expect(envios.find((e) => e.to === '5491133344455')).toBeUndefined();
+  });
+
   it('un número que NO es administración sigue su camino normal (devuelve null)', async () => {
     const { s, envios } = armar();
     const r = await (s as any).respuestaDeAdministracion('5491199887766', { body: 'recibido' });

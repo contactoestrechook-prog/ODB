@@ -3900,8 +3900,14 @@ export class BotService {
     const montoTexto = fila.monto ? ` de $${Number(fila.monto).toLocaleString('es-AR', { maximumFractionDigits: 2 })}` : '';
     const destinoCliente = String(fila.telefono_cliente).length >= 14 ? `${fila.telefono_cliente}@lid` : String(fila.telefono_cliente);
 
-    const NO = /\bno\s+(lleg[oó]|figura|est[aá]|aparece|entr[oó]|acredit[oó]|lo veo|la veo|lo encuentro|la encuentro)\b/i;
-    const SI = /\b(recibido|recib[ií]|ok|okey|oka|confirmado|confirmo|lleg[oó]|acreditad[oa]|est[aá] bien|correcto|perfecto|listo|dale|s[ií])\b/i;
+    // LOS BORDES DE PALABRA CONOCEN LAS TILDES (10/10/2026). Con \b, «no está» y «llegó» no
+    // se reconocían: «Ok, no está acreditado» le mandaba al cliente «Recibimos tu pago».
+    // Y un «no» suelto o algo que sigue pendiente («lo reviso», «me fijo», «todavía») nunca
+    // confirma: queda como respuesta no concluyente y al cliente no le llega nada.
+    const L = String.raw`[\p{L}\p{N}]`;
+    const NO = new RegExp(String.raw`(?<!${L})no\s+(?:se\s+)?(?:lleg[oó]|figura|est[aá]|aparece|entr[oó]|acredit\p{L}*|lo\s+veo|la\s+veo|lo\s+encuentro|la\s+encuentro)(?!${L})`, 'iu');
+    const SI = new RegExp(String.raw`(?<!${L})(?:recibido|recib[ií]|ok|okey|oka|confirmado|confirmo|lleg[oó]|acreditad[oa]|est[aá]\s+bien|correcto|perfecto|listo|dale|s[ií])(?!${L})`, 'iu');
+    const PENDIENTE = new RegExp(String.raw`(?<!${L})(?:no(?!\s+hay\s+problema)|reviso|revisamos|me\s+fijo|nos\s+fijamos|fijate|chequeo|chequeamos|busco|buscamos|despu[eé]s|todav[ií]a|a[uú]n)(?!${L})`, 'iu');
 
     const avisarCliente = async (msj: string) => {
       if (!(await botActivoEn(fila.linea))) return false;
@@ -3934,7 +3940,7 @@ export class BotService {
       if (ok) await this.db.from('bot_pagos_en_confirmacion').update({ confirmado_en: new Date().toISOString(), ultimo_error: null }).eq('id', fila.id);
       return { contestado: ok, motivo: ok ? 'administración: no figura, cliente avisado' : 'respuesta guardada, envío pendiente' };
     }
-    if (!SI.test(texto)) {
+    if (!SI.test(texto) || PENDIENTE.test(texto)) {
       await this.db.from('bot_pagos_en_confirmacion').update({ respuesta_admin: texto.slice(0, 300) }).eq('id', fila.id).then(() => null, () => null);
       return { contestado: false, motivo: 'administración: respuesta no concluyente, quedó registrada' };
     }
