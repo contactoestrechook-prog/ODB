@@ -8,8 +8,9 @@
 // El bot JAMÁS le dice al cliente que no puede recibir, ver, escuchar o abrir
 // lo que mandó. Regla del dueño, textual: "poné un candado, dos candados, tres
 // candados, lo que haga falta, pero jamás pueda esa respuesta". Este es el
-// detector; los candados que lo usan viven en charla: (1) regenerar con nota
-// interna, (2) tirar la oración, (3) reemplazar el mensaje entero al final.
+// detector; el candado que lo usa vive en charla, al final de todo (10/10/2026:
+// eran tres): saca esa oración sin tocar la lista, y si no queda nada, el texto
+// fijo; si vino un archivo, se consulta en silencio. El prompt también lo prohíbe.
 // Se escaparon en producción: "las imágenes que envió no las puedo visualizar
 // de este lado", "no cuento con la función de interpretar mensajes de audio",
 // "no dispongo de la posibilidad de reenviar archivos". Cubre la negación en
@@ -27,37 +28,9 @@ export function niegaPercepcion(t: string): boolean {
   return RE_NO_PERCIBO.test(t) || RE_SOLO_TEXTO.test(t);
 }
 
-// El registro del bot (decisión del dueño, 2026-09-01): trato de VOS, nunca de
-// usted, pero sumamente respetuoso — la cercanía es del trato, no de la
-// confianza. El prompt (TONO_BOT) lo ordena; esto es el candado determinístico:
-// convierte los restos de usted que son inequívocos (no se puede invertir
-// "tiene"→"tenés" porque se confunde con la tercera persona legítima), y
-// mantiene la sobriedad: sin emojis, sin exclamaciones, sin muletillas de
-// amigo ("che", "dale", "joya").
-const DE_USTED: Array<[RegExp, string]> = ([
-  ['dígame', 'decime'], ['cuénteme', 'contame'], ['mándeme', 'mandame'],
-  ['páseme', 'pasame'], ['avíseme', 'avisame'], ['escríbame', 'escribime'],
-  ['fíjese', 'fijate'], ['disculpe', 'disculpá'],
-  ['usted', 'vos'], ['dale', 'de acuerdo'],
-] as Array<[string, string]>).map(([de, a]) => [
-  // bordes de palabra hechos a mano: el \b de JS no ve fin de palabra tras tilde
-  new RegExp(String.raw`(?<![a-za-záéíóúñ])${de}(?![a-za-záéíóúñ])`, 'gi'),
-  a,
-]);
-const CONFIANZUDO = /,?\s*\b(che|tranqui|querid[oa]|amigo|jefe|genio|capo)\b/gi;
-
-export function respetuosoSinConfianza(t: string): string {
-  let r = t;
-  for (const [re, a] of DE_USTED) {
-    r = r.replace(re, (m) => (m[0] === m[0].toUpperCase() ? a[0].toUpperCase() + a.slice(1) : a));
-  }
-  r = r.replace(CONFIANZUDO, '');
-  // sin exclamaciones: se bajan a punto (o se quitan, si ya hay puntuación)
-  r = r.replace(/¡/g, '').replace(/!+(?=\s*[.?!])/g, '').replace(/!+/g, '.');
-  // sin emojis (la viñeta •, el × y el $ no son emojis y quedan)
-  r = r.replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE0F}\u{200D}]/gu, '');
-  return r.replace(/[ \t]{2,}/g, ' ').replace(/[ \t]+$/gm, '');
-}
+// (10/10/2026: se sacó respetuosoSinConfianza, que pasaba el usted a vos y sacaba
+// «dale», emojis y exclamaciones en código: cambiaba nombres de productos («Vino
+// Capo») y pegaba renglones. El registro lo pide el prompt (TONO_BOT).)
 
 // El saludo acompaña el reloj de Buenos Aires: buen día hasta las 13, buenas
 // tardes hasta las 20, buenas noches después. El modelo no tiene reloj, así
@@ -166,13 +139,6 @@ export function nombreSucursalCliente(nombre: string | null | undefined): string
   if (!n || /\bsa(i)?n(t)?h?\s*th?omas\b/i.test(n)) return SUCURSAL_CENTRAL;
   return n.replace(/^Suc\.?\s+/i, '');
 }
-export function saintThomas(t: string): string {
-  return t
-    .replace(/\b(la\s+)?(suc(ursal)?\.?\s+)?(Sant|San|Sainth?)\s+Th?omas\b/gi, (m, la) => `${la ?? ''}${SUCURSAL_CENTRAL}`)
-    .replace(/\b(sucursal\s+)+sucursal Saint Thomas/gi, SUCURSAL_CENTRAL)
-    .replace(/\b(en|a|de)\s+sucursal Saint Thomas/g, (_, prep) => `${prep === 'de' ? 'de la' : `${prep} la`} sucursal Saint Thomas`)
-    .replace(/(^|[.?!:]\s+|\n)sucursal Saint Thomas/g, (_, a) => `${a}Sucursal Saint Thomas`);
-}
 
 // Los mensajes automáticos de WhatsApp Business (bienvenida y fuera de
 // horario) salen "desde el teléfono" pero no los escribió nadie: no pausan.
@@ -187,9 +153,9 @@ export function esAutomaticoWhatsappBusiness(t: string | null | undefined): bool
 // total de la mercadería; el envío va aparte" y así se lo dijo a un cliente con
 // un pedido de $176.000. Acá se revisa ORACIÓN POR ORACIÓN cualquier texto que
 // la casa esté por mandar: la que habla del envío y de un costo se reemplaza
-// entera por "El envío es sin cargo.". Se aplica en la respuesta del bot y, de
-// nuevo, en la puerta de salida de WhatsApp (enviarPorWhatsapp), que es por
-// donde pasan también los avisos, las difusiones y el panel.
+// entera por "El envío es sin cargo.". Se aplica una vez, al final de la respuesta
+// del bot, y en la respuesta del área al cliente (10/10/2026: ya no en la puerta de
+// salida de WhatsApp, donde le cambiaba el texto a los avisos y al panel).
 const RE_ENVIO = /\b(env[ií]os?|flete|reparto|delivery|entrega)\b/i;
 // SOLO las que COBRAN el envío. Antes alcanzaba con que la oración nombrara el
 // envío y tuviera un "$": se comía la oración del total ("reemplacé las Coca por
@@ -269,31 +235,28 @@ function conElMinimo(t: string, monto: string): string {
   }).join('')).join('\n');
 }
 
-// Si el cliente PREGUNTA por el costo del envío, la respuesta es un dato que la
-// casa tiene: es sin cargo. No se consulta con nadie ni se promete confirmar
-// (19/9/2026: "cuánto es el flete?" → "lo consulto y te confirmo").
-const RE_PREGUNTA_COSTO_ENVIO = /\b(cu[aá]nto|precio|costo|valor|cobran|cobr[aá]s|se cobra|aparte|gratis|sin cargo)\b[^.?!\n]{0,40}\b(env[ií]o|flete|reparto|delivery|entrega)\b|\b(env[ií]o|flete|reparto|delivery|entrega)\b[^.?!\n]{0,40}\b(cu[aá]nto|cuesta|precio|costo|valor|cobran|cobr[aá]s|aparte|gratis|sin cargo)\b/i;
-
-export function preguntaPorElCostoDelEnvio(texto: string): boolean {
-  return RE_PREGUNTA_COSTO_ENVIO.test(String(texto ?? ''));
-}
-
-/** La respuesta a "¿cuánto sale el envío?" siempre dice que es sin cargo. */
-export function asegurarEnvioSinCargo(textoCliente: string, respuesta: string): string {
-  const r = String(respuesta ?? '');
-  if (!preguntaPorElCostoDelEnvio(textoCliente)) return r;
-  if (/sin cargo|gratis|no tiene costo|no se cobra/i.test(r)) return r;
-  return r.trim() ? `El envío es sin cargo. ${r.trim()}` : 'El envío es sin cargo.';
-}
+// (10/10/2026: se sacó asegurarEnvioSinCargo, que ponía «El envío es sin cargo.» adelante
+// de todo: se pegaba al primer renglón del resumen y la placa mostraba un total falso.)
 
 // NUNCA EL MISMO MENSAJE DOS VECES (Leandro, 22/9/2026: "no quiero que repita
 // nunca más un mensaje"). Dos textos son "el mismo" si, sacando tildes,
-// mayúsculas y puntuación, comparten casi todas las palabras. Se compara
-// contra el último mensaje del bot antes de mandar; si es casi igual, se
-// reescribe, y si vuelve a salir igual, la charla pasa a una persona.
+// mayúsculas y puntuación, comparten casi todas las palabras (casiIgual: lo usan
+// la consulta silenciosa, las consultas repetidas y el comprobante repetido).
 const palabrasDe = (t: string) =>
   String(t ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
     .replace(/[^a-z0-9ñ$ ]+/g, ' ').split(/\s+/).filter((w) => w.length >= 2);
+
+/**
+ * ¿Dicen exactamente lo mismo, palabra por palabra (sin tildes, mayúsculas ni
+ * puntuación)? Es la única repetición que frena charla() antes de mandar (10/10/2026):
+ * una lista actualizada con un renglón distinto NO es lo mismo.
+ */
+export function mismasPalabras(a: string, b: string): boolean {
+  const solo = (t: string) => String(t ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    .replace(/[^a-z0-9ñ]+/g, ' ').trim();
+  const A = solo(a);
+  return !!A && A === solo(b);
+}
 
 export function casiIgual(a: string, b: string): boolean {
   const A = palabrasDe(a), B = palabrasDe(b);
@@ -364,7 +327,9 @@ const NO_SABE = [
   // revisión 6/10/2026, lo que se escapaba: que no lo sabe («No sé si vienen en caja», «No sabría decirte», «No te puedo confirmar si…»).
   // «No sé si preferís retirar» le pregunta al cliente: no cuenta
   String.raw`\bno\s+(?:la|los|las)\s+s[eé](?![a-záéíóúñ])|\bno\s+s[eé]\s+si\b(?!\s+(?:prefer|quer|necesit|te\s|le\s))|\bno\s+sabr[ií]a\b|\bdesconozco\b|\bno\s+dispongo\s+de\s+(?:es[ae]|esta|este|la|el)\s+(?:dato|info\w*)`,
-  String.raw`\bno\s+(?:te|le)\s+(?:lo\s+|la\s+)?(?:puedo|podr[ií]a)\s+(?:confirmar|asegurar|decir|precisar)\s+(?:si|cu[aá]ndo|cu[aá]nto|qu[eé]|c[oó]mo|d[oó]nde)\b|\bno\s+(?:puedo|podr[ií]a)\s+(?:confirmar|asegurar|decir|precisar)(?:te|le)\s+(?:si|cu[aá]ndo|cu[aá]nto|qu[eé]|c[oó]mo|d[oó]nde)\b`,
+  // 10/10/2026: también sin pronombre y con «garantizar», «no estoy seguro de que» y «no tengo forma
+  // de saber» («No puedo confirmar si llega a su zona», 22/8): eran de la guarda del envío dudoso, que se sacó
+  String.raw`\bno\s+(?:(?:te|le)\s+)?(?:lo\s+|la\s+)?(?:puedo|podr[ií]a)\s+(?:confirmar|asegurar|garantizar|decir|precisar)\s+(?:si|cu[aá]ndo|cu[aá]nto|qu[eé]|c[oó]mo|d[oó]nde)\b|\bno\s+(?:puedo|podr[ií]a)\s+(?:confirmar|asegurar|decir|precisar)(?:te|le)\s+(?:si|cu[aá]ndo|cu[aá]nto|qu[eé]|c[oó]mo|d[oó]nde)\b|\bno\s+estoy\s+segur[oa]\s+(?:de\s+)?(?:si|que)\b|\bno\s+tengo\s+forma\s+de\s+saber\b`,
   String.raw`\bno\s+tengo\s+(?:datos|informaci[oó]n|info|novedad(?:es)?)\s+(?:de|del|sobre|acerca|respecto)\b|\beso\s+no\s+lo\s+(?:tengo|s[eé])(?![a-záéíóúñ])(?!\s+(?:en\s+stock|ahora|disponible))`,
   // que todavía no lo tiene («Todavía no lo tengo.», «Aún no tengo novedades»). «De
   // Raquis Monasterio no tengo ahora» (sin stock) es un hecho del catálogo y se queda
@@ -420,7 +385,9 @@ const MENCIONES = [
   // que lo pasó a alguien o que alguien lo está viendo («Ya lo pasé a
   // administración», «Lo están revisando», «en manos de administración»)
   String.raw`\b(?:lo|la|los|las|eso)\s+est[aá]n?\s+(?:viendo|revisando|chequeando|verificando|averiguando)\b|\ben\s+manos\s+de\s+(?:administraci[oó]n|el\s+local|compras|reparto|el\s+equipo|la\s+casa)\b|\badministraci[oó]n\s+ya\s+(?:lo|la|los|las)\s+tiene\b|\b(?:ya\s+)?(?:lo|la)\s+tiene\s+administraci[oó]n\b|\badministraci[oó]n\s+(?:ya\s+)?tiene\s+(?:tu|su|la)\s+(?:consulta|pregunta)\b`,
-  String.raw`\b(?:lo|la|tu\s+consulta|su\s+consulta|tu\s+pregunta)\s+(?:pas[eé]|pasamos|deriv[eé]|derivamos|elev[eé]|elevamos)\s+(?:a|al)\s+(?:administraci[oó]n|el\s+local|local|compras|reparto|equipo|el\s+equipo|[aá]rea|sector|una\s+persona)\b|\b(?:le|te)\s+paso\s+(?:tu|su|la)\s+(?:consulta|pregunta)\b`,
+  // (también en presente, «Lo derivo a administración», «Te lo paso al equipo»: eran de la guarda de
+  // promesas sin respaldo, que se sacó el 10/10/2026; «Lo paso a buscar» no cuenta)
+  String.raw`\b(?:lo|la|tu\s+consulta|su\s+consulta|tu\s+pregunta)\s+(?:pas[oeé]|pasamos|deriv[oeé]|derivamos|elev[oeé]|elevamos|traslad[oeé]|trasladamos)\s+(?:a|al)\s+(?:administraci[oó]n|el\s+local|local|compras|reparto|equipo|el\s+equipo|[aá]rea|sector|una\s+persona)\b|\b(?:le|te)\s+paso\s+(?:tu|su|la)\s+(?:consulta|pregunta)\b`,
   // «Quedó anotada tu consulta», «quedó anotado para el equipo» (no «Por ahora quedan anotados:», la lista del pedido)
   String.raw`\b(?:qued[oó]|est[aá]|queda)\s+anotad[oa]\s+(?:tu|su|la)\s+consulta\b|\b(?:tu|su|la)\s+consulta\s+(?:qued[oó]|est[aá]|queda)\s+anotad\w*|\b(?:qued[oó]|queda|est[aá])\s+anotad[oa]\s+para\s+(?:el\s+equipo|administraci[oó]n|el\s+local|compras|reparto)\b`,
   // que pregunta o averigua («Le pregunto a administración y te digo», «Dejame averiguarlo»,
@@ -794,22 +761,6 @@ export function esAlucinacionDeTranscripcion(t: string): boolean {
   return RE_ALUCINACION.test(String(t ?? ''));
 }
 
-// EL MÍNIMO DE ENVÍO SE DICE CON EL MONTO (25/9/2026): el bot escribía "no
-// llegamos al mínimo para envío" sin decir cuánto es. En la oración que habla del
-// mínimo y del envío, "mínimo" pasa a "mínimo de $70.000".
-export function minimoConMonto(t: string, minimo = 70000): string {
-  const monto = '$' + minimo.toLocaleString('es-AR');
-  if (!t || t.includes(monto)) return t;
-  // renglón por renglón y oración por oración: la del mínimo suele venir pegada
-  // al total, y un "$" de otra oración no tiene que frenarla
-  return t.split('\n').map((linea) => linea.split(/(?<=[.!?])(\s+)/).map((o) =>
-    /\bm[ií]nimo\b/i.test(o) && /\b(env[ií]\w*|despach\w*|reparto|domicilio)\b/i.test(o) && !/\$\s?\d/.test(o)
-      ? (/\bm[ií]nimo de compra\b/i.test(o)
-        ? o.replace(/\b(m[ií]nimo de compra)\b/i, `$1 de ${monto}`)
-        : o.replace(/\b(m[ií]nimo)\b(?!\s+de\s+\$)/i, `$1 de ${monto}`))
-      : o).join('')).join('\n');
-}
-
 // LO INTERNO QUEDA PUERTAS ADENTRO (Leandro, 1/10/2026): al cliente no se le
 // dice cuántas unidades hay, en qué sucursal hay stock ni "lo que figura en el
 // sistema". El bot lo escribía igual ("en la sucursal Saint Thomas hay:",
@@ -832,10 +783,4 @@ export function sinCocinaInterna(t: string): string {
     .replace(/\bme figuran? /gi, 'están ')
     .replace(/ en (?:el )?sistema\b/gi, '');
   return r.replace(/[ \t]{2,}/g, ' ').replace(/ ([,.;:])/g, '$1').replace(/^(\s*)([a-záéíóúñ])/gm, (m, a, b) => a + b.toUpperCase()).trim();
-}
-
-// "¿Lo retirás por la sucursal Saint Thomas?" da el retiro por elegido: la
-// pregunta siempre ofrece las dos (banco 1/10/2026)
-export function retiroOEnvio(t: string): string {
-  return String(t ?? '').replace(/¿\s*Lo retir[aá]s (?:por|en) la sucursal Saint Thomas(?:,? \(?Castex 3601\)?)?\s*\?/gi, '¿Lo retirás por la sucursal Saint Thomas o te lo enviamos?');
 }

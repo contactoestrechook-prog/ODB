@@ -163,12 +163,15 @@ describe('el texto fijo de una operación y la consulta en el mismo turno', () =
 });
 
 describe('el orden de la limpieza final', () => {
-  it('«Decime «confirmo»» se va, y el envío sin cargo se dice igual si lo preguntó (asegurarEnvioSinCargo al final)', async () => {
-    const { s, principal } = armar({ conversacion: HIST.slice(0, 4) });
-    principal.push(resp([{ type: 'text', text: 'El envío es sin cargo, decime «confirmo» y avanzamos.' }], 'end_turn'));
+  // (10/10/2026: dependía de tres capas que se sacaron: el «decime confirmo» borrado, el «El
+  // envío es sin cargo» puesto adelante y la primera pasada del envío. Queda una sola pasada,
+  // al final, después del control de importes: el mínimo no abre una consulta de más)
+  it('el envío sin cargo pasa una sola vez y al final: con el mínimo, la pregunta intacta y sin consulta de más', async () => {
+    const { s, db, principal } = armar({ conversacion: HIST.slice(0, 4) });
+    principal.push(resp([{ type: 'text', text: 'El envío es sin cargo. ¿Te lo enviamos a Palermo o lo retirás?' }], 'end_turn'));
     const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: '¿Cuánto me cobran el envío a Palermo?' });
-    expect(r.respuesta).not.toMatch(/dec[ií]me\s*«?confirmo/i);
-    expect(r.respuesta).toMatch(/^El envío es sin cargo en pedidos desde \$70\.000\./);
+    expect(r.respuesta).toBe('El envío es sin cargo en pedidos desde $70.000. ¿Te lo enviamos a Palermo o lo retirás?');
+    expect(insertsDe(db, 'bot_consultas_internas')).toHaveLength(0);
   });
 
   it('ninguna llamada a Claude del turno va sin razonamiento', async () => {

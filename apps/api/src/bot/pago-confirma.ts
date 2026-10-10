@@ -130,39 +130,8 @@ export function datosDePagoParaResumen(out: { datosDePago?: unknown; respuestaFi
   return String(out?.respuestaFija ?? '').trim();
 }
 
-// «Decime «confirmo» y dejo el pedido preparado…» (mensaje 20 de Pablo): el
-// comprobante confirma el pedido, al cliente nunca se le pide la palabra
-const RE_PIDE_CONFIRMO = /dec[ií]me\s*[«"“'‘]?\s*confirmo/i;
-
-/** El total del último resumen con «¿Lo confirmo?» que vio el cliente, o ''. */
-function totalDelResumen(ultimosBot: string[] = []): string {
-  for (const m of ultimosBot) {
-    if (!RE_LO_CONFIRMO.test(String(m ?? ''))) continue;
-    const t = /\bTotal:?\s*(\$\s?\d{1,3}(?:\.\d{3})*(?:,\d{1,2})?)/i.exec(String(m));
-    if (t) return t[1].replace(/\s/g, '');
-  }
-  return '';
-}
-
-/** Saca la oración que le pide al cliente que escriba «confirmo». */
-export function sinPedirConfirmo(texto: string, textoCliente = '', ultimosBot: string[] = []): string {
-  const t = String(texto ?? '');
-  if (!RE_PIDE_CONFIRMO.test(t)) return t;
-  const limpio = t
-    .split('\n')
-    .map((l) => (RE_PIDE_CONFIRMO.test(l) ? l.split(/(?<=[.!?])\s+/).filter((o) => !RE_PIDE_CONFIRMO.test(o)).join(' ') : l))
-    .join('\n')
-    .replace(/[ \t]{2,}/g, ' ')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
-  if (limpio) return limpio;
-  // no quedó nada: si habla de pagar, la respuesta de siempre; si no, la pregunta
-  // del resumen CON SU TOTAL (regla 3b del prompt): un «¿Lo confirmo?» suelto no
-  // lo acepta el «sí» y el bot volvía a armar el resumen (5/10/2026, revisión)
-  if (/transfer|pag[oóa]|abon|comprobante|alias|cbu/i.test(textoCliente)) return 'Dale, mandalo por acá.';
-  const total = totalDelResumen(ultimosBot);
-  return total ? `Total ${total}. ¿Lo confirmo?` : '¿Lo confirmo?';
-}
+// (10/10/2026: se sacó sinPedirConfirmo, que borraba «decime "confirmo"» y, si no quedaba
+// nada, inventaba un «¿Lo confirmo?» suelto. Al cliente no se le pide la palabra: lo dice el prompt.)
 
 /**
  * Las notas de preparar_pedido salen en el resumen que lee el cliente: no

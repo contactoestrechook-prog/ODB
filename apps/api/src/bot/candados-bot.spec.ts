@@ -3,6 +3,7 @@
 // el bot entero para que eso no vuelva a pasar.
 import { appendFileSync } from 'fs';
 import { BotService } from './bot.service';
+import * as TEXTO from './textos-fijos';
 
 process.env.ANTHROPIC_API_KEY ??= 'test';
 
@@ -101,11 +102,9 @@ const HIST = [
 describe('candados conectados al bot', () => {
   it('14:51 «me pasás la cuenta final?»: aunque el modelo conteste la línea del cambio con el total, sale la lista completa y sin la oración repetida', async () => {
     const db = baseFalsa({ bot_conversaciones: { select: conv(HIST) }, lineas_whatsapp: { select: { data: CFG, error: null } } });
-    const { s } = servicio(db,
+    const { s, llamadas } = servicio(db,
       conHerramientas(pensar('a'), herramienta('t1', 'cotizar_pedido', { items: [{ sku: 'C1', cantidad: 8 }, { sku: 'CH', cantidad: 2 }, { sku: 'AB', cantidad: 1 }] })),
       final('b', 'Saco la sal y sumo 1 × Absolut vodka clásico: $33.500, o $30.150 en efectivo o transferencia. Total: $116.500, o $104.510 en efectivo o transferencia. ¿A nombre de quién lo preparo?'),
-      // el control de repeticiones que ya existía le pide reescribir: vuelve el total suelto, sin la lista
-      final('c', 'Total: $116.500, o $104.510 en efectivo o transferencia. ¿A nombre de quién lo preparo?'),
     );
     s.cotizarPedido = jest.fn(async () => COT);
     const r = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Me pasas la cuenta final ? Retiro en sucursal' });
@@ -114,23 +113,94 @@ describe('candados conectados al bot', () => {
     expect(r.respuesta).toMatch(/Total: \$116\.500/);
     expect(r.respuesta).toMatch(/¿A nombre de quién lo preparo\?/);
     expect(r.respuesta).not.toContain('Saco la sal y sumo');
+    // sin reescrituras (10/10/2026: el control de oraciones repetidas que le pedía «decí solo lo
+    // nuevo» se sacó): la vuelta con la herramienta y la respuesta, nada más
+    expect(llamadas.filter((p) => p.model === 'claude-opus-5-5')).toHaveLength(2);
+    expect(r.respuesta.split('\n').filter((l: string) => l.startsWith('• '))).toHaveLength(3);
   });
 });
 
-describe('la capa que acorta no aplasta la lista (21:15 del 9/10)', () => {
-  it('con mucho texto, se acorta solo el texto: la lista queda en renglones y sale primero', async () => {
+describe('un texto largo no se reescribe y la lista queda en renglones (21:15 del 9/10)', () => {
+  // (10/10/2026: se sacó «respuestas acotadas», la capa que aplastaba las listas y seguía viva con un parche)
+  it('con mucho texto, sale como lo escribió el modelo: la lista primero, en renglones, y una sola llamada', async () => {
     const LISTA = '• 4 × Gatorade Frutas Tropicales 500 cc (el rojo)\n• 4 × Agua Glaciar sin gas 2 L\n• 2 × Sprite Zero 1,75 L';
+    const PARRAFO = "De Franui hay cuatro gustos. El de leche es el clásico. El Pink Frambuesa es frutal. El Pink Chocolate Amargo es intenso. El Free es sin azúcar. De helado hay pintas Freddo, tabletas Freddo, paletas Lucciano's y Frigor. ¿Qué gustos y cuántos querés de cada uno?";
     const db = baseFalsa({ bot_conversaciones: { select: conv([{ role: 'assistant', content: 'Buenas noches. ¿Qué necesitás?' }]) }, lineas_whatsapp: { select: { data: CFG, error: null } } });
-    const { s } = servicio(db,
-      final('a', `${LISTA}\n\nDe Franui hay cuatro gustos. El de leche es el clásico. El Pink Frambuesa es frutal. El Pink Chocolate Amargo es intenso. El Free es sin azúcar. De helado hay pintas Freddo, tabletas Freddo, paletas Lucciano's y Frigor. ¿Qué gustos y cuántos querés de cada uno?`),
-      // el texto acortado (la lista la pone el sistema tal cual)
-      final('b', "Franui: Leche, Pink Frambuesa, Pink Chocolate Amargo o Free sin azúcar. Helado: pintas Freddo, tabletas Freddo, paletas Lucciano's o Frigor.\n¿Qué gustos y cuántos querés de cada uno?"),
-    );
+    const { s, llamadas } = servicio(db, final('a', `${LISTA}\n\n${PARRAFO}`));
     const r = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Quiero 4 Gatorade rojos, 4 aguas minerales, 2 Sprite Zero, Franui y helado: ¿qué gustos tenés?' });
     expect(r.respuesta.startsWith(LISTA.split('\n')[0])).toBe(true);
     for (const l of LISTA.split('\n')) expect(r.respuesta).toContain(l);
     // y los renglones siguen siendo renglones (antes «E, ronda 9» los pegaba en un párrafo)
     expect(r.respuesta.split('\n').filter((l: string) => l.startsWith('• '))).toHaveLength(3);
-    expect(r.respuesta).toMatch(/Franui: Leche, Pink Frambuesa, Pink Chocolate Amargo o Free sin azúcar\./);
+    expect(r.respuesta).toContain(PARRAFO);
+    expect(llamadas.filter((p) => p.model === 'claude-opus-5-5')).toHaveLength(1);
+  });
+});
+
+// ============================================================
+// LO QUE QUEDA DE LAS CAPAS VIEJAS (10/10/2026, «basta de capas viejas»). El modelo
+// escribe y casi nada pisa su respuesta.
+// ============================================================
+const LISTA_5 = '• 2 × Fernet Branca 750 cc\n• 3 × Coca Cola Zero 1,75 L\n• 1 × Hielo 2 kg\n• 2 × Sprite Zero 1,75 L\n• 1 × Absolut vodka clásico 750 cc';
+const CINCO = [
+  { role: 'user', content: '2 fernet, 3 coca zero, 1 hielo, 2 sprite zero y 1 absolut' },
+  { role: 'assistant', content: `Te anoto:\n${LISTA_5}\n\n¿Está completo el pedido o querés sumar algo?` },
+];
+const CONSULTAS = { select: { data: [], error: null }, insert: { data: { id: 'q-1' }, error: null } };
+
+describe('lo que queda de las capas viejas (10/10/2026)', () => {
+  it('LA MÁS IMPORTANTE: la lista actualizada (de 5 a 6 renglones) sale entera, en renglones, con una sola llamada al modelo y sin derivar', async () => {
+    const db = baseFalsa({ bot_conversaciones: { select: conv(CINCO) }, lineas_whatsapp: { select: { data: CFG, error: null } }, bot_consultas_internas: CONSULTAS });
+    const actualizada = `Sumo 2 × Gatorade Frutas Tropicales 500 cc.\n\n${LISTA_5}\n• 2 × Gatorade Frutas Tropicales 500 cc`;
+    const { s, llamadas } = servicio(db, final('a', actualizada));
+    s.derivarAHumano = jest.fn(async () => ({ derivada: true }));
+    const r = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'sumale 2 gatorade rojos' });
+    // antes «nunca el mismo mensaje dos veces» la achicaba o le pasaba la charla a una persona en plena venta
+    expect(r.respuesta).toBe(actualizada);
+    const renglones = r.respuesta.split('\n').filter((l: string) => l.startsWith('• '));
+    expect(renglones).toHaveLength(6);
+    expect(renglones.at(-1)).toBe('• 2 × Gatorade Frutas Tropicales 500 cc');
+    expect(llamadas.filter((p) => p.model === 'claude-opus-5-5')).toHaveLength(1);
+    expect(s.derivarAHumano).not.toHaveBeenCalled();
+    expect(r.respuesta).not.toContain(TEXTO.PASA_A_UNA_PERSONA);
+    expect(insertsDe(db, 'bot_consultas_internas')).toHaveLength(0);
+  });
+
+  it('respuesta vacía (también en la vuelta de cierre): no sale «Disculpe, no pude procesar su mensaje»; se consulta en silencio', async () => {
+    const db = baseFalsa({ bot_conversaciones: { select: conv(CINCO) }, lineas_whatsapp: { select: { data: CFG, error: null } }, bot_consultas_internas: CONSULTAS });
+    const vacia = (firma: string) => ({ stop_reason: 'end_turn', content: [pensar(firma)], usage });
+    const { s, llamadas } = servicio(db, vacia('a'), vacia('b'));
+    const r = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: '¿El Absolut es el de 750 o el de litro?' });
+    expect(r.respuesta).toBeNull();
+    expect(r.silencio).toBe(true);
+    // el reintento sin herramientas se queda; no hay una tercera vuelta
+    expect(llamadas.filter((p) => p.model === 'claude-opus-5-5')).toHaveLength(2);
+    const consultas = insertsDe(db, 'bot_consultas_internas');
+    expect(consultas).toHaveLength(1);
+    expect(consultas[0].fila).toMatchObject({ area: 'administracion' });
+    const guardado = db.escrituras.find((e: Escritura) => e.tabla === 'bot_conversaciones' && e.op === 'upsert');
+    expect(JSON.stringify(guardado.fila.mensajes)).not.toMatch(/no pude procesar/i);
+  });
+
+  it('respuesta idéntica al mensaje anterior (sin tildes, mayúsculas ni puntuación): no sale, no se reescribe y se consulta en silencio', async () => {
+    const anterior = 'El Fernet Branca 750 cc sale $20.500.';
+    const db = baseFalsa({ bot_conversaciones: { select: conv([{ role: 'user', content: '¿cuánto sale el fernet?' }, { role: 'assistant', content: anterior }]) }, lineas_whatsapp: { select: { data: CFG, error: null } }, bot_consultas_internas: CONSULTAS });
+    const { s, llamadas } = servicio(db, final('a', 'el fernet branca 750 cc sale $20.500'));
+    const r = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: '¿y el de litro?' });
+    expect(r.respuesta).toBeNull();
+    expect(r.silencio).toBe(true);
+    expect(llamadas.filter((p) => p.model === 'claude-opus-5-5')).toHaveLength(1);
+    const consultas = insertsDe(db, 'bot_consultas_internas');
+    expect(consultas).toHaveLength(1);
+    expect(consultas[0].fila).toMatchObject({ area: 'administracion', consulta: '¿y el de litro?' });
+  });
+
+  it('a un «ok» el modelo no escribe nada: silencio, sin consulta a administración (un «ok» no es una pregunta)', async () => {
+    const db = baseFalsa({ bot_conversaciones: { select: conv(CINCO) }, lineas_whatsapp: { select: { data: CFG, error: null } }, bot_consultas_internas: CONSULTAS });
+    const vacia = (firma: string) => ({ stop_reason: 'end_turn', content: [pensar(firma)], usage });
+    const { s } = servicio(db, vacia('a'), vacia('b'));
+    const r = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'ok' });
+    expect(r.respuesta).toBeNull();
+    expect(insertsDe(db, 'bot_consultas_internas')).toHaveLength(0);
   });
 });

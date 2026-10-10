@@ -6,7 +6,7 @@ import { confirmacionInequivoca } from './comercio';
 import { puedeCotizar } from './completo';
 import {
   cambiaElPedido, cambiaLaEntrega, comprobanteYaRegistrado, conDatosDePago, leerImporteDelComprobante, montoDelPedido, notasSinPagado, razonamientoPara,
-  respuestaPedidoPorComprobante, sinPedirConfirmo, totalEfectivoDe,
+  respuestaPedidoPorComprobante, totalEfectivoDe,
 } from './pago-confirma';
 
 // Base falsa POR OPERACIÓN: lo que devuelve depende de la tabla, de si es
@@ -401,23 +401,6 @@ describe('la charla entera: el PDF del pago (mensajes 21 y 22 de Pablo)', () => 
     expect((preparar.mock.calls[0][2] as any).notas).toBe('Paga por transferencia.');
   });
 
-  it('«En 10 minutos llego a la compu y hago la transferencia»: nunca «Decime «confirmo»»', async () => {
-    const { s, principal } = armar({ conversacion: HIST.slice(0, 4) });
-    // el texto real del mensaje 20, también en la regeneración («dejo el pedido» cuenta como promesa)
-    principal.push(resp([{ type: 'text', text: M20 }], 'end_turn'), resp([{ type: 'text', text: M20 }], 'end_turn'));
-    const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'En 10 minutos llego a la compu y hago la transferencia' });
-    expect(r.respuesta).not.toMatch(/dec[ií]me\s*«?confirmo/i);
-    expect(r.respuesta).toBe('Perfecto, mandame el comprobante por acá cuando lo hagas.');
-  });
-
-  it('«¿Cierro con esos tres y te paso el total?» es prometer el total para después (G2 con voseo)', async () => {
-    const { s, principal, create } = armar({ conversacion: [{ role: 'user', content: 'Decime los valores' }, { role: 'assistant', content: 'Son estos tres: ...' }] });
-    principal.push(resp([{ type: 'text', text: 'Ya te pasé los tres precios más arriba. ¿Cierro con esos tres y te paso el total?' }], 'end_turn'));
-    principal.push(resp([{ type: 'text', text: 'Total: $317.100.' }], 'end_turn'));
-    await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Me gustaría saber los precios' });
-    const notas = create.mock.calls.map((c: any[]) => JSON.stringify(c[0]?.messages ?? []));
-    expect(notas.some((m: string) => m.includes('prometiste el total para después'))).toBe(true);
-  });
 });
 
 describe('piezas: «si» condicional, precios, «confirmo», notas y cambios', () => {
@@ -430,12 +413,6 @@ describe('piezas: «si» condicional, precios, «confirmo», notas y cambios', (
 
   it.each(['Decime los valores', 'Me gustaría saber los precios', 'qué valor tiene?'])('«%s» es pregunta de precio', (t) => expect(puedeCotizar(t, [], [])).toBe(true));
   it('«Me llevo los 3» sola no habilita precios', () => expect(puedeCotizar('Me llevo los 3 y un judas más.', [], [])).toBe(false));
-
-  it('saca la oración que pide escribir «confirmo»', () => {
-    expect(sinPedirConfirmo(M20)).toBe('Perfecto, mandame el comprobante por acá cuando lo hagas.');
-    expect(sinPedirConfirmo('Decime "confirmo" y lo cargo.', 'hago la transferencia')).toBe('Dale, mandalo por acá.');
-    expect(sinPedirConfirmo('Total: $317.100\n¿Lo confirmo?')).toBe('Total: $317.100\n¿Lo confirmo?');
-  });
 
   it('las notas no dicen «pagado»', () => {
     expect(notasSinPagado('Retira hoy en un rato. Pidió caja/embalaje para transportar las botellas en valija a España. Pagado por transferencia ($285.390, comprobante enviado).'))
@@ -582,11 +559,6 @@ describe('revisión de la plata (5/10/2026)', () => {
     expect(filtros).toContainEqual(['eq', 'telefono_cliente', TEL]);
     expect(filtros).toContainEqual(['is', 'confirmado_en', null]);
     expect(filtros.some((f) => f[0] === 'gte' && f[1] === 'creado_en')).toBe(true);
-  });
-
-  it('«Decime confirmo» solo, sin hablar de pagar: «Total $X. ¿Lo confirmo?» con el total del resumen, nunca un «¿Lo confirmo?» suelto', () => {
-    expect(sinPedirConfirmo('Decime «confirmo» y lo dejo listo.', 'Perfecto, lo retiro a la tarde', [M18, M12])).toBe('Total $317.100. ¿Lo confirmo?');
-    expect(sinPedirConfirmo('Decime «confirmo» y lo dejo listo.', 'Perfecto', [])).toBe('¿Lo confirmo?');
   });
 
   // el epígrafe más común de un comprobante habla del pago, no de la entrega:

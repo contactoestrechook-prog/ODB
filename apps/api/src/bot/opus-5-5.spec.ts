@@ -123,11 +123,13 @@ function revisarTurno(llamadas: any[]) {
 const firmasEn = (p: any) => p.messages.flatMap((m: any) => (Array.isArray(m.content) ? m.content : [])).filter((b: any) => b.type === 'thinking').map((b: any) => b.signature);
 
 describe('el bot en Opus 5.5: una sola forma para todo el turno', () => {
-  it('búsqueda + respuesta con promesa de plazo + regeneración: misma forma, la charla solo crece y el razonamiento vuelve tal cual', async () => {
+  // (10/10/2026: las correcciones que reescribían se sacaron; el disparo de la vuelta sin
+  // herramientas pasa a ser la respuesta vacía, uno de los tres usos que quedan)
+  it('búsqueda + respuesta vacía + vuelta sin herramientas: misma forma, la charla solo crece y el razonamiento vuelve tal cual', async () => {
     const db = baseFalsa({ bot_conversaciones: { select: conv([]) }, lineas_whatsapp: { select: { data: CFG, error: null } } });
     const { s, llamadas } = servicio(db,
       conHerramientas(pensar('a'), herramienta('b1', 'buscar_productos', { q: 'fernet' })),
-      final('b', 'Fernet Branca 750 cc: $20.500. Te lo preparo en un momento.'),
+      final('b', ''),
       final('c', 'Fernet Branca 750 cc: $20.500.'),
     );
     const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: '¿Tienen fernet?' });
@@ -140,24 +142,28 @@ describe('el bot en Opus 5.5: una sola forma para todo el turno', () => {
     const consigna = opus[2].messages.at(-1).content;
     expect(JSON.stringify(consigna)).toMatch(/en esta vuelta no uses herramientas/);
     // el razonamiento de la vuelta con herramientas vuelve tal cual en las siguientes
+    // (la vuelta vacía no entra a la charla: un mensaje vacío del asistente es un 400)
     expect(firmasEn(opus[1])).toEqual(['a']);
     expect(firmasEn(opus[2])).toEqual(['a']);
   });
 
-  it('la corrección que puede usar herramientas (total prometido): mismas herramientas, se ejecuta y la regeneración escribe', async () => {
+  it('la corrección que puede usar herramientas (precio inventado): mismas herramientas, se ejecuta y la regeneración escribe', async () => {
     const db = baseFalsa({ bot_conversaciones: { select: conv([]) }, lineas_whatsapp: { select: { data: CFG, error: null } } });
     const { s, llamadas } = servicio(db,
-      final('a', 'Te paso el total en un momento.'),
-      conHerramientas(pensar('b'), herramienta('e1', 'estado_local', {})),
-      final('c', 'Abrimos hasta las 21.'),
+      conHerramientas(pensar('a'), herramienta('b1', 'buscar_productos', { q: 'fernet' })),
+      // $41.000 no lo devolvió ninguna herramienta: la vuelta puede volver a usarlas
+      final('b', 'Dos Fernet Branca 750 cc salen $41.000.'),
+      conHerramientas(pensar('c'), herramienta('e1', 'estado_local', {})),
+      final('d', 'Fernet Branca 750 cc: $20.500. Abrimos hasta las 21.'),
     );
-    const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'hola, abren hoy' });
+    const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'cuánto salen 2 fernet, abren hoy?' });
     expect(r.respuesta).toMatch(/Abrimos hasta las 21\.$/);
+    expect(r.respuesta).not.toContain('41.000');
     expect(s.estadoAtencion).toHaveBeenCalledTimes(1);
     const opus = revisarTurno(llamadas);
-    expect(opus).toHaveLength(3);
+    expect(opus).toHaveLength(4);
     // el aviso de «sin herramientas» va DESPUÉS de los resultados, en el mismo mensaje
-    const ultimo = opus[2].messages.at(-1);
+    const ultimo = opus[3].messages.at(-1);
     expect(ultimo.content[0].type).toBe('tool_result');
     expect(ultimo.content.at(-1)).toMatchObject({ type: 'text' });
     expect(ultimo.content.at(-1).text).toMatch(/en esta vuelta no uses herramientas/);
@@ -185,7 +191,8 @@ describe('el bot en Opus 5.5: una sola forma para todo el turno', () => {
   it('si en una regeneración igual pide una herramienta, no se ejecuta: «no disponible» y la vuelta siguiente sigue leyendo la caché (sin tool_choice)', async () => {
     const db = baseFalsa({ bot_conversaciones: { select: conv([]) }, lineas_whatsapp: { select: { data: CFG, error: null } } });
     const { s, llamadas } = servicio(db,
-      final('a', 'Te lo preparo en un momento.'),
+      // vacía: va la vuelta de cierre sin herramientas
+      final('a', ''),
       conHerramientas(pensar('b'), herramienta('x1', 'estado_local', {})),
       final('c', 'Abrimos hasta las 21.'),
     );
@@ -206,7 +213,7 @@ describe('el bot en Opus 5.5: una sola forma para todo el turno', () => {
   it('si insiste con herramientas en la regeneración, la TERCERA vuelta va con tool_choice none (no las puede usar)', async () => {
     const db = baseFalsa({ bot_conversaciones: { select: conv([]) }, lineas_whatsapp: { select: { data: CFG, error: null } } });
     const { s, llamadas } = servicio(db,
-      final('a', 'Te lo preparo en un momento.'),
+      final('a', ''),
       conHerramientas(pensar('b'), herramienta('x1', 'estado_local', {})),
       conHerramientas(pensar('c'), herramienta('x2', 'estado_local', {})),
       final('d', 'Abrimos hasta las 21.'),
@@ -352,34 +359,6 @@ describe('revisión del 6/10/2026 (hallazgos sobre el cambio a Opus 5.5)', () =>
     expect(String(resultado.content)).not.toMatch(/escribí ahora el mensaje/);
     expect(s.buscarProductos).not.toHaveBeenCalled();
   });
-
-  it('anti-repetición tras un «sí» con la cotización vencida: crear_pedido corre de verdad (con su guarda) y un «quedó confirmado» sin código no sale', async () => {
-    // oraciones cortas: si alguna se repitiera textual, la toma antes otra guarda (G5-bis)
-    const resumen = 'Coca Zero 1,75 L: 3 por $14.100. Retiro en la sucursal Saint Thomas. A nombre de Pedro. ¿Lo confirmo?';
-    const db = baseFalsa({
-      bot_conversaciones: { select: conv([{ role: 'user', content: '3 coca zero 1.75 para retirar, Pedro' }, { role: 'assistant', content: resumen }]) },
-      lineas_whatsapp: { select: { data: CFG, error: null } },
-    });
-    const { s, llamadas } = servicio(db,
-      // casi el mismo resumen (si fuera idéntico lo toma antes otra guarda)
-      final('a', resumen.replace('Retiro en la sucursal', 'Retirás en la sucursal')),
-      conHerramientas(pensar('b'), herramienta('c1', 'crear_pedido', { confirmacion: 'si' })),
-      final('c', 'Listo, tu pedido quedó confirmado. Te esperamos en Saint Thomas.'),
-    );
-    // el «sí» directo del servidor no alcanza (la cotización venció)
-    s.crearPedido = jest.fn(async () => { throw new Error('la cotización venció'); });
-    const ejecutadas: string[] = [];
-    s.ejecutarHerramienta = jest.fn(async (b: any) => {
-      ejecutadas.push(b.name);
-      return { type: 'tool_result', tool_use_id: b.id, content: '{"error":"NO se creó el pedido: la cotización venció, volvé a cotizar"}', is_error: true };
-    });
-    const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'si' });
-    // crear_pedido llegó a la herramienta real (antes se frenaba con «no disponible»)
-    expect(ejecutadas).toContain('crear_pedido');
-    expect(r.respuesta).not.toMatch(/qued[oó] confirmado/i);
-    expect(r.respuesta).toMatch(/Tuve un problema para cargar el pedido/);
-    revisarTurno(llamadas);
-  });
 });
 
 describe('la caché del bot (9/10/2026: el hilo se reusa por defecto)', () => {
@@ -389,7 +368,9 @@ describe('la caché del bot (9/10/2026: el hilo se reusa por defecto)', () => {
 
   const hist = [{ role: 'user', content: 'Hola, ¿tienen fernet?' }, { role: 'assistant', content: 'Sí: Fernet Branca 750 cc a $20.500.' }];
 
-  it('ODB_BOT_CACHE_HILO=0: como antes (5 minutos, la hora en el system, los avisos del mensaje en el system)', async () => {
+  // (10/10/2026: ya no hay avisos por mensaje en el system ni al final del mensaje del
+  // cliente; lo que vale para un solo mensaje va en sus metadatos)
+  it('ODB_BOT_CACHE_HILO=0: como antes (5 minutos y la hora en el system)', async () => {
     process.env.ODB_BOT_CACHE_HILO = '0';
     const db = baseFalsa({ bot_conversaciones: { select: conv(hist) }, lineas_whatsapp: { select: { data: CFG, error: null } } });
     const { s, llamadas } = servicio(db, final('a', 'Anotado.'));
@@ -398,7 +379,7 @@ describe('la caché del bot (9/10/2026: el hilo se reusa por defecto)', () => {
     expect(p.system[0]).toMatchObject({ text: SYSTEM_PEDIDOS, cache_control: { type: 'ephemeral' } });
     expect(p.system[0].cache_control.ttl).toBeUndefined();
     expect(p.system[1].text).toMatch(/^HOY ES .+, \d{1,2}:\d{2}/);
-    expect(p.system.some((b: any) => /CANTIDADES QUE PIDIÓ EL CLIENTE/.test(b.text))).toBe(true);
+    expect(p.system).toHaveLength(2);
     expect(p.messages[1].content).toBe(hist[1].content);
   });
 
@@ -411,19 +392,21 @@ describe('la caché del bot (9/10/2026: el hilo se reusa por defecto)', () => {
     expect(llamadas[0].messages.at(-1).content.at(-1).cache_control).toEqual({ type: 'ephemeral' });
   });
 
-  it('ODB_BOT_CACHE_HILO=1: el system no cambia de un mensaje a otro (sin minutos ni avisos del mensaje) y el historial lleva su marca', async () => {
+  it('ODB_BOT_CACHE_HILO=1: el system no cambia de un mensaje a otro (sin minutos ni nada del mensaje) y el historial lleva su marca', async () => {
     process.env.ODB_BOT_CACHE_HILO = '1';
     const db = baseFalsa({ bot_conversaciones: { select: conv(hist) }, lineas_whatsapp: { select: { data: CFG, error: null } } });
     const { s, llamadas } = servicio(db, final('a', 'Anotado.'), final('b', 'Anotado.'));
     await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'quiero 2 fernet' });
-    await s.charla({ linea: 'pedidos', telefono: '5491155509999', mensaje: '?' });
+    await s.charla({ linea: 'pedidos', telefono: '5491155509999', mensaje: '¿Abren hoy? ¿Hacen envíos a Canning?' });
     const [uno, dos] = llamadas.filter((p) => p.model === 'claude-opus-5-5');
     expect(uno.system).toEqual(dos.system);
     expect(uno.system[1].text).not.toMatch(/\d{1,2}:\d{2}/);
-    expect(uno.system.some((b: any) => /CANTIDADES QUE PIDIÓ/.test(b.text))).toBe(false);
-    // los avisos del mensaje van al final del mensaje del cliente
-    expect(JSON.stringify(uno.messages.at(-1).content)).toMatch(/AVISOS DEL SISTEMA PARA ESTE MENSAJE: CANTIDADES QUE PIDIÓ EL CLIENTE/);
-    expect(JSON.stringify(dos.messages.at(-1).content)).toMatch(/AVISOS DEL SISTEMA PARA ESTE MENSAJE: El cliente mandó solo un signo de pregunta/);
+    // lo que vale para este mensaje (dos preguntas) va en sus metadatos, al final del mensaje del cliente
+    expect(JSON.stringify(dos.messages.at(-1).content)).toMatch(/este mensaje trae 2 preguntas/);
+    expect(JSON.stringify(dos.system)).not.toMatch(/este mensaje trae/);
+    expect(JSON.stringify(uno.messages.at(-1).content)).not.toMatch(/este mensaje trae/);
+    // el saludo, solo en el primer mensaje de la charla (10/10/2026): acá ya saludó
+    expect(JSON.stringify(uno.messages.at(-1).content)).not.toMatch(/saludá|saludo correcto|ya saludaste/);
     // la marca al final del historial, sin tocar su texto
     expect(uno.messages[1].content).toEqual([{ type: 'text', text: hist[1].content, cache_control: { type: 'ephemeral' } }]);
     // y no se guarda en la base con la marca

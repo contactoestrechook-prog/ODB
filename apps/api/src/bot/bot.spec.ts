@@ -215,36 +215,8 @@ describe('BotService.charla (robustez del agente)', () => {
     expect(r.respuesta ?? '').toBe('');
   });
 
-  // A un "¿cómo andás?" el bot contestó "Cómo ando y si todo bien no lo puedo
-  // responder, soy el asistente automático, no una persona". Nadie que atiende
-  // un teléfono anuncia que es un robot sin que se lo pregunten.
-  it('saca el discurso de robot cuando nadie preguntó la identidad', async () => {
-    const db = dbFalsa({ bot_conversaciones: { data: { mensajes: [] }, error: null } });
-    const { s } = servicio(db);
-    (s as any).claude = { messages: { create: jest.fn().mockResolvedValue(respuestaClaude(
-      'Buen día. Cómo ando no lo puedo responder, soy el asistente automático, no una persona. ¿En qué te puedo ayudar?',
-    )) } };
-    const r: any = await s.charla({ linea: 'pedidos', telefono: '2020', mensaje: 'Jackie, buen día, ¿cómo andás? ¿Todo bien?' });
-    expect(r.respuesta).not.toMatch(/asistente|no una persona|no lo puedo responder/i);
-    expect(r.respuesta.length).toBeGreaterThan(5);
-  });
-
-  // La sigla O.D.B lleva puntos: un corte ingenuo por puntos dejó
-  // "gracias.D.B y le tomo la consulta" en producción.
-  it('tira la oración de robot ENTERA aunque contenga O.D.B', async () => {
-    const db = dbFalsa({ bot_conversaciones: { data: { mensajes: [] }, error: null } });
-    const { s } = servicio(db);
-    (s as any).claude = { messages: { create: jest.fn().mockResolvedValue(respuestaClaude(
-      'Buen día, ¿cómo le va? Todo bien por acá, gracias. Le atiende el asistente de O.D.B y le tomo la consulta. De Coca 2,25 L no tenemos stock.',
-    )) } };
-    const r: any = await s.charla({ linea: 'pedidos', telefono: '2022', mensaje: 'buen día, ¿cómo andás? ¿tenés coca de 2,25?' });
-    // sin discurso de robot y sin fragmentos huérfanos tipo "gracias.D.B"
-    // (el O.D.B de la bienvenida es legítimo)
-    expect(r.respuesta).not.toMatch(/asistente|[a-záéíóú]\.D\.B/);
-    expect(r.respuesta).toMatch(/Todo bien por acá/);
-    expect(r.respuesta).toMatch(/no tenemos stock/);
-  });
-
+  // (10/10/2026: se sacó el recorte de la presentación de robot: buscaba frases que ya no
+  // se usan, no detectaba «Soy Emilia», juntaba listas y rompía «O.D.B.». Lo dice el prompt.)
   it('la identidad SÍ se dice cuando el cliente la pregunta', async () => {
     const db = dbFalsa({ bot_conversaciones: { data: { mensajes: [] }, error: null } });
     const { s } = servicio(db);
@@ -589,7 +561,8 @@ describe('saludo universal corto (según la hora de Buenos Aires)', () => {
   });
 
   // 9/10/2026 (Leandro: «más seca la charla»): el saludo es corto, sin bienvenida ni presentación
-  it('corrige el saludo del modelo cuando imaginó otra hora', () => {
+  // (desde el 10/10/2026 no pisa lo que escribe el modelo: la usan el «hola» tardío y la respuesta del área)
+  it('corrige el saludo cuando el texto trae otra hora', () => {
     const r = saludarConBienvenida('Buen día. El Fernet Branca de 750 cc está $20.500. ¿Cuántas botellas necesita?', 'Buenas noches');
     expect(r).toBe('Buenas noches. El Fernet Branca de 750 cc está $20.500. ¿Cuántas botellas necesita?');
   });
@@ -734,37 +707,35 @@ describe('candados: el bot JAMÁS dice que no puede ver/escuchar/recibir lo que 
     }
   });
 
-  it('CANDADO FINAL: si una regeneración tardía mete "no puedo ver", el mensaje entero se reemplaza', async () => {
+  // UN SOLO CANDADO, AL FINAL (10/10/2026): se va solo la oración; si no queda nada, el texto fijo
+  it('el candado: si el modelo dice «no puedo ver» y nada más, sale el texto fijo', async () => {
     const { s } = servicio();
-    // 1ª respuesta: pasa el candado de percepción pero dispara la guarda de
-    // "3+ preguntas"; la regeneración (tardía, después del candado) vuelve con
-    // la frase prohibida. Solo el candado final puede atraparla.
-    const crear = jest.fn()
-      .mockResolvedValueOnce(respuestaClaude('¿Qué marca busca? ¿Cuántas unidades? ¿Retira o enviamos?'))
-      .mockResolvedValue(respuestaClaude('No puedo ver la foto que mandó, discúlpeme.'));
+    const crear = jest.fn().mockResolvedValue(respuestaClaude('No puedo ver la foto que mandó, discúlpeme.'));
     (s as any).claude = { messages: { create: crear } };
     const r: any = await s.charla({ linea: 'pedidos', telefono: '4001', mensaje: 'hola necesito bebidas', mensajeId: undefined });
     expect(niegaPercepcion(r.respuesta)).toBe(false);
-    expect(r.respuesta).toContain('Recibido');
-  });
-});
-
-describe('registro: voseo respetuoso, jamás usted ni confianzudo', () => {
-  const { respetuosoSinConfianza } = require('./prolijo');
-
-  it('convierte los restos de usted inequívocos a voseo', () => {
-    expect(respetuosoSinConfianza('Dígame en qué lo puedo ayudar. Cuando transfiera, mándeme el comprobante, y si tiene dudas, escríbame por acá, usted primero.'))
-      .toBe('Decime en qué lo puedo ayudar. Cuando transfiera, mandame el comprobante, y si tiene dudas, escribime por acá, vos primero.');
+    expect(r.respuesta).toBe('Recibido. Contame qué necesitás y lo vemos.');
+    // sin reescrituras
+    expect(crear).toHaveBeenCalledTimes(1);
   });
 
-  it('saca lo confianzudo: che, dale, apodos, exclamaciones y emojis', () => {
-    expect(respetuosoSinConfianza('¡Dale, che! Te lo mando ya 🍷😀')).toBe('De acuerdo. Te lo mando ya');
-    expect(respetuosoSinConfianza('Gracias, capo! Quedó joya el pedido.')).toBe('Gracias. Quedó joya el pedido.');
+  it('el candado con una lista: sale solo la oración prohibida y los renglones quedan en renglones', async () => {
+    const { s } = servicio();
+    const lista = '• 2 × Fernet Branca 750 cc\n• 1 × Coca Cola 2,25 L\n• 3 × Hielo 2 kg';
+    (s as any).claude = { messages: { create: jest.fn().mockResolvedValue(respuestaClaude(`No puedo ver bien la foto que mandaste. Te anoto lo que me escribiste:\n${lista}\n\n¿Está completo el pedido o querés sumar algo?`)) } };
+    const r: any = await s.charla({ linea: 'pedidos', telefono: '4002', mensaje: '2 fernet, 1 coca de 2,25 y 3 hielos' });
+    expect(niegaPercepcion(r.respuesta)).toBe(false);
+    expect(r.respuesta).toBe(`Te anoto lo que me escribiste:\n${lista}\n\n¿Está completo el pedido o querés sumar algo?`);
   });
 
-  it('no rompe la tercera persona legítima ni las palabras del negocio', () => {
-    const t = 'El local tiene stock y la caja tiene cambio. Jaqueline dice que mañana llega. • 2 × Fernet — $41.000';
-    expect(respetuosoSinConfianza(t)).toBe(t);
+  it('el candado con un archivo: el texto fijo y la foto se consulta en silencio con administración', async () => {
+    const { s } = servicio();
+    (s as any).claude = { messages: { create: jest.fn().mockResolvedValue(respuestaClaude('No puedo abrir la foto que mandaste.')) } };
+    const consultar = jest.spyOn(s, 'consultarInterno').mockResolvedValue({ consultado: true, area: 'administracion', avisoPorWhatsapp: true, aviso: '' } as any);
+    const r: any = await s.charla({ linea: 'pedidos', telefono: '4003', mensaje: '', archivoBase64: 'aW1hZ2Vu', mimeType: 'image/jpeg' });
+    expect(r.respuesta).toBe('Recibido.');
+    expect(consultar).toHaveBeenCalledTimes(1);
+    expect(consultar.mock.calls[0][2]).toBe('administracion');
   });
 });
 
@@ -1478,16 +1449,16 @@ describe('Consulta pendiente: responder recién con el dato', () => {
 });
 
 describe('Fotos: respuesta comercial directa', () => {
-  it('reformula la narración visual sin asumir cantidades de pedido', async () => {
+  // (10/10/2026: se sacó la reescritura de «foto: no describas»: saltaba con «no se ve bien» y
+  // lo reescrito salía sin saludo y sin viñetas. Lo dicen el prompt y la nota de la foto.)
+  it('la nota de la foto va en el mensaje y lo que contesta el modelo sale tal cual, con una sola llamada', async () => {
     process.env.ANTHROPIC_API_KEY = 'test';
     const { s } = servicio();
-    const crear = jest.fn()
-      .mockResolvedValueOnce(respuestaClaude('Veo dos botellas en la foto. ¿Qué necesitás?'))
-      .mockResolvedValue(respuestaClaude('¿Querés consultar precio o disponibilidad?'));
+    const crear = jest.fn().mockResolvedValue(respuestaClaude('No se ve bien, ¿me la mandás más nítida?'));
     (s as any).claude = { messages: { create: crear } };
-    const r = await s.charla({ linea: 'pedidos', telefono: '5491155512348', mensaje: '', archivoBase64: 'aW1hZ2Vu', mimeType: 'image/jpeg' });
-    expect(r.respuesta).not.toMatch(/veo dos botellas/i);
-    expect(r.respuesta).toContain('precio o disponibilidad');
+    const r: any = await s.charla({ linea: 'pedidos', telefono: '5491155512348', mensaje: '', archivoBase64: 'aW1hZ2Vu', mimeType: 'image/jpeg' });
+    expect(r.respuesta).toBe('No se ve bien, ¿me la mandás más nítida?');
+    expect(crear).toHaveBeenCalledTimes(1);
     expect(crear.mock.calls.some(([arg]) => JSON.stringify(arg.messages).includes('La cantidad visible NO es cantidad pedida'))).toBe(true);
   });
 });

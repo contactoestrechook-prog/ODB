@@ -1,14 +1,7 @@
-import { retiroOEnvio, sinCocinaInterna, minimoConMonto, asegurarEnvioSinCargo, campoLimpio, casiIgual, emprolijarListado, esAlucinacionDeTranscripcion, esAutomaticoWhatsappBusiness, envioSinCargo, nombreSucursalCliente, saintThomas } from './prolijo';
+import { sinCocinaInterna, campoLimpio, casiIgual, emprolijarListado, esAlucinacionDeTranscripcion, esAutomaticoWhatsappBusiness, envioSinCargo, nombreSucursalCliente } from './prolijo';
 import { consultaAbiertaQueNombra, juntarConsulta, mencionaConsulta, mismaConsulta, mismoTema, respuestaDelAreaParaCliente, sinMencionDeConsulta, sinPromesas, temaDeConsulta, temaDeLaPromesa } from './prolijo';
 
 describe('nombre de la sucursal ante el cliente', () => {
-  it('Sant Thomas pasa a sucursal Saint Thomas', () => {
-    expect(saintThomas('Estos son los whiskies de 1 litro con stock en Sant Thomas:')).toBe('Estos son los whiskies de 1 litro con stock en la sucursal Saint Thomas:');
-    expect(saintThomas('Se retira en la sucursal Sant Thomas (Castex 3601)')).toBe('Se retira en la sucursal Saint Thomas (Castex 3601)');
-    expect(saintThomas('Lo esperamos en Suc Sant Thomas.')).toBe('Lo esperamos en la sucursal Saint Thomas.');
-    expect(saintThomas('Sant Thomas abre a las 8.')).toBe('Sucursal Saint Thomas abre a las 8.');
-    expect(saintThomas('Santa Inés cierra a las 21.')).toBe('Santa Inés cierra a las 21.');
-  });
   it('nombre de la base', () => {
     expect(nombreSucursalCliente('Suc Sant Thomas')).toBe('sucursal Saint Thomas');
     expect(nombreSucursalCliente('Suc Santa Ines')).toBe('Santa Ines');
@@ -76,21 +69,6 @@ describe('el envío en ODB es sin cargo', () => {
     expect(r).toMatch(/el envío es sin cargo en pedidos desde \$70\.000\./);
     expect(r).toMatch(/Se abona al recibir, en efectivo o con tarjeta\.$/);
     expect(r).not.toMatch(/sector de reparto/);
-  });
-});
-
-describe('preguntó cuánto sale el envío', () => {
-  it('la respuesta siempre dice que es sin cargo', () => {
-    expect(asegurarEnvioSinCargo('Cuanto es el flete? me cobran el reparto aparte no?', 'Ya te confirmo por acá.'))
-      .toBe('El envío es sin cargo. Ya te confirmo por acá.');
-    expect(asegurarEnvioSinCargo('cuanto me sale el envio?', 'El envío es sin cargo: ese es el total.'))
-      .toBe('El envío es sin cargo: ese es el total.');
-    expect(asegurarEnvioSinCargo('¿el envío lo cobran aparte?', 'Te paso el total: $12.000.'))
-      .toMatch(/^El envío es sin cargo\./);
-  });
-  it('si no preguntó por el costo, no agrega nada', () => {
-    expect(asegurarEnvioSinCargo('¿a qué hora sale el reparto?', 'Sale después de las 18.')).toBe('Sale después de las 18.');
-    expect(asegurarEnvioSinCargo('quiero 2 fernet', 'Te cotizo 2 Fernet Branca.')).toBe('Te cotizo 2 Fernet Branca.');
   });
 });
 
@@ -247,21 +225,6 @@ describe('transcripciones inventadas', () => {
   });
 });
 
-describe('el mínimo de envío con su monto', () => {
-  it('agrega el monto en la oración del mínimo', () => {
-    expect(minimoConMonto('Con ese total todavía no llegamos al mínimo para envío a domicilio. Podés sumar algo.'))
-      .toBe('Con ese total todavía no llegamos al mínimo de $70.000 para envío a domicilio. Podés sumar algo.');
-  });
-  it('con el total en el renglón de arriba y "mínimo de compra" (banco 25/9)', () => {
-    expect(minimoConMonto('• Fernet — 2 × $20.500 c/u = $41.000\n\n*Total: $55.100*\n\nPara envío hay un mínimo de compra que este pedido todavía no alcanza.'))
-      .toContain('Para envío hay un mínimo de compra de $70.000 que este pedido todavía no alcanza.');
-  });
-  it('no toca lo que ya tiene el monto ni otros mínimos', () => {
-    expect(minimoConMonto('El envío es para pedidos desde $70.000.')).toBe('El envío es para pedidos desde $70.000.');
-    expect(minimoConMonto('El mínimo de compra del vino es 6 botellas.')).toBe('El mínimo de compra del vino es 6 botellas.');
-  });
-});
-
 describe('lo interno queda puertas adentro (Karina, 30/9/2026)', () => {
   it('sin cantidades ni sucursales del stock', () => {
     expect(sinCocinaInterna('De tu lista, en la sucursal Saint Thomas hay:')).toBe('De tu lista hay:');
@@ -281,24 +244,9 @@ describe('lo interno queda puertas adentro (Karina, 30/9/2026)', () => {
   });
 });
 
-describe('retiro o envío, siempre las dos', () => {
-  it('completa la pregunta', () => {
-    expect(retiroOEnvio('Total: $53.800\n\n¿Lo retirás por la sucursal Saint Thomas, Castex 3601?')).toBe('Total: $53.800\n\n¿Lo retirás por la sucursal Saint Thomas o te lo enviamos?');
-    const ok = '¿Lo retirás por la sucursal Saint Thomas o te lo enviamos?';
-    expect(retiroOEnvio(ok)).toBe(ok);
-  });
-});
-
 describe('sin consulta en el turno, lo que no promete no se toca', () => {
   it('queda igual', () => {
     expect(sinPromesas('El envío es sin cargo.')).toBe('El envío es sin cargo.');
-  });
-});
-describe('el flete se contesta aunque haya una consulta pendiente', () => {
-  it('consulta silenciosa sin nada más + pregunta por el flete = "El envío es sin cargo."', () => {
-    const vacia = sinPromesas('Lo consulto y te confirmo por acá.');
-    expect(vacia).toBe('');
-    expect(asegurarEnvioSinCargo('Cuanto es el flete? me cobran el reparto aparte no?', vacia)).toBe('El envío es sin cargo.');
   });
 });
 describe('la última limpieza: nada de una consulta en NINGUNA respuesta (1/10 y 6/10/2026)', () => {
@@ -311,7 +259,7 @@ describe('la última limpieza: nada de una consulta en NINGUNA respuesta (1/10 y
     expect(sinMencionDeConsulta('Del PerSe no tengo ahora, ya te confirmo si entra.')).toBe('Del PerSe no tengo ahora.');
     expect(sinMencionDeConsulta('Te paso con una persona del local, te contesta por acá.')).toBe('Te paso con una persona del local.');
   });
-  it('no toca lo que no habla de una consulta (los plazos sueltos los ve otra guarda)', () => {
+  it('no toca lo que no habla de una consulta (los plazos sueltos los cubre el prompt)', () => {
     for (const t of ['Recibido.', 'Te aviso que los domingos no hay reparto.', 'Te anoto 2 Judas para retirar en un rato.', 'De Raquis Monasterio no tengo ahora.', 'Esa cantidad no la tengo disponible ahora.', 'Te paso por acá los precios:', 'Cuando transfieras, mandame el comprobante por acá.'])
       expect(sinMencionDeConsulta(t)).toBe(t);
   });

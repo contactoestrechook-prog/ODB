@@ -1,5 +1,5 @@
 // Candados del 9/10/2026, con la charla de Leandro (Odb Saint Thomas, 14:35–14:51).
-import { sinOracionesRepetidas, totalConSuLista } from './candados';
+import { totalConSuLista } from './candados';
 
 const cot = {
   renglones: [
@@ -59,25 +59,6 @@ describe('candado 1: la frase que presentaba la lista no queda colgada', () => {
     expect(r).not.toMatch(/Así queda el pedido/);
     expect(r).toMatch(/\n\nEl envío es sin cargo\. ¿Lo retirás hoy en la sucursal Saint Thomas antes de las 21:00 o te lo enviamos mañana\?$/);
     expect(totalConSuLista('Te paso el detalle: Total: $1. ¿Lo retirás o te lo enviamos?', cot)).toMatch(/\n\n¿Lo retirás o te lo enviamos\?$/);
-  });
-});
-
-describe('candado 2: nunca la misma oración dos veces', () => {
-  it('14:51 repetía «Saco la sal y sumo…» de las 14:49: sale solo lo nuevo', () => {
-    const antes = ['Saco la sal y sumo 1 × Absolut vodka clásico: $33.500, o $30.150 en efectivo o transferencia. ¿Lo retirás en la sucursal Saint Thomas o te lo enviamos?'];
-    expect(sinOracionesRepetidas('Saco la sal y sumo 1 × Absolut vodka clásico: $33.500, o $30.150 en efectivo o transferencia. ¿A nombre de quién lo preparo?', antes))
-      .toBe('¿A nombre de quién lo preparo?');
-  });
-  it('los renglones de una lista y el total se pueden repetir (es la lista actualizada)', () => {
-    const lista = '• 2 × Fernet Branca 750 cc\n• 1 × Coca Cola 1,75 L\nTotal: $45.000';
-    expect(sinOracionesRepetidas(lista, [lista])).toBe(lista);
-  });
-  it('una pregunta pendiente no se saca aunque ya se haya hecho («¿A nombre de quién lo preparo?»)', () => {
-    expect(sinOracionesRepetidas('Te faltó el nombre. ¿A nombre de quién lo preparo?', ['Total: $45.000. ¿A nombre de quién lo preparo?']))
-      .toBe('Te faltó el nombre. ¿A nombre de quién lo preparo?');
-  });
-  it('si todo ya estaba dicho, no queda vacío', () => {
-    expect(sinOracionesRepetidas('Te esperamos en la sucursal.', ['Te esperamos en la sucursal.'])).toBe('Te esperamos en la sucursal.');
   });
 });
 

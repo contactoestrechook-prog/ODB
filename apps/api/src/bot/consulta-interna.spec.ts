@@ -223,8 +223,8 @@ describe('la charla de Pablo: consulta silenciosa (6/10/2026)', () => {
     const crear = jest.fn(async (p: any) => (p.tool_choice?.type === 'none' ? texto('') : insiste));
     s.claude = { messages: { create: crear } };
     const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: AUDIO_14, deAudio: true });
-    // primer mensaje de la charla: con el saludo de la hora, y nada de la caja
-    expect(r.respuesta).toMatch(new RegExp(`^(?:Buen día|Buenas tardes|Buenas noches)\\. ${dale}$`));
+    // nada de la caja (el saludo del primer mensaje lo escribe el modelo: desde el 10/10/2026 el código no lo agrega)
+    expect(r.respuesta).toBe(dale);
     expect(crear).toHaveBeenCalledTimes(3);
   });
 
@@ -351,28 +351,6 @@ describe('consultarInterno: la misma consulta se suma a la abierta (5/10/2026)',
     expect(r.yaEstaba).toBe(false);
     expect(insertsDe(db, 'bot_consultas_internas')[0].fila.respondido_en).toBeTruthy();
     expect(wsp).not.toHaveBeenCalled();
-  });
-});
-
-describe('razonamiento siempre encendido: el verificador de preguntas sin contestar (5/10/2026)', () => {
-  it('Haiku 4.5 va con thinking enabled (budget 1024, max_tokens 2048) y se lee el bloque de texto', async () => {
-    const db = baseFalsa({
-      bot_conversaciones: { select: conv(h(['user', 'Hola'], ['assistant', 'Buenas tardes, te damos la bienvenida a O.D.B. ¿En qué te puedo ayudar?'])) },
-      lineas_whatsapp: { select: { data: CFG, error: null } },
-    });
-    const { s } = servicio(db);
-    const crear = jest.fn(async (p: any) => p.model === 'claude-haiku-4-5'
-      ? { stop_reason: 'end_turn', content: [{ type: 'thinking', thinking: '', signature: 'x' }, { type: 'text', text: '{"sin_responder":[]}' }], usage }
-      : texto('El Judas Malbec 750 cc lo tengo.'));
-    s.claude = { messages: { create: crear } };
-    await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: '¿Tenés Judas Malbec?' });
-    const verificador: any = crear.mock.calls.map((c: any[]) => c[0]).find((p: any) => p.model === 'claude-haiku-4-5');
-    expect(verificador).toBeTruthy();
-    expect(verificador.thinking).toEqual({ type: 'enabled', budget_tokens: 1024 });
-    expect(verificador.max_tokens).toBe(2048);
-    expect(verificador.max_tokens).toBeGreaterThan(verificador.thinking.budget_tokens);
-    // ninguna llamada del bot va sin razonamiento
-    for (const [p] of crear.mock.calls as any[][]) expect(p.thinking).toBeTruthy();
   });
 });
 

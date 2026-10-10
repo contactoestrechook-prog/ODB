@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { BotService } from './bot.service';
 import { conAviso, diceQueNoSabe, esSoloSaludo, mencionaConsulta, respuestaDelAreaParaCliente, sinMencionDeConsulta, sinPromesas } from './prolijo';
-import { datosDePagoParaResumen, respuestaPedidoPorComprobante, sinPedirConfirmo } from './pago-confirma';
+import { datosDePagoParaResumen, respuestaPedidoPorComprobante } from './pago-confirma';
 import * as TEXTO from './textos-fijos';
 
 // CONSULTA SILENCIOSA (Leandro, 6/10/2026). Textual, en este orden:
@@ -296,12 +296,9 @@ describe('(5) barrido: ningún texto fijo del sistema que llega al cliente prome
     respuestaPedidoPorComprobante({ codigo: 'PICKUP-00D163566DEF', tipo: 'pickup' }),
     respuestaPedidoPorComprobante({ codigo: 'DOM-ABC123', tipo: 'domicilio', direccion: 'Rivadavia 234, Canning' }),
     datosDePagoParaResumen({ datosDePago: 'Alias: outlet.de.bebidas · CBU: 0720000000000000000000' }),
-    sinPedirConfirmo('Decime «confirmo» y lo dejo listo.', 'te transfiero', []),
-    sinPedirConfirmo('Decime «confirmo» y lo dejo listo.', 'ok', ['• Fernet — 2 × $20.500 c/u = $41.000\nTotal: $41.000\n¿Lo confirmo?']),
     'Sí, ya lo tengo.',
     'Alias: outlet.de.bebidas · CBU: 0720000000000000000000 · Titular: Chinvenguencha SRL (Santander). Cuando transfieras, mandame el comprobante por acá.',
     'Pedido PICKUP-1 confirmado. Total: $41.000.\nSe abona al retirar, en efectivo o tarjeta.',
-    'Disculpe, no pude procesar su mensaje. ¿Me lo repite, por favor?',
     'Disculpe, ¿me repite su consulta?',
   ];
   it.each(TEXTOS_AL_CLIENTE.map((t) => [t]))('«%s»', (t) => {
@@ -438,8 +435,8 @@ describe('otros caminos de la consulta silenciosa', () => {
     s.identificarCliente = jest.fn(async () => ({ existe: true, nombre: 'Pablo' }));
     s.claude = { messages: { create: claudeCon(conHerramientas(herramienta('d1', 'derivar_pago', { tipo: 'reclamo_pago', monto: 0, motivo: 'Dice que le cobraron dos veces', de_quien: 'Pablo' })), texto('Lo reviso con administración y te confirmo por acá.')) } };
     const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Me cobraron dos veces' });
-    // la disculpa del reclamo (ronda 10) y «Recibido.» (23/9), sin nada de lo que hace administración
-    expect(r.respuesta).toBe('Lamento el inconveniente. Recibido.');
+    // «Recibido.» (23/9), sin nada de lo que hace administración (sin la disculpa antepuesta en código desde el 10/10/2026)
+    expect(r.respuesta).toBe(TEXTO.RECIBIDO);
   });
 });
 
@@ -650,7 +647,7 @@ describe('revisión (6/10/2026): pagos, facturas e importes', () => {
     expect(insertsDe(db, 'bot_consultas_internas')).toHaveLength(1);
   });
 
-  it('reclamo de plata con la derivación automática y un importe inventado → el monto no sale: «Lamento el inconveniente. Recibido.»', async () => {
+  it('reclamo de plata con la derivación automática y un importe inventado → el monto no sale: «Recibido.»', async () => {
     const db = baseFalsa({
       bot_conversaciones: { select: conv(HOLA) },
       lineas_whatsapp: { select: { data: CFG, error: null } },
@@ -660,7 +657,7 @@ describe('revisión (6/10/2026): pagos, facturas e importes', () => {
     s.identificarCliente = jest.fn(async () => ({ existe: true, nombre: 'Pablo' }));
     s.claude = { messages: { create: claudeCon(texto('La diferencia que te corresponde es de $5.000, la transferimos hoy al mismo CBU.')) } };
     const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Me cobraron de más en la transferencia de ayer, quiero que me devuelvan la diferencia' });
-    expect(r.respuesta).toBe('Lamento el inconveniente. Recibido.');
+    expect(r.respuesta).toBe(TEXTO.RECIBIDO);
     expect(r.respuesta).not.toContain('5.000');
     expect(insertsDe(db, 'bot_pagos_en_confirmacion')).toHaveLength(1);
   });
@@ -676,10 +673,11 @@ describe('revisión (6/10/2026): el turno con consulta y lo demás del mensaje',
     const { s } = servicio(db);
     s.claude = { messages: { create: claudeCon(
       conHerramientas(herramienta('c1', 'consultar_interno', { area: 'administracion', consulta: '¿El Judas Malbec viene con estuche?', tema: 'el estuche', direccion: '' })),
-      texto('Buenas tardes, te damos la bienvenida a O.D.B. Sí, tenemos Judas Malbec para retirar hoy.'),
+      // el saludo lo pone el modelo, como pide el prompt (desde el 10/10/2026 el código no lo pisa)
+      texto('Buenas tardes. Sí, tenemos Judas Malbec para retirar hoy.'),
     ) } };
     const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: '¿Tienen Judas Malbec y viene con estuche?' });
-    expect(r.respuesta).toMatch(/(?:Buen día|Buenas tardes|Buenas noches)\. Sí, tenemos Judas Malbec para retirar hoy\.$/);
+    expect(r.respuesta).toBe('Buenas tardes. Sí, tenemos Judas Malbec para retirar hoy.');
     expect(esSoloSaludo('Buenas tardes, te damos la bienvenida a O.D.B.')).toBe(true);
     expect(esSoloSaludo('Hola Pablo, el Judas Malbec lo tenemos para retirar hoy en Saint Thomas.')).toBe(false);
     expect(esSoloSaludo('Hola, sí: tenemos Judas Malbec 750 cc disponible')).toBe(false);

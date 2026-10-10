@@ -56,8 +56,9 @@ describe('Regresiones de auditoría: contrato comercial', () => {
     expect(importesDeHerramienta({sku:'1000',stock:999,total:1000.25,renglones:[{precioUnitario:50.5}]})).toEqual([100025,5050]);
     expect(importesDelTexto('Total $1.000,25 y $50,50')).toEqual([100025,5050]);
   });
-  it('A08: precio inventado tras reformular una foto no sale al cliente',async()=>{
-    const s=servicio();let vuelta=0;(s as any).claude={messages:{create:jest.fn(async()=>respuesta(++vuelta===1?'Veo dos botellas. ¿Querés el precio?':'Cuesta $999.999.'))}};
+  // (10/10/2026: ya no hay reescritura de «foto: no describas»; el precio inventado lo frena igual la red de importes)
+  it('A08: precio inventado ante una foto no sale al cliente',async()=>{
+    const s=servicio();(s as any).claude={messages:{create:jest.fn(async()=>respuesta('Cuesta $999.999.'))}};
     jest.spyOn(s,'consultarInterno').mockResolvedValue({consultado:true,area:'local',avisoPorWhatsapp:true,aviso:''});
     const r:any=await s.charla({linea:'pedidos',telefono:'5491155510011',archivoBase64:'aW1hZ2Vu',mimeType:'image/jpeg'});
     // 6/10/2026 (consulta silenciosa): sin precio inventado; la foto se consulta a

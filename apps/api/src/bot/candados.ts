@@ -10,10 +10,9 @@
 //    con los datos de la cotización (no con lo que escribió el modelo) y sale
 //    como placa. Caso: 14:51, «me pasás la cuenta final?» → «Saco la sal y sumo
 //    1 × Absolut… Total: $133.600» sin la lista.
-// 2. Nunca la misma oración dos veces. Lo que el bot ya dijo en los últimos
-//    mensajes de la charla no se vuelve a decir. Caso: «Saco la sal y sumo 1 ×
-//    Absolut vodka clásico…» a las 14:49 y otra vez a las 14:51. Los renglones
-//    de una lista y el total no cuentan: una lista actualizada los repite.
+// (2. «Nunca la misma oración dos veces» se sacó el 10/10/2026: borraba la entrega
+//    del resumen, el alias y el «sin cargo». El mensaje entero repetido lo frena
+//    charla() con mismasPalabras y lo consulta en silencio.)
 // ============================================================
 
 import { pesos } from './comercio';
@@ -63,25 +62,3 @@ export function totalConSuLista(respuesta: string, cot: Cotizacion): string {
     .trim();
   return [lista.join('\n'), total, resto].filter(Boolean).join('\n\n');
 }
-
-/** Candado 2: las oraciones que el bot ya dijo en sus últimos mensajes no se repiten. */
-export function sinOracionesRepetidas(respuesta: string, dichoAntes: string[]): string {
-  const r = String(respuesta ?? '');
-  const ya = new Set(
-    (dichoAntes ?? []).flatMap((m) => String(m ?? '').split('\n'))
-      .filter((l) => !esRenglonDeLista(l) && !esLineaDeTotal(l))
-      .flatMap(oraciones)
-      .map(normal)
-      .filter((o) => o.length >= 12),
-  );
-  if (!ya.size) return r;
-  const salida = r.split('\n').map((l) => {
-    if (esRenglonDeLista(l) || esLineaDeTotal(l) || !l.trim()) return l;
-    // una pregunta nunca se saca: si sigue pendiente, el cliente tiene que verla
-    return oraciones(l).filter((o) => /\?\s*$/.test(o) || !ya.has(normal(o))).join(' ');
-  });
-  const limpia = salida.join('\n').replace(/\n{3,}/g, '\n\n').trim();
-  // si todo ya estaba dicho, no se manda un mensaje vacío: va lo que había
-  return limpia || r;
-}
-
