@@ -365,3 +365,23 @@ describe('C9: el mínimo del envío es un dato de la casa (10/10/2026)', () => {
   });
 });
 
+
+describe('un solo saludo por charla (Leandro, 10/10/2026: «tres veces me dijo buenas, buen día»)', () => {
+  it('si el bot ya habló, el saludo del arranque se va; en el primer mensaje queda', async () => {
+    const yaHablo = [{ role: 'user', content: 'hola' }, { role: 'assistant', content: 'Buen día. ¿Qué necesitás?' }];
+    for (const [modelo, esperado] of [
+      ['Buenas. De estos productos no tengo ahora la cantidad que pediste.', 'De estos productos no tengo ahora la cantidad que pediste.'],
+      ['Buen día, Leandro.\n¿Está completo el pedido o querés sumar algo?', '¿Está completo el pedido o querés sumar algo?'],
+      ['Hola Leandro! Sumo 2 aguas.', 'Sumo 2 aguas.'],
+    ] as const) {
+      const db = baseFalsa({ bot_conversaciones: { select: conv(yaHablo) }, lineas_whatsapp: { select: { data: CFG, error: null } } });
+      const { s } = servicio(db, final('a', modelo));
+      const r = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'quiero 2 aguas' });
+      expect(r.respuesta).toBe(esperado);
+    }
+    const db = baseFalsa({ bot_conversaciones: { select: conv([]) }, lineas_whatsapp: { select: { data: CFG, error: null } } });
+    const { s } = servicio(db, final('a', 'Buen día. ¿Qué necesitás?'));
+    const r = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'hola' });
+    expect(r.respuesta).toMatch(/^Buen/);
+  });
+});

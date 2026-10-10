@@ -496,7 +496,7 @@ export function diceQueNoSabe(t: string | null | undefined): boolean {
 // (de la hora u «hola» con un nombre a lo sumo) y la bienvenida, y tiene que no
 // quedar nada.
 // sin la bandera i: el nombre («Hola Pablo») va con mayúscula y no se confunde con «Hola, te…»
-const RE_SALUDO_DEL_ARRANQUE = /^\s*¡?(?:[Hh]ola|HOLA|[Bb]uen\s+d[ií]a|[Bb]uen[oa]s\s+d[ií]as|[Bb]uenas\s+tardes|[Bb]uenas\s+noches|[Bb]uenas)(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)?\s*[!.,]*\s*/;
+const RE_SALUDO_DEL_ARRANQUE = /^\s*¡?(?:[Hh]ola|HOLA|[Bb]uen\s+d[ií]a|[Bb]uen[oa]s\s+d[ií]as|[Bb]uenas\s+tardes|[Bb]uenas\s+noches|[Bb]uenas)(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+|,\s*[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?=\s*[!.,]))?\s*[!.,]*\s*/;
 const RE_BIENVENIDA = /^\s*(?:te\s+damos\s+la\s+)?bienvenid[oa]s?\s+a\s+O\.?\s?D\.?\s?B\.?\s*[!.,]*\s*/i;
 export function esSoloSaludo(t: string | null | undefined): boolean {
   let r = String(t ?? '').trim();

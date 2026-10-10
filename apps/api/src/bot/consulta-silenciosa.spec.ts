@@ -752,7 +752,7 @@ describe('revisión de la tanda 1 (10/10/2026): el pase a un área ya hecho por 
 
   it('registrar_proveedor + «Lo paso a compras.»: sale lo demás y no se abre una consulta a administración', async () => {
     const { r, db } = await conPase(herramienta('r1', 'registrar_proveedor', { nombre: 'Distribuidora Martín', oferta: '20 cajones de Quilmes' }), 'Buenas tardes. Gracias, Martín. Lo paso a compras.', 'Hola, soy Martín de Distribuidora Martín. Mañana te llevo 20 cajones de Quilmes');
-    expect(r.respuesta).toBe('Buenas tardes. Gracias, Martín.');
+    expect(r.respuesta).toBe('Gracias, Martín.')  // el bot ya había hablado: un solo saludo por charla (10/10/2026);
     expect(insertsDe(db, 'bot_consultas_internas')).toHaveLength(0);
   });
 

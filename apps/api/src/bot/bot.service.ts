@@ -1801,6 +1801,12 @@ export class BotService {
     // adelante de todo, que se pegaba al primer renglón y la placa mostraba un total falso,
     // y el «mínimo de $70.000» insertado en la oración; lo dice el prompt.)
     respuesta = envioSinCargo(respuesta ?? '', envioMinimo());
+    // UN SOLO SALUDO POR CHARLA (Leandro, 10/10/2026: «tres veces me dijo buenas, buen día;
+    // saluda una vez sola»). Si el bot ya habló en esta charla, el saludo del arranque se va.
+    if (respuesta && yaSaludo) {
+      const s = saludoDelArranque(respuesta);
+      if (s?.resto) respuesta = s.resto.charAt(0).toUpperCase() + s.resto.slice(1);
+    }
 
     // CANDADOS (9/10/2026, candados.ts): no dependen de que el modelo obedezca.
     // 1) un total nunca sale sin su lista: se arma con la cotización del turno
