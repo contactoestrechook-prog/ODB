@@ -103,7 +103,7 @@ const TODAVIA_SIN_PRECIOS = 'TODAVÍA NO PASES PRECIOS (regla del dueño): prime
  */
 function esAcuse(texto: string): boolean {
   const t = String(texto ?? '').replace(/[\u{1F3FB}-\u{1F3FF}\uFE0F]/gu, '').trim();
-  return !!t && /^(?:ok+[iy]*s?|okey|oka+|dale|listo|recibido|visto|gracias|perfecto|joya|genial|s[ií]+|\p{Extended_Pictographic}|[\s.,!])+$/iu.test(t);
+  return !!t && /^(?:ok+[iy]*s?|okey|oka+|dale|listo|recibido|visto|gracias+|muchas|mil|muy|amable\p{L}*|excelente|b[aá]rbaro|buen[ií]simo|genio|crack|perfecto|joya|genial|s[ií]+|\p{Extended_Pictographic}|[\s.,!])+$/iu.test(t);
 }
 
 // UNA SOLA VENTANA PARA "CONSULTA ABIERTA" (5/10/2026, revisión): el estado de
@@ -693,7 +693,7 @@ export class BotService {
 
     const ultimoMsgBot = [...historial].reverse().find((m) => m.role === 'assistant')?.content ?? '';
     const botDejoPregunta = /\?\s*$/.test(String(ultimoMsgBot).trim()) || /¿[^?]*\?/.test(String(ultimoMsgBot).slice(-160));
-    const RE_CIERRE = /^(?:(?:dale|ok+|okey|oka|okis|listo|perfecto|b[aá]rbaro|genial|joya|buen[ií]simo|bueno|gracias+|muchas gracias|mil gracias|de nada|a vos|saludos|hablamos|nos vemos|un abrazo|abrazo|chau|ciao|hablamos despu[eé]s|despu[eé]s|(?:ja|je|ji){2,})\b[\s!.,]*)+$|^[\s👍🙏🫶👌🏻🏼❤️🙂😊😂🤣✨🔥]+$/i;
+    const RE_CIERRE = /^(?:(?:dale|ok+|okey|oka|okis|listo|perfecto|b[aá]rbaro|genial|joya|buen[ií]simo|bueno|gracias+|muchas gracias|mil gracias|muy amable\w*|amable\w*|excelente|genio|crack|sos un genio|sos un sol|de nada|a vos|saludos|hablamos|nos vemos|un abrazo|abrazo|chau|ciao|hablamos despu[eé]s|despu[eé]s|(?:ja|je|ji){2,})\b[\s!.,]*)+$|^[\s👍🙏🫶👌🏻🏼❤️🙂😊😂🤣✨🔥]+$/i;
     const RE_SI_NO = /^(s[ií]+|sisi|si si|no|nop|dale|ok|listo|bueno)\b[\s!.]*$/i;
     // un ARCHIVO con "gracias" abajo no es un cierre: es un comprobante o una
     // lista, y hay que abrirlo (Belén, 23/9/2026: PDF + "Graciassss" quedó sin leer)

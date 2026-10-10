@@ -385,3 +385,17 @@ describe('un solo saludo por charla (Leandro, 10/10/2026: «tres veces me dijo b
     expect(r.respuesta).toMatch(/^Buen/);
   });
 });
+
+describe('un agradecimiento es un cierre (10/10/2026: «Muy amablees» → «no pude procesar su mensaje»)', () => {
+  it('«Muy amablees», «Excelente, muchas gracias», «Sos un genio» después del pedido confirmado: silencio, sin modelo y sin consulta', async () => {
+    const hist = [{ role: 'user', content: 'Confirmado' }, { role: 'assistant', content: 'Pedido DOM-EFB1F49E3E30 confirmado. Total: $105.600.\nEnvío sin cargo a Av Mariano Castex 1148. Se abona al recibir, en efectivo: $95.040.' }];
+    for (const t of ['Muy amablees', 'Excelente, muchas gracias', 'Sos un genio', 'Muy amable!']) {
+      const db = baseFalsa({ bot_conversaciones: { select: conv(hist) }, lineas_whatsapp: { select: { data: CFG, error: null } }, bot_consultas_internas: CONSULTAS });
+      const { s, create } = servicio(db, final('a', ''));
+      const r = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: t });
+      expect([t, r.respuesta ?? null]).toEqual([t, null]);
+      expect(create).not.toHaveBeenCalled();
+      expect(insertsDe(db, 'bot_consultas_internas')).toHaveLength(0);
+    }
+  });
+});
