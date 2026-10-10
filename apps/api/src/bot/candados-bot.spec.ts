@@ -214,3 +214,4 @@ describe('C9: el mínimo del envío es un dato de la casa (10/10/2026)', () => {
     expect(insertsDe(db, 'bot_consultas_internas')).toHaveLength(0);
   });
 });
+
