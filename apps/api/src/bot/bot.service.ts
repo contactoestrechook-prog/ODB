@@ -3,7 +3,7 @@ import { esContestadorAutomatico } from './contestador';
 import { elegirPorDefecto, puedeCotizar } from './completo';
 import { conDescuentoEfectivo, porcentajeEfectivo, RUBROS_DESCUENTO_EFECTIVO, tieneDescuentoEfectivo } from './descuento-efectivo';
 import { esSilenciado } from './pausa';
-import { agruparItems, cantidadesIndividuales, centavos, confirmacionInequivoca, idWhatsappCorto, importesDeHerramienta, importesDelTexto, pesos, presentacionProducto } from './comercio';
+import { agruparItems, cantidadesIndividuales, confirmacionInequivoca, idWhatsappCorto, importesDeHerramienta, importesDelTexto, pesos, presentacionProducto } from './comercio';
 import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import { volumenMl, etiquetaVolumen, pideTamano, resumenDeTamanos, cantidadesPedidas, PALABRA_GENERICA } from './formatos';
 import { emprolijarListado, nombreLimpio, saludoSegunHora, saludarConBienvenida, niegaPercepcion, envioSinCargo, casiIgual, mismasPalabras, campoLimpio, esAlucinacionDeTranscripcion, nombreSucursalCliente, esAutomaticoWhatsappBusiness, sinCocinaInterna } from './prolijo';
@@ -64,6 +64,12 @@ import { cierraLaRafaga, esperaDeRafaga, juntarRafaga, msHastaContestar, type Me
 
 // pedido mínimo para envío a domicilio (Leandro, 25/9/2026); ENVIO_MINIMO lo cambia sin tocar código
 const envioMinimo = () => Number(process.env.ENVIO_MINIMO ?? 70000) || 70000;
+// el «$70.000» del mínimo es un dato de la casa SOLO en la oración que habla del envío o del
+// mínimo (C9). En otra («El Fernet sale $70.000.») es un importe inventado: antes valía en
+// toda la respuesta y un precio falso de justo ese número salía tal cual (10/10/2026)
+const sinElMinimo = (t: string) => String(t ?? '').split('\n').map((l) => l.split(/(?<=[.!?])(\s+)/)
+  .map((o) => /env[ií]o|domicilio|reparto|delivery|m[ií]nimo|sin cargo|gratis/i.test(o) ? o.replace(new RegExp(String.raw`\$\s?${pesos(envioMinimo()).replace(/\./g, '\\.')}(?:,\d{1,2})?(?!\d|[.,]\d)`, 'g'), '') : o)
+  .join('')).join('\n');
 // herramientas que solo leen: se pueden ejecutar en paralelo dentro de un turno
 const HERRAMIENTAS_DE_LECTURA = new Set(['buscar_productos', 'consultar_cava', 'identificar_cliente', 'estado_local', 'estado_pedido']);
 // el tope de cada llamada del bot a Opus (6/10/2026; ver pedidoBot)
@@ -1423,9 +1429,8 @@ export class BotService {
     // los importes de la información vigente de la casa (evento/campaña) son
     // oficiales: el precio de la entrada no sale de cotizar_pedido
     for (const m of infoVigente.matchAll(/\d{1,3}(?:\.\d{3})+|\d{2,}/g)) permitidos.add(m[0].replace(/\./g, ''));
-    // el mínimo del envío sin cargo es un dato de la casa, no un importe inventado (C9, 10/10/2026)
-    permitidos.add(String(envioMinimo()));
-    const importes = normImporte(respuesta);
+    // (el mínimo del envío sin cargo es un dato de la casa en la oración del envío: sinElMinimo, C9)
+    const importes = normImporte(sinElMinimo(respuesta));
     const inventados = importes.filter((n) => !permitidos.has(n));
     if (inventados.length && salidasDelTurno.length && vueltasReintento < 3) {
       this.log.warn(`importes sin origen para ${telefono}: ${inventados.join(', ')} → regenero`);
@@ -1500,9 +1505,9 @@ export class BotService {
     };
     sumarHechos();
     for (const n of importesDelTexto(infoVigente)) hechos.add(n);
-    // el mínimo del envío sin cargo es un dato de la casa (C9, 10/10/2026): «desde $70.000» no abre una consulta falsa
-    hechos.add(centavos(envioMinimo()));
-    const conImporteSinFuente = (t: string) => importesDelTexto(t).some((n) => !hechos.has(n));
+    // el mínimo del envío sin cargo es un dato de la casa en la oración del envío (C9): «desde
+    // $70.000» no abre una consulta falsa, y un precio inventado de $70.000 no pasa (sinElMinimo)
+    const conImporteSinFuente = (t: string) => importesDelTexto(sinElMinimo(t)).some((n) => !hechos.has(n));
     // SOLO SE SACA LO QUE TRAE EL IMPORTE SIN FUENTE (6/10/2026, revisión): antes se
     // tiraba la reescritura entera, con lo útil adentro, y el turno quedaba en
     // silencio aunque el cliente hubiera pedido otras cosas («Me llevo 3 Fernet…

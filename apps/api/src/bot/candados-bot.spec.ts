@@ -289,5 +289,34 @@ describe('C9: el mínimo del envío es un dato de la casa (10/10/2026)', () => {
     expect(r.respuesta).toBe('Sí, el envío es sin cargo en pedidos desde $70.000.');
     expect(insertsDe(db, 'bot_consultas_internas')).toHaveLength(0);
   });
+
+  // (10/10/2026, revisión de la tanda 1) el $70.000 valía en toda la respuesta: un precio inventado
+  // de justo ese número salía tal cual. Vale solo en la oración del envío o del mínimo
+  it('un precio inventado de $70.000 no pasa: se corrige con el de la herramienta', async () => {
+    const db = baseFalsa({ bot_conversaciones: { select: conv([{ role: 'assistant', content: 'Buenas noches. ¿Qué necesitás?' }]) }, lineas_whatsapp: { select: { data: CFG, error: null } }, bot_consultas_internas: CONSULTAS });
+    const { s, llamadas } = servicio(db,
+      conHerramientas(pensar('a'), herramienta('b1', 'buscar_productos', { q: 'fernet litro' })),
+      final('b', 'El Fernet Branca 1 L sale $70.000.'),
+      final('c', 'El Fernet Branca 1 L sale $26.900.'),
+    );
+    s.buscarProductos = jest.fn(async () => ({ items: [{ sku: 'F1L', nombre: 'Fernet Branca 1 L', precio: 26900, disponible: true }] }));
+    const r = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: '¿Cuánto sale el fernet de litro?' });
+    expect(r.respuesta).toBe('El Fernet Branca 1 L sale $26.900.');
+    expect(llamadas.filter((p) => p.model === 'claude-opus-5-5')).toHaveLength(3);
+  });
+
+  it('un «Total: $70.000» inventado no sale; el envío desde $70.000 en la misma respuesta sí', async () => {
+    const db = baseFalsa({ bot_conversaciones: { select: conv([{ role: 'assistant', content: 'Buenas noches. ¿Qué necesitás?' }]) }, lineas_whatsapp: { select: { data: CFG, error: null } }, bot_consultas_internas: CONSULTAS });
+    const escrito = 'Fernet Branca 750 cc a $20.500.\nTotal: $70.000\nEl envío es sin cargo en pedidos desde $70.000.';
+    const { s } = servicio(db,
+      conHerramientas(pensar('a'), herramienta('b1', 'buscar_productos', { q: 'fernet' })),
+      final('b', escrito),
+      final('c', escrito),
+    );
+    const r = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: '¿Cuánto sale el fernet?' });
+    expect(r.respuesta).not.toMatch(/Total: \$70\.000/);
+    expect(r.respuesta).toContain('Fernet Branca 750 cc a $20.500.');
+    expect(r.respuesta).toContain('El envío es sin cargo en pedidos desde $70.000.');
+  });
 });
 
