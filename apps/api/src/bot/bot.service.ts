@@ -1402,8 +1402,10 @@ export class BotService {
       }
       messages.push({ role: 'assistant', content: respuesta });
       messages.push({ role: 'user', content: yaDiscutio
-        ? `[nota interna: el cliente ya discutió el precio o la cantidad más de una vez. No vuelvas a decirle que está correcto ni discutas. ${disputaConsultada ? 'La revisión ya quedó en manos de administración: al cliente no le digas nada de eso (ni que lo revisan, ni que le van a confirmar). Contestá en una línea solo lo demás que haya preguntado; si no preguntó otra cosa, no escribas nada.' : 'Contestá en una línea solo lo demás que haya preguntado, sin decirle que lo revisan ni prometer nada.'}]`
-        : '[nota interna: el cliente discute el precio o la cantidad. Verificá la presentación real con unidadesPorVenta; no asumas que todos los artículos se venden sueltos ni que un x6 en el nombre define el precio. Volvé a cotizar con cotizar_pedido usando la cantidad de UNIDADES que dijo el cliente (si dijo 18 botellas, son 18) y mostrale el total nuevo en dos líneas, sin justificar el anterior.]' });
+        ? `[nota interna: el cliente ya discutió el precio o la cantidad más de una vez. No vuelvas a decirle que está correcto ni discutas. ${disputaConsultada ? 'La revisión ya quedó en manos de administración: al cliente no le digas nada de eso (ni que lo revisan, ni que le van a confirmar). Contestá solo lo demás que haya preguntado; si no preguntó otra cosa, no escribas nada.' : 'Contestá solo lo demás que haya preguntado, sin decirle que lo revisan ni prometer nada.'}]`
+        // (10/10/2026, revisión de la tanda 1: pedía «el total nuevo en dos líneas» y «en una línea»;
+        // chocaba con el paso 1b del prompt, nunca un total sin su lista, y se perdía la pregunta de cierre)
+        : '[nota interna: el cliente discute el precio o la cantidad. Verificá la presentación real con unidadesPorVenta; no asumas que todos los artículos se venden sueltos ni que un x6 en el nombre define el precio. Volvé a cotizar con cotizar_pedido usando la cantidad de UNIDADES que dijo el cliente (si dijo 18 botellas, son 18) y pasale la lista completa con precios y «Total:», como en el paso 1b, sin justificar el anterior.]' });
       // la primera vez la nota pide volver a cotizar: la vuelta puede usar
       // herramientas (iba sin ellas y cotizar_pedido no se podía llamar, 6/10/2026)
       const t18 = yaDiscutio

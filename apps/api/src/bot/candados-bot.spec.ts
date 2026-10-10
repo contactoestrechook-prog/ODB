@@ -281,6 +281,29 @@ describe('lo que queda de las capas viejas (10/10/2026)', () => {
   });
 });
 
+// (10/10/2026, revisión de la tanda 1) la disputa de precio pedía «el total nuevo en dos líneas» y
+// «en una línea»: chocaba con el paso 1b del prompt (nunca un total sin su lista)
+describe('disputa de precio: las notas no piden achicar', () => {
+  const LISTA_AGUA = '• Agua Glaciar 500 cc — 18 × $1.950 c/u = $35.100\nTotal: $35.100\n¿Lo retirás o te lo enviamos?';
+  it('primera vez: pide volver a cotizar y la lista completa con «Total:», sin «dos líneas»', async () => {
+    const db = baseFalsa({ bot_conversaciones: { select: conv([{ role: 'user', content: '18 aguas' }, { role: 'assistant', content: LISTA_AGUA }]) }, lineas_whatsapp: { select: { data: CFG, error: null } }, bot_consultas_internas: CONSULTAS });
+    const { s, llamadas } = servicio(db, final('a', 'Está correcto, corresponde al pack de 6.'), final('b', LISTA_AGUA));
+    await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Está mal la cuenta, son 18 botellas' });
+    const nota = JSON.stringify(llamadas.filter((p) => p.model === 'claude-opus-5-5')[1].messages.at(-1).content);
+    expect(nota).toMatch(/la lista completa con precios y «Total:»/);
+    expect(nota).not.toMatch(/dos l[ií]neas|una l[ií]nea/);
+  });
+
+  it('segunda vez: «Contestá solo lo demás que haya preguntado», sin «en una línea»', async () => {
+    const db = baseFalsa({ bot_conversaciones: { select: conv([{ role: 'user', content: '18 aguas' }, { role: 'assistant', content: LISTA_AGUA }, { role: 'user', content: 'Está mal la cuenta' }, { role: 'assistant', content: 'Está correcto, es el precio por unidad.' }]) }, lineas_whatsapp: { select: { data: CFG, error: null } }, bot_consultas_internas: CONSULTAS });
+    const { s, llamadas } = servicio(db, final('a', 'Está correcto, corresponde al pack de 6.'), final('b', ''));
+    await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Está mal la cuenta, son 18 botellas' });
+    const nota = JSON.stringify(llamadas.filter((p) => p.model === 'claude-opus-5-5')[1].messages.at(-1).content);
+    expect(nota).toMatch(/Contestá solo lo demás que haya preguntado/);
+    expect(nota).not.toMatch(/una l[ií]nea/);
+  });
+});
+
 // (10/10/2026, revisión de la tanda 1) «otro teléfono» cortaba por oraciones a través de los
 // renglones: la oración con el número arrastraba la lista entera de arriba
 describe('otro teléfono: se va solo el renglón o la oración que lo trae', () => {
