@@ -1425,6 +1425,8 @@ export class BotService {
     // los importes de la información vigente de la casa (evento/campaña) son
     // oficiales: el precio de la entrada no sale de cotizar_pedido
     for (const m of infoVigente.matchAll(/\d{1,3}(?:\.\d{3})+|\d{2,}/g)) permitidos.add(m[0].replace(/\./g, ''));
+    // el mínimo del envío sin cargo es un dato de la casa, no un importe inventado (C9, 10/10/2026)
+    permitidos.add(String(envioMinimo()));
     const importes = normImporte(respuesta);
     const inventados = importes.filter((n) => !permitidos.has(n));
     if (inventados.length && salidasDelTurno.length && vueltasReintento < 3) {
@@ -1497,6 +1499,8 @@ export class BotService {
     };
     sumarHechos();
     for (const n of importesDelTexto(infoVigente)) hechos.add(n);
+    // el mínimo del envío sin cargo es un dato de la casa (C9, 10/10/2026): «desde $70.000» no abre una consulta falsa
+    hechos.add(centavos(envioMinimo()));
     const conImporteSinFuente = (t: string) => importesDelTexto(t).some((n) => !hechos.has(n));
     // SOLO SE SACA LO QUE TRAE EL IMPORTE SIN FUENTE (6/10/2026, revisión): antes se
     // tiraba la reescritura entera, con lo útil adentro, y el turno quedaba en
