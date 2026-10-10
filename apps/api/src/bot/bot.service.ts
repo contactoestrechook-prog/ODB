@@ -3952,10 +3952,17 @@ export class BotService {
     // se reconocían: «Ok, no está acreditado» le mandaba al cliente «Recibimos tu pago».
     // Y un «no» suelto o algo que sigue pendiente («lo reviso», «me fijo», «todavía») nunca
     // confirma: queda como respuesta no concluyente y al cliente no le llega nada.
+    // (10/10/2026, revisión de la tanda 1) Con las tildes reconocidas, «llegó la mitad», «llegó
+    // $40.000» o «llegó a otra cuenta» le confirmaban al cliente el pago entero: un pago parcial,
+    // otra cuenta, otro monto o un «ya lo veo / en un rato / pasame…» tampoco confirman. Y «no está»
+    // es NO solo al final o con «acreditado / en la cuenta…» («Llegó, no está mal el monto» no).
     const L = String.raw`[\p{L}\p{N}]`;
-    const NO = new RegExp(String.raw`(?<!${L})no\s+(?:se\s+)?(?:lleg[oó]|figura|est[aá]|aparece|entr[oó]|acredit\p{L}*|lo\s+veo|la\s+veo|lo\s+encuentro|la\s+encuentro)(?!${L})`, 'iu');
+    const NO = new RegExp(String.raw`(?<!${L})no\s+(?:se\s+)?(?:lleg[oó]|figura|est[aá](?=\s*(?:[.,;!]|$)|\s+(?:acreditad\p{L}*|ingresad\p{L}*|en\s+(?:la\s+)?cuenta|el\s+pago|la\s+transferencia))|aparece|entr[oó]|acredit\p{L}*|lo\s+veo|la\s+veo|lo\s+encuentro|la\s+encuentro)(?!${L})`, 'iu');
     const SI = new RegExp(String.raw`(?<!${L})(?:recibido|recib[ií]|ok|okey|oka|confirmado|confirmo|lleg[oó]|acreditad[oa]|est[aá]\s+bien|correcto|perfecto|listo|dale|s[ií])(?!${L})`, 'iu');
-    const PENDIENTE = new RegExp(String.raw`(?<!${L})(?:no(?!\s+hay\s+problema)|reviso|revisamos|me\s+fijo|nos\s+fijamos|fijate|chequeo|chequeamos|busco|buscamos|despu[eé]s|todav[ií]a|a[uú]n)(?!${L})`, 'iu');
+    const PENDIENTE = new RegExp(String.raw`(?<!${L})(?:no(?!\s+hay\s+problema)|reviso|revisamos|me\s+fijo|nos\s+fijamos|fijate|chequeo|chequeamos|busco|buscamos|despu[eé]s|todav[ií]a|a[uú]n|falta\p{L}*|mitad|parte|parcial\p{L}*|incomplet\p{L}*|menos|otra\s+cuenta|momento|rato|ahora\s+(?:lo|la|te)|si\s+(?:llega|entra)|(?:lo|la)\s+(?:veo|miro)|pas[aá]me|mand[aá]me)(?!${L})`, 'iu');
+    // un número que no es el del pago («llegó $40.000», «recibí 40 mil»): no concluye. Se lee en
+    // formato argentino, así «Recibido $85.000,00» confirma
+    const otroMonto = (texto.match(/\d[\d.,]*/g) ?? []).some((n) => Math.round(Number(n.replace(/\./g, '').replace(',', '.').replace(/\.$/, ''))) !== Math.round(Number(fila.monto ?? 0)));
 
     const avisarCliente = async (msj: string) => {
       if (!(await botActivoEn(fila.linea))) return false;
@@ -3988,8 +3995,11 @@ export class BotService {
       if (ok) await this.db.from('bot_pagos_en_confirmacion').update({ confirmado_en: new Date().toISOString(), ultimo_error: null }).eq('id', fila.id);
       return { contestado: ok, motivo: ok ? 'administración: no figura, cliente avisado' : 'respuesta guardada, envío pendiente' };
     }
-    if (!SI.test(texto) || PENDIENTE.test(texto)) {
+    if (!SI.test(texto) || PENDIENTE.test(texto) || otroMonto) {
       await this.db.from('bot_pagos_en_confirmacion').update({ respuesta_admin: texto.slice(0, 300) }).eq('id', fila.id).then(() => null, () => null);
+      // como las otras ramas, administración sabe que al cliente no le llegó nada y qué contestar
+      // (10/10/2026: antes nadie se enteraba y el cliente que pagó no recibía nada)
+      await this.enviarPorWhatsapp({ to: admin, text: `No le dije nada a ${fila.nombre ?? '+' + fila.telefono_cliente}${await this.deLaLinea(fila.linea)} sobre su pago${montoTexto}. Cuando lo sepas, respondé citando el aviso del pago solo «llegó» o «no llegó».`, kind: 'aviso-interno' }).catch(() => null);
       return { contestado: false, motivo: 'administración: respuesta no concluyente, quedó registrada' };
     }
 

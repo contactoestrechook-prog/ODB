@@ -1011,11 +1011,40 @@ describe('el circuito del pago lo cierra el bot: administración contesta y el c
     expect(envios.find((e) => e.to === '5491133344455').text).toBe('Recibimos tu pago de $85.000. Muchas gracias.');
   });
 
-  it.each(['ok, lo reviso', 'dale, me fijo y te digo', 'todavía no', 'listo? no sé'])('«%s» no confirma ni le llega nada al cliente', async (body) => {
-    const { s, envios } = armar();
+  // (10/10/2026, revisión de la tanda 1) un pago parcial, otra cuenta, otro monto o un «ya lo veo»
+  // no confirman (con las tildes reconocidas, «llegó la mitad» decía «Recibimos tu pago de $85.000»);
+  // y una respuesta que no concluye le avisa a administración que al cliente no le llegó nada
+  it.each([
+    'ok, lo reviso', 'dale, me fijo y te digo', 'todavía no', 'listo? no sé',
+    'Llegó la mitad', 'llegó $40.000', 'Llegó 40 mil nomás', 'recibí 40 mil', 'llegó incompleto', 'llegó a otra cuenta', 'Recibí la mitad',
+    'Ok, ya lo veo', 'dale, ahora lo miro', 'si llega te aviso', 'ok, un momento', 'sí, en un rato te confirmo', 'Ok, pasame el nombre del titular', 'ok pero faltan 40 mil',
+    'llego la mitad', 'recibido la mitad',
+    'Recibido, no te preocupes', 'Llegó ok, después le mando la factura', 'Sí, acreditado. No hace falta que mande nada más', 'Ok llegó, aún no lo despachamos', 'Listo, acreditado. Después te mando la factura',
+  ])('«%s» no confirma, al cliente no le llega nada y administración se entera', async (body) => {
+    const { s, db, envios } = armar();
     const r: any = await (s as any).respuestaDeAdministracion('5491125213601', { body });
     expect(r.contestado).toBe(false);
     expect(envios.find((e) => e.to === '5491133344455')).toBeUndefined();
+    expect(envios.filter((e) => e.to === '5491125213601')).toHaveLength(1);
+    expect(envios.find((e) => e.to === '5491125213601').text).toMatch(/^No le dije nada a Distribuidora Norte SRL.* sobre su pago de \$85\.000\..*«llegó» o «no llegó»/);
+    expect(db.llamadas.update.some((u: any) => u.tabla === 'bot_pagos_en_confirmacion' && u.fila.confirmado_en)).toBe(false);
+  });
+
+  it.each(['recibido ok', 'sí, llegó', 'Recibido 👍', 'ok', 'listo', 'llegó perfecto', 'sí, está acreditado', 'Confirmado, llegó $85.000', 'Recibido $85.000,00', 'ok, ahora sí llegó', 'sí, ya llegó', 'Llegó, todo bien'])('«%s» sigue confirmando el pago', async (body) => {
+    const { s, envios } = armar();
+    const r: any = await (s as any).respuestaDeAdministracion('5491125213601', { body });
+    expect(r.contestado).toBe(true);
+    expect(envios.find((e) => e.to === '5491133344455').text).toBe('Recibimos tu pago de $85.000. Muchas gracias.');
+  });
+
+  it('«Llegó, no está mal el monto» no le dice al cliente que no figura; «No está.» sí', async () => {
+    const a = armar();
+    await (a.s as any).respuestaDeAdministracion('5491125213601', { body: 'Llegó, no está mal el monto' });
+    expect(a.envios.find((e) => e.to === '5491133344455')).toBeUndefined();
+    const b = armar();
+    const r: any = await (b.s as any).respuestaDeAdministracion('5491125213601', { body: 'No está.' });
+    expect(r.contestado).toBe(true);
+    expect(b.envios.find((e) => e.to === '5491133344455').text).toContain('todavía no la encontramos acreditada');
   });
 
   it('un número que NO es administración sigue su camino normal (devuelve null)', async () => {
