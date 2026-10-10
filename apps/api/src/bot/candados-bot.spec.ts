@@ -134,3 +134,15 @@ describe('la capa que acorta no aplasta la lista (21:15 del 9/10)', () => {
     expect(r.respuesta).toMatch(/Franui: Leche, Pink Frambuesa, Pink Chocolate Amargo o Free sin azúcar\./);
   });
 });
+
+const CONSULTAS = { select: { data: [], error: null }, insert: { data: { id: 'q-1' }, error: null } };
+
+describe('C9: el mínimo del envío es un dato de la casa (10/10/2026)', () => {
+  it('«El envío es sin cargo en pedidos desde $70.000» sale tal cual y no abre una consulta falsa', async () => {
+    const db = baseFalsa({ bot_conversaciones: { select: conv([{ role: 'assistant', content: 'Buenas noches. ¿Qué necesitás?' }]) }, lineas_whatsapp: { select: { data: CFG, error: null } }, bot_consultas_internas: CONSULTAS });
+    const { s } = servicio(db, final('a', 'Sí, el envío es sin cargo en pedidos desde $70.000.'));
+    const r = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: '¿Siempre es sin cargo el envío?' });
+    expect(r.respuesta).toBe('Sí, el envío es sin cargo en pedidos desde $70.000.');
+    expect(insertsDe(db, 'bot_consultas_internas')).toHaveLength(0);
+  });
+});

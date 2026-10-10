@@ -168,7 +168,8 @@ describe('el orden de la limpieza final', () => {
     principal.push(resp([{ type: 'text', text: 'El envío es sin cargo, decime «confirmo» y avanzamos.' }], 'end_turn'));
     const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: '¿Cuánto me cobran el envío a Palermo?' });
     expect(r.respuesta).not.toMatch(/dec[ií]me\s*«?confirmo/i);
-    expect(r.respuesta).toMatch(/^El envío es sin cargo en pedidos desde \$70\.000\./);
+    // con el total del pedido (más de $70.000) a la vista no hace falta aclarar el mínimo (C9, 10/10/2026)
+    expect(r.respuesta).toBe('El envío es sin cargo. Total $317.100. ¿Lo confirmo?');
   });
 
   it('ninguna llamada a Claude del turno va sin razonamiento', async () => {
