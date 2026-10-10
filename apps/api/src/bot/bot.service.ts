@@ -5826,8 +5826,11 @@ export class BotService {
     }
   }
 
-  // Cada minuto: despacha los mensajes programados que ya vencieron
-  @Cron('0 * * * * *')
+  // Cada minuto: despacha los mensajes programados que ya vencieron.
+  // (10/10/2026, revisión de la tanda 1) Mientras una pasada sigue corriendo (WAHA lento), la
+  // siguiente se saltea: los pendientes no se reservan y el mismo recordatorio salía dos veces
+  // (antes lo tapaba la puerta de «mensaje repetido», que se sacó)
+  @Cron('0 * * * * *', { waitForCompletion: true })
   async despacharProgramados() {
     // difusiones programadas que llegaron a su hora: se reclaman de a una
     // (update condicional) para no despachar dos veces

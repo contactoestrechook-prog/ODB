@@ -5,6 +5,7 @@ import { etiquetaDeFila, Lineas, sesionPrincipal, tipoDeLinea } from '../comun/l
 import { HERRAMIENTAS_PEDIDOS, SYSTEM_PEDIDOS } from './agente-bot';
 import { readFileSync, readdirSync, statSync } from 'fs';
 import { join, relative } from 'path';
+import { CronJob } from 'cron';
 
 // VARIAS LÍNEAS DE WHATSAPP CON EL MISMO BOT (Leandro, 6/10/2026): «necesitamos
 // automatizar una nueva línea de ODB, mismo todo pero otra línea» y «comparte
@@ -502,6 +503,21 @@ describe('4. Los crons recorren las dos líneas', () => {
     await s.despacharProgramados();
     const porDestino = Object.fromEntries(waha.envios().map((e) => [e.cuerpo.chatId, e.cuerpo.session]));
     expect(porDestino).toEqual({ [`${CLIENTE}@c.us`]: 'odb-local', '5491177778888@c.us': 'odb' });
+  });
+
+  // (10/10/2026, revisión de la tanda 1) con WAHA lento, una pasada de más de un minuto se pisaba
+  // con la siguiente y el mismo recordatorio salía dos veces (antes lo tapaba la puerta de salida)
+  it('el cron de lo programado no arranca otra pasada mientras sigue la anterior', async () => {
+    const opciones = Reflect.getMetadata('SCHEDULE_CRON_OPTIONS', BotService.prototype.despacharProgramados);
+    expect(opciones).toMatchObject({ cronTime: '0 * * * * *', waitForCompletion: true });
+    let corriendo = 0, maximo = 0;
+    const job = CronJob.from({ cronTime: opciones.cronTime, waitForCompletion: opciones.waitForCompletion, onTick: async () => {
+      corriendo++; maximo = Math.max(maximo, corriendo);
+      await new Promise((r) => setTimeout(r, 20));
+      corriendo--;
+    } });
+    await Promise.all([job.fireOnTick(), job.fireOnTick()]);
+    expect(maximo).toBe(1);
   });
 });
 
