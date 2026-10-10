@@ -552,6 +552,8 @@ describe('otros caminos de la consulta silenciosa', () => {
     expect(r.respuesta).toBeNull();
   });
 
+  // (10/10/2026, revisión de la tanda 1: era un reclamo_pago; el reclamo ya no va al circuito de
+  // pagos, ver «C2: un reclamo de plata…». La consulta de pago sigue igual)
   it('una consulta de pago a administración sin nada más: «Recibido.»', async () => {
     const db = baseFalsa({
       bot_conversaciones: { select: conv(h(['user', 'Hola'], ['assistant', 'Buenas tardes, ¿en qué te ayudo?'])) },
@@ -560,10 +562,11 @@ describe('otros caminos de la consulta silenciosa', () => {
     });
     const { s } = servicio(db);
     s.identificarCliente = jest.fn(async () => ({ existe: true, nombre: 'Pablo' }));
-    s.claude = { messages: { create: claudeCon(conHerramientas(herramienta('d1', 'derivar_pago', { tipo: 'reclamo_pago', monto: 0, motivo: 'Dice que le cobraron dos veces', de_quien: 'Pablo' })), texto('Lo reviso con administración y te confirmo por acá.')) } };
-    const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Me cobraron dos veces' });
+    s.claude = { messages: { create: claudeCon(conHerramientas(herramienta('d1', 'derivar_pago', { tipo: 'consulta', monto: 0, motivo: 'Pregunta si llegó la transferencia de ayer', de_quien: 'Pablo' })), texto('Lo reviso con administración y te confirmo por acá.')) } };
+    const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: '¿Les llegó lo que les mandé ayer?' });
     // «Recibido.» (23/9), sin nada de lo que hace administración (sin la disculpa antepuesta en código desde el 10/10/2026)
     expect(r.respuesta).toBe(TEXTO.RECIBIDO);
+    expect(insertsDe(db, 'bot_pagos_en_confirmacion')).toHaveLength(1);
   });
 });
 
@@ -812,19 +815,22 @@ describe('revisión (6/10/2026): pagos, facturas e importes', () => {
     expect(insertsDe(db, 'bot_consultas_internas')).toHaveLength(1);
   });
 
-  it('reclamo de plata con la derivación automática y un importe inventado → el monto no sale: «Recibido.»', async () => {
+  // (10/10/2026, revisión de la tanda 1: el reclamo va por la consulta silenciosa, no por el
+  // circuito de pagos; antes esperaba «Recibido.» y una fila de pago)
+  it('reclamo de plata con la derivación automática y un importe inventado → el monto no sale y se consulta en silencio', async () => {
     const db = baseFalsa({
       bot_conversaciones: { select: conv(HOLA) },
       lineas_whatsapp: { select: { data: CFG, error: null } },
-      bot_consultas_internas: { select: { data: [], error: null }, insert: { data: { id: 'NO-DEBERIA' }, error: null } },
+      bot_consultas_internas: { select: { data: [], error: null }, insert: { data: { id: 'q-reclamo' }, error: null } },
     });
     const { s } = servicio(db);
     s.identificarCliente = jest.fn(async () => ({ existe: true, nombre: 'Pablo' }));
     s.claude = { messages: { create: claudeCon(texto('La diferencia que te corresponde es de $5.000, la transferimos hoy al mismo CBU.')) } };
     const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Me cobraron de más en la transferencia de ayer, quiero que me devuelvan la diferencia' });
-    expect(r.respuesta).toBe(TEXTO.RECIBIDO);
-    expect(r.respuesta).not.toContain('5.000');
-    expect(insertsDe(db, 'bot_pagos_en_confirmacion')).toHaveLength(1);
+    expect(r.respuesta ?? '').not.toContain('5.000');
+    expect(insertsDe(db, 'bot_pagos_en_confirmacion')).toHaveLength(0);
+    expect(insertsDe(db, 'bot_consultas_internas')).toHaveLength(1);
+    expect(insertsDe(db, 'bot_consultas_internas')[0].fila).toMatchObject({ area: 'administracion', tema: 'tu reclamo' });
   });
 });
 
@@ -1041,6 +1047,48 @@ describe('C2: pide una persona o reclama plata', () => {
     expect(insertsDe(db, 'bot_pagos_en_confirmacion')).toHaveLength(0);
     expect(insertsDe(db, 'alertas_internas')).toHaveLength(0);
     expect(wsp).not.toHaveBeenCalled();
+  });
+
+  // (10/10/2026, revisión de la tanda 1) el circuito de pagos termina en «Recibimos tu pago»: un
+  // «Listo, ya se la devolvimos» le llegaba así a quien reclamaba una devolución
+  it('un cliente conocido escribe «Me cobraron dos veces…»: no abre un pago en administración, se consulta en silencio', async () => {
+    const { s, db, wsp } = armar({ modelo: [texto('Lo reviso con administración y te confirmo por acá.')], cliente: { existe: true, nombre: 'Pablo', clienteId: 'c-1' } });
+    const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Me cobraron dos veces el pedido de ayer, quiero que me devuelvan la plata' });
+    expect(r.respuesta).toBeNull();
+    expect(insertsDe(db, 'bot_pagos_en_confirmacion')).toHaveLength(0);
+    expect(insertsDe(db, 'bot_consultas_internas')).toHaveLength(1);
+    expect(insertsDe(db, 'bot_consultas_internas')[0].fila).toMatchObject({ area: 'administracion', tema: 'tu reclamo' });
+    expect((wsp.mock.calls as any[]).some((c) => /Consulta de pago/.test(c[0].text))).toBe(false);
+  });
+
+  it.each([
+    ['reclamo_pago', 'Dice que le cobraron dos veces', 'Me cobraron dos veces', 'tu reclamo'],
+    ['proveedor_factura', 'Pregunta cuándo le pagan la factura 0001-123', '¿Cuándo me pagan la factura 0001-123?', 'tu factura'],
+  ])('derivar_pago de tipo %s va por la consulta silenciosa, no por el circuito de pagos', async (tipo, motivo, mensaje, tema) => {
+    const { s, db } = armar({ modelo: [conHerramientas(herramienta('d1', 'derivar_pago', { tipo, monto: 0, motivo, de_quien: 'Pablo' })), texto('')], cliente: { existe: true, nombre: 'Pablo', clienteId: 'c-1' } });
+    const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje });
+    expect(r.respuesta).toBeNull();
+    expect(insertsDe(db, 'bot_pagos_en_confirmacion')).toHaveLength(0);
+    expect(insertsDe(db, 'bot_consultas_internas')).toHaveLength(1);
+    expect(insertsDe(db, 'bot_consultas_internas')[0].fila).toMatchObject({ area: 'administracion', tema });
+  });
+
+  it('la respuesta de administración al reclamo le llega como respuesta del área, nunca como «Recibimos tu pago»', async () => {
+    const reclamo = { id: 'q-rec', linea: 'pedidos', telefono_cliente: TEL, respondido_en: null, area: 'administracion', consulta: 'El cliente reclama por plata: «Me cobraron dos veces…»', tema: 'tu reclamo', waha_msg_id: 'W-REC', respuesta_admin: null, enviado_a: ADMIN, nombre: 'Pablo', creado_en: new Date(Date.now() - 15 * 60_000).toISOString() };
+    const db = baseFalsa({
+      lineas_whatsapp: { select: { data: CFG, error: null } },
+      bot_consultas_internas: { select: { data: [reclamo], error: null } },
+      bot_pagos_en_confirmacion: { select: { data: [], error: null } },
+      bot_conversaciones: { select: conv(h(['user', 'Me cobraron dos veces el pedido de ayer, quiero que me devuelvan la plata'])) },
+    });
+    db.rpc.mockImplementation(async (fn: string) => (fn === 'tomar_entrega_consulta_bot' ? { data: [{ id: 'q-rec' }], error: null } : { data: null, error: null }));
+    const { s, wsp } = servicio(db);
+    const r: any = await s.respuestaDeAdministracion(ADMIN, { body: 'Listo, ya se la devolvimos', replyTo: { id: 'true_5491125213601@c.us_W-REC' } });
+    expect(r).toMatchObject({ contestado: true });
+    const alCliente = (wsp.mock.calls as any[]).map((c) => c[0]).find((p) => p.to === `${TEL}@lid`);
+    // (es lo primero que le escribe la casa en la charla: va con el saludo de la hora)
+    expect(alCliente.text).toMatch(/Sobre tu reclamo: Listo, ya se la devolvimos$/);
+    expect(alCliente.text).not.toMatch(/Recibimos tu pago/);
   });
 
   it('pide una persona con un borrador: la frase fija, sin reescribir (una sola llamada al modelo)', async () => {

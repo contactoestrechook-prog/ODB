@@ -1337,32 +1337,27 @@ export class BotService {
     const yaDerivo = herramientasDelTurno.has('derivar_a_humano') || herramientasDelTurno.has('derivar_pago');
     // basta con que el mensaje sea de plata: un proveedor reclamando una factura
     // no dice "vergüenza" ni "faltante", y en la ronda 12 se fue sin escalar
-    if (!yaDerivo && soloFactura && !pideHumano && !respuestaFija.consultaPendiente) {
+    // (10/10/2026, revisión de la tanda 1) Un reclamo de plata va por la consulta silenciosa,
+    // como la factura, y no por el circuito de pagos: ese circuito termina en «Recibimos tu
+    // pago», y un «Listo, ya se la devolvimos» de administración le llegaba así al cliente que
+    // reclamaba una devolución. La respuesta del área le llega como «Sobre tu reclamo: …».
+    if (!yaDerivo && reclamaPlata && !pideHumano && !respuestaFija.consultaPendiente) {
       try {
-        const c = await this.consultarInterno(linea, telefono, 'administracion', `El cliente pide por una factura: «${texto.slice(0, 400)}»`, '', dto.archivoUrl, 'la factura');
+        const c = await this.consultarInterno(linea, telefono, 'administracion', soloFactura ? `El cliente pide por una factura: «${texto.slice(0, 400)}»` : `El cliente reclama por plata: «${texto.slice(0, 400)}»`, '', dto.archivoUrl, soloFactura ? 'la factura' : 'tu reclamo');
         if (c?.consultado) { respuestaFija.consultaPendiente = true; anotarTemaDeConsulta(respuestaFija, c); }
-        this.log.log(`pedido de factura de ${telefono}: consultado en silencio a administración`);
-      } catch (e: any) { this.log.warn(`consulta por la factura de ${telefono} falló: ${e?.message ?? e}`); }
-    } else if (!yaDerivo && (pideHumano || reclamaPlata)) {
+        this.log.log(`${soloFactura ? 'pedido de factura' : 'reclamo de plata'} de ${telefono}: consultado en silencio a administración`);
+      } catch (e: any) { this.log.warn(`consulta por ${soloFactura ? 'la factura' : 'el reclamo'} de ${telefono} falló: ${e?.message ?? e}`); }
+    } else if (!yaDerivo && pideHumano) {
       try {
-        const motivo = `${pideHumano ? 'El cliente pide hablar con una persona' : 'Reclamo de dinero'}: "${texto.slice(0, 200)}"`;
-        if (reclamaPlata) {
-          // administración queda avisada por adentro y al cliente no se le
-          // anuncia (6/10/2026): si no queda nada más que decir, «Recibido.». Antes
-          // se pegaba «Tomo su reclamo y doy aviso al sector de pagos…» con un
-          // teléfono que derivarPago nunca devolvía (código muerto, se sacó)
-          const r = await this.derivarPago(linea, telefono, motivo);
-          if ((r as any)?.derivado) respuestaFija.pagoEnAdministracion = true;
-        } else {
-          await this.derivarAHumano(linea, telefono, motivo, false);
-          // LA FRASE FIJA, SIN REESCRIBIR (10/10/2026). Antes, con borrador, se le pedía al
-          // modelo reescribir «sabiendo que la derivación ya está hecha» (y que dijera que era
-          // el asistente automático); sin borrador, tras un rechazo, iba la frase fija. Ahora
-          // va siempre la frase fija: la persona que toma la charla ve el resto en RESPONDE.
-          respuesta = TEXTO.DERIVACION_PEDIDA;
-          respuestaFija.derivada = true;
-        }
-        this.log.log(`derivación automática para ${telefono}: ${pideHumano ? 'pidió humano' : 'reclamo de plata'}`);
+        const motivo = `El cliente pide hablar con una persona: "${texto.slice(0, 200)}"`;
+        await this.derivarAHumano(linea, telefono, motivo, false);
+        // LA FRASE FIJA, SIN REESCRIBIR (10/10/2026). Antes, con borrador, se le pedía al
+        // modelo reescribir «sabiendo que la derivación ya está hecha» (y que dijera que era
+        // el asistente automático); sin borrador, tras un rechazo, iba la frase fija. Ahora
+        // va siempre la frase fija: la persona que toma la charla ve el resto en RESPONDE.
+        respuesta = TEXTO.DERIVACION_PEDIDA;
+        respuestaFija.derivada = true;
+        this.log.log(`derivación automática para ${telefono}: pidió humano`);
       } catch (e: any) { this.log.warn(`derivación automática falló: ${e?.message ?? e}`); }
     }
 
@@ -2391,12 +2386,13 @@ export class BotService {
           // demás y, si no hay nada más, «Recibido.» (regla del 23/9/2026). No
           // cuenta como «la» consulta interna del turno: si el cliente pregunta
           // otra cosa que hay que consultar, se consulta igual.
-          if ((out as any)?.derivado && ctx.fija && ['consulta', 'reclamo_pago', 'proveedor_factura'].includes(tipoPago)) {
+          // (reclamo_pago y proveedor_factura van por la consulta silenciosa desde el 10/10/2026: abajo)
+          if ((out as any)?.derivado && ctx.fija && tipoPago === 'consulta') {
             ctx.fija.pagoEnAdministracion = true;
           }
-          // quiere transferir y la casa no tiene el alias cargado: se le piden los
-          // datos a administración en silencio (6/10/2026; antes «Le paso los datos
-          // por acá en un rato.»). Cuenta como una consulta del turno.
+          // quiere transferir y la casa no tiene el alias cargado, un reclamo de pago o la
+          // factura de un proveedor: se le consulta a administración en silencio (6/10/2026;
+          // antes «Le paso los datos por acá en un rato.»). Cuenta como una consulta del turno.
           if ((out as any)?.consultaSilenciosa && ctx.fija) {
             ctx.fija.consultaPendiente = true;
             anotarTemaDeConsulta(ctx.fija, (out as any).consultaSilenciosa);
@@ -3288,12 +3284,20 @@ export class BotService {
     // un «recibido»). Ahora es una consulta a administración: lo que conteste le
     // llega al cliente como «Sobre los datos para transferir: …», y al cliente no
     // se le anuncia nada.
-    if (tipo === 'quiere_pagar') {
-      const consulta = await this.consultarInterno(linea, telefono, 'administracion', `Quiere transferir y pide los datos (alias o CBU), y la línea no tiene alias cargado. ${motivo}`.trim(), '', undefined, 'los datos para transferir');
+    // (10/10/2026, revisión de la tanda 1) Un reclamo de pago o la factura de un proveedor van
+    // por el mismo camino: en el circuito de pagos, un «listo, ya se devolvió» o «ya se transfirió»
+    // de administración le llegaba como «Recibimos tu pago». Ese circuito queda para «¿llegó mi pago?».
+    if (tipo === 'quiere_pagar' || tipo === 'reclamo_pago' || tipo === 'proveedor_factura') {
+      const que = tipo === 'quiere_pagar' ? `Quiere transferir y pide los datos (alias o CBU), y la línea no tiene alias cargado. ${motivo}`
+        : tipo === 'reclamo_pago' ? `Reclamo de plata: ${motivo}` : `Proveedor por una factura: ${motivo}`;
+      const tema = tipo === 'quiere_pagar' ? 'los datos para transferir' : tipo === 'reclamo_pago' ? 'tu reclamo' : 'tu factura';
+      const consulta = await this.consultarInterno(linea, telefono, 'administracion', que.trim(), '', tipo === 'quiere_pagar' ? undefined : extra.comprobanteUrl, tema);
       return {
         derivado: true,
         consultaSilenciosa: consulta,
-        aviso: 'Los datos para transferir quedaron pedidos a administración y le llegan al cliente cuando los pasen. Al cliente no le digas nada de eso (ni que se los pasás, ni que consultás, ni que le vas a avisar) y no inventes alias ni CBU: contestá solo lo demás de su mensaje; si no hay nada más, no escribas nada.',
+        aviso: tipo === 'quiere_pagar'
+          ? 'Los datos para transferir quedaron pedidos a administración y le llegan al cliente cuando los pasen. Al cliente no le digas nada de eso (ni que se los pasás, ni que consultás, ni que le vas a avisar) y no inventes alias ni CBU: contestá solo lo demás de su mensaje; si no hay nada más, no escribas nada.'
+          : 'Administración ya lo tiene por adentro y su respuesta le llega al cliente cuando la dé. Al cliente no le digas nada de eso (ni que avisaste, ni que lo revisan, ni que le van a confirmar) ni le des ningún número, y no inventes montos ni plazos: contestá solo lo demás de su mensaje; si no hay nada más, no escribas nada.',
       };
     }
     const esComprobante = tipo === 'comprobante_enviado' && monto > 0;
