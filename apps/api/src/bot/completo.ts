@@ -33,6 +33,13 @@ export function puedeCotizar(textoCliente: string, ultimosDelBot: string[], ante
   const huboLista = ultimosDelBot.some((m) => RE_PREGUNTA_COMPLETO.test(m) || (/\d\s*[×x]\s*[A-Za-zÁÉÍÓÚÑáéíóúñ]/.test(m) && !/\$\s?\d/.test(m)));
   if (huboLista && anterioresDelCliente.some(diceQueEstaCompleto)) return true;
   if (diceQueEstaCompleto(textoCliente) && (RE_PREGUNTA_COMPLETO.test(ultimosDelBot[0] ?? '') || /\b(es todo|nada m[aá]s|completo)\b/i.test(textoCliente))) return true;
+  // CONTESTAR EL CIERRE ES DAR EL PEDIDO POR COMPLETO (Leandro, 10/10/2026: «me vuelve a
+  // preguntar si está completo el pedido, cansa»). Si después de la lista el bot ya pidió
+  // retiro o envío, el nombre o la dirección, y el cliente contestó, se pasa a precios: no
+  // se vuelve a preguntar si está completo. Salvo que con eso esté sumando o cambiando algo.
+  const RE_PIDE_CIERRE = /¿[^?]*\b(retir\w*|envi\w*|mand\w*|a nombre de qui[eé]n|qui[eé]n (?:lo )?(?:retira|recibe|pasa)|direcci[oó]n|calle y n[uú]mero)\b[^?]*\?/i;
+  const sumaOCambia = /\b(sum\w*|agreg\w*|tambi[eé]n|adem[aá]s|sac\w*|quit\w*|cambi\w*|mejor|en vez)\b/i.test(textoCliente);
+  if (huboLista && !sumaOCambia && ultimosDelBot.slice(0, 2).some((m) => RE_PIDE_CIERRE.test(m))) return true;
   return ultimosDelBot.some((m) => /\btotal\b[^\n]{0,20}\$|¿lo confirmo\?/i.test(m));
 }
 

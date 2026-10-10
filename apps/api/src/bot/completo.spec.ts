@@ -122,3 +122,20 @@ describe('el por defecto coincide con lo pedido', () => {
     expect(elegirPorDefecto(items, v, 'lysoform aerosol')?.sku ?? null).toBe(null);
   });
 });
+
+describe('contestar el cierre es dar el pedido por completo (Leandro, 10/10/2026: «me vuelve a preguntar si está completo, cansa»)', () => {
+  const LISTA = 'Estos productos no los tengo disponibles ahora en la cantidad que pediste:\n• 10 × Té verde Twinings x 10\n¿Lo retirás en la sucursal Saint Thomas o te lo enviamos?';
+  it('«Leandro» al «¿A nombre de quién?» después de la lista: ya se puede cotizar', () => {
+    const bot = ['¿A nombre de quién preparo el pedido para retirar en la sucursal Saint Thomas?', LISTA];
+    expect(puedeCotizar('Leandro', bot, ['los retiro'])).toBe(true);
+  });
+  it('«los retiro» al «¿Lo retirás o te lo enviamos?» después de la lista: ya se puede cotizar', () => {
+    expect(puedeCotizar('los retiro', [LISTA], [])).toBe(true);
+  });
+  it('si con eso suma o cambia algo, todavía no', () => {
+    expect(puedeCotizar('los retiro, sumame 2 aguas', [LISTA], [])).toBe(false);
+  });
+  it('sin una lista antes, no', () => {
+    expect(puedeCotizar('Leandro', ['¿A nombre de quién lo preparo?'], [])).toBe(false);
+  });
+});
