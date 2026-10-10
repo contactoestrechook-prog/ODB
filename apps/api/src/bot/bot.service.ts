@@ -112,8 +112,11 @@ const HORAS_CONSULTA_ABIERTA = 6;
 const RE_PIDE_HUMANO = /\b(con qui[eé]n (hablo|puedo hablar)|hablar con (alguien|una persona|un humano|el encargado|el due[ñn]o)|p[aá]same con|quiero hablar con|atiendame una persona|una persona de verdad)\b/i;
 const RE_RECLAMO_PLATA = /\b(devol|reintegro|me cobraron|cobro doble|doble d[eé]bito|quiero la plata|factura|transferencia|no me lleg[oó] el dinero)\b/i;
 // «el pedido quedó confirmado/cargado» (ronda 8): sin código DOM-/RET- de crear_pedido en el turno es mentira
-// (10/10/2026: «agregado al pedido», «queda en el pedido» y «armado» ya no cuentan: son una lista en armado)
-const RE_DICE_CARGADO = /(pedido (queda|quedó|ya está|está|ya quedó) (confirmado|cargado|registrado|tomado)|confirmo (el|su) pedido|queda(n)? (cargado|registrado|confirmado)s? (el|su) pedido|ya está registrado|pedido confirmado)/i;
+// (10/10/2026: «agregado al pedido», «queda en el pedido» y «armado» ya no cuentan: son una lista en armado;
+// y sí cuentan «tu pedido» y el «quedó» de antes del pedido: «quedó registrado tu pedido» salía tal cual)
+const RE_DICE_CARGADO = /(pedido (queda|quedó|ya está|está|ya quedó) (confirmado|cargado|registrado|tomado)|confirmo (el|su|tu) pedido|qued(?:a|an|ó) (cargado|registrado|confirmado)s? (el|su|tu) pedido|ya está registrado|pedido confirmado)/i;
+// «quedó cancelado», «cancelé tu pedido», «lo cancelé» (10/10/2026): sin cancelar_pedido es mentira
+const RE_DICE_CANCELADO = /\b(?:qued[oó]|queda|(?:ya\s+)?est[aá])\s+cancelad[oa](?![a-záéíóúñ])|\bcancel[eé]\s+(?:el|tu|su)\s+pedido\b|\b(?:lo|la)\s+cancel[eé](?![a-záéíóúñ?])/i;
 const RE_CODIGO_DE_PEDIDO = /\b(DOM|RET|PICKUP)-[A-Z0-9]{4,12}\b/;
 
 /** El texto sin las oraciones que dicen eso, renglón por renglón: la lista no se aplasta en un párrafo (10/10/2026). */
@@ -1621,18 +1624,49 @@ export class BotService {
     // «Sí, confirmalo. ¿Viene en caja?» con un crear_pedido fallido). Antes eran dos
     // capas (la guarda A, que pedía reescribir, y esta, solo en turnos con consulta).
     // Ahora una, sin regenerar: se saca solo esa oración, renglón por renglón (la lista
-    // queda), y si hubo un intento de pedido o un «dale, confirmalo», va la frase de
-    // ahora y el aviso PEDIDO CONFIRMADO SIN CARGAR (prometioAvisoDePedido). No corre si
+    // queda), y si hubo un intento de pedido o un «dale, confirmalo» al «¿Lo confirmo?», va la
+    // frase de ahora y el aviso PEDIDO CONFIRMADO SIN CARGAR (prometioAvisoDePedido). No corre si
     // en el turno se consultó un pedido (estado_pedido): ahí habla de uno que existe.
-    if (!respuestaFija.operacion && respuesta && RE_DICE_CARGADO.test(respuesta) && fallosDelTurno.get('__pedido_creado__') !== 1
+    // (10/10/2026, revisión de la tanda 1) La frase no cuenta dentro de una pregunta abierta
+    // («¿Te confirmo el pedido así?») ni en un condicional («con el pedido confirmado te mando
+    // el link», «cuando me digas, confirmo el pedido»): se borraba la pregunta de cierre y salía
+    // el aviso. Intento es solo un crear_pedido (hecho o fallido) en el turno o el sí inequívoco
+    // a un «¿Lo confirmo?»: con la pregunta del mensaje anterior, o con un «Sí, está completo»,
+    // le llegaba a administración un pedido que el cliente no confirmó. Y si al sacar la oración
+    // no queda nada, va a la red de respaldo (antes el cliente quedaba sin nada y nadie se enteraba).
+    const diceCargado = (o: string) => {
+      const m = RE_DICE_CARGADO.exec(o);
+      if (!m) return false;
+      const antes = o.slice(0, m.index);
+      return !/¿[^?]*$/.test(antes)
+        && !/\b(?:cuando|apenas|una vez|ni bien|en cuanto)\b[^.?!;\n]{0,30}$/i.test(antes)
+        && !/\b(?:con|una vez|apenas)\s+(?:el|tu|su)\s+pedido\s+confirmado/i.test(o);
+    };
+    if (!respuestaFija.operacion && respuesta && sinOraciones(respuesta, diceCargado) !== sinOraciones(respuesta, () => false) && fallosDelTurno.get('__pedido_creado__') !== 1
         && !RE_CODIGO_DE_PEDIDO.test(respuesta) && !herramientasDelTurno.has('estado_pedido')) {
-      const sinMentira = sinOraciones(respuesta, (o) => RE_DICE_CARGADO.test(o));
-      const intento = huboIntentoDePedido || confirmacionInequivoca(texto);
+      const sinMentira = sinOraciones(respuesta, diceCargado);
+      const intento = huboIntentoEnElTurno || (confirmacionInequivoca(texto) && RE_LO_CONFIRMO.test(String(ultimoDelBot)));
       this.log.warn(`dijo pedido confirmado sin código a ${telefono}: se saca esa oración${intento ? ' y sale a administración' : ''}`);
       if (intento) {
         prometioAvisoDePedido = true;
         respuesta = [sinMentira, TEXTO.PEDIDO_SIN_CARGAR].filter(Boolean).join(sinMentira.includes('\n') ? '\n\n' : ' ');
-      } else respuesta = sinMentira;
+      } else {
+        respuesta = sinMentira;
+        if (!respuesta) sinRespuesta = true;
+      }
+    }
+    // «QUEDÓ CANCELADO» SIN cancelar_pedido (10/10/2026, revisión de la tanda 1). Lo frenaba la
+    // guarda de promesas sin respaldo (G5), que se sacó, y la consulta silenciosa no lo toma: el
+    // pedido seguía vivo y se preparaba. Va en esta misma revisión, sin reescribir: se saca esa
+    // oración y se consulta en silencio con el mensaje del cliente (una persona lo cancela). Solo
+    // si el cliente pidió cancelar y la charla no trae ya esa cancelación con su código.
+    if (!respuestaFija.operacion && respuesta && /\b(?:cancel|anul)\w*|\bdar(?:lo|la)? de baja\b|\bya no lo (?:quiero|necesito)\b/i.test(texto)
+        && !herramientasDelTurno.has('cancelar_pedido') && !herramientasDelTurno.has('estado_pedido')
+        && sinOraciones(respuesta, (o) => RE_DICE_CANCELADO.test(o)) !== sinOraciones(respuesta, () => false)
+        && !historial.some((m) => m.role === 'assistant' && /cancelad/i.test(String(m.content)) && RE_CODIGO_DE_PEDIDO.test(String(m.content)))) {
+      this.log.warn(`dijo pedido cancelado sin cancelar_pedido a ${telefono}: se saca esa oración y se consulta en silencio`);
+      respuesta = sinOraciones(respuesta, (o) => RE_DICE_CANCELADO.test(o));
+      consultarEnSilencio = true;
     }
 
     // LO QUE NO SABÍA, CONSULTADO EN SILENCIO (la red de respaldo, abajo; también

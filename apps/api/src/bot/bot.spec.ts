@@ -186,8 +186,11 @@ describe('BotService.charla (robustez del agente)', () => {
   // "Le el pedido todavía no quedó cargado para retiro...". Se tira la oración
   // entera y se dice la verdad aparte.
   it('corrige "pedido cargado" sin partir la oración al medio', async () => {
-    const db = dbFalsa({ bot_conversaciones: { data: { mensajes: [] }, error: null } });
+    // (10/10/2026: el «dale confirmalo» cuenta como sí solo si contesta un «¿Lo confirmo?»)
+    const resumen = '• Fernet Branca 750 cc — 1 × $20.500 c/u = $20.500\nTotal: $20.500\nRetiro en la sucursal Saint Thomas.\n¿Lo confirmo?';
+    const db = dbFalsa({ bot_conversaciones: { data: { mensajes: [{ role: 'user', content: '1 fernet para retirar, es todo' }, { role: 'assistant', content: resumen }] }, error: null } });
     const { s } = servicio(db);
+    (s as any).crearPedido = jest.fn().mockRejectedValue(new Error('la cotización venció'));
     // el modelo miente y además falla al regenerar: se usa la corrección local
     (s as any).claude = {
       messages: { create: jest.fn().mockResolvedValue(respuestaClaude('Le confirmo el pedido para retiro en Sant Thomas: 1 Fernet. Lo esperamos.')) },

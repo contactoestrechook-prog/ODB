@@ -336,9 +336,15 @@ describe('(5) barrido: ningún texto fijo del sistema que llega al cliente prome
 describe('(6) el pedido «confirmado» sin código sigue saliendo a administración (PEDIDO CONFIRMADO SIN CARGAR)', () => {
   const avisosDe = (db: any) => insertsDe(db, 'avisos_pedidos').filter((e: Escritura) => e.fila?.tipo === 'pedido_sin_cargar');
 
+  // (10/10/2026, revisión de la tanda 1: el «dale confirmalo» cuenta como sí solo si contesta un
+  // «¿Lo confirmo?»; antes estas pruebas pasaban con la charla vacía)
+  const RESUMEN = '• Fernet Branca 750 cc — 1 × $20.500 c/u = $20.500\nTotal: $20.500\nRetiro en la sucursal Saint Thomas.\n¿Lo confirmo?';
+  const CON_RESUMEN = h(['user', '1 fernet para retirar, es todo'], ['assistant', RESUMEN]);
+
   it('el reemplazo fijo de «confirmado» sin código: texto honesto sin anunciar el aviso, y el aviso sale igual (prometioAvisoDePedido)', async () => {
-    const db = baseFalsa({ bot_conversaciones: { select: conv([]) } });
+    const db = baseFalsa({ bot_conversaciones: { select: conv(CON_RESUMEN) } });
     const { s } = servicio(db);
+    s.crearPedido = jest.fn().mockRejectedValue(new Error('la cotización venció'));
     s.claude = { messages: { create: claudeCon(texto('Le confirmo el pedido para retiro en Sant Thomas: 1 Fernet. Lo esperamos.')) } };
     s.regenerar = jest.fn().mockResolvedValue(null);
     const r: any = await s.charla({ linea: 'pedidos', telefono: '5491155566677', mensaje: 'dale confirmalo' });
@@ -349,8 +355,9 @@ describe('(6) el pedido «confirmado» sin código sigue saliendo a administraci
   });
 
   it('la reescritura del modelo con la frase de ahora también sale a administración', async () => {
-    const db = baseFalsa({ bot_conversaciones: { select: conv([]) } });
+    const db = baseFalsa({ bot_conversaciones: { select: conv(CON_RESUMEN) } });
     const { s } = servicio(db);
+    s.crearPedido = jest.fn().mockRejectedValue(new Error('la cotización venció'));
     s.claude = { messages: { create: claudeCon(texto('Listo, pedido confirmado: 1 Fernet para retirar.')) } };
     s.regenerar = jest.fn().mockResolvedValue(TEXTO.PEDIDO_SIN_CARGAR);
     const r: any = await s.charla({ linea: 'pedidos', telefono: '5491155566678', mensaje: 'dale confirmalo' });
@@ -388,6 +395,126 @@ describe('(6) el pedido «confirmado» sin código sigue saliendo a administraci
     expect(String(r.content)).toContain(TEXTO.PEDIDO_SIN_CARGAR);
     expect(String(r.content)).not.toMatch(/doy aviso al sector correspondiente para que lo dejen confirmado/);
     expect(avisosDe(db)).toHaveLength(1);
+  });
+
+  // ---- REVISIÓN DE LA TANDA 1 (10/10/2026): lo que no es un pedido confirmado no avisa ni miente ----
+  const charlaCon = async (historial: any[], mensaje: string, ...respuestas: any[]) => {
+    const db = baseFalsa({
+      bot_conversaciones: { select: conv(historial) },
+      lineas_whatsapp: { select: { data: CFG, error: null } },
+      bot_consultas_internas: { select: { data: [], error: null }, insert: { data: { id: 'q-f2' }, error: null } },
+    });
+    const { s } = servicio(db);
+    s.crearPedido = jest.fn().mockRejectedValue(new Error('la cotización venció'));
+    s.claude = { messages: { create: claudeCon(...respuestas) } };
+    const r: any = await s.charla({ linea: 'pedidos', telefono: '5491155566691', mensaje });
+    return { r, db, s };
+  };
+  const consultasDe = (db: any) => insertsDe(db, 'bot_consultas_internas');
+  const COMPLETO = h(['user', '2 fernet'], ['assistant', 'Te anoto:\n• 2 × Fernet Branca 750 cc\n\n¿Está completo el pedido o querés sumar algo?']);
+  const CONFIRMADO = h(['user', 'sí'], ['assistant', 'Pedido RET-AB12CD confirmado. Total: $41.000. Te esperamos en la sucursal Saint Thomas.']);
+
+  it.each([
+    ['Esperá, mañana te confirmo', 'Dale, sin problema. Cuando me digas, confirmo el pedido.', 'Dale, sin problema. Cuando me digas, confirmo el pedido.'],
+    ['¿Me sumás una bolsa de hielo?', 'Sumo 1 × Hielo 2 kg. Con eso confirmo el pedido, ¿te parece?', 'Sumo 1 × Hielo 2 kg.'],
+    ['Ahora hago la transferencia', 'Dale. Tu pedido queda confirmado.', 'Dale.'],
+  ])('tras el «¿Lo confirmo?», «%s» no es un sí: el «¿Lo confirmo?» de antes no alcanza para avisar ni para «Tuve un problema»', async (mensaje, delModelo, sale) => {
+    const { r, db } = await charlaCon(CON_RESUMEN, mensaje, texto(delModelo));
+    expect(r.respuesta).toBe(sale);
+    expect(avisosDe(db)).toHaveLength(0);
+  });
+
+  it('un «Sí, está completo» (a «¿Está completo…?») no es confirmar: se saca «tu pedido queda registrado», queda la pregunta y no hay aviso', async () => {
+    const { r, db } = await charlaCon(COMPLETO, 'Sí, está completo', texto('Perfecto, tu pedido queda registrado. ¿Lo retirás por la sucursal Saint Thomas o te lo enviamos?'));
+    expect(r.respuesta).toBe('¿Lo retirás por la sucursal Saint Thomas o te lo enviamos?');
+    expect(avisosDe(db)).toHaveLength(0);
+  });
+
+  it.each([
+    [COMPLETO, 'Sí, está completo', 'Perfecto, tu pedido queda confirmado.'],
+    [h(['user', '2 fernet'], ['assistant', 'Te anoto 2 × Fernet Branca 750 cc. ¿Lo querés para retirar o con envío?']), 'Dale, lo retiro yo', 'Listo, queda registrado el pedido para retirar.'],
+    [CONFIRMADO, '¿Ya quedó confirmado el pedido?', 'Sí, tu pedido quedó confirmado.'],
+    [CONFIRMADO, 'Paso a las 18 a buscarlo', 'Sí, tu pedido está confirmado, te esperamos a las 18.'],
+  ])('si la oración sacada era todo el mensaje («%s»), no queda colgado: se consulta en silencio, sin aviso de pedido', async (historial, mensaje, delModelo) => {
+    const { r, db } = await charlaCon(historial as any[], mensaje as string, texto(delModelo as string));
+    expect(r.respuesta).toBeNull();
+    expect(avisosDe(db)).toHaveLength(0);
+    expect(consultasDe(db)).toHaveLength(1);
+    expect(consultasDe(db)[0].fila).toMatchObject({ area: 'administracion', consulta: mensaje });
+    // la charla sigue esperando a administración
+    const guardado = db.escrituras.find((e: Escritura) => e.tabla === 'bot_conversaciones' && e.op === 'upsert');
+    expect(guardado.fila).not.toHaveProperty('esperando_desde');
+  });
+
+  it('«No, esperá, sumale una coca» al «¿Lo confirmo?» no es un intento: sin aviso', async () => {
+    const { r, db } = await charlaCon(CON_RESUMEN, 'No, esperá, sumale una coca', texto('Sumo 1 × Coca Cola 1,75 L. Tu pedido queda confirmado.'));
+    expect(r.respuesta).toBe('Sumo 1 × Coca Cola 1,75 L.');
+    expect(avisosDe(db)).toHaveLength(0);
+  });
+
+  it('la frase en un condicional o en una pregunta abierta no es mentira: el texto sale tal cual y no hay aviso', async () => {
+    const a = await charlaCon(CON_RESUMEN, '¿Puedo pagar con link?', texto('Sí: con el pedido confirmado te mando el link de pago por acá.'));
+    expect(a.r.respuesta).toBe('Sí: con el pedido confirmado te mando el link de pago por acá.');
+    expect(avisosDe(a.db)).toHaveLength(0);
+    const b = await charlaCon(CON_RESUMEN, 'sumale un hielo', texto('Sumo 1 × Hielo 2 kg.\n\n• 1 × Fernet Branca 750 cc\n• 1 × Hielo 2 kg\n\n¿Te confirmo el pedido así?'));
+    expect(b.r.respuesta).toMatch(/¿Te confirmo el pedido así\?$/);
+    expect(b.r.respuesta).not.toContain(TEXTO.PEDIDO_SIN_CARGAR);
+    expect(avisosDe(b.db)).toHaveLength(0);
+  });
+
+  it('«¿Viene en caja?» tras el «¿Lo confirmo?» y el modelo agrega «Tu pedido quedó confirmado.»: se saca esa oración, sin aviso', async () => {
+    const { r, db } = await charlaCon(CON_RESUMEN, '¿Viene en caja?', texto('Sí, viene en caja. Tu pedido quedó confirmado.'));
+    expect(r.respuesta).toBe('Sí, viene en caja.');
+    expect(avisosDe(db)).toHaveLength(0);
+  });
+
+  it.each([
+    ['Sí, confirmalo. ¿Viene en caja?', 'Sí, viene en caja. Tu pedido quedó confirmado.'],
+    ['Sí, confirmalo', 'Listo, tu pedido quedó confirmado, ¿necesitás algo más?'],
+  ])('el sí al «¿Lo confirmo?» («%s») sin código: sale «Tuve un problema…» y el aviso PEDIDO CONFIRMADO SIN CARGAR', async (mensaje, delModelo) => {
+    const { r, db } = await charlaCon(CON_RESUMEN, mensaje, texto(delModelo));
+    expect(r.respuesta).toContain(TEXTO.PEDIDO_SIN_CARGAR);
+    expect(r.respuesta).not.toMatch(/quedó confirmado/);
+    expect(avisosDe(db)).toHaveLength(1);
+  });
+
+  it('crear_pedido fallido y una respuesta sin «confirmado» con renglones de más: no se toca ni avisa', async () => {
+    const { r, db } = await charlaCon(CON_RESUMEN, 'sí, mandámelo', conHerramientas(herramienta('p1', 'crear_pedido', {})), texto('Me falta la dirección.\n\n\n¿A qué dirección te lo mando?'));
+    expect(r.respuesta).not.toContain(TEXTO.PEDIDO_SIN_CARGAR);
+    expect(r.respuesta).toMatch(/^Me falta la dirección\.\s+¿A qué dirección te lo mando\?$/);
+    expect(avisosDe(db)).toHaveLength(0);
+  });
+
+  it('«quedó registrado tu pedido» (el «quedó» antes del pedido) también se toma: no sale y no hay aviso sin un sí', async () => {
+    const { r, db } = await charlaCon(CON_RESUMEN, 'Pasalo a nombre de Juan, lo retiro mañana', texto('Perfecto, quedó registrado tu pedido a nombre de Juan para retirar mañana.'));
+    expect(r.respuesta ?? '').not.toMatch(/registrado/);
+    expect(avisosDe(db)).toHaveLength(0);
+    expect(consultasDe(db)).toHaveLength(1);
+  });
+
+  it.each([
+    ['Listo, quedó cancelado.', null],
+    ['Listo, Juan, tu pedido quedó cancelado. ¿Necesitás algo más?', '¿Necesitás algo más?'],
+  ])('«Cancelalo» y el modelo dice «%s» sin cancelar_pedido: se saca y se consulta en silencio (una persona lo cancela)', async (delModelo, sale) => {
+    const { r, db } = await charlaCon(CONFIRMADO, 'Cancelalo por favor, ya no lo necesito', texto(delModelo as string));
+    expect(r.respuesta).toBe(sale);
+    expect(consultasDe(db)).toHaveLength(1);
+    expect(consultasDe(db)[0].fila).toMatchObject({ area: 'administracion', consulta: 'Cancelalo por favor, ya no lo necesito' });
+    expect(avisosDe(db)).toHaveLength(0);
+  });
+
+  it('con cancelar_pedido en el turno, «quedó cancelado» es cierto: sale tal cual y no se consulta', async () => {
+    const db = baseFalsa({
+      bot_conversaciones: { select: conv(CONFIRMADO) },
+      lineas_whatsapp: { select: { data: CFG, error: null } },
+      bot_consultas_internas: { select: { data: [], error: null }, insert: { data: { id: 'q-f2' }, error: null } },
+    });
+    const { s } = servicio(db);
+    s.cancelarPedidoDelCliente = jest.fn(async () => ({ ok: true, codigo: 'RET-AB12CD', estado: 'cancelado' }));
+    s.claude = { messages: { create: claudeCon(conHerramientas(herramienta('k1', 'cancelar_pedido', { codigo: 'RET-AB12CD' })), texto('Listo, tu pedido RET-AB12CD quedó cancelado.')) } };
+    const r: any = await s.charla({ linea: 'pedidos', telefono: '5491155566692', mensaje: 'Cancelalo por favor' });
+    expect(r.respuesta).toBe('Listo, tu pedido RET-AB12CD quedó cancelado.');
+    expect(consultasDe(db)).toHaveLength(0);
   });
 });
 
