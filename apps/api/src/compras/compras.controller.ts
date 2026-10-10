@@ -110,6 +110,14 @@ export class ComprasController {
     return this.compras.remarcacionDe(proveedorId, String(skus ?? '').split(',').filter(Boolean));
   }
 
+  // Lo que entró a $0 de este proveedor y espera precio (10/10/2026): la carga
+  // de facturas lo ofrece como «solo precio, no suma stock»
+  @Roles('comprador', 'deposito', 'gerente', 'dueno')
+  @Get('compras/precio-cero')
+  precioCero(@Query('proveedorId') proveedorId: string) {
+    return this.compras.pendientesPrecioCero(proveedorId);
+  }
+
   // El dueño teclea su PIN para autorizar el prorrateo de cajas regaladas
   @Roles('comprador', 'gerente', 'dueno')
   @Post('compras/autorizar-prorrateo')

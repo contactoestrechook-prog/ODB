@@ -15,6 +15,7 @@ import {
 import { PanelImpuestos } from './PanelImpuestos';
 import { CabeceraFactura, PapelDelRenglon } from './TablaFactura';
 import { conCodigo } from '../lib/codigo-producto';
+import { diferenciaPrecioCero, elegirPendientes, textoPrecioCero, type PendientePrecioCero } from '../lib/precio-cero';
 import { AsistenteFactura, describirCambio, type CambioHecho } from './AsistenteFactura';
 import { aplicarCambiosIA, aplicarPapel, cuentaDelPapel, entraDeRenglon, papelDeLectura, tablaParaIA, type EntraComo, type Papel } from '../lib/tabla-factura';
 import {
@@ -511,6 +512,22 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   // true = la mercadería ya ingresó por Recepción (pistola): solo se registra la
   // factura con sus renglones y va a la bandeja de conciliación, SIN mover stock
   const [soloFactura, setSoloFactura] = useState(false);
+  // Lo que entró a $0 de este proveedor y espera precio (10/10/2026): el
+  // renglón que coincide le pone el costo a esa entrada y no suma stock.
+  // soloPrecio[sku] === false = el usuario lo destildó y entra como compra normal.
+  const [precioCero, setPrecioCero] = useState<PendientePrecioCero[]>([]);
+  const [soloPrecio, setSoloPrecio] = useState<Record<string, boolean>>({});
+  useEffect(() => {
+    setPrecioCero([]);
+    setSoloPrecio({});
+    if (modal?.tipo !== 'entradaFoto' || !f.proveedorId) return;
+    let vigente = true;
+    fetch(`/api/compras?recurso=precio-cero&proveedorId=${encodeURIComponent(f.proveedorId)}`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((d) => { if (vigente) setPrecioCero(Array.isArray(d) ? d : []); })
+      .catch(() => { /* sin el dato, la factura entra como siempre */ });
+    return () => { vigente = false; };
+  }, [modal?.tipo, f.proveedorId]);
   // buscador por renglón para vincular un producto (índice de fila + texto + resultados)
   const [vinculaIdx, setVinculaIdx] = useState<number | null>(null);
   // Renglón al que administración le está cargando los kilos a mano (ver pasarAPesoManual)
@@ -1261,8 +1278,8 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
       bonificacionPct: p?.desc ?? (i.bonificacionPct != null ? numImp(i.bonificacionPct) : null),
       alicuotaIva: p?.iva ?? (i.alicuotaIva != null ? numImp(i.alicuotaIva) : null),
       importe: p?.importe ?? (i.importe != null && i.importe !== '' ? numImp(i.importe) : null),
-      entraComo: i.porPeso ? 'peso' : entra?.como ?? null,
-      cantidadStock: numImp(i.cantidad) || null,
+      entraComo: soloPrecioDe(i) ? 'solo precio' : i.porPeso ? 'peso' : entra?.como ?? null,
+      cantidadStock: soloPrecioDe(i) ? 0 : numImp(i.cantidad) || null,
       costoUnitario: !i._esDescuento && i.sku ? costoFinal(i, idx) : null,
       incluido: !!(i.incluir && i.sku),
       esDescuento: !!i._esDescuento,
@@ -1386,6 +1403,10 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   const hayRegalos = inclItems.some((i: any) => esSinCargo(i));
   const itemsFusionados = fusionarPorSku(inclItems.filter((i) => i.sku));
   const skusFusionados = itemsFusionados.filter((i) => i._renglones > 1 || i._enPromo);
+  // entradas a $0 que esta factura valoriza, una por producto (10/10/2026)
+  const asignadosPrecioCero: Record<string, PendientePrecioCero> = soloFactura ? {} : elegirPendientes(itemsFusionados, precioCero);
+  const soloPrecioDe = (i: any): PendientePrecioCero | null =>
+    i?.sku && i.incluir && !i._esDescuento && asignadosPrecioCero[i.sku] && soloPrecio[i.sku] !== false ? asignadosPrecioCero[i.sku] : null;
   // el IVA que no cierra con el pie también bloquea: nunca más un promedio
   const lecturaIncompleta = fotoItems.some((i) => (soloFactura || i.incluir) && camposDeLecturaIncompletos(i));
   const costoBloquea = excedeMerc || excedeTotal || ivaBloquea || lecturaIncompleta;
@@ -1654,7 +1675,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
             sucursalId: f.sucursalId,
             numeroRemito: foto.comprobante?.numero || f.numeroRemito,
             margenPct: f.margenPct ? Number(f.margenPct) : undefined,
-            items: itemsFusionados.map((i) => ({ sku: i.sku, cantidad: Number(i.cantidad), costo: i.costoUnitario, precioLeido: numImp(i.precio), margenPct: i.margenPct === '' ? undefined : Number(i.margenPct), fijarMargen: !!fijarSku[i.sku], descripcionLeida: i.descripcion })),
+            items: itemsFusionados.map((i) => ({ sku: i.sku, cantidad: Number(i.cantidad), costo: i.costoUnitario, precioLeido: numImp(i.precio), margenPct: i.margenPct === '' ? undefined : Number(i.margenPct), fijarMargen: !!fijarSku[i.sku], descripcionLeida: i.descripcion, valorizaOc: soloPrecioDe(i)?.ocId })),
             // el catálogo aprende el IVA que esta factura PROBÓ (cerró al centavo con el pie)
             ...(ivaFactura?.estado === 'cierra' ? {
               alicuotasVerificadas: renglonesIva
@@ -2334,6 +2355,23 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                           {i.margenPct === '' || i.margenPct == null ? <span className="text-xs font-normal text-tinta/60">s/ rubro</span> : pesos(precioVenta(i))}
                         </div>
                       </div>
+
+                      {/* 2 bis · entró a $0 hace poco: esta factura le pone el precio (10/10/2026) */}
+                      {!soloFactura && i.incluir && i.sku && !i._esDescuento && asignadosPrecioCero[i.sku] && (() => {
+                        const p = asignadosPrecioCero[i.sku];
+                        const tildado = soloPrecio[i.sku] !== false;
+                        const dif = diferenciaPrecioCero(p, Number(itemsFusionados.find((x) => x.sku === i.sku)?.cantidad ?? 0));
+                        return (
+                          <label className={'flex items-start gap-2 rounded-xl px-2.5 py-1.5 text-xs leading-snug ' + (tildado ? 'bg-info-suave text-info' : 'bg-crema-claro text-tinta/70')}>
+                            <input type="checkbox" checked={tildado} onChange={(e) => setSoloPrecio((x) => ({ ...x, [i.sku]: e.target.checked }))} className="mt-px size-4 shrink-0 accent-marca" />
+                            <span>
+                              {textoPrecioCero(p)}
+                              {tildado && dif && <span className="block text-info/80">{dif}</span>}
+                              {!tildado && <span className="block">Destildado: entra como compra normal y suma stock.</span>}
+                            </span>
+                          </label>
+                        );
+                      })()}
 
                       {/* 3 · una nota por situación, una línea y un solo botón */}
                       {(numImp(i._descuento) < 0 || numImp(i.cantidadCorregida) > 0 || correccionRenglon(i)?.seguro === false || esSinCargo(i) || numImp(i.bonificacionPct) > 0 || numImp(i.unidadesPorBulto) > 1 || numImp(i.bultoAplicado) > 1 || numImp(i.bultoDescartado) > 1 || numImp(i.envaseAplicado) > 1 || numImp(i.paqueteAplicado) > 0 || !!sugerirConversion(i) || i.importeConIvaLeido != null || medidaVariable(i) || (i.porPeso && numImp(i.cantidad) > 0 && !medidaVariable(i))) && (

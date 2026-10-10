@@ -16,6 +16,7 @@ const TOPE_CATALOGO = 300;
 import { precioDesdeCosto, margenAplicable } from './precio';
 import { normalizarAlias } from '../listas/listas.service';
 import { invalidarAbastecimiento } from '../abastecimiento/motor';
+import { DIAS_PRECIO_CERO, pendientesPrecioCero, separarValorizaciones, type OcCandidata } from './precio-cero';
 
 export type CrearOcDto = {
   proveedorId: string;
@@ -56,7 +57,9 @@ export type EntradaDirectaDto = {
   // margenPct por renglón = remarcación de ESE producto (editable en la pantalla,
   // default 50%). descripcionLeida = texto que leyó la IA, para aprender el
   // vínculo y traerlo solo la próxima compra (ver aprenderVinculos).
-  items: { sku: string; cantidad: number; costo: number; lote?: string; vencimiento?: string; margenPct?: number; fijarMargen?: boolean; descripcionLeida?: string }[];
+  // valorizaOc (10/10/2026): el renglón le pone precio a lo que entró a $0 en
+  // esa orden (mismo proveedor y producto) y NO suma stock. Ver precio-cero.ts.
+  items: { sku: string; cantidad: number; costo: number; lote?: string; vencimiento?: string; margenPct?: number; fijarMargen?: boolean; descripcionLeida?: string; valorizaOc?: string }[];
   margenPct?: number;
   usuarioId?: string;
   // Alícuotas de IVA que la factura PROBÓ: el panel las manda solo cuando el IVA
@@ -393,6 +396,7 @@ export class ComprasService {
       if (!Number.isFinite(cantidad) || cantidad <= 0) malos.push(`${cual}: la cantidad tiene que ser un número mayor a cero`);
       else if (i.costo != null && (!Number.isFinite(costo) || costo < 0)) malos.push(`${cual}: el costo no es un número válido`);
       else if (!i.sku) malos.push(`${cual}: falta elegir a qué producto corresponde`);
+      else if (i.valorizaOc && !(costo > 0)) malos.push(`${cual}: para ponerle precio a lo que entró a $0 hace falta el costo`);
     });
     if (malos.length) {
       throw new BadRequestException(
@@ -407,9 +411,12 @@ export class ComprasService {
     // si entran sueltos el costo se escribe dos veces y gana el último. Cuando
     // el último es el regalado, el producto queda en CERO. Además es lo que el
     // negocio pide: lo regalado abarata lo pagado.
-    const renglones = fusionarRenglonesPorSku(
+    // Los que ponen precio a una entrada a $0 (10/10/2026) van aparte: no
+    // suman stock, le ponen el costo a esa entrada. El resto, como siempre.
+    const { normales, valorizar } = separarValorizaciones(
       dto.items.map((i) => ({ ...i, sku: String(i.sku), cantidad: Number(i.cantidad), costo: Number(i.costo) || 0 })),
     );
+    const renglones = fusionarRenglonesPorSku(normales);
 
     const items = await Promise.all(
       renglones.map(async (i) => ({
@@ -439,14 +446,30 @@ export class ComprasService {
         return { sku: i.sku, costo: Number(i.costo), precio: precioDesdeCosto(Number(i.costo), margen) };
       });
 
-    const { data, error } = await this.db.rpc('recibir_compra_directa', {
+    const args = {
       p_proveedor: dto.proveedorId,
       p_sucursal: dto.sucursalId,
       p_items: items,
       p_numero_remito: dto.numeroRemito ?? null,
       p_usuario: dto.usuarioId ?? null,
       p_items_precio: itemsPrecio,
-    });
+    };
+    // Sin nada para valorizar es la entrada de siempre. Con algo, una sola
+    // transacción: los normales entran, los tildados le ponen el costo a su
+    // entrada a $0 (sin mover stock) y todos remarcan como una compra.
+    const { data, error } = valorizar.length
+      ? await this.db.rpc('recibir_compra_valorizando', {
+          ...args,
+          p_valorizar: await Promise.all(
+            fusionarRenglonesPorSku(valorizar).map(async (i) => ({
+              oc_id: String(i.valorizaOc),
+              producto_id: await this.productoIdPorSku(i.sku),
+              cantidad: Number(i.cantidad),
+              costo_unitario: Number(i.costo),
+            })),
+          ),
+        })
+      : await this.db.rpc('recibir_compra_directa', args);
     if (error) throw new BadRequestException(this.traducirError(error.message));
     invalidarAbastecimiento(); // entró mercadería sin orden previa
     const resultado = data as any;
@@ -504,6 +527,10 @@ export class ComprasService {
           cantidad: i.cantidad,
           precio: (i as any).precioLeido ?? i.costo,
         }))).catch(() => {});
+        // la factura que puso el precio queda en cada valorización
+        if (resultado.valorizacion_ids?.length) {
+          await this.db.from('valorizaciones_precio_cero').update({ factura_id: dataF.id }).in('id', resultado.valorizacion_ids).then(() => null, () => null);
+        }
       }
       if (errF) {
         // la entrada ya está registrada (stock movido): no se revierte por la
@@ -514,6 +541,40 @@ export class ComprasService {
       }
     }
     return resultado;
+  }
+
+  // Lo que entró a $0 de este proveedor y espera precio (10/10/2026): la carga
+  // de facturas lo cruza con sus renglones y ofrece «solo precio, no suma
+  // stock». Si la migración todavía no está, las consultas nuevas fallan y la
+  // pantalla queda como antes (no se ofrece nada).
+  async pendientesPrecioCero(proveedorId: string) {
+    if (!/^[0-9a-f-]{36}$/i.test(String(proveedorId ?? ''))) return [];
+    const hoy = new Date();
+    // margen para las órdenes creadas antes de recibirse; el corte fino de los
+    // 45 días es por la fecha de entrada (precio-cero.ts)
+    const desde = new Date(hoy.getTime() - (DIAS_PRECIO_CERO + 60) * 86_400_000).toISOString();
+    const { data: ocs, error } = await this.db
+      .from('ordenes_compra')
+      .select('id, numero, proveedor_id, creado_en, items:ordenes_compra_items(producto_id, cantidad_recibida, costo_unitario, producto:productos(sku, nombre))')
+      .eq('proveedor_id', proveedorId)
+      .in('estado', ['recibida', 'recibida_parcial'])
+      .gte('creado_en', desde)
+      .order('creado_en');
+    if (error) return [];
+    const conCero = ((ocs ?? []) as unknown as OcCandidata[]).filter((oc) => (oc.items ?? []).some((it) => Number(it.costo_unitario) === 0 && Number(it.cantidad_recibida) > 0));
+    if (!conCero.length) return [];
+    const ids = conCero.map((oc) => oc.id);
+    const [remitos, facturas, valorizadas] = await Promise.all([
+      enLotes<any>(ids, (lote) => this.db.from('remitos').select('oc_id, numero, creado_en').in('oc_id', lote)).catch(() => []),
+      enLotes<any>(ids, (lote) => this.db.from('facturas_proveedor').select('oc_id, numero, estado').in('oc_id', lote)).catch(() => []),
+      enLotes<any>(ids, (lote) => this.db.from('valorizaciones_precio_cero').select('oc_id, producto_id').in('oc_id', lote)).catch(() => null),
+    ]);
+    if (valorizadas == null) return []; // sin la tabla nueva no se ofrece nada
+    const numeros = [...new Set([...remitos, ...facturas].map((x: any) => x.numero).filter(Boolean))] as string[];
+    const historial = numeros.length
+      ? await enLotes<any>(numeros, (lote) => this.db.from('compras_historial').select('numero, producto_id, precio').eq('proveedor_id', proveedorId).in('numero', lote)).catch(() => [])
+      : [];
+    return pendientesPrecioCero({ proveedorId, hoy, ocs: conCero, remitos, facturas, valorizadas, historial });
   }
 
   // Guarda en el producto la alícuota que probó una factura A. Solo alícuotas

@@ -30,6 +30,9 @@ export async function GET(req: Request) {
   } else if (recurso === 'remarcacion') {
     // qué % de remarcación usar para estos productos con este proveedor
     ruta = `/compras/remarcacion?proveedorId=${encodeURIComponent(url.searchParams.get('proveedorId') ?? '')}&skus=${encodeURIComponent(url.searchParams.get('skus') ?? '')}`;
+  } else if (recurso === 'precio-cero') {
+    // lo que entró a $0 de este proveedor y espera precio (10/10/2026)
+    ruta = `/compras/precio-cero?proveedorId=${encodeURIComponent(url.searchParams.get('proveedorId') ?? '')}`;
   } else if (recurso === 'orden' && url.searchParams.get('id')) {
     // detalle de una orden de compra: renglones, remitos y facturas
     ruta = `/compras/ordenes/${encodeURIComponent(url.searchParams.get('id')!)}`;
