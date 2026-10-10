@@ -2981,8 +2981,21 @@ export class BotService {
     if (tipo === 'domicilio' && (!nombre || !/[a-záéíóúñ]/i.test(direccion) || !/\d/.test(direccion))) throw new BadRequestException('Para envío faltan nombre y dirección con calle y número');
     const items = agruparItems(input.items ?? []);
     if (items.length > maxRenglonesBot() || items.reduce((n, i) => n + i.cantidad, 0) > maxUnidadesBot()) throw new BadRequestException('El pedido supera el máximo del canal WhatsApp; debe tomarlo el equipo');
-    const cot = await this.cotizarPedido(items, telefono, { textoCliente });
-    if (cot.hayFaltantes || cot.renglones.some(r => r.error || r.presentacion === 'requiere_verificacion') || !cot.sucursalId) throw new BadRequestException('No se puede confirmar: falta stock, precio o un dato de la presentación');
+    const todo = await this.cotizarPedido(items, telefono, { textoCliente });
+    // SE ARMA CON LO QUE HAY (Leandro, 10/10/2026: el cliente dio el nombre y el bot lo pasó a
+    // una persona porque en la lista había dos productos sin stock suficiente, que ya le había
+    // dicho que no tenía). Lo que no alcanza, no tiene precio o no tiene la presentación
+    // verificada queda afuera del resumen, sin volver a nombrarlo; si no queda nada, como antes.
+    const sirve = (r: any) => !r.error && r.presentacion !== 'requiere_verificacion' && r.alcanzaElStock !== false;
+    const quedan = todo.renglones.filter(sirve);
+    const afuera = todo.renglones.filter((r: any) => !sirve(r)).map((r: any) => String(r.nombre ?? r.sku));
+    if (!quedan.length || !todo.sucursalId) throw new BadRequestException('No se puede confirmar: falta stock, precio o un dato de la presentación');
+    const redondo = (n: number) => Math.round(n * 100) / 100;
+    const totalQuedan = redondo(quedan.reduce((t: number, r: any) => t + Number(r.subtotal ?? 0), 0));
+    const efectivoQuedan = redondo(quedan.reduce((t: number, r: any) => t + Number(r.subtotalEfectivo ?? r.subtotal ?? 0), 0));
+    const cot: any = afuera.length
+      ? { ...todo, renglones: quedan, hayFaltantes: false, total: totalQuedan, ...(Math.round(efectivoQuedan) < Math.round(totalQuedan) ? { totalEfectivo: efectivoQuedan } : { totalEfectivo: undefined }) }
+      : todo;
     // PEDIDO MÍNIMO PARA ENVÍO (Leandro, 25/9/2026): $70.000. El retiro no tiene mínimo.
     if (tipo === 'domicilio' && cot.total < envioMinimo()) {
       throw new BadRequestException(`El envío a domicilio es para pedidos desde $${pesos(envioMinimo())} y este suma $${pesos(cot.total)}. Decíselo al cliente con esos números y ofrecé sumar productos o retirarlo sin mínimo en la sucursal Saint Thomas. No lo prepares como envío.`);
@@ -3020,7 +3033,7 @@ export class BotService {
       this.log.error(`preparar_pedido: no se pudo guardar la cotización de ${telefono}: ${error?.message ?? 'sin id'} · input=${JSON.stringify(input).slice(0, 300)}`);
       throw new BadRequestException('No se pudo guardar el resumen: no pidas confirmación todavía');
     }
-    return { cotizacionId: data.id, resumen, total: cot.total, renglones: cot.renglones, ...((cot as any).totalEfectivo ? { totalEfectivo: (cot as any).totalEfectivo } : {}), ...(avisoFecha ? { avisoFecha } : {}) };
+    return { cotizacionId: data.id, resumen, total: cot.total, renglones: cot.renglones, ...((cot as any).totalEfectivo ? { totalEfectivo: (cot as any).totalEfectivo } : {}), ...(avisoFecha ? { avisoFecha } : {}), ...(afuera.length ? { sinIncluir: afuera, aviso: `Quedaron afuera del resumen (no hay en esa cantidad o no se pueden vender por acá): ${afuera.join(', ')}. Si ya se lo dijiste, no lo repitas.` } : {}) };
   }
 
   async crearPedido(
