@@ -7,7 +7,7 @@ import { agruparItems, cantidadesIndividuales, centavos, confirmacionInequivoca,
 import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import { volumenMl, etiquetaVolumen, pideTamano, resumenDeTamanos, cantidadesPedidas, PALABRA_GENERICA } from './formatos';
 import { emprolijarListado, nombreLimpio, saludoSegunHora, saludarConBienvenida, niegaPercepcion, envioSinCargo, casiIgual, mismasPalabras, campoLimpio, esAlucinacionDeTranscripcion, nombreSucursalCliente, esAutomaticoWhatsappBusiness, sinCocinaInterna } from './prolijo';
-import { consultaAbiertaQueNombra, datoNuevo, diceQueNoSabe, esSoloSaludo, saludoDelArranque, juntarConsulta, mencionaConsulta, mismaConsulta, mismoTema, respuestaDelAreaParaCliente, sinMencionDeConsulta, sinPromesas, temaDeConsulta, temaDeLaPromesa } from './prolijo';
+import { consultaAbiertaQueNombra, datoNuevo, diceQueNoSabe, esSoloSaludo, saludoDelArranque, juntarConsulta, mencionaConsulta, mencionaConsultaSinElPase, mismaConsulta, mismoTema, respuestaDelAreaParaCliente, sinMencionDeConsulta, sinPromesas, temaDeConsulta, temaDeLaPromesa } from './prolijo';
 import * as TEXTO from './textos-fijos';
 import { totalConSuLista } from './candados';
 import { cierraConElDato, contieneMonto, aceptaElResumen, pareceAceptacion, loConfirmoVigente } from './cierre-con-dato';
@@ -1485,10 +1485,13 @@ export class BotService {
     // reescribe ni se toca una lista: una lista actualizada con un renglón distinto sale.
     // (Antes «nunca el mismo mensaje dos veces» reescribía con el 85 % de las palabras en
     // común: achicaba la lista actualizada o le pasaba la charla a una persona en plena venta.)
+    // (10/10/2026, revisión de la tanda 1) Un acuse repetido («Dale, mandalo por acá.», sin
+    // pregunta, lista ni números) a un cliente que no preguntó nada solo no sale: no es algo que
+    // el bot no sepa, y la consulta falsa ensuciaba el canal del cobro.
     if (respuesta && !respuestaFija.texto && !respuestaFija.operacion && !respuestaFija.derivada && ultimosDelBot[0] && mismasPalabras(respuesta, ultimosDelBot[0])) {
       this.log.warn(`el modelo escribió para ${telefono} lo mismo que el mensaje anterior: no sale, se consulta en silencio`);
       respuesta = '';
-      sinRespuesta = true;
+      sinRespuesta = preguntasDelCliente > 0 || /[?•\d]/.test(ultimosDelBot[0]);
     }
 
     // Última validación, DESPUÉS de todas las reformulaciones: sólo importes
@@ -1742,13 +1745,16 @@ export class BotService {
       // algo que no sabía, y se consulta en silencio a administración (6/10/2026).
       // Lo del pedido que no se pudo cargar y una derivación tienen su propio camino.
       const importeSinFuente = conImporteSinFuente(respuesta);
-      const menciona = mencionaConsulta(respuesta) && !porElPedido() && !derivoEnElTurno();
+      // con registrar_proveedor o nota_interna en el turno, «Lo paso a compras» ya está hecho (10/10/2026)
+      const pasoHecho = herramientasDelTurno.has('registrar_proveedor') || herramientasDelTurno.has('nota_interna');
+      const menciona = (pasoHecho ? mencionaConsultaSinElPase(respuesta) : mencionaConsulta(respuesta)) && !porElPedido() && !derivoEnElTurno();
       // un rechazo de seguridad es algo que el bot no pudo contestar: se consulta
       // en silencio, salvo que el turno ya haya quedado en manos de una persona
       // (la derivación automática; revisión del 6/10/2026). Lo mismo si el modelo no
       // escribió nada o repitió el mensaje anterior (10/10/2026), salvo que el cliente
-      // solo haya dicho «ok» o «gracias»: eso no es una consulta para administración.
-      const porRechazo = (rechazado || (sinRespuesta && !esAcuse(textoDelCliente))) && !derivoEnElTurno();
+      // solo haya dicho «ok» o «gracias» sin que el bot le haya preguntado nada: un «ok» a
+      // «¿Está completo el pedido…?» contesta la pregunta y no puede quedar colgado.
+      const porRechazo = (rechazado || (sinRespuesta && !(esAcuse(textoDelCliente) && !botDejoPregunta))) && !derivoEnElTurno();
       if (importeSinFuente || menciona || consultarEnSilencio || porRechazo) {
         await consultarLoQueNoSabia(menciona, importeSinFuente);
         // lo que trae el importe sin fuente no sale (armarConConsulta saca esas oraciones)
@@ -1765,7 +1771,10 @@ export class BotService {
     // LA ÚLTIMA LIMPIEZA, PARA CUALQUIER RESPUESTA: lo interno (stock, sucursales,
     // "el sistema", 1/10/2026) y cualquier mención de una consulta (6/10/2026: que
     // consulta, que confirma o avisa después, que no lo tiene, que está pendiente)
-    if (respuesta) {
+    // (10/10/2026, revisión de la tanda 1) también con la respuesta vacía si el modelo derivó con
+    // derivar_a_humano: va la frase fija de la derivación (antes el cliente quedaba sin nada y con
+    // el bot pausado). La derivación interna de la red de respaldo sigue sin anunciarse.
+    if (respuesta || herramientasDelTurno.has('derivar_a_humano')) {
       // (10/10/2026: sin retiroOEnvio, que le agregaba «o te lo enviamos» a pedidos que no llegan al mínimo)
       const limpia = sinMencionDeConsulta(sinCocinaInterna(respuesta));
       // se llevó la frase vieja del pedido sin cargar: va la de ahora, entera. Si la de

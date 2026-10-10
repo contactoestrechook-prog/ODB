@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { BotService } from './bot.service';
-import { conAviso, diceQueNoSabe, esSoloSaludo, mencionaConsulta, respuestaDelAreaParaCliente, sinMencionDeConsulta, sinPromesas } from './prolijo';
+import { conAviso, diceQueNoSabe, esSoloSaludo, mencionaConsulta, mencionaConsultaSinElPase, respuestaDelAreaParaCliente, sinMencionDeConsulta, sinPromesas } from './prolijo';
 import { datosDePagoParaResumen, respuestaPedidoPorComprobante } from './pago-confirma';
 import * as TEXTO from './textos-fijos';
 
@@ -721,6 +721,44 @@ describe('revisión (6/10/2026): las formas que se escapaban', () => {
     expect(out.aviso).not.toMatch(/ya podés decir que quedó anotada/);
     expect(out.aviso).toMatch(/no le digas que quedó anotada/);
     expect(fs.readFileSync(path.join(__dirname, 'bot.service.ts'), 'utf8')).not.toContain('el aviso lo agrega el sistema');
+  });
+});
+
+describe('revisión de la tanda 1 (10/10/2026): el pase a un área ya hecho por una herramienta no es una consulta', () => {
+  it('mencionaConsultaSinElPase: no cuenta «lo paso a compras / al equipo»; lo que no sabe sigue contando', () => {
+    for (const t of ['Gracias, Martín. Lo paso a compras.', 'Anoté que tocás timbre 2. Te lo paso al equipo de reparto.', 'Ya lo pasé a compras.']) {
+      expect(mencionaConsulta(t)).toBe(true);
+      expect(mencionaConsultaSinElPase(t)).toBe(false);
+    }
+    expect(mencionaConsultaSinElPase('Anoté que tocás timbre 2. Lo paso a reparto. No tengo ese dato de la hora.')).toBe(true);
+    expect(mencionaConsultaSinElPase('Anoté el timbre. Te confirmo por acá la hora.')).toBe(true);
+  });
+
+  const conPase = async (herramientaDelTurno: any, delModelo: string, mensaje: string) => {
+    const db = baseFalsa({
+      bot_conversaciones: { select: conv(HOLA) },
+      lineas_whatsapp: { select: { data: CFG, error: null } },
+      bot_consultas_internas: { select: { data: [], error: null }, insert: { data: { id: 'q-pase' }, error: null } },
+    });
+    const { s } = servicio(db);
+    s.registrarProveedor = jest.fn(async () => ({ ok: true, aviso: 'Compras ya quedó avisado.' }));
+    s.claude = { messages: { create: claudeCon(conHerramientas(herramientaDelTurno), texto(delModelo)) } };
+    const r: any = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje });
+    return { r, db };
+  };
+
+  it('registrar_proveedor + «Lo paso a compras.»: sale lo demás y no se abre una consulta a administración', async () => {
+    const { r, db } = await conPase(herramienta('r1', 'registrar_proveedor', { nombre: 'Distribuidora Martín', oferta: '20 cajones de Quilmes' }), 'Buenas tardes. Gracias, Martín. Lo paso a compras.', 'Hola, soy Martín de Distribuidora Martín. Mañana te llevo 20 cajones de Quilmes');
+    expect(r.respuesta).toBe('Buenas tardes. Gracias, Martín.');
+    expect(insertsDe(db, 'bot_consultas_internas')).toHaveLength(0);
+  });
+
+  it('nota_interna + «Te lo paso al equipo de reparto.»: sin consulta; con «No tengo ese dato de la hora.» sí se consulta', async () => {
+    const a = await conPase(herramienta('n1', 'nota_interna', { nota: 'Para el pedido, el timbre es el 2' }), 'Anoté que tocás timbre 2. Te lo paso al equipo de reparto.', 'Para el pedido, el timbre es el 2');
+    expect(a.r.respuesta).toBe('Anoté que tocás timbre 2.');
+    expect(insertsDe(a.db, 'bot_consultas_internas')).toHaveLength(0);
+    const b = await conPase(herramienta('n1', 'nota_interna', { nota: 'Para el pedido, el timbre es el 2' }), 'Anoté que tocás timbre 2. No tengo ese dato de la hora.', 'Para el pedido, el timbre es el 2. ¿A qué hora llega?');
+    expect(insertsDe(b.db, 'bot_consultas_internas')).toHaveLength(1);
   });
 });
 

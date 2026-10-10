@@ -340,6 +340,11 @@ const NO_SABE = [
 // para cualquier respuesta del bot, haya consulta en el turno o no: la red de
 // respaldo lo toma como señal de que el modelo no sabía algo (lo consulta en
 // silencio) y la última limpieza (sinMencionDeConsulta) lo saca siempre.
+// que lo pasa a un área («Lo paso a compras», «Te lo paso al equipo de reparto», «Lo derivo a
+// administración»). Aparte porque con registrar_proveedor o nota_interna en el turno ese pase ya
+// está hecho (ver mencionaConsultaSinElPase; 10/10/2026)
+const PASA_A_UN_AREA = String.raw`\b(?:lo|la|tu\s+consulta|su\s+consulta|tu\s+pregunta)\s+(?:pas[oeé]|pasamos|deriv[oeé]|derivamos|elev[oeé]|elevamos|traslad[oeé]|trasladamos)\s+(?:a|al)\s+(?:administraci[oó]n|el\s+local|local|compras|reparto|equipo|el\s+equipo|[aá]rea|sector|una\s+persona)\b|\b(?:le|te)\s+paso\s+(?:tu|su|la)\s+(?:consulta|pregunta)\b`;
+
 const MENCIONES = [
   // que consulta, que lo confirma después
   CONSULTO,
@@ -387,7 +392,7 @@ const MENCIONES = [
   String.raw`\b(?:lo|la|los|las|eso)\s+est[aá]n?\s+(?:viendo|revisando|chequeando|verificando|averiguando)\b|\ben\s+manos\s+de\s+(?:administraci[oó]n|el\s+local|compras|reparto|el\s+equipo|la\s+casa)\b|\badministraci[oó]n\s+ya\s+(?:lo|la|los|las)\s+tiene\b|\b(?:ya\s+)?(?:lo|la)\s+tiene\s+administraci[oó]n\b|\badministraci[oó]n\s+(?:ya\s+)?tiene\s+(?:tu|su|la)\s+(?:consulta|pregunta)\b`,
   // (también en presente, «Lo derivo a administración», «Te lo paso al equipo»: eran de la guarda de
   // promesas sin respaldo, que se sacó el 10/10/2026; «Lo paso a buscar» no cuenta)
-  String.raw`\b(?:lo|la|tu\s+consulta|su\s+consulta|tu\s+pregunta)\s+(?:pas[oeé]|pasamos|deriv[oeé]|derivamos|elev[oeé]|elevamos|traslad[oeé]|trasladamos)\s+(?:a|al)\s+(?:administraci[oó]n|el\s+local|local|compras|reparto|equipo|el\s+equipo|[aá]rea|sector|una\s+persona)\b|\b(?:le|te)\s+paso\s+(?:tu|su|la)\s+(?:consulta|pregunta)\b`,
+  PASA_A_UN_AREA,
   // «Quedó anotada tu consulta», «quedó anotado para el equipo» (no «Por ahora quedan anotados:», la lista del pedido)
   String.raw`\b(?:qued[oó]|est[aá]|queda)\s+anotad[oa]\s+(?:tu|su|la)\s+consulta\b|\b(?:tu|su|la)\s+consulta\s+(?:qued[oó]|est[aá]|queda)\s+anotad\w*|\b(?:qued[oó]|queda|est[aá])\s+anotad[oa]\s+para\s+(?:el\s+equipo|administraci[oó]n|el\s+local|compras|reparto)\b`,
   // que pregunta o averigua («Le pregunto a administración y te digo», «Dejame averiguarlo»,
@@ -460,6 +465,16 @@ export function sinMencionDeConsulta(respuesta: string | null | undefined): stri
  */
 export function mencionaConsulta(t: string | null | undefined): boolean {
   return RE_MENCION.test(String(t ?? ''));
+}
+
+/**
+ * Lo mismo, sin contar el pase a un área («Lo paso a compras», «Te lo paso al equipo de
+ * reparto»): con registrar_proveedor o nota_interna en el turno ese pase ya está hecho y no
+ * es algo que el bot no sepa (lo eximía la guarda de promesas sin respaldo, 10/10/2026).
+ * «No tengo ese dato.» o «Te confirmo por acá la hora.» siguen contando.
+ */
+export function mencionaConsultaSinElPase(t: string | null | undefined): boolean {
+  return RE_MENCION.test(String(t ?? '').replace(new RegExp(PASA_A_UN_AREA, 'gi'), ' '));
 }
 
 const RE_NO_SABE = new RegExp(NO_SABE, 'i');

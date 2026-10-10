@@ -195,13 +195,89 @@ describe('lo que queda de las capas viejas (10/10/2026)', () => {
     expect(consultas[0].fila).toMatchObject({ area: 'administracion', consulta: '¿y el de litro?' });
   });
 
-  it('a un «ok» el modelo no escribe nada: silencio, sin consulta a administración (un «ok» no es una pregunta)', async () => {
+  // (10/10/2026, revisión de la tanda 1: era «silencio, sin consulta». Pero el «ok» contesta
+  // «¿Está completo el pedido…?»: quiere decir «está completo, pasame el total», y el cliente
+  // quedaba esperando sin que nadie lo supiera)
+  it('a un «ok» que contesta una pregunta del bot el modelo no escribe nada: no sale nada y se consulta en silencio', async () => {
     const db = baseFalsa({ bot_conversaciones: { select: conv(CINCO) }, lineas_whatsapp: { select: { data: CFG, error: null } }, bot_consultas_internas: CONSULTAS });
     const vacia = (firma: string) => ({ stop_reason: 'end_turn', content: [pensar(firma)], usage });
     const { s } = servicio(db, vacia('a'), vacia('b'));
+    s.derivarAHumano = jest.fn(async () => ({ derivada: true }));
     const r = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'ok' });
     expect(r.respuesta).toBeNull();
+    const consultas = insertsDe(db, 'bot_consultas_internas');
+    expect(consultas).toHaveLength(1);
+    expect(consultas[0].fila).toMatchObject({ area: 'administracion' });
+    expect(s.derivarAHumano).not.toHaveBeenCalled();
+  });
+
+  it('«sí» a «¿Te lo anoto?» con la respuesta vacía dos veces, y «dale» a «¿retirar o envío?» con el mensaje repetido: se consultan en silencio', async () => {
+    const vacia = (firma: string) => ({ stop_reason: 'end_turn', content: [pensar(firma)], usage });
+    const a = baseFalsa({ bot_conversaciones: { select: conv([{ role: 'user', content: '¿cuánto sale el fernet?' }, { role: 'assistant', content: 'Fernet Branca 750 cc a $20.500. ¿Te lo anoto?' }]) }, lineas_whatsapp: { select: { data: CFG, error: null } }, bot_consultas_internas: CONSULTAS });
+    const sa = servicio(a, vacia('a'), vacia('b')).s;
+    expect((await sa.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'sí' })).respuesta).toBeNull();
+    expect(insertsDe(a, 'bot_consultas_internas')).toHaveLength(1);
+    const anterior = 'Te anoto:\n• 2 × Fernet Branca 750 cc\n\n¿Lo querés para retirar o con envío?';
+    const b = baseFalsa({ bot_conversaciones: { select: conv([{ role: 'user', content: '2 fernet' }, { role: 'assistant', content: anterior }]) }, lineas_whatsapp: { select: { data: CFG, error: null } }, bot_consultas_internas: CONSULTAS });
+    const sb = servicio(b, final('a', anterior)).s;
+    expect((await sb.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'dale' })).respuesta).toBeNull();
+    expect(insertsDe(b, 'bot_consultas_internas')).toHaveLength(1);
+  });
+
+  it.each(['sí', 'recibido'])('«%s» sin una pregunta del bot y el modelo no escribe nada: silencio, sin consulta (un acuse no es una pregunta)', async (mensaje) => {
+    const db = baseFalsa({ bot_conversaciones: { select: conv([{ role: 'user', content: 'te transferí' }, { role: 'assistant', content: 'Recibido.' }]) }, lineas_whatsapp: { select: { data: CFG, error: null } }, bot_consultas_internas: CONSULTAS });
+    const vacia = (firma: string) => ({ stop_reason: 'end_turn', content: [pensar(firma)], usage });
+    const { s } = servicio(db, vacia('a'), vacia('b'));
+    const r = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje });
+    expect(r.respuesta).toBeNull();
     expect(insertsDe(db, 'bot_consultas_internas')).toHaveLength(0);
+  });
+
+  // (10/10/2026, revisión de la tanda 1) el prompt manda «Dale, mandalo por acá.» textual: repetido
+  // a quien avisa que va a pagar, no es algo que el bot no sepa
+  it.each(['Ok, en un rato te lo mando', 'Dale, ya te lo mando', 'Ok, ahora te lo paso'])('«%s» y el modelo repite «Dale, mandalo por acá.»: no sale y no se abre una consulta falsa en pleno cobro', async (mensaje) => {
+    const RESUMEN = '• Fernet Branca 750 cc — 1 × $20.500 c/u = $20.500\nTotal: $20.500\nRetiro en la sucursal Saint Thomas.\n¿Lo confirmo?';
+    const db = baseFalsa({ bot_conversaciones: { select: conv([{ role: 'assistant', content: RESUMEN }, { role: 'user', content: 'Te transfiero' }, { role: 'assistant', content: 'Dale, mandalo por acá.' }]) }, lineas_whatsapp: { select: { data: CFG, error: null } }, bot_consultas_internas: CONSULTAS });
+    const { s } = servicio(db, final('a', 'Dale, mandalo por acá.'));
+    s.crearPedido = jest.fn().mockRejectedValue(new Error('no'));
+    const r = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje });
+    expect(r.respuesta).toBeNull();
+    expect(insertsDe(db, 'bot_consultas_internas')).toHaveLength(0);
+  });
+
+  it('lo repetido traía algo (la lista, una pregunta): «sumale 2 coca zero» y «Juan Pérez» se siguen consultando', async () => {
+    const a = baseFalsa({ bot_conversaciones: { select: conv(CINCO) }, lineas_whatsapp: { select: { data: CFG, error: null } }, bot_consultas_internas: CONSULTAS });
+    const sa = servicio(a, final('a', CINCO[1].content)).s;
+    expect((await sa.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'sumale 2 coca zero' })).respuesta).toBeNull();
+    expect(insertsDe(a, 'bot_consultas_internas')).toHaveLength(1);
+    const b = baseFalsa({ bot_conversaciones: { select: conv([{ role: 'user', content: 'quiero 2 fernet para retirar' }, { role: 'assistant', content: '¿A nombre de quién lo dejo?' }]) }, lineas_whatsapp: { select: { data: CFG, error: null } }, bot_consultas_internas: CONSULTAS });
+    const sb = servicio(b, final('a', '¿A nombre de quién lo dejo?')).s;
+    expect((await sb.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Juan Pérez' })).respuesta).toBeNull();
+    expect(insertsDe(b, 'bot_consultas_internas')).toHaveLength(1);
+  });
+
+  // (10/10/2026, revisión de la tanda 1) antes salía «Disculpá, no pude procesar…»; con la tanda 1
+  // quedaba en silencio y con el bot pausado
+  it('derivar_a_humano y el modelo no escribe nada: sale la frase fija de la derivación, sin consulta', async () => {
+    const db = baseFalsa({ bot_conversaciones: { select: conv([{ role: 'assistant', content: 'Buenas noches. ¿Qué necesitás?' }]) }, lineas_whatsapp: { select: { data: CFG, error: null } }, bot_consultas_internas: CONSULTAS });
+    const vacia = (firma: string) => ({ stop_reason: 'end_turn', content: [pensar(firma)], usage });
+    const { s } = servicio(db, conHerramientas(pensar('a'), herramienta('d1', 'derivar_a_humano', { motivo: 'Presupuesto para un casamiento de 200 personas' })), vacia('b'), vacia('c'), vacia('d'));
+    s.derivarAHumano = jest.fn(async () => ({ derivada: true }));
+    const r = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Necesito presupuesto para un casamiento de 200 personas, que me llame alguien' });
+    expect(r.respuesta).toBe(TEXTO.PASA_A_UNA_PERSONA);
+    expect(s.derivarAHumano).toHaveBeenCalledTimes(1);
+    expect(insertsDe(db, 'bot_consultas_internas')).toHaveLength(0);
+  });
+
+  it('la derivación interna de la red de respaldo (no se pudo registrar la consulta) sigue sin anunciarse', async () => {
+    const db = baseFalsa({ bot_conversaciones: { select: conv(CINCO) }, lineas_whatsapp: { select: { data: CFG, error: null } }, bot_consultas_internas: CONSULTAS });
+    const vacia = (firma: string) => ({ stop_reason: 'end_turn', content: [pensar(firma)], usage });
+    const { s } = servicio(db, vacia('a'), vacia('b'));
+    s.consultarInterno = jest.fn().mockRejectedValue(new Error('base caída'));
+    s.derivarAHumano = jest.fn(async () => ({ derivada: true }));
+    const r = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: '¿El Absolut es el de 750 o el de litro?' });
+    expect(s.derivarAHumano).toHaveBeenCalledTimes(1);
+    expect(r.respuesta).toBeNull();
   });
 });
 
