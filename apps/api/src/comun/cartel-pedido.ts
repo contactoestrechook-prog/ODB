@@ -73,7 +73,7 @@ const VINETA = /^[•·*-]\s/;
 // que sigue viaja como epígrafe de la foto.
 const RE_TOTAL = /^\*?\s*total[^:\n]{0,25}:\s*\$\s?([\d.]+)\s*\*?\s*(.*)$/i;
 const RE_ENVIO = /^Env[ií]o sin cargo(?: a (.+?))?\.\s*(?:Recibe (.+?)\.)?\s*$/i;
-const RE_RETIRO = /^Retiro en la sucursal Saint Thomas\.?\s*$/i;
+const RE_RETIRO = /^Retiro en la sucursal Saint Thomas\.?\s*(?:Retira (.+?)\.)?\s*$/i;
 // la misma información, pero dicha dentro de una oración ("El envío es sin cargo.")
 const RE_ENVIO_SUELTO = /env[ií]o\s+(?:es\s+)?sin\s+cargo(?:\s+a\s+([^.;,\n(]{3,60}))?/i;
 // "Recibe Catalina": el nombre con mayúscula; "nombre de quien recibe y la dirección" no es un nombre
@@ -145,7 +145,8 @@ export function leerResumenDePedido(texto: string, opciones: { aceptarDiferencia
       entrega = { titulo: 'Envío sin cargo', detalle: [e[1], e[2] ? `recibe ${e[2]}` : null].filter(Boolean).join(' · ') || null };
       continue;
     }
-    if (RE_RETIRO.test(l)) { entrega = { titulo: 'Retiro en la sucursal Saint Thomas', detalle: 'Castex 3601, Canning' }; continue; }
+    const rt = RE_RETIRO.exec(l);
+    if (rt) { entrega = { titulo: 'Retiro en la sucursal Saint Thomas', detalle: ['Castex 3601, Canning', rt[1] ? `retira ${rt[1]}` : null].filter(Boolean).join(' · ') }; continue; }
     resto.push(cruda);
   }
   // la red final sin «Total:» escrito: el total es lo listado

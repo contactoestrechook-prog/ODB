@@ -2985,6 +2985,10 @@ export class BotService {
     const nombre = nombreLimpio(input.nombre);
     const direccion = String(input.direccion ?? '').trim();
     if (tipo === 'domicilio' && (!nombre || !/[a-záéíóúñ]/i.test(direccion) || !/\d/.test(direccion))) throw new BadRequestException('Para envío faltan nombre y dirección con calle y número');
+    // QUIÉN LO PASA A BUSCAR (Leandro, 12/10/2026: «siempre que piden picadas o pedidos a retirar
+    // por el local necesitamos el nombre de quien retira»). Una sola pregunta y, si ya vio la
+    // lista con el total, el nombre solo confirma (paso 3a, cierre-con-dato.ts).
+    if (tipo === 'pickup' && !nombre) throw new BadRequestException('Para retiro falta el nombre de quien lo pasa a buscar. Preguntale SOLO eso, en una línea: «¿A nombre de quién lo retiran?», sin volver a mostrar la lista ni preguntar otra cosa. Con el nombre, llamá preparar_pedido con ese nombre.');
     const items = agruparItems(input.items ?? []);
     if (items.length > maxRenglonesBot() || items.reduce((n, i) => n + i.cantidad, 0) > maxUnidadesBot()) throw new BadRequestException('El pedido supera el máximo del canal WhatsApp; debe tomarlo el equipo');
     const todo = await this.cotizarPedido(items, telefono, { textoCliente });
@@ -3034,7 +3038,7 @@ export class BotService {
       ...cot.renglones.map(r => `• ${r.nombre} — ${r.renglon}`),
       `Total: $${pesos(cot.total)}`,
       (cot as any).totalEfectivo ? `Pagando en efectivo o transferencia: $${pesos((cot as any).totalEfectivo)} (${porcentajeEfectivo()}% off en ${RUBROS_DESCUENTO_EFECTIVO}).` : null,
-      tipo === 'domicilio' ? `Envío sin cargo a ${direccion}. Recibe ${nombre}.` : 'Retiro en la sucursal Saint Thomas.',
+      tipo === 'domicilio' ? `Envío sin cargo a ${direccion}. Recibe ${nombre}.` : `Retiro en la sucursal Saint Thomas. Retira ${nombre}.`,
       fecha ? `Entrega: ${fecha}${franja ? ' por la ' + franja : ''}.` : null,
       // la forma de pago queda en las notas para el local, pero no se le repite al cliente (10/10/2026)
       notasParaElCliente(input.notas) ? `Indicaciones: ${notasParaElCliente(input.notas)}` : null,
