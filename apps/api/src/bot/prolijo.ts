@@ -799,3 +799,11 @@ export function sinCocinaInterna(t: string): string {
     .replace(/ en (?:el )?sistema\b/gi, '');
   return r.replace(/[ \t]{2,}/g, ' ').replace(/ ([,.;:])/g, '$1').replace(/^(\s*)([a-záéíóúñ])/gm, (m, a, b) => a + b.toUpperCase()).trim();
 }
+
+// EL MODELO EXPLICANDO POR QUÉ NO CONTESTA (16/10/2026). Al cliente le llegó «Este mensaje
+// no lleva respuesta al cliente. Leandro le escribe a "Shaky", que parece ser alguien de la
+// casa… Le dejé una nota al equipo…»: decidió bien no contestar, pero lo escribió. Si el
+// texto es eso, no sale nada (ni el «¿me repite su consulta?» de la última barrera).
+export function explicaQueNoContesta(t: string | null | undefined): boolean {
+  return /no lleva respuesta|(?:no hay )?nada (?:que|para) (?:contestar|responder|decir)le|no hay (?:nada )?que (?:contestar|responder)|no (?:hace falta|corresponde|necesita|requiere) (?:contestar|responder|respuesta)|no (?:es|va) (?:para (?:m[ií]|el bot|nosotros)|dirigido a (?:m[ií]|el bot))|no le (?:contesto|respondo)|me quedo callad|sin respuesta (?:al|para el) cliente/i.test(String(t ?? ''));
+}

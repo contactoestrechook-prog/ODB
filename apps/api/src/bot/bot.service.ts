@@ -6,7 +6,7 @@ import { esSilenciado, MOTIVO_TELEFONO, minutosPausaTelefono, vencePausaTelefono
 import { agruparItems, cantidadesIndividuales, confirmacionInequivoca, idWhatsappCorto, importesDeHerramienta, importesDelTexto, pesos, presentacionProducto } from './comercio';
 import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import { volumenMl, etiquetaVolumen, pideTamano, resumenDeTamanos, cantidadesPedidas, PALABRA_GENERICA } from './formatos';
-import { emprolijarListado, nombreLimpio, saludoSegunHora, saludarConBienvenida, niegaPercepcion, envioSinCargo, casiIgual, mismasPalabras, campoLimpio, esAlucinacionDeTranscripcion, nombreSucursalCliente, esAutomaticoWhatsappBusiness, sinCocinaInterna } from './prolijo';
+import { emprolijarListado, nombreLimpio, saludoSegunHora, saludarConBienvenida, niegaPercepcion, envioSinCargo, casiIgual, mismasPalabras, campoLimpio, esAlucinacionDeTranscripcion, nombreSucursalCliente, esAutomaticoWhatsappBusiness, sinCocinaInterna, explicaQueNoContesta } from './prolijo';
 import { consultaAbiertaQueNombra, datoNuevo, diceQueNoSabe, esSoloSaludo, saludoDelArranque, juntarConsulta, mencionaConsulta, mencionaConsultaSinElPase, mismaConsulta, mismoTema, respuestaDelAreaParaCliente, sinMencionDeConsulta, sinPromesas, temaDeConsulta, temaDeLaPromesa } from './prolijo';
 import * as TEXTO from './textos-fijos';
 import { totalConSuLista } from './candados';
@@ -1315,7 +1315,9 @@ export class BotService {
     if (this.tieneMeta(respuesta)) {
       this.log.warn(`texto interno en la respuesta final para ${telefono}: se recorta`);
       const limpio = this.sinCocinaInterna(respuesta);
-      if (limpio.length >= 30 && !this.tieneMeta(limpio)) respuesta = limpio;
+      // decidió no contestar y lo explicó (16/10/2026): no sale nada
+      if (explicaQueNoContesta(respuesta)) respuesta = '';
+      else if (limpio.length >= 30 && !this.tieneMeta(limpio)) respuesta = limpio;
       else {
         const m = respuesta.match(/(?:reformul\w*|reescrib\w*)[^:]{0,60}:\s*([\s\S]+)$/i);
         respuesta = (m && m[1] && !this.tieneMeta(m[1]) ? m[1].trim() : '') || 'Disculpe, ¿me repite su consulta?';
@@ -1939,7 +1941,7 @@ export class BotService {
   // promesa: Perfecto, …"). Regla: al cliente le llega SOLO el mensaje final.
   // Si un texto trae marcas de cocina interna, se descarta y se usa el anterior.
   private tieneMeta(t: string): boolean {
-    return /(nota interna|reformul|reescrib|no hay nada nuevo para sumar|retom[aá]s vos|sin prometer plazos|lo anterior;|\btextual\s*:|mi (último|ultimo) mensaje|no corresponde (nota|derivar|anotar)|promesa (de plazo|pendiente|vac[ií]a)|el cliente (pregunt|dijo|pidi)|la herramienta|herramienta (nota_interna|derivar|cotizar|crear_pedido|buscar_productos)|\[nota|^\s*\[)/i.test(t);
+    return /(nota interna|reformul|reescrib|no hay nada nuevo para sumar|retom[aá]s vos|sin prometer plazos|lo anterior;|\btextual\s*:|mi (último|ultimo) mensaje|no corresponde (nota|derivar|anotar)|promesa (de plazo|pendiente|vac[ií]a)|el cliente (pregunt|dijo|pidi)|\b(al|del) cliente\b|le escribe a\b|le dej[eé] (una )?nota|nota (al|para el) equipo|este mensaje (no|es|va)\b|no lleva respuesta|la herramienta|herramienta (nota_interna|derivar|cotizar|crear_pedido|buscar_productos)|\[nota|^\s*\[)/i.test(t);
   }
   // Antes de descartar todo el mensaje: los paréntesis/corchetes con cocina
   // interna se recortan ((textual: "…"), [nota interna: …]) y el resto se salva.

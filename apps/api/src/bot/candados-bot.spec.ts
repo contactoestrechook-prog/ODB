@@ -399,3 +399,35 @@ describe('un agradecimiento es un cierre (10/10/2026: «Muy amablees» → «no 
     }
   });
 });
+
+// ============================================================
+// 16/10/2026: «QUE ES ESTA BASURA?». El bot volvió solo a los 30 min de que alguien de la
+// casa le mandara una foto y un audio desde el teléfono; el cliente le contestó a esa persona
+// por su nombre y el modelo, que decidió bien no contestar, escribió por qué. Le llegó.
+describe('lo que el modelo piensa no le llega al cliente', () => {
+  const META = 'Este mensaje no lleva respuesta al cliente. Leandro le escribe a "Shaky", que parece ser alguien de la casa que le mandó la foto y el audio. Dice que lo revisa en una hora y lo corrige, así que no hay nada que contestarle ahora.\n\nLe dejé una nota al equipo. Lo importante: el pedido PICKUP-B2FE7627C0D9 quedó confirmado en $272.900, pero en la cotización sumaba $316.200.';
+  const HIST_TEL = [
+    { role: 'assistant', content: 'Pedido PICKUP-B2FE7627C0D9 confirmado a nombre de Leandro Alonso. Total: $272.900.\nSe abona al retirar, en efectivo.' },
+    { role: 'assistant', content: '📷 Foto enviada' },
+    { role: 'assistant', content: '🎙️ Audio enviado' },
+    { role: 'user', content: 'Ok' },
+    { role: 'assistant', content: '🎙️ Audio enviado' },
+  ];
+
+  it('si explica que no contesta, no sale nada (ni «¿me repite su consulta?»)', async () => {
+    const db = baseFalsa({ bot_conversaciones: { select: conv(HIST_TEL) }, lineas_whatsapp: { select: { data: CFG, error: null } } });
+    const { s } = servicio(db, final('a', META));
+    const r = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Hola Shaky, ahora lo veo en una hora y lo corrijo.' });
+    expect(r.respuesta).toBeNull();
+    expect(r.silencio).toBe(true);
+  });
+
+  it('el prompt lo dice: todo lo que escribe le llega al cliente; si no es para el bot, nada', async () => {
+    const db = baseFalsa({ bot_conversaciones: { select: conv(HIST_TEL) }, lineas_whatsapp: { select: { data: CFG, error: null } } });
+    const { s, llamadas } = servicio(db, final('a', ''));
+    await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Hola Shaky, ahora lo veo en una hora y lo corrijo.' });
+    const system = JSON.stringify(llamadas.find((p) => p.model === 'claude-opus-5-5')?.system ?? '');
+    expect(system).toContain('Todo lo que escribís le llega al cliente tal cual');
+    expect(system).toMatch(/no es para vos[^.]*no escribas nada/);
+  });
+});
