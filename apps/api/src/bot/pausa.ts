@@ -108,3 +108,22 @@ export function esSilenciado(etiquetas: unknown): boolean {
 export function avisoEsperaPorWhatsapp(env: Record<string, string | undefined> = process.env): boolean {
   return /^(1|si|sí|true)$/i.test(String(env.ODB_AVISO_ESPERA_WHATSAPP ?? '').trim());
 }
+
+// ============================================================
+// LA PAUSA DEL TELÉFONO VENCE SOLA (Leandro, 16/10/2026: «cuando le escribimos
+// desde el teléfono, el bot se pause durante 25 o 30 minutos y después se
+// vuelva a iniciar automáticamente»). Cada mensaje desde el teléfono corre el
+// plazo. Las demás pausas (RESPONDE, derivaciones, audios) se reactivan a mano.
+// ============================================================
+export const MOTIVO_TELEFONO = 'Atendida desde el teléfono';
+
+/** Minutos de pausa: ODB_BOT_PAUSA_TELEFONO_MIN (30 por defecto; entre 5 y 1440). */
+export function minutosPausaTelefono(env: Record<string, string | undefined> = process.env): number {
+  const n = Number(env.ODB_BOT_PAUSA_TELEFONO_MIN ?? 30);
+  return Number.isFinite(n) && n >= 5 && n <= 24 * 60 ? n : 30;
+}
+
+/** Cuándo vuelve el bot si lo último desde el teléfono salió en `desde`. */
+export function vencePausaTelefono(desde: number = Date.now(), env: Record<string, string | undefined> = process.env): string {
+  return new Date(desde + minutosPausaTelefono(env) * 60_000).toISOString();
+}

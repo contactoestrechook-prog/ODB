@@ -1157,7 +1157,7 @@ describe('pausa del bot por conversación (auditoría 2026-09-08)', () => {
     expect(db.llamadas.update.some((u: any) => u.tabla === 'bot_conversaciones' && u.fila.bot_activo === true)).toBe(false);
   });
 
-  it('un mensaje fromMe que NO mandó el sistema pausa la charla SIN vencimiento, la pausa en RESPONDE y deja lo escrito en el hilo', async () => {
+  it('un mensaje fromMe que NO mandó el sistema pausa la charla 30 min (16/10/2026), la pausa en RESPONDE y deja lo escrito en el hilo', async () => {
     const db = dbFalsa({
       bot_envios: { data: null, error: null },
       bot_conversaciones: { data: { mensajes: [{ role: 'assistant', content: 'Buenas tardes, te damos la bienvenida a O.D.B.' }] }, error: null },
@@ -1170,7 +1170,10 @@ describe('pausa del bot por conversación (auditoría 2026-09-08)', () => {
     expect(up.fila.derivada_motivo).toBe('Atendida desde el teléfono');
     expect(up.fila.telefono).toBe('5491155556666');
     expect(up.fila.mensajes.at(-1).content).toContain('Soy Jackie');
-    expect(up.fila.derivacion_vence_en).toBeNull();
+    // vuelve sola a los 30 minutos (Leandro, 16/10/2026)
+    const faltan = Date.parse(up.fila.derivacion_vence_en) - Date.now();
+    expect(faltan).toBeGreaterThan(29 * 60_000);
+    expect(faltan).toBeLessThanOrEqual(30 * 60_000);
   });
 
   it('un fromMe VIEJO (sincronización de historial al re-vincular) se ignora', async () => {

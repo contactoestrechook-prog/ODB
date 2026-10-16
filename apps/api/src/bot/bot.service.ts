@@ -2,7 +2,7 @@ import { esperaRetiroOEnvio, eligeRetiroOEnvio, eligioModalidad } from './entreg
 import { esContestadorAutomatico } from './contestador';
 import { elegirPorDefecto, puedeCotizar } from './completo';
 import { conDescuentoEfectivo, porcentajeEfectivo, RUBROS_DESCUENTO_EFECTIVO, tieneDescuentoEfectivo } from './descuento-efectivo';
-import { esSilenciado } from './pausa';
+import { esSilenciado, MOTIVO_TELEFONO, minutosPausaTelefono, vencePausaTelefono } from './pausa';
 import { agruparItems, cantidadesIndividuales, confirmacionInequivoca, idWhatsappCorto, importesDeHerramienta, importesDelTexto, pesos, presentacionProducto } from './comercio';
 import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import { volumenMl, etiquetaVolumen, pideTamano, resumenDeTamanos, cantidadesPedidas, PALABRA_GENERICA } from './formatos';
@@ -641,7 +641,8 @@ export class BotService {
       const ahora = new Date();
 
       // REGLA DE LEANDRO (2026-09-16): una charla pausada se reactiva SOLO a mano
-      // desde RESPONDE. Antes el bot volvía solo (a los 20 min si nadie tomaba la
+      // desde RESPONDE. Excepción (16/10/2026): la pausa por escribir desde el
+      // teléfono vuelve sola a los 30 min (reanudarPausasDelTelefono). Antes el bot volvía solo (a los 20 min si nadie tomaba la
       // derivación, a las 6 h si alguien había contestado desde el teléfono) y
       // en las derivadas contestaba "en modo acotado". Ahora, pausada = silencio:
       // el mensaje queda en el hilo para quien atiende y nadie lo pisa.
@@ -4312,9 +4313,9 @@ export class BotService {
   // un lugar menos donde se pierden mensajes.
   // WhatsApp devuelve también lo que sale de este número ("fromMe", con el
   // evento message.any). Si lo mandó el sistema (está en bot_envios) se ignora.
-  // Si no, lo tecleó una PERSONA desde el teléfono: el bot se pausa 6 h en esa
-  // charla para no pisarla y lo escrito queda en el hilo. Vence solo: si nadie
-  // sigue, el bot vuelve con una nota interna.
+  // Si no, lo tecleó una PERSONA desde el teléfono: el bot se pausa en esa charla
+  // para no pisarla y lo escrito queda en el hilo. Vuelve solo a los 30 min del
+  // último mensaje desde el teléfono (16/10/2026, reanudarPausasDelTelefono).
   private async mensajePropio(p: any, numeroLinea?: string, lineaDada?: string) {
     // la persona escribió desde el teléfono de ESTA línea: se pausa la charla de
     // esta línea, no la de la otra (6/10/2026)
@@ -4410,7 +4411,7 @@ export class BotService {
     // 69 audios del equipo en una semana, y esos tampoco pausaban el bot.
     const paraComparar = esMedia ? epigrafeMedia : texto;
     if (paraComparar && dichoPorElBot.includes(paraComparar)) return { ignorado: 'coincide con lo último del bot' };
-    this.log.log(`una persona contestó desde el teléfono a ${identidad}: el bot queda pausado hasta que lo reactiven desde RESPONDE`);
+    this.log.log(`una persona contestó desde el teléfono a ${identidad}: el bot queda pausado ${minutosPausaTelefono()} min (vuelve solo)`);
     // Lo que se escribió desde el teléfono va también a RESPONDE: sin esto la
     // charla quedaba con los mensajes del cliente solos y no se entendía nada
     // (16/9/2026: faltaban 8 respuestas en una charla de 23 mensajes). Con el
@@ -4423,8 +4424,9 @@ export class BotService {
       linea, telefono: identidad,
       mensajes: [...hist, ...(texto ? [{ role: 'assistant', content: texto }] : [])].slice(-40),
       actualizado_en: new Date().toISOString(),
-      bot_activo: false, derivada_en: new Date().toISOString(), derivada_motivo: 'Atendida desde el teléfono',
-      atendida_por: null, derivacion_vence_en: null, acuse_derivacion_en: null,
+      bot_activo: false, derivada_en: new Date().toISOString(), derivada_motivo: MOTIVO_TELEFONO,
+      // vuelve solo a los 30 min del último mensaje desde el teléfono (16/10/2026)
+      atendida_por: null, derivacion_vence_en: vencePausaTelefono(), acuse_derivacion_en: null,
     }, { onConflict: 'linea,telefono' }).then(() => null, () => null);
     await this.respondePausar(chat.endsWith('@lid') ? `${identidad}@lid` : identidad, null, linea);
     await this.limpiarEspera(linea, identidad); // ya la atendieron: deja de esperar
@@ -5585,11 +5587,14 @@ export class BotService {
       const { data: conv } = await this.db.from('bot_conversaciones').select('bot_activo, resuelta_en').eq('linea', linea).eq('telefono', telefono).maybeSingle();
       if ((conv as any)?.bot_activo === false) continue;
       if ((conv as any)?.resuelta_en && new Date((conv as any).resuelta_en).getTime() >= ultima) continue;
+      // la pausa del teléfono dura 30 min desde lo último que se escribió (16/10/2026)
+      const vence = vencePausaTelefono(ultima);
+      if (Date.parse(vence) <= Date.now()) continue;
       const ahora = new Date().toISOString();
       const { error: e2 } = await this.db.from('bot_conversaciones').upsert({
         linea, telefono, actualizado_en: ahora,
-        bot_activo: false, derivada_en: ahora, derivada_motivo: 'Atendida desde el teléfono',
-        atendida_por: null, derivacion_vence_en: null, acuse_derivacion_en: null, resuelta_en: null,
+        bot_activo: false, derivada_en: ahora, derivada_motivo: MOTIVO_TELEFONO,
+        atendida_por: null, derivacion_vence_en: vence, acuse_derivacion_en: null, resuelta_en: null,
       }, { onConflict: 'linea,telefono' });
       if (e2) throw new Error(`no pude pausar la charla de ${telefono}: ${e2.message}`);
       pausadas++;
@@ -5988,6 +5993,47 @@ export class BotService {
   async baseDifundible() {
     const { data } = await this.db.from('base_difundible').select('*').order('gastado', { ascending: false }).limit(2000);
     return data ?? [];
+  }
+
+  // LA PAUSA DEL TELÉFONO VENCE SOLA (Leandro, 16/10/2026). Cada minuto: las charlas
+  // pausadas por escribir desde el teléfono cuyo plazo pasó vuelven al bot, en ODB y
+  // en RESPONDE (si allá siguiera «atendés vos», al próximo mensaje la volvería a
+  // pausar). No es devolverAlBot: eso además le saca el silencio al contacto, y un
+  // proveedor silenciado no tiene que volver a recibir respuestas del bot. La espera
+  // del cliente (si escribió durante la pausa) queda como estaba.
+  private reanudando = false;
+  @Cron('15 * * * * *')
+  async reanudarPausasDelTelefono() {
+    if (this.reanudando) return;
+    this.reanudando = true;
+    try {
+      const { data } = await this.db.from('bot_conversaciones')
+        .select('linea, telefono, derivacion_vence_en')
+        .eq('bot_activo', false).eq('derivada_motivo', MOTIVO_TELEFONO)
+        .not('derivacion_vence_en', 'is', null).lte('derivacion_vence_en', new Date().toISOString())
+        .limit(50);
+      for (const c of (data ?? []) as any[]) {
+        const tel = String(c.telefono).replace(/\D/g, '');
+        const manda = await this.respondeMandaEn(c.linea);
+        if (manda && this.respondeCfg()) {
+          const waId = tel.length >= 14 ? `${tel}@lid` : tel;
+          // si RESPONDE no contesta, se reintenta en el próximo minuto
+          if (!(await this.respondeRpc('odb_reactivar_contacto', { p_whatsapp_id: waId }))) continue;
+        }
+        // solo si nadie volvió a escribir desde el teléfono mientras tanto (eso corre el plazo)
+        const { data: ok } = await this.db.from('bot_conversaciones')
+          .update({ bot_activo: true, resuelta_en: new Date().toISOString(), derivacion_vence_en: null, derivada_motivo: `${MOTIVO_TELEFONO} · el bot volvió solo` })
+          .eq('linea', c.linea).eq('telefono', c.telefono).eq('bot_activo', false).eq('derivada_motivo', MOTIVO_TELEFONO)
+          .eq('derivacion_vence_en', c.derivacion_vence_en)
+          .select('telefono');
+        if ((ok ?? []).length) this.log.log(`charla ${tel} (${c.linea}): pasaron ${minutosPausaTelefono()} min desde el teléfono, el bot vuelve a atender`);
+        else if (manda) await this.respondePausar(tel.length >= 14 ? `${tel}@lid` : tel, null, c.linea).catch(() => null); // se corrió el plazo: allá también sigue pausada
+      }
+    } catch (e) {
+      this.log.warn(`no pude reanudar las pausas del teléfono: ${e instanceof Error ? e.message : e}`);
+    } finally {
+      this.reanudando = false;
+    }
   }
 
   // Volver a manos del bot (el tema se resolvió)

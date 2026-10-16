@@ -937,15 +937,18 @@ describe('Revisión 10: al prender la línea nueva, lo que se venía atendiendo 
   const CLIENTE2 = '5491177778888';
   const CLIENTE3 = '5491177779999';
   const CLIENTE4 = '5491177770000';
+  const CLIENTE5 = '5491177771111';
   const chat = (t: string) => `${t}@c.us`;
   const mensajes = (t: string) => `/api/odb-local/chats/${encodeURIComponent(chat(t))}/messages`;
 
   it('pausa la charla que una persona contestó desde el teléfono; no toca la que solo escribió el cliente, ni la del bot, ni la reactivada después', async () => {
     const ahora = ahoraSeg();
     const waha = wahaFalso({
-      '/api/odb-local/chats?': [CLIENTE, CLIENTE2, CLIENTE3, CLIENTE4, GENERAL_NUM].map((t) => ({ id: chat(t), conversationTimestamp: ahora - 300 })),
-      // una persona le contestó desde el teléfono antes de vincularlo
-      [mensajes(CLIENTE)]: [{ id: 'false_a', fromMe: false, body: 'hola, ¿tienen Malbec?', timestamp: ahora - 3600 }, { id: 'true_PERS1', fromMe: true, body: 'Sí, te lo separo', timestamp: ahora - 3000 }],
+      '/api/odb-local/chats?': [CLIENTE, CLIENTE2, CLIENTE3, CLIENTE4, CLIENTE5, GENERAL_NUM].map((t) => ({ id: chat(t), conversationTimestamp: ahora - 300 })),
+      // una persona le contestó desde el teléfono hace 10 minutos
+      [mensajes(CLIENTE)]: [{ id: 'false_a', fromMe: false, body: 'hola, ¿tienen Malbec?', timestamp: ahora - 900 }, { id: 'true_PERS1', fromMe: true, body: 'Sí, te lo separo', timestamp: ahora - 600 }],
+      // una persona le contestó hace 50 minutos: la pausa del teléfono (30 min) ya venció (16/10/2026)
+      [mensajes(CLIENTE5)]: [{ id: 'true_PERS6', fromMe: true, body: 'Listo, gracias', timestamp: ahora - 3000 }],
       // solo escribió el cliente: el bot lo puede atender
       [mensajes(CLIENTE2)]: [{ id: 'false_b', fromMe: false, body: 'hola', timestamp: ahora - 600 }],
       // lo que salió lo mandó el sistema (está en bot_envios)
@@ -964,6 +967,9 @@ describe('Revisión 10: al prender la línea nueva, lo que se venía atendiendo 
     expect(r).toMatchObject({ ok: true, botActivo: true, pausadas: 1 });
     const charla = (t: string) => db.tablas.bot_conversaciones.find((c: any) => c.linea === 'local' && c.telefono === t);
     expect(charla(CLIENTE)).toMatchObject({ bot_activo: false, derivada_motivo: 'Atendida desde el teléfono' });
+    // vuelve sola a los 30 min de lo último que se escribió desde el teléfono
+    expect(Date.parse(charla(CLIENTE).derivacion_vence_en)).toBe((ahora - 600 + 30 * 60) * 1000);
+    expect(charla(CLIENTE5)).toBeUndefined();
     expect(charla(CLIENTE2)).toBeUndefined();
     expect(charla(CLIENTE3)).toBeUndefined();
     expect(charla(CLIENTE4).bot_activo).toBe(true);
