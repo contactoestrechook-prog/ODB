@@ -190,7 +190,8 @@ export const HERRAMIENTAS_PEDIDOS: Anthropic.Tool[] = [
     description:
       'Horarios reales de los dos locales y del reparto a domicilio, con la hora actual de Buenos Aires ya resuelta. ' +
       'Usala SIEMPRE que la consulta toque horarios, si están abiertos, hasta qué hora, o si se puede mandar a domicilio ahora. ' +
-      'Nunca calcules vos si están abiertos: preguntale a esta herramienta.',
+      'Nunca calcules vos si están abiertos: preguntale a esta herramienta. ' +
+      'Cada sucursal trae su horario de HOY (horario, abierta_ahora) y el de toda la semana (horarios_semana): si preguntan por otro día, contestá con horarios_semana (19/10/2026: los domingos Santa Inés cierra a las 14).',
     input_schema: { type: 'object' as const, properties: {}, required: [] },
   },
   {
