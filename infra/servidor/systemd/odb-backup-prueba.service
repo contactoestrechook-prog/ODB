@@ -1,0 +1,7 @@
+[Unit]
+Description=Prueba de restauración del backup de ODB
+ConditionPathExists=/srv/odb/secretos/backup.env
+
+[Service]
+Type=oneshot
+ExecStart=/srv/odb/codigo/infra/servidor/backup.sh probar

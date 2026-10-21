@@ -1,0 +1,6 @@
+[Unit]
+Description=Vigía de ODB (servicios, disco, memoria, HTTPS, WhatsApp)
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh /srv/odb/codigo/infra/servidor/vigia.sh

@@ -1,0 +1,10 @@
+[Unit]
+Description=Prueba semanal de restauración del backup de ODB (domingo 4:00)
+
+[Timer]
+OnCalendar=Sun *-*-* 04:00:00
+Persistent=true
+Unit=odb-backup-prueba.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,9 @@
+[Unit]
+Description=Backup cifrado de ODB fuera de Akamai (restic)
+ConditionPathExists=/srv/odb/secretos/backup.env
+
+[Service]
+Type=oneshot
+ExecStart=/srv/odb/codigo/infra/servidor/backup.sh
+Nice=10
+IOSchedulingClass=idle
