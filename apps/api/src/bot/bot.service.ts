@@ -62,7 +62,6 @@ function bonitoTelefono(t: string): string {
 import { costoUSD, usoDeRespuesta } from './tarifas';
 import { esfuerzo, RAZONAMIENTO } from '../comun/modelos';
 import { unirConLoDicho } from '../comun/sin-repetir';
-import { limpiarEntradaDeHerramienta, sinRestosDeMarcado, unirLimpio } from '../comun/texto-limpio';
 import { cartelLista, cartelListaPrecios, cartelPedido, imagenEsperada, leerListaDePedido, leerResumenDePedido, MAX_RENGLONES_CARTEL, nombreParaCartel, pieSinPrecios, preciosDeLaRespuesta, ProductoConPrecio } from '../comun/cartel-pedido';
 import { etiquetaDeFila, Lineas, sesionPrincipal } from '../comun/lineas';
 import { cierraLaRafaga, esperaDeRafaga, juntarRafaga, msHastaContestar, type MensajeDeRafaga } from './espera-rafaga';
@@ -811,9 +810,7 @@ export class BotService {
           .eq('telefono', telefono).eq('linea', linea).order('creada_en', { ascending: false }).limit(1).maybeSingle();
         if (q && !q.confirmada_en && Date.now() - new Date(q.creada_en).getTime() < 3 * 3600_000 && String(ultimoMsgBot).includes(`$${pesos(Number(q.total))}`)) {
           const forma = medio.toLowerCase().startsWith('efectivo') ? 'efectivo' : 'tarjeta';
-          // las notas viejas (de antes del disparador) pueden traer basura: limpias
-          // por separado, no se llevan la forma de pago que va detrás
-          await this.db.from('bot_cotizaciones').update({ notas: unirLimpio([q.notas, `Paga con ${forma}`]).slice(0, 300) }).eq('id', q.id);
+          await this.db.from('bot_cotizaciones').update({ notas: [q.notas, `Paga con ${forma}`].filter(Boolean).join(' · ').slice(0, 300) }).eq('id', q.id);
           // con efectivo, el descuento de los rubros que lo tienen (30/9/2026)
           const conEfectivo = forma === 'efectivo'
             ? Math.round(((q as any).items ?? []).reduce((s: number, r: any) => s + Number(r?.subtotalEfectivo ?? r?.subtotal ?? 0), 0))
@@ -2151,12 +2148,7 @@ export class BotService {
     linea: string = 'pedidos', // todos los llamados del servicio pasan la línea del turno
     ctx: { ultimoBot?: string; ultimosBot?: string[]; ultimosCliente?: string[]; textoCliente?: string; fallos?: Map<string, number>; archivoUrl?: string; fija?: { texto?: string; consultaPendiente?: boolean; operacion?: boolean; derivada?: boolean; datosPago?: string; pagoEnAdministracion?: boolean }; salidas?: string[]; archivo?: ArchivoDelTurno; historial?: MensajeDeCharla[]; cotizacion?: any; charlaViva?: boolean; convActualizadoEn?: string } = {},
   ): Promise<Anthropic.ToolResultBlockParam> {
-    // Una sola limpieza para todo lo que manda cualquier herramienta (21/10/2026):
-    // restos de la sintaxis del modelo ("</antml…"), invisibles y relleno.
-    // Antes cada herramienta tenía su regla o ninguna (nota_interna,
-    // registrar_proveedor, derivar_*), y así llegó «WhatsApp: </antml…» a Envíos.
-    // Es en su lugar: lo que queda en la charla es lo que se ejecutó.
-    const input: any = limpiarEntradaDeHerramienta(block.input);
+    const input: any = block.input;
     const skusVistosEnTurno = this.skusDe(telefono);
     const skusVistosEnHistorial = skusVistosEnTurno; // misma bolsa: persiste mientras vive el proceso
     // queda registrado qué herramienta usó: sirve para auditar que el bot
@@ -3476,10 +3468,8 @@ export class BotService {
   // como respuesta final (llevarRespuestaDeConsulta).
   async consultarInterno(linea: string, telefono: string, area: string, consulta: string, direccion = '', archivoUrl?: string, tema?: string)
     : Promise<{ consultado: boolean; yaEstaba?: boolean; consulta_id?: string; tema?: string; area: string; avisoPorWhatsapp: boolean; aviso: string }> {
-    // la regla única (21/10/2026): la de antes borraba la etiqueta y dejaba lo
-    // de atrás («WhatsApp: domicilio») y vaciaba la dirección por un < suelto
-    consulta = sinRestosDeMarcado(consulta).slice(0, 1000);
-    direccion = sinRestosDeMarcado(direccion, { unaLinea: true }).slice(0, 300);
+    consulta = String(consulta).replace(/<[^>]*>/g, '').trim().slice(0,1000);
+    direccion = /[<>]/.test(direccion) ? '' : direccion.slice(0,300);
     if (!consulta) throw new BadRequestException('Falta la consulta concreta');
     // de qué se trata ("la caja para viajar"); sin nada interno: encabeza la respuesta del área
     const temaCliente = temaDeConsulta(tema);

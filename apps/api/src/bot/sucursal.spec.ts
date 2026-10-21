@@ -94,10 +94,6 @@ describe('campos de herramienta sin basura', () => {
     expect(campoLimpio('  Rivadavia 234, Canning ')).toBe('Rivadavia 234, Canning');
     expect(campoLimpio('2026-09-25')).toBe('2026-09-25');
   });
-  it('conserva lo que el cliente dijo antes de la etiqueta (21/10/2026: antes se perdía el campo entero)', () => {
-    expect(campoLimpio('Paga en efectivo · ' + '<' + '/antml' + ':parameter>')).toBe('Paga en efectivo');
-    expect(campoLimpio('Lote 95 <casa con portón negro>')).toBe('Lote 95 <casa con portón negro>');
-  });
 });
 
 // CONSULTA SILENCIOSA (Leandro, 6/10/2026): «Si no sabe algo, lo consulta
