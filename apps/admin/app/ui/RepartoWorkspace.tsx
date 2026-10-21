@@ -267,6 +267,9 @@ function Detalle({ det, cerrar, post, refrescar, aviso }: any) {
   );
 }
 
+// cómo se lee el estado de una parada (antes salía el de la base: «no_estaba»)
+const ESTADO_PARADA: Record<string, string> = { entregado: 'entregado', no_estaba: 'no estaba', rechazado: 'rechazado' };
+
 function ParadaRow({ p, accion, editable }: any) {
   const [cobrado, setCobrado] = useState<string>(String(p.cobrado || p.monto || ''));
   const [medio, setMedio] = useState(p.medio_pago || 'efectivo');
@@ -274,10 +277,10 @@ function ParadaRow({ p, accion, editable }: any) {
   const col = p.estado === 'entregado' ? 'text-ok' : ['no_estaba', 'rechazado'].includes(p.estado) ? 'text-tinta/60' : 'text-tinta';
   return (
     <div className="flex flex-wrap items-center gap-2 py-2.5">
-      <div className={editable && p.estado === 'pendiente' ? 'w-full min-w-0 sm:w-auto sm:flex-1' : 'min-w-0 flex-1'}><p className={`break-words text-sm font-medium ${col}`}>{nombre}</p><p className="break-words text-xs text-tinta/60">{p.cliente?.domicilio ?? ''} {p.estado !== 'pendiente' ? `· ${p.estado}` : ''}</p></div>
+      <div className={editable && p.estado === 'pendiente' ? 'w-full min-w-0 sm:w-auto sm:flex-1' : 'min-w-0 flex-1'}><p className={`break-words text-sm font-medium ${col}`}>{nombre}</p><p className="break-words text-xs text-tinta/60">{p.cliente?.domicilio ?? ''} {p.estado !== 'pendiente' ? `· ${ESTADO_PARADA[p.estado] ?? String(p.estado).replace(/_/g, ' ')}` : ''}</p></div>
       {editable && p.estado === 'pendiente' ? (<>
         <div className="w-28"><Entrada type="number" value={cobrado} onChange={(e) => setCobrado(e.target.value)} placeholder="$ cobrado" aria-label={`Cobrado a ${nombre}`} className="text-right" /></div>
-        <Selector value={medio} onChange={(e) => setMedio(e.target.value)} aria-label="Medio de pago" className="w-28"><option value="efectivo">efvo</option><option value="transferencia">transf</option><option value="tarjeta">tarj</option></Selector>
+        <Selector value={medio} onChange={(e) => setMedio(e.target.value)} aria-label="Medio de pago" className="w-40"><option value="efectivo">Efectivo</option><option value="transferencia">Transferencia</option><option value="tarjeta">Tarjeta</option></Selector>
         <Boton tamano="chico" onClick={() => accion({ accion: 'marcar', pid: p.id, estado: 'entregado', cobrado: Number(cobrado) || 0, medioPago: medio })}>Entregado</Boton>
         <Boton variante="secundario" tamano="chico" onClick={() => accion({ accion: 'marcar', pid: p.id, estado: 'no_estaba' })}>No estaba</Boton>
       </>) : (

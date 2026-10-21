@@ -1,5 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { CajaService } from './caja.service';
+import { FrenoDePin } from '../comun/freno-pin';
 
 // Contratos de la caja: el PIN de supervisor y los movimientos de efectivo
 // (que entran al arqueo) no pueden aflojarse sin que estos tests lo griten.
@@ -38,6 +39,7 @@ describe('CajaService.autorizar (PIN de supervisor)', () => {
   it('devuelve un token de un solo uso si el PIN es correcto (nunca el usuarioId directo)', async () => {
     const { db } = dbFalsa({ pinResultado: { id: 'sup-1', nombre: 'Gerente', rol: 'gerente' } });
     const svc = new CajaService(db);
+    svc.freno = new FrenoDePin();
     const r = await svc.autorizar('4321');
     expect(r).toEqual({ token: 'mov-1', nombre: 'Gerente', rol: 'gerente' });
   });
@@ -45,7 +47,29 @@ describe('CajaService.autorizar (PIN de supervisor)', () => {
   it('rechaza un PIN incorrecto', async () => {
     const { db } = dbFalsa({ pinResultado: null });
     const svc = new CajaService(db);
+    svc.freno = new FrenoDePin();
     await expect(svc.autorizar('0000')).rejects.toThrow(/PIN incorrecto/);
+  });
+
+  it('cada PIN errado queda en auditoría con quién lo tecleó', async () => {
+    const { db, inserts } = dbFalsa({ pinResultado: null });
+    const svc = new CajaService(db);
+    svc.freno = new FrenoDePin();
+    await svc.autorizar('0000', 'u-dep').catch(() => null);
+    expect(inserts).toContainEqual(['auditoria', expect.objectContaining({ usuario_id: 'u-dep', accion: 'pin_supervisor_errado', entidad_id: 'u-dep', datos_despues: { donde: 'caja', frenado: false } })]);
+  });
+
+  it('con 5 errados el usuario queda frenado: ni siquiera se consulta el PIN (sin probar en bucle)', async () => {
+    const { db } = dbFalsa({ pinResultado: null });
+    const svc = new CajaService(db);
+    svc.freno = new FrenoDePin();
+    for (let i = 0; i < 5; i++) await expect(svc.autorizar(String(1000 + i), 'u-dep')).rejects.toThrow(/PIN incorrecto/);
+    db.rpc.mockClear();
+    const err = await svc.autorizar('4321', 'u-dep').catch((e) => e);
+    expect(err.getStatus()).toBe(429);
+    expect(db.rpc).not.toHaveBeenCalled();
+    // otro usuario sigue pudiendo
+    await expect(svc.autorizar('4321', 'u-caj')).rejects.toThrow(/PIN incorrecto/);
   });
 });
 

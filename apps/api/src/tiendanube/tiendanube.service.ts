@@ -5,6 +5,7 @@ import { PedidosService } from '../pedidos/pedidos.service';
 import { mapProductoATN, mapPedidoTN } from './mapeo';
 import { tnConfig, tnConfigurado, tnGet, tnPost, tnPut } from './cliente';
 import { verificarFirmaTiendaNube } from '../comun/firmas';
+import { unirLimpio } from '../comun/texto-limpio';
 
 const SUC_CENTRAL = '229906e6-df69-48eb-b027-2b57fefb89fe';
 
@@ -138,7 +139,9 @@ export class TiendanubeService {
       items,
       clienteDni: m.clienteDni ?? undefined,
       referencia: m.referencia,
-      notas: [m.clienteNombre, m.notas, sinMatch.length ? `SIN MATCHEAR: ${sinMatch.join(', ')}` : null].filter(Boolean).join(' · '),
+      // cada pedazo limpio por separado: una etiqueta en la nota del cliente no
+      // se lleva el «SIN MATCHEAR» de atrás (texto-limpio.ts, unirLimpio)
+      notas: unirLimpio([m.clienteNombre, m.notas, sinMatch.length ? `SIN MATCHEAR: ${sinMatch.join(', ')}` : null]),
       reservar: false, // pedido externo: no bloquea por stock
     });
     return { pedidoId, duplicado: false, sinMatch };

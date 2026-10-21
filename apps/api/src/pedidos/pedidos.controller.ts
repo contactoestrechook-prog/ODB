@@ -1,10 +1,11 @@
-import { BadRequestException, Body, Controller, Get, Header, Headers, Param, Patch, Post, Query, Req, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, Body, Controller, ForbiddenException, Get, Header, Headers, Param, Patch, Post, Query, Req, UnauthorizedException } from '@nestjs/common';
 import { timingSafeEqual } from 'crypto';
 import { JwtService } from '@nestjs/jwt';
 import { PedidosService } from './pedidos.service';
 import type { PedidoYaPayload } from './pedidos.service';
-import { Publico, Roles } from '../auth/decorators';
+import { Publico, Roles, SinHerencia } from '../auth/decorators';
 import { LimitadorTasa } from '../comun/limitador';
+import { MEDIOS_AL_ENTREGAR } from './envios';
 
 // POST /app/pedidos es público (guest checkout de la app del cliente, sin
 // login) y reserva stock real: sin límite, cualquiera podría bombardearlo
@@ -15,7 +16,15 @@ const limitadorPedidosApp = new LimitadorTasa(Number(process.env.ODB_APP_PEDIDOS
 // propósito: exige validar el límite del cliente y generar la deuda, y eso vive
 // en el circuito de ventas. Si entrara por acá, la mercadería saldría del local
 // sin plata y sin deuda registrada.
-const MEDIOS_ENTREGA = ['efectivo', 'tarjeta', 'transferencia'];
+const MEDIOS_ENTREGA = MEDIOS_AL_ENTREGAR;
+
+function medioValido(medioPago?: string): string | undefined {
+  const medio = medioPago?.trim();
+  if (medio && !MEDIOS_ENTREGA.includes(medio)) {
+    throw new BadRequestException(`Medio de pago inválido: usá ${MEDIOS_ENTREGA.join(', ')}`);
+  }
+  return medio || undefined;
+}
 
 @Controller()
 export class PedidosController {
@@ -207,20 +216,30 @@ export class PedidosController {
   // --- Delivery a domicilio ---
   @Roles('deposito', 'cajero', 'gerente', 'dueno')
   @Patch('pedidos/:id/repartidor')
-  asignarRepartidor(@Param('id') id: string, @Body() body: { repartidorId: string }, @Req() req: any) {
-    return this.pedidos.asignarRepartidor(id, body.repartidorId, req.usuario?.sub);
+  asignarRepartidor(@Param('id') id: string, @Body() body: { repartidorId?: string | null }, @Req() req: any) {
+    // repartidorId vacío = sacarle el repartidor (no si ya está en la calle)
+    return this.pedidos.asignarRepartidor(id, body?.repartidorId, req.usuario?.sub);
   }
 
-  @Roles('repartidor', 'gerente', 'dueno')
+  // «Mis entregas»: los envíos que lleva quien entra. Desde el 21/10/2026 un
+  // envío puede salir con alguien de caja o depósito (no hay repartidores
+  // cargados): esa persona también tiene que ver la dirección, el teléfono y
+  // qué cobrar, y poder marcarlo entregado. Cada uno ve solo los suyos.
+  // @SinHerencia: administrativo no lleva envíos (quienLleva no lo ofrece)
+  @Roles('repartidor', 'cajero', 'deposito', 'gerente', 'dueno')
+  @SinHerencia()
   @Get('repartidor/mis-entregas')
   misEntregas(@Req() req: any) {
     return this.pedidos.misEntregas(req.usuario.sub);
   }
 
-  @Roles('repartidor', 'gerente', 'dueno')
+  @Roles('repartidor', 'cajero', 'deposito', 'gerente', 'dueno')
+  @SinHerencia()
   @Post('repartidor/pedidos/:id/ubicacion')
-  repartidorUbicacion(@Param('id') id: string, @Body() body: { lat: number; lng: number }) {
-    return this.pedidos.repartidorUbicacion(id, body.lat, body.lng);
+  repartidorUbicacion(@Param('id') id: string, @Body() body: { lat: number; lng: number }, @Req() req: any) {
+    // cada uno manda la ubicación de lo que lleva; dueño y encargado, de cualquiera
+    const soloDe = ['gerente', 'dueno'].includes(req.usuario?.rol) ? undefined : req.usuario?.sub;
+    return this.pedidos.repartidorUbicacion(id, body.lat, body.lng, soloDe);
   }
 
   // El DNI sale del token del cliente (no del path): así nadie puede enumerar
@@ -233,18 +252,74 @@ export class PedidosController {
 
   @Roles('deposito', 'cajero', 'gerente', 'dueno', 'repartidor')
   @Post('pedidos/:id/avanzar')
-  avanzar(@Param('id') id: string, @Body() body: { estado: string; medioPago?: string }, @Req() req: any) {
-    const medio = body.medioPago?.trim();
-    if (medio && !MEDIOS_ENTREGA.includes(medio)) {
-      throw new BadRequestException(`Medio de pago inválido: usá ${MEDIOS_ENTREGA.join(', ')}`);
+  async avanzar(@Param('id') id: string, @Body() body: { estado: string; medioPago?: string; repartidorId?: string }, @Req() req: any) {
+    const medio = medioValido(body.medioPago);
+    await this.soloSiLoLleva(id, req);
+    // despachar un envío: quién lo lleva (21/10/2026, sin eso no sale)
+    return this.pedidos.avanzar(id, body.estado, req.usuario?.sub, medio, { repartidorId: body.repartidorId || undefined });
+  }
+
+  // El repartidor solo toca los pedidos que lleva él (como la ubicación). Los
+  // del local (caja, depósito, encargado) manejan cualquiera desde Pedidos.
+  private async soloSiLoLleva(pedidoId: string, req: any) {
+    if (req.usuario?.rol !== 'repartidor') return;
+    if (!(await this.pedidos.loLleva(pedidoId, req.usuario?.sub))) {
+      throw new ForbiddenException('Ese pedido no lo llevás vos: solo podés cambiar los que tenés en «Mis entregas».');
     }
-    return this.pedidos.avanzar(id, body.estado, req.usuario?.sub, medio);
+  }
+
+  // Al entregar faltaba stock: sacar ese producto del pedido o reemplazarlo por otro
+  @Roles('deposito', 'cajero', 'gerente', 'dueno', 'repartidor')
+  @SinHerencia()
+  @Post('pedidos/:id/faltante')
+  async resolverFaltante(@Param('id') id: string, @Body() body: { productoId: string; reemplazoSku?: string; cantidad?: number }, @Req() req: any) {
+    // el repartidor está en la puerta del cliente: puede sacar, no cambiar por
+    // otro, y solo en un pedido que lleva él
+    if (body?.reemplazoSku && req.usuario?.rol === 'repartidor') throw new BadRequestException('Desde el reparto solo se puede sacar el producto');
+    await this.soloSiLoLleva(id, req);
+    return this.pedidos.resolverFaltante(id, body?.productoId, body?.reemplazoSku, body?.cantidad, req.usuario?.sub);
   }
 
   @Roles('deposito', 'cajero', 'gerente', 'dueno')
   @Get('envios')
   envios() {
     return this.pedidos.enviosDomicilio();
+  }
+
+  // Quién puede llevar un envío: los repartidores activos y, si no hay o
+  // están todos en la calle, alguien del local (21/10/2026)
+  @Roles('deposito', 'cajero', 'gerente', 'dueno')
+  @SinHerencia()
+  @Get('envios/quien-lleva')
+  quienLleva() {
+    return this.pedidos.quienLleva();
+  }
+
+  // «¿Se entregó o se cancela?» → se entregó: cierra un envío viejo que se
+  // entregó sin que nadie lo marcara (registra la venta, sin WhatsApp al cliente).
+  // efectivoEnCaja: quien cierra confirma que el efectivo está hoy en el cajón.
+  @Roles('deposito', 'cajero', 'gerente', 'dueno')
+  @SinHerencia()
+  @Post('envios/:id/se-entrego')
+  seEntrego(@Param('id') id: string, @Body() body: { medioPago?: string; efectivoEnCaja?: boolean }, @Req() req: any) {
+    return this.pedidos.seEntrego(id, req.usuario?.sub, medioValido(body?.medioPago), { efectivoEnCaja: body?.efectivoEnCaja === true });
+  }
+
+  // Cambiar cuándo (fecha y franja) o corregir la dirección de un envío.
+  // Cada campo es opcional: el que no viene no se toca; fecha vacía = lo antes posible.
+  @Roles('deposito', 'cajero', 'gerente', 'dueno')
+  @SinHerencia()
+  @Patch('envios/:id')
+  cambiarEnvio(
+    @Param('id') id: string,
+    @Body() body: { entregaFecha?: string | null; entregaFranja?: string | null; direccion?: string | null },
+    @Req() req: any,
+  ) {
+    return this.pedidos.cambiarEnvio(
+      id,
+      { entregaFecha: body?.entregaFecha, entregaFranja: body?.entregaFranja, direccion: body?.direccion },
+      req.usuario?.sub,
+    );
   }
 
   @Roles('deposito', 'cajero', 'gerente', 'dueno')

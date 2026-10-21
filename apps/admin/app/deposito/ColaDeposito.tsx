@@ -4,11 +4,19 @@ import { useCallback, useEffect, useState } from 'react';
 import { Aviso, Boton, Etiqueta, FOCO, IconoCerrar, Monto, PlacaRoja, unir, type TonoEtiqueta } from '../ui/kit';
 import { numero, pesos as formatoPesos } from '../lib/formato';
 import { conCodigo } from '../lib/codigo-producto';
+import { textoVisible } from '../lib/texto';
+import { FaltantesAlEntregar, faltaDeStock, type FaltaDeStock } from '../ui/FaltantesAlEntregar';
+import { ModalDespachar } from '../ui/EnvioPartes';
 
 type Pedido = {
   id: string;
   estado: string;
   origen: string;
+  /** 'domicilio' = envío: listo, no se «entrega» acá, se despacha con alguien que lo lleve */
+  canal?: string | null;
+  destino_direccion?: string | null;
+  clienteNombre?: string | null;
+  repartidor_id?: string | null;
   programado?: boolean;
   entregaEtiqueta?: string | null;
   notas?: string | null;
@@ -48,13 +56,19 @@ const ORIGEN_CHIP: Record<string, { label: string; tono: TonoEtiqueta }> = {
 const COLUMNAS = [
   { estado: 'recibido', titulo: 'Recibidos', accion: 'en_preparacion', botenLabel: 'Empezar a preparar' },
   { estado: 'en_preparacion', titulo: 'En preparación', accion: 'listo', botenLabel: 'Marcar listo' },
-  { estado: 'listo', titulo: 'Listos para retirar', accion: 'entregado', botenLabel: 'Entregar' },
+  { estado: 'listo', titulo: 'Listos para retirar o salir', accion: 'entregado', botenLabel: 'Entregar' },
 ];
 
-export function ColaDeposito() {
+export function ColaDeposito({ puedeCargarRepartidor = false }: { puedeCargarRepartidor?: boolean }) {
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
   const [ocupado, setOcupado] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
+  const [falta, setFalta] = useState<{ datos: FaltaDeStock; pedido: Pedido } | null>(null);
+  // un envío a domicilio listo sale con alguien que lo lleve (revisión del
+  // 21/10/2026): antes «Entregar» lo daba por entregado con el paquete en el
+  // local, le mandaba al cliente «fue entregado» y cobraba sin preguntar
+  const [despachando, setDespachando] = useState<Pedido | null>(null);
+  const [errorDespacho, setErrorDespacho] = useState<string | null>(null);
   // qué pedidos se ven abiertos (como Placa roja) y cuáles en la vista breve;
   // sin tocar, se abren solos los que están "En preparación"
   const [abiertos, setAbiertos] = useState<Record<string, boolean>>({});
@@ -80,8 +94,10 @@ export function ColaDeposito() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ pedidoId: pedido.id, estado }),
     });
-    const datos = await res.json();
-    if (!res.ok) setAviso(datos.message ?? 'No se pudo avanzar el pedido');
+    const datos = await res.json().catch(() => ({}));
+    const fs = !res.ok && estado === 'entregado' ? faltaDeStock(pedido.id, res.status, datos) : null;
+    if (fs) setFalta({ datos: fs, pedido });
+    else if (!res.ok) setAviso(datos.message ?? 'No se pudo avanzar el pedido');
     else if (estado === 'entregado' && datos.venta) {
       setAviso(`Pedido entregado: venta registrada por ${pesos(datos.venta.total)}`);
     }
@@ -158,14 +174,15 @@ export function ColaDeposito() {
                       {abierto ? 'Ver menos' : 'Ver pedido'}
                     </Boton>
                   );
+                  const envioListo = p.canal === 'domicilio' && col.estado === 'listo';
                   const botones = (
                     <>
                       <Boton
-                        onClick={() => avanzar(p, col.accion)}
+                        onClick={() => (envioListo ? (setErrorDespacho(null), setDespachando(p)) : avanzar(p, col.accion))}
                         disabled={ocupado === p.id}
                         className="flex-1"
                       >
-                        {ocupado === p.id ? '…' : col.botenLabel}
+                        {ocupado === p.id ? '…' : envioListo ? 'Despachar' : col.botenLabel}
                       </Boton>
                       <button
                         type="button"
@@ -224,7 +241,7 @@ export function ColaDeposito() {
                                 <span className="min-w-0 break-words text-xs text-tinta/60">{p.sucursal.nombre}</span>
                               )}
                             </div>
-                            {p.notas && <p className="break-words text-xs italic text-tinta/70">{p.notas}</p>}
+                            {textoVisible(p.notas) && <p className="break-words text-xs italic text-tinta/70">{textoVisible(p.notas)}</p>}
                           </div>
                         }
                         acciones={
@@ -255,7 +272,7 @@ export function ColaDeposito() {
                       {p.qr_retiro && (
                         <p className="mt-1 break-all font-mono text-xs text-tinta/60">{p.qr_retiro}</p>
                       )}
-                      {p.notas && <p className="mt-1 break-words text-xs italic text-tinta/70">{p.notas}</p>}
+                      {textoVisible(p.notas) && <p className="mt-1 break-words text-xs italic text-tinta/70">{textoVisible(p.notas)}</p>}
                       <p className="mt-2 break-words text-sm leading-snug text-tinta">{resumenItems(p.items)}</p>
                       <div className="mt-2 flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
                         <div className="flex min-w-0 items-baseline gap-2">
@@ -278,6 +295,45 @@ export function ColaDeposito() {
           );
         })}
       </div>
+      {despachando && (
+        <ModalDespachar
+          envio={{
+            id: despachando.id,
+            codigo: despachando.qr_retiro ?? despachando.id.slice(0, 8).toUpperCase(),
+            cliente: despachando.clienteNombre || null,
+            direccion: textoVisible(despachando.destino_direccion, { unaLinea: true }),
+            repartidorId: despachando.repartidor_id ?? null,
+          }}
+          puedeCargarRepartidor={puedeCargarRepartidor}
+          trabajando={ocupado === despachando.id}
+          error={errorDespacho}
+          onCerrar={() => { setDespachando(null); setErrorDespacho(null); }}
+          onConfirmar={async (repartidorId, nombre) => {
+            const p = despachando;
+            setOcupado(p.id);
+            setErrorDespacho(null);
+            const res = await fetch('/api/pedidos', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ pedidoId: p.id, estado: 'en_camino', repartidorId }),
+            }).catch(() => null);
+            const datos = res ? await res.json().catch(() => ({})) : null;
+            setOcupado(null);
+            if (!res) { setErrorDespacho('Sin conexión. Probá de nuevo.'); return; }
+            if (!res.ok) { setErrorDespacho(datos?.message ?? 'No se pudo despachar.'); return; }
+            setDespachando(null);
+            setAviso(`${p.qr_retiro ?? 'El envío'} salió con ${nombre}.`);
+            await cargar();
+          }}
+        />
+      )}
+      {falta && (
+        <FaltantesAlEntregar
+          falta={falta.datos}
+          onCerrar={() => { setFalta(null); cargar(); }}
+          onEntregar={async () => { const p = falta.pedido; setFalta(null); await avanzar(p, 'entregado'); }}
+        />
+      )}
     </div>
   );
 }

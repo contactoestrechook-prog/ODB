@@ -20,8 +20,10 @@ export class ProductosAdminController {
   // Cómo está (sin porPeso) o cambiar (con porPeso) si el producto se vende por
   // kilo. POST por el mismo motivo que 'revisar': 'productos/:sku' es público.
   @Post('por-peso')
-  porPeso(@Body() dto: { sku?: string; porPeso?: boolean }, @Req() req: any) {
-    return this.servicio.porPesoPorSku(dto?.sku ?? '', dto?.porPeso, req.usuario?.sub);
+  porPeso(@Body() dto: { sku?: string; porPeso?: boolean; desde?: string }, @Req() req: any) {
+    // desde: de qué pantalla vino el cambio, solo para la auditoría
+    const desde = dto?.desde === 'fraccionar' ? 'fraccionar' : 'carga_factura';
+    return this.servicio.porPesoPorSku(dto?.sku ?? '', dto?.porPeso, req.usuario?.sub, desde);
   }
 
   @Post()

@@ -3,8 +3,62 @@ import { cookies } from 'next/headers';
 
 const API = process.env.API_URL ?? 'http://localhost:3001';
 
-export async function GET() {
+async function conToken(): Promise<Record<string, string>> {
   const t = (await cookies()).get('odb_token')?.value;
-  const res = await fetch(`${API}/envios`, { headers: t ? { Authorization: `Bearer ${t}` } : {}, cache: 'no-store' });
-  return NextResponse.json(await res.json(), { status: res.status });
+  return t ? { Authorization: `Bearer ${t}` } : {};
+}
+
+// Si la API contesta algo que no es JSON (un 502 del proxy, una página de
+// error), la pantalla recibe un mensaje y no un 500 de esta ruta.
+async function reenviar(res: Response) {
+  const datos = await res.json().catch(() => ({ message: 'La API no respondió bien' }));
+  return NextResponse.json(datos, { status: res.status });
+}
+
+// GET: los envíos activos. ?que=quien-lleva: repartidores y gente del local
+// que puede llevar un envío (21/10/2026). ?que=autorizacion&pedido=<id>: la
+// autorización de ingreso para la guardia del barrio.
+export async function GET(req: Request) {
+  const params = new URL(req.url).searchParams;
+  const que = params.get('que');
+  const pedido = params.get('pedido');
+  if (que === 'autorizacion' && !pedido) return NextResponse.json({ message: 'Falta el pedido' }, { status: 400 });
+  const ruta =
+    que === 'quien-lleva' ? '/envios/quien-lleva'
+    : que === 'autorizacion' ? `/gestion/repartidores/autorizacion/${encodeURIComponent(String(pedido))}`
+    : '/envios';
+  const res = await fetch(`${API}${ruta}`, { headers: await conToken(), cache: 'no-store' }).catch(() => null);
+  if (!res) return NextResponse.json({ message: 'No pude comunicarme con la API' }, { status: 502 });
+  return reenviar(res);
+}
+
+// POST { accion: 'se-entrego', pedidoId, medioPago?, efectivoEnCaja? }: «¿Se
+// entregó o se cancela?» → se entregó (un envío viejo que se entregó sin
+// marcarlo). efectivoEnCaja: confirmó que el efectivo está hoy en el cajón.
+export async function POST(req: Request) {
+  const body = await req.json().catch(() => ({}));
+  if (body?.accion !== 'se-entrego' || !body?.pedidoId) return NextResponse.json({ message: 'Acción inválida' }, { status: 400 });
+  const res = await fetch(`${API}/envios/${encodeURIComponent(body.pedidoId)}/se-entrego`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(await conToken()) },
+    body: JSON.stringify({ ...(body.medioPago ? { medioPago: body.medioPago } : {}), efectivoEnCaja: body.efectivoEnCaja === true }),
+  }).catch(() => null);
+  if (!res) return NextResponse.json({ message: 'No pude comunicarme con la API' }, { status: 502 });
+  return reenviar(res);
+}
+
+// PATCH { pedidoId, entregaFecha?, entregaFranja?, direccion? }: cambiar cuándo
+// o corregir a dónde va un envío. Lo que no viene no se toca.
+export async function PATCH(req: Request) {
+  const body = await req.json().catch(() => ({}));
+  if (!body?.pedidoId) return NextResponse.json({ message: 'Falta el pedido' }, { status: 400 });
+  const cambios: Record<string, unknown> = {};
+  for (const clave of ['entregaFecha', 'entregaFranja', 'direccion']) if (clave in body) cambios[clave] = body[clave];
+  const res = await fetch(`${API}/envios/${encodeURIComponent(body.pedidoId)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...(await conToken()) },
+    body: JSON.stringify(cambios),
+  }).catch(() => null);
+  if (!res) return NextResponse.json({ message: 'No pude comunicarme con la API' }, { status: 502 });
+  return reenviar(res);
 }

@@ -8,7 +8,8 @@ import { MobileMenu } from './MobileMenu';
 import { CampanaAlertas } from './CampanaAlertas';
 import { InstalarApp } from './InstalarApp';
 
-type Item = { href: string; label: string; icono: string };
+// soloRoles: entradas que ve únicamente ese rol (el repartidor tiene su propia pantalla)
+type Item = { href: string; label: string; icono: string; soloRoles?: string[] };
 type Grupo = { titulo: string; items: Item[] };
 
 // path SVG (24x24, stroke) por sección
@@ -64,10 +65,13 @@ const GRUPOS: Grupo[] = [
       { href: '/facturacion', label: 'Facturación', icono: 'facturacion' },
       { href: '/deposito', label: 'Depósito', icono: 'deposito' },
       { href: '/recepcion', label: 'Recepción', icono: 'compras' },
-      { href: '/envios', label: 'Envíos', icono: 'envios' },
-      { href: '/repartidor', label: 'Repartidor', icono: 'repartidor' },
-      { href: '/repartidores', label: 'Repartidores', icono: 'repartidor' },
+      // UN solo módulo de reparto (21/10/2026): Envíos, Repartidor, Repartidores y
+      // Reparto eran cuatro entradas; ahora son secciones de Reparto (Envíos, la
+      // primera). El repartidor sigue entrando a su pantalla de entregas, que es
+      // lo único que puede abrir.
       { href: '/reparto', label: 'Reparto', icono: 'reparto' },
+      // caja y depósito también llevan envíos cuando no hay repartidores (21/10/2026)
+      { href: '/repartidor', label: 'Mis entregas', icono: 'repartidor', soloRoles: ['repartidor', 'cajero', 'deposito'] },
       { href: '/salida', label: 'Salida', icono: 'salida' },
       { href: '/cierres', label: 'Cierres', icono: 'cierres' },
     ],
@@ -149,8 +153,7 @@ const TITULOS: Record<string, { titulo: string; bajada: string }> = {
   '/contable': { titulo: 'Contable', bajada: 'El cierre del mes: IVA ventas y compras, percepciones, Ingresos Brutos y los libros en CSV' },
   '/deposito': { titulo: 'Depósito', bajada: 'Pedidos web y PedidosYa: armado, retiro y entrega' },
   '/recepcion': { titulo: 'Recepción', bajada: 'Escaneá lo que baja del camión: el remito se arma con lo que realmente entró' },
-  '/envios': { titulo: 'Envíos a domicilio', bajada: 'Despacho: asigná repartidores y seguí cada entrega en vivo' },
-  '/repartidor': { titulo: 'Repartidor', bajada: 'Tus entregas asignadas y compartir tu ubicación en vivo' },
+  '/repartidor': { titulo: 'Mis entregas', bajada: 'Tus entregas asignadas y compartir tu ubicación en vivo' },
   '/salida': { titulo: 'Control de salida', bajada: 'Validación de códigos de Comprá Fácil' },
   '/cierres': { titulo: 'Cierres', bajada: 'Cierres de caja por sucursal y diferencias' },
   '/productos': { titulo: 'Productos', bajada: 'Catálogo completo: precios, stock y fotos' },
@@ -166,14 +169,13 @@ const TITULOS: Record<string, { titulo: string; bajada: string }> = {
   '/mesa-compras': { titulo: 'Mesa de compras', bajada: 'El costo real de cada compra, con las cuentas hechas por el sistema. El dueño aprueba antes de que se toque un precio.' },
   '/comparador': { titulo: 'Proveedores', bajada: 'Cargá listas, compará precios y decidí dónde conviene comprar cada producto' },
   '/pedidos': { titulo: 'Pedidos', bajada: 'Centro omnicanal: WhatsApp, app, web, PedidosYa, pick-up y domicilio en un solo lugar' },
-  '/repartidores': { titulo: 'Repartidores', bajada: 'Alta de repartidores, vehículos y seguros para las autorizaciones de barrio' },
-  '/reparto': { titulo: 'Reparto', bajada: 'Hojas de ruta por chofer/zona, flota en vivo en el mapa y rendición' },
+  '/reparto': { titulo: 'Reparto', bajada: 'Envíos a domicilio, hojas de ruta, repartidores y tus entregas, en un solo lugar' },
   '/analista': { titulo: 'Analista ODB', bajada: 'El asesor de abastecimiento: quiebres, reposición y oportunidades' },
   '/agente': { titulo: 'Agente IA Operativo', bajada: 'Carga y mantiene el catálogo solo, con autonomía supervisada: audita cada acción y escala a un humano cuando duda' },
   '/cuentas-corrientes': { titulo: 'Cuentas corrientes', bajada: 'La plata en la calle: riesgo, topes y mejores pagadores' },
   '/clientes': { titulo: 'Clientes', bajada: 'Cuentas, clasificación RFM y Comunidad ODB' },
   '/mensajes': { titulo: 'Mensajes', bajada: 'Solicitudes de clientes, envíos y notificaciones automáticas' },
-  '/eventos': { titulo: 'Eventos', bajada: 'Oportunidades de cumpleaños, casamientos y fiestas: armá propuestas' },
+  '/eventos': { titulo: 'Eventos', bajada: 'Cumpleaños, casamientos, corporativos y fin de año: de la propuesta al brindis' },
   '/sommelier': { titulo: 'Somelier ODB', bajada: 'El experto en vinos que atiende a tus clientes' },
   '/bot': { titulo: 'Probar el bot', bajada: 'Probá el bot que atiende por WhatsApp: mismo cerebro, catálogo y pedidos reales' },
   '/responde': { titulo: 'RESPONDE', bajada: 'Las conversaciones reales de WhatsApp: contestar, pausar el bot, notas, programados y difusión' },
@@ -239,7 +241,7 @@ export async function Header({
   // el menú muestra solo lo que el rol puede abrir (backoffice ve Abastecimiento);
   // los roles sin restricción ven todo, como siempre
   const rol = rolDesdeToken((await cookies()).get('odb_token')?.value);
-  const grupos = GRUPOS.map((g) => ({ ...g, items: g.items.filter((i) => puedeVer(rol, i.href)) })).filter((g) => g.items.length > 0);
+  const grupos = GRUPOS.map((g) => ({ ...g, items: g.items.filter((i) => puedeVer(rol, i.href) && (!i.soloRoles || i.soloRoles.includes(String(rol)))) })).filter((g) => g.items.length > 0);
 
   // Lo que espera firma va con NÚMERO en el menú, no como alerta. Hay 124
   // alertas sin leer en el panel: un aviso que nadie mira no protege nada, y de

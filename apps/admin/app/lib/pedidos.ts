@@ -12,6 +12,8 @@ export type PedidoCola = {
   creado_en: string;
   pagado_en?: string | null;
   notas?: string | null;
+  /** Cómo dijo que paga (la base lo saca de las notas): efectivo, transferencia, tarjeta, mercadopago… */
+  forma_pago?: string | null;
   entrega_fecha?: string | null;
   entrega_franja?: string | null;
   entregaEtiqueta?: string | null;
@@ -24,6 +26,8 @@ export type PedidoCola = {
   tomado_por?: string | null;
   tomado_en?: string | null;
   tomadoPorNombre?: string | null;
+  /** Quién lleva el envío (viene en la cola; lo usa «Despachar» para proponerlo). */
+  repartidor_id?: string | null;
   repartidorNombre?: string | null;
   minutos?: number;
   items?: { cantidad: number | string; precio_unitario?: number | string | null; producto?: { sku?: string; nombre?: string } | null }[];

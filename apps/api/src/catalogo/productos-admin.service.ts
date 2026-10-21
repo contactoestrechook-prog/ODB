@@ -240,7 +240,7 @@ export class ProductosAdminService {
   // tiene que quedar igual: si no, la compra entra en kg y la caja lo sigue
   // cobrando por unidad, y el stock mezcla kilos con unidades. Sin `porPeso`
   // solo informa cómo está; con `porPeso` lo cambia y deja auditoría.
-  async porPesoPorSku(sku: string, porPeso?: boolean, usuarioId?: string) {
+  async porPesoPorSku(sku: string, porPeso?: boolean, usuarioId?: string, desde: 'carga_factura' | 'fraccionar' = 'carga_factura') {
     const clave = String(sku ?? '').trim();
     if (!clave) throw new BadRequestException('Falta el producto');
     const { data: prod, error } = await this.db
@@ -264,7 +264,7 @@ export class ProductosAdminService {
         entidad: 'producto',
         entidad_id: p.id,
         datos_antes: { vendidoPorPeso: !!p.vendido_por_peso },
-        datos_despues: { vendidoPorPeso: !!porPeso, desde: 'carga_factura' },
+        datos_despues: { vendidoPorPeso: !!porPeso, desde },
       })
       .then(() => null, () => null);
     this.catalogo.invalidarFotos(); // limpia el caché del catálogo

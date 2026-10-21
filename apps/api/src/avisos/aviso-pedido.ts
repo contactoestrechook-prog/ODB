@@ -8,6 +8,7 @@
 // antes de reintentar, para no mandarlo dos veces.
 
 import { cuandoLegible } from '../comun/cuando';
+import { sinRestosDeMarcado } from '../comun/texto-limpio';
 
 export type TipoAviso = 'pedido_nuevo' | 'pedido_cancelado' | 'pedido_pagado' | 'pedido_sin_cargar' | 'pedido_sin_tomar';
 
@@ -172,7 +173,8 @@ export function textoDelAviso(p: PedidoParaAviso, opciones: { conRenglones: bool
     `Cliente: ${cliente || 'sin datos (compra sin cuenta)'}`,
     ...(opciones.conRenglones ? renglonesDe(p) : []),
     `Total: $${pesos(p.total)}. ${cobroDe(p)}`,
-    p.notas?.trim() ? `Notas: ${p.notas.trim().slice(0, 300)}` : null,
+    // sin restos de marcado (21/10/2026): la sintaxis del bot no llega a administración
+    sinRestosDeMarcado(p.notas) ? `Notas: ${sinRestosDeMarcado(p.notas).slice(0, 300)}` : null,
     // quién lo recibe queda anotado (6/10/2026): el link abre el pedido en el panel con "Lo tomo"
     `Tomalo acá: ${linkDelPedido(p.id)}`,
   ].filter(Boolean).join('\n');

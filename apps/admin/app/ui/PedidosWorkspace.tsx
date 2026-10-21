@@ -2,11 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { numero, pesos as pesosFmt } from '../lib/formato';
+import { textoVisible } from '../lib/texto';
 import {
-  cantidadLegible, codigoDe, entregaDe, ESTADOS, haceCuanto, linkWhatsapp, origenDe, pideMedioAlEntregar, siguientePaso, sinTomar,
+  cantidadLegible, codigoDe, entregaDe, esDomicilio, ESTADOS, haceCuanto, linkWhatsapp, origenDe, pideMedioAlEntregar, siguientePaso, sinTomar,
   telefonoLegible, type PedidoCola,
 } from '../lib/pedidos';
 import { BotonMicrofono } from './BotonMicrofono';
+import { FaltantesAlEntregar, faltaDeStock, type FaltaDeStock } from './FaltantesAlEntregar';
+import { ModalDespachar } from './EnvioPartes';
 import {
   AreaTexto, Aviso, Boton, Cargando, Chips, Entrada, Etiqueta, FOCO, IconoCerrar, Modal, Pestanas, PlacaRoja, TablaResponsiva, Tarjeta, unir,
   useConfirmar, Vacio,
@@ -61,7 +64,7 @@ type LineaHistorial = { cuando: string; que: string; quien: string | null; tono:
 // nos quedan los datos de quién hizo cada cosa"). Cada tarjeta dice quién lo
 // tiene ("Sin tomar" hasta que alguien toca "Lo tomo"), el detalle trae el
 // historial completo con nombre y hora, y los terminados se pueden consultar.
-export function PedidosWorkspace({ inicial, puedeSimular = false }: { inicial: PedidoCola[]; puedeSimular?: boolean }) {
+export function PedidosWorkspace({ inicial, puedeSimular = false, puedeCargarRepartidor = false }: { inicial: PedidoCola[]; puedeSimular?: boolean; puedeCargarRepartidor?: boolean }) {
   const [pedidos, setPedidos] = useState<PedidoCola[]>(inicial);
   const [vista, setVista] = useState<'curso' | 'terminados'>('curso');
   const [terminados, setTerminados] = useState<PedidoCola[] | null>(null);
@@ -71,8 +74,13 @@ export function PedidosWorkspace({ inicial, puedeSimular = false }: { inicial: P
   const [abierto, setAbierto] = useState<PedidoCola | null>(null);
   const [trabajando, setTrabajando] = useState<string | null>(null);
   const [entregando, setEntregando] = useState<PedidoCola | null>(null);
+  // al entregar faltaba stock: la ventana pregunta si se saca o se reemplaza
+  const [falta, setFalta] = useState<{ datos: FaltaDeStock; body: any } | null>(null);
   const { confirmar, dialogo } = useConfirmar();
   const timer = useRef<any>(null);
+  // despachar un envío: quién lo lleva, acá mismo (caja y depósito no abren Reparto)
+  const [despachando, setDespachando] = useState<PedidoCola | null>(null);
+  const [errorDespacho, setErrorDespacho] = useState<string | null>(null);
 
   const recargar = useCallback(async () => {
     const r = await fetch('/api/pedidos', { cache: 'no-store' }).catch(() => null);
@@ -116,7 +124,17 @@ export function PedidosWorkspace({ inicial, puedeSimular = false }: { inicial: P
     const r = await fetch('/api/pedidos', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).catch(() => null);
     if (!r) { setAviso('Sin conexión. Probá de nuevo.'); return null; }
     const d = await r.json().catch(() => ({}));
-    if (!r.ok) { setAviso(d.message ?? 'No se pudo hacer el cambio.'); return null; }
+    if (!r.ok) {
+      const fs = body.estado === 'entregado' ? faltaDeStock(body.pedidoId, r.status, d) : null;
+      if (fs) { setFalta({ datos: fs, body }); return null; }
+      // un envío sin quién lo lleve, o que se quiso entregar sin que saliera: se elige acá
+      if (d?.codigo === 'FALTA_REPARTIDOR' || d?.codigo === 'ENVIO_SIN_SALIR') {
+        const p = pedidos.find((x) => x.id === body.pedidoId);
+        if (p) { setErrorDespacho(null); setDespachando(p); return null; }
+      }
+      setAviso(d.message ?? 'No se pudo hacer el cambio.');
+      return null;
+    }
     await recargar();
     if (vista === 'terminados' || body.estado === 'entregado' || body.estado === 'cancelado') cargarTerminados();
     return d;
@@ -130,6 +148,11 @@ export function PedidosWorkspace({ inicial, puedeSimular = false }: { inicial: P
   }
 
   async function avanzar(p: PedidoCola, estado: string, medioPago?: string) {
+    // Un envío a domicilio sale con alguien que lo lleve (21/10/2026: sin eso la
+    // API no lo deja salir). Se elige acá mismo: antes «Despachar» mandaba a
+    // Reparto › Envíos y a caja y depósito, que no abren Reparto, el panel los
+    // devolvía a su inicio sin decir nada (revisión del 21/10/2026).
+    if (estado === 'en_camino' && esDomicilio(p)) { setErrorDespacho(null); setDespachando(p); return; }
     if (estado === 'entregado' && !medioPago && pideMedioAlEntregar(p)) { setEntregando(p); return; }
     setTrabajando(p.id);
     await post({ pedidoId: p.id, estado, medioPago });
@@ -258,6 +281,42 @@ export function PedidosWorkspace({ inicial, puedeSimular = false }: { inicial: P
           onConfirmar={async (medio) => { const p = entregando; setEntregando(null); await avanzar(p, 'entregado', medio); }}
         />
       )}
+      {falta && (
+        <FaltantesAlEntregar
+          falta={falta.datos}
+          onCerrar={() => { setFalta(null); recargar(); }}
+          onEntregar={async () => { const b = falta.body; setFalta(null); setTrabajando(b.pedidoId); await post(b); setTrabajando(null); }}
+        />
+      )}
+      {despachando && (
+        <ModalDespachar
+          envio={{
+            id: despachando.id,
+            codigo: codigoDe(despachando),
+            cliente: despachando.clienteNombre || null,
+            direccion: textoVisible(despachando.destino_direccion, { unaLinea: true }),
+            repartidorId: despachando.repartidor_id ?? null,
+          }}
+          puedeCargarRepartidor={puedeCargarRepartidor}
+          trabajando={trabajando === despachando.id}
+          error={errorDespacho}
+          onCerrar={() => { setDespachando(null); setErrorDespacho(null); }}
+          onConfirmar={async (repartidorId) => {
+            const p = despachando;
+            setTrabajando(p.id);
+            setErrorDespacho(null);
+            const r = await fetch('/api/pedidos', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pedidoId: p.id, estado: 'en_camino', repartidorId }) }).catch(() => null);
+            const d = r ? await r.json().catch(() => ({})) : null;
+            setTrabajando(null);
+            // si algo falla, se ve en la ventana, que queda abierta
+            if (!r) { setErrorDespacho('Sin conexión. Probá de nuevo.'); return; }
+            if (!r.ok) { setErrorDespacho(d?.message ?? 'No se pudo despachar.'); return; }
+            setDespachando(null);
+            await recargar();
+            cargarTerminados();
+          }}
+        />
+      )}
       {wa && <ModalWhatsApp cerrar={() => setWa(false)} post={post} />}
       {dialogo}
     </div>
@@ -368,7 +427,7 @@ function DetallePedido({ p, trabajando, onCerrar, onTomar, onAvanzar, onCancelar
           <div className="min-w-0"><dt className="text-xs text-tinta/60">Pago</dt><dd className="text-tinta">{p.pagado_en ? 'Pagado por Mercado Pago' : String(p.qr_retiro ?? '').startsWith('PY-') ? 'Lo cobra PedidosYa' : 'A cobrar al entregar'}</dd></div>
           <div className="min-w-0"><dt className="text-xs text-tinta/60">Quién lo tiene</dt><dd className="text-tinta">{p.tomadoPorNombre ?? (sinTomar(p) ? 'Nadie todavía' : '—')}</dd></div>
           {p.repartidorNombre && <div className="min-w-0"><dt className="text-xs text-tinta/60">Repartidor</dt><dd className="text-tinta">{p.repartidorNombre}</dd></div>}
-          {p.notas?.trim() && <div className="col-span-2 min-w-0"><dt className="text-xs text-tinta/60">Notas</dt><dd className="whitespace-pre-wrap break-words text-tinta">{p.notas.trim()}</dd></div>}
+          {textoVisible(p.notas) && <div className="col-span-2 min-w-0"><dt className="text-xs text-tinta/60">Notas</dt><dd className="whitespace-pre-wrap break-words text-tinta">{textoVisible(p.notas)}</dd></div>}
         </dl>
 
         {items.length > 0 && (
@@ -423,7 +482,8 @@ function DetallePedido({ p, trabajando, onCerrar, onTomar, onAvanzar, onCancelar
 
 // Entregar sin elegir cómo pagó registraba la venta como "efectivo" siempre.
 function ModalEntregar({ p, onCerrar, onConfirmar }: { p: PedidoCola; onCerrar: () => void; onConfirmar: (medio: string) => void }) {
-  const [medio, setMedio] = useState('efectivo');
+  // viene marcado lo que dijo el cliente (21/10/2026); si no dijo nada, efectivo como antes
+  const [medio, setMedio] = useState(MEDIOS.some((m) => m.valor === p.forma_pago) ? String(p.forma_pago) : 'efectivo');
   return (
     <Modal
       abierto

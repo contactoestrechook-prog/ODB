@@ -24,6 +24,7 @@ export function ConfigCliente({ cliente }: { cliente: any }) {
     condicionIva: cliente.condicion_iva ?? 'consumidor_final',
     domicilio: cliente.domicilio ?? '',
     telefono: cliente.telefono ?? '',
+    fechaNacimiento: cliente.fecha_nacimiento ? String(cliente.fecha_nacimiento).slice(0, 10) : '',
     ctaCteHabilitada: !!cliente.cta_cte_habilitada,
     limiteCredito: cliente.limite_credito ?? 0,
   });
@@ -32,7 +33,10 @@ export function ConfigCliente({ cliente }: { cliente: any }) {
 
   const campo = (k: string, v: any) => setForm((f) => ({ ...f, [k]: v }));
 
+  const fechaInicial = cliente.fecha_nacimiento ? String(cliente.fecha_nacimiento).slice(0, 10) : '';
+
   const guardar = async () => {
+    const { fechaNacimiento, ...sinFecha } = form;
     setCargando(true);
     setError('');
     try {
@@ -41,7 +45,9 @@ export function ConfigCliente({ cliente }: { cliente: any }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           id: cliente.id,
-          ...form,
+          ...sinFecha,
+          // solo si se cambió: así nunca se borra una fecha que no vino en la lista
+          ...(fechaNacimiento !== fechaInicial ? { fechaNacimiento: fechaNacimiento || null } : {}),
           limiteCredito: Number(form.limiteCredito) || 0,
         }),
       });
@@ -66,7 +72,7 @@ export function ConfigCliente({ cliente }: { cliente: any }) {
         abierto={abierto}
         onCerrar={() => setAbierto(false)}
         titulo={cliente.nombre ?? `DNI ${cliente.dni}`}
-        descripcion="Datos fiscales y cuenta corriente"
+        descripcion="Datos fiscales, cumpleaños y cuenta corriente"
         ancho="chico"
         bloquearCierre={cargando}
         cerrarAlTocarAfuera={false}
@@ -95,8 +101,12 @@ export function ConfigCliente({ cliente }: { cliente: any }) {
             <Campo etiqueta="Domicilio" className="sm:col-span-2">
               <Entrada value={form.domicilio} onChange={(e) => campo('domicilio', e.target.value)} />
             </Campo>
-            <Campo etiqueta="Teléfono" className="sm:col-span-2">
+            <Campo etiqueta="Teléfono">
               <Entrada value={form.telefono} onChange={(e) => campo('telefono', e.target.value)} inputMode="tel" />
+            </Campo>
+            {/* Eventos ofrece el festejo a quien cumple en los próximos 60 días */}
+            <Campo etiqueta="Fecha de nacimiento" ayuda="Para ofrecerle el festejo (Eventos).">
+              <Entrada type="date" value={form.fechaNacimiento} onChange={(e) => campo('fechaNacimiento', e.target.value)} max={new Date().toISOString().slice(0, 10)} />
             </Campo>
           </div>
 

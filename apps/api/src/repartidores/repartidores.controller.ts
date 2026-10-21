@@ -60,6 +60,11 @@ export class RepartidoresController {
     return this.serv.asignarReparto(pedidoId, b.repartidorId, b.vehiculoId);
   }
 
+  // La autorización para la guardia se pide desde Reparto › Envíos, que abren
+  // gerencia y dueño: queda con los roles del módulo. Trae el DNI y el teléfono
+  // de quien lleva el envío (puede ser un compañero), la patente y la póliza;
+  // abrirla a caja y depósito (y por herencia a administrativo) sin una
+  // pantalla que la pida solo exponía esos datos (revisión del 21/10/2026).
   @Get('autorizacion/:pedidoId')
   autorizacion(@Param('pedidoId') pedidoId: string) {
     return this.serv.autorizacion(pedidoId);

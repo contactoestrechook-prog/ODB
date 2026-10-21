@@ -213,8 +213,12 @@ export function Modal({
           {children}
         </div>
 
+        {/* En el celular los botones se reparten el ancho partiendo de lo que
+            mide cada rótulo (flex-auto, no flex-1): si no entran en un renglón,
+            el último baja entero al siguiente. Con flex-1 se apretaban en uno
+            solo y «Mandar por WhatsApp» salía en tres renglones. */}
         {pie && (
-          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-black/[0.06] bg-white px-5 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] max-sm:*:flex-1 sm:px-6 sm:pb-4">
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-black/[0.06] bg-white px-5 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] max-sm:*:flex-auto sm:px-6 sm:pb-4">
             {pie}
           </div>
         )}

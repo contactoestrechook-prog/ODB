@@ -14,6 +14,7 @@ import {
   clasesBoton,
   unir,
 } from './kit';
+import { fecha } from '../lib/formato';
 
 // Alta y gestión de repartidores con sus vehículos y seguros. Los datos del
 // vehículo (patente, modelo) y la póliza son los que pide la seguridad de un
@@ -155,7 +156,7 @@ export function RepartidoresWorkspace({ inicial }: { inicial: Repartidor[] }) {
                     <Boton variante="peligro" tamano="chico" className="shrink-0" onClick={() => quitarVehiculo(v.id)}>Quitar</Boton>
                   </div>
                   <p className="break-words text-xs text-tinta/70">
-                    Seguro: {v.seguroCompania || '—'}{v.seguroPoliza ? ` · Póliza ${v.seguroPoliza}` : ''}{v.seguroVencimiento ? ` · Vence ${v.seguroVencimiento}` : ''}
+                    Seguro: {v.seguroCompania || '—'}{v.seguroPoliza ? ` · Póliza ${v.seguroPoliza}` : ''}{v.seguroVencimiento ? ` · Vence ${fecha(v.seguroVencimiento, 'completa')}` : ''}
                     {v.seguroVencido && <> <Etiqueta tono="error" className="align-middle">VENCIDO</Etiqueta></>}
                   </p>
                   <div className="flex flex-wrap items-center gap-2 text-xs">

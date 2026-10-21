@@ -67,8 +67,8 @@ export default async function Inicio() {
       items: [
         { label: 'Facturación', href: '/facturacion', icon: 'facturacion', sub: 'A · B · R · cuenta corriente' },
         { label: 'Pedidos', href: '/pedidos', icon: 'pedidos', sub: 'whatsapp · web · PY', badge: pedidosActivos },
-        { label: 'Reparto', href: '/reparto', icon: 'reparto', sub: 'hojas de ruta' },
-        { label: 'Envíos', href: '/envios', icon: 'envios', sub: 'despacho a domicilio' },
+        // Envíos es la primera sección de Reparto desde el 21/10/2026
+        { label: 'Reparto', href: '/reparto', icon: 'reparto', sub: 'envíos y hojas de ruta' },
         { label: 'Cierres', href: '/cierres', icon: 'cierres', sub: 'caja y arqueo' },
       ],
     },

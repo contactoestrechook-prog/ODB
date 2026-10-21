@@ -21,6 +21,7 @@ const RUTAS_POR_ROL: Record<string, string[]> = {
     '/productos', // catálogo: alta de productos que llegan sin estar cargados
     '/precios', // verificador de precios del salón (equipo de mano con lector)
     '/conteo', // conteos de inventario
+    '/fraccionar', // cargar el pozo y armar (el API ya se lo permite: hereda depósito), 21/10/2026
     '/trazabilidad', // cadena orden → recepción → factura → pago y sus documentos
     '/manual', // el manual lo abre cualquiera
     '/cambiar-clave',
@@ -40,6 +41,29 @@ const RUTAS_POR_ROL: Record<string, string[]> = {
     '/precios', // verificador de precios
     '/productos', // catálogo (consulta)
     '/cheques', // cheques que recibe en el mostrador
+    // «Mis entregas»: los envíos que lleva (21/10/2026: sin repartidores
+    // cargados, un envío sale con alguien del local y tiene que ver la
+    // dirección, el teléfono y qué cobrar). Solo ve los suyos.
+    '/repartidor',
+    '/fraccionar', // armar docenas y abrir maples en el local (el API ya se lo permitía), 21/10/2026
+    '/manual', // el manual lo abre cualquiera
+    '/cambiar-clave',
+  ],
+  // Comprador (21/10/2026): antes no figuraba y veía todo el menú, y en
+  // Reparto, Eventos, Fraccionar, Pedidos o Depósito el API le daba 403
+  // («No pude consultar la API», listas vacías sin explicación). Su lista va
+  // alineada con los @Roles del API que lo incluyen: abastecimiento, compras,
+  // proveedores y sus listas, documentos y catálogo.
+  comprador: [
+    '/compras', // órdenes de compra, sugerencias, deuda con proveedores
+    '/pedido-proveedor', // armar el pedido desde el celular
+    '/facturas-compra',
+    '/mesa-compras', // abastecimiento
+    '/comparador', // proveedores
+    '/listas', // listas de precios de proveedor
+    '/trazabilidad', // cadena orden → recepción → factura → pago
+    '/analista',
+    '/productos', // catálogo
     '/manual', // el manual lo abre cualquiera
     '/cambiar-clave',
   ],
@@ -49,8 +73,10 @@ const RUTAS_POR_ROL: Record<string, string[]> = {
     '/recepcion', // recepción de mercadería con lector
     '/stock',
     '/conteo',
+    '/fraccionar', // armar presentaciones y cargar el pozo (con PIN de supervisor arriba del tope), 21/10/2026
     '/precios',
     '/productos',
+    '/repartidor', // «Mis entregas»: los envíos que lleva (ver cajero)
     '/manual', // el manual lo abre cualquiera
     '/cambiar-clave',
   ],
@@ -59,6 +85,7 @@ const RUTAS_POR_ROL: Record<string, string[]> = {
 // A dónde entra cada rol al loguearse (el resto va a /inicio)
 const LANDING_POR_ROL: Record<string, string> = {
   administrativo: '/facturas-compra',
+  comprador: '/compras',
   repartidor: '/repartidor',
   cajero: '/caja',
   deposito: '/deposito',
@@ -83,6 +110,16 @@ const RUTAS_SOLO_DUENO = ['/whatsapp', '/responde'];
 // abrir de verdad.
 const RUTAS_DIRECCION = ['/aprobaciones', '/actividad'];
 
+/**
+ * Cargar repartidores (Reparto › Repartidores, gestion/repartidores en el API)
+ * es de gerencia y dueño. Caja y depósito despachan desde Pedidos y Depósito
+ * pero no abren Reparto: a ellos no se les ofrece el link (el panel los
+ * devolvía a su inicio sin explicar nada y perdían el despacho a medio hacer).
+ */
+export function puedeCargarRepartidores(rol: string | null | undefined): boolean {
+  return rol === 'dueno' || rol === 'gerente';
+}
+
 export function puedeVer(rol: string | null | undefined, pathname: string): boolean {
   if (RUTAS_SOLO_DUENO.some((r) => pathname === r || pathname.startsWith(r + '/'))) {
     return rol === 'dueno';
@@ -97,22 +134,32 @@ export function puedeVer(rol: string | null | undefined, pathname: string): bool
 
 // El rol viaja en el JWT (cookie odb_token). Acá solo se LEE el payload para
 // decidir qué mostrar; la verificación de firma la hace el API en cada llamada.
-export function datosDesdeToken(token?: string | null): { sub: string | null; rol: string | null; nombre: string | null } {
-  if (!token) return { sub: null, rol: null, nombre: null };
+function payloadDe(token?: string | null): Record<string, unknown> | null {
+  if (!token) return null;
   try {
     const payload = token.split('.')[1];
-    if (!payload) return { sub: null, rol: null, nombre: null };
+    if (!payload) return null;
     const b64 = payload.replace(/-/g, '+').replace(/_/g, '/');
     const json = typeof atob === 'function' ? atob(b64) : Buffer.from(b64, 'base64').toString('utf8');
-    const datos = JSON.parse(decodeURIComponent(escape(json)));
-    return {
-      sub: typeof datos?.sub === 'string' ? datos.sub : null,
-      rol: typeof datos?.rol === 'string' ? datos.rol : null,
-      nombre: typeof datos?.nombre === 'string' ? datos.nombre : null,
-    };
+    return JSON.parse(decodeURIComponent(escape(json)));
   } catch {
-    return { sub: null, rol: null, nombre: null };
+    return null;
   }
+}
+
+export function datosDesdeToken(token?: string | null): { sub: string | null; rol: string | null; nombre: string | null } {
+  const datos = payloadDe(token);
+  return {
+    sub: typeof datos?.sub === 'string' ? datos.sub : null,
+    rol: typeof datos?.rol === 'string' ? datos.rol : null,
+    nombre: typeof datos?.nombre === 'string' ? datos.nombre : null,
+  };
+}
+
+/** La sucursal asignada al usuario (usuarios.sucursal_id), si tiene. */
+export function sucursalDesdeToken(token?: string | null): string | null {
+  const datos = payloadDe(token);
+  return typeof datos?.sucursalId === 'string' && datos.sucursalId ? datos.sucursalId : null;
 }
 
 export function rolDesdeToken(token?: string | null): string | null {

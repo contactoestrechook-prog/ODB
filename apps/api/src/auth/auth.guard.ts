@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
-import { ES_PUBLICO, ROLES } from './decorators';
+import { ES_PUBLICO, ROLES, SIN_HERENCIA } from './decorators';
 
 // qué roles "hereda" cada rol compuesto (además de sí mismo)
 export const ROLES_IMPLICADOS: Record<string, string[]> = {
@@ -46,7 +46,9 @@ export class AuthGuard implements CanActivate {
     // comprador Y depósito — cargar facturas y remitos, recibir mercadería,
     // órdenes de compra, proveedores — y nada más (ni caja, ni ventas, ni
     // dirección). Así no hace falta tocar cada @Roles del sistema.
-    const rolesEfectivos = ROLES_IMPLICADOS[req.usuario.rol] ?? [req.usuario.rol];
+    // @SinHerencia: solo el rol propio (ver decorators.ts)
+    const sinHerencia = this.reflector.getAllAndOverride<boolean>(SIN_HERENCIA, [ctx.getHandler(), ctx.getClass()]);
+    const rolesEfectivos = sinHerencia ? [req.usuario.rol] : ROLES_IMPLICADOS[req.usuario.rol] ?? [req.usuario.rol];
     if (roles?.length && !roles.some((r) => rolesEfectivos.includes(r))) {
       throw new ForbiddenException(
         `Esta acción requiere rol ${roles.join(' o ')} (tu rol: ${req.usuario.rol})`,

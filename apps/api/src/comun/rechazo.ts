@@ -5,10 +5,15 @@
 
 const ZONA = 'America/Argentina/Buenos_Aires';
 
-/** "03/10/2026" en la hora de Buenos Aires (el servidor corre en UTC). */
+/**
+ * "03/10/2026" en la hora de Buenos Aires (el servidor corre en UTC). Una
+ * fecha sola ("2026-09-30", las columnas `date`) se toma al mediodía: si no,
+ * es la medianoche de Londres y se corre al día anterior.
+ */
 export function fechaCorta(v: string | Date | null | undefined): string | null {
   if (!v) return null;
-  const d = v instanceof Date ? v : new Date(v);
+  const s = typeof v === 'string' ? v.trim() : '';
+  const d = v instanceof Date ? v : new Date(/^\d{4}-\d{2}-\d{2}$/.test(s) ? `${s}T12:00:00-03:00` : s);
   if (Number.isNaN(d.getTime())) return null;
   return d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: ZONA });
 }

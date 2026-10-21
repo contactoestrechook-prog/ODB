@@ -265,7 +265,9 @@ export const SECCIONES: Seccion[] = [
           ['Lo tomo', 'Quién lo tomó y a qué hora. En la tarjeta dice "Lo tiene …".'],
           ['Preparar / Marcar listo', 'Quién y cuándo. Preparar un pedido que nadie tomó, lo toma.'],
           ['Despachar / Repartidor', 'Quién lo despachó y quién le asignó repartidor.'],
+          ['Cambió el envío', 'Quién cambió la fecha, la franja o la dirección de un envío, y cómo quedó.'],
           ['Entregado', 'Quién lo entregó y cómo pagó (efectivo, tarjeta o transferencia). El efectivo entra en la caja abierta.'],
+          ['Faltaba stock', 'Qué se sacó, qué se puso en su lugar y cómo cambió el total, con el nombre de quien lo hizo.'],
           ['Cancelar', 'Quién lo canceló. Se devuelve el stock y le llega la baja a administración.'],
         ],
       },
@@ -273,6 +275,8 @@ export const SECCIONES: Seccion[] = [
         tipo: 'ojo',
         puntos: [
           '"Más tarde" (la X de la ventana) la esconde 10 minutos en tu pantalla, nada más: el pedido sigue sin tomar y el reclamo sale igual.',
+          'Si al entregar falta algo en el stock, el sistema no entrega a medias: muestra qué producto falta, cuántos lleva el pedido y cuántos hay, y pregunta qué hacemos. "Sacarlo" lo saca del pedido (si hay algunos, se entregan los que hay). "Reemplazarlo" busca otro producto con stock en esa sucursal y lo pone al precio de hoy. Cuando no falta nada, "Entregar" sigue con el total nuevo.',
+          'Si el pedido ya estaba pagado (Mercado Pago o PedidosYa) y el total cambia, la ventana dice cuánto hay que devolverle o cobrarle al cliente.',
           'Los entregados y cancelados de la última semana están en Pedidos › "Terminados (7 días)".',
           'Al cliente le llega un WhatsApp cuando su pedido está listo, sale y se entrega. Por eso la web y la app ahora le piden su WhatsApp.',
         ],
@@ -716,8 +720,132 @@ export const SECCIONES: Seccion[] = [
       },
     ],
   },
+  {
+    id: 'eventos',
+    titulo: 'Eventos: vender cumpleaños, casamientos y fin de año',
+    area: 'Clientes y cuenta corriente',
+    roles: ['cajero', 'gerente', 'dueno'],
+    bajada: 'Cargar un evento, armarle la propuesta de bebidas y llevarlo de Prospecto a Realizado.',
+    bloques: [
+      {
+        tipo: 'pasos',
+        titulo: 'Cargar un evento',
+        pasos: [
+          'Tocá "Nuevo evento" (arriba de todo, siempre a la vista).',
+          'Elegí para quién: buscá al cliente por nombre, DNI o CUIT, o pasá a "Contacto nuevo" y poné nombre y WhatsApp con característica y sin el 15 (11 2281-2200, no 15 2281-2200). Si ese teléfono ya es de un cliente, el sistema lo encuentra solo; si no, lo da de alta.',
+          'Elegí qué festejan (cumpleaños, casamiento, corporativo, fin de año u otro). El nombre del evento se arma solo ("Casamiento de Ana"; si el cliente está cargado por lote, como "Campos 51", queda solo "Casamiento"); lo podés borrar y escribir otro.',
+          'Cargá fecha, invitados, lugar y notas si los sabés, y tocá "Crear evento". Se abre el evento para armar la propuesta.',
+        ],
+      },
+      {
+        tipo: 'pasos',
+        titulo: 'Armar la propuesta y mandarla',
+        pasos: [
+          'Con los invitados cargados, "Sugerir bebidas con IA" arma una propuesta con lo que hay en stock. Si ya había renglones, pregunta antes de reemplazarlos y deja "Deshacer".',
+          'En cada renglón se corrigen la cantidad y el precio unitario (el acordado con el cliente, con descuento). Con el buscador de abajo se agregan productos, y "Renglón libre" suma lo que no es un producto: servicio de barra, hielo, copas, envío.',
+          '"Guardar propuesta" la deja guardada y pasa el evento a Propuesta. "Descartar cambios" vuelve a lo guardado.',
+          '"Escribir por WhatsApp" abre el chat con el cliente (o con el contacto del evento) y "Descargar PDF" baja el presupuesto con el diseño de la casa para adjuntarlo. Si hay cambios sin guardar, el botón dice "Guardar y bajar PDF": primero guarda, así el PDF sale con lo que ves.',
+          'Si el cliente usa la app de ODB, un gerente o el dueño también le puede "Dejar aviso en la app". La pantalla dice si le llegó al celular o si quedó solo en su cuenta.',
+        ],
+      },
+      {
+        tipo: 'pasos',
+        titulo: 'Llevarlo de etapa en etapa',
+        pasos: [
+          'Las etapas son Prospecto → Propuesta → Confirmado → Realizado. En el evento, el botón principal dice cuál sigue: "Pasar a Confirmado", "Marcar como realizado".',
+          'Si te equivocaste, "Volver a…" lo regresa una etapa.',
+          '"Cancelar evento" pide un motivo (opcional) que queda en las notas. Un cancelado se puede reabrir. Cancelar es también la forma de cerrar una oportunidad que dijo que no: no vuelve a aparecer en Oportunidades.',
+          'En "Datos del evento" se cambian el cliente ("Cambiar cliente"), el contacto y su WhatsApp. Si no hay un WhatsApp que sirva, en vez de "Escribir por WhatsApp" aparece "Cargá el WhatsApp para escribirle".',
+          'Un gerente o el dueño puede "Eliminar evento" uno cargado por error o de prueba: se borra y no cuenta en la tasa de cierre.',
+          'En la compu, la pantalla muestra un tablero con una columna por etapa, con la cantidad y la plata de cada una. En el celular, los chips de arriba filtran por etapa ("En curso" junta los tres abiertos).',
+          'Lo que es esta semana tiene el borde marcado y dice cuántos días faltan.',
+        ],
+      },
+      {
+        tipo: 'campos',
+        titulo: 'Los números de arriba',
+        filas: [
+          ['Próximos 30 días', 'Eventos abiertos con fecha en el próximo mes (y cuántos son esta semana).'],
+          ['Propuestas abiertas', 'Plata de las propuestas que esperan respuesta del cliente.'],
+          ['Confirmados', 'Plata de los eventos confirmados que todavía no se hicieron.'],
+          ['Tasa de cierre', 'Confirmados y realizados sobre todo lo decidido (los cancelados cuentan como perdidos).'],
+        ],
+      },
+      {
+        tipo: 'pasos',
+        titulo: 'Oportunidades',
+        pasos: [
+          'Fin de año: las empresas (CUIT 30, 33 o 34, responsables inscriptos o mayoristas) que compraron o escribieron por WhatsApp en el último año y todavía no tienen su fiesta cargada, las que más compraron primero. Una con CUIT pero sin compras ni charlas no aparece.',
+          'Compras grandes: clientes identificados que en los últimos 60 días hicieron una compra de $100.000 o más (cuando haya 30 compras o más en 90 días, el doble de un pedido típico, si es más). Solo cuentan los pedidos que avanzaron: un pedido que nadie tomó no es una compra. Seguro festejaron algo: ofreceles el próximo.',
+          'Cumpleaños: los clientes que cumplen hoy o en los próximos 60 días. Solo salen los que tienen la fecha de nacimiento cargada: la carga un gerente o el dueño en Clientes, con "Configurar" en la fila del cliente.',
+          '"Armar propuesta" abre "Nuevo evento" con el cliente y el tipo ya puestos. Cuando la empresa o el cliente ya tiene su evento, o lo canceló porque dijo que no, deja de aparecer.',
+        ],
+      },
+      {
+        tipo: 'ojo',
+        puntos: [
+          'Un evento abierto con la fecha pasada hace aparecer un aviso arriba: marcalo como realizado o cancelalo, así los números dicen la verdad.',
+          'El sistema no manda el WhatsApp solo: "Escribir por WhatsApp" abre el chat con el saludo listo, y el PDF lo adjuntás y lo mandás vos.',
+          '"Dejar aviso en la app" solo le llega al celular a quien tiene la app de ODB con las notificaciones activadas (en octubre de 2026, nadie): por eso el camino de siempre es el WhatsApp.',
+        ],
+      },
+    ],
+  },
 
   // ---------------------------------------------------------------- reparto
+  {
+    id: 'envios',
+    titulo: 'Despachar los envíos a domicilio',
+    area: 'Reparto',
+    roles: ['dueno', 'gerente', 'comprador'],
+    bajada: 'Reparto › Envíos: qué hay que preparar, quién lo lleva, qué se cobra y lo que quedó atrasado.',
+    bloques: [
+      {
+        tipo: 'texto',
+        texto: 'Es la primera sección de Reparto (hasta el 21/10/2026 era otra entrada del menú, «Envíos»). Muestra los pedidos a domicilio abiertos, del bot, la tienda web y la app, ordenados por lo que hay que hacer.',
+      },
+      {
+        tipo: 'campos',
+        titulo: 'Cómo está ordenada',
+        filas: [
+          ['Atrasados (en rojo)', 'La fecha de entrega ya pasó, nadie lo movió en 24 horas o salió hace más de 12 y nadie lo marcó entregado. Cada uno dice por qué y cuánto hace.'],
+          ['Para hoy', 'Los pactados para hoy y los que no tienen fecha (lo antes posible).'],
+          ['Programados', 'Tienen fecha más adelante: se preparan ese día.'],
+          ['Adentro de cada grupo', 'Por paso: para preparar, preparando, listos para salir y en la calle.'],
+          ['Los números de arriba', 'Atrasados, para hoy (y cuántos programados), en la calle y sin repartidor.'],
+        ],
+      },
+      {
+        tipo: 'pasos',
+        titulo: 'Cada envío',
+        pasos: [
+          'La tarjeta trae al cliente con su teléfono («WhatsApp» abre el chat y «Llamar» lo llama), la dirección con «Abrir en el mapa», cuándo se entrega, cómo se cobra, las indicaciones y, en la Placa roja, qué lleva.',
+          'Un botón por paso, en orden: «Empezar a preparar», «Marcar listo», «Salió» y «Entregado». Lo que pasa con cada uno (o el error, si algo falla) se ve en la misma tarjeta.',
+          '«Quién lo lleva»: un repartidor o, si no hay o están todos en la calle, alguien del local: encargado, caja o depósito (aparecen aparte en la lista). Esa persona ve el envío en «Mis entregas» (en el menú, o en Reparto › Mis entregas), con la dirección, el teléfono y qué cobrar, y lo marca entregado desde ahí.',
+          '«Salió» abre una ventana para confirmar quién lo lleva: sin alguien elegido el envío no sale, y al cliente le llega el WhatsApp de que salió.',
+          '«Cambiar cuándo o dirección»: otra fecha o franja (por ejemplo, si el cliente lo pide para el viernes) o la dirección corregida. Queda en el historial del pedido; al cliente no se le manda nada.',
+          '«Autorización para la guardia» (cuando ya hay alguien elegido): el texto para la seguridad del barrio, con quién entra, el vehículo y a dónde va, para copiar o mandar por WhatsApp.',
+          '«Entregado» pregunta cómo pagó, con lo que dijo el cliente ya marcado. El efectivo entra en la caja abierta de la sucursal.',
+          'Si al entregar falta algo en el stock, se abre la misma ventana de siempre para sacarlo o reemplazarlo.',
+          '«Cancelar» pide confirmación, devuelve el stock reservado y le avisa la baja a administración. Al cliente avisale vos.',
+        ],
+      },
+      {
+        tipo: 'ojo',
+        puntos: [
+          'A un atrasado de más de dos días, o que salió hace más de 12 horas, la tarjeta le pregunta directo «¿Se entregó o se cancela?». «Se entregó» registra hoy la venta, el cobro y la salida del stock, sin mandarle WhatsApp al cliente (ya lo recibió). «Se cancela» lo da de baja. El tercer botón («Sigue: …», «Todavía no salió: despacharlo») lo deja seguir su curso.',
+          'En «Se entregó» hay que elegir cómo se cobró (no viene nada marcado). El efectivo se suma a la caja abierta de HOY: pide confirmar que esa plata está hoy en el cajón. Si se cobró otro día y ya no está, no lo cierres ahí: consultalo con el dueño, porque el arqueo de hoy daría faltante.',
+          'Si al cerrarlo falta stock o la caja está cerrada (cobrando en efectivo), no se toca nada: el envío sigue en Atrasados con su pregunta.',
+          '«Se entregó» es solo para los atrasados: el sistema no deja cerrar así un envío que sigue su curso.',
+          'Si no hay repartidores cargados, arriba aparece «Cargar un repartidor», que lleva a Reparto › Repartidores.',
+          'Al cliente le llega un WhatsApp cuando su envío está preparado, cuando sale y cuando se entrega. Ya no le dice que lo pase a retirar por la sucursal.',
+          'Las indicaciones se ven limpias: sin la forma de pago (tiene su propio renglón) ni restos de texto del sistema.',
+          'Desde Pedidos y desde Depósito, «Despachar» un envío a domicilio abre ahí mismo la ventana de quién lo lleva (caja y depósito no abren Reparto).',
+          'Un envío a domicilio se entrega después de salir: en Depósito, los envíos listos dicen «Despachar» y no «Entregar».',
+        ],
+      },
+    ],
+  },
   {
     id: 'reparto',
     titulo: 'Armar el reparto y salir a la calle',
@@ -729,7 +857,8 @@ export const SECCIONES: Seccion[] = [
         tipo: 'pasos',
         titulo: 'En el local',
         pasos: [
-          'Reparto → nueva hoja de ruta. Agregá los clientes que salen en ese viaje.',
+          'Todo el reparto está en un solo lugar del menú, Reparto, con cuatro secciones: Envíos (el despacho de los pedidos a domicilio, ver arriba), Hojas de ruta, Repartidores (alta de choferes, vehículos y seguros) y Mis entregas (lo que lleva quien está usando el sistema, como lo ve el repartidor en su celular; lo que está en la calle de todos se ve en Envíos).',
+          'Reparto › Hojas de ruta → nueva hoja de ruta. Agregá los clientes que salen en ese viaje.',
           'Cada reparto se numera con el día de la semana y el orden de salida, así se identifica sin confusión.',
           '"Salir a la calle" cuando el repartidor arranca.',
         ],
@@ -738,9 +867,9 @@ export const SECCIONES: Seccion[] = [
         tipo: 'pasos',
         titulo: 'En la calle',
         pasos: [
-          'El repartidor ve sus entregas del día en su pantalla.',
+          'El repartidor ve sus entregas en su pantalla con lo mismo que el local: la dirección con el mapa, el WhatsApp del cliente para escribirle o llamarlo, qué se cobra y qué lleva. Si un envío sale con alguien de caja o depósito, esa persona lo ve igual en «Mis entregas», en el menú.',
           'Puede compartir la ubicación mientras reparte, para saber dónde está el camión.',
-          '"Marcar entregado" en cada parada.',
+          '"Marcar entregado" en cada parada: pregunta cómo pagó, con lo que dijo el cliente ya marcado. Si falta algo en el stock, el repartidor puede sacarlo del pedido; cambiarlo por otro producto se hace desde el local.',
         ],
       },
       {
@@ -838,23 +967,66 @@ export const SECCIONES: Seccion[] = [
   // --------------------------------------------------------------- whatsapp
   {
     id: 'fraccionar',
-    titulo: 'Fraccionar (huevos y similares)',
+    titulo: 'Fraccionar (huevos, quesos y similares)',
     area: 'Depósito',
-    roles: ['cajero', 'deposito', 'gerente', 'dueno'],
+    roles: ['cajero', 'deposito', 'administrativo', 'gerente', 'dueno'],
     bajada: 'La mercadería entra al pozo, se arman las presentaciones y la caja vende lo armado.',
     bloques: [
       {
         tipo: 'texto',
         texto:
-          'Hay productos que entran a granel y se venden fraccionados, como los huevos: entran por cajón (tantos maples de 30) y se venden por docena, media docena o maple. El circuito tiene tres pasos: (1) la factura del proveedor carga el POZO en unidades (el producto "Huevos x unidad"); (2) en la pantalla Fraccionar se anota lo que se arma — "armé 20 docenas" — y el sistema saca del pozo y carga el stock de la docena; (3) la caja vende la docena como cualquier producto, de su stock armado.',
+          'Hay productos que entran a granel y se venden fraccionados, como los huevos: entran por cajón (tantos maples de 30) y se venden por docena, media docena o maple. El circuito tiene tres pasos: (1) la mercadería entra al POZO (el producto "Huevos x unidad"), en unidades o en kilos si es una horma; (2) en la pantalla Fraccionar se anota lo que se arma — "armé 20 docenas" — y el sistema saca del pozo y carga el stock de la docena; (3) la caja vende la docena como cualquier producto, de su stock armado. Arriba se elige la sucursal (arranca en la tuya): todo lo que muestra y lo que se hace es de esa sucursal. Arman y abren la caja, depósito, administración, gerencia y el dueño.',
+      },
+      {
+        tipo: 'pasos',
+        titulo: 'Armar',
+        pasos: [
+          'En la tarjeta del pozo se ve cuánto hay en el pozo y, en cada presentación, cuántas hay armadas y para cuántas alcanza lo del pozo.',
+          'Tocá Armar en la presentación. Elegí la cantidad con − y +, o tocá "Todo lo que alcanza". Abajo te dice cuánto sale del pozo y cómo queda.',
+          'Tocá el botón rojo (Armar). El stock pasa del pozo a la presentación y ya se puede vender en la caja.',
+        ],
+      },
+      {
+        tipo: 'pasos',
+        titulo: 'Abrir y pasar al pozo',
+        pasos: [
+          'Para armar docenas abriendo un maple, o si se rompió un envase o se armó de más: tocá "Abrir y pasar al pozo" en la presentación.',
+          'Elegí cuántas abrís. Lo que tienen (30 huevos por maple, por ejemplo) vuelve al pozo y ya se puede armar otra cosa.',
+          'Si el pozo está vacío, la tarjeta lo avisa y ofrece abrir la presentación más grande que haya armada.',
+          'De a 1.000 por vez como máximo: si hay más, se repite con el resto.',
+        ],
+      },
+      {
+        tipo: 'pasos',
+        titulo: 'Cargar el pozo (depósito, administración, gerencia y dueño)',
+        pasos: [
+          'Lo normal es que el pozo se cargue con la factura del proveedor. Si entró mercadería sin factura, tocá "Cargar el pozo".',
+          'Poné cuánto entra (unidades, o kilos si el pozo es por kilo) y el motivo.',
+          'Es un ajuste de stock con las mismas reglas: si es mucho, depósito y administración necesitan el PIN de un supervisor; gerencia y dueño se autorizan solos.',
+          'Solo suma. Para bajar el pozo (rotura, vencimiento, un conteo que dio menos) se usa Stock › Ajustes o Mermas.',
+          'Si el pozo está en negativo (se vendió más de lo que entró), primero hay que cargar al menos lo que falta para dejarlo en cero: la pantalla dice cuánto.',
+        ],
+      },
+      {
+        tipo: 'pasos',
+        titulo: 'Configurar (solo gerencia y dueño)',
+        pasos: [
+          'Fraccionable nuevo: "Sumar fraccionable", buscá el producto que entra a granel (el pozo) y cargá la primera presentación.',
+          'Si el pozo es una horma que figura "por unidad" (stock con decimales o "x fracción" en el nombre), la pantalla avisa y ofrece "Se cuenta en kilos": así el cuarto lleva 0,25 kg. Con "por unidad", lo que lleva va sin decimales.',
+          'Más presentaciones: "Sumar presentación" en la tarjeta del pozo. Elegí un producto que ya existe o creá uno nuevo con nombre y precio (se da de alta igual que en la ficha de productos, con el costo que sale del pozo).',
+          'En los dos casos se indica cuánto del pozo lleva cada una: 12 la docena, 30 el maple, 0,25 kg el cuarto.',
+          'Editar (en cada presentación): nombre, precio y lo que lleva. Lo que lleva no se puede cambiar mientras haya armadas (en stock o reservadas en pedidos abiertos): primero se abren y se pasan al pozo. Si cambia, el costo se recalcula con el del pozo.',
+          '"Quitar del grupo" (dentro de Editar) no borra el producto: sigue en el catálogo y en la caja, solo deja de armarse desde el pozo. Tampoco se puede con armadas: primero se abren (o se venden).',
+        ],
       },
       {
         tipo: 'ojo',
         puntos: [
           'Si la caja dice que no hay stock de docenas pero hay huevos, falta ARMAR: se arma en Fraccionar y ya se puede vender.',
-          'El botón Deshacer vuelve fracciones al pozo (se rompió un cartón, se armó de más).',
-          'Cada armado queda registrado con quién y cuándo, en los movimientos de stock.',
-          'Vale para cualquier producto: se configura en la ficha qué producto es fracción de cuál y cuántas unidades lleva.',
+          'Nunca queda stock negativo: no se puede armar más de lo que alcanza el pozo ni abrir más de lo que hay armado.',
+          'Abajo de todo está el historial de la sucursal: qué se armó, se abrió o se cargó al pozo, con quién y cuándo. Los movimientos completos están en Stock › Movimientos.',
+          'Una presentación no puede ser pozo de otra (no hay cadenas) y un producto que se vende por kilo no puede ser presentación: las presentaciones se venden por paquete.',
+          'Mientras Sant Thomas siga vendiendo con el sistema viejo, lo que trae su planilla (el maple, la media docena, los quesos x fracción) no se arma, no se abre ni se carga ahí: la carga siguiente de la planilla lo pisaría y los huevos quedarían contados dos veces o perdidos. La pantalla lo avisa.',
         ],
       },
     ],

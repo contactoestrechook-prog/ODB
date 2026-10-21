@@ -14,6 +14,7 @@ import { supabaseProvider } from '../supabase.provider';
   controllers: [CatalogoController, ImagenesController, ProductosAdminController, FotosExternasController],
   providers: [CatalogoService, ProductosAdminService, FotosExternasService,
     CalidadFotosService, NormalizarFotosService, supabaseProvider],
-  exports: [CatalogoService],
+  // ProductosAdminService: lo usa Fraccionar para dar de alta presentaciones
+  exports: [CatalogoService, ProductosAdminService],
 })
 export class CatalogoModule {}

@@ -18,6 +18,11 @@ describe('leyendaRechazo', () => {
     expect(leyendaRechazo('Ana', null, 'duplicada')).toBe('Rechazada por Ana · Motivo: duplicada');
   });
 
+  it('una fecha sola (columna date) no se corre al día anterior', () => {
+    expect(fechaCorta('2026-09-30')).toBe('30/09/2026');
+    expect(fechaCorta('2026-01-01')).toBe('01/01/2026');
+  });
+
   it('una fecha inválida no rompe', () => {
     expect(fechaCorta('no es fecha')).toBeNull();
     expect(fechaCorta(undefined)).toBeNull();
