@@ -409,11 +409,11 @@ describe('el vigía de consultas pasa a una persona la consulta sin respuesta', 
     expect(aAdministracion(wsp)[0].text).toMatch(/los menores/);
   });
 
-  it('si el WhatsApp al cliente no sale, no marca nada (ni pausa) y lo reintenta en la vuelta siguiente', async () => {
+  it('si el WhatsApp al cliente seguro no salió (reintentable), no marca nada (ni pausa) y lo reintenta en la vuelta siguiente', async () => {
     enHora('2026-10-19T10:31');
     const db = base();
     let anda = false;
-    const { s, wsp } = servicio(db, (p) => (anda || p.to === ADMIN ? { enviado: true, id: 'W1' } : { enviado: false, motivo: 'WAHA respondió 500' }));
+    const { s, wsp } = servicio(db, (p) => (anda || p.to === ADMIN ? { enviado: true, id: 'W1' } : { enviado: false, reintentable: true, motivo: 'WhatsApp no conectado' }));
     await s.seguirConsultasPendientes();
     expect(alCliente(wsp)).toHaveLength(1); // se intentó
     expect(consultaDe(db).vencida_en).toBeNull();
@@ -434,7 +434,7 @@ describe('el vigía de consultas pasa a una persona la consulta sin respuesta', 
     enHora('2026-10-19T10:31');
     const db = base();
     let adminAnda = false;
-    const { s, wsp } = servicio(db, (p) => (p.to !== ADMIN || adminAnda ? { enviado: true, id: 'W1' } : { enviado: false, motivo: 'sin conexión' }));
+    const { s, wsp } = servicio(db, (p) => (p.to !== ADMIN || adminAnda ? { enviado: true, id: 'W1' } : { enviado: false, reintentable: true, motivo: 'WhatsApp no conectado' }));
     await s.seguirConsultasPendientes();
     expect(consultaDe(db).vencida_en).toBeTruthy();
     expect(consultaDe(db).vencida_aviso_en).toBeNull();
@@ -444,6 +444,38 @@ describe('el vigía de consultas pasa a una persona la consulta sin respuesta', 
     await s.seguirConsultasPendientes();
     expect(alCliente(wsp)).toHaveLength(1);
     expect(aAdministracion(wsp)).toHaveLength(2); // el que falló y el reintento
+    expect(consultaDe(db).vencida_aviso_en).toBeTruthy();
+  });
+
+  it('envío incierto al cliente (WAHA tardó o dio 5xx): no se repite nunca y la charla pasa igual a una persona', async () => {
+    enHora('2026-10-19T10:31');
+    const db = base();
+    const { s, wsp } = servicio(db, (p) => (p.to === ADMIN ? { enviado: true, id: 'W1' } : { enviado: false, motivo: 'WAHA inalcanzable: aborted' }));
+    await s.seguirConsultasPendientes();
+    expect(alCliente(wsp)).toHaveLength(1);
+    expect(consultaDe(db).vencida_en).toBeTruthy(); // la marca queda: no se vuelve a mandar
+    expect(String(consultaDe(db).ultimo_error)).toMatch(/incierto/);
+    expect(charlaDe(db).bot_activo).toBe(false); // pasó igual a una persona
+    expect(aAdministracion(wsp)).toHaveLength(1);
+    for (const h of ['2026-10-19T10:36', '2026-10-19T10:41', '2026-10-19T11:30']) {
+      enHora(h);
+      await s.seguirConsultasPendientes();
+    }
+    expect(alCliente(wsp)).toHaveLength(1);
+    expect(aAdministracion(wsp)).toHaveLength(1);
+  });
+
+  it('envío incierto del aviso a administración: no se repite (queda la campanita)', async () => {
+    enHora('2026-10-19T10:31');
+    const db = base();
+    const { s, wsp } = servicio(db, (p) => (p.to !== ADMIN ? { enviado: true, id: 'W1' } : { enviado: false, motivo: 'WAHA respondió 500' }));
+    await s.seguirConsultasPendientes();
+    for (const h of ['2026-10-19T10:36', '2026-10-19T10:41']) {
+      enHora(h);
+      await s.seguirConsultasPendientes();
+    }
+    expect(alCliente(wsp)).toHaveLength(1);
+    expect(aAdministracion(wsp)).toHaveLength(1);
     expect(consultaDe(db).vencida_aviso_en).toBeTruthy();
   });
 

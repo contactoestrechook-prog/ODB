@@ -4508,12 +4508,23 @@ export class BotService {
     // al cliente, por la línea por la que preguntó; si no sale, se suelta la marca y se reintenta
     const env: any = await this.enviarPorWhatsapp({ to: destino, text: TEXTO.PASA_A_UNA_PERSONA, referencia: `consulta-vencida/${c.id}`, linea: c.linea })
       .catch(() => ({ enviado: false }));
-    if (env?.enviado !== true) {
+    // Solo se reintenta lo que seguro NO salió (reintentable), como en
+    // llevarRespuestaDeConsulta y los avisos de pago. Un envío incierto (WAHA
+    // tardó o contestó 5xx) puede haber llegado: no se repite; la charla pasa
+    // igual a una persona y queda anotado para revisar (revisión del 21/10).
+    const incierto = env?.enviado !== true && env?.reintentable !== true;
+    if (env?.enviado !== true && !incierto) {
       await this.db.from('bot_consultas_internas').update({ vencida_en: null }).eq('id', c.id).eq('vencida_en', vencidaEn).then(() => null, () => null);
       this.log.warn(`consulta ${c.id} de ${tel}: «${TEXTO.PASA_A_UNA_PERSONA}» no salió (${env?.motivo ?? 'sin detalle'}); se reintenta en la próxima vuelta`);
       return 'fallo';
     }
-    // queda en el hilo y en RESPONDE, como cualquier mensaje del bot
+    if (incierto) {
+      await this.db.from('bot_consultas_internas').update({ ultimo_error: `Pase a una persona: envío incierto (${env?.motivo ?? 'sin detalle'}); revisar si le llegó al cliente` })
+        .eq('id', c.id).then(() => null, () => null);
+      this.log.warn(`consulta ${c.id} de ${tel}: envío incierto del pase (${env?.motivo ?? 'sin detalle'}); no se repite, pasa igual a una persona`);
+    }
+    // queda en el hilo y en RESPONDE, como cualquier mensaje del bot (también si
+    // es incierto: así impideVencer lo ve y ningún proceso lo vuelve a mandar)
     const { data: hilo } = await this.db.from('bot_conversaciones').select('mensajes').eq('linea', c.linea).eq('telefono', tel).maybeSingle();
     const hist: any[] = Array.isArray((hilo as any)?.mensajes) ? (hilo as any).mensajes : [];
     await this.db.from('bot_conversaciones').upsert({
@@ -4558,8 +4569,13 @@ export class BotService {
     ].filter(Boolean).join('\n');
     const env: any = await this.enviarPorWhatsapp({ to: admin, text: texto, kind: 'aviso-interno' } as any).catch(() => ({ enviado: false }));
     if (env?.enviado !== true) {
-      await this.db.from('bot_consultas_internas').update({ vencida_aviso_en: null }).eq('id', c.id).eq('vencida_aviso_en', marca).then(() => null, () => null);
-      this.log.warn(`consulta ${c.id} vencida: el WhatsApp a administración no salió; se reintenta en la próxima vuelta`);
+      // lo incierto no se repite (misma regla que el pase al cliente)
+      if (env?.reintentable === true) {
+        await this.db.from('bot_consultas_internas').update({ vencida_aviso_en: null }).eq('id', c.id).eq('vencida_aviso_en', marca).then(() => null, () => null);
+        this.log.warn(`consulta ${c.id} vencida: el WhatsApp a administración no salió; se reintenta en la próxima vuelta`);
+      } else {
+        this.log.warn(`consulta ${c.id} vencida (el cliente ya pasó a una persona): envío incierto del aviso a administración (${env?.motivo ?? 'sin detalle'}); no se repite (queda la campanita)`);
+      }
       return false;
     }
     return true;
