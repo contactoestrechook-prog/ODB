@@ -1170,6 +1170,8 @@ describe('pausa del bot por conversación (auditoría 2026-09-08)', () => {
     expect(up.fila.derivada_motivo).toBe('Atendida desde el teléfono');
     expect(up.fila.telefono).toBe('5491155556666');
     expect(up.fila.mensajes.at(-1).content).toContain('Soy Jackie');
+    // 21/10/2026: queda marcado como escrito por una persona (el estado de la charla se lo dice al modelo)
+    expect(up.fila.mensajes.at(-1).de).toBe('telefono');
     // vuelve sola a los 30 minutos (Leandro, 16/10/2026)
     const faltan = Date.parse(up.fila.derivacion_vence_en) - Date.now();
     expect(faltan).toBeGreaterThan(29 * 60_000);

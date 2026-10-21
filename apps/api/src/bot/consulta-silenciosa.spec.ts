@@ -299,7 +299,7 @@ describe('(5) barrido: ningún texto fijo del sistema que llega al cliente prome
     'Sí, ya lo tengo.',
     'Alias: outlet.de.bebidas · CBU: 0720000000000000000000 · Titular: Chinvenguencha SRL (Santander). Cuando transfieras, mandame el comprobante por acá.',
     'Pedido PICKUP-1 confirmado. Total: $41.000.\nSe abona al retirar, en efectivo o tarjeta.',
-    'Disculpe, ¿me repite su consulta?',
+    // (21/10/2026: se fue «Disculpe, ¿me repite su consulta?»: el recorte de lo interno ya no lo usa)
   ];
   it.each(TEXTOS_AL_CLIENTE.map((t) => [t]))('«%s»', (t) => {
     expect(mencionaConsulta(t)).toBe(false);
