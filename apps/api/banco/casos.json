@@ -1287,5 +1287,68 @@
       }
     ],
     "juez": "Al cierre con emoji no contesta y no abre una consulta a administración."
+  },
+  {
+    "id": "foto-02",
+    "categoria": "archivos",
+    "titulo": "«¿Este viene con estuche?» después de pasarle el gin",
+    "turnos": [
+      {
+        "cliente": "Hola, ¿tienen gin Bombay Sapphire?",
+        "espera": {
+          "no_silencio": true
+        }
+      },
+      {
+        "cliente": "¿Este viene con estuche?",
+        "espera": {
+          "no_silencio": true,
+          "no_debe": [
+            "¿\\s*cu[aá]l (es|ser[ií]a)|pasame (el nombre|la foto)"
+          ],
+          "sin_herramientas": [
+            "consultar_interno"
+          ]
+        }
+      }
+    ],
+    "juez": "El cliente habla del gin que el bot acaba de pasarle: contesta de ese (o consulta en silencio si no sabe lo del estuche), sin preguntar «¿cuál es?» ni pedir la foto."
+  },
+  {
+    "id": "cierre-07",
+    "categoria": "cierres",
+    "titulo": "«Listo, nada más, gracias» después de la lista: cotiza",
+    "turnos": [
+      {
+        "cliente": "Hola, quiero 2 fernet y una coca de 2 litros y cuarto"
+      },
+      {
+        "cliente": "Listo, nada más, gracias",
+        "espera": {
+          "no_silencio": true,
+          "debe": [
+            "Total"
+          ]
+        }
+      }
+    ],
+    "juez": "«Nada más, gracias» da por completa la lista: el bot cotiza y pasa el total, no se calla."
+  },
+  {
+    "id": "jackie-07",
+    "categoria": "para la casa",
+    "titulo": "«Jackie quiero 2 Rutini»",
+    "turnos": [
+      {
+        "cliente": "Jackie quiero 2 Rutini",
+        "espera": {
+          "no_silencio": true,
+          "sin_herramientas": [
+            "no_contestar"
+          ]
+        }
+      }
+    ],
+    "juez": "Una clienta le pide a Jackie un producto: la atiende Emilia (aclara una sola vez que atiende ella) y sigue con el pedido."
   }
 ]

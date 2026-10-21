@@ -1,11 +1,14 @@
 // CUÁNDO CALLA EL BOT (21/10/2026), con las frases reales de la semana del 15 al 21/10: lo que
 // los clientes, los proveedores y los conocidos de Jaqueline le escribieron a la línea de pedidos.
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import {
-  aceptaNoContestar, esCierreDeCharla, esDespedida, escritoPorUnaPersona, esperaRespuesta, insiste, loUltimoDeLaCasaEsDeUnaPersona,
-  nombraAAlguienDeLaCasa, paraElModelo, pideCompra, silencioPorReglas, telefonosDeLaCasa, terminaEnCierre, traeOtroTelefono,
+  aceptaNoContestar, botOfrecioAlgo, cierraConPreguntaPendiente, confirmaLaLista, esCierreDeCharla, esDespedida, esDespedidaPura, escritoPorUnaPersona,
+  esperaRespuesta, esSoloSocial, HORAS_SIGUE_PERSONA, insiste, loUltimoDeLaCasaEsDeUnaPersona, nombraAAlguienDeLaCasa, paraElModelo, pideCompra,
+  silencioPorReglas, telefonosDeLaCasa, terminaEnCierre, traeOtroTelefono,
 } from './silencio';
-import { esTextoInterno, explicaQueNoContesta } from './prolijo';
-import { SYSTEM_PEDIDOS } from './agente-bot';
+import { esTextoInterno, explicaQueNoContesta, NOMBRES_INTERNOS } from './prolijo';
+import { HERRAMIENTAS_PEDIDOS, HERRAMIENTAS_PROVEEDORES, SYSTEM_PEDIDOS } from './agente-bot';
 
 // lo que mandaron los clientes (a veces nombrando a Jaqueline): esperan respuesta
 const LOTE_112 = ['Buen diaa Jaky! te paso el pedido de la sra Fabiana', '6 yogurt bebibles Prot+ (proteico)\nbuen día', 'si puede enviarme éstos pedidos de lote 112'];
@@ -69,10 +72,14 @@ describe('cierres', () => {
     expect(terminaEnCierre('Gracias! Que me contacten')).toBe(false);
   });
 
-  it('una despedida no espera respuesta, aunque el bot haya preguntado algo', () => {
+  it('una despedida no espera respuesta; con una pregunta del bot pendiente, solo la pura o un «no, gracias»', () => {
     expect(esDespedida('Ok, graciasN')).toBe(true);
-    expect(esperaRespuesta('Ok, graciasN', { botDejoPregunta: true })).toBe(false);
+    expect(esperaRespuesta('Ok, graciasN', { botDejoPregunta: false })).toBe(false);
     expect(esperaRespuesta('Excelente buenísimo!! Nos vemos☺️', { botDejoPregunta: false })).toBe(false);
+    expect(esperaRespuesta('Muchas gracias!', { botDejoPregunta: true })).toBe(false);
+    expect(esperaRespuesta('No, gracias', { botDejoPregunta: true })).toBe(false);
+    // (revisión del 21/10/2026) un «ok» con la despedida contesta la pregunta
+    expect(esperaRespuesta('Ok, graciasN', { botDejoPregunta: true })).toBe(true);
   });
 
   it('un «ok» o un «sí» esperan respuesta solo si contestan una pregunta del bot; lo demás, sí', () => {
@@ -102,7 +109,8 @@ describe('no_contestar: lo pide el modelo, lo decide el código', () => {
     expect(aceptaNoContestar('porque si', 'hola')).toMatchObject({ ok: false });
     // un «sí» a «¿Te lo anoto?» contesta la pregunta: no es un cierre; «gracias» sí
     expect(aceptaNoContestar('cierre', 'sí', { botDejoPregunta: true })).toMatchObject({ ok: false });
-    expect(aceptaNoContestar('cierre', 'Ok, gracias', { botDejoPregunta: true })).toEqual({ ok: true });
+    expect(aceptaNoContestar('cierre', 'Muchas gracias!', { botDejoPregunta: true })).toEqual({ ok: true });
+    expect(aceptaNoContestar('cierre', 'Ok, gracias', { botDejoPregunta: false })).toEqual({ ok: true });
   });
   it('del otro lado un bot (Botmaker, 20/10): se acepta', () => {
     expect(aceptaNoContestar('automatico', 'Hola Emilia, entiendo que querés confirmar…\nEntiendo que me comentás que por este chat no se coordinan reuniones…')).toEqual({ ok: true });
@@ -122,17 +130,22 @@ describe('las reglas cuando el modelo no escribió nada', () => {
   it('si pide algo, nunca: la clienta del lote 112, aunque la charla viniera de una persona', () => {
     for (const t of LOTE_112) expect([t, silencioPorReglas(t, { ...sin, siguePersona: true, decidioNoContestar: true })]).toEqual([t, null]);
   });
-  it('ya dejó nota_interna o registrar_proveedor en el turno: para la casa', () => {
-    expect(silencioPorReglas('Buen día Jaqueline. ¿Pudieron ver nuestra propuesta?', { ...sin, anotoEnElTurno: true })).toBe('para_la_casa');
+  it('se registró como proveedor en el turno: para la casa (una nota_interna sola ya no alcanza: el modelo la deja también con clientes)', () => {
+    expect(silencioPorReglas('Buen día Jaqueline. ¿Pudieron ver nuestra propuesta?', { ...sin, esProveedor: true })).toBe('para_la_casa');
   });
-  it('nombra a alguien de la casa sin preguntar nada: para la casa; con una pregunta, solo si el modelo explicó que no era para él', () => {
-    expect(silencioPorReglas('Hola Jaqueline, buen día, si hoy se los paso', sin)).toBe('para_la_casa');
+  it('nombra a alguien de la casa: para la casa solo si es un saludo o una felicitación, o si el modelo explicó que no era para él (revisión 21/10)', () => {
     expect(silencioPorReglas('Jacqui, feliz día!!', sin)).toBe('para_la_casa');
+    expect(silencioPorReglas('Hola Shaki, feliz día. Espero que pases un día precioso', sin)).toBe('para_la_casa');
+    expect(silencioPorReglas('Feliz día Jacqui\nUn abrazo', sin)).not.toBeNull();
+    // lo demás va a la otra vuelta (y a la consulta si sigue vacía), como en producción
+    expect(silencioPorReglas('Hola Jaqueline, buen día, si hoy se los paso', sin)).toBeNull();
     expect(silencioPorReglas('¿Y materas Jacky?', sin)).toBeNull();
+    expect(silencioPorReglas('¿Y materas Jacky?', { ...sin, decidioNoContestar: true })).toBeNull();
     expect(silencioPorReglas('Jaqui buen día\n¿Necesitás mercadería?', { ...sin, decidioNoContestar: true })).toBe('para_la_casa');
   });
   it('un cierre o una despedida: cierre', () => {
-    expect(silencioPorReglas('Ok, graciasN', { botDejoPregunta: true })).toBe('cierre');
+    expect(silencioPorReglas('Ok, graciasN', sin)).toBe('cierre');
+    expect(silencioPorReglas('Muchas gracias!', { botDejoPregunta: true })).toBe('cierre');
     expect(silencioPorReglas('Ah Nono! Quería el Coreano de verdad. Bueno, gracias !!', sin)).toBe('cierre');
     expect(silencioPorReglas('sí', sin)).toBe('cierre');
     // un «sí» a una pregunta del bot no es un cierre: se le vuelve a pedir la respuesta al modelo
@@ -153,11 +166,12 @@ describe('lo que escribió una persona desde el teléfono', () => {
     expect(escritoPorUnaPersona({ role: 'user', content: 'hola', de: 'telefono' })).toBe(false);
   });
   it('lo último de la casa: los mensajes seguidos de una persona, hasta uno del bot', () => {
+    const en = new Date(Date.now() - 40 * 60_000).toISOString();
     const hilo = [
       { role: 'assistant', content: 'Buen día. ¿Qué necesitás?' },
       { role: 'user', content: 'Hola, ¿hacen remeras con logo?' },
-      { role: 'assistant', content: 'Holaaz', de: 'telefono' },
-      { role: 'assistant', content: 'Necesito el logo', de: 'telefono' },
+      { role: 'assistant', content: 'Holaaz', de: 'telefono', en },
+      { role: 'assistant', content: 'Necesito el logo', de: 'telefono', en },
     ];
     expect(loUltimoDeLaCasaEsDeUnaPersona(hilo).map((m) => m.content)).toEqual(['Holaaz', 'Necesito el logo']);
     expect(loUltimoDeLaCasaEsDeUnaPersona([...hilo, { role: 'assistant', content: 'Te anoto 2 remeras.' }])).toEqual([]);
@@ -232,5 +246,186 @@ describe('el prompt (21/10/2026)', () => {
   });
   it('lo que nombra una foto que no vino se pregunta, no se consulta', () => {
     expect(SYSTEM_PEDIDOS).toMatch(/en este turno no vino ningún archivo[^.]*preguntale en una línea cuál es/);
+  });
+});
+
+
+// ============================================================
+// REVISIÓN DEL 21/10/2026 (los hallazgos sobre la rama bot-silencio)
+// ============================================================
+// las 17 narraciones que les llegaron a clientes y proveedores del 21/9 al 21/10 (bot_mensajes, línea
+// pedidos), además de la fuga del 16/10: el modelo narra en pasado y con el nombre del contacto
+const NARRACIONES_REALES: { fecha: string; texto: string }[] = JSON.parse(readFileSync(join(__dirname, 'narraciones-reales.json'), 'utf8'));
+const esInterno = (t: string) => esTextoInterno(t) || explicaQueNoContesta(t);
+
+describe('revisión 21/10 · la barrera reconoce las narraciones reales', () => {
+  it('son 17', () => expect(NARRACIONES_REALES).toHaveLength(17));
+  it.each(NARRACIONES_REALES.map((n) => [n.fecha, n.texto]))('%s «%s» es interno', (_f, t) => expect(esInterno(t)).toBe(true));
+
+  // la primera oración de cada una alcanza: el texto entero cuenta como interno (bot.service, recortarLoInterno)
+  it.each([
+    'No le respondí al cliente.', 'No le respondí nada al cliente en este turno.', 'No le escribí nada a Juan Manuel.',
+    'No le mandé nada a Credifin esta vez.', 'No contesto este mensaje: es el proveedor La Máquina de Vender.',
+    'Al transportista no le contesté nada: según las reglas de la casa, la respuesta le llega directo.',
+  ])('«%s» explica que no contesta', (t) => expect(explicaQueNoContesta(t)).toBe(true));
+
+  // las que la barrera vieja (fe2e6d4) paraba y la de la rama dejaba pasar
+  it.each([
+    'Le aclaré al cliente que atiende Emilia y le pasé los precios.', 'Le dejé una nota a compras.', 'Le dejé una nota a administración para que lo vean.',
+    'Este mensaje es de un proveedor (Nestlé) ofreciendo mercadería a Jaqui.', 'La lista del cliente: 6 yogures', 'Datos del cliente: lote 112',
+    'Es un proveedor ofreciéndole mercadería a Jaqueline; lo registro.', 'Es un proveedor de fiambres que le reclama a Jaqueline una lista.',
+    'Registré al proveedor y le dejé nota a compras.', 'Lo registré como proveedor con un resumen.', 'Se lo pregunté a administración.',
+    'Su única duda era si la segunda persona puede entrar.', 'Edward le escribió a Jackie sobre las cajas navideñas.',
+    'La clienta le habla a Jacky. Tenemos materas de calabaza a $12.000.',
+  ])('«%s» es interno', (t) => expect(esTextoInterno(t)).toBe(true));
+
+  it('los nombres de las herramientas y de los motivos, escritos como texto, son internos (también las que se sumen)', () => {
+    for (const h of [...HERRAMIENTAS_PEDIDOS, ...HERRAMIENTAS_PROVEEDORES]) expect([h.name, NOMBRES_INTERNOS.includes(h.name)]).toEqual([h.name, true]);
+    expect(esTextoInterno('no_contestar (para_la_casa)')).toBe(true);
+    expect(esTextoInterno('Llamo a no_contestar (para_la_casa): es para Jaqueline')).toBe(true);
+    expect(esTextoInterno('Uso nota_interna para avisarle a compras.')).toBe(true);
+    // un link de pago con guion bajo no es un nombre de herramienta
+    expect(esTextoInterno('Te paso el link: https://www.mercadopago.com.ar/checkout/v1/redirect?pref_id=123-abc')).toBe(false);
+  });
+
+  it('las descriptivas son internas pero no dicen que no contesta (deciden las reglas, con otra vuelta)', () => {
+    expect(explicaQueNoContesta('La clienta le habla a Jacky. Tenemos materas de calabaza a $12.000.')).toBe(false);
+    expect(explicaQueNoContesta('Parece ser alguien de la casa.')).toBe(false);
+  });
+
+  it.each([
+    'No hace falta responder ahora, avisame cuando quieras.',
+    'No es para mí decidirlo, pero el envío es sin cargo.',
+    'Le dejé una nota al repartidor para que toque timbre.',
+    'Te lo dejamos en la guardia del barrio, a nombre del cliente que figura en el pedido.',
+    'El queso es de un proveedor de Tandil y sale $9.800 el kilo.',
+    'Te mandamos el pedido a tu casa entre las 15 y las 18 h.',
+    // a un proveedor (25/9 y 15/10, respuestas de verdad)
+    'Buen día. Te habla Emilia, la asistente de O.D.B. Ya le pasé a compras lo de las pastas y salsas De Cecco.',
+    'Buenas tardes. Te damos la bienvenida a O.D.B. Soy Emilia. Registré el contacto y le pasé la propuesta a la encargada de compras.',
+    'Fabio, todo lo que mandaste va junto a la encargada de compras.',
+    'Esta vez no tenemos el Rutini Malbec, pero tengo el Trumpeter a $14.500.',
+  ])('«%s» es para el cliente: sale entero', (t) => {
+    expect(esTextoInterno(t)).toBe(false);
+    expect(explicaQueNoContesta(t)).toBe(false);
+  });
+});
+
+describe('revisión 21/10 · los pedidos a Jackie se contestan siempre', () => {
+  const PEDIDOS_A_JACKIE = [
+    'Jaqui necesito 2 picadas para mañana', 'Hola Jackie! 3 picadas XL para el sábado', 'Jackie quiero 2 Rutini',
+    'Jacky me guardás 2 brie para el sábado', 'Jackie separame la picada XL', 'Jackie el lunes paso a retirar lo que te encargué',
+    '¿Y materas Jacky?', 'Sí, reservámela para el sábado a las 12', 'Hola! Ya puedo pasar a buscarlo?', 'Sí, mandámelo',
+  ];
+  it.each(PEDIDOS_A_JACKIE)('«%s»: pide algo; no_contestar se rechaza y las reglas no lo callan', (t) => {
+    expect(pideCompra(t)).toBe(true);
+    expect(aceptaNoContestar('para_la_casa', t)).toMatchObject({ ok: false });
+    expect(silencioPorReglas(t, { botDejoPregunta: false, siguePersona: true, decidioNoContestar: true })).toBeNull();
+  });
+  it.each(['Jacky, ¿te llegó la transferencia?', 'Ya te transferí', 'Te paso el comprobante', 'Pasame el alias'])('«%s»: un pago tampoco se calla', (t) => {
+    expect(pideCompra(t)).toBe(true);
+    expect(aceptaNoContestar('para_la_casa', t)).toMatchObject({ ok: false });
+    expect(aceptaNoContestar('cierre', t)).toMatchObject({ ok: false });
+  });
+  it('«te quiero» no es un pedido; un saludo o una felicitación a Jackie sí se calla para la casa', () => {
+    expect(pideCompra('Jacky te quiero mucho')).toBe(false);
+    expect(esSoloSocial('Hola Shaki, feliz día. Espero que pases un día precioso')).toBe(true);
+    expect(esSoloSocial('Hola Jaqueline, buen día, si hoy se los paso')).toBe(false);
+  });
+});
+
+describe('revisión 21/10 · con una foto o un PDF no se calla (salvo a un proveedor)', () => {
+  it('no_contestar con archivo se rechaza; a un proveedor registrado, para la casa, se acepta', () => {
+    expect(aceptaNoContestar('para_la_casa', '', { conArchivo: true })).toMatchObject({ ok: false });
+    expect(aceptaNoContestar('cierre', 'Graciass', { conArchivo: true })).toMatchObject({ ok: false });
+    expect(aceptaNoContestar('para_la_casa', '', { conArchivo: true, esProveedor: true })).toEqual({ ok: true });
+  });
+  it('las reglas no callan una foto de un cliente, aunque la charla la llevara una persona o haya nota', () => {
+    expect(silencioPorReglas('', { conArchivo: true, siguePersona: true })).toBeNull();
+    expect(silencioPorReglas('Lote 112, la lista', { conArchivo: true })).toBeNull();
+    expect(silencioPorReglas('', { conArchivo: true, esProveedor: true })).toBe('para_la_casa');
+  });
+});
+
+describe('revisión 21/10 · lo de la persona cuenta unas horas, y no después de devolverle la charla al bot', () => {
+  const hilo = (en?: string, de = 'telefono') => [{ role: 'user', content: '¿Me lo guardás?' }, { role: 'assistant', content: 'Dale, te lo guardo', de, ...(en ? { en } : {}) }];
+  const ahora = Date.parse('2026-10-21T15:00:00-03:00');
+  const hace = (h: number) => new Date(ahora - h * 3600_000).toISOString();
+  it('de hace 40 minutos cuenta; de hace tres días no; sin hora (de antes del 21/10) no', () => {
+    expect(loUltimoDeLaCasaEsDeUnaPersona(hilo(hace(0.7)), { ahora })).toHaveLength(1);
+    expect(loUltimoDeLaCasaEsDeUnaPersona(hilo(hace(HORAS_SIGUE_PERSONA + 1)), { ahora })).toEqual([]);
+    expect(loUltimoDeLaCasaEsDeUnaPersona(hilo(hace(72)), { ahora })).toEqual([]);
+    expect(loUltimoDeLaCasaEsDeUnaPersona(hilo(), { ahora })).toEqual([]);
+  });
+  it('lo del panel, después de que se la devolvieron al bot a mano, no cuenta', () => {
+    expect(loUltimoDeLaCasaEsDeUnaPersona(hilo(hace(1), 'persona'), { ahora, devueltaAlBotEn: ahora - 30 * 60_000 })).toEqual([]);
+    expect(loUltimoDeLaCasaEsDeUnaPersona(hilo(hace(1), 'persona'), { ahora })).toHaveLength(1);
+  });
+});
+
+describe('revisión 21/10 · lo que termina en «Gracias» después de pedir algo no es un cierre', () => {
+  const REALES = [
+    'Hola quisiera saber hasta qué hora está abierto hoy la sucursal de Santa Inés . Gracias',
+    'Hola buenas tardes\nMe podrias decir\nEn que horario esta abierto el negocio\nGracias',
+    'No se que es eso q me ofreces\nNecesito destapar piletas de cocina\nGracias',
+  ];
+  it.each(REALES)('«%s»: espera respuesta y no se calla', (t) => {
+    expect(terminaEnCierre(t)).toBe(false);
+    expect(silencioPorReglas(t, { botDejoPregunta: false })).toBeNull();
+    expect(esperaRespuesta(t, { botDejoPregunta: false })).toBe(true);
+    expect(aceptaNoContestar('cierre', t, { botDejoPregunta: true })).toMatchObject({ ok: false });
+    expect(aceptaNoContestar('cierre', t)).toMatchObject({ ok: false });
+  });
+  it('«Ah Nono! Quería el Coreano de verdad. Bueno, gracias !!» sigue siendo un cierre, también con la pregunta del bot', () => {
+    expect(terminaEnCierre('Ah Nono! Quería el Coreano de verdad. Bueno, gracias !!')).toBe(true);
+    expect(cierraConPreguntaPendiente('Ah Nono! Quería el Coreano de verdad. Bueno, gracias !!')).toBe(true);
+  });
+});
+
+describe('revisión 21/10 · con una pregunta, la lista o un ofrecimiento pendiente, «sí, gracias» contesta', () => {
+  it.each(['Sí, gracias!', 'Ok gracias', 'Nada más, gracias', 'No, nada más. Gracias!', 'Listo, ya está, gracias', 'Genial, gracias'])('«%s»: no es un cierre', (t) => {
+    expect(esDespedidaPura(t)).toBe(false);
+    expect(cierraConPreguntaPendiente(t)).toBe(false);
+    expect(aceptaNoContestar('cierre', t, { botDejoPregunta: true })).toMatchObject({ ok: false });
+    expect(silencioPorReglas(t, { botDejoPregunta: true })).toBeNull();
+    expect(esperaRespuesta(t, { botDejoPregunta: true })).toBe(true);
+  });
+  it.each(['Gracias', 'Muchas gracias!', 'Nos vemos, saludos', 'No, gracias'])('«%s»: sí es un cierre', (t) => {
+    expect(cierraConPreguntaPendiente(t)).toBe(true);
+    expect(aceptaNoContestar('cierre', t, { botDejoPregunta: true })).toEqual({ ok: true });
+  });
+  it('la lista del bot o un ofrecimiento sin «?» esperan un sí; un precio solo, no', () => {
+    expect(botOfrecioAlgo('Te anoto:\n• 2 × Fernet Branca 750 ml\n• 1 × Coca-Cola 2,25 L')).toBe(true);
+    expect(botOfrecioAlgo('Tengo el Rutini a $25.000. Te lo puedo reservar.')).toBe(true);
+    expect(botOfrecioAlgo('Si querés, te lo anoto.')).toBe(true);
+    expect(botOfrecioAlgo('El Fernet Branca 750 cc sale $20.500.')).toBe(false);
+  });
+  it('«nada más», «ya está», «eso es todo» dan por completa la lista', () => {
+    for (const t of ['Listo, nada más, gracias', 'Ya está, gracias', 'Perfecto, nada más. Gracias!', 'Eso es todo']) expect([t, confirmaLaLista(t)]).toEqual([t, true]);
+    expect(confirmaLaLista('Gracias')).toBe(false);
+  });
+});
+
+describe('revisión 21/10 · emojis y saludos', () => {
+  it.each(['❓❓', '🤔', '😡😡', 'Hola 👋', 'Buenas tardes 🙂', 'Hola buen día 😊', 'Buen día ☀️', 'Hola qué tal 😊', '👋'])('«%s» no es un cierre', (t) => {
+    expect(esCierreDeCharla(t)).toBe(false);
+    expect(esCierreDeCharla(t, { conAfirmacion: true })).toBe(false);
+  });
+  it.each(['👍', '🙏', '👍🏻', '❤️', 'Gracias 👋', 'Nos vemos☺️'])('«%s» es un cierre', (t) => expect(esCierreDeCharla(t)).toBe(true));
+});
+
+describe('revisión 21/10 · la insistencia', () => {
+  it.each(['¿Alguien me responde?', 'Me dicen algo?', 'No me contestaron', 'Y?', 'Hola? Alguien?', '¿Pudieron ver lo de la cera?', '¿Hay novedades?', '¿Novedades?'])(
+    '«%s» insiste', (t) => expect(insiste(t)).toBe(true));
+  it.each(['¿Qué novedades tienen de vinos?', '¿Qué novedades tienen en vinos naranjos?', 'Quiero 2 fernet'])('«%s» no insiste', (t) => expect(insiste(t)).toBe(false));
+});
+
+describe('revisión 21/10 · el prompt', () => {
+  it('«este» sin foto se pregunta solo si por la charla no se sabe de qué producto habla', () => {
+    expect(SYSTEM_PEDIDOS).toMatch(/por la charla no se sabe de qué producto habla/);
+    expect(SYSTEM_PEDIDOS).toMatch(/¿Este viene con estuche\?/);
+  });
+  it('con una pregunta o la lista pendiente, «Sí, gracias» o «Nada más, gracias» contestan', () => {
+    expect(SYSTEM_PEDIDOS).toMatch(/«Nada más, gracias»[^.]*te contestan/);
   });
 });

@@ -147,10 +147,12 @@ describe('la clienta del lote 112 (21/10): le habla a «Jaky» y pasa un pedido'
 // ============================================================
 describe('mensajes para Jaqueline (62 de los 108 vacíos): silencio, sin consulta a administración', () => {
   // la charla del proveedor de merchandising: el bot volvió solo y lo de Jaqueline quedó en el hilo
+  // (lo de la persona cuenta unas horas: HORAS_SIGUE_PERSONA; acá, de hace 40 minutos)
+  const hace40 = new Date(Date.now() - 40 * 60_000).toISOString();
   const HIST_TEL = [
     { role: 'user', content: 'Hola, ¿cómo va? Te paso el presupuesto de las remeras' },
-    { role: 'assistant', content: 'Holaaz', de: 'telefono' },
-    { role: 'assistant', content: 'Necesito el logo', de: 'telefono' },
+    { role: 'assistant', content: 'Holaaz', de: 'telefono', en: hace40 },
+    { role: 'assistant', content: 'Necesito el logo', de: 'telefono', en: hace40 },
   ];
 
   it('«Acá está el logo» después de lo que escribió Jaqueline: no_contestar aceptada, una sola llamada, nota para ella y la charla queda esperando', async () => {
@@ -165,7 +167,7 @@ describe('mensajes para Jaqueline (62 de los 108 vacíos): silencio, sin consult
     expect(guardado(db).esperando_desde).toBeTruthy();
     // el estado le dijo al modelo quién escribió eso, y a la API no le llega la marca
     expect(JSON.stringify(llamadas[0].messages.at(-1).content)).toMatch(/lo escribió una persona desde el teléfono, no vos: «Holaaz», «Necesito el logo»/);
-    expect(JSON.stringify(llamadas[0].messages)).not.toMatch(/"de":"telefono"/);
+    expect(JSON.stringify(llamadas[0].messages)).not.toMatch(/"de":"telefono"|"en":"/);
     // y en el hilo guardado la marca sigue
     expect(guardado(db).mensajes.filter((m: any) => m.de === 'telefono')).toHaveLength(2);
   });
@@ -234,13 +236,22 @@ describe('cierres (15 de los 108): silencio sin consulta falsa', () => {
     expect(insertsDe(db, 'bot_consultas_internas')).toHaveLength(0);
   });
 
-  it('«Ok, graciasN» con una pregunta del bot pendiente va al modelo; si vuelve vacío, es un cierre: sin otra vuelta ni consulta', async () => {
+  it('«Saludos, que tengas buen finde» con una pregunta del bot pendiente va al modelo; si vuelve vacío, es un cierre: sin otra vuelta ni consulta', async () => {
     const db = armar([{ role: 'assistant', content: 'El Fernet Branca 750 cc sale $20.500. ¿Te lo anoto?' }]);
     const { s, create } = servicio(db, vacia('a'));
-    const r = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Ok, graciasN' });
+    const r = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Saludos, que tengas buen finde' });
     expect(r.respuesta).toBeNull();
     expect(create).toHaveBeenCalledTimes(1);
     expect(insertsDe(db, 'bot_consultas_internas')).toHaveLength(0);
+  });
+
+  // revisión del 21/10/2026: un «ok» con la despedida contesta la pregunta; no se calla sin más
+  it('«Ok, graciasN» a «¿Te lo anoto?» y el modelo vacío: se le pide la respuesta otra vez y sale', async () => {
+    const db = armar([{ role: 'assistant', content: 'El Fernet Branca 750 cc sale $20.500. ¿Te lo anoto?' }]);
+    const { s, create } = servicio(db, vacia('a'), final('b', 'Dale, ¿te lo anoto entonces?'));
+    const r = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Ok, graciasN' });
+    expect(r.respuesta).toBe('Dale, ¿te lo anoto entonces?');
+    expect(create).toHaveBeenCalledTimes(2);
   });
 
   it('«Ah Nono! Quería el Coreano de verdad. Bueno, gracias !!» (19/10) y el modelo narra: ni «¿me repite?» ni consulta', async () => {
@@ -278,11 +289,16 @@ describe('la última barrera nunca deja «Disculpe, ¿me repite su consulta?»',
     expect(r.respuesta ?? '').not.toMatch(/me repite|nota|cliente|Jaqueline/i);
   });
 
-  it('si al sacar la narración queda lo que era para el cliente, sale eso', async () => {
+  // revisión del 21/10/2026: una narración no sale a medias (lo que quedaba solía ser la misma
+  // narración); se le pide la respuesta al modelo otra vez
+  it('con una oración de narración, no sale nada de ese texto: se le pide la respuesta otra vez y sale la nueva', async () => {
     const db = armar(HIST);
-    const { s } = servicio(db, final('a', 'El cliente pregunta por el horario del domingo. Los domingos abrimos de 9 a 14 h en la sucursal Saint Thomas.'));
+    const { s, create } = servicio(db,
+      final('a', 'El cliente pregunta por el horario del domingo. Los domingos abrimos de 9 a 14 h en la sucursal Saint Thomas.'),
+      final('b', 'Los domingos abrimos de 9 a 14 h en la sucursal Saint Thomas.'));
     const r = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: '¿Abren el domingo?' });
     expect(r.respuesta).toBe('Los domingos abrimos de 9 a 14 h en la sucursal Saint Thomas.');
+    expect(create).toHaveBeenCalledTimes(2);
   });
 
   it('«Este mensaje es para confirmarte…» es para el cliente: sale entero (la regla del 16/10 lo cortaba)', async () => {
@@ -354,5 +370,291 @@ describe('la consulta silenciosa de siempre (regla del 6/10) no cambia', () => {
     expect(r.respuesta).toBeNull();
     expect(create).toHaveBeenCalledTimes(2);
     expect(insertsDe(db, 'bot_consultas_internas')).toHaveLength(1);
+  });
+});
+
+// ============================================================
+// 6. REVISIÓN DEL 21/10/2026 (los hallazgos sobre la rama), de punta a punta
+// ============================================================
+import { readFileSync } from 'fs';
+import { join } from 'path';
+const NARRACIONES_REALES: { fecha: string; texto: string }[] = JSON.parse(readFileSync(join(__dirname, 'narraciones-reales.json'), 'utf8'));
+const consultaQueSeAbre = (s: any) => { s.consultarInterno = jest.fn(async () => ({ consultado: true, yaEstaba: false, tema: 'lo que preguntó' })); };
+
+describe('revisión 21/10 · ninguna narración real le llega al contacto', () => {
+  const HIST = [{ role: 'assistant', content: 'Buen día. ¿Qué necesitás?' }];
+  it.each(NARRACIONES_REALES.map((n) => [n.fecha, n.texto]))('%s, turno sin consulta: no sale nada de «%s»', async (_f, t) => {
+    const db = armar(HIST);
+    const { s } = servicio(db, final('a', t), vacia('b'));
+    const r = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: '¿Hacen tortas por encargo?' });
+    expect(r.respuesta).toBeNull();
+  });
+  it.each(NARRACIONES_REALES.map((n) => [n.fecha, n.texto]))('%s, turno con consulta: no sale nada de «%s»', async (_f, t) => {
+    const db = armar(HIST);
+    const { s } = servicio(db,
+      conHerramientas(pensar('a'), herramienta('c1', 'consultar_interno', { area: 'administracion', consulta: '¿Hacen tortas por encargo?', direccion: '', tema: 'las tortas por encargo' })),
+      final('b', t));
+    consultaQueSeAbre(s);
+    const r = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: '¿Hacen tortas por encargo?' });
+    expect(r.respuesta).toBeNull();
+  });
+  it('una narración armada que mezcla datos («le reclama a Jaqueline… Registré al proveedor…») no sale a medias', async () => {
+    const db = armar(HIST);
+    const { s } = servicio(db,
+      conHerramientas(pensar('a'), herramienta('c1', 'consultar_interno', { area: 'compras', consulta: 'Reclamo de lista', direccion: '', tema: 'la lista de fiambres' })),
+      final('b', 'Es un proveedor de fiambres que le reclama a Jaqueline una lista. El cliente escribe por un pedido de fiambres para el viernes. Registré al proveedor y le dejé nota a compras.'));
+    consultaQueSeAbre(s);
+    const r = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Jaqueline, ¿me mandás la lista de fiambres para el viernes?' });
+    expect(r.respuesta ?? '').not.toMatch(/proveedor|Jaqueline|cliente|compras/i);
+  });
+});
+
+describe('revisión 21/10 · lo que el modelo escribe junto a una herramienta', () => {
+  it('«Es un proveedor ofreciéndole mercadería a Jaqueline; lo registro.» con registrar_proveedor y la última vuelta vacía: no le llega', async () => {
+    const db = armar([{ role: 'assistant', content: 'Buen día. ¿Qué necesitás?' }]);
+    const { s } = servicio(db,
+      conHerramientas(pensar('a'), { type: 'text', text: 'Es un proveedor ofreciéndole mercadería a Jaqueline; lo registro.' }, herramienta('r1', 'registrar_proveedor', { nombre: 'Lácteos del Sur', oferta: 'Ofrece mercadería', urgente: false })),
+      vacia('b'));
+    s.registrarProveedor = jest.fn(async () => ({ ok: true }));
+    const r = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Jaqui buen día, ¿necesitás mercadería? Tengo lista nueva' });
+    expect(r.respuesta).toBeNull();
+    expect(insertsDe(db, 'bot_consultas_internas')).toHaveLength(0);
+  });
+  it('no_contestar rechazada con «Es para Jaqui, no contesto.» antes y una respuesta corta después: sale solo la respuesta', async () => {
+    const db = armar([{ role: 'assistant', content: 'Buen día. ¿Qué necesitás?' }]);
+    const { s, create } = servicio(db,
+      conHerramientas(pensar('a'), { type: 'text', text: 'Es para Jaqui, no contesto.' }, herramienta('n1', 'no_contestar', { motivo: 'para_la_casa', para_quien: 'Jaqueline', resumen: 'brie' })),
+      final('b', 'Tenemos brie de La Paulina. ¿Cuánto querés?'));
+    const r = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Jaqui, ¿cuánto sale el brie?' });
+    expect(r.respuesta).toBe('Tenemos brie de La Paulina. ¿Cuánto querés?');
+    expect(create).toHaveBeenCalledTimes(2);
+  });
+  it('un proveedor no registrado, no_contestar rechazada tres veces y la vuelta sin herramientas escribe la llamada: no le llega', async () => {
+    const db = armar([{ role: 'assistant', content: 'Buen día. ¿Qué necesitás?' }]);
+    const pide = (id: string) => conHerramientas(pensar(id), herramienta(id, 'no_contestar', { motivo: 'para_la_casa', para_quien: 'Jaqueline', resumen: 'pedido de alfajores' }));
+    const { s } = servicio(db, pide('a'), pide('b'), pide('c'), final('d', 'Llamo a no_contestar (para_la_casa): es para Jaqueline'), vacia('e'));
+    consultaQueSeAbre(s);
+    const r = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Jacky, mañana te paso el pedido: 10 cajas de alfajores' });
+    expect(r.respuesta ?? '').not.toMatch(/no_contestar|para_la_casa|Jaqueline/);
+  });
+});
+
+describe('revisión 21/10 · los pedidos a Jackie no se callan', () => {
+  it.each(['Jackie quiero 2 Rutini', 'Hola Jackie! 3 picadas XL para el sábado', 'Jacky me guardás 2 brie para el sábado'])('«%s» con el modelo vacío: se le pide la respuesta otra vez y sale', async (t) => {
+    const db = armar([{ role: 'assistant', content: 'Buen día. ¿Qué necesitás?' }]);
+    const { s, create } = servicio(db, vacia('a'), final('b', 'Te anoto:\n• 2 × Rutini Malbec 750 ml\n\n¿Querés sumar algo?'));
+    const r = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: t });
+    expect(r.respuesta).toMatch(/Te anoto/);
+    expect(create).toHaveBeenCalledTimes(2);
+  });
+  it('si no_contestar se pide con «Jackie separame la picada XL», se rechaza', async () => {
+    const db = armar([{ role: 'assistant', content: 'Buen día. ¿Qué necesitás?' }]);
+    const { s, llamadas } = servicio(db,
+      conHerramientas(pensar('a'), herramienta('n1', 'no_contestar', { motivo: 'para_la_casa', para_quien: 'Jaqueline', resumen: 'picada' })),
+      final('b', 'Te separo la picada XL. ¿Para qué día la querés?'));
+    const r = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Jackie separame la picada XL' });
+    expect(r.respuesta).toBe('Te separo la picada XL. ¿Para qué día la querés?');
+    expect(JSON.stringify(llamadas[1].messages.at(-1).content)).toMatch(/no_contestar no se acepta/);
+  });
+});
+
+describe('revisión 21/10 · con una foto no se calla', () => {
+  const FOTO = { archivoBase64: 'aW1hZ2Vu', mimeType: 'image/jpeg' };
+  it('la lista del lote 112 por foto, con nota_interna y el modelo vacío: otra vuelta (lee la foto) y, si sigue vacía, la consulta', async () => {
+    const db = armar([{ role: 'assistant', content: 'Buen día. ¿Qué necesitás?' }]);
+    const { s, create } = servicio(db,
+      conHerramientas(pensar('a'), herramienta('n1', 'nota_interna', { nota: 'Lote 112 le mandó a Jackie por foto la lista nueva de almacén' })),
+      vacia('b'), vacia('c'));
+    const r = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Jaky, la lista del lote 112', ...FOTO });
+    expect(r.respuesta).toBeNull();
+    expect(create).toHaveBeenCalledTimes(3);
+    expect(insertsDe(db, 'bot_consultas_internas')).toHaveLength(1);
+  });
+  it('un comprobante con «Graciass» y no_contestar (cierre): se rechaza', async () => {
+    const db = armar([{ role: 'assistant', content: 'Dale, mandalo por acá.' }]);
+    const { s, llamadas } = servicio(db,
+      conHerramientas(pensar('a'), herramienta('n1', 'no_contestar', { motivo: 'cierre', para_quien: '', resumen: '' })),
+      final('b', 'Recibido.'));
+    await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Graciass', ...FOTO });
+    expect(JSON.stringify(llamadas[1].messages.at(-1).content)).toMatch(/no_contestar no se acepta: vino una foto/);
+  });
+});
+
+describe('revisión 21/10 · un pago en manos de administración no se calla', () => {
+  it('derivar_pago (consulta) y no_contestar aceptada en el mismo turno: sale «Recibido.»', async () => {
+    const db = armar([{ role: 'assistant', content: 'Buen día. ¿Qué necesitás?' }], { contacto: { tipo: 'proveedor', nombre: 'Distribuidora' } });
+    const { s } = servicio(db, conHerramientas(pensar('a'),
+      herramienta('d1', 'derivar_pago', { tipo: 'consulta', motivo: 'Pregunta si llegó la transferencia', monto: 0, de_quien: '' }),
+      herramienta('n1', 'no_contestar', { motivo: 'para_la_casa', para_quien: 'Jaqueline', resumen: 'transferencia' })));
+    s.derivarPago = jest.fn(async () => ({ derivado: true }));
+    const r = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Jacky, ¿te llegó la transferencia?' });
+    expect(r.respuesta).toBe(TEXTO.RECIBIDO);
+  });
+});
+
+describe('revisión 21/10 · lo de la persona vence', () => {
+  it('lo que Jaqueline escribió desde el teléfono hace tres días no calla al cliente: sin estado y con otra vuelta', async () => {
+    const hace3dias = new Date(Date.now() - 72 * 3600_000).toISOString();
+    const db = armar([{ role: 'user', content: '¿Me guardás uno?' }, { role: 'assistant', content: 'Dale, te lo guardo', de: 'telefono', en: hace3dias }]);
+    const { s, llamadas, create } = servicio(db, vacia('a'), final('b', 'Sí, cuando quieras. Estamos de 9 a 21 h.'));
+    const r = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Hola! ¿Ya puedo pasar a buscarlo?' });
+    expect(JSON.stringify(llamadas[0].messages.at(-1).content)).not.toMatch(/lo escribió una persona/);
+    expect(r.respuesta).toBe('Sí, cuando quieras. Estamos de 9 a 21 h.');
+    expect(create).toHaveBeenCalledTimes(2);
+  });
+  it('lo del panel, devuelto al bot a mano después, tampoco', async () => {
+    const hace1h = new Date(Date.now() - 3600_000).toISOString();
+    const db = armar([{ role: 'assistant', content: 'La picada XL trae crudo, salame y 3 quesos. ¿Te la reservo?', de: 'persona', en: hace1h }],
+      { conv: { resuelta_en: new Date(Date.now() - 30 * 60_000).toISOString(), derivada_motivo: 'Pausado desde la bandeja' } });
+    const { s, llamadas } = servicio(db, final('a', 'Te la reservo para el sábado a las 12.'));
+    await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Sí, reservámela para el sábado a las 12' });
+    expect(JSON.stringify(llamadas[0].messages.at(-1).content)).not.toMatch(/lo escribió una persona/);
+  });
+});
+
+describe('revisión 21/10 · antes del modelo no se calla lo que contesta', () => {
+  const LISTA = 'Saco la Coca y sumo 1 × Hielo:\n• 2 × Fernet Branca 750 ml\n• 1 × Hielo 2 kg';
+  it.each(['Listo, nada más, gracias', 'Ya está, gracias', 'Perfecto, nada más. Gracias!', 'Gracias'])('«%s» después de la lista del bot: va al modelo', async (t) => {
+    const db = armar([{ role: 'assistant', content: LISTA }]);
+    const { s, create } = servicio(db, final('a', 'Perfecto. ¿Retirás o te lo enviamos?'));
+    const r = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: t });
+    expect(create).toHaveBeenCalled();
+    expect(r.respuesta).toBe('Perfecto. ¿Retirás o te lo enviamos?');
+  });
+  it('«Divino, dale» a «Te lo puedo reservar.»: va al modelo', async () => {
+    const db = armar([{ role: 'assistant', content: 'Tengo el Rutini Malbec a $25.000. Te lo puedo reservar.' }]);
+    const { s, create } = servicio(db, final('a', 'Listo, te lo reservo.'));
+    await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Divino, dale' });
+    expect(create).toHaveBeenCalled();
+  });
+  it.each(['Hola 👋', 'Buenas tardes 🙂', '❓❓', '🤔'])('«%s» de un número nuevo: va al modelo', async (t) => {
+    const db = armar([]);
+    const { s, create } = servicio(db, final('a', 'Buen día. ¿En qué te ayudo?'));
+    await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: t });
+    expect(create).toHaveBeenCalled();
+  });
+});
+
+describe('revisión 21/10 · la insistencia', () => {
+  const HIST = [
+    { role: 'assistant', content: '• Cera Suiza líquida incolora 900 ml — $7.400' },
+    { role: 'user', content: '¿Esa dice para PISOS DE MADERA PLASTIFICADOS?' },
+  ];
+  const consulta = (minutos: number) => ({ select: { data: [{ id: 'q-cera', linea: 'pedidos', telefono_cliente: TEL, respondido_en: null, area: 'administracion', consulta: '¿La Cera Suiza sirve para pisos de madera plastificados?', tema: 'la cera para pisos plastificados', creado_en: new Date(Date.now() - minutos * 60_000).toISOString() }], error: null }, insert: { data: { id: 'NO-DEBERIA' }, error: null } });
+  it.each(['¿Alguien me responde?', 'Me dicen algo?', 'No me contestaron', '¿Pudieron ver lo de la cera?'])('«%s» a las dos horas: pasa a una persona', async (t) => {
+    const db = armar(HIST, { consultas: consulta(126) });
+    const { s } = servicio(db, vacia('a'));
+    const r = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: t });
+    expect(r.respuesta).toBe(TEXTO.PASA_A_UNA_PERSONA);
+    expect(s.derivarAHumano).toHaveBeenCalledTimes(1);
+  });
+  it('«Sigo esperando» al otro día (30 h, fuera de las 6 h del estado): pasa a una persona', async () => {
+    const db = armar(HIST, { consultas: consulta(30 * 60) });
+    const { s } = servicio(db, vacia('a'), vacia('b'));
+    const r = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Sigo esperando' });
+    expect(r.respuesta).toBe(TEXTO.PASA_A_UNA_PERSONA);
+  });
+  it('«¿Y lo de la cera para pisos plastificados?» (vuelve sobre la consulta, sin frase de insistencia) a la hora: pasa a una persona', async () => {
+    const db = armar(HIST, { consultas: consulta(60) });
+    const { s } = servicio(db, vacia('a'));
+    const r = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: '¿Y lo de la cera para pisos plastificados?' });
+    expect(r.respuesta).toBe(TEXTO.PASA_A_UNA_PERSONA);
+  });
+  it('«¿Qué novedades tienen en vinos naranjos?» con la consulta de la cera abierta: no deriva', async () => {
+    const db = armar(HIST, { consultas: consulta(60) });
+    const { s } = servicio(db,
+      conHerramientas(pensar('a'), herramienta('c1', 'consultar_interno', { area: 'administracion', consulta: '¿Qué vinos naranjos hay?', direccion: '', tema: 'los vinos naranjos' })),
+      vacia('b'));
+    consultaQueSeAbre(s);
+    const r = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: '¿Qué novedades tienen en vinos naranjos?' });
+    expect(r.respuesta).toBeNull();
+    expect(s.derivarAHumano).not.toHaveBeenCalled();
+  });
+});
+
+describe('revisión 21/10 · la espera de los silencios para la casa', () => {
+  it('un proveedor registrado y el modelo vacío: nota y la espera limpia (sin «[esperando]» ni aviso falso)', async () => {
+    const db = armar([{ role: 'assistant', content: 'Buen día. ¿Qué necesitás?' }], { contacto: { tipo: 'proveedor', nombre: 'Nestlé' } });
+    const { s } = servicio(db, vacia('a'));
+    const r = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Jaqui buen día\n¿Necesitás mercadería?' });
+    expect(r.respuesta).toBeNull();
+    expect(insertsDe(db, 'bot_notas_equipo')).toHaveLength(1);
+    expect(guardado(db)).toMatchObject({ esperando_desde: null });
+  });
+});
+
+describe('revisión 21/10 · el vigilante de esperas no dice «en pausa» con el bot activo', () => {
+  const AHORA = new Date('2026-10-21T15:00:00-03:00');
+  const ESPERA = { linea: 'pedidos', telefono: TEL, esperando_desde: new Date(AHORA.getTime() - 2 * 3600_000).toISOString(), esperando_texto: 'Jaqui, ¿me guardás la caja navideña para el viernes?', esperando_aviso_en: null, esperando_avisos: 0 };
+  // una base mínima: la lista de esperas es un arreglo; la charla, una fila (maybeSingle)
+  function baseDelVigilante(charla: any) {
+    const notas: any[] = [];
+    const db: any = {
+      notas,
+      from(tabla: string) {
+        let op = 'select';
+        const lista = () => (op !== 'select' ? { data: null, error: null }
+          : tabla === 'bot_conversaciones' ? { data: [ESPERA], error: null } : { data: [], error: null });
+        const una = () => ({ data: tabla === 'bot_conversaciones' ? charla : null, error: null });
+        const b: any = new Proxy({}, {
+          get(_t, k) {
+            if (k === 'then') return (ok: any, err: any) => Promise.resolve(lista()).then(ok, err);
+            if (k === 'maybeSingle' || k === 'single') return async () => una();
+            if (k === 'insert' || k === 'update' || k === 'upsert') return (f: any) => { op = String(k); if (tabla === 'bot_notas_equipo' && k === 'insert') notas.push(f); return b; };
+            return () => b;
+          },
+        });
+        return b;
+      },
+    };
+    return db;
+  }
+  const vigilante = (charla: any) => {
+    const db = baseDelVigilante(charla);
+    const s: any = new BotService(db, {} as any, {} as any, {} as any, {} as any);
+    s.lineas = { principal: async () => 'pedidos', config: async () => CFG };
+    s.deLaLinea = async () => '';
+    s.enviarPorWhatsapp = jest.fn(async () => ({ enviado: true }));
+    return { s, db };
+  };
+  const antes = process.env.ODB_AVISO_ESPERA_WHATSAPP;
+  beforeAll(() => {
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'setTimeout', 'setInterval', 'clearTimeout', 'clearInterval', 'queueMicrotask'] });
+    jest.setSystemTime(AHORA);
+    process.env.ODB_AVISO_ESPERA_WHATSAPP = '1';
+  });
+  afterAll(() => {
+    jest.useRealTimers();
+    if (antes === undefined) delete process.env.ODB_AVISO_ESPERA_WHATSAPP; else process.env.ODB_AVISO_ESPERA_WHATSAPP = antes;
+  });
+
+  it('para una persona de la casa, con el bot activo: el aviso no dice que está en pausa ni suma otra nota', async () => {
+    const { s, db } = vigilante({ bot_activo: true, derivada_motivo: null, atendida_por: null, resuelta_en: null });
+    await s.avisarEsperandoRespuesta();
+    const texto = String(s.enviarPorWhatsapp.mock.calls[0]?.[0]?.text ?? '');
+    expect(texto).toMatch(/El bot no lo contestó porque es para una persona de la casa/);
+    expect(texto).not.toMatch(/pausa|REACTIVAR/);
+    expect(db.notas).toHaveLength(0);
+  });
+  it('una charla en pausa (o lo que llegó antes de reactivarla): el aviso de siempre, con su nota', async () => {
+    const { s, db } = vigilante({ bot_activo: false, derivada_motivo: 'Atendida desde el teléfono', atendida_por: null, resuelta_en: null });
+    await s.avisarEsperandoRespuesta();
+    expect(String(s.enviarPorWhatsapp.mock.calls[0]?.[0]?.text ?? '')).toMatch(/en pausa/);
+    expect(db.notas).toHaveLength(1);
+    const otro = vigilante({ bot_activo: true, derivada_motivo: 'Atendida desde el teléfono · el bot volvió solo', atendida_por: null, resuelta_en: new Date(AHORA.getTime() - 3600_000).toISOString() });
+    await otro.s.avisarEsperandoRespuesta();
+    expect(String(otro.s.enviarPorWhatsapp.mock.calls[0]?.[0]?.text ?? '')).toMatch(/en pausa/);
+  });
+});
+
+describe('revisión 21/10 · una descripción no calla al cliente', () => {
+  it('«¿Y materas Jacky?» y el modelo describe («La clienta le habla a Jacky. Tenemos materas…»): no sale eso ni se calla; se le pide la respuesta y sale', async () => {
+    const db = armar([{ role: 'assistant', content: 'Buen día. ¿Qué necesitás?' }]);
+    const { s, create } = servicio(db,
+      final('a', 'La clienta le habla a Jacky. Tenemos materas de calabaza.'),
+      final('b', 'Soy Emilia, la asistente de O.D.B. Tenemos materas de calabaza. ¿Cuántas querés?'));
+    const r = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: '¿Y materas Jacky?' });
+    expect(r.respuesta).toBe('Soy Emilia, la asistente de O.D.B. Tenemos materas de calabaza. ¿Cuántas querés?');
+    expect(create).toHaveBeenCalledTimes(2);
   });
 });

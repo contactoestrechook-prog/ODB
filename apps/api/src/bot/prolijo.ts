@@ -800,8 +800,23 @@ export function sinCocinaInterna(t: string): string {
   return r.replace(/[ \t]{2,}/g, ' ').replace(/ ([,.;:])/g, '$1').replace(/^(\s*)([a-záéíóúñ])/gm, (m, a, b) => a + b.toUpperCase()).trim();
 }
 
-// LOS DE LA CASA, como los nombra el modelo cuando narra («Leandro le escribe a "Shaky"»)
-const CASA = String.raw`(?:ja(?:c?qu|c?k)\w*|shak\w*|chak\w*|juan pablo|leandro|anabella|romina|alguien de la casa|una persona de la casa|otra persona|la casa|el equipo)`;
+// LOS DE LA CASA, como los nombra el modelo cuando narra («Leandro le escribe a "Shaky"»), y las
+// áreas (revisión del 21/10/2026: «Le dejé una nota a compras» salía). «Reparto» no: «Le dejé una
+// nota al repartidor para que toque timbre» es para el cliente.
+const CASA = String.raw`(?:ja(?:c?qu|c?k)\w*|shak\w*|chak\w*|juan pablo|leandro|anabella|romina|alguien de la casa|una persona de la casa|otra persona|la casa|el equipo|compras\b|administraci[oó]n\b|dep[oó]sito\b|la encargada)`;
+
+// las personas y las áreas, sin «la casa» («te lo manda a la casa» puede ser del envío)
+const CASA_PERSONAS = String.raw`(?:ja(?:c?qu|c?k)\w*|shak\w*|chak\w*|juan pablo|leandro|anabella|romina|compras\b|administraci[oó]n\b|la encargada)`;
+
+// LOS NOMBRES DE LAS HERRAMIENTAS Y DE LOS MOTIVOS DEL TURNO: escritos como texto son cocina interna
+// («no_contestar (para_la_casa)», «Llamo a nota_interna…»). En las vueltas sin herramientas el modelo
+// solo puede escribir, y la llamada salía como mensaje (revisión del 21/10/2026). Una prueba
+// (silencio.spec.ts) controla que estén todas las de HERRAMIENTAS_PEDIDOS.
+export const NOMBRES_INTERNOS = [
+  'buscar_productos', 'cancelar_pedido', 'consultar_cava', 'consultar_interno', 'cotizar_pedido', 'crear_pedido', 'derivar_a_humano',
+  'derivar_pago', 'estado_local', 'estado_pedido', 'generar_link_pago', 'identificar_cliente', 'no_contestar', 'nota_interna',
+  'preparar_pedido', 'registrar_proveedor', 'para_la_casa', 'comprobante_enviado', 'tool_use', 'tool_choice',
+];
 
 // TEXTO INTERNO DEL MODELO (la última barrera; antes, tieneMeta de bot.service.ts). Ronda 7:
 // una regeneración devolvió el razonamiento pegado al mensaje («No corresponde nota interna
@@ -811,16 +826,41 @@ const CASA = String.raw`(?:ja(?:c?qu|c?k)\w*|shak\w*|chak\w*|juan pablo|leandro|
 // nota» también están en respuestas de verdad («Este mensaje es para confirmarte que…») y el
 // recorte terminaba en «Disculpe, ¿me repite su consulta?» (21/10/2026). Ahora cada frase pide
 // el contexto de la narración: hablar DEL cliente en tercera persona, de la casa o del equipo.
+// Revisión del 21/10/2026, con las 17 narraciones que les llegaron a clientes y proveedores del
+// 21/9 al 21/10 (narraciones-reales en silencio.spec.ts): el modelo narra en PASADO y con el nombre
+// del contacto («No le escribí nada a Juan Manuel», «Al transportista no le contesté nada: según las
+// reglas de la casa…», «Lo registré como proveedor»). La forma, más que la frase: un verbo en primera
+// persona hacia «el cliente / el proveedor / el transportista», lo que hizo con administración o
+// compras, «este turno», las reglas de la casa.
+const VERBO_YO = String.raw`(?<![a-záéíóúñ])(?!(?:como|pero|solo|sólo|todo|mismo|algo|tampoco|luego|bueno|esto|eso|nada|ningún|ninguna)\s)[a-záéíóúñ]+[oéí]`;
 const RE_TEXTO_INTERNO = new RegExp([
   'nota interna', 'reformul', 'reescrib', 'no hay nada nuevo para sumar', 'retom[aá]s vos', 'sin prometer plazos', 'lo anterior;',
   String.raw`\btextual\s*:`, 'mi (?:último|ultimo) mensaje', 'no corresponde (?:nota|derivar|anotar)', 'promesa (?:de plazo|pendiente|vac[ií]a)',
   String.raw`\bel cliente (?:pregunt|dijo|pidi|escrib|mand|quiere|quer[ií]a|le habla|habla|est[aá]|no espera|espera)`,
   String.raw`\b(?:respuesta|contestar(?:le)?|responder(?:le)?|escribir(?:le)?|decir(?:le)?|nada|mensaje|texto|nota|dato|datos|precio|aviso|info|informaci[oó]n)\s+(?:al|para el)\s+cliente\b`,
   String.raw`\b(?:le |les )?(?:paso|digo|contesto|respondo|escribo|mando|aviso|explico|confirmo|pregunto|ofrezco)\w* al cliente\b`,
-  String.raw`\b(?:mensaje|pregunta|audio|foto|texto|consulta|pedido)\s+del\s+cliente\b`,
+  // «Le aclaré al cliente…», «No le mandé ninguna respuesta al cliente», «No le respondí nada al proveedor»
+  String.raw`${VERBO_YO}\s+(?:(?:nada|algo|todo)\s+|ning[uú]n[a]?\s+[a-záéíóúñ]+\s+)?(?:al|a la)\s+(?:cliente|clienta|proveedor|proveedora|transportista)\b`,
+  String.raw`\b(?:mensaje|pregunta|audio|foto|texto|consulta|pedido|lista|datos?|direcci[oó]n)\s+del\s+cliente\b`, String.raw`(?<!\ba )\bnombre del cliente\b`,
   String.raw`\ble escribe a\b`, String.raw`\b(?:le habla|se dirige) a ${CASA}`, String.raw`\bparece ser (?:alguien|una persona) de la casa`,
+  String.raw`\ble (?:contesta|contest[oó]|escribi[oó]|respondi[oó]|habl[oó]|estaba contestando) a ${CASA}`,
+  // el contacto en tercera persona, haciendo algo con alguien de la casa: «Es un proveedor ofreciéndole
+  // mercadería a Jaqueline», «le reclama a Jaqueline una lista», «le pide a compras…»
+  String.raw`\b(?:ofreci[eé]ndo\w*|ofrece|reclam(?:a|ando)\w*|pide|pidi[oó]|pidiendo\w*|manda|mand[oó]|escribe|escribi[oó]|contesta|contest[oó])(?![a-záéíóúñ])[^.\n?¿]{0,60}\ba ${CASA_PERSONAS}`,
   String.raw`\bdej[eé] (?:una |la )?nota (?:al|para el|para la|a la|para|a) ${CASA}`, String.raw`\bnota (?:al|para el) equipo\b`,
+  String.raw`\b(?:no )?dej[eé] (?:ninguna )?nota\b`, String.raw`\bintent[eé] dejar (?:una )?nota\b`,
   String.raw`\beste mensaje (?:no (?:es|va|lleva|requiere|necesita|pide|me)\b|(?:es|va|est[aá]) (?:para|dirigido a) (?:${CASA}|m[ií](?![a-záéíóúñ])|el bot|nosotros))`,
+  String.raw`\beste mensaje es de (?:un|una|el|la) (?:proveedor|proveedora|cliente|clienta|persona|conocid\w+|vendedor\w*)`,
+  // lo que consultó con administración o compras («Se lo pregunté a administración»). «Le pasé a compras
+  // lo de las pastas» no: a un proveedor se le dice (25/9 y 15/10, respuestas de verdad)
+  String.raw`\b(?:pregunt|consult)[eé]\s+(?:a|con)\s+(?:administraci[oó]n|compras|reparto|dep[oó]sito|el equipo|la casa|la encargada)\b`,
+  String.raw`\bconsulta a (?:administraci[oó]n|compras)\b`, String.raw`\ble llega direct\w*`,
+  String.raw`\bregistr[eé](?![a-záéíóúñ])[^.\n]{0,40}\bcomo proveedor`, String.raw`\bdej[eé] registrad[oa]s?\b`,
+  String.raw`\b(?:seg[uú]n )?(?:las|la) reglas? de la casa\b`, String.raw`\b(?:en|de) este turno\b`, String.raw`\b(?:es|era) un cierre\b`,
+  String.raw`\bel sistema (?:la |lo )?rechaz`, String.raw`\bno se guard[oó] nada\b`,
+  String.raw`\bsu (?:única |unica )?(?:duda|mensaje|pregunta|consulta) (?:era|es|insinuaba|no)\b`,
+  // las herramientas y los motivos, escritos como texto
+  String.raw`\b(?:${NOMBRES_INTERNOS.join('|')})\b`,
   'no lleva respuesta', 'la herramienta', 'herramienta (?:nota_interna|derivar|cotizar|crear_pedido|buscar_productos|no_contestar)', String.raw`\[nota`, String.raw`^\s*\[`,
 ].join('|'), 'i');
 
@@ -833,16 +873,25 @@ export function esTextoInterno(t: string | null | undefined): boolean {
 // no lleva respuesta al cliente. Leandro le escribe a "Shaky", que parece ser alguien de la
 // casa… Le dejé una nota al equipo…»: decidió bien no contestar, pero lo escribió. Si el
 // texto es eso, no sale nada (y nunca el «¿me repite su consulta?», que ya no existe).
-// 21/10/2026: también «Este mensaje es para Jaqueline, no para mí», «le habla a Jackie»,
-// «no contesto nada», «queda sin respuesta». Lo que hace el bot con eso lo deciden las
-// reglas de silencio.ts (para la casa, cierre o pedirle la respuesta otra vez).
+// 21/10/2026: también «Este mensaje es para Jaqueline, no para mí», «no contesto nada», «queda sin
+// respuesta». Lo que hace el bot con eso lo deciden las reglas de silencio.ts (para la casa, cierre
+// o pedirle la respuesta otra vez).
+// Revisión del 21/10/2026: solo las negativas explícitas, en presente y en pasado («No le respondí
+// nada al cliente», «No le mandé nada a Credifin», «No contesto este mensaje»). Las descriptivas («le
+// habla a Jacky», «parece ser alguien de la casa») son texto interno pero no dicen que no contesta, y
+// las que también dice una respuesta de verdad quedaron afuera o acotadas: «No hace falta responder
+// ahora, avisame cuando quieras» y «No es para mí decidirlo, pero el envío es sin cargo» salen.
 const RE_NO_CONTESTA = new RegExp([
   'no lleva respuesta', '(?:no hay )?nada (?:que|para) (?:contestar|responder|decir)le', 'no hay (?:nada )?que (?:contestar|responder)',
-  String.raw`no (?:hace falta|corresponde|necesita|requiere) (?:contestar|responder|respuesta|que (?:conteste|responda)\b)`,
-  String.raw`no (?:es|va|est[aá]) (?:para (?:m[ií]|el bot|nosotros|emilia)(?![a-záéíóúñ])|dirigido a (?:m[ií]|el bot|nosotros|emilia))`,
+  String.raw`no (?:hace falta|corresponde|necesita|requiere) (?:contestar|responder)le`,
+  String.raw`no (?:corresponde|necesita\w*|requiere\w*|lleva) (?:respuesta|contestaci[oó]n)`,
+  String.raw`no hace falta (?:respuesta|contestaci[oó]n|que (?:le )?(?:conteste|responda|intervenga)\b)`,
+  String.raw`no hace falta (?:contestar|responder)\s*(?:[.,;:!)]|$)`,
+  String.raw`no (?:es|va|est[aá]) (?:para|dirigido a) (?:m[ií]|el bot|nosotros|emilia)\s*(?:[.,;:!)]|$)`, String.raw`,\s*no para (?:m[ií]|el bot|nosotros|emilia)(?![a-záéíóúñ])`,
   String.raw`\b(?:este )?mensaje (?:es|va|est[aá]) (?:para|dirigido a) ${CASA}`,
-  String.raw`\b(?:le habla|se dirige|le escribe) a ${CASA}`, String.raw`\bparece ser (?:alguien|una persona) de la casa`,
-  'no le (?:contesto|respondo|escribo)', String.raw`\bno (?:contesto|respondo|escribo) nada\b`, 'no (?:voy a|me toca|me corresponde) (?:contestar|responder)',
+  String.raw`\bno (?:le|les) (?:respond|contest|escrib|mand)(?:[ií]|[eé]|o)(?![a-záéíóúñ])`,
+  String.raw`\bno (?:contesto|respondo|contest[eé]|respond[ií]) (?:este|el|ese|su) mensaje\b`,
+  String.raw`\bno (?:contesto|respondo|escribo|contest[eé]|respond[ií]|escrib[ií]|mand[eé]) nada\b`, 'no (?:voy a|me toca|me corresponde) (?:contestar|responder)',
   'me quedo callad', 'sin respuesta (?:al|para el) cliente', String.raw`\b(?:queda|dejo) (?:la respuesta )?(?:vac[ií]a|sin respuesta|en silencio)\b`,
   String.raw`\bdejo que (?:lo |la )?(?:conteste|responda|atienda)`,
 ].join('|'), 'i');
