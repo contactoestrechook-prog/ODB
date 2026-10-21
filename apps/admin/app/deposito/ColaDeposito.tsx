@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Aviso, Boton, Etiqueta, FOCO, IconoCerrar, Monto, PlacaRoja, unir, type TonoEtiqueta } from '../ui/kit';
 import { numero, pesos as formatoPesos } from '../lib/formato';
 import { conCodigo } from '../lib/codigo-producto';
+import { FaltantesAlEntregar, faltaDeStock, type FaltaDeStock } from '../ui/FaltantesAlEntregar';
 
 type Pedido = {
   id: string;
@@ -55,6 +56,7 @@ export function ColaDeposito() {
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
   const [ocupado, setOcupado] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
+  const [falta, setFalta] = useState<{ datos: FaltaDeStock; pedido: Pedido } | null>(null);
   // qué pedidos se ven abiertos (como Placa roja) y cuáles en la vista breve;
   // sin tocar, se abren solos los que están "En preparación"
   const [abiertos, setAbiertos] = useState<Record<string, boolean>>({});
@@ -80,8 +82,10 @@ export function ColaDeposito() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ pedidoId: pedido.id, estado }),
     });
-    const datos = await res.json();
-    if (!res.ok) setAviso(datos.message ?? 'No se pudo avanzar el pedido');
+    const datos = await res.json().catch(() => ({}));
+    const fs = !res.ok && estado === 'entregado' ? faltaDeStock(pedido.id, res.status, datos) : null;
+    if (fs) setFalta({ datos: fs, pedido });
+    else if (!res.ok) setAviso(datos.message ?? 'No se pudo avanzar el pedido');
     else if (estado === 'entregado' && datos.venta) {
       setAviso(`Pedido entregado: venta registrada por ${pesos(datos.venta.total)}`);
     }
@@ -278,6 +282,13 @@ export function ColaDeposito() {
           );
         })}
       </div>
+      {falta && (
+        <FaltantesAlEntregar
+          falta={falta.datos}
+          onCerrar={() => { setFalta(null); cargar(); }}
+          onEntregar={async () => { const p = falta.pedido; setFalta(null); await avanzar(p, 'entregado'); }}
+        />
+      )}
     </div>
   );
 }

@@ -7,6 +7,7 @@ import {
   telefonoLegible, type PedidoCola,
 } from '../lib/pedidos';
 import { BotonMicrofono } from './BotonMicrofono';
+import { FaltantesAlEntregar, faltaDeStock, type FaltaDeStock } from './FaltantesAlEntregar';
 import {
   AreaTexto, Aviso, Boton, Cargando, Chips, Entrada, Etiqueta, FOCO, IconoCerrar, Modal, Pestanas, PlacaRoja, TablaResponsiva, Tarjeta, unir,
   useConfirmar, Vacio,
@@ -71,6 +72,8 @@ export function PedidosWorkspace({ inicial, puedeSimular = false }: { inicial: P
   const [abierto, setAbierto] = useState<PedidoCola | null>(null);
   const [trabajando, setTrabajando] = useState<string | null>(null);
   const [entregando, setEntregando] = useState<PedidoCola | null>(null);
+  // al entregar faltaba stock: la ventana pregunta si se saca o se reemplaza
+  const [falta, setFalta] = useState<{ datos: FaltaDeStock; body: any } | null>(null);
   const { confirmar, dialogo } = useConfirmar();
   const timer = useRef<any>(null);
 
@@ -116,7 +119,12 @@ export function PedidosWorkspace({ inicial, puedeSimular = false }: { inicial: P
     const r = await fetch('/api/pedidos', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).catch(() => null);
     if (!r) { setAviso('Sin conexión. Probá de nuevo.'); return null; }
     const d = await r.json().catch(() => ({}));
-    if (!r.ok) { setAviso(d.message ?? 'No se pudo hacer el cambio.'); return null; }
+    if (!r.ok) {
+      const fs = body.estado === 'entregado' ? faltaDeStock(body.pedidoId, r.status, d) : null;
+      if (fs) { setFalta({ datos: fs, body }); return null; }
+      setAviso(d.message ?? 'No se pudo hacer el cambio.');
+      return null;
+    }
     await recargar();
     if (vista === 'terminados' || body.estado === 'entregado' || body.estado === 'cancelado') cargarTerminados();
     return d;
@@ -256,6 +264,13 @@ export function PedidosWorkspace({ inicial, puedeSimular = false }: { inicial: P
           p={entregando}
           onCerrar={() => setEntregando(null)}
           onConfirmar={async (medio) => { const p = entregando; setEntregando(null); await avanzar(p, 'entregado', medio); }}
+        />
+      )}
+      {falta && (
+        <FaltantesAlEntregar
+          falta={falta.datos}
+          onCerrar={() => { setFalta(null); recargar(); }}
+          onEntregar={async () => { const b = falta.body; setFalta(null); setTrabajando(b.pedidoId); await post(b); setTrabajando(null); }}
         />
       )}
       {wa && <ModalWhatsApp cerrar={() => setWa(false)} post={post} />}

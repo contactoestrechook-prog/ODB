@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Boton, Cargando, Etiqueta, Kpi, Monto, Selector, Tarjeta, Vacio, type TonoEtiqueta } from './kit';
+import { Aviso, Boton, Cargando, Etiqueta, Kpi, Monto, Selector, Tarjeta, Vacio, type TonoEtiqueta } from './kit';
+import { FaltantesAlEntregar, faltaDeStock, type FaltaDeStock } from './FaltantesAlEntregar';
 
 const ESTADO_LABEL: Record<string, string> = { recibido: 'Recibido', pagado: 'Pagado', en_preparacion: 'En preparación', listo: 'Listo', en_camino: 'En camino', entregado: 'Entregado' };
 // El mismo tono por estado que en la vista del repartidor (Listo = ok, En camino = info).
@@ -16,6 +17,8 @@ const SIGUIENTE: Record<string, { estado: string; label: string }> = {
 const distTexto = (m: number) => (m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${m} m`);
 
 export function EnviosWorkspace() {
+  const [falta, setFalta] = useState<FaltaDeStock | null>(null);
+  const [errorEntrega, setErrorEntrega] = useState('');
   const [envios, setEnvios] = useState<any[]>([]);
   const [reps, setReps] = useState<any[]>([]);
   const [cargando, setCargando] = useState(true);
@@ -42,7 +45,14 @@ export function EnviosWorkspace() {
     cargar();
   };
   const avanzar = async (id: string, estado: string) => {
-    await fetch('/api/pedidos', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pedidoId: id, estado }) });
+    // antes el error no se mostraba: si la entrega fallaba, no pasaba nada a la vista
+    const r = await fetch('/api/pedidos', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pedidoId: id, estado }) }).catch(() => null);
+    const d = r ? await r.json().catch(() => ({})) : {};
+    const fs = r && !r.ok && estado === 'entregado' ? faltaDeStock(id, r.status, d) : null;
+    if (fs) setFalta(fs);
+    else if (!r) setErrorEntrega('Sin conexión. Probá de nuevo.');
+    else if (!r.ok) setErrorEntrega(d.message ?? 'No se pudo cambiar el pedido.');
+    else setErrorEntrega('');
     cargar();
   };
 
@@ -50,6 +60,14 @@ export function EnviosWorkspace() {
 
   return (
     <div className="space-y-4 sm:space-y-6">
+      {errorEntrega && <Aviso tono="error">{errorEntrega}</Aviso>}
+      {falta && (
+        <FaltantesAlEntregar
+          falta={falta}
+          onCerrar={() => { setFalta(null); cargar(); }}
+          onEntregar={async () => { const id = falta.pedidoId; setFalta(null); await avanzar(id, 'entregado'); }}
+        />
+      )}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         <Kpi etiqueta="Envíos activos" valor={envios.length} />
         <Kpi etiqueta="En camino" valor={enCurso} tono="info" />

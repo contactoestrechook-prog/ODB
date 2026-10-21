@@ -30,6 +30,8 @@ export async function POST(req: Request) {
   if (body.accion === 'waAnalizar') { url = `${API}/pedidos/whatsapp/analizar`; payload = { texto: body.texto }; }
   else if (body.accion === 'waCrear') { url = `${API}/pedidos/whatsapp`; payload = { items: body.items, nombre: body.nombre, notas: body.notas, dni: body.dni }; }
   else if (body.simular) { url = `${API}/pedidosya/simular`; payload = {}; }
+  // al entregar faltaba stock: sacar ese producto o reemplazarlo por otro (21/10/2026)
+  else if (body.accion === 'faltante') { url = `${API}/pedidos/${encodeURIComponent(body.pedidoId)}/faltante`; payload = { productoId: body.productoId, reemplazoSku: body.reemplazoSku, cantidad: body.cantidad }; }
   else if (body.accion === 'tomar') { url = `${API}/pedidos/${encodeURIComponent(body.pedidoId)}/tomar`; payload = {}; }
   else { url = `${API}/pedidos/${encodeURIComponent(body.pedidoId)}/avanzar`; payload = { estado: body.estado, ...(body.medioPago ? { medioPago: body.medioPago } : {}) }; }
   const res = await fetch(url, {

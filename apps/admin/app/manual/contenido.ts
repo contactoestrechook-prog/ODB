@@ -266,6 +266,7 @@ export const SECCIONES: Seccion[] = [
           ['Preparar / Marcar listo', 'Quién y cuándo. Preparar un pedido que nadie tomó, lo toma.'],
           ['Despachar / Repartidor', 'Quién lo despachó y quién le asignó repartidor.'],
           ['Entregado', 'Quién lo entregó y cómo pagó (efectivo, tarjeta o transferencia). El efectivo entra en la caja abierta.'],
+          ['Faltaba stock', 'Qué se sacó, qué se puso en su lugar y cómo cambió el total, con el nombre de quien lo hizo.'],
           ['Cancelar', 'Quién lo canceló. Se devuelve el stock y le llega la baja a administración.'],
         ],
       },
@@ -273,6 +274,8 @@ export const SECCIONES: Seccion[] = [
         tipo: 'ojo',
         puntos: [
           '"Más tarde" (la X de la ventana) la esconde 10 minutos en tu pantalla, nada más: el pedido sigue sin tomar y el reclamo sale igual.',
+          'Si al entregar falta algo en el stock, el sistema no entrega a medias: muestra qué producto falta, cuántos lleva el pedido y cuántos hay, y pregunta qué hacemos. "Sacarlo" lo saca del pedido (si hay algunos, se entregan los que hay). "Reemplazarlo" busca otro producto con stock en esa sucursal y lo pone al precio de hoy. Cuando no falta nada, "Entregar" sigue con el total nuevo.',
+          'Si el pedido ya estaba pagado (Mercado Pago o PedidosYa) y el total cambia, la ventana dice cuánto hay que devolverle o cobrarle al cliente.',
           'Los entregados y cancelados de la última semana están en Pedidos › "Terminados (7 días)".',
           'Al cliente le llega un WhatsApp cuando su pedido está listo, sale y se entrega. Por eso la web y la app ahora le piden su WhatsApp.',
         ],
@@ -740,7 +743,7 @@ export const SECCIONES: Seccion[] = [
         pasos: [
           'El repartidor ve sus entregas del día en su pantalla.',
           'Puede compartir la ubicación mientras reparte, para saber dónde está el camión.',
-          '"Marcar entregado" en cada parada.',
+          '"Marcar entregado" en cada parada. Si falta algo en el stock, el repartidor puede sacarlo del pedido; cambiarlo por otro producto se hace desde el local.',
         ],
       },
       {

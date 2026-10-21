@@ -2,8 +2,11 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Aviso, Boton, Etiqueta, Monto, Tarjeta, Vacio, clasesBoton, unir } from './kit';
+import { FaltantesAlEntregar, faltaDeStock, type FaltaDeStock } from './FaltantesAlEntregar';
 
 export function RepartidorView() {
+  const [falta, setFalta] = useState<FaltaDeStock | null>(null);
+  const [errorEntrega, setErrorEntrega] = useState('');
   const [entregas, setEntregas] = useState<any[]>([]);
   const [compartiendo, setCompartiendo] = useState(false);
   const [pos, setPos] = useState<{ lat: number; lng: number } | null>(null);
@@ -41,12 +44,27 @@ export function RepartidorView() {
   };
 
   const avanzar = async (id: string, estado: string) => {
-    await fetch('/api/pedidos', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pedidoId: id, estado }) });
+    // antes el error no se mostraba: si la entrega fallaba, no pasaba nada a la vista
+    const r = await fetch('/api/pedidos', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pedidoId: id, estado }) }).catch(() => null);
+    const d = r ? await r.json().catch(() => ({})) : {};
+    const fs = r && !r.ok && estado === 'entregado' ? faltaDeStock(id, r.status, d) : null;
+    if (fs) setFalta(fs);
+    else if (!r) setErrorEntrega('Sin conexión. Probá de nuevo.');
+    else if (!r.ok) setErrorEntrega(d.message ?? 'No se pudo cambiar el pedido.');
+    else setErrorEntrega('');
     cargar();
   };
 
   return (
     <div className="space-y-4">
+      {errorEntrega && <Aviso tono="error">{errorEntrega}</Aviso>}
+      {falta && (
+        <FaltantesAlEntregar
+          falta={falta} soloSacar
+          onCerrar={() => { setFalta(null); cargar(); }}
+          onEntregar={async () => { const id = falta.pedidoId; setFalta(null); await avanzar(id, 'entregado'); }}
+        />
+      )}
       <div
         className={unir(
           'rounded-2xl border p-4 shadow-tarjeta sm:p-5',

@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable, Logger } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
 import { RAZONAMIENTO_HAIKU } from '../comun/modelos';
@@ -744,6 +744,8 @@ export class PedidosService {
         lineas.push({ cuando: h.creado_en, que: ETIQUETA_ESTADO[String(h.estado_despues)] ?? String(h.estado_despues), quien: quien(h.usuario_id) ?? (h.estado_despues === 'pagado' ? 'Mercado Pago' : null), tono: h.estado_despues === 'cancelado' ? 'error' : h.estado_despues === 'entregado' ? 'ok' : 'neutro', reconstruido });
       } else if (h.evento === 'repartidor') {
         lineas.push({ cuando: h.creado_en, que: h.detalle?.repartidor ? `Repartidor: ${h.detalle.repartidor}` : 'Se sacó el repartidor', quien: quien(h.usuario_id), tono: 'neutro' });
+      } else if (h.evento === 'productos') {
+        lineas.push({ cuando: h.creado_en, que: lineaDeCambioDeProductos(h.detalle), quien: quien(h.usuario_id), tono: 'atencion' });
       } else if (h.evento === 'pago') {
         lineas.push({ cuando: h.creado_en, que: 'Pagado por Mercado Pago', quien: null, tono: 'ok' });
       }
@@ -778,6 +780,10 @@ export class PedidosService {
     // así un corte a mitad de camino no deja stock fantasma ni venta doble.
     let venta: any = null;
     if (estado === 'entregado') {
+      // Si falta algo, no se intenta: se devuelve QUÉ falta para que la pantalla
+      // pregunte si se saca o se reemplaza (21/10/2026: cuatro "Stock insuficiente"
+      // seguidos sin decir de qué producto).
+      await this.frenarSiFalta(pedidoId, pedido.sucursal_id);
       const { data, error: errEntregar } = await this.db.rpc('entregar_pedido', {
         p_pedido: pedidoId,
         p_usuario: usuarioId ?? null,
@@ -785,7 +791,11 @@ export class PedidosService {
         // 'mercadopago'/'pedidosya' cuando el pago vino por esos canales
         p_medio: medioPago ?? null,
       });
-      if (errEntregar) throw new BadRequestException(errEntregar.message);
+      if (errEntregar) {
+        // alguien vendió lo último entre la consulta y la entrega
+        if (/Stock insuficiente/.test(errEntregar.message)) await this.frenarSiFalta(pedidoId, pedido.sucursal_id);
+        throw new BadRequestException(errEntregar.message);
+      }
       venta = (data as any)?.venta ?? data;
     } else if (estado === 'cancelado') {
       // CANCELAR también toca stock (libera la reserva): misma receta que la
@@ -827,6 +837,50 @@ export class PedidosService {
     );
 
     return { estado, venta };
+  }
+
+  // Lo que falta para entregar el pedido en su sucursal (lo reservado por el
+  // propio pedido cuenta como disponible).
+  async faltantes(pedidoId: string): Promise<Faltante[]> {
+    const { data, error } = await this.db.rpc('faltantes_pedido', { p_pedido: pedidoId });
+    if (error) throw new BadRequestException(error.message);
+    return ((data ?? []) as any[]).map((f) => ({
+      productoId: String(f.producto_id),
+      sku: f.sku ?? null,
+      nombre: String(f.nombre ?? ''),
+      pide: Number(f.pide),
+      hay: Number(f.hay),
+    }));
+  }
+
+  private async frenarSiFalta(pedidoId: string, sucursalId?: string | null) {
+    const faltantes = await this.faltantes(pedidoId);
+    if (!faltantes.length) return;
+    // la sucursal viaja para que el buscador del reemplazo muestre el stock de ahí
+    throw new ConflictException({ statusCode: 409, codigo: 'FALTA_STOCK', message: mensajeDeFaltantes(faltantes), faltantes, sucursalId: sucursalId ?? null });
+  }
+
+  // Saca del pedido lo que no hay y, si se eligió, pone otro producto en su
+  // lugar (resolver_faltante_pedido: una sola transacción, con el pedido bloqueado).
+  async resolverFaltante(pedidoId: string, productoId: string, reemplazoSku?: string, cantidad?: number, usuarioId?: string) {
+    if (!productoId) throw new BadRequestException('Falta decir qué producto');
+    let reemplazo: string | null = null;
+    if (reemplazoSku?.trim()) {
+      const { data: prod } = await this.db.from('productos').select('id').eq('sku', reemplazoSku.trim()).maybeSingle();
+      if (!prod) throw new BadRequestException('No encuentro el producto elegido para reemplazar');
+      reemplazo = String((prod as any).id);
+    }
+    const cant = cantidad != null && Number.isFinite(Number(cantidad)) ? Number(cantidad) : null;
+    if (cant != null && cant <= 0) throw new BadRequestException('La cantidad del reemplazo tiene que ser mayor que 0');
+    const { data, error } = await this.db.rpc('resolver_faltante_pedido', {
+      p_pedido: pedidoId,
+      p_producto: productoId,
+      p_reemplazo: reemplazo,
+      p_cantidad: cant,
+      p_usuario: usuarioId ?? null,
+    });
+    if (error) throw new BadRequestException(error.message);
+    return { ...(data as any), faltantes: await this.faltantes(pedidoId) };
   }
 
   // Dispara un webhook a n8n para que mande el WhatsApp "pedido listo / en camino
@@ -883,4 +937,24 @@ export class PedidosService {
       clearTimeout(timer);
     }
   }
+}
+
+export type Faltante = { productoId: string; sku: string | null; nombre: string; pide: number; hay: number };
+
+const cantidadLegible = (n: number) => (Number.isInteger(n) ? String(n) : n.toLocaleString('es-AR', { maximumFractionDigits: 3 }));
+
+// "No hay stock de Quilmes lata 473: el pedido lleva 6 y hay 0."
+export function mensajeDeFaltantes(faltantes: Faltante[]): string {
+  const uno = (f: Faltante) => `${f.nombre}: el pedido lleva ${cantidadLegible(f.pide)} y hay ${cantidadLegible(f.hay)}`;
+  if (faltantes.length === 1) return `No alcanza el stock de ${uno(faltantes[0])}. ¿Lo sacamos o lo reemplazamos?`;
+  return `No alcanza el stock de ${faltantes.length} productos (${faltantes.map(uno).join('; ')}). ¿Los sacamos o los reemplazamos?`;
+}
+
+// La línea del historial: "Sacó 6 × Quilmes lata 473 y puso 6 × Quilmes x473cc ($42.760 → $46.840)"
+export function lineaDeCambioDeProductos(d: any): string {
+  const pesos = (n: unknown) => `$${Math.round(Number(n) || 0).toLocaleString('es-AR')}`;
+  const saco = d?.saco ? `${cantidadLegible(Number(d.saco.cantidad))} × ${d.saco.nombre}` : 'un producto';
+  const puso = d?.puso ? ` y puso ${cantidadLegible(Number(d.puso.cantidad))} × ${d.puso.nombre}` : '';
+  const total = d?.total_antes != null && d?.total != null && Number(d.total_antes) !== Number(d.total) ? ` (${pesos(d.total_antes)} → ${pesos(d.total)})` : '';
+  return `Faltaba stock: sacó ${saco}${puso}${total}`;
 }

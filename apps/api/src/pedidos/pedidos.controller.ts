@@ -241,6 +241,15 @@ export class PedidosController {
     return this.pedidos.avanzar(id, body.estado, req.usuario?.sub, medio);
   }
 
+  // Al entregar faltaba stock: sacar ese producto del pedido o reemplazarlo por otro
+  @Roles('deposito', 'cajero', 'gerente', 'dueno', 'repartidor')
+  @Post('pedidos/:id/faltante')
+  resolverFaltante(@Param('id') id: string, @Body() body: { productoId: string; reemplazoSku?: string; cantidad?: number }, @Req() req: any) {
+    // el repartidor está en la puerta del cliente: puede sacar, no cambiar por otro
+    if (body?.reemplazoSku && req.usuario?.rol === 'repartidor') throw new BadRequestException('Desde el reparto solo se puede sacar el producto');
+    return this.pedidos.resolverFaltante(id, body?.productoId, body?.reemplazoSku, body?.cantidad, req.usuario?.sub);
+  }
+
   @Roles('deposito', 'cajero', 'gerente', 'dueno')
   @Get('envios')
   envios() {
