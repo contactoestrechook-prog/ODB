@@ -1,7 +1,6 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { numero, pesos as pesosFmt } from '../lib/formato';
 import { textoVisible } from '../lib/texto';
 import {
@@ -10,6 +9,7 @@ import {
 } from '../lib/pedidos';
 import { BotonMicrofono } from './BotonMicrofono';
 import { FaltantesAlEntregar, faltaDeStock, type FaltaDeStock } from './FaltantesAlEntregar';
+import { ModalDespachar } from './EnvioPartes';
 import {
   AreaTexto, Aviso, Boton, Cargando, Chips, Entrada, Etiqueta, FOCO, IconoCerrar, Modal, Pestanas, PlacaRoja, TablaResponsiva, Tarjeta, unir,
   useConfirmar, Vacio,
@@ -78,7 +78,9 @@ export function PedidosWorkspace({ inicial, puedeSimular = false }: { inicial: P
   const [falta, setFalta] = useState<{ datos: FaltaDeStock; body: any } | null>(null);
   const { confirmar, dialogo } = useConfirmar();
   const timer = useRef<any>(null);
-  const router = useRouter();
+  // despachar un envío: quién lo lleva, acá mismo (caja y depósito no abren Reparto)
+  const [despachando, setDespachando] = useState<PedidoCola | null>(null);
+  const [errorDespacho, setErrorDespacho] = useState<string | null>(null);
 
   const recargar = useCallback(async () => {
     const r = await fetch('/api/pedidos', { cache: 'no-store' }).catch(() => null);
@@ -125,6 +127,11 @@ export function PedidosWorkspace({ inicial, puedeSimular = false }: { inicial: P
     if (!r.ok) {
       const fs = body.estado === 'entregado' ? faltaDeStock(body.pedidoId, r.status, d) : null;
       if (fs) { setFalta({ datos: fs, body }); return null; }
+      // un envío sin quién lo lleve, o que se quiso entregar sin que saliera: se elige acá
+      if (d?.codigo === 'FALTA_REPARTIDOR' || d?.codigo === 'ENVIO_SIN_SALIR') {
+        const p = pedidos.find((x) => x.id === body.pedidoId);
+        if (p) { setErrorDespacho(null); setDespachando(p); return null; }
+      }
       setAviso(d.message ?? 'No se pudo hacer el cambio.');
       return null;
     }
@@ -141,9 +148,11 @@ export function PedidosWorkspace({ inicial, puedeSimular = false }: { inicial: P
   }
 
   async function avanzar(p: PedidoCola, estado: string, medioPago?: string) {
-    // Un envío a domicilio sale desde Reparto › Envíos, donde se elige quién lo
-    // lleva (21/10/2026: sin eso la API no lo deja salir).
-    if (estado === 'en_camino' && esDomicilio(p)) { router.push(`/reparto?vista=envios&pedido=${encodeURIComponent(p.id)}`); return; }
+    // Un envío a domicilio sale con alguien que lo lleve (21/10/2026: sin eso la
+    // API no lo deja salir). Se elige acá mismo: antes «Despachar» mandaba a
+    // Reparto › Envíos y a caja y depósito, que no abren Reparto, el panel los
+    // devolvía a su inicio sin decir nada (revisión del 21/10/2026).
+    if (estado === 'en_camino' && esDomicilio(p)) { setErrorDespacho(null); setDespachando(p); return; }
     if (estado === 'entregado' && !medioPago && pideMedioAlEntregar(p)) { setEntregando(p); return; }
     setTrabajando(p.id);
     await post({ pedidoId: p.id, estado, medioPago });
@@ -277,6 +286,34 @@ export function PedidosWorkspace({ inicial, puedeSimular = false }: { inicial: P
           falta={falta.datos}
           onCerrar={() => { setFalta(null); recargar(); }}
           onEntregar={async () => { const b = falta.body; setFalta(null); setTrabajando(b.pedidoId); await post(b); setTrabajando(null); }}
+        />
+      )}
+      {despachando && (
+        <ModalDespachar
+          envio={{
+            id: despachando.id,
+            codigo: codigoDe(despachando),
+            cliente: despachando.clienteNombre || null,
+            direccion: textoVisible(despachando.destino_direccion, { unaLinea: true }),
+            repartidorId: despachando.repartidor_id ?? null,
+          }}
+          trabajando={trabajando === despachando.id}
+          error={errorDespacho}
+          onCerrar={() => { setDespachando(null); setErrorDespacho(null); }}
+          onConfirmar={async (repartidorId) => {
+            const p = despachando;
+            setTrabajando(p.id);
+            setErrorDespacho(null);
+            const r = await fetch('/api/pedidos', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pedidoId: p.id, estado: 'en_camino', repartidorId }) }).catch(() => null);
+            const d = r ? await r.json().catch(() => ({})) : null;
+            setTrabajando(null);
+            // si algo falla, se ve en la ventana, que queda abierta
+            if (!r) { setErrorDespacho('Sin conexión. Probá de nuevo.'); return; }
+            if (!r.ok) { setErrorDespacho(d?.message ?? 'No se pudo despachar.'); return; }
+            setDespachando(null);
+            await recargar();
+            cargarTerminados();
+          }}
         />
       )}
       {wa && <ModalWhatsApp cerrar={() => setWa(false)} post={post} />}

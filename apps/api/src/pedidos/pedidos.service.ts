@@ -10,7 +10,10 @@ import { fetchConTimeout } from '../comun/http';
 import { celularWhatsapp, enviarTextoWhatsapp } from '../comun/whatsapp';
 import { Lineas } from '../comun/lineas';
 import { sinRestosDeMarcado, textoONulo } from '../comun/texto-limpio';
-import { armarEnvio, avisoAlCliente, COLUMNAS_ENVIO, ESTADOS_ACTIVOS, medioPorDefecto, ordenarEnvios, type Envio, type FilaEnvio } from './envios';
+import {
+  armarEnvio, avisoAlCliente, clasificar, cobroDe, COLUMNAS_ENVIO, ESTADOS_ACTIVOS, fechaBA, FRANJAS, lineaDeCambioDeEnvio, medioPorDefecto, ordenarEnvios,
+  ROLES_DEL_LOCAL_QUE_LLEVAN, ROLES_QUE_LLEVAN, type Envio, type FilaEnvio,
+} from './envios';
 
 // Radio (m) para considerar que el cliente "está llegando" y asignarle estacionamiento.
 const GEOFENCE_M = 400;
@@ -452,16 +455,19 @@ export class PedidosService {
   // --- Delivery a domicilio ---
 
   // Quién puede llevar un envío: un repartidor activo o, si no hay (hoy no hay
-  // ninguno cargado), alguien del equipo (21/10/2026). Antes se aceptaba
+  // ninguno cargado), alguien del local (21/10/2026). Antes se aceptaba
   // cualquier id: se podía «asignar» a un usuario dado de baja o a un pedido
-  // ya entregado, y el error no se veía en la pantalla.
+  // ya entregado, y el error no se veía en la pantalla. Del local, solo los que
+  // después lo ven en «Mis entregas» y lo pueden cerrar (dueño, encargado, caja
+  // y depósito): un administrativo elegido salía sin la dirección ni el
+  // teléfono y no podía marcarlo entregado (revisión del 21/10/2026).
   async quienLleva(): Promise<{ repartidores: { id: string; nombre: string; telefono: string | null }[]; delLocal: { id: string; nombre: string; rol: string }[] }> {
     const { data, error } = await this.db.from('usuarios').select('id, nombre, rol, telefono, activo').order('nombre');
     if (error) throw new BadRequestException(error.message);
     const activos = ((data ?? []) as any[]).filter((u) => u.activo !== false && u.rol && u.rol !== 'cliente');
     return {
       repartidores: activos.filter((u) => u.rol === 'repartidor').map((u) => ({ id: String(u.id), nombre: String(u.nombre ?? 'Repartidor'), telefono: u.telefono ?? null })),
-      delLocal: activos.filter((u) => u.rol !== 'repartidor').map((u) => ({ id: String(u.id), nombre: String(u.nombre ?? 'Alguien del equipo'), rol: String(u.rol) })),
+      delLocal: activos.filter((u) => ROLES_DEL_LOCAL_QUE_LLEVAN.includes(u.rol)).map((u) => ({ id: String(u.id), nombre: String(u.nombre ?? 'Alguien del equipo'), rol: String(u.rol) })),
     };
   }
 
@@ -471,6 +477,9 @@ export class PedidosService {
     const u: any = data;
     if (!u || !u.rol || u.rol === 'cliente') throw new BadRequestException('Esa persona no es del equipo: elegí a alguien de la lista');
     if (u.activo === false) throw new BadRequestException(`${u.nombre ?? 'Esa persona'} está dada de baja: elegí a otra`);
+    if (!ROLES_QUE_LLEVAN.includes(u.rol)) {
+      throw new BadRequestException(`${u.nombre ?? 'Esa persona'} no tiene «Mis entregas» en su usuario: elegí un repartidor o a alguien de caja, depósito o encargado`);
+    }
     return { id: String(u.id), nombre: String(u.nombre ?? ''), rol: String(u.rol) };
   }
 
@@ -493,11 +502,15 @@ export class PedidosService {
   }
 
   // El repartidor comparte su ubicación; el cliente la ve en el seguimiento.
-  async repartidorUbicacion(pedidoId: string, lat: number, lng: number) {
-    const { error } = await this.db
+  // soloDe: quien la manda solo actualiza los envíos que lleva él (desde el
+  // 21/10/2026 también caja y depósito llevan envíos; dueño y encargado, todos).
+  async repartidorUbicacion(pedidoId: string, lat: number, lng: number, soloDe?: string) {
+    let q = this.db
       .from('pedidos')
       .update({ repartidor_lat: lat, repartidor_lng: lng, repartidor_en: new Date().toISOString() })
       .eq('id', pedidoId);
+    if (soloDe) q = q.eq('repartidor_id', soloDe);
+    const { error } = await q;
     if (error) throw new BadRequestException(error.message);
     return { ok: true };
   }
@@ -795,6 +808,8 @@ export class PedidosService {
         lineas.push({ cuando: h.creado_en, que: lineaDeCambioDeProductos(h.detalle), quien: quien(h.usuario_id), tono: 'atencion' });
       } else if (h.evento === 'pago') {
         lineas.push({ cuando: h.creado_en, que: 'Pagado por Mercado Pago', quien: null, tono: 'ok' });
+      } else if (h.evento === 'envio') {
+        lineas.push({ cuando: h.creado_en, que: lineaDeCambioDeEnvio(h.detalle), quien: quien(h.usuario_id), tono: 'atencion' });
       }
     }
     const TIPO_AVISO: Record<string, string> = { pedido_nuevo: 'el pedido', pedido_cancelado: 'la cancelación', pedido_pagado: 'el pago', pedido_sin_tomar: 'el reclamo (nadie lo había tomado)' };
@@ -820,6 +835,8 @@ export class PedidosService {
       repartidorId?: string;
       /** false = no se le manda WhatsApp al cliente (cierre de un envío viejo). */
       avisar?: boolean;
+      /** Cierre de un envío atrasado («Se entregó»): se entrega aunque no haya salido. */
+      cierre?: boolean;
     } = {},
   ) {
     const { data: pedido, error } = await this.db
@@ -830,6 +847,19 @@ export class PedidosService {
     if (error || !pedido) throw new BadRequestException('No existe el pedido');
     if (!transicionValida(pedido.estado, estado)) {
       throw new BadRequestException(`Transición inválida: ${pedido.estado} → ${estado}`);
+    }
+
+    // Un envío a domicilio se entrega DESPUÉS de salir (revisión del 21/10/2026).
+    // Desde Depósito, «Entregar» un envío listo lo pasaba a entregado sin nadie
+    // que lo llevara, le mandaba al cliente «fue entregado» con el paquete en el
+    // local y registraba el cobro sin preguntar. La única excepción es el cierre
+    // de un atrasado («¿Se entregó o se cancela?» → «Se entregó»).
+    if (estado === 'entregado' && pedido.canal === 'domicilio' && pedido.estado !== 'en_camino' && !opciones.cierre) {
+      throw new BadRequestException({
+        statusCode: 400,
+        codigo: 'ENVIO_SIN_SALIR',
+        message: 'Un envío a domicilio se entrega después de salir: tocá «Despachar» y elegí quién lo lleva.',
+      });
     }
 
     // Un envío no sale sin alguien que lo lleve (21/10/2026): DOM-YD5GNY pasó a
@@ -922,31 +952,184 @@ export class PedidosService {
   // avisarle al cliente y se entrega como siempre (venta, caja, stock y, si
   // falta algo, la ventana de faltantes). Al cliente no le llega ningún
   // WhatsApp: lo recibió hace días.
-  async seEntrego(pedidoId: string, usuarioId?: string, medioPago?: string) {
-    const { data } = await this.db.from('pedidos').select('id, canal, estado, preparacion_en, preparado_por').eq('id', pedidoId).maybeSingle();
+  //
+  // Revisión del mismo día:
+  // - Solo para los atrasados viejos: la condición (paraCerrar) la mira acá el
+  //   servidor, no solo la pantalla. Antes cualquier envío recién entrado se
+  //   podía pasar a entregado salteando preparación, salida y repartidor.
+  // - Lo que puede hacer fallar la entrega (faltantes y, en efectivo, la caja
+  //   cerrada) se mira ANTES de tocar el estado. Antes el pedido quedaba
+  //   «listo» con la hora de ahora: salía de Atrasados, perdía la pregunta y lo
+  //   único que ofrecía era «Salió», con WhatsApp al cliente 11 días tarde. Si
+  //   la entrega igual falla, vuelve al estado y las fechas que tenía.
+  //   (Hacerlo en una sola transacción pide cambiar entregar_pedido en la base,
+  //   que acepta solo «listo» o «en camino»: eso es una migración.)
+  // - El cobro hay que elegirlo (no se toma solo lo que dijo el cliente) y el
+  //   efectivo pide confirmar que la plata está HOY en el cajón: entregar_pedido
+  //   lo suma a la caja abierta de hoy y, si se cobró otro día, el arqueo da
+  //   faltante. Qué hacer con un efectivo cobrado otro día lo decide Leandro.
+  async seEntrego(pedidoId: string, usuarioId?: string, medioPago?: string, { efectivoEnCaja = false }: { efectivoEnCaja?: boolean } = {}) {
+    const { data, error: errLeer } = await this.db
+      .from('pedidos')
+      .select('id, canal, estado, sucursal_id, qr_retiro, origen, forma_pago, creado_en, pagado_en, preparacion_en, preparado_por, listo_en, en_camino_en, entrega_fecha')
+      .eq('id', pedidoId)
+      .maybeSingle();
+    if (errLeer) throw new BadRequestException(errLeer.message);
     const p: any = data;
     if (!p) throw new BadRequestException('No existe el pedido');
     if (p.canal !== 'domicilio') throw new BadRequestException('Esto es para los envíos a domicilio');
-    if (['recibido', 'pagado', 'en_preparacion'].includes(p.estado)) {
-      const ahora = new Date().toISOString();
-      const { data: filas, error } = await this.db
-        .from('pedidos')
-        .update({
-          estado: 'listo',
-          listo_en: ahora,
-          preparacion_en: p.preparacion_en ?? ahora,
-          preparado_por: p.preparado_por ?? usuarioId ?? null,
-          ...(usuarioId ? { cambio_por: usuarioId, cambio_en: ahora } : {}),
-        })
-        .eq('id', pedidoId)
-        .eq('estado', p.estado)
-        .select('id');
-      if (error) throw new BadRequestException(error.message);
-      if (!filas?.length) throw new BadRequestException('El pedido cambió de estado mientras tanto: actualizá la pantalla');
-    } else if (!['listo', 'en_camino'].includes(p.estado)) {
-      throw new BadRequestException('El pedido ya está cerrado');
+    if (!ESTADOS_ACTIVOS.includes(p.estado)) throw new BadRequestException('El pedido ya está cerrado');
+    if (!clasificar(p).paraCerrar) {
+      throw new BadRequestException('«Se entregó» es para cerrar un envío atrasado que se entregó sin marcarlo. Este sigue su curso: usá los botones de la tarjeta.');
     }
-    return this.avanzar(pedidoId, 'entregado', usuarioId, medioPago, { avisar: false });
+    const cobro = cobroDe(p);
+    // pagado (Mercado Pago) o de PedidosYa: la base pone el medio
+    const medio = cobro.pagado ? undefined : medioPago;
+    if (cobro.preguntar && !medio) throw new BadRequestException('Elegí cómo se cobró');
+    if (medio === 'efectivo' && !efectivoEnCaja) {
+      throw new BadRequestException({
+        statusCode: 400,
+        codigo: 'CONFIRMAR_EFECTIVO',
+        message: 'El efectivo se suma a la caja abierta de hoy: confirmá que esa plata está hoy en el cajón.',
+      });
+    }
+    // antes de tocar el estado, lo que haría fallar la entrega
+    await this.frenarSiFalta(pedidoId, p.sucursal_id);
+    if (medio === 'efectivo' && !(await this.hayCajaAbierta(p.sucursal_id))) {
+      throw new BadRequestException('Abrí la caja de la sucursal antes de cerrarlo cobrado en efectivo');
+    }
+
+    const opciones = { avisar: false, cierre: true };
+    if (!['recibido', 'pagado', 'en_preparacion'].includes(p.estado)) {
+      return this.avanzar(pedidoId, 'entregado', usuarioId, medio, opciones);
+    }
+    // cómo estaba, para volverlo atrás si la entrega no sale
+    const comoEstaba = { estado: p.estado, listo_en: p.listo_en ?? null, preparacion_en: p.preparacion_en ?? null, preparado_por: p.preparado_por ?? null };
+    const ahora = new Date().toISOString();
+    const { data: filas, error } = await this.db
+      .from('pedidos')
+      .update({
+        estado: 'listo',
+        listo_en: ahora,
+        preparacion_en: p.preparacion_en ?? ahora,
+        preparado_por: p.preparado_por ?? usuarioId ?? null,
+        ...(usuarioId ? { cambio_por: usuarioId, cambio_en: ahora } : {}),
+      })
+      .eq('id', pedidoId)
+      .eq('estado', p.estado)
+      .select('id');
+    if (error) throw new BadRequestException(error.message);
+    if (!filas?.length) throw new BadRequestException('El pedido cambió de estado mientras tanto: actualizá la pantalla');
+    try {
+      return await this.avanzar(pedidoId, 'entregado', usuarioId, medio, opciones);
+    } catch (e) {
+      // la entrega no salió: vuelve al estado y las fechas que tenía, así sigue
+      // en Atrasados con su pregunta (y no aparece «listo» desde hace 0 horas)
+      const { error: errVolver } = await this.db
+        .from('pedidos')
+        .update({ ...comoEstaba, ...(usuarioId ? { cambio_por: usuarioId, cambio_en: new Date().toISOString() } : {}) })
+        .eq('id', pedidoId)
+        .eq('estado', 'listo');
+      if (errVolver) this.log.error(`«Se entregó» de ${pedidoId} falló y no pude volverlo a ${comoEstaba.estado}: ${errVolver.message}`);
+      throw e;
+    }
+  }
+
+  /** Hay una caja abierta en la sucursal (la misma búsqueda que entregar_pedido). */
+  private async hayCajaAbierta(sucursalId: string | null | undefined): Promise<boolean> {
+    if (!sucursalId) return false;
+    const { data, error } = await this.db
+      .from('sesiones_caja')
+      .select('id, caja:cajas!inner(sucursal_id)')
+      .is('cerrada_en', null)
+      .eq('caja.sucursal_id', sucursalId)
+      .limit(1);
+    if (error) throw new BadRequestException(`No pude ver si hay una caja abierta: ${error.message}`);
+    return (data ?? []).length > 0;
+  }
+
+  // Cambiar cuándo (fecha y franja) o corregir la dirección de un envío
+  // (revisión del 21/10/2026). Antes no había dónde: un atrasado que el cliente
+  // pedía para el viernes quedaba para siempre en Atrasados diciendo «Era el
+  // miércoles 14/10». Queda en el historial del pedido.
+  async cambiarEnvio(
+    pedidoId: string,
+    cambios: { entregaFecha?: string | null; entregaFranja?: string | null; direccion?: string | null },
+    usuarioId?: string,
+  ) {
+    const { data, error } = await this.db
+      .from('pedidos')
+      .select('id, canal, estado, entrega_fecha, entrega_franja, destino_direccion')
+      .eq('id', pedidoId)
+      .maybeSingle();
+    if (error) throw new BadRequestException(error.message);
+    const p: any = data;
+    if (!p) throw new BadRequestException('No existe el pedido');
+    if (p.canal !== 'domicilio') throw new BadRequestException('Esto es para los envíos a domicilio');
+    if (!ESTADOS_ACTIVOS.includes(p.estado)) throw new BadRequestException('El pedido ya está cerrado');
+
+    const antes: Record<string, string | null> = {};
+    const despues: Record<string, string | null> = {};
+    const cambia = (columna: string, viejo: string | null, nuevo: string | null) => {
+      if (viejo === nuevo) return;
+      antes[columna] = viejo;
+      despues[columna] = nuevo;
+    };
+    if (cambios.entregaFecha !== undefined) {
+      const f = String(cambios.entregaFecha ?? '').trim() || null;
+      if (f && (!/^\d{4}-\d{2}-\d{2}$/.test(f) || Number.isNaN(Date.parse(`${f}T12:00:00Z`)))) throw new BadRequestException('La fecha no se entiende: elegila en el calendario');
+      if (f && f < fechaBA(new Date())) throw new BadRequestException('La fecha nueva no puede ser anterior a hoy');
+      cambia('entrega_fecha', p.entrega_fecha ? String(p.entrega_fecha).slice(0, 10) : null, f);
+    }
+    if (cambios.entregaFranja !== undefined) {
+      const fr = String(cambios.entregaFranja ?? '').trim() || null;
+      if (fr && !FRANJAS.includes(fr)) throw new BadRequestException('La franja es «mañana» o «tarde» (o sin franja)');
+      cambia('entrega_franja', p.entrega_franja ?? null, fr);
+    }
+    if (cambios.direccion !== undefined) {
+      // la misma limpieza que al entrar el pedido
+      const d = sinRestosDeMarcado(cambios.direccion, { unaLinea: true }).slice(0, 300);
+      if (!d) throw new BadRequestException('Falta la dirección');
+      cambia('destino_direccion', p.destino_direccion ?? null, d);
+    }
+    if (!Object.keys(despues).length) return { ok: true, cambios: 0 };
+
+    const ahora = new Date().toISOString();
+    const { data: filas, error: errUpdate } = await this.db
+      .from('pedidos')
+      .update({
+        ...despues,
+        // las coordenadas eran de la dirección vieja: el mapa usa la nueva
+        ...('destino_direccion' in despues ? { destino_lat: null, destino_lng: null } : {}),
+        ...(usuarioId ? { cambio_por: usuarioId, cambio_en: ahora } : {}),
+      })
+      .eq('id', pedidoId)
+      .eq('estado', p.estado)
+      .select('id');
+    if (errUpdate) throw new BadRequestException(errUpdate.message);
+    if (!filas?.length) throw new BadRequestException('El pedido cambió de estado mientras tanto: actualizá la pantalla');
+    // el disparador del historial no mira estas columnas: la línea va acá
+    const { error: errHist } = await this.db.from('pedidos_historial').insert({
+      pedido_id: pedidoId,
+      evento: 'envio',
+      estado_despues: p.estado,
+      usuario_id: usuarioId ?? null,
+      detalle: {
+        antes,
+        despues,
+        // cómo quedó la entrega completa (si cambió solo la franja, la fecha sigue)
+        ...('entrega_fecha' in despues || 'entrega_franja' in despues
+          ? {
+              entrega: {
+                fecha: 'entrega_fecha' in despues ? despues.entrega_fecha : p.entrega_fecha ? String(p.entrega_fecha).slice(0, 10) : null,
+                franja: 'entrega_franja' in despues ? despues.entrega_franja : p.entrega_franja ?? null,
+              },
+            }
+          : {}),
+      },
+    });
+    if (errHist) this.log.warn(`no pude anotar en el historial el cambio del envío ${pedidoId}: ${errHist.message}`);
+    return { ok: true, cambios: Object.keys(despues).length };
   }
 
   // Lo que falta para entregar el pedido en su sucursal (lo reservado por el

@@ -28,6 +28,17 @@ export const MEDIOS_AL_ENTREGAR = ['efectivo', 'tarjeta', 'transferencia'];
 
 export const ESTADOS_ACTIVOS = ['recibido', 'pagado', 'en_preparacion', 'listo', 'en_camino'];
 
+/**
+ * Quién del local puede llevar un envío: los roles que después lo ven en «Mis
+ * entregas» y lo pueden marcar entregado (la API de avanzar los acepta). Antes
+ * la lista ofrecía a cualquiera del equipo y un administrativo elegido salía
+ * sin dirección, sin teléfono y sin poder cerrarlo (revisión del 21/10/2026).
+ */
+export const ROLES_DEL_LOCAL_QUE_LLEVAN = ['dueno', 'gerente', 'cajero', 'deposito'];
+export const ROLES_QUE_LLEVAN = ['repartidor', ...ROLES_DEL_LOCAL_QUE_LLEVAN];
+
+export const FRANJAS = ['mañana', 'tarde'];
+
 // Las columnas que hacen falta para despachar (Envíos y la vista del repartidor).
 export const COLUMNAS_ENVIO = `id, canal, estado, total, qr_retiro, origen, creado_en, pagado_en, preparacion_en, listo_en, en_camino_en,
   notas, forma_pago, entrega_fecha, entrega_franja, destino_direccion, destino_lat, destino_lng, contacto_nombre, contacto_telefono,
@@ -372,4 +383,25 @@ export function avisoAlCliente(p: { canal?: string | null; qr_retiro?: string | 
   if (estado === 'en_camino') return `Su pedido de O.D.B${codigo} salió y está en camino a su domicilio.`;
   if (estado === 'entregado') return `Su pedido de O.D.B${codigo} fue entregado. Gracias por su compra.`;
   return null;
+}
+
+// --- el historial -------------------------------------------------------------
+
+/**
+ * La línea del historial cuando se cambia cuándo o a dónde va un envío
+ * (evento 'envio'): «Cambió el envío: se entrega jueves 23/10 a la tarde;
+ * dirección: St Thomas Norte lote 118».
+ */
+export function lineaDeCambioDeEnvio(
+  detalle: { despues?: Record<string, unknown>; entrega?: { fecha?: string | null; franja?: string | null } } | null | undefined,
+): string {
+  const despues = detalle?.despues ?? {};
+  const partes: string[] = [];
+  if ('entrega_fecha' in despues || 'entrega_franja' in despues) {
+    const fecha = detalle?.entrega?.fecha ?? (despues.entrega_fecha as string | null | undefined);
+    const franja = detalle?.entrega?.franja ?? (despues.entrega_franja as string | null | undefined);
+    partes.push(`se entrega ${fecha ? diaLegible(String(fecha).slice(0, 10)) : 'lo antes posible'}${franja ? ` a la ${franja}` : ''}`);
+  }
+  if ('destino_direccion' in despues) partes.push(`dirección: ${despues.destino_direccion ?? 'sin cargar'}`);
+  return partes.length ? `Cambió el envío: ${partes.join('; ')}` : 'Cambió el envío';
 }

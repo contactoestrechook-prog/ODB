@@ -221,16 +221,22 @@ export class PedidosController {
     return this.pedidos.asignarRepartidor(id, body?.repartidorId, req.usuario?.sub);
   }
 
-  @Roles('repartidor', 'gerente', 'dueno')
+  // «Mis entregas»: los envíos que lleva quien entra. Desde el 21/10/2026 un
+  // envío puede salir con alguien de caja o depósito (no hay repartidores
+  // cargados): esa persona también tiene que ver la dirección, el teléfono y
+  // qué cobrar, y poder marcarlo entregado. Cada uno ve solo los suyos.
+  @Roles('repartidor', 'cajero', 'deposito', 'gerente', 'dueno')
   @Get('repartidor/mis-entregas')
   misEntregas(@Req() req: any) {
     return this.pedidos.misEntregas(req.usuario.sub);
   }
 
-  @Roles('repartidor', 'gerente', 'dueno')
+  @Roles('repartidor', 'cajero', 'deposito', 'gerente', 'dueno')
   @Post('repartidor/pedidos/:id/ubicacion')
-  repartidorUbicacion(@Param('id') id: string, @Body() body: { lat: number; lng: number }) {
-    return this.pedidos.repartidorUbicacion(id, body.lat, body.lng);
+  repartidorUbicacion(@Param('id') id: string, @Body() body: { lat: number; lng: number }, @Req() req: any) {
+    // cada uno manda la ubicación de lo que lleva; dueño y encargado, de cualquiera
+    const soloDe = ['gerente', 'dueno'].includes(req.usuario?.rol) ? undefined : req.usuario?.sub;
+    return this.pedidos.repartidorUbicacion(id, body.lat, body.lng, soloDe);
   }
 
   // El DNI sale del token del cliente (no del path): así nadie puede enumerar
@@ -273,11 +279,28 @@ export class PedidosController {
   }
 
   // «¿Se entregó o se cancela?» → se entregó: cierra un envío viejo que se
-  // entregó sin que nadie lo marcara (registra la venta, sin WhatsApp al cliente)
+  // entregó sin que nadie lo marcara (registra la venta, sin WhatsApp al cliente).
+  // efectivoEnCaja: quien cierra confirma que el efectivo está hoy en el cajón.
   @Roles('deposito', 'cajero', 'gerente', 'dueno')
   @Post('envios/:id/se-entrego')
-  seEntrego(@Param('id') id: string, @Body() body: { medioPago?: string }, @Req() req: any) {
-    return this.pedidos.seEntrego(id, req.usuario?.sub, medioValido(body?.medioPago));
+  seEntrego(@Param('id') id: string, @Body() body: { medioPago?: string; efectivoEnCaja?: boolean }, @Req() req: any) {
+    return this.pedidos.seEntrego(id, req.usuario?.sub, medioValido(body?.medioPago), { efectivoEnCaja: body?.efectivoEnCaja === true });
+  }
+
+  // Cambiar cuándo (fecha y franja) o corregir la dirección de un envío.
+  // Cada campo es opcional: el que no viene no se toca; fecha vacía = lo antes posible.
+  @Roles('deposito', 'cajero', 'gerente', 'dueno')
+  @Patch('envios/:id')
+  cambiarEnvio(
+    @Param('id') id: string,
+    @Body() body: { entregaFecha?: string | null; entregaFranja?: string | null; direccion?: string | null },
+    @Req() req: any,
+  ) {
+    return this.pedidos.cambiarEnvio(
+      id,
+      { entregaFecha: body?.entregaFecha, entregaFranja: body?.entregaFranja, direccion: body?.direccion },
+      req.usuario?.sub,
+    );
   }
 
   @Roles('deposito', 'cajero', 'gerente', 'dueno')

@@ -28,8 +28,41 @@ describe('sinRestosDeMarcado: una sola regla para lo que no escribió una person
     expect(sinRestosDeMarcado('Griller. Paga en efectivo al recibir. Sin factura A, con remito.')).toBe('Griller. Paga en efectivo al recibir. Sin factura A, con remito.');
   });
 
-  it('en un renglón (nombre, dirección) los < > sueltos pasan a espacio y no quedan saltos', () => {
+  // Revisión del 21/10/2026: la regla cortaba cualquier <palabra> y se perdía
+  // lo que seguía (probado con la función real). Una persona escribe esto.
+  it('una palabra cualquiera entre < > no es marcado: no se corta nada', () => {
+    for (const t of [
+      'Lote 12 <azul> rejas negras',
+      'Tocar timbre <urgente> y dejar en guardia',
+      'Casa <A> timbre 2',
+      'Lote 12 <portón> rejas',
+      'Sin cebolla <importante> · SIN MATCHEAR: cebolla morada',
+      '<3 gracias',
+      'lote 95 > portón azul',
+    ]) {
+      expect(sinRestosDeMarcado(t)).toBe(t);
+    }
+  });
+
+  it('el marcado de verdad sí se corta: HTML conocido, con atributos o de una letra en minúscula', () => {
+    expect(sinRestosDeMarcado('Hola<br/>chau')).toBe('Hola');
+    expect(sinRestosDeMarcado('Hola <DIV>x')).toBe('Hola');
+    expect(sinRestosDeMarcado('Timbre <span class="x">2</span>')).toBe('Timbre');
+    expect(sinRestosDeMarcado('Casa <a> timbre')).toBe('Casa');
+    expect(sinRestosDeMarcado('Notas del pedido </notas> otro campo')).toBe('Notas del pedido');
+  });
+
+  it('con tildes da lo mismo que la base: «<portón>» no se corta ni acá ni allá', () => {
+    // la base usaba [[:alnum:]] (con tildes) y la API \w (sin): ahora las dos [a-z0-9_:.-]
+    expect(sinRestosDeMarcado('Lote 12 <portón> rejas')).toBe('Lote 12 <portón> rejas');
+    expect(sinRestosDeMarcado('Lote 12 <portón class="a"> rejas')).toBe('Lote 12 <portón class="a"> rejas');
+    expect(sinRestosDeMarcado('Lote 12 <porton class="a"> rejas')).toBe('Lote 12');
+  });
+
+  it('en un renglón (nombre, dirección) un aparte entre < > pierde los signos y no quedan saltos', () => {
     expect(sinRestosDeMarcado('Lote 95 <casa con portón negro>', { unaLinea: true })).toBe('Lote 95 casa con portón negro');
+    expect(sinRestosDeMarcado('Juli <3', { unaLinea: true })).toBe('Juli <3');
+    expect(sinRestosDeMarcado('lote 95 > portón azul', { unaLinea: true })).toBe('lote 95 > portón azul');
     expect(sinRestosDeMarcado('  Barrio Saint Thomas\n lote 194 ', { unaLinea: true })).toBe('Barrio Saint Thomas lote 194');
   });
 

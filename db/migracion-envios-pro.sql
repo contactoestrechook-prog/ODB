@@ -13,8 +13,11 @@
 -- La regla es la misma de la API y del panel (si cambia, cambia en los tres):
 -- - saca invisibles y caracteres de control (deja saltos de línea y el unidor
 --   de los emojis compuestos);
--- - CORTA desde la primera apertura de marcado (lo de atrás es otro campo);
--- - en una línea (nombre, dirección) los < > sueltos pasan a espacio;
+-- - CORTA desde la primera apertura de marcado (lo de atrás es otro campo):
+--   etiquetas del modelo, un cierre, una etiqueta con atributos entre comillas,
+--   una de HTML conocida o una de una letra en minúscula; una palabra
+--   cualquiera entre < > no (revisión del 21/10/2026);
+-- - en una línea (nombre, dirección) un aparte entre < > pierde los signos;
 -- - saca separadores colgando al final («WhatsApp:»);
 -- - relleno («null», «N/A») o un rótulo solo («WhatsApp») = NULL.
 --
@@ -36,15 +39,24 @@ as $$
 declare
   v text;
   pos int;
+  corta int;
 begin
   if t is null then return null; end if;
   -- invisibles y de control
   v := regexp_replace(t, '[\u0001-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\u00AD\u200B\u200C\u200E\u200F\u2060-\u2064\uFEFF]', '', 'g');
   -- desde la primera apertura de marcado, todo afuera (la barra puede venir escapada)
-  pos := regexp_instr(v, '<\s*\\*/?\s*(antml|parameter|invoke|function)|<\\*/\s*[a-z]|<[a-z][[:alnum:]_:.-]*(\s+[[:alnum:]_:.-]+\s*=|\s*/?>)', 1, 1, 0, 'i');
+  -- las del modelo, un cierre «</algo», una con atributos entre comillas o una
+  -- de HTML conocida; una palabra cualquiera entre < > («<azul>», «<A>») NO es
+  -- marcado. La clase es [a-z0-9_:.-], la misma que la API y el panel (antes
+  -- acá era [[:alnum:]], con tildes, y «<portón>» se cortaba solo en la base).
+  pos := regexp_instr(v, '<\s*\\*/?\s*(antml|parameter|invoke|function)|<\\*/\s*[a-z]|<[a-z][a-z0-9_:.-]*\s+[a-z0-9_:.-]+\s*=\s*["'']|<(br|hr|div|span|img|strong|em|ul|ol|li|table|tbody|thead|tr|td|th|h[1-6]|pre|code|small|font|center|script|style|iframe|svg|html|head|body|meta|button|input|form|textarea|select|option|label)\s*/?>', 1, 1, 0, 'i');
+  -- las de una letra («<b>», «<i>»…) solo en minúscula: «Casa <A>» es una persona
+  corta := regexp_instr(v, '<[abipsu]\s*/?>', 1, 1, 0, 'c');
+  if corta > 0 and (pos = 0 or corta < pos) then pos := corta; end if;
   if pos > 0 then v := substr(v, 1, pos - 1); end if;
   if una_linea then
-    v := regexp_replace(regexp_replace(v, '[<>]', ' ', 'g'), '\s+', ' ', 'g');
+    -- un aparte entre < > pierde los signos; un < o > suelto queda («Juli <3»)
+    v := regexp_replace(regexp_replace(v, '<([^<>]*)>', ' \1 ', 'g'), '\s+', ' ', 'g');
   else
     v := regexp_replace(v, '\r\n?', E'\n', 'g');
     v := regexp_replace(v, '[ \t]+', ' ', 'g');
@@ -121,6 +133,14 @@ commit;
 --   select texto_sin_marcado('Cliente necesita jabón 6M · ' || '<' || '/antml with_this_key/>'); → 'Cliente necesita jabón 6M'
 --   select texto_sin_marcado('Lote 95 <casa con portón negro>');            → igual
 --   select texto_sin_marcado('Lote 95 <casa con portón negro>', true);      → 'Lote 95 casa con portón negro'
+--
+-- Revisión (21/10/2026, misma tarde): la regla cortaba cualquier <palabra>.
+-- Las expresiones nuevas se probaron en producción con un SELECT (sin crear
+-- nada) contra los mismos casos que texto-limpio.spec.ts:
+--   'Lote 12 <azul> rejas negras', 'Tocar timbre <urgente> y dejar en guardia',
+--   'Casa <A> timbre 2', 'Lote 12 <portón> rejas', 'Sin cebolla <importante>'
+--   → quedan enteros; 'Timbre 2 <b>urgente</b>' → 'Timbre 2';
+--   'Juli <3' en una línea → 'Juli <3'.
 --   select texto_sin_marcado('Pedido > $70.000');                            → igual
 --   select texto_sin_marcado('Griller. Paga en efectivo al recibir. Sin factura A, con remito.') → igual
 --   update pedidos set notas = notas where qr_retiro = 'DOM-YD5GNY';        → notas NULL (el disparador)

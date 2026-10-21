@@ -60,6 +60,10 @@ export class RepartidoresController {
     return this.serv.asignarReparto(pedidoId, b.repartidorId, b.vehiculoId);
   }
 
+  // La autorización para la guardia la pide quien despacha (Reparto › Envíos):
+  // caja y depósito también (revisión del 21/10/2026; antes no la abría nadie
+  // desde el panel). El resto de este módulo sigue siendo de gerencia y dueño.
+  @Roles('deposito', 'cajero', 'gerente', 'dueno')
   @Get('autorizacion/:pedidoId')
   autorizacion(@Param('pedidoId') pedidoId: string) {
     return this.serv.autorizacion(pedidoId);

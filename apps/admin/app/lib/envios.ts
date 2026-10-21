@@ -3,7 +3,7 @@
 // (enlaces a WhatsApp, a llamar y al mapa).
 
 import type { TonoEtiqueta } from '../ui/kit';
-import { telefonoLegible } from './pedidos';
+import { ESTADOS, telefonoLegible } from './pedidos';
 
 export type Envio = {
   id: string;
@@ -32,20 +32,30 @@ export type QuienLleva = {
   delLocal: { id: string; nombre: string; rol: string }[];
 };
 
-export const ESTADO_ENVIO: Record<string, { label: string; tono: TonoEtiqueta }> = {
-  recibido: { label: 'Para preparar', tono: 'atencion' },
-  pagado: { label: 'Para preparar · pagado', tono: 'atencion' },
-  en_preparacion: { label: 'Preparando', tono: 'neutro' },
-  listo: { label: 'Listo para salir', tono: 'ok' },
-  en_camino: { label: 'En la calle', tono: 'info' },
+// El texto es de envíos; el tono, el mismo de Pedidos (regla del kit: un mismo
+// estado lleva el mismo tono en todas las pantallas). Antes «Preparando» era
+// gris acá y celeste en Pedidos.
+const TEXTO_ESTADO_ENVIO: Record<string, string> = {
+  recibido: 'Para preparar',
+  pagado: 'Para preparar · pagado',
+  en_preparacion: 'Preparando',
+  listo: 'Listo para salir',
+  en_camino: 'En la calle',
 };
+export const ESTADO_ENVIO: Record<string, { label: string; tono: TonoEtiqueta }> = Object.fromEntries(
+  Object.entries(TEXTO_ESTADO_ENVIO).map(([estado, label]) => [estado, { label, tono: ESTADOS[estado]?.tono ?? 'neutro' }]),
+);
 
-/** Los pasos de un envío, en orden, con lo que dice el botón. */
-export const PASOS: { estados: string[]; titulo: string; boton: string | null; siguiente: string | null }[] = [
-  { estados: ['recibido', 'pagado'], titulo: 'Para preparar', boton: 'Empezar a preparar', siguiente: 'en_preparacion' },
-  { estados: ['en_preparacion'], titulo: 'Preparando', boton: 'Marcar listo', siguiente: 'listo' },
-  { estados: ['listo'], titulo: 'Listos para salir', boton: 'Salió', siguiente: 'en_camino' },
-  { estados: ['en_camino'], titulo: 'En la calle', boton: 'Entregado', siguiente: 'entregado' },
+/**
+ * Los pasos de un envío, en orden, con lo que dice el botón. `pendiente` es el
+ * botón del recuadro «¿Se entregó o se cancela?» cuando todavía no pasó: antes
+ * decía «Sigue pendiente: salió», que se contradice.
+ */
+export const PASOS: { estados: string[]; titulo: string; boton: string | null; pendiente: string | null; siguiente: string | null }[] = [
+  { estados: ['recibido', 'pagado'], titulo: 'Para preparar', boton: 'Empezar a preparar', pendiente: 'Sigue: empezar a prepararlo', siguiente: 'en_preparacion' },
+  { estados: ['en_preparacion'], titulo: 'Preparando', boton: 'Marcar listo', pendiente: 'Sigue: marcarlo listo', siguiente: 'listo' },
+  { estados: ['listo'], titulo: 'Listos para salir', boton: 'Salió', pendiente: 'Todavía no salió: despacharlo', siguiente: 'en_camino' },
+  { estados: ['en_camino'], titulo: 'En la calle', boton: 'Entregado', pendiente: null, siguiente: 'entregado' },
 ];
 export const pasoDe = (estado: string) => PASOS.find((p) => p.estados.includes(estado)) ?? null;
 
@@ -64,6 +74,22 @@ const ROLES: Record<string, string> = {
   administrativo: 'administración',
 };
 export const rolLegible = (rol: string) => ROLES[rol] ?? rol;
+
+/**
+ * «Ana (caja)». Si el nombre ya lo dice entre paréntesis no se repite: el
+ * usuario «Leandro (dueño)» salía «Leandro (dueño) (dueño)».
+ */
+export function personaLegible(nombre: string, rol: string): string {
+  const r = rolLegible(rol);
+  const sinTildes = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  return /\([^)]*\)\s*$/.test(nombre) || sinTildes(nombre).includes(`(${sinTildes(r)})`) ? nombre : `${nombre} (${r})`;
+}
+
+export const FRANJAS = [
+  { valor: '', etiqueta: 'Sin franja' },
+  { valor: 'mañana', etiqueta: 'A la mañana' },
+  { valor: 'tarde', etiqueta: 'A la tarde' },
+];
 
 /** Google Maps: con coordenadas si las hay; si no, la dirección (en Canning, si no lo dice). */
 export function linkMapa(e: Pick<Envio, 'destino'>): string | null {

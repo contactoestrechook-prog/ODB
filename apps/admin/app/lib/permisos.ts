@@ -40,6 +40,10 @@ const RUTAS_POR_ROL: Record<string, string[]> = {
     '/precios', // verificador de precios
     '/productos', // catálogo (consulta)
     '/cheques', // cheques que recibe en el mostrador
+    // «Mis entregas»: los envíos que lleva (21/10/2026: sin repartidores
+    // cargados, un envío sale con alguien del local y tiene que ver la
+    // dirección, el teléfono y qué cobrar). Solo ve los suyos.
+    '/repartidor',
     '/manual', // el manual lo abre cualquiera
     '/cambiar-clave',
   ],
@@ -51,6 +55,7 @@ const RUTAS_POR_ROL: Record<string, string[]> = {
     '/conteo',
     '/precios',
     '/productos',
+    '/repartidor', // «Mis entregas»: los envíos que lleva (ver cajero)
     '/manual', // el manual lo abre cualquiera
     '/cambiar-clave',
   ],

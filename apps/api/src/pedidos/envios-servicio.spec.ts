@@ -7,9 +7,10 @@ import { PedidosService } from './pedidos.service';
 
 type Usuario = { id: string; nombre: string; rol: string; activo?: boolean | null; telefono?: string | null };
 
-function armar({ pedido, usuarios = [], rpcs = {} }: { pedido: any; usuarios?: Usuario[]; rpcs?: Record<string, any> }) {
+function armar({ pedido, usuarios = [], rpcs = {}, cajasAbiertas = 0 }: { pedido: any; usuarios?: Usuario[]; rpcs?: Record<string, any>; cajasAbiertas?: number }) {
   const updates: { tabla: string; valores: any }[] = [];
   const llamadas: { name: string; args: any }[] = [];
+  const inserts: { tabla: string; valores: any }[] = [];
   const db: any = {
     from: (tabla: string) => {
       const filtros: Record<string, any> = {};
@@ -17,15 +18,18 @@ function armar({ pedido, usuarios = [], rpcs = {} }: { pedido: any; usuarios?: U
       const datos = () => {
         if (tabla === 'pedidos') return pedido;
         if (tabla === 'usuarios') return filtros.id ? usuarios.find((u) => u.id === filtros.id) ?? null : usuarios;
+        if (tabla === 'sesiones_caja') return Array.from({ length: cajasAbiertas }, (_, i) => ({ id: `ses-${i}` }));
         return null;
       };
       const q: any = {
         select: () => q,
         eq: (c: string, v: any) => { filtros[c] = v; return q; },
         in: () => q,
+        is: () => q,
         order: () => q,
         limit: () => q,
         update: (v: any) => { valores = v; updates.push({ tabla, valores: v }); return q; },
+        insert: (v: any) => { inserts.push({ tabla, valores: v }); return Promise.resolve({ data: null, error: null }); },
         maybeSingle: () => Promise.resolve({ data: datos(), error: null }),
         single: () => Promise.resolve({ data: datos(), error: null }),
         then: (ok: any, mal: any) => {
@@ -48,7 +52,7 @@ function armar({ pedido, usuarios = [], rpcs = {} }: { pedido: any; usuarios?: U
     },
   };
   const svc = new PedidosService(db, { aCliente: jest.fn() } as any);
-  return { svc, updates, llamadas, pedido };
+  return { svc, updates, llamadas, inserts, pedido };
 }
 
 const envio = (extra: any = {}) => ({
@@ -58,6 +62,11 @@ const envio = (extra: any = {}) => ({
 const RUBEN: Usuario = { id: 'u-rep', nombre: 'Rubén', rol: 'repartidor', activo: true };
 const ANA: Usuario = { id: 'u-caj', nombre: 'Ana', rol: 'cajero', activo: true };
 const VIEJO: Usuario = { id: 'u-baja', nombre: 'Carlos', rol: 'repartidor', activo: false };
+const MARTA: Usuario = { id: 'u-adm', nombre: 'Marta', rol: 'administrativo', activo: true };
+
+// un envío del bot que entró hace 11 días y nadie movió (DOM-EFB1F49E3E30)
+const HACE_11_DIAS = new Date(Date.now() - 11 * 86_400_000).toISOString();
+const atrasado = (extra: any = {}) => envio({ estado: 'recibido', creado_en: HACE_11_DIAS, ...extra });
 
 // el servicio crea su cliente de Anthropic al nacer: sin clave, el SDK la sale a buscar
 process.env.ANTHROPIC_API_KEY ??= 'test';
@@ -68,6 +77,12 @@ describe('quién lleva el envío', () => {
     const r = await svc.quienLleva();
     expect(r.repartidores).toEqual([{ id: 'u-rep', nombre: 'Rubén', telefono: null }]);
     expect(r.delLocal.map((u) => u.nombre)).toEqual(['Ana', 'Leandro']);
+  });
+
+  it('del local solo aparece quien después tiene «Mis entregas» y lo puede cerrar (no administración)', async () => {
+    const { svc } = armar({ pedido: envio(), usuarios: [ANA, MARTA] });
+    expect((await svc.quienLleva()).delLocal.map((u) => u.nombre)).toEqual(['Ana']);
+    await expect(svc.asignarRepartidor('p-1', 'u-adm')).rejects.toThrow(/Mis entregas/);
   });
 
   it('asignar a alguien activo del equipo guarda quién y devuelve su nombre', async () => {
@@ -116,7 +131,7 @@ describe('despachar: un envío no sale sin alguien que lo lleve', () => {
     expect(pedido.estado).toBe('en_camino');
   });
 
-  it('un retiro en el local no pide repartidor', async () => {
+  it('un retiro en el local no pide repartidor y, listo, se entrega directo', async () => {
     const { svc } = armar({ pedido: envio({ canal: 'pickup', estado: 'listo' }) });
     await expect(svc.avanzar('p-1', 'entregado', undefined, 'efectivo')).resolves.toMatchObject({ estado: 'entregado' });
   });
@@ -142,34 +157,124 @@ describe('entregar: cómo se cobró', () => {
   });
 });
 
+describe('entregar un envío: después de salir', () => {
+  it('un envío «listo» no se entrega desde Depósito o Pedidos: tiene que salir con alguien', async () => {
+    const { svc, llamadas } = armar({ pedido: envio({ estado: 'listo', forma_pago: 'efectivo' }) });
+    const error = await svc.avanzar('p-1', 'entregado', 'u-quien').catch((e) => e);
+    expect((error as BadRequestException).getResponse()).toMatchObject({ codigo: 'ENVIO_SIN_SALIR' });
+    expect(llamadas.find((l) => l.name === 'entregar_pedido')).toBeUndefined();
+  });
+
+  it('en la calle se entrega como siempre', async () => {
+    const { svc } = armar({ pedido: envio({ estado: 'en_camino', repartidor_id: 'u-rep', forma_pago: 'tarjeta' }) });
+    await expect(svc.avanzar('p-1', 'entregado', 'u-quien')).resolves.toMatchObject({ estado: 'entregado' });
+  });
+});
+
 describe('«¿Se entregó o se cancela?» → se entregó', () => {
   it('un envío viejo en «Recibido» queda listo y se entrega, sin WhatsApp al cliente', async () => {
-    const { svc, pedido, llamadas, updates } = armar({ pedido: envio({ estado: 'recibido', forma_pago: 'efectivo', cliente: { telefono: '5491122223333' } }) });
+    const { svc, pedido, llamadas, updates } = armar({ pedido: atrasado({ forma_pago: 'transferencia', cliente: { telefono: '5491122223333' } }) });
     const avisar = jest.spyOn(svc as any, 'notificarWhatsApp');
-    await svc.seEntrego('p-1', 'u-quien');
+    await svc.seEntrego('p-1', 'u-quien', 'transferencia');
     expect(updates[0].valores).toMatchObject({ estado: 'listo', preparado_por: 'u-quien', cambio_por: 'u-quien' });
     expect(pedido.estado).toBe('listo'); // el «entregado» lo pone la base (entregar_pedido)
-    expect(llamadas.find((l) => l.name === 'entregar_pedido')?.args).toMatchObject({ p_pedido: 'p-1', p_usuario: 'u-quien', p_medio: 'efectivo' });
+    expect(llamadas.find((l) => l.name === 'entregar_pedido')?.args).toMatchObject({ p_pedido: 'p-1', p_usuario: 'u-quien', p_medio: 'transferencia' });
     expect(avisar).not.toHaveBeenCalled();
   });
 
-  it('si estaba en la calle, se entrega directo', async () => {
-    const { svc, updates, llamadas } = armar({ pedido: envio({ estado: 'en_camino' }) });
+  it('si estaba en la calle hace más de 12 h, se entrega directo', async () => {
+    const { svc, updates, llamadas } = armar({ pedido: envio({ estado: 'en_camino', en_camino_en: HACE_11_DIAS, creado_en: HACE_11_DIAS }) });
     await svc.seEntrego('p-1', 'u-quien', 'tarjeta');
     expect(updates).toHaveLength(0);
     expect(llamadas.find((l) => l.name === 'entregar_pedido')?.args.p_medio).toBe('tarjeta');
   });
 
-  it('si falta stock, frena igual que siempre (la ventana de faltantes)', async () => {
-    const { svc } = armar({
-      pedido: envio({ estado: 'recibido' }),
+  it('solo para los atrasados viejos: uno recién entrado no se cierra salteando todo (lo mira el servidor)', async () => {
+    const { svc, updates, llamadas } = armar({ pedido: envio({ estado: 'recibido', creado_en: new Date(Date.now() - 60_000).toISOString() }) });
+    await expect(svc.seEntrego('p-1', 'u-quien', 'transferencia')).rejects.toThrow(/sigue su curso/);
+    expect(updates).toHaveLength(0);
+    expect(llamadas.find((l) => l.name === 'entregar_pedido')).toBeUndefined();
+  });
+
+  it('el cobro hay que elegirlo; pagado con Mercado Pago no se pregunta', async () => {
+    await expect(armar({ pedido: atrasado({ forma_pago: 'transferencia' }) }).svc.seEntrego('p-1', 'u-quien')).rejects.toThrow(/Elegí cómo se cobró/);
+    const pagado = armar({ pedido: atrasado({ pagado_en: HACE_11_DIAS }) });
+    await pagado.svc.seEntrego('p-1', 'u-quien');
+    expect(pagado.llamadas.find((l) => l.name === 'entregar_pedido')?.args.p_medio).toBeNull();
+  });
+
+  it('efectivo: pide confirmar que la plata está hoy en el cajón (entra en la caja de hoy)', async () => {
+    const { svc, updates } = armar({ pedido: atrasado({ forma_pago: 'efectivo' }), cajasAbiertas: 1 });
+    const error = await svc.seEntrego('p-1', 'u-quien', 'efectivo').catch((e) => e);
+    expect((error as BadRequestException).getResponse()).toMatchObject({ codigo: 'CONFIRMAR_EFECTIVO' });
+    expect(updates).toHaveLength(0);
+    await expect(svc.seEntrego('p-1', 'u-quien', 'efectivo', { efectivoEnCaja: true })).resolves.toMatchObject({ estado: 'entregado' });
+  });
+
+  it('efectivo con la caja cerrada: frena ANTES de tocar el estado (sigue en «Recibido» y en Atrasados)', async () => {
+    // producción hoy: ninguna caja abierta desde el 21/8 (DOM-EFB1F49E3E30, efectivo)
+    const { svc, pedido, updates, llamadas } = armar({ pedido: atrasado({ forma_pago: 'efectivo' }), cajasAbiertas: 0 });
+    await expect(svc.seEntrego('p-1', 'u-quien', 'efectivo', { efectivoEnCaja: true })).rejects.toThrow(/Abrí la caja/);
+    expect(updates).toHaveLength(0);
+    expect(pedido.estado).toBe('recibido');
+    expect(llamadas.find((l) => l.name === 'entregar_pedido')).toBeUndefined();
+  });
+
+  it('si falta stock, frena antes de tocar el estado (la ventana de faltantes; si se cierra, sigue igual)', async () => {
+    const { svc, pedido, updates } = armar({
+      pedido: atrasado({ forma_pago: 'transferencia' }),
       rpcs: { faltantes_pedido: { data: [{ producto_id: 'x', sku: 'S', nombre: 'Agua', pide: 3, hay: 0 }], error: null } },
     });
-    await expect(svc.seEntrego('p-1')).rejects.toMatchObject({ status: 409 });
+    await expect(svc.seEntrego('p-1', 'u-quien', 'transferencia')).rejects.toMatchObject({ status: 409 });
+    expect(updates).toHaveLength(0);
+    expect(pedido.estado).toBe('recibido');
+  });
+
+  it('si la entrega igual falla, vuelve al estado y las fechas que tenía', async () => {
+    const { svc, pedido, updates } = armar({
+      pedido: atrasado({ forma_pago: 'transferencia', listo_en: null, preparacion_en: null, preparado_por: null }),
+      rpcs: { entregar_pedido: { data: null, error: { message: 'Algo falló en la base' } } },
+    });
+    await expect(svc.seEntrego('p-1', 'u-quien', 'transferencia')).rejects.toThrow(/Algo falló/);
+    expect(updates).toHaveLength(2);
+    expect(pedido).toMatchObject({ estado: 'recibido', listo_en: null, preparacion_en: null, preparado_por: null });
   });
 
   it('solo para envíos a domicilio y abiertos', async () => {
-    await expect(armar({ pedido: envio({ canal: 'pickup' }) }).svc.seEntrego('p-1')).rejects.toThrow(/domicilio/);
-    await expect(armar({ pedido: envio({ estado: 'cancelado' }) }).svc.seEntrego('p-1')).rejects.toThrow(/cerrado/);
+    await expect(armar({ pedido: atrasado({ canal: 'pickup' }) }).svc.seEntrego('p-1')).rejects.toThrow(/domicilio/);
+    await expect(armar({ pedido: atrasado({ estado: 'cancelado' }) }).svc.seEntrego('p-1')).rejects.toThrow(/cerrado/);
+  });
+});
+
+describe('cambiar cuándo o a dónde va un envío', () => {
+  const MANANA = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }).format(new Date(Date.now() + 86_400_000));
+
+  it('el cliente lo pide para otro día: cambia la fecha y la franja y queda en el historial', async () => {
+    const { svc, pedido, inserts } = armar({ pedido: atrasado({ entrega_fecha: '2026-10-14', entrega_franja: null }) });
+    await expect(svc.cambiarEnvio('p-1', { entregaFecha: MANANA, entregaFranja: 'tarde' }, 'u-quien')).resolves.toEqual({ ok: true, cambios: 2 });
+    expect(pedido).toMatchObject({ entrega_fecha: MANANA, entrega_franja: 'tarde', cambio_por: 'u-quien' });
+    expect(inserts[0]).toMatchObject({ tabla: 'pedidos_historial', valores: { evento: 'envio', usuario_id: 'u-quien', detalle: { entrega: { fecha: MANANA, franja: 'tarde' } } } });
+  });
+
+  it('corregir la dirección la limpia y borra las coordenadas viejas', async () => {
+    const { svc, pedido } = armar({ pedido: atrasado({ destino_direccion: 'Castex 100', destino_lat: -34.8, destino_lng: -58.5 }) });
+    await svc.cambiarEnvio('p-1', { direccion: '  St Thomas Norte,\n lote 118 <div class="x">basura' }, 'u-quien');
+    expect(pedido).toMatchObject({ destino_direccion: 'St Thomas Norte, lote 118', destino_lat: null, destino_lng: null });
+  });
+
+  it('no acepta una fecha pasada, una franja inventada ni una dirección vacía', async () => {
+    const { svc, updates } = armar({ pedido: atrasado() });
+    await expect(svc.cambiarEnvio('p-1', { entregaFecha: '2020-01-01' })).rejects.toThrow(/anterior a hoy/);
+    await expect(svc.cambiarEnvio('p-1', { entregaFranja: 'noche' })).rejects.toThrow(/franja/);
+    await expect(svc.cambiarEnvio('p-1', { direccion: '   ' })).rejects.toThrow(/Falta la dirección/);
+    expect(updates).toHaveLength(0);
+  });
+
+  it('sin cambios no escribe nada; un pedido cerrado o de retiro no se toca', async () => {
+    const igual = armar({ pedido: atrasado({ entrega_fecha: null, entrega_franja: 'tarde' }) });
+    await expect(igual.svc.cambiarEnvio('p-1', { entregaFecha: '', entregaFranja: 'tarde' })).resolves.toEqual({ ok: true, cambios: 0 });
+    expect(igual.updates).toHaveLength(0);
+    await expect(armar({ pedido: atrasado({ estado: 'entregado' }) }).svc.cambiarEnvio('p-1', { entregaFranja: 'tarde' })).rejects.toThrow(/cerrado/);
+    await expect(armar({ pedido: atrasado({ canal: 'pickup' }) }).svc.cambiarEnvio('p-1', { entregaFranja: 'tarde' })).rejects.toThrow(/domicilio/);
   });
 });

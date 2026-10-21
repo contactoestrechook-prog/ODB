@@ -10,10 +10,18 @@
 //
 // - Saca los caracteres invisibles y de control (deja saltos de línea; deja el
 //   unidor de los emojis compuestos).
-// - CORTA desde la primera apertura de marcado («</antml…», «<parameter»,
-//   «</algo», «<b>», «<x a=…>»). Corta en vez de borrar la etiqueta porque lo
-//   que viene después es OTRO campo, no la continuación de la nota.
-// - En nombres y direcciones (una línea) los < y > sueltos pasan a espacio.
+// - CORTA desde la primera apertura de marcado: las etiquetas del modelo
+//   («</antml…», «<parameter», «<invoke», «<function…»), un cierre («</algo»),
+//   una etiqueta con atributos entre comillas («<x a="…»), una etiqueta de HTML
+//   conocida («<div>», «<br/>») o una de una letra en minúscula («<b>», «<i>»).
+//   Corta en vez de borrar la etiqueta porque lo que viene después es OTRO
+//   campo, no la continuación de la nota.
+//   Una palabra cualquiera entre < > NO es marcado (21/10/2026, revisión):
+//   «Lote 12 <azul> rejas», «Tocar timbre <urgente> y dejar en guardia» o
+//   «Casa <A> timbre 2» los escribió una persona y antes se cortaban.
+// - En nombres y direcciones (una línea) un aparte entre < > pierde los
+//   signos («<casa con portón>» → «casa con portón»); un < o > suelto queda
+//   («Juli <3», «lote 95 > portón azul»).
 // - Saca separadores que quedaron colgando al final («WhatsApp:», «… ·»).
 // - Un relleno («null», «N/A», «vacío») o una etiqueta sola («WhatsApp»,
 //   «Notas») no es un dato: queda vacío.
@@ -26,8 +34,22 @@
 // acá, cambia en los tres lugares.
 
 // El comienzo de algo que es marcado y no texto de una persona. La barra puede
-// venir escapada («<\/antml…», visto en producción en septiembre).
-export const APERTURA_MARCADO = /<\s*\\*\/?\s*(?:antml|parameter|invoke|function)|<\\*\/\s*[a-z]|<[a-z][\w:.-]*(?:\s+[\w:.-]+\s*=|\s*\/?>)/i;
+// venir escapada («<\/antml…», visto en producción en septiembre). La clase de
+// caracteres es [a-z0-9_:.-] acá, en el panel y en la base: antes la API usaba
+// \w (sin tildes) y la base [[:alnum:]] (con tildes), y «<portón>» se cortaba
+// en un lado y en el otro no.
+export const APERTURA_MARCADO =
+  /<\s*\\*\/?\s*(?:antml|parameter|invoke|function)|<\\*\/\s*[a-z]|<[a-z][a-z0-9_:.-]*\s+[a-z0-9_:.-]+\s*=\s*["']|<(?:br|hr|div|span|img|strong|em|ul|ol|li|table|tbody|thead|tr|td|th|h[1-6]|pre|code|small|font|center|script|style|iframe|svg|html|head|body|meta|button|input|form|textarea|select|option|label)\s*\/?>/i;
+
+// Las de una letra («<b>», «<i>», «<a>»…) solo en minúscula, como las escribe
+// una máquina: «Casa <A> timbre 2» es una persona.
+export const ETIQUETA_DE_UNA_LETRA = /<[abipsu]\s*\/?>/;
+
+/** Dónde empieza el marcado (-1 si no hay). */
+export function inicioDelMarcado(t: string): number {
+  const posiciones = [APERTURA_MARCADO.exec(t)?.index, ETIQUETA_DE_UNA_LETRA.exec(t)?.index].filter((p): p is number => p !== undefined);
+  return posiciones.length ? Math.min(...posiciones) : -1;
+}
 
 // Invisibles y de control. Quedan: tabulador, salto de línea, retorno de carro
 // (se normalizan después) y el unidor de ancho cero (\u200D) que arma los
@@ -41,7 +63,7 @@ const RELLENO = /^(?:null|undefined|none|n\/?a|na|vac[ií]o|ningun[ao]|sin (?:no
 const ROTULO_SOLO = /^(?:whatsapp|notas?|indicaciones|observaciones|comentarios?|aclaraci[oó]n(?:es)?|direcci[oó]n|nombre)$/i;
 
 export type OpcionesLimpieza = {
-  /** Nombres y direcciones: todo en un renglón y sin < > sueltos. */
+  /** Nombres y direcciones: todo en un renglón y sin apartes entre < >. */
   unaLinea?: boolean;
 };
 
@@ -49,10 +71,10 @@ export type OpcionesLimpieza = {
 export function sinRestosDeMarcado(v: unknown, { unaLinea = false }: OpcionesLimpieza = {}): string {
   if (v === null || v === undefined) return '';
   let t = String(v).replace(INVISIBLES, '');
-  const m = APERTURA_MARCADO.exec(t);
-  if (m) t = t.slice(0, m.index);
+  const corte = inicioDelMarcado(t);
+  if (corte >= 0) t = t.slice(0, corte);
   t = unaLinea
-    ? t.replace(/[<>]/g, ' ').replace(/\s+/g, ' ')
+    ? t.replace(/<([^<>]*)>/g, ' $1 ').replace(/\s+/g, ' ')
     : t.replace(/\r\n?/g, '\n').replace(/[ \t]+/g, ' ').replace(/ *\n */g, '\n').replace(/\n{3,}/g, '\n\n');
   t = t.trim().replace(/[\s·:;,|\-–—]+$/u, '').trim();
   if (RELLENO.test(t) || ROTULO_SOLO.test(t)) return '';

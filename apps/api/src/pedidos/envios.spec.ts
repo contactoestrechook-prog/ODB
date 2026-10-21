@@ -1,4 +1,4 @@
-import { armarEnvio, avisoAlCliente, clasificar, cobroDe, diaLegible, indicacionesDe, medioPorDefecto, ordenarEnvios, textoDeEntrega, whatsappDe, type FilaEnvio } from './envios';
+import { armarEnvio, avisoAlCliente, clasificar, cobroDe, diaLegible, indicacionesDe, medioPorDefecto, ordenarEnvios, textoDeEntrega, whatsappDe, type FilaEnvio, lineaDeCambioDeEnvio } from './envios';
 
 // Envíos a domicilio (Leandro, 21/10/2026: «misma basura»). Los casos son los
 // cuatro envíos vivos de producción ese día.
@@ -199,5 +199,14 @@ describe('el WhatsApp al cliente', () => {
   it('los pasos que no se avisan no tienen texto', () => {
     expect(avisoAlCliente({ canal: 'domicilio' }, 'en_preparacion')).toBeNull();
     expect(avisoAlCliente({ canal: 'domicilio' }, 'cancelado')).toBeNull();
+  });
+});
+
+describe('el historial de un cambio de envío', () => {
+  it('dice cómo quedó la entrega completa y la dirección nueva', () => {
+    expect(lineaDeCambioDeEnvio({ despues: { entrega_franja: 'tarde' }, entrega: { fecha: '2026-10-23', franja: 'tarde' } })).toBe('Cambió el envío: se entrega viernes 23/10 a la tarde');
+    expect(lineaDeCambioDeEnvio({ despues: { entrega_fecha: null }, entrega: { fecha: null, franja: null } })).toBe('Cambió el envío: se entrega lo antes posible');
+    expect(lineaDeCambioDeEnvio({ despues: { destino_direccion: 'St Thomas Norte, lote 118' } })).toBe('Cambió el envío: dirección: St Thomas Norte, lote 118');
+    expect(lineaDeCambioDeEnvio(null)).toBe('Cambió el envío');
   });
 });

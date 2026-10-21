@@ -70,7 +70,8 @@ const GRUPOS: Grupo[] = [
       // primera). El repartidor sigue entrando a su pantalla de entregas, que es
       // lo único que puede abrir.
       { href: '/reparto', label: 'Reparto', icono: 'reparto' },
-      { href: '/repartidor', label: 'Mis entregas', icono: 'repartidor', soloRoles: ['repartidor'] },
+      // caja y depósito también llevan envíos cuando no hay repartidores (21/10/2026)
+      { href: '/repartidor', label: 'Mis entregas', icono: 'repartidor', soloRoles: ['repartidor', 'cajero', 'deposito'] },
       { href: '/salida', label: 'Salida', icono: 'salida' },
       { href: '/cierres', label: 'Cierres', icono: 'cierres' },
     ],
