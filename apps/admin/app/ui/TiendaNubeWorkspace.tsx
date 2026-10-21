@@ -4,7 +4,8 @@ import { useState } from 'react';
 import { numero } from '../lib/formato';
 import { Aviso, Boton, Kpi, Tarjeta } from './kit';
 
-const API_WEBHOOK = 'https://odb-api-production.up.railway.app/tiendanube/webhook';
+// la dirección pública del servidor (21/10/2026: dominio de la empresa, ya no Railway)
+const API_WEBHOOK = `${process.env.NEXT_PUBLIC_API_URL || 'https://api.odbpremiummarket.com.ar'}/tiendanube/webhook`;
 const haceTxt = (iso?: string) => {
   if (!iso) return '—';
   const min = Math.round((Date.now() - new Date(iso).getTime()) / 60000);

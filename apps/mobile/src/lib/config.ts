@@ -4,7 +4,9 @@ import { Platform } from 'react-native';
 // (EAS preview/producción, __DEV__ === false) se usa la API de producción.
 // Para probar en el celular con Expo Go contra tu máquina, poné tu IP de LAN abajo.
 const LOCAL = Platform.OS === 'web' ? 'http://localhost:3001' : 'http://192.168.0.10:3001';
-const PROD = 'https://odb-api-production.up.railway.app';
+// Dominio de la empresa (21/10/2026): ODB se mudó de Railway a su servidor propio;
+// la dirección de Railway deja de existir cuando se dé de baja.
+const PROD = 'https://api.odbpremiummarket.com.ar';
 
 // DEMO: forzado a PROD para mostrar en Expo Go contra el sistema online.
 // Para volver a desarrollo local, restaurá:  export const API = __DEV__ ? LOCAL : PROD;
