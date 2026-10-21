@@ -843,13 +843,13 @@ export const SECCIONES: Seccion[] = [
     id: 'fraccionar',
     titulo: 'Fraccionar (huevos, quesos y similares)',
     area: 'Depósito',
-    roles: ['cajero', 'deposito', 'gerente', 'dueno'],
+    roles: ['cajero', 'deposito', 'administrativo', 'gerente', 'dueno'],
     bajada: 'La mercadería entra al pozo, se arman las presentaciones y la caja vende lo armado.',
     bloques: [
       {
         tipo: 'texto',
         texto:
-          'Hay productos que entran a granel y se venden fraccionados, como los huevos: entran por cajón (tantos maples de 30) y se venden por docena, media docena o maple. El circuito tiene tres pasos: (1) la mercadería entra al POZO (el producto "Huevos x unidad"), en unidades o en kilos si es una horma; (2) en la pantalla Fraccionar se anota lo que se arma — "armé 20 docenas" — y el sistema saca del pozo y carga el stock de la docena; (3) la caja vende la docena como cualquier producto, de su stock armado. Arriba se elige la sucursal: todo lo que muestra y lo que se hace es de esa sucursal.',
+          'Hay productos que entran a granel y se venden fraccionados, como los huevos: entran por cajón (tantos maples de 30) y se venden por docena, media docena o maple. El circuito tiene tres pasos: (1) la mercadería entra al POZO (el producto "Huevos x unidad"), en unidades o en kilos si es una horma; (2) en la pantalla Fraccionar se anota lo que se arma — "armé 20 docenas" — y el sistema saca del pozo y carga el stock de la docena; (3) la caja vende la docena como cualquier producto, de su stock armado. Arriba se elige la sucursal (arranca en la tuya): todo lo que muestra y lo que se hace es de esa sucursal. Arman y abren la caja, depósito, administración, gerencia y el dueño.',
       },
       {
         tipo: 'pasos',
@@ -867,15 +867,18 @@ export const SECCIONES: Seccion[] = [
           'Para armar docenas abriendo un maple, o si se rompió un envase o se armó de más: tocá "Abrir y pasar al pozo" en la presentación.',
           'Elegí cuántas abrís. Lo que tienen (30 huevos por maple, por ejemplo) vuelve al pozo y ya se puede armar otra cosa.',
           'Si el pozo está vacío, la tarjeta lo avisa y ofrece abrir la presentación más grande que haya armada.',
+          'De a 1.000 por vez como máximo: si hay más, se repite con el resto.',
         ],
       },
       {
         tipo: 'pasos',
-        titulo: 'Cargar el pozo (depósito, gerencia y dueño)',
+        titulo: 'Cargar el pozo (depósito, administración, gerencia y dueño)',
         pasos: [
-          'Lo normal es que el pozo se cargue con la factura del proveedor. Si entró mercadería sin factura o hay que corregir, tocá "Cargar el pozo".',
+          'Lo normal es que el pozo se cargue con la factura del proveedor. Si entró mercadería sin factura, tocá "Cargar el pozo".',
           'Poné cuánto entra (unidades, o kilos si el pozo es por kilo) y el motivo.',
-          'Es un ajuste de stock con las mismas reglas: si es mucho, depósito necesita el PIN de un supervisor; gerencia y dueño se autorizan solos.',
+          'Es un ajuste de stock con las mismas reglas: si es mucho, depósito y administración necesitan el PIN de un supervisor; gerencia y dueño se autorizan solos.',
+          'Solo suma. Para bajar el pozo (rotura, vencimiento, un conteo que dio menos) se usa Stock › Ajustes o Mermas.',
+          'Si el pozo está en negativo (se vendió más de lo que entró), primero hay que cargar al menos lo que falta para dejarlo en cero: la pantalla dice cuánto.',
         ],
       },
       {
@@ -883,10 +886,11 @@ export const SECCIONES: Seccion[] = [
         titulo: 'Configurar (solo gerencia y dueño)',
         pasos: [
           'Fraccionable nuevo: "Sumar fraccionable", buscá el producto que entra a granel (el pozo) y cargá la primera presentación.',
+          'Si el pozo es una horma que figura "por unidad" (stock con decimales o "x fracción" en el nombre), la pantalla avisa y ofrece "Se cuenta en kilos": así el cuarto lleva 0,25 kg. Con "por unidad", lo que lleva va sin decimales.',
           'Más presentaciones: "Sumar presentación" en la tarjeta del pozo. Elegí un producto que ya existe o creá uno nuevo con nombre y precio (se da de alta igual que en la ficha de productos, con el costo que sale del pozo).',
           'En los dos casos se indica cuánto del pozo lleva cada una: 12 la docena, 30 el maple, 0,25 kg el cuarto.',
-          'Editar (en cada presentación): nombre, precio y lo que lleva. Lo que lleva no se puede cambiar mientras haya armadas: primero se abren y se pasan al pozo.',
-          '"Quitar del grupo" (dentro de Editar) no borra el producto: sigue en el catálogo y en la caja con su stock, solo deja de armarse desde el pozo.',
+          'Editar (en cada presentación): nombre, precio y lo que lleva. Lo que lleva no se puede cambiar mientras haya armadas (en stock o reservadas en pedidos abiertos): primero se abren y se pasan al pozo. Si cambia, el costo se recalcula con el del pozo.',
+          '"Quitar del grupo" (dentro de Editar) no borra el producto: sigue en el catálogo y en la caja, solo deja de armarse desde el pozo. Tampoco se puede con armadas: primero se abren (o se venden).',
         ],
       },
       {
@@ -896,6 +900,7 @@ export const SECCIONES: Seccion[] = [
           'Nunca queda stock negativo: no se puede armar más de lo que alcanza el pozo ni abrir más de lo que hay armado.',
           'Abajo de todo está el historial de la sucursal: qué se armó, se abrió o se cargó al pozo, con quién y cuándo. Los movimientos completos están en Stock › Movimientos.',
           'Una presentación no puede ser pozo de otra (no hay cadenas) y un producto que se vende por kilo no puede ser presentación: las presentaciones se venden por paquete.',
+          'Mientras Sant Thomas siga vendiendo con el sistema viejo, lo que trae su planilla (el maple, la media docena, los quesos x fracción) no se arma, no se abre ni se carga ahí: la carga siguiente de la planilla lo pisaría y los huevos quedarían contados dos veces o perdidos. La pantalla lo avisa.',
         ],
       },
     ],

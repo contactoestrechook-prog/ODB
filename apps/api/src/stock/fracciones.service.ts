@@ -4,7 +4,21 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
 import { StockService } from './stock.service';
 import { ProductosAdminService } from '../catalogo/productos-admin.service';
-import { alcanzaPara, armarHistorial, errorDeFraccionamiento, leerCantidad, leerPrecio, type FilaMovimiento } from './fracciones';
+import {
+  ESTADOS_PEDIDO_ABIERTO,
+  alcanzaPara,
+  armarHistorial,
+  cantidadDelPozo,
+  costoSegunLleva,
+  describirArmadas,
+  errorDeFraccionamiento,
+  explicarFaltante,
+  faltaParaCero,
+  leerCantidad,
+  leerPrecio,
+  textoSistemaViejo,
+  type FilaMovimiento,
+} from './fracciones';
 
 // ---- FRACCIONAR (caso huevos 3/9/2026; pantalla completa 21/10/2026) ----
 // Tres instancias: (1) la mercadería ENTRA al pozo en unidades o kilos (por la
@@ -59,21 +73,29 @@ export class FraccionesService {
     const [presRes, sucRes] = await Promise.all([
       this.db
         .from('productos')
-        .select('id, sku, nombre, fraccion_de, unidades_por_fraccion')
+        .select('id, sku, nombre, fraccion_de, unidades_por_fraccion, codigo_legacy')
         .not('fraccion_de', 'is', null)
         .eq('activo', true)
         .order('unidades_por_fraccion'),
       this.db.from('sucursales').select('id, nombre').eq('activa', true).order('nombre'),
     ]);
     if (presRes.error) throw new BadRequestException(presRes.error.message);
-    const sucursales = (sucRes.data ?? []) as { id: string; nombre: string }[];
+    // con la última carga del sistema viejo, si la sucursal todavía vende con
+    // él: la pantalla no ofrece mover ahí lo que trae la planilla
+    const sucursales = await Promise.all(
+      ((sucRes.data ?? []) as { id: string; nombre: string }[]).map(async (s) => ({
+        id: s.id,
+        nombre: s.nombre,
+        sistemaViejo: await this.cargaSistemaViejo(s.id),
+      })),
+    );
     const presentaciones = (presRes.data ?? []) as any[];
     const pozoIds = [...new Set(presentaciones.map((p) => p.fraccion_de as string))];
     if (!pozoIds.length) return { grupos: [], sucursales };
 
     const ids = [...pozoIds, ...presentaciones.map((p) => p.id as string)];
     const [pozosRes, stockRes, precios] = await Promise.all([
-      this.db.from('productos').select('id, sku, nombre, vendido_por_peso, costo, activo').in('id', pozoIds),
+      this.db.from('productos').select('id, sku, nombre, vendido_por_peso, costo, activo, codigo_legacy').in('id', pozoIds),
       this.db.from('stock').select('producto_id, sucursal_id, cantidad').in('producto_id', ids),
       this.preciosVigentes(ids),
     ]);
@@ -98,6 +120,8 @@ export class FraccionesService {
             porPeso: !!m.vendido_por_peso,
             costo: veCosto && m.costo != null ? Number(m.costo) : null,
             activo: m.activo !== false,
+            /** tiene código del sistema viejo: la planilla le pisa el stock */
+            sistemaViejo: !!m.codigo_legacy,
             stock: stockPozo,
           },
           presentaciones: presentaciones
@@ -112,6 +136,7 @@ export class FraccionesService {
                 nombre: f.nombre as string,
                 unidades,
                 precio: precios.get(f.id) ?? null,
+                sistemaViejo: !!f.codigo_legacy,
                 stock: stockDe(f.id),
                 alcanza,
               };
@@ -132,22 +157,47 @@ export class FraccionesService {
       throw new BadRequestException('La cantidad de presentaciones tiene que ser un entero distinto de 0');
     }
     if (Math.abs(cantidad) > MAX_POR_OPERACION) throw new BadRequestException('Cantidad demasiado grande para una sola operación');
+    const pres = await this.productoPorId(dto.destinoId, 'id, nombre, fraccion_de, unidades_por_fraccion, codigo_legacy');
+    const pozo = pres.fraccion_de
+      ? await this.productoPorId(pres.fraccion_de, 'id, nombre, vendido_por_peso, codigo_legacy')
+      : null;
+    if (pozo) await this.controlarSistemaViejo(dto.sucursalId, [pres, pozo]);
     const { data, error } = await this.db.rpc('fraccionar_producto', {
       p_destino: dto.destinoId,
       p_cantidad: cantidad,
       p_sucursal: dto.sucursalId,
       p_usuario: usuarioId ?? null,
     });
-    if (error) throw new BadRequestException(errorDeFraccionamiento(error.message, cantidad));
+    if (error) {
+      // con el stock a la vista se dice qué faltó: el pozo (o el pozo en
+      // negativo, que también frena una apertura) o las armadas
+      if (pozo && /Stock insuficiente/i.test(error.message)) {
+        const [stockPozo, stockPresentacion] = await Promise.all([
+          this.stockEn(pozo.id, dto.sucursalId),
+          this.stockEn(pres.id, dto.sucursalId),
+        ]);
+        throw new BadRequestException(
+          explicarFaltante({
+            cantidad,
+            unidades: Number(pres.unidades_por_fraccion),
+            stockPozo,
+            stockPresentacion,
+            porPeso: !!pozo.vendido_por_peso,
+          }),
+        );
+      }
+      throw new BadRequestException(errorDeFraccionamiento(error.message, cantidad));
+    }
     return data;
   }
 
-  // Cargar el pozo a mano (entró sin factura, corrección): pasa por
-  // registrarAjuste, así que tiene el MISMO tope y el mismo PIN de supervisor
-  // que un ajuste de stock. Queda marcado como 'carga_pozo' para el historial.
+  // Cargar el pozo a mano (entró sin factura): pasa por registrarAjuste, así
+  // que tiene el MISMO tope y el mismo PIN de supervisor que un ajuste de
+  // stock. Solo suma: para bajarlo (rotura, conteo) están Stock › Ajustes y
+  // Mermas. Queda marcado como 'carga_pozo' para el historial.
   async cargarPozo(pozoId: string, dto: CargarPozoDto, autorizadoPor: string | undefined, usuarioId?: string) {
     if (!dto?.sucursalId) throw new BadRequestException('Elegí la sucursal');
-    const pozo = await this.productoPorId(pozoId, 'id, sku, nombre, vendido_por_peso, fraccion_de');
+    const pozo = await this.productoPorId(pozoId, 'id, sku, nombre, vendido_por_peso, fraccion_de, codigo_legacy');
     if (pozo.fraccion_de) throw new BadRequestException(`"${pozo.nombre}" es una presentación, no un pozo`);
     const { count } = await this.db
       .from('productos')
@@ -160,6 +210,17 @@ export class FraccionesService {
     if (!leida.ok) throw new BadRequestException(leida.error);
     const motivo = String(dto.motivo ?? '').trim();
     if (motivo.length < 3) throw new BadRequestException('Escribí el motivo de la carga (por ejemplo: entró sin factura)');
+    await this.controlarSistemaViejo(dto.sucursalId, [pozo]);
+
+    // registrar_movimiento rechaza todo lo que deje el stock en negativo,
+    // también una suma: se dice cuánto falta en lugar del error crudo
+    const antes = await this.stockEn(pozo.id, dto.sucursalId);
+    if (faltaParaCero(antes, leida.valor) > 0) {
+      throw new BadRequestException(
+        `El pozo de ${pozo.nombre} está en ${cantidadDelPozo(antes, porPeso)} en esta sucursal (se vendió más de lo que entró): ` +
+          `cargá al menos ${cantidadDelPozo(-antes, porPeso)} para dejarlo en cero.`,
+      );
+    }
 
     const res = await this.stock.registrarAjuste(
       {
@@ -174,13 +235,8 @@ export class FraccionesService {
       usuarioId,
       { tipo: 'carga_pozo', id: randomUUID() },
     );
-    const { data: fila } = await this.db
-      .from('stock')
-      .select('cantidad')
-      .eq('producto_id', pozo.id)
-      .eq('sucursal_id', dto.sucursalId)
-      .maybeSingle();
-    return { ...res, pozo: pozo.nombre, cargado: leida.valor, stockPozo: Number((fila as any)?.cantidad ?? 0) };
+    const stockPozo = await this.stockEn(pozo.id, dto.sucursalId);
+    return { ...res, pozo: pozo.nombre, cargado: leida.valor, stockPozo };
   }
 
   // Sumar una presentación a un pozo (si el pozo todavía no tenía ninguna,
@@ -275,34 +331,42 @@ export class FraccionesService {
   }
 
   // Cambiar nombre, precio o lo que lleva una presentación. Las unidades no se
-  // tocan si hay armadas: al abrirlas volverían al pozo con la cuenta nueva y
-  // aparecerían o desaparecerían huevos de la nada.
+  // tocan si hay armadas (en stock o reservadas en pedidos abiertos): al
+  // abrirlas volverían al pozo con la cuenta nueva y aparecerían o
+  // desaparecerían huevos de la nada. Si cambia lo que lleva, el costo se
+  // recalcula (lo usan el control de venta bajo costo y el margen).
   async editar(id: string, dto: EditarPresentacionDto, usuarioId?: string) {
-    const prod = await this.productoPorId(id, 'id, sku, nombre, fraccion_de, unidades_por_fraccion');
+    const prod = await this.productoPorId(id, 'id, sku, nombre, fraccion_de, unidades_por_fraccion, costo');
     if (!prod.fraccion_de) throw new BadRequestException(`"${prod.nombre}" no es una presentación de ningún pozo`);
 
+    let costoNuevo: number | null = null;
     if (dto?.unidades !== undefined && dto.unidades !== null && String(dto.unidades).trim() !== '') {
-      const pozo = await this.productoPorId(prod.fraccion_de, 'id, nombre, vendido_por_peso');
+      const pozo = await this.productoPorId(prod.fraccion_de, 'id, nombre, vendido_por_peso, costo');
       const porPeso = !!pozo.vendido_por_peso;
       const leida = leerCantidad(dto.unidades, porPeso, { que: porPeso ? 'Los kilos que lleva' : 'Las unidades que lleva', maximo: 10_000 });
       if (!leida.ok) throw new BadRequestException(leida.error);
       const antes = Number(prod.unidades_por_fraccion);
       if (leida.valor !== antes) {
-        const { data: filas } = await this.db
-          .from('stock')
-          .select('cantidad, sucursal:sucursales(nombre)')
-          .eq('producto_id', prod.id)
-          .gt('cantidad', 0);
-        const conStock = (filas ?? []) as any[];
-        if (conStock.length) {
-          const donde = conStock.map((f) => `${Number(f.cantidad).toLocaleString('es-AR')} en ${f.sucursal?.nombre ?? 'otra sucursal'}`).join(' y ');
+        const armadas = await this.armadasDe(prod.id);
+        if (armadas.total > 0) {
           throw new BadRequestException(
-            `Hay armadas (${donde}): pasalas al pozo antes de cambiar lo que lleva. Si no, al abrirlas volverían con la cuenta nueva.`,
+            `Hay armadas (${armadas.donde}): ${armadas.reservadas > 0 ? 'esperá que se entreguen o se cancelen esos pedidos y pasá' : 'pasá'} las armadas al pozo antes de cambiar lo que lleva. Si no, al abrirlas volverían con la cuenta nueva.`,
           );
         }
-        const { error } = await this.db.from('productos').update({ unidades_por_fraccion: leida.valor }).eq('id', prod.id);
+        const costoAntes = prod.costo != null ? Number(prod.costo) : null;
+        costoNuevo = costoSegunLleva({ costoPozo: pozo.costo, costoActual: costoAntes, antes, nuevo: leida.valor });
+        const { error } = await this.db
+          .from('productos')
+          .update(costoNuevo != null ? { unidades_por_fraccion: leida.valor, costo: costoNuevo } : { unidades_por_fraccion: leida.valor })
+          .eq('id', prod.id);
         if (error) throw new BadRequestException(error.message);
-        await this.auditar(usuarioId, 'fraccion_editada', prod.id, { unidades: antes }, { unidades: leida.valor });
+        await this.auditar(
+          usuarioId,
+          'fraccion_editada',
+          prod.id,
+          { unidades: antes, ...(costoNuevo != null ? { costo: costoAntes } : {}) },
+          { unidades: leida.valor, ...(costoNuevo != null ? { costo: costoNuevo } : {}) },
+        );
       }
     }
 
@@ -319,14 +383,23 @@ export class FraccionesService {
     // nombre y precio, por el mismo camino que la ficha (el precio es una
     // vigencia nueva en la lista Minorista)
     if (Object.keys(cambios).length) await this.productos.editar(prod.id, cambios, usuarioId);
-    return { ok: true };
+    return costoNuevo != null ? { ok: true, costo: costoNuevo } : { ok: true };
   }
 
-  // Sacar una presentación del grupo: NO borra el producto. Sigue en el
-  // catálogo con su stock armado; solo deja de armarse desde el pozo.
+  // Sacar una presentación del grupo: NO borra el producto, sigue en el
+  // catálogo; solo deja de armarse desde el pozo. Con armadas (en stock o
+  // reservadas) no se puede, por la misma razón que no se cambia lo que lleva:
+  // si se la vuelve a sumar con otro número (o a otro pozo), al abrir esas
+  // armadas aparecerían o desaparecerían huevos.
   async quitar(id: string, usuarioId?: string) {
     const prod = await this.productoPorId(id, 'id, sku, nombre, fraccion_de, unidades_por_fraccion');
     if (!prod.fraccion_de) throw new BadRequestException(`"${prod.nombre}" no es una presentación de ningún pozo`);
+    const armadas = await this.armadasDe(prod.id);
+    if (armadas.total > 0) {
+      throw new BadRequestException(
+        `Hay armadas (${armadas.donde}): ${armadas.reservadas > 0 ? 'esperá que se entreguen o se cancelen esos pedidos y pasá' : 'pasá'} las armadas al pozo (o vendelas) antes de sacarla del grupo.`,
+      );
+    }
     const { error } = await this.db
       .from('productos')
       .update({ fraccion_de: null, unidades_por_fraccion: null })
@@ -363,6 +436,75 @@ export class FraccionesService {
   }
 
   // ---------------------------------------------------------------- ayudas
+
+  // Lo armado de una presentación en todas las sucursales: stock positivo más
+  // lo reservado en pedidos abiertos con reserva (la reserva baja el stock y
+  // cancelar_pedido lo devuelve al mismo producto).
+  private async armadasDe(productoId: string) {
+    const [stockRes, reservasRes, sucRes] = await Promise.all([
+      this.db.from('stock').select('cantidad, sucursal_id').eq('producto_id', productoId).gt('cantidad', 0),
+      this.db
+        .from('pedidos_items')
+        .select('cantidad, pedido:pedidos!inner(sucursal_id, estado, reserva_stock)')
+        .eq('producto_id', productoId)
+        .eq('pedido.reserva_stock', true)
+        .in('pedido.estado', [...ESTADOS_PEDIDO_ABIERTO]),
+      this.db.from('sucursales').select('id, nombre'),
+    ]);
+    if (stockRes.error) throw new BadRequestException(stockRes.error.message);
+    if (reservasRes.error) throw new BadRequestException(`No pude revisar los pedidos con reserva: ${reservasRes.error.message}`);
+    const nombres = new Map(((sucRes.data ?? []) as any[]).map((s) => [String(s.id), String(s.nombre)]));
+    return describirArmadas((stockRes.data ?? []) as any[], (reservasRes.data ?? []) as any[], (suc) => nombres.get(suc) ?? 'otra sucursal');
+  }
+
+  private async stockEn(productoId: string, sucursalId: string): Promise<number> {
+    const { data, error } = await this.db
+      .from('stock')
+      .select('cantidad')
+      .eq('producto_id', productoId)
+      .eq('sucursal_id', sucursalId)
+      .maybeSingle();
+    if (error) throw new BadRequestException(error.message);
+    return Number((data as any)?.cantidad ?? 0);
+  }
+
+  // La última carga del sistema viejo que pisó el stock de la sucursal, si fue
+  // hace poco: mientras la sucursal venda con el sistema viejo, la planilla
+  // le lleva cada producto con código viejo a su número (Sant Thomas, cargas
+  // st-DDMM). ODB_FRACCIONAR_DIAS_SISTEMA_VIEJO = cuántos días mirar (45; 0
+  // lo apaga, para cuando la sucursal pase a vender con ODB). Si la consulta
+  // falla no frena: es una protección, no una dependencia.
+  private async cargaSistemaViejo(sucursalId: string): Promise<{ referencia: string; fecha: string } | null> {
+    const dias = Number(process.env.ODB_FRACCIONAR_DIAS_SISTEMA_VIEJO ?? 45);
+    if (!sucursalId || !Number.isFinite(dias) || dias <= 0) return null;
+    const { data, error } = await this.db
+      .from('auditoria')
+      .select('entidad_id, creado_en')
+      .eq('entidad', 'sistema_viejo')
+      .eq('accion', 'importacion_sistema_viejo')
+      .eq('datos_despues->>sucursal_id', sucursalId)
+      .gte('creado_en', new Date(Date.now() - dias * 86_400_000).toISOString())
+      .order('creado_en', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) {
+      this.log.warn(`no pude ver las cargas del sistema viejo de ${sucursalId}: ${error.message}`);
+      return null;
+    }
+    if (!data) return null;
+    return { referencia: String((data as any).entidad_id ?? 'del sistema viejo'), fecha: String((data as any).creado_en) };
+  }
+
+  // Armar, abrir o cargar el pozo sobre un producto que la planilla del
+  // sistema viejo pisa en esa sucursal: lo frena con la explicación.
+  private async controlarSistemaViejo(sucursalId: string, productos: { nombre: string; codigo_legacy?: string | null }[]) {
+    const viejos = productos.filter((p) => p?.codigo_legacy);
+    if (!viejos.length) return;
+    const carga = await this.cargaSistemaViejo(sucursalId);
+    if (!carga) return;
+    const { data: suc } = await this.db.from('sucursales').select('nombre').eq('id', sucursalId).maybeSingle();
+    throw new BadRequestException(textoSistemaViejo(String((suc as any)?.nombre ?? 'esta sucursal'), viejos.map((p) => p.nombre), carga));
+  }
 
   // Precio vigente de la lista base (Minorista), el mismo que fija la ficha.
   private async preciosVigentes(ids: string[]): Promise<Map<string, number>> {

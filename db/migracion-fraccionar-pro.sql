@@ -12,10 +12,14 @@
 --   productos_fraccion_valida   (trigger) un producto no es presentación de
 --                               sí mismo; un pozo no es a la vez presentación
 --                               (no hay cadenas pozo → docena → media); una
---                               presentación siempre dice cuánto lleva; y lo
---                               que lleva no cambia mientras haya armadas (al
+--                               presentación siempre dice cuánto lleva; y
+--                               mientras haya armadas (en stock o reservadas
+--                               en pedidos abiertos) no cambia lo que lleva,
+--                               no sale del grupo y no pasa a otro pozo (al
 --                               abrirlas volverían al pozo con la cuenta nueva
---                               y aparecerían o desaparecerían huevos).
+--                               y aparecerían o desaparecerían huevos; sacarla
+--                               y volverla a sumar con otro número era la
+--                               misma trampa por otro camino).
 --   movimientos_stock_fraccionar_idx
 --                               índice chico (solo esos movimientos) para el
 --                               historial de la pantalla, que filtra por
@@ -35,6 +39,27 @@ declare
   v_pozo productos%rowtype;
   v_armadas numeric;
 begin
+  -- lo armado no se reinterpreta: con armadas (stock positivo en cualquier
+  -- sucursal, más lo reservado en pedidos abiertos, que cancelar_pedido
+  -- devuelve al mismo producto) no cambia lo que lleva, no sale del grupo y
+  -- no pasa a otro pozo
+  if tg_op = 'UPDATE'
+     and old.fraccion_de is not null
+     and (new.fraccion_de is distinct from old.fraccion_de
+          or new.unidades_por_fraccion is distinct from old.unidades_por_fraccion) then
+    select coalesce((select sum(cantidad) from stock where producto_id = new.id and cantidad > 0), 0)
+         + coalesce((select sum(i.cantidad)
+                       from pedidos_items i join pedidos p on p.id = i.pedido_id
+                      where i.producto_id = new.id
+                        and p.reserva_stock
+                        and p.estado in ('recibido', 'pagado', 'en_preparacion', 'listo', 'en_camino')), 0)
+      into v_armadas;
+    if v_armadas > 0 then
+      raise exception 'Hay % armadas de % (en stock o reservadas en pedidos): pasalas al pozo antes de cambiar lo que lleva o sacarla del grupo',
+        trim_scale(v_armadas), old.nombre;
+    end if;
+  end if;
+
   -- quitar del grupo: las dos columnas en null y listo
   if new.fraccion_de is null then
     if new.unidades_por_fraccion is not null then
@@ -56,16 +81,6 @@ begin
   end if;
   if exists (select 1 from productos where fraccion_de = new.id) then
     raise exception '% es el pozo de otras presentaciones: no puede ser presentación', new.nombre;
-  end if;
-
-  if tg_op = 'UPDATE'
-     and old.fraccion_de is not null
-     and old.unidades_por_fraccion is distinct from new.unidades_por_fraccion then
-    select coalesce(sum(cantidad), 0) into v_armadas
-      from stock where producto_id = new.id and cantidad > 0;
-    if v_armadas > 0 then
-      raise exception 'Hay % armadas de %: pasalas al pozo antes de cambiar lo que lleva', trim_scale(v_armadas), new.nombre;
-    end if;
   end if;
   return new;
 end $$;

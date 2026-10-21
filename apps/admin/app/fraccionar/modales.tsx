@@ -1,15 +1,18 @@
 'use client';
 
+import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import { Aviso, Boton, Campo, Chips, Entrada, Etiqueta, Modal, useConfirmar } from '../ui/kit';
 import { numero, pesos } from '../lib/formato';
 import {
   cantidadDelPozo,
   enviar,
-  leerNumero,
+  leerCantidadPozo,
   leerPrecio,
   lleva,
+  pareceKilos,
   pedirAutorizacion,
+  soloCifras,
   sumaStock,
   type Grupo,
   type Presentacion,
@@ -18,6 +21,9 @@ import {
 import { BuscadorProducto, Contador, ProductoElegido, type ItemBusqueda, type NotaBusqueda } from './piezas';
 
 const aGramos = (n: number) => Math.round(n * 1000) / 1000;
+
+/** Lo que la API acepta en una sola operación de armar o abrir. */
+const MAX_POR_VEZ = 1000;
 
 // Resumen chico de dos cifras (en el pozo / armadas) arriba de cada modal.
 function Cifras({ items }: { items: { rotulo: string; valor: string }[] }) {
@@ -50,6 +56,7 @@ export function ModalMover({
   onListo,
   onCargarPozo,
   onAbrirOtra,
+  sePuedeAbrir = () => true,
 }: {
   modo: 'armar' | 'abrir';
   grupo: Grupo;
@@ -60,12 +67,18 @@ export function ModalMover({
   onListo: (texto: string) => void;
   onCargarPozo: () => void;
   onAbrirOtra: (p: Presentacion) => void;
+  /** las que se pueden ofrecer para abrir (no las que pisa el sistema viejo) */
+  sePuedeAbrir?: (p: Presentacion) => boolean;
 }) {
   const { pozo } = grupo;
   const porPeso = pozo.porPeso;
   const enPozo = Number(pozo.stock[sucursal.id] ?? 0);
   const armadas = Math.max(0, Math.floor(Number(presentacion.stock[sucursal.id] ?? 0)));
-  const max = Math.min(1000, modo === 'armar' ? Number(presentacion.alcanza[sucursal.id] ?? 0) : armadas);
+  // lo que hay (alcanza para / armadas) y, aparte, el tope de una operación:
+  // antes el tope se mostraba como si fuera lo que hay ("Hay 1.000" con 1.234)
+  const disponible = modo === 'armar' ? Number(presentacion.alcanza[sucursal.id] ?? 0) : armadas;
+  const max = Math.min(MAX_POR_VEZ, disponible);
+  const topado = disponible > MAX_POR_VEZ;
   const [cantidad, setCantidad] = useState(max > 0 ? '1' : '');
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -81,7 +94,7 @@ export function ModalMover({
   const paraAbrir =
     modo === 'armar' && max === 0
       ? grupo.presentaciones
-          .filter((p) => p.id !== presentacion.id && p.unidades > presentacion.unidades && Number(p.stock[sucursal.id] ?? 0) >= 1)
+          .filter((p) => p.id !== presentacion.id && p.unidades > presentacion.unidades && Number(p.stock[sucursal.id] ?? 0) >= 1 && sePuedeAbrir(p))
           .sort((a, b) => a.unidades - b.unidades)[0]
       : undefined;
 
@@ -174,16 +187,27 @@ export function ModalMover({
           <>
             <Campo
               etiqueta={armar ? '¿Cuántas armás?' : '¿Cuántas abrís?'}
-              ayuda={armar ? `Con lo que hay en el pozo alcanza para ${numero(max)}.` : `Hay ${numero(max)} armadas.`}
+              ayuda={
+                (armar ? `Con lo que hay en el pozo alcanza para ${numero(disponible)}` : `Hay ${numero(disponible)} armadas`) +
+                (topado ? `; de a ${numero(MAX_POR_VEZ)} por vez como máximo.` : '.')
+              }
             >
               <div className="flex flex-wrap items-center gap-3">
                 <Contador valor={cantidad} onCambiar={setCantidad} max={max} />
                 <Boton tamano="chico" variante="secundario" onClick={() => setCantidad(String(max))} disabled={n === max}>
-                  {armar ? `Todo lo que alcanza (${numero(max)})` : `Todas (${numero(max)})`}
+                  {topado ? `${numero(MAX_POR_VEZ)} (el máximo por vez)` : armar ? `Todo lo que alcanza (${numero(max)})` : `Todas (${numero(max)})`}
                 </Boton>
               </div>
             </Campo>
-            {n > max && <Aviso tono="error">{armar ? `Alcanza para ${numero(max)} como máximo.` : `Hay ${numero(max)} armadas como máximo.`}</Aviso>}
+            {n > max && (
+              <Aviso tono="error">
+                {topado
+                  ? `De a ${numero(MAX_POR_VEZ)} por vez como máximo: después repetís con el resto.`
+                  : armar
+                    ? `Alcanza para ${numero(max)} como máximo.`
+                    : `Hay ${numero(max)} armadas como máximo.`}
+              </Aviso>
+            )}
             {valida && (
               <p className="rounded-xl border border-black/[0.06] px-3.5 py-2.5 text-sm text-tinta/70">
                 {armar ? (
@@ -236,7 +260,9 @@ export function ModalCargarPozo({
   const [error, setError] = useState<string | null>(null);
 
   const enPozo = Number(pozo.stock[sucursal.id] ?? 0);
-  const valor = leerNumero(cantidad);
+  const valor = leerCantidadPozo(cantidad, porPeso);
+  // con el pozo en negativo la base rechaza toda carga que no lo deje en cero
+  const falta = valor != null && valor > 0 ? aGramos(-(enPozo + valor)) : 0;
   const errorCantidad =
     cantidad.trim() === ''
       ? null
@@ -244,7 +270,9 @@ export function ModalCargarPozo({
         ? 'Tiene que ser un número mayor que 0'
         : !porPeso && !Number.isInteger(valor)
           ? 'Este pozo se cuenta por unidad: va sin decimales'
-          : null;
+          : falta > 0
+            ? `El pozo está en ${cantidadDelPozo(enPozo, porPeso)}: cargá al menos ${cantidadDelPozo(-enPozo, porPeso)} para dejarlo en cero.`
+            : null;
   const lista = valor != null && valor > 0 && !errorCantidad && motivo.trim().length >= 3;
 
   const confirmar = async () => {
@@ -301,7 +329,12 @@ export function ModalCargarPozo({
     >
       <div className="space-y-4">
         <p className="text-sm text-tinta/70">
-          Lo normal es que el pozo se cargue con la factura del proveedor. Usá esto si entró mercadería sin factura o para corregir: queda registrado con tu nombre, y si es mucho lo autoriza un supervisor con su PIN.
+          Lo normal es que el pozo se cargue con la factura del proveedor. Usá esto para sumar lo que entró sin factura: queda registrado con tu nombre, y si es
+          mucho lo autoriza un supervisor con su PIN. Esto solo suma: para bajar el pozo (rotura, vencimiento, un conteo que dio menos) se usa{' '}
+          <Link href="/stock" className="font-medium text-marca-hondo underline underline-offset-2">
+            Stock › Ajustes o Mermas
+          </Link>
+          .
         </p>
         <Campo
           etiqueta={porPeso ? '¿Cuántos kilos entran?' : '¿Cuántas unidades entran?'}
@@ -310,16 +343,16 @@ export function ModalCargarPozo({
           obligatorio
         >
           <Entrada
-            inputMode={porPeso ? 'decimal' : 'numeric'}
+            inputMode="decimal"
             value={cantidad}
-            onChange={(e) => setCantidad(e.target.value.replace(porPeso ? /[^\d.,]/g : /\D/g, ''))}
+            onChange={(e) => setCantidad(soloCifras(e.target.value))}
             sufijo={porPeso ? 'kg' : 'u.'}
             placeholder={porPeso ? 'Ej.: 4,5' : 'Ej.: 360'}
             autoFocus
           />
         </Campo>
         <Campo etiqueta="Motivo" obligatorio ayuda="Queda en el historial del pozo y en Stock › Movimientos.">
-          <Entrada value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Ej.: entró sin factura, corrección por conteo" maxLength={140} />
+          <Entrada value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Ej.: entró sin factura" maxLength={140} />
         </Campo>
         {pidePin && (
           <Campo etiqueta="PIN del supervisor" ayuda="La carga supera el tope: la autoriza gerencia o el dueño con su PIN.">
@@ -334,7 +367,14 @@ export function ModalCargarPozo({
 
 // ------------------------------------------- sumar presentación / fraccionable
 
-type PozoElegido = { sku: string; nombre: string; porPeso: boolean; costo: number | null };
+type PozoElegido = {
+  sku: string;
+  nombre: string;
+  porPeso: boolean;
+  costo: number | null;
+  /** el stock que se vio al elegirlo (para notar decimales en un pozo "por unidad") */
+  stocks: (number | null)[];
+};
 
 /**
  * Sumar una presentación a un pozo: un producto que ya existe (buscador) o uno
@@ -355,8 +395,12 @@ export function ModalPresentacion({
   onListo: (texto: string, pozoSku: string) => void;
 }) {
   const [pozo, setPozo] = useState<PozoElegido | null>(
-    grupo ? { sku: grupo.pozo.sku, nombre: grupo.pozo.nombre, porPeso: grupo.pozo.porPeso, costo: grupo.pozo.costo } : null,
+    grupo
+      ? { sku: grupo.pozo.sku, nombre: grupo.pozo.nombre, porPeso: grupo.pozo.porPeso, costo: grupo.pozo.costo, stocks: Object.values(grupo.pozo.stock) }
+      : null,
   );
+  const [pasando, setPasando] = useState(false);
+  const [errorKilos, setErrorKilos] = useState<string | null>(null);
   const [modo, setModo] = useState<'existente' | 'nuevo'>('existente');
   const [producto, setProducto] = useState<ItemBusqueda | null>(null);
   const [nombre, setNombre] = useState('');
@@ -392,7 +436,7 @@ export function ModalPresentacion({
   };
 
   const porPeso = !!pozo?.porPeso;
-  const valorUnidades = leerNumero(unidades);
+  const valorUnidades = leerCantidadPozo(unidades, porPeso);
   const errorUnidades =
     unidades.trim() === ''
       ? null
@@ -404,6 +448,31 @@ export function ModalPresentacion({
   const unidadesOk = valorUnidades != null && valorUnidades > 0 && !errorUnidades;
   const valorPrecio = leerPrecio(precio);
   const costoEstimado = pozo?.costo && unidadesOk ? pozo.costo * valorUnidades! : null;
+  // un queso "por unidad" con stock en kilos: así no se puede cargar 0,25
+  const kilosDudosos = !!pozo && !pozo.porPeso && pareceKilos(pozo.nombre, pozo.stocks);
+  // pasarlo a kilos acá solo si todavía no es pozo de nada (si ya tiene
+  // presentaciones, lo que llevan está en unidades y hay que revisarlas)
+  const puedePasarAKilos = kilosDudosos && !grupoDePozo.has(pozo!.sku);
+
+  const pasarAKilos = async () => {
+    if (!pozo) return;
+    setPasando(true);
+    setErrorKilos(null);
+    try {
+      const res = await fetch('/api/producto/por-peso', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sku: pozo.sku, porPeso: true, desde: 'fraccionar' }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(d?.message ?? 'No se pudo cambiar');
+      setPozo({ ...pozo, porPeso: true });
+    } catch (e) {
+      setErrorKilos(e instanceof Error ? e.message : 'No se pudo cambiar');
+    } finally {
+      setPasando(false);
+    }
+  };
   const lista =
     !!pozo && unidadesOk && (modo === 'existente' ? !!producto : nombre.trim().length >= 3 && valorPrecio != null);
 
@@ -488,13 +557,43 @@ export function ModalPresentacion({
                   autoFocus
                   nota={notaPozo}
                   onElegir={(p) => {
-                    setPozo({ sku: p.sku, nombre: p.nombre, porPeso: p.porPeso, costo: grupoDePozo.get(p.sku)?.pozo.costo ?? null });
+                    const g = grupoDePozo.get(p.sku);
+                    setPozo({
+                      sku: p.sku,
+                      nombre: p.nombre,
+                      porPeso: p.porPeso,
+                      costo: g?.pozo.costo ?? null,
+                      stocks: g ? Object.values(g.pozo.stock) : [p.stock],
+                    });
                     setError(null);
+                    setErrorKilos(null);
                   }}
                 />
               </Campo>
             )}
           </section>
+        )}
+
+        {kilosDudosos && (
+          <Aviso
+            tono="atencion"
+            titulo="¿Se cuenta en kilos?"
+            accion={
+              puedePasarAKilos && (
+                <Boton tamano="chico" variante="secundario" onClick={pasarAKilos} cargando={pasando}>
+                  Se cuenta en kilos
+                </Boton>
+              )
+            }
+          >
+            «{pozo!.nombre}» está cargado por unidad, pero{' '}
+            {pozo!.stocks.some((n) => n != null && !Number.isInteger(Number(n))) ? 'su stock tiene decimales' : 'el nombre dice que se fracciona'}: parece
+            una horma que se cuenta en kilos. Así como está, lo que lleva cada presentación va en unidades enteras (0,25 no se puede).{' '}
+            {puedePasarAKilos
+              ? 'Si es por kilo, tocá «Se cuenta en kilos»: queda así en el catálogo (también para la caja) y con auditoría.'
+              : 'Si es por kilo, cambialo en la ficha del producto y revisá lo que lleva cada presentación.'}
+            {errorKilos && <span className="mt-1 block text-marca-hondo">{errorKilos}</span>}
+          </Aviso>
         )}
 
         <section className={grupo ? 'space-y-3' : 'space-y-3 border-t border-black/[0.06] pt-4'}>
@@ -567,9 +666,9 @@ export function ModalPresentacion({
           >
             <div className="w-40 max-w-full">
               <Entrada
-                inputMode={porPeso ? 'decimal' : 'numeric'}
+                inputMode="decimal"
                 value={unidades}
-                onChange={(e) => setUnidades(e.target.value.replace(porPeso ? /[^\d.,]/g : /\D/g, ''))}
+                onChange={(e) => setUnidades(soloCifras(e.target.value))}
                 sufijo={porPeso ? 'kg' : 'u.'}
                 disabled={!pozo}
               />
@@ -600,7 +699,8 @@ export function ModalEditar({
   presentacion: Presentacion;
   sucursales: Sucursal[];
   onCerrar: () => void;
-  onListo: (texto: string) => void;
+  /** general: el aviso va arriba de todo (se quitó la última y la tarjeta ya no está) */
+  onListo: (texto: string, opciones?: { general?: boolean }) => void;
 }) {
   const { confirmar, dialogo } = useConfirmar();
   const porPeso = grupo.pozo.porPeso;
@@ -615,7 +715,7 @@ export function ModalEditar({
     .filter((s) => Number(presentacion.stock[s.id] ?? 0) > 0)
     .map((s) => `${numero(presentacion.stock[s.id])} en ${s.nombre}`)
     .join(' y ');
-  const valorUnidades = leerNumero(unidades);
+  const valorUnidades = leerCantidadPozo(unidades, porPeso);
   const errorUnidades =
     valorUnidades == null || valorUnidades <= 0
       ? 'Tiene que ser mayor que 0'
@@ -649,16 +749,20 @@ export function ModalEditar({
       setError(r.mensaje);
       return;
     }
-    onListo(`Se guardaron los cambios de «${String(cambios.nombre ?? presentacion.nombre)}».`);
+    const costo = Number(r.datos?.costo);
+    onListo(
+      `Se guardaron los cambios de «${String(cambios.nombre ?? presentacion.nombre)}».` +
+        (Number.isFinite(costo) && r.datos?.costo != null ? ` Con lo que lleva ahora, el costo quedó en ${pesos(costo)}.` : ''),
+    );
   };
 
+  const ultima = grupo.presentaciones.length === 1;
   const quitar = async () => {
     const ok = await confirmar({
       titulo: `¿Quitar «${presentacion.nombre}» de ${grupo.pozo.nombre}?`,
       texto:
-        'El producto no se borra: sigue en el catálogo y en la caja' +
-        (armadas > 0 ? `, con sus ${numero(armadas)} armadas` : '') +
-        '. Solo deja de armarse desde el pozo. Si te equivocaste, lo volvés a sumar.',
+        'El producto no se borra: sigue en el catálogo y en la caja. Solo deja de armarse desde el pozo.' +
+        (ultima ? ` Es la única presentación: ${grupo.pozo.nombre} deja de aparecer en Fraccionar.` : ''),
       variante: 'peligro',
       textoConfirmar: 'Quitar del grupo',
     });
@@ -671,7 +775,7 @@ export function ModalEditar({
       setError(r.mensaje);
       return;
     }
-    onListo(`«${presentacion.nombre}» ya no es presentación de ${grupo.pozo.nombre}. El producto sigue en el catálogo.`);
+    onListo(`«${presentacion.nombre}» ya no es presentación de ${grupo.pozo.nombre}. El producto sigue en el catálogo.`, { general: ultima });
   };
 
   return (
@@ -706,9 +810,9 @@ export function ModalEditar({
               ayuda={armadas > 0 ? `Hay armadas (${dondeHay}): abrilas y pasalas al pozo para cambiarlo.` : 'Cuánto del pozo usa cada una.'}
             >
               <Entrada
-                inputMode={porPeso ? 'decimal' : 'numeric'}
+                inputMode="decimal"
                 value={unidades}
-                onChange={(e) => setUnidades(e.target.value.replace(porPeso ? /[^\d.,]/g : /\D/g, ''))}
+                onChange={(e) => setUnidades(soloCifras(e.target.value))}
                 sufijo={porPeso ? 'kg' : 'u.'}
                 disabled={armadas > 0}
               />
@@ -720,9 +824,11 @@ export function ModalEditar({
           {error && <Aviso tono="error">{error}</Aviso>}
           <div className="space-y-2 border-t border-black/[0.06] pt-4">
             <p className="text-sm text-tinta/70">
-              ¿Ya no se arma desde el pozo? Quitala del grupo: el producto no se borra, sigue en el catálogo con su stock.
+              {armadas > 0
+                ? `¿Ya no se arma desde el pozo? Primero abrí y pasá al pozo las armadas (${dondeHay}), o vendelas: con armadas no se puede sacar del grupo, porque si después se la vuelve a sumar con otro número, al abrirlas aparecerían o desaparecerían ${porPeso ? 'kilos' : 'unidades'}.`
+                : '¿Ya no se arma desde el pozo? Quitala del grupo: el producto no se borra, sigue en el catálogo.'}
             </p>
-            <Boton variante="peligro" tamano="chico" onClick={quitar} disabled={guardando}>
+            <Boton variante="peligro" tamano="chico" onClick={quitar} disabled={guardando || armadas > 0}>
               Quitar del grupo
             </Boton>
           </div>

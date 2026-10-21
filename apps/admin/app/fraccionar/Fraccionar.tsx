@@ -15,7 +15,7 @@ import {
   type TonoEtiqueta,
 } from '../ui/kit';
 import { fechaHora, numero, pesos } from '../lib/formato';
-import { cantidadDelPozo, lleva, type EntradaHistorial, type Grupo, type Presentacion, type Sucursal } from './datos';
+import { cantidadDelPozo, fechaCorta, lleva, pisaElSistemaViejo, type EntradaHistorial, type Grupo, type Presentacion, type Sucursal } from './datos';
 import { ModalCargarPozo, ModalEditar, ModalMover, ModalPresentacion } from './modales';
 
 // Fraccionar (pantalla completa 21/10/2026). Tres instancias: la mercadería
@@ -36,7 +36,16 @@ const CLAVE_SUCURSAL = 'odb.fraccionar.sucursal';
 const TONO: Record<EntradaHistorial['tipo'], TonoEtiqueta> = { armado: 'info', apertura: 'neutro', carga: 'atencion' };
 const QUE: Record<EntradaHistorial['tipo'], string> = { armado: 'Armado', apertura: 'Abierto al pozo', carga: 'Carga del pozo' };
 
-export function Fraccionar({ puedeConfigurar, puedeCargarPozo }: { puedeConfigurar: boolean; puedeCargarPozo: boolean }) {
+export function Fraccionar({
+  puedeConfigurar,
+  puedeCargarPozo,
+  sucursalDelUsuario = null,
+}: {
+  puedeConfigurar: boolean;
+  puedeCargarPozo: boolean;
+  /** la sucursal asignada al usuario (del token): la que se abre primero */
+  sucursalDelUsuario?: string | null;
+}) {
   const [grupos, setGrupos] = useState<Grupo[]>([]);
   const [sucursales, setSucursales] = useState<Sucursal[]>([]);
   const [sucursalId, setSucursalId] = useState('');
@@ -64,9 +73,17 @@ export function Fraccionar({ puedeConfigurar, puedeCargarPozo }: { puedeConfigur
         try {
           guardada = window.localStorage.getItem(CLAVE_SUCURSAL);
         } catch {
-          // sin almacenamiento (ventana privada): arranca en la primera
+          // sin almacenamiento (ventana privada): sigue con las otras
         }
-        return sucs.find((s) => s.id === guardada)?.id ?? sucs[0]?.id ?? '';
+        // la que eligió la última vez; si no, la suya; si no, una que no
+        // tome el stock del sistema viejo (ahí casi nada se puede mover)
+        return (
+          sucs.find((s) => s.id === guardada)?.id ??
+          sucs.find((s) => s.id === sucursalDelUsuario)?.id ??
+          sucs.find((s) => !s.sistemaViejo)?.id ??
+          sucs[0]?.id ??
+          ''
+        );
       });
       setError(null);
     } catch (e) {
@@ -74,7 +91,7 @@ export function Fraccionar({ puedeConfigurar, puedeCargarPozo }: { puedeConfigur
     } finally {
       setCargando(false);
     }
-  }, []);
+  }, [sucursalDelUsuario]);
 
   useEffect(() => {
     cargar();
@@ -153,6 +170,13 @@ export function Fraccionar({ puedeConfigurar, puedeCargarPozo }: { puedeConfigur
       </div>
 
       {avisoGeneral && <Aviso tono="ok">{avisoGeneral}</Aviso>}
+      {sucursal?.sistemaViejo && grupos.some((g) => pisaElSistemaViejo(sucursal, g.pozo) || g.presentaciones.some((p) => pisaElSistemaViejo(sucursal, g.pozo, p))) && (
+        <Aviso tono="atencion" titulo={`${sucursal.nombre} todavía toma el stock del sistema viejo`}>
+          Cada carga de la planilla del sistema viejo (la última, {sucursal.sistemaViejo.referencia}, el {fechaCorta(sucursal.sistemaViejo.fecha)}) le pisa el
+          stock a los productos que trae, y no al pozo: lo que se armara o se abriera acá con esos productos terminaría con huevos contados dos veces o
+          perdidos. Por eso acá no se mueven: mientras esta sucursal venda con el sistema viejo, se fracciona allá.
+        </Aviso>
+      )}
       {error && (
         <Aviso
           tono="error"
@@ -203,6 +227,8 @@ export function Fraccionar({ puedeConfigurar, puedeCargarPozo }: { puedeConfigur
       {/* ---------------------------------------------------------- diálogos */}
       {dialogo?.tipo === 'mover' && dGrupo && dPresentacion && sucursal && (
         <ModalMover
+          // al pasar de "armar" a "abrir el maple" se monta de nuevo: arranca en 1 y con el foco adentro
+          key={`${dialogo.modo}-${dialogo.presentacionId}`}
           modo={dialogo.modo}
           grupo={dGrupo}
           presentacion={dPresentacion}
@@ -212,6 +238,7 @@ export function Fraccionar({ puedeConfigurar, puedeCargarPozo }: { puedeConfigur
           onListo={(t) => listo(dGrupo.pozo.id, t)}
           onCargarPozo={() => setDialogo({ tipo: 'cargar', pozoId: dGrupo.pozo.id })}
           onAbrirOtra={(p) => setDialogo({ tipo: 'mover', modo: 'abrir', pozoId: dGrupo.pozo.id, presentacionId: p.id })}
+          sePuedeAbrir={(p) => !pisaElSistemaViejo(sucursal, dGrupo.pozo, p)}
         />
       )}
       {dialogo?.tipo === 'cargar' && dGrupo && sucursal && (
@@ -232,7 +259,9 @@ export function Fraccionar({ puedeConfigurar, puedeCargarPozo }: { puedeConfigur
           presentacion={dPresentacion}
           sucursales={sucursales}
           onCerrar={() => setDialogo(null)}
-          onListo={(t) => listo(dGrupo.pozo.id, t)}
+          // si se quitó la última presentación, la tarjeta del pozo desaparece:
+          // el "Listo" va arriba de todo para que se vea
+          onListo={(t, { general } = {}) => listo(general ? null : dGrupo.pozo.id, t)}
         />
       )}
     </div>
@@ -260,10 +289,14 @@ function TarjetaGrupo({
   const enPozo = Number(pozo.stock[sucursal.id] ?? 0);
   const chica = [...presentaciones].sort((a, b) => a.unidades - b.unidades)[0];
   const sinPozo = !!chica && Number(chica.alcanza[sucursal.id] ?? 0) === 0;
+  const bloqueada = (p: Presentacion) => pisaElSistemaViejo(sucursal, pozo, p);
+  const pozoBloqueado = pisaElSistemaViejo(sucursal, pozo);
+  const cargaPozo = puedeCargarPozo && !pozoBloqueado;
+  const todoBloqueado = presentaciones.length > 0 && presentaciones.every(bloqueada);
   // con el pozo vacío, la más chica de las que se pueden abrir para alimentarlo
   const paraAbrir = sinPozo
     ? [...presentaciones]
-        .filter((p) => p.unidades > chica.unidades && Number(p.stock[sucursal.id] ?? 0) >= 1)
+        .filter((p) => p.unidades > chica.unidades && Number(p.stock[sucursal.id] ?? 0) >= 1 && !bloqueada(p))
         .sort((a, b) => a.unidades - b.unidades)[0]
     : undefined;
 
@@ -279,21 +312,23 @@ function TarjetaGrupo({
         <div className="min-w-0">
           <p className={ROTULO}>En el pozo · {sucursal.nombre}</p>
           <p className="importe text-2xl font-semibold text-tinta">
-            {numero(enPozo, pozo.porPeso ? 3 : 0)}{' '}
+            {numero(enPozo, pozo.porPeso || !Number.isInteger(enPozo) ? 3 : 0)}{' '}
             <span className="text-base font-medium text-tinta/70">{pozo.porPeso ? 'kg' : enPozo === 1 ? 'unidad' : 'unidades'}</span>
           </p>
         </div>
-        {puedeCargarPozo && (
+        {cargaPozo && (
           <Boton tamano="chico" variante="secundario" onClick={() => onDialogo({ tipo: 'cargar', pozoId: pozo.id })}>
             Cargar el pozo
           </Boton>
         )}
       </div>
 
-      {(aviso || sinPozo) && (
+      {/* el "Listo" de lo último que se hizo y, abajo, el pozo vacío con su
+          salida: los dos a la vez (antes el Listo tapaba la oferta de abrir) */}
+      {(aviso || (sinPozo && !todoBloqueado)) && (
         <div className="space-y-2 px-4 pt-3 sm:px-5">
           {aviso && <Aviso tono="ok">{aviso}</Aviso>}
-          {sinPozo && !aviso && (
+          {sinPozo && !todoBloqueado && (
             <Aviso
               tono="atencion"
               accion={
@@ -310,11 +345,15 @@ function TarjetaGrupo({
             >
               {enPozo > 0
                 ? `En el pozo hay ${cantidadDelPozo(enPozo, pozo.porPeso)}: no alcanza para armar ninguna.`
-                : 'El pozo está vacío: no se puede armar nada.'}{' '}
+                : enPozo < 0
+                  ? `El pozo está en ${cantidadDelPozo(enPozo, pozo.porPeso)} (se vendió más de lo que entró): no se puede armar nada.`
+                  : 'El pozo está vacío: no se puede armar nada.'}{' '}
               {paraAbrir
-                ? `Abrí ${paraAbrir.nombre} (hay ${numero(paraAbrir.stock[sucursal.id] ?? 0)}) y pasalo al pozo${puedeCargarPozo ? ', o cargá el pozo' : ''}.`
-                : puedeCargarPozo
-                  ? 'Cargá el pozo (o esperá la factura del proveedor).'
+                ? `Abrí ${paraAbrir.nombre} (hay ${numero(paraAbrir.stock[sucursal.id] ?? 0)}) y pasalo al pozo${cargaPozo ? ', o cargá el pozo' : ''}.`
+                : cargaPozo
+                  ? enPozo < 0
+                    ? `Cargá el pozo: al menos ${cantidadDelPozo(-enPozo, pozo.porPeso)} para dejarlo en cero.`
+                    : 'Cargá el pozo (o esperá la factura del proveedor).'
                   : 'Se carga con la factura del proveedor, o lo carga depósito.'}
             </Aviso>
           )}
@@ -329,6 +368,7 @@ function TarjetaGrupo({
             porPeso={pozo.porPeso}
             sucursal={sucursal}
             puedeConfigurar={puedeConfigurar}
+            bloqueada={bloqueada(p)}
             onArmar={() => onDialogo({ tipo: 'mover', modo: 'armar', pozoId: pozo.id, presentacionId: p.id })}
             onAbrir={() => onDialogo({ tipo: 'mover', modo: 'abrir', pozoId: pozo.id, presentacionId: p.id })}
             onEditar={() => onDialogo({ tipo: 'editar', pozoId: pozo.id, presentacionId: p.id })}
@@ -353,6 +393,7 @@ function FilaPresentacion({
   porPeso,
   sucursal,
   puedeConfigurar,
+  bloqueada,
   onArmar,
   onAbrir,
   onEditar,
@@ -361,6 +402,8 @@ function FilaPresentacion({
   porPeso: boolean;
   sucursal: Sucursal;
   puedeConfigurar: boolean;
+  /** la planilla del sistema viejo le pisa el stock en esta sucursal */
+  bloqueada: boolean;
   onArmar: () => void;
   onAbrir: () => void;
   onEditar: () => void;
@@ -386,19 +429,25 @@ function FilaPresentacion({
       {/* celular: "alcanza para" y Editar arriba, Armar / Abrir abajo a lo ancho;
           escritorio: todo en una fila */}
       <div className="mt-2 flex flex-wrap items-center gap-2">
-        <Etiqueta tono={alcanza > 0 ? 'neutro' : 'atencion'} className="order-1">
-          {alcanza > 0 ? `Alcanza para ${numero(alcanza)}` : 'El pozo no alcanza'}
-        </Etiqueta>
+        {bloqueada ? (
+          <Etiqueta tono="atencion" className="order-1">
+            Stock del sistema viejo
+          </Etiqueta>
+        ) : (
+          <Etiqueta tono={alcanza > 0 ? 'neutro' : 'atencion'} className="order-1">
+            {alcanza > 0 ? `Alcanza para ${numero(alcanza)}` : 'El pozo no alcanza'}
+          </Etiqueta>
+        )}
         {puedeConfigurar && (
           <Boton tamano="chico" variante="fantasma" onClick={onEditar} className="order-2 ml-auto sm:order-3 sm:ml-0" aria-label={`Editar ${p.nombre}`}>
             Editar
           </Boton>
         )}
         <div className="order-3 flex basis-full flex-wrap gap-2 sm:order-2 sm:ml-auto sm:basis-auto">
-          <Boton tamano="chico" variante="secundario" onClick={onArmar} className="grow sm:grow-0">
+          <Boton tamano="chico" variante="secundario" onClick={onArmar} disabled={bloqueada} className="grow sm:grow-0">
             Armar
           </Boton>
-          <Boton tamano="chico" variante="secundario" onClick={onAbrir} disabled={armadas < 1} className="grow sm:grow-0">
+          <Boton tamano="chico" variante="secundario" onClick={onAbrir} disabled={bloqueada || armadas < 1} className="grow sm:grow-0">
             Abrir y pasar al pozo
           </Boton>
         </div>

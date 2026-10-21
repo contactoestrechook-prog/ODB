@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, Req } from '@nestjs/common';
 import { Roles } from '../auth/decorators';
 import { FraccionesService } from './fracciones.service';
+import { autorizaSolo } from './stock.controller';
 import type { CargarPozoDto, EditarPresentacionDto, VincularDto } from './fracciones.service';
 
 // Pantalla Fraccionar (21/10/2026). Armar y abrir: todo el personal del local
@@ -34,9 +35,7 @@ export class FraccionesController {
   @Roles('deposito', 'gerente', 'dueno')
   @Post('fraccionables/:pozoId/cargar')
   cargarPozo(@Param('pozoId') pozoId: string, @Body() dto: CargarPozoDto, @Req() req: any) {
-    const rol = req?.usuario?.rol;
-    const autorizadoPor = rol === 'gerente' || rol === 'dueno' ? req.usuario.sub : undefined;
-    return this.fracciones.cargarPozo(pozoId, dto ?? ({} as CargarPozoDto), autorizadoPor, req?.usuario?.sub);
+    return this.fracciones.cargarPozo(pozoId, dto ?? ({} as CargarPozoDto), autorizaSolo(req), req?.usuario?.sub);
   }
 
   @Roles('gerente', 'dueno')

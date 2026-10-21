@@ -155,11 +155,147 @@ export function armarHistorial(filas: FilaMovimiento[], limite = 30): EntradaHis
 /**
  * Texto claro para el "Stock insuficiente" de la base: dice si faltó pozo
  * (al armar) o presentaciones armadas (al abrir), en lugar de "la operación
- * dejaría -24 unidades".
+ * dejaría -24 unidades". Con el stock real a mano usar explicarFaltante, que
+ * además distingue el pozo en negativo.
  */
 export function errorDeFraccionamiento(mensaje: string, cantidad: number): string {
   if (!/Stock insuficiente/i.test(mensaje)) return mensaje;
   return cantidad > 0
     ? 'No alcanza lo que hay en el pozo para armar esa cantidad. Cargá el pozo o abrí una presentación más grande.'
     : 'No hay tantas armadas en esta sucursal para pasar al pozo.';
+}
+
+/** "0,86 kg" o "12 unidades", como lo dice la pantalla. */
+export function cantidadDelPozo(n: number, porPeso: boolean): string {
+  const texto = Math.abs(n).toLocaleString('es-AR', { maximumFractionDigits: porPeso ? 3 : 0 });
+  const signo = n < 0 ? '-' : '';
+  if (porPeso) return `${signo}${texto} kg`;
+  return `${signo}${texto} ${Math.abs(n) === 1 ? 'unidad' : 'unidades'}`;
+}
+
+/**
+ * Por qué la base dijo "Stock insuficiente", con el stock de la sucursal a la
+ * vista. registrar_movimiento rechaza todo lo que deje un stock en negativo,
+ * incluso una suma: con el pozo en -0,86 kg (se vendió más de lo que entró),
+ * abrir un cuarto lo deja en -0,61 y también se rechaza. Antes eso salía como
+ * "No hay tantas armadas", aunque las hubiera.
+ */
+export function explicarFaltante({
+  cantidad,
+  unidades,
+  stockPozo,
+  stockPresentacion,
+  porPeso,
+}: {
+  /** presentaciones: > 0 armar, < 0 abrir */
+  cantidad: number;
+  /** lo que lleva cada presentación */
+  unidades: number;
+  stockPozo: number;
+  stockPresentacion: number;
+  porPeso: boolean;
+}): string {
+  const mueve = aGramos(Math.abs(cantidad) * unidades);
+  if (cantidad > 0) {
+    if (stockPozo < 0) {
+      return `El pozo está en ${cantidadDelPozo(stockPozo, porPeso)} (se vendió más de lo que entró): cargá el pozo para dejarlo en cero y después armá.`;
+    }
+    return `No alcanza lo que hay en el pozo: hay ${cantidadDelPozo(stockPozo, porPeso)} y para esa cantidad hacen falta ${cantidadDelPozo(mueve, porPeso)}. Cargá el pozo o abrí una presentación más grande.`;
+  }
+  const abrir = Math.abs(cantidad);
+  if (stockPresentacion < abrir) {
+    return `No hay tantas armadas en esta sucursal para pasar al pozo: hay ${Math.max(0, stockPresentacion).toLocaleString('es-AR', { maximumFractionDigits: 3 })}.`;
+  }
+  const despues = aGramos(stockPozo + mueve);
+  if (despues < 0) {
+    return `El pozo está en ${cantidadDelPozo(stockPozo, porPeso)} (se vendió más de lo que entró) y con lo que abrís quedaría en ${cantidadDelPozo(despues, porPeso)}: el stock no puede quedar en negativo. Cargá al menos ${cantidadDelPozo(-despues, porPeso)} al pozo, o abrí más.`;
+  }
+  return 'No hay stock suficiente para esa operación.';
+}
+
+/** Cuánto hay que cargar para que el pozo no siga en negativo (0 si ya alcanza). */
+export function faltaParaCero(stockPozo: number, carga: number): number {
+  const despues = aGramos(stockPozo + carga);
+  return despues < 0 ? aGramos(-despues) : 0;
+}
+
+// ------------------------------------------------------------- lo armado
+
+/** Pedidos que todavía tienen la mercadería reservada (cancelar_pedido la devuelve). */
+export const ESTADOS_PEDIDO_ABIERTO = ['recibido', 'pagado', 'en_preparacion', 'listo', 'en_camino'] as const;
+
+/**
+ * Lo armado de una presentación: el stock positivo de cada sucursal MÁS lo
+ * reservado en pedidos abiertos. La reserva baja el stock, pero si el pedido
+ * se cancela vuelve al mismo producto: si mientras tanto cambió lo que lleva,
+ * al abrirla volvería al pozo con la cuenta nueva.
+ */
+export function describirArmadas(
+  stock: { cantidad: number | string; sucursal_id: string }[],
+  reservas: { cantidad: number | string; pedido: { sucursal_id: string } | null }[],
+  nombreSucursal: (id: string) => string,
+): { total: number; reservadas: number; donde: string } {
+  const enStock = new Map<string, number>();
+  for (const f of stock) {
+    const n = Number(f.cantidad);
+    if (n > 0) enStock.set(f.sucursal_id, (enStock.get(f.sucursal_id) ?? 0) + n);
+  }
+  const reservadas = new Map<string, number>();
+  for (const r of reservas) {
+    const n = Number(r.cantidad);
+    const suc = r.pedido?.sucursal_id;
+    if (suc && n > 0) reservadas.set(suc, (reservadas.get(suc) ?? 0) + n);
+  }
+  const num = (n: number) => n.toLocaleString('es-AR', { maximumFractionDigits: 3 });
+  const partes = [
+    ...[...enStock].map(([suc, n]) => `${num(n)} en ${nombreSucursal(suc)}`),
+    ...[...reservadas].map(([suc, n]) => `${num(n)} reservada${n === 1 ? '' : 's'} en pedidos de ${nombreSucursal(suc)}`),
+  ];
+  const donde = partes.length > 1 ? `${partes.slice(0, -1).join(', ')} y ${partes[partes.length - 1]}` : (partes[0] ?? '');
+  const totalReservadas = [...reservadas.values()].reduce((s, n) => s + n, 0);
+  const total = [...enStock.values()].reduce((s, n) => s + n, 0) + totalReservadas;
+  return { total, reservadas: totalReservadas, donde };
+}
+
+/**
+ * El costo de una presentación cuando cambia lo que lleva: lo que lleva × el
+ * costo del pozo (una docena cuesta 12 huevos). Si el pozo no tiene costo,
+ * se escala el que tenía (30 → 12 lleva: el 40 %). null: no hay con qué.
+ */
+export function costoSegunLleva({
+  costoPozo,
+  costoActual,
+  antes,
+  nuevo,
+}: {
+  costoPozo: unknown;
+  costoActual: unknown;
+  antes: number;
+  nuevo: number;
+}): number | null {
+  const redondo = (n: number) => Math.round(n * 100) / 100;
+  const pozo = Number(costoPozo);
+  if (costoPozo != null && Number.isFinite(pozo) && pozo > 0) return redondo(pozo * nuevo);
+  const actual = Number(costoActual);
+  if (costoActual != null && Number.isFinite(actual) && actual > 0 && antes > 0) return redondo((actual * nuevo) / antes);
+  return null;
+}
+
+// ------------------------------------------------------ el sistema viejo
+
+/**
+ * Sant Thomas sigue vendiendo con el sistema viejo y su stock se pisa con la
+ * planilla en cada carga (scripts/sistema-viejo/aplicar.sql lleva cada
+ * producto con código del sistema viejo al número de la planilla). Lo que se
+ * arme o se abra en ODB sobre esos productos lo borra la carga siguiente, y
+ * el pozo (que la planilla no trae) queda con la diferencia: huevos contados
+ * dos veces o desaparecidos.
+ */
+export function textoSistemaViejo(sucursal: string, productos: string[], carga: { referencia: string; fecha: string }): string {
+  const cuando = new Date(carga.fecha).toLocaleDateString('es-AR', { day: 'numeric', month: 'numeric', timeZone: 'America/Argentina/Buenos_Aires' });
+  const que = productos.length === 1 ? `«${productos[0]}» lo trae` : `${productos.map((p) => `«${p}»`).join(' y ')} los trae`;
+  return (
+    `En ${sucursal} el stock de ${que} la planilla del sistema viejo (última carga ${carga.referencia}, el ${cuando}): ` +
+    'lo que se arme, se abra o se cargue acá lo pisa la carga siguiente. Mientras esta sucursal venda con el sistema viejo, se fracciona allá.'
+  );
 }
