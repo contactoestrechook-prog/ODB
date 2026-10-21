@@ -15,7 +15,7 @@
 //    para fin de año y compras grandes recientes, cada una con "Armar propuesta".
 // La lógica de los números y las listas está en el API (eventos.logica.ts).
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { fecha, hoyISO, numero, pesos, porcentaje } from '../lib/formato';
 import {
   AreaTexto,
@@ -51,7 +51,14 @@ type Tipo = 'cumpleanos' | 'casamiento' | 'corporativo' | 'fin_de_ano' | 'otro';
 
 type Item = { producto_id?: string | null; descripcion: string; cantidad: number; precio_unitario: number };
 
-type ClienteDelEvento = { nombre?: string | null; razon_social?: string | null; dni?: string | null; telefono?: string | null };
+type ClienteDelEvento = {
+  nombre?: string | null;
+  razon_social?: string | null;
+  dni?: string | null;
+  telefono?: string | null;
+  /** Tiene la app de ODB con las notificaciones activadas (el API no manda el token). */
+  tiene_app?: boolean;
+};
 
 export type Evento = {
   id: string;
@@ -79,15 +86,33 @@ export type ResumenEventos = {
   cierre: { tasa: number | null; ganados: number; decididos: number };
 };
 
-type Cumple = { cliente_id: string; nombre: string | null; dni: string | null; dias: number; fecha: string; evento_id: string | null };
-type Empresa = { cliente_id: string; nombre: string; telefono: string | null; compras: number; total: number; ultima: string | null };
-type CompraGrande = { cliente_id: string; nombre: string | null; telefono: string | null; total: number; fecha: string; veces: number | null };
+type Cumple = {
+  cliente_id: string;
+  nombre: string | null;
+  dni: string | null;
+  dias: number;
+  fecha: string;
+  evento_id: string | null;
+  /** 'cancelado': dijo que no (la oportunidad ya se trabajó). */
+  evento_estado?: string | null;
+};
+type Empresa = {
+  cliente_id: string;
+  nombre: string;
+  telefono: string | null;
+  /** false: el teléfono de la ficha no sirve para escribirle ("15", sin característica). */
+  whatsapp?: boolean;
+  compras: number;
+  total: number;
+  ultima: string | null;
+};
+type CompraGrande = { cliente_id: string; nombre: string | null; telefono: string | null; total: number; fecha: string; estado?: string | null; veces: number | null };
 
 export type OportunidadesEventos = {
   hoy: string;
   cumpleanos: { dias: number; lista: Cumple[]; sinFecha: number | null };
-  empresas: { temporada: number; lista: Empresa[]; pendientes: number; yaTienen: number } | null;
-  comprasGrandes: { promedio: number; umbral: number; tickets: number; lista: CompraGrande[] } | null;
+  empresas: { temporada: number; lista: Empresa[]; pendientes: number; yaTienen: number; dijeronQueNo?: number; sinRelacion?: number } | null;
+  comprasGrandes: { tipico: number | null; umbral: number; regla: 'doble' | 'piso'; tickets: number; lista: CompraGrande[] } | null;
   avisos: string[];
 };
 
@@ -169,7 +194,30 @@ function cuandoFalta(d: number): string {
 /** Fecha del evento: "sábado 12 de diciembre" este año; con el año si es otro. */
 const fechaEvento = (f: string, hoy: string) => (f.slice(0, 4) === hoy.slice(0, 4) ? fecha(f, 'dia') : fecha(f, 'larga'));
 
-/** Igual que en el API (eventos.logica.ts → nombreSugerido). */
+// ---- igual que en el API (apps/api/src/eventos/eventos.logica.ts): si cambia allá, cambia acá
+
+const NO_ES_NOMBRE = new Set([
+  'st', 'sr', 'santa', 'san', 'campos', 'cliente', 'clientes', 'lauquen', 'los', 'las', 'la', 'el', 'solar',
+  'lagos', 'ombu', 'venado', 'don', 'horqueta', 'evento', 'eventos', 'chopera', 'barrio', 'lote', 'rodal',
+  'cruz', 'alameda', 'terralago', 'rocio', 'country', 'club', 'fr', 'ex', 'thomas', 'este', 'oeste', 'lista',
+  'degustacion', 'nuevo', 'nueva', 'consumidor', 'final', 'mostrador', 'casa', 'l', 'y', 'o', 'de', 'del',
+]);
+const sinTildes = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+const pareceNombre = (p: string) => /^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]{2,}$/.test(p) && !NO_ES_NOMBRE.has(sinTildes(p));
+
+/** "Ana Pérez" → "Ana"; "St Thomas 118 Jimena" → "Jimena"; "Campos 51" → null. */
+function nombreDePila(nombre?: string | null): string | null {
+  const palabras = (nombre ?? '').replace(/[()*"«»]/g, ' ').replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
+  if (!palabras.length) return null;
+  if (pareceNombre(palabras[0])) return palabras[0];
+  let ultimoNumero = -1;
+  palabras.forEach((p, i) => {
+    if (/\d/.test(p)) ultimoNumero = i;
+  });
+  const despues = ultimoNumero >= 0 ? palabras.slice(ultimoNumero + 1).find(pareceNombre) : undefined;
+  return despues ? despues.charAt(0).toUpperCase() + despues.slice(1) : null;
+}
+
 function nombreSugerido(tipo: Tipo, nombre?: string | null): string {
   const limpio = (nombre ?? '').replace(/\s+/g, ' ').trim();
   const solo: Record<Tipo, string> = {
@@ -179,25 +227,79 @@ function nombreSugerido(tipo: Tipo, nombre?: string | null): string {
     fin_de_ano: 'Fiesta de fin de año',
     otro: 'Evento',
   };
-  if (!limpio) return solo[tipo];
+  const quien = deEmpresa(tipo) ? limpio : nombreDePila(limpio);
+  if (!quien) return solo[tipo];
   const titulo: Record<Tipo, string> = { cumpleanos: 'Cumpleaños', casamiento: 'Casamiento', corporativo: 'Evento', fin_de_ano: 'Fin de año', otro: 'Festejo' };
-  return `${titulo[tipo]} de ${deEmpresa(tipo) ? limpio : limpio.split(' ')[0]}`.slice(0, 120);
+  return `${titulo[tipo]} de ${quien}`.slice(0, 120);
 }
+
+function telDiez(t: unknown): string | null {
+  let d = String(t ?? '').replace(/\D/g, '').replace(/^00/, '');
+  if (d.startsWith('549')) d = d.slice(3);
+  else if (d.startsWith('54')) d = d.slice(2).replace(/^0/, '');
+  else d = d.replace(/^0/, '');
+  if (d.length === 12) d = d.replace(/^(\d{2,4})15(\d{6,8})$/, '$1$2');
+  return d.length >= 10 && d.length <= 13 ? d.slice(-10) : null;
+}
+
+/** Los diez dígitos de un WhatsApp argentino con característica (o uno de otro país con +); null si no sirve. */
+function telefonoLimpio(t: unknown): string | null {
+  const crudo = String(t ?? '').trim();
+  const d = crudo.replace(/\D/g, '');
+  if (/^\+/.test(crudo) && !d.startsWith('54')) return d.length >= 8 && d.length <= 15 ? d : null;
+  const diez = telDiez(d);
+  return diez && /^(11\d{8}|[23]\d{9})$/.test(diez) ? diez : null;
+}
+
+function motivoTelefono(t: unknown): string {
+  const d = String(t ?? '').replace(/\D/g, '');
+  if (/^15\d{8}$/.test(d)) {
+    const n = `${d.slice(2, 6)}-${d.slice(6)}`;
+    return `Falta la característica: poné la del lugar en vez del 15 (en el AMBA, 11 ${n} y no 15 ${n}).`;
+  }
+  return 'El WhatsApp del contacto no parece un teléfono: poné el número con característica (por ejemplo 11 2281-2200).';
+}
+
+// ---- fin de lo copiado del API
 
 const quienEs = (ev: Evento): string | null => {
   const c = ev.cliente;
   const deCliente = deEmpresa(ev.tipo) ? c?.razon_social || c?.nombre : c?.nombre || c?.razon_social;
   return deCliente || ev.contacto_nombre || null;
 };
-const telefonoDe = (ev: Evento): string | null => ev.contacto_telefono || ev.cliente?.telefono || null;
+
+/**
+ * Sin la migración eventos-pro, el contacto que se carga queda escrito en las
+ * notas ("Contacto: Ana · 1122812200", ver pasarExtrasANotas en el API): se lee
+ * de ahí, el último que se cargó.
+ */
+function telefonoEnNotas(notas?: string | null): string | null {
+  const lineas = [...(notas ?? '').matchAll(/^Contacto: (.+)$/gm)];
+  const ultima = lineas.length ? lineas[lineas.length - 1][1] : '';
+  const tel = ultima.split(' · ').pop()?.trim() ?? '';
+  return /^\d{8,15}$/.test(tel) ? tel : null;
+}
+
+/** El WhatsApp del evento (el del contacto, si no el del cliente), solo si se le puede escribir. */
+const telefonoDe = (ev: Evento): string | null =>
+  [ev.contacto_telefono, telefonoEnNotas(ev.notas), ev.cliente?.telefono].map(telefonoLimpio).find(Boolean) ?? null;
 
 /** Enlace para abrir el chat de WhatsApp (no manda nada solo: lo escribe la persona). */
 function enlaceWhatsApp(telefono: string, texto: string): string | null {
-  const d = telefono.replace(/\D/g, '');
-  if (d.length < 10) return null;
-  const numeroWa = d.startsWith('54') ? d : d.length === 10 ? `549${d}` : d;
-  return `https://wa.me/${numeroWa}?text=${encodeURIComponent(texto)}`;
+  const t = telefonoLimpio(telefono);
+  if (!t) return null;
+  return `https://wa.me/${t.length === 10 ? `549${t}` : t}?text=${encodeURIComponent(texto)}`;
 }
+
+/** Cómo quedó el pedido de una compra grande. */
+const ESTADO_COMPRA: Record<string, string> = {
+  recibido: 'pedido tomado',
+  pagado: 'pedido pagado',
+  en_preparacion: 'pedido en preparación',
+  listo: 'pedido listo',
+  en_camino: 'pedido en camino',
+  entregado: 'pedido entregado',
+};
 
 async function pedir<T>(url: string, init?: RequestInit): Promise<T> {
   const r = await fetch(url, init);
@@ -229,11 +331,15 @@ export function EventosWorkspace({
   resumen,
   oportunidades,
   eventos,
+  rol = null,
 }: {
   resumen: ResumenEventos | null;
   oportunidades: OportunidadesEventos | null;
   eventos: Evento[];
+  /** Del token (page.tsx): dejar el aviso en la app, borrar un evento y editar clientes es de gerente o dueño. */
+  rol?: string | null;
 }) {
+  const esEncargado = rol === 'gerente' || rol === 'dueno';
   const [kpi, setKpi] = useState<ResumenEventos | null>(resumen);
   const [ops, setOps] = useState<OportunidadesEventos | null>(oportunidades);
   const [evs, setEvs] = useState<Evento[]>(Array.isArray(eventos) ? eventos : []);
@@ -291,6 +397,7 @@ export function EventosWorkspace({
           key={sel.id}
           ev={sel}
           hoy={hoy}
+          esEncargado={esEncargado}
           onCambio={setSel}
           onVolver={() => {
             setSel(null);
@@ -349,8 +456,9 @@ export function EventosWorkspace({
 
       {kpi && kpi.fechaPasada > 0 && (
         <Aviso tono="atencion">
-          {kpi.fechaPasada === 1 ? 'Hay un evento con la fecha pasada' : `Hay ${kpi.fechaPasada} eventos con la fecha pasada`} que sigue abierto: abrilo y
-          marcalo como realizado o cancelalo, así los números de arriba dicen la verdad.
+          {kpi.fechaPasada === 1
+            ? 'Hay un evento con la fecha pasada que sigue abierto: abrilo y marcalo como realizado o cancelalo, así los números de arriba dicen la verdad.'
+            : `Hay ${kpi.fechaPasada} eventos con la fecha pasada que siguen abiertos: abrilos y marcalos como realizados o cancelalos, así los números de arriba dicen la verdad.`}
         </Aviso>
       )}
 
@@ -374,7 +482,7 @@ export function EventosWorkspace({
           cantOportunidades={cantOportunidades}
         />
       ) : (
-        <VistaOportunidades ops={ops} hoy={hoy} onArmar={setAlta} onAbrir={abrir} onReintentar={refrescar} />
+        <VistaOportunidades ops={ops} hoy={hoy} esEncargado={esEncargado} onArmar={setAlta} onAbrir={abrir} onReintentar={refrescar} />
       )}
 
       {modal}
@@ -600,12 +708,14 @@ function FilaOportunidad({ titulo, detalle, accion }: { titulo: ReactNode; detal
 function VistaOportunidades({
   ops,
   hoy,
+  esEncargado,
   onArmar,
   onAbrir,
   onReintentar,
 }: {
   ops: OportunidadesEventos | null;
   hoy: string;
+  esEncargado: boolean;
   onArmar: (i: Inicial) => void;
   onAbrir: (id: string) => void;
   onReintentar: () => void;
@@ -620,6 +730,18 @@ function VistaOportunidades({
   }
   const { cumpleanos, empresas, comprasGrandes } = ops;
   const empresasVisibles = empresas ? (verTodasEmpresas ? empresas.lista : empresas.lista.slice(0, EMPRESAS_DE_ENTRADA)) : [];
+  const algunaCompro = !!empresas?.lista.some((e) => e.total > 0);
+  const subCompras = (() => {
+    if (!comprasGrandes) return 'Clientes con una compra muy por encima de lo común.';
+    const { umbral, tipico, regla } = comprasGrandes;
+    const porque =
+      regla === 'doble' && tipico
+        ? `el doble de un pedido típico, ${pesos(tipico)}`
+        : tipico
+          ? `un pedido típico es de ${pesos(tipico)}; tomamos ${pesos(umbral)} como mínimo`
+          : `todavía hay pocas compras para saber cuánto es un pedido típico: tomamos ${pesos(umbral)} como mínimo`;
+    return `Más de ${pesos(umbral)} en los últimos 60 días (${porque}): seguro festejaron algo. Ofreceles el próximo.`;
+  })();
   return (
     <div className="space-y-4">
       {ops.avisos.length > 0 && (
@@ -632,22 +754,28 @@ function VistaOportunidades({
         <Tarjeta relleno={false}>
           <TarjetaCabecera
             titulo={`Fin de año ${empresas?.temporada ?? hoy.slice(0, 4)}: empresas`}
-            sub="Las que todavía no tienen su fiesta armada, por lo que compraron en el último año."
+            sub={
+              empresas && empresas.lista.length > 0
+                ? `Empresas que compraron o escribieron en el último año y todavía no tienen su fiesta armada${algunaCompro ? ', las que más compraron primero' : ''}.`
+                : 'Empresas que compraron o escribieron en el último año.'
+            }
           />
           {!empresas ? (
             <p className="px-4 py-3 text-sm text-tinta/60 sm:px-5">No pude leer las empresas.</p>
           ) : empresas.lista.length === 0 ? (
             <Vacio
-              titulo={empresas.yaTienen ? 'Todas las empresas ya tienen su evento' : 'No hay empresas identificadas'}
+              titulo={empresas.yaTienen || empresas.dijeronQueNo ? 'Ya se les ofreció a todas' : 'Ninguna empresa para ofrecer todavía'}
               texto={
-                empresas.yaTienen
-                  ? 'Las que tienen la fiesta de fin de año cargada no se repiten acá.'
-                  : 'Aparecen los clientes con CUIT de empresa (30, 33 o 34), responsables inscriptos o mayoristas. Cargá el CUIT en la ficha del cliente.'
+                empresas.yaTienen || empresas.dijeronQueNo
+                  ? 'Las que ya tienen su fiesta cargada, o dijeron que no esta temporada, no se repiten acá.'
+                  : `Aparecen las empresas (CUIT 30, 33 o 34, responsables inscriptos o mayoristas) que compraron o escribieron por WhatsApp en el último año.${
+                      empresas.sinRelacion ? ` Hay ${numero(empresas.sinRelacion)} con CUIT de empresa que no compraron ni escribieron: no se ofrecen.` : ''
+                    }`
               }
               accion={
-                <BotonLink href="/clientes" variante="secundario">
-                  Ir a Clientes
-                </BotonLink>
+                <Boton variante="secundario" onClick={() => onArmar({ tipo: 'fin_de_ano', origen: 'fin_de_ano' })}>
+                  Cargar una fiesta de fin de año
+                </Boton>
               }
             />
           ) : (
@@ -656,11 +784,11 @@ function VistaOportunidades({
                 <FilaOportunidad
                   key={e.cliente_id}
                   titulo={e.nombre}
-                  detalle={
+                  detalle={`${
                     e.total > 0
                       ? `Compró ${pesos(e.total)} en ${e.compras} ${e.compras === 1 ? 'compra' : 'compras'}${e.ultima ? ` · la última el ${fecha(e.ultima, 'corta')}` : ''}`
-                      : 'Sin compras registradas en el sistema todavía'
-                  }
+                      : 'Escribió por WhatsApp; todavía no compró'
+                  }${e.whatsapp === false ? ' · sin un WhatsApp válido en su ficha' : ''}`}
                   accion={
                     <Boton
                       variante="secundario"
@@ -688,11 +816,12 @@ function VistaOportunidades({
               </Boton>
             </div>
           )}
-          {empresas && (empresas.pendientes > empresas.lista.length || empresas.yaTienen > 0) && (
+          {empresas && empresas.lista.length > 0 && (empresas.pendientes > empresas.lista.length || empresas.yaTienen > 0 || !!empresas.dijeronQueNo) && (
             <p className="border-t border-black/[0.06] px-4 py-3 text-sm text-tinta/60 sm:px-5">
               {[
                 empresas.pendientes > empresas.lista.length ? `Y ${empresas.pendientes - empresas.lista.length} más sin evento.` : null,
                 empresas.yaTienen ? `${empresas.yaTienen} ya ${empresas.yaTienen === 1 ? 'tiene' : 'tienen'} su fin de año cargado.` : null,
+                empresas.dijeronQueNo ? `${empresas.dijeronQueNo} ${empresas.dijeronQueNo === 1 ? 'dijo' : 'dijeron'} que no esta temporada.` : null,
               ]
                 .filter(Boolean)
                 .join(' ')}
@@ -704,11 +833,7 @@ function VistaOportunidades({
         <Tarjeta relleno={false}>
           <TarjetaCabecera
             titulo="Compras grandes"
-            sub={
-              comprasGrandes
-                ? `Más de ${pesos(comprasGrandes.umbral)} en los últimos 60 días${comprasGrandes.tickets >= 5 ? ` (el doble del ticket promedio, ${pesos(comprasGrandes.promedio)})` : ''}: seguro festejaron algo. Ofreceles el próximo.`
-                : 'Clientes con una compra muy por encima del promedio.'
-            }
+            sub={subCompras}
           />
           {!comprasGrandes ? (
             <p className="px-4 py-3 text-sm text-tinta/60 sm:px-5">No pude leer las compras.</p>
@@ -728,7 +853,9 @@ function VistaOportunidades({
                 <FilaOportunidad
                   key={c.cliente_id}
                   titulo={c.nombre || 'Cliente sin nombre'}
-                  detalle={`${pesos(c.total)} el ${fecha(c.fecha, 'corta')}${c.veces ? ` · ${numero(c.veces, 1)} veces el promedio` : ''}`}
+                  detalle={`${pesos(c.total)} el ${fecha(c.fecha, 'corta')} · ${c.estado ? ESTADO_COMPRA[c.estado] ?? 'pedido' : 'venta en el local'}${
+                    c.veces ? ` · ${numero(c.veces, 1)} veces un pedido típico` : ''
+                  }`}
                   accion={
                     <Boton
                       variante="secundario"
@@ -757,11 +884,17 @@ function VistaOportunidades({
           {cumpleanos.lista.length === 0 ? (
             <Vacio
               titulo="Ningún cumpleaños cerca"
-              texto="Solo aparecen los clientes con la fecha de nacimiento cargada."
+              texto={
+                esEncargado
+                  ? 'Solo aparecen los clientes con la fecha de nacimiento cargada: en Clientes, «Configurar» en la fila del cliente.'
+                  : 'Solo aparecen los clientes con la fecha de nacimiento cargada. La carga un gerente o el dueño en Clientes.'
+              }
               accion={
-                <BotonLink href="/clientes" variante="secundario">
-                  Cargar fechas en Clientes
-                </BotonLink>
+                esEncargado ? (
+                  <BotonLink href="/clientes" variante="secundario">
+                    Cargar fechas en Clientes
+                  </BotonLink>
+                ) : undefined
               }
             />
           ) : (
@@ -770,7 +903,9 @@ function VistaOportunidades({
                 <FilaOportunidad
                   key={c.cliente_id}
                   titulo={c.nombre || 'Cliente sin nombre'}
-                  detalle={`${c.dias === 0 ? 'Cumple hoy' : c.dias === 1 ? 'Cumple mañana' : `Cumple en ${c.dias} días`} · ${fecha(c.fecha, 'dia')}`}
+                  detalle={`${c.dias === 0 ? 'Cumple hoy' : c.dias === 1 ? 'Cumple mañana' : `Cumple en ${c.dias} días`} · ${fecha(c.fecha, 'dia')}${
+                    c.evento_estado === 'cancelado' ? ' · dijo que no' : ''
+                  }`}
                   accion={
                     c.evento_id ? (
                       <Boton variante="fantasma" tamano="chico" onClick={() => onAbrir(c.evento_id as string)}>
@@ -800,11 +935,96 @@ function VistaOportunidades({
           )}
           {cumpleanos.sinFecha != null && cumpleanos.sinFecha > 0 && (
             <p className="border-t border-black/[0.06] px-4 py-3 text-sm text-tinta/60 sm:px-5">
-              {numero(cumpleanos.sinFecha)} clientes no tienen la fecha de nacimiento cargada. Pedila en Caja o por WhatsApp y cargala en su ficha.
+              {numero(cumpleanos.sinFecha)} clientes no tienen la fecha de nacimiento cargada. Pedila en Caja o por WhatsApp y cargala en Clientes
+              («Configurar» en la fila del cliente{esEncargado ? '' : ', lo hace un gerente o el dueño'}).
             </p>
           )}
         </Tarjeta>
       </div>
+    </div>
+  );
+}
+
+// ========================================================== buscar cliente
+
+/** El buscador de clientes del alta y de "Cambiar cliente" en el evento. */
+function BuscadorCliente({
+  onElegir,
+  onContactoNuevo,
+  autoFocus = false,
+}: {
+  onElegir: (c: ClienteBuscado) => void;
+  /** Si se pasa, cuando no encuentra a nadie ofrece cargarlo como contacto nuevo. */
+  onContactoNuevo?: (texto: string) => void;
+  autoFocus?: boolean;
+}) {
+  const [q, setQ] = useState('');
+  const [resultados, setResultados] = useState<ClienteBuscado[]>([]);
+  const [buscando, setBuscando] = useState(false);
+
+  useEffect(() => {
+    if (q.trim().length < 2) {
+      setResultados([]);
+      return;
+    }
+    const t = setTimeout(async () => {
+      setBuscando(true);
+      try {
+        const r = await fetch(`/api/buscar-cliente?q=${encodeURIComponent(q.trim())}`);
+        if (r.ok) {
+          const d = await r.json();
+          setResultados((Array.isArray(d) ? d : d.clientes ?? d.items ?? []).slice(0, 6));
+        }
+      } catch {
+        // sin conexión: queda la lista como estaba
+      } finally {
+        setBuscando(false);
+      }
+    }, 250);
+    return () => clearTimeout(t);
+  }, [q]);
+
+  return (
+    <div className="space-y-1">
+      <Entrada
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        placeholder="Buscar por nombre, DNI o CUIT…"
+        aria-label="Buscar cliente"
+        autoComplete="off"
+        autoFocus={autoFocus}
+      />
+      {resultados.length > 0 ? (
+        <ul className="overflow-hidden rounded-xl border border-black/[0.06] bg-white">
+          {resultados.map((c) => (
+            <li key={c.id}>
+              <button
+                type="button"
+                onClick={() => {
+                  onElegir(c);
+                  setQ('');
+                }}
+                className={unir('flex min-h-11 w-full flex-col items-start px-3 py-2 text-left hover:bg-crema-claro', FOCO_ADENTRO)}
+              >
+                <span className="break-words text-sm font-medium text-tinta">{c.razon_social || c.nombre || 'Cliente sin nombre'}</span>
+                <span className="text-xs text-tinta/60">{[c.telefono, c.dni ? `DNI ${c.dni}` : null].filter(Boolean).join(' · ')}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        q.trim().length >= 2 &&
+        !buscando && (
+          <p className="text-sm text-tinta/60">
+            No encontré a nadie con «{q.trim()}».{' '}
+            {onContactoNuevo && (
+              <button type="button" onClick={() => onContactoNuevo(q.trim())} className={unir('font-semibold text-marca-hondo underline', FOCO)}>
+                Cargarlo como contacto nuevo
+              </button>
+            )}
+          </p>
+        )
+      )}
     </div>
   );
 }
@@ -824,31 +1044,32 @@ function NuevoEvento({
 }) {
   const [modo, setModo] = useState<'cliente' | 'contacto'>('cliente');
   const [cliente, setCliente] = useState<ClienteBuscado | null>(null);
-  const [q, setQ] = useState('');
-  const [resultados, setResultados] = useState<ClienteBuscado[]>([]);
-  const [buscando, setBuscando] = useState(false);
+  // cada apertura arranca el buscador de cero
+  const [vez, setVez] = useState(0);
   const [contactoNombre, setContactoNombre] = useState('');
   const [contactoTel, setContactoTel] = useState('');
   const [tipo, setTipo] = useState<Tipo>('casamiento');
-  const [nombre, setNombre] = useState('');
+  // null: no se tocó y se muestra el sugerido. Vacío también vale: se borró
+  // para escribir de cero (antes se volvía a llenar solo y no se podía borrar).
+  const [nombre, setNombre] = useState<string | null>(null);
   const [fechaEv, setFechaEv] = useState('');
   const [invitados, setInvitados] = useState('');
   const [lugar, setLugar] = useState('');
   const [notas, setNotas] = useState('');
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const errorRef = useRef<HTMLDivElement>(null);
 
   // cada vez que se abre arranca de cero (o con lo de la oportunidad)
   useEffect(() => {
     if (!abierto) return;
     setModo('cliente');
     setCliente(inicial.cliente ?? null);
-    setQ('');
-    setResultados([]);
+    setVez((v) => v + 1);
     setContactoNombre('');
     setContactoTel('');
     setTipo(inicial.tipo ?? 'casamiento');
-    setNombre('');
+    setNombre(null);
     setFechaEv(inicial.fecha ?? '');
     setInvitados('');
     setLugar('');
@@ -856,35 +1077,21 @@ function NuevoEvento({
     setError(null);
   }, [abierto, inicial]);
 
+  // el error va arriba del formulario y, si quedó fuera de la vista, se trae
   useEffect(() => {
-    if (modo !== 'cliente' || cliente || q.trim().length < 2) {
-      setResultados([]);
-      return;
-    }
-    const t = setTimeout(async () => {
-      setBuscando(true);
-      try {
-        const r = await fetch(`/api/buscar-cliente?q=${encodeURIComponent(q.trim())}`);
-        if (r.ok) {
-          const d = await r.json();
-          setResultados((Array.isArray(d) ? d : d.clientes ?? d.items ?? []).slice(0, 6));
-        }
-      } finally {
-        setBuscando(false);
-      }
-    }, 250);
-    return () => clearTimeout(t);
-  }, [q, modo, cliente]);
+    if (error) errorRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [error]);
 
   const quien = modo === 'cliente' ? (cliente ? (deEmpresa(tipo) ? cliente.razon_social || cliente.nombre : cliente.nombre || cliente.razon_social) : null) : contactoNombre;
-  const nombreFinal = nombre || nombreSugerido(tipo, quien);
+  const sugerido = nombreSugerido(tipo, quien);
+  const nombreFinal = nombre ?? sugerido;
 
   const crear = async () => {
     setError(null);
     if (modo === 'cliente' && !cliente) return setError('Elegí un cliente de la lista o pasá a «Contacto nuevo».');
     if (modo === 'contacto') {
       if (!contactoNombre.trim()) return setError('Falta el nombre del contacto.');
-      if (contactoTel.replace(/\D/g, '').length < 10) return setError('Poné el WhatsApp con característica (por ejemplo 11 2281-2200).');
+      if (!telefonoLimpio(contactoTel)) return setError(motivoTelefono(contactoTel));
     }
     setGuardando(true);
     try {
@@ -892,7 +1099,7 @@ function NuevoEvento({
         '/api/eventos',
         conJson('POST', {
           tipo,
-          nombre: nombreFinal,
+          nombre: nombreFinal.trim() || sugerido,
           fecha: fechaEv || null,
           invitados: invitados === '' ? null : Number(invitados),
           lugar: lugar.trim() || null,
@@ -931,6 +1138,12 @@ function NuevoEvento({
       }
     >
       <div className="space-y-4">
+        {error && (
+          <div ref={errorRef}>
+            <Aviso tono="error">{error}</Aviso>
+          </div>
+        )}
+
         <div className="space-y-2">
           <p className="text-sm font-medium text-tinta">¿Para quién?</p>
           <Chips
@@ -954,51 +1167,21 @@ function NuevoEvento({
                 </Boton>
               </div>
             ) : (
-              <div className="space-y-1">
-                <Entrada
-                  value={q}
-                  onChange={(e) => setQ(e.target.value)}
-                  placeholder="Buscar por nombre, DNI o CUIT…"
-                  aria-label="Buscar cliente"
-                  autoComplete="off"
-                />
-                {resultados.length > 0 ? (
-                  <ul className="overflow-hidden rounded-xl border border-black/[0.06] bg-white">
-                    {resultados.map((c) => (
-                      <li key={c.id}>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setCliente(c);
-                            setQ('');
-                          }}
-                          className={unir('flex min-h-11 w-full flex-col items-start px-3 py-2 text-left hover:bg-crema-claro', FOCO_ADENTRO)}
-                        >
-                          <span className="break-words text-sm font-medium text-tinta">{c.razon_social || c.nombre || 'Cliente sin nombre'}</span>
-                          <span className="text-xs text-tinta/60">{[c.telefono, c.dni ? `DNI ${c.dni}` : null].filter(Boolean).join(' · ')}</span>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  q.trim().length >= 2 &&
-                  !buscando && (
-                    <p className="text-sm text-tinta/60">
-                      No encontré a nadie con «{q.trim()}».{' '}
-                      <button type="button" onClick={() => { setModo('contacto'); setContactoNombre(q.trim()); }} className={unir('font-semibold text-marca-hondo underline', FOCO)}>
-                        Cargarlo como contacto nuevo
-                      </button>
-                    </p>
-                  )
-                )}
-              </div>
+              <BuscadorCliente
+                key={vez}
+                onElegir={setCliente}
+                onContactoNuevo={(texto) => {
+                  setModo('contacto');
+                  setContactoNombre(texto);
+                }}
+              />
             )
           ) : (
             <div className="grid gap-3 sm:grid-cols-2">
               <Campo etiqueta="Nombre" obligatorio>
                 <Entrada value={contactoNombre} onChange={(e) => setContactoNombre(e.target.value)} placeholder="Ana Pérez" autoComplete="off" />
               </Campo>
-              <Campo etiqueta="WhatsApp" obligatorio ayuda="Con característica. Si ya es cliente, lo encuentra por el teléfono.">
+              <Campo etiqueta="WhatsApp" obligatorio ayuda="Con característica y sin el 15. Si ya es cliente, lo encuentra por el teléfono.">
                 <Entrada type="tel" inputMode="tel" value={contactoTel} onChange={(e) => setContactoTel(e.target.value)} placeholder="11 2281-2200" autoComplete="off" />
               </Campo>
             </div>
@@ -1011,8 +1194,12 @@ function NuevoEvento({
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2">
-          <Campo etiqueta="Nombre del evento" className="sm:col-span-2" ayuda={nombre ? undefined : 'Sugerido. Cambialo si querés.'}>
-            <Entrada value={nombreFinal} onChange={(e) => setNombre(e.target.value)} />
+          <Campo
+            etiqueta="Nombre del evento"
+            className="sm:col-span-2"
+            ayuda={nombre === null ? 'Sugerido. Cambialo si querés.' : nombre.trim() === '' ? `Si lo dejás vacío queda «${sugerido}».` : undefined}
+          >
+            <Entrada value={nombreFinal} onChange={(e) => setNombre(e.target.value)} placeholder={sugerido} />
           </Campo>
           <Campo etiqueta="Fecha">
             <Entrada type="date" value={fechaEv} onChange={(e) => setFechaEv(e.target.value)} />
@@ -1027,8 +1214,6 @@ function NuevoEvento({
             <AreaTexto rows={3} value={notas} onChange={(e) => setNotas(e.target.value)} placeholder="Qué le gusta, presupuesto que mencionó, si lleva barra…" />
           </Campo>
         </div>
-
-        {error && <Aviso tono="error">{error}</Aviso>}
       </div>
     </Modal>
   );
@@ -1036,43 +1221,82 @@ function NuevoEvento({
 
 // =============================================================== detalle
 
-type Datos = { nombre: string; tipo: Tipo; fecha: string; invitados: string; lugar: string; notas: string };
+type Datos = { nombre: string; tipo: Tipo; fecha: string; invitados: string; lugar: string; contacto_nombre: string; contacto_telefono: string; notas: string };
 const datosDe = (ev: Evento): Datos => ({
   nombre: ev.nombre ?? '',
   tipo: ev.tipo,
   fecha: ev.fecha ? ev.fecha.slice(0, 10) : '',
   invitados: ev.invitados == null ? '' : String(ev.invitados),
   lugar: ev.lugar ?? '',
+  contacto_nombre: ev.contacto_nombre ?? '',
+  contacto_telefono: ev.contacto_telefono ?? '',
   notas: ev.notas ?? '',
 });
+const itemsDe = (ev: Evento): Item[] =>
+  (ev.items ?? []).map((i) => ({ producto_id: i.producto_id ?? null, descripcion: i.descripcion, cantidad: Number(i.cantidad), precio_unitario: Number(i.precio_unitario) }));
 const firmaItems = (items: Item[]) => JSON.stringify(items.map((i) => [i.producto_id ?? null, i.descripcion, Number(i.cantidad), Number(i.precio_unitario)]));
 
-function Detalle({ ev, hoy, onVolver, onCambio }: { ev: Evento; hoy: string; onVolver: () => void; onCambio: (ev: Evento) => void }) {
+/**
+ * Dónde sale cada mensaje: al lado de lo que se tocó. Antes había uno solo
+ * debajo de la cabecera y el resultado de "Enviar" o "Sugerir" quedaba unos
+ * 2.000 px más arriba del botón en el celular.
+ */
+type Zona = 'etapa' | 'datos' | 'ia' | 'propuesta';
+type Mensaje = { zona: Zona; tono: 'ok' | 'error' | 'atencion'; texto: string; accion?: ReactNode };
+
+function Detalle({
+  ev,
+  hoy,
+  esEncargado,
+  onVolver,
+  onCambio,
+}: {
+  ev: Evento;
+  hoy: string;
+  esEncargado: boolean;
+  onVolver: () => void;
+  onCambio: (ev: Evento) => void;
+}) {
   const { confirmar, pedirTexto, dialogo } = useConfirmar();
   const [datos, setDatos] = useState<Datos>(() => datosDe(ev));
   const [base, setBase] = useState<Datos>(() => datosDe(ev));
-  const [items, setItems] = useState<Item[]>(ev.items ?? []);
-  const [itemsGuardados, setItemsGuardados] = useState(() => firmaItems(ev.items ?? []));
+  const [items, setItems] = useState<Item[]>(() => itemsDe(ev));
+  const [itemsBase, setItemsBase] = useState<Item[]>(() => itemsDe(ev));
   const [moviendo, setMoviendo] = useState(false);
   const [guardandoDatos, setGuardandoDatos] = useState(false);
   const [guardandoPropuesta, setGuardandoPropuesta] = useState(false);
   const [sugiriendo, setSugiriendo] = useState(false);
-  const [enviando, setEnviando] = useState(false);
-  const [msg, setMsg] = useState<{ tono: 'ok' | 'error'; texto: string } | null>(null);
+  const [avisando, setAvisando] = useState(false);
+  const [avisoDejado, setAvisoDejado] = useState(false);
+  const [bajandoPdf, setBajandoPdf] = useState(false);
+  const [eliminando, setEliminando] = useState(false);
+  const [cambiandoCliente, setCambiandoCliente] = useState(false);
+  const [msg, setMsg] = useState<Mensaje | null>(null);
   const [q, setQ] = useState('');
   const [res, setRes] = useState<any[]>([]);
+  const telRef = useRef<HTMLInputElement>(null);
 
   const total = items.reduce((s, i) => s + Number(i.cantidad) * Number(i.precio_unitario), 0);
   const datosSucios = JSON.stringify(datos) !== JSON.stringify(base);
-  const itemsSucios = firmaItems(items) !== itemsGuardados;
+  const itemsSucios = firmaItems(items) !== firmaItems(itemsBase);
   const sig = SIGUIENTE[ev.estado];
   const ant = ANTERIOR[ev.estado];
   const abierto = ABIERTOS.includes(ev.estado);
   const quien = quienEs(ev);
   const tel = telefonoDe(ev);
   const wa = tel ? enlaceWhatsApp(tel, `Hola, le escribimos de O.D.B Premium Market por la propuesta de bebidas para «${ev.nombre}».`) : null;
+  const telCargado = ev.contacto_telefono || ev.cliente?.telefono || null;
+  const tieneApp = !!ev.cliente?.tiene_app;
   const d = ev.fecha ? diasHasta(hoy, ev.fecha) : null;
   const idx = ETAPAS.findIndex((e) => e.valor === ev.estado);
+  const urlPdf = `/api/eventos/${ev.id}/presupuesto`;
+
+  const aviso = (zona: Zona) =>
+    msg && msg.zona === zona ? (
+      <Aviso tono={msg.tono} accion={msg.accion}>
+        {msg.texto}
+      </Aviso>
+    ) : null;
 
   useEffect(() => {
     if (q.length < 2) {
@@ -1080,10 +1304,14 @@ function Detalle({ ev, hoy, onVolver, onCambio }: { ev: Evento; hoy: string; onV
       return;
     }
     const t = setTimeout(async () => {
-      const r = await fetch(`/api/buscar-producto?q=${encodeURIComponent(q)}`);
-      if (r.ok) {
-        const dd = await r.json();
-        setRes((dd.items ?? []).slice(0, 6));
+      try {
+        const r = await fetch(`/api/buscar-producto?q=${encodeURIComponent(q)}`);
+        if (r.ok) {
+          const dd = await r.json();
+          setRes((dd.items ?? []).slice(0, 6));
+        }
+      } catch {
+        // sin conexión: queda la lista como estaba
       }
     }, 250);
     return () => clearTimeout(t);
@@ -1100,9 +1328,9 @@ function Detalle({ ev, hoy, onVolver, onCambio }: { ev: Evento; hoy: string; onV
     setMsg(null);
     try {
       await cambiar(motivo ? { estado, motivo } : { estado });
-      setMsg({ tono: 'ok', texto: estado === 'cancelado' ? 'El evento quedó cancelado.' : `El evento pasó a ${ESTADO_ETIQUETA[estado]}.` });
+      setMsg({ zona: 'etapa', tono: 'ok', texto: estado === 'cancelado' ? 'El evento quedó cancelado.' : `El evento pasó a ${ESTADO_ETIQUETA[estado]}.` });
     } catch (e) {
-      setMsg({ tono: 'error', texto: mensajeDe(e) });
+      setMsg({ zona: 'etapa', tono: 'error', texto: mensajeDe(e) });
     } finally {
       setMoviendo(false);
     }
@@ -1134,7 +1362,45 @@ function Detalle({ ev, hoy, onVolver, onCambio }: { ev: Evento; hoy: string; onV
     await pasarA('cancelado', motivo.trim() || undefined);
   };
 
-  const guardarDatos = async () => {
+  const volver = async () => {
+    if (datosSucios || itemsSucios) {
+      const ok = await confirmar({
+        titulo: '¿Salir sin guardar?',
+        texto: 'La propuesta y los datos que cambiaste se pierden.',
+        variante: 'peligro',
+        textoConfirmar: 'Salir sin guardar',
+        textoCancelar: 'Seguir editando',
+      });
+      if (!ok) return;
+    }
+    onVolver();
+  };
+
+  const eliminar = async () => {
+    const ok = await confirmar({
+      titulo: '¿Eliminar el evento?',
+      texto: 'Es para un evento cargado por error o de prueba: se borra con su propuesta y no cuenta en la tasa de cierre. Si el cliente dijo que no, mejor cancelalo.',
+      variante: 'peligro',
+      textoConfirmar: 'Eliminar',
+      textoCancelar: 'Volver',
+    });
+    if (!ok) return;
+    setEliminando(true);
+    setMsg(null);
+    try {
+      await pedir(`/api/eventos/${ev.id}`, { method: 'DELETE' });
+      onVolver();
+    } catch (e) {
+      setMsg({ zona: 'etapa', tono: 'error', texto: mensajeDe(e) });
+      setEliminando(false);
+    }
+  };
+
+  const guardarDatos = async (): Promise<boolean> => {
+    if (datos.contacto_telefono.trim() && !telefonoLimpio(datos.contacto_telefono)) {
+      setMsg({ zona: 'datos', tono: 'error', texto: motivoTelefono(datos.contacto_telefono) });
+      return false;
+    }
     setGuardandoDatos(true);
     setMsg(null);
     try {
@@ -1144,32 +1410,60 @@ function Detalle({ ev, hoy, onVolver, onCambio }: { ev: Evento; hoy: string; onV
         fecha: datos.fecha || null,
         invitados: datos.invitados === '' ? null : Number(datos.invitados),
         lugar: datos.lugar,
+        contacto_nombre: datos.contacto_nombre,
+        contacto_telefono: datos.contacto_telefono,
         notas: datos.notas,
       });
       const limpio = datosDe(nuevo);
-      // sin la migración, el lugar vuelve dentro de las notas: el campo queda como se escribió
+      // sin la migración, el lugar y el contacto vuelven dentro de las notas: los campos quedan como se escribieron
       if (nuevo.lugar === undefined) limpio.lugar = datos.lugar;
+      if (nuevo.contacto_nombre === undefined) limpio.contacto_nombre = datos.contacto_nombre;
+      if (nuevo.contacto_telefono === undefined) limpio.contacto_telefono = datos.contacto_telefono;
       setDatos(limpio);
       setBase(limpio);
-      setMsg({ tono: 'ok', texto: 'Se guardaron los datos del evento.' });
+      setMsg({ zona: 'datos', tono: 'ok', texto: 'Se guardaron los datos del evento.' });
+      return true;
     } catch (e) {
-      setMsg({ tono: 'error', texto: mensajeDe(e) });
+      setMsg({ zona: 'datos', tono: 'error', texto: mensajeDe(e) });
+      return false;
     } finally {
       setGuardandoDatos(false);
     }
   };
 
+  const elegirCliente = async (c: ClienteBuscado) => {
+    setMsg(null);
+    try {
+      await cambiar({ clienteId: c.id });
+      setCambiandoCliente(false);
+      setMsg({ zona: 'datos', tono: 'ok', texto: `El evento quedó a nombre de ${c.razon_social || c.nombre || 'ese cliente'}.` });
+    } catch (e) {
+      setMsg({ zona: 'datos', tono: 'error', texto: mensajeDe(e) });
+    }
+  };
+
   const guardarPropuesta = async (): Promise<boolean> => {
+    if (items.some((i) => !i.descripcion.trim())) {
+      setMsg({ zona: 'propuesta', tono: 'error', texto: 'Hay un renglón libre sin descripción: poné qué es (servicio de barra, hielo…) o quitalo.' });
+      return false;
+    }
+    if (items.some((i) => !(Number(i.cantidad) > 0) || !(Number(i.precio_unitario) >= 0))) {
+      setMsg({ zona: 'propuesta', tono: 'error', texto: 'Revisá las cantidades y los precios: tienen que ser números, la cantidad mayor que cero.' });
+      return false;
+    }
     setGuardandoPropuesta(true);
     setMsg(null);
     try {
       const r = await pedir<{ total: number }>(`/api/eventos/${ev.id}/propuesta`, conJson('POST', { items }));
-      setItemsGuardados(firmaItems(items.filter((i) => i.descripcion && Number(i.cantidad) > 0)));
-      onCambio(await pedir<Evento>(`/api/eventos/${ev.id}`));
-      setMsg({ tono: 'ok', texto: `Propuesta guardada por ${pesos(r.total ?? 0)}.` });
+      const nuevo = await pedir<Evento>(`/api/eventos/${ev.id}`);
+      // lo guardado, como quedó en la base (redondeos incluidos)
+      setItems(itemsDe(nuevo));
+      setItemsBase(itemsDe(nuevo));
+      onCambio(nuevo);
+      setMsg({ zona: 'propuesta', tono: 'ok', texto: `Propuesta guardada por ${pesos(r.total ?? 0)}.` });
       return true;
     } catch (e) {
-      setMsg({ tono: 'error', texto: mensajeDe(e) });
+      setMsg({ zona: 'propuesta', tono: 'error', texto: mensajeDe(e) });
       return false;
     } finally {
       setGuardandoPropuesta(false);
@@ -1177,31 +1471,89 @@ function Detalle({ ev, hoy, onVolver, onCambio }: { ev: Evento; hoy: string; onV
   };
 
   const sugerir = async () => {
+    const previa = items;
+    if (previa.length) {
+      const ok = await confirmar({
+        titulo: '¿Reemplazar la propuesta?',
+        texto: `Ya tiene ${previa.length} ${previa.length === 1 ? 'renglón' : 'renglones'}. La IA arma una propuesta nueva y la reemplaza entera (después la podés deshacer).`,
+        variante: 'peligro',
+        textoConfirmar: 'Reemplazar con la IA',
+        textoCancelar: 'Volver',
+      });
+      if (!ok) return;
+    }
     setSugiriendo(true);
     setMsg(null);
     try {
       const r = await pedir<{ items: Item[] }>('/api/eventos/sugerir', conJson('POST', { tipo: datos.tipo, invitados: Number(datos.invitados) || 0 }));
       setItems(r.items ?? []);
-      setMsg({ tono: 'ok', texto: `La IA sugirió ${r.items?.length ?? 0} productos. Revisalos y guardá la propuesta.` });
+      setMsg({
+        zona: 'ia',
+        tono: 'ok',
+        texto: `La IA sugirió ${r.items?.length ?? 0} productos. Revisalos y guardá la propuesta.`,
+        accion: previa.length ? (
+          <Boton
+            tamano="chico"
+            variante="secundario"
+            onClick={() => {
+              setItems(previa);
+              setMsg({ zona: 'ia', tono: 'ok', texto: 'Volvió la propuesta de antes.' });
+            }}
+          >
+            Deshacer
+          </Boton>
+        ) : undefined,
+      });
     } catch (e) {
-      setMsg({ tono: 'error', texto: mensajeDe(e) });
+      setMsg({ zona: 'ia', tono: 'error', texto: mensajeDe(e) });
     } finally {
       setSugiriendo(false);
     }
   };
 
-  const enviar = async () => {
+  /** El PDF sale de lo guardado: si hay cambios, primero se guardan (si no, salía con los renglones viejos o en $0). */
+  const bajarPdf = async () => {
+    if (!itemsSucios && !datosSucios) {
+      window.open(urlPdf, '_blank', 'noopener');
+      return;
+    }
+    // la pestaña se abre ya, dentro del toque (si se abre después de guardar, el navegador la bloquea)
+    const pestana = window.open('', '_blank');
+    if (pestana) pestana.opener = null;
+    setBajandoPdf(true);
+    try {
+      const okDatos = !datosSucios || (await guardarDatos());
+      // el error de los datos sale acá, al lado del botón que se tocó
+      if (!okDatos) setMsg((m) => (m ? { ...m, zona: 'propuesta', texto: `No bajé el PDF: ${m.texto}` } : m));
+      const ok = okDatos && (!itemsSucios || (await guardarPropuesta()));
+      if (ok && pestana) pestana.location.href = urlPdf;
+      else if (ok) window.location.href = urlPdf;
+      else pestana?.close();
+    } finally {
+      setBajandoPdf(false);
+    }
+  };
+
+  /** Deja la propuesta como aviso en la app de ODB. Solo se ofrece si el cliente la usa. */
+  const avisarEnLaApp = async () => {
     if (itemsSucios && !(await guardarPropuesta())) return;
-    setEnviando(true);
+    setAvisando(true);
     setMsg(null);
     try {
-      await pedir(`/api/eventos/${ev.id}/enviar`, { method: 'POST' });
+      const r = await pedir<{ push?: boolean }>(`/api/eventos/${ev.id}/enviar`, { method: 'POST' });
       onCambio(await pedir<Evento>(`/api/eventos/${ev.id}`));
-      setMsg({ tono: 'ok', texto: 'La propuesta le llegó al cliente como aviso en la app de ODB.' });
+      setAvisoDejado(true);
+      setMsg({
+        zona: 'propuesta',
+        tono: r.push ? 'ok' : 'atencion',
+        texto: r.push
+          ? 'Le llegó la notificación al celular (app de ODB). Igual conviene mandarle el PDF por WhatsApp.'
+          : 'Quedó como aviso en su cuenta de la app, pero no tiene las notificaciones activadas: no le llegó nada al celular. Mandale el PDF por WhatsApp.',
+      });
     } catch (e) {
-      setMsg({ tono: 'error', texto: mensajeDe(e) });
+      setMsg({ zona: 'propuesta', tono: 'error', texto: mensajeDe(e) });
     } finally {
-      setEnviando(false);
+      setAvisando(false);
     }
   };
 
@@ -1210,14 +1562,29 @@ function Detalle({ ev, hoy, onVolver, onCambio }: { ev: Evento; hoy: string; onV
     setQ('');
     setRes([]);
   };
-  const editarCantidad = (i: number, val: number) => setItems((c) => c.map((it, idx2) => (idx2 === i ? { ...it, cantidad: val } : it)));
+  const editarItem = (i: number, cambio: Partial<Item>) => setItems((c) => c.map((it, idx2) => (idx2 === i ? { ...it, ...cambio } : it)));
   const poner = (k: keyof Datos) => (e: { target: { value: string } }) => setDatos((x) => ({ ...x, [k]: e.target.value }));
+  const irAlWhatsApp = () => {
+    telRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    telRef.current?.focus({ preventScroll: true });
+  };
+
+  const botonWhatsApp = (variante: 'primario' | 'secundario') =>
+    wa ? (
+      <a href={wa} target="_blank" rel="noopener noreferrer" className={clasesBoton({ variante })}>
+        Escribir por WhatsApp
+      </a>
+    ) : (
+      <Boton variante="fantasma" onClick={irAlWhatsApp}>
+        {telCargado ? 'El WhatsApp no sirve: corregilo' : 'Cargá el WhatsApp para escribirle'}
+      </Boton>
+    );
 
   return (
     <div className="mx-auto w-full max-w-4xl space-y-4 sm:space-y-6">
       <Boton
         variante="secundario"
-        onClick={onVolver}
+        onClick={volver}
         icono={
           <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M19 12H5M11 6l-6 6 6 6" />
@@ -1234,7 +1601,7 @@ function Detalle({ ev, hoy, onVolver, onCambio }: { ev: Evento; hoy: string; onV
             <h2 className="break-words text-lg font-semibold text-tinta">{ev.nombre}</h2>
             <p className="break-words text-sm text-tinta/70">
               {tipoEtiqueta(ev.tipo)} · {quien ?? 'Sin cliente asociado'}
-              {tel ? ` · ${tel}` : ''}
+              {tel ? ` · ${tel}` : telCargado ? ` · ${telCargado} (no sirve para WhatsApp)` : ''}
             </p>
             <p className="text-sm text-tinta/60">
               {ev.fecha ? `${fecha(ev.fecha, 'larga')}${abierto && d != null ? ` · ${cuandoFalta(d)}` : ''}` : 'Sin fecha'}
@@ -1267,15 +1634,11 @@ function Detalle({ ev, hoy, onVolver, onCambio }: { ev: Evento; hoy: string; onV
             </Boton>
           )}
           {ev.estado === 'cancelado' && (
-            <Boton onClick={() => pasarA(itemsGuardados !== '[]' ? 'propuesta' : 'prospecto')} cargando={moviendo}>
+            <Boton onClick={() => pasarA(itemsBase.length ? 'propuesta' : 'prospecto')} cargando={moviendo}>
               Reabrir
             </Boton>
           )}
-          {wa && (
-            <a href={wa} target="_blank" rel="noopener noreferrer" className={clasesBoton({ variante: 'secundario' })}>
-              Escribir por WhatsApp
-            </a>
-          )}
+          {botonWhatsApp('secundario')}
           {ant && (
             <Boton variante="fantasma" onClick={() => pasarA(ant)} disabled={moviendo}>
               {`Volver a ${ESTADO_ETIQUETA[ant]}`}
@@ -1289,12 +1652,39 @@ function Detalle({ ev, hoy, onVolver, onCambio }: { ev: Evento; hoy: string; onV
         </div>
       </Tarjeta>
 
-      {msg && <Aviso tono={msg.tono}>{msg.texto}</Aviso>}
+      {aviso('etapa')}
 
       {/* Datos editables */}
       <Tarjeta relleno={false}>
         <TarjetaCabecera titulo="Datos del evento" sub={datosSucios ? 'Hay cambios sin guardar.' : undefined} />
         <div className="grid gap-3 p-4 sm:grid-cols-2 sm:p-5">
+          <div className="sm:col-span-2">
+            <p className="mb-1.5 text-sm font-medium text-tinta">Cliente</p>
+            {cambiandoCliente ? (
+              <div className="space-y-2">
+                <BuscadorCliente onElegir={elegirCliente} autoFocus />
+                <Boton variante="fantasma" tamano="chico" onClick={() => setCambiandoCliente(false)}>
+                  No cambiar
+                </Boton>
+              </div>
+            ) : (
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-black/15 bg-crema-claro px-3 py-2">
+                <div className="min-w-0 flex-1">
+                  <p className="break-words text-sm font-semibold text-tinta">
+                    {ev.cliente ? ev.cliente.razon_social || ev.cliente.nombre || 'Cliente sin nombre' : 'Sin cliente'}
+                  </p>
+                  <p className="text-sm text-tinta/60">
+                    {ev.cliente
+                      ? [ev.cliente.telefono, ev.cliente.dni ? `DNI ${ev.cliente.dni}` : null].filter(Boolean).join(' · ') || 'Sin teléfono cargado'
+                      : 'Vinculalo a un cliente para que quede en su ficha.'}
+                  </p>
+                </div>
+                <Boton variante="fantasma" tamano="chico" onClick={() => setCambiandoCliente(true)}>
+                  {ev.cliente ? 'Cambiar cliente' : 'Elegir cliente'}
+                </Boton>
+              </div>
+            )}
+          </div>
           <Campo etiqueta="Nombre" className="sm:col-span-2">
             <Entrada value={datos.nombre} onChange={poner('nombre')} />
           </Campo>
@@ -1310,62 +1700,102 @@ function Detalle({ ev, hoy, onVolver, onCambio }: { ev: Evento; hoy: string; onV
           <Campo etiqueta="Lugar">
             <Entrada value={datos.lugar} onChange={poner('lugar')} placeholder="Salón, quinta, oficina…" />
           </Campo>
+          <Campo etiqueta="Contacto" ayuda="Quién habla por el evento, si no es el cliente.">
+            <Entrada value={datos.contacto_nombre} onChange={poner('contacto_nombre')} placeholder="La novia, la secretaria…" autoComplete="off" />
+          </Campo>
+          <Campo etiqueta="WhatsApp del contacto" ayuda={tel ? 'Si lo dejás vacío se usa el del cliente.' : 'Con característica y sin el 15: 11 2281-2200.'}>
+            <Entrada ref={telRef} type="tel" inputMode="tel" value={datos.contacto_telefono} onChange={poner('contacto_telefono')} placeholder="11 2281-2200" autoComplete="off" />
+          </Campo>
           <Campo etiqueta="Notas" className="sm:col-span-2">
             <AreaTexto rows={3} value={datos.notas} onChange={poner('notas')} placeholder="Qué le gusta, presupuesto que mencionó, si lleva barra…" />
           </Campo>
         </div>
-        {datosSucios && (
-          <div className="flex flex-wrap justify-end gap-2 border-t border-black/[0.06] px-4 py-3 sm:px-5">
-            <Boton variante="secundario" onClick={() => setDatos(base)} disabled={guardandoDatos}>
-              Descartar
-            </Boton>
-            <Boton onClick={guardarDatos} cargando={guardandoDatos}>
-              Guardar cambios
-            </Boton>
+        {(datosSucios || msg?.zona === 'datos') && (
+          <div className="space-y-3 border-t border-black/[0.06] px-4 py-3 sm:px-5">
+            {aviso('datos')}
+            {datosSucios && (
+              <div className="flex flex-wrap justify-end gap-2">
+                <Boton variante="secundario" onClick={() => setDatos(base)} disabled={guardandoDatos}>
+                  Descartar
+                </Boton>
+                <Boton onClick={guardarDatos} cargando={guardandoDatos}>
+                  Guardar cambios
+                </Boton>
+              </div>
+            )}
           </div>
         )}
       </Tarjeta>
 
       {/* La propuesta de bebidas, como Placa roja (pedido de Leandro, 2/10/2026:
           "siempre que se detallen productos vamos a usar el paquete gráfico de
-          pedidos y lista de precio"). La cantidad va en el círculo y se sigue
-          corrigiendo abajo de cada renglón; el total, en la píldora negra. */}
+          pedidos y lista de precio"). La cantidad va en el círculo; abajo de
+          cada renglón se corrigen la cantidad y el precio (el acordado con el
+          cliente). Los renglones libres (servicio de barra, hielo, envío) no
+          son productos del catálogo. El total, en la píldora negra. */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-tinta/70">
-          {items.length ? `${items.length} ${items.length === 1 ? 'producto' : 'productos'}` : 'Todavía sin productos.'}
+          {items.length ? `${items.length} ${items.length === 1 ? 'renglón' : 'renglones'}` : 'Todavía sin productos.'}
           {itemsSucios ? ' Hay cambios sin guardar.' : ''}
         </p>
         <Boton variante="secundario" onClick={sugerir} cargando={sugiriendo}>
           {sugiriendo ? 'Pensando…' : 'Sugerir bebidas con IA'}
         </Boton>
       </div>
+      {aviso('ia')}
       <PlacaRoja
         titulo="Propuesta"
         sub={ev.nombre}
         renglones={items.map((it, i) => ({
           cantidad: it.cantidad,
-          nombre: it.descripcion,
-          detalle: `${numero(it.cantidad, 2)} × ${pesos(it.precio_unitario ?? 0)}`,
+          nombre: it.descripcion || 'Renglón libre (poné qué es)',
+          detalle: `${numero(it.cantidad, 2)} × ${pesos(it.precio_unitario ?? 0)}${it.producto_id ? '' : ' · renglón libre'}`,
           importe: pesos(Number(it.cantidad) * Number(it.precio_unitario) || 0),
           acciones: (
-            <div className="flex flex-wrap items-center gap-2">
-              <label className="flex items-center gap-2 text-sm text-tinta/60">
+            <div className="flex flex-wrap items-end gap-2">
+              {!it.producto_id && (
+                <label className="flex min-w-0 basis-full flex-col gap-1 text-sm text-tinta/60">
+                  Qué es
+                  <Entrada
+                    value={it.descripcion}
+                    onChange={(e) => editarItem(i, { descripcion: e.target.value })}
+                    placeholder="Servicio de barra, hielo, copas, envío…"
+                    aria-label="Descripción del renglón libre"
+                  />
+                </label>
+              )}
+              <label className="flex flex-col gap-1 text-sm text-tinta/60">
                 Cantidad
                 <span className="w-24 shrink-0">
                   <Entrada
                     type="number"
                     inputMode="decimal"
+                    min={0}
                     value={it.cantidad}
-                    onChange={(e) => editarCantidad(i, Number(e.target.value))}
-                    aria-label={`Cantidad de ${it.descripcion}`}
+                    onChange={(e) => editarItem(i, { cantidad: Number(e.target.value) })}
+                    aria-label={`Cantidad de ${it.descripcion || 'el renglón libre'}`}
                     className="text-center"
+                  />
+                </span>
+              </label>
+              <label className="flex flex-col gap-1 text-sm text-tinta/60">
+                Precio unitario
+                <span className="w-36 shrink-0">
+                  <Entrada
+                    type="number"
+                    inputMode="decimal"
+                    min={0}
+                    prefijo="$"
+                    value={it.precio_unitario}
+                    onChange={(e) => editarItem(i, { precio_unitario: Number(e.target.value) })}
+                    aria-label={`Precio unitario de ${it.descripcion || 'el renglón libre'}`}
                   />
                 </span>
               </label>
               <button
                 type="button"
                 onClick={() => setItems((c) => c.filter((_, idx2) => idx2 !== i))}
-                aria-label={`Quitar ${it.descripcion}`}
+                aria-label={`Quitar ${it.descripcion || 'el renglón libre'}`}
                 className={unir('ml-auto flex size-11 shrink-0 items-center justify-center rounded-full text-tinta/60 hover:bg-marca-suave hover:text-marca-hondo', FOCO)}
               >
                 <IconoCerrar className="size-5" />
@@ -1378,7 +1808,7 @@ function Detalle({ ev, hoy, onVolver, onCambio }: { ev: Evento; hoy: string; onV
         acciones={
           // la placa recorta lo que se le sale (overflow-hidden por las puntas
           // redondeadas): los resultados van debajo del campo, no flotando encima
-          <div className="w-full min-w-0 space-y-1">
+          <div className="w-full min-w-0 space-y-2">
             <Entrada value={q} onChange={(e) => setQ(e.target.value)} placeholder="+ Agregar producto…" aria-label="Agregar producto" />
             {res.length > 0 && (
               <div className="overflow-hidden rounded-xl border border-black/[0.06] bg-white">
@@ -1395,28 +1825,52 @@ function Detalle({ ev, hoy, onVolver, onCambio }: { ev: Evento; hoy: string; onV
                 ))}
               </div>
             )}
+            <Boton
+              variante="fantasma"
+              tamano="chico"
+              icono={<IconoMas className="size-4" />}
+              onClick={() => setItems((c) => [...c, { producto_id: null, descripcion: '', cantidad: 1, precio_unitario: 0 }])}
+            >
+              Renglón libre (servicio, hielo, envío…)
+            </Boton>
           </div>
         }
       />
 
       <div className="space-y-2">
+        {aviso('propuesta')}
         <div className="flex flex-wrap items-center gap-2">
+          {botonWhatsApp('primario')}
+          <Boton variante="secundario" onClick={bajarPdf} cargando={bajandoPdf} disabled={bajandoPdf || (items.length === 0 && !itemsSucios)}>
+            {itemsSucios || datosSucios ? 'Guardar y bajar PDF' : 'Descargar PDF'}
+          </Boton>
           <Boton variante="secundario" onClick={guardarPropuesta} cargando={guardandoPropuesta} disabled={!itemsSucios || guardandoPropuesta}>
             Guardar propuesta
           </Boton>
-          <a href={`/api/eventos/${ev.id}/presupuesto`} target="_blank" rel="noopener noreferrer" className={clasesBoton({ variante: 'secundario' })}>
-            Descargar PDF
-          </a>
-          <Boton onClick={enviar} cargando={enviando} disabled={enviando || !ev.cliente_id || items.length === 0}>
-            Enviar al cliente
-          </Boton>
+          {itemsSucios && (
+            <Boton variante="fantasma" onClick={() => setItems(itemsBase)} disabled={guardandoPropuesta}>
+              Descartar cambios
+            </Boton>
+          )}
+          {tieneApp && esEncargado && (
+            <Boton variante="secundario" onClick={avisarEnLaApp} cargando={avisando} disabled={avisando || avisoDejado || items.length === 0}>
+              {avisoDejado ? 'Aviso dejado ✓' : 'Dejar aviso en la app'}
+            </Boton>
+          )}
         </div>
         <p className="text-xs text-tinta/60">
-          {!ev.cliente_id
-            ? 'Para enviarla, el evento tiene que tener un cliente: descargá el PDF y mandalo por WhatsApp.'
-            : '«Enviar al cliente» le deja la propuesta como aviso en la app de ODB. Para WhatsApp: descargá el PDF y usá «Escribir por WhatsApp».'}
+          Para mandarla: «Descargar PDF» y adjuntalo en el chat que abre «Escribir por WhatsApp».
+          {tieneApp ? (esEncargado ? ' Este cliente usa la app de ODB: también le podés dejar el aviso ahí.' : ' Este cliente usa la app de ODB: el aviso ahí lo deja un gerente o el dueño.') : ''}
         </p>
       </div>
+
+      {esEncargado && (
+        <div className="border-t border-black/[0.06] pt-4">
+          <Boton variante="fantasma" tamano="chico" onClick={eliminar} cargando={eliminando}>
+            Eliminar evento (cargado por error)
+          </Boton>
+        </div>
+      )}
       {dialogo}
     </div>
   );

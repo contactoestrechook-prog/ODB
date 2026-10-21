@@ -1,8 +1,7 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, Req, Res } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, Res } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { Roles } from '../auth/decorators';
 import { EventosService } from './eventos.service';
-import type { ItemPropuesta } from './eventos.service';
 
 @Roles('cajero', 'gerente', 'dueno')
 @Controller('eventos')
@@ -55,13 +54,21 @@ export class EventosController {
   }
 
   @Post(':id/propuesta')
-  guardar(@Param('id') id: string, @Body() body: { items: ItemPropuesta[] }) {
-    return this.eventos.guardarPropuesta(id, body.items);
+  guardar(@Param('id') id: string, @Body() body: { items?: unknown }) {
+    return this.eventos.guardarPropuesta(id, body?.items);
   }
 
+  // deja la propuesta como aviso en la app del cliente (no manda WhatsApp)
   @Roles('gerente', 'dueno')
   @Post(':id/enviar')
   enviar(@Param('id') id: string) {
     return this.eventos.enviarPropuesta(id);
+  }
+
+  // un evento cargado por error (de prueba, repetido): no cuenta en la tasa de cierre
+  @Roles('gerente', 'dueno')
+  @Delete(':id')
+  eliminar(@Param('id') id: string) {
+    return this.eventos.eliminar(id);
   }
 }

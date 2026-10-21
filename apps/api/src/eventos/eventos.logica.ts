@@ -67,28 +67,93 @@ const TIPO_SOLO: Record<Tipo, string> = {
   otro: 'Evento',
 };
 
+// Cerca de 900 clientes están cargados por lote o por barrio ("St Thomas 118
+// Jimena", "Campos 147 Hector", "Lauquen Fr 18 Lote 10", "Cliente Trivento"):
+// la primera palabra no es un nombre de pila. Sin tildes y en minúscula.
+const NO_ES_NOMBRE = new Set([
+  'st', 'sr', 'santa', 'san', 'campos', 'cliente', 'clientes', 'lauquen', 'los', 'las', 'la', 'el', 'solar',
+  'lagos', 'ombu', 'venado', 'don', 'horqueta', 'evento', 'eventos', 'chopera', 'barrio', 'lote', 'rodal',
+  'cruz', 'alameda', 'terralago', 'rocio', 'country', 'club', 'fr', 'ex', 'thomas', 'este', 'oeste', 'lista',
+  'degustacion', 'nuevo', 'nueva', 'consumidor', 'final', 'mostrador', 'casa', 'l', 'y', 'o', 'de', 'del',
+]);
+const sinTildes = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+const pareceNombre = (palabra: string) => /^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]{2,}$/.test(palabra) && !NO_ES_NOMBRE.has(sinTildes(palabra));
+
+/**
+ * El nombre de pila de un cliente para el nombre del evento, o null si no se
+ * puede saber. "Ana Pérez" → "Ana"; "St Thomas 118 Jimena" → "Jimena" (lo que
+ * va después del lote); "Don Joaquin 196 (Martin)" → "Martin"; "Campos 51" o
+ * "Cliente Trivento" → null.
+ */
+export function nombreDePila(nombre?: string | null): string | null {
+  const palabras = (nombre ?? '').replace(/[()*"«»]/g, ' ').replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
+  if (!palabras.length) return null;
+  if (pareceNombre(palabras[0])) return palabras[0];
+  // cargado por lote: el nombre, si está, va después del último número
+  let ultimoNumero = -1;
+  palabras.forEach((p, i) => {
+    if (/\d/.test(p)) ultimoNumero = i;
+  });
+  const despues = ultimoNumero >= 0 ? palabras.slice(ultimoNumero + 1).find(pareceNombre) : undefined;
+  return despues ? despues.charAt(0).toUpperCase() + despues.slice(1) : null;
+}
+
 /**
  * "Casamiento de Ana", "Fin de año de Estudio Pérez SRL". En los festejos de
- * una persona va el primer nombre (así lo dice la gente); en los de empresa,
- * el nombre entero (una razón social cortada no se reconoce).
+ * una persona va el nombre de pila (así lo dice la gente); en los de empresa,
+ * el nombre entero (una razón social cortada no se reconoce). Si el cliente
+ * está cargado por lote y no hay un nombre de pila, solo el tipo.
  */
 export function nombreSugerido(tipo: string, nombre?: string | null): string {
   const t = (TIPOS as readonly string[]).includes(tipo) ? (tipo as Tipo) : 'otro';
   const limpio = (nombre ?? '').replace(/\s+/g, ' ').trim();
-  if (!limpio) return TIPO_SOLO[t];
   const deEmpresa = t === 'corporativo' || t === 'fin_de_ano';
-  const quien = deEmpresa ? limpio : limpio.split(' ')[0];
+  const quien = deEmpresa ? limpio : nombreDePila(limpio);
+  if (!quien) return TIPO_SOLO[t];
   return `${TIPO_TITULO[t]} de ${quien}`.slice(0, 120);
 }
 
 /**
- * Solo los dígitos de un WhatsApp; null si no es un teléfono con
- * característica (10 dígitos como mínimo: 11 2281-2200). Sin característica
- * no se puede encontrar al cliente ni escribirle.
+ * Los diez dígitos de un teléfono argentino (característica + número), con la
+ * misma regla que tel_diez() en la base: saca el 54, el 9, el 0 y el 15 de
+ * después de la característica. null si no tiene largo de teléfono.
+ */
+export function telDiez(t: unknown): string | null {
+  let d = String(t ?? '').replace(/\D/g, '').replace(/^00/, '');
+  if (d.startsWith('549')) d = d.slice(3);
+  else if (d.startsWith('54')) d = d.slice(2).replace(/^0/, '');
+  else d = d.replace(/^0/, '');
+  if (d.length === 12) d = d.replace(/^(\d{2,4})15(\d{6,8})$/, '$1$2');
+  return d.length >= 10 && d.length <= 13 ? d.slice(-10) : null;
+}
+
+/** Una característica argentina empieza con 11, 2 o 3: "15 2281-2200" no tiene. */
+const conCaracteristica = (diez: string) => /^(11\d{8}|[23]\d{9})$/.test(diez);
+
+/**
+ * El WhatsApp listo para buscar al cliente y escribirle: los diez dígitos
+ * ("1122812200") de un número argentino con característica, o los dígitos tal
+ * cual de uno de otro país ("+598…"). null si no se le puede escribir: sin
+ * característica ("2281-2200") o con el 15 en su lugar ("15 2281-2200", como
+ * se anota un celular en el AMBA: daría un cliente duplicado y un wa.me a un
+ * número que no existe).
  */
 export function telefonoLimpio(t: unknown): string | null {
+  const crudo = String(t ?? '').trim();
+  const d = crudo.replace(/\D/g, '');
+  if (/^\+/.test(crudo) && !d.startsWith('54')) return d.length >= 8 && d.length <= 15 ? d : null;
+  const diez = telDiez(d);
+  return diez && conCaracteristica(diez) ? diez : null;
+}
+
+/** Por qué no sirve un WhatsApp (para el mensaje de error). */
+export function motivoTelefono(t: unknown): string {
   const d = String(t ?? '').replace(/\D/g, '');
-  return d.length >= 10 && d.length <= 15 ? d : null;
+  if (/^15\d{8}$/.test(d)) {
+    const numero = `${d.slice(2, 6)}-${d.slice(6)}`;
+    return `Falta la característica: poné la del lugar en vez del 15 (en el AMBA, 11 ${numero} y no 15 ${numero}).`;
+  }
+  return 'El WhatsApp del contacto no parece un teléfono: poné el número con característica (por ejemplo 11 2281-2200).';
 }
 
 // ---------------------------------------------------------- validar datos
@@ -142,7 +207,7 @@ export function limpiarDatosEvento(dto: Datos): Datos {
     if (dto.contacto_telefono === null || dto.contacto_telefono === '') fila.contacto_telefono = null;
     else {
       const t = telefonoLimpio(dto.contacto_telefono);
-      if (!t) throw new Error('El WhatsApp del contacto no parece un teléfono (poné el número con característica).');
+      if (!t) throw new Error(motivoTelefono(dto.contacto_telefono));
       fila.contacto_telefono = t;
     }
   }
@@ -155,6 +220,35 @@ export function limpiarDatosEvento(dto: Datos): Datos {
     fila.cliente_id = id;
   }
   return fila;
+}
+
+// ------------------------------------------------- renglones de la propuesta
+
+export type ItemLimpio = { producto_id: string | null; descripcion: string; cantidad: number; precio_unitario: number };
+
+/**
+ * Los renglones de la propuesta, revisados. Un renglón puede ser un producto
+ * del catálogo o uno libre (servicio de barra, hielo, envío: sin producto), y
+ * el precio se puede cambiar (el acordado con el cliente, con descuento). Los
+ * renglones sin descripción o sin cantidad se descartan (quedaron a medio
+ * cargar); un precio negativo o un número que no es número es un error.
+ */
+export function limpiarItems(items: unknown): ItemLimpio[] {
+  if (items != null && !Array.isArray(items)) throw new Error('La propuesta no es válida.');
+  const salida: ItemLimpio[] = [];
+  for (const crudo of (items ?? []) as any[]) {
+    const descripcion = String(crudo?.descripcion ?? '').replace(/\s+/g, ' ').trim();
+    const cantidad = Number(crudo?.cantidad);
+    if (!descripcion || !(cantidad > 0)) continue;
+    if (descripcion.length > 200) throw new Error(`«${descripcion.slice(0, 40)}…» es demasiado largo (máximo 200 letras).`);
+    if (!Number.isFinite(cantidad) || cantidad > 100_000) throw new Error(`La cantidad de «${descripcion}» no es válida.`);
+    const precio = crudo?.precio_unitario == null || crudo.precio_unitario === '' ? 0 : Number(crudo.precio_unitario);
+    if (!Number.isFinite(precio) || precio < 0 || precio > 1e10) throw new Error(`El precio de «${descripcion}» no es válido.`);
+    const id = crudo?.producto_id ? String(crudo.producto_id) : null;
+    if (id && !/^[0-9a-f-]{36}$/i.test(id)) throw new Error(`El producto de «${descripcion}» no es válido.`);
+    salida.push({ producto_id: id, descripcion, cantidad, precio_unitario: Math.round(precio * 100) / 100 });
+  }
+  return salida;
 }
 
 // ------------------------------------------- sin la migración: a las notas
@@ -224,6 +318,11 @@ export function resumenEventos(filas: FilaResumen[], hoy: string) {
 }
 
 // ------------------------------------------------------------ oportunidades
+//
+// 21/10/2026, revisión: un "no" también cuenta como trabajado. Cancelar con
+// motivo es la forma de cerrar una oportunidad que no prosperó; si el evento
+// cancelado no la tapaba, la empresa o el cliente que dijo que no volvía a la
+// lista con "Armar propuesta" toda la temporada.
 
 export type EventoLiviano = {
   id: string;
@@ -234,19 +333,62 @@ export type EventoLiviano = {
   creado_en: string;
 };
 
-export type Compra = { cliente_id: string | null; total: number | string; fecha: string };
+/** Una compra: pedido (con su estado) o venta del local. */
+export type Compra = { cliente_id: string | null; total: number | string; fecha: string; estado?: string | null };
 
-/** Un evento de cumpleaños vigente del cliente (para mostrar "Ver evento" en vez de armar otro). */
-export function eventoDeCumple(clienteId: string, eventos: EventoLiviano[], hoy: string): string | null {
-  const ev = eventos.find(
+// ----------------------------------------------------------------- cumpleaños
+
+const esBisiesto = (anio: number) => (anio % 4 === 0 && anio % 100 !== 0) || anio % 400 === 0;
+
+/**
+ * El próximo cumpleaños desde hoy (incluido hoy) y cuántos días faltan. El que
+ * nació un 29/2 lo festeja el 28/2 los años que no son bisiestos.
+ * Hasta el 21/10/2026 la cuenta la hacía cumpleanos_proximos() con age(), que
+ * usa el día de Londres: el día del cumpleaños ya daba el del año que viene
+ * (nadie "cumplía hoy") y desde las 21 h tampoco salía el de mañana.
+ */
+export function proximoCumple(nacimiento: string | null | undefined, hoy: string): { fecha: string; dias: number } | null {
+  if (!nacimiento || !esFechaISO(nacimiento.slice(0, 10))) return null;
+  const mes = Number(nacimiento.slice(5, 7));
+  const dia = Number(nacimiento.slice(8, 10));
+  const enAnio = (anio: number) => {
+    const d = mes === 2 && dia === 29 && !esBisiesto(anio) ? 28 : dia;
+    return `${anio}-${String(mes).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+  };
+  const anio = Number(hoy.slice(0, 4));
+  const fecha = enAnio(anio) >= hoy ? enAnio(anio) : enAnio(anio + 1);
+  return { fecha, dias: diasEntre(hoy, fecha) };
+}
+
+export type ClienteConNacimiento = { id: string; nombre: string | null; dni: string | null; fecha_nacimiento: string | null };
+
+/** Los que cumplen entre hoy y dentro de `dias` días, los más cercanos primero. */
+export function cumpleanosProximos(clientes: ClienteConNacimiento[], hoy: string, dias: number) {
+  return clientes
+    .map((c) => ({ c, prox: proximoCumple(c.fecha_nacimiento, hoy) }))
+    .filter((x): x is { c: ClienteConNacimiento; prox: { fecha: string; dias: number } } => !!x.prox && x.prox.dias >= 0 && x.prox.dias <= dias)
+    .sort((a, b) => a.prox.dias - b.prox.dias || (a.c.nombre ?? '').localeCompare(b.c.nombre ?? '', 'es'))
+    .map(({ c, prox }) => ({ cliente_id: c.id, nombre: c.nombre, dni: c.dni, dias: prox.dias, fecha: prox.fecha }));
+}
+
+/**
+ * El evento de este cumpleaños del cliente, abierto, hecho o cancelado (un
+ * "no" también cierra la oportunidad). Con fecha: desde una semana antes de hoy
+ * en adelante; sin fecha: creado en los últimos 90 días.
+ */
+export function eventoDeCumple(clienteId: string, eventos: EventoLiviano[], hoy: string): { id: string; estado: string } | null {
+  const vigentes = eventos.filter(
     (e) =>
       e.cliente_id === clienteId &&
       e.tipo === 'cumpleanos' &&
-      e.estado !== 'cancelado' &&
       (e.fecha ? diasEntre(hoy, e.fecha) >= -7 : diasEntre(e.creado_en, hoy) <= 90),
   );
-  return ev?.id ?? null;
+  // si hay uno en curso y otro cancelado, manda el que sigue vivo
+  const ev = vigentes.find((e) => e.estado !== 'cancelado') ?? vigentes[0];
+  return ev ? { id: ev.id, estado: ev.estado } : null;
 }
+
+// ------------------------------------------------------------- fin de año
 
 /**
  * La temporada de fin de año: fiestas del 1/11 al 31/1. En enero todavía se
@@ -257,8 +399,9 @@ export function temporadaFinDeAno(hoy: string) {
   return { anio, desde: `${anio}-11-01`, hasta: `${anio + 1}-01-31`, creadoDesde: `${anio}-08-01` };
 }
 
+/** Un evento de empresa de esta temporada, en cualquier etapa (también cancelado). */
 export function esEventoDeTemporada(e: EventoLiviano, t: ReturnType<typeof temporadaFinDeAno>): boolean {
-  if (e.estado === 'cancelado' || (e.tipo !== 'fin_de_ano' && e.tipo !== 'corporativo')) return false;
+  if (e.tipo !== 'fin_de_ano' && e.tipo !== 'corporativo') return false;
   if (e.fecha) return e.fecha.slice(0, 10) >= t.desde && e.fecha.slice(0, 10) <= t.hasta;
   return e.creado_en.slice(0, 10) >= t.creadoDesde;
 }
@@ -287,10 +430,29 @@ export function esEmpresa(c: ClienteEmpresa): boolean {
   return c.tipo === 'mayorista' || c.mayorista === true;
 }
 
-export function empresasFinDeAno(empresas: ClienteEmpresa[], compras: Compra[], eventos: EventoLiviano[], hoy: string, tope = 12) {
+/**
+ * Las empresas para ofrecerles la fiesta de fin de año.
+ *
+ * 21/10/2026, revisión con la base: con solo "tiene CUIT de empresa" la lista
+ * salía 100% ruido — 13 casas de barrio con un CUIT para facturar, cargadas
+ * desde el sistema viejo, sin una sola compra ni charla, 5 con el teléfono
+ * "15" y un dato de prueba. Ahora entra solo la empresa con alguna relación
+ * real en los últimos 12 meses: una compra (pedido no cancelado o venta) o una
+ * charla por WhatsApp con su teléfono (`conCharla`: los diez dígitos de los
+ * teléfonos que escribieron). Las que no, se cuentan en `sinRelacion`.
+ */
+export function empresasFinDeAno(
+  empresas: ClienteEmpresa[],
+  compras: Compra[],
+  eventos: EventoLiviano[],
+  hoy: string,
+  { conCharla = new Set<string>() }: { conCharla?: Set<string> } = {},
+) {
   const temporada = temporadaFinDeAno(hoy);
   const desde = sumarDias(hoy, -365);
-  const conEvento = new Set(eventos.filter((e) => e.cliente_id && esEventoDeTemporada(e, temporada)).map((e) => e.cliente_id));
+  const deTemporada = eventos.filter((e) => e.cliente_id && esEventoDeTemporada(e, temporada));
+  const conEvento = new Set(deTemporada.filter((e) => e.estado !== 'cancelado').map((e) => e.cliente_id as string));
+  const dijeronQueNo = new Set(deTemporada.filter((e) => e.estado === 'cancelado' && !conEvento.has(e.cliente_id as string)).map((e) => e.cliente_id as string));
   const porCliente = new Map<string, { compras: number; total: number; ultima: string | null }>();
   for (const c of compras) {
     if (!c.cliente_id || c.fecha.slice(0, 10) < desde) continue;
@@ -301,14 +463,21 @@ export function empresasFinDeAno(empresas: ClienteEmpresa[], compras: Compra[], 
     porCliente.set(c.cliente_id, acc);
   }
   const candidatas = empresas.filter(esEmpresa);
-  const lista = candidatas
-    .filter((c) => !conEvento.has(c.id))
+  const yaTrabajada = (id: string) => conEvento.has(id) || dijeronQueNo.has(id);
+  const libres = candidatas.filter((c) => !yaTrabajada(c.id));
+  const conRelacion = libres.filter((c) => {
+    const diez = telDiez(c.telefono);
+    return porCliente.has(c.id) || (diez != null && conCharla.has(diez));
+  });
+  const lista = conRelacion
     .map((c) => {
       const s = porCliente.get(c.id) ?? { compras: 0, total: 0, ultima: null };
       return {
         cliente_id: c.id,
         nombre: (c.razon_social ?? '').trim() || (c.nombre ?? '').trim() || 'Empresa sin nombre',
         telefono: c.telefono ?? null,
+        /** false: el teléfono cargado no sirve para escribirle ("15", sin característica). */
+        whatsapp: telefonoLimpio(c.telefono) != null,
         cuit: c.cuit ?? null,
         compras: s.compras,
         total: Math.round(s.total),
@@ -318,59 +487,85 @@ export function empresasFinDeAno(empresas: ClienteEmpresa[], compras: Compra[], 
     .sort((a, b) => b.total - a.total || b.compras - a.compras || a.nombre.localeCompare(b.nombre, 'es'));
   return {
     temporada: temporada.anio,
-    lista: lista.slice(0, tope),
-    /** Cuántas empresas hay en total sin evento esta temporada (la lista muestra las primeras). */
+    /** Todas: son pocas (antes se cortaba en 12 y la 13.ª no se podía ver). */
+    lista,
     pendientes: lista.length,
     yaTienen: candidatas.filter((c) => conEvento.has(c.id)).length,
+    /** Las que tuvieron su evento esta temporada y lo cancelaron (dijeron que no). */
+    dijeronQueNo: candidatas.filter((c) => dijeronQueNo.has(c.id)).length,
+    /** Con CUIT de empresa pero sin compras ni charlas en el último año: no se ofrecen. */
+    sinRelacion: libres.length - conRelacion.length,
   };
 }
+
+// ---------------------------------------------------------- compras grandes
+
+/**
+ * Los pedidos que cuentan como compra: los que avanzaron. Uno en "recibido"
+ * cuenta solo si alguien de la casa lo tomó (tomado_en): el 16/10 un pedido de
+ * $218.000 que el cliente canceló por chat seguía en "recibido" y salía como
+ * la única compra grande.
+ */
+export const ESTADOS_COMPRA = ['pagado', 'en_preparacion', 'listo', 'en_camino', 'entregado'] as const;
 
 export const COMPRA_GRANDE = {
   /** Ventana para listar: compras de los últimos 60 días. */
   ventana: 60,
-  /** El promedio sale de los últimos 90 días. */
-  diasPromedio: 90,
-  /** "Muy por encima": el doble del ticket promedio… */
+  /** El pedido típico sale de los últimos 90 días. */
+  diasBase: 90,
+  /** "Muy por encima": el doble del pedido típico (la mediana)… */
   factor: 2,
-  /** …pero nunca menos de $100.000 (con tickets chicos, el doble sigue siendo una compra común). */
+  /** …pero nunca menos de $100.000 (con pedidos chicos, el doble sigue siendo una compra común). */
   piso: 100_000,
-  /** Con menos de 5 tickets el promedio no dice nada: se usa este umbral fijo. */
-  minimoTickets: 5,
-  umbralSinPromedio: 150_000,
+  /**
+   * Con menos de 30 compras la mediana no dice nada: se usa el piso. El 21/10
+   * había 9 (casi todos pedidos de WhatsApp: el mostrador no está en ODB) y el
+   * promedio lo inflaba la misma compra que después se evaluaba.
+   */
+  minimoTickets: 30,
+};
+
+const mediana = (valores: number[]) => {
+  if (!valores.length) return 0;
+  const v = [...valores].sort((a, b) => a - b);
+  const m = Math.floor(v.length / 2);
+  return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2;
 };
 
 /**
- * El umbral de "compra grande": el doble del ticket promedio de la casa en
- * los últimos 90 días, con piso. `tickets` son todas las compras del
- * período, con o sin cliente (puede ser una muestra: las últimas mil).
+ * El umbral de "compra grande": el doble del pedido típico (la mediana, que
+ * una compra enorme no mueve) de los últimos 90 días, con piso de $100.000; si
+ * hay menos de 30 compras, el piso solo. `regla` dice cuál se usó, para que la
+ * pantalla lo explique bien.
  */
 export function umbralCompraGrande(tickets: Compra[], hoy: string) {
-  const desde = sumarDias(hoy, -COMPRA_GRANDE.diasPromedio);
-  const recientes = tickets.filter((t) => t.fecha.slice(0, 10) >= desde && Number(t.total) > 0);
-  const promedio = recientes.length ? recientes.reduce((s, t) => s + Number(t.total), 0) / recientes.length : 0;
-  const umbral =
-    recientes.length >= COMPRA_GRANDE.minimoTickets
-      ? Math.max(Math.round(COMPRA_GRANDE.factor * promedio), COMPRA_GRANDE.piso)
-      : COMPRA_GRANDE.umbralSinPromedio;
-  return { promedio, umbral, tickets: recientes.length };
+  const desde = sumarDias(hoy, -COMPRA_GRANDE.diasBase);
+  const recientes = tickets.filter((t) => t.fecha.slice(0, 10) >= desde && Number(t.total) > 0).map((t) => Number(t.total));
+  const tipico = Math.round(mediana(recientes));
+  const conBase = recientes.length >= COMPRA_GRANDE.minimoTickets;
+  const doble = Math.round(COMPRA_GRANDE.factor * tipico);
+  const umbral = conBase ? Math.max(doble, COMPRA_GRANDE.piso) : COMPRA_GRANDE.piso;
+  const regla: 'doble' | 'piso' = conBase && doble >= COMPRA_GRANDE.piso ? 'doble' : 'piso';
+  return { tipico: conBase ? tipico : null, umbral, regla, tickets: recientes.length };
 }
 
 /**
- * Clientes con un ticket muy por encima del promedio en los últimos 60 días:
+ * Clientes con una compra muy por encima de lo común en los últimos 60 días:
  * probablemente compraron para un festejo, y el próximo se lo podemos armar
  * nosotros. Uno por cliente (su compra más grande). Se saltean los que ya
- * tienen un evento abierto o uno creado después de esa compra.
+ * tienen un evento abierto o uno creado después de esa compra (también si se
+ * canceló: dijo que no).
+ * `tickets`: las compras de los últimos 90 días, para el pedido típico.
  * `candidatas`: las compras con cliente a revisar (por defecto, los mismos
- * tickets; el servicio las trae con su propia consulta por si la muestra del
- * promedio no llega a cubrir los 60 días).
+ * tickets; el servicio las trae con su propia consulta).
  */
 export function comprasGrandes(
   tickets: Compra[],
   eventos: EventoLiviano[],
   hoy: string,
-  { tope = 12, candidatas = tickets }: { tope?: number; candidatas?: Compra[] } = {},
+  { tope = 30, candidatas = tickets }: { tope?: number; candidatas?: Compra[] } = {},
 ) {
-  const { promedio, umbral, tickets: cuantos } = umbralCompraGrande(tickets, hoy);
+  const { tipico, umbral, regla, tickets: cuantos } = umbralCompraGrande(tickets, hoy);
   const desde = sumarDias(hoy, -COMPRA_GRANDE.ventana);
   const mayor = new Map<string, Compra>();
   for (const t of candidatas) {
@@ -382,7 +577,6 @@ export function comprasGrandes(
     eventos.some(
       (e) =>
         e.cliente_id === clienteId &&
-        e.estado !== 'cancelado' &&
         (ABIERTOS.includes(e.estado as Estado) || e.creado_en.slice(0, 10) >= fechaCompra.slice(0, 10)),
     );
   const lista = [...mayor.values()]
@@ -391,8 +585,10 @@ export function comprasGrandes(
       cliente_id: t.cliente_id as string,
       total: Math.round(Number(t.total)),
       fecha: t.fecha,
-      veces: promedio > 0 ? Math.round((Number(t.total) / promedio) * 10) / 10 : null,
+      /** El estado del pedido ("entregado", "recibido" tomado…); null si es una venta del local. */
+      estado: t.estado ?? null,
+      veces: tipico ? Math.round((Number(t.total) / tipico) * 10) / 10 : null,
     }))
     .sort((a, b) => b.total - a.total);
-  return { promedio: Math.round(promedio), umbral, tickets: cuantos, lista: lista.slice(0, tope) };
+  return { tipico, umbral, regla, tickets: cuantos, lista: lista.slice(0, tope) };
 }

@@ -27,7 +27,8 @@ export async function generarPresupuesto(d: DatosPresupuesto): Promise<Buffer> {
   // Para quién y qué evento
   const evLinea = [TIPO_LABEL[d.evento.tipo] ?? 'Evento',
     d.evento.invitados ? `${d.evento.invitados} invitados` : null,
-    d.evento.fecha ? new Date(d.evento.fecha).toLocaleDateString('es-AR') : null,
+    // la fecha del evento es un día ('2026-12-12'): se lee como medianoche UTC y así se muestra
+    d.evento.fecha ? new Date(d.evento.fecha).toLocaleDateString('es-AR', { timeZone: 'UTC' }) : null,
     d.evento.lugar?.trim() || null]
     .filter(Boolean).join(' · ');
   const y0 = h.datos(

@@ -45,3 +45,48 @@ comment on column public.eventos.origen is 'De dónde salió: manual, cumpleanos
 
 -- que PostgREST vea las columnas nuevas sin esperar
 notify pgrst, 'reload schema';
+
+-- ------------------------------------------------------------------------
+-- Cumpleaños: el que cumple HOY (revisión del 21/10/2026)
+--
+-- cumpleanos_proximos() armaba el próximo cumpleaños con age(), que usa el
+-- día de la base (Londres): el día del cumpleaños age() ya da los años justos
+-- y el "próximo" saltaba al año siguiente (365 días, fuera de la lista), y
+-- desde las 21 h de Buenos Aires pasaba lo mismo con el de mañana. La usa la
+-- invitación automática a armar el festejo (mensajes/automaticas.service.ts).
+-- La pantalla de Eventos ya no depende de esta función: hace la misma cuenta
+-- en el API (eventos.logica.ts → proximoCumple).
+--
+-- Ahora: el cumpleaños de este año o del que viene, el primero que no pasó,
+-- contado desde el día de Buenos Aires. El 29/2 se festeja el 28/2 los años
+-- que no son bisiestos.
+-- ------------------------------------------------------------------------
+
+create or replace function public.cumpleanos_proximos(p_dias integer default 60)
+ returns table(cliente_id uuid, nombre text, dni text, fecha_nacimiento date, dias integer, tiene_evento boolean)
+ language sql
+ stable security definer
+ set search_path to 'public'
+as $function$
+  with h as (select (now() at time zone 'America/Argentina/Buenos_Aires')::date as hoy),
+  calc as (
+    select c.id, c.nombre, c.dni, c.fecha_nacimiento, h.hoy,
+      (select min(x.d) from (
+         select make_date(a, extract(month from c.fecha_nacimiento)::int,
+                least(extract(day from c.fecha_nacimiento)::int,
+                      extract(day from (make_date(a, extract(month from c.fecha_nacimiento)::int, 1) + interval '1 month - 1 day'))::int)) as d
+         from generate_series(extract(year from h.hoy)::int, extract(year from h.hoy)::int + 1) a
+       ) x where x.d >= h.hoy) as prox
+    from clientes c cross join h
+    where c.fecha_nacimiento is not null
+  )
+  select calc.id, calc.nombre, calc.dni, calc.fecha_nacimiento, (calc.prox - calc.hoy)::int as dias,
+    exists(
+      select 1 from eventos e
+      where e.cliente_id = calc.id and e.tipo = 'cumpleanos'
+        and e.fecha between calc.hoy and calc.hoy + 400
+    ) as tiene_evento
+  from calc
+  where (calc.prox - calc.hoy) between 0 and p_dias
+  order by dias;
+$function$;

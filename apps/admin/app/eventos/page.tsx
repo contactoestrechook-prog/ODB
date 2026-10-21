@@ -1,11 +1,15 @@
+import { cookies } from 'next/headers';
 import { Pantalla } from '../ui/kit/Pantalla';
 import { Aviso } from '../ui/kit';
 import { apiFetch } from '../../lib/api';
+import { rolDesdeToken } from '../lib/permisos';
 import { EventosWorkspace, type Evento, type OportunidadesEventos, type ResumenEventos } from '../ui/EventosWorkspace';
 
 export const dynamic = 'force-dynamic';
 
 export default async function Eventos() {
+  // dejar el aviso en la app, borrar un evento y cargar fechas en Clientes es de gerente o dueño
+  const rol = rolDesdeToken((await cookies()).get('odb_token')?.value);
   let resumen: ResumenEventos | null = null;
   let oportunidades: OportunidadesEventos | null = null;
   let eventos: Evento[] = [];
@@ -26,7 +30,7 @@ export default async function Eventos() {
       {error ? (
         <Aviso tono="error">No pude consultar la API ({error}).</Aviso>
       ) : (
-        <EventosWorkspace resumen={resumen} oportunidades={oportunidades} eventos={Array.isArray(eventos) ? eventos : []} />
+        <EventosWorkspace resumen={resumen} oportunidades={oportunidades} eventos={Array.isArray(eventos) ? eventos : []} rol={rol} />
       )}
     </Pantalla>
   );

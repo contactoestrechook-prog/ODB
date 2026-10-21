@@ -17,3 +17,10 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   });
   return NextResponse.json(await res.json(), { status: res.status });
 }
+
+// borrar un evento cargado por error (gerente o dueño: lo controla el API)
+export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const res = await fetch(`${API}/eventos/${id}`, { method: 'DELETE', headers: await tok() });
+  return NextResponse.json(await res.json().catch(() => ({})), { status: res.status });
+}
