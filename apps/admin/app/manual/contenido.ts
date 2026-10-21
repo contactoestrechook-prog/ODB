@@ -722,6 +722,52 @@ export const SECCIONES: Seccion[] = [
 
   // ---------------------------------------------------------------- reparto
   {
+    id: 'envios',
+    titulo: 'Despachar los envíos a domicilio',
+    area: 'Reparto',
+    roles: ['dueno', 'gerente', 'comprador'],
+    bajada: 'Reparto › Envíos: qué hay que preparar, quién lo lleva, qué se cobra y lo que quedó atrasado.',
+    bloques: [
+      {
+        tipo: 'texto',
+        texto: 'Es la primera sección de Reparto (hasta el 21/10/2026 era otra entrada del menú, «Envíos»). Muestra los pedidos a domicilio abiertos, del bot, la tienda web y la app, ordenados por lo que hay que hacer.',
+      },
+      {
+        tipo: 'campos',
+        titulo: 'Cómo está ordenada',
+        filas: [
+          ['Atrasados (en rojo)', 'La fecha de entrega ya pasó, nadie lo movió en 24 horas o salió hace más de 12 y nadie lo marcó entregado. Cada uno dice por qué y cuánto hace.'],
+          ['Para hoy', 'Los pactados para hoy y los que no tienen fecha (lo antes posible).'],
+          ['Programados', 'Tienen fecha más adelante: se preparan ese día.'],
+          ['Adentro de cada grupo', 'Por paso: para preparar, preparando, listos para salir y en la calle.'],
+          ['Los números de arriba', 'Atrasados, para hoy (y cuántos programados), en la calle y sin repartidor.'],
+        ],
+      },
+      {
+        tipo: 'pasos',
+        titulo: 'Cada envío',
+        pasos: [
+          'La tarjeta trae al cliente con su teléfono («WhatsApp» abre el chat y «Llamar» lo llama), la dirección con «Abrir en el mapa», cuándo se entrega, cómo se cobra, las indicaciones y, en la Placa roja, qué lleva.',
+          'Un botón por paso, en orden: «Empezar a preparar», «Marcar listo», «Salió» y «Entregado».',
+          '«Quién lo lleva»: un repartidor o, si no hay o están todos en la calle, alguien del local (aparecen aparte en la lista). Sin alguien elegido el envío no sale: «Salió» lo pregunta.',
+          '«Entregado» pregunta cómo pagó, con lo que dijo el cliente ya marcado. El efectivo entra en la caja abierta de la sucursal.',
+          'Si al entregar falta algo en el stock, se abre la misma ventana de siempre para sacarlo o reemplazarlo.',
+          '«Cancelar» pide confirmación, devuelve el stock reservado y le avisa la baja a administración. Al cliente avisale vos.',
+        ],
+      },
+      {
+        tipo: 'ojo',
+        puntos: [
+          'A un atrasado de más de dos días, o que salió hace más de 12 horas, la tarjeta le pregunta directo «¿Se entregó o se cancela?». «Se entregó» registra hoy la venta, el cobro y la salida del stock, sin mandarle WhatsApp al cliente (ya lo recibió). «Se cancela» lo da de baja.',
+          'Si no hay repartidores cargados, arriba aparece «Cargar un repartidor», que lleva a Reparto › Repartidores.',
+          'Al cliente le llega un WhatsApp cuando su envío está preparado, cuando sale y cuando se entrega. Ya no le dice que lo pase a retirar por la sucursal.',
+          'Las indicaciones se ven limpias: sin la forma de pago (tiene su propio renglón) ni restos de texto del sistema.',
+          'Desde Pedidos, «Despachar» un envío a domicilio te trae acá con ese pedido marcado.',
+        ],
+      },
+    ],
+  },
+  {
     id: 'reparto',
     titulo: 'Armar el reparto y salir a la calle',
     area: 'Reparto',
@@ -732,7 +778,7 @@ export const SECCIONES: Seccion[] = [
         tipo: 'pasos',
         titulo: 'En el local',
         pasos: [
-          'Todo el reparto está en un solo lugar del menú, Reparto, con tres secciones: Hojas de ruta, Repartidores (alta de choferes, vehículos y seguros) y Entregas en la calle (lo que ve el repartidor en su celular).',
+          'Todo el reparto está en un solo lugar del menú, Reparto, con cuatro secciones: Envíos (el despacho de los pedidos a domicilio, ver arriba), Hojas de ruta, Repartidores (alta de choferes, vehículos y seguros) y Entregas en la calle (lo que ve el repartidor en su celular).',
           'Reparto › Hojas de ruta → nueva hoja de ruta. Agregá los clientes que salen en ese viaje.',
           'Cada reparto se numera con el día de la semana y el orden de salida, así se identifica sin confusión.',
           '"Salir a la calle" cuando el repartidor arranca.',
@@ -742,9 +788,9 @@ export const SECCIONES: Seccion[] = [
         tipo: 'pasos',
         titulo: 'En la calle',
         pasos: [
-          'El repartidor ve sus entregas del día en su pantalla.',
+          'El repartidor ve sus entregas en su pantalla con lo mismo que el local: la dirección con el mapa, el WhatsApp del cliente para escribirle o llamarlo, qué se cobra y qué lleva.',
           'Puede compartir la ubicación mientras reparte, para saber dónde está el camión.',
-          '"Marcar entregado" en cada parada. Si falta algo en el stock, el repartidor puede sacarlo del pedido; cambiarlo por otro producto se hace desde el local.',
+          '"Marcar entregado" en cada parada: pregunta cómo pagó, con lo que dijo el cliente ya marcado. Si falta algo en el stock, el repartidor puede sacarlo del pedido; cambiarlo por otro producto se hace desde el local.',
         ],
       },
       {

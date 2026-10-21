@@ -3,6 +3,8 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import { randomUUID } from 'node:crypto';
 import { SUPABASE } from '../supabase.provider';
 import { hashClave } from '../comun/passwords';
+import { sinRestosDeMarcado } from '../comun/texto-limpio';
+import { indicacionesDe } from '../pedidos/envios';
 
 export type CrearRepartidorDto = {
   nombre: string;
@@ -165,7 +167,7 @@ export class RepartidoresService {
   async autorizacion(pedidoId: string) {
     const { data: pedido, error } = await this.db
       .from('pedidos')
-      .select('id, destino_direccion, notas, repartidor:usuarios!pedidos_repartidor_id_fkey(nombre, dni, telefono), vehiculo:vehiculos(*)')
+      .select('id, destino_direccion, notas, forma_pago, repartidor:usuarios!pedidos_repartidor_id_fkey(nombre, dni, telefono), vehiculo:vehiculos(*)')
       .eq('id', pedidoId)
       .maybeSingle();
     if (error) throw new BadRequestException(error.message);
@@ -192,8 +194,12 @@ export class RepartidoresService {
     } else {
       partes.push('Vehículo: (sin asignar)');
     }
-    if ((pedido as any).destino_direccion) partes.push('', `Destino: ${(pedido as any).destino_direccion}`);
-    if ((pedido as any).notas) partes.push(`Indicaciones: ${(pedido as any).notas}`);
+    // va a la guardia del barrio, alguien de afuera: sin restos de marcado y sin
+    // la forma de pago, que es dato interno (21/10/2026)
+    const destino = sinRestosDeMarcado((pedido as any).destino_direccion, { unaLinea: true });
+    const indicaciones = indicacionesDe((pedido as any).notas, (pedido as any).forma_pago);
+    if (destino) partes.push('', `Destino: ${destino}`);
+    if (indicaciones) partes.push(`Indicaciones: ${indicaciones}`);
 
     return {
       texto: partes.join('\n'),

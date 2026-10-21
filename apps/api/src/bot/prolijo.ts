@@ -1,3 +1,5 @@
+import { sinRestosDeMarcado } from '../comun/texto-limpio';
+
 // ---- PROLIJIDAD DEL LISTADO ----
 // En WhatsApp un listado escrito de corrido es ilegible: "Ya cotizado: - 4 ×
 // Agua 2L: 4 × $2.300 c/u = $9.200 - 1/2 kg Queso..." es un bloque de texto.
@@ -269,11 +271,11 @@ export function casiIgual(a: string, b: string): boolean {
 // Basura que el modelo a veces mete en los campos de una herramienta cuando
 // el esquema lo obliga a llenar todo: etiquetas sueltas ("</antml…parameter>"),
 // "null", "N/A", "vacío". Nada de eso es un dato del cliente (22/9/2026).
+// Desde el 21/10/2026 es la regla única de comun/texto-limpio: corta desde la
+// etiqueta y conserva lo de antes («Paga en efectivo · </antml…» deja «Paga en
+// efectivo»; antes se perdía el campo entero).
 export function campoLimpio(v: unknown): string {
-  const t = String(v ?? '').trim();
-  if (!t) return '';
-  if (/<\/?\s*(antml|parameter|invoke|function)/i.test(t) || /^(null|undefined|n\/a|na|vacio|vacío|ninguna|ninguno|-|—)$/i.test(t)) return '';
-  return t;
+  return sinRestosDeMarcado(v);
 }
 
 // ============================================================

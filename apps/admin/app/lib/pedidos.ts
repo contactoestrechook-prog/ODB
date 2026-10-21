@@ -12,6 +12,8 @@ export type PedidoCola = {
   creado_en: string;
   pagado_en?: string | null;
   notas?: string | null;
+  /** Cómo dijo que paga (la base lo saca de las notas): efectivo, transferencia, tarjeta, mercadopago… */
+  forma_pago?: string | null;
   entrega_fecha?: string | null;
   entrega_franja?: string | null;
   entregaEtiqueta?: string | null;

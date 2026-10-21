@@ -33,7 +33,8 @@ export async function POST(req: Request) {
   // al entregar faltaba stock: sacar ese producto o reemplazarlo por otro (21/10/2026)
   else if (body.accion === 'faltante') { url = `${API}/pedidos/${encodeURIComponent(body.pedidoId)}/faltante`; payload = { productoId: body.productoId, reemplazoSku: body.reemplazoSku, cantidad: body.cantidad }; }
   else if (body.accion === 'tomar') { url = `${API}/pedidos/${encodeURIComponent(body.pedidoId)}/tomar`; payload = {}; }
-  else { url = `${API}/pedidos/${encodeURIComponent(body.pedidoId)}/avanzar`; payload = { estado: body.estado, ...(body.medioPago ? { medioPago: body.medioPago } : {}) }; }
+  // repartidorId: despachar un envío eligiendo en el momento quién lo lleva (21/10/2026)
+  else { url = `${API}/pedidos/${encodeURIComponent(body.pedidoId)}/avanzar`; payload = { estado: body.estado, ...(body.medioPago ? { medioPago: body.medioPago } : {}), ...(body.repartidorId ? { repartidorId: body.repartidorId } : {}) }; }
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(await conToken()) },

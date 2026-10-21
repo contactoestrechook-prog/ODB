@@ -1,9 +1,11 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { numero, pesos as pesosFmt } from '../lib/formato';
+import { textoVisible } from '../lib/texto';
 import {
-  cantidadLegible, codigoDe, entregaDe, ESTADOS, haceCuanto, linkWhatsapp, origenDe, pideMedioAlEntregar, siguientePaso, sinTomar,
+  cantidadLegible, codigoDe, entregaDe, esDomicilio, ESTADOS, haceCuanto, linkWhatsapp, origenDe, pideMedioAlEntregar, siguientePaso, sinTomar,
   telefonoLegible, type PedidoCola,
 } from '../lib/pedidos';
 import { BotonMicrofono } from './BotonMicrofono';
@@ -76,6 +78,7 @@ export function PedidosWorkspace({ inicial, puedeSimular = false }: { inicial: P
   const [falta, setFalta] = useState<{ datos: FaltaDeStock; body: any } | null>(null);
   const { confirmar, dialogo } = useConfirmar();
   const timer = useRef<any>(null);
+  const router = useRouter();
 
   const recargar = useCallback(async () => {
     const r = await fetch('/api/pedidos', { cache: 'no-store' }).catch(() => null);
@@ -138,6 +141,9 @@ export function PedidosWorkspace({ inicial, puedeSimular = false }: { inicial: P
   }
 
   async function avanzar(p: PedidoCola, estado: string, medioPago?: string) {
+    // Un envío a domicilio sale desde Reparto › Envíos, donde se elige quién lo
+    // lleva (21/10/2026: sin eso la API no lo deja salir).
+    if (estado === 'en_camino' && esDomicilio(p)) { router.push(`/reparto?vista=envios&pedido=${encodeURIComponent(p.id)}`); return; }
     if (estado === 'entregado' && !medioPago && pideMedioAlEntregar(p)) { setEntregando(p); return; }
     setTrabajando(p.id);
     await post({ pedidoId: p.id, estado, medioPago });
@@ -383,7 +389,7 @@ function DetallePedido({ p, trabajando, onCerrar, onTomar, onAvanzar, onCancelar
           <div className="min-w-0"><dt className="text-xs text-tinta/60">Pago</dt><dd className="text-tinta">{p.pagado_en ? 'Pagado por Mercado Pago' : String(p.qr_retiro ?? '').startsWith('PY-') ? 'Lo cobra PedidosYa' : 'A cobrar al entregar'}</dd></div>
           <div className="min-w-0"><dt className="text-xs text-tinta/60">Quién lo tiene</dt><dd className="text-tinta">{p.tomadoPorNombre ?? (sinTomar(p) ? 'Nadie todavía' : '—')}</dd></div>
           {p.repartidorNombre && <div className="min-w-0"><dt className="text-xs text-tinta/60">Repartidor</dt><dd className="text-tinta">{p.repartidorNombre}</dd></div>}
-          {p.notas?.trim() && <div className="col-span-2 min-w-0"><dt className="text-xs text-tinta/60">Notas</dt><dd className="whitespace-pre-wrap break-words text-tinta">{p.notas.trim()}</dd></div>}
+          {textoVisible(p.notas) && <div className="col-span-2 min-w-0"><dt className="text-xs text-tinta/60">Notas</dt><dd className="whitespace-pre-wrap break-words text-tinta">{textoVisible(p.notas)}</dd></div>}
         </dl>
 
         {items.length > 0 && (
@@ -438,7 +444,8 @@ function DetallePedido({ p, trabajando, onCerrar, onTomar, onAvanzar, onCancelar
 
 // Entregar sin elegir cómo pagó registraba la venta como "efectivo" siempre.
 function ModalEntregar({ p, onCerrar, onConfirmar }: { p: PedidoCola; onCerrar: () => void; onConfirmar: (medio: string) => void }) {
-  const [medio, setMedio] = useState('efectivo');
+  // viene marcado lo que dijo el cliente (21/10/2026); si no dijo nada, efectivo como antes
+  const [medio, setMedio] = useState(MEDIOS.some((m) => m.valor === p.forma_pago) ? String(p.forma_pago) : 'efectivo');
   return (
     <Modal
       abierto

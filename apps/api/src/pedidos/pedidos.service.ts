@@ -9,6 +9,8 @@ import { verificarFirmaMercadoPago } from '../comun/firmas';
 import { fetchConTimeout } from '../comun/http';
 import { celularWhatsapp, enviarTextoWhatsapp } from '../comun/whatsapp';
 import { Lineas } from '../comun/lineas';
+import { sinRestosDeMarcado, textoONulo } from '../comun/texto-limpio';
+import { armarEnvio, avisoAlCliente, COLUMNAS_ENVIO, ESTADOS_ACTIVOS, medioPorDefecto, ordenarEnvios, type Envio, type FilaEnvio } from './envios';
 
 // Radio (m) para considerar que el cliente "está llegando" y asignarle estacionamiento.
 const GEOFENCE_M = 400;
@@ -333,7 +335,7 @@ export class PedidosService {
     const ahora = new Date().toISOString();
     await this.db.from('pedidos').update({
       origen: 'panel',
-      contacto_nombre: p.nombre?.trim() || null,
+      contacto_nombre: textoONulo(p.nombre, { unaLinea: true }),
       ...(usuarioId ? { creado_por: usuarioId, tomado_por: usuarioId, tomado_en: ahora, cambio_por: usuarioId, cambio_en: ahora } : {}),
     }).eq('id', pedidoId).then(({ error }) => { if (error) this.log.warn(`no pude anotar quién cargó ${pedidoId}: ${error.message}`); });
     return { pedidoId, renglones: p.items.length };
@@ -369,8 +371,11 @@ export class PedidosService {
     // crear_pedido no recibe las notas (nombre del cliente, "SIN MATCHEAR", lo
     // que pidió): se perdían. Van acá, antes de que salga el aviso a
     // administración, que se arma 10 segundos después con el pedido completo.
-    if (p.notas?.trim()) {
-      const { error: eNotas } = await this.db.from('pedidos').update({ notas: p.notas.trim().slice(0, 1000) }).eq('id', pedidoId);
+    // Sin restos de marcado (21/10/2026): de acá salen las notas de PedidosYa,
+    // Tiendanube y los pedidos por WhatsApp cargados desde el panel.
+    const notas = sinRestosDeMarcado(p.notas);
+    if (notas) {
+      const { error: eNotas } = await this.db.from('pedidos').update({ notas: notas.slice(0, 1000) }).eq('id', pedidoId);
       if (eNotas) this.log.warn(`no pude guardar las notas del pedido ${pedidoId}: ${eNotas.message}`);
     }
     return pedidoId;
@@ -401,7 +406,8 @@ export class PedidosService {
       throw new BadRequestException(`El pedido supera el máximo de renglones (${maxRenglonesApp})`);
     }
     const domicilio = p.tipo === 'domicilio';
-    if (domicilio && !p.destino?.direccion?.trim()) {
+    const direccionLimpia = sinRestosDeMarcado(p.destino?.direccion, { unaLinea: true }).slice(0, 300);
+    if (domicilio && !direccionLimpia) {
       throw new BadRequestException('Falta la dirección de entrega');
     }
     const items: { producto_id: string; cantidad: number }[] = [];
@@ -432,22 +438,58 @@ export class PedidosService {
     const origen = p.origen === 'web' || p.origen === 'app' ? p.origen : 'app';
     await this.db.from('pedidos').update({
       origen,
-      contacto_nombre: p.contacto?.nombre?.trim().slice(0, 120) || null,
+      // sin restos de marcado (21/10/2026): el endpoint es público y lo que se
+      // graba acá lo leen Envíos, el repartidor y la guardia del barrio
+      contacto_nombre: textoONulo(p.contacto?.nombre, { unaLinea: true })?.slice(0, 120) ?? null,
       contacto_telefono: telefonoContacto,
       ...(domicilio
-        ? { destino_direccion: p.destino!.direccion!.trim(), destino_lat: p.destino?.lat ?? null, destino_lng: p.destino?.lng ?? null }
+        ? { destino_direccion: direccionLimpia, destino_lat: p.destino?.lat ?? null, destino_lng: p.destino?.lng ?? null }
         : {}),
     }).eq('id', pedidoId);
     return this.obtener(pedidoId);
   }
 
   // --- Delivery a domicilio ---
-  async asignarRepartidor(pedidoId: string, repartidorId: string, usuarioId?: string) {
+
+  // Quién puede llevar un envío: un repartidor activo o, si no hay (hoy no hay
+  // ninguno cargado), alguien del equipo (21/10/2026). Antes se aceptaba
+  // cualquier id: se podía «asignar» a un usuario dado de baja o a un pedido
+  // ya entregado, y el error no se veía en la pantalla.
+  async quienLleva(): Promise<{ repartidores: { id: string; nombre: string; telefono: string | null }[]; delLocal: { id: string; nombre: string; rol: string }[] }> {
+    const { data, error } = await this.db.from('usuarios').select('id, nombre, rol, telefono, activo').order('nombre');
+    if (error) throw new BadRequestException(error.message);
+    const activos = ((data ?? []) as any[]).filter((u) => u.activo !== false && u.rol && u.rol !== 'cliente');
+    return {
+      repartidores: activos.filter((u) => u.rol === 'repartidor').map((u) => ({ id: String(u.id), nombre: String(u.nombre ?? 'Repartidor'), telefono: u.telefono ?? null })),
+      delLocal: activos.filter((u) => u.rol !== 'repartidor').map((u) => ({ id: String(u.id), nombre: String(u.nombre ?? 'Alguien del equipo'), rol: String(u.rol) })),
+    };
+  }
+
+  /** El que va a llevar el envío existe, está activo y es del equipo. */
+  private async validarQuienLleva(usuarioId: string): Promise<{ id: string; nombre: string; rol: string }> {
+    const { data } = await this.db.from('usuarios').select('id, nombre, rol, activo').eq('id', usuarioId).maybeSingle();
+    const u: any = data;
+    if (!u || !u.rol || u.rol === 'cliente') throw new BadRequestException('Esa persona no es del equipo: elegí a alguien de la lista');
+    if (u.activo === false) throw new BadRequestException(`${u.nombre ?? 'Esa persona'} está dada de baja: elegí a otra`);
+    return { id: String(u.id), nombre: String(u.nombre ?? ''), rol: String(u.rol) };
+  }
+
+  async asignarRepartidor(pedidoId: string, repartidorId: string | null | undefined, usuarioId?: string) {
+    const { data: pedido } = await this.db.from('pedidos').select('id, canal, estado, repartidor_id').eq('id', pedidoId).maybeSingle();
+    const p: any = pedido;
+    if (!p) throw new BadRequestException('No existe el pedido');
+    if (p.canal !== 'domicilio') throw new BadRequestException('Solo los envíos a domicilio llevan repartidor');
+    if (!ESTADOS_ACTIVOS.includes(p.estado)) throw new BadRequestException('El pedido ya está cerrado: no se le cambia el repartidor');
+    const quien = String(repartidorId ?? '').trim() || null;
+    if (!quien && p.estado === 'en_camino') {
+      throw new BadRequestException('Está en la calle: elegí quién lo lleva en lugar de dejarlo sin nadie');
+    }
+    const persona = quien ? await this.validarQuienLleva(quien) : null;
     const { error } = await this.db.from('pedidos')
-      .update({ repartidor_id: repartidorId, ...(usuarioId ? { cambio_por: usuarioId, cambio_en: new Date().toISOString() } : {}) })
+      .update({ repartidor_id: quien, ...(usuarioId ? { cambio_por: usuarioId, cambio_en: new Date().toISOString() } : {}) })
       .eq('id', pedidoId);
     if (error) throw new BadRequestException(error.message);
-    return { ok: true };
+    return { ok: true, repartidor: persona ? { id: persona.id, nombre: persona.nombre } : null };
   }
 
   // El repartidor comparte su ubicación; el cliente la ve en el seguimiento.
@@ -460,41 +502,43 @@ export class PedidosService {
     return { ok: true };
   }
 
+  // Los envíos armados para despachar (Envíos y la vista del repartidor), con
+  // el nombre de quien los lleva.
+  private async armarEnvios(filas: FilaEnvio[]): Promise<Envio[]> {
+    const ids = [...new Set(filas.filter((f) => f.repartidor_id).map((f) => String(f.repartidor_id)))];
+    const nombres = new Map<string, string>();
+    if (ids.length) {
+      const { data: us } = await this.db.from('usuarios').select('id, nombre').in('id', ids);
+      ((us ?? []) as any[]).forEach((u) => nombres.set(String(u.id), String(u.nombre ?? '')));
+    }
+    const ahora = new Date();
+    return ordenarEnvios(filas.map((f) => armarEnvio(f, { ahora, nombres })));
+  }
+
   async misEntregas(repartidorId: string) {
-    const { data } = await this.db
+    const { data, error } = await this.db
       .from('pedidos')
-      .select('id, estado, total, destino_direccion, destino_lat, destino_lng, notas, qr_retiro, creado_en, cliente:clientes(nombre, dni)')
+      .select(COLUMNAS_ENVIO)
       .eq('canal', 'domicilio')
       .eq('repartidor_id', repartidorId)
       .in('estado', ['listo', 'en_camino'])
       .order('creado_en');
-    return data ?? [];
+    if (error) throw new BadRequestException(error.message);
+    return this.armarEnvios((data ?? []) as any[]);
   }
 
-  // Despacho (panel): todos los envíos a domicilio activos + ETA si hay repartidor en ruta.
+  // Despacho (panel): todos los envíos a domicilio activos, con todo lo que
+  // hace falta para salir (21/10/2026). Antes, si la consulta fallaba devolvía
+  // una lista vacía y la pantalla decía «No hay envíos».
   async enviosDomicilio() {
-    const { data } = await this.db
+    const { data, error } = await this.db
       .from('pedidos')
-      .select('id, estado, total, destino_direccion, destino_lat, destino_lng, notas, repartidor_id, repartidor_lat, repartidor_lng, repartidor_en, qr_retiro, creado_en, cliente:clientes(nombre, dni)')
+      .select(COLUMNAS_ENVIO)
       .eq('canal', 'domicilio')
-      .in('estado', ['recibido', 'pagado', 'en_preparacion', 'listo', 'en_camino'])
+      .in('estado', ESTADOS_ACTIVOS)
       .order('creado_en');
-    const filas = (data ?? []) as any[];
-    const ids = [...new Set(filas.filter((f) => f.repartidor_id).map((f) => f.repartidor_id))];
-    const nombres = new Map<string, string>();
-    if (ids.length) {
-      const { data: us } = await this.db.from('usuarios').select('id, nombre').in('id', ids);
-      (us ?? []).forEach((u: any) => nombres.set(u.id, u.nombre));
-    }
-    return filas.map((f) => {
-      let distancia: number | null = null;
-      let etaMin: number | null = null;
-      if (f.repartidor_lat != null && f.destino_lat != null) {
-        distancia = distanciaM(Number(f.repartidor_lat), Number(f.repartidor_lng), Number(f.destino_lat), Number(f.destino_lng));
-        etaMin = Math.max(1, Math.round(distancia / METROS_POR_MIN));
-      }
-      return { ...f, repartidor_nombre: f.repartidor_id ? nombres.get(f.repartidor_id) ?? 'Repartidor' : null, distancia_m: distancia, etaMin };
-    });
+    if (error) throw new BadRequestException(`No pude leer los envíos: ${error.message}`);
+    return this.armarEnvios((data ?? []) as any[]);
   }
 
   async repartidores() {
@@ -673,7 +717,7 @@ export class PedidosService {
     let q = this.db
       .from('pedidos')
       .select(
-        `id, canal, estado, total, qr_retiro, creado_en, listo_en, pagado_en, en_camino_en, entregado_en, notas, entrega_fecha, entrega_franja,
+        `id, canal, estado, total, qr_retiro, creado_en, listo_en, pagado_en, en_camino_en, entregado_en, notas, forma_pago, entrega_fecha, entrega_franja,
          destino_direccion, origen, contacto_nombre, contacto_telefono, tomado_por, tomado_en, repartidor_id,
          sucursal:sucursales(nombre),
          cliente:clientes(dni, tipo, nombre, telefono),
@@ -687,6 +731,9 @@ export class PedidosService {
     const hoy = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }).format(new Date());
     return (data ?? []).map((p: any) => ({
       ...p,
+      // sin restos de marcado (21/10/2026): la nota de DOM-YD5GNY se veía en
+      // Pedidos, Depósito y Envíos con la sintaxis del bot adentro
+      notas: sinRestosDeMarcado(p.notas) || null,
       // programado = tiene fecha y NO es para hoy: depósito lo ve aparte y no
       // lo prepara antes de tiempo ("reparto no es delivery")
       programado: !!(p.entrega_fecha && p.entrega_fecha > hoy),
@@ -763,7 +810,18 @@ export class PedidosService {
   }
 
   // --- Avance de estados (al entregar: libera reserva y registra la venta) ---
-  async avanzar(pedidoId: string, estado: string, usuarioId?: string, medioPago?: string) {
+  async avanzar(
+    pedidoId: string,
+    estado: string,
+    usuarioId?: string,
+    medioPago?: string,
+    opciones: {
+      /** Despachar un envío: quién lo lleva (si no tenía o cambia en el momento). */
+      repartidorId?: string;
+      /** false = no se le manda WhatsApp al cliente (cierre de un envío viejo). */
+      avisar?: boolean;
+    } = {},
+  ) {
     const { data: pedido, error } = await this.db
       .from('pedidos')
       .select('*, items:pedidos_items(producto_id, cantidad, producto:productos(nombre)), cliente:clientes(dni, nombre, telefono, tipo, verificado)')
@@ -772,6 +830,20 @@ export class PedidosService {
     if (error || !pedido) throw new BadRequestException('No existe el pedido');
     if (!transicionValida(pedido.estado, estado)) {
       throw new BadRequestException(`Transición inválida: ${pedido.estado} → ${estado}`);
+    }
+
+    // Un envío no sale sin alguien que lo lleve (21/10/2026): DOM-YD5GNY pasó a
+    // «en camino» el 28/8 sin repartidor y quedó dos meses en la calle sin dueño.
+    let repartidorNuevo: string | null = null;
+    if (estado === 'en_camino' && pedido.canal === 'domicilio') {
+      const elegido = String(opciones.repartidorId ?? '').trim() || null;
+      if (!elegido && !pedido.repartidor_id) {
+        throw new BadRequestException({ statusCode: 400, codigo: 'FALTA_REPARTIDOR', message: 'Elegí quién lleva el pedido antes de despacharlo' });
+      }
+      if (elegido && elegido !== pedido.repartidor_id) {
+        await this.validarQuienLleva(elegido);
+        repartidorNuevo = elegido;
+      }
     }
 
     // ENTREGAR es la operación crítica: liberar reserva + registrar venta +
@@ -788,8 +860,10 @@ export class PedidosService {
         p_pedido: pedidoId,
         p_usuario: usuarioId ?? null,
         // medio REAL del cobro (efectivo/tarjeta al retirar); la RPC lo pisa con
-        // 'mercadopago'/'pedidosya' cuando el pago vino por esos canales
-        p_medio: medioPago ?? null,
+        // 'mercadopago'/'pedidosya' cuando el pago vino por esos canales. Si
+        // nadie eligió, el que dijo el cliente (21/10/2026): antes un envío que
+        // se pagaba por transferencia quedaba registrado como efectivo.
+        p_medio: medioPago ?? medioPorDefecto(pedido.forma_pago),
       });
       if (errEntregar) {
         // alguien vendió lo último entre la consulta y la entrega
@@ -823,6 +897,7 @@ export class PedidosService {
           preparado_por: estado === 'en_preparacion' ? (usuarioId ?? pedido.preparado_por) : pedido.preparado_por,
           listo_en: estado === 'listo' ? ahora : pedido.listo_en,
           en_camino_en: estado === 'en_camino' ? ahora : pedido.en_camino_en,
+          ...(repartidorNuevo ? { repartidor_id: repartidorNuevo } : {}),
         })
         .eq('id', pedidoId)
         .eq('estado', pedido.estado)
@@ -832,11 +907,46 @@ export class PedidosService {
     }
 
     // aviso al cliente por WhatsApp (lo envía n8n; acá solo se dispara el evento)
-    this.notificarWhatsApp(pedido, estado).catch((e) =>
-      this.log.warn(`No se pudo notificar el pedido ${pedidoId}: ${e?.message ?? e}`),
-    );
+    if (opciones.avisar !== false) {
+      this.notificarWhatsApp(pedido, estado).catch((e) =>
+        this.log.warn(`No se pudo notificar el pedido ${pedidoId}: ${e?.message ?? e}`),
+      );
+    }
 
     return { estado, venta };
+  }
+
+  // «¿Se entregó o se cancela?» → «Se entregó» (21/10/2026). Para los envíos
+  // viejos que se entregaron sin que nadie lo marcara (tres pedidos del bot
+  // quedaron días en «Recibido»): si todavía no estaba listo, queda listo sin
+  // avisarle al cliente y se entrega como siempre (venta, caja, stock y, si
+  // falta algo, la ventana de faltantes). Al cliente no le llega ningún
+  // WhatsApp: lo recibió hace días.
+  async seEntrego(pedidoId: string, usuarioId?: string, medioPago?: string) {
+    const { data } = await this.db.from('pedidos').select('id, canal, estado, preparacion_en, preparado_por').eq('id', pedidoId).maybeSingle();
+    const p: any = data;
+    if (!p) throw new BadRequestException('No existe el pedido');
+    if (p.canal !== 'domicilio') throw new BadRequestException('Esto es para los envíos a domicilio');
+    if (['recibido', 'pagado', 'en_preparacion'].includes(p.estado)) {
+      const ahora = new Date().toISOString();
+      const { data: filas, error } = await this.db
+        .from('pedidos')
+        .update({
+          estado: 'listo',
+          listo_en: ahora,
+          preparacion_en: p.preparacion_en ?? ahora,
+          preparado_por: p.preparado_por ?? usuarioId ?? null,
+          ...(usuarioId ? { cambio_por: usuarioId, cambio_en: ahora } : {}),
+        })
+        .eq('id', pedidoId)
+        .eq('estado', p.estado)
+        .select('id');
+      if (error) throw new BadRequestException(error.message);
+      if (!filas?.length) throw new BadRequestException('El pedido cambió de estado mientras tanto: actualizá la pantalla');
+    } else if (!['listo', 'en_camino'].includes(p.estado)) {
+      throw new BadRequestException('El pedido ya está cerrado');
+    }
+    return this.avanzar(pedidoId, 'entregado', usuarioId, medioPago, { avisar: false });
   }
 
   // Lo que falta para entregar el pedido en su sucursal (lo reservado por el
@@ -889,13 +999,10 @@ export class PedidosService {
     const url = process.env.N8N_PEDIDOS_WEBHOOK_URL;
     // la ficha del cliente o el WhatsApp que dejó al comprar sin cuenta (6/10/2026)
     const telefono = pedido.cliente?.telefono || pedido.contacto_telefono;
-    // solo estados que le importan al cliente y solo si tenemos su teléfono
-    const avisables: Record<string, string> = {
-      listo: `Su pedido de O.D.B está listo para retirar.${pedido.qr_retiro ? ` Código: ${pedido.qr_retiro}.` : ''} Lo esperamos en la sucursal Saint Thomas (Castex 3601).`,
-      en_camino: `Su pedido de O.D.B${pedido.qr_retiro ? ` (${pedido.qr_retiro})` : ''} salió y está en camino a su domicilio.`,
-      entregado: `Su pedido de O.D.B${pedido.qr_retiro ? ` (${pedido.qr_retiro})` : ''} fue entregado. Gracias por su compra.`,
-    };
-    if (!telefono || !avisables[estado]) return;
+    // solo estados que le importan al cliente y solo si tenemos su teléfono;
+    // el texto depende del canal (un envío listo no se retira en la sucursal)
+    const mensaje = avisoAlCliente(pedido, estado);
+    if (!telefono || !mensaje) return;
     // Sale por el WhatsApp de la casa (WAHA), igual que los avisos a
     // administración. n8n queda solo si WAHA no está configurado: antes el
     // aviso dependía de un webhook que nadie verificaba.
@@ -904,7 +1011,7 @@ export class PedidosService {
       // (6/10/2026); el resto, por la principal como siempre
       const { data: cot } = await this.db.from('bot_cotizaciones').select('linea').eq('pedido_id', pedido.id).limit(1).maybeSingle();
       const sesion = (cot as any)?.linea ? await new Lineas(this.db).sesion(String((cot as any).linea)) : undefined;
-      const r = await enviarTextoWhatsapp(this.db, String(telefono), avisables[estado], 'aviso-cliente-pedido', sesion);
+      const r = await enviarTextoWhatsapp(this.db, String(telefono), mensaje, 'aviso-cliente-pedido', sesion);
       if (!r.enviado) this.log.warn(`aviso al cliente del pedido ${pedido.id} (${estado}) no salió: ${r.motivo ?? 'sin motivo'}`);
       return;
     }
@@ -919,7 +1026,7 @@ export class PedidosService {
       codigoRetiro: pedido.qr_retiro ?? null,
       canal: pedido.canal,
       resumen: (pedido.items ?? []).map((i: any) => `${i.cantidad}x ${i.producto?.nombre ?? ''}`.trim()).join(', '),
-      mensaje: avisables[estado],
+      mensaje,
     };
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 8000);

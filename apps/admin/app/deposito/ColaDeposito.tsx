@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Aviso, Boton, Etiqueta, FOCO, IconoCerrar, Monto, PlacaRoja, unir, type TonoEtiqueta } from '../ui/kit';
 import { numero, pesos as formatoPesos } from '../lib/formato';
 import { conCodigo } from '../lib/codigo-producto';
+import { textoVisible } from '../lib/texto';
 import { FaltantesAlEntregar, faltaDeStock, type FaltaDeStock } from '../ui/FaltantesAlEntregar';
 
 type Pedido = {
@@ -228,7 +229,7 @@ export function ColaDeposito() {
                                 <span className="min-w-0 break-words text-xs text-tinta/60">{p.sucursal.nombre}</span>
                               )}
                             </div>
-                            {p.notas && <p className="break-words text-xs italic text-tinta/70">{p.notas}</p>}
+                            {textoVisible(p.notas) && <p className="break-words text-xs italic text-tinta/70">{textoVisible(p.notas)}</p>}
                           </div>
                         }
                         acciones={
@@ -259,7 +260,7 @@ export function ColaDeposito() {
                       {p.qr_retiro && (
                         <p className="mt-1 break-all font-mono text-xs text-tinta/60">{p.qr_retiro}</p>
                       )}
-                      {p.notas && <p className="mt-1 break-words text-xs italic text-tinta/70">{p.notas}</p>}
+                      {textoVisible(p.notas) && <p className="mt-1 break-words text-xs italic text-tinta/70">{textoVisible(p.notas)}</p>}
                       <p className="mt-2 break-words text-sm leading-snug text-tinta">{resumenItems(p.items)}</p>
                       <div className="mt-2 flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
                         <div className="flex min-w-0 items-baseline gap-2">

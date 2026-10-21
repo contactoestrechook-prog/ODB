@@ -65,10 +65,10 @@ const GRUPOS: Grupo[] = [
       { href: '/facturacion', label: 'Facturación', icono: 'facturacion' },
       { href: '/deposito', label: 'Depósito', icono: 'deposito' },
       { href: '/recepcion', label: 'Recepción', icono: 'compras' },
-      { href: '/envios', label: 'Envíos', icono: 'envios' },
-      // UN solo módulo de reparto (21/10/2026): Repartidor, Repartidores y Reparto
-      // eran tres entradas; ahora son secciones de Reparto. El repartidor sigue
-      // entrando a su pantalla de entregas, que es lo único que puede abrir.
+      // UN solo módulo de reparto (21/10/2026): Envíos, Repartidor, Repartidores y
+      // Reparto eran cuatro entradas; ahora son secciones de Reparto (Envíos, la
+      // primera). El repartidor sigue entrando a su pantalla de entregas, que es
+      // lo único que puede abrir.
       { href: '/reparto', label: 'Reparto', icono: 'reparto' },
       { href: '/repartidor', label: 'Mis entregas', icono: 'repartidor', soloRoles: ['repartidor'] },
       { href: '/salida', label: 'Salida', icono: 'salida' },
@@ -152,7 +152,6 @@ const TITULOS: Record<string, { titulo: string; bajada: string }> = {
   '/contable': { titulo: 'Contable', bajada: 'El cierre del mes: IVA ventas y compras, percepciones, Ingresos Brutos y los libros en CSV' },
   '/deposito': { titulo: 'Depósito', bajada: 'Pedidos web y PedidosYa: armado, retiro y entrega' },
   '/recepcion': { titulo: 'Recepción', bajada: 'Escaneá lo que baja del camión: el remito se arma con lo que realmente entró' },
-  '/envios': { titulo: 'Envíos a domicilio', bajada: 'Despacho: asigná repartidores y seguí cada entrega en vivo' },
   '/repartidor': { titulo: 'Mis entregas', bajada: 'Tus entregas asignadas y compartir tu ubicación en vivo' },
   '/salida': { titulo: 'Control de salida', bajada: 'Validación de códigos de Comprá Fácil' },
   '/cierres': { titulo: 'Cierres', bajada: 'Cierres de caja por sucursal y diferencias' },
@@ -169,7 +168,7 @@ const TITULOS: Record<string, { titulo: string; bajada: string }> = {
   '/mesa-compras': { titulo: 'Mesa de compras', bajada: 'El costo real de cada compra, con las cuentas hechas por el sistema. El dueño aprueba antes de que se toque un precio.' },
   '/comparador': { titulo: 'Proveedores', bajada: 'Cargá listas, compará precios y decidí dónde conviene comprar cada producto' },
   '/pedidos': { titulo: 'Pedidos', bajada: 'Centro omnicanal: WhatsApp, app, web, PedidosYa, pick-up y domicilio en un solo lugar' },
-  '/reparto': { titulo: 'Reparto', bajada: 'Hojas de ruta, repartidores y entregas en la calle, en un solo lugar' },
+  '/reparto': { titulo: 'Reparto', bajada: 'Envíos a domicilio, hojas de ruta, repartidores y entregas en la calle, en un solo lugar' },
   '/analista': { titulo: 'Analista ODB', bajada: 'El asesor de abastecimiento: quiebres, reposición y oportunidades' },
   '/agente': { titulo: 'Agente IA Operativo', bajada: 'Carga y mantiene el catálogo solo, con autonomía supervisada: audita cada acción y escala a un humano cuando duda' },
   '/cuentas-corrientes': { titulo: 'Cuentas corrientes', bajada: 'La plata en la calle: riesgo, topes y mejores pagadores' },
