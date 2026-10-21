@@ -732,7 +732,8 @@ export const SECCIONES: Seccion[] = [
         tipo: 'pasos',
         titulo: 'En el local',
         pasos: [
-          'Reparto → nueva hoja de ruta. Agregá los clientes que salen en ese viaje.',
+          'Todo el reparto está en un solo lugar del menú, Reparto, con tres secciones: Hojas de ruta, Repartidores (alta de choferes, vehículos y seguros) y Entregas en la calle (lo que ve el repartidor en su celular).',
+          'Reparto › Hojas de ruta → nueva hoja de ruta. Agregá los clientes que salen en ese viaje.',
           'Cada reparto se numera con el día de la semana y el orden de salida, así se identifica sin confusión.',
           '"Salir a la calle" cuando el repartidor arranca.',
         ],
