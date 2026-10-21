@@ -203,4 +203,10 @@ cp /etc/issue.net /etc/issue
 grep -q "^Banner /etc/issue.net" /etc/ssh/sshd_config.d/00-odb-solo-llave.conf || echo "Banner /etc/issue.net" >> /etc/ssh/sshd_config.d/00-odb-solo-llave.conf
 sshd -t && systemctl reload ssh
 
+echo "== correo interno de los informes (AIDE): solo local y sin datos del sistema (A.8.20)"
+if command -v postconf >/dev/null; then
+  postconf -e "inet_interfaces = loopback-only" "smtpd_banner = \$myhostname ESMTP" "disable_vrfy_command = yes"
+  systemctl restart postfix
+fi
+
 echo "listo"
