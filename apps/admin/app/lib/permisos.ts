@@ -21,6 +21,7 @@ const RUTAS_POR_ROL: Record<string, string[]> = {
     '/productos', // catálogo: alta de productos que llegan sin estar cargados
     '/precios', // verificador de precios del salón (equipo de mano con lector)
     '/conteo', // conteos de inventario
+    '/fraccionar', // cargar el pozo y armar (el API ya se lo permite: hereda depósito), 21/10/2026
     '/trazabilidad', // cadena orden → recepción → factura → pago y sus documentos
     '/manual', // el manual lo abre cualquiera
     '/cambiar-clave',
@@ -44,6 +45,7 @@ const RUTAS_POR_ROL: Record<string, string[]> = {
     // cargados, un envío sale con alguien del local y tiene que ver la
     // dirección, el teléfono y qué cobrar). Solo ve los suyos.
     '/repartidor',
+    '/fraccionar', // armar docenas y abrir maples en el local (el API ya se lo permitía), 21/10/2026
     '/manual', // el manual lo abre cualquiera
     '/cambiar-clave',
   ],
@@ -53,6 +55,7 @@ const RUTAS_POR_ROL: Record<string, string[]> = {
     '/recepcion', // recepción de mercadería con lector
     '/stock',
     '/conteo',
+    '/fraccionar', // armar presentaciones y cargar el pozo (con PIN de supervisor arriba del tope), 21/10/2026
     '/precios',
     '/productos',
     '/repartidor', // «Mis entregas»: los envíos que lleva (ver cajero)
@@ -102,22 +105,32 @@ export function puedeVer(rol: string | null | undefined, pathname: string): bool
 
 // El rol viaja en el JWT (cookie odb_token). Acá solo se LEE el payload para
 // decidir qué mostrar; la verificación de firma la hace el API en cada llamada.
-export function datosDesdeToken(token?: string | null): { sub: string | null; rol: string | null; nombre: string | null } {
-  if (!token) return { sub: null, rol: null, nombre: null };
+function payloadDe(token?: string | null): Record<string, unknown> | null {
+  if (!token) return null;
   try {
     const payload = token.split('.')[1];
-    if (!payload) return { sub: null, rol: null, nombre: null };
+    if (!payload) return null;
     const b64 = payload.replace(/-/g, '+').replace(/_/g, '/');
     const json = typeof atob === 'function' ? atob(b64) : Buffer.from(b64, 'base64').toString('utf8');
-    const datos = JSON.parse(decodeURIComponent(escape(json)));
-    return {
-      sub: typeof datos?.sub === 'string' ? datos.sub : null,
-      rol: typeof datos?.rol === 'string' ? datos.rol : null,
-      nombre: typeof datos?.nombre === 'string' ? datos.nombre : null,
-    };
+    return JSON.parse(decodeURIComponent(escape(json)));
   } catch {
-    return { sub: null, rol: null, nombre: null };
+    return null;
   }
+}
+
+export function datosDesdeToken(token?: string | null): { sub: string | null; rol: string | null; nombre: string | null } {
+  const datos = payloadDe(token);
+  return {
+    sub: typeof datos?.sub === 'string' ? datos.sub : null,
+    rol: typeof datos?.rol === 'string' ? datos.rol : null,
+    nombre: typeof datos?.nombre === 'string' ? datos.nombre : null,
+  };
+}
+
+/** La sucursal asignada al usuario (usuarios.sucursal_id), si tiene. */
+export function sucursalDesdeToken(token?: string | null): string | null {
+  const datos = payloadDe(token);
+  return typeof datos?.sucursalId === 'string' && datos.sucursalId ? datos.sucursalId : null;
 }
 
 export function rolDesdeToken(token?: string | null): string | null {
