@@ -898,6 +898,17 @@ export const SECCIONES: Seccion[] = [
       },
       {
         tipo: 'ojo',
+        titulo: 'Lo que el bot no sabe',
+        puntos: [
+          'Si el cliente pregunta algo que el bot no sabe, se lo consulta a administración por WhatsApp ("Consulta de un cliente") y al cliente no le dice nada. Lo que administración contesta citando ese aviso le llega al cliente como respuesta, tal cual.',
+          'A los 20 minutos sin respuesta queda un recordatorio en la campanita.',
+          'A los 30 minutos de horario sin respuesta (y sin que nadie le haya escrito al cliente desde el teléfono o el panel), la consulta pasa sola a una persona: al cliente le llega una sola vez "Te paso con una persona del local.", el bot queda en pausa en esa charla, aparece la charla derivada en la campanita y a administración le llega un WhatsApp "Consulta sin respuesta: pasó a una persona". Desde ahí la atendés vos (RESPONDE o el teléfono) y, al terminar, "Devolver al bot".',
+          'El horario que cuenta es el de la sucursal de donde salen los pedidos (Saint Thomas), con el de cada día. Fuera de horario no se le escribe a nadie: los 30 minutos empiezan a correr cuando abre.',
+          'No pasa con proveedores, con gente de la casa ni con los mensajes que son para alguien de la casa; tampoco si la consulta ya se cerró con "Listo" en la campanita. Si el cliente insiste antes ("¿me responden?") y la consulta ya lleva 30 minutos, pasa a una persona en ese momento.',
+        ],
+      },
+      {
+        tipo: 'ojo',
         puntos: [
           'Todo lo que el bot cotiza sale de la lista de precios del sistema. Si un precio está mal en el sistema, el bot lo va a repetir mal.',
           'Las conversaciones se ven en RESPONDE (menú Clientes): es la app con la línea real de WhatsApp, donde se contesta, se pausa o se devuelve al bot cada charla y se dejan notas y mensajes programados. Las campañas por listas están en Difusiones. Para probar el bot sin escribirle a un cliente está Probar el bot (ojo: los pedidos que confirmes ahí son reales). Ahí se ve también la tarjeta roja que le llegaría al cliente (resumen, precios o pedido) con su epígrafe.',

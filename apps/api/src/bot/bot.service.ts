@@ -66,6 +66,7 @@ import { unirConLoDicho } from '../comun/sin-repetir';
 import { cartelLista, cartelListaPrecios, cartelPedido, imagenEsperada, leerListaDePedido, leerResumenDePedido, MAX_RENGLONES_CARTEL, nombreParaCartel, pieSinPrecios, preciosDeLaRespuesta, ProductoConPrecio } from '../comun/cartel-pedido';
 import { etiquetaDeFila, Lineas, sesionPrincipal } from '../comun/lineas';
 import { cierraLaRafaga, esperaDeRafaga, juntarRafaga, msHastaContestar, type MensajeDeRafaga } from './espera-rafaga';
+import { abiertaAhora, aunNoVence, horarioDeAtencion, type HorarioSucursal, HORAS_REINTENTO_AVISO, impideVencer, MINUTOS_PARA_VENCER, minutosDeHorario } from './vencimiento-consultas';
 
 // pedido mínimo para envío a domicilio (Leandro, 25/9/2026); ENVIO_MINIMO lo cambia sin tocar código
 const envioMinimo = () => Number(process.env.ENVIO_MINIMO ?? 70000) || 70000;
@@ -3831,7 +3832,9 @@ export class BotService {
       || ((k as any)?.telefono_real ? bonitoTelefono((k as any).telefono_real) : bonitoTelefono(telefono));
   }
 
-  async derivarAHumano(linea: string, telefono: string, motivo: string, urgente = false) {
+  // esperandoTexto: lo que muestra la espera de esa charla (21/10/2026: la consulta vencida no
+  // «pidió que lo atienda una persona»: nadie le contestó a tiempo)
+  async derivarAHumano(linea: string, telefono: string, motivo: string, urgente = false, opciones: { esperandoTexto?: string } = {}) {
     // la derivación entra al vigilante de esperas (23/9/2026): antes quedaba en
     // una alerta que nadie leía (147 sin leer) y el cliente esperaba días. El
     // texto del aviso es genérico: el motivo puede traer el detalle de un pedido
@@ -3839,7 +3842,7 @@ export class BotService {
     const { data: previa } = await this.db.from('bot_conversaciones').select('esperando_desde').eq('linea', linea).eq('telefono', telefono).maybeSingle();
     const marca = {
       esperando_desde: (previa as any)?.esperando_desde ?? new Date().toISOString(),
-      esperando_texto: urgente ? '🔔 Urgente: pidió que lo atienda una persona' : '🔔 Pidió que lo atienda una persona',
+      esperando_texto: opciones.esperandoTexto ?? (urgente ? '🔔 Urgente: pidió que lo atienda una persona' : '🔔 Pidió que lo atienda una persona'),
       bot_activo: false,
       derivada_en: new Date().toISOString(),
       derivada_motivo: motivo || 'El cliente pidió hablar con una persona',
@@ -4405,6 +4408,161 @@ export class BotService {
       const { error } = await this.insertarAlerta({ tipo:'consulta', titulo:'Consulta pendiente de atención', detalle:String(c.consulta).slice(0,500), referencia:{consulta_id:c.id,telefono:c.telefono_cliente,area:c.area,recordatorio:true,linea:c.linea ?? principal} });
       if (error) await this.db.from('bot_consultas_internas').update({aviso_recordatorio_en:null}).eq('id',c.id);
     }
+    // A los 30 min de horario sin respuesta, la consulta pasa sola a una persona (21/10/2026)
+    await this.vencerConsultasSinRespuesta(todos, cfgDe).catch((e) => this.log.warn(`vencimiento de consultas: ${e instanceof Error ? e.message : e}`));
+  }
+
+  // LA CONSULTA SIN RESPUESTA PASA SOLA A UNA PERSONA (Leandro, 21/10/2026: «si»; las reglas en
+  // vencimiento-consultas.ts). Administración contestó 2 de 94 consultas del 15 al 21/10 y el
+  // cliente quedaba esperando algo que no llegaba; solo pasaba a una persona si insistía. Ahora,
+  // a los MINUTOS_PARA_VENCER minutos de horario de atención sin respuesta del área (y sin que
+  // nadie de la casa le haya escrito), al cliente le llega UNA vez «Te paso con una persona del
+  // local.», el bot queda en pausa en esa charla y al local le llega la campanita y un WhatsApp
+  // a administración. Corre dentro del vigía de consultas, con las mismas filas que ya leyó.
+  //
+  // UNA SOLA VEZ (aunque corran dos procesos o se reinicie el servidor): la consulta se toma
+  // con un update condicionado (vencida_en is null) ANTES de escribirle al cliente; si el
+  // WhatsApp no sale, se suelta y se reintenta en la próxima vuelta. El aviso a administración
+  // tiene su propia marca (vencida_aviso_en), con la misma regla. Sin las columnas en la base
+  // (db/migracion-vencimiento-consultas.sql sin aplicar) el update falla y no pasa nada.
+  private avisoSinColumnasDeVencimiento = false;
+  private async vencerConsultasSinRespuesta(todas: any[], cfgDe: (l?: string | null) => Promise<any>) {
+    const ahora = Date.now();
+    // 1) los avisos a administración de consultas ya vencidas que no salieron (con un minuto de
+    // margen: la que otro proceso acaba de tomar todavía está mandando el pase al cliente)
+    const sinAviso = todas.filter((x) => x.vencida_en && x.vencida_aviso_en === null
+      && ahora - Date.parse(String(x.vencida_en)) >= 60_000
+      && ahora - Date.parse(String(x.vencida_en)) < HORAS_REINTENTO_AVISO * 3600_000);
+    // 2) las que llegan a su momento: sin respuesta del área, sin marca, del circuito nuevo
+    const pendientes = todas.filter((x) => !x.vencida_en && !x.respuesta_admin && !x.respondido_en
+      && x.gestion_version === 2 && x.enviado_a !== 'banco-de-pruebas'
+      // lo que tiene más de dos días ni se mira (el tope de horario lo deja afuera igual)
+      && ahora - Date.parse(String(x.creado_en)) < 48 * 3600_000);
+    if (!sinAviso.length && !pendientes.length) return;
+    const horario = await this.horarioDelLocal();
+    // el reintento del aviso, también en horario (como el vigilante de esperas: no despierta a nadie)
+    if (abiertaAhora(horario, ahora)) {
+      for (const c of sinAviso.slice(0, 10)) {
+        const cfgC = await cfgDe(c.linea);
+        if (cfgC?.bot_activo) await this.avisarConsultaVencida(c, cfgC);
+      }
+    }
+    const enSuMomento = pendientes.filter((x) => aunNoVence(x, horario, ahora) === null);
+    if (!enSuMomento.length) return;
+    // de la más vieja a la más nueva; una charla pasa a una persona una sola vez (las demás
+    // consultas de esa charla quedan frenadas por la derivación), y de a poco: un puñado de
+    // mensajes por vuelta (WhatsApp corta las ráfagas)
+    const pasadas = new Set<string>();
+    let enviadas = 0;
+    for (const c of [...enSuMomento].sort((a, b) => Date.parse(String(a.creado_en)) - Date.parse(String(b.creado_en))).slice(0, 30)) {
+      const charla = `${c.linea}:${c.telefono_cliente}`;
+      if (pasadas.has(charla) || enviadas >= 10) continue;
+      const cfgC = await cfgDe(c.linea);
+      if (!cfgC?.bot_activo) continue;
+      try {
+        // pasó (o se intentó y no salió): esa charla no se vuelve a tocar en esta vuelta
+        const r = await this.vencerConsulta(c, cfgC, minutosDeHorario(horario, Date.parse(String(c.creado_en)), ahora));
+        if (r) { pasadas.add(charla); enviadas++; }
+      } catch (e: any) {
+        this.log.warn(`no pude pasar a una persona la consulta ${c.id}: ${e?.message ?? e}`);
+      }
+    }
+  }
+
+  /** El horario que cuenta para las consultas: el de la sucursal de los pedidos (ver horarioDeAtencion). */
+  private async horarioDelLocal(): Promise<HorarioSucursal[]> {
+    const leer = async (columnas: string): Promise<any> => await this.db.from('sucursales').select(columnas).eq('activa', true);
+    let r: any = await leer('nombre, pickup, abre, cierra, dias_abierta, horario_por_dia');
+    // sin la columna del horario por día (db/migracion-horario-por-dia.sql), el de siempre
+    if (r?.error) r = await leer('nombre, pickup, abre, cierra, dias_abierta');
+    return horarioDeAtencion(Array.isArray(r?.data) ? r.data : r?.data ? [r.data] : []);
+  }
+
+  /** 'paso': al cliente le llegó el pase; 'fallo': se intentó y el WhatsApp no salió; null: no corresponde. */
+  private async vencerConsulta(c: any, cfgC: any, minutos: number): Promise<'paso' | 'fallo' | null> {
+    const tel = String(c.telefono_cliente);
+    const { data: conv } = await this.db.from('bot_conversaciones')
+      .select('mensajes, bot_activo, derivada_en, derivada_motivo, resuelta_en').eq('linea', c.linea).eq('telefono', tel).maybeSingle();
+    const { data: contacto } = await this.db.from('bot_contactos').select('tipo, es_equipo, etiquetas').eq('telefono', tel).maybeSingle();
+    // ante la duda (la base no contesta), es de la casa: no se le escribe
+    const deLaCasa = await this.esNumeroDelEquipo(tel).catch(() => true);
+    // «Listo» en un aviso de esta consulta: alguien la dio por resuelta
+    const { data: listo } = await this.db.from('alertas_internas').select('id').eq('tipo', 'consulta')
+      .filter('referencia->>consulta_id', 'eq', String(c.id)).not('leida_por', 'is', null).limit(1);
+    const porque = impideVencer({ consulta: c, charla: conv as any, contacto: contacto as any, deLaCasa, cerradaEnLaCampanita: Array.isArray(listo) && listo.length > 0, ahora: Date.now() });
+    if (porque) { this.log.log(`consulta ${c.id} de ${tel} sin respuesta hace ${minutos} min de horario: no pasa a una persona (${porque})`); return null; }
+    // en la línea principal manda el interruptor de RESPONDE («atendés vos»)
+    const destino = tel.length >= 14 ? `${tel}@lid` : tel;
+    if (await this.respondeModoHumano(destino, c.linea).catch(() => false)) return null;
+
+    const vencidaEn = new Date().toISOString();
+    const { data: tomada, error } = await this.db.from('bot_consultas_internas').update({ vencida_en: vencidaEn })
+      .eq('id', c.id).is('vencida_en', null).is('respondido_en', null).is('respuesta_admin', null).select('id');
+    if (error) {
+      if (!this.avisoSinColumnasDeVencimiento) this.log.warn(`no pude marcar el vencimiento de la consulta ${c.id} (¿falta aplicar db/migracion-vencimiento-consultas.sql?): ${error.message ?? error}`);
+      this.avisoSinColumnasDeVencimiento = true;
+      return null;
+    }
+    if (!tomada?.length) return null; // la tomó otro proceso, o el área respondió recién
+
+    // al cliente, por la línea por la que preguntó; si no sale, se suelta la marca y se reintenta
+    const env: any = await this.enviarPorWhatsapp({ to: destino, text: TEXTO.PASA_A_UNA_PERSONA, referencia: `consulta-vencida/${c.id}`, linea: c.linea })
+      .catch(() => ({ enviado: false }));
+    if (env?.enviado !== true) {
+      await this.db.from('bot_consultas_internas').update({ vencida_en: null }).eq('id', c.id).eq('vencida_en', vencidaEn).then(() => null, () => null);
+      this.log.warn(`consulta ${c.id} de ${tel}: «${TEXTO.PASA_A_UNA_PERSONA}» no salió (${env?.motivo ?? 'sin detalle'}); se reintenta en la próxima vuelta`);
+      return 'fallo';
+    }
+    // queda en el hilo y en RESPONDE, como cualquier mensaje del bot
+    const { data: hilo } = await this.db.from('bot_conversaciones').select('mensajes').eq('linea', c.linea).eq('telefono', tel).maybeSingle();
+    const hist: any[] = Array.isArray((hilo as any)?.mensajes) ? (hilo as any).mensajes : [];
+    await this.db.from('bot_conversaciones').upsert({
+      linea: c.linea, telefono: tel,
+      mensajes: [...hist, { role: 'assistant', content: TEXTO.PASA_A_UNA_PERSONA }].slice(-MAX_HISTORIAL),
+      actualizado_en: new Date().toISOString(),
+    }, { onConflict: 'linea,telefono' }).then(() => null, () => null);
+    await this.respondeRegistrar(destino, c.nombre ?? null, '', TEXTO.PASA_A_UNA_PERSONA).catch(() => null);
+    // la derivación de siempre: pausa en la charla (y en RESPONDE), espera y campanita
+    const tema = temaDeConsulta(c.tema);
+    try {
+      await this.derivarAHumano(c.linea, tel,
+        `La consulta${tema ? ` «${tema}»` : ''} lleva ${minutos} min de horario sin respuesta del área: pasó sola a una persona. Preguntó: «${String(c.consulta ?? '').slice(0, 300)}»`,
+        false, { esperandoTexto: `🔔 Su consulta no tuvo respuesta en ${MINUTOS_PARA_VENCER} min: pasó a una persona` });
+    } catch (e: any) {
+      this.log.warn(`consulta ${c.id}: el cliente ya recibió el pase, pero la derivación falló: ${e?.message ?? e}`);
+    }
+    this.log.warn(`consulta ${c.id} de ${tel}: ${minutos} min de horario sin respuesta del área, pasó a una persona`);
+    await this.avisarConsultaVencida(c, cfgC);
+    return 'paso';
+  }
+
+  // El WhatsApp a administración (el mismo teléfono de los pagos, las consultas y los pedidos
+  // confirmados). Se toma con su propia marca; si no sale, se suelta y lo reintenta el vigía.
+  private async avisarConsultaVencida(c: any, cfgC: any): Promise<boolean> {
+    const admin = soloDigitos(String(cfgC?.derivar_pagos_a ?? ''));
+    if (admin.length < 10) { this.log.warn(`consulta ${c.id} vencida: no hay teléfono de administración para avisar (queda la campanita)`); return false; }
+    const marca = new Date().toISOString();
+    const { data: tomada, error } = await this.db.from('bot_consultas_internas').update({ vencida_aviso_en: marca })
+      .eq('id', c.id).is('vencida_aviso_en', null).select('id');
+    if (error || !tomada?.length) return false;
+    const tel = String(c.telefono_cliente);
+    const nombre = c.nombre ?? await this.nombreDeContacto(tel).catch(() => null);
+    const tema = temaDeConsulta(c.tema);
+    const texto = [
+      '⏳ Consulta sin respuesta: pasó a una persona',
+      `De: ${nombre ?? 'sin identificar'} · +${tel}`,
+      await this.renglonDeLinea(c.linea),
+      `Preguntó${tema ? ` (${tema})` : ''}: «${String(c.consulta ?? '').slice(0, 400)}»`,
+      `Nadie la contestó en ${MINUTOS_PARA_VENCER} minutos de horario: al cliente le llegó «${TEXTO.PASA_A_UNA_PERSONA}» y el bot quedó en pausa en esa charla.`,
+      'Contestale vos desde RESPONDE o desde el teléfono de la línea y, cuando termines, devolvé la charla al bot. Este aviso no hace falta responderlo.',
+    ].filter(Boolean).join('\n');
+    const env: any = await this.enviarPorWhatsapp({ to: admin, text: texto, kind: 'aviso-interno' } as any).catch(() => ({ enviado: false }));
+    if (env?.enviado !== true) {
+      await this.db.from('bot_consultas_internas').update({ vencida_aviso_en: null }).eq('id', c.id).eq('vencida_aviso_en', marca).then(() => null, () => null);
+      this.log.warn(`consulta ${c.id} vencida: el WhatsApp a administración no salió; se reintenta en la próxima vuelta`);
+      return false;
+    }
+    return true;
   }
 
   private async guardarAdjuntoPrivado(ruta: string, media: { base64: string; mime: string }): Promise<string> {
