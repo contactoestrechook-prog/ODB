@@ -103,8 +103,12 @@ export class CajaController {
     return this.caja.movimientos(sesionId);
   }
 
-  // el supervisor teclea su PIN en la caja para autorizar descuentos/devoluciones
-  @Roles('cajero', 'gerente', 'dueno')
+  // el supervisor teclea su PIN en la caja para autorizar descuentos/devoluciones.
+  // Depósito también (21/10/2026): los ajustes de stock, el conteo y la carga
+  // del pozo en Fraccionar le piden el PIN de un supervisor arriba del tope, y
+  // sin este permiso el pedido del token le daba 403 y nunca podía hacerlos.
+  // El token solo prueba que un supervisor tecleó su PIN; se consume una vez.
+  @Roles('cajero', 'deposito', 'gerente', 'dueno')
   @Post('caja/autorizar')
   autorizar(@Body() body: { pin: string }) {
     return this.caja.autorizar(body.pin);

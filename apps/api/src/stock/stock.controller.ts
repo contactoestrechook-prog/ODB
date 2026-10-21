@@ -74,15 +74,7 @@ export class StockController {
     return this.stock.registrarAjuste({ ...dto, autorizadoPor }, 'merma', req.usuario?.sub);
   }
 
-  @Get('fraccionables')
-  fraccionables() {
-    return this.stock.fraccionables();
-  }
-
-  @Post('fraccionar')
-  fraccionar(@Body() body: { destinoId: string; cantidad: number; sucursalId: string }, @Req() req: any) {
-    return this.stock.fraccionar(body, req?.usuario?.sub);
-  }
+  // fraccionables / fraccionar: ver fracciones.controller.ts
 
   @Get('motivos-merma')
   motivosMerma() {

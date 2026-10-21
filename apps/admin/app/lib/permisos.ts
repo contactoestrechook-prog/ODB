@@ -49,6 +49,7 @@ const RUTAS_POR_ROL: Record<string, string[]> = {
     '/recepcion', // recepción de mercadería con lector
     '/stock',
     '/conteo',
+    '/fraccionar', // armar presentaciones y cargar el pozo (con PIN de supervisor arriba del tope), 21/10/2026
     '/precios',
     '/productos',
     '/manual', // el manual lo abre cualquiera
