@@ -1,3 +1,8 @@
+'use client';
+
+// Componente del navegador: lleva la pestaña activa a la vista (PestanaALaVista).
+// Sin esta marca, usada desde una página del servidor (Reparto) la pieza del
+// navegador llegaba vacía y la pantalla entera no arrancaba (21/10/2026).
 import Link from 'next/link';
 import type { KeyboardEvent, ReactNode } from 'react';
 import { FOCO_ADENTRO, unir } from './clases';
