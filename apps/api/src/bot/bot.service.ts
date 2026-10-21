@@ -6,7 +6,8 @@ import { esSilenciado, MOTIVO_TELEFONO, minutosPausaTelefono, vencePausaTelefono
 import { agruparItems, cantidadesIndividuales, confirmacionInequivoca, idWhatsappCorto, importesDeHerramienta, importesDelTexto, pesos, presentacionProducto } from './comercio';
 import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import { volumenMl, etiquetaVolumen, pideTamano, resumenDeTamanos, cantidadesPedidas, PALABRA_GENERICA } from './formatos';
-import { emprolijarListado, nombreLimpio, saludoSegunHora, saludarConBienvenida, niegaPercepcion, envioSinCargo, casiIgual, mismasPalabras, campoLimpio, esAlucinacionDeTranscripcion, nombreSucursalCliente, esAutomaticoWhatsappBusiness, sinCocinaInterna, explicaQueNoContesta } from './prolijo';
+import { emprolijarListado, nombreLimpio, saludoSegunHora, saludarConBienvenida, niegaPercepcion, envioSinCargo, casiIgual, mismasPalabras, campoLimpio, esAlucinacionDeTranscripcion, nombreSucursalCliente, esAutomaticoWhatsappBusiness, sinCocinaInterna, explicaQueNoContesta, esTextoInterno } from './prolijo';
+import { aceptaNoContestar, esCierreDeCharla, esperaRespuesta, insiste, loUltimoDeLaCasaEsDeUnaPersona, MINUTOS_CONSULTA_SIN_RESPUESTA, type MotivoDeSilencio, paraElModelo, silencioPorReglas, telefonosDeLaCasa, traeOtroTelefono } from './silencio';
 import { consultaAbiertaQueNombra, datoNuevo, diceQueNoSabe, esSoloSaludo, saludoDelArranque, juntarConsulta, mencionaConsulta, mencionaConsultaSinElPase, mismaConsulta, mismoTema, respuestaDelAreaParaCliente, sinMencionDeConsulta, sinPromesas, temaDeConsulta, temaDeLaPromesa } from './prolijo';
 import * as TEXTO from './textos-fijos';
 import { totalConSuLista } from './candados';
@@ -595,7 +596,7 @@ export class BotService {
     // 2) memoria de conversación (solo texto plano user/assistant, sin bloques internos)
     const { data: conv } = await this.db
       .from('bot_conversaciones')
-      .select('mensajes, bot_activo, derivada_motivo, derivacion_vence_en, atendida_por, acuse_derivacion_en, actualizado_en, importes_verificados')
+      .select('mensajes, bot_activo, derivada_motivo, derivacion_vence_en, atendida_por, acuse_derivacion_en, actualizado_en, importes_verificados, resuelta_en, esperando_desde')
       .eq('linea', linea)
       .eq('telefono', telefono)
       .maybeSingle();
@@ -703,7 +704,12 @@ export class BotService {
     // un ARCHIVO con "gracias" abajo no es un cierre: es un comprobante o una
     // lista, y hay que abrirlo (Belén, 23/9/2026: PDF + "Graciassss" quedó sin leer)
     const traeArchivo = !!(dto.archivoBase64 || dto.archivoUrl);
-    if (!traeArchivo && RE_CIERRE.test(texto.trim())) {
+    // 21/10/2026: también los cierres que se escapaban («Ok, graciasN», «Muy buena!!! Jajaja»,
+    // «Excelente buenísimo!! Nos vemos☺️», «Hola!!! Ok»): iban al modelo, volvía vacío y se
+    // abría una consulta falsa a administración. Solo sin una pregunta del bot pendiente, y
+    // nunca un «sí»/«ok» solo (esos los mira el modelo, como siempre).
+    const esCierre = RE_CIERRE.test(texto.trim()) || (!botDejoPregunta && !RE_SI_NO.test(texto.trim()) && esCierreDeCharla(texto));
+    if (!traeArchivo && esCierre) {
       // "sí" / "dale" / "ok" CONTESTAN una pregunta del bot: esos pasan. Los demás
       // cierres, y cualquier cierre sin pregunta pendiente, no se responden.
       // 9/10/2026: al «¿Lo confirmo?», «Perfecto», «👍», «Dale gracias» o «Joya» son un sí
@@ -948,6 +954,22 @@ export class BotService {
       };
       estado.push(`Consultas internas abiertas, ya en manos de administración (al cliente NO le menciones nada de eso: ni que está pendiente, ni que consultás, ni que le vas a confirmar; no las vuelvas a consultar; si suma un dato sobre una, consultar_interno con ese MISMO tema y se le agrega; si su mensaje es solo sobre eso, no escribas nada: la respuesta le llega cuando conteste el área): ${consultasAbiertas.slice(0, 5).map((c) => `«${deQueTrata(c)}»`).join(', ')}`);
     }
+    // LO QUE ESCRIBIÓ UNA PERSONA DESDE EL TELÉFONO (21/10/2026). Queda en el hilo como mensaje
+    // de la casa y el modelo no sabía que no era suyo: con la regla del 16/10 («si contesta lo
+    // que le mandó una persona desde el teléfono, no escribas nada») callaba a ciegas, y desde
+    // que el bot vuelve solo a los 30 min (3ee09f9) eso pasaba en las charlas que lleva Jaqueline.
+    // Ahora el estado se lo dice; desde el 21/10 lo tecleado lleva la marca de: 'telefono', y
+    // para lo de antes valen los rótulos de archivo y el «el bot volvió solo» recién vencido.
+    const dichoPorUnaPersona = loUltimoDeLaCasaEsDeUnaPersona(historial);
+    const resueltaEn = Date.parse(String((conv as any)?.resuelta_en ?? ''));
+    const volvioSoloRecien = /volvi[oó] solo/i.test(String(conv?.derivada_motivo ?? '')) && Number.isFinite(resueltaEn)
+      && Date.now() - resueltaEn < 6 * 3600_000 && !(Date.parse(String(conv?.actualizado_en ?? '')) > resueltaEn);
+    const siguePersona = dichoPorUnaPersona.length > 0 || volvioSoloRecien;
+    if (tipoLinea === 'pedidos' && siguePersona) {
+      estado.push(dichoPorUnaPersona.length
+        ? `lo último de la casa en esta charla lo escribió una persona desde el teléfono, no vos: ${dichoPorUnaPersona.slice(-3).map((m) => `«${String(m.content).slice(0, 120)}»`).join(', ')}. Si este mensaje le contesta a esa persona o sigue lo que hablaban y no le pide nada nuevo a la casa, no_contestar (para_la_casa); si pide algo (un pedido, un precio, un producto), lo atendés vos`
+        : 'hasta hace un rato esta charla la llevaba una persona desde el teléfono (el bot volvió solo): si este mensaje sigue lo que hablaban y no le pide nada nuevo a la casa, no_contestar (para_la_casa); si pide algo (un pedido, un precio, un producto), lo atendés vos');
+    }
     const contenidoDelTurno = (t: string): any => (bloquesPendientes.length
       ? [
           ...bloquesPendientes,
@@ -1019,8 +1041,8 @@ export class BotService {
       // caché: el turno siguiente lee de ahí para atrás (una copia: el historial
       // que se guarda no cambia)
       ...(hiloEstable && ultimoDelHilo && typeof ultimoDelHilo.content === 'string' && ultimoDelHilo.content.trim()
-        ? [...historial.slice(0, -1), { role: ultimoDelHilo.role, content: [{ type: 'text' as const, text: ultimoDelHilo.content, cache_control: { type: 'ephemeral' as const } }] }]
-        : historial),
+        ? [...paraElModelo(historial.slice(0, -1)), { role: ultimoDelHilo.role, content: [{ type: 'text' as const, text: ultimoDelHilo.content, cache_control: { type: 'ephemeral' as const } }] }]
+        : paraElModelo(historial)),
       { role: 'user', content: contenidoDelTurno(`${texto}\n\n[metadatos: telefono del chat = ${telefono}${quien}; ahora es ${ahoraBA} (hora de Buenos Aires)${yaSaludo ? '' : `; primer mensaje de la charla: saludá solo con "${saludo}." y andá directo a lo que pidió (sin bienvenida ni presentación)`}${estado.length ? `. Estado de la charla: ${estado.join(' · ')}` : ''}${bloquesPendientes.length ? `. OJO: el cliente mandó ${bloquesPendientes.length} archivo(s) ANTES (cuando no se podían abrir) y ahora los tenés adjuntos en este turno: leelos y usalos para responder; NO preguntes nada que esos archivos ya respondan` : ''}${imagenDelTurno ? (dto.vistaPreviaDeVideo ? '. El cliente mandó un VIDEO y lo que ves es su vista previa (el primer cuadro). Usá la vista previa para entender el requerimiento, sin describir la imagen. Si falta un dato, ejecutá consultar_interno (area administracion) y al cliente no le digas nada de eso: si no hay otra cosa que contestar, no escribas nada. Jamás digas que no podés ver videos' : '. El cliente mandó una FOTO: usala como información para resolver su requerimiento. NO describas la imagen, no enumeres lo visible, no digas "veo dos botellas" ni "recibí la foto". La cantidad visible NO es cantidad pedida. Respondé directamente al pedido del texto o del historial. Si falta intención, una sola pregunta concreta. Si es un producto, buscalo en el catálogo por lo que leas en la etiqueta; si es un comprobante de pago, leé el MONTO y el NOMBRE o razón social del titular que transfirió, y llamá derivar_pago con tipo "comprobante_enviado", ese monto y de_quien; si no se entiende, pedí que la saque de nuevo más nítida') : documentoDelTurno ? '. El cliente mandó un PDF: usalo para resolver su requerimiento, sin resumir el archivo salvo que lo pida. Si pregunta por productos de una lista, contestá con los del catálogo nuestro; si es un comprobante de pago, leé el MONTO y el NOMBRE o razón social del titular que transfirió, y llamá derivar_pago con tipo "comprobante_enviado", ese monto y de_quien; si no se puede leer, pedí que lo reenvíe' : ''}]`) },
     ];
 
@@ -1033,7 +1055,9 @@ export class BotService {
     // una herramienta puede fijar la respuesta del turno ("Recibido." ante un comprobante).
     // pagoEnAdministracion: derivar_pago dejó en administración una consulta o un
     // reclamo de pago; si no queda nada más que decir, va «Recibido.» (6/10/2026)
-    const respuestaFija: { texto?: string; consultaPendiente?: boolean; operacion?: boolean; derivada?: boolean; pagoEnAdministracion?: boolean } = {};
+    // silencio: el turno no se contesta, y lo decidió no_contestar (aceptada por el código) o
+    // las reglas de silencio.ts (21/10/2026); nunca una respuesta vacía del modelo por sí sola
+    const respuestaFija: { texto?: string; consultaPendiente?: boolean; operacion?: boolean; derivada?: boolean; pagoEnAdministracion?: boolean; silencio?: { motivo: MotivoDeSilencio; paraQuien?: string; resumen?: string; porReglas?: boolean } } = {};
     // el modelo dio otro teléfono o el candado tapó un archivo: lo que no sabía se
     // consulta en silencio en la red de respaldo (6/10/2026)
     let consultarEnSilencio = false;
@@ -1078,7 +1102,9 @@ export class BotService {
     let vueltasReintento = 0;
     // lo que necesita cada herramienta del turno (el bucle, las correcciones y la
     // reescritura tras una consulta usan el mismo)
-    const ctxHerr: { cotizacion?: any } & Record<string, any> = { charlaViva, convActualizadoEn: conv?.actualizado_en ? String(conv.actualizado_en) : undefined, ultimoBot: ultimoDelBot, ultimosBot: ultimosDelBot, ultimosCliente: ultimosDelCliente, textoCliente: texto, fallos: fallosDelTurno, archivoUrl: dto.archivoUrl, fija: respuestaFija, salidas: salidasDelTurno, archivo: archivoDelTurno, historial, cotizacion: undefined };
+    const ctxHerr: { cotizacion?: any } & Record<string, any> = { charlaViva, convActualizadoEn: conv?.actualizado_en ? String(conv.actualizado_en) : undefined, ultimoBot: ultimoDelBot, ultimosBot: ultimosDelBot, ultimosCliente: ultimosDelCliente, textoCliente: texto, fallos: fallosDelTurno, archivoUrl: dto.archivoUrl, fija: respuestaFija, salidas: salidasDelTurno, archivo: archivoDelTurno, historial, cotizacion: undefined,
+      // no_contestar lo acepta siempre ante un proveedor (también el que se registró en este turno)
+      esProveedor: () => esProveedor || herramientasDelTurno.has('registrar_proveedor') };
     const ejecutarEnElTurno = (b: Anthropic.ToolUseBlock) => { herramientasDelTurno.add(b.name); return this.ejecutarHerramienta(b, telefono, linea, ctxHerr); };
     // tras una consulta el modelo siguió pidiendo herramientas: la vuelta que sigue
     // no puede usarlas y tiene que escribir (6/10/2026, ver más abajo)
@@ -1182,6 +1208,8 @@ export class BotService {
           if (block.name === 'consultar_interno') consultasDelTurno.push({ consulta: String((block.input as any)?.consulta ?? ''), tema: temaDeConsulta((block.input as any)?.tema) });
         }
         messages.push({ role: 'user', content: resultados });
+        // no_contestar aceptada (21/10/2026): el turno termina acá, sin pedirle más texto
+        if (respuestaFija.silencio) break;
         // tras consultar_interno el modelo SIGUE una vuelta más para contestar lo
         // que sí sabe (23/9/2026); si insiste con herramientas, se corta ahí
         if (respuestaFija.operacion) break;
@@ -1244,6 +1272,28 @@ export class BotService {
       || /\b(?:a nombre de|me llamo|mi nombre es)\b/i.test(textoDelCliente) || /\b[Ss]oy [A-ZÁÉÍÓÚÑ][a-záéíóúñ]+/.test(textoDelCliente)
       || /\b(?:retir\w*|(?:paso|pasar|pasamos|pasan|voy|vamos) a buscar|buscarl[oa]s?|env[ií](?:o|os|a|ar|alo|amelo|en)\b|domicilio|direcci[oó]n|delivery)/i.test(textoDelCliente);
     const conArchivo = !!(imagenDelTurno || documentoDelTurno);
+    // LO INTERNO SE RECORTA APENAS ESCRIBE (21/10/2026). Antes la barrera estaba al final, solo en
+    // los turnos sin consulta, y si no reconocía la explicación salía «Disculpe, ¿me repite su
+    // consulta?» (4 veces del 18 al 21/10: a un «Bueno, gracias!!», a dos proveedores y a la
+    // clienta del lote 112). Ahora: si el modelo explica que no contesta, o todo lo que escribió
+    // era cocina interna, es que para el cliente no escribió nada; lo que sigue lo deciden las
+    // reglas de silencio.ts (para la casa, un cierre, o pedirle la respuesta otra vez).
+    let decidioNoContestar = false;
+    if (respuestaFija.silencio) respuesta = '';
+    else if (respuesta && !respuestaFija.texto) {
+      const r = this.recortarLoInterno(respuesta);
+      if (r.texto !== respuesta.trim()) this.log.warn(`texto interno en la respuesta para ${telefono}: se recorta${r.noContesta ? ' (para el cliente no escribió nada)' : ''}`);
+      respuesta = r.texto;
+      decidioNoContestar = r.noContesta;
+    }
+    // las señales de que el mensaje es para alguien de la casa (silencio.ts)
+    const senalesDeLaCasa = () => ({
+      esProveedor: esProveedor || herramientasDelTurno.has('registrar_proveedor'),
+      siguePersona,
+      anotoEnElTurno: herramientasDelTurno.has('nota_interna') || herramientasDelTurno.has('registrar_proveedor'),
+      conArchivo,
+      botDejoPregunta,
+    });
     // LO QUE SE LE PIDIÓ CALLAR NO SE FUERZA (6/10/2026, revisión). El estado de
     // la charla le dice al modelo que, si el cliente pregunta solo por una consulta
     // ya abierta, no escriba nada; y derivar_pago, que ante un pago en manos de
@@ -1255,7 +1305,7 @@ export class BotService {
     // consulta abierta que el cliente nombra (o sin nada propio), es esa consulta
     // (va al armado silencioso); con un pago en manos de administración, la
     // respuesta queda vacía y el armado final pone «Recibido.».
-    if (!respuesta && !respuestaFija.consultaPendiente && !respuestaFija.operacion && !respuestaFija.pagoEnAdministracion && consultasAbiertas.length) {
+    if (!respuesta && !decidioNoContestar && !respuestaFija.silencio && !respuestaFija.consultaPendiente && !respuestaFija.operacion && !respuestaFija.pagoEnAdministracion && consultasAbiertas.length) {
       // sin herramientas ni nada más en el mensaje («¿Saben algo?») también es la
       // abierta; si pide una persona o reclama plata, no: eso lo derivan las guardas
       const nombrada = consultaAbiertaQueNombra({ textoCliente: textoDelCliente, conArchivo, prometio: true }, consultasAbiertas)
@@ -1273,7 +1323,21 @@ export class BotService {
     // (un rechazo de seguridad no se vuelve a pedir: se rechaza igual y se paga; va
     // a la consulta silenciosa de la red de respaldo, 6/10/2026)
     // (si ya hay un texto fijo de herramienta, ese gana: no se paga otra vuelta, 10/10/2026)
-    if (!respuesta && !calloPorPago && !rechazado && !respuestaFija.texto) {
+    // UNA RESPUESTA VACÍA NO ES «NO SÉ» (21/10/2026). Del 15 al 21/10, 58 turnos vacíos se
+    // tomaron como algo que el bot no sabía: consulta a administración con el texto crudo
+    // (65 consultas sin tema en la semana, 2 contestadas) y nada al cliente. Eran, sobre todo,
+    // mensajes para Jaqueline (62 de 108) y cierres («Ok, graciasN», «Nos vemos☺️»: 15).
+    // Ahora, primero las reglas: si es para la casa o un cierre, silencio sin consulta y sin
+    // otra vuelta; si no, UNA vuelta más pidiéndole la respuesta al cliente; y solo si sigue
+    // vacía y el cliente espera algo (esperaRespuesta), la consulta silenciosa de siempre.
+    if (!respuesta && !calloPorPago && !rechazado && !respuestaFija.texto && !respuestaFija.silencio && tipoLinea === 'pedidos') {
+      const motivo = silencioPorReglas(textoDelCliente, { ...senalesDeLaCasa(), decidioNoContestar });
+      if (motivo) {
+        respuestaFija.silencio = { motivo, porReglas: true };
+        this.log.log(`silencio por reglas (${motivo}) para ${telefono}: el modelo no escribió nada para el cliente y no se le pide otra vuelta`);
+      }
+    }
+    if (!respuesta && !calloPorPago && !rechazado && !respuestaFija.texto && !respuestaFija.silencio) {
       // Ronda 9: "Disculpe, no pude procesar su mensaje" a "¿qué pedidos tengo?" —
       // el loop terminó sin texto (tope de vueltas o el modelo se quedó en
       // herramientas). Una vuelta más sin herramientas para que conteste con lo
@@ -1281,17 +1345,17 @@ export class BotService {
       try {
         // 6/10/2026 (revisión): sin «decilo con claridad y qué sigue», que pedía
         // justamente el anuncio; lo que no sabe va con la frase fija que consulta en silencio
-        messages.push({ role: 'user', content: '[nota interna: ya no hay más herramientas disponibles en este turno. Con la información que tenés (resultados anteriores e historial), contestale al cliente ahora, en texto, de forma completa y concreta. Si un dato no lo tenés, escribí en su línea solo «No tengo ese dato.» (el sistema lo consulta con administración y esa frase no le llega al cliente). Nunca digas que lo consultás, que lo confirma alguien ni que le vas a avisar.]' });
+        // 21/10/2026: si había decidido no contestar y las reglas dicen que es un cliente, se lo dice
+        messages.push({ role: 'user', content: `[nota interna: ${decidioNoContestar ? 'este mensaje es de un cliente que espera respuesta: aunque le hable por su nombre a alguien de la casa, lo atendés vos (si saluda a una persona, aclarás una sola vez que atiende Emilia). ' : ''}ya no hay más herramientas disponibles en este turno. Con la información que tenés (resultados anteriores e historial), contestale al cliente ahora, en texto, de forma completa y concreta. Si un dato no lo tenés, escribí en su línea solo «No tengo ese dato.» (el sistema lo consulta con administración y esa frase no le llega al cliente). Nunca digas que lo consultás, que lo confirma alguien ni que le vas a avisar.]` });
         const tFin = await this.regenerar(system, messages, tools, sumarUso);
         if (tFin) respuesta = tFin;
       } catch (e: any) { this.log.warn(`cierre sin herramientas falló: ${e?.message ?? e}`); }
     }
-    // SIGUE VACÍA: SE CONSULTA EN SILENCIO (10/10/2026). Antes salía «Disculpe, no pude
-    // procesar su mensaje. ¿Me lo repite?», que no contestaba nada y no le avisaba a nadie.
-    // Ahora es como un rechazo: la red de respaldo lo consulta con administración y al
-    // cliente no le sale nada en este turno.
-    if (!respuesta && !calloPorPago && !rechazado && !respuestaFija.texto) {
-      this.log.warn(`el modelo no escribió nada para ${telefono} tras la vuelta sin herramientas: se consulta en silencio`);
+    // SIGUE VACÍA: SE CONSULTA EN SILENCIO (10/10/2026), si el cliente espera algo (21/10/2026,
+    // esperaRespuesta en la red de respaldo). Antes salía «Disculpe, no pude procesar su
+    // mensaje. ¿Me lo repite?», que no contestaba nada y no le avisaba a nadie.
+    if (!respuesta && !calloPorPago && !rechazado && !respuestaFija.texto && !respuestaFija.silencio) {
+      this.log.warn(`el modelo no escribió nada para ${telefono} tras la vuelta sin herramientas: se consulta en silencio si el cliente espera algo`);
       sinRespuesta = true;
     }
 
@@ -1311,16 +1375,16 @@ export class BotService {
     // Última barrera: nada de cocina interna le llega al cliente. Se quitan
     // líneas entre corchetes y, si aun así hay marcas internas, se recorta desde
     // la última aparición de "Reformulo…:" / ":" o se cae al mensaje anterior.
-    respuesta = respuesta.split('\n').filter((l) => !/^\s*\[.*\]\s*$/.test(l)).join('\n').trim();
-    if (this.tieneMeta(respuesta)) {
-      this.log.warn(`texto interno en la respuesta final para ${telefono}: se recorta`);
-      const limpio = this.sinCocinaInterna(respuesta);
-      // decidió no contestar y lo explicó (16/10/2026): no sale nada
-      if (explicaQueNoContesta(respuesta)) respuesta = '';
-      else if (limpio.length >= 30 && !this.tieneMeta(limpio)) respuesta = limpio;
-      else {
-        const m = respuesta.match(/(?:reformul\w*|reescrib\w*)[^:]{0,60}:\s*([\s\S]+)$/i);
-        respuesta = (m && m[1] && !this.tieneMeta(m[1]) ? m[1].trim() : '') || 'Disculpe, ¿me repite su consulta?';
+    // (21/10/2026: el recorte es el mismo de arriba, recortarLoInterno, y nunca termina en
+    // «Disculpe, ¿me repite su consulta?»: si no queda nada para el cliente, deciden las reglas)
+    if (respuesta) {
+      const r = this.recortarLoInterno(respuesta);
+      if (r.texto !== respuesta.trim()) this.log.warn(`texto interno en la respuesta final para ${telefono}: se recorta`);
+      respuesta = r.texto;
+      if (!respuesta) {
+        const motivo = tipoLinea === 'pedidos' ? silencioPorReglas(textoDelCliente, { ...senalesDeLaCasa(), decidioNoContestar: r.noContesta }) : null;
+        if (motivo) respuestaFija.silencio = { motivo, porReglas: true };
+        else sinRespuesta = true;
       }
     }
 
@@ -1459,9 +1523,12 @@ export class BotService {
     // silencio (red de respaldo, abajo) y al cliente no se le anuncia.
     // (10/10/2026, revisión de la tanda 1) renglón por renglón: los renglones «• » no terminan en
     // punto, y cortar por oraciones se llevaba la lista entera de arriba junto con el teléfono
-    const RE_OTRO_TEL = /\b(?:11|15)\s?\d{4}[\s-]?\d{4}\b/;
-    if (RE_OTRO_TEL.test(respuesta)) {
-      respuesta = sinOraciones(respuesta, (o) => RE_OTRO_TEL.test(o));
+    // (21/10/2026) salvo los que da la casa misma: el contacto de Fruit (regla del 12/10, en el
+    // prompt) o un teléfono de la información vigente. El 17/10 «¿Tendrás el contacto de odb
+    // fruit?» quedó sin respuesta: el candado borró la oración y se consultó en silencio.
+    const telefonosPermitidos = telefonosDeLaCasa(SYSTEM_PEDIDOS, infoVigente);
+    if (traeOtroTelefono(respuesta, telefonosPermitidos)) {
+      respuesta = sinOraciones(respuesta, (o) => traeOtroTelefono(o, telefonosPermitidos));
       consultarEnSilencio = true;
       this.log.warn(`el bot dio un teléfono al cliente (${telefono}): oración sacada, se consulta en silencio`);
     }
@@ -1767,11 +1834,45 @@ export class BotService {
       // escribió nada o repitió el mensaje anterior (10/10/2026), salvo que el cliente
       // solo haya dicho «ok» o «gracias» sin que el bot le haya preguntado nada: un «ok» a
       // «¿Está completo el pedido…?» contesta la pregunta y no puede quedar colgado.
-      const porRechazo = (rechazado || (sinRespuesta && !(esAcuse(textoDelCliente) && !botDejoPregunta))) && !derivoEnElTurno();
+      // 21/10/2026: «espera algo» lo dice esperaRespuesta (silencio.ts): un «gracias» o un «nos
+      // vemos» no, un «ok» o un «sí» solo si contestan una pregunta del bot
+      const porRechazo = (rechazado || (sinRespuesta && !respuestaFija.silencio && !(esAcuse(textoDelCliente) && !botDejoPregunta)
+        && esperaRespuesta(textoDelCliente, { botDejoPregunta, conArchivo }))) && !derivoEnElTurno();
       if (importeSinFuente || menciona || consultarEnSilencio || porRechazo) {
         await consultarLoQueNoSabia(menciona, importeSinFuente);
         // lo que trae el importe sin fuente no sale (armarConConsulta saca esas oraciones)
         if (respuestaFija.consultaPendiente) respuesta = await armarConConsulta(respuesta);
+      }
+    }
+
+    // EL SILENCIO DECIDIDO (21/10/2026): no sale nada, salvo un texto fijo de una operación o una
+    // derivación del turno (eso sí le tiene que llegar). Si es para la casa, queda la nota para
+    // esa persona (si el modelo no la dejó ya) y la charla queda esperando (abajo), como en la pausa.
+    if (respuestaFija.silencio && (respuestaFija.texto || respuestaFija.operacion || derivoEnElTurno())) respuestaFija.silencio = undefined;
+    const silencio = respuestaFija.silencio;
+    if (silencio) {
+      respuesta = '';
+      if (silencio.motivo === 'para_la_casa' && !herramientasDelTurno.has('nota_interna') && !herramientasDelTurno.has('registrar_proveedor')) {
+        const para = silencio.paraQuien ? `para ${silencio.paraQuien}` : 'para la casa';
+        await this.db.from('bot_notas_equipo').insert({ linea, telefono, nota: `[${para}] ${(silencio.resumen || textoDelCliente || texto).slice(0, 280)}` }).then(() => null, () => null);
+      }
+    }
+
+    // LA INSISTENCIA NO SE CALLA (21/10/2026). «¿Puede por favor responderme?» con la consulta
+    // de la cera abierta desde hacía dos horas: la consulta silenciosa la volvió a callar y nadie
+    // contestó (administración respondió 2 de 94 consultas del 15 al 21/10). Si el cliente insiste
+    // y la consulta lleva más de MINUTOS_CONSULTA_SIN_RESPUESTA sin respuesta, pasa a una persona:
+    // al cliente le llega la frase fija de la derivación, sin nombrar la consulta.
+    if (!respuesta && !silencio && tipoLinea === 'pedidos' && !derivoEnElTurno() && insiste(textoDelCliente)) {
+      const vieja = consultasAbiertas.find((c: any) => Date.now() - Date.parse(String(c.creado_en ?? '')) >= MINUTOS_CONSULTA_SIN_RESPUESTA * 60_000);
+      if (vieja) {
+        try {
+          const minutos = Math.round((Date.now() - Date.parse(String(vieja.creado_en))) / 60_000);
+          await this.derivarAHumano(linea, telefono, `El cliente insiste y la consulta${temaDeConsulta(vieja.tema) ? ` «${temaDeConsulta(vieja.tema)}»` : ''} sigue sin respuesta hace ${minutos} min: «${texto.slice(0, 200)}»`, false);
+          respuestaFija.derivada = true;
+          respuesta = TEXTO.PASA_A_UNA_PERSONA;
+          this.log.warn(`${telefono} insiste y la consulta ${vieja.id} lleva ${minutos} min sin respuesta: pasa a una persona`);
+        } catch (e: any) { this.log.warn(`no pude pasar a una persona a ${telefono}: ${e?.message ?? e}`); }
       }
     }
 
@@ -1858,7 +1959,10 @@ export class BotService {
       actualizado_en: new Date().toISOString(),
       // La cola de consultas tiene seguimiento propio; no borrar la espera al callar.
       // si en el turno se consultó o se derivó, el cliente sigue esperando a una persona
-      ...(respuestaFija.consultaPendiente || respuestaFija.derivada ? {} : { esperando_desde: null, esperando_texto: null, esperando_aviso_en: null, esperando_avisos: 0 }),
+      // 21/10/2026: un mensaje para alguien de la casa espera a esa persona (como en la pausa)
+      ...(respuestaFija.consultaPendiente || respuestaFija.derivada ? {}
+        : silencio?.motivo === 'para_la_casa' ? { esperando_desde: (conv as any)?.esperando_desde ?? new Date().toISOString(), esperando_texto: (texto + marcaAdjunto).slice(0, 300) }
+        : { esperando_desde: null, esperando_texto: null, esperando_aviso_en: null, esperando_avisos: 0 }),
     });
     // la tarifa vive en tarifas.ts (la misma que usa el banco de pruebas). Al final
     // de la línea van la caché de 1 hora (si hubo) y el modelo, para medir el cambio
@@ -1887,7 +1991,7 @@ export class BotService {
     }
     // sin nada para el cliente (consulta silenciosa, 6/10/2026): no sale ningún mensaje
     return !respuesta
-      ? { respuesta: null, silencio: true, motivo: respuestaFija.consultaPendiente ? 'consulta interna pendiente: al cliente no se le dice nada' : 'nada para decirle al cliente' } as any
+      ? { respuesta: null, silencio: true, motivo: silencio ? `no se contesta (${silencio.motivo})` : respuestaFija.consultaPendiente ? 'consulta interna pendiente: al cliente no se le dice nada' : 'nada para decirle al cliente' } as any
       : { respuesta, catalogo, sinStock: sinStockVistos };
   }
 
@@ -1940,8 +2044,30 @@ export class BotService {
   // pegado al mensaje ("No corresponde nota interna acá… Reformulo sin esa
   // promesa: Perfecto, …"). Regla: al cliente le llega SOLO el mensaje final.
   // Si un texto trae marcas de cocina interna, se descarta y se usa el anterior.
+  // 21/10/2026: las frases viven en prolijo.ts (esTextoInterno), acotadas a la narración: «al
+  // cliente» o «este mensaje es…» solos cortaban respuestas de verdad
   private tieneMeta(t: string): boolean {
-    return /(nota interna|reformul|reescrib|no hay nada nuevo para sumar|retom[aá]s vos|sin prometer plazos|lo anterior;|\btextual\s*:|mi (último|ultimo) mensaje|no corresponde (nota|derivar|anotar)|promesa (de plazo|pendiente|vac[ií]a)|el cliente (pregunt|dijo|pidi)|\b(al|del) cliente\b|le escribe a\b|le dej[eé] (una )?nota|nota (al|para el) equipo|este mensaje (no|es|va)\b|no lleva respuesta|la herramienta|herramienta (nota_interna|derivar|cotizar|crear_pedido|buscar_productos)|\[nota|^\s*\[)/i.test(t);
+    return esTextoInterno(t) || explicaQueNoContesta(t);
+  }
+  /**
+   * La última barrera (21/10/2026), una sola para todo el turno. Se van los renglones entre
+   * corchetes y lo interno; si el modelo explica que no contesta, o no queda nada para el
+   * cliente, devuelve '' con noContesta (para el cliente no escribió nada: deciden las reglas
+   * de silencio.ts). Nunca devuelve «Disculpe, ¿me repite su consulta?».
+   */
+  private recortarLoInterno(t: string): { texto: string; noContesta: boolean } {
+    const r = String(t ?? '').split('\n').filter((l) => !/^\s*\[.*\]\s*$/.test(l)).join('\n').trim();
+    if (!r) return { texto: '', noContesta: false };
+    if (explicaQueNoContesta(r)) return { texto: '', noContesta: true };
+    if (!this.tieneMeta(r)) return { texto: r, noContesta: false };
+    const limpio = this.sinCocinaInterna(r);
+    if (limpio.length >= 30 && !this.tieneMeta(limpio)) return { texto: limpio, noContesta: false };
+    const m = r.match(/(?:reformul\w*|reescrib\w*)[^:]{0,60}:\s*([\s\S]+)$/i);
+    if (m && m[1] && !this.tieneMeta(m[1])) return { texto: m[1].trim(), noContesta: false };
+    // oración por oración: se va la narración y queda lo que es para el cliente, si alcanza
+    const resto = sinOraciones(limpio, (o) => this.tieneMeta(o)).trim();
+    if (resto.length >= 20 && !this.tieneMeta(resto)) return { texto: resto, noContesta: false };
+    return { texto: '', noContesta: true };
   }
   // Antes de descartar todo el mensaje: los paréntesis/corchetes con cocina
   // interna se recortan ((textual: "…"), [nota interna: …]) y el resto se salva.
@@ -2146,7 +2272,7 @@ export class BotService {
     block: Anthropic.ToolUseBlock,
     telefono: string,
     linea: string = 'pedidos', // todos los llamados del servicio pasan la línea del turno
-    ctx: { ultimoBot?: string; ultimosBot?: string[]; ultimosCliente?: string[]; textoCliente?: string; fallos?: Map<string, number>; archivoUrl?: string; fija?: { texto?: string; consultaPendiente?: boolean; operacion?: boolean; derivada?: boolean; datosPago?: string; pagoEnAdministracion?: boolean }; salidas?: string[]; archivo?: ArchivoDelTurno; historial?: MensajeDeCharla[]; cotizacion?: any; charlaViva?: boolean; convActualizadoEn?: string } = {},
+    ctx: { ultimoBot?: string; ultimosBot?: string[]; ultimosCliente?: string[]; textoCliente?: string; fallos?: Map<string, number>; archivoUrl?: string; fija?: { texto?: string; consultaPendiente?: boolean; operacion?: boolean; derivada?: boolean; datosPago?: string; pagoEnAdministracion?: boolean; silencio?: { motivo: MotivoDeSilencio; paraQuien?: string; resumen?: string; porReglas?: boolean } }; salidas?: string[]; archivo?: ArchivoDelTurno; historial?: MensajeDeCharla[]; cotizacion?: any; charlaViva?: boolean; convActualizadoEn?: string; esProveedor?: () => boolean } = {},
   ): Promise<Anthropic.ToolResultBlockParam> {
     const input: any = block.input;
     const skusVistosEnTurno = this.skusDe(telefono);
@@ -2464,6 +2590,22 @@ export class BotService {
             await this.insertarAlerta({ para_usuario: cfg?.avisar_proveedores_a ?? null, tipo: 'nota_bot', titulo: `Consulta de +${telefono}`, detalle: nota, referencia: { linea, telefono } });
           }
           out = { ok: !!nota, guardada: !!nota, aviso: nota ? 'Nota registrada para el equipo. Al cliente no le digas que quedó anotada, que avisaste ni que el equipo lo va a ver: vos seguís atendiendo lo suyo. Si el cliente espera un dato que no tenés, la nota no alcanza: llamá consultar_interno (area administracion) y al cliente no le digas nada de eso.' : 'NO se guardó nada: la nota venía vacía. No digas que quedó anotado.' };
+          break;
+        }
+        case 'no_contestar': {
+          // EL SILENCIO LO DECIDE EL CÓDIGO (21/10/2026). El modelo pide no contestar y acá se
+          // acepta o se rechaza: un mensaje que pide algo que la casa vende se contesta siempre,
+          // aunque le hable a Jackie (la clienta del lote 112 quedó sin su pedido el 21/10)
+          const motivo = String(input.motivo ?? '');
+          const delCliente = String(ctx.textoCliente ?? '').replace(/\[[^\]]*\]/g, ' ');
+          const ultimo = String(ctx.ultimoBot ?? '').trim();
+          const ok = aceptaNoContestar(motivo, delCliente, { esProveedor: !!ctx.esProveedor?.(), botDejoPregunta: /\?\s*$/.test(ultimo) || /¿[^?]*\?/.test(ultimo.slice(-160)) });
+          // rechazada, cuenta como una falla de la herramienta: si insiste, a la segunda se le
+          // ordena parar y a la tercera la vuelta va sin herramientas (como cualquier otra)
+          if (!ok.ok) throw new Error(`no_contestar no se acepta: ${ok.porque}. Es un cliente y espera respuesta: contestale vos lo que pide, aunque le hable por su nombre a alguien de la casa (si saluda a una persona, aclarás una sola vez que atiende Emilia).`);
+          if (ctx.fija) ctx.fija.silencio = { motivo: motivo as MotivoDeSilencio, paraQuien: String(input.para_quien ?? '').trim(), resumen: String(input.resumen ?? '').trim() };
+          this.log.log(`no_contestar (${motivo}) para ${telefono}: este mensaje no se contesta`);
+          out = { ok: true, aviso: 'Aceptado: este mensaje no lleva respuesta. No escribas nada más.' };
           break;
         }
         case 'derivar_a_humano':
@@ -4424,7 +4566,9 @@ export class BotService {
     }
     await this.db.from('bot_conversaciones').upsert({
       linea, telefono: identidad,
-      mensajes: [...hist, ...(texto ? [{ role: 'assistant', content: texto }] : [])].slice(-40),
+      // de: 'telefono' (21/10/2026): lo escribió una persona, no el bot. El estado de la charla se
+      // lo dice al modelo cuando el bot vuelve, y no se manda a la API (paraElModelo)
+      mensajes: [...hist, ...(texto ? [{ role: 'assistant', content: texto, de: 'telefono' }] : [])].slice(-40),
       actualizado_en: new Date().toISOString(),
       bot_activo: false, derivada_en: new Date().toISOString(), derivada_motivo: MOTIVO_TELEFONO,
       // vuelve solo a los 30 min del último mensaje desde el teléfono (16/10/2026)
@@ -5465,7 +5609,8 @@ export class BotService {
       {
         linea,
         telefono,
-        mensajes: [...historial, { role: 'assistant', content: mensaje }].slice(-40),
+        // lo escribió una persona desde el panel (21/10/2026, ver mensajePropio)
+        mensajes: [...historial, { role: 'assistant', content: mensaje, de: 'persona' }].slice(-40),
         actualizado_en: new Date().toISOString(),
         bot_activo: false,
         atendida_por: usuarioId ?? null,

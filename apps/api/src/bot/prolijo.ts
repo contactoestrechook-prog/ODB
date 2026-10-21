@@ -800,10 +800,52 @@ export function sinCocinaInterna(t: string): string {
   return r.replace(/[ \t]{2,}/g, ' ').replace(/ ([,.;:])/g, '$1').replace(/^(\s*)([a-záéíóúñ])/gm, (m, a, b) => a + b.toUpperCase()).trim();
 }
 
+// LOS DE LA CASA, como los nombra el modelo cuando narra («Leandro le escribe a "Shaky"»)
+const CASA = String.raw`(?:ja(?:c?qu|c?k)\w*|shak\w*|chak\w*|juan pablo|leandro|anabella|romina|alguien de la casa|una persona de la casa|otra persona|la casa|el equipo)`;
+
+// TEXTO INTERNO DEL MODELO (la última barrera; antes, tieneMeta de bot.service.ts). Ronda 7:
+// una regeneración devolvió el razonamiento pegado al mensaje («No corresponde nota interna
+// acá… Reformulo sin esa promesa: …»). El 16/10/2026 se sumó la narración sobre el cliente
+// («Este mensaje no lleva respuesta al cliente. Leandro le escribe a "Shaky"… Le dejé una nota
+// al equipo»), pero con frases demasiado anchas: «al cliente», «este mensaje es…» o «le dejé una
+// nota» también están en respuestas de verdad («Este mensaje es para confirmarte que…») y el
+// recorte terminaba en «Disculpe, ¿me repite su consulta?» (21/10/2026). Ahora cada frase pide
+// el contexto de la narración: hablar DEL cliente en tercera persona, de la casa o del equipo.
+const RE_TEXTO_INTERNO = new RegExp([
+  'nota interna', 'reformul', 'reescrib', 'no hay nada nuevo para sumar', 'retom[aá]s vos', 'sin prometer plazos', 'lo anterior;',
+  String.raw`\btextual\s*:`, 'mi (?:último|ultimo) mensaje', 'no corresponde (?:nota|derivar|anotar)', 'promesa (?:de plazo|pendiente|vac[ií]a)',
+  String.raw`\bel cliente (?:pregunt|dijo|pidi|escrib|mand|quiere|quer[ií]a|le habla|habla|est[aá]|no espera|espera)`,
+  String.raw`\b(?:respuesta|contestar(?:le)?|responder(?:le)?|escribir(?:le)?|decir(?:le)?|nada|mensaje|texto|nota|dato|datos|precio|aviso|info|informaci[oó]n)\s+(?:al|para el)\s+cliente\b`,
+  String.raw`\b(?:le |les )?(?:paso|digo|contesto|respondo|escribo|mando|aviso|explico|confirmo|pregunto|ofrezco)\w* al cliente\b`,
+  String.raw`\b(?:mensaje|pregunta|audio|foto|texto|consulta|pedido)\s+del\s+cliente\b`,
+  String.raw`\ble escribe a\b`, String.raw`\b(?:le habla|se dirige) a ${CASA}`, String.raw`\bparece ser (?:alguien|una persona) de la casa`,
+  String.raw`\bdej[eé] (?:una |la )?nota (?:al|para el|para la|a la|para|a) ${CASA}`, String.raw`\bnota (?:al|para el) equipo\b`,
+  String.raw`\beste mensaje (?:no (?:es|va|lleva|requiere|necesita|pide|me)\b|(?:es|va|est[aá]) (?:para|dirigido a) (?:${CASA}|m[ií](?![a-záéíóúñ])|el bot|nosotros))`,
+  'no lleva respuesta', 'la herramienta', 'herramienta (?:nota_interna|derivar|cotizar|crear_pedido|buscar_productos|no_contestar)', String.raw`\[nota`, String.raw`^\s*\[`,
+].join('|'), 'i');
+
+/** El texto trae cocina interna del modelo (razonamiento, narración sobre el cliente o el equipo). */
+export function esTextoInterno(t: string | null | undefined): boolean {
+  return RE_TEXTO_INTERNO.test(String(t ?? ''));
+}
+
 // EL MODELO EXPLICANDO POR QUÉ NO CONTESTA (16/10/2026). Al cliente le llegó «Este mensaje
 // no lleva respuesta al cliente. Leandro le escribe a "Shaky", que parece ser alguien de la
 // casa… Le dejé una nota al equipo…»: decidió bien no contestar, pero lo escribió. Si el
-// texto es eso, no sale nada (ni el «¿me repite su consulta?» de la última barrera).
+// texto es eso, no sale nada (y nunca el «¿me repite su consulta?», que ya no existe).
+// 21/10/2026: también «Este mensaje es para Jaqueline, no para mí», «le habla a Jackie»,
+// «no contesto nada», «queda sin respuesta». Lo que hace el bot con eso lo deciden las
+// reglas de silencio.ts (para la casa, cierre o pedirle la respuesta otra vez).
+const RE_NO_CONTESTA = new RegExp([
+  'no lleva respuesta', '(?:no hay )?nada (?:que|para) (?:contestar|responder|decir)le', 'no hay (?:nada )?que (?:contestar|responder)',
+  String.raw`no (?:hace falta|corresponde|necesita|requiere) (?:contestar|responder|respuesta|que (?:conteste|responda)\b)`,
+  String.raw`no (?:es|va|est[aá]) (?:para (?:m[ií]|el bot|nosotros|emilia)(?![a-záéíóúñ])|dirigido a (?:m[ií]|el bot|nosotros|emilia))`,
+  String.raw`\b(?:este )?mensaje (?:es|va|est[aá]) (?:para|dirigido a) ${CASA}`,
+  String.raw`\b(?:le habla|se dirige|le escribe) a ${CASA}`, String.raw`\bparece ser (?:alguien|una persona) de la casa`,
+  'no le (?:contesto|respondo|escribo)', String.raw`\bno (?:contesto|respondo|escribo) nada\b`, 'no (?:voy a|me toca|me corresponde) (?:contestar|responder)',
+  'me quedo callad', 'sin respuesta (?:al|para el) cliente', String.raw`\b(?:queda|dejo) (?:la respuesta )?(?:vac[ií]a|sin respuesta|en silencio)\b`,
+  String.raw`\bdejo que (?:lo |la )?(?:conteste|responda|atienda)`,
+].join('|'), 'i');
 export function explicaQueNoContesta(t: string | null | undefined): boolean {
-  return /no lleva respuesta|(?:no hay )?nada (?:que|para) (?:contestar|responder|decir)le|no hay (?:nada )?que (?:contestar|responder)|no (?:hace falta|corresponde|necesita|requiere) (?:contestar|responder|respuesta)|no (?:es|va) (?:para (?:m[ií]|el bot|nosotros)|dirigido a (?:m[ií]|el bot))|no le (?:contesto|respondo)|me quedo callad|sin respuesta (?:al|para el) cliente/i.test(String(t ?? ''));
+  return RE_NO_CONTESTA.test(String(t ?? ''));
 }

@@ -414,20 +414,29 @@ describe('lo que el modelo piensa no le llega al cliente', () => {
     { role: 'assistant', content: '🎙️ Audio enviado' },
   ];
 
-  it('si explica que no contesta, no sale nada (ni «¿me repite su consulta?»)', async () => {
-    const db = baseFalsa({ bot_conversaciones: { select: conv(HIST_TEL) }, lineas_whatsapp: { select: { data: CFG, error: null } } });
-    const { s } = servicio(db, final('a', META));
+  it('si explica que no contesta, no sale nada (ni «¿me repite su consulta?») y no se abre una consulta falsa', async () => {
+    const db = baseFalsa({ bot_conversaciones: { select: conv(HIST_TEL) }, lineas_whatsapp: { select: { data: CFG, error: null } }, bot_consultas_internas: CONSULTAS });
+    const { s, llamadas } = servicio(db, final('a', META));
     const r = await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Hola Shaky, ahora lo veo en una hora y lo corrijo.' });
     expect(r.respuesta).toBeNull();
     expect(r.silencio).toBe(true);
+    // 21/10/2026: es para la casa (le habla a Shaky, y lo último lo mandó una persona desde el
+    // teléfono): ni otra vuelta al modelo ni consulta a administración
+    expect(llamadas.filter((p) => p.model === 'claude-opus-5-5')).toHaveLength(1);
+    expect(insertsDe(db, 'bot_consultas_internas')).toHaveLength(0);
   });
 
-  it('el prompt lo dice: todo lo que escribe le llega al cliente; si no es para el bot, nada', async () => {
+  // 21/10/2026: la regla era «si no es para vos, no escribas nada: tu respuesta queda vacía», y
+  // todo vacío se tomaba como «no sabe». Ahora quien nombra a alguien de la casa es un cliente,
+  // y callar es con la herramienta no_contestar, que el código acepta o rechaza (silencio.ts)
+  it('el prompt lo dice: todo lo que escribe le llega al cliente; callar es con no_contestar, nunca con la respuesta vacía', async () => {
     const db = baseFalsa({ bot_conversaciones: { select: conv(HIST_TEL) }, lineas_whatsapp: { select: { data: CFG, error: null } } });
     const { s, llamadas } = servicio(db, final('a', ''));
     await s.charla({ linea: 'pedidos', telefono: TEL, mensaje: 'Hola Shaky, ahora lo veo en una hora y lo corrijo.' });
     const system = JSON.stringify(llamadas.find((p) => p.model === 'claude-opus-5-5')?.system ?? '');
     expect(system).toContain('Todo lo que escribís le llega al cliente tal cual');
-    expect(system).toMatch(/no es para vos[^.]*no escribas nada/);
+    expect(system).toContain('Quien nombra a alguien de la casa sigue siendo un cliente');
+    expect(system).toMatch(/llamá no_contestar/);
+    expect(system).not.toMatch(/tu respuesta queda vacía/);
   });
 });

@@ -1118,5 +1118,174 @@
       }
     ],
     "juez": "Si la cobertura de esa zona sale de sus datos (estado_local), la dice. Si no la sabe, la consulta por adentro (consultar_interno con area reparto y la dirección) y al cliente no le dice nada de eso: ni «no sé», ni «no puedo confirmar», ni que lo consulta o le va a confirmar; si no hay otra cosa que contestar, el silencio es correcto. Si menciona el envío, es sin cargo."
+  },
+  {
+    "id": "casa-nombre-01",
+    "categoria": "persona",
+    "titulo": "Le pasa el pedido a «Jaky» (lote 112, 21/10)",
+    "turnos": [
+      {
+        "cliente": "Buen diaa Jaky! te paso el pedido de la sra Fabiana: 6 yogures bebibles Prot+ (proteico). Es para enviar al lote 112",
+        "espera": {
+          "no_silencio": true,
+          "no_debe": [
+            "me repite",
+            "Jaqueline (?:no est|est[aá] ocupad)"
+          ],
+          "sin_herramientas": [
+            "consultar_interno"
+          ]
+        }
+      }
+    ],
+    "juez": "Es una clienta que le habla a Jackie por su nombre: el bot la atiende igual (puede aclarar una vez que atiende Emilia), anota los 6 yogures bebibles Prot+ con el producto puntual y sigue el pedido a domicilio (paso 1: lista sin precios y la pregunta de forma de pago). Nunca silencio, nunca «¿me repite su consulta?», no consulta a administración."
+  },
+  {
+    "id": "casa-nombre-02",
+    "categoria": "persona",
+    "titulo": "«¿Y materas Jacky?»",
+    "turnos": [
+      {
+        "cliente": "¿Y materas Jacky?",
+        "espera": {
+          "no_silencio": true,
+          "max_lineas": 4
+        }
+      }
+    ],
+    "juez": "Pregunta por un producto nombrando a Jackie: lo atiende como a cualquier cliente (busca materas, ofrece lo que hay con precio o dice que no hay). No se queda callado."
+  },
+  {
+    "id": "casa-nombre-03",
+    "categoria": "persona",
+    "titulo": "Consulta a Jackie por la fiesta de Halloween",
+    "turnos": [
+      {
+        "cliente": "Hola Jackie, ¿cómo estás? Te hago una consulta: para la fiesta de Halloween del 31, ¿hacen picadas?",
+        "espera": {
+          "no_silencio": true
+        }
+      }
+    ],
+    "juez": "Aclara una sola vez que atiende Emilia y avanza con la consulta de la picada (lo que hay, o la consulta silenciosa si es un encargo que no figura). Nunca silencio por nombrar a Jackie."
+  },
+  {
+    "id": "casa-para-01",
+    "categoria": "persona",
+    "titulo": "Saludo personal para Jaqueline (Día de la Madre)",
+    "turnos": [
+      {
+        "cliente": "Jacqui, feliz día!! Que lo pases hermoso con tu familia",
+        "espera": {
+          "silencio": true,
+          "sin_herramientas": [
+            "consultar_interno"
+          ]
+        }
+      }
+    ],
+    "juez": "Es un saludo personal para Jaqueline que no le pide nada a la casa: lo correcto es no contestar (no_contestar, para la casa) y no abrir una consulta a administración. Un agradecimiento mínimo y cordial se tolera; una presentación de robot o un «¿en qué te ayudo?» no."
+  },
+  {
+    "id": "casa-06",
+    "categoria": "casa",
+    "titulo": "El contacto de Fruit (regla del 12/10)",
+    "turnos": [
+      {
+        "cliente": "¿Tendrás el contacto de odb fruit?",
+        "espera": {
+          "debe": [
+            "7636|5491176369642"
+          ],
+          "sin_herramientas": [
+            "consultar_interno"
+          ]
+        }
+      }
+    ],
+    "juez": "Pasa el contacto de Fruit en una línea («Para frutas y verduras escribile a Fruit: wa.me/5491176369642 (11 7636-9642).») sin explicar quiénes son ni consultar a nadie."
+  },
+  {
+    "id": "foto-01",
+    "categoria": "archivos",
+    "titulo": "«Cuál es el precio de este gin» sin foto",
+    "turnos": [
+      {
+        "cliente": "Hola consulta. Cuál es el precio de este gin",
+        "espera": {
+          "no_silencio": true,
+          "debe": [
+            "cu[aá]l|nombre|marca|foto"
+          ],
+          "sin_herramientas": [
+            "consultar_interno"
+          ]
+        }
+      }
+    ],
+    "juez": "No llegó ninguna foto: pregunta en una línea qué gin busca (el nombre o la foto). No consulta a administración ni dice que no puede ver imágenes."
+  },
+  {
+    "id": "cierre-04",
+    "categoria": "cierres",
+    "titulo": "«Ok, graciasN» después de un precio",
+    "turnos": [
+      {
+        "cliente": "cuanto sale el fernet branca de 750?"
+      },
+      {
+        "cliente": "Ok, graciasN",
+        "espera": {
+          "silencio": true,
+          "sin_herramientas": [
+            "consultar_interno"
+          ]
+        }
+      }
+    ],
+    "juez": "Al cierre con un error de tipeo no contesta (o una despedida mínima) y no consulta a administración."
+  },
+  {
+    "id": "cierre-05",
+    "categoria": "cierres",
+    "titulo": "«Bueno, gracias!!» después de una alternativa que no quiso",
+    "turnos": [
+      {
+        "cliente": "¿Tenés Shin Ramyun, el ramen coreano?"
+      },
+      {
+        "cliente": "Ah no no! Quería el coreano de verdad. Bueno, gracias!!",
+        "espera": {
+          "silencio": true,
+          "no_debe": [
+            "me repite"
+          ],
+          "sin_herramientas": [
+            "consultar_interno"
+          ]
+        }
+      }
+    ],
+    "juez": "El segundo mensaje es un cierre: no contesta (o una despedida mínima), nunca «Disculpe, ¿me repite su consulta?», no consulta a administración ni vuelve a ofrecer."
+  },
+  {
+    "id": "cierre-06",
+    "categoria": "cierres",
+    "titulo": "«Excelente buenísimo!! Nos vemos☺️»",
+    "turnos": [
+      {
+        "cliente": "¿Hasta qué hora abren hoy en Saint Thomas?"
+      },
+      {
+        "cliente": "Excelente buenísimo!! Nos vemos☺️",
+        "espera": {
+          "silencio": true,
+          "sin_herramientas": [
+            "consultar_interno"
+          ]
+        }
+      }
+    ],
+    "juez": "Al cierre con emoji no contesta y no abre una consulta a administración."
   }
 ]
