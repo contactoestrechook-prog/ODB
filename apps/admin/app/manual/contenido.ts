@@ -720,6 +720,77 @@ export const SECCIONES: Seccion[] = [
       },
     ],
   },
+  {
+    id: 'eventos',
+    titulo: 'Eventos: vender cumpleaños, casamientos y fin de año',
+    area: 'Clientes y cuenta corriente',
+    roles: ['cajero', 'gerente', 'dueno'],
+    bajada: 'Cargar un evento, armarle la propuesta de bebidas y llevarlo de Prospecto a Realizado.',
+    bloques: [
+      {
+        tipo: 'pasos',
+        titulo: 'Cargar un evento',
+        pasos: [
+          'Tocá "Nuevo evento" (arriba de todo, siempre a la vista).',
+          'Elegí para quién: buscá al cliente por nombre, DNI o CUIT, o pasá a "Contacto nuevo" y poné nombre y WhatsApp con característica y sin el 15 (11 2281-2200, no 15 2281-2200). Si ese teléfono ya es de un cliente, el sistema lo encuentra solo; si no, lo da de alta.',
+          'Elegí qué festejan (cumpleaños, casamiento, corporativo, fin de año u otro). El nombre del evento se arma solo ("Casamiento de Ana"; si el cliente está cargado por lote, como "Campos 51", queda solo "Casamiento"); lo podés borrar y escribir otro.',
+          'Cargá fecha, invitados, lugar y notas si los sabés, y tocá "Crear evento". Se abre el evento para armar la propuesta.',
+        ],
+      },
+      {
+        tipo: 'pasos',
+        titulo: 'Armar la propuesta y mandarla',
+        pasos: [
+          'Con los invitados cargados, "Sugerir bebidas con IA" arma una propuesta con lo que hay en stock. Si ya había renglones, pregunta antes de reemplazarlos y deja "Deshacer".',
+          'En cada renglón se corrigen la cantidad y el precio unitario (el acordado con el cliente, con descuento). Con el buscador de abajo se agregan productos, y "Renglón libre" suma lo que no es un producto: servicio de barra, hielo, copas, envío.',
+          '"Guardar propuesta" la deja guardada y pasa el evento a Propuesta. "Descartar cambios" vuelve a lo guardado.',
+          '"Escribir por WhatsApp" abre el chat con el cliente (o con el contacto del evento) y "Descargar PDF" baja el presupuesto con el diseño de la casa para adjuntarlo. Si hay cambios sin guardar, el botón dice "Guardar y bajar PDF": primero guarda, así el PDF sale con lo que ves.',
+          'Si el cliente usa la app de ODB, un gerente o el dueño también le puede "Dejar aviso en la app". La pantalla dice si le llegó al celular o si quedó solo en su cuenta.',
+        ],
+      },
+      {
+        tipo: 'pasos',
+        titulo: 'Llevarlo de etapa en etapa',
+        pasos: [
+          'Las etapas son Prospecto → Propuesta → Confirmado → Realizado. En el evento, el botón principal dice cuál sigue: "Pasar a Confirmado", "Marcar como realizado".',
+          'Si te equivocaste, "Volver a…" lo regresa una etapa.',
+          '"Cancelar evento" pide un motivo (opcional) que queda en las notas. Un cancelado se puede reabrir. Cancelar es también la forma de cerrar una oportunidad que dijo que no: no vuelve a aparecer en Oportunidades.',
+          'En "Datos del evento" se cambian el cliente ("Cambiar cliente"), el contacto y su WhatsApp. Si no hay un WhatsApp que sirva, en vez de "Escribir por WhatsApp" aparece "Cargá el WhatsApp para escribirle".',
+          'Un gerente o el dueño puede "Eliminar evento" uno cargado por error o de prueba: se borra y no cuenta en la tasa de cierre.',
+          'En la compu, la pantalla muestra un tablero con una columna por etapa, con la cantidad y la plata de cada una. En el celular, los chips de arriba filtran por etapa ("En curso" junta los tres abiertos).',
+          'Lo que es esta semana tiene el borde marcado y dice cuántos días faltan.',
+        ],
+      },
+      {
+        tipo: 'campos',
+        titulo: 'Los números de arriba',
+        filas: [
+          ['Próximos 30 días', 'Eventos abiertos con fecha en el próximo mes (y cuántos son esta semana).'],
+          ['Propuestas abiertas', 'Plata de las propuestas que esperan respuesta del cliente.'],
+          ['Confirmados', 'Plata de los eventos confirmados que todavía no se hicieron.'],
+          ['Tasa de cierre', 'Confirmados y realizados sobre todo lo decidido (los cancelados cuentan como perdidos).'],
+        ],
+      },
+      {
+        tipo: 'pasos',
+        titulo: 'Oportunidades',
+        pasos: [
+          'Fin de año: las empresas (CUIT 30, 33 o 34, responsables inscriptos o mayoristas) que compraron o escribieron por WhatsApp en el último año y todavía no tienen su fiesta cargada, las que más compraron primero. Una con CUIT pero sin compras ni charlas no aparece.',
+          'Compras grandes: clientes identificados que en los últimos 60 días hicieron una compra de $100.000 o más (cuando haya 30 compras o más en 90 días, el doble de un pedido típico, si es más). Solo cuentan los pedidos que avanzaron: un pedido que nadie tomó no es una compra. Seguro festejaron algo: ofreceles el próximo.',
+          'Cumpleaños: los clientes que cumplen hoy o en los próximos 60 días. Solo salen los que tienen la fecha de nacimiento cargada: la carga un gerente o el dueño en Clientes, con "Configurar" en la fila del cliente.',
+          '"Armar propuesta" abre "Nuevo evento" con el cliente y el tipo ya puestos. Cuando la empresa o el cliente ya tiene su evento, o lo canceló porque dijo que no, deja de aparecer.',
+        ],
+      },
+      {
+        tipo: 'ojo',
+        puntos: [
+          'Un evento abierto con la fecha pasada hace aparecer un aviso arriba: marcalo como realizado o cancelalo, así los números dicen la verdad.',
+          'El sistema no manda el WhatsApp solo: "Escribir por WhatsApp" abre el chat con el saludo listo, y el PDF lo adjuntás y lo mandás vos.',
+          '"Dejar aviso en la app" solo le llega al celular a quien tiene la app de ODB con las notificaciones activadas (en octubre de 2026, nadie): por eso el camino de siempre es el WhatsApp.',
+        ],
+      },
+    ],
+  },
 
   // ---------------------------------------------------------------- reparto
   {

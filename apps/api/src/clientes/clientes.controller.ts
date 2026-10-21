@@ -4,6 +4,17 @@ import { SUPABASE } from '../supabase.provider';
 import { filtrarColumna } from '../comun/busqueda';
 import { Roles } from '../auth/decorators';
 
+/** "AAAA-MM-DD" de una fecha de nacimiento posible, o null si viene vacía; error si no sirve. */
+export function fechaDeNacimiento(v: unknown, hoy = new Date()): string | null {
+  if (v === null || v === undefined || String(v).trim() === '') return null;
+  const t = String(v).trim();
+  const ok = /^\d{4}-\d{2}-\d{2}$/.test(t) && !Number.isNaN(Date.parse(`${t}T00:00:00Z`)) && new Date(`${t}T00:00:00Z`).toISOString().slice(0, 10) === t;
+  if (!ok) throw new BadRequestException('La fecha de nacimiento no es válida.');
+  const anio = Number(t.slice(0, 4));
+  if (anio < 1900 || t > hoy.toISOString().slice(0, 10)) throw new BadRequestException('La fecha de nacimiento no es válida.');
+  return t;
+}
+
 @Controller('clientes')
 export class ClientesController {
   constructor(@Inject(SUPABASE) private readonly db: SupabaseClient) {}
@@ -25,6 +36,7 @@ export class ClientesController {
       ctaCteHabilitada?: boolean;
       limiteCredito?: number;
       aceptaMarketing?: boolean;
+      fechaNacimiento?: string | null;
     },
   ) {
     const cambios: Record<string, any> = {};
@@ -37,6 +49,9 @@ export class ClientesController {
     if (dto.email !== undefined) cambios.email = dto.email;
     if (dto.ctaCteHabilitada !== undefined) cambios.cta_cte_habilitada = dto.ctaCteHabilitada;
     if (dto.limiteCredito !== undefined) cambios.limite_credito = dto.limiteCredito;
+    // 21/10/2026: Eventos manda a cargar la fecha acá (cumpleaños para ofrecer
+    // el festejo) y no había dónde: solo la cargaba el registro de la app
+    if (dto.fechaNacimiento !== undefined) cambios.fecha_nacimiento = fechaDeNacimiento(dto.fechaNacimiento);
     if (dto.aceptaMarketing !== undefined) {
       cambios.acepta_marketing = dto.aceptaMarketing;
       cambios.marketing_optout_en = dto.aceptaMarketing ? null : new Date().toISOString();
