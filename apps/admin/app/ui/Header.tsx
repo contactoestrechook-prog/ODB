@@ -173,7 +173,7 @@ const TITULOS: Record<string, { titulo: string; bajada: string }> = {
   '/cuentas-corrientes': { titulo: 'Cuentas corrientes', bajada: 'La plata en la calle: riesgo, topes y mejores pagadores' },
   '/clientes': { titulo: 'Clientes', bajada: 'Cuentas, clasificación RFM y Comunidad ODB' },
   '/mensajes': { titulo: 'Mensajes', bajada: 'Solicitudes de clientes, envíos y notificaciones automáticas' },
-  '/eventos': { titulo: 'Eventos', bajada: 'Oportunidades de cumpleaños, casamientos y fiestas: armá propuestas' },
+  '/eventos': { titulo: 'Eventos', bajada: 'Cumpleaños, casamientos, corporativos y fin de año: de la propuesta al brindis' },
   '/sommelier': { titulo: 'Somelier ODB', bajada: 'El experto en vinos que atiende a tus clientes' },
   '/bot': { titulo: 'Probar el bot', bajada: 'Probá el bot que atiende por WhatsApp: mismo cerebro, catálogo y pedidos reales' },
   '/responde': { titulo: 'RESPONDE', bajada: 'Las conversaciones reales de WhatsApp: contestar, pausar el bot, notas, programados y difusión' },

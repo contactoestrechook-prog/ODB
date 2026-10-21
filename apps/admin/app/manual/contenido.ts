@@ -719,6 +719,73 @@ export const SECCIONES: Seccion[] = [
       },
     ],
   },
+  {
+    id: 'eventos',
+    titulo: 'Eventos: vender cumpleaños, casamientos y fin de año',
+    area: 'Clientes y cuenta corriente',
+    roles: ['cajero', 'gerente', 'dueno'],
+    bajada: 'Cargar un evento, armarle la propuesta de bebidas y llevarlo de Prospecto a Realizado.',
+    bloques: [
+      {
+        tipo: 'pasos',
+        titulo: 'Cargar un evento',
+        pasos: [
+          'Tocá "Nuevo evento" (arriba de todo, siempre a la vista).',
+          'Elegí para quién: buscá al cliente por nombre, DNI o CUIT, o pasá a "Contacto nuevo" y poné nombre y WhatsApp con característica. Si ese teléfono ya es de un cliente, el sistema lo encuentra solo; si no, lo da de alta.',
+          'Elegí qué festejan (cumpleaños, casamiento, corporativo, fin de año u otro). El nombre del evento se arma solo ("Casamiento de Ana"); lo podés cambiar.',
+          'Cargá fecha, invitados, lugar y notas si los sabés, y tocá "Crear evento". Se abre el evento para armar la propuesta.',
+        ],
+      },
+      {
+        tipo: 'pasos',
+        titulo: 'Armar la propuesta y mandarla',
+        pasos: [
+          'Con los invitados cargados, "Sugerir bebidas con IA" arma una propuesta con lo que hay en stock. Corregí cantidades, quitá renglones o agregá productos con el buscador de abajo.',
+          '"Guardar propuesta" la deja guardada y pasa el evento a Propuesta.',
+          '"Descargar PDF" baja el presupuesto con el diseño de la casa, para mandarlo por WhatsApp con "Escribir por WhatsApp".',
+          '"Enviar al cliente" le deja la propuesta como aviso en la app de ODB (solo si el evento tiene cliente).',
+        ],
+      },
+      {
+        tipo: 'pasos',
+        titulo: 'Llevarlo de etapa en etapa',
+        pasos: [
+          'Las etapas son Prospecto → Propuesta → Confirmado → Realizado. En el evento, el botón principal dice cuál sigue: "Pasar a Confirmado", "Marcar como realizado".',
+          'Si te equivocaste, "Volver a…" lo regresa una etapa.',
+          '"Cancelar evento" pide un motivo (opcional) que queda en las notas. Un cancelado se puede reabrir.',
+          'En la compu, la pantalla muestra un tablero con una columna por etapa, con la cantidad y la plata de cada una. En el celular, los chips de arriba filtran por etapa ("En curso" junta los tres abiertos).',
+          'Lo que es esta semana tiene el borde marcado y dice cuántos días faltan.',
+        ],
+      },
+      {
+        tipo: 'campos',
+        titulo: 'Los números de arriba',
+        filas: [
+          ['Próximos 30 días', 'Eventos abiertos con fecha en el próximo mes (y cuántos son esta semana).'],
+          ['Propuestas abiertas', 'Plata de las propuestas que esperan respuesta del cliente.'],
+          ['Confirmados', 'Plata de los eventos confirmados que todavía no se hicieron.'],
+          ['Tasa de cierre', 'Confirmados y realizados sobre todo lo decidido (los cancelados cuentan como perdidos).'],
+        ],
+      },
+      {
+        tipo: 'pasos',
+        titulo: 'Oportunidades',
+        pasos: [
+          'Fin de año: las empresas (CUIT 30, 33 o 34, responsables inscriptos o mayoristas) que todavía no tienen su fiesta cargada, ordenadas por lo que compraron en el último año.',
+          'Compras grandes: clientes identificados que en los últimos 60 días compraron el doble del ticket promedio o más (mínimo $100.000). Seguro festejaron algo: ofreceles el próximo.',
+          'Cumpleaños: los clientes que cumplen en los próximos 60 días. Solo salen los que tienen la fecha de nacimiento cargada en su ficha.',
+          '"Armar propuesta" abre "Nuevo evento" con el cliente y el tipo ya puestos. Cuando la empresa o el cliente ya tiene su evento, deja de aparecer.',
+        ],
+      },
+      {
+        tipo: 'ojo',
+        puntos: [
+          'Un evento abierto con la fecha pasada hace aparecer un aviso arriba: marcalo como realizado o cancelalo, así los números dicen la verdad.',
+          '"Enviar al cliente" no manda WhatsApp: para eso está el PDF y "Escribir por WhatsApp", que abre el chat con el texto listo para que lo mandes vos.',
+        ],
+      },
+    ],
+  },
 
   // ---------------------------------------------------------------- reparto
   {
