@@ -1,0 +1,84 @@
+# ODB en el servidor propio (Akamai São Paulo, 21/10/2026).
+# Se levanta desde /srv/odb con: docker compose --env-file hosts.env up -d
+# Los secretos viven en /srv/odb/secretos/*.env (permisos 600, nunca en el repo).
+name: odb
+
+x-comun: &comun
+  restart: unless-stopped
+  security_opt: ["no-new-privileges:true"]
+  logging:
+    driver: json-file
+    options: { max-size: "20m", max-file: "3" }
+  networks: [interna]
+
+services:
+  proxy:
+    <<: *comun
+    image: caddy:2.10
+    ports: ["80:80", "443:443", "443:443/udp"]
+    environment:
+      HOST_API: ${HOST_API}
+      HOST_PANEL: ${HOST_PANEL}
+      HOST_TIENDA: ${HOST_TIENDA}
+      HOST_WAHA: ${HOST_WAHA}
+      HOST_N8N: ${HOST_N8N}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-datos:/data
+      - caddy-config:/config
+    mem_limit: 128m
+    networks: [interna, publica]
+
+  api:
+    <<: *comun
+    image: odb-api:${VERSION:-actual}
+    build: { context: ./codigo/apps/api, dockerfile: ../../infra/servidor/api.Dockerfile, args: { VERSION: "${VERSION:-actual}" } }
+    env_file: [./secretos/api.env]
+    # certificados de ARCA (ARCA_*_PATH): archivos 400 del usuario node
+    volumes: ["./secretos/archivos:/run/secretos:ro"]
+    mem_limit: 1g
+    cap_drop: [ALL]
+
+  admin:
+    <<: *comun
+    image: odb-admin:${VERSION:-actual}
+    build: { context: ./codigo/apps/admin, dockerfile: ../../infra/servidor/next.Dockerfile, args: { VERSION: "${VERSION:-actual}" } }
+    env_file: [./secretos/admin.env]
+    mem_limit: 512m
+    cap_drop: [ALL]
+    depends_on: [api]
+
+  web:
+    <<: *comun
+    image: odb-web:${VERSION:-actual}
+    build: { context: ./codigo/apps/web, dockerfile: ../../infra/servidor/next.Dockerfile, args: { VERSION: "${VERSION:-actual}" } }
+    env_file: [./secretos/web.env]
+    mem_limit: 384m
+    cap_drop: [ALL]
+    depends_on: [api]
+
+  waha:
+    <<: *comun
+    # versión fija: el «latest» le cambió el comportamiento a otro proyecto el 5/10
+    image: devlikeapro/waha:${WAHA_VERSION:-noweb}
+    env_file: [./secretos/waha.env]
+    volumes: ["waha-sesiones:/app/.sessions"]
+    mem_limit: 1536m
+
+  n8n:
+    <<: *comun
+    image: odb-n8n:${VERSION:-actual}
+    build: { context: ./codigo, dockerfile: infra/n8n/Dockerfile }
+    env_file: [./secretos/n8n.env]
+    volumes: ["n8n-datos:/home/node/.n8n"]
+    mem_limit: 768m
+
+volumes:
+  caddy-datos:
+  caddy-config:
+  waha-sesiones:
+  n8n-datos:
+
+networks:
+  interna: {}
+  publica: {}

@@ -1,0 +1,32 @@
+# Proxy de ODB: candado HTTPS automático (Let's Encrypt) y cabeceras de seguridad.
+(seguridad) {
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		X-Frame-Options "SAMEORIGIN"
+		-Server
+	}
+	encode zstd gzip
+}
+
+{$HOST_API} {
+	import seguridad
+	reverse_proxy api:3001
+}
+{$HOST_PANEL} {
+	import seguridad
+	reverse_proxy admin:3000
+}
+{$HOST_TIENDA} {
+	import seguridad
+	reverse_proxy web:3000
+}
+{$HOST_WAHA} {
+	import seguridad
+	reverse_proxy waha:3000
+}
+{$HOST_N8N} {
+	import seguridad
+	reverse_proxy n8n:5678
+}

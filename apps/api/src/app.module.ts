@@ -81,8 +81,11 @@ import { ScheduleModule } from '@nestjs/schedule';
     PedidosModule,
     ClientesAuthModule,
     CompraFacilModule,
-    // cron interno (informe diario a las 7:00 ART)
-    ScheduleModule.forRoot(),
+    // cron interno (informe diario a las 7:00 ART, bot, avisos, ARCA…).
+    // ODB_TAREAS=0 las apaga todas (21/10/2026): el servidor propio arranca así
+    // mientras convive con Railway sobre la MISMA base, para que no haya dos
+    // procesos mandando WhatsApp o reclamando lo mismo. Sin la variable, como siempre.
+    ...(process.env.ODB_TAREAS === '0' ? [] : [ScheduleModule.forRoot()]),
     InformesModule,
     UsuariosModule,
     FacturacionModule,
