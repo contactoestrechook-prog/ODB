@@ -93,3 +93,8 @@ create trigger productos_fraccion_valida
 create index if not exists movimientos_stock_fraccionar_idx
   on public.movimientos_stock (sucursal_id, id desc)
   where referencia_tipo in ('fraccionamiento', 'carga_pozo');
+
+-- Sin EXECUTE para PUBLIC, anon ni authenticated, como el resto de las
+-- funciones de esta entrega (revisión del 21/10/2026). Un disparador no pide
+-- EXECUTE al dispararse, así que no cambia quién puede escribir en productos.
+revoke all on function public.tg_productos_fraccion_valida() from public, anon, authenticated;

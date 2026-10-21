@@ -9,7 +9,7 @@ import { verificarFirmaMercadoPago } from '../comun/firmas';
 import { fetchConTimeout } from '../comun/http';
 import { celularWhatsapp, enviarTextoWhatsapp } from '../comun/whatsapp';
 import { Lineas } from '../comun/lineas';
-import { sinRestosDeMarcado, textoONulo } from '../comun/texto-limpio';
+import { sinRestosDeMarcado, textoONulo, unirLimpio } from '../comun/texto-limpio';
 import {
   armarEnvio, avisoAlCliente, clasificar, cobroDe, COLUMNAS_ENVIO, ESTADOS_ACTIVOS, fechaBA, FRANJAS, lineaDeCambioDeEnvio, medioPorDefecto, ordenarEnvios,
   ROLES_DEL_LOCAL_QUE_LLEVAN, ROLES_QUE_LLEVAN, type Envio, type FilaEnvio,
@@ -251,9 +251,9 @@ export class PedidosService {
       items,
       clienteDni: payload.customer?.dni,
       referencia,
-      notas: [payload.customer?.name, payload.notes, sinMatch.length ? `SIN MATCHEAR: ${sinMatch.join(', ')}` : null]
-        .filter(Boolean)
-        .join(' · '),
+      // cada pedazo limpio por separado: una etiqueta en la nota del cliente no
+      // se lleva el «SIN MATCHEAR» de atrás (texto-limpio.ts, unirLimpio)
+      notas: unirLimpio([payload.customer?.name, payload.notes, sinMatch.length ? `SIN MATCHEAR: ${sinMatch.join(', ')}` : null]),
       reservar: false,
     });
     // El simulador del panel es una prueba: no se le avisa a administración
@@ -1151,6 +1151,14 @@ export class PedidosService {
     if (!faltantes.length) return;
     // la sucursal viaja para que el buscador del reemplazo muestre el stock de ahí
     throw new ConflictException({ statusCode: 409, codigo: 'FALTA_STOCK', message: mensajeDeFaltantes(faltantes), faltantes, sucursalId: sucursalId ?? null });
+  }
+
+  /** ¿El pedido lo lleva este usuario? (el repartidor solo toca los suyos) */
+  async loLleva(pedidoId: string, usuarioId?: string): Promise<boolean> {
+    if (!usuarioId) return false;
+    const { data, error } = await this.db.from('pedidos').select('repartidor_id').eq('id', pedidoId).maybeSingle();
+    if (error) throw new BadRequestException(error.message);
+    return !!data && String((data as any).repartidor_id ?? '') === usuarioId;
   }
 
   // Saca del pedido lo que no hay y, si se eligió, pone otro producto en su

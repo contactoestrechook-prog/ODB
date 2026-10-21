@@ -1,6 +1,7 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
+import { FrenoDePin, frenoDePin, registrarPinErrado } from '../comun/freno-pin';
 import { ordenDeCompraPDF, remitoRecepcionPDF, ordenDePagoPDF } from '../comun/documentos';
 import { enLotes } from '../comun/lotes';
 import { fusionarRenglonesPorSku } from './bultos';
@@ -88,6 +89,9 @@ export type EntradaDirectaDto = {
 
 @Injectable()
 export class ComprasService {
+  // el freno de PIN errados (el mismo de la caja; las pruebas ponen uno propio)
+  frenoPin: FrenoDePin = frenoDePin;
+
   constructor(@Inject(SUPABASE) private readonly db: SupabaseClient) {}
 
   async proveedores() {
@@ -1144,18 +1148,28 @@ export class ComprasService {
   // la decisión es suya, con su PIN, y queda auditada. El PIN de un gerente no
   // alcanza: es una decisión de costos, como la cuenta corriente.
   async autorizarProrrateo(pin: string, solicitanteId?: string) {
+    // 5 PIN errados seguidos (aquí o en la caja) frenan 15 minutos a quien los teclea
+    const quien = solicitanteId ?? 'sin-usuario';
+    this.frenoPin.revisar(quien);
     const { data, error } = await this.db.rpc('verificar_pin_supervisor', { p_pin: pin ?? '' }).maybeSingle();
     if (error) throw new BadRequestException(error.message);
     const s = data as any;
-    if (!s) throw new BadRequestException('PIN incorrecto');
+    if (!s) {
+      const frenado = this.frenoPin.errado(quien);
+      await registrarPinErrado(this.db, solicitanteId, 'prorrateo', frenado);
+      throw new BadRequestException('PIN incorrecto');
+    }
+    this.frenoPin.acerto(quien);
     if (s.rol !== 'dueno') throw new BadRequestException('El prorrateo de regalos lo autoriza un dueño con su PIN');
-    await this.db.from('auditoria').insert({
+    // entidad_id es obligatoria en auditoría: con null el insert fallaba callado
+    // y la autorización no quedaba registrada
+    await Promise.resolve(this.db.from('auditoria').insert({
       usuario_id: s.id,
       accion: 'prorrateo_regalos_autorizado',
       entidad: 'entrada_compra',
-      entidad_id: null,
+      entidad_id: 'sin-entrada', // se autoriza antes de que exista la entrada
       datos_despues: { solicitadoPor: solicitanteId ?? null },
-    }).then(() => null, () => null);
+    })).catch(() => null);
     return { ok: true, nombre: s.nombre };
   }
 

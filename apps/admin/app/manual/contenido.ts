@@ -821,7 +821,7 @@ export const SECCIONES: Seccion[] = [
         pasos: [
           'La tarjeta trae al cliente con su teléfono («WhatsApp» abre el chat y «Llamar» lo llama), la dirección con «Abrir en el mapa», cuándo se entrega, cómo se cobra, las indicaciones y, en la Placa roja, qué lleva.',
           'Un botón por paso, en orden: «Empezar a preparar», «Marcar listo», «Salió» y «Entregado». Lo que pasa con cada uno (o el error, si algo falla) se ve en la misma tarjeta.',
-          '«Quién lo lleva»: un repartidor o, si no hay o están todos en la calle, alguien del local: encargado, caja o depósito (aparecen aparte en la lista). Esa persona ve el envío en «Mis entregas» (o en Reparto › Entregas en la calle), con la dirección, el teléfono y qué cobrar, y lo marca entregado desde ahí.',
+          '«Quién lo lleva»: un repartidor o, si no hay o están todos en la calle, alguien del local: encargado, caja o depósito (aparecen aparte en la lista). Esa persona ve el envío en «Mis entregas» (en el menú, o en Reparto › Mis entregas), con la dirección, el teléfono y qué cobrar, y lo marca entregado desde ahí.',
           '«Salió» abre una ventana para confirmar quién lo lleva: sin alguien elegido el envío no sale, y al cliente le llega el WhatsApp de que salió.',
           '«Cambiar cuándo o dirección»: otra fecha o franja (por ejemplo, si el cliente lo pide para el viernes) o la dirección corregida. Queda en el historial del pedido; al cliente no se le manda nada.',
           '«Autorización para la guardia» (cuando ya hay alguien elegido): el texto para la seguridad del barrio, con quién entra, el vehículo y a dónde va, para copiar o mandar por WhatsApp.',
@@ -857,7 +857,7 @@ export const SECCIONES: Seccion[] = [
         tipo: 'pasos',
         titulo: 'En el local',
         pasos: [
-          'Todo el reparto está en un solo lugar del menú, Reparto, con cuatro secciones: Envíos (el despacho de los pedidos a domicilio, ver arriba), Hojas de ruta, Repartidores (alta de choferes, vehículos y seguros) y Entregas en la calle (lo que ve el repartidor en su celular).',
+          'Todo el reparto está en un solo lugar del menú, Reparto, con cuatro secciones: Envíos (el despacho de los pedidos a domicilio, ver arriba), Hojas de ruta, Repartidores (alta de choferes, vehículos y seguros) y Mis entregas (lo que lleva quien está usando el sistema, como lo ve el repartidor en su celular; lo que está en la calle de todos se ve en Envíos).',
           'Reparto › Hojas de ruta → nueva hoja de ruta. Agregá los clientes que salen en ese viaje.',
           'Cada reparto se numera con el día de la semana y el orden de salida, así se identifica sin confusión.',
           '"Salir a la calle" cuando el repartidor arranca.',

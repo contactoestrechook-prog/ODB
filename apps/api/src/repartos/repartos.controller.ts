@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Param, Post, Query, Req } from '@nestjs/common';
-import { Roles } from '../auth/decorators';
+import { Roles, SinHerencia } from '../auth/decorators';
 import { RepartosService } from './repartos.service';
 
 @Controller('repartos')
@@ -31,8 +31,12 @@ export class RepartosController {
     return this.serv.clientesZona(zona);
   }
 
-  // El repartidor reporta su posición (desde la app) cada X seg
-  @Roles('repartidor', 'gerente', 'dueno')
+  // El repartidor reporta su posición (desde la app) cada X seg. Caja y
+  // depósito también: desde el 21/10/2026 llevan envíos desde «Mis entregas»
+  // y antes cada lectura del GPS les daba 403 y no aparecían en el mapa de
+  // flota. Administrativo no lleva envíos: no entra por herencia.
+  @Roles('repartidor', 'cajero', 'deposito', 'gerente', 'dueno')
+  @SinHerencia()
   @Post('posicion')
   posicion(@Body() b: { lat: number; lng: number; repartoId?: string }, @Req() req: any) {
     return this.serv.reportarPosicion(req.usuario?.sub, b.lat, b.lng, b.repartoId);

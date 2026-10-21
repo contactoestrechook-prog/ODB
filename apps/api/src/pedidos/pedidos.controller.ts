@@ -1,9 +1,9 @@
-import { BadRequestException, Body, Controller, Get, Header, Headers, Param, Patch, Post, Query, Req, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, Body, Controller, ForbiddenException, Get, Header, Headers, Param, Patch, Post, Query, Req, UnauthorizedException } from '@nestjs/common';
 import { timingSafeEqual } from 'crypto';
 import { JwtService } from '@nestjs/jwt';
 import { PedidosService } from './pedidos.service';
 import type { PedidoYaPayload } from './pedidos.service';
-import { Publico, Roles } from '../auth/decorators';
+import { Publico, Roles, SinHerencia } from '../auth/decorators';
 import { LimitadorTasa } from '../comun/limitador';
 import { MEDIOS_AL_ENTREGAR } from './envios';
 
@@ -225,13 +225,16 @@ export class PedidosController {
   // envío puede salir con alguien de caja o depósito (no hay repartidores
   // cargados): esa persona también tiene que ver la dirección, el teléfono y
   // qué cobrar, y poder marcarlo entregado. Cada uno ve solo los suyos.
+  // @SinHerencia: administrativo no lleva envíos (quienLleva no lo ofrece)
   @Roles('repartidor', 'cajero', 'deposito', 'gerente', 'dueno')
+  @SinHerencia()
   @Get('repartidor/mis-entregas')
   misEntregas(@Req() req: any) {
     return this.pedidos.misEntregas(req.usuario.sub);
   }
 
   @Roles('repartidor', 'cajero', 'deposito', 'gerente', 'dueno')
+  @SinHerencia()
   @Post('repartidor/pedidos/:id/ubicacion')
   repartidorUbicacion(@Param('id') id: string, @Body() body: { lat: number; lng: number }, @Req() req: any) {
     // cada uno manda la ubicación de lo que lleva; dueño y encargado, de cualquiera
@@ -249,18 +252,31 @@ export class PedidosController {
 
   @Roles('deposito', 'cajero', 'gerente', 'dueno', 'repartidor')
   @Post('pedidos/:id/avanzar')
-  avanzar(@Param('id') id: string, @Body() body: { estado: string; medioPago?: string; repartidorId?: string }, @Req() req: any) {
+  async avanzar(@Param('id') id: string, @Body() body: { estado: string; medioPago?: string; repartidorId?: string }, @Req() req: any) {
     const medio = medioValido(body.medioPago);
+    await this.soloSiLoLleva(id, req);
     // despachar un envío: quién lo lleva (21/10/2026, sin eso no sale)
     return this.pedidos.avanzar(id, body.estado, req.usuario?.sub, medio, { repartidorId: body.repartidorId || undefined });
   }
 
+  // El repartidor solo toca los pedidos que lleva él (como la ubicación). Los
+  // del local (caja, depósito, encargado) manejan cualquiera desde Pedidos.
+  private async soloSiLoLleva(pedidoId: string, req: any) {
+    if (req.usuario?.rol !== 'repartidor') return;
+    if (!(await this.pedidos.loLleva(pedidoId, req.usuario?.sub))) {
+      throw new ForbiddenException('Ese pedido no lo llevás vos: solo podés cambiar los que tenés en «Mis entregas».');
+    }
+  }
+
   // Al entregar faltaba stock: sacar ese producto del pedido o reemplazarlo por otro
   @Roles('deposito', 'cajero', 'gerente', 'dueno', 'repartidor')
+  @SinHerencia()
   @Post('pedidos/:id/faltante')
-  resolverFaltante(@Param('id') id: string, @Body() body: { productoId: string; reemplazoSku?: string; cantidad?: number }, @Req() req: any) {
-    // el repartidor está en la puerta del cliente: puede sacar, no cambiar por otro
+  async resolverFaltante(@Param('id') id: string, @Body() body: { productoId: string; reemplazoSku?: string; cantidad?: number }, @Req() req: any) {
+    // el repartidor está en la puerta del cliente: puede sacar, no cambiar por
+    // otro, y solo en un pedido que lleva él
     if (body?.reemplazoSku && req.usuario?.rol === 'repartidor') throw new BadRequestException('Desde el reparto solo se puede sacar el producto');
+    await this.soloSiLoLleva(id, req);
     return this.pedidos.resolverFaltante(id, body?.productoId, body?.reemplazoSku, body?.cantidad, req.usuario?.sub);
   }
 
@@ -273,6 +289,7 @@ export class PedidosController {
   // Quién puede llevar un envío: los repartidores activos y, si no hay o
   // están todos en la calle, alguien del local (21/10/2026)
   @Roles('deposito', 'cajero', 'gerente', 'dueno')
+  @SinHerencia()
   @Get('envios/quien-lleva')
   quienLleva() {
     return this.pedidos.quienLleva();
@@ -282,6 +299,7 @@ export class PedidosController {
   // entregó sin que nadie lo marcara (registra la venta, sin WhatsApp al cliente).
   // efectivoEnCaja: quien cierra confirma que el efectivo está hoy en el cajón.
   @Roles('deposito', 'cajero', 'gerente', 'dueno')
+  @SinHerencia()
   @Post('envios/:id/se-entrego')
   seEntrego(@Param('id') id: string, @Body() body: { medioPago?: string; efectivoEnCaja?: boolean }, @Req() req: any) {
     return this.pedidos.seEntrego(id, req.usuario?.sub, medioValido(body?.medioPago), { efectivoEnCaja: body?.efectivoEnCaja === true });
@@ -290,6 +308,7 @@ export class PedidosController {
   // Cambiar cuándo (fecha y franja) o corregir la dirección de un envío.
   // Cada campo es opcional: el que no viene no se toca; fecha vacía = lo antes posible.
   @Roles('deposito', 'cajero', 'gerente', 'dueno')
+  @SinHerencia()
   @Patch('envios/:id')
   cambiarEnvio(
     @Param('id') id: string,

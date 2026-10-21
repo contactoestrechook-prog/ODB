@@ -3,7 +3,7 @@ import { Aviso } from '../ui/kit';
 import { apiFetch } from '../../lib/api';
 import { PedidosWorkspace } from '../ui/PedidosWorkspace';
 import { cookies } from 'next/headers';
-import { rolDesdeToken } from '../lib/permisos';
+import { puedeCargarRepartidores, rolDesdeToken } from '../lib/permisos';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,7 +25,7 @@ export default async function Pedidos() {
       {error ? (
         <Aviso tono="error">No pude consultar la API ({error}).</Aviso>
       ) : (
-        <PedidosWorkspace inicial={pedidos} puedeSimular={rol === 'dueno' || rol === 'gerente'} />
+        <PedidosWorkspace inicial={pedidos} puedeSimular={rol === 'dueno' || rol === 'gerente'} puedeCargarRepartidor={puedeCargarRepartidores(rol)} />
       )}
     </Pantalla>
   );

@@ -1,4 +1,4 @@
-import { limpiarEntradaDeHerramienta, sinRestosDeMarcado, textoONulo } from './texto-limpio';
+import { limpiarEntradaDeHerramienta, sinRestosDeMarcado, textoONulo, unirLimpio } from './texto-limpio';
 
 // La basura de Envíos (Leandro, 21/10/2026: «misma basura»). Los casos son los
 // de producción: la nota de DOM-YD5GNY, las notas del equipo del 21/9 y las
@@ -66,6 +66,28 @@ describe('sinRestosDeMarcado: una sola regla para lo que no escribió una person
     expect(sinRestosDeMarcado('  Barrio Saint Thomas\n lote 194 ', { unaLinea: true })).toBe('Barrio Saint Thomas lote 194');
   });
 
+  // Revisión del 21/10/2026: la regla les sacaba los signos a cualquier tramo
+  // entre un < y un > posterior (probado con la función de la base).
+  it('en un renglón, lo que no empieza con letra queda entero aunque haya < y > en el mismo renglón', () => {
+    expect(sinRestosDeMarcado('Juli <3, lote 95 > portón', { unaLinea: true })).toBe('Juli <3, lote 95 > portón');
+    expect(sinRestosDeMarcado('Entrar <- portón negro -> no el blanco', { unaLinea: true })).toBe('Entrar <- portón negro -> no el blanco');
+    expect(sinRestosDeMarcado('Casa <A> timbre 2', { unaLinea: true })).toBe('Casa A timbre 2');
+    expect(sinRestosDeMarcado('<Árbol grande> lote 3', { unaLinea: true })).toBe('Árbol grande lote 3');
+  });
+
+  it('limpiar dos veces da lo mismo que una (el disparador limpia en cada guardado)', () => {
+    expect(sinRestosDeMarcado('x <y <z> w> v', { unaLinea: true })).toBe('x y z w v');
+    for (const t of [
+      'x <y <z> w> v', 'Juli <3, lote 95 > portón', 'Entrar <- portón negro -> no el blanco', 'Lote 95 <casa con portón negro>',
+      'a <<b c>> d', '<<<x>>>', 'Timbre 2 <b>urgente</b>', 'WhatsApp: </antml name diretipo">domicilio', 'Barrio <El Venado> II · lote 312 ·',
+    ]) {
+      for (const unaLinea of [true, false]) {
+        const una = sinRestosDeMarcado(t, { unaLinea });
+        expect(sinRestosDeMarcado(una, { unaLinea })).toBe(una);
+      }
+    }
+  });
+
   it('saca invisibles y caracteres de control, pero no rompe los emojis compuestos', () => {
     expect(sinRestosDeMarcado('Timbre\u200B 2\u0007')).toBe('Timbre 2');
     expect(sinRestosDeMarcado('\uFEFFValeria')).toBe('Valeria');
@@ -92,6 +114,23 @@ describe('sinRestosDeMarcado: una sola regla para lo que no escribió una person
   it('textoONulo: null cuando no queda nada (para grabar)', () => {
     expect(textoONulo('WhatsApp: </antml name diretipo">domicilio')).toBeNull();
     expect(textoONulo(' Av Mariano Castex 1148 ', { unaLinea: true })).toBe('Av Mariano Castex 1148');
+  });
+});
+
+describe('unirLimpio: cada pedazo de una nota se limpia por separado', () => {
+  it('una etiqueta en la nota del cliente no se lleva el aviso del sistema que va detrás', () => {
+    const notas = unirLimpio(['Ana', 'Tocar timbre<br>Depto 3', 'SIN MATCHEAR: Vino X']);
+    expect(notas).toBe('Ana · Tocar timbre · SIN MATCHEAR: Vino X');
+    // y la limpieza del total (la API al guardar, el disparador de la base) ya no corta nada
+    expect(sinRestosDeMarcado(notas)).toBe(notas);
+  });
+
+  it('la forma de pago que agrega el bot sobrevive a una nota vieja con basura', () => {
+    expect(unirLimpio(['WhatsApp: </antml name diretipo">domicilio', 'Paga con efectivo'])).toBe('Paga con efectivo');
+  });
+
+  it('saltea lo vacío y el relleno', () => {
+    expect(unirLimpio([null, '', 'null', 'Ana', undefined])).toBe('Ana');
   });
 });
 

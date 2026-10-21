@@ -49,6 +49,24 @@ const RUTAS_POR_ROL: Record<string, string[]> = {
     '/manual', // el manual lo abre cualquiera
     '/cambiar-clave',
   ],
+  // Comprador (21/10/2026): antes no figuraba y veía todo el menú, y en
+  // Reparto, Eventos, Fraccionar, Pedidos o Depósito el API le daba 403
+  // («No pude consultar la API», listas vacías sin explicación). Su lista va
+  // alineada con los @Roles del API que lo incluyen: abastecimiento, compras,
+  // proveedores y sus listas, documentos y catálogo.
+  comprador: [
+    '/compras', // órdenes de compra, sugerencias, deuda con proveedores
+    '/pedido-proveedor', // armar el pedido desde el celular
+    '/facturas-compra',
+    '/mesa-compras', // abastecimiento
+    '/comparador', // proveedores
+    '/listas', // listas de precios de proveedor
+    '/trazabilidad', // cadena orden → recepción → factura → pago
+    '/analista',
+    '/productos', // catálogo
+    '/manual', // el manual lo abre cualquiera
+    '/cambiar-clave',
+  ],
   deposito: [
     '/deposito', // cola de preparación
     '/pedidos',
@@ -67,6 +85,7 @@ const RUTAS_POR_ROL: Record<string, string[]> = {
 // A dónde entra cada rol al loguearse (el resto va a /inicio)
 const LANDING_POR_ROL: Record<string, string> = {
   administrativo: '/facturas-compra',
+  comprador: '/compras',
   repartidor: '/repartidor',
   cajero: '/caja',
   deposito: '/deposito',
@@ -90,6 +109,16 @@ const RUTAS_SOLO_DUENO = ['/whatsapp', '/responde'];
 // llevaría un 403 del API al entrar: el menú tiene que ofrecer lo que se puede
 // abrir de verdad.
 const RUTAS_DIRECCION = ['/aprobaciones', '/actividad'];
+
+/**
+ * Cargar repartidores (Reparto › Repartidores, gestion/repartidores en el API)
+ * es de gerencia y dueño. Caja y depósito despachan desde Pedidos y Depósito
+ * pero no abren Reparto: a ellos no se les ofrece el link (el panel los
+ * devolvía a su inicio sin explicar nada y perdían el despacho a medio hacer).
+ */
+export function puedeCargarRepartidores(rol: string | null | undefined): boolean {
+  return rol === 'dueno' || rol === 'gerente';
+}
 
 export function puedeVer(rol: string | null | undefined, pathname: string): boolean {
   if (RUTAS_SOLO_DUENO.some((r) => pathname === r || pathname.startsWith(r + '/'))) {

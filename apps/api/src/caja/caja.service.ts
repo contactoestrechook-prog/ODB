@@ -1,6 +1,7 @@
 import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
+import { FrenoDePin, frenoDePin, registrarPinErrado } from '../comun/freno-pin';
 import { agruparPorMedio, etiquetaMedio } from './cierre';
 
 const pesos = (n: unknown) => `$${Math.round(Math.abs(Number(n) || 0)).toLocaleString('es-AR')}`;
@@ -25,6 +26,9 @@ export function textoDiferenciaCaja(d: {
 @Injectable()
 export class CajaService {
   private readonly log = new Logger(CajaService.name);
+
+  // el freno de PIN errados (uno solo para todo el API; las pruebas ponen uno propio)
+  freno: FrenoDePin = frenoDePin;
 
   constructor(@Inject(SUPABASE) private readonly db: SupabaseClient) {}
 
@@ -157,10 +161,19 @@ export class CajaService {
   // PIN de supervisor (gerente/dueño): autoriza descuentos y devoluciones en caja.
   // Devuelve un token opaco de un solo uso (no el usuarioId): así el cajero no
   // puede reusar ni inventar una autorización sin volver a teclear el PIN.
-  async autorizar(pin: string) {
+  // solicitanteId: quien pide la autorización (el usuario logueado). Con 5 PIN
+  // errados seguidos queda frenado 15 minutos (comun/freno-pin.ts).
+  async autorizar(pin: string, solicitanteId?: string) {
+    const quien = solicitanteId ?? 'sin-usuario';
+    this.freno.revisar(quien);
     const { data, error } = await this.db.rpc('verificar_pin_supervisor', { p_pin: pin ?? '' }).maybeSingle();
     if (error) throw new BadRequestException(error.message);
-    if (!data) throw new BadRequestException('PIN incorrecto');
+    if (!data) {
+      const frenado = this.freno.errado(quien);
+      await registrarPinErrado(this.db, solicitanteId, 'caja', frenado);
+      throw new BadRequestException('PIN incorrecto');
+    }
+    this.freno.acerto(quien);
     const s = data as any;
     const { data: fila, error: errorToken } = await this.db
       .from('autorizaciones_caja')

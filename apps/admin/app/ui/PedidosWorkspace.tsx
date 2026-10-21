@@ -64,7 +64,7 @@ type LineaHistorial = { cuando: string; que: string; quien: string | null; tono:
 // nos quedan los datos de quién hizo cada cosa"). Cada tarjeta dice quién lo
 // tiene ("Sin tomar" hasta que alguien toca "Lo tomo"), el detalle trae el
 // historial completo con nombre y hora, y los terminados se pueden consultar.
-export function PedidosWorkspace({ inicial, puedeSimular = false }: { inicial: PedidoCola[]; puedeSimular?: boolean }) {
+export function PedidosWorkspace({ inicial, puedeSimular = false, puedeCargarRepartidor = false }: { inicial: PedidoCola[]; puedeSimular?: boolean; puedeCargarRepartidor?: boolean }) {
   const [pedidos, setPedidos] = useState<PedidoCola[]>(inicial);
   const [vista, setVista] = useState<'curso' | 'terminados'>('curso');
   const [terminados, setTerminados] = useState<PedidoCola[] | null>(null);
@@ -297,6 +297,7 @@ export function PedidosWorkspace({ inicial, puedeSimular = false }: { inicial: P
             direccion: textoVisible(despachando.destino_direccion, { unaLinea: true }),
             repartidorId: despachando.repartidor_id ?? null,
           }}
+          puedeCargarRepartidor={puedeCargarRepartidor}
           trabajando={trabajando === despachando.id}
           error={errorDespacho}
           onCerrar={() => { setDespachando(null); setErrorDespacho(null); }}

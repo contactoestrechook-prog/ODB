@@ -11,8 +11,8 @@ import {
 } from '../lib/envios';
 import { Aviso, Boton, Campo, Cargando, Chips, clasesBoton, Entrada, FOCO, Modal, PlacaRoja, Selector, unir } from './kit';
 
-// Las piezas de un envío que comparten Envíos (el despacho) y Entregas en la
-// calle (el celular del repartidor): lo mismo dicho de la misma manera.
+// Las piezas de un envío que comparten Envíos (el despacho) y Mis entregas
+// (el celular de quien lo lleva): lo mismo dicho de la misma manera.
 
 /** Cuándo, cómo se cobra, a dónde y a quién llamar, más las indicaciones. */
 export function DatosDelEnvio({ e }: { e: Envio }) {
@@ -270,10 +270,13 @@ export function ModalDespachar({
   quien: quienDado,
   trabajando,
   error,
+  puedeCargarRepartidor = false,
   onCerrar,
   onConfirmar,
 }: {
   envio: ParaDespachar;
+  /** gerencia y dueño: se les ofrece ir a cargar un repartidor (ver puedeCargarRepartidores) */
+  puedeCargarRepartidor?: boolean;
   /** La lista ya cargada (Envíos); si no viene, la ventana la trae. */
   quien?: QuienLleva | null;
   trabajando?: boolean;
@@ -312,9 +315,15 @@ export function ModalDespachar({
         )}
         {quien && quien.repartidores.length === 0 && (
           <p className="text-sm text-tinta/70">
-            No hay repartidores cargados: elegí a alguien del local o{' '}
-            <Link href="/reparto?vista=repartidores" className={unir('font-semibold text-marca underline-offset-2 hover:underline', FOCO)}>cargá un repartidor</Link>.
-            Quien lo lleve lo ve en «Mis entregas» (o en Reparto › Entregas en la calle), con la dirección, el teléfono y qué cobrar.
+            {puedeCargarRepartidor ? (
+              <>
+                No hay repartidores cargados: elegí a alguien del local o{' '}
+                <Link href="/reparto?vista=repartidores" className={unir('font-semibold text-marca underline-offset-2 hover:underline', FOCO)}>cargá un repartidor</Link>.
+              </>
+            ) : (
+              'No hay repartidores cargados: elegí a alguien del local. El encargado puede cargar un repartidor en Reparto.'
+            )}{' '}
+            Quien lo lleve lo ve en «Mis entregas» (en el menú, o en Reparto si lo abre), con la dirección, el teléfono y qué cobrar.
           </p>
         )}
         <p className="text-sm text-tinta/70">Al cliente le llega el WhatsApp de que su pedido salió.</p>

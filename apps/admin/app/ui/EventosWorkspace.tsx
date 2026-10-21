@@ -965,23 +965,26 @@ function BuscadorCliente({
   useEffect(() => {
     if (q.trim().length < 2) {
       setResultados([]);
+      setBuscando(false);
       return;
     }
+    // una respuesta vieja que llega tarde no pisa la de lo que está escrito ahora
+    let vigente = true;
     const t = setTimeout(async () => {
       setBuscando(true);
       try {
         const r = await fetch(`/api/buscar-cliente?q=${encodeURIComponent(q.trim())}`);
         if (r.ok) {
           const d = await r.json();
-          setResultados((Array.isArray(d) ? d : d.clientes ?? d.items ?? []).slice(0, 6));
+          if (vigente) setResultados((Array.isArray(d) ? d : d.clientes ?? d.items ?? []).slice(0, 6));
         }
       } catch {
         // sin conexión: queda la lista como estaba
       } finally {
-        setBuscando(false);
+        if (vigente) setBuscando(false);
       }
     }, 250);
-    return () => clearTimeout(t);
+    return () => { vigente = false; clearTimeout(t); };
   }, [q]);
 
   return (
@@ -1303,18 +1306,20 @@ function Detalle({
       setRes([]);
       return;
     }
+    // una respuesta vieja que llega tarde no pisa la de lo que está escrito ahora
+    let vigente = true;
     const t = setTimeout(async () => {
       try {
         const r = await fetch(`/api/buscar-producto?q=${encodeURIComponent(q)}`);
         if (r.ok) {
           const dd = await r.json();
-          setRes((dd.items ?? []).slice(0, 6));
+          if (vigente) setRes((dd.items ?? []).slice(0, 6));
         }
       } catch {
         // sin conexión: queda la lista como estaba
       }
     }, 250);
-    return () => clearTimeout(t);
+    return () => { vigente = false; clearTimeout(t); };
   }, [q]);
 
   const cambiar = async (patch: Record<string, unknown>) => {

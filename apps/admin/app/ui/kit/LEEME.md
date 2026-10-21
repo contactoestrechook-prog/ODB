@@ -274,7 +274,7 @@ Los de error se anuncian enseguida (`role="alert"`). Reemplaza los `<p className
 - Cabecera y pie fijos; el medio scrollea. ✕ de 44 px, Escape y toque afuera cierran (salvo `bloquearCierre`, mientras se guarda).
 - El foco queda adentro (Tab y Mayús+Tab dan la vuelta) y al cerrar vuelve al botón que lo abrió, también si un campo del modal tiene `autoFocus`. Se monta en `<body>` (no lo corta ningún `overflow` del padre).
 - Mientras está abierto, la página de atrás no scrollea y se esconden los flotantes ("Esto está mal", instalar, actualización).
-- En el celular, los botones del pie se reparten el ancho.
+- En el celular, los botones del pie se reparten el ancho según lo que mide cada rótulo; si no entran en un renglón, el último baja entero al siguiente (nunca un botón partido en tres renglones).
 - `cerrarAlTocarAfuera={false}` en formularios largos (un toque perdido haría perder lo cargado).
 
 ```tsx

@@ -62,7 +62,7 @@ export function FaltantesAlEntregar({
       texto: reemplazo
         ? `Cambiaste ${cant(saca)} × ${f.nombre} por ${cant(Number(d.puso?.cantidad ?? reemplazo.cantidad))} × ${d.puso?.nombre ?? reemplazo.nombre}.`
         : f.hay > 0
-          ? `Sacaste ${cant(saca)} × ${f.nombre}: se entregan las ${cant(f.hay)} que hay.`
+          ? `Sacaste ${cant(saca)} × ${f.nombre}: ${f.hay === 1 ? 'se entrega la que hay' : `se entregan las ${cant(f.hay)} que hay`}.`
           : `Sacaste ${f.nombre} del pedido.`,
     }]);
     if (totalOriginal == null) setTotalOriginal(Number(d.totalAntes));
@@ -109,12 +109,12 @@ export function FaltantesAlEntregar({
                 sucursalId={falta.sucursalId}
                 trabajando={trabajando}
                 onElegir={(r) => resolver(f, r)}
-                onVolver={() => setReemplazando(null)}
+                onCancelar={() => setReemplazando(null)}
               />
             ) : (
               <div className="mt-3 flex flex-wrap gap-2">
                 <Boton variante="secundario" tamano="chico" disabled={trabajando} onClick={() => resolver(f)}>
-                  {f.hay > 0 ? `Sacar los ${cant(f.pide - f.hay)} que faltan` : 'Sacarlo'}
+                  {f.hay > 0 ? (f.pide - f.hay === 1 ? 'Sacar el que falta' : `Sacar los ${cant(f.pide - f.hay)} que faltan`) : 'Sacarlo'}
                 </Boton>
                 {!soloSacar && (
                   <Boton variante="secundario" tamano="chico" disabled={trabajando} onClick={() => { setError(''); setReemplazando(f.productoId); }}>
@@ -153,32 +153,41 @@ export function FaltantesAlEntregar({
 type Opcion = { sku: string; nombre: string; precio: number | null; stock: number | null; activo: boolean };
 
 function BuscarReemplazo({
-  falta, sucursalId, trabajando, onElegir, onVolver,
+  falta, sucursalId, trabajando, onElegir, onCancelar,
 }: {
   falta: Faltante;
   sucursalId: string | null;
   trabajando: boolean;
   onElegir: (r: { sku: string; nombre: string; cantidad: number }) => void;
-  onVolver: () => void;
+  onCancelar: () => void;
 }) {
   const sacar = falta.pide - falta.hay;
   // arranca buscando parecidos: las dos primeras palabras del producto que falta
   const [texto, setTexto] = useState(falta.nombre.split(/\s+/).slice(0, 2).join(' '));
   const [cantidad, setCantidad] = useState(cant(sacar));
   const [opciones, setOpciones] = useState<Opcion[]>([]);
+  // lo que se buscó para la lista que se ve: "No encontré nada" y la lista
+  // solo valen si corresponden a lo que está escrito ahora
+  const [buscado, setBuscado] = useState('');
   const [buscando, setBuscando] = useState(false);
 
   useEffect(() => {
     const q = texto.trim();
-    if (q.length < 2) { setOpciones([]); return; }
+    if (q.length < 2) { setOpciones([]); setBuscado(''); setBuscando(false); return; }
+    // Si se escribe otra cosa antes de que vuelva la respuesta, la limpieza
+    // la deja sin efecto: una búsqueda vieja que llega tarde no pisa la lista
+    // de la actual (pasaba con la búsqueda inicial y lo que se escribía después).
+    let vigente = true;
     const t = setTimeout(async () => {
       setBuscando(true);
       const r = await fetch(`/api/pos-buscar?q=${encodeURIComponent(q)}&sucursal=${encodeURIComponent(sucursalId ?? '')}`).catch(() => null);
       const d = r?.ok ? await r.json().catch(() => ({})) : {};
+      if (!vigente) return;
       setOpciones(((d.items ?? []) as Opcion[]).filter((o) => o.activo !== false && o.sku !== falta.sku));
+      setBuscado(q);
       setBuscando(false);
     }, 250);
-    return () => clearTimeout(t);
+    return () => { vigente = false; clearTimeout(t); };
   }, [texto, sucursalId, falta.sku]);
 
   const n = Number(String(cantidad).replace(',', '.'));
@@ -201,14 +210,16 @@ function BuscarReemplazo({
         </div>
       </div>
       {buscando && <p className="text-sm text-tinta/60">Buscando…</p>}
-      {!buscando && texto.trim().length >= 2 && !opciones.length && <p className="text-sm text-tinta/60">No encontré nada con ese nombre.</p>}
+      {!buscando && texto.trim().length >= 2 && buscado === texto.trim() && !opciones.length && <p className="text-sm text-tinta/60">No encontré nada con ese nombre.</p>}
       <ul className="divide-y divide-crema-hondo">
         {opciones.map((o) => {
           const alcanza = o.stock == null || (cantidadValida && o.stock >= n);
           return (
             <li key={o.sku} className="flex items-center justify-between gap-3 py-2">
               <div className="min-w-0">
-                <p className="truncate text-sm font-medium text-tinta">{o.nombre}</p>
+                {/* el nombre entero, aunque baje de renglón: lo que distingue
+                    1,5 L de 900 ml suele estar al final */}
+                <p className="break-words text-sm font-medium text-tinta">{o.nombre}</p>
                 <p className="text-xs text-tinta/60">
                   {o.precio != null ? pesos(o.precio) : 'Sin precio'} · {o.stock == null ? 'stock sin dato' : o.stock > 0 ? `hay ${cant(o.stock)}` : 'sin stock'}
                 </p>
@@ -216,6 +227,7 @@ function BuscarReemplazo({
               <Boton
                 variante="secundario"
                 tamano="chico"
+                className="shrink-0 whitespace-nowrap"
                 disabled={trabajando || !cantidadValida || !alcanza || o.precio == null}
                 onClick={() => onElegir({ sku: o.sku, nombre: o.nombre, cantidad: n })}
               >
@@ -225,7 +237,8 @@ function BuscarReemplazo({
           );
         })}
       </ul>
-      <Boton variante="fantasma" tamano="chico" onClick={onVolver} disabled={trabajando}>Volver</Boton>
+      {/* "No reemplazar" y no "Volver": el "Volver" del pie cierra toda la ventana */}
+      <Boton variante="fantasma" tamano="chico" onClick={onCancelar} disabled={trabajando}>No reemplazar</Boton>
     </div>
   );
 }

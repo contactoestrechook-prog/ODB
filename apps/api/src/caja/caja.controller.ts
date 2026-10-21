@@ -108,10 +108,14 @@ export class CajaController {
   // del pozo en Fraccionar le piden el PIN de un supervisor arriba del tope, y
   // sin este permiso el pedido del token le daba 403 y nunca podía hacerlos.
   // El token solo prueba que un supervisor tecleó su PIN; se consume una vez.
+  // Administrativo también llega (hereda depósito) y lo necesita: desde que no
+  // se autoriza solo, cerrar un conteo le pide el PIN de un supervisor. Contra
+  // probar PINes en bucle: 5 errados y ese usuario queda frenado 15 minutos, y
+  // cada error queda en auditoría (comun/freno-pin.ts).
   @Roles('cajero', 'deposito', 'gerente', 'dueno')
   @Post('caja/autorizar')
-  autorizar(@Body() body: { pin: string }) {
-    return this.caja.autorizar(body.pin);
+  autorizar(@Body() body: { pin: string }, @Req() req: any) {
+    return this.caja.autorizar(body?.pin, req.usuario?.sub);
   }
 
   @Roles('gerente', 'dueno')

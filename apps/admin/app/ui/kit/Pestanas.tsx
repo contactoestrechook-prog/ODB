@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import type { KeyboardEvent, ReactNode } from 'react';
 import { FOCO_ADENTRO, unir } from './clases';
+import { PestanaALaVista } from './PestanaALaVista';
 
 export type OpcionPestana<V extends string = string> = {
   valor: V;
@@ -30,7 +31,8 @@ const CLASE_PESTANA =
 
 /**
  * Pestañas de sección: una fila subrayada que en el celular scrollea de
- * costado (nunca se sale del ancho ni se parte en dos renglones).
+ * costado (nunca se sale del ancho ni se parte en dos renglones). La activa
+ * se trae a la vista y el borde con más pestañas se esfuma (PestanaALaVista).
  *
  * Dos formas, según las opciones:
  * - Todas con `href`: es navegación (cada pestaña es una dirección). Se arma
@@ -91,6 +93,7 @@ export function Pestanas<V extends string>({
             );
           })}
         </div>
+        <PestanaALaVista valor={valor} />
       </nav>
     );
   }
@@ -133,6 +136,7 @@ export function Pestanas<V extends string>({
           );
         })}
       </div>
+      <PestanaALaVista valor={valor} />
     </div>
   );
 }

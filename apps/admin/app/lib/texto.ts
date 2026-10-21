@@ -33,6 +33,21 @@ const RELLENO = /^(?:null|undefined|none|n\/?a|na|vac[ií]o|ningun[ao]|sin (?:no
 // Un rótulo solo, sin nada atrás: «WhatsApp: </antml…» queda en «WhatsApp».
 const ROTULO_SOLO = /^(?:whatsapp|notas?|indicaciones|observaciones|comentarios?|aclaraci[oó]n(?:es)?|direcci[oó]n|nombre)$/i;
 
+// Un aparte entre < > que empieza con letra: pierde los signos en una línea,
+// hasta que no quede ninguno (limpiar dos veces da lo mismo que una). Lo que no
+// empieza con letra queda: «Juli <3, lote 95 > portón», «<- portón negro ->».
+// Igual que la API (comun/texto-limpio.ts) y la base (texto_sin_marcado).
+const APARTE = /<(\p{L}[^<>]*)>/gu;
+
+function sinApartes(t: string): string {
+  let antes: string;
+  do {
+    antes = t;
+    t = t.replace(APARTE, ' $1 ');
+  } while (t !== antes);
+  return t;
+}
+
 type OpcionesLimpieza = {
   /** Nombres y direcciones: todo en un renglón y sin apartes entre < >. */
   unaLinea?: boolean;
@@ -45,7 +60,7 @@ export function sinRestosDeMarcado(v: unknown, { unaLinea = false }: OpcionesLim
   const corte = inicioDelMarcado(t);
   if (corte >= 0) t = t.slice(0, corte);
   t = unaLinea
-    ? t.replace(/<([^<>]*)>/g, ' $1 ').replace(/\s+/g, ' ')
+    ? sinApartes(t).replace(/\s+/g, ' ')
     : t.replace(/\r\n?/g, '\n').replace(/[ \t]+/g, ' ').replace(/ *\n */g, '\n').replace(/\n{3,}/g, '\n\n');
   t = t.trim().replace(/[\s·:;,|\-–—]+$/u, '').trim();
   if (RELLENO.test(t) || ROTULO_SOLO.test(t)) return '';

@@ -62,7 +62,7 @@ function bonitoTelefono(t: string): string {
 import { costoUSD, usoDeRespuesta } from './tarifas';
 import { esfuerzo, RAZONAMIENTO } from '../comun/modelos';
 import { unirConLoDicho } from '../comun/sin-repetir';
-import { limpiarEntradaDeHerramienta, sinRestosDeMarcado } from '../comun/texto-limpio';
+import { limpiarEntradaDeHerramienta, sinRestosDeMarcado, unirLimpio } from '../comun/texto-limpio';
 import { cartelLista, cartelListaPrecios, cartelPedido, imagenEsperada, leerListaDePedido, leerResumenDePedido, MAX_RENGLONES_CARTEL, nombreParaCartel, pieSinPrecios, preciosDeLaRespuesta, ProductoConPrecio } from '../comun/cartel-pedido';
 import { etiquetaDeFila, Lineas, sesionPrincipal } from '../comun/lineas';
 import { cierraLaRafaga, esperaDeRafaga, juntarRafaga, msHastaContestar, type MensajeDeRafaga } from './espera-rafaga';
@@ -811,7 +811,9 @@ export class BotService {
           .eq('telefono', telefono).eq('linea', linea).order('creada_en', { ascending: false }).limit(1).maybeSingle();
         if (q && !q.confirmada_en && Date.now() - new Date(q.creada_en).getTime() < 3 * 3600_000 && String(ultimoMsgBot).includes(`$${pesos(Number(q.total))}`)) {
           const forma = medio.toLowerCase().startsWith('efectivo') ? 'efectivo' : 'tarjeta';
-          await this.db.from('bot_cotizaciones').update({ notas: [q.notas, `Paga con ${forma}`].filter(Boolean).join(' · ').slice(0, 300) }).eq('id', q.id);
+          // las notas viejas (de antes del disparador) pueden traer basura: limpias
+          // por separado, no se llevan la forma de pago que va detrás
+          await this.db.from('bot_cotizaciones').update({ notas: unirLimpio([q.notas, `Paga con ${forma}`]).slice(0, 300) }).eq('id', q.id);
           // con efectivo, el descuento de los rubros que lo tienen (30/9/2026)
           const conEfectivo = forma === 'efectivo'
             ? Math.round(((q as any).items ?? []).reduce((s: number, r: any) => s + Number(r?.subtotalEfectivo ?? r?.subtotal ?? 0), 0))

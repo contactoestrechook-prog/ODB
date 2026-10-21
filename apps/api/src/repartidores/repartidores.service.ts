@@ -5,6 +5,7 @@ import { SUPABASE } from '../supabase.provider';
 import { hashClave } from '../comun/passwords';
 import { sinRestosDeMarcado } from '../comun/texto-limpio';
 import { indicacionesDe } from '../pedidos/envios';
+import { fechaCorta } from '../comun/rechazo';
 
 export type CrearRepartidorDto = {
   nombre: string;
@@ -189,7 +190,7 @@ export class RepartidoresService {
         `Patente: ${veh.patente ?? '—'}`,
       );
       if (veh.seguro_compania || veh.seguro_poliza) {
-        partes.push(`Seguro: ${veh.seguro_compania ?? ''}${veh.seguro_poliza ? ` — Póliza ${veh.seguro_poliza}` : ''}${veh.seguro_vencimiento ? ` — Vence ${veh.seguro_vencimiento}` : ''}${vencido ? ' ⚠ VENCIDO' : ''}`);
+        partes.push(`Seguro: ${veh.seguro_compania ?? ''}${veh.seguro_poliza ? ` — Póliza ${veh.seguro_poliza}` : ''}${veh.seguro_vencimiento ? ` — Vence ${fechaCorta(veh.seguro_vencimiento) ?? veh.seguro_vencimiento}` : ''}${vencido ? ' ⚠ VENCIDO' : ''}`);
       }
     } else {
       partes.push('Vehículo: (sin asignar)');

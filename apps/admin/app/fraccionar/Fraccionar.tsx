@@ -173,8 +173,8 @@ export function Fraccionar({
       {sucursal?.sistemaViejo && grupos.some((g) => pisaElSistemaViejo(sucursal, g.pozo) || g.presentaciones.some((p) => pisaElSistemaViejo(sucursal, g.pozo, p))) && (
         <Aviso tono="atencion" titulo={`${sucursal.nombre} todavía toma el stock del sistema viejo`}>
           Cada carga de la planilla del sistema viejo (la última, {sucursal.sistemaViejo.referencia}, el {fechaCorta(sucursal.sistemaViejo.fecha)}) le pisa el
-          stock a los productos que trae, y no al pozo: lo que se armara o se abriera acá con esos productos terminaría con huevos contados dos veces o
-          perdidos. Por eso acá no se mueven: mientras esta sucursal venda con el sistema viejo, se fracciona allá.
+          stock a los productos que trae, y no al pozo: lo que se armara o se abriera acá con esos productos terminaría con mercadería contada dos
+          veces o perdida. Por eso acá no se mueven: mientras esta sucursal venda con el sistema viejo, se fracciona allá.
         </Aviso>
       )}
       {error && (

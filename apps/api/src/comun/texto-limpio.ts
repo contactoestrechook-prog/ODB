@@ -19,9 +19,14 @@
 //   Una palabra cualquiera entre < > NO es marcado (21/10/2026, revisión):
 //   «Lote 12 <azul> rejas», «Tocar timbre <urgente> y dejar en guardia» o
 //   «Casa <A> timbre 2» los escribió una persona y antes se cortaban.
-// - En nombres y direcciones (una línea) un aparte entre < > pierde los
-//   signos («<casa con portón>» → «casa con portón»); un < o > suelto queda
-//   («Juli <3», «lote 95 > portón azul»).
+// - En nombres y direcciones (una línea) un aparte entre < > que empieza con
+//   letra pierde los signos («<casa con portón>» → «casa con portón»); lo que
+//   no empieza con letra queda entero, aunque haya un < y un > en el mismo
+//   renglón («Juli <3, lote 95 > portón», «Entrar <- portón negro -> no el
+//   blanco»; antes se comía los signos de los dos). Se repite hasta que no
+//   quede ninguno, así limpiar dos veces da lo mismo que una: el disparador de
+//   la base limpia de nuevo cada vez que se guarda (antes «x <y <z> w> v» se
+//   iba gastando de a un par por guardado).
 // - Saca separadores que quedaron colgando al final («WhatsApp:», «… ·»).
 // - Un relleno («null», «N/A», «vacío») o una etiqueta sola («WhatsApp»,
 //   «Notas») no es un dato: queda vacío.
@@ -62,6 +67,19 @@ const RELLENO = /^(?:null|undefined|none|n\/?a|na|vac[ií]o|ningun[ao]|sin (?:no
 // Un rótulo solo, sin nada atrás: «WhatsApp: </antml…» queda en «WhatsApp».
 const ROTULO_SOLO = /^(?:whatsapp|notas?|indicaciones|observaciones|comentarios?|aclaraci[oó]n(?:es)?|direcci[oó]n|nombre)$/i;
 
+// Un aparte entre < > que empieza con letra (ver arriba).
+const APARTE = /<(\p{L}[^<>]*)>/gu;
+
+/** Saca los signos de los apartes hasta que no quede ninguno (idempotente). */
+function sinApartes(t: string): string {
+  let antes: string;
+  do {
+    antes = t;
+    t = t.replace(APARTE, ' $1 ');
+  } while (t !== antes);
+  return t;
+}
+
 export type OpcionesLimpieza = {
   /** Nombres y direcciones: todo en un renglón y sin apartes entre < >. */
   unaLinea?: boolean;
@@ -74,11 +92,22 @@ export function sinRestosDeMarcado(v: unknown, { unaLinea = false }: OpcionesLim
   const corte = inicioDelMarcado(t);
   if (corte >= 0) t = t.slice(0, corte);
   t = unaLinea
-    ? t.replace(/<([^<>]*)>/g, ' $1 ').replace(/\s+/g, ' ')
+    ? sinApartes(t).replace(/\s+/g, ' ')
     : t.replace(/\r\n?/g, '\n').replace(/[ \t]+/g, ' ').replace(/ *\n */g, '\n').replace(/\n{3,}/g, '\n\n');
   t = t.trim().replace(/[\s·:;,|\-–—]+$/u, '').trim();
   if (RELLENO.test(t) || ROTULO_SOLO.test(t)) return '';
   return t;
+}
+
+/**
+ * Une pedazos de una nota limpiando CADA UNO antes: la regla corta desde la
+ * primera etiqueta, así que una etiqueta en lo que escribió el cliente se
+ * llevaba también lo que el sistema agrega detrás («SIN MATCHEAR: …», la
+ * forma de pago). Ya limpios, la limpieza del total (la API y el disparador
+ * de la base) no corta nada.
+ */
+export function unirLimpio(partes: unknown[], separador = ' · '): string {
+  return partes.map((p) => sinRestosDeMarcado(p)).filter(Boolean).join(separador);
 }
 
 /** Igual que sinRestosDeMarcado, pero null cuando no queda nada (para grabar en la base). */

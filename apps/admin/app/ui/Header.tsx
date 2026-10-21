@@ -169,7 +169,7 @@ const TITULOS: Record<string, { titulo: string; bajada: string }> = {
   '/mesa-compras': { titulo: 'Mesa de compras', bajada: 'El costo real de cada compra, con las cuentas hechas por el sistema. El dueño aprueba antes de que se toque un precio.' },
   '/comparador': { titulo: 'Proveedores', bajada: 'Cargá listas, compará precios y decidí dónde conviene comprar cada producto' },
   '/pedidos': { titulo: 'Pedidos', bajada: 'Centro omnicanal: WhatsApp, app, web, PedidosYa, pick-up y domicilio en un solo lugar' },
-  '/reparto': { titulo: 'Reparto', bajada: 'Envíos a domicilio, hojas de ruta, repartidores y entregas en la calle, en un solo lugar' },
+  '/reparto': { titulo: 'Reparto', bajada: 'Envíos a domicilio, hojas de ruta, repartidores y tus entregas, en un solo lugar' },
   '/analista': { titulo: 'Analista ODB', bajada: 'El asesor de abastecimiento: quiebres, reposición y oportunidades' },
   '/agente': { titulo: 'Agente IA Operativo', bajada: 'Carga y mantiene el catálogo solo, con autonomía supervisada: audita cada acción y escala a un humano cuando duda' },
   '/cuentas-corrientes': { titulo: 'Cuentas corrientes', bajada: 'La plata en la calle: riesgo, topes y mejores pagadores' },

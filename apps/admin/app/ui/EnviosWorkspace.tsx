@@ -52,14 +52,16 @@ const SECCIONES: { grupo: Envio['grupo']; titulo: string; bajada: string }[] = [
 /** El envío que arma la API nueva (si falta, la API es la anterior). */
 const esEnvioNuevo = (x: any) => !!x && typeof x.grupo === 'string' && !!x.entrega && !!x.cobro && !!x.cliente;
 
-export function EnviosWorkspace({ destacar }: { destacar?: string | null }) {
+export function EnviosWorkspace({ destacar, puedeCargarRepartidor = false }: { destacar?: string | null; puedeCargarRepartidor?: boolean }) {
   const [envios, setEnvios] = useState<Envio[] | null>(null);
   const [apiVieja, setApiVieja] = useState<number | null>(null);
   const { quien } = useQuienLleva({ cadaMs: 60_000 });
   const [errorCarga, setErrorCarga] = useState('');
   // el resultado de cada acción, en la tarjeta de ese envío
   const [avisos, setAvisos] = useState<Record<string, AvisoEnvio>>({});
-  // los de los envíos que se cerraron (la tarjeta ya no está)
+  // los de los envíos que se cerraron (la tarjeta ya no está): flotan abajo,
+  // porque en el celular la lista mide miles de px y un aviso arriba de todo
+  // quedaba fuera de la vista (se entregaba y no se veía ninguna señal)
   const [avisoGeneral, setAvisoGeneral] = useState<AvisoEnvio | null>(null);
   const [trabajando, setTrabajando] = useState<string | null>(null);
   const [falta, setFalta] = useState<{ datos: FaltaDeStock; reintentar: () => Promise<void> } | null>(null);
@@ -92,6 +94,13 @@ export function EnviosWorkspace({ destacar }: { destacar?: string | null }) {
     const t = setInterval(cargar, 8000);
     return () => clearInterval(t);
   }, [cargar]);
+
+  // el aviso flotante de un envío cerrado se va solo
+  useEffect(() => {
+    if (!avisoGeneral) return;
+    const t = setTimeout(() => setAvisoGeneral(null), 8000);
+    return () => clearTimeout(t);
+  }, [avisoGeneral]);
 
   // ?pedido=<id>: se baja hasta ese envío y queda marcado
   useEffect(() => {
@@ -215,9 +224,13 @@ export function EnviosWorkspace({ destacar }: { destacar?: string | null }) {
         </Aviso>
       )}
       {avisoGeneral && (
-        <Aviso tono={avisoGeneral.tono} accion={<Boton tamano="chico" variante="secundario" onClick={() => setAvisoGeneral(null)}>Entendido</Boton>}>
-          {avisoGeneral.texto}
-        </Aviso>
+        <div
+          className="flotante-ocultable fixed inset-x-4 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-toast animate-entra-aviso motion-reduce:animate-none sm:inset-x-auto sm:right-6 sm:bottom-6 sm:w-96 print:hidden"
+        >
+          <Aviso tono={avisoGeneral.tono} className="shadow-flotante" accion={<Boton tamano="chico" variante="secundario" onClick={() => setAvisoGeneral(null)}>Entendido</Boton>}>
+            {avisoGeneral.texto}
+          </Aviso>
+        </div>
       )}
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -231,9 +244,9 @@ export function EnviosWorkspace({ destacar }: { destacar?: string | null }) {
         <Aviso
           tono="atencion"
           titulo="No hay repartidores cargados"
-          accion={<BotonLink href="/reparto?vista=repartidores" tamano="chico" variante="secundario">Cargar un repartidor</BotonLink>}
+          accion={puedeCargarRepartidor ? <BotonLink href="/reparto?vista=repartidores" tamano="chico" variante="secundario">Cargar un repartidor</BotonLink> : undefined}
         >
-          Mientras tanto, cada envío puede salir con alguien del local (encargado, caja o depósito): elegilo en «Quién lo lleva». Esa persona lo ve en «Mis entregas» (o en Entregas en la calle), con la dirección, el teléfono y qué cobrar, y lo marca entregado desde ahí.
+          Mientras tanto, cada envío puede salir con alguien del local (encargado, caja o depósito): elegilo en «Quién lo lleva». Esa persona lo ve en «Mis entregas» (en el menú, o en Reparto si lo abre), con la dirección, el teléfono y qué cobrar, y lo marca entregado desde ahí.
         </Aviso>
       )}
 
@@ -309,6 +322,7 @@ export function EnviosWorkspace({ destacar }: { destacar?: string | null }) {
           quien={quien ?? undefined}
           trabajando={trabajando === despachando.id}
           error={errorVentana}
+          puedeCargarRepartidor={puedeCargarRepartidor}
           onCerrar={() => { setDespachando(null); setErrorVentana(null); }}
           onConfirmar={(repartidorId, nombre) => {
             const e = despachando;

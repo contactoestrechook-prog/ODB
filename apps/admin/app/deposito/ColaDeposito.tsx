@@ -59,7 +59,7 @@ const COLUMNAS = [
   { estado: 'listo', titulo: 'Listos para retirar o salir', accion: 'entregado', botenLabel: 'Entregar' },
 ];
 
-export function ColaDeposito() {
+export function ColaDeposito({ puedeCargarRepartidor = false }: { puedeCargarRepartidor?: boolean }) {
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
   const [ocupado, setOcupado] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
@@ -304,6 +304,7 @@ export function ColaDeposito() {
             direccion: textoVisible(despachando.destino_direccion, { unaLinea: true }),
             repartidorId: despachando.repartidor_id ?? null,
           }}
+          puedeCargarRepartidor={puedeCargarRepartidor}
           trabajando={ocupado === despachando.id}
           error={errorDespacho}
           onCerrar={() => { setDespachando(null); setErrorDespacho(null); }}
