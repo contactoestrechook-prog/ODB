@@ -92,6 +92,9 @@ const MEDIOS = [
   { id: 'efectivo', label: 'Efectivo' },
   { id: 'mercadopago', label: 'MP QR' },
   { id: 'tarjeta', label: 'Tarjeta' },
+  // en el local se acepta transferencia (pedido de Leandro, 22/10/2026: hacía falta
+  // para la prueba en paralelo y la caja no la tenía; la base ya la aceptaba)
+  { id: 'transferencia', label: 'Transferencia' },
   { id: 'cta_cte', label: 'Cta. cte.' },
 ];
 const MEDIO_LABEL: Record<string, string> = Object.fromEntries(MEDIOS.map((m) => [m.id, m.label]));
@@ -112,6 +115,7 @@ const TERMINAL_LABEL: Record<string, string> = { getnet: 'Getnet', clover: 'Clov
 const NOTA_MEDIO: Record<string, string> = {
   mercadopago: 'Al cobrar, el importe se manda al QR de la caja y la venta se registra cuando MP confirma el pago',
   tarjeta: 'Cobrá en el posnet',
+  transferencia: 'El cliente transfiere a la cuenta del local: verificá que llegó antes de entregar',
   cta_cte: 'Se carga a la cuenta corriente del cliente',
 };
 
@@ -2124,7 +2128,7 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
                 })}
               </div>
               <div className="-mt-1 flex flex-wrap items-center justify-between gap-x-3">
-                {NOTA_MEDIO[medio] ? <p className="min-w-0 flex-1 text-xs text-tinta/60">{medio === 'tarjeta' && terminal ? `Cobrá en el posnet ${TERMINAL_LABEL[terminal] ?? terminal}` : NOTA_MEDIO[medio]}</p> : <span />}
+                {enPrueba ? <p className="min-w-0 flex-1 text-xs font-medium text-atencion">Modo prueba: solo se anota la forma de pago. El cobro de verdad va en el otro sistema.</p> : NOTA_MEDIO[medio] ? <p className="min-w-0 flex-1 text-xs text-tinta/60">{medio === 'tarjeta' && terminal ? `Cobrá en el posnet ${TERMINAL_LABEL[terminal] ?? terminal}` : NOTA_MEDIO[medio]}</p> : <span />}
                 <button type="button" onClick={activarDividido} className={unir('inline-flex min-h-9 shrink-0 items-center rounded-sm text-xs font-semibold text-marca-hondo underline underline-offset-2', FOCO)}>
                   Dividir pago
                 </button>
