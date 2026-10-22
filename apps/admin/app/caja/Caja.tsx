@@ -14,6 +14,10 @@ type Producto = {
   nombre: string;
   precio: number | null;
   precioMayorista?: number | null;
+  // pagando en efectivo o transferencia (bebidas con alcohol menos cerveza, 10%,
+  // 22/10/2026): lo calcula la base, igual que al registrar la venta
+  precioContado?: number | null;
+  precioContadoMayorista?: number | null;
   precioLista: number | null;
   descuento: string | null;
   esAlcohol: boolean;
@@ -467,8 +471,21 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
 
   // precio efectivo del renglón: mayorista si la venta es mayorista y el producto
   // tiene precio en esa lista; si no, el minorista. El server recalcula igual.
-  const precioDe = (r: Renglon | Producto) =>
-    Number((mayorista && r.precioMayorista != null ? r.precioMayorista : r.precio)) || 0;
+  // Pagando en efectivo o transferencia, las bebidas con alcohol (menos cerveza)
+  // van con 10% (22/10/2026). La base decide por el medio del pago más grande:
+  // la caja usa el mismo criterio para que el total coincida.
+  const medioDelPrecio = dividido && pagos.length
+    ? pagos.reduce((a, b) => (Number(b.monto) > Number(a.monto) ? b : a)).medio
+    : medio;
+  const esContado = medioDelPrecio === 'efectivo' || medioDelPrecio === 'transferencia';
+  const precioDe = (r: Renglon | Producto) => {
+    const conMayorista = mayorista && r.precioMayorista != null;
+    const contado = conMayorista ? r.precioContadoMayorista : r.precioContado;
+    if (esContado && contado != null) return Number(contado) || 0;
+    return Number(conMayorista ? r.precioMayorista : r.precio) || 0;
+  };
+  const conDescuentoContado = (r: Renglon | Producto) =>
+    esContado && ((mayorista && r.precioMayorista != null) ? r.precioContadoMayorista : r.precioContado) != null;
 
   // El total cobrable se recalcula también en el servidor: esto es solo display
   const total = carrito.reduce((s, r) => s + precioDe(r) * r.cantidad, 0);
@@ -1298,6 +1315,22 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
       await iniciarCobroMP(montoMP);
       return;
     }
+    // Renglones cargados antes de que existiera el precio contado (carrito guardado
+    // de antes de actualizar): se refrescan, si no la base cobra con 10% y la caja
+    // sin él, y la venta se rechaza.
+    const sinDato = esContado && !sinRed ? carrito.filter((r) => r.precioContado === undefined) : [];
+    if (sinDato.length) {
+      const frescos = await Promise.all(sinDato.map(async (r) => {
+        const j = await fetch(`/api/pos-buscar?q=${encodeURIComponent(r.sku)}&sucursal=${encodeURIComponent(sucursalId)}`).then((x) => x.json()).catch(() => ({}));
+        return (j.items ?? []).find((x: any) => x.sku === r.sku) ?? null;
+      }));
+      setCarrito((c) => c.map((r) => {
+        const f = frescos.find((x: any) => x?.sku === r.sku);
+        return f ? { ...r, precioContado: f.precioContado ?? null, precioContadoMayorista: f.precioContadoMayorista ?? null } : r;
+      }));
+      setEstado({ tipo: 'ok', texto: 'Actualicé los precios de contado del ticket: revisá el total y cobrá de nuevo.' });
+      return;
+    }
     setCobrando(true);
     setEstado(null);
 
@@ -2017,7 +2050,7 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
                       {r.nombre}
                       {r.stock != null && r.stock <= 0 && <span className="ml-2 inline-block rounded-full bg-marca/15 px-2 py-0.5 align-middle text-xs font-semibold text-marca-hondo">sin stock{r.sinStockDesde ? ` · desde el ${fechaCorta(r.sinStockDesde)}` : ''}</span>}
                     </p>
-                    <p className="text-xs text-tinta/60">{pesos(precioDe(r))} {r.porPeso ? 'el kilo' : 'c/u'}{mayorista && r.precioMayorista != null ? ' · may.' : ''}{r.descuento ? ` · ${r.descuento}` : ''}{sel ? ' · tocá los números para la cantidad' : ''}</p>
+                    <p className="text-xs text-tinta/60">{pesos(precioDe(r))} {r.porPeso ? 'el kilo' : 'c/u'}{mayorista && r.precioMayorista != null ? ' · may.' : ''}{conDescuentoContado(r) ? ' · 10% contado' : ''}{r.descuento ? ` · ${r.descuento}` : ''}{sel ? ' · tocá los números para la cantidad' : ''}</p>
                   </button>
                   {!r.porPeso && <button type="button" onClick={() => cambiarCantidad(r.sku, -1)} className={unir('order-3 size-11 shrink-0 rounded-xl border border-black/15 bg-white text-2xl text-tinta active:scale-95 sm:order-none sm:size-12', FOCO)} aria-label="Restar">−</button>}
                   <input

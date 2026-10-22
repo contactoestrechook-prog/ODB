@@ -153,8 +153,24 @@ export class CatalogoService {
       };
     }
     return {
-      items: (data ?? []).map((r: any) => this.itemPos(r)),
+      items: await this.conPrecioContado((data ?? []).map((r: any) => this.itemPos(r))),
     };
+  }
+
+  // 10% pagando en efectivo o transferencia en bebidas con alcohol menos cerveza
+  // (22/10/2026). La caja tiene que cobrar exactamente lo que después calcula la
+  // base (precio_vigente con el medio de la venta): si no, los pagos no coinciden
+  // con el total y la venta se rechaza. Sin la migración, la caja sigue como antes.
+  private async conPrecioContado<T extends { sku: string }>(items: T[]): Promise<(T & { precioContado: number | null; precioContadoMayorista: number | null })[]> {
+    const skus = items.map((i) => i.sku).filter(Boolean);
+    const mapa = new Map<string, { m: number | null; may: number | null }>();
+    if (skus.length) {
+      const { data, error } = await this.db.rpc('precios_contado', { p_skus: skus });
+      if (!error) for (const r of (data ?? []) as any[]) {
+        mapa.set(r.sku, { m: r.precio_contado != null ? Number(r.precio_contado) : null, may: r.precio_contado_mayorista != null ? Number(r.precio_contado_mayorista) : null });
+      }
+    }
+    return items.map((i) => ({ ...i, precioContado: mapa.get(i.sku)?.m ?? null, precioContadoMayorista: mapa.get(i.sku)?.may ?? null }));
   }
 
   private itemPos(r: any) {
@@ -232,7 +248,7 @@ export class CatalogoService {
     const { data, error } = await this.db.rpc('pos_catalogo');
     if (error) throw new BadRequestException(error.message);
     return {
-      items: (data ?? []).map((r: any) => ({
+      items: await this.conPrecioContado((data ?? []).map((r: any) => ({
         sku: r.sku, nombre: r.nombre,
         precio: r.precio != null ? Number(r.precio) : null,
         precioMayorista: r.precio_mayorista != null ? Number(r.precio_mayorista) : null,
@@ -242,7 +258,7 @@ export class CatalogoService {
         codigo: r.codigo ?? null,
         porPeso: !!r.por_peso,
         plu: r.plu ?? null,
-      })),
+      }))),
     };
   }
 

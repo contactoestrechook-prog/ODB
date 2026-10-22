@@ -4,16 +4,18 @@
 // calcula el código, nunca el modelo. DESCUENTO_EFECTIVO (en %) lo cambia sin
 // tocar código; en 0 lo apaga.
 
-export const RUBROS_DESCUENTO_EFECTIVO = 'vinos, destilados, aperitivos, estuchería y espumantes';
+export const RUBROS_DESCUENTO_EFECTIVO = 'vinos, espumantes, destilados, licores, aperitivos, sidras y estuchería (todas las bebidas con alcohol menos la cerveza)';
 
 export function porcentajeEfectivo(): number {
   const p = Number(process.env.DESCUENTO_EFECTIVO ?? 10);
   return Number.isFinite(p) && p > 0 && p < 100 ? p : 0;
 }
 
-// categorías de la base que entran (nombres tal cual están cargados). Licores,
-// sidra, cavas y "Alcohol" quedan afuera hasta que el dueño confirme.
-const RE_RUBRO = /^(vinos?\b|anadas antiguas$|espumantes?\b|estucheria$|aperitivos$|whisk(?:y|ies)$|gin$|vodka$|ron$|tequila$|destilados$)/;
+// categorías de la base que entran (nombres tal cual están cargados). 22/10/2026:
+// «todo lo que es bebida con alcohol menos cerveza» → entran licores, sidra y
+// cavas, igual que en la caja (descuentos «Contado 10%» de la base). "Alcohol"
+// (el de limpieza) y las cervezas quedan afuera.
+const RE_RUBRO = /^(vinos?\b|anadas antiguas$|espumantes?\b|estucheria$|aperitivos$|whisk(?:y|ies)$|gin$|vodka$|ron$|tequila$|destilados$|licores$|sidras?$|cavas?$)/;
 
 export function tieneDescuentoEfectivo(categoria: string | null | undefined): boolean {
   if (!porcentajeEfectivo()) return false;
