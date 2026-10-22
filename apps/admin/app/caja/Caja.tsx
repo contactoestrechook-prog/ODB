@@ -517,6 +517,8 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
   }
 
   const esCodigoBalanza = (t: string) => /^2\d{12}$/.test(t.trim());
+  // largo de un código de barras completo: EAN-8, UPC-A, EAN-13 y DUN-14
+  const esBarrasCompleto = (t: string) => /^(\d{8}|\d{12,14})$/.test(t.trim());
 
   function agregar(p: Producto, cantidadFija?: number) {
     if (p.activo === false) {
@@ -644,8 +646,13 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
     }
     if (t.length < 2) { setResultados([]); return; }
     if (esCodigoBalanza(t)) { ejecutar(t, true); return; }
-    if (/^\d{4,14}$/.test(t)) {
-      const ex = catalogoLocal.find((p) => p.codigo === t || p.sku === t || (p.codigosBarras ?? []).includes(t));
+    // Mientras se tipea, entra solo un código de barras COMPLETO (EAN-8, UPC,
+    // EAN-13, DUN-14) que coincide exacto. Error grave del 22/10/2026: la pistola
+    // tipea de a un dígito y con «7790» (el principio de casi todo código
+    // argentino) ya entraba el Café Starbucks Verona, cuyo código interno es 7790.
+    // Un código interno corto se agrega con Enter.
+    if (esBarrasCompleto(t)) {
+      const ex = catalogoLocal.find((p) => (p.codigosBarras ?? []).includes(t));
       if (ex) { agregar(ex); return; }
     }
     const locales = filtrarLocal(t);
@@ -672,11 +679,16 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
         setResultados([]);
         return;
       }
-      const esCodigo = /^\d{6,14}$/.test(t);
+      // un número va SOLO por coincidencia exacta (código de barras, código interno
+      // o sku): nunca «el único resultado» de una búsqueda parecida. Sin Enter, solo
+      // un código de barras completo; un código corto a medio tipear no agrega nada.
+      const esNumero = /^\d+$/.test(t);
+      const esCodigo = esNumero && (esEnter || esBarrasCompleto(t));
       if (esCodigo || esEnter) {
-        const exacto = datos.find((p) => p.codigo === t || p.sku === t || (p.codigosBarras ?? []).includes(t)) ?? (datos.length === 1 ? datos[0] : null);
+        const exacto = datos.find((p) => p.codigo === t || p.sku === t || (p.codigosBarras ?? []).includes(t))
+          ?? (!esNumero && datos.length === 1 ? datos[0] : null);
         if (exacto) { agregar(exacto); return; }
-        if (esCodigo && datos.length === 0) {
+        if (esCodigo) {
           setCodigoPendiente(t);
           setEstado({ tipo: 'error', texto: `Código ${t}: el sistema no lo tiene vinculado a ningún producto. Buscá el producto por nombre y tocá «Vincular este código» en el resultado.` });
           setResultados([]);
@@ -710,6 +722,9 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
     if (esCodigoBalanza(t)) { ejecutar(t, true); return; }
     const ex = catalogoLocal.find((p) => p.codigo === t || p.sku === t || (p.codigosBarras ?? []).includes(t));
     if (ex) { agregar(ex); return; }
+    // un número (escaneado o tipeado) va SOLO por coincidencia exacta: si no, el
+    // Enter agregaba el primer resultado en pantalla aunque no tuviera nada que ver
+    if (/^\d+$/.test(t)) { ejecutar(t, true); return; }
     if (resultados[0]) { agregar(resultados[0]); return; }
     if (t.length >= 1) ejecutar(t, true);
   }
