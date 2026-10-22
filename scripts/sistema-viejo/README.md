@@ -56,7 +56,9 @@ Cargas hechas: 12/6, 20/6, 21/7, 11/8, 16/9 (scripts sueltos, ya borrados) y
 Para dejar de usar el sistema viejo. La exportación son 9 `.csv` (latin-1, `;`,
 coma decimal, CRLF): `articulos`, `stock`, `codigobarras`, `listadeprecios`,
 `proveedores`, `productosxproveedor`, `clientes`, `ctacte_clientes` y `ventas`.
-Primera: corte del **21/10/2026 12:08** (referencia `export-2110`). El circuito de
+Primera: corte del **21/10/2026 12:08**. La referencia sale del corte de cada
+exportación (`export-DDMM`: la del 21/10 es `export-2110`; la del día del cambio
+tendrá la suya). El circuito de
 las planillas de arriba sigue igual y se puede seguir usando.
 
 **La exportación, la salida de la simulación y los ensayos traen datos de
@@ -104,7 +106,7 @@ Mismo esquema de siempre, una entidad por vez: **simular → preparar → aplica
    `select count(*) from auditoria where entidad like 'sistema_viejo:%'` = 0).
 
 4. **Preparar** (lo único que escribe este paso: UNA fila de `auditoria`, accion
-   `importacion_sistema_viejo`, entidad `sistema_viejo:<entidad>`, entidad_id `export-2110`):
+   `importacion_sistema_viejo`, entidad `sistema_viejo:<entidad>`, entidad_id `export-DDMM`):
 
        node ../../scripts/sistema-viejo/exportacion/preparar.mjs <dir> <entidad> <usuario_id> [--aprobar …] [--incluir …]
 
@@ -118,6 +120,15 @@ Mismo esquema de siempre, una entidad por vez: **simular → preparar → aplica
    21/10 es de pleno día de venta). Si una entidad se aplica sin la anterior, lo
    que depende de ella queda contado como "sin producto" / "sin cliente" / "sin
    proveedor" y no se inventa nada.
+   **`ctacte` e `historial` se aplican UNA vez, con la exportación del día del
+   cambio** (igual que el stock). Si igual se cargan antes, el circuito no
+   duplica: la cuenta corriente agrega solo la diferencia como «Ajuste de saldo
+   del sistema anterior (corte …)» y el historial agrega solo los días que faltan
+   desde el último período cargado. Pero es más limpio hacerlo una sola vez.
+   **Stock y precios**: simular, preparar y aplicar seguidos. Lo que cambie en
+   ODB entre la simulación y el aplicar (una reserva del bot, una compra, un
+   precio cambiado a mano) NO se pisa: se saltea y queda listado en el resultado
+   (`cambiaron_desde_la_simulacion` / `cambiados_en_odb_despues_de_simular`).
 
 7. **Verificar**: volver a simular (no tiene que quedar nada para aplicar) y el
    libro de stock: `stock.cantidad` = suma de `movimientos_stock`.
@@ -153,10 +164,23 @@ Pruebas: `node --test scripts/sistema-viejo/exportacion/*.test.mjs`.
 - **ctacte**: UNA línea de "Saldo inicial del sistema anterior (corte …)" por
   cliente con saldo, sin comprobante, al debe o al haber, y `saldo_cta_cte`
   igualado al libro. Ni facturas ni pagos inventados; el historial queda en el
-  informe.
+  informe. El candado es por CLIENTE (el principio del concepto), no por corte:
+  con otra exportación va solo la diferencia como ajuste. Un cliente vinculado
+  con un saldo suelto de junio (sin libro) va a Revisar con dos propuestas que se
+  excluyen: `saldo:<código>:reemplazar` o `saldo:<código>:sumar` (aprobar una).
 - **historial**: `ventas_historicas` (la tabla aparte que leen abastecimiento,
   estadísticas y el orden de la tienda), agregada por producto y período sin
-  pisar julio, con los dos últimos períodos de 30 días. Nunca en `ventas`.
+  pisar julio, con los dos últimos períodos de 30 días. Nunca en `ventas`. El
+  producto de cada fila lo resuelve simular: los códigos reutilizados con otro
+  nombre, los repetidos y los que el viejo ya no tiene van SIN producto (no le
+  pasan sus ventas a otro).
 - **stock**: igual que las planillas (registrar_movimiento por diferencia,
   negativos a 0); lo que tiene reservas de pedidos o compras de ODB que el viejo
-  no registró va a revisión. Santa Inés no se toca.
+  no registró va a revisión (contadas desde la última carga de STOCK, no de
+  cualquier entidad). También van a revisión los decimales en productos que se
+  venden por unidad (`stock:` redondeado o `stock-peso:` tal cual si se aprueba
+  `peso:` en artículos) y las presentaciones fraccionadas (los huevos: contarlas
+  el día del cambio). Santa Inés no se toca.
+- **precios**: además de las reglas de siempre, el Minorista que quedaría debajo
+  del costo (de ODB o del viejo) va a revisión; la Mayorista no se propone si el
+  costo del viejo tiene más de un año y se controla con el costo más nuevo.

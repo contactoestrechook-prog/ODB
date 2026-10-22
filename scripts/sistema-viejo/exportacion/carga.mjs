@@ -4,7 +4,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
-import { AQUI, REFERENCIA } from './base.mjs';
+import { AQUI, referenciaDe } from './base.mjs';
 
 // plan: el plan-<entidad>.json · incluir: secciones pendientes que el dueño decidió
 // cargar · aprobadas: claves de la hoja Revisar · filtro(seccion, fila) → bool y
@@ -14,6 +14,14 @@ export function armarCarga(plan, { usuario, incluir = new Set(), aprobadas = new
   const secciones = {};
   for (const [s, filas] of Object.entries(plan.secciones)) if (!(s in (plan.pendientes ?? {})) || incluir.has(s)) secciones[s] = [...filas];
   const usadas = [], sinPropuesta = [];
+  // propuestas que se excluyen (mismo `grupo`: por ejemplo «reemplazar» o «sumar»
+  // un saldo suelto): aprobar dos es un error, no se elige una en silencio
+  const porGrupo = new Map();
+  for (const r of plan.revisar ?? []) {
+    if (!aprobadas.has(r.clave) || !r.grupo) continue;
+    if (porGrupo.has(r.grupo)) throw new Error(`se aprobaron dos propuestas que se excluyen: ${porGrupo.get(r.grupo)} y ${r.clave} (aprobar solo una)`);
+    porGrupo.set(r.grupo, r.clave);
+  }
   for (const r of plan.revisar ?? []) {
     if (!aprobadas.has(r.clave)) continue;
     if (!r.aplicar) { sinPropuesta.push(r.clave); continue; }
@@ -38,7 +46,7 @@ export function armarCarga(plan, { usuario, incluir = new Set(), aprobadas = new
     datos.nombres = Object.fromEntries(Object.entries(datos.nombres).filter(([c]) => quedan.has(c)));
   }
   const carga = {
-    t: new Date().toISOString(), referencia: plan.referencia ?? REFERENCIA, entidad: plan.entidad, usuario_id: usuario, corte: plan.corte,
+    t: new Date().toISOString(), referencia: plan.referencia ?? referenciaDe(plan.corte), entidad: plan.entidad, usuario_id: usuario, corte: plan.corte,
     plan_generado: plan.generado, formato: plan.formato, datos, secciones,
     incluidas: [...incluir], aprobadas: usadas, ...(datosMuestra ? { muestra: datosMuestra } : {}),
   };

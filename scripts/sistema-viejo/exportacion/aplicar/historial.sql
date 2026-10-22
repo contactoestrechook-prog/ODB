@@ -7,7 +7,12 @@
 -- registrar_venta mueve stock, genera comprobantes y la cola de ARCA, puntos y referidos.
 --   datos.periodos: [[desde, hasta], ...] — sin pisar los que ya hay (si un período
 --                   se cruza con uno de otro origen en la misma sucursal, se frena).
---   filas:  [codigo, periodo, unidades, importe, renglones]
+--   filas:  [codigo, periodo, unidades, importe, renglones, producto_id, alta]
+--           El producto viene RESUELTO por simular.mjs (ya no se busca por
+--           codigo_legacy: un código reutilizado o repetido en el viejo le pasaba
+--           las ventas a otro producto). alta = true: el producto lo crea
+--           artículos y se busca por código. Sin producto: queda como referencia
+--           (producto_id null: abastecimiento y el orden de la tienda lo ignoran).
 --   medios: [periodo, medio, comprobantes, importe]
 -- importe/renglones y los medios de pago se guardan SOLO si se aplicó
 -- db/migracion-ventas-historicas.sql (opcional); si no, se cargan las unidades.
@@ -43,19 +48,21 @@ begin
       from jsonb_array_elements(coalesce(a->'secciones'->'filas', '[]')) e
       left join ventas_historicas vh on vh.origen = v_origen and vh.sucursal_id = v_suc and vh.codigo_legacy = e->>0
            and vh.desde = (a->'datos'->'periodos'->((e->>1)::int)->>0)::date and vh.hasta = (a->'datos'->'periodos'->((e->>1)::int)->>1)::date
-      left join productos pr on pr.codigo_legacy = e->>0;
+      left join productos pr on pr.id = case when (e->>6)::boolean then (select x.id from productos x where x.codigo_legacy = e->>0)
+                                             else nullif(e->>5, '')::uuid end;
 
     -- unidades (y, con la migración, importe y renglones)
     execute format($q$
       with f as (
         select e->>0 codigo, (e->>2)::numeric unidades, (e->>3)::numeric importe, (e->>4)::int renglones,
+               case when (e->>6)::boolean then (select x.id from productos x where x.codigo_legacy = e->>0) else nullif(e->>5, '')::uuid end prod,
                ($1->'datos'->'periodos'->((e->>1)::int)->>0)::date desde, ($1->'datos'->'periodos'->((e->>1)::int)->>1)::date hasta
           from jsonb_array_elements(coalesce($1->'secciones'->'filas', '[]')) e
       ), ins as (
         insert into ventas_historicas (producto_id, sku, codigo_legacy, nombre, sucursal_id, unidades, desde, hasta, origen %s)
         select pr.id, pr.sku, f.codigo, coalesce(pr.nombre, $1->'datos'->'nombres'->>f.codigo, 'Código ' || f.codigo || ' del sistema anterior'),
                $2, f.unidades, f.desde, f.hasta, $3 %s
-          from f left join productos pr on pr.codigo_legacy = f.codigo
+          from f left join productos pr on pr.id = f.prod
          where f.unidades > 0 and not exists (select 1 from ventas_historicas vh where vh.origen = $3 and vh.sucursal_id = $2
                  and vh.codigo_legacy = f.codigo and vh.desde = f.desde and vh.hasta = f.hasta)
         returning unidades

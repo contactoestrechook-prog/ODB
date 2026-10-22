@@ -219,3 +219,102 @@ test('sqlDeEnsayo: la carga va adentro con su md5, el bloque queda en ensayo y l
   assert.ok(enc.includes("informe := informe || chr(10) || v_msg;"));
   assert.ok(enc.trimEnd().endsWith("raise exception 'ENSAYO ENCADENADO OK (nada quedó escrito):%', informe;\nend $$;"));
 });
+
+// ------------------------------------------------------------------ revisión del 21/10
+test('reglaPeso: "x fraccion" en el nombre no alcanza si siempre se vendió por unidad', () => {
+  assert.equal(R.reglaPeso({ nombre: 'Mozzarella Arrivata para pizza x fraccion x 200g', ventas: 118, conDecimales: 0 }).estado, 'dudoso');
+  assert.equal(R.reglaPeso({ nombre: 'Longaniza x Fraccion', ventas: 9, conDecimales: 0 }).estado, 'marcar');
+});
+
+test('motivoMayorista: no sale de un costo de hace más de un año y se controla con el costo más nuevo', () => {
+  assert.match(R.motivoMayorista(37500, 78000, { costo: 26786, minorista: 100000, fechaCosto: '2022-05-01', limiteFecha: '2025-10-21' }), /más de un año/);
+  assert.match(R.motivoMayorista(11200, 18330, { costo: 15000, minorista: 30000, fechaCosto: '2026-10-01', limiteFecha: '2025-10-21' }), /debajo del costo/);
+  assert.equal(R.motivoMayorista(1400, 1300, { costo: 1000, minorista: 1500, fechaCosto: '2026-10-01', limiteFecha: '2025-10-21' }), null);
+});
+
+test('motivoDebajoDelCosto: el Minorista nuevo no puede quedar debajo del costo de ODB ni del viejo', () => {
+  assert.match(R.motivoDebajoDelCosto(2800, { costoOdb: 7999 }), /ODB \$7999/);
+  assert.match(R.motivoDebajoDelCosto(9900, { costoOdb: null, costoViejo: 62074 }), /sistema viejo/);
+  assert.equal(R.motivoDebajoDelCosto(1000, { costoOdb: 600, costoViejo: 0.01 }), null);
+});
+
+test('cuenta corriente: idempotente por cliente, no por corte (una segunda exportación no duplica el saldo)', () => {
+  const c1 = R.CONCEPTO_SALDO_INICIAL('21/10/2026 12:08'), c2 = R.CONCEPTO_SALDO_INICIAL('28/10/2026 21:00');
+  assert.notEqual(c1, c2);
+  // primera carga: saldo inicial completo
+  assert.deepEqual(R.lineaDeSaldo({ saldo: 3039895.5 }), { tipo: 'inicial', monto: 3039895.5 });
+  // segunda exportación con otro corte: el cliente ya tiene su línea → solo la diferencia
+  const ya = R.aportadoDelViejo([{ concepto: c1, debe: 3039895.5, haber: 0 }, { concepto: 'Venta Factura B 0015-123', debe: 5000, haber: 0 }]);
+  assert.deepEqual(ya, { aportado: 3039895.5, conInicial: true });
+  assert.deepEqual(R.lineaDeSaldo({ saldo: 3100000, ...ya }), { tipo: 'ajuste', monto: 60104.5 });
+  assert.equal(R.lineaDeSaldo({ saldo: 3039895.5, ...ya }), null);
+  // el viejo lo deja en 0: ajuste por todo lo cargado
+  assert.deepEqual(R.lineaDeSaldo({ saldo: 0, ...ya }), { tipo: 'ajuste', monto: -3039895.5 });
+  // después del ajuste, la tercera pasada no hace nada
+  const tras = R.aportadoDelViejo([{ concepto: c1, debe: 3039895.5, haber: 0 }, { concepto: R.CONCEPTO_AJUSTE_SALDO('28/10/2026 21:00'), debe: 60104.5, haber: 0 }]);
+  assert.equal(R.lineaDeSaldo({ saldo: 3100000, ...tras }), null);
+});
+
+test('ctacte.sql reconoce las líneas del circuito por el principio del concepto, no por el concepto entero', () => {
+  const sql = readFileSync(join(AQUI, 'aplicar', 'ctacte.sql'), 'utf8');
+  assert.ok(sql.includes("concepto like 'Saldo inicial del sistema anterior%'"));
+  assert.ok(sql.includes("concepto like 'Ajuste de saldo del sistema anterior%'"));
+  assert.ok(!/cliente_id = v_cli and concepto = v_concepto\)/.test(sql), 'el candado viejo (concepto exacto) no puede volver');
+  assert.ok(R.CONCEPTO_SALDO_INICIAL('x').startsWith(R.PREFIJO_SALDO_INICIAL));
+  assert.ok(R.CONCEPTO_AJUSTE_SALDO('x').startsWith(R.PREFIJO_AJUSTE_SALDO));
+});
+
+test('periodosHistorial: sobre una exportación anterior agrega solo los días que faltan', () => {
+  const primera = R.periodosHistorial({ primero: '2025-10-21', corte: '2026-10-21T12:08:11-03:00', existentes: [{ desde: '2026-07-01', hasta: '2026-07-21', origen: 'access-julio-2026' }] });
+  const existentes = [{ desde: '2026-07-01', hasta: '2026-07-21', origen: 'access-julio-2026' }, ...primera.map((p) => ({ ...p, origen: 'export-2110' }))];
+  const segunda = R.periodosHistorial({ primero: '2025-10-21', corte: '2026-10-28T21:00:00-03:00', existentes });
+  assert.deepEqual(segunda.map((p) => [p.desde, p.hasta, p.dias]), [['2026-10-21', '2026-10-27', 7]]);
+  assert.deepEqual(R.periodosHistorial({ primero: '2025-10-21', corte: '2026-10-21T12:08:11-03:00', existentes }), []);   // misma exportación: nada
+  const lejos = R.periodosHistorial({ primero: '2025-10-21', corte: '2026-12-31T23:59:00-03:00', existentes });
+  assert.equal(lejos[0].desde, '2026-10-21');
+  assert.equal(lejos.at(-1).hasta, '2026-12-31');
+  for (let i = 1; i < lejos.length; i++) assert.equal(lejos[i].desde, new Date(Date.parse(`${lejos[i - 1].hasta}T00:00:00Z`) + 86400_000).toISOString().slice(0, 10));
+  assert.ok(lejos.every((p) => p.dias <= 30));
+});
+
+test('referenciaDe: sale del corte de cada exportación', async () => {
+  const { referenciaDe } = await import('./base.mjs');
+  assert.equal(referenciaDe('2026-10-21T12:08:11-03:00'), 'export-2110');
+  assert.equal(referenciaDe('2026-10-28T23:30:00-03:00'), 'export-2810');
+});
+
+test('armarCarga: dos propuestas del mismo grupo (reemplazar o sumar) no se pueden aprobar juntas', () => {
+  const plan = { ...PLAN, entidad: 'ctacte', pendientes: {}, secciones: { saldos: [] }, revisar: [
+    { clave: 'saldo:710:reemplazar', grupo: 'saldo:710', aplicar: { saldos: [['c', '710', 100, 'inicial', 0, null]] } },
+    { clave: 'saldo:710:sumar', grupo: 'saldo:710', aplicar: { saldos: [['c', '710', 100, 'inicial', 0, 50]] } },
+  ] };
+  assert.throws(() => armarCarga(plan, { usuario: 'u', aprobadas: new Set(['saldo:710:reemplazar', 'saldo:710:sumar']) }), /se excluyen/);
+  assert.equal(armarCarga(plan, { usuario: 'u', aprobadas: new Set(['saldo:710:sumar']) }).carga.secciones.saldos[0][5], 50);
+});
+
+test('stock.sql, precios.sql, historial.sql y costos.sql: candados de la revisión del 21/10', () => {
+  const leer = (f) => readFileSync(join(AQUI, 'aplicar', f), 'utf8');
+  assert.match(leer('stock.sql'), /cambiaron_desde_la_simulacion/);
+  assert.match(leer('precios.sql'), /v_t := now\(\)/);
+  assert.match(leer('precios.sql'), /cambiados_en_odb_despues_de_simular/);
+  assert.ok(!/pr\.codigo_legacy = f\.codigo/.test(leer('historial.sql')), 'el historial no busca el producto por código');
+  assert.match(leer('costos.sql'), /ch\.creado_en = it\.fecha and ch\.costo = it\.costo/);
+  assert.match(leer('costos.sql'), /not like 'export-%'/);
+});
+
+test('propuestaFracciones: el negativo de la media docena sale del maple (12 − ceil(4×6/30) = 11)', () => {
+  const p = R.propuestaFracciones([{ id: 'media', viejo: -4, upf: 6 }, { id: 'maple', viejo: 12, upf: 30 }]);
+  assert.equal(p.get('media'), 0);
+  assert.equal(p.get('maple'), 11);
+  assert.equal(R.propuestaFracciones([{ id: 'a', viejo: 3, upf: 6 }, { id: 'b', viejo: 2, upf: 30 }]).get('b'), 2);
+});
+
+test('destinoHistorial: las ventas de un código reutilizado o repetido no van a otro producto', () => {
+  const p = { id: 'vasco' };
+  assert.deepEqual(R.destinoHistorial({ estado: 'ok', p, todos: [{}] }, { p }), { prod: 'vasco' });
+  assert.equal(R.destinoHistorial({ estado: 'nombre_distinto', p, todos: [{}] }, undefined).prod, null);   // código 20: galletitas ≠ Vasco Viejo
+  assert.equal(R.destinoHistorial({ estado: 'ok', p, todos: [{}, {}] }, { p }).prod, null);               // repetido: ventas mezcladas
+  assert.equal(R.destinoHistorial(undefined, undefined).prod, null);                                       // el viejo ya no lo tiene
+  assert.deepEqual(R.destinoHistorial({ estado: 'sin_producto', p: null, todos: [{}] }, { p: null, alta: true }), { alta: true });
+  assert.deepEqual(R.destinoHistorial({ estado: 'inactivo', p, todos: [{}] }, undefined), { prod: 'vasco' });
+});

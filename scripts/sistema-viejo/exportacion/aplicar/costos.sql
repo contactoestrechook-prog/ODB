@@ -12,7 +12,11 @@
 -- No se pisa un costo que ODB tenga MÁS NUEVO (de una lista de proveedor).
 -- productos.costo no guarda historial: el costo anterior de cada producto queda
 -- en auditoria (datos_antes.aplicado.costos_anteriores).
--- Idempotente: solo cambia lo distinto y no repite la fila del historial.
+-- Idempotente: solo cambia lo distinto y no repite la fila del historial: la
+-- misma (proveedor, producto, fecha, costo) no se vuelve a cargar aunque venga de
+-- otra exportación (cada una tiene su referencia 'export-DDMM' y el costo del
+-- 15/9 viene en las dos). Lo que cargó este circuito ('export-%') no cuenta como
+-- «costo más nuevo de ODB».
 do $$
 declare
   v_ensayo boolean := __ENSAYO__;
@@ -34,7 +38,7 @@ begin
       select it.codigo, it.costo, it.fecha, p.id prod, p.costo costo_act,
              coalesce(pv.id, pc.id, pn.id) prov,
              exists (select 1 from costos_historial ch where ch.producto_id = p.id and ch.creado_en > it.fecha
-                      and coalesce(ch.origen, '') <> v_ref) odb_mas_nuevo
+                      and coalesce(ch.origen, '') not like 'export-%') odb_mas_nuevo
         from (select e->>0 codigo, (e->>1)::numeric costo, coalesce(((e->>2) || ' 12:00:00-03')::timestamptz, (a->>'corte')::timestamptz) fecha,
                      nullif(e->>3, '')::uuid prov_id, e->>4 prov_cuit, e->>5 prov_razon
                 from jsonb_array_elements(coalesce(a->'secciones'->'costos', '[]') || coalesce(a->'secciones'->'costos_viejos', '[]')) e) it
@@ -73,7 +77,7 @@ begin
       from jsonb_to_recordset(v_items) as it(costo numeric, fecha timestamptz, prod uuid, prov uuid, odb_mas_nuevo boolean)
      where it.prov is not null and it.prod is not null and not it.odb_mas_nuevo
        and not exists (select 1 from costos_historial ch where ch.proveedor_id = it.prov and ch.producto_id = it.prod
-                        and ch.origen = v_ref and ch.costo = it.costo);
+                        and ch.creado_en = it.fecha and ch.costo = it.costo);
     get diagnostics n_hist = row_count;
 
     v_res := v_res || format(' | pasada %s: items=%s costos_cambiados=%s proveedor_productos=%s historial=%s sin_producto=%s odb_mas_nuevo=%s sin_proveedor=%s',

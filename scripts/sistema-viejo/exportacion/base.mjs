@@ -10,7 +10,19 @@ import { fileURLToPath } from 'node:url';
 export const AQUI = dirname(fileURLToPath(import.meta.url));
 export const REPO = realpathSync(resolve(AQUI, '../../..'));
 export const SUC_ST = '229906e6-df69-48eb-b027-2b57fefb89fe';   // Suc Sant Thomas
-export const REFERENCIA = 'export-2110';
+// La referencia sale del corte de CADA exportación ('export-DDMM', en hora
+// argentina): la del 21/10 12:08 es 'export-2110' y la del día del cambio tendrá
+// otra. Antes era una constante y la exportación definitiva habría salido con la
+// misma referencia, el mismo origen en ventas_historicas y el mismo motivo de stock.
+// Todo lo que este circuito carga empieza con PREFIJO_REFERENCIA: así se reconoce
+// lo de una exportación anterior (costos_historial.origen, ventas_historicas.origen).
+export const PREFIJO_REFERENCIA = 'export-';
+export function referenciaDe(corte) {
+  const d = new Date(corte);
+  if (!corte || Number.isNaN(d.getTime())) throw new Error(`corte ilegible: ${corte}`);
+  const [dia, mes] = d.toLocaleDateString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', day: '2-digit', month: '2-digit' }).split('/');
+  return `${PREFIJO_REFERENCIA}${dia}${mes}`;
+}
 export const ENTIDADES = ['proveedores', 'articulos', 'precios', 'costos', 'barras', 'clientes', 'ctacte', 'historial', 'stock'];
 
 export function env() {

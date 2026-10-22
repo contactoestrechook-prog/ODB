@@ -21,13 +21,14 @@
 // La exportación y la salida van AFUERA del repo: traen datos de clientes.
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { conexion, xlsx, fueraDelRepo, SUC_ST, REFERENCIA } from './base.mjs';
+import { conexion, xlsx, fueraDelRepo, SUC_ST, referenciaDe, PREFIJO_REFERENCIA } from './base.mjs';
 import { leerExportacion, recorrerVentas, columnaDeLista, claveClienteOdb } from './leer.mjs';
 import {
   r2, r3, pesos, variacion, normal, mismoArticulo, VINCULAR_MIN, resolver, MOTIVO_ESTADO, reglaPeso, RUBRO_ALCOHOL,
   motivoPrecio, motivoMayorista, reglaCosto, objetivoStock, reglaBarra, cuitValido, dniDeCuit, telefono, claveTelefono,
   emailValido, claveProveedor, parecidoProveedor, claveNombre, condicionIva, CONDICIONES_IVA, cruzarCliente,
-  CONCEPTO_SALDO_INICIAL, saldoInicial, periodosHistorial, periodoDe, renglonAbsurdo, PISO_PRECIO,
+  CONCEPTO_SALDO_INICIAL, CONCEPTO_AJUSTE_SALDO, aportadoDelViejo, lineaDeSaldo, saldoInicial, periodosHistorial, periodoDe,
+  renglonAbsurdo, PISO_PRECIO, motivoDebajoDelCosto, propuestaFracciones, destinoHistorial,
 } from './reglas.mjs';
 
 const arg = (n) => { const i = process.argv.indexOf(n); return i > 0 ? process.argv[i + 1] : null; };
@@ -41,6 +42,7 @@ const log = (...a) => console.log(`[${((Date.now() - t0) / 1000).toFixed(1)}s]`,
 // ---------------------------------------------------------------- exportación
 const exp = leerExportacion(DIR);
 const CORTE = exp.corte, DIA_CORTE = exp.diaCorte;
+const REFERENCIA = referenciaDe(CORTE);   // 'export-DDMM' de ESTA exportación
 const corteTexto = new Date(CORTE).toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', day: 'numeric', month: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).replace(',', '');
 const stST = exp.stock.get(SUC_ST);
 if (!stST) throw new Error('la exportación no trae stock de Sant Thomas');
@@ -49,7 +51,7 @@ log(`exportación: corte ${CORTE}, ${exp.articulos.length} artículos, ${exp.cli
 // ---------------------------------------------------------------- base (solo GET)
 const { todo } = conexion();
 const [productos, categorias, listas, stockST, cargas, proveedores, provProd, costosHist, barrasOdb, clientes, ctacteOdb, vhPeriodos, pedidos] = await Promise.all([
-  todo('productos', 'id,sku,codigo_legacy,nombre,activo,costo,vendido_por_peso,categoria_id'),
+  todo('productos', 'id,sku,codigo_legacy,nombre,activo,costo,vendido_por_peso,categoria_id,fraccion_de,unidades_por_fraccion'),
   todo('categorias', 'id,nombre'),
   todo('listas_precios', 'id,nombre'),
   todo('stock', 'producto_id,cantidad', `&sucursal_id=eq.${SUC_ST}`, 'producto_id.asc'),
@@ -59,7 +61,7 @@ const [productos, categorias, listas, stockST, cargas, proveedores, provProd, co
   todo('costos_historial', 'id,producto_id,proveedor_id,costo,creado_en,origen'),
   todo('codigos_barras', 'codigo,producto_id', '', 'codigo.asc'),
   todo('clientes', 'id,nombre,razon_social,cuit,dni,telefono,email,codigo_legacy,condicion_iva,saldo_cta_cte,cta_cte_habilitada,barrio'),
-  todo('cuenta_corriente', 'id,cliente_id,concepto,debe,haber'),
+  todo('cuenta_corriente', 'id,cliente_id,concepto,debe,haber,creado_en'),
   todo('ventas_historicas', 'id,origen,sucursal_id,desde,hasta'),
   todo('pedidos', 'id,estado,creado_en', `&sucursal_id=eq.${SUC_ST}&reserva_stock=is.true&estado=in.(recibido,pagado,en_preparacion,listo,en_camino)`),
 ]);
@@ -69,11 +71,20 @@ const [preciosMin, preciosMay] = await Promise.all([
   todo('precios', 'id,producto_id,precio,vigente_desde', `&lista_id=eq.${MINORISTA.id}`),
   todo('precios', 'id,producto_id,precio,vigente_desde', `&lista_id=eq.${MAYORISTA.id}`),
 ]);
-// la carga anterior aplicada (la de las planillas o una de esta exportación)
-const anterior = cargas.filter((c) => c.aplicado_en).sort((a, b) => a.aplicado_en.localeCompare(b.aplicado_en)).at(-1) ?? null;
-const movDesde = anterior ? await todo('movimientos_stock', 'id,producto_id,tipo,cantidad,referencia_tipo,referencia_id', `&sucursal_id=eq.${SUC_ST}&creado_en=gt.${encodeURIComponent(anterior.aplicado_en)}`) : [];
+// La carga anterior aplicada, POR ENTIDAD (no la última de cualquiera): si se
+// aplican clientes el 22/10 y el stock recién el día del cambio, las compras de
+// ODB desde la última carga de STOCK (la de las planillas del 1/10) tienen que
+// seguir viéndose; lo mismo con los precios cambiados a mano desde la última
+// carga de PRECIOS.
+//   stock:   la de las planillas (entidad 'sistema_viejo') o sistema_viejo:stock
+//   precios: la de las planillas, sistema_viejo:precios o sistema_viejo:articulos (altas con precio)
+const ultimaDe = (entidades) => cargas.filter((c) => c.aplicado_en && entidades.includes(c.entidad))
+  .sort((a, b) => a.aplicado_en.localeCompare(b.aplicado_en)).at(-1) ?? null;
+const anteriorStock = ultimaDe(['sistema_viejo', 'sistema_viejo:stock']);
+const anteriorPrecios = ultimaDe(['sistema_viejo', 'sistema_viejo:precios', 'sistema_viejo:articulos']);
+const movDesde = anteriorStock ? await todo('movimientos_stock', 'id,producto_id,tipo,cantidad,referencia_tipo,referencia_id', `&sucursal_id=eq.${SUC_ST}&creado_en=gt.${encodeURIComponent(anteriorStock.aplicado_en)}`) : [];
 const movPedidos = pedidos.length ? await todo('movimientos_stock', 'id,producto_id,cantidad,referencia_id', `&sucursal_id=eq.${SUC_ST}&referencia_tipo=eq.pedido`) : [];
-log(`base: ${productos.length} productos, ${preciosMin.length}+${preciosMay.length} vigencias, ${clientes.length} clientes, ${barrasOdb.length} códigos; carga anterior ${anterior?.entidad_id ?? '—'} (${anterior?.aplicado_en ?? '—'})`);
+log(`base: ${productos.length} productos, ${preciosMin.length}+${preciosMay.length} vigencias, ${clientes.length} clientes, ${barrasOdb.length} códigos; referencia ${REFERENCIA}; última carga de stock ${anteriorStock?.entidad_id ?? '—'} (${anteriorStock?.aplicado_en ?? '—'}), de precios ${anteriorPrecios?.entidad_id ?? '—'} (${anteriorPrecios?.aplicado_en ?? '—'})`);
 
 const porId = new Map(productos.map((p) => [p.id, p]));
 const porCodigo = new Map(productos.filter((p) => p.codigo_legacy).map((p) => [String(p.codigo_legacy).trim(), p]));
@@ -85,18 +96,30 @@ const vigenteDe = (filas) => {
 const vigMin = vigenteDe(preciosMin), vigMay = vigenteDe(preciosMay);
 const stockActual = new Map(stockST.map((s) => [s.producto_id, Number(s.cantidad)]));
 const barraDe = new Map(barrasOdb.map((b) => [b.codigo, b.producto_id]));
+// último costo de ODB por producto (costos_historial, por fecha)
+const ultimoOdb = new Map();
+for (const c of costosHist) { const u = ultimoOdb.get(c.producto_id); if (!u || c.creado_en > u.creado_en) ultimoOdb.set(c.producto_id, c); }
 
 // ---------------------------------------------------------------- ventas (una pasada)
 // por código: cuántas veces, con decimales, unidades en 90 días, desde la carga
 // anterior; y el agregado por período para ventas_historicas
-const periodos = periodosHistorial({
-  primero: (() => { for (const v of recorrerVentas(exp.ventasTexto, [], {})) if (v.fecha) return v.fecha; })(),
-  corte: CORTE,
-  existentes: vhPeriodos.filter((v) => v.sucursal_id === SUC_ST).reduce((acc, v) => (acc.some((a) => a.desde === v.desde && a.hasta === v.hasta) ? acc : [...acc, v]), []),
-});
+// Si el historial no se puede armar (un período de otro origen en los últimos 60
+// días), se marca pendiente y se SIGUE con las demás entidades (antes se caía la
+// simulación entera, stock incluido).
+let historialBloqueado = null;
+const periodos = (() => {
+  try {
+    return periodosHistorial({
+      primero: (() => { for (const v of recorrerVentas(exp.ventasTexto, [], {})) if (v.fecha) return v.fecha; })(),
+      corte: CORTE,
+      existentes: vhPeriodos.filter((v) => v.sucursal_id === SUC_ST).reduce((acc, v) => (acc.some((a) => a.desde === v.desde && a.hasta === v.hasta && a.origen === v.origen) ? acc : [...acc, v]), []),
+      prefijoPropio: PREFIJO_REFERENCIA,
+    });
+  } catch (e) { historialBloqueado = e.message; return []; }
+})();
 const masDias = (s, n) => new Date(new Date(`${s}T00:00:00Z`).getTime() + n * 86400_000).toISOString().slice(0, 10);
 const DESDE_90 = masDias(DIA_CORTE, -90), DESDE_365 = masDias(DIA_CORTE, -365);
-const DESDE_ANTERIOR = anterior?.aplicado_en ? new Date(new Date(anterior.aplicado_en).getTime() - 3 * 3600_000).toISOString().slice(0, 10) : null;
+const DESDE_ANTERIOR = anteriorStock?.aplicado_en ? new Date(new Date(anteriorStock.aplicado_en).getTime() - 3 * 3600_000).toISOString().slice(0, 10) : null;
 const ventas = new Map();
 const agregado = new Map(), porMedio = new Map(), absurdos = [];
 const fueraDePeriodo = { renglones: 0, unidades: 0 };
@@ -264,6 +287,14 @@ const final = new Map();
     const rp = reglaPeso({ nombre: r.descripcion, ventas: v.n, conDecimales: v.conDecimales });
     altas.push([x.codigo, r.descripcion.trim(), cat?.id ?? null, RUBRO_ALCOHOL.test(String(r.rubro).trim()), r2(r.p1), rp.estado === 'marcar']);
     final.set(x.codigo, { p: null, r, alta: true });
+    // un alta que el viejo tiene con stock en kilos (4,5 de un queso) y que no se
+    // marca por peso entraría vendiéndose por unidad: la etiqueta de 350 g se
+    // cobraría como 350 unidades. Va a Revisar (y su stock también, ver STOCK).
+    const stockConDecimales = r.cantidad != null && r.cantidad > 0 && !Number.isInteger(r3(r.cantidad));
+    if (rp.estado !== 'marcar' && (rp.estado === 'dudoso' || stockConDecimales)) {
+      const motivo = [rp.estado === 'dudoso' ? rp.motivo : null, stockConDecimales ? `alta con stock ${r3(r.cantidad)} en el viejo (decimales: ¿kilos?)` : null].filter(Boolean).join('; ');
+      rev('articulos', { clave: `peso:${x.codigo}`, tipo: 'por peso', codigo: x.codigo, sku: `L${x.codigo} (alta)`, nombre_viejo: r.descripcion, motivo, antes: 'por unidad', propuesta: 'por peso', aplicar: { peso: [[x.codigo]] } });
+    }
     hojaAltas.push({ codigo: x.codigo, nombre_viejo: r.descripcion, rubro: r.rubro, categoria: cat?.nombre ?? '(sin categoría)', alcohol: RUBRO_ALCOHOL.test(String(r.rubro).trim()) ? 'sí' : '', por_peso: rp.estado === 'marcar' ? 'sí' : '', precio: r.p1, stock_viejo: r.cantidad, que_se_hace: 'se da de alta' });
   }
   // activos de ODB que el viejo ya no tiene: no se tocan
@@ -298,7 +329,7 @@ const precioFinal = new Map();   // código → precio minorista que queda
 {
   const lista1 = new Map();
   for (const l of exp.listas) if (columnaDeLista(l.lista) === 'p1') (lista1.get(l.codigo) ?? lista1.set(l.codigo, []).get(l.codigo)).push(l.precio);
-  const desdeCarga = anterior?.aplicado_en ?? null;
+  const desdeCarga = anteriorPrecios?.aplicado_en ?? null;
   const minorista = [], mayorista = [], hojaMin = [], hojaMay = [];
   let iguales = 0, igualesMay = 0;
   for (const [codigo, { p, r }] of conProducto) {
@@ -316,6 +347,9 @@ const precioFinal = new Map();   // código → precio minorista que queda
     if (actual != null && Math.abs(nuevo - actual) < 0.01) { iguales++; continue; }
     const motivo = motivoPrecio(nuevo, actual);
     if (motivo) { rev('precios', { clave: `precio:${codigo}`, tipo: 'precio', ...fila, motivo, propuesta: pesos(nuevo), aplicar: nuevo >= PISO_PRECIO ? { minorista: [[codigo, nuevo, actual]] } : null }); continue; }
+    // debajo de un costo conocido: la caja pediría autorización en cada venta
+    const debajo = motivoDebajoDelCosto(nuevo, { costoOdb: Number(p.costo) || null, costoViejo: r.costo >= 1 ? r.costo : null });
+    if (debajo) { rev('precios', { clave: `precio:${codigo}`, tipo: 'precio', ...fila, costo_odb: pesos(Number(p.costo) || null), costo_viejo: pesos(r.costo), motivo: debajo, propuesta: pesos(nuevo), aplicar: { minorista: [[codigo, nuevo, actual]] } }); continue; }
     if (vig && desdeCarga && vig.vigente_desde > desdeCarga) {
       rev('precios', { clave: `precio:${codigo}`, tipo: 'precio', ...fila, motivo: `el precio se cambió en ODB el ${vig.vigente_desde.slice(0, 10)}, después de la última carga: ¿vale el de ODB o el del viejo?`, propuesta: pesos(nuevo), aplicar: { minorista: [[codigo, nuevo, actual]] } });
       continue;
@@ -330,9 +364,17 @@ const precioFinal = new Map();   // código → precio minorista que queda
     if (nuevo == null) continue;
     const vig = vigMay.get(p.id), actual = vig ? Number(vig.precio) : null;
     if (actual != null && Math.abs(nuevo - actual) < 0.01) { igualesMay++; continue; }
-    const costo = r.costo >= 1 ? r.costo : null;
-    const motivo = motivoMayorista(nuevo, actual, { costo, minorista: precioFinal.get(codigo) });
-    const fila = { codigo, sku: p.sku, nombre_odb: p.nombre, mayorista_hoy: pesos(actual), lista_sin_nombre: pesos(nuevo), variacion: variacion(nuevo, actual), costo_viejo: pesos(costo), minorista: pesos(precioFinal.get(codigo)) };
+    // la lista sin nombre ES costo del viejo × 1,4: se controla contra el costo
+    // más NUEVO que haya (el de ODB si su fecha es posterior; sin fecha, el mayor)
+    // y no se propone si el costo del viejo tiene más de un año
+    const costoViejo = r.costo >= 1 ? r.costo : null;
+    const pp = exp.porProveedor[r.pos];
+    const fechaCosto = pp?.coincide && pp.fecha ? pp.fecha : null;
+    const deOdb = ultimoOdb.get(p.id), costoOdb = Number(p.costo) >= 1 ? Number(p.costo) : null;
+    const costo = costoOdb && deOdb && fechaCosto ? (deOdb.creado_en.slice(0, 10) > fechaCosto ? costoOdb : costoViejo ?? costoOdb)
+      : Math.max(costoViejo ?? 0, costoOdb ?? 0) || null;
+    const motivo = motivoMayorista(nuevo, actual, { costo, minorista: precioFinal.get(codigo), fechaCosto, limiteFecha: DESDE_365 });
+    const fila = { codigo, sku: p.sku, nombre_odb: p.nombre, mayorista_hoy: pesos(actual), lista_sin_nombre: pesos(nuevo), variacion: variacion(nuevo, actual), costo_viejo: pesos(costoViejo), fecha_costo_viejo: fechaCosto ?? '', costo_odb: pesos(costoOdb), minorista: pesos(precioFinal.get(codigo)) };
     if (motivo) { hojaMay.push({ ...fila, que_se_hace: `no: ${motivo}` }); continue; }
     mayorista.push([codigo, nuevo, actual]); hojaMay.push({ ...fila, que_se_hace: 'se aplica si el dueño elige esta lista' });
   }
@@ -355,8 +397,6 @@ const precioFinal = new Map();   // código → precio minorista que queda
 
 // ======================================================================= COSTOS
 {
-  const ultimoOdb = new Map();
-  for (const c of costosHist) { const u = ultimoOdb.get(c.producto_id); if (!u || c.creado_en > u.creado_en) ultimoOdb.set(c.producto_id, c); }
   const vinculo = new Map(provProd.map((v) => [`${v.proveedor_id}|${v.producto_id}`, v]));
   const costos = [], costosViejos = [], hoja = [];
   let iguales = 0, odbMasNuevo = 0, sinDato = 0;
@@ -376,7 +416,7 @@ const precioFinal = new Map();   // código → precio minorista que queda
     if (rc.estado === 'sin_dato') { sinDato++; continue; }
     if (rc.estado === 'revisar') { rev('costos', { clave: `costo:${codigo}`, tipo: 'costo', ...base, motivo: rc.motivo, antes: base.costo_odb, propuesta: '', aplicar: null }); continue; }
     const deOdb = p ? ultimoOdb.get(p.id) : null;
-    if (deOdb && deOdb.origen !== REFERENCIA && deOdb.creado_en.slice(0, 10) > fecha) { odbMasNuevo++; hoja.push({ ...base, que_se_hace: `no: ODB tiene un costo más nuevo ($${pesos(Number(deOdb.costo))} del ${deOdb.creado_en.slice(0, 10)})` }); continue; }
+    if (deOdb && !String(deOdb.origen ?? '').startsWith(PREFIJO_REFERENCIA) && deOdb.creado_en.slice(0, 10) > fecha) { odbMasNuevo++; hoja.push({ ...base, que_se_hace: `no: ODB tiene un costo más nuevo ($${pesos(Number(deOdb.costo))} del ${deOdb.creado_en.slice(0, 10)})` }); continue; }
     const igualCosto = p && p.costo != null && Math.abs(Number(p.costo) - rc.costo) < 0.01;
     const v = p && prov?.id ? vinculo.get(`${prov.id}|${p.id}`) : null;
     const igualVinculo = !prov || (prov.id && v && Math.abs(Number(v.ultimo_costo) - rc.costo) < 0.01);
@@ -447,6 +487,7 @@ const clienteDe = new Map();   // código del viejo → { id } | { alta: true } 
   }
   const nombreDe = (id) => cli.get(id)?.nombre ?? '';
   const codigosOdb = new Set(clientes.map((c) => c.codigo_legacy).filter(Boolean));
+  const porCodigoOdb = new Map(clientes.filter((c) => c.codigo_legacy).map((c) => [c.codigo_legacy, c]));
   const dnisOdb = new Set(clientes.map((c) => c.dni && String(Number(String(c.dni).replace(/\D/g, '')))).filter(Boolean));
   // movimiento de cuenta corriente en el último año (para decidir el alta)
   const movAnio = new Set(exp.ctacte.filter((m) => m.fecha && m.fecha >= DESDE_365).map((m) => m.codigo_viejo));
@@ -455,6 +496,9 @@ const clienteDe = new Map();   // código del viejo → { id } | { alta: true } 
   for (const v of exp.clientes) {
     if (v.invalido) continue;
     if (v.repetido) { resultado.push({ v, revisar: 'código repetido en el sistema viejo (dos personas con el mismo código)' }); continue; }
+    // el cliente que este circuito creó con una exportación anterior ('st-<código>')
+    const propio = porCodigoOdb.get(claveClienteOdb(v.codigo_viejo));
+    if (propio) { resultado.push({ v, id: propio.id, por: 'código st- de una carga anterior' }); (cruces.get(propio.id) ?? cruces.set(propio.id, []).get(propio.id)).push(v.codigo_viejo); continue; }
     const c = cruzarCliente(v, idx, nombreDe);
     if (c?.cliente_id) { resultado.push({ v, id: c.cliente_id, por: c.por }); (cruces.get(c.cliente_id) ?? cruces.set(c.cliente_id, []).get(c.cliente_id)).push(v.codigo_viejo); continue; }
     if (c?.revisar) { resultado.push({ v, revisar: c.revisar, candidatos: c.candidatos }); continue; }
@@ -534,34 +578,65 @@ const clienteDe = new Map();   // código del viejo → { id } | { alta: true } 
 }
 
 // ======================================================================= CUENTA CORRIENTE
+// UNA línea de saldo inicial por cliente. Idempotente por CLIENTE, no por corte:
+// si el cliente ya tiene líneas de este circuito (de una exportación anterior),
+// se carga solo la diferencia como «Ajuste de saldo del sistema anterior (corte …)».
+// Un cliente vinculado con un saldo suelto de ODB (saldo_cta_cte sin libro, la
+// carga de junio) no se pisa solo: va a Revisar con dos propuestas que se
+// excluyen, reemplazar (era el mismo saldo, desactualizado) o sumar (era de Santa
+// Inés: queda como una línea aparte).
 {
-  const concepto = CONCEPTO_SALDO_INICIAL(corteTexto);
+  const concepto = CONCEPTO_SALDO_INICIAL(corteTexto), conceptoAjuste = CONCEPTO_AJUSTE_SALDO(corteTexto);
+  const CONCEPTO_SUELTO = 'Saldo previo de ODB sin movimientos (carga de junio)';
   const ultimo = new Map(), movs = new Map();
   for (const m of exp.ctacte) { ultimo.set(m.codigo_viejo, m.saldo); movs.set(m.codigo_viejo, (movs.get(m.codigo_viejo) ?? 0) + 1); }
   const repetidos = new Set(exp.clientes.filter((c) => c.repetido).map((c) => c.codigo_viejo));
   const ficha = new Map();
   for (const c of exp.clientes) if (!c.invalido) ficha.set(c.codigo_viejo, (ficha.get(c.codigo_viejo) ?? 0) + (c.saldo ?? 0));
   const saldos = [], hoja = [], habilitar = [];
-  const conLibro = new Set(ctacteOdb.map((m) => m.cliente_id));
+  const lineasDe = new Map();
+  for (const m of ctacteOdb) (lineasDe.get(m.cliente_id) ?? lineasDe.set(m.cliente_id, []).get(m.cliente_id)).push(m);
+  const cliOdb = new Map(clientes.map((c) => [c.id, c]));
   const tocados = new Set();
+  let yaCargados = 0, ajustes = 0, sueltosARevisar = 0;
+  const nombreViejo = (cod) => exp.clientes.find((x) => x.codigo_viejo === cod)?.nombre ?? '';
   for (const [cod, f] of ficha) {
     const s = saldoInicial({ ficha: f, ultimoCorrido: ultimo.has(cod) ? ultimo.get(cod) : null, repetido: repetidos.has(cod) });
-    if (!s) continue;
     const c = clienteDe.get(cod) ?? {};
-    const fila = { codigo: cod, saldo: pesos(f), movimientos: movs.get(cod) ?? 0 };
-    if (s.revisar || c.revisar || c.no) {
-      const motivo = s.revisar ?? (c.revisar ? 'el cliente está a revisión: el saldo se carga cuando se resuelva' : 'el cliente no se crea');
-      rev('ctacte', { clave: `saldo:${cod}`, tipo: 'cuenta corriente', codigo: cod, nombre_viejo: exp.clientes.find((x) => x.codigo_viejo === cod)?.nombre ?? '', motivo, antes: '', propuesta: pesos(f), aplicar: null });
+    const lineas = c.id ? lineasDe.get(c.id) ?? [] : [];
+    const { aportado, conInicial } = aportadoDelViejo(lineas);
+    if (!s && !conInicial) continue;
+    const fila = { codigo: cod, saldo: pesos(f), movimientos: movs.get(cod) ?? 0, ya_cargado_por_el_circuito: conInicial ? pesos(aportado) : '' };
+    if (s?.revisar || c.revisar || c.no) {
+      const motivo = s?.revisar ?? (c.revisar ? 'el cliente está a revisión: el saldo se carga cuando se resuelva' : 'el cliente no se crea');
+      rev('ctacte', { clave: `saldo:${cod}`, tipo: 'cuenta corriente', codigo: cod, nombre_viejo: nombreViejo(cod), motivo, antes: '', propuesta: pesos(f), aplicar: null });
       hoja.push({ ...fila, que_se_hace: `a Revisar: ${motivo}` });
       continue;
     }
     if (c.id) tocados.add(c.id);
-    saldos.push([c.id ?? null, cod, s.saldo]);
-    hoja.push({ ...fila, que_se_hace: `línea de saldo inicial al ${s.saldo > 0 ? 'DEBE' : 'HABER'}; cuenta corriente habilitada${c.alta ? ' (cliente nuevo)' : ''}` });
+    const l = lineaDeSaldo({ saldo: s?.saldo ?? 0, aportado, conInicial });
+    if (!l) { yaCargados++; hoja.push({ ...fila, que_se_hace: 'ya cargado por una exportación anterior: no cambia' }); continue; }
+    // saldo suelto de ODB (sin libro) en un cliente vinculado: decide el dueño
+    const o = c.id ? cliOdb.get(c.id) : null;
+    const suelto = o ? r2(Number(o.saldo_cta_cte) || 0) : 0;
+    if (o && !lineas.length && Math.abs(suelto) >= 0.01) {
+      sueltosARevisar++;
+      const base = { tipo: 'cuenta corriente', codigo: cod, nombre_viejo: nombreViejo(cod), nombre_odb: o.nombre, antes: pesos(suelto), grupo: `saldo:${cod}` };
+      rev('ctacte', { ...base, clave: `saldo:${cod}:reemplazar`, motivo: `ODB tiene $${pesos(suelto)} sin movimientos (carga de junio) y el viejo dice $${pesos(l.monto)}. REEMPLAZAR: era el mismo saldo, desactualizado (aprobar solo una de las dos)`, propuesta: pesos(l.monto),
+        aplicar: { saldos: [[c.id, cod, l.monto, l.tipo, aportado, null]] } });
+      rev('ctacte', { ...base, clave: `saldo:${cod}:sumar`, motivo: `ODB tiene $${pesos(suelto)} sin movimientos (carga de junio) y el viejo dice $${pesos(l.monto)}. SUMAR: era de Santa Inés y queda como línea aparte (aprobar solo una de las dos)`, propuesta: pesos(r2(l.monto + suelto)),
+        aplicar: { saldos: [[c.id, cod, l.monto, l.tipo, aportado, suelto]] } });
+      hoja.push({ ...fila, que_se_hace: `a Revisar: ODB tiene un saldo suelto de $${pesos(suelto)} (¿reemplazar o sumar?)` });
+      continue;
+    }
+    if (l.tipo === 'ajuste') ajustes++;
+    saldos.push([c.id ?? null, cod, l.monto, l.tipo, aportado, null]);
+    hoja.push({ ...fila, que_se_hace: l.tipo === 'ajuste' ? `AJUSTE por la diferencia con lo ya cargado: ${l.monto > 0 ? 'DEBE' : 'HABER'} $${pesos(Math.abs(l.monto))}`
+      : `línea de saldo inicial al ${l.monto > 0 ? 'DEBE' : 'HABER'}; cuenta corriente habilitada${c.alta ? ' (cliente nuevo)' : ''}` });
   }
   // saldos sueltos de ODB (sin libro): no se pisan solos
   for (const o of clientes) {
-    if (Math.abs(Number(o.saldo_cta_cte)) < 0.01 || tocados.has(o.id) || conLibro.has(o.id)) continue;
+    if (Math.abs(Number(o.saldo_cta_cte)) < 0.01 || tocados.has(o.id) || lineasDe.has(o.id)) continue;
     const cod = [...clienteDe.entries()].find(([, v]) => v.id === o.id)?.[0];
     const motivo = cod ? `ODB tiene $${pesos(Number(o.saldo_cta_cte))} sin movimientos que lo respalden y el sistema viejo dice $0 (cliente ${cod})` : `ODB tiene $${pesos(Number(o.saldo_cta_cte))} sin movimientos que lo respalden y no está en el sistema viejo`;
     rev('ctacte', { clave: `saldo-odb:${o.id}`, tipo: 'cuenta corriente', codigo: cod ?? '', nombre_odb: o.nombre, motivo, antes: pesos(Number(o.saldo_cta_cte)), propuesta: cod ? 0 : '', aplicar: cod ? { igualar: [[o.id]] } : null });
@@ -574,8 +649,8 @@ const clienteDe = new Map();   // código del viejo → { id } | { alta: true } 
     habilitar.push([c.id ?? null, cod]);
   }
   planes.ctacte = {
-    formato: { saldos: ['cliente_id', 'codigo_viejo', 'saldo'], igualar: ['cliente_id'], habilitar_activos: ['cliente_id', 'codigo_viejo'] },
-    datos: { concepto, corte: CORTE },
+    formato: { saldos: ['cliente_id', 'codigo_viejo', 'monto', 'tipo (inicial|ajuste)', 'ya_cargado_al_simular', 'saldo_suelto_a_sumar'], igualar: ['cliente_id'], habilitar_activos: ['cliente_id', 'codigo_viejo'] },
+    datos: { concepto, concepto_ajuste: conceptoAjuste, concepto_suelto: CONCEPTO_SUELTO, corte: CORTE },
     secciones: { saldos, igualar: [], habilitar_activos: habilitar },
     pendientes: { habilitar_activos: 'habilitar la cuenta corriente también a los clientes con movimientos en el último año y saldo 0: decisión del dueño' },
   };
@@ -594,24 +669,42 @@ const clienteDe = new Map();   // código del viejo → { id } | { alta: true } 
   resumen.ctacte = {
     lineas_de_saldo_inicial: saldos.length, deben: deben.length, deben_total: pesos(deben.reduce((s, x) => s + x[2], 0)),
     a_favor: aFavor.length, a_favor_total: pesos(aFavor.reduce((s, x) => s + x[2], 0)), neto: pesos(saldos.reduce((s, x) => s + x[2], 0)),
-    de_clientes_nuevos: saldos.filter((s) => !s[0]).length, habilitar_activos_propuesta: habilitar.length,
+    de_clientes_nuevos: saldos.filter((s) => !s[0]).length, ajustes_sobre_una_carga_anterior: ajustes, ya_cargados_sin_cambio: yaCargados,
+    saldos_sueltos_de_odb_a_decidir: sueltosARevisar, habilitar_activos_propuesta: habilitar.length,
     a_revisar: revisar.filter((r) => r.entidad === 'ctacte').length, concepto,
   };
 }
 
 // ======================================================================= HISTORIAL DE VENTAS
 {
-  const filas = [...agregado.values()].filter((a) => r3(a.unidades) > 0).sort((a, b) => a.i - b.i || a.codigo.localeCompare(b.codigo))
-    .map((a) => [a.codigo, a.i, r3(a.unidades), r2(a.importe), a.renglones]);
+  // El producto de cada fila se resuelve ACÁ (historial.sql ya no lo busca por
+  // codigo_legacy): solo reciben ventas los códigos que cruzan bien, los
+  // vinculados, las altas (se buscan por código al aplicar, después de artículos)
+  // y los dados de baja en ODB con el mismo nombre. Los códigos reutilizados con
+  // otro nombre o repetidos en el viejo (ventas de dos artículos mezcladas) y los
+  // que el viejo ya no tiene van con producto vacío: quedan como referencia y
+  // abastecimiento, estadísticas y el orden de la tienda los ignoran. (El 21/10 el
+  // código 20 le pasaba 494 u de galletitas a un Vasco Viejo.)
+  const estadoDe = new Map(res.map((x) => [x.codigo, x]));
+  const destino = (codigo) => destinoHistorial(estadoDe.get(codigo), final.get(codigo));
+  const sinDestino = new Map();
+  const filas = historialBloqueado ? [] : [...agregado.values()].filter((a) => r3(a.unidades) > 0).sort((a, b) => a.i - b.i || a.codigo.localeCompare(b.codigo))
+    .map((a) => {
+      const d = destino(a.codigo);
+      if (!d.prod && !d.alta) sinDestino.set(a.codigo, d.motivo);
+      return [a.codigo, a.i, r3(a.unidades), r2(a.importe), a.renglones, d.prod ?? null, !!d.alta];
+    });
   const nombreViejo = new Map(exp.articulos.map((a) => [a.codigo, a.descripcion]));
   const nombres = {};
-  for (const f of filas) if (!final.get(f[0])?.p && !porCodigo.get(f[0])) nombres[f[0]] = nombreViejo.get(f[0]) ?? `Código ${f[0]} del sistema anterior`;
+  for (const f of filas) if (!f[5] && !f[6]) nombres[f[0]] = nombreViejo.get(f[0]) ?? `Código ${f[0]} del sistema anterior`;
   const medios = [...porMedio.values()].map((m) => [m.i, m.medio, m.comprobantes.size, r2(m.importe)]);
   planes.historial = {
-    formato: { filas: ['codigo', 'periodo', 'unidades', 'importe', 'renglones'], medios: ['periodo', 'medio', 'comprobantes', 'importe'] },
+    formato: { filas: ['codigo', 'periodo', 'unidades', 'importe', 'renglones', 'producto_id', 'alta (se busca por código)'], medios: ['periodo', 'medio', 'comprobantes', 'importe'] },
     datos: { sucursal_id: SUC_ST, origen: REFERENCIA, periodos: periodos.map((p) => [p.desde, p.hasta]), nombres },
-    secciones: { filas, medios },
+    secciones: { filas, medios: historialBloqueado ? [] : medios },
+    ...(historialBloqueado ? { pendientes: { bloqueado: `no se puede armar el historial: ${historialBloqueado}` } } : {}),
   };
+  hojas['Historial: sin producto'] = [...sinDestino].map(([codigo, motivo]) => ({ codigo, nombre_viejo: nombreViejo.get(codigo) ?? '', unidades: r3(filas.filter((f) => f[0] === codigo).reduce((s, f) => s + f[2], 0)), por_que: motivo }));
   hojas['Historial de ventas'] = periodos.map((p, i) => {
     const fs = filas.filter((f) => f[1] === i);
     return { desde: p.desde, hasta: p.hasta, dias: p.dias, productos: fs.length, unidades: r3(fs.reduce((s, f) => s + f[2], 0)), importe: pesos(fs.reduce((s, f) => s + f[3], 0)) };
@@ -620,6 +713,8 @@ const clienteDe = new Map();   // código del viejo → { id } | { alta: true } 
   resumen.historial = {
     periodos: periodos.length, primer_dia: periodos[0]?.desde, ultimo_dia: periodos.at(-1)?.hasta, filas: filas.length,
     productos: new Set(filas.map((f) => f[0])).size, sin_producto_en_odb: Object.keys(nombres).length,
+    sin_producto_unidades: r3(filas.filter((f) => !f[5] && !f[6]).reduce((s, f) => s + f[2], 0)),
+    bloqueado: historialBloqueado ?? 'no', incremental_sobre_una_exportacion_anterior: vhPeriodos.some((v) => String(v.origen).startsWith(PREFIJO_REFERENCIA)) ? 'sí' : 'no',
     unidades: r3(filas.reduce((s, f) => s + f[2], 0)), importe: pesos(filas.reduce((s, f) => s + f[3], 0)),
     fuera_de_periodo: { renglones: fueraDePeriodo.renglones, unidades: r3(fueraDePeriodo.unidades), por_que: 'del 1 al 21/7 (ya cargado, access-julio-2026) y el día del corte, que está a medias' },
     renglones_absurdos: absurdos.length,
@@ -638,8 +733,27 @@ const clienteDe = new Map();   // código del viejo → { id } | { alta: true } 
     movNeto.set(m.producto_id, (movNeto.get(m.producto_id) ?? 0) + Number(m.cantidad));
     if (m.tipo === 'compra' || m.tipo === 'transferencia_entrada') compras.set(m.producto_id, (compras.get(m.producto_id) ?? 0) + Number(m.cantidad));
   }
+  // Presentaciones fraccionadas (productos.fraccion_de: la media docena y el maple
+  // salen del pozo de huevos): el viejo arma medias docenas con huevos de los
+  // maples sin registrarlo y deja la fracción en negativo. Igualarlas una por una
+  // deja la fracción en 0 y el maple con los huevos de más. Van a Revisar con una
+  // propuesta que descuenta el negativo de la presentación más grande.
+  const madres = new Set(productos.filter((p) => p.fraccion_de).map((p) => p.fraccion_de));
+  const propuestaFraccion = new Map();   // producto_id → { objetivo, nota }
+  {
+    const grupos = new Map();
+    for (const [codigo, f] of final) if (f.p?.fraccion_de) (grupos.get(f.p.fraccion_de) ?? grupos.set(f.p.fraccion_de, []).get(f.p.fraccion_de)).push({ codigo, p: f.p, viejo: r3(f.r.cantidad ?? 0), upf: Number(f.p.unidades_por_fraccion) || 1 });
+    for (const [, hs] of grupos) {
+      const prop = propuestaFracciones(hs.map((h) => ({ id: h.p.id, viejo: h.viejo, upf: h.upf })));
+      for (const h of hs) {
+        const obj = prop.get(h.p.id);
+        propuestaFraccion.set(h.p.id, { objetivo: obj, nota: h.viejo < 0 ? `en el viejo ${h.viejo}: salió de otra presentación` : obj !== h.viejo ? `${h.viejo} en el viejo menos ${r3(h.viejo - obj)} que se usaron para las fracciones en negativo` : '' });
+      }
+    }
+  }
   const ajustes = [], hoja = [];
   let iguales = 0, negativos = 0;
+  const marcadosPeso = new Set(planes.articulos.secciones.peso.map((x) => x[0]));
   for (const [codigo, f] of final) {
     const { p, r } = f;
     const viejo = r.cantidad;
@@ -665,10 +779,27 @@ const clienteDe = new Map();   // código del viejo → { id } | { alta: true } 
         continue;
       }
     }
+    if (p && (p.fraccion_de || madres.has(p.id))) {
+      const pf = propuestaFraccion.get(p.id) ?? { objetivo: os.objetivo, nota: 'es el pozo del que salen las fracciones' };
+      if (Math.abs(pf.objetivo - actual) < 0.0005 && Math.abs(os.objetivo - actual) < 0.0005) { iguales++; continue; }
+      rev('stock', { clave: `stock:${codigo}`, tipo: 'stock', ...base, motivo: `presentación fraccionada (${p.fraccion_de ? 'sale de un pozo' : 'pozo de otras presentaciones'}): no se iguala sola; contarla el día del cambio o aprobar la propuesta${pf.nota ? ` (${pf.nota})` : ''}`, propuesta: pf.objetivo, aplicar: { ajustes: [[codigo, pf.objetivo, actual]] } });
+      continue;
+    }
+    // decimales en un producto que no se vende por peso (ni se marca en esta
+    // carga): 0,45 de una muzzarella "x 1 kg" no se puede vender y 6,855 botellas
+    // no existen. A Revisar con dos propuestas que se excluyen: redondeado hacia
+    // abajo (por unidad) o tal cual (si se aprueba marcarlo por peso en artículos).
+    if (!Number.isInteger(os.objetivo) && !p?.vendido_por_peso && !marcadosPeso.has(codigo)) {
+      const abajo = Math.floor(os.objetivo);
+      const g = { tipo: 'stock', ...base, grupo: `stock:${codigo}` };
+      if (Math.abs(abajo - actual) >= 0.0005) rev('stock', { ...g, clave: `stock:${codigo}`, motivo: `el viejo tiene ${os.objetivo} (decimales) y en ODB se vende por unidad: redondeado hacia abajo (aprobar solo una de las dos)`, propuesta: abajo, aplicar: { ajustes: [[codigo, abajo, actual]] } });
+      rev('stock', { ...g, clave: `stock-peso:${codigo}`, motivo: `el viejo tiene ${os.objetivo}: tal cual, SOLO si se aprueba venderlo por peso (Revisar peso:${codigo}) (aprobar solo una de las dos)`, propuesta: os.objetivo, aplicar: { ajustes: [[codigo, os.objetivo, actual]] } });
+      continue;
+    }
     const delta = r3(os.objetivo - actual);
     if (Math.abs(delta) < 0.0005) { iguales++; continue; }
     ajustes.push([codigo, os.objetivo, actual]);
-    hoja.push({ ...base, queda: os.objetivo, diferencia: delta, a_costo: pesos(delta * (r.costo >= 1 ? r.costo : 0)), nota: [os.nota, !Number.isInteger(os.objetivo) && !p?.vendido_por_peso && !planes.articulos.secciones.peso.some((x) => x[0] === codigo) ? 'decimales en un producto por unidad' : '', f.alta ? 'alta' : ''].filter(Boolean).join('; ') });
+    hoja.push({ ...base, queda: os.objetivo, diferencia: delta, a_costo: pesos(delta * (r.costo >= 1 ? r.costo : 0)), nota: [os.nota, f.alta ? 'alta' : ''].filter(Boolean).join('; ') });
   }
   // los que no cruzan bien y tienen stock
   for (const x of res) {
@@ -677,13 +808,15 @@ const clienteDe = new Map();   // código del viejo → { id } | { alta: true } 
     if (Math.abs(Math.max(0, r3(viejo ?? 0)) - actual) < 0.0005) continue;
     rev('stock', { clave: `stock:${x.codigo}`, tipo: 'stock', codigo: x.codigo, sku: x.p?.sku ?? '', nombre_odb: x.p?.nombre ?? '', nombre_viejo: x.todos.map((t) => `${t.descripcion}: ${t.cantidad}`).join(' / '), motivo: MOTIVO_ESTADO[x.estado], antes: actual, propuesta: '', aplicar: null });
   }
-  planes.stock = { formato: { ajustes: ['codigo', 'objetivo', 'antes'] }, datos: { sucursal_id: SUC_ST }, secciones: { ajustes } };
+  planes.stock = { formato: { ajustes: ['codigo', 'objetivo', 'antes'] }, datos: { sucursal_id: SUC_ST, anterior: anteriorStock?.entidad_id ?? null }, secciones: { ajustes } };
   hojas['Stock que cambia'] = hoja.sort((a, b) => Math.abs(b.diferencia) - Math.abs(a.diferencia));
   const sube = ajustes.filter((a) => a[1] > a[2]), baja = ajustes.filter((a) => a[1] < a[2]);
   resumen.stock = {
     ajustes: ajustes.length, suben: sube.length, unidades_suben: r3(sube.reduce((s, a) => s + a[1] - a[2], 0)), bajan: baja.length, unidades_bajan: r3(baja.reduce((s, a) => s + a[1] - a[2], 0)),
     iguales, negativos_quedan_en_0: negativos, de_altas: ajustes.filter((a) => final.get(a[0])?.alta).length,
     reservas_abiertas: pedidos.length, a_revisar: revisar.filter((r) => r.entidad === 'stock').length,
+    decimales_en_productos_por_unidad_a_revisar: revisar.filter((r) => r.entidad === 'stock' && r.clave.startsWith('stock-peso:')).length,
+    fraccionados_a_revisar: revisar.filter((r) => r.entidad === 'stock' && /fraccionada/.test(r.motivo)).length,
     santa_ines: 'no se toca (la exportación no la trae)',
   };
 }
@@ -704,10 +837,10 @@ function decisiones(r) {
     d('Códigos de barras', `${r.barras.cajas_ya_cargadas_que_cobran_1} códigos de CAJA ya cargados cobran 1 unidad.`, 'Sacarlos ya (preparar --incluir quitar_cajas) y programar "código de caja con cantidad" antes de volver a cargarlos.', 'Siguen cobrando 1 unidad.'),
     d('Proveedores', `${r.proveedores.altas} altas (quedan "incompletas" hasta cargar CUIT, teléfono y plazo) y ${r.proveedores.a_revisar} que se parecen a uno de ODB.`, 'Anotar las equivalencias que valen y volver a simular con --equivalencias; después cargar.', 'Los parecidos no se crean y sus costos van sin proveedor.'),
     d('Clientes', `${r.clientes.ya_estan} ya están, ${r.clientes.altas} altas, ${r.clientes.no_se_crean} no se crean (sin datos ni movimiento) y ${r.clientes.a_revisar} a revisar (códigos repetidos, RI sin CUIT).`, 'Cargar. Los de junio conservan su código; los nuevos quedan con "st-<código>". Corregir en el viejo los 16 códigos repetidos.', 'Se cargan como dice la hoja Clientes.'),
-    d('Cuenta corriente', `${r.ctacte.lineas_de_saldo_inicial} saldos iniciales (${r.ctacte.deben} deben $${r.ctacte.deben_total}; ${r.ctacte.a_favor} a favor $${r.ctacte.a_favor_total}). Saldos sueltos de ODB sin libro y códigos repetidos con saldo, en Revisar.`, 'Cargar los saldos iniciales. Antes de aprobar "poner en 0" los saldos sueltos de junio, preguntar a administración si eran de Santa Inés. Poner límite de crédito a los que deben más de $1 M.', 'Los saldos sueltos quedan como están.'),
+    d('Cuenta corriente', `${r.ctacte.lineas_de_saldo_inicial} líneas (${r.ctacte.deben} deben $${r.ctacte.deben_total}; ${r.ctacte.a_favor} a favor $${r.ctacte.a_favor_total}); ${r.ctacte.saldos_sueltos_de_odb_a_decidir} clientes vinculados con saldo suelto de junio (reemplazar o sumar) y códigos repetidos con saldo, en Revisar.`, 'Cargarla UNA vez, con la exportación del día del cambio (si se cargó antes, la nueva carga solo agrega la diferencia como ajuste). Antes de elegir reemplazar o sumar los saldos de junio, preguntar a administración si eran de Santa Inés. Poner límite de crédito a los que deben más de $1 M.', 'Los saldos sueltos quedan como están y esos clientes no reciben el saldo del viejo.'),
     d('Cuenta corriente', `Habilitar la cuenta corriente también a ${r.ctacte.habilitar_activos_propuesta} clientes con movimientos en el último año y saldo 0.`, 'No en bloque: habilitarla cuando la pidan.', 'Solo quedan habilitados los que tienen saldo.'),
-    d('Historial de ventas', `${r.historial.filas} filas en ${r.historial.periodos} períodos (${r.historial.unidades} unidades) a ventas_historicas.`, 'Cargar. Aplicar antes db/migracion-ventas-historicas.sql para guardar también importes y medios de pago (opcional).', 'Sin la migración se cargan solo las unidades.'),
-    d('Stock', `${r.stock.ajustes} ajustes en Sant Thomas; ${r.stock.negativos_quedan_en_0} negativos quedan en 0; ${r.stock.a_revisar} a revisar (reservas de pedidos y compras de ODB que el viejo no registró).`, 'Aplicar el día del cambio. Contar antes los negativos que más se venden: en 0 la caja de ODB no los deja vender.', 'No se aplica.'),
+    d('Historial de ventas', `${r.historial.filas} filas en ${r.historial.periodos} períodos (${r.historial.unidades} unidades) a ventas_historicas; ${r.historial.sin_producto_en_odb} códigos (${r.historial.sin_producto_unidades} u) quedan sin producto (repetidos, reutilizados o que el viejo ya no tiene).`, 'Cargarlo con la exportación del día del cambio (si se cargó antes, la nueva agrega solo los días que faltan). Aplicar antes db/migracion-ventas-historicas.sql para guardar también importes y medios de pago (opcional).', 'Sin la migración se cargan solo las unidades.'),
+    d('Stock', `${r.stock.ajustes} ajustes en Sant Thomas; ${r.stock.negativos_quedan_en_0} negativos quedan en 0; ${r.stock.a_revisar} a revisar (reservas de pedidos, compras de ODB que el viejo no registró, ${r.stock.decimales_en_productos_por_unidad_a_revisar} con decimales en productos por unidad y ${r.stock.fraccionados_a_revisar} fraccionados).`, 'Aplicar el día del cambio, enseguida después de simular y preparar (lo que cambie en ODB entre la simulación y el aplicar se saltea y queda contado). Contar antes los negativos que más se venden y los huevos: en 0 la caja de ODB no los deja vender.', 'No se aplica.'),
     d('Santa Inés', 'La exportación no trae su stock ni sus ventas.', 'Pedir el export de Santa Inés o hacer un conteo.', 'Queda la apertura del 11/8 (con 86 negativos).'),
     d('IVA', 'Todos los productos están al 21% en el viejo y en ODB.', 'Que el contador marque los de 10,5% antes de facturar desde ODB.', 'Todo al 21%.'),
     d('Caja (código)', 'La venta a cuenta corriente busca al cliente solo por DNI: una empresa con CUIT no se puede elegir.', 'Arreglarlo en la API antes de operar (las altas de personas ya llevan el DNI sacado del CUIT).', 'Las empresas no pueden comprar a cuenta en la caja.'),

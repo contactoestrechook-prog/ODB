@@ -2,7 +2,7 @@
 // Paso 2 de la carga de la exportación: arma la carga de UNA entidad a partir de
 // plan-<entidad>.json (simular.mjs) y la guarda en UNA fila de auditoria (accion
 // 'importacion_sistema_viejo', entidad 'sistema_viejo:<entidad>', entidad_id
-// 'export-2110'). Esa fila es el registro de lo que se hizo y lo que lee
+// 'export-DDMM' según el corte). Esa fila es el registro de lo que se hizo y lo que lee
 // aplicar/<entidad>.sql. Todavía no se aplica nada.
 //
 //   - Lo de la hoja Revisar NO entra, salvo lo que el dueño aprobó: --aprobar con
@@ -70,7 +70,7 @@ if (ENSAYO) {
 // la fila de auditoria: lo único que escribe este paso
 const { E, H } = conexion();
 const previas = await (await fetch(`${E.SUPABASE_URL}/rest/v1/auditoria?select=id,aplicado:datos_antes->aplicado&accion=eq.importacion_sistema_viejo&entidad=eq.sistema_viejo:${ENTIDAD}&entidad_id=eq.${carga.referencia}`, { headers: H })).json();
-if (previas.length) console.log(`ojo: ya hay ${previas.length} carga(s) de ${ENTIDAD} con la referencia ${carga.referencia}: ${previas.map((p) => `${p.id}${p.aplicado ? ' (aplicada)' : ''}`).join(', ')}. Aplicar otra no duplica (cada bloque es idempotente).`);
+if (previas.length) console.log(`ojo: ya hay ${previas.length} carga(s) de ${ENTIDAD} con la referencia ${carga.referencia}: ${previas.map((p) => `${p.id}${p.aplicado ? ' (aplicada)' : ''}`).join(', ')}. Aplicar otra con la MISMA exportación no duplica (cada bloque es idempotente; la cuenta corriente carga solo la diferencia con lo que ya cargó el circuito).`);
 const r = await fetch(`${E.SUPABASE_URL}/rest/v1/auditoria`, {
   method: 'POST', headers: { ...H, 'Content-Type': 'application/json', Prefer: 'return=representation' },
   body: JSON.stringify({ usuario_id: USUARIO, accion: 'importacion_sistema_viejo', entidad: `sistema_viejo:${ENTIDAD}`, entidad_id: carga.referencia, datos_despues: carga }),

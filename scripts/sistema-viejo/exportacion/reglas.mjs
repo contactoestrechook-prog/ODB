@@ -77,7 +77,12 @@ export function reglaPeso({ nombre = '', ventas = 0, conDecimales = 0, yaPorPeso
   if (yaPorPeso) return { estado: 'ya' };
   const parte = ventas ? conDecimales / ventas : 0;
   if (conDecimales >= 3 && parte >= 0.5) return { estado: 'marcar', motivo: `el sistema viejo lo vendió con decimales ${conDecimales} de ${ventas} veces` };
-  if (NOMBRE_PESO.test(String(nombre).normalize('NFD').replace(/[̀-ͯ]/g, ''))) return { estado: 'marcar', motivo: `el nombre dice que se vende por peso${conDecimales ? ` (y se vendió con decimales ${conDecimales} veces)` : ''}` };
+  if (NOMBRE_PESO.test(String(nombre).normalize('NFD').replace(/[̀-ͯ]/g, ''))) {
+    // el nombre no alcanza si el historial dice lo contrario: muchas ventas y
+    // todas enteras es un envasado ("Mozzarella … x fraccion x 200g" con EAN)
+    if (ventas >= 10 && conDecimales === 0) return { estado: 'dudoso', motivo: `el nombre dice por peso pero se vendió ${ventas} veces y siempre por unidad` };
+    return { estado: 'marcar', motivo: `el nombre dice que se vende por peso${conDecimales ? ` (y se vendió con decimales ${conDecimales} veces)` : ''}` };
+  }
   if (conDecimales >= 3) return { estado: 'dudoso', motivo: `se vendió con decimales ${conDecimales} de ${ventas} veces: ¿por peso o etiquetas mal leídas?` };
   return { estado: 'no' };
 }
@@ -86,6 +91,12 @@ export function reglaPeso({ nombre = '', ventas = 0, conDecimales = 0, yaPorPeso
 export const RUBRO_ALCOHOL = /^(vinos?|espumantes?|aperitivos?|cervezas?|destilados?|whisk|licor|gin|vodka|ron|fernet|sidra|champ)/i;
 
 // ---------------------------------------------------------------- precios
+// Precio Minorista debajo de un costo conocido (el de ODB o el del viejo, si es
+// dato): no se aplica solo, la caja pediría autorización en cada venta.
+export function motivoDebajoDelCosto(nuevo, { costoOdb = null, costoViejo = null } = {}) {
+  const c = [['ODB', costoOdb], ['sistema viejo', costoViejo]].filter(([, x]) => x >= 1 && nuevo < x);
+  return c.length ? `queda debajo del costo (${c.map(([q, x]) => `${q} $${pesos(x)}`).join(', ')})` : null;
+}
 // null = se aplica; texto = motivo para revisión (igual que actualizar.mjs)
 export function motivoPrecio(nuevo, actual) {
   if (!(nuevo >= PISO_PRECIO)) return !(nuevo >= 1) ? 'precio marcador del sistema viejo (0 o 0,01)' : `precio menor a $${PISO_PRECIO}`;
@@ -94,10 +105,15 @@ export function motivoPrecio(nuevo, actual) {
 }
 // Lista Mayorista desde la lista sin nombre del viejo (Precio 4 ≈ costo × 1,4):
 // además de las reglas de precio, no puede quedar debajo del costo ni arriba del
-// minorista (al cliente mayorista le saldría más caro).
-export function motivoMayorista(nuevo, actual, { costo = null, minorista = null } = {}) {
+// minorista (al cliente mayorista le saldría más caro). Como la lista sale del
+// costo del viejo, ese costo no sirve de control: `costo` tiene que ser el más
+// nuevo que haya (el de ODB si es más nuevo) y si el costo del que salió la lista
+// es de antes de `limiteFecha` (un año) no se propone: el 40% sobre un costo de
+// 2022 queda debajo de la reposición.
+export function motivoMayorista(nuevo, actual, { costo = null, minorista = null, fechaCosto = null, limiteFecha = null } = {}) {
   const m = motivoPrecio(nuevo, actual);
   if (m) return m;
+  if (fechaCosto && limiteFecha && fechaCosto < limiteFecha) return `sale de un costo del ${fechaCosto} (más de un año)`;
   if (costo > 0 && nuevo < costo) return `debajo del costo ($${pesos(costo)})`;
   if (minorista > 0 && nuevo > minorista) return `arriba del minorista ($${pesos(minorista)})`;
   return null;
@@ -122,6 +138,21 @@ export function objetivoStock(viejo) {
   const v = r3(viejo);
   if (v < 0) return { objetivo: 0, nota: `negativo en el sistema viejo (${v}): queda en 0` };
   return { objetivo: v };
+}
+
+// Presentaciones fraccionadas del mismo pozo (media docena, maple): el negativo
+// de una se descuenta de la más grande, redondeando a presentaciones enteras.
+//   hermanos: [{ id, viejo, upf (unidades_por_fraccion) }] → Map id → objetivo
+export function propuestaFracciones(hermanos) {
+  const out = new Map(hermanos.map((h) => [h.id, Math.max(0, r3(h.viejo))]));
+  let deficit = hermanos.filter((h) => h.viejo < 0).reduce((s, h) => s - h.viejo * h.upf, 0);
+  for (const h of [...hermanos].filter((x) => x.viejo > 0).sort((a, b) => b.upf - a.upf)) {
+    if (deficit <= 0) break;
+    const sacar = Math.min(Math.floor(h.viejo), Math.ceil(deficit / h.upf));
+    deficit -= sacar * h.upf;
+    out.set(h.id, r3(h.viejo - sacar));
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------- códigos de barras
@@ -262,7 +293,30 @@ export function cruzarCliente(c, idx, nombreDe) {
 }
 
 // ---------------------------------------------------------------- cuenta corriente
-export const CONCEPTO_SALDO_INICIAL = (corte) => `Saldo inicial del sistema anterior (corte ${corte})`;
+// Las líneas que este circuito deja en cuenta_corriente se reconocen por el
+// PRINCIPIO del concepto, nunca por el concepto entero (que lleva el corte): con
+// una segunda exportación el concepto cambia y la carga NO tiene que poner otro
+// saldo inicial, sino la diferencia (CONCEPTO_AJUSTE_SALDO).
+export const PREFIJO_SALDO_INICIAL = 'Saldo inicial del sistema anterior';
+export const PREFIJO_AJUSTE_SALDO = 'Ajuste de saldo del sistema anterior';
+export const CONCEPTO_SALDO_INICIAL = (corte) => `${PREFIJO_SALDO_INICIAL} (corte ${corte})`;
+export const CONCEPTO_AJUSTE_SALDO = (corte) => `${PREFIJO_AJUSTE_SALDO} (corte ${corte})`;
+export const esLineaDelViejo = (concepto) => String(concepto ?? '').startsWith(PREFIJO_SALDO_INICIAL) || String(concepto ?? '').startsWith(PREFIJO_AJUSTE_SALDO);
+// Lo que el circuito ya cargó a un cliente (debe − haber de sus líneas) y si
+// tiene la línea de saldo inicial.
+export function aportadoDelViejo(lineas) {
+  const propias = lineas.filter((l) => esLineaDelViejo(l.concepto));
+  return { aportado: r2(propias.reduce((s, l) => s + Number(l.debe ?? 0) - Number(l.haber ?? 0), 0)), conInicial: propias.some((l) => String(l.concepto).startsWith(PREFIJO_SALDO_INICIAL)) };
+}
+// Qué línea lleva un cliente con el saldo del viejo `saldo`: la de saldo inicial
+// si todavía no tiene ninguna; si ya la tiene, SOLO la diferencia como ajuste
+// (nunca un segundo saldo inicial: el 21/10 eso duplicaba $47,5 M).
+export function lineaDeSaldo({ saldo, aportado = 0, conInicial = false }) {
+  const s = r2(saldo ?? 0);
+  if (!conInicial) return Math.abs(s) < 0.01 ? null : { tipo: 'inicial', monto: s };
+  const d = r2(s - aportado);
+  return Math.abs(d) < 0.01 ? null : { tipo: 'ajuste', monto: d };
+}
 // Saldo de apertura de un cliente: el de la ficha (clientes.csv), que coincide
 // con el último saldo corrido de su cuenta corriente. Si no coinciden, o el
 // código está repetido (dos personas), va a revisión.
@@ -286,11 +340,28 @@ export const diasEntre = (desde, hasta) => Math.round((dia(hasta) - dia(desde)) 
 //     suma los que terminan en los últimos 30 días: tiene que haber uno solo);
 //   - lo anterior, por mes calendario;
 //   - se recortan los rangos que ODB ya tiene (por ejemplo access-julio-2026).
-// Si un período existente cae en los últimos 60 días, falla: se decide a mano.
-export function periodosHistorial({ primero, corte, existentes = [] }) {
+// Si un período de OTRO origen cae en los últimos 60 días, falla: se decide a mano.
+// Los períodos que ya cargó este circuito (origen 'export-…', una exportación
+// anterior) no frenan: se agrega solo lo que falta, desde el día siguiente al
+// último cargado hasta el corte (en tramos de hasta 30 días, el último al final),
+// así las ventas entre una exportación y la definitiva no se pierden.
+export function periodosHistorial({ primero, corte, existentes = [], prefijoPropio = 'export-' }) {
   const corteDia = corte.slice(0, 10);
   const completo = /T23:5\d/.test(corte);
   const fin = completo ? corteDia : mas(corteDia, -1);
+  const propios = existentes.filter((e) => String(e.origen ?? '').startsWith(prefijoPropio));
+  if (propios.length) {
+    const ultimoCargado = propios.map((e) => e.hasta).sort().at(-1);
+    const out = [];
+    for (let h = fin; h > ultimoCargado; h = mas(h, -30)) {
+      const d = mas(h, -29) > ultimoCargado ? mas(h, -29) : mas(ultimoCargado, 1);
+      out.unshift({ desde: d, hasta: h });
+    }
+    for (const e of existentes) for (const p of out) {
+      if (e.hasta >= p.desde && e.desde <= p.hasta) throw new Error(`ya hay un período ${e.desde}–${e.hasta} (${e.origen ?? '?'}) que se cruza con ${p.desde}–${p.hasta}: decidir a mano`);
+    }
+    return out.map((p) => ({ ...p, dias: diasEntre(p.desde, p.hasta) }));
+  }
   const ultimo = { desde: mas(fin, -29), hasta: fin }, anterior = { desde: mas(fin, -59), hasta: mas(fin, -30) };
   for (const e of existentes) {
     if (e.hasta >= anterior.desde && e.desde <= fin) throw new Error(`ya hay un período ${e.desde}–${e.hasta} (${e.origen ?? '?'}) dentro de los últimos 60 días: decidir a mano`);
@@ -315,6 +386,19 @@ export function periodosHistorial({ primero, corte, existentes = [] }) {
     libres = out;
   }
   return [...libres, anterior, ultimo].map((p) => ({ ...p, dias: diasEntre(p.desde, p.hasta) }));
+}
+// A qué producto de ODB van las ventas de un código del viejo en el historial.
+//   x: el renglón de resolver() (o undefined si el viejo ya no tiene el código)
+//   f: el de `final` en simular (producto que cruza bien, vinculado o alta)
+// Solo reciben ventas los que cruzan, los vinculados, las altas y los dados de
+// baja con el mismo nombre; un código repetido (ventas de dos artículos
+// mezcladas) o reutilizado con otro nombre va sin producto.
+export function destinoHistorial(x, f) {
+  if (!x || x.todos.length > 1) return { prod: null, motivo: x ? 'código repetido en el viejo' : 'el viejo ya no tiene el código' };
+  if (f?.p) return { prod: f.p.id };
+  if (f?.alta) return { alta: true };
+  if (x.estado === 'inactivo') return { prod: x.p.id };
+  return { prod: null, motivo: MOTIVO_ESTADO[x.estado] ?? x.estado };
 }
 export const periodoDe = (periodos, fecha) => periodos.findIndex((p) => fecha >= p.desde && fecha <= p.hasta);
 // Renglón de venta que no se suma: cantidad o importe absurdos (una etiqueta o
