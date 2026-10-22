@@ -182,3 +182,42 @@ describe('se vende en paquetes (Ana, 10/10/2026: las Rodesias vienen por 36 y se
     for (const v of [1, 0, 'tres']) expect(aplicarCambiosIA([fila], [{ renglon: 1, campo: 'unidadesPorVenta', valor: v as any, motivo: '' }], () => false).descartados).toHaveLength(1);
   });
 });
+
+// Rueda Que Rueda 0007-00136173 (22/10/2026): el lector marcó «bonif. 18%» en
+// renglones cuyo precio ya venía bonificado (12 × $4.004,07 = $48.048,84 justo),
+// y Melba y Milka Avellana no ingresaron. Se veía «no cierra» y el Oreo a $5.587.
+describe('Rueda Que Rueda: bonificación ya incluida y lo que no ingresó', () => {
+  it('la bonificación que ya está en el precio no se descuenta otra vez: el renglón cierra', () => {
+    const p = papelDeLectura(lectura(12, 4004.07, 48048.84, { bonificacionPct: 18, unidadesPorBulto: 12 }));
+    expect(p.desc).toBeNull();
+    expect(p.descIncluido).toBe(18);
+    expect(cuentaDelPapel(p)).toMatchObject({ unidades: 12, cierra: true });
+  });
+  it('si el importe sí trae el descuento, se aplica como siempre (Oxxon 10%)', () => {
+    const p = papelDeLectura(lectura(1, 3598.93, 38868.42, { unidadesPorBulto: 12, bonificacionPct: 10 }));
+    expect(p.desc).toBe(10);
+    expect(p.descIncluido).toBeUndefined();
+  });
+  it('si no cierra de ninguna de las dos formas, el descuento queda y el renglón sigue en rojo', () => {
+    const p = papelDeLectura(lectura(12, 4004.07, 40000, { bonificacionPct: 18 }));
+    expect(p.desc).toBe(18);
+    expect(cuentaDelPapel(p).cierra).toBe(false);
+  });
+  it('«Melba no ingresó» → ingresa = false: sale del stock sin tocar el papel', () => {
+    const fila: any = { descripcion: 'MELBA TRIPACK X 360GR', sku: 'L100', incluir: true, cantidad: 15, precio: 2479.87, importe: 37198.05 };
+    const r = aplicarCambiosIA([fila], [{ renglon: 1, campo: 'ingresa', valor: false, motivo: 'no llegó' }], () => false);
+    expect(r.items[0].incluir).toBe(false);
+    expect(r.items[0].cantidad).toBe(15);
+    expect(r.items[0].importe).toBe(37198.05);
+    expect(r.registros).toEqual([{ renglon: 1, campo: 'ingresa', antes: true, despues: false, motivo: 'no llegó' }]);
+  });
+  it('no se puede hacer ingresar un renglón sin producto elegido', () => {
+    const fila: any = { descripcion: 'ALGO SIN MATCH', sku: null, incluir: false, cantidad: 1, precio: 10, importe: 10 };
+    expect(aplicarCambiosIA([fila], [{ renglon: 1, campo: 'ingresa', valor: true }], () => false).descartados).toHaveLength(1);
+  });
+  it('el chat recibe el costo final, si ingresa y la bonificación incluida', () => {
+    const fila: any = { descripcion: 'OREO', incluir: false, cantidad: 12, precio: 4004.07, importe: 48048.84, bonificacionPct: 18 };
+    const [t] = tablaParaIA([fila], () => false, () => null, () => ({ costoFinalConIva: 5165.25, comoSeCalcula: '4004,07 + IVA 21% + percepciones 8%' })) as any[];
+    expect(t).toMatchObject({ ingresa: false, bonificacionYaEnElPrecio: 18, costoFinalConIva: 5165.25, cierra: true });
+  });
+});

@@ -674,7 +674,11 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
           // la factura editable: lo que dice el papel, tal cual
           papel: i.esDescuento || porPeso ? null : papelDeLectura({ ...i, unidadesDelCatalogo: i.unidadesDelCatalogo ?? null }),
         };
-      }));
+      }).map((x: any) => (
+        // la bonificación que el papel informa pero que ya está en el precio no se
+        // descuenta otra vez: queda como dato a la vista (22/10/2026)
+        x.papel?.descIncluido ? { ...x, bonificacionPct: null, bonifIncluidaPct: x.papel.descIncluido } : x
+      )));
   }
 
   // Foto chica (≤1300 px): casi siempre vino comprimida por WhatsApp. Al modelo
@@ -1053,8 +1057,16 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   }));
   // OJO: el descuento ya está adentro de precioEfectivo del renglón que rebaja.
   // Sumar además el renglón de descuento lo restaría DOS veces.
+  // Lo que el renglón factura según el papel. Un renglón que no ingresó (las
+  // unidades en 0) sigue estando en la factura: su importe cuenta para cuadrar
+  // con el pie. Antes desaparecía de la suma y la diferencia se repartía sobre
+  // los demás productos como si fuera un ajuste (Rueda Que Rueda, 22/10/2026:
+  // Melba y Milka no ingresaron y el resto quedó un 8,16% más caro).
+  const netoDelRenglon = (i: any) => numImp(i.cantidad) > 0
+    ? numImp(i.cantidad) * precioEfectivo(i)
+    : Math.max(0, numImp(i.papel?.importe ?? i.importe));
   const sumaRenglones = itemsCalc.reduce(
-    (s: number, i: any) => (i._esDescuento ? s : s + numImp(i.cantidad) * precioEfectivo(i)),
+    (s: number, i: any) => (i._esDescuento ? s : s + netoDelRenglon(i)),
     0,
   );
   const netoDoc = fotoImp?.neto != null && fotoImp.neto !== '' ? numImp(fotoImp.neto) : null;
@@ -1103,11 +1115,11 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
     : 0;
   const renglonesIva = itemsCalc
     .map((i: any, idx: number) => ({ i, idx }))
-    .filter(({ i }) => !i._esDescuento && numImp(i.cantidad) > 0);
+    .filter(({ i }) => !i._esDescuento && netoDelRenglon(i) > 0);
   const ivaFactura = discriminaIva
     ? repartirIva(
         renglonesIva.map(({ i }) => ({
-          neto: numImp(i.cantidad) * precioEfectivo(i),
+          neto: netoDelRenglon(i),
           alicuotaImpresa: alicLinea(i),
           alicuotaElegida: i.alicuotaElegida != null && i.alicuotaElegida !== '' ? Number(i.alicuotaElegida) : null,
           alicuotaCatalogo: i.alicuotaCatalogo != null ? Number(i.alicuotaCatalogo) : null,
@@ -1213,7 +1225,17 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
     const tocados = [...new Set(r.registros.map((g) => g.renglon - 1))];
     setMarcados(tocados);
     if (tocados.length) setTimeout(() => setMarcados([]), 5000);
-    return { aplicados: todos.map((c) => describirCambio(c)) };
+    // lo que no se pudo aplicar se dice, con el porqué (antes se perdía en silencio)
+    const noAplicados = r.descartados.map((c: any) => {
+      const fila = fotoItemsVivos.current[Math.round(Number(c?.renglon)) - 1];
+      const porque = !fila ? 'ese renglón no existe'
+        : esRenglonDescuento(fila) ? 'en un renglón de descuento solo se puede elegir si se aplica o no'
+        : c.campo === 'ingresa' ? 'el renglón no tiene producto del catálogo elegido'
+        : c.campo === 'entraComo' ? 'el renglón no tiene unidades por bulto'
+        : 'el valor no es válido para ese dato';
+      return `Renglón ${c?.renglon ?? '?'} · ${c?.campo ?? ''}: ${porque}`;
+    });
+    return { aplicados: todos.map((c) => describirCambio(c)), noAplicados };
   };
   // deshace UN cambio: vuelve ese dato a como estaba (los demás quedan)
   const deshacerCambio = (c: CambioHecho) => {
@@ -1224,6 +1246,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
       setFotoItems((xs) => xs.map((x, j) => {
         if (j !== k) return x;
         if (c.campo === 'noAplicar') return { ...x, noAplicar: !!c.antes };
+        if (c.campo === 'ingresa') return { ...x, incluir: !!c.antes };
         const papel: Papel = { ...(x.papel ?? papelDeLectura(x)) };
         if (c.campo === 'entraComo') {
           const de = Number(papel.uxb);
@@ -2051,7 +2074,11 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                 proveedorId={f.proveedorId || null}
                 proveedorNombre={provList.find((p: any) => p.id === f.proveedorId)?.razon_social ?? foto.proveedor?.detectado?.nombre ?? null}
                 comprobante={foto.comprobante ?? null}
-                tabla={() => tablaParaIA(fotoItemsVivos.current, esRenglonDescuento, textoDestino)}
+                tabla={() => tablaParaIA(fotoItemsVivos.current, esRenglonDescuento, textoDestino, (k) => {
+                  const it = itemsCalc[k];
+                  if (!it || it._esDescuento || !it.sku) return null;
+                  return { costoFinalConIva: costoFinal(it, k), comoSeCalcula: desgloseCosto(it, k) };
+                })}
                 pie={fotoImp}
                 controles={controlesParaIA()}
                 onAplicar={aplicarIA}
@@ -2118,7 +2145,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                         {estadoDelBulto(i) === 'caja' && <Sello tono="info">caja ×{Math.round(numImp(i.bultoDescartado))}</Sello>}
                         {numImp(i.envaseAplicado) > 1 && <Sello tono="info">u. → cajas ×{Math.round(numImp(i.envaseAplicado))}</Sello>}
                         {numImp(i.paqueteAplicado) > 0 && <Sello tono="info">kg → paq. {Math.round(numImp(i.paqueteAplicado))} g</Sello>}
-                        {esSinCargo(i) ? <Sello tono="ok">sin cargo</Sello> : numImp(i.bonificacionPct) > 0 ? <Sello tono="ok">bonif. {numImp(i.bonificacionPct)}%</Sello> : null}
+                        {esSinCargo(i) ? <Sello tono="ok">sin cargo</Sello> : numImp(i.bonificacionPct) > 0 ? <Sello tono="ok">bonif. {numImp(i.bonificacionPct)}%</Sello> : numImp(i.bonifIncluidaPct) > 0 ? <Sello tono="ok">bonif. {numImp(i.bonifIncluidaPct)}% ya en el precio</Sello> : null}
                         {numImp(i._descuento) < 0 && (descuentoDesmedido(i) ? <Sello tono="ojo">desc. sin aplicar</Sello> : <Sello tono="ok">desc. aplicado</Sello>)}
                         {numImp(i.cantidadCorregida) > 0 && <Sello tono="ok">cant. corregida</Sello>}
                         {correccionRenglon(i)?.seguro === false && <Sello tono="ojo">revisar lectura</Sello>}

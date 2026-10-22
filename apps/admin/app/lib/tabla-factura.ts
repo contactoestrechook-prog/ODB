@@ -33,6 +33,13 @@ export type Papel = {
   iva: number | null;
   /** importe del renglón (neto, lo que suma al pie) */
   importe: number | null;
+  /**
+   * % de bonificación que la factura informa pero que YA está adentro del precio
+   * unitario (unidades × precio = importe, sin descontar nada). Es un dato, no se
+   * vuelve a descontar (Rueda Que Rueda, 22/10/2026: «bonif. 18%» en renglones
+   * que ya estaban bonificados daban «no cierra»).
+   */
+  descIncluido?: number | null;
 };
 
 /**
@@ -78,11 +85,23 @@ export function cuentaDelPapel(p: Papel): { unidades: number; lista: number; cue
  */
 export function papelDeLectura(raw: any): Papel {
   const r = raw?.interpretado ?? {};
+  const papel = papelSegun(raw, num(raw?.bonificacionPct) ?? num(r.bonificacionPct));
+  // La bonificación informada pero ya aplicada en el precio impreso: con ella la
+  // cuenta no cierra y sin ella cierra exacto. Manda el importe impreso.
+  const desc = num(papel.desc);
+  if (desc != null && desc > 0 && !cuentaDelPapel(papel).cierra) {
+    const sin = papelSegun(raw, null);
+    if (cuentaDelPapel(sin).cierra) return { ...sin, descIncluido: desc };
+  }
+  return papel;
+}
+
+function papelSegun(raw: any, desc: number | null): Papel {
+  const r = raw?.interpretado ?? {};
   // la cantidad del papel: la que leyó el lector (la interpretación pudo corregirla)
   const cant = num(raw?.cantidad) ?? num(r.cantidadOriginal) ?? 0;
   const precio = num(raw?.precio);
   const importe = num(r.importeNeto) ?? num(raw?.importe);
-  const desc = num(raw?.bonificacionPct) ?? num(r.bonificacionPct);
   const iva = num(raw?.alicuotaIva) ?? num(r.alicuotaDeducida);
   const base = { precio, desc, iva, importe };
 
@@ -214,6 +233,15 @@ export function aplicarCambiosIA<T extends Record<string, any>>(
       nuevos[k] = { ...fila, noAplicar: despues };
       continue;
     }
+    // «no ingresó»: el renglón sigue en la factura tal cual (cuenta para el pie)
+    // pero no entra al stock. No se tocan las cantidades del papel.
+    if (c.campo === 'ingresa') {
+      const despues = c.valor === true || c.valor === 'true';
+      if (despues && !fila.sku) { descartados.push(c); continue; }
+      registros.push({ renglon: k + 1, campo: 'ingresa', antes: fila.incluir !== false, despues, motivo });
+      nuevos[k] = { ...fila, incluir: despues };
+      continue;
+    }
     const papel: Papel = { ...(fila.papel ?? papelDeLectura(fila)) };
     const entra: EntraComo = entraDeRenglon(fila, papel);
     if (c.campo === 'entraComo') {
@@ -248,7 +276,14 @@ export function aplicarCambiosIA<T extends Record<string, any>>(
 }
 
 /** La tabla como la lee la IA: cada renglón con lo del papel, su cuenta y lo que entra al stock. */
-export function tablaParaIA(items: any[], esDescuento: (fila: any) => boolean, destino: (idx: number) => string | null) {
+export function tablaParaIA(
+  items: any[],
+  esDescuento: (fila: any) => boolean,
+  destino: (idx: number) => string | null,
+  // el costo final que ve la persona en pantalla y de dónde sale (22/10/2026: el
+  // chat no lo veía y contestaba «ese 5587 no sale de mi tabla»)
+  costo?: (idx: number) => { costoFinalConIva: number | null; comoSeCalcula: string | null } | null,
+) {
   return items.map((fila, k) => {
     if (esDescuento(fila)) {
       return { renglon: k + 1, descuento: true, descripcion: fila.descripcion, importe: num(fila.importe), aplicaA: destino(k), noAplicar: !!fila.noAplicar };
@@ -265,7 +300,10 @@ export function tablaParaIA(items: any[], esDescuento: (fila: any) => boolean, d
       unidades: c.unidades, cuenta: c.cuenta, cierra: c.cierra,
       entraComo: entraDeRenglon(fila, p)?.como ?? 'por decidir',
       entraDe: (entraDeRenglon(fila, p) as any)?.de ?? null,
-      entraAlStock: { cantidad: num(fila.cantidad), costo: num(fila.precio) },
+      entraAlStock: { cantidad: num(fila.cantidad), costoNeto: num(fila.precio) },
+      ingresa: fila.incluir !== false,
+      bonificacionYaEnElPrecio: num(p.descIncluido),
+      ...(costo?.(k) ?? {}),
     };
   });
 }

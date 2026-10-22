@@ -29,12 +29,12 @@ export type CambioHecho = {
   deshecho?: boolean;
 };
 
-type Mensaje = { rol: 'usuario' | 'ia'; texto: string; cambios?: string[] };
+type Mensaje = { rol: 'usuario' | 'ia'; texto: string; cambios?: string[]; noAplicados?: string[] };
 type Regla = { id: string; regla: string; creadaEn: string; autor: string | null };
 
 const NOMBRE_CAMPO: Record<string, string> = {
   bultos: 'bultos', uxb: 'unidades por bulto', sueltas: 'sueltas', precio: 'precio unitario', desc: '% de descuento', iva: 'IVA',
-  importe: 'importe', entraComo: 'cómo entra', noAplicar: 'descuento sin aplicar',
+  importe: 'importe', entraComo: 'cómo entra', noAplicar: 'descuento sin aplicar', ingresa: 'ingresa al stock',
   neto: 'neto', percepcionIva: 'percepción IVA', percepcionIibb: 'percepción IIBB', impuestosInternos: 'impuestos internos', otros: 'otros', total: 'total',
 };
 const valorLegible = (v: unknown) => (v == null || v === '' ? 'vacío' : typeof v === 'number' ? v.toLocaleString('es-AR', { maximumFractionDigits: 3 }) : v === true ? 'sí' : v === false ? 'no' : String(v));
@@ -55,7 +55,7 @@ export type PropsAsistente = {
   pie: unknown;
   controles: unknown;
   /** aplica lo que devolvió la IA; devuelve cuántos cambios aplicó y su descripción */
-  onAplicar: (cambios: any[], cambiosPie: any[]) => { aplicados: string[] };
+  onAplicar: (cambios: any[], cambiosPie: any[]) => { aplicados: string[]; noAplicados: string[] };
   cambios: CambioHecho[];
   onDeshacer: (c: CambioHecho) => void;
   sugerencias?: string[];
@@ -112,8 +112,11 @@ export function AsistenteFactura({ lecturaId, proveedorId, proveedorNombre, comp
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(ERRORES[r.status] ?? d?.message ?? 'El asistente no pudo contestar. Probá de nuevo.');
-      const { aplicados } = onAplicar(d.cambios ?? [], d.cambiosPie ?? []);
-      setMensajes((xs) => [...xs, { rol: 'ia', texto: String(d.respuesta ?? 'Listo.'), cambios: aplicados }]);
+      const { aplicados, noAplicados } = onAplicar(d.cambios ?? [], d.cambiosPie ?? []);
+      // lo que la IA propuso y no se pudo aplicar, a la vista (antes se perdía en silencio)
+      const delServidor = (Array.isArray(d.descartados) ? d.descartados : [])
+        .map((x: any) => `${x.renglon ? `Renglón ${x.renglon}` : 'Cambio'} · ${NOMBRE_CAMPO[x.campo] ?? x.campo}: ${x.porque}`);
+      setMensajes((xs) => [...xs, { rol: 'ia', texto: String(d.respuesta ?? 'Listo.'), cambios: aplicados, noAplicados: [...delServidor, ...noAplicados] }]);
       if (d.reglaProveedor && proveedorId) setPropuesta(String(d.reglaProveedor));
     } catch (e: any) {
       setError(e?.message ?? 'El asistente no pudo contestar. Probá de nuevo.');
@@ -176,6 +179,12 @@ export function AsistenteFactura({ lecturaId, proveedorId, proveedorNombre, comp
                 <p className="whitespace-pre-wrap break-words">{m.texto}</p>
                 {m.cambios?.length ? (
                   <ul className="mt-1.5 space-y-0.5 text-xs text-info">{m.cambios.map((c, j) => <li key={j}>{c}</li>)}</ul>
+                ) : null}
+                {m.noAplicados?.length ? (
+                  <div className="mt-1.5 rounded-lg bg-atencion-suave px-2 py-1 text-xs text-atencion">
+                    <p className="font-semibold">No se aplicó:</p>
+                    <ul className="space-y-0.5">{m.noAplicados.map((c, j) => <li key={j}>{c}</li>)}</ul>
+                  </div>
                 ) : null}
               </div>
             ))}
