@@ -3,6 +3,7 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
 import { AnalistaService } from '../analista/analista.service';
 import { Roles } from '../auth/decorators';
+import { historicoEnVentana } from './historico-ventana';
 
 @Roles('gerente', 'dueno')
 @Controller('estadisticas')
@@ -121,9 +122,12 @@ export class EstadisticasController {
       porProducto.set(sku, acc);
     }
 
-    // Suma el histórico del sistema anterior (solo unidades, sin importes).
-    // El ritmo diario se calcula con los días reales del período para que la
-    // cobertura de stock no se diluya contra los 30 días de la ventana.
+    // Suma el histórico del sistema anterior (solo unidades, sin importes), pero
+    // SOLO la parte de cada período que cae en la ventana de 30 días, prorrateada
+    // por días: así, cuando una sucursal pasa del sistema viejo a ODB, cada día se
+    // cuenta una vez (antes se sumaba el período entero a las ventas de ODB y el
+    // ritmo llegaba al doble). El ritmo es todo sobre los 30 días de la ventana.
+    const ventana = { desde: hace30.slice(0, 10), hasta: new Date().toISOString().slice(0, 10) };
     let histUnidades = 0;
     let histDesde: string | null = null;
     let histHasta: string | null = null;
@@ -139,10 +143,9 @@ export class EstadisticasController {
         margen: 0,
         unidadesVivas: 0,
       };
-      const dias = Math.max(1, Math.round((new Date(hRow.hasta).getTime() - new Date(hRow.desde).getTime()) / 86400_000) + 1);
-      const u = Number(hRow.unidades);
+      const u = historicoEnVentana(hRow, ventana);
+      if (u <= 0) continue;
       acc.unidades += u;
-      acc.ritmoHist = (acc.ritmoHist ?? 0) + u / dias;
       histUnidades += u;
       if (!histDesde || hRow.desde < histDesde) histDesde = hRow.desde;
       if (!histHasta || hRow.hasta > histHasta) histHasta = hRow.hasta;
@@ -155,7 +158,7 @@ export class EstadisticasController {
       unidades7: Math.round(r.unidades7),
       facturado: Math.round(r.facturado),
       margen: Math.round(r.margen),
-      ritmoDia: (r.unidadesVivas ?? r.unidades) / 30 + (r.ritmoHist ?? 0),
+      ritmoDia: r.unidades / 30,
     }));
 
     // ganadores: aceleran su ritmo (última semana vs promedio del mes) con volumen real
