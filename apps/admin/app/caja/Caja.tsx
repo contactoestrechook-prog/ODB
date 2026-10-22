@@ -179,8 +179,23 @@ const ICONO = {
 const BOTON_CABECERA =
   'inline-flex min-h-11 shrink-0 items-center justify-center gap-1.5 rounded-xl px-3 text-sm transition-colors hover:bg-white/20 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/70 sm:min-h-10';
 
-export function Caja({ sucursales }: { sucursales: { id: string; nombre: string; terminales_tarjeta?: string[] }[] }) {
+export function Caja({ sucursales, rol }: { sucursales: { id: string; nombre: string; terminales_tarjeta?: string[] }[]; rol?: string | null }) {
   const [sucursalId, setSucursalId] = useState(sucursales[0]?.id ?? '');
+  // MODO PRUEBA (22/10/2026, provisorio): dos días cobrando en paralelo con el
+  // sistema viejo, que es el que factura. Lo prende el dueño por sucursal; la
+  // venta se registra (arqueo y stock) pero no va a ARCA. Lo decide el servidor.
+  const [modoPrueba, setModoPrueba] = useState<Record<string, boolean>>({});
+  const enPrueba = modoPrueba[sucursalId] === true;
+  useEffect(() => {
+    let vivo = true;
+    const leer = () => fetch('/api/caja?recurso=modo-prueba', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : {}))
+      .then((d: Record<string, boolean>) => { if (vivo && d && typeof d === 'object' && !('message' in d)) setModoPrueba(d); })
+      .catch(() => {});
+    void leer();
+    const t = setInterval(leer, 60_000); // si el dueño lo cambia desde otra caja
+    return () => { vivo = false; clearInterval(t); };
+  }, []);
   // confirmaciones con el diseño del panel (en lugar de confirm/prompt)
   const { confirmar, pedirTexto, dialogo } = useConfirmar();
   const pantallaAncha = useSyncExternalStore(suscribirAncho, leerAncho, anchoEnServidor);
@@ -1100,7 +1115,7 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
 
   function armarTicket(base: { items: TicketData['items']; total: number; descuento: number }, extras: Partial<TicketData>): TicketData {
     return {
-      etiqueta: ETIQUETA_COMP[comprobante] ?? 'Ticket',
+      etiqueta: enPrueba ? 'PRUEBA · NO VÁLIDO COMO FACTURA' : ETIQUETA_COMP[comprobante] ?? 'Ticket',
       fecha: new Date().toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }),
       items: base.items,
       total: base.total,
@@ -1235,6 +1250,28 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cobroMP?.estado]);
 
+  async function cambiarModoPrueba() {
+    const activar = !enPrueba;
+    const ok = await confirmar({
+      titulo: activar ? `¿Prender el modo prueba en ${sucursalNombre}?` : `¿Apagar el modo prueba en ${sucursalNombre}?`,
+      texto: activar
+        ? 'Las ventas se registran para el arqueo y descuentan stock, pero NO van a ARCA ni facturan, y el QR de Mercado Pago no cobra. El cobro de verdad se hace en el otro sistema.'
+        : 'Desde ahora la caja vuelve a facturar y a mandar a ARCA como siempre.',
+      variante: activar ? undefined : 'peligro',
+      textoConfirmar: activar ? 'Prender prueba' : 'Apagar prueba',
+    });
+    if (!ok) return;
+    const r = await fetch('/api/caja', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ accion: 'modo-prueba', sucursalId, activo: activar }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { setEstado({ tipo: 'error', texto: d.message ?? 'No se pudo cambiar el modo prueba' }); return; }
+    setModoPrueba((m) => ({ ...m, [sucursalId]: d.activo === true }));
+    setEstado({ tipo: 'ok', texto: d.activo ? 'Modo prueba PRENDIDO: las ventas no van a ARCA' : 'Modo prueba apagado: la caja factura como siempre' });
+  }
+
   async function cobrar() {
     if (carrito.length === 0 || cobrando) return;
     // La restricción del candado también acá: el botón puede haber quedado
@@ -1257,7 +1294,7 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
     // al QR y se espera; cobrar() vuelve a llamarse solo al aprobarse.
     const montoMP = pagosVenta.filter((p) => p.medio === 'mercadopago').reduce((s, p) => s + p.monto, 0);
     const cMP = cobroMPRef.current;
-    if (montoMP > 0 && !(cMP && (cMP.estado === 'aprobado' || cMP.estado === 'omitido'))) {
+    if (!enPrueba && montoMP > 0 && !(cMP && (cMP.estado === 'aprobado' || cMP.estado === 'omitido'))) {
       if (cMP && (cMP.estado === 'iniciando' || cMP.estado === 'esperando')) return; // ya está en curso
       await iniciarCobroMP(montoMP);
       return;
@@ -1329,7 +1366,7 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
       }
       fijarCobroMP(null);
       const vueltoTxt = vuelto != null && vuelto > 0 ? ` · VUELTO ${pesos(vuelto)}` : '';
-      const compTxt = numero ?? ETIQUETA_COMP[comprobante];
+      const compTxt = datos.prueba ? 'PRUEBA (sin ARCA)' : numero ?? ETIQUETA_COMP[comprobante];
       setEstado({
         tipo: 'ok',
         texto: `✓ ${compTxt} · ${pesos(datos.total)}${Number(datos.descuento) > 0 ? ` (ahorró ${pesos(datos.descuento)})` : ''}${datos.tipo_cliente ? ` · ${datos.tipo_cliente}` : ''}${vueltoTxt}${datos.comprobanteError ? ` · ⚠ comprobante manual: ${datos.comprobanteError}` : ''}`,
@@ -1566,6 +1603,7 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
           {sesion && <span className="rounded-full bg-white/10 px-2.5 py-1 text-xs text-crema/80">{sesion.cajaNombre}</span>}
           {sinRed && <span className="rounded-full bg-marca px-2.5 py-1 text-xs font-semibold text-white">SIN RED · {cola.length} en cola</span>}
           {!sinRed && cola.length > 0 && <span className="rounded-full bg-atencion px-2.5 py-1 text-xs font-semibold text-white">{cola.length} por enviar</span>}
+          {enPrueba && <span className="rounded-full bg-atencion px-2.5 py-1 text-xs font-bold tracking-wide text-white">MODO PRUEBA · NO FACTURA</span>}
         </div>
         {/* en el celular, una sola fila que se desliza de costado (solo íconos) */}
         <div className="-mx-3 flex items-center gap-2 overflow-x-auto px-3 [scrollbar-width:none] sm:mx-0 sm:flex-wrap sm:px-0 lg:justify-end [&::-webkit-scrollbar]:hidden">
@@ -1590,6 +1628,11 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
               <option key={s.id} value={s.id} className="text-tinta">{s.nombre}</option>
             ))}
           </select>
+          {rol === 'dueno' && (
+            <button type="button" onClick={cambiarModoPrueba} aria-pressed={enPrueba} className={unir(BOTON_CABECERA, enPrueba ? 'bg-atencion text-white' : 'bg-white/10 text-crema/80')} title="Modo prueba (provisorio): registra las ventas para el arqueo sin mandarlas a ARCA" aria-label={enPrueba ? 'Apagar modo prueba' : 'Prender modo prueba'}>
+              <span className="text-xs font-semibold">{enPrueba ? 'Prueba: SÍ' : 'Prueba: NO'}</span>
+            </button>
+          )}
           {sesion && (
             <button type="button" onClick={() => { setModalExtra('movimiento'); setMovMonto(''); setMovMotivo(''); }} className={unir(BOTON_CABECERA, 'bg-white/10 text-crema/80')} title="Ingreso / retiro de efectivo" aria-label="Movimiento de efectivo">
               <IconoCaja d={ICONO.efectivo} />
@@ -1622,6 +1665,11 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
           </Link>
         </div>
       </header>
+      {enPrueba && (
+        <div role="status" className="shrink-0 bg-atencion px-3 py-1.5 text-center text-sm font-semibold text-white sm:px-4">
+          MODO PRUEBA en {sucursalNombre}: las ventas quedan registradas para el arqueo pero NO van a ARCA ni facturan. El cobro de verdad va en el otro sistema.
+        </div>
+      )}
       {devPedido && (
         <div className={'flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2 text-sm ' + (devPedido.estado === 'pendiente' ? 'bg-atencion-suave text-atencion' : devPedido.estado === 'aprobada' ? 'bg-ok-suave text-ok' : 'bg-marca-suave text-marca-hondo')}>
           {devPedido.estado === 'pendiente' && <><span className="inline-block size-2.5 animate-pulse rounded-full bg-atencion motion-reduce:animate-none" /><b>Devolución de {pesos(devPedido.monto)} esperando autorización</b><span>{(devPedido.avisados ?? []).length ? `Avisados: ${devPedido.avisados!.join(', ')}` : 'Los supervisores ya tienen el aviso'}</span></>}

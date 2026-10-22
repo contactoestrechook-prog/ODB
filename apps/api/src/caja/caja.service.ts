@@ -32,6 +32,30 @@ export class CajaService {
 
   constructor(@Inject(SUPABASE) private readonly db: SupabaseClient) {}
 
+  // ---- Modo prueba de la caja (22/10/2026, provisorio) ----
+  // Dos días cobrando en paralelo con el sistema viejo, que es el que factura: con
+  // el interruptor prendido las ventas de esa sucursal se registran (entran al
+  // arqueo y mueven stock) pero no van a ARCA. Ver db/migracion-caja-modo-prueba.sql.
+  // Si la migración no está aplicada, todo queda apagado (la caja sigue como siempre).
+  async modoPrueba(): Promise<Record<string, boolean>> {
+    const { data, error } = await this.db.from('sucursales').select('id, caja_modo_prueba');
+    if (error) return {};
+    return Object.fromEntries((data ?? []).map((s: any) => [s.id, s.caja_modo_prueba === true]));
+  }
+
+  async cambiarModoPrueba(sucursalId: string, activo: boolean, usuarioId?: string) {
+    if (!sucursalId) throw new BadRequestException('Falta la sucursal');
+    const { data, error } = await this.db
+      .from('sucursales').update({ caja_modo_prueba: activo === true }).eq('id', sucursalId).select('id, nombre').maybeSingle();
+    if (error) throw new BadRequestException('El modo prueba todavía no está disponible en la base');
+    if (!data) throw new BadRequestException('No existe la sucursal');
+    await this.db.from('auditoria').insert({
+      usuario_id: usuarioId ?? null, accion: activo ? 'caja_modo_prueba_on' : 'caja_modo_prueba_off',
+      entidad: 'sucursales', entidad_id: sucursalId, datos_despues: { caja_modo_prueba: activo === true },
+    });
+    return { sucursalId, activo: activo === true };
+  }
+
   async cajas() {
     const { data, error } = await this.db
       .from('cajas')

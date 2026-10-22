@@ -224,6 +224,40 @@ describe('VentasService.registrar', () => {
 
 
 // ============================================================
+// MODO PRUEBA DE LA CAJA (22/10/2026, provisorio): dos días cobrando en
+// paralelo con el sistema viejo. La venta se registra (arqueo + stock) por
+// registrar_venta_prueba, que no la manda a ARCA; acá se fija que el servidor
+// no emita comprobante, no valide cuenta corriente y no mande el cliente.
+// ============================================================
+describe('VentasService.registrar en modo prueba', () => {
+  const tablasPrueba = { ...tablasBase, sucursales: { caja_modo_prueba: true } };
+  const rpcPrueba = { registrar_venta_prueba: { venta_id: 'v-9', subtotal: 100, descuento: 0, total: 100, prueba: true } };
+
+  it('registra por registrar_venta_prueba, sin cliente y sin comprobante aunque se pida Factura A', async () => {
+    const fact = facturacionFalsa();
+    const { svc, llamadas } = servicio({ rpc: rpcPrueba, tablas: tablasPrueba }, fact);
+    const r = await svc.registrar({ ...dtoBase, comprobante: 'A', clienteDni: '123' } as any);
+    expect(r.prueba).toBe(true);
+    expect(llamadas.rpc.map(([fn]) => fn)).toEqual(['registrar_venta_prueba']);
+    expect(llamadas.rpc[0][1]).not.toHaveProperty('p_cliente_dni');
+    expect(fact.emitir).not.toHaveBeenCalled();
+  });
+
+  it('cuenta corriente: no la valida ni la asienta (la cobra el otro sistema)', async () => {
+    const { svc, llamadas } = servicio({ rpc: rpcPrueba, tablas: { ...tablasPrueba, clientes: null } });
+    const r = await svc.registrar({ ...dtoBase, pagos: [{ medio: 'cta_cte', monto: 100 }], clienteDni: '123' } as any);
+    expect(r.venta_id).toBe('v-9');
+    expect(llamadas.rpc.map(([fn]) => fn)).not.toContain('saldo_cuenta');
+  });
+
+  it('con el interruptor apagado sigue el camino de siempre', async () => {
+    const { svc, llamadas } = servicio({ rpc: rpcVentaOk, tablas: { ...tablasBase, sucursales: { caja_modo_prueba: false } } });
+    await svc.registrar(dtoBase as any);
+    expect(llamadas.rpc.map(([fn]) => fn)).toEqual(['registrar_venta']);
+  });
+});
+
+// ============================================================
 // CAMBIO DE MEDIO DE PAGO (el cliente se arrepintió después de cobrar)
 // El contrato que importa: sin supervisor no se toca nada, los pagos tienen
 // que sumar el total del ticket, y si sale Mercado Pago la plata se devuelve

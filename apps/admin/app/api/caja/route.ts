@@ -10,6 +10,7 @@ const GET_RECURSOS: Record<string, string> = {
   // "Mi turno": lo que la cajera mira sin salir de la caja
   'turno-resumen': '/caja/turno/resumen',
   'turno-ventas': '/caja/turno/ventas',
+  'modo-prueba': '/caja/modo-prueba', // provisorio (22/10/2026): prueba en paralelo con el sistema viejo
 };
 export async function GET(req: Request) {
   const token = (await cookies()).get('odb_token')?.value;
@@ -28,7 +29,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   const token = (await cookies()).get('odb_token')?.value;
   const { accion, ...d } = await req.json().catch(() => ({}));
-  const ruta = accion === 'abrir' ? '/caja/abrir' : accion === 'cerrar' ? '/caja/cerrar' : accion === 'arca' ? '/arca/emitir' : accion === 'movimiento' ? '/caja/movimiento' : accion === 'autorizar' ? '/caja/autorizar' : null;
+  const ruta = accion === 'abrir' ? '/caja/abrir' : accion === 'cerrar' ? '/caja/cerrar' : accion === 'arca' ? '/arca/emitir' : accion === 'movimiento' ? '/caja/movimiento' : accion === 'autorizar' ? '/caja/autorizar' : accion === 'modo-prueba' ? '/caja/modo-prueba' : null;
   if (!ruta) return NextResponse.json({ message: 'Acción inválida' }, { status: 400 });
   const res = await fetch(`${API}${ruta}`, {
     method: 'POST',

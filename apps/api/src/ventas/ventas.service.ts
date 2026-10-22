@@ -81,6 +81,36 @@ export class VentasService {
       })),
     );
 
+    // MODO PRUEBA (22/10/2026, provisorio): la sucursal cobra de verdad con el
+    // sistema viejo. La venta se registra para el arqueo y mueve stock, pero no va
+    // a ARCA, no emite comprobante, no espera acreditaciones y no lleva cliente
+    // (sin puntos ni deuda de cuenta corriente). Lo decide el servidor, no la caja.
+    if (await this.sucursalEnModoPrueba(sucursalId)) {
+      let autorizadoPrueba = dto.autorizadoPor;
+      if (!autorizadoPrueba && dto.autorizacionToken) {
+        const auth = await this.caja.consumirAutorizacion(dto.autorizacionToken);
+        autorizadoPrueba = auth?.usuarioId;
+      }
+      const { data, error } = await this.db.rpc('registrar_venta_prueba', {
+        p_sucursal: sucursalId,
+        p_items: items,
+        p_pagos: dto.pagos,
+        p_canal: dto.canal ?? 'mostrador',
+        p_sesion_caja: dto.sesionCajaId ?? null,
+        p_usuario: dto.usuarioId ?? null,
+        p_venta_id: dto.ventaId ?? null,
+        p_descuento_extra: dto.descuentoExtra ?? 0,
+        p_autorizado_por: autorizadoPrueba ?? null,
+        p_mayorista: dto.mayorista ?? false,
+      });
+      if (error) throw new BadRequestException(this.traducirError(error.message));
+      const venta = data as any;
+      if (venta?.duplicada) return venta;
+      venta.items = await this.itemsTicket(venta.venta_id);
+      venta.prueba = true;
+      return venta;
+    }
+
     // Cta cte: validar ANTES de registrar la venta (si el límite no alcanza,
     // la venta no debe existir — evita ventas cobradas "a cuenta" sin asiento).
     const montoCtaCte = (dto.pagos ?? [])
@@ -131,6 +161,13 @@ export class VentasService {
       }
     }
     return venta;
+  }
+
+  // sin la migración del modo prueba la columna no existe: cuenta como apagado
+  private async sucursalEnModoPrueba(sucursalId?: string): Promise<boolean> {
+    if (!sucursalId) return false;
+    const { data, error } = await this.db.from('sucursales').select('caja_modo_prueba').eq('id', sucursalId).maybeSingle();
+    return !error && (data as any)?.caja_modo_prueba === true;
   }
 
   // Emite el comprobante fiscal de la venta (FA/FB/REM) con numeración propia,
@@ -216,9 +253,11 @@ export class VentasService {
     const resultado = data as any;
     const monto = Number(resultado.monto);
 
-    // NC fiscal real, referenciando la factura original de la venta (si existe)
+    // NC fiscal real, referenciando la factura original de la venta (si existe).
+    // Una venta del modo prueba no tiene factura: su devolución no emite nada.
     let nc: any = null;
-    try {
+    const { data: vPrueba } = await this.db.from('ventas').select('es_prueba').eq('id', ventaId).maybeSingle();
+    if ((vPrueba as any)?.es_prueba !== true) try {
       const { data: original } = await this.db
         .from('comprobantes')
         .select('id, tipo, cliente_id')

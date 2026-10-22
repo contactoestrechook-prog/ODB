@@ -16,6 +16,19 @@ export class CajaController {
     return this.caja.resumen();
   }
 
+  // modo prueba (provisorio): la caja lo lee para mostrar el cartel; lo cambia el dueño
+  @Roles('cajero', 'gerente', 'dueno')
+  @Get('caja/modo-prueba')
+  modoPrueba() {
+    return this.caja.modoPrueba();
+  }
+
+  @Roles('dueno')
+  @Post('caja/modo-prueba')
+  cambiarModoPrueba(@Body() body: { sucursalId: string; activo: boolean }, @Req() req: any) {
+    return this.caja.cambiarModoPrueba(body.sucursalId, body.activo === true, req.usuario?.sub);
+  }
+
   @Roles('cajero', 'gerente', 'dueno')
   @Get('caja/cajas')
   cajas() {
