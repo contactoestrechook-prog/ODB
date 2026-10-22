@@ -1,7 +1,9 @@
 #!/bin/sh
 # Pasa ODB al dominio de la empresa (odbpremiummarket.com.ar). Se corre desde la
 # Mac cuando los registros A ya están cargados en DonWeb:
-#   sistema / api / tienda / wa / n8n  →  172.233.20.11
+#   sistema / api / wa  →  172.233.20.11
+# La tienda sigue en su dirección de prueba hasta que se lance (TIENDA=1 la
+# incluye) y n8n ya no hace falta: WhatsApp avisa directo al sistema.
 # Qué hace: verifica el DNS, deja los dos juegos de direcciones (dominio y prueba),
 # cambia las direcciones públicas que usa el sistema, recompila el panel, pide los
 # candados HTTPS, mueve el aviso de WhatsApp al dominio y prueba todo.
@@ -9,12 +11,13 @@ set -eu
 IP=172.233.20.11
 DOM=odbpremiummarket.com.ar
 SERVIDOR="${SERVIDOR:-root@$IP}"
+NOMBRES="sistema api wa"; [ "${TIENDA:-0}" = 1 ] && NOMBRES="$NOMBRES tienda"
 LLAVE="${LLAVE:-$HOME/.ssh/odb_produccion}"
 ssh_() { ssh -i "$LLAVE" -o IdentitiesOnly=yes -o BatchMode=yes -o ServerAliveInterval=15 "$SERVIDOR" "$@"; }
 
 echo "== 1. DNS"
 falta=0
-for s in sistema api tienda wa n8n; do
+for s in $NOMBRES; do
   r=$(dig +short "$s.$DOM" @ns1.godns.net | tail -1); p=$(dig +short "$s.$DOM" | tail -1)
   printf "  %-30s DonWeb=%-15s público=%s\n" "$s.$DOM" "${r:-—}" "${p:-—}"
   [ "$r" = "$IP" ] || falta=1
@@ -29,18 +32,15 @@ ssh_ "set -e; cd /srv/odb/secretos
   pon api.env API_PUBLIC_URL https://api.$DOM
   pon api.env ADMIN_URL https://sistema.$DOM
   pon api.env ODB_PANEL_URL https://sistema.$DOM
-  pon api.env WEB_PUBLIC_URL https://tienda.$DOM
+  [ \"${TIENDA:-0}\" = 1 ] && pon api.env WEB_PUBLIC_URL https://tienda.$DOM
   pon admin.env NEXT_PUBLIC_API_URL https://api.$DOM
-  pon n8n.env N8N_HOST n8n.$DOM
-  pon n8n.env WEBHOOK_URL https://n8n.$DOM/
-  pon n8n.env N8N_EDITOR_BASE_URL https://n8n.$DOM/
   grep -E '^(API_PUBLIC_URL|ADMIN_URL|WEB_PUBLIC_URL)=' api.env"
 
 echo "== 3. panel recompilado y servicios con las direcciones nuevas"
 sh infra/servidor/publicar.sh api admin web proxy
 
 echo "== 4. candados HTTPS (Caddy los pide solo; puede tardar un minuto)"
-for s in sistema api tienda wa; do
+for s in $NOMBRES; do
   for i in $(seq 1 24); do
     c=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "https://$s.$DOM/" 2>/dev/null || true)
     [ -n "$c" ] && [ "$c" != 000 ] && break; sleep 5
@@ -48,7 +48,8 @@ for s in sistema api tienda wa; do
   printf "  https://%-28s %s\n" "$s.$DOM" "$c"
 done
 
-echo "== 5. aviso de WhatsApp al dominio"
+echo "== 5. aviso de WhatsApp: los que usan la dirección de prueba pasan al dominio
+#    (los que van por la red interna, http://api:3001, quedan como están)"
 ssh_ 'cd /srv/odb/secretos && python3 - <<"PY"
 import json, urllib.request
 env = {}
@@ -63,7 +64,7 @@ def req(m, p, body=None):
 for s in req("GET", "/api/sessions"):
     cfg = s.get("config") or {}
     for w in cfg.get("webhooks") or []:
-        if "/bot/waha" in w.get("url", ""):
+        if "/bot/waha" in w.get("url", "") and "sslip.io" in w.get("url", ""):
             w["url"] = "https://api.odbpremiummarket.com.ar/bot/waha?" + w["url"].split("?", 1)[1]
     req("PUT", "/api/sessions/" + s["name"], {"name": s["name"], "config": cfg})
     print("  ", s["name"], "→", [w["url"] for w in cfg.get("webhooks") or []])
