@@ -1,0 +1,8 @@
+# La exportación del sistema viejo y lo que sale de simular/preparar traen datos
+# de clientes (CUIT, teléfonos, saldos): se trabajan AFUERA del repo y nunca se commitean.
+*.csv
+*.xls
+*.xlsx
+plan*.json
+resumen.json
+ensayo*.sql
