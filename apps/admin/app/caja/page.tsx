@@ -1,6 +1,4 @@
-import { cookies } from 'next/headers';
 import { apiFetch } from '../../lib/api';
-import { rolDesdeToken } from '../lib/permisos';
 import { Caja } from './Caja';
 
 export const dynamic = 'force-dynamic';
@@ -12,6 +10,5 @@ export default async function PaginaCaja() {
     if (res.ok) sucursales = await res.json();
   } catch {}
 
-  const rol = rolDesdeToken((await cookies()).get('odb_token')?.value);
-  return <Caja sucursales={sucursales} rol={rol} />;
+  return <Caja sucursales={sucursales} />;
 }

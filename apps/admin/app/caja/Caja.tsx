@@ -179,11 +179,13 @@ const ICONO = {
 const BOTON_CABECERA =
   'inline-flex min-h-11 shrink-0 items-center justify-center gap-1.5 rounded-xl px-3 text-sm transition-colors hover:bg-white/20 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/70 sm:min-h-10';
 
-export function Caja({ sucursales, rol }: { sucursales: { id: string; nombre: string; terminales_tarjeta?: string[] }[]; rol?: string | null }) {
+export function Caja({ sucursales }: { sucursales: { id: string; nombre: string; terminales_tarjeta?: string[] }[] }) {
   const [sucursalId, setSucursalId] = useState(sucursales[0]?.id ?? '');
-  // MODO PRUEBA (22/10/2026, provisorio): dos días cobrando en paralelo con el
-  // sistema viejo, que es el que factura. Lo prende el dueño por sucursal; la
-  // venta se registra (arqueo y stock) pero no va a ARCA. Lo decide el servidor.
+  // MODO PRUEBA (22/10/2026, provisorio): cobrando en paralelo con el sistema
+  // viejo, que es el que factura. La venta se registra (arqueo y stock) pero no
+  // va a ARCA. Lo decide el servidor. Leandro: «sacá la caja normal, dejá solo
+  // el modo prueba» → está prendido en las dos sucursales y la caja no tiene
+  // botón para apagarlo (se apaga desde la base cuando arranque la operación real).
   const [modoPrueba, setModoPrueba] = useState<Record<string, boolean>>({});
   const enPrueba = modoPrueba[sucursalId] === true;
   useEffect(() => {
@@ -1250,28 +1252,6 @@ export function Caja({ sucursales, rol }: { sucursales: { id: string; nombre: st
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cobroMP?.estado]);
 
-  async function cambiarModoPrueba() {
-    const activar = !enPrueba;
-    const ok = await confirmar({
-      titulo: activar ? `¿Prender el modo prueba en ${sucursalNombre}?` : `¿Apagar el modo prueba en ${sucursalNombre}?`,
-      texto: activar
-        ? 'Las ventas se registran para el arqueo y descuentan stock, pero NO van a ARCA ni facturan, y el QR de Mercado Pago no cobra. El cobro de verdad se hace en el otro sistema.'
-        : 'Desde ahora la caja vuelve a facturar y a mandar a ARCA como siempre.',
-      variante: activar ? undefined : 'peligro',
-      textoConfirmar: activar ? 'Prender prueba' : 'Apagar prueba',
-    });
-    if (!ok) return;
-    const r = await fetch('/api/caja', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ accion: 'modo-prueba', sucursalId, activo: activar }),
-    });
-    const d = await r.json().catch(() => ({}));
-    if (!r.ok) { setEstado({ tipo: 'error', texto: d.message ?? 'No se pudo cambiar el modo prueba' }); return; }
-    setModoPrueba((m) => ({ ...m, [sucursalId]: d.activo === true }));
-    setEstado({ tipo: 'ok', texto: d.activo ? 'Modo prueba PRENDIDO: las ventas no van a ARCA' : 'Modo prueba apagado: la caja factura como siempre' });
-  }
-
   async function cobrar() {
     if (carrito.length === 0 || cobrando) return;
     // La restricción del candado también acá: el botón puede haber quedado
@@ -1628,11 +1608,6 @@ export function Caja({ sucursales, rol }: { sucursales: { id: string; nombre: st
               <option key={s.id} value={s.id} className="text-tinta">{s.nombre}</option>
             ))}
           </select>
-          {rol === 'dueno' && (
-            <button type="button" onClick={cambiarModoPrueba} aria-pressed={enPrueba} className={unir(BOTON_CABECERA, enPrueba ? 'bg-atencion text-white' : 'bg-white/10 text-crema/80')} title="Modo prueba (provisorio): registra las ventas para el arqueo sin mandarlas a ARCA" aria-label={enPrueba ? 'Apagar modo prueba' : 'Prender modo prueba'}>
-              <span className="text-xs font-semibold">{enPrueba ? 'Prueba: SÍ' : 'Prueba: NO'}</span>
-            </button>
-          )}
           {sesion && (
             <button type="button" onClick={() => { setModalExtra('movimiento'); setMovMonto(''); setMovMotivo(''); }} className={unir(BOTON_CABECERA, 'bg-white/10 text-crema/80')} title="Ingreso / retiro de efectivo" aria-label="Movimiento de efectivo">
               <IconoCaja d={ICONO.efectivo} />
