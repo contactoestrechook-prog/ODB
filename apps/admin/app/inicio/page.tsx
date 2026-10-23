@@ -54,11 +54,13 @@ export default async function Inicio() {
   const quiebres = (Number(stock.negativos) || 0) + (Number(stock.bajo_reposicion) || 0);
   const pedidosActivos = Array.isArray(pedidos) ? pedidos.length : 0;
 
+  // Cada cifra abre su detalle: las ventas del día, la plata en la calle y los
+  // productos bajo reposición o en negativo (Leandro, 23/10/2026).
   const kpis = [
-    { label: 'Facturado hoy', valor: pesos(Number(ventas.facturado) || 0) },
-    { label: 'Ventas', valor: miles(ventas.tickets) },
-    { label: 'Por cobrar', valor: pesos(Number(fact.porCobrar) || 0) },
-    { label: 'Quiebres', valor: miles(quiebres), alerta: quiebres > 0 },
+    { label: 'Facturado hoy', valor: pesos(Number(ventas.facturado) || 0), href: '/ventas' },
+    { label: 'Ventas', valor: miles(ventas.tickets), href: '/ventas' },
+    { label: 'Por cobrar', valor: pesos(Number(fact.porCobrar) || 0), href: '/cuentas-corrientes' },
+    { label: 'Quiebres', valor: miles(quiebres), alerta: quiebres > 0, href: '/stock' },
   ];
 
   const GRUPOS: any[] = [
@@ -130,7 +132,13 @@ export default async function Inicio() {
         </div>
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           {kpis.map((k) => (
-            <Kpi key={k.label} etiqueta={k.label} valor={k.valor} tono={k.alerta ? 'atencion' : 'neutro'} />
+            <Kpi
+              key={k.label}
+              etiqueta={k.label}
+              valor={k.valor}
+              tono={k.alerta ? 'atencion' : 'neutro'}
+              href={puedeVer(rol, k.href) ? k.href : undefined}
+            />
           ))}
         </div>
       </section>
