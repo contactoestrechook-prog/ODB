@@ -266,6 +266,8 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
   // teclado numérico: qué edita ('linea' cantidad, 'pago' monto, o pagaCon)
   const [foco, setFoco] = useState<{ tipo: 'linea'; sku: string } | { tipo: 'pago'; idx: number } | null>(null);
   const [cantBuf, setCantBuf] = useState('');
+  // kilos de un renglón por peso mientras se escriben (se aplican con Enter o al salir)
+  const [pesoTexto, setPesoTexto] = useState<{ sku: string; texto: string } | null>(null);
   const [hidratado, setHidratado] = useState(false);
 
   // sesión de caja (línea de caja = caja física con su sesión y arqueo)
@@ -536,6 +538,19 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
   const esCodigoBalanza = (t: string) => /^2\d{12}$/.test(t.trim());
   // largo de un código de barras completo: EAN-8, UPC-A, EAN-13 y DUN-14
   const esBarrasCompleto = (t: string) => /^(\d{8}|\d{12,14})$/.test(t.trim());
+  // Peso escrito a mano (23/10/2026: la etiqueta del pan entró con 0,001 kg y no se
+  // podía corregir). Con coma o punto son kilos («0,350»); un número entero de 10 o
+  // más son gramos («350»); menos de 10, kilos («2» = 2 kg).
+  const leerPeso = (texto: string): number | null => {
+    const t = texto.trim().replace(',', '.');
+    if (!/^(\d+\.?\d*|\.\d+)$/.test(t)) return null;
+    let v = Number(t);
+    if (!Number.isFinite(v) || v <= 0) return null;
+    if (!t.includes('.') && v >= 10) v = v / 1000;
+    v = Math.round(v * 1000) / 1000;
+    return v >= 0.001 && v <= 999 ? v : null;
+  };
+  const kilos = (n: number) => n.toFixed(3).replace('.', ',');
 
   function agregar(p: Producto, cantidadFija?: number) {
     if (p.activo === false) {
@@ -612,8 +627,15 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
     const cant = Math.max(1, Math.min(999, Math.round(n)));
     const linea = ultimoSku ? carrito.find((r) => r.sku === ultimoSku) : null;
     if (linea) {
-      if (linea.porPeso) setEstado({ tipo: 'error', texto: `${linea.nombre} se vende por peso: la cantidad la manda la etiqueta de la balanza` });
-      else {
+      if (linea.porPeso) {
+        // por peso: «c350» = 350 gramos, «c2» = 2 kilos (misma regla que el casillero)
+        const kg = leerPeso(String(n));
+        if (kg == null) setEstado({ tipo: 'error', texto: `Peso no válido para ${linea.nombre}: escribí los gramos (c350)` });
+        else {
+          setCarrito((c) => c.map((r) => (r.sku === linea.sku ? { ...r, cantidad: kg } : r)));
+          setEstado({ tipo: 'ok', texto: `⚖ ${linea.nombre}: ${kilos(kg)} kg = ${pesos(precioDe(linea) * kg)}` });
+        }
+      } else {
         setCarrito((c) => c.map((r) => (r.sku === linea.sku ? { ...r, cantidad: cant } : r)));
         setEstado({ tipo: 'ok', texto: `${linea.nombre}: ${cant} unidades` });
       }
@@ -774,6 +796,19 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
     if (foco?.tipo === 'linea' && foco.sku === sku) setFoco(null);
   }
 
+  function confirmarPeso(r: Renglon) {
+    const texto = pesoTexto?.sku === r.sku ? pesoTexto.texto : null;
+    setPesoTexto(null);
+    if (texto == null || texto.trim() === kilos(r.cantidad)) return;
+    const kg = leerPeso(texto);
+    if (kg == null) {
+      setEstado({ tipo: 'error', texto: `Peso no válido para ${r.nombre}: escribí los gramos (350) o los kilos con coma (0,350)` });
+      return;
+    }
+    setCarrito((c) => c.map((x) => (x.sku === r.sku ? { ...x, cantidad: kg } : x)));
+    setEstado({ tipo: 'ok', texto: `⚖ ${r.nombre}: ${kilos(kg)} kg = ${pesos(precioDe(r) * kg)}` });
+  }
+
   // ---- teclado numérico en pantalla (cantidad de línea, monto de pago o efectivo) ----
   function seleccionarLinea(sku: string) {
     setFoco((f) => (f?.tipo === 'linea' && f.sku === sku ? null : { tipo: 'linea', sku }));
@@ -785,7 +820,10 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
       const nb = apply(cantBuf);
       setCantBuf(nb);
       const n = Number(nb);
-      setCarrito((c) => c.map((r) => (r.sku === foco.sku ? { ...r, cantidad: nb === '' ? r.cantidad : Math.max(1, Math.min(999, n || 1)) } : r)));
+      // por peso, los números del teclado son gramos: 3-5-0 = 0,350 kg (antes ponía 350 kilos)
+      setCarrito((c) => c.map((r) => (r.sku === foco.sku
+        ? { ...r, cantidad: nb === '' ? r.cantidad : r.porPeso ? Math.max(0.001, Math.min(999, (n || 1) / 1000)) : Math.max(1, Math.min(999, n || 1)) }
+        : r)));
     } else if (foco?.tipo === 'pago') {
       const nb = apply(cantBuf);
       setCantBuf(nb);
@@ -2050,9 +2088,23 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
                       {r.nombre}
                       {r.stock != null && r.stock <= 0 && <span className="ml-2 inline-block rounded-full bg-marca/15 px-2 py-0.5 align-middle text-xs font-semibold text-marca-hondo">sin stock{r.sinStockDesde ? ` · desde el ${fechaCorta(r.sinStockDesde)}` : ''}</span>}
                     </p>
-                    <p className="text-xs text-tinta/60">{pesos(precioDe(r))} {r.porPeso ? 'el kilo' : 'c/u'}{mayorista && r.precioMayorista != null ? ' · may.' : ''}{conDescuentoContado(r) ? ' · 10% contado' : ''}{r.descuento ? ` · ${r.descuento}` : ''}{sel ? ' · tocá los números para la cantidad' : ''}</p>
+                    <p className="text-xs text-tinta/60">{pesos(precioDe(r))} {r.porPeso ? 'el kilo' : 'c/u'}{mayorista && r.precioMayorista != null ? ' · may.' : ''}{conDescuentoContado(r) ? ' · 10% contado' : ''}{r.descuento ? ` · ${r.descuento}` : ''}{sel ? (r.porPeso ? ' · tocá los números: gramos' : ' · tocá los números para la cantidad') : ''}</p>
                   </button>
                   {!r.porPeso && <button type="button" onClick={() => cambiarCantidad(r.sku, -1)} className={unir('order-3 size-11 shrink-0 rounded-xl border border-black/15 bg-white text-2xl text-tinta active:scale-95 sm:order-none sm:size-12', FOCO)} aria-label="Restar">−</button>}
+                  {r.porPeso ? (
+                  <input
+                    type="text" inputMode="decimal"
+                    value={pesoTexto?.sku === r.sku ? pesoTexto.texto : kilos(r.cantidad)}
+                    onFocus={(e) => { setPesoTexto({ sku: r.sku, texto: kilos(r.cantidad) }); e.currentTarget.select(); }}
+                    onChange={(e) => setPesoTexto({ sku: r.sku, texto: e.target.value })}
+                    onBlur={() => confirmarPeso(r)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === 'Escape') { e.preventDefault(); (e.target as HTMLInputElement).blur(); inputRef.current?.focus(); } }}
+                    aria-label="Kilos"
+                    data-cantidad-de={r.sku}
+                    title="Escribí los gramos (350) o los kilos con coma (0,350) y Enter"
+                    className="order-3 h-11 w-20 shrink-0 rounded-xl border border-black/15 bg-white text-center text-xl font-bold tabular-nums text-tinta outline-none focus:border-marca focus:ring-4 focus:ring-marca/15 sm:order-none sm:h-12 sm:w-24 sm:text-2xl"
+                  />
+                  ) : (
                   <input
                     type="number" inputMode={r.porPeso ? 'decimal' : 'numeric'} min={r.porPeso ? 0.001 : 1} max={999} step={r.porPeso ? 0.001 : 1} value={r.cantidad}
                     onFocus={(e) => e.currentTarget.select()}
@@ -2063,6 +2115,7 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
                     title="Escribí la cantidad y Enter"
                     className="order-3 h-11 w-16 shrink-0 rounded-xl border border-black/15 bg-white text-center [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none text-xl font-bold tabular-nums text-tinta outline-none focus:border-marca focus:ring-4 focus:ring-marca/15 sm:order-none sm:h-12 sm:w-20 sm:text-2xl"
                   />
+                  )}
                   {r.porPeso ? <span className="order-3 w-11 shrink-0 text-center text-sm text-tinta/60 sm:order-none sm:w-12">kg</span> : <button type="button" onClick={() => cambiarCantidad(r.sku, 1)} className={unir('order-3 size-11 shrink-0 rounded-xl bg-crema-hondo text-2xl text-tinta active:scale-95 sm:order-none sm:size-12', FOCO)} aria-label="Sumar">+</button>}
                   <span className="importe order-3 ml-auto shrink-0 text-right text-lg font-bold text-tinta sm:order-none sm:w-28 sm:text-xl">{pesos(precioDe(r) * r.cantidad)}</span>
                   <button type="button" onClick={() => quitar(r.sku)} className={unir('order-2 grid h-11 w-10 shrink-0 place-items-center self-start rounded-xl text-tinta/60 hover:text-marca-hondo active:text-marca sm:order-none sm:h-12 sm:self-center', FOCO)} aria-label="Quitar">
