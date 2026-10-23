@@ -626,7 +626,8 @@ export const SECCIONES: Seccion[] = [
         tipo: 'pasos',
         pasos: [
           'Abrí "Pedido a proveedor" y elegí a quién le vas a pedir (o entrá desde Mesa de compras → Qué comprar → "Pedirle algo", que lo abre directo).',
-          'Aparece la lista de productos de ese proveedor. Por defecto solo lo que hace falta reponer; con "Ver toda la lista" ves el resto.',
+          'Aparece toda la lista de productos de ese proveedor, de menor a mayor stock. Cada producto muestra su stock en un recuadro de color: rojo lleno = sin stock, rojo claro = se termina en 5 días, naranja = alcanza menos de 2 semanas, verde = bien. Arriba está el resumen de cuántos hay de cada uno. Con "Solo lo que hay que reponer" quedan solo los que hacen falta.',
+          'El sugerido cubre 14 días según lo que se vendió en los últimos 30, contando las ventas del sistema anterior y las de ODB.',
           'Cada renglón muestra el stock, cuántos días aguanta y cuánto conviene pedir. El sugerido se calcula con lo que se vendió en los últimos 30 días, para cubrir 14.',
           'Cargá las cantidades con los botones, o escribí el número.',
           'Al final ves la nota de pedido con lo elegido (la tarjeta roja): cantidad, producto, costo y total. Es lo que va a recibir el proveedor.',

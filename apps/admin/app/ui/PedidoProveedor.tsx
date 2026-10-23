@@ -18,6 +18,30 @@ const PASO = unir(
   FOCO,
 );
 
+// Cómo se ve el stock de cada producto (23/10/2026: «más visual: cuánto stock
+// tengo de cada uno, de menor a mayor, los que menos tienen arriba y en rojo»).
+type EstadoStock = 'sin' | 'critico' | 'bajo' | 'ok';
+const ESTADO_STOCK: Record<EstadoStock, { titulo: string; caja: string; borde: string; texto: string }> = {
+  sin: { titulo: 'sin stock', caja: 'bg-marca text-white', borde: 'border-marca', texto: 'text-marca-hondo' },
+  critico: { titulo: 'se terminan en 5 días', caja: 'bg-marca-suave text-marca-hondo', borde: 'border-marca/60', texto: 'text-marca-hondo' },
+  bajo: { titulo: 'alcanzan menos de 2 semanas', caja: 'bg-atencion-suave text-atencion', borde: 'border-atencion', texto: 'text-atencion' },
+  ok: { titulo: 'bien de stock', caja: 'bg-ok-suave text-ok', borde: 'border-ok/50', texto: 'text-ok' },
+};
+function estadoStock(it: { stock: number; urgente: boolean; diasDeStock: number | null; sugerido: number }): EstadoStock {
+  if (it.stock <= 0) return 'sin';
+  if (it.urgente) return 'critico';
+  if (it.sugerido > 0 || (it.diasDeStock != null && it.diasDeStock < 14)) return 'bajo';
+  return 'ok';
+}
+const formatoStock = (n: number) => Number(n).toLocaleString('es-AR', { maximumFractionDigits: 1 });
+function textoEstado(it: { stock: number; diasDeStock: number | null; minimo: number }, e: EstadoStock): string {
+  if (e === 'sin') return 'Sin stock';
+  const dias = it.diasDeStock != null ? `alcanza para ${it.diasDeStock} día${it.diasDeStock === 1 ? '' : 's'}` : 'sin ventas recientes';
+  if (e === 'critico') return `Se termina: ${dias}${it.minimo > 0 ? ` · mínimo ${it.minimo}` : ''}`;
+  if (e === 'bajo') return `Poco: ${dias}`;
+  return `Bien: ${dias}`;
+}
+
 type Item = {
   sku: string; nombre: string; unidadesPack: number; codigoProveedor: string | null;
   costo: number | null; stock: number; minimo: number; reposicion: number;
@@ -44,7 +68,7 @@ export function PedidoProveedor({ sucursales, proveedorInicial, sucursalInicial 
   const [vistos, setVistos] = useState<Record<string, Item>>({});
   const [meta, setMeta] = useState<{ total: number; recortado?: boolean; sinLista?: boolean }>({ total: 0 });
   const [busca, setBusca] = useState('');
-  const [verTodo, setVerTodo] = useState(false);
+  const [verTodo, setVerTodo] = useState(true); // 23/10/2026: toda la lista, de menor a mayor stock
   const [cant, setCant] = useState<Record<string, number>>({});
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState('');
@@ -208,9 +232,9 @@ export function PedidoProveedor({ sucursales, proveedorInicial, sucursalInicial 
       <div>
         <h2 className="break-words text-lg font-semibold text-tinta">{proveedor.razon_social}</h2>
         <p className="text-xs text-tinta/60">
-          {verTodo || busca ? 'Toda su lista' : 'Solo lo que hace falta reponer'} · {meta.total} producto{meta.total === 1 ? '' : 's'}
+          {verTodo || busca ? 'Toda su lista, de menor a mayor stock' : 'Solo lo que hace falta reponer'} · {meta.total} producto{meta.total === 1 ? '' : 's'}
           {meta.recortado && ' (se muestran los primeros 300)'}
-          <br />El sugerido cubre 14 días según lo que se vendió en los últimos 30.
+          <br />El sugerido cubre 14 días según lo que se vendió en los últimos 30 (sistema anterior + ODB).
         </p>
       </div>
 
@@ -224,8 +248,8 @@ export function PedidoProveedor({ sucursales, proveedorInicial, sucursalInicial 
           className="bg-white"
         />
         <div className="mt-2 flex flex-wrap items-center gap-2">
-          <Chip activo={verTodo} onClick={() => setVerTodo((v) => !v)}>
-            {verTodo ? 'Viendo toda la lista' : 'Ver toda la lista'}
+          <Chip activo={!verTodo} onClick={() => setVerTodo((v) => !v)}>
+            Solo lo que hay que reponer
           </Chip>
           <Chip activo={agregando} onClick={() => setAgregando((a) => !a)}>
             + Producto que no está
@@ -274,24 +298,39 @@ export function PedidoProveedor({ sucursales, proveedorInicial, sucursalInicial 
         </Tarjeta>
       )}
 
+      {!cargando && items.length > 0 && (
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {(['sin', 'critico', 'bajo', 'ok'] as const).map((e) => (
+            <div key={e} className={unir('rounded-2xl px-3 py-2', ESTADO_STOCK[e].caja)}>
+              <p className="importe text-2xl font-bold leading-none">{items.filter((it) => estadoStock(it) === e).length}</p>
+              <p className="mt-1 text-xs font-medium">{ESTADO_STOCK[e].titulo}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className="space-y-2">
         {items.map((it) => {
           const puesto = cant[it.sku] ?? 0;
+          const est = estadoStock(it);
           return (
             <div key={it.sku}
-              className={`rounded-2xl border bg-white p-3 shadow-tarjeta sm:p-4 ${puesto ? 'border-marca ring-1 ring-marca' : 'border-black/[0.06]'}`}>
+              className={`rounded-2xl border-l-[6px] bg-white p-3 shadow-tarjeta sm:p-4 ${ESTADO_STOCK[est].borde} ${puesto ? 'ring-2 ring-marca' : ''}`}>
               <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-                <div className="min-w-0 basis-full sm:basis-auto sm:flex-1">
+                <div className={unir('flex size-16 shrink-0 flex-col items-center justify-center rounded-xl text-center', ESTADO_STOCK[est].caja)}>
+                  <span className="importe text-2xl font-bold leading-none">{formatoStock(it.stock)}</span>
+                  <span className="mt-0.5 text-[10px] font-medium uppercase tracking-wide">stock</span>
+                </div>
+                <div className="min-w-0 flex-1">
                   <p className="break-words text-sm font-semibold leading-snug text-tinta">{it.nombre}</p>
-                  <p className="break-words text-xs text-tinta/60">
-                    {it.sku}{it.codigoProveedor ? ` · cód. prov. ${it.codigoProveedor}` : ''}
-                    {it.costo != null ? ` · ${pesos(it.costo)}` : ' · sin costo cargado'}
+                  <p className={unir('text-xs font-semibold', ESTADO_STOCK[est].texto)}>
+                    {textoEstado(it, est)}
                   </p>
-                  <p className={`text-xs ${it.urgente ? 'font-semibold text-marca-hondo' : 'text-tinta/60'}`}>
-                    stock {it.stock}
-                    {it.diasDeStock != null && ` · aguanta ${it.diasDeStock} día${it.diasDeStock === 1 ? '' : 's'}`}
-                    {it.minimo > 0 && ` · mínimo ${it.minimo}`}
-                    {it.sugerido > 0 && ` · sugerido ${it.sugerido}`}
+                  <p className="break-words text-xs text-tinta/60">
+                    {it.porDia > 0 ? `vende ~${formatoStock(Math.round(it.porDia * 7 * 10) / 10)} por semana` : 'sin ventas en 30 días'}
+                    {it.sugerido > 0 && <> · <b className="text-tinta">sugerido {it.sugerido}</b></>}
+                    {it.costo != null ? ` · ${pesos(it.costo)}` : ' · sin costo'}
+                    {` · ${it.sku}`}{it.codigoProveedor ? ` · cód. ${it.codigoProveedor}` : ''}
                   </p>
                 </div>
                 <div className="ml-auto flex shrink-0 items-center gap-1.5">
