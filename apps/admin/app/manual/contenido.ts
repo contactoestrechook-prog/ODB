@@ -120,6 +120,7 @@ export const SECCIONES: Seccion[] = [
           'Si el producto no tiene stock en tu sucursal, igual lo reconoce: te dice "sin stock" y desde cuándo (la fecha del último egreso). Si lo tenés en la mano, el stock está mal: avisá a depósito.',
           'Si el código no está vinculado a ningún producto, el sistema te lo dice: buscá el producto por nombre y tocá "Vincular este código" en el resultado. Queda guardado y la próxima vez entra solo.',
           'Etiquetas de la balanza (pan al peso, fiambres, tortas): escanealas como cualquier código. El sistema reconoce el PLU y toma de la etiqueta los kilos (si el producto se vende por peso) o las unidades; el precio sale de la lista. Si un PLU no está cargado, la caja avisa y se vincula ahí mismo; en la ficha del producto están el PLU y la casilla "se vende por peso".',
+          'Si el peso de la etiqueta vino mal (por ejemplo 0,001 kg), corregilo en el casillero de kilos del renglón: escribí los gramos ("350") o los kilos con coma ("0,350") y Enter. También sirve C 350, o tocar el renglón y los números del teclado en pantalla, que en un producto por peso son gramos.',
           'Si un producto no aparece, probá con parte del nombre. Si sigue sin aparecer, avisá a backoffice: falta darlo de alta o vincularle el código.',
           'El precio sale de la lista, no se escribe a mano.',
         ],
