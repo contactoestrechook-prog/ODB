@@ -1,14 +1,68 @@
-import { BadRequestException, Controller, Get, Inject } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Inject, Param, Patch, Post, Req } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
 import { Roles } from '../auth/decorators';
+import { CtaCteResumenesService, DatosCliente } from './cta-cte-resumenes.service';
 
 // Tablero de cuentas corrientes: quién debe cuánto, contra qué tope, quién
 // paga bien y quién es un riesgo. La foto que el dueño necesita para decidir
 // a quién fiarle y a quién cortarle, no solo el número de la deuda.
 @Controller('cta-cte')
 export class CtaCteController {
-  constructor(@Inject(SUPABASE) private readonly db: SupabaseClient) {}
+  constructor(
+    @Inject(SUPABASE) private readonly db: SupabaseClient,
+    private readonly resumenes: CtaCteResumenesService,
+  ) {}
+
+  // ---- resumen de saldo por WhatsApp cada 15 días ----
+
+  // la configuración, la próxima fecha, quiénes lo recibirían y las tandas anteriores
+  @Roles('gerente', 'dueno')
+  @Get('resumenes')
+  async resumenesEstado() {
+    const config = await this.resumenes.config();
+    const [lista, historial] = await Promise.all([this.resumenes.candidatos(config), this.resumenes.historial()]);
+    return { config, proxima: this.resumenes.proxima(config), lista, historial };
+  }
+
+  @Roles('dueno')
+  @Patch('resumenes/config')
+  guardarConfig(@Body() dto: { activo?: boolean; plantilla?: string; piso?: number }, @Req() req: any) {
+    return this.resumenes.guardarConfig(dto, req.usuario?.sub ?? null);
+  }
+
+  @Roles('dueno')
+  @Post('resumenes/prueba')
+  prueba(@Body() dto: { telefono: string; clienteId?: string }) {
+    return this.resumenes.prueba(dto.telefono, dto.clienteId);
+  }
+
+  // manda la tanda de hoy ya, aunque lo automático esté pausado
+  @Roles('dueno')
+  @Post('resumenes/enviar-ahora')
+  enviarAhora() {
+    const hoy = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }).format(new Date());
+    return this.resumenes.correrTanda(hoy, true);
+  }
+
+  @Roles('gerente', 'dueno')
+  @Get('cliente/:id')
+  estadoDeCuenta(@Param('id') id: string) {
+    return this.resumenes.estadoDeCuenta(id);
+  }
+
+  @Roles('gerente', 'dueno')
+  @Patch('cliente/:id')
+  cambiarCliente(@Param('id') id: string, @Body() dto: DatosCliente & { recibeResumen?: boolean; limite?: number; habilitada?: boolean }) {
+    return this.resumenes.cambiarCliente(id, dto);
+  }
+
+  // sumar una cuenta: cliente existente (clienteId) o nuevo (datos), tope y saldo inicial
+  @Roles('gerente', 'dueno')
+  @Post('alta')
+  abrirCuenta(@Body() dto: { clienteId?: string; datos?: DatosCliente; tope?: number; saldoInicial?: number; nota?: string }) {
+    return this.resumenes.abrirCuenta(dto);
+  }
 
   @Roles('gerente', 'dueno')
   @Get('tablero')

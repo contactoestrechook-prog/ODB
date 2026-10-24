@@ -4,11 +4,12 @@ import { VencimientosController } from './vencimientos.controller';
 import { ClientesController } from '../clientes/clientes.controller';
 import { CobranzasController } from '../clientes/cobranzas.controller';
 import { CtaCteController } from '../clientes/cta-cte.controller';
+import { CtaCteResumenesService } from '../clientes/cta-cte-resumenes.service';
 import { AnalistaService } from '../analista/analista.service';
 import { supabaseProvider } from '../supabase.provider';
 
 @Module({
   controllers: [EstadisticasController, VencimientosController, ClientesController, CobranzasController, CtaCteController],
-  providers: [supabaseProvider, AnalistaService],
+  providers: [supabaseProvider, AnalistaService, CtaCteResumenesService],
 })
 export class ExtrasModule {}

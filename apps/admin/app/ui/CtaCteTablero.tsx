@@ -3,6 +3,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Aviso, Boton, Cargando, Chips, Entrada, FOCO, Kpi, Tarjeta, unir } from './kit';
 import { pesos } from '../lib/formato';
+import { CtaCteResumenes } from './CtaCteResumenes';
+import { CtaCteDetalle } from './CtaCteDetalle';
+import { CtaCteAlta } from './CtaCteAlta';
 
 // Tablero de cuentas corrientes: la plata en la calle, contra qué tope, quién
 // paga bien y quién es un riesgo. Gráficos simples en SVG propio — sin
@@ -27,6 +30,11 @@ export function CtaCteTablero({ esDueno }: { esDueno: boolean }) {
   const [tope, setTope] = useState('');
   const [guardando, setGuardando] = useState(false);
   const [filtro, setFiltro] = useState<'todos' | 'alto' | 'medio' | 'bajo'>('todos');
+  // la cuenta abierta en la ficha; version recarga el resumen al cambiar un celular
+  const [abierta, setAbierta] = useState<string | null>(null);
+  const [version, setVersion] = useState(0);
+  const [sumando, setSumando] = useState(false);
+  const [busca, setBusca] = useState('');
 
   const cargar = useCallback(async () => {
     try {
@@ -54,7 +62,11 @@ export function CtaCteTablero({ esDueno }: { esDueno: boolean }) {
   if (!datos) return <Cargando bloque />;
 
   const { kpis } = datos;
-  const cuentas = datos.cuentas.filter((c) => filtro === 'todos' || c.riesgo === filtro);
+  // sin tildes ni mayúsculas: «perez» encuentra «Pérez»; también por teléfono
+  const llano = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const cuentas = datos.cuentas
+    .filter((c) => filtro === 'todos' || c.riesgo === filtro)
+    .filter((c) => !busca.trim() || llano(`${c.nombre} ${c.telefono ?? ''}`).includes(llano(busca.trim())));
   const conSaldo = datos.cuentas.filter((c) => c.saldo > 0);
   const maxSaldo = Math.max(...conSaldo.map((c) => c.saldo), 1);
   const topDeudores = conSaldo.slice(0, 10);
@@ -62,6 +74,15 @@ export function CtaCteTablero({ esDueno }: { esDueno: boolean }) {
 
   return (
     <div className="space-y-4 sm:space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm text-tinta/70">Tocá cualquier nombre para ver su cuenta y corregir sus datos.</p>
+        <Boton onClick={() => setSumando(true)}>Sumar cuenta</Boton>
+      </div>
+      <CtaCteAlta
+        abierto={sumando}
+        onCerrar={() => setSumando(false)}
+        onListo={(id) => { setSumando(false); setAbierta(id); setVersion((v) => v + 1); cargar(); }}
+      />
       {/* KPIs */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         <Kpi etiqueta="En la calle" valor={pesos(kpis.enLaCalle)} />
@@ -70,6 +91,9 @@ export function CtaCteTablero({ esDueno }: { esDueno: boolean }) {
         <Kpi etiqueta="Riesgo alto" valor={kpis.enRiesgo} tono={kpis.enRiesgo > 0 ? 'error' : 'ok'} />
         <Kpi etiqueta="Sin tope asignado" valor={kpis.sinTope} tono={kpis.sinTope > 0 ? 'atencion' : 'neutro'} />
       </div>
+
+      <CtaCteResumenes esDueno={esDueno} onAbrirCuenta={setAbierta} version={version} />
+      <CtaCteDetalle clienteId={abierta} onCerrar={() => setAbierta(null)} onCambio={() => { setVersion((v) => v + 1); cargar(); }} />
 
       {/* GRÁFICO: la deuda, cliente por cliente, contra su tope */}
       <Tarjeta>
@@ -81,7 +105,7 @@ export function CtaCteTablero({ esDueno }: { esDueno: boolean }) {
             const marca80 = c.limite > 0 ? Math.min(((c.limite * 0.8) / maxSaldo) * 100, 100) : null;
             return (
               <div key={c.id} className="grid grid-cols-[1fr_auto] items-center gap-x-2 gap-y-1 text-sm sm:grid-cols-[9rem_1fr_6rem]">
-                <span className="min-w-0 break-words text-tinta/80" title={c.nombre}>{c.nombre}</span>
+                <button type="button" onClick={() => setAbierta(c.id)} className={unir('min-w-0 break-words rounded-sm text-left text-tinta/80 underline-offset-2 hover:underline', FOCO)} title={c.nombre}>{c.nombre}</button>
                 <div className="relative col-span-2 h-5 overflow-hidden rounded-full bg-black/[0.06] sm:col-span-1 sm:col-start-2 sm:row-start-1">
                   <div className={unir('absolute inset-y-0 left-0 rounded-full', COLOR[c.riesgo])} style={{ width: `${ancho}%` }} />
                   {marca80 != null && <div className="absolute inset-y-0 w-0.5 bg-marca" style={{ left: `${marca80}%` }} title="80% del tope" />}
@@ -118,6 +142,9 @@ export function CtaCteTablero({ esDueno }: { esDueno: boolean }) {
       <Tarjeta>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-base font-semibold text-tinta">Todas las cuentas</h2>
+          <div className="w-full sm:w-64">
+            <Entrada value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar por nombre o teléfono" aria-label="Buscar cuenta" type="search" />
+          </div>
           <Chips
             etiquetaAccesible="Filtrar por riesgo"
             valor={filtro}
@@ -131,7 +158,7 @@ export function CtaCteTablero({ esDueno }: { esDueno: boolean }) {
               <span className={unir('size-2.5 shrink-0 rounded-full', COLOR[c.riesgo])} title={ETIQ[c.riesgo]} />
               <div className="min-w-0">
                 <p className="min-w-0 break-words text-sm text-tinta">
-                  {c.nombre}
+                  <button type="button" onClick={() => setAbierta(c.id)} className={unir('rounded-sm text-left underline-offset-2 hover:underline', FOCO)}>{c.nombre}</button>
                   <span className="ml-2 text-xs text-tinta/60">
                     {c.diasSinPagar != null ? `último pago hace ${c.diasSinPagar}d` : c.saldo > 0 ? 'sin pagos registrados' : ''}
                     {c.compras30 > 0 && ` · ${c.compras30} compras/30d`}
