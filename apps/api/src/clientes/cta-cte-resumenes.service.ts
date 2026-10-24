@@ -5,6 +5,7 @@ import { SUPABASE } from '../supabase.provider';
 import { celularWhatsapp, enviarTextoWhatsapp } from '../comun/whatsapp';
 import { LINEA_GENERAL } from '../comun/lineas';
 import { resumirPerfil } from './perfil-compras';
+import { fechaDeNacimiento } from './clientes.controller';
 
 const TZ = 'America/Argentina/Buenos_Aires';
 
@@ -303,7 +304,7 @@ export class CtaCteResumenesService {
   /** Estado de cuenta de un cliente: movimientos y resúmenes que recibió. */
   async estadoDeCuenta(clienteId: string) {
     const [{ data: cli }, { data: movs }, { data: resumenes }] = await Promise.all([
-      this.db.from('clientes').select('id, nombre, razon_social, telefono, cuit, domicilio, email, saldo_cta_cte, limite_credito, cta_cte_habilitada, cta_cte_resumen, cta_cte_tipo').eq('id', clienteId).maybeSingle(),
+      this.db.from('clientes').select('id, nombre, razon_social, telefono, cuit, dni, domicilio, barrio, sucursal, condicion_iva, fecha_nacimiento, email, saldo_cta_cte, limite_credito, cta_cte_habilitada, cta_cte_resumen, cta_cte_tipo').eq('id', clienteId).maybeSingle(),
       this.db.from('cuenta_corriente').select('id, concepto, debe, haber, creado_en').eq('cliente_id', clienteId).order('creado_en', { ascending: false }).limit(100),
       this.db.from('cta_cte_resumenes').select('tanda, estado, saldo, motivo, enviado_en').eq('cliente_id', clienteId).order('tanda', { ascending: false }).limit(24),
     ]);
@@ -320,7 +321,12 @@ export class CtaCteResumenesService {
       cliente: {
         id: cli.id,
         nombre: cli.razon_social || cli.nombre,
-        datos: { nombre: cli.nombre ?? '', razonSocial: cli.razon_social ?? '', cuit: cli.cuit ?? '', domicilio: cli.domicilio ?? '', email: cli.email ?? '' },
+        datos: {
+          nombre: cli.nombre ?? '', razonSocial: cli.razon_social ?? '', cuit: cli.cuit ?? '', dni: cli.dni ?? '',
+          domicilio: cli.domicilio ?? '', barrio: cli.barrio ?? '', email: cli.email ?? '',
+          sucursal: cli.sucursal ?? '', condicionIva: cli.condicion_iva ?? 'consumidor_final',
+          fechaNacimiento: cli.fecha_nacimiento ? String(cli.fecha_nacimiento).slice(0, 10) : '',
+        },
         telefono: cli.telefono,
         celularValido: !!destinoValido(cli.telefono),
         saldo: Number(cli.saldo_cta_cte ?? 0),
@@ -352,9 +358,31 @@ export class CtaCteResumenesService {
       fila.cta_cte_habilitada = !!cambios.habilitada;
     }
     if (!Object.keys(fila).length) return { ok: true };
+    if (fila.condicion_iva === 'responsable_inscripto' || fila.cuit === null) {
+      const { data: actual } = await this.db.from('clientes').select('cuit, condicion_iva').eq('id', clienteId).maybeSingle();
+      const cuit = fila.cuit !== undefined ? fila.cuit : actual?.cuit;
+      const cond = fila.condicion_iva ?? actual?.condicion_iva;
+      if (cond === 'responsable_inscripto' && !cuit) throw new BadRequestException('Un responsable inscripto necesita CUIT cargado');
+    }
     const { error } = await this.db.from('clientes').update(fila).eq('id', clienteId);
     if (error) throw new BadRequestException(error.code === '23505' ? 'Ese CUIT o DNI ya está en otro cliente' : error.message);
     return { ok: true };
+  }
+
+  /**
+   * Corregir el saldo a mano (solo el dueño, 24/10/2026): un error de carga,
+   * una diferencia con el sistema viejo, una bonificación. Queda como un
+   * movimiento con su motivo, nunca como un número pisado (cta_cte_ajustar).
+   * monto > 0 suma deuda; monto < 0 la baja.
+   */
+  async ajustarSaldo(clienteId: string, monto: number, motivo: string) {
+    const m = Number(monto);
+    if (!Number.isFinite(m) || m === 0) throw new BadRequestException('El ajuste tiene que ser un monto distinto de cero');
+    const mot = String(motivo ?? '').trim();
+    if (mot.length < 4) throw new BadRequestException('Escribí el motivo del ajuste');
+    const { data, error } = await this.db.rpc('cta_cte_ajustar', { p_cliente: clienteId, p_monto: m, p_motivo: mot });
+    if (error) throw new BadRequestException(error.message);
+    return { saldo: Number(data ?? 0) };
   }
 
   /**
@@ -398,7 +426,12 @@ function tipoAColumna(t: unknown): 'cliente' | 'sponsor_wf' {
   return t === 'sponsor' ? 'sponsor_wf' : 'cliente';
 }
 
-export type DatosCliente = { nombre?: string; razonSocial?: string; cuit?: string; domicilio?: string; email?: string; telefono?: string };
+export type DatosCliente = {
+  nombre?: string; razonSocial?: string; cuit?: string; domicilio?: string; email?: string; telefono?: string;
+  // 24/10/2026, Leandro: «tenemos que poder modificar todo de las ctas ctes»
+  dni?: string; barrio?: string; sucursal?: string; condicionIva?: string; fechaNacimiento?: string | null;
+};
+const CONDICIONES_IVA = ['consumidor_final', 'responsable_inscripto', 'monotributo', 'exento'];
 
 /** Los datos de la ficha, validados, como columnas de clientes. */
 function datosAFila(d: DatosCliente): Record<string, unknown> {
@@ -424,6 +457,25 @@ function datosAFila(d: DatosCliente): Record<string, unknown> {
     const t = String(d.telefono).trim();
     if (t && !destinoValido(t)) throw new BadRequestException('Ese celular no sirve: código de área + número, sin el 15 (ej. 11 2345-6789)');
     fila.telefono = t || null;
+  }
+  if (d.dni !== undefined) {
+    const n = String(d.dni).replace(/\D/g, '');
+    if (n && (n.length < 7 || n.length > 8)) throw new BadRequestException('El DNI tiene 7 u 8 números');
+    fila.dni = n || null;
+  }
+  if (d.barrio !== undefined) fila.barrio = texto(d.barrio);
+  if (d.sucursal !== undefined) {
+    const suc = String(d.sucursal ?? '').trim();
+    if (suc && suc !== 'st' && suc !== 'si') throw new BadRequestException('Sucursal desconocida');
+    fila.sucursal = suc || null;
+  }
+  if (d.condicionIva !== undefined) {
+    if (!CONDICIONES_IVA.includes(String(d.condicionIva))) throw new BadRequestException('Condición de IVA desconocida');
+    fila.condicion_iva = d.condicionIva;
+  }
+  if (d.fechaNacimiento !== undefined) {
+    try { fila.fecha_nacimiento = fechaDeNacimiento(d.fechaNacimiento); }
+    catch { throw new BadRequestException('La fecha de nacimiento no es válida.'); }
   }
   return fila;
 }

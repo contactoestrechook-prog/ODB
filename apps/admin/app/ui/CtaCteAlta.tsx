@@ -9,7 +9,10 @@ import { CtaCteDatosCliente, DATOS_VACIOS, celularSirve, type DatosForm } from '
 // cuentas»): se busca el cliente (casi todos ya están en la base) o se carga
 // uno nuevo; se le pone tope y, si viene con deuda de antes, el saldo inicial.
 
-type Encontrado = { id: string; nombre: string; razon_social: string | null; telefono: string | null; cuit: string | null; domicilio: string | null; email: string | null; cta_cte_habilitada: boolean };
+type Encontrado = {
+  id: string; nombre: string; razon_social: string | null; telefono: string | null; cuit: string | null; domicilio: string | null; email: string | null; cta_cte_habilitada: boolean;
+  dni: string | null; barrio: string | null; sucursal: string | null; condicion_iva: string | null; fecha_nacimiento: string | null;
+};
 
 export function CtaCteAlta({ abierto, tipo = 'cliente', onCerrar, onListo }: { abierto: boolean; tipo?: 'cliente' | 'sponsor'; onCerrar: () => void; onListo: (clienteId: string, yaTenia: boolean) => void }) {
   const [q, setQ] = useState('');
@@ -45,7 +48,11 @@ export function CtaCteAlta({ abierto, tipo = 'cliente', onCerrar, onListo }: { a
   const elegir = (c: Encontrado) => {
     if (c.cta_cte_habilitada) { onListo(c.id, true); return; }
     setElegido(c);
-    setForm({ nombre: c.nombre ?? '', razonSocial: c.razon_social ?? '', telefono: c.telefono ?? '', cuit: c.cuit ?? '', domicilio: c.domicilio ?? '', email: c.email ?? '' });
+    setForm({
+      nombre: c.nombre ?? '', razonSocial: c.razon_social ?? '', telefono: c.telefono ?? '', cuit: c.cuit ?? '', domicilio: c.domicilio ?? '', email: c.email ?? '',
+      dni: c.dni ?? '', barrio: c.barrio ?? '', sucursal: c.sucursal ?? '', condicionIva: c.condicion_iva ?? 'consumidor_final',
+      fechaNacimiento: c.fecha_nacimiento ? String(c.fecha_nacimiento).slice(0, 10) : '',
+    });
   };
 
   const empezarNuevo = () => {

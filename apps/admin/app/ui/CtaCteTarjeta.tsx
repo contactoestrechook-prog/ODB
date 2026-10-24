@@ -205,7 +205,7 @@ export function CtaCteTarjeta({ c, esDueno, onAbrir, onTope }: {
 
       {/* acciones */}
       <div className="mt-3 flex flex-wrap gap-2 border-t border-black/[0.06] px-4 py-3">
-        <Boton tamano="chico" onClick={onAbrir}>Ver cuenta</Boton>
+        <Boton tamano="chico" onClick={onAbrir}>Ver y editar</Boton>
         {c.celular && (
           <>
             <a href={`tel:+${c.celular}`} className={clasesBoton({ tamano: 'chico', variante: 'secundario' })}>Llamar</a>

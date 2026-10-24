@@ -65,6 +65,13 @@ export class CtaCteController {
     return this.resumenes.cambiarCliente(id, dto);
   }
 
+  // corregir el saldo con un movimiento y su motivo: solo el dueño
+  @Roles('dueno')
+  @Post('cliente/:id/ajuste')
+  ajustarSaldo(@Param('id') id: string, @Body() dto: { monto: number; motivo: string }) {
+    return this.resumenes.ajustarSaldo(id, dto.monto, dto.motivo);
+  }
+
   // sumar una cuenta: cliente existente (clienteId) o nuevo (datos), tope y saldo inicial
   @Roles('gerente', 'dueno')
   @Post('alta')

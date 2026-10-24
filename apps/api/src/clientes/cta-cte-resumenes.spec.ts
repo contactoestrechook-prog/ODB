@@ -86,4 +86,25 @@ describe('resumen de cuenta corriente por WhatsApp', () => {
     expect(rpc).toHaveBeenCalledWith('cta_cte_abrir', { p_cliente: 'nuevo', p_tope: 200000, p_saldo_inicial: 50000, p_nota: null });
     expect(r).toEqual({ clienteId: 'nuevo', saldo: 50000 });
   });
+
+  it('se pueden cambiar todos los datos de la cuenta, con controles', async () => {
+    const update = jest.fn(() => ({ eq: async () => ({ error: null }) }));
+    const actual = { maybeSingle: async () => ({ data: { cuit: null, condicion_iva: 'consumidor_final' } }) };
+    const db: any = { from: () => ({ update, select: () => ({ eq: () => actual }) }) };
+    const s4 = new CtaCteResumenesService(db);
+    await expect(s4.cambiarCliente('a', { dni: '123' })).rejects.toThrow('El DNI tiene 7 u 8 números');
+    await expect(s4.cambiarCliente('a', { sucursal: 'xx' })).rejects.toThrow('Sucursal desconocida');
+    await expect(s4.cambiarCliente('a', { condicionIva: 'responsable_inscripto' })).rejects.toThrow('necesita CUIT');
+    await s4.cambiarCliente('a', { dni: '30.123.456', barrio: ' St Thomas ', sucursal: 'st', condicionIva: 'monotributo', fechaNacimiento: '1980-05-20', domicilio: 'Lote 12' });
+    expect(update).toHaveBeenCalledWith({ dni: '30123456', barrio: 'St Thomas', sucursal: 'st', condicion_iva: 'monotributo', fecha_nacimiento: '1980-05-20', domicilio: 'Lote 12' });
+  });
+
+  it('el ajuste de saldo pide monto y motivo, y va por cta_cte_ajustar', async () => {
+    const rpc = jest.fn(async () => ({ data: 90000, error: null }));
+    const s5 = new CtaCteResumenesService({ rpc } as any);
+    await expect(s5.ajustarSaldo('a', 0, 'error de carga')).rejects.toThrow('distinto de cero');
+    await expect(s5.ajustarSaldo('a', -10000, '')).rejects.toThrow('Escribí el motivo');
+    expect(await s5.ajustarSaldo('a', -10000, 'factura cargada dos veces')).toEqual({ saldo: 90000 });
+    expect(rpc).toHaveBeenCalledWith('cta_cte_ajustar', { p_cliente: 'a', p_monto: -10000, p_motivo: 'factura cargada dos veces' });
+  });
 });

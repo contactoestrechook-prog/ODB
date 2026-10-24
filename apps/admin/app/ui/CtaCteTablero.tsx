@@ -85,7 +85,7 @@ export function CtaCteTablero({ esDueno, tipo = 'cliente' }: { esDueno: boolean;
         onCerrar={() => setSumando(false)}
         onListo={(id) => { setSumando(false); setAbierta(id); setVersion((v) => v + 1); cargar(); }}
       />
-      <CtaCteDetalle clienteId={abierta} onCerrar={() => setAbierta(null)} onCambio={() => { setVersion((v) => v + 1); cargar(); }} />
+      <CtaCteDetalle clienteId={abierta} esDueno={esDueno} onCerrar={() => setAbierta(null)} onCambio={() => { setVersion((v) => v + 1); cargar(); }} />
       {error && <Aviso tono="error">{error}</Aviso>}
 
       {/* la foto de toda la cartera */}

@@ -1,12 +1,18 @@
 'use client';
 
-import { Campo, Entrada } from './kit';
+import { Campo, Entrada, Selector } from './kit';
 
 // Los datos de un cliente de cuenta corriente, en un solo formulario: lo usan
 // la ficha (para corregirlos) y «Sumar cuenta» (para cargar uno nuevo).
 
-export type DatosForm = { nombre: string; razonSocial: string; telefono: string; cuit: string; domicilio: string; email: string };
-export const DATOS_VACIOS: DatosForm = { nombre: '', razonSocial: '', telefono: '', cuit: '', domicilio: '', email: '' };
+export type DatosForm = {
+  nombre: string; razonSocial: string; telefono: string; cuit: string; domicilio: string; email: string;
+  dni: string; barrio: string; sucursal: string; condicionIva: string; fechaNacimiento: string;
+};
+export const DATOS_VACIOS: DatosForm = {
+  nombre: '', razonSocial: '', telefono: '', cuit: '', domicilio: '', email: '',
+  dni: '', barrio: '', sucursal: '', condicionIva: 'consumidor_final', fechaNacimiento: '',
+};
 
 /** Un celular argentino que sirve para WhatsApp: área + número, sin 0 ni 15 delante. Igual que la API. */
 export function celularSirve(t: string): boolean {
@@ -20,7 +26,7 @@ export function celularSirve(t: string): boolean {
 }
 
 export function CtaCteDatosCliente({ valor, onCambiar, deshabilitado }: { valor: DatosForm; onCambiar: (v: DatosForm) => void; deshabilitado?: boolean }) {
-  const set = (k: keyof DatosForm) => (e: React.ChangeEvent<HTMLInputElement>) => onCambiar({ ...valor, [k]: e.target.value });
+  const set = (k: keyof DatosForm) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => onCambiar({ ...valor, [k]: e.target.value });
   const tel = valor.telefono.trim();
   return (
     <div className="grid gap-3 sm:grid-cols-2">
@@ -40,8 +46,32 @@ export function CtaCteDatosCliente({ valor, onCambiar, deshabilitado }: { valor:
       <Campo etiqueta="CUIT">
         <Entrada value={valor.cuit} onChange={set('cuit')} placeholder="20-12345678-9" inputMode="numeric" disabled={deshabilitado} />
       </Campo>
+      <Campo etiqueta="Condición de IVA" error={valor.condicionIva === 'responsable_inscripto' && !valor.cuit.trim() ? 'Un responsable inscripto necesita CUIT.' : undefined}>
+        <Selector value={valor.condicionIva} onChange={set('condicionIva')} disabled={deshabilitado}>
+          <option value="consumidor_final">Consumidor final</option>
+          <option value="responsable_inscripto">Responsable inscripto</option>
+          <option value="monotributo">Monotributo</option>
+          <option value="exento">Exento</option>
+        </Selector>
+      </Campo>
+      <Campo etiqueta="DNI">
+        <Entrada value={valor.dni} onChange={set('dni')} placeholder="30123456" inputMode="numeric" disabled={deshabilitado} />
+      </Campo>
       <Campo etiqueta="Domicilio">
         <Entrada value={valor.domicilio} onChange={set('domicilio')} placeholder="Calle 123, Canning" disabled={deshabilitado} />
+      </Campo>
+      <Campo etiqueta="Barrio">
+        <Entrada value={valor.barrio} onChange={set('barrio')} placeholder="St Thomas, Santa Inés…" disabled={deshabilitado} />
+      </Campo>
+      <Campo etiqueta="Sucursal" ayuda="Dónde compra: así aparece en Clientes Sant Thomas o Santa Inés.">
+        <Selector value={valor.sucursal} onChange={set('sucursal')} disabled={deshabilitado}>
+          <option value="">Sin sucursal</option>
+          <option value="st">Sant Thomas</option>
+          <option value="si">Santa Inés</option>
+        </Selector>
+      </Campo>
+      <Campo etiqueta="Fecha de nacimiento" ayuda="Para el saludo y la propuesta de festejo.">
+        <Entrada type="date" value={valor.fechaNacimiento} onChange={set('fechaNacimiento')} max={new Date().toISOString().slice(0, 10)} disabled={deshabilitado} />
       </Campo>
       <Campo etiqueta="Mail">
         <Entrada value={valor.email} onChange={set('email')} placeholder="nombre@mail.com" type="email" inputMode="email" disabled={deshabilitado} />

@@ -33,7 +33,7 @@ const ESTADO: Record<string, { texto: string; tono: 'ok' | 'atencion' | 'error' 
 
 const formDe = (d: Datos): DatosForm => ({ ...DATOS_VACIOS, ...d.cliente.datos, telefono: d.cliente.telefono ?? '' });
 
-export function CtaCteDetalle({ clienteId, onCerrar, onCambio }: { clienteId: string | null; onCerrar: () => void; onCambio: () => void }) {
+export function CtaCteDetalle({ clienteId, esDueno = false, onCerrar, onCambio }: { clienteId: string | null; esDueno?: boolean; onCerrar: () => void; onCambio: () => void }) {
   const [datos, setDatos] = useState<Datos | null>(null);
   const [form, setForm] = useState<DatosForm>(DATOS_VACIOS);
   const [tope, setTope] = useState('');
@@ -41,6 +41,10 @@ export function CtaCteDetalle({ clienteId, onCerrar, onCambio }: { clienteId: st
   const [listo, setListo] = useState('');
   const [guardando, setGuardando] = useState(false);
   const { confirmar, dialogo } = useConfirmar();
+  // corregir el saldo (solo el dueño)
+  const [ajMonto, setAjMonto] = useState('');
+  const [ajSube, setAjSube] = useState(false);
+  const [ajMotivo, setAjMotivo] = useState('');
 
   const cargar = useCallback(async () => {
     if (!clienteId) return;
@@ -78,6 +82,26 @@ export function CtaCteDetalle({ clienteId, onCerrar, onCambio }: { clienteId: st
     const cambios: Record<string, unknown> = Object.fromEntries(cambiados.map((k) => [k, form[k].trim()]));
     if (topeCambio) cambios.limite = Number(tope) || 0;
     return guardar(cambios, 'Datos guardados.');
+  };
+
+  const ajustar = async () => {
+    const monto = Number(ajMonto);
+    if (!c || !monto || monto <= 0 || ajMotivo.trim().length < 4 || guardando) return;
+    const firmado = ajSube ? monto : -monto;
+    if (!(await confirmar({
+      titulo: ajSube ? `¿Sumarle ${pesos(monto)} a la deuda?` : `¿Bajarle ${pesos(monto)} a la deuda?`,
+      texto: `${c.nombre} pasa de deber ${pesos(c.saldo)} a ${pesos(c.saldo + firmado)}. Queda como movimiento: «Ajuste: ${ajMotivo.trim()}».`,
+      textoConfirmar: 'Corregir el saldo', variante: 'primario',
+    }))) return;
+    setGuardando(true); setListo('');
+    try {
+      const r = await fetch(`/api/cta-cte/cliente/${c.id}/ajuste`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ monto: firmado, motivo: ajMotivo.trim() }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(Array.isArray(j?.message) ? j.message.join(', ') : j?.message || 'No se pudo corregir');
+      setAjMonto(''); setAjMotivo(''); setError(''); setListo('Saldo corregido.');
+      await cargar(); onCambio();
+    } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo corregir'); }
+    finally { setGuardando(false); }
   };
 
   const cerrarCuenta = async () => {
@@ -140,6 +164,28 @@ export function CtaCteDetalle({ clienteId, onCerrar, onCambio }: { clienteId: st
               </div>
             </div>
           </section>
+
+          {esDueno && (
+            <section className="rounded-xl border border-black/10 p-3">
+              <h3 className="mb-1 text-sm font-semibold text-tinta">Corregir el saldo</h3>
+              <p className="mb-2 text-xs text-tinta/60">Para un error de carga o una diferencia con el sistema viejo. Queda como movimiento con el motivo; el saldo nunca se pisa.</p>
+              <div className="grid gap-2 sm:grid-cols-[10rem_9rem_1fr_auto] sm:items-end">
+                <Campo etiqueta="Monto">
+                  <Entrada value={ajMonto} onChange={(e) => setAjMonto(e.target.value)} type="number" inputMode="decimal" prefijo="$" placeholder="0" disabled={guardando} />
+                </Campo>
+                <Campo etiqueta="La deuda">
+                  <Selector value={ajSube ? 'sube' : 'baja'} onChange={(e) => setAjSube(e.target.value === 'sube')} disabled={guardando}>
+                    <option value="baja">baja</option>
+                    <option value="sube">sube</option>
+                  </Selector>
+                </Campo>
+                <Campo etiqueta="Motivo">
+                  <Entrada value={ajMotivo} onChange={(e) => setAjMotivo(e.target.value)} placeholder="Ej.: factura cargada dos veces" disabled={guardando} />
+                </Campo>
+                <Boton variante="secundario" onClick={ajustar} disabled={guardando || !(Number(ajMonto) > 0) || ajMotivo.trim().length < 4}>Corregir</Boton>
+              </div>
+            </section>
+          )}
 
           <section>
             <h3 className="mb-2 text-sm font-semibold text-tinta">Movimientos</h3>
