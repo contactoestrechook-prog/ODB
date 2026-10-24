@@ -2,7 +2,7 @@ import { BadRequestException, Body, Controller, Get, Inject, Param, Patch, Post,
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
 import { Roles } from '../auth/decorators';
-import { CtaCteResumenesService } from './cta-cte-resumenes.service';
+import { CtaCteResumenesService, DatosCliente } from './cta-cte-resumenes.service';
 
 // Tablero de cuentas corrientes: quién debe cuánto, contra qué tope, quién
 // paga bien y quién es un riesgo. La foto que el dueño necesita para decidir
@@ -53,8 +53,15 @@ export class CtaCteController {
 
   @Roles('gerente', 'dueno')
   @Patch('cliente/:id')
-  cambiarCliente(@Param('id') id: string, @Body() dto: { recibeResumen?: boolean; telefono?: string }) {
+  cambiarCliente(@Param('id') id: string, @Body() dto: DatosCliente & { recibeResumen?: boolean; limite?: number; habilitada?: boolean }) {
     return this.resumenes.cambiarCliente(id, dto);
+  }
+
+  // sumar una cuenta: cliente existente (clienteId) o nuevo (datos), tope y saldo inicial
+  @Roles('gerente', 'dueno')
+  @Post('alta')
+  abrirCuenta(@Body() dto: { clienteId?: string; datos?: DatosCliente; tope?: number; saldoInicial?: number; nota?: string }) {
+    return this.resumenes.abrirCuenta(dto);
   }
 
   @Roles('gerente', 'dueno')

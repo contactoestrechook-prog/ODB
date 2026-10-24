@@ -60,3 +60,38 @@ create index if not exists cta_cte_resumenes_tanda_idx on public.cta_cte_resumen
 -- solo el backend (service role) las toca
 alter table public.cta_cte_resumenes_config enable row level security;
 alter table public.cta_cte_resumenes enable row level security;
+
+-- ============================================================
+-- SUMAR UNA CUENTA (24/10/2026): «que quede fácil sumar nuevas cuentas».
+-- Habilita la cuenta corriente, fija el tope y, si el cliente llega con una
+-- deuda de antes, la carga como movimiento + saldo en una sola transacción
+-- (igual que aprobar_cobranza: el saldo del cliente y su cuenta nunca se
+-- separan). El saldo inicial solo entra en una cuenta vacía: para corregir
+-- una cuenta con historia están los pagos y las ventas, no este atajo.
+-- ============================================================
+create or replace function public.cta_cte_abrir(p_cliente uuid, p_tope numeric, p_saldo_inicial numeric default 0, p_nota text default null)
+returns numeric
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare v_c record;
+begin
+  select id, saldo_cta_cte into v_c from clientes where id = p_cliente for update;
+  if v_c is null then raise exception 'No existe ese cliente'; end if;
+  if coalesce(p_tope, 0) < 0 or coalesce(p_saldo_inicial, 0) < 0 then raise exception 'Los montos no pueden ser negativos'; end if;
+
+  update clientes set cta_cte_habilitada = true, limite_credito = coalesce(p_tope, 0) where id = p_cliente;
+
+  if coalesce(p_saldo_inicial, 0) > 0 then
+    if coalesce(v_c.saldo_cta_cte, 0) <> 0 or exists (select 1 from cuenta_corriente where cliente_id = p_cliente) then
+      raise exception 'Ese cliente ya tiene movimientos: el saldo inicial solo se carga en una cuenta nueva';
+    end if;
+    insert into cuenta_corriente (cliente_id, concepto, debe, haber)
+    values (p_cliente, coalesce(nullif(trim(p_nota), ''), 'Saldo inicial al abrir la cuenta'), p_saldo_inicial, 0);
+    update clientes set saldo_cta_cte = p_saldo_inicial where id = p_cliente;
+  end if;
+
+  return (select saldo_cta_cte from clientes where id = p_cliente);
+end $$;
+revoke all on function public.cta_cte_abrir(uuid, numeric, numeric, text) from public, anon, authenticated;

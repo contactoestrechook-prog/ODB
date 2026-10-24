@@ -61,4 +61,29 @@ describe('resumen de cuenta corriente por WhatsApp', () => {
     const p = s.proxima(cfg);
     expect(p).toMatch(/^\d{4}-\d{2}-(01|16)$/);
   });
+
+  it('la ficha valida los datos antes de guardar', async () => {
+    const update = jest.fn(() => ({ eq: async () => ({ error: null }) }));
+    const s2 = new CtaCteResumenesService({ from: () => ({ update }) } as any);
+    await expect(s2.cambiarCliente('a', { telefono: '15 4444 5555' })).rejects.toThrow('Ese celular no sirve');
+    await expect(s2.cambiarCliente('a', { cuit: '20-123' })).rejects.toThrow('El CUIT tiene 11 números');
+    await expect(s2.cambiarCliente('a', { nombre: '  ' })).rejects.toThrow('El nombre no puede quedar vacío');
+    await s2.cambiarCliente('a', { telefono: '011 15 2281-2200', cuit: '20-12345678-9', email: '' , limite: 300000 });
+    expect(update).toHaveBeenCalledWith({ telefono: '011 15 2281-2200', cuit: '20123456789', email: null, limite_credito: 300000 });
+  });
+
+  it('no deja cerrar una cuenta que debe', async () => {
+    await expect(s.cambiarCliente('a', { habilitada: false })).rejects.toThrow('No se puede cerrar una cuenta que todavía debe');
+  });
+
+  it('sumar una cuenta nueva crea el cliente y abre la cuenta con su saldo inicial', async () => {
+    const insert = jest.fn(() => ({ select: () => ({ single: async () => ({ data: { id: 'nuevo' }, error: null }) }) }));
+    const rpc = jest.fn(async () => ({ data: 50000, error: null }));
+    const s3 = new CtaCteResumenesService({ from: () => ({ insert }), rpc } as any);
+    await expect(s3.abrirCuenta({ datos: { nombre: '' } })).rejects.toThrow('Falta el nombre');
+    const r = await s3.abrirCuenta({ datos: { nombre: 'Ana Gómez', telefono: '11 5555-1234' }, tope: 200000, saldoInicial: 50000 });
+    expect(insert).toHaveBeenCalledWith({ nombre: 'Ana Gómez', telefono: '11 5555-1234' });
+    expect(rpc).toHaveBeenCalledWith('cta_cte_abrir', { p_cliente: 'nuevo', p_tope: 200000, p_saldo_inicial: 50000, p_nota: null });
+    expect(r).toEqual({ clienteId: 'nuevo', saldo: 50000 });
+  });
 });

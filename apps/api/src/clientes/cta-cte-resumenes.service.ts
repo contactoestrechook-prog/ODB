@@ -302,7 +302,7 @@ export class CtaCteResumenesService {
   /** Estado de cuenta de un cliente: movimientos y resúmenes que recibió. */
   async estadoDeCuenta(clienteId: string) {
     const [{ data: cli }, { data: movs }, { data: resumenes }] = await Promise.all([
-      this.db.from('clientes').select('id, nombre, razon_social, telefono, saldo_cta_cte, limite_credito, cta_cte_resumen').eq('id', clienteId).maybeSingle(),
+      this.db.from('clientes').select('id, nombre, razon_social, telefono, cuit, domicilio, email, saldo_cta_cte, limite_credito, cta_cte_habilitada, cta_cte_resumen').eq('id', clienteId).maybeSingle(),
       this.db.from('cuenta_corriente').select('id, concepto, debe, haber, creado_en').eq('cliente_id', clienteId).order('creado_en', { ascending: false }).limit(100),
       this.db.from('cta_cte_resumenes').select('tanda, estado, saldo, motivo, enviado_en').eq('cliente_id', clienteId).order('tanda', { ascending: false }).limit(24),
     ]);
@@ -311,10 +311,12 @@ export class CtaCteResumenesService {
       cliente: {
         id: cli.id,
         nombre: cli.razon_social || cli.nombre,
+        datos: { nombre: cli.nombre ?? '', razonSocial: cli.razon_social ?? '', cuit: cli.cuit ?? '', domicilio: cli.domicilio ?? '', email: cli.email ?? '' },
         telefono: cli.telefono,
         celularValido: !!destinoValido(cli.telefono),
         saldo: Number(cli.saldo_cta_cte ?? 0),
         limite: Number(cli.limite_credito ?? 0),
+        habilitada: !!cli.cta_cte_habilitada,
         recibeResumen: cli.cta_cte_resumen !== false,
       },
       movimientos: (movs ?? []).map((m: any) => ({ ...m, debe: Number(m.debe ?? 0), haber: Number(m.haber ?? 0) })),
@@ -322,17 +324,84 @@ export class CtaCteResumenesService {
     };
   }
 
-  async cambiarCliente(clienteId: string, cambios: { recibeResumen?: boolean; telefono?: string }) {
-    const fila: Record<string, unknown> = {};
+  async cambiarCliente(clienteId: string, cambios: DatosCliente & { recibeResumen?: boolean; limite?: number; habilitada?: boolean }) {
+    const fila: Record<string, unknown> = datosAFila(cambios);
     if (cambios.recibeResumen !== undefined) fila.cta_cte_resumen = !!cambios.recibeResumen;
-    if (cambios.telefono !== undefined) {
-      const t = String(cambios.telefono).trim();
-      if (t && !destinoValido(t)) throw new BadRequestException('Ese número no es un celular válido (código de área + número, sin el 15)');
-      fila.telefono = t || null;
+    if (cambios.limite !== undefined) {
+      const tope = Number(cambios.limite);
+      if (!Number.isFinite(tope) || tope < 0) throw new BadRequestException('El tope tiene que ser un monto válido');
+      fila.limite_credito = tope;
+    }
+    if (cambios.habilitada !== undefined) {
+      // cerrada, la cuenta sale del tablero: con deuda adentro, la plata se perdería de vista
+      if (!cambios.habilitada) {
+        const { data } = await this.db.from('clientes').select('saldo_cta_cte').eq('id', clienteId).maybeSingle();
+        if (Number(data?.saldo_cta_cte ?? 0) > 0) throw new BadRequestException('No se puede cerrar una cuenta que todavía debe');
+      }
+      fila.cta_cte_habilitada = !!cambios.habilitada;
     }
     if (!Object.keys(fila).length) return { ok: true };
     const { error } = await this.db.from('clientes').update(fila).eq('id', clienteId);
-    if (error) throw new BadRequestException(error.message);
+    if (error) throw new BadRequestException(error.code === '23505' ? 'Ese CUIT o DNI ya está en otro cliente' : error.message);
     return { ok: true };
   }
+
+  /**
+   * Sumar una cuenta: un cliente que ya existe (clienteId) o uno nuevo
+   * (datos, con nombre). Habilita la cuenta, fija el tope y, si viene con una
+   * deuda de antes, la carga como saldo inicial (cta_cte_abrir, en la base).
+   */
+  async abrirCuenta(dto: { clienteId?: string; datos?: DatosCliente; tope?: number; saldoInicial?: number; nota?: string }) {
+    const tope = Number(dto.tope ?? 0);
+    const saldoInicial = Number(dto.saldoInicial ?? 0);
+    if (!Number.isFinite(tope) || tope < 0) throw new BadRequestException('El tope tiene que ser un monto válido');
+    if (!Number.isFinite(saldoInicial) || saldoInicial < 0) throw new BadRequestException('El saldo inicial tiene que ser un monto válido');
+
+    let clienteId = dto.clienteId ?? null;
+    if (!clienteId) {
+      if (!String(dto.datos?.nombre ?? '').trim()) throw new BadRequestException('Falta el nombre del cliente');
+      const fila = datosAFila(dto.datos ?? {});
+      const { data, error } = await this.db.from('clientes').insert(fila).select('id').single();
+      if (error) throw new BadRequestException(error.code === '23505' ? 'Ese CUIT o DNI ya está en otro cliente: buscalo y sumalo desde ahí' : error.message);
+      clienteId = data.id as string;
+    } else if (dto.datos) {
+      await this.cambiarCliente(clienteId, dto.datos);
+    }
+
+    const { data: saldo, error } = await this.db.rpc('cta_cte_abrir', {
+      p_cliente: clienteId, p_tope: tope, p_saldo_inicial: saldoInicial, p_nota: dto.nota?.trim() || null,
+    });
+    if (error) throw new BadRequestException(error.message);
+    return { clienteId, saldo: Number(saldo ?? 0) };
+  }
+}
+
+export type DatosCliente = { nombre?: string; razonSocial?: string; cuit?: string; domicilio?: string; email?: string; telefono?: string };
+
+/** Los datos de la ficha, validados, como columnas de clientes. */
+function datosAFila(d: DatosCliente): Record<string, unknown> {
+  const fila: Record<string, unknown> = {};
+  const texto = (v: string | undefined) => (v === undefined ? undefined : String(v).trim() || null);
+  if (d.nombre !== undefined) {
+    if (!String(d.nombre).trim()) throw new BadRequestException('El nombre no puede quedar vacío');
+    fila.nombre = String(d.nombre).trim();
+  }
+  if (d.razonSocial !== undefined) fila.razon_social = texto(d.razonSocial);
+  if (d.domicilio !== undefined) fila.domicilio = texto(d.domicilio);
+  if (d.email !== undefined) {
+    const e = texto(d.email);
+    if (e && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) throw new BadRequestException('El mail no es válido');
+    fila.email = e;
+  }
+  if (d.cuit !== undefined) {
+    const c = String(d.cuit).replace(/\D/g, '');
+    if (c && c.length !== 11) throw new BadRequestException('El CUIT tiene 11 números');
+    fila.cuit = c || null;
+  }
+  if (d.telefono !== undefined) {
+    const t = String(d.telefono).trim();
+    if (t && !destinoValido(t)) throw new BadRequestException('Ese celular no sirve: código de área + número, sin el 15 (ej. 11 2345-6789)');
+    fila.telefono = t || null;
+  }
+  return fila;
 }

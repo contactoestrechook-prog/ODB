@@ -5,6 +5,7 @@ import { Aviso, Boton, Cargando, Chips, Entrada, FOCO, Kpi, Tarjeta, unir } from
 import { pesos } from '../lib/formato';
 import { CtaCteResumenes } from './CtaCteResumenes';
 import { CtaCteDetalle } from './CtaCteDetalle';
+import { CtaCteAlta } from './CtaCteAlta';
 
 // Tablero de cuentas corrientes: la plata en la calle, contra qué tope, quién
 // paga bien y quién es un riesgo. Gráficos simples en SVG propio — sin
@@ -32,6 +33,8 @@ export function CtaCteTablero({ esDueno }: { esDueno: boolean }) {
   // la cuenta abierta en la ficha; version recarga el resumen al cambiar un celular
   const [abierta, setAbierta] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
+  const [sumando, setSumando] = useState(false);
+  const [busca, setBusca] = useState('');
 
   const cargar = useCallback(async () => {
     try {
@@ -59,7 +62,11 @@ export function CtaCteTablero({ esDueno }: { esDueno: boolean }) {
   if (!datos) return <Cargando bloque />;
 
   const { kpis } = datos;
-  const cuentas = datos.cuentas.filter((c) => filtro === 'todos' || c.riesgo === filtro);
+  // sin tildes ni mayúsculas: «perez» encuentra «Pérez»; también por teléfono
+  const llano = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const cuentas = datos.cuentas
+    .filter((c) => filtro === 'todos' || c.riesgo === filtro)
+    .filter((c) => !busca.trim() || llano(`${c.nombre} ${c.telefono ?? ''}`).includes(llano(busca.trim())));
   const conSaldo = datos.cuentas.filter((c) => c.saldo > 0);
   const maxSaldo = Math.max(...conSaldo.map((c) => c.saldo), 1);
   const topDeudores = conSaldo.slice(0, 10);
@@ -67,6 +74,15 @@ export function CtaCteTablero({ esDueno }: { esDueno: boolean }) {
 
   return (
     <div className="space-y-4 sm:space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm text-tinta/70">Tocá cualquier nombre para ver su cuenta y corregir sus datos.</p>
+        <Boton onClick={() => setSumando(true)}>Sumar cuenta</Boton>
+      </div>
+      <CtaCteAlta
+        abierto={sumando}
+        onCerrar={() => setSumando(false)}
+        onListo={(id) => { setSumando(false); setAbierta(id); setVersion((v) => v + 1); cargar(); }}
+      />
       {/* KPIs */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         <Kpi etiqueta="En la calle" valor={pesos(kpis.enLaCalle)} />
@@ -126,6 +142,9 @@ export function CtaCteTablero({ esDueno }: { esDueno: boolean }) {
       <Tarjeta>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-base font-semibold text-tinta">Todas las cuentas</h2>
+          <div className="w-full sm:w-64">
+            <Entrada value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar por nombre o teléfono" aria-label="Buscar cuenta" type="search" />
+          </div>
           <Chips
             etiquetaAccesible="Filtrar por riesgo"
             valor={filtro}
