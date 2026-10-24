@@ -7,9 +7,10 @@ import { PedidosModule } from '../pedidos/pedidos.module';
 import { CatalogoModule } from '../catalogo/catalogo.module';
 import { ListasModule } from '../listas/listas.module';
 import { MercadoPagoModule } from '../mercadopago/mercadopago.module';
+import { PedidosProveedorModule } from '../pedidos-proveedor/pedidos-proveedor.module';
 
 @Module({
-  imports: [PedidosModule, CatalogoModule, ListasModule, MercadoPagoModule],
+  imports: [PedidosModule, CatalogoModule, ListasModule, MercadoPagoModule, PedidosProveedorModule],
   controllers: [BotController, BotPruebaController, RespondeAppController],
   providers: [BotService, supabaseProvider],
 })

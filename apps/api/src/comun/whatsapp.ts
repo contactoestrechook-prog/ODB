@@ -80,18 +80,18 @@ export async function enviarTextoWhatsapp(db: SupabaseClient, to: string, text: 
 
 // Un archivo (PDF). WAHA lo baja de la URL: tiene que ser accesible desde
 // afuera (una URL firmada de Supabase sirve).
-export async function enviarArchivoWhatsapp(db: SupabaseClient, to: string, url: string, nombreArchivo: string, epigrafe = '', origen = 'aviso_interno'): Promise<ResultadoWaha> {
+export async function enviarArchivoWhatsapp(db: SupabaseClient, to: string, url: string, nombreArchivo: string, epigrafe = '', origen = 'aviso_interno', sesion?: string): Promise<ResultadoWaha> {
   const c = chatDe(to);
   if (!c) return { enviado: false, motivo: 'Número inválido' };
   const mimetype = /\.pdf$/i.test(nombreArchivo) ? 'application/pdf' : 'application/octet-stream';
-  return postWaha(db, '/api/sendFile', { chatId: c.chatId, file: { url, mimetype, filename: nombreArchivo }, caption: epigrafe }, c.digitos, origen, 60_000);
+  return postWaha(db, '/api/sendFile', { chatId: c.chatId, file: { url, mimetype, filename: nombreArchivo }, caption: epigrafe }, c.digitos, origen, 60_000, sesion);
 }
 
 // Una imagen (la tarjeta Placa roja) con su epígrafe.
-export async function enviarImagenWhatsapp(db: SupabaseClient, to: string, url: string, epigrafe = '', origen = 'aviso_interno'): Promise<ResultadoWaha> {
+export async function enviarImagenWhatsapp(db: SupabaseClient, to: string, url: string, epigrafe = '', origen = 'aviso_interno', sesion?: string): Promise<ResultadoWaha> {
   const c = chatDe(to);
   if (!c) return { enviado: false, motivo: 'Número inválido' };
-  return postWaha(db, '/api/sendImage', { chatId: c.chatId, file: { url, mimetype: 'image/png', filename: 'pedido.png' }, caption: epigrafe }, c.digitos, origen, 60_000);
+  return postWaha(db, '/api/sendImage', { chatId: c.chatId, file: { url, mimetype: 'image/png', filename: 'pedido.png' }, caption: epigrafe }, c.digitos, origen, 60_000, sesion);
 }
 
 // ¿Ese número tiene WhatsApp? WhatsApp ACEPTA mandar a un número que no existe
@@ -99,7 +99,7 @@ export async function enviarImagenWhatsapp(db: SupabaseClient, to: string, url: 
 // alguien nuevo (un proveedor) se pregunta. Prueba el celular (549…) y, si no,
 // el mismo número sin el 9 (54…): así figura un WhatsApp Business en un fijo.
 // Si WAHA no contesta, tira: nunca se da por bueno un número sin confirmarlo.
-export async function existeEnWhatsapp(numero: string): Promise<{ existe: boolean; chatId?: string; verificado: boolean }> {
+export async function existeEnWhatsapp(numero: string, sesion?: string): Promise<{ existe: boolean; chatId?: string; verificado: boolean }> {
   const wahaUrl = process.env.WAHA_URL;
   const wahaKey = process.env.WAHA_API_KEY;
   if (!wahaUrl || !wahaKey) throw new Error('WAHA sin configurar');
@@ -109,7 +109,7 @@ export async function existeEnWhatsapp(numero: string): Promise<{ existe: boolea
     const ctrl = new AbortController();
     const reloj = setTimeout(() => ctrl.abort(), 15_000);
     try {
-      const q = new URLSearchParams({ phone: n, session: sesionPrincipal() });
+      const q = new URLSearchParams({ phone: n, session: sesion || sesionPrincipal() });
       const r = await fetch(`${wahaUrl.replace(/\/$/, '')}/api/contacts/check-exists?${q}`, { headers: { 'X-Api-Key': wahaKey }, signal: ctrl.signal });
       // la versión de WAHA no tiene la consulta: no se puede verificar, se usa el celular
       if (r.status === 404 || r.status === 501) return { existe: true, chatId: `${celular}@c.us`, verificado: false };

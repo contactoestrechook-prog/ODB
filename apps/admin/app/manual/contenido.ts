@@ -629,6 +629,7 @@ export const SECCIONES: Seccion[] = [
           'Aparece toda la lista de productos de ese proveedor, de menor a mayor stock. Cada producto muestra su stock en un recuadro de color: rojo lleno = sin stock, rojo claro = se termina en 5 días, naranja = alcanza menos de 2 semanas, verde = bien. Arriba está el resumen de cuántos hay de cada uno. Con "Solo lo que hay que reponer" quedan solo los que hacen falta.',
           'El sugerido cubre 14 días según lo que se vendió en los últimos 30, contando las ventas del sistema anterior y las de ODB.',
           'Cada renglón muestra el stock, cuántos días aguanta y cuánto conviene pedir. El sugerido se calcula con lo que se vendió en los últimos 30 días, para cubrir 14.',
+          'Si un producto ya está pedido y todavía no llegó, abajo del stock dice "Ya pedido: N en camino" y el día que confirmó el proveedor. Así no se pide dos veces.',
           'Cargá las cantidades con los botones, o escribí el número.',
           'Al final ves la nota de pedido con lo elegido (la tarjeta roja): cantidad, producto, costo y total. Es lo que va a recibir el proveedor.',
           'Si un producto no está en la lista del proveedor, tocá "+ Producto que no está", buscalo y agregalo. Queda cargado para siempre.',
@@ -640,6 +641,34 @@ export const SECCIONES: Seccion[] = [
         puntos: [
           'Mientras no haya ventas cargadas en el sistema, el sugerido va a mostrar cero: no tiene con qué calcular todavía.',
           'La lista de cada proveedor se completa sola cada vez que se recibe mercadería suya.',
+        ],
+      },
+    ],
+  },
+  {
+    id: 'compras-por-llegar',
+    titulo: 'Mercadería por llegar y la fecha de entrega',
+    area: 'Compras',
+    roles: ['administrativo', 'comprador', 'deposito', 'gerente', 'dueno'],
+    bajada: 'El proveedor confirma por WhatsApp para qué día y la fecha queda anotada sola.',
+    bloques: [
+      {
+        tipo: 'pasos',
+        pasos: [
+          'Cuando el dueño aprueba la nota de pedido, sale sola por WhatsApp al proveedor, sin precios, y le pregunta para qué día la puede entregar.',
+          'Cuando el proveedor contesta con un día ("el jueves a la mañana"), el sistema lo anota, le agradece y avisa a administración. Si contesta sin día, le vuelve a preguntar una sola vez.',
+          'Si no contesta en un día, se le recuerda. Si sigue sin contestar, o contesta algo que no se entiende, el pedido queda marcado para que una persona lo resuelva.',
+          'En "Por llegar" están todos los pedidos aprobados que todavía no llegaron, agrupados: atrasados, hoy, mañana, los próximos 7 días y los que no tienen fecha.',
+          'Si el proveedor avisó por teléfono, tocá "Anotar fecha" y cargá el día. Cuando llega el camión, "Recibir" te lleva a Recepción.',
+          'En la pestaña "WhatsApp de proveedores" están los que no tienen número cargado. Tocá "Cargar WhatsApp", escribí el número con código de área y guardá: el sistema revisa que tenga WhatsApp antes de guardarlo.',
+        ],
+      },
+      {
+        tipo: 'ojo',
+        puntos: [
+          'Sin el WhatsApp del proveedor cargado, el pedido aprobado no le llega solo ni se le puede preguntar la fecha.',
+          'Si el proveedor avisa que le falta algo, queda escrito en la tarjeta del pedido ("Avisó que falta").',
+          'Las respuestas del proveedor las lee el bot solo para anotar la fecha: no conversa ni cambia el pedido.',
         ],
       },
     ],

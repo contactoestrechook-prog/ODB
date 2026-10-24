@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Req, Res } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, Post, Query, Req, Res } from '@nestjs/common';
 import { Roles } from '../auth/decorators';
 import { PedidosProveedorService } from './pedidos-proveedor.service';
 
@@ -33,5 +33,33 @@ export class PedidosProveedorController {
   @Post('ordenes/:id/enviada-a-mano')
   enviadaAMano(@Param('id') id: string, @Req() req: any) {
     return this.pedidos.marcarEnviadaAMano(id, req.usuario?.sub ?? null);
+  }
+
+  // ---- 23/10/2026: la fecha de entrega y la mercadería por llegar ----
+
+  @Roles('comprador', 'deposito', 'administrativo', 'gerente', 'dueno')
+  @Get('por-llegar')
+  porLlegar(@Query('sucursalId') sucursalId?: string) {
+    return this.pedidos.porLlegar(sucursalId || undefined);
+  }
+
+  // la fecha la anota una persona (el proveedor llamó, o la respuesta quedó a revisar)
+  @Roles('comprador', 'administrativo', 'gerente', 'dueno')
+  @Post('ordenes/:id/entrega')
+  fijarEntrega(@Param('id') id: string, @Body() b: { fecha?: string; horario?: string }, @Req() req: any) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(b?.fecha ?? ''))) throw new BadRequestException('Elegí la fecha de entrega');
+    return this.pedidos.fijarEntrega(id, String(b.fecha), b?.horario ?? null, req.usuario?.sub ?? null);
+  }
+
+  @Roles('comprador', 'administrativo', 'gerente', 'dueno')
+  @Get('proveedores-sin-whatsapp')
+  sinWhatsapp() {
+    return this.pedidos.proveedoresSinWhatsapp();
+  }
+
+  @Roles('comprador', 'administrativo', 'gerente', 'dueno')
+  @Post('proveedores/:id/whatsapp')
+  cargarWhatsapp(@Param('id') id: string, @Body() b: { telefono?: string }, @Req() req: any) {
+    return this.pedidos.cargarWhatsapp(id, String(b?.telefono ?? ''), req.usuario?.sub ?? null);
   }
 }

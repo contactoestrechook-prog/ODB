@@ -4,7 +4,7 @@ import { elegirPorDefecto, puedeCotizar } from './completo';
 import { conDescuentoEfectivo, porcentajeEfectivo, RUBROS_DESCUENTO_EFECTIVO, tieneDescuentoEfectivo } from './descuento-efectivo';
 import { esSilenciado, MOTIVO_TELEFONO, minutosPausaTelefono, vencePausaTelefono } from './pausa';
 import { agruparItems, cantidadesIndividuales, confirmacionInequivoca, idWhatsappCorto, importesDeHerramienta, importesDelTexto, pesos, presentacionProducto } from './comercio';
-import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { volumenMl, etiquetaVolumen, pideTamano, resumenDeTamanos, cantidadesPedidas, PALABRA_GENERICA } from './formatos';
 import { emprolijarListado, nombreLimpio, saludoSegunHora, saludarConBienvenida, niegaPercepcion, envioSinCargo, casiIgual, mismasPalabras, campoLimpio, esAlucinacionDeTranscripcion, nombreSucursalCliente, esAutomaticoWhatsappBusiness, sinCocinaInterna, explicaQueNoContesta, esTextoInterno } from './prolijo';
 import { aceptaNoContestar, botOfrecioAlgo, confirmaLaLista, esCierreDeCharla, esDespedida, esperaRespuesta, HORAS_CONSULTA_INSISTENCIA, HORAS_SIGUE_PERSONA, insiste, loUltimoDeLaCasaEsDeUnaPersona, MINUTOS_CONSULTA_SIN_RESPUESTA, type MotivoDeSilencio, paraElModelo, silencioPorReglas, telefonosDeLaCasa, traeOtroTelefono } from './silencio';
@@ -26,6 +26,7 @@ import { PedidosService } from '../pedidos/pedidos.service';
 import { CatalogoService } from '../catalogo/catalogo.service';
 import { ListasService } from '../listas/listas.service';
 import { MercadoPagoService } from '../mercadopago/mercadopago.service';
+import { PedidosProveedorService } from '../pedidos-proveedor/pedidos-proveedor.service';
 import {
   HERRAMIENTAS_PEDIDOS,
   HERRAMIENTAS_PROVEEDORES,
@@ -190,6 +191,8 @@ export class BotService {
     private readonly catalogo: CatalogoService,
     private readonly listas: ListasService,
     private readonly mercadopago: MercadoPagoService,
+    // la respuesta de un proveedor a la fecha de entrega (23/10/2026); opcional en las pruebas
+    @Optional() private readonly pedidosProveedor?: PedidosProveedorService,
   ) {
     this.lineas = new Lineas(db);
   }
@@ -333,6 +336,23 @@ export class BotService {
   // ¿Es alguien de la casa? El bot no les contesta: en su momento le explicó a
   // un empleado que "no cuenta con la función de desactivarse".
   //
+  // ¿Es un proveedor con un pedido esperando la fecha? Con @lid hace falta el
+  // teléfono real: si todavía no se aprendió, se le pregunta a WAHA antes.
+  private async respuestaDeProveedor(clave: string, real: string | null, esLid: boolean, linea: string, texto: string) {
+    const leerReal = async () => ((await this.db.from('bot_contactos').select('telefono_real').eq('telefono', clave).maybeSingle()).data as any)?.telefono_real ?? null;
+    let aprendido = await leerReal();
+    let candidatos = this.candidatosDeTelefono(clave, real, aprendido);
+    if (!candidatos.length && esLid) {
+      await this.resolverContactoWaha(clave, true, linea).catch(() => null);
+      aprendido = await leerReal();
+      candidatos = this.candidatosDeTelefono(clave, real, aprendido);
+    }
+    if (!candidatos.length) return null;
+    const sesion = (await this.lineas.fila(linea))?.waha_sesion || sesionPrincipal();
+    const r = await this.pedidosProveedor!.respuestaDeProveedor({ candidatos, texto, sesion });
+    return r ? { proveedor: true, ...r } : null;
+  }
+
   // Esto se resolvía comparando el número contra los teléfonos de usuarios,
   // pero WhatsApp dejó de mandar el número: ahora llega un @lid, que no es un
   // teléfono. De 222 charlas de los últimos diez días, 217 llegaron así. O sea
@@ -5138,6 +5158,20 @@ export class BotService {
     // lo demás, como la respuesta de administración en la principal.
     const deLaCasa = await this.remitenteDeLaCasa(clave, real?.numero, !esLaPrincipal).catch(() => null);
     if (deLaCasa) return this.anotarDeLaCasa(linea, clave, p, deLaCasa);
+
+    // UN PROVEEDOR CONTESTANDO LA FECHA DE ENTREGA DE UN PEDIDO (23/10/2026).
+    // Va antes que la charla: si quien escribe es un proveedor con una nota de
+    // pedido esperando la fecha, el mensaje lo lee el circuito de compras (anota
+    // la fecha, le contesta y avisa a administración). Si no es el caso o el
+    // mensaje no habla del pedido, sigue su camino de siempre.
+    const cuerpoProv = String(p.body ?? '').trim();
+    const tipoProv = String(p.type ?? p._data?.type ?? '').toLowerCase();
+    const conMediaProv = !!p.hasMedia || !!p.media || ['ptt', 'audio', 'image', 'video', 'document', 'sticker'].includes(tipoProv);
+    if (cuerpoProv && !conMediaProv && this.pedidosProveedor) {
+      const rProv = await this.respuestaDeProveedor(clave, real?.numero ?? null, esLid, linea, cuerpoProv)
+        .catch((e) => { this.log.warn(`respuesta de proveedor: ${e?.message ?? e}`); return null; });
+      if (rProv) return rProv;
+    }
 
     let texto = String(p.body ?? '').trim();
     const tipo = String(p.type ?? p._data?.type ?? '').toLowerCase();

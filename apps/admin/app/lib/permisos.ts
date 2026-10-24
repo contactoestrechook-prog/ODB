@@ -15,6 +15,7 @@ const RUTAS_POR_ROL: Record<string, string[]> = {
     '/recepcion', // remitos y recepción de mercadería
     '/compras', // órdenes de compra, deuda con proveedores
     '/pedido-proveedor', // armar el pedido desde el celular, con la lista de cada proveedor
+    '/por-llegar', // qué mercadería llega y cuándo (fecha confirmada por el proveedor), 23/10/2026
     '/comparador', // proveedores y sus listas
     '/listas', // listas de precios de proveedor
     '/stock', // stock completo: existencias, ajustes, mermas, transferencias
@@ -57,6 +58,7 @@ const RUTAS_POR_ROL: Record<string, string[]> = {
   comprador: [
     '/compras', // órdenes de compra, sugerencias, deuda con proveedores
     '/pedido-proveedor', // armar el pedido desde el celular
+    '/por-llegar', // qué mercadería llega y cuándo
     '/facturas-compra',
     '/mesa-compras', // abastecimiento
     '/comparador', // proveedores
@@ -71,6 +73,7 @@ const RUTAS_POR_ROL: Record<string, string[]> = {
     '/deposito', // cola de preparación
     '/pedidos',
     '/recepcion', // recepción de mercadería con lector
+    '/por-llegar', // qué mercadería llega y cuándo
     '/stock',
     '/conteo',
     '/fraccionar', // armar presentaciones y cargar el pozo (con PIN de supervisor arriba del tope), 21/10/2026

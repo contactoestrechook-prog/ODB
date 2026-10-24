@@ -1241,6 +1241,11 @@ export class ComprasService {
 
     if (!items.length) return { proveedor: prov, sucursalId, items: [], total: 0, sinLista: !opciones.q };
 
+    // Lo que ya está pedido y no llegó (órdenes aprobadas o enviadas), con la
+    // fecha confirmada más próxima: para no pedirlo dos veces (23/10/2026).
+    const enCamino = await this.enCaminoPorSku(items.map((i) => i.sku), sucursalId).catch(() => new Map());
+    items = items.map((i) => ({ ...i, enCamino: enCamino.get(i.sku)?.cantidad ?? 0, llega: enCamino.get(i.sku)?.fecha ?? null }));
+
     const total = Number(((data ?? []) as any[])[0]?.total ?? items.length);
     return {
       proveedor: prov,
@@ -1249,6 +1254,25 @@ export class ComprasService {
       items,
       recortado: total > items.length,
     };
+  }
+
+  private async enCaminoPorSku(skus: string[], sucursalId?: string | null): Promise<Map<string, { cantidad: number; fecha: string | null }>> {
+    const res = new Map<string, { cantidad: number; fecha: string | null }>();
+    if (!skus.length) return res;
+    let q = this.db.from('ordenes_compra_items')
+      .select('cantidad, cantidad_recibida, producto:productos!inner(sku), oc:ordenes_compra!inner(estado, sucursal_id, entrega_confirmada_para)')
+      .in('producto.sku', skus.slice(0, 300)).in('oc.estado', ['aprobada', 'enviada']);
+    if (sucursalId) q = q.eq('oc.sucursal_id', sucursalId);
+    const { data } = await q;
+    for (const r of (data ?? []) as any[]) {
+      const sku = r.producto?.sku; if (!sku) continue;
+      const falta = Math.max(0, Number(r.cantidad ?? 0) - Number(r.cantidad_recibida ?? 0));
+      if (!falta) continue;
+      const prev = res.get(sku) ?? { cantidad: 0, fecha: null };
+      const f = r.oc?.entrega_confirmada_para ?? null;
+      res.set(sku, { cantidad: prev.cantidad + falta, fecha: f && (!prev.fecha || f < prev.fecha) ? f : prev.fecha });
+    }
+    return res;
   }
 
   // Sumar un producto a la lista de un proveedor: la lista nunca va a estar

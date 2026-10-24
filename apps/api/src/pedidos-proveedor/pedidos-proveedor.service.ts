@@ -5,6 +5,8 @@ import { SUPABASE } from '../supabase.provider';
 import { ordenDeCompraPDF } from '../comun/documentos';
 import { enviarArchivoWhatsapp, enviarImagenWhatsapp, enviarTextoWhatsapp, existeEnWhatsapp } from '../comun/whatsapp';
 import { cartelNotaDePedido } from '../comun/cartel-pedido';
+import { Lineas, sesionPrincipal } from '../comun/lineas';
+import { decidir, fechaLegible, leerRespuestaProveedor, textoRecordatorio } from './entrega';
 
 // ============================================================
 // EL PEDIDO LE LLEGA AL PROVEEDOR (2/10/2026).
@@ -66,7 +68,7 @@ export function epigrafePedido(p: { folio: string; sucursal: string; direccion?:
     `Les pasamos el pedido *${p.folio}* para entregar en *${destino}*${cuando ? `, el ${cuando}` : ''}. Abajo va la nota de pedido en PDF.`,
     ...(p.observaciones?.trim() ? [``, `Nota: ${p.observaciones.trim()}`] : []),
     ``,
-    `¿Nos confirman si pueden entregar todo? Si falta algo, avísennos qué, así lo sabemos antes. ¡Gracias!`,
+    `¿Para qué día nos lo pueden entregar? Por favor confírmennos la fecha por acá. Si falta algo, avísennos qué, así lo sabemos antes. ¡Gracias!`,
   ].join('\n');
 }
 
@@ -100,7 +102,7 @@ export function textoPedido(p: {
     ...renglones,
     ...(p.observaciones?.trim() ? [``, `Nota: ${p.observaciones.trim()}`] : []),
     ``,
-    `${conPdf ? 'Les adjuntamos la nota de pedido en PDF. ' : ''}¿Nos confirman si pueden entregar todo? Si falta algo, avísennos qué, así lo sabemos antes.`,
+    `${conPdf ? 'Les adjuntamos la nota de pedido en PDF. ' : ''}¿Para qué día nos lo pueden entregar? Por favor confírmennos la fecha por acá. Si falta algo, avísennos qué, así lo sabemos antes.`,
     ``,
     `¡Gracias!`,
   ].join('\n');
@@ -261,7 +263,11 @@ export class PedidosProveedorService {
     // WhatsApp acepta mandar a un número que no existe y no le llega a nadie:
     // antes se pregunta (celular 549… y, si no, el mismo sin el 9: un WhatsApp
     // Business en un fijo). Si WAHA no contesta, tira y se reintenta.
-    const ex = await existeEnWhatsapp(oc.proveedor?.telefono ?? '');
+    // 23/10/2026: los pedidos salen por la línea de proveedores (administración)
+    // si está cargada y activa; si no, por la principal, como hasta ahora. La
+    // respuesta del proveedor se lee y se contesta por esa misma línea.
+    const sesion = await this.sesionDeProveedores();
+    const ex = await existeEnWhatsapp(oc.proveedor?.telefono ?? '', sesion);
     if (!ex.existe) {
       return this.fallar(oc, `el número del proveedor ("${oc.proveedor?.telefono ?? ''}") no tiene WhatsApp (¿es un fijo?): cargá su WhatsApp en la ficha del proveedor`, true);
     }
@@ -302,8 +308,8 @@ export class PedidosProveedorService {
       this.log.warn(`OC #${oc.numero}: la tarjeta no se pudo armar, sale en texto: ${e instanceof Error ? e.message : e}`);
     }
     const r1 = tarjeta
-      ? await enviarImagenWhatsapp(this.db, chatId, tarjeta, epigrafePedido({ ...datos, observaciones: observacionParaProveedor(oc.observaciones) }), 'pedido_proveedor')
-      : await enviarTextoWhatsapp(this.db, chatId, textoPedido({ ...datos, proveedor, observaciones: observacionParaProveedor(oc.observaciones), items: renglones }), 'pedido_proveedor');
+      ? await enviarImagenWhatsapp(this.db, chatId, tarjeta, epigrafePedido({ ...datos, observaciones: observacionParaProveedor(oc.observaciones) }), 'pedido_proveedor', sesion)
+      : await enviarTextoWhatsapp(this.db, chatId, textoPedido({ ...datos, proveedor, observaciones: observacionParaProveedor(oc.observaciones), items: renglones }), 'pedido_proveedor', sesion);
     if (!r1.enviado) {
       // un corte por tiempo o un error de WAHA no quiere decir que no salió: no
       // se reintenta solo (el proveedor podría recibir el pedido dos veces)
@@ -312,10 +318,13 @@ export class PedidosProveedorService {
         : this.fallar(oc, `WhatsApp no lo aceptó (${r1.motivo ?? 'sin detalle'})`);
     }
     // salió: queda anotado ya, por si algo se corta antes de terminar
+    // y desde ya se espera la fecha de entrega: la respuesta la lee el bot
     await this.db.from('ordenes_compra').update({ whatsapp_msg_id: r1.id ?? 'sin-id', whatsapp_telefono: numero }).eq('id', id);
+    await this.db.from('ordenes_compra').update({ whatsapp_sesion: sesion ?? null, entrega_estado: 'esperando' }).eq('id', id)
+      .then(({ error }) => { if (error) this.log.warn(`OC #${oc.numero}: no pude marcar la espera de la fecha: ${error.message}`); });
 
     // el texto ya salió: si el PDF falla, el pedido igual está hecho
-    const r2 = await enviarArchivoWhatsapp(this.db, chatId, firmado.signedUrl, `${folio}.pdf`, '', 'pedido_proveedor');
+    const r2 = await enviarArchivoWhatsapp(this.db, chatId, firmado.signedUrl, `${folio}.pdf`, '', 'pedido_proveedor', sesion);
 
     const { error: eUpd } = await this.db.from('ordenes_compra').update({
       estado: 'enviada', whatsapp_estado: 'enviado', whatsapp_telefono: numero,
@@ -385,6 +394,177 @@ export class PedidosProveedorService {
     if (error) throw new BadRequestException(error.message);
     if (!data) throw new BadRequestException('Solo se marca como enviada una orden aprobada que no se esté mandando por WhatsApp');
     return { ok: true, numero: (data as any).numero };
+  }
+
+  // ---------- LA FECHA DE ENTREGA (23/10/2026) ----------
+
+  /** La línea de proveedores (administración) si está cargada y activa; si no, la principal. */
+  async sesionDeProveedores(): Promise<string | undefined> {
+    const filas = await new Lineas(this.db).activas('proveedores').catch(() => []);
+    return filas.find((f: any) => f.waha_sesion)?.waha_sesion ?? undefined;
+  }
+
+  private async folioDe(ocId: string, numero: number): Promise<string> {
+    const { data } = await this.db.from('documentos').select('folio').eq('tipo', 'orden_compra').eq('entidad_id', ocId).maybeSingle();
+    return (data as any)?.folio ?? `OC #${numero}`;
+  }
+
+  // Los avisos de la fecha van a administración (Leandro, 23/10/2026) y a la
+  // dirección (sin destinatario: la ven dueños y gerentes).
+  private async avisarAdministracion(tipo: string, titulo: string, detalle: string, ocId: string) {
+    const { data } = await this.db.from('usuarios').select('id').eq('rol', 'administrativo').eq('activo', true);
+    const filas = [null, ...((data ?? []) as any[]).map((u) => u.id)].map((para) => ({
+      para_usuario: para, tipo, titulo, detalle, referencia: { link: '/por-llegar', oc_id: ocId },
+    }));
+    await this.db.from('alertas_internas').insert(filas).then(() => null, () => null);
+  }
+
+  /**
+   * Un mensaje de alguien que puede ser un proveedor con un pedido esperando la
+   * fecha. Lo llama el bot ANTES de atender como a un cliente. Devuelve null si
+   * no es el caso (no es un proveedor con pedido abierto, o el mensaje no habla
+   * del pedido): el mensaje sigue su camino de siempre.
+   */
+  async respuestaDeProveedor(p: { candidatos: string[]; texto: string; sesion?: string | null }) {
+    const texto = String(p.texto ?? '').trim();
+    if (!texto || !p.candidatos.length) return null;
+    const desde = new Date(Date.now() - 30 * 86_400_000).toISOString();
+    const { data } = await this.db.from('ordenes_compra')
+      .select('id, numero, whatsapp_telefono, whatsapp_sesion, entrega_repreguntado_en, proveedor:proveedores(razon_social), sucursal:sucursales(nombre)')
+      .eq('entrega_estado', 'esperando').gte('enviada_en', desde).order('enviada_en', { ascending: false }).limit(50);
+    const linea = p.sesion || sesionPrincipal();
+    const oc = ((data ?? []) as any[]).find((o) =>
+      p.candidatos.includes(String(o.whatsapp_telefono ?? '').replace(/\D/g, '').slice(-10))
+      && (o.whatsapp_sesion || sesionPrincipal()) === linea);
+    if (!oc) return null;
+
+    const folio = await this.folioDe(oc.id, oc.numero);
+    const proveedor = oc.proveedor?.razon_social ?? 'el proveedor';
+    const lectura = await leerRespuestaProveedor(texto, { folio, proveedor });
+    const d = decidir(lectura, folio, !!oc.entrega_repreguntado_en);
+    if (d.accion === 'ignorar') return null;
+
+    const ahora = new Date().toISOString();
+    const base = { entrega_respuesta: texto.slice(0, 1000), entrega_faltantes: d.faltantes ?? null };
+    if (d.accion === 'confirmar') {
+      await this.db.from('ordenes_compra').update({ ...base, entrega_estado: 'confirmada', entrega_confirmada_para: d.fecha,
+        entrega_horario: d.horario, entrega_confirmada_en: ahora }).eq('id', oc.id);
+      await this.avisarAdministracion('entrega_confirmada', `${proveedor} confirmó la entrega`,
+        `Pedido ${folio}: entrega el ${fechaLegible(d.fecha)}${d.horario ? ` (${d.horario})` : ''} en ${oc.sucursal?.nombre ?? 'la sucursal'}.${d.faltantes ? ` Avisa que falta: ${d.faltantes}.` : ''}`, oc.id);
+    } else if (d.accion === 'repreguntar') {
+      await this.db.from('ordenes_compra').update({ ...base, entrega_repreguntado_en: ahora }).eq('id', oc.id);
+      if (d.faltantes) await this.avisarAdministracion('entrega_faltantes', `${proveedor} avisa faltantes`, `Pedido ${folio}: ${d.faltantes}.`, oc.id);
+    } else {
+      await this.db.from('ordenes_compra').update({ ...base, entrega_estado: 'a_revisar' }).eq('id', oc.id);
+      await this.avisarAdministracion('entrega_a_revisar', `Revisá la respuesta de ${proveedor}`,
+        `Pedido ${folio}: ${d.motivo}. Contestó: «${texto.slice(0, 200)}». Seguí la charla desde el teléfono de administración.`, oc.id);
+    }
+    if (d.texto) {
+      await enviarTextoWhatsapp(this.db, `${oc.whatsapp_telefono}@c.us`, d.texto, 'pedido_proveedor', oc.whatsapp_sesion ?? undefined)
+        .catch((e) => this.log.warn(`OC #${oc.numero}: no pude contestarle al proveedor: ${e?.message ?? e}`));
+    }
+    this.log.log(`OC #${oc.numero}: respuesta del proveedor → ${d.accion}${d.accion === 'confirmar' ? ` (${d.fecha})` : ''}`);
+    return { respondido: true, accion: d.accion, ocNumero: oc.numero };
+  }
+
+  // Sin respuesta: a las 24 h un recordatorio; 24 h después, aviso a
+  // administración y no se le insiste más. Solo en horario de atención.
+  @Cron('0 */30 * * * *')
+  async recordarFechasDeEntrega() {
+    if (!envioAutomaticoActivo()) return;
+    const hora = Number(new Date().toLocaleString('en-US', { hour: 'numeric', hour12: false, timeZone: 'America/Argentina/Buenos_Aires' }));
+    if (hora < 9 || hora >= 19) return;
+    const hace24 = new Date(Date.now() - 24 * 3600_000).toISOString();
+    const { data } = await this.db.from('ordenes_compra')
+      .select('id, numero, whatsapp_telefono, whatsapp_sesion, enviada_en, entrega_recordado_en, entrega_repreguntado_en, proveedor:proveedores(razon_social)')
+      .eq('entrega_estado', 'esperando').lte('enviada_en', hace24).limit(20);
+    for (const oc of (data ?? []) as any[]) {
+      const folio = await this.folioDe(oc.id, oc.numero);
+      const proveedor = oc.proveedor?.razon_social ?? 'El proveedor';
+      if (!oc.entrega_recordado_en && !oc.entrega_repreguntado_en) {
+        // primero se marca: si dos procesos corren a la vez, el recordatorio sale una sola vez
+        const { data: tomada } = await this.db.from('ordenes_compra').update({ entrega_recordado_en: new Date().toISOString() })
+          .eq('id', oc.id).is('entrega_recordado_en', null).eq('entrega_estado', 'esperando').select('id').maybeSingle();
+        if (!tomada) continue;
+        await enviarTextoWhatsapp(this.db, `${oc.whatsapp_telefono}@c.us`, textoRecordatorio(folio), 'pedido_proveedor', oc.whatsapp_sesion ?? undefined)
+          .catch((e) => this.log.warn(`OC #${oc.numero}: el recordatorio no salió: ${e?.message ?? e}`));
+      } else if (new Date(oc.entrega_recordado_en ?? oc.entrega_repreguntado_en).getTime() < Date.now() - 24 * 3600_000) {
+        const { data: tomada } = await this.db.from('ordenes_compra').update({ entrega_estado: 'sin_respuesta' })
+          .eq('id', oc.id).eq('entrega_estado', 'esperando').select('id').maybeSingle();
+        if (!tomada) continue;
+        await this.avisarAdministracion('entrega_sin_respuesta', `${proveedor} no confirmó la fecha`,
+          `Pedido ${folio}: no contestó ni después del recordatorio. Llamalo o escribile desde administración.`, oc.id);
+      }
+    }
+  }
+
+  // ---------- MERCADERÍA POR LLEGAR ----------
+
+  /** Una persona anota la fecha (el proveedor avisó por teléfono, o la respuesta quedó a revisar). */
+  async fijarEntrega(id: string, fecha: string, horario: string | null, usuarioId: string | null) {
+    const { data, error } = await this.db.from('ordenes_compra').update({
+      entrega_estado: 'confirmada', entrega_confirmada_para: fecha, entrega_horario: horario?.trim() || null,
+      entrega_confirmada_en: new Date().toISOString(),
+    }).eq('id', id).in('estado', ['aprobada', 'enviada']).select('numero').maybeSingle();
+    if (error) throw new BadRequestException(error.message);
+    if (!data) throw new BadRequestException('Esa orden ya no está pendiente de entrega');
+    await this.db.from('auditoria').insert({ usuario_id: usuarioId, accion: 'oc_fecha_entrega', entidad: 'ordenes_compra', entidad_id: id,
+      datos_despues: { fecha, horario } }).then(() => null, () => null);
+    return { ok: true };
+  }
+
+  async porLlegar(sucursalId?: string) {
+    let q = this.db.from('ordenes_compra')
+      .select('id, numero, estado, total, sucursal_id, fecha_entrega, enviada_en, aprobada_en, whatsapp_estado, entrega_estado, entrega_confirmada_para, entrega_horario, entrega_respuesta, entrega_faltantes, proveedor:proveedores(id, razon_social, telefono), sucursal:sucursales(nombre), items:ordenes_compra_items(cantidad)')
+      .in('estado', ['aprobada', 'enviada']).order('entrega_confirmada_para', { ascending: true, nullsFirst: false }).limit(200);
+    if (sucursalId) q = q.eq('sucursal_id', sucursalId);
+    const { data, error } = await q;
+    if (error) throw new BadRequestException(error.message);
+    const ids = ((data ?? []) as any[]).map((o) => o.id);
+    const { data: docs } = ids.length
+      ? await this.db.from('documentos').select('entidad_id, folio').eq('tipo', 'orden_compra').in('entidad_id', ids)
+      : { data: [] as any[] };
+    const folios = new Map(((docs ?? []) as any[]).map((d) => [d.entidad_id, d.folio]));
+    return ((data ?? []) as any[]).map((o) => ({
+      id: o.id, numero: o.numero, folio: folios.get(o.id) ?? `OC #${o.numero}`, estado: o.estado,
+      proveedor: o.proveedor?.razon_social ?? '—', proveedorId: o.proveedor?.id ?? null, telefono: o.proveedor?.telefono ?? null,
+      sucursal: String(o.sucursal?.nombre ?? '').replace(/^Suc\s+/, ''), total: Number(o.total ?? 0),
+      productos: (o.items ?? []).length, unidades: (o.items ?? []).reduce((s: number, i: any) => s + Number(i.cantidad ?? 0), 0),
+      enviadaEn: o.enviada_en, whatsappEstado: o.whatsapp_estado, entregaEstado: o.entrega_estado,
+      fecha: o.entrega_confirmada_para ?? null, fechaPedida: o.fecha_entrega ?? null, horario: o.entrega_horario ?? null,
+      respuesta: o.entrega_respuesta ?? null, faltantes: o.entrega_faltantes ?? null,
+    }));
+  }
+
+  // ---------- PROVEEDORES SIN WHATSAPP ----------
+
+  async proveedoresSinWhatsapp() {
+    const { data, error } = await this.db.from('proveedores')
+      .select('id, razon_social, telefono, productos:proveedor_productos(count)')
+      .eq('activo', true).order('razon_social').limit(1000);
+    if (error) throw new BadRequestException(error.message);
+    const { data: compras } = await this.db.from('ordenes_compra').select('proveedor_id').gte('creado_en', new Date(Date.now() - 365 * 86_400_000).toISOString()).limit(5000);
+    const pedidos = new Map<string, number>();
+    for (const c of (compras ?? []) as any[]) pedidos.set(c.proveedor_id, (pedidos.get(c.proveedor_id) ?? 0) + 1);
+    return ((data ?? []) as any[])
+      .map((p) => ({ id: p.id, nombre: p.razon_social, telefono: p.telefono ?? null, productos: Number(p.productos?.[0]?.count ?? 0), pedidos: pedidos.get(p.id) ?? 0 }))
+      .filter((p) => p.productos > 0)
+      .sort((a, b) => Number(!!a.telefono) - Number(!!b.telefono) || b.pedidos - a.pedidos || b.productos - a.productos);
+  }
+
+  /** Carga el WhatsApp de un proveedor, verificando que el número tenga WhatsApp. */
+  async cargarWhatsapp(proveedorId: string, telefono: string, usuarioId?: string | null) {
+    const t = String(telefono ?? '').trim();
+    if (t.replace(/\D/g, '').length < 8) throw new BadRequestException('Escribí el número con código de área (por ejemplo 11 2345-6789)');
+    const ex = await existeEnWhatsapp(t, await this.sesionDeProveedores());
+    if (!ex.existe) throw new BadRequestException('Ese número no tiene WhatsApp. Revisalo (¿es un fijo sin WhatsApp Business?)');
+    const numero = String(ex.chatId ?? '').replace(/\D/g, '');
+    const { data: antes } = await this.db.from('proveedores').select('telefono').eq('id', proveedorId).maybeSingle();
+    const { error } = await this.db.from('proveedores').update({ telefono: numero }).eq('id', proveedorId);
+    if (error) throw new BadRequestException(error.message);
+    await this.db.from('auditoria').insert({ usuario_id: usuarioId ?? null, accion: 'proveedor_whatsapp', entidad: 'proveedores', entidad_id: proveedorId,
+      datos_antes: { telefono: (antes as any)?.telefono ?? null }, datos_despues: { telefono: numero } }).then(() => null, () => null);
+    return { ok: true, telefono: numero, verificado: ex.verificado };
   }
 
   // Lo que quedó firmado y sin salir (lo aprobado desde Compras, o un intento

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Aviso, BarraInferior, Boton, Cargando, Chip, Entrada, FOCO, FOCO_ADENTRO, IconoFlechaAbajo, PlacaRoja, Selector, Tarjeta, unir } from './kit';
-import { pesos } from '../lib/formato';
+import { fecha, pesos } from '../lib/formato';
 import { filtrarPorBusqueda } from '../lib/busqueda';
 
 // Armar el pedido a un proveedor desde el teléfono, caminando el depósito.
@@ -46,6 +46,8 @@ type Item = {
   sku: string; nombre: string; unidadesPack: number; codigoProveedor: string | null;
   costo: number | null; stock: number; minimo: number; reposicion: number;
   sugerido: number; urgente: boolean; porDia: number; diasDeStock: number | null;
+  /** ya pedido y sin recibir (órdenes aprobadas o enviadas), y el día que confirmó el proveedor */
+  enCamino?: number; llega?: string | null;
 };
 
 export function PedidoProveedor({ sucursales, proveedorInicial, sucursalInicial }: {
@@ -326,6 +328,11 @@ export function PedidoProveedor({ sucursales, proveedorInicial, sucursalInicial 
                   <p className={unir('text-xs font-semibold', ESTADO_STOCK[est].texto)}>
                     {textoEstado(it, est)}
                   </p>
+                  {!!it.enCamino && (
+                    <p className="text-xs font-semibold text-info">
+                      Ya pedido: {formatoStock(it.enCamino)} en camino{it.llega ? ` · llega ${fecha(it.llega, 'dia')}` : ' · sin fecha confirmada'}
+                    </p>
+                  )}
                   <p className="break-words text-xs text-tinta/60">
                     {it.porDia > 0 ? `vende ~${formatoStock(Math.round(it.porDia * 7 * 10) / 10)} por semana` : 'sin ventas en 30 días'}
                     {it.sugerido > 0 && <> · <b className="text-tinta">sugerido {it.sugerido}</b></>}

@@ -95,6 +95,7 @@ const GRUPOS: Grupo[] = [
     items: [
       { href: '/compras', label: 'Compras', icono: 'compras' },
       { href: '/pedido-proveedor', label: 'Pedido a proveedor', icono: 'compras' },
+      { href: '/por-llegar', label: 'Por llegar', icono: 'compras' },
       { href: '/facturas-compra', label: 'Facturas de compra', icono: 'listas' },
       { href: '/mesa-compras', label: 'Mesa de compras', icono: 'comparador' },
       { href: '/comparador', label: 'Proveedores', icono: 'comparador' },
@@ -192,6 +193,7 @@ const TITULOS: Record<string, { titulo: string; bajada: string }> = {
   // Las cinco que faltaban: decían "O.D.B" en la barra y repetían un título propio.
   '/manual': { titulo: 'Manual del sistema', bajada: 'Cómo funciona cada área: buscá por lo que necesitás resolver' },
   '/pedido-proveedor': { titulo: 'Pedido a proveedor', bajada: 'Armá el pedido desde el celular, con la lista de cada proveedor' },
+  '/por-llegar': { titulo: 'Mercadería por llegar', bajada: 'Lo pedido a proveedores y el día que confirmó cada uno por WhatsApp' },
   '/aprobaciones': { titulo: 'Aprobaciones', bajada: 'Todo lo que espera tu firma: órdenes, pagos, cobros y cambios de costos' },
   '/trazabilidad': { titulo: 'Trazabilidad', bajada: 'Cada compra, de la orden al pago: quién la hizo, la aprobó y la recibió' },
   '/fraccionar': { titulo: 'Fraccionar', bajada: 'Lo que se arma en el local (docenas, maples) para que la caja lo venda' },
