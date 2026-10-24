@@ -5,8 +5,9 @@ import Link from 'next/link';
 import { InstalarApp } from './InstalarApp';
 import { CampanaAlertas } from './CampanaAlertas';
 
-type Item = { href: string; label: string; icono: string };
-type Grupo = { titulo: string; items: Item[] };
+import { MenuNav, type GrupoMenu } from './MenuNav';
+
+type Grupo = GrupoMenu;
 
 // Sobre el negro: texto white/70, rótulos y los íconos apagados white/55 (el
 // mínimo que se lee); nada por debajo de eso.
@@ -167,33 +168,8 @@ export function MobileMenu({
               </button>
             </div>
 
-            <nav aria-label="Secciones del sistema" className="flex-1 space-y-4 overflow-y-auto overscroll-contain px-3 pb-4">
-              {grupos.map((g) => (
-                <div key={g.titulo}>
-                  <p className="mb-1 px-3 text-xs font-semibold uppercase tracking-[0.14em] text-white/55">{g.titulo}</p>
-                  {g.items.map((i) => {
-                    const esActivo = i.href === activo;
-                    const n = pendientes[i.href] ?? 0;
-                    return (
-                      <Link
-                        key={i.href}
-                        href={i.href}
-                        onClick={() => setAbierto(false)}
-                        aria-current={esActivo ? 'page' : undefined}
-                        className={`${ENLACE} mb-0.5 ${esActivo ? 'bg-marca font-semibold text-white' : 'text-white/70 hover:bg-white/[0.06] hover:text-white'}`}
-                      >
-                        <Icono d={iconos[i.icono]} activo={esActivo} />
-                        <span className="min-w-0 flex-1 truncate">{i.label}</span>
-                        {n > 0 && (
-                          <span className={`importe rounded-full px-2 text-xs font-semibold leading-5 ${esActivo ? 'bg-white text-marca' : 'bg-marca text-white'}`}>
-                            {n}
-                          </span>
-                        )}
-                      </Link>
-                    );
-                  })}
-                </div>
-              ))}
+            <nav aria-label="Secciones del sistema" className="flex-1 overflow-y-auto overscroll-contain px-3 pb-4">
+              <MenuNav grupos={grupos} iconos={iconos} activo={activo} pendientes={pendientes} movil onElegir={() => setAbierto(false)} />
             </nav>
 
             <div className="space-y-0.5 border-t border-white/10 px-3 py-2">

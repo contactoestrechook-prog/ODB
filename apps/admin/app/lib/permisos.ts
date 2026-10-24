@@ -114,7 +114,8 @@ const RUTAS_SOLO_DUENO = ['/whatsapp', '/responde'];
 // La cola de firmas la mira dirección. Un comprador que la viera solo se
 // llevaría un 403 del API al entrar: el menú tiene que ofrecer lo que se puede
 // abrir de verdad.
-const RUTAS_DIRECCION = ['/aprobaciones', '/actividad'];
+// La agenda tiene el teléfono de todos los que escribieron (24/10/2026).
+const RUTAS_DIRECCION = ['/aprobaciones', '/actividad', '/agenda'];
 
 /**
  * Cargar repartidores (Reparto › Repartidores, gestion/repartidores en el API)

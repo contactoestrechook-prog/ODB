@@ -7,10 +7,10 @@ import { BuscadorGlobal } from './BuscadorGlobal';
 import { MobileMenu } from './MobileMenu';
 import { CampanaAlertas } from './CampanaAlertas';
 import { InstalarApp } from './InstalarApp';
+import { MenuNav, type GrupoMenu } from './MenuNav';
 
 // soloRoles: entradas que ve únicamente ese rol (el repartidor tiene su propia pantalla)
-type Item = { href: string; label: string; icono: string; soloRoles?: string[] };
-type Grupo = { titulo: string; items: Item[] };
+type Grupo = GrupoMenu;
 
 // path SVG (24x24, stroke) por sección
 export const ICONOS: Record<string, string> = {
@@ -54,91 +54,110 @@ export const ICONOS: Record<string, string> = {
   salir: 'M10 4H4v16h6M14 8l4 4-4 4M8 12h10',
 };
 
+// Reparto del menú (Leandro, 24/10/2026): pocos grupos que se abren y se
+// cierran, con subcategorías adentro. «Clientes» junta las sucursales, la
+// base, la agenda y las cuentas corrientes; «Compras» y «Administración»
+// tienen todo lo suyo adentro. Una entrada nueva va en su grupo y su `sub`.
 const GRUPOS: Grupo[] = [
+  { titulo: 'Inicio', icono: 'inicio', items: [{ href: '/inicio', label: 'Inicio', icono: 'inicio' }] },
   {
-    titulo: 'Operación',
+    titulo: 'Ventas y caja',
+    icono: 'ventas',
     items: [
-      { href: '/inicio', label: 'Inicio', icono: 'inicio' },
       { href: '/ventas', label: 'Ventas', icono: 'ventas' },
       { href: '/pedidos', label: 'Pedidos', icono: 'pedidos' },
       { href: '/caja', label: 'Caja', icono: 'caja' },
       { href: '/facturacion', label: 'Facturación', icono: 'facturacion' },
+      { href: '/cierres', label: 'Cierres', icono: 'cierres' },
+      { href: '/salida', label: 'Control de salida', icono: 'salida' },
+    ],
+  },
+  {
+    titulo: 'Depósito y reparto',
+    icono: 'deposito',
+    items: [
       { href: '/deposito', label: 'Depósito', icono: 'deposito' },
       { href: '/recepcion', label: 'Recepción', icono: 'compras' },
-      // UN solo módulo de reparto (21/10/2026): Envíos, Repartidor, Repartidores y
       // Reparto eran cuatro entradas; ahora son secciones de Reparto (Envíos, la
-      // primera). El repartidor sigue entrando a su pantalla de entregas, que es
-      // lo único que puede abrir.
+      // hoja de ruta, repartidores, Mis entregas)
       { href: '/reparto', label: 'Reparto', icono: 'reparto' },
-      // caja y depósito también llevan envíos cuando no hay repartidores (21/10/2026)
+      // el repartidor (y quien también entrega) ve solo lo suyo
       { href: '/repartidor', label: 'Mis entregas', icono: 'repartidor', soloRoles: ['repartidor', 'cajero', 'deposito'] },
-      { href: '/salida', label: 'Salida', icono: 'salida' },
-      { href: '/cierres', label: 'Cierres', icono: 'cierres' },
     ],
   },
   {
-    titulo: 'Catálogo',
+    titulo: 'Productos',
+    icono: 'productos',
     items: [
-      { href: '/productos', label: 'Productos', icono: 'productos' },
-      { href: '/precios', label: 'Precios', icono: 'productos' },
-      { href: '/stock', label: 'Stock', icono: 'stock' },
-      { href: '/arqueo', label: 'Arqueo de stock', icono: 'stock' },
-      { href: '/fraccionar', label: 'Fraccionar', icono: 'stock' },
-      { href: '/promociones', label: 'Promociones', icono: 'promociones' },
-      { href: '/listas-venta', label: 'Listas de venta', icono: 'listas' },
-      { href: '/listas', label: 'Listas de proveedor', icono: 'listas' },
-      { href: '/tiendanube', label: 'Tienda Nube', icono: 'tiendanube' },
-    ],
-  },
-  {
-    titulo: 'Abastecimiento',
-    items: [
-      { href: '/compras', label: 'Compras', icono: 'compras' },
-      { href: '/pedido-proveedor', label: 'Pedido a proveedor', icono: 'compras' },
-      { href: '/por-llegar', label: 'Por llegar', icono: 'compras' },
-      { href: '/facturas-compra', label: 'Facturas de compra', icono: 'listas' },
-      { href: '/mesa-compras', label: 'Mesa de compras', icono: 'comparador' },
-      { href: '/comparador', label: 'Proveedores', icono: 'comparador' },
-      { href: '/trazabilidad', label: 'Trazabilidad', icono: 'listas' },
-      { href: '/analista', label: 'Analista ODB', icono: 'analista' },
-      { href: '/agente', label: 'Agente IA', icono: 'agente' },
+      { href: '/productos', label: 'Productos', icono: 'productos', sub: 'Catálogo' },
+      { href: '/precios', label: 'Precios', icono: 'productos', sub: 'Catálogo' },
+      { href: '/listas-venta', label: 'Listas de venta', icono: 'listas', sub: 'Catálogo' },
+      { href: '/promociones', label: 'Promociones', icono: 'promociones', sub: 'Catálogo' },
+      { href: '/tiendanube', label: 'Tienda Nube', icono: 'tiendanube', sub: 'Catálogo' },
+      { href: '/stock', label: 'Stock', icono: 'stock', sub: 'Stock' },
+      { href: '/arqueo', label: 'Arqueo de stock', icono: 'stock', sub: 'Stock' },
+      { href: '/fraccionar', label: 'Fraccionar', icono: 'stock', sub: 'Stock' },
     ],
   },
   {
     titulo: 'Clientes',
+    icono: 'clientes',
     items: [
-      { href: '/clientes', label: 'Clientes', icono: 'clientes' },
-      { href: '/cuentas-corrientes', label: 'Cuentas corrientes', icono: 'clientes' },
-      { href: '/mensajes', label: 'Mensajes', icono: 'mensajes' },
-      { href: '/eventos', label: 'Eventos', icono: 'eventos' },
-      { href: '/sommelier', label: 'Somelier ODB', icono: 'somelier' },
-      // UN solo RESPONDE (1/10/2026): había tres entradas del bot y dos mostraban
-      // charlas mezcladas con las del simulador. Las conversaciones reales están en
-      // RESPONDE; las campañas, en Difusiones; probar el bot, aparte.
+      { href: '/clientes?sucursal=st', label: 'Clientes Sant Thomas', icono: 'clientes', sub: 'Clientes' },
+      { href: '/clientes?sucursal=si', label: 'Clientes Santa Inés', icono: 'clientes', sub: 'Clientes' },
+      { href: '/clientes', label: 'Base de datos', icono: 'clientes', sub: 'Clientes' },
+      { href: '/agenda', label: 'Agenda', icono: 'clientes', sub: 'Clientes' },
+      { href: '/cuentas-corrientes', label: 'Cuentas corrientes', icono: 'clientes', sub: 'Cuentas corrientes' },
+      { href: '/cuentas-corrientes?tipo=sponsor', label: 'Sponsors WF', icono: 'clientes', sub: 'Cuentas corrientes' },
+      { href: '/eventos', label: 'Eventos', icono: 'eventos', sub: 'Atención' },
+      { href: '/sommelier', label: 'Somelier ODB', icono: 'somelier', sub: 'Atención' },
+    ],
+  },
+  {
+    titulo: 'WhatsApp',
+    icono: 'mensajes',
+    items: [
       { href: '/responde', label: 'RESPONDE', icono: 'agente' },
       { href: '/bandeja', label: 'Difusiones', icono: 'mensajes' },
+      { href: '/mensajes', label: 'Mensajes', icono: 'mensajes' },
       { href: '/bot', label: 'Probar el bot', icono: 'agente' },
     ],
   },
   {
-    titulo: 'Dirección',
+    titulo: 'Compras',
+    icono: 'compras',
     items: [
-      // Primero de la lista a propósito: es la cola que frena a todo el resto.
-      { href: '/aprobaciones', label: 'Aprobaciones', icono: 'conciliacion' },
-      // quién hizo qué en todo el sistema (6/10/2026)
-      { href: '/actividad', label: 'Actividad del equipo', icono: 'usuarios' },
-      { href: '/estadisticas', label: 'Estadísticas', icono: 'estadisticas' },
-      { href: '/mercadopago', label: 'Mercado Pago', icono: 'mercadopago' },
-      { href: '/tarjetas', label: 'Tarjetas', icono: 'tarjetas' },
-      { href: '/arca', label: 'ARCA', icono: 'arca' },
-      { href: '/contable', label: 'Contable', icono: 'libroiva' },
-      { href: '/conciliacion', label: 'Conciliación', icono: 'conciliacion' },
-      { href: '/cheques', label: 'Cheques', icono: 'cheques' },
-      { href: '/libro-iva', label: 'Libro IVA', icono: 'libroiva' },
-      { href: '/informes', label: 'Informe diario', icono: 'informe' },
-      { href: '/reportes', label: 'Reportes del equipo', icono: 'usuarios' },
-      { href: '/eficiencia', label: 'Eficiencia', icono: 'eficiencia' },
-      { href: '/usuarios', label: 'Usuarios', icono: 'usuarios' },
+      { href: '/pedido-proveedor', label: 'Pedido a proveedor', icono: 'compras', sub: 'Pedir' },
+      { href: '/compras', label: 'Órdenes de compra', icono: 'compras', sub: 'Pedir' },
+      { href: '/por-llegar', label: 'Por llegar', icono: 'compras', sub: 'Pedir' },
+      { href: '/facturas-compra', label: 'Facturas de compra', icono: 'listas', sub: 'Facturas y costos' },
+      { href: '/mesa-compras', label: 'Mesa de compras', icono: 'comparador', sub: 'Facturas y costos' },
+      { href: '/trazabilidad', label: 'Trazabilidad', icono: 'listas', sub: 'Facturas y costos' },
+      { href: '/comparador', label: 'Proveedores', icono: 'comparador', sub: 'Proveedores' },
+      { href: '/listas', label: 'Listas de proveedor', icono: 'listas', sub: 'Proveedores' },
+      { href: '/analista', label: 'Analista ODB', icono: 'analista', sub: 'Asistentes' },
+      { href: '/agente', label: 'Agente IA', icono: 'agente', sub: 'Asistentes' },
+    ],
+  },
+  {
+    titulo: 'Administración',
+    icono: 'conciliacion',
+    items: [
+      // lo que espera firma va primero: el número rojo se ve con el grupo cerrado
+      { href: '/aprobaciones', label: 'Aprobaciones', icono: 'conciliacion', sub: 'Firmas' },
+      { href: '/mercadopago', label: 'Mercado Pago', icono: 'mercadopago', sub: 'Cobros y pagos' },
+      { href: '/tarjetas', label: 'Tarjetas', icono: 'tarjetas', sub: 'Cobros y pagos' },
+      { href: '/conciliacion', label: 'Conciliación', icono: 'conciliacion', sub: 'Cobros y pagos' },
+      { href: '/cheques', label: 'Cheques', icono: 'cheques', sub: 'Cobros y pagos' },
+      { href: '/arca', label: 'ARCA', icono: 'arca', sub: 'Impuestos' },
+      { href: '/contable', label: 'Contable', icono: 'libroiva', sub: 'Impuestos' },
+      { href: '/libro-iva', label: 'Libro IVA', icono: 'libroiva', sub: 'Impuestos' },
+      { href: '/estadisticas', label: 'Estadísticas', icono: 'estadisticas', sub: 'Números' },
+      { href: '/informes', label: 'Informe diario', icono: 'informe', sub: 'Números' },
+      { href: '/actividad', label: 'Actividad del equipo', icono: 'usuarios', sub: 'Equipo' },
+      { href: '/reportes', label: 'Reportes del equipo', icono: 'usuarios', sub: 'Equipo' },
+      { href: '/eficiencia', label: 'Eficiencia', icono: 'eficiencia', sub: 'Equipo' },
+      { href: '/usuarios', label: 'Usuarios', icono: 'usuarios', sub: 'Equipo' },
     ],
   },
 ];
@@ -175,7 +194,11 @@ const TITULOS: Record<string, { titulo: string; bajada: string }> = {
   '/analista': { titulo: 'Analista ODB', bajada: 'El asesor de abastecimiento: quiebres, reposición y oportunidades' },
   '/agente': { titulo: 'Agente IA Operativo', bajada: 'Carga y mantiene el catálogo solo, con autonomía supervisada: audita cada acción y escala a un humano cuando duda' },
   '/cuentas-corrientes': { titulo: 'Cuentas corrientes', bajada: 'La plata en la calle: riesgo, topes y mejores pagadores' },
-  '/clientes': { titulo: 'Clientes', bajada: 'Cuentas, clasificación RFM y Comunidad ODB' },
+  '/cuentas-corrientes?tipo=sponsor': { titulo: 'Sponsors WF', bajada: 'Las cuentas de los sponsors del Wine Fest: lo que deben y lo que pagaron' },
+  '/clientes?sucursal=st': { titulo: 'Clientes Sant Thomas', bajada: 'Los clientes de la sucursal Sant Thomas' },
+  '/clientes?sucursal=si': { titulo: 'Clientes Santa Inés', bajada: 'Los clientes de la sucursal Santa Inés' },
+  '/agenda': { titulo: 'Agenda', bajada: 'Todos los que escribieron a las líneas de WhatsApp: llamar, escribir o abrir la charla' },
+  '/clientes': { titulo: 'Base de clientes', bajada: 'Todos los clientes, clasificación RFM y Comunidad ODB' },
   '/mensajes': { titulo: 'Mensajes', bajada: 'Solicitudes de clientes, envíos y notificaciones automáticas' },
   '/eventos': { titulo: 'Eventos', bajada: 'Cumpleaños, casamientos, corporativos y fin de año: de la propuesta al brindis' },
   '/sommelier': { titulo: 'Somelier ODB', bajada: 'El experto en vinos que atiende a tus clientes' },
@@ -244,7 +267,7 @@ export async function Header({
   // el menú muestra solo lo que el rol puede abrir (backoffice ve Abastecimiento);
   // los roles sin restricción ven todo, como siempre
   const rol = rolDesdeToken((await cookies()).get('odb_token')?.value);
-  const grupos = GRUPOS.map((g) => ({ ...g, items: g.items.filter((i) => puedeVer(rol, i.href) && (!i.soloRoles || i.soloRoles.includes(String(rol)))) })).filter((g) => g.items.length > 0);
+  const grupos = GRUPOS.map((g) => ({ ...g, items: g.items.filter((i) => puedeVer(rol, i.href.split('?')[0]) && (!i.soloRoles || i.soloRoles.includes(String(rol)))) })).filter((g) => g.items.length > 0);
 
   // Lo que espera firma va con NÚMERO en el menú, no como alerta. Hay 124
   // alertas sin leer en el panel: un aviso que nadie mira no protege nada, y de
@@ -262,7 +285,6 @@ export async function Header({
     } catch { /* el menú nunca se cae por el contador */ }
   }
   const pendientes: Record<string, number> = { '/aprobaciones': porFirmar, '/clientes': cobrosPendientes };
-  const pendientesDe = (href: string) => pendientes[href] ?? 0;
 
   return (
     <>
@@ -275,37 +297,8 @@ export async function Header({
           <CampanaAlertas esDuenio={rol === 'dueno'} />
         </div>
 
-        <nav aria-label="Secciones del sistema" className="flex-1 space-y-5 overflow-y-auto px-3 pb-4 [scrollbar-color:rgb(255_255_255/0.15)_transparent] [scrollbar-width:thin]">
-          {grupos.map((g) => (
-            <div key={g.titulo}>
-              <p className="mb-1.5 px-3 text-xs font-semibold uppercase tracking-[0.14em] text-white/55">{g.titulo}</p>
-              {g.items.map((i) => {
-                const esActivo = i.href === activo;
-                const n = pendientesDe(i.href);
-                return (
-                  <Link
-                    key={i.href}
-                    href={i.href}
-                    aria-current={esActivo ? 'page' : undefined}
-                    className={`group mb-0.5 flex items-center gap-3 rounded-xl px-3 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50 ${
-                      esActivo ? 'bg-marca font-semibold text-white' : 'text-white/70 hover:bg-white/[0.06] hover:text-white'
-                    }`}
-                  >
-                    <Icono d={ICONOS[i.icono]} activo={esActivo} />
-                    <span className="min-w-0 flex-1 truncate">{i.label}</span>
-                    {n > 0 && (
-                      <span
-                        className={`importe rounded-full px-2 text-xs font-semibold leading-5 ${esActivo ? 'bg-white text-marca' : 'bg-marca text-white'}`}
-                        title={`${n} esperando tu aprobación`}
-                      >
-                        {n}
-                      </span>
-                    )}
-                  </Link>
-                );
-              })}
-            </div>
-          ))}
+        <nav aria-label="Secciones del sistema" className="flex-1 overflow-y-auto px-3 pb-4 [scrollbar-color:rgb(255_255_255/0.15)_transparent] [scrollbar-width:thin]">
+          <MenuNav grupos={grupos} iconos={ICONOS} activo={activo} pendientes={pendientes} />
         </nav>
 
         <div className="space-y-0.5 border-t border-white/10 px-3 py-4">

@@ -1,8 +1,8 @@
-import { BadRequestException, Body, Controller, Get, Inject, Param, Patch, Post, Req } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Inject, Param, Patch, Post, Query, Req } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
 import { Roles } from '../auth/decorators';
-import { CtaCteResumenesService, DatosCliente } from './cta-cte-resumenes.service';
+import { CtaCteResumenesService, DatosCliente, TipoCuenta } from './cta-cte-resumenes.service';
 
 // Tablero de cuentas corrientes: quién debe cuánto, contra qué tope, quién
 // paga bien y quién es un riesgo. La foto que el dueño necesita para decidir
@@ -53,24 +53,26 @@ export class CtaCteController {
 
   @Roles('gerente', 'dueno')
   @Patch('cliente/:id')
-  cambiarCliente(@Param('id') id: string, @Body() dto: DatosCliente & { recibeResumen?: boolean; limite?: number; habilitada?: boolean }) {
+  cambiarCliente(@Param('id') id: string, @Body() dto: DatosCliente & { recibeResumen?: boolean; limite?: number; habilitada?: boolean; tipo?: TipoCuenta }) {
     return this.resumenes.cambiarCliente(id, dto);
   }
 
   // sumar una cuenta: cliente existente (clienteId) o nuevo (datos), tope y saldo inicial
   @Roles('gerente', 'dueno')
   @Post('alta')
-  abrirCuenta(@Body() dto: { clienteId?: string; datos?: DatosCliente; tope?: number; saldoInicial?: number; nota?: string }) {
+  abrirCuenta(@Body() dto: { clienteId?: string; datos?: DatosCliente; tope?: number; saldoInicial?: number; nota?: string; tipo?: TipoCuenta }) {
     return this.resumenes.abrirCuenta(dto);
   }
 
   @Roles('gerente', 'dueno')
   @Get('tablero')
-  async tablero() {
+  async tablero(@Query('tipo') tipo?: string) {
+    // ?tipo=sponsor: las cuentas de los sponsors del Wine Fest; sin tipo, las de clientes (24/10/2026)
     const { data: clientes, error } = await this.db
       .from('clientes')
-      .select('id, nombre, razon_social, telefono, saldo_cta_cte, limite_credito, cta_cte_habilitada')
+      .select('id, nombre, razon_social, telefono, saldo_cta_cte, limite_credito, cta_cte_habilitada, cta_cte_tipo')
       .eq('cta_cte_habilitada', true)
+      .eq('cta_cte_tipo', tipo === 'sponsor' ? 'sponsor_wf' : 'cliente')
       .order('saldo_cta_cte', { ascending: false });
     if (error) throw new BadRequestException(error.message);
     const lista = (clientes ?? []) as any[];

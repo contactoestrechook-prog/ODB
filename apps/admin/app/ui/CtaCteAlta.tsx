@@ -11,7 +11,7 @@ import { CtaCteDatosCliente, DATOS_VACIOS, celularSirve, type DatosForm } from '
 
 type Encontrado = { id: string; nombre: string; razon_social: string | null; telefono: string | null; cuit: string | null; domicilio: string | null; email: string | null; cta_cte_habilitada: boolean };
 
-export function CtaCteAlta({ abierto, onCerrar, onListo }: { abierto: boolean; onCerrar: () => void; onListo: (clienteId: string, yaTenia: boolean) => void }) {
+export function CtaCteAlta({ abierto, tipo = 'cliente', onCerrar, onListo }: { abierto: boolean; tipo?: 'cliente' | 'sponsor'; onCerrar: () => void; onListo: (clienteId: string, yaTenia: boolean) => void }) {
   const [q, setQ] = useState('');
   const [resultados, setResultados] = useState<Encontrado[]>([]);
   const [buscando, setBuscando] = useState(false);
@@ -61,7 +61,7 @@ export function CtaCteAlta({ abierto, onCerrar, onListo }: { abierto: boolean; o
       const datos = Object.fromEntries(Object.entries(form).map(([k, v]) => [k, v.trim()]));
       const r = await fetch('/api/cta-cte/alta', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clienteId: elegido?.id, datos, tope: Number(tope) || 0, saldoInicial: Number(saldo) || 0 }),
+        body: JSON.stringify({ clienteId: elegido?.id, datos, tope: Number(tope) || 0, saldoInicial: Number(saldo) || 0, tipo }),
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(Array.isArray(j?.message) ? j.message.join(', ') : j?.message || 'No se pudo');
@@ -77,7 +77,7 @@ export function CtaCteAlta({ abierto, onCerrar, onListo }: { abierto: boolean; o
     <Modal
       abierto={abierto}
       onCerrar={onCerrar}
-      titulo="Sumar una cuenta corriente"
+      titulo={tipo === 'sponsor' ? 'Sumar un sponsor del Wine Fest' : 'Sumar una cuenta corriente'}
       descripcion={enFormulario ? (nuevo ? 'Cliente nuevo' : 'Revisá sus datos, completá lo que falte y poné el tope.') : 'Buscá al cliente: la mayoría ya está cargado.'}
       ancho="ancho"
       bloquearCierre={guardando}

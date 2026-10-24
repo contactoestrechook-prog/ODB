@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Aviso, Boton, Campo, Cargando, Entrada, Etiqueta, Modal, useConfirmar } from './kit';
+import { Aviso, Boton, Campo, Cargando, Entrada, Etiqueta, Modal, Selector, useConfirmar } from './kit';
 import { fecha, fechaHora, pesos } from '../lib/formato';
 import { CtaCteDatosCliente, DATOS_VACIOS, celularSirve, type DatosForm } from './CtaCteDatosCliente';
 
@@ -12,7 +12,7 @@ import { CtaCteDatosCliente, DATOS_VACIOS, celularSirve, type DatosForm } from '
 type Datos = {
   cliente: {
     id: string; nombre: string; telefono: string | null; celularValido: boolean; saldo: number; limite: number;
-    habilitada: boolean; recibeResumen: boolean;
+    habilitada: boolean; recibeResumen: boolean; tipo: 'cliente' | 'sponsor';
     datos: Omit<DatosForm, 'telefono'>;
   };
   movimientos: { id: number; concepto: string | null; debe: number; haber: number; creado_en: string }[];
@@ -111,6 +111,12 @@ export function CtaCteDetalle({ clienteId, onCerrar, onCambio }: { clienteId: st
           </section>
 
           <section className="grid gap-3 sm:grid-cols-2">
+            <Campo etiqueta="Tipo de cuenta" ayuda="Los sponsors del Wine Fest se ven aparte, en Clientes › Sponsors WF.">
+              <Selector value={c!.tipo} onChange={(e) => guardar({ tipo: e.target.value }, e.target.value === 'sponsor' ? 'Pasó a Sponsors WF.' : 'Pasó a cuentas de clientes.')} disabled={guardando}>
+                <option value="cliente">Cliente</option>
+                <option value="sponsor">Sponsor del Wine Fest</option>
+              </Selector>
+            </Campo>
             <Campo etiqueta="Tope de crédito" ayuda="Con el 80 % usado se pone en amarillo. Vacío: sin tope.">
               <Entrada value={tope} onChange={(e) => setTope(e.target.value)} type="number" inputMode="decimal" prefijo="$" placeholder="0" disabled={guardando} />
             </Campo>

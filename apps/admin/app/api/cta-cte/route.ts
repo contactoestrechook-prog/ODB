@@ -3,9 +3,11 @@ import { cookies } from 'next/headers';
 
 const API = process.env.API_URL ?? 'http://localhost:3001';
 
-export async function GET() {
+// ?tipo=sponsor: las cuentas de los sponsors del Wine Fest
+export async function GET(req: Request) {
   const token = (await cookies()).get('odb_token')?.value;
-  const res = await fetch(`${API}/cta-cte/tablero`, {
+  const tipo = new URL(req.url).searchParams.get('tipo') === 'sponsor' ? '?tipo=sponsor' : '';
+  const res = await fetch(`${API}/cta-cte/tablero${tipo}`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
     cache: 'no-store',
   });

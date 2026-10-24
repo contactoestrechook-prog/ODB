@@ -302,7 +302,7 @@ export class CtaCteResumenesService {
   /** Estado de cuenta de un cliente: movimientos y resúmenes que recibió. */
   async estadoDeCuenta(clienteId: string) {
     const [{ data: cli }, { data: movs }, { data: resumenes }] = await Promise.all([
-      this.db.from('clientes').select('id, nombre, razon_social, telefono, cuit, domicilio, email, saldo_cta_cte, limite_credito, cta_cte_habilitada, cta_cte_resumen').eq('id', clienteId).maybeSingle(),
+      this.db.from('clientes').select('id, nombre, razon_social, telefono, cuit, domicilio, email, saldo_cta_cte, limite_credito, cta_cte_habilitada, cta_cte_resumen, cta_cte_tipo').eq('id', clienteId).maybeSingle(),
       this.db.from('cuenta_corriente').select('id, concepto, debe, haber, creado_en').eq('cliente_id', clienteId).order('creado_en', { ascending: false }).limit(100),
       this.db.from('cta_cte_resumenes').select('tanda, estado, saldo, motivo, enviado_en').eq('cliente_id', clienteId).order('tanda', { ascending: false }).limit(24),
     ]);
@@ -317,6 +317,7 @@ export class CtaCteResumenesService {
         saldo: Number(cli.saldo_cta_cte ?? 0),
         limite: Number(cli.limite_credito ?? 0),
         habilitada: !!cli.cta_cte_habilitada,
+        tipo: (cli.cta_cte_tipo === 'sponsor_wf' ? 'sponsor' : 'cliente') as TipoCuenta,
         recibeResumen: cli.cta_cte_resumen !== false,
       },
       movimientos: (movs ?? []).map((m: any) => ({ ...m, debe: Number(m.debe ?? 0), haber: Number(m.haber ?? 0) })),
@@ -324,8 +325,9 @@ export class CtaCteResumenesService {
     };
   }
 
-  async cambiarCliente(clienteId: string, cambios: DatosCliente & { recibeResumen?: boolean; limite?: number; habilitada?: boolean }) {
+  async cambiarCliente(clienteId: string, cambios: DatosCliente & { recibeResumen?: boolean; limite?: number; habilitada?: boolean; tipo?: TipoCuenta }) {
     const fila: Record<string, unknown> = datosAFila(cambios);
+    if (cambios.tipo !== undefined) fila.cta_cte_tipo = tipoAColumna(cambios.tipo);
     if (cambios.recibeResumen !== undefined) fila.cta_cte_resumen = !!cambios.recibeResumen;
     if (cambios.limite !== undefined) {
       const tope = Number(cambios.limite);
@@ -351,7 +353,7 @@ export class CtaCteResumenesService {
    * (datos, con nombre). Habilita la cuenta, fija el tope y, si viene con una
    * deuda de antes, la carga como saldo inicial (cta_cte_abrir, en la base).
    */
-  async abrirCuenta(dto: { clienteId?: string; datos?: DatosCliente; tope?: number; saldoInicial?: number; nota?: string }) {
+  async abrirCuenta(dto: { clienteId?: string; datos?: DatosCliente; tope?: number; saldoInicial?: number; nota?: string; tipo?: TipoCuenta }) {
     const tope = Number(dto.tope ?? 0);
     const saldoInicial = Number(dto.saldoInicial ?? 0);
     if (!Number.isFinite(tope) || tope < 0) throw new BadRequestException('El tope tiene que ser un monto válido');
@@ -372,8 +374,19 @@ export class CtaCteResumenesService {
       p_cliente: clienteId, p_tope: tope, p_saldo_inicial: saldoInicial, p_nota: dto.nota?.trim() || null,
     });
     if (error) throw new BadRequestException(error.message);
+    if (dto.tipo !== undefined) {
+      const { error: e2 } = await this.db.from('clientes').update({ cta_cte_tipo: tipoAColumna(dto.tipo) }).eq('id', clienteId);
+      if (e2) throw new BadRequestException(e2.message);
+    }
     return { clienteId, saldo: Number(saldo ?? 0) };
   }
+}
+
+/** Una cuenta corriente es de un cliente o de un sponsor del Wine Fest (24/10/2026). */
+export type TipoCuenta = 'cliente' | 'sponsor';
+function tipoAColumna(t: unknown): 'cliente' | 'sponsor_wf' {
+  if (t !== 'cliente' && t !== 'sponsor') throw new BadRequestException('Tipo de cuenta desconocido');
+  return t === 'sponsor' ? 'sponsor_wf' : 'cliente';
 }
 
 export type DatosCliente = { nombre?: string; razonSocial?: string; cuit?: string; domicilio?: string; email?: string; telefono?: string };

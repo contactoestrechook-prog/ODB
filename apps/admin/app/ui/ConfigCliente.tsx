@@ -24,6 +24,7 @@ export function ConfigCliente({ cliente }: { cliente: any }) {
     condicionIva: cliente.condicion_iva ?? 'consumidor_final',
     domicilio: cliente.domicilio ?? '',
     telefono: cliente.telefono ?? '',
+    sucursal: cliente.sucursal ?? '',
     fechaNacimiento: cliente.fecha_nacimiento ? String(cliente.fecha_nacimiento).slice(0, 10) : '',
     ctaCteHabilitada: !!cliente.cta_cte_habilitada,
     limiteCredito: cliente.limite_credito ?? 0,
@@ -65,14 +66,14 @@ export function ConfigCliente({ cliente }: { cliente: any }) {
   return (
     <>
       <Boton variante="fantasma" tamano="chico" onClick={() => setAbierto(true)} className="whitespace-nowrap">
-        {cliente.cta_cte_habilitada ? 'Cta. cte. habilitada' : 'Configurar'}
+        Editar datos
       </Boton>
 
       <Modal
         abierto={abierto}
         onCerrar={() => setAbierto(false)}
         titulo={cliente.nombre ?? `DNI ${cliente.dni}`}
-        descripcion="Datos fiscales, cumpleaños y cuenta corriente"
+        descripcion="Datos, sucursal, cumpleaños y cuenta corriente"
         ancho="chico"
         bloquearCierre={cargando}
         cerrarAlTocarAfuera={false}
@@ -103,6 +104,13 @@ export function ConfigCliente({ cliente }: { cliente: any }) {
             </Campo>
             <Campo etiqueta="Teléfono">
               <Entrada value={form.telefono} onChange={(e) => campo('telefono', e.target.value)} inputMode="tel" />
+            </Campo>
+            <Campo etiqueta="Sucursal" ayuda="Dónde compra: así aparece en Clientes Sant Thomas o Santa Inés.">
+              <Selector value={form.sucursal} onChange={(e) => campo('sucursal', e.target.value)}>
+                <option value="">Sin sucursal</option>
+                <option value="st">Sant Thomas</option>
+                <option value="si">Santa Inés</option>
+              </Selector>
             </Campo>
             {/* Eventos ofrece el festejo a quien cumple en los próximos 60 días */}
             <Campo etiqueta="Fecha de nacimiento" ayuda="Para ofrecerle el festejo (Eventos).">

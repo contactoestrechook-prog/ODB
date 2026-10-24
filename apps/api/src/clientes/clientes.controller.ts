@@ -37,6 +37,8 @@ export class ClientesController {
       limiteCredito?: number;
       aceptaMarketing?: boolean;
       fechaNacimiento?: string | null;
+      /** 'st' Sant Thomas, 'si' Santa Inés, '' sin sucursal (24/10/2026) */
+      sucursal?: string | null;
     },
   ) {
     const cambios: Record<string, any> = {};
@@ -52,6 +54,11 @@ export class ClientesController {
     // 21/10/2026: Eventos manda a cargar la fecha acá (cumpleaños para ofrecer
     // el festejo) y no había dónde: solo la cargaba el registro de la app
     if (dto.fechaNacimiento !== undefined) cambios.fecha_nacimiento = fechaDeNacimiento(dto.fechaNacimiento);
+    if (dto.sucursal !== undefined) {
+      const suc = String(dto.sucursal ?? '').trim();
+      if (suc && suc !== 'st' && suc !== 'si') throw new BadRequestException('Sucursal desconocida');
+      cambios.sucursal = suc || null;
+    }
     if (dto.aceptaMarketing !== undefined) {
       cambios.acepta_marketing = dto.aceptaMarketing;
       cambios.marketing_optout_en = dto.aceptaMarketing ? null : new Date().toISOString();
@@ -90,6 +97,13 @@ export class ClientesController {
     if (error) throw new BadRequestException(error.message);
     const c = (data ?? []) as any[];
     const mesActual = new Date().getMonth();
+    // por sucursal, con count: la lista de arriba la corta Supabase en 1.000 filas
+    const contar = (f: (q: any) => any) => f(this.db.from('clientes').select('id', { count: 'exact', head: true })).then((r: any) => r.count ?? 0);
+    const [st, si, sin] = await Promise.all([
+      contar((q) => q.eq('sucursal', 'st')),
+      contar((q) => q.eq('sucursal', 'si')),
+      contar((q) => q.is('sucursal', null)),
+    ]);
     const porTipo: Record<string, number> = {};
     for (const x of c) porTipo[x.tipo] = (porTipo[x.tipo] ?? 0) + 1;
     return {
@@ -99,6 +113,7 @@ export class ClientesController {
       conCtaCte: c.filter((x) => x.cta_cte_habilitada).length,
       cumpleMes: c.filter((x) => x.fecha_nacimiento && new Date(x.fecha_nacimiento).getMonth() === mesActual).length,
       porTipo,
+      porSucursal: { st, si, sin },
     };
   }
 
@@ -143,16 +158,20 @@ export class ClientesController {
     @Query('buscar') buscar?: string,
     @Query('filtro') filtro?: string,
     @Query('pagina') paginaParam?: string,
+    // 'st' | 'si' | 'sin' (los que no tienen sucursal): Clientes Sant Thomas / Santa Inés del menú
+    @Query('sucursal') sucursal?: string,
   ) {
     const porPagina = 50;
     const pagina = Math.max(Number(paginaParam ?? 1), 1);
 
     let query = this.db
       .from('clientes')
-      .select('id, dni, cuit, nombre, razon_social, condicion_iva, domicilio, email, telefono, tipo, verificado, puntos, cta_cte_habilitada, limite_credito, acepta_marketing, fecha_nacimiento, creado_en', {
+      .select('id, dni, cuit, nombre, razon_social, condicion_iva, domicilio, email, telefono, tipo, verificado, puntos, cta_cte_habilitada, limite_credito, acepta_marketing, fecha_nacimiento, creado_en, sucursal, barrio', {
         count: 'exact',
       });
     if (tipo) query = query.eq('tipo', tipo);
+    if (sucursal === 'st' || sucursal === 'si') query = query.eq('sucursal', sucursal);
+    if (sucursal === 'sin') query = query.is('sucursal', null);
     if (filtro === 'comunidad') query = query.eq('verificado', true);
     if (filtro === 'marketing') query = query.eq('acepta_marketing', true);
     // nombre, razón social, DNI o CUIT; todas las palabras, sin tildes

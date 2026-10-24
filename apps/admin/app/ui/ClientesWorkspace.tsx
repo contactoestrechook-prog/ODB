@@ -153,7 +153,7 @@ export function ClientesWorkspace({ resumen, segmentos, ticketGeneral, cuentas }
   );
 }
 
-function ClienteTabla({ lista, router }: any) {
+export function ClienteTabla({ lista, router }: any) {
   const toggleOptIn = async (c: any) => {
     await fetch('/api/cliente-editar', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: c.id, aceptaMarketing: !c.acepta_marketing }) });
     router.refresh();
@@ -175,7 +175,7 @@ function ClienteTabla({ lista, router }: any) {
           celda: (c: any) => (
             <div className="min-w-0">
               <p className="break-words font-medium">{c.nombre ?? `DNI ${c.dni}`}</p>
-              <p className="text-xs font-normal text-tinta/60">{c.dni}{c.verificado && ' · Comunidad'}</p>
+              <p className="text-xs font-normal text-tinta/60">{[c.dni, c.telefono, c.sucursal === 'st' ? 'Sant Thomas' : c.sucursal === 'si' ? 'Santa Inés' : null, c.verificado ? 'Comunidad' : null].filter(Boolean).join(' · ')}</p>
             </div>
           ),
         },

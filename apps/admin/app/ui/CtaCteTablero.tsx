@@ -23,7 +23,8 @@ type Cuenta = {
 const COLOR = { alto: 'bg-marca', medio: 'bg-atencion', bajo: 'bg-ok' } as const;
 const ETIQ = { alto: 'Riesgo alto', medio: 'Atención', bajo: 'Al día' } as const;
 
-export function CtaCteTablero({ esDueno }: { esDueno: boolean }) {
+export function CtaCteTablero({ esDueno, tipo = 'cliente' }: { esDueno: boolean; tipo?: 'cliente' | 'sponsor' }) {
+  const sponsors = tipo === 'sponsor';
   const [datos, setDatos] = useState<{ kpis: any; cuentas: Cuenta[] } | null>(null);
   const [error, setError] = useState('');
   const [editando, setEditando] = useState<string | null>(null);
@@ -38,12 +39,12 @@ export function CtaCteTablero({ esDueno }: { esDueno: boolean }) {
 
   const cargar = useCallback(async () => {
     try {
-      const r = await fetch('/api/cta-cte');
+      const r = await fetch(sponsors ? '/api/cta-cte?tipo=sponsor' : '/api/cta-cte');
       if (!r.ok) { setError('No pude cargar el tablero'); return; }
       setDatos(await r.json());
       setError('');
     } catch { setError('Sin conexión'); }
-  }, []);
+  }, [sponsors]);
   useEffect(() => { cargar(); }, [cargar]);
 
   const guardarTope = async (clienteId: string) => {
@@ -75,11 +76,14 @@ export function CtaCteTablero({ esDueno }: { esDueno: boolean }) {
   return (
     <div className="space-y-4 sm:space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm text-tinta/70">Tocá cualquier nombre para ver su cuenta y corregir sus datos.</p>
-        <Boton onClick={() => setSumando(true)}>Sumar cuenta</Boton>
+        <p className="text-sm text-tinta/70">
+          {sponsors ? 'Las cuentas de los sponsors del Wine Fest. ' : ''}Tocá cualquier nombre para ver su cuenta y corregir sus datos.
+        </p>
+        <Boton onClick={() => setSumando(true)}>{sponsors ? 'Sumar sponsor' : 'Sumar cuenta'}</Boton>
       </div>
       <CtaCteAlta
         abierto={sumando}
+        tipo={tipo}
         onCerrar={() => setSumando(false)}
         onListo={(id) => { setSumando(false); setAbierta(id); setVersion((v) => v + 1); cargar(); }}
       />
@@ -92,7 +96,8 @@ export function CtaCteTablero({ esDueno }: { esDueno: boolean }) {
         <Kpi etiqueta="Sin tope asignado" valor={kpis.sinTope} tono={kpis.sinTope > 0 ? 'atencion' : 'neutro'} />
       </div>
 
-      <CtaCteResumenes esDueno={esDueno} onAbrirCuenta={setAbierta} version={version} />
+      {/* el resumen por WhatsApp es uno solo para todas las cuentas: va en la vista de clientes */}
+      {!sponsors && <CtaCteResumenes esDueno={esDueno} onAbrirCuenta={setAbierta} version={version} />}
       <CtaCteDetalle clienteId={abierta} onCerrar={() => setAbierta(null)} onCambio={() => { setVersion((v) => v + 1); cargar(); }} />
 
       {/* GRÁFICO: la deuda, cliente por cliente, contra su tope */}
