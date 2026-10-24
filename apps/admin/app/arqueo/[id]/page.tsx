@@ -11,7 +11,7 @@ export default async function ArqueoRevisionPage({ params }: { params: Promise<{
   const rol = rolDesdeToken((await cookies()).get('odb_token')?.value);
   return (
     <Pantalla activo="/arqueo" ancho="ancho">
-      <ArqueoRevision id={id} puedeAplicarSolo={rol === 'gerente' || rol === 'dueno'} />
+      <ArqueoRevision id={id} puedeAplicarSolo={rol === 'gerente' || rol === 'dueno' || rol === 'administrativo'} />
     </Pantalla>
   );
 }

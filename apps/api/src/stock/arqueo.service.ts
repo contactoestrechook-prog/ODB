@@ -3,6 +3,7 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
 import { CajaService } from '../caja/caja.service';
 import { cantidadDeBalanza, parsearCodigoBalanza } from '../catalogo/balanza';
+import { lunesDe, nombrePersona, repartir, semanasDelMes } from './plan-conteo';
 
 // ============================================================
 // ARQUEO DE STOCK (24/10/2026). Leandro: «cuando los empleados vayan con la
@@ -176,6 +177,25 @@ export class ArqueoService {
   }
 
   /**
+   * Lo que falta contar, para la segunda pasada del equipo: por rubro, sin
+   * cantidades del sistema. «sinCodigo» avisa que se busca por nombre.
+   */
+  async faltan(id: string) {
+    const c = await this.cabecera(id);
+    const { data, error } = await this.db.rpc('arqueo_faltan', { p_conteo: id });
+    if (error) throw new BadRequestException(error.message);
+    const filas = (data ?? []) as any[];
+    const porRubro = new Map<string, number>();
+    for (const f of filas) porRubro.set(f.categoria, (porRubro.get(f.categoria) ?? 0) + 1);
+    return {
+      estado: c.estado, total: filas.length,
+      rubros: [...porRubro.entries()].map(([nombre, cantidad]) => ({ nombre, cantidad })).sort((a, b) => b.cantidad - a.cantidad),
+      // tope generoso: el celular filtra por rubro y busca por nombre
+      items: filas.slice(0, 3000).map((f) => ({ sku: f.sku, nombre: f.nombre, rubro: f.categoria, sinCodigo: !!f.sin_codigo, porPeso: !!f.por_peso, foto: f.tiene_foto ? fotoDe(f.sku) : null })),
+    };
+  }
+
+  /**
    * Qué producto es lo que se escaneó o escribió. Con un código exacto viene uno
    * solo; con un nombre, opciones para elegir. Sin stock del sistema.
    */
@@ -221,7 +241,7 @@ export class ArqueoService {
     return { items, codigo: t };
   }
 
-  async registrar(id: string, dto: { id: string; sku: string; cantidad: number; ubicacion?: string; codigo?: string; reconteo?: boolean }, usuarioId?: string) {
+  async registrar(id: string, dto: { id: string; sku: string; cantidad: number; ubicacion?: string; codigo?: string; reconteo?: boolean; contador?: string }, usuarioId?: string) {
     if (!UUID.test(String(dto?.id ?? ''))) throw new BadRequestException('Lectura sin identificador');
     const cantidad = Number(dto.cantidad);
     if (!Number.isFinite(cantidad) || cantidad < 0) throw new BadRequestException('Cantidad inválida');
@@ -232,6 +252,7 @@ export class ArqueoService {
       p_ubicacion: dto.ubicacion ? String(dto.ubicacion).slice(0, 60) : null,
       p_codigo: dto.codigo ? String(dto.codigo).slice(0, 60) : null,
       p_reconteo: !!dto.reconteo, p_usuario: usuarioId ?? null,
+      p_contador: nombrePersona(dto.contador) || null,
     });
     if (error) throw new BadRequestException(mensajeDeError(error.message));
     return data;
@@ -264,6 +285,127 @@ export class ArqueoService {
     });
     if (error) throw new BadRequestException(error.message);
     return { anotado: true };
+  }
+
+  // ---------- plan de conteo por rubro (la planilla de la pared) ----------
+
+  private hoyAR() { return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }); }
+
+  /**
+   * La grilla del mes: rubros (con stock en la sucursal) por semanas. En cada
+   * celda, lo que se contó (quién y cuándo, sale de las lecturas) y a quién le
+   * toca. Más el último conteo de cada rubro, para ver lo que hace mucho no se cuenta.
+   */
+  async plan(sucursalId: string, mes?: string) {
+    if (!UUID.test(String(sucursalId ?? ''))) throw new BadRequestException('Elegí la sucursal');
+    const hoy = this.hoyAR();
+    const elMes = /^\d{4}-\d{2}$/.test(String(mes ?? '')) ? String(mes) : hoy.slice(0, 7);
+    const semanas = semanasDelMes(elMes);
+    const desde = semanas[0];
+    const hasta = new Date(new Date(`${semanas[semanas.length - 1]}T12:00:00Z`).getTime() + 6 * 86_400_000).toISOString().slice(0, 10);
+    const hace180 = new Date(Date.now() - 180 * 86_400_000).toISOString().slice(0, 10);
+    const [{ data: cats }, { data: stock }, { data: hechos, error: e1 }, { data: historia }, { data: plan }] = await Promise.all([
+      this.db.from('categorias').select('id, nombre').order('nombre').limit(1000),
+      this.db.rpc('arqueo_rubros_con_stock', { p_sucursal: sucursalId }),
+      this.db.rpc('arqueo_plan_hechos', { p_sucursal: sucursalId, p_desde: desde, p_hasta: hasta }),
+      this.db.rpc('arqueo_plan_hechos', { p_sucursal: sucursalId, p_desde: hace180, p_hasta: hoy }),
+      this.db.from('conteos_plan').select('id, categoria_id, semana, persona').eq('sucursal_id', sucursalId).gte('semana', desde).lte('semana', semanas[semanas.length - 1]),
+    ]);
+    if (e1) throw new BadRequestException(e1.message);
+    const porRubro = new Map(((stock ?? []) as any[]).map((r) => [r.categoria_id, { productos: Number(r.productos), valor: Number(r.valor ?? 0) }]));
+    const ultimo = new Map<string, { fecha: string; quien: string }>();
+    for (const h of (historia ?? []) as any[]) {
+      const u = ultimo.get(h.categoria_id);
+      if (!u || h.fecha > u.fecha) ultimo.set(h.categoria_id, { fecha: h.fecha, quien: h.quien });
+    }
+    const dias = (f: string) => Math.round((new Date(`${hoy}T12:00:00Z`).getTime() - new Date(`${f}T12:00:00Z`).getTime()) / 86_400_000);
+    const rubros = ((cats ?? []) as any[])
+      .filter((c) => porRubro.has(c.id))
+      .map((c) => {
+        const u = ultimo.get(c.id);
+        return { id: c.id, nombre: c.nombre, productos: porRubro.get(c.id)!.productos, valor: Math.round(porRubro.get(c.id)!.valor),
+          ultimo: u ? { fecha: u.fecha, quien: u.quien, dias: dias(u.fecha) } : null };
+      });
+    const celdas = new Map<string, any>();
+    const clave = (c: string, s: string) => `${c}|${s}`;
+    for (const p of (plan ?? []) as any[]) celdas.set(clave(p.categoria_id, p.semana), { categoriaId: p.categoria_id, semana: p.semana, asignado: p.persona, hechos: [] });
+    for (const h of (hechos ?? []) as any[]) {
+      const k = clave(h.categoria_id, h.semana);
+      const c = celdas.get(k) ?? { categoriaId: h.categoria_id, semana: h.semana, asignado: null, hechos: [] };
+      c.hechos.push({ conteoId: h.conteo_id, estado: h.estado, fecha: h.fecha, quien: h.quien, productos: h.productos });
+      celdas.set(k, c);
+    }
+    const personas = new Set<string>();
+    for (const p of (plan ?? []) as any[]) personas.add(p.persona);
+    for (const h of (historia ?? []) as any[]) if (h.quien && h.quien !== 'Sin nombre') personas.add(h.quien);
+    return { mes: elMes, hoy, semanaActual: lunesDe(hoy), semanas, rubros, celdas: [...celdas.values()], personas: [...personas].sort((a, b) => a.localeCompare(b, 'es')) };
+  }
+
+  /** Asignar (o sacar, con persona vacía) un rubro a una persona en una semana. */
+  async asignar(dto: { sucursalId: string; categoriaId: string; semana: string; persona?: string }, usuarioId?: string) {
+    if (!UUID.test(String(dto?.sucursalId ?? '')) || !UUID.test(String(dto?.categoriaId ?? ''))) throw new BadRequestException('Datos incompletos');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dto.semana ?? ''))) throw new BadRequestException('Semana inválida');
+    const semana = lunesDe(dto.semana);
+    const persona = nombrePersona(dto.persona);
+    if (!persona) {
+      const { error } = await this.db.from('conteos_plan').delete().eq('sucursal_id', dto.sucursalId).eq('categoria_id', dto.categoriaId).eq('semana', semana);
+      if (error) throw new BadRequestException(error.message);
+      return { ok: true, persona: null };
+    }
+    const { error } = await this.db.from('conteos_plan').upsert({ sucursal_id: dto.sucursalId, categoria_id: dto.categoriaId, semana, persona, creado_por: usuarioId ?? null },
+      { onConflict: 'sucursal_id,categoria_id,semana' });
+    if (error) throw new BadRequestException(error.message);
+    return { ok: true, persona };
+  }
+
+  /**
+   * Repartir el mes: los rubros con stock que no tienen a nadie asignado ni se
+   * contaron en el mes se reparten entre las semanas que faltan y las personas
+   * elegidas, parejo por cantidad de productos y primero lo que hace más que no se cuenta.
+   */
+  async repartirMes(dto: { sucursalId: string; mes: string; personas: string[]; soloSinContarDias?: number }, usuarioId?: string) {
+    const personas = Array.from(new Set((Array.isArray(dto?.personas) ? dto.personas : []).map(nombrePersona).filter(Boolean))).slice(0, 20);
+    if (!personas.length) throw new BadRequestException('Elegí al menos una persona');
+    const p = await this.plan(dto.sucursalId, dto.mes);
+    const semanas = p.semanas.filter((s) => s >= p.semanaActual);
+    if (!semanas.length) throw new BadRequestException('Ese mes ya pasó');
+    const ocupados = new Set(p.celdas.filter((c: any) => c.asignado || c.hechos.length).map((c: any) => c.categoriaId));
+    const pendientes = p.rubros.filter((r) => !ocupados.has(r.id))
+      .map((r) => ({ id: r.id, productos: r.productos, diasSinContar: r.ultimo ? r.ultimo.dias : null }))
+      .filter((r) => !dto.soloSinContarDias || r.diasSinContar == null || r.diasSinContar >= Number(dto.soloSinContarDias));
+    const plan = repartir(pendientes, semanas, personas);
+    if (!plan.length) return { asignados: 0 };
+    const { error } = await this.db.from('conteos_plan').upsert(plan.map((x) => ({ sucursal_id: dto.sucursalId, categoria_id: x.categoriaId, semana: x.semana, persona: x.persona, creado_por: usuarioId ?? null })),
+      { onConflict: 'sucursal_id,categoria_id,semana', ignoreDuplicates: true });
+    if (error) throw new BadRequestException(error.message);
+    return { asignados: plan.length };
+  }
+
+  /** Lo que le toca a una persona esta semana (por el nombre que puso en el celular). */
+  async miSemana(sucursalId: string, persona: string) {
+    const nombre = nombrePersona(persona);
+    if (!UUID.test(String(sucursalId ?? '')) || !nombre) return { semana: lunesDe(this.hoyAR()), rubros: [] };
+    const semana = lunesDe(this.hoyAR());
+    const { data: plan } = await this.db.from('conteos_plan').select('categoria_id, persona, categoria:categorias(nombre)').eq('sucursal_id', sucursalId).eq('semana', semana).ilike('persona', nombre);
+    if (!plan?.length) return { semana, rubros: [] };
+    const fin = new Date(new Date(`${semana}T12:00:00Z`).getTime() + 6 * 86_400_000).toISOString().slice(0, 10);
+    const { data: hechos } = await this.db.rpc('arqueo_plan_hechos', { p_sucursal: sucursalId, p_desde: semana, p_hasta: fin });
+    const contados = new Set(((hechos ?? []) as any[]).map((h) => h.categoria_id));
+    return { semana, rubros: (plan as any[]).map((p) => ({ categoriaId: p.categoria_id, nombre: p.categoria?.nombre ?? '—', contado: contados.has(p.categoria_id) })) };
+  }
+
+  /** Empezar (o sumarse) a contar un rubro: si ya hay un arqueo abierto de ese rubro, ese. */
+  async empezarRubro(dto: { sucursalId: string; categoriaId: string }, usuarioId?: string) {
+    if (!UUID.test(String(dto?.sucursalId ?? '')) || !UUID.test(String(dto?.categoriaId ?? ''))) throw new BadRequestException('Datos incompletos');
+    const { data: abiertos } = await this.db.from('conteos').select('id, alcance').eq('sucursal_id', dto.sucursalId).eq('estado', 'abierto').not('nombre', 'is', null).limit(50);
+    const ya = ((abiertos ?? []) as any[]).find((c) => c.alcance?.tipo === 'categorias' && Array.isArray(c.alcance.ids) && c.alcance.ids.length === 1 && c.alcance.ids[0] === dto.categoriaId);
+    if (ya) return { id: ya.id, nuevo: false };
+    const { data: cat } = await this.db.from('categorias').select('nombre').eq('id', dto.categoriaId).maybeSingle();
+    if (!cat) throw new BadRequestException('No existe ese rubro');
+    const semana = lunesDe(this.hoyAR());
+    const r = await this.crear({ sucursalId: dto.sucursalId, nombre: `${(cat as any).nombre} · semana del ${semana.slice(8, 10)}/${semana.slice(5, 7)}`,
+      alcance: { tipo: 'categorias', ids: [dto.categoriaId], nombres: [(cat as any).nombre] } }, usuarioId);
+    return { id: r.id, nuevo: true };
   }
 
   // ---------- revisar (gerencia) ----------

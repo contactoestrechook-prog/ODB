@@ -387,12 +387,17 @@ export const SECCIONES: Seccion[] = [
           'Si te equivocaste, en «Mis lecturas» tocás «Anular». No se borra: queda quién la anuló.',
           'Gerencia ve el avance en vivo. Al terminar, «Cerrar conteo y revisar»: lo que da una diferencia grande va a la pestaña «Recontar» del celular de todos.',
           'Con los reconteos hechos, gerencia elige qué hacer con lo que no se contó (dejarlo o ponerlo en cero) y toca «Aplicar el arqueo». Queda el informe para imprimir.',
+          'Para la segunda pasada, la pestaña «Faltan» del celular muestra por rubro lo que el sistema dice que hay y nadie contó (sin cantidades). Si está, «Contar»; si no hay ninguno, «No hay» (queda contado en cero). Ahí se cuentan también los productos sin código de barras.',
+          'Plan del mes («Arqueo de stock» → «Plan del mes»): es la planilla de la pared. Cada rubro por semana, con quién lo contó y qué día («Ale 21/10»), que se completa solo con lo que se cuenta en el celular. Ana y Romina asignan cada celda o tocan «Repartir el mes» para repartir los rubros pendientes entre el equipo.',
+          'Cada uno pone su nombre en el celular la primera vez («¿Quién cuenta?»). En la pantalla de arqueos le aparece «esta semana te toca contar» con sus rubros: un toque y empieza.',
         ],
       },
       {
         tipo: 'ojo',
         puntos: [
           'El que cuenta nunca ve cuánto dice el sistema (conteo ciego): cuenta lo que hay de verdad.',
+          'Las responsables del arqueo son Ana y Romina: arman, reparten el plan, revisan y aplican (sin PIN).',
+          'En el plan, en rojo los rubros que hace más de 30 días que nadie cuenta.',
           'Sin señal no se pierde nada: las lecturas quedan guardadas en el celular y se mandan solas cuando vuelve la conexión.',
           'Se puede seguir vendiendo mientras se cuenta: cada producto se compara con el stock del momento en que se contó.',
           'La cámara lee códigos en celulares Android con Chrome. En iPhone se usa el lector de mano o se busca por nombre.',

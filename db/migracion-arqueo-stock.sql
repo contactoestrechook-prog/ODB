@@ -260,3 +260,111 @@ begin
   values (p_autorizado_por, 'arqueo_aplicado', 'conteo', p_conteo::text, v_resumen || jsonb_build_object('operador', p_usuario));
   return v_resumen;
 end $$;
+
+-- Lo que falta contar en un arqueo, para el celular del que cuenta: sin cantidades
+-- del sistema (conteo ciego), con su rubro y si tiene código de barras (si no,
+-- se busca por nombre). Agregado el 24/10/2026.
+create or replace function arqueo_faltan(p_conteo uuid)
+returns table(producto_id uuid, sku text, nombre text, categoria text, sin_codigo boolean, tiene_foto boolean, por_peso boolean)
+language sql stable security definer set search_path to 'public'
+as $$
+  select p.id, p.sku, p.nombre, coalesce(k.nombre, 'Sin rubro'),
+    not exists (select 1 from codigos_barras cb where cb.producto_id = p.id),
+    coalesce(p.tiene_foto, false), coalesce(p.vendido_por_peso, false)
+  from arqueo_esperados(p_conteo) e
+  join productos p on p.id = e.producto_id
+  left join categorias k on k.id = p.categoria_id
+  where not exists (select 1 from conteos_registros r where r.conteo_id = p_conteo and r.producto_id = e.producto_id and r.anulado_en is null)
+  order by 4, 3;
+$$;
+
+-- PLAN DE CONTEO POR RUBRO (24/10/2026): la planilla de la pared (rubros por
+-- semanas, «Ale 21/7») pasada al sistema. Quién contó y cuándo sale solo de las
+-- lecturas del arqueo; el plan guarda a quién le toca cada rubro cada semana.
+-- «contador»: el nombre que pone en el celular quien cuenta (comparten usuario).
+alter table conteos_registros add column if not exists contador text;
+
+create table if not exists conteos_plan (
+  id uuid primary key default gen_random_uuid(),
+  sucursal_id uuid not null references sucursales(id),
+  categoria_id uuid not null references categorias(id),
+  semana date not null check (extract(isodow from semana) = 1),
+  persona text not null,
+  usuario_id uuid references usuarios(id),
+  creado_por uuid references usuarios(id),
+  creado_en timestamptz not null default now(),
+  unique (sucursal_id, categoria_id, semana)
+);
+alter table conteos_plan enable row level security;
+
+drop function if exists arqueo_registrar(uuid, uuid, uuid, numeric, text, text, boolean, uuid);
+create or replace function arqueo_registrar(p_conteo uuid, p_id uuid, p_producto uuid, p_cantidad numeric,
+  p_ubicacion text default null, p_codigo text default null, p_reconteo boolean default false, p_usuario uuid default null,
+  p_contador text default null)
+returns jsonb language plpgsql security definer set search_path to 'public'
+as $$
+declare v_c conteos%rowtype; v_mio numeric; v_total numeric;
+begin
+  select * into v_c from conteos where id = p_conteo;
+  if not found then raise exception 'No existe el arqueo'; end if;
+  if v_c.estado = 'en_revision' and not p_reconteo then
+    raise exception 'El arqueo está en revisión: solo se cargan reconteos';
+  end if;
+  if v_c.estado not in ('abierto', 'en_revision') then raise exception 'El arqueo está %', v_c.estado; end if;
+  if p_cantidad is null or p_cantidad < 0 then raise exception 'La cantidad no puede ser negativa'; end if;
+  if p_cantidad > 100000 then raise exception 'Cantidad fuera de rango: revisala'; end if;
+
+  insert into conteos_registros (id, conteo_id, producto_id, cantidad, ubicacion, codigo_leido, es_reconteo, usuario_id, contador)
+  values (p_id, p_conteo, p_producto, p_cantidad, nullif(btrim(p_ubicacion), ''), nullif(btrim(p_codigo), ''), coalesce(p_reconteo, false), p_usuario,
+    nullif(btrim(p_contador), ''))
+  on conflict (id) do nothing;
+
+  select coalesce(sum(cantidad) filter (where usuario_id is not distinct from p_usuario), 0), coalesce(sum(cantidad), 0)
+    into v_mio, v_total
+  from conteos_registros where conteo_id = p_conteo and producto_id = p_producto and anulado_en is null
+    and es_reconteo = coalesce(p_reconteo, false);
+  return jsonb_build_object('mio', v_mio, 'total', v_total);
+end $$;
+
+-- Qué rubros se contaron cada semana, en qué arqueo, cuándo y quién (el que
+-- más lecturas hizo). Vale para cualquier arqueo: el rubro sale de lo contado.
+create or replace function arqueo_plan_hechos(p_sucursal uuid, p_desde date, p_hasta date)
+returns table(categoria_id uuid, semana date, conteo_id uuid, estado text, fecha date, quien text, productos integer)
+language sql stable security definer set search_path to 'public'
+as $$
+  with r as (
+    select p.categoria_id, c.id conteo_id, c.estado, r.producto_id,
+      coalesce(r.contador, u.nombre, 'Sin nombre') quien,
+      (r.creado_en at time zone 'America/Argentina/Buenos_Aires')::date dia
+    from conteos_registros r
+    join conteos c on c.id = r.conteo_id and c.sucursal_id = p_sucursal and c.estado <> 'descartado' and c.nombre is not null
+    join productos p on p.id = r.producto_id and p.categoria_id is not null
+    left join usuarios u on u.id = r.usuario_id
+    where r.anulado_en is null
+      and r.creado_en >= (p_desde::timestamp at time zone 'America/Argentina/Buenos_Aires')
+      and r.creado_en < ((p_hasta + 1)::timestamp at time zone 'America/Argentina/Buenos_Aires')
+  ),
+  s as (select r.*, date_trunc('week', r.dia)::date semana from r),
+  g as (
+    select categoria_id, semana, conteo_id, estado, min(dia) fecha, count(distinct producto_id)::int productos
+    from s group by 1, 2, 3, 4
+  ),
+  q as (
+    select categoria_id, semana, conteo_id, quien,
+      row_number() over (partition by categoria_id, semana, conteo_id order by count(*) desc) rn
+    from s group by 1, 2, 3, 4
+  )
+  select g.categoria_id, g.semana, g.conteo_id, g.estado, g.fecha, q.quien, g.productos
+  from g left join q on q.categoria_id = g.categoria_id and q.semana = g.semana and q.conteo_id = g.conteo_id and q.rn = 1;
+$$;
+
+-- Rubros con stock en una sucursal (filas del plan de conteo): cuántos productos y cuánto valen a costo.
+create or replace function arqueo_rubros_con_stock(p_sucursal uuid)
+returns table(categoria_id uuid, productos integer, valor numeric)
+language sql stable security definer set search_path to 'public'
+as $$
+  select p.categoria_id, count(*)::int, sum(s.cantidad * coalesce(nullif(p.costo, 0), 0))
+  from stock s join productos p on p.id = s.producto_id and p.activo and p.categoria_id is not null
+  where s.sucursal_id = p_sucursal and s.cantidad > 0
+  group by p.categoria_id;
+$$;

@@ -17,7 +17,7 @@ export default async function ArqueoPage() {
   } catch { /* la pantalla igual abre */ }
   return (
     <Pantalla activo="/arqueo" ancho="angosto">
-      <ArqueoLista sucursales={sucursales} gerencia={rol === 'gerente' || rol === 'dueno'} sucursalPropia={sucursalDesdeToken(token)} />
+      <ArqueoLista sucursales={sucursales} gerencia={rol === 'gerente' || rol === 'dueno' || rol === 'administrativo'} sucursalPropia={sucursalDesdeToken(token)} />
     </Pantalla>
   );
 }

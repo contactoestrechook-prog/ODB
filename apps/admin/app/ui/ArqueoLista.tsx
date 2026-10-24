@@ -6,6 +6,7 @@ import { Aviso, Boton, BotonLink, Cargando, Chip, Entrada, Etiqueta, Modal, Sele
 import type { TonoEtiqueta } from './kit';
 import { fechaHora, pesos } from '../lib/formato';
 import { filtrarPorBusqueda } from '../lib/busqueda';
+import { CLAVE_CONTADOR } from './ArqueoContar';
 
 // Arqueo de stock (24/10/2026): la lista de arqueos y el armado de uno nuevo.
 // El equipo entra a "Contar" desde el celular; gerencia arma, revisa y aplica.
@@ -51,12 +52,14 @@ export function ArqueoLista({ sucursales, gerencia, sucursalPropia }: { sucursal
 
   return (
     <div className="space-y-4">
-      {gerencia && (
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <p className="min-w-0 flex-1 text-sm text-tinta/70">Armá un arqueo y el equipo lo cuenta desde el celular, con el lector o la cámara.</p>
-          <Boton onClick={() => setNuevo(true)}>Nuevo arqueo</Boton>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="min-w-0 flex-1 text-sm text-tinta/70">{gerencia ? 'Armá un arqueo y el equipo lo cuenta desde el celular, con el lector o la cámara.' : 'Elegí un arqueo y contá con el lector o la cámara del celular.'}</p>
+        <div className="flex flex-wrap gap-2">
+          <BotonLink href="/arqueo/plan" variante="secundario">Plan del mes</BotonLink>
+          {gerencia && <Boton onClick={() => setNuevo(true)}>Nuevo arqueo</Boton>}
         </div>
-      )}
+      </div>
+      <MiSemana sucursalId={sucursalPropia ?? sucursales[0]?.id ?? ''} />
       {error && <Aviso tono="error">{error}</Aviso>}
       {arqueos == null ? <Cargando /> : (
         <>
@@ -205,5 +208,48 @@ function NuevoArqueo({ sucursales, sucursalPropia, onCerrar }: { sucursales: { i
         {error && <Aviso tono="error">{error}</Aviso>}
       </div>
     </Modal>
+  );
+}
+
+// «Te toca esta semana»: los rubros del plan asignados al nombre que la persona
+// puso en este celular. Un toque y empieza a contar (o se suma al arqueo abierto).
+function MiSemana({ sucursalId }: { sucursalId: string }) {
+  const router = useRouter();
+  const [datos, setDatos] = useState<{ semana: string; rubros: { categoriaId: string; nombre: string; contado: boolean }[] } | null>(null);
+  const [nombre, setNombre] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [abriendo, setAbriendo] = useState<string | null>(null);
+  useEffect(() => {
+    let n = '';
+    try { n = JSON.parse(localStorage.getItem(CLAVE_CONTADOR) ?? '""') || ''; } catch { /* sin almacenamiento */ }
+    setNombre(n);
+    if (!n || !sucursalId) return;
+    fetch(`/api/arqueo?ruta=plan/mi-semana&sucursalId=${encodeURIComponent(sucursalId)}&persona=${encodeURIComponent(n)}`)
+      .then((r) => r.json()).then((j) => setDatos(j?.rubros ? j : null)).catch(() => setDatos(null));
+  }, [sucursalId]);
+  if (!nombre || !datos?.rubros.length) return null;
+  const empezar = async (categoriaId: string) => {
+    setAbriendo(categoriaId); setError(null);
+    try {
+      const r = await fetch('/api/arqueo', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ruta: 'plan/empezar', sucursalId, categoriaId }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j?.message ?? 'No pude abrir el conteo');
+      router.push(`/arqueo/${j.id}/contar`);
+    } catch (e: any) { setError(e.message); setAbriendo(null); }
+  };
+  return (
+    <Tarjeta>
+      <p className="font-semibold text-tinta">{nombre}, esta semana te toca contar</p>
+      <div className="mt-2 space-y-2">
+        {datos.rubros.map((r) => (
+          <div key={r.categoriaId} className="flex flex-wrap items-center justify-between gap-2">
+            <span className={unir('min-w-0 flex-1 break-words text-sm', r.contado ? 'text-tinta/60 line-through' : 'text-tinta')}>{r.nombre}</span>
+            {r.contado ? <Etiqueta tono="ok">Contado</Etiqueta>
+              : <Boton tamano="chico" onClick={() => empezar(r.categoriaId)} disabled={abriendo === r.categoriaId}>{abriendo === r.categoriaId ? 'Abriendo…' : 'Contar'}</Boton>}
+          </div>
+        ))}
+      </div>
+      {error && <p className="mt-2 text-sm text-marca-hondo">{error}</p>}
+    </Tarjeta>
   );
 }

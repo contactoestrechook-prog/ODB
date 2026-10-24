@@ -28,7 +28,11 @@ type Producto = {
   sku: string; nombre: string; foto: string | null; unidadesPack: number; porPeso: boolean; activo: boolean;
   yaContadoPorMi: number; yaContadoTotal: number; reconteo: boolean; cantidadSugerida: number | null;
 };
-type Pendiente = { id: string; sku: string; nombre: string; cantidad: number; ubicacion: string; codigo: string | null; reconteo: boolean; intentos: number; error?: string };
+type Pendiente = { id: string; sku: string; nombre: string; cantidad: number; ubicacion: string; codigo: string | null; reconteo: boolean; intentos: number; error?: string; contador?: string };
+
+// el nombre de quien cuenta, por celular: el local comparte usuario y la
+// planilla del plan dice «Ale 21/10», no el usuario con el que se entró
+export const CLAVE_CONTADOR = 'arqueo-contador';
 
 const guardado = {
   leer<T>(k: string, def: T): T { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : def; } catch { return def; } },
@@ -42,6 +46,8 @@ export function ArqueoContar({ id }: { id: string }) {
   const [arqueo, setArqueo] = useState<Arqueo | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [lugar, setLugar] = useState('');
+  const [contador, setContador] = useState('');
+  const [pidiendoNombre, setPidiendoNombre] = useState(false);
   const [cambiandoLugar, setCambiandoLugar] = useState(false);
   const [texto, setTexto] = useState('');
   const [buscando, setBuscando] = useState(false);
@@ -53,7 +59,7 @@ export function ArqueoContar({ id }: { id: string }) {
   const [cola, setCola] = useState<Pendiente[]>([]);
   const [camara, setCamara] = useState(false);
   const [noEncontrado, setNoEncontrado] = useState<string | null>(null);
-  const [vista, setVista] = useState<'contar' | 'recontar' | 'mias'>('contar');
+  const [vista, setVista] = useState<'contar' | 'faltan' | 'recontar' | 'mias'>('contar');
   const { confirmar, dialogo } = useConfirmar();
   const cantRef = useRef<HTMLInputElement>(null);
   const buffer = useRef(''); const reloj = useRef<any>(null);
@@ -72,7 +78,10 @@ export function ArqueoContar({ id }: { id: string }) {
     cargar();
     setCola(guardado.leer<Pendiente[]>(claveCola, []));
     const l = guardado.leer<string>(claveLugar, '');
-    setLugar(l); if (!l) setCambiandoLugar(true);
+    const n = guardado.leer<string>(CLAVE_CONTADOR, '');
+    setContador(n);
+    setLugar(l);
+    if (!n) setPidiendoNombre(true); else if (!l) setCambiandoLugar(true);
   }, [cargar, claveCola, claveLugar]);
 
   // ---- mandar la cola: ahora y cada 8 s mientras quede algo ----
@@ -85,7 +94,7 @@ export function ArqueoContar({ id }: { id: string }) {
       for (const p of [...actual]) {
         try {
           const r = await fetch('/api/arqueo', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ruta: `${id}/registros`, id: p.id, sku: p.sku, cantidad: p.cantidad, ubicacion: p.ubicacion, codigo: p.codigo, reconteo: p.reconteo }) });
+            body: JSON.stringify({ ruta: `${id}/registros`, id: p.id, sku: p.sku, cantidad: p.cantidad, ubicacion: p.ubicacion, codigo: p.codigo, reconteo: p.reconteo, contador: p.contador }) });
           const j = await r.json().catch(() => ({}));
           if (r.ok) {
             actual = actual.filter((x) => x.id !== p.id);
@@ -109,18 +118,19 @@ export function ArqueoContar({ id }: { id: string }) {
   }, [mandarCola, claveCola]);
 
   const anotar = useCallback((p: Producto & { codigo: string | null }, cant: number) => {
-    const fila: Pendiente = { id: nuevoId(), sku: p.sku, nombre: p.nombre, cantidad: cant, ubicacion: lugar, codigo: p.codigo, reconteo: p.reconteo, intentos: 0 };
+    const fila: Pendiente = { id: nuevoId(), sku: p.sku, nombre: p.nombre, cantidad: cant, ubicacion: lugar, codigo: p.codigo, reconteo: p.reconteo, intentos: 0, contador };
     const nueva = [...guardado.leer<Pendiente[]>(claveCola, []), fila];
     guardado.escribir(claveCola, nueva); setCola(nueva);
     vibrar(40);
     setAviso({ tono: 'ok', texto: `Guardado: ${cant} ${p.porPeso ? 'kg' : cant === 1 ? 'unidad' : 'unidades'} · ${p.nombre}` });
     mandarCola();
-  }, [lugar, claveCola, mandarCola]);
+  }, [lugar, contador, claveCola, mandarCola]);
 
   // ---- identificar lo escaneado o escrito ----
   const identificar = useCallback(async (q: string) => {
     const t = q.trim();
     if (t.length < 2) return;
+    if (!contador) { setPidiendoNombre(true); setAviso({ tono: 'atencion', texto: 'Primero poné tu nombre' }); return; }
     if (!lugar) { setCambiandoLugar(true); setAviso({ tono: 'atencion', texto: 'Primero decí en qué lugar estás contando' }); return; }
     setBuscando(true); setAviso(null); setOpciones([]);
     try {
@@ -147,7 +157,7 @@ export function ArqueoContar({ id }: { id: string }) {
     } catch (e: any) {
       setAviso({ tono: 'error', texto: e.message ?? 'Sin conexión: probá de nuevo' });
     } finally { setBuscando(false); }
-  }, [id, lugar, rapido, anotar]);
+  }, [id, lugar, contador, rapido, anotar]);
 
   // lector de mano: teclea en ráfaga y termina en Enter, sin casillero enfocado
   useEffect(() => {
@@ -192,10 +202,16 @@ export function ArqueoContar({ id }: { id: string }) {
           <p className="break-words text-lg font-semibold leading-snug text-tinta">{arqueo.nombre}</p>
           <p className="text-xs text-tinta/60">{arqueo.sucursal}{arqueo.ciego ? ' · conteo ciego' : ''}</p>
         </div>
+        <div className="flex flex-wrap gap-2">
+        <button type="button" onClick={() => setPidiendoNombre(true)}
+          className={unir('max-w-full rounded-full border border-black/15 bg-white px-3 py-1.5 text-left text-sm font-semibold text-tinta', FOCO)}>
+          Cuenta: {contador || 'poné tu nombre'}
+        </button>
         <button type="button" onClick={() => setCambiandoLugar(true)}
           className={unir('max-w-full rounded-full border border-marca bg-marca-suave px-3 py-1.5 text-left text-sm font-semibold text-marca-hondo', FOCO)}>
           Lugar: {lugar || 'elegilo'}
         </button>
+        </div>
       </div>
 
       {cerrado && <Aviso tono="atencion">Este arqueo ya está {arqueo.estado}. No se cargan más lecturas.</Aviso>}
@@ -210,6 +226,7 @@ export function ArqueoContar({ id }: { id: string }) {
 
       <div className="flex flex-wrap gap-2">
         <Chip activo={vista === 'contar'} onClick={() => setVista('contar')}>Contar</Chip>
+        {arqueo.estado === 'abierto' && <Chip activo={vista === 'faltan'} onClick={() => setVista('faltan')}>Faltan</Chip>}
         <Chip activo={vista === 'recontar'} cuenta={arqueo.aRecontar.length || undefined} onClick={() => setVista('recontar')}>Recontar</Chip>
         <Chip activo={vista === 'mias'} onClick={() => { setVista('mias'); cargar(); }}>Mis lecturas</Chip>
       </div>
@@ -285,6 +302,12 @@ export function ArqueoContar({ id }: { id: string }) {
         </>
       )}
 
+      {vista === 'faltan' && arqueo.estado === 'abierto' && (
+        <Faltan id={id} lugar={lugar} pendientes={cola}
+          onContar={(sku) => { setVista('contar'); identificar(sku); }}
+          onNoHay={(p) => anotar({ sku: p.sku, nombre: p.nombre, foto: p.foto, unidadesPack: 1, porPeso: p.porPeso, activo: true, yaContadoPorMi: 0, yaContadoTotal: 0, reconteo: false, cantidadSugerida: null, codigo: null }, 0)} />
+      )}
+
       {vista === 'recontar' && (
         arqueo.aRecontar.length === 0 ? <Aviso tono="ok">No hay nada para recontar.</Aviso> : (
           <div className="space-y-2">
@@ -317,11 +340,27 @@ export function ArqueoContar({ id }: { id: string }) {
 
       <div className="pt-2"><BotonLink href="/arqueo" variante="fantasma" tamano="chico">← Volver a los arqueos</BotonLink></div>
 
+      {pidiendoNombre && <PedirNombre actual={contador} onListo={(n) => { setContador(n); guardado.escribir(CLAVE_CONTADOR, n); setPidiendoNombre(false); if (!lugar) setCambiandoLugar(true); }} onCerrar={() => setPidiendoNombre(false)} />}
       {cambiandoLugar && <ElegirLugar actual={lugar} usados={arqueo.lugares} onElegir={(l) => { setLugar(l); guardado.escribir(claveLugar, l); setCambiandoLugar(false); }} onCerrar={() => setCambiandoLugar(false)} />}
       {camara && <Camara onCodigo={(c) => { setCamara(false); identificar(c); }} onCerrar={() => setCamara(false)} />}
       {dialogo}
       {noEncontrado != null && <NoEncontrado id={id} codigo={noEncontrado} lugar={lugar} onListo={(m) => { setNoEncontrado(null); if (m) setAviso({ tono: 'ok', texto: m }); }} />}
     </div>
+  );
+}
+
+function PedirNombre({ actual, onListo, onCerrar }: { actual: string; onListo: (n: string) => void; onCerrar: () => void }) {
+  const [n, setN] = useState(actual);
+  const ok = n.trim().length >= 2;
+  const listo = () => { if (ok) onListo(n.trim().replace(/\s+/g, ' ').replace(/^./, (c) => c.toLocaleUpperCase('es'))); };
+  return (
+    <Modal abierto onCerrar={onCerrar} titulo="¿Quién cuenta?" ancho="chico" pie={<Boton onClick={listo} disabled={!ok}>Listo</Boton>}>
+      <div className="space-y-3">
+        <p className="text-sm text-tinta/70">Tu nombre queda en cada lectura y en el plan del mes («Ale 21/10»). Se guarda en este celular.</p>
+        <Entrada value={n} onChange={(e) => setN(e.target.value)} placeholder="Ej.: Ale" maxLength={40} autoFocus aria-label="Tu nombre"
+          onKeyDown={(e) => { if (e.key === 'Enter') listo(); }} />
+      </div>
+    </Modal>
   );
 }
 
@@ -411,5 +450,68 @@ function NoEncontrado({ id, codigo, lugar, onListo }: { id: string; codigo: stri
         {error && <Aviso tono="error">{error}</Aviso>}
       </div>
     </Modal>
+  );
+}
+
+type Falta = { sku: string; nombre: string; rubro: string; sinCodigo: boolean; porPeso: boolean; foto: string | null };
+
+// Lo que falta contar (24/10/2026): la segunda pasada. Por rubro y sin las
+// cantidades del sistema. «No hay» lo deja contado en cero (también es contar).
+function Faltan({ id, lugar, pendientes, onContar, onNoHay }: { id: string; lugar: string; pendientes: Pendiente[]; onContar: (sku: string) => void; onNoHay: (p: Falta) => void }) {
+  const [datos, setDatos] = useState<{ total: number; rubros: { nombre: string; cantidad: number }[]; items: Falta[] } | null>(null);
+  const [rubro, setRubro] = useState<string>('');
+  const [busca, setBusca] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const { confirmar, dialogo } = useConfirmar();
+  const cargar = useCallback(async () => {
+    try {
+      const r = await fetch(`/api/arqueo?ruta=${id}/faltan`);
+      const j = await r.json();
+      if (!r.ok) throw new Error(j?.message ?? 'No pude traer lo que falta');
+      setDatos(j); setError(null);
+    } catch (e: any) { setError(e.message); }
+  }, [id]);
+  useEffect(() => { cargar(); }, [cargar]);
+  // lo que está en la cola del celular ya cuenta como contado
+  const enCola = new Set(pendientes.map((p) => p.sku));
+  const visibles = (datos?.items ?? [])
+    .filter((i) => !enCola.has(i.sku))
+    .filter((i) => !rubro || i.rubro === rubro)
+    .filter((i) => !busca.trim() || `${i.nombre} ${i.sku}`.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').includes(busca.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')));
+  if (error) return <Aviso tono="error">{error}</Aviso>;
+  if (!datos) return <Cargando />;
+  if (!datos.total) return <Aviso tono="ok">No falta nada: se contó todo lo que el sistema dice que hay.</Aviso>;
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-tinta/70">
+        El sistema dice que hay stock de estos y nadie los contó todavía. Buscalos: si están, «Contar»; si no hay ninguno, «No hay».
+        Los que dicen <b>sin código</b> se cuentan desde acá (no se pueden escanear).
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <Chip activo={!rubro} cuenta={datos.total} onClick={() => setRubro('')}>Todos</Chip>
+        {datos.rubros.slice(0, 40).map((r) => <Chip key={r.nombre} activo={rubro === r.nombre} cuenta={r.cantidad} onClick={() => setRubro(r.nombre)}>{r.nombre}</Chip>)}
+      </div>
+      <div className="flex gap-2">
+        <div className="min-w-0 flex-1"><Entrada value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar en lo que falta" aria-label="Buscar en lo que falta" /></div>
+        <Boton variante="secundario" onClick={cargar}>Actualizar</Boton>
+      </div>
+      {visibles.slice(0, 200).map((i) => (
+        <div key={i.sku} className="flex items-center gap-3 rounded-2xl border border-black/10 bg-white p-3">
+          {i.foto ? <img src={i.foto} alt="" className="size-12 shrink-0 rounded-lg object-cover" /> : <span className="size-12 shrink-0 rounded-lg bg-crema-hondo" />}
+          <div className="min-w-0 flex-1">
+            <p className="break-words text-sm font-semibold text-tinta">{i.nombre}</p>
+            <p className="text-xs text-tinta/60">{i.rubro} · {i.sku}{i.sinCodigo ? ' · sin código' : ''}{i.porPeso ? ' · por peso' : ''}</p>
+          </div>
+          <div className="flex shrink-0 flex-col gap-1.5">
+            <Boton tamano="chico" onClick={() => onContar(i.sku)}>Contar</Boton>
+            <Boton tamano="chico" variante="secundario" onClick={async () => {
+              if (await confirmar({ titulo: '¿No hay ninguno?', texto: `${i.nombre} queda contado en 0 en «${lugar || 'sin lugar'}». Si después aparece, se cuenta y se suma.`, textoConfirmar: 'No hay' })) onNoHay(i);
+            }}>No hay</Boton>
+          </div>
+        </div>
+      ))}
+      {visibles.length > 200 && <p className="text-xs text-tinta/60">Se muestran 200 de {visibles.length}: elegí un rubro o buscá.</p>}
+      {dialogo}
+    </div>
   );
 }
