@@ -1104,6 +1104,9 @@ export const SECCIONES: Seccion[] = [
         titulo: 'Lo que el bot no sabe',
         puntos: [
           'Si el cliente pregunta algo que el bot no sabe, se lo consulta a administración por WhatsApp ("Consulta de un cliente") y al cliente no le dice nada. Lo que administración contesta citando ese aviso le llega al cliente como respuesta, tal cual.',
+          'Se puede contestar desde el teléfono de administración o desde el teléfono de la línea general: ahí la consulta aparece en el chat con administración, y lo que se escribe en ese chat citándola también le llega al cliente. Sin citar, cuenta solo si hay una única consulta de los últimos 30 minutos; un teléfono, un reenvío o un "gracias" nunca se le mandan a un cliente. Cuando le llega, en ese chat aparece "Listo: se lo pasé a …".',
+          'Sin citar, desde el teléfono de administración cuentan solo las consultas y los pagos de las últimas 48 horas: si queda uno solo, es ese. Si hay más de uno, el sistema pide citar. Un pago contestado desde la línea general se confirma solo citándolo.',
+          'Si después llega un "Dato nuevo" para una consulta, citar ese mensaje también sirve para contestarla.',
           'A los 20 minutos sin respuesta queda un recordatorio en la campanita.',
           'A los 30 minutos de horario sin respuesta (y sin que nadie le haya escrito al cliente desde el teléfono o el panel), la consulta pasa sola a una persona: al cliente le llega una sola vez "Te paso con una persona del local.", el bot queda en pausa en esa charla, aparece la charla derivada en la campanita y a administración le llega un WhatsApp "Consulta sin respuesta: pasó a una persona". Desde ahí la atendés vos (RESPONDE o el teléfono) y, al terminar, "Devolver al bot".',
           'El horario que cuenta es el de la sucursal de donde salen los pedidos (Saint Thomas), con el de cada día. Fuera de horario no se le escribe a nadie: los 30 minutos empiezan a correr cuando abre.',

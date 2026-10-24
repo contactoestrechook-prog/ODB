@@ -68,6 +68,7 @@ import { cartelLista, cartelListaPrecios, cartelPedido, imagenEsperada, leerList
 import { etiquetaDeFila, Lineas, sesionPrincipal } from '../comun/lineas';
 import { cierraLaRafaga, esperaDeRafaga, juntarRafaga, msHastaContestar, type MensajeDeRafaga } from './espera-rafaga';
 import { abiertaAhora, aunNoVence, horarioDeAtencion, type HorarioSucursal, HORAS_REINTENTO_AVISO, impideVencer, MINUTOS_PARA_VENCER, minutosDeHorario } from './vencimiento-consultas';
+import { consultaDelDatoNuevo, elegirReferencia, type OrigenRespuesta, origenDelDatoNuevo, pareceRespuestaDesdeLaLinea } from './respuesta-del-area';
 
 // pedido mínimo para envío a domicilio (Leandro, 25/9/2026); ENVIO_MINIMO lo cambia sin tocar código
 const envioMinimo = () => Number(process.env.ENVIO_MINIMO ?? 70000) || 70000;
@@ -3744,7 +3745,8 @@ export class BotService {
     // solo en la fila y en una alerta que podía estar leída; si el área
     // contestaba la original, lo agregado se perdía. Si trae algo que la abierta
     // no tenía (otra palabra que importa, o un archivo), sale un WhatsApp corto
-    // de «dato nuevo» (sin guardar su id) y la alerta vuelve a quedar sin leer.
+    // de «dato nuevo» y la alerta vuelve a quedar sin leer. Su id queda en
+    // bot_envios con la consulta (24/10/2026): citarlo también la contesta.
     if (!esPrueba) {
       const abiertas = await this.consultasAbiertas(linea, telefono, HORAS_CONSULTA_ABIERTA);
       const misma = abiertas.find((c) => c?.id && !c.respuesta_admin && String(c.area ?? area) === area && mismaConsulta({ consulta, tema: temaCliente }, c, nombre));
@@ -3780,11 +3782,15 @@ export class BotService {
               consulta,
               direccion ? `Dirección: ${direccion}` : null,
               archivoUrl ? `Adjunto del cliente (acceso temporal): ${archivoUrl}` : null,
-              'Para contestarle al cliente, citá el mensaje de la consulta original (no este).',
+              'Para contestarle al cliente, citá este mensaje o el de la consulta.',
             ].filter(Boolean).join('\n');
             try {
               const env: any = await this.enviarPorWhatsapp({ to: destinoAviso, text: texto, kind: 'aviso-interno' } as any);
               enviada = !!env?.enviado;
+              // citar el «Dato nuevo» es citar la consulta (24/10/2026): su id queda anotado con ella
+              if (enviada && env?.id) {
+                await this.db.from('bot_envios').upsert({ waha_id: String(env.id), telefono: destinoAviso, origen: origenDelDatoNuevo(String(misma.id)) }, { onConflict: 'waha_id' }).then(() => null, () => null);
+              }
             } catch (e: any) {
               this.log.warn(`dato nuevo de la consulta ${misma.id}: el aviso a ${area} falló: ${e?.message ?? e}`);
             }
@@ -4141,24 +4147,13 @@ export class BotService {
   // Administración contesta en SU chat el aviso de pago; el bot escucha esa
   // respuesta y se la lleva al cliente: "recibimos tu pago, muchas gracias".
   // Si contesta citando el aviso, se matchea ese pago puntual; si no, el
-  // único pendiente inequívoco. Devuelve null si el mensaje no es de
-  // administración: sigue el camino normal.
+  // único pendiente de las últimas 48 h (respuesta-del-area.ts). Devuelve null
+  // si el mensaje no es de administración: sigue el camino normal. Lo que se
+  // contesta desde el teléfono de la LÍNEA entra por respuestaDesdeLaLinea.
   private async respuestaDeAdministracion(identidad: string, p: any) {
-    // los teléfonos del equipo salen de la configuración de la línea principal
-    // (la que comparten todas). El interruptor del bot que cuenta es el de la
-    // línea de cada consulta o pago, no el de la principal (6/10/2026).
-    const cfg = await this.lineas.config(await this.lineas.principal());
-    const botActivoEn = async (linea: string | null | undefined) =>
-      !linea || linea === cfg?.linea ? cfg?.bot_activo !== false : (await this.lineas.config(linea))?.bot_activo !== false;
-    const destinos = [cfg?.derivar_pagos_a, cfg?.whatsapp_reparto, cfg?.whatsapp_compras].map(v => soloDigitos(String(v ?? ''))).filter(Boolean);
-    let quien = soloDigitos(identidad);
-    if (String(identidad).includes('@lid')) {
-      const { data } = await this.db.from('bot_contactos').select('telefono_real').eq('telefono', quien).maybeSingle();
-      quien = soloDigitos(String(data?.telefono_real ?? ''));
-    }
-    const admin = destinos.find(t => t === quien);
-    if (!admin) return null;
-    const esAdministracion = admin === soloDigitos(String(cfg?.derivar_pagos_a ?? ''));
+    const area = await this.areaDelChat(identidad);
+    if (!area) return null;
+    const { admin, esAdministracion } = area;
     const texto = String(p.body ?? '').trim();
     if (!texto) return { contestado: false, motivo: 'equipo: sin texto' };
     const citado = idWhatsappCorto(typeof p.replyTo === 'object' ? p.replyTo?.id : p.replyTo);
@@ -4190,27 +4185,95 @@ export class BotService {
         avisosDelDia = eAvisos ? 1 : Number(count ?? 0);
       }
     }
-    // Sin ventana de 24h ni límite global: una cita vieja sigue identificando su consulta.
+    return this.resolverRespuestaDelArea({ ...area, texto, citado, avisosDelDia, origen: 'area' });
+  }
+
+  /**
+   * El área (administración, reparto o compras) de un chat: los teléfonos salen de
+   * la configuración de la línea principal (la que comparten todas). Un @lid se
+   * reconoce por el teléfono real aprendido (bot_contactos). null si no es un área.
+   * El interruptor del bot que cuenta es el de la línea de cada consulta o pago, no
+   * el de la principal (6/10/2026).
+   */
+  private async areaDelChat(identidad: string) {
+    const cfg = await this.lineas.config(await this.lineas.principal());
+    const destinos = [cfg?.derivar_pagos_a, cfg?.whatsapp_reparto, cfg?.whatsapp_compras].map(v => soloDigitos(String(v ?? ''))).filter(Boolean);
+    let quien = soloDigitos(identidad);
+    if (String(identidad).includes('@lid')) {
+      const { data } = await this.db.from('bot_contactos').select('telefono_real').eq('telefono', quien).maybeSingle();
+      quien = soloDigitos(String(data?.telefono_real ?? ''));
+    }
+    const admin = destinos.find(t => t === quien);
+    if (!admin) return null;
+    const botActivoEn = async (linea: string | null | undefined) =>
+      !linea || linea === cfg?.linea ? cfg?.bot_activo !== false : (await this.lineas.config(linea))?.bot_activo !== false;
+    return { cfg, admin, esAdministracion: admin === soloDigitos(String(cfg?.derivar_pagos_a ?? '')), botActivoEn };
+  }
+
+  // UNA RESPUESTA AL ÁREA ESCRITA DESDE EL TELÉFONO DE LA LÍNEA (24/10/2026, reglas
+  // en respuesta-del-area.ts). Las consultas y los pagos salen desde la línea
+  // principal al chat de administración, y en el teléfono de la línea aparecen como
+  // mensajes enviados en ese chat. Quien sabe la respuesta contestaba ahí mismo
+  // («Siii quedan», 21/10) y al bot le llegaba como un mensaje propio: se perdía.
+  // Ahora, si es la respuesta a una consulta o a un pago, se le lleva al cliente.
+  // Devuelve null si el chat no es de un área.
+  private async respuestaDesdeLaLinea(chat: string, p: any) {
+    const area = await this.areaDelChat(chat);
+    if (!area) return null;
+    const texto = String(p?.body ?? '').trim();
+    const conArchivo = !!p?.hasMedia || !!p?.media;
+    if (!texto || conArchivo) return { contestado: false, motivo: 'sin texto para el cliente' };
+    const citado = idWhatsappCorto(typeof p?.replyTo === 'object' ? p?.replyTo?.id : p?.replyTo);
+    // sin cita, ese chat también se usa para pasar teléfonos, listas y reenvíos
+    const reenviado = !!(p?.isForwarded ?? p?._data?.isForwarded ?? p?._data?.message?.extendedTextMessage?.contextInfo?.isForwarded);
+    if (!citado && !pareceRespuestaDesdeLaLinea(texto, { reenviado, conArchivo })) return { contestado: false, motivo: 'no parece una respuesta para un cliente' };
+    return this.resolverRespuestaDelArea({ ...area, texto, citado, avisosDelDia: 0, origen: 'linea' });
+  }
+
+  /** Si lo citado es el «Dato nuevo» de una consulta (bot_envios, origen consulta-dato:<id>), el id de esa consulta. */
+  private async consultaDeUnDatoNuevo(citado: string): Promise<string | null> {
+    try {
+      const { data } = await this.db.from('bot_envios').select('origen').ilike('waha_id', `%${citado}`).like('origen', 'consulta-dato:%').limit(1);
+      return consultaDelDatoNuevo((Array.isArray(data) ? data[0] : data)?.origen);
+    } catch {
+      return null;
+    }
+  }
+
+  // A QUÉ RESPONDE (las reglas, en respuesta-del-area.ts) y qué se hace: la consulta
+  // le llega al cliente, el pago se le confirma, o se pide citar.
+  private async resolverRespuestaDelArea(o: {
+    admin: string; esAdministracion: boolean; botActivoEn: (linea: string | null | undefined) => Promise<boolean>;
+    texto: string; citado: string; avisosDelDia: number; origen: OrigenRespuesta;
+  }) {
+    const { admin, esAdministracion, botActivoEn, texto, citado, avisosDelDia, origen } = o;
+    // Una cita vieja sigue identificando su consulta; sin cita cuentan solo los
+    // pendientes recientes (antes, los 159 de semanas atrás obligaban a citar siempre).
     const consultasTodas = await this.pendientesPaginados('bot_consultas_internas', 'respondido_en');
     const consultas = consultasTodas.filter(c => soloDigitos(String(c.enviado_a ?? '')) === admin || (!c.enviado_a && esAdministracion));
     const lista = esAdministracion ? await this.pendientesPaginados('bot_pagos_en_confirmacion', 'confirmado_en') : [];
-    const consultaCitada = citado ? consultas.find(c => idWhatsappCorto(c.waha_msg_id) === citado) : null;
-    const pagoCitado = citado ? lista.find(c => idWhatsappCorto(c.waha_msg_id) === citado) : null;
-    const pedirReferencia = async () => {
+    const citaAlgoAbierto = !!citado && [...consultas, ...lista].some(f => idWhatsappCorto(f.waha_msg_id) === citado);
+    const consultaDelDato = citado && !citaAlgoAbierto ? await this.consultaDeUnDatoNuevo(citado) : null;
+    const decision = elegirReferencia({ origen, citado, consultaDelDato, consultas, pagos: lista, avisosDelDia, ahora: Date.now() });
+    if (decision.tipo === 'pedir_referencia') {
       // con avisos de pedidos del día, el "ok" puede haber sido para un pedido: que no haga falta contestar
-      const pedido = avisosDelDia ? 'Si es por un PEDIDO, no hace falta responder. Si es por un pago o una consulta, respondé CITANDO ese aviso.' : 'Respondé CITANDO el aviso exacto de la consulta o del pago. No pude identificar una única referencia.';
+      const pedido = origen === 'linea'
+        ? 'Para que le llegue al cliente, respondé CITANDO la consulta: hay más de una abierta.'
+        : avisosDelDia ? 'Si es por un PEDIDO, no hace falta responder. Si es por un pago o una consulta, respondé CITANDO ese aviso.' : 'Respondé CITANDO el aviso exacto de la consulta o del pago. No pude identificar una única referencia.';
       await this.enviarPorWhatsapp({ to: admin, text: pedido, kind: 'aviso-interno' }).catch(() => null);
       return { contestado: false, motivo: 'falta referencia inequívoca' };
-    };
-    if (citado) {
-      if (consultaCitada && !pagoCitado) return this.llevarRespuestaDeConsulta(consultaCitada, texto, admin, await botActivoEn(consultaCitada.linea));
-      if (!pagoCitado || consultaCitada) return pedirReferencia();
-    } else {
-      if (consultas.length + lista.length + (avisosDelDia ? 1 : 0) > 1) return pedirReferencia();
-      if (consultas.length === 1) return this.llevarRespuestaDeConsulta(consultas[0], texto, admin, await botActivoEn(consultas[0].linea));
-      if (!lista.length) return { contestado: false, motivo: 'sin consultas o pagos pendientes' };
     }
-    const fila = pagoCitado ?? lista[0];
+    if (decision.tipo === 'nada') return { contestado: false, motivo: decision.motivo };
+    if (decision.tipo === 'consulta') {
+      const c: any = decision.fila;
+      const r = await this.llevarRespuestaDeConsulta(c, texto, admin, await botActivoEn(c.linea));
+      // desde el teléfono de la línea, quien escribió ve en ese mismo chat que le llegó
+      if (origen === 'linea' && r?.contestado) {
+        await this.enviarPorWhatsapp({ to: admin, text: `Listo: se lo pasé a ${c.nombre ?? '+' + c.telefono_cliente}${await this.deLaLinea(c.linea)}.`, kind: 'aviso-interno' }).catch(() => null);
+      }
+      return r;
+    }
+    const fila: any = decision.fila;
     const montoTexto = fila.monto ? ` de $${Number(fila.monto).toLocaleString('es-AR', { maximumFractionDigits: 2 })}` : '';
     const destinoCliente = String(fila.telefono_cliente).length >= 14 ? `${fila.telefono_cliente}@lid` : String(fila.telefono_cliente);
 
@@ -4761,6 +4824,17 @@ export class BotService {
     this.resolverContactoWaha(identidad, chat.endsWith('@lid'), linea).catch(() => null);
     const propios = [numeroLinea, (await this.lineas.fila(linea))?.numero_e164].map((n) => String(n ?? '').replace(/\D/g, '')).filter(Boolean);
     if (propios.includes(identidad)) return { ignorado: 'chat con uno mismo' };
+    // LA RESPUESTA A UNA CONSULTA O A UN PAGO, ESCRITA DESDE ESTE TELÉFONO en el chat
+    // de administración (24/10/2026, ver respuestaDesdeLaLinea): se le lleva al
+    // cliente. Solo en la principal, que es por donde salen esos avisos. Después
+    // sigue como siempre: queda anotado en ese chat.
+    if (await this.lineas.esPrincipal(linea).catch(() => false)) {
+      const rArea = await this.respuestaDesdeLaLinea(chat.endsWith('@lid') ? `${identidad}@lid` : identidad, p).catch((e) => {
+        this.log.warn(`respuesta al área desde el teléfono de la línea: ${e?.message ?? e}`);
+        return null;
+      });
+      if (rArea) this.log.log(`escrito desde el teléfono de la línea en el chat de un área (${identidad}): ${rArea.motivo}`);
+    }
     // UN TELÉFONO DE LA CASA ESCRIBIÉNDOLE A OTRO (revisión 6/10/2026): lo que
     // alguien teclea desde el teléfono de una línea a la otra no es atender a un
     // cliente. Antes pausaba una «charla» con el número de la otra línea, la
