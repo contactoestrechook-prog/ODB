@@ -33,7 +33,7 @@ import unicodedata
 import urllib.request
 import base64
 
-API = os.environ.get('ODB_API_URL', 'https://odb-api-production.up.railway.app')
+API = os.environ.get('ODB_API_URL', 'https://api.odbpremiummarket.com.ar')
 TOKEN = os.environ.get('ODB_DEPLOY_TOKEN', '')
 
 

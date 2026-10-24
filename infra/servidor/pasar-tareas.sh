@@ -20,7 +20,8 @@ DIR_ODB="${DIR_ODB:-/Users/leandroalonso/Projects/odb}"
 echo "== 1. Railway: tareas apagadas y versión nueva"
 (cd "$DIR_ODB" && railway variables -p "$PROY" -e production -s odb-api --set ODB_TAREAS=0 --skip-deploys)
 COPIA=$(pwd)
-(cd "$DIR_ODB" && sh scripts/publicar.sh "$COPIA" odb-api "Tareas apagadas en Railway: pasan al servidor propio")
+# scripts/publicar.sh publica en el servidor propio desde el 24/10/2026; este paso es para Railway
+(cd "$COPIA" && rm -f node_modules apps/*/node_modules && railway up "$COPIA" --path-as-root -p "$PROY" -e production -s odb-api -d -m "Tareas apagadas en Railway: pasan al servidor propio")
 echo "Esperando que Railway arranque la versión nueva…"
 VER=$(git rev-parse --short HEAD)
 for i in $(seq 1 60); do

@@ -17,7 +17,7 @@ set -euo pipefail
 TITULO="${1:-}"; shift || true
 if [ -z "$TITULO" ]; then echo "Falta el título del aviso" >&2; exit 1; fi
 
-API="${ODB_API_URL:-https://odb-api-production.up.railway.app}"
+API="${ODB_API_URL:-https://api.odbpremiummarket.com.ar}"
 TOKEN="${ODB_DEPLOY_TOKEN:-}"
 PARA="${ODB_AVISAR_A:-f30e4bf1-ea26-4235-916d-6e3bb588ce12}"  # Juan Pablo Fernandez
 if [ -z "$TOKEN" ]; then echo "Falta ODB_DEPLOY_TOKEN en el entorno" >&2; exit 1; fi

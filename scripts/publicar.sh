@@ -1,21 +1,40 @@
 #!/bin/sh
-# PUBLICAR A PRODUCCIÓN, CON CANDADO (9/10/2026).
+# PUBLICAR A PRODUCCIÓN, CON CANDADO.
 #
-# Leandro: «hay dos versiones distintas, ¿por qué?». Cada sesión publicaba
-# desde su rama y Railway se queda con lo último que se sube: a las 14:18 el
-# panel salió de una rama sin la factura nueva y volvió el formato viejo.
+# 9/10/2026, Leandro: «hay dos versiones distintas, ¿por qué?». Cada sesión
+# publicaba desde su rama y producción se quedaba con lo último que se subía:
+# a las 14:18 el panel salió de una rama sin la factura nueva y volvió el
+# formato viejo.
+#
+# 24/10/2026: ODB ya no corre en Railway, corre en el SERVIDOR PROPIO
+# (sistema.odbpremiummarket.com.ar y api.odbpremiummarket.com.ar). Este script
+# seguía subiendo a Railway y lo publicado no llegaba a nadie («no actualizó
+# nada… ¿qué Railway?»). Ahora publica en el servidor propio con
+# infra/servidor/publicar.sh.
 #
 # Regla: a producción solo sube una copia que CONTIENE todo origin/main y está
 # limpia. Después de publicar, esa versión se sube a main (para que la próxima
 # sesión parta de ella).
 #
-# Uso: scripts/publicar.sh <copia de trabajo> <servicio> "<mensaje>"
-#   servicio: odb-api | odb-admin | odb-web
+# Uso: scripts/publicar.sh <copia de trabajo> <servicio…> "<mensaje>"
+#   servicio: api | admin | web   (también se aceptan odb-api, odb-admin, odb-web)
+#   ej.: scripts/publicar.sh ~/Projects/odb-mirama api admin "Cuentas corrientes"
 set -e
-COPIA="$1"; SERVICIO="$2"; MENSAJE="$3"
-PROYECTO=b936767e-23e6-4290-9f13-732df0d015d3
-[ -n "$COPIA" ] && [ -n "$SERVICIO" ] && [ -n "$MENSAJE" ] || { echo "Uso: scripts/publicar.sh <copia> <odb-api|odb-admin|odb-web> \"<mensaje>\""; exit 1; }
-case "$SERVICIO" in odb-api|odb-admin|odb-web) ;; *) echo "Servicio desconocido: $SERVICIO"; exit 1;; esac
+[ $# -ge 3 ] || { echo "Uso: scripts/publicar.sh <copia> <api|admin|web>… \"<mensaje>\""; exit 1; }
+COPIA="$1"; shift
+# el último argumento es el mensaje; lo del medio, los servicios
+SERVICIOS=""
+while [ $# -gt 1 ]; do
+  case "$1" in
+    api|odb-api) SERVICIOS="$SERVICIOS api" ;;
+    admin|odb-admin) SERVICIOS="$SERVICIOS admin" ;;
+    web|odb-web) SERVICIOS="$SERVICIOS web" ;;
+    *) echo "Servicio desconocido: $1 (api, admin o web)"; exit 1 ;;
+  esac
+  shift
+done
+MENSAJE="$1"
+[ -n "$SERVICIOS" ] && [ -n "$MENSAJE" ] || { echo "Uso: scripts/publicar.sh <copia> <api|admin|web>… \"<mensaje>\""; exit 1; }
 
 cd "$COPIA"
 git fetch -q origin main
@@ -29,10 +48,11 @@ if [ -n "$SUCIOS" ]; then
   echo "CANDADO: hay cambios sin commitear; lo publicado tiene que ser exactamente un commit."
   echo "$SUCIOS"; exit 1
 fi
-# railway up no indexa con los enlaces de node_modules
-rm -f node_modules apps/api/node_modules apps/admin/node_modules apps/web/node_modules
 COMMIT=$(git rev-parse --short HEAD)
-railway up "$COPIA" --path-as-root -p "$PROYECTO" -e production -s "$SERVICIO" -d -m "$MENSAJE ($COMMIT)"
+echo "Publicando$SERVICIOS desde $COMMIT en el servidor propio: $MENSAJE"
+# manda el código (git archive del commit), compila con docker compose y levanta
+sh infra/servidor/publicar.sh $SERVICIOS
 # lo publicado pasa a ser main
 git push origin HEAD:main
-echo "Publicado $SERVICIO desde $COMMIT y main quedó en $COMMIT."
+echo "Publicado$SERVICIOS desde $COMMIT y main quedó en $COMMIT."
+echo "Verificá en https://sistema.odbpremiummarket.com.ar (panel) y https://api.odbpremiummarket.com.ar (API)."
