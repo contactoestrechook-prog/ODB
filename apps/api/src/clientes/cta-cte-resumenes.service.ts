@@ -4,6 +4,7 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
 import { celularWhatsapp, enviarTextoWhatsapp } from '../comun/whatsapp';
 import { LINEA_GENERAL } from '../comun/lineas';
+import { resumirPerfil } from './perfil-compras';
 
 const TZ = 'America/Argentina/Buenos_Aires';
 
@@ -307,7 +308,15 @@ export class CtaCteResumenesService {
       this.db.from('cta_cte_resumenes').select('tanda, estado, saldo, motivo, enviado_en').eq('cliente_id', clienteId).order('tanda', { ascending: false }).limit(24),
     ]);
     if (!cli) throw new BadRequestException('No existe ese cliente');
+    // perfil de compra: 6 meses para los números, 12 para ver la tendencia mes a mes
+    const [{ data: p6 }, { data: p12 }] = await Promise.all([
+      this.db.rpc('perfil_compras', { p_clientes: [clienteId], p_meses: 6 }),
+      this.db.rpc('perfil_compras', { p_clientes: [clienteId], p_meses: 12 }),
+    ]);
+    const perfil = (p6 as any[])?.[0] ? resumirPerfil((p6 as any[])[0], 8) : null;
+    if (perfil && (p12 as any[])?.[0]) perfil.porMes = resumirPerfil((p12 as any[])[0]).porMes;
     return {
+      perfil,
       cliente: {
         id: cli.id,
         nombre: cli.razon_social || cli.nombre,

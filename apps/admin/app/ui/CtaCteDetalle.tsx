@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { Aviso, Boton, Campo, Cargando, Entrada, Etiqueta, Modal, Selector, useConfirmar } from './kit';
 import { fecha, fechaHora, pesos } from '../lib/formato';
 import { CtaCteDatosCliente, DATOS_VACIOS, celularSirve, type DatosForm } from './CtaCteDatosCliente';
+import { CtaCtePerfil } from './CtaCtePerfil';
+import type { PerfilCompras } from './CtaCteTarjeta';
 
 // La ficha de una cuenta: los datos del cliente (todos editables en un solo
 // formulario), el tope, si recibe el resumen, sus movimientos y los resúmenes
@@ -15,6 +17,7 @@ type Datos = {
     habilitada: boolean; recibeResumen: boolean; tipo: 'cliente' | 'sponsor';
     datos: Omit<DatosForm, 'telefono'>;
   };
+  perfil: PerfilCompras | null;
   movimientos: { id: number; concepto: string | null; debe: number; haber: number; creado_en: string }[];
   resumenes: { tanda: string; estado: string; saldo: number; motivo: string | null; enviado_en: string | null }[];
 };
@@ -105,6 +108,11 @@ export function CtaCteDetalle({ clienteId, onCerrar, onCambio }: { clienteId: st
       {listo && !error && <Aviso tono="ok" className="mb-3">{listo}</Aviso>}
       {!datos ? <Cargando bloque /> : (
         <div className="space-y-5">
+          <section>
+            <h3 className="mb-2 text-sm font-semibold text-tinta">Cómo compra</h3>
+            <CtaCtePerfil p={datos.perfil} />
+          </section>
+
           <section>
             <h3 className="mb-2 text-sm font-semibold text-tinta">Datos del cliente</h3>
             <CtaCteDatosCliente valor={form} onCambiar={setForm} deshabilitado={guardando} />

@@ -1,36 +1,34 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Aviso, Boton, Cargando, Chips, Entrada, FOCO, Kpi, Tarjeta, unir } from './kit';
+import { Aviso, Boton, Cargando, Chips, Entrada, Kpi, Selector, Vacio } from './kit';
 import { pesos } from '../lib/formato';
 import { CtaCteResumenes } from './CtaCteResumenes';
 import { CtaCteDetalle } from './CtaCteDetalle';
 import { CtaCteAlta } from './CtaCteAlta';
+import { CtaCteTarjeta, type CuentaTarjeta } from './CtaCteTarjeta';
 
-// Tablero de cuentas corrientes: la plata en la calle, contra qué tope, quién
-// paga bien y quién es un riesgo. Gráficos simples en SVG propio — sin
-// bibliotecas: barras que se leen de un vistazo con el umbral del 80% marcado.
+// Cuentas corrientes: una tarjeta por cuenta (24/10/2026, «es una planilla
+// eso»). Arriba la plata en la calle y lo disponible; abajo cada cuenta con lo
+// que debe, su límite, lo último que compró y pagó. Cada número lleva a algo.
 
-type Cuenta = {
-  id: string; nombre: string; telefono: string | null;
-  saldo: number; limite: number; pctConsumido: number | null; disponible: number | null;
-  pagos: number; pagado: number; ultimoPago: string | null; diasSinPagar: number | null;
-  ultimaCompra: string | null; compras30: number;
-  riesgo: 'alto' | 'medio' | 'bajo';
+type Orden = 'deuda' | 'sin-pagar' | 'limite' | 'compra' | 'nombre';
+type Filtro = 'todos' | 'alto' | 'medio' | 'bajo' | 'excedidas' | 'sin-limite';
+
+const ORDENES: Record<Orden, (a: CuentaTarjeta, b: CuentaTarjeta) => number> = {
+  deuda: (a, b) => b.saldo - a.saldo,
+  'sin-pagar': (a, b) => (b.diasSinPagar ?? 9999) - (a.diasSinPagar ?? 9999) || b.saldo - a.saldo,
+  limite: (a, b) => (b.pctConsumido ?? -1) - (a.pctConsumido ?? -1),
+  compra: (a, b) => (b.perfil?.total ?? 0) - (a.perfil?.total ?? 0),
+  nombre: (a, b) => a.nombre.localeCompare(b.nombre, 'es'),
 };
-
-// el color de cada riesgo (barras y semáforo), con los tokens del panel
-const COLOR = { alto: 'bg-marca', medio: 'bg-atencion', bajo: 'bg-ok' } as const;
-const ETIQ = { alto: 'Riesgo alto', medio: 'Atención', bajo: 'Al día' } as const;
 
 export function CtaCteTablero({ esDueno, tipo = 'cliente' }: { esDueno: boolean; tipo?: 'cliente' | 'sponsor' }) {
   const sponsors = tipo === 'sponsor';
-  const [datos, setDatos] = useState<{ kpis: any; cuentas: Cuenta[] } | null>(null);
+  const [datos, setDatos] = useState<{ kpis: any; cuentas: CuentaTarjeta[] } | null>(null);
   const [error, setError] = useState('');
-  const [editando, setEditando] = useState<string | null>(null);
-  const [tope, setTope] = useState('');
-  const [guardando, setGuardando] = useState(false);
-  const [filtro, setFiltro] = useState<'todos' | 'alto' | 'medio' | 'bajo'>('todos');
+  const [filtro, setFiltro] = useState<Filtro>('todos');
+  const [orden, setOrden] = useState<Orden>('deuda');
   // la cuenta abierta en la ficha; version recarga el resumen al cambiar un celular
   const [abierta, setAbierta] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
@@ -40,44 +38,44 @@ export function CtaCteTablero({ esDueno, tipo = 'cliente' }: { esDueno: boolean;
   const cargar = useCallback(async () => {
     try {
       const r = await fetch(sponsors ? '/api/cta-cte?tipo=sponsor' : '/api/cta-cte');
-      if (!r.ok) { setError('No pude cargar el tablero'); return; }
+      if (!r.ok) { setError('No pude cargar las cuentas'); return; }
       setDatos(await r.json());
       setError('');
     } catch { setError('Sin conexión'); }
   }, [sponsors]);
   useEffect(() => { cargar(); }, [cargar]);
 
-  const guardarTope = async (clienteId: string) => {
-    if (guardando) return;
-    setGuardando(true);
-    try {
-      const r = await fetch('/api/cta-cte', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clienteId, limiteCredito: Number(tope) || 0 }),
-      });
-      if (r.ok) { setEditando(null); cargar(); }
-    } finally { setGuardando(false); }
+  const guardarTope = async (clienteId: string, monto: number) => {
+    const r = await fetch('/api/cta-cte', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clienteId, limiteCredito: monto }),
+    });
+    if (r.ok) cargar();
+    else setError('No se pudo guardar el límite');
+    return r.ok;
   };
 
-  if (error) return <Aviso tono="error">{error}</Aviso>;
+  if (error && !datos) return <Aviso tono="error">{error}</Aviso>;
   if (!datos) return <Cargando bloque />;
 
   const { kpis } = datos;
   // sin tildes ni mayúsculas: «perez» encuentra «Pérez»; también por teléfono
-  const llano = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const llano = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
   const cuentas = datos.cuentas
-    .filter((c) => filtro === 'todos' || c.riesgo === filtro)
-    .filter((c) => !busca.trim() || llano(`${c.nombre} ${c.telefono ?? ''}`).includes(llano(busca.trim())));
-  const conSaldo = datos.cuentas.filter((c) => c.saldo > 0);
-  const maxSaldo = Math.max(...conSaldo.map((c) => c.saldo), 1);
-  const topDeudores = conSaldo.slice(0, 10);
-  const mejores = [...datos.cuentas].filter((c) => c.pagos > 0).sort((a, b) => b.pagado - a.pagado).slice(0, 5);
+    .filter((c) => {
+      if (filtro === 'excedidas') return c.excedido > 0;
+      if (filtro === 'sin-limite') return c.limite <= 0;
+      return filtro === 'todos' || c.riesgo === filtro;
+    })
+    .filter((c) => !busca.trim() || llano(`${c.nombre} ${c.telefono ?? ''}`).includes(llano(busca.trim())))
+    .sort(ORDENES[orden]);
+  const cuenta = (f: Filtro) => datos.cuentas.filter((c) => (f === 'excedidas' ? c.excedido > 0 : f === 'sin-limite' ? c.limite <= 0 : f === 'todos' || c.riesgo === f)).length;
 
   return (
     <div className="space-y-4 sm:space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-tinta/70">
-          {sponsors ? 'Las cuentas de los sponsors del Wine Fest. ' : ''}Tocá cualquier nombre para ver su cuenta y corregir sus datos.
+          {sponsors ? 'Las cuentas de los sponsors del Wine Fest. ' : ''}Tocá una tarjeta para ver la cuenta completa y corregir los datos.
         </p>
         <Boton onClick={() => setSumando(true)}>{sponsors ? 'Sumar sponsor' : 'Sumar cuenta'}</Boton>
       </div>
@@ -87,127 +85,51 @@ export function CtaCteTablero({ esDueno, tipo = 'cliente' }: { esDueno: boolean;
         onCerrar={() => setSumando(false)}
         onListo={(id) => { setSumando(false); setAbierta(id); setVersion((v) => v + 1); cargar(); }}
       />
-      {/* KPIs */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-        <Kpi etiqueta="En la calle" valor={pesos(kpis.enLaCalle)} />
-        <Kpi etiqueta="Con saldo" valor={kpis.clientesConSaldo} />
-        <Kpi etiqueta="Habilitados" valor={kpis.clientesHabilitados} />
+      <CtaCteDetalle clienteId={abierta} onCerrar={() => setAbierta(null)} onCambio={() => { setVersion((v) => v + 1); cargar(); }} />
+      {error && <Aviso tono="error">{error}</Aviso>}
+
+      {/* la foto de toda la cartera */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+        <Kpi etiqueta="En la calle" valor={pesos(kpis.enLaCalle)} sub={`${kpis.clientesConSaldo} de ${kpis.clientesHabilitados} cuentas deben`} />
+        <Kpi etiqueta="Disponible para fiar" valor={pesos(kpis.disponibleTotal)} sub="en las cuentas con límite" />
+        <Kpi etiqueta="Ticket promedio" valor={pesos(kpis.ticketPromedio)} sub="últimos 6 meses" />
+        <Kpi etiqueta="Pagaron (30 días)" valor={pesos(kpis.pagado30)} tono={kpis.pagado30 > 0 ? 'ok' : 'neutro'} />
         <Kpi etiqueta="Riesgo alto" valor={kpis.enRiesgo} tono={kpis.enRiesgo > 0 ? 'error' : 'ok'} />
-        <Kpi etiqueta="Sin tope asignado" valor={kpis.sinTope} tono={kpis.sinTope > 0 ? 'atencion' : 'neutro'} />
+        <Kpi etiqueta="Sin límite" valor={kpis.sinTope} tono={kpis.sinTope > 0 ? 'atencion' : 'neutro'} />
       </div>
+
+      {/* buscar, filtrar y ordenar */}
+      <div className="flex flex-wrap items-center gap-2">
+        <Entrada value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar por nombre o teléfono" aria-label="Buscar cuenta" type="search" className="min-w-0 grow basis-56" />
+        <Selector value={orden} onChange={(e) => setOrden(e.target.value as Orden)} aria-label="Ordenar las cuentas" className="w-auto">
+          <option value="deuda">Más deuda primero</option>
+          <option value="sin-pagar">Más tiempo sin pagar</option>
+          <option value="limite">Más cerca del límite</option>
+          <option value="compra">Los que más compran</option>
+          <option value="nombre">Por nombre</option>
+        </Selector>
+      </div>
+      <Chips
+        etiquetaAccesible="Filtrar las cuentas"
+        valor={filtro}
+        onCambiar={setFiltro}
+        opciones={([
+          ['todos', 'Todas'], ['alto', 'Riesgo alto'], ['medio', 'Atención'], ['bajo', 'Al día'], ['excedidas', 'Pasadas del límite'], ['sin-limite', 'Sin límite'],
+        ] as [Filtro, string][]).map(([valor, etiqueta]) => ({ valor, etiqueta: `${etiqueta} (${cuenta(valor)})` }))}
+      />
+
+      {cuentas.length ? (
+        <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
+          {cuentas.map((c) => (
+            <CtaCteTarjeta key={c.id} c={c} esDueno={esDueno} onAbrir={() => setAbierta(c.id)} onTope={(m) => guardarTope(c.id, m)} />
+          ))}
+        </div>
+      ) : (
+        <Vacio titulo="No hay cuentas con ese filtro." texto="Probá con otro nombre o sacá el filtro." />
+      )}
 
       {/* el resumen por WhatsApp es uno solo para todas las cuentas: va en la vista de clientes */}
       {!sponsors && <CtaCteResumenes esDueno={esDueno} onAbrirCuenta={setAbierta} version={version} />}
-      <CtaCteDetalle clienteId={abierta} onCerrar={() => setAbierta(null)} onCambio={() => { setVersion((v) => v + 1); cargar(); }} />
-
-      {/* GRÁFICO: la deuda, cliente por cliente, contra su tope */}
-      <Tarjeta>
-        <h2 className="mb-1 text-base font-semibold text-tinta">Los que más deben</h2>
-        <p className="mb-3 text-xs text-tinta/60">La barra es la deuda; la marca roja, el 80% de su tope (si lo tiene).</p>
-        <div className="space-y-3 sm:space-y-2">
-          {topDeudores.map((c) => {
-            const ancho = Math.max((c.saldo / maxSaldo) * 100, 2);
-            const marca80 = c.limite > 0 ? Math.min(((c.limite * 0.8) / maxSaldo) * 100, 100) : null;
-            return (
-              <div key={c.id} className="grid grid-cols-[1fr_auto] items-center gap-x-2 gap-y-1 text-sm sm:grid-cols-[9rem_1fr_6rem]">
-                <button type="button" onClick={() => setAbierta(c.id)} className={unir('min-w-0 break-words rounded-sm text-left text-tinta/80 underline-offset-2 hover:underline', FOCO)} title={c.nombre}>{c.nombre}</button>
-                <div className="relative col-span-2 h-5 overflow-hidden rounded-full bg-black/[0.06] sm:col-span-1 sm:col-start-2 sm:row-start-1">
-                  <div className={unir('absolute inset-y-0 left-0 rounded-full', COLOR[c.riesgo])} style={{ width: `${ancho}%` }} />
-                  {marca80 != null && <div className="absolute inset-y-0 w-0.5 bg-marca" style={{ left: `${marca80}%` }} title="80% del tope" />}
-                </div>
-                <span className="importe col-start-2 row-start-1 text-right font-semibold text-tinta sm:col-start-3">{pesos(c.saldo)}</span>
-              </div>
-            );
-          })}
-          {!topDeudores.length && <p className="text-sm text-tinta/60">Nadie debe nada.</p>}
-        </div>
-      </Tarjeta>
-
-      {/* MEJORES PAGADORES (se llena con el uso: cada cobro aprobado suma señal) */}
-      <Tarjeta>
-        <h2 className="mb-2 text-base font-semibold text-tinta">Mejores pagadores</h2>
-        {mejores.length ? (
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
-            {mejores.map((c) => (
-              <div key={c.id} className="min-w-0 rounded-xl border border-ok/20 bg-ok-suave p-3">
-                <p className="min-w-0 break-words text-xs font-semibold text-ok" title={c.nombre}>{c.nombre}</p>
-                <p className="importe text-sm font-semibold text-ok">{pesos(c.pagado)}</p>
-                <p className="text-xs text-tinta/70">{c.pagos} pago(s){c.diasSinPagar != null ? ` · último hace ${c.diasSinPagar}d` : ''}</p>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="text-sm text-tinta/60">
-            Todavía no hay pagos registrados por el circuito nuevo. A medida que se aprueben cobros, acá aparece quién paga bien y cada cuánto.
-          </p>
-        )}
-      </Tarjeta>
-
-      {/* LISTA COMPLETA con semáforo, tope editable y consumo */}
-      <Tarjeta>
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-base font-semibold text-tinta">Todas las cuentas</h2>
-          <div className="w-full sm:w-64">
-            <Entrada value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar por nombre o teléfono" aria-label="Buscar cuenta" type="search" />
-          </div>
-          <Chips
-            etiquetaAccesible="Filtrar por riesgo"
-            valor={filtro}
-            onCambiar={setFiltro}
-            opciones={(['todos', 'alto', 'medio', 'bajo'] as const).map((f) => ({ valor: f, etiqueta: f === 'todos' ? 'Todos' : ETIQ[f] }))}
-          />
-        </div>
-        <div className="divide-y divide-black/[0.06]">
-          {cuentas.map((c) => (
-            <div key={c.id} className="grid grid-cols-[auto_1fr_auto] items-center gap-x-3 gap-y-2 py-2.5">
-              <span className={unir('size-2.5 shrink-0 rounded-full', COLOR[c.riesgo])} title={ETIQ[c.riesgo]} />
-              <div className="min-w-0">
-                <p className="min-w-0 break-words text-sm text-tinta">
-                  <button type="button" onClick={() => setAbierta(c.id)} className={unir('rounded-sm text-left underline-offset-2 hover:underline', FOCO)}>{c.nombre}</button>
-                  <span className="ml-2 text-xs text-tinta/60">
-                    {c.diasSinPagar != null ? `último pago hace ${c.diasSinPagar}d` : c.saldo > 0 ? 'sin pagos registrados' : ''}
-                    {c.compras30 > 0 && ` · ${c.compras30} compras/30d`}
-                  </span>
-                </p>
-                {/* barra de consumo contra el tope */}
-                {c.limite > 0 ? (
-                  <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                    <div className="relative h-2 w-full max-w-40 overflow-hidden rounded-full bg-black/10">
-                      <div className={unir('absolute inset-y-0 left-0 rounded-full', (c.pctConsumido ?? 0) >= 80 ? 'bg-marca' : 'bg-ok')} style={{ width: `${Math.min(c.pctConsumido ?? 0, 100)}%` }} />
-                      <div className="absolute inset-y-0 w-0.5 bg-tinta/40" style={{ left: '80%' }} />
-                    </div>
-                    <span className="text-xs text-tinta/60">{c.pctConsumido}% de {pesos(c.limite)}</span>
-                  </div>
-                ) : (
-                  <p className="mt-0.5 text-xs text-atencion">sin tope: no hay alerta de crédito para este cliente</p>
-                )}
-              </div>
-              <div className="text-right">
-                <p className="importe text-sm font-semibold text-tinta">{pesos(c.saldo)}</p>
-                {esDueno && editando !== c.id && (
-                  <button
-                    type="button"
-                    onClick={() => { setEditando(c.id); setTope(c.limite > 0 ? String(c.limite) : ''); }}
-                    className={unir('relative inline-flex min-h-9 items-center rounded-sm text-xs font-medium text-marca-hondo underline underline-offset-2 before:absolute before:inset-x-0 before:-inset-y-1 hover:text-marca sm:min-h-0 sm:before:hidden', FOCO)}
-                  >
-                    {c.limite > 0 ? `tope ${pesos(c.limite)}` : 'asignar tope'}
-                  </button>
-                )}
-              </div>
-              {esDueno && editando === c.id && (
-                <div className="col-span-3 flex items-center justify-end gap-2">
-                  <div className="w-36">
-                    <Entrada autoFocus value={tope} onChange={(e) => setTope(e.target.value)} type="number" inputMode="decimal" placeholder="$ tope" aria-label={`Tope de ${c.nombre}`}
-                      onKeyDown={(e) => { if (e.key === 'Enter') guardarTope(c.id); if (e.key === 'Escape') setEditando(null); }}
-                      className="text-right" />
-                  </div>
-                  <Boton tamano="chico" onClick={() => guardarTope(c.id)} disabled={guardando}>ok</Boton>
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      </Tarjeta>
     </div>
   );
 }
