@@ -1,24 +1,7 @@
-import { Pantalla } from '../ui/kit/Pantalla';
-import { apiFetch } from '../../lib/api';
-import { ConteoWorkspace } from '../ui/ConteoWorkspace';
+import { redirect } from 'next/navigation';
 
-export const dynamic = 'force-dynamic';
-
-export default async function Conteo() {
-  let sucursales: { id: string; nombre: string }[] = [];
-  let conteos: any[] = [];
-  try {
-    const [rs, rc] = await Promise.all([
-      apiFetch('/sucursales'),
-      apiFetch('/stock/conteos'),
-    ]);
-    if (rs.ok) sucursales = await rs.json();
-    if (rc.ok) conteos = await rc.json();
-  } catch {}
-
-  return (
-    <Pantalla activo="/conteo">
-      <ConteoWorkspace sucursales={sucursales} conteosIniciales={conteos} />
-    </Pantalla>
-  );
+// El conteo cíclico (nunca se usó) pasó a ser el Arqueo de stock (24/10/2026):
+// un solo lugar para contar.
+export default function Conteo() {
+  redirect('/arqueo');
 }

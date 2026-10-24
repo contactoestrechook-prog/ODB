@@ -352,7 +352,7 @@ export const SECCIONES: Seccion[] = [
         tipo: 'campos',
         titulo: 'Qué es cada cosa',
         filas: [
-          ['Conteo', 'Contás una parte del depósito y el sistema muestra las diferencias contra lo que tenía. Es la forma limpia de corregir.'],
+          ['Arqueo de stock', 'Contás una parte del local (o todo) con el celular y el sistema muestra las diferencias contra lo que tenía. Es la forma limpia de corregir: ver «Arqueo de stock».'],
           ['Ajuste', 'Corrección puntual de un producto. Pide motivo.'],
           ['Merma', 'Lo que se rompió, venció o se perdió. Pide motivo.'],
           ['Transferencia', 'Mercadería que se manda a la otra sucursal. La sucursal que recibe la confirma.'],
@@ -364,6 +364,39 @@ export const SECCIONES: Seccion[] = [
           'Los ajustes y mermas grandes piden el PIN de un supervisor.',
           'Un ajuste sin motivo escrito es un agujero que nadie va a poder explicar en tres meses.',
           'La pantalla de Stock tiene una vista de negativos: si un producto está en negativo, entró una venta de algo que el sistema creía que no había. Se corrige contando, no ajustando a ojo.',
+        ],
+      },
+    ],
+  },
+
+  {
+    id: 'deposito-arqueo',
+    titulo: 'Arqueo de stock',
+    area: 'Depósito',
+    roles: ['cajero', 'deposito', 'administrativo', 'gerente', 'dueno'],
+    bajada: 'El equipo cuenta con el celular; gerencia revisa y aplica.',
+    bloques: [
+      {
+        tipo: 'pasos',
+        pasos: [
+          'Gerencia arma el arqueo en «Arqueo de stock» → «Nuevo arqueo»: qué se cuenta (un rubro, un proveedor o todo el local), conteo ciego y desde qué diferencia se vuelve a contar.',
+          'Cada persona entra desde el celular a «Arqueo de stock» → «Contar» y elige en qué lugar está (Góndola 3, Depósito, Heladera). El lugar queda fijo hasta cambiarlo.',
+          'Escanea con el lector de mano (no hace falta tocar nada: el código entra solo) o con «Cámara» en el celular, y escribe la cantidad. Con «+ 1 caja» suma una caja entera.',
+          'Si el mismo producto está en dos lugares, se cuenta en cada uno: el sistema los suma. Con «Escaneo rápido», cada lectura suma 1.',
+          'Un producto que el sistema no reconoce se anota con «Tengo un producto que el sistema no reconoce».',
+          'Si te equivocaste, en «Mis lecturas» tocás «Anular». No se borra: queda quién la anuló.',
+          'Gerencia ve el avance en vivo. Al terminar, «Cerrar conteo y revisar»: lo que da una diferencia grande va a la pestaña «Recontar» del celular de todos.',
+          'Con los reconteos hechos, gerencia elige qué hacer con lo que no se contó (dejarlo o ponerlo en cero) y toca «Aplicar el arqueo». Queda el informe para imprimir.',
+        ],
+      },
+      {
+        tipo: 'ojo',
+        puntos: [
+          'El que cuenta nunca ve cuánto dice el sistema (conteo ciego): cuenta lo que hay de verdad.',
+          'Sin señal no se pierde nada: las lecturas quedan guardadas en el celular y se mandan solas cuando vuelve la conexión.',
+          'Se puede seguir vendiendo mientras se cuenta: cada producto se compara con el stock del momento en que se contó.',
+          'La cámara lee códigos en celulares Android con Chrome. En iPhone se usa el lector de mano o se busca por nombre.',
+          'Mientras Saint Thomas siga sincronizando el stock desde el sistema viejo, una carga nueva de stock pisa lo que ajustó el arqueo.',
         ],
       },
     ],

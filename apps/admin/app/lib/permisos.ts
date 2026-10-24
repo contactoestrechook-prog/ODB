@@ -22,6 +22,7 @@ const RUTAS_POR_ROL: Record<string, string[]> = {
     '/productos', // catálogo: alta de productos que llegan sin estar cargados
     '/precios', // verificador de precios del salón (equipo de mano con lector)
     '/conteo', // conteos de inventario
+    '/arqueo', // arqueo de stock: cuenta desde el celular (24/10/2026)
     '/fraccionar', // cargar el pozo y armar (el API ya se lo permite: hereda depósito), 21/10/2026
     '/trazabilidad', // cadena orden → recepción → factura → pago y sus documentos
     '/manual', // el manual lo abre cualquiera
@@ -47,6 +48,7 @@ const RUTAS_POR_ROL: Record<string, string[]> = {
     // dirección, el teléfono y qué cobrar). Solo ve los suyos.
     '/repartidor',
     '/fraccionar', // armar docenas y abrir maples en el local (el API ya se lo permitía), 21/10/2026
+    '/arqueo', // contar en el arqueo de stock desde el celular (24/10/2026)
     '/manual', // el manual lo abre cualquiera
     '/cambiar-clave',
   ],
@@ -76,6 +78,7 @@ const RUTAS_POR_ROL: Record<string, string[]> = {
     '/por-llegar', // qué mercadería llega y cuándo
     '/stock',
     '/conteo',
+    '/arqueo', // arqueo de stock (24/10/2026)
     '/fraccionar', // armar presentaciones y cargar el pozo (con PIN de supervisor arriba del tope), 21/10/2026
     '/precios',
     '/productos',

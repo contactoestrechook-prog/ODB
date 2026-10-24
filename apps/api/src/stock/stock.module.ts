@@ -1,3 +1,5 @@
+import { ArqueoController } from './arqueo.controller';
+import { ArqueoService } from './arqueo.service';
 import { Module } from '@nestjs/common';
 import { StockController } from './stock.controller';
 import { StockService } from './stock.service';
@@ -11,7 +13,7 @@ import { FraccionesService } from './fracciones.service';
   // Catálogo: Fraccionar da de alta presentaciones nuevas por el mismo camino
   // que la ficha de productos (ProductosAdminService)
   imports: [CajaModule, CatalogoModule],
-  controllers: [StockController, FraccionesController],
-  providers: [StockService, FraccionesService, supabaseProvider],
+  controllers: [StockController, FraccionesController, ArqueoController],
+  providers: [StockService, FraccionesService, ArqueoService, supabaseProvider],
 })
 export class StockModule {}
