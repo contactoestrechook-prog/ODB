@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Aviso, Boton, BotonLink, Cargando, Entrada, Etiqueta, Modal, Pestanas, Selector, Tarjeta, Vacio, unir } from './kit';
+import { Aviso, Boton, BotonLink, Cargando, Entrada, Etiqueta, FOCO, Modal, Pestanas, Selector, Tarjeta, Vacio, unir } from './kit';
 import type { TonoEtiqueta } from './kit';
 import { fecha, fechaHora, hoyISO, pesos } from '../lib/formato';
 import { filtrarPorBusqueda } from '../lib/busqueda';
@@ -21,7 +21,9 @@ type Orden = {
   whatsappEstado: string | null; entregaEstado: 'esperando' | 'confirmada' | 'sin_respuesta' | 'a_revisar' | null;
   fecha: string | null; fechaPedida: string | null; horario: string | null; respuesta: string | null; faltantes: string | null;
 };
-type Proveedor = { id: string; nombre: string; telefono: string | null; productos: number; pedidos: number };
+type Proveedor = { id: string; nombre: string; telefono: string | null; productos: number; pedidos: number;
+  /** contactos de los teléfonos de las líneas con un nombre parecido: elige una persona */
+  sugerencias?: { telefono: string; contacto: string }[] };
 
 const ESTADO_ENTREGA: Record<string, { texto: string; tono: TonoEtiqueta }> = {
   confirmada: { texto: 'Fecha confirmada', tono: 'ok' },
@@ -29,6 +31,12 @@ const ESTADO_ENTREGA: Record<string, { texto: string; tono: TonoEtiqueta }> = {
   sin_respuesta: { texto: 'No contestó', tono: 'atencion' },
   a_revisar: { texto: 'Contestó: revisar', tono: 'atencion' },
 };
+
+// 5491123456789 → 11 2345-6789
+function formatoTelefono(t: string) {
+  const d = t.replace(/\D/g, '').replace(/^549/, '');
+  return d.length === 10 ? `${d.slice(0, 2)} ${d.slice(2, 6)}-${d.slice(6)}` : t;
+}
 
 function sumarDias(iso: string, n: number) {
   const d = new Date(`${iso}T12:00:00-03:00`);
@@ -275,7 +283,7 @@ function FilaProveedor({ p, onCambio }: { p: Proveedor; onCambio: () => void }) 
           <p className="break-words font-semibold text-tinta">{p.nombre}</p>
           <p className="text-xs text-tinta/60">
             {p.productos} producto{p.productos === 1 ? '' : 's'}{p.pedidos ? ` · ${p.pedidos} pedido${p.pedidos === 1 ? '' : 's'} en el año` : ''}
-            {p.telefono ? ` · WhatsApp ${p.telefono}` : ''}
+            {p.telefono ? ` · WhatsApp ${formatoTelefono(p.telefono)}` : ''}
           </p>
         </div>
         {!editando && (
@@ -284,6 +292,20 @@ function FilaProveedor({ p, onCambio }: { p: Proveedor; onCambio: () => void }) 
           </Boton>
         )}
       </div>
+      {!p.telefono && !!p.sugerencias?.length && (
+        <div className="mt-3">
+          <p className="text-xs text-tinta/60">En el WhatsApp del local está agendado como… Tocá el que recibe los pedidos (el vendedor, no el chofer ni cobranzas):</p>
+          <div className="mt-1.5 flex flex-wrap gap-2">
+            {p.sugerencias.map((g) => (
+              <button key={g.telefono} type="button" onClick={() => { setNumero(g.telefono); setEditando(true); setError(null); }}
+                className={unir('min-h-9 max-w-full rounded-full border px-3 text-left text-xs transition-colors hover:bg-crema-claro', FOCO,
+                  numero === g.telefono && editando ? 'border-marca text-tinta' : 'border-black/15 text-tinta/70')}>
+                <span className="break-words">{g.contacto}</span> · {formatoTelefono(g.telefono)}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       {editando && (
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <div className="min-w-0 flex-1">

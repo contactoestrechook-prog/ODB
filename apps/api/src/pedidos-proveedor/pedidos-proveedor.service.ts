@@ -546,8 +546,20 @@ export class PedidosProveedorService {
     const { data: compras } = await this.db.from('ordenes_compra').select('proveedor_id').gte('creado_en', new Date(Date.now() - 365 * 86_400_000).toISOString()).limit(5000);
     const pedidos = new Map<string, number>();
     for (const c of (compras ?? []) as any[]) pedidos.set(c.proveedor_id, (pedidos.get(c.proveedor_id) ?? 0) + 1);
+    // Contactos de los teléfonos de las líneas cuyo nombre coincide con el
+    // proveedor (23/10/2026). «No mezclar proveedores»: un número que ya es de
+    // otro proveedor no se ofrece; elige una persona.
+    const { data: sug } = await this.db.from('proveedor_whatsapp_sugerencias').select('proveedor_id, telefono, contacto').limit(3000);
+    const ultimos10 = (t: unknown) => String(t ?? '').replace(/\D/g, '').slice(-10);
+    const tomados = new Set(((data ?? []) as any[]).filter((p) => p.telefono).map((p) => ultimos10(p.telefono)));
+    const sugerencias = new Map<string, { telefono: string; contacto: string }[]>();
+    for (const g of (sug ?? []) as any[]) {
+      if (tomados.has(ultimos10(g.telefono))) continue;
+      sugerencias.set(g.proveedor_id, [...(sugerencias.get(g.proveedor_id) ?? []), { telefono: g.telefono, contacto: g.contacto }]);
+    }
     return ((data ?? []) as any[])
-      .map((p) => ({ id: p.id, nombre: p.razon_social, telefono: p.telefono ?? null, productos: Number(p.productos?.[0]?.count ?? 0), pedidos: pedidos.get(p.id) ?? 0 }))
+      .map((p) => ({ id: p.id, nombre: p.razon_social, telefono: p.telefono ?? null, productos: Number(p.productos?.[0]?.count ?? 0), pedidos: pedidos.get(p.id) ?? 0,
+        sugerencias: p.telefono ? [] : (sugerencias.get(p.id) ?? []) }))
       .filter((p) => p.productos > 0)
       .sort((a, b) => Number(!!a.telefono) - Number(!!b.telefono) || b.pedidos - a.pedidos || b.productos - a.productos);
   }
