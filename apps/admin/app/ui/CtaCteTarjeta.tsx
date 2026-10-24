@@ -18,6 +18,7 @@ export type PerfilCompras = {
   medios: { medio: string; tickets: number }[];
   productos: { codigo: string | null; nombre: string; unidades: number; total: number; veces: number }[];
 };
+export type DiasDeuda = { desde: string; dias: number; diasPromedio: number; facturasAbiertas: number };
 export type MovTarjeta = { fecha: string; concepto: string; debe: number; haber: number; importado: boolean; renglones: Renglon[] };
 export type CuentaTarjeta = {
   id: string; nombre: string; telefono: string | null; celular: string | null; sucursal: 'st' | 'si' | null;
@@ -26,6 +27,8 @@ export type CuentaTarjeta = {
   diasSinPagar: number | null; compras30: number; comprado30: number; pagado30: number; traidoDelCrack: number;
   movimientos: MovTarjeta[];
   perfil: PerfilCompras | null;
+  /** desde cuándo debe (la factura abierta más vieja) y la edad promedio de la deuda */
+  deuda: DiasDeuda | null;
   riesgo: 'alto' | 'medio' | 'bajo';
 };
 
@@ -41,6 +44,18 @@ const DIAS_LARGOS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'vier
 
 const haceDias = (n: number | null) => (n == null ? '' : n === 0 ? 'hoy' : n === 1 ? 'ayer' : `hace ${n} días`);
 const dias = (iso: string) => Math.floor((Date.now() - new Date(iso).getTime()) / 86400_000);
+
+/** «Debe desde hace 42 días · promedio 22 días», en el color de lo vieja que es. */
+export function DiasDeDeuda({ d, grande = false }: { d: DiasDeuda; grande?: boolean }) {
+  const tono = d.dias >= 45 ? 'bg-marca-suave text-marca-hondo' : d.dias >= 20 ? 'bg-atencion-suave text-atencion' : 'bg-ok-suave text-ok';
+  return (
+    <p className={unir('mt-1 inline-flex flex-wrap items-baseline gap-x-1.5 rounded-lg px-2 py-1', grande ? 'text-sm' : 'text-xs', tono)}
+      title={`La factura sin pagar más vieja es del ${d.desde.split('-').reverse().join('/')}; ${d.facturasAbiertas} facturas sin cubrir`}>
+      <b>Debe hace {d.dias} {d.dias === 1 ? 'día' : 'días'}</b>
+      <span>· promedio {d.diasPromedio} {d.diasPromedio === 1 ? 'día' : 'días'}</span>
+    </p>
+  );
+}
 
 export function CtaCteTarjeta({ c, esDueno, onAbrir, onTope }: {
   c: CuentaTarjeta;
@@ -81,6 +96,7 @@ export function CtaCteTarjeta({ c, esDueno, onAbrir, onTope }: {
       <div className="px-4 pt-3">
         <p className="text-xs text-tinta/60">{c.saldo >= 0 ? 'Debe' : 'A favor'}</p>
         <p className={unir('importe text-2xl font-bold', c.saldo > 0 ? 'text-tinta' : 'text-ok')}>{pesos(Math.abs(c.saldo))}</p>
+        {c.deuda && <DiasDeDeuda d={c.deuda} />}
 
         {c.limite > 0 ? (
           <div className="mt-2">
@@ -117,11 +133,11 @@ export function CtaCteTarjeta({ c, esDueno, onAbrir, onTope }: {
         const ultima = c.ultimaCompra?.fecha ?? p?.ultima ?? null;
         return (
           <div className="mx-4 mt-3 rounded-xl bg-crema-claro px-3 py-3">
-            <dl className="grid grid-cols-3 gap-2 text-xs">
+            <dl className="grid grid-cols-[repeat(auto-fit,minmax(6.5rem,1fr))] gap-x-3 gap-y-2 text-xs">
               <div className="min-w-0">
                 <dt className="text-tinta/60">Ticket promedio</dt>
                 <dd className="importe text-sm font-semibold text-tinta">{p ? pesos(p.ticketPromedio) : '—'}</dd>
-                <dd className="text-tinta/60">{p ? `${p.tickets} compras en 6 meses` : 'sin compras en 6 meses'}</dd>
+                <dd className="text-tinta/60">{p ? `${p.tickets} compras, 6 meses` : 'sin compras'}</dd>
               </div>
               <div className="min-w-0">
                 <dt className="text-tinta/60">Compra</dt>
@@ -131,7 +147,7 @@ export function CtaCteTarjeta({ c, esDueno, onAbrir, onTope }: {
               <div className="min-w-0">
                 <dt className="text-tinta/60">Último pago</dt>
                 <dd className="importe text-sm font-semibold text-tinta">{c.ultimoPago ? pesos(c.ultimoPago.monto) : '—'}</dd>
-                <dd className={unir(c.diasSinPagar != null && c.diasSinPagar >= 20 ? 'text-marca-hondo' : 'text-tinta/60')}>{c.ultimoPago ? haceDias(c.diasSinPagar) : 'sin pagos en NÚCLEO'}</dd>
+                <dd className={unir(c.diasSinPagar != null && c.diasSinPagar >= 20 ? 'text-marca-hondo' : 'text-tinta/60')}>{c.ultimoPago ? haceDias(c.diasSinPagar) : 'sin pagos'}</dd>
               </div>
             </dl>
 

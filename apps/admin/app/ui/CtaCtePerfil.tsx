@@ -64,15 +64,24 @@ export function CtaCtePerfil({ p }: { p: PerfilCompras | null }) {
         {/* mes a mes */}
         <div>
           <p className="mb-2 text-xs font-semibold uppercase tracking-[0.1em] text-tinta/60">Mes a mes (12 meses)</p>
-          <div className="flex h-36 items-end gap-1.5" role="img" aria-label={p.porMes.map((m) => `${m.mes}: ${pesos(m.total)}`).join(', ')}>
-            {p.porMes.map((m) => (
-              <div key={m.mes} className="flex min-w-0 flex-1 flex-col items-center justify-end gap-1" title={`${m.tickets} compras · ${pesos(m.total)}`}>
-                <span className="text-xs text-tinta/60">{pesosCorto(m.total)}</span>
-                <div className="w-full rounded-t-md bg-info" style={{ height: `${Math.max((m.total / maxMes) * 96, 3)}px` }} />
-                <span className="text-xs text-tinta/70">{MESES[Number(m.mes.slice(5)) - 1]}</span>
-              </div>
-            ))}
+          {/* el monto va solo en el mes más alto y en el último: en todos se pisaban; el resto, al pasar el mouse */}
+          <div className="flex h-40 items-end gap-1" role="img" aria-label={p.porMes.map((m) => `${m.mes}: ${pesos(m.total)}`).join(', ')}>
+            {p.porMes.map((m, i) => {
+              const ultimo = i === p.porMes.length - 1;
+              const conMonto = m.total === maxMes || ultimo;
+              const mes = Number(m.mes.slice(5));
+              const conAnio = i === 0 || mes === 1;
+              return (
+                <div key={m.mes} className="flex min-w-0 flex-1 flex-col items-center justify-end" title={`${MESES[mes - 1]} ${m.mes.slice(0, 4)}: ${m.tickets} compras · ${pesos(m.total)}`}>
+                  <span className={unir('mb-0.5 whitespace-nowrap text-xs font-semibold', conMonto ? 'text-tinta' : 'invisible')}>{pesosCorto(m.total)}</span>
+                  <div className={unir('w-full rounded-t-md', ultimo ? 'bg-info/60' : 'bg-info')} style={{ height: `${Math.max((m.total / maxMes) * 96, 3)}px` }} />
+                  <span className="mt-1 text-xs leading-none text-tinta/70">{MESES[mes - 1]}</span>
+                  <span className={unir('text-xs leading-tight text-tinta/60', conAnio ? '' : 'invisible')}>{m.mes.slice(2, 4)}</span>
+                </div>
+              );
+            })}
           </div>
+          <p className="mt-1 text-xs text-tinta/60">El último mes va más claro: todavía no terminó.</p>
         </div>
       </div>
 

@@ -160,9 +160,25 @@ export class CtaCteController {
     // cómo compra cada uno en los últimos 6 meses (ticket promedio, días,
     // productos): sale del Crack y de las ventas de NÚCLEO con cliente
     const perfiles = new Map<string, PerfilCompras>();
+    // días de deuda (24/10/2026, «los días de deuda y el día de deuda
+    // promedio»): desde cuándo debe y la edad promedio de lo que debe, con las
+    // facturas del Crack y las de NÚCLEO (deuda_antiguedad, en la base)
+    const antiguedad = new Map<string, { desde: string; dias: number; diasPromedio: number; facturasAbiertas: number }>();
     if (ids.length) {
-      const { data } = await this.db.rpc('perfil_compras', { p_clientes: ids, p_meses: 6 });
+      const [{ data }, { data: deuda }, { data: pagosCrack }] = await Promise.all([
+        this.db.rpc('perfil_compras', { p_clientes: ids, p_meses: 6 }),
+        this.db.rpc('deuda_antiguedad', { p_clientes: ids }),
+        // el último pago que registró el Crack (en NÚCLEO casi no hay todavía)
+        this.db.from('cta_cte_movimientos_crack').select('cliente_id, fecha, importe').in('cliente_id', ids).eq('tipo', 'PAGO').order('fecha', { ascending: false }).limit(5000),
+      ]);
       for (const p of (data ?? []) as any[]) perfiles.set(p.cliente_id, resumirPerfil(p, 3));
+      for (const d of (deuda ?? []) as any[]) {
+        antiguedad.set(d.cliente_id, { desde: d.desde, dias: Number(d.dias), diasPromedio: Number(d.dias_promedio), facturasAbiertas: Number(d.facturas_abiertas) });
+      }
+      for (const p of (pagosCrack ?? []) as any[]) {
+        const x = porCliente.get(p.cliente_id);
+        if (x && (!x.ultimoPago || p.fecha > x.ultimoPago.fecha)) x.ultimoPago = { fecha: p.fecha, monto: Math.abs(Number(p.importe)) };
+      }
     }
 
     const cuentas = lista.map((c) => {
@@ -172,13 +188,16 @@ export class CtaCteController {
       const pctConsumido = limite > 0 ? Math.round((saldo / limite) * 100) : null;
       const diasSinPagar = dias(h.ultimoPago?.fecha);
 
-      // Semáforo. Regla simple y explicable, no una caja negra:
-      // ROJO  = tope agotado, o debe y hace 45+ días que no paga nada (o nunca pagó)
-      // AMARILLO = 80%+ del tope, o debe y hace 20+ días sin pagos
+      // Semáforo. Regla simple y explicable, no una caja negra. Se mide con
+      // los días que lleva la deuda más vieja; sin ese dato, con el último pago.
+      // ROJO  = tope agotado, o debe hace 45+ días
+      // AMARILLO = 80%+ del tope, o debe hace 20+ días
       // VERDE = el resto
+      const ant = antiguedad.get(c.id) ?? null;
+      const diasDeuda = saldo > 0 ? (ant?.dias ?? diasSinPagar) : null;
       let riesgo: 'alto' | 'medio' | 'bajo' = 'bajo';
-      if ((pctConsumido != null && pctConsumido >= 100) || (saldo > 0 && (diasSinPagar == null || diasSinPagar >= 45))) riesgo = 'alto';
-      else if ((pctConsumido != null && pctConsumido >= 80) || (saldo > 0 && diasSinPagar != null && diasSinPagar >= 20)) riesgo = 'medio';
+      if ((pctConsumido != null && pctConsumido >= 100) || (saldo > 0 && (diasDeuda == null || diasDeuda >= 45))) riesgo = 'alto';
+      else if ((pctConsumido != null && pctConsumido >= 80) || (diasDeuda != null && diasDeuda >= 20)) riesgo = 'medio';
 
       return {
         id: c.id,
@@ -200,6 +219,8 @@ export class CtaCteController {
         traidoDelCrack: Math.round(h.traidoDelCrack),
         movimientos: h.movimientos,
         perfil: perfiles.get(c.id) ?? null,
+        // desde cuándo debe y la edad promedio de la deuda (null: no debe o no hay facturas)
+        deuda: saldo > 0 && ant ? ant : null,
         riesgo,
       };
     });
@@ -215,6 +236,13 @@ export class CtaCteController {
         excedidas: cuentas.filter((c) => c.excedido > 0).length,
         comprado30: Math.round(cuentas.reduce((s, c) => s + c.comprado30, 0)),
         pagado30: Math.round(cuentas.reduce((s, c) => s + c.pagado30, 0)),
+        // días de deuda promedio de la cartera, pesado por lo que debe cada uno
+        diasDeudaPromedio: (() => {
+          const con = cuentas.filter((c) => c.deuda && c.saldo > 0);
+          const plata = con.reduce((s, c) => s + c.saldo, 0);
+          return plata ? Math.round(con.reduce((s, c) => s + c.deuda!.diasPromedio * c.saldo, 0) / plata) : null;
+        })(),
+        deuda90: cuentas.filter((c) => (c.deuda?.dias ?? 0) >= 90).length,
         // lo que compró toda la cartera en 6 meses, ticket por ticket
         ticketPromedio: (() => {
           const t = cuentas.reduce((s, c) => s + (c.perfil?.tickets ?? 0), 0);

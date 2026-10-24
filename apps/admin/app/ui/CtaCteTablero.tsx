@@ -12,11 +12,12 @@ import { CtaCteTarjeta, type CuentaTarjeta } from './CtaCteTarjeta';
 // eso»). Arriba la plata en la calle y lo disponible; abajo cada cuenta con lo
 // que debe, su límite, lo último que compró y pagó. Cada número lleva a algo.
 
-type Orden = 'deuda' | 'sin-pagar' | 'limite' | 'compra' | 'nombre';
-type Filtro = 'todos' | 'alto' | 'medio' | 'bajo' | 'excedidas' | 'sin-limite';
+type Orden = 'deuda' | 'antigua' | 'sin-pagar' | 'limite' | 'compra' | 'nombre';
+type Filtro = 'todos' | 'alto' | 'medio' | 'bajo' | 'mas-90' | 'excedidas' | 'sin-limite';
 
 const ORDENES: Record<Orden, (a: CuentaTarjeta, b: CuentaTarjeta) => number> = {
   deuda: (a, b) => b.saldo - a.saldo,
+  antigua: (a, b) => (b.deuda?.dias ?? -1) - (a.deuda?.dias ?? -1) || b.saldo - a.saldo,
   'sin-pagar': (a, b) => (b.diasSinPagar ?? 9999) - (a.diasSinPagar ?? 9999) || b.saldo - a.saldo,
   limite: (a, b) => (b.pctConsumido ?? -1) - (a.pctConsumido ?? -1),
   compra: (a, b) => (b.perfil?.total ?? 0) - (a.perfil?.total ?? 0),
@@ -63,13 +64,14 @@ export function CtaCteTablero({ esDueno, tipo = 'cliente' }: { esDueno: boolean;
   const llano = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
   const cuentas = datos.cuentas
     .filter((c) => {
+      if (filtro === 'mas-90') return (c.deuda?.dias ?? 0) >= 90;
       if (filtro === 'excedidas') return c.excedido > 0;
       if (filtro === 'sin-limite') return c.limite <= 0;
       return filtro === 'todos' || c.riesgo === filtro;
     })
     .filter((c) => !busca.trim() || llano(`${c.nombre} ${c.telefono ?? ''}`).includes(llano(busca.trim())))
     .sort(ORDENES[orden]);
-  const cuenta = (f: Filtro) => datos.cuentas.filter((c) => (f === 'excedidas' ? c.excedido > 0 : f === 'sin-limite' ? c.limite <= 0 : f === 'todos' || c.riesgo === f)).length;
+  const cuenta = (f: Filtro) => datos.cuentas.filter((c) => (f === 'mas-90' ? (c.deuda?.dias ?? 0) >= 90 : f === 'excedidas' ? c.excedido > 0 : f === 'sin-limite' ? c.limite <= 0 : f === 'todos' || c.riesgo === f)).length;
 
   return (
     <div className="space-y-4 sm:space-y-6">
@@ -91,11 +93,11 @@ export function CtaCteTablero({ esDueno, tipo = 'cliente' }: { esDueno: boolean;
       {/* la foto de toda la cartera */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
         <Kpi etiqueta="En la calle" valor={pesos(kpis.enLaCalle)} sub={`${kpis.clientesConSaldo} de ${kpis.clientesHabilitados} cuentas deben`} />
-        <Kpi etiqueta="Disponible para fiar" valor={pesos(kpis.disponibleTotal)} sub="en las cuentas con límite" />
+        <Kpi etiqueta="Días de deuda promedio" valor={kpis.diasDeudaPromedio != null ? `${kpis.diasDeudaPromedio} días` : '—'} sub={kpis.deuda90 ? `${kpis.deuda90} deben hace +90 días` : 'pesado por lo que debe cada uno'} tono={kpis.diasDeudaPromedio >= 45 ? 'error' : kpis.diasDeudaPromedio >= 20 ? 'atencion' : 'ok'} />
         <Kpi etiqueta="Ticket promedio" valor={pesos(kpis.ticketPromedio)} sub="últimos 6 meses" />
         <Kpi etiqueta="Pagaron (30 días)" valor={pesos(kpis.pagado30)} tono={kpis.pagado30 > 0 ? 'ok' : 'neutro'} />
         <Kpi etiqueta="Riesgo alto" valor={kpis.enRiesgo} tono={kpis.enRiesgo > 0 ? 'error' : 'ok'} />
-        <Kpi etiqueta="Sin límite" valor={kpis.sinTope} tono={kpis.sinTope > 0 ? 'atencion' : 'neutro'} />
+        <Kpi etiqueta="Disponible para fiar" valor={pesos(kpis.disponibleTotal)} sub={`${kpis.sinTope} cuentas sin límite`} />
       </div>
 
       {/* buscar, filtrar y ordenar */}
@@ -103,6 +105,7 @@ export function CtaCteTablero({ esDueno, tipo = 'cliente' }: { esDueno: boolean;
         <Entrada value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar por nombre o teléfono" aria-label="Buscar cuenta" type="search" className="min-w-0 grow basis-56" />
         <Selector value={orden} onChange={(e) => setOrden(e.target.value as Orden)} aria-label="Ordenar las cuentas" className="w-auto">
           <option value="deuda">Más deuda primero</option>
+          <option value="antigua">Deuda más vieja primero</option>
           <option value="sin-pagar">Más tiempo sin pagar</option>
           <option value="limite">Más cerca del límite</option>
           <option value="compra">Los que más compran</option>
@@ -114,7 +117,7 @@ export function CtaCteTablero({ esDueno, tipo = 'cliente' }: { esDueno: boolean;
         valor={filtro}
         onCambiar={setFiltro}
         opciones={([
-          ['todos', 'Todas'], ['alto', 'Riesgo alto'], ['medio', 'Atención'], ['bajo', 'Al día'], ['excedidas', 'Pasadas del límite'], ['sin-limite', 'Sin límite'],
+          ['todos', 'Todas'], ['alto', 'Riesgo alto'], ['medio', 'Atención'], ['bajo', 'Al día'], ['mas-90', 'Deben hace +90 días'], ['excedidas', 'Pasadas del límite'], ['sin-limite', 'Sin límite'],
         ] as [Filtro, string][]).map(([valor, etiqueta]) => ({ valor, etiqueta: `${etiqueta} (${cuenta(valor)})` }))}
       />
 

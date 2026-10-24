@@ -5,7 +5,7 @@ import { Aviso, Boton, Campo, Cargando, Entrada, Etiqueta, Modal, Selector, useC
 import { fecha, fechaHora, pesos } from '../lib/formato';
 import { CtaCteDatosCliente, DATOS_VACIOS, celularSirve, type DatosForm } from './CtaCteDatosCliente';
 import { CtaCtePerfil } from './CtaCtePerfil';
-import type { PerfilCompras } from './CtaCteTarjeta';
+import { DiasDeDeuda, type DiasDeuda, type PerfilCompras } from './CtaCteTarjeta';
 
 // La ficha de una cuenta: los datos del cliente (todos editables en un solo
 // formulario), el tope, si recibe el resumen, sus movimientos y los resúmenes
@@ -18,6 +18,7 @@ type Datos = {
     datos: Omit<DatosForm, 'telefono'>;
   };
   perfil: PerfilCompras | null;
+  deuda: DiasDeuda | null;
   movimientos: { id: number; concepto: string | null; debe: number; haber: number; creado_en: string }[];
   resumenes: { tanda: string; estado: string; saldo: number; motivo: string | null; enviado_en: string | null }[];
 };
@@ -132,6 +133,14 @@ export function CtaCteDetalle({ clienteId, esDueno = false, onCerrar, onCambio }
       {listo && !error && <Aviso tono="ok" className="mb-3">{listo}</Aviso>}
       {!datos ? <Cargando bloque /> : (
         <div className="space-y-5">
+          {datos.deuda && (
+            <section>
+              <DiasDeDeuda d={datos.deuda} grande />
+              <p className="mt-1 text-xs text-tinta/60">
+                La factura sin pagar más vieja es del {datos.deuda.desde.split('-').reverse().join('/')}; quedan {datos.deuda.facturasAbiertas} facturas sin cubrir (los pagos cancelan primero lo más viejo).
+              </p>
+            </section>
+          )}
           <section>
             <h3 className="mb-2 text-sm font-semibold text-tinta">Cómo compra</h3>
             <CtaCtePerfil p={datos.perfil} />

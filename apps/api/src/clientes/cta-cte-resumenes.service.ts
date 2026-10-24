@@ -310,14 +310,17 @@ export class CtaCteResumenesService {
     ]);
     if (!cli) throw new BadRequestException('No existe ese cliente');
     // perfil de compra: 6 meses para los números, 12 para ver la tendencia mes a mes
-    const [{ data: p6 }, { data: p12 }] = await Promise.all([
+    const [{ data: p6 }, { data: p12 }, { data: ant }] = await Promise.all([
       this.db.rpc('perfil_compras', { p_clientes: [clienteId], p_meses: 6 }),
       this.db.rpc('perfil_compras', { p_clientes: [clienteId], p_meses: 12 }),
+      this.db.rpc('deuda_antiguedad', { p_clientes: [clienteId] }),
     ]);
+    const a = (ant as any[])?.[0];
     const perfil = (p6 as any[])?.[0] ? resumirPerfil((p6 as any[])[0], 8) : null;
     if (perfil && (p12 as any[])?.[0]) perfil.porMes = resumirPerfil((p12 as any[])[0]).porMes;
     return {
       perfil,
+      deuda: a ? { desde: a.desde, dias: Number(a.dias), diasPromedio: Number(a.dias_promedio), facturasAbiertas: Number(a.facturas_abiertas) } : null,
       cliente: {
         id: cli.id,
         nombre: cli.razon_social || cli.nombre,
