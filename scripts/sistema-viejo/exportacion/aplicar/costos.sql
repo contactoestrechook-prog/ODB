@@ -36,7 +36,12 @@ begin
     -- se resuelve todo una vez (producto, proveedor, si ODB tiene uno más nuevo)
     select coalesce(jsonb_agg(to_jsonb(r)), '[]') into v_items from (
       select it.codigo, it.costo, it.fecha, p.id prod, p.costo costo_act,
-             coalesce(pv.id, pc.id, pn.id) prov,
+             -- 24/10/2026: el proveedor de productosxproveedor NO es confiable (el viejo
+             -- arrastra el del artículo cargado antes: Johnnie Walker «de» Distrisur).
+             -- Solo vale si ese vínculo ya existe en ODB; nunca se crea uno nuevo acá.
+             case when exists (select 1 from proveedor_productos pp where pp.producto_id = p.id
+                                 and pp.proveedor_id = coalesce(pv.id, pc.id, pn.id))
+                  then coalesce(pv.id, pc.id, pn.id) end prov,
              exists (select 1 from costos_historial ch where ch.producto_id = p.id and ch.creado_en > it.fecha
                       and coalesce(ch.origen, '') not like 'export-%') odb_mas_nuevo
         from (select e->>0 codigo, (e->>1)::numeric costo, coalesce(((e->>2) || ' 12:00:00-03')::timestamptz, (a->>'corte')::timestamptz) fecha,
@@ -63,11 +68,11 @@ begin
 
     with it as (select * from jsonb_to_recordset(v_items) as x(costo numeric, fecha timestamptz, prod uuid, prov uuid, odb_mas_nuevo boolean)),
     ins as (
-      insert into proveedor_productos (proveedor_id, producto_id, ultimo_costo, actualizado_en)
-      select it.prov, it.prod, it.costo, it.fecha from it where it.prov is not null and it.prod is not null and not it.odb_mas_nuevo
-      on conflict (proveedor_id, producto_id) do update set ultimo_costo = excluded.ultimo_costo, actualizado_en = excluded.actualizado_en
-       where (proveedor_productos.actualizado_en is null or proveedor_productos.actualizado_en <= excluded.actualizado_en)
-         and (proveedor_productos.ultimo_costo is distinct from excluded.ultimo_costo or proveedor_productos.actualizado_en is distinct from excluded.actualizado_en)
+      update proveedor_productos pp set ultimo_costo = it.costo, actualizado_en = it.fecha
+        from it where it.prov is not null and it.prod is not null and not it.odb_mas_nuevo
+         and pp.proveedor_id = it.prov and pp.producto_id = it.prod
+         and (pp.actualizado_en is null or pp.actualizado_en <= it.fecha)
+         and (pp.ultimo_costo is distinct from it.costo or pp.actualizado_en is distinct from it.fecha)
       returning 1
     )
     select count(*) into n_pp from ins;
