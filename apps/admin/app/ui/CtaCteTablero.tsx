@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Aviso, Boton, Cargando, Chips, Entrada, FOCO, Kpi, Tarjeta, unir } from './kit';
 import { pesos } from '../lib/formato';
+import { CtaCteResumenes } from './CtaCteResumenes';
+import { CtaCteDetalle } from './CtaCteDetalle';
 
 // Tablero de cuentas corrientes: la plata en la calle, contra qué tope, quién
 // paga bien y quién es un riesgo. Gráficos simples en SVG propio — sin
@@ -27,6 +29,9 @@ export function CtaCteTablero({ esDueno }: { esDueno: boolean }) {
   const [tope, setTope] = useState('');
   const [guardando, setGuardando] = useState(false);
   const [filtro, setFiltro] = useState<'todos' | 'alto' | 'medio' | 'bajo'>('todos');
+  // la cuenta abierta en la ficha; version recarga el resumen al cambiar un celular
+  const [abierta, setAbierta] = useState<string | null>(null);
+  const [version, setVersion] = useState(0);
 
   const cargar = useCallback(async () => {
     try {
@@ -71,6 +76,9 @@ export function CtaCteTablero({ esDueno }: { esDueno: boolean }) {
         <Kpi etiqueta="Sin tope asignado" valor={kpis.sinTope} tono={kpis.sinTope > 0 ? 'atencion' : 'neutro'} />
       </div>
 
+      <CtaCteResumenes esDueno={esDueno} onAbrirCuenta={setAbierta} version={version} />
+      <CtaCteDetalle clienteId={abierta} onCerrar={() => setAbierta(null)} onCambio={() => { setVersion((v) => v + 1); cargar(); }} />
+
       {/* GRÁFICO: la deuda, cliente por cliente, contra su tope */}
       <Tarjeta>
         <h2 className="mb-1 text-base font-semibold text-tinta">Los que más deben</h2>
@@ -81,7 +89,7 @@ export function CtaCteTablero({ esDueno }: { esDueno: boolean }) {
             const marca80 = c.limite > 0 ? Math.min(((c.limite * 0.8) / maxSaldo) * 100, 100) : null;
             return (
               <div key={c.id} className="grid grid-cols-[1fr_auto] items-center gap-x-2 gap-y-1 text-sm sm:grid-cols-[9rem_1fr_6rem]">
-                <span className="min-w-0 break-words text-tinta/80" title={c.nombre}>{c.nombre}</span>
+                <button type="button" onClick={() => setAbierta(c.id)} className={unir('min-w-0 break-words rounded-sm text-left text-tinta/80 underline-offset-2 hover:underline', FOCO)} title={c.nombre}>{c.nombre}</button>
                 <div className="relative col-span-2 h-5 overflow-hidden rounded-full bg-black/[0.06] sm:col-span-1 sm:col-start-2 sm:row-start-1">
                   <div className={unir('absolute inset-y-0 left-0 rounded-full', COLOR[c.riesgo])} style={{ width: `${ancho}%` }} />
                   {marca80 != null && <div className="absolute inset-y-0 w-0.5 bg-marca" style={{ left: `${marca80}%` }} title="80% del tope" />}
@@ -131,7 +139,7 @@ export function CtaCteTablero({ esDueno }: { esDueno: boolean }) {
               <span className={unir('size-2.5 shrink-0 rounded-full', COLOR[c.riesgo])} title={ETIQ[c.riesgo]} />
               <div className="min-w-0">
                 <p className="min-w-0 break-words text-sm text-tinta">
-                  {c.nombre}
+                  <button type="button" onClick={() => setAbierta(c.id)} className={unir('rounded-sm text-left underline-offset-2 hover:underline', FOCO)}>{c.nombre}</button>
                   <span className="ml-2 text-xs text-tinta/60">
                     {c.diasSinPagar != null ? `último pago hace ${c.diasSinPagar}d` : c.saldo > 0 ? 'sin pagos registrados' : ''}
                     {c.compras30 > 0 && ` · ${c.compras30} compras/30d`}
