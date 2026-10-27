@@ -1,5 +1,6 @@
 import { aliasValido, cbuValido, cuitLegible, cuitNormalizado, emailValido, faltantes, telefonoValido } from './ficha';
 import { dominioDe, iconosDelHtml } from './proveedores-ficha.service';
+import { leerSitio } from './logos-semanal.service';
 
 describe('CUIT', () => {
   it('acepta un CUIT real con o sin guiones y lo guarda en dígitos', () => {
@@ -63,5 +64,15 @@ describe('logo desde la web', () => {
     expect(iconosDelHtml(html, 'https://www.x.com/home/')).toEqual([
       'https://www.x.com/home/img/logo-192.png', 'https://cdn.x.com/ati.png', 'https://www.x.com/favicon-32.png',
     ]);
+  });
+});
+
+describe('sitio oficial que contesta el modelo', () => {
+  it('toma el último JSON y solo acepta un dominio', () => {
+    expect(leerSitio('Busqué… es Arcor.\n{"web": "https://www.arcor.com/ar", "seguro": true, "motivo": "sitio de la marca"}'))
+      .toEqual({ web: 'www.arcor.com', seguro: true, motivo: 'sitio de la marca' });
+    expect(leerSitio('{"web": null, "seguro": false, "motivo": "nombre genérico"}').seguro).toBe(false);
+    expect(leerSitio('{"web": "no sé", "seguro": true}')).toMatchObject({ web: null, seguro: false });
+    expect(leerSitio('sin json').seguro).toBe(false);
   });
 });

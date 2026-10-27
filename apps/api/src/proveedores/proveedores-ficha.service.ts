@@ -16,7 +16,7 @@ import {
 
 const COLUMNAS = 'id, razon_social, nombre_fantasia, cuit, condicion_iva, direccion, localidad, telefono, telefono_fijo, email, web, '
   + 'condicion_pago, lead_time_dias, lead_time_confirmado, descuento_efectivo, dias_pedido, dias_entrega, pedido_minimo, '
-  + 'banco, cbu, alias_cbu, notas, logo_url, activo, actualizado_en';
+  + 'banco, cbu, alias_cbu, notas, logo_url, logo_auto, activo, actualizado_en';
 
 const BUCKET = 'comprobantes';
 
@@ -53,7 +53,7 @@ export class ProveedoresFichaService {
       const r = resumen.get(p.id) ?? {};
       return {
         id: p.id, razonSocial: p.razon_social, nombreFantasia: p.nombre_fantasia, cuit: p.cuit, telefono: p.telefono,
-        localidad: p.localidad, activo: p.activo, logo: p.logo_url ?? null,
+        localidad: p.localidad, activo: p.activo, logo: p.logo_url ?? null, logoAuto: p.logo_auto === true,
         productos: Number(r.productos ?? 0), ultimaActividad: r.ultima_actividad ?? null, deuda: Number(r.deuda ?? 0),
         documentos: Number(r.documentos ?? 0), contactos: Number(r.contactos ?? 0),
         faltan: faltantes(p),
@@ -230,7 +230,7 @@ export class ProveedoresFichaService {
   // ---------- logo ----------
 
   /** Deja el logo cuadrado de 256 px (sin deformar, fondo transparente) y lo publica. */
-  private async publicarLogo(proveedorId: string, imagen: Buffer, usuarioId?: string | null, origen = 'subido') {
+  private async publicarLogo(proveedorId: string, imagen: Buffer, usuarioId?: string | null, origen = 'subido', auto = false) {
     let png: Buffer;
     try {
       const img = sharp(imagen, { failOn: 'none' });
@@ -245,7 +245,7 @@ export class ProveedoresFichaService {
     if (error) throw new BadRequestException(`No pude guardar el logo: ${error.message}`);
     const url = this.db.storage.from('publico').getPublicUrl(ruta).data.publicUrl;
     const { data: antes } = await this.db.from('proveedores').select('logo_url').eq('id', proveedorId).maybeSingle();
-    await this.db.from('proveedores').update({ logo_url: url, actualizado_en: new Date().toISOString(), actualizado_por: usuarioId ?? null }).eq('id', proveedorId);
+    await this.db.from('proveedores').update({ logo_url: url, logo_auto: auto, actualizado_en: new Date().toISOString(), actualizado_por: usuarioId ?? null }).eq('id', proveedorId);
     await this.auditar(usuarioId, 'proveedor_logo', proveedorId, { logo_url: (antes as any)?.logo_url ?? null }, { logo_url: url, origen });
     return { logo: url };
   }
@@ -261,7 +261,7 @@ export class ProveedoresFichaService {
    * último el que tiene indexado Google. Un ícono chico o
    * genérico no sirve: se rechaza.
    */
-  async logoDesdeWeb(proveedorId: string, usuarioId?: string | null) {
+  async logoDesdeWeb(proveedorId: string, usuarioId?: string | null, auto = false) {
     const { data: p } = await this.db.from('proveedores').select('web').eq('id', proveedorId).maybeSingle();
     const dominio = dominioDe((p as any)?.web);
     if (!dominio) throw new BadRequestException('Cargá primero la web del proveedor (por ejemplo arcor.com) y guardá');
@@ -278,14 +278,14 @@ export class ProveedoresFichaService {
         const buf = Buffer.from(await r.arrayBuffer());
         const meta = await sharp(buf, { failOn: 'none' }).metadata();
         if ((meta.width ?? 0) < 96) continue; // el globito genérico de 16 px no es un logo
-        return await this.publicarLogo(proveedorId, buf, usuarioId, url);
+        return await this.publicarLogo(proveedorId, buf, usuarioId, url, auto);
       } catch { /* probar el siguiente */ }
     }
     throw new BadRequestException(`No encontré un logo usable en ${dominio}. Bajalo de su web o de una foto y subilo a mano.`);
   }
 
   async sacarLogo(proveedorId: string, usuarioId?: string | null) {
-    await this.db.from('proveedores').update({ logo_url: null }).eq('id', proveedorId);
+    await this.db.from('proveedores').update({ logo_url: null, logo_auto: false }).eq('id', proveedorId);
     await this.auditar(usuarioId, 'proveedor_logo', proveedorId, null, { logo_url: null });
     return { ok: true };
   }

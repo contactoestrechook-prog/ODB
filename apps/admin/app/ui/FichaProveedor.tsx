@@ -157,6 +157,7 @@ export function FichaProveedor({ id }: { id: string }) {
           <h1 className="mt-1 text-2xl font-bold text-tinta [overflow-wrap:anywhere]">{p.razon_social}</h1>
           <div className="mt-1 flex flex-wrap items-center gap-2">
             {!p.activo && <Etiqueta tono="error">Dado de baja</Etiqueta>}
+            {p.logo_url && p.logo_auto && <Etiqueta tono="info">Logo traído solo: revisalo</Etiqueta>}
             {p.faltan.length === 0
               ? <Etiqueta tono="ok">Ficha completa</Etiqueta>
               : <p className="text-sm text-tinta/70"><b className="text-tinta">Falta:</b> {p.faltan.join(', ')}</p>}

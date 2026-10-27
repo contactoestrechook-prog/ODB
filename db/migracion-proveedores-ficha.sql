@@ -95,3 +95,11 @@ revoke all on function proveedores_resumen() from public, anon, authenticated;
 --    las marcas»). Va en el bucket público `publico` (proveedores/logos/…):
 --    se sube a mano o se trae de la web del proveedor.
 alter table proveedores add column if not exists logo_url text;
+
+-- 6. La búsqueda semanal de logos (27/10/2026, Leandro: «un agente que una vez
+--    por semana busque los logos que falten y los descargue»). logo_auto marca
+--    los que trajo el sistema (para revisarlos); logo_buscado_en evita volver a
+--    buscar cada semana al que no se encontró (se reintenta al mes).
+alter table proveedores
+  add column if not exists logo_auto boolean not null default false,
+  add column if not exists logo_buscado_en timestamptz;

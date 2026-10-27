@@ -2,13 +2,14 @@ import { BadRequestException, Body, Controller, Get, Param, Patch, Post, Req, Up
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Roles } from '../auth/decorators';
 import { ProveedoresFichaService } from './proveedores-ficha.service';
+import { LogosSemanalService } from './logos-semanal.service';
 
 // Ficha de proveedores (27/10/2026). La carga es de administración (que hereda
 // comprador), compras, gerencia y dueño: los mismos que hoy editan el proveedor
 // desde Compras.
 @Controller('proveedores-ficha')
 export class ProveedoresFichaController {
-  constructor(private readonly serv: ProveedoresFichaService) {}
+  constructor(private readonly serv: ProveedoresFichaService, private readonly logos: LogosSemanalService) {}
 
   @Roles('comprador', 'gerente', 'dueno')
   @Get()
@@ -20,6 +21,13 @@ export class ProveedoresFichaController {
   @Post()
   crear(@Body() dto: any, @Req() req: any) {
     return this.serv.crear(dto ?? {}, req.usuario?.sub);
+  }
+
+  // La búsqueda de logos corre sola los lunes; esto la dispara ya (usa IA con búsqueda web)
+  @Roles('gerente', 'dueno')
+  @Post('logos/buscar')
+  buscarLogos(@Body() b: { limite?: number }) {
+    return this.logos.buscar(Math.min(Math.max(Number(b?.limite) || 10, 1), 40));
   }
 
   @Roles('comprador', 'gerente', 'dueno')

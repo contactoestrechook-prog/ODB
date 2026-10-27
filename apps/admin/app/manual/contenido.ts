@@ -708,6 +708,7 @@ export const SECCIONES: Seccion[] = [
           'El "WhatsApp para pedidos" es el número al que sale solo el pedido firmado: antes de guardarlo se revisa que tenga WhatsApp.',
           'Una lista de precios subida acá queda guardada en la ficha, pero no actualiza costos: para eso se sube en Listas de proveedor.',
           'Dar de baja un proveedor lo saca de los pedidos y las compras; no borra nada y se puede reactivar.',
+          'El logo se sube tocando el cuadro de la izquierda del nombre, o se trae de la web del proveedor. Además, todos los lunes el sistema busca solo los logos que faltan: los que trae dicen «Logo traído solo: revisalo». Si está mal, tocá el logo y «Sacar el logo».',
         ],
       },
     ],
