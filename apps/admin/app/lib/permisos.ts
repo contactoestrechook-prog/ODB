@@ -16,6 +16,7 @@ const RUTAS_POR_ROL: Record<string, string[]> = {
     '/compras', // órdenes de compra, deuda con proveedores
     '/pedido-proveedor', // armar el pedido desde el celular, con la lista de cada proveedor
     '/por-llegar', // qué mercadería llega y cuándo (fecha confirmada por el proveedor), 23/10/2026
+    '/proveedores', // ficha de cada proveedor: datos, personas, catálogos (27/10/2026)
     '/comparador', // proveedores y sus listas
     '/listas', // listas de precios de proveedor
     '/stock', // stock completo: existencias, ajustes, mermas, transferencias
@@ -63,6 +64,7 @@ const RUTAS_POR_ROL: Record<string, string[]> = {
     '/por-llegar', // qué mercadería llega y cuándo
     '/facturas-compra',
     '/mesa-compras', // abastecimiento
+    '/proveedores', // ficha de cada proveedor (27/10/2026)
     '/comparador', // proveedores
     '/listas', // listas de precios de proveedor
     '/trazabilidad', // cadena orden → recepción → factura → pago

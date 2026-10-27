@@ -684,6 +684,35 @@ export const SECCIONES: Seccion[] = [
     ],
   },
   {
+    id: 'compras-proveedores',
+    titulo: 'La ficha de cada proveedor',
+    area: 'Compras',
+    roles: ['administrativo', 'comprador', 'gerente', 'dueno'],
+    bajada: 'Todos los datos del proveedor, las personas y los catálogos en un solo lugar.',
+    bloques: [
+      {
+        tipo: 'pasos',
+        pasos: [
+          'Entrá a Compras › Proveedores. Arriba dice cuántas fichas están completas; cada fila muestra lo que le falta (CUIT, WhatsApp, dirección…).',
+          'Usá los filtros: "Con compras en ODB" (a los que ya se les pidió o facturó desde ODB), "Ficha incompleta", "Sin WhatsApp", "Todos los activos" y "Dados de baja".',
+          'Tocá un proveedor para abrir su ficha. Completá los datos fiscales, el contacto y la dirección, las condiciones (pago, plazo, días de pedido y de entrega, pedido mínimo) y los datos bancarios. Cuando cambiás algo aparece abajo "Guardar".',
+          'En "Personas" cargá al vendedor, a cobranzas o al que reparte, con su teléfono o mail.',
+          'En "Catálogos y papeles" elegí qué es (catálogo, lista de precios, constancia de CUIT, datos bancarios…), elegí el PDF o la foto y tocá "Subir". "Abrir" lo muestra; "Sacar" lo quita de la ficha.',
+          'Para crear uno nuevo: "Nuevo proveedor", con la razón social (y el CUIT si lo tenés), y después se completa la ficha.',
+        ],
+      },
+      {
+        tipo: 'ojo',
+        puntos: [
+          'El CUIT y el CBU se revisan con su dígito verificador: si no dan, el sistema avisa y no guarda. Un CUIT que ya tiene otro proveedor tampoco se acepta, para no duplicarlo.',
+          'El "WhatsApp para pedidos" es el número al que sale solo el pedido firmado: antes de guardarlo se revisa que tenga WhatsApp.',
+          'Una lista de precios subida acá queda guardada en la ficha, pero no actualiza costos: para eso se sube en Listas de proveedor.',
+          'Dar de baja un proveedor lo saca de los pedidos y las compras; no borra nada y se puede reactivar.',
+        ],
+      },
+    ],
+  },
+  {
     id: 'compras-por-llegar',
     titulo: 'Mercadería por llegar y la fecha de entrega',
     area: 'Compras',
