@@ -107,6 +107,20 @@ export function CampanaAlertas({ donde = 'lateral', esDuenio = true }: { donde?:
     setAtendidas(null);
   }
 
+  // "Borrar todos" (28/10/2026): cierra todo lo pendiente de una vez, como tocar
+  // "Listo" en cada uno (queda en Atendidos con tu nombre)
+  const [borrando, setBorrando] = useState(false);
+  async function borrarTodos() {
+    if (!window.confirm('¿Borrar todos los avisos por atender? Van a quedar en Atendidos con tu nombre.')) return;
+    setBorrando(true);
+    const r = await fetch('/api/novedades', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ que: 'alertas-todas' }) }).catch(() => null);
+    setBorrando(false);
+    if (!r?.ok) { window.alert('No pude borrar los avisos. Probá de nuevo.'); return; }
+    setAlertas([]);
+    setAtendidas(null);
+    cargar();
+  }
+
   const cuenta = alertas.length;
   return (
     <div className="relative">
@@ -137,7 +151,14 @@ export function CampanaAlertas({ donde = 'lateral', esDuenio = true }: { donde?:
         >
           <div className="flex items-center justify-between gap-2 border-b border-black/[0.06] px-4 py-2.5">
             <p className="text-sm font-semibold">Avisos</p>
+            <div className="flex items-center gap-1">
+            {pestana === 'pendientes' && cuenta > 0 && (
+              <button type="button" onClick={borrarTodos} disabled={borrando} className={unir('rounded-full border border-black/15 px-3 py-1 text-xs font-semibold text-tinta hover:bg-crema-claro disabled:opacity-50', FOCO)}>
+                {borrando ? 'Borrando…' : 'Borrar todos'}
+              </button>
+            )}
             <button type="button" onClick={() => setAbierta(false)} className={unir('rounded-full px-2 py-1 text-xs font-medium text-tinta/60 hover:text-tinta', FOCO)}>Cerrar</button>
+            </div>
           </div>
           <div role="tablist" aria-label="Avisos" className="flex gap-1 border-b border-black/[0.06] px-2">
             {(['pendientes', 'atendidos'] as const).map((p) => (

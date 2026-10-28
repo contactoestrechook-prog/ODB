@@ -79,6 +79,22 @@ export class NovedadesController {
     return { ok: true };
   }
 
+  // "Borrar todos" (28/10/2026, pedido de Leandro): cierra de una vez todo lo que
+  // esa persona tiene por atender. Es lo mismo que tocar "Listo" en cada uno:
+  // queda su nombre y se ve en Atendidos. No borra filas.
+  @Post('alertas/leer-todas')
+  async alertasLeidasTodas(@Req() req: any) {
+    const esJefe = ['dueno', 'gerente'].includes(req.usuario.rol);
+    const filtro = esJefe ? `para_usuario.eq.${req.usuario.sub},para_usuario.is.null` : `para_usuario.eq.${req.usuario.sub}`;
+    const { data, error } = await this.db.from('alertas_internas')
+      .update({ leida_en: new Date().toISOString(), leida_por: req.usuario.sub })
+      .is('leida_en', null)
+      .or(filtro)
+      .select('id');
+    if (error) throw new BadRequestException(error.message);
+    return { ok: true, cerradas: data?.length ?? 0 };
+  }
+
   @Post('alertas/:id/leida')
   async alertaLeida(@Param('id') id: string, @Req() req: any) {
     const ahora = new Date().toISOString();

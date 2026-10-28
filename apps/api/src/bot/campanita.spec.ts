@@ -21,10 +21,10 @@ function dbFalsa(porTabla: Record<string, any> = {}) {
       const f = (nombre: string) => (...args: any[]) => (l.filtros.push([nombre, ...args]), b);
       const b: any = {
         select: () => b, range: () => b, order: () => b, limit: () => b,
-        eq: f('eq'), is: f('is'), or: f('or'), filter: f('filter'), gte: f('gte'),
+        eq: f('eq'), is: f('is'), or: f('or'), filter: f('filter'), gte: f('gte'), not: f('not'),
         insert: (fila: any) => (Object.assign(l, { op: 'insert', fila }), llamadas.push(l), b),
         update: (fila: any) => (Object.assign(l, { op: 'update', fila }), llamadas.push(l), b),
-        maybeSingle: async () => res,
+        maybeSingle: async () => (typeof res === 'function' ? res(l) : res),
         then: (ok: any, err: any) => Promise.resolve(typeof res === 'function' ? res(l) : res).then(ok, err),
       };
       return b;
@@ -73,6 +73,16 @@ describe('campanita: avisos de consultas del bot', () => {
     expect(recordatorios(db)).toHaveLength(0);
   });
 
+  it('si alguien ya cerró el aviso de la consulta con "Listo", el recordatorio no sale (28/10/2026)', async () => {
+    const db = dbFalsa({
+      lineas_whatsapp: { data: { bot_activo: true }, error: null },
+      bot_consultas_internas: { data: [consulta()], error: null },
+      alertas_internas: { data: { id: 'a1' }, error: null },
+    });
+    await new BotService(db, {} as any, {} as any, {} as any, {} as any).seguirConsultasPendientes();
+    expect(recordatorios(db)).toHaveLength(0);
+  });
+
   it('las 50 viejas ya recordadas no tapan a una nueva', async () => {
     const viejas = Array.from({ length: 60 }, (_, i) => consulta({ id: `v${i}`, creado_en: hace(60 * 24 * 5), aviso_recordatorio_en: hace(60 * 24 * 4) }));
     const db = dbFalsa({
@@ -115,5 +125,24 @@ describe('campanita: "Listo"', () => {
     const db = dbFalsa({ alertas_internas: { data: [{ tipo: 'pago', referencia: { telefono: '1' } }], error: null } });
     await new NovedadesController(db).alertaLeida('a1', { usuario: { sub: 'u1' } });
     expect(db.llamadas.filter((x: Llamada) => x.op === 'update')).toHaveLength(1);
+  });
+});
+
+describe('campanita: "Borrar todos" (28/10/2026)', () => {
+  it('cierra todo lo pendiente del dueño (las suyas y las generales) con su nombre', async () => {
+    const db = dbFalsa({ alertas_internas: { data: [{ id: 'a1' }, { id: 'a2' }], error: null } });
+    const r = await new NovedadesController(db).alertasLeidasTodas({ usuario: { sub: 'u1', rol: 'dueno' } });
+    expect(r).toEqual({ ok: true, cerradas: 2 });
+    const [u] = db.llamadas.filter((x: Llamada) => x.op === 'update');
+    expect(u.fila.leida_por).toBe('u1');
+    expect(u.filtros).toContainEqual(['is', 'leida_en', null]);
+    expect(u.filtros).toContainEqual(['or', 'para_usuario.eq.u1,para_usuario.is.null']);
+  });
+
+  it('a otro rol solo le cierra las suyas', async () => {
+    const db = dbFalsa({ alertas_internas: { data: [], error: null } });
+    await new NovedadesController(db).alertasLeidasTodas({ usuario: { sub: 'u2', rol: 'cajero' } });
+    const [u] = db.llamadas.filter((x: Llamada) => x.op === 'update');
+    expect(u.filtros).toContainEqual(['or', 'para_usuario.eq.u2']);
   });
 });

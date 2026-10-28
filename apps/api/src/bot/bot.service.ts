@@ -4424,6 +4424,10 @@ export class BotService {
       if (c.aviso_recordatorio_en || Date.now()-Date.parse(c.creado_en)<20*60_000) continue;
       const { data: tomada } = await this.db.from('bot_consultas_internas').update({aviso_recordatorio_en:new Date().toISOString()}).eq('id',c.id).is('aviso_recordatorio_en',null).select('id');
       if (!tomada?.length) continue;
+      // si alguien ya cerró el aviso de esta consulta, el recordatorio no sale
+      // (28/10/2026: tocaban "Listo" y a los 20 min "volvía")
+      const { data: cerrado } = await this.db.from('alertas_internas').select('id').eq('tipo','consulta').filter('referencia->>consulta_id','eq',String(c.id)).not('leida_en','is',null).limit(1).maybeSingle();
+      if (cerrado) continue;
       // con la línea, como el aviso original (6/10/2026: el recordatorio no la llevaba)
       const { error } = await this.insertarAlerta({ tipo:'consulta', titulo:'Consulta pendiente de atención', detalle:String(c.consulta).slice(0,500), referencia:{consulta_id:c.id,telefono:c.telefono_cliente,area:c.area,recordatorio:true,linea:c.linea ?? principal} });
       if (error) await this.db.from('bot_consultas_internas').update({aviso_recordatorio_en:null}).eq('id',c.id);
@@ -6189,14 +6193,26 @@ export class BotService {
     this.estadoSesiones.set(sesion, { status, en: Date.now() });
     const d = decisionSesion(status, this.fallosPorSesion.get(sesion) ?? 0);
     this.fallosPorSesion.set(sesion, d.fallos);
+    // la línea volvió: su aviso de caída se cierra solo (28/10/2026; antes quedaba
+    // en la campanita aunque la línea ya anduviera)
+    if (status === 'WORKING') {
+      await this.db.from('alertas_internas').update({ leida_en: new Date().toISOString() })
+        .eq('tipo', 'whatsapp_caido').filter('referencia->>sesion', 'eq', sesion).is('leida_en', null)
+        .then(() => null, () => null);
+    }
     if (!d.alertar && !d.reiniciar) return;
     this.log.error(`WhatsApp: la sesión "${sesion}" (${linea}) está ${status ?? 'sin respuesta'} (${d.fallos} lecturas seguidas)${d.reiniciar ? ': la reinicio' : ''}`);
     if (d.reiniciar) {
       await fetch(`${base}/api/sessions/${encodeURIComponent(sesion)}/restart`, { method: 'POST', headers: { 'X-Api-Key': key }, signal: AbortSignal.timeout(60000) }).catch(() => null);
     }
-    // una alerta cada 2 h POR SESIÓN: la caída de una línea no tapa la de la otra
-    const hace2h = new Date(Date.now() - 2 * 3600_000).toISOString();
-    const { data: prev } = await this.db.from('alertas_internas').select('id').eq('tipo', 'whatsapp_caido').filter('referencia->>sesion', 'eq', sesion).gte('creada_en', hace2h).limit(1).maybeSingle();
+    // UN aviso por caída y POR SESIÓN (la caída de una línea no tapa la de la otra).
+    // 28/10/2026: antes salía uno nuevo cada 2 h aunque alguien ya lo hubiera
+    // cerrado con "Listo" (110 en 10 días): lo borraban y volvía. Ahora no se
+    // repite mientras haya uno sin atender, ni en las 24 h después de que alguien
+    // lo cerró. Cuando la línea vuelve, se cierra solo (arriba).
+    const hace24h = new Date(Date.now() - 24 * 3600_000).toISOString();
+    const { data: prev } = await this.db.from('alertas_internas').select('id').eq('tipo', 'whatsapp_caido').filter('referencia->>sesion', 'eq', sesion)
+      .or(`leida_en.is.null,leida_en.gte.${hace24h}`).limit(1).maybeSingle();
     if (prev) return;
     const cfg = await this.lineas.config(linea);
     const deLinea = await this.lineas.etiqueta(linea).catch(() => '');

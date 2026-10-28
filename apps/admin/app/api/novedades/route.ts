@@ -24,6 +24,11 @@ export async function GET(req: Request) {
 // Marcar una novedad como vista, o una alerta como leída (que: 'alerta')
 export async function POST(req: Request) {
   const { id, que } = await req.json().catch(() => ({}) as any);
+  // "Borrar todos" de la campanita (28/10/2026)
+  if (que === 'alertas-todas') {
+    const res = await fetch(`${API}/novedades/alertas/leer-todas`, { method: 'POST', headers: await auth() });
+    return NextResponse.json(await res.json().catch(() => ({})), { status: res.status });
+  }
   if (!id) return NextResponse.json({ ok: false }, { status: 400 });
   const ruta = que === 'alerta' ? `/novedades/alertas/${encodeURIComponent(id)}/leida` : `/novedades/${encodeURIComponent(id)}/vista`;
   const res = await fetch(`${API}${ruta}`, {
