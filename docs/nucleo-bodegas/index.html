@@ -1,0 +1,359 @@
+<title>Núcleo para Bodegas</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Source+Sans+3:wght@400;600;700&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+/* Guía de bolsillo para el stand: una columna legible en el celular, barra de secciones fija arriba, tablas con scroll propio. */
+:root{
+  --bg:#F6F5F7; --surface:#FFFFFF; --ink:#1D1A1F; --muted:#615A66; --line:#E2DEE5;
+  --wine:#932A1F; --wine-soft:#F5E6E3; --vine:#2F5D50; --vine-soft:#E2EEEA;
+  --amber:#8A5A00; --amber-soft:#FBF0D9; --grey-soft:#ECEAEE;
+  --f-display:"Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --f-body:"Source Sans 3", "Segoe UI", system-ui, sans-serif;
+  --f-mono:"JetBrains Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#141216; --surface:#1D1A20; --ink:#EEEAF0; --muted:#A79FAD; --line:#332E37;
+  --wine:#E0776A; --wine-soft:#3A1F1C; --vine:#7FC3AE; --vine-soft:#1B2E29;
+  --amber:#E6B35A; --amber-soft:#33281A; --grey-soft:#2A262D; color-scheme:dark } }
+:root[data-theme="dark"]{
+  --bg:#141216; --surface:#1D1A20; --ink:#EEEAF0; --muted:#A79FAD; --line:#332E37;
+  --wine:#E0776A; --wine-soft:#3A1F1C; --vine:#7FC3AE; --vine-soft:#1B2E29;
+  --amber:#E6B35A; --amber-soft:#33281A; --grey-soft:#2A262D; color-scheme:dark }
+
+body{background:var(--bg);color:var(--ink);font:400 1.0625rem/1.55 var(--f-body)}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bg)}
+.wrap{max-width:46rem;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:0 4rem}
+h1,h2,h3{font-family:var(--f-display);text-wrap:balance;line-height:1.15;margin:0}
+h1{font-size:clamp(2rem,7vw,2.9rem);font-weight:700;letter-spacing:-.02em}
+h2{font-size:1.55rem;font-weight:700;letter-spacing:-.01em}
+h3{font-size:1.15rem;font-weight:700}
+p{margin:0}
+a{color:var(--wine)}
+a:focus-visible,button:focus-visible{outline:2px solid var(--wine);outline-offset:2px}
+.eyebrow{font:500 .72rem/1 var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.muted{color:var(--muted)}
+
+header.top{padding-block:2.2rem 1.4rem;display:grid;gap:.9rem}
+.lede{font-size:1.15rem;max-width:38rem}
+
+nav.chips{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);border-bottom:1px solid var(--line);margin-left:calc(-1*max(16px,env(safe-area-inset-left,0px)));margin-right:calc(-1*max(16px,env(safe-area-inset-right,0px)))}
+nav.chips .row{display:flex;gap:.4rem;overflow-x:auto;padding:.6rem max(16px,env(safe-area-inset-right,0px)) .6rem max(16px,env(safe-area-inset-left,0px));scrollbar-width:none}
+nav.chips a{flex:none;text-decoration:none;color:var(--ink);font:600 .9rem/1 var(--f-body);padding:.5rem .8rem;border:1px solid var(--line);border-radius:999px;background:var(--surface)}
+
+section{padding-top:2.4rem;display:grid;gap:1rem;scroll-margin-top:3.4rem}
+
+.pitch{background:var(--wine);color:#FFF8F6;border-radius:14px;padding:1.3rem 1.3rem 1.4rem;display:grid;gap:.6rem}
+.pitch .eyebrow{color:#F3CFC9}
+.pitch blockquote{margin:0;font:600 1.22rem/1.4 var(--f-display)}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]) .pitch{background:#5E1A13} }
+:root[data-theme="dark"] .pitch{background:#5E1A13}
+
+.doors{display:grid;grid-template-columns:repeat(auto-fit,minmax(17rem,1fr));gap:.9rem}
+.door{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:1.1rem;display:grid;gap:.6rem;align-content:start;min-width:0}
+.door .tag{justify-self:start}
+ul.tight{margin:0;padding-left:1.15rem;display:grid;gap:.35rem}
+
+.tag{display:inline-block;font:500 .7rem/1 var(--f-mono);letter-spacing:.04em;text-transform:uppercase;padding:.35rem .5rem;border-radius:6px;white-space:nowrap}
+.t-vivo{background:var(--vine-soft);color:var(--vine)}
+.t-conectar{background:var(--amber-soft);color:var(--amber)}
+.t-cond{background:var(--wine-soft);color:var(--wine)}
+.t-no{background:var(--grey-soft);color:var(--muted)}
+
+.legend{display:flex;flex-wrap:wrap;gap:.5rem 1rem;font-size:.92rem;color:var(--muted)}
+.legend span{display:flex;gap:.4rem;align-items:center}
+
+.tablebox{overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;min-width:34rem;font-size:.97rem}
+th,td{text-align:left;vertical-align:top;padding:.7rem .8rem;border-bottom:1px solid var(--line)}
+th{font:500 .72rem/1.2 var(--f-mono);letter-spacing:.06em;text-transform:uppercase;color:var(--muted);background:var(--bg)}
+tr:last-child td{border-bottom:0}
+td.api{font-weight:700;white-space:nowrap}
+td.api small{display:block;font-weight:400;color:var(--muted);white-space:normal}
+tr.grp td{background:var(--bg);font:500 .72rem/1 var(--f-mono);letter-spacing:.06em;text-transform:uppercase;color:var(--muted);padding:.55rem .8rem}
+
+.proof{display:grid;grid-template-columns:repeat(auto-fit,minmax(14rem,1fr));gap:.1rem 1.4rem}
+.proof div{padding:.65rem 0;border-top:1px solid var(--line);min-width:0}
+.proof b{display:block}
+.proof span{color:var(--muted);font-size:.95rem}
+
+.seg{display:grid;gap:.9rem}
+.segcard{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:1.1rem;display:grid;gap:.55rem}
+.segcard .ask{font-style:italic;color:var(--muted)}
+
+ol.q{margin:0;padding-left:1.4rem;display:grid;gap:.55rem}
+ol.q li::marker{font-family:var(--f-mono);color:var(--wine)}
+ol.q small{display:block;color:var(--muted)}
+
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(13rem,1fr));gap:.9rem}
+.stat{border-top:3px solid var(--wine);padding-top:.6rem;display:grid;gap:.25rem;min-width:0}
+.stat b{font:700 1.9rem/1 var(--f-display);font-variant-numeric:tabular-nums}
+.stat span{font-size:.95rem}
+.stat small{color:var(--muted);font-size:.82rem}
+
+.nope{display:grid;gap:.6rem}
+.nope div{display:grid;grid-template-columns:auto 1fr;gap:.7rem;align-items:start}
+.nope i{font-style:normal;font:700 .9rem/1.5 var(--f-mono);color:var(--wine)}
+
+.steps{display:grid;gap:0}
+.step{display:grid;grid-template-columns:6.2rem 1fr;gap:1rem;padding:.8rem 0;border-top:1px solid var(--line)}
+.step .when{font:500 .8rem/1.5 var(--f-mono);color:var(--wine)}
+
+.copybox{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:1rem 1.1rem;display:grid;gap:.7rem}
+.copybox p{font:600 1.05rem/1.45 var(--f-display)}
+button.copy{justify-self:start;font:600 .92rem/1 var(--f-body);padding:.6rem .9rem;border-radius:8px;border:1px solid var(--wine);background:transparent;color:var(--wine);cursor:pointer}
+
+footer{padding-top:3rem;font-size:.85rem;color:var(--muted);display:grid;gap:.5rem}
+footer ul{margin:0;padding-left:1.1rem;display:grid;gap:.25rem}
+@media (max-width:30rem){.step{grid-template-columns:1fr;gap:.2rem}}
+@media (prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
+html{scroll-behavior:smooth}
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <p class="eyebrow">Expo ODB · 30/10/2026 · 60 bodegas</p>
+    <h1>Núcleo para Bodegas</h1>
+    <p class="lede">Qué ofrecerle a cada bodega con el núcleo que ya corre en ODB, qué APIs se pueden enchufar y qué no conviene prometer. Pensado para leer de pie en el stand.</p>
+  </header>
+
+  <nav class="chips" aria-label="Secciones">
+    <div class="row">
+      <a href="#frase">La frase</a>
+      <a href="#puertas">Dos ofertas</a>
+      <a href="#segun">Según la bodega</a>
+      <a href="#apis">Mapa de APIs</a>
+      <a href="#prueba">Lo que ya corre</a>
+      <a href="#preguntas">Preguntas</a>
+      <a href="#datos">Datos</a>
+      <a href="#no">No prometer</a>
+      <a href="#piloto">Piloto</a>
+    </div>
+  </nav>
+
+  <section id="frase">
+    <div class="pitch">
+      <p class="eyebrow">Para abrir la charla</p>
+      <blockquote>“Tu vino ya está en las góndolas de ODB. Te muestro cuántas botellas se vendieron esta semana, en qué sucursal, cuántos días de stock quedan y cuándo te vamos a pedir. Y si querés, el mismo sistema te vende directo al consumidor, te cobra el club por débito y te atiende el WhatsApp.”</blockquote>
+    </div>
+    <div class="copybox">
+      <p id="frase-corta">El núcleo no es un software más: es el sistema con el que ODB ya compra, vende, factura y cobra todos los días. Lo que le ofrecemos a la bodega está probado en un comercio real, no en una demo.</p>
+      <button class="copy" id="btn-copiar" type="button">Copiar frase</button>
+    </div>
+  </section>
+
+  <section id="puertas">
+    <p class="eyebrow">Dos ofertas, una para cada momento</p>
+    <h2>Primero el gancho, después el sistema</h2>
+    <div class="doors">
+      <article class="door">
+        <span class="tag t-cond">Gancho · para las 60</span>
+        <h3>A. Portal de Bodega ODB</h3>
+        <p class="muted">La bodega ve su propio vino adentro de ODB. Es lo que Walmart hizo con Retail Link: compartir el sell-out con el proveedor.</p>
+        <ul class="tight">
+          <li>Botellas vendidas por etiqueta, por sucursal y por semana.</li>
+          <li>Stock en cada sucursal y días de cobertura. Aviso de quiebre antes de que pase.</li>
+          <li>La orden de compra le llega firmada por WhatsApp con el PDF (eso ya funciona).</li>
+          <li>Su cuenta corriente con ODB: facturas, pagos y cheques.</li>
+          <li>Lista de precios: manda el PDF o Excel y la IA la carga sola.</li>
+          <li>Acciones pagas en ODB: degustación, difusión a la lista de clientes con permiso, destaque en el Somelier IA.</li>
+        </ul>
+        <p class="muted">Los datos ya están en el núcleo (ventas, stock por sucursal, tablero por proveedor). Falta armar la vista con acceso para la bodega. Requiere el visto bueno de ODB.</p>
+      </article>
+      <article class="door">
+        <span class="tag t-vivo">Negocio · para las que vendan directo</span>
+        <h3>B. Núcleo Bodega</h3>
+        <p class="muted">El mismo sistema, instalado para la bodega. Para su tienda, su club, su cava de visitas y su venta a vinotecas y restaurantes.</p>
+        <ul class="tight">
+          <li>Tienda online propia (Tienda Nube o la tienda del núcleo) con Mercado Pago.</li>
+          <li>Club de vinos con débito automático y verificación de edad.</li>
+          <li>Bot de WhatsApp que atiende, recomienda y toma pedidos.</li>
+          <li>Somelier IA con <em>su</em> catálogo, en español, inglés y portugués.</li>
+          <li>Pedidos B2B de vinotecas y restaurantes, con listas de precio por canal.</li>
+          <li>Facturación ARCA, cobranzas, cuentas corrientes, conciliación de MP y posnet.</li>
+          <li>Tienda de la bodega para el turista: cobro en el mostrador de la cava y envío a domicilio.</li>
+        </ul>
+      </article>
+    </div>
+  </section>
+
+  <section id="segun">
+    <p class="eyebrow">Leé la bodega en 30 segundos</p>
+    <h2>Qué ofrecer según quién tenés enfrente</h2>
+    <div class="seg">
+      <article class="segcard">
+        <h3>Boutique o familiar</h3>
+        <p class="ask">“¿Cuánto vendés directo y cuánto por distribuidor?”</p>
+        <ul class="tight">
+          <li>Club de vinos con débito automático: la plata entra todos los meses.</li>
+          <li>WhatsApp que contesta y vende de noche y los fines de semana.</li>
+          <li>Portal ODB para saber qué etiqueta rota y cuál duerme.</li>
+        </ul>
+      </article>
+      <article class="segcard">
+        <h3>Mediana con turismo</h3>
+        <p class="ask">“¿Qué pasa con el turista que te compró en la cava cuando vuelve a su casa?”</p>
+        <ul class="tight">
+          <li>Venta en la cava con cobro por QR y alta del cliente en el acto.</li>
+          <li>Recompra desde casa: tienda, envío y WhatsApp con la ficha de lo que probó.</li>
+          <li>Somelier trilingüe para el visitante extranjero.</li>
+          <li>Reseñas de Google contestadas con IA (la misma lógica de Respondé).</li>
+        </ul>
+      </article>
+      <article class="segcard">
+        <h3>Exportadora</h3>
+        <p class="ask">“¿Ya resolviste la etiqueta electrónica para Europa?”</p>
+        <ul class="tight">
+          <li>Etiqueta electrónica UE: un QR por vino con ingredientes y tabla nutricional, en los idiomas del destino. Obligatoria desde el 8/12/2023.</li>
+          <li>Factura E de exportación por ARCA (WSFEX), sobre la misma base de facturación.</li>
+          <li>Precio de su etiqueta en el mundo vía Wine-Searcher (API paga).</li>
+        </ul>
+      </article>
+      <article class="segcard">
+        <h3>Grande, con distribución propia</h3>
+        <p class="ask">“¿Cuánto sabés del sell-out en cada comercio?”</p>
+        <ul class="tight">
+          <li>Portal ODB como piloto de datos de sell-out; después, el mismo esquema con otros comercios.</li>
+          <li>Pedidos de comercios por WhatsApp que entran solos al sistema.</li>
+          <li>Lectura de listas y remitos con IA para su equipo comercial.</li>
+        </ul>
+      </article>
+    </div>
+  </section>
+
+  <section id="apis">
+    <p class="eyebrow">Integraciones</p>
+    <h2>Mapa de APIs para una bodega</h2>
+    <div class="legend">
+      <span><b class="tag t-vivo">Vivo</b> corre hoy en ODB</span>
+      <span><b class="tag t-conectar">A conectar</b> API pública, falta integrarla</span>
+      <span><b class="tag t-cond">Con condición</b> depende de un tercero</span>
+      <span><b class="tag t-no">Sin API</b> no prometer</span>
+    </div>
+    <div class="tablebox">
+      <table>
+        <thead><tr><th>API</th><th>Qué le resuelve a la bodega</th><th>Estado</th></tr></thead>
+        <tbody>
+          <tr class="grp"><td colspan="3">Fiscal y cobros</td></tr>
+          <tr><td class="api">ARCA WSFE<small>factura electrónica</small></td><td>Facturas A, B y C, notas de crédito y recibos, sin salir del sistema.</td><td><span class="tag t-vivo">Vivo</span></td></tr>
+          <tr><td class="api">ARCA WSFEX<small>factura E</small></td><td>Facturas de exportación. Mismo certificado y punto de venta de exportación.</td><td><span class="tag t-conectar">A conectar</span></td></tr>
+          <tr><td class="api">Mercado Pago<small>pagos y conciliación</small></td><td>Cobro online y QR. Multi-cuenta: comisión, neto y fecha de liberación reales.</td><td><span class="tag t-vivo">Vivo</span></td></tr>
+          <tr><td class="api">MP Suscripciones<small>/preapproval</small></td><td>Club de vinos con débito mensual. MP reintenta el cobro rechazado hasta 4 veces en 10 días.</td><td><span class="tag t-conectar">A conectar</span></td></tr>
+          <tr><td class="api">Getnet y Clover</td><td>Cuánto entró por cada posnet y cuándo se acredita.</td><td><span class="tag t-vivo">Vivo</span></td></tr>
+          <tr><td class="api">ARBA COT<small>remito electrónico</small></td><td>Código de traslado obligatorio para mover mercadería en provincia de Buenos Aires.</td><td><span class="tag t-conectar">A conectar</span></td></tr>
+          <tr class="grp"><td colspan="3">Venta y canales</td></tr>
+          <tr><td class="api">Tienda Nube</td><td>Tienda online sincronizada con stock y precios.</td><td><span class="tag t-vivo">Vivo</span></td></tr>
+          <tr><td class="api">Mercado Libre</td><td>Publicaciones, órdenes y preguntas desde el mismo stock.</td><td><span class="tag t-conectar">A conectar</span></td></tr>
+          <tr><td class="api">PedidosYa</td><td>Pedidos externos al mismo circuito de preparación.</td><td><span class="tag t-vivo">Vivo</span></td></tr>
+          <tr><td class="api">WhatsApp<small>línea de la casa</small></td><td>Bot de atención y pedidos, órdenes a proveedores, resúmenes de cuenta.</td><td><span class="tag t-vivo">Vivo</span></td></tr>
+          <tr><td class="api">WhatsApp Cloud API<small>oficial de Meta</small></td><td>Difusiones masivas con plantillas aprobadas y opt-in. El código está, falta el alta en Meta.</td><td><span class="tag t-cond">Con condición</span></td></tr>
+          <tr><td class="api">Didit<small>identidad</small></td><td>Verificación de edad y DNI para vender alcohol online y dar de alta socios del club.</td><td><span class="tag t-vivo">Vivo</span></td></tr>
+          <tr class="grp"><td colspan="3">Logística</td></tr>
+          <tr><td class="api">Andreani, OCA, Correo Argentino</td><td>Cotizar, generar la etiqueta y seguir el envío. Andreani da credenciales a clientes corporativos; hay reportes de que pide volumen mínimo.</td><td><span class="tag t-cond">Con condición</span></td></tr>
+          <tr><td class="api">Reparto propio</td><td>Hojas de reparto y app del repartidor.</td><td><span class="tag t-vivo">Vivo</span></td></tr>
+          <tr class="grp"><td colspan="3">Exportación y reputación</td></tr>
+          <tr><td class="api">Etiqueta electrónica UE<small>Reg. 2021/2117</small></td><td>Página por vino con ingredientes y nutrición, en el idioma de quien escanea. Los alérgenos siguen en la etiqueta física.</td><td><span class="tag t-conectar">A construir</span></td></tr>
+          <tr><td class="api">Wine-Searcher<small>API de trade</small></td><td>Precio de mercado de sus etiquetas en el mundo. Es un producto pago.</td><td><span class="tag t-cond">Con condición</span></td></tr>
+          <tr><td class="api">Google Business Profile</td><td>Responder reseñas de la bodega con IA. La API necesita aprobación de Google.</td><td><span class="tag t-cond">Con condición</span></td></tr>
+          <tr><td class="api">Vivino</td><td>No tiene API pública. Solo panel de vendedor y feed de stock para quien vende ahí.</td><td><span class="tag t-no">Sin API</span></td></tr>
+          <tr><td class="api">INV</td><td>Las declaraciones juradas se presentan en su sistema online. No hay una API pública documentada para bodegas.</td><td><span class="tag t-no">Sin API</span></td></tr>
+          <tr class="grp"><td colspan="3">Inteligencia</td></tr>
+          <tr><td class="api">Claude (Anthropic)</td><td>Lee listas y remitos en PDF, atiende el WhatsApp, recomienda vinos y explica los números.</td><td><span class="tag t-vivo">Vivo</span></td></tr>
+          <tr><td class="api">Transcriptor de audios</td><td>El cliente manda audio por WhatsApp y el sistema lo entiende.</td><td><span class="tag t-vivo">Vivo</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="prueba">
+    <p class="eyebrow">Prueba de que no es humo</p>
+    <h2>Lo que el núcleo ya hace en ODB</h2>
+    <div class="proof">
+      <div><b>Somelier IA</b><span>Pregunta antes de recomendar y solo ofrece vinos con stock.</span></div>
+      <div><b>Listas de precios con IA</b><span>Lee el PDF o Excel del proveedor y actualiza precios.</span></div>
+      <div><b>Orden de compra por WhatsApp</b><span>El dueño firma y sale sola al proveedor, con PDF y folio.</span></div>
+      <div><b>Agente de abastecimiento</b><span>Conoce stock y ritmo de venta y dice qué pedir.</span></div>
+      <div><b>Analista IA</b><span>Un veredicto por proveedor, con las cifras calculadas por el sistema.</span></div>
+      <div><b>Cuentas corrientes</b><span>Días de deuda y resumen por WhatsApp los días 1 y 16.</span></div>
+      <div><b>Eventos y presupuestos</b><span>Casamientos, empresas y degustaciones con presupuesto.</span></div>
+      <div><b>Fidelización</b><span>Puntos, niveles y canjes; segmentos por conducta de compra.</span></div>
+      <div><b>Comprá Fácil</b><span>El cliente escanea, paga con MP y sale validado en la puerta.</span></div>
+      <div><b>Arqueo de stock</b><span>Conteo con la app del empleado, sucursal por sucursal.</span></div>
+      <div><b>Cheques</b><span>Cartera de terceros y propios, con sus estados.</span></div>
+      <div><b>Contable</b><span>IVA ventas y compras del mes, listo para el contador.</span></div>
+    </div>
+  </section>
+
+  <section id="preguntas">
+    <p class="eyebrow">Calificar en dos minutos</p>
+    <h2>Seis preguntas y anotá las respuestas</h2>
+    <ol class="q">
+      <li>¿Qué porcentaje vendés directo al consumidor?<small>Menos de 5% es oportunidad de tienda y club. Más de 20% ya hay algo que ordenar.</small></li>
+      <li>¿Tenés club de vinos? ¿Cómo lo cobrás?<small>Si lo cobran a mano o por transferencia, el débito automático es la venta.</small></li>
+      <li>¿Quién contesta el WhatsApp de la bodega y a qué hora?</li>
+      <li>¿Recibís visitas? ¿Cuántas por mes y qué les vendés?</li>
+      <li>¿Exportás a Europa? ¿Cómo resolviste la etiqueta electrónica?</li>
+      <li>¿Qué sistema usás para facturar y para el stock?<small>Sirve para saber si entramos por un módulo o por el sistema entero.</small></li>
+    </ol>
+  </section>
+
+  <section id="datos">
+    <p class="eyebrow">Números para la charla</p>
+    <h2>El canal directo está casi vacío</h2>
+    <div class="stats">
+      <div class="stat"><b>1–2%</b><span>del vino argentino se vende online en el mercado interno.</span><small>Vinetur, ago. 2024</small></div>
+      <div class="stat"><b>100 de 400</b><span>bodegas con potencial tienen tienda online. Solo 20 trabajan el canal en serio.</span><small>Análisis de CyberWine 2024</small></div>
+      <div class="stat"><b>43</b><span>bodegas argentinas fueron a Wine Paris 2026 con Wines of Argentina. Todas venden en la UE.</span><small>Mercado, 2026</small></div>
+    </div>
+    <p class="muted">Usalos como referencia del rubro. Son datos de terceros y conviene citarlos con la fuente.</p>
+  </section>
+
+  <section id="no">
+    <p class="eyebrow">Para no quemarse</p>
+    <h2>Lo que no hay que prometer</h2>
+    <div class="nope">
+      <div><i>✕</i><p><b>Integración con Vivino o con el INV.</b> Ninguno tiene una API pública para esto.</p></div>
+      <div><i>✕</i><p><b>Datos de clientes de ODB.</b> El portal muestra ventas agregadas por etiqueta y sucursal, nunca nombres ni teléfonos (Ley 25.326).</p></div>
+      <div><i>✕</i><p><b>Difusiones masivas por WhatsApp desde el día uno.</b> Hace falta la API oficial, plantillas aprobadas por Meta y clientes con opt-in.</p></div>
+      <div><i>✕</i><p><b>Reseñas filtradas o premiadas.</b> Se le pide la reseña a todos por igual. Lo contrario viola las políticas de Google.</p></div>
+      <div><i>✕</i><p><b>Fechas cerradas para lo que dice “a conectar”.</b> Comprometé fecha después de ver las credenciales de cada servicio.</p></div>
+      <div><i>✕</i><p><b>El portal ODB sin hablar con ODB.</b> Compartir el sell-out es decisión de ODB.</p></div>
+    </div>
+  </section>
+
+  <section id="piloto">
+    <p class="eyebrow">El cierre</p>
+    <h2>Piloto con tres bodegas fundadoras</h2>
+    <p>Precio de fundador a cambio de datos reales, testimonio y permiso para usar el caso. Cerrá con una fecha de reunión, no con un precio.</p>
+    <div class="steps">
+      <div class="step"><span class="when">Semana 1–2</span><p>Portal ODB con su sell-out y su stock. Primer informe: qué etiqueta rota y cuál duerme.</p></div>
+      <div class="step"><span class="when">Semana 3–5</span><p>Tienda con Mercado Pago, bot de WhatsApp con su catálogo y Somelier con sus vinos.</p></div>
+      <div class="step"><span class="when">Semana 6–8</span><p>Club de vinos con débito automático y verificación de edad. Venta en la cava.</p></div>
+      <div class="step"><span class="when">Después</span><p>Facturación ARCA, exportación, etiqueta UE y B2B, según la bodega.</p></div>
+    </div>
+  </section>
+
+  <footer>
+    <p class="eyebrow">Fuentes</p>
+    <ul>
+      <li>Módulos del núcleo: repositorio ODB, apps/api/src (sommelier, listas, pedidos-proveedor, abastecimiento, analista, facturacion, mercadopago, tarjetas, tiendanube, bot, eventos, fidelizacion, comprafacil, stock, cheques, contable).</li>
+      <li><a href="https://www.vinetur.com/2024082781381/entre-el-1-y-2-del-vino-argentino-se-vende-online-en-mercado-interno.html">Vinetur: entre el 1% y 2% del vino argentino se vende online</a></li>
+      <li><a href="https://mercado.com.ar/agenda/wines-of-argentina-llevara-43-bodegas-a-wine-paris-2026-con-cuatro-masterclasses">Mercado: Wines of Argentina llevará 43 bodegas a Wine Paris 2026</a></li>
+      <li><a href="https://www.foodbusinessmea.com/eu-mandates-ingredients-and-nutrition-labeling-for-wine-products-starting-december-8-2023/">Etiquetado UE de ingredientes y nutrición desde el 8/12/2023</a></li>
+      <li><a href="https://www.mercadopago.com.ar/developers/es/docs/subscriptions/integration-configuration/subscription-no-associated-plan/authorized-payments">Mercado Pago: suscripciones sin plan asociado</a></li>
+      <li><a href="https://www.arca.gob.ar/ws/documentacion/ws-factura-electronica.asp">ARCA: webservices de factura electrónica (WSFE, WSFEX)</a></li>
+      <li><a href="https://sistemasagiles.com.ar/site/websites/webservices_provinciales/remito_electronico_cot_arba.html">COT ARBA: remito electrónico</a></li>
+      <li><a href="https://vivino.com/merchants/signup">Vivino para vendedores</a> · <a href="https://apis.io/providers/wine-searcher/">Wine-Searcher APIs</a></li>
+      <li><a href="https://wordpress.org/plugins/andreani-shipping/">Andreani: plugin y API para clientes corporativos</a></li>
+      <li><a href="https://www.cira.org.ar/?p=21701">INV: resoluciones sobre declaraciones juradas online</a></li>
+    </ul>
+  </footer>
+</div>
+
+<script>
+document.getElementById('btn-copiar').addEventListener('click', function () {
+  var btn = this, txt = document.getElementById('frase-corta').textContent;
+  function hecho(){ btn.textContent = 'Copiada'; setTimeout(function(){ btn.textContent = 'Copiar frase'; }, 1800); }
+  function seleccionar(){ var r = document.createRange(); r.selectNodeContents(document.getElementById('frase-corta')); var s = getSelection(); s.removeAllRanges(); s.addRange(r); btn.textContent = 'Texto seleccionado'; }
+  try { navigator.clipboard.writeText(txt).then(hecho, seleccionar); } catch (e) { seleccionar(); }
+});
+</script>
