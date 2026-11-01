@@ -65,7 +65,7 @@ import { costoUSD, usoDeRespuesta } from './tarifas';
 import { esfuerzo, RAZONAMIENTO } from '../comun/modelos';
 import { unirConLoDicho } from '../comun/sin-repetir';
 import { cartelLista, cartelListaPrecios, cartelPedido, imagenEsperada, leerListaDePedido, leerResumenDePedido, MAX_RENGLONES_CARTEL, nombreParaCartel, pieSinPrecios, preciosDeLaRespuesta, ProductoConPrecio } from '../comun/cartel-pedido';
-import { etiquetaDeFila, Lineas, sesionPrincipal } from '../comun/lineas';
+import { etiquetaDeFila, Lineas, sesionPrincipal, wahaUrlDe } from '../comun/lineas';
 import { cierraLaRafaga, esperaDeRafaga, juntarRafaga, msHastaContestar, type MensajeDeRafaga } from './espera-rafaga';
 import { abiertaAhora, aunNoVence, horarioDeAtencion, type HorarioSucursal, HORAS_REINTENTO_AVISO, impideVencer, MINUTOS_PARA_VENCER, minutosDeHorario } from './vencimiento-consultas';
 
@@ -438,15 +438,15 @@ export class BotService {
   // "+191169078280330@lid" y nadie reconocía a nadie (2026-09-08).
   private contactosResueltos = new Map<string, number>();
   async resolverContactoWaha(claveContacto: string, esLid: boolean, linea?: string) {
-    const base = (process.env.WAHA_URL ?? '').replace(/\/$/, '');
     const key = process.env.WAHA_API_KEY ?? '';
-    if (!base || !key || !claveContacto) return null;
+    if (!process.env.WAHA_URL || !key || !claveContacto) return null;
     const ahora = Date.now();
     const previo = this.contactosResueltos.get(claveContacto);
     if (previo && ahora - previo < 6 * 3600_000) return null;
     this.contactosResueltos.set(claveContacto, ahora);
     // el @lid y la agenda se preguntan al teléfono por el que escribió (6/10/2026)
     const sesion = await this.lineas.sesion(linea);
+    const base = wahaUrlDe(sesion) ?? '';
     const opts = { headers: { 'X-Api-Key': key }, signal: AbortSignal.timeout(6000) } as any;
     let telefonoReal: string | null = null;
     const lid = esLid ? `${claveContacto}@lid` : null;
@@ -500,6 +500,9 @@ export class BotService {
       ['_data.senderPn', p?._data?.senderPn],
       ['_data.participantPn', p?._data?.participantPn],
       ['_data.remoteJidAlt', p?._data?.remoteJidAlt],
+      // motor GOWS (1/11/2026): el número real del @lid viaja en Info.SenderAlt / RecipientAlt
+      ['_data.Info.SenderAlt', p?._data?.Info?.SenderAlt],
+      ['_data.Info.RecipientAlt', p?._data?.Info?.RecipientAlt],
       ['participant', p?.participant],
       ['author', p?.author],
     ];
@@ -4626,17 +4629,18 @@ export class BotService {
     return { url: data.signedUrl, venceEnSegundos: 3600 };
   }
 
-  private async bajarMediaWaha(p: any): Promise<{ base64: string; mime: string; nombre: string } | null> {
-    let url = p?.media?.url ?? p?._data?.media?.url;
+  private async bajarMediaWaha(p: any, sesion?: string): Promise<{ base64: string; mime: string; nombre: string } | null> {
+    let url = p?.media?.url ?? p?.mediaUrl ?? p?._data?.media?.url;
     this.log.log(`media url de WAHA: ${String(url ?? '').slice(0, 160)} · mime=${p?.media?.mimetype ?? '?'}`);
     // WAHA arma el enlace con SU hostname (localhost:3000 si no tiene configurada
     // la URL pública). Ese enlace no existe fuera de su contenedor: se reemplaza
     // por la dirección real del servicio, que es la misma que usamos para enviar.
-    if (url && process.env.WAHA_URL) {
+    const wahaUrl = wahaUrlDe(sesion);
+    if (url && wahaUrl) {
       try {
         const u = new URL(String(url));
         if (/localhost|127\.0\.0\.1|0\.0\.0\.0/.test(u.hostname)) {
-          url = `${process.env.WAHA_URL.replace(/\/$/, '')}${u.pathname}${u.search}`;
+          url = `${wahaUrl}${u.pathname}${u.search}`;
           this.log.log(`media url reescrita a ${String(url).slice(0, 120)}`);
         }
       } catch { /* se usa tal cual */ }
@@ -4779,7 +4783,7 @@ export class BotService {
     let mediaSaliente: { tipo: 'image' | 'audio' | 'video' | 'document'; url: string } | null = null;
     let epigrafeMedia = ''; // lo que la persona escribió junto a la foto/audio (si escribió algo)
     if (esMedia) {
-      const media = await this.bajarMediaWaha(p).catch(() => null);
+      const media = await this.bajarMediaWaha(p, await this.lineas.sesion(linea)).catch(() => null);
       const mime = media?.mime ?? String(p?.media?.mimetype ?? '');
       const tipoMedia: 'image' | 'audio' | 'video' | 'document' = /^image\//.test(mime) || tipoMsg === 'image' ? 'image'
         : /^audio\//.test(mime) || ['ptt', 'audio'].includes(tipoMsg) ? 'audio'
@@ -4838,6 +4842,8 @@ export class BotService {
     // mensajes entrantes de personas ('message') y lo que sale de este número ('message.any' con fromMe)
     if (evento?.event !== 'message' && evento?.event !== 'message.any') return { ignorado: 'no es un mensaje' };
     const p = evento.payload ?? {};
+    // motor GOWS (1/11/2026): el nombre con el que se presenta la persona viene en Info.PushName
+    if (p.notifyName == null && p._data?.Info?.PushName) p.notifyName = p._data.Info.PushName;
     // lo que no hay que atender se descarta antes de buscar la línea (no toca la base)
     if (p.fromMe !== true) {
       if (evento.event === 'message.any') return { ignorado: 'entrante por message.any: lo procesa el evento message' };
@@ -4966,7 +4972,7 @@ export class BotService {
   }
 
   private async barrerLinea(url: string, key: string, l: { linea: string; sesion: string; numero: string }, desde: number, ahora: number) {
-    const base = `${url.replace(/\/$/, '')}/api/${encodeURIComponent(l.sesion)}`;
+    const base = `${wahaUrlDe(l.sesion) ?? url.replace(/\/$/, '')}/api/${encodeURIComponent(l.sesion)}`;
     const pedir = async (ruta: string) => {
       const r = await fetch(`${base}${ruta}`, { headers: { 'X-Api-Key': key }, signal: AbortSignal.timeout(15000) });
       return r.ok ? r.json() : [];
@@ -5192,7 +5198,7 @@ export class BotService {
     const epigrafe = String(p.caption ?? p._data?.caption ?? (esMedia && !/\.[a-z0-9]{2,5}$/i.test(texto) ? texto : '')).trim();
     if (esMedia) {
       const waIdM = esLid ? desde : identidad;
-      const media = await this.bajarMediaWaha(p);
+      const media = await this.bajarMediaWaha(p, await this.lineas.sesion(linea));
       const esImagen = /^image\//.test(media?.mime ?? '') || tipo === 'image';
       const esAudio = ['ptt', 'audio'].includes(tipo) || /^audio\//.test(media?.mime ?? '');
 
@@ -5638,10 +5644,11 @@ export class BotService {
     if (!ms) return;
     // el «escribiendo…» se ve en el chat de la línea que va a contestar (6/10/2026)
     const sesion = await this.lineas.sesion(linea);
+    const base = wahaUrlDe(sesion);
     const post = async (ruta: string) => {
-      if (!wahaUrl || !wahaKey || !chatId) return;
+      if (!wahaUrl || !base || !wahaKey || !chatId) return;
       try {
-        await fetch(`${wahaUrl.replace(/\/$/, '')}${ruta}`, {
+        await fetch(`${base}${ruta}`, {
           method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Api-Key': wahaKey },
           body: JSON.stringify({ session: sesion, chatId }), signal: AbortSignal.timeout(4000),
         });
@@ -5689,9 +5696,9 @@ export class BotService {
      */
     linea?: string | null;
   }) {
-    const wahaUrl = process.env.WAHA_URL;
     const wahaKey = process.env.WAHA_API_KEY;
     const sesion = payload.linea && payload.kind !== 'aviso-interno' ? await this.lineas.sesion(payload.linea) : sesionPrincipal();
+    const wahaUrl = wahaUrlDe(sesion);
 
     // (10/10/2026: se sacaron dos capas de esta puerta. envioSinCargo le cambiaba el texto a
     // los avisos internos y a lo que escribe una persona; lo del bot ya sale corregido de
@@ -5967,7 +5974,8 @@ export class BotService {
   async pausarLoQueAtiendeElTelefono(linea: string, horas = 24): Promise<number> {
     const url = process.env.WAHA_URL, key = process.env.WAHA_API_KEY;
     if (!url || !key) throw new Error('sin WAHA configurado');
-    const base = `${url.replace(/\/$/, '')}/api/${encodeURIComponent(await this.lineas.sesion(linea))}`;
+    const sesionL = await this.lineas.sesion(linea);
+    const base = `${wahaUrlDe(sesionL) ?? url.replace(/\/$/, '')}/api/${encodeURIComponent(sesionL)}`;
     const pedir = async (ruta: string): Promise<any[]> => {
       const r = await fetch(`${base}${ruta}`, { headers: { 'X-Api-Key': key }, signal: AbortSignal.timeout(15000) });
       if (!r.ok) throw new Error(`WAHA respondió ${r.status}`);
@@ -6156,7 +6164,7 @@ export class BotService {
     const url = process.env.WAHA_URL, key = process.env.WAHA_API_KEY;
     if (!url || !key) return;
     for (const l of await this.lineasParaBarrer()) {
-      await this.vigilarSesion(url.replace(/\/$/, ''), key, l.linea, l.sesion).catch((e) => this.log.warn(`vigilante de la sesión ${l.sesion}: ${e?.message ?? e}`));
+      await this.vigilarSesion(wahaUrlDe(l.sesion) ?? url.replace(/\/$/, ''), key, l.linea, l.sesion).catch((e) => this.log.warn(`vigilante de la sesión ${l.sesion}: ${e?.message ?? e}`));
     }
     await this.avisarSesionEnConflicto().catch((e) => this.log.warn(`vigilante (sesión en conflicto): ${e?.message ?? e}`));
   }

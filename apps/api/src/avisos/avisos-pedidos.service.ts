@@ -5,7 +5,7 @@ import { SUPABASE } from '../supabase.provider';
 import { celularWhatsapp, enviarImagenWhatsapp, enviarTextoWhatsapp } from '../comun/whatsapp';
 import { cartelesPedido, nombreParaCartel } from '../comun/cartel-pedido-cuadrado';
 import { cuandoLegible } from '../comun/cuando';
-import { Lineas, sesionPrincipal } from '../comun/lineas';
+import { Lineas, sesionPrincipal, wahaUrlDe } from '../comun/lineas';
 import {
   codigoDe, encabezado, esperaParaEscalar, esperaParaReintentar, esTelefonoDePrueba, idLargoDeMensaje, LLEGO,
   MINUTOS_SIN_LLEGAR, MINUTOS_SIN_SALIR, type PedidoParaAviso, type SinCargar, telefonoLegible, textoDeCancelado,
@@ -447,10 +447,10 @@ export class AvisosPedidosService {
   }
 
   private wahaBase() {
-    const url = process.env.WAHA_URL;
+    const url = wahaUrlDe(sesionPrincipal());
     const key = process.env.WAHA_API_KEY;
     // los avisos salen por la línea principal, como siempre (6/10/2026)
-    return url && key ? { base: url.replace(/\/$/, ''), key, sesion: sesionPrincipal() } : null;
+    return url && key ? { base: url, key, sesion: sesionPrincipal() } : null;
   }
 
   private async getWaha(ruta: string): Promise<any> {

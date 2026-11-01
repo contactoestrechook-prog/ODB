@@ -14,7 +14,7 @@ anotar() { problemas="$problemas
 - $1"; }
 
 # servicios
-for s in api admin web proxy waha; do
+for s in api admin web proxy waha waha-gows; do
   st=$(docker inspect -f '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}}' "odb-$s-1" 2>/dev/null || echo "no existe")
   case "$st" in running*unhealthy*|exited*|dead*|restarting*|"no existe") anotar "servicio $s: $st";; esac
 done
@@ -22,18 +22,31 @@ done
 uso=$(df --output=pcent / | tail -1 | tr -dc 0-9); [ "${uso:-0}" -ge 85 ] && anotar "disco al $uso%"
 disp=$(awk '/MemAvailable/{a=$2}/MemTotal/{t=$2}END{printf "%d", a*100/t}' /proc/meminfo); [ "${disp:-100}" -le 8 ] && anotar "memoria disponible $disp%"
 # candado HTTPS del servidor (Caddy lo renueva solo; avisa si falla la renovación)
-if [ -f hosts.env ]; then . ./hosts.env
+# hosts.env se LEE, no se ejecuta: tiene «HOST_API=a, b» sin comillas y sh cortaba
+# ahí con «HOST_API: parameter not set» (el vigía no corrió del 22/10 al 1/11/2026)
+host() { grep "^$1=" hosts.env 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' | cut -d, -f1 | tr -d ' '; }
+HOST_API=$(host HOST_API); HOST_WAHA=$(host HOST_WAHA)
+if [ -n "$HOST_API" ]; then
   fin=$(echo | timeout 10 openssl s_client -servername "$HOST_API" -connect 127.0.0.1:443 2>/dev/null | openssl x509 -noout -enddate 2>/dev/null | cut -d= -f2)
   if [ -n "$fin" ]; then dias=$(( ( $(date -d "$fin" +%s) - $(date +%s) ) / 86400 )); [ "$dias" -le 14 ] && anotar "el candado HTTPS vence en $dias días"; fi
   curl -fsS -o /dev/null --max-time 10 "https://$HOST_API/salud" --resolve "$HOST_API:443:127.0.0.1" || anotar "el servidor no responde /salud"
 fi
-# WhatsApp (la sesión que usa el servidor, donde esté)
-if grep -q '^WAHA_URL=' secretos/api.env; then
-  W=$(grep '^WAHA_URL=' secretos/api.env | cut -d= -f2- | tr -d '"'); K=$(grep '^WAHA_API_KEY=' secretos/api.env | cut -d= -f2- | tr -d '"')
-  [ "$W" = "http://waha:3000" ] && W="https://$HOST_WAHA"
-  ses=$(curl -fsS --max-time 15 -H "X-Api-Key: $K" "$W/api/sessions" 2>/dev/null | tr ',' '\n' | grep -c '"status":"WORKING"')
-  [ "${ses:-0}" -ge 1 ] || anotar "WhatsApp: ninguna sesión conectada"
-fi
+# WhatsApp: cada sesión de cada WAHA (el de siempre con NOWEB y el de la línea
+# general con GOWS, 1/11/2026), preguntando adentro del contenedor (no tiene curl).
+for c in waha waha-gows; do
+  docker inspect "odb-$c-1" >/dev/null 2>&1 || continue
+  lista=$(docker exec "odb-$c-1" node -e 'fetch("http://127.0.0.1:3000/api/sessions?all=true",{headers:{"X-Api-Key":process.env.WAHA_API_KEY||process.env.WHATSAPP_API_KEY||""}}).then(r=>r.json()).then(j=>j.forEach(s=>console.log(s.name+" "+s.status))).catch(()=>console.log("? sin-respuesta"))' 2>/dev/null)
+  [ -n "$lista" ] || { anotar "WhatsApp ($c): no contesta"; continue; }
+  echo "$lista" | while read -r nombre st; do [ "$st" = "WORKING" ] || echo "$nombre $st"; done > "$ESTADO/caidas-$c"
+  while read -r nombre st; do anotar "WhatsApp ($c): la sesión $nombre está $st"; done < "$ESTADO/caidas-$c"
+  # CONECTADA PERO SORDA: figura WORKING y WhatsApp le manda mensajes que no
+  # puede descifrar, así que al bot no le llega nada (30/10, 31/10 y 1/11/2026).
+  # Solo se ve en el registro del contenedor. 3 o más en 15 minutos = avisar.
+  docker logs --since 15m "odb-$c-1" 2>&1 | grep 'failed to decrypt message' | grep -o 'session:[a-z0-9_-]*' | sort | uniq -c | while read -r n ses; do
+    [ "$n" -ge 3 ] && echo "${ses#session:} $n"
+  done > "$ESTADO/sordas-$c"
+  while read -r nombre n; do anotar "WhatsApp ($c): la sesión $nombre está conectada pero no puede leer los mensajes ($n en 15 min): hay que volver a vincularla"; done < "$ESTADO/sordas-$c"
+done
 
 firma=$(printf '%s' "$problemas" | md5sum | cut -c1-12)
 anterior=$(cat "$ESTADO/firma" 2>/dev/null || echo "")

@@ -64,6 +64,23 @@ export function sesionPrincipal(): string {
   return process.env.WAHA_SESSION || 'default';
 }
 
+/**
+ * La dirección del WAHA que atiende una sesión (1/11/2026). La línea general se
+ * caía todos los días con el motor NOWEB (~54 cortes «Stream Errored (ack)» por
+ * día y, tras alguno, «failed to decrypt»: quedaba WORKING pero sorda). Pasa a un
+ * WAHA aparte con el motor GOWS; el WAHA de siempre sigue con NOWEB para la
+ * línea del local, que con NOWEB anda bien. WAHA_GOWS_SESIONES lista las
+ * sesiones (separadas por coma) que viven en WAHA_GOWS_URL; sin esas variables,
+ * todo va a WAHA_URL como antes. Las dos usan la misma WAHA_API_KEY.
+ */
+export function wahaUrlDe(sesion?: string | null): string | undefined {
+  const s = sesion || sesionPrincipal();
+  const gows = process.env.WAHA_GOWS_URL;
+  const enGows = (process.env.WAHA_GOWS_SESIONES ?? '').split(',').map((x) => x.trim()).filter(Boolean);
+  const url = gows && enGows.includes(s) ? gows : process.env.WAHA_URL;
+  return url ? url.replace(/\/$/, '') : undefined;
+}
+
 /** Un ID de línea válido: minúsculas, dígitos y guion bajo (va en claves y en filtros). */
 export function nombreDeLineaValido(linea: unknown): linea is string {
   return typeof linea === 'string' && /^[a-z][a-z0-9_]{1,29}$/.test(linea);

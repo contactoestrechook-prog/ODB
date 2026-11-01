@@ -65,6 +65,20 @@ services:
     volumes: ["waha-sesiones:/app/.sessions"]
     mem_limit: 1536m
 
+  # La línea general (11 2281-2200) en un WAHA aparte con el motor GOWS
+  # (1/11/2026). Con NOWEB se cortaba ~54 veces por día («Stream Errored (ack)»)
+  # y cada tanto quedaba conectada pero sin poder leer los mensajes. El motor
+  # se elige por contenedor, no por sesión: el de arriba sigue con NOWEB para la
+  # línea del local. La API elige cuál usar con WAHA_GOWS_URL y WAHA_GOWS_SESIONES.
+  waha-gows:
+    <<: *comun
+    image: devlikeapro/waha:${WAHA_VERSION:-noweb}
+    env_file: [./secretos/waha.env]
+    environment:
+      WHATSAPP_DEFAULT_ENGINE: GOWS
+    volumes: ["waha-gows-sesiones:/app/.sessions"]
+    mem_limit: 1g
+
   n8n:
     <<: *comun
     image: odb-n8n:${VERSION:-actual}
@@ -77,6 +91,7 @@ volumes:
   caddy-datos:
   caddy-config:
   waha-sesiones:
+  waha-gows-sesiones:
   n8n-datos:
 
 networks:

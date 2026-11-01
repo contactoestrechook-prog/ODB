@@ -1,5 +1,5 @@
 import { SupabaseClient } from '@supabase/supabase-js';
-import { sesionPrincipal } from './lineas';
+import { sesionPrincipal, wahaUrlDe } from './lineas';
 
 // Aviso interno por WhatsApp (a un supervisor, no a un cliente) por la línea de
 // la casa en WAHA. Se registra en bot_envios para que el bot sepa que el
@@ -45,13 +45,13 @@ function chatDe(to: string): { chatId: string; digitos: string } | null {
 // trabajando y el mensaje puede llegar igual. Quien llama no tiene que
 // reintentar solo un envío incierto (el proveedor recibiría el pedido dos veces).
 async function postWaha(db: SupabaseClient, ruta: string, cuerpo: Record<string, unknown>, digitos: string, origen: string, ms: number, sesion?: string): Promise<ResultadoWaha> {
-  const wahaUrl = process.env.WAHA_URL;
+  const wahaUrl = wahaUrlDe(sesion);
   const wahaKey = process.env.WAHA_API_KEY;
   if (!wahaUrl || !wahaKey) return { enviado: false, motivo: 'WAHA sin configurar' };
   const ctrl = new AbortController();
   const reloj = setTimeout(() => ctrl.abort(), ms);
   try {
-    const r = await fetch(`${wahaUrl.replace(/\/$/, '')}${ruta}`, {
+    const r = await fetch(`${wahaUrl}${ruta}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Api-Key': wahaKey },
       // los avisos internos salen por la línea principal (6/10/2026: el nombre de la sesión vive en comun/lineas.ts)
@@ -100,7 +100,7 @@ export async function enviarImagenWhatsapp(db: SupabaseClient, to: string, url: 
 // el mismo número sin el 9 (54…): así figura un WhatsApp Business en un fijo.
 // Si WAHA no contesta, tira: nunca se da por bueno un número sin confirmarlo.
 export async function existeEnWhatsapp(numero: string, sesion?: string): Promise<{ existe: boolean; chatId?: string; verificado: boolean }> {
-  const wahaUrl = process.env.WAHA_URL;
+  const wahaUrl = wahaUrlDe(sesion);
   const wahaKey = process.env.WAHA_API_KEY;
   if (!wahaUrl || !wahaKey) throw new Error('WAHA sin configurar');
   const celular = celularWhatsapp(numero);
@@ -110,7 +110,7 @@ export async function existeEnWhatsapp(numero: string, sesion?: string): Promise
     const reloj = setTimeout(() => ctrl.abort(), 15_000);
     try {
       const q = new URLSearchParams({ phone: n, session: sesion || sesionPrincipal() });
-      const r = await fetch(`${wahaUrl.replace(/\/$/, '')}/api/contacts/check-exists?${q}`, { headers: { 'X-Api-Key': wahaKey }, signal: ctrl.signal });
+      const r = await fetch(`${wahaUrl}/api/contacts/check-exists?${q}`, { headers: { 'X-Api-Key': wahaKey }, signal: ctrl.signal });
       // la versión de WAHA no tiene la consulta: no se puede verificar, se usa el celular
       if (r.status === 404 || r.status === 501) return { existe: true, chatId: `${celular}@c.us`, verificado: false };
       if (!r.ok) throw new Error(`WAHA check-exists ${r.status}`);
