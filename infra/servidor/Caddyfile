@@ -26,7 +26,3 @@
 	import seguridad
 	reverse_proxy waha:3000
 }
-{$HOST_N8N} {
-	import seguridad
-	reverse_proxy n8n:5678
-}

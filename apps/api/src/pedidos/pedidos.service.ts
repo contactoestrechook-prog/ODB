@@ -8,7 +8,7 @@ import { transicionValida } from './transiciones';
 import { verificarFirmaMercadoPago } from '../comun/firmas';
 import { fetchConTimeout } from '../comun/http';
 import { celularWhatsapp, enviarTextoWhatsapp } from '../comun/whatsapp';
-import { Lineas } from '../comun/lineas';
+import { hayWhatsapp, Lineas } from '../comun/lineas';
 import { sinRestosDeMarcado, textoONulo, unirLimpio } from '../comun/texto-limpio';
 import {
   armarEnvio, avisoAlCliente, clasificar, cobroDe, COLUMNAS_ENVIO, ESTADOS_ACTIVOS, fechaBA, FRANJAS, lineaDeCambioDeEnvio, medioPorDefecto, ordenarEnvios,
@@ -1184,56 +1184,24 @@ export class PedidosService {
     return { ...(data as any), faltantes: await this.faltantes(pedidoId) };
   }
 
-  // Dispara un webhook a n8n para que mande el WhatsApp "pedido listo / en camino
-  // / entregado". Fire-and-forget: si n8n no responde, NO rompe el cambio de estado.
+  // El WhatsApp "pedido listo / en camino / entregado" al cliente. Sale por el
+  // WhatsApp de la casa, igual que los avisos a administración (hasta el
+  // 2/11/2026 quedaba un camino viejo a un webhook de n8n que ya no existía).
+  // Si no sale, NO rompe el cambio de estado: queda en el registro.
   private async notificarWhatsApp(pedido: any, estado: string) {
-    const url = process.env.N8N_PEDIDOS_WEBHOOK_URL;
+    if (!hayWhatsapp()) return;
     // la ficha del cliente o el WhatsApp que dejó al comprar sin cuenta (6/10/2026)
     const telefono = pedido.cliente?.telefono || pedido.contacto_telefono;
     // solo estados que le importan al cliente y solo si tenemos su teléfono;
     // el texto depende del canal (un envío listo no se retira en la sucursal)
     const mensaje = avisoAlCliente(pedido, estado);
     if (!telefono || !mensaje) return;
-    // Sale por el WhatsApp de la casa (WAHA), igual que los avisos a
-    // administración. n8n queda solo si WAHA no está configurado: antes el
-    // aviso dependía de un webhook que nadie verificaba.
-    if (process.env.WAHA_URL && process.env.WAHA_API_KEY) {
-      // un pedido del bot le avisa al cliente por la línea por la que lo pidió
-      // (6/10/2026); el resto, por la principal como siempre
-      const { data: cot } = await this.db.from('bot_cotizaciones').select('linea').eq('pedido_id', pedido.id).limit(1).maybeSingle();
-      const sesion = (cot as any)?.linea ? await new Lineas(this.db).sesion(String((cot as any).linea)) : undefined;
-      const r = await enviarTextoWhatsapp(this.db, String(telefono), mensaje, 'aviso-cliente-pedido', sesion);
-      if (!r.enviado) this.log.warn(`aviso al cliente del pedido ${pedido.id} (${estado}) no salió: ${r.motivo ?? 'sin motivo'}`);
-      return;
-    }
-    if (!url) return;
-
-    const payload = {
-      pedidoId: pedido.id,
-      estado,
-      telefono: String(telefono).replace(/\D/g, ''),
-      nombre: pedido.cliente?.nombre ?? null,
-      total: Number(pedido.total),
-      codigoRetiro: pedido.qr_retiro ?? null,
-      canal: pedido.canal,
-      resumen: (pedido.items ?? []).map((i: any) => `${i.cantidad}x ${i.producto?.nombre ?? ''}`.trim()).join(', '),
-      mensaje,
-    };
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 8000);
-    try {
-      await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(process.env.N8N_WEBHOOK_TOKEN ? { 'x-webhook-token': process.env.N8N_WEBHOOK_TOKEN } : {}),
-        },
-        body: JSON.stringify(payload),
-        signal: ctrl.signal,
-      });
-    } finally {
-      clearTimeout(timer);
-    }
+    // un pedido del bot le avisa al cliente por la línea por la que lo pidió
+    // (6/10/2026); el resto, por la principal como siempre
+    const { data: cot } = await this.db.from('bot_cotizaciones').select('linea').eq('pedido_id', pedido.id).limit(1).maybeSingle();
+    const sesion = (cot as any)?.linea ? await new Lineas(this.db).sesion(String((cot as any).linea)) : undefined;
+    const r = await enviarTextoWhatsapp(this.db, String(telefono), mensaje, 'aviso-cliente-pedido', sesion);
+    if (!r.enviado) this.log.warn(`aviso al cliente del pedido ${pedido.id} (${estado}) no salió: ${r.motivo ?? 'sin motivo'}`);
   }
 }
 

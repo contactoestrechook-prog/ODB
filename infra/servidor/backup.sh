@@ -17,7 +17,7 @@ ENV=/srv/odb/secretos/backup.env
 [ -f "$ENV" ] || { echo "Falta $ENV: backups sin configurar"; exit 2; }
 set -a; . "$ENV"; set +a
 VOLS=/var/lib/docker/volumes
-ORIGENES="/srv/odb/secretos /srv/odb/docker-compose.yml /srv/odb/Caddyfile /srv/odb/hosts.env $VOLS/odb_waha-sesiones $VOLS/odb_n8n-datos $VOLS/odb_caddy-datos"
+ORIGENES="/srv/odb/secretos /srv/odb/docker-compose.yml /srv/odb/Caddyfile /srv/odb/hosts.env $VOLS/odb_waha-sesiones $VOLS/odb_waha-gows-sesiones $VOLS/odb_caddy-datos"
 
 restic snapshots >/dev/null 2>&1 || restic init
 
@@ -32,9 +32,9 @@ if [ "${1:-}" = probar ]; then
   exit 0
 fi
 
-# n8n escribe su base sqlite en caliente: se copia igual (n8n la recupera); la
-# sesión de WhatsApp idem. Si alguna vez hace falta consistencia estricta, parar
-# esos dos contenedores un minuto alrededor de la copia.
+# Las sesiones de WhatsApp se escriben en caliente: se copian igual. Si alguna
+# vez hace falta consistencia estricta, parar los dos WAHA un minuto alrededor
+# de la copia.
 restic backup --tag diaria --exclude-caches $ORIGENES 2>&1 | tail -3
 restic forget --prune --keep-daily 7 --keep-weekly 4 --keep-monthly 6 2>&1 | tail -2
 restic check --read-data-subset=5% 2>&1 | tail -1

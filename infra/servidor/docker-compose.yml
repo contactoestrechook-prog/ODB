@@ -1,5 +1,8 @@
 # ODB en el servidor propio (Akamai São Paulo, 21/10/2026).
-# Se levanta desde /srv/odb con: docker compose --env-file hosts.env up -d
+# Lo levanta infra/servidor/publicar.sh. A mano, desde /srv/odb, SIEMPRE con la
+# versión publicada:  VERSION=$(cat VERSION) docker compose --env-file hosts.env up -d
+# Sin VERSION se niega a arrancar: el 2/11/2026 un `up` sin ella levantó la API con
+# una imagen vieja («actual», del 21/10) y el bot estuvo 6 horas sin contestar.
 # Los secretos viven en /srv/odb/secretos/*.env (permisos 600, nunca en el repo).
 name: odb
 
@@ -21,7 +24,6 @@ services:
       HOST_PANEL: ${HOST_PANEL}
       HOST_TIENDA: ${HOST_TIENDA}
       HOST_WAHA: ${HOST_WAHA}
-      HOST_N8N: ${HOST_N8N}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-datos:/data
@@ -31,8 +33,8 @@ services:
 
   api:
     <<: *comun
-    image: odb-api:${VERSION:-actual}
-    build: { context: ./codigo/apps/api, dockerfile: ../../infra/servidor/api.Dockerfile, args: { VERSION: "${VERSION:-actual}" } }
+    image: odb-api:${VERSION:?falta VERSION (la publicada está en /srv/odb/VERSION)}
+    build: { context: ./codigo/apps/api, dockerfile: ../../infra/servidor/api.Dockerfile, args: { VERSION: "${VERSION}" } }
     env_file: [./secretos/api.env]
     # certificados de ARCA (ARCA_*_PATH): archivos 400 del usuario node
     volumes: ["./secretos/archivos:/run/secretos:ro"]
@@ -41,8 +43,8 @@ services:
 
   admin:
     <<: *comun
-    image: odb-admin:${VERSION:-actual}
-    build: { context: ./codigo/apps/admin, dockerfile: ../../infra/servidor/next.Dockerfile, args: { VERSION: "${VERSION:-actual}" } }
+    image: odb-admin:${VERSION:?falta VERSION}
+    build: { context: ./codigo/apps/admin, dockerfile: ../../infra/servidor/next.Dockerfile, args: { VERSION: "${VERSION}" } }
     env_file: [./secretos/admin.env]
     mem_limit: 512m
     cap_drop: [ALL]
@@ -50,8 +52,8 @@ services:
 
   web:
     <<: *comun
-    image: odb-web:${VERSION:-actual}
-    build: { context: ./codigo/apps/web, dockerfile: ../../infra/servidor/next.Dockerfile, args: { VERSION: "${VERSION:-actual}" } }
+    image: odb-web:${VERSION:?falta VERSION}
+    build: { context: ./codigo/apps/web, dockerfile: ../../infra/servidor/next.Dockerfile, args: { VERSION: "${VERSION}" } }
     env_file: [./secretos/web.env]
     mem_limit: 384m
     cap_drop: [ALL]
@@ -79,20 +81,11 @@ services:
     volumes: ["waha-gows-sesiones:/app/.sessions"]
     mem_limit: 1g
 
-  n8n:
-    <<: *comun
-    image: odb-n8n:${VERSION:-actual}
-    build: { context: ./codigo, dockerfile: infra/n8n/Dockerfile }
-    env_file: [./secretos/n8n.env]
-    volumes: ["n8n-datos:/home/node/.n8n"]
-    mem_limit: 768m
-
 volumes:
   caddy-datos:
   caddy-config:
   waha-sesiones:
   waha-gows-sesiones:
-  n8n-datos:
 
 networks:
   interna: {}

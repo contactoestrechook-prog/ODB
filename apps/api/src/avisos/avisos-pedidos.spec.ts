@@ -425,9 +425,9 @@ describe('el endpoint del cartel es solo para el personal', () => {
 });
 
 describe('AvisosPedidosService: dónde corre', () => {
-  afterEach(() => { delete process.env.RAILWAY_ENVIRONMENT_NAME; delete process.env.ODB_AVISOS_PEDIDOS; jest.restoreAllMocks(); });
+  afterEach(() => { delete process.env.ODB_AVISOS_PEDIDOS; jest.restoreAllMocks(); });
 
-  it('en una máquina de desarrollo (sin Railway) o sin WhatsApp NO toma avisos: no se los roba a producción', async () => {
+  it('en una máquina de desarrollo (sin ODB_AVISOS_PEDIDOS=1) o sin WhatsApp NO toma avisos: no se los roba a producción', async () => {
     process.env.WAHA_URL = 'https://waha'; process.env.WAHA_API_KEY = 'k';
     const db = baseFalsa();
     const s = new AvisosPedidosService(db);
@@ -435,14 +435,14 @@ describe('AvisosPedidosService: dónde corre', () => {
     await s.vueltaDeVigia();
     expect(db.rpc).not.toHaveBeenCalled();
     expect(db.escrituras).toEqual([]);
-    process.env.RAILWAY_ENVIRONMENT_NAME = 'production';
+    process.env.ODB_AVISOS_PEDIDOS = '1';
     delete process.env.WAHA_API_KEY;
     await s.vueltaDeEnvio();
     expect(db.rpc).not.toHaveBeenCalled();
   });
 
-  it('en Railway: encola los faltantes y toma de a uno; con la sesión de WhatsApp caída no toma', async () => {
-    process.env.WAHA_URL = 'https://waha'; process.env.WAHA_API_KEY = 'k'; process.env.RAILWAY_ENVIRONMENT_NAME = 'production';
+  it('en producción (ODB_AVISOS_PEDIDOS=1): encola los faltantes y toma de a uno; con la sesión de WhatsApp caída no toma', async () => {
+    process.env.WAHA_URL = 'https://waha'; process.env.WAHA_API_KEY = 'k'; process.env.ODB_AVISOS_PEDIDOS = '1';
     jest.spyOn(global, 'fetch' as any).mockResolvedValue({ ok: true, json: async () => ({ status: 'WORKING' }) } as any);
     const db = baseFalsa({ 'rpc:encolar_avisos_faltantes': { data: 0 }, 'rpc:tomar_avisos_pedidos': { data: [] } });
     const s = new AvisosPedidosService(db);

@@ -81,6 +81,16 @@ export function wahaUrlDe(sesion?: string | null): string | undefined {
   return url ? url.replace(/\/$/, '') : undefined;
 }
 
+/**
+ * ¿Hay WhatsApp para esa sesión? La ÚNICA pregunta del sistema (2/11/2026).
+ * Antes siete lugares miraban `process.env.WAHA_URL` a mano como llave de «hay
+ * WhatsApp» mientras la dirección real salía de wahaUrlDe: el día que una sesión
+ * viva solo en el WAHA de GOWS, esos lugares se apagaban en silencio.
+ */
+export function hayWhatsapp(sesion?: string | null): boolean {
+  return !!wahaUrlDe(sesion) && !!process.env.WAHA_API_KEY;
+}
+
 /** Un ID de línea válido: minúsculas, dígitos y guion bajo (va en claves y en filtros). */
 export function nombreDeLineaValido(linea: unknown): linea is string {
   return typeof linea === 'string' && /^[a-z][a-z0-9_]{1,29}$/.test(linea);

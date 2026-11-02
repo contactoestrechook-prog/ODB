@@ -5,7 +5,7 @@ import { SUPABASE } from '../supabase.provider';
 import { celularWhatsapp, enviarImagenWhatsapp, enviarTextoWhatsapp } from '../comun/whatsapp';
 import { cartelesPedido, nombreParaCartel } from '../comun/cartel-pedido-cuadrado';
 import { cuandoLegible } from '../comun/cuando';
-import { Lineas, sesionPrincipal, wahaUrlDe } from '../comun/lineas';
+import { hayWhatsapp, Lineas, sesionPrincipal, wahaUrlDe } from '../comun/lineas';
 import {
   codigoDe, encabezado, esperaParaEscalar, esperaParaReintentar, esTelefonoDePrueba, idLargoDeMensaje, LLEGO,
   MINUTOS_SIN_LLEGAR, MINUTOS_SIN_SALIR, type PedidoParaAviso, type SinCargar, telefonoLegible, textoDeCancelado,
@@ -74,11 +74,13 @@ export class AvisosPedidosService {
     this.lineas = new Lineas(db);
   }
 
-  /** Solo en producción (Railway) y con WhatsApp configurado. ODB_AVISOS_PEDIDOS=1 lo fuerza; =0 lo apaga. */
+  /**
+   * Solo donde ODB_AVISOS_PEDIDOS=1 (el servidor de producción) y con WhatsApp
+   * configurado: una máquina de desarrollo no se los roba a producción. Hasta
+   * el 2/11/2026 también alcanzaba con estar en Railway, de donde ODB se fue el 24/10.
+   */
   puedeMandar(): boolean {
-    if (process.env.ODB_AVISOS_PEDIDOS === '0') return false;
-    if (!process.env.WAHA_URL || !process.env.WAHA_API_KEY) return false;
-    return process.env.ODB_AVISOS_PEDIDOS === '1' || !!process.env.RAILWAY_ENVIRONMENT_NAME;
+    return process.env.ODB_AVISOS_PEDIDOS === '1' && hayWhatsapp(sesionPrincipal());
   }
 
   @Cron('*/15 * * * * *')

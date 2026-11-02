@@ -66,6 +66,7 @@ import { esfuerzo, RAZONAMIENTO } from '../comun/modelos';
 import { unirConLoDicho } from '../comun/sin-repetir';
 import { cartelLista, cartelListaPrecios, cartelPedido, imagenEsperada, leerListaDePedido, leerResumenDePedido, MAX_RENGLONES_CARTEL, nombreParaCartel, pieSinPrecios, preciosDeLaRespuesta, ProductoConPrecio } from '../comun/cartel-pedido';
 import { etiquetaDeFila, Lineas, sesionPrincipal, wahaUrlDe } from '../comun/lineas';
+import { enviarWhatsapp, ResultadoWaha } from '../comun/whatsapp';
 import { cierraLaRafaga, esperaDeRafaga, juntarRafaga, msHastaContestar, type MensajeDeRafaga } from './espera-rafaga';
 import { abiertaAhora, aunNoVence, horarioDeAtencion, type HorarioSucursal, HORAS_REINTENTO_AVISO, impideVencer, MINUTOS_PARA_VENCER, minutosDeHorario } from './vencimiento-consultas';
 
@@ -439,14 +440,15 @@ export class BotService {
   private contactosResueltos = new Map<string, number>();
   async resolverContactoWaha(claveContacto: string, esLid: boolean, linea?: string) {
     const key = process.env.WAHA_API_KEY ?? '';
-    if (!process.env.WAHA_URL || !key || !claveContacto) return null;
+    if (!key || !claveContacto) return null;
     const ahora = Date.now();
     const previo = this.contactosResueltos.get(claveContacto);
     if (previo && ahora - previo < 6 * 3600_000) return null;
     this.contactosResueltos.set(claveContacto, ahora);
     // el @lid y la agenda se preguntan al teléfono por el que escribió (6/10/2026)
     const sesion = await this.lineas.sesion(linea);
-    const base = wahaUrlDe(sesion) ?? '';
+    const base = wahaUrlDe(sesion);
+    if (!base) return null;
     const opts = { headers: { 'X-Api-Key': key }, signal: AbortSignal.timeout(6000) } as any;
     let telefonoReal: string | null = null;
     const lid = esLid ? `${claveContacto}@lid` : null;
@@ -4930,8 +4932,8 @@ export class BotService {
   private registroDesde: number | null = null;
   @Cron('30 * * * * *')
   async recuperarEntrantesPerdidos() {
-    const url = process.env.WAHA_URL, key = process.env.WAHA_API_KEY;
-    if (!url || !key || this.barriendo) return;
+    const key = process.env.WAHA_API_KEY;
+    if (!key || this.barriendo) return;
     this.barriendo = true;
     try {
       if (this.registroDesde == null) {
@@ -4946,7 +4948,7 @@ export class BotService {
       const desde = Math.max(this.registroDesde, ahora - 20 * 60_000);
       for (const l of await this.lineasParaBarrer()) {
         try {
-          await this.barrerLinea(url, key, l, desde, ahora);
+          await this.barrerLinea(key, l, desde, ahora);
         } catch (e: any) {
           this.log.warn(`barrido de entrantes (${l.linea}): ${e?.message ?? e}`);
         }
@@ -4971,8 +4973,10 @@ export class BotService {
     return lista;
   }
 
-  private async barrerLinea(url: string, key: string, l: { linea: string; sesion: string; numero: string }, desde: number, ahora: number) {
-    const base = `${wahaUrlDe(l.sesion) ?? url.replace(/\/$/, '')}/api/${encodeURIComponent(l.sesion)}`;
+  private async barrerLinea(key: string, l: { linea: string; sesion: string; numero: string }, desde: number, ahora: number) {
+    const waha = wahaUrlDe(l.sesion);
+    if (!waha) return;
+    const base = `${waha}/api/${encodeURIComponent(l.sesion)}`;
     const pedir = async (ruta: string) => {
       const r = await fetch(`${base}${ruta}`, { headers: { 'X-Api-Key': key }, signal: AbortSignal.timeout(15000) });
       return r.ok ? r.json() : [];
@@ -5636,7 +5640,7 @@ export class BotService {
   }
 
   private async simularEscritura(to: string, texto: string, linea?: string) {
-    const wahaUrl = process.env.WAHA_URL, wahaKey = process.env.WAHA_API_KEY;
+    const wahaKey = process.env.WAHA_API_KEY;
     const crudo = String(to ?? ''); const digitos = crudo.replace(/\D/g, '');
     const chatId = crudo.includes('@') ? crudo.split(':')[0] : digitos ? `${digitos}@c.us` : null;
     // ~40 caracteres por segundo, con piso y techo
@@ -5646,7 +5650,7 @@ export class BotService {
     const sesion = await this.lineas.sesion(linea);
     const base = wahaUrlDe(sesion);
     const post = async (ruta: string) => {
-      if (!wahaUrl || !base || !wahaKey || !chatId) return;
+      if (!base || !wahaKey || !chatId) return;
       try {
         await fetch(`${base}${ruta}`, {
           method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Api-Key': wahaKey },
@@ -5659,28 +5663,11 @@ export class BotService {
     await post('/api/stopTyping');
   }
 
-  // ---- Salida de WhatsApp (mismo camino que el CRM de CarCash) ----
-  // El sistema despacha por WAHA, una instancia propia que maneja la sesión de
-  // WhatsApp del negocio. No pasa por Meta: no hay plantillas, ni ventana de 24
-  // horas, ni phone_number_id. Si WAHA no está configurado, cae al webhook de
-  // n8n como camino viejo.
-  //
-  // WAHA identifica los chats por chatId: "<digitos>@c.us". Los contactos con
-  // número oculto por privacidad llegan como "<id>@lid" y hay que devolverlos
-  // TAL CUAL, si no el mensaje no encuentra al destinatario.
-  // Todo lo que sale por WhatsApp queda registrado por su id: así, cuando
-  // WhatsApp devuelve un mensaje "fromMe", se sabe si lo mandó el sistema o lo
-  // tecleó una persona desde el teléfono.
-  private async registrarEnvio<T extends { enviado: boolean; id?: string | null }>(r: T, telefono: string, origen?: string, referencia?: string | null): Promise<T> {
-    // 9/10/2026: difusiones y programados se anotan como tales: un «sí» después puede ser a eso
-    if (!origen && /^(difusion|programado)\//.test(String(referencia ?? ''))) origen = String(referencia).split('/')[0];
-    // se ESPERA la anotación: si no, el eco llegaba antes y pausaba la charla
-    if (r?.enviado && r.id) {
-      await this.db.from('bot_envios').upsert({ waha_id: String(r.id), telefono, origen: origen ?? 'bot' }, { onConflict: 'waha_id' }).then(() => null, () => null);
-    }
-    return r;
-  }
-
+  // ---- Salida de WhatsApp ----
+  // Sale por el despachador único del sistema (comun/whatsapp.ts, 2/11/2026):
+  // acá solo se elige la sesión y se anota lo último enviado para el detector
+  // de eco. Hasta el 2/11 el bot tenía su propia copia de la puerta, con un
+  // camino viejo a n8n que ya no existía.
   async enviarPorWhatsapp(payload: {
     to: string;
     text?: string | null;
@@ -5695,10 +5682,8 @@ export class BotService {
      * línea, o con kind 'aviso-interno', sale por la principal, como siempre.
      */
     linea?: string | null;
-  }) {
-    const wahaKey = process.env.WAHA_API_KEY;
+  }): Promise<ResultadoWaha> {
     const sesion = payload.linea && payload.kind !== 'aviso-interno' ? await this.lineas.sesion(payload.linea) : sesionPrincipal();
-    const wahaUrl = wahaUrlDe(sesion);
 
     // (10/10/2026: se sacaron dos capas de esta puerta. envioSinCargo le cambiaba el texto a
     // los avisos internos y a lo que escribe una persona; lo del bot ya sale corregido de
@@ -5713,145 +5698,18 @@ export class BotService {
       if (this.ultimoEnviado.size > 3000) this.ultimoEnviado.clear();
     }
 
-    const crudo = String(payload.to ?? '');
-    const digitos = crudo.replace(/\D/g, '');
-    let chatId = crudo.includes('@') ? crudo.split(':')[0] : digitos ? `${digitos}@c.us` : null;
-    if (!chatId) return { enviado: false, reintentable: false, motivo: 'Número inválido' };
-    // Un @lid (el id de privacidad de WhatsApp) NO es un número marcable: armar
-    // "digitos@c.us" con él manda el mensaje a la nada o a un desconocido. Las
-    // charlas guardan esos dígitos como teléfono, así que acá se traduce al
-    // número real del contacto y, si no lo tenemos, al @lid tal cual
-    // (18/9/2026: una corrección al cliente no habría llegado nunca).
-    if (!crudo.includes('@') && digitos.length >= 11) {
-      const { data: contacto } = await this.db
-        .from('bot_contactos').select('telefono_real, lid').eq('telefono', digitos).maybeSingle();
-      const lid = String((contacto as any)?.lid ?? '');
-      if (lid.startsWith(digitos)) {
-        const real = String((contacto as any)?.telefono_real ?? '').replace(/\D/g, '');
-        chatId = real ? `${real}@c.us` : lid;
-        this.log.log(`destino @lid traducido: ${digitos} → ${chatId}`);
-      }
-    }
-
-    if (wahaUrl && wahaKey) {
-      const base = wahaUrl.replace(/\/$/, '');
-      const cabeceras = { 'Content-Type': 'application/json', 'X-Api-Key': wahaKey };
-      const postear = async (ruta: string, cuerpo: any) => {
-        const ctrl = new AbortController();
-        const reloj = setTimeout(() => ctrl.abort(), 15_000);
-        try {
-          const r = await fetch(`${base}${ruta}`, {
-            method: 'POST',
-            headers: cabeceras,
-            body: JSON.stringify(cuerpo),
-            signal: ctrl.signal,
-          });
-          const cuerpoRes: any = await r.json().catch(() => ({}));
-          return { ok: r.ok, estado: r.status, cuerpo: cuerpoRes };
-        } finally {
-          clearTimeout(reloj);
-        }
-      };
-
-      try {
-        if (payload.documentoUrl) {
-          const nombre = String(payload.documentoUrl).split('/').pop()!.split('?')[0] || 'archivo.pdf';
-          const esPdf = /\.pdf$/i.test(nombre);
-          const r = await postear('/api/sendFile', {
-            session: sesion,
-            chatId,
-            file: { url: payload.documentoUrl, mimetype: esPdf ? 'application/pdf' : 'application/octet-stream', filename: nombre },
-            caption: payload.text || '',
-          });
-          if (!r.ok) return { enviado: false, motivo: `WAHA sendFile ${r.estado}` };
-          return this.registrarEnvio({ enviado: true, via: 'waha', id: r.cuerpo?.id ?? r.cuerpo?.key?.id ?? null }, payload.to, payload.kind, (payload as any).referencia);
-        }
-
-        if (payload.imagenUrl) {
-          const ext = String(payload.imagenUrl).split('.').pop()!.toLowerCase().split('?')[0];
-          const mime = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
-          const r = await postear('/api/sendImage', {
-            session: sesion,
-            chatId,
-            file: { url: payload.imagenUrl, mimetype: mime, filename: `foto.${ext || 'jpg'}` },
-            caption: payload.text || '',
-          });
-          if (!r.ok) return { enviado: false, motivo: `WAHA sendImage ${r.estado}` };
-          return this.registrarEnvio({ enviado: true, via: 'waha', id: r.cuerpo?.id ?? r.cuerpo?.key?.id ?? null }, payload.to, payload.kind, (payload as any).referencia);
-        }
-
-        const esAudio = !!payload.audioUrl;
-        const cuerpo = esAudio
-          ? {
-              session: sesion,
-              chatId,
-              file: {
-                url: payload.audioUrl,
-                mimetype: payload.audioUrl!.includes('.webm')
-                  ? 'audio/webm; codecs=opus'
-                  : 'audio/ogg; codecs=opus',
-                filename: `nota-de-voz${payload.audioUrl!.includes('.webm') ? '.webm' : '.ogg'}`,
-              },
-            }
-          : { session: sesion, chatId, text: payload.text ?? '' };
-
-        const r = await postear(esAudio ? '/api/sendVoice' : '/api/sendText', cuerpo);
-        if (!r.ok) {
-          // WhatsApp solo reproduce notas de voz en OGG/Opus. Si rechaza el audio
-          // (típico de un WebM de Android), se reintenta como archivo adjunto:
-          // llega peor, pero llega, en vez de perderse en silencio.
-          if (esAudio) {
-            const alt = await postear('/api/sendFile', { ...cuerpo, caption: '🎤 Nota de voz' });
-            if (alt.ok) return { enviado: true, via: 'waha', comoArchivo: true, id: alt.cuerpo?.id ?? null };
-          }
-          return { enviado: false, motivo: `WAHA respondió ${r.estado}` };
-        }
-        const id = r.cuerpo?.id ?? r.cuerpo?.key?.id ?? r.cuerpo?._data?.id?.id ?? null;
-        // sin id no hay prueba de que haya salido: se reporta como falla
-        if (esAudio && !id) return { enviado: false, motivo: 'WhatsApp no confirmó la nota de voz' };
-        return this.registrarEnvio({ enviado: true, via: 'waha', id }, payload.to, payload.kind, (payload as any).referencia);
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        this.log.warn(`No se pudo contactar a WAHA: ${msg}`);
-        return { enviado: false, motivo: `WAHA inalcanzable: ${msg}` };
-      }
-    }
-
-    // ---- camino viejo: webhook de n8n ----
-    const url = process.env.N8N_WSP_SEND_URL;
-    if (!url) {
-      this.log.warn('WhatsApp sin conectar: falta WAHA_URL o N8N_WSP_SEND_URL');
-      return { enviado: false, reintentable: true, motivo: 'WhatsApp no conectado' };
-    }
-    const ctrl = new AbortController();
-    const reloj = setTimeout(() => ctrl.abort(), 10_000);
-    try {
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(process.env.N8N_WEBHOOK_TOKEN ? { 'X-MetoGroup-Secret': process.env.N8N_WEBHOOK_TOKEN } : {}),
-        },
-        body: JSON.stringify({
-          to: payload.to,
-          type: payload.audioUrl ? 'audio' : 'text',
-          text: payload.audioUrl ? null : (payload.text ?? ''),
-          audio_url: payload.audioUrl ?? null,
-          kind: payload.kind ?? null,
-          referencia: payload.referencia ?? null,
-          source: 'odb',
-        }),
-        signal: ctrl.signal,
-      });
-      if (!res.ok) throw new Error(`el puente respondió ${res.status}`);
-      return { enviado: true, via: 'n8n' };
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      this.log.warn(`No se pudo despachar el WhatsApp a ${payload.to}: ${msg}`);
-      return { enviado: false, motivo: msg };
-    } finally {
-      clearTimeout(reloj);
-    }
+    const r = await enviarWhatsapp(this.db, {
+      to: payload.to,
+      sesion,
+      text: payload.text,
+      audioUrl: payload.audioUrl,
+      imagenUrl: payload.imagenUrl,
+      documentoUrl: payload.documentoUrl,
+      origen: payload.kind,
+      referencia: payload.referencia,
+    });
+    if (!r.enviado) this.log.warn(`WhatsApp a ${payload.to} (${sesion}) no salió: ${r.motivo}`);
+    return r;
   }
 
   // Aviso interno a los teléfonos del equipo (coma-separados en la variable)
@@ -5972,10 +5830,11 @@ export class BotService {
    * cuántas pausó. Tira error si WAHA no contesta (revisión 6/10/2026).
    */
   async pausarLoQueAtiendeElTelefono(linea: string, horas = 24): Promise<number> {
-    const url = process.env.WAHA_URL, key = process.env.WAHA_API_KEY;
-    if (!url || !key) throw new Error('sin WAHA configurado');
+    const key = process.env.WAHA_API_KEY;
     const sesionL = await this.lineas.sesion(linea);
-    const base = `${wahaUrlDe(sesionL) ?? url.replace(/\/$/, '')}/api/${encodeURIComponent(sesionL)}`;
+    const waha = wahaUrlDe(sesionL);
+    if (!waha || !key) throw new Error('sin WAHA configurado');
+    const base = `${waha}/api/${encodeURIComponent(sesionL)}`;
     const pedir = async (ruta: string): Promise<any[]> => {
       const r = await fetch(`${base}${ruta}`, { headers: { 'X-Api-Key': key }, signal: AbortSignal.timeout(15000) });
       if (!r.ok) throw new Error(`WAHA respondió ${r.status}`);
@@ -6161,10 +6020,12 @@ export class BotService {
   private ultimoEnviado = new Map<string, { texto: string; en: number }>();
   @Cron('40 */5 * * * *')
   async vigilarSesionWhatsapp() {
-    const url = process.env.WAHA_URL, key = process.env.WAHA_API_KEY;
-    if (!url || !key) return;
+    const key = process.env.WAHA_API_KEY;
+    if (!key) return;
     for (const l of await this.lineasParaBarrer()) {
-      await this.vigilarSesion(wahaUrlDe(l.sesion) ?? url.replace(/\/$/, ''), key, l.linea, l.sesion).catch((e) => this.log.warn(`vigilante de la sesión ${l.sesion}: ${e?.message ?? e}`));
+      const waha = wahaUrlDe(l.sesion);
+      if (!waha) continue;
+      await this.vigilarSesion(waha, key, l.linea, l.sesion).catch((e) => this.log.warn(`vigilante de la sesión ${l.sesion}: ${e?.message ?? e}`));
     }
     await this.avisarSesionEnConflicto().catch((e) => this.log.warn(`vigilante (sesión en conflicto): ${e?.message ?? e}`));
   }
