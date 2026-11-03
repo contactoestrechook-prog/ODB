@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  AreaTexto, Aviso, Boton, Campo, Cargando, Chip, Chips, Entrada, Etiqueta, FOCO, FOCO_ADENTRO, IconoAtencion, IconoFlechaAbajo, IconoOk,
+  AreaTexto, Aviso, Boton, BotonLink, Campo, Cargando, Chip, Chips, Entrada, Etiqueta, FOCO, FOCO_ADENTRO, IconoAtencion, IconoFlechaAbajo, IconoOk,
   Kpi, Modal, Monto, ROTULO, Selector, Tarjeta, unir, type TonoEtiqueta,
 } from './kit';
 import { fecha, pesos } from '../lib/formato';
@@ -174,6 +174,8 @@ export function FacturasCompraWorkspace({ resumenInicial, facturasInicial, prove
               </Boton>
             )}
             <Boton variante="secundario" tamano="chico" onClick={exportarCsv}>Exportar CSV</Boton>
+            {/* la factura de mercadería se lee por foto en Compras; desde acá no se veía (3/11/2026) */}
+            <BotonLink variante="secundario" tamano="chico" href="/compras?foto=1">Cargar por foto</BotonLink>
             <Boton tamano="chico" onClick={() => setModalCarga(true)}>+ Cargar comprobante</Boton>
           </div>
         </div>

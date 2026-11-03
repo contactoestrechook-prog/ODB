@@ -94,6 +94,15 @@ export function ComprasWorkspace({ resumen, ordenes, proveedores, sugerencias, s
   const provAbrir = abrirProveedor ? proveedores.find((p) => p.id === abrirProveedor) : null;
   const [tab, setTab] = useState(provAbrir ? 'proveedores' : 'ordenes');
   const [modal, setModal] = useState<any>(provAbrir ? { tipo: 'proveedor', prov: provAbrir } : null); // {tipo, ...}
+  // «Cargar por foto» desde Facturas de compra (3/11/2026): llega con ?foto=1 y
+  // abre la entrada por foto; el parámetro se saca para que un recargar no la reabra
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (url.searchParams.get('foto') !== '1') return;
+    setModal({ tipo: 'entradaFoto' });
+    url.searchParams.delete('foto');
+    window.history.replaceState(null, '', url.pathname + url.search + url.hash);
+  }, []);
   const [deuda, setDeuda] = useState<any[] | null>(null);
   const [pagos, setPagos] = useState<any[] | null>(null);
   const [aviso, setAviso] = useState('');
