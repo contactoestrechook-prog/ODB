@@ -1071,8 +1071,10 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   // La DEVOLUCIÓN (3/11/2026) resta: el pie ya la descontó, así que entra en la
   // suma en negativo y el resto de los costos no se infla. Va con su importe
   // (no con las unidades: cambiar cuántas salen del stock no cambia la plata).
+  // Si la devolución trae su propia rebaja en otro renglón («Desc. 10% s/ DEV»),
+  // se devuelve por menos: la rebaja la achica, y nunca da vuelta el signo.
   const netoDelRenglon = (i: any) => i._esDevolucion
-    ? -(Math.abs(numImp(i.importe)) || Math.abs(numImp(i.cantidad) * numImp(i.precio)))
+    ? Math.min(0, -(Math.abs(numImp(i.importe)) || Math.abs(numImp(i.cantidad) * numImp(i.precio))) + Math.abs(numImp(i._descuento)))
     : numImp(i.cantidad) > 0
     ? numImp(i.cantidad) * precioEfectivo(i)
     : Math.max(0, numImp(i.papel?.importe ?? i.importe));
@@ -1287,7 +1289,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
     const g = grupoDeDescuento.get(idx);
     if (g) return `repartido en ${g.n} renglones${g.pct ? ` (${g.pct}%)` : ''}`;
     const d = destinoDeDescuento.get(idx);
-    if (d) return d.motivo === 'regalo' ? `regalo: renglón ${d.renglon + 1} sin cargo` : `al renglón ${d.renglon + 1}`;
+    if (d) return d.motivo === 'regalo' ? `regalo: renglón ${d.renglon + 1} sin cargo` : d.motivo === 'devolucion' ? `rebaja la devolución del renglón ${d.renglon + 1}` : `al renglón ${d.renglon + 1}`;
     return 'sin destino';
   };
   const noCierranTabla = itemsCalc
@@ -2136,7 +2138,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                           <span className="min-w-0 font-mono text-sm leading-snug text-tinta [overflow-wrap:anywhere]">{i.descripcion}</span>
-                          <span className="font-mono text-xs tabular-nums text-tinta/60">devolución de <b className="text-tinta/70">{pesos(Math.abs(netoDelRenglon(i)))}</b></span>
+                          <span className="font-mono text-xs tabular-nums text-tinta/60">devolución de <b className="text-tinta/70">{pesos(Math.abs(netoDelRenglon(i)))}</b>{numImp(i._descuento) !== 0 ? ' (ya con su rebaja)' : ''}</span>
                           {!i.sku ? <Sello tono="ojo">falta el producto</Sello>
                             : i.sugerido ? <Sello tono="oro">¿es este producto?</Sello>
                             : i.incluir ? <Sello tono="ok">sale del stock</Sello>
@@ -2197,7 +2199,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                             <>Se reparte entre los {grupoDeDescuento.get(idx)!.n} renglones de arriba{grupoDeDescuento.get(idx)!.pct ? ` (${grupoDeDescuento.get(idx)!.pct}%)` : ''}, proporcional a cada uno.
                               <button onClick={() => noAplicarDescuento(idx, true)} className={CHIP_ACCION}>No aplicar</button></>
                           ) : (
-                            <>{destinoDeDescuento.get(idx)?.motivo === 'regalo' ? 'Va sin cargo: se descuenta entero del renglón de arriba.' : 'Se descuenta del renglón que nombra.'}
+                            <>{destinoDeDescuento.get(idx)?.motivo === 'regalo' ? 'Va sin cargo: se descuenta entero del renglón de arriba.' : destinoDeDescuento.get(idx)?.motivo === 'devolucion' ? `Rebaja la devolución del renglón ${destinoDeDescuento.get(idx)!.renglon + 1}: se devuelve por menos plata y no toca la mercadería.` : 'Se descuenta del renglón que nombra.'}
                               <button onClick={() => noAplicarDescuento(idx, true)} className={CHIP_ACCION}>No aplicar</button></>
                           )}
                         </div>

@@ -48,6 +48,31 @@ describe('en la pantalla: la devolución no rebaja a nadie y resta en el pie', (
     expect(a.porIdx.has(1)).toBe(false);
   });
 
+  it('la rebaja de una devolución la achica: la nombra, o viene en positivo justo debajo', () => {
+    const fernet = { descripcion: 'FERNET 750', cantidad: 2, precio: 12000, importe: 24000 };
+    const dev = { descripcion: 'DEV COCA 2.25', cantidad: 6, precio: 3000, importe: 18000, esDevolucion: true };
+    // en positivo, justo debajo (el descuento sobre algo que resta, suma)
+    const a = atribuirDescuentos([fernet, dev, { descripcion: 'Desc. 10%', cantidad: 1, precio: 1800, importe: 1800, esDescuento: true, descuentoPct: 10 }]);
+    expect(a.destinos.get(2)).toEqual({ renglon: 1, motivo: 'devolucion' });
+    expect(a.porIdx.get(1)).toBe(1800);
+    expect(a.porIdx.has(0)).toBe(false);
+    expect(a.sinAtribuir).toEqual([]);
+    // la nombra, aunque venga impresa en negativo y con la mercadería en el medio
+    const b = atribuirDescuentos([dev, fernet, { descripcion: 'Desc. 10% s/ DEV COCA 2.25', cantidad: 1, precio: -1800, importe: -1800, esDescuento: true, descuentoPct: 10 }]);
+    expect(b.destinos.get(2)).toEqual({ renglon: 0, motivo: 'devolucion' });
+    expect(b.porIdx.get(0)).toBe(1800);
+    expect(b.porIdx.has(1)).toBe(false);
+  });
+
+  it('una rebaja en negativo debajo de la mercadería sigue yendo a la mercadería', () => {
+    const dev = { descripcion: 'DEV COCA 2.25', cantidad: 6, precio: 3000, importe: 18000, esDevolucion: true };
+    const a = atribuirDescuentos([dev, { descripcion: 'FERNET 750', cantidad: 2, precio: 12000, importe: 24000 }, { descripcion: 'Descuento', cantidad: 1, precio: -24000, importe: -24000, esDescuento: true }]);
+    expect(a.destinos.get(2)).toEqual({ renglon: 1, motivo: 'regalo' });
+    // una rebaja en positivo que no cierra con la devolución no se le pega
+    const b = atribuirDescuentos([{ descripcion: 'FERNET 750', cantidad: 2, precio: 12000, importe: 24000 }, dev, { descripcion: 'Desc.', cantidad: 1, precio: 50000, importe: 50000, esDescuento: true }]);
+    expect(b.destinos.has(2)).toBe(false);
+  });
+
   it('el IVA cierra con la devolución adentro en negativo, y el costo de lo que entra no se infla', () => {
     // mercadería $10.000 al 21 %, devolución $2.000 al 21 %: el pie dice neto 8.000 e IVA 1.680
     const r = repartirIva(

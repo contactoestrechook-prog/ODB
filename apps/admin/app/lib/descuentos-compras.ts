@@ -4,7 +4,9 @@
 // apps/api/src/compras/descuentos-compras.spec.ts, porque la API es la que
 // tiene los tests.
 //
-// Cuatro formas, en orden:
+// Cuatro formas, en orden (más la de la devolución, que va primero):
+//  0) la rebaja de una DEVOLUCIÓN: la nombra o viene en positivo justo debajo
+//     de ella. Achica la devolución y no toca la mercadería (3/11/2026).
 //  1) el descuento NOMBRA un renglón de la ventana y la cuenta cierra con él.
 //     El nombre se compara también sin espacios: «x100Grs» y «x 100Grs» son el
 //     mismo maní (Distri Sur 0007-00044104: la rebaja del maní frito se
@@ -34,7 +36,7 @@ export type RenglonConDescuento = {
   noAplicar?: boolean;
 };
 
-export type DestinoDescuento = { renglon: number; motivo: 'nombre' | 'regalo' };
+export type DestinoDescuento = { renglon: number; motivo: 'nombre' | 'regalo' | 'devolucion' };
 
 export type Atribucion = {
   /** índice del renglón de mercadería → rebaja que le toca (negativa) */
@@ -99,6 +101,27 @@ export function atribuirDescuentos(items: RenglonConDescuento[]): Atribucion {
       destinos.set(j, { renglon: k, motivo });
       cerrarVentana();
     };
+
+    // 0) la rebaja de una DEVOLUCIÓN (3/11/2026): «Desc. 10% s/ DEV COCA», que
+    //    nombra la devolución, o una rebaja en POSITIVO justo debajo de una (el
+    //    descuento sobre algo que resta, suma). Se devuelve por menos plata: la
+    //    rebaja achica la devolución, siempre en positivo, y no toca la
+    //    mercadería. Antes quedaba «sin destino» y se repartía como costo de más.
+    const cierraCon = (linea: number) => linea > 0 && (pct != null ? Math.abs((abs / linea) * 100 - pct) <= 1.5 : abs <= linea + tolerancia(linea));
+    const aLaDevolucion = (k: number) => {
+      porIdx.set(k, (porIdx.get(k) ?? 0) + abs);
+      destinos.set(j, { renglon: k, motivo: 'devolucion' });
+      cerrarVentana();
+    };
+    for (let k = j - 1; k >= ventanaInicio; k--) {
+      const x = items[k];
+      if (x.esDevolucion && cierraCon(importeDelRenglon(x)) && nombraAlRenglon(d.descripcion, x.descripcion)) return aLaDevolucion(k);
+    }
+    if (importe > 0) {
+      let k = j - 1;
+      while (k >= ventanaInicio && esRenglonDescuento(items[k])) k--;
+      if (k >= ventanaInicio && items[k].esDevolucion && cierraCon(importeDelRenglon(items[k]))) return aLaDevolucion(k);
+    }
 
     // 1) NOMBRA un renglón puntual (dentro de la ventana) y cierra con él
     for (let k = j - 1; k >= ventanaInicio; k--) {
