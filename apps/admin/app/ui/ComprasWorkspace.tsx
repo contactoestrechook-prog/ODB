@@ -18,6 +18,7 @@ import { conCodigo } from '../lib/codigo-producto';
 import { diferenciaPrecioCero, elegirPendientes, textoPrecioCero, type PendientePrecioCero } from '../lib/precio-cero';
 import { AsistenteFactura, describirCambio, type CambioHecho } from './AsistenteFactura';
 import { asignarInternos, textoInternos } from '../lib/internos-compras';
+import { aplicarBorrador, borradorDe, borradorVacio } from '../lib/borrador-factura';
 import { aplicarCambiosIA, aplicarPapel, cuentaDelPapel, entraDeRenglon, marcarComoDevolucion, papelDeLectura, tablaParaIA, type EntraComo, type Papel } from '../lib/tabla-factura';
 import {
   Aviso, Boton, CLASES_ENTRADA, Cargando, Etiqueta, FOCO, FOCO_ADENTRO, Girador, IconoAtencion, IconoCerrar, IconoError, IconoInfo, IconoOk, Kpi, Modal as Ventana,
@@ -613,7 +614,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
       const ivaSospechoso = alicEf != null && (alicEf < 0.18 || alicEf > 0.23) && !(alicEf >= 0.095 && alicEf <= 0.115);
       setSumarIva(d.comprobante?.tipo === 'factura_a' && dNeto <= 0.01 && !ivaSospechoso && !d.regimenEspecial);
       setPagada(/contado/i.test(d.comprobante?.condicionVenta ?? ''));
-      setFotoItems((d.items ?? []).map((i: any) => {
+      const filas = (d.items ?? []).map((i: any) => {
         const sugerido = i.match?.sugerido === true;
         // La interpretación del renglón —bulto, bonificación, peso, corrección
         // de cantidad, descuento— la decide el servidor en UNA función con la
@@ -695,8 +696,66 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
         // la bonificación que el papel informa pero que ya está en el precio no se
         // descuenta otra vez: queda como dato a la vista (22/10/2026)
         x.papel?.descIncluido ? { ...x, bonificacionPct: null, bonifIncluidaPct: x.papel.descIncluido } : x
-      )));
+      ));
+      // LA FACTURA A MEDIO CARGAR (3/11/2026): lo que leyó el sistema queda como
+      // punto de partida; si alguien ya la había trabajado, encima van sus
+      // cambios (los guarda el efecto de abajo, solos, mientras se edita)
+      const pieLeido = { ...(d.impuestos ?? {}) };
+      fotoOriginal.current = { items: filas, pie: pieLeido, form: { proveedorId: d.proveedor?.match?.id ?? '', numeroRemito: d.comprobante?.numero ?? '' } };
+      const b = d.borrador && !borradorVacio(d.borrador) ? d.borrador : null;
+      if (b) {
+        const r = aplicarBorrador(filas, pieLeido, b);
+        setFotoItems(r.filas);
+        setFotoImp(r.pie);
+        setCambiosFactura(Array.isArray(b.cambios) ? b.cambios : []);
+        if (b.form && typeof b.form === 'object') setF((x: any) => ({ ...x, ...b.form }));
+        setBorradorRecuperado({ aplicados: r.aplicados, descartados: r.descartados, en: b.en ?? null, por: b.por ?? null });
+        ultimoBorrador.current = JSON.stringify(b.renglones ?? []) + JSON.stringify(b.pie ?? {}) + JSON.stringify(b.form ?? {}) + JSON.stringify(b.cambios ?? []);
+      } else {
+        setFotoItems(filas);
+        setBorradorRecuperado(null);
+        ultimoBorrador.current = '';
+      }
   }
+
+  // Lo que cambió la persona se guarda solo, 1,5 s después del último cambio
+  // (3/11/2026): al recargar o abrir la factura desde la bandeja, se recupera.
+  const fotoOriginal = useRef<{ items: any[]; pie: any; form: any } | null>(null);
+  const ultimoBorrador = useRef('');
+  const [borradorRecuperado, setBorradorRecuperado] = useState<{ aplicados: number; descartados: number; en: string | null; por: string | null } | null>(null);
+  useEffect(() => {
+    const id = foto?.lecturaId;
+    const o = fotoOriginal.current;
+    if (!id || !o || foto?.error) return;
+    const t = setTimeout(() => {
+      const b = borradorDe(o.items, fotoItems, o.pie, fotoImp ?? {}, cambiosFactura);
+      const form: Record<string, unknown> = {};
+      for (const k of ['proveedorId', 'numeroRemito', 'sucursalId', 'margenPct'] as const) {
+        if ((f?.[k] ?? '') !== (o.form?.[k] ?? '')) form[k] = f?.[k] ?? '';
+      }
+      const clave = JSON.stringify(b.renglones) + JSON.stringify(b.pie) + JSON.stringify(form) + JSON.stringify(b.cambios);
+      if (clave === ultimoBorrador.current) return;
+      // nada cambiado y nada guardado antes: no hay qué mandar
+      if (!ultimoBorrador.current && borradorVacio(b) && !Object.keys(form).length) return;
+      ultimoBorrador.current = clave;
+      fetch('/api/entrada-foto', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accion: 'borrador', id, borrador: borradorVacio(b) && !Object.keys(form).length ? null : { ...b, form } }),
+      }).catch(() => { ultimoBorrador.current = ''; });
+    }, 1500);
+    return () => clearTimeout(t);
+  }, [fotoItems, fotoImp, cambiosFactura, f?.proveedorId, f?.numeroRemito, f?.sucursalId, f?.margenPct, foto?.lecturaId, foto?.error]); // eslint-disable-line react-hooks/exhaustive-deps
+  // «Empezar de cero»: vuelve a lo que leyó el sistema (el guardado se borra solo)
+  const descartarBorrador = () => {
+    const o = fotoOriginal.current;
+    if (!o) return;
+    setFotoItems(o.items);
+    setFotoImp(o.pie);
+    setCambiosFactura([]);
+    setF((x: any) => ({ ...x, ...o.form }));
+    setBorradorRecuperado(null);
+  };
 
   // Foto chica (≤1300 px): casi siempre vino comprimida por WhatsApp. Al modelo
   // le cuesta el doble leerla —y es donde cruza filas—: mejor avisar.
@@ -2112,6 +2171,20 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
               {foto.items?.some((i: any) => i.interpretado?.faltantes?.includes('importe')) && <p className="rounded-xl bg-atencion-suave p-3 text-sm text-atencion">No se pudieron leer todos los importes de los renglones. Verificá cantidades, precios y totales contra el original; esos importes no se dieron por comprobados.</p>}
               {/* La IA pregunta lo que no entendió; aclarás y vuelve a leer teniéndolo en cuenta */}
               {lecturaIncompleta && <p role="alert" className="rounded-xl bg-atencion-suave p-3 text-sm text-atencion">Hay renglones con cantidad o precio incompletos o inválidos. Revisá el comprobante y completalos antes de registrar.</p>}
+              {/* lo que ya se había trabajado en esta factura (3/11/2026) */}
+              {borradorRecuperado && borradorRecuperado.aplicados + borradorRecuperado.descartados > 0 && (
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl bg-ok-suave px-3 py-2 text-xs text-ok">
+                  <IconoOk className="size-4 shrink-0" />
+                  <span>
+                    Se recuperaron <b>{borradorRecuperado.aplicados} {borradorRecuperado.aplicados === 1 ? 'cambio' : 'cambios'}</b>
+                    {borradorRecuperado.por ? ` de ${borradorRecuperado.por}` : ''}
+                    {borradorRecuperado.en ? ` del ${new Date(borradorRecuperado.en).toLocaleString('es-AR', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' })}` : ''}
+                    {borradorRecuperado.descartados > 0 ? `; ${borradorRecuperado.descartados} no se pudieron poner porque el renglón ya no es el mismo` : ''}.
+                    {' '}Se guarda solo mientras trabajás.
+                  </span>
+                  <button onClick={descartarBorrador} className={unir(ENLACE, 'ml-auto text-tinta/70 hover:text-marca-hondo')}>Empezar de cero</button>
+                </div>
+              )}
               <div className={'rounded-xl px-3 py-2.5 space-y-2 border ' + (foto.dudas?.length ? 'border-atencion/30 bg-atencion-suave' : 'border-black/[0.06] bg-crema-claro')}>
                 {foto.dudas?.length ? (
                   <>

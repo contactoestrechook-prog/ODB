@@ -444,6 +444,46 @@ export class ListasService {
     return { url: firmada.signedUrl, esPdf: /\.pdf$/i.test(ruta) };
   }
 
+  // LA FACTURA A MEDIO CARGAR SE GUARDA SOLA (Leandro, 3/11/2026: «no tomó los
+  // cambios viejos; cuando modificamos algo hay que hacer todo otra vez»). Se
+  // guarda solo lo que la persona cambió, renglón por renglón, contra lo que
+  // leyó el sistema (lo arma app/lib/borrador-factura.ts en el panel). Al abrir,
+  // la lectura se interpreta con las reglas de hoy y encima van esos cambios.
+  async guardarBorrador(id: string, borrador: any, usuarioId?: string) {
+    const b = borrador && typeof borrador === 'object' ? borrador : null;
+    const limpio = b ? {
+      renglones: Array.isArray(b.renglones) ? b.renglones.slice(0, 500) : [],
+      pie: b.pie && typeof b.pie === 'object' && !Array.isArray(b.pie) ? b.pie : {},
+      cambios: Array.isArray(b.cambios) ? b.cambios.slice(0, 1000) : [],
+      // proveedor, sucursal, número y remarcación elegidos en la pantalla
+      form: b.form && typeof b.form === 'object' && !Array.isArray(b.form) ? b.form : {},
+    } : null;
+    const vacio = !limpio || (!limpio.renglones.length && !Object.keys(limpio.pie).length && !limpio.cambios.length && !Object.keys(limpio.form).length);
+    const { error } = await this.db
+      .from('lecturas_comprobante')
+      .update({ borrador: vacio ? null : limpio, borrador_en: vacio ? null : new Date().toISOString(), borrador_por: vacio ? null : usuarioId ?? null })
+      .eq('id', id);
+    if (error) throw new BadRequestException(`No se pudo guardar el avance de la factura: ${error.message}`);
+    return { ok: true, guardado: !vacio };
+  }
+
+  // Lo guardado de una lectura, con quién y cuándo. Si algo falla (la columna
+  // todavía no existe, por ejemplo), la lectura se abre igual, sin borrador.
+  private async borradorDe(id: string) {
+    try {
+      const { data, error } = await this.db
+        .from('lecturas_comprobante')
+        .select('borrador, borrador_en, autor:usuarios!lecturas_comprobante_borrador_por_fkey(nombre)')
+        .eq('id', id)
+        .maybeSingle();
+      if (error || !(data as any)?.borrador) return null;
+      const d = data as any;
+      return { ...d.borrador, en: d.borrador_en ?? null, por: d.autor?.nombre ?? null };
+    } catch {
+      return null;
+    }
+  }
+
   async marcarLectura(id: string, campo: 'abierta_en' | 'descartada_en') {
     const { error } = await this.db.from('lecturas_comprobante').update({ [campo]: new Date().toISOString() }).eq('id', id);
     if (error) throw new BadRequestException(error.message);
@@ -482,7 +522,7 @@ export class ListasService {
     if (d.estado === 'procesando' && Date.now() - new Date(d.creado_en).getTime() > 12 * 60_000) {
       return { estado: 'error', message: 'La lectura se interrumpió. Probá de nuevo con la misma foto.' };
     }
-    if (d.estado === 'listo') return { estado: 'listo', ...(await this.actualizarLectura(d.resultado ?? {})) };
+    if (d.estado === 'listo') return { estado: 'listo', ...(await this.actualizarLectura(d.resultado ?? {})), borrador: await this.borradorDe(id) };
     if (d.estado === 'error') return { estado: 'error', message: d.error ?? 'No se pudo leer el comprobante' };
     return { estado: 'procesando' };
   }

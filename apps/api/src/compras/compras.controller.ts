@@ -73,6 +73,13 @@ export class ComprasController {
     return this.listas.marcarLectura(id, 'abierta_en');
   }
 
+  // la factura a medio cargar se guarda sola (3/11/2026): solo lo que cambió la persona
+  @Roles('deposito', 'comprador', 'gerente', 'dueno')
+  @Post('compras/entrada-foto/:id/borrador')
+  guardarBorrador(@Param('id') id: string, @Body() b: any, @Req() req: any) {
+    return this.listas.guardarBorrador(id, b?.borrador ?? null, req?.usuario?.sub);
+  }
+
   @Roles('deposito', 'comprador', 'gerente', 'dueno')
   @Post('compras/entrada-foto/:id/descartar')
   descartarLectura(@Param('id') id: string) {

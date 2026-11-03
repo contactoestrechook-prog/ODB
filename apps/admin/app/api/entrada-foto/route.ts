@@ -16,7 +16,7 @@ export async function POST(req: Request) {
     const b = await req.json().catch(() => ({}) as any);
     // la factura editable (8/10/2026): chat con IA, constancia de cambios y
     // reglas del proveedor; llevan el cuerpo entero
-    const conCuerpo = ['chat', 'revision', 'regla', 'historial'].includes(b?.accion);
+    const conCuerpo = ['chat', 'revision', 'regla', 'historial', 'borrador'].includes(b?.accion);
     const id = encodeURIComponent(String(b?.id ?? 'sin-lectura'));
     const ruta =
       b?.accion === 'releer' ? `/compras/entrada-foto/${id}/releer`
@@ -26,6 +26,8 @@ export async function POST(req: Request) {
       : b?.accion === 'revision' ? `/compras/entrada-foto/${id}/revision`
       // lo que nos vende cada proveedor: todos los renglones de la factura registrada (8/10/2026)
       : b?.accion === 'historial' ? `/compras/entrada-foto/${id}/historial`
+      // la factura a medio cargar se guarda sola (3/11/2026)
+      : b?.accion === 'borrador' ? `/compras/entrada-foto/${id}/borrador`
       : b?.accion === 'regla' ? `/compras/proveedores/${encodeURIComponent(String(b?.proveedorId ?? ''))}/reglas-lectura`
       : b?.accion === 'quitarRegla' ? `/compras/reglas-lectura/${id}/desactivar`
       : null;
