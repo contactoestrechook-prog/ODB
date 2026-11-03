@@ -41,6 +41,7 @@ import { ContableModule } from './contable/contable.module';
 import { ComparadorModule } from './comparador/comparador.module';
 import { RepartosModule } from './repartos/repartos.module';
 import { RepartidoresModule } from './repartidores/repartidores.module';
+import { GpsModule } from './gps/gps.module';
 import { ListasVentaModule } from './listas-venta/listas-venta.module';
 import { ChequesModule } from './cheques/cheques.module';
 import { SyncModule } from './sync/sync.module';
@@ -105,6 +106,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     ComparadorModule,
     RepartosModule,
     RepartidoresModule,
+    GpsModule,
     ListasVentaModule,
     ChequesModule,
     SyncModule,

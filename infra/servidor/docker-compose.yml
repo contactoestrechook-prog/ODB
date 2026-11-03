@@ -81,11 +81,40 @@ services:
     volumes: ["waha-gows-sesiones:/app/.sessions"]
     mem_limit: 1g
 
+  # GPS de los vehículos (3/11/2026). Traccar habla con los equipos (Teltonika
+  # en el 5027, Concox/GT06 en el 5023) y le reenvía cada posición a la API
+  # (/gps/traccar), que la pone en el mapa de flota y en el seguimiento de los
+  # envíos. Los equipos se dan de alta solos (DATABASE_REGISTER_UNKNOWN): lo que
+  # importa es cargar el IMEI en el vehículo, en Reparto › Repartidores.
+  # Sin perfil a propósito: con perfil, el --remove-orphans de publicar.sh puede
+  # tomarlo por huérfano y bajarlo en cada publicación. Publicar «api admin» no
+  # lo levanta; se prende una sola vez, cuando haya equipo: GPS_TOKEN en
+  # hosts.env (la misma que en secretos/api.env), los puertos abiertos en el
+  # firewall de Akamai y
+  #   VERSION=$(cat VERSION) docker compose --env-file hosts.env up -d traccar
+  traccar:
+    <<: *comun
+    image: traccar/traccar:6.16.0-alpine
+    ports: ["5027:5027", "5023:5023"]
+    environment:
+      CONFIG_USE_ENVIRONMENT_VARIABLES: "true"
+      DATABASE_REGISTER_UNKNOWN: "true"
+      FORWARD_TYPE: json
+      FORWARD_URL: http://api:3001/gps/traccar
+      FORWARD_HEADER: "x-gps-token: ${GPS_TOKEN:-}"
+      FORWARD_RETRY_ENABLE: "true"
+    volumes: ["traccar-datos:/opt/traccar/data", "traccar-registros:/opt/traccar/logs"]
+    mem_limit: 512m
+    networks: [interna, publica]
+    depends_on: [api]
+
 volumes:
   caddy-datos:
   caddy-config:
   waha-sesiones:
   waha-gows-sesiones:
+  traccar-datos:
+  traccar-registros:
 
 networks:
   interna: {}

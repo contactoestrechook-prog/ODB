@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import {
   Aviso,
   Boton,
+  Campo,
   Entrada,
   Etiqueta,
   FOCO_ADENTRO,
@@ -14,7 +15,7 @@ import {
   clasesBoton,
   unir,
 } from './kit';
-import { fecha } from '../lib/formato';
+import { fecha, hace } from '../lib/formato';
 
 // Alta y gestión de repartidores con sus vehículos y seguros. Los datos del
 // vehículo (patente, modelo) y la póliza son los que pide la seguridad de un
@@ -24,6 +25,9 @@ type Vehiculo = {
   id: string; tipo: string; marca?: string; modelo?: string; patente?: string; color?: string;
   seguroCompania?: string; seguroPoliza?: string; seguroVencimiento?: string;
   seguroArchivoUrl?: string; seguroVencido?: boolean;
+  // equipo GPS fijo en el vehículo: su posición entra al mapa de flota y al
+  // seguimiento de los envíos aunque nadie comparta la ubicación del celular
+  gpsId?: string | null; gpsEn?: string | null; gpsVelocidad?: number | null;
 };
 type Repartidor = {
   id: string; nombre: string; email: string; dni?: string; telefono?: string; activo: boolean; vehiculos: Vehiculo[];
@@ -39,6 +43,7 @@ export function RepartidoresWorkspace({ inicial }: { inicial: Repartidor[] }) {
   const [nuevo, setNuevo] = useState({ nombre: '', email: '', dni: '', telefono: '', clave: '' });
   const [vehForm, setVehForm] = useState<Record<string, Partial<Vehiculo>>>({});
   const [abierto, setAbierto] = useState<string | null>(null);
+  const [gpsForm, setGpsForm] = useState<Record<string, string>>({});
 
   async function recargar() {
     const r = await fetch('/api/repartidores', { cache: 'no-store' });
@@ -100,6 +105,23 @@ export function RepartidoresWorkspace({ inicial }: { inicial: Repartidor[] }) {
     if (r.ok) { setEstado({ tipo: 'ok', texto: 'Póliza subida' }); await recargar(); }
     else setEstado({ tipo: 'error', texto: d.message ?? 'No se pudo subir la póliza' });
   }
+
+  async function guardarGps(vid: string) {
+    const r = await fetch('/api/repartidores', {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tipo: 'vehiculo', id: vid, gpsId: gpsForm[vid] ?? '' }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { setEstado({ tipo: 'error', texto: d.message ?? 'No se pudo guardar el GPS' }); return; }
+    setGpsForm((f) => { const { [vid]: _, ...resto } = f; return resto; });
+    setEstado({ tipo: 'ok', texto: gpsForm[vid]?.trim() ? 'Equipo GPS guardado' : 'Equipo GPS quitado' });
+    await recargar();
+  }
+
+  const senalGps = (v: Vehiculo) =>
+    !v.gpsId ? undefined
+    : !v.gpsEn ? 'Todavía no llegó ninguna señal'
+    : <span suppressHydrationWarning>Última señal {hace(v.gpsEn)}{v.gpsVelocidad != null ? ` · ${Math.round(v.gpsVelocidad)} km/h` : ''}</span>;
 
   const setVeh = (id: string, campo: string, valor: any) =>
     setVehForm((f) => ({ ...f, [id]: { ...f[id], [campo]: valor } }));
@@ -168,6 +190,14 @@ export function RepartidoresWorkspace({ inicial }: { inicial: Repartidor[] }) {
                       <input type="file" accept="image/*,application/pdf" className="sr-only"
                         onChange={(e) => e.target.files?.[0] && subirPoliza(v.id, e.target.files[0])} />
                     </label>
+                  </div>
+                  <div className="flex flex-wrap items-start gap-2 pt-1">
+                    <Campo etiqueta="Equipo GPS (IMEI)" ayuda={senalGps(v)} className="min-w-0 flex-1 sm:max-w-xs">
+                      <Entrada value={gpsForm[v.id] ?? v.gpsId ?? ''} onChange={(e) => setGpsForm((f) => ({ ...f, [v.id]: e.target.value }))} />
+                    </Campo>
+                    {gpsForm[v.id] !== undefined && gpsForm[v.id].replace(/\s+/g, '') !== (v.gpsId ?? '') && (
+                      <Boton variante="secundario" tamano="chico" className="mt-6" onClick={() => guardarGps(v.id)}>Guardar</Boton>
+                    )}
                   </div>
                 </div>
               ))}

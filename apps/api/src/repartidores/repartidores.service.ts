@@ -24,6 +24,7 @@ export type VehiculoDto = {
   seguroCompania?: string;
   seguroPoliza?: string;
   seguroVencimiento?: string; // YYYY-MM-DD
+  gpsId?: string; // IMEI del equipo GPS (ver gps/)
 };
 
 const TIPOS = ['auto', 'moto', 'camioneta', 'bici'];
@@ -127,9 +128,15 @@ export class RepartidoresService {
     if (dto.seguroCompania !== undefined) cambios.seguro_compania = dto.seguroCompania?.trim() || null;
     if (dto.seguroPoliza !== undefined) cambios.seguro_poliza = dto.seguroPoliza?.trim() || null;
     if (dto.seguroVencimiento !== undefined) cambios.seguro_vencimiento = dto.seguroVencimiento || null;
+    if (dto.gpsId !== undefined) {
+      // el IMEI se copia de la etiqueta del equipo: los espacios no son parte
+      cambios.gps_id = String(dto.gpsId ?? '').replace(/\s+/g, '') || null;
+      // otro equipo (o ninguno): la última posición era del anterior
+      cambios.gps_lat = null; cambios.gps_lng = null; cambios.gps_velocidad = null; cambios.gps_en = null;
+    }
     if (!Object.keys(cambios).length) return { ok: true };
     const { error } = await this.db.from('vehiculos').update(cambios).eq('id', id);
-    if (error) throw new BadRequestException(error.message);
+    if (error) throw new BadRequestException(error.code === '23505' ? 'Ese equipo GPS ya está cargado en otro vehículo' : error.message);
     return { ok: true };
   }
 
@@ -223,6 +230,9 @@ export class RepartidoresService {
       seguroVencimiento: v.seguro_vencimiento,
       seguroArchivoUrl: v.seguro_archivo_url,
       seguroVencido: vencido,
+      gpsId: v.gps_id ?? null,
+      gpsEn: v.gps_en ?? null,
+      gpsVelocidad: v.gps_velocidad != null ? Number(v.gps_velocidad) : null,
     };
   }
 }
