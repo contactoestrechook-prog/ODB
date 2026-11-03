@@ -228,13 +228,13 @@ export function FichaProveedor({ id }: { id: string }) {
             <Campo etiqueta="Nombre de fantasía" ayuda="Como lo conocen en el local." className="sm:col-span-2">
               <Entrada value={form.nombreFantasia} onChange={(e) => set('nombreFantasia', e.target.value)} />
             </Campo>
-            <Campo etiqueta="CUIT" ayuda="Los 11 números. Con el CUIT, «Traer de ARCA» completa razón social, IVA, domicilio y rubro.">
-              <div className="flex gap-2">
+            <Campo etiqueta="CUIT" ayuda="Los 11 números. Con el CUIT, «Traer de ARCA» completa razón social, IVA, domicilio y rubro." className="sm:col-span-2">
+              <div className="flex items-center gap-2 [&>*:first-child]:min-w-0 [&>*:first-child]:flex-1">
                 <Entrada inputMode="numeric" value={form.cuit} onChange={(e) => set('cuit', e.target.value)} />
-                <Boton variante="secundario" tamano="chico" onClick={() => void traerDeArca()} cargando={arca.trabajando} disabled={!String(form.cuit ?? '').replace(/\D/g, '')}>Traer de ARCA</Boton>
+                <Boton variante="secundario" tamano="chico" className="shrink-0 whitespace-nowrap" onClick={() => void traerDeArca()} cargando={arca.trabajando} disabled={!String(form.cuit ?? '').replace(/\D/g, '')}>Traer de ARCA</Boton>
               </div>
             </Campo>
-            <Campo etiqueta="Condición de IVA">
+            <Campo etiqueta="Condición de IVA" className="sm:col-span-2">
               <Selector vacio="Elegí…" opciones={IVA} value={form.condicionIva} onChange={(e) => set('condicionIva', e.target.value)} />
             </Campo>
             {(arca.error || arca.datos || p.arca_consultado_en) && (
