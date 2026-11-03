@@ -18,7 +18,7 @@ const TOPE_CATALOGO = 300;
 import { precioDesdeCosto, margenAplicable } from './precio';
 import { normalizarAlias } from '../listas/listas.service';
 import { invalidarAbastecimiento } from '../abastecimiento/motor';
-import { DIAS_PRECIO_CERO, pendientesPrecioCero, separarValorizaciones, type OcCandidata } from './precio-cero';
+import { DIAS_PRECIO_CERO, esPrecioSimbolico, pendientesPrecioCero, PRECIO_SIMBOLICO, separarValorizaciones, type OcCandidata } from './precio-cero';
 
 export type CrearOcDto = {
   proveedorId: string;
@@ -405,8 +405,12 @@ export class ComprasService {
       if (!Number.isFinite(cantidad) || cantidad <= 0) malos.push(`${cual}: la cantidad tiene que ser un número mayor a cero`);
       else if (i.costo != null && (!Number.isFinite(costo) || costo < 0)) malos.push(`${cual}: el costo no es un número válido`);
       else if (!i.sku) malos.push(`${cual}: falta elegir a qué producto corresponde`);
-      else if (i.valorizaOc && !(costo > 0)) malos.push(`${cual}: para ponerle precio a lo que entró a $0 hace falta el costo`);
+      else if (i.valorizaOc && !(costo >= PRECIO_SIMBOLICO)) malos.push(`${cual}: para ponerle precio a lo que entró sin precio hace falta el costo real`);
     });
+    // PRECIO SIMBÓLICO (3/11/2026): lo que viene a $0,10 entra al stock como
+    // lo que entra a $0 —sin costo, esperando precio— y no remarca nada. Antes
+    // dejaba el producto con costo $0,13 y el precio de venta salía de ahí.
+    dto = { ...dto, items: dto.items.map((i) => (!i.valorizaOc && esPrecioSimbolico(i.costo) ? { ...i, costo: 0 } : i)) };
     (dto.devoluciones ?? []).forEach((d, n) => {
       const cual = d.descripcionLeida?.trim() || d.sku || `devolución ${n + 1}`;
       const cantidad = Number(d.cantidad);

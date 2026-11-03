@@ -49,7 +49,7 @@ const cant = (n: number) => n.toLocaleString('es-AR', { maximumFractionDigits: 3
 /** «Entró a $0 el 03/10 (factura N° 0001-123): solo precio, no suma stock» */
 export function textoPrecioCero(p: PendientePrecioCero): string {
   const papel = p.comprobante.tipo === 'orden' ? `OC #${p.comprobante.numero}` : `${p.comprobante.tipo} N° ${p.comprobante.numero}`;
-  return `Entró a $0 el ${fechaCorta(p.fecha)} (${papel}): solo precio, no suma stock`;
+  return `Entró sin precio el ${fechaCorta(p.fecha)} (${papel}): solo precio, no suma stock`;
 }
 
 /** Si la factura trae otra cantidad (quesos por peso): se valoriza igual y el stock no se toca. */

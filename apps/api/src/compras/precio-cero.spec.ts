@@ -84,6 +84,17 @@ describe('qué entradas a $0 esperan precio', () => {
     })).toHaveLength(1);
   });
 
+  it('a precio simbólico ($0,10 → $0,13 con impuestos) también espera precio, y el papel a $0,10 no es un regalo (3/11/2026)', () => {
+    // La Serenísima, 10/10: tres quesos a $0,13 que hasta hoy no se encontraban
+    const r = pendientesPrecioCero({
+      proveedorId: SERENISIMA, hoy: HOY,
+      ocs: [oc('oc-sim', '2026-10-03T12:00:00Z', [{ ...QUESO, costo_unitario: '0.13' }, { ...LECHE, costo_unitario: 1 }])],
+      facturas: [{ oc_id: 'oc-sim', numero: '0001-7' }],
+      historial: [{ numero: '0001-7', producto_id: 'p-queso', precio: 0.1 }],
+    });
+    expect(r.map((x) => x.sku)).toEqual(['Q1']);
+  });
+
   it('nada recibido no espera precio', () => {
     expect(pendientesPrecioCero({ proveedorId: SERENISIMA, hoy: HOY, ocs: [oc('oc-1', '2026-10-03T12:00:00Z', [{ ...QUESO, cantidad_recibida: 0 }])] })).toHaveLength(0);
   });
@@ -108,7 +119,7 @@ describe('en la pantalla: qué entrada le toca a cada producto de la factura', (
 
   it('el texto del renglón y la diferencia de cantidad', () => {
     const x = p('a', 'Q1', 4.2, '2026-10-03');
-    expect(textoPrecioCero(x)).toBe('Entró a $0 el 03/10 (remito N° R-a): solo precio, no suma stock');
+    expect(textoPrecioCero(x)).toBe('Entró sin precio el 03/10 (remito N° R-a): solo precio, no suma stock');
     expect(diferenciaPrecioCero(x, 4.2)).toBeNull();
     expect(diferenciaPrecioCero(x, 4.35)).toMatch(/Entraron 4,2 y la factura dice 4,35: queda anotado, el stock no se toca/);
   });
@@ -209,10 +220,28 @@ describe('registrar una factura con renglones «solo precio»', () => {
     expect(llamada.args.p_items.map((i: any) => i.producto_id)).toEqual(['p-Q1', 'p-L1']);
   });
 
+  it('un renglón a precio simbólico entra al stock sin costo y no remarca (3/11/2026)', async () => {
+    const { db, ops } = dbFalsa({ tablas: productos, rpc: { recibir_compra_directa: { data: { oc_id: 'oc-new', remito_id: 'rem-new' } } } });
+    await new ComprasService(db).entradaDirecta({ ...base, items: [{ sku: 'Q1', cantidad: 20, costo: 0.13, descripcionLeida: 'QUESO MINIFYNBO' }, { sku: 'L1', cantidad: 24, costo: 950 }] });
+    const llamada = ops.find((o) => o.rpc === 'recibir_compra_directa');
+    expect(llamada.args.p_items).toEqual([
+      { producto_id: 'p-Q1', cantidad: 20, costo_unitario: 0, lote: null, vencimiento: null },
+      { producto_id: 'p-L1', cantidad: 24, costo_unitario: 950, lote: null, vencimiento: null },
+    ]);
+    // el precio de venta del queso no sale de $0,13
+    expect(llamada.args.p_items_precio.map((x: any) => x.sku)).toEqual(['L1']);
+  });
+
+  it('a precio simbólico no se le puede poner precio a otra entrada', async () => {
+    const { db } = dbFalsa({ tablas: productos });
+    await expect(new ComprasService(db).entradaDirecta({ ...base, items: [{ sku: 'Q1', cantidad: 4.2, costo: 0.13, valorizaOc: 'oc-1', descripcionLeida: 'QUESO' }] }))
+      .rejects.toThrow(/QUESO: para ponerle precio a lo que entró sin precio hace falta el costo real/);
+  });
+
   it('sin costo no se puede poner precio', async () => {
     const { db } = dbFalsa({ tablas: productos });
     await expect(new ComprasService(db).entradaDirecta({ ...base, items: [{ sku: 'Q1', cantidad: 4.2, costo: 0, valorizaOc: 'oc-1', descripcionLeida: 'QUESO' }] }))
-      .rejects.toThrow(/QUESO: para ponerle precio a lo que entró a \$0 hace falta el costo/);
+      .rejects.toThrow(/QUESO: para ponerle precio a lo que entró sin precio hace falta el costo real/);
     expect(db.rpc).not.toHaveBeenCalled();
   });
 

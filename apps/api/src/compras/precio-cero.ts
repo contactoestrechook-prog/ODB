@@ -14,6 +14,18 @@
 
 export const DIAS_PRECIO_CERO = 45;
 
+// PRECIO SIMBÓLICO (Leandro, 3/11/2026): «son productos que vienen por peso,
+// ingresan en stock pero no hay precio hasta la próxima factura, que no debería
+// ingresar en stock». Algunos proveedores no los facturan a $0 sino a $0,10 (en
+// el sistema, $0,13 con impuestos): la entrada del 10/10 de La Serenísima. Un
+// costo de menos de $1 por unidad no es un precio: es «sin precio todavía», y
+// se trata igual que $0.
+export const PRECIO_SIMBOLICO = 1;
+export function esPrecioSimbolico(costo: unknown): boolean {
+  const c = Number(costo);
+  return Number.isFinite(c) && c > 0 && c < PRECIO_SIMBOLICO;
+}
+
 /** Una orden (directa o no) con sus renglones, como la trae la consulta. */
 export type OcCandidata = {
   id: string;
@@ -37,7 +49,8 @@ export type PendientePrecioCero = {
 const num = (v: unknown) => (v == null || v === '' || !Number.isFinite(Number(v)) ? 0 : Number(v));
 
 /**
- * Las entradas a $0 de un proveedor que esperan precio: costo 0, algo recibido,
+ * Las entradas a $0 de un proveedor que esperan precio: costo 0 (o simbólico,
+ * de menos de $1), algo recibido,
  * de los últimos `dias`, sin valorizar y que no hayan sido un regalo (si el
  * papel de esa entrada traía precio para el producto, era sin cargo: entró a
  * cero a propósito y la próxima compra suma stock como siempre).
@@ -56,7 +69,8 @@ export function pendientesPrecioCero(d: {
   const desde = d.hoy.getTime() - (d.dias ?? DIAS_PRECIO_CERO) * 86_400_000;
   const yaValorizada = new Set((d.valorizadas ?? []).map((v) => `${v.oc_id}|${v.producto_id}`));
   const conPrecioEnElPapel = new Set(
-    (d.historial ?? []).filter((h) => h.producto_id && h.numero && num(h.precio) > 0).map((h) => `${h.numero}|${h.producto_id}`),
+    // un papel a $0,10 no traía precio: no era un regalo, esperaba precio
+    (d.historial ?? []).filter((h) => h.producto_id && h.numero && num(h.precio) >= PRECIO_SIMBOLICO).map((h) => `${h.numero}|${h.producto_id}`),
   );
   const salida: PendientePrecioCero[] = [];
   for (const oc of d.ocs ?? []) {
@@ -74,7 +88,7 @@ export function pendientesPrecioCero(d: {
         : { tipo: 'orden', numero: String(oc.numero ?? '') };
     const numerosDelPapel = [factura?.numero, ...remitos.map((r) => r.numero)].filter(Boolean) as string[];
     for (const it of oc.items ?? []) {
-      if (num(it.costo_unitario) !== 0 || !(num(it.cantidad_recibida) > 0) || !it.producto?.sku) continue;
+      if (num(it.costo_unitario) >= PRECIO_SIMBOLICO || !(num(it.cantidad_recibida) > 0) || !it.producto?.sku) continue;
       if (yaValorizada.has(`${oc.id}|${it.producto_id}`)) continue;
       if (numerosDelPapel.some((n) => conPrecioEnElPapel.has(`${n}|${it.producto_id}`))) continue;
       salida.push({
