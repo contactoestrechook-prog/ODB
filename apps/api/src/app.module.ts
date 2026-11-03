@@ -34,6 +34,7 @@ import { BuscarModule } from './buscar/buscar.module';
 import { MensajesModule } from './mensajes/mensajes.module';
 import { EventosModule } from './eventos/eventos.module';
 import { FidelizacionModule } from './fidelizacion/fidelizacion.module';
+import { FrioModule } from './frio/frio.module';
 import { ConciliacionModule } from './conciliacion/conciliacion.module';
 import { MercadoPagoModule } from './mercadopago/mercadopago.module';
 import { TarjetasModule } from './tarjetas/tarjetas.module';
@@ -117,6 +118,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     AprobacionesModule,
     ReportesModule,
     AvisosModule,
+    FrioModule,
   ],
 })
 export class AppModule {}

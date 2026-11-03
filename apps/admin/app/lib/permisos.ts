@@ -85,6 +85,7 @@ const RUTAS_POR_ROL: Record<string, string[]> = {
     '/precios',
     '/productos',
     '/repartidor', // «Mis entregas»: los envíos que lleva (ver cajero)
+    '/frio', // temperatura de cámaras y heladeras (3/11/2026)
     '/manual', // el manual lo abre cualquiera
     '/cambiar-clave',
   ],

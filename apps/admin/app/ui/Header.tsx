@@ -19,6 +19,7 @@ export const ICONOS: Record<string, string> = {
   caja: 'M4 8h16v12H4zM4 8l2-4h12l2 4M9 12h6',
   facturacion: 'M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6M9 16h3',
   deposito: 'M3 9l9-6 9 6v11H3zM9 20v-6h6v6',
+  frio: 'M14 14.8V5a2 2 0 10-4 0v9.8a4 4 0 104 0zM12 9v8',
   salida: 'M14 4h6v16h-6M10 8l-4 4 4 4M6 12h9',
   cierres: 'M5 4h14v16H5zM9 8h6M9 12h6M9 16h3',
   productos: 'M8 3h8l1 5H7zM6 8h12v13H6zM10 12h4',
@@ -78,6 +79,7 @@ const GRUPOS: Grupo[] = [
     items: [
       { href: '/deposito', label: 'Depósito', icono: 'deposito' },
       { href: '/recepcion', label: 'Recepción', icono: 'compras' },
+      { href: '/frio', label: 'Frío', icono: 'frio' },
       // Reparto eran cuatro entradas; ahora son secciones de Reparto (Envíos, la
       // hoja de ruta, repartidores, Mis entregas)
       { href: '/reparto', label: 'Reparto', icono: 'reparto' },
@@ -173,6 +175,7 @@ const TITULOS: Record<string, { titulo: string; bajada: string }> = {
   '/tarjetas': { titulo: 'Tarjetas', bajada: 'Cobros con Getnet y Clover: por acreditar, comisiones y cuándo entra cada pago' },
   '/contable': { titulo: 'Contable', bajada: 'El cierre del mes: IVA ventas y compras, percepciones, Ingresos Brutos y los libros en CSV' },
   '/deposito': { titulo: 'Depósito', bajada: 'Pedidos web y PedidosYa: armado, retiro y entrega' },
+  '/frio': { titulo: 'Frío', bajada: 'La temperatura de cada cámara y heladera, minuto a minuto, con los sensores QBIT' },
   '/recepcion': { titulo: 'Recepción', bajada: 'Escaneá lo que baja del camión: el remito se arma con lo que realmente entró' },
   '/repartidor': { titulo: 'Mis entregas', bajada: 'Tus entregas asignadas y compartir tu ubicación en vivo' },
   '/salida': { titulo: 'Control de salida', bajada: 'Validación de códigos de Comprá Fácil' },
