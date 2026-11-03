@@ -392,6 +392,9 @@ export function resolverCantidadYBulto(renglon: {
 //   5. CANTIDAD .......... importe ÷ precio da un ENTERO ≠ cantidad: esa es la
 //                          cantidad real, en la unidad del precio, y consume
 //                          cualquier bulto (la corrección ES la conversión).
+//                          SALVO que un descuento redondo explique la
+//                          diferencia: el descuento es sobre el precio y la
+//                          cantidad impresa no se toca (3/11/2026).
 //   6. PESO implícito .... importe ÷ precio da DECIMAL y el producto puede
 //                          venderse por peso: son kilos.
 //   7. NO CIERRA ......... no se pudo deducir; se propone el precio que daría
@@ -487,6 +490,12 @@ export type RenglonInterpretado = {
   precioPropuesto: number | null;
   /** descuento del renglón deducido del importe (la columna "Dto" no se leyó) */
   bonificacionPct: number | null;
+  /**
+   * La otra lectura que también cierra (3/11/2026): «20 con 10 % de
+   * bonificación» o «18 sin descuento». Gana la bonificación; esta cantidad
+   * queda a la vista para que una persona la elija si era la correcta.
+   */
+  cantidadAlternativa?: number | null;
   /**
    * El importe leído traía el IVA adentro (la lectura tomó la columna "Total c/IVA"):
    * este es el importe NETO que hay que usar. null = el importe leído ya era neto.
@@ -918,18 +927,6 @@ export function interpretarRenglon(l: LecturaRenglon): RenglonInterpretado {
     };
   }
 
-  // 5 — la cantidad real sale del importe; consume el bulto
-  if (entero >= 1 && Math.abs(q - entero) <= TOLERANCIA_ENTERO && entero !== cantidad) {
-    return {
-      ...base,
-      decision: 'cantidad_corregida',
-      cantidad: entero,
-      unidadesPorBulto: null,
-      cantidadOriginal: cantidad,
-      bultoConsumido: bulto,
-    };
-  }
-
   // DESCUENTO DEL RENGLÓN que la lectura no trajo como columna.
   //     Distri Sur (15/9/2026): "Tom.Triturado 18 × $2.345,25 = $40.103,82".
   //     18 × 2.345,25 = 42.214,50 y el importe es EXACTO un 5% menos; igual en
@@ -967,6 +964,33 @@ export function interpretarRenglon(l: LecturaRenglon): RenglonInterpretado {
     }
     return null;
   };
+
+  // 5 — la cantidad real sale del importe; consume el bulto
+  if (entero >= 1 && Math.abs(q - entero) <= TOLERANCIA_ENTERO && entero !== cantidad) {
+    // 5 PREVIO — REGLA FIJA (Leandro, 3/11/2026): «el stock y las unidades
+    //     son una cosa y los descuentos son sobre el precio». La Serenísima
+    //     06376-00001046: la segunda lectura no trajo la columna de bonificación
+    //     y esta regla pasó los quesos rallados de 20 a 18 y la manteca de 40 a
+    //     34; en el papel eran 20 y 40 con 10 % y 15 %. Si un descuento redondo
+    //     explica la diferencia, la cantidad impresa NO se toca: el importe
+    //     baja el precio, no las unidades. La otra lectura queda a la vista por
+    //     si de verdad entraron menos.
+    //     Hasta el 30 %, que es donde viven las bonificaciones (5, 10, 15 %).
+    //     Más que eso es la cantidad de la fila de al lado: Borravino, 24
+    //     Estrella Damm leídas con el importe de 12 (un «50 %» que no existía).
+    if (entero < cantidad) {
+      const d = descuentoDelRenglon();
+      if (d && d.bonificacionPct != null && d.bonificacionPct <= 30) return { ...d, cantidadAlternativa: entero };
+    }
+    return {
+      ...base,
+      decision: 'cantidad_corregida',
+      cantidad: entero,
+      unidadesPorBulto: null,
+      cantidadOriginal: cantidad,
+      bultoConsumido: bulto,
+    };
+  }
 
   // 6 — decimal + producto fraccionable = kilos. PERO una cantidad entera de 2
   //     o más con un descuento redondo exacto es descuento, no peso: la

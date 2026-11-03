@@ -666,6 +666,9 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
           bultoOrigen: i.bultoOrigen ?? null,
           // la del papel, o la que el servidor dedujo del importe (columna "Dto" no leída)
           bonificacionPct: r.bonificacionPct ?? i.bonificacionPct ?? null,
+          // la otra lectura que también cierra: «20 con 10 %» o «18 sin descuento».
+          // Gana el descuento (es sobre el precio); esta queda a la vista (3/11/2026)
+          cantidadAlternativa: Number(r.cantidadAlternativa) > 0 ? Number(r.cantidadAlternativa) : null,
           // si la lectura tomó el importe CON IVA, se usa el neto que dedujo el servidor
           importe: r.importeNeto ?? i.importe ?? null,
           importeConIvaLeido: r.importeNeto != null ? i.importe : null,
@@ -1255,6 +1258,16 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   const cambiarPapel = (idx: number, papel: Papel, entra: EntraComo, campo: string, antes: unknown, despues: unknown) => {
     setFotoItems((xs) => xs.map((x, j) => (j === idx ? { ...aplicarPapel(x, papel, entra), ...(campo === 'iva' ? { alicuotaElegida: null } : {}) } : x)));
     anotar('Vos', [{ renglon: idx + 1, campo, antes, despues }]);
+  };
+  // «llegaron 18 sin descuento» en vez de «20 con 10 %»: lo elige una persona (3/11/2026)
+  const usarCantidadAlternativa = (idx: number) => {
+    const x = fotoItems[idx];
+    const n = numImp(x?.cantidadAlternativa);
+    if (!x || !(n > 0)) return;
+    setFotoItems((xs) => xs.map((y, j) => (j === idx
+      ? { ...y, cantidad: n, bonificacionPct: null, cantidadAlternativa: null, papel: y.papel ? { ...y.papel, bultos: 0, uxb: null, sueltas: n, desc: null } : y.papel }
+      : y)));
+    anotar('Vos', [{ renglon: idx + 1, campo: 'cantidad', antes: numImp(x.cantidad), despues: n, motivo: 'sin descuento: llegaron menos unidades' }]);
   };
   // «lleva internos», marcado a mano en uno o varios renglones (3/11/2026)
   const marcarInternos = (indices: number[], valor: boolean | null) => {
@@ -2575,7 +2588,13 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                             numImp(i.unidadesPorBulto) > 1 && precioYaEsDeLaUnidad(i, Math.round(numImp(i.unidadesPorBulto)))
                               ? <>se paga {pesos(precioEfectivo(i) / Math.round(numImp(i.unidadesPorBulto)))} por unidad de los {pesos(numImp(i.precio))} de lista.</>
                               : <>se paga {pesos(precioEfectivo(i))} de los {pesos(numImp(i.precio))} de lista.</>
-                          }</span>
+                          }
+                          {/* la bonificación se dedujo del importe: entran las unidades del papel,
+                              pero si de verdad llegaron menos, se elige acá (3/11/2026) */}
+                          {numImp(i.cantidadAlternativa) > 0 && (
+                            <> Entran las {numImp(i.cantidad)} del papel. ¿O llegaron {numImp(i.cantidadAlternativa)} sin descuento?
+                              <button onClick={() => usarCantidadAlternativa(idx)} className={unir(ENLACE, 'ml-1 text-tinta/70 hover:text-marca-hondo')}>Usar {numImp(i.cantidadAlternativa)}</button></>
+                          )}</span>
                         ) : null}
                         {(() => {
                           // «×N» sin resolver: la pregunta, la evidencia y las TRES salidas

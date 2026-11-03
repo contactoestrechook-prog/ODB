@@ -595,10 +595,31 @@ describe('interpretarRenglon — descuento del renglón deducido del importe', (
     expect(r.bonificacionPct).toBeNull();
   });
 
-  it('la cantidad mal leída (importe = entero × precio) le gana al descuento', () => {
-    const r = leer({ cantidad: 20, precio: 100, importe: 1900 }); // 19 unidades, no −5%
-    expect(r.decision).toBe('cantidad_corregida');
-    expect(r.cantidad).toBe(19);
+  // REGLA FIJA (Leandro, 3/11/2026): «el stock y las unidades son una cosa y
+  // los descuentos son sobre el precio». Hasta hoy ganaba la cantidad (19).
+  it('un descuento redondo que explica el importe NO cambia la cantidad: baja el precio', () => {
+    const r = leer({ cantidad: 20, precio: 100, importe: 1900 });
+    expect(r.decision).toBe('bonificado');
+    expect(r.cantidad).toBe(20);
+    expect(r.bonificacionPct).toBe(5);
+    expect(r.cantidadAlternativa).toBe(19);
+  });
+
+  it('La Serenísima 06376-00001046, sin la columna de bonificación: 20 quesos rallados y 40 mantecas, no 18 y 34', () => {
+    const rallado = leer({ cantidad: 20, precio: 4082, importe: 73476 });
+    expect(rallado).toMatchObject({ decision: 'bonificado', cantidad: 20, bonificacionPct: 10, cantidadAlternativa: 18 });
+    const manteca = leer({ cantidad: 40, precio: 1640, importe: 55760 });
+    expect(manteca).toMatchObject({ decision: 'bonificado', cantidad: 40, bonificacionPct: 15, cantidadAlternativa: 34 });
+  });
+
+  it('sin un descuento redondo que lo explique, la cantidad mal leída se sigue corrigiendo', () => {
+    // 24 × $1.000 = $24.000 y el importe es $13.000: 13 unidades (un 45,83 % no es redondo)
+    const r = leer({ cantidad: 24, precio: 1000, importe: 13000 });
+    expect(r).toMatchObject({ decision: 'cantidad_corregida', cantidad: 13 });
+    // ni un «50 %», que es la cantidad cruzada con la fila de al lado (Borravino)
+    expect(leer({ cantidad: 24, precio: 4008.26, importe: 48099.12 })).toMatchObject({ decision: 'cantidad_corregida', cantidad: 12 });
+    // y si el importe es MAYOR (no hay descuento posible), también
+    expect(leer({ cantidad: 2, precio: 500, importe: 3000 })).toMatchObject({ decision: 'cantidad_corregida', cantidad: 6 });
   });
 });
 
