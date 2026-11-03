@@ -17,7 +17,7 @@ import { CabeceraFactura, PapelDelRenglon } from './TablaFactura';
 import { conCodigo } from '../lib/codigo-producto';
 import { diferenciaPrecioCero, elegirPendientes, textoPrecioCero, type PendientePrecioCero } from '../lib/precio-cero';
 import { AsistenteFactura, describirCambio, type CambioHecho } from './AsistenteFactura';
-import { aplicarCambiosIA, aplicarPapel, cuentaDelPapel, entraDeRenglon, papelDeLectura, tablaParaIA, type EntraComo, type Papel } from '../lib/tabla-factura';
+import { aplicarCambiosIA, aplicarPapel, cuentaDelPapel, entraDeRenglon, marcarComoDevolucion, papelDeLectura, tablaParaIA, type EntraComo, type Papel } from '../lib/tabla-factura';
 import {
   Aviso, Boton, CLASES_ENTRADA, Cargando, Etiqueta, FOCO, FOCO_ADENTRO, Girador, IconoAtencion, IconoCerrar, IconoError, IconoInfo, IconoOk, Kpi, Modal as Ventana,
   Pestanas, PlacaRoja, TablaResponsiva, Tarjeta, TarjetaCabecera, Vacio, clasesBoton, unir, useConfirmar, type TonoEtiqueta,
@@ -371,7 +371,7 @@ export function ComprasWorkspace({ resumen, ordenes, proveedores, sugerencias, s
         </Tarjeta>
       )}
 
-      {modal && <Modal modal={modal} setModal={setModal} post={post} proveedores={proveedores} sucursales={sucursales} aviso={aviso} categorias={categorias} onLecturasEncoladas={(t: string) => { setAvisoBandeja(t); cargarBandeja(); }} />}
+      {modal && <Modal modal={modal} setModal={setModal} post={post} proveedores={proveedores} sucursales={sucursales} aviso={aviso} categorias={categorias} onLecturasEncoladas={(t: string) => { setAvisoBandeja(t); cargarBandeja(); }} onAvisoTrasRegistrar={setAvisoBandeja} />}
     </div>
   );
 }
@@ -392,7 +392,7 @@ function Sello({ tono = 'neutro', children }: { tono?: 'neutro' | 'ok' | 'ojo' |
   return <Etiqueta tono={t} className="whitespace-nowrap">{children}</Etiqueta>;
 }
 
-function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categorias = [], onLecturasEncoladas }: any) {
+function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categorias = [], onLecturasEncoladas, onAvisoTrasRegistrar }: any) {
   const [f, setF] = useState<any>(modal.prov ?? modal);
   const set = (k: string, v: any) => setF((x: any) => ({ ...x, [k]: v }));
   const [items, setItems] = useState<any[]>([]);
@@ -660,6 +660,8 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
           importe: r.importeNeto ?? i.importe ?? null,
           importeConIvaLeido: r.importeNeto != null ? i.importe : null,
           esDescuento: !!i.esDescuento,
+          // mercadería que vuelve al proveedor: sale del stock (3/11/2026)
+          esDevolucion: !!i.esDevolucion,
           descuentoPct: i.descuentoPct ?? null,
           puedePorPeso: !!i.puedePorPeso,
           // la alícuota impresa, o la que prueba un importe leído con IVA adentro
@@ -669,10 +671,12 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
           alicuotaElegida: null,
           bultoAplicado: null,
           // las sugerencias de IA NO se incluyen hasta que el operador confirme "¿es este?"
-          // y una rebaja no se incluye NUNCA: no es mercadería
+          // y una rebaja no se incluye NUNCA: no es mercadería. En una
+          // devolución, «incluir» quiere decir «restar del stock».
           incluir: !i.esDescuento && !!i.match && !sugerido,
-          // la factura editable: lo que dice el papel, tal cual
-          papel: i.esDescuento || porPeso ? null : papelDeLectura({ ...i, unidadesDelCatalogo: i.unidadesDelCatalogo ?? null }),
+          // la factura editable: lo que dice el papel, tal cual (la devolución
+          // no se cuadra como mercadería que entra)
+          papel: i.esDescuento || i.esDevolucion || porPeso ? null : papelDeLectura({ ...i, unidadesDelCatalogo: i.unidadesDelCatalogo ?? null }),
         };
       }).map((x: any) => (
         // la bonificación que el papel informa pero que ya está en el precio no se
@@ -1054,6 +1058,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
     ...i,
     _descuento: descuentoPorIdx.get(idx) ?? 0,
     _esDescuento: esRenglonDescuento(i),
+    _esDevolucion: !!i.esDevolucion,
   }));
   // OJO: el descuento ya está adentro de precioEfectivo del renglón que rebaja.
   // Sumar además el renglón de descuento lo restaría DOS veces.
@@ -1062,7 +1067,13 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   // con el pie. Antes desaparecía de la suma y la diferencia se repartía sobre
   // los demás productos como si fuera un ajuste (Rueda Que Rueda, 22/10/2026:
   // Melba y Milka no ingresaron y el resto quedó un 8,16% más caro).
-  const netoDelRenglon = (i: any) => numImp(i.cantidad) > 0
+  //
+  // La DEVOLUCIÓN (3/11/2026) resta: el pie ya la descontó, así que entra en la
+  // suma en negativo y el resto de los costos no se infla. Va con su importe
+  // (no con las unidades: cambiar cuántas salen del stock no cambia la plata).
+  const netoDelRenglon = (i: any) => i._esDevolucion
+    ? -(Math.abs(numImp(i.importe)) || Math.abs(numImp(i.cantidad) * numImp(i.precio)))
+    : numImp(i.cantidad) > 0
     ? numImp(i.cantidad) * precioEfectivo(i)
     : Math.max(0, numImp(i.papel?.importe ?? i.importe));
   const sumaRenglones = itemsCalc.reduce(
@@ -1115,7 +1126,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
     : 0;
   const renglonesIva = itemsCalc
     .map((i: any, idx: number) => ({ i, idx }))
-    .filter(({ i }) => !i._esDescuento && netoDelRenglon(i) > 0);
+    .filter(({ i }) => !i._esDescuento && (i._esDevolucion || netoDelRenglon(i) > 0));
   const ivaFactura = discriminaIva
     ? repartirIva(
         renglonesIva.map(({ i }) => ({
@@ -1202,6 +1213,18 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   const cambiarPapel = (idx: number, papel: Papel, entra: EntraComo, campo: string, antes: unknown, despues: unknown) => {
     setFotoItems((xs) => xs.map((x, j) => (j === idx ? { ...aplicarPapel(x, papel, entra), ...(campo === 'iva' ? { alicuotaElegida: null } : {}) } : x)));
     anotar('Vos', [{ renglon: idx + 1, campo, antes, despues }]);
+  };
+  // devolución al proveedor, marcada o desmarcada a mano (3/11/2026)
+  const marcarDevolucion = (idx: number, valor: boolean) => {
+    setFotoItems((xs) => xs.map((x, j) => (j === idx ? marcarComoDevolucion(x, valor) : x)));
+    anotar('Vos', [{ renglon: idx + 1, campo: 'esDevolucion', antes: !valor, despues: valor }]);
+  };
+  const unidadesDevueltas = (idx: number, valor: number) => {
+    if (!(valor > 0)) return;
+    const antes = numImp(fotoItems[idx]?.cantidad);
+    if (antes === valor) return;
+    setFotoItems((xs) => xs.map((x, j) => (j === idx ? { ...x, cantidad: valor } : x)));
+    anotar('Vos', [{ renglon: idx + 1, campo: 'unidadesDevueltas', antes, despues: valor }]);
   };
   const noAplicarDescuento = (idx: number, valor: boolean) => {
     setFotoItems((xs) => xs.map((x, j) => (j === idx ? { ...x, noAplicar: valor } : x)));
@@ -1301,9 +1324,9 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
       bonificacionPct: p?.desc ?? (i.bonificacionPct != null ? numImp(i.bonificacionPct) : null),
       alicuotaIva: p?.iva ?? (i.alicuotaIva != null ? numImp(i.alicuotaIva) : null),
       importe: p?.importe ?? (i.importe != null && i.importe !== '' ? numImp(i.importe) : null),
-      entraComo: soloPrecioDe(i) ? 'solo precio' : i.porPeso ? 'peso' : entra?.como ?? null,
-      cantidadStock: soloPrecioDe(i) ? 0 : numImp(i.cantidad) || null,
-      costoUnitario: !i._esDescuento && i.sku ? costoFinal(i, idx) : null,
+      entraComo: i._esDevolucion ? 'devolución' : soloPrecioDe(i) ? 'solo precio' : i.porPeso ? 'peso' : entra?.como ?? null,
+      cantidadStock: i._esDevolucion ? (i.incluir && i.sku ? -Math.abs(numImp(i.cantidad)) : 0) : soloPrecioDe(i) ? 0 : numImp(i.cantidad) || null,
+      costoUnitario: !i._esDescuento && !i._esDevolucion && i.sku ? costoFinal(i, idx) : null,
       incluido: !!(i.incluir && i.sku),
       esDescuento: !!i._esDescuento,
     };
@@ -1311,6 +1334,10 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   const registrarConConstancia = async (body: any) => {
     const renglones = renglonesParaHistorial();
     const d = await post(body);
+    const sinRestar = (d?.devoluciones?.sinRestar ?? []) as { sku: string; cantidad: number; motivo: string }[];
+    if (sinRestar.length) {
+      onAvisoTrasRegistrar?.(`La entrada quedó registrada, pero estas devoluciones no se pudieron restar del stock: ${sinRestar.map((x) => `${x.sku} × ${x.cantidad} (${x.motivo})`).join(' · ')}. Ajustalas a mano desde Stock.`);
+    }
     if (d && f.proveedorId) {
       fetch('/api/entrada-foto', {
         method: 'POST',
@@ -1337,7 +1364,9 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
 
   // Reconciliación: el costo a stock nunca puede superar el valor de la mercadería
   // con IVA (ni el total). Si lo hace, hay un error y se bloquea Registrar.
-  const inclItems = itemsCalc.filter((i: any) => i.incluir && !i._esDescuento);
+  const inclItems = itemsCalc.filter((i: any) => i.incluir && !i._esDescuento && !i._esDevolucion);
+  // lo que sale del stock: las devoluciones tildadas y con producto (3/11/2026)
+  const devolucionesARestar = itemsCalc.filter((i: any) => i._esDevolucion && i.incluir && i.sku);
   const sumaCostos = inclItems.reduce((s, i) => s + numImp(i.cantidad) * costoFinal(i), 0);
   const baseIncluidos = inclItems.reduce((s, i) => s + numImp(i.cantidad) * precioEfectivo(i), 0) * factorRecon;
   const techoMerc = baseCosto != null ? baseCosto : (totalDoc != null ? totalDoc : Infinity);
@@ -1429,7 +1458,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   // entradas a $0 que esta factura valoriza, una por producto (10/10/2026)
   const asignadosPrecioCero: Record<string, PendientePrecioCero> = soloFactura ? {} : elegirPendientes(itemsFusionados, precioCero);
   const soloPrecioDe = (i: any): PendientePrecioCero | null =>
-    i?.sku && i.incluir && !i._esDescuento && asignadosPrecioCero[i.sku] && soloPrecio[i.sku] !== false ? asignadosPrecioCero[i.sku] : null;
+    i?.sku && i.incluir && !i._esDescuento && !i._esDevolucion && asignadosPrecioCero[i.sku] && soloPrecio[i.sku] !== false ? asignadosPrecioCero[i.sku] : null;
   // el IVA que no cierra con el pie también bloquea: nunca más un promedio
   const lecturaIncompleta = fotoItems.some((i) => (soloFactura || i.incluir) && camposDeLecturaIncompletos(i));
   const costoBloquea = excedeMerc || excedeTotal || ivaBloquea || lecturaIncompleta;
@@ -1699,6 +1728,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
             numeroRemito: foto.comprobante?.numero || f.numeroRemito,
             margenPct: f.margenPct ? Number(f.margenPct) : undefined,
             items: itemsFusionados.map((i) => ({ sku: i.sku, cantidad: Number(i.cantidad), costo: i.costoUnitario, precioLeido: numImp(i.precio), margenPct: i.margenPct === '' ? undefined : Number(i.margenPct), fijarMargen: !!fijarSku[i.sku], descripcionLeida: i.descripcion, valorizaOc: soloPrecioDe(i)?.ocId })),
+            ...(devolucionesARestar.length ? { devoluciones: devolucionesARestar.map((i: any) => ({ sku: i.sku, cantidad: Math.abs(numImp(i.cantidad)), descripcionLeida: i.descripcion })) } : {}),
             // el catálogo aprende el IVA que esta factura PROBÓ (cerró al centavo con el pie)
             ...(ivaFactura?.estado === 'cierra' ? {
               alicuotasVerificadas: renglonesIva
@@ -2098,7 +2128,52 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
               </div>
               {itemsCalc.map((i: any, idx: number) => (
                 <div key={idx} className={'rounded-xl border px-3 py-2.5 ' + (i.sugerido ? 'border-dorado bg-crema-claro' : i.incluir ? 'border-black/[0.06] bg-white' : 'border-transparent bg-crema-claro') + (marcados.includes(idx) ? ' ring-2 ring-info' : '')}>
-                  {i._esDescuento ? (
+                  {i._esDevolucion ? (
+                    // DEVOLUCIÓN al proveedor (3/11/2026): sale del stock y su plata, que
+                    // el pie ya descontó, no se reparte sobre los demás costos
+                    <div className="flex items-start gap-2.5">
+                      <input type="checkbox" checked={!!i.incluir && !!i.sku} disabled={!i.sku || i.sugerido} onChange={(e) => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, incluir: e.target.checked } : x))} aria-label={`Restar del stock ${i.nombre ?? i.descripcion}`} className="mt-1 size-4 shrink-0 accent-marca" />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                          <span className="min-w-0 font-mono text-sm leading-snug text-tinta [overflow-wrap:anywhere]">{i.descripcion}</span>
+                          <span className="font-mono text-xs tabular-nums text-tinta/60">devolución de <b className="text-tinta/70">{pesos(Math.abs(netoDelRenglon(i)))}</b></span>
+                          {!i.sku ? <Sello tono="ojo">falta el producto</Sello>
+                            : i.sugerido ? <Sello tono="oro">¿es este producto?</Sello>
+                            : i.incluir ? <Sello tono="ok">sale del stock</Sello>
+                            : <Sello>no se resta</Sello>}
+                        </div>
+                        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-tinta/70">
+                          {i.sku ? (
+                            <>
+                              <span>Vuelve al proveedor: <b className="text-tinta">{i.nombre ?? i.sku}</b></span>
+                              {i.sugerido ? (
+                                <>
+                                  {i.motivoIa && <span className="text-tinta/60">({String(i.motivoIa).slice(0, 110)})</span>}
+                                  <button onClick={() => confirmarSugerencia(idx)} className={CHIP_ACCION}>Es este</button>
+                                  <button onClick={() => rechazarSugerencia(idx)} className={unir(ENLACE, 'text-tinta/70 hover:text-marca-hondo')}>No es</button>
+                                </>
+                              ) : (
+                                <button onClick={() => setVinculaIdx(vinculaIdx === idx ? null : idx)} className={unir(ENLACE, 'text-tinta/70 hover:text-marca-hondo')}>cambiar</button>
+                              )}
+                              <label className="flex items-center gap-1.5">
+                                <span>salen</span>
+                                <input key={`dev-${idx}-${numImp(i.cantidad)}`} type="number" min="0" step="1" inputMode="decimal" defaultValue={numImp(i.cantidad)}
+                                  onBlur={(e) => unidadesDevueltas(idx, Number(e.target.value))}
+                                  aria-label={`Unidades devueltas de ${i.nombre ?? i.descripcion}`} className={unir(CAMPO_FILA, CAMPO_FILA_COLOR, 'w-16 text-right')} />
+                                <span>unidades</span>
+                              </label>
+                            </>
+                          ) : (
+                            <>
+                              <span>Elegí qué producto vuelve para restarlo del stock.</span>
+                              <button onClick={() => setVinculaIdx(vinculaIdx === idx ? null : idx)} className={CHIP_ACCION}>Vincular producto</button>
+                            </>
+                          )}
+                          <button onClick={() => marcarDevolucion(idx, false)} className={unir(ENLACE, 'ml-auto text-tinta/70 hover:text-marca-hondo')}>No es una devolución</button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : i._esDescuento ? (
                     <div className={'flex items-start gap-2.5' + (i.noAplicar ? ' opacity-60' : '')}>
                       <IconoRebaja className="mt-0.5 size-4 shrink-0 text-tinta/60" />
                       <div className="min-w-0 flex-1">
@@ -2109,6 +2184,8 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                             : sinAtribuir.some((x) => x.descripcion === i.descripcion) ? <Sello tono="ojo">sin destino</Sello>
                             : grupoDeDescuento.has(idx) ? <Sello tono="ok">repartida en {grupoDeDescuento.get(idx)!.n}</Sello>
                             : <Sello tono="ok">aplicada</Sello>}
+                          {/* mercadería que vuelve, leída como rebaja (3/11/2026) */}
+                          <button onClick={() => marcarDevolucion(idx, true)} className={unir(ENLACE, 'ml-auto text-xs text-tinta/70 hover:text-marca-hondo')}>Es una devolución</button>
                         </div>
                         <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-tinta/70">
                           {i.noAplicar ? (

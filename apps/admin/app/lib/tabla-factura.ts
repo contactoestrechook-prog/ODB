@@ -205,6 +205,35 @@ const CAMPO_IA: Record<string, CampoPapel> = {
   descuentoPct: 'desc', alicuotaIva: 'iva', importe: 'importe',
 };
 
+/**
+ * Marca un renglón como DEVOLUCIÓN al proveedor, o lo vuelve a lo que era
+ * (3/11/2026). Una devolución guarda cantidad, precio e importe en positivo: el
+ * signo lo pone la marca. No tiene papel (no se cuadra como mercadería que
+ * entra) y su «incluir» quiere decir «restar del stock». Al desmarcarla vuelve
+ * exactamente a como estaba: si el lector la había tomado como descuento,
+ * vuelve a ser descuento.
+ */
+export function marcarComoDevolucion<T extends Record<string, any>>(fila: T, si: boolean): T {
+  if (!si) {
+    if (!fila.esDevolucion) return fila;
+    const { _antesDeDevolucion: antes, ...resto } = fila as any;
+    return (antes
+      ? { ...resto, ...antes, esDevolucion: false }
+      : { ...resto, esDevolucion: false, incluir: false, papel: papelDeLectura(resto) }) as T;
+  }
+  if (fila.esDevolucion) return fila;
+  const cantidad = Math.abs(num(fila.cantidad) ?? 0) || 1;
+  const precio = Math.abs(num(fila.precio) ?? 0);
+  const importe = Math.abs(num(fila.importe) ?? 0) || (precio ? cantidad * precio : null);
+  return {
+    ...fila,
+    _antesDeDevolucion: { esDescuento: fila.esDescuento, noAplicar: fila.noAplicar, cantidad: fila.cantidad, precio: fila.precio, importe: fila.importe, papel: fila.papel, incluir: fila.incluir },
+    esDevolucion: true, esDescuento: false, noAplicar: false,
+    cantidad, precio, importe, papel: null,
+    incluir: !!fila.sku && !fila.sugerido,
+  };
+}
+
 export type CambioIA = { renglon: number; campo: string; valor: unknown; motivo?: string };
 export type Registro = { renglon: number; campo: string; antes: unknown; despues: unknown; motivo: string };
 
@@ -226,6 +255,30 @@ export function aplicarCambiosIA<T extends Record<string, any>>(
     const fila = nuevos[k];
     if (!fila) { descartados.push(c); continue; }
     const motivo = String(c.motivo ?? '').slice(0, 300);
+    // devolución al proveedor (3/11/2026): se marca o desmarca en cualquier renglón
+    if (c.campo === 'esDevolucion') {
+      const despues = c.valor === true || c.valor === 'true';
+      if (despues !== !!fila.esDevolucion) {
+        registros.push({ renglon: k + 1, campo: 'esDevolucion', antes: !!fila.esDevolucion, despues, motivo });
+        nuevos[k] = marcarComoDevolucion(fila, despues);
+      }
+      continue;
+    }
+    if (fila.esDevolucion) {
+      // en una devolución, «ingresa» es «se resta del stock»
+      if (c.campo === 'ingresa') {
+        const despues = c.valor === true || c.valor === 'true';
+        if (despues && !fila.sku) { descartados.push(c); continue; }
+        registros.push({ renglon: k + 1, campo: 'restaDelStock', antes: fila.incluir === true, despues, motivo });
+        nuevos[k] = { ...fila, incluir: despues };
+        continue;
+      }
+      const n = c.campo === 'unidadesDevueltas' ? num(c.valor) : null;
+      if (n == null || !(n > 0)) { descartados.push(c); continue; }
+      registros.push({ renglon: k + 1, campo: 'unidadesDevueltas', antes: num(fila.cantidad), despues: n, motivo });
+      nuevos[k] = { ...fila, cantidad: n };
+      continue;
+    }
     if (esDescuento(fila)) {
       if (c.campo !== 'noAplicar') { descartados.push(c); continue; }
       const despues = c.valor === true || c.valor === 'true';
@@ -285,6 +338,13 @@ export function tablaParaIA(
   costo?: (idx: number) => { costoFinalConIva: number | null; comoSeCalcula: string | null } | null,
 ) {
   return items.map((fila, k) => {
+    if (fila.esDevolucion) {
+      return {
+        renglon: k + 1, devolucion: true, codigo: fila.codigo ?? null, descripcion: fila.descripcion, producto: fila.nombre ?? null,
+        unidadesQueSalen: num(fila.cantidad), precio: num(fila.precio), importeDevuelto: num(fila.importe),
+        restaDelStock: fila.incluir === true && !!fila.sku,
+      };
+    }
     if (esDescuento(fila)) {
       return { renglon: k + 1, descuento: true, descripcion: fila.descripcion, importe: num(fila.importe), aplicaA: destino(k), noAplicar: !!fila.noAplicar };
     }

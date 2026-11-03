@@ -68,6 +68,10 @@ export type EntradaDirectaDto = {
   // de los renglones cerró al centavo con el del pie, y solo las que salieron de
   // la fila impresa o de una persona. Con eso el catálogo aprende (ver aprenderAlicuotas).
   alicuotasVerificadas?: { sku: string; alicuota: number; origen: 'impresa' | 'elegida' }[];
+  // Lo que la factura DEVUELVE al proveedor (3/11/2026): sale del stock de la
+  // sucursal después de la entrada. Su plata ya está restada en el pie, así que
+  // no toca ningún costo. Ver restarDevoluciones.
+  devoluciones?: { sku: string; cantidad: number; descripcionLeida?: string }[];
   // si la mercadería vino con factura, se registra junto con la entrada,
   // con su desglose fiscal y vinculada a la OC/remito (nada de facturas flotantes)
   factura?: {
@@ -403,6 +407,12 @@ export class ComprasService {
       else if (!i.sku) malos.push(`${cual}: falta elegir a qué producto corresponde`);
       else if (i.valorizaOc && !(costo > 0)) malos.push(`${cual}: para ponerle precio a lo que entró a $0 hace falta el costo`);
     });
+    (dto.devoluciones ?? []).forEach((d, n) => {
+      const cual = d.descripcionLeida?.trim() || d.sku || `devolución ${n + 1}`;
+      const cantidad = Number(d.cantidad);
+      if (!Number.isFinite(cantidad) || cantidad <= 0) malos.push(`${cual}: las unidades devueltas tienen que ser un número mayor a cero`);
+      else if (!d.sku) malos.push(`${cual}: falta elegir qué producto se devuelve`);
+    });
     if (malos.length) {
       throw new BadRequestException(
         malos.length === 1
@@ -545,7 +555,43 @@ export class ComprasService {
         resultado.factura = { numero: f.numero, total: Number(f.total), estado: f.pagada ? 'pagada' : 'pendiente' };
       }
     }
+
+    if (dto.devoluciones?.length) resultado.devoluciones = await this.restarDevoluciones(dto, resultado.oc_id ?? null);
     return resultado;
+  }
+
+  /**
+   * Lo devuelto al proveedor sale del stock (3/11/2026). Va DESPUÉS de la
+   * entrada y renglón por renglón: si a uno le falta stock (el sistema dice 1 y
+   * vuelven 3), la entrada no se pierde por eso. Lo que no se pudo restar vuelve
+   * nombrado para que la persona lo ajuste a mano desde Stock.
+   */
+  async restarDevoluciones(dto: EntradaDirectaDto, ocId: string | null) {
+    const { data: prov } = await this.db.from('proveedores').select('razon_social').eq('id', dto.proveedorId).maybeSingle();
+    const quien = (prov as any)?.razon_social ? ` a ${(prov as any).razon_social}` : '';
+    const dondeDice = dto.factura?.numero ?? dto.numeroRemito;
+    const restadas: { sku: string; cantidad: number }[] = [];
+    const sinRestar: { sku: string; cantidad: number; motivo: string }[] = [];
+    for (const d of fusionarRenglonesPorSku((dto.devoluciones ?? []).map((x) => ({ sku: String(x.sku), cantidad: Number(x.cantidad), costo: 0 })))) {
+      try {
+        const { error } = await this.db.rpc('registrar_movimiento', {
+          p_producto_id: await this.productoIdPorSku(d.sku),
+          p_sucursal_id: dto.sucursalId,
+          p_tipo: 'ajuste',
+          p_cantidad: -Math.abs(Number(d.cantidad)),
+          p_motivo: `Devolución al proveedor${quien}${dondeDice ? ` · comprobante ${dondeDice}` : ''}`,
+          p_referencia_tipo: 'devolucion_proveedor',
+          p_referencia_id: ocId,
+          p_usuario_id: dto.usuarioId ?? null,
+        });
+        if (error) throw new Error(this.traducirError(error.message));
+        restadas.push({ sku: d.sku, cantidad: Number(d.cantidad) });
+      } catch (e: any) {
+        sinRestar.push({ sku: d.sku, cantidad: Number(d.cantidad), motivo: String(e?.message ?? e) });
+      }
+    }
+    if (restadas.length) invalidarAbastecimiento();
+    return { restadas, sinRestar };
   }
 
   // Lo que entró a $0 de este proveedor y espera precio (10/10/2026): la carga

@@ -5,7 +5,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import * as XLSX from 'xlsx';
 import { SUPABASE } from '../supabase.provider';
 import { elegirProveedor } from '../compras/proveedor-match';
-import { bultoDelRenglon, esRenglonDeDescuento, porcentajeDeDescuento, puedeVendersePorPeso, unidadesDeLaPresentacion, variacionPorUnidad, variacionDelRenglon } from '../compras/bultos';
+import { bultoDelRenglon, esRenglonDeDescuento, esRenglonDeDevolucion, porcentajeDeDescuento, puedeVendersePorPeso, unidadesDeLaPresentacion, variacionPorUnidad, variacionDelRenglon } from '../compras/bultos';
 import { esfuerzo, jsonDe, MODELO_PRINCIPAL, RAZONAMIENTO, RAZONAMIENTO_HAIKU } from '../comun/modelos';
 
 // el tope de las lecturas de PDF y Excel con Opus (6/10/2026, revisión): la
@@ -593,6 +593,7 @@ export class ListasService {
           'PASO 1 QUINQUIES — El importe del renglón manda. Copiá SIEMPRE la columna Importe/Subtotal de cada renglón en "importe". Es común que el proveedor mande mercadería sin cargo: el precio unitario aparece lleno (porque es el de lista) pero el importe del renglón es 0,00, a veces con un "-100" en la columna de descuento. Ese renglón ES mercadería y entra al stock; lo que no se paga es su importe. No lo confundas con un renglón de descuento.\n\n' +
           'PASO 1 QUATER — Renglones de descuento. Muchas facturas traen, JUSTO DEBAJO del renglón de mercadería, otro renglón que es una rebaja sobre ese: "Desc. 42.86% - MANOS NEGRAS Malbec CJ x6", con importe NEGATIVO. Marcá esos con esDescuento=true y copiá el importe como viene, en negativo. NO son mercadería y NO entran al stock. Repetí la descripción completa tal cual, incluyendo el nombre del producto que descuentan, porque es lo único que permite saber a qué renglón se aplica. Un renglón de mercadería con precio 0,00 NO es un descuento: es mercadería sin cargo (bonificada).\n\n' +
           'PASO 1 QUATER-BIS — Descuentos de GRUPO. Algunos proveedores (Coca-Cola y otras distribuidoras) ponen un renglón de descuento que NO nombra un producto sino que aplica a TODO un grupo de renglones de arriba a la vez, y trae su porcentaje en el texto: "Px mágico $12.000 MP = 17.2%" (aplica a todos los packs de 600ml y 354ml de arriba), "ZA 1 AQ 1.5L= 24.3% Trasl" (aplica a todas las Aquarius 1.5L de arriba). Igual: esDescuento=true, importe NEGATIVO tal cual, y transcribí la descripción COMPLETA con su porcentaje. Ese renglón va SIEMPRE justo después del grupo al que corresponde; no lo muevas ni lo fusiones con la mercadería.\n\n' +
+          'PASO 1 QUATER-TER — Devoluciones. A veces la factura trae mercadería que VUELVE al proveedor (rota, vencida, rechazada en la entrega, envases): un renglón con el PRODUCTO y su cantidad, pero en negativo, a veces con "DEV.", "DEVOLUCIÓN" o "RECHAZO" en el texto. NO es un descuento: no rebaja a otro renglón, es producto que sale. Marcá esDescuento=false, copiá la cantidad CON SU SIGNO NEGATIVO (ej -2), el precio unitario y el importe tal cual (negativo), y transcribí la descripción completa con la palabra DEV/DEVOLUCIÓN si el papel la tiene. Un descuento dice "Desc.", "Bonif." o trae un %; una devolución nombra el producto y sus unidades.\n\n' +
           'PASO 1 TER — Bonificaciones. Es MUY común que el mismo producto aparezca DOS veces: un renglón con cargo y otro sin cargo (bonificado). Si hay columna BONIF / % BON / DTO, copiá su valor en bonificacionPct del renglón; 100 significa que ese renglón no se paga. El precio de lista suele estar impreso igual en los dos renglones, así que sin la bonificación es imposible distinguirlos: no la omitas.\n\n' +
           'PASO 1 BIS — Bultos. Muchos renglones se facturan POR BULTO (caja, pack, display) y no por unidad suelta. Es la diferencia entre cargar 84 cajones y cargar 2.016 botellas. Si la descripción o alguna columna dice cuántas unidades trae el bulto —"CORONA 355 X 24B" son 24, "PACK X 6" son 6, "CAJA X 12" son 12, "CJ x 6" son 6, "CJx12" son 12, "BOX X 6" son 6— ponelo en unidadesPorBulto de ESE renglón. Si no se puede saber, poné 0 y NO lo adivines: el tamaño del envase (355cc, 750cc, 1,5L) NUNCA es la cantidad de unidades del bulto, y la cantidad del renglón tampoco. unidadesPorBulto es lo que trae la caja, NO la unidad de la cantidad: la cantidad y el precio se copian siempre tal cual están en el papel, y el sistema decide si hay que convertir. Si el papel trae columnas separadas de BULTOS y UNIDADES (ej. "2 bultos, 0 unidades" de una caja de 14), copialas en bultos y unidadesSueltas de ese renglón: es lo que prueba si la cantidad son cajas o unidades.\n\n' +
           'PASO 1 SEXTIES — Productos por PESO. En fiambrería, quesería, carnicería y verdulería a granel el renglón se factura por kilo: la columna CANT dice 1 (una horma, una pieza) pero hay una columna KG / KILOS / PESO con el peso real (ej 5,44) y el precio unitario es el precio POR KILO. Cuando veas esa columna de peso, copiá el peso en "kg" del renglón, dejá el "precio" como el $/kilo y el "importe" como el total del renglón (peso × precio). Si el producto NO se vende por peso, kg va en null.\n\n' +
@@ -769,18 +770,25 @@ export class ListasService {
       // corrección de cantidad, descuento) sale de UNA función con la
       // precedencia explícita, probada con los casos reales: interpretarRenglon.
       // El panel ya no decide nada de esto: dibuja lo que se decidió acá.
+      //
+      // La DEVOLUCIÓN (3/11/2026) se lee como la mercadería que es, en positivo:
+      // así el bulto y la cantidad se entienden igual que en cualquier renglón.
+      // Lo que la hace devolución es la marca: el panel la resta del stock y su
+      // plata —que el pie ya descontó— no se reparte sobre los demás costos.
+      const esDevolucion = esRenglonDeDevolucion({ descripcion: i.descripcion, cantidad: numeroLeido(i.cantidad), precio: numeroLeido(i.precio), importe: numeroLeido(i.importe) });
+      const positivo = (n: number | null) => (esDevolucion && n != null ? Math.abs(n) : n);
       const lectura = {
         descripcion: String(i.descripcion ?? ''),
-        cantidad: numeroLeido(i.cantidad),
-        precio: numeroLeido(i.precio),
-        importe: numeroLeido(i.importe),
+        cantidad: positivo(numeroLeido(i.cantidad)),
+        precio: positivo(numeroLeido(i.precio)),
+        importe: positivo(numeroLeido(i.importe)),
         unidadesPorBulto: bulto.unidadesPorBulto,
         bultoOrigen: bulto.origen,
         // las columnas BULTOS / UNIDADES del papel, si las tiene
         bultos: numeroLeido(i.bultos),
         unidadesSueltas: numeroLeido(i.unidadesSueltas),
         bonificacionPct: Math.abs(Number(i.bonificacionPct)) > 0 ? Math.min(100, Math.abs(Number(i.bonificacionPct))) : null,
-        esDescuento: esRenglonDeDescuento({ descripcion: i.descripcion, precio: Number(i.precio) || 0 }) || !!i.esDescuento,
+        esDescuento: !esDevolucion && (esRenglonDeDescuento({ descripcion: i.descripcion, precio: Number(i.precio) || 0 }) || !!i.esDescuento),
         // OJO: la columna KG estaba en el esquema pero este mapeo no la
         // reenviaba — el renglón por peso con columna nunca llegaba al panel
         kg: Number(i.kg) > 0 ? Number(i.kg) : null,
@@ -789,6 +797,7 @@ export class ListasService {
       return {
         codigo: i.codigo ?? null,
         ...lectura,
+        esDevolucion,
         alicuotaIva: Number(i.alicuotaIva) > 0 ? Number(i.alicuotaIva) : null,
         descuentoPct: porcentajeDeDescuento(String(i.descripcion ?? '')),
         interpretado: interpretarLecturaSegura(lectura),

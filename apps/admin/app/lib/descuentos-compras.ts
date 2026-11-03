@@ -27,6 +27,8 @@ export type RenglonConDescuento = {
   precio?: unknown;
   importe?: unknown;
   esDescuento?: boolean;
+  /** mercadería que vuelve al proveedor: no es destino de ninguna rebaja (3/11/2026) */
+  esDevolucion?: boolean;
   descuentoPct?: unknown;
   /** el operador decidió no aplicar esta rebaja */
   noAplicar?: boolean;
@@ -49,7 +51,9 @@ const num = (v: unknown) => {
   return Number.isFinite(n) ? n : 0;
 };
 
-export const esRenglonDescuento = (i: RenglonConDescuento) => !!i.esDescuento || num(i.precio) < 0;
+export const esRenglonDescuento = (i: RenglonConDescuento) => !i.esDevolucion && (!!i.esDescuento || num(i.precio) < 0);
+/** Lo que una rebaja puede rebajar: ni otra rebaja ni una devolución. */
+const noEsMercaderia = (i: RenglonConDescuento) => esRenglonDescuento(i) || !!i.esDevolucion;
 
 export const soloTexto = (t: unknown) =>
   String(t ?? '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
@@ -98,7 +102,7 @@ export function atribuirDescuentos(items: RenglonConDescuento[]): Atribucion {
 
     // 1) NOMBRA un renglón puntual (dentro de la ventana) y cierra con él
     for (let k = j - 1; k >= ventanaInicio; k--) {
-      if (esRenglonDescuento(items[k])) continue;
+      if (noEsMercaderia(items[k])) continue;
       const linea = importeDelRenglon(items[k]);
       const cierra = linea > 0 && (pct != null ? Math.abs((abs / linea) * 100 - pct) <= 1.5 : abs <= linea + tolerancia(linea));
       if (cierra && nombraAlRenglon(d.descripcion, items[k].descripcion)) return asignar(k, 'nombre');
@@ -107,7 +111,7 @@ export function atribuirDescuentos(items: RenglonConDescuento[]): Atribucion {
     // 2) REGALO: es exactamente el renglón de mercadería de arriba
     let arriba = -1;
     for (let k = j - 1; k >= ventanaInicio; k--) {
-      if (!esRenglonDescuento(items[k])) { arriba = k; break; }
+      if (!noEsMercaderia(items[k])) { arriba = k; break; }
     }
     if (arriba >= 0) {
       const linea = importeDelRenglon(items[arriba]);
@@ -119,7 +123,7 @@ export function atribuirDescuentos(items: RenglonConDescuento[]): Atribucion {
     const grupo: number[] = [];
     let sumaG = 0;
     for (let k = ventanaInicio; k < j; k++) {
-      if (esRenglonDescuento(items[k])) continue;
+      if (noEsMercaderia(items[k])) continue;
       const b = importeDelRenglon(items[k]);
       if (b > 0) { grupo.push(k); sumaG += b; }
     }

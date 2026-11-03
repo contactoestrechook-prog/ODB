@@ -142,11 +142,35 @@ function detectarBulto(descripcion: string): { n: number; conPalabra: boolean } 
  * es el signo: un importe negativo nunca es mercadería que entra. El texto se
  * usa solo como refuerzo para los casos raros en que el papel imprime el
  * descuento en positivo.
+ *
+ * Salvo que sea una DEVOLUCIÓN (3/11/2026): mercadería que vuelve al proveedor
+ * también viene en negativo, pero no rebaja a ningún renglón: sale del stock.
  */
-export function esRenglonDeDescuento(renglon: { descripcion?: string; precio?: number }): boolean {
+export function esRenglonDeDescuento(renglon: { descripcion?: string; precio?: number; cantidad?: number | null; importe?: number | null }): boolean {
+  if (esRenglonDeDevolucion(renglon)) return false;
   if (Number(renglon?.precio) < 0) return true;
   const t = normalizar(renglon?.descripcion ?? '');
   return /^(desc|dto|descuento|bonif|bonificacion|rebaja|nota de credito)\b/.test(t);
+}
+
+/**
+ * ¿El renglón es mercadería que se DEVUELVE al proveedor? (Leandro, 3/11/2026:
+ * «no estamos logrando leer los ítems de devoluciones»). Hasta hoy todo renglón
+ * en negativo era un descuento: la devolución se aplicaba como rebaja al renglón
+ * de arriba —le bajaba el costo a otro producto— y lo devuelto nunca salía del
+ * stock.
+ *
+ * Es devolución un renglón en negativo que no es una rebaja (no empieza con
+ * «Desc.», «Bonif.»… ni trae un %) y que, o tiene la CANTIDAD en negativo (son
+ * unidades que vuelven), o lo dice el texto: «DEV.», «Devolución», «Rechazo».
+ */
+export function esRenglonDeDevolucion(renglon: { descripcion?: string; precio?: number | null; cantidad?: number | null; importe?: number | null }): boolean {
+  const original = String(renglon?.descripcion ?? '');
+  const t = normalizar(original);
+  if (/%/.test(original) || /^(desc|dto|descuento|bonif|bonificacion|rebaja)\b/.test(t)) return false;
+  const negativo = [renglon?.cantidad, renglon?.precio, renglon?.importe].some((n) => n != null && Number(n) < 0);
+  if (!negativo) return false;
+  return Number(renglon?.cantidad) < 0 || /\b(dev|devol|devolucion|devoluciones|devuelto|devuelta|rechazo|rechazado|rechazada)\b/.test(t);
 }
 
 export type RenglonEntrada = { sku: string; cantidad: number; costo: number; [k: string]: any };
