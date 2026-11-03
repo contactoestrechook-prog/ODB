@@ -40,6 +40,13 @@ export function normalizarAlias(s: string): string {
     .toLowerCase();
 }
 
+// Las palabras que sirven para comparar un renglón con un producto: sin números,
+// sin medidas y sin las que aparecen en cualquier renglón («caja», «con»).
+const PALABRAS_VACIAS = new Set(['con', 'sin', 'del', 'los', 'las', 'para', 'caja', 'cajas', 'unidad', 'unidades', 'paquete', 'pack', 'botella', 'grs', 'kgs', 'lts', 'xun', 'und']);
+export function palabrasDe(s: string): Set<string> {
+  return new Set(normalizarAlias(s).split(' ').filter((w) => w.length >= 3 && !/\d/.test(w) && !PALABRAS_VACIAS.has(w)));
+}
+
 export type ItemPropuesta = ItemExtraido & { match: Match };
 export type ItemPedidoPropuesta = ItemPedidoExtraido & { match: Match };
 
@@ -797,7 +804,10 @@ export class ListasService {
     const tMatch = Date.now();
     const sinMatch = propuesta.filter((i) => !i.match);
     if (sinMatch.length) {
-      const sugeridos = await this.sugerirMatchConIA(sinMatch.map((i) => ({ descripcion: i.descripcion, precio: i.precio })));
+      const sugeridos = await this.sugerirMatchConIA(
+        sinMatch.map((i) => ({ descripcion: i.descripcion, precio: i.precio, codigo: i.codigo, unidadesPorBulto: (i as any).unidadesPorBulto ?? null })),
+        proveedor ? { id: proveedor.id, nombre: proveedor.razon_social ?? '' } : null,
+      );
       for (const i of propuesta) {
         if (i.match) continue;
         const s = sugeridos.get(i.descripcion);
@@ -1271,54 +1281,121 @@ export class ListasService {
   // sobre una lista de candidatos del catálogo (traídos por similitud de texto) y
   // sugiere el más probable, para que el operador confirme ("¿es este?"). Devuelve
   // un mapa descripción→sugerencia. Best-effort: si algo falla, no sugiere nada.
+  //
+  // RAZONAMIENTO ALTO (Leandro, 3/11/2026: «vincular los productos con las
+  // facturas estamos mal, necesito elevar el razonamiento»). Iba en Sonnet 5.5,
+  // esfuerzo low y a ciegas: solo veía el texto del renglón y 12 nombres
+  // parecidos, sin precio, sin proveedor y sin saber qué le compramos siempre a
+  // ese proveedor. Si el producto correcto no salía entre los 12 por similitud
+  // de texto («MALB CJ X6» contra «Vino Malbec 750 ml»), no había razonamiento
+  // que lo encontrara. Ahora: Opus 5.5 en high, con el precio del papel, el
+  // costo de cada candidato y los productos que ya le compramos a ese proveedor.
   private async sugerirMatchConIA(
-    descripciones: { descripcion: string; precio: number | null }[],
+    descripciones: { descripcion: string; precio: number | null; codigo?: string | null; unidadesPorBulto?: number | null }[],
+    proveedor: { id: string; nombre: string } | null = null,
   ): Promise<Map<string, { sku: string; nombre: string; costo: number | null; motivo: string }>> {
     const salida = new Map<string, { sku: string; nombre: string; costo: number | null; motivo: string }>();
     if (!descripciones.length || !process.env.ANTHROPIC_API_KEY) return salida;
     try {
       // renglones con el mismo texto piden lo mismo: deduplicamos para no gastar
       // llamadas al RPC/IA de más (el mapa de salida se llavea por descripción).
-      const unicas = [...new Set(descripciones.map((d) => d.descripcion))];
-      // candidatos por renglón (trigram, hasta 12 cada uno)
+      const porDescripcion = new Map<string, (typeof descripciones)[number]>();
+      for (const d of descripciones) if (!porDescripcion.has(d.descripcion)) porDescripcion.set(d.descripcion, d);
+      const unicas = [...porDescripcion.keys()];
+
+      // lo que ya le compramos a este proveedor: el candidato más probable casi
+      // siempre está acá aunque el texto del renglón no se parezca al del catálogo
+      const delProveedor: { sku: string; nombre: string; costo: number | null; ultimoCosto: number | null; comoLoEscribe: string | null; palabras: Set<string> }[] = [];
+      if (proveedor?.id) {
+        const { data } = await this.db
+          .from('proveedor_productos')
+          .select('alias_descripcion, ultimo_costo, producto:productos(sku, nombre, costo)')
+          .eq('proveedor_id', proveedor.id);
+        for (const r of (data ?? []) as any[]) {
+          if (!r?.producto?.sku) continue;
+          delProveedor.push({
+            sku: r.producto.sku,
+            nombre: r.producto.nombre,
+            costo: r.producto.costo != null ? Number(r.producto.costo) : null,
+            ultimoCosto: r.ultimo_costo != null ? Number(r.ultimo_costo) : null,
+            comoLoEscribe: r.alias_descripcion ?? null,
+            palabras: palabrasDe(`${r.producto.nombre} ${r.alias_descripcion ?? ''}`),
+          });
+        }
+      }
+
+      // candidatos por renglón: 20 por similitud de texto + hasta 8 de los que ya
+      // le compramos a este proveedor que comparten la marca o dos palabras
       const conCandidatos = await Promise.all(
         unicas.map(async (descripcion) => {
-          const { data } = await this.db.rpc('buscar_productos_similares', { p_texto: descripcion, p_limite: 12 });
-          return { descripcion, candidatos: (data ?? []) as any[] };
+          const { data } = await this.db.rpc('buscar_productos_similares', { p_texto: descripcion, p_limite: 20 });
+          const candidatos = new Map<string, any>();
+          const palabras = [...palabrasDe(descripcion)];
+          const deEste = delProveedor
+            .map((p) => {
+              const comunes = palabras.filter((w) => p.palabras.has(w)).length;
+              const marca = palabras.length > 0 && p.palabras.has(palabras[0]);
+              return { p, puntaje: comunes + (marca ? 1 : 0), marca, comunes };
+            })
+            .filter((x) => x.comunes >= 2 || x.marca)
+            .sort((a, b) => b.puntaje - a.puntaje)
+            .slice(0, 8);
+          for (const { p } of deEste) {
+            candidatos.set(p.sku, { sku: p.sku, nombre: p.nombre, costo: p.costo, yaSeLoCompramos: true, ultimoCostoConEste: p.ultimoCosto, comoLoEscribe: p.comoLoEscribe });
+          }
+          for (const p of (data ?? []) as any[]) {
+            if (!candidatos.has(p.sku)) candidatos.set(p.sku, { sku: p.sku, nombre: p.nombre, costo: p.costo != null ? Number(p.costo) : null, yaSeLoCompramos: false });
+          }
+          return { descripcion, candidatos: [...candidatos.values()] };
         }),
       );
       const utiles = conCandidatos.filter((c) => c.candidatos.length > 0);
       if (!utiles.length) return salida;
 
-      const payload = utiles.map((c, i) => ({
-        indice: i,
-        renglon: c.descripcion,
-        candidatos: c.candidatos.map((p) => ({ sku: p.sku, nombre: p.nombre })),
-      }));
+      const payload = utiles.map((c, i) => {
+        const d = porDescripcion.get(c.descripcion);
+        return {
+          indice: i,
+          renglon: c.descripcion,
+          codigoDelProveedor: d?.codigo ?? null,
+          precioEnElPapel: d?.precio ?? null,
+          unidadesPorBulto: d?.unidadesPorBulto ?? null,
+          candidatos: c.candidatos,
+        };
+      });
 
       const claude = new Anthropic();
       const respuesta = await claude.messages
         .stream({
-          model: 'claude-sonnet-5-5', // el mismo que lee la factura (7/10/2026)
-          max_tokens: 32000, // comprobante largo con muchos renglones sin match: que no se trunque el JSON
-          // Elegir el candidato correcto de una lista corta no necesita
-          // razonamiento profundo, y la sugerencia SIEMPRE pasa por el "¿es
-          // este?" del operador antes de vincularse. Estaba en 'high' y eran
-          // 16-19 segundos por factura; regulable aparte de la lectura.
+          model: MODELO_PRINCIPAL,
+          // el razonamiento sale de este mismo tope: con 32k y high, una factura
+          // de 40 renglones sin vincular podía cortarse antes del JSON
+          max_tokens: 64000,
+          thinking: RAZONAMIENTO,
+          // high por defecto (3/11/2026). La sugerencia sigue pasando por el
+          // «¿es este?» del operador, pero un vínculo mal sugerido que se
+          // confirma de apuro carga stock y costo en otro producto. No lee
+          // ODB_ESFUERZO: un «bajale a todo» no puede volver a dejarlo a ciegas.
           output_config: {
             format: { type: 'json_schema', schema: ESQUEMA_SUGERENCIAS as any },
-            effort: (process.env.ODB_ESFUERZO_MATCHING ?? 'low') as any,
+            effort: esfuerzo('ODB_ESFUERZO_MATCHING', 'high', { general: false }),
           },
           messages: [{ role: 'user', content: [{ type: 'text', text:
-            'Sos el encargado de compras de un almacén argentino. Para cada renglón de una factura de proveedor te doy una lista de productos CANDIDATOS del catálogo. ' +
-            'Elegí el sku del candidato que sea EXACTAMENTE el mismo producto del renglón (misma marca, variedad y tamaño/gramaje). ' +
-            'Si ninguno es claramente el mismo, devolvé sku null: es peor vincular mal que dejarlo sin vincular, no fuerces. ' +
-            'En "motivo" explicá en pocas palabras por qué, para que la persona lo confirme.\n\nRenglones y candidatos:\n' +
+            'Sos el encargado de compras de un almacén argentino (O.D.B). ' +
+            (proveedor?.nombre ? `La factura es del proveedor «${proveedor.nombre}». ` : '') +
+            'Para cada renglón de la factura te doy una lista de productos CANDIDATOS del catálogo. ' +
+            'Elegí el sku del candidato que sea EXACTAMENTE el mismo producto del renglón: misma marca, misma variedad y mismo tamaño/gramaje/volumen.\n\n' +
+            'CÓMO RAZONARLO:\n' +
+            '1. Los proveedores abrevian y escriben a su manera: «MALB» es Malbec, «CJ X6» es caja de 6, «GRS»/«GR» gramos, «CC» mililitros, «LT» litros, «S/TACC» sin TACC, «PAQ» paquete, «DDL» dulce de leche. Desarmá el renglón en marca, producto, variedad y medida antes de comparar.\n' +
+            '2. La medida tiene que coincidir: 500 g no es 1 kg, 750 ml no es 1,5 l. Una caja de 6 del mismo vino SÍ es el mismo producto: la caja es cómo viene, no otro producto.\n' +
+            '3. «yaSeLoCompramos» = true quiere decir que ese producto ya se le compró a este mismo proveedor, y «comoLoEscribe» es cómo lo escribió en otra factura. Con dos candidatos parecidos, ese es el más probable, pero solo si marca, variedad y medida coinciden.\n' +
+            '4. El precio es una pista, no una prueba: «precioEnElPapel» puede ser por unidad o por bulto (mirá «unidadesPorBulto») y «costo» es el costo por unidad del catálogo. Si el precio del papel, llevado a la unidad, da 5 veces más o 5 veces menos que el costo del candidato, casi seguro es otra presentación u otro producto.\n' +
+            '5. Si ninguno es claramente el mismo, devolvé sku null: es peor vincular mal que dejarlo sin vincular, no fuerces. Entre dos variedades (Malbec y Cabernet, light y común) que el renglón no aclara, también null.\n\n' +
+            'En «motivo» explicá en pocas palabras por qué es ese (o por qué ninguno), para que la persona lo confirme.\n\nRenglones y candidatos:\n' +
             JSON.stringify(payload) }] }],
-        })
+        } as any)
         .finalMessage();
-      const bloque = respuesta.content.find((b) => b.type === 'text');
-      const elecciones = JSON.parse(bloque && 'text' in bloque ? bloque.text : '{"elecciones":[]}').elecciones ?? [];
+      const elecciones = jsonDe<{ elecciones?: any[] }>(respuesta as any, 'La sugerencia de vínculos').elecciones ?? [];
 
       for (const e of elecciones) {
         const grupo = utiles[e?.indice];
@@ -1327,8 +1404,11 @@ export class ListasService {
           if (cand) salida.set(grupo.descripcion, { sku: cand.sku, nombre: cand.nombre, costo: cand.costo != null ? Number(cand.costo) : null, motivo: e.motivo ?? '' });
         }
       }
-    } catch {
-      /* best-effort: sin sugerencias de IA, el operador vincula a mano */
+    } catch (err: any) {
+      // best-effort: sin sugerencias de IA, el operador vincula a mano. Pero el
+      // motivo queda en el log: antes se tragaba y «no sugiere nada» no tenía
+      // con qué diagnosticarse
+      this.log.warn(`sugerencia de vínculos sin resultado: ${err?.message ?? err}`);
     }
     return salida;
   }

@@ -37,6 +37,9 @@ export const MODELO_BOT = process.env.ODB_BOT_MODELO ?? 'claude-opus-5-5';
 //   ABASTECIMIENTO_ESFUERZO                                      medium por defecto
 //   ASISTENTE_ESFUERZO                    low por defecto (la tienda contesta en 50 s)
 //   MESA_CIERRE_ESFUERZO                  low por defecto (el cierre tiene 55 s)
+//   ODB_ESFUERZO_MATCHING (el vínculo de los renglones de una factura con el
+//   catálogo), FACTURA_CHAT_ESFUERZO      high por defecto (3/11/2026); no leen
+//                                         ODB_ESFUERZO
 // Y tres del bot para gastar menos en caché, APAGADAS hasta probarlas con el
 // banco (ver bot.service.ts):
 //   ODB_BOT_CACHE_PREFIJO=1h | mantener   el prompt fijo no se enfría entre charlas

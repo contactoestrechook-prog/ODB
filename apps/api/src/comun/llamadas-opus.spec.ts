@@ -197,6 +197,53 @@ describe('listas: lectura de PDF y Excel', () => {
   });
 });
 
+describe('factura: el vínculo de los renglones con el catálogo', () => {
+  // la base simulada: lo que ya le compramos al proveedor y lo parecido por texto
+  const base = (delProveedor: any[], similares: any[]) => ({
+    from: () => ({ select: () => ({ eq: async () => ({ data: delProveedor }) }) }),
+    rpc: async () => ({ data: similares }),
+  });
+
+  it('Opus 5.5 en high (iba en Sonnet 5.5 low), con proveedor, precio, costo y lo que ya le compramos', async () => {
+    const s: any = new ListasService(base(
+      [{ alias_descripcion: 'MANOS NEGRAS MALB CJ X6', ultimo_costo: 9000, producto: { sku: 'V1', nombre: 'Vino Manos Negras Malbec 750 ml', costo: 9100 } },
+       { alias_descripcion: 'ARROZ GALLO 1KG', ultimo_costo: 1500, producto: { sku: 'A1', nombre: 'Arroz Gallo 1 kg', costo: 1500 } }],
+      [{ sku: 'V2', nombre: 'Vino Manos Negras Cabernet 750 ml', costo: 9300 }],
+    ) as any);
+    mockCola.push(conTexto(JSON.stringify({ elecciones: [{ indice: 0, sku: 'V1', motivo: 'mismo vino, misma medida' }] })));
+    const r = await s.sugerirMatchConIA([{ descripcion: 'MANOS NEGRAS MALB 750', precio: 9200, codigo: 'MN1', unidadesPorBulto: 6 }], { id: 'p1', nombre: 'Distri Sur' });
+    opus55(mockPedidos[0], 64000);
+    expect(mockPedidos[0].output_config.effort).toBe('high');
+    const texto = mockPedidos[0].messages[0].content[0].text;
+    expect(texto).toContain('«Distri Sur»');
+    expect(texto).toContain('"precioEnElPapel":9200');
+    expect(texto).toContain('"yaSeLoCompramos":true');
+    // el arroz no comparte marca ni palabras con el renglón: no entra
+    expect(texto).not.toContain('Arroz Gallo');
+    expect(r.get('MANOS NEGRAS MALB 750')).toEqual({ sku: 'V1', nombre: 'Vino Manos Negras Malbec 750 ml', costo: 9100, motivo: 'mismo vino, misma medida' });
+  });
+
+  it('un «bajale a todo» con ODB_ESFUERZO no lo deja a ciegas; un sku que no estaba entre los candidatos no se vincula', async () => {
+    const antes = process.env.ODB_ESFUERZO;
+    process.env.ODB_ESFUERZO = 'low';
+    const s: any = new ListasService(base([], [{ sku: 'V2', nombre: 'Vino Manos Negras Cabernet 750 ml', costo: 9300 }]) as any);
+    mockCola.push(conTexto(JSON.stringify({ elecciones: [{ indice: 0, sku: 'INVENTADO', motivo: 'x' }] })));
+    const r = await s.sugerirMatchConIA([{ descripcion: 'MANOS NEGRAS MALB 750', precio: 9200 }]);
+    if (antes === undefined) delete process.env.ODB_ESFUERZO; else process.env.ODB_ESFUERZO = antes;
+    expect(mockPedidos[0].output_config.effort).toBe('high');
+    expect(r.size).toBe(0);
+  });
+
+  it('un corte por el tope no rompe la carga: sin sugerencias, y el motivo queda en el log', async () => {
+    const s: any = new ListasService(base([], [{ sku: 'V2', nombre: 'Vino', costo: 1 }]) as any);
+    const log = jest.spyOn(s.log, 'warn').mockImplementation(() => undefined);
+    mockCola.push(cortada);
+    const r = await s.sugerirMatchConIA([{ descripcion: 'VINO', precio: 1 }]);
+    expect(r.size).toBe(0);
+    expect(log).toHaveBeenCalledWith(expect.stringMatching(/se cortó/));
+  });
+});
+
 describe('mesa de compras', () => {
   it('el cierre por tiempo lleva las MISMAS herramientas con tool_choice none y razonamiento (iba sin ninguna de las dos cosas), a esfuerzo low', async () => {
     const s: any = new MesaComprasService({} as any);

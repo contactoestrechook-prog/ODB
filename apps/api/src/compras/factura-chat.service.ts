@@ -2,6 +2,7 @@ import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common'
 import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
 import { SUPABASE } from '../supabase.provider';
+import { esfuerzo, MODELO_PRINCIPAL, RAZONAMIENTO } from '../comun/modelos';
 
 // ============================================================
 // EL CHAT DE LA FACTURA (8/10/2026). Pedido de Leandro: «las dudas que tenga
@@ -233,11 +234,17 @@ export class FacturaChatService {
     const pedir = async (msgs: Anthropic.MessageParam[]) => {
       const r: any = await claude.messages
         .stream({
-          model: 'claude-sonnet-5-5',
+          // Opus 5.5 en high desde el 3/11/2026 (Leandro: «el chat no tiene una
+          // lógica suficiente»). Iba en Sonnet 5.5 medium, que contestaba en 5–9 s
+          // pero se perdía en las cuentas de bultos, bonificaciones y descuentos
+          // repartidos. Esperar unos segundos más es más barato que una factura
+          // mal cargada. Se regula con FACTURA_CHAT_ESFUERZO; no lee ODB_ESFUERZO.
+          model: MODELO_PRINCIPAL,
           system: [{ type: 'text', text: INSTRUCCIONES, cache_control: { type: 'ephemeral' } }],
-          max_tokens: 16000,
-          thinking: { type: 'adaptive' },
-          output_config: { format: { type: 'json_schema', schema: ESQUEMA_CHAT as any }, effort: 'medium' as any },
+          // el razonamiento sale de este mismo tope: con 16k y high se cortaba
+          max_tokens: 32000,
+          thinking: RAZONAMIENTO,
+          output_config: { format: { type: 'json_schema', schema: ESQUEMA_CHAT as any }, effort: esfuerzo('FACTURA_CHAT_ESFUERZO', 'high', { general: false }) },
           messages: msgs,
         } as any)
         .finalMessage();
