@@ -1739,18 +1739,31 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   const provList = [...proveedores, ...extraProv];
   async function crearProveedorDetectado() {
     const det = foto?.proveedor?.detectado;
-    if (!det?.nombre || creandoProv) return;
+    if (!det?.nombre) return;
+    await crearProveedorYAsignar(det.nombre, det.cuit);
+  }
+  // «+ Proveedor nuevo» (3/11/2026): siempre a mano, no solo cuando la IA leyó
+  // un nombre que no está. Si el sistema lo confundió con otro proveedor, o no
+  // leyó el nombre, igual se da de alta y queda asignado a esta factura.
+  const [altaProv, setAltaProv] = useState<{ razonSocial: string; cuit: string } | null>(null);
+  const abrirAltaProveedor = () => {
+    setProvAviso('');
+    setAltaProv({ razonSocial: String(foto?.proveedor?.detectado?.nombre ?? ''), cuit: String(foto?.proveedor?.detectado?.cuit ?? '').replace(/\D/g, '') });
+  };
+  async function crearProveedorYAsignar(razonSocial: string, cuit?: string | null) {
+    if (!razonSocial.trim() || creandoProv) return;
     setCreandoProv(true);
     setProvAviso('');
     try {
       const r = await fetch('/api/compras', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accion: 'crearProveedor', razonSocial: det.nombre, cuit: (det.cuit ?? '').toString().replace(/\D/g, '') || undefined }),
+        body: JSON.stringify({ accion: 'crearProveedor', razonSocial: razonSocial.trim(), cuit: (cuit ?? '').toString().replace(/\D/g, '') || undefined }),
       });
       const d = await r.json();
       if (r.ok && d?.id) {
-        setExtraProv((xs) => [...xs, { id: d.id, razon_social: d.razon_social ?? det.nombre, cuit: d.cuit ?? det.cuit }]);
+        setExtraProv((xs) => [...xs, { id: d.id, razon_social: d.razon_social ?? razonSocial.trim(), cuit: d.cuit ?? cuit }]);
         setF((x: any) => ({ ...x, proveedorId: d.id }));
+        setAltaProv(null);
       } else {
         setProvAviso(d?.message ?? 'No se pudo dar de alta el proveedor');
       }
@@ -2230,6 +2243,23 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                 >
                   {creandoProv ? 'Dando de alta…' : `+ Dar de alta "${foto.proveedor.detectado.nombre}"${foto.proveedor.detectado.cuit ? ` · CUIT ${foto.proveedor.detectado.cuit}` : ''}`}
                 </Boton>
+              )}
+              {/* proveedor nuevo a mano, siempre a mano (3/11/2026) */}
+              {altaProv ? (
+                <div className="grid gap-2 rounded-xl border border-black/[0.06] bg-crema-claro p-3 sm:grid-cols-[minmax(0,1fr)_11rem_auto_auto] sm:items-end">
+                  <label className="text-xs text-tinta/60">Razón social
+                    <input autoFocus value={altaProv.razonSocial} onChange={(e) => setAltaProv((a) => (a ? { ...a, razonSocial: e.target.value } : a))} className={unir(input, 'mt-1')} />
+                  </label>
+                  <label className="text-xs text-tinta/60">CUIT
+                    <input inputMode="numeric" value={altaProv.cuit} onChange={(e) => setAltaProv((a) => (a ? { ...a, cuit: e.target.value.replace(/\D/g, '').slice(0, 11) } : a))} className={unir(input, 'mt-1 tabular-nums')} />
+                  </label>
+                  <Boton tamano="chico" onClick={() => crearProveedorYAsignar(altaProv.razonSocial, altaProv.cuit)} disabled={creandoProv || !altaProv.razonSocial.trim()}>
+                    {creandoProv ? 'Dando de alta…' : 'Dar de alta y asignar'}
+                  </Boton>
+                  <Boton tamano="chico" variante="fantasma" onClick={() => setAltaProv(null)}>Cancelar</Boton>
+                </div>
+              ) : !(!f.proveedorId && foto.proveedor?.detectado?.nombre && !foto.proveedor?.match) && (
+                <Boton tamano="chico" variante="secundario" onClick={abrirAltaProveedor} className="self-start">+ Proveedor nuevo</Boton>
               )}
               {provAviso && <p className="text-xs text-marca-hondo">{provAviso}</p>}
 
