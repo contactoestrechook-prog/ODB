@@ -17,6 +17,7 @@ import { CabeceraFactura, PapelDelRenglon } from './TablaFactura';
 import { conCodigo } from '../lib/codigo-producto';
 import { diferenciaPrecioCero, elegirPendientes, textoPrecioCero, type PendientePrecioCero } from '../lib/precio-cero';
 import { AsistenteFactura, describirCambio, type CambioHecho } from './AsistenteFactura';
+import { asignarInternos, textoInternos } from '../lib/internos-compras';
 import { aplicarCambiosIA, aplicarPapel, cuentaDelPapel, entraDeRenglon, marcarComoDevolucion, papelDeLectura, tablaParaIA, type EntraComo, type Papel } from '../lib/tabla-factura';
 import {
   Aviso, Boton, CLASES_ENTRADA, Cargando, Etiqueta, FOCO, FOCO_ADENTRO, Girador, IconoAtencion, IconoCerrar, IconoError, IconoInfo, IconoOk, Kpi, Modal as Ventana,
@@ -1115,7 +1116,37 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   // cubre lo que de verdad se pagó.
   const percepciones = percIvaDoc + percIibbDoc;
   const baseCosto = valorConIva != null ? valorConIva + (percepcionesAlCosto ? percepciones : 0) : null;
-  const factorRecon = (baseCosto != null && sumaRenglones > 0) ? baseCosto / sumaRenglones
+  // ============================================================
+  // IMPUESTOS INTERNOS, SOLO A LOS PRODUCTOS QUE LOS PAGAN (3/11/2026)
+  // Leandro: «está mal, pésimo, nunca más puede pasar eso». Se repartían entre
+  // todos los renglones: en La Serenísima 06376-00001046 eran el 8,7 % de los
+  // dos bebibles de almendra y la leche terminaba $4,25 más cara. Ahora van a
+  // los renglones que los pagan (los que se marcan, o los que la cuenta prueba
+  // al centavo); si no se sabe cuáles, la factura no se registra. La regla está
+  // en app/lib/internos-compras.ts, con tests.
+  // ============================================================
+  const renglonesInternos = itemsCalc
+    .map((i: any, idx: number) => ({ i, idx }))
+    .filter(({ i }) => !i._esDescuento && !i._esDevolucion && netoDelRenglon(i) > 0);
+  const internos = asignarInternos(
+    renglonesInternos.map(({ i }) => ({ descripcion: `${i.descripcion ?? ''} ${i.nombre ?? ''}`, neto: netoDelRenglon(i), marcado: i.llevaInternos ?? null })),
+    impIntDoc,
+  );
+  const internosDeIdx = new Map<number, number>();
+  if (internos.estado === 'cierra' || internos.estado === 'marcados') {
+    for (const [k, v] of internos.porIdx) internosDeIdx.set(renglonesInternos[k].idx, v);
+  }
+  const candidatosInternos = internos.estado === 'dudoso' ? internos.candidatos.map((k) => renglonesInternos[k].idx) : [];
+  const internosResueltos = internos.estado === 'sin_internos' || internos.estado === 'cierra' || internos.estado === 'marcados';
+  // lo que le toca de internos a cada unidad que entra al stock
+  const internosPorUnidad = (i: any, idx: number) => {
+    const v = internosDeIdx.get(idx) ?? 0;
+    const c = numImp(i.cantidad);
+    return v && c > 0 ? v / c : 0;
+  };
+  // el factor de siempre (B, C, remitos) ya no lleva los internos: van aparte, renglón por renglón
+  const baseSinInternos = baseCosto != null ? baseCosto - impIntDoc : null;
+  const factorRecon = (baseSinInternos != null && sumaRenglones > 0) ? baseSinInternos / sumaRenglones
     : (discriminaIva && sumarIva && alicEfectiva != null ? 1 + alicEfectiva : discriminaIva && sumarIva ? 1.21 : 1);
   // ============================================================
   // IVA POR RENGLÓN, VERIFICADO CONTRA EL PIE (2026-09-15)
@@ -1130,11 +1161,6 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
     const a = numImp(i.alicuotaIva);
     return a > 0 && a <= 27 ? a : null;
   };
-  // percepciones e internos no son IVA: se reparten proporcional al neto,
-  // que es como los calcula la propia factura
-  const cargaComunPct = netoDoc != null && netoDoc > 0
-    ? (impIntDoc + (percepcionesAlCosto ? percepciones : 0)) / netoDoc
-    : 0;
   const renglonesIva = itemsCalc
     .map((i: any, idx: number) => ({ i, idx }))
     .filter(({ i }) => !i._esDescuento && (i._esDevolucion || netoDelRenglon(i) > 0));
@@ -1146,7 +1172,9 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
           alicuotaElegida: i.alicuotaElegida != null && i.alicuotaElegida !== '' ? Number(i.alicuotaElegida) : null,
           alicuotaCatalogo: i.alicuotaCatalogo != null ? Number(i.alicuotaCatalogo) : null,
         })),
-        { neto: netoDoc, iva: ivaDoc, percepcionesAlCosto: percepcionesAlCosto ? percepciones : 0, impuestosInternos: impIntDoc },
+        // las percepciones se reparten proporcional al neto, como las calcula la
+        // propia factura; los internos NO: van a los renglones que los pagan
+        { neto: netoDoc, iva: ivaDoc, percepcionesAlCosto: percepcionesAlCosto ? percepciones : 0, impuestosInternos: 0 },
       )
     : null;
   // posición de cada renglón de fotoItems dentro del cálculo del IVA
@@ -1183,14 +1211,17 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
       if (Math.abs(ivaConAlicuotas.factorNeto - 1) > 0.0001) partes.push(`× ${ivaConAlicuotas.factorNeto.toFixed(4).replace('.', ',')} (descuento del pie)`);
       const origen = { elegida: 'elegida a mano', impresa: 'impresa en la factura', catalogo: 'del catálogo', general: 'general' }[origenAlic(idx) ?? 'general'];
       partes.push(`+ IVA ${String(a).replace('.', ',')}% (${origen}) ${pesos(neto * a / 100)}`);
-      if (ivaConAlicuotas.cargaComunPct > 0) partes.push(`+ percepciones${impIntDoc > 0 ? ' e internos' : ''} ${(ivaConAlicuotas.cargaComunPct * 100).toFixed(2).replace('.', ',')}% ${pesos(neto * ivaConAlicuotas.cargaComunPct)}`);
+      if (ivaConAlicuotas.cargaComunPct > 0) partes.push(`+ percepciones ${(ivaConAlicuotas.cargaComunPct * 100).toFixed(2).replace('.', ',')}% ${pesos(neto * ivaConAlicuotas.cargaComunPct)}`);
     } else if (hayDatosFiscales) {
       partes.push(`× ${factorRecon.toFixed(4).replace('.', ',')} (impuestos de la factura repartidos en proporción)`);
     }
+    if (internosPorUnidad(i, idx) > 0) partes.push(`+ internos ${pesos(internosPorUnidad(i, idx))} (este producto los paga)`);
     return `${partes.join('  ')}  = ${pesos(costoFinal(i, idx))} c/IVA`;
   };
-  const costoFinal = (i: any, idx?: number) =>
-    Math.round(precioEfectivo(i) * factorDe(i, idx ?? itemsCalc.indexOf(i)) * 100) / 100;
+  const costoFinal = (i: any, idx?: number) => {
+    const k = idx ?? itemsCalc.indexOf(i);
+    return Math.round((precioEfectivo(i) * factorDe(i, k) + internosPorUnidad(i, k)) * 100) / 100;
+  };
   const hayDatosFiscales = baseCosto != null;
   // La variación contra el costo del catálogo, con lo que el renglón dice AHORA
   // (la salida elegida para el «×N», la alícuota, el pie): costo final contra
@@ -1224,6 +1255,11 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   const cambiarPapel = (idx: number, papel: Papel, entra: EntraComo, campo: string, antes: unknown, despues: unknown) => {
     setFotoItems((xs) => xs.map((x, j) => (j === idx ? { ...aplicarPapel(x, papel, entra), ...(campo === 'iva' ? { alicuotaElegida: null } : {}) } : x)));
     anotar('Vos', [{ renglon: idx + 1, campo, antes, despues }]);
+  };
+  // «lleva internos», marcado a mano en uno o varios renglones (3/11/2026)
+  const marcarInternos = (indices: number[], valor: boolean | null) => {
+    setFotoItems((xs) => xs.map((x, j) => (indices.includes(j) ? { ...x, llevaInternos: valor } : x)));
+    anotar('Vos', indices.map((j) => ({ renglon: j + 1, campo: 'llevaInternos', antes: fotoItems[j]?.llevaInternos ?? null, despues: valor })));
   };
   // devolución al proveedor, marcada o desmarcada a mano (3/11/2026)
   const marcarDevolucion = (idx: number, valor: boolean) => {
@@ -1318,6 +1354,8 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
     iva: ivaFactura ? (ivaFactura.estado === 'cierra' || ivaFactura.estado === 'no_cierra' ? { estado: ivaFactura.estado, diferencia: ivaFactura.diferencia } : { estado: ivaFactura.estado }) : 'no discrimina IVA',
     renglonesQueNoCierran: noCierranTabla.map(({ idx }) => idx + 1),
     descuentosSinDestino: sinAtribuir.map((x) => x.descripcion),
+    // a qué renglones van los impuestos internos (3/11/2026)
+    impuestosInternos: impIntDoc > 0 ? textoInternos(internos, impIntDoc, pesos, (k) => renglonesInternos[k].idx + 1) : null,
   });
   // al registrar: la constancia de quién cambió qué (si no hubo cambios, nada)
   // y TODOS los renglones de la factura para el historial del proveedor (8/10/2026)
@@ -1472,7 +1510,9 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
     i?.sku && i.incluir && !i._esDescuento && !i._esDevolucion && asignadosPrecioCero[i.sku] && soloPrecio[i.sku] !== false ? asignadosPrecioCero[i.sku] : null;
   // el IVA que no cierra con el pie también bloquea: nunca más un promedio
   const lecturaIncompleta = fotoItems.some((i) => (soloFactura || i.incluir) && camposDeLecturaIncompletos(i));
-  const costoBloquea = excedeMerc || excedeTotal || ivaBloquea || lecturaIncompleta;
+  // internos sin destino: no se registra hasta marcar qué productos los pagan (3/11/2026)
+  const internosBloquea = !internosResueltos && inclItems.length > 0;
+  const costoBloquea = excedeMerc || excedeTotal || ivaBloquea || lecturaIncompleta || internosBloquea;
 
   // Excel/CSV del portal del proveedor → precarga los renglones de la OC
   async function importarPedido(archivo: File) {
@@ -2263,6 +2303,23 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                             )}
                           </label>
                         )}
+                        {/* «lleva internos» (3/11/2026): solo en facturas con impuestos internos */}
+                        {impIntDoc > 0 && numImp(i.cantidad) > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => (internosDeIdx.has(idx)
+                              ? marcarInternos([idx], false)
+                              // si la cuenta ya había elegido otros, se marcan junto con este
+                              : marcarInternos(internos.estado === 'cierra' ? [...internosDeIdx.keys(), idx] : [idx], true))}
+                            className={'inline-flex min-h-8 items-center gap-1 rounded-full border px-2.5 text-xs ' +
+                              (internosDeIdx.has(idx) ? 'border-tinta bg-tinta text-crema'
+                                : candidatosInternos.includes(idx) ? 'border-marca/60 bg-marca-suave text-marca-hondo'
+                                : 'border-black/15 bg-white text-tinta/60')}
+                            title={internosDeIdx.has(idx) ? 'Este producto paga impuestos internos. Tocá si no los paga.' : 'Este producto no paga impuestos internos. Tocá si los paga.'}
+                          >
+                            {internosDeIdx.has(idx) ? `internos ${pesos(internosDeIdx.get(idx)!)}` : 'sin internos'}
+                          </button>
+                        )}
                       </div>
 
                       {/* 1 bis · los números del papel, editables, con la cuenta en vivo (8/10/2026) */}
@@ -2737,10 +2794,31 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                     {totalDoc != null && <span className="importe rounded-full bg-tinta px-2.5 py-0.5 text-crema">= Total <b>{pesos(totalDoc)}</b></span>}
                   </div>
                 )}
+                {impIntDoc > 0 && (
+                  <div className={'mt-1.5 rounded-xl px-2.5 py-2 ' + (internosResueltos ? 'bg-ok-suave text-ok' : 'border border-marca bg-marca-suave font-semibold text-marca-hondo')}>
+                    <p>
+                      {internosResueltos ? <IconoOk className="mr-1 inline size-4 align-[-3px]" /> : <IconoAtencion className="mr-1 inline size-4 align-[-3px]" />}
+                      {textoInternos(internos, impIntDoc, pesos, (k) => renglonesInternos[k].idx + 1)}
+                      {!internosResueltos && ' Hasta entonces no se puede registrar.'}
+                    </p>
+                    {(internos.estado === 'dudoso' || internos.estado === 'marcados') && (
+                      <span className="mt-1.5 flex flex-wrap items-center gap-2">
+                        {internos.estado === 'dudoso' && (
+                          <Boton tamano="chico" variante="secundario" onClick={() => marcarInternos(candidatosInternos, true)}>
+                            {candidatosInternos.length === 1 ? `Van al renglón ${candidatosInternos[0] + 1}` : `Van a esos ${candidatosInternos.length} renglones`}
+                          </Boton>
+                        )}
+                        {internos.estado === 'marcados' && (
+                          <button onClick={() => marcarInternos(fotoItems.map((_, j) => j).filter((j) => fotoItems[j]?.llevaInternos != null), null)} className={unir(ENLACE, 'text-tinta/70 hover:text-marca-hondo')}>Que lo decida la cuenta</button>
+                        )}
+                      </span>
+                    )}
+                  </div>
+                )}
                 {ivaFactura?.estado === 'cierra' && (
                   <p className="mt-1 text-ok">
                     <IconoOk className="mr-1 inline size-4 align-[-3px]" /><b>IVA verificado:</b> cada renglón con su alícuota suma {pesos(ivaFactura.ivaCalculado)}, igual al IVA del pie.
-                    {ivaFactura.cargaComunPct > 0 && <> Percepciones{impIntDoc > 0 ? ' e internos' : ''}: +{(ivaFactura.cargaComunPct * 100).toFixed(2).replace('.', ',')}% sobre el neto de cada renglón.</>}
+                    {ivaFactura.cargaComunPct > 0 && <> Percepciones: +{(ivaFactura.cargaComunPct * 100).toFixed(2).replace('.', ',')}% sobre el neto de cada renglón.</>}
                     {' '}<span className="text-tinta/60">Pasá el mouse por el precio c/IVA de un renglón para ver su cuenta.</span>
                   </p>
                 )}
