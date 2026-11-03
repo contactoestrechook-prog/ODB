@@ -5,9 +5,10 @@ import sharp from 'sharp';
 import { SUPABASE } from '../supabase.provider';
 import { PedidosProveedorService } from '../pedidos-proveedor/pedidos-proveedor.service';
 import {
-  CONDICIONES_IVA, ROLES_CONTACTO, TIPOS_DOCUMENTO,
-  aliasValido, cbuValido, cuitNormalizado, emailValido, faltantes, telefonoValido,
+  CONDICIONES_IVA, REGIMENES_IIBB, ROLES_CONTACTO, TIPOS_DOCUMENTO,
+  aliasValido, cbuValido, cuentaCorriente, cuitNormalizado, cumplimiento, emailValido, faltantes, telefonoValido,
 } from './ficha';
+import { consultarCuitArca } from './arca-padron';
 
 // Ficha de proveedores para administración (27/10/2026): todos los datos del
 // proveedor, sus contactos y sus papeles (catálogos, listas, constancia de
@@ -16,7 +17,14 @@ import {
 
 const COLUMNAS = 'id, razon_social, nombre_fantasia, cuit, condicion_iva, direccion, localidad, telefono, telefono_fijo, email, web, '
   + 'condicion_pago, lead_time_dias, lead_time_confirmado, descuento_efectivo, dias_pedido, dias_entrega, pedido_minimo, '
-  + 'banco, cbu, alias_cbu, notas, logo_url, logo_auto, activo, actualizado_en';
+  + 'banco, cbu, alias_cbu, notas, logo_url, logo_auto, activo, actualizado_en, '
+  + 'rubro, iibb_numero, iibb_regimen, plazo_pago_dias, titular_cuenta, '
+  + 'banco_confirmado, banco_cambiado_por, banco_cambiado_en, banco_confirmado_en, banco_confirmado_como, '
+  + 'arca_consultado_en, arca_estado, arca_actividad';
+
+// Los datos con los que se le transfiere (el nombre del banco no cuenta): si cambia cualquiera, el banco queda
+// sin confirmar hasta que otra persona lo confirme con el proveedor.
+const DATOS_BANCO = ['cbu', 'alias_cbu', 'titular_cuenta'] as const;
 
 const BUCKET = 'comprobantes';
 
@@ -57,6 +65,8 @@ export class ProveedoresFichaService {
         productos: Number(r.productos ?? 0), ultimaActividad: r.ultima_actividad ?? null, deuda: Number(r.deuda ?? 0),
         documentos: Number(r.documentos ?? 0), contactos: Number(r.contactos ?? 0),
         faltan: faltantes(p),
+        bancoSinConfirmar: p.banco_confirmado === false,
+        arcaEstado: p.arca_estado ?? null,
       };
     });
   }
@@ -66,7 +76,7 @@ export class ProveedoresFichaService {
     const { data: p, error } = await this.db.from('proveedores').select(COLUMNAS).eq('id', id).maybeSingle();
     if (error) throw new BadRequestException(error.message);
     if (!p) throw new NotFoundException('No existe el proveedor');
-    const [contactos, documentos, ordenes, facturas, productos, listas] = await Promise.all([
+    const [contactos, documentos, ordenes, facturas, productos, listas, todas, pagos, recibidas, cambiosBanco] = await Promise.all([
       this.db.from('proveedor_contactos').select('id, nombre, rol, telefono, email, notas, creado_en').eq('proveedor_id', id).order('creado_en'),
       this.db.from('proveedor_documentos').select('id, tipo, nombre, tipo_archivo, tamano, vigencia_hasta, creado_en, subidor:usuarios!proveedor_documentos_subido_por_fkey(nombre)')
         .eq('proveedor_id', id).is('borrado_en', null).order('creado_en', { ascending: false }),
@@ -75,7 +85,19 @@ export class ProveedoresFichaService {
         .eq('proveedor_id', id).neq('estado', 'pagada').order('vencimiento', { ascending: true }).limit(20),
       this.db.from('proveedor_productos').select('producto_id', { count: 'exact', head: true }).eq('proveedor_id', id),
       this.db.from('listas_proveedor').select('id, archivo, vigencia, items_total, items_match, creado_en').eq('proveedor_id', id).order('creado_en', { ascending: false }).limit(3),
+      // la cuenta corriente: todos los comprobantes y todos los pagos
+      this.db.from('facturas_proveedor').select('id, numero, tipo, letra, monto, monto_pagado, fecha_emision, creado_en, estado')
+        .eq('proveedor_id', id).range(0, 4999),
+      this.db.from('facturas_proveedor_pagos').select('factura_id, monto, medio, creado_en, factura:facturas_proveedor!inner(proveedor_id)')
+        .eq('factura.proveedor_id', id).range(0, 4999),
+      // cómo cumple: las órdenes recibidas del último año
+      this.db.from('ordenes_compra').select('creado_en, enviada_en, recibida_en, fecha_entrega, entrega_confirmada_para, entrega_faltantes')
+        .eq('proveedor_id', id).not('recibida_en', 'is', null).gte('creado_en', new Date(Date.now() - 365 * 86_400_000).toISOString()).range(0, 999),
+      this.db.from('proveedor_cambios_banco').select('id, antes, despues, cambiado_en, confirmado_en, confirmado_como, '
+        + 'cambiador:usuarios!proveedor_cambios_banco_cambiado_por_fkey(nombre), confirmador:usuarios!proveedor_cambios_banco_confirmado_por_fkey(nombre)')
+        .eq('proveedor_id', id).order('cambiado_en', { ascending: false }).limit(5),
     ]);
+    const cc = cuentaCorriente((todas.data ?? []) as any[], (pagos.data ?? []) as any[]);
     const deuda = ((facturas.data ?? []) as any[]).reduce((s, f) => s + Number(f.monto) - Number(f.monto_pagado ?? 0), 0);
     return {
       proveedor: { ...(p as any), faltan: faltantes(p as any) },
@@ -86,6 +108,13 @@ export class ProveedoresFichaService {
       deuda: Math.round(deuda * 100) / 100,
       productos: productos.count ?? 0,
       listas: listas.data ?? [],
+      // los últimos 60 movimientos, del más nuevo al más viejo, con el saldo de cada momento
+      cuentaCorriente: { saldo: cc.saldo, movimientos: cc.movimientos.slice(-60).reverse(), total: cc.movimientos.length },
+      cumplimiento: cumplimiento((recibidas.data ?? []) as any[]),
+      cambiosBanco: ((cambiosBanco.data ?? []) as any[]).map((c) => ({
+        id: c.id, antes: c.antes, despues: c.despues, cambiadoEn: c.cambiado_en, cambiadoPor: c.cambiador?.nombre ?? null,
+        confirmadoEn: c.confirmado_en, confirmadoPor: c.confirmador?.nombre ?? null, confirmadoComo: c.confirmado_como,
+      })),
     };
   }
 
@@ -166,6 +195,22 @@ export class ProveedoresFichaService {
       } else c.alias_cbu = null;
     }
     if (tiene('notas')) c.notas = texto(dto.notas, 2000);
+    if (tiene('rubro')) c.rubro = texto(dto.rubro, 120);
+    if (tiene('iibbNumero')) c.iibb_numero = texto(dto.iibbNumero, 40);
+    if (tiene('iibbRegimen')) {
+      const v = texto(dto.iibbRegimen);
+      if (v && !(REGIMENES_IIBB as readonly string[]).includes(v)) throw new BadRequestException('Régimen de Ingresos Brutos desconocido');
+      c.iibb_regimen = v;
+    }
+    if (tiene('plazoPagoDias')) {
+      if (dto.plazoPagoDias === '' || dto.plazoPagoDias == null) c.plazo_pago_dias = null;
+      else {
+        const n = Number(dto.plazoPagoDias);
+        if (!Number.isInteger(n) || n < 0 || n > 180) throw new BadRequestException('El plazo de pago va en días, de 0 (contado) a 180');
+        c.plazo_pago_dias = n;
+      }
+    }
+    if (tiene('titularCuenta')) c.titular_cuenta = texto(dto.titularCuenta, 160);
     return c;
   }
 
@@ -174,6 +219,82 @@ export class ProveedoresFichaService {
     const { data } = await this.db.from('proveedores').select('id, razon_social, cuit').not('cuit', 'is', null).range(0, 4999);
     const otro = ((data ?? []) as any[]).find((p) => p.id !== excepto && String(p.cuit).replace(/\D/g, '') === cuit);
     if (otro) throw new BadRequestException(`Ese CUIT ya es de «${otro.razon_social}». Si es el mismo proveedor, completá esa ficha.`);
+  }
+
+  /** El mismo CBU o alias en otro proveedor activo es la señal típica de un fraude: no se acepta. */
+  private async bancoRepetido(c: Record<string, unknown>, excepto?: string) {
+    for (const col of ['cbu', 'alias_cbu'] as const) {
+      const v = c[col];
+      if (!v) continue;
+      let q = this.db.from('proveedores').select('id, razon_social').eq(col, v as string).eq('activo', true).limit(1);
+      if (excepto) q = q.neq('id', excepto);
+      const { data } = await q;
+      const otro = (data ?? [])[0] as any;
+      if (otro) throw new BadRequestException(`Ese ${col === 'cbu' ? 'CBU' : 'alias'} ya está cargado en «${otro.razon_social}». Una misma cuenta en dos proveedores no se acepta: revisalo con los dos.`);
+    }
+  }
+
+  /** Deja anotado el cambio de datos bancarios y lo marca sin confirmar. */
+  private async marcarCambioBanco(id: string, antes: Record<string, unknown> | null, despues: Record<string, unknown>, usuarioId?: string | null) {
+    const ahora = new Date().toISOString();
+    await this.db.from('proveedores').update({
+      banco_confirmado: false, banco_cambiado_por: usuarioId ?? null, banco_cambiado_en: ahora,
+      banco_confirmado_por: null, banco_confirmado_en: null, banco_confirmado_como: null,
+    }).eq('id', id);
+    await this.db.from('proveedor_cambios_banco').insert({ proveedor_id: id, antes, despues, cambiado_por: usuarioId ?? null, cambiado_en: ahora })
+      .then(() => null, () => null);
+    await this.auditar(usuarioId, 'proveedor_banco_cambiado', id, antes, despues);
+  }
+
+  /**
+   * Confirmar los datos bancarios: lo hace una persona DISTINTA de la que los
+   * cargó, después de hablar con el proveedor por un teléfono que ya se tenía
+   * (no el que vino en el mismo mensaje que el CBU nuevo).
+   */
+  async confirmarBanco(id: string, como: unknown, usuarioId?: string | null) {
+    const detalle = texto(como, 300);
+    if (!detalle) throw new BadRequestException('Contá cómo lo confirmaste: con quién hablaste y a qué número');
+    if (!usuarioId) throw new BadRequestException('No pude identificar quién confirma');
+    const { data: p } = await this.db.from('proveedores').select('banco_confirmado, banco_cambiado_por, cbu, alias_cbu').eq('id', id).maybeSingle();
+    if (!p) throw new NotFoundException('No existe el proveedor');
+    if ((p as any).banco_confirmado) return this.ficha(id);
+    if ((p as any).banco_cambiado_por && (p as any).banco_cambiado_por === usuarioId) {
+      throw new BadRequestException('Los datos bancarios los cargaste vos: los tiene que confirmar otra persona');
+    }
+    const ahora = new Date().toISOString();
+    const { error } = await this.db.from('proveedores').update({
+      banco_confirmado: true, banco_confirmado_por: usuarioId, banco_confirmado_en: ahora, banco_confirmado_como: detalle,
+    }).eq('id', id);
+    if (error) throw new BadRequestException(error.message);
+    const { data: ultimo } = await this.db.from('proveedor_cambios_banco').select('id').eq('proveedor_id', id).is('confirmado_en', null)
+      .order('cambiado_en', { ascending: false }).limit(1);
+    if ((ultimo ?? []).length) {
+      await this.db.from('proveedor_cambios_banco').update({ confirmado_por: usuarioId, confirmado_en: ahora, confirmado_como: detalle })
+        .eq('id', (ultimo as any[])[0].id);
+    }
+    await this.auditar(usuarioId, 'proveedor_banco_confirmado', id, null, { como: detalle });
+    return this.ficha(id);
+  }
+
+  /**
+   * Lo que dice ARCA del CUIT. Guarda el estado y la actividad en la ficha y
+   * devuelve los datos para que la pantalla complete el formulario (se revisan
+   * y se guardan con el botón de siempre).
+   */
+  async consultarArca(id: string | null, cuitIngresado: unknown) {
+    let cuit = cuitNormalizado(cuitIngresado);
+    if (!cuit && id) {
+      const { data } = await this.db.from('proveedores').select('cuit').eq('id', id).maybeSingle();
+      cuit = cuitNormalizado((data as any)?.cuit);
+    }
+    if (!cuit) throw new BadRequestException('Poné un CUIT válido para consultarlo en ARCA');
+    const datos = await consultarCuitArca(this.db, cuit);
+    if (id) {
+      await this.db.from('proveedores').update({
+        arca_consultado_en: new Date().toISOString(), arca_estado: datos.estado, arca_actividad: datos.actividad,
+      }).eq('id', id);
+    }
+    return { cuit, ...datos };
   }
 
   /** WhatsApp: verificado contra WhatsApp (el pedido sale a ese número). Vacío lo borra. */
@@ -188,6 +309,7 @@ export class ProveedoresFichaService {
   async crear(dto: Dto, usuarioId?: string | null) {
     const c = this.columnas({ ...dto, razonSocial: dto.razonSocial ?? '' });
     await this.cuitRepetido(c.cuit);
+    await this.bancoRepetido(c);
     const { data: mismo } = await this.db.from('proveedores').select('id, razon_social').ilike('razon_social', String(c.razon_social).replace(/[%_\\]/g, '\\$&')).limit(1);
     if ((mismo ?? []).length) throw new BadRequestException(`Ya existe «${(mismo as any[])[0].razon_social}». Buscalo en la lista y completá esa ficha.`);
     const { data, error } = await this.db.from('proveedores')
@@ -195,6 +317,9 @@ export class ProveedoresFichaService {
       .select('id').single();
     if (error) throw new BadRequestException(error.code === '23505' ? 'Ya existe un proveedor con ese CUIT' : error.message);
     if (texto(dto.telefono)) await this.whatsapp(data.id, dto.telefono, usuarioId);
+    if (DATOS_BANCO.some((k) => c[k])) {
+      await this.marcarCambioBanco(data.id, null, Object.fromEntries(DATOS_BANCO.map((k) => [k, c[k] ?? null])), usuarioId);
+    }
     await this.auditar(usuarioId, 'proveedor_alta', data.id, null, c);
     return { id: data.id };
   }
@@ -204,6 +329,8 @@ export class ProveedoresFichaService {
     if (!antes) throw new NotFoundException('No existe el proveedor');
     const c = this.columnas(dto);
     if (c.cuit && c.cuit !== String((antes as any).cuit ?? '').replace(/\D/g, '')) await this.cuitRepetido(c.cuit, id);
+    const cambiaBanco = DATOS_BANCO.some((k) => k in c && (c[k] ?? null) !== ((antes as any)[k] ?? null));
+    if (cambiaBanco) await this.bancoRepetido(c, id);
     // el WhatsApp va primero: si no existe, no se guarda nada a medias
     if (Object.prototype.hasOwnProperty.call(dto, 'telefono')) {
       const nuevo = String(dto.telefono ?? '').replace(/\D/g, '');
@@ -216,6 +343,13 @@ export class ProveedoresFichaService {
       if (error) throw new BadRequestException(error.message);
       const previo = Object.fromEntries(Object.keys(c).map((k) => [k, (antes as any)[k] ?? null]));
       await this.auditar(usuarioId, 'proveedor_ficha', id, previo, c);
+    }
+    if (cambiaBanco) {
+      const de = (o: any) => Object.fromEntries(DATOS_BANCO.map((k) => [k, o[k] ?? null]));
+      const quedo = de({ ...(antes as any), ...c });
+      // borrar todos los datos bancarios no deja nada que confirmar
+      if (DATOS_BANCO.some((k) => quedo[k])) await this.marcarCambioBanco(id, de(antes), quedo, usuarioId);
+      else await this.db.from('proveedores').update({ banco_confirmado: true }).eq('id', id);
     }
     return this.ficha(id);
   }

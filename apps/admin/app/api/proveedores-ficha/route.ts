@@ -41,6 +41,7 @@ export async function GET(req: Request) {
 //   crear | guardar {id, …campos} | activo {id, activo}
 //   contacto {id, …} | editarContacto {contactoId, …} | borrarContacto {contactoId}
 //   logoWeb {id} | sacarLogo {id} | borrarDocumento {documentoId}
+//   arca {id?, cuit} | confirmarBanco {id, como}
 export async function POST(req: Request) {
   if ((req.headers.get('content-type') ?? '').startsWith('multipart/form-data')) {
     const form = await req.formData();
@@ -102,6 +103,13 @@ export async function POST(req: Request) {
       const p = id(d.id);
       if (!p) break;
       return post(`/${p}/logo/sacar`, {});
+    }
+    case 'arca':
+      return post('/arca', { id: id(d.id) ?? undefined, cuit: typeof d.cuit === 'string' ? d.cuit : undefined });
+    case 'confirmarBanco': {
+      const p = id(d.id);
+      if (!p) break;
+      return post(`/${p}/banco/confirmar`, { como: d.como });
     }
     case 'borrarDocumento': {
       const doc = id(d.documentoId);

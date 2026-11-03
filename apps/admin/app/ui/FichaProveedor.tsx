@@ -15,16 +15,28 @@ import { cuit as cuitLegible, fecha, pesos } from '../lib/formato';
 type Proveedor = Record<string, any> & { id: string; razon_social: string; activo: boolean; faltan: string[] };
 type Contacto = { id: string; nombre: string; rol: string; telefono: string | null; email: string | null; notas: string | null };
 type Documento = { id: string; tipo: string; nombre: string; tipo_archivo: string | null; tamano: number | null; vigencia_hasta: string | null; creado_en: string; subidoPor: string | null };
+type Movimiento = { fecha: string; tipo: string; detalle: string; debe: number; haber: number; saldo: number; facturaId: string };
+type CambioBanco = { id: string; antes: Record<string, string | null> | null; despues: Record<string, string | null>; cambiadoEn: string; cambiadoPor: string | null; confirmadoEn: string | null; confirmadoPor: string | null; confirmadoComo: string | null };
 type Ficha = {
   proveedor: Proveedor; contactos: Contacto[]; documentos: Documento[]; ordenes: any[]; facturasPendientes: any[];
   deuda: number; productos: number; listas: any[];
+  cuentaCorriente: { saldo: number; movimientos: Movimiento[]; total: number };
+  cumplimiento: { recibidas: number; conFecha: number; aTiempo: number; diasPromedio: number | null; conFaltantes: number };
+  cambiosBanco: CambioBanco[];
 };
+type DatosArca = { cuit: string; razonSocial: string | null; estado: string | null; direccion: string | null; localidad: string | null; provincia: string | null; condicionIva: string | null; actividad: string | null; error: string | null };
 
 const IVA = [
   { valor: 'responsable_inscripto', etiqueta: 'Responsable inscripto' },
   { valor: 'monotributo', etiqueta: 'Monotributo' },
   { valor: 'exento', etiqueta: 'Exento' },
   { valor: 'consumidor_final', etiqueta: 'Consumidor final' },
+];
+const IIBB = [
+  { valor: 'local', etiqueta: 'Contribuyente local (una provincia)' },
+  { valor: 'convenio_multilateral', etiqueta: 'Convenio Multilateral' },
+  { valor: 'exento', etiqueta: 'Exento' },
+  { valor: 'no_inscripto', etiqueta: 'No inscripto' },
 ];
 const ROLES = [
   { valor: 'vendedor', etiqueta: 'Vendedor / preventista' },
@@ -52,6 +64,8 @@ const CAMPOS: [string, string][] = [
   ['condicionPago', 'condicion_pago'], ['leadTimeDias', 'lead_time_dias'], ['leadTimeConfirmado', 'lead_time_confirmado'],
   ['diasPedido', 'dias_pedido'], ['diasEntrega', 'dias_entrega'], ['pedidoMinimo', 'pedido_minimo'], ['descuentoEfectivo', 'descuento_efectivo'],
   ['banco', 'banco'], ['cbu', 'cbu'], ['aliasCbu', 'alias_cbu'], ['notas', 'notas'],
+  ['rubro', 'rubro'], ['iibbRegimen', 'iibb_regimen'], ['iibbNumero', 'iibb_numero'], ['plazoPagoDias', 'plazo_pago_dias'],
+  ['titularCuenta', 'titular_cuenta'],
 ];
 
 function formularioDe(p: Proveedor): Record<string, any> {
@@ -92,7 +106,27 @@ export function FichaProveedor({ id }: { id: string }) {
   const [inicial, setInicial] = useState<Record<string, any>>({});
   const [guardando, setGuardando] = useState(false);
   const [aviso, setAviso] = useState<string | null>(null);
+  const [arca, setArca] = useState<{ trabajando: boolean; error: string | null; datos: DatosArca | null }>({ trabajando: false, error: null, datos: null });
   const { confirmar, dialogo } = useConfirmar();
+
+  // Trae de ARCA lo que dice la constancia del CUIT y completa el formulario;
+  // se revisa y se guarda con el botón de siempre.
+  async function traerDeArca() {
+    setArca({ trabajando: true, error: null, datos: null });
+    try {
+      const d: DatosArca = await enviar({ accion: 'arca', id, cuit: form.cuit });
+      setForm((f) => ({
+        ...f,
+        cuit: cuitLegible(d.cuit),
+        ...(d.razonSocial ? { razonSocial: d.razonSocial } : {}),
+        ...(d.condicionIva ? { condicionIva: d.condicionIva } : {}),
+        ...(d.direccion && !f.direccion ? { direccion: d.direccion } : {}),
+        ...(d.localidad && !f.localidad ? { localidad: d.localidad } : {}),
+        ...(d.actividad && !f.rubro ? { rubro: d.actividad } : {}),
+      }));
+      setArca({ trabajando: false, error: null, datos: d });
+    } catch (e: any) { setArca({ trabajando: false, error: e.message, datos: null }); }
+  }
 
   const cargar = useCallback(async () => {
     setError(null);
@@ -170,6 +204,11 @@ export function FichaProveedor({ id }: { id: string }) {
         </div>
       </div>
 
+      {p.banco_confirmado === false && <ConfirmarBanco id={id} p={p} onListo={(j) => { setFicha(j); }} />}
+      {p.arca_estado && p.arca_estado !== 'ACTIVO' && (
+        <Aviso tono="error">Según ARCA la CUIT de este proveedor está <b>{String(p.arca_estado).toLowerCase()}</b> (consultado el {fecha(p.arca_consultado_en)}). Sus facturas pueden no servir para el IVA: hablalo con el contador antes de comprarle o pagarle.</Aviso>
+      )}
+
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Kpi etiqueta="Productos" valor={String(ficha.productos)} />
         <Kpi etiqueta="Deuda" valor={pesos(ficha.deuda)} tono={ficha.deuda > 0 ? 'error' : 'neutro'} />
@@ -186,14 +225,37 @@ export function FichaProveedor({ id }: { id: string }) {
             <Campo etiqueta="Razón social" obligatorio className="sm:col-span-2">
               <Entrada value={form.razonSocial} onChange={(e) => set('razonSocial', e.target.value)} />
             </Campo>
-            <Campo etiqueta="Nombre de fantasía" className="sm:col-span-2">
-              <Entrada value={form.nombreFantasia} onChange={(e) => set('nombreFantasia', e.target.value)} placeholder="Como lo conocen en el local" />
+            <Campo etiqueta="Nombre de fantasía" ayuda="Como lo conocen en el local." className="sm:col-span-2">
+              <Entrada value={form.nombreFantasia} onChange={(e) => set('nombreFantasia', e.target.value)} />
             </Campo>
-            <Campo etiqueta="CUIT">
-              <Entrada inputMode="numeric" value={form.cuit} onChange={(e) => set('cuit', e.target.value)} placeholder="30-12345678-9" />
+            <Campo etiqueta="CUIT" ayuda="Los 11 números. Con el CUIT, «Traer de ARCA» completa razón social, IVA, domicilio y rubro.">
+              <div className="flex gap-2">
+                <Entrada inputMode="numeric" value={form.cuit} onChange={(e) => set('cuit', e.target.value)} />
+                <Boton variante="secundario" tamano="chico" onClick={() => void traerDeArca()} cargando={arca.trabajando} disabled={!String(form.cuit ?? '').replace(/\D/g, '')}>Traer de ARCA</Boton>
+              </div>
             </Campo>
             <Campo etiqueta="Condición de IVA">
               <Selector vacio="Elegí…" opciones={IVA} value={form.condicionIva} onChange={(e) => set('condicionIva', e.target.value)} />
+            </Campo>
+            {(arca.error || arca.datos || p.arca_consultado_en) && (
+              <div className="text-sm sm:col-span-2">
+                {arca.error && <Aviso tono="atencion">{arca.error}</Aviso>}
+                {arca.datos && (arca.datos.error
+                  ? <Aviso tono="atencion">ARCA respondió: {arca.datos.error}</Aviso>
+                  : <Aviso tono="ok">Datos de ARCA cargados en el formulario: revisalos y guardá. Clave {String(arca.datos.estado ?? 'sin estado').toLowerCase()}{arca.datos.provincia ? ` · ${arca.datos.provincia}` : ''}.</Aviso>)}
+                {!arca.datos && !arca.error && p.arca_consultado_en && (
+                  <p className="text-tinta/60">ARCA, consultado el {fecha(p.arca_consultado_en)}: clave {String(p.arca_estado ?? 'sin estado').toLowerCase()}{p.arca_actividad ? ` · ${p.arca_actividad}` : ''}.</p>
+                )}
+              </div>
+            )}
+            <Campo etiqueta="Ingresos Brutos">
+              <Selector vacio="Elegí…" opciones={IIBB} value={form.iibbRegimen} onChange={(e) => set('iibbRegimen', e.target.value)} />
+            </Campo>
+            <Campo etiqueta="Número de Ingresos Brutos">
+              <Entrada value={form.iibbNumero} onChange={(e) => set('iibbNumero', e.target.value)} />
+            </Campo>
+            <Campo etiqueta="Rubro" ayuda="Qué vende: bebidas, lácteos, limpieza…" className="sm:col-span-2">
+              <Entrada value={form.rubro} onChange={(e) => set('rubro', e.target.value)} />
             </Campo>
           </TarjetaCuerpo>
         </Tarjeta>
@@ -202,19 +264,19 @@ export function FichaProveedor({ id }: { id: string }) {
           <TarjetaCabecera titulo="Contacto y dirección" />
           <TarjetaCuerpo className="grid gap-3 sm:grid-cols-2">
             <Campo etiqueta="WhatsApp para pedidos" ayuda="A este número sale el pedido firmado. Se verifica que tenga WhatsApp.">
-              <Entrada inputMode="tel" value={form.telefono} onChange={(e) => set('telefono', e.target.value)} placeholder="11 2345-6789" />
+              <Entrada inputMode="tel" value={form.telefono} onChange={(e) => set('telefono', e.target.value)} />
             </Campo>
-            <Campo etiqueta="Teléfono fijo">
-              <Entrada inputMode="tel" value={form.telefonoFijo} onChange={(e) => set('telefonoFijo', e.target.value)} placeholder="011 4234-5678" />
+            <Campo etiqueta="Teléfono fijo" ayuda="Con el código de área.">
+              <Entrada inputMode="tel" value={form.telefonoFijo} onChange={(e) => set('telefonoFijo', e.target.value)} />
             </Campo>
             <Campo etiqueta="Mail">
               <Entrada type="email" value={form.email} onChange={(e) => set('email', e.target.value)} />
             </Campo>
             <Campo etiqueta="Web">
-              <Entrada value={form.web} onChange={(e) => set('web', e.target.value)} placeholder="www…" />
+              <Entrada value={form.web} onChange={(e) => set('web', e.target.value)} />
             </Campo>
-            <Campo etiqueta="Dirección">
-              <Entrada value={form.direccion} onChange={(e) => set('direccion', e.target.value)} placeholder="Calle y número" />
+            <Campo etiqueta="Dirección" ayuda="Calle y número.">
+              <Entrada value={form.direccion} onChange={(e) => set('direccion', e.target.value)} />
             </Campo>
             <Campo etiqueta="Localidad">
               <Entrada value={form.localidad} onChange={(e) => set('localidad', e.target.value)} />
@@ -225,8 +287,11 @@ export function FichaProveedor({ id }: { id: string }) {
         <Tarjeta relleno={false}>
           <TarjetaCabecera titulo="Condiciones comerciales" />
           <TarjetaCuerpo className="grid gap-3 sm:grid-cols-2">
-            <Campo etiqueta="Condición de pago">
-              <Entrada value={form.condicionPago} onChange={(e) => set('condicionPago', e.target.value)} placeholder="Contado, 15 días, 30 días…" />
+            <Campo etiqueta="Plazo de pago (días)" ayuda="0 es contado. Con este número, la factura que entra sin vencimiento lo calcula sola.">
+              <Entrada inputMode="numeric" value={form.plazoPagoDias} onChange={(e) => set('plazoPagoDias', e.target.value)} />
+            </Campo>
+            <Campo etiqueta="Condición de pago" ayuda="Lo que haga falta aclarar: cheque, valores, a quién se paga.">
+              <Entrada value={form.condicionPago} onChange={(e) => set('condicionPago', e.target.value)} />
             </Campo>
             <Campo etiqueta="Pedido mínimo">
               <Entrada inputMode="decimal" prefijo="$" value={form.pedidoMinimo} onChange={(e) => set('pedidoMinimo', e.target.value)} />
@@ -242,16 +307,16 @@ export function FichaProveedor({ id }: { id: string }) {
               El plazo de entrega está confirmado con el proveedor
             </label>
             <Campo etiqueta="Días que toma pedidos">
-              <Entrada value={form.diasPedido} onChange={(e) => set('diasPedido', e.target.value)} placeholder="Ej.: lunes y jueves" />
+              <Entrada value={form.diasPedido} onChange={(e) => set('diasPedido', e.target.value)} />
             </Campo>
-            <Campo etiqueta="Días que entrega">
-              <Entrada value={form.diasEntrega} onChange={(e) => set('diasEntrega', e.target.value)} placeholder="Ej.: martes y viernes a la mañana" />
+            <Campo etiqueta="Días que entrega" ayuda="Con el horario, si lo tiene.">
+              <Entrada value={form.diasEntrega} onChange={(e) => set('diasEntrega', e.target.value)} />
             </Campo>
           </TarjetaCuerpo>
         </Tarjeta>
 
         <Tarjeta relleno={false}>
-          <TarjetaCabecera titulo="Datos bancarios" sub="Para pagarle por transferencia" />
+          <TarjetaCabecera titulo="Datos bancarios" sub="Para pagarle por transferencia. Si se cargan o cambian, otra persona los confirma con el proveedor antes de pagar." />
           <TarjetaCuerpo className="grid gap-3 sm:grid-cols-2">
             <Campo etiqueta="Banco">
               <Entrada value={form.banco} onChange={(e) => set('banco', e.target.value)} />
@@ -259,9 +324,16 @@ export function FichaProveedor({ id }: { id: string }) {
             <Campo etiqueta="Alias">
               <Entrada value={form.aliasCbu} onChange={(e) => set('aliasCbu', e.target.value)} />
             </Campo>
-            <Campo etiqueta="CBU o CVU" className="sm:col-span-2">
-              <Entrada inputMode="numeric" value={form.cbu} onChange={(e) => set('cbu', e.target.value)} placeholder="22 números" />
+            <Campo etiqueta="CBU o CVU" ayuda="Los 22 números." className="sm:col-span-2">
+              <Entrada inputMode="numeric" value={form.cbu} onChange={(e) => set('cbu', e.target.value)} />
             </Campo>
+            <Campo etiqueta="Titular de la cuenta" ayuda="Tiene que ser el mismo proveedor. Si la cuenta es de otra persona, preguntá por qué antes de pagar." className="sm:col-span-2">
+              <Entrada value={form.titularCuenta} onChange={(e) => set('titularCuenta', e.target.value)} />
+            </Campo>
+            {p.banco_confirmado && p.banco_confirmado_en && (
+              <p className="text-sm text-tinta/60 sm:col-span-2">Confirmados el {fecha(p.banco_confirmado_en)}: {p.banco_confirmado_como}</p>
+            )}
+            {ficha.cambiosBanco.length > 0 && <CambiosBanco cambios={ficha.cambiosBanco} />}
           </TarjetaCuerpo>
         </Tarjeta>
       </div>
@@ -269,9 +341,12 @@ export function FichaProveedor({ id }: { id: string }) {
       <Tarjeta relleno={false}>
         <TarjetaCabecera titulo="Notas" />
         <TarjetaCuerpo>
-          <AreaTexto rows={3} value={form.notas} onChange={(e) => set('notas', e.target.value)} placeholder="Lo que conviene saber: con quién hablar, horarios de descarga, acuerdos…" />
+          <AreaTexto rows={3} value={form.notas} onChange={(e) => set('notas', e.target.value)} aria-label="Notas: con quién hablar, horarios de descarga, acuerdos" />
         </TarjetaCuerpo>
       </Tarjeta>
+
+      <CuentaCorriente cc={ficha.cuentaCorriente} />
+      <Cumplimiento c={ficha.cumplimiento} plazo={p.lead_time_dias} />
 
       <Contactos id={id} contactos={ficha.contactos} onCambio={cargar} confirmar={confirmar} />
       <Documentos id={id} documentos={ficha.documentos} onCambio={cargar} confirmar={confirmar} />
@@ -385,7 +460,7 @@ function Contactos({ id, contactos, onCambio, confirmar }: { id: string; contact
             <Entrada type="email" value={editando.email} onChange={(e) => setEditando({ ...editando, email: e.target.value })} />
           </Campo>
           <Campo etiqueta="Nota" className="sm:col-span-2">
-            <Entrada value={editando.notas} onChange={(e) => setEditando({ ...editando, notas: e.target.value })} placeholder="Ej.: pasa los martes" />
+            <Entrada value={editando.notas} onChange={(e) => setEditando({ ...editando, notas: e.target.value })} />
           </Campo>
           {error && <Aviso tono="error" className="sm:col-span-2">{error}</Aviso>}
           <div className="flex justify-end gap-2 sm:col-span-2">
@@ -486,7 +561,7 @@ function Documentos({ id, documentos, onCambio, confirmar }: { id: string; docum
           />
         </Campo>
         <Campo etiqueta="Nombre" ayuda="Si lo dejás vacío, usa el nombre del archivo.">
-          <Entrada value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Ej.: Catálogo verano 2026" />
+          <Entrada value={nombre} onChange={(e) => setNombre(e.target.value)} />
         </Campo>
         <Campo etiqueta="Vale hasta" ayuda="Opcional: para listas de precios y constancias.">
           <Entrada type="date" value={vigencia} onChange={(e) => setVigencia(e.target.value)} />
@@ -551,5 +626,117 @@ function Logo({ id, url, tieneWeb, onCambio }: { id: string; url: string | null;
         </div>
       )}
     </div>
+  );
+}
+
+// CBU nuevo o cambiado: hasta que otra persona lo confirme con el proveedor, no
+// se aprueba ni se paga por transferencia.
+function ConfirmarBanco({ id, p, onListo }: { id: string; p: Proveedor; onListo: (f: Ficha) => void }) {
+  const [abierto, setAbierto] = useState(false);
+  const [como, setComo] = useState('');
+  const [trabajando, setTrabajando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function confirmarlo() {
+    setTrabajando(true); setError(null);
+    try { onListo(await enviar({ accion: 'confirmarBanco', id, como })); } catch (e: any) { setError(e.message); } finally { setTrabajando(false); }
+  }
+
+  return (
+    <Aviso tono="atencion">
+      <div className="space-y-2">
+        <p><b>Datos bancarios sin confirmar.</b> Se cargaron o cambiaron el {fecha(p.banco_cambiado_en)}. Hasta que alguien los confirme, no se aprueba ni se paga por transferencia a este proveedor.</p>
+        <p className="text-sm">Lo confirma una persona distinta de la que los cargó, llamando al proveedor a un número que ya tenían. Nunca al que vino en el mismo mensaje o mail que el CBU nuevo.</p>
+        {!abierto ? (
+          <Boton variante="secundario" tamano="chico" onClick={() => setAbierto(true)}>Ya lo confirmé</Boton>
+        ) : (
+          <div className="space-y-2">
+            <Campo etiqueta="Cómo lo confirmaste" ayuda="Con quién hablaste y a qué número.">
+              <Entrada value={como} onChange={(e) => setComo(e.target.value)} autoFocus />
+            </Campo>
+            {error && <p className="text-sm font-semibold text-marca-hondo">{error}</p>}
+            <div className="flex gap-2">
+              <Boton variante="secundario" tamano="chico" onClick={() => { setAbierto(false); setError(null); }}>Cancelar</Boton>
+              <Boton tamano="chico" onClick={() => void confirmarlo()} cargando={trabajando} disabled={!como.trim()}>Confirmar los datos bancarios</Boton>
+            </div>
+          </div>
+        )}
+      </div>
+    </Aviso>
+  );
+}
+
+function CambiosBanco({ cambios }: { cambios: CambioBanco[] }) {
+  const linea = (d: Record<string, string | null> | null) =>
+    !d ? 'nada' : [d.cbu && `CBU ${d.cbu}`, d.alias_cbu && `alias ${d.alias_cbu}`, d.titular_cuenta && `titular ${d.titular_cuenta}`].filter(Boolean).join(' · ') || 'nada';
+  return (
+    <details className="text-sm sm:col-span-2">
+      <summary className="cursor-pointer text-tinta/70">Historial de cambios ({cambios.length})</summary>
+      <ul className="mt-2 space-y-2">
+        {cambios.map((c) => (
+          <li key={c.id} className="text-tinta/70 [overflow-wrap:anywhere]">
+            <p><b className="text-tinta">{fecha(c.cambiadoEn)}</b>{c.cambiadoPor ? ` · lo cargó ${c.cambiadoPor}` : ''}</p>
+            <p>Antes: {linea(c.antes)}</p>
+            <p>Quedó: {linea(c.despues)}</p>
+            <p>{c.confirmadoEn ? `Confirmado el ${fecha(c.confirmadoEn)}${c.confirmadoPor ? ` por ${c.confirmadoPor}` : ''}: ${c.confirmadoComo ?? ''}` : 'Sin confirmar'}</p>
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}
+
+// La cuenta corriente: facturas y notas de débito al debe; notas de crédito y
+// pagos al haber; el saldo de cada momento. El saldo final es lo que se le debe.
+function CuentaCorriente({ cc }: { cc: Ficha['cuentaCorriente'] }) {
+  return (
+    <Tarjeta relleno={false}>
+      <TarjetaCabecera
+        titulo="Cuenta corriente"
+        sub={cc.total ? `Saldo: ${pesos(cc.saldo)}${cc.saldo > 0 ? ' a pagarle' : cc.saldo < 0 ? ' a favor de ODB' : ''}` : undefined}
+        accion={<BotonLink variante="fantasma" tamano="chico" href="/facturas-compra">Facturas</BotonLink>}
+      />
+      {cc.movimientos.length === 0 ? (
+        <TarjetaCuerpo><p className="text-sm text-tinta/60">Todavía no hay facturas ni pagos de este proveedor en ODB.</p></TarjetaCuerpo>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[560px] text-sm">
+            <thead className="text-left text-xs uppercase tracking-wide text-tinta/60">
+              <tr><th className="px-4 py-2 sm:px-5">Fecha</th><th className="px-2 py-2">Comprobante</th><th className="px-2 py-2 text-right">Debe</th><th className="px-2 py-2 text-right">Haber</th><th className="px-4 py-2 text-right sm:px-5">Saldo</th></tr>
+            </thead>
+            <tbody className="divide-y divide-black/[0.06]">
+              {cc.movimientos.map((m, i) => (
+                <tr key={`${m.facturaId}-${i}`}>
+                  <td className="whitespace-nowrap px-4 py-2 tabular-nums sm:px-5">{fecha(m.fecha)}</td>
+                  <td className="px-2 py-2">{m.detalle}</td>
+                  <td className="px-2 py-2 text-right tabular-nums">{m.debe ? pesos(m.debe) : ''}</td>
+                  <td className="px-2 py-2 text-right tabular-nums">{m.haber ? pesos(m.haber) : ''}</td>
+                  <td className="px-4 py-2 text-right font-semibold tabular-nums sm:px-5">{pesos(m.saldo)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {cc.total > cc.movimientos.length && <p className="px-4 py-2 text-xs text-tinta/60 sm:px-5">Se ven los últimos {cc.movimientos.length} de {cc.total} movimientos.</p>}
+        </div>
+      )}
+    </Tarjeta>
+  );
+}
+
+// Cómo cumple con lo que se le pide, con las órdenes recibidas del último año.
+function Cumplimiento({ c, plazo }: { c: Ficha['cumplimiento']; plazo: number | null }) {
+  if (!c.recibidas) return null;
+  return (
+    <Tarjeta relleno={false}>
+      <TarjetaCabecera titulo="Cómo cumple" sub={`Con las ${c.recibidas} órdenes de compra recibidas en el último año`} />
+      <TarjetaCuerpo className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <Kpi etiqueta="Llegaron a tiempo" valor={c.conFecha ? `${c.aTiempo} de ${c.conFecha}` : 'Sin fecha pactada'} tono={c.conFecha && c.aTiempo / c.conFecha < 0.8 ? 'error' : 'neutro'} />
+        <Kpi etiqueta="Días que tarda de verdad" valor={c.diasPromedio == null ? '—' : String(c.diasPromedio).replace('.', ',')} tono={plazo != null && c.diasPromedio != null && c.diasPromedio > plazo + 1 ? 'error' : 'neutro'} />
+        <Kpi etiqueta="Vinieron con faltantes" valor={`${c.conFaltantes} de ${c.recibidas}`} tono={c.conFaltantes ? 'error' : 'neutro'} />
+      </TarjetaCuerpo>
+      {plazo != null && c.diasPromedio != null && (
+        <TarjetaCuerpo className="pt-0"><p className="text-sm text-tinta/60">En la ficha dice {plazo} día{plazo === 1 ? '' : 's'} de plazo de entrega. Los días se cuentan desde que se le manda el pedido hasta que se recibe.</p></TarjetaCuerpo>
+      )}
+    </Tarjeta>
   );
 }

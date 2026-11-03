@@ -106,7 +106,7 @@ function firmarCms(xml: string, emisor: string): string {
 export type TicketArca = { token: string; sign: string; expira: string };
 
 // Devuelve un ticket vigente para el servicio (cacheado en DB) o pide uno nuevo.
-export async function obtenerTicket(db: SupabaseClient, servicio: 'wsfe', emisor = 'principal'): Promise<TicketArca> {
+export async function obtenerTicket(db: SupabaseClient, servicio: 'wsfe' | 'ws_sr_constancia_inscripcion', emisor = 'principal'): Promise<TicketArca> {
   const { data: guardado } = await db
     .from('arca_tokens')
     .select('token, sign, expira')

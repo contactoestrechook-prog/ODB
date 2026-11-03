@@ -15,7 +15,7 @@ import { filtrarPorBusqueda } from '../lib/busqueda';
 type Fila = {
   id: string; razonSocial: string; nombreFantasia: string | null; cuit: string | null; telefono: string | null;
   localidad: string | null; activo: boolean; logo: string | null; productos: number; ultimaActividad: string | null; deuda: number;
-  documentos: number; contactos: number; faltan: string[];
+  documentos: number; contactos: number; faltan: string[]; bancoSinConfirmar?: boolean; arcaEstado?: string | null;
 };
 
 type Filtro = 'activos' | 'compras' | 'incompletos' | 'sin_whatsapp' | 'baja';
@@ -135,9 +135,15 @@ export function ProveedoresLista() {
             { clave: 'whatsapp', titulo: 'WhatsApp', ocultarEnMovil: true, celda: (p) => telefonoCorto(p.telefono) ?? <span className="text-tinta/60">Falta</span> },
             {
               clave: 'faltan', titulo: 'Ficha',
-              celda: (p) => p.faltan.length === 0
-                ? <Etiqueta tono="ok">Completa</Etiqueta>
-                : <span className="text-xs text-tinta/70" title={`Falta: ${p.faltan.join(', ')}`}>Falta {p.faltan.slice(0, 2).join(', ')}{p.faltan.length > 2 ? ` y ${p.faltan.length - 2} más` : ''}</span>,
+              celda: (p) => (
+                <span className="flex flex-wrap items-center gap-1">
+                  {p.bancoSinConfirmar && <Etiqueta tono="atencion">CBU sin confirmar</Etiqueta>}
+                  {p.arcaEstado && p.arcaEstado !== 'ACTIVO' && <Etiqueta tono="error">CUIT {p.arcaEstado.toLowerCase()}</Etiqueta>}
+                  {p.faltan.length === 0
+                    ? <Etiqueta tono="ok">Completa</Etiqueta>
+                    : <span className="text-xs text-tinta/70" title={`Falta: ${p.faltan.join(', ')}`}>Falta {p.faltan.slice(0, 2).join(', ')}{p.faltan.length > 2 ? ` y ${p.faltan.length - 2} más` : ''}</span>}
+                </span>
+              ),
             },
             { clave: 'productos', titulo: 'Productos', alinear: 'derecha', ocultarEnMovil: true, celda: (p) => p.productos },
             { clave: 'docs', titulo: 'Papeles', alinear: 'derecha', ocultarEnMovil: true, celda: (p) => p.documentos || '—' },

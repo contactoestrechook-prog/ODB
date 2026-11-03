@@ -4,6 +4,7 @@ import { SUPABASE } from '../supabase.provider';
 import { FrenoDePin, frenoDePin, registrarPinErrado } from '../comun/freno-pin';
 import { ordenDeCompraPDF, remitoRecepcionPDF, ordenDePagoPDF } from '../comun/documentos';
 import { enLotes } from '../comun/lotes';
+import { vencimientoPorPlazo } from '../proveedores/ficha';
 import { fusionarRenglonesPorSku } from './bultos';
 
 // Cómo se propone cuánto pedir: se mira la venta de los últimos 30 días y se
@@ -836,6 +837,12 @@ export class ComprasService {
       throw new BadRequestException('Ya existe un comprobante con ese número para este proveedor. Si es correcto, marcá "cargar igual".');
     }
     const n = (v: any) => (v != null && v !== '' ? Number(v) : null);
+    // sin vencimiento: la emisión más el plazo de pago de la ficha del proveedor
+    let vencimiento = dto.vencimiento || null;
+    if (!vencimiento && tipo !== 'nota_credito' && dto.fechaEmision) {
+      const { data: prov } = await this.db.from('proveedores').select('plazo_pago_dias').eq('id', dto.proveedorId).maybeSingle();
+      vencimiento = vencimientoPorPlazo(dto.fechaEmision, (prov as any)?.plazo_pago_dias ?? null);
+    }
     // sin empresa explícita pero con sucursal: la empresa fiscal sale de ahí
     let empresa = dto.empresa || null;
     if (!empresa && dto.sucursalId) {
@@ -857,7 +864,7 @@ export class ComprasService {
         impuestos_internos: Number(dto.impuestosInternos ?? 0),
         otros_impuestos: Number(dto.otros ?? 0),
         fecha_emision: dto.fechaEmision || null,
-        vencimiento: dto.vencimiento || null,
+        vencimiento,
         empresa,
         categoria_gasto: dto.categoriaGasto || null,
         condicion_venta: dto.condicionVenta || null,
@@ -1628,9 +1635,23 @@ export class ComprasService {
 
   // 2) Aprobar OP — EXCLUSIVO del dueño. RPC atómica (estado + auditoría juntos).
   async aprobarOrdenPago(id: string, dto: { usuarioId?: string }) {
+    await this.bancoConfirmadoParaPagar(id);
     const { error } = await this.db.rpc('aprobar_op_panel', { p_op: id, p_usuario: dto.usuarioId ?? null });
     if (error) throw new BadRequestException(this.traducirError(error.message));
     return { aprobada: true };
+  }
+
+  // Una OP por transferencia no se aprueba ni se paga si los datos bancarios
+  // del proveedor son nuevos o cambiaron y nadie los confirmó con él (3/11/2026:
+  // el fraude más común es cambiarle el CBU a un proveedor real).
+  private async bancoConfirmadoParaPagar(opId: string) {
+    const { data } = await this.db.from('ordenes_pago')
+      .select('medio_pago, proveedor:proveedores(razon_social, banco_confirmado, banco_cambiado_en)').eq('id', opId).maybeSingle();
+    const prov = (data as any)?.proveedor;
+    if (!data || !prov) return;
+    if (String((data as any).medio_pago ?? '').startsWith('transferencia') && prov.banco_confirmado === false) {
+      throw new BadRequestException(`Los datos bancarios de «${prov.razon_social}» cambiaron y todavía nadie los confirmó con el proveedor. Confirmalos en su ficha (otra persona, llamándolo a un número que ya tenían) y después aprobá o pagá.`);
+    }
   }
 
   // Documento de la orden de pago, con folio. Se puede sacar antes de pagar
@@ -1712,6 +1733,7 @@ export class ComprasService {
       chequesTercerosIds?: string[];
     },
   ) {
+    await this.bancoConfirmadoParaPagar(id);
     // RPC atómica: cheques emitidos/endosados + OP pagada + facturas pagadas,
     // todo o nada (no más OP "pagada" con cheques a medias o deuda fantasma).
     const { error } = await this.db.rpc('pagar_orden_pago', {

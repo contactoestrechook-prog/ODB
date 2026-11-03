@@ -30,6 +30,13 @@ export class ProveedoresFichaController {
     return this.logos.buscar(Math.min(Math.max(Number(b?.limite) || 10, 1), 40));
   }
 
+  // Lo que dice ARCA de un CUIT (constancia de inscripción). Con id, lo anota en la ficha.
+  @Roles('comprador', 'gerente', 'dueno')
+  @Post('arca')
+  arca(@Body() b: { id?: string; cuit?: string }) {
+    return this.serv.consultarArca(b?.id && /^[0-9a-f-]{36}$/i.test(b.id) ? b.id : null, b?.cuit);
+  }
+
   @Roles('comprador', 'gerente', 'dueno')
   @Get(':id')
   ficha(@Param('id') id: string) {
@@ -46,6 +53,13 @@ export class ProveedoresFichaController {
   @Post(':id/activo')
   activo(@Param('id') id: string, @Body() b: { activo: boolean }, @Req() req: any) {
     return this.serv.activo(id, b?.activo === true, req.usuario?.sub);
+  }
+
+  // Confirmar un CBU nuevo o cambiado: otra persona, después de llamar al proveedor
+  @Roles('comprador', 'gerente', 'dueno')
+  @Post(':id/banco/confirmar')
+  confirmarBanco(@Param('id') id: string, @Body() b: { como?: string }, @Req() req: any) {
+    return this.serv.confirmarBanco(id, b?.como, req.usuario?.sub);
   }
 
   @Roles('comprador', 'gerente', 'dueno')
