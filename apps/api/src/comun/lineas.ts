@@ -1,3 +1,4 @@
+import { esMeta } from './meta';
 import { Logger } from '@nestjs/common';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
@@ -75,6 +76,9 @@ export function sesionPrincipal(): string {
  */
 export function wahaUrlDe(sesion?: string | null): string | undefined {
   const s = sesion || sesionPrincipal();
+  // una sesión que va por la API oficial no tiene WAHA (4/11/2026): todo lo que
+  // es propio de WAHA (escribiendo…, barrido, vigilante, @lid) se saltea solo
+  if (esMeta(s)) return undefined;
   const gows = process.env.WAHA_GOWS_URL;
   const enGows = (process.env.WAHA_GOWS_SESIONES ?? '').split(',').map((x) => x.trim()).filter(Boolean);
   const url = gows && enGows.includes(s) ? gows : process.env.WAHA_URL;
@@ -88,7 +92,17 @@ export function wahaUrlDe(sesion?: string | null): string | undefined {
  * viva solo en el WAHA de GOWS, esos lugares se apagaban en silencio.
  */
 export function hayWhatsapp(sesion?: string | null): boolean {
-  return !!wahaUrlDe(sesion) && !!process.env.WAHA_API_KEY;
+  return esMeta(sesion || sesionPrincipal()) || (!!wahaUrlDe(sesion) && !!process.env.WAHA_API_KEY);
+}
+
+/**
+ * La sesión por la que salen los avisos internos de pedidos (4/11/2026). Con la
+ * línea general en la API oficial, un aviso a administración fuera de las 24 h
+ * Meta lo rechaza (solo deja plantillas): esos avisos salen por la línea del
+ * local, que sigue en WAHA. Sin ODB_AVISOS_SESION, por la principal como siempre.
+ */
+export function sesionDeAvisos(): string {
+  return String(process.env.ODB_AVISOS_SESION ?? '').trim() || sesionPrincipal();
 }
 
 /** Un ID de línea válido: minúsculas, dígitos y guion bajo (va en claves y en filtros). */

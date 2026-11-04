@@ -1,3 +1,4 @@
+import { MetaWebhookController } from './meta.controller';
 import { Module } from '@nestjs/common';
 import { BotController, BotPruebaController } from './bot.controller';
 import { RespondeAppController } from './responde-app.controller';
@@ -11,7 +12,7 @@ import { PedidosProveedorModule } from '../pedidos-proveedor/pedidos-proveedor.m
 
 @Module({
   imports: [PedidosModule, CatalogoModule, ListasModule, MercadoPagoModule, PedidosProveedorModule],
-  controllers: [BotController, BotPruebaController, RespondeAppController],
+  controllers: [BotController, BotPruebaController, RespondeAppController, MetaWebhookController],
   providers: [BotService, supabaseProvider],
 })
 export class BotModule {}

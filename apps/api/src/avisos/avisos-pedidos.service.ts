@@ -5,7 +5,7 @@ import { SUPABASE } from '../supabase.provider';
 import { celularWhatsapp, enviarImagenWhatsapp, enviarTextoWhatsapp } from '../comun/whatsapp';
 import { cartelesPedido, nombreParaCartel } from '../comun/cartel-pedido-cuadrado';
 import { cuandoLegible } from '../comun/cuando';
-import { hayWhatsapp, Lineas, sesionPrincipal, wahaUrlDe } from '../comun/lineas';
+import { hayWhatsapp, Lineas, sesionDeAvisos, wahaUrlDe } from '../comun/lineas';
 import {
   codigoDe, encabezado, esperaParaEscalar, esperaParaReintentar, esTelefonoDePrueba, idLargoDeMensaje, LLEGO,
   MINUTOS_SIN_LLEGAR, MINUTOS_SIN_SALIR, type PedidoParaAviso, type SinCargar, telefonoLegible, textoDeCancelado,
@@ -80,7 +80,7 @@ export class AvisosPedidosService {
    * el 2/11/2026 también alcanzaba con estar en Railway, de donde ODB se fue el 24/10.
    */
   puedeMandar(): boolean {
-    return process.env.ODB_AVISOS_PEDIDOS === '1' && hayWhatsapp(sesionPrincipal());
+    return process.env.ODB_AVISOS_PEDIDOS === '1' && hayWhatsapp(sesionDeAvisos());
   }
 
   @Cron('*/15 * * * * *')
@@ -268,7 +268,7 @@ export class AvisosPedidosService {
     if (previos.length) {
       const yaTexto = await this.buscarEnElChat(chatId, cabeza);
       if (yaTexto && !yaTexto.conImagen) return this.enviado(a, destino, [...previos, yaTexto.id], 'el texto ya había salido (se encontró en el chat)');
-      const r = await enviarTextoWhatsapp(this.db, destino, texto, 'aviso-pedido');
+      const r = await enviarTextoWhatsapp(this.db, destino, texto, 'aviso-pedido', sesionDeAvisos());
       if (r.enviado && r.id) return this.enviado(a, destino, [...previos, String(r.id)], 'se completó con el texto');
       return this.fallo(a, r.motivo ?? 'WhatsApp no devolvió el id del mensaje', r.incierto ?? !r.enviado, previos);
     }
@@ -291,7 +291,7 @@ export class AvisosPedidosService {
         if (urls?.length) {
           completo = true;
           for (let i = 0; i < urls.length; i++) {
-            ultimo = await enviarImagenWhatsapp(this.db, destino, urls[i], i === 0 ? tarjeta.epigrafe : '', 'aviso-pedido');
+            ultimo = await enviarImagenWhatsapp(this.db, destino, urls[i], i === 0 ? tarjeta.epigrafe : '', 'aviso-pedido', sesionDeAvisos());
             if (ultimo.enviado && ultimo.id) ids.push(String(ultimo.id));
             else { completo = false; break; }
           }
@@ -306,7 +306,7 @@ export class AvisosPedidosService {
         const ya = await this.buscarEnElChat(chatId, cabeza);
         if (ya) return this.yaEstaba(a, destino, ya, texto, 'la tarjeta salió aunque WhatsApp no contestó');
       }
-      ultimo = await enviarTextoWhatsapp(this.db, destino, texto, 'aviso-pedido');
+      ultimo = await enviarTextoWhatsapp(this.db, destino, texto, 'aviso-pedido', sesionDeAvisos());
       if (ultimo.enviado && ultimo.id) ids.push(String(ultimo.id));
       else return this.fallo(a, ultimo.motivo ?? 'WhatsApp no devolvió el id del mensaje', ultimo.incierto ?? !ultimo.enviado, ids);
     }
@@ -328,7 +328,7 @@ export class AvisosPedidosService {
       await this.db.from('bot_envios').upsert({ waha_id: hallado.id, telefono: destino, origen: 'aviso-pedido' }, { onConflict: 'waha_id' });
     } catch { /* el registro del eco no puede frenar el aviso */ }
     if (!hallado.conImagen || a.tipo !== 'pedido_nuevo') return this.enviado(a, destino, [hallado.id], nota);
-    const r = await enviarTextoWhatsapp(this.db, destino, texto, 'aviso-pedido');
+    const r = await enviarTextoWhatsapp(this.db, destino, texto, 'aviso-pedido', sesionDeAvisos());
     if (r.enviado && r.id) return this.enviado(a, destino, [hallado.id, String(r.id)], `${nota}; se completó con el texto`);
     return this.fallo(a, r.motivo ?? 'WhatsApp no devolvió el id del mensaje', r.incierto ?? !r.enviado, [hallado.id]);
   }
@@ -449,10 +449,12 @@ export class AvisosPedidosService {
   }
 
   private wahaBase() {
-    const url = wahaUrlDe(sesionPrincipal());
+    // los avisos salen por la línea de avisos: la principal, o la del local si la
+    // principal va por la API oficial (ODB_AVISOS_SESION, 4/11/2026)
+    const sesion = sesionDeAvisos();
+    const url = wahaUrlDe(sesion);
     const key = process.env.WAHA_API_KEY;
-    // los avisos salen por la línea principal, como siempre (6/10/2026)
-    return url && key ? { base: url, key, sesion: sesionPrincipal() } : null;
+    return url && key ? { base: url, key, sesion } : null;
   }
 
   private async getWaha(ruta: string): Promise<any> {
@@ -683,7 +685,7 @@ export class AvisosPedidosService {
       .map((t) => celularWhatsapp(t)).filter((t) => t.length >= 10 && t !== admin);
     let salio = false;
     for (const t of [...new Set(telefonos)]) {
-      const r = await enviarTextoWhatsapp(this.db, t, texto, 'aviso-pedido-escalado');
+      const r = await enviarTextoWhatsapp(this.db, t, texto, 'aviso-pedido-escalado', sesionDeAvisos());
       if (r.enviado && r.id) salio = true;
       else this.log.error(`tampoco salió el aviso a ${t}: ${r.motivo}`);
     }

@@ -1,3 +1,4 @@
+import { bajarMediaMeta } from '../comun/meta';
 import { esperaRetiroOEnvio, eligeRetiroOEnvio, eligioModalidad } from './entrega';
 import { esContestadorAutomatico } from './contestador';
 import { elegirPorDefecto, puedeCotizar } from './completo';
@@ -4632,6 +4633,16 @@ export class BotService {
   }
 
   private async bajarMediaWaha(p: any, sesion?: string): Promise<{ base64: string; mime: string; nombre: string } | null> {
+    // lo que llegó por la API oficial se baja de Meta con su id (4/11/2026)
+    if (p?.media?.metaId) {
+      const m = await bajarMediaMeta(String(p.media.metaId)).catch((e) => { this.log.warn(`bajada de Meta falló: ${e?.message ?? e}`); return null; });
+      if (!m) return null;
+      this.log.log(`archivo bajado de Meta: ${m.buf.length} bytes · ${m.mime}`);
+      if (m.buf.length > 4.5 * 1024 * 1024) { this.log.warn(`archivo demasiado grande (${m.buf.length} bytes): no va al modelo`); return null; }
+      const mime = (String(p.media.mimetype || m.mime)).split(';')[0];
+      const ext = mime.split('/')[1]?.replace('mpeg', 'mp3') || 'bin';
+      return { base64: m.buf.toString('base64'), mime, nombre: String(p.media.filename ?? `archivo.${ext}`) };
+    }
     let url = p?.media?.url ?? p?.mediaUrl ?? p?._data?.media?.url;
     this.log.log(`media url de WAHA: ${String(url ?? '').slice(0, 160)} · mime=${p?.media?.mimetype ?? '?'}`);
     // WAHA arma el enlace con SU hostname (localhost:3000 si no tiene configurada

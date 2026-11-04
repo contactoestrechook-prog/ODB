@@ -1,6 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { sesionPrincipal, wahaUrlDe } from './lineas';
+import { enviarPorMeta, esMeta, sesionRespaldoMeta } from './meta';
 
 // EL despachador de WhatsApp del sistema: todo lo que sale (lo que contesta el
 // bot, los avisos a administración, el «pedido listo» al cliente, el enlace para
@@ -139,9 +140,6 @@ const mimeDeImagen = (url: string) => {
  */
 export async function enviarWhatsapp(db: SupabaseClient, e: EnvioWhatsapp): Promise<ResultadoWaha> {
   const sesion = e.sesion || sesionPrincipal();
-  const base = wahaUrlDe(sesion);
-  const key = process.env.WAHA_API_KEY;
-  if (!base || !key) return { enviado: false, reintentable: true, motivo: 'WhatsApp sin configurar' };
   const d = await destinoDe(db, e.to);
   if (!d) return { enviado: false, reintentable: false, motivo: 'Número inválido' };
 
@@ -149,13 +147,36 @@ export async function enviarWhatsapp(db: SupabaseClient, e: EnvioWhatsapp): Prom
   let origen = e.origen ?? null;
   if (!origen && /^(difusion|programado)\//.test(String(e.referencia ?? ''))) origen = String(e.referencia).split('/')[0];
 
-  const post = (ruta: string, cuerpo: Record<string, unknown>, ms: number) => postear(base, key, ruta, { session: sesion, chatId: d.chatId, ...cuerpo }, ms);
-  const fallo = (ruta: string, estado: number): ResultadoWaha => ({ enviado: false, motivo: `WAHA ${ruta.replace('/api/', '')} ${estado}`, incierto: estado >= 500 });
   // se ESPERA la anotación: si no, el eco llegaba antes y pausaba la charla
   const salio = async (id: string | null, extra: Partial<ResultadoWaha> = {}): Promise<ResultadoWaha> => {
     if (id) await db.from('bot_envios').insert({ waha_id: String(id), telefono: d.digitos, origen: origen ?? 'bot' }).then(() => null, () => null);
     return { enviado: true, id, ...extra };
   };
+
+  // LA API OFICIAL (4/11/2026): la sesión que va por Meta no pasa por WAHA.
+  if (esMeta(sesion)) {
+    if (/@g\.us$/.test(d.chatId)) return { enviado: false, reintentable: false, motivo: 'La API oficial no manda a grupos' };
+    // un @lid sin teléfono conocido no es un número de Meta
+    if (/@lid$/.test(d.chatId)) return { enviado: false, reintentable: false, motivo: 'Contacto sin número (solo @lid)' };
+    const para = d.chatId.split('@')[0];
+    const r = await enviarPorMeta(sesion, para, e);
+    if (r.ok) return salio(r.id ?? null);
+    // fuera de las 24 h Meta solo deja plantillas: sale por la línea de respaldo (WAHA)
+    const respaldo = sesionRespaldoMeta();
+    if (r.fueraDeVentana && respaldo) {
+      log.log(`fuera de las 24 h por la API oficial: sale por ${respaldo} (${d.digitos})`);
+      return enviarWhatsapp(db, { ...e, sesion: respaldo });
+    }
+    log.warn(`Meta no mandó a ${d.digitos}: ${r.estado} ${r.codigo ?? ''} ${r.detalle ?? ''}`);
+    return { enviado: false, motivo: r.fueraDeVentana ? 'Fuera de las 24 h (la API oficial solo deja plantillas)' : `Meta ${r.estado} ${r.codigo ?? ''} ${r.detalle ?? ''}`.trim(), incierto: r.estado === 0 || r.estado >= 500 };
+  }
+
+  const base = wahaUrlDe(sesion);
+  const key = process.env.WAHA_API_KEY;
+  if (!base || !key) return { enviado: false, reintentable: true, motivo: 'WhatsApp sin configurar' };
+
+  const post = (ruta: string, cuerpo: Record<string, unknown>, ms: number) => postear(base, key, ruta, { session: sesion, chatId: d.chatId, ...cuerpo }, ms);
+  const fallo = (ruta: string, estado: number): ResultadoWaha => ({ enviado: false, motivo: `WAHA ${ruta.replace('/api/', '')} ${estado}`, incierto: estado >= 500 });
 
   try {
     // WAHA baja los archivos de la URL: tiene que ser accesible desde afuera (una URL firmada de Supabase sirve)
@@ -216,6 +237,8 @@ export function enviarImagenWhatsapp(db: SupabaseClient, to: string, url: string
 // el mismo número sin el 9 (54…): así figura un WhatsApp Business en un fijo.
 // Si WAHA no contesta, tira: nunca se da por bueno un número sin confirmarlo.
 export async function existeEnWhatsapp(numero: string, sesion?: string): Promise<{ existe: boolean; chatId?: string; verificado: boolean }> {
+  // la API oficial no tiene esa consulta: se usa el celular sin verificar
+  if (esMeta(sesion || sesionPrincipal())) return { existe: true, chatId: `${celularWhatsapp(numero)}@c.us`, verificado: false };
   const wahaUrl = wahaUrlDe(sesion);
   const wahaKey = process.env.WAHA_API_KEY;
   if (!wahaUrl || !wahaKey) throw new Error('WAHA sin configurar');

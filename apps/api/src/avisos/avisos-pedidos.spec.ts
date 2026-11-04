@@ -163,7 +163,7 @@ describe('AvisosPedidosService: el aviso sale a administración', () => {
     imagen.mockResolvedValue({ enviado: true, id: '3EB0AA' });
     const db = baseFalsa(TABLAS);
     await enviar(new AvisosPedidosService(db));
-    expect(imagen).toHaveBeenCalledWith(db, '5491125213601', expect.stringContaining('aviso-PICKUP-5F2451C6C111'), expect.stringMatching(/^PEDIDO NUEVO · PICKUP-5F2451C6C111\n/), 'aviso-pedido');
+    expect(imagen).toHaveBeenCalledWith(db, '5491125213601', expect.stringContaining('aviso-PICKUP-5F2451C6C111'), expect.stringMatching(/^PEDIDO NUEVO · PICKUP-5F2451C6C111\n/), 'aviso-pedido', expect.any(String));
     expect(carteles.mock.calls[0][0]).toMatchObject({ titulo: 'PEDIDO NUEVO', subtitulo: 'PICKUP-5F2451C6C111', total: 133500, entrega: { detalle: 'domingo 4/10 por la mañana' } });
     expect(texto).not.toHaveBeenCalled();
     expect(ultimaActualizacion(db)).toMatchObject({ estado: 'enviado', destino: '5491125213601', waha_id: '3EB0AA', waha_ids: ['3EB0AA'] });
