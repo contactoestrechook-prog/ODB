@@ -36,5 +36,7 @@ export function middleware(req: NextRequest) {
 export const config = {
   // webmanifest y sw.js: el navegador los pide SIN cookies para decidir si el
   // sitio es instalable; si el middleware los manda a /login, no hay app.
-  matcher: ['/((?!_next|favicon.ico|sw.js|api/|.*\\.(?:png|jpg|jpeg|svg|gif|webp|ico|webmanifest)$).*)'],
+  // comandas/: el acceso directo de las PC con impresora (lo baja depósito, que
+  // no tiene esa ruta entre sus pantallas; no lleva nada privado)
+  matcher: ['/((?!_next|favicon.ico|sw.js|api/|comandas/|.*\\.(?:png|jpg|jpeg|svg|gif|webp|ico|webmanifest)$).*)'],
 };

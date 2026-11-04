@@ -8,6 +8,8 @@ import { cantidadLegible, codigoDe, entregaDe, haceCuanto, origenDe, sinTomar, t
 import { llevaFlotantes } from '../lib/rutas';
 import { Boton, Etiqueta, FOCO, IconoCerrar, unir } from './kit';
 import { conCodigo } from '../lib/codigo-producto';
+import { alCambiarAudio, audioActivo, esperaDe, nivelDe, prepararAudio, sonarAlarma } from '../lib/alarma-pedido';
+import { estaPcImprime, imprimirSiFalta } from '../lib/comanda';
 
 // LLEGÓ UN PEDIDO (Leandro, 6/10/2026: "necesito ventanas slides emergentes
 // avisando que llegó un pedido"). En todas las pantallas del panel, a quien
@@ -16,12 +18,22 @@ import { conCodigo } from '../lib/codigo-producto';
 // su nombre en el pedido) y entonces se va para todos. "Más tarde" la esconde
 // 10 minutos en esta pantalla, nada más: el pedido sigue sin tomar y a los 15
 // minutos sale el reclamo por WhatsApp a administración.
+//
+// 4/11/2026 (Leandro: "como PedidosYa, con un sonido muy potente"): la alarma
+// se repite hasta que alguien lo toma ("Más tarde" la calla 10 minutos en esta
+// PC) y crece con el tiempo: baja y espaciada al entrar, fuerte y seguida a los
+// 6 minutos (ver lib/alarma-pedido.ts). En las PC marcadas con «Esta PC imprime
+// las comandas» sale la comanda apenas entra el pedido (ver lib/comanda.ts).
 
 const CADA_MS = 12_000;
 const POSPONER_MS = 10 * 60_000;
-// los de más de 48 h no saltan (van con "Sin tomar" en Pedidos); suena solo lo de la última media hora
+// los de más de 48 h no saltan (van con "Sin tomar" en Pedidos)
 const VENTANA_MS = 48 * 3600_000;
-const SUENA_MS = 30 * 60_000;
+// la notificación de Windows y la comanda, solo para lo que entró en la última media hora
+const RECIENTE_MS = 30 * 60_000;
+// la alarma suena mientras haya uno sin tomar de las últimas 12 h (lo de anoche
+// todavía hay que tomarlo; lo de hace dos días ya no es un pedido que entra)
+const SUENA_HASTA_MS = 12 * 3600_000;
 const CLAVE_VISTOS = 'odb_pedidos_vistos';
 const CLAVE_POSPUESTOS = 'odb_pedidos_pospuestos';
 
@@ -31,33 +43,6 @@ const leer = (clave: string): Record<string, number> => {
 const guardar = (clave: string, v: Record<string, number>) => {
   try { sessionStorage.setItem(clave, JSON.stringify(v)); } catch { /* modo privado */ }
 };
-
-// Dos notas cortas (no un pitido): se oye en el local sin asustar a nadie. El
-// navegador no deja sonar nada hasta que la persona tocó algo en la página; el
-// contexto de audio se crea con ese primer toque.
-let audio: AudioContext | null = null;
-function prepararAudio() {
-  if (audio || typeof window === 'undefined') return;
-  const Ctx = window.AudioContext ?? (window as any).webkitAudioContext;
-  if (Ctx) audio = new Ctx();
-}
-function sonar() {
-  if (!audio) return;
-  if (audio.state === 'suspended') audio.resume().catch(() => null);
-  const t0 = audio.currentTime + 0.02;
-  [[880, 0], [1318.5, 0.2]].forEach(([frec, desde]) => {
-    const osc = audio!.createOscillator();
-    const vol = audio!.createGain();
-    osc.type = 'sine';
-    osc.frequency.value = frec;
-    vol.gain.setValueAtTime(0.0001, t0 + desde);
-    vol.gain.exponentialRampToValueAtTime(0.22, t0 + desde + 0.02);
-    vol.gain.exponentialRampToValueAtTime(0.0001, t0 + desde + 0.36);
-    osc.connect(vol).connect(audio!.destination);
-    osc.start(t0 + desde);
-    osc.stop(t0 + desde + 0.4);
-  });
-}
 
 type Resultado = { id: string; texto: string; tono: 'ok' | 'neutro' };
 
@@ -69,6 +54,7 @@ export function AvisoPedidoNuevo() {
   const [resultado, setResultado] = useState<Resultado | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [permisoNotif, setPermisoNotif] = useState<string>('granted');
+  const [sinSonido, setSinSonido] = useState(false);
   const [, setReloj] = useState(0);
   const apagado = useRef(false);
   const tituloOriginal = useRef<string | null>(null);
@@ -86,13 +72,21 @@ export function AvisoPedidoNuevo() {
       const nuevos = (lista as PedidoCola[])
         .filter((p) => sinTomar(p) && ahora - Date.parse(p.creado_en) < VENTANA_MS)
         .sort((a, b) => Date.parse(b.creado_en) - Date.parse(a.creado_en));
-      // suena una vez por pedido (en esta pestaña), y solo si es reciente
+      // la comanda: en esta PC, si está marcada, una sola vez por pedido aunque
+      // haya varias pestañas (también los cargados a mano que ya tienen dueño)
+      if (estaPcImprime()) {
+        for (const p of lista as PedidoCola[]) {
+          if (['recibido', 'pagado'].includes(p.estado) && ahora - Date.parse(p.creado_en) < RECIENTE_MS) {
+            await imprimirSiFalta(p).catch(() => false);
+          }
+        }
+      }
+      // la notificación de Windows: una vez por pedido (en esta pestaña), y solo si es reciente
       const vistos = leer(CLAVE_VISTOS);
-      const recienLlegados = nuevos.filter((p) => !vistos[p.id] && ahora - Date.parse(p.creado_en) < SUENA_MS);
+      const recienLlegados = nuevos.filter((p) => !vistos[p.id] && ahora - Date.parse(p.creado_en) < RECIENTE_MS);
       for (const p of nuevos) vistos[p.id] = vistos[p.id] ?? ahora;
       guardar(CLAVE_VISTOS, vistos);
       if (recienLlegados.length) {
-        sonar();
         if (document.visibilityState === 'hidden' && 'Notification' in window && Notification.permission === 'granted') {
           const p = recienLlegados[0];
           try {
@@ -111,9 +105,14 @@ export function AvisoPedidoNuevo() {
   useEffect(() => {
     setPospuestos(leer(CLAVE_POSPUESTOS));
     if ('Notification' in window) setPermisoNotif(Notification.permission);
+    // con el acceso directo de las PC con impresora, el audio arranca solo; si
+    // no, se despierta con el primer toque o tecla
+    prepararAudio();
+    setSinSonido(!audioActivo());
+    const dejarDeOir = alCambiarAudio(() => setSinSonido(!audioActivo()));
     const despertar = () => prepararAudio();
-    window.addEventListener('pointerdown', despertar, { once: true });
-    window.addEventListener('keydown', despertar, { once: true });
+    window.addEventListener('pointerdown', despertar);
+    window.addEventListener('keydown', despertar);
     mirar();
     const t = setInterval(mirar, CADA_MS);
     // el "hace N min" y los pospuestos que vencen
@@ -122,6 +121,7 @@ export function AvisoPedidoNuevo() {
     document.addEventListener('visibilitychange', alVolver);
     return () => {
       clearInterval(t); clearInterval(r);
+      dejarDeOir();
       document.removeEventListener('visibilitychange', alVolver);
       window.removeEventListener('pointerdown', despertar);
       window.removeEventListener('keydown', despertar);
@@ -137,6 +137,24 @@ export function AvisoPedidoNuevo() {
     const base = tituloOriginal.current ?? 'O.D.B';
     document.title = visibles.length ? `(${visibles.length}) Pedido nuevo · ${base}` : base;
   }, [visibles.length]);
+
+  // la alarma se repite hasta que lo toman (o lo esconden 10 min en esta PC) y
+  // crece con lo que lleva sin tomar el más viejo; donde la ventana no se ve
+  // (RESPONDE a pantalla completa) no suena
+  const sonables = llevaFlotantes(ruta) ? visibles.filter((p) => ahora - Date.parse(p.creado_en) < SUENA_HASTA_MS) : [];
+  const suenaDesde = sonables.length ? Math.min(...sonables.map((p) => Date.parse(p.creado_en))) : null;
+  const suena = suenaDesde !== null;
+  useEffect(() => {
+    if (suenaDesde === null) return;
+    let t: ReturnType<typeof setTimeout>;
+    const tocar = () => {
+      const nivel = nivelDe(Date.now() - suenaDesde);
+      sonarAlarma(nivel);
+      t = setTimeout(tocar, esperaDe(nivel));
+    };
+    tocar();
+    return () => clearTimeout(t);
+  }, [suenaDesde]);
 
   async function tomar(p: PedidoCola) {
     setTomando(p.id); setError(null);
@@ -201,6 +219,7 @@ export function AvisoPedidoNuevo() {
           onTomar={() => tomar(primero)}
           onPosponer={() => posponer(primero)}
           pedirNotif={permisoNotif === 'default' ? activarNotificaciones : undefined}
+          sinSonido={suena && sinSonido}
         />
       )}
       {segundo && (
@@ -223,10 +242,10 @@ function MasSinTomar({ n, className }: { n: number; className?: string }) {
 }
 
 function TarjetaPedido({
-  p, compacta, tomando, error, onTomar, onPosponer, pedirNotif,
+  p, compacta, tomando, error, onTomar, onPosponer, pedirNotif, sinSonido,
 }: {
   p: PedidoCola; compacta?: boolean; tomando: boolean; error?: string | null;
-  onTomar: () => void; onPosponer: () => void; pedirNotif?: () => void;
+  onTomar: () => void; onPosponer: () => void; pedirNotif?: () => void; sinSonido?: boolean;
 }) {
   const origen = origenDe(p);
   const tel = telefonoLegible(p.clienteTelefono);
@@ -293,13 +312,18 @@ function TarjetaPedido({
         <button
           type="button"
           onClick={onPosponer}
-          aria-label={`Recordarme el pedido ${codigoDe(p)} en 10 minutos`}
-          title="Esconder 10 minutos"
+          aria-label={`Esconder y callar el pedido ${codigoDe(p)} 10 minutos`}
+          title="Esconder y callar 10 minutos"
           className={unir('ml-auto flex size-9 shrink-0 items-center justify-center rounded-full text-tinta/60 hover:bg-crema-claro hover:text-tinta', FOCO)}
         >
           <IconoCerrar className="size-5" />
         </button>
       </div>
+      {sinSonido && (
+        <p role="alert" className="bg-marca-suave px-4 py-2 text-xs font-semibold text-marca-hondo">
+          No está sonando: tocá cualquier parte de la pantalla una vez para activar la alarma.
+        </p>
+      )}
       {pedirNotif && (
         <button type="button" onClick={pedirNotif} className={unir('block w-full bg-crema-claro px-4 py-2 text-left text-xs font-medium text-tinta/70 hover:text-tinta', FOCO)}>
           Avisarme también cuando el panel esté en otra pestaña
