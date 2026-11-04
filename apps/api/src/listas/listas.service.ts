@@ -73,12 +73,14 @@ const ESQUEMA_COMPROBANTE = {
     comprobante: {
       type: 'object',
       properties: {
-        tipo: { type: 'string', enum: ['factura_a', 'factura_b', 'factura_c', 'remito', 'ticket', 'otro'], description: 'Tipo: factura A discrimina IVA; "No válido como factura" o presupuesto = remito' },
+        tipo: { type: 'string', enum: ['factura_a', 'factura_b', 'factura_c', 'nota_credito_a', 'nota_credito_b', 'nota_credito_c', 'remito', 'ticket', 'otro'], description: 'Tipo: factura A discrimina IVA; "NOTA DE CRÉDITO" (o "N. CRÉDITO", código 03/08/13) = nota_credito_<letra>; "No válido como factura" o presupuesto = remito' },
         numero: { type: ['string', 'null'], description: 'Número completo, ej 0005-00039783' },
         fecha: { type: ['string', 'null'], description: 'Fecha de emisión AAAA-MM-DD' },
         condicionVenta: { type: ['string', 'null'], description: 'Contado / Cta Cte / CRE etc.' },
+        // 4/11/2026: la NC dice a qué factura corrige; con eso se libera sola
+        facturaAsociada: { type: 'string', description: 'Solo en una NOTA DE CRÉDITO: el número de la factura que corrige, como figura en "Comprobante asociado", "Ref. Fact.", "s/ Factura" o similar (ej 0010-00095138). "" si no lo dice o no es nota de crédito.' },
       },
-      required: ['tipo', 'numero', 'fecha', 'condicionVenta'],
+      required: ['tipo', 'numero', 'fecha', 'condicionVenta', 'facturaAsociada'],
       additionalProperties: false,
     },
     items: {
@@ -554,6 +556,22 @@ export class ListasService {
   // mayonesa de Distri Sur quedaba "9,5 kg" en vez de 10 unidades con 5% off—
   // la lectura vieja seguiría mostrando el error. Se rehace sobre la lectura
   // cruda del renglón, que quedó guardada, y se trae la alícuota del catálogo.
+  // LA NOTA DE CRÉDITO SE VINCULA SOLA (4/11/2026): de las facturas del
+  // proveedor que esperan su NC, la que la NC nombra como asociada; si no
+  // nombra ninguna, la más vieja que espera.
+  private async facturaQueEsperaNc(proveedorId: string, asociada?: string | null) {
+    const { data } = await this.db.from('facturas_proveedor')
+      .select('id, numero, monto, espera_nc_motivo, creado_en')
+      .eq('proveedor_id', proveedorId).eq('espera_nc', true).eq('tipo', 'factura').neq('estado', 'anulada')
+      .order('creado_en', { ascending: true });
+    const lista = (data ?? []) as any[];
+    if (!lista.length) return null;
+    const soloDigitos = (s: unknown) => String(s ?? '').replace(/\D/g, '').replace(/^0+/, '');
+    const pedida = soloDigitos(asociada);
+    const f = (pedida && lista.find((x) => soloDigitos(x.numero) === pedida)) || lista[0];
+    return { id: f.id, numero: f.numero, monto: Number(f.monto), motivo: f.espera_nc_motivo ?? null, porNumero: !!pedida && soloDigitos(f.numero) === pedida };
+  }
+
   // Las percepciones que el proveedor cobra siempre, en % del neto (promedio de
   // sus últimas 6 facturas registradas). Con eso la pantalla de compras avisa
   // "este proveedor siempre cobra IIBB 5%" cuando una factura no lo trae.
@@ -989,6 +1007,11 @@ export class ListasService {
         match: proveedor, // null = hay que darlo de alta o elegirlo a mano
       },
       comprobante: datos.comprobante ?? null,
+      // una nota de crédito: la factura de este proveedor que la estaba esperando
+      // para pagarse (4/11/2026). La pantalla la muestra y la vincula al registrar.
+      ncPara: String(datos.comprobante?.tipo ?? '').startsWith('nota_credito') && proveedor?.id
+        ? await this.facturaQueEsperaNc(proveedor.id, datos.comprobante?.facturaAsociada).catch(() => null)
+        : null,
       impuestos: datos.impuestos ?? null,
       impuestosHabituales: await this.impuestosHabituales(proveedor?.id).catch(() => null),
       archivoUrl, // ruta del original en el bucket: viaja con la factura al registrarla

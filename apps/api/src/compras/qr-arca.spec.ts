@@ -68,8 +68,10 @@ describe('QR de ARCA: cruzar con la lectura', () => {
 
   it('una nota de crédito se avisa aunque la lectura diga factura', () => {
     const qr = decodificarQrArca(qrDe({ fecha: '2026-11-01', cuit: 30711598630, ptoVta: 7, tipoCmp: 3, nroCmp: 900, importe: 5000, moneda: 'PES', ctz: 1, nroDocRec: 30716969718 }))!;
-    const c = controlarConQr(lectura({ impuestos: { total: 5000 } }), qr, [ODB]);
+    const datos = lectura({ impuestos: { total: 5000 } });
+    const c = controlarConQr(datos, qr, [ODB]);
     expect(c.qrArca.notaDeCredito).toBe(true);
+    expect(datos.comprobante.tipo).toBe('nota_credito_a');
     expect(c.dudas.map((d) => d.pregunta).join()).toMatch(/NOTA DE CRÉDITO A/);
   });
 

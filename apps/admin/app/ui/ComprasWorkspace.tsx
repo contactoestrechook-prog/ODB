@@ -318,7 +318,7 @@ export function ComprasWorkspace({ resumen, ordenes, proveedores, sugerencias, s
                     {d.facturas.map((fc: any) => (
                       <button key={fc.id} onClick={() => setModal({ tipo: 'facturaDetalle', facturaId: fc.id })}
                         className={unir('relative inline-flex min-h-9 max-w-full items-center rounded-full border border-black/15 bg-white px-3 text-xs text-tinta/70 transition-colors before:absolute before:inset-x-0 before:-inset-y-1 hover:border-marca hover:text-marca-hondo sm:min-h-8 sm:before:hidden', FOCO)}>
-                        <span className="truncate">#{fc.numero} · <span className="importe">{pesos(fc.monto ?? 0)}</span></span>
+                        <span className="truncate">#{fc.numero} · <span className="importe">{pesos(fc.monto ?? 0)}</span>{fc.esperaNc ? ' · espera nota de crédito' : ''}</span>
                       </button>
                     ))}
                   </div>
@@ -488,7 +488,8 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
     );
   };
 
-  const [facturasSel, setFacturasSel] = useState<string[]>(modal.prov?.facturas?.map((x: any) => x.id) ?? []);
+  // las que esperan la nota de crédito no se pueden pagar todavía
+  const [facturasSel, setFacturasSel] = useState<string[]>(modal.prov?.facturas?.filter((x: any) => !x.esperaNc).map((x: any) => x.id) ?? []);
   const [importando, setImportando] = useState(false);
   const [importInfo, setImportInfo] = useState<{ conMatch: number; sinMatch: string[] } | null>(null);
 
@@ -1392,6 +1393,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
         if (j !== k) return x;
         if (c.campo === 'noAplicar') return { ...x, noAplicar: !!c.antes };
         if (c.campo === 'ingresa') return { ...x, incluir: !!c.antes };
+        if (c.campo === 'kilos') return x.antesDePeso ? { ...x, ...x.antesDePeso, porPeso: false, antesDePeso: null } : x;
         const papel: Papel = { ...(x.papel ?? papelDeLectura(x)) };
         if (c.campo === 'entraComo') {
           const de = Number(papel.uxb);
@@ -1491,6 +1493,13 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   const inclItems = itemsCalc.filter((i: any) => i.incluir && !i._esDescuento && !i._esDevolucion);
   // lo que sale del stock: las devoluciones tildadas y con producto (3/11/2026)
   const devolucionesARestar = itemsCalc.filter((i: any) => i._esDevolucion && i.incluir && i.sku);
+  // lo que volvió en la entrega (pintado o anotado a mano): la factura no se
+  // paga hasta que llegue la nota de crédito (4/11/2026)
+  // una nota de crédito del proveedor: se registra como NC, sin mover stock, y
+  // libera la factura que la esperaba
+  const esNotaCredito = String(foto?.comprobante?.tipo ?? '').startsWith('nota_credito');
+  const devueltosAMano = fotoItems.filter((i: any) => i.devueltoAMano && !i.incluir)
+    .map((i: any) => ({ descripcion: String(i.descripcion ?? ''), importe: i.importe != null && i.importe !== '' ? Math.abs(numImp(i.importe)) : null }));
   const sumaCostos = inclItems.reduce((s, i) => s + numImp(i.cantidad) * costoFinal(i), 0);
   const baseIncluidos = inclItems.reduce((s, i) => s + numImp(i.cantidad) * precioEfectivo(i), 0) * factorRecon;
   const techoMerc = baseCosto != null ? baseCosto : (totalDoc != null ? totalDoc : Infinity);
@@ -1829,17 +1838,19 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
       ) : foto.error ? (
         <Acciones cerrar={cerrar} okLabel="Reintentar" onOk={() => setFoto(null)} />
       ) : (
-        soloFactura ? (
+        soloFactura || esNotaCredito ? (
           <Acciones
             cerrar={cerrar}
-            okLabel="Registrar factura para conciliar"
-            disabled={!f.proveedorId || !(fotoImp?.total > 0) || lecturaIncompleta}
+            okLabel={esNotaCredito ? (foto.ncPara ? `Registrar nota de crédito y liberar la factura ${foto.ncPara.numero}` : 'Registrar nota de crédito') : 'Registrar factura para conciliar'}
+            disabled={!f.proveedorId || !(fotoImp?.total > 0) || (!esNotaCredito && lecturaIncompleta)}
             onOk={() => registrarConConstancia({
               accion: 'factura',
               proveedorId: f.proveedorId,
               sucursalId: f.sucursalId || undefined,
-              tipo: 'factura',
-              letra: foto.comprobante?.tipo?.split('_')[1]?.toUpperCase() || undefined,
+              // la NC no mueve stock: lo devuelto ya no entró (4/11/2026)
+              tipo: esNotaCredito ? 'nota_credito' : 'factura',
+              ...(esNotaCredito && foto.ncPara?.id ? { ncPara: foto.ncPara.id } : {}),
+              letra: foto.comprobante?.tipo?.split('_').pop()?.toUpperCase() || undefined,
               numero: foto.comprobante?.numero ?? 's/n',
               monto: Number(fotoImp.total),
               neto: fotoImp.neto, iva: fotoImp.iva,
@@ -1851,6 +1862,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
               condicionVenta: foto.comprobante?.condicionVenta || undefined,
               archivoUrl: foto.archivoUrl || undefined,
               pagada,
+              ...(devueltosAMano.length ? { devueltos: devueltosAMano } : {}),
               // TODOS los renglones leídos (con o sin producto): son la base del cruce
               items: fotoItems.map((i) => ({ sku: i.sku || undefined, descripcion: i.descripcion, cantidad: Number(i.cantidad), precio: numImp(i.precio) })),
             })}
@@ -1890,6 +1902,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                 condicionVenta: foto.comprobante?.condicionVenta || undefined,
                 archivoUrl: foto.archivoUrl || undefined,
                 pagada,
+                ...(devueltosAMano.length ? { devueltos: devueltosAMano } : {}),
               },
             } : {}),
           })}
@@ -3091,6 +3104,16 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                 )}
               </div>
 
+              {/* una nota de crédito: qué factura libera para pagar (4/11/2026) */}
+              {esNotaCredito && (
+                <p className="break-words text-sm font-medium text-tinta">
+                  Es una nota de crédito: no mueve stock.{' '}
+                  {foto.ncPara
+                    ? <>Libera para pagar la factura <b>{foto.ncPara.numero}</b> ({pesos(foto.ncPara.monto)}), que la esperaba{foto.ncPara.motivo ? ` · ${foto.ncPara.motivo}` : ''}.</>
+                    : <>Este proveedor no tiene ninguna factura esperando nota de crédito.</>}
+                </p>
+              )}
+
               {/* lo que la factura le informó a ARCA, leído del QR (3/11/2026) */}
               {foto.qrArca ? (
                 <p className={`break-words text-xs ${foto.qrArca.totalCoincide ? 'text-tinta/70' : 'font-medium text-atencion'}`}>
@@ -3155,8 +3178,11 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
           <p className="text-xs text-tinta/60">Elegí las facturas. La OP queda <b>pendiente de aprobación del dueño</b> antes de pagarse.</p>
           {modal.prov.facturas.map((fa: any) => (
             <label key={fa.id} className="flex min-h-11 items-center gap-3 border-b border-black/[0.06] py-1.5 text-sm text-tinta">
-              <input type="checkbox" checked={facturasSel.includes(fa.id)} onChange={(e) => setFacturasSel((s) => e.target.checked ? [...s, fa.id] : s.filter((x) => x !== fa.id))} className="size-5 shrink-0 accent-marca" />
-              <span className="min-w-0 flex-1 break-words">Factura {fa.numero} {fa.vencimiento ? `· vence ${fecha(fa.vencimiento)}` : ''}</span>
+              <input type="checkbox" checked={facturasSel.includes(fa.id)} disabled={!!fa.esperaNc} onChange={(e) => setFacturasSel((s) => e.target.checked ? [...s, fa.id] : s.filter((x) => x !== fa.id))} className="size-5 shrink-0 accent-marca" />
+              <span className="min-w-0 flex-1 break-words">
+                Factura {fa.numero} {fa.vencimiento ? `· vence ${fecha(fa.vencimiento)}` : ''}
+                {fa.esperaNc && <span className="block text-xs text-atencion">Espera la nota de crédito: no se paga hasta cargarla. {fa.esperaNcMotivo ?? ''}</span>}
+              </span>
               <span className="importe shrink-0 font-medium">{pesos(fa.monto ?? 0)}</span>
             </label>
           ))}

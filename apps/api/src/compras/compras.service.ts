@@ -89,8 +89,22 @@ export type EntradaDirectaDto = {
     condicionVenta?: string;
     archivoUrl?: string; // comprobante original en el bucket
     pagada?: boolean; // contado en el momento → nace pagada
+    // renglones que volvieron con el repartidor (pintados o anotados a mano)
+    devueltos?: { descripcion: string; importe?: number | null }[];
   };
 };
+
+// LO DEVUELTO SE PAGA RECIÉN CON LA NOTA DE CRÉDITO (Leandro, 4/11/2026): «la
+// factura sigue su curso en administración y esperamos la nota de crédito para
+// firmar y procesar el pago». La factura nace con espera_nc; la base no deja
+// pagarla ni meterla en una orden de pago, y la libera sola cuando se carga
+// una nota de crédito del mismo proveedor.
+export function esperaDeNotaCredito(devueltos?: { descripcion: string; importe?: number | null }[] | null) {
+  const lista = (devueltos ?? []).filter((d) => String(d?.descripcion ?? '').trim());
+  if (!lista.length) return {};
+  const detalle = lista.map((d) => String(d.descripcion).trim() + (Number(d.importe) > 0 ? ` ($${Math.round(Number(d.importe)).toLocaleString('es-AR')})` : '')).join(' · ');
+  return { espera_nc: true, espera_nc_motivo: `Devuelto en la entrega: ${detalle}`.slice(0, 500) };
+}
 
 @Injectable()
 export class ComprasService {
@@ -529,8 +543,11 @@ export class ComprasService {
         condicion_venta: f.condicionVenta ?? null,
         empresa,
         archivo_url: f.archivoUrl ?? null,
-        estado: f.pagada ? 'pagada' : 'pendiente',
-        monto_pagado: f.pagada ? Number(f.total) : 0,
+        // con mercadería devuelta en la entrega no se paga hasta que llegue la
+        // nota de crédito (regla de Leandro, 4/11/2026): la traba la pone la base
+        ...esperaDeNotaCredito(f.devueltos),
+        estado: f.pagada && !f.devueltos?.length ? 'pagada' : 'pendiente',
+        monto_pagado: f.pagada && !f.devueltos?.length ? Number(f.total) : 0,
         oc_id: resultado.oc_id,
         remito_id: resultado.remito_id,
         cargada_por: dto.usuarioId ?? null,
@@ -806,7 +823,7 @@ export class ComprasService {
   async deudaProveedores() {
     const { data, error } = await this.db
       .from('facturas_proveedor')
-      .select('id, numero, tipo, monto, monto_pagado, vencimiento, estado, creado_en, proveedor:proveedores(id, razon_social)')
+      .select('id, numero, tipo, monto, monto_pagado, vencimiento, estado, creado_en, espera_nc, espera_nc_motivo, proveedor:proveedores(id, razon_social)')
       .not('estado', 'in', '("pagada","en_pago","anulada")')
       .order('vencimiento', { ascending: true });
     if (error) throw new BadRequestException(error.message);
@@ -817,7 +834,7 @@ export class ComprasService {
       // deuda real: saldo pendiente (monto - pagos parciales); las NC restan
       const saldo = Math.max(Number(f.monto) - Number(f.monto_pagado || 0), 0) * (f.tipo === 'nota_credito' ? -1 : 1);
       acc.total += saldo;
-      acc.facturas.push({ id: f.id, numero: f.numero, tipo: f.tipo, monto: Math.abs(saldo), vencimiento: f.vencimiento, estado: f.estado });
+      acc.facturas.push({ id: f.id, numero: f.numero, tipo: f.tipo, monto: Math.abs(saldo), vencimiento: f.vencimiento, estado: f.estado, esperaNc: !!f.espera_nc, esperaNcMotivo: f.espera_nc_motivo ?? null });
       porProv.set(id, acc);
     }
     return [...porProv.values()].map((p) => ({ ...p, total: Math.round(p.total) })).sort((a, b) => b.total - a.total);
@@ -828,7 +845,7 @@ export class ComprasService {
   async facturaDetalle(id: string) {
     const { data: f, error } = await this.db
       .from('facturas_proveedor')
-      .select('id, numero, tipo, letra, monto, monto_pagado, neto, iva, percepcion_iva, percepcion_iibb, impuestos_internos, otros_impuestos, fecha_emision, vencimiento, estado, empresa, categoria_gasto, condicion_venta, archivo_url, notas, creado_en, remito_id, oc_id, cargada_por, cargador:usuarios!facturas_proveedor_cargada_por_fkey(nombre), proveedor:proveedores(razon_social, cuit)')
+      .select('id, numero, tipo, letra, monto, monto_pagado, neto, iva, percepcion_iva, percepcion_iibb, impuestos_internos, otros_impuestos, fecha_emision, vencimiento, estado, empresa, categoria_gasto, condicion_venta, archivo_url, notas, creado_en, remito_id, oc_id, espera_nc, espera_nc_motivo, nc_id, cargada_por, cargador:usuarios!facturas_proveedor_cargada_por_fkey(nombre), proveedor:proveedores(razon_social, cuit)')
       .eq('id', id)
       .single();
     if (error) throw new BadRequestException(error.message);
@@ -920,8 +937,12 @@ export class ComprasService {
         condicion_venta: dto.condicionVenta || null,
         notas: dto.notas || null,
         archivo_url: dto.archivoUrl || null,
-        estado: dto.pagada ? 'pagada' : 'pendiente',
-        monto_pagado: dto.pagada ? Number(dto.monto) : 0,
+        ...(tipo === 'factura' ? esperaDeNotaCredito(dto.devueltos) : {}),
+        // la NC dice qué factura libera (la encontró el lector); sin dato, la base
+        // libera la más vieja del proveedor que la esperaba
+        ...(tipo === 'nota_credito' && dto.ncPara ? { nc_para: String(dto.ncPara) } : {}),
+        estado: dto.pagada && !(tipo === 'factura' && dto.devueltos?.length) ? 'pagada' : 'pendiente',
+        monto_pagado: dto.pagada && !(tipo === 'factura' && dto.devueltos?.length) ? Number(dto.monto) : 0,
         cargada_por: usuarioId ?? null,
       })
       .select('id')
@@ -941,7 +962,7 @@ export class ComprasService {
     let query = this.db
       .from('facturas_proveedor')
       .select(
-        'id, numero, tipo, letra, monto, monto_pagado, neto, iva, percepcion_iva, percepcion_iibb, impuestos_internos, otros_impuestos, fecha_emision, vencimiento, estado, empresa, categoria_gasto, condicion_venta, archivo_url, notas, creado_en, cargada_por, cargador:usuarios!facturas_proveedor_cargada_por_fkey(nombre), proveedor:proveedores(id, razon_social)',
+        'id, numero, tipo, letra, monto, monto_pagado, neto, iva, percepcion_iva, percepcion_iibb, impuestos_internos, otros_impuestos, fecha_emision, vencimiento, estado, empresa, categoria_gasto, condicion_venta, archivo_url, notas, creado_en, espera_nc, espera_nc_motivo, cargada_por, cargador:usuarios!facturas_proveedor_cargada_por_fkey(nombre), proveedor:proveedores(id, razon_social)',
         { count: 'exact' },
       );
     if (q.estado === 'vencidas') {

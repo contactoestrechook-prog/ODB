@@ -195,6 +195,7 @@ export function FacturasCompraWorkspace({ resumenInicial, facturasInicial, prove
                       {f.archivo_url && <span title="Tiene comprobante adjunto" className="shrink-0 text-tinta/60"><IconoClip /><span className="sr-only">Tiene comprobante adjunto</span></span>}
                     </span>
                     <span className="block break-words text-sm text-tinta/70">{f.proveedor?.razon_social ?? '—'}</span>
+                    {f.espera_nc && <span className="block text-xs text-atencion">Espera nota de crédito · no se paga</span>}
                   </span>
                   <Etiqueta tono={ESTADOS[f.estado]?.[1] ?? 'neutro'} className="shrink-0">{ESTADOS[f.estado]?.[0] ?? f.estado}</Etiqueta>
                 </span>
@@ -258,6 +259,7 @@ export function FacturasCompraWorkspace({ resumenInicial, facturasInicial, prove
                   <td className="importe whitespace-nowrap px-3 py-3 text-right">{['pagada', 'anulada'].includes(f.estado) ? '—' : pesos(f.saldo ?? 0)}</td>
                   <td className="whitespace-nowrap px-3 py-3">
                     <Etiqueta tono={ESTADOS[f.estado]?.[1] ?? 'neutro'}>{ESTADOS[f.estado]?.[0] ?? f.estado}</Etiqueta>
+                    {f.espera_nc && <span className="block text-xs text-atencion">Espera nota de crédito</span>}
                   </td>
                   <td className="min-w-0 max-w-36 break-words px-3 py-3 text-xs text-tinta/70" title={f.cargador?.nombre ?? ''}>{f.cargada_por === usuarioId ? 'Yo' : (f.cargador?.nombre ?? '—')}</td>
                 </tr>
@@ -521,7 +523,8 @@ function DetalleFactura({ id, cerrar, refrescar, rol }: { id: string; cerrar: ()
 
   const editable = d && !['anulada'].includes(d.estado);
   const anulable = d && ['pendiente', 'parcial'].includes(d.estado);
-  const pagable = d && ['pendiente', 'parcial'].includes(d.estado);
+  // con mercadería devuelta se paga recién cuando llega la nota de crédito (4/11/2026)
+  const pagable = d && !d.espera_nc && ['pendiente', 'parcial'].includes(d.estado);
 
   return (
     <Modal
@@ -604,6 +607,11 @@ function DetalleFactura({ id, cerrar, refrescar, rol }: { id: string; cerrar: ()
           {/* pagos */}
           <div className="space-y-2 rounded-xl border border-black/[0.06] p-3">
             <p className="text-sm font-semibold text-tinta">Pagos registrados</p>
+            {d.espera_nc && (
+              <Aviso tono="atencion">
+                No se paga hasta que llegue la nota de crédito de {d.proveedor?.razon_social ?? 'el proveedor'}. {d.espera_nc_motivo ?? ''} Cuando la cargues en Facturas como nota de crédito, esta factura se libera para pagar.
+              </Aviso>
+            )}
             {(d.pagos ?? []).length === 0 && <p className="text-sm text-tinta/60">Sin pagos todavía.</p>}
             {(d.pagos ?? []).map((p: any, i: number) => (
               <div key={i} className="flex justify-between gap-3 text-sm text-tinta/70">
