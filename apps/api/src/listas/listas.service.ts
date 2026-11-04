@@ -126,6 +126,14 @@ const ESQUEMA_COMPROBANTE = {
             type: ['number', 'null'],
             description: 'PESO del renglón cuando el producto se vende por kilo (fiambres, quesos en horma o fraccionados, carnicería, verdulería a granel). Copiá el valor de la columna KG / KILOS / PESO tal cual (el peso total del renglón, ej 5,44). En esas facturas la columna CANT suele decir 1 (una horma) pero el precio es POR KILO: acá va el peso. Si el renglón no se vende por peso o no hay columna de peso, poné null. NO lo inventes ni lo deduzcas del importe.',
           },
+          // Lo devuelto en la entrega (4/11/2026, Las Dinas): el renglón está
+          // facturado, pero la pieza volvió con el repartidor y lo dice una
+          // anotación a mano. No es una devolución impresa: su plata vuelve con
+          // la nota de crédito; lo que importa es que NO entra al stock.
+          devueltoAMano: {
+            type: 'boolean',
+            description: 'true si la mercadería de ESTE renglón volvió al proveedor en la entrega. REGLA DE ODB (4/11/2026): un renglón PINTADO con color (resaltador, marcador, de cualquier color) ES SIEMPRE una devolución, diga o no algo al lado. También es true si una anotación a mano lo tacha o dice "dev", "devuelto", "devolución", "no vino" o "rechazado", o si una nota escrita a mano nombra este producto como devuelto (marcá CADA renglón que nombre, aunque no esté pintado). false si el renglón no está pintado ni anotado así.',
+          },
         },
         // Cantidad/precio/importe ausentes se normalizan a null. Evita superar
         // el límite de 16 propiedades con unión del servicio de extracción.
@@ -685,7 +693,7 @@ export class ListasService {
           'REGLAS DURAS: "PER."/"PERCEPCIÓN" es SIEMPRE percepción, JAMÁS el IVA discriminado. Una etiqueta = un solo campo. Una etiqueta con eco=true (mismo valor que otra ya mapeada) NO se vuelve a sumar en ningún campo.\n\n' +
           'PASO 4 — Control rápido, UNA sola vez. Sumá S = neto + iva + percepcionIva + percepcionIibb + impuestosInternos + otros y compará con total (el descuentoGlobal no entra: ya está restado en el neto). Si difiere en más del 0,5%, lo más probable es que hayas cruzado PER. DE IVA con el IVA discriminado o metido el SUB TOTAL en otros: corregí ese mapeo una vez y seguí. NO iteres ni recalcules varias veces: el sistema vuelve a verificar la identidad en código y le pregunta al operador si no cierra. Dejá tu mejor lectura y, si quedó una etiqueta dudosa, agregá una duda diciendo cuál.\n\n' +
           'PASO 5 — Renglones vs neto (régimen especial). En cigarrillos, bebidas con impuestos internos y similares, la suma de (cantidad × PRE.UNIT) NO tiene por qué coincidir con el neto, y el IVA NO es el 21% del neto (puede ser mucho menor): el precio unitario ya trae impuestos internos y percepción IIBB embebidos. Para estos comprobantes NO fuerces suma(renglones) = neto y NO uses ese descuadre para "corregir" el pie ni para dudar. Preguntá por el descuadre de renglones SOLO si el comprobante claramente NO es de régimen especial (verdulería, limpieza) y la diferencia es grande.\n\n' +
-          'PASO 6 — Dudas. Preguntá por cualquier número borroso, tapado o ambiguo, y por letra manuscrita. Si la identidad del PASO 4 no cerró, es OBLIGATORIO dejar una duda. Si hay anotaciones manuscritas relevantes, transcribilas en notasManuscritas. Es mejor preguntar que cargar un número equivocado.';
+          'PASO 6 — Dudas. Preguntá por cualquier número borroso, tapado o ambiguo, y por letra manuscrita. Si la identidad del PASO 4 no cerró, es OBLIGATORIO dejar una duda. Si hay anotaciones manuscritas relevantes, transcribilas en notasManuscritas. DEVUELTO EN LA ENTREGA (regla de ODB): todo renglón pintado con color (resaltador o marcador, de cualquier color) es una devolución → devueltoAMano = true, sin preguntar. Lo mismo si una anotación a mano dice que se devolvió mercadería («Devolución: 1 mortadela con pistacho»): marcá devueltoAMano = true en CADA renglón que nombre, uno por uno. Esa mercadería no entra al stock. Es mejor preguntar que cargar un número equivocado.';
     // El QR de ARCA ANTES de leer (3/11/2026): da el CUIT exacto, y con el
     // CUIT, el proveedor y lo que administración dejó explicado sobre sus
     // facturas. Esas reglas antes llegaban solo al chat, después de leer: la
@@ -891,6 +899,8 @@ export class ListasService {
         codigo: i.codigo ?? null,
         ...lectura,
         esDevolucion,
+        // volvió en la entrega, anotado a mano: está facturado pero no entra al stock
+        devueltoAMano: !esDevolucion && i.devueltoAMano === true,
         alicuotaIva: Number(i.alicuotaIva) > 0 ? Number(i.alicuotaIva) : null,
         descuentoPct: porcentajeDeDescuento(String(i.descripcion ?? '')),
         interpretado: interpretarLecturaSegura(lectura),

@@ -676,6 +676,9 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
           esDescuento: !!i.esDescuento,
           // mercadería que vuelve al proveedor: sale del stock (3/11/2026)
           esDevolucion: !!i.esDevolucion,
+          // volvió en la entrega y lo dice una anotación a mano: está facturado,
+          // pero no entra al stock (4/11/2026, la mortadela de Las Dinas)
+          devueltoAMano: !!i.devueltoAMano,
           descuentoPct: i.descuentoPct ?? null,
           puedePorPeso: !!i.puedePorPeso,
           // la alícuota impresa, o la que prueba un importe leído con IVA adentro
@@ -687,7 +690,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
           // las sugerencias de IA NO se incluyen hasta que el operador confirme "¿es este?"
           // y una rebaja no se incluye NUNCA: no es mercadería. En una
           // devolución, «incluir» quiere decir «restar del stock».
-          incluir: !i.esDescuento && !!i.match && !sugerido,
+          incluir: !i.esDescuento && !i.devueltoAMano && !!i.match && !sugerido,
           // la factura editable: lo que dice el papel, tal cual (la devolución
           // no se cuadra como mercadería que entra)
           papel: i.esDescuento || i.esDevolucion || porPeso ? null : papelDeLectura({ ...i, unidadesDelCatalogo: i.unidadesDelCatalogo ?? null }),
@@ -1659,7 +1662,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   const vincularProducto = (idx: number, p: any) => {
     setFotoItems((xs) => xs.map((x, j) => {
       if (j !== idx) return x;
-      const nuevo = { ...x, sku: p.sku, nombre: p.nombre, variacionPct: null, sugerido: false, motivoIa: null, incluir: true, alicuotaCatalogo: p.alicuotaIva != null ? Number(p.alicuotaIva) : null, costoCatalogo: p.costo ?? null };
+      const nuevo = { ...x, sku: p.sku, nombre: p.nombre, variacionPct: null, sugerido: false, motivoIa: null, incluir: !x.devueltoAMano, alicuotaCatalogo: p.alicuotaIva != null ? Number(p.alicuotaIva) : null, costoCatalogo: p.costo ?? null };
       // otro producto: lo que el lector decidió del «×N» con el costo del anterior ya no vale
       return x.sku === p.sku ? nuevo : alCambiarVinculo(nuevo);
     }));
@@ -1710,7 +1713,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
       if (!r.ok) { setAltaError(d?.message ?? 'No se pudo crear el producto'); return; }
       // el producto nuevo no tiene costo anterior con qué comparar: sin
       // costoCatalogo, si no quedaba el del producto vinculado antes
-      setFotoItems((xs) => xs.map((x, j) => j === idx ? alCambiarVinculo({ ...x, sku: d.sku, nombre: altaForm.nombre.trim(), variacionPct: null, sugerido: false, motivoIa: null, incluir: true, costoCatalogo: null }) : x));
+      setFotoItems((xs) => xs.map((x, j) => j === idx ? alCambiarVinculo({ ...x, sku: d.sku, nombre: altaForm.nombre.trim(), variacionPct: null, sugerido: false, motivoIa: null, incluir: !x.devueltoAMano, costoCatalogo: null }) : x));
       setAltaIdx(null);
     } catch {
       setAltaError('No se pudo crear el producto. Probá de nuevo.');
@@ -1722,7 +1725,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   // el operador confirma la sugerencia de la IA ("sí, es este") → queda vinculado
   // e incluido; al registrar la entrada se aprende y la próxima vez matchea solo.
   const confirmarSugerencia = (idx: number) =>
-    setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, sugerido: false, incluir: true } : x));
+    setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, sugerido: false, incluir: !x.devueltoAMano } : x));
 
   // "no, no es ese" → descarta la sugerencia y abre la búsqueda manual
   const rechazarSugerencia = (idx: number) => {
@@ -2391,6 +2394,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                         {numImp(i.paqueteAplicado) > 0 && <Sello tono="info">kg → paq. {Math.round(numImp(i.paqueteAplicado))} g</Sello>}
                         {esSinCargo(i) ? <Sello tono="ok">sin cargo</Sello> : numImp(i.bonificacionPct) > 0 ? <Sello tono="ok">bonif. {numImp(i.bonificacionPct)}%</Sello> : numImp(i.bonifIncluidaPct) > 0 ? <Sello tono="ok">bonif. {numImp(i.bonifIncluidaPct)}% ya en el precio</Sello> : null}
                         {numImp(i._descuento) < 0 && (descuentoDesmedido(i) ? <Sello tono="ojo">desc. sin aplicar</Sello> : <Sello tono="ok">desc. aplicado</Sello>)}
+                        {i.devueltoAMano && <Sello tono="ojo">devuelto (anotado a mano) · no entra al stock</Sello>}
                         {numImp(i.cantidadCorregida) > 0 && <Sello tono="ok">cant. corregida</Sello>}
                         {correccionRenglon(i)?.seguro === false && <Sello tono="ojo">revisar lectura</Sello>}
                         {(medidaVariable(i) || i.porPeso) && <Sello tono="info">por peso</Sello>}
