@@ -524,6 +524,8 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   // true = la mercadería ya ingresó por Recepción (pistola): solo se registra la
   // factura con sus renglones y va a la bandeja de conciliación, SIN mover stock
   const [soloFactura, setSoloFactura] = useState(false);
+  // la persona miró contra el papel los renglones que no cierran y los deja así
+  const [sinCierreRevisado, setSinCierreRevisado] = useState(false);
   // Lo que entró a $0 de este proveedor y espera precio (10/10/2026): el
   // renglón que coincide le pone el costo a esa entrada y no suma stock.
   // soloPrecio[sku] === false = el usuario lo destildó y entra como compra normal.
@@ -1596,7 +1598,14 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   const lecturaIncompleta = fotoItems.some((i) => (soloFactura || i.incluir) && camposDeLecturaIncompletos(i));
   // internos sin destino: no se registra hasta marcar qué productos los pagan (3/11/2026)
   const internosBloquea = !internosResueltos && inclItems.length > 0;
-  const costoBloquea = excedeMerc || excedeTotal || ivaBloquea || lecturaIncompleta || internosBloquea;
+  // EL CONTROL FINAL (Leandro, 4/11/2026: «no tiene lógica, necesito más y más
+  // de esto»). Cada renglón que entra al stock tiene que dar el importe impreso:
+  // unidades × precio − su bonificación. Si no da, algo se leyó o se interpretó
+  // mal (el Pronto Manzana de Oxxon entraba como 3 unidades siendo 36) y la
+  // factura no se registra hasta que alguien lo mire contra el papel.
+  const renglonesSinCierre = noCierranTabla.filter(({ i }) => i.incluir && i.sku);
+  const sinCierreBloquea = renglonesSinCierre.length > 0 && !sinCierreRevisado;
+  const costoBloquea = excedeMerc || excedeTotal || ivaBloquea || lecturaIncompleta || internosBloquea || sinCierreBloquea;
 
   // Excel/CSV del portal del proveedor → precarga los renglones de la OC
   async function importarPedido(archivo: File) {
@@ -2200,6 +2209,22 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
               {foto.items?.some((i: any) => i.interpretado?.faltantes?.includes('importe')) && <p className="rounded-xl bg-atencion-suave p-3 text-sm text-atencion">No se pudieron leer todos los importes de los renglones. Verificá cantidades, precios y totales contra el original; esos importes no se dieron por comprobados.</p>}
               {/* La IA pregunta lo que no entendió; aclarás y vuelve a leer teniéndolo en cuenta */}
               {lecturaIncompleta && <p role="alert" className="rounded-xl bg-atencion-suave p-3 text-sm text-atencion">Hay renglones con cantidad o precio incompletos o inválidos. Revisá el comprobante y completalos antes de registrar.</p>}
+              {renglonesSinCierre.length > 0 && (
+                <div role="alert" className="space-y-2 rounded-xl bg-atencion-suave p-3 text-sm text-atencion">
+                  <p>
+                    {renglonesSinCierre.length === 1 ? 'Un renglón no da' : `${renglonesSinCierre.length} renglones no dan`} el importe del papel (unidades × precio − bonificación):{' '}
+                    {renglonesSinCierre.map(({ i, idx }) => {
+                      const c = cuentaDelPapel(i.papel);
+                      return `${idx + 1} · ${i.descripcion} (da ${pesos(c.cuenta)}, el papel dice ${pesos(numImp(i.papel.importe))})`;
+                    }).join(' · ')}.
+                    {' '}Corregilo en la tabla o pedíselo al chat antes de registrar.
+                  </p>
+                  <label className="flex items-start gap-2 text-tinta/80">
+                    <input type="checkbox" checked={sinCierreRevisado} onChange={(e) => setSinCierreRevisado(e.target.checked)} className="mt-0.5 size-4 shrink-0 accent-marca" />
+                    <span>Lo miré contra el papel y está bien así.</span>
+                  </label>
+                </div>
+              )}
               {/* lo que ya se había trabajado en esta factura (3/11/2026) */}
               {borradorRecuperado && borradorRecuperado.aplicados + borradorRecuperado.descartados > 0 && (
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl bg-ok-suave px-3 py-2 text-xs text-ok">

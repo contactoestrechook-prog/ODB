@@ -854,6 +854,20 @@ export function interpretarRenglon(l: LecturaRenglon): RenglonInterpretado {
         return { ...base, decision: 'peso_columna', cantidad: kg, porPeso: true, unidadesPorBulto: null, bonificacionPct: bonif };
       }
     }
+    // 2 QUATER — CAJAS SIN «×N» EN LA DESCRIPCIÓN, CON BONIFICACIÓN. Oxxon
+    //     (4/11/2026): "BG- PRONTO MANZANA X (1000 CC)" 3 × $1.439,61 − 10 % =
+    //     $46.643,23. Eso son 36 botellas exactas (3 cajas de 12): la cuenta
+    //     solo cierra así. Entraba como 3 unidades y cada botella costaba lo que
+    //     la caja. Misma evidencia dura que la regla 5 (el importe da un entero
+    //     de unidades), ahora con la bonificación del papel adentro.
+    if (!bulto && precio > 0 && cantidad >= 1 && Number.isInteger(cantidad) && importe != null && importe > 0 && bonif < 100) {
+      const q = importe / (precio * (1 - bonif / 100));
+      const entero = Math.round(q);
+      const porCaja = entero / cantidad;
+      if (entero > cantidad && Math.abs(q - entero) <= Math.max(TOLERANCIA_ENTERO, entero * 0.0005) && Number.isInteger(porCaja) && porCaja > 1) {
+        return { ...base, decision: 'cantidad_corregida', cantidad: entero, unidadesPorBulto: null, cantidadOriginal: cantidad, bultoConsumido: porCaja, bonificacionPct: bonif };
+      }
+    }
     return { ...base, decision: 'bonificado' };
   }
 

@@ -294,6 +294,17 @@ describe('interpretarRenglon — la tabla de precedencia completa', () => {
     expect(r.unidadesPorBulto).toBe(6); // la caja regalada sigue siendo caja
   });
 
+  it('cajas sin «×N» con bonificación (Oxxon, 4/11/2026): 3 cajas −10 % que el importe prueba son 36 botellas', () => {
+    const r = leer({ descripcion: 'BG- PRONTO MANZANA X (1000 CC)', cantidad: 3, precio: 1439.61, importe: 46643.23, bonificacionPct: 10 });
+    expect(r.decision).toBe('cantidad_corregida');
+    expect(r.cantidad).toBe(36);
+    expect(r.bultoConsumido).toBe(12);
+    expect(r.bonificacionPct).toBe(10);
+    // con la bonificación que cierra tal cual, la cantidad no se toca
+    const igual = leer({ descripcion: 'BG- PRONTO MANZANA X (1000 CC)', cantidad: 36, precio: 1439.61, importe: 46643.36, bonificacionPct: 10 });
+    expect(igual.cantidad).toBe(36);
+  });
+
   it('vino bonificado 50%: la mitad del importe no se lee como peso', () => {
     const r = leer({ descripcion: 'Gran Revancha Blend de', cantidad: 1, precio: 246000, importe: 123000, bonificacionPct: 50 });
     expect(r.decision).toBe('bonificado');
