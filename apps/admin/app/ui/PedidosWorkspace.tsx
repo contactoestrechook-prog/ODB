@@ -15,6 +15,8 @@ import {
   useConfirmar, Vacio,
 } from './kit';
 import { conCodigo } from '../lib/codigo-producto';
+import { imprimirComanda } from '../lib/comanda';
+import { ComandasEstaPc } from './ComandasEstaPc';
 
 const pesos = (n: any) => pesosFmt(Number(n) || 0);
 // Precio unitario de un renglón interpretado del WhatsApp: el análisis
@@ -204,6 +206,8 @@ export function PedidosWorkspace({ inicial, puedeSimular = false, puedeCargarRep
           {puedeSimular && <Boton variante="secundario" onClick={() => post({ simular: true })}>Simular PedidosYa</Boton>}
         </div>
       </div>
+
+      <ComandasEstaPc />
 
       <Pestanas
         etiquetaAccesible="Qué pedidos ver"
@@ -409,6 +413,8 @@ function DetallePedido({ p, trabajando, onCerrar, onTomar, onAvanzar, onCancelar
           <Boton variante="secundario" onClick={onCerrar}>Cerrar</Boton>
         ) : (
           <>
+            {/* si la impresora se trabó o no tenía papel */}
+            <Boton variante="fantasma" onClick={() => imprimirComanda(p)}>Imprimir comanda</Boton>
             <Boton variante="peligro" onClick={onCancelar} disabled={trabajando}>Cancelar pedido</Boton>
             {sinTomar(p) && <Boton variante={sig ? 'secundario' : 'primario'} onClick={onTomar} cargando={trabajando}>Lo tomo</Boton>}
             {sig && <Boton onClick={() => onAvanzar(sig.estado)} cargando={trabajando && !sinTomar(p)} disabled={trabajando}>{sig.label}</Boton>}
