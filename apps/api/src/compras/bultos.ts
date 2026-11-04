@@ -843,6 +843,17 @@ export function interpretarRenglon(l: LecturaRenglon): RenglonInterpretado {
         };
       }
     }
+    // 2 TER — PESO CON BONIFICACIÓN. Oxxon (4/11/2026): "BCT- JAMON NAT BOCATTI
+    //     X (6,6 KG)" 6 piezas, 39 kg × $17.614,03 − 10 % = $619.520,70. La
+    //     bonificación cortaba acá y el peso de la columna se perdía: el jamón
+    //     entraba como 6 unidades. Misma evidencia que la regla 3, con la
+    //     bonificación del papel.
+    if (l.puedePorPeso && kg > 0 && precio > 0 && (Math.abs(kg - cantidad) > 0.01 || !Number.isInteger(kg))) {
+      const esperado = kg * precio * (1 - bonif / 100);
+      if (importe == null || esperado <= 0 || Math.abs(importe - esperado) / esperado < 0.05) {
+        return { ...base, decision: 'peso_columna', cantidad: kg, porPeso: true, unidadesPorBulto: null, bonificacionPct: bonif };
+      }
+    }
     return { ...base, decision: 'bonificado' };
   }
 

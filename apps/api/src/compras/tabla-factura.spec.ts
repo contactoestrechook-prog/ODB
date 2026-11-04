@@ -77,6 +77,14 @@ describe('aplicarCambiosIA: lo que corrige el chat', () => {
     { descripcion: 'Bocadito Ferrero Rocher T12', cantidad: 12, precio: 827.49, importe: 9929.93 },
     { descripcion: 'Descuento', esDescuento: true, cantidad: 1, precio: 0, importe: -9929.93 },
   ];
+  it('«el jamón va por peso, 39 kg» (Oxxon, 4/11/2026) → entra en kilos y el costo es por kilo', () => {
+    const jamon = [{ descripcion: 'BCT- JAMON NAT BOCATTI X (6,6 KG)', cantidad: 6, precio: 17614.03, importe: 619520.7, kg: 39, bonificacionPct: 10 }];
+    const r = aplicarCambiosIA(jamon, [{ renglon: 1, campo: 'kilos', valor: 39, motivo: 'la persona dice que va por peso' }], esDesc);
+    expect(r.descartados).toEqual([]);
+    expect(r.items[0]).toMatchObject({ cantidad: 39, porPeso: true, importe: 619520.7 });
+    expect((r.items[0] as any).precio).toBeCloseTo(15885.15, 1);
+    expect(aplicarCambiosIA(jamon, [{ renglon: 1, campo: 'kilos', valor: 0 }], esDesc).descartados).toHaveLength(1);
+  });
   it('«el tomate tiene 5%» → el renglón 1 cierra', () => {
     const r = aplicarCambiosIA(items, [{ renglon: 1, campo: 'descuentoPct', valor: 5, motivo: 'la columna %Des. dice 5,0' }], esDesc);
     expect(r.registros).toEqual([{ renglon: 1, campo: 'desc', antes: null, despues: 5, motivo: 'la columna %Des. dice 5,0' }]);

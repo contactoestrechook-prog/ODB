@@ -146,13 +146,15 @@ export function controlarConQr(datos: any, qr: QrArca, cuitsPropios: string[] = 
   }
 
   const tipo = tipoDelQr(qr);
-  const tipoLectura = tipo && tipo.clase === 'factura' && /^[ABC]$/.test(tipo.letra) ? `factura_${tipo.letra.toLowerCase()}` : null;
+  // la nota de crédito también se corrige a su tipo (4/11/2026): así se registra
+  // como NC y libera sola la factura que la esperaba
+  const tipoLectura = tipo && (tipo.clase === 'factura' || tipo.clase === 'nota_credito') && /^[ABC]$/.test(tipo.letra) ? `${tipo.clase}_${tipo.letra.toLowerCase()}` : null;
   if (tipoLectura && datos.comprobante.tipo !== tipoLectura) {
     if (datos.comprobante.tipo) correcciones.push(`tipo ${datos.comprobante.tipo} → ${tipoLectura}`);
     datos.comprobante.tipo = tipoLectura;
   }
   if (tipo?.clase === 'nota_credito') {
-    dudas.push({ pregunta: `Según ARCA esto es una ${tipo.nombre.toUpperCase()}, no una factura: la mercadería vuelve o es una rebaja. Revisalo antes de registrarlo como compra.`, referencia: 'QR de ARCA' });
+    dudas.push({ pregunta: `Según ARCA esto es una ${tipo.nombre.toUpperCase()}, no una factura: se registra como nota de crédito, sin mover stock. Confirmá a qué factura corresponde.`, referencia: 'QR de ARCA' });
   }
 
   const total = totalEnPesos(qr);

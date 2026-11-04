@@ -286,6 +286,28 @@ export function aplicarCambiosIA<T extends Record<string, any>>(
       nuevos[k] = { ...fila, noAplicar: despues };
       continue;
     }
+    // POR PESO (4/11/2026, el jamón de Oxxon): «le escribimos en el chat y no nos
+    // da bola». El chat no tenía cómo pasar un renglón a kilos y el cambio se
+    // descartaba callado. Con los kilos, la cantidad pasa a kg y el costo pasa a
+    // ser por kilo; el importe del renglón no cambia (igual que «por peso» a mano).
+    if (c.campo === 'kilos') {
+      const kg = num(c.valor);
+      if (kg == null || !(kg > 0)) { descartados.push(c); continue; }
+      const importe = Math.abs(num(fila.importe) ?? 0) || (num(fila.cantidad) ?? 0) * Math.abs(num(fila.precio) ?? 0);
+      if (!(importe > 0)) { descartados.push(c); continue; }
+      registros.push({ renglon: k + 1, campo: 'kilos', antes: fila.porPeso ? num(fila.cantidad) : null, despues: kg, motivo });
+      nuevos[k] = {
+        ...fila,
+        antesDePeso: fila.antesDePeso ?? { cantidad: fila.cantidad, precio: fila.precio, importe: fila.importe },
+        cantidad: Math.round(kg * 1000) / 1000,
+        precio: Math.round((importe / kg) * 100) / 100,
+        importe,
+        porPeso: true,
+        cantidadCorregida: null,
+        bultoConsumido: null,
+      };
+      continue;
+    }
     // «no ingresó»: el renglón sigue en la factura tal cual (cuenta para el pie)
     // pero no entra al stock. No se tocan las cantidades del papel.
     if (c.campo === 'ingresa') {
@@ -360,7 +382,9 @@ export function tablaParaIA(
       unidades: c.unidades, cuenta: c.cuenta, cierra: c.cierra,
       entraComo: entraDeRenglon(fila, p)?.como ?? 'por decidir',
       entraDe: (entraDeRenglon(fila, p) as any)?.de ?? null,
-      entraAlStock: { cantidad: num(fila.cantidad), costoNeto: num(fila.precio) },
+      entraAlStock: { cantidad: num(fila.cantidad), costoNeto: num(fila.precio), porPeso: !!fila.porPeso },
+      // la columna de kilos del papel, si la leyó: con eso se pasa a peso
+      kgDelPapel: num(fila.kg),
       ingresa: fila.incluir !== false,
       bonificacionYaEnElPrecio: num(p.descIncluido),
       ...(costo?.(k) ?? {}),

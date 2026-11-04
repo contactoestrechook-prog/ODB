@@ -308,6 +308,17 @@ describe('interpretarRenglon — la tabla de precedencia completa', () => {
     expect(r.porPeso).toBe(true);
   });
 
+  it('fiambre por peso CON bonificación (Oxxon, 4/11/2026): entra en kilos, con su 10 %', () => {
+    const jamon = leer({ descripcion: 'BCT- JAMON NAT BOCATTI X (6,6 KG)', cantidad: 6, precio: 17614.03, importe: 619520.7, kg: 39, bonificacionPct: 10, puedePorPeso: true });
+    expect(jamon.decision).toBe('peso_columna');
+    expect(jamon.porPeso).toBe(true);
+    expect(jamon.cantidad).toBeCloseTo(39, 2);
+    expect(jamon.bonificacionPct).toBe(10);
+    const lomo = leer({ descripcion: 'BCT- LOMO BOCATTI X (1.8 KG)', cantidad: 2, precio: 17246.03, importe: 42683.91, kg: 2.75, bonificacionPct: 10, puedePorPeso: true });
+    expect(lomo.porPeso).toBe(true);
+    expect(lomo.cantidad).toBeCloseTo(2.75, 2);
+  });
+
   it('columna KG que NO cierra con el importe: no se usa a ciegas', () => {
     const r = leer({ descripcion: 'QUESO CREMOSO HORMA', cantidad: 1, precio: 8000, importe: 43520, kg: 9.9, puedePorPeso: true });
     expect(r.decision).not.toBe('peso_columna');
