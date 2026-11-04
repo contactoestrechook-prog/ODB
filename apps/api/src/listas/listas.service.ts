@@ -5,6 +5,9 @@ import Anthropic from '@anthropic-ai/sdk';
 import * as XLSX from 'xlsx';
 import { SUPABASE } from '../supabase.provider';
 import { elegirProveedor } from '../compras/proveedor-match';
+import { controlarConQr, totalEnPesos, numeroDelQr, type QrArca } from '../compras/qr-arca';
+import { buscarQrArca } from '../compras/qr-arca.lector';
+import { codigoCercano } from '../compras/codigo-proveedor';
 import { bultoDelRenglon, esRenglonDeDescuento, esRenglonDeDevolucion, porcentajeDeDescuento, puedeVendersePorPeso, unidadesDeLaPresentacion, variacionPorUnidad, variacionDelRenglon } from '../compras/bultos';
 import { esfuerzo, jsonDe, MODELO_PRINCIPAL, RAZONAMIENTO, RAZONAMIENTO_HAIKU } from '../comun/modelos';
 
@@ -399,17 +402,26 @@ export class ListasService {
   // BANDEJA DE LECTURA: lo que se cargó en las últimas 24 h y no se descartó.
   // Dueños y gerentes ven todo; el resto, lo suyo.
   async bandejaLecturas(usuarioId?: string, rol?: string) {
-    let q = this.db
+    const hace24h = new Date(Date.now() - 24 * 3600_000).toISOString();
+    const hace7d = new Date(Date.now() - 7 * 24 * 3600_000).toISOString();
+    const q = this.db
       .from('lecturas_comprobante')
-      .select('id, estado, error, creado_en, terminado_en, nombre_archivo, abierta_en, origen_id, resultado')
+      .select('id, estado, error, creado_en, terminado_en, nombre_archivo, abierta_en, origen_id, usuario_id, resultado')
       .is('descartada_en', null)
-      .gte('creado_en', new Date(Date.now() - 24 * 3600_000).toISOString())
+      // Las que llegaron por la casilla de compras (sin usuario) esperan hasta
+      // 7 días a que alguien las abra: nadie las subió, así que nadie las está
+      // esperando en la pantalla (3/11/2026).
+      .or(`creado_en.gte.${hace24h},and(usuario_id.is.null,abierta_en.is.null,creado_en.gte.${hace7d})`)
       .order('creado_en', { ascending: false })
-      .limit(20);
-    if (!(rol === 'dueno' || rol === 'gerente') && usuarioId) q = q.eq('usuario_id', usuarioId);
+      .limit(60);
     const { data, error } = await q;
     if (error) throw new BadRequestException(error.message);
-    return ((data ?? []) as any[]).map((l) => {
+    // Dueños y gerentes ven todo; el resto, lo suyo y lo que llegó por la
+    // casilla de compras, que es de todos los que cargan facturas.
+    const todas = !(rol === 'dueno' || rol === 'gerente') && usuarioId
+      ? ((data ?? []) as any[]).filter((l) => l.usuario_id === usuarioId || !l.usuario_id)
+      : ((data ?? []) as any[]);
+    return todas.slice(0, 30).map((l) => {
       const r = l.resultado ?? {};
       const colgada = l.estado === 'procesando' && Date.now() - new Date(l.creado_en).getTime() > 12 * 60_000;
       return {
@@ -421,6 +433,7 @@ export class ListasService {
         nombreArchivo: l.nombre_archivo,
         abiertaEn: l.abierta_en,
         releida: !!l.origen_id,
+        porMail: !l.usuario_id && /^Mail · /.test(l.nombre_archivo ?? ''),
         resumen: l.estado === 'listo' ? {
           proveedor: r.proveedor?.match?.nombre ?? r.proveedor?.detectado?.nombre ?? null,
           numero: r.comprobante?.numero ?? null,
@@ -593,6 +606,26 @@ export class ListasService {
     return resultado;
   }
 
+  // Las reglas activas que administración guardó desde el chat de la factura
+  // (proveedor_reglas_lectura). Best-effort: sin reglas se lee igual.
+  private async reglasDeLectura(proveedorId: string): Promise<string[]> {
+    const { data } = await this.db
+      .from('proveedor_reglas_lectura')
+      .select('regla')
+      .eq('proveedor_id', proveedorId)
+      .eq('activa', true)
+      .order('creada_en', { ascending: true })
+      .limit(30);
+    return ((data ?? []) as any[]).map((r) => String(r.regla ?? '').trim()).filter(Boolean);
+  }
+
+  // Los CUIT de ODB (uno por razón social que factura): ARCA_CUIT, ARCA_CUIT_SANTA_INES…
+  private cuitsPropios(): string[] {
+    return Object.entries(process.env)
+      .filter(([k, v]) => /^ARCA_CUIT(_|$)/.test(k) && v)
+      .map(([, v]) => String(v).replace(/\D/g, ''));
+  }
+
   async analizarComprobanteFoto(archivo: { buffer: Buffer; mimetype: string; originalname?: string }, aclaraciones?: string) {
     if (!archivo?.buffer) throw new BadRequestException('Falta el archivo');
     if (!process.env.ANTHROPIC_API_KEY) {
@@ -653,6 +686,17 @@ export class ListasService {
           'PASO 4 — Control rápido, UNA sola vez. Sumá S = neto + iva + percepcionIva + percepcionIibb + impuestosInternos + otros y compará con total (el descuentoGlobal no entra: ya está restado en el neto). Si difiere en más del 0,5%, lo más probable es que hayas cruzado PER. DE IVA con el IVA discriminado o metido el SUB TOTAL en otros: corregí ese mapeo una vez y seguí. NO iteres ni recalcules varias veces: el sistema vuelve a verificar la identidad en código y le pregunta al operador si no cierra. Dejá tu mejor lectura y, si quedó una etiqueta dudosa, agregá una duda diciendo cuál.\n\n' +
           'PASO 5 — Renglones vs neto (régimen especial). En cigarrillos, bebidas con impuestos internos y similares, la suma de (cantidad × PRE.UNIT) NO tiene por qué coincidir con el neto, y el IVA NO es el 21% del neto (puede ser mucho menor): el precio unitario ya trae impuestos internos y percepción IIBB embebidos. Para estos comprobantes NO fuerces suma(renglones) = neto y NO uses ese descuadre para "corregir" el pie ni para dudar. Preguntá por el descuadre de renglones SOLO si el comprobante claramente NO es de régimen especial (verdulería, limpieza) y la diferencia es grande.\n\n' +
           'PASO 6 — Dudas. Preguntá por cualquier número borroso, tapado o ambiguo, y por letra manuscrita. Si la identidad del PASO 4 no cerró, es OBLIGATORIO dejar una duda. Si hay anotaciones manuscritas relevantes, transcribilas en notasManuscritas. Es mejor preguntar que cargar un número equivocado.';
+    // El QR de ARCA ANTES de leer (3/11/2026): da el CUIT exacto, y con el
+    // CUIT, el proveedor y lo que administración dejó explicado sobre sus
+    // facturas. Esas reglas antes llegaban solo al chat, después de leer: la
+    // lectura repetía cada vez el mismo error que Ana ya había explicado.
+    const tQr = Date.now();
+    const qr: QrArca | null = await buscarQrArca(archivo);
+    const { data: candidatosProv } = await this.db.from('proveedores').select('id, razon_social, cuit').eq('activo', true);
+    const proveedorDelQr = qr ? ((candidatosProv ?? []) as any[]).find((p) => String(p.cuit ?? '').replace(/\D/g, '') === qr.cuit) ?? null : null;
+    const reglasProveedor = proveedorDelQr ? await this.reglasDeLectura(proveedorDelQr.id) : [];
+    this.log.log(`QR de ARCA: ${qr ? `${qr.cuit} ${numeroDelQr(qr)} $${qr.importe}` : 'no se encontró'} · ${reglasProveedor.length} reglas · ${Date.now() - tQr} ms`);
+
     const contenido: Anthropic.ContentBlockParam[] = [
       esPdf
         ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: archivo.buffer.toString('base64') } }
@@ -661,6 +705,12 @@ export class ListasService {
         type: 'text',
         text:
           'Leé el comprobante adjunto siguiendo las instrucciones del sistema.' +
+          (qr
+            ? `\n\nEl QR de ARCA de este comprobante ya se leyó y es exacto: emisor CUIT ${qr.cuit}${proveedorDelQr ? ` (${proveedorDelQr.razon_social})` : ''}, número ${numeroDelQr(qr)}, fecha ${qr.fecha ?? '—'}, TOTAL $${totalEnPesos(qr).toFixed(2)}. El total del pie tiene que ser ese: si al leer te da otro, revisá el pie y los renglones antes de contestar.`
+            : '') +
+          (reglasProveedor.length
+            ? '\n\nReglas que administración dejó para las facturas de este proveedor (aplicalas siempre):\n' + reglasProveedor.map((r) => `- ${r}`).join('\n')
+            : '') +
           (aclaraciones && aclaraciones.trim()
             ? '\n\nEl operador ya revisó una primera lectura y te aclara lo siguiente (tenelo en cuenta y NO vuelvas a preguntar por esto): ' + aclaraciones.trim()
             : ''),
@@ -783,11 +833,13 @@ export class ListasService {
 
     // Validación del pie: anti-permutación (por etiqueta), identidad y régimen
     // especial. Agrega dudas si algo no cierra; nunca rechaza el comprobante.
+    // Antes de validar el pie: si el QR cambia el total, la validación lo ve.
+    const controlQr = qr ? controlarConQr(datos, qr, this.cuitsPropios()) : null;
+    if (controlQr) datos.dudas = [...controlQr.dudas, ...(Array.isArray(datos.dudas) ? datos.dudas : [])];
     const regimenEspecial = this.validarPie(datos);
 
     // proveedor: por CUIT exacto y, si no, por nombre con dos candados (ver
     // compras/proveedor-match.ts: el caso Diamandes → Vistalba del 2026-09-08)
-    const { data: candidatosProv } = await this.db.from('proveedores').select('id, razon_social, cuit').eq('activo', true);
     let proveedor: any = elegirProveedor(
       { nombre: datos.proveedor?.nombre ?? null, cuit: datos.proveedor?.cuit ?? null },
       (candidatosProv ?? []) as any[],
@@ -931,6 +983,9 @@ export class ListasService {
       impuestosHabituales: await this.impuestosHabituales(proveedor?.id).catch(() => null),
       archivoUrl, // ruta del original en el bucket: viaja con la factura al registrarla
       regimenEspecial, // true = IVA efectivo fuera de banda (cigarrillos/bebidas): el front no auto-suma IVA
+      // lo que dice el QR de ARCA y lo que corrigió (null = el papel no lo tiene o no se pudo leer)
+      qrArca: controlQr?.qrArca ?? null,
+      reglasAplicadas: reglasProveedor.length,
       notasManuscritas: datos.notasManuscritas ?? null,
       dudas: [
         ...(Array.isArray(datos.dudas) ? datos.dudas : []),
@@ -1222,9 +1277,26 @@ export class ListasService {
     for (const item of items) {
       let match: Match = null;
 
-      const porCodigo = item.codigo ? porCodigoProv.get(item.codigo.toLowerCase()) : null;
+      let porCodigo = item.codigo ? porCodigoProv.get(item.codigo.toLowerCase()) : null;
+      // Un dígito mal leído (3/11/2026): el código conocido a una letra, SOLO si
+      // el nombre del renglón también es el de ese producto.
+      let codigoCorregido: { leido: string; correcto: string } | null = null;
+      if (!porCodigo && item.codigo) {
+        const cerca = codigoCercano(item.codigo, [...porCodigoProv.keys()]);
+        const fila = cerca ? porCodigoProv.get(cerca) : null;
+        if (fila && this.mismoRenglon(item.descripcion, fila)) {
+          porCodigo = fila;
+          codigoCorregido = { leido: item.codigo, correcto: fila.codigo_proveedor };
+        }
+      }
       if (porCodigo) {
         match = this.armarMatch(porCodigo.producto, porCodigo.ultimo_costo, item.precio, 'codigo_proveedor', porCodigo.margen_pct);
+        // Y al revés: un dígito mal leído puede caer justo en OTRO producto real
+        // del proveedor (1067 y 1068 son Oreo y Pepitos en Rueda Que Rueda). Si
+        // el nombre no tiene nada que ver, el vínculo se confirma a mano.
+        if (match && !codigoCorregido && this.renglonDistinto(item.descripcion, porCodigo)) {
+          match = { ...match, sugerido: true, motivo: `El código ${item.codigo} es de «${porCodigo.producto?.nombre ?? '—'}», pero el renglón dice otra cosa: puede ser un dígito mal leído` };
+        }
       } else if (item.codigo && /^\d{8,14}$/.test(item.codigo)) {
         const { data: cb } = await this.db
           .from('codigos_barras')
@@ -1290,9 +1362,37 @@ export class ListasService {
           motivo: `El nombre coincide pero el costo difiere ${match.variacionPct > 0 ? '+' : ''}${match.variacionPct}%: puede ser otro producto (otro tamaño u otra presentación)`,
         };
       }
-      resultado.push({ ...item, match, avisoMedida });
+      // El código queda como se leyó: el guardado también pudo salir de una foto
+      // (historial-compras guarda el primero que ve). Solo se vincula por él.
+      resultado.push({ ...item, ...(codigoCorregido ? { codigoConocido: codigoCorregido.correcto } : {}), match, avisoMedida });
     }
     return resultado;
+  }
+
+  // ¿El texto del renglón es el de este producto del proveedor? Por el texto de
+  // compras anteriores (alias) o, si no hay, por marca y medida contra el
+  // nombre del catálogo. Sin nada con qué comparar, no se confirma.
+  private mismoRenglon(descripcion: string, fila: { alias_descripcion?: string | null; producto?: { nombre?: string } | null }): boolean {
+    const palabras = (t: string) => new Set(normalizarAlias(t).split(/[^a-z0-9]+/).filter((w) => w.length > 2));
+    if (fila.alias_descripcion) {
+      const a = palabras(descripcion);
+      const b = palabras(fila.alias_descripcion);
+      const comunes = [...a].filter((w) => b.has(w)).length;
+      if (comunes / Math.max(1, Math.min(a.size, b.size)) >= 0.6) return true;
+    }
+    const nombre = fila.producto?.nombre ?? '';
+    return !!nombre && this.mismaMarca(descripcion, nombre) && this.mismaMedida(descripcion, nombre).igual;
+  }
+
+  // Lo contrario, con evidencia: el texto de compras anteriores existe y no
+  // comparte casi nada, y tampoco la marca. Sin alias no se duda de un código.
+  private renglonDistinto(descripcion: string, fila: { alias_descripcion?: string | null; producto?: { nombre?: string } | null }): boolean {
+    if (!fila.alias_descripcion) return false;
+    const palabras = (t: string) => new Set(normalizarAlias(t).split(/[^a-z0-9]+/).filter((w) => w.length > 2));
+    const a = palabras(descripcion);
+    const b = palabras(fila.alias_descripcion);
+    const comunes = [...a].filter((w) => b.has(w)).length;
+    return comunes / Math.max(1, Math.min(a.size, b.size)) < 0.2 && !this.mismaMarca(descripcion, fila.producto?.nombre ?? '');
   }
 
   // Valida el pie de impuestos: mapeo por ETIQUETA (defensa real contra permutación),

@@ -3087,6 +3087,18 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                 )}
               </div>
 
+              {/* lo que la factura le informó a ARCA, leído del QR (3/11/2026) */}
+              {foto.qrArca ? (
+                <p className={`break-words text-xs ${foto.qrArca.totalCoincide ? 'text-tinta/70' : 'font-medium text-atencion'}`}>
+                  QR de ARCA: {foto.qrArca.tipo ?? 'comprobante'} {foto.qrArca.numero} · CUIT {foto.qrArca.cuit} · total {pesos(foto.qrArca.total)}
+                  {foto.qrArca.totalCoincide ? ' · el total coincide' : ' · el total leído era otro: revisá el pie'}
+                  {foto.qrArca.correcciones?.length ? ` · se corrigió: ${foto.qrArca.correcciones.join(', ')}` : ''}
+                  {foto.reglasAplicadas ? ` · se leyó con ${foto.reglasAplicadas === 1 ? 'la regla' : `las ${foto.reglasAplicadas} reglas`} del proveedor` : ''}
+                </p>
+              ) : foto.comprobante?.tipo?.startsWith('factura') ? (
+                <p className="text-xs text-tinta/60">No se pudo leer el QR de ARCA: el CUIT, el número y el total salen solo de la foto.</p>
+              ) : null}
+
               {foto.notasManuscritas && <p className="break-words text-xs italic text-tinta/60">Nota manuscrita: {foto.notasManuscritas}</p>}
 
               {/* la mercadería ya entró por Recepción → solo factura + conciliación */}
