@@ -2684,6 +2684,13 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                             aria-label="Precio del papel"
                             className={unir(CAMPO_FILA_BASE, CAMPO_FILA_COLOR, 'importe w-[78px] px-1.5')}
                           />}
+                          {/* la casilla es la LISTA del papel; lo pagado va a la vista, para que la
+                              flecha no parezca «lista + impuestos» (4/11/2026, el jamón de Oxxon) */}
+                          {(!i.papel || i.porPeso) && Math.abs(precioEfectivo(i) - numImp(i.precio)) > 0.5 && (
+                            <span className="whitespace-nowrap text-xs text-ok" title={`Lo que se paga por ${i.porPeso ? 'kilo' : 'unidad'}, con el descuento`}>
+                              −{numImp(i.bonificacionPct) > 0 ? `${numImp(i.bonificacionPct)} %` : 'desc.'} = <b>{pesos(precioEfectivo(i))}</b>
+                            </span>
+                          )}
                           {(i.papel && !i.porPeso) || Math.abs(costoFinal(i, idx) - precioEfectivo(i)) > 0.5 ? (
                             <span
                               className="whitespace-nowrap text-right leading-none"
@@ -2871,7 +2878,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                           </span>
                         )}
                         {i.porPeso && numImp(i.cantidad) > 0 && !medidaVariable(i) && (
-                          <span className="text-info">Por peso: {numImp(i.cantidad).toLocaleString('es-AR')} kg a {pesos(numImp(i.precio))} el kilo.
+                          <span className="text-info">Por peso: {numImp(i.cantidad).toLocaleString('es-AR')} kg a {pesos(precioEfectivo(i))} el kilo{numImp(i.bonificacionPct) > 0 ? ` (lista ${pesos(numImp(i.precio))} − ${numImp(i.bonificacionPct)} %)` : ''}.
                             <button onClick={() => deshacerPeso(idx)} className={unir(ENLACE, 'ml-2 text-tinta/70 hover:text-marca-hondo')}>deshacer</button>
                           </span>
                         )}
