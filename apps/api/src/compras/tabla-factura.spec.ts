@@ -77,6 +77,16 @@ describe('aplicarCambiosIA: lo que corrige el chat', () => {
     { descripcion: 'Bocadito Ferrero Rocher T12', cantidad: 12, precio: 827.49, importe: 9929.93 },
     { descripcion: 'Descuento', esDescuento: true, cantidad: 1, precio: 0, importe: -9929.93 },
   ];
+  it('«del Pronto Manzana llegaron 3 bultos» (Oxxon, 4/11/2026) → recibidas 28 de 36, el papel no se toca', () => {
+    const papel = { bultos: 4, uxb: 8, sueltas: 4, precio: 1439.61, desc: 10, iva: 21, importe: 46643.23 };
+    const fila = [{ descripcion: 'BG- PRONTO MANZANA X (1000 CC)', cantidad: 36, precio: 1439.61, importe: 46643.23, bonificacionPct: 10, papel }];
+    const r = aplicarCambiosIA(fila, [{ renglon: 1, campo: 'recibidas', valor: 28, motivo: 'la nota dice ingresaron 3 bultos' }], esDesc);
+    expect(r.descartados).toEqual([]);
+    expect(r.items[0]).toMatchObject({ recibidoAMano: 28, cantidad: 36, importe: 46643.23, papel });
+    // más de lo facturado no puede llegar; todas = sin marca
+    expect(aplicarCambiosIA(fila, [{ renglon: 1, campo: 'recibidas', valor: 40 }], esDesc).descartados).toHaveLength(1);
+    expect(aplicarCambiosIA(fila, [{ renglon: 1, campo: 'recibidas', valor: 36 }], esDesc).items[0]).toMatchObject({ recibidoAMano: null });
+  });
   it('«el jamón va por peso, 39 kg» (Oxxon, 4/11/2026) → entra en kilos y el costo es por kilo', () => {
     const jamon = [{ descripcion: 'BCT- JAMON NAT BOCATTI X (6,6 KG)', cantidad: 6, precio: 17614.03, importe: 619520.7, kg: 39, bonificacionPct: 10 }];
     const r = aplicarCambiosIA(jamon, [{ renglon: 1, campo: 'kilos', valor: 39, motivo: 'la persona dice que va por peso' }], esDesc);

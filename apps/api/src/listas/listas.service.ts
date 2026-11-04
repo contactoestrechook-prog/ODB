@@ -134,7 +134,13 @@ const ESQUEMA_COMPROBANTE = {
           // la nota de crédito; lo que importa es que NO entra al stock.
           devueltoAMano: {
             type: 'boolean',
-            description: 'true si la mercadería de ESTE renglón volvió al proveedor en la entrega. REGLA DE ODB (4/11/2026): un renglón PINTADO con color (resaltador, marcador, de cualquier color) ES SIEMPRE una devolución, diga o no algo al lado. También es true si una anotación a mano lo tacha o dice "dev", "devuelto", "devolución", "no vino" o "rechazado", o si una nota escrita a mano nombra este producto como devuelto (marcá CADA renglón que nombre, aunque no esté pintado). false si el renglón no está pintado ni anotado así.',
+            description: 'true si la mercadería de ESTE renglón volvió al proveedor en la entrega. REGLA DE ODB (4/11/2026): un renglón PINTADO con color (resaltador, marcador, de cualquier color) ES SIEMPRE una devolución, diga o no algo al lado. También es true si una anotación a mano lo tacha o dice "dev", "devuelto", "devolución", "no vino" o "rechazado", o si una nota escrita a mano nombra este producto como devuelto (marcá CADA renglón que nombre, aunque no esté pintado). false si el renglón no está pintado ni anotado así. Si la anotación dice CUÁNTO llegó (vino una parte), NO es true: va en recibidoAMano.',
+          },
+          // Llegó una parte (4/11/2026, Oxxon): "4 bultos × 8 + 4" facturados, la
+          // celda BULT. pintada y «ingresaron 3 bultos» a mano → entraron 28 de 36.
+          recibidoAMano: {
+            type: 'number',
+            description: 'Solo si una anotación a mano (o una celda pintada con un número escrito al lado) dice cuánto llegó DE VERDAD de este renglón y es MENOS que lo facturado: las UNIDADES que entraron, contando igual que la factura (bultos recibidos × unidades por bulto + sueltas). Ej.: factura 4 bultos × 8 + 4 sueltas y la nota dice "ingresaron 3 bultos" → 3 × 8 + 4 = 28. Si no hay una anotación así, omití este campo. La cantidad, el precio y el importe se copian del papel tal cual: no los cambies por la nota.',
           },
         },
         // Cantidad/precio/importe ausentes se normalizan a null. Evita superar
@@ -711,7 +717,7 @@ export class ListasService {
           'REGLAS DURAS: "PER."/"PERCEPCIÓN" es SIEMPRE percepción, JAMÁS el IVA discriminado. Una etiqueta = un solo campo. Una etiqueta con eco=true (mismo valor que otra ya mapeada) NO se vuelve a sumar en ningún campo.\n\n' +
           'PASO 4 — Control rápido, UNA sola vez. Sumá S = neto + iva + percepcionIva + percepcionIibb + impuestosInternos + otros y compará con total (el descuentoGlobal no entra: ya está restado en el neto). Si difiere en más del 0,5%, lo más probable es que hayas cruzado PER. DE IVA con el IVA discriminado o metido el SUB TOTAL en otros: corregí ese mapeo una vez y seguí. NO iteres ni recalcules varias veces: el sistema vuelve a verificar la identidad en código y le pregunta al operador si no cierra. Dejá tu mejor lectura y, si quedó una etiqueta dudosa, agregá una duda diciendo cuál.\n\n' +
           'PASO 5 — Renglones vs neto (régimen especial). En cigarrillos, bebidas con impuestos internos y similares, la suma de (cantidad × PRE.UNIT) NO tiene por qué coincidir con el neto, y el IVA NO es el 21% del neto (puede ser mucho menor): el precio unitario ya trae impuestos internos y percepción IIBB embebidos. Para estos comprobantes NO fuerces suma(renglones) = neto y NO uses ese descuadre para "corregir" el pie ni para dudar. Preguntá por el descuadre de renglones SOLO si el comprobante claramente NO es de régimen especial (verdulería, limpieza) y la diferencia es grande.\n\n' +
-          'PASO 6 — Dudas. Preguntá por cualquier número borroso, tapado o ambiguo, y por letra manuscrita. Si la identidad del PASO 4 no cerró, es OBLIGATORIO dejar una duda. Si hay anotaciones manuscritas relevantes, transcribilas en notasManuscritas. DEVUELTO EN LA ENTREGA (regla de ODB): todo renglón pintado con color (resaltador o marcador, de cualquier color) es una devolución → devueltoAMano = true, sin preguntar. Lo mismo si una anotación a mano dice que se devolvió mercadería («Devolución: 1 mortadela con pistacho»): marcá devueltoAMano = true en CADA renglón que nombre, uno por uno. Esa mercadería no entra al stock. Es mejor preguntar que cargar un número equivocado.';
+          'PASO 6 — Dudas. Preguntá por cualquier número borroso, tapado o ambiguo, y por letra manuscrita. Si la identidad del PASO 4 no cerró, es OBLIGATORIO dejar una duda. Si hay anotaciones manuscritas relevantes, transcribilas en notasManuscritas. DEVUELTO EN LA ENTREGA (regla de ODB): todo renglón pintado con color (resaltador o marcador, de cualquier color) es una devolución → devueltoAMano = true, sin preguntar. Lo mismo si una anotación a mano dice que se devolvió mercadería («Devolución: 1 mortadela con pistacho»): marcá devueltoAMano = true en CADA renglón que nombre, uno por uno. Esa mercadería no entra al stock. Si la nota dice que llegó una PARTE («ingresaron 3 bultos» cuando la factura dice 4), el renglón no es devueltoAMano: copiá cantidad, precio e importe del papel tal cual y poné en recibidoAMano las unidades que entraron. Es mejor preguntar que cargar un número equivocado.';
     // El QR de ARCA ANTES de leer (3/11/2026): da el CUIT exacto, y con el
     // CUIT, el proveedor y lo que administración dejó explicado sobre sus
     // facturas. Esas reglas antes llegaban solo al chat, después de leer: la
@@ -919,6 +925,8 @@ export class ListasService {
         esDevolucion,
         // volvió en la entrega, anotado a mano: está facturado pero no entra al stock
         devueltoAMano: !esDevolucion && i.devueltoAMano === true,
+        // llegó una parte: las unidades que entraron de verdad (las del papel se cobran igual)
+        recibidoAMano: !esDevolucion && Number(i.recibidoAMano) > 0 ? Number(i.recibidoAMano) : null,
         alicuotaIva: Number(i.alicuotaIva) > 0 ? Number(i.alicuotaIva) : null,
         descuentoPct: porcentajeDeDescuento(String(i.descripcion ?? '')),
         interpretado: interpretarLecturaSegura(lectura),

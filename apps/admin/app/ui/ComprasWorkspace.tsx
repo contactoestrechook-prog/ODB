@@ -682,6 +682,8 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
           // volvió en la entrega y lo dice una anotación a mano: está facturado,
           // pero no entra al stock (4/11/2026, la mortadela de Las Dinas)
           devueltoAMano: !!i.devueltoAMano,
+          // llegó una parte: las unidades que entraron según la nota a mano
+          recibidoAMano: Number(i.recibidoAMano) > 0 ? Number(i.recibidoAMano) : null,
           descuentoPct: i.descuentoPct ?? null,
           puedePorPeso: !!i.puedePorPeso,
           // la alícuota impresa, o la que prueba un importe leído con IVA adentro
@@ -1396,6 +1398,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
         if (c.campo === 'noAplicar') return { ...x, noAplicar: !!c.antes };
         if (c.campo === 'ingresa') return { ...x, incluir: !!c.antes };
         if (c.campo === 'kilos') return x.antesDePeso ? { ...x, ...x.antesDePeso, porPeso: false, antesDePeso: null } : x;
+        if (c.campo === 'recibidas') return { ...x, recibidoAMano: c.antes == null || c.antes === '' ? null : Number(c.antes) };
         const papel: Papel = { ...(x.papel ?? papelDeLectura(x)) };
         if (c.campo === 'entraComo') {
           const de = Number(papel.uxb);
@@ -1426,6 +1429,9 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
     'Revisá la factura entera contra el papel',
   ];
   const controlesParaIA = () => ({
+    // lo escrito a mano sobre el papel (4/11/2026): el chat no lo veía y no
+    // entendía «ingresaron 3 bultos» ni las devoluciones anotadas
+    notasManuscritas: foto?.notasManuscritas ?? null,
     sumaRenglones: Math.round(sumaRenglones * 100) / 100,
     netoDelPie: netoDoc,
     ivaDelPie: ivaDoc,
@@ -1453,7 +1459,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
       alicuotaIva: p?.iva ?? (i.alicuotaIva != null ? numImp(i.alicuotaIva) : null),
       importe: p?.importe ?? (i.importe != null && i.importe !== '' ? numImp(i.importe) : null),
       entraComo: i._esDevolucion ? 'devolución' : soloPrecioDe(i) ? 'solo precio' : i.porPeso ? 'peso' : entra?.como ?? null,
-      cantidadStock: i._esDevolucion ? (i.incluir && i.sku ? -Math.abs(numImp(i.cantidad)) : 0) : soloPrecioDe(i) ? 0 : numImp(i.cantidad) || null,
+      cantidadStock: i._esDevolucion ? (i.incluir && i.sku ? -Math.abs(numImp(i.cantidad)) : 0) : soloPrecioDe(i) ? 0 : cantidadQueEntra(i) || null,
       costoUnitario: !i._esDescuento && !i._esDevolucion && i.sku ? costoFinal(i, idx) : null,
       incluido: !!(i.incluir && i.sku),
       esDescuento: !!i._esDescuento,
@@ -1500,8 +1506,31 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   // una nota de crédito del proveedor: se registra como NC, sin mover stock, y
   // libera la factura que la esperaba
   const esNotaCredito = String(foto?.comprobante?.tipo ?? '').startsWith('nota_credito');
-  const devueltosAMano = fotoItems.filter((i: any) => i.devueltoAMano && !i.incluir)
-    .map((i: any) => ({ descripcion: String(i.descripcion ?? ''), importe: i.importe != null && i.importe !== '' ? Math.abs(numImp(i.importe)) : null }));
+  // LLEGÓ UNA PARTE (4/11/2026, Oxxon): la factura cobra 4 bultos × 8 + 4 = 36
+  // Pronto Manzana y la nota a mano dice «ingresaron 3 bultos» → entran 28. El
+  // papel, el importe y el costo por unidad no cambian (la factura se paga
+  // entera cuando llegue la nota de crédito por las 8 que faltaron).
+  const unidadesFacturadas = (i: any) => (i.papel ? cuentaDelPapel(i.papel).unidades : numImp(i.cantidad));
+  const faltanDe = (i: any) => {
+    const r = numImp(i.recibidoAMano);
+    const u = unidadesFacturadas(i);
+    return r > 0 && u > 0 && r < u ? Math.round((u - r) * 1000) / 1000 : 0;
+  };
+  const cantidadQueEntra = (i: any) => {
+    const u = unidadesFacturadas(i);
+    const f = faltanDe(i);
+    return f > 0 ? Math.round(numImp(i.cantidad) * ((u - f) / u) * 1000) / 1000 : numImp(i.cantidad);
+  };
+  const devueltosAMano = [
+    ...fotoItems.filter((i: any) => i.devueltoAMano && !i.incluir)
+      .map((i: any) => ({ descripcion: String(i.descripcion ?? ''), importe: i.importe != null && i.importe !== '' ? Math.abs(numImp(i.importe)) : null })),
+    // lo que faltó también se cobra hasta la nota de crédito
+    ...fotoItems.filter((i: any) => i.incluir && faltanDe(i) > 0)
+      .map((i: any) => ({
+        descripcion: `${String(i.descripcion ?? '')}: faltaron ${faltanDe(i)} de ${unidadesFacturadas(i)}`,
+        importe: Math.abs(numImp(i.importe)) > 0 ? Math.round((Math.abs(numImp(i.importe)) * faltanDe(i) / unidadesFacturadas(i)) * 100) / 100 : null,
+      })),
+  ];
   const sumaCostos = inclItems.reduce((s, i) => s + numImp(i.cantidad) * costoFinal(i), 0);
   const baseIncluidos = inclItems.reduce((s, i) => s + numImp(i.cantidad) * precioEfectivo(i), 0) * factorRecon;
   const techoMerc = baseCosto != null ? baseCosto : (totalDoc != null ? totalDoc : Infinity);
@@ -1567,7 +1596,8 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
     };
     const porSku = new Map<string, any>();
     for (const i of xs) {
-      const cant = numImp(i.cantidad);
+      // al stock entra lo que llegó (anotado a mano), al costo por unidad del papel
+      const cant = cantidadQueEntra(i);
       const costo = costoDeLinea(i);
       const enPromo = grupos.get(claveP(i))!.tieneGratis && !!prorrateoAut;
       const prev = porSku.get(i.sku);
@@ -2433,6 +2463,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                         {esSinCargo(i) ? <Sello tono="ok">sin cargo</Sello> : numImp(i.bonificacionPct) > 0 ? <Sello tono="ok">bonif. {numImp(i.bonificacionPct)}%</Sello> : numImp(i.bonifIncluidaPct) > 0 ? <Sello tono="ok">bonif. {numImp(i.bonifIncluidaPct)}% ya en el precio</Sello> : null}
                         {numImp(i._descuento) < 0 && (descuentoDesmedido(i) ? <Sello tono="ojo">desc. sin aplicar</Sello> : <Sello tono="ok">desc. aplicado</Sello>)}
                         {i.devueltoAMano && <Sello tono="ojo">devuelto (anotado a mano) · no entra al stock</Sello>}
+                        {faltanDe(i) > 0 && <Sello tono="ojo">llegaron {unidadesFacturadas(i) - faltanDe(i)} de {unidadesFacturadas(i)} · faltan {faltanDe(i)} · espera nota de crédito</Sello>}
                         {numImp(i.cantidadCorregida) > 0 && <Sello tono="ok">cant. corregida</Sello>}
                         {correccionRenglon(i)?.seguro === false && <Sello tono="ojo">revisar lectura</Sello>}
                         {(medidaVariable(i) || i.porPeso) && <Sello tono="info">por peso</Sello>}
@@ -2725,6 +2756,9 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                         )}
                         {esSinCargo(i) ? (
                           <span className="rounded-xl bg-ok-suave px-2.5 py-1.5 text-ok">Sin cargo: entran {numImp(i.cantidad)} que no se pagan. Con el PIN del dueño (abajo) se reparten en el grupo del mismo precio; sin él, solo abaratan este producto.</span>
+                        ) : numImp(i.bonificacionPct) > 0 && precioEfectivo(i) > numImp(i.precio) * 1.001 && !(numImp(i.unidadesPorBulto) > 1) ? (
+                          // con bonificación no se puede pagar MÁS que la lista: la cantidad está mal (4/11/2026)
+                          <span className="rounded-xl bg-atencion-suave px-2.5 py-1.5 text-atencion">Bonificado {numImp(i.bonificacionPct)}%, pero así se pagaría {pesos(precioEfectivo(i))} por unidad, más que los {pesos(numImp(i.precio))} de lista: la cantidad no es la del papel. Corregila en la tabla o en el chat.</span>
                         ) : numImp(i.bonificacionPct) > 0 ? (
                           <span className="rounded-xl bg-ok-suave px-2.5 py-1.5 text-ok">Bonificado {numImp(i.bonificacionPct)}%: {
                             // Con el bulto sin decidir y el precio del papel por unidad (Oxxon, 7/10/2026:

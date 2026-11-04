@@ -286,6 +286,20 @@ export function aplicarCambiosIA<T extends Record<string, any>>(
       nuevos[k] = { ...fila, noAplicar: despues };
       continue;
     }
+    // LLEGÓ UNA PARTE (4/11/2026, el Pronto Manzana de Oxxon: facturadas 36,
+    // llegaron 28). El papel y la plata no se tocan: al stock entran las que
+    // llegaron y la factura espera la nota de crédito por las que faltaron.
+    // «recibidas» = todas (o nada) borra la marca.
+    if (c.campo === 'recibidas') {
+      const n = c.valor == null || c.valor === '' ? null : num(c.valor);
+      if (n != null && !(n >= 0)) { descartados.push(c); continue; }
+      const facturadas = fila.papel || !fila.porPeso ? cuentaDelPapel(fila.papel ?? papelDeLectura(fila)).unidades : num(fila.cantidad) ?? 0;
+      if (n != null && facturadas > 0 && n > facturadas) { descartados.push(c); continue; }
+      const nuevo = n == null || n === facturadas ? null : n;
+      registros.push({ renglon: k + 1, campo: 'recibidas', antes: num(fila.recibidoAMano), despues: nuevo, motivo });
+      nuevos[k] = { ...fila, recibidoAMano: nuevo };
+      continue;
+    }
     // POR PESO (4/11/2026, el jamón de Oxxon): «le escribimos en el chat y no nos
     // da bola». El chat no tenía cómo pasar un renglón a kilos y el cambio se
     // descartaba callado. Con los kilos, la cantidad pasa a kg y el costo pasa a
@@ -385,6 +399,8 @@ export function tablaParaIA(
       entraAlStock: { cantidad: num(fila.cantidad), costoNeto: num(fila.precio), porPeso: !!fila.porPeso },
       // la columna de kilos del papel, si la leyó: con eso se pasa a peso
       kgDelPapel: num(fila.kg),
+      // llegó una parte: las unidades que entraron de verdad (null = llegaron todas)
+      recibidas: num(fila.recibidoAMano),
       ingresa: fila.incluir !== false,
       bonificacionYaEnElPrecio: num(p.descIncluido),
       ...(costo?.(k) ?? {}),
