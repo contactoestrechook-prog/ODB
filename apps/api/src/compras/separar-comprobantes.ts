@@ -75,6 +75,35 @@ export function etiquetaDeLaParte(nombre: string | undefined, k: number, total: 
   return `${nombre?.trim() || 'Comprobante.pdf'} · ${k} de ${total} · ${ROTULO[c.tipo] ?? 'Comprobante'}${c.numero ? ` ${c.numero}` : ''}`.slice(0, 180);
 }
 
+const numerosDe = (s: unknown) => String(s ?? '').split(/\D+/).filter(Boolean).map((x) => Number(x));
+const digitosDe = (s: unknown) => String(s ?? '').replace(/\D+/g, '').replace(/^0+/, '');
+/** ¿Es el mismo número de comprobante? («0001-00149951» = «00001-00149951» = «FAA000100149951») */
+export function mismoNumero(a: unknown, b: unknown): boolean {
+  const x = numerosDe(a);
+  const y = numerosDe(b);
+  if (!x.length || !y.length) return false;
+  if (digitosDe(a) === digitosDe(b)) return true;
+  if (x[x.length - 1] !== y[y.length - 1]) return false;
+  return x.length < 2 || y.length < 2 || x[x.length - 2] === y[y.length - 2];
+}
+
+/** El nombre del archivo sin el «· 2 de 2 · Nota de crédito…» de una parte. */
+export const nombreSinParte = (nombre: unknown) => String(nombre ?? '').replace(/\s+·\s+\d+ de \d+ ·.*$/u, '').trim() || 'Comprobante.pdf';
+
+/** «Nota de crédito 0001-00003945» */
+export const rotuloDelComprobante = (c: ComprobanteDelPdf) => `${ROTULO[c.tipo] ?? 'Comprobante'}${c.numero ? ` ${c.numero}` : ''}`.trim();
+
+/**
+ * Los comprobantes del PDF que NO son el de la lectura que ya está abierta
+ * (5/11/2026: Ana tenía abierta la factura de Glorilact y pedía la nota de
+ * crédito de la página 2). Si ninguno tiene su número, el que ya se leyó es el
+ * primero: el lector lee un comprobante, el de arriba.
+ */
+export function otrosComprobantes<T extends ComprobanteDelPdf>(partes: T[], numeroDeEsta: unknown): T[] {
+  const esta = partes.findIndex((p) => mismoNumero(p.numero, numeroDeEsta));
+  return partes.filter((_, k) => k !== (esta >= 0 ? esta : 0));
+}
+
 /** Un PDF con una foto JPEG por hoja, igual que los escaneos del celular. */
 export function pdfDeHojas(hojas: Hoja[]): Buffer {
   const partes: Buffer[] = [];

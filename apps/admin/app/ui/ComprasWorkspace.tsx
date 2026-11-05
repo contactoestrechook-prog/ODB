@@ -674,10 +674,12 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
           // si la lectura tomó el importe CON IVA, se usa el neto que dedujo el servidor
           importe: r.importeNeto ?? i.importe ?? null,
           importeConIvaLeido: r.importeNeto != null ? i.importe : null,
-          // cigarrillos (5/11/2026): el interno que el papel imprime en este
-          // renglón y el total con impuestos que traía; el renglón va en neto
+          // cigarrillos (5/11/2026): el precio y el importe son los del papel, con
+          // el IVA y el interno adentro. Aparte: el interno del renglón, el neto
+          // por unidad y qué parte del precio es neto (para controlar el pie)
           internosDelPapel: Number(i.internosDelPapel) > 0 ? Number(i.internosDelPapel) : null,
-          importeImpreso: Number(i.importeImpreso) > 0 ? Number(i.importeImpreso) : null,
+          netoDelPapel: Number(i.netoDelPapel) > 0 ? Number(i.netoDelPapel) : null,
+          fraccionNeta: Number(i.fraccionNeta) > 0 && Number(i.fraccionNeta) <= 1 ? Number(i.fraccionNeta) : null,
           esDescuento: !!i.esDescuento,
           // mercadería que vuelve al proveedor: sale del stock (3/11/2026)
           esDevolucion: !!i.esDevolucion,
@@ -1158,7 +1160,8 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   const netoDelRenglon = (i: any) => i._esDevolucion
     ? Math.min(0, -(Math.abs(numImp(i.importe)) || Math.abs(numImp(i.cantidad) * numImp(i.precio))) + Math.abs(numImp(i._descuento)))
     : numImp(i.cantidad) > 0
-    ? numImp(i.cantidad) * precioEfectivo(i)
+    // cigarrillos: el precio del papel ya trae IVA e interno; el neto es su parte
+    ? numImp(i.cantidad) * precioEfectivo(i) * (i.fraccionNeta ?? 1)
     : Math.max(0, numImp(i.papel?.importe ?? i.importe));
   const sumaRenglones = itemsCalc.reduce(
     (s: number, i: any) => (i._esDescuento ? s : s + netoDelRenglon(i)),
@@ -1290,6 +1293,15 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   // La cuenta del costo de un renglón, escrita: lo que se muestra al pasar el
   // mouse por el "c/IVA" para no tener que sacarla a mano.
   const desgloseCosto = (i: any, idx: number) => {
+    // cigarrillos: el precio unitario del papel ya es neto + IVA + interno
+    if (i.fraccionNeta) {
+      const neto = precioEfectivo(i) * i.fraccionNeta;
+      const interno = numImp(i.cantidad) > 0 ? numImp(i.internosDelPapel) / numImp(i.cantidad) : 0;
+      const partesPapel = [`${pesos(precioEfectivo(i))} por unidad, como dice la factura (neto ${pesos(neto)} + IVA ${pesos(precioEfectivo(i) - neto - interno)}${interno > 0 ? ` + impuesto interno ${pesos(interno)}` : ''})`];
+      const perc = costoFinal(i, idx) - precioEfectivo(i);
+      if (perc > 0.005) partesPapel.push(`+ percepciones ${(percepcionesPct * 100).toFixed(2).replace('.', ',')}% sobre neto${interno > 0 ? ' e interno' : ''} ${pesos(perc)}`);
+      return `${partesPapel.join('  ')}  = ${pesos(costoFinal(i, idx))} c/IVA`;
+    }
     const partes = [`${pesos(precioEfectivo(i))} por unidad${numImp(i.bonificacionPct) > 0 ? ` (ya con el ${numImp(i.bonificacionPct)}% de descuento)` : ''}`];
     const a = alicDe(idx);
     if (ivaConAlicuotas && a != null) {
@@ -1310,6 +1322,12 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   };
   const costoFinal = (i: any, idx?: number) => {
     const k = idx ?? itemsCalc.indexOf(i);
+    // cigarrillos: el precio unitario del papel ya trae el IVA y el interno; solo
+    // se le suma su parte de las percepciones (sobre su neto y su interno)
+    if (i.fraccionNeta) {
+      const interno = numImp(i.cantidad) > 0 ? numImp(i.internosDelPapel) / numImp(i.cantidad) : 0;
+      return Math.round((precioEfectivo(i) + (precioEfectivo(i) * i.fraccionNeta + interno) * percepcionesPct) * 100) / 100;
+    }
     return Math.round((precioEfectivo(i) * factorDe(i, k) + internosConPercepcion(i, k)) * 100) / 100;
   };
   const hayDatosFiscales = baseCosto != null;

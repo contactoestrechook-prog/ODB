@@ -21,15 +21,15 @@
 //   Imp. Internos = suma de los internos de cada renglón; y la percepción de
 //   IIBB es el 5 % de (subtotal + internos), no del subtotal solo.
 //
-// El sistema trabaja cada renglón por su NETO (cantidad × precio = importe, y
-// después suma IVA, percepciones e internos). Con «Precio Unit» y «Total»
-// tomados tal cual, los renglones sumaban 329.400,32 contra un neto de
-// 69.658,20: nada cerraba y había que explicarlo a mano.
+// LO QUE DICE EL PAPEL MANDA (Leandro, 5/11/2026: «¿toma el neto en vez del
+// precio unitario?»): el renglón se muestra y se carga con el «Precio Unit» y
+// el «Total» impresos, que es lo que se paga por cada atado. El neto y el
+// interno de cada renglón se guardan APARTE, solo para controlar el IVA y los
+// internos contra el pie y para repartir la percepción. El costo es el precio
+// unitario del papel más su parte de la percepción.
 //
-// Esta función deja cada renglón en neto y guarda cuánto interno trae cada uno
-// según el papel. Vale también para los renglones sin interno de la misma
-// factura (las barras de cereal que vienen con los cigarrillos), que en este
-// formato también traen el total con IVA.
+// Vale también para los renglones sin interno de la misma factura (las barras
+// de cereal que vienen con los cigarrillos): su «Precio Unit» ya trae el IVA.
 // ============================================================
 
 export type RenglonLeido = {
@@ -40,16 +40,18 @@ export type RenglonLeido = {
   impuestoInternoUnitario?: number | null;
 };
 
-export type RenglonEnNeto = {
-  /** precio neto por unidad */
+export type RenglonDelPapel = {
+  /** el «Precio Unit» del papel: neto + IVA + interno */
   precio: number;
-  /** cantidad × precio neto */
+  /** el «Total» del renglón, como está impreso */
   importe: number;
   alicuotaIva: number;
+  /** el neto por unidad (la base del IVA) */
+  netoDelPapel: number;
+  /** qué parte del precio unitario es neto: sirve aunque después cambie la unidad o haya un descuento */
+  fraccionNeta: number;
   /** impuestos internos del renglón entero, según el papel (0 si no lleva) */
   internosDelPapel: number;
-  /** el total impreso en el renglón, con impuestos */
-  importeImpreso: number;
 };
 
 const n = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0);
@@ -57,11 +59,12 @@ const redondear = (v: number) => Math.round(v * 100) / 100;
 const parecido = (a: number, b: number) => Math.abs(a - b) <= Math.max(0.05, Math.abs(b) * 0.006);
 
 /**
- * Los renglones de una factura que imprime el impuesto interno por unidad,
- * llevados a neto. Devuelve null en cada renglón que no hay que tocar, y null
- * entero si la factura no trae internos por renglón.
+ * Los renglones de una factura que imprime el impuesto interno por unidad, con
+ * el precio unitario y el total del papel, y aparte su neto y su interno.
+ * Devuelve null en cada renglón que no hay que tocar, y null entero si la
+ * factura no trae internos por renglón.
  */
-export function renglonesEnNeto(items: RenglonLeido[]): (RenglonEnNeto | null)[] | null {
+export function renglonesDelPapel(items: RenglonLeido[]): (RenglonDelPapel | null)[] | null {
   if (!items.some((i) => n(i.impuestoInternoUnitario) > 0 && n(i.cantidad) > 0)) return null;
   return items.map((i) => {
     const cantidad = n(i.cantidad);
@@ -73,20 +76,22 @@ export function renglonesEnNeto(items: RenglonLeido[]): (RenglonEnNeto | null)[]
     const conIva = 1 + alicuota / 100;
     const porUnidad = importe > 0 ? importe / cantidad : 0;
 
-    // el precio que se leyó: ¿es el neto, o el «Precio Unit» con todo adentro?
+    // el precio que se leyó: ¿es el «Precio Unit» (con todo adentro) o la columna Neto?
     let neto: number | null = null;
-    if (porUnidad > 0 && parecido(precio * conIva + interno, porUnidad)) neto = precio;
-    else if (porUnidad > 0 && parecido(precio, porUnidad) && precio > interno) neto = (precio - interno) / conIva;
-    else if (interno > 0 && importe === 0) neto = precio;
-    // un renglón que ya está en neto (cantidad × precio = importe, sin interno) no se toca
-    if (neto == null || (interno === 0 && parecido(precio * cantidad, importe))) return null;
-    const precioNeto = redondear(neto);
+    let final = precio;
+    // se leyó el «Precio Unit»: queda tal cual
+    if (porUnidad > 0 && parecido(precio, porUnidad) && precio > interno) neto = (precio - interno) / conIva;
+    // se leyó la columna Neto: el precio vuelve a ser el «Precio Unit» del papel
+    else if (porUnidad > 0 && parecido(precio * conIva + interno, porUnidad)) { neto = precio; final = redondear(precio * conIva + interno); }
+    else if (importe === 0 && precio > interno) neto = (precio - interno) / conIva;
+    if (neto == null || !(neto > 0)) return null;
     return {
-      precio: precioNeto,
-      importe: redondear(cantidad * precioNeto),
+      precio: final,
+      importe: importe > 0 ? importe : redondear(cantidad * final),
       alicuotaIva: alicuota,
+      netoDelPapel: redondear(neto),
+      fraccionNeta: neto / final,
       internosDelPapel: redondear(cantidad * interno),
-      importeImpreso: importe,
     };
   });
 }

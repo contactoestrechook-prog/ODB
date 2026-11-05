@@ -435,7 +435,7 @@ export function tablaParaIA(
       precio: p.precio, descuentoPct: p.desc, alicuotaIva: p.iva, importe: p.importe,
       unidades: c.unidades, cuenta: c.cuenta, cierra: c.cierra,
       // cigarrillos: el interno que trae impreso el renglón y su total con impuestos
-      ...(Number(fila.internosDelPapel) > 0 ? { internosDelPapel: Number(fila.internosDelPapel), importeImpreso: Number(fila.importeImpreso) || null } : {}),
+      ...(Number(fila.fraccionNeta) > 0 ? { precioConImpuestosAdentro: true, netoPorUnidad: Number(fila.netoDelPapel) || null, internosDelPapel: Number(fila.internosDelPapel) || 0 } : {}),
       entraComo: entraDeRenglon(fila, p)?.como ?? 'por decidir',
       entraDe: (entraDeRenglon(fila, p) as any)?.de ?? null,
       entraAlStock: { cantidad: num(fila.cantidad), costoNeto: num(fila.precio), porPeso: !!fila.porPeso },
