@@ -113,6 +113,16 @@ function papelSegun(raw: any, desc: number | null): Papel {
     const q = num(r.cantidad)! / cant;
     if (Number.isInteger(q) && q > 1) uxb = q;
   }
+  // BULTOS Y SUELTAS LEÍDOS (5/11/2026, Oxxon, Pronto Manzana «4 | 4»): el
+  // lector devuelve aparte los bultos y las sueltas, y a veces la «cantidad» es
+  // otra cosa (las unidades por bulto). Si con ellos la cuenta da el importe,
+  // ese es el papel; antes se miraba solo la cantidad y salía «0 bultos, 8 sueltas».
+  const bultosLeidos = num(raw?.bultos);
+  const sueltasLeidas = num(raw?.unidadesSueltas) ?? 0;
+  if (uxb != null && bultosLeidos != null && bultosLeidos > 0) {
+    const leido = { bultos: bultosLeidos, uxb, sueltas: sueltasLeidas, ...base };
+    if (cuentaDelPapel(leido).cierra) return leido;
+  }
   if (uxb != null && cant > 0) {
     const comoBulto = cuentaDelPapel({ bultos: cant, uxb, sueltas: 0, ...base });
     const talCual = cuentaDelPapel({ bultos: 0, uxb: null, sueltas: cant, ...base });
