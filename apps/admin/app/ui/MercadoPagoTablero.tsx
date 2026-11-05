@@ -22,6 +22,9 @@ type Pago = {
   id: string; cuenta: string; estado: string; tipo: string | null; medio: string | null; origen?: string | null; cuotas: number; bruto: number; comision: number; neto: number;
   liberado: boolean; liberacion_en: string | null; aprobado_en: string | null; creado_en_mp?: string | null; descripcion: string | null; pagador?: string | null; venta_id?: string | null;
 };
+type FilaMov = { dia: string; cuenta: string; descripcion: string; movimientos: number; credito: number; debito: number; saldo_cierre: number | null };
+type Movs = { filas: FilaMov[]; saldos: { cuenta: string; fecha: string | null; saldo: number | null }[]; cobertura: { cuenta: string; desde: string | null; hasta: string | null; pendientes: number }[] };
+type Mov = { id: string; cuenta: string; fecha: string; source_id: string | null; descripcion: string; credito: number; debito: number; comision: number | null; medio: string | null; saldo: number | null };
 type Cuenta = '' | 'principal' | 'santa_ines';
 type Vista = 'mes' | 'plata' | 'cobros';
 
@@ -39,6 +42,12 @@ const MEDIOS: { tipo: string; n: string; c: string }[] = [
   { tipo: 'otro', n: 'Otros', c: '#7E7F86' },
 ];
 const medio = (t: string | null) => MEDIOS.find((m) => m.tipo === t) ?? { tipo: t ?? 'otro', n: t ?? 'Otros', c: '#7E7F86' };
+// lo que dice cada línea del extracto de Mercado Pago
+const MOVIMIENTO: Record<string, string> = {
+  payment: 'Pago', payout: 'Retiro', refund: 'Devolución', chargeback: 'Contracargo', mediation: 'Reclamo',
+  dispute: 'Reclamo', cancel_payment: 'Pago anulado', fee: 'Cargo de MP', tax: 'Impuesto', withdrawal: 'Retiro',
+};
+const movTxt = (d: string) => MOVIMIENTO[d] ?? d.replace(/_/g, ' ');
 const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
 const mesLargo = (m: string) => `${MESES[Number(m.slice(5, 7)) - 1]} ${m.slice(0, 4)}`;
 const mesCorto = (m: string) => `${MESES[Number(m.slice(5, 7)) - 1].slice(0, 3)} ${m.slice(2, 4)}`;
@@ -400,10 +409,112 @@ function LaPlata({ cuenta }: { cuenta: Cuenta }) {
         ) : <p className="gris">No hay plata pendiente de liberar.</p>}
         <p className="nota">Sale de la fecha de liberación y el neto de cada pago. Los retiros al banco y otros descuentos vienen en el reporte de liberaciones de Mercado Pago: es la próxima etapa.</p>
       </section>
+      <Extracto cuenta={cuenta} />
       {dia && (
         <section className="bloque abierto">
           <div className="titulo"><h3>Se libera el {diaTxt(dia)}{pagos ? ` · ${pagos.length} pagos` : ''}</h3><button className="btn" type="button" onClick={() => setDia(null)}>Cerrar</button></div>
           <ListaPagos pagos={pagos} conLiberacion />
+        </section>
+      )}
+    </>
+  );
+}
+
+// El extracto: lo que dice el reporte de liberaciones de Mercado Pago, día por día
+function Extracto({ cuenta }: { cuenta: Cuenta }) {
+  const hoy = hoyAR(), desde = sumarDias(hoy, -45);
+  const [m, setM] = useState<Movs | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [dia, setDia] = useState<string | null>(null);
+  const [lineas, setLineas] = useState<Mov[] | null>(null);
+  useEffect(() => {
+    let vivo = true; setM(null); setError(null);
+    traer<Movs>('movimientos', { desde, hasta: hoy, cuenta })
+      .then((j) => vivo && setM({ ...j, filas: j.filas.map((f) => ({ ...f, credito: +f.credito, debito: +f.debito, saldo_cierre: f.saldo_cierre == null ? null : +f.saldo_cierre })) }))
+      .catch((e) => vivo && setError(e.message));
+    return () => { vivo = false; };
+  }, [cuenta, desde, hoy]);
+  useEffect(() => {
+    if (!dia) { setLineas(null); return; }
+    let vivo = true; setLineas(null);
+    traer<Mov[]>('movimientos-dia', { dia, cuenta }).then((j) => vivo && setLineas(j)).catch(() => vivo && setLineas([]));
+    return () => { vivo = false; };
+  }, [dia, cuenta]);
+
+  if (error) return <section className="bloque"><h3>Extracto de la cuenta</h3><p className="gris">No se pudo leer el extracto: {error}</p></section>;
+  if (!m) return <section className="bloque"><h3>Extracto de la cuenta</h3><p className="gris">Cargando…</p></section>;
+  if (!m.filas.length) return (
+    <section className="bloque"><h3>Extracto de la cuenta</h3>
+      <p className="gris">Todavía no llegó ningún reporte de Mercado Pago. El sistema los pide solo cada 10 minutos y Mercado Pago tarda unos minutos en armarlos.</p>
+    </section>
+  );
+
+  type Dia = { liberado: number; retiros: number; pagosSalen: number; otrosEntran: number; otrosSalen: number; otros: Map<string, number>; saldo: Map<string, number> };
+  const porDia = new Map<string, Dia>();
+  for (const f of m.filas) {
+    const a = porDia.get(f.dia) ?? { liberado: 0, retiros: 0, pagosSalen: 0, otrosEntran: 0, otrosSalen: 0, otros: new Map(), saldo: new Map() };
+    if (f.descripcion === 'payment') { a.liberado += f.credito; a.pagosSalen += f.debito; }
+    else if (f.descripcion === 'payout' || f.descripcion === 'withdrawal') a.retiros += f.debito - f.credito;
+    else { a.otrosEntran += f.credito; a.otrosSalen += f.debito; a.otros.set(f.descripcion, (a.otros.get(f.descripcion) ?? 0) + f.credito - f.debito); }
+    if (f.saldo_cierre != null) a.saldo.set(f.cuenta, f.saldo_cierre);
+    porDia.set(f.dia, a);
+  }
+  const dias = [...porDia.entries()].sort((x, y) => (x[0] < y[0] ? 1 : -1));
+  const ult30 = dias.filter(([d]) => d >= sumarDias(hoy, -30));
+  const suma = (k: keyof Omit<Dia, 'otros' | 'saldo'>) => ult30.reduce((s, [, a]) => s + (a[k] as number), 0);
+  const saldoTotal = m.saldos.reduce((s, x) => s + (x.saldo ?? 0), 0);
+  const fechaSaldo = m.saldos.map((x) => x.fecha).filter(Boolean).sort()[0];
+  const cob = m.cobertura.filter((c) => !cuenta || c.cuenta === cuenta);
+
+  return (
+    <>
+      <section className="cifras">
+        <div><div className="et">Saldo en Mercado Pago</div><div className="grande frio">{pesos(saldoTotal)}</div><div className="gris">{fechaSaldo ? `al ${diaTxt(fechaSaldo.slice(0, 10))} ${horaTxt(fechaSaldo)}` : '—'}{!cuenta && m.saldos.length > 1 ? ` · ${m.saldos.map((x) => `${EMPRESAS[x.cuenta]?.corto}: ${pesos(x.saldo)}`).join(' · ')}` : ''}</div></div>
+        <div><div className="et">Retiros · 30 días</div><div className="grande">{pesos(suma('retiros'))}</div><div className="gris">lo que salió de la cuenta a bancos o a terceros</div></div>
+        <div><div className="et">Pagos y transferencias · 30 días</div><div className="grande">{pesos(suma('pagosSalen'))}</div><div className="gris">hechos con la plata de la cuenta, con el impuesto al débito</div></div>
+        <div><div className="et">Devoluciones y otros · 30 días</div><div className="grande calor">{pesos(suma('otrosSalen') - suma('otrosEntran'))}</div><div className="gris">salió menos lo que volvió</div></div>
+      </section>
+      <section className="bloque">
+        <div className="titulo"><h2>Extracto de la cuenta, día por día</h2><span className="gris">{cob.map((c) => `${EMPRESAS[c.cuenta]?.corto}: ${c.hasta ? `hasta el ${diaTxt(sumarDias(c.hasta.slice(0, 10), -1))}` : 'sin reportes'}${c.pendientes ? ' · pidiendo el próximo' : ''}`).join(' · ')}</span></div>
+        <div className="tabla alta"><table>
+          <thead><tr><th>Día</th><th className="n">Liberado de ventas</th><th className="n">Retiros</th><th className="n">Pagos y transferencias</th><th className="n">Otros</th><th className="n">Saldo al cierre</th></tr></thead>
+          <tbody>{dias.map(([d, a]) => {
+            const otros = [...a.otros.entries()].filter(([, v]) => Math.abs(v) >= 1);
+            const saldo = [...a.saldo.values()].reduce((s, v) => s + v, 0);
+            return (
+              <tr key={d} className={`clic ${dia === d ? 'activa' : ''}`} onClick={() => setDia(dia === d ? null : d)}>
+                <td><b>{diaTxt(d)}</b></td>
+                <td className="n">{a.liberado ? pesos(a.liberado) : '—'}</td>
+                <td className="n">{a.retiros ? pesos(a.retiros) : '—'}</td>
+                <td className="n">{a.pagosSalen ? pesos(a.pagosSalen) : '—'}</td>
+                <td className="n">{otros.length ? otros.map(([k, v]) => `${movTxt(k)} ${v < 0 ? '−' : '+'}${pesos(Math.abs(v))}`).join(' · ') : '—'}</td>
+                <td className="n frio">{a.saldo.size ? pesos(saldo) : '—'}</td>
+              </tr>
+            );
+          })}</tbody>
+        </table></div>
+        <p className="nota">Sale del reporte de liberaciones de Mercado Pago, que el sistema pide y lee solo. Las reservas internas de Mercado Pago (entran y salen por el mismo monto) no se muestran.</p>
+      </section>
+      {dia && (
+        <section className="bloque abierto">
+          <div className="titulo"><h3>Extracto del {diaTxt(dia)}{lineas ? ` · ${lineas.length} movimientos` : ''}</h3><button className="btn" type="button" onClick={() => setDia(null)}>Cerrar</button></div>
+          {lineas == null ? <p className="gris">Cargando…</p> : !lineas.length ? <p className="gris">Sin movimientos.</p> : (
+            <div className="tabla alta"><table>
+              <thead><tr><th>Hora</th><th>Movimiento</th><th>Empresa</th><th>Medio</th><th className="n">Entra</th><th className="n">Sale</th><th className="n">Saldo</th><th>Operación</th></tr></thead>
+              <tbody>{lineas.map((l) => (
+                <tr key={l.id}>
+                  <td>{horaTxt(l.fecha)}</td>
+                  <td>{movTxt(l.descripcion)}{l.descripcion === 'payment' && +l.debito > 0 ? ' o transferencia que salió' : ''}</td>
+                  <td>{EMPRESAS[l.cuenta]?.corto ?? l.cuenta}</td>
+                  <td>{l.medio ? medio(l.medio).n : '—'}</td>
+                  <td className="n">{+l.credito ? pesos(+l.credito) : ''}</td>
+                  <td className="n calor">{+l.debito ? pesos(+l.debito) : ''}</td>
+                  <td className="n">{l.saldo != null ? pesos(+l.saldo) : '—'}</td>
+                  <td className="gris">{l.source_id ?? '—'}</td>
+                </tr>
+              ))}</tbody>
+            </table></div>
+          )}
         </section>
       )}
     </>

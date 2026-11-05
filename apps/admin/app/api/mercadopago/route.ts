@@ -10,7 +10,7 @@ async function auth(): Promise<Record<string, string>> {
 
 // GET ?recurso=estado|resumen|pagos|mensual|dias|liberaciones|pagos-dia&…
 // Solo pasan estos recursos y estos parámetros; la seguridad real está en el API (@Roles).
-const RECURSOS = ['estado', 'resumen', 'pagos', 'mensual', 'dias', 'liberaciones', 'pagos-dia'];
+const RECURSOS = ['estado', 'resumen', 'pagos', 'mensual', 'dias', 'liberaciones', 'pagos-dia', 'movimientos', 'movimientos-dia'];
 const PARAMS = ['dias', 'cuenta', 'meses', 'desde', 'hasta', 'dia', 'tipo', 'por'];
 export async function GET(req: Request) {
   const sp = new URL(req.url).searchParams;
