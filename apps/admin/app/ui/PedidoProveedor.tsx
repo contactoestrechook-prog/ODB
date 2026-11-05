@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Aviso, BarraInferior, Boton, Cargando, Chip, Entrada, FOCO, FOCO_ADENTRO, IconoFlechaAbajo, PlacaRoja, Selector, Tarjeta, unir } from './kit';
 import { fecha, pesos } from '../lib/formato';
 import { filtrarPorBusqueda } from '../lib/busqueda';
+import { ParecidosProducto } from './ParecidosProducto';
 
 // Armar el pedido a un proveedor desde el teléfono, caminando el depósito.
 //
@@ -107,6 +108,8 @@ export function PedidoProveedor({ sucursales, proveedorInicial, sucursalInicial 
   const [buscaCatalogo, setBuscaCatalogo] = useState('');
   const [resultados, setResultados] = useState<any[]>([]);
   const [agregando, setAgregando] = useState(false);
+  // el producto del que se están mirando los parecidos (otra marca, otro tamaño); el pedido queda debajo, intacto
+  const [parecidosDe, setParecidosDe] = useState<Item | null>(null);
 
   // ---- el pedido guardado solo ----
   const [guardado, setGuardado] = useState<EstadoGuardado>('');
@@ -525,6 +528,15 @@ export function PedidoProveedor({ sucursales, proveedorInicial, sucursalInicial 
                     {it.costo != null ? ` · ${pesos(it.costo)}` : ' · sin costo'}
                     {` · ${it.sku}`}{it.codigoProveedor ? ` · cód. ${it.codigoProveedor}` : ''}
                   </p>
+                  {/* antes de pedirlo: ¿hay de lo mismo en otra marca o en otro tamaño? (4/11/2026) */}
+                  <button type="button" onClick={() => setParecidosDe(it)}
+                    className={unir(
+                      'mt-1.5 inline-flex min-h-9 items-center rounded-full border px-3 text-xs font-semibold transition-colors',
+                      est === 'sin' || est === 'critico' ? 'border-marca text-marca-hondo hover:bg-marca-suave' : 'border-black/15 text-tinta/70 hover:bg-crema-claro',
+                      FOCO,
+                    )}>
+                    ¿Qué tengo parecido?
+                  </button>
                 </div>
                 <div className="ml-auto flex shrink-0 items-center gap-1.5">
                   <button type="button" aria-label={`Restar uno de ${it.nombre}`} onClick={() => poner(it.sku, puesto - 1)} disabled={!puesto}
@@ -591,6 +603,28 @@ export function PedidoProveedor({ sucursales, proveedorInicial, sucursalInicial 
             {enviando ? 'Enviando…' : 'Enviar a aprobación'}
           </Boton>
         </BarraInferior>
+      )}
+
+      {parecidosDe && (
+        <ParecidosProducto
+          sku={parecidosDe.sku}
+          nombre={parecidosDe.nombre}
+          proveedorId={proveedor.id}
+          proveedorNombre={proveedor.razon_social}
+          cantidades={cant}
+          onSumar={(p) => {
+            // lo que se suma desde Parecidos también tiene que salir con nombre y costo en la nota de pedido
+            setVistos((v) => (v[p.sku] ? v : {
+              ...v,
+              [p.sku]: {
+                sku: p.sku, nombre: p.nombre, unidadesPack: 1, codigoProveedor: null, costo: p.costo,
+                stock: p.stockTotal, minimo: 0, reposicion: 0, sugerido: 0, urgente: false, porDia: 0, diasDeStock: null,
+              },
+            }));
+            poner(p.sku, (cant[p.sku] ?? 0) + 1);
+          }}
+          onCerrar={() => setParecidosDe(null)}
+        />
       )}
     </div>
   );

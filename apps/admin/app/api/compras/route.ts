@@ -70,6 +70,11 @@ export async function GET(req: Request) {
   } else if (recurso === 'borrador-pedido' && url.searchParams.get('proveedorId')) {
     // el pedido a medio cargar de ese proveedor y sucursal (4/11/2026)
     ruta = `/compras/proveedores/${encodeURIComponent(url.searchParams.get('proveedorId')!)}/borrador?sucursalId=${encodeURIComponent(url.searchParams.get('sucursalId') ?? '')}`;
+  } else if (recurso === 'parecidos' && url.searchParams.get('sku')) {
+    // lo mismo en otra marca o tamaño, con el stock de cada sucursal (4/11/2026)
+    const params = new URLSearchParams(url.searchParams);
+    params.delete('recurso');
+    ruta = `/compras/parecidos?${params.toString()}`;
   } else if (recurso === 'conciliacion') {
     ruta = '/compras/conciliacion';
   } else if (recurso === 'cruce') {

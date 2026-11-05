@@ -171,6 +171,14 @@ export class ComprasController {
     return this.compras.guardarBorradorPedido(id, String(b?.sucursalId ?? ''), b?.items, req.usuario?.sub);
   }
 
+  // Parecidos (4/11/2026): qué hay de lo mismo —otra marca, otro tamaño— y
+  // cuánto en cada sucursal, antes de pedirlo
+  @Roles('comprador', 'gerente', 'dueno')
+  @Get('compras/parecidos')
+  parecidos(@Query('sku') sku?: string, @Query('q') q?: string, @Query('proveedorId') proveedorId?: string) {
+    return this.compras.parecidos(String(sku ?? ''), { q, proveedorId });
+  }
+
   // Orden de pago en PDF: la autorización escrita para que salga la plata
   @Roles('comprador', 'gerente', 'dueno')
   @Get('compras/ordenes-pago/:id/documento')

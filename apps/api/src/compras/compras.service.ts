@@ -7,6 +7,7 @@ import { enLotes } from '../comun/lotes';
 import { vencimientoPorPlazo } from '../proveedores/ficha';
 import { fusionarRenglonesPorSku } from './bultos';
 import { normalizarBorradorPedido } from './borrador-pedido';
+import { compararNombres, normalizarNombre, ordenarParecidos, prefijoDeFamilia, tamanoDe } from './parecidos';
 
 // Cómo se propone cuánto pedir: se mira la venta de los últimos 30 días y se
 // propone cubrir 14. Menos de 5 días de stock es urgente (con el lead time de
@@ -879,6 +880,73 @@ export class ComprasService {
       .single();
     if (error) throw new BadRequestException(error.message);
     return { guardado: true, vacio: false, actualizadoEn: data.actualizado_en, productos: Object.keys(items).length };
+  }
+
+  // ---------- parecidos (4/11/2026) ----------
+  // «No tengo stock de puré de tomate La Campagnola, pero por ahí tengo Zika…
+  // no tengo azúcar por 500 gramos, pero por ahí tengo por un kilo»: antes de
+  // pedir, qué hay de lo mismo —otra marca, otro tamaño— y cuánto en cada
+  // sucursal. La familia sale del nombre (ver parecidos.ts). Con `q` la persona
+  // busca otra cosa a mano en todo el catálogo.
+  async parecidos(sku: string, opts: { q?: string; proveedorId?: string } = {}) {
+    const { data: base } = await this.db.from('productos').select('id, sku, nombre').eq('sku', String(sku ?? '')).maybeSingle();
+    if (!base) throw new BadRequestException('No existe ese producto');
+    const q = normalizarNombre(opts.q ?? '').replace(/[%_,()]/g, ' ').trim();
+    const prefijo = prefijoDeFamilia(base.nombre);
+
+    let consulta = this.db.from('productos').select('id, sku, nombre, costo').eq('activo', true).neq('id', base.id);
+    if (q) {
+      for (const palabra of q.split(' ').filter(Boolean).slice(0, 5)) consulta = consulta.ilike('nombre_normalizado', `%${palabra}%`);
+    } else if (prefijo) {
+      consulta = consulta.ilike('nombre_normalizado', `${prefijo}%`);
+    }
+    const { data: encontrados, error } = q || prefijo ? await consulta.order('nombre').limit(300) : { data: [] as any[], error: null };
+    if (error) throw new BadRequestException(error.message);
+    const prods = (encontrados ?? []) as any[];
+    const ids = prods.map((p) => p.id);
+
+    const [stocks, sucursales, vinculos] = await Promise.all([
+      enLotes<any>([base.id, ...ids], (lote) => this.db.from('stock').select('producto_id, sucursal_id, cantidad').in('producto_id', lote)),
+      this.db.from('sucursales').select('id, nombre').order('nombre').then((r) => (r.data ?? []) as any[]),
+      ids.length
+        ? enLotes<any>(ids, (lote) => this.db.from('proveedor_productos').select('producto_id, proveedor:proveedores(id, razon_social, rubro)').in('producto_id', lote))
+        : Promise.resolve([] as any[]),
+    ]);
+
+    const stockDe = new Map<string, { sucursalId: string; cantidad: number }[]>();
+    for (const s of stocks as any[]) {
+      const lista = stockDe.get(s.producto_id) ?? [];
+      lista.push({ sucursalId: s.sucursal_id, cantidad: Number(s.cantidad) || 0 });
+      stockDe.set(s.producto_id, lista);
+    }
+    const total = (id: string) => (stockDe.get(id) ?? []).reduce((t, s) => t + Math.max(0, s.cantidad), 0);
+    // quién lo vende, sin «Proveedores varios» (no es un proveedor de verdad)
+    const provDe = new Map<string, { id: string; nombre: string }[]>();
+    for (const v of vinculos as any[]) {
+      if (!v.proveedor || v.proveedor.rubro === 'varios') continue;
+      const lista = provDe.get(v.producto_id) ?? [];
+      lista.push({ id: v.proveedor.id, nombre: v.proveedor.razon_social });
+      provDe.set(v.producto_id, lista);
+    }
+
+    const items = ordenarParecidos(prods.map((p) => ({
+      sku: p.sku as string,
+      nombre: p.nombre as string,
+      costo: p.costo != null ? Number(p.costo) : null,
+      tamano: tamanoDe(p.nombre)?.texto ?? null,
+      ...compararNombres(base.nombre, p.nombre),
+      stock: stockDe.get(p.id) ?? [],
+      stockTotal: total(p.id),
+      proveedores: (provDe.get(p.id) ?? []).map((x) => x.nombre),
+      enEsteProveedor: !!opts.proveedorId && (provDe.get(p.id) ?? []).some((x) => x.id === opts.proveedorId),
+    })));
+
+    return {
+      base: { sku: base.sku, nombre: base.nombre, tamano: tamanoDe(base.nombre)?.texto ?? null, stock: stockDe.get(base.id) ?? [], stockTotal: total(base.id) },
+      familia: q || prefijo,
+      items,
+      sucursales,
+    };
   }
 
   // ---------- órdenes de pago (cuentas a pagar) ----------
