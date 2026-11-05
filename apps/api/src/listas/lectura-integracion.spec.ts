@@ -42,4 +42,23 @@ describe('lectura inicial y reapertura', () => {
     expect(unions).toBeLessThanOrEqual(16);
     expect(mockRequest.output_config.format.schema.properties.items.items.required).not.toContain('cantidad');
   });
+
+  // 5/11/2026: con 11 propiedades opcionales en el renglón el lector dejó de
+  // leer TODAS las facturas (el mismo PDF que el 4/11 a las 17:39 salió en 55
+  // segundos, al día siguiente falló en 3). Con 10 andaba; el tope queda en las
+  // 9 que funcionaron durante meses. Una propiedad nueva entra como obligatoria.
+  it('el renglón no suma propiedades opcionales', async () => {
+    mockDatos = { items: [{ codigo: null, descripcion: 'Agua pack x 6', unidadesPorBulto: 6, cantidad: 1, precio: 100, importe: 100, devueltoAMano: false, recibidoAMano: 0 }] };
+    const s = new ListasService(baseSimulada() as any);
+    (s as any).sugerirMatchConIA = async () => new Map();
+    const result = await s.analizarComprobanteFoto({ buffer: Buffer.from('mock'), mimetype: 'application/pdf', originalname: 'mock.pdf' } as any);
+    const renglon = mockRequest.output_config.format.schema.properties.items.items;
+    const opcionales = Object.keys(renglon.properties).filter((k) => !renglon.required.includes(k));
+    expect(opcionales.length).toBeLessThanOrEqual(9);
+    expect(renglon.required).toEqual(expect.arrayContaining(['devueltoAMano', 'recibidoAMano']));
+    // El valor neutro no se lee como una devolución ni como una entrega parcial.
+    const row = result.items[0] as any;
+    expect(row.devueltoAMano).toBe(false);
+    expect(row.recibidoAMano).toBeNull();
+  });
 });

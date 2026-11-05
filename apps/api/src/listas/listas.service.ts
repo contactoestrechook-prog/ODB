@@ -140,12 +140,20 @@ const ESQUEMA_COMPROBANTE = {
           // celda BULT. pintada y «ingresaron 3 bultos» a mano → entraron 28 de 36.
           recibidoAMano: {
             type: 'number',
-            description: 'Solo si una anotación a mano (o una celda pintada con un número escrito al lado) dice cuánto llegó DE VERDAD de este renglón y es MENOS que lo facturado: las UNIDADES que entraron, contando igual que la factura (bultos recibidos × unidades por bulto + sueltas). Ej.: factura 4 bultos × 8 + 4 sueltas y la nota dice "ingresaron 3 bultos" → 3 × 8 + 4 = 28. Si no hay una anotación así, omití este campo. La cantidad, el precio y el importe se copian del papel tal cual: no los cambies por la nota.',
+            description: 'Solo si una anotación a mano (o una celda pintada con un número escrito al lado) dice cuánto llegó DE VERDAD de este renglón y es MENOS que lo facturado: las UNIDADES que entraron, contando igual que la factura (bultos recibidos × unidades por bulto + sueltas). Ej.: factura 4 bultos × 8 + 4 sueltas y la nota dice "ingresaron 3 bultos" → 3 × 8 + 4 = 28. Si no hay una anotación así, poné 0. La cantidad, el precio y el importe se copian del papel tal cual: no los cambies por la nota.',
           },
         },
         // Cantidad/precio/importe ausentes se normalizan a null. Evita superar
         // el límite de 16 propiedades con unión del servicio de extracción.
-        required: ['codigo', 'descripcion', 'unidadesPorBulto'],
+        //
+        // OJO CON LAS OPCIONALES (5/11/2026): devueltoAMano y recibidoAMano se
+        // agregaron el 4/11 como opcionales y el lector dejó de leer TODAS las
+        // facturas (la IA rechazaba el pedido en 3 segundos: «no pudo leer el
+        // comprobante»). Cada propiedad opcional agranda la gramática del
+        // esquema; con 11 se pasó. Van como OBLIGATORIAS con un valor neutro
+        // (false / 0), y así las opcionales vuelven a ser las 9 de siempre. Una
+        // propiedad nueva de renglón entra SIEMPRE como obligatoria.
+        required: ['codigo', 'descripcion', 'unidadesPorBulto', 'devueltoAMano', 'recibidoAMano'],
         additionalProperties: false,
       },
     },
