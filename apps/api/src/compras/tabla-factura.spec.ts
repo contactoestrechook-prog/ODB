@@ -1,7 +1,7 @@
 // La factura como tabla (8/10/2026). La cuenta vive en el panel
 // (apps/admin/app/lib/tabla-factura.ts) porque se recalcula en vivo; se prueba
 // acá porque la API es la que tiene los tests. Casos reales de Oxxon y Distri Sur.
-import { aplicarCambiosIA, aplicarPapel, cuentaDelPapel, entraDeRenglon, papelDeLectura, tablaParaIA, unidadesDelPapel } from '../../../admin/app/lib/tabla-factura';
+import { aplicarCambiosIA, aplicarPapel, frenarReglasAbsurdas, cuentaDelPapel, entraDeRenglon, papelDeLectura, tablaParaIA, unidadesDelPapel } from '../../../admin/app/lib/tabla-factura';
 
 const lectura = (cantidad: number, precio: number, importe: number, extra: Record<string, unknown> = {}) => ({ cantidad, precio, importe, ...extra });
 
@@ -281,5 +281,45 @@ describe('Rueda Que Rueda: bonificación ya incluida y lo que no ingresó', () =
     const fila: any = { descripcion: 'OREO', incluir: false, cantidad: 12, precio: 4004.07, importe: 48048.84, bonificacionPct: 18 };
     const [t] = tablaParaIA([fila], () => false, () => null, () => ({ costoFinalConIva: 5165.25, comoSeCalcula: '4004,07 + IVA 21% + percepciones 8%' })) as any[];
     expect(t).toMatchObject({ ingresa: false, bonificacionYaEnElPrecio: 18, costoFinalConIva: 5165.25, cierra: true });
+  });
+});
+
+// 5/11/2026, Grupo Modo (lectura b1ba1749): la regla «la cantidad es en paquetes,
+// 1 por bulto», dicha por una factura de cigarrillos, se aplicó sola a las barras.
+describe('frenarReglasAbsurdas: una regla aplicada sola no rompe un renglón', () => {
+  const esDesc = () => false;
+  const lucky: any = { descripcion: 'LUCKY COOL BOX 20 XL', cantidad: 30, precio: 5622.69, importe: 168680.7, alicuotaIva: 21, unidadesPorBulto: 20, unidadesDelCatalogo: 20, interpretado: { cantidad: 30, bultoDescartado: 20, unidadesPorBulto: null } };
+  const barra: any = { descripcion: 'BARRA PROTEICA PASTA MANI/ARANDANO X 10u', cantidad: 2, precio: 15625.03, importe: 31250.07, alicuotaIva: 21, unidadesPorBulto: 10, interpretado: { cantidad: 2, unidadesPorBulto: 10 } };
+  const fila = (raw: any, costoCatalogo: number) => ({ ...raw, unidadesPorBulto: raw.interpretado.unidadesPorBulto, bultoDescartado: raw.interpretado.bultoDescartado ?? null, costoCatalogo, papel: papelDeLectura(raw) });
+  const regla = (renglon: number, cantidad: number) => [
+    { renglon, campo: 'unidadesPorBulto', valor: 1, motivo: 'Regla del proveedor' },
+    { renglon, campo: 'bultos', valor: cantidad, motivo: 'Regla del proveedor' },
+    { renglon, campo: 'sueltas', valor: 0, motivo: 'Regla del proveedor' },
+  ];
+
+  it('las barras «X 10u» vuelven a como se leyeron y los cigarrillos quedan con la regla', () => {
+    const antes = [fila(lucky, 5831.9), fila(barra, 1496.89)];
+    const r = aplicarCambiosIA(antes, [...regla(1, 30), ...regla(2, 2)], esDesc);
+    const f = frenarReglasAbsurdas(antes, r.items, r.registros);
+    expect(f.frenados).toEqual([2]);
+    expect(f.items[1]).toBe(antes[1]);
+    expect(f.items[1].unidadesPorBulto).toBe(10);
+    expect(f.registros.every((g) => g.renglon === 1)).toBe(true);
+    expect(f.items[0]).toBe(r.items[0]);
+  });
+
+  it('sin costo de catálogo no frena nada', () => {
+    const antes = [fila(barra, 0)];
+    const r = aplicarCambiosIA(antes, regla(1, 2), esDesc);
+    expect(frenarReglasAbsurdas(antes, r.items, r.registros).frenados).toEqual([]);
+  });
+
+  it('un cambio que acerca el costo al catálogo pasa', () => {
+    // estaba cargada como 2 barras a $15.625 y la regla dice que la caja trae 10
+    const mal = { ...fila(barra, 1496.89), unidadesPorBulto: null };
+    const bien = { ...mal, cantidad: 20, precio: 1562.5 };
+    const f = frenarReglasAbsurdas([mal], [bien], [{ renglon: 1, campo: 'uxb', antes: 1, despues: 10, motivo: '' }]);
+    expect(f.frenados).toEqual([]);
+    expect(f.items[0]).toBe(bien);
   });
 });

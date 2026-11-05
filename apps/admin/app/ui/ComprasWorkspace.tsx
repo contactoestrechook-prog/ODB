@@ -20,7 +20,7 @@ import { AsistenteFactura, describirCambio, type CambioHecho } from './Asistente
 import { asignarInternos, internosImpresos, textoInternos } from '../lib/internos-compras';
 import { cargaDePercepciones, textoPercepcionesEnteras } from '../lib/percepciones-compras';
 import { aplicarBorrador, borradorDe, borradorVacio } from '../lib/borrador-factura';
-import { aplicarCambiosIA, aplicarPapel, cuentaDelPapel, entraDeRenglon, marcarComoDevolucion, papelDeLectura, tablaParaIA, type EntraComo, type Papel, conInternoDelPapel } from '../lib/tabla-factura';
+import { aplicarCambiosIA, frenarReglasAbsurdas, aplicarPapel, cuentaDelPapel, entraDeRenglon, marcarComoDevolucion, papelDeLectura, tablaParaIA, type EntraComo, type Papel, conInternoDelPapel } from '../lib/tabla-factura';
 import {
   Aviso, Boton, CLASES_ENTRADA, Cargando, Etiqueta, FOCO, FOCO_ADENTRO, Girador, IconoAtencion, IconoCerrar, IconoError, IconoInfo, IconoOk, Kpi, Modal as Ventana,
   Pestanas, PlacaRoja, TablaResponsiva, Tarjeta, TarjetaCabecera, Vacio, clasesBoton, unir, useConfirmar, type TonoEtiqueta,
@@ -1414,8 +1414,11 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   const CAMPOS_PIE = ['neto', 'iva', 'percepcionIva', 'percepcionIibb', 'impuestosInternos', 'otros', 'total'];
   // lo que devolvió el chat, sobre los renglones de AHORA (la persona pudo
   // seguir editando mientras la IA pensaba)
-  const aplicarIA = (cambios: any[], cambiosPie: any[]) => {
-    const r = aplicarCambiosIA(fotoItemsVivos.current, cambios, esRenglonDescuento);
+  const aplicarIA = (cambios: any[], cambiosPie: any[], automatico = false) => {
+    const r0 = aplicarCambiosIA(fotoItemsVivos.current, cambios, esRenglonDescuento);
+    // una regla aplicada sola no puede dejar un renglón a diez veces su costo
+    const freno = automatico ? frenarReglasAbsurdas(fotoItemsVivos.current, r0.items, r0.registros) : { items: r0.items, registros: r0.registros, frenados: [] as number[] };
+    const r = { ...r0, items: freno.items, registros: freno.registros };
     const pie = (cambiosPie ?? [])
       .filter((c: any) => CAMPOS_PIE.includes(c?.campo) && (c.valor == null || (Number.isFinite(Number(c.valor)) && Number(c.valor) >= 0)))
       .map((c: any) => ({ renglon: null, campo: String(c.campo), antes: fotoImpVivo.current?.[c.campo] ?? null, despues: c.valor == null ? null : Number(c.valor), motivo: String(c.motivo ?? '').slice(0, 300) }));
@@ -1439,6 +1442,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
         : 'el valor no es válido para ese dato';
       return `Renglón ${c?.renglon ?? '?'} · ${c?.campo ?? ''}: ${porque}`;
     });
+    for (const n of freno.frenados) noAplicados.push(`Renglón ${n}: la regla lo dejaba a un costo muy lejos del que tiene el producto en el catálogo, así que quedó como se leyó`);
     return { aplicados: todos.map((c) => describirCambio(c)), noAplicados };
   };
   // deshace UN cambio: vuelve ese dato a como estaba (los demás quedan)
