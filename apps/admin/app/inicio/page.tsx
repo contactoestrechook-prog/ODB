@@ -79,6 +79,7 @@ export default async function Inicio() {
       items: [
         { label: 'Productos', href: '/productos', icon: 'productos', sub: 'catálogo y precios', count: stock.skus_activos ? miles(stock.skus_activos) : null },
         { label: 'Stock', href: '/stock', icon: 'stock', sub: 'quiebres y vencimientos', badge: quiebres },
+        { label: 'Inventario', href: '/inventario', icon: 'analista', sub: 'cuánto hay de cada producto' },
         { label: 'Precios y listas', href: '/listas', icon: 'listas', sub: 'de proveedor' },
         { label: 'Compras', href: '/compras', icon: 'compras', sub: 'OC y pagos', badge: compras.pendientesAprobacion },
         { label: 'Proveedores', href: '/comparador', icon: 'comparador', sub: 'directorio y comparador' },

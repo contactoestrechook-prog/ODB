@@ -370,6 +370,43 @@ export const SECCIONES: Seccion[] = [
   },
 
   {
+    id: 'deposito-inventario',
+    titulo: 'Inventario de producto',
+    area: 'Depósito',
+    roles: ['dueno', 'gerente', 'administrativo', 'comprador', 'deposito', 'cajero'],
+    bajada: 'Buscás un producto y ves cuánto hay, cómo se movió, cuánto se vende y a cuánto se compra.',
+    bloques: [
+      {
+        tipo: 'pasos',
+        titulo: 'Cómo se usa',
+        pasos: [
+          'Entrá a Productos › Inventario de producto. También hay un botón en Stock y otro en la ficha de cada producto.',
+          'Escribí parte del nombre, el SKU o pasá el lector de códigos. Con Enter se abre el primero de la lista; cada renglón ya muestra lo que hay en cada sucursal.',
+          'Arriba está cuánto hay en total y en cada sucursal, con su estado y para cuántos días alcanza.',
+          'Pasá el mouse o tocá cualquier gráfico para ver el detalle de ese día o de ese período. «Ver los números» abre la tabla.',
+        ],
+      },
+      {
+        tipo: 'campos',
+        titulo: 'Qué muestra',
+        filas: [
+          ['Cuánto hubo', 'El stock de cada sucursal en el tiempo. Cada escalón es una compra cargada, una venta hecha en ODB, un ajuste o una sincronización con el sistema viejo.'],
+          ['Cuánto se vende', 'Las unidades por día en cada período del sistema viejo. La línea de puntos es el ritmo de hoy, el mismo que usa Mesa de compras.'],
+          ['A cuánto se compra y a cuánto se vende', 'El costo y el precio de la lista Minorista en el tiempo; entre los dos, lo que se le gana. La caja no ve esta parte.'],
+          ['Qué pasó con el stock', 'Cada movimiento con su fecha, quién lo hizo y cuánto quedó. Se puede ver una sola sucursal.'],
+        ],
+      },
+      {
+        tipo: 'ojo',
+        puntos: [
+          'Mientras Saint Thomas venda con el sistema viejo, sus ventas no aparecen una por una: el stock baja de golpe en cada sincronización.',
+          'Es una pantalla para mirar. Para corregir el stock se usa Stock (ajuste, merma, transferencia) o el Arqueo.',
+        ],
+      },
+    ],
+  },
+
+  {
     id: 'deposito-arqueo',
     titulo: 'Arqueo de stock',
     area: 'Depósito',
