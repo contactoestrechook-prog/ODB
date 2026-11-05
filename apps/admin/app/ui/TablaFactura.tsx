@@ -125,7 +125,8 @@ export function PapelDelRenglon({ i, idx, onCambiarPapel }: PropsPapel) {
       <p className="text-xs tabular-nums">
         <b className={c.cierra ? 'text-ok' : 'text-marca-hondo'}>{c.cierra ? 'Cierra' : 'No cierra'} · {pesos(c.cuenta)}</b>
         <span className="text-tinta/60">
-          {' '}= {unidades > 0 ? `${cifra(unidades, 3)} × ${pesos(numero(papel.precio) ?? 0)}${numero(papel.desc) ? ` − ${cifra(papel.desc)}%` : ''}` : 'sin unidades'}
+          {/* con la oferta a la vista: «− 10% (queda $1.698,30 c/u)», para que no parezca que no se tomó (5/11/2026) */}
+          {' '}= {unidades > 0 ? `${cifra(unidades, 3)} × ${pesos(numero(papel.precio) ?? 0)}${numero(papel.desc) ? ` − ${cifra(papel.desc)}% (queda ${pesos(Math.round((numero(papel.precio) ?? 0) * (1 - Math.min(100, Math.abs(numero(papel.desc) ?? 0)) / 100) * 100) / 100)} c/u)` : ''}` : 'sin unidades'}
           {!c.cierra && c.dif != null ? ` · difiere ${pesos(Math.abs(c.dif))} del importe` : ''}
           {porKilo != null ? ` · ¿va por kilo? da ${cifra(porKilo, 2)} kg` : ''}
         </span>
