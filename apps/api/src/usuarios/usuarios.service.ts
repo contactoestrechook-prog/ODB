@@ -51,6 +51,8 @@ export class UsuariosService {
     if (!dto.clave || dto.clave.length < 6) {
       throw new BadRequestException('La clave debe tener al menos 6 caracteres');
     }
+    // op salón: cada uno es de UNA sucursal (Leandro, 5/11/2026)
+    if (dto.rol === 'op_salon' && !dto.sucursalId) throw new BadRequestException('Un op salón tiene que tener su sucursal');
     const { data, error } = await this.db
       .from('usuarios')
       .insert({
@@ -77,8 +79,11 @@ export class UsuariosService {
   }
 
   async editar(id: string, dto: EditarUsuarioDto, actor: { sub: string; rol: string }) {
-    const { data: objetivo } = await this.db.from('usuarios').select('rol').eq('id', id).maybeSingle();
+    const { data: objetivo } = await this.db.from('usuarios').select('rol, sucursal_id').eq('id', id).maybeSingle();
     if (!objetivo) throw new BadRequestException('Usuario inexistente');
+    const rolFinal = dto.rol ?? objetivo.rol;
+    const sucursalFinal = dto.sucursalId !== undefined ? dto.sucursalId : (objetivo as any).sucursal_id;
+    if (rolFinal === 'op_salon' && !sucursalFinal) throw new BadRequestException('Un op salón tiene que tener su sucursal');
     this.validar(dto, actor, objetivo.rol, dto.rol);
 
     if (id === actor.sub && dto.activo === false) {

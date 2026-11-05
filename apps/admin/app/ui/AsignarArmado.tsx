@@ -19,10 +19,10 @@ export function AsignarArmado({ p, onAsignado }: { p: PedidoCola; onAsignado: ()
   const [recien, setRecien] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch('/api/salon?recurso=preparadores', { cache: 'no-store' })
+    fetch(`/api/salon?recurso=preparadores&pedidoId=${encodeURIComponent(p.id)}`, { cache: 'no-store' })
       .then(async (r) => { const d = await r.json(); setGente(r.ok && Array.isArray(d) ? d : []); if (!r.ok) setError(d?.message ?? null); })
       .catch(() => setGente([]));
-  }, []);
+  }, [p.id]);
 
   async function asignar() {
     setOcupado(true);
@@ -50,7 +50,7 @@ export function AsignarArmado({ p, onAsignado }: { p: PedidoCola; onAsignado: ()
           aria-label="Quién lo arma"
           value={elegido}
           onChange={(e) => setElegido(e.target.value)}
-          vacio={gente === null ? 'Cargando…' : gente.length ? 'Elegí a quién' : 'No hay nadie de salón cargado'}
+          vacio={gente === null ? 'Cargando…' : gente.length ? 'Elegí a quién' : 'No hay nadie de salón en esta sucursal'}
           opciones={(gente ?? []).map((g) => ({ valor: g.id, etiqueta: `${g.nombre}${g.rol === 'deposito' ? ' (depósito)' : ''}` }))}
         />
         <Boton onClick={asignar} disabled={!elegido || elegido === (p.asignado_a ?? '') || ocupado} cargando={ocupado}>

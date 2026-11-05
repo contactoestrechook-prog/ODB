@@ -33,3 +33,15 @@ describe('medición del armado', () => {
     expect(r[0].minTotal).toBe(5);
   });
 });
+
+import { sirveEnSucursal } from './salon.service';
+
+describe('a quién se le asigna según la sucursal', () => {
+  it('el op salón solo en la suya; depósito sin sucursal en todas', () => {
+    expect(sirveEnSucursal({ rol: 'op_salon', sucursal_id: 'st' }, 'st')).toBe(true);
+    expect(sirveEnSucursal({ rol: 'op_salon', sucursal_id: 'st' }, 'si')).toBe(false);
+    expect(sirveEnSucursal({ rol: 'op_salon', sucursal_id: null }, 'si')).toBe(false);
+    expect(sirveEnSucursal({ rol: 'deposito', sucursal_id: null }, 'si')).toBe(true);
+    expect(sirveEnSucursal({ rol: 'deposito', sucursal_id: 'st' }, 'si')).toBe(false);
+  });
+});

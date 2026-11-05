@@ -13,3 +13,11 @@ export const Roles = (...roles: string[]) => SetMetadata(ROLES, roles);
 // ninguna pantalla, y «Se entregó» le sumaba efectivo a la caja abierta).
 export const SIN_HERENCIA = 'sin_herencia';
 export const SinHerencia = () => SetMetadata(SIN_HERENCIA, true);
+
+// Op salón (Leandro, 5/11/2026: «que no accedan ni a cajas ni a administración
+// ni a nada, solo a esto»). Ese rol entra SOLO donde @Roles lo nombra; lo que no
+// declara roles (abierto a cualquier logueado) le queda cerrado, salvo lo que
+// lleve @ParaCualquierRol (cambiar su propia clave).
+export const PARA_CUALQUIER_ROL = 'para_cualquier_rol';
+export const ParaCualquierRol = () => SetMetadata(PARA_CUALQUIER_ROL, true);
+export const ROLES_ENCERRADOS = ['op_salon'];

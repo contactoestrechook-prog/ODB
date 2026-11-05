@@ -3,13 +3,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Aviso, Boton, Campo, Entrada, Etiqueta, Pestanas, Selector, Tarjeta, Vacio, unir, useConfirmar } from './kit';
 import { numero } from '../lib/formato';
+import { ArmadoPantalla } from './ArmadoPantalla';
 
 // OP SALÓN (Leandro, 5/11/2026). El que está en el salón con el celular:
 //  · Armar: los pedidos que le asignó la caja (con la comanda en la mano). Va
 //    sumando al carro —escaneando o tocando— y cada carga queda con la hora:
 //    así se mide cuánto tarda en arrancar, en armar y el ritmo por producto.
 //  · Stock: cuánto hay y DÓNDE está cada producto en cada sucursal.
-//  · Puerta trasera: lo que baja con remito se carga acá y espera la factura;
+//  · Puerta de depósito: lo que baja con remito se carga acá y espera la factura;
 //    no suma al stock hasta que administración lo confirma.
 
 type Item = { productoId: string; sku: string | null; nombre: string; cantidad: number; enCarro: number; ubicacion: string | null };
@@ -64,12 +65,12 @@ export function SalonWorkspace({ proveedores, sucursales, sucursalPropia, verTod
         opciones={[
           { valor: 'armar', etiqueta: 'Armar pedidos', cuenta: pendientes },
           { valor: 'stock', etiqueta: 'Stock y ubicación' },
-          { valor: 'puerta', etiqueta: 'Puerta trasera' },
+          { valor: 'puerta', etiqueta: 'Puerta de depósito' },
         ]}
       />
       {vista === 'armar' && <Armar verTodos={verTodos} onCuenta={setPendientes} />}
       {vista === 'stock' && <Stock sucursalPropia={sucursalPropia} />}
-      {vista === 'puerta' && <PuertaTrasera proveedores={proveedores} sucursales={sucursales} sucursalPropia={sucursalPropia} />}
+      {vista === 'puerta' && <PuertaDeposito proveedores={proveedores} sucursales={sucursales} sucursalPropia={sucursalPropia} />}
     </div>
   );
 }
@@ -80,6 +81,8 @@ function Armar({ verTodos, onCuenta }: { verTodos: boolean; onCuenta: (n: number
   const [pedidos, setPedidos] = useState<PedidoArmar[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [abierto, setAbierto] = useState<string | null>(null);
+  // los que cerró a mano no se le vuelven a abrir solos
+  const cerrados = useRef(new Set<string>());
   const ahora = useAhora();
 
   const cargar = useCallback(async () => {
@@ -87,6 +90,15 @@ function Armar({ verTodos, onCuenta }: { verTodos: boolean; onCuenta: (n: number
       const d = await api<PedidoArmar[]>('GET', { recurso: 'pedidos', ...(verTodos ? { todos: '1' } : {}) });
       setPedidos(d);
       onCuenta(d.length);
+      // el op salón: apenas le asignan un pedido, se le abre a pantalla completa
+      if (!verTodos) {
+        setAbierto((ya) => {
+          if (ya && d.some((p) => p.id === ya)) return ya;
+          const nuevo = d.find((p) => !cerrados.current.has(p.id));
+          if (nuevo) { try { navigator.vibrate?.([200, 100, 200]); } catch { /* sin vibración */ } }
+          return nuevo?.id ?? null;
+        });
+      }
       setError(null);
     } catch (e: any) { setError(e.message); }
   }, [verTodos, onCuenta]);
@@ -94,10 +106,17 @@ function Armar({ verTodos, onCuenta }: { verTodos: boolean; onCuenta: (n: number
   useEffect(() => { cargar(); const t = setInterval(cargar, 8000); return () => clearInterval(t); }, [cargar]);
 
   const actual = pedidos?.find((p) => p.id === abierto) ?? null;
-  if (actual) return <ArmarPedido p={actual} ahora={ahora} onVolver={() => setAbierto(null)} onCambio={cargar} />;
-
   return (
     <div className="space-y-3">
+      {actual && (
+        <ArmadoPantalla
+          p={actual}
+          ahora={ahora}
+          onVolver={() => { cerrados.current.add(actual.id); setAbierto(null); }}
+          onCambio={cargar}
+          enviar={(cuerpo) => api('POST', cuerpo)}
+        />
+      )}
       {error && <Aviso tono="error">{error}</Aviso>}
       {pedidos === null && !error && <p className="text-sm text-tinta/60">Buscando tus pedidos…</p>}
       {pedidos?.length === 0 && (
@@ -107,7 +126,7 @@ function Armar({ verTodos, onCuenta }: { verTodos: boolean; onCuenta: (n: number
         const total = p.items.length;
         const listos = p.items.filter((i) => i.enCarro >= i.cantidad).length;
         return (
-          <button key={p.id} type="button" onClick={() => setAbierto(p.id)} className="block w-full text-left">
+          <button key={p.id} type="button" onClick={() => { cerrados.current.delete(p.id); setAbierto(p.id); }} className="block w-full text-left">
             <Tarjeta className="transition-shadow hover:shadow-md">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
@@ -127,109 +146,6 @@ function Armar({ verTodos, onCuenta }: { verTodos: boolean; onCuenta: (n: number
           </button>
         );
       })}
-    </div>
-  );
-}
-
-function ArmarPedido({ p, ahora, onVolver, onCambio }: { p: PedidoArmar; ahora: number; onVolver: () => void; onCambio: () => Promise<void> }) {
-  const [codigo, setCodigo] = useState('');
-  const [aviso, setAviso] = useState<{ tono: 'ok' | 'error'; texto: string } | null>(null);
-  const [ocupado, setOcupado] = useState<string | null>(null);
-  const { confirmar, dialogo } = useConfirmar();
-  const lector = useRef<HTMLInputElement>(null);
-
-  const faltan = p.items.filter((i) => i.enCarro < i.cantidad);
-
-  async function sumar(datos: { codigo?: string; productoId?: string; cantidad?: number }, etiqueta: string) {
-    setOcupado(datos.productoId ?? 'codigo');
-    try {
-      const r = await api('POST', { accion: 'carro', pedidoId: p.id, ...datos });
-      const it = p.items.find((i) => i.productoId === r.productoId);
-      setAviso({ tono: 'ok', texto: `Al carro: ${numero(r.cantidad, 2)} × ${it?.nombre ?? etiqueta}` });
-      await onCambio();
-    } catch (e: any) {
-      setAviso({ tono: 'error', texto: e.message });
-    } finally {
-      setOcupado(null);
-      lector.current?.focus();
-    }
-  }
-
-  async function deshacer(item: Item) {
-    const ultima = [...p.cargas].reverse().find((c) => c.productoId === item.productoId);
-    if (!ultima) return;
-    setOcupado(item.productoId);
-    try { await api('POST', { accion: 'sacar', pedidoId: p.id, cargaId: ultima.id }); await onCambio(); }
-    catch (e: any) { setAviso({ tono: 'error', texto: e.message }); }
-    finally { setOcupado(null); }
-  }
-
-  async function terminar() {
-    if (faltan.length && !(await confirmar({
-      titulo: `Faltan ${faltan.length} producto${faltan.length === 1 ? '' : 's'}`,
-      texto: `${faltan.map((i) => i.nombre).slice(0, 4).join(', ')}${faltan.length > 4 ? '…' : ''}. Si no hay, avisale a la caja. ¿Lo das por terminado igual?`,
-      textoConfirmar: 'Terminar igual',
-    }))) return;
-    setOcupado('terminar');
-    try { await api('POST', { accion: 'terminar', pedidoId: p.id }); await onCambio(); onVolver(); }
-    catch (e: any) { setAviso({ tono: 'error', texto: e.message }); setOcupado(null); }
-  }
-
-  return (
-    <div className="space-y-3">
-      {dialogo}
-      <div className="flex items-center justify-between gap-3">
-        <Boton variante="fantasma" tamano="chico" onClick={onVolver}>← Volver</Boton>
-        <span className="importe text-3xl font-bold text-marca" aria-label="Tiempo desde que te lo asignaron">{reloj(p.asignadoEn, ahora)}</span>
-      </div>
-      <div>
-        <p className="text-3xl font-bold leading-none text-tinta">{p.codigo}</p>
-        <p className="mt-1 text-sm text-tinta/70">{p.cliente ?? 'Cliente sin nombre'}{p.sucursal ? ` · ${p.sucursal}` : ''}</p>
-        {p.notas && <p className="mt-2 whitespace-pre-wrap rounded-lg bg-atencion-suave px-3 py-2 text-sm text-tinta"><b>Nota:</b> {p.notas}</p>}
-      </div>
-
-      <form
-        onSubmit={(e) => { e.preventDefault(); const c = codigo.trim(); if (c) { setCodigo(''); sumar({ codigo: c }, c); } }}
-        className="flex gap-2"
-      >
-        <Entrada ref={lector} autoFocus inputMode="numeric" value={codigo} onChange={(e) => setCodigo(e.target.value)} aria-label="Código de barras" placeholder="Escaneá el producto" className="flex-1" />
-        <Boton type="submit" disabled={!codigo.trim() || ocupado === 'codigo'}>Sumar</Boton>
-      </form>
-      {aviso && <Aviso tono={aviso.tono}>{aviso.texto}</Aviso>}
-
-      <ul className="space-y-2">
-        {p.items.map((i) => {
-          const completo = i.enCarro >= i.cantidad;
-          const resto = Math.max(i.cantidad - i.enCarro, 0);
-          return (
-            <li key={i.productoId}>
-              <Tarjeta className={unir('!p-3', completo && 'bg-ok-suave/60')}>
-                <div className="flex items-start gap-3">
-                  <div className="min-w-0 flex-1">
-                    <p className={unir('font-medium text-tinta', completo && 'line-through decoration-ok/60')}>{i.nombre}</p>
-                    <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
-                      <Etiqueta tono={i.ubicacion ? 'info' : 'neutro'}>{i.ubicacion ?? 'Sin lugar cargado'}</Etiqueta>
-                      {i.sku && <span className="text-tinta/50">{i.sku}</span>}
-                    </div>
-                  </div>
-                  <p className="importe shrink-0 text-right text-lg font-bold text-tinta">
-                    {numero(i.enCarro, 2)}<span className="text-sm font-normal text-tinta/60"> / {numero(i.cantidad, 2)}</span>
-                  </p>
-                </div>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {!completo && <Boton tamano="chico" onClick={() => sumar({ productoId: i.productoId, cantidad: Math.min(1, resto) }, i.nombre)} disabled={!!ocupado}>{resto < 1 ? `${numero(resto, 2)} al carro` : '+1 al carro'}</Boton>}
-                  {!completo && resto > 1 && <Boton tamano="chico" variante="secundario" onClick={() => sumar({ productoId: i.productoId, cantidad: resto }, i.nombre)} disabled={!!ocupado}>Los {numero(resto, 2)}</Boton>}
-                  {i.enCarro > 0 && <Boton tamano="chico" variante="fantasma" onClick={() => deshacer(i)} disabled={!!ocupado}>Deshacer</Boton>}
-                </div>
-              </Tarjeta>
-            </li>
-          );
-        })}
-      </ul>
-
-      <Boton variante={faltan.length ? 'secundario' : 'ok'} anchoCompleto onClick={terminar} cargando={ocupado === 'terminar'}>
-        {faltan.length ? `Terminé (faltan ${faltan.length})` : 'Terminé: está todo en el carro'}
-      </Boton>
     </div>
   );
 }
@@ -299,11 +215,11 @@ function UbicacionSucursal({ productoId, s }: { productoId: string; s: ProductoS
   );
 }
 
-// ───────────────────────── Puerta trasera ─────────────────────────
+// ───────────────────────── Puerta de depósito ─────────────────────────
 
 type Renglon = { sku: string; nombre: string; cantidad: number; vencimiento: string };
 
-function PuertaTrasera({ proveedores, sucursales, sucursalPropia }: { proveedores: { id: string; nombre: string }[]; sucursales: { id: string; nombre: string }[]; sucursalPropia: string | null }) {
+function PuertaDeposito({ proveedores, sucursales, sucursalPropia }: { proveedores: { id: string; nombre: string }[]; sucursales: { id: string; nombre: string }[]; sucursalPropia: string | null }) {
   const [proveedorId, setProveedorId] = useState('');
   const [sucursalId, setSucursalId] = useState(sucursalPropia ?? (sucursales.length === 1 ? sucursales[0].id : ''));
   const [remito, setRemito] = useState('');
@@ -425,7 +341,7 @@ function PuertaTrasera({ proveedores, sucursales, sucursalPropia }: { proveedore
 
       <section>
         <h2 className="mb-2 text-sm font-semibold text-tinta">Últimos ingresos</h2>
-        {esperan?.length === 0 && <p className="text-sm text-tinta/60">Todavía no hay ingresos por puerta trasera.</p>}
+        {esperan?.length === 0 && <p className="text-sm text-tinta/60">Todavía no hay ingresos por puerta de depósito.</p>}
         <ul className="space-y-2">
           {esperan?.slice(0, 15).map((i) => (
             <li key={i.id}>

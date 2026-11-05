@@ -8,7 +8,7 @@ import { tiemposPorPreparador } from './tiempos';
 
 // OP SALÓN (Leandro, 5/11/2026). Tres trabajos del que está en el salón:
 //  1. el stock y DÓNDE está cada cosa (stock.ubicacion, por sucursal);
-//  2. el ingreso por puerta trasera con remito, que espera la factura: no toca
+//  2. el ingreso por la puerta de depósito con remito, que espera la factura: no toca
 //     el stock hasta que administración lo confirma;
 //  3. armar los pedidos que le asigna la caja, sumando al carro desde la app
 //     (cada carga queda con la hora: así se mide).
@@ -20,6 +20,12 @@ const ROLES_ENCARGADOS = ['dueno', 'gerente', 'cajero', 'deposito'];
 const ESTADOS_ABIERTOS = ['recibido', 'pagado', 'en_preparacion'];
 
 type Usuario = { sub?: string; rol?: string };
+
+/** El op salón arma solo en su sucursal; depósito sin sucursal fija sirve en todas. */
+export function sirveEnSucursal(u: { rol: string; sucursal_id?: string | null }, sucursalId: string) {
+  if (u.rol === 'op_salon') return u.sucursal_id === sucursalId;
+  return !u.sucursal_id || u.sucursal_id === sucursalId;
+}
 
 @Injectable()
 export class SalonService {
@@ -48,7 +54,9 @@ export class SalonService {
   // ---------- 1. Stock y ubicación ----------
 
   /** Busca por nombre, SKU o código de barras: stock y lugar en cada sucursal. */
-  async buscarStock(q: string) {
+  async buscarStock(q: string, quien: Usuario = {}) {
+    // op salón: solo su sucursal (Leandro, 5/11/2026: «separarlos por sucursal»)
+    const propia = quien.rol === 'op_salon' ? await this.sucursalDe(quien.sub) : null;
     const texto = String(q ?? '').trim();
     if (texto.length < 2) return [];
     const exacto = await this.productoPorSkuOCodigo(texto);
@@ -75,7 +83,7 @@ export class SalonService {
         id: p.id,
         sku: p.sku,
         nombre: p.nombre,
-        sucursales: ((p.stock ?? []) as any[]).map((s) => ({
+        sucursales: ((p.stock ?? []) as any[]).filter((s) => !propia || s.sucursal_id === propia).map((s) => ({
           sucursalId: s.sucursal_id,
           sucursal: nombreSuc.get(s.sucursal_id) ?? '—',
           cantidad: Number(s.cantidad) || 0,
@@ -85,8 +93,12 @@ export class SalonService {
       .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
   }
 
-  async guardarUbicacion(dto: { productoId: string; sucursalId: string; ubicacion?: string }, usuarioId?: string) {
+  async guardarUbicacion(dto: { productoId: string; sucursalId: string; ubicacion?: string }, quien: Usuario = {}) {
+    const usuarioId = quien.sub;
     if (!dto.productoId || !dto.sucursalId) throw new BadRequestException('Faltan el producto o la sucursal');
+    if (quien.rol === 'op_salon' && dto.sucursalId !== (await this.sucursalDe(usuarioId))) {
+      throw new ForbiddenException('Solo cargás lugares de tu sucursal');
+    }
     const ubicacion = String(dto.ubicacion ?? '').trim().slice(0, 80) || null;
     const { data, error } = await this.db
       .from('stock')
@@ -111,14 +123,16 @@ export class SalonService {
     return p ? { encontrado: true, sku: p.sku, nombre: p.nombre } : { encontrado: false };
   }
 
-  // ---------- 2. Ingreso por puerta trasera ----------
+  // ---------- 2. Ingreso por la puerta de depósito ----------
 
-  async crearIngreso(dto: { proveedorId: string; sucursalId?: string; numeroRemito: string; notas?: string; items: { sku: string; cantidad: number; lote?: string; vencimiento?: string }[] }, usuarioId?: string) {
+  async crearIngreso(dto: { proveedorId: string; sucursalId?: string; numeroRemito: string; notas?: string; items: { sku: string; cantidad: number; lote?: string; vencimiento?: string }[] }, quien: Usuario = {}) {
+    const usuarioId = quien.sub;
     if (!usuarioId) throw new BadRequestException('No sé quién sos: volvé a entrar al sistema');
     if (!dto.proveedorId) throw new BadRequestException('Elegí el proveedor');
     const remito = String(dto.numeroRemito ?? '').trim();
     if (!remito) throw new BadRequestException('Falta el número de remito');
-    const sucursalId = dto.sucursalId || (await this.sucursalDe(usuarioId));
+    // op salón: siempre a su sucursal, diga lo que diga el pedido
+    const sucursalId = quien.rol === 'op_salon' ? await this.sucursalDe(usuarioId) : dto.sucursalId || (await this.sucursalDe(usuarioId));
     if (!sucursalId) throw new BadRequestException('Elegí la sucursal');
     if (!dto.items?.length) throw new BadRequestException('Escaneá al menos un producto');
 
@@ -247,22 +261,32 @@ export class SalonService {
 
   // ---------- 3. Armado de pedidos ----------
 
-  async preparadores() {
+  /** Con el pedido: solo la gente de SU sucursal (o de depósito sin sucursal fija). */
+  async preparadores(pedidoId?: string) {
     const { data, error } = await this.db.from('usuarios').select('id, nombre, rol, sucursal_id').in('rol', ROLES_PREPARAN).eq('activo', true).order('nombre');
     if (error) throw new BadRequestException(this.faltaMigracion(error.message));
+    let gente = (data ?? []) as any[];
+    if (pedidoId) {
+      const { data: ped } = await this.db.from('pedidos').select('sucursal_id').eq('id', pedidoId).maybeSingle();
+      const suc = (ped as any)?.sucursal_id;
+      if (suc) gente = gente.filter((u) => sirveEnSucursal(u, suc));
+    }
     // op salón primero: es el que arma
-    return ((data ?? []) as any[]).sort((a, b) => Number(a.rol !== 'op_salon') - Number(b.rol !== 'op_salon'));
+    return gente.sort((a, b) => Number(a.rol !== 'op_salon') - Number(b.rol !== 'op_salon'));
   }
 
   /** La caja (o quien tenga el pedido) le asigna el armado a alguien. */
   async asignar(pedidoId: string, usuarioId: string, quien: Usuario) {
     if (!usuarioId) throw new BadRequestException('Elegí a quién se lo asignás');
-    const { data: elegido } = await this.db.from('usuarios').select('id, nombre, rol, activo').eq('id', usuarioId).maybeSingle();
+    const { data: elegido } = await this.db.from('usuarios').select('id, nombre, rol, activo, sucursal_id').eq('id', usuarioId).maybeSingle();
     if (!elegido || (elegido as any).activo === false) throw new BadRequestException('Esa persona no está activa');
     if (!ROLES_PREPARAN.includes((elegido as any).rol)) throw new BadRequestException('Solo se asigna a alguien de salón o depósito');
-    const { data: pedido, error } = await this.db.from('pedidos').select('id, estado, asignado_a').eq('id', pedidoId).maybeSingle();
+    const { data: pedido, error } = await this.db.from('pedidos').select('id, estado, asignado_a, sucursal_id').eq('id', pedidoId).maybeSingle();
     if (error) throw new BadRequestException(this.faltaMigracion(error.message));
     if (!pedido) throw new BadRequestException('No existe el pedido');
+    if ((pedido as any).sucursal_id && !sirveEnSucursal(elegido as any, (pedido as any).sucursal_id)) {
+      throw new BadRequestException(`${(elegido as any).nombre} es de otra sucursal`);
+    }
     if (!ESTADOS_ABIERTOS.includes((pedido as any).estado)) throw new BadRequestException('Ese pedido ya está armado');
 
     const ahora = new Date().toISOString();

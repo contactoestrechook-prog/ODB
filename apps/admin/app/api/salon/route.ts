@@ -22,7 +22,7 @@ export async function GET(req: Request) {
     case 'stock': return reenviar(`/salon/stock?q=${id(q.get('q'))}`);
     case 'codigo': return reenviar(`/salon/codigo/${id(q.get('codigo'))}`);
     case 'ingresos': return reenviar(`/salon/ingresos?estado=${id(q.get('estado') ?? 'espera_factura')}`);
-    case 'preparadores': return reenviar('/salon/preparadores');
+    case 'preparadores': return reenviar(`/salon/preparadores${q.get('pedidoId') ? `?pedidoId=${id(q.get('pedidoId'))}` : ''}`);
     case 'tiempos': return reenviar(`/salon/tiempos?dias=${id(q.get('dias') ?? '7')}`);
     case 'pedidos': return reenviar(`/salon/pedidos${q.get('todos') === '1' ? '?todos=1' : ''}`);
     default: return NextResponse.json({ message: 'Recurso desconocido' }, { status: 400 });

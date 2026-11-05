@@ -5,7 +5,7 @@ import { supabaseProvider } from '../supabase.provider';
 import { ComprasModule } from '../compras/compras.module';
 import { PedidosModule } from '../pedidos/pedidos.module';
 
-// Op salón: stock con ubicación, puerta trasera y armado de pedidos (5/11/2026)
+// Op salón: stock con ubicación, puerta de depósito y armado de pedidos (5/11/2026)
 @Module({
   imports: [ComprasModule, PedidosModule],
   controllers: [SalonController],

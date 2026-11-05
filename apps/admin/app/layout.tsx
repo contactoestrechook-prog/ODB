@@ -57,12 +57,13 @@ export default async function RootLayout({
   return (
     <html lang="es" className={`${figtree.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col">
-        <AvisoPedidosSinAviso />
+        {/* op salón: solo su pantalla, sin avisos ni botones del resto del sistema (5/11/2026) */}
+        {rol !== "op_salon" && <AvisoPedidosSinAviso />}
         {children}
         {rol && ATIENDEN_PEDIDOS.includes(rol) && <AvisoPedidoNuevo />}
         <AvisoActualizacion />
         <BannerInstalarApp />
-        <ReportarProblema />
+        {rol !== "op_salon" && <ReportarProblema />}
       </body>
     </html>
   );

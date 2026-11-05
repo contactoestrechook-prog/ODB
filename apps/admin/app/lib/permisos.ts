@@ -26,14 +26,15 @@ const RUTAS_POR_ROL: Record<string, string[]> = {
     '/arqueo', // arqueo de stock: cuenta desde el celular (24/10/2026)
     '/fraccionar', // cargar el pozo y armar (el API ya se lo permite: hereda depósito), 21/10/2026
     '/trazabilidad', // cadena orden → recepción → factura → pago y sus documentos
-    '/puerta-trasera', // lo que entró con remito y espera la factura para sumar al stock (5/11/2026)
+    '/puerta-deposito', // lo que entró con remito y espera la factura para sumar al stock (5/11/2026)
     '/manual', // el manual lo abre cualquiera
     '/cambiar-clave',
   ],
   repartidor: ['/repartidor', '/manual', '/cambiar-clave'],
-  // Op salón (5/11/2026): su pantalla tiene todo lo suyo (pedidos para armar,
-  // stock con la ubicación y la puerta trasera). Más el verificador de precios.
-  op_salon: ['/salon', '/precios', '/manual', '/cambiar-clave'],
+  // Op salón (5/11/2026): SOLO su pantalla, en el celular (Leandro: «que no
+  // accedan ni a cajas ni a administración ni a nada, solo a esto»). La API
+  // también lo encierra (ROLES_ENCERRADOS en auth/decorators.ts).
+  op_salon: ['/salon', '/cambiar-clave'],
   // El menú tiene que ofrecer solo lo que el rol puede ABRIR de verdad. Antes,
   // un cajero veía Contable, Libro IVA, Estadísticas y Mercado Pago en el menú
   // y al entrar recibía "No pude consultar la API": el API ya lo bloqueaba
@@ -72,7 +73,7 @@ const RUTAS_POR_ROL: Record<string, string[]> = {
     '/comparador', // proveedores
     '/listas', // listas de precios de proveedor
     '/trazabilidad', // cadena orden → recepción → factura → pago
-    '/puerta-trasera', // confirmar con la factura lo que entró por puerta trasera (5/11/2026)
+    '/puerta-deposito', // confirmar con la factura lo que entró por puerta de depósito (5/11/2026)
     '/analista',
     '/productos', // catálogo
     '/manual', // el manual lo abre cualquiera
@@ -90,7 +91,7 @@ const RUTAS_POR_ROL: Record<string, string[]> = {
     '/precios',
     '/productos',
     '/repartidor', // «Mis entregas»: los envíos que lleva (ver cajero)
-    '/salon', // armado asignado, stock con ubicación y puerta trasera (5/11/2026)
+    '/salon', // armado asignado, stock con ubicación y puerta de depósito (5/11/2026)
     '/frio', // temperatura de cámaras y heladeras (3/11/2026)
     '/manual', // el manual lo abre cualquiera
     '/cambiar-clave',

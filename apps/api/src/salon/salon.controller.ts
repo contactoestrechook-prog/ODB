@@ -2,7 +2,7 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req } from '@
 import { Roles } from '../auth/decorators';
 import { SalonService } from './salon.service';
 
-// Op salón (5/11/2026): stock con ubicación, ingreso por puerta trasera y armado
+// Op salón (5/11/2026): stock con ubicación, ingreso por puerta de depósito y armado
 // de pedidos asignados. Ver salon.service.ts.
 @Controller('salon')
 export class SalonController {
@@ -11,14 +11,14 @@ export class SalonController {
   // --- stock y ubicación ---
   @Roles('op_salon', 'deposito', 'cajero', 'gerente', 'dueno')
   @Get('stock')
-  stock(@Query('q') q: string) {
-    return this.salon.buscarStock(q);
+  stock(@Query('q') q: string, @Req() req: any) {
+    return this.salon.buscarStock(q, req.usuario ?? {});
   }
 
   @Roles('op_salon', 'deposito', 'gerente', 'dueno')
   @Patch('ubicacion')
   ubicacion(@Body() dto: any, @Req() req: any) {
-    return this.salon.guardarUbicacion(dto ?? {}, req.usuario?.sub);
+    return this.salon.guardarUbicacion(dto ?? {}, req.usuario ?? {});
   }
 
   @Roles('op_salon', 'deposito', 'cajero', 'gerente', 'dueno')
@@ -27,11 +27,11 @@ export class SalonController {
     return this.salon.codigo(codigo);
   }
 
-  // --- puerta trasera: el salón lo carga, administración confirma con la factura ---
+  // --- puerta de depósito: el salón lo carga, administración confirma con la factura ---
   @Roles('op_salon', 'deposito', 'gerente', 'dueno')
   @Post('ingresos')
   crearIngreso(@Body() dto: any, @Req() req: any) {
-    return this.salon.crearIngreso(dto ?? {}, req.usuario?.sub);
+    return this.salon.crearIngreso(dto ?? {}, req.usuario ?? {});
   }
 
   @Roles('op_salon', 'deposito', 'comprador', 'gerente', 'dueno')
@@ -56,8 +56,8 @@ export class SalonController {
   // --- armado de pedidos ---
   @Roles('cajero', 'deposito', 'gerente', 'dueno', 'op_salon')
   @Get('preparadores')
-  preparadores() {
-    return this.salon.preparadores();
+  preparadores(@Query('pedidoId') pedidoId?: string) {
+    return this.salon.preparadores(pedidoId || undefined);
   }
 
   @Roles('cajero', 'deposito', 'gerente', 'dueno')

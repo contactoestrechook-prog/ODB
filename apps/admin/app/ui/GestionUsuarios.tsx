@@ -13,7 +13,7 @@ const ROLES: Record<string, { etiqueta: string; descripcion: string }> = {
   deposito: { etiqueta: 'Depósito', descripcion: 'Stock, recepción y pedidos' },
   administrativo: { etiqueta: 'Administrativo', descripcion: 'Backoffice: facturas de compra, remitos y recepción de mercadería, compras y proveedores. No ve caja, ventas ni dirección; los cambios sobre facturas los aprueba un dueño' },
   repartidor: { etiqueta: 'Repartidor', descripcion: 'Solo la pantalla de reparto: sus entregas del día' },
-  op_salon: { etiqueta: 'Op salón', descripcion: 'Arma los pedidos que le asigna la caja, ve el stock y dónde está cada producto, y carga lo que entra por puerta trasera (administración lo confirma con la factura)' },
+  op_salon: { etiqueta: 'Op salón', descripcion: 'Arma los pedidos que le asigna la caja, ve el stock y dónde está cada producto, y carga lo que entra por puerta de depósito (administración lo confirma con la factura)' },
 };
 
 const pesos = (n: number) => pesosFmt(Number(n) || 0);
@@ -289,7 +289,7 @@ export function GestionUsuarios({ usuarios, sucursales }: { usuarios: any[]; suc
               <Boton variante="secundario" onClick={() => setAbierto(false)}>
                 Cancelar
               </Boton>
-              <Boton onClick={guardar} cargando={cargando}>
+              <Boton onClick={guardar} cargando={cargando} disabled={form.rol === 'op_salon' && !form.sucursalId}>
                 {cargando ? 'Guardando…' : 'Guardar'}
               </Boton>
             </>
@@ -321,9 +321,10 @@ export function GestionUsuarios({ usuarios, sucursales }: { usuarios: any[]; suc
                 ))}
               </Selector>
             </Campo>
-            <Campo etiqueta="Sucursal">
+            {/* op salón: cada uno es de UNA sucursal (5/11/2026) */}
+            <Campo etiqueta="Sucursal" obligatorio={form.rol === 'op_salon'} ayuda={form.rol === 'op_salon' ? 'Solo ve y arma los pedidos de esta sucursal' : undefined}>
               <Selector value={form.sucursalId} onChange={(e) => campo('sucursalId', e.target.value)}>
-                <option value="">Todas las sucursales</option>
+                <option value="">{form.rol === 'op_salon' ? 'Elegí la sucursal' : 'Todas las sucursales'}</option>
                 {sucursales.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.nombre}

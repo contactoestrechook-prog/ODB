@@ -5,7 +5,7 @@ import { Aviso, Boton, Campo, Entrada, Pestanas, Tarjeta, Vacio, useConfirmar } 
 import { numero } from '../lib/formato';
 import { EstadoIngreso } from './SalonWorkspace';
 
-// PUERTA TRASERA · administración (5/11/2026). Lo que el salón recibió con
+// PUERTA DE DEPÓSITO · administración (5/11/2026). Lo que el salón recibió con
 // remito espera acá la factura. Al confirmar con el número de factura (y
 // corregir lo que no coincida) entra al stock como una recepción más, y el
 // remito queda para conciliar con la factura de compra.
@@ -18,7 +18,7 @@ type Ingreso = {
 };
 type Vista = 'espera_factura' | 'todos';
 
-export function PuertaTraseraAdmin() {
+export function PuertaDepositoAdmin() {
   const [vista, setVista] = useState<Vista>('espera_factura');
   const [lista, setLista] = useState<Ingreso[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -36,12 +36,12 @@ export function PuertaTraseraAdmin() {
 
   return (
     <div className="space-y-4">
-      <Pestanas<Vista> etiquetaAccesible="Ingresos por puerta trasera" valor={vista} onCambiar={setVista} opciones={[
+      <Pestanas<Vista> etiquetaAccesible="Ingresos por puerta de depósito" valor={vista} onCambiar={setVista} opciones={[
         { valor: 'espera_factura', etiqueta: 'Esperan factura', cuenta: vista === 'espera_factura' ? lista?.length : undefined },
         { valor: 'todos', etiqueta: 'Todos' },
       ]} />
       {error && <Aviso tono="error">{error}</Aviso>}
-      {lista?.length === 0 && <Vacio titulo={vista === 'espera_factura' ? 'No hay ingresos esperando factura' : 'Todavía no hay ingresos'} texto="Los carga el salón cuando baja mercadería por puerta trasera." />}
+      {lista?.length === 0 && <Vacio titulo={vista === 'espera_factura' ? 'No hay ingresos esperando factura' : 'Todavía no hay ingresos'} texto="Los carga el salón cuando baja mercadería por puerta de depósito." />}
       {lista?.map((i) => (vista === 'espera_factura' && i.estado === 'espera_factura'
         ? <Confirmable key={i.id} i={i} onListo={cargar} />
         : <Resumen key={i.id} i={i} />))}

@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Post, Query, Req } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
-import { Publico } from './decorators';
+import { ParaCualquierRol, Publico } from './decorators';
 
 @Controller('auth')
 export class AuthController {
@@ -43,6 +43,7 @@ export class AuthController {
 
   // Cambiar la propia clave (cualquier usuario logueado). El AuthGuard global
   // ya exige token; req.usuario.sub es el dueño de la sesión.
+  @ParaCualquierRol()
   @Post('cambiar-clave')
   cambiarClave(@Body() body: { claveActual: string; claveNueva: string }, @Req() req: any) {
     return this.auth.cambiarClave(req.usuario.sub, body?.claveActual ?? '', body?.claveNueva ?? '');
