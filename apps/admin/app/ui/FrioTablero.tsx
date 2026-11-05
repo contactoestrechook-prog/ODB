@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 // Frío · versión 3 (Leandro, 4/11/2026: «más chico todo, prolijo, estético, más
 // info, editable, todo lo que nos permita la API, filtros por equipo»).
@@ -227,16 +227,17 @@ function Ficha({ e, onGuardado, onQuitado }: { e: Equipo; onGuardado: () => void
       <label className="ancho"><span className="et">Notas</span><textarea {...campo('notas')} /></label>
       <div className="acciones">
         {ed ? (
-          <>
+          <Fragment key="editando">
             <button className="btn lleno" type="submit" disabled={yendo}>{yendo ? 'Guardando…' : 'Guardar'}</button>
             <button className="btn" type="button" onClick={() => { setEd(false); setMsg(null); setSeguro(false); }}>Cancelar</button>
             <button className="btn quitar" type="button" onClick={quitar} disabled={yendo}>{seguro ? '¿Seguro? Tocá de nuevo' : 'Quitar equipo'}</button>
-          </>
+          </Fragment>
         ) : (
-          <>
+          // otra clave: si React reusara el botón, el clic en «Editar» terminaría enviando el formulario
+          <Fragment key="viendo">
             <button className="btn" type="button" onClick={() => setEd(true)}>Editar</button>
             <span className="vacio">Los avisos por WhatsApp todavía están apagados.</span>
-          </>
+          </Fragment>
         )}
         {msg && <span className="falta">{msg}</span>}
       </div>
