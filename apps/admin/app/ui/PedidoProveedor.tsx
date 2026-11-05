@@ -60,6 +60,8 @@ type Item = {
   enCamino?: number; llega?: string | null;
   /** lo que hay del mismo producto en las otras sucursales (4/11/2026) */
   stockOtras?: { sucursalId: string; sucursal: string; cantidad: number }[];
+  /** la cuenta del sugerido, en palabras, y en cuántos bultos enteros entra (4/11/2026) */
+  explicacion?: string; sugeridoBultos?: number | null;
 };
 // "Suc Sant Thomas" → "Sant Thomas"
 const nombreCorto = (sucursal: string) => sucursal.replace(/^suc(ursal)?\.?\s+/i, '');
@@ -114,6 +116,8 @@ export function PedidoProveedor({ sucursales, proveedorInicial, sucursalInicial 
   const [agregando, setAgregando] = useState(false);
   // el producto del que se están mirando los parecidos (otra marca, otro tamaño); el pedido queda debajo, intacto
   const [parecidosDe, setParecidosDe] = useState<Item | null>(null);
+  // el renglón que tiene abierta la cuenta del sugerido (plegada por defecto: pantalla limpia)
+  const [explicado, setExplicado] = useState<string | null>(null);
 
   // ---- el pedido guardado solo ----
   const [guardado, setGuardado] = useState<EstadoGuardado>('');
@@ -534,10 +538,17 @@ export function PedidoProveedor({ sucursales, proveedorInicial, sucursalInicial 
                   )}
                   <p className="break-words text-xs text-tinta/60">
                     {it.porDia > 0 ? `vende ~${formatoStock(Math.round(it.porDia * 7 * 10) / 10)} por semana` : 'sin ventas en 30 días'}
-                    {it.sugerido > 0 && <> · <b className="text-tinta">sugerido {it.sugerido}</b></>}
+                    {it.sugerido > 0 && <> · <b className="text-tinta">sugerido {it.sugerido}{it.sugeridoBultos ? ` (${it.sugeridoBultos} bulto${it.sugeridoBultos === 1 ? '' : 's'})` : ''}</b></>}
                     {it.costo != null ? ` · ${pesos(it.costo)}` : ' · sin costo'}
                     {` · ${it.sku}`}{it.codigoProveedor ? ` · cód. ${it.codigoProveedor}` : ''}
                   </p>
+                  {/* de dónde sale el sugerido: la cuenta, en palabras, plegada (4/11/2026) */}
+                  {it.explicacion && (
+                    <button type="button" onClick={() => setExplicado(explicado === it.sku ? null : it.sku)} aria-expanded={explicado === it.sku}
+                      className={unir('mr-2 mt-1.5 inline-flex min-h-9 items-center rounded-full border border-black/15 px-3 text-xs font-semibold text-tinta/70 transition-colors hover:bg-crema-claro', FOCO)}>
+                      {it.sugerido > 0 ? `¿Por qué ${it.sugerido}?` : '¿Por qué no sugiere?'}
+                    </button>
+                  )}
                   {/* antes de pedirlo: ¿hay de lo mismo en otra marca o en otro tamaño? (4/11/2026) */}
                   <button type="button" onClick={() => setParecidosDe(it)}
                     className={unir(
@@ -547,6 +558,9 @@ export function PedidoProveedor({ sucursales, proveedorInicial, sucursalInicial 
                     )}>
                     ¿Qué tengo parecido?
                   </button>
+                  {explicado === it.sku && it.explicacion && (
+                    <p className="mt-1.5 rounded-xl bg-crema-claro px-3 py-2 text-xs leading-relaxed text-tinta">{it.explicacion}</p>
+                  )}
                 </div>
                 <div className="ml-auto flex shrink-0 items-center gap-1.5">
                   <button type="button" aria-label={`Restar uno de ${it.nombre}`} onClick={() => poner(it.sku, puesto - 1)} disabled={!puesto}

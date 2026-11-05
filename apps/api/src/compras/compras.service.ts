@@ -8,6 +8,7 @@ import { vencimientoPorPlazo } from '../proveedores/ficha';
 import { fusionarRenglonesPorSku } from './bultos';
 import { normalizarBorradorPedido } from './borrador-pedido';
 import { compararNombres, normalizarNombre, ordenarParecidos, prefijoDeFamilia, tamanoDe } from './parecidos';
+import { explicarSugerido } from './sugerido';
 
 // Cómo se propone cuánto pedir: se mira la venta de los últimos 30 días y se
 // propone cubrir 14. Menos de 5 días de stock es urgente (con el lead time de
@@ -1453,6 +1454,9 @@ export class ComprasService {
     // fecha confirmada más próxima: para no pedirlo dos veces (23/10/2026).
     const enCamino = await this.enCaminoPorSku(items.map((i) => i.sku), sucursalId).catch(() => new Map());
     items = items.map((i) => ({ ...i, enCamino: enCamino.get(i.sku)?.cantidad ?? 0, llega: enCamino.get(i.sku)?.fecha ?? null }));
+    // El sugerido con su cuenta en palabras, descontando lo que ya está en
+    // camino y en bultos enteros si el producto tiene bulto (4/11/2026).
+    items = items.map((i) => ({ ...i, ...explicarSugerido(i as any, DIAS_COBERTURA, DIAS_VENTA) }));
 
     // Lo que hay del mismo producto en las OTRAS sucursales (4/11/2026, «hay
     // que agregar un filtro de stock Santa Inés / Sant Thomas»): antes de
