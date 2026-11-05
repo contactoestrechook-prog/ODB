@@ -1454,6 +1454,12 @@ export class ComprasService {
     const enCamino = await this.enCaminoPorSku(items.map((i) => i.sku), sucursalId).catch(() => new Map());
     items = items.map((i) => ({ ...i, enCamino: enCamino.get(i.sku)?.cantidad ?? 0, llega: enCamino.get(i.sku)?.fecha ?? null }));
 
+    // Lo que hay del mismo producto en las OTRAS sucursales (4/11/2026, «hay
+    // que agregar un filtro de stock Santa Inés / Sant Thomas»): antes de
+    // pedirlo para una, se ve si en la otra sobra.
+    const enOtras = await this.stockEnOtrasSucursales(items.map((i) => i.sku), sucursalId);
+    items = items.map((i) => ({ ...i, stockOtras: enOtras.get(i.sku) ?? [] }));
+
     const total = Number(((data ?? []) as any[])[0]?.total ?? items.length);
     return {
       proveedor: prov,
@@ -1462,6 +1468,29 @@ export class ComprasService {
       items,
       recortado: total > items.length,
     };
+  }
+
+  // El stock de esos productos en las demás sucursales (las que no son la del pedido).
+  private async stockEnOtrasSucursales(skus: string[], sucursalId?: string | null) {
+    const res = new Map<string, { sucursalId: string; sucursal: string; cantidad: number }[]>();
+    if (!skus.length) return res;
+    const { data: sucs } = await this.db.from('sucursales').select('id, nombre').order('nombre');
+    const otras = ((sucs ?? []) as any[]).filter((s) => s.id !== sucursalId);
+    if (!otras.length) return res;
+    const { data, error } = await this.db.from('stock')
+      .select('cantidad, sucursal_id, producto:productos!inner(sku)')
+      .in('producto.sku', skus.slice(0, 300))
+      .in('sucursal_id', otras.map((s) => s.id));
+    if (error) throw new BadRequestException(error.message);
+    const cantidad = new Map<string, number>();
+    for (const r of (data ?? []) as any[]) {
+      const sku = r.producto?.sku;
+      if (sku) cantidad.set(`${sku}|${r.sucursal_id}`, Number(r.cantidad) || 0);
+    }
+    for (const sku of skus) {
+      res.set(sku, otras.map((s) => ({ sucursalId: s.id, sucursal: s.nombre, cantidad: cantidad.get(`${sku}|${s.id}`) ?? 0 })));
+    }
+    return res;
   }
 
   private async enCaminoPorSku(skus: string[], sucursalId?: string | null): Promise<Map<string, { cantidad: number; fecha: string | null }>> {

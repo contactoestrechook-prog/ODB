@@ -58,7 +58,11 @@ type Item = {
   sugerido: number; urgente: boolean; porDia: number; diasDeStock: number | null;
   /** ya pedido y sin recibir (órdenes aprobadas o enviadas), y el día que confirmó el proveedor */
   enCamino?: number; llega?: string | null;
+  /** lo que hay del mismo producto en las otras sucursales (4/11/2026) */
+  stockOtras?: { sucursalId: string; sucursal: string; cantidad: number }[];
 };
+// "Suc Sant Thomas" → "Sant Thomas"
+const nombreCorto = (sucursal: string) => sucursal.replace(/^suc(ursal)?\.?\s+/i, '');
 
 type Cantidades = Record<string, number>;
 type EstadoGuardado = '' | 'guardando' | 'guardado' | 'error';
@@ -517,6 +521,12 @@ export function PedidoProveedor({ sucursales, proveedorInicial, sucursalInicial 
                   <p className={unir('text-xs font-semibold', ESTADO_STOCK[est].texto)}>
                     {textoEstado(it, est)}
                   </p>
+                  {/* la otra sucursal: si allá sobra, no hace falta pedirlo */}
+                  {(it.stockOtras ?? []).map((o) => (
+                    <p key={o.sucursalId} className={unir('text-xs font-semibold', o.cantidad > 0 ? 'text-info' : 'text-tinta/50')}>
+                      En {nombreCorto(o.sucursal)}: {formatoStock(o.cantidad)}
+                    </p>
+                  ))}
                   {!!it.enCamino && (
                     <p className="text-xs font-semibold text-info">
                       Ya pedido: {formatoStock(it.enCamino)} en camino{it.llega ? ` · llega ${fecha(it.llega, 'dia')}` : ' · sin fecha confirmada'}
