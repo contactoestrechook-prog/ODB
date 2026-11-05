@@ -33,6 +33,8 @@ export type PedidoCola = {
   asignado_a?: string | null;
   asignado_en?: string | null;
   asignadoNombre?: string | null;
+  /** Minutos de asignado a «Finalizar» (el armado del op salón). */
+  minutosArmado?: number | null;
   minutos?: number;
   items?: { cantidad: number | string; precio_unitario?: number | string | null; producto?: { sku?: string; nombre?: string } | null }[];
 };

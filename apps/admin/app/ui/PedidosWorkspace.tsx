@@ -75,6 +75,8 @@ export function PedidosWorkspace({ inicial, puedeSimular = false, puedeCargarRep
   const [aviso, setAviso] = useState('');
   const [wa, setWa] = useState(false);
   const [abierto, setAbierto] = useState<PedidoCola | null>(null);
+  // «¿Quién lo arma?» desde la tarjeta, sin abrir el detalle (5/11/2026)
+  const [asignando, setAsignando] = useState<PedidoCola | null>(null);
   const [trabajando, setTrabajando] = useState<string | null>(null);
   const [entregando, setEntregando] = useState<PedidoCola | null>(null);
   // al entregar faltaba stock: la ventana pregunta si se saca o se reemplaza
@@ -180,7 +182,7 @@ export function PedidosWorkspace({ inicial, puedeSimular = false, puedeCargarRep
   const cols = [
     { titulo: 'Nuevos', lista: visibles.filter((p) => ['recibido', 'pagado'].includes(p.estado)) },
     { titulo: 'En preparación', lista: visibles.filter((p) => p.estado === 'en_preparacion') },
-    { titulo: 'Listos', lista: visibles.filter((p) => p.estado === 'listo') },
+    { titulo: 'Listos · mesa de retiro', lista: visibles.filter((p) => p.estado === 'listo') },
   ];
   const cuentaSinTomar = pedidos.filter(sinTomar).length;
   const porOrigen = useMemo(() => {
@@ -238,6 +240,7 @@ export function PedidosWorkspace({ inicial, puedeSimular = false, puedeCargarRep
                     onTomar={() => tomar(p)}
                     onAvanzar={(estado) => avanzar(p, estado)}
                     onAbrir={() => setAbierto(p)}
+                    onAsignar={() => setAsignando(p)}
                   />
                 ))}
               </div>
@@ -282,6 +285,15 @@ export function PedidosWorkspace({ inicial, puedeSimular = false, puedeCargarRep
             if (r?.ok) { const d = await r.json(); if (Array.isArray(d)) { setPedidos(d); const nuevo = d.find((x: PedidoCola) => x.id === abierto.id); if (nuevo) setAbierto(nuevo); } }
           }}
         />
+      )}
+      {asignando && (
+        <Modal abierto ancho="chico" onCerrar={() => setAsignando(null)} titulo={`¿Quién arma ${codigoDe(asignando)}?`}
+          descripcion="Le aparece en el celular y empieza a correr el reloj. Dale la comanda en la mano."
+          pie={<Boton variante="secundario" onClick={() => setAsignando(null)}>Listo</Boton>}>
+          <AsignarArmado key={`${asignando.id}|${asignando.asignado_a ?? ''}`} p={asignando} onAsignado={async () => {
+            await recargar();
+          }} />
+        </Modal>
       )}
       {entregando && (
         <ModalEntregar
@@ -339,9 +351,10 @@ function Responsable({ p }: { p: PedidoCola }) {
   return <span className="min-w-0 truncate text-xs text-tinta/70">Lo tiene <b className="font-semibold text-tinta">{p.tomadoPorNombre}</b>{p.tomado_en ? ` · ${haceCuanto(p.tomado_en)}` : ''}</span>;
 }
 
-function TarjetaPedido({ p, trabajando, onTomar, onAvanzar, onAbrir }: {
-  p: PedidoCola; trabajando: boolean; onTomar: () => void; onAvanzar: (estado: string) => void; onAbrir: () => void;
+function TarjetaPedido({ p, trabajando, onTomar, onAvanzar, onAbrir, onAsignar }: {
+  p: PedidoCola; trabajando: boolean; onTomar: () => void; onAvanzar: (estado: string) => void; onAbrir: () => void; onAsignar: () => void;
 }) {
+  const seArma = ['recibido', 'pagado', 'en_preparacion'].includes(p.estado);
   const origen = origenDe(p);
   const sig = siguientePaso(p);
   const tel = telefonoLegible(p.clienteTelefono);
@@ -364,7 +377,20 @@ function TarjetaPedido({ p, trabajando, onTomar, onAvanzar, onAbrir }: {
           {(p.items ?? []).length > 3 && ` +${(p.items ?? []).length - 3}`}
         </p>
       </button>
-      {p.asignadoNombre && <p className="mt-2 text-xs text-tinta/70">Lo arma <b className="font-semibold text-tinta">{p.asignadoNombre}</b></p>}
+      {/* quién lo arma: se elige acá mismo (op salón, 5/11/2026) */}
+      {seArma && (
+        <button type="button" onClick={onAsignar} className={unir('mt-3 flex w-full items-center justify-between gap-2 rounded-xl border px-3 py-2 text-left text-sm transition-colors', p.asignadoNombre ? 'border-ok/30 bg-ok-suave/60 hover:bg-ok-suave' : 'border-dashed border-marca/40 bg-marca-suave/40 hover:bg-marca-suave', FOCO)}>
+          {p.asignadoNombre
+            ? <span className="min-w-0 truncate text-tinta">Lo arma <b className="font-semibold">{p.asignadoNombre}</b>{p.asignado_en ? ` · ${haceCuanto(p.asignado_en)}` : ''}</span>
+            : <span className="font-semibold text-marca-hondo">¿Quién lo arma?</span>}
+          <span className="shrink-0 text-xs font-semibold text-tinta/60">{p.asignadoNombre ? 'Cambiar' : 'Asignar'}</span>
+        </button>
+      )}
+      {p.estado === 'listo' && !esDomicilio(p) && (
+        <p className="mt-3 rounded-xl bg-ok px-3 py-2 text-sm font-semibold text-white">
+          En la mesa de retiro{p.asignadoNombre ? ` · lo armó ${p.asignadoNombre}` : ''}{p.minutosArmado != null ? ` en ${p.minutosArmado} min` : ''}
+        </p>
+      )}
       <div className="mt-3 flex min-w-0 items-center justify-between gap-2">
         <Responsable p={p} />
         <span className="importe shrink-0 text-sm font-semibold text-tinta">{pesos(p.total)}</span>

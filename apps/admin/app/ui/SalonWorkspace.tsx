@@ -83,6 +83,7 @@ function Armar({ verTodos, onCuenta }: { verTodos: boolean; onCuenta: (n: number
   const [abierto, setAbierto] = useState<string | null>(null);
   // los que cerró a mano no se le vuelven a abrir solos
   const cerrados = useRef(new Set<string>());
+  const [finalizado, setFinalizado] = useState<string | null>(null);
   const ahora = useAhora();
 
   const cargar = useCallback(async () => {
@@ -113,10 +114,12 @@ function Armar({ verTodos, onCuenta }: { verTodos: boolean; onCuenta: (n: number
           p={actual}
           ahora={ahora}
           onVolver={() => { cerrados.current.add(actual.id); setAbierto(null); }}
+          onTerminado={(texto) => { cerrados.current.add(actual.id); setAbierto(null); setFinalizado(texto); }}
           onCambio={cargar}
           enviar={(cuerpo) => api('POST', cuerpo)}
         />
       )}
+      {finalizado && <Aviso tono="ok" titulo="¡Listo!">{finalizado}</Aviso>}
       {error && <Aviso tono="error">{error}</Aviso>}
       {pedidos === null && !error && <p className="text-sm text-tinta/60">Buscando tus pedidos…</p>}
       {pedidos?.length === 0 && (

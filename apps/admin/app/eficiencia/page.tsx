@@ -91,7 +91,7 @@ export default async function Eficiencia() {
           etiqueta="Armado en el salón: tiempos por persona"
           filas={salon}
           claveFila="usuarioId"
-          vacio={<Vacio className="m-4" titulo="Todavía no hay pedidos armados desde Salón." texto="Se mide desde que la caja asigna el pedido hasta que la persona toca «Terminé»." />}
+          vacio={<Vacio className="m-4" titulo="Todavía no hay pedidos armados desde Salón." texto="Se mide desde que la caja asigna el pedido hasta que la persona toca «Finalizar»." />}
           columnas={[
             { clave: 'empleado', titulo: 'Empleado', principal: true, celda: (s, i) => <Empleado nombre={s.nombre} primero={i === 0} detalle={`${s.productos} cargas al carro`} /> },
             { clave: 'pedidos', titulo: 'Pedidos', importe: true, celda: (s) => s.pedidos },

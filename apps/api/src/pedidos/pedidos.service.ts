@@ -731,7 +731,7 @@ export class PedidosService {
       .from('pedidos')
       .select(
         `id, canal, estado, total, qr_retiro, creado_en, listo_en, pagado_en, en_camino_en, entregado_en, notas, forma_pago, entrega_fecha, entrega_franja,
-         destino_direccion, origen, contacto_nombre, contacto_telefono, tomado_por, tomado_en, repartidor_id, asignado_a, asignado_en,
+         destino_direccion, origen, contacto_nombre, contacto_telefono, tomado_por, tomado_en, repartidor_id, asignado_a, asignado_en, armado_terminado_en,
          sucursal:sucursales(nombre),
          cliente:clientes(dni, tipo, nombre, telefono),
          items:pedidos_items(cantidad, precio_unitario, producto:productos(sku, nombre))`,
@@ -761,6 +761,9 @@ export class PedidosService {
       repartidorNombre: p.repartidor_id ? nombres.get(String(p.repartidor_id)) ?? null : null,
       // quién lo arma (op salón, 5/11/2026): lo asigna la caja al imprimir la comanda
       asignadoNombre: p.asignado_a ? nombres.get(String(p.asignado_a)) ?? null : null,
+      minutosArmado: p.asignado_en && p.armado_terminado_en
+        ? Math.max(0, Math.round((new Date(p.armado_terminado_en).getTime() - new Date(p.asignado_en).getTime()) / 60000))
+        : null,
       minutos: Math.round((Date.now() - new Date(p.creado_en).getTime()) / 60000),
     }));
   }

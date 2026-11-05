@@ -16,7 +16,7 @@ import { numero } from '../lib/formato';
 export type ItemArmado = { productoId: string; sku: string | null; nombre: string; cantidad: number; enCarro: number; ubicacion: string | null };
 export type CargaArmado = { id: number; productoId: string; cantidad: number; creadoEn: string };
 export type PedidoArmado = {
-  id: string; codigo: string; cliente: string | null; notas: string | null; sucursal: string | null;
+  id: string; codigo: string; canal?: string | null; cliente: string | null; notas: string | null; sucursal: string | null;
   asignadoEn: string; cargas: CargaArmado[]; items: ItemArmado[];
 };
 
@@ -72,10 +72,12 @@ function reloj(desde: string, ahora: number) {
   return h ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`;
 }
 
-export function ArmadoPantalla({ p, ahora, onVolver, onCambio, enviar }: {
+export function ArmadoPantalla({ p, ahora, onVolver, onTerminado, onCambio, enviar }: {
   p: PedidoArmado;
   ahora: number;
   onVolver: () => void;
+  /** Finalizado: con el texto de a dónde va (mesa de retiro o salida) */
+  onTerminado: (texto: string) => void;
   onCambio: () => Promise<void>;
   enviar: (cuerpo: Record<string, unknown>) => Promise<any>;
 }) {
@@ -153,11 +155,16 @@ export function ArmadoPantalla({ p, ahora, onVolver, onCambio, enviar }: {
   async function terminar() {
     if (faltan.length && !(await confirmar({
       titulo: `Faltan ${faltan.length} producto${faltan.length === 1 ? '' : 's'}`,
-      texto: `${faltan.map((i) => i.nombre).slice(0, 4).join(', ')}${faltan.length > 4 ? '…' : ''}. Si no hay, avisale a la caja. ¿Lo das por terminado igual?`,
-      textoConfirmar: 'Terminar igual',
+      texto: `${faltan.map((i) => i.nombre).slice(0, 4).join(', ')}${faltan.length > 4 ? '…' : ''}. Si no hay, avisale a la caja. ¿Lo finalizás igual?`,
+      textoConfirmar: 'Finalizar igual',
     }))) return;
     setTerminando(true);
-    try { await enviar({ accion: 'terminar', pedidoId: p.id }); await onCambio(); onVolver(); }
+    try {
+      await enviar({ accion: 'terminar', pedidoId: p.id });
+      vibrar([80, 60, 80]);
+      onTerminado(`${p.codigo} finalizado en ${reloj(p.asignadoEn, Date.now())}. ${destino}.`);
+      await onCambio();
+    }
     catch (e: any) { avisar('error', e.message); setTerminando(false); }
   }
 
@@ -172,6 +179,8 @@ export function ArmadoPantalla({ p, ahora, onVolver, onCambio, enviar }: {
   }, [manual]);
 
   const cerrado = !!manual || terminando;
+  // dónde queda: lo que se retira va a la mesa de retiro; un envío, a la salida
+  const destino = p.canal === 'domicilio' ? 'Dejalo listo para salir con el envío' : 'Dejalo en la mesa de retiro';
   return (
     <div className="fixed inset-0 z-[60] flex flex-col bg-crema" role="dialog" aria-modal="true" aria-label={`Armando el pedido ${p.codigo}`}>
       {dialogo}
@@ -255,7 +264,7 @@ export function ArmadoPantalla({ p, ahora, onVolver, onCambio, enviar }: {
 
       <div className="bg-white px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 shadow-[0_-4px_12px_rgba(0,0,0,0.06)]">
         <Boton variante={faltan.length ? 'secundario' : 'ok'} anchoCompleto onClick={terminar} cargando={terminando}>
-          {faltan.length ? `Terminé (faltan ${faltan.length})` : 'Terminé: está todo en el carro'}
+          {faltan.length ? `Finalizar (faltan ${faltan.length})` : p.canal === 'domicilio' ? 'Finalizar: listo para salir' : 'Finalizar: a la mesa de retiro'}
         </Boton>
       </div>
 
