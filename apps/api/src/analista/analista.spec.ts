@@ -91,6 +91,47 @@ describe('metricas() sobre el motor de abastecimiento', () => {
 describe('charlar(): veredicto del modelo + cifras del sistema, por proveedor', () => {
   const responder = (salida: any) => crear.mockResolvedValue({ content: [{ type: 'text', text: JSON.stringify(salida) }] });
 
+  // 5/11/2026: «que primero siempre pregunte qué tipo de pedido, chico, mediano
+  // o grande… para no tirar un choclo de entrada»
+  it('si el analista pregunta antes de armar el pedido, no se dibuja nada todavía', async () => {
+    const db = dbFalsa([fila(1)]);
+    responder({
+      respuesta: 'Antes de armarlo, dos cosas.',
+      mostrar: [],
+      proveedores: [],
+      preguntas: [
+        { pregunta: '¿El pedido es chico, mediano o grande?', opciones: ['Chico', 'Mediano', 'Grande'] },
+        { pregunta: 'sin opciones', opciones: ['una sola'] }, // no sirve para tocar: se descarta
+      ],
+      pedido: { tamano: 'sin_definir', sucursal: 'sin_definir' },
+    });
+    const r: any = await new AnalistaService(db).charlar([{ rol: 'usuario', texto: '¿Qué compro esta semana?' }]);
+    expect(r.mostrar).toEqual([]);
+    expect(r.preguntas).toEqual([{ pregunta: '¿El pedido es chico, mediano o grande?', opciones: ['Chico', 'Mediano', 'Grande'] }]);
+    expect(r.pedido).toEqual({ tamano: null, sucursal: null });
+  });
+  it('con el tamaño y la sucursal dichos, la nota sale en esa sucursal y con ese tamaño; el modelo ve lo que hubo en pantalla', async () => {
+    const db = dbFalsa([fila(1)]);
+    responder({
+      respuesta: 'Pedido chico: lo urgente es Luvik.',
+      mostrar: ['notas'],
+      proveedores: [{ proveedor: 'P01', accion: 'comprar', comentario: 'Sin stock.' }],
+      preguntas: [],
+      pedido: { tamano: 'chico', sucursal: 'Santa Inés' },
+    });
+    const r: any = await new AnalistaService(db).charlar([
+      { rol: 'analista', texto: 'Buenas.' }, // el saludo no viaja: la charla arranca con la persona
+      { rol: 'usuario', texto: '¿Qué compro?' },
+      { rol: 'analista', texto: 'Antes de armarlo, dos cosas.', nota: 'pregunté: ¿El pedido es chico, mediano o grande? (Chico / Mediano / Grande)' },
+      { rol: 'usuario', texto: 'Chico · Santa Inés' },
+    ]);
+    expect(r.notas).toEqual({ sucursal: 'Santa Inés', tamano: 'chico', proveedorIds: ['pv1'] });
+    expect(r.pedido).toEqual({ tamano: 'chico', sucursal: 'Santa Inés' });
+    const pedido = crear.mock.calls[crear.mock.calls.length - 1][0];
+    expect(pedido.messages.map((m: any) => m.role)).toEqual(['user', 'assistant', 'user']);
+    expect(pedido.messages[1].content).toContain('[En pantalla: pregunté: ¿El pedido es chico, mediano o grande?');
+  });
+
   it('devuelve el tablero por proveedor y resuelve los nombres del modelo', async () => {
     const db = dbFalsa([fila(1), fila(2, { proveedor_id: 'pv2', proveedor: 'Codorníu', alerta: 'menos_de_12' })]);
     responder({
@@ -111,7 +152,7 @@ describe('charlar(): veredicto del modelo + cifras del sistema, por proveedor', 
       { proveedorId: 'pv1', proveedor: 'LUVIK S.A.', accion: 'comprar', comentario: 'Sin stock de lo que más se vende.' },
       { proveedorId: null, proveedor: 'Sin proveedor habitual', accion: 'completar_datos', comentario: 'Asignalos.' },
     ]);
-    expect(r.notas).toEqual({ sucursal: 'Saint Thomas', proveedorIds: ['pv1'] });
+    expect(r.notas).toEqual({ sucursal: 'Saint Thomas', tamano: null, proveedorIds: ['pv1'] });
     // al modelo no le viajan miles de filas: lo fijo con caché y la foto del día aparte
     const pedido = crear.mock.calls[0][0];
     expect(pedido.system[0].cache_control).toEqual({ type: 'ephemeral' });

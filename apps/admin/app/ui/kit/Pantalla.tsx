@@ -6,12 +6,13 @@ import { unir } from './clases';
 // que lee la sesión en el servidor. Se importa directo, solo desde page.tsx:
 //   import { Pantalla } from '../ui/kit/Pantalla';
 
-export type AnchoPantalla = 'angosto' | 'normal' | 'ancho';
+export type AnchoPantalla = 'angosto' | 'normal' | 'ancho' | 'completo';
 
 const ANCHOS: Record<AnchoPantalla, string> = {
   angosto: 'max-w-3xl', // formularios, una sola columna (cambiar clave, pedido a proveedor)
   normal: 'max-w-5xl', // la mayoría
   ancho: 'max-w-7xl', // tablas anchas y tableros (compras, stock, estadísticas)
+  completo: 'max-w-none', // toda la pantalla (el Analista, 5/11/2026)
 };
 
 type PropsPantalla = {

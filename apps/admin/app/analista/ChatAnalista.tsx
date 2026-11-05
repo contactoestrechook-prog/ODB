@@ -39,7 +39,63 @@ type Mensaje = {
   comentarios?: ComentarioProveedor[];
   mostrar?: Pieza[];
   notas?: NotasAnalista | null;
+  // lo que el analista pregunta antes de mostrar un pedido (5/11/2026)
+  preguntas?: Pregunta[];
 };
+type Pregunta = { pregunta: string; opciones: string[] };
+
+// Lo que hubo en pantalla en un turno del analista, en una línea, para que el
+// modelo siga el hilo: antes viajaba solo el texto y no sabía qué había
+// mostrado ni qué había preguntado («el contexto es muy malo», 5/11/2026).
+function notaDelTurno(m: Mensaje): string | undefined {
+  if (m.rol !== 'analista') return undefined;
+  const partes: string[] = [];
+  if (m.preguntas?.length) partes.push(`pregunté: ${m.preguntas.map((q) => `${q.pregunta} (${q.opciones.join(' / ')})`).join(' — ')}`);
+  const mostrar = m.mostrar ?? [];
+  if (mostrar.includes('compras')) partes.push('placa COMPRAS por proveedor');
+  if (mostrar.includes('notas') && m.notas) {
+    const aQuien = (m.comentarios ?? []).filter((c) => c.accion === 'comprar').map((c) => c.proveedor).slice(0, 8);
+    partes.push(`notas de pedido${m.notas.tamano ? ` de un pedido ${m.notas.tamano}` : ''} en ${m.notas.sucursal}${aQuien.length ? ` para ${aQuien.join(', ')}` : ''}`);
+  }
+  if (mostrar.includes('parado')) partes.push('placa PLATA PARADA');
+  if (m.armados?.length) partes.push(`boxes propuestos: ${m.armados.map((a) => a.nombre).join(', ')}`);
+  return partes.length ? partes.join('; ') : undefined;
+}
+
+// Las preguntas del analista, para contestar tocando. Con varias, se manda todo
+// junto cuando están todas contestadas; también se puede escribir la respuesta.
+function PreguntasDelAnalista({ preguntas, onResponder, activa }: { preguntas: Pregunta[]; onResponder: (texto: string) => void; activa: boolean }) {
+  const [elegidas, setElegidas] = useState<Record<number, string>>({});
+  const elegir = (k: number, opcion: string) => {
+    if (!activa) return;
+    const nuevas = { ...elegidas, [k]: opcion };
+    setElegidas(nuevas);
+    if (preguntas.every((_, i) => nuevas[i])) onResponder(preguntas.map((_, i) => nuevas[i]).join(' · '));
+  };
+  return (
+    <div className="mt-2 w-full max-w-2xl space-y-3 rounded-2xl border border-black/[0.06] bg-white p-4">
+      {preguntas.map((q, k) => (
+        <fieldset key={k} className="min-w-0 space-y-2" disabled={!activa}>
+          <legend className="text-sm font-semibold text-tinta">{q.pregunta}</legend>
+          <div className="flex flex-wrap gap-2">
+            {q.opciones.map((o) => (
+              <button
+                key={o} type="button" aria-pressed={elegidas[k] === o} onClick={() => elegir(k, o)}
+                className={unir(
+                  'min-h-11 rounded-full border px-4 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-marca',
+                  elegidas[k] === o ? 'border-tinta bg-tinta text-white' : 'border-black/15 bg-crema-claro text-tinta hover:bg-crema',
+                  !activa && elegidas[k] !== o && 'opacity-50',
+                )}
+              >
+                {o}
+              </button>
+            ))}
+          </div>
+        </fieldset>
+      ))}
+    </div>
+  );
+}
 
 type OrdenArmada = Armada & { proveedor: string; sucursal: string; sucursalId: string };
 
@@ -62,6 +118,7 @@ function respuestaDelAnalista(d: any): Mensaje {
     comentarios: Array.isArray(d?.comentarios) ? d.comentarios : [],
     mostrar: Array.isArray(d?.mostrar) ? d.mostrar.filter((x: unknown): x is Pieza => PIEZAS.includes(x as Pieza)) : [],
     notas: d?.notas && Array.isArray(d.notas.proveedorIds) ? d.notas : null,
+    preguntas: (Array.isArray(d?.preguntas) ? d.preguntas : []).filter((q: any) => typeof q?.pregunta === 'string' && Array.isArray(q?.opciones) && q.opciones.length >= 2),
   };
 }
 
@@ -144,7 +201,7 @@ export function ChatAnalista() {
     {
       rol: 'analista',
       texto:
-        'Buenas. Soy el Analista ODB: miro el ritmo de venta, el stock de las dos sucursales, los plazos de cada proveedor y los costos. Preguntame qué comprar, qué liquidar o dónde hay plata parada.',
+        'Buenas. Soy el Analista ODB: miro el ritmo de venta, el stock de las dos sucursales, los plazos de cada proveedor y los costos. Dígame qué necesita: armar un pedido, ver qué liquidar o dónde hay plata parada. Para un pedido le pregunto primero de qué tamaño lo quiere.',
     },
   ]);
   const [texto, setTexto] = useState('');
@@ -218,7 +275,7 @@ export function ChatAnalista() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          mensajes: nuevos.map(({ rol, texto }) => ({ rol, texto })),
+          mensajes: nuevos.map((m) => ({ rol: m.rol, texto: m.texto, nota: notaDelTurno(m) })),
         }),
       });
       const datos = await res.json().catch(() => ({}));
@@ -235,7 +292,8 @@ export function ChatAnalista() {
   }
 
   return (
-    <Tarjeta relleno={false} className="flex h-[78dvh] min-h-[26rem] flex-col overflow-hidden">
+    // toda la pantalla (5/11/2026): el alto que queda debajo de la cabecera
+    <Tarjeta relleno={false} className="flex h-[calc(100dvh-11rem)] min-h-[26rem] flex-col overflow-hidden lg:h-[calc(100dvh-8.5rem)]">
       <div className="flex items-center gap-3 border-b border-black/[0.06] px-4 py-3 sm:px-5">
         <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-marca text-white" aria-hidden="true">
           <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -272,6 +330,9 @@ export function ChatAnalista() {
               >
                 {m.texto}
               </div>
+            )}
+            {m.rol === 'analista' && !!m.preguntas?.length && (
+              <PreguntasDelAnalista preguntas={m.preguntas} onResponder={enviar} activa={i === mensajes.length - 1 && !pensando} />
             )}
             {m.rol === 'analista' && (
               <PiezasDeLaRespuesta m={m} onPreguntar={enviar} yaPedidos={yaPedidos} onArmada={alArmar} desplazarA={desplazarA} />
