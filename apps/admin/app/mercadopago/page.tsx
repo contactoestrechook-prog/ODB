@@ -1,39 +1,22 @@
-import { Pantalla } from '../ui/kit/Pantalla';
-import { Aviso } from '../ui/kit';
-import { apiFetch } from '../../lib/api';
-import { MercadoPagoWorkspace } from '../ui/MercadoPagoWorkspace';
+import { Unbounded } from 'next/font/google';
+import { Header } from '../ui/Header';
+import { MercadoPagoTablero } from '../ui/MercadoPagoTablero';
 import { PinGate } from '../ui/PinGate';
 
 export const dynamic = 'force-dynamic';
 
-export default async function MercadoPago() {
-  let estado: any = { vinculado: false };
-  let resumen: any = {};
-  let pagos: any[] = [];
-  let error: string | null = null;
-  try {
-    const [re, rr, rp] = await Promise.all([
-      apiFetch('/mercadopago/estado'),
-      apiFetch('/mercadopago/resumen'),
-      apiFetch('/mercadopago/pagos'),
-    ]);
-    if (re.ok) estado = await re.json();
-    if (rr.ok) resumen = await rr.json();
-    if (rp.ok) pagos = await rp.json();
-    if (!re.ok && !rr.ok) throw new Error('La API respondió con error');
-  } catch (e) {
-    error = e instanceof Error ? e.message : 'Error desconocido';
-  }
+// Mercado Pago, versión 2 (Leandro, 5/11/2026: «a otro nivel», «análisis mes a
+// mes», «mejorá mucho toda la gráfica»). Mismo idioma que Frío: perfil Ultra,
+// negro y tipográfico, letra Unbounded solo para esta pantalla.
+const unbounded = Unbounded({ subsets: ['latin'], weight: ['300', '400', '600', '800'], variable: '--letra-mp', display: 'swap' });
 
+export default function MercadoPago() {
   return (
-    <Pantalla activo="/mercadopago">
-      {error ? (
-        <Aviso tono="error">No pude consultar la API ({error}).</Aviso>
-      ) : (
-        <PinGate modulo="mercadopago" titulo="Mercado Pago">
-          <MercadoPagoWorkspace estado={estado} resumen={resumen} pagos={pagos} />
-        </PinGate>
-      )}
-    </Pantalla>
+    <main className={`${unbounded.variable} flex h-dvh flex-col bg-[#09090D] lg:pl-64`}>
+      <Header activo="/mercadopago" sinCabecera />
+      <PinGate modulo="mercadopago" titulo="Mercado Pago">
+        <MercadoPagoTablero />
+      </PinGate>
+    </main>
   );
 }

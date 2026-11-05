@@ -8,17 +8,18 @@ async function auth(): Promise<Record<string, string>> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-// GET ?recurso=estado|resumen|pagos&dias=30
+// GET ?recurso=estado|resumen|pagos|mensual|dias|liberaciones|pagos-dia&…
+// Solo pasan estos recursos y estos parámetros; la seguridad real está en el API (@Roles).
+const RECURSOS = ['estado', 'resumen', 'pagos', 'mensual', 'dias', 'liberaciones', 'pagos-dia'];
+const PARAMS = ['dias', 'cuenta', 'meses', 'desde', 'hasta', 'dia', 'tipo', 'por'];
 export async function GET(req: Request) {
   const sp = new URL(req.url).searchParams;
-  const recurso = sp.get('recurso') ?? 'resumen';
-  const dias = sp.get('dias') ?? '30';
-  const cuenta = sp.get('cuenta') ?? '';
-  const res = await fetch(`${API}/mercadopago/${recurso}?dias=${encodeURIComponent(dias)}${cuenta ? `&cuenta=${encodeURIComponent(cuenta)}` : ''}`, {
-    headers: await auth(),
-    cache: 'no-store',
-  });
-  return NextResponse.json(await res.json(), { status: res.status });
+  const recurso = RECURSOS.includes(sp.get('recurso') ?? '') ? sp.get('recurso') : 'resumen';
+  const q = new URLSearchParams();
+  for (const k of PARAMS) { const v = sp.get(k); if (v) q.set(k, v); }
+  if (!q.has('dias') && (recurso === 'resumen' || recurso === 'pagos')) q.set('dias', '30');
+  const res = await fetch(`${API}/mercadopago/${recurso}?${q}`, { headers: await auth(), cache: 'no-store' });
+  return NextResponse.json(await res.json().catch(() => ({})), { status: res.status });
 }
 
 // POST { accion: 'importar'|'link', ... }
