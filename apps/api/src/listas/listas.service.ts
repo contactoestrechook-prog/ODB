@@ -8,6 +8,7 @@ import { elegirProveedor } from '../compras/proveedor-match';
 import { controlarConQr, totalEnPesos, numeroDelQr, type QrArca } from '../compras/qr-arca';
 import { buscarQrArca } from '../compras/qr-arca.lector';
 import { separarComprobantes, type ParteDelPdf } from '../compras/separar-comprobantes';
+import { renglonesEnNeto } from '../compras/internos-por-renglon';
 import { codigoCercano } from '../compras/codigo-proveedor';
 import { bultoDelRenglon, esRenglonDeDescuento, esRenglonDeDevolucion, porcentajeDeDescuento, puedeVendersePorPeso, unidadesDeLaPresentacion, variacionPorUnidad, variacionDelRenglon } from '../compras/bultos';
 import { esfuerzo, jsonDe, MODELO_PRINCIPAL, RAZONAMIENTO, RAZONAMIENTO_HAIKU } from '../comun/modelos';
@@ -137,6 +138,13 @@ const ESQUEMA_COMPROBANTE = {
             type: 'boolean',
             description: 'true si la mercadería de ESTE renglón volvió al proveedor en la entrega. REGLA DE ODB (4/11/2026): un renglón PINTADO con color (resaltador, marcador, de cualquier color) ES SIEMPRE una devolución, diga o no algo al lado. También es true si una anotación a mano lo tacha o dice "dev", "devuelto", "devolución", "no vino" o "rechazado", o si una nota escrita a mano nombra este producto como devuelto (marcá CADA renglón que nombre, aunque no esté pintado). false si el renglón no está pintado ni anotado así. Si la anotación dice CUÁNTO llegó (vino una parte), NO es true: va en recibidoAMano.',
           },
+          // Cigarrillos (5/11/2026, Grupo Modo): el papel imprime por renglón Neto,
+          // Iva, Imp Int Uni, Precio Unit y Total. Obligatoria con valor neutro
+          // (0): una opcional más rompe el lector (ver el comentario de abajo).
+          impuestoInternoUnitario: {
+            type: 'number',
+            description: 'Solo si el comprobante tiene una columna propia de IMPUESTO INTERNO POR UNIDAD en cada renglón («Imp Int Uni», «Imp. Int.», «I.Int. Unit.»), típica de cigarrillos y tabaco: el valor de esa columna en ESTE renglón, tal cual. 0 si el comprobante no tiene esa columna o el renglón la trae vacía (lo que no es tabaco).',
+          },
           // Llegó una parte (4/11/2026, Oxxon): "4 bultos × 8 + 4" facturados, la
           // celda BULT. pintada y «ingresaron 3 bultos» a mano → entraron 28 de 36.
           recibidoAMano: {
@@ -154,7 +162,7 @@ const ESQUEMA_COMPROBANTE = {
         // esquema; con 11 se pasó. Van como OBLIGATORIAS con un valor neutro
         // (false / 0), y así las opcionales vuelven a ser las 9 de siempre. Una
         // propiedad nueva de renglón entra SIEMPRE como obligatoria.
-        required: ['codigo', 'descripcion', 'unidadesPorBulto', 'devueltoAMano', 'recibidoAMano'],
+        required: ['codigo', 'descripcion', 'unidadesPorBulto', 'devueltoAMano', 'recibidoAMano', 'impuestoInternoUnitario'],
         additionalProperties: false,
       },
     },
@@ -740,6 +748,7 @@ export class ListasService {
           'PASO 1 TER-0 — La columna de BONIFICACIÓN NUNCA se saltea (Leandro, 3/11/2026: «nunca más te pases una bonificación»). Si el comprobante tiene una columna BONIF / % BON / DTO / DESC / % DESC por renglón, copiá su valor en bonificacionPct en CADA renglón que tenga algo en esa columna, aunque sean muchos renglones seguidos con el mismo %. Controlalo con la cuenta: cantidad × precio × (1 − bonificación) tiene que dar el importe del renglón; si el importe es menor que cantidad × precio, buscá la bonificación en la fila antes de seguir. La bonificación baja el PRECIO: la cantidad es la que dice el papel y no se cambia por eso.\n\n' +
           'PASO 1 TER — Bonificaciones. Es MUY común que el mismo producto aparezca DOS veces: un renglón con cargo y otro sin cargo (bonificado). Si hay columna BONIF / % BON / DTO, copiá su valor en bonificacionPct del renglón; 100 significa que ese renglón no se paga. El precio de lista suele estar impreso igual en los dos renglones, así que sin la bonificación es imposible distinguirlos: no la omitas.\n\n' +
           'PASO 1 BIS — Bultos. Muchos renglones se facturan POR BULTO (caja, pack, display) y no por unidad suelta. Es la diferencia entre cargar 84 cajones y cargar 2.016 botellas. Si la descripción o alguna columna dice cuántas unidades trae el bulto —"CORONA 355 X 24B" son 24, "PACK X 6" son 6, "CAJA X 12" son 12, "CJ x 6" son 6, "CJx12" son 12, "BOX X 6" son 6— ponelo en unidadesPorBulto de ESE renglón. Si no se puede saber, poné 0 y NO lo adivines: el tamaño del envase (355cc, 750cc, 1,5L) NUNCA es la cantidad de unidades del bulto, y la cantidad del renglón tampoco. unidadesPorBulto es lo que trae la caja, NO la unidad de la cantidad: la cantidad y el precio se copian siempre tal cual están en el papel, y el sistema decide si hay que convertir. Si el papel trae columnas separadas de BULTOS y UNIDADES (ej. "2 bultos, 0 unidades" de una caja de 14), copialas en bultos y unidadesSueltas de ese renglón: es lo que prueba si la cantidad son cajas o unidades.\n\n' +
+          'PASO 1 SEPTIES — CIGARRILLOS Y TABACO (precio con los impuestos desglosados por renglón). Los distribuidores de cigarrillos imprimen en cada renglón varias columnas de plata: «Neto» (el precio neto por unidad), «Iva» (el IVA de esa unidad, 21 % del neto), «Imp Int Uni» (el impuesto interno por unidad), «Precio Unit» (la suma de las tres: NO es un precio neto) y «Total» (cantidad × Precio Unit). En ese formato: en "precio" va la columna NETO (no «Precio Unit»), en "alicuotaIva" va 21, en "impuestoInternoUnitario" va la columna «Imp Int Uni» de ese renglón, y en "importe" va el «Total» impreso tal cual. Los renglones que no son tabaco en esa misma factura (golosinas, barras de cereal, encendedores) traen «Imp Int Uni» vacío: impuestoInternoUnitario = 0, y su "precio" también es la columna Neto. En el pie, «Subtotal» es el neto, «Imp. Internos» va a impuestosInternos y «Perc IIBB» a percepcionIibb; es normal que el IVA sea chico frente al total y que los renglones sumen mucho más que el subtotal: NO es un error y NO dejes una duda por eso. Un renglón suelto debajo de otro sin precio ni total (el detalle de lo que trae un combo) no es mercadería aparte: no lo cargues como renglón.\n\n' +
           'PASO 1 SEXTIES — Productos por PESO. En fiambrería, quesería, carnicería y verdulería a granel el renglón se factura por kilo: la columna CANT dice 1 (una horma, una pieza) pero hay una columna KG / KILOS / PESO con el peso real (ej 5,44) y el precio unitario es el precio POR KILO. Cuando veas esa columna de peso, copiá el peso en "kg" del renglón, dejá el "precio" como el $/kilo y el "importe" como el total del renglón (peso × precio). Si el producto NO se vende por peso, kg va en null.\n\n' +
           'PASO 2 — Transcribí el PIE literal en pieLiteral, ANTES de mapear nada. Leé el pie y listá CADA etiqueta con el número que tiene al lado, exactamente como aparece, sin reordenar y sin interpretar. Ej: "SUB TOTAL = 758055.34", "I.V.A INSC. = 48158.83", "PER. DE IVA = 43075.45", "PER. DE IIBB = 205121.18", "DESCUENTO = -0.58", "TOTAL = 1054410.80". Si una etiqueta repite el MISMO valor que otra ya listada (ej "IMPUESTOS" con el mismo número que "SUB TOTAL"), transcribila igual y marcala eco=true.\n\n' +
           'PASO 3 — Mapeá cada etiqueta a su campo por el SIGNIFICADO del texto en español, NUNCA por su posición ni por el orden. Guardá en "etiquetas" la etiqueta literal que usaste para cada campo.\n' +
@@ -921,6 +930,25 @@ export class ListasService {
     // manera y una lista de casos en el prompt se rompe con el próximo que
     // aparezca; acá se reconoce la FORMA y queda cubierto con tests. Lo que
     // haya leído el modelo se conserva solo cuando el parser no encuentra nada.
+    // CIGARRILLOS (5/11/2026): si el papel imprime el impuesto interno por
+    // renglón, cada renglón pasa a neto (precio neto, importe = cantidad × neto)
+    // y guarda cuánto interno trae según el papel. Ver compras/internos-por-renglon.ts.
+    const enNeto = renglonesEnNeto((datos.items ?? []).map((i: any) => ({
+      cantidad: numeroLeido(i.cantidad), precio: numeroLeido(i.precio), importe: numeroLeido(i.importe),
+      alicuotaIva: Number(i.alicuotaIva) || 0, impuestoInternoUnitario: Number(i.impuestoInternoUnitario) || 0,
+    })));
+    if (enNeto) {
+      (datos.items ?? []).forEach((i: any, k: number) => {
+        const r = enNeto[k];
+        if (!r) return;
+        i.precio = r.precio;
+        i.importe = r.importe;
+        i.alicuotaIva = r.alicuotaIva;
+        i._internosDelPapel = r.internosDelPapel;
+        i._importeImpreso = r.importeImpreso;
+      });
+      this.log.log(`cigarrillos: ${enNeto.filter(Boolean).length} renglones llevados a neto · internos impresos ${enNeto.reduce((s, r) => s + (r?.internosDelPapel ?? 0), 0).toFixed(2)} · pie ${datos.impuestos?.impuestosInternos ?? '—'}`);
+    }
     const items = (datos.items ?? []).map((i: any) => {
       // el bulto y DE DÓNDE salió: un 14 que puso solo el modelo no pesa lo
       // mismo que un "CAJA X 14" escrito en el papel (6/10/2026)
@@ -965,6 +993,9 @@ export class ListasService {
         devueltoAMano: !esDevolucion && i.devueltoAMano === true,
         // llegó una parte: las unidades que entraron de verdad (las del papel se cobran igual)
         recibidoAMano: !esDevolucion && Number(i.recibidoAMano) > 0 ? Number(i.recibidoAMano) : null,
+        // cigarrillos: el interno que el papel imprime en este renglón (el renglón va en neto)
+        internosDelPapel: Number(i._internosDelPapel) > 0 ? Number(i._internosDelPapel) : null,
+        importeImpreso: Number(i._importeImpreso) > 0 ? Number(i._importeImpreso) : null,
         alicuotaIva: Number(i.alicuotaIva) > 0 ? Number(i.alicuotaIva) : null,
         descuentoPct: porcentajeDeDescuento(String(i.descripcion ?? '')),
         interpretado: interpretarLecturaSegura(lectura),

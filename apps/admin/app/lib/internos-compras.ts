@@ -137,6 +137,43 @@ export function asignarInternos(renglones: RenglonInternos[], internos: number):
   return { estado: 'dudoso', candidatos };
 }
 
+/**
+ * CIGARRILLOS (5/11/2026): la factura imprime el impuesto interno POR UNIDAD en
+ * cada renglón. Si lo impreso suma el interno del pie, no hay nada que
+ * adivinar: cada renglón lleva el suyo. null = no viene impreso o no da el pie
+ * (sigue la regla de arriba).
+ */
+export function internosImpresos(delPapel: (number | null | undefined)[], internos: number): Extract<AsignacionInternos, { indices: number[] }> | null {
+  if (!(internos > 0)) return null;
+  const valores = delPapel.map((v) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : 0));
+  const indices = valores.map((v, k) => (v > 0 ? k : -1)).filter((k) => k >= 0);
+  const base = redondear(indices.reduce((s, k) => s + valores[k], 0));
+  // el papel redondea el interno por unidad: se admite medio por ciento
+  if (!indices.length || Math.abs(base - internos) > Math.max(1, internos * 0.005)) return null;
+  // cada renglón el suyo; el redondeo del papel va al último, para dar el pie al centavo
+  const porIdx = new Map<number, number>();
+  let asignado = 0;
+  indices.forEach((k, m) => {
+    const parte = m === indices.length - 1 ? redondear(internos - asignado) : redondear(valores[k]);
+    asignado = redondear(asignado + parte);
+    porIdx.set(k, parte);
+  });
+  return { estado: 'cierra' as const, indices, porIdx, tasa: null, base };
+}
+
+/**
+ * Las percepciones se calculan sobre el neto MÁS los impuestos internos (en
+ * las dos facturas de Grupo Modo del 4/11/2026 la de IIBB es el 5 % exacto de
+ * neto + internos). Repartidas solo sobre el neto, en una factura que mezcla
+ * cigarrillos y almacén las barras de cereal pagaban la percepción de los
+ * cigarrillos. Devuelve la fracción que se le suma a cada peso de neto y de
+ * interno. Sin internos es lo de siempre: percepciones ÷ neto.
+ */
+export function pctPercepciones(percepciones: number, neto: number, internos: number): number {
+  const base = (Number(neto) || 0) + Math.max(0, Number(internos) || 0);
+  return base > 0 && percepciones > 0 ? percepciones / base : 0;
+}
+
 /** Lo que dice la pantalla, en una línea. */
 export function textoInternos(
   a: AsignacionInternos,
@@ -150,6 +187,7 @@ export function textoInternos(
     return r.length === 1 ? `el renglón ${r[0]}` : `los renglones ${r.slice(0, -1).join(', ')} y ${r[r.length - 1]}`;
   };
   if (a.estado === 'cierra') {
+    if (a.tasa == null) return `Impuestos internos ${pesos(internos)}: van a ${nros(a.indices)}, cada uno con el que trae impreso en su renglón. Los demás productos no los pagan.`;
     return `Impuestos internos ${pesos(internos)}: van a ${nros(a.indices)} (${String(a.tasa).replace('.', ',')} % sobre ${pesos(a.base)}, cierra al centavo). Los demás productos no los pagan.`;
   }
   if (a.estado === 'marcados') return `Impuestos internos ${pesos(internos)}: van a ${nros(a.indices)}, como se marcó. Los demás productos no los pagan.`;
