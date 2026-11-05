@@ -11,7 +11,41 @@ import { traerTodo } from '../comun/lotes';
 import { armarTablero, costoDe, estadoDe, sinVentasMedidas, type Tablero } from '../abastecimiento/tablero';
 import { cantidadPedible, nombreSucursal } from '../abastecimiento/propuesta';
 
-export type MensajeChat = { rol: 'usuario' | 'analista'; texto: string };
+// «nota»: lo que la pantalla dibujó o preguntó en ese turno (placas, notas de
+// qué proveedores, preguntas con sus opciones). Sin eso el modelo solo veía el
+// texto y perdía el hilo (Leandro, 5/11/2026: «el contexto de la conversación
+// es muy malo»).
+export type MensajeChat = { rol: 'usuario' | 'analista'; texto: string; nota?: string };
+
+export const TAMANOS = ['chico', 'mediano', 'grande'] as const;
+export type TamanoPedido = (typeof TAMANOS)[number];
+const SUCURSALES_PEDIDO = ['Saint Thomas', 'Santa Inés', 'las_dos'] as const;
+
+/** Las preguntas que hace el analista antes de mostrar nada, limpias para la pantalla. */
+export function preguntasValidas(crudo: unknown): { pregunta: string; opciones: string[] }[] {
+  return (Array.isArray(crudo) ? crudo : [])
+    .map((q: any) => ({
+      pregunta: String(q?.pregunta ?? '').trim().slice(0, 140),
+      opciones: [...new Set((Array.isArray(q?.opciones) ? q.opciones : []).map((o: any) => String(o ?? '').trim().slice(0, 40)).filter(Boolean))].slice(0, 5) as string[],
+    }))
+    .filter((q) => q.pregunta && q.opciones.length >= 2)
+    .slice(0, 3);
+}
+
+/** La charla como le llega al modelo: arranca con la persona y cada turno lleva lo que se vio en pantalla. */
+export function historialParaModelo(mensajes: MensajeChat[]): { role: 'user' | 'assistant'; content: string }[] {
+  const turnos = mensajes.slice(-20).map((m) => {
+    const texto = String(m.texto ?? '').trim();
+    const nota = String(m.nota ?? '').trim().slice(0, 600);
+    return {
+      role: m.rol === 'usuario' ? ('user' as const) : ('assistant' as const),
+      // Anthropic rechaza un turno vacío (un veredicto que quedó en blanco)
+      content: [texto, nota ? `[En pantalla: ${nota}]` : ''].filter(Boolean).join('\n') || '(sin texto)',
+    };
+  });
+  while (turnos.length && turnos[0].role === 'assistant') turnos.shift();
+  return turnos;
+}
 
 export type FilaAnalisis = {
   sku: string;
@@ -69,8 +103,31 @@ const ESQUEMA_RESPUESTA = {
         additionalProperties: false,
       },
     },
+    preguntas: {
+      type: 'array',
+      description: 'Lo que hay que preguntarle a la persona ANTES de mostrar un pedido (hasta 3). Vacío si ya se sabe todo o si la consulta no es armar un pedido.',
+      items: {
+        type: 'object',
+        properties: {
+          pregunta: { type: 'string', description: 'Corta, de usted, una sola cosa' },
+          opciones: { type: 'array', description: '2 a 4 respuestas para tocar, de una a tres palabras', items: { type: 'string' } },
+        },
+        required: ['pregunta', 'opciones'],
+        additionalProperties: false,
+      },
+    },
+    pedido: {
+      type: 'object',
+      description: 'Lo que la charla ya dejó dicho del pedido que se está armando',
+      properties: {
+        tamano: { type: 'string', enum: [...TAMANOS, 'sin_definir'] },
+        sucursal: { type: 'string', enum: [...SUCURSALES_PEDIDO, 'sin_definir'] },
+      },
+      required: ['tamano', 'sucursal'],
+      additionalProperties: false,
+    },
   },
-  required: ['respuesta', 'mostrar', 'proveedores'],
+  required: ['respuesta', 'mostrar', 'proveedores', 'preguntas', 'pedido'],
   additionalProperties: false,
 } as const;
 
@@ -101,6 +158,15 @@ Cómo trabajás:
 - La plata es estimada al último costo; lo que tiene costo a revisar no suma.
 - Si no hay ventas cargadas, NUNCA digas que no hay nada que comprar: decí que faltan los datos de ventas.
 - Mencioná los aumentos de costo recientes solo si cambian la decisión.
+
+PRIMERO PREGUNTÁ, DESPUÉS MOSTRÁ (Leandro, 5/11/2026: «que primero siempre pregunte qué tipo de pedido, chico, mediano o grande; que haga algunas preguntas para no tirar un choclo de entrada sin sentido»):
+- Cuando la persona quiere comprar o armar un pedido («¿qué compro?», «armame el pedido», «qué le pido a…») y en la charla todavía no dijo el tamaño, NO muestres nada: "mostrar" vacío, "proveedores" vacío, "respuesta" de una línea, y en "preguntas" lo que falta saber. La PRIMERA pregunta es siempre el tamaño: «¿El pedido es chico, mediano o grande?» con las opciones «Chico», «Mediano», «Grande». Sumá solo lo que falte y no se pueda deducir: la sucursal («Saint Thomas», «Santa Inés», «Las dos») y si es para un proveedor en particular o para los más urgentes («Los más urgentes», y hasta dos proveedores de la foto del día con más urgencias, por su nombre). Nunca más de 3 preguntas, y nunca una que la persona ya contestó.
+- Qué es cada tamaño: CHICO = solo lo urgente (sin stock o que no llega a tiempo), con hasta 3 proveedores. MEDIANO = lo urgente más lo que bajó de 12 y se vende, con hasta 5 proveedores. GRANDE = la reposición completa sugerida, con hasta 8 proveedores. La pantalla recorta cada nota de pedido según el tamaño: no lo hagas vos a mano.
+- Cuando ya sabés el tamaño (y la sucursal, si importa), contestá: veredicto de 2 o 3 renglones para ESE pedido, "mostrar" con «notas» (sumá «compras» solo en el pedido grande o si piden el panorama), y en "proveedores" los que van, con acción comprar, en orden. Si pidió un proveedor, solo ese.
+- En "pedido" dejá siempre lo que la charla ya definió (tamaño y sucursal); «sin_definir» lo que falta.
+- Lo que no es un pedido (plata parada, costos que aumentaron, una duda sobre un producto o un proveedor) se contesta directo, sin preguntar el tamaño.
+
+SEGUÍ EL HILO: cada turno tuyo trae entre corchetes lo que la pantalla mostró o preguntó. Una respuesta corta de la persona («chico», «Santa Inés», «ese», «el primero», «sí») contesta TU última pregunta o habla de lo último que se mostró: no la tomes como una consulta nueva ni arranques de cero. No repitas el resumen general si ya lo diste; no vuelvas a preguntar lo que ya se contestó; si cambia de tema, seguila y no arrastres el pedido anterior.
 
 ${TONO_ODB}`;
 
@@ -294,10 +360,8 @@ export class AnalistaService {
       // (ANALISTA_ESFUERZO lo cambia sin tocar código, 6/10/2026)
       output_config: { effort: esfuerzo('ANALISTA_ESFUERZO'), format: { type: 'json_schema', schema: esquemaConClaves([...claves.keys()]) as any } },
       // Anthropic rechaza un turno vacío (un veredicto que quedó en blanco)
-      messages: mensajes.slice(-10).map((m) => ({
-        role: m.rol === 'usuario' ? ('user' as const) : ('assistant' as const),
-        content: String(m.texto ?? '').trim() || '(sin texto)',
-      })),
+      // con lo que se vio en pantalla en cada turno, para que siga el hilo
+      messages: historialParaModelo(mensajes),
     };
     let respuesta: any;
     try {
@@ -328,7 +392,11 @@ export class AnalistaService {
       veredicto = `No tengo ventas cargadas para calcular el ritmo: falta el reporte de ventas del sistema viejo. ${veredicto.replace(/[^.]*nada que comprar[^.]*\.?/gi, '').trim()}`.trim();
     }
     const mostrar = [...new Set((Array.isArray(salida.mostrar) ? salida.mostrar : []).filter((m: any) => ['compras', 'notas', 'parado'].includes(m)))];
-    if (!mostrar.length) mostrar.push('compras', 'notas');
+    // si está preguntando antes de armar el pedido, no se dibuja nada todavía
+    const preguntas = leido ? preguntasValidas(salida.preguntas) : [];
+    if (!mostrar.length && !preguntas.length) mostrar.push('compras', 'notas');
+    const tamano: TamanoPedido | null = (TAMANOS as readonly string[]).includes(salida?.pedido?.tamano) ? salida.pedido.tamano : null;
+    const sucursalPedido: string | null = (SUCURSALES_PEDIDO as readonly string[]).includes(salida?.pedido?.sucursal) ? salida.pedido.sucursal : null;
 
     // cada proveedor que nombró el modelo, resuelto contra el tablero (por
     // nombre normalizado: "Luvik" = "LUVIK S.A."); lo que no existe se descarta
@@ -367,7 +435,9 @@ export class AnalistaService {
     const marcados = comentarios.filter((c) => c.accion === 'comprar' && c.proveedorId).map((c) => c.proveedorId as string);
     const notas = compras.proveedores.length
       ? {
-          sucursal: (sucursalNotas === 'Santa Inés' ? 'Santa Inés' : 'Saint Thomas') as 'Saint Thomas' | 'Santa Inés',
+          // la sucursal que dijo la persona manda; si no dijo, la de más plata a comprar
+          sucursal: ((sucursalPedido === 'Santa Inés' || sucursalPedido === 'Saint Thomas' ? sucursalPedido : sucursalNotas) === 'Santa Inés' ? 'Santa Inés' : 'Saint Thomas') as 'Saint Thomas' | 'Santa Inés',
+          tamano,
           proveedorIds: marcados.length ? marcados : [...compras.proveedores].sort((a, b) => b.plataUrgente - a.plataUrgente).slice(0, 3).map((p) => p.proveedorId),
         }
       : null;
@@ -388,6 +458,8 @@ export class AnalistaService {
       },
       comentarios,
       notas,
+      preguntas,
+      pedido: { tamano, sucursal: sucursalPedido },
     };
   }
 

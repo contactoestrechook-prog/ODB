@@ -15,7 +15,30 @@ import { numero } from '../lib/formato';
 // fotos): se piden al mismo endpoint de Qué comprar, por sucursal. El analista
 // solo dice con qué sucursal arrancar y qué proveedores van primero.
 
-export type NotasAnalista = { sucursal: string; proveedorIds: string[] };
+export type TamanoPedido = 'chico' | 'mediano' | 'grande';
+export type NotasAnalista = { sucursal: string; proveedorIds: string[]; tamano?: TamanoPedido | null };
+
+// EL TAMAÑO DEL PEDIDO (5/11/2026, Leandro: «que primero siempre pregunte qué
+// tipo de pedido, chico, mediano o grande»). Chico: solo lo urgente. Mediano:
+// lo urgente más lo que bajó de 12 y se vende. Grande: todo lo sugerido.
+const TAMANO: Record<TamanoPedido, { rotulo: string; que: string; proveedores: number }> = {
+  chico: { rotulo: 'Pedido chico', que: 'solo lo urgente: sin stock o que no llega a tiempo', proveedores: 3 },
+  mediano: { rotulo: 'Pedido mediano', que: 'lo urgente y lo que bajó de 12 y se vende', proveedores: 5 },
+  grande: { rotulo: 'Pedido grande', que: 'toda la reposición sugerida', proveedores: 8 },
+};
+const urgente = (i: { alerta: string | null }) => i.alerta === 'sin_stock' || i.alerta === 'no_llega';
+/** La nota recortada al tamaño del pedido; null si no le queda ningún renglón. */
+export function notaDelTamano(p: Propuesta, tamano: TamanoPedido | null | undefined): Propuesta | null {
+  if (!tamano || tamano === 'grande') return p;
+  const items = p.items.filter((i) => urgente(i) || (tamano === 'mediano' && i.alerta === 'menos_de_12' && i.ritmoDia > 0));
+  if (!items.length) return null;
+  return {
+    ...p,
+    items,
+    urgentes: items.filter(urgente).length,
+    total: items.reduce((s, i) => s + (i.tildado ? i.cantidad * (i.costo ?? 0) : 0), 0),
+  };
+}
 
 export const SUCURSALES_NOTAS = ['Saint Thomas', 'Santa Inés'];
 // Tres notas y el resto detrás de un botón: en el chat cada nota es larga, y
@@ -84,10 +107,15 @@ export function NotasDelAnalista({
   const ordenadas = useMemo(() => {
     if (!lista) return [];
     const primero = new Map((notas?.proveedorIds ?? []).map((id, i) => [id, i]));
-    return lista.propuestas
+    const todas = lista.propuestas
+      .map((p) => notaDelTamano(p, notas?.tamano))
+      .filter((p): p is Propuesta => !!p)
       .map((p, i) => ({ p, i, orden: primero.get(p.proveedorId) ?? Number.MAX_SAFE_INTEGER }))
       .sort((a, b) => a.orden - b.orden || a.i - b.i)
       .map((x) => x.p);
+    // un pedido chico o mediano no es la lista de todos los proveedores
+    const tope = notas?.tamano && notas.tamano !== 'grande' ? TAMANO[notas.tamano].proveedores : null;
+    return tope ? todas.slice(0, Math.max(tope, primero.size)) : todas;
   }, [lista, notas]);
   const visibles = verTodas ? ordenadas : ordenadas.slice(0, VISIBLES);
   const restantes = ordenadas.length - visibles.length;
@@ -114,7 +142,10 @@ export function NotasDelAnalista({
       <div className="flex flex-wrap items-end justify-between gap-x-3 gap-y-2 pt-1">
         <div className="min-w-0">
           <p className="text-sm font-semibold text-tinta">Notas de pedido</p>
-          <p className="text-xs text-tinta/60">Las mismas de Qué comprar: tildá, corregí y armá el pedido.</p>
+          <p className="text-xs text-tinta/60">
+            {notas?.tamano ? `${TAMANO[notas.tamano].rotulo}: ${TAMANO[notas.tamano].que}. ` : 'Las mismas de Qué comprar: '}
+            {notas?.tamano ? 'Tildá, corregí y armá el pedido.' : 'tildá, corregí y armá el pedido.'}
+          </p>
         </div>
         <Chips etiquetaAccesible="Sucursal de las notas" valor={sucursal} onCambiar={onSucursal} opciones={SUCURSALES_NOTAS.map((s) => ({ valor: s, etiqueta: s }))} />
       </div>

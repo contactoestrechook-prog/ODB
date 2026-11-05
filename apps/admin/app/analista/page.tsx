@@ -3,7 +3,7 @@ import { ChatAnalista } from './ChatAnalista';
 
 export default function Analista() {
   return (
-    <Pantalla activo="/analista" ancho="angosto">
+    <Pantalla activo="/analista" ancho="completo">
       <ChatAnalista />
     </Pantalla>
   );
