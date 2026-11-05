@@ -15,6 +15,10 @@ import { Dictado } from './Dictado';
 // reglas del proveedor (lo que se le explicó una vez y vale para las próximas
 // facturas). El chat no aplica nada por su cuenta: devuelve cambios y la
 // pantalla de compras los aplica y los anota.
+//
+// 5/11/2026 (La Serenísima: «no aprendió, tuvimos que poner todo otra vez»):
+// la regla que sale de la charla se guarda sola (se avisa y se puede deshacer)
+// y, al abrir una factura de un proveedor con reglas, se aplican solas.
 // ============================================================
 
 export type CambioHecho = {
@@ -62,9 +66,11 @@ export type PropsAsistente = {
   /** leer la foto otra vez desde cero, con lo que la persona escribió en el chat */
   onReleer?: (aclaraciones: string) => void;
   releyendo?: boolean;
+  /** la factura está recién leída, sin cambios de nadie: se le pasan las reglas del proveedor sin que nadie escriba */
+  aplicarReglasSolo?: boolean;
 };
 
-export function AsistenteFactura({ lecturaId, proveedorId, proveedorNombre, comprobante, tabla, pie, controles, onAplicar, cambios, onDeshacer, sugerencias = [], onReleer, releyendo = false }: PropsAsistente) {
+export function AsistenteFactura({ lecturaId, proveedorId, proveedorNombre, comprobante, tabla, pie, controles, onAplicar, cambios, onDeshacer, sugerencias = [], onReleer, releyendo = false, aplicarReglasSolo = false }: PropsAsistente) {
   const [vista, setVista] = useState<'chat' | 'cambios' | 'reglas'>('chat');
   const [mensajes, setMensajes] = useState<Mensaje[]>([]);
   const [texto, setTexto] = useState('');
@@ -76,6 +82,10 @@ export function AsistenteFactura({ lecturaId, proveedorId, proveedorNombre, comp
   const reglas = proveedorId && reglasDe.pid === proveedorId ? reglasDe.lista : [];
   const [propuesta, setPropuesta] = useState<string | null>(null);
   const [guardandoRegla, setGuardandoRegla] = useState(false);
+  // la regla que se acaba de aprender sola, para avisar y dejar deshacerla
+  const [aprendida, setAprendida] = useState<{ id: string; regla: string } | null>(null);
+  const [aplicandoReglas, setAplicandoReglas] = useState(false);
+  const yaPasadas = useRef<Set<string>>(new Set());
   const fin = useRef<HTMLDivElement>(null);
 
   const cargarReglas = useCallback(async () => {
@@ -87,6 +97,39 @@ export function AsistenteFactura({ lecturaId, proveedorId, proveedorNombre, comp
   }, [proveedorId]);
   useEffect(() => { cargarReglas(); }, [cargarReglas]);
   useEffect(() => { fin.current?.scrollIntoView({ block: 'nearest' }); }, [mensajes, pensando]);
+
+  // LAS REGLAS SE APLICAN SOLAS: factura recién leída + proveedor con reglas →
+  // un turno automático, una vez por factura. Lo que cambia queda en «Cambios»
+  // como cualquier cambio de la IA y se puede deshacer.
+  useEffect(() => {
+    if (!aplicarReglasSolo || !lecturaId || !proveedorId || !reglas.length || pensando) return;
+    const clave = `${lecturaId}:${proveedorId}`;
+    if (yaPasadas.current.has(clave)) return;
+    yaPasadas.current.add(clave);
+    let vigente = true;
+    // un respiro para que la tabla termine de armarse con lo que se leyó
+    const t = setTimeout(async () => {
+      const filas = tabla();
+      if (!vigente || !filas.length) return;
+      setAplicandoReglas(true);
+      setSegundos(0);
+      setPensando(true);
+      try {
+        const r = await fetch('/api/entrada-foto', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ accion: 'chat', automatico: true, id: lecturaId, proveedorId, proveedor: proveedorNombre, comprobante, tabla: filas, pie, controles, mensajes: [] }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok || d?.omitido || !vigente) return;
+        const { aplicados, noAplicados } = onAplicar(d.cambios ?? [], d.cambiosPie ?? []);
+        const cuantas = reglas.length === 1 ? 'la regla guardada' : `las ${reglas.length} reglas guardadas`;
+        setMensajes((xs) => [...xs, { rol: 'ia', texto: `Apliqué ${cuantas} de ${proveedorNombre ?? 'este proveedor'}. ${String(d.respuesta ?? '')}`.trim(), cambios: aplicados, noAplicados }]);
+      } catch { /* si falla, la factura queda como se leyó y las reglas siguen en su pestaña */ }
+      finally { setPensando(false); setAplicandoReglas(false); }
+    }, 900);
+    return () => { vigente = false; clearTimeout(t); };
+  }, [aplicarReglasSolo, lecturaId, proveedorId, reglas.length]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!pensando) return;
     const t = setInterval(() => setSegundos((s) => s + 1), 1000);
@@ -101,6 +144,7 @@ export function AsistenteFactura({ lecturaId, proveedorId, proveedorNombre, comp
     setTexto('');
     setError(null);
     setPropuesta(null);
+    setAprendida(null);
     setSegundos(0);
     setPensando(true);
     try {
@@ -120,7 +164,9 @@ export function AsistenteFactura({ lecturaId, proveedorId, proveedorNombre, comp
       const delServidor = (Array.isArray(d.descartados) ? d.descartados : [])
         .map((x: any) => `${x.renglon ? `Renglón ${x.renglon}` : 'Cambio'} · ${NOMBRE_CAMPO[x.campo] ?? x.campo}: ${x.porque}`);
       setMensajes((xs) => [...xs, { rol: 'ia', texto: String(d.respuesta ?? 'Listo.'), cambios: aplicados, noAplicados: [...delServidor, ...noAplicados] }]);
-      if (d.reglaProveedor && proveedorId) setPropuesta(String(d.reglaProveedor));
+      if (d.reglaGuardada?.id) { setAprendida({ id: String(d.reglaGuardada.id), regla: String(d.reglaGuardada.regla ?? '') }); cargarReglas(); }
+      // si no se pudo guardar sola, queda la propuesta con su botón
+      else if (d.reglaProveedor && proveedorId && !reglas.some((x) => x.regla === d.reglaProveedor)) setPropuesta(String(d.reglaProveedor));
     } catch (e: any) {
       setError(e?.message ?? 'El asistente no pudo contestar. Probá de nuevo.');
       // el mensaje vuelve a la caja para no tener que escribirlo de nuevo
@@ -191,10 +237,19 @@ export function AsistenteFactura({ lecturaId, proveedorId, proveedorNombre, comp
                 ) : null}
               </div>
             ))}
-            {pensando && <p className="text-sm text-tinta/60">Mirando la factura… {segundos > 3 ? `${segundos} s` : ''}</p>}
+            {pensando && <p className="text-sm text-tinta/60">{aplicandoReglas ? `Aplicando lo que ya se explicó de ${proveedorNombre ?? 'este proveedor'}…` : 'Mirando la factura…'} {segundos > 3 ? `${segundos} s` : ''}</p>}
             <div ref={fin} />
           </div>
 
+          {aprendida && (
+            <div className="rounded-xl bg-info-suave p-3 text-sm text-tinta">
+              <p className="font-semibold text-info">Aprendido para las próximas facturas de {proveedorNombre ?? 'este proveedor'}</p>
+              <p className="mt-1">{aprendida.regla}</p>
+              <div className="mt-2">
+                <Boton tamano="chico" variante="secundario" onClick={async () => { const id = aprendida.id; setAprendida(null); await quitarRegla(id); }}>No, no la guardes</Boton>
+              </div>
+            </div>
+          )}
           {propuesta && (
             <div className="rounded-xl bg-atencion-suave p-3 text-sm text-atencion">
               <p className="font-semibold">¿La guardo para las próximas facturas de {proveedorNombre ?? 'este proveedor'}?</p>
@@ -262,7 +317,7 @@ export function AsistenteFactura({ lecturaId, proveedorId, proveedorNombre, comp
 
       {vista === 'reglas' && (
         <div className="space-y-2 p-3">
-          <p className="text-sm text-tinta/70">Lo que se le explicó a la IA sobre {proveedorNombre ?? 'este proveedor'} y vale para sus próximas facturas. Se agregan desde el chat.</p>
+          <p className="text-sm text-tinta/70">Lo que se le explicó a la IA sobre {proveedorNombre ?? 'este proveedor'}. Se guarda solo desde el chat y se aplica solo cada vez que entra una factura suya.</p>
           {!proveedorId && <p className="text-sm text-atencion">Elegí el proveedor para ver sus reglas.</p>}
           {reglas.map((r) => (
             <div key={r.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2 rounded-xl bg-crema-claro px-3 py-2 text-sm">

@@ -2301,6 +2301,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                 sugerencias={sugerenciasChat}
                 onReleer={reLeerConAclaraciones}
                 releyendo={leyendoFoto}
+                aplicarReglasSolo={!borradorRecuperado && !cambiosFactura.length && !leyendoFoto && fotoItems.length > 0}
               />
 
               <div className="grid gap-3 sm:grid-cols-2">
