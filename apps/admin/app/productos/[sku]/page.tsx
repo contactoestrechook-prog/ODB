@@ -56,7 +56,10 @@ export default async function FichaProducto({
 
   return (
     <Pantalla activo="/productos" ancho="normal" titulo={String(p.nombre ?? sku)} bajada={linea}>
-      <BotonVolver href="/productos" label="Volver a productos" />
+      <div className="flex flex-wrap items-center gap-2">
+        <BotonVolver href="/productos" label="Volver a productos" />
+        <BotonLink href={`/inventario?sku=${encodeURIComponent(p.sku)}`} variante="secundario" tamano="chico">Ver su inventario</BotonLink>
+      </div>
 
       <Tarjeta className="grid gap-4 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-start sm:gap-5">
         <div className="flex items-center gap-3 sm:flex-col sm:items-center">

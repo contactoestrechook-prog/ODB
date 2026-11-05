@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useEffect, useRef, useState, useTransition, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, useTransition, type KeyboardEvent } from 'react';
 import { BotonLink, Chips, Etiqueta, FOCO, FOCO_ADENTRO, Girador, ROTULO, TablaResponsiva, Tarjeta, TarjetaCabecera, TarjetaCuerpo, unir } from './kit';
 import { BotonVolver } from './BotonVolver';
 import { GraficoNivel, GraficoPlata, GraficoVentas, Leyenda, tonoDeSucursal } from './InventarioGraficos';
@@ -25,16 +25,36 @@ import {
 // a su detalle (el gráfico o los movimientos de donde sale).
 // ============================================================
 
+// Lo último que se miró queda en este navegador (una comodidad de cada uno; si
+// el navegador no deja guardar, la pantalla anda igual).
 const RECIENTES = 'odb_inventario_recientes';
+const AVISO_RECIENTES = 'odb-inventario-recientes';
 type Reciente = { sku: string; nombre: string };
 
-function leerRecientes(): Reciente[] {
+function leerRecientes(): string {
   try {
-    const lista = JSON.parse(window.localStorage.getItem(RECIENTES) ?? '[]');
+    return window.localStorage.getItem(RECIENTES) ?? '[]';
+  } catch {
+    return '[]';
+  }
+}
+
+function aRecientes(crudo: string): Reciente[] {
+  try {
+    const lista = JSON.parse(crudo);
     return Array.isArray(lista) ? lista.filter((r) => r && typeof r.sku === 'string' && typeof r.nombre === 'string').slice(0, 8) : [];
   } catch {
     return [];
   }
+}
+
+function alCambiarRecientes(avisar: () => void) {
+  window.addEventListener('storage', avisar);
+  window.addEventListener(AVISO_RECIENTES, avisar);
+  return () => {
+    window.removeEventListener('storage', avisar);
+    window.removeEventListener(AVISO_RECIENTES, avisar);
+  };
 }
 
 function IconoLupa() {
@@ -63,7 +83,7 @@ function FilaProducto({ r, marcada, alAbrir, alPasar }: { r: ResultadoInventario
       <div className="flex shrink-0 gap-5">
         {r.stock.map((s, k) => (
           <div key={s.sucursalId} className="sm:w-28 sm:text-right">
-            <p className="importe text-sm font-semibold text-tinta">{unidades(s.cantidad)}</p>
+            <p className={unir('importe text-sm font-semibold', s.cantidad > 0 ? 'text-tinta' : 'text-marca-hondo')}>{unidades(s.cantidad)}</p>
             <p className="flex items-center gap-1.5 text-xs text-tinta/60 sm:justify-end"><Punto clase={tonoDeSucursal(k).fondo} />{s.sucursal}</p>
           </div>
         ))}
@@ -80,71 +100,61 @@ export function InventarioBuscador({ abierto, sugeridos = [] }: { abierto: Recie
   const router = useRouter();
   const [q, setQ] = useState('');
   const [resultados, setResultados] = useState<{ q: string; lista: ResultadoInventario[] } | null>(null);
-  const [buscando, setBuscando] = useState(false);
-  const [fallo, setFallo] = useState(false);
+  const [falloEn, setFalloEn] = useState<string | null>(null);
   const [elegido, setElegido] = useState(0);
-  const [recientes, setRecientes] = useState<Reciente[]>([]);
   const [yendo, enTransicion] = useTransition();
   const abrirPrimero = useRef(false);
   const texto = q.trim();
+  const lista = resultados?.q === texto ? resultados.lista : null;
+  const fallo = falloEn === texto;
+  const buscando = texto.length >= 2 && !lista && !fallo;
 
-  const abrir = (sku: string) => {
+  const abrir = useCallback((sku: string) => {
     abrirPrimero.current = false;
     setQ('');
-    setResultados(null);
     enTransicion(() => router.push(`/inventario?sku=${encodeURIComponent(sku)}`));
-  };
+  }, [router]);
 
   useEffect(() => {
-    if (texto.length < 2) {
-      setResultados(null);
-      setBuscando(false);
-      return;
-    }
-    setBuscando(true);
-    setFallo(false);
+    if (texto.length < 2) return;
     let vigente = true;
     const espera = setTimeout(async () => {
       try {
         const r = await fetch(`/api/inventario?q=${encodeURIComponent(texto)}`);
-        if (!vigente) return;
         if (!r.ok) throw new Error(String(r.status));
-        const lista = (await r.json()) as ResultadoInventario[];
+        const encontrados = (await r.json()) as ResultadoInventario[];
         if (!vigente) return;
-        setResultados({ q: texto, lista });
+        setResultados({ q: texto, lista: encontrados });
+        setFalloEn(null);
         setElegido(0);
         // el lector de códigos manda Enter antes de que lleguen los resultados
-        if (abrirPrimero.current && lista.length) abrir(lista[0].sku);
+        if (abrirPrimero.current && encontrados.length) abrir(encontrados[0].sku);
         abrirPrimero.current = false;
       } catch {
-        if (vigente) setFallo(true);
-      } finally {
-        if (vigente) setBuscando(false);
+        if (vigente) setFalloEn(texto);
       }
     }, 220);
     return () => {
       vigente = false;
       clearTimeout(espera);
     };
-    // `abrir` cambia en cada render; lo único que dispara la búsqueda es el texto
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [texto]);
+  }, [texto, abrir]);
 
   // lo último que se miró, en este navegador
+  const crudo = useSyncExternalStore(alCambiarRecientes, leerRecientes, () => '[]');
+  const recientes = useMemo(() => aRecientes(crudo), [crudo]);
+  const skuAbierto = abierto?.sku, nombreAbierto = abierto?.nombre;
   useEffect(() => {
-    let lista = leerRecientes();
-    if (abierto) {
-      lista = [abierto, ...lista.filter((r) => r.sku !== abierto.sku)].slice(0, 8);
-      try {
-        window.localStorage.setItem(RECIENTES, JSON.stringify(lista));
-      } catch {
-        // sin lugar o en una ventana privada: la pantalla anda igual
-      }
+    if (!skuAbierto || !nombreAbierto) return;
+    const nueva = [{ sku: skuAbierto, nombre: nombreAbierto }, ...aRecientes(leerRecientes()).filter((r) => r.sku !== skuAbierto)].slice(0, 8);
+    try {
+      window.localStorage.setItem(RECIENTES, JSON.stringify(nueva));
+      window.dispatchEvent(new Event(AVISO_RECIENTES));
+    } catch {
+      // sin lugar o en una ventana privada: no se guarda y listo
     }
-    setRecientes(lista);
-  }, [abierto?.sku, abierto?.nombre]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [skuAbierto, nombreAbierto]);
 
-  const lista = resultados?.q === texto ? resultados.lista : null;
   const teclas = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
       e.preventDefault();
@@ -158,13 +168,13 @@ export function InventarioBuscador({ abierto, sugeridos = [] }: { abierto: Recie
       setElegido((i) => Math.max(0, i - 1));
     } else if (e.key === 'Escape') setQ('');
   };
-  const otros = recientes.filter((r) => r.sku !== abierto?.sku);
+  const otros = recientes.filter((r) => r.sku !== skuAbierto);
 
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-3">
         {abierto && <BotonVolver href="/inventario" label="Volver al buscador" />}
-        <label className={unir('relative block min-w-0 flex-1', !abierto && 'sm:max-w-2xl')}>
+        <label className={unir('relative block w-full min-w-0 sm:w-auto sm:flex-1', !abierto && 'sm:max-w-2xl')}>
           <span className="sr-only">Buscar un producto por nombre, código de barras o SKU</span>
           <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-tinta/60">{buscando || yendo ? <Girador className="size-5" /> : <IconoLupa />}</span>
           <input
@@ -201,7 +211,7 @@ export function InventarioBuscador({ abierto, sugeridos = [] }: { abierto: Recie
       </div>
 
       {!lista && otros.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2">
+        <div className={unir('flex-wrap items-center gap-2', abierto ? 'hidden sm:flex' : 'flex')}>
           <p className={ROTULO}>{abierto ? 'También miraste' : 'Los últimos que miraste'}</p>
           {otros.slice(0, abierto ? 4 : 8).map((r) => (
             <Link
@@ -257,12 +267,22 @@ export function InventarioFicha({ ficha }: { ficha: FichaInventario }) {
       ].sort((a, b) => Date.parse(b.en) - Date.parse(a.en))
     : [];
 
+  const conFiltro = ficha.movimientos.length > 0 && ficha.sucursales.length > 1;
+  const chipsDeSucursal = (
+    <Chips
+      etiquetaAccesible="Sucursal"
+      valor={filtro}
+      onCambiar={(v) => { setFiltro(v); setTodos(false); }}
+      opciones={[{ valor: 'todas', etiqueta: 'Todas' }, ...ficha.sucursales.map((s) => ({ valor: s.id, etiqueta: s.nombre }))]}
+    />
+  );
+
   return (
     <div className="space-y-4 sm:space-y-6">
       {/* ---------- cuánto hay y dónde ---------- */}
       <Tarjeta>
-        <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
-          <div className="min-w-0 flex-1">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+          <div className="min-w-0 sm:flex-1">
             <h2 className="text-xl font-bold leading-tight text-tinta sm:text-2xl">{p.nombre}</h2>
             <p className="mt-1 text-sm text-tinta/60">
               {[p.sku, p.marca, p.rubro].filter(Boolean).join(' · ')}
@@ -332,9 +352,9 @@ export function InventarioFicha({ ficha }: { ficha: FichaInventario }) {
         <TarjetaCabecera
           titulo="Cuánto hubo"
           sub={ficha.nivel.desde ? `El stock de cada sucursal desde el ${fecha(ficha.nivel.desde, 'completa')}: ${cambios === 1 ? 'un cambio' : `${cambios} cambios`}` : 'El stock de cada sucursal'}
-          accion={<Leyenda items={ficha.sucursales.map((s, i) => ({ nombre: s.nombre, fondo: tonoDeSucursal(i).fondo }))} />}
         />
         <TarjetaCuerpo className="space-y-3">
+          <Leyenda items={ficha.sucursales.map((s, i) => ({ nombre: s.nombre, fondo: tonoDeSucursal(i).fondo }))} />
           <GraficoNivel ficha={ficha} />
           <details className={CLASE_PLEGADO}>
             <summary className={CLASE_RESUMEN}>Cómo se lee</summary>
@@ -471,15 +491,9 @@ export function InventarioFicha({ ficha }: { ficha: FichaInventario }) {
         <TarjetaCabecera
           titulo="Qué pasó con el stock"
           sub={ficha.movimientos.length ? `${ficha.movimientos.length === 1 ? 'Un movimiento' : `${ficha.movimientos.length} movimientos`}, del más nuevo al más viejo` : undefined}
-          accion={ficha.movimientos.length > 0 && ficha.sucursales.length > 1 && (
-            <Chips
-              etiquetaAccesible="Sucursal"
-              valor={filtro}
-              onCambiar={(v) => { setFiltro(v); setTodos(false); }}
-              opciones={[{ valor: 'todas', etiqueta: 'Todas' }, ...ficha.sucursales.map((s) => ({ valor: s.id, etiqueta: s.nombre }))]}
-            />
-          )}
+          accion={conFiltro && <div className="hidden sm:block">{chipsDeSucursal}</div>}
         />
+        {conFiltro && <div className="border-b border-black/[0.06] px-4 py-2 sm:hidden">{chipsDeSucursal}</div>}
         {movimientos.length === 0 ? (
           <p className="px-4 py-4 text-sm text-tinta/60 sm:px-5">
             {ficha.movimientos.length ? `No hubo movimientos en ${nombreDe(filtro)}.` : 'Todavía no hay movimientos de este producto.'}

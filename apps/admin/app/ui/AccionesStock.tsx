@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import {
   Aviso,
   Boton,
+  BotonLink,
   Campo,
   Entrada,
   Etiqueta,
@@ -220,6 +221,10 @@ export function AccionesStock({
         <Boton variante="secundario" onClick={() => abrir('transferencia')} className="grow sm:grow-0">
           Transferir entre sucursales
         </Boton>
+        {/* cuánto hay de un producto, cómo se movió y cuánto se vende (5/11/2026) */}
+        <BotonLink href="/inventario" variante="secundario" className="grow sm:grow-0">
+          Inventario de un producto
+        </BotonLink>
       </div>
 
       {/* transferencias en curso */}
