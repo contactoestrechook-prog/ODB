@@ -513,6 +513,8 @@ export function tablaParaIA(
       bultos: p.bultos, unidadesPorBulto: p.uxb, sueltas: p.sueltas,
       precio: p.precio, descuentoPct: p.desc, alicuotaIva: p.iva, importe: p.importe,
       unidades: c.unidades, cuenta: c.cuenta, cierra: c.cierra,
+      // el precio con el descuento del renglón ya aplicado (lo que la persona espera ver)
+      ...((num(p.desc) ?? 0) !== 0 && (num(p.precio) ?? 0) > 0 ? { precioConDescuento: redondear((num(p.precio) as number) * (1 - Math.min(100, Math.abs(num(p.desc) as number)) / 100)) } : {}),
       // cigarrillos: el precio es el «Precio Unit» del papel; aparte, su neto y su interno
       ...(Number(fila.fraccionNeta) > 0 ? { precioConImpuestosAdentro: true, netoPorUnidad: Number(fila.netoDelPapel) || null, impuestoInternoUnitario: internoUnitarioDe(fila) ?? 0 } : {}),
       ...(fila.llevaInternos != null ? { llevaInternos: !!fila.llevaInternos } : {}),

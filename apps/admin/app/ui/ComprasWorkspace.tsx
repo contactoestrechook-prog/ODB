@@ -17,7 +17,8 @@ import { CabeceraFactura, PapelDelRenglon } from './TablaFactura';
 import { conCodigo } from '../lib/codigo-producto';
 import { diferenciaPrecioCero, elegirPendientes, textoPrecioCero, type PendientePrecioCero } from '../lib/precio-cero';
 import { AsistenteFactura, describirCambio, type CambioHecho } from './AsistenteFactura';
-import { asignarInternos, internosImpresos, pctPercepciones, textoInternos } from '../lib/internos-compras';
+import { asignarInternos, internosImpresos, textoInternos } from '../lib/internos-compras';
+import { cargaDePercepciones, textoPercepcionesEnteras } from '../lib/percepciones-compras';
 import { aplicarBorrador, borradorDe, borradorVacio } from '../lib/borrador-factura';
 import { aplicarCambiosIA, aplicarPapel, cuentaDelPapel, entraDeRenglon, marcarComoDevolucion, papelDeLectura, tablaParaIA, type EntraComo, type Papel, conInternoDelPapel } from '../lib/tabla-factura';
 import {
@@ -1274,9 +1275,21 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   // Las percepciones van sobre neto + internos (5/11/2026, Grupo Modo): con
   // internos ya asignados a sus renglones, cada peso de neto y de interno lleva
   // la misma parte. Sin internos es lo de siempre (percepciones ÷ neto).
-  const percepcionesPct = ivaConAlicuotas
-    ? (internosDeIdx.size && netoDoc ? pctPercepciones(percepcionesAlCosto ? percepciones : 0, netoDoc, impIntDoc) : ivaConAlicuotas.cargaComunPct)
-    : 0;
+  // PERCEPCIONES CON BASE PROPIA (5/11/2026, La Serenísima): la que imprime su
+  // alícuota y se cobra sobre una base menor que el neto va ENTERA a cada renglón
+  // (el «1,29» de Anabella); las demás, repartidas como siempre. La diferencia
+  // contra la factura se avisa en un cartel y no traba. Ver lib/percepciones-compras.ts.
+  const cargaPerc = cargaDePercepciones(
+    percepcionesAlCosto
+      ? [
+          { nombre: 'la percepción de IVA', monto: percIvaDoc, alicuota: numImp(fotoImp?.percepcionIvaAlicuota), base: numImp(fotoImp?.percepcionIvaBase) },
+          { nombre: 'la percepción de IIBB', monto: percIibbDoc, alicuota: numImp(fotoImp?.percepcionIibbAlicuota), base: numImp(fotoImp?.percepcionIibbBase) },
+        ]
+      : [],
+    netoDoc ?? 0,
+    internosDeIdx.size ? impIntDoc : 0,
+  );
+  const percepcionesPct = ivaConAlicuotas ? cargaPerc.pct : 0;
   const factorDe = (i: any, idx: number) => {
     const a = alicDe(idx);
     return ivaConAlicuotas && a != null
@@ -1488,6 +1501,8 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
     descuentosSinDestino: sinAtribuir.map((x) => x.descripcion),
     // a qué renglones van los impuestos internos (3/11/2026)
     impuestosInternos: impIntDoc > 0 ? textoInternos(internos, impIntDoc, pesos, (k) => renglonesInternos[k].idx + 1) : null,
+    // una percepción con base menor que el neto, aplicada entera a todos los renglones (5/11/2026)
+    percepciones: ivaConAlicuotas && cargaPerc.enteras.length ? textoPercepcionesEnteras(cargaPerc, pesos) : null,
   });
   // al registrar: la constancia de quién cambió qué (si no hubo cambios, nada)
   // y TODOS los renglones de la factura para el historial del proveedor (8/10/2026)
@@ -1580,9 +1595,12 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   ];
   const sumaCostos = inclItems.reduce((s, i) => s + numImp(i.cantidad) * costoFinal(i), 0);
   const baseIncluidos = inclItems.reduce((s, i) => s + numImp(i.cantidad) * precioEfectivo(i), 0) * factorRecon;
-  const techoMerc = baseCosto != null ? baseCosto : (totalDoc != null ? totalDoc : Infinity);
+  // lo que los costos dan de más por aplicar una percepción entera a todos los
+  // renglones (5/11/2026): está explicado en un cartel y no traba el registro
+  const excesoPerc = ivaConAlicuotas ? cargaPerc.exceso : 0;
+  const techoMerc = (baseCosto != null ? baseCosto : (totalDoc != null ? totalDoc : Infinity)) + excesoPerc;
   const excedeMerc = sumaCostos > techoMerc * 1.005;
-  const excedeTotal = totalDoc != null && sumaCostos > totalDoc * 1.005;
+  const excedeTotal = totalDoc != null && sumaCostos > (totalDoc + excesoPerc) * 1.005;
   const subCosteo = baseIncluidos > 0 && sumaCostos < baseIncluidos * 0.98;
   // Si los renglones leídos no suman el neto del pie, la IA leyó otra columna
   // (la de con IVA, o el total del renglón en vez del unitario). El factor sale
@@ -3112,6 +3130,11 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                 )}
                 {(excedeMerc || excedeTotal) && (
                   <p className="mt-1 font-semibold"><IconoAtencion className="mr-1 inline size-4 align-[-3px]" />El costo a stock supera el valor de la mercadería con IVA de la factura. Los precios ya incluyen impuestos: revisá el neto/IVA del pie. (No se puede registrar hasta corregirlo.)</p>
+                )}
+                {/* una percepción cobrada sobre una base menor que el neto se aplica entera a
+                    todos los renglones: el costo da más que la factura y se dice por qué (5/11/2026) */}
+                {ivaConAlicuotas && cargaPerc.enteras.length > 0 && (
+                  <p className="mt-1 rounded-xl bg-info-suave px-2.5 py-2 text-tinta">{textoPercepcionesEnteras(cargaPerc, pesos)}</p>
                 )}
                 {hayRegalos && !prorrateoAut && (
                   <div className="mt-1.5 rounded-xl bg-atencion-suave px-2.5 py-2 text-atencion">
