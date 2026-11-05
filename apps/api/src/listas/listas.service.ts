@@ -7,6 +7,7 @@ import { SUPABASE } from '../supabase.provider';
 import { elegirProveedor } from '../compras/proveedor-match';
 import { controlarConQr, totalEnPesos, numeroDelQr, type QrArca } from '../compras/qr-arca';
 import { buscarQrArca } from '../compras/qr-arca.lector';
+import { separarComprobantes, type ParteDelPdf } from '../compras/separar-comprobantes';
 import { codigoCercano } from '../compras/codigo-proveedor';
 import { bultoDelRenglon, esRenglonDeDescuento, esRenglonDeDevolucion, porcentajeDeDescuento, puedeVendersePorPeso, unidadesDeLaPresentacion, variacionPorUnidad, variacionDelRenglon } from '../compras/bultos';
 import { esfuerzo, jsonDe, MODELO_PRINCIPAL, RAZONAMIENTO, RAZONAMIENTO_HAIKU } from '../comun/modelos';
@@ -406,19 +407,48 @@ export class ListasService {
     const id = (data as any).id as string;
 
     // se procesa sin await: el HTTP vuelve ya
-    this.analizarComprobanteFoto(archivo, aclaraciones)
-      .then((resultado) =>
-        this.db.from('lecturas_comprobante')
-          .update({ estado: 'listo', resultado, terminado_en: new Date().toISOString() })
-          .eq('id', id),
-      )
-      .catch((e) => {
-        const msg = e?.response?.message ?? e?.message ?? 'No se pudo leer el comprobante';
-        this.log.warn(`lectura ${id} falló: ${msg}`);
-        return this.db.from('lecturas_comprobante')
-          .update({ estado: 'error', error: String(msg).slice(0, 500), terminado_en: new Date().toISOString() })
-          .eq('id', id);
-      });
+    const leer = (a: { buffer: Buffer; mimetype: string; originalname?: string }, lecturaId: string) =>
+      this.analizarComprobanteFoto(a, aclaraciones)
+        .then((resultado) =>
+          this.db.from('lecturas_comprobante')
+            .update({ estado: 'listo', resultado, terminado_en: new Date().toISOString() })
+            .eq('id', lecturaId),
+        )
+        .catch((e) => {
+          const msg = e?.response?.message ?? e?.message ?? 'No se pudo leer el comprobante';
+          this.log.warn(`lectura ${lecturaId} falló: ${msg}`);
+          return this.db.from('lecturas_comprobante')
+            .update({ estado: 'error', error: String(msg).slice(0, 500), terminado_en: new Date().toISOString() })
+            .eq('id', lecturaId);
+        });
+    // UN PDF CON VARIOS COMPROBANTES (5/11/2026: la factura y su nota de crédito,
+    // o dos facturas, escaneadas juntas): cada uno se lee por separado. El primero
+    // queda en esta lectura; los demás aparecen solos en la bandeja. Si no se
+    // puede saber en 45 s, o es uno solo, se lee el PDF entero como siempre. Una
+    // relectura con aclaraciones no se vuelve a partir.
+    void (async () => {
+      let partes: ParteDelPdf[] | null = null;
+      if (!aclaraciones?.trim() && !extra?.origenId) {
+        partes = await Promise.race([
+          separarComprobantes(archivo),
+          new Promise<null>((r) => setTimeout(() => r(null), 45_000)),
+        ]).catch((e) => { this.log.warn(`no se pudo ver si el PDF trae varios comprobantes: ${e?.message ?? e}`); return null; });
+      }
+      if (!partes) return leer(archivo, id);
+      this.log.log(`lectura ${id}: el PDF trae ${partes.length} comprobantes (${partes.map((x) => `${x.tipo} ${x.numero || 's/n'} hojas ${x.hojas.join(',')}`).join(' · ')})`);
+      await this.db.from('lecturas_comprobante').update({ nombre_archivo: partes[0].etiqueta }).eq('id', id);
+      const tareas = [leer({ buffer: partes[0].buffer, mimetype: 'application/pdf', originalname: partes[0].etiqueta }, id)];
+      for (const parte of partes.slice(1)) {
+        const { data: otra, error: errorOtra } = await this.db
+          .from('lecturas_comprobante')
+          .insert({ estado: 'procesando', usuario_id: usuarioId ?? null, nombre_archivo: parte.etiqueta })
+          .select('id')
+          .single();
+        if (errorOtra || !otra) { this.log.warn(`no se pudo abrir la lectura de «${parte.etiqueta}»: ${errorOtra?.message}`); continue; }
+        tareas.push(leer({ buffer: parte.buffer, mimetype: 'application/pdf', originalname: parte.etiqueta }, (otra as any).id));
+      }
+      return Promise.all(tareas);
+    })();
 
     return { lecturaId: id, estado: 'procesando' as const };
   }
