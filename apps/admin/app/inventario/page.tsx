@@ -2,7 +2,7 @@ import { Pantalla } from '../ui/kit/Pantalla';
 import { Aviso } from '../ui/kit';
 import { apiFetch } from '../../lib/api';
 import { InventarioBuscador, InventarioFicha } from '../ui/Inventario';
-import type { FichaInventario } from '../lib/inventario';
+import type { FichaInventario, ResultadoInventario } from '../lib/inventario';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,7 +12,17 @@ export const dynamic = 'force-dynamic';
 export default async function Inventario({ searchParams }: { searchParams: Promise<{ sku?: string }> }) {
   const sku = ((await searchParams).sku ?? '').trim();
   let ficha: FichaInventario | null = null;
+  let sugeridos: ResultadoInventario[] = [];
   let error: string | null = null;
+  if (!sku) {
+    // la entrada: los que más se venden, para abrirlos con un toque
+    try {
+      const r = await apiFetch('/inventario/mas-vendidos');
+      if (r.ok) sugeridos = await r.json();
+    } catch {
+      // sin la lista, el buscador anda igual
+    }
+  }
   if (sku) {
     try {
       const r = await apiFetch(`/inventario/producto/${encodeURIComponent(sku)}`);
@@ -25,7 +35,7 @@ export default async function Inventario({ searchParams }: { searchParams: Promi
 
   return (
     <Pantalla activo="/inventario" ancho="ancho">
-      <InventarioBuscador abierto={ficha ? { sku: ficha.producto.sku, nombre: ficha.producto.nombre } : null} />
+      <InventarioBuscador abierto={ficha ? { sku: ficha.producto.sku, nombre: ficha.producto.nombre } : null} sugeridos={sugeridos} />
       {error && <Aviso tono="error">{error}</Aviso>}
       {ficha && <InventarioFicha key={ficha.producto.sku} ficha={ficha} />}
     </Pantalla>

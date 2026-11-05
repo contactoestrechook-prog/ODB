@@ -47,11 +47,36 @@ function IconoLupa() {
 
 const Punto = ({ clase }: { clase: string }) => <span className={unir('inline-block size-2 shrink-0 rounded-full', clase)} aria-hidden="true" />;
 
+/** Un producto de la lista: el nombre y lo que hay en cada sucursal. Toda la fila abre su ficha. */
+function FilaProducto({ r, marcada, alAbrir, alPasar }: { r: ResultadoInventario; marcada?: boolean; alAbrir: (sku: string) => void; alPasar?: () => void }) {
+  return (
+    <Link
+      href={`/inventario?sku=${encodeURIComponent(r.sku)}`}
+      onClick={(e) => { e.preventDefault(); alAbrir(r.sku); }}
+      onMouseEnter={alPasar}
+      className={unir('flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:gap-4 sm:px-5', marcada ? 'bg-crema-claro' : 'hover:bg-crema-claro', FOCO_ADENTRO)}
+    >
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-semibold text-tinta">{r.nombre}</p>
+        <p className="truncate text-xs text-tinta/60">{[r.sku, r.rubro ?? 'sin rubro', !r.activo && 'dado de baja'].filter(Boolean).join(' · ')}</p>
+      </div>
+      <div className="flex shrink-0 gap-5">
+        {r.stock.map((s, k) => (
+          <div key={s.sucursalId} className="sm:w-28 sm:text-right">
+            <p className="importe text-sm font-semibold text-tinta">{unidades(s.cantidad)}</p>
+            <p className="flex items-center gap-1.5 text-xs text-tinta/60 sm:justify-end"><Punto clase={tonoDeSucursal(k).fondo} />{s.sucursal}</p>
+          </div>
+        ))}
+      </div>
+    </Link>
+  );
+}
+
 // ------------------------------------------------------------
 // El buscador: nombre, código de barras o SKU. Con el lector de códigos, Enter
-// abre el primero.
+// abre el primero. Sin nada escrito, la entrada ofrece los que más se venden.
 // ------------------------------------------------------------
-export function InventarioBuscador({ abierto }: { abierto: Reciente | null }) {
+export function InventarioBuscador({ abierto, sugeridos = [] }: { abierto: Reciente | null; sugeridos?: ResultadoInventario[] }) {
   const router = useRouter();
   const [q, setQ] = useState('');
   const [resultados, setResultados] = useState<{ q: string; lista: ResultadoInventario[] } | null>(null);
@@ -168,27 +193,7 @@ export function InventarioBuscador({ abierto }: { abierto: Reciente | null }) {
           <Tarjeta relleno={false} className="overflow-hidden">
             <ul className="divide-y divide-black/[0.06]">
               {lista.map((r, i) => (
-                <li key={r.sku}>
-                  <Link
-                    href={`/inventario?sku=${encodeURIComponent(r.sku)}`}
-                    onClick={(e) => { e.preventDefault(); abrir(r.sku); }}
-                    onMouseEnter={() => setElegido(i)}
-                    className={unir('flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:gap-4 sm:px-5', i === elegido ? 'bg-crema-claro' : 'hover:bg-crema-claro', FOCO_ADENTRO)}
-                  >
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-semibold text-tinta">{r.nombre}</p>
-                      <p className="truncate text-xs text-tinta/60">{[r.sku, r.rubro ?? 'sin rubro', !r.activo && 'dado de baja'].filter(Boolean).join(' · ')}</p>
-                    </div>
-                    <div className="flex shrink-0 gap-5">
-                      {r.stock.map((s, k) => (
-                        <div key={s.sucursalId} className="sm:w-28 sm:text-right">
-                          <p className="importe text-sm font-semibold text-tinta">{unidades(s.cantidad)}</p>
-                          <p className="flex items-center gap-1.5 text-xs text-tinta/60 sm:justify-end"><Punto clase={tonoDeSucursal(k).fondo} />{s.sucursal}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </Link>
-                </li>
+                <li key={r.sku}><FilaProducto r={r} marcada={i === elegido} alAbrir={abrir} alPasar={() => setElegido(i)} /></li>
               ))}
             </ul>
           </Tarjeta>
@@ -208,6 +213,17 @@ export function InventarioBuscador({ abierto }: { abierto: Reciente | null }) {
             </Link>
           ))}
         </div>
+      )}
+
+      {!lista && !abierto && sugeridos.length > 0 && (
+        <Tarjeta relleno={false} className="overflow-hidden">
+          <TarjetaCabecera titulo="Los que más se venden" sub="Tocá uno para abrir su inventario" />
+          <ul className="divide-y divide-black/[0.06]">
+            {sugeridos.map((r) => (
+              <li key={r.sku}><FilaProducto r={r} alAbrir={abrir} /></li>
+            ))}
+          </ul>
+        </Tarjeta>
       )}
     </div>
   );
