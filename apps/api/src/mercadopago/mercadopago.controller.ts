@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post, Query, Req } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Param, Post, Query, Req } from '@nestjs/common';
 import { MercadoPagoService } from './mercadopago.service';
 import { Roles } from '../auth/decorators';
 
@@ -72,6 +72,37 @@ export class MercadoPagoController {
   @Post('cobro-qr/:id/venta')
   vincularCobroAVenta(@Param('id') id: string, @Body() b: { ventaId: string }) {
     return this.mp.vincularCobroAVenta(id, b?.ventaId);
+  }
+
+  // ── Mes a mes y la plata real (5/11/2026) ──
+  @Roles('gerente', 'dueno')
+  @Get('mensual')
+  mensual(@Query('meses') meses?: string, @Query('cuenta') cuenta?: string) {
+    const n = Math.trunc(Number(meses));
+    return this.mp.mensual(Number.isFinite(n) && n >= 1 && n <= 36 ? n : 13, this.cuenta(cuenta));
+  }
+
+  @Roles('gerente', 'dueno')
+  @Get('dias')
+  porDia(@Query('desde') desde: string, @Query('hasta') hasta: string, @Query('cuenta') cuenta?: string) {
+    return this.mp.dias(this.fecha(desde), this.fecha(hasta), this.cuenta(cuenta));
+  }
+
+  @Roles('gerente', 'dueno')
+  @Get('liberaciones')
+  liberaciones(@Query('desde') desde: string, @Query('hasta') hasta: string, @Query('cuenta') cuenta?: string) {
+    return this.mp.liberaciones(this.fecha(desde), this.fecha(hasta), this.cuenta(cuenta));
+  }
+
+  @Roles('gerente', 'dueno')
+  @Get('pagos-dia')
+  pagosDia(@Query('dia') dia: string, @Query('cuenta') cuenta?: string, @Query('tipo') tipo?: string, @Query('por') por?: string) {
+    return this.mp.pagosDelDia(this.fecha(dia), this.cuenta(cuenta), /^[a-z_]{2,30}$/.test(tipo ?? '') ? tipo : undefined, por === 'liberacion');
+  }
+
+  private fecha(v: unknown): string {
+    if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v)) throw new BadRequestException('Fecha AAAA-MM-DD');
+    return v;
   }
 
   private cuenta(v: unknown): string | undefined {

@@ -1,4 +1,5 @@
 import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
+import { Interval } from '@nestjs/schedule';
 import { randomUUID } from 'crypto';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
@@ -296,6 +297,63 @@ export class MercadoPagoService {
         .slice(0, 10)
         .map(([fecha, neto]) => ({ fecha, neto: Math.round(neto) })),
     };
+  }
+
+  // ── Mes a mes y la plata real (5/11/2026) ──
+  // Las cuentas se resumen en la base (mp_mensual, mp_dias, mp_liberaciones):
+  // son decenas de miles de pagos y PostgREST corta en 1.000 filas.
+  async mensual(meses = 13, cuenta?: string) {
+    const hoy = diaArgentina(new Date());
+    const desde = `${sumarMeses(hoy.slice(0, 7), -(meses - 1))}-01`;
+    const { data, error } = await this.db.rpc('mp_mensual', { p_desde: desde, p_cuenta: cuenta ?? null });
+    if (error) throw new BadRequestException(`mp_mensual: ${error.message}`);
+    return { desde, hoy, filas: data ?? [] };
+  }
+
+  async dias(desde: string, hasta: string, cuenta?: string) {
+    const { data, error } = await this.db.rpc('mp_dias', { p_desde: desde, p_hasta: hasta, p_cuenta: cuenta ?? null });
+    if (error) throw new BadRequestException(`mp_dias: ${error.message}`);
+    return { desde, hasta, filas: data ?? [] };
+  }
+
+  async liberaciones(desde: string, hasta: string, cuenta?: string) {
+    const { data, error } = await this.db.rpc('mp_liberaciones', { p_desde: desde, p_hasta: hasta, p_cuenta: cuenta ?? null });
+    if (error) throw new BadRequestException(`mp_liberaciones: ${error.message}`);
+    return { desde, hasta, hoy: diaArgentina(new Date()), filas: data ?? [] };
+  }
+
+  // Los pagos de un día (hora argentina), para abrir un número del mes a mes
+  async pagosDelDia(dia: string, cuenta?: string, tipo?: string, porLiberacion = false) {
+    const campo = porLiberacion ? 'liberacion_en' : 'creado_en_mp';
+    let q = this.db
+      .from('mp_pagos')
+      .select('id, cuenta, estado, tipo, medio, origen, cuotas, bruto, comision, neto, liberado, liberacion_en, aprobado_en, creado_en_mp, descripcion, pagador, venta_id')
+      .gte(campo, `${dia}T00:00:00-03:00`)
+      .lte(campo, `${dia}T23:59:59.999-03:00`)
+      .eq('estado', 'approved')
+      .order(campo, { ascending: false })
+      .limit(1000);
+    if (cuenta) q = q.eq('cuenta', cuenta);
+    if (tipo) q = q.eq('tipo', tipo);
+    const { data, error } = await q;
+    if (error) throw new BadRequestException(error.message);
+    return data ?? [];
+  }
+
+  // El espejo se mantiene solo: cada 15 minutos trae los últimos 3 días de las
+  // dos cuentas (antes dependía del botón y quedaron semanas sin traer).
+  private importando = false;
+  @Interval(15 * 60_000)
+  async importarSolo() {
+    if (this.importando || process.env.MP_IMPORTAR_SOLO === '0') return;
+    this.importando = true;
+    try {
+      await this.importar(3);
+    } catch (e: any) {
+      this.log.warn(`importación automática: ${e?.message ?? e}`);
+    } finally {
+      this.importando = false;
+    }
   }
 
   // Listado para el panel.
@@ -620,4 +678,15 @@ export class MercadoPagoService {
     this.log.log(`reembolso MP del pago ${paymentId}: ${d?.id ?? 'sin id'} (${d?.status ?? 'sin estado'})`);
     return { refundId: d?.id ? String(d.id) : null, estado: d?.status ?? 'approved', monto: Number(d?.amount ?? monto ?? 0) };
   }
+}
+
+// AAAA-MM-DD en hora argentina
+function diaArgentina(d: Date): string {
+  return new Date(d.getTime() - 3 * 3600_000).toISOString().slice(0, 10);
+}
+// AAAA-MM corrido n meses
+function sumarMeses(mes: string, n: number): string {
+  const [a, m] = mes.split('-').map(Number);
+  const t = a * 12 + (m - 1) + n;
+  return `${Math.floor(t / 12)}-${String((t % 12) + 1).padStart(2, '0')}`;
 }
