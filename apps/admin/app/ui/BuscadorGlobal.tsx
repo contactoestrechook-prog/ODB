@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
-type Item = { titulo: string; sub: string; href: string };
+type Item = { titulo: string; sub: string; href: string; stock?: { sucursal: string; cantidad: number }[] };
+const cant = (n: number) => n.toLocaleString('es-AR', { maximumFractionDigits: 3 });
 type Resultados = { productos: Item[]; clientes: Item[]; comprobantes: Item[] };
 
 const GRUPOS: [keyof Resultados, string][] = [
@@ -70,6 +71,18 @@ export function BuscadorGlobal() {
                   <button key={i} type="button" onClick={() => ir(it.href)} className="block min-h-11 w-full border-b border-black/[0.06] px-4 py-2.5 text-left transition-colors last:border-0 hover:bg-crema-claro focus-visible:bg-crema-claro focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-marca">
                     <p className="min-w-0 break-words text-sm text-tinta">{it.titulo}</p>
                     <p className="min-w-0 break-words text-xs text-tinta/60">{it.sub}</p>
+                    {/* el stock de cada sucursal, sin entrar al producto (5/11/2026) */}
+                    {clave === 'productos' && (
+                      <p className="mt-1 flex min-w-0 flex-wrap gap-x-3 gap-y-0.5 text-xs">
+                        {it.stock?.length
+                          ? it.stock.map((s) => (
+                            <span key={s.sucursal} className={s.cantidad > 0 ? 'text-tinta' : 'text-marca-hondo'}>
+                              {s.sucursal}: <b className="tabular-nums">{cant(s.cantidad)}</b>
+                            </span>
+                          ))
+                          : <span className="text-marca-hondo">Sin stock cargado</span>}
+                      </p>
+                    )}
                   </button>
                 ))}
               </div>

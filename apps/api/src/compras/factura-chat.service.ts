@@ -17,7 +17,9 @@ import { esfuerzo, MODELO_PRINCIPAL, RAZONAMIENTO } from '../comun/modelos';
 //
 // Las reglas que Ana le explica sobre un proveedor quedan guardadas
 // (proveedor_reglas_lectura) y la IA las recibe en cada factura de ese
-// proveedor. Se guardan solo cuando la persona toca «Guardar»: la IA propone.
+// proveedor. Desde el 5/11/2026 se guardan solas apenas la persona las explica
+// (la pantalla avisa y deja deshacerlas) y se aplican solas al abrir la próxima
+// factura de ese proveedor: nadie tiene que explicar dos veces lo mismo.
 // ============================================================
 
 export const CAMPOS_RENGLON = ['bultos', 'unidadesPorBulto', 'sueltas', 'precio', 'descuentoPct', 'alicuotaIva', 'importe', 'ajustarImporte', 'entraComo', 'unidadesPorVenta', 'noAplicar', 'ingresa', 'esDevolucion', 'unidadesDevueltas', 'kilos', 'recibidas'] as const;
@@ -73,12 +75,37 @@ const INSTRUCCIONES = [
   'EL COSTO: cada renglón trae «costoFinalConIva» (lo que la persona ve como costo por unidad) y «comoSeCalcula» (la cuenta: neto por unidad, IVA de la alícuota, percepciones repartidas y, solo en los productos que los pagan, impuestos internos). Los impuestos internos NUNCA se reparten entre todos los productos: van solo a bebidas, alcohol, cerveza o tabaco; «impuestosInternos» en los controles dice a qué renglones fueron. Si te preguntan por un costo, explicalo con eso. El costo no se cambia directo: sale del papel y del pie; si está mal, corregí el dato del papel que lo causa. «bonificacionYaEnElPrecio» es una bonificación que la factura informa pero que ya está adentro del precio: no se descuenta otra vez.',
   'EL PIE: neto + iva + percepcionIva + percepcionIibb + impuestosInternos + otros tiene que dar el total, y los importes de los renglones tienen que sumar el neto.',
   'QUÉ HACÉS: si la persona te dice que algo está mal, o te pregunta por qué una cuenta no da, mirá el papel y la tabla y corregí con «cambios» (renglón, campo, valor, motivo) o «cambiosPie». Cambiá lo que te dijo la persona y lo que ves en el papel; no inventes un número que nadie dijo ni está en el papel. Si te pregunta algo sin pedir un cambio, explicale en corto y no cambies nada. Si te pide «revisá todo», mirá cada renglón contra el papel y corregí lo que esté mal leído.',
-  'REGLAS DEL PROVEEDOR: si la persona explica cómo factura este proveedor y sirve para las próximas facturas («en este proveedor el precio es por unidad», «UxB son las unidades por bulto»), proponela en «reglaProveedor», en una oración. La persona decide si la guarda.',
+  'REGLAS DEL PROVEEDOR (5/11/2026, Leandro: «no aprendió los cambios ni los razonamientos, tuvimos que poner todo otra vez, no puede volver a pasar»): lo que la persona te explica una vez sobre cómo factura o cómo se carga este proveedor NO se lo tiene que volver a explicar nadie. Si lo que dijo vale para las próximas facturas de este proveedor («en este proveedor el precio es por unidad», «los quesos a $0,10 entran igual al stock», «UxB son las unidades por bulto»), escribilo en «reglaProveedor»: se guarda solo. Escribila para que la próxima vez se pueda aplicar SIN la persona: a qué renglones toca (por lo que dice el papel: la descripción, el precio, una columna, una marca) y qué hay que hacer con ellos. Una o dos oraciones. NO es una regla lo que pasó solo en esta factura (una cantidad que no llegó, un importe puntual, un número de renglón): ahí «reglaProveedor» = null. Si una regla guardada ya dice lo mismo, null. Las reglas guardadas se cumplen SIEMPRE que mires una factura de este proveedor, aunque la persona no las nombre.',
   'LO QUE DECÍS ES LO QUE SE APLICA: la pantalla aplica SOLO lo que mandás en «cambios» y «cambiosPie». Si en la respuesta decís que cambiaste, corregiste, pusiste, sacaste o marcaste algo, ese cambio TIENE que estar en «cambios» o «cambiosPie», con uno de los campos permitidos. Nunca digas que cambiaste algo que no mandaste. Si lo que hace falta no se puede expresar con esos campos, decilo en una línea («eso todavía no lo puedo cambiar desde acá») y decí dónde se cambia en la pantalla; lo demás del mensaje hacelo igual.',
   'CÓMO CONTESTÁS: castellano rioplatense, de vos, corto (una a tres oraciones), sin markdown ni listas. Decí qué cambiaste y si ahora cierra; si no cambiaste nada, por qué.',
 ].join('\n\n');
 
 type Mensaje = { rol: 'usuario' | 'ia'; texto: string };
+
+// LAS REGLAS SE APLICAN SOLAS (5/11/2026): al abrir una factura de un proveedor
+// con reglas guardadas, la pantalla pide este turno sin que nadie escriba. Las
+// charlas automáticas se reconocen por esta marca en compras_chat_turnos.
+export const MARCA_AUTOMATICO = '[automático] ';
+export const PEDIDO_AUTOMATICO =
+  'Nadie escribió todavía: se acaba de abrir la factura. Aplicá las reglas guardadas de este proveedor. Mirá cada renglón contra cada regla y mandá los cambios que hagan falta para que se cumplan. Si una regla ya se cumple o no toca a ningún renglón, no cambies nada por ella. No hagas ningún otro cambio y no propongas reglas nuevas. En la respuesta decí en una o dos oraciones qué regla aplicaste y a qué renglones; si no hubo nada que cambiar, decilo.';
+
+const paraComparar = (s: string) => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+/** ¿Esa regla ya está guardada? (mismo texto, sin mirar mayúsculas, tildes ni signos) */
+export function reglaRepetida(nueva: string, guardadas: string[]): boolean {
+  const n = paraComparar(nueva);
+  return !n || guardadas.some((g) => paraComparar(g) === n);
+}
+
+/**
+ * ¿Hace falta volver a pasar las reglas por esta factura? No, si ya se miró
+ * después de la última regla guardada y no hubo nada que cambiar.
+ */
+export function yaRevisada(previo: { cambios?: unknown[] | null; cambios_pie?: unknown[] | null; creado_en?: string | null } | null | undefined, reglasCreadasEn: string[]): boolean {
+  if (!previo?.creado_en) return false;
+  if ((previo.cambios ?? []).length || (previo.cambios_pie ?? []).length) return false;
+  const t = Date.parse(previo.creado_en);
+  return reglasCreadasEn.every((r) => Date.parse(r) < t);
+}
 
 /**
  * Lo que vuelve de la IA, sin nada que la pantalla no pueda aplicar. Lo que se
@@ -197,19 +224,40 @@ export class FacturaChatService {
 
   async chat(
     lecturaId: string,
-    b: { proveedorId?: string; proveedor?: string; comprobante?: unknown; tabla?: unknown[]; pie?: unknown; controles?: unknown; mensajes?: Mensaje[] },
+    b: { proveedorId?: string; proveedor?: string; comprobante?: unknown; tabla?: unknown[]; pie?: unknown; controles?: unknown; mensajes?: Mensaje[]; automatico?: boolean },
     usuarioId?: string,
   ) {
     if (!process.env.ANTHROPIC_API_KEY) throw new BadRequestException('Falta la clave de la IA');
+    const automatico = b?.automatico === true;
     const tabla = Array.isArray(b?.tabla) ? b.tabla : [];
-    const mensajes = (Array.isArray(b?.mensajes) ? b.mensajes : [])
-      .filter((m) => m && (m.rol === 'usuario' || m.rol === 'ia') && String(m.texto ?? '').trim())
-      .slice(-10)
-      .map((m) => ({ rol: m.rol, texto: String(m.texto).slice(0, 2000) }));
+    const mensajes: Mensaje[] = automatico
+      ? [{ rol: 'usuario', texto: PEDIDO_AUTOMATICO }]
+      : (Array.isArray(b?.mensajes) ? b.mensajes : [])
+        .filter((m) => m && (m.rol === 'usuario' || m.rol === 'ia') && String(m.texto ?? '').trim())
+        .slice(-10)
+        .map((m) => ({ rol: m.rol, texto: String(m.texto).slice(0, 2000) }));
     if (!tabla.length) throw new BadRequestException('Falta la tabla de la factura');
     if (!mensajes.length || mensajes[mensajes.length - 1].rol !== 'usuario') throw new BadRequestException('Falta tu mensaje');
 
     const reglas = b?.proveedorId ? await this.reglas(b.proveedorId).catch(() => []) : [];
+    const lecturaValida = /^[0-9a-f-]{36}$/i.test(String(lecturaId));
+    if (automatico) {
+      const nada = { respuesta: '', cambios: [], cambiosPie: [], reglaProveedor: null, descartados: [], segundos: 0, reglaGuardada: null };
+      // sin reglas no hay nada que aplicar, y no se gasta una consulta a la IA
+      if (!reglas.length) return { ...nada, omitido: 'sin-reglas' };
+      // si ya se miró esta factura y las reglas no pedían ningún cambio, no se
+      // vuelve a preguntar cada vez que alguien la abre
+      if (lecturaValida) {
+        const { data: previos } = await this.db
+          .from('compras_chat_turnos')
+          .select('cambios, cambios_pie, creado_en')
+          .eq('lectura_id', lecturaId)
+          .like('mensaje', `${MARCA_AUTOMATICO}%`)
+          .order('creado_en', { ascending: false })
+          .limit(1);
+        if (yaRevisada(((previos ?? []) as any[])[0], reglas.map((r) => String(r.creadaEn)))) return { ...nada, omitido: 'ya-revisada' };
+      }
+    }
     const original = await this.original(lecturaId).catch(() => null);
     const datos = [
       `Proveedor: ${b?.proveedor ?? 'sin identificar'}. Comprobante: ${JSON.stringify(b?.comprobante ?? null)}.`,
@@ -277,14 +325,26 @@ export class FacturaChatService {
       if (segunda?.crudo) { salida = validarRespuestaChat(segunda.crudo, tabla.length); vueltas = 2; }
     }
     const u = primera.usage;
+    if (automatico) salida = { ...salida, reglaProveedor: null };
+    // LO EXPLICADO SE APRENDE SOLO (5/11/2026): la regla que sale de la charla se
+    // guarda sin esperar un botón. La pantalla avisa y deja deshacerla.
+    let reglaGuardada: { id: string; regla: string } | null = null;
+    if (salida.reglaProveedor && b?.proveedorId && reglas.length < 30 && !reglaRepetida(salida.reglaProveedor, reglas.map((r) => r.regla))) {
+      try {
+        const g = await this.guardarRegla(b.proveedorId, salida.reglaProveedor, usuarioId);
+        reglaGuardada = { id: g.id, regla: salida.reglaProveedor };
+      } catch (e: any) {
+        this.log.warn(`no se guardó la regla aprendida de ${b.proveedorId}: ${e?.message ?? e}`);
+      }
+    }
     // CADA CHARLA QUEDA GUARDADA (5/11/2026): qué pidió la persona, qué contestó
     // la IA y qué cambió. Es la única forma de ver con qué se equivoca y hacerlo
     // «cada vez más inteligente». Si falla el guardado, el chat contesta igual.
     const { error: errorTurno } = await this.db.from('compras_chat_turnos').insert({
-      lectura_id: /^[0-9a-f-]{36}$/i.test(String(lecturaId)) ? lecturaId : null,
+      lectura_id: lecturaValida ? lecturaId : null,
       proveedor_id: b?.proveedorId || null,
       usuario_id: usuarioId ?? null,
-      mensaje: ultimo.slice(0, 2000),
+      mensaje: automatico ? `${MARCA_AUTOMATICO}reglas del proveedor al abrir la factura` : ultimo.slice(0, 2000),
       respuesta: salida.respuesta,
       cambios: salida.cambios,
       cambios_pie: salida.cambiosPie,
@@ -295,6 +355,6 @@ export class FacturaChatService {
     });
     if (errorTurno) this.log.warn(`no se guardó la charla de la factura ${lecturaId}: ${errorTurno.message}`);
     this.log.log(`chat de factura ${lecturaId}: ${((Date.now() - t0) / 1000).toFixed(1)}s · ${salida.cambios.length} cambios · ${salida.descartados.length} descartados · ${vueltas} vuelta(s) · entrada ${u.input_tokens ?? '?'} · salida ${u.output_tokens ?? '?'}${usuarioId ? ` · usuario ${usuarioId}` : ''}`);
-    return { ...salida, segundos: Math.round((Date.now() - t0) / 100) / 10 };
+    return { ...salida, segundos: Math.round((Date.now() - t0) / 100) / 10, reglaGuardada };
   }
 }

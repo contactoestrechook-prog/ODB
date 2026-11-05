@@ -33,8 +33,24 @@ export class BuscarController {
         .limit(6);
       const orden = ((ids ?? []) as any[]).map((r) => r.producto_id);
       if (!orden.length) return { data: [] as any[] };
-      const { data } = await this.db.from('productos').select('id, sku, nombre, categoria:categorias(nombre)').in('id', orden);
-      return { data: ((data ?? []) as any[]).sort((a, b) => orden.indexOf(a.id) - orden.indexOf(b.id)) };
+      // con el stock de cada sucursal a la vista (Leandro, 5/11/2026: «le queremos
+      // agregar el stock que hay cuando despliego esa lista»)
+      const [{ data }, { data: stock }] = await Promise.all([
+        this.db.from('productos').select('id, sku, nombre, categoria:categorias(nombre)').in('id', orden),
+        this.db.from('stock').select('producto_id, cantidad, sucursal:sucursales(nombre, activa)').in('producto_id', orden),
+      ]);
+      const porProducto = new Map<string, { sucursal: string; cantidad: number }[]>();
+      for (const s of (stock ?? []) as any[]) {
+        if (!s.sucursal || s.sucursal.activa === false) continue;
+        const lista = porProducto.get(s.producto_id) ?? [];
+        lista.push({ sucursal: String(s.sucursal.nombre ?? '').replace(/^suc(ursal)?\.?\s+/i, ''), cantidad: Number(s.cantidad) || 0 });
+        porProducto.set(s.producto_id, lista);
+      }
+      return {
+        data: ((data ?? []) as any[])
+          .sort((a, b) => orden.indexOf(a.id) - orden.indexOf(b.id))
+          .map((p) => ({ ...p, stock: (porProducto.get(p.id) ?? []).sort((a, b) => a.sucursal.localeCompare(b.sucursal)) })),
+      };
     };
 
     const [prod, cli, comp] = await Promise.all([
@@ -57,6 +73,7 @@ export class BuscarController {
     return {
       productos: (prod.data ?? []).map((p: any) => ({
         titulo: p.nombre, sub: `${p.sku} · ${p.categoria?.nombre ?? 'sin rubro'}`, href: `/productos/${encodeURIComponent(p.sku)}`,
+        stock: p.stock ?? [],
       })),
       clientes: (cli.data ?? []).map((c: any) => ({
         titulo: c.razon_social ?? c.nombre ?? `DNI ${c.dni}`,

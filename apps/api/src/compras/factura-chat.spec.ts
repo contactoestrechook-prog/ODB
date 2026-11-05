@@ -1,6 +1,27 @@
 // El chat de la factura (8/10/2026): lo que devuelve la IA se filtra antes de
 // llegar a la pantalla. Solo pasan cambios aplicables.
-import { motivoParaCorregir, validarRespuestaChat } from './factura-chat.service';
+import { motivoParaCorregir, reglaRepetida, validarRespuestaChat, yaRevisada } from './factura-chat.service';
+
+// «No aprendió los cambios ni los razonamientos, tuvimos que poner todo otra
+// vez» (La Serenísima, 5/11/2026): la regla se guarda sola y se aplica sola.
+describe('lo aprendido de un proveedor', () => {
+  const guardadas = ['Los quesos facturados a $0,10 (entregados con confirmación de peso) ingresan igual al stock y su precio real llega en el próximo pedido.'];
+  it('la misma regla dicha otra vez no se guarda dos veces', () => {
+    expect(reglaRepetida('los quesos facturados a $0,10 (entregados con confirmacion de peso) ingresan igual al stock y su precio real llega en el proximo pedido', guardadas)).toBe(true);
+    expect(reglaRepetida('En La Serenísima el P.U. viene sin la oferta transitoria.', guardadas)).toBe(false);
+    expect(reglaRepetida('  ', guardadas)).toBe(true);
+  });
+  it('una factura ya mirada sin cambios no se vuelve a pasar por la IA', () => {
+    const reglas = ['2026-11-05T18:39:00+00:00', '2026-11-05T18:42:00+00:00'];
+    expect(yaRevisada({ cambios: [], cambios_pie: [], creado_en: '2026-11-06T12:00:00+00:00' }, reglas)).toBe(true);
+  });
+  it('si hubo cambios, o hay una regla más nueva que la última pasada, se vuelve a aplicar', () => {
+    const reglas = ['2026-11-05T18:39:00+00:00', '2026-11-07T10:00:00+00:00'];
+    expect(yaRevisada({ cambios: [{ renglon: 11 }], cambios_pie: [], creado_en: '2026-11-08T12:00:00+00:00' }, reglas)).toBe(false);
+    expect(yaRevisada({ cambios: [], cambios_pie: [], creado_en: '2026-11-06T12:00:00+00:00' }, reglas)).toBe(false);
+    expect(yaRevisada(null, reglas)).toBe(false);
+  });
+});
 
 describe('validarRespuestaChat', () => {
   it('deja pasar los cambios válidos y descarta el resto', () => {
