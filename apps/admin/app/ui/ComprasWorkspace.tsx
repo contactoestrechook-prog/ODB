@@ -501,7 +501,6 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   const [fotoEsPdf, setFotoEsPdf] = useState(false); // el visor usa iframe para PDF e <img> para fotos
   const [fotoRot, setFotoRot] = useState(0); // rotación del visor: 0/90/180/270
   const [fotoZoom, setFotoZoom] = useState(1); // zoom del visor
-  const [aclaraciones, setAclaraciones] = useState(''); // respuestas del operador a las dudas de la IA
   const [fotoItems, setFotoItems] = useState<any[]>([]); // renglones editables
   const [fotoImp, setFotoImp] = useState<any>({});
   // la factura editable (8/10/2026): cada cambio en la tabla, de la persona o
@@ -556,7 +555,6 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   // 10-20 MB) y la guarda por si hay que volver a leerla con aclaraciones. El PDF
   // va tal cual.
   async function leerFoto(archivo: File) {
-    setAclaraciones('');
     setAvisoFoto(await avisoSiEsChica(archivo));
     const listo = await prepararComprobante(archivo);
     setFotoArchivo(listo);
@@ -564,14 +562,14 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   }
 
   // Segunda pasada: la misma imagen + lo que el operador aclaró sobre las dudas.
-  async function reLeerConAclaraciones() {
-    if (!aclaraciones.trim()) return;
+  async function reLeerConAclaraciones(dicho?: string) {
+    const aclaraciones = String(dicho ?? '').trim();
     if (fotoArchivo) { await enviarComprobante(fotoArchivo, aclaraciones); return; }
     // abierta desde la bandeja: el original está en el servidor, no se vuelve a subir
     if (!foto?.lecturaId) return;
     setLeyendoFoto(true); setSegundosLeyendo(0);
     try {
-      const r = await fetch('/api/entrada-foto', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'releer', id: foto.lecturaId, aclaraciones: aclaraciones.trim() }) });
+      const r = await fetch('/api/entrada-foto', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'releer', id: foto.lecturaId, aclaraciones }) });
       const enc = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(enc.message ?? 'No se pudo volver a leer');
       const d = await esperarLectura(enc.lecturaId);
@@ -802,7 +800,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
     const r = await fetch(`/api/entrada-foto?id=${encodeURIComponent(id)}`, { cache: 'no-store' });
     const d = await r.json().catch(() => ({}));
     if (!r.ok || d.estado !== 'listo') { setFoto({ error: d.message ?? 'Esa lectura todavía no está lista' }); return; }
-    setFotoArchivo(null); setFotoUrl(null); setAclaraciones(''); setAvisoFoto(null);
+    setFotoArchivo(null); setFotoUrl(null); setAvisoFoto(null);
     cargarLecturaEnPantalla({ ...d, lecturaId: id });
     fetch('/api/entrada-foto', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'abrir', id }) }).catch(() => {});
     // el original está en el servidor: se muestra al lado, como cuando la foto se acaba de subir
@@ -2247,7 +2245,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                       const c = cuentaDelPapel(i.papel);
                       return `${idx + 1} · ${i.descripcion} (da ${pesos(c.cuenta)}, el papel dice ${pesos(numImp(i.papel.importe))})`;
                     }).join(' · ')}.
-                    {' '}Corregilo en la tabla o pedíselo al chat antes de registrar.
+                    {' '}Decíselo a la IA acá abajo o corregilo en la tabla.
                   </p>
                   <label className="flex items-start gap-2 text-tinta/80">
                     <input type="checkbox" checked={sinCierreRevisado} onChange={(e) => setSinCierreRevisado(e.target.checked)} className="mt-0.5 size-4 shrink-0 accent-marca" />
@@ -2269,30 +2267,41 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                   <button onClick={descartarBorrador} className={unir(ENLACE, 'ml-auto text-tinta/70 hover:text-marca-hondo')}>Empezar de cero</button>
                 </div>
               )}
-              <div className={'rounded-xl px-3 py-2.5 space-y-2 border ' + (foto.dudas?.length ? 'border-atencion/30 bg-atencion-suave' : 'border-black/[0.06] bg-crema-claro')}>
-                {foto.dudas?.length ? (
-                  <>
-                    <p className="text-xs font-semibold text-atencion">La IA tiene {foto.dudas.length === 1 ? 'una duda' : `${foto.dudas.length} dudas`} — mirá el papel y aclarale:</p>
-                    <ul className="list-disc pl-4 space-y-1 text-xs text-atencion">
-                      {foto.dudas.map((d: any, i: number) => (
-                        <li key={i}>{d.referencia ? <b>{d.referencia}: </b> : null}{d.pregunta}</li>
-                      ))}
-                    </ul>
-                  </>
-                ) : (
-                  <p className="flex items-start gap-1.5 text-xs text-tinta/70"><IconoOk className="size-4 shrink-0 text-ok" />La IA no tuvo dudas. Si ves algo mal, aclarale y volvé a leer.</p>
-                )}
-                <textarea value={aclaraciones} onChange={(e) => setAclaraciones(e.target.value)} rows={2}
-                  placeholder="Aclaraciones para la IA (ej: el renglón 3 dice 72, no 12; la percepción de IIBB es 4.850)…"
-                  aria-label="Aclaraciones para la IA"
-                  className={CAMPO_BLANCO} />
-                <div className="flex flex-wrap items-center gap-2">
-                  <Dictado onTexto={(t) => setAclaraciones((v) => (v ? v + ' ' : '') + t)} />
-                  <Boton tamano="chico" variante="secundario" onClick={reLeerConAclaraciones} disabled={leyendoFoto || !aclaraciones.trim()}>
-                    {leyendoFoto ? 'Releyendo…' : 'Volver a leer con mis aclaraciones'}
-                  </Boton>
+              {/* UNA SOLA CAJA (5/11/2026): había dos, «aclaraciones» (que volvía a leer la
+                  foto desde cero y perdía lo hecho) y el chat. La gente le explicaba a la
+                  primera y nada cambiaba. Ahora todo se le dice al chat, acá mismo. */}
+              {foto.dudas?.length ? (
+                <div className="space-y-2 rounded-xl border border-atencion/30 bg-atencion-suave px-3 py-2.5">
+                  <p className="text-xs font-semibold text-atencion">La IA tiene {foto.dudas.length === 1 ? 'una duda' : `${foto.dudas.length} dudas`} — mirá el papel y contestale acá abajo:</p>
+                  <ul className="list-disc space-y-1 pl-4 text-xs text-atencion">
+                    {foto.dudas.map((d: any, i: number) => (
+                      <li key={i}>{d.referencia ? <b>{d.referencia}: </b> : null}{d.pregunta}</li>
+                    ))}
+                  </ul>
                 </div>
-              </div>
+              ) : null}
+              {/* LA FACTURA EDITABLE (8/10/2026): el chat con la IA y, en cada tarjeta de
+                  abajo, los números del papel editables con la cuenta en vivo. Una sola
+                  lista (Leandro: «sale dos veces la factura, arriba y abajo»). */}
+              <AsistenteFactura
+                lecturaId={foto.lecturaId ?? null}
+                proveedorId={f.proveedorId || null}
+                proveedorNombre={provList.find((p: any) => p.id === f.proveedorId)?.razon_social ?? foto.proveedor?.detectado?.nombre ?? null}
+                comprobante={foto.comprobante ?? null}
+                tabla={() => tablaParaIA(fotoItemsVivos.current, esRenglonDescuento, textoDestino, (k) => {
+                  const it = itemsCalc[k];
+                  if (!it || it._esDescuento || !it.sku) return null;
+                  return { costoFinalConIva: costoFinal(it, k), comoSeCalcula: desgloseCosto(it, k) };
+                })}
+                pie={fotoImp}
+                controles={controlesParaIA()}
+                onAplicar={aplicarIA}
+                cambios={cambiosFactura}
+                onDeshacer={deshacerCambio}
+                sugerencias={sugerenciasChat}
+                onReleer={reLeerConAclaraciones}
+                releyendo={leyendoFoto}
+              />
 
               <div className="grid gap-3 sm:grid-cols-2">
                 <select aria-label="Proveedor" className={input} value={f.proveedorId ?? ''} onChange={(e) => set('proveedorId', e.target.value)}>
@@ -2334,26 +2343,6 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
               )}
               {provAviso && <p className="text-xs text-marca-hondo">{provAviso}</p>}
 
-              {/* LA FACTURA EDITABLE (8/10/2026): el chat con la IA y, en cada tarjeta de
-                  abajo, los números del papel editables con la cuenta en vivo. Una sola
-                  lista (Leandro: «sale dos veces la factura, arriba y abajo»). */}
-              <AsistenteFactura
-                lecturaId={foto.lecturaId ?? null}
-                proveedorId={f.proveedorId || null}
-                proveedorNombre={provList.find((p: any) => p.id === f.proveedorId)?.razon_social ?? foto.proveedor?.detectado?.nombre ?? null}
-                comprobante={foto.comprobante ?? null}
-                tabla={() => tablaParaIA(fotoItemsVivos.current, esRenglonDescuento, textoDestino, (k) => {
-                  const it = itemsCalc[k];
-                  if (!it || it._esDescuento || !it.sku) return null;
-                  return { costoFinalConIva: costoFinal(it, k), comoSeCalcula: desgloseCosto(it, k) };
-                })}
-                pie={fotoImp}
-                controles={controlesParaIA()}
-                onAplicar={aplicarIA}
-                cambios={cambiosFactura}
-                onDeshacer={deshacerCambio}
-                sugerencias={sugerenciasChat}
-              />
               <CabeceraFactura items={itemsCalc} />
 
               {/* renglones: cada uno editable — vincular producto, cantidad, remarcación y precio */}

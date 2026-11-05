@@ -99,6 +99,28 @@ describe('aplicarCambiosIA: lo que corrige el chat', () => {
     { descripcion: 'Bocadito Ferrero Rocher T12', cantidad: 12, precio: 827.49, importe: 9929.93 },
     { descripcion: 'Descuento', esDescuento: true, cantidad: 1, precio: 0, importe: -9929.93 },
   ];
+  it('«aplicale 5 % al renglón 1» y el importe leído no lo tenía: descuento + ajustarImporte → cierra con la cuenta de la persona', () => {
+    const fila: any = { cantidad: 10, precio: 1000, importe: 10000, sku: 'A' };
+    const r = aplicarCambiosIA([fila], [
+      { renglon: 1, campo: 'descuentoPct', valor: 5, motivo: 'lo dijo la persona' },
+      { renglon: 1, campo: 'ajustarImporte', valor: true, motivo: 'manda su cuenta' },
+    ], () => false);
+    expect(r.descartados).toHaveLength(0);
+    expect(r.items[0].papel).toMatchObject({ desc: 5, importe: 9500 });
+    expect(cuentaDelPapel(r.items[0].papel).cierra).toBe(true);
+    // queda anotado como un cambio de importe: se deshace como cualquier otro
+    expect(r.registros.map((g) => g.campo)).toEqual(['desc', 'importe']);
+  });
+  it('«el precio es por bulto» (2 bultos de 12 a $12.000): sueltas 2 y entra abriendo la caja → 24 a $1.000', () => {
+    const fila = { cantidad: 24, precio: 12000, importe: 24000, sku: 'A', papel: { bultos: 2, uxb: 12, sueltas: 0, precio: 12000, desc: null, iva: 21, importe: 24000 } };
+    const r = aplicarCambiosIA([fila], [
+      { renglon: 1, campo: 'bultos', valor: 0 }, { renglon: 1, campo: 'sueltas', valor: 2 }, { renglon: 1, campo: 'entraComo', valor: 'abiertas' },
+    ], () => false);
+    expect(r.descartados).toHaveLength(0);
+    expect(cuentaDelPapel(r.items[0].papel).cierra).toBe(true);
+    expect(r.items[0]).toMatchObject({ cantidad: 24, precio: 1000 });
+  });
+
   it('«del Pronto Manzana llegaron 3 bultos» (Oxxon, 4/11/2026) → recibidas 28 de 36, el papel no se toca', () => {
     const papel = { bultos: 4, uxb: 8, sueltas: 4, precio: 1439.61, desc: 10, iva: 21, importe: 46643.23 };
     const fila = [{ descripcion: 'BG- PRONTO MANZANA X (1000 CC)', cantidad: 36, precio: 1439.61, importe: 46643.23, bonificacionPct: 10, papel }];

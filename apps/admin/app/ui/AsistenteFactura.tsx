@@ -59,9 +59,12 @@ export type PropsAsistente = {
   cambios: CambioHecho[];
   onDeshacer: (c: CambioHecho) => void;
   sugerencias?: string[];
+  /** leer la foto otra vez desde cero, con lo que la persona escribió en el chat */
+  onReleer?: (aclaraciones: string) => void;
+  releyendo?: boolean;
 };
 
-export function AsistenteFactura({ lecturaId, proveedorId, proveedorNombre, comprobante, tabla, pie, controles, onAplicar, cambios, onDeshacer, sugerencias = [] }: PropsAsistente) {
+export function AsistenteFactura({ lecturaId, proveedorId, proveedorNombre, comprobante, tabla, pie, controles, onAplicar, cambios, onDeshacer, sugerencias = [], onReleer, releyendo = false }: PropsAsistente) {
   const [vista, setVista] = useState<'chat' | 'cambios' | 'reglas'>('chat');
   const [mensajes, setMensajes] = useState<Mensaje[]>([]);
   const [texto, setTexto] = useState('');
@@ -161,7 +164,7 @@ export function AsistenteFactura({ lecturaId, proveedorId, proveedorNombre, comp
   return (
     <section aria-label="Asistente de la factura" className="rounded-2xl border border-black/[0.06] bg-white">
       <div role="tablist" className="flex flex-wrap gap-1 border-b border-black/[0.06] p-2">
-        {pestana('chat', 'Preguntale a la IA')}
+        {pestana('chat', 'Decile a la IA')}
         {pestana('cambios', 'Cambios', vigentes)}
         {pestana('reglas', proveedorNombre ? `Reglas de ${proveedorNombre.split(' ')[0]}` : 'Reglas del proveedor', reglas.length)}
       </div>
@@ -171,7 +174,7 @@ export function AsistenteFactura({ lecturaId, proveedorId, proveedorNombre, comp
           <div className="max-h-80 space-y-2 overflow-y-auto" aria-live="polite">
             {!mensajes.length && (
               <p className="text-sm text-tinta/70">
-                Si algo está mal leído o una cuenta no te da, escribilo como se lo dirías a un compañero. La IA mira el papel y la tabla, corrige las celdas y te dice qué cambió. Todo queda en «Cambios» y se puede deshacer.
+                Decile qué está mal o qué hay que cambiar, como se lo dirías a un compañero: un descuento, cuántas trae el bulto, lo que no llegó, un precio. La IA lo cambia en la factura y te dice qué tocó. Todo queda en «Cambios» y se puede deshacer.
               </p>
             )}
             {mensajes.map((m, k) => (
@@ -218,13 +221,23 @@ export function AsistenteFactura({ lecturaId, proveedorId, proveedorNombre, comp
             <textarea
               value={texto} onChange={(e) => setTexto(e.target.value)} rows={2}
               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); enviar(); } }}
-              placeholder="Ej.: el renglón 3 tiene 5% de descuento · las tiritas vienen 12 por bulto · ¿por qué no cierra el IVA?"
               aria-label="Mensaje para la IA"
               className={unir('w-full rounded-xl border border-black/15 bg-crema-claro px-3 py-2 text-sm text-tinta', FOCO)}
             />
             <div className="flex flex-wrap items-center gap-2">
               <Boton tamano="chico" onClick={() => enviar()} disabled={pensando || !texto.trim()}>{pensando ? 'Pensando…' : 'Enviar'}</Boton>
               <Dictado onTexto={(t) => setTexto((v) => (v ? v + ' ' : '') + t)} />
+              {/* la lectura entera salió mal (columnas corridas, otra hoja): se lee de nuevo
+                  con todo lo que la persona ya explicó acá. Pisa los cambios hechos. */}
+              {onReleer && (
+                <button
+                  type="button" disabled={pensando || releyendo}
+                  onClick={() => onReleer([...mensajes.filter((m) => m.rol === 'usuario').map((m) => m.texto), texto.trim()].filter(Boolean).join('\n'))}
+                  className={unir('ml-auto min-h-9 rounded-full px-2 text-xs text-tinta/60 underline underline-offset-2 hover:text-tinta disabled:opacity-50', FOCO)}
+                >
+                  {releyendo ? 'Leyendo la foto…' : 'Leer la foto de nuevo'}
+                </button>
+              )}
             </div>
           </div>
         </div>

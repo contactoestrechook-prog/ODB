@@ -384,6 +384,16 @@ export function aplicarCambiosIA<T extends Record<string, any>>(
       nuevos[k] = aplicarPapel(fila, papel, nuevo);
       continue;
     }
+    // «el importe es lo que da la cuenta» (5/11/2026): la persona dijo el descuento,
+    // la cantidad o el precio y el importe leído quedó viejo. Manda su cuenta.
+    if (c.campo === 'ajustarImporte') {
+      const cuenta = cuentaDelPapel(papel).cuenta;
+      if (c.valor === false || c.valor === 'false' || !(cuenta > 0)) { descartados.push(c); continue; }
+      if (cuenta !== num(papel.importe)) registros.push({ renglon: k + 1, campo: 'importe', antes: papel.importe, despues: cuenta, motivo });
+      papel.importe = cuenta;
+      nuevos[k] = aplicarPapel(fila, papel, entra);
+      continue;
+    }
     const campo = CAMPO_IA[c.campo];
     const valor = c.valor == null ? null : num(c.valor);
     if (!campo || (c.valor != null && valor == null) || (valor != null && valor < 0)) { descartados.push(c); continue; }
