@@ -24,6 +24,7 @@ services:
       HOST_PANEL: ${HOST_PANEL}
       HOST_TIENDA: ${HOST_TIENDA}
       HOST_WAHA: ${HOST_WAHA}
+      HOST_WAHA_GOWS: ${HOST_WAHA_GOWS:-wag.172-233-20-11.sslip.io}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-datos:/data

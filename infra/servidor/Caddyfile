@@ -26,3 +26,9 @@
 	import seguridad
 	reverse_proxy waha:3000
 }
+# La línea general corre en su propio WAHA (motor GOWS). Se abre igual que el otro,
+# con la misma clave, para que la app RESPONDE del celular pueda mandar por ella (5/11/2026).
+{$HOST_WAHA_GOWS:wag.172-233-20-11.sslip.io} {
+	import seguridad
+	reverse_proxy waha-gows:3000
+}
