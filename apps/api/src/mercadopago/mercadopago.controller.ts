@@ -1,10 +1,11 @@
 import { BadRequestException, Body, Controller, Delete, Get, Param, Post, Query, Req } from '@nestjs/common';
 import { MercadoPagoService } from './mercadopago.service';
+import { MpReportesService } from './mp-reportes.service';
 import { Roles } from '../auth/decorators';
 
 @Controller('mercadopago')
 export class MercadoPagoController {
-  constructor(private readonly mp: MercadoPagoService) {}
+  constructor(private readonly mp: MercadoPagoService, private readonly reportes: MpReportesService) {}
 
   @Roles('gerente', 'dueno')
   @Get('estado')
@@ -98,6 +99,19 @@ export class MercadoPagoController {
   @Get('pagos-dia')
   pagosDia(@Query('dia') dia: string, @Query('cuenta') cuenta?: string, @Query('tipo') tipo?: string, @Query('por') por?: string) {
     return this.mp.pagosDelDia(this.fecha(dia), this.cuenta(cuenta), /^[a-z_]{2,30}$/.test(tipo ?? '') ? tipo : undefined, por === 'liberacion');
+  }
+
+  // La plata real: el extracto de la cuenta (reporte de liberaciones de MP)
+  @Roles('gerente', 'dueno')
+  @Get('movimientos')
+  movimientos(@Query('desde') desde: string, @Query('hasta') hasta: string, @Query('cuenta') cuenta?: string) {
+    return this.reportes.movimientos(this.fecha(desde), this.fecha(hasta), this.cuenta(cuenta));
+  }
+
+  @Roles('gerente', 'dueno')
+  @Get('movimientos-dia')
+  movimientosDia(@Query('dia') dia: string, @Query('cuenta') cuenta?: string, @Query('tipo') tipo?: string) {
+    return this.reportes.movimientosDelDia(this.fecha(dia), this.cuenta(cuenta), /^[a-z_]{2,40}$/.test(tipo ?? '') ? tipo : undefined);
   }
 
   private fecha(v: unknown): string {
