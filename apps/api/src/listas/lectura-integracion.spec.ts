@@ -19,6 +19,10 @@ function baseSimulada() {
   } };
 }
 
+// El tamaño del esquema del lector con el que lee bien (f4e5fe0, 5/11/2026). No se agranda.
+const CAMPOS_DEL_RENGLON = 15;
+const PROPIEDADES_DEL_ESQUEMA = 51;
+
 describe('lectura inicial y reapertura', () => {
   const anterior = process.env.ANTHROPIC_API_KEY;
   beforeAll(() => { process.env.ANTHROPIC_API_KEY = 'mock'; });
@@ -56,6 +60,20 @@ describe('lectura inicial y reapertura', () => {
     const opcionales = Object.keys(renglon.properties).filter((k) => !renglon.required.includes(k));
     expect(opcionales.length).toBeLessThanOrEqual(9);
     expect(renglon.required).toEqual(expect.arrayContaining(['devueltoAMano', 'recibidoAMano']));
+    // EL ESQUEMA NO CRECE (5/11/2026): cuatro campos más en el pie —obligatorios,
+    // sin uniones— hicieron que la IA rechazara el pedido y el lector dejó de leer
+    // todas las facturas durante 3 minutos. Las pruebas no lo ven (la IA está
+    // simulada): este candado sí. Un dato nuevo viaja como texto en un campo que
+    // ya existe y se separa en código (compras/percepciones-impresas.ts), o se
+    // prueba ANTES en el servidor con una lectura real.
+    const esquema = mockRequest.output_config.format.schema;
+    expect(Object.keys(esquema.properties.impuestos.properties)).toHaveLength(9);
+    expect(esquema.properties.impuestos.required).toHaveLength(9);
+    expect(Object.keys(renglon.properties).length).toBeLessThanOrEqual(CAMPOS_DEL_RENGLON);
+    let propiedades = 0;
+    const contar = (v: any) => { if (!v || typeof v !== 'object') return; if (v.properties) propiedades += Object.keys(v.properties).length; Object.values(v).forEach(contar); };
+    contar(esquema);
+    expect(propiedades).toBeLessThanOrEqual(PROPIEDADES_DEL_ESQUEMA);
     // El valor neutro no se lee como una devolución ni como una entrega parcial.
     const row = result.items[0] as any;
     expect(row.devueltoAMano).toBe(false);
