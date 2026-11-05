@@ -407,7 +407,7 @@ function LaPlata({ cuenta }: { cuenta: Cuenta }) {
             ))}</tbody>
           </table></div>
         ) : <p className="gris">No hay plata pendiente de liberar.</p>}
-        <p className="nota">Sale de la fecha de liberación y el neto de cada pago. Los retiros al banco y otros descuentos vienen en el reporte de liberaciones de Mercado Pago: es la próxima etapa.</p>
+        <p className="nota">Sale de la fecha de liberación y el neto de cada pago. Los retiros, los pagos hechos desde la cuenta y el saldo están en el extracto, más abajo.</p>
       </section>
       <Extracto cuenta={cuenta} />
       {dia && (
@@ -472,7 +472,9 @@ function Extracto({ cuenta }: { cuenta: Cuenta }) {
         <div><div className="et">Saldo en Mercado Pago</div><div className="grande frio">{pesos(saldoTotal)}</div><div className="gris">{fechaSaldo ? `al ${diaTxt(fechaSaldo.slice(0, 10))} ${horaTxt(fechaSaldo)}` : '—'}{!cuenta && m.saldos.length > 1 ? ` · ${m.saldos.map((x) => `${EMPRESAS[x.cuenta]?.corto}: ${pesos(x.saldo)}`).join(' · ')}` : ''}</div></div>
         <div><div className="et">Retiros · 30 días</div><div className="grande">{pesos(suma('retiros'))}</div><div className="gris">lo que salió de la cuenta a bancos o a terceros</div></div>
         <div><div className="et">Pagos y transferencias · 30 días</div><div className="grande">{pesos(suma('pagosSalen'))}</div><div className="gris">hechos con la plata de la cuenta, con el impuesto al débito</div></div>
-        <div><div className="et">Devoluciones y otros · 30 días</div><div className="grande calor">{pesos(suma('otrosSalen') - suma('otrosEntran'))}</div><div className="gris">salió menos lo que volvió</div></div>
+        {(() => { const neto = suma('otrosEntran') - suma('otrosSalen'); return (
+          <div><div className="et">Devoluciones y otros · 30 días</div><div className={`grande ${neto < 0 ? 'calor' : 'frio'}`}>{neto < 0 ? '−' : neto > 0 ? '+' : ''}{pesos(Math.abs(neto))}</div><div className="gris">{neto < 0 ? 'salió más de lo que volvió' : neto > 0 ? 'volvió a la cuenta' : 'sin movimientos'}</div></div>
+        ); })()}
       </section>
       <section className="bloque">
         <div className="titulo"><h2>Extracto de la cuenta, día por día</h2><span className="gris">{cob.map((c) => `${EMPRESAS[c.cuenta]?.corto}: ${c.hasta ? `hasta el ${diaTxt(sumarDias(c.hasta.slice(0, 10), -1))}` : 'sin reportes'}${c.pendientes ? ' · pidiendo el próximo' : ''}`).join(' · ')}</span></div>
@@ -506,7 +508,7 @@ function Extracto({ cuenta }: { cuenta: Cuenta }) {
                   <td>{horaTxt(l.fecha)}</td>
                   <td>{movTxt(l.descripcion)}{l.descripcion === 'payment' && +l.debito > 0 ? ' o transferencia que salió' : ''}</td>
                   <td>{EMPRESAS[l.cuenta]?.corto ?? l.cuenta}</td>
-                  <td>{l.medio ? medio(l.medio).n : '—'}</td>
+                  <td>{!l.medio ? '—' : l.medio === 'available_money' ? 'Plata de la cuenta' : medio(l.medio).n}</td>
                   <td className="n">{+l.credito ? pesos(+l.credito) : ''}</td>
                   <td className="n calor">{+l.debito ? pesos(+l.debito) : ''}</td>
                   <td className="n">{l.saldo != null ? pesos(+l.saldo) : '—'}</td>
