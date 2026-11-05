@@ -113,6 +113,11 @@ export function PapelDelRenglon({ i, idx, onCambiarPapel }: PropsPapel) {
   const cambiar = (campo: CampoPapel, v: number | null) => onCambiarPapel(idx, { ...papel, [campo]: v }, entra, campo, papel[campo], v);
   const uxb = numero(papel.uxb);
   const unidades = unidadesDelPapel(papel);
+  // llegó una parte (la nota a mano «ingresaron 3 bultos»): al stock entran las
+  // que llegaron, y eso es lo que se muestra; el papel de al lado no cambia
+  const llegaron = numero(i.recibidoAMano);
+  const entran = llegaron != null && llegaron > 0 && llegaron < unidades ? llegaron : unidades;
+  const parte = entran < unidades ? ` de ${cifra(unidades, 3)}` : '';
   // el jamón de 5,5 kg facturado a precio por kilo: importe ÷ precio neto no da entero
   const porKilo = kilosImplicitos(papel, c.cierra, i.descripcion);
   return (
@@ -147,12 +152,12 @@ export function PapelDelRenglon({ i, idx, onCambiarPapel }: PropsPapel) {
             >
               {entra === null && <option value="">¿Cómo entra?</option>}
               {/* el papel cuenta bultos: la otra salida es la caja; cuenta cajas sueltas: abrirlas */}
-              <option value="unidades">{cifra(unidades, 3)} {enBultos ? 'unid.' : 'tal cual'}</option>
-              {(enBultos || entra?.como === 'cajas') && <option value="cajas">{cifra(unidades / cajasDe, 3)} {unidades / cajasDe === 1 ? 'caja' : 'cajas'} ×{cajasDe}</option>}
-              {(!enBultos || entra?.como === 'abiertas') && <option value="abiertas">{cifra(unidades * uxb, 3)} unid. (abrir ×{uxb})</option>}
+              <option value="unidades">{cifra(entran, 3)}{parte} {enBultos ? 'unid.' : 'tal cual'}</option>
+              {(enBultos || entra?.como === 'cajas') && <option value="cajas">{cifra(entran / cajasDe, 3)} {entran / cajasDe === 1 ? 'caja' : 'cajas'} ×{cajasDe}</option>}
+              {(!enBultos || entra?.como === 'abiertas') && <option value="abiertas">{cifra(entran * uxb, 3)} unid. (abrir ×{uxb})</option>}
             </select>
           ) : (
-            <p className="importe flex h-9 items-center text-sm text-tinta">{cifra(i.cantidad, 3)} {numero(i.cantidad) === 1 ? 'unidad' : 'unid.'}</p>
+            <p className="importe flex h-9 items-center text-sm text-tinta">{cifra(entran < unidades ? entran : i.cantidad, 3)}{parte} {numero(i.cantidad) === 1 ? 'unidad' : 'unid.'}</p>
           )}
         </div>
       </div>

@@ -2667,7 +2667,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                           )}
                         </div>
                         {i.papel && !i.porPeso ? (
-                          <span className="importe text-right text-sm font-semibold text-tinta" title="Lo que entra al stock: se corrige con los números del papel">{numImp(i.cantidad).toLocaleString('es-AR', { maximumFractionDigits: 3 })}</span>
+                          <span className="importe text-right text-sm font-semibold text-tinta" title="Lo que entra al stock: se corrige con los números del papel">{cantidadQueEntra(i).toLocaleString('es-AR', { maximumFractionDigits: 3 })}</span>
                         ) : (
                           <input type="number" step="any" min="0" value={i.cantidad} onChange={(e) => setFotoItems((xs) => xs.map((x, j) => j === idx ? { ...x, cantidad: Number(e.target.value) } : x))} aria-label="Cantidad" className={unir(CAMPO_FILA, CAMPO_FILA_COLOR, 'importe')} />
                         )}
@@ -2705,7 +2705,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                               className="whitespace-nowrap text-right leading-none"
                               title={`Total del renglón: ${numImp(i.cantidad).toLocaleString('es-AR')} × ${pesos(costoFinal(i))} (costo final por unidad)`}
                             >
-                              <span className="text-tinta/60">×{numImp(i.cantidad).toLocaleString('es-AR')} =</span>{' '}
+                              <span className="text-tinta/60">{faltanDe(i) > 0 ? 'se pagan ' : '×'}{numImp(i.cantidad).toLocaleString('es-AR')} =</span>{' '}
                               <b className="text-sm font-semibold text-tinta">{pesos(numImp(i.cantidad) * costoFinal(i))}</b>
                             </span>
                           )}

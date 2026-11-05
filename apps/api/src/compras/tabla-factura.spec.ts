@@ -17,6 +17,17 @@ describe('papelDeLectura: el renglón como está impreso', () => {
     expect(p).toMatchObject({ bultos: 5, uxb: 8, sueltas: 0 });
   });
 
+  it('Galletitas del Sur 5/11, Jorgito «18 x 6U»: 1 bulto leído ×6, el importe da 18 → 1 bulto de 18, cierra solo', () => {
+    const p = papelDeLectura(lectura(1, 2255.68, 39384.17, { unidadesPorBulto: 6, unidadesDelCatalogo: 6, bonificacionPct: 3, interpretado: { decision: 'bonificado', cantidad: 1, unidadesPorBulto: 6 } }));
+    expect(p).toMatchObject({ bultos: 1, uxb: 18, sueltas: 0, desc: 3 });
+    expect(cuentaDelPapel(p)).toMatchObject({ unidades: 18, cierra: true });
+  });
+  it('si el importe no da un entero de unidades (algo por kilo), no inventa bultos', () => {
+    const p = papelDeLectura(lectura(1, 1000, 5530, { unidadesPorBulto: 6 }));
+    expect(p).toMatchObject({ bultos: 1, uxb: 6 });
+    expect(cuentaDelPapel(p).cierra).toBe(false);
+  });
+
   it('Oxxon, Tiritas: 1 bulto de 12 a $3.598,93 con 10% = $38.868,42', () => {
     const p = papelDeLectura(lectura(1, 3598.93, 38868.42, { unidadesPorBulto: 12, bonificacionPct: 10 }));
     expect(p).toMatchObject({ bultos: 1, uxb: 12, sueltas: 0, precio: 3598.93, desc: 10, importe: 38868.42 });

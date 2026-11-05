@@ -97,6 +97,26 @@ export function papelDeLectura(raw: any): Papel {
 }
 
 function papelSegun(raw: any, desc: number | null): Papel {
+  const papel = papelLeido(raw, desc);
+  if (cuentaDelPapel(papel).cierra) return papel;
+  // MANDA EL IMPORTE (5/11/2026, Galletitas del Sur, «Alfajor Jorgito 18 x 6U»:
+  // 1 bulto, el lector tomó ×6 y el bulto trae 18 paquetes). Si nada de lo leído
+  // cierra pero el importe ÷ el precio neto da un número entero de unidades que
+  // se reparte justo en los bultos del papel, eso trae cada bulto. Nadie tiene
+  // que explicarlo: la cuenta lo dice sola.
+  const precio = num(papel.precio);
+  const importe = num(papel.importe);
+  const neto = precio != null ? precio * (1 - Math.min(100, Math.abs(desc ?? 0)) / 100) : 0;
+  if (!(neto > 0) || importe == null || !(importe > 0)) return papel;
+  const unidades = Math.round(importe / neto);
+  if (unidades < 2 || Math.abs(unidades * neto - importe) > tolerancia(importe)) return papel;
+  const bultos = [num(raw?.bultos), num(raw?.cantidad), num(raw?.interpretado?.cantidadOriginal)].find((x) => x != null && x > 0) ?? 0;
+  const cada = bultos > 0 ? unidades / bultos : 0;
+  if (!Number.isInteger(bultos) || !Number.isInteger(cada) || cada < 2) return papel;
+  return { ...papel, bultos, uxb: cada, sueltas: 0 };
+}
+
+function papelLeido(raw: any, desc: number | null): Papel {
   const r = raw?.interpretado ?? {};
   // la cantidad del papel: la que leyó el lector (la interpretación pudo corregirla)
   const cant = num(raw?.cantidad) ?? num(r.cantidadOriginal) ?? 0;
