@@ -46,7 +46,9 @@ export class MpReportesService {
       if (!r.ok) throw new Error(`lista de reportes ${r.status}`);
       const lista: any[] = await r.json();
       for (const p of pedidos) {
-        const mp = lista.find((x) => String(x.id) === String(p.id));
+        // MP lista el reporte con otro id que el que devuelve al pedirlo: se busca por el período
+        const mp = lista.find((x) => String(x.id) === String(p.id)
+          || (Date.parse(x.begin_date) === Date.parse(p.desde) && Date.parse(x.end_date) === Date.parse(p.hasta) - 1000 && x.file_name));
         if (mp?.file_name) await this.leer(c, p.id, mp.file_name);
         else if (Date.now() - Date.parse(p.pedido_en) > 6 * 3600_000) {
           await this.db.from('mp_reportes').update({ estado: 'error', error: 'MP no lo generó en 6 horas' }).eq('id', p.id);
