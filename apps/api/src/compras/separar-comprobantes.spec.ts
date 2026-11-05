@@ -3,7 +3,7 @@
 // solo el primero.
 import sharp from 'sharp';
 import { jpegsDelPdf } from './qr-arca.lector';
-import { comprobantesValidos, etiquetaDeLaParte, hojasDelPdf, pdfDeHojas } from './separar-comprobantes';
+import { comprobantesValidos, etiquetaDeLaParte, hojasDelPdf, mismoNumero, nombreSinParte, otrosComprobantes, pdfDeHojas, rotuloDelComprobante } from './separar-comprobantes';
 
 describe('qué comprobantes trae el PDF', () => {
   it('factura + nota de crédito: dos comprobantes, una hoja cada uno', () => {
@@ -54,5 +54,40 @@ describe('el PDF de cada comprobante', () => {
     // la tabla de posiciones apunta a cada objeto
     const xref = Number(/startxref\n(\d+)/.exec(pdf.toString('latin1'))![1]);
     expect(pdf.subarray(xref, xref + 4).toString('latin1')).toBe('xref');
+  });
+});
+
+// Ana tenía abierta la factura y pedía la nota de crédito del mismo PDF (5/11/2026)
+describe('los otros comprobantes del mismo PDF', () => {
+  const glorilact = [
+    { hojas: [1], tipo: 'factura' as const, numero: '0001-00149951' },
+    { hojas: [2], tipo: 'nota_credito' as const, numero: '0001-00003945' },
+  ];
+  it('con la factura abierta, lo que falta leer es la nota de crédito', () => {
+    expect(otrosComprobantes(glorilact, '0001-00149951').map(rotuloDelComprobante)).toEqual(['Nota de crédito 0001-00003945']);
+    // el número se escribe de varias formas según quién lo lea
+    expect(otrosComprobantes(glorilact, '00001-00149951')).toHaveLength(1);
+    expect(otrosComprobantes(glorilact, 'FAA000100149951').map((c) => c.tipo)).toEqual(['nota_credito']);
+  });
+  it('si el número de la lectura no aparece, la que ya se leyó es la primera', () => {
+    expect(otrosComprobantes(glorilact, '').map((c) => c.numero)).toEqual(['0001-00003945']);
+    expect(otrosComprobantes(glorilact, '9999-12345678').map((c) => c.numero)).toEqual(['0001-00003945']);
+  });
+  it('dos facturas de Grupo Modo: abierta la 843292, falta la 843293', () => {
+    const modo = [{ hojas: [1], tipo: 'factura' as const, numero: '0005-00843292' }, { hojas: [2], tipo: 'factura' as const, numero: '0005-00843293' }];
+    expect(otrosComprobantes(modo, '0005-00843292').map((c) => c.numero)).toEqual(['0005-00843293']);
+    expect(otrosComprobantes(modo, '0005-00843293').map((c) => c.numero)).toEqual(['0005-00843292']);
+  });
+  it('mismo número aunque cambie el formato; distinto si cambia el punto de venta o el número', () => {
+    expect(mismoNumero('0001-00149951', '00001-00149951')).toBe(true);
+    expect(mismoNumero('FAA000500843292', '0005-00843292')).toBe(true);
+    expect(mismoNumero('0001-00149951', '0002-00149951')).toBe(false);
+    expect(mismoNumero('0001-00149951', '0001-00149952')).toBe(false);
+    expect(mismoNumero('', '0001-00149951')).toBe(false);
+  });
+  it('el nombre de una parte vuelve al del archivo', () => {
+    expect(nombreSinParte('CamScanner 5-11-26 14.40.pdf · 2 de 2 · Nota de crédito 0001-00003945')).toBe('CamScanner 5-11-26 14.40.pdf');
+    expect(nombreSinParte('CamScanner 5-11-26 14.40.pdf')).toBe('CamScanner 5-11-26 14.40.pdf');
+    expect(nombreSinParte(null)).toBe('Comprobante.pdf');
   });
 });

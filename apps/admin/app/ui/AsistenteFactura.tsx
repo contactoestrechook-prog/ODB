@@ -39,6 +39,7 @@ type Regla = { id: string; regla: string; creadaEn: string; autor: string | null
 const NOMBRE_CAMPO: Record<string, string> = {
   bultos: 'bultos', uxb: 'unidades por bulto', sueltas: 'sueltas', precio: 'precio unitario', desc: '% de descuento', iva: 'IVA',
   importe: 'importe', entraComo: 'cómo entra', noAplicar: 'descuento sin aplicar', ingresa: 'ingresa al stock',
+  llevaInternos: 'paga impuestos internos', impuestoInternoUnitario: 'impuesto interno por unidad', costoFinal: 'costo por unidad',
   neto: 'neto', percepcionIva: 'percepción IVA', percepcionIibb: 'percepción IIBB', impuestosInternos: 'impuestos internos', otros: 'otros', total: 'total',
 };
 const valorLegible = (v: unknown) => (v == null || v === '' ? 'vacío' : typeof v === 'number' ? v.toLocaleString('es-AR', { maximumFractionDigits: 3 }) : v === true ? 'sí' : v === false ? 'no' : String(v));

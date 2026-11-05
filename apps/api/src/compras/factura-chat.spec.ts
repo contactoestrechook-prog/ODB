@@ -1,6 +1,6 @@
 // El chat de la factura (8/10/2026): lo que devuelve la IA se filtra antes de
 // llegar a la pantalla. Solo pasan cambios aplicables.
-import { motivoParaCorregir, reglaRepetida, validarRespuestaChat, yaRevisada } from './factura-chat.service';
+import { CAMPOS_RENGLON, fraseDeOtrosComprobantes, motivoParaCorregir, reglaRepetida, validarRespuestaChat, yaRevisada } from './factura-chat.service';
 
 // «No aprendió los cambios ni los razonamientos, tuvimos que poner todo otra
 // vez» (La Serenísima, 5/11/2026): la regla se guarda sola y se aplica sola.
@@ -43,7 +43,7 @@ describe('validarRespuestaChat', () => {
     expect(r.respuesta).toContain('5%');
   });
   it('sin nada útil devuelve una respuesta vacía de cambios', () => {
-    expect(validarRespuestaChat({}, 3)).toEqual({ respuesta: 'Listo.', cambios: [], cambiosPie: [], reglaProveedor: null, descartados: [] });
+    expect(validarRespuestaChat({}, 3)).toEqual({ respuesta: 'Listo.', cambios: [], cambiosPie: [], reglaProveedor: null, descartados: [], leerOtrosComprobantes: false });
   });
   it('lo que se descarta vuelve con el porqué, para que la pantalla lo diga (22/10/2026)', () => {
     const r = validarRespuestaChat({
@@ -73,5 +73,36 @@ describe('motivoParaCorregir', () => {
   });
   it('solo explica, sin decir que cambió nada → está bien', () => {
     expect(motivoParaCorregir(salida({ respuesta: 'El 5165 sale de 4004,07 más IVA 21% y percepciones 8%.' }))).toBeNull();
+  });
+});
+
+// «Volvimos a pasar la nota de crédito y otra vez tiró una duda… otra vez que la
+// cargue aparte» (5/11/2026): el chat la lee del mismo archivo y lo dice el
+// servidor, con lo que pasó de verdad.
+describe('el otro comprobante del mismo archivo', () => {
+  it('el pedido viaja como una marca, y pedirla no es «decir que cambió algo sin mandar cambios»', () => {
+    const r = validarRespuestaChat({ respuesta: 'Dejé el flan con 2 recibidas.', cambios: [], cambiosPie: [], reglaProveedor: null, leerOtrosComprobantes: true }, 5);
+    expect(r.leerOtrosComprobantes).toBe(true);
+    expect(motivoParaCorregir(r)).toBeNull();
+    expect(validarRespuestaChat({ respuesta: 'x', leerOtrosComprobantes: 'sí' }, 5).leerOtrosComprobantes).toBe(false);
+  });
+  it('dice lo que se está leyendo, sin mandar a subir nada', () => {
+    const f = fraseDeOtrosComprobantes({ leidos: ['Nota de crédito 0001-00003945'], yaEstaban: [] });
+    expect(f).toContain('Nota de crédito 0001-00003945');
+    expect(f).toContain('en la bandeja');
+    expect(f).not.toMatch(/aparte como|subila|cargala/i);
+    expect(fraseDeOtrosComprobantes({ leidos: ['Factura 0005-00843293', 'Remito 12'], yaEstaban: [] })).toContain('Factura 0005-00843293 y Remito 12, que vinieron');
+  });
+  it('si ya estaba leída, lo dice; si el archivo trae uno solo o algo falló, también', () => {
+    expect(fraseDeOtrosComprobantes({ leidos: [], yaEstaban: ['Nota de crédito 0001-00003945'] })).toBe('Nota de crédito 0001-00003945 ya está en la bandeja: se abre desde ahí para registrar.');
+    expect(fraseDeOtrosComprobantes({ leidos: [], yaEstaban: [], motivo: 'uno-solo' })).toContain('un solo comprobante');
+    expect(fraseDeOtrosComprobantes({ leidos: [], yaEstaban: [], motivo: 'error' })).toContain('Probá de nuevo');
+    expect(fraseDeOtrosComprobantes(null)).toContain('avisame');
+  });
+  it('el chat tiene campo para lo que el 5/11 contestó «no puedo»: internos y costo', () => {
+    expect(CAMPOS_RENGLON).toEqual(expect.arrayContaining(['impuestoInternoUnitario', 'llevaInternos', 'costoFinal']));
+    const r = validarRespuestaChat({ respuesta: 'Listo.', cambios: [{ renglon: 1, campo: 'impuestoInternoUnitario', valor: 2517.91, motivo: 'Imp Int Uni' }, { renglon: 1, campo: 'costoFinal', valor: 3545.24, motivo: 'lo dijo la persona' }] }, 3);
+    expect(r.cambios.map((c: any) => c.campo)).toEqual(['impuestoInternoUnitario', 'costoFinal']);
+    expect(r.descartados).toEqual([]);
   });
 });

@@ -19,7 +19,7 @@ import { diferenciaPrecioCero, elegirPendientes, textoPrecioCero, type Pendiente
 import { AsistenteFactura, describirCambio, type CambioHecho } from './AsistenteFactura';
 import { asignarInternos, internosImpresos, pctPercepciones, textoInternos } from '../lib/internos-compras';
 import { aplicarBorrador, borradorDe, borradorVacio } from '../lib/borrador-factura';
-import { aplicarCambiosIA, aplicarPapel, cuentaDelPapel, entraDeRenglon, marcarComoDevolucion, papelDeLectura, tablaParaIA, type EntraComo, type Papel } from '../lib/tabla-factura';
+import { aplicarCambiosIA, aplicarPapel, cuentaDelPapel, entraDeRenglon, marcarComoDevolucion, papelDeLectura, tablaParaIA, type EntraComo, type Papel, conInternoDelPapel } from '../lib/tabla-factura';
 import {
   Aviso, Boton, CLASES_ENTRADA, Cargando, Etiqueta, FOCO, FOCO_ADENTRO, Girador, IconoAtencion, IconoCerrar, IconoError, IconoInfo, IconoOk, Kpi, Modal as Ventana,
   Pestanas, PlacaRoja, TablaResponsiva, Tarjeta, TarjetaCabecera, Vacio, clasesBoton, unir, useConfirmar, type TonoEtiqueta,
@@ -1204,11 +1204,10 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
     .map((i: any, idx: number) => ({ i, idx }))
     .filter(({ i }) => !i._esDescuento && !i._esDevolucion && netoDelRenglon(i) > 0);
   // Cigarrillos (5/11/2026): si el papel imprime el interno de cada renglón y
-  // la suma da el del pie, cada uno lleva el suyo, sin adivinar. Lo que marca
-  // una persona sigue mandando.
-  const internosDelPapel = renglonesInternos.some(({ i }) => i.llevaInternos != null)
-    ? null
-    : internosImpresos(renglonesInternos.map(({ i }) => i.internosDelPapel), impIntDoc);
+  // la suma da el del pie, cada uno lleva el suyo, sin adivinar: lo que dice el
+  // papel manda. Si no da el pie, sigue la regla de siempre (lo marcado, o lo
+  // que prueba la cuenta).
+  const internosDelPapel = internosImpresos(renglonesInternos.map(({ i }) => i.internosDelPapel), impIntDoc);
   const internos = internosDelPapel ?? asignarInternos(
     renglonesInternos.map(({ i }) => ({ descripcion: `${i.descripcion ?? ''} ${i.nombre ?? ''}`, neto: netoDelRenglon(i), marcado: i.llevaInternos ?? null })),
     impIntDoc,
@@ -1293,6 +1292,8 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   // La cuenta del costo de un renglón, escrita: lo que se muestra al pasar el
   // mouse por el "c/IVA" para no tener que sacarla a mano.
   const desgloseCosto = (i: any, idx: number) => {
+    // lo dijo una persona: ese es el costo (5/11/2026)
+    if (numImp(i.costoManual) > 0) return `${pesos(numImp(i.costoManual))} por unidad: lo fijó una persona desde el chat (en este renglón no se usa la cuenta de la factura)`;
     // cigarrillos: el precio unitario del papel ya es neto + IVA + interno
     if (i.fraccionNeta) {
       const neto = precioEfectivo(i) * i.fraccionNeta;
@@ -1322,6 +1323,8 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   };
   const costoFinal = (i: any, idx?: number) => {
     const k = idx ?? itemsCalc.indexOf(i);
+    // lo dijo una persona: ese es el costo (5/11/2026, «el chat es poco obediente»)
+    if (numImp(i.costoManual) > 0) return Math.round(numImp(i.costoManual) * 100) / 100;
     // cigarrillos: el precio unitario del papel ya trae el IVA y el interno; solo
     // se le suma su parte de las percepciones (sobre su neto y su interno)
     if (i.fraccionNeta) {
@@ -1437,6 +1440,12 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
         if (c.campo === 'ingresa') return { ...x, incluir: !!c.antes };
         if (c.campo === 'kilos') return x.antesDePeso ? { ...x, ...x.antesDePeso, porPeso: false, antesDePeso: null } : x;
         if (c.campo === 'recibidas') return { ...x, recibidoAMano: c.antes == null || c.antes === '' ? null : Number(c.antes) };
+        if (c.campo === 'llevaInternos') return { ...x, llevaInternos: c.antes == null || c.antes === '' ? null : !!c.antes };
+        if (c.campo === 'costoFinal') return { ...x, costoManual: c.antes == null || c.antes === '' ? null : Number(c.antes) };
+        if (c.campo === 'impuestoInternoUnitario') {
+          if (c.antes == null || c.antes === '') return { ...x, fraccionNeta: null, netoDelPapel: null, internosDelPapel: null };
+          return conInternoDelPapel(x, Number(c.antes)) ?? x;
+        }
         const papel: Papel = { ...(x.papel ?? papelDeLectura(x)) };
         if (c.campo === 'entraComo') {
           const de = Number(papel.uxb);

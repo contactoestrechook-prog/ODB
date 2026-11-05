@@ -3,6 +3,7 @@
 // Total; el pie trae Subtotal, IVA 21 %, Imp. Internos y Perc. IIBB.
 import { renglonesDelPapel } from './internos-por-renglon';
 import { internosImpresos, pctPercepciones } from '../../../admin/app/lib/internos-compras';
+import { aplicarCambiosIA, internoUnitarioDe, tablaParaIA } from '../../../admin/app/lib/tabla-factura';
 
 const suma = (xs: number[]) => Math.round(xs.reduce((s, x) => s + x, 0) * 100) / 100;
 
@@ -79,9 +80,89 @@ describe('en la pantalla: los internos del papel van a su renglón y la percepci
   it('el costo de un Lucky Cool 12 es el precio unitario del papel (3.383,57) más su parte de la percepción', () => {
     const pct = pctPercepciones(15738.61, 69658.2, 245113.9);
     const costo = 3383.57 + (715.42 + 2517.91) * pct;
-    expect(Math.round(costo * 100) / 100).toBe(3545.23);
+    expect(Math.round(costo * 100) / 100).toBe(3545.24);
     // y los tres renglones juntos dan el total de la factura
-    const total = [[30, 715.42, 2517.91], [20, 1102.87, 3890.15], [20, 1306.91, 4588.68]].reduce((s, [c, n, i]) => s + c * (n * (1.21 + pct) + i * (1 + pct)), 0);
+    const total = [[30, 715.42, 2517.91, 3383.57], [20, 1102.87, 3890.15, 5224.62], [20, 1306.91, 4588.68, 6170.04]].reduce((s, [c, n, i, unit]) => s + c * (unit + (n + i) * pct), 0);
     expect(Math.abs(total - 345138.93)).toBeLessThan(0.5);
+  });
+});
+
+// «En grupo modo tenés que tomar el precio unitario y a eso sumarle los IIBB»
+// (5/11/2026, 16:43): el chat contestó que no podía. Ahora tiene con qué.
+describe('el chat deja el renglón de cigarrillos como dice el papel', () => {
+  const nadaEsDescuento = () => false;
+  // como quedó a las 16:41: el chat había puesto el neto como precio
+  const enNeto = { descripcion: 'LUCKY COOL 12', sku: 'L5029', cantidad: 30, precio: 715.42, importe: 21462.6, incluir: true, llevaInternos: false, papel: { bultos: 30, uxb: 1, sueltas: 0, precio: 715.42, desc: null, iva: 21, importe: 21462.6 } };
+  // como lo lee el sistema: el «Precio Unit» y el «Total» del papel
+  const delPapel = { ...enNeto, precio: 3383.57, importe: 101507.12, llevaInternos: null, papel: { ...enNeto.papel, precio: 3383.57, importe: 101507.12 } };
+
+  it('con el neto cargado como precio: vuelve al «Precio Unit» y guarda aparte el neto y el interno', () => {
+    const r = aplicarCambiosIA([enNeto], [{ renglon: 1, campo: 'impuestoInternoUnitario', valor: 2517.91, motivo: 'Imp Int Uni del papel' }], nadaEsDescuento);
+    const f: any = r.items[0];
+    expect(r.descartados).toEqual([]);
+    expect(f.precio).toBe(3383.57);
+    expect(f.importe).toBe(101507.1);
+    expect(f.netoDelPapel).toBe(715.42);
+    expect(f.internosDelPapel).toBe(75537.3);
+    expect(f.precio * f.fraccionNeta).toBeCloseTo(715.42, 2);
+    expect(f.llevaInternos).toBeNull(); // manda el papel, no la marca a mano
+    expect(r.registros.map((x) => x.campo)).toEqual(['precio', 'importe', 'impuestoInternoUnitario']);
+    expect(internoUnitarioDe(f)).toBe(2517.91);
+  });
+
+  it('con el precio unitario del papel: no toca el precio ni el importe', () => {
+    const r = aplicarCambiosIA([delPapel], [{ renglon: 1, campo: 'impuestoInternoUnitario', valor: 2517.91 }], nadaEsDescuento);
+    const f: any = r.items[0];
+    expect(f.precio).toBe(3383.57);
+    expect(f.importe).toBe(101507.12);
+    expect(f.netoDelPapel).toBe(715.42);
+    expect(r.registros.map((x) => x.campo)).toEqual(['impuestoInternoUnitario']);
+    // y el chat lo ve así en la tabla
+    const fila: any = tablaParaIA([f], nadaEsDescuento, () => null)[0];
+    expect(fila.precio).toBe(3383.57);
+    expect(fila.precioConImpuestosAdentro).toBe(true);
+    expect(fila.netoPorUnidad).toBe(715.42);
+    expect(fila.impuestoInternoUnitario).toBe(2517.91);
+  });
+
+  it('si el chat manda primero el precio y el total del papel y después el interno, queda igual que el papel', () => {
+    const r = aplicarCambiosIA([enNeto], [
+      { renglon: 1, campo: 'precio', valor: 3383.57 },
+      { renglon: 1, campo: 'importe', valor: 101507.12 },
+      { renglon: 1, campo: 'impuestoInternoUnitario', valor: 2517.91 },
+    ], nadaEsDescuento);
+    const f: any = r.items[0];
+    expect([f.precio, f.importe, f.netoDelPapel, f.internosDelPapel]).toEqual([3383.57, 101507.12, 715.42, 75537.3]);
+  });
+
+  it('una barra de cereal de la misma factura (sin interno): su precio ya trae el IVA', () => {
+    const barra = { descripcion: 'BARRA PROTEICA', cantidad: 2, precio: 15625.03, importe: 31250.07, papel: { bultos: 0, uxb: null, sueltas: 2, precio: 15625.03, desc: null, iva: 21, importe: 31250.07 } };
+    const f: any = aplicarCambiosIA([barra], [{ renglon: 1, campo: 'impuestoInternoUnitario', valor: 0 }], nadaEsDescuento).items[0];
+    expect(f.precio).toBe(15625.03);
+    expect(f.netoDelPapel).toBe(12913.25);
+    expect(f.internosDelPapel).toBe(0);
+  });
+
+  it('null lo saca, y un valor que no sirve se descarta a la vista', () => {
+    const con: any = aplicarCambiosIA([delPapel], [{ renglon: 1, campo: 'impuestoInternoUnitario', valor: 2517.91 }], nadaEsDescuento).items[0];
+    const sin: any = aplicarCambiosIA([con], [{ renglon: 1, campo: 'impuestoInternoUnitario', valor: null }], nadaEsDescuento).items[0];
+    expect([sin.fraccionNeta, sin.netoDelPapel, sin.internosDelPapel]).toEqual([null, null, null]);
+    expect(sin.precio).toBe(3383.57);
+    expect(aplicarCambiosIA([delPapel], [{ renglon: 1, campo: 'impuestoInternoUnitario', valor: -5 }], nadaEsDescuento).descartados).toHaveLength(1);
+  });
+
+  it('el chat puede marcar quién paga internos y fijar el costo que dice la persona', () => {
+    const r = aplicarCambiosIA([delPapel, { ...delPapel, descripcion: 'LECHE' }], [
+      { renglon: 1, campo: 'llevaInternos', valor: true },
+      { renglon: 2, campo: 'llevaInternos', valor: false },
+      { renglon: 2, campo: 'costoFinal', valor: 2190.8, motivo: 'la persona: 1698,30 × 1,29' },
+    ], nadaEsDescuento);
+    expect((r.items[0] as any).llevaInternos).toBe(true);
+    expect((r.items[1] as any).llevaInternos).toBe(false);
+    expect((r.items[1] as any).costoManual).toBe(2190.8);
+    expect(r.descartados).toEqual([]);
+    const sin = aplicarCambiosIA(r.items, [{ renglon: 2, campo: 'costoFinal', valor: null }], nadaEsDescuento);
+    expect((sin.items[1] as any).costoManual).toBeNull();
+    expect((tablaParaIA(r.items, nadaEsDescuento, () => null)[1] as any).costoFijadoPorLaPersona).toBe(2190.8);
   });
 });
