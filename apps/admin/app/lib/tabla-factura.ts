@@ -532,3 +532,57 @@ export function tablaParaIA(
     };
   });
 }
+
+// ---- freno de las reglas que se aplican solas ----
+
+/** Lo que costaría la unidad con IVA, según cómo quedó el renglón. */
+function costoAproximado(fila: Record<string, any>): number {
+  const precio = num(fila?.precio) ?? 0;
+  const desc = Math.min(100, Math.abs(num(fila?.bonificacionPct) ?? 0));
+  const iva = (num(fila?.alicuotaIva) ?? 0) > 0 ? (num(fila.alicuotaIva) as number) : 21;
+  return precio * (1 - desc / 100) * (1 + iva / 100);
+}
+/** Qué tan lejos queda del costo del catálogo la mejor lectura posible del renglón. */
+function lejosDelCatalogo(fila: Record<string, any>, catalogo: number): number {
+  const costo = costoAproximado(fila);
+  if (!(costo > 0)) return Infinity;
+  const n = num(fila?.unidadesPorBulto) ?? 0;
+  // con el bulto todavía sin decidir, el renglón puede terminar en la caja o en la unidad
+  const lecturas = n > 1 ? [costo, costo / n] : [costo];
+  return Math.min(...lecturas.map((c) => Math.abs(Math.log(c / catalogo))));
+}
+
+/**
+ * UNA REGLA NO PUEDE ROMPER UN RENGLÓN (5/11/2026, Leandro: «se lo explicamos y
+ * tampoco, no podemos seguir así»). En Grupo Modo alguien dijo, mirando una
+ * factura de cigarrillos, «las cantidades son por paquete»; la regla se guardó
+ * para todo el proveedor y al abrir la factura siguiente se aplicó sola también
+ * a las barras «X 10u»: les puso 1 por bulto y cada barra pasó a costar la caja
+ * entera (+987 %). El lector las había leído bien.
+ *
+ * Después de un turno AUTOMÁTICO, cada renglón tocado se compara con el costo
+ * del catálogo: si quedó a más del triple (o a menos de un tercio) y antes
+ * estaba claramente más cerca, ese renglón vuelve a como se leyó. Lo que pide
+ * una persona por el chat no pasa por acá: ahí manda ella.
+ */
+export function frenarReglasAbsurdas<T extends Record<string, any>>(
+  antes: T[],
+  despues: T[],
+  registros: Registro[],
+): { items: T[]; registros: Registro[]; frenados: number[] } {
+  const items = despues.slice();
+  const frenados: number[] = [];
+  for (const k of [...new Set(registros.map((g) => g.renglon - 1))]) {
+    const a = antes[k];
+    const d = despues[k];
+    const catalogo = num(a?.costoCatalogo) ?? 0;
+    if (!a || !d || !(catalogo > 0)) continue;
+    const lejosAntes = lejosDelCatalogo(a, catalogo);
+    const lejosDespues = lejosDelCatalogo(d, catalogo);
+    if (lejosDespues > Math.log(3) && lejosAntes < lejosDespues - Math.log(2)) {
+      items[k] = a;
+      frenados.push(k + 1);
+    }
+  }
+  return { items, registros: registros.filter((g) => !frenados.includes(g.renglon)), frenados };
+}

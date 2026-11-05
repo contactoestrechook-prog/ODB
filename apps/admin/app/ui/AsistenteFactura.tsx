@@ -60,7 +60,7 @@ export type PropsAsistente = {
   pie: unknown;
   controles: unknown;
   /** aplica lo que devolvió la IA; devuelve cuántos cambios aplicó y su descripción */
-  onAplicar: (cambios: any[], cambiosPie: any[]) => { aplicados: string[]; noAplicados: string[] };
+  onAplicar: (cambios: any[], cambiosPie: any[], automatico?: boolean) => { aplicados: string[]; noAplicados: string[] };
   cambios: CambioHecho[];
   onDeshacer: (c: CambioHecho) => void;
   sugerencias?: string[];
@@ -123,7 +123,7 @@ export function AsistenteFactura({ lecturaId, proveedorId, proveedorNombre, comp
         });
         const d = await r.json().catch(() => ({}));
         if (!r.ok || d?.omitido || !vigente) return;
-        const { aplicados, noAplicados } = onAplicar(d.cambios ?? [], d.cambiosPie ?? []);
+        const { aplicados, noAplicados } = onAplicar(d.cambios ?? [], d.cambiosPie ?? [], true);
         const cuantas = reglas.length === 1 ? 'la regla guardada' : `las ${reglas.length} reglas guardadas`;
         setMensajes((xs) => [...xs, { rol: 'ia', texto: `Apliqué ${cuantas} de ${proveedorNombre ?? 'este proveedor'}. ${String(d.respuesta ?? '')}`.trim(), cambios: aplicados, noAplicados }]);
       } catch { /* si falla, la factura queda como se leyó y las reglas siguen en su pestaña */ }
