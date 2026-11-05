@@ -1,6 +1,6 @@
 // El chat de la factura (8/10/2026): lo que devuelve la IA se filtra antes de
 // llegar a la pantalla. Solo pasan cambios aplicables.
-import { CAMPOS_RENGLON, fraseDeOtrosComprobantes, motivoParaCorregir, reglaRepetida, validarRespuestaChat, yaRevisada } from './factura-chat.service';
+import { medirLlamada, CAMPOS_RENGLON, fraseDeOtrosComprobantes, motivoParaCorregir, reglaRepetida, validarRespuestaChat, yaRevisada } from './factura-chat.service';
 
 // «No aprendió los cambios ni los razonamientos, tuvimos que poner todo otra
 // vez» (La Serenísima, 5/11/2026): la regla se guarda sola y se aplica sola.
@@ -104,5 +104,21 @@ describe('el otro comprobante del mismo archivo', () => {
     const r = validarRespuestaChat({ respuesta: 'Listo.', cambios: [{ renglon: 1, campo: 'impuestoInternoUnitario', valor: 2517.91, motivo: 'Imp Int Uni' }, { renglon: 1, campo: 'costoFinal', valor: 3545.24, motivo: 'lo dijo la persona' }] }, 3);
     expect(r.cambios.map((c: any) => c.campo)).toEqual(['impuestoInternoUnitario', 'costoFinal']);
     expect(r.descartados).toEqual([]);
+  });
+});
+
+
+describe('medirLlamada: cuánto razonó la IA en una llamada', () => {
+  it('cuenta los bloques de razonamiento y separa lo pensado de la respuesta', () => {
+    const m = medirLlamada({
+      model: 'claude-opus-5-5', stop_reason: 'end_turn',
+      content: [{ type: 'thinking', thinking: 'a'.repeat(900) }, { type: 'text', text: 'x'.repeat(300) }],
+      usage: { input_tokens: 1200, output_tokens: 700, cache_read_input_tokens: 5000 },
+    }, 'high', 12340);
+    expect(m).toMatchObject({ modelo: 'claude-opus-5-5', esfuerzo: 'high', termino: 'end_turn', segundos: 12.3, entrada: 1200, cacheLeida: 5000, salida: 700, bloquesDeRazonamiento: 1, caracteresDeRazonamiento: 900, caracteresDeRespuesta: 300, salidaSinRespuesta: 600 });
+  });
+  it('sin razonamiento queda en cero', () => {
+    const m = medirLlamada({ content: [{ type: 'text', text: 'x'.repeat(300) }], usage: { output_tokens: 100 } }, 'high', 1000);
+    expect(m).toMatchObject({ bloquesDeRazonamiento: 0, salidaSinRespuesta: 0 });
   });
 });

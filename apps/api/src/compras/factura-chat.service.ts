@@ -153,6 +153,34 @@ export function motivoParaCorregir(salida: ReturnType<typeof validarRespuestaCha
   return null;
 }
 
+/**
+ * Lo que se mide de una llamada a la IA. Los tokens de salida incluyen el
+ * razonamiento: «salidaSinRespuesta» es lo que queda después de restar el texto
+ * de la respuesta (a ~3 caracteres por token), o sea, lo que pensó.
+ */
+export function medirLlamada(r: any, esfuerzoPedido: string, ms: number) {
+  const bloques = (r?.content ?? []) as any[];
+  const razonamiento = bloques.filter((x) => x?.type === 'thinking' || x?.type === 'redacted_thinking');
+  const respuesta = bloques.filter((x) => x?.type === 'text').map((x) => String(x.text ?? '')).join('');
+  const u = r?.usage ?? {};
+  const salida = Number(u.output_tokens) || 0;
+  return {
+    modelo: r?.model ?? null,
+    esfuerzo: esfuerzoPedido,
+    termino: r?.stop_reason ?? null,
+    segundos: Math.round(ms / 100) / 10,
+    entrada: Number(u.input_tokens) || 0,
+    cacheLeida: Number(u.cache_read_input_tokens) || 0,
+    cacheEscrita: Number(u.cache_creation_input_tokens) || 0,
+    salida,
+    bloquesDeRazonamiento: razonamiento.length,
+    caracteresDeRazonamiento: razonamiento.reduce((t, x) => t + String(x.thinking ?? '').length, 0),
+    caracteresDeRespuesta: respuesta.length,
+    salidaSinRespuesta: Math.max(0, salida - Math.round(respuesta.length / 3)),
+    usoCrudo: u,
+  };
+}
+
 export type OtrosComprobantes = { leidos: string[]; yaEstaban: string[]; motivo?: string } | null;
 
 /**
@@ -309,7 +337,28 @@ export class FacturaChatService {
 
     const t0 = Date.now();
     const claude = new Anthropic();
+    // CUÁNTO RAZONA Y SI SE TRABA (Leandro, 5/11/2026: «¿estás seguro que el chat
+    // está teniendo razonamiento? vamos a medirlo»). De cada llamada a la IA queda
+    // el modelo, el esfuerzo, los tokens, cuántos bloques de razonamiento vinieron,
+    // por qué terminó y cuánto tardó; si falló, el error. Va a compras_chat_turnos.uso.
+    const esfuerzoChat = esfuerzo('FACTURA_CHAT_ESFUERZO', 'high', { general: false });
+    const llamadas: Record<string, unknown>[] = [];
+    const guardarFallo = async (error: string) => {
+      const { error: e } = await this.db.from('compras_chat_turnos').insert({
+        lectura_id: lecturaValida ? lecturaId : null,
+        proveedor_id: b?.proveedorId || null,
+        usuario_id: usuarioId ?? null,
+        mensaje: automatico ? `${MARCA_AUTOMATICO}reglas del proveedor al abrir la factura` : mensajes[mensajes.length - 1].texto.slice(0, 2000),
+        respuesta: null,
+        vueltas: llamadas.length,
+        segundos: Math.round((Date.now() - t0) / 100) / 10,
+        uso: { llamadas },
+        error: error.slice(0, 500),
+      });
+      if (e) this.log.warn(`no se guardó la charla fallida de la factura ${lecturaId}: ${e.message}`);
+    };
     const pedir = async (msgs: Anthropic.MessageParam[]) => {
+      const t1 = Date.now();
       const r: any = await claude.messages
         .stream({
           // Opus 5.5 en high desde el 3/11/2026 (Leandro: «el chat no tiene una
@@ -322,17 +371,28 @@ export class FacturaChatService {
           // el razonamiento sale de este mismo tope: con 16k y high se cortaba
           max_tokens: 32000,
           thinking: RAZONAMIENTO,
-          output_config: { format: { type: 'json_schema', schema: ESQUEMA_CHAT as any }, effort: esfuerzo('FACTURA_CHAT_ESFUERZO', 'high', { general: false }) },
+          output_config: { format: { type: 'json_schema', schema: ESQUEMA_CHAT as any }, effort: esfuerzoChat },
           messages: msgs,
         } as any)
-        .finalMessage();
+        .finalMessage()
+        .catch((e: any) => {
+          llamadas.push({ error: String(e?.message ?? e).slice(0, 300), estado: e?.status ?? null, segundos: Math.round((Date.now() - t1) / 100) / 10 });
+          throw e;
+        });
       const bloque = (r.content ?? []).find((x: any) => x.type === 'text');
+      llamadas.push(medirLlamada(r, esfuerzoChat, Date.now() - t1));
       let crudo: any = null;
       try { crudo = JSON.parse(bloque?.text ?? ''); } catch { /* abajo */ }
       return { crudo, texto: String(bloque?.text ?? ''), usage: r.usage ?? {} };
     };
-    const primera = await pedir(turnos);
-    if (!primera.crudo) throw new BadRequestException('La IA no pudo contestar. Probá de nuevo.');
+    const primera = await pedir(turnos).catch(async (e: any) => {
+      await guardarFallo(`la llamada a la IA falló: ${e?.message ?? e}`);
+      throw e;
+    });
+    if (!primera.crudo) {
+      await guardarFallo('la IA no devolvió una respuesta que se pueda leer');
+      throw new BadRequestException('La IA no pudo contestar. Probá de nuevo.');
+    }
     let salida = validarRespuestaChat(primera.crudo, tabla.length);
     let vueltas = 1;
     // «Resuelve bien en la conversación pero no después en el cambio» (Leandro,
@@ -388,6 +448,7 @@ export class FacturaChatService {
       regla_propuesta: salida.reglaProveedor,
       vueltas,
       segundos: Math.round((Date.now() - t0) / 100) / 10,
+      uso: { llamadas },
     });
     if (errorTurno) this.log.warn(`no se guardó la charla de la factura ${lecturaId}: ${errorTurno.message}`);
     this.log.log(`chat de factura ${lecturaId}: ${((Date.now() - t0) / 1000).toFixed(1)}s · ${salida.cambios.length} cambios · ${salida.descartados.length} descartados · ${vueltas} vuelta(s) · entrada ${u.input_tokens ?? '?'} · salida ${u.output_tokens ?? '?'}${usuarioId ? ` · usuario ${usuarioId}` : ''}`);
