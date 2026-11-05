@@ -1,6 +1,7 @@
 import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
+import { contarNotasYReimpresiones } from '../ventas/notas-venta.service';
 import { FrenoDePin, frenoDePin, registrarPinErrado } from '../comun/freno-pin';
 import { agruparPorMedio, etiquetaMedio } from './cierre';
 
@@ -334,10 +335,14 @@ export class CajaService {
     });
     if (error) throw new BadRequestException(this.traducirError(error.message));
     const r = (data ?? { total: 0, items: [] }) as any;
+    // notas y reimpresiones de cada ticket (5/11/2026): la lista marca cuáles tienen
+    const conteos = await contarNotasYReimpresiones(this.db, (r.items ?? []).map((v: any) => v.id));
     return {
       total: r.total ?? 0,
       items: (r.items ?? []).map((v: any) => ({
         ...v,
+        notas: conteos[v.id]?.notas ?? 0,
+        reimpresiones: conteos[v.id]?.reimpresiones ?? 0,
         total: Number(v.total),
         pagos: (v.pagos ?? []).map((p: any) => ({
           ...p,

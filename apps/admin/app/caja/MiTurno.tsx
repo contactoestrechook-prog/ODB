@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Boton, Entrada, IconoCerrar, PlacaRoja, Selector, unir, FOCO, FOCO_ADENTRO, ROTULO } from '../ui/kit';
 import { hora, numero, pesos } from '../lib/formato';
+import { NotasTicket, type NotaTicket } from './NotasTicket';
 
 // ============================================================
 // "MI TURNO" — la caja deja de ser ciega (2026-09-12)
@@ -55,6 +56,8 @@ type VentaFila = {
   pagos: { medio: string; terminal: string | null; monto: number; etiqueta: string }[];
   comprobante: { tipo: string; puntoVenta: number; numero: number; cae: string | null } | null;
   cambiosPago: number;
+  notas?: number;
+  reimpresiones?: number;
 };
 
 type Detalle = {
@@ -69,7 +72,16 @@ type Detalle = {
   pagos: { id: string; medio: string; terminal: string | null; monto: number; etiqueta: string; mpPaymentId: string | null }[];
   comprobantes: { tipo: string; numero: string; cae: string | null; estado: string; total: number }[];
   cambiosPago: { antes: any; despues: any; motivo: string | null; creadoEn: string; usuario: string | null; autorizante: string | null }[];
+  notas?: NotaTicket[];
+  reimpresiones?: { creadoEn: string; usuario: string | null }[];
 };
+
+// «Reimpreso 3 veces · última 12:39 · Melina»: cuántas, cuándo la última y quiénes
+function textoReimpresiones(r: { creadoEn: string; usuario: string | null }[]) {
+  const quienes = [...new Set(r.map((x) => x.usuario).filter(Boolean))].join(', ');
+  const ultima = r[r.length - 1]?.creadoEn;
+  return `Reimpreso ${r.length === 1 ? 'una vez' : `${r.length} veces`} · ${r.length > 1 ? 'última ' : ''}${hora(ultima)}${quienes ? ` · ${quienes}` : ''}`;
+}
 
 export default function MiTurno({
   sesionId,
@@ -83,7 +95,7 @@ export default function MiTurno({
   cajaNombre: string;
   abiertaEn?: string;
   onCerrar: () => void;
-  onReimprimir?: (d: Detalle) => void;
+  onReimprimir?: (d: Detalle) => Promise<void> | void;
   onDevolver?: (ventaId: string) => void;
 }) {
   const [resumen, setResumen] = useState<Resumen | null>(null);
@@ -177,6 +189,17 @@ export default function MiTurno({
       setDetalle(d);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se pudo abrir el ticket');
+    }
+  }
+
+  async function reimprimir(d: Detalle) {
+    await onReimprimir?.(d);
+    // refresca el detalle y la lista para que se vea la reimpresión anotada
+    const r = await fetch(`/api/venta-pagos?ventaId=${encodeURIComponent(d.id)}`).catch(() => null);
+    const nuevo = r?.ok ? await r.json().catch(() => null) : null;
+    if (nuevo) {
+      setDetalle((x) => (x && x.id === d.id ? nuevo : x));
+      setVentas((vs) => vs.map((v) => (v.id === d.id ? { ...v, reimpresiones: nuevo.reimpresiones?.length ?? v.reimpresiones } : v)));
     }
   }
 
@@ -371,12 +394,14 @@ export default function MiTurno({
                       #{v.ticket}
                       {v.cliente?.nombre ? ` · ${v.cliente.nombre}` : v.cliente?.dni ? ` · DNI ${v.cliente.dni}` : ''}
                       {v.estado !== 'completada' && <span className="ml-2 inline-block whitespace-nowrap text-xs uppercase text-marca-hondo">{v.estado}</span>}
+                      {v.notas ? <span className="ml-2 inline-block whitespace-nowrap rounded-full bg-tinta/[0.07] px-2 py-0.5 text-xs font-semibold text-tinta/70">{v.notas === 1 ? 'nota' : `${v.notas} notas`}</span> : null}
                     </span>
                     <span className="block min-w-0 break-words text-xs text-tinta/60">
                       {v.pagos.map((p) => p.etiqueta).join(' + ') || 'sin pagos'}
                       {v.comprobante ? ` · ${ETIQUETA_TIPO[v.comprobante.tipo] ?? v.comprobante.tipo} ${String(v.comprobante.numero).padStart(8, '0')}` : ''}
                       {v.comprobante && !v.comprobante.cae ? ' · sin CAE' : ''}
                       {v.cambiosPago > 0 ? ' · medio de pago cambiado' : ''}
+                      {v.reimpresiones ? ` · reimpreso${v.reimpresiones > 1 ? ` ${v.reimpresiones} veces` : ''}` : ''}
                     </span>
                   </span>
                   <span className="importe shrink-0 font-bold text-tinta">{pesos(v.total ?? 0)}</span>
@@ -399,7 +424,7 @@ export default function MiTurno({
         <div ref={detalleRef} className="min-w-0 scroll-mt-24 rounded-2xl bg-white p-4 shadow-tarjeta sm:p-5 lg:min-h-0 lg:overflow-y-auto">
           {!detalle ? (
             <p className="py-10 text-center text-sm text-tinta/60 lg:py-16">
-              Tocá un ticket para ver el detalle, reimprimirlo o cambiarle el medio de pago.
+              Tocá un ticket para ver el detalle, reimprimirlo, anotarle algo o cambiarle el medio de pago.
             </p>
           ) : (
             <>
@@ -483,11 +508,17 @@ export default function MiTurno({
                 </div>
               )}
 
+              {(detalle.reimpresiones?.length ?? 0) > 0 && (
+                <p className="mt-4 break-words text-xs text-tinta/60">
+                  {textoReimpresiones(detalle.reimpresiones!)}
+                </p>
+              )}
+
               {/* ---- acciones ---- */}
               {!cambio ? (
                 <div className="mt-5 grid gap-2">
                   {onReimprimir && (
-                    <Boton variante="secundario" anchoCompleto onClick={() => onReimprimir(detalle)}>
+                    <Boton variante="secundario" anchoCompleto onClick={() => void reimprimir(detalle)}>
                       Reimprimir el ticket
                     </Boton>
                   )}
@@ -605,6 +636,18 @@ export default function MiTurno({
                   </div>
                 </div>
               )}
+
+              {/* ---- notas del ticket: escritas o en audio (5/11/2026) ---- */}
+              <div className="mt-5 border-t border-black/[0.06] pt-4">
+                <NotasTicket
+                  ventaId={detalle.id}
+                  notas={detalle.notas ?? []}
+                  onGuardada={(notas) => {
+                    setDetalle((d) => (d && d.id === detalle.id ? { ...d, notas } : d));
+                    setVentas((vs) => vs.map((v) => (v.id === detalle.id ? { ...v, notas: notas.length } : v)));
+                  }}
+                />
+              </div>
             </>
           )}
         </div>

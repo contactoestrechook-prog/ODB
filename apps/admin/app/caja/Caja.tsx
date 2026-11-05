@@ -7,6 +7,7 @@ import { Aviso, BarraInferior, Boton, BotonLink, Entrada, IconoCerrar, IconoOk, 
 import { hora, pesos } from '../lib/formato';
 import { coincideAproximado, terminosDeBusqueda } from '../lib/busqueda';
 import MiTurno from './MiTurno';
+import { NotasTicket, type NotaTicket } from './NotasTicket';
 
 type Producto = {
   imagenUrl: string | null;
@@ -77,6 +78,8 @@ type TicketData = {
   vuelto: number | null;
   dni?: string;
   offline?: boolean;
+  // copia de un ticket ya impreso (falló la impresora, el cliente pidió otro)
+  reimpresion?: { hora: string; vez?: number };
 };
 
 type Estacionado = {
@@ -303,6 +306,8 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
   const [ticket, setTicket] = useState<TicketData | null>(null); // lo que se imprime
   const [autoPrint, setAutoPrint] = useState(true);
   const [ultima, setUltima] = useState<{ ventaId: string; ticket: TicketData } | null>(null);
+  // «Nota» de la última venta: escrita o en audio, sin salir de la caja (5/11/2026)
+  const [notaUltima, setNotaUltima] = useState<{ ventaId: string; notas: NotaTicket[] } | null>(null);
   const [sinRed, setSinRed] = useState(false);
 
   // consulta de stock por sucursal (ambas sucursales, para responderle al cliente)
@@ -1189,6 +1194,36 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
     return () => { vivo = false; };
   }, [pendienteImprimir, ticket]);
 
+  // REIMPRIMIR (Leandro, 5/11/2026: «por si falla la impresora»). Sale el
+  // mismo ticket marcado REIMPRESIÓN y la API anota quién y cuándo. Si el
+  // registro no responde (sin red, base sin migrar), se imprime igual: lo
+  // urgente es que el cliente se lleve su ticket.
+  async function reimprimir(ventaId: string, t: TicketData) {
+    let vez: number | undefined;
+    try {
+      const r = await fetch('/api/venta-reimpresion', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ventaId }),
+        signal: AbortSignal.timeout(2500),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok && Number(d?.veces) > 0) vez = Number(d.veces);
+    } catch {}
+    const ahora = new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false });
+    imprimir({ ...t, offline: false, reimpresion: { hora: ahora, vez } });
+  }
+
+  // abre la nota de la última venta con las que ya tenga (si alguien anotó antes)
+  async function abrirNotaUltima(ventaId: string) {
+    setNotaUltima({ ventaId, notas: [] });
+    try {
+      const r = await fetch(`/api/venta-pagos?ventaId=${encodeURIComponent(ventaId)}`);
+      const d = await r.json().catch(() => ({}));
+      if (r.ok && Array.isArray(d?.notas)) setNotaUltima((n) => (n?.ventaId === ventaId ? { ventaId, notas: d.notas } : n));
+    } catch {}
+  }
+
   function armarTicket(base: { items: TicketData['items']; total: number; descuento: number }, extras: Partial<TicketData>): TicketData {
     return {
       etiqueta: enPrueba ? 'PRUEBA · NO VÁLIDO COMO FACTURA' : ETIQUETA_COMP[comprobante] ?? 'Ticket',
@@ -1540,7 +1575,7 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
   const estacionarRef = useRef<() => void>(() => {});
   estacionarRef.current = estacionar;
   const reimprimirRef = useRef<() => void>(() => {});
-  reimprimirRef.current = () => { if (ultima) imprimir(ultima.ticket); };
+  reimprimirRef.current = () => { if (ultima) void reimprimir(ultima.ventaId, ultima.ticket); };
   const stockRef = useRef<() => void>(() => {});
   stockRef.current = abrirStock;
   const escanearRef = useRef<(c: string) => void>(() => {});
@@ -2370,8 +2405,14 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
           {/* última venta: reimprimir / anular */}
           {ultima && (
             <div className="flex gap-2 *:flex-1">
-              <Boton variante="secundario" onClick={() => imprimir(ultima.ticket)} icono={<IconoCaja d={ICONO.imprimir} className="size-4" />}>
+              <Boton variante="secundario" onClick={() => void reimprimir(ultima.ventaId, ultima.ticket)} icono={<IconoCaja d={ICONO.imprimir} className="size-4" />}>
                 Reimprimir (F8)
+              </Boton>
+              <Boton
+                variante="secundario"
+                onClick={() => void abrirNotaUltima(ultima.ventaId)}
+              >
+                Nota
               </Boton>
               <Boton variante="peligro" onClick={anularUltima}>
                 Anular última
@@ -2754,7 +2795,7 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
             // el ticket se rearma con lo que quedó guardado en la venta, no con
             // el carrito de ahora (que puede tener otra cosa a medio cobrar)
             const comp = (d.comprobantes ?? []).find((c: any) => ['FA', 'FB', 'FC', 'REM'].includes(c.tipo));
-            imprimir({
+            return reimprimir(d.id, {
               numero: comp ? `${comp.tipo} ${comp.numero}` : undefined,
               etiqueta: comp ? (ETIQUETA_COMP[(comp.tipo === 'FA' ? 'A' : comp.tipo === 'REM' ? 'R' : 'B') as TipoComprobante] ?? 'Ticket') : 'Ticket',
               fecha: new Date(d.vendidaEn).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }),
@@ -2769,6 +2810,18 @@ export function Caja({ sucursales }: { sucursales: { id: string; nombre: string;
           onDevolver={(ventaId) => { setVerTurno(false); void abrirDevolucionDeVenta(ventaId); }}
         />
       )}
+
+      {/* ---- nota de la última venta (escrita o en audio) ---- */}
+      <Modal abierto={!!notaUltima} onCerrar={() => { setNotaUltima(null); setTimeout(() => inputRef.current?.focus(), 60); }} titulo="Nota del último ticket">
+        {notaUltima && (
+          <NotasTicket
+            ventaId={notaUltima.ventaId}
+            notas={notaUltima.notas}
+            enfocar
+            onGuardada={(notas) => setNotaUltima((n) => (n ? { ...n, notas } : n))}
+          />
+        )}
+      </Modal>
 
       {/* ---- consulta de stock en ambas sucursales ---- */}
       <Modal abierto={modalStock} onCerrar={() => setModalStock(false)} titulo="Stock por sucursal">
@@ -2840,6 +2893,12 @@ function TicketPrint({ t }: { t: TicketData | null }) {
           </div>
           <div>{t.fecha}</div>
           {t.dni && <div>Cliente: {t.dni}</div>}
+          {t.reimpresion && (
+            <>
+              <div style={{ marginTop: 4, fontWeight: 700, letterSpacing: 1 }}>*** REIMPRESIÓN ***</div>
+              <div>{t.reimpresion.vez ? `Copia ${t.reimpresion.vez} · ` : ''}impresa {t.reimpresion.hora}</div>
+            </>
+          )}
         </div>
         <div style={{ borderTop: '1px dashed #000', margin: '6px 0' }} />
         {t.items.map((i, idx) => (

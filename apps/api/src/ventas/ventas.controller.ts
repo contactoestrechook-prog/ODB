@@ -1,11 +1,16 @@
 import { Body, Controller, ForbiddenException, Get, Param, Post, Query, Req } from '@nestjs/common';
 import { VentasService } from './ventas.service';
+import { NotasVentaService } from './notas-venta.service';
+import type { NotaNueva } from './notas-venta.service';
 import type { CrearVentaDto, DevolverDto } from './ventas.service';
 import { Roles } from '../auth/decorators';
 
 @Controller('ventas')
 export class VentasController {
-  constructor(private readonly ventas: VentasService) {}
+  constructor(
+    private readonly ventas: VentasService,
+    private readonly notas: NotasVentaService,
+  ) {}
 
   @Roles('cajero', 'gerente', 'dueno')
   @Post()
@@ -57,8 +62,29 @@ export class VentasController {
   // Todo lo de un ticket para el panel de la caja (renglones, pagos, factura)
   @Roles('cajero', 'gerente', 'dueno')
   @Get(':id/detalle')
-  detalle(@Param('id') id: string) {
-    return this.ventas.detalle(id);
+  async detalle(@Param('id') id: string) {
+    const [d, notas, reimpresiones] = await Promise.all([
+      this.ventas.detalle(id),
+      this.notas.listar(id),
+      this.notas.reimpresiones(id),
+    ]);
+    return { ...d, notas, reimpresiones };
+  }
+
+  // Notas del ticket: escritas o en audio (Leandro, 5/11/2026). Quién la
+  // escribió sale SIEMPRE del JWT.
+  @Roles('cajero', 'gerente', 'dueno')
+  @Post(':id/notas')
+  agregarNota(@Param('id') id: string, @Body() dto: NotaNueva, @Req() req: any) {
+    return this.notas.agregar(id, dto ?? {}, req.usuario?.sub);
+  }
+
+  // Se volvió a imprimir el ticket (falló la impresora, el cliente pidió otro):
+  // queda quién y cuándo.
+  @Roles('cajero', 'gerente', 'dueno')
+  @Post(':id/reimpresion')
+  reimpresion(@Param('id') id: string, @Req() req: any) {
+    return this.notas.reimpresion(id, req.usuario?.sub);
   }
 
   // El cliente se arrepintió del medio de pago. Cambia los pagos dejando la

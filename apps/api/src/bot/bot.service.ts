@@ -1,4 +1,5 @@
 import { bajarMediaMeta } from '../comun/meta';
+import { transcribirAudio } from '../comun/transcribir';
 import { esperaRetiroOEnvio, eligeRetiroOEnvio, eligioModalidad } from './entrega';
 import { esContestadorAutomatico } from './contestador';
 import { elegirPorDefecto, puedeCotizar } from './completo';
@@ -7,7 +8,7 @@ import { esSilenciado, MOTIVO_TELEFONO, minutosPausaTelefono, vencePausaTelefono
 import { agruparItems, cantidadesIndividuales, confirmacionInequivoca, idWhatsappCorto, importesDeHerramienta, importesDelTexto, pesos, presentacionProducto } from './comercio';
 import { BadRequestException, Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { volumenMl, etiquetaVolumen, pideTamano, resumenDeTamanos, cantidadesPedidas, PALABRA_GENERICA } from './formatos';
-import { emprolijarListado, nombreLimpio, saludoSegunHora, saludarConBienvenida, niegaPercepcion, envioSinCargo, casiIgual, mismasPalabras, campoLimpio, esAlucinacionDeTranscripcion, nombreSucursalCliente, esAutomaticoWhatsappBusiness, sinCocinaInterna, explicaQueNoContesta, esTextoInterno } from './prolijo';
+import { emprolijarListado, nombreLimpio, saludoSegunHora, saludarConBienvenida, niegaPercepcion, envioSinCargo, casiIgual, mismasPalabras, campoLimpio, nombreSucursalCliente, esAutomaticoWhatsappBusiness, sinCocinaInterna, explicaQueNoContesta, esTextoInterno } from './prolijo';
 import { aceptaNoContestar, botOfrecioAlgo, confirmaLaLista, esCierreDeCharla, esDespedida, esperaRespuesta, HORAS_CONSULTA_INSISTENCIA, HORAS_SIGUE_PERSONA, insiste, loUltimoDeLaCasaEsDeUnaPersona, MINUTOS_CONSULTA_SIN_RESPUESTA, type MotivoDeSilencio, paraElModelo, silencioPorReglas, telefonosDeLaCasa, traeOtroTelefono } from './silencio';
 import { consultaAbiertaQueNombra, datoNuevo, diceQueNoSabe, esSoloSaludo, saludoDelArranque, juntarConsulta, mencionaConsulta, mencionaConsultaSinElPase, mismaConsulta, mismoTema, respuestaDelAreaParaCliente, sinMencionDeConsulta, sinPromesas, temaDeConsulta, temaDeLaPromesa } from './prolijo';
 import * as TEXTO from './textos-fijos';
@@ -4107,39 +4108,11 @@ export class BotService {
     });
   }
 
-  // Transcribe una nota de voz. Usa la API de transcripción estándar (la misma
-  // forma en OpenAI y en Groq), así el dueño elige proveedor sin tocar código:
-  //   TRANSCRIPCION_KEY   — la clave (lo único obligatorio)
-  //   TRANSCRIPCION_URL   — por defecto OpenAI; para Groq:
-  //                         https://api.groq.com/openai/v1/audio/transcriptions
-  //   TRANSCRIPCION_MODELO— por defecto whisper-1 (Groq: whisper-large-v3-turbo)
-  // Si no hay clave, devuelve null y el audio se deriva a una persona como antes.
+  // Transcribe una nota de voz (comun/transcribir.ts: OpenAI o Groq según
+  // TRANSCRIPCION_*). Sin clave devuelve null y el audio se deriva a una persona.
   async transcribirAudio(base64: string, mime: string): Promise<string | null> {
-    const key = process.env.TRANSCRIPCION_KEY;
-    if (!key) return null;
-    const url = process.env.TRANSCRIPCION_URL || 'https://api.openai.com/v1/audio/transcriptions';
-    const modelo = process.env.TRANSCRIPCION_MODELO || 'whisper-1';
-    try {
-      const bin = Buffer.from(base64, 'base64');
-      const ext = /ogg/.test(mime) ? 'ogg' : /mpeg|mp3/.test(mime) ? 'mp3' : /wav/.test(mime) ? 'wav' : /mp4|m4a/.test(mime) ? 'm4a' : 'ogg';
-      const fd = new FormData();
-      fd.append('file', new Blob([new Uint8Array(bin)], { type: mime || 'audio/ogg' }), `audio.${ext}`);
-      fd.append('model', modelo);
-      fd.append('language', 'es');
-      // el vocabulario del negocio ayuda mucho con marcas y medidas
-      fd.append('prompt', 'Pedido de bebidas en Argentina: fernet, Branca, Quilmes, Coca Cola, Sprite, Aquarius, Malbec, espumante, cajón, botella, litro, docena, Canning, Sant Thomas, Santa Inés.');
-      const r = await fetch(url, { method: 'POST', headers: { Authorization: `Bearer ${key}` }, body: fd, signal: AbortSignal.timeout(45000) });
-      if (!r.ok) { this.log.warn(`transcripción falló (${r.status}): ${(await r.text().catch(() => '')).slice(0, 160)}`); return null; }
-      const j: any = await r.json();
-      const texto = String(j?.text ?? '').trim();
-      // Whisper "alucina" con audios mudos o con ruido: devuelve créditos de
-      // subtítulos de YouTube. Eso no lo dijo el cliente (Rachel, 23/9/2026).
-      if (texto && esAlucinacionDeTranscripcion(texto)) { this.log.warn(`transcripción descartada (alucinación): "${texto.slice(0, 80)}"`); return null; }
-      return texto || null;
-    } catch (e: any) {
-      this.log.warn(`transcripción falló: ${e?.message ?? e}`);
-      return null;
-    }
+    return transcribirAudio(Buffer.from(base64, 'base64'), mime,
+      'Pedido de bebidas en Argentina: fernet, Branca, Quilmes, Coca Cola, Sprite, Aquarius, Malbec, espumante, cajón, botella, litro, docena, Canning, Sant Thomas, Santa Inés.');
   }
 
   // Baja el archivo que mandó el cliente desde WAHA (foto, audio, documento).
