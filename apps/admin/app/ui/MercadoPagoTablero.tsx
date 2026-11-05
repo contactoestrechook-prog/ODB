@@ -80,6 +80,7 @@ function Barras({ barras, alto = 220, activa, onElegir, etiquetaCada = 1 }: { ba
       const pl = 0, pb = 20, pt = 6, n = Math.max(1, barras.length);
       const paso = (W - pl) / n, ancho = Math.max(2, Math.min(46, paso * 0.62));
       geo.current = { x0: pl, ancho: paso };
+      const cada = Math.max(etiquetaCada, Math.ceil(44 / paso)); // en el celular, las etiquetas no se pisan
       // tres rayas de escala
       x.font = `9px ${letra}`; x.textAlign = 'left';
       for (const f of [0.5, 1]) {
@@ -100,7 +101,7 @@ function Barras({ barras, alto = 220, activa, onElegir, etiquetaCada = 1 }: { ba
         }
         x.globalAlpha = 1;
         if (sobre === i) { x.strokeStyle = '#F5F5F7'; x.lineWidth = 1; x.strokeRect(x0 - 2.5, y - 2.5, ancho + 5, H - pb - y + 5); }
-        if (i % etiquetaCada === 0 || activa === b.clave) {
+        if (i % cada === 0 || activa === b.clave) {
           x.fillStyle = activa === b.clave ? '#F5F5F7' : '#7E7F86'; x.textAlign = 'center'; x.fillText(b.etiqueta, cx, H - 5);
         }
       });
@@ -571,10 +572,10 @@ const CSS = `
 .mp main{padding-block:6px 24px}
 .mp .cifras{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:18px 28px;padding-block:22px;border-bottom:1px solid var(--linea)}
 .mp .cifras>div{min-width:0}
-.mp .cifras .grande{font-weight:800;font-size:clamp(20px,2.3vw,30px);letter-spacing:-.03em;line-height:1.1;margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mp .cifras .grande{font-weight:800;font-size:clamp(17px,2.3vw,30px);letter-spacing:-.03em;line-height:1.1;margin-top:6px;overflow-wrap:anywhere}
 .mp .cifras .gris{font-size:10.5px;margin-top:4px}
 .mp .cifras.chicas{grid-template-columns:repeat(5,minmax(0,1fr));padding-block:14px;border-bottom:0}
-.mp .cifras .medio{font-weight:600;font-size:15px;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mp .cifras .medio{font-weight:600;font-size:15px;margin-top:4px;overflow-wrap:anywhere}
 .mp .bloque{padding-block:18px;border-bottom:1px solid var(--linea)}
 .mp .bloque.abierto{border-left:2px solid var(--blanco);padding-left:16px;margin-left:-18px}
 .mp .titulo{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:8px 18px;margin-bottom:10px}
@@ -621,5 +622,7 @@ const CSS = `
 }
 @media (max-width:520px){
   .mp .bloque.abierto{margin-left:0;padding-left:10px}
+  .mp .cifras,.mp .cifras.chicas{grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px 18px}
+  .mp .cifras .grande{font-size:18px}
 }
 `;
