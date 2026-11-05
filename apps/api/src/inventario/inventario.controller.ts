@@ -16,11 +16,6 @@ export class InventarioController {
     return this.inventario.buscar(q ?? '');
   }
 
-  @Get('para-mirar')
-  paraMirar() {
-    return this.inventario.paraMirar();
-  }
-
   @Get('producto/:sku')
   producto(@Param('sku') sku: string, @Req() req: any) {
     return this.inventario.producto(sku, req.usuario?.rol !== 'cajero');

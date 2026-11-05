@@ -2,6 +2,7 @@ import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
 import { leerAbastecimiento } from '../abastecimiento/motor';
+import { ordenarPorRelevancia } from '../catalogo/relevancia';
 import {
   escalones, margenSobreCosto, nivelEnElTiempo, nombreSucursal, origenDelCosto, ventasPorPeriodo,
   type MovimientoCrudo, type Periodo,
@@ -16,6 +17,8 @@ let memoPeriodos: { en: number; porSucursal: Map<string, Periodo[]> } | null = n
 
 const num = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 const numONada = (v: unknown) => (v == null || !Number.isFinite(Number(v)) ? null : Number(v));
+/** las cantidades van con tres decimales (se vende por peso) */
+const r3 = (v: number) => Math.round(v * 1000) / 1000;
 
 // El inventario de un producto: cuánto hay en cada sucursal, cómo llegó ahí,
 // cuánto se vende y a cuánto se compra. Las cuentas están en series.ts; el
@@ -36,6 +39,7 @@ export class InventarioService {
     const t = (q ?? '').trim();
     if (t.length < 2) return [];
     const TOPE = 12;
+    const CANDIDATOS = 40; // se ordenan acá por relevancia y quedan los 12 primeros
     let orden: string[] = [];
 
     if (/^\d{8,14}$/.test(t)) {
@@ -52,18 +56,18 @@ export class InventarioService {
           .order('nivel')
           .order('en_nombre', { ascending: false })
           .order('parecido', { ascending: false })
-          .limit(TOPE);
+          .limit(CANDIDATOS);
         if (error) throw new Error(error.message);
         return ((data ?? []) as any[]).map((r) => r.producto_id as string);
       };
-      // el SKU escrito entero va primero (la búsqueda ordena por parecido del nombre)
+      // el SKU escrito entero entra siempre (la base ordena por parecido del nombre)
       const [exacto, activos] = await Promise.all([
         /^[a-z]{0,3}\d{1,8}$/i.test(t) ? this.db.from('productos').select('id').ilike('sku', t).limit(1) : Promise.resolve({ data: [] as any[] }),
         parecidos(true),
       ]);
       orden = [...((exacto.data ?? []) as any[]).map((r) => r.id as string), ...activos];
       if (orden.length < 4) orden.push(...(await parecidos(false)));
-      orden = [...new Set(orden)].slice(0, TOPE);
+      orden = [...new Set(orden)];
     }
     if (!orden.length) return [];
 
@@ -75,32 +79,20 @@ export class InventarioService {
     if (error) throw new Error(error.message);
     const cantidad = new Map<string, number>();
     for (const s of (stock ?? []) as any[]) cantidad.set(`${s.producto_id}|${s.sucursal_id}`, num(s.cantidad));
-    return ((productos ?? []) as any[])
+    const lista = ((productos ?? []) as any[])
       .sort((a, b) => orden.indexOf(a.id) - orden.indexOf(b.id))
       .map((p) => {
         const porSucursal = sucursales.map((s) => ({ sucursalId: s.id, sucursal: s.nombre, cantidad: cantidad.get(`${p.id}|${s.id}`) ?? 0 }));
         return {
-          sku: p.sku, nombre: p.nombre, rubro: p.categoria?.nombre ?? null, marca: p.marca?.nombre ?? null, activo: p.activo !== false,
-          total: porSucursal.reduce((t2, s) => t2 + s.cantidad, 0),
+          sku: p.sku as string, nombre: p.nombre as string, rubro: (p.categoria?.nombre as string) ?? null, marca: (p.marca?.nombre as string) ?? null,
+          activo: p.activo !== false,
+          total: r3(porSucursal.reduce((t2, s) => t2 + s.cantidad, 0)),
           stock: porSucursal,
         };
       });
-  }
-
-  // ---------- la entrada: lo que se vende y no tiene stock ----------
-  async paraMirar() {
-    const { data, error } = await this.db.rpc('abastecimiento', { p_sucursal: null, p_solo_alertas: true, p_proveedor: null, p_q: null, p_limite: 40 });
-    if (error) throw new Error(error.message);
-    // el motor ya los trae del más urgente al menos; un producto, una sola vez
-    const vistos = new Set<string>();
-    const salida: { sku: string; nombre: string; sucursal: string; stock: number; ritmoDia: number; alerta: string }[] = [];
-    for (const f of (data ?? []) as any[]) {
-      if (f.alerta !== 'sin_stock' || vistos.has(f.sku)) continue;
-      vistos.add(f.sku);
-      salida.push({ sku: f.sku, nombre: f.nombre, sucursal: nombreSucursal(f.sucursal), stock: num(f.stock), ritmoDia: num(f.ritmo_dia), alerta: f.alerta });
-      if (salida.length >= 8) break;
-    }
-    return salida;
+    // la regla del catálogo: gana el que empieza con lo escrito y el nombre más
+    // corto; los dados de baja, al final (catalogo/relevancia.ts)
+    return ordenarPorRelevancia(lista, t).slice(0, TOPE);
   }
 
   private async periodos(sucursalIds: string[]): Promise<Map<string, Periodo[]>> {
@@ -213,7 +205,7 @@ export class InventarioService {
         activo: prod.activo !== false, porPeso: !!prod.vendido_por_peso,
         codigos: ((prod.codigos_barras ?? []) as any[]).map((c) => c.codigo as string),
       },
-      total: niveles.reduce((t, nv) => t + num(nv.fila?.cantidad), 0),
+      total: r3(niveles.reduce((t, nv) => t + num(nv.fila?.cantidad), 0)),
       sucursales: niveles.map((nv) => {
         const m = delMotor(nv.sucursal.id);
         return {

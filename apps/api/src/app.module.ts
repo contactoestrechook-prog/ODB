@@ -31,6 +31,7 @@ import { PromosModule } from './promos/promos.module';
 import { DifusionesModule } from './difusiones/difusiones.module';
 import { EficienciaModule } from './eficiencia/eficiencia.module';
 import { BuscarModule } from './buscar/buscar.module';
+import { InventarioModule } from './inventario/inventario.module';
 import { MensajesModule } from './mensajes/mensajes.module';
 import { EventosModule } from './eventos/eventos.module';
 import { FidelizacionModule } from './fidelizacion/fidelizacion.module';
@@ -98,6 +99,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     DifusionesModule,
     EficienciaModule,
     BuscarModule,
+    InventarioModule,
     MensajesModule,
     EventosModule,
     FidelizacionModule,
