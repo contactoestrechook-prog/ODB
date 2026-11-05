@@ -341,7 +341,13 @@ export class FacturaChatService {
     // está teniendo razonamiento? vamos a medirlo»). De cada llamada a la IA queda
     // el modelo, el esfuerzo, los tokens, cuántos bloques de razonamiento vinieron,
     // por qué terminó y cuánto tardó; si falló, el error. Va a compras_chat_turnos.uso.
-    const esfuerzoChat = esfuerzo('FACTURA_CHAT_ESFUERZO', 'high', { general: false });
+    // El turno automático (las reglas del proveedor al abrir la factura) piensa
+    // más que una charla: nadie lo está mirando y el 5/11 a las 17:48 pisó las
+    // barras de Grupo Modo con una regla de cigarrillos (Leandro: «hoy se equivocó
+    // siempre ahí, ¿por qué esperar a mañana?»). Se regula con FACTURA_CHAT_AUTO_ESFUERZO.
+    const esfuerzoChat = automatico
+      ? esfuerzo('FACTURA_CHAT_AUTO_ESFUERZO', 'xhigh', { general: false })
+      : esfuerzo('FACTURA_CHAT_ESFUERZO', 'high', { general: false });
     const llamadas: Record<string, unknown>[] = [];
     const guardarFallo = async (error: string) => {
       const { error: e } = await this.db.from('compras_chat_turnos').insert({
