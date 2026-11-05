@@ -17,7 +17,7 @@ import { CabeceraFactura, PapelDelRenglon } from './TablaFactura';
 import { conCodigo } from '../lib/codigo-producto';
 import { diferenciaPrecioCero, elegirPendientes, textoPrecioCero, type PendientePrecioCero } from '../lib/precio-cero';
 import { AsistenteFactura, describirCambio, type CambioHecho } from './AsistenteFactura';
-import { asignarInternos, textoInternos } from '../lib/internos-compras';
+import { asignarInternos, internosImpresos, pctPercepciones, textoInternos } from '../lib/internos-compras';
 import { aplicarBorrador, borradorDe, borradorVacio } from '../lib/borrador-factura';
 import { aplicarCambiosIA, aplicarPapel, cuentaDelPapel, entraDeRenglon, marcarComoDevolucion, papelDeLectura, tablaParaIA, type EntraComo, type Papel } from '../lib/tabla-factura';
 import {
@@ -674,6 +674,10 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
           // si la lectura tomó el importe CON IVA, se usa el neto que dedujo el servidor
           importe: r.importeNeto ?? i.importe ?? null,
           importeConIvaLeido: r.importeNeto != null ? i.importe : null,
+          // cigarrillos (5/11/2026): el interno que el papel imprime en este
+          // renglón y el total con impuestos que traía; el renglón va en neto
+          internosDelPapel: Number(i.internosDelPapel) > 0 ? Number(i.internosDelPapel) : null,
+          importeImpreso: Number(i.importeImpreso) > 0 ? Number(i.importeImpreso) : null,
           esDescuento: !!i.esDescuento,
           // mercadería que vuelve al proveedor: sale del stock (3/11/2026)
           esDevolucion: !!i.esDevolucion,
@@ -1196,7 +1200,13 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   const renglonesInternos = itemsCalc
     .map((i: any, idx: number) => ({ i, idx }))
     .filter(({ i }) => !i._esDescuento && !i._esDevolucion && netoDelRenglon(i) > 0);
-  const internos = asignarInternos(
+  // Cigarrillos (5/11/2026): si el papel imprime el interno de cada renglón y
+  // la suma da el del pie, cada uno lleva el suyo, sin adivinar. Lo que marca
+  // una persona sigue mandando.
+  const internosDelPapel = renglonesInternos.some(({ i }) => i.llevaInternos != null)
+    ? null
+    : internosImpresos(renglonesInternos.map(({ i }) => i.internosDelPapel), impIntDoc);
+  const internos = internosDelPapel ?? asignarInternos(
     renglonesInternos.map(({ i }) => ({ descripcion: `${i.descripcion ?? ''} ${i.nombre ?? ''}`, neto: netoDelRenglon(i), marcado: i.llevaInternos ?? null })),
     impIntDoc,
   );
@@ -1259,12 +1269,20 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   // Factura A: el IVA es el de cada renglón (aunque todavía no cierre: así el
   // costo que se ve ya responde a la alícuota que se va eligiendo). B, C y
   // remitos: el precio ya trae el IVA adentro y sigue el factor de siempre.
+  // Las percepciones van sobre neto + internos (5/11/2026, Grupo Modo): con
+  // internos ya asignados a sus renglones, cada peso de neto y de interno lleva
+  // la misma parte. Sin internos es lo de siempre (percepciones ÷ neto).
+  const percepcionesPct = ivaConAlicuotas
+    ? (internosDeIdx.size && netoDoc ? pctPercepciones(percepcionesAlCosto ? percepciones : 0, netoDoc, impIntDoc) : ivaConAlicuotas.cargaComunPct)
+    : 0;
   const factorDe = (i: any, idx: number) => {
     const a = alicDe(idx);
     return ivaConAlicuotas && a != null
-      ? ivaConAlicuotas.factorNeto * (1 + a / 100 + ivaConAlicuotas.cargaComunPct)
+      ? ivaConAlicuotas.factorNeto * (1 + a / 100 + percepcionesPct)
       : factorRecon;
   };
+  // el interno de la unidad con su parte de las percepciones
+  const internosConPercepcion = (i: any, idx: number) => internosPorUnidad(i, idx) * (1 + (ivaConAlicuotas && internosDeIdx.size ? percepcionesPct : 0));
   const ivaBloquea = !!ivaFactura && ivaFactura.estado !== 'cierra' && renglonesIva.some(({ i }) => i.incluir);
   // cambia la alícuota de uno o varios renglones (a mano o aceptando la sugerencia)
   const elegirAlicuota = (indices: number[], a: number | null) =>
@@ -1279,16 +1297,20 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
       if (Math.abs(ivaConAlicuotas.factorNeto - 1) > 0.0001) partes.push(`× ${ivaConAlicuotas.factorNeto.toFixed(4).replace('.', ',')} (descuento del pie)`);
       const origen = { elegida: 'elegida a mano', impresa: 'impresa en la factura', catalogo: 'del catálogo', general: 'general' }[origenAlic(idx) ?? 'general'];
       partes.push(`+ IVA ${String(a).replace('.', ',')}% (${origen}) ${pesos(neto * a / 100)}`);
-      if (ivaConAlicuotas.cargaComunPct > 0) partes.push(`+ percepciones ${(ivaConAlicuotas.cargaComunPct * 100).toFixed(2).replace('.', ',')}% ${pesos(neto * ivaConAlicuotas.cargaComunPct)}`);
+      if (percepcionesPct > 0) partes.push(`+ percepciones ${(percepcionesPct * 100).toFixed(2).replace('.', ',')}% ${pesos(neto * percepcionesPct)}`);
     } else if (hayDatosFiscales) {
       partes.push(`× ${factorRecon.toFixed(4).replace('.', ',')} (impuestos de la factura repartidos en proporción)`);
     }
-    if (internosPorUnidad(i, idx) > 0) partes.push(`+ internos ${pesos(internosPorUnidad(i, idx))} (este producto los paga)`);
+    if (internosPorUnidad(i, idx) > 0) {
+      partes.push(`+ internos ${pesos(internosPorUnidad(i, idx))} (${i.internosDelPapel ? 'los que trae impresos este renglón' : 'este producto los paga'})`);
+      const sobreInternos = internosConPercepcion(i, idx) - internosPorUnidad(i, idx);
+      if (sobreInternos > 0.005) partes.push(`+ percepciones sobre esos internos ${pesos(sobreInternos)}`);
+    }
     return `${partes.join('  ')}  = ${pesos(costoFinal(i, idx))} c/IVA`;
   };
   const costoFinal = (i: any, idx?: number) => {
     const k = idx ?? itemsCalc.indexOf(i);
-    return Math.round((precioEfectivo(i) * factorDe(i, k) + internosPorUnidad(i, k)) * 100) / 100;
+    return Math.round((precioEfectivo(i) * factorDe(i, k) + internosConPercepcion(i, k)) * 100) / 100;
   };
   const hayDatosFiscales = baseCosto != null;
   // La variación contra el costo del catálogo, con lo que el renglón dice AHORA
@@ -3013,7 +3035,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                 {ivaFactura?.estado === 'cierra' && (
                   <p className="mt-1 text-ok">
                     <IconoOk className="mr-1 inline size-4 align-[-3px]" /><b>IVA verificado:</b> cada renglón con su alícuota suma {pesos(ivaFactura.ivaCalculado)}, igual al IVA del pie.
-                    {ivaFactura.cargaComunPct > 0 && <> Percepciones: +{(ivaFactura.cargaComunPct * 100).toFixed(2).replace('.', ',')}% sobre el neto de cada renglón.</>}
+                    {percepcionesPct > 0 && <> Percepciones: +{(percepcionesPct * 100).toFixed(2).replace('.', ',')}% sobre el neto{internosDeIdx.size ? ' y los impuestos internos' : ''} de cada renglón.</>}
                     {' '}<span className="text-tinta/60">Pasá el mouse por el precio c/IVA de un renglón para ver su cuenta.</span>
                   </p>
                 )}
