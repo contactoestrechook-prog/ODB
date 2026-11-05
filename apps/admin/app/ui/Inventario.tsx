@@ -337,7 +337,7 @@ export function InventarioFicha({ ficha }: { ficha: FichaInventario }) {
           <TarjetaCabecera
             titulo="Cuánto se vende"
             sub={conHistoria.length
-              ? `Unidades por día en cada período del sistema viejo${conHistoria.length === 1 ? ` · ${nombreDe(conHistoria[0].sucursalId)}` : ''}`
+              ? `Unidades por día en cada período del sistema viejo${conHistoria.length === 1 ? ` · ${nombreDe(conHistoria[0].sucursalId)}, ${periodoEnPalabras({ desde: conHistoria[0].periodos[0].desde, hasta: conHistoria[0].periodos[conHistoria[0].periodos.length - 1].hasta })}` : ''}`
               : 'Las ventas del sistema viejo'}
           />
           <TarjetaCuerpo className="space-y-3">
@@ -457,7 +457,7 @@ export function InventarioFicha({ ficha }: { ficha: FichaInventario }) {
           sub={ficha.movimientos.length ? `${ficha.movimientos.length === 1 ? 'Un movimiento' : `${ficha.movimientos.length} movimientos`}, del más nuevo al más viejo` : undefined}
           accion={ficha.movimientos.length > 0 && ficha.sucursales.length > 1 && (
             <Chips
-              etiqueta="Sucursal"
+              etiquetaAccesible="Sucursal"
               valor={filtro}
               onCambiar={(v) => { setFiltro(v); setTodos(false); }}
               opciones={[{ valor: 'todas', etiqueta: 'Todas' }, ...ficha.sucursales.map((s) => ({ valor: s.id, etiqueta: s.nombre }))]}

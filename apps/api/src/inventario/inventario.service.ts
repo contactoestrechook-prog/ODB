@@ -69,8 +69,27 @@ export class InventarioService {
       if (orden.length < 4) orden.push(...(await parecidos(false)));
       orden = [...new Set(orden)];
     }
-    if (!orden.length) return [];
+    // la regla del catálogo: gana el que empieza con lo escrito y el nombre más
+    // corto; los dados de baja, al final (catalogo/relevancia.ts)
+    return ordenarPorRelevancia(await this.conStock(orden), t).slice(0, TOPE);
+  }
 
+  // ---------- la entrada: los que más se venden, para abrirlos con un toque ----------
+  async masVendidos() {
+    const { data, error } = await this.db
+      .from('productos')
+      .select('id')
+      .eq('activo', true)
+      .gt('unidades_vendidas', 0)
+      .order('unidades_vendidas', { ascending: false })
+      .limit(10);
+    if (error) throw new Error(error.message);
+    return this.conStock(((data ?? []) as any[]).map((r) => r.id as string));
+  }
+
+  /** Los productos de la lista, en ese orden, con lo que hay en cada sucursal. */
+  private async conStock(orden: string[]) {
+    if (!orden.length) return [];
     const [{ data: productos, error }, { data: stock }, sucursales] = await Promise.all([
       this.db.from('productos').select('id, sku, nombre, activo, categoria:categorias(nombre), marca:marcas(nombre)').in('id', orden),
       this.db.from('stock').select('producto_id, sucursal_id, cantidad').in('producto_id', orden),
@@ -79,7 +98,7 @@ export class InventarioService {
     if (error) throw new Error(error.message);
     const cantidad = new Map<string, number>();
     for (const s of (stock ?? []) as any[]) cantidad.set(`${s.producto_id}|${s.sucursal_id}`, num(s.cantidad));
-    const lista = ((productos ?? []) as any[])
+    return ((productos ?? []) as any[])
       .sort((a, b) => orden.indexOf(a.id) - orden.indexOf(b.id))
       .map((p) => {
         const porSucursal = sucursales.map((s) => ({ sucursalId: s.id, sucursal: s.nombre, cantidad: cantidad.get(`${p.id}|${s.id}`) ?? 0 }));
@@ -90,9 +109,6 @@ export class InventarioService {
           stock: porSucursal,
         };
       });
-    // la regla del catálogo: gana el que empieza con lo escrito y el nombre más
-    // corto; los dados de baja, al final (catalogo/relevancia.ts)
-    return ordenarPorRelevancia(lista, t).slice(0, TOPE);
   }
 
   private async periodos(sucursalIds: string[]): Promise<Map<string, Periodo[]>> {

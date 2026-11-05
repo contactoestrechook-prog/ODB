@@ -16,6 +16,11 @@ export class InventarioController {
     return this.inventario.buscar(q ?? '');
   }
 
+  @Get('mas-vendidos')
+  masVendidos() {
+    return this.inventario.masVendidos();
+  }
+
   @Get('producto/:sku')
   producto(@Param('sku') sku: string, @Req() req: any) {
     return this.inventario.producto(sku, req.usuario?.rol !== 'cajero');

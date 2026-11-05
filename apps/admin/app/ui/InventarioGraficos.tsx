@@ -33,6 +33,8 @@ export const tonoDeSucursal = (indice: number) => TONOS[indice] ?? TONO_GRIS;
 const DIA = 86_400_000;
 const CLASE_EJE = 'importe fill-tinta/60 text-xs';
 const CLASE_ROTULO = 'importe fill-tinta text-xs font-semibold';
+/** cuántas marcas de tiempo entran sin pisarse: cada una pide unos 72 px («ene 2026») */
+const marcasQueEntran = (ancho: number) => Math.max(3, Math.min(8, Math.floor((ancho - 100) / 72)));
 
 function useAncho(ref: RefObject<HTMLElement | null>): number {
   const [ancho, setAncho] = useState(0);
@@ -183,7 +185,7 @@ export function GraficoNivel({ ficha }: { ficha: FichaInventario }) {
       {ancho > 0 && (
         <svg width={ancho} height={alto} className="block overflow-visible">
           <EjeCantidad marcas={marcas} y={y} x0={m.izquierda} x1={ancho - m.derecha} texto={(v) => unidades(v)} />
-          <EjeTiempo marcas={marcasDeTiempo(desde, hasta, ancho < 520 ? 4 : 7)} x={x} y={alto - m.abajo} alto={m.abajo} />
+          <EjeTiempo marcas={marcasDeTiempo(desde, hasta, marcasQueEntran(ancho))} x={x} y={alto - m.abajo} alto={m.abajo} />
           {p && <line x1={x(p.ms)} x2={x(p.ms)} y1={m.arriba} y2={alto - m.abajo} className="stroke-tinta/30" />}
           {ficha.nivel.series.map((s, i) => {
             const tono = tonoDeSucursal(indiceDe(s.sucursalId));
@@ -218,7 +220,7 @@ export function GraficoNivel({ ficha }: { ficha: FichaInventario }) {
             {ficha.nivel.series.map((s) => (
               <p key={s.sucursalId} className="flex items-baseline gap-1.5">
                 <Punto clase={tonoDeSucursal(indiceDe(s.sucursalId)).fondo} />
-                <span className="min-w-0 flex-1">{esHoy ? 'Hay' : 'Quedaron'} en {nombreDe(s.sucursalId)}</span>
+                <span className="min-w-0 flex-1">{esHoy ? 'Hay' : p.movimientos.some((mv) => mv.sucursalId === s.sucursalId) ? 'Quedaron' : 'Había'} en {nombreDe(s.sucursalId)}</span>
                 <span className="importe font-semibold text-tinta">{unidades(nivelEn(s, p.ms), porPeso)}</span>
               </p>
             ))}
@@ -275,10 +277,18 @@ export function GraficoVentas({ ficha }: { ficha: FichaInventario }) {
         const ritmo = v.sucursal?.ritmoDia ?? 0;
         return (
           <div key={v.sucursalId} className="relative">
-            {paneles.length > 1 && <p className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-tinta/70"><Punto clase={tono.fondo} />{v.sucursal?.nombre}</p>}
+            <p className="mb-1 flex min-h-5 flex-wrap items-center gap-x-4 gap-y-1 text-xs text-tinta/70">
+              {paneles.length > 1 && <span className="flex items-center gap-1.5 font-semibold"><Punto clase={tono.fondo} />{v.sucursal?.nombre}</span>}
+              {ritmo > 0 && (
+                <span className="flex items-center gap-1.5">
+                  <span className="inline-block w-4 shrink-0 border-t-2 border-dashed border-tinta/50" aria-hidden="true" />
+                  Ritmo de hoy: <span className="importe font-semibold text-tinta">{porDia(ritmo)}</span>
+                </span>
+              )}
+            </p>
             <svg width={ancho} height={alto} className="block overflow-visible">
               <EjeCantidad marcas={marcas} y={y} x0={m.izquierda} x1={ancho - m.derecha} texto={(val) => unidades(val)} />
-              <EjeTiempo marcas={marcasDeTiempo(desde, hasta, ancho < 520 ? 4 : 7)} x={x} y={alto - m.abajo} alto={m.abajo} />
+              <EjeTiempo marcas={marcasDeTiempo(desde, hasta, marcasQueEntran(ancho))} x={x} y={alto - m.abajo} alto={m.abajo} />
               {barras.map((br, i) => {
                 if (br.panel !== panel) return null;
                 const w = Math.max(1, br.x1 - br.x0);
@@ -300,17 +310,10 @@ export function GraficoVentas({ ficha }: { ficha: FichaInventario }) {
                   </g>
                 );
               })}
-              {ritmo > 0 && (
-                <g aria-hidden="true" className="pointer-events-none">
-                  <line x1={m.izquierda} x2={ancho - m.derecha} y1={y(ritmo)} y2={y(ritmo)} strokeDasharray="4 4" className="stroke-tinta/50" />
-                  <text x={ancho - m.derecha} y={y(ritmo) - 6} textAnchor="end" strokeWidth={4} className="importe fill-tinta stroke-white text-xs font-semibold [paint-order:stroke]">
-                    Ritmo de hoy: {porDia(ritmo)}
-                  </text>
-                </g>
-              )}
+              {ritmo > 0 && <line x1={m.izquierda} x2={ancho - m.derecha} y1={y(ritmo)} y2={y(ritmo)} strokeDasharray="4 4" className="pointer-events-none stroke-tinta/50" aria-hidden="true" />}
             </svg>
             {b && b.panel === panel && (
-              <Globo x={(b.x0 + b.x1) / 2} ancho={ancho} arriba={(paneles.length > 1 ? 20 : 0) + m.arriba}>
+              <Globo x={(b.x0 + b.x1) / 2} ancho={ancho} arriba={24 + m.arriba}>
                 <p className="font-semibold first-letter:uppercase">{periodoEnPalabras(b.pd)}</p>
                 <p className="flex items-baseline gap-1.5">
                   <Punto clase={tono.fondo} />
@@ -347,7 +350,7 @@ export function GraficoPlata({ ficha }: { ficha: FichaInventario }) {
   const paradas = [...tiempos, hasta];
   const marcas = marcasDelEje(0, Math.max(...costos.map((c) => c.valor), ...precios.map((pr) => pr.valor)), 4);
   const alto = ancho < 520 ? 220 : 250;
-  const m = { arriba: 14, derecha: 64, abajo: 30, izquierda: 62 };
+  const m = { arriba: 14, derecha: 76, abajo: 30, izquierda: 62 };
   const x = escala(desde, hasta, m.izquierda, Math.max(m.izquierda + 1, ancho - m.derecha));
   const y = escala(0, marcas[marcas.length - 1], alto - m.abajo, m.arriba);
   const camino = (puntos: PuntoPlata[]) => caminoEscalonado(puntos.map((pt) => ({ x: x(Date.parse(pt.en)), y: y(pt.valor) })), x(hasta));
@@ -380,7 +383,7 @@ export function GraficoPlata({ ficha }: { ficha: FichaInventario }) {
       {ancho > 0 && (
         <svg width={ancho} height={alto} className="block overflow-visible">
           <EjeCantidad marcas={marcas} y={y} x0={m.izquierda} x1={ancho - m.derecha} texto={(v) => pesos(v)} />
-          <EjeTiempo marcas={marcasDeTiempo(desde, hasta, ancho < 520 ? 4 : 6)} x={x} y={alto - m.abajo} alto={m.abajo} />
+          <EjeTiempo marcas={marcasDeTiempo(desde, hasta, marcasQueEntran(ancho))} x={x} y={alto - m.abajo} alto={m.abajo} />
           {/* entre el precio y el costo, lo que se gana */}
           {paradas.slice(0, -1).map((t, i) => {
             const c = valorEn(costos, t), pr = valorEn(precios, t);
@@ -400,7 +403,7 @@ export function GraficoPlata({ ficha }: { ficha: FichaInventario }) {
           {costoHoy != null && (
             <g>
               <circle cx={x(hasta)} cy={y(costoHoy)} r={4} strokeWidth={2} className="fill-dato-3 stroke-white" />
-              <text x={x(hasta) + 9} y={yFinal[1]} dominantBaseline="middle" className={CLASE_ROTULO}>{pesos(costoHoy)}</text>
+              <text x={x(hasta) + 9} y={yFinal[1]} dominantBaseline="middle" className={CLASE_ROTULO}>{pesos(costoHoy, { decimales: !Number.isInteger(costoHoy) })}</text>
             </g>
           )}
           {ms != null && !esHoy && precioAhi && <circle cx={x(ms)} cy={y(precioAhi.valor)} r={4.5} strokeWidth={2} className="fill-tinta/70 stroke-white" />}

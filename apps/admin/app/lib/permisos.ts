@@ -20,6 +20,7 @@ const RUTAS_POR_ROL: Record<string, string[]> = {
     '/comparador', // proveedores y sus listas
     '/listas', // listas de precios de proveedor
     '/stock', // stock completo: existencias, ajustes, mermas, transferencias
+    '/inventario', // inventario de un producto: cuánto hay, cómo se movió, ventas y costos (5/11/2026)
     '/productos', // catálogo: alta de productos que llegan sin estar cargados
     '/precios', // verificador de precios del salón (equipo de mano con lector)
     '/conteo', // conteos de inventario
@@ -48,6 +49,7 @@ const RUTAS_POR_ROL: Record<string, string[]> = {
     '/salida', // control de salida de Comprá Fácil
     '/precios', // verificador de precios
     '/productos', // catálogo (consulta)
+    '/inventario', // inventario de un producto, sin costos ni margen (el API no se los manda), 5/11/2026
     '/cheques', // cheques que recibe en el mostrador
     // «Mis entregas»: los envíos que lleva (21/10/2026: sin repartidores
     // cargados, un envío sale con alguien del local y tiene que ver la
@@ -76,6 +78,7 @@ const RUTAS_POR_ROL: Record<string, string[]> = {
     '/puerta-deposito', // confirmar con la factura lo que entró por puerta de depósito (5/11/2026)
     '/analista',
     '/productos', // catálogo
+    '/inventario', // inventario de un producto (5/11/2026)
     '/manual', // el manual lo abre cualquiera
     '/cambiar-clave',
   ],
@@ -85,6 +88,7 @@ const RUTAS_POR_ROL: Record<string, string[]> = {
     '/recepcion', // recepción de mercadería con lector
     '/por-llegar', // qué mercadería llega y cuándo
     '/stock',
+    '/inventario', // inventario de un producto (5/11/2026)
     '/conteo',
     '/arqueo', // arqueo de stock (24/10/2026)
     '/fraccionar', // armar presentaciones y cargar el pozo (con PIN de supervisor arriba del tope), 21/10/2026

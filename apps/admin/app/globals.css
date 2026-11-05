@@ -57,6 +57,16 @@
   --color-info: #1F6F8B;
   --color-info-suave: #E6F1F5;
 
+  /* Datos de los gráficos (Inventario de producto, 5/11/2026). Tres tonos que
+     se distinguen entre sí también con daltonismo, probados sobre blanco con
+     la herramienta de la guía de gráficos. Van fijos: 1 y 2 son las dos
+     sucursales (Saint Thomas y Santa Inés), 3 es el costo. No son estados:
+     para eso están ok, atencion e info. En una pantalla con dato-1 (azul) no
+     va nada amarillo ni dorado. */
+  --color-dato-1: #157A9E;
+  --color-dato-2: #C2552D;
+  --color-dato-3: #7D4B8C;
+
   /* Dos sombras nada más */
   --shadow-tarjeta: 0 1px 2px rgb(20 20 20 / 0.04), 0 6px 20px -12px rgb(20 20 20 / 0.12);
   --shadow-flotante: 0 18px 48px -16px rgb(20 20 20 / 0.35);
@@ -67,6 +77,9 @@
   --animate-cajon-entra: cajon-entra 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
   /* la ventana de "Llegó un pedido": baja y se asienta (6/10/2026) */
   --animate-entra-aviso: entra-aviso 0.36s cubic-bezier(0.2, 0.8, 0.2, 1);
+  /* los gráficos: la línea se dibuja y las barras crecen desde la base (5/11/2026) */
+  --animate-trazo: trazo 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  --animate-crece: crece 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) both;
 
   @keyframes hoja-sube {
     from { transform: translateY(24px); opacity: 0; }
@@ -83,6 +96,15 @@
   @keyframes entra-aviso {
     from { transform: translateY(-16px) scale(0.98); opacity: 0; }
     to { transform: translateY(0) scale(1); opacity: 1; }
+  }
+  /* la línea lleva pathLength="1": el guion mide todo el trazo */
+  @keyframes trazo {
+    from { stroke-dasharray: 1; stroke-dashoffset: 1; }
+    to { stroke-dasharray: 1; stroke-dashoffset: 0; }
+  }
+  @keyframes crece {
+    from { transform: scaleY(0); }
+    to { transform: scaleY(1); }
   }
 }
 
