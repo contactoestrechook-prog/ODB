@@ -1,8 +1,11 @@
-import { BadRequestException, Controller, Get, Inject, Query } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Inject, Param, Patch, Post, Query, Req } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
 import { Roles } from '../auth/decorators';
 import { FrioLector } from './frio.lector';
+import { cambiosFicha, idEquipoValido, siguienteCodigo } from './ficha';
+
+const COLUMNAS = 'idequipo, codigo, nombre, minimo, maximo, demora_min, mudo_min, lugar, tipo, avisar, notas, orden, sucursal:sucursales(nombre)';
 
 // La pantalla /frio: los equipos, su serie y cómo anda el lector de QBIT.
 @Controller('frio')
@@ -21,7 +24,7 @@ export class FrioController {
     const paso = horas <= 48 ? 1 : horas <= 168 ? 5 : 30;
     const desde = new Date(Date.now() - horas * 3600_000).toISOString();
     const [eq, serie] = await Promise.all([
-      this.db.from('frio_equipos').select('idequipo, codigo, nombre, minimo, maximo, demora_min, orden, sucursal:sucursales(nombre)')
+      this.db.from('frio_equipos').select(COLUMNAS)
         .eq('activo', true).order('orden'),
       this.db.rpc('frio_serie', { p_desde: desde, p_paso: paso }),
     ]);
@@ -44,5 +47,55 @@ export class FrioController {
     const { data, error } = await this.db.rpc('frio_planilla', { p_idequipo: idequipo, p_mes: `${mes}-01` });
     if (error) throw new BadRequestException(error.message);
     return data ?? [];
+  }
+
+  // La ficha de un equipo (4/11/2026): nombre, lugar, tipo, rango, minutos y a quién avisar
+  @Roles('dueno', 'gerente')
+  @Patch('equipos/:id')
+  async editar(@Param('id') id: string, @Body() dto: any, @Req() req: any) {
+    const { data: actual, error } = await this.db.from('frio_equipos').select('minimo, maximo').eq('idequipo', id).maybeSingle();
+    if (error) throw new BadRequestException(error.message);
+    if (!actual) throw new BadRequestException('Ese equipo no está');
+    let cambios: Record<string, unknown>;
+    try { cambios = cambiosFicha(dto ?? {}, actual as any); } catch (e: any) { throw new BadRequestException(e.message); }
+    const { data, error: e2 } = await this.db.from('frio_equipos')
+      .update({ ...cambios, editado_por: req.usuario?.sub ?? null, editado_en: new Date().toISOString() })
+      .eq('idequipo', id).select(COLUMNAS).single();
+    if (e2) throw new BadRequestException(e2.message);
+    return data;
+  }
+
+  // Sumar un equipo con el número que figura en el panel de QBIT (hasta 100 por consulta)
+  @Roles('dueno', 'gerente')
+  @Post('equipos')
+  async sumar(@Body() dto: any, @Req() req: any) {
+    let id: string;
+    try { id = idEquipoValido(dto?.idequipo); } catch (e: any) { throw new BadRequestException(e.message); }
+    const { data: todos, error } = await this.db.from('frio_equipos').select('idequipo, codigo, activo, orden');
+    if (error) throw new BadRequestException(error.message);
+    const ya = (todos ?? []).find((e: any) => e.idequipo === id);
+    if (ya?.activo) throw new BadRequestException('Ese equipo ya está');
+    if ((todos ?? []).filter((e: any) => e.activo).length >= 100) throw new BadRequestException('QBIT trae hasta 100 equipos por consulta');
+    const nombre = String(dto?.nombre ?? '').trim().slice(0, 120) || `Equipo ${id}`;
+    const fila: Record<string, unknown> = ya
+      ? { activo: true, nombre }
+      : { idequipo: id, codigo: siguienteCodigo((todos ?? []).map((e: any) => e.codigo)), nombre, minimo: 0, maximo: 4, tipo: 'refrigerados',
+          orden: Math.max(0, ...(todos ?? []).map((e: any) => e.orden ?? 0)) + 1 };
+    const q = ya ? this.db.from('frio_equipos').update(fila).eq('idequipo', id) : this.db.from('frio_equipos').insert(fila);
+    const { error: e2 } = await q;
+    if (e2) throw new BadRequestException(e2.message);
+    const { data } = await this.db.from('frio_equipos').update({ editado_por: req.usuario?.sub ?? null, editado_en: new Date().toISOString() })
+      .eq('idequipo', id).select(COLUMNAS).single();
+    return data;
+  }
+
+  // Quitar un equipo de la pantalla: deja de consultarse; sus mediciones quedan
+  @Roles('dueno', 'gerente')
+  @Delete('equipos/:id')
+  async quitar(@Param('id') id: string, @Req() req: any) {
+    const { error } = await this.db.from('frio_equipos')
+      .update({ activo: false, editado_por: req.usuario?.sub ?? null, editado_en: new Date().toISOString() }).eq('idequipo', id);
+    if (error) throw new BadRequestException(error.message);
+    return { ok: true };
   }
 }
