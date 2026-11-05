@@ -19,7 +19,7 @@ import { diferenciaPrecioCero, elegirPendientes, textoPrecioCero, type Pendiente
 import { AsistenteFactura, describirCambio, type CambioHecho } from './AsistenteFactura';
 import { asignarInternos, internosImpresos, pctPercepciones, textoInternos } from '../lib/internos-compras';
 import { aplicarBorrador, borradorDe, borradorVacio } from '../lib/borrador-factura';
-import { aplicarCambiosIA, aplicarPapel, cuentaDelPapel, entraDeRenglon, marcarComoDevolucion, papelDeLectura, tablaParaIA, type EntraComo, type Papel } from '../lib/tabla-factura';
+import { aplicarCambiosIA, aplicarPapel, cuentaDelPapel, entraDeRenglon, marcarComoDevolucion, papelDeLectura, tablaParaIA, type EntraComo, type Papel, conInternoDelPapel } from '../lib/tabla-factura';
 import {
   Aviso, Boton, CLASES_ENTRADA, Cargando, Etiqueta, FOCO, FOCO_ADENTRO, Girador, IconoAtencion, IconoCerrar, IconoError, IconoInfo, IconoOk, Kpi, Modal as Ventana,
   Pestanas, PlacaRoja, TablaResponsiva, Tarjeta, TarjetaCabecera, Vacio, clasesBoton, unir, useConfirmar, type TonoEtiqueta,
@@ -674,10 +674,12 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
           // si la lectura tomó el importe CON IVA, se usa el neto que dedujo el servidor
           importe: r.importeNeto ?? i.importe ?? null,
           importeConIvaLeido: r.importeNeto != null ? i.importe : null,
-          // cigarrillos (5/11/2026): el interno que el papel imprime en este
-          // renglón y el total con impuestos que traía; el renglón va en neto
+          // cigarrillos (5/11/2026): el precio y el importe son los del papel, con
+          // el IVA y el interno adentro. Aparte: el interno del renglón, el neto
+          // por unidad y qué parte del precio es neto (para controlar el pie)
           internosDelPapel: Number(i.internosDelPapel) > 0 ? Number(i.internosDelPapel) : null,
-          importeImpreso: Number(i.importeImpreso) > 0 ? Number(i.importeImpreso) : null,
+          netoDelPapel: Number(i.netoDelPapel) > 0 ? Number(i.netoDelPapel) : null,
+          fraccionNeta: Number(i.fraccionNeta) > 0 && Number(i.fraccionNeta) <= 1 ? Number(i.fraccionNeta) : null,
           esDescuento: !!i.esDescuento,
           // mercadería que vuelve al proveedor: sale del stock (3/11/2026)
           esDevolucion: !!i.esDevolucion,
@@ -1158,7 +1160,8 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   const netoDelRenglon = (i: any) => i._esDevolucion
     ? Math.min(0, -(Math.abs(numImp(i.importe)) || Math.abs(numImp(i.cantidad) * numImp(i.precio))) + Math.abs(numImp(i._descuento)))
     : numImp(i.cantidad) > 0
-    ? numImp(i.cantidad) * precioEfectivo(i)
+    // cigarrillos: el precio del papel ya trae IVA e interno; el neto es su parte
+    ? numImp(i.cantidad) * precioEfectivo(i) * (i.fraccionNeta ?? 1)
     : Math.max(0, numImp(i.papel?.importe ?? i.importe));
   const sumaRenglones = itemsCalc.reduce(
     (s: number, i: any) => (i._esDescuento ? s : s + netoDelRenglon(i)),
@@ -1201,11 +1204,10 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
     .map((i: any, idx: number) => ({ i, idx }))
     .filter(({ i }) => !i._esDescuento && !i._esDevolucion && netoDelRenglon(i) > 0);
   // Cigarrillos (5/11/2026): si el papel imprime el interno de cada renglón y
-  // la suma da el del pie, cada uno lleva el suyo, sin adivinar. Lo que marca
-  // una persona sigue mandando.
-  const internosDelPapel = renglonesInternos.some(({ i }) => i.llevaInternos != null)
-    ? null
-    : internosImpresos(renglonesInternos.map(({ i }) => i.internosDelPapel), impIntDoc);
+  // la suma da el del pie, cada uno lleva el suyo, sin adivinar: lo que dice el
+  // papel manda. Si no da el pie, sigue la regla de siempre (lo marcado, o lo
+  // que prueba la cuenta).
+  const internosDelPapel = internosImpresos(renglonesInternos.map(({ i }) => i.internosDelPapel), impIntDoc);
   const internos = internosDelPapel ?? asignarInternos(
     renglonesInternos.map(({ i }) => ({ descripcion: `${i.descripcion ?? ''} ${i.nombre ?? ''}`, neto: netoDelRenglon(i), marcado: i.llevaInternos ?? null })),
     impIntDoc,
@@ -1290,6 +1292,17 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   // La cuenta del costo de un renglón, escrita: lo que se muestra al pasar el
   // mouse por el "c/IVA" para no tener que sacarla a mano.
   const desgloseCosto = (i: any, idx: number) => {
+    // lo dijo una persona: ese es el costo (5/11/2026)
+    if (numImp(i.costoManual) > 0) return `${pesos(numImp(i.costoManual))} por unidad: lo fijó una persona desde el chat (en este renglón no se usa la cuenta de la factura)`;
+    // cigarrillos: el precio unitario del papel ya es neto + IVA + interno
+    if (i.fraccionNeta) {
+      const neto = precioEfectivo(i) * i.fraccionNeta;
+      const interno = numImp(i.cantidad) > 0 ? numImp(i.internosDelPapel) / numImp(i.cantidad) : 0;
+      const partesPapel = [`${pesos(precioEfectivo(i))} por unidad, como dice la factura (neto ${pesos(neto)} + IVA ${pesos(precioEfectivo(i) - neto - interno)}${interno > 0 ? ` + impuesto interno ${pesos(interno)}` : ''})`];
+      const perc = costoFinal(i, idx) - precioEfectivo(i);
+      if (perc > 0.005) partesPapel.push(`+ percepciones ${(percepcionesPct * 100).toFixed(2).replace('.', ',')}% sobre neto${interno > 0 ? ' e interno' : ''} ${pesos(perc)}`);
+      return `${partesPapel.join('  ')}  = ${pesos(costoFinal(i, idx))} c/IVA`;
+    }
     const partes = [`${pesos(precioEfectivo(i))} por unidad${numImp(i.bonificacionPct) > 0 ? ` (ya con el ${numImp(i.bonificacionPct)}% de descuento)` : ''}`];
     const a = alicDe(idx);
     if (ivaConAlicuotas && a != null) {
@@ -1310,6 +1323,14 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   };
   const costoFinal = (i: any, idx?: number) => {
     const k = idx ?? itemsCalc.indexOf(i);
+    // lo dijo una persona: ese es el costo (5/11/2026, «el chat es poco obediente»)
+    if (numImp(i.costoManual) > 0) return Math.round(numImp(i.costoManual) * 100) / 100;
+    // cigarrillos: el precio unitario del papel ya trae el IVA y el interno; solo
+    // se le suma su parte de las percepciones (sobre su neto y su interno)
+    if (i.fraccionNeta) {
+      const interno = numImp(i.cantidad) > 0 ? numImp(i.internosDelPapel) / numImp(i.cantidad) : 0;
+      return Math.round((precioEfectivo(i) + (precioEfectivo(i) * i.fraccionNeta + interno) * percepcionesPct) * 100) / 100;
+    }
     return Math.round((precioEfectivo(i) * factorDe(i, k) + internosConPercepcion(i, k)) * 100) / 100;
   };
   const hayDatosFiscales = baseCosto != null;
@@ -1419,6 +1440,12 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
         if (c.campo === 'ingresa') return { ...x, incluir: !!c.antes };
         if (c.campo === 'kilos') return x.antesDePeso ? { ...x, ...x.antesDePeso, porPeso: false, antesDePeso: null } : x;
         if (c.campo === 'recibidas') return { ...x, recibidoAMano: c.antes == null || c.antes === '' ? null : Number(c.antes) };
+        if (c.campo === 'llevaInternos') return { ...x, llevaInternos: c.antes == null || c.antes === '' ? null : !!c.antes };
+        if (c.campo === 'costoFinal') return { ...x, costoManual: c.antes == null || c.antes === '' ? null : Number(c.antes) };
+        if (c.campo === 'impuestoInternoUnitario') {
+          if (c.antes == null || c.antes === '') return { ...x, fraccionNeta: null, netoDelPapel: null, internosDelPapel: null };
+          return conInternoDelPapel(x, Number(c.antes)) ?? x;
+        }
         const papel: Papel = { ...(x.papel ?? papelDeLectura(x)) };
         if (c.campo === 'entraComo') {
           const de = Number(papel.uxb);

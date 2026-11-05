@@ -235,6 +235,48 @@ const CAMPO_IA: Record<string, CampoPapel> = {
   descuentoPct: 'desc', alicuotaIva: 'iva', importe: 'importe',
 };
 
+/** El impuesto interno por unidad del papel que tiene cargado el renglón; null si no lo tiene. */
+export function internoUnitarioDe(fila: any): number | null {
+  if (!(Number(fila?.fraccionNeta) > 0)) return null;
+  const unidades = unidadesDelPapel(fila.papel ?? papelDeLectura(fila));
+  return unidades > 0 ? redondear((num(fila.internosDelPapel) ?? 0) / unidades) : 0;
+}
+
+/**
+ * CIGARRILLOS Y TABACO (5/11/2026). El papel imprime por renglón el neto, el
+ * IVA y el impuesto interno por unidad, y el «Precio Unit» es la suma de los
+ * tres. Leandro: «¿toma el neto en vez del precio unitario?». El renglón queda
+ * COMO EL PAPEL (precio = «Precio Unit», importe = «Total») y guarda aparte qué
+ * parte del precio es neto y cuánto interno trae, para controlar el IVA y los
+ * internos contra el pie y repartir la percepción.
+ *
+ * Si lo que quedó cargado como precio es el neto (pasó el 5/11 a las 16:41: el
+ * chat lo había cambiado por su cuenta), vuelve al «Precio Unit»: un precio que
+ * ya trae el interno adentro es siempre mayor que el interno.
+ */
+export function conInternoDelPapel<T extends Record<string, any>>(fila: T, interno: number): T | null {
+  const papel: Papel = { ...(fila.papel ?? papelDeLectura(fila)) };
+  const unidades = unidadesDelPapel(papel);
+  const precio = num(papel.precio);
+  if (!(unidades > 0) || precio == null || !(precio > 0) || !(interno >= 0)) return null;
+  const alicuota = (num(papel.iva) ?? 0) > 0 ? (num(papel.iva) as number) : 21;
+  const conIva = 1 + alicuota / 100;
+  const eraNeto = interno > 0 && precio <= interno;
+  const neto = eraNeto ? precio : (precio - interno) / conIva;
+  if (!(neto > 0)) return null;
+  const final = eraNeto ? redondear(precio * conIva + interno) : precio;
+  if (eraNeto) {
+    papel.precio = final;
+    papel.importe = cuentaDelPapel({ ...papel, importe: null }).cuenta;
+  }
+  papel.iva = alicuota;
+  return aplicarPapel(
+    { ...fila, fraccionNeta: neto / final, netoDelPapel: redondear(neto), internosDelPapel: redondear(unidades * interno), llevaInternos: null },
+    papel,
+    entraDeRenglon(fila, papel),
+  );
+}
+
 /**
  * Marca un renglón como DEVOLUCIÓN al proveedor, o lo vuelve a lo que era
  * (3/11/2026). Una devolución guarda cantidad, precio e importe en positivo: el
@@ -361,6 +403,43 @@ export function aplicarCambiosIA<T extends Record<string, any>>(
       nuevos[k] = { ...fila, incluir: despues };
       continue;
     }
+    // EL COSTO LO DICE LA PERSONA (5/11/2026, «el chat es poco obediente»): si
+    // dice cuánto cuesta la unidad, ese es el costo de ese renglón. null lo saca.
+    if (c.campo === 'costoFinal') {
+      const n = c.valor == null || c.valor === '' ? null : num(c.valor);
+      if (n != null && !(n > 0)) { descartados.push(c); continue; }
+      registros.push({ renglon: k + 1, campo: 'costoFinal', antes: num(fila.costoManual), despues: n, motivo });
+      nuevos[k] = { ...fila, costoManual: n };
+      continue;
+    }
+    // paga impuestos internos o no (bebidas, alcohol, tabaco), cuando el papel
+    // no lo imprime por renglón. null: que lo decida la cuenta.
+    if (c.campo === 'llevaInternos') {
+      const despues = c.valor == null || c.valor === '' ? null : c.valor === true || c.valor === 'true';
+      registros.push({ renglon: k + 1, campo: 'llevaInternos', antes: fila.llevaInternos ?? null, despues, motivo });
+      nuevos[k] = { ...fila, llevaInternos: despues };
+      continue;
+    }
+    // CIGARRILLOS (5/11/2026): el papel imprime el impuesto interno por unidad y
+    // el «Precio Unit» ya lo trae adentro, con el IVA. Ver conInternoDelPapel.
+    if (c.campo === 'impuestoInternoUnitario') {
+      const interno = c.valor == null || c.valor === '' ? null : num(c.valor);
+      if (interno != null && !(interno >= 0)) { descartados.push(c); continue; }
+      const antes = internoUnitarioDe(fila);
+      if (interno == null) {
+        registros.push({ renglon: k + 1, campo: 'impuestoInternoUnitario', antes, despues: null, motivo });
+        nuevos[k] = { ...fila, fraccionNeta: null, netoDelPapel: null, internosDelPapel: null };
+        continue;
+      }
+      const con = conInternoDelPapel(fila, interno);
+      if (!con) { descartados.push(c); continue; }
+      const antesPapel: Papel = fila.papel ?? papelDeLectura(fila);
+      if (num(con.papel?.precio) !== num(antesPapel.precio)) registros.push({ renglon: k + 1, campo: 'precio', antes: antesPapel.precio, despues: con.papel.precio, motivo: 'El «Precio Unit» del papel: neto + IVA + impuesto interno' });
+      if (num(con.papel?.importe) !== num(antesPapel.importe)) registros.push({ renglon: k + 1, campo: 'importe', antes: antesPapel.importe, despues: con.papel.importe, motivo: 'Cantidad × «Precio Unit»' });
+      registros.push({ renglon: k + 1, campo: 'impuestoInternoUnitario', antes, despues: interno, motivo });
+      nuevos[k] = con;
+      continue;
+    }
     const papel: Papel = { ...(fila.papel ?? papelDeLectura(fila)) };
     const entra: EntraComo = entraDeRenglon(fila, papel);
     if (c.campo === 'entraComo') {
@@ -434,8 +513,10 @@ export function tablaParaIA(
       bultos: p.bultos, unidadesPorBulto: p.uxb, sueltas: p.sueltas,
       precio: p.precio, descuentoPct: p.desc, alicuotaIva: p.iva, importe: p.importe,
       unidades: c.unidades, cuenta: c.cuenta, cierra: c.cierra,
-      // cigarrillos: el interno que trae impreso el renglón y su total con impuestos
-      ...(Number(fila.internosDelPapel) > 0 ? { internosDelPapel: Number(fila.internosDelPapel), importeImpreso: Number(fila.importeImpreso) || null } : {}),
+      // cigarrillos: el precio es el «Precio Unit» del papel; aparte, su neto y su interno
+      ...(Number(fila.fraccionNeta) > 0 ? { precioConImpuestosAdentro: true, netoPorUnidad: Number(fila.netoDelPapel) || null, impuestoInternoUnitario: internoUnitarioDe(fila) ?? 0 } : {}),
+      ...(fila.llevaInternos != null ? { llevaInternos: !!fila.llevaInternos } : {}),
+      ...(Number(fila.costoManual) > 0 ? { costoFijadoPorLaPersona: Number(fila.costoManual) } : {}),
       entraComo: entraDeRenglon(fila, p)?.como ?? 'por decidir',
       entraDe: (entraDeRenglon(fila, p) as any)?.de ?? null,
       entraAlStock: { cantidad: num(fila.cantidad), costoNeto: num(fila.precio), porPeso: !!fila.porPeso },
