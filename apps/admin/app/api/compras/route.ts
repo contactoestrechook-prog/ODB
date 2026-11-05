@@ -67,6 +67,9 @@ export async function GET(req: Request) {
     const pid = params.get('proveedorId')!;
     params.delete('proveedorId');
     ruta = `/compras/proveedores/${encodeURIComponent(pid)}/catalogo?${params.toString()}`;
+  } else if (recurso === 'borrador-pedido' && url.searchParams.get('proveedorId')) {
+    // el pedido a medio cargar de ese proveedor y sucursal (4/11/2026)
+    ruta = `/compras/proveedores/${encodeURIComponent(url.searchParams.get('proveedorId')!)}/borrador?sucursalId=${encodeURIComponent(url.searchParams.get('sucursalId') ?? '')}`;
   } else if (recurso === 'conciliacion') {
     ruta = '/compras/conciliacion';
   } else if (recurso === 'cruce') {
@@ -109,6 +112,7 @@ export async function POST(req: Request) {
     case 'corregirIngreso': ruta = `/compras/ordenes/${d.id}/corregir-ingreso`; body = { renglones: d.renglones, motivo: d.motivo }; break;
     case 'autorizarProrrateo': ruta = '/compras/autorizar-prorrateo'; break;
     case 'agregarALista': ruta = `/compras/proveedores/${d.proveedorId}/catalogo`; body = { sku: d.sku, codigoProveedor: d.codigoProveedor }; break;
+    case 'guardarBorradorPedido': ruta = `/compras/proveedores/${d.proveedorId}/borrador`; body = { sucursalId: d.sucursalId, items: d.items }; break;
     case 'crearProveedor': ruta = '/proveedores'; break;
     case 'editarProveedor': ruta = `/proveedores/${d.id}`; metodo = 'PATCH'; break;
     case 'factura': ruta = '/compras/facturas'; break;

@@ -157,6 +157,20 @@ export class ComprasController {
     return this.compras.agregarAListaProveedor(id, b?.sku, b?.codigoProveedor);
   }
 
+  // El pedido a medio cargar (4/11/2026): se guarda por proveedor y sucursal
+  // para que no se pierda y lo pueda seguir cualquiera. Quién lo cargó sale del token.
+  @Roles('comprador', 'gerente', 'dueno')
+  @Get('compras/proveedores/:id/borrador')
+  borradorPedido(@Param('id') id: string, @Query('sucursalId') sucursalId?: string) {
+    return this.compras.borradorPedido(id, String(sucursalId ?? ''));
+  }
+
+  @Roles('comprador', 'gerente', 'dueno')
+  @Post('compras/proveedores/:id/borrador')
+  guardarBorradorPedido(@Param('id') id: string, @Body() b: { sucursalId?: string; items?: unknown }, @Req() req: any) {
+    return this.compras.guardarBorradorPedido(id, String(b?.sucursalId ?? ''), b?.items, req.usuario?.sub);
+  }
+
   // Orden de pago en PDF: la autorización escrita para que salga la plata
   @Roles('comprador', 'gerente', 'dueno')
   @Get('compras/ordenes-pago/:id/documento')

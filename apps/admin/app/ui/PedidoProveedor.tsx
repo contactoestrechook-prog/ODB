@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Aviso, BarraInferior, Boton, Cargando, Chip, Entrada, FOCO, FOCO_ADENTRO, IconoFlechaAbajo, PlacaRoja, Selector, Tarjeta, unir } from './kit';
 import { fecha, pesos } from '../lib/formato';
 import { filtrarPorBusqueda } from '../lib/busqueda';
@@ -11,6 +11,14 @@ import { filtrarPorBusqueda } from '../lib/busqueda';
 // entera del proveedor (hay una de 1.400 renglones) sino lo que hace falta
 // reponer; y el producto que falta en la lista se puede agregar en el momento,
 // porque el momento en que uno se da cuenta es justo ese.
+//
+// EL PEDIDO SE GUARDA SOLO (Leandro, 4/11/2026): «cargamos un montón de cosas
+// que queríamos pedir y se nos borraron» … «no puede volver a pasar nunca
+// más». Las cantidades vivían solo en memoria hasta «Enviar a aprobación»: una
+// recarga (el cartel de versión nueva, cerrar la pestaña) las perdía. Ahora
+// cada cambio se guarda en el sistema, por proveedor y sucursal, y al volver a
+// entrar —desde cualquier computadora— aparece tal cual. Si el sistema no
+// contesta, queda además en este navegador y se avisa; nunca en silencio.
 
 // los botones − y + de cada renglón: 44 px en el celular
 const PASO = unir(
@@ -41,6 +49,7 @@ function textoEstado(it: { stock: number; diasDeStock: number | null; minimo: nu
   if (e === 'bajo') return `Poco: ${dias}`;
   return `Bien: ${dias}`;
 }
+const hora = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }) : '');
 
 type Item = {
   sku: string; nombre: string; unidadesPack: number; codigoProveedor: string | null;
@@ -48,6 +57,25 @@ type Item = {
   sugerido: number; urgente: boolean; porDia: number; diasDeStock: number | null;
   /** ya pedido y sin recibir (órdenes aprobadas o enviadas), y el día que confirmó el proveedor */
   enCamino?: number; llega?: string | null;
+};
+
+type Cantidades = Record<string, number>;
+type EstadoGuardado = '' | 'guardando' | 'guardado' | 'error';
+// quién cargó lo que está en pantalla y cuándo (null = lo cargaste vos recién)
+type Borrador = { por: string | null; en: string | null };
+
+const claveLocal = (proveedorId: string, sucursalId: string) => `odb:pedido-proveedor:${proveedorId}:${sucursalId}`;
+const leerLocal = (proveedorId: string, sucursalId: string): Cantidades => {
+  try {
+    const crudo = JSON.parse(localStorage.getItem(claveLocal(proveedorId, sucursalId)) ?? 'null');
+    return crudo && typeof crudo === 'object' && !Array.isArray(crudo) ? crudo : {};
+  } catch { return {}; }
+};
+const escribirLocal = (proveedorId: string, sucursalId: string, items: Cantidades) => {
+  try {
+    if (Object.keys(items).length) localStorage.setItem(claveLocal(proveedorId, sucursalId), JSON.stringify(items));
+    else localStorage.removeItem(claveLocal(proveedorId, sucursalId));
+  } catch { /* sin almacenamiento: el sistema igual lo guarda */ }
 };
 
 export function PedidoProveedor({ sucursales, proveedorInicial, sucursalInicial }: {
@@ -71,7 +99,7 @@ export function PedidoProveedor({ sucursales, proveedorInicial, sucursalInicial 
   const [meta, setMeta] = useState<{ total: number; recortado?: boolean; sinLista?: boolean }>({ total: 0 });
   const [busca, setBusca] = useState('');
   const [verTodo, setVerTodo] = useState(true); // 23/10/2026: toda la lista, de menor a mayor stock
-  const [cant, setCant] = useState<Record<string, number>>({});
+  const [cant, setCant] = useState<Cantidades>({});
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState('');
   const [aviso, setAviso] = useState('');
@@ -79,6 +107,56 @@ export function PedidoProveedor({ sucursales, proveedorInicial, sucursalInicial 
   const [buscaCatalogo, setBuscaCatalogo] = useState('');
   const [resultados, setResultados] = useState<any[]>([]);
   const [agregando, setAgregando] = useState(false);
+
+  // ---- el pedido guardado solo ----
+  const [guardado, setGuardado] = useState<EstadoGuardado>('');
+  const [borrador, setBorrador] = useState<Borrador | null>(null);
+  // proveedor:sucursal cuyo pedido ya se trajo del sistema y está en pantalla.
+  // Mientras no coincida con el actual, no se guarda nada: así una pantalla
+  // recién abierta nunca pisa con un vacío lo que había guardado.
+  const claveCargada = useRef('');
+  // lo último que se guardó (o se trajo) tal cual: si no cambió, no se vuelve a mandar
+  const ultimoGuardado = useRef('');
+  // el guardado que espera (se junta medio segundo de tecleo en una sola llamada)
+  const pendiente = useRef<{ timer: ReturnType<typeof setTimeout>; proveedorId: string; sucursalId: string; items: Cantidades } | null>(null);
+
+  const guardar = useCallback(async (proveedorId: string, sucursalId: string, items: Cantidades, keepalive = false) => {
+    escribirLocal(proveedorId, sucursalId, items);
+    setGuardado('guardando');
+    try {
+      const r = await fetch('/api/compras', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, keepalive,
+        body: JSON.stringify({ accion: 'guardarBorradorPedido', proveedorId, sucursalId, items }),
+      });
+      if (!r.ok) throw new Error(String(r.status));
+      const d = await r.json();
+      ultimoGuardado.current = JSON.stringify(items);
+      setGuardado('guardado');
+      setBorrador(d?.vacio ? null : { por: null, en: d?.actualizadoEn ?? new Date().toISOString() });
+    } catch {
+      setGuardado('error');
+    }
+  }, []);
+
+  // manda ya lo que estaba esperando (al cambiar de proveedor o sucursal, al cerrar la pestaña)
+  const mandarPendiente = useCallback((keepalive = false) => {
+    const p = pendiente.current;
+    if (!p) return;
+    clearTimeout(p.timer);
+    pendiente.current = null;
+    void guardar(p.proveedorId, p.sucursalId, p.items, keepalive);
+  }, [guardar]);
+
+  useEffect(() => {
+    const alCerrar = () => mandarPendiente(true);
+    window.addEventListener('pagehide', alCerrar);
+    window.addEventListener('beforeunload', alCerrar);
+    return () => {
+      window.removeEventListener('pagehide', alCerrar);
+      window.removeEventListener('beforeunload', alCerrar);
+      mandarPendiente(true);
+    };
+  }, [mandarPendiente]);
 
   useEffect(() => {
     fetch('/api/compras?recurso=proveedores-lista')
@@ -123,6 +201,80 @@ export function PedidoProveedor({ sucursales, proveedorInicial, sucursalInicial 
     return () => clearTimeout(t);
   }, [proveedor, busca, verTodo, sucursalId, cargarCatalogo]);
 
+  // Al entrar a un proveedor (o cambiar de sucursal): lo que quedó guardado
+  // vuelve a la pantalla. Primero lo del sistema; si el sistema no tiene nada
+  // pero este navegador sí (se guardó acá cuando no había conexión), va eso y
+  // se manda al sistema.
+  useEffect(() => {
+    if (!proveedor || !sucursalId) return;
+    const proveedorId: string = proveedor.id;
+    const clave = `${proveedorId}:${sucursalId}`;
+    let vigente = true;
+    claveCargada.current = '';
+    (async () => {
+      let items: Cantidades = {};
+      let info: Borrador | null = null;
+      let fallo = false;
+      try {
+        const r = await fetch(`/api/compras?recurso=borrador-pedido&proveedorId=${encodeURIComponent(proveedorId)}&sucursalId=${encodeURIComponent(sucursalId)}`, { cache: 'no-store' });
+        if (!r.ok) throw new Error(String(r.status));
+        const d = await r.json();
+        if (d?.items && Object.keys(d.items).length) {
+          items = d.items;
+          info = { por: d.actualizadoPor ?? null, en: d.actualizadoEn ?? null };
+          // nombre y costo de lo guardado, para la nota de pedido, aunque el
+          // renglón no esté en la lista que se ve
+          setVistos((v) => {
+            const copia = { ...v };
+            for (const rg of (d.renglones ?? []) as any[]) {
+              if (!copia[rg.sku]) {
+                copia[rg.sku] = {
+                  sku: rg.sku, nombre: rg.nombre ?? rg.sku, unidadesPack: 1, codigoProveedor: rg.codigoProveedor ?? null,
+                  costo: rg.costo ?? null, stock: 0, minimo: 0, reposicion: 0, sugerido: 0, urgente: false, porDia: 0, diasDeStock: null,
+                };
+              }
+            }
+            return copia;
+          });
+        }
+      } catch {
+        fallo = true;
+      }
+      let deEsteNavegador = false;
+      if (!Object.keys(items).length) {
+        const local = leerLocal(proveedorId, sucursalId);
+        if (Object.keys(local).length) { items = local; deEsteNavegador = true; }
+      }
+      if (!vigente) return;
+      ultimoGuardado.current = deEsteNavegador ? '' : JSON.stringify(items);
+      setCant(items);
+      setBorrador(info);
+      setGuardado(fallo ? 'error' : Object.keys(items).length ? 'guardado' : '');
+      claveCargada.current = clave;
+      // lo de este navegador todavía no llegó al sistema: va ahora
+      if (deEsteNavegador) void guardar(proveedorId, sucursalId, items);
+    })();
+    return () => {
+      vigente = false;
+      // lo que esperaba para este proveedor y sucursal se manda antes de cambiar
+      mandarPendiente();
+    };
+  }, [proveedor, sucursalId, guardar, mandarPendiente]);
+
+  // Cada cambio se guarda: medio segundo después de la última tecla, una sola llamada.
+  useEffect(() => {
+    if (!proveedor || !sucursalId) return;
+    if (claveCargada.current !== `${proveedor.id}:${sucursalId}`) return;
+    if (JSON.stringify(cant) === ultimoGuardado.current) return;
+    if (pendiente.current) clearTimeout(pendiente.current.timer);
+    const proveedorId: string = proveedor.id;
+    const timer = setTimeout(() => {
+      pendiente.current = null;
+      void guardar(proveedorId, sucursalId, cant);
+    }, 500);
+    pendiente.current = { timer, proveedorId, sucursalId, items: cant };
+  }, [cant, proveedor, sucursalId, guardar]);
+
   const poner = (sku: string, valor: number) =>
     setCant((c) => {
       const n = Math.max(0, Math.round(valor));
@@ -163,6 +315,19 @@ export function PedidoProveedor({ sucursales, proveedorInicial, sucursalInicial 
     setBusca(sku);
   };
 
+  // volver a la lista de proveedores: lo cargado queda guardado para cuando se vuelva
+  const volverAProveedores = () => {
+    mandarPendiente();
+    claveCargada.current = '';
+    setProveedor(null); setItems([]); setVistos({}); setCant({}); setBusca(''); setAviso(''); setBorrador(null); setGuardado('');
+  };
+
+  // vaciar el pedido a propósito: la única forma de que lo guardado desaparezca sin enviarlo
+  const vaciar = () => {
+    if (!window.confirm(`¿Vaciar el pedido a ${proveedor?.razon_social}? Se borra lo cargado para ${sucursalNombre ?? 'esta sucursal'}.`)) return;
+    setCant({});
+  };
+
   const enviar = async () => {
     if (!proveedor || !elegidos.length || enviando) return;
     setEnviando(true);
@@ -177,7 +342,13 @@ export function PedidoProveedor({ sucursales, proveedorInicial, sucursalInicial 
       });
       const d = await r.json();
       if (!r.ok) { setError(d?.message ?? 'No se pudo crear el pedido'); return; }
+      // ya es una orden: el sistema borró el guardado; acá también
+      if (pendiente.current) { clearTimeout(pendiente.current.timer); pendiente.current = null; }
+      escribirLocal(proveedor.id, sucursalId, {});
+      ultimoGuardado.current = JSON.stringify({});
       setCant({});
+      setBorrador(null);
+      setGuardado('');
       setAviso('Pedido enviado. Queda esperando la aprobación del dueño en Aprobaciones.');
     } finally {
       setEnviando(false);
@@ -220,8 +391,7 @@ export function PedidoProveedor({ sucursales, proveedorInicial, sucursalInicial 
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
-        <Boton variante="secundario" tamano="chico" icono={<IconoFlechaAbajo className="size-4 rotate-90" />}
-          onClick={() => { setProveedor(null); setItems([]); setVistos({}); setCant({}); setBusca(''); setAviso(''); }}>
+        <Boton variante="secundario" tamano="chico" icono={<IconoFlechaAbajo className="size-4 rotate-90" />} onClick={volverAProveedores}>
           Proveedores
         </Boton>
         {sucursales.length > 1 && (
@@ -238,8 +408,21 @@ export function PedidoProveedor({ sucursales, proveedorInicial, sucursalInicial 
           {meta.recortado && ' (se muestran los primeros 300)'}
           <br />El sugerido cubre 14 días según lo que se vendió en los últimos 30 (sistema anterior + ODB).
         </p>
+        {/* el pedido se guarda solo: se dice siempre, y si no se pudo, se grita */}
+        {guardado === 'guardando' && <p className="mt-1 text-xs text-tinta/60">Guardando el pedido…</p>}
+        {guardado === 'guardado' && elegidos.length > 0 && (
+          <p className="mt-1 text-xs text-ok">
+            Pedido guardado{borrador?.en ? ` · ${hora(borrador.en)}` : ''}{borrador?.por ? ` · lo cargó ${borrador.por}` : ''}. Podés salir y seguirlo después, desde cualquier computadora.
+          </p>
+        )}
       </div>
 
+      {guardado === 'error' && (
+        <Aviso tono="error">
+          No hay conexión con el sistema para guardar el pedido. Lo cargado queda en este navegador: no cierres la pestaña hasta que se guarde.
+          <button type="button" onClick={() => proveedor && guardar(proveedor.id, sucursalId, cant)} className="ml-2 font-semibold underline">Reintentar</button>
+        </Aviso>
+      )}
       {aviso && <Aviso tono="ok">{aviso}</Aviso>}
       {error && <Aviso tono="error">{error}</Aviso>}
 
@@ -256,6 +439,9 @@ export function PedidoProveedor({ sucursales, proveedorInicial, sucursalInicial 
           <Chip activo={agregando} onClick={() => setAgregando((a) => !a)}>
             + Producto que no está
           </Chip>
+          {elegidos.length > 0 && (
+            <Chip onClick={vaciar}>Vaciar el pedido</Chip>
+          )}
         </div>
       </div>
 

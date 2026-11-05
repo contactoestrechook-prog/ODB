@@ -6,6 +6,7 @@ import { ordenDeCompraPDF, remitoRecepcionPDF, ordenDePagoPDF } from '../comun/d
 import { enLotes } from '../comun/lotes';
 import { vencimientoPorPlazo } from '../proveedores/ficha';
 import { fusionarRenglonesPorSku } from './bultos';
+import { normalizarBorradorPedido } from './borrador-pedido';
 
 // Cómo se propone cuánto pedir: se mira la venta de los últimos 30 días y se
 // propone cubrir 14. Menos de 5 días de stock es urgente (con el lead time de
@@ -328,6 +329,9 @@ export class ComprasService {
     });
     if (error) throw new BadRequestException(this.traducirError(error.message));
     const ordenCompraId = data;
+    // el pedido a medio cargar de esa pantalla ya es esta orden: se borra para que no reaparezca (4/11/2026)
+    const { error: errBorrador } = await this.db.from('pedidos_proveedor_borradores').delete().eq('proveedor_id', dto.proveedorId).eq('sucursal_id', dto.sucursalId);
+    if (errBorrador) console.warn('[compras] no se pudo borrar el borrador del pedido:', errBorrador.message);
     const detalle: Record<string, any> = {};
     if (dto.fechaEntrega) detalle.fecha_entrega = dto.fechaEntrega;
     if (dto.condicionPago) detalle.condicion_pago = dto.condicionPago;
@@ -817,6 +821,64 @@ export class ComprasService {
     const { error } = await this.db.from('proveedores').update(cambios).eq('id', id);
     if (error) throw new BadRequestException(error.message);
     return { ok: true };
+  }
+
+  // ---------- el pedido a proveedor a medio cargar (4/11/2026) ----------
+  // «Cargamos un montón de cosas que queríamos pedir y se nos borraron»: las
+  // cantidades vivían solo en el navegador hasta «Enviar a aprobación», y una
+  // recarga las perdía. Ahora cada cambio se guarda acá, por proveedor y
+  // sucursal, y lo ve cualquiera desde cualquier computadora. Al crear la
+  // orden se borra (ver crear()).
+  async borradorPedido(proveedorId: string, sucursalId: string) {
+    const vacio = { items: {} as Record<string, number>, renglones: [] as any[], actualizadoEn: null, actualizadoPor: null };
+    if (!proveedorId || !sucursalId) return vacio;
+    const { data, error } = await this.db
+      .from('pedidos_proveedor_borradores')
+      .select('items, actualizado_en, autor:usuarios!pedidos_proveedor_borradores_actualizado_por_fkey(nombre)')
+      .eq('proveedor_id', proveedorId)
+      .eq('sucursal_id', sucursalId)
+      .maybeSingle();
+    if (error) throw new BadRequestException(error.message);
+    if (!data) return vacio;
+    const items = normalizarBorradorPedido(data.items);
+    const skus = Object.keys(items);
+    if (!skus.length) return vacio;
+    // con nombre y costo, para que la nota de pedido se arme aunque el renglón
+    // no esté en pantalla (la lista muestra solo lo que hay que reponer)
+    const { data: prods } = await this.db.from('productos').select('id, sku, nombre').in('sku', skus);
+    const ids = ((prods ?? []) as any[]).map((p) => p.id);
+    const { data: pps } = ids.length
+      ? await this.db.from('proveedor_productos').select('producto_id, ultimo_costo, codigo_proveedor').eq('proveedor_id', proveedorId).in('producto_id', ids)
+      : { data: [] as any[] };
+    const ppDe = new Map(((pps ?? []) as any[]).map((x) => [x.producto_id, x]));
+    const renglones = ((prods ?? []) as any[]).map((p) => ({
+      sku: p.sku,
+      nombre: p.nombre,
+      cantidad: items[p.sku],
+      costo: ppDe.get(p.id)?.ultimo_costo != null ? Number(ppDe.get(p.id).ultimo_costo) : null,
+      codigoProveedor: ppDe.get(p.id)?.codigo_proveedor ?? null,
+    }));
+    return { items, renglones, actualizadoEn: data.actualizado_en, actualizadoPor: (data as any).autor?.nombre ?? null };
+  }
+
+  async guardarBorradorPedido(proveedorId: string, sucursalId: string, crudo: unknown, usuarioId?: string) {
+    if (!proveedorId || !sucursalId) throw new BadRequestException('Falta el proveedor o la sucursal');
+    const items = normalizarBorradorPedido(crudo);
+    if (!Object.keys(items).length) {
+      const { error } = await this.db.from('pedidos_proveedor_borradores').delete().eq('proveedor_id', proveedorId).eq('sucursal_id', sucursalId);
+      if (error) throw new BadRequestException(error.message);
+      return { guardado: true, vacio: true };
+    }
+    const { data, error } = await this.db
+      .from('pedidos_proveedor_borradores')
+      .upsert(
+        { proveedor_id: proveedorId, sucursal_id: sucursalId, items, actualizado_por: usuarioId ?? null, actualizado_en: new Date().toISOString() },
+        { onConflict: 'proveedor_id,sucursal_id' },
+      )
+      .select('actualizado_en')
+      .single();
+    if (error) throw new BadRequestException(error.message);
+    return { guardado: true, vacio: false, actualizadoEn: data.actualizado_en, productos: Object.keys(items).length };
   }
 
   // ---------- órdenes de pago (cuentas a pagar) ----------
@@ -1368,8 +1430,11 @@ export class ComprasService {
 
   // Proveedores con el tamaño de su lista: la pantalla del celular arranca acá.
   async proveedoresConLista() {
+    // «Proveedores varios (sin clasificar)» (rubro 'varios', 4/11/2026) no es
+    // un proveedor al que se le pida: es donde el Crack dejaba lo que nadie
+    // clasificó. No va en la lista para armar pedidos.
     const { data: provs, error } = await this.db
-      .from('proveedores').select('id, razon_social, cuit, activo').eq('activo', true).order('razon_social');
+      .from('proveedores').select('id, razon_social, cuit, activo').eq('activo', true).or('rubro.is.null,rubro.neq.varios').order('razon_social');
     if (error) throw new BadRequestException(error.message);
 
     const cuenta = new Map<string, number>();
