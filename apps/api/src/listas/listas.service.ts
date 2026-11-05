@@ -9,6 +9,7 @@ import { controlarConQr, totalEnPesos, numeroDelQr, type QrArca } from '../compr
 import { buscarQrArca } from '../compras/qr-arca.lector';
 import { nombreSinParte, otrosComprobantes, rotuloDelComprobante, separarComprobantes, type ParteDelPdf } from '../compras/separar-comprobantes';
 import { renglonesDelPapel } from '../compras/internos-por-renglon';
+import { percepcionesDelPie } from '../compras/percepciones-impresas';
 import { codigoCercano } from '../compras/codigo-proveedor';
 import { bultoDelRenglon, esRenglonDeDescuento, esRenglonDeDevolucion, porcentajeDeDescuento, puedeVendersePorPeso, unidadesDeLaPresentacion, variacionPorUnidad, variacionDelRenglon } from '../compras/bultos';
 import { esfuerzo, jsonDe, MODELO_PRINCIPAL, RAZONAMIENTO, RAZONAMIENTO_HAIKU } from '../comun/modelos';
@@ -189,19 +190,12 @@ const ESQUEMA_COMPROBANTE = {
         alicuotaIva: { type: 'number', description: 'Solo el % que acompaña a la línea de IVA (21 / 10.5 / 27), o 0 si no figura. Informativo; el costo NO depende de este número.' },
         percepcionIva: { type: ['number', 'null'], description: 'Renglón PER. DE IVA / PERCEP IVA / RG 5329 / RG 3337. Pago a cuenta de IVA (crédito, no costo).' },
         percepcionIibb: { type: ['number', 'null'], description: 'Renglón PER. DE IIBB / PERCEP ING BRUTOS / IIBB / ARBA / AGIP / DGR / SIRCREB. Pago a cuenta de IIBB (crédito, no costo). En cigarrillos suele ser el renglón MÁS GRANDE del pie después del total.' },
-        // PERCEPCIONES CON BASE PROPIA (5/11/2026, La Serenísima 06376-00001075: 3 %
-        // de IVA sobre una base menor que el neto). Números obligatorios con 0 como
-        // valor neutro: ni uniones ni opcionales nuevas (ver el comentario del renglón).
-        percepcionIvaAlicuota: { type: 'number', description: 'El % impreso de la percepción de IVA (3, 1.5…), si el pie o la tabla «Otros tributos» / «Percepciones» lo muestra. 0 si no figura.' },
-        percepcionIvaBase: { type: 'number', description: 'La BASE IMPONIBLE impresa sobre la que se calculó la percepción de IVA (columna Base / Base imponible), tal cual. Puede ser MENOR que el neto, porque no todos los productos la pagan: no la corrijas. 0 si no figura.' },
-        percepcionIibbAlicuota: { type: 'number', description: 'El % impreso de la percepción de Ingresos Brutos (5, 3.5…), si el papel lo muestra. 0 si no figura.' },
-        percepcionIibbBase: { type: 'number', description: 'La BASE IMPONIBLE impresa sobre la que se calculó la percepción de Ingresos Brutos, tal cual. 0 si no figura.' },
         impuestosInternos: { type: ['number', 'null'], description: 'Renglón propio IMP. INTERNOS / IMPUESTO INTERNO / IMPUESTO ADICIONAL DE EMERGENCIA (tabaco). Es COSTO no recuperable. Solo cuando aparece como línea rotulada; si está embebido en el precio (sin línea) va DENTRO de neto y este campo = 0/null.' },
         otros: { type: ['number', 'null'], description: 'Otros tributos con etiqueta e importe propios que no sean ninguno de los anteriores (sellos, tasas municipales) + el redondeo/DESCUENTO si hace falta para cerrar. NUNCA meter acá el SUB TOTAL, el IVA ni las percepciones.' },
         descuentoGlobal: { type: 'number', description: '0 si no hay. Descuento del PIE que se aplica a toda la factura (renglón "Desc. 50%", "DESCUENTO GENERAL", "BONIFICACIÓN s/ subtotal"). En POSITIVO: cuánta plata se descuenta. Es lo que explica que la suma de los renglones sea mayor que el neto. NO confundir con el descuento de un renglón puntual.' },
         total: { type: ['number', 'null'], description: 'Renglón TOTAL / TOTAL CBTE / TOTAL A PAGAR / IMPORTE TOTAL. Ancla de la autoverificación (suele venir también en letras).' },
       },
-      required: ['neto', 'iva', 'alicuotaIva', 'percepcionIva', 'percepcionIibb', 'percepcionIvaAlicuota', 'percepcionIvaBase', 'percepcionIibbAlicuota', 'percepcionIibbBase', 'impuestosInternos', 'otros', 'descuentoGlobal', 'total'],
+      required: ['neto', 'iva', 'alicuotaIva', 'percepcionIva', 'percepcionIibb', 'impuestosInternos', 'otros', 'descuentoGlobal', 'total'],
       additionalProperties: false,
     },
     // La etiqueta LITERAL que se usó para cada campo del pie (verificación por texto).
@@ -823,7 +817,7 @@ export class ListasService {
           '  alicuotaIva ← el % que acompaña al IVA (21 / 10.5 / 27)\n' +
           '  percepcionIva ← PER. DE IVA / PERCEP IVA / RG 5329 / RG 3337\n' +
           '  percepcionIibb ← PER. DE IIBB / PERCEP ING BRUTOS / IIBB / ARBA / AGIP / SIRCREB\n' +
-          '  percepcionIvaAlicuota, percepcionIvaBase, percepcionIibbAlicuota, percepcionIibbBase ← muchas facturas traen una tabla «Otros tributos» o «Percepciones» con columnas Descripción / Alícuota / Base imponible / Importe. De cada percepción copiá su % y su base TAL CUAL están impresos. La base puede ser MENOR que el neto (no todos los productos pagan esa percepción): no la corrijas ni la iguales al neto. Si el papel no imprime el % o la base, poné 0.\n' +
+          '  PERCEPCIONES CON SU % Y SU BASE IMPRESOS: muchas facturas traen una tabla «Otros tributos» o «Percepciones» con columnas Descripción / Alícuota / Base imponible / Importe. Cuando una percepción imprime su % y su base, agregalos al final de su etiqueta en "etiquetas", con este formato exacto y con punto decimal: «Percepción IVA CF | alicuota=3 | base=449833.62» en etiquetas.percepcionIva y «Per. IIBB BS AS | alicuota=5 | base=800707.62» en etiquetas.percepcionIibb. La base se copia TAL CUAL está impresa: puede ser MENOR que el neto (no todos los productos pagan esa percepción); no la corrijas ni la iguales al neto. Si el papel no imprime el % o la base, dejá la etiqueta sola, sin agregado.\n' +
           '  impuestosInternos ← IMP. INTERNOS / IMPUESTO INTERNO / IMPUESTO ADICIONAL DE EMERGENCIA, SOLO si es una línea propia rotulada\n' +
           '  otros ← cualquier OTRO tributo con etiqueta e importe propios (sellos, tasas) + redondeo si hace falta para cerrar\n' +
           '  descuentoGlobal ← un descuento del PIE sobre toda la factura ("Desc. 50%", "DESCUENTO GENERAL"), en POSITIVO. Es MUY común y es lo que explica que la suma de los renglones sea mayor que el neto: si lo metés en "otros" o lo ignorás, el costo de todos los productos queda mal.\n' +
@@ -982,6 +976,9 @@ export class ListasService {
     // Antes de validar el pie: si el QR cambia el total, la validación lo ve.
     const controlQr = qr ? controlarConQr(datos, qr, this.cuitsPropios()) : null;
     if (controlQr) datos.dudas = [...controlQr.dudas, ...(Array.isArray(datos.dudas) ? datos.dudas : [])];
+    // la alícuota y la base de cada percepción vienen en el texto de su etiqueta
+    // (no como campos: el esquema no admite más; ver compras/percepciones-impresas.ts)
+    percepcionesDelPie(datos);
     const regimenEspecial = this.validarPie(datos);
 
     // proveedor: por CUIT exacto y, si no, por nombre con dos candados (ver
