@@ -92,7 +92,7 @@ export class ComprasController {
     return this.listas.releerConAclaraciones(id, b?.aclaraciones ?? '', req.usuario?.sub);
   }
 
-  @Roles('deposito', 'comprador', 'gerente', 'dueno')
+  @Roles('deposito', 'comprador', 'gerente', 'dueno', 'op_salon')
   @Get('proveedores')
   proveedores() {
     return this.compras.proveedores();

@@ -93,6 +93,7 @@ body { width: 72mm; padding: 3mm 2mm 8mm; font: 12px/1.35 ui-monospace, Menlo, C
 <div class="c">${esc(origenDe(p).label)} · ${esc(cuando(p.creado_en))}</div>
 <div class="sep"></div>
 <div class="entrega">${esc(entregaDe(p))}</div>
+${p.asignadoNombre ? `<div class="entrega">ARMA: ${esc(p.asignadoNombre)}</div>` : ''}
 <div>${esc(p.clienteNombre || 'Cliente sin nombre')}</div>
 ${tel ? `<div>${esc(tel)}</div>` : ''}
 <div class="sep"></div>

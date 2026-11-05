@@ -13,6 +13,7 @@ const ROLES: Record<string, { etiqueta: string; descripcion: string }> = {
   deposito: { etiqueta: 'Depósito', descripcion: 'Stock, recepción y pedidos' },
   administrativo: { etiqueta: 'Administrativo', descripcion: 'Backoffice: facturas de compra, remitos y recepción de mercadería, compras y proveedores. No ve caja, ventas ni dirección; los cambios sobre facturas los aprueba un dueño' },
   repartidor: { etiqueta: 'Repartidor', descripcion: 'Solo la pantalla de reparto: sus entregas del día' },
+  op_salon: { etiqueta: 'Op salón', descripcion: 'Arma los pedidos que le asigna la caja, ve el stock y dónde está cada producto, y carga lo que entra por puerta trasera (administración lo confirma con la factura)' },
 };
 
 const pesos = (n: number) => pesosFmt(Number(n) || 0);

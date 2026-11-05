@@ -29,6 +29,10 @@ export type PedidoCola = {
   /** Quién lleva el envío (viene en la cola; lo usa «Despachar» para proponerlo). */
   repartidor_id?: string | null;
   repartidorNombre?: string | null;
+  /** Quién lo arma en el salón (lo asigna la caja; 5/11/2026). */
+  asignado_a?: string | null;
+  asignado_en?: string | null;
+  asignadoNombre?: string | null;
   minutos?: number;
   items?: { cantidad: number | string; precio_unitario?: number | string | null; producto?: { sku?: string; nombre?: string } | null }[];
 };

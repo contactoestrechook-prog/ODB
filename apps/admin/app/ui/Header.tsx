@@ -78,6 +78,7 @@ const GRUPOS: Grupo[] = [
     icono: 'deposito',
     items: [
       { href: '/deposito', label: 'Depósito', icono: 'deposito' },
+      { href: '/salon', label: 'Salón', icono: 'pedidos' },
       { href: '/recepcion', label: 'Recepción', icono: 'compras' },
       { href: '/frio', label: 'Frío', icono: 'frio' },
       // Reparto eran cuatro entradas; ahora son secciones de Reparto (Envíos, la
@@ -134,6 +135,7 @@ const GRUPOS: Grupo[] = [
       { href: '/por-llegar', label: 'Por llegar', icono: 'compras', sub: 'Pedir' },
       { href: '/facturas-compra', label: 'Facturas de compra', icono: 'listas', sub: 'Facturas y costos' },
       { href: '/mesa-compras', label: 'Mesa de compras', icono: 'comparador', sub: 'Facturas y costos' },
+      { href: '/puerta-trasera', label: 'Puerta trasera', icono: 'compras', sub: 'Facturas y costos' },
       { href: '/trazabilidad', label: 'Trazabilidad', icono: 'listas', sub: 'Facturas y costos' },
       { href: '/proveedores', label: 'Proveedores', icono: 'compras', sub: 'Proveedores' },
       { href: '/comparador', label: 'Comparador de precios', icono: 'comparador', sub: 'Proveedores' },
@@ -176,6 +178,8 @@ const TITULOS: Record<string, { titulo: string; bajada: string }> = {
   '/contable': { titulo: 'Contable', bajada: 'El cierre del mes: IVA ventas y compras, percepciones, Ingresos Brutos y los libros en CSV' },
   '/deposito': { titulo: 'Depósito', bajada: 'Pedidos web y PedidosYa: armado, retiro y entrega' },
   '/frio': { titulo: 'Frío', bajada: 'La temperatura de cada cámara y heladera, minuto a minuto, con los sensores QBIT' },
+  '/salon': { titulo: 'Salón', bajada: 'Los pedidos que tenés que armar, el stock con su lugar y lo que entra por puerta trasera' },
+  '/puerta-trasera': { titulo: 'Puerta trasera', bajada: 'Lo que entró con remito espera la factura: confirmala y recién ahí suma al stock' },
   '/recepcion': { titulo: 'Recepción', bajada: 'Escaneá lo que baja del camión: el remito se arma con lo que realmente entró' },
   '/repartidor': { titulo: 'Mis entregas', bajada: 'Tus entregas asignadas y compartir tu ubicación en vivo' },
   '/salida': { titulo: 'Control de salida', bajada: 'Validación de códigos de Comprá Fácil' },

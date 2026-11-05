@@ -29,12 +29,16 @@ function Empleado({ nombre, primero, detalle }: { nombre: string; primero: boole
 }
 
 export default async function Eficiencia() {
-  const [rc, rp] = await Promise.all([
+  const [rc, rp, rs] = await Promise.all([
     apiFetch('/eficiencia/cajeros'),
     apiFetch('/eficiencia/preparadores'),
+    // el armado en el salón, carga por carga (op salón, 5/11/2026)
+    apiFetch('/salon/tiempos?dias=7'),
   ]);
   const cajeros: any[] = rc.ok ? await rc.json() : [];
   const preparadores: any[] = rp.ok ? await rp.json() : [];
+  const salon: any[] = rs.ok ? await rs.json() : [];
+  const maxSalon = Math.max(...salon.map((s) => Number(s.minTotal) || 0), 1);
 
   const maxTph = Math.max(...cajeros.map((c) => Number(c.tickets_hora) || 0), 1);
   const maxPrep = Math.max(...preparadores.map((p) => Number(p.prep_min) || 0), 1);
@@ -75,6 +79,35 @@ export default async function Eficiencia() {
               ),
             },
             { clave: 'facturado', titulo: 'Facturado', importe: true, claseCelda: 'text-tinta/70', celda: (c) => pesos(Number(c.monto) || 0) },
+          ]}
+        />
+      </Tarjeta>
+
+      {/* SALÓN: asignado por la caja → primer producto al carro → «Terminé» */}
+      <Tarjeta relleno={false} className="overflow-hidden">
+        <TarjetaCabecera titulo="Armado en el salón · últimos 7 días" />
+        <TablaResponsiva
+          sinMarco
+          etiqueta="Armado en el salón: tiempos por persona"
+          filas={salon}
+          claveFila="usuarioId"
+          vacio={<Vacio className="m-4" titulo="Todavía no hay pedidos armados desde Salón." texto="Se mide desde que la caja asigna el pedido hasta que la persona toca «Terminé»." />}
+          columnas={[
+            { clave: 'empleado', titulo: 'Empleado', principal: true, celda: (s, i) => <Empleado nombre={s.nombre} primero={i === 0} detalle={`${s.productos} cargas al carro`} /> },
+            { clave: 'pedidos', titulo: 'Pedidos', importe: true, celda: (s) => s.pedidos },
+            { clave: 'arranque', titulo: 'En arrancar', importe: true, claseCelda: 'text-tinta/70', celda: (s) => (s.minArranque == null ? '—' : `${s.minArranque} min`) },
+            {
+              clave: 'total',
+              titulo: 'Asignado → terminado',
+              ancho: 'w-48',
+              celda: (s) => (
+                <div className="min-w-24">
+                  <span className="text-xs font-medium">{s.minTotal ?? '—'} min/pedido</span>
+                  <Barra valor={Number(s.minTotal) || 0} max={maxSalon} invertido />
+                </div>
+              ),
+            },
+            { clave: 'ritmo', titulo: 'Ritmo', importe: true, claseCelda: 'text-tinta/70', celda: (s) => (s.segPorProducto == null ? '—' : `${s.segPorProducto} s/producto`) },
           ]}
         />
       </Tarjeta>

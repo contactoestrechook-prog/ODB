@@ -17,6 +17,7 @@ import {
 import { conCodigo } from '../lib/codigo-producto';
 import { imprimirComanda } from '../lib/comanda';
 import { ComandasEstaPc } from './ComandasEstaPc';
+import { AsignarArmado } from './AsignarArmado';
 
 const pesos = (n: any) => pesosFmt(Number(n) || 0);
 // Precio unitario de un renglón interpretado del WhatsApp: el análisis
@@ -276,6 +277,10 @@ export function PedidosWorkspace({ inicial, puedeSimular = false, puedeCargarRep
           onTomar={() => tomar(abierto)}
           onAvanzar={(estado) => avanzar(abierto, estado)}
           onCancelar={() => cancelar(abierto)}
+          onAsignado={async () => {
+            const r = await fetch('/api/pedidos', { cache: 'no-store' }).catch(() => null);
+            if (r?.ok) { const d = await r.json(); if (Array.isArray(d)) { setPedidos(d); const nuevo = d.find((x: PedidoCola) => x.id === abierto.id); if (nuevo) setAbierto(nuevo); } }
+          }}
         />
       )}
       {entregando && (
@@ -359,6 +364,7 @@ function TarjetaPedido({ p, trabajando, onTomar, onAvanzar, onAbrir }: {
           {(p.items ?? []).length > 3 && ` +${(p.items ?? []).length - 3}`}
         </p>
       </button>
+      {p.asignadoNombre && <p className="mt-2 text-xs text-tinta/70">Lo arma <b className="font-semibold text-tinta">{p.asignadoNombre}</b></p>}
       <div className="mt-3 flex min-w-0 items-center justify-between gap-2">
         <Responsable p={p} />
         <span className="importe shrink-0 text-sm font-semibold text-tinta">{pesos(p.total)}</span>
@@ -378,8 +384,8 @@ function TarjetaPedido({ p, trabajando, onTomar, onAvanzar, onAbrir }: {
   );
 }
 
-function DetallePedido({ p, trabajando, onCerrar, onTomar, onAvanzar, onCancelar }: {
-  p: PedidoCola; trabajando: boolean; onCerrar: () => void; onTomar: () => void; onAvanzar: (estado: string) => void; onCancelar: () => void;
+function DetallePedido({ p, trabajando, onCerrar, onTomar, onAvanzar, onCancelar, onAsignado }: {
+  p: PedidoCola; trabajando: boolean; onCerrar: () => void; onTomar: () => void; onAvanzar: (estado: string) => void; onCancelar: () => void; onAsignado: () => void;
 }) {
   const [historial, setHistorial] = useState<LineaHistorial[] | null>(null);
   const [error, setError] = useState(false);
@@ -435,6 +441,9 @@ function DetallePedido({ p, trabajando, onCerrar, onTomar, onAvanzar, onCancelar
           {p.repartidorNombre && <div className="min-w-0"><dt className="text-xs text-tinta/60">Repartidor</dt><dd className="text-tinta">{p.repartidorNombre}</dd></div>}
           {textoVisible(p.notas) && <div className="col-span-2 min-w-0"><dt className="text-xs text-tinta/60">Notas</dt><dd className="whitespace-pre-wrap break-words text-tinta">{textoVisible(p.notas)}</dd></div>}
         </dl>
+
+        {/* op salón (5/11/2026): a quién se le da la comanda para armarlo */}
+        {['recibido', 'pagado', 'en_preparacion'].includes(p.estado) && <AsignarArmado key={`${p.id}|${p.asignado_a ?? ''}`} p={p} onAsignado={onAsignado} />}
 
         {items.length > 0 && (
           <PlacaRoja
