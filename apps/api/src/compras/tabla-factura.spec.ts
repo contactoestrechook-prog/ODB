@@ -6,6 +6,17 @@ import { aplicarCambiosIA, aplicarPapel, cuentaDelPapel, entraDeRenglon, papelDe
 const lectura = (cantidad: number, precio: number, importe: number, extra: Record<string, unknown> = {}) => ({ cantidad, precio, importe, ...extra });
 
 describe('papelDeLectura: el renglón como está impreso', () => {
+  it('Oxxon 5/11, Pronto Manzana: el lector da 4 bultos y 4 sueltas aparte y «cantidad» 8 → 36 unidades, cierra', () => {
+    const p = papelDeLectura(lectura(8, 1439.61, 46643.23, { bultos: 4, unidadesSueltas: 4, unidadesPorBulto: 8, bonificacionPct: 10, interpretado: { decision: 'bonificado', cantidad: 8, unidadesPorBulto: 8 } }));
+    expect(p).toMatchObject({ bultos: 4, uxb: 8, sueltas: 4, desc: 10 });
+    expect(cuentaDelPapel(p)).toMatchObject({ unidades: 36, cierra: true });
+  });
+
+  it('si los bultos leídos no cierran, sigue mirando la cantidad como antes', () => {
+    const p = papelDeLectura(lectura(5, 1439.61, 51825.82, { bultos: 2, unidadesPorBulto: 8, bonificacionPct: 10 }));
+    expect(p).toMatchObject({ bultos: 5, uxb: 8, sueltas: 0 });
+  });
+
   it('Oxxon, Tiritas: 1 bulto de 12 a $3.598,93 con 10% = $38.868,42', () => {
     const p = papelDeLectura(lectura(1, 3598.93, 38868.42, { unidadesPorBulto: 12, bonificacionPct: 10 }));
     expect(p).toMatchObject({ bultos: 1, uxb: 12, sueltas: 0, precio: 3598.93, desc: 10, importe: 38868.42 });
