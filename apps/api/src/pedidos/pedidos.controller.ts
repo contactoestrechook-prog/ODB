@@ -269,7 +269,8 @@ export class PedidosController {
   }
 
   // Al entregar faltaba stock: sacar ese producto del pedido o reemplazarlo por otro
-  @Roles('deposito', 'cajero', 'gerente', 'dueno', 'repartidor')
+  // administrativo prepara pedidos como depósito (6/11/2026): también resuelve el faltante
+  @Roles('deposito', 'cajero', 'gerente', 'dueno', 'repartidor', 'administrativo')
   @SinHerencia()
   @Post('pedidos/:id/faltante')
   async resolverFaltante(@Param('id') id: string, @Body() body: { productoId: string; reemplazoSku?: string; cantidad?: number }, @Req() req: any) {
@@ -288,7 +289,9 @@ export class PedidosController {
 
   // Quién puede llevar un envío: los repartidores activos y, si no hay o
   // están todos en la calle, alguien del local (21/10/2026)
-  @Roles('deposito', 'cajero', 'gerente', 'dueno')
+  // administrativo despacha lo que preparó (6/11/2026): elige quién lo lleva,
+  // pero ella no figura para llevarlo (no tiene «Mis entregas»)
+  @Roles('deposito', 'cajero', 'gerente', 'dueno', 'administrativo')
   @SinHerencia()
   @Get('envios/quien-lleva')
   quienLleva() {

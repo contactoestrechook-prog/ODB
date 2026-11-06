@@ -39,16 +39,21 @@ describe('envíos y entregas: administrativo no entra por herencia', () => {
   const nuevos: [any, string][] = [
     [PedidosController, 'seEntrego'],
     [PedidosController, 'cambiarEnvio'],
-    [PedidosController, 'resolverFaltante'],
     [PedidosController, 'misEntregas'],
     [PedidosController, 'repartidorUbicacion'],
-    [PedidosController, 'quienLleva'],
     [RepartosController, 'posicion'],
   ];
 
   it.each(nuevos.map(([c, m]) => [`${c.name}.${m}`, c, m]))('%s: depósito sí, administrativo no', async (_n, clase, metodo) => {
     expect(await puede('deposito', clase, metodo)).toBe(true);
     expect(await puede('administrativo', clase, metodo)).toBe(false);
+  });
+
+  // Leandro, 6/11/2026: «todo el sector de pedidos también lo tiene que ver
+  // administración». Prepara y despacha como depósito: resuelve el faltante y
+  // elige quién lleva el envío. Lo de la calle y el efectivo sigue cerrado.
+  it.each(['resolverFaltante', 'quienLleva', 'cola', 'tomar', 'avanzar'])('administrativo prepara pedidos: %s', async (metodo) => {
+    expect(await puede('administrativo', PedidosController, metodo)).toBe(true);
   });
 
   it('la herencia sigue valiendo donde no se la sacó: el PIN de supervisor para cerrar un conteo', async () => {

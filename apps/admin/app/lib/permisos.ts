@@ -28,6 +28,12 @@ const RUTAS_POR_ROL: Record<string, string[]> = {
     '/fraccionar', // cargar el pozo y armar (el API ya se lo permite: hereda depósito), 21/10/2026
     '/trazabilidad', // cadena orden → recepción → factura → pago y sus documentos
     '/puerta-deposito', // lo que entró con remito y espera la factura para sumar al stock (5/11/2026)
+    // Todo el sector de pedidos (Leandro, 6/11/2026: «de cuando llega un pedido,
+    // cómo se prepara, ellas también lo pueden recibir»). El API ya se lo permitía
+    // por heredar depósito; faltaba ofrecérselo.
+    '/pedidos', // los pedidos que llegan: tomarlos y seguirlos
+    '/deposito', // cola de preparación
+    '/salon', // armado en el salón
     '/manual', // el manual lo abre cualquiera
     '/cambiar-clave',
   ],
