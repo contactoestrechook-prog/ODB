@@ -21,7 +21,7 @@ export default async function Pedidos() {
   }
 
   return (
-    <Pantalla activo="/pedidos" ancho="ancho">
+    <Pantalla activo="/pedidos" ancho="completo">
       {error ? (
         <Aviso tono="error">No pude consultar la API ({error}).</Aviso>
       ) : (

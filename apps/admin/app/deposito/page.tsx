@@ -8,7 +8,7 @@ export default async function Deposito() {
   // puede cargarlos (gerencia y dueño); depósito no abre Reparto
   const rol = rolDesdeToken((await cookies()).get('odb_token')?.value);
   return (
-    <Pantalla activo="/deposito" ancho="ancho">
+    <Pantalla activo="/deposito" ancho="completo">
       <ColaDeposito puedeCargarRepartidor={puedeCargarRepartidores(rol)} />
     </Pantalla>
   );

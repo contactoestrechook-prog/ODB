@@ -145,14 +145,16 @@ export function ColaDeposito({ puedeCargarRepartidor = false }: { puedeCargarRep
             // apure a nadie ni se prepare antes de tiempo
             .sort((a, b) => Number(!!a.programado) - Number(!!b.programado));
           return (
-            <section key={col.estado} className="min-w-0 rounded-2xl bg-crema-hondo/50 p-3">
+            <section key={col.estado} className="flex min-w-0 flex-col rounded-2xl bg-crema-hondo/50 p-3 md:max-h-[calc(100dvh-7rem)] md:min-h-72">
               <div className="mb-2 flex items-center justify-between gap-2 px-1">
                 <h2 className="text-sm font-semibold text-tinta">{col.titulo}</h2>
                 <span className="importe rounded-full bg-white px-2 text-xs font-semibold leading-5 text-tinta/70">
                   {enColumna.length}
                 </span>
               </div>
-              <div className="space-y-2">
+              {/* cada carril desplaza lo suyo y, si el ancho da, va de a dos (6/11/2026) */}
+              <div className="min-h-0 flex-1 md:overflow-y-auto">
+              <div className="grid items-start gap-2 min-[1800px]:grid-cols-2">
                 {enColumna.map((p) => {
                   const chip = ORIGEN_CHIP[p.origen] ?? ORIGEN_CHIP.web;
                   // Placa roja (2/10/2026): "siempre que se detallen productos vamos
@@ -290,6 +292,7 @@ export function ColaDeposito({ puedeCargarRepartidor = false }: { puedeCargarRep
                 {enColumna.length === 0 && (
                   <p className="px-1 py-6 text-center text-xs text-tinta/60">vacío</p>
                 )}
+              </div>
               </div>
             </section>
           );

@@ -20,6 +20,9 @@ import { ComandasEstaPc } from './ComandasEstaPc';
 import { AsignarArmado } from './AsignarArmado';
 
 const pesos = (n: any) => pesosFmt(Number(n) || 0);
+// Las cifras de arriba, igual que en Aprobaciones: rótulo chico y número grande.
+const ROTULO_CIFRA = 'text-xs font-semibold uppercase tracking-[0.08em] text-tinta/60';
+const CIFRA = 'importe mt-1 text-2xl font-bold leading-none tracking-tight sm:text-3xl';
 // Precio unitario de un renglón interpretado del WhatsApp: el análisis
 // (apps/api/src/pedidos › analizarWhatsApp) manda el `precio` vigente de cada
 // renglón y la Placa roja muestra "2 × $1.500", el subtotal y el total.
@@ -193,17 +196,17 @@ export function PedidosWorkspace({ inicial, puedeSimular = false, puedeCargarRep
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="flex flex-wrap gap-x-7 gap-y-3">
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <dl className="flex flex-wrap items-end gap-x-6 gap-y-3 sm:gap-x-10">
           <div>
-            <p className={unir('importe text-xl font-bold leading-none', cuentaSinTomar ? 'text-marca-hondo' : 'text-tinta')}>{cuentaSinTomar}</p>
-            <p className="mt-1 text-xs text-tinta/60">Sin tomar</p>
+            <dt className={ROTULO_CIFRA}>Sin tomar</dt>
+            <dd className={unir(CIFRA, cuentaSinTomar ? 'text-marca-hondo' : 'text-tinta')}>{cuentaSinTomar}</dd>
           </div>
-          <div><p className="importe text-xl font-bold leading-none text-tinta">{pedidos.length}</p><p className="mt-1 text-xs text-tinta/60">En curso</p></div>
+          <div><dt className={ROTULO_CIFRA}>En curso</dt><dd className={unir(CIFRA, 'text-tinta')}>{pedidos.length}</dd></div>
           {Object.entries(porOrigen).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([o, n]) => (
-            <div key={o}><p className="importe text-xl font-bold leading-none text-tinta">{n}</p><p className="mt-1 text-xs text-tinta/60">{origenDe({ origen: o, canal: o }).label}</p></div>
+            <div key={o}><dt className={ROTULO_CIFRA}>{origenDe({ origen: o, canal: o }).label}</dt><dd className={unir(CIFRA, 'text-tinta/70')}>{n}</dd></div>
           ))}
-        </div>
+        </dl>
         <div className="grid w-full gap-2 sm:flex sm:w-auto">
           <Boton onClick={() => setWa(true)}>Pedido por WhatsApp</Boton>
           {puedeSimular && <Boton variante="secundario" onClick={() => post({ simular: true })}>Simular PedidosYa</Boton>}
@@ -212,7 +215,9 @@ export function PedidosWorkspace({ inicial, puedeSimular = false, puedeCargarRep
 
       <ComandasEstaPc />
 
+      <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
       <Pestanas
+        className="min-w-0 max-w-full xl:w-auto"
         etiquetaAccesible="Qué pedidos ver"
         valor={vista}
         onCambiar={(v) => setVista(v as 'curso' | 'terminados')}
@@ -221,17 +226,25 @@ export function PedidosWorkspace({ inicial, puedeSimular = false, puedeCargarRep
           { valor: 'terminados', etiqueta: 'Terminados (7 días)', cuenta: terminados?.length },
         ]}
       />
+      {vista === 'curso' && <Chips className="min-w-0 max-w-full" etiquetaAccesible="Por dónde entró" valor={filtro} onCambiar={setFiltro} desplazable opciones={FILTROS} />}
+      </div>
 
       {aviso && <Aviso tono="error" accion={<Boton tamano="chico" variante="secundario" onClick={() => setAviso('')}>Entendido</Boton>}>{aviso}</Aviso>}
 
       {vista === 'curso' ? (
         <>
-          <Chips etiquetaAccesible="Por dónde entró" valor={filtro} onCambiar={setFiltro} desplazable opciones={FILTROS} />
+          {/* Tres carriles que ocupan el alto de la pantalla; cada uno desplaza lo
+              suyo y, si el ancho da, pone las tarjetas de a dos (6/11/2026) */}
           <div className="grid gap-4 md:grid-cols-3">
             {cols.map(({ titulo, lista }) => (
-              <div key={titulo} className="min-w-0 space-y-2">
-                <h2 className="flex items-center justify-between px-1 text-sm font-semibold text-tinta/70">{titulo}<span className="importe text-xs font-medium text-tinta/60">{lista.length}</span></h2>
-                {lista.length === 0 && <p className="rounded-2xl border border-dashed border-black/15 p-5 text-center text-xs text-tinta/60">Nada por acá</p>}
+              <section key={titulo} className="flex min-w-0 flex-col rounded-2xl bg-crema-hondo/45 md:max-h-[calc(100dvh-7rem)] md:min-h-72">
+                <h2 className="flex items-center justify-between gap-2 px-4 pt-3 pb-2 text-sm font-semibold text-tinta">
+                  {titulo}
+                  <span className={unir('importe rounded-full px-2 text-xs font-semibold leading-5', lista.length ? 'bg-tinta text-white' : 'bg-crema-hondo text-tinta/60')}>{lista.length}</span>
+                </h2>
+                <div className="min-h-0 flex-1 px-3 pb-3 md:overflow-y-auto">
+                <div className="grid items-start gap-3 min-[1800px]:grid-cols-2">
+                {lista.length === 0 && <p className="col-span-full py-8 text-center text-xs text-tinta/60">Nada por acá</p>}
                 {lista.map((p) => (
                   <TarjetaPedido
                     key={p.id}
@@ -243,7 +256,9 @@ export function PedidosWorkspace({ inicial, puedeSimular = false, puedeCargarRep
                     onAsignar={() => setAsignando(p)}
                   />
                 ))}
-              </div>
+                </div>
+                </div>
+              </section>
             ))}
           </div>
         </>
