@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { cookies } from 'next/headers';
-import { puedeVer, rolDesdeToken } from '../lib/permisos';
+import { puedeVer, recibeAvisosCelular, rolDesdeToken } from '../lib/permisos';
 import { fecha } from '../lib/formato';
 import { apiFetch } from '../../lib/api';
 import { BuscadorGlobal } from './BuscadorGlobal';
@@ -52,6 +52,7 @@ export const ICONOS: Record<string, string> = {
   // pie del menú (escritorio y celular)
   manual: 'M4 5.5A1.5 1.5 0 015.5 4H10a2 2 0 012 2v13a2 2 0 00-2-2H5.5A1.5 1.5 0 014 15.5zM20 5.5A1.5 1.5 0 0018.5 4H14a2 2 0 00-2 2v13a2 2 0 012-2h4.5a1.5 1.5 0 001.5-1.5z',
   clave: 'M7 11V7a5 5 0 0110 0v4M6 11h12v9H6zM12 15v2',
+  celular: 'M8 3h8a1 1 0 011 1v16a1 1 0 01-1 1H8a1 1 0 01-1-1V4a1 1 0 011-1zM11 18h2',
   salir: 'M10 4H4v16h6M14 8l4 4-4 4M8 12h10',
 };
 
@@ -231,6 +232,7 @@ const TITULOS: Record<string, { titulo: string; bajada: string }> = {
   '/por-llegar': { titulo: 'Mercadería por llegar', bajada: 'Lo pedido a proveedores y el día que confirmó cada uno por WhatsApp' },
   '/aprobaciones': { titulo: 'Aprobaciones', bajada: 'Todo lo que espera tu firma: órdenes, pagos, cobros y cambios de costos' },
   '/trazabilidad': { titulo: 'Trazabilidad', bajada: 'Cada compra, de la orden al pago: quién la hizo, la aprobó y la recibió' },
+  '/avisos': { titulo: 'Avisos en el celular', bajada: 'Lo importante te llega al celular o a la computadora, aunque no tengas el sistema abierto' },
   '/fraccionar': { titulo: 'Fraccionar', bajada: 'Lo que se arma en el local (docenas, maples) para que la caja lo venda' },
 };
 
@@ -305,7 +307,7 @@ export async function Header({
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/odb-logo-blanco.png" alt="O.D.B Premium Market" className="h-12 w-auto" />
           {/* avisos internos: proveedores que escribieron, pagos, derivaciones */}
-          <CampanaAlertas esDuenio={rol === 'dueno'} />
+          <CampanaAlertas esDuenio={rol === 'dueno'} avisosCelular={recibeAvisosCelular(rol)} />
         </div>
 
         <nav aria-label="Secciones del sistema" className="flex-1 overflow-y-auto px-3 pb-4 [scrollbar-color:rgb(255_255_255/0.15)_transparent] [scrollbar-width:thin]">
@@ -319,6 +321,12 @@ export async function Header({
             <Icono d={ICONOS.manual} activo={false} />
             Manual del sistema
           </Link>
+          {recibeAvisosCelular(rol) && (
+            <Link href="/avisos" aria-current={activo === '/avisos' ? 'page' : undefined} className={ENLACE_PIE}>
+              <Icono d={ICONOS.celular} activo={false} />
+              Avisos en el celular
+            </Link>
+          )}
           <Link href="/cambiar-clave" className={ENLACE_PIE}>
             <Icono d={ICONOS.clave} activo={false} />
             Cambiar mi contraseña
@@ -332,7 +340,7 @@ export async function Header({
       </aside>
 
       {/* ---- navegación móvil: barra negra + cajón ---- */}
-      <MobileMenu grupos={grupos} iconos={ICONOS} activo={activo} titulo={seccion.titulo} pendientes={pendientes} esDuenio={rol === 'dueno'} />
+      <MobileMenu grupos={grupos} iconos={ICONOS} activo={activo} titulo={seccion.titulo} pendientes={pendientes} esDuenio={rol === 'dueno'} avisosCelular={recibeAvisosCelular(rol)} />
 
       {/* ---- cabecera de sección ----
           celular: solo el buscador, a lo ancho (el título ya está en la barra negra)

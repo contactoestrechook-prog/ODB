@@ -55,6 +55,7 @@ import { DocumentosModule } from './documentos/documentos.module';
 import { AprobacionesModule } from './aprobaciones/aprobaciones.module';
 import { ReportesModule } from './reportes/reportes.module';
 import { AvisosModule } from './avisos/avisos.module';
+import { AvisosCelularModule } from './avisos-celular/avisos-celular.module';
 import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
@@ -121,6 +122,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     AprobacionesModule,
     ReportesModule,
     AvisosModule,
+    AvisosCelularModule,
     FrioModule,
     SalonModule,
   ],

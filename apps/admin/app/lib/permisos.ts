@@ -34,6 +34,7 @@ const RUTAS_POR_ROL: Record<string, string[]> = {
     '/pedidos', // los pedidos que llegan: tomarlos y seguirlos
     '/deposito', // cola de preparación
     '/salon', // armado en el salón
+    '/avisos', // avisos al celular: «Completá el proveedor» (6/11/2026)
     '/manual', // el manual lo abre cualquiera
     '/cambiar-clave',
   ],
@@ -146,6 +147,16 @@ const RUTAS_DIRECCION = ['/aprobaciones', '/actividad', '/agenda'];
  */
 export function puedeCargarRepartidores(rol: string | null | undefined): boolean {
   return rol === 'dueno' || rol === 'gerente';
+}
+
+/**
+ * Avisos al celular (6/11/2026): solo los roles a los que la campanita les deja
+ * algo que suena (dueños y gerentes: pedidos, pagos y caídas; administrativo: el
+ * proveedor para completar). Al resto no se le ofrece: activaría algo que no le
+ * llega nunca. Si cambia configuracion.avisos_celular.tipos, revisar esto.
+ */
+export function recibeAvisosCelular(rol: string | null | undefined): boolean {
+  return rol === 'dueno' || rol === 'gerente' || rol === 'administrativo';
 }
 
 export function puedeVer(rol: string | null | undefined, pathname: string): boolean {

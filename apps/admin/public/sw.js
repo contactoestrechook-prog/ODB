@@ -82,3 +82,41 @@ self.addEventListener('fetch', (e) => {
 self.addEventListener('message', (e) => {
   if (e.data === 'odb-version' && e.ports && e.ports[0]) e.ports[0].postMessage({ odbVersion: VERSION });
 });
+
+// AVISOS AL CELULAR (6/11/2026). Muestra los avisos importantes de la campanita
+// (Web Push) y, al tocarlos, abre esa pantalla del panel. Qué llega lo decide la
+// API (configuracion.avisos_celular): acá solo se muestra. No toca el fetch.
+self.addEventListener('push', (e) => {
+  let d = {};
+  try { d = e.data ? e.data.json() : {}; } catch { d = { cuerpo: e.data ? e.data.text() : '' }; }
+  e.waitUntil(self.registration.showNotification(d.titulo || 'O.D.B', {
+    body: d.cuerpo || '',
+    icon: '/icon-192.png',
+    badge: '/icon-192.png',
+    tag: d.tag || undefined,
+    renotify: !!d.tag,
+    data: { url: d.url || '/inicio' },
+  }));
+});
+
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  const url = new URL((e.notification.data && e.notification.data.url) || '/inicio', self.location.origin);
+  // nunca a otro sitio
+  const destino = url.origin === self.location.origin ? url.href : new URL('/inicio', self.location.origin).href;
+  e.waitUntil((async () => {
+    const abiertas = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    const panel = abiertas.find((c) => new URL(c.url).origin === self.location.origin);
+    if (panel) {
+      await panel.focus();
+      if ('navigate' in panel) await panel.navigate(destino).catch(() => {});
+      return;
+    }
+    await self.clients.openWindow(destino);
+  })());
+});
+
+// Si el navegador renueva la suscripción, se le avisa al panel para que la guarde de nuevo.
+self.addEventListener('pushsubscriptionchange', (e) => {
+  e.waitUntil(self.clients.matchAll({ type: 'window' }).then((cs) => cs.forEach((c) => c.postMessage({ tipo: 'renovar-avisos' }))));
+});

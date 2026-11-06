@@ -45,6 +45,7 @@ export function MobileMenu({
   titulo,
   pendientes = {},
   esDuenio = false,
+  avisosCelular = false,
 }: {
   grupos: Grupo[];
   iconos: Record<string, string>;
@@ -54,6 +55,8 @@ export function MobileMenu({
   pendientes?: Record<string, number>;
   /** "Abrir la charla" de la campanita (RESPONDE es solo del dueño). */
   esDuenio?: boolean;
+  /** Su rol recibe avisos al celular: el enlace y la invitación de la campanita (6/11/2026). */
+  avisosCelular?: boolean;
 }) {
   const [abierto, setAbierto] = useState(false);
   const botonMenu = useRef<HTMLButtonElement>(null);
@@ -134,7 +137,7 @@ export function MobileMenu({
           </button>
           <h1 className="min-w-0 flex-1 truncate text-base font-semibold tracking-tight">{titulo}</h1>
           {/* avisos internos: en el celular el panel se abre a lo ancho de la pantalla */}
-          <CampanaAlertas donde="movil" esDuenio={esDuenio} />
+          <CampanaAlertas donde="movil" esDuenio={esDuenio} avisosCelular={avisosCelular} />
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/odb-logo-blanco.png" alt="O.D.B Premium Market" className="ml-1 h-7 w-auto shrink-0" />
         </div>
@@ -177,6 +180,12 @@ export function MobileMenu({
                 <Icono d={iconos.manual} />
                 Manual del sistema
               </Link>
+              {avisosCelular && (
+                <Link href="/avisos" onClick={() => setAbierto(false)} className={ENLACE_PIE}>
+                  <Icono d={iconos.celular} />
+                  Avisos en el celular
+                </Link>
+              )}
               <Link href="/cambiar-clave" onClick={() => setAbierto(false)} className={ENLACE_PIE}>
                 <Icono d={iconos.clave} />
                 Cambiar mi contraseña

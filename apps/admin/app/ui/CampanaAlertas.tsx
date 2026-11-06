@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { FOCO, unir } from './kit';
+import { estadoAvisos, renovarAvisos } from '../lib/avisos-celular';
 
 // La campanita: avisos internos que el sistema le deja a cada persona (pagos,
 // consultas del bot, proveedores, pedidos sin tomar, reportes…).
@@ -71,7 +72,9 @@ const hace = (v: string) => {
 // sobre el contenido) o 'movil' (barra superior del celular: ocupa el ancho de la
 // pantalla). ANTES se abría con right-0 pegado a la campanita de la barra lateral y
 // quedaba 150 px fuera de la pantalla por la izquierda (2026-09-09).
-export function CampanaAlertas({ donde = 'lateral', esDuenio = true }: { donde?: 'lateral' | 'movil'; esDuenio?: boolean } = {}) {
+// `avisosCelular` (6/11/2026): su rol recibe avisos al celular; si este aparato
+// todavía no los tiene, la campanita lo invita con una línea arriba.
+export function CampanaAlertas({ donde = 'lateral', esDuenio = true, avisosCelular = false }: { donde?: 'lateral' | 'movil'; esDuenio?: boolean; avisosCelular?: boolean } = {}) {
   const [alertas, setAlertas] = useState<Alerta[]>([]);
   const [atendidas, setAtendidas] = useState<Alerta[] | null>(null);
   const [abierta, setAbierta] = useState(false);
@@ -98,6 +101,29 @@ export function CampanaAlertas({ donde = 'lateral', esDuenio = true }: { donde?:
     const t = setInterval(cargar, 30_000);
     return () => clearInterval(t);
   }, [cargar]);
+
+  // Avisos al celular (6/11/2026). El aviso que junta lo de la noche abre el panel
+  // en /inicio#avisos: se abre la campanita que está a la vista (la de la barra del
+  // celular o la del menú lateral). Y si el navegador renovó la suscripción, se
+  // guarda la nueva (lo avisa sw.js).
+  const [invitarCelular, setInvitarCelular] = useState(false);
+  useEffect(() => {
+    const ancha = () => window.matchMedia('(min-width: 1024px)').matches;
+    const abrirSiToca = () => {
+      if (window.location.hash !== '#avisos' || ancha() !== (donde === 'lateral')) return;
+      setAbierta(true);
+      history.replaceState(null, '', window.location.pathname + window.location.search);
+    };
+    abrirSiToca();
+    window.addEventListener('hashchange', abrirSiToca);
+    const alMensaje = (e: MessageEvent) => { if (e.data?.tipo === 'renovar-avisos') renovarAvisos(); };
+    navigator.serviceWorker?.addEventListener('message', alMensaje);
+    if (avisosCelular) estadoAvisos().then((e) => setInvitarCelular(e === 'apagados' || e === 'instalar-iphone')).catch(() => null);
+    return () => {
+      window.removeEventListener('hashchange', abrirSiToca);
+      navigator.serviceWorker?.removeEventListener('message', alMensaje);
+    };
+  }, [donde, avisosCelular]);
   // al abrirla se actualiza (antes mostraba lo de hasta 30 s atrás)
   useEffect(() => { if (abierta) { cargar(); if (pestana === 'atendidos') cargarAtendidas(); } }, [abierta, pestana, cargar, cargarAtendidas]);
 
@@ -160,6 +186,12 @@ export function CampanaAlertas({ donde = 'lateral', esDuenio = true }: { donde?:
             <button type="button" onClick={() => setAbierta(false)} className={unir('rounded-full px-2 py-1 text-xs font-medium text-tinta/60 hover:text-tinta', FOCO)}>Cerrar</button>
             </div>
           </div>
+          {invitarCelular && (
+            <a href="/avisos" className={unir('flex items-center justify-between gap-2 border-b border-black/[0.06] px-4 py-2.5 text-sm hover:bg-crema-claro', FOCO)}>
+              <span className="text-tinta/70">Recibí lo importante en el celular</span>
+              <span className="shrink-0 font-semibold text-marca">Activar →</span>
+            </a>
+          )}
           <div role="tablist" aria-label="Avisos" className="flex gap-1 border-b border-black/[0.06] px-2">
             {(['pendientes', 'atendidos'] as const).map((p) => (
               <button

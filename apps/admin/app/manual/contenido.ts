@@ -76,6 +76,17 @@ export const SECCIONES: Seccion[] = [
       },
       {
         tipo: 'pasos',
+        titulo: 'Avisos en el celular',
+        pasos: [
+          'Lo importante de la campanita te puede llegar al celular o a la computadora aunque no tengas el sistema abierto. Se activa en cada aparato: menú → "Avisos en el celular" → "Activar avisos", y tocá "Permitir" cuando el navegador pregunte.',
+          'En el iPhone, primero agregá el sistema a la pantalla de inicio (Safari → Compartir → "Agregar a pantalla de inicio") y activalo desde ese ícono: en una pestaña de Safari los avisos no llegan. La pantalla muestra los pasos.',
+          'A los dueños les suena un pedido que nadie tomó, un pedido cuyo aviso no le llegó a administración, un comprobante o consulta de pago, y cuando se cae una línea de WhatsApp o el bot. A administración, un proveedor para completar. Lo demás sigue solo en la campanita.',
+          'De 22 a 8 no suena: lo que llega de noche sale a las 8 en un solo aviso. Al tocar un aviso se abre la pantalla donde se resuelve.',
+          'En la misma pantalla ves en qué aparatos los tenés y podés quitar uno (por ejemplo, un celular que ya no usás).',
+        ],
+      },
+      {
+        tipo: 'pasos',
         titulo: 'Si algo está mal: "Esto está mal"',
         pasos: [
           'En cualquier pantalla, abajo a la izquierda, está el botón "Esto está mal". Tocalo y contá qué esperabas (escrito o dictado con el micrófono). La pantalla y los datos se adjuntan solos.',
