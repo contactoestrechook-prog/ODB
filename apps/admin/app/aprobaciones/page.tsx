@@ -10,7 +10,7 @@ export const dynamic = 'force-dynamic';
 export default async function AprobacionesPage() {
   const rol = rolDesdeToken((await cookies()).get('odb_token')?.value);
   return (
-    <Pantalla activo="/aprobaciones" ancho="angosto">
+    <Pantalla activo="/aprobaciones" ancho="completo">
       <Aprobaciones puedeFirmar={rol === 'dueno'} />
     </Pantalla>
   );
