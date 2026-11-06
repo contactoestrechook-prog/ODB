@@ -143,7 +143,8 @@ export function ColaDeposito({ puedeCargarRepartidor = false }: { puedeCargarRep
             .filter((p) => p.estado === col.estado || (col.estado === 'recibido' && p.estado === 'pagado'))
             // lo de HOY primero; lo programado para otro día al final, que no
             // apure a nadie ni se prepare antes de tiempo
-            .sort((a, b) => Number(!!a.programado) - Number(!!b.programado));
+            // y dentro de cada grupo, arriba los más nuevos (6/11/2026)
+            .sort((a, b) => Number(!!a.programado) - Number(!!b.programado) || (a.minutos ?? 0) - (b.minutos ?? 0));
           return (
             <section key={col.estado} className="flex min-w-0 flex-col rounded-2xl bg-crema-hondo/50 p-3 md:max-h-[calc(100dvh-7rem)] md:min-h-72">
               <div className="mb-2 flex items-center justify-between gap-2 px-1">

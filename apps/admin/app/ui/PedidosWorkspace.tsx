@@ -181,7 +181,10 @@ export function PedidosWorkspace({ inicial, puedeSimular = false, puedeCargarRep
     setTrabajando(null);
   }
 
-  const visibles = filtro === 'todos' ? pedidos : pedidos.filter((p) => origenClave(p) === filtro);
+  // Arriba, los más nuevos (Leandro, 6/11/2026): lo que acaba de entrar se ve sin desplazar
+  const visibles = (filtro === 'todos' ? pedidos : pedidos.filter((p) => origenClave(p) === filtro))
+    .slice()
+    .sort((a, b) => String(b.creado_en).localeCompare(String(a.creado_en)));
   const cols = [
     { titulo: 'Nuevos', lista: visibles.filter((p) => ['recibido', 'pagado'].includes(p.estado)) },
     { titulo: 'En preparación', lista: visibles.filter((p) => p.estado === 'en_preparacion') },
