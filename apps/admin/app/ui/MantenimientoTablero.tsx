@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Aviso, Cargando, FOCO, ROTULO, Tarjeta, unir, Vacio } from './kit';
+import { Aviso, Boton, Cargando, FOCO, ROTULO, Tarjeta, unir, useConfirmar, Vacio } from './kit';
 
 // MANTENIMIENTO (Leandro, 9/11/2026: «6 horas de programación de mantenimiento
 // mensuales… qué hicimos, sobre qué trabajamos, qué se mejoró, si fueron
@@ -16,7 +16,12 @@ type Trabajo = {
   para_que: string | null; pidio: string | null; pedido_el: string | null; cita: string | null; mensaje: string;
   minutos: number; partes: string[]; archivos: number; lineas: number;
 };
-type Respuesta = { horasAbono: number; trabajos: Trabajo[] };
+type Cotizacion = {
+  id: string; mes: string; titulo: string; detalle: string | null; horas: number; precio_hora: number | null; moneda: string;
+  automatica: boolean; estado: 'pendiente' | 'aprobada' | 'rechazada'; creada_en: string; decidida_en: string | null; motivo: string | null;
+  firmante: { nombre: string } | null;
+};
+type Respuesta = { horasAbono: number; trabajos: Trabajo[]; cotizaciones: Cotizacion[] };
 type Filtro = { tipo?: Tipo; area?: string; pidio?: string; dia?: string };
 
 const TIPOS: { tipo: Tipo; nombre: string; plural: string; fondo: string; texto: string; suave: string; borde: string; explica: string }[] = [
@@ -119,7 +124,12 @@ export function MantenimientoTablero() {
         })}
       </div>
 
-      <Resumen trabajos={delMes} horasAbono={datos.horasAbono} mes={mes} filtro={filtro} cambiar={cambiar} />
+      <Resumen trabajos={delMes} horasAbono={datos.horasAbono} mes={mes} filtro={filtro} cambiar={cambiar} cotizaciones={datos.cotizaciones.filter((c) => c.mes === mes)} />
+
+      <Cotizaciones
+        lista={datos.cotizaciones.filter((c) => c.mes === mes)}
+        cambio={(c) => setDatos((d) => d && { ...d, cotizaciones: d.cotizaciones.map((x) => (x.id === c.id ? { ...x, ...c } : x)) })}
+      />
 
       <Tarjeta>
         <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -172,7 +182,9 @@ export function MantenimientoTablero() {
 
 // ---- arriba: las horas del abono y la mezcla del mes ----------------------
 
-function Resumen({ trabajos, horasAbono, mes, filtro, cambiar }: { trabajos: Trabajo[]; horasAbono: number; mes: string; filtro: Filtro; cambiar: (f: Filtro) => void }) {
+function Resumen({ trabajos, horasAbono, mes, filtro, cambiar, cotizaciones }: { trabajos: Trabajo[]; horasAbono: number; mes: string; filtro: Filtro; cambiar: (f: Filtro) => void; cotizaciones: Cotizacion[] }) {
+  const pendiente = cotizaciones.some((c) => c.estado === 'pendiente');
+  const aprobadas = cotizaciones.filter((c) => c.estado === 'aprobada').reduce((s, c) => s + Number(c.horas), 0);
   const min = sumaMin(trabajos);
   const abonoMin = horasAbono * 60;
   const escala = Math.max(min, abonoMin);
@@ -203,7 +215,7 @@ function Resumen({ trabajos, horasAbono, mes, filtro, cambiar }: { trabajos: Tra
             {extra > 0 ? (
               <span className="font-semibold text-marca-hondo">
                 <span className="mr-1.5 inline-block size-2.5 rounded-full bg-marca align-middle" />
-                {horas(extra)} por encima del abono
+                {horas(extra)} por encima del abono · {pendiente ? 'cotizadas, esperan tu aprobación' : aprobadas ? `${aprobadas.toLocaleString('es-AR')} h aprobadas aparte` : 'se cotizan aparte'}
               </span>
             ) : (
               <span className="text-tinta/70">Quedan {horas(abonoMin - min)}</span>
@@ -417,5 +429,91 @@ function Item({ t, abierto, abrir }: { t: Trabajo; abierto: boolean; abrir: () =
         </div>
       )}
     </li>
+  );
+}
+
+// ---- lo que pasa del abono se cotiza aparte y lo aprueba ODB -------------
+
+const ESTADO_COT = {
+  pendiente: { texto: 'Espera tu aprobación', clase: 'bg-atencion-suave text-atencion' },
+  aprobada: { texto: 'Aprobada', clase: 'bg-ok-suave text-ok' },
+  rechazada: { texto: 'Rechazada', clase: 'bg-marca-suave text-marca-hondo' },
+} as const;
+
+function Cotizaciones({ lista, cambio }: { lista: Cotizacion[]; cambio: (c: Partial<Cotizacion> & { id: string }) => void }) {
+  const { confirmar, pedirTexto, dialogo } = useConfirmar();
+  const [trabajando, setTrabajando] = useState<string | null>(null);
+  const [error, setError] = useState('');
+  if (!lista.length) return null;
+
+  const decidir = async (c: Cotizacion, decision: 'aprobar' | 'rechazar') => {
+    let motivo: string | null = null;
+    if (decision === 'rechazar') {
+      motivo = await pedirTexto({ titulo: 'Rechazar la cotización', texto: c.titulo, campo: { etiqueta: 'Motivo (le llega a MetoGroup):', multilinea: true }, variante: 'peligro', textoConfirmar: 'Rechazar' });
+      if (motivo === null) return;
+    } else {
+      const total = c.precio_hora != null ? `${c.moneda} ${(c.horas * c.precio_hora).toLocaleString('es-AR')}` : null;
+      const ok = await confirmar({
+        titulo: '¿Aprobás las horas extra?',
+        texto: <><p>{c.titulo}</p><p className="mt-2 font-semibold text-tinta">{c.horas.toLocaleString('es-AR')} h{total ? ` · ${total}` : ' · valor hora a confirmar'}</p></>,
+        variante: 'ok',
+        textoConfirmar: 'Aprobar',
+      });
+      if (!ok) return;
+    }
+    setTrabajando(c.id); setError('');
+    try {
+      const r = await fetch('/api/mantenimiento', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: c.id, decision, motivo }) });
+      const d = await r.json().catch(() => null);
+      if (!r.ok) { setError(r.status === 403 ? 'Las aprueba el dueño.' : d?.message ?? 'No se pudo guardar'); return; }
+      cambio({ id: c.id, estado: decision === 'aprobar' ? 'aprobada' : 'rechazada', decidida_en: new Date().toISOString(), motivo });
+    } finally {
+      setTrabajando(null);
+    }
+  };
+
+  return (
+    <Tarjeta className="space-y-3">
+      <div>
+        <h2 className="text-base font-semibold text-tinta">Horas por encima del abono</h2>
+        <p className="text-sm text-tinta/70">Lo que pasa de las horas incluidas se cotiza aparte y se hace o se cobra solo con tu aprobación.</p>
+      </div>
+      {error && <Aviso tono="error">{error}</Aviso>}
+      <ul className="space-y-2">
+        {lista.map((c) => {
+          const e = ESTADO_COT[c.estado];
+          const total = c.precio_hora != null ? `${c.moneda} ${(Number(c.horas) * Number(c.precio_hora)).toLocaleString('es-AR')}` : null;
+          return (
+            <li key={c.id} className="rounded-xl border border-black/[0.06] p-4">
+              <div className="flex flex-wrap items-start gap-3">
+                <div className="min-w-0 flex-1">
+                  <span className={unir('inline-block rounded-full px-2 py-0.5 text-xs font-semibold', e.clase)}>{e.texto}</span>
+                  <p className="mt-2 font-semibold text-tinta">{c.titulo}</p>
+                  {c.detalle && <p className="mt-0.5 text-sm text-tinta/70">{c.detalle}</p>}
+                  {c.estado !== 'pendiente' && (
+                    <p className="mt-1 text-xs text-tinta/60">
+                      {c.estado === 'aprobada' ? 'Aprobó' : 'Rechazó'} {c.firmante?.nombre ?? 'el dueño'}
+                      {c.decidida_en ? ` el ${new Date(c.decidida_en).toLocaleDateString('es-AR', { timeZone: ZONA })}` : ''}
+                      {c.motivo ? ` · «${c.motivo}»` : ''}
+                    </p>
+                  )}
+                </div>
+                <div className="text-right">
+                  <p className="text-2xl font-bold text-tinta">{Number(c.horas).toLocaleString('es-AR')} h</p>
+                  <p className="text-xs text-tinta/60">{total ?? 'valor hora a confirmar'}</p>
+                </div>
+              </div>
+              {c.estado === 'pendiente' && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Boton variante="ok" onClick={() => decidir(c, 'aprobar')} disabled={trabajando === c.id} cargando={trabajando === c.id}>Aprobar</Boton>
+                  <Boton variante="peligro" onClick={() => decidir(c, 'rechazar')} disabled={trabajando === c.id}>Rechazar</Boton>
+                </div>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+      {dialogo}
+    </Tarjeta>
   );
 }

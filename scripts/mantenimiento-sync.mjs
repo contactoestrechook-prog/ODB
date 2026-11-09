@@ -34,6 +34,10 @@ const RECALCULAR = process.argv.includes('--recalcular');
 const LIMITE = Number(process.argv.find((a) => a.startsWith('--limite='))?.slice(9)) || Infinity; // para probar con pocos
 const REF = process.argv.find((a) => !a.startsWith('-') && a !== process.argv[0] && a !== process.argv[1]) ?? 'origin/main';
 const MODELO = process.env.MANTENIMIENTO_MODELO ?? 'claude-haiku-5-5';
+// el abono: 6 h por mes; lo que pasa se cotiza aparte y lo aprueba ODB (9/11/2026).
+// Antes de noviembre de 2026 era la implementación, no mantenimiento: no se cotiza.
+const ABONO_HORAS = Number(process.env.MANTENIMIENTO_HORAS_MES ?? 6);
+const ABONO_DESDE = process.env.MANTENIMIENTO_DESDE ?? '2026-11';
 const PAUSA_SESION = 45 * 60_000; // más que esto sin commits: otra sesión
 const ARRANQUE = 15; // minutos de la sesión antes del primer commit (leer, pensar)
 
@@ -271,6 +275,63 @@ async function guardar(filas) {
   }
 }
 
+// ---- las horas por encima del abono: cotización para que ODB la apruebe ----
+
+const COTIZ = `${ENV.SUPABASE_URL}/rest/v1/mantenimiento_cotizaciones`;
+const pedir = async (url, init = {}) => {
+  const res = await fetch(url, { ...init, headers: { ...CAB, ...(init.headers ?? {}) } });
+  if (!res.ok) throw new Error(`Supabase respondió ${res.status}: ${await res.text()}`);
+  return res.status === 204 || init.method === 'PATCH' || init.method === 'DELETE' ? null : res.json();
+};
+const nombreMes = (mes) => new Date(`${mes}-15T12:00:00-03:00`).toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
+const hs = (n) => n.toLocaleString('es-AR', { maximumFractionDigits: 1 });
+
+export function horasACotizar(minutosMes, horasYaDecididas, abono = ABONO_HORAS) {
+  const extra = Math.ceil(((minutosMes - abono * 60) / 60) * 2) / 2; // de a media hora, para arriba
+  return Math.max(0, extra - horasYaDecididas);
+}
+
+async function cotizarExcedentes() {
+  const precio = ENV.MANTENIMIENTO_PRECIO_HORA ? Number(ENV.MANTENIMIENTO_PRECIO_HORA) : null;
+  // sin valor hora no se le manda a ODB una cotización: una cotización sin precio no se puede aprobar
+  if (!precio) { console.log('  cotizaciones: falta MANTENIMIENTO_PRECIO_HORA en apps/api/.env; no se cotiza nada'); return; }
+  const moneda = ENV.MANTENIMIENTO_MONEDA ?? 'ARS';
+  const filas = [];
+  for (let desde = 0; ; desde += 1000) {
+    const lote = await pedir(`${BASE}?select=mes,minutos&mes=gte.${ABONO_DESDE}`, { headers: { Range: `${desde}-${desde + 999}` } });
+    filas.push(...lote);
+    if (lote.length < 1000) break;
+  }
+  const porMes = new Map();
+  for (const f of filas) porMes.set(f.mes, (porMes.get(f.mes) ?? 0) + f.minutos);
+  for (const [mes, min] of porMes) {
+    if (min <= ABONO_HORAS * 60) continue;
+    const cots = await pedir(`${COTIZ}?select=id,horas,estado&mes=eq.${mes}&automatica=is.true`);
+    const decididas = cots.filter((c) => c.estado !== 'pendiente').reduce((s, c) => s + Number(c.horas), 0);
+    const pendiente = cots.find((c) => c.estado === 'pendiente');
+    const horas = horasACotizar(min, decididas);
+    if (horas <= 0) continue;
+    if (pendiente && Number(pendiente.horas) === horas) continue;
+    const titulo = `Horas por encima del abono · ${nombreMes(mes)}${decididas ? ' (ampliación)' : ''}`;
+    const detalle = `En ${nombreMes(mes)} se trabajaron ${hs(min / 60)} h y el abono incluye ${ABONO_HORAS} h. ` +
+      `${decididas ? `Ya se resolvieron ${hs(decididas)} h; se cotizan ${hs(horas)} h más` : `Se cotizan aparte ${hs(horas)} h`}` +
+      (precio ? ` a ${moneda} ${precio.toLocaleString('es-AR')} la hora: ${moneda} ${(horas * precio).toLocaleString('es-AR')}.` : ', a valor hora a confirmar.') +
+      ' Cada trabajo está en Administración › Mantenimiento.';
+    if (pendiente) {
+      await pedir(`${COTIZ}?id=eq.${pendiente.id}`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ horas, detalle, precio_hora: precio, moneda }) });
+      console.log(`  cotización de ${mes} actualizada: ${hs(horas)} h`);
+    } else {
+      const [nueva] = await pedir(COTIZ, { method: 'POST', headers: { Prefer: 'return=representation' }, body: JSON.stringify({ mes, titulo, detalle, horas, precio_hora: precio, moneda, automatica: true }) });
+      // a la campanita de los dueños: hay algo nuevo para firmar
+      await pedir(`${ENV.SUPABASE_URL}/rest/v1/alertas_internas`, {
+        method: 'POST', headers: { Prefer: 'return=minimal' },
+        body: JSON.stringify({ para_usuario: null, tipo: 'mantenimiento', titulo: `Para aprobar: ${titulo}`, detalle, referencia: { origen: 'mantenimiento', cotizacion: nueva.id, link: '/aprobaciones' } }),
+      }).catch((e) => console.log(`  (no pude avisar en la campanita: ${e.message.slice(0, 80)})`));
+      console.log(`  cotización nueva de ${mes}: ${hs(horas)} h, espera la aprobación de ODB`);
+    }
+  }
+}
+
 async function actualizarMinutos(minutos, cargados) {
   for (const [hash, m] of minutos) {
     if (!cargados.has(hash)) continue;
@@ -320,6 +381,7 @@ async function main() {
     await guardar(filas);
     console.log(`  cargados ${Math.min(i + 25, nuevos.length)} de ${nuevos.length}`);
   }
+  await cotizarExcedentes();
   if (RECALCULAR) {
     await actualizarMinutos(minutos, await hashesCargados());
     console.log('  minutos recalculados');

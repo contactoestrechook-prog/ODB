@@ -50,5 +50,10 @@ mensaje del commit ES el registro que ve el dueño:
 - Si fue idea nuestra: `(Propuesta de MetoGroup, d/m/aaaa)` → tipo «propuesta».
 - El tipo (bug, arreglo, mejora, nuevo) y el área salen de reglas sobre el
   mensaje; el tiempo, de las sesiones de commits de ese día (estimación).
+- Lo que pasa de 6 h por mes (desde `MANTENIMIENTO_DESDE`, 2026-11) se cotiza solo:
+  `mantenimiento_cotizaciones`, a `MANTENIMIENTO_PRECIO_HORA` y `MANTENIMIENTO_MONEDA`
+  (en apps/api/.env de ~/Projects/odb; sin precio no se cotiza). Va a Aprobaciones
+  y a la campanita; la firma el dueño. Una cotización previa a un trabajo grande
+  se carga a mano con `automatica = false`.
 - Tabla `mantenimiento_trabajos` (db/migracion-mantenimiento.sql). Para corregir
   un trabajo mal clasificado, se edita su fila.

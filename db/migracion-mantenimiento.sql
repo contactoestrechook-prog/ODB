@@ -37,3 +37,32 @@ create index if not exists mantenimiento_trabajos_mes on public.mantenimiento_tr
 
 alter table public.mantenimiento_trabajos enable row level security;
 revoke all on public.mantenimiento_trabajos from anon, authenticated;
+
+-- ============================================================================
+-- COTIZACIONES de horas extra (Leandro, 9/11/2026: «cuando se pasa las 6 horas,
+-- se cotiza aparte y lo tienen que aprobar ellos. Por sistema también»).
+-- La automática del mes la crea y la actualiza scripts/mantenimiento-sync.mjs
+-- cuando lo publicado pasa el abono; las que se cotizan antes de hacer un
+-- trabajo grande se cargan a mano (automatica = false). El dueño las firma en
+-- Aprobaciones o en Mantenimiento.
+-- ============================================================================
+create table if not exists public.mantenimiento_cotizaciones (
+  id uuid primary key default gen_random_uuid(),
+  mes text not null,                    -- 'AAAA-MM' al que corresponden las horas
+  titulo text not null,
+  detalle text,
+  horas numeric(6,1) not null check (horas > 0),
+  precio_hora numeric(14,2),            -- null: se muestra «valor hora a confirmar»
+  moneda text not null default 'ARS',
+  automatica boolean not null default false,
+  estado text not null default 'pendiente' check (estado in ('pendiente', 'aprobada', 'rechazada')),
+  creada_en timestamptz not null default now(),
+  decidida_por uuid references public.usuarios(id),
+  decidida_en timestamptz,
+  motivo text
+);
+create index if not exists mantenimiento_cotizaciones_mes on public.mantenimiento_cotizaciones (mes, creada_en);
+-- una sola automática pendiente por mes: si siguen sumándose horas, crece esa
+create unique index if not exists mantenimiento_cotizaciones_una_pendiente_auto on public.mantenimiento_cotizaciones (mes) where automatica and estado = 'pendiente';
+alter table public.mantenimiento_cotizaciones enable row level security;
+revoke all on public.mantenimiento_cotizaciones from anon, authenticated;

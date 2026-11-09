@@ -7,6 +7,7 @@ import { aprobarCobranza, rechazarCobranza } from '../clientes/cobranzas.circuit
 import { MesaComprasService } from '../compras/mesa-compras.service';
 import { VentasService } from '../ventas/ventas.service';
 import { PedidosProveedorService } from '../pedidos-proveedor/pedidos-proveedor.service';
+import { montoCotizacion, resolverCotizacion } from '../mantenimiento/cotizaciones';
 
 // Todo lo que espera la firma del dueño, en una sola bandeja.
 //
@@ -20,7 +21,7 @@ import { PedidosProveedorService } from '../pedidos-proveedor/pedidos-proveedor.
 // de siempre, con sus validaciones y su auditoría. Lo único que cambia es que
 // están todas juntas y ordenadas por lo que más cuesta dejar esperando.
 type Pendiente = {
-  tipo: 'orden_compra' | 'orden_pago' | 'cobranza' | 'cambio_factura' | 'propuesta_costo' | 'devolucion';
+  tipo: 'orden_compra' | 'orden_pago' | 'cobranza' | 'cambio_factura' | 'propuesta_costo' | 'devolucion' | 'mantenimiento';
   id: string;
   titulo: string;
   detalle: string;
@@ -39,6 +40,7 @@ const NOMBRE_TIPO: Record<Pendiente['tipo'], string> = {
   cambio_factura: 'Cambio en factura',
   propuesta_costo: 'Cambio de costos',
   devolucion: 'Devolución en caja',
+  mantenimiento: 'Horas extra de mantenimiento',
 };
 
 @Controller('aprobaciones')
@@ -58,7 +60,7 @@ export class AprobacionesController {
   @Roles('gerente', 'dueno')
   @Get()
   async pendientes(): Promise<{ items: Pendiente[]; total: number; porTipo: Record<string, number> }> {
-    const [ocs, ops, cobros, cambios, propuestas, devoluciones] = await Promise.all([
+    const [ocs, ops, cobros, cambios, propuestas, devoluciones, mantenimiento] = await Promise.all([
       this.db.from('ordenes_compra')
         .select('id, numero, total, creado_en, proveedor:proveedores(razon_social), autor:usuarios!ordenes_compra_creada_por_fkey(nombre)')
         .eq('estado', 'pendiente_aprobacion').order('creado_en'),
@@ -77,12 +79,16 @@ export class AprobacionesController {
         .select('id, titulo, creada_en, proveedor:proveedores(razon_social), autor:usuarios!propuestas_costo_creada_por_fkey(nombre), items:propuestas_costo_items(costo_nuevo)')
         .eq('estado', 'pendiente').order('creada_en'),
       this.ventas.devolucionesPendientes(),
+      // horas de MetoGroup por encima del abono de 6 h (9/11/2026)
+      this.db.from('mantenimiento_cotizaciones')
+        .select('id, titulo, detalle, horas, precio_hora, moneda, creada_en')
+        .eq('estado', 'pendiente').order('creada_en'),
     ]);
 
     // Una consulta rota NO puede leerse como "no hay nada que firmar": esta
     // pantalla se mira para confiar en que está todo al día. Si una falla,
     // falla la pantalla entera y se ve el error.
-    for (const r of [ocs, ops, cobros, cambios, propuestas]) {
+    for (const r of [ocs, ops, cobros, cambios, propuestas, mantenimiento]) {
       if (r.error) throw new BadRequestException(`No pude leer la cola de aprobaciones: ${r.error.message}`);
     }
 
@@ -127,6 +133,17 @@ export class AprobacionesController {
         titulo: p.titulo || `Costos de ${p.proveedor?.razon_social ?? 'un proveedor'}`,
         detalle: `${(p.items ?? []).length} producto(s) cambian de costo y de precio de venta`,
         monto: null, pidio: p.autor?.nombre ?? null, cuando: p.creada_en, dias: this.dias(p.creada_en),
+      });
+    }
+
+    for (const c of ((mantenimiento.data ?? []) as any[])) {
+      const monto = montoCotizacion(c);
+      items.push({
+        tipo: 'mantenimiento', id: c.id,
+        titulo: `${c.titulo} · ${Number(c.horas).toLocaleString('es-AR')} h${monto ? ` · ${monto}` : ''}`,
+        detalle: c.detalle ?? 'Horas por encima del abono de mantenimiento',
+        // el monto va en el título con su moneda: la bandeja dibuja los montos en pesos
+        monto: null, pidio: 'MetoGroup', cuando: c.creada_en, dias: this.dias(c.creada_en),
       });
     }
 
@@ -203,6 +220,9 @@ export class AprobacionesController {
         break;
       case 'devolucion':
         resultado = await this.ventas.resolverDevolucion(id, aprueba ? 'aprobar' : 'rechazar', usuarioId, motivo);
+        break;
+      case 'mantenimiento':
+        resultado = await resolverCotizacion(this.db, id, aprueba, usuarioId, motivo ?? null);
         break;
       default:
         throw new BadRequestException('Tipo de aprobación desconocido');
