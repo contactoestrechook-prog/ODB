@@ -323,3 +323,23 @@ describe('frenarReglasAbsurdas: una regla aplicada sola no rompe un renglón', (
     expect(f.items[0]).toBe(bien);
   });
 });
+
+// 9/11/2026, quesos fraccionados de La Serenísima: el chat dijo «les saqué el
+// peso» y la pantalla contestó «el valor no es válido para ese dato».
+describe('«kilos» vacío le saca el peso al renglón', () => {
+  const esDesc = () => false;
+  it('si pasó a peso en la pantalla, vuelve a como estaba', () => {
+    const queso: any[] = [lectura(6, 0.1, 0.6, { descripcion: 'QUESO LS GOUDA FRACC 340GR' })];
+    const enKilos = aplicarCambiosIA(queso, [{ renglon: 1, campo: 'kilos', valor: 2.04 }], esDesc).items;
+    expect(enKilos[0].porPeso).toBe(true);
+    const r = aplicarCambiosIA(enKilos, [{ renglon: 1, campo: 'kilos', valor: null, motivo: 'los fraccionados van por unidad' }], esDesc);
+    expect(r.descartados).toHaveLength(0);
+    expect(r.items[0]).toMatchObject({ porPeso: false, cantidad: 6, precio: 0.1, importe: 0.6, antesDePeso: null });
+  });
+  it('si lo leyó así el lector, las unidades salen del papel', () => {
+    const queso: any[] = [lectura(2.04, 0.29, 0.6, { porPeso: true, papel: { bultos: 0, uxb: null, sueltas: 6, precio: 0.1, desc: null, iva: 21, importe: 0.6 } })];
+    const r = aplicarCambiosIA(queso, [{ renglon: 1, campo: 'kilos', valor: 0 }], esDesc);
+    expect(r.descartados).toHaveLength(0);
+    expect(r.items[0]).toMatchObject({ porPeso: false, cantidad: 6, precio: 0.1 });
+  });
+});

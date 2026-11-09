@@ -293,3 +293,15 @@ describe('la consulta de pendientes', () => {
     await expect(new ComprasService(db).pendientesPrecioCero(prov)).resolves.toEqual([]);
   });
 });
+
+// 9/11/2026, quesos de La Serenísima: esta factura también los cobra a $0,10.
+// Un precio simbólico no le pone precio a lo que entró a $0 antes: entra al
+// stock como siempre (antes rebotaba el registro entero).
+describe('precio simbólico en la factura nueva', () => {
+  const pend = [{ ocId: 'a', ocNumero: 1, productoId: 'p', sku: 'Q1', nombre: 'Queso', cantidad: 4, fecha: '2026-11-01', comprobante: { tipo: 'factura' as const, numero: '1' } }];
+  it('a $0,13 no valoriza; a precio real sí', () => {
+    expect(elegirPendientes([{ sku: 'Q1', cantidad: 4, costoUnitario: 0.13 }], pend)).toEqual({});
+    expect(elegirPendientes([{ sku: 'Q1', cantidad: 4, costoUnitario: 5200 }], pend).Q1.ocId).toBe('a');
+    expect(elegirPendientes([{ sku: 'Q1', cantidad: 4 }], pend).Q1.ocId).toBe('a');
+  });
+});

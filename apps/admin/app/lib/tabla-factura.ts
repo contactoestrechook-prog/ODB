@@ -377,6 +377,24 @@ export function aplicarCambiosIA<T extends Record<string, any>>(
     // descartaba callado. Con los kilos, la cantidad pasa a kg y el costo pasa a
     // ser por kilo; el importe del renglón no cambia (igual que «por peso» a mano).
     if (c.campo === 'kilos') {
+      // SACARLE EL PESO (9/11/2026: el chat dijo «les saqué el peso» a los quesos
+      // fraccionados y no se aplicó): «kilos» vacío o 0 lo vuelve a unidades. Si
+      // pasó a peso en esta pantalla, vuelve a como estaba; si lo leyó así el
+      // lector, las unidades salen del papel y el precio, de importe ÷ unidades.
+      if (c.valor == null || c.valor === '' || num(c.valor) === 0) {
+        if (!fila.porPeso) { descartados.push(c); continue; }
+        let vuelta: Record<string, any> | null = null;
+        if (fila.antesDePeso) vuelta = { ...fila.antesDePeso };
+        else {
+          const unidades = cuentaDelPapel(fila.papel ?? papelDeLectura(fila)).unidades;
+          const importe = Math.abs(num(fila.importe) ?? 0);
+          if (unidades > 0 && importe > 0) vuelta = { cantidad: unidades, precio: Math.round((importe / unidades) * 100) / 100, importe };
+        }
+        if (!vuelta) { descartados.push(c); continue; }
+        registros.push({ renglon: k + 1, campo: 'kilos', antes: num(fila.cantidad), despues: null, motivo });
+        nuevos[k] = { ...fila, ...vuelta, porPeso: false, antesDePeso: null, cantidadCorregida: null, bultoConsumido: null };
+        continue;
+      }
       const kg = num(c.valor);
       if (kg == null || !(kg > 0)) { descartados.push(c); continue; }
       const importe = Math.abs(num(fila.importe) ?? 0) || (num(fila.cantidad) ?? 0) * Math.abs(num(fila.precio) ?? 0);
