@@ -1,4 +1,5 @@
 import { numeroLeido, interpretarLecturaSegura } from '../compras/lectura-segura';
+import { mismaMarca } from './marca';
 import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
@@ -1808,12 +1809,9 @@ export class ListasService {
     };
   }
 
+  // la marca la decide lib marca.ts: la primera palabra que no es un tipo de producto (9/11/2026)
   private mismaMarca(descripcionProveedor: string, nombreProducto: string): boolean {
-    const normalizar = (s: string) =>
-      s.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9 ]/gi, '').toLowerCase();
-    const palabras = normalizar(descripcionProveedor).split(/\s+/).filter((p) => p.length >= 3);
-    if (!palabras.length) return true;
-    return normalizar(nombreProducto).includes(palabras[0]);
+    return mismaMarca(descripcionProveedor, nombreProducto);
   }
 
   private armarMatch(
