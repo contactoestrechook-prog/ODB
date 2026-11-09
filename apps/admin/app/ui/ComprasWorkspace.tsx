@@ -13,6 +13,7 @@ import {
   variacionDeCosto, volverABulto as volverABultoRenglon, volverAPendiente, yaEnUnidades,
 } from '../lib/bultos-compras';
 import { PanelImpuestos } from './PanelImpuestos';
+import { CamaraCodigo } from './CamaraCodigo';
 import { CabeceraFactura, PapelDelRenglon } from './TablaFactura';
 import { conCodigo } from '../lib/codigo-producto';
 import { diferenciaPrecioCero, elegirPendientes, textoPrecioCero, type PendientePrecioCero } from '../lib/precio-cero';
@@ -554,6 +555,14 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   const [avisoCatalogo, setAvisoCatalogo] = useState<{ idx: number; texto: string; error?: boolean } | null>(null);
   const [vinculaBusca, setVinculaBusca] = useState('');
   const [vinculaSug, setVinculaSug] = useState<any[]>([]);
+  // POR CÓDIGO DE BARRAS (9/11/2026, Leandro: «que se pueda cargar y vincular
+  // por el código de barras también ahí»): la pistola escribe el código y da
+  // Enter, o la cámara del celular lo lee. Si el código es de un producto, se
+  // vincula solo; si no está en el catálogo, se recuerda y queda guardado en el
+  // producto que se elija a mano (o en el alta), así la próxima vez lo encuentra.
+  const [camaraPara, setCamaraPara] = useState<null | { idx: number; para: 'vincular' | 'alta' }>(null);
+  const [codigoSinProducto, setCodigoSinProducto] = useState<string | null>(null);
+  const [avisoCodigo, setAvisoCodigo] = useState('');
 
   // Primera lectura: comprime la foto en el navegador (las de celular pesan
   // 10-20 MB) y la guarda por si hay que volver a leerla con aclaraciones. El PDF
@@ -1849,8 +1858,33 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
     return () => clearTimeout(t);
   }, [vinculaBusca, vinculaIdx]);
 
+  const esCodigoBarras = (t: string) => /^\d{6,14}$/.test(String(t ?? '').replace(/\s/g, ''));
+  // busca el código ya mismo (sin esperar el autocompletar) y, si es de UN producto, vincula
+  const vincularPorCodigo = async (idx: number, crudo: string) => {
+    const codigo = String(crudo ?? '').replace(/\D/g, '');
+    setVinculaIdx(idx); setVinculaBusca(codigo); setAvisoCodigo('');
+    const r = await fetch(`/api/buscar-producto?q=${encodeURIComponent(codigo)}`);
+    const items: any[] = r.ok ? (await r.json()).items ?? [] : [];
+    const exactos = items.filter((p) => String(p.codigo ?? '').replace(/\D/g, '') === codigo);
+    const elegido = exactos.length === 1 ? exactos[0] : items.length === 1 ? items[0] : null;
+    if (elegido) { setCodigoSinProducto(null); vincularProducto(idx, elegido); setAvisoCodigo(`Código ${codigo}: ${elegido.nombre}.`); return; }
+    setVinculaSug(items);
+    if (!items.length) {
+      setCodigoSinProducto(codigo);
+      setAvisoCodigo(`El código ${codigo} no está en el catálogo: buscá el producto por nombre y queda guardado en él, o dalo de alta.`);
+    }
+  };
+
   // vincula un producto a un renglón leído (y lo tilda para incluirlo)
   const vincularProducto = (idx: number, p: any) => {
+    // el código que se escaneó y no estaba: queda en el producto elegido
+    if (codigoSinProducto && p?.sku) {
+      const codigo = codigoSinProducto;
+      setCodigoSinProducto(null);
+      fetch('/api/pos-vincular', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sku: p.sku, codigo }) })
+        .then(async (r) => { const d = await r.json().catch(() => ({})); setAvisoCodigo(r.ok ? `El código ${codigo} quedó guardado en ${p.nombre}.` : `No guardé el código ${codigo}: ${d?.message ?? 'error'}`); })
+        .catch(() => setAvisoCodigo(`No guardé el código ${codigo}.`));
+    }
     setFotoItems((xs) => xs.map((x, j) => {
       if (j !== idx) return x;
       const nuevo = { ...x, sku: p.sku, nombre: p.nombre, variacionPct: null, sugerido: false, motivoIa: null, incluir: !x.devueltoAMano, alicuotaCatalogo: p.alicuotaIva != null ? Number(p.alicuotaIva) : null, costoCatalogo: p.costo ?? null };
@@ -1876,8 +1910,10 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
       nombre: (i.descripcion ?? '').trim(),
       rubro: '',
       marca: '',
-      codigoBarras: (i.codigo ?? '').toString().trim(),
+      // el código escaneado que no estaba en el catálogo va directo al alta
+      codigoBarras: codigoSinProducto ?? (i.codigo ?? '').toString().trim(),
     });
+    setCodigoSinProducto(null);
     setVinculaIdx(null);
   };
 
@@ -3026,7 +3062,21 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                   {/* buscador para vincular el producto a este renglón */}
                   {!i._esDescuento && vinculaIdx === idx && (
                     <div className="relative mt-2 sm:ml-6">
-                      <input autoFocus value={vinculaBusca} onChange={(e) => setVinculaBusca(e.target.value)} placeholder="Buscar por nombre, código o PLU…" aria-label="Buscar el producto por nombre, código o PLU" className={input} />
+                      <div className="flex gap-2">
+                        <input
+                          autoFocus value={vinculaBusca} onChange={(e) => setVinculaBusca(e.target.value)}
+                          // la pistola escribe el código y da Enter: se vincula solo
+                          onKeyDown={(e) => {
+                            if (e.key !== 'Enter') return;
+                            e.preventDefault();
+                            if (esCodigoBarras(vinculaBusca)) vincularPorCodigo(idx, vinculaBusca);
+                            else if (vinculaSug.length === 1) vincularProducto(idx, vinculaSug[0]);
+                          }}
+                          placeholder="Nombre, código de barras (pistola) o PLU…" aria-label="Buscar el producto por nombre, código de barras o PLU" className={unir(input, 'min-w-0 flex-1')}
+                        />
+                        <Boton variante="secundario" onClick={() => setCamaraPara({ idx, para: 'vincular' })}>Escanear</Boton>
+                      </div>
+                      {avisoCodigo && <p className="mt-1.5 text-xs text-tinta/70">{avisoCodigo}</p>}
                       {/* El vínculo puede estar mal y el producto correcto no existir todavía
                           (té Marolio vinculado al paté Marolio, 15/9/2026): el alta tiene que
                           estar acá también, no solo en los renglones sin vincular. */}
@@ -3071,7 +3121,10 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                         <input value={altaForm.rubro} onChange={(e) => setAltaForm((x: any) => ({ ...x, rubro: e.target.value }))} placeholder="Rubro" aria-label="Rubro" list="rubros-alta" className={CAMPO_BLANCO} />
                         <datalist id="rubros-alta">{categorias.map((c: any) => <option key={c.id} value={c.nombre} />)}</datalist>
                         <input value={altaForm.marca} onChange={(e) => setAltaForm((x: any) => ({ ...x, marca: e.target.value }))} placeholder="Marca" aria-label="Marca" className={CAMPO_BLANCO} />
-                        <input value={altaForm.codigoBarras} onChange={(e) => setAltaForm((x: any) => ({ ...x, codigoBarras: e.target.value }))} placeholder="Código de barras" aria-label="Código de barras" className={unir(CAMPO_BLANCO, 'font-mono')} />
+                        <div className="flex gap-2">
+                          <input value={altaForm.codigoBarras} onChange={(e) => setAltaForm((x: any) => ({ ...x, codigoBarras: e.target.value }))} placeholder="Código de barras" aria-label="Código de barras" className={unir(CAMPO_BLANCO, 'min-w-0 flex-1 font-mono')} />
+                          <Boton variante="secundario" tamano="chico" onClick={() => setCamaraPara({ idx, para: 'alta' })}>Escanear</Boton>
+                        </div>
                       </div>
                       {altaError && <p className="text-xs text-marca-hondo">{altaError}</p>}
                       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -3406,6 +3459,17 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
         </>)}
       </div>
       {dialogo}
+      {camaraPara && (
+        <CamaraCodigo
+          onCerrar={() => setCamaraPara(null)}
+          onCodigo={(c) => {
+            const { idx, para } = camaraPara;
+            setCamaraPara(null);
+            if (para === 'alta') setAltaForm((x: any) => ({ ...x, codigoBarras: c }));
+            else vincularPorCodigo(idx, c);
+          }}
+        />
+      )}
     </Ventana>
   );
 }
