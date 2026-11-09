@@ -34,3 +34,21 @@ el formato anterior).
 - Nunca `railway up` ni `docker compose` a mano contra producción.
 - Las ramas `release-1006` y `admin-multilinea` quedaron viejas: no publicar
   desde ellas.
+
+## Mantenimiento: cada commit entra solo al módulo (9/11/2026)
+
+El panel tiene «Administración › Mantenimiento» (`/mantenimiento`): lo que
+hizo MetoGroup cada mes contra las 6 h de abono. Lo carga
+`scripts/mantenimiento-sync.mjs`, que corre solo al final de
+`scripts/publicar.sh` (también a mano: `node scripts/mantenimiento-sync.mjs`).
+Lee los commits de `origin/main` (sin merges ni autoguardados), así que el
+mensaje del commit ES el registro que ve el dueño:
+
+- Formato: `Área: qué se hizo, en castellano para el dueño (Nombre, d/m/aaaa: «sus palabras»)`.
+  Lo de antes de los dos puntos es el título; el paréntesis dice quién lo pidió,
+  cuándo y con qué palabras.
+- Si fue idea nuestra: `(Propuesta de MetoGroup, d/m/aaaa)` → tipo «propuesta».
+- El tipo (bug, arreglo, mejora, nuevo) y el área salen de reglas sobre el
+  mensaje; el tiempo, de las sesiones de commits de ese día (estimación).
+- Tabla `mantenimiento_trabajos` (db/migracion-mantenimiento.sql). Para corregir
+  un trabajo mal clasificado, se edita su fila.

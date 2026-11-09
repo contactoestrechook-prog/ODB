@@ -55,4 +55,6 @@ sh infra/servidor/publicar.sh $SERVICIOS
 # lo publicado pasa a ser main
 git push origin HEAD:main
 echo "Publicado$SERVICIOS desde $COMMIT y main quedó en $COMMIT."
+# lo publicado entra solo al módulo Mantenimiento (9/11/2026); si falla, la publicación igual quedó
+node scripts/mantenimiento-sync.mjs || echo "AVISO: no se cargó el trabajo en Mantenimiento (correr: node scripts/mantenimiento-sync.mjs)"
 echo "Verificá en https://sistema.odbpremiummarket.com.ar (panel) y https://api.odbpremiummarket.com.ar (API)."

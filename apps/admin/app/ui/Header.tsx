@@ -164,6 +164,7 @@ const GRUPOS: Grupo[] = [
       { href: '/reportes', label: 'Reportes del equipo', icono: 'usuarios', sub: 'Equipo' },
       { href: '/eficiencia', label: 'Eficiencia', icono: 'eficiencia', sub: 'Equipo' },
       { href: '/usuarios', label: 'Usuarios', icono: 'usuarios', sub: 'Equipo' },
+      { href: '/mantenimiento', label: 'Mantenimiento', icono: 'informe', sub: 'Sistema' },
     ],
   },
 ];
@@ -224,6 +225,7 @@ const TITULOS: Record<string, { titulo: string; bajada: string }> = {
   '/eficiencia': { titulo: 'Eficiencia', bajada: 'Productividad por empleado: tiempos por cliente y de preparación' },
   '/usuarios': { titulo: 'Usuarios', bajada: 'Equipo, roles y permisos de firma' },
   '/actividad': { titulo: 'Actividad del equipo', bajada: 'Quién hizo cada cosa: pedidos, compras, caja, stock, cobros y avisos' },
+  '/mantenimiento': { titulo: 'Mantenimiento del sistema', bajada: 'Lo que hizo MetoGroup cada mes: bugs, arreglos, mejoras y propuestas, quién lo pidió y cuánto tiempo llevó' },
   '/reportes': { titulo: 'Reportes del equipo', bajada: 'Lo que marcaron con "Esto está mal", clasificado por la IA' },
   // Las cinco que faltaban: decían "O.D.B" en la barra y repetían un título propio.
   '/manual': { titulo: 'Manual del sistema', bajada: 'Cómo funciona cada área: buscá por lo que necesitás resolver' },

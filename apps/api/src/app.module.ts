@@ -6,6 +6,7 @@ import { SaludController } from './salud.controller';
 import { AsistenteModule } from './asistente/asistente.module';
 import { NovedadesController } from './novedades/novedades.controller';
 import { ActividadController } from './actividad/actividad.controller';
+import { MantenimientoController } from './mantenimiento/mantenimiento.controller';
 import { supabaseProvider } from './supabase.provider';
 import { CatalogoModule } from './catalogo/catalogo.module';
 import { StockModule } from './stock/stock.module';
@@ -58,7 +59,7 @@ import { AvisosModule } from './avisos/avisos.module';
 import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
-  controllers: [SaludController, NovedadesController, ActividadController],
+  controllers: [SaludController, NovedadesController, ActividadController, MantenimientoController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }, supabaseProvider],
   imports: [
     // límite global de tráfico por IP (anti-abuso); los endpoints de IA
