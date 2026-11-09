@@ -345,12 +345,12 @@ describe('«kilos» vacío le saca el peso al renglón', () => {
 });
 
 // 9/11/2026, Ricardo Nini: la Playadito (3 bultos × 5) pintada con «-1» se leyó
-// como devuelta entera. «Volvió 1 bulto» = recibidas 10: entra lo que quedó.
+// como devuelta entera. Volvió UN paquete: recibidas 14, entra lo que quedó.
 describe('«recibidas» en un renglón marcado como devuelto entero', () => {
   it('deja de estar devuelto y entra lo recibido', () => {
     const yerba: any[] = [{ ...lectura(3, 3139.67, 47095.05), descripcion: 'PLAYADITO yerba c/palo 5x1', unidadesPorBulto: 5, sku: 'Y1', devueltoAMano: true, incluir: false }];
-    const r = aplicarCambiosIA(yerba, [{ renglon: 1, campo: 'recibidas', valor: 10, motivo: 'volvió 1 bulto' }], () => false);
+    const r = aplicarCambiosIA(yerba, [{ renglon: 1, campo: 'recibidas', valor: 14, motivo: 'volvió 1 paquete' }], () => false);
     expect(r.descartados).toHaveLength(0);
-    expect(r.items[0]).toMatchObject({ recibidoAMano: 10, devueltoAMano: false, incluir: true });
+    expect(r.items[0]).toMatchObject({ recibidoAMano: 14, devueltoAMano: false, incluir: true });
   });
 });
