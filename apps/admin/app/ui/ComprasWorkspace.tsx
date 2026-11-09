@@ -1602,9 +1602,20 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   // lo que los costos dan de más por aplicar una percepción entera a todos los
   // renglones (5/11/2026): está explicado en un cartel y no traba el registro
   const excesoPerc = ivaConAlicuotas ? cargaPerc.exceso : 0;
-  const techoMerc = (baseCosto != null ? baseCosto : (totalDoc != null ? totalDoc : Infinity)) + excesoPerc;
+  // LO DEVUELTO NO ACHICA EL TECHO (9/11/2026, Mayonesa Natura en negativo):
+  // el pie ya trae restada la devolución, pero el costo a stock suma solo lo
+  // que entra. Comparados así, toda factura con un renglón en negativo «se
+  // pasaba» justo por lo devuelto con sus impuestos ($9.917 × 1,29 = $12.793)
+  // y no dejaba registrar. Al techo se le suma lo devuelto, con el mismo
+  // recargo de IVA y percepciones que tiene el pie sobre el neto.
+  const netoDevuelto = itemsCalc.reduce((s: number, i: any) => (i._esDevolucion ? s + Math.abs(netoDelRenglon(i)) : s), 0);
+  const recargoPie = baseCosto != null && netoDoc != null && netoDoc > 0 ? baseCosto / netoDoc
+    : totalDoc != null && sumaRenglones > 0 ? totalDoc / sumaRenglones : 1;
+  const devueltoConImpuestos = netoDevuelto * recargoPie;
+  const techoMerc = (baseCosto != null ? baseCosto : (totalDoc != null ? totalDoc : Infinity)) + excesoPerc + devueltoConImpuestos;
+  const techoTotal = totalDoc != null ? totalDoc + excesoPerc + devueltoConImpuestos : Infinity;
   const excedeMerc = sumaCostos > techoMerc * 1.005;
-  const excedeTotal = totalDoc != null && sumaCostos > (totalDoc + excesoPerc) * 1.005;
+  const excedeTotal = totalDoc != null && sumaCostos > techoTotal * 1.005;
   const subCosteo = baseIncluidos > 0 && sumaCostos < baseIncluidos * 0.98;
   // Si los renglones leídos no suman el neto del pie, la IA leyó otra columna
   // (la de con IVA, o el total del renglón en vez del unitario). El factor sale
@@ -3133,7 +3144,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                   </p>
                 )}
                 {(excedeMerc || excedeTotal) && (
-                  <p className="mt-1 font-semibold"><IconoAtencion className="mr-1 inline size-4 align-[-3px]" />El costo a stock supera el valor de la mercadería con IVA de la factura. Los precios ya incluyen impuestos: revisá el neto/IVA del pie. (No se puede registrar hasta corregirlo.)</p>
+                  <p className="mt-1 font-semibold"><IconoAtencion className="mr-1 inline size-4 align-[-3px]" />Los renglones tildados cuestan {pesos(sumaCostos - Math.min(techoMerc, techoTotal))} más de lo que cobra la factura{devueltoConImpuestos > 0 ? ' (ya contando lo devuelto)' : ''}. Suele ser un renglón con la cantidad o el precio mal leídos, o un neto/IVA del pie mal leído: revisalos. No se puede registrar hasta que cierre.</p>
                 )}
                 {/* una percepción cobrada sobre una base menor que el neto se aplica entera a
                     todos los renglones: el costo da más que la factura y se dice por qué (5/11/2026) */}
