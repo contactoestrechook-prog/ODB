@@ -19,6 +19,7 @@ import { diferenciaPrecioCero, elegirPendientes, textoPrecioCero, type Pendiente
 import { AsistenteFactura, describirCambio, type CambioHecho } from './AsistenteFactura';
 import { asignarInternos, internosImpresos, textoInternos } from '../lib/internos-compras';
 import { cargaDePercepciones, textoPercepcionesEnteras } from '../lib/percepciones-compras';
+import { cuentaDeLaFactura, cuentaParaIA, type ParteRenglon } from '../lib/cuenta-factura';
 import { aplicarBorrador, borradorDe, borradorVacio } from '../lib/borrador-factura';
 import { aplicarCambiosIA, frenarReglasAbsurdas, aplicarPapel, cuentaDelPapel, entraDeRenglon, marcarComoDevolucion, papelDeLectura, tablaParaIA, type EntraComo, type Papel, conInternoDelPapel } from '../lib/tabla-factura';
 import {
@@ -421,7 +422,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   // distinto al de siempre es una promoción y vale solo para esta entrada.
   const [fijarSku, setFijarSku] = useState<Record<string, boolean>>({});
   // para preguntar antes de una conversión que deja el costo por el piso (6/10/2026)
-  const { confirmar, dialogo } = useConfirmar();
+  const { confirmar, pedirTexto, dialogo } = useConfirmar();
 
   const traerRemarcacion = useCallback(async (proveedorId: string, skus: string[]) => {
     const faltan = skus.filter((sku) => sku && !(sku in remarca));
@@ -526,6 +527,8 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   const [soloFactura, setSoloFactura] = useState(false);
   // la persona miró contra el papel los renglones que no cierran y los deja así
   const [sinCierreRevisado, setSinCierreRevisado] = useState(false);
+  // la diferencia de la cuenta de la factura que aceptó una persona (o el chat en su nombre), con su motivo
+  const [diferenciaAceptada, setDiferenciaAceptada] = useState<{ monto: number; motivo: string } | null>(null);
   // Lo que entró a $0 de este proveedor y espera precio (10/10/2026): el
   // renglón que coincide le pone el costo a esa entrada y no suma stock.
   // soloPrecio[sku] === false = el usuario lo destildó y entra como compra normal.
@@ -1419,6 +1422,22 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
     // una regla aplicada sola no puede dejar un renglón a diez veces su costo
     const freno = automatico ? frenarReglasAbsurdas(fotoItemsVivos.current, r0.items, r0.registros) : { items: r0.items, registros: r0.registros, frenados: [] as number[] };
     const r = { ...r0, items: freno.items, registros: freno.registros };
+    // las reglas de la cuenta (9/11/2026): el chat puede aceptar la diferencia
+    // con un motivo y decidir si las percepciones van al costo
+    const reglas: { renglon: null; campo: string; antes: unknown; despues: unknown; motivo: string }[] = [];
+    for (const c of cambiosPie ?? []) {
+      const motivo = String(c?.motivo ?? '').slice(0, 300);
+      if (c?.campo === 'aceptarDiferencia') {
+        const monto = c.valor == null || Number(c.valor) === 0 ? null : Math.abs(Number(c.valor));
+        if (monto != null && (!Number.isFinite(monto) || !motivo.trim())) continue;
+        reglas.push({ renglon: null, campo: 'aceptarDiferencia', antes: diferenciaAceptada?.monto ?? null, despues: monto, motivo });
+        setDiferenciaAceptada(monto == null ? null : { monto, motivo });
+      } else if (c?.campo === 'percepcionesAlCosto') {
+        const si = Number(c.valor) !== 0 && c.valor !== false;
+        reglas.push({ renglon: null, campo: 'percepcionesAlCosto', antes: percepcionesAlCosto, despues: si, motivo });
+        setPercepcionesAlCosto(si);
+      }
+    }
     const pie = (cambiosPie ?? [])
       .filter((c: any) => CAMPOS_PIE.includes(c?.campo) && (c.valor == null || (Number.isFinite(Number(c.valor)) && Number(c.valor) >= 0)))
       .map((c: any) => ({ renglon: null, campo: String(c.campo), antes: fotoImpVivo.current?.[c.campo] ?? null, despues: c.valor == null ? null : Number(c.valor), motivo: String(c.motivo ?? '').slice(0, 300) }));
@@ -1427,7 +1446,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
       setFotoItems(r.items.map((x, j) => (conIva.has(j) ? { ...x, alicuotaElegida: null } : x)));
     }
     if (pie.length) setFotoImp((x: any) => { const y = { ...x }; for (const c of pie) y[c.campo] = c.despues; return y; });
-    const todos = [...r.registros, ...pie];
+    const todos = [...r.registros, ...pie, ...reglas];
     anotar('IA', todos);
     const tocados = [...new Set(r.registros.map((g) => g.renglon - 1))];
     setMarcados(tocados);
@@ -1447,7 +1466,11 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   };
   // deshace UN cambio: vuelve ese dato a como estaba (los demás quedan)
   const deshacerCambio = (c: CambioHecho) => {
-    if (c.renglon == null) {
+    if (c.renglon == null && c.campo === 'aceptarDiferencia') {
+      setDiferenciaAceptada(c.antes == null ? null : { monto: Number(c.antes), motivo: 'vuelta atrás' });
+    } else if (c.renglon == null && c.campo === 'percepcionesAlCosto') {
+      setPercepcionesAlCosto(!!c.antes);
+    } else if (c.renglon == null) {
       setFotoImp((x: any) => ({ ...x, [c.campo]: c.antes }));
     } else {
       const k = c.renglon - 1;
@@ -1507,6 +1530,10 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
     impuestosInternos: impIntDoc > 0 ? textoInternos(internos, impIntDoc, pesos, (k) => renglonesInternos[k].idx + 1) : null,
     // una percepción con base menor que el neto, aplicada entera a todos los renglones (5/11/2026)
     percepciones: ivaConAlicuotas && cargaPerc.enteras.length ? textoPercepcionesEnteras(cargaPerc, pesos) : null,
+    // LA cuenta de la factura (9/11/2026): la misma que ve la persona y la única que traba por plata
+    cuentaDeLaFactura: cuentaParaIA(cuenta),
+    percepcionesAlCosto,
+    diferenciaAceptada,
   });
   // al registrar: la constancia de quién cambió qué (si no hubo cambios, nada)
   // y TODOS los renglones de la factura para el historial del proveedor (8/10/2026)
@@ -1598,25 +1625,9 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
       })),
   ];
   const sumaCostos = inclItems.reduce((s, i) => s + numImp(i.cantidad) * costoFinal(i), 0);
-  const baseIncluidos = inclItems.reduce((s, i) => s + numImp(i.cantidad) * precioEfectivo(i), 0) * factorRecon;
   // lo que los costos dan de más por aplicar una percepción entera a todos los
   // renglones (5/11/2026): está explicado en un cartel y no traba el registro
   const excesoPerc = ivaConAlicuotas ? cargaPerc.exceso : 0;
-  // LO DEVUELTO NO ACHICA EL TECHO (9/11/2026, Mayonesa Natura en negativo):
-  // el pie ya trae restada la devolución, pero el costo a stock suma solo lo
-  // que entra. Comparados así, toda factura con un renglón en negativo «se
-  // pasaba» justo por lo devuelto con sus impuestos ($9.917 × 1,29 = $12.793)
-  // y no dejaba registrar. Al techo se le suma lo devuelto, con el mismo
-  // recargo de IVA y percepciones que tiene el pie sobre el neto.
-  const netoDevuelto = itemsCalc.reduce((s: number, i: any) => (i._esDevolucion ? s + Math.abs(netoDelRenglon(i)) : s), 0);
-  const recargoPie = baseCosto != null && netoDoc != null && netoDoc > 0 ? baseCosto / netoDoc
-    : totalDoc != null && sumaRenglones > 0 ? totalDoc / sumaRenglones : 1;
-  const devueltoConImpuestos = netoDevuelto * recargoPie;
-  const techoMerc = (baseCosto != null ? baseCosto : (totalDoc != null ? totalDoc : Infinity)) + excesoPerc + devueltoConImpuestos;
-  const techoTotal = totalDoc != null ? totalDoc + excesoPerc + devueltoConImpuestos : Infinity;
-  const excedeMerc = sumaCostos > techoMerc * 1.005;
-  const excedeTotal = totalDoc != null && sumaCostos > techoTotal * 1.005;
-  const subCosteo = baseIncluidos > 0 && sumaCostos < baseIncluidos * 0.98;
   // Si los renglones leídos no suman el neto del pie, la IA leyó otra columna
   // (la de con IVA, o el total del renglón en vez del unitario). El factor sale
   // de dividir el pie por esa suma, así que un renglón mal leído ensucia el
@@ -1715,7 +1726,59 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   // factura no se registra hasta que alguien lo mire contra el papel.
   const renglonesSinCierre = noCierranTabla.filter(({ i }) => i.incluir && i.sku);
   const sinCierreBloquea = renglonesSinCierre.length > 0 && !sinCierreRevisado;
-  const costoBloquea = excedeMerc || excedeTotal || ivaBloquea || lecturaIncompleta || internosBloquea || sinCierreBloquea;
+  // ============================================================
+  // LA CUENTA DE LA FACTURA (9/11/2026): una sola, la del papel. Lo que cobra
+  // la factura = lo que entra + lo que no entra + lo que volvió o faltó − lo
+  // devuelto + lo del pie que no es de ningún renglón. Reemplaza los tres
+  // controles sueltos de antes («supera la mercadería», «supera el total», «no
+  // alcanza»), que comparaban contra bases distintas. Ver lib/cuenta-factura.ts.
+  // Cada renglón vale lo que dice la factura: si una persona fijó el costo a
+  // mano, al stock entra el suyo, pero la plata de la factura no cambia.
+  // ============================================================
+  const costoSegunFactura = (i: any, idx: number) => costoFinal({ ...i, costoManual: null }, idx);
+  const partesCuenta: ParteRenglon[] = [];
+  itemsCalc.forEach((i: any, idx: number) => {
+    if (i._esDescuento) return;
+    const renglon = idx + 1;
+    const descripcion = String(i.descripcion ?? '');
+    if (i._esDevolucion) {
+      partesCuenta.push({ renglon, descripcion, tipo: 'devuelto', valor: netoDelRenglon(i) * factorDe(i, idx) });
+      return;
+    }
+    const cant = numImp(i.cantidad);
+    if (!(netoDelRenglon(i) > 0) || !(cant > 0)) return;
+    const unidad = costoSegunFactura(i, idx);
+    if (!(i.incluir && i.sku)) { partesCuenta.push({ renglon, descripcion, tipo: i.devueltoAMano ? 'volvio' : 'no_entra', valor: cant * unidad }); return; }
+    if (soloPrecioDe(i)) { partesCuenta.push({ renglon, descripcion, tipo: 'solo_precio', valor: cant * unidad }); return; }
+    const entra = cantidadQueEntra(i);
+    partesCuenta.push({ renglon, descripcion, tipo: 'entra', valor: entra * unidad });
+    if (cant - entra > 0) partesCuenta.push({ renglon, descripcion, tipo: 'falto', valor: (cant - entra) * unidad });
+  });
+  // un descuento que no se aplicó: el renglón cuesta lo de lista y el pie cobra con la rebaja
+  const descuentosSinAplicar = itemsCalc.reduce((s: number, i: any, idx: number) => {
+    if (i._esDescuento || i._esDevolucion || !descuentoDesmedido(i)) return s;
+    return s + Math.abs(numImp(i._descuento)) * factorDe(i, idx);
+  }, 0) + descuentosNoAplicados * (baseCosto != null && netoDoc ? baseCosto / netoDoc : factorRecon);
+  const cuenta = cuentaDeLaFactura({
+    total: totalDoc,
+    partes: partesCuenta,
+    percepcionesFueraDelCosto: hayDatosFiscales && !percepcionesAlCosto ? percepciones : 0,
+    otrosDelPie: otrosDoc,
+    excesoPercepciones: excesoPerc,
+    descuentosNoAplicados: descuentosSinAplicar,
+    aceptada: diferenciaAceptada,
+  });
+  // los costos fijados a mano: no cambian la plata, pero se dicen
+  const costosAMano = itemsCalc
+    .map((i: any, idx: number) => ({ i, idx }))
+    .filter(({ i }) => !i._esDescuento && !i._esDevolucion && numImp(i.costoManual) > 0 && i.incluir && i.sku);
+  const aceptarDiferencia = (quien: string, monto: number | null, motivo: string) => {
+    const antes = diferenciaAceptada?.monto ?? null;
+    setDiferenciaAceptada(monto == null ? null : { monto: Math.abs(monto), motivo });
+    anotar(quien, [{ renglon: null, campo: 'aceptarDiferencia', antes, despues: monto == null ? null : Math.abs(monto), motivo }]);
+  };
+  const cuentaBloquea = cuenta.estado === 'no_cierra';
+  const costoBloquea = cuentaBloquea || ivaBloquea || lecturaIncompleta || internosBloquea || sinCierreBloquea;
 
   // Excel/CSV del portal del proveedor → precarga los renglones de la OC
   async function importarPedido(archivo: File) {
@@ -3054,8 +3117,16 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                 <label className="flex items-center gap-2" title="Se aplica a todos los renglones de la factura">% remarcación general <input type="number" value={f.margenPct ?? ''} onChange={(e) => aplicarRemarcacionGeneral(e.target.value)} placeholder="a todos" className={unir(CAMPO_FILA_BASE, CAMPO_FILA_COLOR, 'w-20')} /></label>
               </div>
 
+              <CuentaDeLaFactura
+                cuenta={cuenta}
+                costosAMano={costosAMano.map(({ i, idx }) => ({ renglon: idx + 1, aMano: numImp(i.costoManual), segunFactura: costoSegunFactura(i, idx) }))}
+                aceptar={(motivo) => aceptarDiferencia('Vos', cuenta.diferencia, motivo)}
+                desaceptar={() => aceptarDiferencia('Vos', null, 'se volvió a pedir que cierre')}
+                pedirTexto={pedirTexto}
+              />
+
               {/* Reconciliación del costo vs la mercadería de la factura */}
-              <div className={'rounded-xl px-3 py-2.5 text-xs ' + (excedeMerc || excedeTotal ? 'bg-marca-suave border border-marca text-marca-hondo' : subCosteo ? 'bg-atencion-suave border border-atencion/30 text-atencion' : 'bg-crema-claro text-tinta/70')}>
+              <div className="rounded-xl bg-crema-claro px-3 py-2.5 text-xs text-tinta/70">
                 <p className="importe whitespace-normal">Costo a stock (renglones tildados): <b>{pesos(sumaCostos)}</b>{valorConIva != null && <> · Mercadería c/IVA: <b>{pesos(valorConIva)}</b></>}{totalDoc != null && <> · Total factura: <b>{pesos(totalDoc)}</b></>}</p>
                 {/* De dónde sale el costo de cada renglón, escrito. Sin esto, la
                     única forma de saber si falta un impuesto es sacar la cuenta
@@ -3142,9 +3213,6 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                     Comprobante sin IVA discriminado: el precio ya lo trae adentro. Cada renglón leído <b>× {factorRecon.toFixed(4).replace('.', ',')}</b>
                     {percepcionesAlCosto && percepciones > 0 ? ` (incluye percepciones ${pesos(percepciones)})` : ''}.
                   </p>
-                )}
-                {(excedeMerc || excedeTotal) && (
-                  <p className="mt-1 font-semibold"><IconoAtencion className="mr-1 inline size-4 align-[-3px]" />Los renglones tildados cuestan {pesos(sumaCostos - Math.min(techoMerc, techoTotal))} más de lo que cobra la factura{devueltoConImpuestos > 0 ? ' (ya contando lo devuelto)' : ''}. Suele ser un renglón con la cantidad o el precio mal leídos, o un neto/IVA del pie mal leído: revisalos. No se puede registrar hasta que cierre.</p>
                 )}
                 {/* una percepción cobrada sobre una base menor que el neto se aplica entera a
                     todos los renglones: el costo da más que la factura y se dice por qué (5/11/2026) */}
@@ -3238,9 +3306,6 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                     Si tendrían que coincidir, la IA leyó la columna equivocada (la de con IVA, o el total del renglón en vez del precio unitario).
                     Corregilo antes de registrar: el costo de todos los renglones sale de esa proporción.
                   </p>
-                )}
-                {subCosteo && !excedeMerc && !excedeTotal && (
-                  <p className="mt-1">El costo quedó por debajo de lo esperado para los renglones tildados; revisá que no falte ninguno.</p>
                 )}
                 {!hayDatosFiscales && (
                   <p className="mt-1 text-tinta/60">Sin datos fiscales para verificar el costo: se toma el precio leído {sumarIva ? '+ IVA' : 'tal cual'}.</p>
@@ -3691,5 +3756,81 @@ function Acciones({ cerrar, onOk, okLabel, disabled, variante = 'primario' }: an
       <Boton variante="secundario" onClick={cerrar}>Cancelar</Boton>
       <Boton variante={variante} onClick={async () => { setCargando(true); try { await onOk(); } finally { setCargando(false); } }} disabled={disabled} cargando={cargando}>{okLabel}</Boton>
     </>
+  );
+}
+
+// ============================================================
+// LA CUENTA DE LA FACTURA, A LA VISTA (9/11/2026): cada línea con su plata, la
+// suma contra el total impreso y una sola conclusión. Es lo único que traba el
+// registro por plata; la diferencia se puede aceptar con un motivo.
+// ============================================================
+function CuentaDeLaFactura({ cuenta, costosAMano, aceptar, desaceptar, pedirTexto }: {
+  cuenta: ReturnType<typeof cuentaDeLaFactura>;
+  costosAMano: { renglon: number; aMano: number; segunFactura: number }[];
+  aceptar: (motivo: string) => void;
+  desaceptar: () => void;
+  pedirTexto: (op: any) => Promise<string | null>;
+}) {
+  const tono = cuenta.estado === 'no_cierra' ? 'border-marca bg-marca-suave text-marca-hondo'
+    : cuenta.estado === 'aceptada' ? 'border-atencion/30 bg-atencion-suave text-atencion'
+    : cuenta.estado === 'sin_total' ? 'border-black/10 bg-crema-claro text-tinta/70'
+    : 'border-ok/20 bg-ok-suave text-ok';
+  const titulo = cuenta.estado === 'cierra' ? 'La cuenta de la factura cierra'
+    : cuenta.estado === 'aceptada' ? 'No cierra, con la diferencia aceptada'
+    : cuenta.estado === 'sin_total' ? 'Falta el total de la factura'
+    : `No cierra por ${pesos(Math.abs(cuenta.diferencia ?? 0))}`;
+  return (
+    <div className={'rounded-xl border px-3 py-3 text-sm ' + tono}>
+      <p className="font-semibold">{titulo}</p>
+      <table className="mt-2 w-full text-xs text-tinta">
+        <tbody>
+          {cuenta.lineas.map((l) => (
+            <tr key={l.clave} className="border-b border-black/[0.06] last:border-0">
+              <td className="py-1 pr-2">
+                {l.texto}
+                {l.renglones.length > 0 && <span className="text-tinta/60"> · {l.renglones.length === 1 ? `renglón ${l.renglones[0]}` : `${l.renglones.length} renglones`}</span>}
+              </td>
+              <td className="importe py-1 text-right font-medium">{l.monto < 0 ? '− ' : ''}{pesos(Math.abs(l.monto))}</td>
+            </tr>
+          ))}
+          <tr className="border-t-2 border-black/15">
+            <td className="py-1 pr-2 font-semibold">Suma</td>
+            <td className="importe py-1 text-right font-semibold">{pesos(cuenta.calculado)}</td>
+          </tr>
+          {cuenta.total != null && (
+            <tr>
+              <td className="py-1 pr-2 font-semibold">Total de la factura</td>
+              <td className="importe py-1 text-right font-semibold">{pesos(cuenta.total)}</td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+      <p className="mt-2 text-xs">{cuenta.mensaje}{cuenta.estado === 'no_cierra' ? ' No se puede registrar hasta que cierre o se acepte la diferencia.' : ''}</p>
+      {costosAMano.map((c) => (
+        <p key={c.renglon} className="mt-1 text-xs text-tinta/70">
+          Renglón {c.renglon}: al stock entra a {pesos(c.aMano)} por unidad (lo fijó una persona); según la factura sería {pesos(c.segunFactura)}. La plata de la factura no cambia.
+        </p>
+      ))}
+      {cuenta.estado === 'no_cierra' && (
+        <button
+          type="button"
+          onClick={async () => {
+            const motivo = await pedirTexto({
+              titulo: `Aceptar la diferencia de ${pesos(Math.abs(cuenta.diferencia ?? 0))}`,
+              texto: 'Se registra igual y queda escrito por qué. Si después cambia algún renglón, hay que volver a aceptarla.',
+              campo: { etiqueta: '¿Por qué no cierra?', obligatorio: true, multilinea: true },
+              textoConfirmar: 'Aceptar y seguir',
+            });
+            if (motivo && motivo.trim()) aceptar(motivo.trim());
+          }}
+          className="mt-2 text-xs font-semibold underline underline-offset-2"
+        >
+          Aceptar la diferencia con un motivo
+        </button>
+      )}
+      {cuenta.estado === 'aceptada' && (
+        <button type="button" onClick={desaceptar} className="mt-2 text-xs font-semibold underline underline-offset-2">Ya no la acepto</button>
+      )}
+    </div>
   );
 }
