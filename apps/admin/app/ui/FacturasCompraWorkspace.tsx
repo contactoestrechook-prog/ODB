@@ -450,6 +450,8 @@ function DetalleFactura({ id, cerrar, refrescar, rol }: { id: string; cerrar: ()
   const [guardando, setGuardando] = useState(false);
   const [pago, setPago] = useState<any>({ monto: '', medio: 'transferencia', nota: '' });
   const [anulando, setAnulando] = useState(false);
+  // lo que pasó con el stock al anular (9/11/2026): se dice qué volvió y qué no
+  const [anulada, setAnulada] = useState('');
   const [motivo, setMotivo] = useState('');
 
   const cargarDetalle = useCallback(async () => {
@@ -517,12 +519,21 @@ function DetalleFactura({ id, cerrar, refrescar, rol }: { id: string; cerrar: ()
   };
   const anular = async () => {
     setGuardando(true); setErr('');
-    try { await post({ accion: 'anularFactura', id, motivo }); await cargarDetalle(); refrescar(); setAnulando(false); }
+    try {
+      const r = await post({ accion: 'anularFactura', id, motivo });
+      const st = r?.stock ?? {};
+      const vuelta = (st.restadas ?? []).length ? `Salieron del stock ${st.restadas.length} producto${st.restadas.length === 1 ? '' : 's'} (lo que había sumado esta factura).` : '';
+      const no = (st.sinRestar ?? []).length ? ` No se pudieron restar: ${st.sinRestar.map((x: any) => `${x.producto} × ${x.cantidad}`).join(', ')}; ajustalos desde Stock.` : '';
+      setAnulada(`Factura anulada. ${vuelta}${no}${st.aviso ? ` ${st.aviso}` : ''}`.trim());
+      await cargarDetalle(); refrescar(); setAnulando(false);
+    }
     catch (e: any) { setErr(e.message); } finally { setGuardando(false); }
   };
 
   const editable = d && !['anulada'].includes(d.estado);
-  const anulable = d && ['pendiente', 'parcial'].includes(d.estado);
+  // se anula SIEMPRE (9/11/2026), salvo lo ya anulado o lo que está en una orden de pago;
+  // si tiene pagos cargados, la API lo frena y dice que primero se anule el pago
+  const anulable = d && !['anulada', 'en_pago'].includes(d.estado);
   // con mercadería devuelta se paga recién cuando llega la nota de crédito (4/11/2026)
   const pagable = d && !d.espera_nc && ['pendiente', 'parcial'].includes(d.estado);
 
@@ -635,6 +646,7 @@ function DetalleFactura({ id, cerrar, refrescar, rol }: { id: string; cerrar: ()
             {d.estado === 'en_pago' && <p className="text-xs text-tinta/60">Esta factura está dentro de una orden de pago: los pagos se registran por ese circuito.</p>}
           </div>
 
+          {anulada && <Aviso tono="ok">{anulada}</Aviso>}
           {anulable && (
             <div className="border-t border-black/[0.06] pt-3">
               {!editaDirecto ? (
@@ -645,17 +657,17 @@ function DetalleFactura({ id, cerrar, refrescar, rol }: { id: string; cerrar: ()
                     <Boton variante="fantasma" onClick={() => setPidiendo(null)}>No</Boton>
                   </div>
                 ) : (
-                  <Boton variante="peligro" tamano="chico" onClick={() => setPidiendo('anular')}>Pedir anulación (la aprueba un dueño)</Boton>
+                  <Boton variante="peligro" tamano="chico" onClick={() => setPidiendo('anular')}>Anular factura (la aprueba un dueño)</Boton>
                 )
               ) : (
                 anulando ? (
                   <div className="flex flex-wrap items-center gap-2">
-                    <Entrada aria-label="Motivo de la anulación" placeholder="Motivo de la anulación" value={motivo} onChange={(e) => setMotivo(e.target.value)} className="basis-full sm:basis-auto sm:flex-1" />
-                    <Boton variante="peligro" onClick={anular} disabled={guardando}>Confirmar</Boton>
+                    <Entrada aria-label="Motivo de la anulación" placeholder="Motivo de la anulación (lo que sumó al stock, sale)" value={motivo} onChange={(e) => setMotivo(e.target.value)} className="basis-full sm:basis-auto sm:flex-1" />
+                    <Boton variante="peligro" onClick={anular} disabled={guardando || !motivo.trim()}>Anular</Boton>
                     <Boton variante="fantasma" onClick={() => setAnulando(false)}>No</Boton>
                   </div>
                 ) : (
-                  <Boton variante="peligro" tamano="chico" onClick={() => setAnulando(true)}>Anular comprobante</Boton>
+                  <Boton variante="peligro" tamano="chico" onClick={() => setAnulando(true)}>Anular factura</Boton>
                 )
               )}
             </div>

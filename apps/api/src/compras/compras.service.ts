@@ -1277,18 +1277,69 @@ export class ComprasService {
     return { ok: true, estado };
   }
 
-  // Anulación lógica: nunca se borra, queda trazable. Pagadas/en pago no se anulan.
+  // ANULAR FACTURA (9/11/2026, Leandro: «agregale un botón que diga anular
+  // factura, siempre»). Anulación lógica: nunca se borra, queda trazable. Y lo
+  // que la factura sumó al stock VUELVE: antes solo cambiaba el estado y la
+  // mercadería quedaba sumada (La Serenísima 06376-00001075, cargada dos veces).
+  //  · Se anula cualquier factura, salvo la que tiene pagos cargados (primero se
+  //    anula el pago) o está en una orden de pago. La «pagada» de contado sin
+  //    pagos cargados sí se anula.
+  //  · El stock: los movimientos de su entrada (la OC directa que nació con
+  //    ella), sumados por producto y sucursal, salen con un ajuste en negativo.
+  //    Si la OC es de un pedido (recibida contra la orden) o la comparte otra
+  //    factura, no se adivina: se avisa que el stock se ajusta desde Stock.
   async anularFactura(id: string, motivo: string, usuarioId?: string) {
-    const { data: f } = await this.db.from('facturas_proveedor').select('estado').eq('id', id).maybeSingle();
+    const { data: f } = await this.db.from('facturas_proveedor').select('id, estado, numero, oc_id, proveedor_id').eq('id', id).maybeSingle();
     if (!f) throw new BadRequestException('Factura inexistente');
-    if (f.estado === 'pagada' || f.estado === 'en_pago') {
-      throw new BadRequestException('No se puede anular una factura pagada o en una orden de pago. Primero anulá el pago.');
-    }
-    if (f.estado === 'anulada') return { ok: true };
-    const { error } = await this.db.from('facturas_proveedor').update({ estado: 'anulada' }).eq('id', id);
+    if (f.estado === 'anulada') return { ok: true, stock: { restadas: [], sinRestar: [], aviso: null } };
+    if (f.estado === 'en_pago') throw new BadRequestException('Esta factura está en una orden de pago: primero sacala de la orden.');
+    const { data: pagos } = await this.db.from('facturas_proveedor_pagos').select('monto').eq('factura_id', id);
+    const pagado = ((pagos ?? []) as any[]).reduce((s, p) => s + Number(p.monto ?? 0), 0);
+    if (pagado > 0) throw new BadRequestException(`Tiene pagos cargados por $${pagado.toLocaleString('es-AR')}: primero anulá el pago.`);
+
+    const stock = await this.devolverStockDeFactura(f as any, motivo, usuarioId);
+    const { error } = await this.db.from('facturas_proveedor').update({ estado: 'anulada', monto_pagado: 0 }).eq('id', id);
     if (error) throw new BadRequestException(error.message);
-    await this.db.from('auditoria').insert({ usuario_id: usuarioId ?? null, accion: 'anular_factura_proveedor', entidad: 'facturas_proveedor', entidad_id: id, datos_despues: { motivo: motivo || null } });
-    return { ok: true };
+    await this.db.from('auditoria').insert({ usuario_id: usuarioId ?? null, accion: 'anular_factura_proveedor', entidad: 'facturas_proveedor', entidad_id: id, datos_despues: { motivo: motivo || null, stock } });
+    return { ok: true, stock };
+  }
+
+  private async devolverStockDeFactura(f: { id: string; numero: string; oc_id: string | null }, motivo: string, usuarioId?: string) {
+    const restadas: { producto: string; cantidad: number }[] = [];
+    const sinRestar: { producto: string; cantidad: number; motivo: string }[] = [];
+    if (!f.oc_id) return { restadas, sinRestar, aviso: 'Esta factura no tiene una entrada de mercadería: el stock no se toca.' };
+    const [{ data: oc }, { data: otras }] = await Promise.all([
+      this.db.from('ordenes_compra').select('numero, origen').eq('id', f.oc_id).maybeSingle(),
+      this.db.from('facturas_proveedor').select('id').eq('oc_id', f.oc_id).neq('id', f.id).neq('estado', 'anulada'),
+    ]);
+    if ((oc as any)?.origen !== 'directa' || (otras ?? []).length) {
+      return { restadas, sinRestar, aviso: `La mercadería entró por la orden de compra #${(oc as any)?.numero ?? '?'}${(otras ?? []).length ? ', que tiene otra factura' : ''}: el stock no se toca solo; si hace falta, ajustalo desde Stock.` };
+    }
+    const { data: movs, error } = await this.db
+      .from('movimientos_stock')
+      .select('producto_id, sucursal_id, cantidad, referencia_tipo, producto:productos(nombre)')
+      .eq('referencia_id', f.oc_id)
+      .in('referencia_tipo', ['compra_directa', 'devolucion_proveedor']);
+    if (error) throw new BadRequestException(error.message);
+    const neto = new Map<string, { producto_id: string; sucursal_id: string; nombre: string; cantidad: number }>();
+    for (const m of (movs ?? []) as any[]) {
+      const k = `${m.producto_id}|${m.sucursal_id}`;
+      const v = neto.get(k) ?? { producto_id: m.producto_id, sucursal_id: m.sucursal_id, nombre: m.producto?.nombre ?? 'producto', cantidad: 0 };
+      v.cantidad += Number(m.cantidad ?? 0);
+      neto.set(k, v);
+    }
+    for (const v of neto.values()) {
+      const cantidad = Math.round(v.cantidad * 1000) / 1000;
+      if (!cantidad) continue;
+      const { error: e } = await this.db.rpc('registrar_movimiento', {
+        p_producto_id: v.producto_id, p_sucursal_id: v.sucursal_id, p_tipo: 'ajuste', p_cantidad: -cantidad,
+        p_motivo: `Anulación de la factura ${f.numero}${motivo ? `: ${motivo}` : ''}`,
+        p_referencia_tipo: 'anulacion_factura', p_referencia_id: f.id, p_usuario_id: usuarioId ?? null,
+      });
+      if (e) sinRestar.push({ producto: v.nombre, cantidad, motivo: e.message });
+      else restadas.push({ producto: v.nombre, cantidad });
+    }
+    return { restadas, sinRestar, aviso: null };
   }
 
   // Pago parcial directo (transferencia/efectivo/etc). Cuando completa el monto,
