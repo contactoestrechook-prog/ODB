@@ -369,7 +369,12 @@ export function aplicarCambiosIA<T extends Record<string, any>>(
       if (n != null && facturadas > 0 && n > facturadas) { descartados.push(c); continue; }
       const nuevo = n == null || n === facturadas ? null : n;
       registros.push({ renglon: k + 1, campo: 'recibidas', antes: num(fila.recibidoAMano), despues: nuevo, motivo });
-      nuevos[k] = { ...fila, recibidoAMano: nuevo };
+      // si llegó una parte, el renglón no volvió entero (9/11/2026, Playadito pintada
+      // con «-1»: el lector la marcó devuelta toda): entra lo recibido
+      const llegoAlgo = n == null || n > 0;
+      nuevos[k] = fila.devueltoAMano && llegoAlgo
+        ? { ...fila, recibidoAMano: nuevo, devueltoAMano: false, incluir: !!fila.sku && !fila.sugerido }
+        : { ...fila, recibidoAMano: nuevo };
       continue;
     }
     // POR PESO (4/11/2026, el jamón de Oxxon): «le escribimos en el chat y no nos

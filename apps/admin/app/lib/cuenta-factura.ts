@@ -28,7 +28,7 @@
 export type TipoParte = 'entra' | 'no_entra' | 'volvio' | 'falto' | 'solo_precio' | 'devuelto';
 
 /** Un renglón (o la parte de un renglón) con lo que vale en la factura, impuestos incluidos. */
-export type ParteRenglon = { renglon: number; descripcion: string; tipo: TipoParte; valor: number };
+export type ParteRenglon = { renglon: number; descripcion: string; tipo: TipoParte; valor: number; unidades?: number };
 
 export type EntradaCuenta = {
   /** el total impreso; null si no se leyó (entonces no hay con qué comparar) */
@@ -46,7 +46,7 @@ export type EntradaCuenta = {
   aceptada?: { monto: number; motivo: string } | null;
 };
 
-export type LineaCuenta = { clave: string; texto: string; monto: number; renglones: number[] };
+export type LineaCuenta = { clave: string; texto: string; monto: number; renglones: number[]; unidades?: number };
 
 export type Cuenta = {
   lineas: LineaCuenta[];
@@ -86,7 +86,9 @@ export function cuentaDeLaFactura(e: EntradaCuenta): Cuenta {
     const ps = e.partes.filter((p) => p.tipo === tipo && Math.abs(p.valor) >= 0.005);
     if (!ps.length) continue;
     const monto = ps.reduce((s, p) => s + p.valor, 0);
-    lineas.push({ clave: tipo, texto: TEXTO[tipo], monto: redondear(monto), renglones: [...new Set(ps.map((p) => p.renglon))] });
+    // cuántas unidades (9/11/2026: «se devolvió una unidad, ¿se entiende?»: decía solo «renglón 2» y la plata)
+    const unidades = ps.every((p) => p.unidades != null) ? Math.round(ps.reduce((s, p) => s + (p.unidades ?? 0), 0) * 1000) / 1000 : undefined;
+    lineas.push({ clave: tipo, texto: TEXTO[tipo], monto: redondear(monto), renglones: [...new Set(ps.map((p) => p.renglon))], ...(unidades != null ? { unidades } : {}) });
   }
   const pie = (clave: string, texto: string, monto: number | undefined) => {
     if (monto && Math.abs(monto) >= 0.005) lineas.push({ clave, texto, monto: redondear(monto), renglones: [] });
@@ -138,7 +140,7 @@ export function sospechososDe(partes: ParteRenglon[], diferencia: number): numbe
 export function cuentaParaIA(c: Cuenta) {
   return {
     estado: c.estado,
-    lineas: c.lineas.map((l) => ({ que: l.texto, monto: l.monto, renglones: l.renglones })),
+    lineas: c.lineas.map((l) => ({ que: l.texto, monto: l.monto, renglones: l.renglones, ...(l.unidades != null ? { unidades: l.unidades } : {}) })),
     sumaDeLasLineas: c.calculado,
     totalDeLaFactura: c.total,
     diferencia: c.diferencia,

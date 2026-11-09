@@ -1757,11 +1757,11 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
     const cant = numImp(i.cantidad);
     if (!(netoDelRenglon(i) > 0) || !(cant > 0)) return;
     const unidad = costoSegunFactura(i, idx);
-    if (!(i.incluir && i.sku)) { partesCuenta.push({ renglon, descripcion, tipo: i.devueltoAMano ? 'volvio' : 'no_entra', valor: cant * unidad }); return; }
-    if (soloPrecioDe(i)) { partesCuenta.push({ renglon, descripcion, tipo: 'solo_precio', valor: cant * unidad }); return; }
+    if (!(i.incluir && i.sku)) { partesCuenta.push({ renglon, descripcion, tipo: i.devueltoAMano ? 'volvio' : 'no_entra', valor: cant * unidad, unidades: cant }); return; }
+    if (soloPrecioDe(i)) { partesCuenta.push({ renglon, descripcion, tipo: 'solo_precio', valor: cant * unidad, unidades: cant }); return; }
     const entra = cantidadQueEntra(i);
-    partesCuenta.push({ renglon, descripcion, tipo: 'entra', valor: entra * unidad });
-    if (cant - entra > 0) partesCuenta.push({ renglon, descripcion, tipo: 'falto', valor: (cant - entra) * unidad });
+    partesCuenta.push({ renglon, descripcion, tipo: 'entra', valor: entra * unidad, unidades: entra });
+    if (cant - entra > 0) partesCuenta.push({ renglon, descripcion, tipo: 'falto', valor: (cant - entra) * unidad, unidades: Math.round((cant - entra) * 1000) / 1000 });
   });
   // un descuento que no se aplicó: el renglón cuesta lo de lista y el pie cobra con la rebaja
   const descuentosSinAplicar = itemsCalc.reduce((s: number, i: any, idx: number) => {
@@ -3852,7 +3852,7 @@ function CuentaDeLaFactura({ cuenta, costosAMano, aceptar, desaceptar, pedirText
             <tr key={l.clave} className="border-b border-black/[0.06] last:border-0">
               <td className="py-1 pr-2">
                 {l.texto}
-                {l.renglones.length > 0 && <span className="text-tinta/60"> · {l.renglones.length === 1 ? `renglón ${l.renglones[0]}` : `${l.renglones.length} renglones`}</span>}
+                {l.renglones.length > 0 && <span className="text-tinta/60"> · {l.renglones.length === 1 ? `renglón ${l.renglones[0]}` : `${l.renglones.length} renglones`}{l.unidades != null && l.clave !== 'entra' ? ` · ${l.unidades.toLocaleString('es-AR', { maximumFractionDigits: 3 })} u.` : ''}</span>}
               </td>
               <td className="importe py-1 text-right font-medium">{l.monto < 0 ? '− ' : ''}{pesos(Math.abs(l.monto))}</td>
             </tr>
