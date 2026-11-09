@@ -146,6 +146,7 @@ function dbFalsa(opts: { tablas?: Record<string, Resp>; rpc?: Record<string, Res
         update: (v: any) => { op.accion = 'update'; op.valores = v; return q; },
         upsert: (v: any) => { op.accion = 'upsert'; op.valores = v; return q; },
         eq: (c: string, v: any) => { op.filtros.push(['eq', c, v]); return q; },
+        neq: () => q,
         in: (c: string, v: any) => { op.filtros.push(['in', c, v]); return q; },
         gte: (c: string, v: any) => { op.filtros.push(['gte', c, v]); return q; },
         is: () => q, gt: () => q, order: () => q, limit: () => q,

@@ -411,6 +411,26 @@ export class ComprasService {
   async entradaDirecta(dto: EntradaDirectaDto) {
     if (!dto.items?.length) throw new BadRequestException('La entrada no tiene renglones');
 
+    // LA MISMA FACTURA NO ENTRA DOS VECES (9/11/2026): La Serenísima
+    // 06376-00001075 se registró el 5/11 y otra vez hoy, y sus 466 unidades
+    // sumaron dos veces al stock. La carga manual ya lo frenaba; la entrada con
+    // factura (la de la foto) no preguntaba. Se frena ANTES de tocar el stock.
+    if (dto.factura?.numero && dto.proveedorId && !(dto.factura as any).permitirDuplicado) {
+      const { data: dup } = await this.db
+        .from('facturas_proveedor')
+        .select('id, creado_en')
+        .eq('proveedor_id', dto.proveedorId)
+        .eq('numero', String(dto.factura.numero))
+        .eq('tipo', 'factura')
+        .neq('estado', 'anulada')
+        .limit(1);
+      const previa = (dup ?? [])[0] as any;
+      if (previa) {
+        const cuando = new Date(previa.creado_en).toLocaleDateString('es-AR', { day: 'numeric', month: 'numeric', timeZone: 'America/Argentina/Buenos_Aires' });
+        throw new BadRequestException(`La factura ${dto.factura.numero} de este proveedor ya se registró el ${cuando}: su mercadería ya sumó al stock. No se carga dos veces; si es otra factura, revisá el número.`);
+      }
+    }
+
     // Los renglones se revisan ACÁ, uno por uno y nombrándolos. Antes bajaban
     // crudos a la RPC: una cantidad que no era número (el lector de facturas
     // devuelve "2 x 6", o alguien borra el casillero) reventaba contra la base y
