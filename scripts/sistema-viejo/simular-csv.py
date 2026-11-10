@@ -215,22 +215,45 @@ vh = [{'codigo': c, 'producto_id': existentes[c]['id'], 'sku': existentes[c]['sk
 plan['ventas_historicas'] = {'desde': str(desde_ultima), 'hasta': str(hasta), 'filas': vh}
 res.append(f'8. VENTAS: unidades vendidas por producto del 24/10 al 9/11 ({len(vh)} productos, {sum(v["unidades"] for v in vh):,.0f} unidades) para las estadísticas y el Analista (ya estaba hasta el 23/10). Las compras de cada cliente ({con_cliente} renglones con cliente) reemplazan a las del 3/11 desde el 10/11/2025.')
 
-# ---------- 9. proveedores y quién vende cada producto ----------
-prov_n = {norm(p['razon_social']): p for p in provs}
-prov_cod = {}
-prov_altas = []
-for r in prv:
-    if len(r) < 2 or not r[0].strip(): continue
-    n = norm(r[1]); p = prov_n.get(n) or next((x for k, x in prov_n.items() if n and (k.startswith(n) or n.startswith(k)) and min(len(k), len(n)) >= 4), None)
-    if p: prov_cod[r[0].strip()] = p['id']
-    else: prov_altas.append({'codigo': r[0].strip(), 'razon_social': r[1].strip(), 'cuit': re.sub(r'\D', '', r[2]) or None})
-rel = []
-for i, r in enumerate(art):
-    if i >= len(pxp): break
-    p = existentes.get(r[0].strip()); pv = prov_cod.get(pxp[i][1].strip())
-    if p and pv and (p['id'], pv) not in pp: rel.append({'producto_id': p['id'], 'proveedor_id': pv, 'ultimo_costo': num(pxp[i][2])})
-plan['proveedores_altas'] = prov_altas; plan['proveedor_productos'] = rel
-res.append(f'9. PROVEEDORES: {len(prov_cod)} del Crack ya están en NÚCLEO (por nombre); {len(prov_altas)} no se encontraron (a revisión, no se dan de alta solos: NÚCLEO ya tiene 333 unificados). {len(rel)} relaciones producto ↔ proveedor nuevas (quién vende cada cosa), sin pisar costos.')
+# ---------- 9. quién vende cada producto: IGUAL que el Crack ----------
+# Leandro, 10/11/2026: «es nada más agarrar los productos como los exporta el Crack
+# y ponerlos igual». La columna que vale es «proveedor habitual» de articulos.csv
+# (verificado con sus ejemplos: Johnnie Walker → Lalo Importados, Don Satur → Clan).
+# El código de productosxproveedor.csv NO sirve: para los proveedores nuevos apunta
+# a otro (mandó Johnnie Walker, SodaStream y vinos a «distrisur»). Cada escritura del
+# Crack se traduce con mapa-proveedores.json (la tabla corregida a mano el 23/10).
+import os
+MAPA = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'mapa-proveedores.json')))
+grupo_de = {v: g['nombre'] for g in MAPA['grupos'] for v, _ in g['variantes']}
+prov_por_nombre = collections.defaultdict(list)
+for p in provs: prov_por_nombre[norm(p['razon_social'])].append(p['id'])
+def un_prov(n):
+    ids = prov_por_nombre.get(norm(n or ''), [])
+    return ids[0] if len(ids) == 1 else None
+def generico(t):
+    b = norm(t)
+    for clave, nombre in (('golosin', 'Golosinas importadas'), ('import', 'Importados'), ('congel', 'Congelados'), ('fruto', 'Frutos secos'), ('huevo', 'Huevos')):
+        if clave in b: return nombre
+def prov_del_crack(texto):
+    r = MAPA['res'].get(texto)
+    if r:
+        if r[1]: return r[1]
+        tipo = r[0].split()[0]
+        if tipo == 'nuevo': return un_prov(grupo_de.get(texto, texto))
+        if tipo == 'generico': return un_prov(generico(texto))
+        return None
+    return un_prov(texto)
+rel, prov_altas = [], []
+sin_par = collections.Counter()
+for r in art:
+    p = existentes.get(r[0].strip()); hab = r[11].strip() if len(r) > 11 else ''
+    if not p or not hab: continue
+    pv = prov_del_crack(hab)
+    if not pv: sin_par[hab] += 1; continue
+    if (p['id'], pv) not in pp: rel.append({'producto_id': p['id'], 'proveedor_id': pv, 'ultimo_costo': num(r[5])})
+plan['proveedores_altas'] = []; plan['proveedor_productos'] = rel
+res.append(f'9. QUIÉN VENDE CADA PRODUCTO (igual que el «proveedor habitual» del Crack): {len(rel)} vínculos nuevos; {sum(sin_par.values())} productos con un proveedor que no está en NÚCLEO ni en la tabla (a revisión). Sacar los que el Crack no tiene: ver espejo en el README.')
+prov_altas = [{'codigo': '', 'razon_social': k, 'cuit': None} for k in sin_par]
 rev['proveedores_no_encontrados'] = [[a['codigo'], a['razon_social'], a['cuit']] for a in prov_altas]
 rev['precio_nucleo_mas_nuevo'] = precio_nucleo_mas_nuevo
 
