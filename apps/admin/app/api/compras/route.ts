@@ -74,6 +74,9 @@ export async function GET(req: Request) {
   } else if (recurso === 'borrador-pedido' && url.searchParams.get('proveedorId')) {
     // el pedido a medio cargar de ese proveedor y sucursal (4/11/2026)
     ruta = `/compras/proveedores/${encodeURIComponent(url.searchParams.get('proveedorId')!)}/borrador?sucursalId=${encodeURIComponent(url.searchParams.get('sucursalId') ?? '')}`;
+  } else if (recurso === 'faltantes-nota') {
+    // nota de pedido sin proveedor: lo que falta en la sucursal, o el buscador (10/11/2026)
+    ruta = `/compras/notas-pedido/productos?sucursalId=${encodeURIComponent(url.searchParams.get('sucursalId') ?? '')}&q=${encodeURIComponent(url.searchParams.get('q') ?? '')}`;
   } else if (recurso === 'parecidos' && url.searchParams.get('sku')) {
     // lo mismo en otra marca o tamaño, con el stock de cada sucursal (4/11/2026)
     const params = new URLSearchParams(url.searchParams);

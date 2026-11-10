@@ -21,6 +21,18 @@ type Nota = {
   creadaPor?: string | null; actualizadaEn?: string | null; actualizadaPor?: string | null;
 };
 type EstadoGuardado = '' | 'guardando' | 'guardado' | 'error';
+type Producto = {
+  sku: string; nombre: string; costo: number | null; stock: number; minimo: number; porDia: number;
+  diasDeStock: number | null; sugerido: number; urgente: boolean; proveedores: string | null;
+};
+const fmt = (n: number) => Number(n).toLocaleString('es-AR', { maximumFractionDigits: 1 });
+// el mismo semáforo del pedido a proveedor: sin stock en rojo, arriba
+function tonoStock(p: Producto) {
+  if (p.stock <= 0) return { caja: 'bg-marca text-white', borde: 'border-marca', texto: 'text-marca-hondo', dice: 'Sin stock' };
+  if (p.urgente) return { caja: 'bg-marca-suave text-marca-hondo', borde: 'border-marca/60', texto: 'text-marca-hondo', dice: 'Se termina' };
+  if (p.sugerido > 0) return { caja: 'bg-atencion-suave text-atencion', borde: 'border-atencion', texto: 'text-atencion', dice: 'Poco' };
+  return { caja: 'bg-ok-suave text-ok', borde: 'border-ok/50', texto: 'text-ok', dice: 'Bien' };
+}
 
 const PASO = unir(
   'grid size-11 shrink-0 place-items-center rounded-full border border-black/15 bg-white text-lg leading-none transition-colors hover:bg-crema-claro active:scale-[0.98] disabled:opacity-30 sm:size-10',
@@ -44,7 +56,9 @@ export function NotaSinProveedor({ sucursales, proveedores, sucursalInicial, onV
   const [error, setError] = useState('');
   const [aviso, setAviso] = useState('');
   const [busca, setBusca] = useState('');
-  const [resultados, setResultados] = useState<any[]>([]);
+  // lo que falta en la sucursal (sin buscar) o lo que se buscó, con stock y sugerido
+  const [lista, setLista] = useState<Producto[]>([]);
+  const [totalLista, setTotalLista] = useState(0);
   const [buscando, setBuscando] = useState(false);
   const [camara, setCamara] = useState(false);
   const [tildados, setTildados] = useState<Set<string>>(new Set());
@@ -119,7 +133,7 @@ export function NotaSinProveedor({ sucursales, proveedores, sucursalInicial, onV
     idRef.current = n.id;
     notaRef.current = { ...n, titulo: n.titulo ?? '' };
     setNota(notaRef.current);
-    setTildados(new Set()); setAviso(''); setError(''); setGuardado(''); setBusca(''); setResultados([]);
+    setTildados(new Set()); setAviso(''); setError(''); setGuardado(''); setBusca('');
   };
   const nueva = () => abrir({ id: null, numero: null, titulo: '', sucursalId: sucursalInicial || sucursales[0]?.id || '', renglones: [], estado: 'abierta' });
   const volverALista = async () => {
@@ -136,44 +150,62 @@ export function NotaSinProveedor({ sucursales, proveedores, sucursalInicial, onV
       const v = Math.max(0, Math.round(valor));
       return v === 0 ? rs.filter((r) => asignado(r) || r.sku !== sku) : rs.map((r) => (!asignado(r) && r.sku === sku ? { ...r, cantidad: v } : r));
     });
-  const sumar = (p: { sku: string; nombre: string }) => {
+  const cantidadDe = (sku: string) => nota?.renglones.find((r) => !asignado(r) && r.sku === sku)?.cantidad ?? 0;
+  // poner una cantidad desde la lista: si no estaba en la nota, entra
+  const ponerDesdeLista = (p: { sku: string; nombre: string }, valor: number) =>
     cambiar((rs) => {
-      const ya = rs.find((r) => !asignado(r) && r.sku === p.sku);
-      return ya ? rs.map((r) => (r === ya ? { ...r, cantidad: r.cantidad + 1 } : r)) : [...rs, { sku: p.sku, nombre: p.nombre, cantidad: 1 }];
+      const v = Math.max(0, Math.round(valor));
+      const ya = rs.some((r) => !asignado(r) && r.sku === p.sku);
+      if (!ya) return v > 0 ? [...rs, { sku: p.sku, nombre: p.nombre, cantidad: v }] : rs;
+      return v === 0 ? rs.filter((r) => asignado(r) || r.sku !== p.sku) : rs.map((r) => (!asignado(r) && r.sku === p.sku ? { ...r, cantidad: v } : r));
     });
-    setAviso(`Sumado: ${p.nombre}`);
-    setBusca(''); setResultados([]);
+  const sumar = (p: Producto) => {
+    ponerDesdeLista(p, cantidadDe(p.sku) ? cantidadDe(p.sku) + 1 : Math.max(1, p.sugerido));
+    setAviso(`En la nota: ${p.nombre}`);
   };
 
-  const buscar = useCallback(async (q: string) => {
-    if (q.trim().length < 3) { setResultados([]); return []; }
+  const sucursalLista = nota?.sucursalId ?? '';
+  const abiertaLista = nota?.estado === 'abierta';
+  const traer = useCallback(async (q: string, suc: string): Promise<Producto[]> => {
+    if (!suc) return [];
     setBuscando(true);
     try {
-      const r = await fetch(`/api/pos-buscar?q=${encodeURIComponent(q.trim())}`);
-      const lista = r.ok ? ((await r.json()) as any[]).slice(0, 8) : [];
-      setResultados(lista);
-      return lista;
+      const p = new URLSearchParams({ recurso: 'faltantes-nota', sucursalId: suc, q: q.trim() });
+      const r = await fetch(`/api/compras?${p.toString()}`, { cache: 'no-store' });
+      const d = await r.json();
+      if (!r.ok) { setError(d?.message ?? 'No pude traer los productos'); return []; }
+      setLista(d.items ?? []);
+      setTotalLista(d.total ?? 0);
+      return d.items ?? [];
+    } catch {
+      setError('No hay conexión para traer los productos.');
+      return [];
     } finally {
       setBuscando(false);
     }
   }, []);
+  // sin buscar: lo que falta; buscando (2 letras o más): todo el catálogo
   useEffect(() => {
-    const t = setTimeout(() => { void buscar(busca); }, busca ? 300 : 0);
+    if (!abiertaLista || !sucursalLista) return;
+    const q = busca.trim().length >= 2 ? busca : '';
+    const t = setTimeout(() => { void traer(q, sucursalLista); }, q ? 300 : 0);
     return () => clearTimeout(t);
-  }, [busca, buscar]);
+  }, [busca, sucursalLista, abiertaLista, traer]);
 
   // el lector de mano escribe el código y aprieta Enter: si hay uno solo, entra directo
   const alEnter = async () => {
-    const lista = await buscar(busca);
-    if (lista.length === 1) sumar(lista[0]);
-    else if (!lista.length) setError(`No encontré «${busca.trim()}» en el catálogo.`);
+    if (busca.trim().length < 2 || !nota) return;
+    const l = await traer(busca, nota.sucursalId);
+    if (l.length === 1) { sumar(l[0]); setBusca(''); }
+    else if (!l.length) setError(`No encontré «${busca.trim()}» en el catálogo.`);
   };
   const porCodigo = async (codigo: string) => {
     setCamara(false);
+    if (!nota) return;
     setBusca(codigo);
-    const lista = await buscar(codigo);
-    if (lista.length === 1) sumar(lista[0]);
-    else if (!lista.length) setError(`El código ${codigo} no está en el catálogo.`);
+    const l = await traer(codigo, nota.sucursalId);
+    if (l.length === 1) { sumar(l[0]); setBusca(''); }
+    else if (!l.length) setError(`El código ${codigo} no está en el catálogo.`);
   };
 
   // ---- asignar proveedor ----
@@ -356,29 +388,57 @@ ${nota.renglones.map((r) => `<tr><td class="c">${r.cantidad}</td><td>${escHtml(r
           <div className="sticky top-(--alto-barra-movil) z-contenido -mx-4 bg-crema px-4 pb-2 pt-2 lg:top-0">
             <div className="flex gap-2">
               <Entrada
-                aria-label="Buscar producto por nombre o código de barras"
-                value={busca} placeholder="Nombre o código de barras"
+                aria-label="Buscar producto por nombre, SKU o código de barras"
+                value={busca} placeholder="Buscar producto (nombre, SKU o código)"
                 onChange={(e) => { setBusca(e.target.value); setError(''); }}
                 onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void alEnter(); } }}
                 className="min-w-0 flex-1 bg-white"
               />
               <Boton variante="secundario" onClick={() => setCamara(true)} aria-label="Leer el código con la cámara">Cámara</Boton>
             </div>
-            {buscando && <p className="mt-1 text-xs text-tinta/60">Buscando…</p>}
-            {resultados.length > 0 && (
-              <Tarjeta relleno={false} className="mt-2 overflow-hidden">
-                <div className="divide-y divide-black/[0.06]">
-                  {resultados.map((p: any) => (
-                    <button key={p.sku} type="button" onClick={() => sumar(p)}
-                      className={unir('flex min-h-12 w-full items-center justify-between gap-2 px-3 py-2 text-left transition-colors hover:bg-crema-claro', FOCO_ADENTRO)}>
-                      <span className="min-w-0 break-words text-sm text-tinta">
-                        {p.nombre} <span className="text-xs text-tinta/60">{p.sku}{typeof p.stock === 'number' ? ` · stock ${p.stock}` : ''}</span>
-                      </span>
-                      <span className="shrink-0 text-sm font-semibold text-marca-hondo">+ sumar</span>
-                    </button>
-                  ))}
+            <p className="mt-1 text-xs text-tinta/60">
+              {busca.trim().length >= 2
+                ? (buscando ? 'Buscando en todo el catálogo…' : `${lista.length} producto${lista.length === 1 ? '' : 's'} con esa búsqueda`)
+                : (buscando ? 'Buscando lo que falta…' : `Lo que falta en ${sucursalNombre || 'la sucursal'}: ${totalLista} producto${totalLista === 1 ? '' : 's'}, los sin stock arriba${totalLista > lista.length ? ` (se muestran ${lista.length})` : ''}. El sugerido cubre 14 días de venta.`)}
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            {lista.map((p) => {
+              const puesto = cantidadDe(p.sku);
+              const t = tonoStock(p);
+              return (
+                <div key={p.sku} className={unir('rounded-2xl border-l-[6px] bg-white p-3 shadow-tarjeta sm:p-4', t.borde, puesto ? 'ring-2 ring-marca' : '')}>
+                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+                    <div className={unir('flex size-16 shrink-0 flex-col items-center justify-center rounded-xl text-center', t.caja)}>
+                      <span className="importe text-2xl font-bold leading-none">{fmt(p.stock)}</span>
+                      <span className="mt-0.5 text-[10px] font-medium uppercase tracking-wide">stock</span>
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="break-words text-sm font-semibold leading-snug text-tinta">{p.nombre}</p>
+                      <p className={unir('text-xs font-semibold', t.texto)}>
+                        {t.dice}{p.diasDeStock != null && p.stock > 0 ? `: alcanza para ${p.diasDeStock} día${p.diasDeStock === 1 ? '' : 's'}` : ''}
+                      </p>
+                      <p className="break-words text-xs text-tinta/60">
+                        {p.porDia > 0 ? `vende ~${fmt(Math.round(p.porDia * 7 * 10) / 10)} por semana` : 'sin ventas en 30 días'}
+                        {p.sugerido > 0 && <> · <b className="text-tinta">sugerido {p.sugerido}</b></>}
+                        {` · ${p.sku}`}
+                      </p>
+                      {p.proveedores && <p className="break-words text-xs text-tinta/60">Lo vende: {p.proveedores}</p>}
+                    </div>
+                    <div className="ml-auto flex shrink-0 items-center gap-1.5">
+                      <button type="button" aria-label={`Restar uno de ${p.nombre}`} onClick={() => ponerDesdeLista(p, puesto - 1)} disabled={!puesto} className={unir(PASO, 'text-tinta/70')}>−</button>
+                      <input aria-label={`Cantidad de ${p.nombre}`} inputMode="numeric" value={puesto || ''} placeholder="0"
+                        onChange={(e) => ponerDesdeLista(p, Number(e.target.value.replace(/\D/g, '')) || 0)}
+                        className="importe h-11 w-14 rounded-xl border border-black/15 bg-crema-claro text-center text-base text-tinta placeholder:text-tinta/40 focus:border-marca focus:bg-white focus:outline-none focus:ring-4 focus:ring-marca/15 sm:h-10" />
+                      <button type="button" aria-label={`Sumar ${p.nombre}`} onClick={() => sumar(p)} className={unir(PASO, 'text-tinta')}>+</button>
+                    </div>
+                  </div>
                 </div>
-              </Tarjeta>
+              );
+            })}
+            {!buscando && !lista.length && (
+              <Tarjeta><p className="text-sm text-tinta/60">{busca.trim().length >= 2 ? 'Nada con esa búsqueda.' : 'No falta nada en esta sucursal.'}</p></Tarjeta>
             )}
           </div>
         </>
@@ -387,8 +447,9 @@ ${nota.renglones.map((r) => `<tr><td class="c">${r.cantidad}</td><td>${escHtml(r
       {camara && <CamaraCodigo onCodigo={porCodigo} onCerrar={() => setCamara(false)} />}
 
       {nota.renglones.length === 0 ? (
-        <Tarjeta><p className="text-sm text-tinta/60">La nota está vacía. Buscá un producto o pasá el código de barras.</p></Tarjeta>
+        !abierta && <Tarjeta><p className="text-sm text-tinta/60">La nota está vacía.</p></Tarjeta>
       ) : (
+        <div id="nota-armada" className="scroll-mt-24">
         <PlacaRoja
           titulo="Nota de pedido"
           sub={<>{nota.numero ? `N.º ${nota.numero}` : 'nueva'}{sucursalNombre ? ` · ${sucursalNombre}` : ''}<span className="block">{sinProveedor.length} sin proveedor{yaAsignados.length ? ` · ${yaAsignados.length} ya en orden` : ''}</span></>}
@@ -414,6 +475,7 @@ ${nota.renglones.map((r) => `<tr><td class="c">${r.cantidad}</td><td>${escHtml(r
           }))}
           pie={abierta && sinProveedor.length ? 'Tildá «elegir» para mandar solo esos a un proveedor; sin tildar, va todo lo que falta.' : undefined}
         />
+        </div>
       )}
 
       {nota.renglones.length > 0 && (
@@ -433,10 +495,13 @@ ${nota.renglones.map((r) => `<tr><td class="c">${r.cantidad}</td><td>${escHtml(r
           etiqueta="Nota"
           resumen={
             <p className="text-sm font-semibold text-tinta">
-              {tildados.size ? `${van.length} elegido${van.length === 1 ? '' : 's'}` : `${sinProveedor.length} sin proveedor`}
+              {sinProveedor.length} producto{sinProveedor.length === 1 ? '' : 's'} en la nota{tildados.size ? ` · ${van.length} elegido${van.length === 1 ? '' : 's'}` : ''}
             </p>
           }
         >
+          <Boton variante="secundario" onClick={() => document.getElementById('nota-armada')?.scrollIntoView({ behavior: 'smooth' })}>
+            Ver la nota
+          </Boton>
           <Boton onClick={() => { setEligiendo(true); setError(''); }}>
             {tildados.size ? 'Asignar proveedor a lo elegido' : 'Asignar proveedor'}
           </Boton>

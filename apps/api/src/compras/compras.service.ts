@@ -928,6 +928,28 @@ export class ComprasService {
     };
   }
 
+  // Lo que falta en la sucursal, de todo el catálogo, con el sugerido de
+  // siempre y quién lo vende; con `q`, el buscador (todo, falte o no).
+  async faltantesNota(sucursalId: string, q?: string) {
+    if (!sucursalId) throw new BadRequestException('Falta la sucursal');
+    const busca = String(q ?? '').trim();
+    const { data, error } = await this.db.rpc('faltantes_sucursal', {
+      p_sucursal: sucursalId, p_q: busca || null, p_dias_venta: DIAS_VENTA, p_dias_cobertura: DIAS_COBERTURA,
+      p_dias_urgente: DIAS_URGENTE, p_solo_faltantes: !busca, p_limite: busca ? 40 : 300,
+    });
+    if (error) throw new BadRequestException(error.message);
+    const filas = (data ?? []) as any[];
+    return {
+      total: filas.length ? Number(filas[0].total) : 0,
+      items: filas.map((r) => ({
+        sku: r.sku, nombre: r.nombre, costo: r.costo != null ? Number(r.costo) : null,
+        stock: Number(r.stock ?? 0), minimo: Number(r.minimo ?? 0), porDia: Number(r.por_dia ?? 0),
+        diasDeStock: r.dias_de_stock != null ? Number(r.dias_de_stock) : null,
+        sugerido: Number(r.sugerido ?? 0), urgente: !!r.urgente, proveedores: r.proveedores ?? null,
+      })),
+    };
+  }
+
   // las abiertas y las últimas cerradas (para ver a qué orden fue cada renglón)
   async notasPedido() {
     const [abiertas, cerradas] = await Promise.all([

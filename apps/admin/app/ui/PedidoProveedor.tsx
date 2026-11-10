@@ -312,8 +312,10 @@ export function PedidoProveedor({ sucursales, proveedorInicial, sucursalInicial 
   const buscarEnCatalogo = async (q: string) => {
     setBuscaCatalogo(q);
     if (q.trim().length < 3) { setResultados([]); return; }
-    const r = await fetch(`/api/pos-buscar?q=${encodeURIComponent(q.trim())}`);
-    setResultados(r.ok ? (await r.json()).slice(0, 8) : []);
+    // el buscador de compras (10/11/2026): el de la caja devuelve { items } y
+    // no lo puede usar el comprador, así que esta lista nunca traía nada
+    const r = await fetch(`/api/compras?recurso=faltantes-nota&sucursalId=${encodeURIComponent(sucursalId)}&q=${encodeURIComponent(q.trim())}`);
+    setResultados(r.ok ? ((await r.json()).items ?? []).slice(0, 8) : []);
   };
 
   const sumarALista = async (sku: string) => {

@@ -188,6 +188,12 @@ export class ComprasController {
   }
 
   @Roles('comprador', 'gerente', 'dueno')
+  @Get('compras/notas-pedido/productos')
+  faltantesNota(@Query('sucursalId') sucursalId?: string, @Query('q') q?: string) {
+    return this.compras.faltantesNota(String(sucursalId ?? ''), q);
+  }
+
+  @Roles('comprador', 'gerente', 'dueno')
   @Post('compras/notas-pedido')
   guardarNotaPedido(@Body() b: { id?: string; sucursalId?: string; titulo?: string; renglones?: unknown }, @Req() req: any) {
     return this.compras.guardarNotaPedido(b ?? {}, req.usuario?.sub);

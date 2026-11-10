@@ -24,3 +24,60 @@ create index if not exists notas_pedido_estado_idx on public.notas_pedido (estad
 -- solo la API (clave de servicio) la lee y escribe
 alter table public.notas_pedido enable row level security;
 revoke all on public.notas_pedido from anon, authenticated;
+
+-- Lo que falta en la sucursal, de TODO el catálogo (Leandro, 10/11/2026: «es
+-- armar un pedido de lo que no hay stock… que tire sugerencias de lo que no hay
+-- stock, que ella pueda buscar productos»). La misma cuenta del sugerido que
+-- catalogo_proveedor; con p_q es el buscador.
+create or replace function public.faltantes_sucursal(
+  p_sucursal uuid, p_q text default null, p_dias_venta integer default 30, p_dias_cobertura integer default 14,
+  p_dias_urgente integer default 5, p_solo_faltantes boolean default true, p_limite integer default 300)
+returns table(sku text, nombre text, unidades_pack integer, costo numeric, stock numeric, minimo numeric, reposicion numeric,
+  por_dia numeric, dias_de_stock integer, sugerido numeric, urgente boolean, proveedores text, total bigint)
+language sql stable security definer set search_path to 'public'
+as $function$
+  with bus as (select producto_id from public.buscar_productos(p_q, true) where btrim(coalesce(p_q, '')) <> ''),
+  vend as (
+    select vi.producto_id, sum(vi.cantidad) as u
+    from ventas_items vi join ventas v on v.id = vi.venta_id
+    where v.estado <> 'anulada' and v.vendida_en >= now() - (p_dias_venta || ' days')::interval
+      and (p_sucursal is null or v.sucursal_id = p_sucursal)
+    group by vi.producto_id
+  ),
+  hist as (
+    select vh.producto_id, sum(vh.unidades * greatest(0, least(vh.hasta, current_date) - greatest(vh.desde, current_date - p_dias_venta) + 1)::numeric
+                                 / greatest(1, vh.hasta - vh.desde + 1)) as u
+    from ventas_historicas vh
+    where vh.hasta >= current_date - p_dias_venta and (p_sucursal is null or vh.sucursal_id = p_sucursal)
+    group by vh.producto_id
+  ),
+  base as (
+    select p.id, p.sku, p.nombre, coalesce(p.unidades_pack, 1) as unidades_pack, p.costo,
+           coalesce(st.cantidad, 0) as stock, coalesce(st.stock_minimo, 0) as minimo, coalesce(st.punto_reposicion, 0) as reposicion,
+           (coalesce(vend.u, 0) + coalesce(hist.u, 0)) / greatest(p_dias_venta, 1) as por_dia
+    from productos p
+    left join stock st on st.producto_id = p.id and st.sucursal_id = p_sucursal
+    left join vend on vend.producto_id = p.id
+    left join hist on hist.producto_id = p.id
+    where p.activo and (btrim(coalesce(p_q, '')) = '' or p.id in (select producto_id from bus))
+  ),
+  calc as (
+    select b.*,
+           case when por_dia > 0 then floor(stock / por_dia)::int else null end as dias_de_stock,
+           greatest(0, ceil(greatest(por_dia * p_dias_cobertura, case when reposicion > 0 then reposicion else minimo * 2 end) - stock)) as sugerido,
+           (minimo > 0 and stock <= minimo) or (por_dia > 0 and floor(stock / por_dia) <= p_dias_urgente) as urgente
+    from base b
+  ),
+  filtrada as (
+    select * from calc
+    where not p_solo_faltantes or ((por_dia > 0 or minimo > 0) and (urgente or sugerido > 0))
+  )
+  select f.sku, f.nombre, f.unidades_pack, f.costo, f.stock, f.minimo, f.reposicion, round(f.por_dia, 2), f.dias_de_stock, f.sugerido, f.urgente,
+         (select string_agg(pr.razon_social, ' · ' order by pp.actualizado_en desc nulls last)
+            from proveedor_productos pp join proveedores pr on pr.id = pp.proveedor_id where pp.producto_id = f.id) as proveedores,
+         count(*) over () as total
+  from filtrada f
+  order by (f.stock <= 0) desc, f.urgente desc, f.por_dia desc, f.nombre
+  limit greatest(p_limite, 1);
+$function$;
+revoke all on function public.faltantes_sucursal(uuid, text, integer, integer, integer, boolean, integer) from public, anon, authenticated;
