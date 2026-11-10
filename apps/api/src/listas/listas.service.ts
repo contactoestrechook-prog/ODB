@@ -12,7 +12,7 @@ import { nombreSinParte, otrosComprobantes, rotuloDelComprobante, separarComprob
 import { renglonesDelPapel } from '../compras/internos-por-renglon';
 import { percepcionesDelPie } from '../compras/percepciones-impresas';
 import { codigoCercano } from '../compras/codigo-proveedor';
-import { bultoDelRenglon, esRenglonDeDescuento, esRenglonDeDevolucion, porcentajeDeDescuento, puedeVendersePorPeso, unidadesDeLaPresentacion, variacionPorUnidad, variacionDelRenglon } from '../compras/bultos';
+import { bultoDelRenglon, esRenglonDeDescuento, esRenglonDeDevolucion, porcentajeDeDescuento, puedeVendersePorPeso, puedeVendersePorPesoConCatalogo, unidadesDeLaPresentacion, variacionPorUnidad, variacionDelRenglon } from '../compras/bultos';
 import { esfuerzo, jsonDe, MODELO_PRINCIPAL, RAZONAMIENTO, RAZONAMIENTO_HAIKU } from '../comun/modelos';
 
 // el tope de las lecturas de PDF y Excel con Opus (6/10/2026, revisión): la
@@ -728,7 +728,8 @@ export class ListasService {
         bonificacionPct: Math.abs(Number(i.bonificacionPct)) > 0 ? Math.min(100, Math.abs(Number(i.bonificacionPct))) : null,
         esDescuento: !!i.esDescuento,
         kg: Number(i.kg) > 0 ? Number(i.kg) : null,
-        puedePorPeso: puedeVendersePorPeso(String(i.descripcion ?? '')),
+        // queso o fiambre lo dice el papel o el producto vinculado (10/11/2026)
+        puedePorPeso: puedeVendersePorPesoConCatalogo(String(i.descripcion ?? ''), i.match),
         // la presentación del producto vinculado se recalcula (el detector mejora)
         unidadesDelCatalogo: (i.match?.nombre ? unidadesDeLaPresentacion(String(i.match.nombre)) : null) ?? (Number(i.unidadesDelCatalogo) > 1 ? Number(i.unidadesDelCatalogo) : null),
         costoCatalogo: i.match?.costoActual ?? null,
@@ -1139,6 +1140,7 @@ export class ListasService {
         unidadesDelCatalogo: internas && internas > 1 ? internas : null,
         costoCatalogo: i.match?.costoActual ?? null,
         vinculoSugerido: !!i.match?.sugerido,
+        puedePorPeso: puedeVendersePorPesoConCatalogo(lectura.descripcion, i.match),
       });
       if (internas && internas > 1) i.unidadesDelCatalogo = internas;
       // la variación, con la unidad que quedó decidida

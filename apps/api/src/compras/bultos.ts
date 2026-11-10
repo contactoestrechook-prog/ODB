@@ -284,6 +284,19 @@ export function puedeVendersePorPeso(descripcion: string): boolean {
   return RE_POR_PESO.test(t);
 }
 
+/**
+ * Lo mismo, sabiendo además a qué producto del catálogo se vinculó (10/11/2026).
+ * El papel dice «GOUDA AHUMADO "DON ATILIO"» —sin la palabra queso— y el
+ * catálogo «Queso Gouda Ahumado Don Atilio»: se los tenía que pasar a peso de a
+ * uno. El veto de la bebida sigue mirando el papel primero.
+ */
+export function puedeVendersePorPesoConCatalogo(descripcion: string, catalogo?: { nombre?: string | null; vendidoPorPeso?: boolean | null } | null): boolean {
+  if (RE_BEBIDA.test(String(descripcion ?? ''))) return false;
+  if (puedeVendersePorPeso(descripcion)) return true;
+  if (catalogo?.vendidoPorPeso) return true;
+  return puedeVendersePorPeso(String(catalogo?.nombre ?? ''));
+}
+
 export type CorreccionRenglon = { campo: 'cantidad' | 'precio'; valor: number; seguro: boolean };
 
 /**
@@ -890,6 +903,15 @@ export function interpretarRenglon(l: LecturaRenglon): RenglonInterpretado {
   const esperado = cantidad * precio;
   const internasCatalogo = Number(l.unidadesDelCatalogo) > 1 ? Math.round(Number(l.unidadesDelCatalogo)) : null;
   if (Math.abs(importe - esperado) / esperado <= TOLERANCIA_CIERRE) {
+    // 4 BIS — cierra con KILOS (10/11/2026): «3,21 × $15.416 = $49.486». Una
+    //     cantidad con decimales en el papel es peso: nadie recibe 3,21
+    //     unidades de algo envasado. La cantidad y el importe no cambian (no hay
+    //     nada que multiplicar), solo se toma por kilo. La bebida, nunca.
+    //     Antes solo pasaba a peso lo que NO cerraba: los quesos y fiambres de
+    //     Don Atilio, que cierran justo, había que cambiarlos de a uno.
+    if (!bulto && !Number.isInteger(Math.round(cantidad * 1000) / 1000) && !RE_BEBIDA.test(String(l.descripcion ?? ''))) {
+      return { ...base, decision: 'peso_implicito', porPeso: true, unidadesPorBulto: null };
+    }
     // 4 TER — la factura viene por UNIDAD SUELTA y la casa stockea el ENVASE.
     //     Ferrero (15/9/2026): "Bocadito Ferrero Rocher T12 UNIDAD" 60 × $827,49
     //     vinculado a "Ferrero Rocher x 12 un": son 5 cajas a $9.929,88, no 60
