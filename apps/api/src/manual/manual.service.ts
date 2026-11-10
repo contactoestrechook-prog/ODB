@@ -2,7 +2,7 @@ import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common'
 import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
 import { SUPABASE } from '../supabase.provider';
-import { esfuerzo, MODELO_PRINCIPAL, RAZONAMIENTO } from '../comun/modelos';
+import { esfuerzo, RAZONAMIENTO } from '../comun/modelos';
 import { ReportesService } from '../reportes/reportes.service';
 import { leerRespuesta, SIN_RESPUESTA, type RespuestaManual } from './respuesta';
 
@@ -18,8 +18,11 @@ import { leerRespuesta, SIN_RESPUESTA, type RespuestaManual } from './respuesta'
 //     carga solo en cada publicación): si un cambio contradice al manual, manda el cambio.
 // Si no está en ninguna de las tres cosas, no existe: lo dice y manda a MetoGroup.
 //
+// Va con Haiku 5.5, no con Opus (Leandro, 10/11/2026: «no opus para eso, algo
+// más barato»): USD 0,10 / 0,50 por millón contra 4 / 20 de Opus 5.5. Para
+// contestar con un texto que se le da alcanza; piensa igual (adaptive).
 // MANUAL_MODELO / MANUAL_ESFUERZO cambian modelo y esfuerzo sin tocar código.
-const MODELO = process.env.MANUAL_MODELO || MODELO_PRINCIPAL;
+const MODELO = process.env.MANUAL_MODELO || 'claude-haiku-5-5';
 const DIAS_CAMBIOS = 60;
 
 export type PantallaManual = { href: string; nombre: string; grupo?: string; bajada?: string; puede: boolean };
