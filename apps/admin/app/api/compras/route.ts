@@ -16,6 +16,7 @@ function subDe(token?: string): string | null {
 const GET_RECURSOS: Record<string, string> = {
   resumen: '/compras/resumen', ordenes: '/compras/ordenes', sugerencias: '/compras/sugerencias',
   deuda: '/compras/deuda', 'ordenes-pago': '/compras/ordenes-pago', proveedores: '/proveedores',
+  'notas-pedido': '/compras/notas-pedido', // nota de pedido sin proveedor (10/11/2026)
 };
 
 export async function GET(req: Request) {
@@ -120,6 +121,9 @@ export async function POST(req: Request) {
     case 'corregirIngreso': ruta = `/compras/ordenes/${d.id}/corregir-ingreso`; body = { renglones: d.renglones, motivo: d.motivo }; break;
     case 'autorizarProrrateo': ruta = '/compras/autorizar-prorrateo'; break;
     case 'agregarALista': ruta = `/compras/proveedores/${d.proveedorId}/catalogo`; body = { sku: d.sku, codigoProveedor: d.codigoProveedor }; break;
+    case 'guardarNotaPedido': ruta = '/compras/notas-pedido'; body = { id: d.id, sucursalId: d.sucursalId, titulo: d.titulo, renglones: d.renglones }; break;
+    case 'asignarProveedorNota': ruta = `/compras/notas-pedido/${d.id}/asignar`; body = { proveedorId: d.proveedorId, skus: d.skus }; break;
+    case 'anularNotaPedido': ruta = `/compras/notas-pedido/${d.id}/anular`; body = {}; break;
     case 'guardarBorradorPedido': ruta = `/compras/proveedores/${d.proveedorId}/borrador`; body = { sucursalId: d.sucursalId, items: d.items }; break;
     case 'crearProveedor': ruta = '/proveedores'; break;
     case 'editarProveedor': ruta = `/proveedores/${d.id}`; metodo = 'PATCH'; break;

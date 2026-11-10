@@ -179,6 +179,32 @@ export class ComprasController {
     return this.compras.guardarBorradorPedido(id, String(b?.sucursalId ?? ''), b?.items, req.usuario?.sub);
   }
 
+  // Nota de pedido sin proveedor (10/11/2026): se arma primero, el proveedor
+  // se asigna después renglón por renglón (cada uno es una orden de siempre)
+  @Roles('comprador', 'gerente', 'dueno')
+  @Get('compras/notas-pedido')
+  notasPedido() {
+    return this.compras.notasPedido();
+  }
+
+  @Roles('comprador', 'gerente', 'dueno')
+  @Post('compras/notas-pedido')
+  guardarNotaPedido(@Body() b: { id?: string; sucursalId?: string; titulo?: string; renglones?: unknown }, @Req() req: any) {
+    return this.compras.guardarNotaPedido(b ?? {}, req.usuario?.sub);
+  }
+
+  @Roles('comprador', 'gerente', 'dueno')
+  @Post('compras/notas-pedido/:id/asignar')
+  asignarProveedorNota(@Param('id') id: string, @Body() b: { proveedorId?: string; skus?: string[] }, @Req() req: any) {
+    return this.compras.asignarProveedorNota(id, b ?? {}, req.usuario?.sub);
+  }
+
+  @Roles('comprador', 'gerente', 'dueno')
+  @Post('compras/notas-pedido/:id/anular')
+  anularNotaPedido(@Param('id') id: string, @Req() req: any) {
+    return this.compras.anularNotaPedido(id, req.usuario?.sub);
+  }
+
   // Parecidos (4/11/2026): qué hay de lo mismo —otra marca, otro tamaño— y
   // cuánto en cada sucursal, antes de pedirlo
   @Roles('comprador', 'gerente', 'dueno')

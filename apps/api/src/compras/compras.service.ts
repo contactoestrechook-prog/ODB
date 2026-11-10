@@ -7,6 +7,7 @@ import { enLotes } from '../comun/lotes';
 import { vencimientoPorPlazo } from '../proveedores/ficha';
 import { fusionarRenglonesPorSku } from './bultos';
 import { normalizarBorradorPedido } from './borrador-pedido';
+import { marcarAsignados, normalizarRenglonesNota, notaCompleta, renglonesParaAsignar, type RenglonNota } from './nota-pedido';
 import { compararNombres, normalizarNombre, ordenarParecidos, prefijoDeFamilia, tamanoDe } from './parecidos';
 import { explicarSugerido } from './sugerido';
 
@@ -298,7 +299,7 @@ export class ComprasService {
     return data;
   }
 
-  async crear(dto: CrearOcDto) {
+  async crear(dto: CrearOcDto, opts: { conservarBorrador?: boolean } = {}) {
     const items = await Promise.all(
       (dto.items ?? []).map(async (i) => {
         const productoId = await this.productoIdPorSku(i.sku);
@@ -331,8 +332,9 @@ export class ComprasService {
     });
     if (error) throw new BadRequestException(this.traducirError(error.message));
     const ordenCompraId = data;
-    // el pedido a medio cargar de esa pantalla ya es esta orden: se borra para que no reaparezca (4/11/2026)
-    const { error: errBorrador } = await this.db.from('pedidos_proveedor_borradores').delete().eq('proveedor_id', dto.proveedorId).eq('sucursal_id', dto.sucursalId);
+    // el pedido a medio cargar de esa pantalla ya es esta orden: se borra para que no reaparezca (4/11/2026).
+    // Desde una nota de pedido sin proveedor no: ese borrador es otro pedido.
+    const { error: errBorrador } = opts.conservarBorrador ? { error: null } : await this.db.from('pedidos_proveedor_borradores').delete().eq('proveedor_id', dto.proveedorId).eq('sucursal_id', dto.sucursalId);
     if (errBorrador) console.warn('[compras] no se pudo borrar el borrador del pedido:', errBorrador.message);
     const detalle: Record<string, any> = {};
     if (dto.fechaEntrega) detalle.fecha_entrega = dto.fechaEntrega;
@@ -907,6 +909,100 @@ export class ComprasService {
       .single();
     if (error) throw new BadRequestException(error.message);
     return { guardado: true, vacio: false, actualizadoEn: data.actualizado_en, productos: Object.keys(items).length };
+  }
+
+  // ---------- nota de pedido sin proveedor (10/11/2026) ----------
+  // Se arma con lo que hace falta y el proveedor se decide después, renglón
+  // por renglón (Don Satur está en la lista de Clan pero a veces se le compra a
+  // Distri Sur), o se exporta tal cual. Ver nota-pedido.ts.
+  private readonly camposNota = `id, numero, titulo, sucursal_id, renglones, estado, creada_en, actualizada_en,
+    sucursal:sucursales(nombre),
+    autor:usuarios!notas_pedido_creada_por_fkey(nombre),
+    editor:usuarios!notas_pedido_actualizada_por_fkey(nombre)`;
+
+  private notaParaPantalla(n: any) {
+    return {
+      id: n.id, numero: n.numero, titulo: n.titulo ?? null, sucursalId: n.sucursal_id, sucursal: n.sucursal?.nombre ?? null,
+      renglones: (Array.isArray(n.renglones) ? n.renglones : []) as RenglonNota[], estado: n.estado,
+      creadaEn: n.creada_en, creadaPor: n.autor?.nombre ?? null, actualizadaEn: n.actualizada_en, actualizadaPor: n.editor?.nombre ?? null,
+    };
+  }
+
+  // las abiertas y las últimas cerradas (para ver a qué orden fue cada renglón)
+  async notasPedido() {
+    const [abiertas, cerradas] = await Promise.all([
+      this.db.from('notas_pedido').select(this.camposNota).eq('estado', 'abierta').order('actualizada_en', { ascending: false }).order('id').limit(100),
+      this.db.from('notas_pedido').select(this.camposNota).eq('estado', 'cerrada').order('actualizada_en', { ascending: false }).order('id').limit(10),
+    ]);
+    if (abiertas.error) throw new BadRequestException(abiertas.error.message);
+    if (cerradas.error) throw new BadRequestException(cerradas.error.message);
+    return [...(abiertas.data ?? []), ...(cerradas.data ?? [])].map((n) => this.notaParaPantalla(n));
+  }
+
+  private async notaAbierta(id: string) {
+    const { data, error } = await this.db.from('notas_pedido').select(this.camposNota).eq('id', id).maybeSingle();
+    if (error) throw new BadRequestException(error.message);
+    if (!data) throw new BadRequestException('No existe esa nota de pedido');
+    if ((data as any).estado !== 'abierta') throw new BadRequestException('Esa nota de pedido ya está cerrada');
+    return data as any;
+  }
+
+  // Se guarda sola desde la pantalla: sin id la crea; con id la actualiza.
+  async guardarNotaPedido(dto: { id?: string; sucursalId?: string; titulo?: string; renglones?: unknown }, usuarioId?: string) {
+    const titulo = String(dto.titulo ?? '').trim().slice(0, 120) || null;
+    const ahora = new Date().toISOString();
+    if (dto.id) {
+      const actual = await this.notaAbierta(dto.id);
+      const renglones = normalizarRenglonesNota(dto.renglones, actual.renglones ?? []);
+      const cambios: Record<string, any> = { titulo, renglones, actualizada_por: usuarioId ?? null, actualizada_en: ahora };
+      // la sucursal se cambia mientras no haya nada asignado (las órdenes ya salieron para una)
+      if (dto.sucursalId && !renglones.some((r) => r.ordenCompraId)) cambios.sucursal_id = dto.sucursalId;
+      const { data, error } = await this.db.from('notas_pedido').update(cambios).eq('id', dto.id).eq('estado', 'abierta').select(this.camposNota).single();
+      if (error) throw new BadRequestException(error.message);
+      return this.notaParaPantalla(data);
+    }
+    if (!dto.sucursalId) throw new BadRequestException('Falta la sucursal');
+    const { data, error } = await this.db.from('notas_pedido').insert({
+      sucursal_id: dto.sucursalId, titulo, renglones: normalizarRenglonesNota(dto.renglones),
+      creada_por: usuarioId ?? null, actualizada_por: usuarioId ?? null,
+    }).select(this.camposNota).single();
+    if (error) throw new BadRequestException(error.message);
+    return this.notaParaPantalla(data);
+  }
+
+  // Asignar el proveedor: lo elegido (o todo lo que falta) se vuelve una orden
+  // de compra de siempre, a aprobación del dueño. La nota queda con el número.
+  async asignarProveedorNota(id: string, dto: { proveedorId?: string; skus?: string[] }, usuarioId?: string) {
+    if (!dto.proveedorId) throw new BadRequestException('Elegí el proveedor');
+    const nota = await this.notaAbierta(id);
+    const renglones: RenglonNota[] = Array.isArray(nota.renglones) ? nota.renglones : [];
+    const van = renglonesParaAsignar(renglones, dto.skus);
+    if (!van.length) throw new BadRequestException('No hay renglones sin proveedor para asignar');
+    const { data: prov } = await this.db.from('proveedores').select('id, razon_social').eq('id', dto.proveedorId).maybeSingle();
+    if (!prov) throw new BadRequestException('No existe ese proveedor');
+    const { ordenCompraId } = await this.crear(
+      { proveedorId: dto.proveedorId, sucursalId: nota.sucursal_id, items: van.map((r) => ({ sku: r.sku, cantidad: r.cantidad })), usuarioId,
+        observaciones: `Nota de pedido N.º ${nota.numero}${nota.titulo ? ` · ${nota.titulo}` : ''}` },
+      { conservarBorrador: true },
+    );
+    const { data: oc } = await this.db.from('ordenes_compra').select('numero').eq('id', ordenCompraId).maybeSingle();
+    const ordenNumero = oc?.numero != null ? Number(oc.numero) : null;
+    const marcados = marcarAsignados(renglones, van.map((r) => r.sku), {
+      proveedorId: prov.id, proveedor: prov.razon_social, ordenCompraId: String(ordenCompraId), ordenNumero,
+    });
+    const { data, error } = await this.db.from('notas_pedido').update({
+      renglones: marcados, estado: notaCompleta(marcados) ? 'cerrada' : 'abierta', actualizada_por: usuarioId ?? null, actualizada_en: new Date().toISOString(),
+    }).eq('id', id).select(this.camposNota).single();
+    if (error) throw new BadRequestException(`La orden ${ordenNumero ?? ''} se creó, pero no pude marcar la nota: ${error.message}`);
+    return { ordenCompraId, ordenNumero, proveedor: prov.razon_social, renglones: van.length, nota: this.notaParaPantalla(data) };
+  }
+
+  // Borrar la nota: lo que ya es una orden sigue su camino (se maneja en Órdenes).
+  async anularNotaPedido(id: string, usuarioId?: string) {
+    await this.notaAbierta(id);
+    const { error } = await this.db.from('notas_pedido').update({ estado: 'anulada', actualizada_por: usuarioId ?? null, actualizada_en: new Date().toISOString() }).eq('id', id);
+    if (error) throw new BadRequestException(error.message);
+    return { anulada: true };
   }
 
   // ---------- parecidos (4/11/2026) ----------

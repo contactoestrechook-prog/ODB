@@ -287,6 +287,7 @@ describe('pedido al proveedor: lo interno no sale', () => {
   it('las marcas internas de la orden no le llegan al proveedor (prueba del 2/10/2026)', async () => {
     expect(observacionParaProveedor('Armada desde Qué comprar')).toBeNull();
     expect(observacionParaProveedor('Armada con el agente de abastecimiento')).toBeNull();
+    expect(observacionParaProveedor('Nota de pedido N.º 3 · Góndola de almacén')).toBeNull();
     expect(observacionParaProveedor('Traer en cajas cerradas')).toBe('Traer en cajas cerradas');
     const db = dbFalsa({ oc: { observaciones: 'Armada desde Qué comprar' } });
     await new PedidosProveedorService(db).enviar('oc1', {});
