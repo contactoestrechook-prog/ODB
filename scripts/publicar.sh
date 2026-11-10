@@ -49,6 +49,16 @@ if [ -n "$SUCIOS" ]; then
   echo "$SUCIOS"; exit 1
 fi
 COMMIT=$(git rev-parse --short HEAD)
+# EL MANUAL AL DÍA (Leandro, 10/11/2026: «necesito que el manual de uso odb esté
+# siempre actualizado»). El asistente del manual ya ve lo publicado, pero el
+# manual escrito lo cambia quien cambia la pantalla: si se tocan pantallas del
+# panel y no apps/admin/app/manual/contenido.ts, avisa (no frena).
+CAMBIADOS=$(git diff --name-only origin/main HEAD)
+if echo "$CAMBIADOS" | grep -qE '^apps/admin/app/(ui/.*\.tsx|.*/page\.tsx)$' \
+  && ! echo "$CAMBIADOS" | grep -q '^apps/admin/app/manual/contenido.ts$'; then
+  echo "AVISO MANUAL: cambiaron pantallas del panel y no el manual (apps/admin/app/manual/contenido.ts)."
+  echo "  Si cambió cómo se usa algo, sumalo al manual en el próximo commit."
+fi
 echo "Publicando$SERVICIOS desde $COMMIT en el servidor propio: $MENSAJE"
 # manda el código (git archive del commit), compila con docker compose y levanta
 sh infra/servidor/publicar.sh $SERVICIOS

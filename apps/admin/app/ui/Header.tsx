@@ -59,7 +59,8 @@ export const ICONOS: Record<string, string> = {
 // cierran, con subcategorías adentro. «Clientes» junta las sucursales, la
 // base, la agenda y las cuentas corrientes; «Compras» y «Administración»
 // tienen todo lo suyo adentro. Una entrada nueva va en su grupo y su `sub`.
-const GRUPOS: Grupo[] = [
+// exportados: el manual pregunta con estas mismas pantallas (app/api/manual)
+export const GRUPOS: Grupo[] = [
   { titulo: 'Inicio', icono: 'inicio', items: [{ href: '/inicio', label: 'Inicio', icono: 'inicio' }] },
   {
     titulo: 'Ventas y caja',
@@ -170,7 +171,7 @@ const GRUPOS: Grupo[] = [
   },
 ];
 
-const TITULOS: Record<string, { titulo: string; bajada: string }> = {
+export const TITULOS: Record<string, { titulo: string; bajada: string }> = {
   '/inicio': { titulo: 'Inicio', bajada: 'El negocio de un vistazo: hoy, alertas y accesos' },
   '/ventas': { titulo: 'Ventas', bajada: 'Tickets del día y últimas operaciones de las dos sucursales' },
   '/caja': { titulo: 'Caja', bajada: 'Sesiones de caja, arqueos y facturación ARCA' },

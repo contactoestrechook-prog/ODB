@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import { AREAS, SECCIONES, type Bloque, type Seccion } from '../manual/contenido';
 import { filtrarPorBusqueda } from '../lib/busqueda';
 import { Chips, Entrada, Etiqueta, FOCO_ADENTRO, IconoFlechaAbajo, ROTULO, Tarjeta, unir } from './kit';
+import { LoNuevo, PreguntarAlManual, type Novedad } from './ManualAsistente';
 
 // El manual se abre casi siempre con una duda concreta y alguien esperando del
 // otro lado del mostrador. Por eso lo primero es el buscador, y lo segundo el
@@ -71,7 +72,12 @@ const textoDe = (s: Seccion) =>
         : [b.titulo ?? '', ...b.filas.flat()]),
   ].join(' ').toLowerCase();
 
-export function Manual({ rol }: { rol: string | null }) {
+export function Manual({ rol, pantallas = {}, novedades = [] }: {
+  rol: string | null;
+  /** href → nombre de las pantallas del menú (para los botones «Ir a…» del asistente) */
+  pantallas?: Record<string, string>;
+  novedades?: Novedad[];
+}) {
   const [busca, setBusca] = useState('');
   const [area, setArea] = useState<string | null>(null);
   const [abierta, setAbierta] = useState<string | null>(null);
@@ -93,8 +99,23 @@ export function Manual({ rol }: { rol: string | null }) {
 
   const areasConAlgo = AREAS.filter((a) => SECCIONES.some((s) => s.area === a));
 
+  // desde una respuesta del asistente: abre esa sección y la trae a la vista
+  function verSeccion(id: string) {
+    setBusca('');
+    setArea(null);
+    setAbierta(id);
+    setTimeout(() => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+  }
+
   return (
     <div className="space-y-4">
+      <PreguntarAlManual
+        nombreDe={(href) => pantallas[href] ?? null}
+        tituloDe={(id) => SECCIONES.find((s) => s.id === id)?.titulo ?? null}
+        onVerSeccion={verSeccion}
+      />
+      <LoNuevo novedades={novedades} />
+
       <p className="text-sm text-tinta/60">
         Cómo funciona cada área. Buscá por lo que necesitás resolver: “devolución”, “remarcación”, “arqueo”, “cuenta corriente”.
       </p>

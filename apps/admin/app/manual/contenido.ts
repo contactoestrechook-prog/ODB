@@ -338,6 +338,48 @@ export const SECCIONES: Seccion[] = [
     ],
   },
   {
+    id: 'stock-productos',
+    titulo: 'Stock: buscar, filtrar y exportar',
+    area: 'Depósito',
+    roles: ['deposito', 'administrativo', 'comprador', 'gerente', 'dueno'],
+    bajada: 'La lista de todos los productos con su stock, que se filtra por rubro, marca, proveedor, sucursal, estado y más.',
+    bloques: [
+      {
+        tipo: 'pasos',
+        titulo: 'Cómo se usa',
+        pasos: [
+          'Entrá a Productos › Stock. Abre en la pestaña «Productos».',
+          'Arriba buscás por nombre, SKU o código, y elegís la sucursal (sin elegir, suma las dos).',
+          'Tocá un estado (Sin stock, Bajo mínimo, Se termina, Sin movimiento, Sobra…) o un rubro para filtrar. Se pueden prender varios a la vez; cada uno dice cuántos productos tiene.',
+          'En «Más filtros» están marca, proveedor, por peso o por unidad, con o sin código de barras, activos o inactivos, y los rangos de stock, valor y lo vendido en 30 días.',
+          'Tocá el encabezado de una columna para ordenar por ella; tocarlo otra vez da vuelta el orden.',
+          'Tocá un producto para abrir su ficha de inventario. «Volver al stock» te deja como estabas, con los mismos filtros.',
+          '«Exportar a Excel» baja todo lo filtrado, no solo la página que se ve.',
+        ],
+      },
+      {
+        tipo: 'campos',
+        titulo: 'Qué quiere decir cada estado',
+        filas: [
+          ['Sin stock', 'No queda nada.'],
+          ['Negativo', 'Se vendió más de lo que había cargado: hay que contarlo.'],
+          ['Bajo mínimo', 'Quedó por debajo del mínimo o del punto de reposición.'],
+          ['Se termina', 'Al ritmo de venta, alcanza para 7 días o menos.'],
+          ['Sin movimiento', 'Hay stock y no se vendió nada en 30 días: plata parada.'],
+          ['Sobra', 'Alcanza para más de 90 días.'],
+          ['Normal', 'Entre 7 y 90 días de venta.'],
+        ],
+      },
+      {
+        tipo: 'ojo',
+        puntos: [
+          'Los filtros quedan en la dirección de la página: copiala y mandala, y el otro ve la misma lista.',
+          'La venta de 30 días suma lo vendido en el sistema y lo que vino del sistema anterior.',
+        ],
+      },
+    ],
+  },
+  {
     id: 'deposito-stock',
     titulo: 'Stock, conteos, ajustes y mermas',
     area: 'Depósito',
