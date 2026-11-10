@@ -47,13 +47,16 @@ for r in rel: por_prod[r['producto_id']].append(r)
 compras = {(h['proveedor_id'], h['producto_id']) for h in todas('compras_historial?select=proveedor_id,producto_id&producto_id=not.is.null&order=id')}
 fact = {(f['factura']['proveedor_id'], f['producto_id']) for f in todas('facturas_proveedor_items?select=producto_id,factura:facturas_proveedor!inner(proveedor_id)&producto_id=not.is.null&order=id') if f.get('factura')}
 prueba = compras | fact
+# EL PROVEEDOR DECIDIDO EN NÚCLEO MANDA (Leandro, 10/11/2026: «que respete lo que
+# hizo Jackie»): para esos productos el destino es el decidido, no el del Crack.
+decidido = {x['producto_id']: x['proveedor_id'] for x in todas('proveedor_decidido?select=producto_id,proveedor_id&order=producto_id')}
 nombre = {p['id']: p['razon_social'] for p in provs}
 agregar, borrar, sin_destino = [], [], collections.Counter()
 for a in art:
     p = por_cod.get(a[0].strip())
     if not p: continue
     hab = a[11].strip() if len(a) > 11 else ''
-    t = destino(hab) if hab else None
+    t = decidido.get(p['id']) or (destino(hab) if hab else None)
     if not t: sin_destino[hab or '(vacío)'] += 1; continue
     actuales = por_prod.get(p['id'], [])
     if not any(r['proveedor_id'] == t for r in actuales):

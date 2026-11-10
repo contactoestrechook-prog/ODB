@@ -43,6 +43,8 @@ cc = collections.defaultdict(float)
 for m in todas('cuenta_corriente?select=cliente_id,debe,haber&order=id'): cc[m['cliente_id']] += float(m['debe'] or 0) - float(m['haber'] or 0)
 provs = todas('proveedores?select=id,razon_social,cuit&order=id')
 pp = {(x['producto_id'], x['proveedor_id']) for x in todas('proveedor_productos?select=producto_id,proveedor_id&order=proveedor_id,producto_id')}
+# el proveedor decidido en NÚCLEO manda sobre el Crack (Jackie, 10/11/2026): ver proveedor_decidido
+decidido = {x['producto_id']: x['proveedor_id'] for x in todas('proveedor_decidido?select=producto_id,proveedor_id&order=producto_id')}
 
 # ---------- los archivos ----------
 _, art = filas('articulos'); _, stk = filas('stock'); _, pxp = filas('productosxproveedor')
@@ -248,6 +250,7 @@ sin_par = collections.Counter()
 for r in art:
     p = existentes.get(r[0].strip()); hab = r[11].strip() if len(r) > 11 else ''
     if not p or not hab: continue
+    if p['id'] in decidido: continue  # lo decidió alguien en NÚCLEO: el Crack no lo toca
     pv = prov_del_crack(hab)
     if not pv: sin_par[hab] += 1; continue
     if (p['id'], pv) not in pp: rel.append({'producto_id': p['id'], 'proveedor_id': pv, 'ultimo_costo': num(r[5])})

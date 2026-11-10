@@ -81,3 +81,20 @@ as $function$
   limit greatest(p_limite, 1);
 $function$;
 revoke all on function public.faltantes_sucursal(uuid, text, integer, integer, integer, boolean, integer) from public, anon, authenticated;
+
+-- EL PROVEEDOR QUE SE DECIDIÓ EN NÚCLEO MANDA SOBRE EL CRACK (Leandro, 10/11/2026):
+-- «que respete lo que hizo Jackie». Una fila por producto; simular-csv.py y
+-- espejo-proveedores.py la usan en lugar del «proveedor habitual» del Crack.
+-- Aplicada como migración proveedor_decidido_jackie_marquisse, que además pasó
+-- los 26 Mutti y Garofalo de las notas N.º 2 y 3 a Marquisse (auditoría
+-- entidad_id 'notas-pedido-2-3', con los vínculos de antes en datos_antes).
+create table if not exists public.proveedor_decidido (
+  producto_id uuid primary key references public.productos(id) on delete cascade,
+  proveedor_id uuid not null references public.proveedores(id) on delete cascade,
+  decidido_por uuid references public.usuarios(id) on delete set null,
+  decidido_en timestamptz not null default now(),
+  origen text not null,
+  detalle text
+);
+alter table public.proveedor_decidido enable row level security;
+revoke all on public.proveedor_decidido from anon, authenticated;

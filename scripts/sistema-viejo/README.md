@@ -89,5 +89,6 @@ Criterio (lo nuevo del 10/11):
 ### Quién vende cada producto (10/11/2026, auditoría 1083)
 - La columna que vale es **«proveedor habitual»** de `articulos.csv`. Lo verificó Leandro con sus ejemplos: Johnnie Walker va a Lalo Importados y Don Satur a Clan. El código de `productosxproveedor.csv` **está roto** para los proveedores nuevos: mandó Johnnie Walker, SodaStream y vinos a «distrisur».
 - Cada escritura del Crack se traduce con `mapa-proveedores.json`, la tabla del 23/10 corregida a mano.
+- **Lo decidido en NÚCLEO manda sobre el Crack** (Leandro, 10/11/2026: «que respete lo que hizo Jackie»). La tabla `proveedor_decidido` tiene un proveedor por producto: Jackie pasó 26 Mutti y Garofalo a Marquisse. La simulación no le agrega el proveedor del Crack y el espejo usa el decidido como destino, así que nunca lo saca.
 - `python3 espejo-proveedores.py <carpeta>` deja los vínculos igual que el Crack: saca los que el Crack no tiene, salvo los que tienen una compra real en NÚCLEO (factura, código o alias del proveedor), y agrega los que faltan. El 10/11 sacó 1.309 y agregó 13.
 - «distrisur» y «Distribuidora de Galletitas y Alimentos del Sur SA» se unificaron en la segunda, la de las facturas.
