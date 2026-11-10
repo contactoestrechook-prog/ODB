@@ -1,4 +1,4 @@
-import { marcaDelRenglon, mismaMarca } from './marca';
+import { marcaDelRenglon, mismaMarca } from '../../../admin/app/lib/marca';
 
 describe('la marca del renglón', () => {
   it('salta el tipo de producto: «Alfajor Jorgito…» es Jorgito', () => {

@@ -1,5 +1,5 @@
 import { numeroLeido, interpretarLecturaSegura } from '../compras/lectura-segura';
-import { mismaMarca } from './marca';
+import { mismaMarca } from '../../../admin/app/lib/marca';
 import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
@@ -33,6 +33,7 @@ type Match = {
   sugerido?: boolean; // propuesto por la IA: el operador tiene que confirmar ("¿es este?")
   alicuotaCatalogo?: number | null; // IVA del producto en el catálogo (para verificar contra el pie)
   motivo?: string; // por qué la IA cree que es ese producto
+  precioActual?: number | null; // precio minorista de hoy: el control antes de registrar avisa si cambia mucho (10/11/2026)
 } | null;
 
 // Normaliza un texto de renglón para usarlo como alias estable (sin tildes,
@@ -1100,6 +1101,22 @@ export class ListasService {
           };
         }
       }
+    }
+
+    // EL PRECIO DE VENTA DE HOY de cada producto vinculado (10/11/2026): el panel
+    // avisa antes de registrar si va a quedar muy lejos (Terrabusi: de $10.800 a
+    // $4.500 el 9/11, por el costo de otro producto). Una consulta para todos.
+    const skus = [...new Set(propuesta.map((i) => i.match?.sku).filter(Boolean) as string[])];
+    if (skus.length) {
+      const { data: precios } = await this.db
+        .from('precios')
+        .select('precio, vigente_desde, producto:productos!inner(sku), lista:listas_precios!inner(es_base)')
+        .in('producto.sku', skus)
+        .eq('lista.es_base', true)
+        .order('vigente_desde', { ascending: false });
+      const actual = new Map<string, number>();
+      for (const p of (precios ?? []) as any[]) if (!actual.has(p.producto?.sku)) actual.set(p.producto?.sku, Number(p.precio));
+      for (const i of propuesta) if (i.match) i.match.precioActual = actual.get(i.match.sku) ?? null;
     }
 
     // Con el producto del catálogo ya elegido se rehace la interpretación: si la

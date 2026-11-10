@@ -21,6 +21,8 @@ import { AsistenteFactura, describirCambio, type CambioHecho } from './Asistente
 import { asignarInternos, internosImpresos, textoInternos } from '../lib/internos-compras';
 import { cargaDePercepciones, textoPercepcionesEnteras } from '../lib/percepciones-compras';
 import { cuentaDeLaFactura, cuentaParaIA, type ParteRenglon } from '../lib/cuenta-factura';
+import { revisarAntesDeRegistrar } from '../lib/revision-factura';
+import { mismaMarca } from '../lib/marca';
 import { aplicarBorrador, borradorDe, borradorVacio } from '../lib/borrador-factura';
 import { aplicarCambiosIA, frenarReglasAbsurdas, aplicarPapel, cuentaDelPapel, entraDeRenglon, marcarComoDevolucion, papelDeLectura, tablaParaIA, type EntraComo, type Papel, conInternoDelPapel } from '../lib/tabla-factura';
 import {
@@ -530,6 +532,8 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   const [sinCierreRevisado, setSinCierreRevisado] = useState(false);
   // la diferencia de la cuenta de la factura que aceptó una persona (o el chat en su nombre), con su motivo
   const [diferenciaAceptada, setDiferenciaAceptada] = useState<{ monto: number; motivo: string } | null>(null);
+  // lo que el control antes de registrar avisó y una persona dijo «está bien» (por el texto: si cambian los números, se vuelve a preguntar)
+  const [revisionOk, setRevisionOk] = useState<string[]>([]);
   // Lo que entró a $0 de este proveedor y espera precio (10/10/2026): el
   // renglón que coincide le pone el costo a esa entrada y no suma stock.
   // soloPrecio[sku] === false = el usuario lo destildó y entra como compra normal.
@@ -717,6 +721,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
           alicuotaIva: i.alicuotaIva ?? r.alicuotaDeducida ?? null,
           alicuotaCatalogo: i.match?.alicuotaCatalogo ?? null,
           costoCatalogo: i.match?.costoActual ?? null,
+          precioActual: i.match?.precioActual ?? null,
           alicuotaElegida: null,
           bultoAplicado: null,
           // las sugerencias de IA NO se incluyen hasta que el operador confirme "¿es este?"
@@ -1436,7 +1441,24 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   const CAMPOS_PIE = ['neto', 'iva', 'percepcionIva', 'percepcionIibb', 'impuestosInternos', 'otros', 'total'];
   // lo que devolvió el chat, sobre los renglones de AHORA (la persona pudo
   // seguir editando mientras la IA pensaba)
-  const aplicarIA = (cambios: any[], cambiosPie: any[], automatico = false) => {
+  // EL CHAT CAMBIA EL PRODUCTO (10/11/2026): «el 4 es Jorgito tubo chocolate».
+  // Se busca con el buscador de siempre; vale si queda UNO que tenga todas las
+  // palabras que dijo la persona (y su marca). Si hay varios, se le devuelven.
+  const productoDelChat = async (texto: string): Promise<{ elegido: any | null; opciones: any[] }> => {
+    const q = String(texto ?? '').trim();
+    if (!q) return { elegido: null, opciones: [] };
+    const r = await fetch(`/api/buscar-producto?q=${encodeURIComponent(esCodigoBarras(q) ? q.replace(/\D/g, '') : q)}`);
+    const items: any[] = r.ok ? (await r.json()).items ?? [] : [];
+    if (esCodigoBarras(q)) return { elegido: items.length === 1 ? items[0] : null, opciones: items };
+    const norm = (t: string) => String(t ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    const palabras = norm(q).split(/[^a-z0-9]+/).filter((w) => w.length >= 3);
+    const conTodo = items.filter((p) => palabras.every((w) => norm(p.nombre).includes(w)) && mismaMarca(q, p.nombre));
+    const opciones = conTodo.length ? conTodo : items.filter((p) => mismaMarca(q, p.nombre));
+    return { elegido: opciones.length === 1 ? opciones[0] : null, opciones };
+  };
+  const aplicarIA = async (cambios: any[], cambiosPie: any[], automatico = false) => {
+    const deProducto = (cambios ?? []).filter((c: any) => c?.campo === 'producto');
+    cambios = (cambios ?? []).filter((c: any) => c?.campo !== 'producto');
     const r0 = aplicarCambiosIA(fotoItemsVivos.current, cambios, esRenglonDescuento);
     // una regla aplicada sola no puede dejar un renglón a diez veces su costo
     const freno = automatico ? frenarReglasAbsurdas(fotoItemsVivos.current, r0.items, r0.registros) : { items: r0.items, registros: r0.registros, frenados: [] as number[] };
@@ -1481,10 +1503,30 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
       return `Renglón ${c?.renglon ?? '?'} · ${c?.campo ?? ''}: ${porque}`;
     });
     for (const n of freno.frenados) noAplicados.push(`Renglón ${n}: la regla lo dejaba a un costo muy lejos del que tiene el producto en el catálogo, así que quedó como se leyó`);
-    return { aplicados: todos.map((c) => describirCambio(c)), noAplicados };
+    const aplicados = todos.map((c) => describirCambio(c));
+    // un turno automático (las reglas del proveedor) no cambia productos: eso lo pide una persona
+    for (const c of automatico ? [] : deProducto) {
+      const k = Math.round(Number(c?.renglon)) - 1;
+      const fila = fotoItemsVivos.current[k];
+      if (!fila || esRenglonDescuento(fila)) { noAplicados.push(`Renglón ${c?.renglon ?? '?'} · producto: ese renglón no existe o es un descuento`); continue; }
+      const { elegido, opciones } = await productoDelChat(String(c.valor ?? ''));
+      if (!elegido) {
+        noAplicados.push(opciones.length
+          ? `Renglón ${k + 1} · producto: hay ${opciones.length} que pueden ser «${c.valor}»: ${opciones.slice(0, 5).map((p) => p.nombre).join(' · ')}. Decí cuál.`
+          : `Renglón ${k + 1} · producto: no encontré «${c.valor}» en el catálogo. Buscalo en el renglón o dalo de alta.`);
+        continue;
+      }
+      const antes = fila.nombre ?? null;
+      vincularProducto(k, elegido);
+      const reg = { renglon: k + 1, campo: 'producto', antes, despues: elegido.nombre, motivo: String(c.motivo ?? '').slice(0, 300) };
+      anotar('IA', [reg]);
+      aplicados.push(describirCambio(reg));
+    }
+    return { aplicados, noAplicados };
   };
   // deshace UN cambio: vuelve ese dato a como estaba (los demás quedan)
   const deshacerCambio = (c: CambioHecho) => {
+    if (c.campo === 'revisado') setRevisionOk((xs) => xs.filter((t) => t !== c.motivo));
     if (c.renglon == null && c.campo === 'aceptarDiferencia') {
       setDiferenciaAceptada(c.antes == null ? null : { monto: Number(c.antes), motivo: 'vuelta atrás' });
     } else if (c.renglon == null && c.campo === 'percepcionesAlCosto') {
@@ -1501,6 +1543,9 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
         if (c.campo === 'recibidas') return { ...x, recibidoAMano: c.antes == null || c.antes === '' ? null : Number(c.antes) };
         if (c.campo === 'llevaInternos') return { ...x, llevaInternos: c.antes == null || c.antes === '' ? null : !!c.antes };
         if (c.campo === 'costoFinal') return { ...x, costoManual: c.antes == null || c.antes === '' ? null : Number(c.antes) };
+        // el producto que cambió el chat: el renglón vuelve a quedar sin vincular (se elige de nuevo)
+        if (c.campo === 'producto') return { ...x, sku: '', nombre: null, incluir: false, sugerido: false, costoCatalogo: null, precioActual: null };
+        if (c.campo === 'revisado') return x;
         if (c.campo === 'impuestoInternoUnitario') {
           if (c.antes == null || c.antes === '') return { ...x, fraccionNeta: null, netoDelPapel: null, internosDelPapel: null };
           return conInternoDelPapel(x, Number(c.antes)) ?? x;
@@ -1551,6 +1596,8 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
     percepciones: ivaConAlicuotas && cargaPerc.enteras.length ? textoPercepcionesEnteras(cargaPerc, pesos) : null,
     // LA cuenta de la factura (9/11/2026): la misma que ve la persona y la única que traba por plata
     cuentaDeLaFactura: cuentaParaIA(cuenta),
+    // lo que el control antes de registrar todavía frena (10/11/2026): el chat lo explica y lo corrige si la persona lo pide
+    antesDeRegistrar: revisionPendiente.map((a) => a.texto),
     percepcionesAlCosto,
     diferenciaAceptada,
   });
@@ -1797,7 +1844,28 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
     anotar(quien, [{ renglon: null, campo: 'aceptarDiferencia', antes, despues: monto == null ? null : Math.abs(monto), motivo }]);
   };
   const cuentaBloquea = cuenta.estado === 'no_cierra';
-  const costoBloquea = cuentaBloquea || ivaBloquea || lecturaIncompleta || internosBloquea || sinCierreBloquea;
+  // ANTES DE REGISTRAR (10/11/2026, lib/revision-factura.ts): otra marca, una
+  // cantidad partida, un costo o un precio de venta muy lejos del de hoy. Frena
+  // hasta que una persona lo mira y dice «está bien».
+  const revision = revisarAntesDeRegistrar(itemsCalc.map((i: any, idx: number) => ({
+    renglon: idx + 1,
+    descripcion: String(i.descripcion ?? ''),
+    producto: i.sku ? String(i.nombre ?? i.sku) : null,
+    entra: !!(i.incluir && i.sku) && !i._esDescuento && !i._esDevolucion && !soloPrecioDe(i),
+    cantidad: cantidadQueEntra(i),
+    porPeso: !!i.porPeso,
+    costoNuevo: i._esDescuento || i._esDevolucion ? null : costoFinal(i, idx),
+    costoCatalogo: numImp(i.costoCatalogo) || null,
+    precioNuevo: i._esDescuento || i._esDevolucion || i.margenPct === '' || i.margenPct == null ? null : redondearPrecio(costoFinal(i, idx) * (1 + Number(i.margenPct) / 100)),
+    precioActual: numImp(i.precioActual) || null,
+  })));
+  const revisionPendiente = revision.filter((a) => !revisionOk.includes(a.texto));
+  const revisionBloquea = revisionPendiente.length > 0;
+  const confirmarRevision = (a: { renglon: number; texto: string }) => {
+    setRevisionOk((xs) => [...xs, a.texto]);
+    anotar('Vos', [{ renglon: a.renglon, campo: 'revisado', antes: null, despues: 'está bien', motivo: a.texto }]);
+  };
+  const costoBloquea = cuentaBloquea || ivaBloquea || lecturaIncompleta || internosBloquea || sinCierreBloquea || revisionBloquea;
 
   // Excel/CSV del portal del proveedor → precarga los renglones de la OC
   async function importarPedido(archivo: File) {
@@ -1951,7 +2019,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
     }
     setFotoItems((xs) => xs.map((x, j) => {
       if (j !== idx) return x;
-      const nuevo = { ...x, sku: p.sku, nombre: p.nombre, variacionPct: null, sugerido: false, motivoIa: null, incluir: !x.devueltoAMano, alicuotaCatalogo: p.alicuotaIva != null ? Number(p.alicuotaIva) : null, costoCatalogo: p.costo ?? null };
+      const nuevo = { ...x, sku: p.sku, nombre: p.nombre, variacionPct: null, sugerido: false, motivoIa: null, incluir: !x.devueltoAMano, alicuotaCatalogo: p.alicuotaIva != null ? Number(p.alicuotaIva) : null, costoCatalogo: p.costo ?? null, precioActual: p.precio ?? null };
       // otro producto: lo que el lector decidió del «×N» con el costo del anterior ya no vale
       return x.sku === p.sku ? nuevo : alCambiarVinculo(nuevo);
     }));
@@ -3270,6 +3338,22 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                 <label className="flex min-h-9 items-center gap-2"><input type="checkbox" checked={pagada} onChange={(e) => setPagada(e.target.checked)} className="size-4 shrink-0 accent-marca" /> Pagada (contado)</label>
                 <label className="flex items-center gap-2" title="Se aplica a todos los renglones de la factura">% remarcación general <input type="number" value={f.margenPct ?? ''} onChange={(e) => aplicarRemarcacionGeneral(e.target.value)} placeholder="a todos" className={unir(CAMPO_FILA_BASE, CAMPO_FILA_COLOR, 'w-20')} /></label>
               </div>
+
+              {revisionPendiente.length > 0 && (
+                <div className="rounded-xl border border-atencion/30 bg-atencion-suave px-3 py-3 text-sm text-tinta">
+                  <p className="font-semibold text-atencion">Antes de registrar, mirá {revisionPendiente.length === 1 ? 'esto' : `estas ${revisionPendiente.length} cosas`}</p>
+                  <ul className="mt-2 space-y-2">
+                    {revisionPendiente.map((a) => (
+                      <li key={a.texto} className="flex flex-wrap items-start gap-2">
+                        <span className="min-w-0 flex-1">{a.texto}</span>
+                        <button type="button" onClick={() => verRenglon(a.renglon - 1)} className={unir(ENLACE, 'text-xs text-tinta/70')}>ver el renglón</button>
+                        <Boton variante="secundario" tamano="chico" onClick={() => confirmarRevision(a)}>Está bien</Boton>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="mt-2 text-xs text-tinta/60">Si no está bien, corregilo en el renglón o pedíselo al chat. Mientras tanto no se puede registrar.</p>
+                </div>
+              )}
 
               <CuentaDeLaFactura
                 cuenta={cuenta}
