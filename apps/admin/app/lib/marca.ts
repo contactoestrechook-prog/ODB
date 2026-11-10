@@ -1,4 +1,7 @@
-// Vive en el panel (apps/admin/app/lib/marca.ts): la usan el lector y el control antes de registrar.
+// DOS COPIAS IDÉNTICAS (10/11/2026): apps/admin/app/lib/marca.ts (el control antes de
+// registrar) y apps/api/src/listas/marca.ts (el lector). La API y el panel se
+// compilan por separado en el servidor y cada uno necesita la suya. Una prueba
+// (apps/api/src/listas/marca.spec.ts) falla si dejan de ser iguales: se cambian las dos.
 // LA MARCA DE UN RENGLÓN (9/11/2026). El guardián de marca del vínculo por
 // nombre tomaba la PRIMERA palabra del renglón como marca, y en «Alfajor Jorgito
 // Chocolate Negro» la primera es «alfajor»: pasaba contra «Alfajor Cachafaz

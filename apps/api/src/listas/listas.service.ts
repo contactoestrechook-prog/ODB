@@ -1,5 +1,5 @@
 import { numeroLeido, interpretarLecturaSegura } from '../compras/lectura-segura';
-import { mismaMarca } from '../../../admin/app/lib/marca';
+import { mismaMarca } from './marca';
 import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import { SupabaseClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';

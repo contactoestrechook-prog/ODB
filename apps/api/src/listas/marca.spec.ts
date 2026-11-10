@@ -1,4 +1,4 @@
-import { marcaDelRenglon, mismaMarca } from '../../../admin/app/lib/marca';
+import { marcaDelRenglon, mismaMarca } from './marca';
 
 describe('la marca del renglón', () => {
   it('salta el tipo de producto: «Alfajor Jorgito…» es Jorgito', () => {
@@ -15,5 +15,13 @@ describe('la marca del renglón', () => {
   it('lo de siempre sigue: Knorr no es Gallo', () => {
     expect(mismaMarca('Knorr Risotto hongos', 'Arroz Gallo Risotto')).toBe(false);
     expect(mismaMarca('Vinagre Vino UNIDAD x 500 m.l. Menoyo', 'Vinagre Menoyo de vino x 500 cc')).toBe(true);
+  });
+});
+
+describe('las dos copias de la regla de marca', () => {
+  it('el lector y el panel usan exactamente la misma', () => {
+    const { readFileSync } = require('node:fs');
+    const { join } = require('node:path');
+    expect(readFileSync(join(__dirname, 'marca.ts'), 'utf8')).toBe(readFileSync(join(__dirname, '../../../admin/app/lib/marca.ts'), 'utf8'));
   });
 });
