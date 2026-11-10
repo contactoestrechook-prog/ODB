@@ -22,6 +22,7 @@ import { asignarInternos, internosImpresos, textoInternos } from '../lib/interno
 import { cargaDePercepciones, textoPercepcionesEnteras } from '../lib/percepciones-compras';
 import { cuentaDeLaFactura, cuentaParaIA, type ParteRenglon } from '../lib/cuenta-factura';
 import { revisarAntesDeRegistrar } from '../lib/revision-factura';
+import { remitoDeLaFactura, type RemitoEsperando } from '../lib/remito-factura';
 import { mismaMarca } from '../lib/marca';
 import { aplicarBorrador, borradorDe, borradorVacio } from '../lib/borrador-factura';
 import { aplicarCambiosIA, frenarReglasAbsurdas, aplicarPapel, cuentaDelPapel, entraDeRenglon, marcarComoDevolucion, papelDeLectura, tablaParaIA, type EntraComo, type Papel, conInternoDelPapel } from '../lib/tabla-factura';
@@ -547,6 +548,21 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
     fetch(`/api/compras?recurso=precio-cero&proveedorId=${encodeURIComponent(f.proveedorId)}`)
       .then((r) => (r.ok ? r.json() : []))
       .then((d) => { if (vigente) setPrecioCero(Array.isArray(d) ? d : []); })
+      .catch(() => { /* sin el dato, la factura entra como siempre */ });
+    return () => { vigente = false; };
+  }, [modal?.tipo, f.proveedorId]);
+  // LOS REMITOS DE ESTE PROVEEDOR QUE ESPERAN SU FACTURA (10/11/2026): si esta
+  // factura es la de uno de ellos, la mercadería ya entró con el remito y se
+  // carga solo la factura, conciliada (lib/remito-factura.ts).
+  const [remitosEsperando, setRemitosEsperando] = useState<{ remitos: RemitoEsperando[]; puerta: number }>({ remitos: [], puerta: 0 });
+  const [remitoNoEs, setRemitoNoEs] = useState<string | null>(null);
+  useEffect(() => {
+    setRemitosEsperando({ remitos: [], puerta: 0 }); setRemitoNoEs(null);
+    if (modal?.tipo !== 'entradaFoto' || !f.proveedorId) return;
+    let vigente = true;
+    fetch(`/api/compras?recurso=remitos-esperando&proveedorId=${encodeURIComponent(f.proveedorId)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (vigente && d && Array.isArray(d.remitos)) setRemitosEsperando({ remitos: d.remitos, puerta: Number(d.puerta) || 0 }); })
       .catch(() => { /* sin el dato, la factura entra como siempre */ });
     return () => { vigente = false; };
   }, [modal?.tipo, f.proveedorId]);
@@ -1778,11 +1794,18 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   const itemsFusionados = fusionarPorSku(inclItems.filter((i) => i.sku));
   const skusFusionados = itemsFusionados.filter((i) => i._renglones > 1 || i._enPromo);
   // entradas a $0 que esta factura valoriza, una por producto (10/10/2026)
-  const asignadosPrecioCero: Record<string, PendientePrecioCero> = soloFactura ? {} : elegirPendientes(itemsFusionados, precioCero);
+  const esFacturaFoto = !!foto?.comprobante?.tipo?.startsWith('factura');
+  const cruceRemito = esFacturaFoto && remitosEsperando.remitos.length
+    ? remitoDeLaFactura(itemsCalc.filter((i: any) => i.sku && !i._esDescuento && !i._esDevolucion).map((i: any) => ({ sku: i.sku, cantidad: cantidadQueEntra(i) })), remitosEsperando.remitos)
+    : null;
+  const remitoAplicado = cruceRemito && cruceRemito.remito.id !== remitoNoEs ? cruceRemito : null;
+  // solo se carga la factura si alguien lo tildó O si es la de un remito que ya entró
+  const soloLaFactura = soloFactura || !!remitoAplicado;
+  const asignadosPrecioCero: Record<string, PendientePrecioCero> = soloLaFactura ? {} : elegirPendientes(itemsFusionados, precioCero);
   const soloPrecioDe = (i: any): PendientePrecioCero | null =>
     i?.sku && i.incluir && !i._esDescuento && !i._esDevolucion && asignadosPrecioCero[i.sku] && soloPrecio[i.sku] !== false ? asignadosPrecioCero[i.sku] : null;
   // el IVA que no cierra con el pie también bloquea: nunca más un promedio
-  const lecturaIncompleta = fotoItems.some((i) => (soloFactura || i.incluir) && camposDeLecturaIncompletos(i));
+  const lecturaIncompleta = fotoItems.some((i) => (soloLaFactura || i.incluir) && camposDeLecturaIncompletos(i));
   // internos sin destino: no se registra hasta marcar qué productos los pagan (3/11/2026)
   const internosBloquea = !internosResueltos && inclItems.length > 0;
   // EL CONTROL FINAL (Leandro, 4/11/2026: «no tiene lógica, necesito más y más
@@ -2188,7 +2211,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
       ) : foto.error ? (
         <Acciones cerrar={cerrar} okLabel="Reintentar" onOk={() => setFoto(null)} />
       ) : (
-        soloFactura || esNotaCredito ? (
+        soloLaFactura || esNotaCredito ? (
           <Acciones
             cerrar={cerrar}
             okLabel={esNotaCredito ? (foto.ncPara ? `Registrar nota de crédito y liberar la factura ${foto.ncPara.numero}` : 'Registrar nota de crédito') : 'Registrar factura para conciliar'}
@@ -2196,6 +2219,8 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
             onOk={() => registrarConConstancia({
               accion: 'factura',
               proveedorId: f.proveedorId,
+              // la mercadería ya entró con este remito: la factura queda conciliada con él (10/11/2026)
+              ...(remitoAplicado ? { remitoIds: [remitoAplicado.remito.id] } : {}),
               sucursalId: f.sucursalId || undefined,
               // la NC no mueve stock: lo devuelto ya no entró (4/11/2026)
               tipo: esNotaCredito ? 'nota_credito' : 'factura',
@@ -3065,7 +3090,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
                       </div>
 
                       {/* 2 bis · entró a $0 hace poco: esta factura le pone el precio (10/10/2026) */}
-                      {!soloFactura && i.incluir && i.sku && !i._esDescuento && asignadosPrecioCero[i.sku] && (() => {
+                      {!soloLaFactura && i.incluir && i.sku && !i._esDescuento && asignadosPrecioCero[i.sku] && (() => {
                         const p = asignadosPrecioCero[i.sku];
                         const tildado = soloPrecio[i.sku] !== false;
                         const dif = diferenciaPrecioCero(p, Number(itemsFusionados.find((x) => x.sku === i.sku)?.cantidad ?? 0));
@@ -3574,8 +3599,26 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
 
               {foto.notasManuscritas && <p className="break-words text-xs italic text-tinta/60">Nota manuscrita: {foto.notasManuscritas}</p>}
 
+              {/* ES LA FACTURA DE UN REMITO QUE YA ENTRÓ (10/11/2026): solo la factura, conciliada */}
+              {remitoAplicado && (
+                <Aviso tono="info">
+                  <p className="font-semibold">Esta factura es la del remito {remitoAplicado.remito.numero || 's/n'} del {fecha(remitoAplicado.remito.fecha)}: la mercadería ya entró con ese remito.</p>
+                  <p className="mt-1">
+                    {remitoAplicado.coinciden} de {remitoAplicado.enRemito} productos coinciden{remitoAplicado.mismasCantidades ? ', con las mismas cantidades' : ', con alguna cantidad distinta'}. Se carga solo la factura (no suma stock otra vez) y queda conciliada con el remito; las diferencias quedan anotadas para el reclamo.
+                  </p>
+                  {remitoAplicado.soloFactura.length > 0 && <p className="mt-1">En la factura y no en el remito: {itemsCalc.filter((i: any) => remitoAplicado.soloFactura.includes(i.sku)).map((i: any) => i.nombre ?? i.descripcion).join(', ')}. Si entraron, sumalos con Recepción.</p>}
+                  {remitoAplicado.soloRemito.length > 0 && <p className="mt-1">En el remito y no en la factura: {remitoAplicado.soloRemito.join(', ')}.</p>}
+                  <button type="button" onClick={() => setRemitoNoEs(remitoAplicado.remito.id)} className="mt-2 text-xs font-semibold underline underline-offset-2">No es ese remito: cargar la mercadería con esta factura</button>
+                </Aviso>
+              )}
+              {remitosEsperando.puerta > 0 && esFacturaFoto && (
+                <p className="text-xs text-tinta/70">
+                  Hay {remitosEsperando.puerta} ingreso{remitosEsperando.puerta === 1 ? '' : 's'} por la puerta de depósito de este proveedor esperando factura. Si es esta, confirmalo en <a href="/puerta-deposito" className="font-semibold underline">Puerta de depósito</a> con su número.
+                </p>
+              )}
+
               {/* la mercadería ya entró por Recepción → solo factura + conciliación */}
-              {foto.comprobante?.tipo?.startsWith('factura') && (
+              {foto.comprobante?.tipo?.startsWith('factura') && !remitoAplicado && (
                 <label className="flex min-h-9 items-start gap-2 text-xs text-tinta">
                   <input type="checkbox" checked={soloFactura} onChange={(e) => setSoloFactura(e.target.checked)} className="mt-px size-4 shrink-0 accent-marca" />
                   La mercadería ya fue recibida con la pistola — solo cargar la factura (va a Conciliación, no mueve stock)

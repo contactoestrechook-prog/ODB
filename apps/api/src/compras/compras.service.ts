@@ -546,6 +546,12 @@ export class ComprasService {
 
     // factura del proveedor: nace vinculada a la OC y al remito de esta entrada,
     // con el desglose de impuestos (IVA, percepciones) para el libro IVA compras
+    // UN REMITO SIN FACTURA ESPERA SU FACTURA (10/11/2026): antes quedaba
+    // «confirmado» y nunca aparecía para cruzarlo; la factura que llegaba
+    // después volvía a sumar el stock. Ahora espera, como el de la pistola.
+    if (!(dto.factura?.numero && Number(dto.factura.total) > 0) && resultado?.remito_id) {
+      await this.db.from('remitos').update({ estado: 'pendiente_conciliar' }).eq('id', resultado.remito_id).eq('estado', 'confirmado');
+    }
     if (dto.factura?.numero && Number(dto.factura.total) > 0) {
       const f = dto.factura;
       // empresa fiscal: la de la sucursal que recibió (para el libro IVA correcto)
@@ -1103,7 +1109,14 @@ export class ComprasService {
     if (Array.isArray(dto.items) && dto.items.length) {
       await this.guardarItemsFactura(data.id, dto.items);
     }
-    return { ok: true, id: data.id };
+    // la mercadería ya entró con estos remitos (10/11/2026): la factura queda
+    // conciliada con ellos, y las diferencias registradas para el reclamo
+    let conciliacion: any = null;
+    const remitoIds = Array.isArray(dto.remitoIds) ? dto.remitoIds.map(String).filter(Boolean) : [];
+    if (remitoIds.length && tipo === 'factura') {
+      conciliacion = await this.confirmarConciliacion(data.id, remitoIds, usuarioId).catch((e) => ({ error: e?.message ?? String(e) }));
+    }
+    return { ok: true, id: data.id, conciliacion };
   }
 
   // Listado completo con filtros para el back office
@@ -1790,6 +1803,31 @@ export class ComprasService {
     });
 
     return { ok: true, sku: producto.sku, nombre: producto.nombre };
+  }
+
+  // LOS REMITOS QUE ESPERAN SU FACTURA de un proveedor (10/11/2026), con lo que
+  // entró de cada uno (vive en la OC retroactiva): la carga de la factura los
+  // cruza y, si es el mismo pedido, carga solo la factura. También dice cuántos
+  // ingresos por la puerta de depósito esperan factura de ese proveedor.
+  async remitosEsperando(proveedorId: string) {
+    if (!proveedorId) return { remitos: [], puerta: 0 };
+    const desde = new Date(Date.now() - 90 * 86400_000).toISOString();
+    const [{ data: remitos, error }, { count: puerta }] = await Promise.all([
+      this.db.from('remitos').select('id, numero, creado_en, oc_id').eq('proveedor_id', proveedorId).eq('estado', 'pendiente_conciliar').gte('creado_en', desde).order('creado_en', { ascending: false }).limit(20),
+      this.db.from('ingresos_puerta').select('id', { count: 'exact', head: true }).eq('proveedor_id', proveedorId).eq('estado', 'espera_factura'),
+    ]);
+    if (error) throw new BadRequestException(error.message);
+    const ocs = ((remitos ?? []) as any[]).map((r) => r.oc_id).filter(Boolean);
+    const { data: items } = ocs.length
+      ? await this.db.from('ordenes_compra_items').select('oc_id, cantidad_recibida, costo_unitario, producto:productos(sku, nombre)').in('oc_id', ocs)
+      : { data: [] as any[] };
+    return {
+      remitos: ((remitos ?? []) as any[]).map((r) => ({
+        id: r.id, numero: r.numero ?? null, fecha: r.creado_en,
+        items: ((items ?? []) as any[]).filter((i) => i.oc_id === r.oc_id && i.producto?.sku).map((i) => ({ sku: i.producto.sku, nombre: i.producto.nombre, cantidad: Number(i.cantidad_recibida ?? 0), costo: Number(i.costo_unitario ?? 0) })),
+      })),
+      puerta: puerta ?? 0,
+    };
   }
 
   // Bandeja de administración: remitos escaneados sin factura + facturas sin remito

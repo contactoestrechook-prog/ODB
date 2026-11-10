@@ -117,6 +117,14 @@ export class ComprasController {
     return this.compras.remarcacionDe(proveedorId, String(skus ?? '').split(',').filter(Boolean));
   }
 
+  // Los remitos de este proveedor que esperan su factura (10/11/2026): la carga
+  // de facturas los cruza solos y carga solo la factura, sin sumar stock otra vez
+  @Roles('comprador', 'deposito', 'gerente', 'dueno')
+  @Get('compras/remitos-esperando')
+  remitosEsperando(@Query('proveedorId') proveedorId: string) {
+    return this.compras.remitosEsperando(proveedorId);
+  }
+
   // Lo que entró a $0 de este proveedor y espera precio (10/10/2026): la carga
   // de facturas lo ofrece como «solo precio, no suma stock»
   @Roles('comprador', 'deposito', 'gerente', 'dueno')
