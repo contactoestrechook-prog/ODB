@@ -11,6 +11,8 @@ const RUTAS: Record<string, (id: string) => string> = {
   recibo: (id) => `/cobranzas/${encodeURIComponent(id)}/recibo`,
   remito: (id) => `/compras/recepciones/${encodeURIComponent(id)}/documento`,
   op: (id) => `/compras/ordenes-pago/${encodeURIComponent(id)}/documento`,
+  // el remito de traspaso entre locales (10/11/2026)
+  traspaso: (id) => `/traspasos/${encodeURIComponent(id)}/remito`,
   // la nota de pedido que recibe el proveedor: la orden sin precios
   nota: (id) => `/pedidos-proveedor/ordenes/${encodeURIComponent(id)}/nota`,
 };

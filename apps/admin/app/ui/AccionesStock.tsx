@@ -218,9 +218,10 @@ export function AccionesStock({
         <Boton variante="secundario" onClick={() => abrir('merma')} className="grow sm:grow-0">
           Registrar merma
         </Boton>
-        <Boton variante="secundario" onClick={() => abrir('transferencia')} className="grow sm:grow-0">
-          Transferir entre sucursales
-        </Boton>
+        {/* un solo camino para pasar mercadería de un local al otro (10/11/2026) */}
+        <BotonLink href="/traspasos" variante="secundario" className="grow sm:grow-0">
+          Traspasos entre locales
+        </BotonLink>
         {/* cuánto hay de un producto, cómo se movió y cuánto se vende (5/11/2026) */}
         <BotonLink href="/inventario" variante="secundario" className="grow sm:grow-0">
           Inventario de un producto

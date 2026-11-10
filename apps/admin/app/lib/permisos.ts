@@ -34,6 +34,7 @@ const RUTAS_POR_ROL: Record<string, string[]> = {
     '/pedidos', // los pedidos que llegan: tomarlos y seguirlos
     '/deposito', // cola de preparación
     '/salon', // armado en el salón
+    '/traspasos', // traspasos entre locales: ve y opera todo (10/11/2026)
     '/manual', // el manual lo abre cualquiera
     '/cambiar-clave',
   ],
@@ -63,6 +64,7 @@ const RUTAS_POR_ROL: Record<string, string[]> = {
     '/repartidor',
     '/fraccionar', // armar docenas y abrir maples en el local (el API ya se lo permitía), 21/10/2026
     '/arqueo', // contar en el arqueo de stock desde el celular (24/10/2026)
+    '/traspasos', // pedir, mandar y recibir mercadería entre locales (10/11/2026)
     '/manual', // el manual lo abre cualquiera
     '/cambiar-clave',
   ],

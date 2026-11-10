@@ -10,6 +10,7 @@ import { MantenimientoController } from './mantenimiento/mantenimiento.controlle
 import { supabaseProvider } from './supabase.provider';
 import { CatalogoModule } from './catalogo/catalogo.module';
 import { StockModule } from './stock/stock.module';
+import { TraspasosModule } from './traspasos/traspasos.module';
 import { DescuentosModule } from './descuentos/descuentos.module';
 import { ComprasModule } from './compras/compras.module';
 import { AbastecimientoModule } from './abastecimiento/abastecimiento.module';
@@ -73,6 +74,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     CatalogoModule,
     AsistenteModule,
     StockModule,
+    TraspasosModule,
     DescuentosModule,
     ComprasModule,
     AbastecimientoModule,

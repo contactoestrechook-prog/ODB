@@ -77,6 +77,7 @@ const GRUPOS: Grupo[] = [
     titulo: 'Depósito y reparto',
     icono: 'deposito',
     items: [
+      { href: '/traspasos', label: 'Traspasos entre locales', icono: 'reparto' },
       { href: '/deposito', label: 'Depósito', icono: 'deposito' },
       { href: '/salon', label: 'Salón', icono: 'pedidos' },
       { href: '/recepcion', label: 'Recepción', icono: 'compras' },
@@ -202,6 +203,7 @@ const TITULOS: Record<string, { titulo: string; bajada: string }> = {
   '/proveedores': { titulo: 'Proveedores', bajada: 'La ficha de cada proveedor: datos, WhatsApp, personas, condiciones y catálogos' },
   '/comparador': { titulo: 'Comparador de precios', bajada: 'Cargá listas, compará precios y decidí dónde conviene comprar cada producto' },
   '/pedidos': { titulo: 'Pedidos', bajada: 'Centro omnicanal: WhatsApp, app, web, PedidosYa, pick-up y domicilio en un solo lugar' },
+  '/traspasos': { titulo: 'Traspasos entre locales', bajada: 'Pedir, mandar y recibir mercadería entre Sant Thomas y Santa Inés, con remito y diferencias' },
   '/reparto': { titulo: 'Reparto', bajada: 'Envíos a domicilio, hojas de ruta, repartidores y tus entregas, en un solo lugar' },
   '/analista': { titulo: 'Analista ODB', bajada: 'El asesor de abastecimiento: quiebres, reposición y oportunidades' },
   '/agente': { titulo: 'Agente IA Operativo', bajada: 'Carga y mantiene el catálogo solo, con autonomía supervisada: audita cada acción y escala a un humano cuando duda' },
