@@ -563,6 +563,16 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
   const [camaraPara, setCamaraPara] = useState<null | { idx: number; para: 'vincular' | 'alta' }>(null);
   const [codigoSinProducto, setCodigoSinProducto] = useState<string | null>(null);
   const [avisoCodigo, setAvisoCodigo] = useState('');
+  // PASAR LOS PRODUCTOS POR LA PISTOLA (10/11/2026, Leandro: «que en la carga de
+  // factura se pueda pasar el código de barra»): sin abrir cada renglón. El
+  // código trae el producto exacto; si ya hay un renglón con ese producto, queda
+  // marcado como escaneado; si no, se elige a qué renglón va y se vincula. Así
+  // un vínculo adivinado por el nombre (Jorgito → Cachafaz, 9/11) no pasa.
+  const [codigoPasado, setCodigoPasado] = useState('');
+  const [escaneados, setEscaneados] = useState<number[]>([]);
+  const [aUbicar, setAUbicar] = useState<null | { codigo: string; producto: any | null }>(null);
+  const [avisoPasado, setAvisoPasado] = useState<{ tono: 'ok' | 'atencion'; texto: string } | null>(null);
+  const [camaraPasar, setCamaraPasar] = useState(false);
 
   // Primera lectura: comprime la foto en el navegador (las de celular pesan
   // 10-20 MB) y la guarda por si hay que volver a leerla con aclaraciones. El PDF
@@ -1867,7 +1877,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
     const items: any[] = r.ok ? (await r.json()).items ?? [] : [];
     const exactos = items.filter((p) => String(p.codigo ?? '').replace(/\D/g, '') === codigo);
     const elegido = exactos.length === 1 ? exactos[0] : items.length === 1 ? items[0] : null;
-    if (elegido) { setCodigoSinProducto(null); vincularProducto(idx, elegido); setAvisoCodigo(`Código ${codigo}: ${elegido.nombre}.`); return; }
+    if (elegido) { setCodigoSinProducto(null); vincularProducto(idx, elegido); setEscaneados((xs) => [...new Set([...xs, idx])]); setAvisoCodigo(`Código ${codigo}: ${elegido.nombre}.`); return; }
     setVinculaSug(items);
     if (!items.length) {
       setCodigoSinProducto(codigo);
@@ -1875,8 +1885,62 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
     }
   };
 
+  const verRenglon = (idx: number) => {
+    setMarcados([idx]); setTimeout(() => setMarcados([]), 2500);
+    document.getElementById(`renglon-${idx}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
+  const pasarCodigo = async (crudo: string) => {
+    const codigo = String(crudo ?? '').replace(/\D/g, '');
+    setCodigoPasado(''); setAUbicar(null);
+    if (!esCodigoBarras(codigo)) { setAvisoPasado({ tono: 'atencion', texto: 'Eso no parece un código de barras (tiene que tener entre 6 y 14 números).' }); return; }
+    const r = await fetch(`/api/buscar-producto?q=${encodeURIComponent(codigo)}`);
+    const items: any[] = r.ok ? (await r.json()).items ?? [] : [];
+    const producto = items.find((p) => String(p.codigo ?? '').replace(/\D/g, '') === codigo) ?? (items.length === 1 ? items[0] : null);
+    if (producto) {
+      const ya = fotoItems.map((x: any, k: number) => (x.sku === producto.sku && !esRenglonDescuento(x) ? k : -1)).filter((k) => k >= 0);
+      if (ya.length) {
+        setEscaneados((xs) => [...new Set([...xs, ...ya])]);
+        setAvisoPasado({ tono: 'ok', texto: `${producto.nombre}: renglón ${ya.map((k) => k + 1).join(' y ')}, bien vinculado.` });
+        verRenglon(ya[0]);
+        return;
+      }
+    }
+    // no hay renglón con ese producto (o el código no está en el catálogo): ¿a cuál va?
+    setAUbicar({ codigo, producto });
+    setAvisoPasado(null);
+  };
+  // se eligió el renglón del producto pasado por la pistola
+  const ubicarEn = (idx: number) => {
+    if (!aUbicar) return;
+    const { codigo, producto } = aUbicar;
+    setAUbicar(null);
+    if (producto) {
+      vincularProducto(idx, producto);
+      setEscaneados((xs) => [...new Set([...xs, idx])]);
+      setAvisoPasado({ tono: 'ok', texto: `Renglón ${idx + 1} vinculado a ${producto.nombre} por el código de barras.` });
+    } else {
+      // el código no está en el catálogo: se busca el producto en ese renglón y el código queda guardado en él
+      setCodigoSinProducto(codigo);
+      setVinculaIdx(idx); setVinculaBusca(''); setVinculaSug([]);
+      setAvisoCodigo(`El código ${codigo} no está en el catálogo: buscá el producto por nombre y queda guardado en él, o dalo de alta.`);
+      setAvisoPasado({ tono: 'atencion', texto: `Código ${codigo}: elegí el producto en el renglón ${idx + 1}.` });
+    }
+    verRenglon(idx);
+  };
+  // los renglones que puede ser, los más parecidos primero (por las palabras del nombre)
+  const candidatosDe = (producto: any | null) => {
+    const palabras = (t: string) => new Set(String(t ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 2));
+    const b = palabras(producto?.nombre ?? '');
+    return fotoItems
+      .map((x: any, k: number) => ({ x, k, parecido: [...palabras(x.descripcion)].filter((w) => b.has(w)).length }))
+      .filter(({ x }) => !esRenglonDescuento(x) && !x.esDevolucion)
+      .sort((a, c) => (escaneados.includes(a.k) ? 1 : 0) - (escaneados.includes(c.k) ? 1 : 0) || c.parecido - a.parecido || a.k - c.k);
+  };
+
   // vincula un producto a un renglón leído (y lo tilda para incluirlo)
   const vincularProducto = (idx: number, p: any) => {
+    // otro producto a mano: lo escaneado de ese renglón ya no vale (si fue por código, se vuelve a marcar)
+    setEscaneados((xs) => xs.filter((k) => k !== idx));
     // el código que se escaneó y no estaba: queda en el producto elegido
     if (codigoSinProducto && p?.sku) {
       const codigo = codigoSinProducto;
@@ -2527,6 +2591,42 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
 
               <CabeceraFactura items={itemsCalc} />
 
+              {/* PASAR LOS PRODUCTOS POR LA PISTOLA (10/11/2026) */}
+              <div className="rounded-xl border border-black/[0.06] bg-white p-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <label htmlFor="pasar-codigo" className="text-sm font-semibold text-tinta">Pasá el código de barras</label>
+                  <span className="text-xs text-tinta/60">
+                    {(() => { const total = fotoItems.filter((x: any) => !esRenglonDescuento(x) && !x.esDevolucion).length; return `${escaneados.length} de ${total} renglones escaneados`; })()}
+                  </span>
+                </div>
+                <div className="mt-2 flex gap-2">
+                  <input
+                    id="pasar-codigo" value={codigoPasado} onChange={(e) => setCodigoPasado(e.target.value)} inputMode="numeric" autoComplete="off"
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); pasarCodigo(codigoPasado); } }}
+                    placeholder="Con la pistola: escaneá el producto y listo" aria-label="Código de barras del producto"
+                    className={unir(input, 'min-w-0 flex-1 font-mono')}
+                  />
+                  <Boton variante="secundario" onClick={() => setCamaraPasar(true)}>Escanear</Boton>
+                </div>
+                {avisoPasado && <p className={unir('mt-2 text-sm', avisoPasado.tono === 'ok' ? 'text-ok' : 'text-atencion')}>{avisoPasado.texto}</p>}
+                {aUbicar && (
+                  <div className="mt-2 space-y-1.5">
+                    <p className="text-sm text-tinta">
+                      {aUbicar.producto ? <>«<b>{aUbicar.producto.nombre}</b>» no está en ningún renglón. ¿A cuál va?</> : <>El código {aUbicar.codigo} no está en el catálogo. ¿De qué renglón es?</>}
+                    </p>
+                    <div className="flex max-h-56 flex-col gap-1 overflow-y-auto">
+                      {candidatosDe(aUbicar.producto).map(({ x, k }) => (
+                        <button key={k} type="button" onClick={() => ubicarEn(k)} className="min-h-10 rounded-xl border border-black/[0.06] px-3 py-1.5 text-left text-sm hover:bg-crema-claro">
+                          <span className="text-tinta/60">Renglón {k + 1} · </span><span className="font-mono text-tinta">{x.descripcion}</span>
+                          {x.nombre && <span className="text-xs text-tinta/60"> → hoy: {x.nombre}</span>}
+                        </button>
+                      ))}
+                    </div>
+                    <button type="button" onClick={() => setAUbicar(null)} className={unir(ENLACE, 'text-xs text-tinta/70')}>No es de esta factura</button>
+                  </div>
+                )}
+              </div>
+
               {/* renglones: cada uno editable — vincular producto, cantidad, remarcación y precio */}
               <div className="@container">
               <div className="hidden @min-[49rem]:grid grid-cols-[26px_minmax(11rem,1fr)_72px_290px_64px_92px] items-end gap-2 px-3 pt-1 text-xs font-semibold uppercase tracking-[0.08em] text-tinta/60">
@@ -2536,7 +2636,8 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
               </div>
               </div>
               {itemsCalc.map((i: any, idx: number) => (
-                <div key={idx} className={'rounded-xl border px-3 py-2.5 ' + (i.sugerido ? 'border-dorado bg-crema-claro' : i.incluir ? 'border-black/[0.06] bg-white' : 'border-transparent bg-crema-claro') + (marcados.includes(idx) ? ' ring-2 ring-info' : '')}>
+                <div key={idx} id={`renglon-${idx}`} className={'rounded-xl border px-3 py-2.5 ' + (i.sugerido ? 'border-dorado bg-crema-claro' : i.incluir ? 'border-black/[0.06] bg-white' : 'border-transparent bg-crema-claro') + (marcados.includes(idx) ? ' ring-2 ring-info' : '')}>
+                  {escaneados.includes(idx) && <p className="mb-1 text-xs font-semibold text-ok">Escaneado: el código de barras confirma el producto</p>}
                   {i._esDevolucion ? (
                     // DEVOLUCIÓN al proveedor (3/11/2026): sale del stock y su plata, que
                     // el pie ya descontó, no se reparte sobre los demás costos
@@ -3459,6 +3560,7 @@ function Modal({ modal, setModal, post, proveedores, sucursales, aviso, categori
         </>)}
       </div>
       {dialogo}
+      {camaraPasar && <CamaraCodigo onCerrar={() => setCamaraPasar(false)} onCodigo={(c) => { setCamaraPasar(false); pasarCodigo(c); }} />}
       {camaraPara && (
         <CamaraCodigo
           onCerrar={() => setCamaraPara(null)}
