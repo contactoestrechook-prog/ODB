@@ -1,7 +1,9 @@
 'use client';
 
 import { useEffect, useState, type Key, type ReactNode } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { AccionesStock } from './AccionesStock';
+import { StockExplorador } from './StockExplorador';
 import { BotonPromo } from './BotonPromo';
 import {
   Boton,
@@ -30,8 +32,9 @@ const MOV_LABEL: Record<string, string> = {
   reserva: 'Reserva', liberacion_reserva: 'Reserva liberada',
 };
 
+// Productos va primero: la lista con todos los filtros (10/11/2026)
 const TABS = [
-  ['resumen', 'Resumen'], ['reposicion', 'Reposición'], ['vencimientos', 'Vencimientos'],
+  ['productos', 'Productos'], ['resumen', 'Resumen'], ['reposicion', 'Reposición'], ['vencimientos', 'Vencimientos'],
   ['negativos', 'Stock negativo'], ['rotacion', 'Sin rotación'], ['abc', 'Análisis ABC'],
   ['movimientos', 'Movimientos'],
 ] as const;
@@ -54,7 +57,16 @@ export function StockWorkspace({
 }: {
   resumen: any; valorizacion: any; criticos: any[]; vencimientos: any; sucursales: any[]; transferencias: any[];
 }) {
-  const [tab, setTab] = useState('resumen');
+  const router = useRouter();
+  const ruta = usePathname();
+  const params = useSearchParams();
+  // la pestaña va en la dirección (?vista=), así se comparte y «atrás» vuelve a ella
+  const tab = params.get('vista') ?? (params.get('sku') ? 'movimientos' : 'productos');
+  const setTab = (v: string) => {
+    const u = new URLSearchParams(params.toString());
+    if (v === 'productos') u.delete('vista'); else u.set('vista', v);
+    router.replace(u.toString() ? `${ruta}?${u}` : ruta, { scroll: false });
+  };
   const [data, setData] = useState<Record<string, any>>({});
   const [cargando, setCargando] = useState(false);
   const [movFiltro, setMovFiltro] = useState({ tipo: '', sucursalId: '', dias: '', sku: '' });
@@ -82,7 +94,6 @@ export function StockWorkspace({
     const sku = new URLSearchParams(window.location.search).get('sku');
     if (sku) {
       setMovFiltro((f) => ({ ...f, sku }));
-      setTab('movimientos');
       consultarProducto(sku);
       cargar('movimientos', `&limite=150&sku=${encodeURIComponent(sku)}`);
     }
@@ -136,6 +147,8 @@ export function StockWorkspace({
           return { valor: k, etiqueta: label, cuenta: badge ? Number(badge) : undefined };
         })}
       />
+
+      {tab === 'productos' && <StockExplorador sucursales={sucursales} />}
 
       {/* RESUMEN: valorización por rubro y sucursal */}
       {tab === 'resumen' && (

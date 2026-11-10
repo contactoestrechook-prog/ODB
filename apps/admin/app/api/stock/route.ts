@@ -4,7 +4,8 @@ import { cookies } from 'next/headers';
 const API = process.env.API_URL ?? 'http://localhost:3001';
 
 // Estadísticas y consultas: GET ?recurso=negativos|abc|sin-rotacion|movimientos|valorizacion (+ filtros)
-const RECURSOS = ['resumen', 'valorizacion', 'negativos', 'abc', 'sin-rotacion', 'movimientos', 'bajo-minimo', 'conteos', 'motivos-merma'];
+// explorar: la lista filtrable (10/11/2026); explorar/excel: lo filtrado en Excel
+const RECURSOS = ['resumen', 'valorizacion', 'negativos', 'abc', 'sin-rotacion', 'movimientos', 'bajo-minimo', 'conteos', 'motivos-merma', 'explorar', 'explorar/excel'];
 export async function GET(req: Request) {
   const token = (await cookies()).get('odb_token')?.value;
   const url = new URL(req.url);
@@ -16,7 +17,15 @@ export async function GET(req: Request) {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
     cache: 'no-store',
   });
-  return NextResponse.json(await res.json(), { status: res.status });
+  if (recurso === 'explorar/excel' && res.ok) {
+    return new Response(await res.arrayBuffer(), {
+      headers: {
+        'Content-Type': res.headers.get('Content-Type') ?? 'application/octet-stream',
+        'Content-Disposition': res.headers.get('Content-Disposition') ?? 'attachment; filename="stock.xlsx"',
+      },
+    });
+  }
+  return NextResponse.json(await res.json().catch(() => ({ message: 'La API no respondió' })), { status: res.status });
 }
 
 // Operaciones de stock: { accion: 'ajuste'|'merma'|'transferencia'|'recibir', ...datos }

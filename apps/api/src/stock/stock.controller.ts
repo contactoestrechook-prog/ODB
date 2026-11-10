@@ -1,5 +1,6 @@
-import { Body, Controller, ForbiddenException, Get, Param, Post, Query, Req } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, Param, Post, Query, Req, Res } from '@nestjs/common';
 import { StockService } from './stock.service';
+import { leerConsulta } from './explorar';
 import type { AjusteDto, TransferenciaDto } from './stock.service';
 import { Roles } from '../auth/decorators';
 
@@ -48,6 +49,21 @@ export class StockController {
   @Get('valorizacion')
   valorizacion() {
     return this.stock.valorizacion();
+  }
+
+  // filtros en la dirección: ver leerConsulta (explorar.ts)
+  @Get('explorar')
+  explorar(@Query() q: Record<string, string>) {
+    return this.stock.explorar(leerConsulta(q));
+  }
+
+  @Get('explorar/excel')
+  async explorarExcel(@Query() q: Record<string, string>, @Res() res: any) {
+    const archivo = await this.stock.explorarExcel(leerConsulta(q));
+    const hoy = new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Argentina/Buenos_Aires' });
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="stock-${hoy}.xlsx"`);
+    res.send(archivo);
   }
 
   @Get('negativos')

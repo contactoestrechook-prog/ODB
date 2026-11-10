@@ -2,6 +2,8 @@ import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common'
 import { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE } from '../supabase.provider';
 import { CajaService } from '../caja/caja.service';
+import * as XLSX from 'xlsx';
+import { NOMBRE_ESTADO, POR_PAGINA, TOPE_EXCEL, type ConsultaStock } from './explorar';
 
 export type AjusteDto = {
   sku: string;
@@ -67,6 +69,50 @@ export class StockService {
     ]);
     if (rubros.error) throw new BadRequestException(rubros.error.message);
     return { rubros: rubros.data ?? [], sucursales: sucursales.data ?? [] };
+  }
+
+  // Stock navegable: filtros que se combinan, orden por cualquier columna y
+  // conteos por estado, rubro, marca y proveedor (todo en stock_explorar).
+  async explorar(c: ConsultaStock, limite = POR_PAGINA) {
+    const desde = limite === POR_PAGINA ? (c.pagina - 1) * POR_PAGINA : 0;
+    const { data, error } = await this.db.rpc('stock_explorar', {
+      p_filtros: c.filtros,
+      p_orden: c.orden,
+      p_desc: c.desc,
+      p_limite: limite,
+      p_desde: desde,
+    });
+    if (error) throw new BadRequestException(error.message);
+    return { ...(data as any), pagina: c.pagina, porPagina: limite };
+  }
+
+  // Lo filtrado, entero, en Excel (mismos filtros y mismo orden que la pantalla).
+  async explorarExcel(c: ConsultaStock): Promise<Buffer> {
+    const r = await this.explorar(c, TOPE_EXCEL);
+    const filas = (r.filas ?? []).map((f: any) => ({
+      SKU: f.sku,
+      Producto: f.nombre,
+      Rubro: f.rubro ?? '',
+      Marca: f.marca ?? '',
+      Proveedores: f.proveedores ?? '',
+      Estado: NOMBRE_ESTADO[f.estado] ?? f.estado,
+      Stock: Number(f.stock),
+      Mínimo: Number(f.minimo),
+      Reposición: Number(f.reposicion),
+      'Vendido 30 días': Number(f.venta),
+      'Por día': Number(f.por_dia),
+      'Días de stock': f.dias ?? '',
+      Costo: Number(f.costo),
+      Valor: Number(f.valor),
+      'Por peso': f.por_peso ? 'Sí' : 'No',
+      'Código de barras': f.con_barras ? 'Sí' : 'No',
+      Activo: f.activo ? 'Sí' : 'No',
+    }));
+    const hoja = XLSX.utils.json_to_sheet(filas);
+    hoja['!cols'] = [10, 44, 22, 18, 30, 14, 9, 9, 11, 14, 9, 12, 12, 14, 9, 16, 8].map((wch) => ({ wch }));
+    const libro = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(libro, hoja, 'Stock');
+    return XLSX.write(libro, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
   }
 
   async negativos() {

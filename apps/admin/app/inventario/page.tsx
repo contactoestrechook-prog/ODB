@@ -1,5 +1,5 @@
 import { Pantalla } from '../ui/kit/Pantalla';
-import { Aviso } from '../ui/kit';
+import { Aviso, BotonLink } from '../ui/kit';
 import { apiFetch } from '../../lib/api';
 import { InventarioBuscador, InventarioFicha } from '../ui/Inventario';
 import type { FichaInventario, ResultadoInventario } from '../lib/inventario';
@@ -9,8 +9,11 @@ export const dynamic = 'force-dynamic';
 // Inventario de producto (5/11/2026): se busca un producto y se abre su ficha
 // con cuánto hay, cómo se movió, cuánto se vende y a cuánto se compra. La ficha
 // va en la dirección (?sku=L341) para poder mandarla o volver con «atrás».
-export default async function Inventario({ searchParams }: { searchParams: Promise<{ sku?: string }> }) {
-  const sku = ((await searchParams).sku ?? '').trim();
+export default async function Inventario({ searchParams }: { searchParams: Promise<{ sku?: string; volver?: string }> }) {
+  const sp = await searchParams;
+  const sku = (sp.sku ?? '').trim();
+  // desde la lista de Stock se llega con ?volver=/stock?… para volver con los filtros intactos
+  const volver = sp.volver?.startsWith('/stock') ? sp.volver : null;
   let ficha: FichaInventario | null = null;
   let sugeridos: ResultadoInventario[] = [];
   let error: string | null = null;
@@ -35,6 +38,7 @@ export default async function Inventario({ searchParams }: { searchParams: Promi
 
   return (
     <Pantalla activo="/inventario" ancho="ancho">
+      {volver && <BotonLink href={volver} variante="secundario" tamano="chico" className="w-fit">Volver al stock</BotonLink>}
       <InventarioBuscador abierto={ficha ? { sku: ficha.producto.sku, nombre: ficha.producto.nombre } : null} sugeridos={sugeridos} />
       {error && <Aviso tono="error">{error}</Aviso>}
       {ficha && <InventarioFicha key={ficha.producto.sku} ficha={ficha} />}
