@@ -481,9 +481,21 @@ export function aplicarCambiosIA<T extends Record<string, any>>(
     if (c.campo === 'unidadesPorVenta') {
       const n = num(c.valor);
       if (n == null || n <= 1 || !Number.isFinite(n)) { descartados.push(c); continue; }
+      // ABRIR Y AGRUPAR A LA VEZ (10/11/2026, la Rhodesia: «1 caja × 36» que se vende
+      // de a 3). El papel contaba la CAJA como suelta, a precio de caja: agrupar de
+      // a 3 daba 1 ÷ 3 = 0,333 paquetes, porque el «abrir la caja» de antes se
+      // pisaba. Si las unidades de adentro se agrupan exacto en paquetes de N, el
+      // papel se reescribe igual que dice («1 bulto × 36 a precio de unidad»: la
+      // misma plata) y recién ahí se agrupa: 36 ÷ 3 = 12 paquetes.
+      const uxb = num(papel.uxb) ?? 0;
+      const cuentaCajas = (num(papel.bultos) ?? 0) === 0 && (num(papel.sueltas) ?? 0) > 0 && uxb > n && uxb % n === 0;
+      const papelAbierto: Papel = cuentaCajas && num(papel.precio) != null
+        ? { ...papel, bultos: num(papel.sueltas), sueltas: 0, precio: redondear((num(papel.precio) as number) / uxb) }
+        : papel;
+      if (papelAbierto !== papel) registros.push({ renglon: k + 1, campo: 'precio', antes: papel.precio, despues: papelAbierto.precio, motivo: `la caja de ${uxb} se abre: precio por unidad (la plata no cambia)` });
       const nuevo: EntraComo = { como: 'cajas', de: n };
       registros.push({ renglon: k + 1, campo: 'entraComo', antes: entraDeRenglon(fila, papel)?.como ?? null, despues: `paquetes de ${n}`, motivo });
-      nuevos[k] = aplicarPapel(fila, papel, nuevo);
+      nuevos[k] = aplicarPapel(fila, papelAbierto, nuevo);
       continue;
     }
     // «el importe es lo que da la cuenta» (5/11/2026): la persona dijo el descuento,

@@ -354,3 +354,20 @@ describe('«recibidas» en un renglón marcado como devuelto entero', () => {
     expect(r.items[0]).toMatchObject({ recibidoAMano: 14, devueltoAMano: false, incluir: true });
   });
 });
+
+// 10/11/2026, la Rhodesia: la factura trae 1 caja × 36 a $27.883,11 y se vende de a 3.
+// Agrupar de a 3 sin abrir la caja daba 0,333 paquetes a $83.649: entran 12 a $2.323,59.
+describe('paquetes de N en un renglón que cuenta cajas', () => {
+  it('abre la caja y agrupa: 12 paquetes de 3, la misma plata', () => {
+    const rhodesia: any[] = [{ descripcion: 'RHODESIA CLASICA 36 X22G x1 un', cantidad: 1, precio: 27883.11, importe: 27883.11, papel: { bultos: 0, uxb: 36, sueltas: 1, precio: 27883.11, desc: null, iva: 21, importe: 27883.11 } }];
+    const r = aplicarCambiosIA(rhodesia, [{ renglon: 1, campo: 'unidadesPorVenta', valor: 3, motivo: 'se vende de a 3' }], () => false);
+    expect(r.descartados).toHaveLength(0);
+    expect(r.items[0]).toMatchObject({ cantidad: 12, importe: 27883.11 });
+    expect((r.items[0] as any).precio).toBeCloseTo(2323.59, 1);
+    expect(cuentaDelPapel((r.items[0] as any).papel).cierra).toBe(true);
+  });
+  it('si el papel ya cuenta unidades, agrupa como siempre', () => {
+    const fila: any[] = [{ descripcion: 'RODESIA x 36', cantidad: 72, precio: 774.53, importe: 55766.16, papel: { bultos: 2, uxb: 36, sueltas: 0, precio: 774.53, desc: null, iva: 21, importe: 55766.16 } }];
+    expect(aplicarCambiosIA(fila, [{ renglon: 1, campo: 'unidadesPorVenta', valor: 3 }], () => false).items[0]).toMatchObject({ cantidad: 24 });
+  });
+});
